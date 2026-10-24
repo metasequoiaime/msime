@@ -900,6 +900,10 @@ export {
   type ChineseEnglishSpacingSectionProps,
 } from "./settings/chinese-english-spacing-section";
 export {
+  CrossCommitSpacingSection,
+  type CrossCommitSpacingSectionProps,
+} from "./settings/cross-commit-spacing-section";
+export {
   CloudCandidatesSection,
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";

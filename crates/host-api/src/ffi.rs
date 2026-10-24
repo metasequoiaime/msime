@@ -234,6 +234,7 @@ pub mod session;
 pub mod session_store;
 pub mod settled;
 pub mod skin_image;
+pub mod spacing;
 pub mod translation;
 pub mod voice;
 #[cfg(windows)]

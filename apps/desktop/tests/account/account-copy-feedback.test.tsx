@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
 import { presentAccountName } from "../support/account-name";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -33,7 +34,7 @@ test.each([undefined, "android"] as const)(
       providers: async () => ({ email: true, phone: false }),
       requestCode: vi.fn(),
       login: vi.fn(),
-      profile: async () => ({ user, providers: ["email"] }),
+      profile: async () => ({ user, providers: ["email"], providerNames: accountProviderNames }),
       namePresentation: presentAccountName,
       rename: vi.fn(),
       logout: vi.fn(),

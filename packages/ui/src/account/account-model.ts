@@ -27,6 +27,8 @@ export type AccountChallenge = {
 export type AccountProfile = {
   user: AccountUser;
   providers: string[];
+  /** Rust 提供的登录方式显示名称，包含已知方式和资料里的新增标识。 */
+  providerNames: Record<string, string>;
 };
 
 export type AccountPreferenceValue = boolean | number | string;

@@ -16,6 +16,8 @@ Android 顶部语音按钮按现有设置显示；未显示时从功能菜单进
 
 iOS 麦克风仍由主 App 持有；后台会话未开或已过期时直接进入会话开启页，返回后重新开始听写。识别服务、润色开关和出厂默认值沿用用户当前选择。
 
+工具栏到真实会话通知的 iOS 集成用例在无签名 CI 测试进程中运行，没有 App Group 容器。用例在自己的作用域内替换 `FileManager` 的目标 App Group 目录解析，供生产 `VoiceSessionChannel` 和键盘控制器共同访问隔离的临时目录；其他组标识继续调用原实现，结束后恢复方法并删除合成数据。不向生产存储增加回退目录或测试开关，也不因缺少容器跳过这条回归。
+
 ## Existing notes audit
 
 - [Android 自动上屏](2026-10-21-android-voice-auto-insert.md)：部分重叠，保留既有结果投递和窗口回传，补齐工具栏路由及各识别器的显式结束操作。
@@ -34,6 +36,7 @@ iOS 麦克风仍由主 App 持有；后台会话未开或已过期时直接进�
 - 整机打字补测：API 35 的 `DeviceSmoke` 通过组词、提交、删除及密码框直输；API 28 的 `MicrosoftShuangpinDeviceSmoke` 通过双拼按键与引擎路由。API 28 原有方案为鹤双，直接执行要求全拼的 `DeviceSmoke` 时组词预期不匹配，不能算该全拼用例通过；补测使用套件内显式配置并恢复的双拼方案。
 - 初次验收曾复用旧原生库，因缺少当前代码需要的设置字段导致键盘初始化失败；最终包的原生库与宿主均从本次同一份源码构建，重新安装后完成上述整机回归，没有增加吞错或兼容分支。
 - iOS 27 arm64 模拟器的 `VoiceSessionTests`、`SpaceVoicePanelTests`、`MorePanelFoldTests` 和 `VoiceTextHandoffTests` 共 35 项通过，0 失败、0 跳过；包含工具栏启动、真实会话通知交接、结束采集后自动插入合成文字和恢复键盘，以及取消、迟到状态回调和菜单去重。
+- CI 暴露的 `SpaceVoicePanelTests` 在准备数据时因 App Group URL 为 `nil` 而失败；隔离目录适配的 Objective-C 调用约定已在本地 Swift 进程验证，完整键盘交互仍由 iOS Simulator CI 验证。
 - 本地 `verify-local.sh --quick`、`pnpm run verify-notes` 与 `git diff --check` 通过。Android、iOS 的真机麦克风与实际识别服务尚未验收；以上语音回归使用合成输入，不录音、不联网。
 
 ## Consequences

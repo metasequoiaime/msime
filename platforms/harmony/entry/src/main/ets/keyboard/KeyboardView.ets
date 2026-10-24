@@ -1118,10 +1118,13 @@ struct KeyboardView {
       || ChineseHelpcodePolicy.entersHelpcode(this.english, held, this.editing, this.engineScheme, this.localMode));
   }
 
-  /** The double-pinyin unit a key stands for, printed along its bottom edge while it means one. */
+  /** 提示跟随当前选中的方案，切换后立即更新，不等下一次按键的引擎回报。 */
   private letterHint(letter: string): string {
-    return ShuangpinKeyHintPolicy.hint(this.shuangpinProfile, letter, this.english,
-      this.engineScheme, this.localMode, this.shuangpinKeyHints);
+    if (this.scheme.engineScheme !== 'shuangpin') {
+      return '';
+    }
+    return ShuangpinKeyHintPolicy.hint(this.scheme.shuangpinProfile ?? this.shuangpinProfile,
+      letter, this.english, 1, this.localMode, this.shuangpinKeyHints);
   }
 
   /**
@@ -1745,7 +1748,7 @@ struct KeyboardView {
         if ($$.hint !== undefined && $$.hint.length > 0) {
           Text($$.hint)
             .fontSize(KEY_HINT_FONT_SIZE)
-            .minFontSize(7)
+            .minFontSize(6)
             .maxFontSize(KEY_HINT_FONT_SIZE)
             .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
             .height(KEY_HINT_LINE_HEIGHT_VP)

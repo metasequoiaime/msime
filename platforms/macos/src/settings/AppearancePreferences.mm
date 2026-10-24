@@ -1047,6 +1047,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSDictionary<NSString *, NSString *> *_sharedAppInputModeRules;
     // 共享文档里的 Vim 模式名单；文档没有这个键时为 nil，查找退回本地键（本机从没写过，等同空名单）。
     NSArray<NSString *> *_sharedVimModeApps;
+    NSDictionary *_sharedCrossCommitSpacing;
     // 文档收不下的旧规则：标识不合法（超过 64 字节、带 / 或 \ 等），或文档已满 32 条。它们留在 NSUserDefaults 里，只在本机查找时生效，不发布。
     NSDictionary<NSString *, NSString *> *_localOnlyAppInputModeRules;
     // 有文档还没有、但收得下的规则，需要保存一次才能发布；见 applicationInputModeRulesAwaitPublication。
@@ -2232,6 +2233,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         _localOnlyAppInputModeRules = nil;
         _applicationInputModeRulesAwaitPublication = PublishableInputModeRules(legacy).count > 0;
     }
+    id spacing = preferences[@"cross_commit_spacing"];
+    id excluded = preferences[@"cross_commit_spacing_excluded_apps"];
+    _sharedCrossCommitSpacing = @{
+        @"enabled":@([spacing isKindOfClass:NSNumber.class] && [spacing boolValue]),
+        @"excluded_apps":[excluded isKindOfClass:NSArray.class] ? [excluded copy] : @[]};
     // vim_mode_apps 是字符串数组，标识认法与应用例外相同；文档缺这个键就是空名单，没有要迁移的旧键。
     id vimApps = preferences[@"vim_mode_apps"];
     _sharedVimModeApps = [vimApps isKindOfClass:NSArray.class] ? ValidVimModeApps(vimApps) : nil;
@@ -2365,6 +2371,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setObject:value forKey:ImeModeScopeKey];
     [self preferencesChanged];
 }
+- (NSString *)activeInputModeApplication { return _activeModeApplication; }
 - (void)activateInputModeForApplication:(NSString *)identifier {
     NSString *next = [identifier isKindOfClass:NSString.class] && identifier.length ? [identifier copy] : nil;
     // Coming back to an application from somewhere else starts it in its rule again, so the hand-made override from the last visit goes. Refocusing within the same application is not a new visit and keeps it.
@@ -2385,6 +2392,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     return ValidInputModeRules([_defaults dictionaryForKey:AppInputModeRulesKey]);
 }
 - (BOOL)applicationInputModeRulesAwaitPublication { return _applicationInputModeRulesAwaitPublication; }
+- (NSDictionary *)crossCommitSpacing { return _sharedCrossCommitSpacing ?: @{}; }
 /// 名单按 ASCII 不分大小写查，与应用例外的标识认法一致：共享设置页写下的标识大小写未必和 bundle id 相同。
 - (NSArray<NSString *> *)vimModeApps {
     return _sharedVimModeApps ?: ValidVimModeApps([_defaults arrayForKey:VimModeAppsKey]);

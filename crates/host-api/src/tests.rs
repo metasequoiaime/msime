@@ -16640,8 +16640,21 @@ fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
     let next = reporting_call(msime_client_telemetry_begin, request(true));
     assert_eq!(next["value"]["previous_session_crashed"], true);
     assert_eq!(next["value"]["crashes"], 1);
-    let ended = reporting_call(msime_client_telemetry_end, json!({"directory": directory}));
+    // 宿主按 begin 返回的 session_id 结束自己的会话；它和崩溃记录文件名是同一个 id。
+    let session = next["value"]["session_id"].as_str().unwrap().to_owned();
+    let next_record =
+        std::path::PathBuf::from(next["value"]["crash_record_path"].as_str().unwrap());
+    assert_eq!(next_record.file_stem().unwrap().to_str().unwrap(), session);
+    let ended = reporting_call(
+        msime_client_telemetry_end,
+        json!({"directory": directory, "session": session}),
+    );
     assert_eq!(ended["value"], true);
+    let again = reporting_call(
+        msime_client_telemetry_end,
+        json!({"directory": directory, "session": session}),
+    );
+    assert_eq!(again["value"], false);
 
     let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
     let kinds: Vec<_> = store

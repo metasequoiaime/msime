@@ -1009,6 +1009,7 @@ add_test(NAME shortcut-expanded-scroll COMMAND shortcut-test --expanded-scroll)
 add_test(NAME shortcut-vim-mode COMMAND shortcut-test --vim-mode)
 add_test(NAME shortcut-nested-commit COMMAND shortcut-test --nested-commit)
 add_test(NAME shortcut-english-punctuation COMMAND shortcut-test --english-punctuation)
+add_test(NAME shortcut-cross-commit-spacing COMMAND shortcut-test --cross-commit-spacing)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
@@ -1086,6 +1087,13 @@ target_link_libraries(smart-punctuation-shadow-test PRIVATE ${MSIME_CONTROLLER_T
 target_compile_options(smart-punctuation-shadow-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME smart-punctuation-shadow COMMAND smart-punctuation-shadow-test)
 set_tests_properties(smart-punctuation-shadow PROPERTIES TIMEOUT 30)
+add_executable(cross-commit-spacing-test tests/input/CrossCommitSpacingTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
+  src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm
+  src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm)
+target_link_libraries(cross-commit-spacing-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_compile_options(cross-commit-spacing-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME cross-commit-spacing COMMAND cross-commit-spacing-test)
+set_tests_properties(cross-commit-spacing PROPERTIES TIMEOUT 30)
 # Dictionary maintenance from the settings window: real sessions let go of the dictionary lock under a live quiesce lease and come back, mode intact, once it is gone.
 add_executable(dictionary-quiesce-controller-test tests/input/DictionaryQuiesceTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
   src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm

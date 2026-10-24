@@ -7,6 +7,7 @@ import { GroupList, Row } from "../../core/platform-controls";
 import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
 import { supportedInputSchemes } from "../input-scheme-options";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
+import { CrossCommitSpacingSection } from "../cross-commit-spacing-section";
 import { AppInputModeRulesSection } from "../app-input-mode-rules-section";
 import { VimModeAppsSection } from "../vim-mode-apps-section";
 import { LocalModesSection } from "../local-modes-section";
@@ -357,6 +358,20 @@ export function InputSettingsPage() {
         </>
       )}
       <InputSharedSettingsSection
+        crossCommitSpacing={
+          macosPlatform ? (
+            <CrossCommitSpacingSection
+              enabled={draft.cross_commit_spacing}
+              excludedApps={draft.cross_commit_spacing_excluded_apps}
+              onChange={(cross_commit_spacing) => onPreferencesChange({ cross_commit_spacing })}
+              onExcludedAppsChange={(cross_commit_spacing_excluded_apps) =>
+                onPreferencesChange({ cross_commit_spacing_excluded_apps })
+              }
+              pickApplication={client.pickApplication}
+              applicationNames={client.applicationNames}
+            />
+          ) : undefined
+        }
         renderGroup={panel}
         foldIntoMore={harmonyPhone}
         traditionalChineseVariants={host?.traditional_chinese_variants === true}

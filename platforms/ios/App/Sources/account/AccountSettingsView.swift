@@ -46,11 +46,10 @@ struct AccountSettingsView: View {
     guard let profile else { return "已登录" }
     if let email = profile.user.email, !email.isEmpty { return email }
     let providers = Set(profile.providers)
-    if providers.contains("email") { return "通过邮箱登录" }
-    if providers.contains("apple") { return "通过 Apple 登录" }
-    if !providers.isDisjoint(with: ["phone", "sms"]) { return "通过手机号登录" }
-    if providers.contains("google") { return "通过 Google 登录" }
-    return "已登录"
+    guard let provider = ["email", "apple", "phone", "sms", "google"].first(where: providers.contains),
+          let name = profile.providerNames[provider] else { return "已登录" }
+    let separator = name.unicodeScalars.allSatisfy(\.isASCII) ? " " : ""
+    return "通过\(separator)\(name)\(separator)登录"
   }
 
   /// 键盘皮肤在目录里的标题；目录里没有的 id 返回 `nil`。

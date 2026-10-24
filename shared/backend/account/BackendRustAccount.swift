@@ -171,16 +171,21 @@ struct BackendRustAccount: Sendable {
     return Challenge(challenge_id: id, expires_in: expires.intValue, nonce: nonce as? String)
   }
 
-  /// 资料页（`profile`、`rename` 的回答 `{user, providers}`）：providers 是已绑定的登录方式，去过重。
+  /// 资料页：`providers` 是已绑定的登录方式，`providerNames` 是 Rust 给出的显示名称表。
   struct Profile: Sendable {
     let user: BackendAccountClient.User
     let providers: [String]
+    let providerNames: [String: String]
   }
 
   static func profile(_ data: Data) throws -> Profile {
     let object = try object(data)
-    guard let providers = object["providers"] as? [String] else { throw BackendRustClient.Failure.invalidResponse }
-    return Profile(user: try user(object["user"]), providers: providers)
+    guard let providers = object["providers"] as? [String],
+          let names = object["providerNames"] as? [String: String],
+          names.values.allSatisfy({ !$0.isEmpty }),
+          providers.allSatisfy({ names[$0] != nil })
+    else { throw BackendRustClient.Failure.invalidResponse }
+    return Profile(user: try user(object["user"]), providers: providers, providerNames: names)
   }
 
   /// 登录类操作的回答 `{user}` 里的账号。

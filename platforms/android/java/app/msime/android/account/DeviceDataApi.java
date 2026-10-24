@@ -6,7 +6,9 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -35,9 +37,12 @@ public final class DeviceDataApi {
         }
     }
 
-    /** Rust profile 的用户与已关联的登录方式（去重后的 provider 名）。`hasAvatar` 是 Rust 给了本客户端会去取的头像地址，这时才值得调 {@link #avatar}。 */
-    public record Profile(String id, String displayName, String email, boolean hasAvatar, List<String> providers) {
+    /** Rust profile 的用户、已关联的登录方式和共享显示名称。`hasAvatar` 表示 Rust 给出了允许下载的头像地址。 */
+    public record Profile(String id, String displayName, String email, boolean hasAvatar, List<String> providers,
+            Map<String, String> providerNames) {
         public boolean linked(String provider) { return providers.contains(provider); }
+
+        public String providerName(String provider) { return providerNames.getOrDefault(provider, provider); }
 
         /** 真实账号的登录方式里排在最前的一种（google / apple / email），一种都没有时为空字符串。 */
         public String loginKind() {
@@ -346,16 +351,31 @@ public final class DeviceDataApi {
         JSONObject user = root.optJSONObject("user");
         String id = user == null ? "" : JsonPolicy.strictStringOrEmpty(user.opt("id"));
         if (id.isEmpty()) throw new AccountStore.Failure("account_unavailable", 0);
+        JSONObject titles = root.optJSONObject("providerNames");
+        if (titles == null) throw new AccountStore.Failure("account_unavailable", 0);
+        Map<String, String> providerNames = new HashMap<>();
+        var keys = titles.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            Object value = titles.opt(key);
+            if (!(value instanceof String name) || name.isEmpty())
+                throw new AccountStore.Failure("account_unavailable", 0);
+            providerNames.put(key, name);
+        }
         JSONArray names = root.optJSONArray("providers");
         List<String> providers = new ArrayList<>(names == null ? 0 : names.length());
         if (names != null) {
             for (int index = 0; index < names.length(); index++) {
                 String provider = JsonPolicy.strictStringOrEmpty(names.opt(index));
-                if (!provider.isEmpty() && !providers.contains(provider)) providers.add(provider);
+                if (!provider.isEmpty() && !providers.contains(provider)) {
+                    if (!providerNames.containsKey(provider)) throw new AccountStore.Failure("account_unavailable", 0);
+                    providers.add(provider);
+                }
             }
         }
         return new Profile(id, JsonPolicy.strictStringOrEmpty(user.opt("displayName")),
             JsonPolicy.strictStringOrEmpty(user.opt("email")),
-            !JsonPolicy.strictStringOrEmpty(user.opt("avatarUrl")).isEmpty(), ListPolicy.copyOrEmpty(providers));
+            !JsonPolicy.strictStringOrEmpty(user.opt("avatarUrl")).isEmpty(), ListPolicy.copyOrEmpty(providers),
+            MapPolicy.copyOrEmpty(providerNames));
     }
 }
