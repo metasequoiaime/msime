@@ -468,6 +468,14 @@ export {
   type McpServerStatus,
 } from "./settings/mcp-connect";
 export { AccountPage } from "./account/account-page";
+export {
+  AccountMeGroup,
+  AccountMeRow,
+  AccountMeSupportGroup,
+  type AccountMeGroupProps,
+  type AccountMeRowProps,
+  type AccountMeSupportGroupProps,
+} from "./account/account-me-components";
 export type {
   AccountChallenge,
   AccountClient,
