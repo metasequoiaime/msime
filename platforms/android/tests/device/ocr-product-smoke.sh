@@ -65,7 +65,8 @@ MSIME_ANDROID_OCR_SMOKE=1 bash platforms/android/tests/device/build-editor.sh
 run_product_case() {
   local options=() output command_status=0 deadline pid
   if (( api >= 31 )); then
-    "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null || {
+    # 撤权后可能残留旧任务；明确清空活动栈，不能把旧任务前置当成主进程重建。
+    "$adb" -s "$serial" shell am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null || {
       echo 'MSIME_DEVICE_SMOKE_FAILED: product activity launch failed'; return 0;
     }
     deadline=$((SECONDS + 15))

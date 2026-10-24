@@ -38,10 +38,12 @@ trap cleanup_handwriting_bridge EXIT INT TERM
 "$adb" -s "$serial" root >/dev/null
 "$adb" -s "$serial" wait-for-device
 touch_devices=$("$adb" -s "$serial" shell getevent -lp)
-touch_device=$(printf '%s\n' "$touch_devices" | awk '
-  /^add device/ { device=$NF }
-  /name: +"virtio_input_multi_touch_1"/ { print device; exit }
-')
+# 这里只保存专用 AVD 的设备能力，不监听或记录输入事件。
+device_metadata=target/android/device-test/handwriting-input-devices.txt
+if [[ "$coexistence" == true ]]; then device_metadata=target/android/ocr-product-handwriting-input-devices.txt; fi
+printf '%s\n' "$touch_devices" > "$device_metadata"
+touch_device=$(printf '%s\n' "$touch_devices" | awk -f platforms/android/tests/device/handwriting-touch-device.awk) \
+  || { echo "A unique primary emulator multitouch device was not found" >&2; exit 1; }
 [[ "$touch_device" =~ ^/dev/input/event[0-9]+$ ]] || { echo "Primary emulator touch device was not found" >&2; exit 1; }
 touch_info=$("$adb" -s "$serial" shell getevent -lp "$touch_device")
 raw_max_x=$(printf '%s\n' "$touch_info" | sed -n 's/.*ABS_MT_POSITION_X.*max \([0-9][0-9]*\).*/\1/p' | head -1)
