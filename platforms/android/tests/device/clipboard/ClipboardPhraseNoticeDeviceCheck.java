@@ -161,8 +161,6 @@ final class ClipboardPhraseNoticeDeviceCheck {
 
     private void openEditor() throws Exception {
         t.shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
-        if (!t.await(t.field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
-            throw new AssertionError("Synthetic editor focus request refused");
         t.tap(t.field("msime-test-plain"));
         t.await(t.field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
         t.await(t.key("n"));

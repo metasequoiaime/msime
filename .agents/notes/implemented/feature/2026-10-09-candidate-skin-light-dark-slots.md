@@ -22,6 +22,10 @@ Status: implemented
 
 设置页的镜像 `customCandidatePalette` 与 `resolve` 由 `apps/desktop/tests/candidate/custom-theme-parity.json` 对齐，TS 侧用 `candidateSkinFor`、`skinDrawsIn`、`customDrawnBase` 复现同一套选择。
 
+共享设置的目录选择投影由公共纯函数 `candidateSkinSelection` 提供：桌面主题轮播与手机 `SkinGrid` 共用已选槽位 id、目录中的选中索引和供 `applyCandidateSkin` 使用的槽位解析。轮播优先显示当前预览明暗的槽位，目录找不到时退到另一已安装槽位；双槽位说明按实际绘制明暗显示包名，未在目录中的包按 id 显示。目录解析保留系统底的 `null` 与未知包的 `undefined`，避免旧文档迁移时把未知包误当成能画两种明暗的皮肤。投影不读文件、不改输入，只依赖包的 `id`、`name`、`base`；调用方继续拥有目录刷新、状态和保存。
+
+目录选择抽取前检索 proposed、implemented、rejected：本篇拥有双槽位、旧文档与目录未知值的完整归属，就地补充投影边界；[本地皮肤统一选择](../simplification/2026-10-18-local-skins-unified.md)部分重叠，继续拥有轮播卡片和预览状态；[手机皮肤顶部标签](2026-10-16-mobile-skin-page-top-tabs.md)部分重叠，继续拥有网格分类与键盘设计选择；其余宿主的实际解析与同步边界不变。
+
 网页引擎（`packages/web-engine`，npm 包 `@msime/web-engine`）不跟随槽位规则：它的 `resolveSkin` 一次只画调用方给的一款皮肤，固定明暗的皮肤照旧画在它 base 的明暗下，这是已发布的接口语义，网站把一款深色皮肤嵌进浅色页面就是要看到它。它的一致性测试跳过「固定明暗的皮肤落在另一种明暗」的用例，其余用例仍与 `resolve` 逐项对照。
 
 ## 同步与兼容
@@ -35,10 +39,12 @@ Status: implemented
 - **只改皮肤包数据，把深色意象的皮肤改成只声明 `dark`** — 不用改任何客户端代码，2026-10-09 已对 12 款深色意象的社区皮肤这样做过（版本 1.1.0）。但 `base` 固定明暗时 `resolve` 本来就只画那一种配色，删掉另一种配色对候选窗没有可见变化，深色皮肤在浅色系统下仍是深色，问题没解决。
 - **在当前模式下只列出同明暗的皮肤、仍只有一个槽位** — 选择界面最简单。但多数人开着系统自动切换明暗，白天选的浅色皮肤到了夜里只能落回默认主题，看起来像皮肤自己消失了；两个槽位让每种明暗各有一款。
 - **用 `Option<Option<String>>` 区分「旧文档未设」和「明确不要深色皮肤」** — 能精确表达三种状态。但各宿主（Swift、ArkTS、Objective-C++、TS）都要区分缺省和 `null`，而按明暗绘制的规则已经让「浅色槽位里的皮肤到了深色模式不画」自然成立，第三种状态没有可见差别，不值得这层复杂度。
+- **只共享已选 id 和目录槽位查询两个小函数** — 两个调用方都能消除直接重复，网格不用计算轮播说明；但其他入口仍要重组当前预览的目录定位、缺失回退和实际绘制说明，容易重新分叉。采用完整的只读目录选择投影，保留现有底层应用和移除算法，目录规模下的额外查询不引入缓存或生命周期。
 
 ## Consequences
 
 - **收益**：浅色模式只会画浅色皮肤，深色模式只会画深色皮肤；跟随系统切换明暗的用户可以白天、夜里各用一款。旧文档不迁移：原来那款皮肤在它自己的明暗下照常生效。
+- 共享设置的轮播和手机网格复用同一份目录选择投影，独立入口可以复用最小包摘要；新增公开输入与输出类型，调用方仍负责目录加载与操作回调，不替代共享 Rust 的运行时解析。
 - **代价与已知上限**：
   - 只设过一款固定明暗皮肤的老用户，在另一种明暗下会看到候选窗变成跟随系统的默认样式，这是有意的行为变化。
   - 固定底皮肤清单里另一种模式的配色仍然不会被画；皮肤作者想两种模式都画，要把 `base` 设成 `system`。
@@ -51,3 +57,5 @@ Status: implemented
 - 固定明暗的判断：`platforms/harmony/tests/keyboard-logic.test.ts` 的「两种明暗的解析一致时主题才固定明暗」，iOS `CandidatePaletteTests.testTheKeyboardFollowsTheModeWhenTheSlotsHoldSkinsOfDifferentModes`，macOS `ExternalSkinTest` 的 `FixedThemeMode` 用例。
 - 取下最后一款皮肤时底回到 `system`：`candidate-skin-slots.test.ts`、iOS `testRemovingTheLastSkinDoesNotLeaveItsBaseFixingBothModes`、macOS `ExternalSkinTest`。
 - 各平台的宿主测试见对应 PR 说明。
+
+公共目录选择投影迁移前 4 个相关文件共 47 项通过；新增公共函数用例先因函数尚未公开而出现 15 项预期失败。修正测试对既有应用函数的导入路径后，迁移后的 7 个文件共 75 项通过，覆盖明暗定位、缺失目录回退、单槽位兼容、绘制说明、系统与未知槽位、只读输入以及网格和轮播行为。独立只读审查无阻断问题，另行复跑目录模型与手机网格两个文件共 36 项通过。桌面生产构建、HarmonyOS 类型检查、全仓 lint、变更代码格式、笔记和 diff 校验通过；lint 仅保留未改动文件的两条既有警告，构建保留既有大包提示。提交前 `scripts/verify-local.sh --quick` 通过，包含 Linux 桌面外壳检查；按改动范围或环境跳过的阶段以脚本输出为准。本片只验证共享 React 与纯模型，没有进行原生宿主装机或真实输入法验收。

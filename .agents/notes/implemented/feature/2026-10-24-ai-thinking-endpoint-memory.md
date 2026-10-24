@@ -53,3 +53,9 @@ Android 原生设备夹具清空合成初态的 `endpoints`/`models`，避免继
 Android 旧设备夹具在 API 28、35 的普通冒烟中均失败于 `native provider selection fills empty defaults` 的模型断言。隔离提供方槽位并按当前记忆契约修正后，两版完整 `AiEndpointCheckDeviceSmoke` 均通过，覆盖真实设置控件、JNI、模型目录回环请求、凭据保留和过期回复丢弃。测试 APK 由修正版设备源码重新编译，产品沿用同一个已安装的完整资源 APK（SHA-256 `3992e1e52453defcf6e8865faf6b461adfe247d629508ee9f4e5cb8013e04a3e`）；本次改动只有设备夹具和笔记。`check-host.sh` 的 258 项 JVM 冒烟、225 份设备源码编译及 Java/API/JNI 检查通过。
 
 本次设备夹具修正的完整 quick `20261024-083242` 退出码为 0；按改动范围执行共享契约、Rust workspace、Android 目标与宿主 Java、WASM 和 Apple 桥接检查。笔记校验在本机单独通过。
+
+上游 `46650c3b72` 已独立修正相同的槽位初始化和模型往返断言。同步 `839cf5d2b6` 时保留上游实现，本分支仅额外断言切换后 `models.custom` 仍保存原服务的合成模型。前述两版设备结果与 quick 对应同步前的修正版；合并结果重新编译测试包，API 28 完整 `AiEndpointCheckDeviceSmoke` 再次通过；产品仍沿用前述 APK，完整 quick 单独验证。
+
+合并结果首轮 quick `20261024-084233` 的契约、Rust workspace、Android 目标及 Java/JNI 门禁通过；因上游前端变更还触发 Linux 设置壳检查，在创建新缓存前主动停止，不作为整套通过证据。复用已结束该阶段的 #8770 Linux 设置壳 APFS 缓存后完整重跑，不修改门禁范围或断言。
+
+合并结果完整 quick `20261024-085035` 最终 exit 0：共享契约、Rust workspace、Android 目标、Java/JNI、Linux 设置壳及共享 Apple 桥接通过；其余阶段按范围或前置工具条件跳过。Linux 设置壳实际完成（53 分 09 秒），没有以缓存存在代替编译结果；远端缺 Node/pnpm 的笔记校验在本机单独通过。
