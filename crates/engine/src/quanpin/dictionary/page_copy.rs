@@ -1,3 +1,4 @@
+use crate::shared_string::SharedString;
 use crate::types::WordItem;
 
 /// 只复用普通复制也会持有的容量，避免淘汰页的大缓冲区留在新槽中。
@@ -28,6 +29,16 @@ fn clone_vec_reusing<T: Clone + Default>(
     previous
 }
 
+fn clone_shared_string_reusing(source: &str, mut previous: SharedString) -> SharedString {
+    if previous.capacity() == source.len() {
+        previous.clear();
+        previous.push_str(source);
+        previous
+    } else {
+        source.into()
+    }
+}
+
 fn clone_string_reusing(source: &str, mut previous: String) -> String {
     if previous.capacity() == source.len() {
         previous.clear();
@@ -54,15 +65,15 @@ fn clone_row_reusing(source: &WordItem, previous: WordItem) -> WordItem {
         sentence_words,
     } = previous;
     WordItem {
-        pinyin: clone_string_reusing(&source.pinyin, pinyin),
-        canonical_pinyin: clone_string_reusing(&source.canonical_pinyin, canonical_pinyin),
-        word: clone_string_reusing(&source.word, word),
+        pinyin: clone_shared_string_reusing(&source.pinyin, pinyin),
+        canonical_pinyin: clone_shared_string_reusing(&source.canonical_pinyin, canonical_pinyin),
+        word: clone_shared_string_reusing(&source.word, word),
         weight: source.weight,
         source: source.source,
         scheme: source.scheme,
         fixed_position: source.fixed_position,
         fuzzy: source.fuzzy,
-        corrected_from: clone_string_reusing(&source.corrected_from, corrected_from),
+        corrected_from: clone_shared_string_reusing(&source.corrected_from, corrected_from),
         sentence_association: source.sentence_association,
         sentence_words: clone_vec_reusing(
             &source.sentence_words,
