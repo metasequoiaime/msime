@@ -88,6 +88,7 @@ pub struct ImeSession {
     profile: &'static ShuangpinProfile,
     vietnamese_method: VietnameseInputMethod,
     vietnamese_style: VietnameseToneStyle,
+    korean_layout: crate::KoreanLayout,
     wubi_options: WubiInputOptions,
     /// Mixed wubi only: a pinyin candidate was picked out of this composition, so the rest decodes as quanpin until the composition ends (product decision 2026-09-30, the intent of test_wubi_mixed_input_session.cpp:194-212). Cleared by `reset`, `switch_scheme`, turning mixed input off, and an emptied composition.
     pinyin_tail: bool,
@@ -155,6 +156,7 @@ impl ImeSession {
                 profile,
                 VietnameseInputMethod::default(),
                 VietnameseToneStyle::default(),
+                crate::KoreanLayout::default(),
                 registry.cantonese_inventory(),
                 zhuyin,
             )?,
@@ -164,6 +166,7 @@ impl ImeSession {
             profile,
             vietnamese_method: VietnameseInputMethod::default(),
             vietnamese_style: VietnameseToneStyle::default(),
+            korean_layout: crate::KoreanLayout::default(),
             wubi_options: WubiInputOptions::default(),
             pinyin_tail: false,
             zhuyin_nine_key: false,
@@ -326,6 +329,7 @@ impl ImeSession {
                 self.profile,
                 self.vietnamese_method,
                 self.vietnamese_style,
+                self.korean_layout,
                 self.registry.cantonese_inventory(),
                 self.registry.take_dictionary(scheme),
             )?;
@@ -439,6 +443,17 @@ impl ImeSession {
             vietnamese.restore_raw();
         }
         self.refresh_candidates();
+    }
+
+    /// 仅在没有组字时设置布局；宿主偏好刷新在空闲时重建会话。
+    pub fn set_korean_layout(&mut self, layout: crate::KoreanLayout) {
+        if !self.state.request.raw_input.is_empty() {
+            return;
+        }
+        self.korean_layout = layout;
+        if let Scheme::Korean(korean) = &mut self.scheme {
+            *korean = crate::korean::KoreanScheme::with_layout(layout);
+        }
     }
 
     /// The first Esc of a Vietnamese word: the display becomes the raw keystrokes. False for every other scheme, with nothing composing, or when the raw keys already show, so the caller cancels instead.
@@ -703,6 +718,7 @@ impl ImeSession {
             self.profile,
             self.vietnamese_method,
             self.vietnamese_style,
+            self.korean_layout,
             self.registry.cantonese_inventory(),
             None,
         ) else {

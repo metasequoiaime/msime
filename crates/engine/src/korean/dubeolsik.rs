@@ -7,6 +7,8 @@
 pub enum Jamo {
     Consonant(char),
     Vowel(u8),
+    /// 罗马字布局不使用的 ASCII 字母，作为原文直接输出。
+    Literal(u8),
 }
 
 /// The initial consonants in jungseong-table order; the position is the choseong index.
@@ -126,9 +128,10 @@ fn jongseong_index(consonant: char) -> Option<u32> {
 
 /// 合成中的一个音节：元音和尾辅音各最多两个分量，固定槽保留复合字母的拆分信息，尾辅音还记录其按键索引。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Syllable {
+pub(super) struct Syllable {
     /// Key index of the syllable's first jamo.
-    start: usize,
+    pub(super) start: usize,
+    literal: Option<u8>,
     cho: Option<char>,
     jung: [u8; 2],
     jung_len: usize,
@@ -193,7 +196,11 @@ impl Syllable {
     }
 
     /// The precomposed syllable, or the standalone compatibility jamo when there is no initial or no vowel.
-    fn render(&self, output: &mut String) {
+    pub(super) fn render(&self, output: &mut String) {
+        if let Some(literal) = self.literal {
+            output.push(char::from(literal));
+            return;
+        }
         let vowel = self.vowel();
         match (self.cho, vowel) {
             (Some(cho), Some(vowel)) => {
@@ -217,11 +224,21 @@ impl Syllable {
 
 /// 按原状态转移逐个发出已完成音节，返回最后的开放音节；非布局按键跳过。
 fn fold_with(keys: &[u8], mut finished: impl FnMut(Syllable)) -> Option<Syllable> {
+    fold_jamos_with(
+        keys.iter()
+            .enumerate()
+            .filter_map(|(index, &key)| jamo_for_key(key).map(|jamo| (index, jamo))),
+        |syllable, _| finished(syllable),
+    )
+}
+
+/// 两种布局共用的字母组合转移；来源索引用于安全地保留尚可改写的原始按键。
+pub(super) fn fold_jamos_with(
+    jamos: impl IntoIterator<Item = (usize, Jamo)>,
+    mut finished: impl FnMut(Syllable, usize),
+) -> Option<Syllable> {
     let mut current = Syllable::starting_at(0);
-    for (index, &key) in keys.iter().enumerate() {
-        let Some(jamo) = jamo_for_key(key) else {
-            continue;
-        };
+    for (index, jamo) in jamos {
         match jamo {
             Jamo::Consonant(consonant) => {
                 let takes_final = current.cho.is_some()
@@ -237,20 +254,20 @@ fn fold_with(keys: &[u8], mut finished: impl FnMut(Syllable)) -> Option<Syllable
                     current.start = index;
                     current.cho = Some(consonant);
                 } else {
-                    finished(std::mem::replace(
-                        &mut current,
-                        Syllable::starting_at(index),
-                    ));
+                    finished(
+                        std::mem::replace(&mut current, Syllable::starting_at(index)),
+                        index,
+                    );
                     current.cho = Some(consonant);
                 }
             }
             Jamo::Vowel(vowel) => {
                 if let Some((moved, moved_at)) = current.pop_jong() {
                     // 尾辅音后接元音时，将最后一个辅音移作下一音节的首辅音：간+ㅏ → 가나，닭+ㅏ → 달가。
-                    finished(std::mem::replace(
-                        &mut current,
-                        Syllable::starting_at(moved_at),
-                    ));
+                    finished(
+                        std::mem::replace(&mut current, Syllable::starting_at(moved_at)),
+                        moved_at,
+                    );
                     current.cho = Some(moved);
                     current.push_jung(vowel);
                 } else if current.jung_len == 0 {
@@ -262,12 +279,29 @@ fn fold_with(keys: &[u8], mut finished: impl FnMut(Syllable)) -> Option<Syllable
                 {
                     current.push_jung(vowel);
                 } else {
-                    finished(std::mem::replace(
-                        &mut current,
-                        Syllable::starting_at(index),
-                    ));
+                    finished(
+                        std::mem::replace(&mut current, Syllable::starting_at(index)),
+                        index,
+                    );
                     current.push_jung(vowel);
                 }
+            }
+            Jamo::Literal(literal) => {
+                if !current.is_empty() {
+                    finished(
+                        std::mem::replace(&mut current, Syllable::starting_at(index + 1)),
+                        index,
+                    );
+                }
+                finished(
+                    Syllable {
+                        start: index,
+                        literal: Some(literal),
+                        ..Syllable::default()
+                    },
+                    index + 1,
+                );
+                current = Syllable::starting_at(index + 1);
             }
         }
     }

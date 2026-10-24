@@ -2,6 +2,7 @@
 #include "../core/MaterializedSymlink.h"
 #include <cassert>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -18,7 +19,7 @@ void require(bool value, int line) {
 }
 #define REQUIRE(value) require((value), __LINE__)
 }
-int main() {
+int main() try {
   const auto directory = std::filesystem::temp_directory_path() / "msime-clipboard-history-test";
   const auto path = directory / "history.json";
   std::error_code error; std::filesystem::remove_all(directory, error);
@@ -80,8 +81,19 @@ int main() {
   REQUIRE(capped.find('\0') == std::string::npos && capped.back() == 'x');
   history.clear();
 
-  for (size_t index = 0; index < msime::windows::ClipboardHistory::max_items + 10; ++index)
-    REQUIRE(history.add("item-" + std::to_string(index)));
+  // 默认只保留 50 条；容量边界用例显式选择最大值，不改产品默认值。
+  REQUIRE(history.limit() == 50);
+  history.set_limit(msime::windows::ClipboardHistory::max_items);
+  for (size_t index = 0; index < msime::windows::ClipboardHistory::max_items + 10; ++index) {
+    const bool added = history.add("item-" + std::to_string(index));
+    if (!added) {
+      std::fprintf(stderr, "Clipboard item %zu failed\n", index);
+#ifdef _WIN32
+      std::fprintf(stderr, "Win32 error %lu\n", GetLastError());
+#endif
+    }
+    REQUIRE(added);
+  }
   REQUIRE(history.load().size() == msime::windows::ClipboardHistory::max_items);
 
   {
@@ -211,4 +223,7 @@ int main() {
 #endif
 
   std::filesystem::remove_all(directory, error);
+} catch (const std::exception &error) {
+  std::fprintf(stderr, "%s\n", error.what());
+  return 1;
 }

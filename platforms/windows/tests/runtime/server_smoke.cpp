@@ -461,6 +461,10 @@ int main() {
         const auto result = SendMessageW(flyout.handle(), message, wparam, 0);
         if (message == WM_POWERBROADCAST)
           require(result == TRUE);
+        if (flyout.visible()) {
+          std::fprintf(stderr, "Flyout still visible after message=%04x wparam=%llu capture=%p window=%p\n",
+            message, static_cast<unsigned long long>(wparam), static_cast<void*>(GetCapture()), static_cast<void*>(flyout.handle()));
+        }
         require(!flyout.visible());
         require(GetCapture() != flyout.handle());
       }

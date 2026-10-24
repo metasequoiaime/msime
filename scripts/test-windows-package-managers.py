@@ -17,7 +17,9 @@ import json
 import pathlib
 import re
 import sys
+import subprocess
 import tempfile
+from unittest.mock import patch
 import xml.etree.ElementTree as ElementTree
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -233,6 +235,16 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
             check(False, "render.verify_signature accepted a file with no signature")
         except render.RenderError:
             pass
+    # 子进程没有输出也必须按签名检查失败拒绝，不能抛 AttributeError 或放行。
+    for status in (0, 1):
+        with patch.object(render, "check_can_verify"), \
+             patch.object(render.shutil, "which", return_value="synthetic-powershell"), \
+             patch.object(render.subprocess, "run", return_value=subprocess.CompletedProcess([], status, None, None)):
+            try:
+                render.verify_signature(fake)
+                check(False, "signature verification accepted a process with no output")
+            except render.RenderError:
+                pass
     return written
 
 

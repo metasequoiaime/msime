@@ -1,11 +1,12 @@
-//! Korean Hangul key handling on the Dubeolsik layout. The composition is the key letters of the open syllable; a key that starts the next syllable moves the finished one into `committed`, which the session hands to the host with the key's result. While the Hanja list is open the request asks for the syllable's Hanja; any edit of the composition closes the list.
+//! 韩语布局保留未提交的原始按键，只把不再受后续按键影响的前缀交给宿主。
 
-use super::dubeolsik::{compose, compose_into, split_finished_into};
+use super::{dubeolsik, romaja, KoreanLayout};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 #[derive(Debug, Clone, Default)]
 pub struct KoreanScheme {
-    /// Key letters of the text still composing, case kept: Shift selects the double consonants and ㅒ ㅖ.
+    layout: KoreanLayout,
+    /// 尚未提交的原始按键，保留布局解释紧音所需的大小写。
     raw: String,
     /// Syllables the last key finished, waiting for the session to commit them.
     committed: String,
@@ -18,13 +19,20 @@ impl KoreanScheme {
         Self::default()
     }
 
+    pub fn with_layout(layout: KoreanLayout) -> Self {
+        Self {
+            layout,
+            ..Self::new()
+        }
+    }
+
     pub fn reset(&mut self) {
         self.raw.clear();
         self.committed.clear();
         self.hanja = false;
     }
 
-    /// Letters feed the automaton and Backspace removes the last jamo keystroke; every other key is ignored. A letter that opens a new syllable moves the finished ones to `committed`. Both edit the syllable the Hanja list was for, so both close it.
+    /// 字母推进组字；退格删除一个未提交的原始按键。编辑会关闭原音节的汉字候选。
     pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
             SchemeKey::Backspace => {
@@ -35,7 +43,14 @@ impl KoreanScheme {
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.hanja = false;
                 self.raw.push(char::from(letter));
-                let open = split_finished_into(&self.raw, &mut self.committed);
+                let open = match self.layout {
+                    KoreanLayout::Dubeolsik => {
+                        dubeolsik::split_finished_into(&self.raw, &mut self.committed)
+                    }
+                    KoreanLayout::Romaja => {
+                        romaja::split_finished_into(&self.raw, &mut self.committed)
+                    }
+                };
                 let open_start = self.raw.len() - open.len();
                 if open_start > 0 {
                     self.raw.drain(..open_start);
@@ -70,7 +85,7 @@ impl KoreanScheme {
         request.raw_input_with_cases.clone_from(&self.raw);
         request.normalized_input.clone_from(&request.raw_input);
         request.raw_segmentation.clone_from(&self.raw);
-        compose_into(&self.raw, &mut request.normalized_segmentation);
+        self.compose_into(&mut request.normalized_segmentation);
         request
             .segmentation
             .clone_from(&request.normalized_segmentation);
@@ -80,7 +95,19 @@ impl KoreanScheme {
 
     /// The composed Hangul, never the key letters.
     pub fn preedit(&self) -> String {
-        compose(&self.raw)
+        if self.layout == KoreanLayout::Dubeolsik {
+            return dubeolsik::compose(&self.raw);
+        }
+        let mut text = String::new();
+        self.compose_into(&mut text);
+        text
+    }
+
+    fn compose_into(&self, output: &mut String) {
+        match self.layout {
+            KoreanLayout::Dubeolsik => dubeolsik::compose_into(&self.raw, output),
+            KoreanLayout::Romaja => romaja::compose_into(&self.raw, output),
+        }
     }
 
     /// Keeps letters only; nothing is committed, so a host edit that spells several syllables keeps them all composing. The cased spelling wins when the host sent one, because case selects jamo here.
@@ -333,5 +360,26 @@ mod tests {
         scheme.reset();
         assert_eq!(scheme.preedit(), "");
         assert_eq!(scheme.take_committed(), "");
+    }
+
+    #[test]
+    fn romaja_restore_preserves_case_and_sessions_keep_separate_layouts() {
+        let mut roman = KoreanScheme::with_layout(KoreanLayout::Romaja);
+        let mut default = KoreanScheme::new();
+        for byte in b"Ga" {
+            roman.handle_key(SchemeKey::Letter(*byte));
+            default.handle_key(SchemeKey::Letter(*byte));
+        }
+        assert_eq!(roman.preedit(), "까");
+        assert_eq!(default.take_committed(), "ㅎ");
+        assert_eq!(default.preedit(), "ㅁ");
+        let request = roman.build_request();
+        let mut restored = KoreanScheme::with_layout(KoreanLayout::Romaja);
+        restored.set_raw_input(&request.raw_input, &request.raw_input_with_cases);
+        assert_eq!(restored.build_request(), request);
+        restored.reset();
+        restored.set_raw_input("han", "");
+        assert_eq!(restored.preedit(), "한");
+        assert_eq!(default.preedit(), "ㅁ");
     }
 }

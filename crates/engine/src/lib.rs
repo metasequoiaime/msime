@@ -18,6 +18,7 @@ pub mod host;
 mod ime;
 mod japanese;
 mod korean;
+pub use korean::KoreanLayout;
 pub mod language_dictionary;
 mod lattice;
 mod local;

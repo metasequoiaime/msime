@@ -10,10 +10,11 @@
 using namespace msime::windows;
 using Json = nlohmann::json;
 namespace {
-void require(bool value) {
+void require_at(bool value, int line) {
   if (!value)
-    throw std::runtime_error("Windows reply composer assertion failed");
+    throw std::runtime_error("Windows reply composer assertion failed at line " + std::to_string(line));
 }
+#define require(...) require_at((__VA_ARGS__), __LINE__)
 template <class F> void rejected(F action) {
   bool failed = false;
   try {
@@ -50,7 +51,9 @@ std::u16string payload(const PendingReply &reply) {
 void confirm(ReplyComposer &composer) {
   composer.confirm_delivery(42, 7, composer.pending().source.request_id);
 }
-// Home 和 End 走 Server 的按键路由（configured_key），在真实 Engine 会话上：候选窗显示时发和 TIP 相同的命令（Home 两段式，End 跳到末选），没有候选时只应答、不动会话，从不返回空（空回复会让 SessionPump 当作派发失败）。不带修饰键和只带 Shift 一样，TIP 对它们的分类相同。日期时间模式不需要词库就有好几行候选；Unicode 模式只打了 U 时在组字，却没有候选。Local 样式不回包，UI-less 回候选页。
+// Home 和 End 走 Server 的按键路由（configured_key），发和 TIP 相同的命令，不带修饰键和只带 Shift 一样。
+// 日期时间模式不需要词库就有多行候选；未完成的 Unicode 输入按引擎契约保留原文候选，Home/End 不改文字或光标。
+// Local 样式不回包，UI-less 回候选页，不能返回空让 SessionPump 当作派发失败。
 void home_end_route_tests() {
   const auto root = std::filesystem::temp_directory_path() /
                     ("msime-reply-composer-home-end-" +
@@ -118,14 +121,21 @@ void home_end_route_tests() {
   press('U', u'U', 1);
   view = session.view();
   require(view.at("local_mode") == "unicode" && !view.at("editing_text").get<std::string>().empty() &&
-          view.at("candidates").empty());
+          view.at("candidates").size() == 1 && view.at("candidates").front().at("text") == "U");
+  const auto without_generation = [](Json current) {
+    // 派发会刷新候选代次，内容和光标仍必须完全相同。
+    current.erase("generation");
+    for (auto &candidate : current.at("candidates")) candidate.at("id").erase("generation");
+    return current;
+  };
+  const auto unchanged = [&] { return without_generation(session.view()) == without_generation(view); };
   for (const uint32_t code : {0x23u, 0x24u})
     for (const uint32_t modifiers : {0u, 1u}) {
       const auto reply = press(code, 0, modifiers);
-      require(reply && !reply->encoded && session.view() == view);
+      require(reply && !reply->encoded && unchanged());
     }
   for (const uint32_t code : {0x23u, 0x24u})
-    require(uiless_page(press(code, 0, FanyImePipeFlags::UiLess)) && session.view() == view);
+    require(uiless_page(press(code, 0, FanyImePipeFlags::UiLess)) && unchanged());
 }
 
 // 真实 Server 会话保留回车观测校验：错观测不能先清组字，正确观测提交后下一轮输入立即可用。

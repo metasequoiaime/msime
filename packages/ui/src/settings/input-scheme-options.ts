@@ -16,7 +16,10 @@ export const chineseInputSchemeOptions = [
 
 export const japaneseInputSchemeOptions = [{ value: "romaji", label: "罗马音" }] as const;
 
-export const koreanInputSchemeOptions = [{ value: "dubeolsik", label: "两套式" }] as const;
+export const koreanInputSchemeOptions = [
+  { value: "dubeolsik", label: "两套式" },
+  { value: "romaja", label: "罗马字" },
+] as const;
 
 export const cantoneseInputSchemeOptions = [{ value: "jyutping", label: "粤拼" }] as const;
 

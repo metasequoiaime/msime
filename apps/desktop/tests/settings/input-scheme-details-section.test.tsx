@@ -8,6 +8,27 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+test("韩语布局仅在声明能力的实体键盘宿主显示并写回选择", () => {
+  const onKoreanChange = vi.fn();
+  const props = {
+    scheme: "korean" as const,
+    shuangpinProfile: "xiaohe" as const,
+    hasTouchKeyboardSchemes: false,
+    onShuangpinProfileChange: vi.fn(),
+    onKoreanChange,
+  };
+  const { rerender } = render(<InputSchemeDetailsSection {...props} />);
+  expect(screen.queryByRole("radio", { name: "罗马字" })).toBeNull();
+  rerender(<InputSchemeDetailsSection {...props} koreanRomaja />);
+  expect((screen.getByRole("radio", { name: "两套式" }) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: "罗马字" }));
+  expect(onKoreanChange).toHaveBeenLastCalledWith({ layout: "romaja" });
+  rerender(<InputSchemeDetailsSection {...props} koreanRomaja korean={{ layout: "romaja" }} />);
+  expect((screen.getByRole("radio", { name: "罗马字" }) as HTMLInputElement).checked).toBe(true);
+  rerender(<InputSchemeDetailsSection {...props} koreanRomaja hasTouchKeyboardSchemes />);
+  expect(screen.queryByRole("radio", { name: "罗马字" })).toBeNull();
+});
+
 // 用不到的方案行留在页面里、只是藏起来（换方案时原样出现），所以按是否在 `hidden` 之下判断它显示与否。
 function shown(text: string | RegExp): boolean {
   return screen.getByText(text).closest("[hidden]") === null;

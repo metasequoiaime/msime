@@ -102,7 +102,7 @@ pub enum SchemeType {
     Shuangpin = 1,
     Wubi = 2,
     JapaneseRomaji = 3,
-    /// Korean Hangul on the Dubeolsik layout: syllables compose in the preedit and commit themselves; the only candidates are the composing syllable's Hanja, after `Command::ConvertHanja`.
+    /// 韩语两套式或罗马字布局：音节在预编辑中组合，稳定前缀逐步上屏；`Command::ConvertHanja` 打开当前音节的汉字候选。
     Korean = 4,
     /// Cantonese in toneless Jyutping read against `msime-cantonese.db`: candidates are Traditional as stored, a candidate covering the leading syllables commits at once and leaves the rest composing, and nothing is learned.
     Cantonese = 5,

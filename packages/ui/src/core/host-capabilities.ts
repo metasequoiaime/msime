@@ -8,6 +8,8 @@ export interface HostCapabilities {
   harmony_shared_sandbox?: boolean;
   /** 设置是否使用手机导航与触屏界面。 */
   mobile_settings: boolean;
+  /** 宿主实体键盘支持可选的韩语罗马字布局。 */
+  korean_romaja?: boolean;
   restart_input_method: boolean;
   panel_windows: boolean;
   ime_mode_scope: boolean;

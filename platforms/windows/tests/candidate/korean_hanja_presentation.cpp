@@ -99,11 +99,16 @@ int main() {
     bare.text = "你好";
     bare.badge = " ☁️";
     require(candidate_tooltip_text(bare) == "你好 ☁️");
-    // 释义本身接近 4096 字节上限时，加上读音会超出候选窗能画的长度，这时只画释义，不让整个候选窗失败。
+    // 4090 字节释义加两空格及四字节读音恰为 4096 字节，仍应保留读音。
     PresentationCandidate long_gloss{};
     long_gloss.text = "长";
     long_gloss.translation = std::string(4090, 'a');
     long_gloss.pronunciation = "/ə/";
+    const auto exact_limit = long_gloss.translation + "  " + long_gloss.pronunciation;
+    require(exact_limit.size() == 4096);
+    require(candidate_secondary_text(long_gloss) == exact_limit);
+    // 再增加一个字节才超过上限；只画释义，避免整条候选无法显示。
+    long_gloss.translation.push_back('a');
     require(candidate_secondary_text(long_gloss) == long_gloss.translation);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

@@ -32,10 +32,11 @@ target_link_libraries(msime-tsf-edit-control PUBLIC
 add_executable(msime-tsf-edit-control-demo WIN32 demo/TsfD2DTextBoxDemo.cpp)
 target_compile_features(msime-tsf-edit-control-demo PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf-edit-control-demo PRIVATE UNICODE _UNICODE)
+target_include_directories(msime-tsf-edit-control-demo PRIVATE src ../../../../shared/contracts)
 target_compile_options(msime-tsf-edit-control-demo PRIVATE
   $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/utf-8>
   $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra>)
 if(NOT MSVC)
   target_link_options(msime-tsf-edit-control-demo PRIVATE -municode)
 endif()
-target_link_libraries(msime-tsf-edit-control-demo PRIVATE msime-tsf-edit-control)
+target_link_libraries(msime-tsf-edit-control-demo PRIVATE msime-tsf-edit-control shell32)
