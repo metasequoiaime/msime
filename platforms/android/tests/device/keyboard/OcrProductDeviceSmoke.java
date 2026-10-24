@@ -141,9 +141,16 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         clickPicker(node -> pickerNode(node) && equalsText("MSIME OCR 测试模块", node.getText())
             && "android:id/title".equals(node.getViewIdResourceName()));
         stage = operation + " / choose synthetic document";
-        awaitAny(node -> pickerNode(node) && equalsText("msime-synthetic-ocr-" + id + ".apk", node.getText()));
+        Predicate<AccessibilityNodeInfo> document = node -> pickerNode(node)
+            && equalsText("msime-synthetic-ocr-" + id + ".apk", node.getText()) && node.isEnabled();
+        AccessibilityNodeInfo target = awaitStableBounds(document);
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        target.getBoundsInScreen(bounds);
+        check(bounds.width() > 0 && bounds.height() > 0, "synthetic document has visible touch bounds");
         screenshot("picker-documents");
-        clickPicker(node -> pickerNode(node) && equalsText("msime-synthetic-ocr-" + id + ".apk", node.getText()));
+        // Android 9 的文档条目不提供可点击节点；只对这个已确认位置的合成文件实走触摸。
+        if (android.os.Build.VERSION.SDK_INT == 28) tap(document);
+        else clickPicker(document);
         stage = operation;
     }
 
