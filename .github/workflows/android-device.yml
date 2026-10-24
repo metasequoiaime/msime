@@ -92,10 +92,22 @@ jobs:
         run: |
           set -euo pipefail
           bash platforms/android/tests/device/smoke.sh "$SERIAL" --text-edit-layout | tee target/android/text-edit-layout.log
+      - name: 验证触控板与编辑器动作共存
+        id: text_trackpad
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
+          restart=()
+          if (( ${{ matrix.api }} >= 31 )); then restart=(--no-restart); fi
+          "$adb" -s "$SERIAL" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
+          result=$("$adb" -s "$SERIAL" shell am instrument "${restart[@]}" -e trackpad true -w app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke)
+          printf '%s\n' "$result" | tee target/android/text-trackpad.log
+          [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]]
       - name: Install, prepare resources and accept input on the AVD
         run: bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }}
       - name: 汇总文本编辑专项失败
-        if: ${{ always() && steps.text_edit_layout.outcome == 'failure' }}
+        if: ${{ always() && (steps.text_edit_layout.outcome == 'failure' || steps.text_trackpad.outcome == 'failure') }}
         run: exit 1
       - name: Collect device logs
         if: failure()
@@ -112,6 +124,7 @@ jobs:
             target/android/logcat.txt
             target/android/crash.txt
             target/android/text-edit-layout.log
+            target/android/text-trackpad.log
           if-no-files-found: ignore
       - name: Stop the AVD
         if: always()
