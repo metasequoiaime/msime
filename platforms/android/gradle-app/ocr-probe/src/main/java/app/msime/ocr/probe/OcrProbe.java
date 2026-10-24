@@ -42,21 +42,28 @@ public final class OcrProbe extends Instrumentation {
             finish(-1, result);
         } catch (Throwable error) {
             // 只记录异常类型，不输出识别文本或任意模块的异常消息。
-            result.putString("stream", "MSIME_OCR_PROBE_FAILED: " + stage + " / " + failureType(error) + "\n");
+            result.putString("stream", "MSIME_OCR_PROBE_FAILED: " + stage + " / " + failureDetails(error) + "\n");
             finish(1, result);
         }
     }
 
-    private static String failureType(Throwable error) {
+    private static String failureDetails(Throwable error) {
         while (error.getCause() != null && error.getCause() != error) error = error.getCause();
-        return error.getClass().getName();
+        StringBuilder details = new StringBuilder(error.getClass().getName());
+        StackTraceElement[] frames = error.getStackTrace();
+        for (int index = 0; index < Math.min(5, frames.length); index++) {
+            details.append("\n  at ").append(frames[index]);
+        }
+        return details.toString();
     }
 
     private void runProbe() throws Exception {
         Context context = getTargetContext();
+        stage = "network-permission";
         if (context.checkSelfPermission("android.permission.INTERNET") == PackageManager.PERMISSION_GRANTED)
             throw new AssertionError("probe_network_permission");
-        MlKit.initialize(context);
+        // 宿主的自动初始化 Provider 已运行，重复 initialize 会拒绝已有容器。
+        stage = "handwriting-before-ocr";
         DigitalInkRecognizer handwriting = handwritingClient();
         stage = "module-files";
         File directory = new File(context.getFilesDir(), "ocr-probe");
