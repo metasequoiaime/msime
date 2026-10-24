@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -74,6 +75,7 @@ function account(): AccountClient {
     requestCode: vi.fn(),
     login: vi.fn(),
     profile: vi.fn().mockResolvedValue({ user, providers: ["email"] }),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),

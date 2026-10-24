@@ -1,3 +1,4 @@
+mod account_name;
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",
@@ -5758,6 +5759,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            account_name::account_name,
             host_capabilities,
             app_release_date,
             notices::notices_list,

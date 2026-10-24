@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountNameResult, presentAccountName } from "../support/account-name";
 import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { useState } from "react";
@@ -39,6 +40,7 @@ function account(overrides: Partial<AccountClient> = {}): AccountClient {
     requestCode: vi.fn().mockResolvedValue({ challengeId: "fixture-challenge", expiresIn: 300 }),
     login: vi.fn().mockResolvedValue({ user }),
     profile: vi.fn().mockResolvedValue(profile),
+    namePresentation: presentAccountName,
     rename: vi.fn().mockResolvedValue(profile),
     logout: vi.fn().mockResolvedValue(undefined),
     deleteAccount: vi.fn().mockResolvedValue(undefined),
@@ -113,6 +115,7 @@ test("ignores a same-tick duplicate verification-code request", async () => {
 test("profile rename, logout-all confirmation and account deletion use explicit actions", async () => {
   const renamed = { ...user, displayName: "新昵称" };
   const client = account({
+    namePresentation: async (name) => accountNameResult(name === "  新昵称  " ? "新昵称" : name),
     status: vi.fn().mockResolvedValue({ user }),
     rename: vi.fn().mockResolvedValue({ user: renamed, providers: ["email"] }),
   });
@@ -122,6 +125,9 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   expect(screen.getAllByRole("textbox", { name: /社区昵称/ })).toHaveLength(1);
   const name = screen.getByRole("textbox", { name: "编辑社区昵称" });
   fireEvent.change(name, { target: { value: "  新昵称  " } });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存修改" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
   await waitFor(() => expect(client.rename).toHaveBeenCalledWith("新昵称"));
   expect(await screen.findByText("昵称已更新。")).not.toBeNull();
@@ -151,7 +157,11 @@ test("a late profile mutation is ignored after the profile page unmounts", async
   fireEvent.change(await screen.findByRole("textbox", { name: "编辑社区昵称" }), {
     target: { value: "晚到的昵称" },
   });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存昵称" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
+  await waitFor(() => expect(client.rename).toHaveBeenCalledOnce());
   view.unmount();
   finish({ user: { ...user, displayName: "晚到的昵称" }, providers: ["email"] });
   await Promise.resolve();
@@ -175,6 +185,9 @@ test("a desktop profile rename response from a replaced client is ignored", asyn
   fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
   const name = screen.getByRole("textbox", { name: "编辑社区昵称" });
   fireEvent.change(name, { target: { value: "旧客户端昵称" } });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存修改" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
   await waitFor(() => expect(oldClient.rename).toHaveBeenCalledWith("旧客户端昵称"));
 
@@ -218,11 +231,12 @@ test("mobile profile ignores a same-tick duplicate nickname save", async () => {
   const name = screen.getByRole("textbox", { name: "编辑社区昵称" });
   fireEvent.change(name, { target: { value: "移动端新昵称" } });
   const save = screen.getByRole("button", { name: "保存昵称" });
+  await waitFor(() => expect(save).toHaveProperty("disabled", false));
   act(() => {
     fireEvent.click(save);
     fireEvent.click(save);
   });
-  expect(rename).toHaveBeenCalledOnce();
+  await waitFor(() => expect(rename).toHaveBeenCalledOnce());
   pending.resolve({ user: { ...user, displayName: "移动端新昵称" }, providers: ["email"] });
   await waitFor(() => expect(screen.getByText("昵称已更新。")).not.toBeNull());
 });
@@ -239,6 +253,9 @@ test("a mobile profile rename response from a replaced client is ignored", async
   fireEvent.change(await screen.findByRole("textbox", { name: "编辑社区昵称" }), {
     target: { value: "旧客户端昵称" },
   });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存昵称" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
   await waitFor(() => expect(oldClient.rename).toHaveBeenCalled());
   view.rerender(<AccountPage client={nextClient} platform="ios" />);
@@ -1727,6 +1744,8 @@ test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet 
   };
   const client = account({
     status: vi.fn().mockResolvedValue({ user }),
+    namePresentation: async (name) =>
+      accountNameResult(name === "  新的名字  " ? "新的名字" : name),
     rename: vi.fn().mockResolvedValue(renamed),
   });
   harmonyMe({ client });
@@ -1750,6 +1769,7 @@ test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet 
   fireEvent.change(sheet.getByRole("textbox", { name: "编辑社区昵称" }), {
     target: { value: "  新的名字  " },
   });
+  await waitFor(() => expect(save.disabled).toBe(false));
   fireEvent.click(save);
   await waitFor(() => expect(client.rename).toHaveBeenCalledWith("新的名字"));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "昵称" })).toBeNull());
@@ -1808,4 +1828,17 @@ test("the QQ bind card appears on the HarmonyOS phone and 2-in-1 account pages",
   );
   await screen.findByRole("button", { name: "编辑个人资料" });
   expect(screen.queryByRole("heading", { name: "绑定 QQ 群助手" })).toBeNull();
+});
+
+test("桌面昵称共享校验失败时保留编辑能力并禁用保存", async () => {
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    namePresentation: vi.fn().mockRejectedValue({ code: "account_unavailable" }),
+  });
+  render(<AccountPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  expect(await screen.findByText("昵称校验暂不可用，请稍后重试。")).not.toBeNull();
+  expect(screen.getByRole("textbox", { name: "编辑社区昵称" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "保存修改" })).toHaveProperty("disabled", true);
+  expect(client.rename).not.toHaveBeenCalled();
 });

@@ -87,7 +87,18 @@ export interface AccountDeletion {
   voice_samples?: AccountVoiceSamplesResult | null;
 }
 
+/** 共享 Rust 昵称纯函数的结果，长度上限不由界面推导。 */
+export type AccountNamePresentation = {
+  normalized: string;
+  preferred: string;
+  valid: boolean;
+  maximum_chars: number;
+  maximum_utf16_units: number;
+};
+
 export interface AccountClient {
+  /** 不创建账号、不读文件、不联网；失败时昵称编辑不可保存。 */
+  namePresentation(name: string, id?: string): Promise<AccountNamePresentation>;
   status(): Promise<{ user?: AccountUser | null }>;
   providers(): Promise<AccountProviders>;
   requestCode(provider: "email" | "phone", target: string): Promise<AccountChallenge>;

@@ -380,7 +380,7 @@ function AccountDetailsPage({
     setUser(value.user);
     setName(value.user.displayName);
   };
-  const { normalizedName, validName, rename } = useAccountRename({
+  const { normalizedName, validName, rename, editorState } = useAccountRename({
     client,
     name,
     mounted,
@@ -993,7 +993,7 @@ function AccountDetailsPage({
               ) : (
                 <AccountAvatar user={user} load={client.avatar} size="small" />
               )}
-              <strong>{name.trim() || "你的昵称"}</strong>
+              <strong>{normalizedName || "你的昵称"}</strong>
               {user.avatarUploaded && client.removeAvatar && (
                 <ActionButton
                   action={removeAvatar}
@@ -1007,6 +1007,7 @@ function AccountDetailsPage({
               <p className={account.muted}>点头像可更换，支持 1 MiB 以内的 PNG 或 JPEG。</p>
             )}
             <AccountNicknameEditor
+              {...editorState}
               variant="desktop"
               value={name}
               disabled={busy}
@@ -1027,7 +1028,7 @@ function AccountDetailsPage({
                   setEditingProfile(false);
                 }}
                 className={account.primary}
-                disabled={busy || normalizedName === user.displayName}
+                disabled={busy || !validName || normalizedName === user.displayName}
                 label="保存修改"
               />
               <ActionButton
