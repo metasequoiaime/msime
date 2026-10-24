@@ -3,13 +3,15 @@ import { GroupList, NavGroup } from "../core/platform-controls";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 
-export interface AccountMeGroupProps {
+export interface AccountMeSectionProps {
   title?: string;
   children: ReactNode;
 }
 
-/** 触屏「我的」页的一组跳转行，可选显示分组标题。 */
-export function AccountMeGroup({ title, children }: AccountMeGroupProps) {
+export interface AccountMeGroupProps extends AccountMeSectionProps {}
+
+/** 触屏「我的」页的分组外壳，可让不同页面保留各自的内容容器。 */
+export function AccountMeSection({ title, children }: AccountMeSectionProps) {
   const titleId = useId();
   return (
     <section className={account.meGroup} aria-labelledby={title ? titleId : undefined}>
@@ -18,8 +20,17 @@ export function AccountMeGroup({ title, children }: AccountMeGroupProps) {
           {title}
         </h3>
       )}
-      <NavGroup>{children}</NavGroup>
+      {children}
     </section>
+  );
+}
+
+/** 触屏「我的」页的一组跳转行，可选显示分组标题。 */
+export function AccountMeGroup({ title, children }: AccountMeGroupProps) {
+  return (
+    <AccountMeSection title={title}>
+      <NavGroup>{children}</NavGroup>
+    </AccountMeSection>
   );
 }
 

@@ -9,6 +9,9 @@
 /** Native ABI revision. The host refuses to run against a version it does not know. */
 export const abiVersion: () => number;
 
+/** 离线单字笔画识别，在工作线程上返回标准 `{ok,value:{candidates}}` 封装。 */
+export const handwriting: (request: string) => Promise<string>;
+
 /** Capabilities for a named platform, e.g. "harmony". Drives what the shared settings UI renders. */
 export const hostCapabilities: (platform: string) => string;
 

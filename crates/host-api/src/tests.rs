@@ -3259,16 +3259,21 @@ fn creating_a_session_records_the_resources_it_loaded_for_dictionary_updates() {
 /// 三端宿主都开着 `phrase_preedit`。14 键里选了只覆盖前一段的词，退格到只剩一个组码再退格，收回这次选词：组码要回到 14 键网格里，而不是变成全拼 26 键的 `bu`，之后的 14 键照样能打。
 #[test]
 fn retreating_a_fourteen_key_selection_keeps_composing_on_the_grid() {
-    check_letter_key_selection_retreat(false, false);
-    check_letter_key_selection_retreat(true, false);
+    check_letter_key_selection_retreat(false, false, false);
+    check_letter_key_selection_retreat(true, false, false);
 }
 
 #[test]
 fn eighteen_key_shuangpin_selection_retreat_keeps_composing_on_the_grid() {
-    check_letter_key_selection_retreat(true, true);
+    check_letter_key_selection_retreat(true, true, false);
 }
 
-fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
+#[test]
+fn eighteen_key_exact_selection_retreat_preserves_letter_constraints() {
+    check_letter_key_selection_retreat(true, true, true);
+}
+
+fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool, exact: bool) {
     let dir = tempfile::tempdir().unwrap();
     let path = |name| {
         let path = dir.path().join(name);
@@ -3326,14 +3331,18 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
     }
 
     // 全拼「你好」是 BN UI GH AS OP，小鹤双拼是 BN UI GH CV。
-    let codes = if eighteen {
+    let codes = if exact {
+        "NiHC"
+    } else if eighteen {
         "bihx"
     } else if shuangpin {
         "bugc"
     } else {
         "bugao"
     };
-    let tail = if eighteen {
+    let tail = if exact {
+        "HC"
+    } else if eighteen {
         "hx"
     } else if shuangpin {
         "gc"
@@ -3362,7 +3371,13 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
     }
     assert_eq!(
         read(msime_client_view(handle))["value"]["editing_text"],
-        if eighteen { "h" } else { "g" }
+        if exact {
+            "H"
+        } else if eighteen {
+            "h"
+        } else {
+            "g"
+        }
     );
 
     let restored = read(msime_client_command(handle, 0));
@@ -3378,7 +3393,13 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
     );
     assert_eq!(
         view["editing_text"],
-        if eighteen { "bi" } else { "bu" },
+        if exact {
+            "Ni"
+        } else if eighteen {
+            "bi"
+        } else {
+            "bu"
+        },
         "{restored}"
     );
     assert!(
@@ -3392,14 +3413,36 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
         !view["nine_key_spellings"].as_array().unwrap().is_empty(),
         "{restored}"
     );
+    if exact {
+        assert!(
+            !view["nine_key_spellings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s == "bi"),
+            "{restored}"
+        );
+    }
     let next = read(msime_client_grid_key(
         handle,
-        if eighteen { b'h' } else { b'g' },
+        if exact {
+            b'H'
+        } else if eighteen {
+            b'h'
+        } else {
+            b'g'
+        },
     ));
     assert_eq!(next["value"]["handled"], true, "{next}");
     assert_eq!(
         next["value"]["view"]["editing_text"],
-        if eighteen { "bih" } else { "bug" },
+        if exact {
+            "NiH"
+        } else if eighteen {
+            "bih"
+        } else {
+            "bug"
+        },
         "{next}"
     );
     read(msime_client_destroy(handle));

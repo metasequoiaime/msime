@@ -434,6 +434,7 @@ export {
   type TypingStatisticsStatus,
   type StatisticsOverviewMetric,
 } from "./settings/typing-statistics";
+export { StatisticsSection, type StatisticsSectionProps } from "./settings/statistics-section";
 export type {
   TypingStatisticsUploadClient,
   TypingStatisticsUploadStatus,
@@ -474,10 +475,12 @@ export {
 } from "./settings/mcp-connect";
 export { AccountPage } from "./account/account-page";
 export {
+  AccountMeSection,
   AccountMeGroup,
   AccountMeRow,
   AccountMeSupportGroup,
   type AccountMeGroupProps,
+  type AccountMeSectionProps,
   type AccountMeRowProps,
   type AccountMeSupportGroupProps,
 } from "./account/account-me-components";

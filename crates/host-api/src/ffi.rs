@@ -219,6 +219,8 @@ pub mod cloud_sync;
 pub mod community;
 pub mod credentials;
 pub mod google;
+#[cfg(not(target_os = "android"))]
+pub mod handwriting;
 pub mod harmony_settings;
 pub mod host;
 pub mod input;

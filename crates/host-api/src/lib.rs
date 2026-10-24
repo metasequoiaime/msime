@@ -258,7 +258,7 @@ fn engine_handwriting_candidates(
     _width: f32,
     _height: f32,
 ) -> Result<Vec<String>, &'static str> {
-    // Android injects ML Kit Digital Ink through HandwritingRecognizer and HarmonyOS uses its own recognizer. Keeping this boundary unavailable there prevents zinnia and its model path from becoming an unused second recognizer in the IME process.
+    // 共享桌面面板入口在移动端禁用；Android 注入 ML Kit，鸿蒙原生手写板通过 msime_client_handwriting 调用引擎的单字识别器。
     Err("local handwriting recognizer unavailable")
 }
 

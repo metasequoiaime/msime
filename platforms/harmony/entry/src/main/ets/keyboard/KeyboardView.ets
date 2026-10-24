@@ -102,8 +102,6 @@ import {
   CloudClipboardSendOutcome, CloudClipboardState
 } from './clipboard/CloudClipboardPolicy';
 import { CloudClipboardBoundListing } from './clipboard/CloudClipboardClient';
-import { image } from '@kit.ImageKit';
-import { textRecognition } from '@kit.CoreVisionKit';
 import {
   HandwritingPoint, HandwritingStroke, HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_POINTS, HANDWRITING_MAX_STROKES
@@ -357,10 +355,10 @@ const PICKER_ENGLISH_26: string = 'english-26';
 const PICKER_ENGLISH_9: string = 'english-9';
 const PICKER_ADD_LANGUAGE: string = 'add-language';
 const HANDWRITING_CANVAS_ID: string = 'msime-harmony-handwriting-canvas';
-// 触屏手写板的三列像 Android 的手写行一样按份额分配行宽：标点 .7，书写区 3，工具 .8。
-const HANDWRITING_PUNCTUATION_WEIGHT: number = 0.7;
-const HANDWRITING_AREA_WEIGHT: number = 3;
-const HANDWRITING_TOOLS_WEIGHT: number = 0.8;
+// 触屏手写板的三列按份额分配行宽：收窄两侧控制列，把书写区扩大到约四分之三。
+const HANDWRITING_PUNCTUATION_WEIGHT: number = 0.6;
+const HANDWRITING_AREA_WEIGHT: number = 4;
+const HANDWRITING_TOOLS_WEIGHT: number = 0.7;
 const HANDWRITING_SIDE_GAP_VP: number = 6;
 const HANDWRITING_PUNCTUATION_FONT_SIZE: number = 17;
 const HANDWRITING_REWRITE_FONT_SIZE: number = 14;
@@ -2475,17 +2473,7 @@ struct KeyboardView {
    * nine keys is a different scheme from quanpin on twenty-six, so switching the face has to switch
    * the scheme with it or the strip goes on claiming a layout that is no longer on screen.
    */
-  /**
-   * The schemes this host can actually deliver.
-   *
-   * Handwriting and the thoughtful reply surface were both absent when this was written and both
-   * exist now — handwriting through Core Vision Kit rather than an injected recognizer, and the
-   * reply keyboard with its own surface — so the only thing filtered here is what the user turned
-   * off, plus the grids a machine with real keys has no use for.
-   *
-   * Filtered here rather than in KeyboardScheme, whose declaration order is the fixed order every
-   * host's pickers render in.
-   */
+  /** 仅提供用户启用且当前设备可操作的方案；手写由本机离线笔画模型识别。 */
   private offeredSchemes(): SchemeDefinition[] {
     return KeyboardScheme.SCHEMES.filter((candidate: SchemeDefinition): boolean =>
       this.settings.enabledSchemes.includes(candidate.preferenceId)
@@ -6347,12 +6335,19 @@ struct KeyboardView {
   }
 
   private handwritingPoint(event: TouchEvent): HandwritingPoint {
-    const touch = event.touches[0];
-    return HandwritingStrokePolicy.point(touch.x, touch.y);
+    const touch = event.changedTouches[0];
+    return HandwritingStrokePolicy.pointInCanvas(
+      touch.x, touch.y, this.handwritingContext.width, this.handwritingContext.height);
   }
 
   private handwritingTouch(event: TouchEvent): void {
-    if (event.touches.length === 0) {
+    if (event.type === TouchType.Cancel) {
+      // 被系统接管的笔画不参与识别，取消事件不要求仍有触点。
+      this.handwritingCurrent = [];
+      this.redrawHandwriting();
+      return;
+    }
+    if (event.changedTouches.length === 0) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -6389,13 +6384,6 @@ struct KeyboardView {
       this.scheduleHandwritingRecognition();
       return;
     }
-    if (event.type === TouchType.Cancel) {
-      // A cancelled gesture must not become a real stroke. Harmony can cancel a Canvas touch
-      // when the system takes the gesture (for example, a panel edge swipe); keeping the partial
-      // stroke made the next pen lift recognise ink the user never finished.
-      this.handwritingCurrent = [];
-      this.redrawHandwriting();
-    }
   }
 
   private cancelHandwritingTimer(): void {
@@ -6412,7 +6400,7 @@ struct KeyboardView {
     this.handwritingCandidates = [];
   }
 
-  /** 等待用户设定的停顿时长（「识别等待时间」，`KeyboardFeedback` 的 200–1500 ms，默认 600）后再对整个字截图。 */
+  /** 等待用户设定的停顿时长（「识别等待时间」，`KeyboardFeedback` 的 200–1500 ms，默认 600）后识别已完成的笔画。 */
   private scheduleHandwritingRecognition(): void {
     this.cancelHandwritingTimer();
     if (!HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
@@ -6517,44 +6505,23 @@ struct KeyboardView {
     }
     this.handwritingBusy = true;
     this.handwritingNotice = '正在识别…';
-    this.getUIContext().getComponentSnapshot().get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
-      // Testing the error object itself took this branch on every successful snapshot, so every
-      // stroke answered 无法读取手写画布 and nothing was ever recognised.
-      if (BusinessErrorPolicy.failed(error)) {
-        if (this.handwritingRecognition.accepts(ticket)) {
-          this.handwritingNotice = '无法读取手写画布';
-        }
-        this.finishHandwritingRecognition();
+    KeyboardSession.shared.recognizeHandwriting(
+      this.handwritingStrokes, this.handwritingContext.width, this.handwritingContext.height)
+      .then((candidates: string[]): void => {
+      if (!this.handwritingRecognition.accepts(ticket)) {
         return;
       }
-      textRecognition.init().then((ready: boolean): Promise<textRecognition.TextRecognitionResult> => {
-        if (!ready) {
-          throw new Error('text recognition unavailable');
-        }
-        return textRecognition.recognizeText({ pixelMap: pixelMap });
-      }).then((result: textRecognition.TextRecognitionResult): void => {
-        if (!this.handwritingRecognition.accepts(ticket)) {
-          return;
-        }
-        this.handwritingCandidates = HandwritingStrokePolicy.candidates(result.value);
-        this.handwritingNotice = this.handwritingCandidates.length > 0
-          ? '' : '没有识别到文字，请重写';
-      }).catch((reason: Error): void => {
-        if (this.handwritingRecognition.accepts(ticket)) {
-          KeyboardLog.error(`handwriting recognition unavailable: ${describeError(reason)}`);
-          this.handwritingCandidates = [];
-          this.handwritingNotice = '手写识别服务不可用';
-        }
-      }).finally((): void => {
-        void pixelMap.release();
-        // The recognizer is process-global. Do not start the queued snapshot until its previous
-        // invocation has actually released, or init() can race the outstanding release promise.
-        void textRecognition.release().then((): void => {
-          this.finishHandwritingRecognition();
-        }, (_reason: Object): void => {
-          this.finishHandwritingRecognition();
-        });
-      });
+      this.handwritingCandidates = candidates;
+      this.handwritingNotice = this.handwritingCandidates.length > 0
+        ? '' : '没有识别到文字，请重写';
+    }).catch((reason: Error): void => {
+      if (this.handwritingRecognition.accepts(ticket)) {
+        KeyboardLog.error(`handwriting recognition unavailable: ${describeError(reason)}`);
+        this.handwritingCandidates = [];
+        this.handwritingNotice = '手写识别服务不可用';
+      }
+    }).finally((): void => {
+      this.finishHandwritingRecognition();
     });
   }
 
@@ -6938,7 +6905,7 @@ struct KeyboardView {
   /**
    * 触屏手写板，即 Android 的 `rebuildHandwritingRows`：左侧竖排 ，。？！，中间是书写区，右侧竖排 ⌫ 和「重写」，下方是 `handwritingFace` 里的共享底行。⌫ 撤回最后一笔，手写板为空时删除光标前的字符；这里没有重做按钮，与 Android 一致。
    *
-   * 参考线和状态行画在画布上层而不是画进画布：识别通过 `componentSnapshot` 读取画布，画进去的任何东西都会被当成笔迹。
+   * 参考线和状态行独立叠放；书写区外层统一接收触摸，识别只使用已完成的笔画。
    */
   @Builder
   handwritingPad() {
@@ -6980,7 +6947,6 @@ struct KeyboardView {
           .borderWidth(this.handwritingSkin.borderWidth)
           .borderColor(this.handwritingSkin.borderColor)
           .onReady(() => this.redrawHandwriting())
-          .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
         // 设计稿的参考线：距边缘 14vp 的虚线框，以及穿过其中心的虚线十字，用细线颜色。
         Stack() {
           Column()
@@ -7014,6 +6980,7 @@ struct KeyboardView {
       }
       .layoutWeight(HANDWRITING_AREA_WEIGHT)
       .height('100%')
+      .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
 
       Column({ space: HANDWRITING_SIDE_GAP_VP }) {
         Column() {

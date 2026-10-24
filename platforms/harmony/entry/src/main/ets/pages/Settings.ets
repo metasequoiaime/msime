@@ -942,6 +942,7 @@ class SettingsBridge {
       `${context.filesDir}/engine.ready`);
     // Here as well as in the keyboard, so the page offers Cantonese, Zhuyin and Stroke (see hostCapabilities) before the keyboard has ever run.
     StagedResources.stageLanguageDictionaries(context.resourceDir, context.filesDir);
+    StagedResources.stageHandwriting(context.resourceDir, context.filesDir);
   }
 
 

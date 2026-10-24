@@ -912,6 +912,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
       }
       StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
+      StagedResources.stageHandwriting(this.context.resourceDir, files);
       // 扩展上下文提供系统颜色模式，视图本身没有可查询的上下文。
       const systemDark: boolean =
         this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;

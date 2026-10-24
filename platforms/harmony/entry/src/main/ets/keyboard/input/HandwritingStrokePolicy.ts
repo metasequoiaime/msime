@@ -10,11 +10,10 @@ export interface HandwritingStroke {
   points: HandwritingPoint[];
 }
 
-/** Bounds shared by the keyboard canvas and the OCR snapshot. */
+/** 书写区显示坐标和离线识别器使用的固定坐标。 */
 export const HANDWRITING_CANVAS_SIZE: number = 420;
-// Match the fixed Apple source. The shared panel contract accepts these bounds (and a larger point
-// budget), so complex characters and the last four recognition alternatives need not be discarded
-// merely because this host reaches a platform OCR service instead of ML Kit.
+// Match the fixed Apple source. The shared panel contract accepts these bounds and a larger point
+// budget, so complex characters and the last four recognition alternatives are not discarded.
 export const HANDWRITING_MAX_STROKES: number = 64;
 export const HANDWRITING_MAX_POINTS: number = 512;
 export const HANDWRITING_MAX_CANDIDATES: number = 12;
@@ -24,6 +23,18 @@ export class HandwritingStrokePolicy {
     return {
       x: KeyboardGeometry.bounded(Number.isFinite(x) ? x : 0, 0, HANDWRITING_CANVAS_SIZE),
       y: KeyboardGeometry.bounded(Number.isFinite(y) ? y : 0, 0, HANDWRITING_CANVAS_SIZE),
+    };
+  }
+
+  /** 书写区可以随键盘宽度变化；显示坐标保留原尺寸，识别前再映射到固定的 420×420 引擎坐标。 */
+  static pointInCanvas(x: number, y: number, width: number, height: number): HandwritingPoint {
+    const canvasWidth: number =
+      Number.isFinite(width) && width > 0 ? width : HANDWRITING_CANVAS_SIZE;
+    const canvasHeight: number =
+      Number.isFinite(height) && height > 0 ? height : HANDWRITING_CANVAS_SIZE;
+    return {
+      x: KeyboardGeometry.bounded(Number.isFinite(x) ? x : 0, 0, canvasWidth),
+      y: KeyboardGeometry.bounded(Number.isFinite(y) ? y : 0, 0, canvasHeight),
     };
   }
 
