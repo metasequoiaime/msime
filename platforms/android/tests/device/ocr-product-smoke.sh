@@ -27,6 +27,9 @@ gradlew=apps/desktop/src-tauri/gen/android/gradlew
   :ocr-module:dependencies --configuration releaseRuntimeClasspath > target/android/ocr-product-dependencies.txt
 cp platforms/android/gradle-app/ocr-module/build/outputs/apk/release/ocr-module-release-unsigned.apk \
   target/android/ocr-product-module.apk
+# 共享层整套单测读取正式锁；合成地址只属于后续产品专项，不改变发布 URL 契约。
+core_status=0
+MSIME_ANDROID_TEST_SERIAL="$serial" bash platforms/android/tests/device/build-core-test.sh x86_64 2>&1 | tee target/android/ocr-product-core.log || core_status=$?
 python3 - <<'PY'
 import hashlib, json, subprocess
 from pathlib import Path
@@ -44,8 +47,6 @@ lock['artifact'] = {
 path.write_text(json.dumps(lock, indent=2) + '\n')
 Path('target/android/ocr-product-test-lock.json').write_text(path.read_text())
 PY
-core_status=0
-MSIME_ANDROID_TEST_SERIAL="$serial" bash platforms/android/tests/device/build-core-test.sh x86_64 2>&1 | tee target/android/ocr-product-core.log || core_status=$?
 # x86_64 验收使用普通开发包；发布瘦包仅支持 arm64，不能绕过产品的 ABI 限制。
 python3 scripts/fetch_language_dictionaries.py
 python3 scripts/fetch_wordbooks.py
@@ -59,15 +60,22 @@ bash platforms/android/tests/device/smoke.sh "$serial" --core 2>&1 | tee target/
 printf 'core=%s baseline=%s\n' "$core_status" "$baseline_status" > target/android/ocr-product-baseline-status.txt
 MSIME_ANDROID_OCR_SMOKE=1 bash platforms/android/tests/device/build-editor.sh
 "$adb" -s "$serial" install -r target/android/editor-test.apk
-# 测试只清除本专项先前生成的模块；应用其余设置和资源不清理。
-"$adb" -s "$serial" shell am force-stop app.msime.android
-"$adb" -s "$serial" shell run-as app.msime.android rm -rf files/bootstrap/state/resource-packs/ocr-module-android
+# release APK 不提供 run-as；专项在目标进程内清理自己先前生成的固定模块。
 "$adb" -s "$serial" shell svc wifi disable
 "$adb" -s "$serial" shell svc data disable
-result=$("$adb" -s "$serial" shell am instrument -w app.msime.android.test/app.msime.android.test.OcrProductDeviceSmoke)
+instrument_options=()
+if (( api >= 31 )); then
+  "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
+  instrument_options=(--no-restart)
+fi
+result=$("$adb" -s "$serial" shell am instrument "${instrument_options[@]}" -w app.msime.android.test/app.msime.android.test.OcrProductDeviceSmoke)
 "$adb" -s "$serial" shell svc wifi enable
 "$adb" -s "$serial" shell svc data enable
 printf '%s\n' "$result" | tee target/android/ocr-product-smoke.log
+for frame in preview result editor failure; do
+  "$adb" -s "$serial" pull "/sdcard/Android/data/app.msime.android/files/ocr-product-$frame.png" \
+    "target/android/ocr-product-$frame.png" >/dev/null 2>&1 || true
+done
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* && "$result" != *MSIME_DEVICE_SMOKE_FAILED* ]]
 
 if [[ "$api" == 35 ]]; then
