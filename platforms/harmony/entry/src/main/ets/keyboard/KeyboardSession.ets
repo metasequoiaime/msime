@@ -1,3 +1,6 @@
+import {
+  HANDWRITING_CANVAS_SIZE, HandwritingPoint, HandwritingStroke, HandwritingStrokePolicy
+} from './input/HandwritingStrokePolicy';
 import { DecorationCandidateStyle } from './candidate/DecorationCandidatePolicy';
 import { CandidateLayoutPolicy, CandidateResolvedLayout } from './candidate/CandidateSkinPolicy';
 import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
@@ -349,6 +352,30 @@ export interface ClipboardHistoryMutation {
 // The local emoji catalog lives in msime-others.db beside the dictionaries, so the query carries the
 // resource directory rather than going through a session.
 /** 共享查询的前缀和条数；手机通过 `correction` 明确请求原文及唯一纠错。 */
+interface HandwritingNativeRequest {
+  model: string;
+  request: HandwritingInkRequest;
+}
+
+interface HandwritingInkRequest {
+  language: string;
+  strokes: HandwritingRecognitionStroke[];
+}
+
+interface HandwritingRecognitionStroke {
+  points: HandwritingPoint[];
+}
+
+interface HandwritingNativeReply {
+  ok: boolean;
+  value?: HandwritingNativeCandidates;
+  error?: string;
+}
+
+interface HandwritingNativeCandidates {
+  candidates: string[];
+}
+
 interface EnglishCompletionRequest {
   prefix: string;
   limit: number;
@@ -5109,6 +5136,35 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return result;
+  }
+
+  /** 只传当前笔画到原生工作线程；不截图、不联网、不保留文字或笔画日志。 */
+  async recognizeHandwriting(strokes: HandwritingStroke[], canvasWidth: number,
+    canvasHeight: number): Promise<string[]> {
+    const files: string = this.stateDirectory.substring(0, this.stateDirectory.lastIndexOf('/'));
+    const width: number = Number.isFinite(canvasWidth) && canvasWidth > 0
+      ? canvasWidth : HANDWRITING_CANVAS_SIZE;
+    const height: number = Number.isFinite(canvasHeight) && canvasHeight > 0
+      ? canvasHeight : HANDWRITING_CANVAS_SIZE;
+    const recognitionStrokes: HandwritingRecognitionStroke[] = [];
+    for (const stroke of strokes) {
+      const points: HandwritingPoint[] = [];
+      for (const point of stroke.points) {
+        points.push(HandwritingStrokePolicy.point(
+          point.x * HANDWRITING_CANVAS_SIZE / width,
+          point.y * HANDWRITING_CANVAS_SIZE / height));
+      }
+      recognitionStrokes.push({ points: points });
+    }
+    const request: HandwritingNativeRequest = {
+      model: `${files}/handwriting/handwriting-zh_CN.model`,
+      request: { language: 'zh-CN', strokes: recognitionStrokes }
+    };
+    const reply: HandwritingNativeReply = JSON.parse(await client.handwriting(JSON.stringify(request))) as HandwritingNativeReply;
+    if (!reply.ok || reply.value === undefined) {
+      throw new Error(reply.error ?? 'handwriting_unavailable');
+    }
+    return reply.value.candidates;
   }
 
   /** Whether the Cantonese or Zhuyin dictionary `file` is staged in `language-dictionaries` beside the resources, which is where host preparation looks for it. */

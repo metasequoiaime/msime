@@ -25,7 +25,7 @@ OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享�
 
 Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列表、自定义触摸键盘皮肤设计和候选英文释义开关。这四项此前都只有键盘一侧在消费：`PreferencesStore` 里有值，键盘准备 Engine 会话时会读，但设置页从未开启对应的客户端开关，用户没有任何途径改动它们。它们各自只写共享偏好，不需要平台能力。
 
-手写方案使用 HarmonyOS Core Vision Kit 的 `textRecognition`：键盘内的 ArkUI Canvas 记录受界限约束的笔画，组件快照转换为 `PixelMap` 后交给系统 OCR，候选结果仍由共享 Engine 会话提交到编辑器。OCR 服务不可用时保留明确提示，不回退到伪造的 Engine 手写模型；该路径需要设备提供 `SystemCapability.AI.OCR.TextRecognition`。
+手写方案直接使用 `crates/engine` 已有的离线中文单字笔画识别器：书写区外层接收触摸，ArkUI Canvas 绘制有界笔画，停笔后经 `msime_client_handwriting` 与 NAPI 工作线程返回候选，选字仍由共享 Engine 会话提交到编辑器。`stage-resources.sh` 自动获取 `resources/handwriting-model.lock.json` 固定的 Tegaki zh_CN 模型并校验大小与 SHA-256，随包附带模型和 Zinnia 许可证，约增加 26.8 MB 模型；不调用系统 OCR、不联网、不保存笔画。
 
 语音输入的麦克风由键盘自己采集（`HarmonyPcmCapture`），再交给选中的识别方式：系统识别把音频写进 Core Speech Kit `speechRecognizer` 的写音频模式（见下文），豆包、HTTP 服务商和本地模型各自接收同一份 PCM。工具面板可以开始、停止或取消识别，最终文字经过长度和控制字符边界检查后通过当前 `KeyboardSession` 提交；原始音频不写入文件、不进入日志，也不复制到 Engine，只有选了云端服务时才发给那个服务。选了豆包却一项凭据都没填（这就是出厂配置）时用系统识别，语音面板和设置页都写明这一点；填了一部分时，语音面板报出缺的那一项，不再悄悄换成系统识别。系统识别需要 `SystemCapability.AI.SpeechRecognizer`，所有识别方式都需要用户授予 `ohos.permission.MICROPHONE`。
 

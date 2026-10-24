@@ -13,6 +13,12 @@ import { KeyboardLog, describeError } from './KeyboardLog';
 import { StagedArtifact, StagedResourcePolicy } from './StagedResourcePolicy';
 
 export class StagedResources {
+  /** 模型和许可证与引擎资源分开放置，使用同一代次暂存规则。 */
+  static stageHandwriting(resourceDir: string, filesDir: string): void {
+    StagedResources.stage(`${resourceDir}/handwriting`, `${filesDir}/handwriting`,
+      `${filesDir}/handwriting.ready`);
+  }
+
   /**
    * Make `destination` hold exactly what `packaged` holds.
    *

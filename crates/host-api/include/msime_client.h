@@ -7,6 +7,9 @@
 extern "C" {
 #endif
 
+/* 离线单字手写识别，仅工作线程调用；请求 {model:绝对路径,request:{language:"zh-CN",strokes:[{points:[{x,y}]}]}}，坐标在 420×420 内，最多 262144 字节。返回标准封装 {candidates:[文字]}；不联网，Android 使用自己的 ML Kit 入口。 */
+char *msime_client_handwriting(const uint8_t *request, size_t length);
+
 /* Host-neutral focus lease and key event contract. Values are opaque to the ABI. */
 typedef struct msime_client_focus_lease {
   uint64_t client;
