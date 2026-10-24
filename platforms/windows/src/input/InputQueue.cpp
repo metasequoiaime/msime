@@ -442,6 +442,12 @@ InputState::page_candidate(const FocusLease &lease, uint64_t session,
                                        steps)
                : std::nullopt;
 }
+PreferenceSnapshot InputState::publish_preferences_at_least(const PreferenceSnapshot &snapshot) {
+  check_thread();
+  if (preferences_ && preferences_->revision() > snapshot.revision()) return *preferences_;
+  publish_preferences(snapshot);
+  return *preferences_;
+}
 void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
   check_thread();
   if (preferences_ && (snapshot.revision() < preferences_->revision() ||

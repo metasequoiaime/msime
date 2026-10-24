@@ -44,7 +44,10 @@ private:
   std::string serialized_;
 };
 enum class InputTaskStatus { Completed };
-class InputState { public: void publish_preferences(const PreferenceSnapshot &) {} };
+class InputState {
+public:
+  PreferenceSnapshot publish_preferences_at_least(const PreferenceSnapshot &value) { return value; }
+};
 class InputQueue {
 public:
   struct Stats { bool accepting = true; };

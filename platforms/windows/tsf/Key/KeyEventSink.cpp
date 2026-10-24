@@ -1510,7 +1510,8 @@ bool CMetasequoiaIME::_HasDeferredKeyBarrier() const
 {
     if (_localSessionResetPending.load(std::memory_order_acquire) || _focusResetPending || _activationRequired ||
         _deferredKeyProjectionValid || !_deferredKeyDowns.empty() || _hasDeferredKeyInFlight ||
-        _HasPendingApplicationKeyReplay() || _wubiCommitOwner.active())
+        _HasPendingApplicationKeyReplay() || _wubiCommitOwner.active() || _preferenceBarrier.active() ||
+        _preferenceNotificationPending.load(std::memory_order_acquire))
     {
         return true;
     }
@@ -1809,7 +1810,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     const UINT capturedModifiers =
         Global::CharacterModifiers(modifiersDown ? *modifiersDown : CaptureIpcModifiers(), *classifiedWch,
                                    *classifiedCode);
-    if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay()) && (capturedModifiers & 0b110u) == 0 &&
+    if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
+         _preferenceNotificationPending.load(std::memory_order_acquire)) && (capturedModifiers & 0b110u) == 0 &&
         !windowsKeyDown && !IsBareModifierKey(*classifiedCode) && !_IsKeyboardDisabled())
     {
         const bool printable = *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
@@ -2544,7 +2546,8 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     key.keyState = keyState;
     key.focusGeneration = _deferredKeyFocusGeneration;
     key.queuedAtMs = GetTickCount64();
-    key.needsClassification = (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay()) &&
+    key.needsClassification = (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
+         _preferenceNotificationPending.load(std::memory_order_acquire)) &&
         keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE;
     key.capsLockOn = (GetKeyState(VK_CAPITAL) & 1) != 0;
     key.windowsKeyDown = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
@@ -2586,6 +2589,14 @@ bool CMetasequoiaIME::_QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFG
 
 void CMetasequoiaIME::_ClearDeferredKeyDowns()
 {
+    _preferenceBarrier.reset();
+    _preferenceTransitionStarted = 0;
+    if (_msgWndHandle) KillTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION);
+    {
+        std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
+        _preferenceTransitions.clear();
+        _preferenceNotificationPending.store(false, std::memory_order_release);
+    }
     _groupedPanelLeases.clear();
     _wubiCommitOwner.clear();
     _ClearApplicationKeyReplay();
@@ -2971,7 +2982,8 @@ bool CMetasequoiaIME::_ResolveDeferredKeyClassification(uint64_t replayToken)
 void CMetasequoiaIME::_DrainOneDeferredKeyDown()
 {
     _deferredKeyDrainPosted = false;
-    if (_hasDeferredKeyInFlight || _wubiCommitOwner.active() || _HasPendingApplicationKeyReplay() || _deferredKeyDowns.empty() ||
+    if (_preferenceBarrier.active() || _preferenceNotificationPending.load(std::memory_order_acquire) ||
+        _hasDeferredKeyInFlight || _wubiCommitOwner.active() || _HasPendingApplicationKeyReplay() || _deferredKeyDowns.empty() ||
         !Global::g_connected)
     {
         return;
@@ -3491,7 +3503,17 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
             _pCompositionProcessorEngine->GetHostEngineAdapter() &&
             _pCompositionProcessorEngine->GetHostEngineAdapter()->valid())
             _wubiCommitOwner.begin(deferredReplayToken, GetTickCount64());
+        const bool orderedToggle = KeystrokeState.Function == FUNCTION_TOGGLE_JAPANESE && SupportsOrderedPreferences();
+        if (orderedToggle) {
+            _preferenceBarrier.begin(_expectedWorkerFocusToken.load(std::memory_order_acquire));
+            _preferenceTransitionStarted = GetTickCount64();
+            SetTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION, 10, nullptr);
+        }
         const KeyEventSendResult sendResult = SendKeyEventToUIProcess(&requestId);
+        if (orderedToggle) {
+            if (sendResult == KeyEventSendResult::Sent) _preferenceBarrier.sent(requestId);
+            else MarkNamedpipeSessionDirtyForOwner(this);
+        }
         if (KeystrokeState.Function == FUNCTION_TOGGLE_CHARACTER_SET || KeystrokeState.Function == FUNCTION_TOGGLE_JAPANESE)
         {
             // No document edit or response is needed. In particular, an ambiguous

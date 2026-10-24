@@ -22,6 +22,7 @@ HARNESS = r'''
 #include <vector>
 #include "InputSchemeTraits.h"
 #include "WubiCommitOwner.h"
+#include "PreferenceBarrier.h"
 #include "GroupedPanelKeyLease.h"
 #include "SecondThirdCandidatePolicy.h"
 #include "WubiCandidateSelectionPolicy.h"
@@ -49,7 +50,6 @@ using GUID = int;
 #endif
 [[maybe_unused]] constexpr BOOL TRUE = 1, FALSE = 0;
 constexpr int S_OK = 0;
-constexpr int FANY_IME_NO_REQUEST_ID = 0;
 [[maybe_unused]] constexpr UINT WM_IpcReconnect = 1;
 void PostOwnerMessageWithSyncFallback(void *, UINT) {}
 bool EnsureNamedpipeFocusSessionActivated() { return true; }
@@ -117,6 +117,8 @@ using CCompositionProcessorEngine = Engine;
 // 生产投影规则
 struct CMetasequoiaIME {
     msime::tsf::WubiCommitOwner _wubiCommitOwner;
+    msime::tsf::PreferenceBarrier _preferenceBarrier;
+    std::atomic<bool> _preferenceNotificationPending{false};
     Engine *_pCompositionProcessorEngine = nullptr;
     void *_pThreadMgr = reinterpret_cast<void *>(1);
     int _tfClientId = 1, _candidateMode = CANDIDATE_NONE;
@@ -196,7 +198,7 @@ struct CMetasequoiaIME {
         applicationText += wch; _CompleteDeferredKeyReplay(token);
     }
     void _InvokeKeyHandler(ITfContext *, WPARAM, WCHAR, DWORD, const _KEYSTROKE_STATE &state,
-                          int, const std::wstring &, int, int, int, uint64_t token) {
+                          uint64_t, const std::wstring &, int, int, int, uint64_t token) {
         dispatched.push_back(state.Function); _CompleteDeferredKeyReplay(token);
     }
     KeyDownDispatchResult _DispatchKeyDown(ITfContext *, WPARAM, LPARAM, BOOL *, const WCHAR *wch, const UINT *modifiers,
@@ -244,6 +246,29 @@ struct Fixture {
     }
 };
 int main() {
+    for (bool notificationOnly : {false, true}) {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._deferredKeyClassificationPending = false;
+        f.ime._deferredKeyProjectionValid = false;
+        if (notificationOnly) f.ime._preferenceNotificationPending.store(true);
+        else { f.ime._preferenceBarrier.begin(77); f.ime._preferenceBarrier.sent(12); }
+        check(f.capture('N', L'n'), "preference transition captures the following key");
+        check(f.ime._deferredKeyDowns.back().needsClassification,
+              "preference transition postpones classification until the snapshot is applied");
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.empty() && f.ime._deferredKeyDowns.size() == 1,
+              "preference transition preserves the FIFO before dispatch");
+        if (notificationOnly) f.ime._preferenceNotificationPending.store(false);
+        else {
+            check(f.ime._preferenceBarrier.receive({42, 12, 77, 3}, 77) &&
+                  f.ime._preferenceBarrier.complete(42), "applied snapshot releases the preference barrier");
+        }
+        f.ime._DrainOneDeferredKeyDown();
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.ime._deferredKeyDowns.empty() && f.context.refs == 1,
+              "released preference transition dispatches the following key exactly once");
+    }
     {
         Fixture f;
         f.ime._ClearDeferredKeyDowns();

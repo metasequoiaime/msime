@@ -1,4 +1,6 @@
 #include "ReplyCodec.h"
+#include "preference_transition.h"
+#include <cstring>
 #include "candidate_continuation_pipe.h"
 #include <algorithm>
 #include <charconv>
@@ -240,7 +242,7 @@ void apply_punctuation_marks(TsfLocalConfig &config, std::string_view quote_styl
   config.hollow_brackets = bracket_style == "hollow";
 }
 
-std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config) {
+std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config, bool ordered_preferences) {
   std::vector<std::vector<uint8_t>> frames;
   frames.reserve(12);
   // The paging frame carries the preedit style after a '|', which is how the
@@ -264,9 +266,16 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::MicrosoftShuangpinChanged, config.microsoft_shuangpin));
   // "0" 全拼，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文，"7" 笔画，"8" 双拼，"9" 五笔。
-  frames.push_back(worker_text_frame(
-      FanyImeWorkerReplyType::InputModeChanged,
-      std::wstring(1, scheme::input_mode_code(config.input_mode))));
+  if (ordered_preferences) {
+    const auto frame = FanyImePreferencePipe::encode({config.preference_revision, 0, 0, 0});
+    std::vector<uint8_t> bytes(sizeof(*frame));
+    std::memcpy(bytes.data(), &*frame, sizeof(*frame));
+    frames.push_back(std::move(bytes));
+  } else {
+    frames.push_back(worker_text_frame(
+        FanyImeWorkerReplyType::InputModeChanged,
+        std::wstring(1, scheme::input_mode_code(config.input_mode))));
+  }
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::TsfDiagnosticLogChanged, config.tsf_diagnostic_log));
   // "<lock>|s<0|1>d<0|1>l<0|1>": the lock code followed by the space-convert, direct-digit and direct-letter policy.

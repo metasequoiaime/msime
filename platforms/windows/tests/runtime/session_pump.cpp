@@ -5,7 +5,10 @@
 #include "CandidatePresentation.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
+#include "preference_transition.h"
+#include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <atomic>
 #include <exception>
 
@@ -116,7 +119,91 @@ void grouped_panel_pump_tests(const std::string &options) {
     queue.stop();
   }
 }
+void ordered_preference_pump_tests(const std::string &options) {
+ for (bool capable : {false, true}) for (unsigned scenario = 0; scenario < 3; ++scenario) {
+  const auto directory = std::filesystem::temp_directory_path() /
+      ("msime-ordered-preferences-" + std::to_string(
+          std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(directory);
+  struct Cleanup {
+    std::filesystem::path directory;
+    ~Cleanup() { std::filesystem::remove_all(directory); }
+  } cleanup{directory};
+  auto document = nlohmann::json{{"format_version", 1}, {"revision", 42},
+      {"preferences", nlohmann::json::parse(options).at("preferences")}};
+  document["preferences"]["keybindings"]["toggle_japanese_ctrl_shift_j"] = true;
+  { std::ofstream file(directory / "preferences.json"); file << document; }
+  const auto snapshot = PreferenceSnapshot::load(directory.u8string());
+  std::promise<std::optional<PreferenceSnapshot>> saved;
+  auto completion = saved.get_future().share();
+  if (scenario != 1) saved.set_value(scenario == 2 ? std::optional<PreferenceSnapshot>{} : snapshot);
+  auto japanese_options = nlohmann::json::parse(options);
+  japanese_options["preferences"]["scheme"] = "japanese";
+  FocusGate gate;
+  InputQueue queue(gate, 2, 8, japanese_options.dump());
+  FixtureTransport transport;
+  transport.ticket.capabilities = capable ? FanyImeProtocol::OrderedPreferences : 0;
+  transport.packets.resize(3);
+  transport.packets[1].keycode = 'J';
+  transport.packets[1].wch = 'j';
+  transport.packets[1].modifiers_down = 3;
+  transport.packets[2].keycode = 'N';
+  transport.packets[2].wch = 'n';
+  transport.packets[2].modifiers_down = 0;
+  bool next_key_used_saved_preferences = false;
+  std::promise<void> submitted;
+  auto submitted_future = submitted.get_future();
+  std::future<bool> writer;
+  if (scenario == 1) writer = std::async(std::launch::async, [&] {
+    submitted_future.wait();
+    auto unrelated = queue.submit([](InputState &) {});
+    const bool available = unrelated && unrelated->get() == InputTaskStatus::Completed;
+    saved.set_value(snapshot);
+    return available;
+  });
+  SessionPump pump(transport, queue, gate,
+    [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+      if (packet.keycode == 'J') {
+        auto reply = state.toggle_japanese(lease, packet, true, [] { return true; });
+        require(reply.has_value());
+        reply->preference_change = completion;
+        submitted.set_value();
+        return reply;
+      }
+      next_key_used_saved_preferences = state.japanese_toggle_shortcut_enabled();
+      auto reply = state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+      require(reply.has_value());
+      require(reply->source.transition.at("view").value("scheme", 0u) ==
+          (scenario == 2 ? static_cast<unsigned>(scheme::Japanese) : static_cast<unsigned>(scheme::Quanpin)));
+      return reply;
+    }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+  require(pump.run(transport.ticket) == PumpResult::Disconnected);
+  if (writer.valid()) require(writer.get());
+  queue.stop();
+  require(next_key_used_saved_preferences == (scenario != 2));
+  std::optional<FanyImePreferencePipe::Transition> receipt;
+  for (const auto &write : transport.writes) {
+    if (write.first != FanyImePipeRole::ToTsfWorkerThread ||
+        write.second.size() != sizeof(FanyImeNamedpipeDataToTsfWorkerThread)) continue;
+    FanyImeNamedpipeDataToTsfWorkerThread frame{};
+    std::memcpy(&frame, write.second.data(), sizeof(frame));
+    if (const auto decoded = FanyImePreferencePipe::parse(frame); decoded && decoded->request != 0) receipt = decoded;
+  }
+  require(receipt.has_value() == capable);
+  if (capable) {
+    require(transport.writes.size() >= 2);
+    FanyImeNamedpipeDataToTsfWorkerThread before_ready{}, ready{};
+    std::memcpy(&before_ready, transport.writes[0].second.data(), sizeof(before_ready));
+    std::memcpy(&ready, transport.writes[1].second.data(), sizeof(ready));
+    require(FanyImePreferencePipe::parse(before_ready)->request == 0 &&
+        ready.msg_type == FanyImeWorkerReplyType::FocusSessionReady);
+  }
+  if (receipt) require(receipt->revision == (scenario == 2 ? 0 : 42) &&
+      receipt->request == 2 && receipt->focus == 77 && receipt->epoch != 0);
+ }
+}
 void session_pump_tests(const std::string &options) {
+  ordered_preference_pump_tests(options);
   grouped_panel_pump_tests(options);
   // 真实 pump 的主通道：协商后的本地 UI-less 只收到导航意图；旧宿主仍收到候选页。
   for (bool capable : {false, true}) for (bool serverPage : {false, true}) {

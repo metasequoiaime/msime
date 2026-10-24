@@ -2,11 +2,13 @@
 
 #include "../common/InputSchemeTraits.h"
 #include <memory>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 #include <string>
 
 namespace msime::tsf {
 struct HostConfiguration {
+  std::uint64_t revision = 0;
   std::string directory;
   nlohmann::json preferences;
   std::string preferenceSnapshot;

@@ -1,6 +1,8 @@
 #include "ReplyCodec.h"
 #include "../../tsf/Global/PairedPunctuationHostPolicy.h"
 #include "windows_ipc.h"
+#include "preference_transition.h"
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -43,6 +45,14 @@ int main() {
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
     require(frames.size() == 13);
+    config.preference_revision = 42;
+    const auto ordered = tsf_config_frames(config, true);
+    require(ordered.size() == frames.size());
+    require(frame_type(ordered[5]) == FanyImeWorkerReplyType::PreferenceTransition);
+    FanyImeNamedpipeDataToTsfWorkerThread transition{};
+    std::memcpy(&transition, ordered[5].data(), sizeof(transition));
+    require(FanyImePreferencePipe::parse(transition)->revision == 42);
+    require(frame_type(frames[5]) == FanyImeWorkerReplyType::InputModeChanged);
     for (const auto &frame : frames)
       require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
 

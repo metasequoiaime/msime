@@ -2,6 +2,8 @@
 #include "InternalEventFlags.h"
 #include "ipc_negotiation.h"
 #include "PipeMetadata.h"
+#include "preference_transition.h"
+#include <cstring>
 
 namespace msime::windows {
 SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
@@ -55,7 +57,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
     while (auto packet = transport_.read(ticket)) {
       // Never hold this while waiting for client input. Serialize the whole
       // prepare/send/confirm transaction with externally requested selections.
-      std::lock_guard transaction(*transactions_);
+      std::unique_lock transaction(*transactions_);
       if (!valid_main_frame(*packet, ticket.client))
         return PumpResult::DispatchFailed;
       if (packet->event_type == FanyImePipeEventType::KeyEvent &&
@@ -66,9 +68,12 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
            packet->keycode != static_cast<std::uint32_t>(packet->wch - 'a' + 'A')))
         return PumpResult::DispatchFailed;
       FocusRoute route;
+      uint64_t current_preference_revision = 0;
       if (!enqueue([&, ticket, packet = *packet](InputState &state) {
-            if (transport_.current(ticket))
+            if (transport_.current(ticket)) {
               route = state.dispatch(ticket, packet);
+              current_preference_revision = state.preference_revision();
+            }
           }))
         return PumpResult::QueueUnavailable;
       if (!route.accepted)
@@ -104,19 +109,20 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           return PumpResult::DispatchFailed;
         bool sent = false;
         bool attempted = false;
-        if (route.activation) {
-          sent = focus_.acknowledge(*route.route, [&] {
-            attempted = true;
-            return transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread,
-                                   *bytes) == KeyEventSendResult::Sent;
-          });
-        } else {
-          focus_.with_active(*route.route, [&] {
-            attempted = true;
-            sent = transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread,
-                                   *bytes) == KeyEventSendResult::Sent;
-          });
-        }
+        const auto send_ready = [&] {
+          attempted = true;
+          // 新焦点先接收修订要求，再接收可输入的焦点回执，重连不继承旧缓存分类。
+          if (ticket.capabilities & FanyImeProtocol::OrderedPreferences) {
+            const auto frame = FanyImePreferencePipe::encode({current_preference_revision, 0, 0, 0});
+            std::vector<uint8_t> revision_bytes(sizeof(*frame));
+            std::memcpy(revision_bytes.data(), &*frame, sizeof(*frame));
+            if (transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread, revision_bytes) != KeyEventSendResult::Sent)
+              return false;
+          }
+          return transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread, *bytes) == KeyEventSendResult::Sent;
+        };
+        if (route.activation) sent = focus_.acknowledge(*route.route, send_ready);
+        else focus_.with_active(*route.route, [&] { sent = send_ready(); });
         if (!attempted)
           continue; // Ordinary focus displacement is not a broken transport.
         if (!sent)
@@ -198,6 +204,37 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           (reply->encoded &&
            reply->encoded->packet.request_id != packet->request_id))
         return PumpResult::DispatchFailed;
+      std::uint64_t preference_revision = 0;
+      if (reply->preference_change.valid()) {
+        // 文件锁等待只占本管道线程，停止、断连和焦点失效均能中止等待。
+        transaction.unlock();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (reply->preference_change.wait_for(std::chrono::milliseconds(10)) != std::future_status::ready) {
+          if (!input_.stats().accepting || !transport_.current(ticket)) return PumpResult::Disconnected;
+          if (!focus_.with_active(*route.route, [] {})) break;
+          if (std::chrono::steady_clock::now() >= deadline) return PumpResult::DispatchFailed;
+        }
+        transaction.lock();
+        if (!focus_.with_active(*route.route, [] {})) continue;
+        const auto saved = reply->preference_change.get();
+        if (saved && !enqueue([&, value = *saved](InputState &state) {
+              preference_revision = state.publish_preferences_at_least(value).revision();
+            })) return PumpResult::QueueUnavailable;
+      }
+      if ((ticket.capabilities & FanyImeProtocol::OrderedPreferences) &&
+          FanyImeProtocol::IsJapaneseToggleShortcut(packet->keycode, packet->modifiers_down)) {
+        const auto frame = FanyImePreferencePipe::encode({preference_revision,
+            packet->request_id, route.route->token, route.route->epoch});
+        if (!frame) return PumpResult::DispatchFailed;
+        std::vector<std::uint8_t> bytes(sizeof(*frame));
+        std::memcpy(bytes.data(), &*frame, sizeof(*frame));
+        bool sent = false;
+        const bool eligible = focus_.with_active(*route.route, [&] {
+          sent = transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread, bytes) == KeyEventSendResult::Sent;
+        });
+        if (!eligible) continue;
+        if (!sent) return PumpResult::WriteFailed;
+      }
       if (reply->worker) {
         bool sent = false;
         const bool eligible = focus_.with_active(*route.route, [&] {

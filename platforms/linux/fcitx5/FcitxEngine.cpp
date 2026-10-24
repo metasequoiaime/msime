@@ -8481,7 +8481,7 @@ bool FcitxState::renderNativeCanvas() {
       const auto *item = dynamic_cast<const FcitxCandidate *>(&list->candidate(at));
       if (!item) return result;
       for (const auto &[id, text] : candidateMenuActions(*this, *item)) {
-        result.push_back({text, [this, list, at, id] {
+        result.push_back({text, [this, list, at, id = id] {
           const auto &candidate = static_cast<const FcitxCandidate &>(list->candidate(at));
           triggerCandidateMenuAction(*this, candidate, id);
         }});

@@ -127,6 +127,12 @@ public:
   // Snapshot loading happens outside the input queue. Older/conflicting values
   // are rejected; identical publications are safe retries.
   void publish_preferences(const PreferenceSnapshot &snapshot);
+  // 异步读取得到旧修订时复用已经发布的较新快照；同修订冲突仍拒绝。
+  PreferenceSnapshot publish_preferences_at_least(const PreferenceSnapshot &snapshot);
+  uint64_t preference_revision() const {
+    check_thread();
+    return preferences_ ? preferences_->revision() : 0;
+  }
   NavigationBindings navigation_bindings() const {
     check_thread();
     return navigation_;

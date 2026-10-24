@@ -3,6 +3,8 @@
 #include "EditPolicy.h"
 #include "JapaneseSpacePolicy.h"
 #include "ServerSession.h"
+#include "PreferenceSnapshot.h"
+#include <future>
 #include <functional>
 #include <optional>
 #include <vector>
@@ -62,6 +64,8 @@ struct PendingReply {
   std::optional<SegmentRestore> segment_restore;
   bool restoring_segment = false;
   std::optional<NavigationReply> host_navigation = std::nullopt;
+  // 保存线程交给管道线程的结果；只允许后者等待，输入队列继续处理其它任务。
+  std::shared_future<std::optional<PreferenceSnapshot>> preference_change = {};
 };
 // 每个已认证客户端的激活在 Server 输入队列持有一份。
 // 前缀只是送达后的展示镜像，真实会话的选词与撤回由 Runtime 持有；

@@ -2115,6 +2115,8 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             validFrame = hasTerminator && (buf.data[0] == L'0' || buf.data[0] == L'1') && buf.data[1] == L'\0';
         }
         // The mode code is not a boolean: Korean and the schemes after it send '2' and up, which the boolean check above would drop and leave the previous mode keyed.
+        if (validFrame && buf.msg_type == FanyImeWorkerReplyType::PreferenceTransition)
+            validFrame = FanyImePreferencePipe::parse(buf).has_value();
         if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged)
         {
             validFrame = msime::windows::scheme::is_input_mode_payload(buf.data, std::size(buf.data));
@@ -2327,6 +2329,26 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::DedicatedEnglishChanged)
         {
             Global::DedicatedEnglish.server(buf.data[0] == L'1');
+        }
+        else if (buf.msg_type == FanyImeWorkerReplyType::PreferenceTransition)
+        {
+            const auto transition = FanyImePreferencePipe::parse(buf);
+            if (transition) {
+                std::lock_guard<std::mutex> lock(pIME->_pendingCommitCandidateMutex);
+                // 广播只保留最新修订；请求回执必须保留完整身份，不在 worker 改动引擎。
+                auto &pending = pIME->_preferenceTransitions;
+                if (transition->request == 0 && !pending.empty() && pending.back().request == 0) {
+                    if (transition->revision >= pending.back().revision) pending.back() = *transition;
+                } else if (pending.size() < 64) pending.push_back(*transition);
+                else {
+                    pIME->_workerCommitReady.store(false, std::memory_order_release);
+                }
+                pIME->_preferenceNotificationPending.store(true, std::memory_order_release);
+            }
+            if (!PostMessage(pIME->_msgWndHandle, WM_ApplyPreferenceTransition, 0, 0)) {
+                // 窗口消息暂满时保留邮箱，既有偏好定时器仍会消费；不传裸指针。
+                msime::tsf::invalidate_host_configuration();
+            }
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged)
         {
@@ -2568,6 +2590,96 @@ void CMetasequoiaIME::_NoteKeyEventIpcFailure()
 // CMetasequoiaIME_WindowProc
 //
 //----------------------------------------------------------------------------
+bool CMetasequoiaIME::_ApplyHostPreferences(
+    const std::shared_ptr<const msime::tsf::HostConfiguration> &configuration)
+{
+    auto *engine = GetCompositionProcessorEngine();
+    if (!configuration || configuration->revision < _preferenceBarrier.applied() ||
+        configuration->preferenceSnapshot.empty() || !engine || !engine->GetHostEngineAdapter() ||
+        !engine->GetHostEngineAdapter()->valid()) return false;
+    auto *host = engine->GetHostEngineAdapter();
+    const auto hostScheme = [host]() -> int {
+        std::string raw, error;
+        msime::tsf::EngineResult result;
+        return host->view(&raw, &error) &&
+                       msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error)
+                   ? static_cast<int>(result.view.scheme) : -1;
+    };
+    // 切换会结束音节型方案；保留原偏好定时器通过 edit session 上屏的路径。
+    const int composingScheme = _IsComposing() && _pContext ? hostScheme() : -1;
+    std::string ignored, error;
+    if (!host->update_preferences(configuration->preferenceSnapshot, &ignored, &error)) return false;
+    if (msime::windows::scheme::CommitsOnBlur(composingScheme) && hostScheme() != composingScheme &&
+        _IsComposing() && _pContext) {
+        _KEYSTROKE_STATE keyState = {};
+        keyState.Category = CATEGORY_COMPOSING;
+        keyState.Function = FUNCTION_COMMIT_SYLLABLE;
+        (void)_InvokeKeyHandler(_pContext, 0, L'\0', 0, keyState, FANY_IME_NO_REQUEST_ID);
+    }
+    return true;
+}
+
+void CMetasequoiaIME::_PollPreferenceTransition()
+{
+    std::deque<FanyImePreferencePipe::Transition> pending;
+    {
+        std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
+        pending.swap(_preferenceTransitions);
+        _preferenceNotificationPending.store(false, std::memory_order_release);
+    }
+    if (!SupportsOrderedPreferences()) {
+        if (_preferenceBarrier.active()) {
+            _preferenceBarrier.reset();
+            KillTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION);
+            _preferenceTransitionStarted = 0;
+            _ScheduleDeferredKeyDownDrain();
+        }
+        return;
+    }
+    for (const auto &transition : pending) {
+        const bool wasActive = _preferenceBarrier.active();
+        if (_preferenceBarrier.receive(transition, _expectedWorkerFocusToken.load(std::memory_order_acquire)) &&
+            _preferenceBarrier.active() && !wasActive) _preferenceTransitionStarted = GetTickCount64();
+    }
+    if (!_preferenceBarrier.active()) {
+        if (!pending.empty()) _ScheduleDeferredKeyDownDrain();
+        return;
+    }
+    if (_preferenceTransitionStarted == 0) _preferenceTransitionStarted = GetTickCount64();
+    if (GetTickCount64() - _preferenceTransitionStarted >= 2000) {
+        KillTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION);
+        MarkNamedpipeSessionDirtyForOwner(this);
+        return;
+    }
+    SetTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION, 10, nullptr);
+    if (_preferenceBarrier.awaiting_reply() || _wubiCommitOwner.active() || _hasDeferredKeyInFlight) return;
+    const auto configuration = msime::tsf::cached_host_configuration();
+    auto *engine = GetCompositionProcessorEngine();
+    if (!configuration || configuration->revision < _preferenceBarrier.target() ||
+        configuration->preferenceSnapshot.empty() || !engine || !engine->GetHostEngineAdapter() ||
+        !engine->GetHostEngineAdapter()->valid()) {
+        msime::tsf::invalidate_host_configuration();
+        return;
+    }
+    const auto focusGeneration = _deferredKeyFocusGeneration;
+    if (!_ApplyHostPreferences(configuration)) {
+        msime::tsf::invalidate_host_configuration();
+        return;
+    }
+    if (focusGeneration != _deferredKeyFocusGeneration || !_preferenceBarrier.complete(configuration->revision)) return;
+    // 模式必须从刚应用的同一份快照计算，不能再读一次可能已更新的全局缓存。
+    const auto &preferences = configuration->preferences;
+    const auto mode = msime::windows::scheme::input_mode(msime::windows::scheme::effective_scheme(
+        preferences.value("scheme", std::string("quanpin")),
+        preferences.value("last_chinese_scheme", std::string("quanpin")), configuration->dictionaries));
+    Global::InputModeScheme.store(msime::windows::scheme::mode_scheme(mode), std::memory_order_relaxed);
+    Global::InputModeIndicator.store(msime::windows::scheme::input_mode_code(mode), std::memory_order_relaxed);
+    KillTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION);
+    _preferenceTransitionStarted = 0;
+    PostMessage(_msgWndHandle, WM_RefreshLanguageBarTheme, 0, 0);
+    _ScheduleDeferredKeyDownDrain();
+}
+
 LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     CMetasequoiaIME *pIME = (CMetasequoiaIME *)GetWindowLongPtr(hWnd, GWLP_USERDATA);
@@ -2762,10 +2874,17 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         }
         break;
     }
+    case WM_ApplyPreferenceTransition:
+        pIME->_PollPreferenceTransition();
+        break;
     case WM_TIMER: {
         if (wParam == TIMER_PAIRED_PUNCTUATION_CARET)
         {
             pIME->_RunPairedPunctuationCaretMove();
+            break;
+        }
+        if (wParam == TIMER_PREFERENCE_TRANSITION) {
+            pIME->_PollPreferenceTransition();
             break;
         }
         if (wParam == TIMER_REFRESH_HOST_PREFERENCES)
@@ -2773,35 +2892,20 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
             pIME->_PollApplicationKeyReplay();
             pIME->_ConsumeCandidateContinuationFailure();
             pIME->_PollWubiCommit();
+            pIME->_PollPreferenceTransition();
+            if (pIME->_preferenceBarrier.active()) break;
             // 已推进的视图在 worker 恢复余码前不可被偏好刷新换掉。
             if (pIME->_wubiCommitOwner.active()) break;
             msime::tsf::refresh_host_configuration();
             const auto configuration = msime::tsf::cached_host_configuration();
-            auto *engine = pIME->GetCompositionProcessorEngine();
-            if (configuration && engine && engine->GetHostEngineAdapter() && engine->GetHostEngineAdapter()->valid())
-            {
-                auto *host = engine->GetHostEngineAdapter();
-                const auto hostScheme = [host]() -> int {
-                    std::string raw, viewError;
-                    msime::tsf::EngineResult result;
-                    return host->view(&raw, &viewError) &&
-                                   msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &viewError)
-                               ? static_cast<int>(result.view.scheme)
-                               : -1;
-                };
-                // 切换方案会丢弃引擎的组字，但韩文音节、注音转换、越南文词和藏文音节串已经作为文字显示在屏幕上（scheme::CommitsOnBlur）。切换完成后上屏组字显示的内容，否则下一个键会替换掉它。
-                const int composingScheme = pIME->_IsComposing() && pIME->_pContext ? hostScheme() : -1;
-                std::string ignored, error;
-                if (!configuration->preferenceSnapshot.empty())
-                    (void)host->update_preferences(configuration->preferenceSnapshot, &ignored, &error);
-                if (msime::windows::scheme::CommitsOnBlur(composingScheme) && hostScheme() != composingScheme &&
-                    pIME->_IsComposing() && pIME->_pContext)
-                {
-                    _KEYSTROKE_STATE keyState = {};
-                    keyState.Category = CATEGORY_COMPOSING;
-                    keyState.Function = FUNCTION_COMMIT_SYLLABLE;
-                    (void)pIME->_InvokeKeyHandler(pIME->_pContext, 0, L'\0', 0, keyState, FANY_IME_NO_REQUEST_ID);
+            if (SupportsOrderedPreferences()) {
+                if (configuration && configuration->revision > pIME->_preferenceBarrier.applied()) {
+                    pIME->_preferenceBarrier.receive({configuration->revision, 0, 0, 0},
+                        pIME->_expectedWorkerFocusToken.load(std::memory_order_acquire));
+                    pIME->_PollPreferenceTransition();
                 }
+            } else {
+                (void)pIME->_ApplyHostPreferences(configuration);
             }
             break;
         }

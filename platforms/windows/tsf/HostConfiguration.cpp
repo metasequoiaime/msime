@@ -35,8 +35,13 @@ std::shared_ptr<const HostConfiguration> LoadConfiguration(
   if (next->directory.empty()) next->directory = default_state_directory();
   if (next->directory.empty()) return previous;
   if (const auto value = LoadPreferences(next->directory, initial)) {
-    next->preferences = (*value)["preferences"];
-    next->preferenceSnapshot = value->dump();
+    const auto revision = value->find("revision");
+    if (revision != value->end() && revision->is_number_unsigned() &&
+        (!previous || revision->get<std::uint64_t>() >= previous->revision)) {
+      next->revision = revision->get<std::uint64_t>();
+      next->preferences = (*value)["preferences"];
+      next->preferenceSnapshot = value->dump();
+    }
   }
   const auto options = read_prepared_host_options(
       std::filesystem::u8path(next->directory) / L"runtime-options.json");
