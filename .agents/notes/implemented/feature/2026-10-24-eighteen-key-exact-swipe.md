@@ -14,6 +14,8 @@ Android 十八键双拼的双字母键左滑选择左字母，右滑选择右字
 
 精确标记保留在已有组码串里，因此中间插入、删除、锁定前后切换、部分选词及运行时退格恢复继续使用同一串码和既有生命周期。派生表为每个合法两键编码登记整组／精确的组合，精确码只收原方案确实接受的对应字母；拼写列表去重，避免多个编码别名重复显示同一个音节。原有九键和十四键的表不增加精确码。
 
+无候选时的 `CommitRaw`、越界 `finish` 和逐段结束后的无候选余码，在十八键双拼中先原地转为 ASCII 小写再上屏，防止内部精确标记变成用户可见的大写。普通九键仍移动原缓冲，保留其零分配预算。
+
 ## Related decisions
 
 - [十八键双拼](../../implemented/feature/2026-10-24-android-eighteen-key-shuangpin.md)：部分重叠，保留布局、默认值、组码和长按；本篇只增加横滑精确输入。
@@ -40,8 +42,10 @@ Android 十八键双拼的双字母键左滑选择左字母，右滑选择右字
 
 新增纯 Java 触摸状态回归先因缺少 `Gesture` 编译失败，补入实现后通过。设备专项在现有十八键双拼验收中注入真实 `MotionEvent`，包含左右选择、反向重选、取消、回中心、松手单次输入和后续普通点按；多指和长按优先级另由纯状态测试覆盖。标准双拼专项的路由依赖独立 PR #9583；本基点的 `runEighteen` 没有调用方，本次不复制其入口改动。目前尚未运行修复后的 API 28／35 设备验收，本 issue 与 PR 保留此缺口，不因已有点按布局验收而关闭。
 
+收尾自查新增两条合成词库回归，先分别确认无候选 `I` 错误上屏为大写、`NiI` 逐段结束错误上屏为「你I」。修复覆盖直接原文上屏、无候选结束组字及中文后的余码。#9583 已合入 develop，设备验收应覆盖包含该路由修复的集成结果。
+
 ## Verification
 
-最终实现基于 `13931a480c240d6cf092001300af376598876a1a`。完整引擎单测以普通用户运行，2572 项通过、56 项原有 ignored；31 项 golden 通过。Host API 的十八键 6 项及十四键选词回退 1 项通过；精确组码在部分选词后退格恢复为 `Ni`，继续输入保留限定。`msime-engine` 和 `msime-host-api` 的全部 target 严格 Clippy、格式与 diff 检查通过。Android 完整 Java/JNI 宿主门禁通过，包含新增 JVM 状态回归和设备套件编译；这不代表设备执行。
+最终实现基于 `13931a480c240d6cf092001300af376598876a1a`。完整引擎单测以普通用户运行，2574 项通过、56 项原有 ignored；31 项 golden 通过。Host API 的十八键 6 项及十四键选词回退 1 项通过；精确组码在部分选词后退格恢复为 `Ni`，继续输入保留限定。`msime-engine` 和 `msime-host-api` 的全部 target 严格 Clippy、格式与 diff 检查通过。Android 完整 Java/JNI 宿主门禁通过，包含新增 JVM 状态回归和设备套件编译；这不代表设备执行。
 
 容器默认 root 首轮造成 4 项既有权限断言失败；同一二进制改以 `nobody` 运行后全部通过，没有改断言或增加失败基线。完整 quick 首轮的唯一失败是当前基线新增 Windows WebSocket 冒烟与镜像 libcurl 7.88.1 的接口不匹配；其余已运行阶段通过。验证环境使用固定 curl 8.17.0（官方发布包 SHA-256 `955f6e729ad6b3566260e8fef68620e76ba3c31acf0a18524416a185acf77992`），通过 `CPATH`、`LIBRARY_PATH`、`LD_LIBRARY_PATH` 和 `PKG_CONFIG_PATH` 指向该安装后，WebSocket 能力探针与完整 quick 均通过，退出码为 0。Windows 宿主 runner 为 165 项通过、2 项既有宿主差异、102 项需要 Windows 构建、15 份非测试源；Linux 原生宿主、Linux 设置壳、Rust workspace、Android Rust、WASM 与 Android Java/JNI 均通过。macOS、共享 Apple 桥、Windows MinGW／pipe 与 HarmonyOS 真打包因前置条件缺失跳过，不计为平台验收。笔记门禁校验 1846 篇与 4 份归档封印通过。

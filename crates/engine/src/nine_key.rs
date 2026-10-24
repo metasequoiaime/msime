@@ -1048,6 +1048,9 @@ impl NineKeySession {
         let mut index = first_index;
         while self.active() {
             if self.candidates.is_empty() {
+                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                    self.digits.make_ascii_lowercase();
+                }
                 commit.push_str(&self.digits);
                 break;
             }
@@ -1082,7 +1085,11 @@ impl NineKeySession {
                 if !self.grid.offers_raw_key() && !self.candidates.is_empty() {
                     return self.finish(0);
                 }
-                let raw = std::mem::take(&mut self.digits);
+                let mut raw = std::mem::take(&mut self.digits);
+                // 精确字母的大写只是十八键双拼内部标记，兜底上屏仍是小写字母。
+                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                    raw.make_ascii_lowercase();
+                }
                 self.clear_composition();
                 return KeyResult::committed(raw);
             }

@@ -5226,6 +5226,57 @@ fn fourteen_key_shuangpin_separates_touch_groups_from_hardware_letters() {
     assert!(!quanpin.grid_key(b'n').handled);
 }
 
+/// 无候选时仍上屏小写字母，不能泄漏内部精确标记。
+#[test]
+fn eighteen_key_shuangpin_exact_markers_do_not_escape_raw_fallback() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for finish in [false, true] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            options.english.mixed_candidates = false;
+        });
+        let table = crate::nine_key_shuangpin::resolve_eighteen_key_shuangpin(
+            ShuangpinProfileKind::Xiaohe,
+            None,
+        )
+        .unwrap();
+        session.set_key_grid(Some(KeyGrid::EighteenKeyShuangpin(table)));
+        assert!(session.grid_key(b'I').handled);
+        assert!(session.snapshot().candidates.is_empty());
+        let result = if finish {
+            session.finish(0)
+        } else {
+            session.command(Command::CommitRaw)
+        };
+        assert_eq!(result.commit.as_deref(), Some("i"));
+        assert!(session.snapshot().editing_text.is_empty());
+    }
+}
+
+/// 逐段结束中文后，无候选的余码也不能泄漏内部精确标记。
+#[test]
+fn eighteen_key_shuangpin_exact_markers_do_not_escape_finish_tail() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        options.english.mixed_candidates = false;
+    });
+    let table = crate::nine_key_shuangpin::resolve_eighteen_key_shuangpin(
+        ShuangpinProfileKind::Xiaohe,
+        None,
+    )
+    .unwrap();
+    session.set_key_grid(Some(KeyGrid::EighteenKeyShuangpin(table)));
+    for key in b"NiI" {
+        assert!(session.grid_key(*key).handled);
+    }
+    assert_eq!(session.snapshot().candidates[0].word, "你");
+    assert_eq!(session.finish(0).commit.as_deref(), Some("你i"));
+    assert!(session.snapshot().editing_text.is_empty());
+}
+
 /// 横滑的确定字母保留在同一组码串；点按仍可与它交替。
 #[test]
 fn eighteen_key_shuangpin_exact_letters_constrain_the_current_grid() {
