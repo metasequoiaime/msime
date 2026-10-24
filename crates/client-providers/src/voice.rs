@@ -7,6 +7,7 @@
 
 pub mod controller;
 pub mod doubao_frame;
+pub mod hold_key_catalog;
 pub mod hotwords;
 pub mod language_catalog;
 pub mod local_models;

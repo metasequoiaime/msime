@@ -157,6 +157,64 @@ pub unsafe extern "C" fn msime_client_mobile_voice_status(
     })
 }
 
+/// 设置页润色行的状态文案；纯计算，不读取偏好或设备状态。
+#[no_mangle]
+pub extern "C" fn msime_client_mobile_voice_polish_status(
+    enabled: bool,
+    configured: bool,
+    has_token: bool,
+) -> *mut c_char {
+    response(|| {
+        let status = msime_client_providers::voice::provider::mobile_voice_polish_status(
+            enabled, configured, has_token,
+        );
+        Ok(json!({"status": status}))
+    })
+}
+
+/// 设置页语音服务分类和豆包鉴权模式；纯计算，不读取偏好或设备状态。
+///
+/// # Safety
+/// `provider` 与 `auth_mode` 必须分别指向本次调用期间可读的 UTF-8 字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_mobile_voice_policy(
+    provider: *const u8,
+    provider_length: usize,
+    auth_mode: *const u8,
+    auth_mode_length: usize,
+) -> *mut c_char {
+    response(|| unsafe {
+        with_bounded_bytes(
+            provider,
+            provider_length,
+            256,
+            "invalid voice provider policy",
+            |provider_bytes| {
+                with_bounded_bytes(
+                    auth_mode,
+                    auth_mode_length,
+                    256,
+                    "invalid voice provider policy",
+                    |auth_mode_bytes| {
+                        let provider = std::str::from_utf8(provider_bytes)
+                            .map_err(|_| "invalid voice provider policy".to_owned())?;
+                        let auth_mode = std::str::from_utf8(auth_mode_bytes)
+                            .map_err(|_| "invalid voice provider policy".to_owned())?;
+                        let policy =
+                            msime_client_providers::voice::provider::mobile_voice_provider_policy(
+                                provider, auth_mode,
+                            );
+                        Ok(json!({
+                            "network": policy.network,
+                            "legacy_auth": policy.legacy_auth,
+                        }))
+                    },
+                )
+            },
+        )
+    })
+}
+
 #[derive(serde::Deserialize)]
 struct VoiceProviderUpdateRequest {
     service: msime_client_providers::voice::provider_settings::ProviderService,

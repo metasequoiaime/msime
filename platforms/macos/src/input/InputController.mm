@@ -2457,14 +2457,19 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 //
 // 网格不经 View 的分页：打开时经 msime_client_all_candidates 复制一次全部候选，选择时用 msime_client_select_any_candidate 带着复制时的一代，Engine 拒绝过期的一代。每次重画前对照一次当前视图：组字没变而候选换了一代（云候选、AI 回答、整句重排到达）就按新的一代重载，组字变了或这一面不该再有网格（偏好关掉、改成竖排、切到英文、候选列表打开、失焦）就收起，和 Android、iOS 的展开面板一样。
 
-// 这时候能不能展开：偏好打开、横排、正在组字而且不止一页，没有打开候选列表（韩文汉字、注音）或释义页。
-- (BOOL)expandedCandidatesOffered {
+// 网格能否继续显示：偏好打开、横排、没有打开候选列表（韩文汉字、注音）或释义页；新展开入口另外要求多页。
+- (BOOL)expandedCandidatesAllowed {
     if (!_session || !_activeClient || !_appearance.expandCandidates || _appearance.vertical || _appearance.englishMode) return NO;
     if ([self glossSensePageActive] || MSIMECandidateListOpen(_view) || !MSIMEStrictBoolean(_view[@"focused"])) return NO;
     NSAppearance *current = [_appearance candidateAppearanceOverride] ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
     NSString *match = [current bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const auto skin = [_appearance candidateWindowSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]];
     if (skin.expandPanel.has_value() && !*skin.expandPanel) return NO;
+    return YES;
+}
+
+- (BOOL)expandedCandidatesOffered {
+    if (![self expandedCandidatesAllowed]) return NO;
     NSUInteger pageCount = 0;
     return MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount) && pageCount > 1;
 }
@@ -2536,10 +2541,15 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 
 // 打开网格，高亮停在普通候选窗正高亮的那一个上。没有更多候选、或者网格画不出来（光标位置无效）时返回 NO，调用方照旧处理这个键。
 - (BOOL)openExpandedCandidates {
-    if (_expandedCandidates || ![self expandedCandidatesOffered]) return NO;
+    return [self openExpandedCandidatesAfterSelection:NO];
+}
+
+// 部分选词沿用已展开的展示方式，剩一页也不要求用户重新展开。
+- (BOOL)openExpandedCandidatesAfterSelection:(BOOL)afterSelection {
+    if (_expandedCandidates || !(afterSelection ? [self expandedCandidatesAllowed] : [self expandedCandidatesOffered])) return NO;
     NSArray<NSDictionary *> *entries = [self expandedCandidatesFromSnapshot:[_session allCandidatesWithError:nil]];
     NSArray *page = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
-    if (entries.count <= page.count) return NO;
+    if (!entries.count || (!afterSelection && entries.count <= page.count)) return NO;
     const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
     // 没有高亮时停在当前这一页的第一个。
     NSUInteger pageIndex = 0;
@@ -2603,12 +2613,24 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     const BOOL current = MSIMECurrentCandidateIdentity(identifier, _view) && [identifier[@"generation"] isEqual:_expandedGeneration] &&
         MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) &&
         MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &engineIndex);
+    NSNumber *sessionID = _view[@"session"];
     [self discardExpandedCandidates];
     if (!current) { [self renderCandidates]; return; }
     if (pointer) [self reportPointerToLifecycle];
     NSDictionary *selected = [_session selectAnyCandidateGeneration:generation index:engineIndex error:nil];
-    if (selected) [self apply:selected];
-    else [self renderCandidates];
+    if (!selected) { [self renderCandidates]; return; }
+    id client = _activeClient;
+    id session = _session;
+    const uint64_t sequence = _applySequence;
+    [self apply:selected];
+    NSDictionary *nextView = selected[@"view"];
+    // 上屏回调可能重入输入或切换客户端，旧选择不能重新打开已经结束的网格。
+    if (_applySequence == sequence + 1 && _activeClient == client && _session == session &&
+        MSIMEStrictBoolean(selected[@"handled"]) && ![selected[@"commit"] length] &&
+        [nextView[@"session"] isEqual:sessionID] && [_view[@"session"] isEqual:sessionID] &&
+        [nextView[@"editing_text"] length] &&
+        [MSIMEExpandedComposition(_view) isEqual:MSIMEExpandedComposition(nextView)])
+        [self openExpandedCandidatesAfterSelection:YES];
 }
 
 // 普通滚轮保留按行定位；触控板与惯性由 NSScrollView 处理。

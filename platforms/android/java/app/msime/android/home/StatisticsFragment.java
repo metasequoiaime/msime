@@ -24,7 +24,10 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import app.msime.android.NativeClient;
+import app.msime.android.StatisticsAuthenticationPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
@@ -82,6 +85,8 @@ public final class StatisticsFragment extends HomeTabFragment {
     private boolean uploadBusy;
     /** 按键热力图上次选的布局；null 表示还没选过，按数据决定。 */
     @Nullable private Boolean nineKey;
+    private boolean authorized;
+    @Nullable private BiometricPrompt authentication;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -109,7 +114,49 @@ public final class StatisticsFragment extends HomeTabFragment {
             lock.setTint(ThemeColorPolicy.subText(requireContext()));
             footer.setCompoundDrawablesRelative(lock, null, null, null);
         }
-        reload();
+        requestAuthentication();
+    }
+
+    @Override public void onDestroyView() {
+        if (authentication != null) authentication.cancelAuthentication();
+        authentication = null;
+        authorized = false;
+        super.onDestroyView();
+    }
+
+    private void requestAuthentication() {
+        if (authentication != null) return;
+        if (!StatisticsAuthenticationPolicy.requiresAuthentication(authorized)) {
+            reload();
+            return;
+        }
+        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        Context context = requireContext();
+        if (BiometricManager.from(context).canAuthenticate(authenticators)
+                != BiometricManager.BIOMETRIC_SUCCESS) {
+            MsToast.show(context, "这台设备没有可用的系统认证");
+            return;
+        }
+        authentication = new BiometricPrompt(this, ContextCompat.getMainExecutor(context),
+            new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    authentication = null;
+                    authorized = true;
+                    if (getView() != null) reload();
+                }
+
+                @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
+                    authentication = null;
+                    authorized = false;
+                }
+            });
+        BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle("统计页面包含本机输入习惯数据")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        authentication.authenticate(prompt);
     }
 
     /** 记录开关、保留期、刷新和清空：偶尔才改一次，收在菜单里，不占读数字的地方。 */
@@ -153,7 +200,8 @@ public final class StatisticsFragment extends HomeTabFragment {
 
     // 键盘在另一个进程里，这个页面不在眼前时它一直在记。
     @Override protected void onBecameVisible() {
-        reload();
+        authorized = false;
+        requestAuthentication();
     }
 
     private void reload() {

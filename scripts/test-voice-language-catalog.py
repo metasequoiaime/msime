@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import shutil
 import subprocess
@@ -68,6 +69,19 @@ EXPECTED = [
 ]
 
 
+def run_cargo_check(cargo: str) -> None:
+    lock_path = Path(tempfile.gettempdir()) / "msime-contract-cargo.lock"
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        subprocess.run(
+            [cargo, "run", "--quiet", "--locked", "-p", "msime-client-providers",
+             "--example", "export_voice_language_catalog", "--", "--check"],
+            cwd=ROOT,
+            check=True,
+            timeout=120,
+        )
+
+
 def main() -> None:
     if not CATALOG.exists() or not HEADER.exists() or not IOS_CATALOG.exists():
         raise AssertionError("语音语言目录生成物尚未接入")
@@ -79,13 +93,7 @@ def main() -> None:
     if cargo is None:
         print("skipped: 没有 Cargo，跳过语言目录生成器漂移检查")
     else:
-        subprocess.run(
-            [cargo, "run", "--quiet", "--locked", "-p", "msime-client-providers",
-             "--example", "export_voice_language_catalog", "--", "--check"],
-            cwd=ROOT,
-            check=True,
-            timeout=120,
-        )
+        run_cargo_check(cargo)
 
     ui = UI_SOURCE.read_text(encoding="utf-8")
     if 'from "./voice-language-catalog.json"' not in ui:

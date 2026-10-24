@@ -305,6 +305,164 @@ fn concurrent_sessions_in_one_directory_keep_their_own_crashes_and_ends() {
     assert!(!store.end_session_by_id(&fifth.session_id).unwrap());
 }
 
+/// iOS 的 MetricKit 诊断在 App 下次打开时才送到，那时崩溃的键盘进程早已不在：按进程号对回它当时未结束的会话，一次崩溃只得到一条 `crash` 和一条 `session_crash`。
+#[test]
+fn a_diagnosed_crash_belongs_to_the_open_session_of_its_process_once() {
+    let (_directory, store) = store();
+    let ios = |version: &str| TelemetryApp::new("ios", version).unwrap();
+    // 进程 101 展示过两次键盘：第一次正常收起，第二次展示期间崩溃。另一个键盘进程 202 的会话还开着。
+    let ended = store
+        .begin_session_in_process(&ios("0.52.0"), noon(), 101)
+        .unwrap();
+    assert!(store.end_session_by_id(&ended.session_id).unwrap());
+    let crashed = store
+        .begin_session_in_process(&ios("0.52.0"), noon(), 101)
+        .unwrap();
+    let other = store
+        .begin_session_in_process(&ios("0.52.0"), noon(), 202)
+        .unwrap();
+
+    assert_eq!(
+        store
+            .record_diagnosed_crash(
+                Some(101),
+                "Crash exception 10 code 0 signal 6",
+                "0 MSIMEKeyboardExtension + 1"
+            )
+            .unwrap(),
+        DiagnosedCrash::Session
+    );
+    assert!(crashed.crash_record_path.is_file());
+    assert!(!other.crash_record_path.exists());
+    // 同一次崩溃再送一次：保留第一份。
+    assert_eq!(
+        store
+            .record_diagnosed_crash(Some(101), "Crash exception 10 code 0 signal 6", "")
+            .unwrap(),
+        DiagnosedCrash::Duplicate
+    );
+
+    // 进程 303 的键盘弹出时补报，版本是崩溃的那个会话的。
+    let next = store
+        .begin_session_in_process(&ios("0.53.0"), noon(), 303)
+        .unwrap();
+    assert!(next.previous_session_crashed);
+    assert_eq!(next.crashes, 1);
+    // 认领之后同一进程的诊断仍被认出已经报过。
+    assert_eq!(
+        store
+            .record_diagnosed_crash(Some(101), "Crash exception 10 code 0 signal 6", "")
+            .unwrap(),
+        DiagnosedCrash::Duplicate
+    );
+
+    // 进程 404 的信号处理函数已经写下记录，MetricKit 的那份不再写，记录被认领前后都一样。
+    let handled = store
+        .begin_session_in_process(&ios("0.53.0"), noon(), 404)
+        .unwrap();
+    std::fs::write(&handled.crash_record_path, b"Fatal signal SIGSEGV\n").unwrap();
+    assert_eq!(
+        store
+            .record_diagnosed_crash(Some(404), "Crash exception 1 code 0 signal 11", "")
+            .unwrap(),
+        DiagnosedCrash::Duplicate
+    );
+    store
+        .begin_session_in_process(&ios("0.53.0"), noon(), 505)
+        .unwrap();
+    assert_eq!(
+        store
+            .record_diagnosed_crash(Some(404), "Crash exception 1 code 0 signal 11", "")
+            .unwrap(),
+        DiagnosedCrash::Duplicate
+    );
+
+    // 没有未结束会话的进程（App 自身、收起后才被结束的键盘），以及系统强制结束：只报 crash。
+    assert_eq!(
+        store
+            .record_diagnosed_crash(Some(101_000), "Crash exception 10 code 0 signal 6", "")
+            .unwrap(),
+        DiagnosedCrash::Outside
+    );
+    assert_eq!(
+        store
+            .record_diagnosed_crash(
+                None,
+                "Killed exception 10 code 0 signal 9 Namespace RUNNINGBOARD, Code 0xdead10cc",
+                ""
+            )
+            .unwrap(),
+        DiagnosedCrash::Outside
+    );
+    let last = store
+        .begin_session_in_process(&ios("0.53.0"), noon(), 606)
+        .unwrap();
+    assert!(!last.previous_session_crashed);
+    assert_eq!(last.crashes, 2);
+
+    let queue = store.queued().unwrap();
+    let session_crashes: Vec<_> = queue
+        .iter()
+        .filter(|event| event.kind == TelemetryKind::SessionCrash)
+        .map(|event| (event.id.clone(), event.version.clone()))
+        .collect();
+    assert_eq!(
+        session_crashes,
+        [
+            (
+                format!("session-{}", crashed.session_id),
+                "0.52.0".to_owned()
+            ),
+            (
+                format!("session-{}", handled.session_id),
+                "0.53.0".to_owned()
+            ),
+        ]
+    );
+    let crashes: Vec<_> = queue
+        .iter()
+        .filter(|event| event.kind == TelemetryKind::Crash)
+        .map(|event| event.message.as_str())
+        .collect();
+    assert_eq!(crashes.len(), 4);
+    assert!(crashes.contains(&"Crash exception 10 code 0 signal 6"));
+    assert!(crashes.contains(&"Fatal signal SIGSEGV"));
+    assert!(crashes
+        .contains(&"Killed exception 10 code 0 signal 9 Namespace RUNNINGBOARD, Code 0xdead10cc"));
+    assert!(queue
+        .iter()
+        .any(|event| event.id == format!("crash-{}", crashed.session_id)));
+}
+
+#[test]
+fn a_diagnosed_crash_takes_the_newest_session_of_a_reused_process_id() {
+    let (_directory, store) = store();
+    // 进程 7 的会话被 SIGKILL 结束、只留下标记；进程号之后被新的键盘进程重用。
+    let killed = store.begin_session_in_process(&app(), noon(), 7).unwrap();
+    let later = store
+        .begin_session_in_process(&app(), noon() + Duration::from_secs(60), 7)
+        .unwrap();
+    assert_eq!(
+        store
+            .record_diagnosed_crash(Some(7), "SIGSEGV", "")
+            .unwrap(),
+        DiagnosedCrash::Session
+    );
+    assert!(later.crash_record_path.is_file());
+    assert!(!killed.crash_record_path.exists());
+}
+
+#[test]
+fn clear_forgets_the_crashed_processes() {
+    let (_directory, store) = store();
+    let start = store.begin_session_in_process(&app(), noon(), 9).unwrap();
+    std::fs::write(&start.crash_record_path, b"SIGSEGV\n").unwrap();
+    store.begin_session_in_process(&app(), noon(), 10).unwrap();
+    assert_eq!(store.read_state().crashed_processes, [9]);
+    store.clear().unwrap();
+    assert!(store.read_state().crashed_processes.is_empty());
+}
+
 #[test]
 fn a_marker_left_by_an_older_version_is_still_closed_by_its_crash_record() {
     let (_directory, store) = store();

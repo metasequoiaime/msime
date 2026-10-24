@@ -408,6 +408,22 @@ public final class NativeClient {
             modelReady, runtimeReady));
     }
 
+    /** 语音润色设置行的共享状态文案；纯计算，不读写偏好。 */
+    public static String mobileVoicePolishStatus(boolean enabled, boolean configured,
+            boolean hasToken) {
+        return TextPolicy.utf8(mobileVoicePolishStatusRaw(enabled, configured, hasToken));
+    }
+
+    /** 共享语音设置的服务分类和豆包鉴权模式；纯计算，不读写偏好。 */
+    public static String mobileVoicePolicy(String provider, String authMode) {
+        if (provider == null || authMode == null || !TextPolicy.validUnicode(provider)
+                || !TextPolicy.validUnicode(authMode) || provider.length() > 256
+                || authMode.length() > 256 || TextPolicy.utf8Length(provider) > 256
+                || TextPolicy.utf8Length(authMode) > 256)
+            throw new IllegalArgumentException("Invalid voice provider policy");
+        return TextPolicy.utf8(mobileVoicePolicyRaw(utf8(provider), utf8(authMode)));
+    }
+
     /** 共享语音服务与豆包流式接口目录；纯计算，不读写偏好、不联网。 */
     public static String voiceProviderCatalog() { return TextPolicy.utf8(voiceProviderCatalogRaw()); }
     public static String aiProviderCatalog() { return TextPolicy.utf8(aiProviderCatalogRaw()); }
@@ -1016,6 +1032,9 @@ public final class NativeClient {
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] mobileVoiceStatusRaw(byte[] provider, boolean resolved,
         boolean platformAvailable, boolean modelReady, boolean runtimeReady);
+    private static native byte[] mobileVoicePolishStatusRaw(boolean enabled, boolean configured,
+        boolean hasToken);
+    private static native byte[] mobileVoicePolicyRaw(byte[] provider, byte[] authMode);
     private static native byte[] voiceProviderCatalogRaw();
     private static native byte[] aiProviderCatalogRaw();
     private static native byte[] aiProviderUpdateRaw(byte[] request);

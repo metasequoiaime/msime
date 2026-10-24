@@ -21,12 +21,32 @@ public final class VoiceProviderPolicy {
 
     /** 要联网、要密钥的服务：除系统识别和本地模型以外的全部。 */
     public static boolean network(String provider) {
-        return provider != null && !provider.isEmpty() && !SYSTEM.equals(provider) && !LOCAL.equals(provider);
+        return parsePolicyField(policy(provider, ""), "network");
     }
 
     /** 豆包旧版鉴权要另填 App ID；其他模式和服务只要一个密钥。 */
     public static boolean legacyAuth(String mode) {
-        return AUTH_LEGACY.equals(mode == null ? "" : mode.trim());
+        return parsePolicyField(policy("", mode), "legacy_auth");
+    }
+
+    private static String policy(String provider, String mode) {
+        try {
+            return NativeClient.mobileVoicePolicy(provider == null ? "" : provider,
+                mode == null ? "" : mode);
+        } catch (IllegalArgumentException | LinkageError error) {
+            return null;
+        }
+    }
+
+    /** 只接受共享层成功信封中的严格布尔字段；桥接失败安全地回落为 false。 */
+    static boolean parsePolicyField(String response, String field) {
+        try {
+            JSONObject value = response == null ? null : JsonPolicy.objectValue(new JSONObject(response));
+            return value != null && value.has(field)
+                && Boolean.TRUE.equals(JsonPolicy.strictBoolean(value.opt(field)));
+        } catch (JSONException error) {
+            return false;
+        }
     }
 
     /** 密钥、App ID 能不能存：规则由共享 Rust 预检，桥接失败时拒绝保存。 */
@@ -118,7 +138,7 @@ public final class VoiceProviderPolicy {
     }
 
     /** 只解析共享层成功信封，拒绝缺字段、错误类型和无界文本。 */
-    private static String parseStatus(String response) {
+    static String parseStatus(String response) {
         try {
             JSONObject value = response == null ? null : JsonPolicy.objectValue(new JSONObject(response));
             if (value == null || !value.has("status") || value.isNull("status")) return null;
