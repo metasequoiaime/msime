@@ -122,6 +122,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
     ImeWorldClock imeWorldClock;
+    ImeOcr imeOcr;
     ImePanels imePanels;
     ImeLetterRows imeLetterRows;
     ImeGlideTyping imeGlideTyping;
@@ -1553,6 +1554,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
+        // restart 保留组字也属于新的焦点边界，旧照片和识别回调不能跨过去。
+        if (imeOcr != null && imeOcr.active()) closeMoreTools();
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
@@ -1694,6 +1697,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
         imeWorldClock = new ImeWorldClock(this);
+        imeOcr = new ImeOcr(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
         imeGlideTyping = new ImeGlideTyping(this);
@@ -1836,6 +1840,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        if (imeOcr != null && imeOcr.active()) closeMoreTools();
         operationNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
@@ -1853,6 +1858,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (!finishingInput) finishInputViewPresentation();
         super.onFinishInputView(finishingInput);
+    }
+
+    @Override public void onWindowHidden() {
+        if (imeOcr != null && imeOcr.active()) closeMoreTools();
+        super.onWindowHidden();
     }
 
     @Override public void onWindowShown() {
@@ -1959,8 +1969,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         if (imeWorldClock != null) imeWorldClock.close();
+        if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
         if (inlineAutofill != null) inlineAutofill.finishInput();
@@ -2094,6 +2106,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
     private void stop(boolean finish, boolean keepMoreTools) {
         if (imeWorldClock != null) imeWorldClock.close();
+        if (imeOcr != null) imeOcr.close();
         imeCompositionEditor.close();
         pendingEngineStartup = -1;
         pendingRuntimeBootstrap = null;
@@ -5906,6 +5919,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     void closeMoreTools() {
         if (imeWorldClock != null) imeWorldClock.close();
+        if (imeOcr != null) imeOcr.close();
         localInputToolsOpen = false;
         aiAssistChooserOpen = false;
         if (moreToolsScroll != null) ViewPolicy.hide(moreToolsScroll);

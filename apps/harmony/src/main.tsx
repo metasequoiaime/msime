@@ -132,6 +132,8 @@ interface NativeBridge {
   dictionary(action: string): string;
   /** 只计算九键双拼键位和错误，不读写偏好。 */
   nineKeyShuangpinLayout(request: string): string;
+  /** 昵称草稿的共享纯计算，不读取登录会话。 */
+  accountName(request: string): string;
   cloudDictionaryDownload(entry: string): string;
   typingStatistics(action: string): string;
   /**
@@ -619,6 +621,10 @@ function accountClient(native: NativeBridge): AccountClient {
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
   return {
     status: () => request<{ user: AccountUser | null }>({ operation: "status" }),
+    namePresentation: async (name, id = "") => {
+      if (typeof native.accountName !== "function") throw { code: "account_unavailable" };
+      return unwrap(native.accountName(JSON.stringify({ name, id })));
+    },
     providers: () => request<AccountProviders>({ operation: "providers" }),
     requestCode: (provider, target) =>
       request<AccountChallenge>({ operation: "request_code", provider, target }),

@@ -681,6 +681,11 @@ public final class NativeClient {
         return TextPolicy.utf8(testApiCredentialRaw(utf8(requestJson)));
     }
 
+    /** 只读校验固定资源包的完整内容：请求 {@code {"state_root","pack"}}，只在工作线程上调用。 */
+    public static String resourcePackVerify(String requestJson) {
+        return TextPolicy.utf8(resourcePackVerifyRaw(utf8(requestJson)));
+    }
+
     /** 把升级前已解压在本机的文件收编为资源包：请求 {@code {"state_root","pack","source"}}。要哈希整组文件，只在主进程的工作线程上调用。 */
     public static String resourcePackAdopt(String requestJson) {
         return TextPolicy.utf8(resourcePackAdoptRaw(utf8(requestJson)));
@@ -1067,6 +1072,7 @@ public final class NativeClient {
     private static native byte[] resourcePacksRaw(byte[] request);
     private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
     private static native void resourcePackCancelRaw(byte[] pack);
+    private static native byte[] resourcePackVerifyRaw(byte[] request);
     private static native byte[] resourcePackAdoptRaw(byte[] request);
     private static native byte[] testVoiceCredentialRaw(byte[] request);
     private static native byte[] customTranslationHttpRequestRaw(byte[] request);

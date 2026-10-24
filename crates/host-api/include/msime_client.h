@@ -644,6 +644,8 @@ char *msime_client_resource_pack_install(const uint8_t *request, size_t length,
                                          void *context);
 void msime_client_resource_pack_cancel(const uint8_t *pack, size_t length);
 char *msime_client_resource_pack_remove(const uint8_t *request, size_t length);
+/* 重新校验资源包的全部固定文件，不写入：{state_root, pack} -> {path}。 */
+char *msime_client_resource_pack_verify(const uint8_t *request, size_t length);
 char *msime_client_resource_pack_adopt(const uint8_t *request, size_t length);
 /* 自定义翻译请求描述器（不做网络 I/O）：api.deepl.com / api-free.deepl.com 用 DeepL v2 格式（DeepL-Auth-Key 鉴权、text 数组，没有密钥时报错），其他地址用 DeepLX 兼容格式。Request <=16 KiB:
  * {config:{enabled,endpoint,api_key},text,source_language,target_language}.

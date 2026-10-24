@@ -364,7 +364,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | 平台 | 组件 | 许可 |
 | --- | --- | --- |
 | Android | `com.google.mlkit:digital-ink-recognition:19.0.0` | **Google 的 ML Kit 服务条款，不是开源许可证** |
-| Android OCR 隔离试验（不进入基础包） | `com.google.mlkit:text-recognition-chinese:16.0.1`（含中文及拉丁文字模型） | **Google 的 ML Kit 服务条款，不是开源许可证**；试验范围与通知在 `platforms/android/gradle-app/ocr-module/src/main/assets/MSIME-OCR-NOTICE.txt`，正式资源包的依赖通知与分发检查尚未完成 |
+| Android OCR 可选模块（未正式提供，不进入基础包） | `com.google.mlkit:text-recognition-chinese:16.0.1`（含中文及拉丁文字模型） | **Google 的 ML Kit 服务条款，不是开源许可证**；探针与原生产品合成验收的范围、通知在 `platforms/android/gradle-app/ocr-module/src/main/assets/MSIME-OCR-NOTICE.txt`，正式资源包的依赖通知与分发检查尚未完成 |
 | Android | AndroidX、`com.google.android.material` | Apache-2.0 |
 | Android | `io.noties.markwon:core:4.6.2`（“设置”页公告正文的 Markdown）及其依赖 `com.atlassian.commonmark:commonmark:0.13.0` | Markwon 为 Apache-2.0，commonmark-java 为 BSD-2-Clause |
 | Android | vcpkg 提供的 nlohmann/json（原生库，清单在 `platforms/android/vcpkg.json`） | MIT |

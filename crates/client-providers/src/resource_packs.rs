@@ -2,14 +2,16 @@
 //!
 //! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
 //!
-//! 锁文件还没有固定内容的资源包（[`ResourcePack::pinned`] 为假，目前只可能是 macOS 语音运行库在第一次发布之前）不存在：[`ResourcePack::from_id`] 认不出它，[`list`] 不列出它，安装、导入和收编都报 `local_model_unknown`。
+//! 锁文件还没有固定内容的资源包（[`ResourcePack::pinned`] 为假，包括 macOS 语音运行库和 Android OCR 模块在第一次发布之前）不存在：[`ResourcePack::from_id`] 认不出它，[`list`] 不列出它，安装、导入和收编都报 `local_model_unknown`。
 
 use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS, ON_DEMAND_WUBI_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::OnceLock;
@@ -82,6 +84,97 @@ pub enum ResourcePack {
     Wubi,
     /// macOS 上本地语音识别加载的 `libsherpa-onnx-c-api.dylib`（universal），取自 `resources/voice-runtime-macos.lock.json` 固定的、用本项目 Developer ID 重签过的归档。锁文件还没固定归档时不存在，见 [`ResourcePack::pinned`]。
     MacosVoiceRuntime,
+    /// 用户手动导入的 Android 离线 OCR 模块；尚未固定正式产物时不可用。
+    #[serde(rename = "ocr-module-android")]
+    AndroidOcrModule,
+}
+
+/// 模块清单和接口版本都编译进宿主，文件选择器不能提供自己的信任清单。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AndroidOcrModuleLock {
+    source_commit: String,
+    interface_version: u32,
+    abis: Vec<String>,
+    artifact: Option<crate::resources::Artifact>,
+}
+
+/// 已审计的模块在安装目录中的固定文件名，宿主不能加载任意 APK。
+pub const ANDROID_OCR_MODULE_FILE: &str = "msime-ocr-v1.apk";
+
+fn android_ocr_module_set() -> &'static ResourceSet {
+    static SET: OnceLock<ResourceSet> = OnceLock::new();
+    SET.get_or_init(|| {
+        let lock: AndroidOcrModuleLock = serde_json::from_str(include_str!(
+            "../../../resources/ocr-module-android.lock.json"
+        ))
+        .expect("Android OCR module lock is valid");
+        assert_eq!(lock.interface_version, 1);
+        assert_eq!(lock.abis, ["arm64-v8a", "x86_64"]);
+        if let Some(artifact) = &lock.artifact {
+            assert_eq!(artifact.name, ANDROID_OCR_MODULE_FILE);
+            assert!(artifact.size <= 128 * 1024 * 1024);
+        }
+        let set = ResourceSet {
+            source_commit: lock.source_commit,
+            artifacts: lock.artifact.into_iter().collect(),
+        };
+        if !set.artifacts.is_empty() {
+            set.validate()
+                .expect("Android OCR module artifact is valid");
+        }
+        set
+    })
+}
+
+/// 加载可执行资源前重新校验完整字节，不信任可被替换的安装状态清单。
+/// 只读、不补文件、不修权限，必须在工作线程调用。
+pub fn verify_installed(state_root: &Path, pack: ResourcePack) -> Result<PathBuf, LocalModelError> {
+    if !pack.pinned() {
+        return Err(LocalModelError::UnknownModel);
+    }
+    let directory = published_directory(state_root, pack).ok_or(LocalModelError::InvalidRoot)?;
+    verify_artifacts(&directory, pack.set())?;
+    Ok(directory)
+}
+
+fn verify_artifacts(directory: &Path, set: &ResourceSet) -> Result<(), LocalModelError> {
+    set.validate().map_err(|_| LocalModelError::InvalidRoot)?;
+    for artifact in &set.artifacts {
+        let mut input = crate::storage::open_private_file_in(&directory.join(&artifact.name))
+            .map_err(|_| LocalModelError::InvalidRoot)?;
+        if input
+            .metadata()
+            .map_err(|_| LocalModelError::InvalidRoot)?
+            .len()
+            != artifact.size
+        {
+            return Err(LocalModelError::InvalidRoot);
+        }
+        let mut hash = Sha256::new();
+        let mut remaining = artifact.size;
+        let mut buffer = [0; 8192];
+        while remaining > 0 {
+            let limit = remaining.min(buffer.len() as u64) as usize;
+            let n = input
+                .read(&mut buffer[..limit])
+                .map_err(|_| LocalModelError::InvalidRoot)?;
+            if n == 0 {
+                return Err(LocalModelError::InvalidRoot);
+            }
+            hash.update(&buffer[..n]);
+            remaining -= n as u64;
+        }
+        if input
+            .read(&mut buffer[..1])
+            .map_err(|_| LocalModelError::InvalidRoot)?
+            != 0
+            || !hex::encode(hash.finalize()).eq_ignore_ascii_case(&artifact.sha256)
+        {
+            return Err(LocalModelError::InvalidRoot);
+        }
+    }
+    Ok(())
 }
 
 /// 手写模型锁文件多一个说明来源的 `source` 字段，所以这里不拒绝未知字段，只取安装需要的两项。
@@ -162,7 +255,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 12] = [
+    pub const ALL: [ResourcePack; 13] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -175,6 +268,7 @@ impl ResourcePack {
         ResourcePack::VoiceRuntime,
         ResourcePack::Wubi,
         ResourcePack::MacosVoiceRuntime,
+        ResourcePack::AndroidOcrModule,
     ];
 
     /// 锁文件固定了内容、可以下载的资源包，顺序同 [`ResourcePack::ALL`]。
@@ -186,6 +280,7 @@ impl ResourcePack {
     pub fn pinned(self) -> bool {
         match self {
             ResourcePack::MacosVoiceRuntime => macos_voice_runtime().is_some(),
+            ResourcePack::AndroidOcrModule => android_ocr_module_set().artifacts.len() == 1,
             ResourcePack::GrammarBaishuang => false,
             _ => true,
         }
@@ -205,6 +300,7 @@ impl ResourcePack {
             ResourcePack::VoiceRuntime => "voice-runtime",
             ResourcePack::Wubi => "wubi",
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
+            ResourcePack::AndroidOcrModule => "ocr-module-android",
         }
     }
 
@@ -238,7 +334,8 @@ impl ResourcePack {
             | ResourcePack::GrammarBaishuang
             | ResourcePack::OfflineGlosses
             | ResourcePack::VoiceRuntime
-            | ResourcePack::MacosVoiceRuntime => &[],
+            | ResourcePack::MacosVoiceRuntime
+            | ResourcePack::AndroidOcrModule => &[],
         }
     }
 
@@ -277,6 +374,9 @@ impl ResourcePack {
 
     /// 该资源包固定的文件清单，取自仓库内的锁文件。从归档取出的文件（[`ResourcePack::archive`]），URL 记的是归档的地址，长度和 SHA-256 是取出后文件本身的。
     pub fn set(self) -> &'static ResourceSet {
+        if self == ResourcePack::AndroidOcrModule {
+            return android_ocr_module_set();
+        }
         static SETS: OnceLock<[ResourceSet; 11]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
@@ -346,7 +446,9 @@ impl ResourcePack {
             ResourcePack::OfflineGlosses => &sets[8],
             ResourcePack::VoiceRuntime => &sets[9],
             ResourcePack::Wubi => &sets[10],
-            ResourcePack::MacosVoiceRuntime => unreachable!("handled above"),
+            ResourcePack::MacosVoiceRuntime | ResourcePack::AndroidOcrModule => {
+                unreachable!("handled above")
+            }
         }
     }
 
@@ -693,7 +795,8 @@ pub fn install(
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
-    if !pack.pinned() {
+    // OCR 是用户手动导入的可执行模块，不提供自动下载入口。
+    if !pack.pinned() || pack == ResourcePack::AndroidOcrModule {
         return Err(LocalModelError::UnknownModel);
     }
     if let Some(archive) = pack.archive() {
@@ -860,6 +963,73 @@ mod tests {
         symlink(root(outside.path()), root(linked_root.path())).unwrap();
         assert!(!remove(linked_root.path(), pack).unwrap());
         assert!(published.exists());
+    }
+
+    #[test]
+    fn an_unpublished_ocr_module_cannot_be_listed_installed_or_verified() {
+        let pack = ResourcePack::AndroidOcrModule;
+        if pack.pinned() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        assert!(ResourcePack::from_id(pack.id()).is_none());
+        assert!(!list(dir.path()).iter().any(|entry| entry.id == pack.id()));
+        assert!(matches!(
+            verify_installed(dir.path(), pack),
+            Err(LocalModelError::UnknownModel)
+        ));
+        assert!(matches!(
+            import(dir.path(), pack, &[], &mut |_| {}, &AtomicBool::new(false)),
+            Err(LocalModelError::UnknownModel)
+        ));
+        assert!(!root(dir.path()).exists());
+    }
+
+    fn synthetic_executable_set() -> ResourceSet {
+        ResourceSet {
+            source_commit: "a".repeat(40),
+            artifacts: vec![crate::resources::Artifact {
+                name: ANDROID_OCR_MODULE_FILE.to_owned(),
+                url: "https://example.test/synthetic.apk".to_owned(),
+                size: 9,
+                sha256: hex::encode(Sha256::digest(b"synthetic")),
+            }],
+        }
+    }
+
+    #[test]
+    fn executable_verification_reads_bytes_instead_of_trusting_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let set = synthetic_executable_set();
+        let path = dir.path().join(ANDROID_OCR_MODULE_FILE);
+        fs::write(&path, b"synthetic").unwrap();
+        verify_artifacts(dir.path(), &set).unwrap();
+        // 长度相同的篡改也必须失败，不能只看长度或安装清单。
+        fs::write(&path, b"tampered!").unwrap();
+        assert!(verify_artifacts(dir.path(), &set).is_err());
+        fs::write(&path, b"synthetic-extra").unwrap();
+        assert!(verify_artifacts(dir.path(), &set).is_err());
+        fs::write(&path, b"short").unwrap();
+        assert!(verify_artifacts(dir.path(), &set).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_verification_rejects_file_and_parent_symlinks() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let set = synthetic_executable_set();
+        fs::write(outside.path().join(ANDROID_OCR_MODULE_FILE), b"synthetic").unwrap();
+        symlink(
+            outside.path().join(ANDROID_OCR_MODULE_FILE),
+            dir.path().join(ANDROID_OCR_MODULE_FILE),
+        )
+        .unwrap();
+        assert!(verify_artifacts(dir.path(), &set).is_err());
+        let parent = dir.path().join("linked");
+        symlink(outside.path(), &parent).unwrap();
+        assert!(verify_artifacts(&parent, &set).is_err());
     }
 
     #[test]

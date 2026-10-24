@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -31,6 +32,7 @@ function client(overrides: Partial<AccountClient>): AccountClient {
     requestCode: vi.fn().mockResolvedValue({ challengeId: "synthetic-challenge", expiresIn: 300 }),
     login: vi.fn().mockResolvedValue({ user }),
     profile: vi.fn().mockResolvedValue({ user, providers: ["google"] }),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),

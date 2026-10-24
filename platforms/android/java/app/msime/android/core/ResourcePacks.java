@@ -23,6 +23,7 @@ public final class ResourcePacks {
     public static final String JAPANESE = "japanese";
     public static final String LANGUAGE_DICTIONARIES = "language-dictionaries";
     public static final String OFFLINE_GLOSSES = "offline-glosses";
+    public static final String OCR_MODULE = "ocr-module-android";
     public static final String VOICE_RUNTIME = "voice-runtime";
 
     /** 不联网安装时用户要自己下载的一个文件：上游文件名、下载地址和长度。资源包和本地语音模型共用。 */
@@ -154,6 +155,8 @@ public final class ResourcePacks {
     public static File install(Context context, String id, List<String> sources, List<String> files,
             NativeClient.ResourcePackProgress progress) throws Failure {
         requireInstallerThread(context);
+        if (OCR_MODULE.equals(id) && (AppVersionPolicy.playDistribution() || files == null))
+            throw new Failure("ocr_module_import_only");
         try {
             JSONObject request = new JSONObject()
                 .put("state_root", stateRoot(context.getFilesDir()).getAbsolutePath())
@@ -166,8 +169,12 @@ public final class ResourcePacks {
             }
             if (mirrors.length() > 0) request.put("sources", mirrors);
             if (files != null) request.put("files", new JSONArray(files));
-            return new File(value(NativeClient.resourcePackInstall(request.toString(), progress))
+            File directory = new File(value(NativeClient.resourcePackInstall(request.toString(), progress))
                 .getJSONObject("value").getString("path"));
+            // 共享层先校验并整体发布，主进程最后封为只读；输入法拒绝加载未完成封存的文件。
+            if (OCR_MODULE.equals(id) && !new File(directory, "msime-ocr-v1.apk").setReadOnly())
+                throw new Failure("ocr_module_permissions");
+            return directory;
         } catch (JSONException error) {
             throw new Failure("invalid resource pack response");
         }

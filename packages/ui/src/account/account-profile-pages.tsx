@@ -80,7 +80,7 @@ export function MobileAccountProfilePage({
     perform,
     onClearedExpired: onSignedOut,
   });
-  const { normalizedName, validName, rename } = useAccountRename({
+  const { normalizedName, validName, rename, editorState } = useAccountRename({
     client,
     name,
     mounted,
@@ -127,6 +127,7 @@ export function MobileAccountProfilePage({
       <section className={`${account.section} ${account.stack}`}>
         <h2 className={account.heading}>社区昵称</h2>
         <AccountNicknameEditor
+          {...editorState}
           variant="mobile"
           value={name}
           disabled={busy}
@@ -200,7 +201,7 @@ export function HarmonyProfilePage({
     onDeleted: (voiceSamplesKept) =>
       onSignedOut(voiceSamplesKept ? ACCOUNT_DELETED_VOICE_SAMPLES_KEPT : "账号已注销"),
   });
-  const { normalizedName, validName, rename } = useAccountRename({
+  const { normalizedName, validName, rename, editorState } = useAccountRename({
     client,
     name,
     mounted,
@@ -271,6 +272,7 @@ export function HarmonyProfilePage({
         >
           <div className={account.sheetField}>
             <AccountNicknameEditor
+              {...editorState}
               variant="sheet"
               value={name}
               disabled={busy}

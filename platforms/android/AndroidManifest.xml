@@ -2,6 +2,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 用户打开拍照识字时才通过独立设置页申请，不要求设备具备相机。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- 关于页「检查更新」下载安装包后交给系统安装器。 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -39,6 +43,7 @@
         <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity android:name="app.msime.android.OcrSetupActivity" android:exported="false" android:label="拍照识字设置" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="app.msime.android.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
         <activity android:name="app.msime.android.OfflineVoiceRecognitionActivity" android:label="水杉离线语音输入" android:exported="true" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar">
             <intent-filter>
@@ -50,6 +55,15 @@
         <service android:name="app.msime.android.home.UpdateJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 按需资源包下载：只由用户操作启动，跑在主进程（不设 android:process），:ime 进程从不安装资源包。 -->
         <service android:name="app.msime.android.ResourcePackService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <!-- 隔离 OCR 使用 SDK 的公开组件发现；这里只声明组件名，不把 OCR 依赖带入基础包。
+             当前类加载器没有对应组件时，SDK 按其发现协议忽略该项，手写组件仍由原依赖声明。 -->
+        <service android:name="com.google.mlkit.common.internal.MlKitComponentDiscoveryService"
+            android:exported="false">
+            <meta-data android:name="com.google.firebase.components:com.google.mlkit.vision.common.internal.VisionCommonRegistrar"
+                android:value="com.google.firebase.components.ComponentRegistrar" />
+            <meta-data android:name="com.google.firebase.components:com.google.mlkit.vision.text.internal.TextRegistrar"
+                android:value="com.google.firebase.components.ComponentRegistrar" />
+        </service>
         <service android:name="app.msime.android.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />

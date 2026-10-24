@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsAccountPage, type AccountClient, type SettingsAccountPageProps } from "@msime/ui";
@@ -20,6 +21,7 @@ function account(): AccountClient {
     requestCode: vi.fn(),
     login: vi.fn(),
     profile: vi.fn().mockResolvedValue({ user, providers: [] }),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),

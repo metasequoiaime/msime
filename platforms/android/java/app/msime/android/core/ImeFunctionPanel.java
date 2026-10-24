@@ -41,6 +41,7 @@ final class ImeFunctionPanel {
 
     void renderMoreTools() {
         if (s.moreToolsPanel == null) return;
+        if (s.imeOcr != null && s.imeOcr.active()) return;
         if (s.imeWorldClock != null && s.imeWorldClock.active()) {
             s.imeWorldClock.render();
             return;
@@ -137,6 +138,9 @@ final class ImeFunctionPanel {
             case SETTINGS -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.SETTINGS, () -> host(null), null),
                 FunctionPanelView.State.NONE, true);
+            case OCR -> add(entries, states, enabled,
+                glyph(item, "照", s.imeOcr::open),
+                FunctionPanelView.State.NONE, s.connection != null && !AppVersionPolicy.playDistribution());
             case WORLD_CLOCK -> add(entries, states, enabled,
                 glyph(item, "◷", s.imeWorldClock::open),
                 FunctionPanelView.State.NONE, s.connection != null);

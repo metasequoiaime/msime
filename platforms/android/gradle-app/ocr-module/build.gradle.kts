@@ -16,6 +16,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // 原生库直接从只读 APK 映射，输入法进程不解压可执行文件。
+    packaging { jniLibs.useLegacyPackaging = false }
     sourceSets.getByName("debug").java.srcDir(rootDir.resolve("ocr-fixture"))
     lint { checkOnly += "NewApi"; abortOnError = true }
 }

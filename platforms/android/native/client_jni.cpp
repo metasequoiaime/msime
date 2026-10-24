@@ -1264,6 +1264,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudSyncRaw(JN
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePacksRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_packs);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackVerifyRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_pack_verify);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackAdoptRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_pack_adopt);
 }

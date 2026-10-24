@@ -20,7 +20,7 @@ public final class FunctionPanelModel {
         KEYBOARD_HEIGHT, SETTINGS,
         KEY_SOUND, VIBRATION, ONE_HAND, PRIVACY, FEEDBACK, ABOUT, WEBSITE, AI_ASSIST, LOCAL_INPUT,
         VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT, COPY_DEVICE_INFO,
-        PROMOTION, TOOLBAR_EDITOR, WORLD_CLOCK
+        PROMOTION, TOOLBAR_EDITOR, WORLD_CLOCK, OCR
     }
 
     /**
@@ -60,7 +60,8 @@ public final class FunctionPanelModel {
         action(Id.ABOUT, "关于"),
         action(Id.EMOJI, "表情"),
         action(Id.CLIPBOARD, "剪贴板历史"),
-        action(Id.WORLD_CLOCK, "世界时钟"));
+        action(Id.WORLD_CLOCK, "世界时钟"),
+        action(Id.OCR, "拍照识字"));
 
     private FunctionPanelModel() { }
 

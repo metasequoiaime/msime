@@ -471,6 +471,7 @@ export { AccountPage } from "./account/account-page";
 export type {
   AccountChallenge,
   AccountClient,
+  AccountNamePresentation,
   AccountCommunityDestination,
   AccountDeletion,
   AccountPreferenceSchema,

@@ -12,7 +12,7 @@ Google ML Kit SDK 与模型适用 Google 的 ML Kit 服务条款，并非本项�
 Google APIs Terms of Service：https://developers.google.com/terms
 数据披露：https://developers.google.com/ml-kit/android-data-disclosure
 
-识别输入和输出在设备上处理；SDK 的诊断收集不能被解释为不存在。
-本模块目前仅用于无网络权限的独立兼容性探针，不进入基础输入法安装包，
+识别输入和输出在设备上处理；SDK 可能联网获取更新、兼容信息，并发送性能和使用诊断。
+本模块目前用于独立兼容性探针和原生产品的合成设备验收，不进入基础输入法安装包，
 不作为已完成许可审计的正式资源包发布。正式分发前还需补齐实际解析依赖的
 固定版本、通知全文与再分发检查；参考仓库的 GPL 许可不覆盖 Google 的模型。

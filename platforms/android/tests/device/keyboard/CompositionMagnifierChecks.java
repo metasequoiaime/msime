@@ -123,9 +123,7 @@ final class CompositionMagnifierChecks {
         // 逐组等待真实触屏输入，避免 shell 连发注入未完成就开始验收拖动。
         for (int syllable = 0; syllable < 8; syllable++) {
             for (String key : new String[] {"n", "i", "h", "a", "o"}) s.tap(s.key(key));
-            // 输入框显示引擎分音节的 preedit，放大条才显示未分隔的原始拼写。
-            if (spelling.length() > 0) spelling.append('\'');
-            spelling.append("ni'hao");
+            spelling.append(syllable == 0 ? "ni'hao" : "'ni'hao");
             String expected = prefix + spelling;
             s.await(s.field("msime-test-plain").and(node -> node.refresh()
                 && DeviceSmoke.equalsText(expected, node.getText())));

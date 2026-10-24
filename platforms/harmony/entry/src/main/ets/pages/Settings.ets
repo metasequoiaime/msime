@@ -836,7 +836,7 @@ struct Settings {
               this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
                 ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion', 'appReleaseDate',
                   'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                  'dictionaryManifest', 'dictionary', 'nineKeyShuangpinLayout', 'cloudDictionaryDownload',
+                  'dictionaryManifest', 'dictionary', 'nineKeyShuangpinLayout', 'accountName', 'cloudDictionaryDownload',
                   'typingStatistics', 'openExternalUrl', 'copyText',
                   'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                   'keyboardFeedback', 'onboardingStatus',
@@ -2097,6 +2097,11 @@ class SettingsBridge {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
     return this.accountBridge.request(action);
+  }
+
+  /** 昵称纯计算可以同步调用，不访问账号或存储。 */
+  accountName(request: string): string {
+    return client.accountName(request);
   }
 
   /** 云剪贴板面板的动作，经 Rust 的端到端加密驱动。 */

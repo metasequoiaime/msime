@@ -10,7 +10,7 @@
 
 新装的默认配置下，**没有任何功能会把你输入的内容发出设备**。会这样做的两项都要你自己打开：云联想把当前正在组的拼音串发给 Google 输入工具，新装默认关闭，Windows、Linux 与 macOS 在第一次使用时说明并让你选择，默认选项是不启用（见[云联想](#云联想新装默认关闭)）；候选翻译要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」，后者把当前页的中文候选词发到 `api.msime.app`，见[候选翻译](#候选翻译默认不联网)）。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。从旧版本升级时沿用配置文件里已存的值，不会替你改。
 
-另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。打字统计的每日计数只有在你登录账号并打开「上传到云端」后才会上传，默认关闭，见[打字统计上传](#打字统计上传默认关闭需要登录)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报](#社区举报与审核)。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。仓库不接入任何第三方统计或崩溃上报 SDK。
+另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。打字统计的每日计数只有在你登录账号并打开「上传到云端」后才会上传，默认关闭，见[打字统计上传](#打字统计上传默认关闭需要登录)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报](#社区举报与审核)。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。上述自有上报不依赖第三方统计或崩溃上报 SDK。可选的 Android OCR 模块另有 Google ML Kit 诊断收集，且不受 `usage_reporting` 控制，见[拍照识字](#android-拍照识字配套模块尚未提供)。
 
 ## 逐项说明
 
@@ -150,6 +150,14 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**，之后在设备上离线识别。Windows 先用系统的 Windows Ink 识别器，没有中文识别器时用 Engine 的离线 Zinnia 模型；Linux 与其余桌面端都用这个 Zinnia 模型。发行版仓库的 Linux 包随附该模型，从安装路径读取，全程不联网；macOS、Windows 和我们自己发布的 Linux deb/rpm 按上一段在需要时下载，之后同样离线识别。
 
+### Android 拍照识字（配套模块尚未提供）
+
+当前 `resources/ocr-module-android.lock.json` 未固定正式产物，无法导入任意 APK 启用本功能。计划中的模块只由用户手动导入，基础 APK 不包含 OCR SDK 和模型，也不自动下载它；Google Play 渠道不提供外部可执行模块。
+
+相机权限由用户在拍照识字设置页主动授予，相机只在键盘拍照面板打开时工作。照片仅在内存中识别，不自动保存图片、复制文字或上屏；用户确认后才把选中文字交给当前编辑器。关闭面板、隐藏键盘或切换输入框时释放相机并清空待选结果，迟到结果作废。
+
+模块使用 Google ML Kit。[Google 的说明](https://developers.google.com/ml-kit/terms)称识别输入和输出留在设备上，但 SDK 可联网获取更新及兼容信息，并发送性能和使用诊断。[其 Android 数据披露](https://developers.google.com/ml-kit/android-data-disclosure)列有设备和应用信息、每次安装的标识及性能等指标。这类 SDK 诊断不受本项目的 `usage_reporting` 开关控制；断网设备测试通过也不能证明联网时没有诊断请求。正式提供模块前仍需完成实际依赖、通知和分发审计。
+
 ### 使用统计与崩溃上报（默认开启，可关闭）
 
 六个平台都通过同一份共享实现向 `https://api.msime.app/v1/telemetry/events` POST 事件：`crates/client-services/src/telemetry.rs`（队列、安装 id、事件规则、发送与重试），原生宿主经 `crates/host-api` 的 `msime_client_telemetry_{begin,end,record_crash,flush,clear}`（`crates/host-api/src/ffi/reporting.rs`，声明在 `crates/host-api/include/msime_client.h`）调用它。**事件里没有任何输入内容、候选、剪贴板、账号标识或硬件信息**。
@@ -207,7 +215,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ## 没有的东西
 
-没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。下面的命令命中的文件应当只有这几类：
+本项目没有集成 Sentry、Mixpanel、Amplitude、Crashlytics 或 Google Analytics 作为统计或崩溃上报工具；自行实现的上报路径见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。这不包含 ML Kit 等第三方功能 SDK 自身的诊断收集，拍照识字的边界见上文。下面的命令用于核对本项目直接实现的上报代码，不能据此排除 SDK 内部的联网行为；命中的文件主要有：
 
 - 共享实现与 C ABI：`crates/client-services/src/telemetry.rs`、`crates/client-services/src/telemetry/tests.rs`、`crates/client-services/src/lib.rs`、`crates/client-services/Cargo.toml`（crate 描述）、`crates/client-services/src/account/client.rs`（发送用的 HTTP 客户端）、`crates/client-services/src/notices.rs`（文档注释里提到它）、`crates/client-core/src/preferences.rs`（`usage_reporting` 开关）、`crates/host-api/include/msime_client.h`、`crates/host-api/src/ffi/reporting.rs`、`crates/host-api/src/tests.rs`。
 - 设置页开关：`packages/ui/src/index.tsx`、`packages/ui/src/settings/telemetry-section.tsx`、`packages/ui/src/settings/about-settings-actions.ts`、`packages/ui/src/settings/pages/about-page.tsx`、`apps/desktop/tests/settings/settings.test.tsx`。

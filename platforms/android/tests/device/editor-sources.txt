@@ -248,3 +248,6 @@ platforms/android/tests/device/clipboard/ClipboardCategoriesDeviceSmoke.java
 platforms/android/tests/device/keyboard/TrackpadEditorActivity.java
 platforms/android/tests/device/keyboard/TextTrackpadDeviceChecks.java
 
+
+platforms/android/tests/device/keyboard/OcrProductDeviceSmoke.java
+platforms/android/gradle-app/ocr-fixture/app/msime/ocr/fixture/SyntheticOcrFixture.java

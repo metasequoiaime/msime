@@ -26,6 +26,13 @@ if [[ "${MSIME_ANDROID_WORLD_CLOCK:-0}" == 1 ]]; then
   sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.WorldClockDeviceSmoke/' \
     platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
 fi
+# OCR 专项只装入固定合成模块，不改变产品 APK 的信任入口。
+if [[ "${MSIME_ANDROID_OCR_SMOKE:-0}" == 1 ]]; then
+  cp target/android/ocr-product-module.apk "$build_dir/assets/ocr-product-module.apk"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.OcrProductDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/ocr-manifest.xml"
+  editor_manifest="$build_dir/ocr-manifest.xml"
+fi
 # 完整上游皮肤仅用于显式验收；固定提交归档，不能复制检出目录里的未提交资源，也不进入默认测试包。
 if [[ -n "${MSIME_ANDROID_UPSTREAM_SKINS:-}" ]]; then
   upstream_commit=dd018f79858314ed542a47c528608752b13bd261

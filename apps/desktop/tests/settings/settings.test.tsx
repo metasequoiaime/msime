@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { testHost } from "../support/host";
 import {
   findVisibleText,
@@ -4037,6 +4038,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
           requestCode: vi.fn(),
           login: vi.fn(),
           profile: vi.fn(),
+          namePresentation: presentAccountName,
           rename: vi.fn(),
           logout: vi.fn(),
           deleteAccount: vi.fn(),
@@ -4648,6 +4650,7 @@ test("mobile account deep links participate in the back stack", async () => {
             requestCode: vi.fn(),
             login: vi.fn(),
             profile: vi.fn(),
+            namePresentation: presentAccountName,
             rename: vi.fn(),
             logout: vi.fn(),
             deleteAccount: vi.fn(),
@@ -7708,6 +7711,7 @@ test("桌面账号菜单与标题统一为账号与同步", async () => {
     requestCode: vi.fn(),
     login: vi.fn(),
     profile: vi.fn(),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),

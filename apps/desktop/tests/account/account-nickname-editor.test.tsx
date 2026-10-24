@@ -13,6 +13,10 @@ test("mobile nickname editor shows validation guidance and a codepoint count", (
       value={"invalid\nname"}
       normalizedName={"invalid\nname"}
       validName={false}
+      maximumChars={64}
+      maximumUtf16Units={128}
+      checking={false}
+      unavailable={false}
       disabled={false}
       onChange={onChange}
     />,
@@ -30,6 +34,10 @@ test("sheet and desktop nickname editors keep their distinct presentation", () =
     value: "合成👋",
     normalizedName: "合成👋",
     validName: true,
+    maximumChars: 64,
+    maximumUtf16Units: 128,
+    checking: false,
+    unavailable: false,
     disabled: false,
     onChange: vi.fn(),
   };
@@ -42,3 +50,61 @@ test("sheet and desktop nickname editors keep their distinct presentation", () =
   expect(screen.getByText("昵称会显示在社区作品中，已发布的作品也会同步更新。")).not.toBeNull();
   expect(screen.queryByText("3/64")).toBeNull();
 });
+
+test.each(["mobile", "sheet", "desktop"] as const)(
+  "%s 昵称框使用共享长度上限且检查中不显示错误样式",
+  (variant) => {
+    const { rerender } = render(
+      <AccountNicknameEditor
+        variant={variant}
+        value="合成🌲"
+        normalizedName="合成🌲"
+        validName={false}
+        disabled={false}
+        maximumChars={12}
+        maximumUtf16Units={24}
+        checking={true}
+        unavailable={false}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: "编辑社区昵称" })).toHaveProperty("maxLength", 24);
+    expect(screen.getByText("正在检查昵称…").className).not.toContain("error");
+    rerender(
+      <AccountNicknameEditor
+        variant={variant}
+        value="合成🌲"
+        normalizedName="合成🌲"
+        validName={true}
+        disabled={false}
+        maximumChars={12}
+        maximumUtf16Units={24}
+        checking={false}
+        unavailable={false}
+        onChange={vi.fn()}
+      />,
+    );
+    if (variant !== "desktop") expect(screen.getByText("3/12")).not.toBeNull();
+  },
+);
+
+test.each(["mobile", "sheet", "desktop"] as const)(
+  "%s 显示共享动态长度对应的无效提示",
+  (variant) => {
+    render(
+      <AccountNicknameEditor
+        variant={variant}
+        value="合成无效昵称"
+        normalizedName="合成无效昵称"
+        validName={false}
+        disabled={false}
+        maximumChars={12}
+        maximumUtf16Units={24}
+        checking={false}
+        unavailable={false}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("昵称最多 12 个字符，请勿使用换行或控制字符。")).not.toBeNull();
+  },
+);
