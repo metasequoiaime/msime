@@ -137,10 +137,12 @@ public final class OcrProbe extends Instrumentation {
             String joined = String.join("", lines).replaceAll("\\s", "");
             boolean english = joined.contains("SYNTHETICOCR2468");
             boolean chinese = joined.contains("中文测试");
+            boolean glyphs = paint.hasGlyph("中") && paint.hasGlyph("文")
+                && paint.hasGlyph("测") && paint.hasGlyph("试");
             // 诊断只输出固定断言的布尔值与长度，不输出识别文本。
             stage = "offline-recognition(lines=" + lines.length + ",chars=" + joined.length()
                 + ",english=" + english + ",digits=" + joined.contains("2468") + ",chinese=" + chinese
-                + ",glyphs=" + paint.hasGlyph("中文测试") + ")";
+                + ",glyphs=" + glyphs + ")";
             if (!english || !chinese)
                 throw new AssertionError("probe_synthetic_recognition");
         } finally {
