@@ -110,7 +110,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
 
     @Override protected boolean shouldReloadOnContentReady() { return false; }
 
-    @Override protected void onBecameVisible() {
+    @Override protected void onVisible() {
         authorized = false;
         requestAuthentication();
     }

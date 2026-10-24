@@ -20,8 +20,12 @@ public abstract class ReloadingDetailPage extends ColumnDetailPage {
     protected void onInitialReloadScheduled() {}
 
     @Override protected void onBecameVisible() {
+        onVisible();
         if (contentColumn() != null && shouldReloadWhenVisible()) reload();
     }
+
+    /** 页面重新可见时给需要处理可见性状态的页面一个生命周期钩子。 */
+    protected void onVisible() {}
 
     /** Allows a page to preserve active editing state when it becomes visible again. */
     protected boolean shouldReloadWhenVisible() { return true; }
