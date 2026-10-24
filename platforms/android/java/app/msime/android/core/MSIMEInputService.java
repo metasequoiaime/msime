@@ -3054,7 +3054,8 @@ public final class MSIMEInputService extends InputMethodService {
         liveInputModePreferencesLoaded = true;
         JSONObject nextView = result.getJSONObject("view");
         // 引号与方头括号样式变了也重建键行：符号键、字母提示和 123 层的键面都跟着它画。
-        boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView)
+        // 会话快照可能已在模式切换中更新，重建依据是屏幕上实际画出的键区。
+        boolean rebuildLayout = imeLetterRows.drawnTouchLayout() != displayedTouchLayout(nextView)
             || japaneseEmojiKeyChanged
             || japaneseToggleInputChanged
             || !InputViewValuePolicy.punctuationMarks(view).equals(
