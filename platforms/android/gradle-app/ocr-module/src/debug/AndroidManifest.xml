@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 独立安装只用于捆绑 SDK 对照，正式模块没有这个入口。 -->
+    <instrumentation android:name="app.msime.ocr.module.DirectOcrProbe"
+        android:targetPackage="app.msime.ocr.module" />
+</manifest>

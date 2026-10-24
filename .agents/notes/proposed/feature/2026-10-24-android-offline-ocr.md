@@ -12,11 +12,21 @@ Status: proposed
 
 候选模块接口只传递 Android `Context`、`Bitmap` 和文本行，不暴露 Google 类型。基础 APK 不依赖 OCR 模型和运行库；普通 Gradle 构建不包含试验模块。正式导入需要核验项目分发的模块身份、接口版本、ABI 和完整性，限制读取大小，先发布完整版本再切换，输入法进程只读。相机仅在用户打开面板并授权后工作，关闭面板或切换编辑器必须停止相机、取消识别并拒绝迟到结果。识别内容只在当前面板中待选，不写日志或自动复制。
 
+宿主沿用手写依赖的自动 Provider 初始化，不能对已经存在的宿主容器重复调用 `MlKit.initialize`；公开初始化只用于尚未初始化的独立模块类加载器。探针识别断言同时要求合成英文单词、数字和中文，不能只认出数字就报告英文识别成功。手写检查只创建客户端，不等于已有手写模型的实际识别已经验收。
+
 参考实现固定为 `LeanBitLab/LeanType@be774536dfb415634da176831852e0b8eed247dc` 及 `LeanBitLab/LeanType-OCR-Plugin@968949a7b54b8f0e3a4a5063ca03812554cf23ef`，仅用于研究，不复制未提交源码。其插件使用 ML Kit 私有初始化和识别文本日志，不沿用这两点。公开初始化接口见 [Google MlKit API](https://developers.google.com/android/reference/com/google/mlkit/common/MlKit)；模型安装方式见 [文本识别 Android 指南](https://developers.google.com/ml-kit/vision/text-recognition/v2/android)。
 
 ## Related notes audit
 
 [手写会话清理](../../implemented/bug-fix/2026-10-17-android-handwriting-session-reset.md)部分相关，继续持有手写生命周期；OCR 不得重置它的单例或复用它的请求代次。[按需语音运行库](../../implemented/feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)部分相关，说明可选原生资源分发，不提供 OCR 推理接口。现有活跃笔记没有相机 OCR 的决定。
+
+## Probe invocation
+
+只在专用的 `x86_64` API 28/35 AVD 中运行 `bash platforms/android/tests/device/ocr-runtime-probe.sh <serial>`。脚本用仓库已有的 Gradle wrapper 显式启用 `-PmsimeOcrProbe=true`，分别构建、检查两个试验 APK，导入的模块文件放在标准 `target/android/ocr-probe-assets` 下。该脚本只清理两个试验应用的数据，不安装或修改产品 APK，也没有相机或编辑器验收。
+
+普通捆绑 SDK 对照只进模块的 `debug` 构建。两种方式使用同一份生成夹具；探针产物允许导出它自己生成的固定图片及其合成识别对照，不接受外部文件或用户图片，不在运行库中记录识别文本，也不把任意异常消息写入日志。这样能分别判断模型的识别偏差和动态模块加载问题，而不会把生产输入泄露到测试产物中。
+
+首次设备运行中，两 API 的模块与探针编译、`NewApi` lint 和安装通过，随后启动阶段抛出 `IllegalStateException`；宿主日志确认自动 Provider 已初始化。运行库隔离和真实识别的结论必须取后续修正探针的实际运行结果，不能拿首次的构建成功代替。
 
 ## Alternatives considered
 

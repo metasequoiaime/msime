@@ -8,10 +8,8 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 import android.os.Bundle;
+import app.msime.ocr.fixture.SyntheticOcrFixture;
 import com.google.mlkit.common.MlKit;
 import com.google.mlkit.vision.digitalink.recognition.DigitalInkRecognition;
 import com.google.mlkit.vision.digitalink.recognition.DigitalInkRecognitionModel;
@@ -118,31 +116,19 @@ public final class OcrProbe extends Instrumentation {
             throw new AssertionError("probe_interface_version");
         stage = "public-initialization";
         moduleClass.getMethod("initialize", Context.class).invoke(module, moduleContext);
-        Bitmap bitmap = Bitmap.createBitmap(1400, 360, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        canvas.drawColor(Color.WHITE);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paint.setColor(Color.BLACK);
-        paint.setTextSize(88);
-        canvas.drawText("SYNTHETIC OCR 2468", 40, 125, paint);
-        canvas.drawText("中文测试", 40, 270, paint);
-        // 仅导出本探针自己绘制的固定夹具，便于核对设备字体与像素，不接收用户图片。
-        try (FileOutputStream output = new FileOutputStream(new File(context.getFilesDir(), "ocr-synthetic.png"))) {
-            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
-                throw new AssertionError("probe_synthetic_image");
-        }
+        Bitmap bitmap = SyntheticOcrFixture.render();
+        SyntheticOcrFixture.saveImage(context, bitmap);
         try {
             stage = "offline-recognition";
             String[] lines = (String[]) moduleClass.getMethod("recognize", Bitmap.class).invoke(module, bitmap);
+            SyntheticOcrFixture.saveResult(context, lines);
             String joined = String.join("", lines).replaceAll("\\s", "");
             boolean english = joined.contains("SYNTHETICOCR2468");
             boolean chinese = joined.contains("中文测试");
-            boolean glyphs = paint.hasGlyph("中") && paint.hasGlyph("文")
-                && paint.hasGlyph("测") && paint.hasGlyph("试");
             // 诊断只输出固定断言的布尔值与长度，不输出识别文本。
             stage = "offline-recognition(lines=" + lines.length + ",chars=" + joined.length()
                 + ",english=" + english + ",digits=" + joined.contains("2468") + ",chinese=" + chinese
-                + ",glyphs=" + glyphs + ")";
+                + ")";
             if (!english || !chinese)
                 throw new AssertionError("probe_synthetic_recognition");
         } finally {

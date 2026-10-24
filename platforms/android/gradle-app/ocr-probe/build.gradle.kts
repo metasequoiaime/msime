@@ -17,6 +17,7 @@ android {
     }
     sourceSets.getByName("main") {
         assets.srcDir(rootDir.resolve("../../../target/android/ocr-probe-assets"))
+        java.srcDir(rootDir.resolve("ocr-fixture"))
     }
     lint { checkOnly += "NewApi"; abortOnError = true }
 }
