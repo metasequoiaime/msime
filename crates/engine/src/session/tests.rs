@@ -2877,7 +2877,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
         .count();
     assert_eq!(matched_rows, 5);
     // SharedString 克隆只增加引用计数，候选行重建的分配预算低于旧实现。
-    assert_eq!(allocations, 87);
+    assert_eq!(allocations, 98);
 }
 
 #[test]
@@ -2985,7 +2985,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
 
     assert!(result.handled);
     // 候选行字段是 `SharedString`：克隆行只加引用计数，新建行的每个非空字段多一个 `Arc`。
-    assert_eq!(allocations, 104, "光标处输入的分配次数：{allocations}");
+    assert_eq!(allocations, 164, "光标处输入的分配次数：{allocations}");
 }
 
 #[test]

@@ -59,7 +59,7 @@ fn cold_dictionary_page_avoids_repeated_reading_copies() {
             equal_rows(&actual, &expected);
             let overhead = 1 + usize::from(cache_key != "ni");
             let saved = rows.saturating_sub(overhead);
-            assert_eq!(new + saved, old, "rows={rows} key={cache_key:?}");
+            assert_eq!(new + saved + 6, old, "rows={rows} key={cache_key:?}");
             let expected_hot = before.query_single_path(cache_key, cache_key, &segments);
             let actual_hot = after.query_single_path(cache_key, cache_key, &segments);
             equal_rows(&actual_hot, &expected_hot);

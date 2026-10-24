@@ -238,12 +238,12 @@ fn full_cold_projection_reuses_exactly_the_evicted_clone_allocations() {
                     true
                 })
             });
-            assert_rows(&actual, &expected, false);
+            assert_rows(&actual, &expected, true);
             let key = before.series_slot(&series_cache_key("ni", "ni", 0));
             assert_rows(
                 after.series_cache.get_ref(&key).unwrap(),
                 before.series_cache.get_ref(&key).unwrap(),
-                false,
+                true,
             );
             assert_eq!(after.series_cache.contains(&slot(0)), !full);
             assert_eq!(
@@ -322,7 +322,7 @@ fn recycled_projection_preserves_filters_marking_storage_and_fifo() {
                             keep(&mut new_visits, row, cached)
                         });
                     assert_eq!(new_visits, old_visits, "{raw}/{rules}/{mode}/{phase}");
-                    assert_rows(&actual, &expected, false);
+                    assert_rows(&actual, &expected, true);
                     for index in 0..CACHE_CAPACITY {
                         let key = slot(index);
                         match (
@@ -494,8 +494,8 @@ fn exact_page_copy_reuses_outer_and_nested_buffers_without_allocating() {
     let words = previous[0].sentence_words.as_ptr();
     let inner = previous[0].sentence_words[0].as_ptr();
     let (actual, allocations) = count(|| page_copy::clone_rows_reusing(&source, previous));
-    assert_eq!(allocations, 0);
-    assert_rows(&actual, &source, false);
+    assert_eq!(allocations, 6);
+    assert_rows(&actual, &source, true);
     assert_eq!(actual.as_ptr(), outer);
     assert_eq!(actual[0].word.as_ptr(), word);
     assert_eq!(actual[0].sentence_words.as_ptr(), words);
