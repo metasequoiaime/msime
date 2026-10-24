@@ -1247,6 +1247,7 @@ export {
 } from "./settings/tencent-translation-section";
 export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
 export { TextInputRow, type TextInputRowProps } from "./settings/text-input-row";
+export { HexColorRow, type HexColorRowProps } from "./settings/hex-color-row";
 export { SelectRow, type SelectRowProps } from "./settings/select-row";
 export { SwitchRow, type SwitchRowProps } from "./settings/switch-row";
 export {
