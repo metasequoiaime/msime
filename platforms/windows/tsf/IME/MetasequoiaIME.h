@@ -529,7 +529,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _ClearDeferredKeyDowns();
     void _ScheduleDeferredKeyDownDrain(bool allowSyncFallback = true);
     bool _ResolveDeferredKeyClassification(uint64_t replayToken);
-    bool _IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration, HWND foregroundWindow) const;
+    // 仅尚未发送的分类允许在重置期间核验焦点；实际写入与注入保持默认屏障。
+    bool _IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration, HWND foregroundWindow,
+                                   bool allowPendingReset = false) const;
     void _DrainOneDeferredKeyDown();
     void _TryLeaveServerUnavailableFallback();
     void _WakeServerIfNeeded();

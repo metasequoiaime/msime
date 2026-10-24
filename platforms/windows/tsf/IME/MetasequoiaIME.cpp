@@ -1229,8 +1229,8 @@ void CMetasequoiaIME::_CompleteLocalSessionReset(UINT resetToken)
         // A granted edit session can still fail inside the key-state handler.
         // Do not reopen the transport while the old local composition or
         // presenter survives; retire this queue slot and retry the exact token.
-        // 组字或候选窗还活着就不清标志，这里重排重连定时器等下一次机会。日志把两边的阻留原因都记下来：
-        // 如果这一行反复出现而 stage=cleared 一直不出现，就是这条链路自锁了（#9519）。
+        // 组字或候选窗还活着就不清标志，重排定时器重试取消；结合 token 日志定位未完成的取消，
+        // 不能仅凭反复 blocked 就认定普通按键与重置互相等待（#9519）。
         if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
         {
             QueueTsfDiagnosticLog(L"[msime][local-reset] complete stage=blocked token=" +

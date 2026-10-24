@@ -512,11 +512,11 @@ constexpr ULONGLONG kApplicationKeyReplayWaitMs = 2000;
 } // namespace
 
 bool CMetasequoiaIME::_IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration,
-                                                   HWND foregroundWindow) const
+                                                   HWND foregroundWindow, bool allowPendingReset) const
 {
-    const auto localCurrent = [this, context, focusGeneration, foregroundWindow]() {
+    const auto localCurrent = [this, context, focusGeneration, foregroundWindow, allowPendingReset]() {
         return context && _pThreadMgr && focusGeneration == _deferredKeyFocusGeneration &&
-               !_localSessionResetPending.load(std::memory_order_acquire) && foregroundWindow &&
+               (allowPendingReset || !_localSessionResetPending.load(std::memory_order_acquire)) && foregroundWindow &&
                GetForegroundWindow() == foregroundWindow;
     };
     if (!localCurrent()) return false;
