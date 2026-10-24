@@ -123,7 +123,8 @@ int main() {
     wubi["scheme"] = 2;
     wubi["preedit"] = "wq";
     wubi["editing_text"] = "wq";
-    wubi["candidates"] = {candidate(0, "你", "wqiy", "")};
+    wubi["candidates"] = nlohmann::json::array({candidate(0, "你", "wqiy", "")});
+    require(wubi["candidates"].is_array());
     wubi["candidates"][0]["script_annotation"] = "常用";
     const auto hinted = with_wubi_code_hints(candidate_presentation_from_view(lease, wubi, 0, 0, ""), true);
     require(hinted.candidates[0].annotation == "(iy)" && hinted.candidates[0].script_annotation == "常用");
@@ -136,7 +137,8 @@ int main() {
     hanja["dedicated_english"] = false;
     hanja["preedit"] = "한";
     hanja["editing_text"] = "gks";
-    hanja["candidates"] = {candidate(0, "韓", "gks", "나라 이름 한")};
+    hanja["candidates"] = nlohmann::json::array({candidate(0, "韓", "gks", "나라 이름 한")});
+    require(hanja["candidates"].is_array());
     hanja["candidates"][0]["script_annotation"] = "常用";
     const auto korean = candidate_presentation_from_view(lease, hanja, 0, 0, "");
     require(korean.candidates[0].annotation.empty() && korean.candidates[0].gloss == "나라 이름 한");

@@ -38,6 +38,16 @@ Status: implemented
 
 Win7 设置夹具同时补齐当前 develop 新资料契约要求的 `providerNames`，覆盖 profile、rename、upload_avatar、remove_avatar；原产品校验与断言不变。补丁来自固定提交 `36c7624c8b` 的已复审测试修正，其 Windows 对照在仅同步当前账号头文件时先重现旧夹具断言失败，仅替换夹具后 34.61 秒通过。本工作树尚未在 Windows 重跑该设置专项，不能混淆证据归属。
 
+## Windows native verification
+
+固定 `b17e2e6340cc671565437d1b308b9dbbfb182d56` 的全部已运行 CI 通过。隔离 Windows 11 工作树同源构建 Rust Host DLL（2 分 42 秒）与 MSVC 全目标均退出 0，使用标准 `target/` 与 `target/windows-full/x64`，调试 Server 的 `MSIME_SERVER_UIACCESS=OFF`；构建前后源码干净。已登录桌面 Session 3 的首次原生全套为 262/267，通过源码对照确认五项均为既有测试前提错误，保留该轮 51.65 秒和剪贴板 30 秒超时的原始日志。
+
+从固定 `36c7624c8b` 复用五份已提交夹具修补：二级文字正好 4096 字节仍保留读音；单候选列表显式构造 JSON 数组；释义列夹具关闭未注入的云占位；Home/End 使用确实没有候选的普通全拼组字；剪贴板显式选择最大容量并保持拒绝清除叶符号链接的安全契约。补充断言和异常行号，不放宽产品策略或删除原断言。
+
+这五项全部转绿后的原生全套为 266/267，另一个未改动的 `windows7-emoji-font` 在四线程回退断言失败并触发 20 秒超时。测试把同一个 `IDWriteTextFormat` 交给四个线程，而 [微软接口说明](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nn-dwrite-idwritetextformat) 明确不保证该对象线程安全。每线程现在创建独立格式，仍并发访问同一份共享字体与 Shaper，四线程各 64 轮及全部字形、命中与范围断言保留，不给产品回退加全局锁。改动后专项连续 20 次通过（总计 0.43 秒），随后完整原生套件 **267/267 通过，34.21 秒**；六份测试源码的运行前后 SHA-256 一致，两个临时计划任务已删除。以上执行系统是 Windows 11，不能代替 Win7 SP1 或实际安装的 TIP/Server 编辑器验收。
+
+本轮夹具补充的完整 Windows quick 退出 0；Git Bash 无法读取范围检测的 `/dev/fd`，脚本保守运行全部阶段。Windows 可移植用例、契约与笔记、Rust 和原生编译以实际日志为准；缺少工具链或资源的阶段明确跳过。正常 pre-push 尚待收取。
+
 ## Consequences
 
 本切片修复已确认的分类重置丢键，不改变 50ms 回包预算或 30ms 候选渲染屏障，不证明报告中的整项 6 秒卡顿已经消除。真实 Windows TIP/Server 编辑器快速输入与新版诊断日志仍需验收，PR 使用 `Refs #9519`。

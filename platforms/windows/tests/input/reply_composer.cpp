@@ -10,10 +10,11 @@
 using namespace msime::windows;
 using Json = nlohmann::json;
 namespace {
-void require(bool value) {
+void require_at(bool value, int line) {
   if (!value)
-    throw std::runtime_error("Windows reply composer assertion failed");
+    throw std::runtime_error("Windows reply composer assertion failed at line " + std::to_string(line));
 }
+#define require(value) require_at((value), __LINE__)
 template <class F> void rejected(F action) {
   bool failed = false;
   try {
@@ -50,7 +51,7 @@ std::u16string payload(const PendingReply &reply) {
 void confirm(ReplyComposer &composer) {
   composer.confirm_delivery(42, 7, composer.pending().source.request_id);
 }
-// Home 和 End 走 Server 的按键路由（configured_key），在真实 Engine 会话上：候选窗显示时发和 TIP 相同的命令（Home 两段式，End 跳到末选），没有候选时只应答、不动会话，从不返回空（空回复会让 SessionPump 当作派发失败）。不带修饰键和只带 Shift 一样，TIP 对它们的分类相同。日期时间模式不需要词库就有好几行候选；Unicode 模式只打了 U 时在组字，却没有候选。Local 样式不回包，UI-less 回候选页。
+// Home 和 End 走 Server 的按键路由（configured_key），在真实 Engine 会话上：候选窗显示时发和 TIP 相同的命令（Home 两段式，End 跳到末选），没有候选时只应答、不动会话，从不返回空（空回复会让 SessionPump 当作派发失败）。不带修饰键和只带 Shift 一样，TIP 对它们的分类相同。日期时间模式不需要词库就有好几行候选；无词库的普通全拼组字关闭云占位后没有候选。Local 样式不回包，UI-less 回候选页。
 void home_end_route_tests() {
   const auto root = std::filesystem::temp_directory_path() /
                     ("msime-reply-composer-home-end-" +
@@ -63,7 +64,9 @@ void home_end_route_tests() {
       std::filesystem::remove_all(root, ec);
     }
   } cleanup{root};
-  ServerSession session(42, test_host_options(root).dump());
+  auto options = test_host_options(root);
+  options["preferences"]["cloud_candidates"] = false;
+  ServerSession session(42, options.dump());
   session.activate(1);
   ReplyComposer composer(42, 1);
   uint64_t request = 0;
@@ -115,9 +118,10 @@ void home_end_route_tests() {
   require(!press(0x23, 0, 2) && at_first());
 
   session.cancel_composition(1);
-  press('U', u'U', 1);
+  press('Z', u'z');
+  press('Z', u'z');
   view = session.view();
-  require(view.at("local_mode") == "unicode" && !view.at("editing_text").get<std::string>().empty() &&
+  require(view.at("local_mode") == "none" && view.at("editing_text") == "zz" &&
           view.at("candidates").empty());
   for (const uint32_t code : {0x23u, 0x24u})
     for (const uint32_t modifiers : {0u, 1u}) {
