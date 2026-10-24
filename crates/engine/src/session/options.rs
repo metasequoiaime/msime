@@ -74,6 +74,8 @@ pub struct SessionOptions {
     pub expressive: MixedExpressiveOptions,
     /// 日文混输（实验选项，默认关）：全拼、双拼组字时，整段输入像日文罗马字就混进一行日文转换（来源 `MixedJapanese`），见 `ImeSession::mixed_japanese_conversion`。需要会话带日文（`enabled_schemes` 含 `JapaneseRomaji`）和日文模型；开着时建会话就在后台预热模型。
     pub japanese_mixing: bool,
+    /// 连续多语言输入所选的语言；默认空集合关闭，少于两种不生成混合行。
+    pub multilingual_languages: Vec<crate::multilingual::Language>,
     pub wubi: WubiInputOptions,
     /// Learn word sequences and pick pairs; also needs `learning`.
     pub personal_context: bool,
@@ -137,6 +139,7 @@ impl SessionOptions {
             english: EnglishInputOptions::default(),
             expressive: MixedExpressiveOptions::default(),
             japanese_mixing: false,
+            multilingual_languages: Vec::new(),
             wubi: WubiInputOptions::default(),
             personal_context: true,
             next_word_prediction: false,
@@ -182,6 +185,8 @@ pub struct SessionSnapshot {
     pub wubi_unique_four_code: bool,
     pub shuangpin_profile: String,
     pub candidate_sources: Vec<CandidateSource>,
+    /// 当前唯一的连续混合行所携带的语言边界；没有该行时为空，不随普通候选重排而错位。
+    pub multilingual_conversion: Option<crate::multilingual::Conversion>,
     /// Helpcodes or correction hints.
     pub candidate_annotations: Vec<String>,
     /// Whether each candidate answers the whole key rather than a prefix of it or a completion past it.

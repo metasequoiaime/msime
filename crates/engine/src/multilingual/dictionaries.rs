@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::path::Path;
 
 use super::{decode, Conversion, Language, Lexeme, MAX_INPUT_BYTES, MAX_LEXEMES};
 use crate::assets;
@@ -34,6 +35,11 @@ pub struct DictionaryComposer {
 impl DictionaryComposer {
     /// 只打开显式选择的语言，缺失资源按原有提供者语义返回没有词条，不下载或补写资源。
     pub fn new(paths: &RuntimePaths, languages: &[Language]) -> Self {
+        Self::with_japanese_model(paths, languages, &paths.resource(assets::JAPANESE_MODEL))
+    }
+
+    /// 使用宿主已解析的日文资源包路径，其它词库仍取同一份运行时目录。
+    pub fn with_japanese_model(paths: &RuntimePaths, languages: &[Language], model: &Path) -> Self {
         let languages: Vec<_> = [Language::Chinese, Language::English, Language::Japanese]
             .into_iter()
             .filter(|language| languages.contains(language))
@@ -46,13 +52,20 @@ impl DictionaryComposer {
                 EnglishDictionary::open(&paths.dictionary(assets::ENGLISH_DICTIONARY), None, None)
             }),
             japanese: (active && languages.contains(&Language::Japanese))
-                .then(|| JapaneseProvider::new(&paths.resource(assets::JAPANESE_MODEL))),
+                .then(|| JapaneseProvider::new(model)),
             languages,
             japanese_scheme: JapaneseRomajiScheme::new(),
             japanese_request: QueryRequest::default(),
             input: String::new(),
             lexemes: Vec::new(),
             answer: None,
+        }
+    }
+
+    /// 会话准备时沿现有提供者预热；未选日文时不读模型，不等待后台完成。
+    pub fn warm_up_in_background(&self) {
+        if let Some(japanese) = &self.japanese {
+            japanese.warm_up_in_background();
         }
     }
 

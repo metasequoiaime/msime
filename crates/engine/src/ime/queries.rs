@@ -465,6 +465,7 @@ pub(crate) fn counts_toward_quick_phrase_slot(item: &WordItem) -> bool {
             | CandidateSource::Emoji
             | CandidateSource::Kaomoji
             | CandidateSource::MixedJapanese
+            | CandidateSource::Multilingual
             | CandidateSource::Plugin
             | CandidateSource::Contact
     )

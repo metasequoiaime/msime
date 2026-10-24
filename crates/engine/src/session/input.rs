@@ -92,6 +92,10 @@ pub(super) struct InputSession {
     pub expressive_options: MixedExpressiveOptions,
     /// 日文混输开着（`SessionOptions::japanese_mixing`）。
     pub japanese_mixing: bool,
+    /// 所选语言的独立词库查询状态，不修改活动方案的提供者。
+    pub multilingual: Option<crate::multilingual::DictionaryComposer>,
+    /// 当前唯一的完整混合备选；快照据此保留语言边界。
+    pub multilingual_conversion: Option<crate::multilingual::Conversion>,
     pub dedicated_english: bool,
     pub dedicated_english_preedit: String,
     pub dedicated_english_candidates: Vec<WordItem>,
@@ -194,6 +198,19 @@ impl InputSession {
             english_options: EnglishInputOptions::default(),
             expressive_options: MixedExpressiveOptions::default(),
             japanese_mixing: false,
+            multilingual: (options.multilingual_languages.len() >= 2).then(|| {
+                let model = if options.japanese_dictionary.as_os_str().is_empty() {
+                    paths.resource(assets::JAPANESE_MODEL)
+                } else {
+                    options.japanese_dictionary.clone()
+                };
+                crate::multilingual::DictionaryComposer::with_japanese_model(
+                    &paths,
+                    &options.multilingual_languages,
+                    &model,
+                )
+            }),
+            multilingual_conversion: None,
             dedicated_english: false,
             dedicated_english_preedit: String::new(),
             dedicated_english_candidates: Vec::new(),
@@ -267,6 +284,11 @@ impl InputSession {
         session.japanese_mixing = options.japanese_mixing;
         if options.japanese_mixing {
             session.engine.warm_up_japanese();
+        }
+        if options.mixed_candidates {
+            if let Some(composer) = &session.multilingual {
+                composer.warm_up_in_background();
+            }
         }
         session.set_wubi_input_options(options.wubi);
         session.set_personal_context_enabled(options.personal_context);
@@ -1580,6 +1602,7 @@ impl InputSession {
         self.dedicated_english_preedit.clear();
         self.dedicated_english_candidates.clear();
         self.mixed_candidates.clear();
+        self.multilingual_conversion = None;
         self.personal_reranked = false;
         self.ranking_candidates = None;
         self.engine.reset();
@@ -1605,6 +1628,9 @@ impl InputSession {
 
     pub fn reset_cache(&mut self) {
         self.engine.reset_cache();
+        if let Some(composer) = &mut self.multilingual {
+            composer.clear();
+        }
         if let Some(engine) = self.canonical_phrase_engine.as_mut() {
             engine.reset_cache();
         }
