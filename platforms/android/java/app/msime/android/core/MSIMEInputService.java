@@ -9621,10 +9621,8 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
-        if ((!overlayDrawn() && !clipboardPreviewExpanded && !stableDockedWindow())
-                || keyboardSurface == null) return;
-        if ((!overlayDrawn() && !clipboardPreviewExpanded) || keyboardSurface == null) return;
-        if ((!overlayDrawn() && !editorPreviewExpanded()) || keyboardSurface == null) return;
+        if ((!overlayDrawn() && !clipboardPreviewExpanded && !editorPreviewExpanded()
+                && !stableDockedWindow()) || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -9640,8 +9638,6 @@ public final class MSIMEInputService extends InputMethodService {
             outInsets.contentTopInsets = keyboardTop;
             outInsets.visibleTopInsets = keyboardTop;
         } else if (!overlayDrawn()) {
-        if (clipboardPreviewExpanded && !overlayDrawn()) {
-        if (editorPreviewExpanded() && !overlayDrawn()) {
             outInsets.contentTopInsets = floatingLocation[1];
             outInsets.visibleTopInsets = floatingLocation[1];
         }
