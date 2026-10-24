@@ -38,6 +38,12 @@ Status: implemented
 
 编辑器画在偏好表单之外（与社区图库相同），有自己的保存，不触发偏好自动保存；切走标签或页面时保持挂载，草稿不丢。
 
+### 图片编码
+
+草稿图片压缩与 `renderSkinPreview` 共用 `core/canvas-to-bytes.ts`，只集中 `toBlob` 回调、`Blob.arrayBuffer` 与 `Uint8Array` 的异步转换。调用方给出 MIME、质量和空结果时的错误工厂；错误只在收到空结果时创建，同步编码异常和字节读取拒绝保留原错误。
+
+图片选择与压缩规则仍由各入口持有：草稿静态图最多尝试缩小十二次，PNG 保留透明、其他格式按 JPEG 质量 0.88 编码；动图超限直接拒绝。社区预览优先 PNG，超过 256 KiB 才按 JPEG 质量 0.85 编码，仍超限时拒绝。草稿空编码结果继续抛 `DraftImageError` 与原中文文案，预览继续抛 `preview encoding failed`。公共方法不接管绘制、解码、尺寸或体积限制。
+
 ### 后续
 
 - Windows 原生设置（`platforms/windows/settings`）、iOS 和 Android 的原生设置各自实现编辑器界面，宿主一侧直接用 `msime_client_candidate_skin_editor`（Android 经 JNI 包一层）。
@@ -49,6 +55,7 @@ Status: implemented
 
 - **页面自己写 Windows 外观的配色表** —— 最强理由是不必经过宿主，浏览器预览里也能用。但这些颜色是从 msime-windows 渲染端抄来的，client-services 已经有一份，网页 SDK 还从那份生成自己的；再在 TS 里抄一份，Windows 改配色时三处要一起改。改成让宿主用装皮肤的同一条规则补齐。
 - **把预览区的 DOM 截图存成预览图** —— 最强理由是预览图和编辑器里看到的完全一样。但在 webview 里把 DOM 画进 canvas 要引入 html2canvas 一类的依赖，跨域的 data URL 图片和字体还会污染画布；发布对话框已经有一个按清单画预览图的 `renderSkinPreview`，社区卡片和本地列表看到的预览也来自它，所以沿用它。
+- **把草稿图片与社区预览合成一个压缩流程** —— 可以连尝试次数和大小检查也一起复用，但两者的大小上限、质量、动图处理与错误契约不同；只抽取相同的 Canvas 字节转换，避免通用流程积累业务分支。
 - **编辑器放进偏好表单里，作为皮肤页的一部分** —— 最强理由是少一层外壳接线。但表单里的改动会触发偏好的自动保存和「未保存」状态，而皮肤包的保存与偏好无关；社区图库因为同样的原因画在表单之外，编辑器照此处理。
 - **按平台名决定是否显示标签** —— 最强理由是最简单。但鸿蒙同一个 HAP 在手机和 2in1 上能力不同，平台名分不出这两种形态；能力位与仓库里其他宿主能力的做法一致，以后的原生设置也能按它判断，每个宿主在接通编辑器的那次改动里自己打开。
 
@@ -67,6 +74,7 @@ Status: implemented
 
 ## Verification
 
+- `apps/desktop/tests/skin/canvas-encoding.test.ts` 在抽取前后验证草稿格式、质量、缩放尺寸、专用错误，以及预览 256 KiB 边界、JPEG 回退和失败；`apps/desktop/tests/core/canvas-to-bytes.test.ts` 覆盖异步回调、真实 Blob 字节、错误的延迟创建、字节读取拒绝和同步编码异常。浏览器边界按 [MDN 的 `toBlob`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob) 与 [`Blob.arrayBuffer`](https://developer.mozilla.org/en-US/docs/Web/API/Blob/arrayBuffer) 语义核对。
 - `apps/desktop/tests/skin/candidate-skin-draft.test.ts`：草稿到清单的序列化（schema 1/2、显式预设、图片路径、TOML 转义、复制时带回的部分）、ID 推导与校验、对比度、来源收紧、打包时预览图的文件名、宿主拒绝的中文说明。
 - `apps/desktop/tests/settings/candidate-skin-editor.test.tsx`：能力决定标签、保存交给宿主的内容、「立即使用」、替换前确认、错误显示、Windows 外观向宿主取配色、复制已安装皮肤、预览的明暗说明与动效按钮。
 - Rust：`client-services` 的 `skin::candidate_editor` 测试、`host_surface` 能力测试、host-api 的 `msime_client_candidate_skin_editor` 测试、Tauri 命令测试；HarmonyOS 的 `platforms/harmony/tests/run.sh` 与 `scripts/test-harmony-bridge-parity.py`。

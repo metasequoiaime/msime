@@ -1,4 +1,5 @@
 import { bytesToBase64 } from "../core/base64";
+import { canvasToBytes } from "../core/canvas-to-bytes";
 import { limits, type DraftImage } from "./candidate-skin-draft";
 
 /** 一张图片读不进草稿的原因，已经是给用户看的话。 */
@@ -76,19 +77,6 @@ async function decode(url: string): Promise<HTMLImageElement> {
   return image;
 }
 
-function encode(canvas: HTMLCanvasElement, type: "image/png" | "image/jpeg"): Promise<Uint8Array> {
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) reject(new DraftImageError("无法压缩这张图片。"));
-        else void blob.arrayBuffer().then((buffer) => resolve(new Uint8Array(buffer)), reject);
-      },
-      type,
-      type === "image/jpeg" ? 0.88 : undefined,
-    ),
-  );
-}
-
 /**
  * 把用户选的图片读进草稿。
  *
@@ -126,7 +114,11 @@ export async function readDraftImage(file: Blob & { name?: string }): Promise<Dr
     const context = canvas.getContext("2d");
     if (!context) throw new DraftImageError("无法压缩这张图片。");
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const bytes = await encode(canvas, output);
+    const bytes = await canvasToBytes(canvas, {
+      type: output,
+      quality: output === "image/jpeg" ? 0.88 : undefined,
+      createError: () => new DraftImageError("无法压缩这张图片。"),
+    });
     if (bytes.length <= limits.imageBytes)
       return {
         fileName,
