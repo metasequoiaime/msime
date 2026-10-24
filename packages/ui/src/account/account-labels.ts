@@ -1,10 +1,3 @@
-import type { AccountUser } from "./account-model";
-
-export function preferredAccountName(user: AccountUser): string {
-  const name = user.displayName.trim();
-  return name || `水杉小鹿·${user.id.slice(0, 6).toUpperCase()}`;
-}
-
 export function accountProviderName(provider: string): string {
   if (provider === "apple") return "Apple";
   if (provider === "google") return "Google";

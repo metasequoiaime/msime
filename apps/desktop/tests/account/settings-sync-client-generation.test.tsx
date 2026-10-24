@@ -13,7 +13,12 @@ import type {
 
 afterEach(cleanup);
 
-const user = { id: "synthetic-user", displayName: "合成用户", createdAt: "2026-01-01T00:00:00Z" };
+const user = {
+  id: "synthetic-user",
+  displayName: "合成用户",
+  preferredName: "合成用户",
+  createdAt: "2026-01-01T00:00:00Z",
+};
 const schema: AccountPreferenceSchema = {
   fields: { "input.schema": { type: "string" } },
   maximumBytes: 65536,

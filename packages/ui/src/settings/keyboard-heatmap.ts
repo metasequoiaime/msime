@@ -59,7 +59,7 @@ export function scopedKeyCounts(
   return result;
 }
 
-/** 只在屏幕键盘上才有的键：九宫格、14 键和其他触屏键。 */
+/** 只在屏幕键盘上才有的键：九宫格、字母组网格和其他触屏键。 */
 function softKey(code: string): boolean {
   return (
     code.startsWith("Nine") ||
@@ -155,7 +155,9 @@ export function keyLabel(code: string, platform?: string): string {
   if (match) return `小键盘 ${match[1]}`;
   match = /^Nine([0-9])$/.exec(code);
   if (match) return `九宫格 ${match[1]}`;
-  // 全拼 14 键按键面字母命名（`FourteenQW`、`FourteenL`），与 Android `KeyPressIds.label`、iOS `TypingKeyID` 一样写成「14 键 QW」。
+  // 字母组网格按键面字母与键数命名，和各原生宿主的统计标签一致。
+  match = /^Eighteen([A-Z]{1,2})$/.exec(code);
+  if (match) return `18 键 ${match[1]}`;
   match = /^Fourteen([A-Z]{1,2})$/.exec(code);
   if (match) return `14 键 ${match[1]}`;
   match = /^Eighteen([A-Z]{1,2})$/.exec(code);

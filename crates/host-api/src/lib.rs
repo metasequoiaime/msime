@@ -41,11 +41,11 @@ use msime_client_services::typing_statistics::{
 use msime_engine::host::{
     check_nine_key_shuangpin_table, check_shuangpin_custom_profile,
     nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints,
-    resolve_fourteen_key_shuangpin, resolve_nine_key_shuangpin, shuangpin_builtin_table,
-    validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile, CandidateEdge, Command,
-    EngineOptions, NineKeyShuangpinError, NineKeyShuangpinKeyHint, NineKeyShuangpinKind,
-    NineKeyShuangpinTable, Session, ShuangpinCustomProfileError, ShuangpinCustomTable,
-    ShuangpinCustomTablePart,
+    resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin, resolve_nine_key_shuangpin,
+    shuangpin_builtin_table, validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile,
+    CandidateEdge, Command, EngineOptions, NineKeyShuangpinError, NineKeyShuangpinKeyHint,
+    NineKeyShuangpinKind, NineKeyShuangpinTable, Session, ShuangpinCustomProfileError,
+    ShuangpinCustomTable, ShuangpinCustomTablePart,
 };
 use msime_engine::{
     release_japanese_dictionary_cache, SchemeSet, SchemeType, ShuangpinProfileKind,
@@ -1367,6 +1367,19 @@ fn fourteen_key_shuangpin_grid(preferences: &Preferences) -> KeyGrid {
             .expect("内置小鹤方案可派生 14 键表")
     });
     KeyGrid::FourteenKeyShuangpin(table)
+}
+
+/// 按与实体双拼相同的方案和非法表回退派生触屏 18 键。
+fn eighteen_key_shuangpin_grid(preferences: &Preferences) -> KeyGrid {
+    let kind = ShuangpinProfileKind::from_u8(profile_code(preferences.shuangpin_profile))
+        .expect("偏好双拼方案均有对应的引擎方案");
+    let custom = (preferences.shuangpin_profile == ShuangpinProfile::Custom)
+        .then(|| engine_shuangpin_custom_table(&preferences.shuangpin_custom_profile));
+    let table = resolve_eighteen_key_shuangpin(kind, custom.as_ref()).unwrap_or_else(|_| {
+        resolve_eighteen_key_shuangpin(ShuangpinProfileKind::Xiaohe, None)
+            .expect("内置小鹤方案可派生 18 键表")
+    });
+    KeyGrid::EighteenKeyShuangpin(table)
 }
 
 /// 偏好里的九键双拼方案对应的 Engine 方案。
@@ -3374,7 +3387,7 @@ const SELECTION_BATCH: u64 = 32;
 #[cfg(test)]
 mod tests;
 
-/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。Android 和 iOS 双拼看独立的 `touch_shuangpin_layout`，14 键按当前 26 键方案派生；其他宿主保留但忽略这个偏好。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键，九键双拼按 `nine_key_shuangpin_profile` 取表（自定义表不能用时按默认的内置方案）。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
+/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。Android 和 iOS 双拼看独立的 `touch_shuangpin_layout`，14 键按当前 26 键方案派生，Android 另支持 18 键；其他宿主保留但忽略这个偏好。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键，九键双拼按 `nine_key_shuangpin_profile` 取表（自定义表不能用时按默认的内置方案）。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
 pub(crate) fn layout_key_grid(
     scheme: Option<SchemeType>,
     preferences: &Preferences,
@@ -3389,10 +3402,17 @@ fn layout_key_grid_for(
 ) -> Option<KeyGrid> {
     if matches!(platform, HostPlatform::Android | HostPlatform::Ios)
         && scheme == Some(SchemeType::Shuangpin)
-        && preferences.touch_shuangpin_layout == TouchShuangpinLayout::FourteenKey
         && preferences.touch_keyboard_layout != TouchKeyboardLayout::Handwriting
     {
-        return Some(fourteen_key_shuangpin_grid(preferences));
+        match preferences.touch_shuangpin_layout {
+            TouchShuangpinLayout::FourteenKey => {
+                return Some(fourteen_key_shuangpin_grid(preferences))
+            }
+            TouchShuangpinLayout::EighteenKey if platform == HostPlatform::Android => {
+                return Some(eighteen_key_shuangpin_grid(preferences))
+            }
+            TouchShuangpinLayout::TwentySixKey | TouchShuangpinLayout::EighteenKey => {}
+        }
     }
     match (preferences.touch_keyboard_layout, scheme) {
         (TouchKeyboardLayout::NineKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::NineKey),

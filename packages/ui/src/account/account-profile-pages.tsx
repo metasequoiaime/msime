@@ -6,7 +6,7 @@ import { AccountAvatar } from "./account-avatar";
 import { AccountConfirmation } from "./account-confirmation";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { AccountIdentityDetails, AccountIdentityRows } from "./account-identity-details";
-import { accountProviderName, preferredAccountName } from "./account-labels";
+import { accountProviderName } from "./account-labels";
 import type { AccountClient, AccountProfile, AccountUser } from "./account-model";
 import { AccountNicknameEditor, accountNicknameHelpText } from "./account-nickname-editor";
 import { useAccountAction } from "./account-operation";
@@ -117,7 +117,11 @@ export function MobileAccountProfilePage({
       <section className={`${account.section} ${account.profilePreviewLarge}`}>
         <AccountAvatar
           user={user}
-          name={normalizedName || "水杉用户"}
+          name={
+            editorState.checking || editorState.unavailable
+              ? undefined
+              : normalizedName || "水杉用户"
+          }
           load={client.avatar}
           size="large"
         />
@@ -214,7 +218,7 @@ export function HarmonyProfilePage({
       showToast("昵称已更新");
     },
   });
-  const shownName = preferredAccountName(user);
+  const shownName = user.preferredName;
   const provider = profile?.providers[0];
   const confirmAction = () => {
     const action = confirmation;

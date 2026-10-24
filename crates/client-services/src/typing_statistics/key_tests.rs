@@ -44,6 +44,8 @@ fn the_whitelist_is_the_published_contract() {
         "FourteenQW",
         "FourteenL",
         "FourteenM",
+        "EighteenWE",
+        "EighteenL",
     ] {
         assert!(is_known_key_id(id), "{id}");
     }

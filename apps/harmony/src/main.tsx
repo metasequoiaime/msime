@@ -607,7 +607,7 @@ globalThis.msimeHarmonyOpenPage = (page: string) => {
 const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
 
 function accountClient(native: NativeBridge): AccountClient {
-  // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），回答已经是共享账号页读的形状：user 是 {id,displayName,createdAt,email?,avatarUrl?,avatarUploaded?}，不再在这里换写法。
+  // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），user 含原始 displayName 和共享 preferredName，直接透传共享账号页，不在这里重建显示名。
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
   return {

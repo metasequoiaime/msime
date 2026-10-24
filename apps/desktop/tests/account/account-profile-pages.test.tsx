@@ -16,6 +16,7 @@ const profile: AccountProfile = {
   user: {
     id: "synthetic-profile-user",
     displayName: "合成昵称",
+    preferredName: "合成昵称",
     createdAt: "2026-01-01T00:00:00Z",
   },
   providers: ["email"],
@@ -70,7 +71,10 @@ function editName(variant: (typeof variants)[number], name: string) {
 afterEach(cleanup);
 
 test.each(variants)("%s 资料页独立保存昵称并通知调用方，返回由调用方处理", async (variant) => {
-  const updated = { ...profile, user: { ...profile.user, displayName: "更新合成昵称" } };
+  const updated = {
+    ...profile,
+    user: { ...profile.user, displayName: "更新合成昵称", preferredName: "更新合成昵称" },
+  };
   const accountClient = client({
     namePresentation: async (name) =>
       accountNameResult(name === "  更新合成昵称  " ? "更新合成昵称" : name),
@@ -140,7 +144,10 @@ test.each(variants)("%s 独立资料页忽略被替换客户端的迟到昵称�
   await waitFor(() => expect(old.rename).toHaveBeenCalledOnce());
   view.rerender(page(variant, client(), onProfileUpdated));
   await act(async () =>
-    finish({ ...profile, user: { ...profile.user, displayName: "迟到合成昵称" } }),
+    finish({
+      ...profile,
+      user: { ...profile.user, displayName: "迟到合成昵称", preferredName: "迟到合成昵称" },
+    }),
   );
   expect(onProfileUpdated).not.toHaveBeenCalled();
   expect(screen.queryByText("迟到合成昵称")).toBeNull();

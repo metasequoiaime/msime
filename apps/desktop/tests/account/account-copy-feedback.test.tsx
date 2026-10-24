@@ -19,6 +19,7 @@ afterEach(() => {
 const user: AccountUser = {
   id: "fixture-user-id",
   displayName: "合成测试用户",
+  preferredName: "合成测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
 

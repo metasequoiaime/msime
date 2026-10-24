@@ -7,7 +7,12 @@ import { accountNameResult } from "../support/account-name";
 
 afterEach(cleanup);
 const profile = {
-  user: { id: "synthetic-user", displayName: "合成昵称", createdAt: "2026-01-01T00:00:00Z" },
+  user: {
+    id: "synthetic-user",
+    displayName: "合成昵称",
+    preferredName: "合成昵称",
+    createdAt: "2026-01-01T00:00:00Z",
+  },
   providers: ["email"],
 };
 function deferred<T>() {

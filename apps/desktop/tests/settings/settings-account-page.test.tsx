@@ -13,6 +13,7 @@ function account(): AccountClient {
   const user = {
     id: "fixture-account",
     displayName: "合成测试账号",
+    preferredName: "合成测试账号",
     createdAt: "2026-01-01T00:00:00Z",
   };
   return {

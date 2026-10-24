@@ -29,6 +29,7 @@ afterEach(() => {
 const user: AccountUser = {
   id: "fixture-user-id",
   displayName: "水杉测试用户",
+  preferredName: "水杉测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
 const profile: AccountProfile = { user, providers: ["email"] };
@@ -113,7 +114,7 @@ test("ignores a same-tick duplicate verification-code request", async () => {
 });
 
 test("profile rename, logout-all confirmation and account deletion use explicit actions", async () => {
-  const renamed = { ...user, displayName: "新昵称" };
+  const renamed = { ...user, displayName: "新昵称", preferredName: "新昵称" };
   const client = account({
     namePresentation: async (name) => accountNameResult(name === "  新昵称  " ? "新昵称" : name),
     status: vi.fn().mockResolvedValue({ user }),
@@ -163,7 +164,10 @@ test("a late profile mutation is ignored after the profile page unmounts", async
   fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
   await waitFor(() => expect(client.rename).toHaveBeenCalledOnce());
   view.unmount();
-  finish({ user: { ...user, displayName: "晚到的昵称" }, providers: ["email"] });
+  finish({
+    user: { ...user, displayName: "晚到的昵称", preferredName: "晚到的昵称" },
+    providers: ["email"],
+  });
   await Promise.resolve();
 });
 
@@ -194,7 +198,10 @@ test("a desktop profile rename response from a replaced client is ignored", asyn
   view.rerender(<AccountPage client={nextClient} />);
   await screen.findByRole("button", { name: "编辑个人资料" });
   await act(async () => {
-    resolveOld({ user: { ...user, displayName: "响应旧昵称" }, providers: ["email"] });
+    resolveOld({
+      user: { ...user, displayName: "响应旧昵称", preferredName: "响应旧昵称" },
+      providers: ["email"],
+    });
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -237,7 +244,10 @@ test("mobile profile ignores a same-tick duplicate nickname save", async () => {
     fireEvent.click(save);
   });
   await waitFor(() => expect(rename).toHaveBeenCalledOnce());
-  pending.resolve({ user: { ...user, displayName: "移动端新昵称" }, providers: ["email"] });
+  pending.resolve({
+    user: { ...user, displayName: "移动端新昵称", preferredName: "移动端新昵称" },
+    providers: ["email"],
+  });
   await waitFor(() => expect(screen.getByText("昵称已更新。")).not.toBeNull());
 });
 
@@ -259,7 +269,10 @@ test("a mobile profile rename response from a replaced client is ignored", async
   fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
   await waitFor(() => expect(oldClient.rename).toHaveBeenCalled());
   view.rerender(<AccountPage client={nextClient} platform="ios" />);
-  resolveOld({ user: { ...user, displayName: "响应旧昵称" }, providers: ["email"] });
+  resolveOld({
+    user: { ...user, displayName: "响应旧昵称", preferredName: "响应旧昵称" },
+    providers: ["email"],
+  });
   await Promise.resolve();
   expect(screen.queryByText("响应旧昵称")).toBeNull();
 });
@@ -1748,7 +1761,7 @@ test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet 
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
   const renamed: AccountProfile = {
-    user: { ...user, displayName: "新的名字" },
+    user: { ...user, displayName: "新的名字", preferredName: "新的名字" },
     providers: ["email"],
   };
   const client = account({

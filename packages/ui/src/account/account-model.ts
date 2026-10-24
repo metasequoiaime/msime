@@ -1,6 +1,8 @@
 export type AccountUser = {
   id: string;
   displayName: string;
+  /** Rust 按共享昵称规则生成的显示名，已包含空昵称的回退。 */
+  preferredName: string;
   createdAt: string;
   /** 关联 Google 账号已验证的邮箱。 */
   email?: string;

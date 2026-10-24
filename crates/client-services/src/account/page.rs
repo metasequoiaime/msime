@@ -21,6 +21,8 @@ pub struct StatusResponse {
 pub struct UserResponse {
     id: String,
     display_name: String,
+    /// 共享昵称规则给出的显示名；原始昵称仍保留给编辑草稿。
+    preferred_name: String,
     created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     email: Option<String>,
@@ -34,6 +36,7 @@ pub struct UserResponse {
 
 impl From<AccountUser> for UserResponse {
     fn from(user: AccountUser) -> Self {
+        let preferred_name = super::name::present_name(&user.display_name, &user.id).preferred;
         // A URL this client would never fetch is not passed on either, so the page cannot show a placeholder for an avatar that will not load.
         let avatar_url = user
             .avatar_url
@@ -41,6 +44,7 @@ impl From<AccountUser> for UserResponse {
         Self {
             id: user.id,
             display_name: user.display_name,
+            preferred_name,
             created_at: user.created_at,
             email: user.email,
             avatar_uploaded: avatar_url
@@ -205,6 +209,27 @@ mod tests {
     }
 
     #[test]
+    fn user_response_includes_the_shared_preferred_name_without_changing_the_draft() {
+        for (name, id, expected) in [
+            ("\u{feff} 合成昵称 \u{3000}", "synthetic-user", "合成昵称"),
+            ("", "abc123-rest", "水杉小鹿·ABC123"),
+            ("\u{feff}\u{a0}\u{3000}", "abc123-rest", "水杉小鹿·ABC123"),
+            ("", "ab😀cde-tail", "水杉小鹿·AB😀CDE"),
+            ("", "abßcde-tail", "水杉小鹿·ABßCDE"),
+        ] {
+            let mut account = user();
+            account.id = id.into();
+            account.display_name = name.into();
+            let response = serde_json::to_value(StatusResponse {
+                user: Some(account.into()),
+            })
+            .unwrap();
+            assert_eq!(response["user"]["displayName"], name);
+            assert_eq!(response["user"]["preferredName"], expected);
+        }
+    }
+
+    #[test]
     fn account_responses_match_the_shared_webview_contract() {
         let status = serde_json::to_value(StatusResponse {
             user: Some(user().into()),
@@ -212,7 +237,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             status,
-            json!({"user":{"id":"synthetic-user","displayName":"测试账号","createdAt":"2026-01-01T00:00:00Z"}})
+            json!({"user":{"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z"}})
         );
 
         // A signed-out status is `{ user: null }`, which the webview's `user?: AccountUser | null` accepts.
@@ -228,7 +253,7 @@ mod tests {
                 user: Some(google.clone().into())
             })
             .unwrap()["user"],
-            json!({"id":"synthetic-user","displayName":"测试账号","createdAt":"2026-01-01T00:00:00Z","email":"person@example.test","avatarUrl":"https://media.msime.app/avatars/abc.jpg","avatarUploaded":true})
+            json!({"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z","email":"person@example.test","avatarUrl":"https://media.msime.app/avatars/abc.jpg","avatarUploaded":true})
         );
         google.avatar_url = Some("https://lh3.googleusercontent.com/a/person".into());
         let from_google = serde_json::to_value(StatusResponse {
@@ -293,7 +318,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(profile).unwrap(),
             json!({
-                "user":{"id":"synthetic-user","displayName":"测试账号","createdAt":"2026-01-01T00:00:00Z"},
+                "user":{"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z"},
                 "providers":["email","phone"]
             })
         );

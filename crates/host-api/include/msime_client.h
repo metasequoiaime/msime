@@ -799,11 +799,11 @@ char *msime_client_set_english_mode(uint64_t session, bool enabled);
  * 创建和重建会话时按偏好自动开启：全拼看 touch_keyboard_layout 是否为 nine_key（fourteen_key 则开 14 键）；注音还要求 touch_keyboard_schemes 选中（或在没有选中项时启用了）zhuyin_nine_key，这个方案只有 Android 写，桌面宿主为全拼九宫格写下的 nine_key 不会让注音会话离开大千键位。宿主设下的网格只保留到方案或 touch_keyboard_layout 改变为止。
  * View.touch_keyboard_layout 是已应用的宿主呈现偏好；日文九键宿主只用它，不开启引擎的九键模式。 */
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
-/* 切换引擎的组码网格：0 关闭，1 九键（同 msime_client_set_nine_key_mode），2 当前全拼或双拼方案的 14 键（QWERTY 上相邻两个字母一个键，L、M 单独一键），3 九键双拼（表按已应用的 nine_key_shuangpin_profile 取），4 十八键全拼（Q WE RT Y U IO P / A SD FG H JK L / Z XC V BN M）。只在组字结束后调用；14 键只给全拼或双拼，十八键和九键双拼只给全拼，对其他方案开启、在组字中切换都会被拒绝，其他取值报错，会话不变。返回值中的 View 反映结果。
- * View.key_grid 是权威状态："none"、"nine_key"、"fourteen_key"、"eighteen_key" 或 "nine_key_shuangpin"。View.nine_key 只在九键下为真。Android 和 iOS 的双拼会话在创建和重建时按 touch_shuangpin_layout 选择 26 或 14 键，其他宿主保留但忽略该偏好，14 键表从已应用的 shuangpin_profile 及自定义表派生，分号与 L 共键。几种网格共用 View.nine_key_spellings、nine_key_reading、nine_key_single_character、nine_key_strokes，以及 msime_client_choose_nine_key_spelling 和 msime_client_set_nine_key_filter；字母归组键盘的分词键照九键送 '\''。字母归组键盘下数字不是输入，照常是选词键。九键双拼的数字从 msime_client_character 进来（方案用到的数字，可以有 1 和 0），和九键一样不当选词键，没有英文九键；创建和重建会话时 touch_keyboard_layout 为 nine_key_shuangpin 的全拼会话自动开启它。 */
+/* 切换引擎的组码网格：0 关闭，1 九键（同 msime_client_set_nine_key_mode），2 当前全拼或双拼方案的 14 键（QWERTY 上相邻两个字母一个键，L、M 单独一键），3 九键双拼（表按已应用的 nine_key_shuangpin_profile 取），4 十八键全拼，5 十八键双拼（Q WE RT Y U IO P / A SD FG H JK L / Z XC V BN M）。只在组字结束后调用；14 键只给全拼或双拼，九键双拼和网格 4 只给全拼，网格 5 只给双拼。对其他方案开启、在组字中切换都会被拒绝，其他取值报错，会话不变。返回值中的 View 反映结果。
+ * View.key_grid 是权威状态："none"、"nine_key"、"fourteen_key"、"eighteen_key" 或 "nine_key_shuangpin"；两种十八键均为 "eighteen_key"，按 scheme 区分。View.nine_key 只在九键下为真。Android 和 iOS 双拼会话在创建和重建时按 touch_shuangpin_layout 选择 26 或 14 键，Android 另支持 18 键；其他宿主保留但忽略该偏好。字母双拼网格从已应用的 shuangpin_profile 及自定义表派生，分号与 L 共键。几种网格共用 View.nine_key_spellings、nine_key_reading、nine_key_single_character、nine_key_strokes，以及 msime_client_choose_nine_key_spelling 和 msime_client_set_nine_key_filter；字母网格的分词键照九键送 '\''。字母网格下数字不是输入，照常是选词键。九键双拼的数字从 msime_client_character 进来（方案用到的数字，可以有 1 和 0），和九键一样不当选词键，没有英文九键；创建和重建会话时 touch_keyboard_layout 为 nine_key_shuangpin 的全拼会话自动开启它。 */
 char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
-/* 字母归组键盘（14 键或十八键）的一键：letter 是这一组里的任一小写字母，引擎归成这一组，宿主约定送首字母（十四键为 q e t u o a d g j l z c b m，十八键见上方映射）。返回与 msime_client_character 相同的输入响应。不在字母归组键盘下、方案不兼容、在本地模式或专用英文里、26 键正在组字、或 letter 不是 a-z 时 handled=false，会话不变。
- * 硬件键盘的字母照常经 msime_client_character 走当前方案的 26 键：字母归组键盘组字进行中它们 handled=false，同九键。 */
+/* 字母网格的一键：letter 是这一组里的任一小写字母，引擎归成这一组，宿主约定送当前网格各组的首字母。返回与 msime_client_character 相同的输入响应。不在 14 或 18 键下、方案不支持当前网格、在本地模式或专用英文里、26 键正在组字、或 letter 不是 a-z（双拼另接受分号）时 handled=false，会话不变。
+ * 硬件键盘的字母照常经 msime_client_character 走当前方案的 26 键：字母网格组字进行中它们 handled=false，同九键。 */
 char *msime_client_grid_key(uint64_t session, uint8_t letter);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：不记录选词位置和上屏效率，并立即禁止、清除上屏后联想；宿主须重新读取 View，以丢弃旧候选代次。用户单独关掉学习不算隐私会话；学习本身仍由 learning 偏好决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);

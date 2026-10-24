@@ -227,7 +227,7 @@ pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> 
     })
 }
 
-/// 在组字空闲后换引擎的组码网格：0 关，1 九键，2 当前方案的 14 键（全拼或双拼），3 九键双拼（表按已应用的偏好 `nine_key_shuangpin_profile` 取，自定义表不能用时按默认的内置方案）。其他取值报错，会话不变。
+/// 在组字空闲后换引擎的组码网格：0 关，1 九键，2 当前方案的 14 键（全拼或双拼），3 九键双拼，4 全拼 18 键，5 双拼 18 键。双拼表按已应用的偏好取，自定义表不能用时按默认的内置方案；其他取值报错，会话不变。
 #[no_mangle]
 pub extern "C" fn msime_client_set_key_grid(handle: u64, grid: u8) -> *mut c_char {
     response(|| {
@@ -241,6 +241,7 @@ pub extern "C" fn msime_client_set_key_grid(handle: u64, grid: u8) -> *mut c_cha
                 2 => Some(KeyGrid::FourteenKey),
                 3 => Some(crate::nine_key_shuangpin_grid(&session.applied).0),
                 4 => Some(KeyGrid::EighteenKey),
+                5 => Some(crate::eighteen_key_shuangpin_grid(&session.applied)),
                 _ => return Err("unknown key grid".into()),
             };
             session

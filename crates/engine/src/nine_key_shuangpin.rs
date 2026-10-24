@@ -782,11 +782,13 @@ pub fn nine_key_shuangpin(
     Ok(leaked)
 }
 
-/// 将已解析的 26 键双拼方案投到相邻字母合并的 14 键上；分号与 L 共键。九键用户表的数字校验不变，不接受字母格式的用户表。
-fn fourteen_key_shuangpin(
+/// 将已解析的 26 键双拼方案投到字母组；分号与 L 共键，缓存同时区分方案和布局。九键用户表的数字校验不变。
+fn letter_key_shuangpin(
     profile: &'static crate::shuangpin::ShuangpinProfile,
+    eighteen_key: bool,
 ) -> Option<&'static NineKeyShuangpin> {
     type DerivedTable = (
+        bool,
         &'static crate::shuangpin::ShuangpinProfile,
         &'static NineKeyShuangpin,
     );
@@ -795,15 +797,20 @@ fn fourteen_key_shuangpin(
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    if let Some((_, table)) = derived
+    if let Some((_, _, table)) = derived
         .iter()
-        .find(|(source, _)| std::ptr::eq(*source, profile))
+        .find(|(layout, source, _)| *layout == eighteen_key && std::ptr::eq(*source, profile))
     {
         return Some(table);
     }
-    let key = |value: u8| match value {
-        b';' => Some(b'l'),
-        letter => crate::KeyGrid::FourteenKey.code_of(letter),
+    let key = |value: u8| {
+        if eighteen_key {
+            crate::nine_key::eighteen_key_code(value)
+        } else if value == b';' {
+            Some(b'l')
+        } else {
+            crate::KeyGrid::FourteenKey.code_of(value)
+        }
     };
     let lookup = |pairs: &[(&str, &str)], unit: &str| {
         pairs
@@ -866,7 +873,7 @@ fn fourteen_key_shuangpin(
         }
     }
     let leaked: &'static NineKeyShuangpin = Box::leak(Box::new(table));
-    derived.push((profile, leaked));
+    derived.push((eighteen_key, profile, leaked));
     Some(leaked)
 }
 
@@ -876,8 +883,18 @@ pub fn resolve_fourteen_key_shuangpin(
     custom: Option<&crate::ShuangpinCustomTable>,
 ) -> crate::Result<&'static NineKeyShuangpin> {
     let profile = crate::shuangpin::custom::session_profile(kind, custom, true)?;
-    fourteen_key_shuangpin(profile)
+    letter_key_shuangpin(profile, false)
         .ok_or_else(|| crate::EngineError::invalid("invalid fourteen-key shuangpin profile"))
+}
+
+/// 按当前内置或自定义双拼方案派生 18 键表，沿用 26 键方案校验。
+pub fn resolve_eighteen_key_shuangpin(
+    kind: crate::ShuangpinProfileKind,
+    custom: Option<&crate::ShuangpinCustomTable>,
+) -> crate::Result<&'static NineKeyShuangpin> {
+    let profile = crate::shuangpin::custom::session_profile(kind, custom, true)?;
+    letter_key_shuangpin(profile, true)
+        .ok_or_else(|| crate::EngineError::invalid("invalid eighteen-key shuangpin profile"))
 }
 
 /// 与 [`nine_key_shuangpin`] 的结论相同，但什么也不留下，给编辑中的表用（设置页每改一个键就问一次）。
@@ -906,6 +923,75 @@ pub fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eighteen_key_preserves_every_accepted_builtin_and_custom_encoding() {
+        use crate::types::ShuangpinProfileKind;
+        let groups = [
+            "q", "we", "rt", "y", "u", "io", "p", "a", "sd", "fg", "h", "jk", "l;", "z", "xc", "v",
+            "bn", "m",
+        ];
+        let expected_key = |letter| {
+            groups
+                .iter()
+                .find(|group| group.as_bytes().contains(&letter))
+                .unwrap()
+                .as_bytes()[0]
+        };
+        for kind in [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::SmartAbc,
+        ] {
+            let profile = crate::shuangpin::profile::profile(kind).unwrap();
+            let custom_source = crate::shuangpin::custom::builtin_table(kind).unwrap();
+            let table = resolve_eighteen_key_shuangpin(kind, None).unwrap();
+            let fourteen = resolve_fourteen_key_shuangpin(kind, None).unwrap();
+            assert!(
+                !std::ptr::eq(table, fourteen),
+                "布局必须拥有独立的派生表和拼写缓存"
+            );
+            assert!(std::ptr::eq(
+                table,
+                resolve_eighteen_key_shuangpin(kind, None).unwrap()
+            ));
+            let custom =
+                resolve_eighteen_key_shuangpin(ShuangpinProfileKind::Custom, Some(&custom_source))
+                    .unwrap();
+            let grid = crate::KeyGrid::EighteenKeyShuangpin(table);
+            for letter in (b'a'..=b'z').chain(std::iter::once(b';')) {
+                assert_eq!(grid.code_of(letter), Some(expected_key(letter)));
+            }
+            for first in b'a'..=b'z' {
+                for second in (b'a'..=b'z').chain(std::iter::once(b';')) {
+                    let raw = String::from_utf8(vec![first, second]).unwrap();
+                    let syllable = crate::shuangpin::utils::cvt_single_sp_to_pinyin(&raw, profile);
+                    if syllable.is_empty() {
+                        continue;
+                    }
+                    let projected = [expected_key(first), expected_key(second)];
+                    for actual in [table, custom] {
+                        assert!(
+                            actual
+                                .syllable_codes(&syllable)
+                                .any(|code| *code == projected),
+                            "{kind:?} {raw} {syllable} {projected:?}"
+                        );
+                        let input = String::from_utf8(projected.to_vec()).unwrap();
+                        assert_eq!(actual.matching_prefix_len(&syllable, &input), Some(2));
+                    }
+                }
+            }
+        }
+        assert!(resolve_eighteen_key_shuangpin(ShuangpinProfileKind::Custom, None).is_err());
+        assert!(resolve_eighteen_key_shuangpin(
+            ShuangpinProfileKind::Custom,
+            Some(&crate::ShuangpinCustomTable::default())
+        )
+        .is_err());
+    }
 
     #[test]
     fn fourteen_key_preserves_every_accepted_builtin_and_custom_encoding() {

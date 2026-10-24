@@ -80,6 +80,7 @@ test("a completed sign-in from an old client generation cannot publish its user"
   const user = {
     id: "synthetic-user",
     displayName: "Synthetic User",
+    preferredName: "Synthetic User",
     createdAt: "2026-01-01T00:00:00Z",
   };
   let resolveLogin!: (value: { user: typeof user }) => void;

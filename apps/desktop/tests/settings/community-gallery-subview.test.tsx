@@ -65,6 +65,7 @@ const initial: Snapshot = {
 const user = {
   id: "fixture-user-id",
   displayName: "水杉测试用户",
+  preferredName: "水杉测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
 

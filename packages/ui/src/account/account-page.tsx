@@ -20,7 +20,6 @@ import type { SettingsPageId } from "../settings/settings-page-registry";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { AccountAvatar } from "./account-avatar";
-import { preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { HarmonyProfilePage, MobileAccountProfilePage } from "./account-profile-pages";
@@ -638,9 +637,7 @@ function AccountDetailsPage({
             </span>
           )}
           <span className={account.meCardText}>
-            <span className={account.meCardName}>
-              {user ? preferredAccountName(user) : "未登录"}
-            </span>
+            <span className={account.meCardName}>{user ? user.preferredName : "未登录"}</span>
             <span className={account.meCardSubtitle}>
               {user ? (user.email ?? "水杉账号已登录") : "登录后同步词库、皮肤和设置"}
             </span>
@@ -766,7 +763,7 @@ function AccountDetailsPage({
         >
           <AccountAvatar user={user} load={client.avatar} size="medium" />
           <div>
-            <h2 className={account.heading}>{preferredAccountName(user)}</h2>
+            <h2 className={account.heading}>{user.preferredName}</h2>
             <p className={account.note}>{user.email ?? "水杉账号已登录"}</p>
           </div>
           <span className={account.profileChevron} aria-hidden="true">

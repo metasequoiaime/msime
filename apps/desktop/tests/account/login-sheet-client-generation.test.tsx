@@ -11,6 +11,7 @@ afterEach(cleanup);
 const user: AccountUser = {
   id: "synthetic-google-user",
   displayName: "合成测试用户",
+  preferredName: "合成测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
 const providers = { email: true, phone: false, google: true };
