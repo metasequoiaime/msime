@@ -14,10 +14,17 @@ mkdir -p target/android
 lock=resources/ocr-module-android.lock.json
 backup=target/android/ocr-product-production-lock.json
 cp "$lock" "$backup"
-trap 'cp "$backup" "$lock"' EXIT
+restore() {
+  cp "$backup" "$lock"
+  "$adb" -s "$serial" shell svc wifi enable >/dev/null 2>&1 || true
+  "$adb" -s "$serial" shell svc data enable >/dev/null 2>&1 || true
+}
+trap restore EXIT
 gradlew=apps/desktop/src-tauri/gen/android/gradlew
 "$gradlew" --project-dir platforms/android/gradle-app --console=plain -PmsimeOcrModule=true \
   :ocr-module:assembleRelease :ocr-module:lintRelease
+"$gradlew" --project-dir platforms/android/gradle-app --console=plain -PmsimeOcrModule=true \
+  :ocr-module:dependencies --configuration releaseRuntimeClasspath > target/android/ocr-product-dependencies.txt
 cp platforms/android/gradle-app/ocr-module/build/outputs/apk/release/ocr-module-release-unsigned.apk \
   target/android/ocr-product-module.apk
 python3 - <<'PY'
@@ -38,13 +45,18 @@ path.write_text(json.dumps(lock, indent=2) + '\n')
 Path('target/android/ocr-product-test-lock.json').write_text(path.read_text())
 PY
 core_status=0
-MSIME_ANDROID_TEST_SERIAL="$serial" bash platforms/android/tests/device/build-core-test.sh x86_64 || core_status=$?
+MSIME_ANDROID_TEST_SERIAL="$serial" bash platforms/android/tests/device/build-core-test.sh x86_64 2>&1 | tee target/android/ocr-product-core.log || core_status=$?
+# x86_64 验收使用普通开发包；发布瘦包仅支持 arm64，不能绕过产品的 ABI 限制。
+python3 scripts/fetch_language_dictionaries.py
+python3 scripts/fetch_wordbooks.py
 bash platforms/windows/bootstrap-vcpkg.sh
 resource_dir=$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)
-MSIME_ANDROID_ABIS=x86_64 MSIME_ANDROID_OMIT_ON_DEMAND=1 bash platforms/android/build-apk.sh "$resource_dir"
+MSIME_ANDROID_ABIS=x86_64 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 MSIME_REQUIRE_WORDBOOKS=1 \
+  bash platforms/android/build-apk.sh "$resource_dir"
 api=$("$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
 baseline_status=0
-bash platforms/android/tests/device/smoke.sh "$serial" --core || baseline_status=$?
+bash platforms/android/tests/device/smoke.sh "$serial" --core 2>&1 | tee target/android/ocr-product-core-smoke.log || baseline_status=$?
+printf 'core=%s baseline=%s\n' "$core_status" "$baseline_status" > target/android/ocr-product-baseline-status.txt
 MSIME_ANDROID_OCR_SMOKE=1 bash platforms/android/tests/device/build-editor.sh
 "$adb" -s "$serial" install -r target/android/editor-test.apk
 # 测试只清除本专项先前生成的模块；应用其余设置和资源不清理。
