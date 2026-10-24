@@ -120,6 +120,12 @@ public final class OcrProbe extends Instrumentation {
         int completeCases = 0;
         try {
             for (int index = 0; index < cases.length; index++) {
+                if (index > 0) {
+                    stage = "module-reopen-" + index;
+                    moduleClass.getMethod("close").invoke(module);
+                    module = moduleClass.getConstructor().newInstance();
+                    moduleClass.getMethod("initialize", Context.class).invoke(module, moduleContext);
+                }
                 stage = "offline-recognition-case-" + index;
                 Bitmap bitmap = SyntheticOcrFixture.render(index);
                 try {
