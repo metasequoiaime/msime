@@ -391,7 +391,6 @@ public final class MSIMEInputService extends InputMethodService {
     boolean clipboardPreviewExpanded;
     int clipboardPreviewKeyboardHeight;
     private int clipboardPreviewKeyboardTop;
-    int clipboardPreviewKeyboardHeight;
     boolean textTrackpadPreviewExpanded;
     int editorPreviewKeyboardHeight;
     /** 上一次套上的浮动布局是不是跟随光标的候选栏：它和浮动键盘的外框宽度、拖动条不同，在两者之间切换也要重新套。 */
@@ -9558,12 +9557,6 @@ public final class MSIMEInputService extends InputMethodService {
                 && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
         fullWindowLayoutApplied = fullWindow;
         overlayLayoutApplied = floating;
-        boolean fullWindow = floating || clipboardPreviewExpanded;
-        if (!force && fullWindow == floatingLayoutApplied && caret == caretLayoutApplied) return;
-        floatingLayoutApplied = fullWindow;
-        boolean fullWindow = floating || editorPreviewExpanded();
-        if (!force && fullWindow == floatingLayoutApplied && caret == caretLayoutApplied) return;
-        floatingLayoutApplied = fullWindow;
         caretLayoutApplied = caret;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
