@@ -1625,6 +1625,8 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
     onOpenCloudDictionary: record("dictionary"),
     onOpenCloudClipboard: record("clipboard"),
     onOpenLocalDesigns: record("designs"),
+    onOpenCommunity: record("community"),
+    onOpenPublishedSkins: record("published-skins"),
     onOpenFeedback: record("feedback"),
     onOpenAbout: record("about"),
     onReplayOnboarding: record("onboarding"),
@@ -1633,17 +1635,24 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   const card = await screen.findByRole("button", { name: "编辑个人资料" });
   expect(card.textContent).toContain("fixture@example.test");
 
-  // 皮肤、词库和两个云端面板分别由设置页的唯一入口承载；「我的」只保留作品入口。
+  // 本地内容留在设置页，发布与收藏留在社区；宿主仍传入这些能力时也不重复列入口。
   expect(screen.queryByRole("region", { name: "我的内容" })).toBeNull();
-  for (const title of ["我的皮肤", "我的词库", "云词库", "云剪贴板"]) {
+  for (const title of [
+    "我的皮肤",
+    "我的词库",
+    "云词库",
+    "云剪贴板",
+    "我的设计",
+    "我发布的皮肤",
+    "我发布的词库",
+    "我发布的回复模板",
+    "收藏的词库",
+    "收藏的回复模板",
+  ]) {
     expect(screen.queryByRole("button", { name: title })).toBeNull();
   }
 
-  fireEvent.click(
-    within(screen.getByRole("region", { name: "社区作品" })).getByRole("button", {
-      name: "我的设计",
-    }),
-  );
+  expect(screen.queryByRole("region", { name: "社区作品" })).toBeNull();
 
   const general = within(screen.getByRole("region", { name: "通用" }));
   expect(general.getByRole("button", { name: "应用主题" }).textContent).toContain("四季 · 秋杉");
@@ -1659,7 +1668,7 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   fireEvent.click(screen.getByRole("button", { name: "新手引导" }));
-  expect(calls).toEqual(["designs", "feedback", "about", "onboarding"]);
+  expect(calls).toEqual(["feedback", "about", "onboarding"]);
 
   // 旧的区块都没了：没有工具分组，没有内嵌的同步卡片，也没有数据区块标题。
   expect(screen.queryByRole("region", { name: "工具" })).toBeNull();
