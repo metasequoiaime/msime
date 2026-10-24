@@ -33,12 +33,16 @@ Status: implemented
 - 新写一套录音和识别流程：外部生命周期可完全独立。但模型、热词、取消与运行库规则会重复；保留独立 Activity，复用已有识别器。
 - 只提供接口并使用既有麦克风动画：实现更少。但遗漏原 issue 的人物、耳部和实时红色信号要求，不作为完整交付。
 - 重建测试用返回键清理系统权限窗口：不改变用户选择的权限标记。但 API 28 的残留权限窗口不响应返回，清理必须点击系统拒绝按钮；用专用模拟器承受拒绝产生的标记，完成后移除专用设备，不在清理时授予录音权限。
+- 旋转结束后只恢复自动旋转开关：设备较快返回原来的显示方向，但会把用户保存的固定方向留在测试值。连续调用固定方向与解冻又会受到系统设置异步监听的影响：解冻仍可能回写旧缓存。夹具先恢复模式，再单独恢复保存的 `USER_ROTATION`，复读两个系统设置并等待窗口管理器缓存消费原值；仅复读设置库仍不足以防止自动化断开时回写旧缓存。缓存检查依赖 API 28/35 实际提供的 `dumpsys window` 固定字段，不输出转储内容；字段不可识别时测试失败，不默认为已恢复。
 
 ## Device verification coverage
 
 - API 28 与 API 35 已通过标准隐式 Intent 发现、调用、一次性 PendingIntent 成功与取消回传、独立 UID 应用的 Activity 成功与取消回传、采集启动边界取消以及授权阶段 Home；原内部 Activity 仍不导出。
-- API 28 与 API 35 通过真实系统权限拒绝、未选模型和连续三次独立请求。未选模型用例只临时修改共享配置并恢复原选择，不删除模型或运行库；不把它等同于损坏资源或缺运行库覆盖。两版均已通过权限阶段的系统重建与后继实例取消；仍待设备验证：缺运行库、实际旋转；API 35 真实模型识别尚未通过。
+- API 28 与 API 35 通过真实系统权限拒绝、未选模型和连续三次独立请求。未选模型用例只临时修改共享配置并恢复原选择，不删除模型或运行库；不把它等同于损坏资源或缺运行库覆盖。两版均已通过权限阶段的系统重建、实际显示旋转与后继实例取消；仍待设备验证：缺运行库、固定横屏初始模式的退出后设置恢复；API 35 真实模型识别尚未通过。
 - 权限阶段重建夹具在主体断言结束后，通过系统权限窗口的拒绝按钮关闭残留弹窗，不用返回键：API 28 的真实权限窗口在产品实例已结束后仍可见且不响应返回，旧夹具因此失败。清理只拒绝权限；未获授权、新实例不启动录音、旧实例迟到结果不重复回传等主体断言保持不变。主体和清理同时失败时保留主体异常，将清理异常附为 suppressed；仅清理失败也使整项失败，不将测试环境清理误计为产品识别通过。
+- 实际旋转专项 `offline-rotation` 先打开可旋转的合成编辑器作为浮动语音窗口的底层，避免依赖启动器的方向策略；再通过 `UiAutomation.setRotation` 改变系统显示方向，必须观测到显示旋转、旧实例销毁、后继实例创建且配置方向改变；它不调用 `Activity.recreate()`。同样保留单次取消、无转写、新实例不录音及残留权限窗清理断言。旋转期间辅助功能节点可能暂时为空，清理必须等系统权限窗消失且合成调用方重新可见，不能把空根当作已关闭；旧清理在 API 35 实际留下了孤立授权窗口。结束时恢复原来的自动旋转或固定方向并关闭合成调用方，主体与清理失败时仍独立尝试恢复；恢复失败本身也会使测试失败。仅下述实际执行的初始模式计为通过。
+- 固定方向验收在建立 `UiAutomation` 之前，先让合成底层实际呈现保存的方向；Android 的自动化连接保存的是连接时的显示方向，断开时还会再次恢复。启动器可能保持竖屏而保存的用户方向为横屏，因此只在夹具内部复读设置还不够：设备驱动须同时检查仪器化正常退出后的两个设置值。早期固定模式日志虽然有仪器化通过码，但退出后的值不相等，不计入完整恢复验收；两版首轮未旋转以及 API 35 的 SystemUI 无响应现场也不计通过。
+- 最终测试包 SHA-256 为 `cf84e6342587679ee6f51338a2ba6d6028ed394de6597712f0a49a5af61430ee`，产品沿用下述 `ad64c215b7` 原生 APK。远端专用 `msime-issue-9159-rotation-api28` / `api35` 的自动旋转、固定竖屏初始模式共四项实际旋转通过，两版 `offline-recreate` 回归另两项通过，原始结果均为 `INSTRUMENTATION_CODE: -1`；每项前后 APK 哈希一致，录音权限始终未授予，旋转项额外检查退出后系统设置精确相等且无孤立权限 Activity。API 28 日志为 `9159-dedicated-api28-rotation-cache.log`；API 35 自动模式通过记录在 `9159-dedicated-api35-rotation-cache.log` 前半段，固定竖屏及重建回归在 `9159-dedicated-api35-rotation-cache-portrait.log`。固定横屏 `USER_ROTATION=3` 的退出后值仍会变成 0，两版均不计该初始模式通过；不能用主体旋转成功掩盖恢复失败，也不推断已经支持任意固定方向。
 - 本次补验使用 `ad64c215b7` 的原生产品（APK SHA-256 `2296954e13e09861c1261f0ae5641cbf328d8988adfc534615326e5c1e624e11`，语音源码来自已合并实现），仅更新测试 APK。旧夹具在 API 28 实际失败于残留权限窗口清理；本机随后出现其他会话替换 APK，初轮通过不作为最终验收。改用远端外盘中新建的 `msime-issue-9159-recreate-api28` / `api35` 专用设备（端口 5794 / 5796），两版 `offline-recreate` 均返回 `INSTRUMENTATION_CODE: -1`，测试前后产品与测试 APK 哈希分别精确一致，测试 APK SHA-256 为 `52ec03e9395cea66ee8edc96fd9788678ba836ab35838027e7d8c0b5d1c0b169`。两版均保持录音权限未授予，主体断言、权限窗口清理和正常终止均通过；原始日志为 `9159-dedicated-api28-recreate.log`、`9159-dedicated-api35-recreate.log`。完整远端 `scripts/verify-local.sh --quick`、最终笔记及 diff 检查通过。
 - JVM 已验证：合成 PCM 的静音、幅度增长、符号对称、最大负数、部分缓冲与上限；API 28 真实合成音频已驱动完整识别与音量回调。
 - API 28 已在飞行模式下用真实本地模型完成识别并返回请求者；API 35 仍待通过。API 28 与 API 35 的跨应用成功和取消调用均已确认语音待插入队列与系统剪贴板保持调用前的合成值。
@@ -54,6 +58,8 @@ Status: implemented
 - [Android RecognizerIntent](https://developer.android.com/reference/android/speech/RecognizerIntent)：标准 Activity、结果列表与 PendingIntent 契约。
 - [报告者截图](https://github.com/metasequoiaime/msime/issues/9159#issuecomment-6314999955)：应用选择器证据，不能单独证明具体 action。
 - [FUTO 固定提交参考](https://github.com/futo-org/voice-input/blob/d6e1eb2d139dc1a6342a4681c283686cca4bfceb/app/src/main/java/org/futo/voiceinput/RecognizeActivity.kt)：仅研究结果回传，不复制实现。
+- [Android 15 的旋转设置](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-15.0.0_r1/services/core/java/com/android/server/wm/DisplayRotation.java)：`setUserRotation` 由设置监听更新缓存，`thawRotation` 使用缓存的用户方向。
+- [Android 15 的自动化连接](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-15.0.0_r1/core/java/android/app/UiAutomationConnection.java)：连接时保存实际显示方向，断开时再次恢复，用于界定设备夹具结束后的验收边界。
 
 ## Verification progress
 

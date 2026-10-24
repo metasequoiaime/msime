@@ -3,6 +3,7 @@ package app.msime.android.test;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.app.PendingIntent;
+import android.app.UiAutomation;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -355,16 +356,10 @@ final class OfflineVoiceDeviceCases {
 
     private void externalResult() throws Exception {
         Context context = instrumentation.getTargetContext();
-        if ((scenario.equals("offline-permission-home") || scenario.equals("offline-permission-deny") || scenario.equals("offline-recreate")) && context.checkSelfPermission(
+        boolean reconstruction = scenario.equals("offline-recreate") || scenario.equals("offline-rotation");
+        if ((scenario.equals("offline-permission-home") || scenario.equals("offline-permission-deny") || reconstruction) && context.checkSelfPermission(
                 android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            throw new AssertionError("Revoke RECORD_AUDIO before testing permission-stage Home");
-        }
-        if (scenario.equals("offline-permission-home") || scenario.equals("offline-permission-deny") || scenario.equals("offline-recreate")) {
-            var automation = instrumentation.getUiAutomation();
-            var info = automation.getServiceInfo();
-            info.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-                | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
-            automation.setServiceInfo(info);
+            throw new AssertionError("Revoke RECORD_AUDIO before testing a permission-stage request");
         }
         AtomicInteger deliveries = new AtomicInteger();
         AtomicReference<Intent> returned = new AtomicReference<>();
@@ -384,7 +379,35 @@ final class OfflineVoiceDeviceCases {
         PendingIntent pending = PendingIntent.getBroadcast(context, 9159,
             new Intent(action).setPackage(context.getPackageName()), flags);
         Throwable primaryFailure = null;
+        int restoreRotation = Integer.MIN_VALUE;
+        int restoreUserRotation = Integer.MIN_VALUE;
         try {
+            if (scenario.equals("offline-rotation")) {
+                restoreUserRotation = android.provider.Settings.System.getInt(context.getContentResolver(),
+                    android.provider.Settings.System.USER_ROTATION, displayRotation());
+                boolean automatic = android.provider.Settings.System.getInt(context.getContentResolver(),
+                    android.provider.Settings.System.ACCELEROMETER_ROTATION, 0) == 1;
+                restoreRotation = automatic ? UiAutomation.ROTATION_UNFREEZE : restoreUserRotation;
+                // 浮动语音窗口沿用底层方向；用可旋转的合成调用方，避免启动器锁竖屏。
+                Intent editor = new Intent().setClassName("app.msime.android.test",
+                    "app.msime.android.test.EditorActivity")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                instrumentation.runOnMainSync(() -> context.startActivity(editor));
+                // 自动化连接会保存实际方向；固定模式先让底层落实保存值，再建立连接。
+                int savedRotation = restoreUserRotation;
+                if (!automatic) await(() -> displayRotation() == savedRotation,
+                    "Synthetic caller did not reach the saved fixed rotation");
+            }
+            if (scenario.equals("offline-permission-home") || scenario.equals("offline-permission-deny") || reconstruction) {
+                var automation = instrumentation.getUiAutomation();
+                var info = automation.getServiceInfo();
+                info.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                    | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+                automation.setServiceInfo(info);
+            }
+            if (scenario.equals("offline-rotation")) {
+                await(this::syntheticCallerVisible, "Rotatable synthetic caller did not become visible");
+            }
             Bundle extras = new Bundle();
             extras.putString("synthetic_marker", "preserved");
             extras.putStringArrayList(RecognizerIntent.EXTRA_RESULTS,
@@ -400,19 +423,32 @@ final class OfflineVoiceDeviceCases {
             }
             instrumentation.runOnMainSync(() -> context.startActivity(request));
             await(() -> activity != null, "External activity did not start");
-            if (scenario.equals("offline-permission-home") || scenario.equals("offline-recreate")) {
+            if (scenario.equals("offline-permission-home") || reconstruction) {
                 await(this::permissionVisible, "Microphone permission dialog did not appear");
                 instrumentation.waitForIdleSync();
                 if (finished()) throw new AssertionError("Permission dialog cancelled a visible request");
                 var started = activity.getClass().getDeclaredField("started");
                 started.setAccessible(true);
                 if (started.getBoolean(activity)) throw new AssertionError("Recording started before permission");
-                if (scenario.equals("offline-recreate")) {
+                if (reconstruction) {
                     Activity original = activity;
-                    instrumentation.runOnMainSync(original::recreate);
+                    int originalOrientation = original.getResources().getConfiguration().orientation;
+                    if (scenario.equals("offline-rotation")) {
+                        int originalRotation = displayRotation();
+                        int rotated = (originalRotation + 1) % 4;
+                        if (!instrumentation.getUiAutomation().setRotation(rotated))
+                            throw new AssertionError("System display rotation was rejected");
+                        await(() -> displayRotation() == rotated, "System display did not rotate");
+                    } else {
+                        instrumentation.runOnMainSync(original::recreate);
+                    }
                     await(original::isDestroyed, "Activity recreation did not destroy the old instance");
                     await(() -> activity != original, "System did not create a replacement activity");
                     await(this::finished, "Recreated request remained visible");
+                    if (scenario.equals("offline-rotation")) instrumentation.runOnMainSync(() -> {
+                        if (activity.getResources().getConfiguration().orientation == originalOrientation)
+                            throw new AssertionError("Replacement activity kept the original orientation");
+                    });
                     // 已销毁窗口的迟到结果不得再投递；新实例也不能重新开始录音。
                     var deliver = original.getClass().getDeclaredMethod("returnResult", String.class);
                     deliver.setAccessible(true);
@@ -521,20 +557,103 @@ final class OfflineVoiceDeviceCases {
             try {
                 if (activity != null) instrumentation.runOnMainSync(activity::finish);
                 // API 28 的权限窗口不响应返回键；只点击系统拒绝按钮，不能在清理时授予录音权限。
-                if (scenario.equals("offline-recreate") && permissionVisible()) {
-                    await(() -> !permissionVisible() || requestPermissionDenial(),
+                boolean rotation = scenario.equals("offline-rotation");
+                if (reconstruction && (rotation || permissionVisible())) {
+                    // 旋转时节点可能暂时为空；底层调用方重新可见才能确认权限窗口已退出。
+                    await(() -> (!permissionVisible() && (!rotation || syntheticCallerVisible())) || requestPermissionDenial(),
                         "Recreated permission window has no system deny button");
-                    await(() -> !permissionVisible(), "Recreated permission window was not dismissed");
+                    await(() -> !permissionVisible() && (!rotation || syntheticCallerVisible()),
+                        "Recreated permission window was not dismissed");
                 }
             } catch (Exception | AssertionError cleanupFailure) {
                 // 主体断言失败优先保留；清理失败仍附在异常上，不能把真正的失败覆盖掉。
                 if (primaryFailure != null) primaryFailure.addSuppressed(cleanupFailure);
-                else throw cleanupFailure;
+                else {
+                    primaryFailure = cleanupFailure;
+                    throw cleanupFailure;
+                }
             } finally {
-                pending.cancel();
-                context.unregisterReceiver(receiver);
+                try {
+                    // 失败时也恢复原来的自动旋转或固定方向，不把测试设置留给下一项。
+                    if (restoreRotation != Integer.MIN_VALUE) {
+                        var automation = instrumentation.getUiAutomation();
+                        // 先恢复模式，再单独恢复保存方向，避免异步设置监听器在解冻时回写旧值。
+                        boolean restored = automation.setRotation(restoreRotation);
+                        boolean automatic = restoreRotation == UiAutomation.ROTATION_UNFREEZE;
+                        if (!restored) throw new AssertionError("Original display rotation could not be restored");
+                        shellCommand("settings put system user_rotation " + restoreUserRotation);
+                        int expectedUserRotation = restoreUserRotation;
+                        await(() -> android.provider.Settings.System.getInt(context.getContentResolver(),
+                                android.provider.Settings.System.USER_ROTATION, expectedUserRotation) == expectedUserRotation
+                            && android.provider.Settings.System.getInt(context.getContentResolver(),
+                                android.provider.Settings.System.ACCELEROMETER_ROTATION, 0) == (automatic ? 1 : 0)
+                            && cachedRotationRestored(automatic, expectedUserRotation),
+                            "Original rotation settings were not restored");
+                    }
+                } catch (Exception | AssertionError rotationFailure) {
+                    if (primaryFailure != null) primaryFailure.addSuppressed(rotationFailure);
+                    else {
+                        primaryFailure = rotationFailure;
+                        throw rotationFailure;
+                    }
+                } finally {
+                    pending.cancel();
+                    context.unregisterReceiver(receiver);
+                    if (scenario.equals("offline-rotation")) {
+                        try {
+                            shellCommand("am force-stop app.msime.android.test");
+                        } catch (Exception | AssertionError callerCleanupFailure) {
+                            if (primaryFailure != null) primaryFailure.addSuppressed(callerCleanupFailure);
+                            else throw callerCleanupFailure;
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /** 等待设备命令结束；设置是否恢复仍由读取系统值的断言确认。 */
+    private void shellCommand(String command) throws java.io.IOException {
+        try (var input = instrumentation.getUiAutomation().executeShellCommand(command);
+                var stream = new java.io.FileInputStream(input.getFileDescriptor())) {
+            byte[] discard = new byte[4096];
+            while (stream.read(discard) != -1) { }
+        }
+    }
+
+    /** 系统设置监听异步更新缓存；自动化断开会再次解冻，必须等窗口管理器消费原值。 */
+    private boolean cachedRotationRestored(boolean automatic, int rotation) {
+        String expected = "mUserRotationMode=" + (automatic ? "USER_ROTATION_FREE" : "USER_ROTATION_LOCKED")
+            + " mUserRotation=ROTATION_" + (rotation * 90);
+        boolean restored = false;
+        try (var input = instrumentation.getUiAutomation().executeShellCommand("dumpsys window");
+                var stream = new java.io.FileInputStream(input.getFileDescriptor());
+                var reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    stream, java.nio.charset.StandardCharsets.UTF_8))) {
+            String line;
+            // 只判断固定字段，不输出窗口标题、应用名或其它系统转储内容。
+            while ((line = reader.readLine()) != null) if (line.contains(expected)) restored = true;
+            return restored;
+        } catch (java.io.IOException error) {
+            throw new java.io.UncheckedIOException(error);
+        }
+    }
+
+    @SuppressWarnings("deprecation") // API 28 的辅助功能节点仍需显式回收。
+    private boolean syntheticCallerVisible() {
+        var root = instrumentation.getUiAutomation().getRootInActiveWindow();
+        if (root == null) return false;
+        try { return "app.msime.android.test".contentEquals(root.getPackageName()); }
+        finally { root.recycle(); }
+    }
+
+    @SuppressWarnings("deprecation") // API 28 沿用默认显示器入口，读取系统实际方向而非测试期望值。
+    private int displayRotation() {
+        AtomicInteger rotation = new AtomicInteger();
+        instrumentation.runOnMainSync(() -> rotation.set(
+            instrumentation.getTargetContext().getSystemService(android.view.WindowManager.class)
+                .getDefaultDisplay().getRotation()));
+        return rotation.get();
     }
 
     /** 等待外部注入的合成音频经过实际麦克风、模型和界面，再点击产品完成按钮。 */
