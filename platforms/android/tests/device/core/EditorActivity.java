@@ -53,17 +53,28 @@ public final class EditorActivity extends Activity {
             @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(info);
                 // 产品进程中的回归只能跨进程读取节点；仅显式启用时提供合成编辑器的真实组字范围。
-                if (!getIntent().getBooleanExtra("msime_test_composition_spans", false)) return;
-                info.getExtras().putInt("msime-test-composing-start",
-                    android.view.inputmethod.BaseInputConnection.getComposingSpanStart(getText()));
-                info.getExtras().putInt("msime-test-composing-end",
-                    android.view.inputmethod.BaseInputConnection.getComposingSpanEnd(getText()));
+                if (getIntent().getBooleanExtra("msime_test_composition_spans", false)) {
+                    info.getExtras().putInt("msime-test-composing-start",
+                        android.view.inputmethod.BaseInputConnection.getComposingSpanStart(getText()));
+                    info.getExtras().putInt("msime-test-composing-end",
+                        android.view.inputmethod.BaseInputConnection.getComposingSpanEnd(getText()));
+                }
+                // 只公开合成编辑器当前视觉行的布局边界，供软换行专项核对系统按键结果。
+                if (getIntent().getBooleanExtra("msime_test_line_edges", false)
+                        && getLayout() != null && getSelectionEnd() >= 0) {
+                    android.text.Layout textLayout = getLayout();
+                    int line = textLayout.getLineForOffset(getSelectionEnd());
+                    info.getExtras().putInt("msime-test-line-start", textLayout.getLineStart(line));
+                    info.getExtras().putInt("msime-test-line-end", textLayout.getLineEnd(line)
+                        - (line == textLayout.getLineCount() - 1 ? 0 : 1));
+                }
             }
         };
         // 需要验收真实换行的套件显式使用多行编辑器，普通单行夹具继续保留。
         plain.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra(
             "msime_test_url", false) ? InputType.TYPE_TEXT_VARIATION_URI : getIntent().getBooleanExtra(
             "msime_test_multiline", false) ? InputType.TYPE_TEXT_FLAG_MULTI_LINE : 0));
+        if (getIntent().getBooleanExtra("msime_test_line_edges", false)) plain.setMaxLines(3);
         plain.setContentDescription("msime-test-plain");
         probePlain = plain;
         plain.setHint("Plain editor");

@@ -64,7 +64,7 @@ final class ImeTextEditPanel {
         previewReads = new TextTrackpadReadQueue<>(trackpadWorker, s.main::post);
     }
 
-    /** 所有操作同屏可见；中央十字的四角留白，父面板拦截空白处触摸。 */
+    /** 所有操作同屏可见；中央十字下方两角留白，父面板拦截空白处触摸。 */
     LinearLayout build() {
         LinearLayout panel = LayoutPolicy.column(s);
         panel.setContentDescription("文本编辑面板");
@@ -93,7 +93,6 @@ final class ImeTextEditPanel {
         panel.addView(modes, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
         FrameLayout movement = new FrameLayout(s);
         LinearLayout grid = LayoutPolicy.column(s);
-        movement.addView(grid, LayoutPolicy.frameMatchParentParams());
         populateGrid(grid);
         trackpad = new TextTrackpadView(s, new TextTrackpadView.Listener() {
             @Override public Object target() { return s.connection; }
@@ -109,6 +108,8 @@ final class ImeTextEditPanel {
         });
         TextTrackpadView currentTrackpad = trackpad;
         movement.addView(currentTrackpad, new FrameLayout.LayoutParams(1, 1));
+        // 网格在触控板之上：隐藏的方向键和不可点击的留白把触摸交给触控板，行首尾仍可点击。
+        movement.addView(grid, LayoutPolicy.frameMatchParentParams());
         // 触控板只替代中央前三行；两侧七键和底部首尾、换行保持可用。
         movement.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
@@ -155,7 +156,20 @@ final class ImeTextEditPanel {
             button = s.backspaceKey(run);
             s.imeLetterRows.bindBackspaceRepeat(button, run);
         } else {
-            button = s.keyboardKey(spec.label(), spec.description(), run);
+            button = action == TextEditPanelModel.Action.RETURN
+                ? s.keyboardKey(new TextEditReturnButton(s), spec.label(), spec.description(), run)
+                : s.keyboardKey(spec.label(), spec.description(), run);
+            if (action == TextEditPanelModel.Action.RETURN) {
+                button.setTooltipText("单击换行，长按打开符号");
+                button.setOnLongClickListener(view -> {
+                    if (s.connection == null) return true;
+                    s.imeKeyFeedback.playFeedback(button);
+                    close();
+                    s.imePanels.showSymbolPanel();
+                    s.render();
+                    return true;
+                });
+            }
             if (isArrow(action)) {
                 // 系统默认按钮字号和字重让方向箭头显得细小；编辑面板的箭头是主要操作，统一放大并加粗。
                 KeyboardTypographyPolicy.setKeyTextSize(button, isDocumentEdge(action) ? 36 : 24);

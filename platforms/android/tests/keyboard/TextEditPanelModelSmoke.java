@@ -20,6 +20,9 @@ public final class TextEditPanelModelSmoke {
         check(grid[3][2] == Action.DOCUMENT_START && grid[3][5] == Action.DOCUMENT_END
             && grid[3][8] == Action.RETURN, "document edges and return keep fixed bottom positions");
 
+        check(grid[0][2] == Action.LINE_START && grid[0][6] == Action.LINE_END,
+            "line edges flank the up arrow");
+
         // 方向键和删除连发，其余不连发。
         for (Key key : TextEditPanelModel.keys(order)) {
             boolean repeats = EnumSet.of(Action.LEFT, Action.RIGHT, Action.UP, Action.DOWN, Action.DELETE)
@@ -33,6 +36,8 @@ public final class TextEditPanelModelSmoke {
             && TextEditPanelModel.keyCode(Action.DOWN) == KeyEvent.KEYCODE_DPAD_DOWN, "arrow key codes");
         check(TextEditPanelModel.keyCode(Action.DOCUMENT_START) == KeyEvent.KEYCODE_MOVE_HOME
             && TextEditPanelModel.keyCode(Action.DOCUMENT_END) == KeyEvent.KEYCODE_MOVE_END, "home and end");
+        check(TextEditPanelModel.keyCode(Action.LINE_START) == KeyEvent.KEYCODE_MOVE_HOME
+            && TextEditPanelModel.keyCode(Action.LINE_END) == KeyEvent.KEYCODE_MOVE_END, "line home and end");
         check(TextEditPanelModel.keyCode(Action.DELETE) == KeyEvent.KEYCODE_DEL, "delete is backspace");
         check(TextEditPanelModel.keyCode(Action.COPY) == KeyEvent.KEYCODE_UNKNOWN
             && TextEditPanelModel.keyCode(Action.SELECT) == KeyEvent.KEYCODE_UNKNOWN, "menu actions send no key");
@@ -95,8 +100,8 @@ public final class TextEditPanelModelSmoke {
             check(grid[index < 4 ? index : index - 4][index < 4 ? 0 : 8] == order.get(index),
                 "side action follows saved order");
         for (int row = 0; row < grid.length; row++) for (int column = 0; column < grid[row].length; column++) {
-            boolean blank = (row == 0 || row == 2) && (column == 2 || column == 3 || column == 6 || column == 7);
-            check((grid[row][column] == null) == blank, "only four corner cells stay blank");
+            boolean blank = row == 2 && (column == 2 || column == 3 || column == 6 || column == 7);
+            check((grid[row][column] == null) == blank, "only two lower corner cells stay blank");
         }
     }
 

@@ -5509,7 +5509,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     KeyboardPressButton keyboardKey(String label, String description, Runnable action) {
-        KeyboardPressButton button = new KeyboardPressButton(this);
+        return keyboardKey(new KeyboardPressButton(this), label, description, action);
+    }
+
+    /** 特殊绘制的键沿用普通键的样式、反馈和计数。 */
+    KeyboardPressButton keyboardKey(KeyboardPressButton button, String label, String description, Runnable action) {
         KeyboardTypographyPolicy.normalizeKeyCap(button);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         ViewPolicy.setAllCapsFalse(button);

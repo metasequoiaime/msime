@@ -18,7 +18,7 @@ Status: implemented
 - 打开前由 Engine 完成组字，之后所有动作直接作用于编辑器，不经过 Engine：
   - 方向键发 DPAD 按键事件；「选择」开着时先发左 Shift 按下、再发带 Shift meta 的方向键、最后松开 Shift。EditText 的 `ArrowKeyMovementMethod.isSelecting` 只看文字缓冲里 MetaKeyKeyListener 记下的 Shift，不看事件的 meta；WebView 看事件的 meta，所以两样都给。事件的设备是 `VIRTUAL_KEYBOARD`，它的修饰键是 chorded，Shift 松开即清除，不会留下粘滞的 Shift。
   - #8175 的选择状态直接复用面板的 `selecting`：开启时键面和无障碍动作读作「取消选择」，关闭时恢复「选择」及原有「选择模式」描述。剪切、粘贴、退格和重新打开面板仍按已有规则关闭选择模式，标签随同刷新，不另存一份状态。
-  - 移到开头 / 结尾是 Ctrl+Home / Ctrl+End，到整篇文档两端（issue 说的是文本的头部和尾部，不是当前行）。
+  - 移到开头 / 结尾是 Ctrl+Home / Ctrl+End，到整篇文档两端（issue 说的是文本的头部和尾部，不是当前行）。#9601 的行首 / 行尾另发不带 Ctrl 的 Home/End，仍由编辑器按视觉排版定位；键位及长按符号见[固定网格](2026-10-24-android-text-edit-layout.md)。
   - 全选、复制、剪切、粘贴走 `performContextMenuAction`。编辑器不支持时只有粘贴退回到直接上屏剪贴板文字。
   - 退格发 `KEYCODE_DEL`（有选区时删选区），复用删除键的连发与上滑快速删除。方向键按住连发，节奏同删除键。剪切、粘贴、退格之后关闭「选择」。
 

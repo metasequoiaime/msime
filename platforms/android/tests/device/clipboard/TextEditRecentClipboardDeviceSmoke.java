@@ -31,7 +31,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
-        if (layoutOnly) return "saved/cancelled/reset side order and all fifteen keys in portrait, landscape, one-handed and floating modes";
+        if (layoutOnly) return "saved/cancelled/reset side order and all seventeen keys in portrait, landscape, one-handed and floating modes";
         if (trackpadOnly) return "text trackpad through system editors, selection, temporary mode and key receiver";
         return spaceCopyOnly ? "space upward copy, editor permissions, selection restoration and clipboard preview"
             : "fixed editor grid, saved/cancelled/reset side order, shortcuts, selection and clipboard preview";
@@ -64,6 +64,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             if (layoutOnly) {
                 checkOrderSettings(preferences, values, revision);
                 checkLayoutModes(local, settings);
+                checkLineEdges();
                 return;
             }
             new SpaceCopyDeviceChecks(this).run(true);
@@ -237,9 +238,10 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
 
     private void checkAllKeyBounds(String mode) {
         Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
-        Rect[] keys = new Rect[15];
+        Rect[] keys = new Rect[17];
         String[] descriptions = {"光标左移", "光标上移", "选择模式", "光标下移", "光标右移",
-            "全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行"};
+            "全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行",
+            "移到行首", "移到行尾"};
         int minimumWidth = Integer.MAX_VALUE, minimumHeight = Integer.MAX_VALUE;
         for (int index = 0; index < descriptions.length; index++) {
             keys[index] = bounds(awaitStableBounds(described(descriptions[index]).and(AccessibilityNodeInfo::isClickable)));
@@ -256,6 +258,96 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         // 只记录合成窗口的几何尺寸；可见与可点击不等于已验收触控舒适度。
         System.out.println("Text editor layout " + mode + ": panel=" + panel.width() + "x" + panel.height()
             + "px, minimum key=" + minimumWidth / density + "x" + minimumHeight / density + "dp");
+    }
+
+    /** 不含换行的合成长文必须按编辑器软换行定位，且选择模式与触控板均不能吞掉行首尾。 */
+    private void checkLineEdges() throws Exception {
+        openPanel();
+        String text = String.join(" ", java.util.Collections.nCopies(35, "synthetic alpha beta"));
+        Bundle content = new Bundle();
+        content.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, content))
+            throw new AssertionError("Synthetic wrapped text was rejected");
+        await(field("msime-test-plain").and(node -> equalsText(text, node.getText())));
+        automation.waitForIdle(500, 5000);
+        if (!visible(described("文本编辑面板"))) click("文本编辑");
+        int caret = text.length() / 2;
+        select(caret, caret);
+        AccessibilityNodeInfo editor = await(field("msime-test-plain"));
+        int start = editor.getExtras().getInt("msime-test-line-start", -1);
+        int end = editor.getExtras().getInt("msime-test-line-end", -1);
+        if (!(0 < start && start <= caret && caret <= end && end < text.length()))
+            throw new AssertionError("Synthetic editor did not wrap the interior line");
+        stage = "wrapped line start and end";
+        click("移到行首");
+        selection(start, start);
+        click("移到行尾");
+        selection(end, end);
+        stage = "line edges extend and reverse selection";
+        click("选择模式");
+        click("移到行首");
+        selection(end, start);
+        click("移到行尾");
+        selection(end, end);
+        click("取消选择");
+        stage = "document edges remain whole document";
+        click("移到开头");
+        selection(0, 0);
+        click("移到结尾");
+        selection(text.length(), text.length());
+        capture("text-edit-line-edges.png");
+        stage = "line edges above trackpad accept real touch";
+        click("切换为触控板");
+        await(describedPrefix("文本编辑触控板"));
+        select(caret, caret);
+        click("移到行首");
+        selection(start, start);
+        click("移到行尾");
+        selection(end, end);
+        capture("text-edit-line-edges-trackpad.png");
+        click("切换为方向键");
+        stage = "return long press opens symbols without newline";
+        Rect key = bounds(awaitStableBounds(described("插入换行")));
+        long down = SystemClock.uptimeMillis();
+        touch(down, android.view.MotionEvent.ACTION_DOWN, key);
+        SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout() + 250L);
+        touch(down, android.view.MotionEvent.ACTION_UP, key);
+        await(described("符号面板"));
+        absent(described("文本编辑面板"));
+        await(field("msime-test-plain").and(node -> equalsText(text, node.getText())));
+        System.out.println("Text editor line edges: wrapped line, reverse Shift selection, document edges, trackpad touch and held return passed");
+    }
+
+    private void selection(int start, int end) {
+        await(field("msime-test-plain").and(node -> node.getTextSelectionStart() == start
+            && node.getTextSelectionEnd() == end));
+    }
+
+    private void select(int start, int end) {
+        Bundle arguments = new Bundle();
+        arguments.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start);
+        arguments.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end);
+        if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, arguments))
+            throw new AssertionError("Synthetic selection was rejected");
+        selection(start, end);
+    }
+
+    private void touch(long down, int action, Rect bounds) {
+        android.view.MotionEvent event = android.view.MotionEvent.obtain(down, SystemClock.uptimeMillis(),
+            action, bounds.centerX(), bounds.centerY(), 0);
+        event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+        try {
+            if (!automation.injectInputEvent(event, true)) throw new AssertionError("Synthetic hold injection failed");
+        } finally { event.recycle(); }
+    }
+
+    private void capture(String name) throws Exception {
+        android.graphics.Bitmap bitmap = automation.takeScreenshot();
+        if (bitmap == null) throw new AssertionError("Synthetic layout screenshot was unavailable");
+        try (var output = new java.io.FileOutputStream(new File(getTargetContext().getFilesDir(), name))) {
+            if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
+                throw new AssertionError("Synthetic layout screenshot failed");
+        } finally { bitmap.recycle(); }
     }
 
     /** 使用真实设置页保存、取消、重置和重开，再由键盘进程读取同一顺序。 */
@@ -325,7 +417,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
 
     private void openPanel(String mode) throws Exception {
         restartIme();
-        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity --ez msime_test_multiline true");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity --ez msime_test_multiline true --ez msime_test_line_edges true");
         tap(field("msime-test-plain"));
         await(key("n"));
         if ("left".equals(mode) || "right".equals(mode)) await(described("退出单手模式"));
