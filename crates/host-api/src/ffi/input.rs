@@ -26,6 +26,27 @@ pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) ->
     })
 }
 
+/// 即时投影混合候选的中文片段，不改语言集合、组字或磁盘偏好。
+/// 变体取最新请求的共享偏好；后续偏好更新可替换本次宿主临时设置。
+#[no_mangle]
+pub extern "C" fn msime_client_set_multilingual_output(
+    handle: u64,
+    traditional: bool,
+) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            let preferences = session
+                .requested
+                .as_ref()
+                .map_or(&session.applied, |snapshot| &snapshot.preferences);
+            session
+                .runtime
+                .set_multilingual_output(traditional, preferences.traditional_chinese_variant);
+            serialized_runtime_view(session)
+        })
+    })
+}
+
 /// Override the live host punctuation mode without persisting preferences.
 #[no_mangle]
 pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: bool) -> *mut c_char {

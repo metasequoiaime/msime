@@ -58,6 +58,7 @@ fn options(root: &Path) -> EngineOptions {
         mixed_kaomoji: false,
         mixed_symbols: false,
         mixed_japanese: false,
+        multilingual_languages: Vec::new(),
         local_unicode: true,
         local_date_time: true,
         local_date_time_inline: true,
@@ -3789,4 +3790,97 @@ fn resource_dictionary_browse_distinguishes_missing_files_and_preserves_model_pa
     assert_eq!(std::fs::read(path).unwrap(), bytes);
     assert!(dictionary_resource_entries(&options, Japanese, "", 0, 1001).is_err());
     assert!(dictionary_resource_entries(&options, Japanese, "", 1_000_001, 1).is_err());
+}
+
+fn multilingual_fixture(root: &Path) -> EngineOptions {
+    let mut value = helpcode_fixture(root, "", "");
+    value.helpcode = false;
+    value.mixed_english = false;
+    value.multilingual_languages = vec![
+        crate::multilingual::Language::Chinese,
+        crate::multilingual::Language::English,
+        crate::multilingual::Language::Japanese,
+    ];
+    Connection::open(Path::new(&value.dictionaries).join("msime-english.db"))
+        .unwrap()
+        .execute_batch("INSERT INTO english_words VALUES('hello','hello',100);")
+        .unwrap();
+    std::fs::write(
+        Path::new(&value.resources).join("msime-japanese.dat"),
+        crate::japanese::decoder::test_model::bytes(
+            &[("おはよう", "おはよう", 0, 0, 500)],
+            1,
+            &[0],
+        ),
+    )
+    .unwrap();
+    value
+}
+
+#[test]
+fn host_multilingual_options_map_the_selected_languages() {
+    let root = tempfile::tempdir().unwrap();
+    let value = multilingual_fixture(root.path());
+    assert_eq!(
+        options::session_options(&value)
+            .unwrap()
+            .multilingual_languages,
+        value.multilingual_languages
+    );
+}
+
+#[test]
+fn host_multilingual_snapshot_keeps_the_raw_identity_and_language_ranges() {
+    use crate::multilingual::Language;
+    let root = tempfile::tempdir().unwrap();
+    let value = multilingual_fixture(root.path());
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"hellonihaoohayou");
+    let snapshot = session.snapshot().unwrap();
+    let index = snapshot
+        .candidate_sources
+        .iter()
+        .position(|source| *source == CandidateSource::Multilingual as u8)
+        .expect("宿主应保留连续混合行");
+    assert_eq!(snapshot.candidates[index], "hello你好おはよう");
+    let metadata = snapshot
+        .multilingual_conversion
+        .expect("宿主快照应保留语言边界");
+    assert_eq!(metadata.raw_input, "hellonihaoohayou");
+    assert_eq!(metadata.raw_input, snapshot.editing_text);
+    assert_eq!(
+        metadata
+            .conversion
+            .segments
+            .iter()
+            .map(|segment| (
+                segment.language,
+                segment.input.clone(),
+                segment.text.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (Language::English, 0..5, "hello"),
+            (Language::Chinese, 5..10, "你好"),
+            (Language::Japanese, 10..16, "おはよう"),
+        ]
+    );
+    assert_eq!(session.select(index).unwrap().commit, "hello你好おはよう");
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .multilingual_conversion
+        .is_none());
+    type_text(&mut session, b"nihao");
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .multilingual_conversion
+        .is_none());
+    session.command(Command::Cancel).unwrap();
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .multilingual_conversion
+        .is_none());
 }

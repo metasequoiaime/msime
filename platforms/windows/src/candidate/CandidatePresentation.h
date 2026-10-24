@@ -351,7 +351,7 @@ inline std::vector<ExpandedCandidate> expanded_candidates_from_snapshot(const nl
     if (text.empty() || text.size() > 4096 || source == candidate_source_ai_pending ||
         source == candidate_source_cloud_pending)
       continue;
-    items.push_back({index, std::move(text)});
+    items.push_back({index, std::move(text), source});
   }
   return items;
 }
@@ -412,8 +412,8 @@ candidate_presentation_from_view(const FocusLease &lease,
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
-        simplified_to_traditional(candidate.at("text").get<std::string>(),
-                                  traditional_output),
+        candidate_output(candidate.at("text").get<std::string>(),
+                         traditional_output, candidate_source),
         candidate.at("highlighted").get<bool>(),
         candidate.value("corrected", false),
         candidate.value("annotation", std::string{}),
@@ -496,8 +496,8 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
-        simplified_to_traditional(candidate.at("text").get<std::string>(),
-                                  reply.traditional_output),
+        candidate_output(candidate.at("text").get<std::string>(),
+                         reply.traditional_output, candidate_source),
         candidate.at("highlighted").get<bool>(),
         candidate.value("corrected", false),
         candidate.value("annotation", std::string{}),

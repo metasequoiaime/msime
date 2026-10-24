@@ -136,6 +136,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *cancelTransition;
 @property(nonatomic) NSUInteger snapshotCalls;
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
+@property(nonatomic, copy) NSDictionary *fixtureView;
 @property(nonatomic) NSUInteger settledRerankCalls;
 @property(nonatomic) NSUInteger rawCommitCalls;
 @property(nonatomic) NSUInteger commandCalls;
@@ -215,11 +216,16 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
 }
+- (NSDictionary *)setMultilingualOutput:(BOOL)traditional error:(NSError **)error {
+    (void)traditional;
+    return [self viewWithError:error];
+}
 - (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error {
     (void)error; self.capsLock = enabled; ++self.capsLockCalls; return YES;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
+    if (self.fixtureView) return self.fixtureView;
     return @{@"focused":@NO, @"editing_text":@"", @"candidates":@[], @"dedicated_english":@(self.dedicatedEnglish)};
 }
 - (NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error {
@@ -3470,6 +3476,10 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     return @{@"focused": @YES, @"session": @1, @"generation": @(self.generation), @"editing_text": self.editing,
              @"preedit": self.editing, @"caret_position": @(self.editing.length), @"page": @(start / self.pageSize),
              @"page_count": @((self.total + self.pageSize - 1) / self.pageSize), @"candidates": page};
+}
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error;
+    return [self gridView];
 }
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     switch (command) {
@@ -13694,6 +13704,8 @@ int main(int argc, char **argv) {
         }
         appearance.vertical = NO;
         session.lastCommand = UINT32_MAX;
+        // 外观通知会重新读取会话；夹具与控制器必须持有同一代候选。
+        session.fixtureView = pageView;
         [controller appearanceChanged:nil];
         assert(session.lastCommand == UINT32_MAX);
         assert(layoutPanel.frame.size.height < verticalHeight);
@@ -14222,6 +14234,8 @@ int main(int argc, char **argv) {
         // Japanese and Unicode commits keep the Engine's text untouched, the same rule apply: uses for every commit.
         assert([pressEdge(@"头发", YES, @"发", @{@"scheme": @0, @"local_mode": @"temporary_japanese", @"script_conversion": @NO}) isEqual:@"发"]);
         assert([pressEdge(@"头发", YES, @"发", @{@"scheme": @0, @"local_mode": @"unicode", @"script_conversion": @NO}) isEqual:@"发"]);
+        // 混合候选中文段已转换，日文汉字和共享运行时给出的边缘文字必须原样上屏。
+        assert([pressEdge(@"hello網絡学校", NO, @"学", @{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @NO}) isEqual:@"学"]);
         [controller selectSimplifiedOutput:nil];
         assert([pressEdge(@"头发", YES, @"发", chineseContext) isEqual:@"发"]);
         assert([pressHeldEdge(@"你好", @"头发", YES, @"你好发", chineseContext) isEqual:@"你好发"]);
@@ -14364,6 +14378,9 @@ int main(int argc, char **argv) {
         assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @" wqvb wqv "}, NO) isEqual:@"你好(wqvb wqv)"]);
         assert([CandidateDisplay(@{@"text": @"深圳市", @"annotation": @"（广东省）"}, NO) isEqual:@"深圳市（广东省）"]);
         assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @"  "}, NO) isEqual:@"你好"]);
+        assert(([CandidateDisplay(@{@"text": @"hello網絡学校", @"source": @18}, NO) isEqual:@"hello網絡学校"]));
+        assert(([CandidateDisplay(@{@"text": @"hello網絡学校", @"source": @18}, YES) isEqual:@"hello網絡学校"]));
+        assert(([CandidateDisplay(@{@"text": @"学校", @"source": @0}, YES) isEqual:@"學校"]));
         assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":@YES, @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語*(aB) ☁️"]));
         for (id corrected in @[@NO, @1, @"true", NSNull.null])
             assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":corrected}, NO) isEqual:@"汉语"]));
@@ -14378,6 +14395,7 @@ int main(int argc, char **argv) {
         assert([CandidateDisplayWithBadges(@{@"source": @3}, NO, nil, @"") isEqual:@" 🤖"]);
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES, @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
+        session.fixtureView = scriptView;
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
         [controller selectTraditionalOutput:nil];
         [controller appearanceChanged:nil];

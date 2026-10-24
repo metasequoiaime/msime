@@ -639,6 +639,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (view) _punctuationOverride = @(enabled);
     return view;
 }
+- (nullable NSDictionary *)setMultilingualOutput:(BOOL)traditional error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_multilingual_output(_handle, traditional), error);
+}
 - (nullable NSDictionary *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     NSDictionary *view = decode(msime_client_set_paired_punctuation(_handle, enabled), error);

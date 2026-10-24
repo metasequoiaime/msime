@@ -33,6 +33,8 @@ pub enum CandidateSource {
     /// octagram `.gram` 语法模型参与词格解码时，解码首选的整句行。句子仍是词格
     /// 解出来的，搭配强度表只负责逐边加分；落库/学习判定与 `Generated` 同类。
     Collocation = 17,
+    /// 连续多语言转换的完整路径；整段消费，不调频、不学习跨语言整句，也不参与候选管理。
+    Multilingual = 18,
 }
 
 impl CandidateSource {
@@ -55,6 +57,7 @@ impl CandidateSource {
             15 => Self::CloudPending,
             16 => Self::Contact,
             17 => Self::Collocation,
+            18 => Self::Multilingual,
             _ => return None,
         })
     }
@@ -1179,6 +1182,16 @@ impl KeyResult {
 pub enum CandidateEdge {
     FirstHan = 0,
     LastHan = 1,
+}
+
+impl CandidateEdge {
+    /// 引擎以词定字使用的首个或末个汉字；没有汉字时返回空串。
+    pub fn character(self, text: &str) -> &str {
+        match self {
+            Self::FirstHan => crate::text::first_han_char(text),
+            Self::LastHan => crate::text::last_han_char(text),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

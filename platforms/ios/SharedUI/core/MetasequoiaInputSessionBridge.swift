@@ -377,6 +377,8 @@ struct MetasequoiaCandidateIdentity: Equatable, Sendable {
 struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let isHandled: Bool
   let commitText: String?
+  /// Runtime 已经按候选来源分段转换时为 false，宿主不能再次把整行转成繁体。
+  let scriptConversion: Bool
   let preedit: String
   let reading: String
   /// 已经选中的那一段，运行时替这个宿主留在组字里而不是立刻上屏。
@@ -432,7 +434,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     return editingText[..<caret] + "|" + editingText[caret...]
   }
 
-  init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
+  init(isHandled: Bool = false, commitText: String? = nil, scriptConversion: Bool = true, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [],
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
@@ -446,6 +448,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false) {
     self.isHandled = isHandled
     self.commitText = commitText
+    self.scriptConversion = scriptConversion
     self.preedit = preedit
     self.reading = reading
     self.phrasePrefix = phrasePrefix
@@ -702,7 +705,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // 标点页的引号样式、方头括号样式：会话空闲时重建 Engine 换字，View 的 `punctuation_marks` 随之更新键面。
     "quote_style", "bracket_style",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
-    "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
+    "quanpin", "mixed_input", "multilingual_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // 整句联想 on the 输入 page: the session attaches or drops the keyboard sentence model once idle, so turning 增强 off stops it in the keyboard that is already open.
     "sentence_association",
     // 输入页五笔组的混拼与四码唯一自动上屏：都是引擎字段，会话空闲时重建 Engine 应用它，所以要交给活着的会话，而不等键盘扩展被杀掉后重建会话。
@@ -1397,6 +1400,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// 偏好投影变更后读取新候选，不发送按键或改变组字。
+  func currentSnapshot() -> MetasequoiaInputSnapshot {
+    do { return try Self.snapshot(["view": view()]) }
+    catch { return diagnostic(error.localizedDescription) }
+  }
+
   func snapshot(from value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     try Self.snapshot(value)
   }
@@ -1952,8 +1961,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let editingText = view["editing_text"] as? String ?? ""
     let caretPosition = try strictInt(view["caret_position"], fallback: 0, range: 0...editingText.utf8.count)
     let marks = view["punctuation_marks"] as? [String: Any] ?? [:]
+    let commitContext = value["commit_context"] as? [String: Any]
+    let scriptConversion = try strictBool(commitContext?["script_conversion"], fallback: true)
     return MetasequoiaInputSnapshot(isHandled: try strictBool(value["handled"], fallback: false),
-      commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
+      commitText: value["commit"] as? String, scriptConversion: scriptConversion,
+      preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
       phrasePrefix: view["phrase_prefix"] as? String ?? "",
       candidates: rows.compactMap { $0["text"] as? String },

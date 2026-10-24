@@ -5,6 +5,97 @@
 use super::*;
 
 #[test]
+fn multilingual_input_defaults_off_and_legacy_documents_remain_compatible() {
+    let defaults = Preferences::default();
+    assert!(!defaults.multilingual_input.enabled);
+    assert!(defaults.multilingual_input.active_languages().is_empty());
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("multilingual_input").is_none());
+    let restored: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(restored.multilingual_input, defaults.multilingual_input);
+}
+
+#[test]
+fn multilingual_input_requires_two_distinct_languages_when_enabled() {
+    let mut preferences = Preferences::default();
+    preferences.multilingual_input.enabled = true;
+    for languages in [
+        vec![],
+        vec![MultilingualLanguage::Chinese],
+        vec![MultilingualLanguage::Chinese, MultilingualLanguage::Chinese],
+    ] {
+        preferences.multilingual_input.languages = languages;
+        assert!(preferences.multilingual_input.active_languages().is_empty());
+    }
+    preferences.multilingual_input.languages = vec![
+        MultilingualLanguage::Chinese,
+        MultilingualLanguage::Japanese,
+        MultilingualLanguage::Chinese,
+    ];
+    assert_eq!(
+        preferences.multilingual_input.active_languages(),
+        vec![
+            MultilingualLanguage::Chinese,
+            MultilingualLanguage::Japanese
+        ]
+    );
+}
+
+#[test]
+fn multilingual_input_round_trips_language_selection_and_rejects_unknown_languages() {
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document["multilingual_input"] = serde_json::json!({
+        "enabled": true, "languages": ["chinese", "japanese"]
+    });
+    let preferences: Preferences = serde_json::from_value(document.clone()).unwrap();
+    assert!(preferences.validate().is_ok());
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, preferences).unwrap();
+    assert_eq!(serde_json::to_value(&saved.preferences).unwrap(), document);
+    assert_eq!(store.load().unwrap().preferences, saved.preferences);
+    let mut disabled = saved.preferences;
+    disabled.multilingual_input.enabled = false;
+    assert!(disabled.multilingual_input.active_languages().is_empty());
+    store.save(saved.revision, disabled.clone()).unwrap();
+    assert_eq!(store.load().unwrap().preferences, disabled);
+    for invalid in [
+        serde_json::json!({"enabled": true, "languages": ["chinese", "unknown"]}),
+        serde_json::json!({"enabled": "true", "languages": ["chinese", "english"]}),
+        serde_json::json!({"enabled": true, "languages": "chinese"}),
+    ] {
+        document["multilingual_input"] = invalid;
+        assert!(serde_json::from_value::<Preferences>(document.clone()).is_err());
+    }
+}
+
+#[test]
+fn multilingual_input_preserves_future_fields_when_other_settings_change() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut document = serde_json::json!({
+        "format_version": 1, "revision": 4,
+        "preferences": serde_json::to_value(Preferences::default()).unwrap()
+    });
+    document["preferences"]["multilingual_input"] = serde_json::json!({
+        "enabled": true, "languages": ["chinese", "japanese"],
+        "future_policy": {"synthetic": true}
+    });
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+    let mut snapshot = store.load().unwrap();
+    snapshot.preferences.candidate_page_size = 7;
+    store.save(snapshot.revision, snapshot.preferences).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(written["revision"], 5);
+    assert_eq!(written["preferences"]["candidate_page_size"], 7);
+    assert_eq!(
+        written["preferences"]["multilingual_input"],
+        document["preferences"]["multilingual_input"]
+    );
+}
+
+#[test]
 fn eighteen_key_quanpin_preferences_round_trip_without_changing_defaults() {
     let defaults = Preferences::default();
     let mut document = serde_json::to_value(&defaults).unwrap();

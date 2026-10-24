@@ -32,6 +32,7 @@ import type {
 } from "../settings/candidate-paging-preferences";
 import type { SentenceAssociationPreferences } from "../settings/sentence-association-preferences";
 import type { MixedInputPreferences } from "../settings/mixed-input-preferences";
+import type { MultilingualInputPreferences } from "../settings/multilingual-input-section";
 import type { FrequencyPreferences } from "../settings/frequency-preferences";
 import type { AiAssistantPreferences } from "../settings/ai-assistant-preferences";
 import type { LocalModePreferences } from "../settings/local-mode-preferences";
@@ -89,6 +90,7 @@ export type Preferences = PunctuationPreferences &
     usage_reporting?: boolean;
     floating_toolbar?: FloatingToolbarPreferences;
     mixed_input?: MixedInputPreferences;
+    multilingual_input?: MultilingualInputPreferences;
     fuzzy_pinyin?: FuzzyPinyinPreferences;
     frequency?: FrequencyPreferences;
     word_character?: WordCharacterPreferences;

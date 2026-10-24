@@ -1810,10 +1810,14 @@ fn japanese_mixing_fixture() -> Fixture {
 }
 
 fn japanese_session(fixture: &Fixture, configure: impl FnOnce(&mut SessionOptions)) -> Session {
-    fixture.session_with(|options| {
+    let session = fixture.session_with(|options| {
         options.japanese_mixing = true;
         configure(options);
-    })
+    });
+    crate::japanese::decoder::JapaneseDictionary::wait_until_warmed(
+        &fixture.path().join(assets::JAPANESE_MODEL),
+    );
+    session
 }
 
 /// 列表里日文混输行的下标；没有时为 `None`，有两行就失败。

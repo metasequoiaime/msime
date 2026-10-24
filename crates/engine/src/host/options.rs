@@ -118,6 +118,8 @@ pub struct EngineOptions {
     pub mixed_symbols: bool,
     /// 日文混输（实验，`SessionOptions::japanese_mixing`）。宿主只在会话带日文、日文模型在场时打开它。
     pub mixed_japanese: bool,
+    /// 连续输入所选语言；默认空集合关闭，由宿主完成版本与资源门控。
+    pub multilingual_languages: Vec<crate::multilingual::Language>,
     pub local_unicode: bool,
     /// Shift+T 日期时间快捷输入模式（`LocalModeOptions::date_time`）。行内日期时间混入普通候选由 `local_date_time_inline` 单独开关。
     pub local_date_time: bool,
@@ -253,6 +255,7 @@ pub fn prepare_options_for(
         mixed_kaomoji: false,
         mixed_symbols: false,
         mixed_japanese: false,
+        multilingual_languages: Vec::new(),
         local_unicode: true,
         local_date_time: true,
         local_date_time_inline: true,
@@ -391,6 +394,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         symbol_candidates: options.mixed_symbols,
     };
     session.japanese_mixing = options.mixed_japanese;
+    session.multilingual_languages = options.multilingual_languages.clone();
     session.local_modes = LocalModeOptions {
         unicode: options.local_unicode,
         date_time: options.local_date_time,

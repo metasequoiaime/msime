@@ -1336,6 +1336,7 @@ std::string scheme_title(const State &s, std::string_view scheme) {
 // 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字，笔画候选按 msime-stroke.db 里存的字形原样取用（`script_conversion_applies`）。
 bool script_conversion_applies(const Json &context) {
   return context.is_object() &&
+         context.value("script_conversion", true) &&
          msime::linux_host::scheme::ScriptConversionApplies(context.value("scheme", 255)) &&
          context.value("local_mode", "none") != "unicode";
 }
@@ -4288,7 +4289,8 @@ void render(IBusEngine *engine, const Json &view) {
       value += msime::linux_host::candidate_annotation_text(annotation);
     value += msime::linux_host::candidate_source_badge(static_cast<std::uint64_t>(source));
     // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
-    value = traditional_display(state(engine), view, std::move(value));
+    if (source != 18)
+      value = traditional_display(state(engine), view, std::move(value));
     const auto gloss_start = static_cast<guint>(g_utf8_strlen(value.c_str(), -1));
     if (!gloss.empty())
       value += traditional_display(state(engine), view, std::move(gloss));

@@ -94,7 +94,7 @@ final class CandidateTranslationStore {
     }
   }
   static func sourceGetsNoGloss(_ source: Int) -> Bool {
-    [6, 7, 13, 14].contains(source)
+    [6, 7, 13, 14, 18].contains(source)
   }
   static func allowsGloss(sources: [Int], at index: Int) -> Bool {
     sources.indices.contains(index) && !sourceGetsNoGloss(sources[index])

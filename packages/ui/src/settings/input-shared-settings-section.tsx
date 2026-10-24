@@ -9,6 +9,7 @@ import type { FrequencyPreferences } from "./frequency-preferences";
 import { ImeModeScopeSection } from "./ime-mode-scope-section";
 import { InputModeHudSection } from "./input-mode-hud-section";
 import { LearningSection } from "./learning-section";
+import { MultilingualInputSection } from "./multilingual-input-section";
 import { MixedInputMoreRows, MixedInputSection } from "./mixed-input-section";
 import type { MixedInputPreferences } from "./mixed-input-preferences";
 import { SingleCharacterOnlySection } from "./single-character-only-section";
@@ -44,6 +45,8 @@ export interface InputSharedSettingsSectionProps {
   showMixedInputMinimumPrefix?: boolean;
   /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputMoreRowsProps.temporaryJapanese`。缺省为 true。 */
   temporaryJapanese?: boolean;
+  /** 本版本提供全拼时才显示连续多语言设置。 */
+  showMultilingualInput?: boolean;
   /** 宿主能把快捷短语混进普通候选（`HostCapabilities.quick_phrase_candidates`），决定是否列出快捷短语混输与调频开关。缺省为 false。 */
   quickPhraseCandidates?: boolean;
   /** 放在「候选与联想」组的「学习选词习惯」之前。 */
@@ -86,6 +89,7 @@ export function InputSharedSettingsSection({
   onMixedInputChange,
   showMixedInputMinimumPrefix = true,
   temporaryJapanese = true,
+  showMultilingualInput = false,
   quickPhraseCandidates = false,
   beforeLearning,
   afterLearning,
@@ -148,6 +152,13 @@ export function InputSharedSettingsSection({
           temporaryJapanese={temporaryJapanese}
           quickPhraseCandidates={quickPhraseCandidates}
           onChange={onMixedInputChange}
+        />
+      )}
+      {showMultilingualInput && (
+        <MultilingualInputSection
+          preferences={preferences.multilingual_input}
+          temporaryJapanese={temporaryJapanese}
+          onChange={(multilingual_input) => onPreferencesChange({ multilingual_input })}
         />
       )}
       <SingleCharacterOnlySection

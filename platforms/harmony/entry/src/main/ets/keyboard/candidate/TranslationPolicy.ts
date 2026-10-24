@@ -75,9 +75,9 @@ export class TranslationPolicy {
   static readonly MAX_CACHE_ENTRIES: number = 4096;
   static readonly NEGATIVE_CACHE_MS: number = 8 * 60 * 1000;
 
-  /** Engine rows whose text must never receive a candidate gloss. */
+  /** 这些来源的候选不请求或显示整行中文释义。 */
   static sourceGetsNoGloss(source: number): boolean {
-    return source === 6 || source === 7 || source === 13 || source === 14;
+    return source === 6 || source === 7 || source === 13 || source === 14 || source === 18;
   }
 
   static targets(query: TranslationQuery): string[] {

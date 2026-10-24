@@ -993,6 +993,7 @@ group("keeps translation provider policy bounded and credential-free in signatur
       TranslationPolicy.sourceGetsNoGloss(7) &&
       TranslationPolicy.sourceGetsNoGloss(13) &&
       TranslationPolicy.sourceGetsNoGloss(14) &&
+      TranslationPolicy.sourceGetsNoGloss(18) &&
       !TranslationPolicy.sourceGetsNoGloss(0),
     "special candidate sources never receive glosses",
   );
@@ -5911,6 +5912,18 @@ group("traditional output never loses text when conversion fails", () => {
   check(
     ChineseOutputPolicy.output("发展", true, true, phrase) === "發展",
     "发展 converts as a phrase",
+  );
+  check(
+    ChineseOutputPolicy.candidateOutput("hello網絡学校", true, true, 18, (text) =>
+      text.replace("学", "學"),
+    ) === "hello網絡学校",
+    "混合候选保留日文汉字",
+  );
+  check(
+    ChineseOutputPolicy.candidateOutput("学校", true, true, 0, (text) =>
+      text.replace("学", "學"),
+    ) === "學校",
+    "普通中文照常转换",
   );
   check(ChineseOutputPolicy.applies(false, 0, "none") === true, "quanpin converts");
   check(ChineseOutputPolicy.applies(true, 0, "none") === false, "dedicated English does not");

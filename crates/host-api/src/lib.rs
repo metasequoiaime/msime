@@ -21,10 +21,10 @@ pub mod mcp_clients;
 pub mod settings_dictionary;
 pub mod system_fonts;
 use msime_client_core::preferences::{
-    InputScheme, NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
-    ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
-    TouchShuangpinLayout, VietnameseInputMethod, VietnamesePreferences, VietnameseToneStyle,
-    WubiProfile,
+    InputScheme, MultilingualLanguage, NineKeyShuangpinProfile, Preferences, PreferencesSnapshot,
+    PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout,
+    TouchKeyboardScheme, TouchShuangpinLayout, VietnameseInputMethod, VietnamesePreferences,
+    VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -346,6 +346,47 @@ fn chaizi_enabled(preferences: &msime_client_core::preferences::LocalModePrefere
     preferences.chaizi.unwrap_or(TOUCH_KEYBOARD_HOST)
 }
 
+fn multilingual_languages_for(
+    preferences: &Preferences,
+    edition: &Edition,
+    has_japanese_model: bool,
+) -> Vec<msime_engine::multilingual::Language> {
+    // 连续多语言解码仅接在全拼；五笔混拼不等于提供全拼输入方案。
+    if !edition.offers(InputScheme::Quanpin) {
+        return Vec::new();
+    }
+    let languages = preferences
+        .multilingual_input
+        .active_languages()
+        .into_iter()
+        .filter_map(|language| match language {
+            MultilingualLanguage::Chinese => Some(msime_engine::multilingual::Language::Chinese),
+            MultilingualLanguage::English => Some(msime_engine::multilingual::Language::English),
+            MultilingualLanguage::Japanese
+                if has_japanese_model && edition.features.temporary_japanese =>
+            {
+                Some(msime_engine::multilingual::Language::Japanese)
+            }
+            MultilingualLanguage::Japanese => None,
+        })
+        .collect::<Vec<_>>();
+    if languages.len() >= 2 {
+        languages
+    } else {
+        Vec::new()
+    }
+}
+
+fn japanese_model_available(options: &EngineOptions) -> bool {
+    if options.japanese_dictionary.is_empty() {
+        Path::new(&options.resources)
+            .join("msime-japanese.dat")
+            .is_file()
+    } else {
+        Path::new(&options.japanese_dictionary).is_file()
+    }
+}
+
 fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Edition) {
     let resources = std::path::Path::new(&options.resources);
     let has_emoji_catalog = resources.join("msime-others.db").is_file();
@@ -362,6 +403,13 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Editio
     options.local_temporary_japanese &= has_japanese_model && edition.features.temporary_japanese;
     // 日文混输和临时日文读同一份模型、同一个日文 provider（会话方案集里有 `JapaneseRomaji` 才建），门槛也一样；模型不在时只剩假名，不算转换。
     options.mixed_japanese &= has_japanese_model && edition.features.temporary_japanese;
+    options.multilingual_languages.retain(|language| {
+        *language != msime_engine::multilingual::Language::Japanese
+            || (has_japanese_model && edition.features.temporary_japanese)
+    });
+    if options.multilingual_languages.len() < 2 {
+        options.multilingual_languages.clear();
+    }
     // 键盘神经联想读的模型同样随版本的资源锁走；不带它的版本无论偏好怎么写都不打开。
     options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
 }
@@ -753,6 +801,11 @@ impl HostSession {
         options.mixed_kaomoji = preferences.mixed_input.kaomoji;
         options.mixed_symbols = preferences.mixed_input.symbols;
         options.mixed_japanese = preferences.mixed_input.japanese;
+        options.multilingual_languages = multilingual_languages_for(
+            &preferences,
+            self.edition,
+            japanese_model_available(&options),
+        );
         options.quick_phrase_candidates =
             self.quick_phrase_candidates_requested && preferences.mixed_input.quick_phrase;
         options.quick_phrase_frequency = preferences.mixed_input.quick_phrase_frequency;
@@ -1136,6 +1189,11 @@ impl HostSession {
             .expect("requested snapshot exists")
             .preferences
             .clone();
+        // 繁简只投影混合候选的中文段，不改组字，和宿主的即时输出开关同步。
+        self.runtime.set_multilingual_output(
+            requested_preferences.traditional_chinese_output,
+            requested_preferences.traditional_chinese_variant,
+        );
         self.set_ai_provider_cache(&requested_preferences);
         self.runtime
             .set_english_online_candidates_enabled(requested_preferences.english_online_candidates)
@@ -2048,6 +2106,10 @@ impl HostOptions {
             state_root.as_deref(),
             edition,
         );
+        let has_japanese_model = japanese.as_deref().is_some_and(Path::is_file)
+            || Path::new(&self.resources)
+                .join("msime-japanese.dat")
+                .is_file();
         let mut options = EngineOptions {
             resources: self.resources,
             user_data: self.user_data,
@@ -2084,6 +2146,11 @@ impl HostOptions {
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
             mixed_symbols: self.preferences.mixed_input.symbols,
             mixed_japanese: self.preferences.mixed_input.japanese,
+            multilingual_languages: multilingual_languages_for(
+                &self.preferences,
+                edition,
+                has_japanese_model,
+            ),
             local_unicode: self.preferences.local_modes.unicode,
             local_date_time: self.preferences.local_modes.date_time,
             local_date_time_inline: self.preferences.local_modes.date_time_inline,

@@ -45,9 +45,8 @@ int main() {
   assert(!command_translation_query("none", true));
   assert(!command_translation_query("mention", true));
 
-  // The shared translation query marks emoji, kaomoji, mixed-Japanese and
-  // plugin rows as display-only. Linux must retain that source identity while
-  // converting candidates to the text-only provider socket protocol.
+  // 表情、颜文字、日文混输、插件和连续多语言行只展示原文；
+  // 转成只有文字的提供者 socket 协议时仍须保留来源身份。
   using msime::linux_host::candidate_translation_source_allowed;
   assert(candidate_translation_source_allowed(0));
   assert(candidate_translation_source_allowed(4));
@@ -55,6 +54,7 @@ int main() {
   assert(!candidate_translation_source_allowed(7));
   assert(!candidate_translation_source_allowed(13));
   assert(!candidate_translation_source_allowed(14));
+  assert(!candidate_translation_source_allowed(18));
   assert(candidate_translation_source_allowed(255));
   assert(candidate_translation_source_allowed(256));
 

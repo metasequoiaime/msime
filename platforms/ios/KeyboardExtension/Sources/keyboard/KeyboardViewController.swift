@@ -97,6 +97,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let number: Int
     let converting: Bool
     let aiPlaceholder: Bool
+    let source: Int
     let styleRevision: UInt64
   }
   private var candidateButtonInputs: [CandidateButtonInputs?] = []
@@ -5109,13 +5110,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard !snapshot.entries.isEmpty else { return }
       let columns = opensNineKeyPanel ? makeNineKeyPanelColumns() : nil
       let panel = KeyboardCandidatePanelView(
-        candidates: snapshot.entries.map(\.text), preedit: snapshot.preedit,
+        candidates: snapshot.entries.map { chineseOutput($0.text, source: $0.source) }, preedit: snapshot.preedit,
         annotations: candidatePanelAnnotations(snapshot),
         markers: candidatePanelMarkers(snapshot),
         aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
         candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         showsHeader: false, palette: candidatePalette, canvas: candidateCanvasSkin,
-        display: { [weak self] in self?.chineseOutput($0) ?? $0 },
+        display: { $0 },
         menuElements: { [weak self] index in
           guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return [] }
           let entry = snapshot.entries[index]
@@ -5373,7 +5374,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.openLocalMode(trigger))
   }
 
-  private func chineseOutput(_ text: String) -> String {
+  private func chineseOutput(_ text: String, source: Int? = nil) -> String {
+    if source == 18 { return text }
     if !inputScheme.writesChinese || localModeTrigger == "R" { return text }
     return ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput)
   }
@@ -6455,7 +6457,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     currentNineKeyStrokes = snapshot.nineKeyStrokes
     updateLetterCaseControls()
     if snapshot.commitText != nil || appendingLiteral != nil {
-      let commit = snapshot.commitText.map { source == .japanese ? $0 : chineseOutput($0) } ?? ""
+      let commit = snapshot.commitText.map { source == .japanese || !snapshot.scriptConversion ? $0 : chineseOutput($0) } ?? ""
       // 原组字和数字作为同一次文档替换提交；先撤标记再插数字会读到尚未更新的选区，数字可能跑到拼音前面。
       insertOwnText(commit + (appendingLiteral ?? ""), source: source,
                     replacingComposition: snapshot.commitText != nil)
@@ -6612,7 +6614,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let badge = source == CandidateMarker.cloudSource ? "☁️" : source == CandidateMarker.aiSource ? "🤖" : ""
       let highlighted = japaneseConversionIndex.map { $0 == index }
         ?? (visibleCandidateHighlighted.indices.contains(index) && visibleCandidateHighlighted[index])
-      return ExternalCandidateSkin.Canvas.Word(text: chineseOutput(text), badge: badge, highlighted: highlighted)
+      return ExternalCandidateSkin.Canvas.Word(text: chineseOutput(text, source: source), badge: badge, highlighted: highlighted)
     } : []
     let hosts: [CandidateCanvasHostView?] = [compositionContainer, candidatePanel]
     for host in hosts {
@@ -6653,9 +6655,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // 样式与英文建议的词块相同，只是读作邮箱后缀。
         let inputs = CandidateButtonInputs(
           candidate: page[offset], hint: "", hintSpoken: nil, reading: nil, glosses: [], markers: [],
-          number: offset + 1, converting: false, aiPlaceholder: false, styleRevision: candidateButtonStyleRevision)
+          number: offset + 1, converting: false, aiPlaceholder: false, source: -1, styleRevision: candidateButtonStyleRevision)
         if candidateButtonInputs[offset] != inputs {
-          updateCandidateButton(chip, candidate: page[offset], hint: "", glosses: [], number: offset + 1, converting: false)
+          updateCandidateButton(chip, candidate: page[offset], hint: "", glosses: [], number: offset + 1, converting: false, source: -1)
           chip.accessibilityLabel = "邮箱后缀 \(offset + 1)：\(page[offset])"
           candidateButtonInputs[offset] = inputs
         }
@@ -6671,15 +6673,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let aiPlaceholder = visibleCandidateSources.indices.contains(offset)
         && (visibleCandidateSources[offset] == CandidateMarker.aiPendingSource
           || visibleCandidateSources[offset] == CandidateMarker.cloudPendingSource)
+      let candidateSource = visibleCandidateSources.indices.contains(offset) ? visibleCandidateSources[offset] : -1
       let inputs = CandidateButtonInputs(
         candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading, glosses: glosses,
         markers: markers, number: offset + 1, converting: japaneseConversionIndex == offset,
-        aiPlaceholder: aiPlaceholder, styleRevision: candidateButtonStyleRevision)
+        aiPlaceholder: aiPlaceholder, source: candidateSource, styleRevision: candidateButtonStyleRevision)
       guard candidateButtonInputs[offset] != inputs else { continue }
       updateCandidateButton(
         chip, candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading,
         glosses: glosses, markers: markers, number: offset + 1, converting: japaneseConversionIndex == offset,
-        aiPlaceholder: aiPlaceholder)
+        aiPlaceholder: aiPlaceholder, source: candidateSource)
       candidateButtonInputs[offset] = inputs
     }
     updateExpandControl()
@@ -7172,9 +7175,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateButton(
     _ button: KeyboardKeyButton, candidate: String, hint: String, hintSpoken: String? = nil, reading: String? = nil, glosses: [String],
-    markers: [CandidateMarker] = [], number: Int, converting: Bool, aiPlaceholder: Bool = false
+    markers: [CandidateMarker] = [], number: Int, converting: Bool, aiPlaceholder: Bool = false, source: Int = -1
   ) {
-    let display = chineseOutput(candidate)
+    let display = chineseOutput(candidate, source: source)
     guard var configuration = button.configuration else { return }
     let skin = KeyboardTheme.current
     let annotationColor = (number == 1 || converting ? candidatePalette?.selectedTranslation : nil) ?? candidatePalette?.secondary ?? skin.secondary
@@ -7354,7 +7357,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return session.editCandidate(at: UInt(visibleCandidateEngineIndices[index]), expectedWord: candidate, action: operation)
     }
-    let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
+    let source = visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : -1
+    let edges = wordCharacterMenuElements(candidate: candidate, source: source) { [weak self] last in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       guard visibleCandidateEngineIndices.indices.contains(index) else { return nil }
@@ -7395,7 +7399,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
-    let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
+    let edges = wordCharacterMenuElements(candidate: candidate, source: source) { [weak self] last in
       guard let self else { return nil }
       closeKeyboardPicker()
       return session.selectCandidateEdge(generation: generation, globalIndex: globalIndex, last: last)
@@ -7405,13 +7409,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 以词定字: commit just the first or the last Han character of a longer candidate. Desktop hosts bind it to [ ] or - =; a keyboard extension receives no hardware keys, even on an iPad with one attached, so here it lives in the candidate's long-press menu and follows only the on/off half of the shared `word_character` preference.
   private func wordCharacterMenuElements(
-    candidate: String, select: @escaping (_ last: Bool) -> MetasequoiaInputSnapshot?
+    candidate: String, source: Int, select: @escaping (_ last: Bool) -> MetasequoiaInputSnapshot?
   ) -> [UIMenuElement] {
     let stored = session.sharedPreferences?["word_character"] as? [String: Any] ?? [:]
     let han = candidate.filter { $0.unicodeScalars.first?.properties.isUnifiedIdeograph == true }
     guard stored["enabled"] as? Bool ?? true, han.count > 1, let first = han.first, let last = han.last else { return [] }
     func action(_ title: String, _ character: Character, last: Bool) -> UIAction {
-      UIAction(title: "\(title)「\(chineseOutput(String(character)))」", image: UIImage(systemName: last ? "text.insert" : "text.append")) { [weak self] _ in
+      UIAction(title: "\(title)「\(chineseOutput(String(character), source: source))」", image: UIImage(systemName: last ? "text.insert" : "text.append")) { [weak self] _ in
         guard let self, let result = select(last) else { return }
         playInputClick()
         render(result)
@@ -7834,7 +7838,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     usesTraditionalOutput = traditional
     ChineseOutputPreference.usesTraditional = traditional
     _ = session.setTraditionalChineseOutput(traditional)
-    renderCandidateStrip()
+    closeCandidatePanel()
+    render(session.currentSnapshot())
     updateShortcutButtons()
   }
 

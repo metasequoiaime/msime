@@ -20,7 +20,7 @@ target_compile_definitions(msime-win7-settings-window PUBLIC UNICODE _UNICODE NO
 target_compile_definitions(msime-win7-settings-window PRIVATE MSIME_WINDOWS_VERSION="${MSIME_WINDOWS_VERSION}")
 target_link_libraries(msime-win7-settings-window PUBLIC nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" comctl32 ole32 uuid shell32 advapi32 user32 gdi32 msimg32 crypt32 gdiplus comdlg32)
 if(MSVC)
-  target_compile_options(msime-win7-settings-window PRIVATE /W4 /WX /utf-8)
+  target_compile_options(msime-win7-settings-window PRIVATE /W4 /WX /utf-8 /bigobj)
 else()
   target_compile_options(msime-win7-settings-window PRIVATE -Wall -Wextra -Werror)
 endif()

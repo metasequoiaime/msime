@@ -19,6 +19,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)setFocused:(BOOL)focused error:(NSError **)error;
 /// Returns the current View, not a transition; preserves live composition.
 - (nullable NSDictionary<NSString *, id> *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error;
+/// 即时投影连续多语言候选中的中文段，保留组字并返回最新视图；不落盘。
+- (nullable NSDictionary *)setMultilingualOutput:(BOOL)traditional error:(NSError **)error;
 /// 中日英循环切换的目标（`msime_client_language_cycle`）：中 → 日 → 英 → 中，顺序和「有组字时先上屏」在
 /// `crates/client-core/src/language_cycle.rs`。返回 null 表示这一键不循环（开关关着），宿主照旧自己处理；
 /// 返回 `{mode, scheme, commit_raw}` 时按它执行。`lastChineseScheme` 是 `last_chinese_scheme` 的引擎方案编号，

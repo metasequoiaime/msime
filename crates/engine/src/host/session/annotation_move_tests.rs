@@ -59,6 +59,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         wubi_unique_four_code: value.wubi_unique_four_code,
         candidate_annotations: Vec::with_capacity(count),
         candidate_sources: Vec::with_capacity(count),
+        multilingual_conversion: None,
         candidate_positions: Vec::with_capacity(count),
         candidate_corrected: Vec::with_capacity(count),
         candidate_answers_key: Vec::with_capacity(count),

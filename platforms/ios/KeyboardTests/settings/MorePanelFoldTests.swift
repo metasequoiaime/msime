@@ -56,6 +56,7 @@ final class MorePanelFoldTests: XCTestCase {
     if (try? VoiceTextHandoffStore().read()) != nil {
       titles.append("插入语音文字")
     }
+
     if haptics { titles.append("振动强度 \(KeyboardFeedbackPreference.hapticStrength.title)") }
     titles += ["表情", "宣传", "剪贴板历史", "清除候选缓存"]
     return titles

@@ -179,6 +179,12 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) facts: DispatchFacts,
     /// `facts.selection` 那个座位上候选的文本，用引擎调用之前的快照记下；没有选择时为空。`DispatchFacts` 要保持 `Copy`，文本单独放在这里，缓冲区在调用之间复用。
     pub(crate) selected_text: String,
+    /// 混合行按语言段输出的简繁偏好与本次选择；普通候选保持原有宿主转换路径。
+    pub(crate) multilingual_output: (
+        bool,
+        msime_client_core::chinese_conversion::TraditionalVariant,
+    ),
+    pub(crate) selected_multilingual: Option<crate::multilingual::SelectedMultilingual>,
     /// 组字（预编辑、读音、光标、整句改字、暂存词段）每变一次加一。宿主在一次调用前后各读一次，不同就说明组字变了；只看 refresh 里的比较不够，暂存词段不经过引擎快照。
     pub(crate) composition_epoch: u64,
     /// 候选视图（列表、注释、来源、高亮、页、释义）每变一次加一。高亮移动和翻页在 refresh 之前就返回，所以单独计数。
@@ -1057,6 +1063,8 @@ impl<E: InputEngine> Runtime<E> {
             phrase_selections: Vec::new(),
             facts: DispatchFacts::default(),
             selected_text: String::new(),
+            multilingual_output: (false, Default::default()),
+            selected_multilingual: None,
             composition_epoch: 0,
             candidates_epoch: 0,
             #[cfg(any(
@@ -1579,7 +1587,7 @@ impl<E: InputEngine> Runtime<E> {
                 generation: self.generation,
                 index,
             },
-            text: text.to_owned(),
+            text: self.multilingual_candidate(index, text),
             code: self
                 .cached
                 .candidate_codes
@@ -1915,31 +1923,41 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     /// 记下 `seat` 上的选择（见 [`Self::selection_fact`]）和它的文本；对不上时两者都清空。
-    fn record_selection(&mut self, how: SelectionHow, seat: usize, result: &EngineResult) {
-        self.facts.selection = self.selection_fact(how, seat, result);
+    fn record_selection(
+        &mut self,
+        how: SelectionHow,
+        seat: usize,
+        result: &EngineResult,
+        edge: Option<CandidateEdge>,
+    ) {
+        self.facts.selection = self.selection_fact(how, seat, result, edge);
         self.selected_text.clear();
+        self.selected_multilingual = None;
         if self.facts.selection.is_some() {
             if let Some(text) = self.cached.candidates.get(seat) {
                 self.selected_text.push_str(text);
+                self.capture_multilingual_selection(seat, edge);
             }
         }
     }
 
     /// 一次把候选交给引擎的调用是否真的选中了 `seat` 上的候选，用的是引擎调用之前（refresh 之前）的快照。
     ///
-    /// 只有引擎的上屏带着这个候选时才算：常规路径要求上屏以候选文本开头（结束组字、顶字后面还会接上别的），以词定字要求上屏的首字是候选的首字或尾字。整句改字里、以及注音打开的列表里，点选、数字或空格选中一段只把这段钉住、不上屏，记为钉住；韩文汉字列表也是打开的列表，但它的选择会上屏，走上面的分支。对不上的一律不记，宁可漏报，也不把别的文本说成用户选中的候选。
+    /// 只有引擎的上屏带着这个候选时才算：常规路径要求上屏以候选文本开头（结束组字、顶字后面还会接上别的），以词定字要求上屏与引擎判定的首个或末个汉字匹配。整句改字里、以及注音打开的列表里，点选、数字或空格选中一段只把这段钉住、不上屏，记为钉住；韩文汉字列表也是打开的列表，但它的选择会上屏，走上面的分支。对不上的一律不记，宁可漏报，也不把别的文本说成用户选中的候选。
     fn selection_fact(
         &self,
         how: SelectionHow,
         seat: usize,
         result: &EngineResult,
+        edge: Option<CandidateEdge>,
     ) -> Option<SelectionFact> {
         let text = self.cached.candidates.get(seat)?;
         let outcome = if result.has_commit {
             let matches = if how == SelectionHow::Edge {
-                let first = result.commit.chars().next();
-                first.is_some()
-                    && (first == text.chars().next() || first == text.chars().next_back())
+                edge.is_some_and(|edge| {
+                    let character = edge.character(text);
+                    !character.is_empty() && result.commit.starts_with(character)
+                })
             } else {
                 !text.is_empty() && result.commit.starts_with(text.as_str())
             };
@@ -2148,7 +2166,8 @@ impl<E: InputEngine> Runtime<E> {
             scheme: self.cached.scheme,
             local_mode: self.cached.local_mode.clone(),
             script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode)
-                && !self.commits_mixed_japanese(),
+                && !self.commits_mixed_japanese()
+                && !self.commits_multilingual(),
             typing_statistics: local_mode_counts_as_typing(&self.cached.local_mode),
             plugin_row: self.commits_plugin_row(),
         }
@@ -2178,7 +2197,8 @@ impl<E: InputEngine> Runtime<E> {
             })
     }
 
-    fn transition(&mut self, result: EngineResult) -> Transition {
+    fn transition(&mut self, mut result: EngineResult) -> Transition {
+        self.convert_multilingual_commit(&mut result);
         // 每一次上屏都经过这里，所以 AI 上文只在这一处喂；插件给的行不是用户打的字，不进 AI 和重排的上文。
         if result.has_commit && !self.commits_plugin_row() {
             self.remember_commit(&result.commit);
@@ -2640,6 +2660,7 @@ impl<E: InputEngine> Runtime<E> {
                     candidate_annotations: Vec::new(),
                     candidate_codes: Vec::new(),
                     candidate_sources: Vec::new(),
+                    multilingual_conversion: None,
                     candidate_positions: Vec::new(),
                     candidate_corrected: Vec::new(),
                     candidate_answers_key: Vec::new(),
@@ -2688,6 +2709,7 @@ impl<E: InputEngine> Runtime<E> {
                 && self.cached.candidate_codes == previous.candidate_codes
                 && self.cached.candidate_annotations == previous.candidate_annotations
                 && self.cached.candidate_sources == previous.candidate_sources
+                && self.cached.multilingual_conversion == previous.multilingual_conversion
                 && self.cached.candidate_positions == previous.candidate_positions
                 && self.cached.candidate_corrected == previous.candidate_corrected
                 && self.cached.candidate_answers_key == previous.candidate_answers_key
@@ -2724,6 +2746,7 @@ impl<E: InputEngine> Runtime<E> {
             || cached.candidate_codes != previous.candidate_codes
             || cached.candidate_annotations != previous.candidate_annotations
             || cached.candidate_sources != previous.candidate_sources
+            || cached.multilingual_conversion != previous.multilingual_conversion
             || cached.candidate_positions != previous.candidate_positions
             || cached.candidate_corrected != previous.candidate_corrected
             || cached.candidate_list_open != previous.candidate_list_open
@@ -2737,6 +2760,7 @@ impl<E: InputEngine> Runtime<E> {
     pub fn focus(&mut self, focused: bool) -> Result<Transition, RuntimeError> {
         self.facts = DispatchFacts::default();
         self.selected_text.clear();
+        self.selected_multilingual = None;
         self.advance()?;
         // Invalidate the client before cancellation, including on engine failure.
         self.focused = false;
@@ -2817,7 +2841,12 @@ impl<E: InputEngine> Runtime<E> {
         // Finish through Engine with the host highlight BEFORE asking it to translate.
         // Calling Engine punctuation on an active composition would choose candidate zero.
         let mut finished = self.engine.finish(self.engine_index(self.highlighted))?;
-        self.record_selection(SelectionHow::PunctuationFinish, self.highlighted, &finished);
+        self.record_selection(
+            SelectionHow::PunctuationFinish,
+            self.highlighted,
+            &finished,
+            None,
+        );
         let punctuation = match self.engine.punctuation(value) {
             Ok(result) => result,
             Err(error) if finished.has_commit => {
@@ -2892,7 +2921,12 @@ impl<E: InputEngine> Runtime<E> {
             raw
         } else {
             let finished = self.engine.finish(self.engine_index(self.highlighted))?;
-            self.record_selection(SelectionHow::PunctuationFinish, self.highlighted, &finished);
+            self.record_selection(
+                SelectionHow::PunctuationFinish,
+                self.highlighted,
+                &finished,
+                None,
+            );
             finished
         };
         if !finished.has_commit {
@@ -2933,6 +2967,7 @@ impl<E: InputEngine> Runtime<E> {
         // 每次调用都从空白开始，提前返回的路径（报错、失焦）也不会留下上一键的事实。
         self.facts = DispatchFacts::default();
         self.selected_text.clear();
+        self.selected_multilingual = None;
         if matches!(&action, Action::Punctuation(value) | Action::PunctuationAscii(value) if !value.is_ascii_punctuation())
         {
             return Err(RuntimeError::InvalidPunctuation);
@@ -3066,10 +3101,8 @@ impl<E: InputEngine> Runtime<E> {
         if let Some(transition) = self.retreat_phrase_selection(&action)? {
             return Ok(transition);
         }
-        // What the reading held before the Engine saw this key. A selection that consumes part of
-        // it has to record the piece it took, and only the difference says what that was. Digits
-        // may become a selection after the Engine sees them, so all Character actions stay in the
-        // set; commands, punctuation and navigation never consume a candidate reading.
+        // 选词前保留读音，消耗的前缀才可用于撤回。数字键可能选词，CommitCandidate 命令
+        // 也可能消费引擎首行；标点和导航不在这里记录读音。
         let selection_action = matches!(
             &action,
             Action::Character { .. }
@@ -3077,6 +3110,7 @@ impl<E: InputEngine> Runtime<E> {
                 | Action::SelectAnyCandidate(_)
                 | Action::SelectEdge(..)
                 | Action::SelectHighlighted
+                | Action::Command(Command::CommitCandidate)
         );
         let reading_before =
             (self.phrase_preedit && selection_action).then(|| self.cached.editing_text.clone());
@@ -3254,6 +3288,16 @@ impl<E: InputEngine> Runtime<E> {
                 pick = Some((SelectionHow::GridRaw, self.highlighted));
                 self.engine.finish(self.engine_index(self.highlighted))
             }
+            Action::Command(Command::CommitCandidate) => {
+                // 命令由引擎选择原始首行，展示可能已经重排；不能把它记成高亮行。
+                let seat = if self.engine_order.is_empty() {
+                    (!self.cached.candidates.is_empty()).then_some(0)
+                } else {
+                    self.engine_order.iter().position(|index| *index == 0)
+                };
+                pick = seat.map(|seat| (SelectionHow::FirstCandidateCommand, seat));
+                self.engine.command(Command::CommitCandidate)
+            }
             Action::Command(command) => {
                 raw_route = matches!(
                     command,
@@ -3312,7 +3356,15 @@ impl<E: InputEngine> Runtime<E> {
         // 快照还是引擎调用之前的那份，座位和候选文本都按用户当时看到的核对。
         if let Ok(result) = &result {
             if let Some((how, seat)) = pick {
-                self.record_selection(how, seat, result);
+                self.record_selection(
+                    how,
+                    seat,
+                    result,
+                    match action {
+                        Action::SelectEdge(_, edge) => Some(edge),
+                        _ => None,
+                    },
+                );
             }
             if raw_route {
                 self.facts.raw = result.has_commit;
@@ -3342,7 +3394,7 @@ impl<E: InputEngine> Runtime<E> {
         if self.wubi_should_auto_commit(character_action) {
             result = self.engine.select(self.engine_index(0))?;
             // 这次的结果整个换成了自动上屏，之前记下的事实随之作废。
-            self.record_selection(SelectionHow::WubiAuto, 0, &result);
+            self.record_selection(SelectionHow::WubiAuto, 0, &result, None);
             self.facts.tail_chars = 0;
             if let Err(error) = self.refresh() {
                 result.diagnostic = format!("Candidate refresh failed: {error}");

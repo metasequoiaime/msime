@@ -169,8 +169,9 @@ void ServerSession::balance_paired_punctuation(uint64_t epoch,
 }
 nlohmann::json ServerSession::toggle_traditional_output(uint64_t epoch) {
   check_active(epoch);
+  auto current = response(msime_client_set_multilingual_output(session_, !traditional_output_));
   traditional_output_ = !traditional_output_;
-  return view();
+  return current;
 }
 nlohmann::json ServerSession::dedicated_english(uint64_t epoch, bool exit) {
   check_active(epoch);

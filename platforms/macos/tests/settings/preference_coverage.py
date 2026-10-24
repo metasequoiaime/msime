@@ -22,9 +22,9 @@ exempt top-level struct is not descended into: the entry already explains the wh
 
 Two deliberate limits, both narrower than "the name appears somewhere":
 
-- A doc comment that names a preference is not a reader. `crates/host-api/src/ffi/host.rs` documents
-  `traditional_chinese_variant` in prose and nothing reads it; counting prose made the gate pass a field
-  macOS silently ignores. Doc-comment lines are dropped before matching.
+- 文档注释提到偏好不等于实际读取。`ffi/host.rs` 曾只在说明中提到
+  `traditional_chinese_variant`，把散文也算进去会漏掉未接入的偏好；扫描时排除文档注释。
+  现在 `ffi/input.rs` 的多语言逐段输出真正读取该字段，所以不再将它列为豁免。
 - A field read through a helper on its own struct (`WubiCandidateSelectionPreferences::slot`) does not spell
   the field name in the scan set. That is what the two `wubi_candidate_selection` entries record, and why
   the reason has to point at the consuming call.
@@ -73,7 +73,6 @@ NOT_APPLICABLE = {
     "keybindings.toggle_japanese_ctrl_shift_j": "由 `HostCapabilities::japanese_toggle_shortcut` 门控，macOS 为 false（`crates/client-core/src/host_surface.rs`：macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要这个组合键），设置页不显示这一项",
     "wubi_candidate_selection.second_key": "由共享运行时经 `WubiCandidateSelectionPreferences::slot` 消费（`crates/input-runtime/src/runtime.rs` 的 `set_wubi_candidate_selection` / `candidate_for_slot`）；宿主不直接拼字段名，所以按名匹配看不见它",
     "wubi_candidate_selection.third_key": "同上：与 `second_key` 一起交给 `slot()` 决定第二、第三候选的取词键",
-    "traditional_chinese_variant": "macOS 的简繁转换固定用 OpenCC `s2t`（`platforms/macos/src/core/ChineseTextConversion.mm` 调 `msime_client_simplified_to_traditional`），不选变体；带变体的 `msime_client_convert_to_traditional` 目前只有 Linux 的 IBus / Fcitx5 宿主调用（`crates/client-core/src/host_surface.rs` 的 `traditional_chinese_variants: matches!(platform, HostPlatform::Linux)`）。macOS 用 s2t 而不是 `s2tw` / `s2twp` 是刻意的：来源 MSIME-Apple 只有「简体 / 繁体」二选一的 `outputScript`，没有台湾正体 / 台湾用词三态，设置页也只给这两项；从 Linux 或云同步带过来的 `s2tw` / `s2twp` 在 macOS 上按 s2t 处理，属于「这项在 macOS 不适用」而不是「开关坏了」",
     "smart_punctuation_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old macOS default (smart punctuation off) on; the host reads the migrated values through msime_client_load_preferences",
     "fuzzy_pinyin.seeded": "not a setting: `FuzzyPinyinPreferences::seeded` 是内部标记，用来区分「首次开启」和「有意清空规则」，落盘但不渲染（`crates/client-core/src/preferences.rs` 的 `seed_fuzzy_pinyin_rules` 读它、设置页不显示）；宿主不消费它是设计如此",
     "custom_theme.keyboard.key_background": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",

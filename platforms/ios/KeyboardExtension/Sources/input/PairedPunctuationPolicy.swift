@@ -85,7 +85,8 @@ extension MetasequoiaInputSnapshot {
   /// The same snapshot committing `text` instead.
   func replacingCommit(_ text: String?) -> MetasequoiaInputSnapshot {
     MetasequoiaInputSnapshot(
-      isHandled: isHandled, commitText: text, preedit: preedit, reading: reading, phrasePrefix: phrasePrefix,
+      isHandled: isHandled, commitText: text, scriptConversion: scriptConversion,
+      preedit: preedit, reading: reading, phrasePrefix: phrasePrefix,
       candidates: candidates, candidateCodes: candidateCodes, candidateGlosses: candidateGlosses,
       candidateAnnotations: candidateAnnotations, candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions, candidateHighlighted: candidateHighlighted, candidatePageCount: candidatePageCount,

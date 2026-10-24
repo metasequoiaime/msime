@@ -20,7 +20,7 @@ using Texts = std::vector<std::string>;
 
 int main() {
   try {
-    for (unsigned source : {6u, 7u, 13u, 14u})
+    for (unsigned source : {6u, 7u, 13u, 14u, 18u})
       REQUIRE(source_gets_no_translation(source));
     for (unsigned source : {0u, 1u, 2u, 12u})
       REQUIRE(!source_gets_no_translation(source));

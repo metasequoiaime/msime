@@ -760,7 +760,9 @@ impl InputSession {
                             && !hide_helpcode
                             && !matches!(
                                 item.source,
-                                CandidateSource::EnglishDictionary | CandidateSource::MixedJapanese
+                                CandidateSource::EnglishDictionary
+                                    | CandidateSource::MixedJapanese
+                                    | CandidateSource::Multilingual
                             ) =>
                     {
                         compute_helpcodes(&item.word, uppercase_all, keymap)

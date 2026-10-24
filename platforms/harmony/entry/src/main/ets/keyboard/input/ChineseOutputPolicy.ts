@@ -9,6 +9,16 @@ import { SchemeTraits } from "../SchemeTraits";
 export type ChineseConverter = (text: string) => string | null;
 
 export class ChineseOutputPolicy {
+  /** 来源 18 已由共享运行时逐段转换，保留其中的日文汉字。 */
+  static candidateOutput(
+    text: string,
+    traditional: boolean,
+    applies: boolean,
+    source: number,
+    converter: ChineseConverter,
+  ): string {
+    return ChineseOutputPolicy.output(text, traditional, applies && source !== 18, converter);
+  }
   static applies(dedicatedEnglish: boolean, scheme: number, localMode: string): boolean {
     return (
       !dedicatedEnglish &&

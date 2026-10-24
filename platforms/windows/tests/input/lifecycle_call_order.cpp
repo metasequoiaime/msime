@@ -288,6 +288,7 @@ char *msime_client_update_preferences(uint64_t, const uint8_t *, size_t) {
   return answer({{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", view()}});
 }
 char *msime_client_set_chinese_punctuation(uint64_t, bool) { return answer(nullptr); }
+char *msime_client_set_multilingual_output(uint64_t, bool) { return answer(nullptr); }
 char *msime_client_set_english_mode(uint64_t, bool) { return answer(view()); }
 char *msime_client_balance_paired_punctuation_after_auto_close(uint64_t, uint8_t) { return answer(nullptr); }
 char *msime_client_punctuation(uint64_t, uint8_t) { return transition(nullptr); }
