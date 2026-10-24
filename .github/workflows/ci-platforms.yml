@@ -1,6 +1,15 @@
 name: OCR product verification
 on:
   workflow_dispatch:
+    inputs:
+      api:
+        description: 选择验收的 Android API
+        type: choice
+        default: both
+        options:
+          - both
+          - '28'
+          - '35'
 permissions:
   contents: read
 jobs:
@@ -11,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [28, 35]
+        api: ${{ fromJSON(inputs.api == '28' && '[28]' || inputs.api == '35' && '[35]' || '[28,35]') }}
     env:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
