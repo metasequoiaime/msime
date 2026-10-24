@@ -54,6 +54,10 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
                     writingMode();
                     chooseWritingMode(originalMode);
                 } catch (Exception | AssertionError error) {
+                    if (ocrCoexistence) {
+                        try { shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-failure.png"); }
+                        catch (Exception ignored) { }
+                    }
                     if (completed) throw error;
                 }
                 if (!completed) stage = failureStage;
@@ -63,15 +67,22 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
 
     /** 通过原生设置页选择单字模式，避免默认叠写自动上屏使显式选字断言失去前提。 */
     private String writingMode() throws Exception {
+        String operation = stage;
+        stage = operation + " / settings window ready";
         dropStaleNodes();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android/.home.HomeActivity --es msime_open_page HANDWRITING");
+        // am start 完成时旧页面仍可能在转场；等空闲后重新取节点，避免弹出的选项页被随后导航移除。
+        automation.waitForIdle(500, 5000);
+        dropStaleNodes();
         AccessibilityNodeInfo row = awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName())
             && equalsText("书写模式", node.getText()), 15_000);
+        stage = operation + " / open writing mode sheet";
         while (!row.isClickable() && row.getParent() != null) row = row.getParent();
         if (!row.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             throw new AssertionError("Handwriting writing mode row did not open");
         String selected = null;
         for (String option : new String[] {"单字", "叠写", "行写"}) {
+            stage = operation + " / inspect " + option;
             AccessibilityNodeInfo control = awaitFor(description(option), 15_000);
             CharSequence state = Build.VERSION.SDK_INT >= 30 ? control.getStateDescription()
                 : control.getExtras().getCharSequence("androidx.view.accessibility.AccessibilityNodeInfoCompat.STATE_DESCRIPTION_KEY");
@@ -81,6 +92,7 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
             }
         }
         if (selected == null) throw new AssertionError("Handwriting mode has no selection");
+        stage = operation;
         return selected;
     }
 

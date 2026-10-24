@@ -68,6 +68,10 @@ ML Kit 的公开初始化仍通过宿主包的 `MlKitComponentDiscoveryService` 
 
 本轮设备任务整体失败，不能把 OCR 专项通过报告成完整门禁通过。API 28 的基础冒烟在 `deferred composition length 1` 未观察到 IME 控件；API 35 在 OCR 专项前后的两次基础冒烟均停在拼写放大编辑的中间插入/删除断言。它们与[旧基点已复现的 `phrase composition` 失败](https://github.com/metasequoiaime/msime/actions/runs/40082820419)不同，尚无这两项具体失败的干净基点对照，不归为已证明的旧问题。修正提交 `335988b93d` 的常规 PR CI 为 25 项成功、6 项按范围跳过。完整 quick 的生成文档、符号表、语音目录与三个 Windows portable 链接失败均已在同版本干净基点复现；Rust workspace 编译和 providers Clippy 通过。
 
+当前 `29bbfc36ef` 的[两版设备运行](https://github.com/metasequoiaime/msime/actions/runs/40118436084)均已结束。两版共享设备套件、模型准备、选择器完整导入／取消／损坏替换拒绝、相机识别及撤权、主进程手写共存通过。API 35 的同一真实离线 `:ime` 手写专项也通过；API 28 已完成前后识别、上屏、退格与符号画布恢复，但最后恢复原书写模式时未观察到预期设置控件，`ime_handwriting=1`，不能计为专项通过。两版整体仍有相同十八键三排宽度断言失败。
+
+恢复设置失败的日志没有区分启动、打开选项或读取选项，本次细分这些固定阶段，并在失败时补收同一合成设备截图。设置页面跳转完成后先等待无障碍空闲、重新取得行节点，避免点击仍在转场的旧行；这项调整尚待设备验证，不把时序推测写成已证明的根因。恢复失败仍让专项失败，原模式回读和真实推理断言均保留。
+
 ## Related notes audit
 
 [手写会话清理](../../implemented/bug-fix/2026-10-17-android-handwriting-session-reset.md)部分相关，继续持有手写生命周期；OCR 不得重置它的单例或复用它的请求代次。[按需语音运行库](../../implemented/feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)部分相关，说明可选原生资源分发，不提供 OCR 推理接口。现有活跃笔记没有相机 OCR 的决定。
