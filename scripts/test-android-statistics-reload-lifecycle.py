@@ -12,7 +12,7 @@ def main() -> int:
     start = source.index("    @Override protected void onBecameVisible()")
     end = source.index("    private void reload()", start)
     body = source[start:end]
-    if body.strip() != "@Override protected void onBecameVisible() {\n        reload();\n    }":
+    if body.strip() != "@Override protected void onBecameVisible() {\n        authorized = false;\n        requestAuthentication();\n    }":
         raise SystemExit("统计页回到前台必须无条件重试 reload()，不能把失败读取永久留在空状态")
     print("Android statistics tab retries reads whenever it becomes visible")
 

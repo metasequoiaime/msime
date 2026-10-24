@@ -3508,6 +3508,31 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
 }
 @end
 
+// 部分选词会推进组字前缀并更换候选代次，直至最后一次才整句上屏。
+@interface PartialExpandedGridSession : ExpandedGridSession
+@property(nonatomic, copy) NSArray<NSNumber *> *remainingTotals;
+@property(nonatomic, copy) NSString *selectedPrefix;
+@end
+@implementation PartialExpandedGridSession
+- (NSDictionary *)gridView {
+    NSMutableDictionary *view = [[super gridView] mutableCopy];
+    view[@"scheme"] = @1;
+    view[@"phrase_prefix"] = self.selectedPrefix ?: @"";
+    return view;
+}
+- (NSDictionary *)selectAnyCandidateGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    NSDictionary *selected = [super selectAnyCandidateGeneration:generation index:index error:error];
+    if (!selected || !self.remainingTotals.count) return selected;
+    self.total = self.remainingTotals.firstObject.unsignedIntegerValue;
+    self.remainingTotals = [self.remainingTotals subarrayWithRange:NSMakeRange(1, self.remainingTotals.count - 1)];
+    self.selectedPrefix = [(self.selectedPrefix ?: @"") stringByAppendingString:@"合成前缀"];
+    self.editing = [self.editing substringFromIndex:1];
+    self.highlighted = 0;
+    ++self.generation;
+    return @{@"handled": @YES, @"view": [self gridView]};
+}
+@end
+
 static MSIMECandidateButton *ExpandedGridSubview(NSPanel *panel, NSInteger tag) {
     for (NSView *view in MSIMECandidateControlSubviews(panel.contentView))
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (MSIMECandidateButton *)view;
@@ -4272,6 +4297,78 @@ static void TestExpandedCandidateGridGeneration() {
     other.caret = NSMakeRect(300, 400, 1, 18);
     [controller handleEvent:ModeKey(0, 0, NO) client:other];
     assert(!expanded());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestExpandedCandidatePartialSelection() {
+    NSString *suite = [@"msime.expanded-partial." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.vertical = NO;
+    prefs.pageSize = 5;
+    prefs.englishMode = NO;
+    prefs.expandCandidates = YES;
+    // 数字、空格、回车和鼠标都通过相同的带代次选词接口。
+    for (NSNumber *input in @[@18, @49, @36, @(-1)]) {
+        ModeController *controller = [ModeController alloc];
+        PartialExpandedGridSession *session = [PartialExpandedGridSession new];
+        session.generation = 10;
+        session.total = 23;
+        session.pageSize = 5;
+        session.prefix = @"合成词";
+        session.editing = @"yigelaji";
+        session.remainingTotals = @[@9, @4];
+        NestingClient *client = [NestingClient new];
+        client.caret = NSMakeRect(200, 400, 1, 18);
+        HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert([controller openExpandedCandidates]);
+        auto select = [&] {
+            if (input.intValue < 0) [controller selectExpandedCandidate:ExpandedGridSubview(panel, 0)];
+            else assert([controller handleEvent:ModeKey(input.unsignedShortValue, 0, NO) client:client]);
+        };
+        for (NSNumber *remaining in @[@9, @4]) {
+            const uint64_t generation = session.generation;
+            MSIMECandidateButton *oldButton = ExpandedGridSubview(panel, 0);
+            select();
+            assert(session.selectAnyGeneration == generation && session.total == remaining.unsignedIntegerValue);
+            assert([controller valueForKey:@"expandedCandidates"] && !client.committed);
+            assert([[controller valueForKey:@"expandedGeneration"] isEqual:@(generation + 1)]);
+            assert([[controller valueForKey:@"expandedCursor"] unsignedIntegerValue] == 0);
+            assert(ExpandedGridHighlightedTag(panel) == 0);
+            const NSUInteger selections = session.selectAnyCalls;
+            [controller selectExpandedCandidate:oldButton];
+            assert(session.selectAnyCalls == selections && [controller valueForKey:@"expandedCandidates"]);
+        }
+        select();
+        assert(![controller valueForKey:@"expandedCandidates"] && client.committed.length);
+
+        // 普通候选剩一页时没有新入口；显式收起后的下一次输入也不自动展开。
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert(![controller openExpandedCandidates]);
+
+        // 部分选词写入 marked text 时若有更新回复重入，旧选择不重新打开网格。
+        session.total = 12;
+        session.remainingTotals = @[@4];
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert([controller openExpandedCandidates]);
+        __weak ModeController *weakController = controller;
+        client.onMarkedText = ^{
+            ++session.generation;
+            session.editing = @"syntheticnew";
+            [weakController apply:@{@"view": [session gridView]}];
+        };
+        select();
+        assert(![controller valueForKey:@"expandedCandidates"]);
+        assert([[controller valueForKey:@"view"][@"editing_text"] isEqual:@"syntheticnew"]);
+    }
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -12574,6 +12671,7 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--expanded-scroll") {
             TestExpandedCandidateGrid();
             TestExpandedCandidateGridGeneration();
+            TestExpandedCandidatePartialSelection();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--session-recovery") {
@@ -14597,6 +14695,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestPinyinArrowCandidateNavigation(); }
         @autoreleasepool { TestExpandedCandidateGrid(); }
         @autoreleasepool { TestExpandedCandidateGridGeneration(); }
+        @autoreleasepool { TestExpandedCandidatePartialSelection(); }
         @autoreleasepool { TestSegmentEditingChords(appearance); }
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }

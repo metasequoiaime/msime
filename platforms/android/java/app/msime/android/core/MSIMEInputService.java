@@ -7589,17 +7589,51 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>打开之前和「编辑」一样把系统剪贴板当前那一条记为已处理：用户可能在那一页把它删掉或改掉，已处理身份存在本进程（`:ime`）的 SharedPreferences 里，应用进程写不了；不记的话回来一打开面板，补读又把它记了回来。
      */
     void openClipboardSearch() {
-        forgetCurrentClip();
-        android.os.Bundle args = new android.os.Bundle();
-        putReturnToCaller(args);
-        closeClipboardHistory();
-        openHostPage(ClipboardSearchPolicy.SEARCH_PAGE, args);
+        authenticateClipboard("搜索", () -> {
+            forgetCurrentClip();
+            android.os.Bundle args = new android.os.Bundle();
+            putReturnToCaller(args);
+            closeClipboardHistory();
+            openHostPage(ClipboardSearchPolicy.SEARCH_PAGE, args);
+        });
     }
 
     private boolean clipboardExportBusy;
+    private long clipboardAuthenticationGeneration;
+    private boolean clipboardAuthenticationBusy;
+
+    private void authenticateClipboard(String operation, Runnable after) {
+        if (clipboardAuthenticationBusy) return;
+        clipboardAuthenticationBusy = true;
+        long generation = ++clipboardAuthenticationGeneration;
+        android.os.ResultReceiver receiver = new android.os.ResultReceiver(main) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle payload) {
+                if (generation != clipboardAuthenticationGeneration) return;
+                clipboardAuthenticationBusy = false;
+                if (code == 2001)
+                    after.run();
+                else notice("未通过系统认证，剪贴板操作已取消");
+            }
+        };
+        try {
+            Intent intent = new Intent().setClassName(getPackageName(),
+                "app.msime.android.ClipboardAuthenticationActivity")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                .putExtra("app.msime.android.clipboard.AUTH_RESULT", receiver)
+                .putExtra("app.msime.android.clipboard.AUTH_SUBTITLE", operation + "剪贴板历史");
+            startActivity(intent);
+        } catch (RuntimeException unavailable) {
+            clipboardAuthenticationBusy = false;
+            notice("这台设备没有可用的系统认证");
+        }
+    }
 
     /** 键盘右上方显式导出；旧系统首次授权交给原生历史页承接。 */
     void exportClipboardHistory() {
+        authenticateClipboard("导出", this::exportClipboardHistoryAfterAuthentication);
+    }
+
+    private void exportClipboardHistoryAfterAuthentication() {
         if (clipboardExportBusy) return;
         clipboardExportBusy = true;
         Context application = getApplicationContext();
@@ -7669,6 +7703,10 @@ public final class MSIMEInputService extends InputMethodService {
      * 面板里「清空」确认之后执行。确认就画在面板里（{@link ImePanels#renderClipboardHistory}），不弹 `AlertDialog`：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起（#5605）。
      */
     void clearClipboardHistory() {
+        authenticateClipboard("清空", this::clearClipboardHistoryAfterAuthentication);
+    }
+
+    private void clearClipboardHistoryAfterAuthentication() {
         // 这是用户自己要求的清空，失败要说出来，不能吞掉。
         try {
             if (clipboardHistory != null) clipboardHistory.clear();

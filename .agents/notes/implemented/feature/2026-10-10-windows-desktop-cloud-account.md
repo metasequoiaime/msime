@@ -18,6 +18,10 @@ Windows 的设置应用（Tauri）已经能登录水杉账号，但账号之外�
 - 应用到本机：预览时先向 host-api 的持久队列（`snapshot_queue_json`，与鸿蒙经 `msime_client_snapshot_queue` 用的同一个队列）要本机词库版本，下载并校验快照，按账号代次登记预览。入列前确认账号没换、云端在预览之后没有新改动，然后把快照交给 Server 状态目录（HostOptions `user_data` 的上一级）下的 `dictionary-snapshots` 队列，随即处理：用 `QuiescedHosts` 经辅助管道请 Server 放开输入会话，直到词库能拿到独占锁，再让队列在本进程里准备并激活新的一代（暂存在同级的 `dictionary-snapshot-staging`，与词库同卷，激活靠改名），`QuiescedHosts` 离开作用域时交还会话。会话放不开、或激活没完成时，请求留在队列里（`queued` / `preparing`），面板轮询 `snapshot_status` 时再处理，两次之间至少隔 60 秒，避免一份总是激活不了的快照让输入每两秒断一次。
 - `snapshot_choose_restore`、`snapshot_restore_native`、`snapshot_restore_cancel` 是 macOS 由宿主选文件的那一套，Windows 返回 `snapshot_unavailable`。
 
+### 新增词条的服务路径
+
+共享 `client-core::cloud::dictionary::mutation_path(kind, "add")` 使用 `POST /v1/users/me/dictionaries/{kind}`，导入、导出保留各自的子路径。生产服务不提供 `/add` 子路径；Win7 线上验收复现该旧路径返回 405，按服务契约修正后返回 201。服务契约对照 `msime-cloud` 固定提交 `f5cb8ef25b4f893d6987dc470b9209a5b188fa44` 的 OpenAPI 和路由覆盖表，不复制相邻工作区的未提交代码。共享路径测试和账号客户端的真实本机 HTTP 测试同时约束方法、路径、鉴权与正文，不能只给任意路径返回成功的替身响应。
+
 ### 社区词包与回复模板
 
 浏览、详情、发布、导入云端词库、收藏、评分、删除自己的发布这七个命令从 `mobile_community.rs` 移到 `platform/community_resources.rs`，存储类型按目标选（移动端是 `MobileStorage`，Windows 是 `desktop_account::Storage`），状态 `CommunityResourceState` 由各平台建账号状态时登记。「添加到高情商回复键盘」的两个命令只有移动端有，留在 `mobile_community`：`CommunityResourceClient` 的 `storeReply` / `removeReply` 变成可选，宿主不给时详情页不显示这两个按钮，列表上的「添加」只收藏。Windows 的社区页没有皮肤画廊（候选窗口皮肤社区在主题页），`CommunityHomePage` 的 `skins` 变成可选，只有「词库」「回复模板」两个分类；入口是账号页「我的内容」里的词库、回复模板几行，`communityHasSkins={false}` 让「我发布的皮肤」不经社区页打开。macOS 的 Tauri 应用不接这些命令：macOS 由输入法自己的账号窗口提供词包与回复模板。
@@ -63,3 +67,5 @@ char *msime_client_account_access_token(const uint8_t *request, size_t length);
 - `apps/desktop/tests/core/desktop-host-services.test.ts`、`tests/input/mobile-host-capabilities.test.ts`、`tests/community/community-resources.test.tsx`、`tests/account/account-page.test.tsx` 锁住 Windows 客户端调用的命令、快照能力位、无皮肤画廊的社区首页、无回复键盘时的详情页和账号页入口。
 
 macOS 设置进程复用这条账号请求链路的边界见[macOS 云词库回退](../bug-fix/2026-10-18-macos-cloud-dictionary-account-fallback.md)。
+
+Win7 最终修复安装核心经生产服务复验新增、完整备份／恢复、严格读回和清空全部通过（`128-fixed-core-cloud-backup-restore`）；隔离合成账号通过显式 HTTP 代理访问 HTTPS 服务。测试不使用真实用户词条，也不覆盖普通账号交互登录。

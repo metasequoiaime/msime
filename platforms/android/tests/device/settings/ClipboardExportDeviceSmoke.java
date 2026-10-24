@@ -103,10 +103,13 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         if (Build.VERSION.SDK_INT < 29) {
             selectFolder(null);
             waitFor(() -> filesUnchecked().size() == 1, "first authorized export");
-            checkText(files().values().iterator().next());
+                Map<String, byte[]> exported = files();
+                check(exported.size() == 1, "first authorized export");
+                for (String name : exported.keySet()) checkName(name);
+                checkText(exported.values().iterator().next());
         } else {
             waitFor(() -> downloadsUnchecked().size() == 1, "default Download export");
-            for (byte[] bytes : downloads().values()) checkText(bytes);
+            for (var entry : downloads().entrySet()) { checkName(downloadName(entry.getKey())); checkText(entry.getValue()); }
             choose();
             selectFolder(null);
         }
@@ -122,7 +125,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         tap(text("导出"));
         waitFor(() -> filesUnchecked().size() == first.size() + 1, "direct export");
         Map<String, byte[]> second = files();
-        for (byte[] bytes : second.values()) checkText(bytes);
+        for (var entry : second.entrySet()) { checkName(entry.getKey()); checkText(entry.getValue()); }
         for (var entry : first.entrySet()) check(Arrays.equals(entry.getValue(), second.get(entry.getKey())), "old file retained");
         stage = "real keyboard panel export action";
         int beforeKeyboard = files().size();
@@ -137,7 +140,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
-        for (byte[] bytes : files().values()) checkText(bytes);
+        for (var entry : files().entrySet()) { checkName(entry.getKey()); checkText(entry.getValue()); }
         stage = "history page export action";
         activity = startActivitySync(new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
             .putExtra("msime_open_page", "CLIPBOARD_SEARCH").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
@@ -280,7 +283,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
                 new String[] {MediaStore.MediaColumns._ID}, MediaStore.MediaColumns.IS_PENDING
                     + " = 1 AND (" + MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? OR "
                     + MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?)",
-                new String[] {"msime-clipboard-%", "synthetic-export-probe-%"}, null)) {
+                new String[] {namePrefix() + "%", "msime-clipboard-%"}, null)) {
             if (cursor == null) return;
             while (cursor.moveToNext()) resolver.delete(android.content.ContentUris.withAppendedId(
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0)), null, null);
@@ -292,7 +295,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         if (Build.VERSION.SDK_INT < 29) return result;
         try (Cursor cursor = getTargetContext().getContentResolver().query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                 new String[] {MediaStore.MediaColumns._ID, MediaStore.MediaColumns.IS_PENDING},
-                MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?", new String[] {"msime-clipboard-%.txt"}, null)) {
+                MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?", new String[] {namePrefix() + "%.txt"}, null)) {
             check(cursor != null, "download listing");
             while (cursor.moveToNext()) {
                 check(cursor.getInt(1) == 0, "download published");
@@ -311,6 +314,13 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private boolean hasGrant() { return getTargetContext().getContentResolver().getPersistedUriPermissions().stream().anyMatch(
         grant -> grant.getUri().toString().equals(ROOT) && grant.isReadPermission() && grant.isWritePermission()); }
     private static Uri document(String tree, String id) { return DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree), id); }
+    private String downloadName(Uri uri) throws Exception {
+        try (Cursor cursor = getTargetContext().getContentResolver().query(uri,
+                new String[] {MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+            check(cursor != null && cursor.moveToFirst(), "download name");
+            return cursor.getString(0);
+        }
+    }
     private Path state(String part) { return getTargetContext().getCacheDir().toPath().resolve("clipboard-export-suite-" + part); }
     private Path history() { return getTargetContext().getFilesDir().toPath().resolve("MSIME/clipboard_history.json"); }
     private Path settingsFile() throws Exception { return (Path) settings.getMethod("file", Context.class).invoke(null, getTargetContext()); }
@@ -357,6 +367,33 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         String text = new String(bytes, StandardCharsets.UTF_8);
         check(text.contains("共 2 条") && text.contains("1 · 已置顶 ==========\n" + LONG + "\n")
             && text.contains("2 ==========\n合成新记录\n"), "complete Unicode snapshot and order");
+    }
+
+    private String namePrefix() {
+        String app = safeNamePart(getTargetContext().getApplicationInfo().loadLabel(
+            getTargetContext().getPackageManager()).toString(), "msime");
+        String version;
+        try { version = getTargetContext().getPackageManager()
+            .getPackageInfo(getTargetContext().getPackageName(), 0).versionName; }
+        catch (Exception missing) { version = "0"; }
+        return safeNamePart(app, "msime") + "-" + safeNamePart(version, "0") + "-";
+    }
+
+    private String safeNamePart(String value, String fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        StringBuilder name = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            boolean unsafe = character < 0x20 || "/\\:*?\"<>|".indexOf(character) >= 0
+                || Character.isWhitespace(character);
+            name.append(unsafe ? '_' : character);
+        }
+        return name.toString();
+    }
+
+    private void checkName(String name) {
+        check(name.matches(java.util.regex.Pattern.quote(namePrefix()) + "\\d{8}-\\d{4}\\.txt"),
+            "clipboard export uses the shared app-version timestamp name: " + name);
     }
 
     private void selectFolder(String child) throws Exception {

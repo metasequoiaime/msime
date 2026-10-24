@@ -6,18 +6,17 @@ import type {
   AccountClient,
   AccountCommunityDestination,
 } from "./account-model";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import type { Preferences } from "../core/preferences-model";
 import { ActionButton } from "../core/action-button";
 import { errorCode } from "../core/error-code";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import type { AppThemeClient } from "../core/host-contracts";
-import { GroupList, NavGroup, NavRow, Row } from "../core/platform-controls";
+import { GroupList, NavRow, Row } from "../core/platform-controls";
 import { useToast } from "../core/toast";
 import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { privacyUrl } from "../settings/app-resources";
 import type { SettingsPageId } from "../settings/settings-page-registry";
-import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { AccountAvatar } from "./account-avatar";
 import { accountMessage, isAccountCancellation } from "./account-errors";
@@ -46,6 +45,7 @@ import { useAccountRename } from "./use-account-rename";
 import { useAccountGoogleLogin } from "./use-account-google-login";
 import { useAccountVerification, type AccountChannel } from "./use-account-verification";
 import { useMobileSettingsSubview } from "../settings/use-mobile-settings-subview";
+import { AccountMeGroup, AccountMeRow, AccountMeSupportGroup } from "./account-me-components";
 
 export type {
   AccountUser,
@@ -73,63 +73,6 @@ function accountSubpageOf(state: unknown): AccountSubpage | null {
       ? (state as { accountSubpage?: unknown }).accountSubpage
       : null;
   return value === "profile" || value === "download" ? value : null;
-}
-
-/** 鸿蒙手机「我的」页上的一组：可选的 14px 标题，下面是一张装着若干 `NavRow` 的无边框卡片。 */
-function MeGroup({ title, children }: { title?: string; children: ReactNode }) {
-  const titleId = useId();
-  return (
-    <section className={account.meGroup} aria-labelledby={title ? titleId : undefined}>
-      {title && (
-        <h3 id={titleId} className={account.meGroupTitle}>
-          {title}
-        </h3>
-      )}
-      <NavGroup>{children}</NavGroup>
-    </section>
-  );
-}
-
-/** One row of a 我的 group on a touch host: it opens a page, a panel or a link. */
-function MeRow({
-  title,
-  disabled,
-  onClick,
-}: {
-  title: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className={doc.linkRow} disabled={disabled} onClick={onClick}>
-      <span className={doc.linkTitle}>{title}</span>
-      <span aria-hidden="true">›</span>
-    </button>
-  );
-}
-
-/** The last, untitled group of 我的 on a touch host (dc.html `meGroups`): the walkthrough again, 帮助与反馈 and 关于. It does not depend on the account, so a host without one still reaches them. */
-function MeSupportGroup({
-  disabled,
-  onReplayOnboarding,
-  onOpenFeedback,
-  onOpenAbout,
-}: {
-  disabled?: boolean;
-  onReplayOnboarding?: () => void;
-  onOpenFeedback?: () => void;
-  onOpenAbout?: () => void;
-}) {
-  if (!onReplayOnboarding && !onOpenFeedback && !onOpenAbout) return null;
-  return (
-    <GroupList>
-      {onReplayOnboarding && (
-        <MeRow title="新手引导" disabled={disabled} onClick={onReplayOnboarding} />
-      )}
-      {onOpenFeedback && <MeRow title="帮助与反馈" disabled={disabled} onClick={onOpenFeedback} />}
-      {onOpenAbout && <MeRow title="关于" disabled={disabled} onClick={onOpenAbout} />}
-    </GroupList>
-  );
 }
 
 export function AccountPage({
@@ -181,7 +124,7 @@ export function AccountPage({
             platform={platform === "harmony" ? undefined : platform}
           />
         )}
-        <MeSupportGroup
+        <AccountMeSupportGroup
           onReplayOnboarding={onReplayOnboarding}
           onOpenFeedback={onOpenFeedback}
           onOpenAbout={onOpenAbout}
@@ -648,7 +591,7 @@ function AccountDetailsPage({
         {/* 「绑定 QQ 群助手」：/bind 拿到的码多半就在这台手机的 QQ 里。 */}
         {user && client.qqLinks && <QqLinkCard client={client.qqLinks} userId={user.id} />}
         {(appTheme || onOpenPage || onOpenUrl) && (
-          <MeGroup title="通用">
+          <AccountMeGroup title="通用">
             {appTheme && <AppThemeRow client={appTheme} disabled={busy} />}
             {(onOpenPage || onOpenUrl) && (
               <NavRow
@@ -661,10 +604,10 @@ function AccountDetailsPage({
                 onClick={() => (onOpenPage ? onOpenPage("privacy") : onOpenUrl?.(privacyUrl))}
               />
             )}
-          </MeGroup>
+          </AccountMeGroup>
         )}
         {(openDownload || onOpenFeedback || onOpenAbout || onReplayOnboarding) && (
-          <MeGroup>
+          <AccountMeGroup>
             {openDownload && (
               <NavRow
                 variant="me"
@@ -703,7 +646,7 @@ function AccountDetailsPage({
                 onClick={onReplayOnboarding}
               />
             )}
-          </MeGroup>
+          </AccountMeGroup>
         )}
         {loginShown && (
           <LoginSheet
@@ -989,7 +932,7 @@ function AccountDetailsPage({
       {/* 桌面的云词库入口只在「词库」页：那里不登录也看得到，这里不再放第二个。macOS 不在设置里打开云剪贴板（要输入法提供输入会话），这一组在 macOS 上因此整组不出现。 */}
       {user && !mobile && onOpenCloudClipboard && (
         <GroupList title="云端">
-          <MeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
+          <AccountMeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
         </GroupList>
       )}
       {!mobile && (onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity))) && (
@@ -1005,26 +948,26 @@ function AccountDetailsPage({
             </Row>
           )}
           {user && openPublishedSkins && (
-            <MeRow title="我发布的皮肤" disabled={busy} onClick={openPublishedSkins} />
+            <AccountMeRow title="我发布的皮肤" disabled={busy} onClick={openPublishedSkins} />
           )}
           {user && onOpenCommunity && (
             <>
-              <MeRow
+              <AccountMeRow
                 title="我发布的词库"
                 disabled={busy}
                 onClick={() => onOpenCommunity("published-dictionary")}
               />
-              <MeRow
+              <AccountMeRow
                 title="我发布的回复模板"
                 disabled={busy}
                 onClick={() => onOpenCommunity("published-reply")}
               />
-              <MeRow
+              <AccountMeRow
                 title="收藏的词库"
                 disabled={busy}
                 onClick={() => onOpenCommunity("saved-dictionary")}
               />
-              <MeRow
+              <AccountMeRow
                 title="收藏的回复模板"
                 disabled={busy}
                 onClick={() => onOpenCommunity("saved-reply")}
@@ -1083,13 +1026,17 @@ function AccountDetailsPage({
           {((user && (onOpenCloudClipboard || onOpenCloudDictionary)) || onOpenDesktopDownload) && (
             <GroupList title="工具">
               {user && onOpenCloudClipboard && (
-                <MeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
+                <AccountMeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
               )}
               {user && onOpenCloudDictionary && (
-                <MeRow title="云词库" disabled={busy} onClick={onOpenCloudDictionary} />
+                <AccountMeRow title="云词库" disabled={busy} onClick={onOpenCloudDictionary} />
               )}
               {onOpenDesktopDownload && (
-                <MeRow title="其他平台下载" disabled={busy} onClick={onOpenDesktopDownload} />
+                <AccountMeRow
+                  title="其他平台下载"
+                  disabled={busy}
+                  onClick={onOpenDesktopDownload}
+                />
               )}
             </GroupList>
           )}
@@ -1101,29 +1048,29 @@ function AccountDetailsPage({
           {(onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity))) && (
             <GroupList title="我的内容">
               {onOpenLocalDesigns && (
-                <MeRow title="我的设计" disabled={busy} onClick={onOpenLocalDesigns} />
+                <AccountMeRow title="我的设计" disabled={busy} onClick={onOpenLocalDesigns} />
               )}
               {user && openPublishedSkins && (
-                <MeRow title="我发布的皮肤" disabled={busy} onClick={openPublishedSkins} />
+                <AccountMeRow title="我发布的皮肤" disabled={busy} onClick={openPublishedSkins} />
               )}
               {user && onOpenCommunity && (
                 <>
-                  <MeRow
+                  <AccountMeRow
                     title="我发布的词库"
                     disabled={busy}
                     onClick={() => onOpenCommunity("published-dictionary")}
                   />
-                  <MeRow
+                  <AccountMeRow
                     title="我发布的回复模板"
                     disabled={busy}
                     onClick={() => onOpenCommunity("published-reply")}
                   />
-                  <MeRow
+                  <AccountMeRow
                     title="收藏的词库"
                     disabled={busy}
                     onClick={() => onOpenCommunity("saved-dictionary")}
                   />
-                  <MeRow
+                  <AccountMeRow
                     title="收藏的回复模板"
                     disabled={busy}
                     onClick={() => onOpenCommunity("saved-reply")}
@@ -1132,7 +1079,7 @@ function AccountDetailsPage({
               )}
             </GroupList>
           )}
-          <MeSupportGroup
+          <AccountMeSupportGroup
             disabled={busy}
             onReplayOnboarding={onReplayOnboarding}
             onOpenFeedback={onOpenFeedback}
@@ -1142,12 +1089,12 @@ function AccountDetailsPage({
       )}
       {!mobile && (onOpenAbout || onOpenDesktopDownload || onReplayOnboarding) && (
         <GroupList title="关于">
-          {onOpenAbout && <MeRow title="关于水杉" disabled={busy} onClick={onOpenAbout} />}
+          {onOpenAbout && <AccountMeRow title="关于水杉" disabled={busy} onClick={onOpenAbout} />}
           {onOpenDesktopDownload && (
-            <MeRow title="电脑版下载" disabled={busy} onClick={onOpenDesktopDownload} />
+            <AccountMeRow title="电脑版下载" disabled={busy} onClick={onOpenDesktopDownload} />
           )}
           {onReplayOnboarding && (
-            <MeRow title="重新查看新手引导" disabled={busy} onClick={onReplayOnboarding} />
+            <AccountMeRow title="重新查看新手引导" disabled={busy} onClick={onReplayOnboarding} />
           )}
         </GroupList>
       )}

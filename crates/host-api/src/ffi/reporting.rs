@@ -6,7 +6,7 @@ use super::with_bounded_bytes;
 use crate::*;
 use msime_client_services::account::BackendAccountClient;
 use msime_client_services::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
-use msime_client_services::telemetry::{TelemetryApp, TelemetryStore};
+use msime_client_services::telemetry::{DiagnosedCrash, TelemetryApp, TelemetryStore};
 use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
 use std::time::SystemTime;
 
@@ -158,9 +158,21 @@ struct CrashRequest {
     /// begin 返回的 `session_id`。给了就写这个会话的记录，不看标记现在属于谁。
     #[serde(default)]
     session: Option<String>,
+    /// 系统事后报告的崩溃（iOS 的 MetricKit 诊断）所属的进程号：按它认领该进程未结束的会话，见 `TelemetryStore::record_diagnosed_crash`。
+    #[serde(default)]
+    pid: Option<u32>,
+    /// 系统事后报告的强制结束（SIGKILL），不属于任何会话：只报 `crash`，不报 `session_crash`。
+    #[serde(default)]
+    outside_session: bool,
 }
 
-/// 从可以分配内存的崩溃处理（如 C++ terminate handler）写会话的崩溃记录（`{directory, message, stack, session?}`）。带 `session` 时写这个会话的记录；不带时写标记里记着的会话的记录，而标记可能已属于同目录里别的进程。不加锁，不联网；记录在下次启动时成为 `crash` 事件。没有会话在运行或这个会话已有记录时值为 false。信号处理函数改为直接写 `msime_client_telemetry_begin` 返回的记录文件。
+/// 写会话的崩溃记录（`{directory, message, stack, session?, pid?, outside_session?}`），记录在下次启动时成为 `crash` 事件。三种用法互斥：
+///
+/// - 可以分配内存的崩溃处理（如 C++ terminate handler）：带 `session` 时写这个会话的记录；都不带时写标记里记着的会话的记录，而标记可能已属于同目录里别的进程。不加锁。没有会话在运行或这个会话已有记录时值为 false。信号处理函数改为直接写 `msime_client_telemetry_begin` 返回的记录文件。
+/// - 系统事后报告的崩溃带 `pid`：写成该进程未结束会话的记录（下次启动时连同 `session_crash` 补报）；该进程这次崩溃已被它自己的处理程序记下时不写，值为 false；没有未结束的会话时写成单独的记录，只报 `crash`。
+/// - 系统事后报告的强制结束带 `outside_session: true`：总是写成单独的记录，只报 `crash`。
+///
+/// 后两种会加锁，不能在崩溃处理程序里调用。都不联网。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -172,9 +184,18 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
         // SAFETY: guaranteed by the documented caller contract.
         let request: CrashRequest = unsafe { document(request, length, MAX_CRASH_REQUEST_BYTES)? };
         let store = TelemetryStore::new(absolute_directory(&request.directory)?);
-        match request.session.as_deref() {
-            Some(session) => store.record_crash_for(session, &request.message, &request.stack),
-            None => store.record_crash(&request.message, &request.stack),
+        let (message, stack) = (&request.message, &request.stack);
+        match (
+            request.session.as_deref(),
+            request.pid,
+            request.outside_session,
+        ) {
+            (Some(session), None, false) => store.record_crash_for(session, message, stack),
+            (None, None, false) => store.record_crash(message, stack),
+            (None, pid, outside) if pid.is_some() != outside => store
+                .record_diagnosed_crash(pid, message, stack)
+                .map(|recorded| recorded != DiagnosedCrash::Duplicate),
+            _ => return Err("session, pid and outside_session are exclusive".to_owned()),
         }
         .map(Value::Bool)
         .map_err(|error| error.to_string())
