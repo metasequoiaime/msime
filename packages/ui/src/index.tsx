@@ -434,6 +434,7 @@ export {
   type TypingStatisticsStatus,
   type StatisticsOverviewMetric,
 } from "./settings/typing-statistics";
+export { StatisticsSection, type StatisticsSectionProps } from "./settings/statistics-section";
 export type {
   TypingStatisticsUploadClient,
   TypingStatisticsUploadStatus,
