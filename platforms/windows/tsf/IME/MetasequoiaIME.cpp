@@ -53,6 +53,13 @@ constexpr wchar_t SERVER_PATH_REGISTRY_VALUE[] = L"ServerPath";
 std::atomic<UINT> nextWindowMessageToken{0};
 std::atomic<bool> serverLaunchInFlight{false};
 
+// 诊断日志里拼「1」或「0」时，`L"x=" + (cond ? L"1" : L"0")` 两边都是指针，会变成指针加。
+// 统一走这个函数，返回 std::wstring，和左右两侧的 wstring 串接。
+inline std::wstring BoolFlag(bool value)
+{
+    return value ? L"1" : L"0";
+}
+
 bool IsServerAlreadyRunning()
 {
     HANDLE mutex = OpenMutexW(SYNCHRONIZE, FALSE, SERVER_MUTEX_NAME);
@@ -1121,16 +1128,33 @@ void CMetasequoiaIME::_CompleteLocalSessionReset(UINT resetToken)
     _queuedLocalResetToken = 0;
 
     const UINT currentToken = _localSessionResetToken.load(std::memory_order_acquire);
+    if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        QueueTsfDiagnosticLog(L"[msime][local-reset] complete stage=enter token=" + std::to_wstring(resetToken) +
+                              L" current=" + std::to_wstring(currentToken) + L" composing=" +
+                              BoolFlag(_IsComposing()) + L" presenter=" +
+                              BoolFlag(_pCandidateListUIPresenter != nullptr));
+    }
     if (_localSessionResetPending.load(std::memory_order_acquire) && currentToken != resetToken)
     {
         // A focus loss superseded an already-granted dirty reset.  The old
         // cancel has finished; process the exact newer token before reopening
         // the key path.
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(L"[msime][local-reset] complete stage=superseded token=" +
+                                  std::to_wstring(resetToken) + L" current=" + std::to_wstring(currentToken));
+        }
         _RequestLocalSessionReset(nullptr, currentToken);
         return;
     }
     if (currentToken == resetToken && !_IsComposing() && _pCandidateListUIPresenter == nullptr)
     {
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(L"[msime][local-reset] complete stage=cleared token=" +
+                                  std::to_wstring(resetToken));
+        }
         _localSessionResetPending.store(false, std::memory_order_release);
     }
     else if (currentToken == resetToken && _localSessionResetPending.load(std::memory_order_acquire))
@@ -1138,12 +1162,28 @@ void CMetasequoiaIME::_CompleteLocalSessionReset(UINT resetToken)
         // A granted edit session can still fail inside the key-state handler.
         // Do not reopen the transport while the old local composition or
         // presenter survives; retire this queue slot and retry the exact token.
+        // 组字或候选窗还活着就不清标志，这里重排重连定时器等下一次机会。日志把两边的阻留原因都记下来：
+        // 如果这一行反复出现而 stage=cleared 一直不出现，就是这条链路自锁了（#9519）。
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(L"[msime][local-reset] complete stage=blocked token=" +
+                                  std::to_wstring(resetToken) + L" composing=" +
+                                  BoolFlag(_IsComposing()) + L" presenter=" +
+                                  BoolFlag(_pCandidateListUIPresenter != nullptr) + L" connected=" +
+                                  BoolFlag(Global::g_connected));
+        }
         if (Global::g_connected && _msgWndHandle && IsWindow(_msgWndHandle))
         {
             _ipcReconnectDelayMs = CONNECT_NAMEDPIPE_RETRY_INTERVAL_MS;
             SetTimer(_msgWndHandle, TIMER_CONNECT_ALL_NAMEDPIPE, _ipcReconnectDelayMs, nullptr);
         }
         return;
+    }
+    if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        QueueTsfDiagnosticLog(L"[msime][local-reset] complete stage=drained token=" +
+                              std::to_wstring(resetToken) + L" connected=" +
+                              BoolFlag(Global::g_connected));
     }
     if (Global::g_connected && _msgWndHandle && IsWindow(_msgWndHandle))
     {
@@ -1165,10 +1205,25 @@ void CMetasequoiaIME::_RequestLocalSessionReset(_In_opt_ ITfContext *preferredCo
 
     if (_localResetEditSessionQueued)
     {
+        // 重置的取消编辑会话已经排过一次，等它回来之前不再排。日志留着这条，好看出是不是卡在这里。
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(L"[msime][local-reset] request-skipped stage=edit-session-queued token=" +
+                                  std::to_wstring(resetToken) + L" composing=" +
+                                  BoolFlag(_IsComposing()) + L" presenter=" +
+                                  BoolFlag(_pCandidateListUIPresenter != nullptr));
+        }
         return;
     }
 
     const bool needsCancel = _IsComposing() || _pCandidateListUIPresenter != nullptr;
+    if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        QueueTsfDiagnosticLog(L"[msime][local-reset] request stage=begin token=" + std::to_wstring(resetToken) +
+                              L" composing=" + BoolFlag(_IsComposing()) + L" presenter=" +
+                              BoolFlag(_pCandidateListUIPresenter != nullptr) + L" needs_cancel=" +
+                              BoolFlag(needsCancel));
+    }
     if (!needsCancel)
     {
         if (_localSessionResetToken.load(std::memory_order_acquire) == resetToken)
