@@ -42,8 +42,9 @@ Status: implemented
 
 ## Verification
 
+- #9483 代码提交 `07d7aa6ea0` 的完整 `bash scripts/verify-local.sh --quick`（`20261024-092526`）退出码为 0：契约、Rust workspace、Android 目标、Android Java/JNI 与共享 Apple 桥接检查通过，其他平台阶段按改动范围跳过。本机与远端 3015 份相关受控文件哈希一致；复制的只有已有 Rust/Android 缓存，受控源码只刷新时间戳，不改内容。笔记在本机单独校验。报告人的 API 30 实际设备尚未现场复验，继续保留 `Refs #9483`。
 - #9483 的 `english-swipe` 专项使用独立的 26 键期望表，真实注入 DOWN/MOVE/UP 检查上滑、下滑全部角标、D 取消不提交、关闭滑动后正常输入字母及符号后继续输入字母。配置和输入模式在结束时恢复；该专项接入普通 `smoke.sh`。在 API 28（`emulator-5566`）和 API 35（`emulator-5590`）上均通过。设备包重编本分支 Java 与资源，复用已存在的 arm64 原生库；结果证明 Android 宿主手势路径，不代表本分支 Rust 核心重新构建验收。
-- #9483 的 Android 宿主检查通过：258 项 JVM 冒烟、225 份设备源码编译、Java/API 与 JNI 检查通过；仓库契约、笔记、shell 语法与差异检查通过。契约检查中按环境跳过的阶段不算运行验证。本机约 17 GiB、远端两个卷均不足 30 GiB，低于 50 GB 门槛，未新建完整构建树。
+- #9483 的 Android 宿主检查通过：258 项 JVM 冒烟、225 份设备源码编译、Java/API 与 JNI 检查通过；仓库契约、笔记、shell 语法与差异检查通过。契约检查中按环境跳过的阶段不算运行验证。本机空间低于 50 GB 门槛，没有新建本机 Rust 构建树；完整门禁在远端复用已完成阶段的 APFS 缓存。
 - 推送到 PR 后的 Android host、Rust、契约、笔记、Windows/Linux/HarmonyOS、macOS 与 iOS CI 均通过；Android device job 按仓库规则跳过，因此仍不能替代 API 28/35 设备专项。
 - `platforms/android/tests/keyboard/LetterHintTableSmoke.java` 锁住 26 键的 `face(·, false)` 与 `hint()` 一致、`face(·, true)` 只换 j k l v b、`routesThroughEngine` 只对 ( ) " ? ! 为真；`check-host.sh` 自动发现并运行它。
 - `platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java` 注入按下、移动、抬起三个触屏事件下滑 v：中文标点下空闲得到「？」，打 nihao 后得到「你好？」，在「更多」面板关掉中文标点后得到 `?`。JVM 冒烟覆盖不到经 Engine 结束组字这一步，所以要在设备上驱动真实手势；它登记在 `smoke.sh` 的默认套件里，在 API 35 模拟器上运行。
