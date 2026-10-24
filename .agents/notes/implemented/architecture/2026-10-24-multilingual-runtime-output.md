@@ -71,11 +71,17 @@ Windows 原生套件初次加载了测试目录中的旧 DLL；同步本次 Host
 
 整合后的引擎多语言 34 项、Host API 两项、偏好四项和共享设置交互三项通过，引擎及 Host API 严格 clippy 通过。iOS 重新构建原生工程并在专用模拟器运行 `InputBridgeResponseTests` 八项，通过后关闭专用模拟器。Android 重编发布形态 APK，并在指定 API35 `emulator-5590` 再次通过应用 UID 的真实 IME 多语言专项，沿用上述候选及繁简切换断言，结束后恢复偏好及原 IME。
 
-Harmony 原生库、共享设置、依赖安装和核心资源 staging 完成后，`hvigorw assembleHap --no-daemon` 成功；核对最终 HAP 包含两个原生库、拼音数据库、设置 HTML、许可证及音效。该产物未签名、未做设备验收；此前未 staging 的构建不作为有效打包证据。
+Harmony 原生库、共享设置、依赖安装和核心资源 staging 完成后，`hvigorw assembleHap --no-daemon` 成功；核对最终 HAP 包含两个原生库、拼音数据库、设置 HTML、许可证及音效。该产物未签名、未做设备验收；此前未 staging 的构建不作为有效打包证据。 本地门禁需显式设置 `DEVECO_SDK_HOME` 与 DevEco 的 `JAVA_HOME`；保留仓库 Node 24 在 `PATH` 前部，用 `NODE_HOME=/Applications/DevEco-Studio.app/Contents/tools/node` 单独给 Hvigor 指定配套 Node 18。把 DevEco Node 放到全局 `PATH` 前面会让 pnpm 因最低 Node 版本失败。设置页与 HAP 在分离 Node 的环境中均已重新构建通过。
 
 Windows 同源 Host DLL、原生宿主、WinUI 设置及 Win7 设置编译通过。Win7 存储先重现缺省对象保存被拒绝（`invalid_change`），精确开放路径后保存成功并保留空列表；真实 HWND 与 Rust 存储的 `windows7-settings` 集成通过。韩文候选夹具原先把恰好 4096 字节误作溢出，现同时断言 4096 保留读音、4097 才舍弃。脚本注释夹具在 MSVC 下实际于首个 `is_array()` 断言失败，明确使用 `json::array` 后定向测试通过；没有更改产品候选策略来迎合夹具。
 
-最终 Windows 原生全套 267 项中 261 项通过，仍失败：`windows-fullscreen-foreground`、`windows-gloss-column-keys`、`windows-clipboard-history`、`windows-server`、`windows-reply-composer` 和 `msimeui-tests`。不得在未定位前将这些归为环境差异或多语言回归；严格 clippy 的既有剪贴板签名失败也继续保留。快照在执行前后核对 514 个源码路径，Win7 与两处夹具修补另有定向原生验证。独立宿主复审确认 Win7 漏接已补齐，未知字段经 Win7 UI 保存的直接回归仍为覆盖限制。
+SSH Session 0 中的 Windows 原生全套 267 项中 261 项通过，初步失败：`windows-fullscreen-foreground`、`windows-gloss-column-keys`、`windows-clipboard-history`、`windows-server`、`windows-reply-composer` 和 `msimeui-tests`。严格 clippy 的既有剪贴板签名失败继续保留。该轮快照在执行前后核对 514 个源码路径，Win7 与两处夹具修补另有定向原生验证。独立宿主复审确认 Win7 漏接已补齐，未知字段经 Win7 UI 保存的直接回归仍为覆盖限制。
+
+### Windows 原生失败定位
+
+同一批 `windows-fullscreen-foreground`、`windows-server` 和 `msimeui-tests` 可执行程序，从 SSH 的 Session 0 改为临时任务调度器的交互令牌，在已登录的 Session 3 运行后全部通过；任务结束即移除。前者的诊断矩形确实铺满显示器，但 Session 0 的 `IsWindowVisible` 为假。此证据只说明这些用例依赖可用桌面，不能代替 TIP 在编辑器中的多语言验收，也不通过改产品可见性判定来掩盖失败。
+
+其余三项由实际失败分支定位到旧夹具假设：释义列高亮的是无释义云占位，夹具显式关闭云候选并断言首项合成词及释义；Home/End 旧用例把 Unicode `U` 当作无候选，但它实际生成原文回退行，直接改成回退断言仍在后续 no-op 断言失败，因此改为无词库、关闭云占位的普通全拼 `zz`，保留真正空候选分支及原有逐键视图不变断言；剪贴板最大容量用例显式选择 1000 条，仍检查默认 50 条，并按已有安全契约拒绝清除不可信叶重解析点，保留链接与外部目标内容。后两例补异常行号输出，免得原生异常退出丢失定位信息。三个完整用例在 Windows 定向复跑全部通过，不修改产品路由、容量默认值或文件访问边界。随后校验 517 个源码路径，恢复正式无诊断的全屏测试并重编，在交互桌面 Session 3 运行全部原生套件，267/267 项通过（40.05 秒）；执行后源码散列仍一致，临时计划任务已移除。
 
 ## Consequences
 
