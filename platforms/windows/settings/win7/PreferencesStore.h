@@ -84,6 +84,7 @@ public:
            change.path == std::vector<std::string>{"plugins"} ||
            change.path == std::vector<std::string>{"cloud_clipboard_relay"} ||
            change.path == std::vector<std::string>{"game_compatibility"} ||
+           change.path == std::vector<std::string>{"multilingual_input"} ||
            change.path == std::vector<std::string>{"wubi_candidate_selection"});
       // 插件默认组会被共享序列化省略；只允许页面已知字段补齐其路径。
       const bool optional_plugin = plugin_field(change);

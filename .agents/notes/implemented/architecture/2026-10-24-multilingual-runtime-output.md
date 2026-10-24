@@ -26,6 +26,12 @@ Runtime 只在来源、编码、当前输入、完整词面和连续范围全部
 
 语言集合变更等待空闲重建，繁简投影即时更新 Runtime，不结束组字。Windows 快捷键和 macOS 外观通知通过附加 C ABI `msime_client_set_multilingual_output` 同步投影，后续明确偏好更新替换这个临时值；该接口不写文档，变体取最新共享偏好。iOS 与 Harmony 切换后读取新视图，避免重画旧的来源 18 字符串。
 
+## Windows 7 设置
+
+Win7 原生设置沿用同一总开关、语言集合及普通全拼版本门槛；候选混输或连续多语言关闭时，语言控件禁用但选择保留。日文入口按产品版本隐藏时仍保留已有选择。只补缺省字段，显式空列表保持为空。`PreferencesStore` 精准允许缺省的 `multilingual_input` 根对象首次创建，整对象原子保存仍交由共享 Rust 校验与持久化，不开放任意缺失路径。
+
+大型窗口翻译单元在 MSVC Debug 编译中实际触发 `C1128`；仅窗口静态库增加 `/bigobj`，避免为本次入口拆分窗口所有权。原生 HWND 和真实 Rust 存储集成验证在 Windows 11 上运行，不代替 Win7 SP1 设备验收。
+
 ## Existing note audit
 
 - [统一输入提案](../../proposed/feature/2026-10-24-unified-language-composition.md)：部分重叠，产品偏好、资源门控和六宿主输出接线落在本篇；四套设置与产品验收仍归提案。
@@ -57,8 +63,20 @@ Windows 的引擎、Runtime、client-core 和 script-runtime 全部 target 严�
 
 Windows 原生套件初次加载了测试目录中的旧 DLL；同步本次 Host API DLL 并校验 SHA-256 后，261 项中 251 项通过，另十项失败仍待主线集成后核对，不能记为全套通过。Windows 严格 clippy 仍被既有剪贴板 `Result<_, ()>` 签名拦截。Harmony 文本契约同时检查三处候选展示传来源、来源 18 跳过整行转换和提交上下文边界，不能只把原签名检查删除；共享偏好字段检查要求类型别名，因此设置类型沿用 `export type`。
 
-最新 Harmony 原生库、共享设置 rawfile 和 `assembleHap` 均构建通过。Android 专用 API35 `emulator-5590` 安装原生发布形态 APK 后，应用 UID 的 `MultilingualInputDeviceSmoke` 通过：共享偏好开启三语、真实 IME 输入 `hellowangluogakkou` 得到 `hello网络学校`，组字期间用既有 `Ctrl+Shift+F` 切换后显示并上屏 `hello網絡学校`，日文「学校」未被整行转换。首次设备用例试图在组字时寻找隐藏的工具栏，改用可在组字中工作的快捷键；不为测试改变产品工具栏策略。测试结束恢复偏好文档和原输入法。APK SHA-256 为 `c4d0c2b86d1b652894bb2712172031f946dc8e26f35122075c57bd9499ebe99e`；此结论只覆盖 API35 专用模拟器，未扩写为 API28 或真机验收。
+最新 Harmony 原生库、共享设置 rawfile 和 `assembleHap` 均构建通过。Android 专用 API35 `emulator-5590` 安装原生发布形态 APK 后，应用 UID 的 `MultilingualInputDeviceSmoke` 通过：共享偏好开启三语、真实 IME 输入 `hellowangluogakkou` 得到 `hello网络学校`，组字期间用既有 `Ctrl+Shift+F` 切换后显示并上屏 `hello網絡学校`，日文「学校」未被整行转换。首次设备用例试图在组字时寻找隐藏的工具栏，改用可在组字中工作的快捷键；不为测试改变产品工具栏策略。测试结束恢复偏好文档和原输入法。与固定 develop 整合后的 APK SHA-256 为 `494ce1fb2f32e88c06687745d6afc98d447695d031051964fd8f3801dbb2b26c`；此结论只覆盖 API35 专用模拟器，未扩写为 API28 或真机验收。
+
+### 固定 develop 整合验证
+
+功能整合固定 develop `54d8a185c55323984f0a3fe1397c435b9382e2d0`，保留双方偏好回归。完整 `scripts/verify-local.sh --quick` 退出 0：portable Windows 179 项、Linux 原生 111 项通过，Rust 工作区、Android Rust/Java、WASM、Linux 桌面外壳、macOS 原生及 Apple bridge 编译通过。此前 Linux 聚焦提示断言在本轮通过，尚未查明此前失败原因，未修改测试或宣称修复时序问题。本机 Windows 原生阶段因无 MinGW 配置跳过，Harmony 资源当时未 staging，分别用以下原生构建补充。
+
+整合后的引擎多语言 34 项、Host API 两项、偏好四项和共享设置交互三项通过，引擎及 Host API 严格 clippy 通过。iOS 重新构建原生工程并在专用模拟器运行 `InputBridgeResponseTests` 八项，通过后关闭专用模拟器。Android 重编发布形态 APK，并在指定 API35 `emulator-5590` 再次通过应用 UID 的真实 IME 多语言专项，沿用上述候选及繁简切换断言，结束后恢复偏好及原 IME。
+
+Harmony 原生库、共享设置、依赖安装和核心资源 staging 完成后，`hvigorw assembleHap --no-daemon` 成功；核对最终 HAP 包含两个原生库、拼音数据库、设置 HTML、许可证及音效。该产物未签名、未做设备验收；此前未 staging 的构建不作为有效打包证据。
+
+Windows 同源 Host DLL、原生宿主、WinUI 设置及 Win7 设置编译通过。Win7 存储先重现缺省对象保存被拒绝（`invalid_change`），精确开放路径后保存成功并保留空列表；真实 HWND 与 Rust 存储的 `windows7-settings` 集成通过。韩文候选夹具原先把恰好 4096 字节误作溢出，现同时断言 4096 保留读音、4097 才舍弃。脚本注释夹具在 MSVC 下实际于首个 `is_array()` 断言失败，明确使用 `json::array` 后定向测试通过；没有更改产品候选策略来迎合夹具。
+
+最终 Windows 原生全套 267 项中 261 项通过，仍失败：`windows-fullscreen-foreground`、`windows-gloss-column-keys`、`windows-clipboard-history`、`windows-server`、`windows-reply-composer` 和 `msimeui-tests`。不得在未定位前将这些归为环境差异或多语言回归；严格 clippy 的既有剪贴板签名失败也继续保留。快照在执行前后核对 514 个源码路径，Win7 与两处夹具修补另有定向原生验证。独立宿主复审确认 Win7 漏接已补齐，未知字段经 Win7 UI 保存的直接回归仍为覆盖限制。
 
 ## Consequences
 
-Host API 已注入所选语言并按普通全拼能力、至少两种可用语言和日文模型路径门控；六宿主沿相同来源及上屏标记消费输出。共享 React 和 Windows、Android、iOS 原生设置提供默认关闭的总开关及语言集合，关闭保留选择，显式空列表不恢复为默认三语。iOS 活着的键盘会话重载列表包含 `multilingual_input`。后台日文准备不阻塞连续输入的契约见[词库适配笔记](2026-10-24-multilingual-dictionary-adapter.md)。不能把内部逐段回归或交叉编译通过写成 #8921 全平台真实系统入口已验收。
+Host API 已注入所选语言并按普通全拼能力、至少两种可用语言和日文模型路径门控；六宿主沿相同来源及上屏标记消费输出。共享 React 和 Windows（WinUI 与 Win7）、Android、iOS 原生设置提供默认关闭的总开关及语言集合，关闭保留选择，显式空列表不恢复为默认三语。iOS 活着的键盘会话重载列表包含 `multilingual_input`。后台日文准备不阻塞连续输入的契约见[词库适配笔记](2026-10-24-multilingual-dictionary-adapter.md)。不能把内部逐段回归或交叉编译通过写成 #8921 全平台真实系统入口已验收。

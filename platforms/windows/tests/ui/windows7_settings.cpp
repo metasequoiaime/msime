@@ -1,5 +1,6 @@
 #include "../../settings/win7/SettingsWindow.h"
 #include "../../settings/win7/PreferencesStore.h"
+#include "../../settings/win7/SchemeForm.h"
 #include "../../settings/win7/ThemeData.h"
 #include "../../settings/win7/CommunitySkinData.h"
 #include "../../settings/win7/ControlText.h"
@@ -105,6 +106,14 @@ int main() {
   assert(loaded.outcome == Outcome::loaded && loaded.snapshot);
   // Rust 按状态目录的版本记录选默认值，必须与原生编译期产品身份一致。
   assert(loaded.snapshot->preferences().at("scheme") == MSIME_EDITION_DEFAULT_SCHEME);
+  // 默认省略的连续多语言对象可原子保存，显式空列表不会恢复为默认语言。
+  auto multilingual = store.save(*loaded.snapshot, {{{"multilingual_input"},
+      Json{{"enabled", true}, {"languages", Json::array()}}}});
+  assert(multilingual.outcome == Outcome::saved && multilingual.snapshot);
+  assert(multilingual.snapshot->preferences().at("multilingual_input").at("languages").empty());
+  loaded = store.save(*multilingual.snapshot, {{{"multilingual_input"},
+      Json{{"enabled", false}, {"languages", {"chinese", "english", "japanese"}}}}});
+  assert(loaded.outcome == Outcome::saved && loaded.snapshot);
   auto tokens = loaded.snapshot->preferences().at("ai_assistant").at("tokens");
   tokens["https://compat.example.invalid"] = "synthetic-token-not-a-real-credential";
   auto seeded = store.save(*loaded.snapshot, {
@@ -637,6 +646,37 @@ int main() {
   assert(saved.snapshot->preferences().at("mixed_input").at("minimum_prefix") == before_mixed.at("minimum_prefix"));
   assert((IsWindowEnabled(GetDlgItem(body, mixed_english)) != FALSE) == !was_mixed);
   if (was_mixed) click(mixed_enabled);
+  if (SchemeForm::offers("quanpin")) {
+    assert(GetDlgItem(body, multilingual_enabled));
+    assert(SendMessageW(GetDlgItem(body, multilingual_enabled), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+    assert(!IsWindowEnabled(GetDlgItem(body, multilingual_chinese)));
+    click(multilingual_enabled);
+    assert(IsWindowEnabled(GetDlgItem(body, multilingual_chinese)));
+    click(multilingual_chinese);
+    click(multilingual_english);
+#if MSIME_EDITION_TEMPORARY_JAPANESE
+    assert(GetDlgItem(body, multilingual_japanese));
+    click(multilingual_japanese);
+    assert(store.load().snapshot->preferences().at("multilingual_input").at("languages").empty());
+#else
+    assert(!GetDlgItem(body, multilingual_japanese));
+    assert(store.load().snapshot->preferences().at("multilingual_input").at("languages") == Json::array({"japanese"}));
+#endif
+    const auto selection = store.load().snapshot->preferences().at("multilingual_input").at("languages");
+    click(multilingual_enabled);
+    assert(!IsWindowEnabled(GetDlgItem(body, multilingual_english)));
+    click(multilingual_enabled);
+    assert(store.load().snapshot->preferences().at("multilingual_input").at("languages") == selection);
+    assert(SendMessageW(GetDlgItem(body, multilingual_chinese), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+    click(multilingual_english);
+    click(mixed_enabled);
+    assert(!IsWindowEnabled(GetDlgItem(body, multilingual_english)));
+    click(mixed_enabled);
+    assert(IsWindowEnabled(GetDlgItem(body, multilingual_english)));
+    click(multilingual_enabled);
+  } else {
+    assert(!GetDlgItem(body, multilingual_enabled));
+  }
   select_value(mixed_first_page_count, 2);
   assert(store.load().snapshot->preferences().at("mixed_input").at("first_page_count") == 3);
   select_value(mixed_first_page_count, 0);
