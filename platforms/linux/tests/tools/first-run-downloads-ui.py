@@ -42,7 +42,7 @@ def wait_for(callback, seconds=45):
             result = callback()
             if result:
                 return result
-        except (OSError, RuntimeError, KeyError) as error:
+        except (OSError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
             last = error
         time.sleep(0.25)
     raise AssertionError(f"等待界面超时：{last}")
@@ -117,6 +117,11 @@ try:
     print("首次配置清单显示、系统剪贴板、收起重开及只读目录断言全部通过")
 finally:
     if session:
+        try:
+            screenshot("last-state.png")
+            (evidence / "last-state.txt").write_text(body())
+        except Exception:
+            pass
         try:
             request("DELETE", "/session/" + session)
         except Exception:

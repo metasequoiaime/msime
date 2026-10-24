@@ -60,7 +60,7 @@ jobs:
           export MSIME_CLIENT_HOST_OPTIONS="$XDG_CONFIG_HOME/msime-client/runtime-options.json"
           export MSIME_DOWNLOAD_MIRROR='https://mirror.example.invalid/'
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x1024x24' \
+          xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- \
             python3 platforms/linux/tests/tools/first-run-downloads-ui.py \
             target/linux-build-gate/stage/usr target/linux-build-gate/ui-evidence
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
