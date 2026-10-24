@@ -6,8 +6,8 @@ import { useTimeout } from "../core/use-timeout";
 import { logo } from "../settings/app-resources";
 
 export interface MacosInstallClient {
-  /** Copies the input method into `~/Library/Input Methods` and registers it; resolves with the result once both have finished. */
-  install: () => Promise<InputSourceStartupStatus>;
+  /** 按用户明确选择的范围安装输入法并登记；系统范围由宿主请求管理员授权。 */
+  install: (scope: "user" | "system") => Promise<InputSourceStartupStatus>;
 }
 
 /**
@@ -31,6 +31,7 @@ type Phase = "ready" | "installing" | "done";
 /** `login_required` 不说「安装完成」：这次登录里系统设置的「添加」对话框列不出它，用户看到「完成」会直接去系统设置找，找不到就以为没装上。 */
 function resultTitle(status: InputSourceStartupStatus): string {
   if (status.action === "failed") return "安装没有完成";
+  if (status.action === "cancelled") return "已取消安装";
   if (status.action === "login_required") return "还差一步：注销并重新登录";
   return "安装完成";
 }
@@ -38,6 +39,8 @@ function resultTitle(status: InputSourceStartupStatus): string {
 /** Adding the input source to the System Settings list is left to the settings page's status notice, which also covers a login that has to come first; this only points there. */
 function resultLead(status: InputSourceStartupStatus): string {
   if (status.action === "failed") return "没能把输入法安装到本机，可以再试一次。";
+  if (status.action === "cancelled")
+    return "已保留原有安装。准备好后可以重新选择安装范围再试一次。";
   if (status.action === "login_required")
     return "输入法已复制到本机，但 macOS 要到下次登录才会把新装的输入法列进系统设置。请先注销并重新登录，再按设置页的提示在系统设置里添加它。";
   if (status.enabled === true)
@@ -54,6 +57,7 @@ export function MacosInstallPage({
   onComplete: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("ready");
+  const [scope, setScope] = useState<"user" | "system">("user");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<InputSourceStartupStatus | null>(null);
   const outcome = useRef<InputSourceStartupStatus | null>(null);
@@ -86,7 +90,7 @@ export function MacosInstallPage({
     setProgress(0);
     setPhase("installing");
     void client
-      .install()
+      .install(scope)
       .catch((): InputSourceStartupStatus => ({
         action: "failed",
         enabled: null,
@@ -96,7 +100,7 @@ export function MacosInstallPage({
       .then((status) => {
         outcome.current = status;
       });
-  }, [client, phase]);
+  }, [client, phase, scope]);
 
   const percent = Math.floor(progress);
   return (
@@ -127,6 +131,16 @@ export function MacosInstallPage({
         <p className="mt-2 mb-0 text-[13px] text-secondary">适用于 macOS 13 及以上版本</p>
       )}
       <div className="mt-11 flex w-[260px] flex-col items-stretch">
+        {(phase === "ready" || result?.action === "failed" || result?.action === "cancelled") && (
+          <label className="mb-3 flex items-center gap-2 text-[12px] text-secondary">
+            <input
+              type="checkbox"
+              checked={scope === "system"}
+              onChange={(event) => setScope(event.target.checked ? "system" : "user")}
+            />
+            为所有用户安装（需要管理员权限）
+          </label>
+        )}
         {phase === "installing" ? (
           <div
             role="progressbar"
@@ -154,7 +168,7 @@ export function MacosInstallPage({
           </div>
         ) : phase === "ready" ? (
           <ActionButton action={install} className={primary} label="立即安装" />
-        ) : result?.action === "failed" ? (
+        ) : result?.action === "failed" || result?.action === "cancelled" ? (
           <ActionButton action={install} className={primary} label="重试" />
         ) : (
           <ActionButton action={onComplete} className={primary} label="进入设置" />

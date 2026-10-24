@@ -5,6 +5,8 @@ export interface InputModeHudSectionProps {
   onChange: (value: boolean) => void;
   /** 只有 Linux 提供聚焦提示；与切换提示各自保存，不互相禁用。 */
   focus?: { value?: boolean; onChange: (value: boolean) => void };
+  /** Linux 的角落附加提示开关，不影响光标旁提示。 */
+  corner?: { value?: boolean; onChange: (value: boolean) => void };
   /** Use the wording of the shortcut group, where macOS keeps this switch with the chords that trigger it. */
   shortcut?: boolean;
 }
@@ -14,6 +16,7 @@ export function InputModeHudSection({
   value,
   onChange,
   focus,
+  corner,
   shortcut = false,
 }: InputModeHudSectionProps) {
   const switchRow = shortcut ? (
@@ -34,6 +37,14 @@ export function InputModeHudSection({
   return (
     <>
       {switchRow}
+      {corner && (
+        <SwitchRow
+          title="屏幕角落模式提示"
+          description="开启“显示水杉图标”且徽章无法跟随光标时，在屏幕角落追加提示。关闭后仍保留光标旁提示。"
+          checked={corner.value ?? true}
+          onChange={corner.onChange}
+        />
+      )}
       {focus && (
         <SwitchRow
           title="聚焦输入框时提示"

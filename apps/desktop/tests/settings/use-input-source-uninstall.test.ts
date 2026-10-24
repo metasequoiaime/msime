@@ -43,3 +43,14 @@ test("keeps the confirmation open while System Settings still lists the input me
   expect(result.current.result).toBe("listed");
   expect(result.current.confirmation).toBe(true);
 });
+
+test("系统安装不能误报用户目录卸载成功，也不隐去手动移除提示", async () => {
+  const uninstallInputSource = vi.fn().mockRejectedValue({ code: "system_input_source" });
+  const { result } = renderHook(() => useInputSourceUninstall({ uninstallInputSource }));
+  act(() => result.current.requestUninstall());
+  await act(async () => {
+    await result.current.confirmUninstall();
+  });
+  expect(result.current.result).toBe("system");
+  expect(result.current.confirmation).toBe(true);
+});

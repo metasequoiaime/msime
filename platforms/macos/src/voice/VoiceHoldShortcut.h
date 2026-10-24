@@ -12,7 +12,7 @@ public:
     void reset() { *this = MSIMEVoiceHoldShortcut{}; }
     // Space during the hold locked the recording: releasing the hold no longer stops it.
     bool locked() const { return locked_; }
-    Result observe(NSEvent *event, Options options, bool recording) {
+    Result observe(NSEvent *event, Options options, bool recording, NSEventModifierFlags physicalModifierFlags = 0) {
         if (!recording) locked_ = false;
         const auto type = event.type;
         const auto key = event.keyCode;
@@ -31,6 +31,12 @@ public:
         if (type != NSEventTypeFlagsChanged) return {};
         const auto previous = flags_;
         flags_ = event.modifierFlags;
+        const auto optionSides = NX_DEVICELALTKEYMASK | NX_DEVICERALTKEYMASK;
+        // 只补本次变化的侧别，避免较晚的实体快照提前占用另一侧的按下沿。
+        if ((flags_ & NSEventModifierFlagOption) && !(flags_ & optionSides)) {
+            const auto changedSide = key == 61 ? NX_DEVICERALTKEYMASK : key == 58 ? NX_DEVICELALTKEYMASK : 0;
+            flags_ |= (previous & optionSides & ~changedSide) | (physicalModifierFlags & changedSide);
+        }
         bool consumed = false;
         if (suppressed_ == key && !down(key, flags_)) { consumed = true; suppressed_ = 0; }
         if (hold_ != Hold::None && !held()) {

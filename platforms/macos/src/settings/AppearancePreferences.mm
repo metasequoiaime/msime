@@ -25,6 +25,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
+#include "../../../../shared/candidate/CandidateChromeMetrics.h"
 #include "msime_client.h"
 #include "../core/VimMode.h"
 #include <sys/stat.h>
@@ -1171,6 +1172,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSMutableDictionary<NSString *, NSColorWell *> *_candidateColorWells;
     NSMutableDictionary<NSString *, NSButton *> *_candidateColorResets;
     NSNumber *_sharedPreeditFontSize;
+    NSNumber *_sharedTranslationFontSize;
     NSNumber *_sharedCandidateScale;
     NSNumber *_sharedCandidateOpacity;
     /// A radius in points, or NSNull for a document that follows the skin.
@@ -3036,6 +3038,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setInteger:value >= 12 && value <= 32 ? value : 15 forKey:PreeditFontKey];
     [self preferencesChanged];
 }
+- (NSUInteger)translationFontSize {
+    return _sharedTranslationFontSize ? _sharedTranslationFontSize.unsignedIntegerValue
+        : static_cast<NSUInteger>(msime::candidate::kCandidateTranslationPointSize);
+}
 - (NSInteger)candidateScalePercent {
     id value = _sharedCandidateScale ?: [_defaults objectForKey:CandidateScaleKey];
     return ValidCandidateScale(value) ? [value integerValue] : 100;
@@ -3290,6 +3296,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
     if (ValidCandidateStyleInteger(preeditFont, 12, 32)) _sharedPreeditFontSize = preeditFont;
+    id translationFont = preferences[@"candidate_translation_font_size"];
+    if (!translationFont || translationFont == NSNull.null) _sharedTranslationFontSize = nil;
+    else if (ValidCandidateStyleInteger(translationFont, 12, 32)) _sharedTranslationFontSize = translationFont;
     if ([@[@"pinyin", @"empty"] containsObject:preeditStyle]) _sharedCandidatePreedit = preeditStyle;
     // The shared serializer leaves out a style value at its default, so an omitted key always reads as 100% or as following the skin, on the first document too: these keys are newer than the shared document, so there is no native-only value to keep the way 候选窗英文字体 above does, and a stored value that outlived a reset elsewhere would otherwise draw and then be published back. A value outside the shared ranges is ignored rather than clamped.
     id scale = preferences[@"candidate_scale_percent"];

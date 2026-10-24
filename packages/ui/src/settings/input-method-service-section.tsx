@@ -1,3 +1,4 @@
+import { errorCode } from "../core/error-code";
 import { SettingsGroupNote } from "./settings-group-note";
 import { HostActionButton } from "../keyboard/HostActionButton";
 import { GroupList, Row } from "../core/platform-controls";
@@ -8,15 +9,17 @@ export interface InputMethodServiceSectionProps {
   linux: boolean;
   restartInputMethod?: () => Promise<void>;
   installInputSource?: () => Promise<void>;
+  onRepairFinished?: () => Promise<void>;
 }
 
-/** Restart and installation actions for desktop input method services. */
+/** 桌面输入法服务的修复与重启操作。 */
 export function InputMethodServiceSection({
   visible,
   macos,
   linux,
   restartInputMethod,
   installInputSource,
+  onRepairFinished,
 }: InputMethodServiceSectionProps) {
   if (!visible) return null;
 
@@ -24,16 +27,21 @@ export function InputMethodServiceSection({
   const repairInputSource =
     macos && installInputSource && restartInputMethod
       ? async () => {
-          let installFailed = false;
-          let installFailure: unknown;
           try {
-            await installInputSource();
-          } catch (error) {
-            installFailed = true;
-            installFailure = error;
+            let installFailed = false;
+            let installFailure: unknown;
+            try {
+              await installInputSource();
+            } catch (error) {
+              if (errorCode(error) === "cancelled") throw error;
+              installFailed = true;
+              installFailure = error;
+            }
+            await restartInputMethod();
+            if (installFailed) throw installFailure;
+          } finally {
+            await onRepairFinished?.();
           }
-          await restartInputMethod();
-          if (installFailed) throw installFailure;
         }
       : restartInputMethod;
 
@@ -41,7 +49,7 @@ export function InputMethodServiceSection({
     <GroupList title="输入法服务">
       <SettingsGroupNote>
         {macos
-          ? "输入源没装或比应用随附的旧时先装上随附的版本（已装的更新时保留不动），再重新注册并启用它；输入法从输入法菜单里消失或切换不过去时使用。当前输入法进程继续按系统生命周期运行。"
+          ? "输入源没装或比应用随附的旧时先装上随附的版本（已装的更新时保留不动），再重新注册并启用它；输入法从输入法菜单里消失或切换不过去时使用。系统目录安装会请求管理员权限；取消后可重试。当前输入法进程继续按系统生命周期运行。"
           : linux
             ? "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。"
             : "请求受监督的输入法服务重新启动。"}
@@ -51,6 +59,7 @@ export function InputMethodServiceSection({
           action={repairInputSource}
           label={macos ? "修复" : "重启"}
           success={macos ? "输入源已修复。" : linux ? "已请求重启输入法服务。" : "已发送重启请求。"}
+          cancelled="已取消管理员授权，输入源未完成修复。可以重新点击修复。"
           error={
             macos
               ? "修复输入源失败，请确认输入法已经安装后重试。"

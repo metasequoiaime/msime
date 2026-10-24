@@ -56,6 +56,11 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                 expanded.setAccessible(true);
                 Button staleButton = (Button) expanded.invoke(candidates,
                     old.getJSONArray("candidates").getJSONObject(0));
+                Method strip = candidates.getClass().getDeclaredMethod("stripCandidateButton",
+                    JSONObject.class, JSONObject.class, int.class);
+                strip.setAccessible(true);
+                Button staleStrip = (Button) strip.invoke(candidates, old,
+                    old.getJSONArray("candidates").getJSONObject(0), 0);
                 JSONObject current = value(character.invoke(null, session, (int) 'h', false)).getJSONObject("view");
                 check(current.getLong("generation") != id.getLong("generation"), "generation advanced");
                 field(type, "session").setLong(service, session);
@@ -90,6 +95,15 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                 staleButton.performClick();
                 check(field(type, "session").getLong(service) == session, "stale expanded button stopped session");
                 check(field(type, "view").get(service) == current, "stale expanded button changed view");
+                stage = "stale continuous strip preserves session";
+                staleStrip.performClick();
+                Method stripGloss = type.getDeclaredMethod("insertStripCandidateGloss", JSONObject.class,
+                    JSONObject.class, JSONObject.class, String.class, String.class);
+                stripGloss.setAccessible(true);
+                stripGloss.invoke(service, old, old.getJSONArray("candidates").getJSONObject(0),
+                    id, old.getJSONArray("candidates").getJSONObject(0).getString("text"), "synthetic gloss");
+                check(field(type, "session").getLong(service) == session, "stale strip stopped session");
+                check(field(type, "view").get(service) == current, "stale strip changed view");
                 stage = "stale spelling preserves session";
                 Object rows = field(type, "imeLayoutRows").get(service);
                 Method spelling = rows.getClass().getDeclaredMethod("chooseNineKeySpelling", long.class, long.class, int.class);

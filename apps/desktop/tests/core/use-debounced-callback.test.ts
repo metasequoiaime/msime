@@ -72,7 +72,7 @@ const debouncedConsumers = import.meta.glob<string>(
   [
     "../../../../packages/ui/src/settings/shuangpin-custom-editor.tsx",
     "../../../../packages/ui/src/core/use-settled-slider.ts",
-    "../../../../packages/ui/src/settings/harmony-phone-dictionary.tsx",
+    "../../../../packages/ui/src/dictionary/use-builtin-dictionary-entries.ts",
     "../../../../packages/ui/src/chat/chat-page.tsx",
   ],
   { eager: true, query: "?raw", import: "default" },

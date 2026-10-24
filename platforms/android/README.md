@@ -458,3 +458,16 @@ adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.
 adb -s emulator-5580 shell am instrument --no-restart -e magnifier true -w \
   app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke
 ```
+
+### 相对日期候选
+
+相对日期专项：先安装当前分支构建的原生完整版 APK、打开设置应用等待词库准备完成，在专用 AVD 上启用水杉输入法，再执行以下命令（API 28 同理）。测试通过真实全拼与九键按键输入「日期」及九个日期／年份触发词，展开候选并点击带触发词的结果，核对合成编辑器上屏且没有原拼写残留；结束恢复原偏好。专项复用现有 instrumentation 入口，下次普通构建恢复默认清单。
+
+```sh
+MSIME_ANDROID_RELATIVE_DATE=1 bash platforms/android/tests/device/build-editor.sh
+"$ANDROID_SDK_ROOT/platform-tools/adb" -s emulator-5580 install --no-incremental -r target/android/editor-test.apk
+"$ANDROID_SDK_ROOT/platform-tools/adb" -s emulator-5580 shell am instrument --no-restart -w \
+  app.msime.android.test/app.msime.android.test.RelativeDateDeviceSmoke
+```
+
+API 28 不支持 `--no-restart`，运行上述 instrumentation 时去掉该参数。测试跨午夜时应重跑。

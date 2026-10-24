@@ -119,7 +119,7 @@ public:
   // 卷轴展开（CandidateExpandPanel.h）打开或收起时通知 Server（SessionController::set_candidate_expansion）：打开后 Server 才去取这一代的完整候选列表，随快照的 CandidatePresentation::expanded 交回来。
   using Expansion = std::function<void(const FocusLease &, bool)>;
   void set_expansion_handler(Expansion handler) { expansion_ = std::move(handler); }
-  // 不阻塞地问一个焦点租约是否仍是当前焦点（SessionController::candidate_lease_current）。读快照读不到时，候选窗靠它分清只是没抢到锁还是焦点已经换走：换走了就不让退场继续画旧候选，和 macOS 隐私收起时 finishExit 一样立即消失。没设时按没抢到锁处理，退场照常播完。
+  // 不阻塞地确认焦点租约（SessionController::candidate_lease_current）。读快照争用时，仅保留已确认租约的可见帧或正常退场；焦点已换走或未设置检查时立即收起。
   using LeaseCheck = std::function<bool(const FocusLease &)>;
   void set_lease_check(LeaseCheck check) { lease_current_ = std::move(check); }
   // 和点「∨」一样打开卷轴展开，展开通知照常发出；这一帧没有画出按钮或已经展开时什么也不做。返回此刻是否展开着。Server 不调它，候选皮肤截图工具（tests/tools/candidate_skin_gallery）用它画展开状态。
@@ -184,7 +184,9 @@ private:
   void finish_skin_animation();
   void hide_now();
   void hide_immediately();
-  // 读到的快照不可见时按原因收起：组字正常结束（CandidatePresentation::composition_ended）走 hide()、可以播退场，其余（失焦、UILess、断开、换了租约，或根本读不到快照）立即收起；读不到快照时已经在播的退场只在退场那一帧的租约仍是当前焦点时播完（exit_lease_lost）。
+  // 读空时仅沿用仍属当前焦点的可见帧；明确隐藏的快照不被旧帧覆盖，正常退场交给 hide_for 和 paint 延续。
+  std::optional<CandidatePresentation> read_presentation() const;
+  // 组字正常结束时可以退场，其余明确隐藏立即收起；读空只延续租约已确认的现有退场。
   void hide_for(const std::optional<CandidatePresentation> &value);
   // 正在播的退场所画的那一帧，它的焦点租约已经不是当前焦点（焦点换到了别的客户端或应用）。
   bool exit_lease_lost() const;

@@ -3,6 +3,7 @@ package app.msime.android;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.MotionEvent;
@@ -15,9 +16,11 @@ import java.util.function.IntConsumer;
 /** 放大拼写与偏移手柄；拖动使用相对位移，边缘持续移动时滚动到长拼写两端。 */
 final class CompositionEditorView extends FrameLayout {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pointerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path pointerTip = new Path();
     private final IntConsumer move;
     private final View text;
-    private final Button handle;
+    private final View handle;
     private final int lineHeight;
     private String display = "";
     private String editing = "";
@@ -50,6 +53,7 @@ final class CompositionEditorView extends FrameLayout {
     CompositionEditorView(Context context, IntConsumer move) {
         super(context);
         this.move = move;
+        setWillNotDraw(false);
         paint.setTextSize(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,
             26, getResources().getDisplayMetrics()));
         Paint.FontMetrics metrics = paint.getFontMetrics();
@@ -102,13 +106,36 @@ final class CompositionEditorView extends FrameLayout {
         text.setContentDescription("放大拼写");
         text.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         addView(text, new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, lineHeight));
-        handle = new Button(context);
-        handle.setText("↔");
+        handle = new View(context) {
+            @Override protected void onDraw(Canvas canvas) {
+                pointerPaint.setStyle(Paint.Style.FILL);
+                pointerPaint.setColor(accent);
+                float center = getWidth() / 2f;
+                canvas.drawCircle(center, getHeight() / 2f, dp(isPressed() || isFocused() ? 26 : 24), pointerPaint);
+                pointerPaint.setColor(paint.getColor());
+                pointerPaint.setStrokeWidth(dp(2));
+                float y = getHeight() / 2f;
+                canvas.drawLine(center - dp(11), y, center + dp(11), y, pointerPaint);
+                canvas.drawLine(center - dp(11), y, center - dp(6), y - dp(5), pointerPaint);
+                canvas.drawLine(center - dp(11), y, center - dp(6), y + dp(5), pointerPaint);
+                canvas.drawLine(center + dp(11), y, center + dp(6), y - dp(5), pointerPaint);
+                canvas.drawLine(center + dp(11), y, center + dp(6), y + dp(5), pointerPaint);
+            }
+
+            @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(info);
+                info.setClassName(Button.class.getName());
+            }
+
+            @Override public boolean performClick() { super.performClick(); return true; }
+        };
+        handle.setFocusable(true);
         handle.setContentDescription("拼写光标拖动手柄");
         handle.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     dragging = true;
+                    handle.setPressed(true);
                     downX = touchX = event.getRawX();
                     dragOrigin = widthTo(offset);
                     getParent().requestDisallowInterceptTouchEvent(true);
@@ -120,6 +147,7 @@ final class CompositionEditorView extends FrameLayout {
                 }
                 case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     dragging = false;
+                    handle.setPressed(false);
                     removeCallbacks(edge);
                     getParent().requestDisallowInterceptTouchEvent(false);
                     if (event.getActionMasked() == MotionEvent.ACTION_UP) view.performClick();
@@ -129,10 +157,28 @@ final class CompositionEditorView extends FrameLayout {
             return true;
         });
         handle.setOnClickListener(ignored -> text.announceForAccessibility("光标位置 " + offset));
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(48), dp(48));
-        params.topMargin = lineHeight + dp(2);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(56), dp(56));
+        params.topMargin = lineHeight + dp(32);
         params.bottomMargin = dp(4);
         addView(handle, params);
+    }
+
+    @Override protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        if (display.isEmpty()) return;
+        float x = dp(16) + widthTo(offset) - scroll;
+        float y = lineHeight - dp(4);
+        pointerPaint.setColor(accent);
+        pointerPaint.setStyle(Paint.Style.FILL);
+        pointerPaint.setStrokeWidth(dp(3));
+        // 手柄中心与光标下缘在两个方向等距，右端通过滚动预留完整触摸区。
+        canvas.drawLine(x, y, x + dp(64), y + dp(64), pointerPaint);
+        pointerTip.rewind();
+        pointerTip.moveTo(x, y);
+        pointerTip.lineTo(x + dp(16), y + dp(5));
+        pointerTip.lineTo(x + dp(5), y + dp(16));
+        pointerTip.close();
+        canvas.drawPath(pointerTip, pointerPaint);
     }
 
     void update(String display, String editing, int caret, int foreground, int accent) {
@@ -159,6 +205,7 @@ final class CompositionEditorView extends FrameLayout {
         super.onVisibilityChanged(changed, visibility);
         if (visibility != View.VISIBLE) {
             dragging = false;
+            if (handle != null) handle.setPressed(false);
             removeCallbacks(edge);
         }
     }
@@ -172,12 +219,13 @@ final class CompositionEditorView extends FrameLayout {
     private void place() {
         if (getWidth() <= 0 || handle == null) return;
         float caret = widthTo(offset);
-        float right = Math.max(dp(20), getWidth() - dp(96));
+        float right = Math.max(dp(20), getWidth() - dp(112));
         scroll = Math.max(0, Math.min(scroll, caret));
         if (caret - scroll > right) scroll = caret - right;
         if (caret - scroll < dp(12)) scroll = Math.max(0, caret - dp(12));
-        handle.setTranslationX(Math.max(0, Math.min(getWidth() - dp(48),
-            dp(16) + caret - scroll + dp(40))));
+        handle.setTranslationX(dp(16) + caret - scroll + dp(36));
+        handle.invalidate();
+        invalidate();
     }
 
     private void request(int shownOffset) {

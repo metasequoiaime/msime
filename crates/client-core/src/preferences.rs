@@ -1129,6 +1129,9 @@ pub struct Preferences {
     /// Linux 聚焦输入框时显示当前中英文状态，与切换提示独立。新装与缺字段的旧文档默认关闭；其他宿主保留但不使用。
     #[serde(default)]
     pub input_mode_focus_hud: bool,
+    /// Linux 允许屏幕角落的附加模式提示；关闭后保留光标旁提示和其他位置的产品标志。缺省开启以兼容旧配置。
+    #[serde(default = "enabled_by_default")]
+    pub input_mode_corner_hud: bool,
     /// 在 macOS 菜单栏放一个状态项，常驻显示当前输入模式（中/双/五/日……，英文时为「英」），不需要把「英」加成系统输入源。默认关闭；只有 macOS 宿主画它（见 `HostCapabilities::input_mode_status_item`），其他宿主保留这个偏好但不画。
     #[serde(default)]
     pub input_mode_status_item: bool,
@@ -1199,6 +1202,9 @@ pub struct Preferences {
     /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认关；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
     #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
+    /// Android 日语九键连点同一键时循环假名；关闭后每次轻点都追加键面假名，四向滑动不变。默认开，保留旧文档的输入习惯；其他宿主原样保留。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub touch_japanese_toggle_input: bool,
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
@@ -1248,6 +1254,9 @@ pub struct Preferences {
     pub candidate_font_size: u8,
     #[serde(default = "default_candidate_preedit_font_size")]
     pub candidate_preedit_font_size: u8,
+    /// 候选译文字号，12–32 点；缺省使用宿主的 12pt 默认值，目前由 macOS 消费。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_translation_font_size: Option<u8>,
     /// Overall size of the floating candidate window, 50-200 percent. The host multiplies `candidate_font_size` and every piece of window geometry (paddings, row heights, header, arrows, insets, shadow) by it.
     #[serde(default = "default_candidate_scale_percent")]
     pub candidate_scale_percent: u16,
@@ -3109,6 +3118,7 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             input_mode_hud: true,
             input_mode_focus_hud: false,
+            input_mode_corner_hud: true,
             input_mode_status_item: false,
             show_app_logo: false,
             expand_candidates: false,
@@ -3130,6 +3140,7 @@ impl Default for Preferences {
             touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
+            touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
@@ -3147,6 +3158,7 @@ impl Default for Preferences {
             number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_preedit_font_size(),
+            candidate_translation_font_size: None,
             candidate_scale_percent: default_candidate_scale_percent(),
             candidate_opacity_percent: default_candidate_opacity_percent(),
             candidate_corner_radius: None,
@@ -3492,6 +3504,8 @@ impl Default for HelpcodePreferences {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ShuangpinHelpcodeModes {
+    /// 只在 Tab 后输入辅助码；保留其它触发方式的设置，关闭后恢复。
+    pub manual_tab: bool,
     /// 末尾直接（`shuangpin_helpcode_direct`）：完整音节基座后直接接辅码，`ulpbx` 是单码、`ulpbxY` 是双码；关闭后末尾裸字母不再当辅助码，只有触发键开启的段才认。
     pub direct: bool,
     /// 末尾间接触发键：反引号段（`shuangpin_helpcode_trigger_backtick`）。
@@ -3520,6 +3534,7 @@ pub struct ShuangpinHelpcodeModes {
 impl Default for ShuangpinHelpcodeModes {
     fn default() -> Self {
         Self {
+            manual_tab: false,
             direct: true,
             trigger_backtick: false,
             trigger_semicolon: true,
@@ -3997,6 +4012,12 @@ impl Preferences {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if !(12..=32).contains(&self.candidate_preedit_font_size) {
+            return Err(PreferencesError::InvalidCandidateFontSize);
+        }
+        if self
+            .candidate_translation_font_size
+            .is_some_and(|size| !(12..=32).contains(&size))
+        {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if !(50..=200).contains(&self.candidate_scale_percent)

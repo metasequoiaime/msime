@@ -5244,12 +5244,18 @@ private:
     label.VerticalAlignment(VerticalAlignment::Center);
     Grid::SetColumn(label, 1);
     slider.ValueChanged(
-        [weak_label = make_weak(label), on_slide = std::move(apply), step,
-         format](Inspectable const &,
+        [on_slide = std::move(apply), step,
+         format](Inspectable const &sender,
                  Controls::Primitives::RangeBaseValueChangedEventArgs const &args) {
           const double rounded = std::round(args.NewValue() / step) * step;
-          if (auto block = weak_label.get())
-            block.Text(hstring(format(rounded)));
+          // XAML 视觉树保留控件后，建行时的弱引用仍可能失效；从当前滑块取同一容器里的可见数值。
+          if (auto parent = sender.as<Slider>().Parent().try_as<Grid>()) {
+            auto children = parent.Children();
+            if (children.Size() == 2) {
+              if (auto block = children.GetAt(1).try_as<TextBlock>())
+                block.Text(hstring(format(rounded)));
+            }
+          }
           on_slide(rounded);
         });
     box.Children().Append(slider);

@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 
-test("MCP connection section reuses the shared async action lifecycle", () => {
+test("MCP connection state reuses the shared async action lifecycle", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/settings/mcp-connect.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/settings/use-mcp-connect-state.ts", {
       eager: true,
       query: "?raw",
       import: "default",

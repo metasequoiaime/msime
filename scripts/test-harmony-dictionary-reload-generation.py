@@ -2,12 +2,22 @@
 """Harmony 词库刷新不能在修改完成后发布过期结果。"""
 
 from pathlib import Path
+import re
 
 
-SOURCE = Path(__file__).resolve().parents[1] / "packages/ui/src/settings/harmony-phone-dictionary.tsx"
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "packages/ui/src/dictionary/use-dictionary-collections-state.ts"
 TEXT = SOURCE.read_text(encoding="utf-8")
+PAGE = (ROOT / "packages/ui/src/settings/harmony-phone-dictionary.tsx").read_text(encoding="utf-8")
 
 required = {
+    "page consumes shared collection state":
+        'from "../dictionary/use-dictionary-collections-state"' in PAGE
+        and re.search(r"=\s*useDictionaryCollectionsState\(\{", PAGE) is not None,
+    "file preparation captures the current owner":
+        "const isCurrent = captureOwner();" in PAGE
+        and "const current = runner.generation.current;" in TEXT
+        and "return () => mounted.current && current === runner.generation.current;" in TEXT,
     "reload owns a generation":
         "const reloadGeneration = useAsyncGeneration(collections, dictionary, galleryOpen);" in TEXT,
     "reload captures its generation": "const current = ++reloadGeneration.current;" in TEXT,

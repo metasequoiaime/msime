@@ -106,3 +106,32 @@ test("an install the session cannot see yet says a login comes first", async () 
   expect(screen.getByText(/请先注销并重新登录/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "进入设置" })).toBeTruthy();
 });
+
+test("首次安装默认当前用户，明确选择后才安装给所有用户", () => {
+  const install = vi.fn(async (_scope?: string) => status({}));
+  const rendered = render(<MacosInstallPage client={{ install }} onComplete={vi.fn()} />);
+  const allUsers = screen.getByRole("checkbox", { name: /为所有用户安装/ }) as HTMLInputElement;
+  expect(allUsers.checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "立即安装" }));
+  expect(install).toHaveBeenLastCalledWith("user");
+  rendered.unmount();
+
+  render(<MacosInstallPage client={{ install }} onComplete={vi.fn()} />);
+  fireEvent.click(screen.getByRole("checkbox", { name: /为所有用户安装/ }));
+  fireEvent.click(screen.getByRole("button", { name: "立即安装" }));
+  expect(install).toHaveBeenLastCalledWith("system");
+});
+
+test("取消管理员授权保留重试入口，不宣称安装完成", async () => {
+  render(
+    <MacosInstallPage
+      client={client(async () => status({ action: "cancelled" }))}
+      onComplete={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "立即安装" }));
+  await advance(6000);
+  expect(screen.getByRole("status").textContent).toBe("已取消安装");
+  expect(screen.queryByText("安装完成")).toBeNull();
+  expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
+});

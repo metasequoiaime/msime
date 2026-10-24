@@ -764,7 +764,25 @@ impl ImeSession {
 
     /// 双拼辅助码的触发方式；请求每次构建都带上，改动即时生效。
     pub fn set_shuangpin_helpcode_modes(&mut self, modes: crate::types::ShuangpinHelpcodeModes) {
-        self.shuangpin_helpcode_modes = modes;
+        // 手动模式只改变引擎的有效触发方式，偏好仍保留原值，关闭后可以恢复。
+        self.shuangpin_helpcode_modes = if modes.manual_tab {
+            crate::types::ShuangpinHelpcodeModes {
+                manual_tab: true,
+                direct: false,
+                trigger_backtick: false,
+                trigger_semicolon: false,
+                trigger_uppercase: false,
+                mid_sentence: false,
+                mid_sentence_backtick: false,
+                mid_sentence_semicolon: false,
+                mid_sentence_uppercase: false,
+                direct_helpcode: false,
+                direct_helpcode_slash: false,
+                direct_helpcode_uppercase: false,
+            }
+        } else {
+            modes
+        };
         self.bind_shuangpin_scheme();
     }
 

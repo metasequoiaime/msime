@@ -5,6 +5,70 @@
 use super::*;
 
 #[test]
+fn japanese_toggle_input_keeps_legacy_default_and_requires_a_boolean() {
+    assert!(Preferences::default().touch_japanese_toggle_input);
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(legacy.get("touch_japanese_toggle_input").is_none());
+    assert!(
+        serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .touch_japanese_toggle_input
+    );
+    let mut malformed = legacy;
+    malformed["touch_japanese_toggle_input"] = "false".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+}
+
+#[test]
+fn japanese_toggle_input_persists_disabled() {
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["touch_japanese_toggle_input"] = false.into();
+    let disabled: Preferences = serde_json::from_value(value).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, disabled).unwrap();
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["touch_japanese_toggle_input"],
+        false
+    );
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().preferences).unwrap()
+            ["touch_japanese_toggle_input"],
+        false
+    );
+}
+
+#[test]
+fn candidate_translation_font_size_is_optional_bounded_and_round_trips() {
+    let mut json = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(json.get("candidate_translation_font_size").is_none());
+    for size in [12, 21, 32] {
+        json["candidate_translation_font_size"] = serde_json::json!(size);
+        let preferences: Preferences = serde_json::from_value(json.clone()).unwrap();
+        assert!(preferences.validate().is_ok());
+        assert_eq!(
+            serde_json::to_value(preferences).unwrap()["candidate_translation_font_size"],
+            size
+        );
+    }
+    for size in [0, 11, 33, 255] {
+        json["candidate_translation_font_size"] = serde_json::json!(size);
+        let preferences: Preferences = serde_json::from_value(json.clone()).unwrap();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidCandidateFontSize)
+        ));
+    }
+    json["candidate_translation_font_size"] = serde_json::Value::Null;
+    let preferences: Preferences = serde_json::from_value(json).unwrap();
+    assert!(preferences.validate().is_ok());
+    assert!(serde_json::to_value(preferences)
+        .unwrap()
+        .get("candidate_translation_font_size")
+        .is_none());
+}
+
+#[test]
 fn backspace_selection_preference_keeps_legacy_default_and_persists_disabled() {
     let defaults = Preferences::default();
     assert!(defaults.backspace_reverts_selection);
@@ -2414,6 +2478,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         "candidate_follow_cursor",
         "input_mode_hud",
         "input_mode_focus_hud",
+        "input_mode_corner_hud",
         "input_mode_status_item",
         "expand_candidates",
         "show_candidate_expand_button",
@@ -2426,6 +2491,8 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     // 聚焦提示与菜单栏状态项都缺省关闭，旧文档和新装相同。
     assert!(!Preferences::default().input_mode_focus_hud);
     assert!(!loaded.preferences.input_mode_focus_hud);
+    assert!(Preferences::default().input_mode_corner_hud);
+    assert!(loaded.preferences.input_mode_corner_hud);
     assert!(!Preferences::default().input_mode_status_item);
     assert!(!loaded.preferences.input_mode_status_item);
     // 「展开候选」同样是新加的开关，缺字段的旧文档和新装都读成关闭。
@@ -2453,6 +2520,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         candidate_follow_cursor: false,
         input_mode_hud: false,
         input_mode_focus_hud: true,
+        input_mode_corner_hud: false,
         input_mode_status_item: true,
         expand_candidates: true,
         show_candidate_expand_button: false,
@@ -2461,6 +2529,13 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     let saved = store.save(0, preferences).unwrap();
     assert_eq!(store.load().unwrap(), saved);
     assert!(store.load().unwrap().preferences.input_mode_focus_hud);
+    assert!(!store.load().unwrap().preferences.input_mode_corner_hud);
+    assert!(
+        saved
+            .preferences
+            .restored_to_defaults()
+            .input_mode_corner_hud
+    );
     assert!(
         !store
             .load()
@@ -4118,6 +4193,7 @@ fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
 #[test]
 fn shuangpin_helpcode_modes_follow_windows_v0_11_1_defaults() {
     let modes = ShuangpinHelpcodeModes::default();
+    assert!(!modes.manual_tab);
     assert!(modes.direct);
     assert!(!modes.trigger_backtick && modes.trigger_semicolon && !modes.trigger_uppercase);
     assert!(!modes.mid_sentence);
@@ -4152,7 +4228,8 @@ fn shuangpin_helpcode_modes_roundtrip_and_stay_off_quanpin() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let modes = ShuangpinHelpcodeModes {
-        direct: false,
+        manual_tab: true,
+        direct: true,
         trigger_backtick: true,
         ..ShuangpinHelpcodeModes::default()
     };

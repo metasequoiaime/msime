@@ -32,6 +32,11 @@ import app.msime.android.WindowLayout;
 
 /** Separate synthetic editor app: tests the system InputConnection, not a mock. */
 public final class EditorActivity extends Activity {
+    private static java.lang.ref.WeakReference<EditorActivity> probeActivity = new java.lang.ref.WeakReference<>(null);
+    private EditText probePlain;
+    private EditText probePassword;
+    private String probeFocusLoss = "none";
+
     @SuppressWarnings("deprecation")
     @Override public void onCreate(Bundle state) {
         WindowLayout.theme(this);
@@ -59,6 +64,7 @@ public final class EditorActivity extends Activity {
         plain.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra(
             "msime_test_multiline", false) ? InputType.TYPE_TEXT_FLAG_MULTI_LINE : 0));
         plain.setContentDescription("msime-test-plain");
+        probePlain = plain;
         plain.setHint("Plain editor");
         showImeOnFocus(plain);
         layout.addView(plain);
@@ -77,8 +83,11 @@ public final class EditorActivity extends Activity {
         showImeOnFocus(limited);
         layout.addView(limited);
         EditText password = new EditText(this);
-        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // 密码键盘专项可指定类型，普通编辑器仍使用原有文字密码框。
+        password.setInputType(getIntent().getIntExtra("msime_test_password_type",
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD));
         password.setContentDescription("msime-test-password");
+        probePassword = password;
         password.setHint("Password editor");
         showImeOnFocus(password);
         layout.addView(password);
@@ -134,10 +143,41 @@ public final class EditorActivity extends Activity {
         layout.addView(wrapping, new LinearLayout.LayoutParams(
             Math.round(120 * getResources().getDisplayMetrics().density), LinearLayout.LayoutParams.WRAP_CONTENT));
         setContentView(layout);
+        if (getIntent().getBooleanExtra("msime_test_editor_probe", false))
+            probeActivity = new java.lang.ref.WeakReference<>(this);
+    }
+
+    /** 仅由测试探针在主线程读取焦点与几何信息，不返回输入内容。 */
+    static Bundle probe(String field, boolean requestFocus) {
+        EditorActivity activity = probeActivity.get();
+        if (activity == null) throw new IllegalStateException("Synthetic editor probe is not enabled");
+        EditText editor = switch (field) {
+            case "msime-test-plain" -> activity.probePlain;
+            case "msime-test-password" -> activity.probePassword;
+            default -> throw new IllegalArgumentException("Unknown synthetic editor field");
+        };
+        Bundle result = new Bundle();
+        if (requestFocus) result.putBoolean("accepted", editor.requestFocus());
+        result.putBoolean("focused", editor.isFocused());
+        result.putBoolean("window_focused", editor.hasWindowFocus());
+        result.putString("focus_loss", activity.probeFocusLoss);
+        int[] position = new int[2];
+        editor.getLocationOnScreen(position);
+        result.putInt("left", position[0]);
+        result.putInt("top", position[1]);
+        result.putInt("right", position[0] + editor.getWidth());
+        result.putInt("bottom", position[1] + editor.getHeight());
+        return result;
+    }
+
+    @Override protected void onDestroy() {
+        if (probeActivity.get() == this) probeActivity.clear();
+        super.onDestroy();
     }
 
     private TextView imageStatus;
     private int imeRequestGeneration;
+    private int imeSettledGeneration = -1;
 
     /** 合成图片在本测试包缓存里的位置；{@link ImageClipProvider} 只提供这一个文件。 */
     static File syntheticImage(Context context) {
@@ -291,7 +331,23 @@ public final class EditorActivity extends Activity {
     }
 
     private void showImeOnFocus(EditText editor) {
+        editor.setAccessibilityDelegate(new android.view.View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(android.view.View host,
+                    android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.getExtras().putBoolean("msime-test-ime-requests-settled",
+                    imeSettledGeneration == imeRequestGeneration);
+            }
+        });
         editor.setOnFocusChangeListener((view, focused) -> {
+            if (!focused && getIntent().getBooleanExtra("msime_test_editor_probe", false)) {
+                StringBuilder trace = new StringBuilder();
+                for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+                    if (trace.length() > 1600) break;
+                    trace.append(frame.getClassName()).append('.').append(frame.getMethodName()).append(';');
+                }
+                probeFocusLoss = trace.toString();
+            }
             if (focused) requestIme(editor);
         });
     }
@@ -313,9 +369,11 @@ public final class EditorActivity extends Activity {
                 if (Build.VERSION.SDK_INT >= 30) {
                     WindowInsetsController controller = editor.getWindowInsetsController();
                     if (controller != null) controller.show(WindowInsets.Type.ime());
-                    // 最后一轮显示请求发出后，设备套件才开始注入第一颗实体键。
-                    if (delay == 3000 && generation == imeRequestGeneration)
-                        editor.setStateDescription("ime-requests-settled");
+                }
+                // 普通触摸与实体键输入都等最后一轮显示请求发出，旧系统通过节点 extras 读取。
+                if (delay == 3000 && generation == imeRequestGeneration) {
+                    imeSettledGeneration = generation;
+                    if (Build.VERSION.SDK_INT >= 30) editor.setStateDescription("ime-requests-settled");
                 }
             }, delay);
         }

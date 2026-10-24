@@ -61,6 +61,8 @@ Status: implemented
 
 ## Testing
 
+- 本 crate 的普通单测由 CI 的 Script plugins 作业和 `scripts/verify-local.sh` 完整验证显式执行；完整验证也运行本 crate 的全目标严格 Clippy。插件夹具只构建运行时依赖，不执行这里的 `cfg(test)`；4 项人工性能测量保持忽略，门禁接线与取舍见[插件合集](2026-10-12-script-plugin-collection.md)。
+
 - `cargo test -p msime-script-runtime` 和 `cargo clippy -p msime-script-runtime --all-targets -- -D warnings` 通过，覆盖：死循环按钩子上限耗尽 fuel、`unreachable`、越界访问、内存越过预留、深递归撞上栈限制、被拒的提案（multi-memory、tail-call、extended-const、SIMD、memory64、threads）和 start 函数、允许的提案能编译、双向的静态最小权限、import 白名单和签名、能力的依赖与互斥、每轮配额跨多次投递并在新一轮补满、本轮用完时跳过或截断而不算失败（`before_commit` 那一份同样，持久实例照用）、被截断时这一次用掉达到本钩子上限一半就算 fuel 耗尽的失败（`input` 花过 fuel 之后 `candidates` 死循环，三个钩子在一半减一和正好一半处的边界）、一个插件烧满配额不影响另一个、import 计 fuel、`before_commit` 读不到观察类钩子和上一次 `before_commit` 留下的内存与 global、快照上的 trap 不影响持久实例、授权与本地模式门控、文本复制的 `LIMIT` 和越界 trap、初始化看不到任何事件、`log` 没有调试输出时是空操作。修改类 import 的测试见 [脚本插件改写上屏与重排、注释、过滤候选](2026-10-12-script-plugins-modify-commit-and-candidates.md)。
 - 移动端不编译解释器：`cargo tree -p msime-script-runtime -e normal` 在 `aarch64-apple-ios`、`aarch64-linux-android`、`aarch64-unknown-linux-ohos` 和 `wasm32-wasip2` 上只有本 crate 自己，在 `x86_64-unknown-linux-gnu` 上是 wasmi 及其 6 个依赖；前三个目标上 `cargo check -p msime-script-runtime` 通过（已跑过）。
 - client-core 一侧（`script_pack`、`script_grants`、`PluginKind::Script`）见 [脚本插件进入插件包体系](2026-10-12-script-plugin-kind-and-grants.md)，那篇就是取代 `plugins.rs:3` 原则的笔记；host-api 一侧（投递观察类钩子、`msime_client_scripts_enable`、后台编译线程、熔断）见 [脚本插件在输入法进程里](2026-10-12-script-plugins-in-the-input-method-process.md)。pack-tool 的 `msime-pack run` 直接依赖本 crate，用 `ScriptInstance::with_debug` 接上 `log` 和修改类 import 的调试输出，见 [脚本插件的作者工具](../feature/2026-10-12-script-plugin-author-tools.md)。

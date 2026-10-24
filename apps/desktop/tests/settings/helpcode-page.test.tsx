@@ -212,6 +212,7 @@ test("辅助码前导键按全拼和双拼独立保存，并保留当前方案",
       trigger_key: "",
       show_in_candidate_window: true,
       modes: {
+        manual_tab: false,
         direct: true,
         trigger_backtick: false,
         trigger_semicolon: true,
@@ -234,4 +235,48 @@ test("未报告前导键能力的宿主不显示配置", () => {
   );
   expect(screen.queryByRole("combobox", { name: "全拼辅助码触发键" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "双拼辅助码触发键" })).toBeNull();
+});
+
+test("Tab 手动辅助码开关保留其它触发方式", () => {
+  const onChange = vi.fn();
+  const value = { shuangpin_helpcode: { enabled: true, schema: "lantian" as const } };
+  const { rerender } = render(
+    <HelpcodeSettingsPage
+      value={value}
+      mobile={false}
+      showShiftEntry
+      showManualTab
+      onChange={onChange}
+    />,
+  );
+  fireEvent.click(screen.getByRole("switch", { name: "双拼手动辅助码（Tab）" }));
+  const changed = onChange.mock.calls[0][0];
+  expect(changed.shuangpin_helpcode.modes).toMatchObject({
+    manual_tab: true,
+    direct: true,
+    trigger_semicolon: true,
+  });
+  rerender(
+    <HelpcodeSettingsPage
+      value={changed}
+      mobile={false}
+      showShiftEntry
+      showManualTab
+      onChange={onChange}
+    />,
+  );
+  expect(
+    (screen.getByRole("switch", { name: "双拼末尾直接辅助码" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("switch", { name: "双拼手动辅助码（Tab）" }));
+  expect(onChange.mock.calls[1][0].shuangpin_helpcode.modes).toMatchObject({
+    manual_tab: false,
+    direct: true,
+    trigger_semicolon: true,
+  });
+});
+
+test("不支持 Tab 的宿主不提供启用入口", () => {
+  render(<HelpcodeSettingsPage value={{}} mobile={false} showShiftEntry onChange={vi.fn()} />);
+  expect(screen.queryByRole("switch", { name: "双拼手动辅助码（Tab）" })).toBeNull();
 });

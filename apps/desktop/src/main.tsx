@@ -273,7 +273,7 @@ const resourcePacks: ResourcePackClient = {
   remove: (id) => invoke<boolean>("resource_pack_remove", { id }),
 };
 const macosInstallClient: MacosInstallClient = {
-  install: () => invoke("run_first_input_source_install"),
+  install: (scope) => invoke("run_first_input_source_install", { scope }),
 };
 const localVoiceModels: LocalVoiceModelClient = {
   ...createTauriProgressClient<LocalVoiceModelList, LocalVoiceModelProgress>(invoke, listen, {

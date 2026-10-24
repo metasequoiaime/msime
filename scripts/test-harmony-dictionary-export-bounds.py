@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep dictionary exports bounded before they cross the Harmony bridge."""
+"""检查词库导出在经过鸿蒙桥之前遵守大小上限。"""
 
 from pathlib import Path
 
@@ -30,8 +30,13 @@ def main() -> int:
             "utf8ByteLength(body)" in manager
             and "dictionary_export_limit" in manager,
         "paged export stops accumulating oversized text":
-            "utf8ByteLength(text)" in manager
-            and "dictionary_export_limit" in manager,
+            "maxBytes !== undefined && utf8ByteLength(text) > maxBytes" in export
+            and 'throw new Error("dictionary_export_limit")' in export
+            and "text = await loadDictionaryExportText(\n"
+                "            dictionary,\n"
+                "            dictionaryKind,\n"
+                '            dictionaryFormat === "rime" ? "standard" : dictionaryFormat,\n'
+                "            MAX_DICTIONARY_EXPORT_BYTES,\n" in manager,
     }
     missing = [name for name, present in required.items() if not present]
     if missing:

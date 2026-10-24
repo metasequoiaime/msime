@@ -39,6 +39,7 @@ from pathlib import Path
 # Preferences that no macOS input method can act on. Each entry says why, because "macOS does not read it"
 # is exactly what a defect looks like from the outside.
 NOT_APPLICABLE = {
+    "input_mode_corner_hud": "仅 Linux 的 IBus 与 Fcitx5 在无法定位光标时使用屏幕角落徽章；共享设置页只在 Linux 显示此项，macOS 没有对应角落提示",
     "input_mode_focus_hud": "仅 Linux 的 IBus 与 Fcitx5 在聚焦输入框时显示模式提示；共享设置页只在 Linux 显示此项，macOS 没有聚焦提示入口",
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
     # macOS 的这些界面一律跟随颜色模式（HostCapabilities 的 surface_themes_follow），设置页不给这几行；固定明暗的主题由 InputController 钉住传给面板的 `theme`。
@@ -53,6 +54,7 @@ NOT_APPLICABLE = {
     "touch_keyboard_height_adjustment": "the touch keyboard and the Windows panel window; the macOS screen keyboard window has a fixed height, and the page offers no slider (`touch_keyboard_height` is false)",
     "touch_keyboard_split_portrait": "仅 Android 大屏触屏键盘支持竖屏分离；macOS 屏幕键盘不采用分离布局，共享设置页不提供此开关",
     "touch_voice_shortcut": "the touch keyboard",
+    "touch_japanese_toggle_input": "仅 Android 原生日语九键支持连点循环；macOS 使用物理键盘罗马字输入，共享设置页不提供此开关",
     "touch_quick_punctuation_symbols": "仅 iOS 原生触屏键盘提供自定义快捷符号；macOS 屏幕键盘不读取此列表，共享设置页不提供此项",
     "touch_number_keypad_order": "the touch keyboard's nine-key digit layer",
     "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",

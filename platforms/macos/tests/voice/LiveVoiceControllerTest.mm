@@ -656,6 +656,39 @@ int main(int argc, char **) {
             [controller applyLiveVoiceText:@"synthetic routed" final:YES token:routeToken];
             assert(client.commits.count == imk && controller.externalCommits == external + 1);
         }
+        {
+            [defaults setVolatileDomain:@{
+                @"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES,
+                @"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoicePolish": @NO,
+                @"MSIMEClientVoiceSoundEnabled": @NO, @"MSIMEClientVoiceMuteSystemAudio": @NO
+            } forName:NSArgumentDomain];
+            LiveControllerFixture *holdController = [LiveControllerFixture alloc];
+            LiveCaptureFixture *holdCapture = [LiveCaptureFixture new];
+            holdCapture.capturedSeconds = 0.25;
+            [holdController setValue:session forKey:@"session"];
+            [holdController setValue:client forKey:@"activeClient"];
+            [holdController setValue:holdCapture forKey:@"voiceService"];
+            [holdController setValue:[LivePresentationFixture new] forKey:@"voiceOverlay"];
+            [holdController setValue:[LivePresentationFixture new] forKey:@"voiceAudioMuter"];
+            [holdController setValue:[MSIMEVoiceCueFixture new] forKey:@"voiceCuePlayer"];
+            const auto systemFlags = MSIMEPhysicalModifierFlagsState;
+            MSIMEPhysicalModifierFlagsState = +[](CGEventSourceStateID) -> CGEventFlags {
+                return NSEventModifierFlagOption | NX_DEVICERALTKEYMASK;
+            };
+            // 经过宿主的真实查询边界和录音状态机，采集器仍使用合成夹具。
+            assert([holdController handleEvent:key(61, NSEventModifierFlagOption, NSEventTypeFlagsChanged) client:client]);
+            assert(holdCapture.active && holdCapture.captureStops == 0);
+            assert([holdController handleEvent:key(61, NSEventModifierFlagOption, NSEventTypeFlagsChanged) client:client]);
+            assert(holdCapture.active && holdCapture.captureStops == 0);
+            MSIMEPhysicalModifierFlagsState = +[](CGEventSourceStateID) -> CGEventFlags {
+                return NSEventModifierFlagOption | NX_DEVICELALTKEYMASK;
+            };
+            assert([holdController handleEvent:key(61, NSEventModifierFlagOption, NSEventTypeFlagsChanged) client:client]);
+            assert(holdCapture.captureStops == 1);
+            [holdController cancelLiveVoiceInput];
+            MSIMEPhysicalModifierFlagsState = systemFlags;
+            [defaults setVolatileDomain:old forName:NSArgumentDomain];
+        }
         CGEventRef injected = CGEventCreateKeyboardEvent(nullptr, 0, true);
         CGEventSetIntegerValueField(injected, kCGEventSourceUserData, MSIMEVoiceCommitEventTag);
         assert(![controller handleEvent:[NSEvent eventWithCGEvent:injected] client:client]);
