@@ -2,8 +2,12 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.widget.LinearLayout;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 import androidx.annotation.Nullable;
 import app.msime.android.InputFeatureToggle;
+import app.msime.android.ClipboardHistoryAuthenticationPolicy;
 import app.msime.android.R;
 import app.msime.android.core.Telemetry;
 import java.util.EnumMap;
@@ -28,6 +32,8 @@ public final class PrivacyPage extends ReloadingDetailPage {
 
     private final Map<InputFeatureToggle, GroupCard.Row> rows = new EnumMap<>(InputFeatureToggle.class);
     @Nullable private JSONObject preferences;
+    @Nullable private Boolean pendingClipboardHistoryValue;
+    @Nullable private BiometricPrompt clipboardAuthentication;
 
     @Override protected void onContentReady() {
         LinearLayout target = contentColumn();
@@ -57,7 +63,12 @@ public final class PrivacyPage extends ReloadingDetailPage {
 
     @Override protected boolean shouldReloadOnContentReady() { return false; }
 
-    @Override protected void onContentDestroyed() { rows.clear(); }
+    @Override protected void onContentDestroyed() {
+        if (clipboardAuthentication != null) clipboardAuthentication.cancelAuthentication();
+        clipboardAuthentication = null;
+        pendingClipboardHistoryValue = null;
+        rows.clear();
+    }
 
     private void addToggle(GroupCard group, InputFeatureToggle toggle) {
         GroupCard.Row row = group.toggle(toggle.title(), toggle.description(), toggle.enabledByDefault(),
@@ -84,6 +95,61 @@ public final class PrivacyPage extends ReloadingDetailPage {
     }
 
     private void save(InputFeatureToggle toggle, boolean value) {
+        if (toggle == InputFeatureToggle.CLIPBOARD_HISTORY && preferences != null
+                && ClipboardHistoryAuthenticationPolicy.requiresAuthentication(
+                    preferences.optBoolean(toggle.key(), toggle.enabledByDefault()), value)) {
+            pendingClipboardHistoryValue = value;
+            GroupCard.Row row = rows.get(toggle);
+            if (row != null) row.setEnabled(false);
+            if (!requestClipboardAuthentication()) {
+                pendingClipboardHistoryValue = null;
+                render();
+                MsToast.show(requireContext(), "这台设备没有可用的系统认证");
+            }
+            return;
+        }
+        savePreference(toggle, value);
+    }
+
+    private boolean requestClipboardAuthentication() {
+        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        BiometricManager manager = BiometricManager.from(requireContext());
+        if (manager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) return false;
+        clipboardAuthentication = new BiometricPrompt(this,
+            ContextCompat.getMainExecutor(requireContext()), new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    finishClipboardAuthentication(true);
+                }
+
+                @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
+                    finishClipboardAuthentication(false);
+                }
+            });
+        BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle("关闭剪贴板历史会清空本机记录")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        clipboardAuthentication.authenticate(prompt);
+        return true;
+    }
+
+    private void finishClipboardAuthentication(boolean authenticated) {
+        Boolean value = pendingClipboardHistoryValue;
+        pendingClipboardHistoryValue = null;
+        if (value == null) return;
+        clipboardAuthentication = null;
+        if (authenticated) {
+            savePreference(InputFeatureToggle.CLIPBOARD_HISTORY, value);
+        } else {
+            render();
+            Context context = getContext();
+            if (context != null) MsToast.show(context, "未通过系统认证，剪贴板历史保持开启");
+        }
+    }
+
+    private void savePreference(InputFeatureToggle toggle, boolean value) {
         HostTask.run(this, context -> write(context, toggle, value), saved -> {
             if (saved == null) {
                 MsToast.show(requireContext(), "没有保存，请重试");
