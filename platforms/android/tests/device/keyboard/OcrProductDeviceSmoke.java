@@ -1,7 +1,6 @@
 package app.msime.android.test;
 
 import android.accessibilityservice.AccessibilityService;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -333,9 +332,8 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
     }
 
     private void editor() throws Exception {
-        getContext().startActivity(new Intent().setComponent(new ComponentName(
-            "app.msime.android.test", "app.msime.android.test.EditorActivity"))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        // 从桌面重开合成编辑器，使用测试 shell 等待启动完成，不依赖目标进程的后台启动权限。
+        shellDiscard("am start -W -n app.msime.android.test/.EditorActivity -f 0x10008000");
         dropStaleNodes();
         tap(field("msime-test-plain"));
         awaitAny(key("更多"));
