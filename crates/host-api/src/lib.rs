@@ -2071,6 +2071,7 @@ impl HostOptions {
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
             mixed_symbols: self.preferences.mixed_input.symbols,
             mixed_japanese: self.preferences.mixed_input.japanese,
+            multilingual_languages: Vec::new(),
             local_unicode: self.preferences.local_modes.unicode,
             local_date_time: self.preferences.local_modes.date_time,
             local_date_time_inline: self.preferences.local_modes.date_time_inline,

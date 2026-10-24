@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::pinyin::segment::{join_segments, split_segments};
 use crate::pinyin::syllables::normalize_umlaut_aliases;
 use crate::quanpin::QuanpinEngine;
-use crate::text::{count_utf8_chars, first_han_char, last_han_char};
+use crate::text::count_utf8_chars;
 use crate::types::{
     CandidateEdge, CandidateSource, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType,
     WordItem,
@@ -81,11 +81,7 @@ impl InputSession {
         let Some(candidate) = self.candidates().get(index) else {
             return KeyResult::unhandled();
         };
-        let character = match edge {
-            CandidateEdge::FirstHan => first_han_char(&candidate.word),
-            CandidateEdge::LastHan => last_han_char(&candidate.word),
-        }
-        .to_owned();
+        let character = edge.character(&candidate.word).to_owned();
         if character.is_empty() {
             return KeyResult::unhandled();
         }

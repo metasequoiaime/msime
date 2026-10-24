@@ -48,6 +48,9 @@ struct Fixture {
     first_page_rows: usize,
     /// 九宫格组码的上限，代替引擎的 `DIGIT_LIMIT`；0 表示没有上限。到上限且有候选时，`grid_limit_pick_ready` 说可以先选首选。
     grid_limit: usize,
+    multilingual_conversion: Option<msime_engine::host::session::MultilingualComposition>,
+    /// 边缘选字回归直接给出引擎已确认的字符，不在夹具里复制汉字判断。
+    edge_commits: Option<[String; 2]>,
 }
 
 #[cfg(unix)]
@@ -1093,6 +1096,7 @@ impl InputEngine for Fixture {
             reading: self.reading.clone(),
             display_reading: self.reading.clone(),
             editing_text: self.text.clone(),
+            multilingual_conversion: self.multilingual_conversion.clone(),
             caret_position: self.text.len(),
             segment_raw_boundaries: vec![],
             candidates: if self.text.is_empty() {
@@ -1146,7 +1150,15 @@ impl InputEngine for Fixture {
         index: usize,
         edge: CandidateEdge,
     ) -> Result<EngineResult, RuntimeError> {
+        let edge_commit = self
+            .edge_commits
+            .as_ref()
+            .map(|values| values[edge as usize].clone());
         let mut result = self.select(index)?;
+        if let Some(text) = edge_commit {
+            result.commit = text;
+            return Ok(result);
+        }
         result.commit.push_str(match edge {
             CandidateEdge::FirstHan => "-first",
             CandidateEdge::LastHan => "-last",
@@ -1718,6 +1730,8 @@ fn runtime() -> Runtime<Fixture> {
             microsoft_shuangpin: false,
             first_page_rows: 0,
             grid_limit: 0,
+            multilingual_conversion: None,
+            edge_commits: None,
         },
         5,
     )
@@ -1775,6 +1789,8 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 microsoft_shuangpin: false,
                 first_page_rows: 0,
                 grid_limit: 0,
+                multilingual_conversion: None,
+                edge_commits: None,
             },
             9,
         )
@@ -2023,6 +2039,8 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 microsoft_shuangpin: false,
                 first_page_rows: 0,
                 grid_limit: 0,
+                multilingual_conversion: None,
+                edge_commits: None,
             },
             9,
         )
@@ -2360,6 +2378,8 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 microsoft_shuangpin: false,
                 first_page_rows: 0,
                 grid_limit: 0,
+                multilingual_conversion: None,
+                edge_commits: None,
             },
             5,
         )
@@ -2465,6 +2485,8 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             microsoft_shuangpin: false,
             first_page_rows: 0,
             grid_limit: 0,
+            multilingual_conversion: None,
+            edge_commits: None,
         },
         5,
     )
@@ -3341,6 +3363,8 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             microsoft_shuangpin: false,
             first_page_rows: 0,
             grid_limit: 0,
+            multilingual_conversion: None,
+            edge_commits: None,
         },
         2,
     )
@@ -5191,6 +5215,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         mixed_kaomoji: false,
         mixed_symbols: false,
         mixed_japanese: false,
+        multilingual_languages: Vec::new(),
         local_unicode: true,
         local_date_time: true,
         local_date_time_inline: true,
@@ -7300,6 +7325,8 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             microsoft_shuangpin: false,
             first_page_rows: 0,
             grid_limit: 0,
+            multilingual_conversion: None,
+            edge_commits: None,
         },
         page_size,
     )
@@ -10395,3 +10422,5 @@ fn literal_symbol_survives_runtime_punctuation_without_early_commit() {
         }
     }
 }
+
+mod multilingual;

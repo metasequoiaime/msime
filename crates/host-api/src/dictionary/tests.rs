@@ -49,6 +49,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         mixed_kaomoji: false,
         mixed_symbols: false,
         mixed_japanese: false,
+        multilingual_languages: Vec::new(),
         local_unicode: true,
         local_date_time: true,
         local_date_time_inline: true,

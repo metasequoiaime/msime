@@ -60,6 +60,13 @@ pub enum Command {
     ConversionRight = 14,
 }
 
+/// 当前唯一混合候选的输入身份及语言分段，不随候选下标建立平行向量。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MultilingualComposition {
+    pub raw_input: String,
+    pub conversion: crate::multilingual::Conversion,
+}
+
 /// 除可选的静态评分证据外，所有 `candidate_*` 向量必须与 `candidates` 等长，运行时才能同步重排。
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EngineSnapshot {
@@ -100,6 +107,8 @@ pub struct EngineSnapshot {
     pub wubi_unique_four_code: bool,
     pub candidate_annotations: Vec<String>,
     pub candidate_sources: Vec<u8>,
+    /// 必须按来源、原始输入和完整词面匹配后使用；没有混合行时为空。
+    pub multilingual_conversion: Option<MultilingualComposition>,
     pub candidate_positions: Vec<u8>,
     pub candidate_corrected: Vec<bool>,
     pub candidate_answers_key: Vec<bool>,
@@ -242,6 +251,16 @@ impl Session {
         } else {
             value.normalized_segmentation.clone()
         };
+        let multilingual_conversion = value.multilingual_conversion.and_then(|conversion| {
+            value
+                .candidates
+                .iter()
+                .find(|row| row.source == CandidateSource::Multilingual)
+                .map(|row| MultilingualComposition {
+                    raw_input: row.pinyin.to_string(),
+                    conversion,
+                })
+        });
         let mut output = EngineSnapshot {
             prediction: value.prediction,
             local_mode: value.local_mode.name().to_owned(),
@@ -278,6 +297,7 @@ impl Session {
             wubi_unique_four_code: value.wubi_unique_four_code,
             candidate_annotations: Vec::with_capacity(count),
             candidate_sources: Vec::with_capacity(count),
+            multilingual_conversion,
             candidate_positions: Vec::with_capacity(count),
             candidate_corrected: Vec::with_capacity(count),
             candidate_answers_key: Vec::with_capacity(count),

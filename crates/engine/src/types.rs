@@ -1184,6 +1184,16 @@ pub enum CandidateEdge {
     LastHan = 1,
 }
 
+impl CandidateEdge {
+    /// 引擎以词定字使用的首个或末个汉字；没有汉字时返回空串。
+    pub fn character(self, text: &str) -> &str {
+        match self {
+            Self::FirstHan => crate::text::first_han_char(text),
+            Self::LastHan => crate::text::last_han_char(text),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LocalInputMode {
     #[default]

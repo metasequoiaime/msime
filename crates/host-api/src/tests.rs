@@ -299,6 +299,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         mixed_kaomoji: false,
         mixed_symbols: false,
         mixed_japanese: true,
+        multilingual_languages: Vec::new(),
         local_unicode: true,
         local_date_time: true,
         local_date_time_inline: true,

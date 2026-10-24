@@ -2054,6 +2054,7 @@ fn the_abi_scalar_tables_are_the_lifecycle_discriminants() {
         SelectionHow::Highlighted => "highlighted",
         SelectionHow::WubiAuto => "wubi_auto",
         SelectionHow::GridLimit => "grid_limit",
+        SelectionHow::FirstCandidateCommand => "first_candidate_command",
     };
     check(
         values::HOW,
@@ -2070,6 +2071,7 @@ fn the_abi_scalar_tables_are_the_lifecycle_discriminants() {
             SelectionHow::Highlighted,
             SelectionHow::WubiAuto,
             SelectionHow::GridLimit,
+            SelectionHow::FirstCandidateCommand,
         ]
         .map(|value| (how(value), value as u8)),
     );

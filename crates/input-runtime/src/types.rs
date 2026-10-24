@@ -208,6 +208,8 @@ pub enum SelectionHow {
     WubiAuto = 10,
     /// 九宫格组码到上限后再按一键，先选掉首选再接着打。
     GridLimit = 11,
+    /// `Command::CommitCandidate` 由引擎选择原始首行，呈现座位可经重排改变。
+    FirstCandidateCommand = 12,
 }
 
 /// 选中之后发生了什么。
