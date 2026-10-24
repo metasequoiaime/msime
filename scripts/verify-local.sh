@@ -956,8 +956,9 @@ fi
 # were missing too, and nothing else runs their tests on the host target.
 # msime-clipboard-relay 也不在 default-members 里，其他地方都不跑它的测试；它的端到端测试在 127.0.0.1 上起参考中继，用真正的客户端驱动连它。
 # msime-pack-tool 的 run、sdk、validate 各有集成测试；构建插件工具不能代替执行它们。
+# 词库构建器不在 `default-members` 中，工作区编译也不能替代它的词库生成与校验测试。
 for package in msime-path-trust msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
-  msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-clipboard-relay msime-script-runtime msime-pack-tool msime-desktop; do
+  msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-clipboard-relay msime-script-runtime msime-pack-tool msime-dict-builder msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
   status=0 build_failed=0
@@ -1009,7 +1010,7 @@ note "clippy: first-party crates"
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
 for crate in msime-path-trust msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-host-macos \
-             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform msime-script-runtime msime-pack-tool; do
+             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform msime-script-runtime msime-pack-tool msime-dict-builder; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'
 done
