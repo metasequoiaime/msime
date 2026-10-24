@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.List;
 
 /** 只操作专用模拟器中的合成模块、相机图和编辑器，不导出任意用户内容。 */
@@ -130,7 +131,8 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
     }
 
     private File importModule() throws Exception {
-        return (File) install.invoke(null, getTargetContext(), "ocr-module-android", List.of(), List.of(source.getAbsolutePath()), null);
+        return (File) install.invoke(null, getTargetContext(), "ocr-module-android",
+            Collections.emptyList(), Collections.singletonList(source.getAbsolutePath()), null);
     }
 
     private void rejectImport(String purpose) throws Exception {
