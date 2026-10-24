@@ -1576,6 +1576,7 @@ export { ErrorAlert, type ErrorAlertProps } from "./core/error-alert";
 export { CheckGlyph, type CheckGlyphProps } from "./core/check-glyph";
 export { ChevronGlyph, type ChevronGlyphProps } from "./core/chevron-glyph";
 export { SearchGlyph, type SearchGlyphProps } from "./core/search-glyph";
+export { CloseGlyph, type CloseGlyphProps } from "./core/close-glyph";
 export { formatDateTime, formatZhDate, formatZhMonthDay } from "./core/format-date";
 export { formatZhNumber, formatZhPercent } from "./core/format-number";
 export { StatusMessage, type StatusMessageProps } from "./core/status-message";
