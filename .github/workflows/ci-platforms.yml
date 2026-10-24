@@ -1,71 +1,10 @@
-name: OCR product verification
+name: OCR baseline verification
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  product:
-    name: OCR product (API ${{ matrix.api }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        api: [28, 35]
-    env:
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      ANDROID_HOME: /usr/local/lib/android/sdk
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: 准备固定工具链与 KVM
-        run: |
-          set -euo pipefail
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          sudo apt-get update
-          sudo apt-get install --yes libxml2-utils
-          rustup toolchain install
-          rustup target add x86_64-linux-android
-          { yes || true; } | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
-            'ndk;28.2.13676358' 'build-tools;35.0.0' 'platforms;android-35' 'platforms;android-36' \
-            emulator platform-tools 'system-images;android-${{ matrix.api }};default;x86_64' >/dev/null
-      - name: 生成合成相机图片并启动专用 AVD
-        run: |
-          set -euo pipefail
-          mkdir -p target/android
-          java -Djava.awt.headless=true platforms/android/tests/device/fixtures/OcrCameraImage.java "$PWD/target/android/ocr-camera-synthetic.png"
-          MSIME_ANDROID_CAMERA_IMAGE="$PWD/target/android/ocr-camera-synthetic.png" nohup bash platforms/android/tests/device/start-emulator.sh ${{ matrix.api }} > target/android/emulator.log 2>&1 &
-          serial="emulator-$((5580 - 2 * (35 - ${{ matrix.api }})))"
-          echo "SERIAL=$serial" >> "$GITHUB_ENV"
-          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
-          timeout 600 "$adb" -s "$serial" wait-for-device
-          # shellcheck disable=SC2016
-          MSIME_OCR_ADB="$adb" MSIME_OCR_SERIAL="$serial" timeout 600 bash -c 'until [ "$("$MSIME_OCR_ADB" -s "$MSIME_OCR_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 5; done'
-      - name: 构建临时固定摘要的产品并执行设备验收
-        run: bash platforms/android/tests/device/ocr-product-smoke.sh "$SERIAL"
-      - name: 收集合成设备日志
-        if: always()
-        run: |
-          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
-          "$adb" -s "$SERIAL" logcat -d > target/android/ocr-product-logcat.txt 2>&1 || true
-          "$adb" -s "$SERIAL" logcat -d -b crash > target/android/ocr-product-crash.txt 2>&1 || true
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: always()
-        with:
-          name: ocr-product-api${{ matrix.api }}
-          path: |
-            target/android/emulator.log
-            target/android/ocr-camera-synthetic.png
-            target/android/ocr-product-*.txt
-            target/android/ocr-product-*.png
-            target/android/ocr-product-*.log
-            target/android/ocr-product-test-lock.json
-            platforms/android/gradle-app/ocr-module/build/reports/lint-results-release.txt
-          if-no-files-found: ignore
-      - name: 结束专用 AVD
-        if: always()
-        run: '"$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" emu kill || true'
+  baseline:
+    uses: ./.github/workflows/android-device.yml
+    with:
+      ref: feaeb3ae4d9869c72f86a91aa46c103e41d0507e
