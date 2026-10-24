@@ -547,6 +547,15 @@ public final class NativeClient {
     /** 由 Rust 拼出本宿主自报的 User-Agent（{@code msime_client_client_agent}）。不联网，任意线程。 */
     static String clientAgent(String request) { return TextPolicy.utf8(clientAgentRaw(utf8(request))); }
 
+    /** 昵称的共享纯计算；严格 UTF-8，传输上限与 C 接口一致。 */
+    public static String accountName(String request) {
+        if (request == null || request.length() > 16 * 1024 || !TextPolicy.validUnicode(request))
+            throw new IllegalArgumentException("Invalid account name request");
+        byte[] payload = utf8(request);
+        if (payload.length > 16 * 1024) throw new IllegalArgumentException("Invalid account name request");
+        return TextPolicy.utf8(accountNameRaw(payload));
+    }
+
     /** 账号操作（{@code msime_client_account}），请求带 {@code session_store}。除 status 和 forget 外都阻塞网络，经存储的调用都不能放在主线程上。 */
     static String account(String request) { return TextPolicy.utf8(accountRaw(utf8(request))); }
 
@@ -1086,6 +1095,7 @@ public final class NativeClient {
     private static native byte[] sessionStoreRegisterRaw(SessionStore store, byte[] clientAgent);
     private static native byte[] sessionStoreUnregisterRaw(long sessionStore);
     private static native byte[] clientAgentRaw(byte[] request);
+    private static native byte[] accountNameRaw(byte[] request);
     private static native byte[] accountRaw(byte[] request);
     private static native byte[] accountAccessTokenRaw(byte[] request);
     private static native byte[] accountCloudClipboardRaw(byte[] request);

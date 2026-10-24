@@ -27,6 +27,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
 import app.msime.android.AccountFailureText;
+import app.msime.android.AccountNamePolicy;
 import app.msime.android.AccountStore;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.BackendAccount;
@@ -328,10 +329,19 @@ public final class ProfilePage extends ReloadingDetailPage {
         Loaded state = loaded;
         if (state == null || state.profile() == null || state.sessionId().isEmpty()) return;
         String expectedSessionId = state.sessionId();
-        InputDialog dialog = new InputDialog(requireContext(), "昵称", "1 到 64 个字");
+        AccountNamePolicy.Presentation name = AccountNamePolicy.present(state.profile().displayName());
+        if (name == null) {
+            MsToast.show(requireContext(), "昵称校验暂不可用，请稍后重试");
+            return;
+        }
+        InputDialog dialog = new InputDialog(requireContext(), "昵称", "1 到 " + name.maximumChars() + " 个字")
+            .preserveWhitespace();
         dialog.addField("昵称", state.profile().displayName(), 0)
-            .setFilters(new InputFilter[] {new InputFilter.LengthFilter(DeviceDataApi.MAX_DISPLAY_NAME * 2)});
-        dialog.setValidator(values -> DeviceDataApi.validDisplayName(TextPolicy.trimmed(values.get(0))));
+            .setFilters(new InputFilter[] {new InputFilter.LengthFilter(name.maximumUtf16Units())});
+        dialog.setValidator(values -> {
+            AccountNamePolicy.Presentation draft = AccountNamePolicy.present(values.get(0));
+            return draft != null && draft.valid();
+        });
         dialog.setPrimary("保存", values -> run(context -> {
             new DeviceDataApi(context, expectedSessionId).rename(values.get(0));
             return "";

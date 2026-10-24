@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 「我的」的纯逻辑：昵称、头像、云端数据分区、大小与时间的写法。请求都经 Rust（#8201 迁移计划 5c），令牌、401 后的重试和导出的原子替换由 client-services 和 host-api 的测试覆盖，这里只核对 Java 一侧留下的规则。
+ * 「我的」的纯逻辑：头像、云端数据分区、大小与时间的写法。请求都经 Rust（#8201 迁移计划 5c），令牌、401 后的重试和导出的原子替换由 client-services 和 host-api 的测试覆盖，这里只核对 Java 一侧留下的规则。
  */
 public final class DeviceDataApiSmoke {
     public static void main(String[] arguments) throws Exception {
@@ -14,15 +14,6 @@ public final class DeviceDataApiSmoke {
         check(DeviceDataApi.recentLoginRequired("account_recent_login_required"), "recent login is recognised");
         check(!DeviceDataApi.recentLoginRequired("account_unauthorized"), "a lost session is not a recent-login demand");
         check(!DeviceDataApi.recentLoginRequired(null), "no code");
-
-        // 昵称按码点计 1–64 个：Rust 不接受空昵称，「留空恢复默认」不再提供。
-        check(!DeviceDataApi.validDisplayName(""), "an empty name is refused");
-        check(DeviceDataApi.validDisplayName("林"), "one code point");
-        check(DeviceDataApi.validDisplayName("林".repeat(64)), "64 code points");
-        check(!DeviceDataApi.validDisplayName("林".repeat(65)), "65 code points");
-        check(DeviceDataApi.validDisplayName("🌲".repeat(64)), "astral characters count once");
-        check(!DeviceDataApi.validDisplayName("a\nb"), "control characters are refused");
-        check(!DeviceDataApi.validDisplayName(null), "null is refused");
 
         // 删除云端数据连同这台设备匿名账号的语音样本（Rust 的 data_delete 认 voice）。
         check(DeviceDataApi.DELETABLE_SECTIONS.equals(List.of("preferences", "dictionary", "phrases", "clipboard", "voice")),

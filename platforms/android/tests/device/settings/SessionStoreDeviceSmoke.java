@@ -50,6 +50,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         ClassLoader loader = getTargetContext().getClassLoader();
         client = loader.loadClass("app.msime.android.NativeClient");
         storeType = loader.loadClass("app.msime.android.NativeClient$SessionStore");
+        AccountNameChecks.run(this);
 
         // client_agent 由 Rust 拼装，参数与 BackendAccount 原来的 loginUserAgent 相同。
         JSONObject agentRequest = new JSONObject().put("platform", "android").put("version", "1.2.3")

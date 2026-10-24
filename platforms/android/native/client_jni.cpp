@@ -1202,6 +1202,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_sessionStoreUnr
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_clientAgentRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kClientAgentRequestLimit, msime_client_client_agent);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountNameRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kSmallJsonRequestLimit, msime_client_account_name);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kAccountRequestLimit, msime_client_account);
 }

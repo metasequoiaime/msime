@@ -37,8 +37,15 @@ iOS 的 `CommunityProfilePolicy` 只经既有 `msime_client_account_name` 取得
 
 这会统一既有差异：首尾 U+FEFF 与共享设置页一样去掉，含 U+200D 的组合表情与 Windows、Rust 一样允许；64 个 Unicode 标量的上限、C0/C1 控制字符拒绝由共享层决定。Swift 只为计数展示读取规范化结果的 `unicodeScalars.count`。iOS 产品已静态链接宿主库，适配器直接调用纯 C 接口并释放响应，不扩充只供 `shared/backend` 动态调用的函数表。
 
+### Android 昵称
+
+Android 的 `AccountNamePolicy` 经 `NativeClient.accountName` 和受 16 KiB 限制的 JNI 接口调用同一个 `msime_client_account_name`，只严格解析规范化结果、合法性与两个长度上限。`ProfilePage` 的提示和 UTF-16 输入过滤器取共享结果，`DeviceDataApi.rename` 再读取同一纯函数后提交 `normalized`；桥接失败不能保存，不保留 Java 昵称常量或控制字符校验兜底。
+
+昵称编辑显式选择 `InputDialog.preserveWhitespace()`，让原文直接进入共享规则。通用对话框默认的 Java `trim()` 会吞掉 U+0000、U+001F 等首尾控制字符，若先做这一步，页面与保存入口就会验证不同的文本；其他输入框仍采用原有默认行为。规则测试放在产品进程的 `AccountNameChecks`，由既有 `SessionStoreDeviceSmoke` 调用，避免 JVM 的 `org.json` 桩和另一份 Java 规则掩盖 JNI 的实际行为。
+
 ## Alternatives considered
 
+- **Android 继续在 Java 维护昵称校验。** 不必为同步输入提示增加 JNI 调用；但旧实现只拒绝 C0 与 DEL，漏掉 C1 控制字符，ASCII 去空白也与共享 UI 集合不同。已有纯计算 C 接口可以直接复用，继续补字符表会制造新的规则归属。
 - **iOS 继续用 Foundation 集合近似共享昵称规则。** 无须过 C 接口，页面代码较短；但 `controlCharacters` 会额外拒绝 U+200D，去空白集合也不等于共享设置页的集合。复用已服务 Windows 的纯函数，消除保存前后的平台分歧。
 - **为昵称扩充 Apple 的 Rust 函数表。** 可以沿用后端动态桥和替身表；但这一片只消费已经静态链接 Rust 的 iOS 产品入口，`shared/backend` 的 macOS 动态库不使用该适配器，扩表会额外改变两个宿主的跨语言契约。保持适配器在 iOS 服务层，测试直接调用真实 Rust 规则。
 - **全面原生：macOS、Linux、HarmonyOS 也各写原生设置。** 最强的理由是每个平台只剩一套设置实现，界面完全贴合系统，设置不依赖 WebView 或 Tauri 运行时；macOS 已经有 11 页、约 1 万行的 AppKit 设置，离全原生最近，改完还能顺带消掉 macOS 上 React 与 AppKit 并存的那一份重复。不选，因为 Linux 和 HarmonyOS 今天没有任何原生设置界面（fcitx5 插件声明 `Configurable=False`，`Settings.ets` 只是 ArkWeb 外壳），要为 IBus/Fcitx5 两个环境和 ArkTS 从零写全部页面；`packages/ui/src` 自 10-08 起有 451 个提交，是改动最多的设置代码，它服务的三个平台改成原生后，每个设置功能要写的份数从四份变成六份。
@@ -56,6 +63,7 @@ iOS 的 `CommunityProfilePolicy` 只经既有 `msime_client_account_name` 取得
 - Windows：`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 全部是 `PageHost::Native`，`shell_links::all` 只有 5 个面板；`ShellSurfaces.h` 的 `shell_executable_names` 对空面板返回 `msime-client-settings.exe`，其余返回 `MSIME.exe`。`tests/ui/settings_navigation.cpp` 核对页面模型。
 - iOS：`git grep -l -e "import WebKit" -e WKWebView -- platforms/ios/App platforms/ios/SharedUI platforms/ios/KeyboardExtension` 没有输出。
 - iOS 昵称：旧 Swift 规则的基线探针复现组合表情被拒绝、首尾 U+FEFF 未清除。`SkinCommunityAccountTests` 在 Xcode 27 / iOS 26.5 的临时干净模拟器上 15 项通过，其中新增三项直接调用真实 Rust 昵称接口，覆盖共享空白与控制字符、64 个 Unicode 标量（含补充平面与组合字符）、规范化后的提交和 16 KiB 请求上限；账号请求继续使用合成替身，不访问真实账号。`MSIMEApp` 原生模拟器构建通过；测试必须按 iOS README 保留 ad-hoc 签名与 App Group entitlement。
+- Android 昵称：旧 JVM 规则的 C1 控制字符回归先失败；设备 `AccountNameChecks` 通过产品真实 JNI 覆盖共享空白、C0/C1、64 个码点与补充平面字符、严格响应类型、传输上限，以及原生输入控件保留原文和保存入口拒绝无效昵称。API 35 的 `SessionStoreDeviceSmoke` 整套通过；原生 `build-apk.sh` 构建、JNI 导出、arm64 ELF 和 16 KiB 段对齐检查通过。设备测试沿用既有 instrumentation，新增适配类同时登记在产品依赖源码清单中。
 - Android：`.github/workflows/release-android.yml` 只调用 `platforms/android/build-apk.sh`，`.github/` 下没有任何 workflow 调用 `build-client-apk.sh`。
 - HarmonyOS：`platforms/harmony/entry/src/main/ets/pages/Settings.ets` 用 `$rawfile('settings/index.html')` 加载设置页。
 - macOS 冻结：`git log -- platforms/macos/src/settings platforms/macos/src/core/AISettingsWindow.mm platforms/macos/src/cloud/TranslationSettingsWindow.mm platforms/macos/src/voice/VoiceProviderSettings.mm` 在本篇之后只应出现缺陷修复，不出现新设置项。

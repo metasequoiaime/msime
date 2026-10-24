@@ -96,6 +96,7 @@ platforms/android/java/app/msime/android/account/AppleWebSignIn.java
 platforms/android/java/app/msime/android/account/BackendAccount.java
 platforms/android/java/app/msime/android/account/BackendAnonymousAccount.java
 platforms/android/java/app/msime/android/account/CloudApi.java
+platforms/android/java/app/msime/android/account/AccountNamePolicy.java
 platforms/android/java/app/msime/android/account/DeviceDataApi.java
 platforms/android/java/app/msime/android/account/SyncSwitch.java
 platforms/android/java/app/msime/android/RelativeTimePolicy.java
@@ -195,6 +196,7 @@ platforms/android/tests/device/keyboard/CompositionBatchDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarEditorDeviceSmoke.java
 platforms/android/tests/device/voice/LocalSpeechHandleDeviceSmoke.java
 platforms/android/tests/device/voice/AiEndpointCheckDeviceSmoke.java
+platforms/android/tests/device/settings/AccountNameChecks.java
 platforms/android/tests/device/settings/SessionStoreDeviceSmoke.java
 platforms/android/tests/device/settings/VoiceProviderCatalogDeviceSmoke.java
 platforms/android/tests/device/settings/VoiceProviderSettingsDeviceSmoke.java

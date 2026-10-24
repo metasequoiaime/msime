@@ -41,6 +41,7 @@ public final class InputDialog {
     private final LinearLayout fields;
     private final List<EditText> inputs = new ArrayList<>(2);
     private final TextView primary;
+    private boolean trimValues = true;
     private Predicate<List<String>> valid = values -> {
         for (String value : values) if (value.isEmpty()) return false;
         return true;
@@ -146,7 +147,7 @@ public final class InputDialog {
         return input;
     }
 
-    /** 确认按钮的文字（例如「创建」「添加」）和动作；动作收到各输入框去掉首尾空白后的内容，按添加顺序排列。 */
+    /** 确认按钮的文字（例如「创建」「添加」）和动作；动作按添加顺序收到输入内容，默认去首尾空白，preserveWhitespace 时保留原文。 */
     public InputDialog setPrimary(CharSequence label, Consumer<List<String>> action) {
         primary.setText(label);
         this.action = action;
@@ -156,6 +157,13 @@ public final class InputDialog {
     /** 替换「所有输入框都非空」这条默认的可提交条件。 */
     public InputDialog setValidator(Predicate<List<String>> valid) {
         this.valid = valid;
+        refresh();
+        return this;
+    }
+
+    /** 交给共享规则处理首尾字符，避免 Java 的 trim 提前吞掉无效控制字符。 */
+    public InputDialog preserveWhitespace() {
+        trimValues = false;
         refresh();
         return this;
     }
@@ -173,7 +181,10 @@ public final class InputDialog {
 
     private List<String> values() {
         List<String> values = new ArrayList<>(inputs.size());
-        for (EditText input : inputs) values.add(TextPolicy.trimmed(input.getText().toString()));
+        for (EditText input : inputs) {
+            String value = input.getText().toString();
+            values.add(trimValues ? TextPolicy.trimmed(value) : value);
+        }
         return ListPolicy.copyOrEmpty(values);
     }
 
