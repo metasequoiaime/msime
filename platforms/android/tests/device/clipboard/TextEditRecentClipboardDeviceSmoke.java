@@ -1,6 +1,7 @@
 package app.msime.android.test;
 
 import android.graphics.Rect;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
@@ -17,15 +18,18 @@ import org.json.JSONObject;
 /** #8104、#8175：在真实编辑器里检查选择状态、全选复制剪切、顶部预览与返回键。 */
 public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private boolean spaceCopyOnly;
+    private boolean layoutOnly;
     private static final String TEXT = "synthetic-copy-alpha";
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
     @Override public void onCreate(Bundle arguments) {
         spaceCopyOnly = arguments != null && "true".equals(arguments.getString("space-copy-only"));
+        layoutOnly = arguments != null && "true".equals(arguments.getString("layout-only"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (layoutOnly) return "saved/cancelled/reset side order and all fifteen keys in portrait, landscape, one-handed and floating modes";
         return spaceCopyOnly ? "space upward copy, editor permissions, selection restoration and clipboard preview"
             : "fixed editor grid, saved/cancelled/reset side order, shortcuts, selection and clipboard preview";
     }
@@ -53,6 +57,11 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         try {
             save(preferences, ++revision, values);
             publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
+            if (layoutOnly) {
+                checkOrderSettings(preferences, values, revision);
+                checkLayoutModes(local, settings);
+                return;
+            }
             new SpaceCopyDeviceChecks(this).run(true);
             if (spaceCopyOnly) {
                 values.put("clipboard_history", false);
@@ -164,6 +173,68 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         }
     }
 
+    /** 专项不依赖剪贴板手势；逐一确认实际窗口中的所有操作，不用滚动或隐藏按钮。 */
+    private void checkLayoutModes(File local, JSONObject settings) throws Exception {
+        String automatic = shellText("settings get system accelerometer_rotation").trim();
+        String rotation = shellText("settings get system user_rotation").trim();
+        JSONObject localValues = settings.getJSONObject("settings");
+        try {
+            shellDiscard("settings put system accelerometer_rotation 0");
+            for (String mode : new String[] {"portrait", "left", "right", "floating", "landscape"}) {
+                stage = "text editor layout " + mode;
+                boolean landscape = mode.equals("landscape");
+                shellDiscard("settings put system user_rotation " + (landscape ? "1" : "0"));
+                localValues.put("platform.android.one_handed", mode.equals("left") || mode.equals("right") ? mode : "off")
+                    .put("platform.android.floating_keyboard", mode.equals("floating"));
+                publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
+                long until = SystemClock.uptimeMillis() + 15000;
+                while ((getTargetContext().getResources().getConfiguration().orientation
+                        == Configuration.ORIENTATION_LANDSCAPE) != landscape) {
+                    if (SystemClock.uptimeMillis() >= until)
+                        throw new AssertionError("Synthetic editor orientation did not settle");
+                    SystemClock.sleep(100);
+                }
+                openPanel(mode);
+                checkAllKeyBounds(mode);
+                click("插入空格");
+                await(field("msime-test-plain").and(node -> equalsText(TEXT + " ", node.getText())));
+                click("退格");
+                await(field("msime-test-plain").and(node -> equalsText(TEXT, node.getText())));
+            }
+        } finally {
+            restoreSystem("user_rotation", rotation);
+            restoreSystem("accelerometer_rotation", automatic);
+        }
+    }
+
+    private void restoreSystem(String key, String value) throws Exception {
+        shellDiscard(value.matches("[0-9]+") ? "settings put system " + key + " " + value
+            : "settings delete system " + key);
+    }
+
+    private void checkAllKeyBounds(String mode) {
+        Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
+        Rect[] keys = new Rect[15];
+        String[] descriptions = {"光标左移", "光标上移", "选择模式", "光标下移", "光标右移",
+            "全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行"};
+        int minimumWidth = Integer.MAX_VALUE, minimumHeight = Integer.MAX_VALUE;
+        for (int index = 0; index < descriptions.length; index++) {
+            keys[index] = bounds(awaitStableBounds(described(descriptions[index]).and(AccessibilityNodeInfo::isClickable)));
+            if (keys[index].isEmpty() || !panel.contains(keys[index]))
+                throw new AssertionError("Editor key is outside " + mode + " panel: " + descriptions[index]);
+            for (int previous = 0; previous < index; previous++) {
+                if (Rect.intersects(keys[index], keys[previous]))
+                    throw new AssertionError("Editor keys overlap in " + mode + " panel");
+            }
+            minimumWidth = Math.min(minimumWidth, keys[index].width());
+            minimumHeight = Math.min(minimumHeight, keys[index].height());
+        }
+        float density = getTargetContext().getResources().getDisplayMetrics().density;
+        // 只记录合成窗口的几何尺寸；可见与可点击不等于已验收触控舒适度。
+        System.out.println("Text editor layout " + mode + ": panel=" + panel.width() + "x" + panel.height()
+            + "px, minimum key=" + minimumWidth / density + "x" + minimumHeight / density + "dp");
+    }
+
     /** 使用真实设置页保存、取消、重置和重开，再由键盘进程读取同一顺序。 */
     private long checkOrderSettings(File preferences, JSONObject values, long revision) throws Exception {
         Class<?> nativeClient = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
@@ -226,10 +297,16 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     }
 
     private void openPanel() throws Exception {
+        openPanel(null);
+    }
+
+    private void openPanel(String mode) throws Exception {
         restartIme();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity --ez msime_test_multiline true");
         tap(field("msime-test-plain"));
         await(key("n"));
+        if ("left".equals(mode) || "right".equals(mode)) await(described("退出单手模式"));
+        else if ("floating".equals(mode)) await(described("停靠键盘"));
         Bundle args = new Bundle();
         args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, TEXT);
         if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args))

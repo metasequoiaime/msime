@@ -11,6 +11,7 @@ statistics=false
 core=false
 feedback=false
 diagnostics=false
+text_edit_layout=false
 for option in "${@:2}"; do
   case "$option" in
     # --core 跑安装、词库准备、打字主路径及剪贴板保存生命周期；其余键盘套件在 API 28 上仍不支持。
@@ -20,7 +21,8 @@ for option in "${@:2}"; do
     --statistics) statistics=true ;;
     --feedback) feedback=true ;;
     --diagnostics) diagnostics=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics]" >&2; exit 1 ;;
+    --text-edit-layout) text_edit_layout=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -99,6 +101,12 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+if [[ "$text_edit_layout" == true ]]; then
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e layout-only true)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Text edit layout acceptance failed" >&2; exit 1; }
+  exit 0
+fi
 if [[ "$core" != true ]]; then
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-toggle true)
   printf '%s\n' "$result"
