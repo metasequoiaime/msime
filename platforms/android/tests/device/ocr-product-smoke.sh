@@ -85,7 +85,7 @@ printf '%s\n' "$denied" | tee target/android/ocr-product-permission.log
 [[ "$denied" == *MSIME_DEVICE_SMOKE_PASSED* && "$denied" != *MSIME_DEVICE_SMOKE_FAILED* ]] || product_status=1
 "$adb" -s "$serial" shell svc wifi enable
 "$adb" -s "$serial" shell svc data enable
-for frame in captured preview result editor selection hidden resumed permission failure; do
+for frame in captured preview result editor selection hidden resumed switched permission failure; do
   "$adb" -s "$serial" pull "/sdcard/Android/data/app.msime.android/files/ocr-product-$frame.png" \
     "target/android/ocr-product-$frame.png" >/dev/null 2>&1 || true
 done
