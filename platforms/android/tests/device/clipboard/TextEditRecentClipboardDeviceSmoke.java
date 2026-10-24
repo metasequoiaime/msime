@@ -31,7 +31,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
-        if (layoutOnly) return "saved/cancelled/reset side order and all fifteen keys in portrait, landscape, one-handed and floating modes";
+        if (layoutOnly) return "saved/cancelled/reset side order and line boundaries, return long press and all seventeen keys in portrait, landscape, one-handed and floating modes";
         if (trackpadOnly) return "text trackpad through system editors, selection, temporary mode and key receiver";
         return spaceCopyOnly ? "space upward copy, editor permissions, selection restoration and clipboard preview"
             : "fixed editor grid, saved/cancelled/reset side order, shortcuts, selection and clipboard preview";
@@ -63,6 +63,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
             if (layoutOnly) {
                 checkOrderSettings(preferences, values, revision);
+                new TextEditLineDeviceChecks(this).run();
                 checkLayoutModes(local, settings);
                 return;
             }
@@ -81,7 +82,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             {
                 stage = "all editor shortcuts visible without scrolling";
                 Rect panelBounds = bounds(awaitStableBounds(described("文本编辑面板")));
-                for (String description : new String[] {"全选", "复制", "剪切", "粘贴", "打开数字键盘", "插入空格", "插入换行", "退格"}) {
+                for (String description : new String[] {"全选", "复制", "剪切", "粘贴", "打开数字键盘", "插入空格", "插入换行，长按打开符号", "退格"}) {
                     Rect keyBounds = bounds(await(described(description)));
                     if (keyBounds.isEmpty() || !panelBounds.contains(keyBounds))
                         throw new AssertionError("Editor key is outside panel: " + description);
@@ -94,7 +95,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
                 click("插入空格");
                 await(field("msime-test-plain").and(node -> equalsText(TEXT + " ", node.getText())));
                 stage = "editor return shortcut";
-                click("插入换行");
+                click("插入换行，长按打开符号");
                 await(field("msime-test-plain").and(node -> equalsText(TEXT + " \n", node.getText())));
                 stage = "editor number shortcut";
                 click("打开数字键盘");
@@ -225,7 +226,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         if (pad.isEmpty() || !panel.contains(pad))
             throw new AssertionError("Trackpad is outside " + mode + " panel");
         for (String description : new String[] {"全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾",
-                "退格", "打开数字键盘", "插入空格", "插入换行", "选择模式"}) {
+                "退格", "打开数字键盘", "插入空格", "插入换行，长按打开符号", "选择模式", "移到行首", "移到行尾"}) {
             Rect key = bounds(awaitStableBounds(described(description).and(AccessibilityNodeInfo::isClickable)));
             if (key.isEmpty() || !panel.contains(key) || Rect.intersects(pad, key))
                 throw new AssertionError("Trackpad covered editor key in " + mode + ": " + description);
@@ -235,11 +236,11 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         checkAllKeyBounds(mode);
     }
 
-    private void checkAllKeyBounds(String mode) {
+    private void checkAllKeyBounds(String mode) throws Exception {
         Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
-        Rect[] keys = new Rect[15];
+        Rect[] keys = new Rect[17];
         String[] descriptions = {"光标左移", "光标上移", "选择模式", "光标下移", "光标右移",
-            "全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行"};
+            "全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行，长按打开符号", "移到行首", "移到行尾"};
         int minimumWidth = Integer.MAX_VALUE, minimumHeight = Integer.MAX_VALUE;
         for (int index = 0; index < descriptions.length; index++) {
             keys[index] = bounds(awaitStableBounds(described(descriptions[index]).and(AccessibilityNodeInfo::isClickable)));
@@ -256,6 +257,13 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         // 只记录合成窗口的几何尺寸；可见与可点击不等于已验收触控舒适度。
         System.out.println("Text editor layout " + mode + ": panel=" + panel.width() + "x" + panel.height()
             + "px, minimum key=" + minimumWidth / density + "x" + minimumHeight / density + "dp");
+        android.graphics.Bitmap image = automation.takeScreenshot();
+        if (image == null) throw new AssertionError("Synthetic editor screenshot unavailable");
+        try (var output = new java.io.FileOutputStream(new File(getTargetContext().getExternalFilesDir(null),
+                "text-edit-line-" + mode + ".png"))) {
+            if (!image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
+                throw new AssertionError("Synthetic editor screenshot failed");
+        } finally { image.recycle(); }
     }
 
     /** 使用真实设置页保存、取消、重置和重开，再由键盘进程读取同一顺序。 */
