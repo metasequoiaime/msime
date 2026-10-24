@@ -113,9 +113,31 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         awaitAny(field("msime-test-plain").and(node -> node.refresh() && node.getText() != null
             && node.getText().toString().replaceAll("\\s", "").contains("SYNTHETICOCR2468")));
         screenshot("editor");
+        stage = "insert only selected OCR characters";
+        editor();
+        camera();
+        tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        awaitAny(node -> equalsText("上屏选中文字", node.getText()));
+        AccessibilityNodeInfo text = awaitAny(node -> equalsText("android.widget.TextView", node.getClassName())
+            && node.getText() != null && node.getText().toString().contains("2468")
+            && node.getActionList().contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_SELECTION));
+        int start = text.getText().toString().indexOf("2468");
+        android.os.Bundle selection = new android.os.Bundle();
+        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start);
+        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, start + 4);
+        check(text.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection), "select only synthetic digits");
+        tap(node -> equalsText("上屏选中文字", node.getText()));
+        awaitAny(field("msime-test-plain").and(node -> equalsText("2468", node.getText())));
+        screenshot("selection");
+
+        // 未拍照时隐藏键盘后再次打开，必须能重新取得相机，不能只验证拍照回调里的释放。
+        stage = "release preview when keyboard hides";
+        camera();
+        automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
+        editor();
+        camera();
         // 识别后离开输入框不能把待选结果带入下一个编辑器。
         stage = "discard results after editor switch";
-        camera();
         tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
         automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
         editor();
