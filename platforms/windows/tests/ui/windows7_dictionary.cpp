@@ -36,7 +36,8 @@ struct TemporaryState {
   ~TemporaryState() { std::error_code error; std::filesystem::remove_all(path, error); }
 };
 void pump(const std::function<bool()>& condition) {
-  const auto deadline = GetTickCount64() + 10000;
+  // 词库页首次创建会等待隔离的共享存储和后台线程；冷启动的 Windows CI 可能超过普通控件的 10 秒预算。
+  const auto deadline = GetTickCount64() + 30000;
   for (;;) {
     MSG message{};
     while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
