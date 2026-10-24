@@ -74,7 +74,7 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             clipboard.setPrimaryClip(ClipData.newPlainText("synthetic", "MSIME synthetic clipboard sentinel"));
             stage = "device information copy retains editor";
             for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
-            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("nihao", node.getText())));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("ni'hao", node.getText())));
             stage = "device information initial commit (preview " + previewEnabled + ")";
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> node.refresh() && equalsText("你好", node.getText())));
