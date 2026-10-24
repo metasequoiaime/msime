@@ -24,15 +24,41 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
     private Method open;
     private Method install;
     private File source;
+    private boolean permissionDenied;
 
-    @Override protected String successDescription() { return "pinned OCR import, readonly isolated loading, camera capture and editor insertion"; }
+    @Override public void onCreate(android.os.Bundle arguments) {
+        permissionDenied = arguments != null && "true".equals(arguments.getString("ocr-permission-denied"));
+        super.onCreate(arguments);
+    }
+
+    @Override protected String successDescription() {
+        return permissionDenied ? "revoked camera permission blocks native OCR preview"
+            : "pinned OCR import, readonly isolated loading, camera capture and editor insertion";
+    }
 
     @Override protected void runChecks() throws Exception {
-        try { productChecks(); }
+        try { if (permissionDenied) permissionDeniedChecks(); else productChecks(); }
         catch (Exception | AssertionError error) {
             try { screenshot("failure"); } catch (Exception ignored) { }
             throw error;
         }
+    }
+
+    /** 撤权会终止目标进程，由脚本在两次 instrumentation 之间撤回权限。 */
+    private void permissionDeniedChecks() throws Exception {
+        stage = "camera permission revoked";
+        check(getTargetContext().checkSelfPermission("android.permission.CAMERA")
+            != android.content.pm.PackageManager.PERMISSION_GRANTED, "camera permission is revoked");
+        restartIme();
+        editor();
+        tap(key("更多"));
+        showTool("拍照识字");
+        tap(tool("拍照识字"));
+        awaitAny(node -> equalsText("请先在拍照识字设置中授权相机并导入配套模块。", node.getText()));
+        for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
+            check(findAny(window.getRoot(), described("拍照识字相机预览")) == null,
+                "revoked permission cannot create camera preview");
+        screenshot("permission");
     }
 
     private void productChecks() throws Exception {
