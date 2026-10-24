@@ -19183,6 +19183,39 @@ fn mobile_voice_polish_status_export_uses_shared_status_rules() {
 }
 
 #[test]
+fn mobile_voice_policy_export_uses_shared_provider_rules() {
+    let provider = "openai";
+    let mode = " legacy ";
+    let result = read(unsafe {
+        msime_client_mobile_voice_policy(
+            provider.as_ptr(),
+            provider.len(),
+            mode.as_ptr(),
+            mode.len(),
+        )
+    });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{"network":true,"legacy_auth":true}})
+    );
+
+    let provider = "local";
+    let mode = "api_key";
+    let result = read(unsafe {
+        msime_client_mobile_voice_policy(
+            provider.as_ptr(),
+            provider.len(),
+            mode.as_ptr(),
+            mode.len(),
+        )
+    });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{"network":false,"legacy_auth":false}})
+    );
+}
+
+#[test]
 fn voice_provider_update_export_clears_fields_only_with_the_explicit_policy() {
     for (service, provider) in [
         ("voice.asr", "openai"),

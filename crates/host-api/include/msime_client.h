@@ -577,6 +577,10 @@ char *msime_client_mobile_voice_status(const uint8_t *provider, size_t provider_
 /* 设置页润色行的状态文案；enabled 是润色开关，configured 表示共享解析已有可用配置，
  * has_token 表示当前服务或槽位存在凭据。纯计算，返回 {status:string|null}。 */
 char *msime_client_mobile_voice_polish_status(bool enabled, bool configured, bool has_token);
+/* Android 语音设置的服务分类和豆包鉴权模式。provider 与 auth_mode 是 <=256 字节 UTF-8，返回
+ * {network:boolean,legacy_auth:boolean}，纯计算，不读取偏好或设备状态。 */
+char *msime_client_mobile_voice_policy(const uint8_t *provider, size_t provider_length,
+                                       const uint8_t *auth_mode, size_t auth_mode_length);
 /* 切换语音服务的纯函数；请求 <=1 MiB：{service:"voice.asr"|"voice.polish",provider:string,
  * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}},field_policy?:"fill_defaults"|"clear"}。
  * current 缺少的字段按空值处理。field_policy 缺省为 fill_defaults，只替换空白或出厂值；clear 在换服务时清空地址和模型。

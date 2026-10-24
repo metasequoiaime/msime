@@ -115,13 +115,28 @@ pub fn valid_voice_credential(provider: &str, value: &str) -> bool {
             && (provider != "doubao" || value.is_ascii()))
 }
 
+/// Android 语音设置需要的服务分类和鉴权模式；不读取偏好、凭据、文件或网络。
+#[derive(Debug, PartialEq, Eq)]
+pub struct MobileVoiceProviderPolicy {
+    pub network: bool,
+    pub legacy_auth: bool,
+}
+
+/// 统一计算 Android 设置页仍需展示的两个服务策略。
+pub fn mobile_voice_provider_policy(provider: &str, auth_mode: &str) -> MobileVoiceProviderPolicy {
+    MobileVoiceProviderPolicy {
+        network: !provider.is_empty() && provider != "system" && provider != "local",
+        legacy_auth: auth_mode.trim() == "legacy",
+    }
+}
+
 /// 设置页识别服务行的状态文案；`resolved` 表示共享解析已经得到可用云端配置。
 pub fn mobile_voice_provider_status(
     provider: &str,
     resolved: bool,
     platform_available: bool,
 ) -> Option<&'static str> {
-    let network = !provider.is_empty() && provider != "system" && provider != "local";
+    let network = mobile_voice_provider_policy(provider, "").network;
     if !network {
         return if provider.is_empty() || provider == "system" {
             Some(if platform_available {
@@ -839,6 +854,21 @@ mod tests {
             Some("没有可用的系统识别服务，可改用本地模型或豆包")
         );
         assert_eq!(mobile_voice_provider_status("local", true, true), None);
+    }
+
+    #[test]
+    fn mobile_voice_policy_matches_android_provider_rules() {
+        let cloud = mobile_voice_provider_policy("openai", " legacy ");
+        assert!(cloud.network);
+        assert!(cloud.legacy_auth);
+
+        let offline = mobile_voice_provider_policy("local", "api_key");
+        assert!(!offline.network);
+        assert!(!offline.legacy_auth);
+
+        let system = mobile_voice_provider_policy("system", "");
+        assert!(!system.network);
+        assert!(!system.legacy_auth);
     }
 
     #[test]

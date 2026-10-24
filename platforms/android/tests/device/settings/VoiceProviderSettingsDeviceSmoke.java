@@ -36,6 +36,16 @@ public final class VoiceProviderSettingsDeviceSmoke extends Instrumentation {
                 && !(Boolean) credential.invoke(null, "doubao", "密钥")
                 && !(Boolean) credential.invoke(null, "openai", "x".repeat(16 * 1024 + 1)),
             "共享 JNI 拒绝控制字符、豆包非 ASCII 和超长凭据");
+        Method network = policy.getMethod("network", String.class);
+        check((Boolean) network.invoke(null, "openai") && (Boolean) network.invoke(null, "doubao")
+                && !(Boolean) network.invoke(null, "system") && !(Boolean) network.invoke(null, "local")
+                && !(Boolean) network.invoke(null, "") && !(Boolean) network.invoke(null, (Object) null),
+            "共享 JNI 统一服务是否联网的判断");
+        Method legacyAuth = policy.getMethod("legacyAuth", String.class);
+        check((Boolean) legacyAuth.invoke(null, "legacy") && (Boolean) legacyAuth.invoke(null, " legacy ")
+                && !(Boolean) legacyAuth.invoke(null, "") && !(Boolean) legacyAuth.invoke(null, "api_key")
+                && !(Boolean) legacyAuth.invoke(null, (Object) null),
+            "共享 JNI 统一豆包旧版鉴权模式的判断");
         Method trim = loader.loadClass("app.msime.android.TextPolicy")
             .getMethod("trimUnicodeWhitespace", String.class);
         Method hasToken = loader.loadClass("app.msime.android.home.VoicePage")
@@ -97,6 +107,16 @@ public final class VoiceProviderSettingsDeviceSmoke extends Instrumentation {
                 "{\"ok\":true,\"value\":{\"status\":\"\"}}"}) {
             check(statusParse.invoke(null, invalid) == null, "损坏状态信封不展示猜测文案");
         }
+        Method policyParse = policy.getDeclaredMethod("parsePolicyField", String.class, String.class);
+        policyParse.setAccessible(true);
+        String policyResponse = "{\"ok\":true,\"value\":{\"network\":true,\"legacy_auth\":true}}";
+        check((Boolean) policyParse.invoke(null, policyResponse, "network")
+                && (Boolean) policyParse.invoke(null, policyResponse, "legacy_auth"),
+            "服务策略严格解析共享成功信封");
+        check(!(Boolean) policyParse.invoke(null,
+                "{\"ok\":true,\"value\":{\"network\":\"true\"}}", "network")
+                && !(Boolean) policyParse.invoke(null, "{\"ok\":false}", "network"),
+            "损坏服务策略不产生真值");
         Method credentialParse = policy.getDeclaredMethod("credentialAccepted", String.class);
         credentialParse.setAccessible(true);
         check((Boolean) credentialParse.invoke(null, "{\"ok\":true,\"value\":{\"accepted\":true}}"),
