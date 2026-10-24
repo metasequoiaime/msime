@@ -234,6 +234,7 @@ const BACKSPACE_REPEAT_MILLIS: number = 70;
 // like it should cost.
 const CURSOR_STEP_VP: number = 12;
 const KEY_HINT_FONT_SIZE: number = 10;
+const KEY_HINT_LINE_HEIGHT_VP: number = 12;
 // 角标提示距键上边和右边的距离（Android 的 `KeyHintButton.CORNER_HINT_TOP_DP` / `CORNER_HINT_RIGHT_DP`）。
 const CORNER_HINT_TOP_VP: number = 3;
 const CORNER_HINT_RIGHT_VP: number = 5;
@@ -1117,10 +1118,13 @@ struct KeyboardView {
       || ChineseHelpcodePolicy.entersHelpcode(this.english, held, this.editing, this.engineScheme, this.localMode));
   }
 
-  /** The double-pinyin unit a key stands for, printed along its bottom edge while it means one. */
+  /** 提示跟随当前选中的方案，切换后立即更新，不等下一次按键的引擎回报。 */
   private letterHint(letter: string): string {
-    return ShuangpinKeyHintPolicy.hint(this.shuangpinProfile, letter, this.english,
-      this.engineScheme, this.localMode, this.shuangpinKeyHints);
+    if (this.scheme.engineScheme !== 'shuangpin') {
+      return '';
+    }
+    return ShuangpinKeyHintPolicy.hint(this.scheme.shuangpinProfile ?? this.shuangpinProfile,
+      letter, this.english, 1, this.localMode, this.shuangpinKeyHints);
   }
 
   /**
@@ -1711,50 +1715,68 @@ struct KeyboardView {
     .scale({ x: this.keyPressedScale, y: this.keyPressedScale })
   }
 
+  private keyFaceHasCornerHint(options: KeyOptions): boolean {
+    return options.cornerHint !== undefined && options.cornerHint.length > 0;
+  }
+
   @Builder
   keyFace($$: KeyOptions) {
-    Column() {
-      if ($$.icon !== undefined && $$.icon.length > 0) {
-        KeyboardLineIcon({
-          d: $$.icon ?? '',
-          iconSize: KEY_ICON_VP,
-          stroke: KeyboardIconPaths.KEY_STROKE,
-          color: $$.accentIcon === true ? this.skin.accent
-            : this.skin.keyLabelColor($$.emphasized, $$.special === true)
-        })
-      } else {
-        Text($$.letter === undefined ? $$.face : this.letterFace($$.letter))
-          .fontSize($$.size)
-          .fontWeight($$.fontWeight ?? 400)
-          .maxLines(1)
-          .fontColor(this.skin.keyLabelColor($$.emphasized, $$.special === true))
-          .fontFamily(this.skin.monospaced ? 'monospace' : undefined)
-          .textAlign(TextAlign.Center)
-          .width('100%')
+    Stack({ alignContent: Alignment.TopEnd }) {
+      Column() {
+        if ($$.icon !== undefined && $$.icon.length > 0) {
+          KeyboardLineIcon({
+            d: $$.icon ?? '',
+            iconSize: KEY_ICON_VP,
+            stroke: KeyboardIconPaths.KEY_STROKE,
+            color: $$.accentIcon === true ? this.skin.accent
+              : this.skin.keyLabelColor($$.emphasized, $$.special === true)
+          })
+        } else {
+          Text($$.letter === undefined ? $$.face : this.letterFace($$.letter))
+            .fontSize($$.size)
+            .minFontSize(KEY_HINT_FONT_SIZE)
+            .maxFontSize($$.size)
+            .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
+            .layoutWeight(this.keyFaceHasCornerHint($$) ? 1 : 0)
+            .fontWeight($$.fontWeight ?? 400)
+            .maxLines(1)
+            .fontColor(this.skin.keyLabelColor($$.emphasized, $$.special === true))
+            .fontFamily(this.skin.monospaced ? 'monospace' : undefined)
+            .textAlign(TextAlign.Center)
+            .width('100%')
+        }
+        if ($$.hint !== undefined && $$.hint.length > 0) {
+          Text($$.hint)
+            .fontSize(KEY_HINT_FONT_SIZE)
+            .minFontSize(6)
+            .maxFontSize(KEY_HINT_FONT_SIZE)
+            .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
+            .height(KEY_HINT_LINE_HEIGHT_VP)
+            .maxLines(1)
+            .fontColor(this.skin.accent)
+            .textAlign(TextAlign.Center)
+            .width('100%')
+        }
       }
-      if ($$.hint !== undefined && $$.hint.length > 0) {
-        // Along the bottom edge, which is why the letter above it is not centred in the whole key.
-        Text($$.hint)
-          .fontSize(KEY_HINT_FONT_SIZE)
-          .maxLines(1)
-          .fontColor(this.skin.accent)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-      }
-      if ($$.cornerHint !== undefined && $$.cornerHint.length > 0) {
-        // 脱离列的布局流，按设计稿和 Android 的 `KeyHintButton` 的位置放在距顶部 3 vp、距右侧 5 vp 处，这样字母和双拼行保持原位。
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .height('100%')
+      // 角标有独立的顶部区域，字母与双拼提示只在下方剩余高度内排版。
+      .padding({ top: this.keyFaceHasCornerHint($$)
+        ? CORNER_HINT_TOP_VP + KEY_HINT_LINE_HEIGHT_VP : 0 })
+      if (this.keyFaceHasCornerHint($$)) {
         Text($$.cornerHint)
           .fontSize(KEY_HINT_FONT_SIZE)
+          .height(KEY_HINT_LINE_HEIGHT_VP)
           .maxLines(1)
           .fontColor(this.skin.secondary)
-          .position({ top: CORNER_HINT_TOP_VP, right: CORNER_HINT_RIGHT_VP })
+          .margin({ top: CORNER_HINT_TOP_VP, right: CORNER_HINT_RIGHT_VP })
           .hitTestBehavior(HitTestMode.None)
       }
     }
-    .justifyContent(FlexAlign.Center)
     .width('100%')
     .height('100%')
-    // 键面只负责画，不接收触摸：触摸归外层的键，由它的 `responseRegion` 决定。否则键面这一层按自己的键帽大小被命中，挡住伸进这块键帽的邻键（紧挨回车的中/英键），而外层的回车又不在自己的触摸区里，这一下就落空了。
+    // 键面只负责画，不接收触摸：触摸归外层的键，由它的 `responseRegion` 决定。
     .hitTestBehavior(HitTestMode.None)
   }
 

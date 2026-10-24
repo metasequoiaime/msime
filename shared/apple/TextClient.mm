@@ -80,26 +80,41 @@ NSString *MSIMETextClientFollowingCharacter(id<MSIMETextClient> client) {
     return text.length == 1 ? [text substringWithRange:NSMakeRange(0, 1)] : nil;
 }
 
+// 客户端可能把截断的代理对扩展为两个 UTF-16 单元；除此以外的长度不猜测位置。
+static uint32_t MSIMETextClientScalarBefore(id<MSIMETextClient> client, NSUInteger location, BOOL (^isCurrent)(void)) {
+    if (!location || location == NSNotFound) return 0;
+    NSString *text = [client attributedSubstringFromRange:NSMakeRange(location - 1, 1)].string;
+    if (isCurrent && !isCurrent()) return 0;
+    if (text.length == 2) {
+        const unichar high = [text characterAtIndex:0], low = [text characterAtIndex:1];
+        return CFStringIsSurrogateHighCharacter(high) && CFStringIsSurrogateLowCharacter(low)
+            ? CFStringGetLongCharacterForSurrogatePair(high, low) : 0;
+    }
+    if (text.length != 1) return 0;
+    const unichar tail = [text characterAtIndex:0];
+    if (CFStringIsSurrogateLowCharacter(tail) && location > 1) {
+        NSString *pair = [client attributedSubstringFromRange:NSMakeRange(location - 2, 2)].string;
+        if (isCurrent && !isCurrent()) return 0;
+        if (pair.length == 2 && CFStringIsSurrogateHighCharacter([pair characterAtIndex:0]) &&
+            [pair characterAtIndex:1] == tail)
+            return CFStringGetLongCharacterForSurrogatePair([pair characterAtIndex:0], tail);
+        return 0;
+    }
+    return CFStringIsSurrogateHighCharacter(tail) || CFStringIsSurrogateLowCharacter(tail) ? 0 : tail;
+}
+
 uint32_t MSIMETextClientPrecedingUnicodeScalar(id<MSIMETextClient> client) {
     if (!client || ![client respondsToSelector:@selector(selectedRange)] ||
         ![client respondsToSelector:@selector(attributedSubstringFromRange:)]) return 0;
     NSRange selected = [client selectedRange];
-    if (selected.location == NSNotFound || selected.length != 0 || selected.location == 0) return 0;
-    NSUInteger start = selected.location - 1;
-    NSAttributedString *one = [client attributedSubstringFromRange:NSMakeRange(start, 1)];
-    NSString *text = one.string;
-    if (!text.length) return 0;
-    unichar tail = [text characterAtIndex:text.length - 1];
-    if (tail >= 0xDC00 && tail <= 0xDFFF && start > 0) {
-        NSAttributedString *pair = [client attributedSubstringFromRange:NSMakeRange(start - 1, 2)];
-        NSString *pairText = pair.string;
-        if (pairText.length == 2) {
-            unichar high = [pairText characterAtIndex:0];
-            if (high >= 0xD800 && high <= 0xDBFF)
-                return CFStringGetLongCharacterForSurrogatePair(high, tail);
-        }
-    }
-    return tail;
+    return selected.length == 0 ? MSIMETextClientScalarBefore(client, selected.location, nil) : 0;
+}
+
+void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextClient> client,
+                                       MSIMEInlinePreeditStyle style, NSString *closing,
+                                       BOOL *clientHasMarkedText, BOOL (^isCurrent)(void)) {
+    MSIMEApplyTransitionWithCommitObserver(transition, client, style, closing,
+                                           clientHasMarkedText, isCurrent, nil);
 }
 
 void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
@@ -115,14 +130,15 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
 void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText) {
-    MSIMEApplyTransitionWithWriteGuard(transition, client, style, closing, clientHasMarkedText, nil);
+    MSIMEApplyTransitionWithCommitObserver(transition, client, style, closing, clientHasMarkedText, nil, nil);
 }
 
-void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextClient> client,
-                                       MSIMEInlinePreeditStyle style, NSString *closing,
-                                       BOOL *clientHasMarkedText, BOOL (^isCurrent)(void)) {
-    if (![transition isKindOfClass:NSDictionary.class]) return;
-    if (isCurrent && !isCurrent()) return;
+void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETextClient> client,
+                                            MSIMEInlinePreeditStyle style, NSString *closing,
+                                            BOOL *clientHasMarkedText, BOOL (^isCurrent)(void),
+                                            void (^didCommit)(NSString *text)) {
+    if (![transition isKindOfClass:NSDictionary.class] || (isCurrent && !isCurrent())) return;
+
     if (!closing.length) closing = nil;
     id commit = transition[@"commit"];
     // A commit ends the pair: the closing mark goes in with the text it was holding open, and the
@@ -130,10 +146,13 @@ void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextCl
     if ([commit isKindOfClass:NSString.class] && closing)
         commit = [(NSString *)commit stringByAppendingString:closing];
     if ([commit isKindOfClass:NSString.class]) {
-        // 上屏先消耗旧标记；同步回调写下的新标记由较新的转换持有。
+        // 先消耗旧标记，再同步写入；回调中的新组字由新的派发持有。
         if (clientHasMarkedText) *clientHasMarkedText = NO;
         [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
         if (isCurrent && !isCurrent()) return;
+        if (didCommit) didCommit(commit);
+        if (isCurrent && !isCurrent()) return;
+
     }
     NSDictionary *view = transition[@"view"];
     if (![view isKindOfClass:NSDictionary.class]) return;
@@ -254,4 +273,23 @@ void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextCl
 
 void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) {
     MSIMEApplyTransitionWithPreeditStyle(transition, client, MSIMEInlinePreeditStylePinyin);
+}
+
+NSRange MSIMETextClientCommittedRange(id<MSIMETextClient> client, NSString *text,
+                                      uint32_t *preceding, BOOL (^isCurrent)(void)) {
+    const NSRange unknown = NSMakeRange(NSNotFound, 0);
+    if (preceding) *preceding = 0;
+    if (!text.length || text.length > 4096 || !client ||
+        (isCurrent && !isCurrent()) || ![client respondsToSelector:@selector(selectedRange)] ||
+        ![client respondsToSelector:@selector(attributedSubstringFromRange:)]) return unknown;
+    NSRange selected = [client selectedRange];
+    if ((isCurrent && !isCurrent()) || selected.location == NSNotFound || selected.length != 0 ||
+        selected.location < text.length) return unknown;
+    NSRange committed = NSMakeRange(selected.location - text.length, text.length);
+    NSString *actual = [client attributedSubstringFromRange:committed].string;
+    if ((isCurrent && !isCurrent()) || ![actual isEqualToString:text]) return unknown;
+    const uint32_t scalar = MSIMETextClientScalarBefore(client, committed.location, isCurrent);
+    if (isCurrent && !isCurrent()) return unknown;
+    if (preceding) *preceding = scalar;
+    return committed;
 }

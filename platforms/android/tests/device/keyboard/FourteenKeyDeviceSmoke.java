@@ -17,10 +17,12 @@ import org.json.JSONObject;
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private boolean shuangpinOnly;
     private boolean eighteenKey;
+    private boolean eighteenShuangpin;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         shuangpinOnly = arguments != null && "true".equals(arguments.getString("shuangpin_only"));
         eighteenKey = arguments != null && "true".equals(arguments.getString("eighteen_key"));
+        eighteenShuangpin = arguments != null && "true".equals(arguments.getString("eighteen_shuangpin"));
         super.onCreate(arguments);
     }
 
@@ -28,12 +30,17 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
+        if (eighteenShuangpin) return "十八键双拼设置、组码、消歧、分号、自定义表、布局回落与几何";
         if (eighteenKey) return "十八键全拼设置、组码、消歧、实体字母、布局回落与几何";
         return shuangpinOnly ? "14 键双拼设置、组码、消歧、分号、自定义表与布局回落"
             : "14 键全拼与双拼的完整键面、侧栏、候选、分词、长按和布局回落";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (eighteenShuangpin) {
+            FourteenKeyShuangpinDeviceChecks.runEighteen(this);
+            return;
+        }
         if (eighteenKey) {
             EighteenKeyQuanpinDeviceChecks.run(this);
             return;

@@ -18,6 +18,7 @@ Status: implemented
 - 清空和删除单条之后，把系统剪贴板当前那一条记为已处理（`forgetCurrentClip`）。系统标为敏感（`EXTRA_IS_SENSITIVE`）的内容跳过：补读本来就不记录它，而身份里的散列和长度足以穷举还原短密码或验证码，不能为它落盘。
 - 长按一条历史，操作（固定或取消固定、删除、编辑、分词、添加到常用语、发到云剪贴板、收起）画成紧贴在它下方的两行按钮（`ImePanels.renderClipboardItemActions`；后加的几项见 [存为常用语](../feature/2026-10-09-android-clipboard-to-phrases.md) 和 [在应用里编辑](../feature/2026-10-09-android-clipboard-edit.md)），执行由 `MSIMEInputService.setClipboardItemPinned` / `removeClipboardItem` 负责。剪贴板面板 never 弹 `PopupMenu`。
 - `check-host.sh` 守住：清空、面板渲染和条目操作路径里没有 `new AlertDialog`/`new PopupMenu`，`manageClipboardItem` 不再出现，捕获经过 `ClipboardCapturePolicy.captures`，`forgetCurrentClip` 跳过敏感内容。
+- 双列末行使用 `android.widget.Space` 补空位，保留与卡片相同的列宽权重和 `MATCH_PARENT` 行高参数；真实卡片继续按同一行的最大内容高度对齐。普通 `View` 在 `AT_MOST` 下会占满可用高度，会把唯一卡片撑满列表视口，令 #9589 的长按操作行落到屏外；[`Space` 的测量实现](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/master/core/java/android/widget/Space.java)按最小内容高度测量，由真实卡片决定行高。卡片与操作行仍由原列表管理，全文预览不承担管理菜单的职责。
 
 ## Alternatives considered
 
@@ -25,6 +26,9 @@ Status: implemented
 - **弹出窗口设为不可获得焦点**（`PopupWindow.setFocusable(false)`，九键长按候选就是这样）— 不抢焦点，菜单仍浮在键盘上；但 `PopupMenu` 不暴露这个开关，要自己写一个菜单弹窗和它的定位、换肤、无障碍，面板里一行按钮更简单，也不会被键盘外框裁掉。
 - **清空时连系统剪贴板一起清掉**（`ClipboardManager.clearPrimaryClip()`）— 补读自然没东西可读；但这会动到用户在别处还要粘贴的内容，而用户点的是「清空剪贴板历史」。
 - **补读时按文字去重**（历史里已有就不加）— 刚清空时历史是空的，挡不住；身份必须记在历史之外。
+- **打开长按菜单后自动滚动到底部**：能让屏外的按钮暂时可见，但唯一卡片仍被空位撑高，用户每次管理都要移动列表；修正补空位的测量能同时保留卡片尺寸和原地管理。
+
+- **只把补空位高度设为零**：能避免它撑高列表，但水平 `LinearLayout` 里其他单元格仍为 `MATCH_PARENT`，整行被测为零高；API 28/35 的设备截图都显示条数为一、卡片却不可见。`Space` 保留整行等高参数，同时提供符合空位含义的内容测量。
 
 ## Consequences
 
@@ -35,3 +39,7 @@ Status: implemented
 ## Verification
 
 `platforms/android/tests/clipboard/ClipboardCapturePolicySmoke.java`；`bash platforms/android/check-host.sh` 编译服务和面板代码（`-Werror`）并执行源码守卫。真机上清空、删除、长按操作和重新打开面板的流程，以及 Via 浏览器里的表现，没有在设备上验证。
+
+#9589 的旧宿主在 API 28/35 均复现：通过面板实际清空、系统剪贴板复制唯一合成短条，双列长按后全文预览可见、内联管理按钮不可见；同一夹具的单列短条与长条通过。`ClipboardSegmentDragDeviceSmoke -e first-record-only true` 覆盖清空后首次采集、单列与双列、短条与多行条目，以及展开不改写历史或上屏。
+
+修复后 API 28/35 的首条记录专项均通过：单列、双列的短条与多行条目，以及双列复制第二条后的两种场景，共六组真实长按；两行操作可见，历史与编辑器不变，收起后浮层消失。夹具按报告的清空、复制、重新进入面板顺序同步，再取历史快照，避免把设置重载或补读未完成时的临时状态算成长按副作用；专项同时接入默认完整套件。两版完整 `ClipboardSegmentDragDeviceSmoke` 通过，包含全文浮层像素、滚动与生命周期、固定摘要、列表滚动、横滑删除、分词拖选、全文插入及编辑返回。原生 arm64 宿主在 JDK 21 下构建，五个原生库的依赖与 16 KiB 对齐通过；266 项 JVM 冒烟、240 份设备源码、JNI/资源契约和最终远端 `scripts/verify-local.sh --quick` 通过。该结果覆盖专用模拟器，报告的 vivo API 30 尚未真机验收。

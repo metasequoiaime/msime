@@ -3,6 +3,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -10,6 +11,13 @@ import java.util.UUID;
  */
 public final class DeviceDataApiSmoke {
     public static void main(String[] arguments) throws Exception {
+        DeviceDataApi.Profile profile = new DeviceDataApi.Profile("synthetic-user", "合成账号", "", false,
+            List.of("email", "synthetic-provider"), Map.of("email", "合成邮件方式", "sms", "合成短信方式",
+                "synthetic-provider", "合成新方式"));
+        check(profile.providerName("email").equals("合成邮件方式"), "provider names come from the shared response");
+        check(profile.providerName("sms").equals("合成短信方式"), "unlinked providers also use shared names");
+        check(profile.providerName("synthetic-provider").equals("合成新方式"), "new provider names are not reinterpreted");
+
         // Rust 报的「要求最近登录」才弹重新登录，其他失败不弹。
         check(DeviceDataApi.recentLoginRequired("account_recent_login_required"), "recent login is recognised");
         check(!DeviceDataApi.recentLoginRequired("account_unauthorized"), "a lost session is not a recent-login demand");

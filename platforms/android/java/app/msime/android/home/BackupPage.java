@@ -1,11 +1,16 @@
 package app.msime.android.home;
 
+import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
+import app.msime.android.BackupExportAuthenticationPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import app.msime.android.TimestampDisplayPolicy;
 
@@ -23,6 +28,7 @@ public final class BackupPage extends DetailPage {
     private boolean busy;
     @Nullable private GroupCard.Row exportRow;
     @Nullable private GroupCard.Row restoreRow;
+    @Nullable private BiometricPrompt exportAuthentication;
 
     private final ActivityResultLauncher<String> createDocument =
         registerForActivityResult(new ActivityResultContracts.CreateDocument("application/zip"), this::onExportPicked);
@@ -46,6 +52,8 @@ public final class BackupPage extends DetailPage {
     }
 
     @Override public void onDestroyView() {
+        if (exportAuthentication != null) exportAuthentication.cancelAuthentication();
+        exportAuthentication = null;
         exportRow = null;
         restoreRow = null;
         // HostTask drops results bound to the old view; do not carry its transient lock into a
@@ -67,12 +75,49 @@ public final class BackupPage extends DetailPage {
     // ---- 导出 ----
 
     private void startExport() {
-        if (busy) return;
-        createDocument.launch(LocalBackup.defaultName(requireContext()));
+        if (busy || !BackupExportAuthenticationPolicy.requiresAuthentication()) return;
+        setBusy(true);
+        if (!requestExportAuthentication()) {
+            setBusy(false);
+            MsToast.show(requireContext(), "这台设备没有可用的系统认证");
+        }
+    }
+
+    private boolean requestExportAuthentication() {
+        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        Context context = requireContext();
+        if (BiometricManager.from(context).canAuthenticate(authenticators)
+                != BiometricManager.BIOMETRIC_SUCCESS) return false;
+        exportAuthentication = new BiometricPrompt(this, ContextCompat.getMainExecutor(context),
+            new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    exportAuthentication = null;
+                    if (getView() == null) return;
+                    createDocument.launch(LocalBackup.defaultName(requireContext()));
+                }
+
+                @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
+                    exportAuthentication = null;
+                    if (getView() == null) return;
+                    setBusy(false);
+                    MsToast.show(requireContext(), "未通过系统认证，没有导出备份");
+                }
+            });
+        BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle("导出备份包含输入记录")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        exportAuthentication.authenticate(prompt);
+        return true;
     }
 
     private void onExportPicked(@Nullable Uri uri) {
-        if (uri == null || getView() == null) return;
+        if (uri == null || getView() == null) {
+            setBusy(false);
+            return;
+        }
         setBusy(true);
         MsToast.show(requireContext(), "正在导出…");
         HostTask.run(this, context -> LocalBackup.export(context, uri), message -> {

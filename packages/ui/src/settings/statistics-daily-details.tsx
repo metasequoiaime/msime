@@ -1,6 +1,6 @@
-import { rowHeading as heading } from "../core/row-style";
 import { formatZhNumber } from "../core/format-number";
 import { SettingsEmptyMessage } from "./settings-empty-message";
+import { StatisticsSection } from "./statistics-section";
 import { dayLabel, formatActiveTime } from "./typing-statistics-helpers";
 import { DETAIL_DAYS, type DailyDetailRow } from "./typing-statistics-model";
 
@@ -22,10 +22,7 @@ const detailColumns = [
 export function StatisticsDailyDetails({ rows }: { rows: DailyDetailRow[] }) {
   const count = (value: number) => formatZhNumber(value);
   return (
-    <section className="section m-0" aria-labelledby="statistics-details-title">
-      <h2 className={heading} id="statistics-details-title">
-        按日明细 · 最近 {DETAIL_DAYS} 天
-      </h2>
+    <StatisticsSection id="statistics-details-title" title={`按日明细 · 最近 ${DETAIL_DAYS} 天`}>
       {rows.length === 0 ? (
         <SettingsEmptyMessage centered className="mt-3.5">
           暂无输入记录
@@ -69,6 +66,6 @@ export function StatisticsDailyDetails({ rows }: { rows: DailyDetailRow[] }) {
         列出最近 {DETAIL_DAYS}{" "}
         个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。
       </p>
-    </section>
+    </StatisticsSection>
   );
 }

@@ -21,6 +21,8 @@ Status: implemented
 
 `notarytool` 获批后，票据装订交给 `platforms/macos/scripts/staple-ticket.sh`：仅当 `stapler` 返回 68 且同时报告 `NSURLErrorDomain Code=-1005` 连接中断或 `CloudKit's response is inconsistent`（stapler 原文拼作 expections）时，依次在 15、30、60、90、120 秒后重试同一个 DMG，最多 6 次、合计约 5 分钟。Nightly `38806414451` 已出现这一下载断线，先前单次装订会丢弃已经完成构建和公证的整轮产物。重试不重复提交公证；其他错误及最终失败保留原退出码，打包仍然失败。
 
+Nightly 不再向可复用 macOS workflow 传入完整的 GitHub `run_id`；复用 workflow 在 shell 中把未提供的构建号按 `999999999` 取模。`CFBundleVersion` 的构建号字段由 CMake 限制为 1 到 999999999；直接传完整 run ID 会在资源、签名都完成后才让 CMake 配置失败。取模得到 0 时仍映射为上限值，手动传入的构建号继续经过原有范围校验。
+
 窗口最初是 15、30 秒后共三次。Release macOS 0.54.0（run `39267138324` 第 1 次尝试）的五笔版在 15:22:41 公证获批，15:22:49、15:23:11、15:23:48 三次装订都向 `api.apple-cloudkit.com` 的 `com.apple.gk.ticket-delivery` 查询时断线（`NSURLErrorDomain Code=-1005`，随后 `CloudKit's response is inconsistent with expections: (null)`，`Error 68`），一分钟内用完重试，已经编好、公证过的整轮产物作废，job 在 1 小时 7 分后失败，只能整个重跑。断线持续的时间比原窗口长，所以把窗口放宽到分钟级；只在这一组合上等待，签名或票据本身的错误仍立即失败。
 
 `staple-ticket.sh --validate` 用同一个窗口执行 `stapler validate`，`release-macos.yml` 更新 Homebrew cask 之前用它核对每个 DMG。0.54.0 第 2 次尝试里，这一步直接调用的 `stapler validate` 对 full 版同样报 `NSURLErrorDomain Code=-1005` 和 `Error 68`，被当成未公证，msime cask 停在 0.53.0，而 job 照样成功，维护者事后手工更新了 tap。现在断线重试用完返回 75，workflow 提示「连不上票据服务、需手工更新」，与真正没有公证（stapler 的原退出码，cask 照旧跳过）分开。
@@ -39,5 +41,6 @@ Status: implemented
 ## Verification
 
 - `actionlint .github/workflows/release-macos.yml .github/workflows/nightly.yml` 通过；`python3 scripts/test-nightly-packaging.py` 通过。
+- 以合成 run ID `40024049755` 计算出的构建号为 `24049795`，满足 CMake 的九位上限。
 - 落地后第一次 nightly 的 macOS 任务日志里应出现 `notarytool submit` 与 `stapler staple`，且没有 `warning: not notarized`；下载其中一个 DMG 运行 `xcrun stapler validate` 应通过。
 - `test-macos-stapler-retry.py` 用合成 `xcrun` 与 `sleep` 检查成功、断线后恢复、只报 CloudKit 应答异常时同样重试、6 次重试耗尽（等待 15/30/60/90/120 秒）和永久错误，核对同一 DMG 参数、等待间隔及最终退出码；不访问 Apple 服务或读取签名凭据。完整签名打包和服务恢复仍需实际 nightly 运行验证。

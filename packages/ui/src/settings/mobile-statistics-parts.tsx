@@ -3,16 +3,7 @@ import type { BreakdownShare } from "./typing-breakdown";
 import { accentMix } from "./typing-chart";
 import { share, shareTotal } from "./typing-summary";
 import { shareColour, subText } from "./mobile-statistics-style";
-
-/** 卡片上方的小标题，末端可带一条备注。 */
-function SectionTitle({ title, trailing }: { title: string; trailing?: ReactNode }) {
-  return (
-    <div className="flex min-h-5 items-center justify-between gap-3 px-1">
-      <h3 className={`m-0 text-[13px] font-normal ${subText}`}>{title}</h3>
-      {trailing}
-    </div>
-  );
-}
+import { MobileStatisticsSectionTitle } from "./mobile-statistics-section-title";
 
 export function Section({
   title,
@@ -25,7 +16,7 @@ export function Section({
 }) {
   return (
     <section className="flex flex-col gap-2">
-      <SectionTitle title={title} trailing={trailing} />
+      <MobileStatisticsSectionTitle title={title} trailing={trailing} />
       {children}
     </section>
   );

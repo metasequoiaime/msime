@@ -112,6 +112,13 @@ target_compile_options(usage-reporting-path-test PRIVATE -fobjc-arc -UNDEBUG -Wa
 target_compile_definitions(usage-reporting-path-test PRIVATE MSIME_USAGE_REPORTING_TEST_SUPPORT="/tmp/msime-usage-reporting-path-test")
 target_link_libraries(usage-reporting-path-test PRIVATE apple-client)
 add_test(NAME usage-reporting-path COMMAND usage-reporting-path-test)
+# 起子进程向它发 SIGTERM，检查会话照样结束、进程仍按 SIGTERM 退出；宿主函数由测试里的桩代替，同上链 apple-client。
+add_executable(usage-reporting-termination-test tests/core/UsageReportingTerminationTest.mm src/core/UsageReporting.mm)
+target_compile_options(usage-reporting-termination-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_compile_definitions(usage-reporting-termination-test PRIVATE MSIME_USAGE_REPORTING_TEST_SUPPORT="/tmp/msime-usage-reporting-termination-test")
+target_link_libraries(usage-reporting-termination-test PRIVATE apple-client)
+add_test(NAME usage-reporting-termination COMMAND usage-reporting-termination-test)
+set_tests_properties(usage-reporting-termination PROPERTIES TIMEOUT 60)
 # src/cloud 的 CloudClipboardClient、CloudClipboardWindowController、CloudDictionaryClient、CloudURLSession 是账号和云端改走 Rust（#8201）以前的 Objective-C 实现，输入法里已经没有代码引用它们，不再编进输入法；它们仍由下面的 cloud-clipboard-deletion、cloud-clipboard-selection、cloud-dictionary-client 三个测试目标编译，scripts/test-macos-cloud-query-encoding.py 和 test-macos-cloud-redirect-policy.py 也读它们的源码，所以文件留着，删不删由负责人定。同一批里没人引用的 CloudFileTransfer 和 src/core/Account{AuthClient,Keychain,SessionManager,WindowController} 已经删掉。
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE src/input/input_method_main.mm src/settings/PreferencesWindowController.mm src/core/SupportWindowController.mm src/voice/VoiceInputService.mm src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm src/voice/VoiceSettings.mm src/voice/VoiceProviderSettings.mm src/input/InputController.mm src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm src/candidate/CandidateSkinAppearance.mm src/settings/AppearancePreferences.mm src/core/DiagnosticLog.cpp src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/core/UpdateController.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm src/dictionary/DictionaryInstaller.mm ../../crates/host-macos/native/uninstaller.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/AISettingsWindow.mm src/core/ScreenKeyboardPanel.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm src/voice/VoicePCMBuffer.mm src/voice/HTTPVoiceRequest.mm)
@@ -1002,6 +1009,7 @@ add_test(NAME shortcut-expanded-scroll COMMAND shortcut-test --expanded-scroll)
 add_test(NAME shortcut-vim-mode COMMAND shortcut-test --vim-mode)
 add_test(NAME shortcut-nested-commit COMMAND shortcut-test --nested-commit)
 add_test(NAME shortcut-english-punctuation COMMAND shortcut-test --english-punctuation)
+add_test(NAME shortcut-cross-commit-spacing COMMAND shortcut-test --cross-commit-spacing)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
@@ -1079,6 +1087,13 @@ target_link_libraries(smart-punctuation-shadow-test PRIVATE ${MSIME_CONTROLLER_T
 target_compile_options(smart-punctuation-shadow-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME smart-punctuation-shadow COMMAND smart-punctuation-shadow-test)
 set_tests_properties(smart-punctuation-shadow PROPERTIES TIMEOUT 30)
+add_executable(cross-commit-spacing-test tests/input/CrossCommitSpacingTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
+  src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm
+  src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm)
+target_link_libraries(cross-commit-spacing-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_compile_options(cross-commit-spacing-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME cross-commit-spacing COMMAND cross-commit-spacing-test)
+set_tests_properties(cross-commit-spacing PROPERTIES TIMEOUT 30)
 # Dictionary maintenance from the settings window: real sessions let go of the dictionary lock under a live quiesce lease and come back, mode intact, once it is gone.
 add_executable(dictionary-quiesce-controller-test tests/input/DictionaryQuiesceTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
   src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm

@@ -3508,6 +3508,31 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
 }
 @end
 
+// 部分选词会推进组字前缀并更换候选代次，直至最后一次才整句上屏。
+@interface PartialExpandedGridSession : ExpandedGridSession
+@property(nonatomic, copy) NSArray<NSNumber *> *remainingTotals;
+@property(nonatomic, copy) NSString *selectedPrefix;
+@end
+@implementation PartialExpandedGridSession
+- (NSDictionary *)gridView {
+    NSMutableDictionary *view = [[super gridView] mutableCopy];
+    view[@"scheme"] = @1;
+    view[@"phrase_prefix"] = self.selectedPrefix ?: @"";
+    return view;
+}
+- (NSDictionary *)selectAnyCandidateGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    NSDictionary *selected = [super selectAnyCandidateGeneration:generation index:index error:error];
+    if (!selected || !self.remainingTotals.count) return selected;
+    self.total = self.remainingTotals.firstObject.unsignedIntegerValue;
+    self.remainingTotals = [self.remainingTotals subarrayWithRange:NSMakeRange(1, self.remainingTotals.count - 1)];
+    self.selectedPrefix = [(self.selectedPrefix ?: @"") stringByAppendingString:@"合成前缀"];
+    self.editing = [self.editing substringFromIndex:1];
+    self.highlighted = 0;
+    ++self.generation;
+    return @{@"handled": @YES, @"view": [self gridView]};
+}
+@end
+
 static MSIMECandidateButton *ExpandedGridSubview(NSPanel *panel, NSInteger tag) {
     for (NSView *view in MSIMECandidateControlSubviews(panel.contentView))
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (MSIMECandidateButton *)view;
@@ -4272,6 +4297,78 @@ static void TestExpandedCandidateGridGeneration() {
     other.caret = NSMakeRect(300, 400, 1, 18);
     [controller handleEvent:ModeKey(0, 0, NO) client:other];
     assert(!expanded());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestExpandedCandidatePartialSelection() {
+    NSString *suite = [@"msime.expanded-partial." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.vertical = NO;
+    prefs.pageSize = 5;
+    prefs.englishMode = NO;
+    prefs.expandCandidates = YES;
+    // 数字、空格、回车和鼠标都通过相同的带代次选词接口。
+    for (NSNumber *input in @[@18, @49, @36, @(-1)]) {
+        ModeController *controller = [ModeController alloc];
+        PartialExpandedGridSession *session = [PartialExpandedGridSession new];
+        session.generation = 10;
+        session.total = 23;
+        session.pageSize = 5;
+        session.prefix = @"合成词";
+        session.editing = @"yigelaji";
+        session.remainingTotals = @[@9, @4];
+        NestingClient *client = [NestingClient new];
+        client.caret = NSMakeRect(200, 400, 1, 18);
+        HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert([controller openExpandedCandidates]);
+        auto select = [&] {
+            if (input.intValue < 0) [controller selectExpandedCandidate:ExpandedGridSubview(panel, 0)];
+            else assert([controller handleEvent:ModeKey(input.unsignedShortValue, 0, NO) client:client]);
+        };
+        for (NSNumber *remaining in @[@9, @4]) {
+            const uint64_t generation = session.generation;
+            MSIMECandidateButton *oldButton = ExpandedGridSubview(panel, 0);
+            select();
+            assert(session.selectAnyGeneration == generation && session.total == remaining.unsignedIntegerValue);
+            assert([controller valueForKey:@"expandedCandidates"] && !client.committed);
+            assert([[controller valueForKey:@"expandedGeneration"] isEqual:@(generation + 1)]);
+            assert([[controller valueForKey:@"expandedCursor"] unsignedIntegerValue] == 0);
+            assert(ExpandedGridHighlightedTag(panel) == 0);
+            const NSUInteger selections = session.selectAnyCalls;
+            [controller selectExpandedCandidate:oldButton];
+            assert(session.selectAnyCalls == selections && [controller valueForKey:@"expandedCandidates"]);
+        }
+        select();
+        assert(![controller valueForKey:@"expandedCandidates"] && client.committed.length);
+
+        // 普通候选剩一页时没有新入口；显式收起后的下一次输入也不自动展开。
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert(![controller openExpandedCandidates]);
+
+        // 部分选词写入 marked text 时若有更新回复重入，旧选择不重新打开网格。
+        session.total = 12;
+        session.remainingTotals = @[@4];
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert([controller openExpandedCandidates]);
+        __weak ModeController *weakController = controller;
+        client.onMarkedText = ^{
+            ++session.generation;
+            session.editing = @"syntheticnew";
+            [weakController apply:@{@"view": [session gridView]}];
+        };
+        select();
+        assert(![controller valueForKey:@"expandedCandidates"]);
+        assert([[controller valueForKey:@"view"][@"editing_text"] isEqual:@"syntheticnew"]);
+    }
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -12308,6 +12405,254 @@ struct IsolatedUserHome {
     }
 };
 
+@interface SpacingQueryShortcutClient : ApplicationShortcutClient
+@property(nonatomic, copy) void (^duringContextRead)(void);
+@property(nonatomic, copy) void (^duringBundleRead)(void);
+@property(nonatomic, copy) void (^afterInsert)(void);
+@property(nonatomic, copy) void (^duringReplacement)(void);
+@end
+@implementation SpacingQueryShortcutClient
+- (void)insertText:(id)text replacementRange:(NSRange)range {
+    [super insertText:text replacementRange:range];
+    void (^callback)(void) = self.afterInsert;
+    self.afterInsert = nil;
+    if (callback) callback();
+    if (range.location != NSNotFound) {
+        void (^replacement)(void) = self.duringReplacement;
+        self.duringReplacement = nil;
+        if (replacement) replacement();
+    }
+}
+- (NSRange)selectedRange {
+    void (^callback)(void) = self.duringContextRead;
+    self.duringContextRead = nil;
+    if (callback) callback();
+    return [super selectedRange];
+}
+- (NSString *)bundleIdentifier {
+    void (^callback)(void) = self.duringBundleRead;
+    self.duringBundleRead = nil;
+    if (callback) callback();
+    return [super bundleIdentifier];
+}
+@end
+
+static void TestCrossCommitSpacingReentrancy() {
+    NSString *suite = [@"msime.cross-commit-spacing-reentrant." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"com.example.Writer"];
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    prefs.inputScheme = @"quanpin";
+    prefs.englishMode = YES;
+    prefs.fullWidthInput = NO;
+    SpacingQueryShortcutClient *client = [SpacingQueryShortcutClient new];
+    client.bundleIdentifier = @"com.example.Writer";
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    __weak SpacingQueryShortcutClient *weakClient = client;
+    // 查询发生在原字落地后；新事件无需排队或重放。
+    client.duringContextRead = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        assert([client.document isEqual:@"用R"]);
+        assert([controller handleEvent:LayoutKey(32, @"u", 0) client:client]);
+        assert(![controller handleEvent:LayoutKey(49, @" ", 0) client:client]);
+        [client insertText:@" " replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用Ru "]);
+    // 原始写入本身重入，也不能让外层事后改写较新的文字。
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    client.afterInsert = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        assert([controller handleEvent:LayoutKey(32, @"u", 0) client:client]);
+        assert([controller handleEvent:LayoutKey(1, @"s", 0) client:client]);
+    };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用Rus"]);
+    // 退格和导航维持原来的 NO；查询过期后不补写被删掉的 R。
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    client.duringContextRead = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        assert(![controller handleEvent:LayoutKey(51, @"\x7f", 0) client:client]);
+        [client insertText:@"" replacementRange:NSMakeRange(client.selection.location - 1, 1)];
+        assert(![controller handleEvent:LayoutKey(123, @"\uf702", 0) client:client]);
+        client.selection = NSMakeRange(0, 0);
+    };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用"] && client.selection.location == 0);
+    // 普通上屏查询里重入新组字，不让旧上屏清掉它的标记或视图。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    prefs.englishMode = NO;
+    NSDictionary *nextView = @{@"scheme":@0, @"editing_text":@"n", @"preedit":@"n", @"candidates":@[]};
+    client.duringContextRead = ^{ [controller apply:@{@"view":nextView}]; };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"},
+                        @"view":@{@"editing_text":@"", @"candidates":@[]}}];
+    assert([client.document isEqual:@"Rust写"] && [client.marked isEqual:@"n"]);
+    assert([[controller valueForKey:@"view"] isEqual:nextView]);
+    // 最后的显式替换同样可能重入；替换完成后不能再画旧空标记。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    client.duringReplacement = ^{ [controller apply:@{@"view":nextView}]; };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"},
+                        @"view":@{@"editing_text":@"", @"candidates":@[]}}];
+    assert([client.document isEqual:@"Rust 写"] && [client.marked isEqual:@"n"]);
+    assert([[controller valueForKey:@"view"] isEqual:nextView]);
+    // 无副作用的抬键只取消格式化，不能阻止已完成上屏清理旧候选。
+    NSDictionary *idleAfterCommit = @{@"scheme":@0, @"editing_text":@"", @"candidates":@[]};
+    [controller setValue:nextView forKey:@"view"];
+    client.afterInsert = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        NSEvent *up = [NSEvent keyEventWithType:NSEventTypeKeyUp location:NSZeroPoint modifierFlags:0 timestamp:0
+            windowNumber:0 context:nil characters:@"r" charactersIgnoringModifiers:@"r" isARepeat:NO keyCode:15];
+        [controller handleEvent:up client:client];
+    };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idleAfterCommit}];
+    assert([[controller valueForKey:@"view"] isEqual:idleAfterCommit]);
+    assert([client.marked isEqual:@""]);
+    // 查询回调里变更开关也取消剩余读取及格式化。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    client.duringContextRead = ^{ [prefs applySharedInputPreferences:@{}]; };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idleAfterCommit}];
+    assert([client.document isEqual:@"Rust写"]);
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    // 安全或焦点变化只取消格式化，已经落地的原文保留。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    prefs.englishMode = NO;
+    client.duringContextRead = ^{ controller.secureInput = YES; };
+    NSDictionary *idle = @{@"editing_text":@"", @"candidates":@[]};
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document isEqual:@"Rust写"]);
+    controller.secureInput = NO;
+    prefs.englishMode = YES;
+    ShortcutClient *other = [ShortcutClient new];
+    client.duringBundleRead = ^{ [controller setValue:other forKey:@"activeClient"]; };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"Rust写R"]);
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:nil forKey:@"view"];
+    prefs.inputScheme = @"japanese";
+    NSUInteger reads = client.documentReads;
+    assert(![controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert(client.documentReads == reads);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+@interface SpacingTextView : NSTextView <MSIMETextClient>
+@end
+@implementation SpacingTextView
+- (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement {
+    [self setMarkedText:text selectedRange:selection replacementRange:replacement];
+}
+- (NSString *)bundleIdentifier { return @"com.example.Writer"; }
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    return [self attributedSubstringForProposedRange:range actualRange:NULL];
+}
+@end
+
+static void TestCrossCommitSpacingInTextView() {
+    NSString *suite = [@"msime.cross-commit-spacing-appkit." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"com.example.Writer"];
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    prefs.inputScheme = @"quanpin";
+    prefs.englishMode = YES;
+    prefs.fullWidthInput = NO;
+    SpacingTextView *textView = [[SpacingTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 100)];
+    textView.string = @"用";
+    textView.selectedRange = NSMakeRange(1, 0);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:textView forKey:@"activeClient"];
+    for (NSString *letter in @[@"R", @"u", @"s", @"t"])
+        assert([controller handleEvent:LayoutKey(32, letter, 0) client:textView]);
+    prefs.englishMode = NO;
+    NSDictionary *idle = @{@"scheme":@0, @"editing_text":@"", @"candidates":@[]};
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([textView.string isEqual:@"用 Rust 写"] && textView.selectedRange.location == textView.string.length);
+    // 真实 marked text 被替换后读取刚上屏部分，既不读拼音，也不改右侧文本。
+    textView.string = @"Rust右";
+    textView.selectedRange = NSMakeRange(4, 0);
+    [textView setMarkedText:@"xie" selectionRange:NSMakeRange(3, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    [controller setValue:@YES forKey:@"clientHasMarkedText"];
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([textView.string isEqual:@"Rust 写右"] && textView.selectedRange.location == 6);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestCrossCommitSpacing() {
+    NSString *suite = [@"msime.cross-commit-spacing." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"com.example.Writer"];
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    prefs.englishMode = YES;
+    prefs.fullWidthInput = NO;
+    ApplicationShortcutClient *client = [ApplicationShortcutClient new];
+    client.bundleIdentifier = @"com.example.Writer";
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    NSDictionary *idle = @{@"scheme":@0, @"editing_text":@"", @"candidates":@[]};
+    [controller setValue:idle forKey:@"view"];
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用 R"]);
+    assert(![controller valueForKey:@"session"]);
+    for (NSString *letter in @[@"u", @"s", @"t"]) {
+        assert([controller handleEvent:LayoutKey(32, letter, 0) client:client]);
+    }
+    prefs.englishMode = NO;
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document isEqual:@"用 Rust 写"]);
+    [controller apply:@{@"commit":@"Rust", @"commit_context":@{@"scheme":@0, @"local_mode":@"temporary_english"}, @"view":idle}];
+    assert([client.document isEqual:@"用 Rust 写 Rust"]);
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[@"COM.EXAMPLE.WRITER"]}];
+    NSUInteger reads = client.documentReads;
+    [controller apply:@{@"commit":@"字", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document hasSuffix:@"Rust字"] && client.documentReads == reads);
+    prefs.englishMode = YES;
+    assert(![controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert(client.documentReads == reads);
+    prefs.englishMode = NO;
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    for (NSString *mode in @[@"url", @"date_time", @"calculator", @"temporary_japanese"]) {
+        reads = client.documentReads;
+        [controller apply:@{@"commit":@"A", @"commit_context":@{@"scheme":@0, @"local_mode":mode}, @"view":idle}];
+        assert([client.committed isEqual:@"A"] && client.documentReads == reads);
+    }
+    controller.secureInput = YES;
+    reads = client.documentReads;
+    [controller apply:@{@"commit":@"字", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.committed isEqual:@"字"] && client.documentReads == reads);
+    controller.secureInput = NO;
+    prefs.fullWidthInput = YES;
+    reads = client.documentReads;
+    [controller apply:@{@"commit":@"A", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.committed isEqual:@"A"] && client.documentReads == reads);
+    prefs.fullWidthInput = NO;
+    // 鼠标选择替换已有文字，使用替换起点之前的实时前文，不使用上次上屏的影子。
+    client.document = @"Rust旧";
+    client.selection = NSMakeRange(4, 1);
+    [controller apply:@{@"commit":@"新", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document isEqual:@"Rust 新"]);
+    [prefs applySharedInputPreferences:@{}];
+    reads = client.documentReads;
+    [controller apply:@{@"commit":@"A", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.committed isEqual:@"A"] && client.documentReads == reads);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 int main(int argc, char **argv) {
     const IsolatedUserHome userHome;
     const IsolatedDefaultSkinsRoot skinsRoot;
@@ -12317,9 +12662,16 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--cross-commit-spacing") {
+            TestCrossCommitSpacing();
+            TestCrossCommitSpacingReentrancy();
+            TestCrossCommitSpacingInTextView();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--expanded-scroll") {
             TestExpandedCandidateGrid();
             TestExpandedCandidateGridGeneration();
+            TestExpandedCandidatePartialSelection();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--session-recovery") {
@@ -14343,6 +14695,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestPinyinArrowCandidateNavigation(); }
         @autoreleasepool { TestExpandedCandidateGrid(); }
         @autoreleasepool { TestExpandedCandidateGridGeneration(); }
+        @autoreleasepool { TestExpandedCandidatePartialSelection(); }
         @autoreleasepool { TestSegmentEditingChords(appearance); }
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }

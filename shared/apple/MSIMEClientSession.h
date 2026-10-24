@@ -7,6 +7,8 @@ typedef NSDictionary *_Nullable (^MSIMESnapshotNextRecord)(NSError *_Nullable *e
 /// Foundation adapter for macOS input controllers and iOS keyboard extensions.
 /// Construct and use on the main thread. No Tauri process is required.
 @interface MSIMEClientSession : NSObject
+/// 不创建会话的跨次空格策略；文档读取由宿主获准后完成。
++ (nullable NSDictionary *)crossCommitSpacingRequest:(NSDictionary *)request;
 typedef void (^MSIMEVoiceProviderUpdate)(NSString *text, BOOL final);
 typedef void (^MSIMEVoiceProviderPhase)(NSUInteger phase);
 FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotNotification;

@@ -14,7 +14,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.UUID;
+import java.time.LocalDateTime;
 import org.json.JSONObject;
 
 /** 显式操作才导出全文；调用方必须放到存储工作线程，不能记录快照内容。 */
@@ -48,7 +48,8 @@ public final class ClipboardExport {
                 try { ExportDirectory.inspect(context, selected); }
                 catch (IOException | RuntimeException unavailable) { return "导出文件夹不可用，请重新选择"; }
             }
-            String filename = "msime-clipboard-" + System.currentTimeMillis() + "-" + UUID.randomUUID() + ".txt";
+            String filename = LocalBackupPolicy.baseName(context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
+                AppVersionPolicy.versionName(context, "0"), LocalDateTime.now()) + ".txt";
             temporary = new File(context.getCacheDir(), filename);
             Files.write(temporary.toPath(), snapshot.text().getBytes(StandardCharsets.UTF_8));
             // 构建快照期间隐私设置可能已改变，公开文件前再检查一次。

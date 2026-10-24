@@ -10,7 +10,7 @@ Status: implemented
 
 将 `msime-dict-builder` 加入现有完整测试和全目标严格 Clippy 循环，复用已有的构建失败检测、测试失败名称归集和硬失败规则。保持 `--quick` 仅编译的约定；验证覆盖不依赖每位维护者手动补跑工具包。
 
-历史检索：[引擎 CI 笔记](../../implemented/testing/2026-10-10-engine-tests-in-ci.md)持有 `--quick` 与完整验证的分工，仍然成立；词库读取与生成模块笔记持有业务实现，与本次枚举决定无重叠；脚本运行时和插件打包工具沿用同一循环，不改变其验证边界。
+历史检索：[引擎 CI 笔记](../../implemented/testing/2026-10-10-engine-tests-in-ci.md)持有 `--quick` 与完整验证的分工，仍然成立；词库读取与生成模块笔记持有业务实现，与本次枚举决定无重叠；脚本运行时和插件打包工具沿用同一循环，不改变其验证边界。 [参考中继的 Clippy 覆盖](2026-10-24-clipboard-relay-clippy.md)另行补齐同一显式循环中的中继包；本篇继续持有词库构建器的测试与检查边界。
 
 ## Alternatives considered
 

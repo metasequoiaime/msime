@@ -1,20 +1,16 @@
-import * as settings from "./settings-style";
+import { SettingsSubViewHeader } from "./settings-subview-header";
 
-/** The head of a view opened from the 我的插件 list: the way back to the list, then the view's title. `data-plugin-back` is where focus lands when the view opens. */
+/** 从「我的插件」打开的子页标题栏；`data-plugin-back` 是重新进入时的焦点位置。 */
 export function PluginViewHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <div className={settings.subViewHeader}>
-      <button
-        type="button"
-        className={settings.backLink}
-        aria-label="返回我的插件"
-        data-plugin-back=""
-        onClick={onBack}
-      >
-        <span aria-hidden="true">‹ </span>
-        我的插件
-      </button>
-      <h2 className={settings.subViewTitle}>{title}</h2>
-    </div>
+    <SettingsSubViewHeader
+      title={title}
+      back={{
+        label: "我的插件",
+        ariaLabel: "返回我的插件",
+        onClick: onBack,
+        marker: "data-plugin-back",
+      }}
+    />
   );
 }

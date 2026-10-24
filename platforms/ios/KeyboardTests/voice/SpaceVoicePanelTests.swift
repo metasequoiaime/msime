@@ -219,6 +219,26 @@ final class SpaceVoicePanelTests: XCTestCase {
       if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
       imp_removeBlock(replacement)
     }
+    // 无签名的 CI 测试进程没有 App Group 容器；只在本用例内把目录解析到隔离的合成数据目录。
+    let testDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: testDirectory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: testDirectory) }
+    let containerSelector = #selector(FileManager.containerURL(forSecurityApplicationGroupIdentifier:))
+    let containerMethod = try XCTUnwrap(class_getInstanceMethod(FileManager.self, containerSelector))
+    let containerOriginal = method_getImplementation(containerMethod)
+    typealias ContainerLookup = @convention(c) (AnyObject, Selector, NSString) -> NSURL?
+    let containerLookup = unsafeBitCast(containerOriginal, to: ContainerLookup.self)
+    let groupIdentifier = MSIMEAppEdition.appGroupIdentifier
+    let containerBlock: @convention(block) (AnyObject, NSString) -> NSURL? = { manager, identifier in
+      if identifier as String == groupIdentifier { return testDirectory as NSURL }
+      return containerLookup(manager, containerSelector, identifier)
+    }
+    let containerReplacement = imp_implementationWithBlock(containerBlock)
+    method_setImplementation(containerMethod, containerReplacement)
+    defer {
+      method_setImplementation(containerMethod, containerOriginal)
+      imp_removeBlock(containerReplacement)
+    }
     let directory = try XCTUnwrap(VoiceTextHandoffStore.defaultDirectory).appendingPathComponent("VoiceSession")
     let saved = ["state.json", "command.json"].map { (directory.appendingPathComponent($0), try? Data(contentsOf: directory.appendingPathComponent($0))) }
     defer {

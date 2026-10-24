@@ -12,6 +12,7 @@ import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { ActionButton } from "./action-button";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import * as settings from "./settings-style";
+import { SettingsSubViewHeader } from "./settings-subview-header";
 import { useAsyncGeneration } from "./use-async-generation";
 import {
   builtinShuangpinProfiles,
@@ -340,19 +341,10 @@ function KeyTableEditor<Profile extends string>({
 
   return (
     <div className={settings.subViewStack}>
-      <div className={settings.subViewHeader}>
-        <button
-          ref={back}
-          type="button"
-          className={settings.backLink}
-          aria-label="返回输入"
-          onClick={() => void leave()}
-        >
-          <span aria-hidden="true">‹ </span>
-          输入
-        </button>
-        <h2 className={settings.subViewTitle}>{definition.title}</h2>
-      </div>
+      <SettingsSubViewHeader
+        title={definition.title}
+        back={{ label: "输入", ariaLabel: "返回输入", onClick: () => void leave(), ref: back }}
+      />
       <PageIntro>{definition.intro}</PageIntro>
       <GroupList title="起点与文件">
         <Row title="从内置方案开始" description="用它的键位填满整张表，再改动想换的键。">

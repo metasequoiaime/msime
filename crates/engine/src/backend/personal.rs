@@ -185,6 +185,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
     let snapshot = write_snapshot(&journal, roots.scratch)?;
 
     let mut nested = request.required("query")?.clone();
+    let requested_limit = Request::new(&nested)?.limit();
     let nested_fields = nested.as_object_mut().ok_or(BackendError::InvalidRequest)?;
     let operation = nested_fields
         .get("operation")
@@ -210,10 +211,6 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
     let projected = Roots {
         dictionaries: &generation,
         ..roots
-    };
-    let requested_limit = match nested_fields.get("limit") {
-        None => 20,
-        Some(value) => value.as_i64().ok_or(BackendError::InvalidRequest)?,
     };
     if operation != "dictionary" {
         nested_fields.insert("limit".into(), Value::from(PERSONAL_QUERY_LIMIT));
@@ -326,7 +323,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
             operation == "english",
         );
     }
-    items.truncate(usize::try_from(requested_limit).unwrap_or(0));
+    items.truncate(requested_limit);
     response["candidates"] = candidates(&items)["candidates"].take();
     response["context"] = Value::from(context);
     response["revision"] = Value::from(snapshot.revision);

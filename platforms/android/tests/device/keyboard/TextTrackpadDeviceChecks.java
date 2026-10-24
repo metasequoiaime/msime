@@ -124,7 +124,7 @@ final class TextTrackpadDeviceChecks {
             setSelection(TrackpadEditorActivity.TEXT.length(), TrackpadEditorActivity.TEXT.length());
             shortcut("插入空格");
             t.await(t.field("trackpad-editor").and(node -> DeviceSmoke.equalsText(TrackpadEditorActivity.TEXT + " ", node.getText())));
-            shortcut("插入换行");
+            shortcut("插入换行，长按打开符号");
             t.await(t.field("trackpad-editor").and(node -> DeviceSmoke.equalsText(TrackpadEditorActivity.TEXT + " \n", node.getText())));
             shortcut("打开数字键盘");
             t.await(t.described("切换到字母键盘"));

@@ -782,13 +782,36 @@ fn valid_app_input_mode_rules(rules: &BTreeMap<String, AppInputModeRule>) -> boo
             .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
 }
 
-/// `vim_mode_apps` 的名单：与应用例外同一口径、同一档上限。标识认法相同，只差大小写的两条会命中同一个应用。
-fn valid_vim_mode_apps(apps: &[String]) -> bool {
+/// 应用名单与应用例外使用同一口径、同一档上限。标识认法相同，只差大小写的两条会命中同一个应用。
+fn valid_app_identifier_list(apps: &[String]) -> bool {
     let mut seen = BTreeSet::new();
     apps.len() <= MAX_APP_INPUT_MODE_RULES
         && apps
             .iter()
             .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
+}
+
+/// 跨次上屏空格：只补新输入与前文的接缝。默认关，应用排除采用共享应用标识口径。
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CrossCommitSpacing {
+    pub enabled: bool,
+    pub excluded_apps: Vec<String>,
+}
+
+impl CrossCommitSpacing {
+    pub fn validate(&self) -> bool {
+        valid_app_identifier_list(&self.excluded_apps)
+    }
+
+    pub fn enabled_for_application(&self, application: &str) -> bool {
+        self.enabled
+            && valid_app_list_identifier(application)
+            && !self
+                .excluded_apps
+                .iter()
+                .any(|entry| entry.eq_ignore_ascii_case(application))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1412,6 +1435,12 @@ pub struct Preferences {
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "is_false")]
     pub chinese_english_spacing: bool,
+    /// 跨次上屏的中英文边界补空格，独立于单次上屏内的空格开关，默认关。宿主必须提供光标前的真实字符；目前仅 macOS 接入。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cross_commit_spacing: bool,
+    /// 跨次空格的应用排除名单，macOS 使用 Bundle ID；写代码、网址或邮箱的应用可在这里保留原样。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cross_commit_spacing_excluded_apps: Vec<String>,
     pub chinese_punctuation: bool,
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation: bool,
@@ -3299,6 +3328,8 @@ impl Default for Preferences {
             traditional_chinese_output: false,
             traditional_chinese_variant: TraditionalVariant::default(),
             chinese_english_spacing: false,
+            cross_commit_spacing: false,
+            cross_commit_spacing_excluded_apps: Vec::new(),
             chinese_punctuation: true,
             smart_punctuation: smart_punctuation_default(),
             smart_punctuation_repeat: smart_punctuation_default(),
@@ -4100,8 +4131,11 @@ impl Preferences {
         if !valid_app_input_mode_rules(&self.app_input_mode_rules) {
             return Err(PreferencesError::InvalidAppInputModeRules);
         }
-        if !valid_vim_mode_apps(&self.vim_mode_apps) {
+        if !valid_app_identifier_list(&self.vim_mode_apps) {
             return Err(PreferencesError::InvalidVimModeApps);
+        }
+        if !valid_app_identifier_list(&self.cross_commit_spacing_excluded_apps) {
+            return Err(PreferencesError::InvalidCrossCommitSpacingApps);
         }
         if !self.cloud_clipboard_relay.validate() {
             return Err(PreferencesError::InvalidCloudClipboardRelay);
@@ -4338,6 +4372,8 @@ pub enum PreferencesError {
     InvalidAppInputModeRules,
     #[error("vim mode app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total")]
     InvalidVimModeApps,
+    #[error("cross-commit spacing app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    InvalidCrossCommitSpacingApps,
     #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
     InvalidCloudClipboardRelay,
     #[error(

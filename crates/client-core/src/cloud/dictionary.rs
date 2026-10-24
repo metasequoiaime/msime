@@ -63,7 +63,8 @@ pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Opt
 pub fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
     let base = kind_path(kind);
     match operation {
-        "add" | "import" | "import-hans" | "export" => {
+        "add" => Some(format!("/v1/users/me/dictionaries/{base}")),
+        "import" | "import-hans" | "export" => {
             Some(format!("/v1/users/me/dictionaries/{base}/{operation}"))
         }
         _ => None,
@@ -196,6 +197,10 @@ mod tests {
 
     #[test]
     fn builds_mutation_paths_without_credentials() {
+        assert_eq!(
+            mutation_path(DictionaryKind::English, "add"),
+            Some("/v1/users/me/dictionaries/english".into())
+        );
         assert_eq!(
             mutation_path(DictionaryKind::Quick, "import"),
             Some("/v1/users/me/dictionaries/quick/import".into())
