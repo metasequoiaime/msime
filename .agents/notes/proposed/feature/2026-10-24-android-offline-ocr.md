@@ -14,6 +14,8 @@ Status: proposed
 
 宿主沿用手写依赖的自动 Provider 初始化，不能对已经存在的宿主容器重复调用 `MlKit.initialize`；公开初始化只用于尚未初始化的独立模块类加载器。探针识别断言同时要求合成英文单词、数字和中文，不能只认出数字就报告英文识别成功。手写检查只创建客户端，不等于已有手写模型的实际识别已经验收。
 
+ML Kit 的公开初始化仍通过宿主包的 `MlKitComponentDiscoveryService` 元数据发现组件。正式宿主与探针一样声明 `VisionCommonRegistrar`、`TextRegistrar`，仅组件名进入基础清单，OCR 类和模型只在模块内。各类加载器忽略自己不可见的声明，保留原手写组件。产品专项同时检查 OCR 前后的宿主手写客户端创建，不能只凭独立探针的组件声明就推断正式宿主也能初始化。
+
 模块自己的类加载器在进程内复用公开 SDK 容器，只有首次初始化调用 `MlKit.initialize`；关闭后重新创建识别器或模块实例不重置该容器。多字号探针在用例之间关闭并新建模块实例，覆盖连续打开工具的生命周期，而不是只测进程内第一次调用。
 
 参考实现固定为 `LeanBitLab/LeanType@be774536dfb415634da176831852e0b8eed247dc` 及 `LeanBitLab/LeanType-OCR-Plugin@968949a7b54b8f0e3a4a5063ca03812554cf23ef`，仅用于研究，不复制未提交源码。其插件使用 ML Kit 私有初始化和识别文本日志，不沿用这两点。公开初始化接口见 [Google MlKit API](https://developers.google.com/android/reference/com/google/mlkit/common/MlKit)；模型安装方式见 [文本识别 Android 指南](https://developers.google.com/ml-kit/vision/text-recognition/v2/android)。

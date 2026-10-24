@@ -60,6 +60,8 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         Class<?> progress = loader.loadClass("app.msime.android.NativeClient$ResourcePackProgress");
         install = loader.loadClass("app.msime.android.ResourcePacks").getMethod("install",
             Context.class, String.class, List.class, List.class, progress);
+        stage = "host handwriting client before OCR";
+        handwritingClient();
         source = new File(context.getCacheDir(), "synthetic-ocr-import.apk");
         try (InputStream input = getContext().getAssets().open("ocr-product-module.apk");
              FileOutputStream output = new FileOutputStream(source)) {
@@ -92,6 +94,8 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         importModule();
         recognizeFixture();
         source.delete();
+        stage = "host handwriting client after OCR";
+        handwritingClient();
 
         stage = "native camera preview";
         automation.grantRuntimePermission(context.getPackageName(), "android.permission.CAMERA");
@@ -128,6 +132,13 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
             int count;
             while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
         }
+    }
+
+    /** 仅验证已有 SDK 容器仍能创建手写客户端，不把它报告成手写模型推理验收。 */
+    private void handwritingClient() throws Exception {
+        Class<?> type = getTargetContext().getClassLoader().loadClass("app.msime.android.MlKitHandwritingRecognizer");
+        Object client = type.getConstructor(Context.class).newInstance(getTargetContext());
+        type.getMethod("close").invoke(client);
     }
 
     private File importModule() throws Exception {
