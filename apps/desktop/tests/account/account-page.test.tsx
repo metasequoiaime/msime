@@ -15,7 +15,6 @@ import {
   type AppThemeCatalogEntry,
   type AppThemeClient,
   type AppThemeId,
-  type Preferences,
   type SettingsSyncClient,
   type Snapshot,
 } from "@msime/ui";
@@ -1601,12 +1600,12 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   });
   harmonyMe({
     client,
-    preferences: { ...preferences.preferences, global_theme: "shuishan" } as Preferences,
     onOpenPage,
     onOpenUrl,
     appTheme: appThemeClient(),
     desktopDownloadUrl: "https://msime.app/download/",
     appVersion: "1.2.3",
+    onOpenCloudDictionary: record("dictionary"),
     onOpenCloudClipboard: record("clipboard"),
     onOpenLocalDesigns: record("designs"),
     onOpenFeedback: record("feedback"),
@@ -1617,16 +1616,11 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   const card = await screen.findByRole("button", { name: "编辑个人资料" });
   expect(card.textContent).toContain("fixture@example.test");
 
-  const content = within(screen.getByRole("region", { name: "我的内容" }));
-  expect(content.getAllByRole("button").map((button) => button.textContent)).toEqual([
-    "我的皮肤水杉",
-    "我的词库",
-    "云剪贴板",
-  ]);
-  fireEvent.click(content.getByRole("button", { name: "我的皮肤" }));
-  fireEvent.click(content.getByRole("button", { name: "我的词库" }));
-  fireEvent.click(content.getByRole("button", { name: "云剪贴板" }));
-  expect(onOpenPage.mock.calls).toEqual([["skin"], ["dictionary"]]);
+  // 皮肤、词库和两个云端面板分别由设置页的唯一入口承载；「我的」只保留作品入口。
+  expect(screen.queryByRole("region", { name: "我的内容" })).toBeNull();
+  for (const title of ["我的皮肤", "我的词库", "云词库", "云剪贴板"]) {
+    expect(screen.queryByRole("button", { name: title })).toBeNull();
+  }
 
   fireEvent.click(
     within(screen.getByRole("region", { name: "社区作品" })).getByRole("button", {
@@ -1648,7 +1642,7 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   fireEvent.click(screen.getByRole("button", { name: "新手引导" }));
-  expect(calls).toEqual(["clipboard", "designs", "feedback", "about", "onboarding"]);
+  expect(calls).toEqual(["designs", "feedback", "about", "onboarding"]);
 
   // 旧的区块都没了：没有工具分组，没有内嵌的同步卡片，也没有数据区块标题。
   expect(screen.queryByRole("region", { name: "工具" })).toBeNull();
