@@ -12,6 +12,9 @@ Status: implemented
 
 认证状态由 `StatisticsAuthenticationPolicy` 表达并以 smoke 覆盖，页面负责生命周期、系统认证和原有加载流程。
 
+## 生命周期接入
+
+统计页继承 `HomeTabFragment`，使用它的 `onBecameVisible()` 生命周期回调接入认证；详情页的 `ReloadingDetailPage` 仍通过共享 `onVisible()` 钩子统一重载。这样不会让统计页误用详情页的生命周期合同。
 ## Alternatives considered
 
 - 只在首次打开认证并永久保持：离开页面后设备可能交给其他人，不能满足立即锁定要求。
