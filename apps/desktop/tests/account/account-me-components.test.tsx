@@ -35,6 +35,21 @@ test("account me group labels titled and untitled rows", () => {
   expect(screen.getByText("关于")).toBeTruthy();
 });
 
+test("account me section shares the group shell without imposing a row container", () => {
+  const Section = (ui as unknown as { AccountMeSection: ComponentType<MeGroupProps> })
+    .AccountMeSection;
+  expect(Section).toBeDefined();
+  render(
+    <Section title="下载">
+      <div data-testid="download-rows">电脑</div>
+    </Section>,
+  );
+
+  const section = screen.getByRole("region", { name: "下载" });
+  expect(section.contains(screen.getByTestId("download-rows"))).toBe(true);
+  expect(section.querySelector('[role="group"]')).toBeNull();
+});
+
 test("account me row keeps disabled state and invokes its action", () => {
   const Row = (ui as unknown as { AccountMeRow: ComponentType<MeRowProps> }).AccountMeRow;
   expect(Row).toBeDefined();

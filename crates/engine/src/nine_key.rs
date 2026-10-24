@@ -190,9 +190,12 @@ impl KeyGrid {
         }
     }
 
-    /// 字母所在键的组码；字母双拼网格的分号归入 L，九键双拼不按字母归组。
+    /// 字母所在键的组码；十八键双拼的大写字母标记精确输入。字母双拼网格的分号归入 L，九键双拼不按字母归组。
     pub fn code_of(self, letter: u8) -> Option<u8> {
         if matches!(self, Self::EighteenKeyShuangpin(_)) {
+            if letter.is_ascii_uppercase() {
+                return Some(letter);
+            }
             return eighteen_key_code(letter);
         }
         if matches!(self, Self::FourteenKeyShuangpin(_)) {
@@ -1045,6 +1048,9 @@ impl NineKeySession {
         let mut index = first_index;
         while self.active() {
             if self.candidates.is_empty() {
+                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                    self.digits.make_ascii_lowercase();
+                }
                 commit.push_str(&self.digits);
                 break;
             }
@@ -1079,7 +1085,11 @@ impl NineKeySession {
                 if !self.grid.offers_raw_key() && !self.candidates.is_empty() {
                     return self.finish(0);
                 }
-                let raw = std::mem::take(&mut self.digits);
+                let mut raw = std::mem::take(&mut self.digits);
+                // 精确字母的大写只是十八键双拼内部标记，兜底上屏仍是小写字母。
+                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                    raw.make_ascii_lowercase();
+                }
                 self.clear_composition();
                 return KeyResult::committed(raw);
             }
@@ -3584,6 +3594,8 @@ impl SpellingTable {
                 .then_with(|| prior.syllable_score(b).total_cmp(&prior.syllable_score(a)))
                 .then_with(|| a.cmp(b))
         });
+        // 双拼的同一读法可以有整组、精确与别名编码，左侧拼写只显示一次。
+        matches.dedup_by(|a, b| self.syllables[*a].0 == self.syllables[*b].0);
         destination.truncate(matches.len());
         for (position, &index) in matches.iter().enumerate() {
             if let Some(spelling) = destination.get_mut(position) {

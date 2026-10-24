@@ -66,6 +66,7 @@ final class ClipboardExportActions {
     }
 
     private void requestAuthentication() {
+        if (!ClipboardOperationAuthenticationPolicy.shouldStartAuthentication(authentication != null)) return;
         int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
             | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
         android.content.Context context = page.requireContext();

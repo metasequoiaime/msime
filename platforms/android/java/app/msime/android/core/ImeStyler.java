@@ -134,14 +134,6 @@ final class ImeStyler {
     }
 
     void applyKeyboardGeometry(View node) {
-        if (node.getTag() instanceof MSIMEInputService.KeyboardHeightRole role
-                && role.rowCount == 3 && role.rowIndex == 1
-                && s.keyboardLayer == KeyboardLayout.Layer.LETTERS
-                && s.displayedTouchLayout(s.view) == KeyboardLayout.EIGHTEEN_KEY_LAYOUT) {
-            // 第二行少一个字母键；两侧补回该键的外边距，让七份权重扣除相同的键距后再分配宽度。
-            ViewPolicy.setHorizontalPaddingPreservingVertical(node,
-                s.halfSpacingPixels(layoutKeySpacingTenths()));
-        }
         if (s.followsKeySpacing(node)
                 && node.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
             android.view.ViewGroup.MarginLayoutParams params =
