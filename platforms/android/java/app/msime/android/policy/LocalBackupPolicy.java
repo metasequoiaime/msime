@@ -37,8 +37,8 @@ public final class LocalBackupPolicy {
     public static final int MAX_SETTINGS_BYTES = 4 * 1024 * 1024;
     public static final int MAX_ANDROID_LOCAL_BYTES = 64 * 1024;
     public static final int MAX_SKINS_BYTES = 16 * 1024 * 1024;
-    /** 自己添加的常用语最多 200 条、每条 1000 个 UTF-16 单元。 */
-    public static final int MAX_PHRASES_BYTES = 2 * 1024 * 1024;
+    /** 最多 200 条正文及备注，各 1000 个 UTF-16 单元；正文还用于备注键和分类成员，按四份 UTF-8 内容预留。 */
+    public static final int MAX_PHRASES_BYTES = 3 * 1024 * 1024;
     /** 与个人词库快照激活队列的上限相同（Rust 的 `snapshot_queue.rs` 里的 `MAXIMUM_SNAPSHOT_BYTES`）。 */
     public static final long MAX_DICTIONARY_BYTES = 512L * 1024 * 1024;
     /** 与原生侧输入习惯文件的上限相同；整句联想最多 20 万行，远到不了。 */

@@ -10,7 +10,7 @@ Status: implemented
 
 社区与词库输入框复用现有 `packages/ui/src/core/labeled-input-field.tsx`。两者继续持有自身的属性接口和样式，分别传入原有标签样式、输入框样式、无障碍名称和值回调，不改变最终 DOM、默认输入类型或可选属性。
 
-词库 `DialogField` 仍作为页面内部的样式适配保留，避免三个调用点重复传样式和无障碍名称。社区其他选择框、文本域继续使用 `CommunityField`。
+词库 `DialogField` 作为 `dictionary/dictionary-edit-dialogs.tsx` 内部的样式适配保留，避免三个调用点重复传样式和无障碍名称；新建与词条编辑的公共边界见[词库编辑弹窗](../bug-fix/2026-10-14-dictionary-dialog-ime-keys.md)。社区其他选择框、文本域继续使用 `CommunityField`。
 
 ## Alternatives considered
 

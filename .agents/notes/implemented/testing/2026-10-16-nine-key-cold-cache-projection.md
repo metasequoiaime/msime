@@ -241,3 +241,5 @@ Status: implemented
 [排名前置筛选](2026-10-16-nine-key-dominated-row-projection.md)仅在核对有效的普通九键/14 键非模糊系列热页中拒绝被已有同词行支配的结果；冷页继续保持本篇的读法筛选、完整缓存与容量规则。
 
 全拒绝借用页延后申请的[后续实验](../../rejected/testing/2026-10-18-nine-key-empty-projection.md)未通过事前性能门槛，生产入口仍保持完整页预留规则。
+
+[冷页全保留的 FIFO 淘汰页复用](2026-10-23-quanpin-evicted-page-reuse.md)在不改变本篇容量与完整缓存规则的前提下，只复用本次淘汰值中容量恰好匹配的缓冲区；不保留额外回收池。

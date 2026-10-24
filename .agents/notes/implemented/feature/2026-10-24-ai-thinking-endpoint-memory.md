@@ -22,6 +22,8 @@ Windows 端 `ai_assistant.thinking`（取值 `disabled|low|high|max`）控制 De
 
 槽位缺键或值为空字符串都使用目录默认值，接口地址和模型独立回填。共享设置页不能用 `??` 把空字符串当成自定义配置；切换补丁保留其他槽位且不修改输入对象。公共 C 头文件说明完整的六字段响应，旧请求省略两个映射仍可用；宿主必须随补丁保存 `endpoints`/`models`，否则再次切换会丢掉记忆。真实 C ABI 回归覆盖旧请求、空槽回退、两个服务商的自定义配置往返、严格响应字段及凭据字段拒绝，共享页回归覆盖两个空槽和分别只有一个空槽。
 
+Android 原生设备夹具清空合成初态的 `endpoints`/`models`，避免继承专用 AVD 以前的提供方槽位。真实设置页的切换断言分别检查 DeepSeek 默认模型与 OpenAI 自定义模型往返恢复；延迟目录返回时检查当前提供方的模型不被覆盖，原提供方的模型仍留在自己的槽位，不能再要求自定义模型随提供方一起迁移。结束时恢复完整原 AI 设置。
+
 设置页给两个真实控件：AI 页「思考强度」下拉只在提供方选中 DeepSeek 时显示；语音润色页的「润色思考强度」同样只在 DeepSeek 时显示，说明里写明 30 秒超时直接上屏原文。
 
 ## Existing notes
@@ -47,3 +49,13 @@ Windows 端 `ai_assistant.thinking`（取值 `disabled|low|high|max`）控制 De
 先红后绿：基线上 `cargo test -p msime-client-providers --lib deepseek_thinking` 失败（`left:{"type":"disabled"} right:{"type":"enabled"}`）；`cargo test --test ai_provider_settings` 基线编译失败（`AiProviderFields` 无 `endpoints`/`models` 字段）；`vitest run tests/settings/ai-provider-update.test.ts` 基线 3 条全红。实现后 `cargo test -p msime-client-providers -p msime-client-core`、`cargo check -p msime-host-api -p msime-input-runtime -p msime-mcp-server --all-targets`、`pnpm --dir apps/desktop exec tsc --noEmit`、vitest 6 条全绿。未对真实 DeepSeek 端点验证请求被接受，形状以旧 Windows 实现为准。
 
 空槽审计回归在旧共享页下收到空地址，未得到 OpenAI 目录默认地址；修复后共享页 4 项、真实 C ABI 4 项通过。旧四字段 ABI 测试已按现行六字段契约更新，并继续检查凭据字段被拒绝。桌面与 Harmony 设置页的类型检查、构建通过；这里验证的是配置纯函数和接口边界，不涉及真实网络请求。
+
+Android 旧设备夹具在 API 28、35 的普通冒烟中均失败于 `native provider selection fills empty defaults` 的模型断言。隔离提供方槽位并按当前记忆契约修正后，两版完整 `AiEndpointCheckDeviceSmoke` 均通过，覆盖真实设置控件、JNI、模型目录回环请求、凭据保留和过期回复丢弃。测试 APK 由修正版设备源码重新编译，产品沿用同一个已安装的完整资源 APK（SHA-256 `3992e1e52453defcf6e8865faf6b461adfe247d629508ee9f4e5cb8013e04a3e`）；本次改动只有设备夹具和笔记。`check-host.sh` 的 258 项 JVM 冒烟、225 份设备源码编译及 Java/API/JNI 检查通过。
+
+本次设备夹具修正的完整 quick `20261024-083242` 退出码为 0；按改动范围执行共享契约、Rust workspace、Android 目标与宿主 Java、WASM 和 Apple 桥接检查。笔记校验在本机单独通过。
+
+上游 `46650c3b72` 已独立修正相同的槽位初始化和模型往返断言。同步 `839cf5d2b6` 时保留上游实现，本分支仅额外断言切换后 `models.custom` 仍保存原服务的合成模型。前述两版设备结果与 quick 对应同步前的修正版；合并结果重新编译测试包，API 28 完整 `AiEndpointCheckDeviceSmoke` 再次通过；产品仍沿用前述 APK，完整 quick 单独验证。
+
+合并结果首轮 quick `20261024-084233` 的契约、Rust workspace、Android 目标及 Java/JNI 门禁通过；因上游前端变更还触发 Linux 设置壳检查，在创建新缓存前主动停止，不作为整套通过证据。复用已结束该阶段的 #8770 Linux 设置壳 APFS 缓存后完整重跑，不修改门禁范围或断言。
+
+合并结果完整 quick `20261024-085035` 最终 exit 0：共享契约、Rust workspace、Android 目标、Java/JNI、Linux 设置壳及共享 Apple 桥接通过；其余阶段按范围或前置工具条件跳过。Linux 设置壳实际完成（53 分 09 秒），没有以缓存存在代替编译结果；远端缺 Node/pnpm 的笔记校验在本机单独通过。

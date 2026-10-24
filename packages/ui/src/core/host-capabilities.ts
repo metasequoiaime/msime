@@ -103,6 +103,8 @@ export interface HostCapabilities {
   maintenance_shortcuts: boolean;
   /** 宿主保留 Option/Alt+Shift+H 用于切换字符宽度。 */
   fullwidth_chord: boolean;
+  /** 宿主按 `keybindings.toggle_*` 认三个切换热键，快捷键页给出录键控件；缺省按不提供处理。 */
+  toggle_hotkey_chords?: boolean;
   /** 宿主运行配置的转写服务，因此相关设置会生效。 */
   voice_provider_settings: boolean;
   /** 宿主绘制临时识别文字，因此流式预编辑开关会生效。 */

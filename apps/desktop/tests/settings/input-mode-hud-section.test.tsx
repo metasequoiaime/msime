@@ -39,4 +39,33 @@ test("聚焦提示默认关闭且独立于切换提示保存", () => {
 test("未提供 Linux 聚焦能力时只显示切换提示", () => {
   render(<InputModeHudSection value={true} onChange={vi.fn()} />);
   expect(screen.queryByLabelText("聚焦输入框时提示")).toBeNull();
+  expect(screen.queryByLabelText("屏幕角落模式提示")).toBeNull();
+});
+
+test("角落提示默认开启，关闭时不修改切换或聚焦提示", () => {
+  const switchChange = vi.fn();
+  const focusChange = vi.fn();
+  const cornerChange = vi.fn();
+  const { rerender } = render(
+    <InputModeHudSection
+      value={true}
+      onChange={switchChange}
+      focus={{ value: true, onChange: focusChange }}
+      corner={{ onChange: cornerChange }}
+    />,
+  );
+  const corner = screen.getByLabelText("屏幕角落模式提示") as HTMLInputElement;
+  expect(corner.checked).toBe(true);
+  fireEvent.click(corner);
+  expect(cornerChange).toHaveBeenCalledWith(false);
+  expect(switchChange).not.toHaveBeenCalled();
+  expect(focusChange).not.toHaveBeenCalled();
+  rerender(
+    <InputModeHudSection
+      value={true}
+      onChange={switchChange}
+      corner={{ value: false, onChange: cornerChange }}
+    />,
+  );
+  expect((screen.getByLabelText("屏幕角落模式提示") as HTMLInputElement).checked).toBe(false);
 });

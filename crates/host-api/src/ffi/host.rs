@@ -835,6 +835,58 @@ pub unsafe extern "C" fn msime_client_load_preferences(
     })
 }
 
+/// 三个可重绑切换热键（`keybindings.toggle_english_candidates`、`toggle_full_width`、
+/// `toggle_punctuation`）按共享 `KeyChord` 契约解码：每个键给出 `null`（不绑定）或
+/// `{"key": 主键规范名, "ctrl", "alt", "shift", "meta"}`，宿主按规范名认键，
+/// 写法解析只在 Rust 一侧。keybindings 缺键或值为 null 时按出厂值。
+/// # Safety
+/// `request` 指向 `length` 字节的 JSON `{"keybindings": object}`，最多 64 KiB；
+/// keybindings 不是表时返回错误。结果用 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_toggle_hotkey_chords(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        #[serde(default)]
+        keybindings: Value,
+    }
+    response(|| {
+        if request.is_null() || length > 64 * 1024 {
+            return Err("invalid toggle hotkey request buffer".into());
+        }
+        // SAFETY: 调用方保证缓冲区可读，上方已检查长度上限。
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request = serde_json::from_slice(bytes)
+            .map_err(|_| "invalid toggle hotkey request".to_owned())?;
+        let keys = if request.keybindings.is_null() {
+            msime_client_core::preferences::KeybindingPreferences::default()
+        } else {
+            serde_json::from_value(request.keybindings)
+                .map_err(|_| "invalid keybindings".to_owned())?
+        };
+        Ok(json!({
+            "english_candidates": toggle_hotkey_chord(keys.english_candidates_chord()),
+            "full_width": toggle_hotkey_chord(keys.full_width_chord()),
+            "punctuation": toggle_hotkey_chord(keys.punctuation_chord()),
+        }))
+    })
+}
+
+fn toggle_hotkey_chord(chord: Option<msime_client_core::key_chord::KeyChord>) -> Value {
+    chord.map_or(Value::Null, |chord| {
+        json!({
+            "key": chord.key.to_string(),
+            "ctrl": chord.modifiers.ctrl,
+            "alt": chord.modifiers.alt,
+            "shift": chord.modifiers.shift,
+            "meta": chord.modifiers.meta,
+        })
+    })
+}
+
 /// Read or update private aggregate typing statistics without retaining submitted text.
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.

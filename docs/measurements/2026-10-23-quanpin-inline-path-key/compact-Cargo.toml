@@ -1,0 +1,12 @@
+[package]
+name="key-probe"
+version="0.1.0"
+edition="2021"
+[workspace]
+[dependencies]
+lru="=0.18.5"
+libc="=0.2.189"
+compact_str="=0.10.0"
+[[bin]]
+name="key-probe"
+path="bench.rs"

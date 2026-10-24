@@ -9,6 +9,8 @@
 #import "CandidatePronunciation.h"
 #import "CandidateMotion.h"
 #import "CandidateCanvas.h"
+#include <algorithm>
+#include <vector>
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 // 尺寸和透明度与 Linux 的 X11 原生画布共用 shared/candidate/CandidateChromeMetrics.h，含义见那里。
 static const CGFloat MSIMECandidateTranslationOpacity = msime::candidate::kCandidateTranslationOpacity;
@@ -701,8 +703,175 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 @end
 
+static inline CGFloat MSIMEExpandedCandidateScrollerPadding(CGFloat scale) {
+    return ceil([NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleOverlay]) + 4 * scale;
+}
+
+@interface MSIMEExpandedCandidateScrollView : NSScrollView
+@property(nonatomic, copy) NSArray<NSView *> *(^makeRow)(NSUInteger row, CGFloat top, CGFloat documentHeight);
+@property(nonatomic, copy) void (^positionChanged)(NSUInteger firstRow, CGFloat offset, BOOL previous, BOOL next);
+@property(nonatomic, copy) void (^visibleRowsChanged)(void);
+@property(nonatomic, copy) void (^manualScrollBegan)(void);
+@property(nonatomic, copy) void (^lineScrollHandler)(BOOL previous);
+@property(nonatomic, copy) BOOL (^canScroll)(void);
+- (void)configureRowOffsets:(const std::vector<CGFloat> &)offsets width:(CGFloat)width;
+- (void)scrollToTopOffset:(CGFloat)offset;
+- (NSRange)visibleRowRange;
+- (BOOL)scrollByRowBackwards:(BOOL)backwards;
+@end
+
+@implementation MSIMEExpandedCandidateScrollView {
+    std::vector<CGFloat> _rowOffsets;
+    NSMutableDictionary<NSNumber *, NSArray<NSView *> *> *_visibleRows;
+    BOOL _updatingVisibleRows;
+    BOOL _handlingWheel;
+    BOOL _positioning;
+    BOOL _positioned;
+}
+- (instancetype)initWithFrame:(NSRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.identifier = @"candidate-expanded-viewport";
+        self.borderType = NSNoBorder;
+        self.drawsBackground = NO;
+        self.hasVerticalScroller = YES;
+        self.hasHorizontalScroller = NO;
+        self.scrollerStyle = NSScrollerStyleOverlay;
+        self.autohidesScrollers = YES;
+        self.verticalScrollElasticity = NSScrollElasticityAllowed;
+        self.horizontalScrollElasticity = NSScrollElasticityNone;
+        self.automaticallyAdjustsContentInsets = NO;
+        self.contentView.drawsBackground = NO;
+        self.contentView.clipsToBounds = YES;
+        self.contentView.postsBoundsChangedNotifications = YES;
+        self.documentView = [[NSView alloc] initWithFrame:NSZeroRect];
+        self.documentView.clipsToBounds = YES;
+        self.wantsLayer = YES;
+        _visibleRows = [NSMutableDictionary dictionary];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(clipBoundsChanged:)
+            name:NSViewBoundsDidChangeNotification object:self.contentView];
+    }
+    return self;
+}
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+- (BOOL)acceptsFirstResponder { return NO; }
+- (void)configureRowOffsets:(const std::vector<CGFloat> &)offsets width:(CGFloat)width {
+    NSParameterAssert(offsets.size() > 1);
+    _rowOffsets = offsets;
+    self.documentView.frame = NSMakeRect(0, 0, width, offsets.back());
+}
+- (void)scrollToTopOffset:(CGFloat)offset {
+    _positioning = YES;
+    @try {
+        [self layoutSubtreeIfNeeded];
+        const CGFloat maximum = MAX(0.0, NSHeight(self.documentView.bounds) - NSHeight(self.contentView.bounds));
+        const CGFloat top = std::clamp(offset, 0.0, maximum);
+        [self.contentView scrollToPoint:NSMakePoint(0, maximum - top)];
+        [self reflectScrolledClipView:self.contentView];
+        [self updateVisibleRows];
+    } @finally {
+        _positioning = NO;
+        _positioned = YES;
+    }
+}
+- (void)clipBoundsChanged:(NSNotification *)notification {
+    (void)notification;
+    if (_positioned && !_positioning && self.manualScrollBegan && (!self.canScroll || self.canScroll()))
+        self.manualScrollBegan();
+    [self updateVisibleRows];
+}
+- (NSRange)visibleRowRange {
+    if (_rowOffsets.size() < 2) return NSMakeRange(0, 0);
+    const NSUInteger rows = _rowOffsets.size() - 1;
+    const CGFloat height = NSHeight(self.contentView.bounds);
+    const CGFloat maximum = MAX(0.0, _rowOffsets.back() - height);
+    const CGFloat top = std::clamp(_rowOffsets.back() - NSMaxY(self.documentVisibleRect), 0.0, maximum);
+    const auto upper = std::upper_bound(_rowOffsets.begin(), _rowOffsets.end() - 1, top);
+    const NSUInteger first = upper == _rowOffsets.begin() ? 0 : (NSUInteger)(upper - _rowOffsets.begin() - 1);
+    NSUInteger end = first + 1;
+    while (end < rows && _rowOffsets[end] < top + height) ++end;
+    return NSMakeRange(first, end - first);
+}
+- (BOOL)scrollByRowBackwards:(BOOL)backwards {
+    const NSRange visible = self.visibleRowRange;
+    if (!visible.length) return NO;
+    const CGFloat maximum = MAX(0.0, _rowOffsets.back() - NSHeight(self.contentView.bounds));
+    const CGFloat top = std::clamp(_rowOffsets.back() - NSMaxY(self.documentVisibleRect), 0.0, maximum);
+    CGFloat target;
+    if (backwards) {
+        const NSUInteger row = top > _rowOffsets[visible.location] ? visible.location
+            : visible.location > 0 ? visible.location - 1 : 0;
+        target = _rowOffsets[row];
+    } else {
+        target = MIN(maximum, _rowOffsets[visible.location + 1]);
+    }
+    if (target == top) return NO;
+    [self scrollToTopOffset:target];
+    return YES;
+}
+- (void)updateVisibleRows {
+    if (_updatingVisibleRows || _rowOffsets.size() < 2 || !self.makeRow) return;
+    _updatingVisibleRows = YES;
+    @try {
+        const CGFloat height = NSHeight(self.contentView.bounds);
+        const CGFloat maximum = MAX(0.0, _rowOffsets.back() - height);
+        const CGFloat top = std::clamp(_rowOffsets.back() - NSMaxY(self.documentVisibleRect), 0.0, maximum);
+        const NSRange visible = self.visibleRowRange;
+        const NSUInteger first = visible.location, end = NSMaxRange(visible);
+        BOOL changed = NO;
+        for (NSNumber *key in _visibleRows.allKeys) {
+            if (key.unsignedIntegerValue >= first && key.unsignedIntegerValue < end) continue;
+            for (NSView *button in _visibleRows[key]) [button removeFromSuperview];
+            [_visibleRows removeObjectForKey:key];
+            changed = YES;
+        }
+        for (NSUInteger row = first; row < end; ++row) {
+            NSNumber *key = @(row);
+            if (_visibleRows[key]) continue;
+            NSArray<NSView *> *buttons = self.makeRow(row, _rowOffsets[row], _rowOffsets.back());
+            for (NSView *button in buttons) [self.documentView addSubview:button];
+            _visibleRows[key] = buttons;
+            changed = YES;
+        }
+        if (self.positionChanged)
+            self.positionChanged(first, top - _rowOffsets[first], top > 0, top < maximum);
+        if (changed && self.visibleRowsChanged) self.visibleRowsChanged();
+    } @finally {
+        _updatingVisibleRows = NO;
+    }
+}
+- (void)scrollWheel:(NSEvent *)event {
+    if (_handlingWheel || (self.canScroll && !self.canScroll())) return;
+    if (!event.hasPreciseScrollingDeltas && self.lineScrollHandler) {
+        if (event.scrollingDeltaY != 0) self.lineScrollHandler(event.scrollingDeltaY > 0);
+        return;
+    }
+    if (self.manualScrollBegan) self.manualScrollBegan();
+    _handlingWheel = YES;
+    @try {
+        [super scrollWheel:event];
+    } @finally {
+        _handlingWheel = NO;
+    }
+}
+@end
+
 // 所有候选身份校验与遍历都通过当前内容容器，普通测试面板仍可直接放控件。
 static inline NSView *MSIMECandidateControlsView(NSView *view) {
     return [view isKindOfClass:MSIMECandidateChromeView.class]
         ? ((MSIMECandidateChromeView *)view).candidateContentView : view;
+}
+
+static inline NSArray<__kindof NSView *> *MSIMECandidateControlSubviews(NSView *view) {
+    NSArray<NSView *> *children = MSIMECandidateControlsView(view).subviews;
+    NSMutableArray<NSView *> *controls = [children mutableCopy];
+    for (NSView *child in children)
+        if ([child.identifier isEqual:@"candidate-expanded-viewport"]) {
+            if ([child isKindOfClass:NSScrollView.class])
+                [controls addObjectsFromArray:((NSScrollView *)child).documentView.subviews];
+            else [controls addObjectsFromArray:child.subviews];
+        }
+    return controls;
 }

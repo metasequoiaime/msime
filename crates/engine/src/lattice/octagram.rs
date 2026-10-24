@@ -622,20 +622,55 @@ mod tests {
         assert_eq!(emoji.len(), 4);
     }
 
-    /// 真实 `.gram` 的人工验证探针：`GRAM_PROBE_PATH=<file>` 指定模型文件，
-    /// 断言能打开且「一名+医生」的搭配强于「一名+一生」。
+    /// 真实 `.gram` 的人工验证探针：`GRAM_PROBE_PATH=<file>` 指向资源锁里的
+    /// 八股文紧凑模型，校验模型身份并对照独立读取器的分值。
     #[test]
-    #[ignore = "需要真实模型文件：GRAM_PROBE_PATH=<path> cargo test -p msime-engine real_gram -- --ignored"]
+    #[ignore = "需要锁定的八股文紧凑模型：GRAM_PROBE_PATH=<path> cargo test -p msime-engine --lib real_gram -- --ignored"]
     fn real_gram_loads_and_queries() {
-        let Some(path) = std::env::var_os("GRAM_PROBE_PATH") else {
-            return;
-        };
-        let db = GramDb::load(Path::new(&path)).expect("real .gram loads");
+        use sha2::{Digest, Sha256};
+
+        let path = std::env::var_os("GRAM_PROBE_PATH")
+            .expect("手动探针需要 GRAM_PROBE_PATH 指定锁定的八股文紧凑模型");
+        let db = GramDb::load(Path::new(&path)).expect("八股文紧凑模型能加载");
+        let lock: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../resources/grammar-models.lock.json"
+        ))
+        .expect("语法模型资源锁能解析");
+        let model = lock["models"]
+            .as_array()
+            .expect("资源锁包含模型列表")
+            .iter()
+            .find(|model| model["id"] == "baguwen-compact")
+            .expect("资源锁包含八股文紧凑模型");
+        let artifact = &model["artifacts"][0];
+        assert_eq!(
+            db.bytes.len() as u64,
+            artifact["size"].as_u64().expect("资源锁包含模型大小"),
+            "模型大小必须与锁定的八股文紧凑模型一致"
+        );
+        assert_eq!(
+            hex::encode(Sha256::digest(&db.bytes[..])),
+            artifact["sha256"].as_str().expect("资源锁包含模型 SHA-256"),
+            "模型 SHA-256 必须与锁定的八股文紧凑模型一致"
+        );
+
+        // 固定 darts-clone e40ce4627526985a7767444b6ed6893ab6ff8983 的独立读取结果。
+        // 模型分值以 1/10000 为步长，1e-9 容差只容纳浮点舍入。
         let config = GramConfig::default();
-        let right = db.query("一名", "医生", true, &config);
-        let wrong = db.query("一名", "一生", true, &config);
-        eprintln!("一名+医生={right:.4} 一名+一生={wrong:.4}");
-        assert!(right > wrong, "真实模型应偏好医生搭配");
+        for (context, word, expected_units) in [
+            ("一名", "医生", -40_443),
+            ("一名", "一生", -38_286),
+            ("北京", "大学", -3_926),
+            ("北京", "大雪", -26_763),
+        ] {
+            let expected = f64::from(expected_units) / 10_000.0;
+            let actual = db.query(context, word, true, &config);
+            eprintln!("{context}+{word}={actual:.4}，参考={expected:.4}");
+            assert!(
+                (actual - expected).abs() < 1e-9,
+                "{context}+{word} 的分值应为 {expected:?}，实际 {actual:?}"
+            );
+        }
     }
 
     #[test]

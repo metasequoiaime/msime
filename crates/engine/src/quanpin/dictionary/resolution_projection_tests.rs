@@ -66,7 +66,7 @@ impl QuanpinDictionary {
             merged.push(item);
         }
         *candidates = merged;
-        self.cache.insert(code.to_string(), expanded);
+        self.cache.insert(code.to_string(), expanded.into());
         let segments = self.resolve_segments(raw, segmentation);
         let resolution =
             self.legacy_slot_resolution(raw, segmentation, &segments, autocorrect_types);

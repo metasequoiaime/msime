@@ -1,26 +1,19 @@
 import { AiSkinGeneration } from "./ai-skin-generation";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ErrorAlert } from "../core/error-alert";
-import { useAsyncActionRunner } from "../core/use-async-action";
-import { libraryError } from "./touch-keyboard-skin-errors";
+import { useTouchKeyboardSkinLibrary } from "./use-touch-keyboard-skin-library";
+import { useTouchKeyboardSkinEditorState } from "./use-touch-keyboard-skin-editor-state";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import { readAndCompressTouchSkinPhoto } from "./touch-skin-images";
 import {
-  defaultTouchKeyboardSkinDesign,
-  boundedSkinName,
   hasReadableSkinText,
-  normalizeTouchKeyboardSkinDesign,
-  readableSkinText,
   skinColor,
   skinColorNumber,
-  skinContrast,
   touchKeyboardBackgroundPresets,
   touchKeyboardSkinTemplates,
   type AiSkinClient,
-  type CustomSkinLibraryAction,
   type CustomSkinLibraryClient,
-  type SavedTouchKeyboardSkin,
   type TouchKeyboardSkinDesign,
   type TouchSkinKeyMaterial,
   type TouchSkinKeyShape,
@@ -37,8 +30,6 @@ import { SliderRow } from "../settings/slider-row";
 import { SwitchRow } from "../settings/switch-row";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
-type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
-type Confirmation = { operation: "update" | "delete"; item: SavedTouchKeyboardSkin };
 
 /** 颜色设置行：末端是当前色值和一个圆形色块，色块就是原生取色器，点开即系统的取色面板。 */
 function ColorRow({
@@ -136,121 +127,41 @@ export function TouchKeyboardSkinEditor({
   fullScreen?: boolean;
 }) {
   const [category, setCategory] = useState<Category>("背景");
-  const [undo, setUndo] = useState<TouchKeyboardSkinDesign[]>([]);
-  const [redo, setRedo] = useState<TouchKeyboardSkinDesign[]>([]);
   const [photoError, setPhotoError] = useState("");
-  const [saved, setSaved] = useState<SavedTouchKeyboardSkin[]>([]);
-  const [libraryNotice, setLibraryNotice] = useState("");
-  const [nameEditor, setNameEditor] = useState<NameEditor | null>(null);
-  const [skinName, setSkinName] = useState("");
-  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [aiGenerationOpen, setAiGenerationOpen] = useState(false);
   const {
+    saved,
     busy: libraryBusy,
-    running: libraryActionBusy,
-    run: runLibraryAction,
-  } = useAsyncActionRunner(setLibraryNotice, undefined, library);
-  useEffect(() => {
-    if (!library) return;
-    void runLibraryAction(
-      async (isCurrent) => {
-        const items = await library.load();
-        if (isCurrent()) setSaved(items);
-      },
-      { formatError: libraryError },
-    );
-  }, [library, runLibraryAction]);
-  const apply = (next: TouchKeyboardSkinDesign, record = true) => {
-    const normalized = normalizeTouchKeyboardSkinDesign(next);
-    if (JSON.stringify(normalized) === JSON.stringify(design)) return;
-    if (record) {
-      setUndo((items) => [...items, design].slice(-30));
-      setRedo([]);
-    }
-    onChange(normalized);
+    notice: libraryNotice,
+    setNotice: setLibraryNotice,
+    nameEditor,
+    skinName,
+    setSkinName,
+    beginCreate,
+    beginRename,
+    cancelName,
+    submitName,
+    confirmation,
+    requestMutation,
+    cancelConfirmation,
+    confirmMutation,
+  } = useTouchKeyboardSkinLibrary(library);
+  const saveNamedDesign = async () => {
+    const result = await submitName(design);
+    if (!result) return;
+    setCategory("我的");
+    if (result === "created") onUse();
   };
-  const patch = (value: Partial<TouchKeyboardSkinDesign>, record = true) =>
-    apply({ ...design, ...value }, record);
-  const stepBack = () => {
-    const next = undo.at(-1);
-    if (!next) return;
-    setUndo((items) => items.slice(0, -1));
-    setRedo((items) => [...items, design].slice(-30));
-    apply(next, false);
-  };
-  const stepForward = () => {
-    const next = redo.at(-1);
-    if (!next) return;
-    setRedo((items) => items.slice(0, -1));
-    setUndo((items) => [...items, design].slice(-30));
-    apply(next, false);
-  };
-  const optimizeContrast = () => {
-    const black = Math.min(
-      skinContrast(0, design.background),
-      skinContrast(0, design.keyBackground),
-    );
-    const white = Math.min(
-      skinContrast(0xffffff, design.background),
-      skinContrast(0xffffff, design.keyBackground),
-    );
-    patch({
-      keyForeground: readableSkinText(design.keyBackground),
-      accent: black >= white ? 0 : 0xffffff,
-    });
-  };
-  const mutateLibrary = async (action: CustomSkinLibraryAction, success: string) => {
-    if (!library || libraryActionBusy.current) return false;
-    let succeeded = false;
-    await runLibraryAction(
-      async (isCurrent) => {
-        const items = await library.mutate(action);
-        if (!isCurrent()) return;
-        setSaved(items);
-        setLibraryNotice(success);
-        succeeded = true;
-      },
-      { formatError: libraryError },
-    );
-    return succeeded;
-  };
-  const submitName = async () => {
-    if (!nameEditor) return;
-    const name = skinName.trim();
-    if (!name) {
-      setLibraryNotice("请输入皮肤名称。");
-      return;
-    }
-    const created = nameEditor.operation === "create";
-    const action: CustomSkinLibraryAction = created
-      ? { operation: "create", name, design }
-      : { operation: "rename", id: nameEditor.id, name };
-    if (
-      await mutateLibrary(
-        action,
-        created ? "设计已保存到我的皮肤；保存页面设置后会应用到键盘。" : "皮肤名称已更新。",
-      )
-    ) {
-      setNameEditor(null);
-      setCategory("我的");
-      if (created) onUse();
-    }
-  };
-  const confirmLibraryMutation = async () => {
-    if (!confirmation) return;
-    const { operation, item } = confirmation;
-    const action: CustomSkinLibraryAction =
-      operation === "update"
-        ? { operation: "update", id: item.id, design }
-        : { operation: "delete", id: item.id };
-    if (
-      await mutateLibrary(
-        action,
-        operation === "update" ? "已用当前设计更新这套皮肤。" : "已删除这套皮肤。",
-      )
-    )
-      setConfirmation(null);
-  };
+  const {
+    apply,
+    patch,
+    undo: stepBack,
+    redo: stepForward,
+    canUndo,
+    canRedo,
+    reset,
+    optimizeContrast,
+  } = useTouchKeyboardSkinEditorState({ design, onChange });
 
   const editor = (
     <div
@@ -286,25 +197,21 @@ export function TouchKeyboardSkinEditor({
             <ActionButton
               action={stepBack}
               className={skin.iconButton}
-              disabled={!undo.length || disabled}
+              disabled={!canUndo || disabled}
               ariaLabel="撤销设计"
               label={<FluentIcon name="arrow_reset" />}
             />
             <ActionButton
               action={stepForward}
               className={skin.iconButton}
-              disabled={!redo.length || disabled}
+              disabled={!canRedo || disabled}
               ariaLabel="重做"
               label={<FluentIcon name="arrow_reset" className="-scale-x-100" />}
             />
             <span className={skin.previewBarSpacer} />
             {library && (
               <ActionButton
-                action={() => {
-                  setSkinName(`我的设计 ${saved.length + 1}`);
-                  setNameEditor({ operation: "create" });
-                  setLibraryNotice("");
-                }}
+                action={beginCreate}
                 className={skin.tonalButton}
                 disabled={disabled || libraryBusy || saved.length >= 12}
                 label="保存设计"
@@ -342,18 +249,18 @@ export function TouchKeyboardSkinEditor({
             <input
               aria-label="皮肤名称"
               value={skinName}
-              onChange={(event) => setSkinName(boundedSkinName(event.target.value))}
+              onChange={(event) => setSkinName(event.target.value)}
             />
           </label>
           <div>
             <ActionButton
-              action={() => submitName()}
+              action={saveNamedDesign}
               className="primary"
               disabled={libraryBusy || !skinName.trim()}
               label={nameEditor.operation === "create" ? "确认保存" : "确认重命名"}
             />
             <ActionButton
-              action={() => setNameEditor(null)}
+              action={cancelName}
               className="secondary"
               disabled={libraryBusy}
               label="取消"
@@ -376,13 +283,13 @@ export function TouchKeyboardSkinEditor({
           </p>
           <div>
             <ActionButton
-              action={() => confirmLibraryMutation()}
+              action={() => void confirmMutation(design)}
               className={confirmation.operation === "delete" ? "danger" : "primary"}
               disabled={libraryBusy}
               label={confirmation.operation === "update" ? "确认更新" : "确认删除"}
             />
             <ActionButton
-              action={() => setConfirmation(null)}
+              action={cancelConfirmation}
               className="secondary"
               disabled={libraryBusy}
               label="取消"
@@ -751,11 +658,7 @@ export function TouchKeyboardSkinEditor({
               </div>
             </GroupList>
             <div className={skin.footerAction}>
-              <ActionButton
-                action={() => apply(defaultTouchKeyboardSkinDesign)}
-                className="danger-text"
-                label="重置我的皮肤"
-              />
+              <ActionButton action={reset} className="danger-text" label="重置我的皮肤" />
             </div>
           </>
         )}
@@ -792,25 +695,21 @@ export function TouchKeyboardSkinEditor({
                     </button>
                     <div className={skin.libraryActions}>
                       <ActionButton
-                        action={() => setConfirmation({ operation: "update", item })}
+                        action={() => requestMutation("update", item)}
                         className="secondary"
                         disabled={libraryBusy}
                         ariaLabel={`用当前设计更新 ${item.name}`}
                         label="更新"
                       />
                       <ActionButton
-                        action={() => {
-                          setSkinName(item.name);
-                          setNameEditor({ operation: "rename", id: item.id });
-                          setLibraryNotice("");
-                        }}
+                        action={() => beginRename(item)}
                         className="secondary"
                         disabled={libraryBusy}
                         ariaLabel={`重命名 ${item.name}`}
                         label="重命名"
                       />
                       <ActionButton
-                        action={() => setConfirmation({ operation: "delete", item })}
+                        action={() => requestMutation("delete", item)}
                         className="danger-text"
                         disabled={libraryBusy}
                         ariaLabel={`删除 ${item.name}`}

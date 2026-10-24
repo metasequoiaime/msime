@@ -48,7 +48,8 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
         JSONObject original = new JSONObject(ai().toString());
         try {
             JSONObject seed = new JSONObject(original.toString()).put("enabled", false).put("provider", "deepseek")
-                .put("endpoint", "").put("model", "").put("tokens", new JSONObject()
+                .put("endpoint", "").put("model", "")
+                .put("endpoints", new JSONObject()).put("models", new JSONObject()).put("tokens", new JSONObject()
                     .put("https://api.openai.com:443", "synthetic-openai")
                     .put("https://fixture.invalid:443", "synthetic-other"));
             writeAi(seed);
@@ -72,6 +73,7 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
             tap(option("DeepSeek"));
             awaitAi("endpoint", "https://api.deepseek.com/chat/completions");
             check(!ai().getString("model").isEmpty(), "再次选择默认服务补齐模型");
+            String deepseekModel = ai().getString("model");
             clickPage("服务商");
             tap(option("OpenAI"));
             awaitAi("endpoint", "https://api.openai.com/v1/chat/completions");
@@ -83,9 +85,16 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
             setInput("synthetic-custom-model");
             tap(option("保存"));
             awaitAi("model", "synthetic-custom-model");
+            stage = "native provider selection restores each provider model";
             clickPage("服务商");
             tap(option("DeepSeek"));
             awaitAi("provider", "deepseek");
+            awaitAi("endpoint", "https://api.deepseek.com/chat/completions");
+            awaitAi("model", deepseekModel);
+            clickPage("服务商");
+            tap(option("OpenAI"));
+            awaitAi("provider", "openai");
+            awaitAi("endpoint", "https://api.openai.com/v1/chat/completions");
             awaitAi("model", "synthetic-custom-model");
 
             stage = "fetch and select models through the native product page";
@@ -112,7 +121,9 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
                 server.release();
                 awaitNotBusy();
                 checkNoFetchedModels();
-                awaitAi("model", "synthetic-current");
+                awaitAi("model", "synthetic-custom-model");
+                check("synthetic-current".equals(ai().getJSONObject("models").getString("custom")),
+                    "切换后原服务的模型留在自己的槽位");
             }
 
             stage = "credential edits discard a delayed model catalog";

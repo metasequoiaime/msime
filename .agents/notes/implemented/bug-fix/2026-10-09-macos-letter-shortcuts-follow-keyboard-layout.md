@@ -2,6 +2,8 @@
 
 Status: implemented
 
+2026-10-23：macOS 的可打印主键统一按无修饰布局字符认，录入时转换物理 DOM code，相关决定由[布局键身份修复](2026-10-23-toggle-hotkey-layout-identity.md)部分取代；既有布局跟随语义和共享 chord 格式继续沿用。
+
 ## Problem
 
 #5552 报告开了简繁切换快捷键后 Control+Shift+F 不切换繁体，Option+Shift+H 也不切换全半角，Shift 切中英正常。维护者在美式布局、中文状态下用合成按键测试两个快捷键都能切换，剩下没排除的是键盘布局。

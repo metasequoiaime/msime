@@ -28,7 +28,7 @@ const MAX_INFO_PLIST_BYTES: u64 = 1024 * 1024;
 const MAX_LAUNCH_SERVICES_DUMP_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INPUT_SOURCE_PREFERENCES_BYTES: usize = 1024 * 1024;
 const MAX_PLUTIL_VERSION_BYTES: usize = 1024;
-/// The system-wide input method directory. Nothing this product shipped installed there, but a copy placed by hand competes with the user's; removing it needs an administrator, so it is only reported.
+/// 所有用户共享的输入法目录；写入必须经过系统 Installer 的管理员授权。
 const SYSTEM_INPUT_METHODS: &str = "/Library/Input Methods";
 
 #[derive(Debug)]
@@ -38,6 +38,8 @@ pub(crate) enum InstallError {
     HomeUnavailable,
     Io,
     Registration,
+    AuthorizationRequired,
+    Cancelled,
     /// A first install whose registration the system did not accept: the bundle is left in place, because there is nothing to roll back to and the login session's input source list only picks up an identifier that is new to it at the next login.
     ///
     /// 更新也会报它：登记失败、而替换之前查到本登录会话的注册表里本来就没有这个标识符（首次安装后还没重新登录就打开了更新版的设置应用）。旧版本这次登录同样列不出来，回滚换不来任何东西，所以留下新版本，与首次安装一样提示重新登录。
@@ -310,9 +312,20 @@ fn product_bundles_in(input_methods: &Path) -> Vec<PathBuf> {
     }
 }
 
-/// Copies of this input method in `/Library/Input Methods`, which the user has to remove with an administrator password: the settings app does not ask for one. Cheap enough to call on every status request, so the settings page notices when they are gone.
+/// 两个安装位置都有副本时才报冲突，单独的系统安装是正常安装。
 pub(crate) fn system_bundles() -> Vec<PathBuf> {
-    product_bundles_in(Path::new(SYSTEM_INPUT_METHODS))
+    let Ok(user) = home_input_methods() else {
+        return Vec::new();
+    };
+    conflicting_system_bundles_in(&user, Path::new(SYSTEM_INPUT_METHODS))
+}
+
+fn conflicting_system_bundles_in(user: &Path, system: &Path) -> Vec<PathBuf> {
+    if user.join(input_source_bundle_name()).exists() {
+        product_bundles_in(system)
+    } else {
+        Vec::new()
+    }
 }
 
 /// Install a validated bundle below `input_methods`, replacing an existing
@@ -365,7 +378,176 @@ fn home_input_methods() -> Result<PathBuf, InstallError> {
 }
 
 pub(crate) fn installed_bundle_path() -> Result<PathBuf, InstallError> {
-    Ok(home_input_methods()?.join(input_source_bundle_name()))
+    installed_bundle_path_in(&home_input_methods()?, Path::new(SYSTEM_INPUT_METHODS))
+}
+
+fn installed_bundle_path_in(
+    user_input_methods: &Path,
+    system_input_methods: &Path,
+) -> Result<PathBuf, InstallError> {
+    let user = user_input_methods.join(input_source_bundle_name());
+    let system = system_input_methods.join(input_source_bundle_name());
+    for bundle in [&user, &system] {
+        crate::shared::atomic_file::check_directory_ancestors(bundle.parent().unwrap())
+            .map_err(|_| InstallError::InvalidBundle)?;
+        match fs::symlink_metadata(bundle) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                return Ok(bundle.to_path_buf());
+            }
+            Ok(_) => return Err(InstallError::InvalidBundle),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Err(InstallError::Io),
+        }
+    }
+    Ok(user)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum InstallationScope {
+    User,
+    System,
+}
+
+pub(crate) fn installation_scope(target: &Path) -> InstallationScope {
+    if target.parent() == Some(Path::new(SYSTEM_INPUT_METHODS)) {
+        InstallationScope::System
+    } else {
+        InstallationScope::User
+    }
+}
+
+fn install_with_authorization<F>(
+    scope: InstallationScope,
+    allow_authorization: bool,
+    install: F,
+) -> Result<(), InstallError>
+where
+    F: FnOnce() -> Result<(), InstallError>,
+{
+    if scope == InstallationScope::System && !allow_authorization {
+        return Err(InstallError::AuthorizationRequired);
+    }
+    install()
+}
+
+fn command_succeeds(command: &mut Command) -> bool {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn build_system_package(source: &Path, work: &Path) -> Result<PathBuf, InstallError> {
+    validate_bundle(source)?;
+    let version = bundle_version(source).ok_or(InstallError::InvalidBundle)?;
+    let root = work.join("payload");
+    fs::create_dir(&root).map_err(|_| InstallError::Io)?;
+    let staged = root.join(input_source_bundle_name());
+    copy_tree(source, &staged)?;
+    validate_bundle(&staged)?;
+    // 签名封印必须在保留框架相对链接的暂存副本上成立，再把它交给 Installer。
+    if !command_succeeds(
+        Command::new("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(&staged),
+    ) {
+        return Err(InstallError::InvalidBundle);
+    }
+    let components = work.join("components.plist");
+    if !command_succeeds(
+        Command::new("/usr/bin/pkgbuild")
+            .arg("--analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg(&components),
+    ) {
+        return Err(InstallError::Io);
+    }
+    let name = plist_string(&components, "0.RootRelativeBundlePath");
+    if name.as_deref().map(str::trim) != Some(input_source_bundle_name())
+        || plist_string(&components, "1.RootRelativeBundlePath").is_some()
+    {
+        // 固定只有一个顶层输入法组件；嵌入框架由该组件一起原子替换。
+        return Err(InstallError::InvalidBundle);
+    }
+    for (key, kind, value) in [
+        ("BundleIsRelocatable", "bool", "false"),
+        ("BundleOverwriteAction", "string", "upgrade"),
+        ("BundleIsVersionChecked", "bool", "true"),
+    ] {
+        if !command_succeeds(
+            Command::new("/usr/bin/plutil")
+                .args(["-replace", &format!("0.{key}"), &format!("-{kind}"), value])
+                .arg(&components),
+        ) {
+            return Err(InstallError::Io);
+        }
+    }
+    let package = work.join("input-method.pkg");
+    if !command_succeeds(
+        Command::new("/usr/bin/pkgbuild")
+            .arg("--root")
+            .arg(&root)
+            .arg("--component-plist")
+            .arg(&components)
+            .arg("--identifier")
+            .arg(format!("{}.system-install", input_source_bundle_id()))
+            .arg("--version")
+            .arg(version.build.to_string())
+            .args([
+                "--ownership",
+                "recommended",
+                "--install-location",
+                SYSTEM_INPUT_METHODS,
+            ])
+            .arg(&package),
+    ) {
+        return Err(InstallError::Io);
+    }
+    Ok(package)
+}
+
+// 路径经 argv 传入，再由 AppleScript 按 shell 规则引用；管理员命令和目标不可由页面指定。
+const SYSTEM_INSTALL_SCRIPT: &str = r#"on run argv
+    try
+        do shell script "/usr/sbin/installer -pkg " & quoted form of (item 1 of argv) & " -target / >/dev/null 2>&1" with administrator privileges
+        return "installed"
+    on error number errorNumber
+        if errorNumber is -128 then return "cancelled"
+        return "failed"
+    end try
+end run"#;
+
+fn system_install_result(output: Option<&[u8]>) -> Result<(), InstallError> {
+    match output.map(|bytes| bytes.trim_ascii()) {
+        Some(b"installed") => Ok(()),
+        Some(b"cancelled") => Err(InstallError::Cancelled),
+        _ => Err(InstallError::Io),
+    }
+}
+
+fn install_system_bundle(source: &Path, target: &Path) -> Result<(), InstallError> {
+    let work = tempfile::Builder::new()
+        .prefix("msime-system-install-")
+        .tempdir()
+        .map_err(|_| InstallError::Io)?;
+    let package = build_system_package(source, work.path())?;
+    let output = bounded_command_output(
+        Command::new("/usr/bin/osascript")
+            .args(["-e", SYSTEM_INSTALL_SCRIPT])
+            .arg(&package),
+        128,
+    );
+    system_install_result(output.as_deref())?;
+    validate_bundle(target)?;
+    // Installer 已完成系统目录事务。登记失败时保留已签名的新副本，等待当前用户下次登录。
+    if register_installed_bundle(target).is_err() {
+        return Err(InstallError::RegistrationPending);
+    }
+    Ok(())
 }
 
 /// The path LaunchServices records bundles through, when it is where macOS keeps it.
@@ -550,21 +732,28 @@ fn registry_probe_exit_code(executable: &Path, timeout: std::time::Duration) -> 
     }
 }
 
-fn install_unlocked(resource_directory: Option<&Path>) -> Result<(), InstallError> {
+fn install_unlocked(resource_directory: Option<&Path>, target: &Path) -> Result<(), InstallError> {
     let source = find_source(
         resource_directory,
         &std::env::current_dir().map_err(|_| InstallError::SourceUnavailable)?,
     )?;
-    let input_methods = home_input_methods()?;
-    let target = input_methods.join(input_source_bundle_name());
+    if installation_scope(target) == InstallationScope::System {
+        let result = install_system_bundle(&source, target);
+        if result.is_ok() || matches!(result, Err(InstallError::RegistrationPending)) {
+            stop_running_copies(target);
+            refresh_system_input_source_lists();
+        }
+        return result;
+    }
+    let input_methods = target.parent().ok_or(InstallError::InvalidBundle)?;
     let result = install_bundle_at_with_registration(
         &source,
-        &input_methods,
+        input_methods,
         registry_lookup,
         register_installed_bundle,
     );
     if after_install_refreshes(&result) {
-        stop_running_copies(&target);
+        stop_running_copies(target);
         refresh_system_input_source_lists();
     }
     result.map(|_| ())
@@ -697,14 +886,14 @@ fn clear_input_source_cache_directory(directory: &mut rustix::fs::Dir) {
     }
 }
 
-/// Stop every running copy of the input method, as `scripts/install.sh` does after it replaces the bundle.
-///
-/// A process that started before the replacement keeps serving the old code until it exits, and nothing on screen says so; the text input system starts the new bundle the next time a client asks for it. Best-effort: the install has already succeeded, and a copy that will not stop is replaced at the next login.
+/// 仅停止当前用户的旧输入法进程，让系统在下次请求时启动新版本；其他登录用户自行重启。
 fn stop_running_copies(bundle: &Path) {
     let executable = bundle
         .join("Contents/MacOS")
         .join(input_source_executable());
     let _ = Command::new("/usr/bin/pkill")
+        .arg("-u")
+        .arg(rustix::process::getuid().as_raw().to_string())
         .arg("-f")
         .arg(literal_process_pattern(&executable))
         .stdout(Stdio::null())
@@ -737,10 +926,6 @@ pub(crate) struct BundleVersion {
 }
 
 impl BundleVersion {
-    fn parse(short: &str, build: &str) -> Option<Self> {
-        Self::parse_with_revision(short, build, None)
-    }
-
     fn parse_with_revision(short: &str, build: &str, revision: Option<String>) -> Option<Self> {
         let short = short.trim();
         let build = build.trim();
@@ -952,7 +1137,9 @@ pub(crate) fn ensure_current(
     let source = resource_directory.join(input_source_bundle_name());
     let target = installed_bundle_path()?;
     ensure_current_with(&source, &target, defer_first_install, || {
-        install_unlocked(Some(resource_directory))
+        install_with_authorization(installation_scope(&target), false, || {
+            install_unlocked(Some(resource_directory), &target)
+        })
     })
 }
 
@@ -965,7 +1152,32 @@ pub(crate) fn repair(resource_directory: &Path) -> Result<RefreshOutcome, Instal
     let source = resource_directory.join(input_source_bundle_name());
     let target = installed_bundle_path()?;
     repair_with(&source, &target, || {
-        install_unlocked(Some(resource_directory))
+        install_with_authorization(installation_scope(&target), true, || {
+            install_unlocked(Some(resource_directory), &target)
+        })
+    })
+}
+
+/// 首次安装页显式选择范围；已安装副本继续沿用其位置，避免生成第二份。
+pub(crate) fn first_install(
+    resource_directory: &Path,
+    scope: InstallationScope,
+) -> Result<RefreshOutcome, InstallError> {
+    if !is_packaged_resource_directory(resource_directory) {
+        return Err(InstallError::SourceUnavailable);
+    }
+    let _guard = install_lock();
+    let source = resource_directory.join(input_source_bundle_name());
+    let installed = installed_bundle_path()?;
+    let target = if installed.exists() || scope == InstallationScope::User {
+        installed
+    } else {
+        Path::new(SYSTEM_INPUT_METHODS).join(input_source_bundle_name())
+    };
+    ensure_current_with(&source, &target, false, || {
+        install_with_authorization(installation_scope(&target), true, || {
+            install_unlocked(Some(resource_directory), &target)
+        })
     })
 }
 
@@ -976,7 +1188,7 @@ fn any_product_bundle_beside(target: &Path) -> bool {
         .is_some_and(|input_methods| !product_bundles_in(input_methods).is_empty())
 }
 
-/// Whether a start-time check with `defer_first_install` would leave the install to the user: a packaged app on a machine with no copy of this input method in `~/Library/Input Methods`. Cheap enough for the window setup to call before the first paint, so the window opens at the install window's size rather than resizing in front of the user.
+/// 用户和系统目录均未安装时才显示首次安装窗口；这里只读检查，不请求授权。
 pub(crate) fn first_install_pending(resource_directory: &Path) -> bool {
     is_packaged_resource_directory(resource_directory)
         && validate_bundle(&resource_directory.join(input_source_bundle_name())).is_ok()
@@ -1229,6 +1441,187 @@ mod tests {
     }
 
     #[test]
+    fn system_installation_is_selected_without_creating_a_user_copy() {
+        let root = tempdir().unwrap();
+        let source = fixture(
+            &root.path().join("payload"),
+            input_source_bundle_id(),
+            b"synthetic",
+        );
+        let user = root.path().join("user/Library/Input Methods");
+        let system = root.path().join("system/Library/Input Methods");
+        let installed = install_bundle_at(&source, &system).unwrap();
+
+        assert_eq!(installed_bundle_path_in(&user, &system).unwrap(), installed);
+        assert!(!user.exists());
+    }
+
+    #[test]
+    fn user_installation_stays_preferred_when_both_locations_exist() {
+        let root = tempdir().unwrap();
+        let source = fixture(
+            &root.path().join("payload"),
+            input_source_bundle_id(),
+            b"synthetic",
+        );
+        let user = root.path().join("user/Library/Input Methods");
+        let system = root.path().join("system/Library/Input Methods");
+        let user_bundle = install_bundle_at(&source, &user).unwrap();
+        let system_bundle = install_bundle_at(&source, &system).unwrap();
+
+        assert_eq!(
+            installed_bundle_path_in(&user, &system).unwrap(),
+            user_bundle
+        );
+        assert!(system_bundle.is_dir());
+    }
+
+    #[test]
+    fn missing_installations_default_to_the_user_location() {
+        let root = tempdir().unwrap();
+        let user = root.path().join("user/Library/Input Methods");
+        let system = root.path().join("system/Library/Input Methods");
+        assert_eq!(
+            installed_bundle_path_in(&user, &system).unwrap(),
+            user.join(input_source_bundle_name())
+        );
+        assert!(!user.exists() && !system.exists());
+    }
+
+    #[test]
+    fn installation_lookup_refuses_a_symlinked_user_bundle() {
+        let root = tempdir().unwrap();
+        let source = fixture(
+            &root.path().join("payload"),
+            input_source_bundle_id(),
+            b"synthetic",
+        );
+        let user = root.path().join("user/Library/Input Methods");
+        let system = root.path().join("system/Library/Input Methods");
+        fs::create_dir_all(&user).unwrap();
+        std::os::unix::fs::symlink(&source, user.join(input_source_bundle_name())).unwrap();
+        assert!(matches!(
+            installed_bundle_path_in(&user, &system),
+            Err(InstallError::InvalidBundle)
+        ));
+    }
+
+    #[test]
+    fn system_installation_only_conflicts_when_a_user_copy_exists() {
+        let root = tempdir().unwrap();
+        let source = fixture(
+            &root.path().join("payload"),
+            input_source_bundle_id(),
+            b"synthetic",
+        );
+        let user = root.path().join("user");
+        let system = root.path().join("system");
+        let bundle = install_bundle_at(&source, &system).unwrap();
+        assert!(conflicting_system_bundles_in(&user, &system).is_empty());
+        install_bundle_at(&source, &user).unwrap();
+        assert_eq!(conflicting_system_bundles_in(&user, &system), vec![bundle]);
+    }
+
+    #[test]
+    fn background_system_refresh_never_requests_authorization_or_writes() {
+        let called = std::cell::Cell::new(false);
+        let result = install_with_authorization(InstallationScope::System, false, || {
+            called.set(true);
+            Ok(())
+        });
+        assert!(matches!(result, Err(InstallError::AuthorizationRequired)));
+        assert!(!called.get());
+    }
+
+    #[test]
+    fn explicit_system_install_preserves_authorization_cancellation() {
+        let result = install_with_authorization(InstallationScope::System, true, || {
+            Err(InstallError::Cancelled)
+        });
+        assert!(matches!(result, Err(InstallError::Cancelled)));
+        assert!(install_with_authorization(InstallationScope::User, false, || Ok(())).is_ok());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_package_uses_fixed_destination_atomic_upgrade_and_no_scripts() {
+        let root = tempdir().unwrap();
+        let source = versioned_fixture(
+            &root.path().join("source"),
+            "1.2.3",
+            "123",
+            &fs::read("/usr/bin/true").unwrap(),
+        );
+        let info = source.join("Contents/Info.plist");
+        let plist = fs::read_to_string(&info).unwrap().replace("</dict>", &format!("<key>CFBundleExecutable</key><string>{}</string><key>CFBundlePackageType</key><string>APPL</string></dict>", input_source_executable()));
+        fs::write(info, plist).unwrap();
+        assert!(Command::new("/usr/bin/codesign")
+            .args(["--force", "--sign", "-", "--timestamp=none"])
+            .arg(&source)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+        let work = root.path().join("work");
+        fs::create_dir(&work).unwrap();
+        let package = build_system_package(&source, &work).unwrap();
+        let expanded = root.path().join("expanded");
+        assert!(Command::new("/usr/sbin/pkgutil")
+            .arg("--expand-full")
+            .arg(&package)
+            .arg(&expanded)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+        let info = fs::read_to_string(expanded.join("PackageInfo")).unwrap();
+        assert!(info.contains("install-location=\"/Library/Input Methods\""));
+        assert!(
+            !info.contains("<scripts") && info.contains("<relocate/>"),
+            "{info}"
+        );
+        assert!(!expanded.join("Scripts").exists());
+        assert!(expanded
+            .join("Payload")
+            .join(input_source_bundle_name())
+            .join("Contents/MacOS")
+            .join(input_source_executable())
+            .is_file());
+        let components = work.join("components.plist");
+        assert_eq!(
+            plist_string(&components, "0.BundleIsRelocatable")
+                .as_deref()
+                .map(str::trim),
+            Some("false")
+        );
+        assert_eq!(
+            plist_string(&components, "0.BundleOverwriteAction")
+                .as_deref()
+                .map(str::trim),
+            Some("upgrade")
+        );
+        assert_eq!(
+            plist_string(&components, "0.BundleIsVersionChecked")
+                .as_deref()
+                .map(str::trim),
+            Some("true")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_package_rejects_unsigned_payload_before_authorization() {
+        let root = tempdir().unwrap();
+        let source = versioned_fixture(&root.path().join("source"), "1.2.3", "123", b"unsigned");
+        assert!(matches!(
+            build_system_package(&source, root.path()),
+            Err(InstallError::InvalidBundle)
+        ));
+    }
+
+    #[test]
     fn bounded_command_output_rejects_oversized_stdout() {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "printf 12345"]);
@@ -1319,7 +1712,7 @@ mod tests {
     }
 
     fn version(short: &str, build: &str) -> BundleVersion {
-        BundleVersion::parse(short, build).unwrap()
+        BundleVersion::parse_with_revision(short, build, None).unwrap()
     }
 
     #[test]
@@ -1414,8 +1807,8 @@ mod tests {
     fn version_components_compare_numerically() {
         assert!(version("0.10.0", "1") > version("0.9.9", "999"));
         assert_eq!(version("1.0", "7").label(), "1.0 (7)");
-        assert!(BundleVersion::parse("0.50.x", "1").is_none());
-        assert!(BundleVersion::parse("0.50.0", "").is_none());
+        assert!(BundleVersion::parse_with_revision("0.50.x", "1", None).is_none());
+        assert!(BundleVersion::parse_with_revision("0.50.0", "", None).is_none());
     }
 
     #[test]

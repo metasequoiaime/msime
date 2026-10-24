@@ -173,6 +173,13 @@ impl Scheme {
         }
     }
 
+    pub fn as_shuangpin_mut(&mut self) -> Option<&mut ShuangpinScheme> {
+        match self {
+            Self::Shuangpin(scheme) => Some(scheme),
+            _ => None,
+        }
+    }
+
     pub fn as_wubi_mut(&mut self) -> Option<&mut WubiScheme> {
         match self {
             Self::Wubi(scheme) => Some(scheme),

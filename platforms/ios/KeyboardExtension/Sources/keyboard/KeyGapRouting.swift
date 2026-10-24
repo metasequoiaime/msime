@@ -53,7 +53,7 @@ final class KeyAreaStackView: UIStackView {
   /// 把键帽左侧 `KeyGapRouting.returnYield` 让给紧挨在左边的 `yieldReceiver` 的键：底行的回车让给中/英。两者不相邻（别的布局把中/英挪走或藏起来）时不起作用。
   weak var yieldingKey: UIControl?
   weak var yieldReceiver: UIControl?
-  /// 滑行输入进行中（`GlideTypingGestureRecognizer`）：新落下的手指一律命中键区自己而不是键，它们什么都不输入，挂在键区上的滑行手势看得到并忽略它们，直到滑行的手指抬起。
+  /// 滑行输入或横滑光标进行中：新落下的手指一律命中键区自己而不是键，它们什么都不输入，挂在键区上的手势仍能结束或取消当前触摸。
   var suppressesKeyHits = false
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {

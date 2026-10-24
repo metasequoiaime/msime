@@ -296,6 +296,11 @@ pub struct HostCapabilities {
     /// The host reserves the Option/Alt+Shift+H chord for the character width, so the switch that
     /// gives it back to the application belongs on its settings page.
     pub fullwidth_chord: bool,
+    /// 宿主按 `keybindings.toggle_english_candidates` / `toggle_full_width` / `toggle_punctuation`
+    /// 认三个切换热键（经 `msime_client_toggle_hotkey_chords` 解码），设置页给出录键控件。
+    /// 目前只有 macOS；其他宿主的路由仍写死，给出控件等于让用户改一个不认的值。
+    #[serde(default)]
+    pub toggle_hotkey_chords: bool,
     pub voice_provider_settings: bool,
     /// The host draws the recogniser's interim text while the user is still speaking.
     ///
@@ -782,6 +787,8 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Android | HostPlatform::Windows
             ),
+            // macOS 宿主在 `applySharedInputPreferences` 时解码三个 chord 并按 `MSIMEToggleChordMatches` 认键；其余宿主仍写死。
+            toggle_hotkey_chords: platform == HostPlatform::Macos,
             voice_provider_settings: true,
             voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // 空格锁定和提示音细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 真有得选（见各字段说明）。

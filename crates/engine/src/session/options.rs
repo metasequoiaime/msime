@@ -68,6 +68,8 @@ pub struct SessionOptions {
     pub fuzzy_pinyin: FuzzyPinyinOptions,
     pub frequency: FrequencyAdjustmentOptions,
     pub local_modes: LocalModeOptions,
+    /// 候选混输总开关（Windows `utility.mixed_candidates`）：关掉后英文、emoji、颜文字、符号、日文混输行、行内日期时间和快捷短语都不再混进普通候选；各分成员（`english.mixed_candidates`、`expressive.*`、`local_modes.*`）原值保留，重新打开即恢复。本地模式本身（T、K、M 等）不受影响。
+    pub mixed_candidates: bool,
     pub english: EnglishInputOptions,
     pub expressive: MixedExpressiveOptions,
     /// 日文混输（实验选项，默认关）：全拼、双拼组字时，整段输入像日文罗马字就混进一行日文转换（来源 `MixedJapanese`），见 `ImeSession::mixed_japanese_conversion`。需要会话带日文（`enabled_schemes` 含 `JapaneseRomaji`）和日文模型；开着时建会话就在后台预热模型。
@@ -129,6 +131,7 @@ impl SessionOptions {
             fuzzy_pinyin: FuzzyPinyinOptions::default(),
             frequency: FrequencyAdjustmentOptions::default(),
             local_modes: LocalModeOptions::default(),
+            mixed_candidates: true,
             english: EnglishInputOptions::default(),
             expressive: MixedExpressiveOptions::default(),
             japanese_mixing: false,

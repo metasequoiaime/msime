@@ -10,7 +10,7 @@ export interface UninstallSectionProps {
   removeUserData: boolean;
   uninstallBusy: boolean;
   uninstallConfirmation: boolean;
-  uninstallResult: "success" | "error" | "listed" | null;
+  uninstallResult: "success" | "error" | "listed" | "system" | null;
   onRemoveUserDataChange: (value: boolean) => void;
   onRequestUninstall: () => void;
   onConfirmUninstall: () => void;
@@ -52,6 +52,13 @@ export function UninstallSection({
             />
             {uninstallResult === "success" && <span role="status">输入法已移到废纸篓。</span>}
             {uninstallResult === "error" && <span role="alert">卸载未能完成，请稍后重试。</span>}
+            {uninstallResult === "system" && (
+              <span role="alert">
+                输入法为所有用户安装，未删除输入法或个人数据。请先在系统设置中移除输入源，再在访达中按
+                Shift+Command+G 前往 /Library/Input
+                Methods，将水杉输入法移到废纸篓（需要管理员权限）。其他用户也需要移除该输入源。
+              </span>
+            )}
             {uninstallResult === "listed" && (
               <span role="alert">
                 系统设置的输入源列表里还有水杉输入法，已为你打开「键盘」设置：在「文字输入 ›

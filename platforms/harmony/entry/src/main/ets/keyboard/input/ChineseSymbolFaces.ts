@@ -30,9 +30,13 @@ export interface PunctuationMarksView {
 
 export class ChineseSymbolFaces {
   /** `symbol` 在中文标点下的键面；没有中文键面时为 undefined。顿号键按顿号开关画：关着的键没有中文键面。 */
-  static face(symbol: string, cornerQuotes: boolean, hollowBrackets: boolean,
-              enumerationCommaBackslash: boolean = true,
-              enumerationCommaSlash: boolean = false): string | undefined {
+  static face(
+    symbol: string,
+    cornerQuotes: boolean,
+    hollowBrackets: boolean,
+    enumerationCommaBackslash: boolean = true,
+    enumerationCommaSlash: boolean = false,
+  ): string | undefined {
     if (cornerQuotes && symbol === "'") return "「";
     if (cornerQuotes && symbol === '"') return "『";
     if (hollowBrackets && symbol === "[") return "〖";

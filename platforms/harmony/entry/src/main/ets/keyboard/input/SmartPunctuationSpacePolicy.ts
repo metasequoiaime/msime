@@ -132,7 +132,11 @@ export class SmartPunctuationSpacePolicy {
     }
     const chinese: number = points[0];
     const ascii: number = SmartPunctuationSpacePolicy.asciiFor(
-      chinese, key, enumerationCommaBackslash, enumerationCommaSlash);
+      chinese,
+      key,
+      enumerationCommaBackslash,
+      enumerationCommaSlash,
+    );
     if (ascii === 0) {
       return null;
     }

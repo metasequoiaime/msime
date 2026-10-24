@@ -194,6 +194,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private void openClipboardEditor(boolean multiline) throws Exception {
         restartIme();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
+            + " --ez msime_test_editor_probe true"
             + (multiline ? " --ez msime_test_multiline true" : ""));
         tap(field("msime-test-plain"));
         await(key("n"));
@@ -205,8 +206,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         String step = stage;
         byte[] before = Files.readAllBytes(history.toPath());
         Bitmap beforePreview = automation.takeScreenshot();
-        Rect editorBounds = new Rect();
-        await(field("msime-test-plain")).getBoundsInScreen(editorBounds);
+        Rect editorBounds = awaitFocusedField("msime-test-plain");
         Rect card = openFloatingPreview();
         // 这一段有五处等待，失败时只报总阶段名看不出卡在哪一处，所以每处各标一句。
         stage = step + ": preview scroll area settles";
@@ -222,8 +222,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             && node.getText().toString().contains("Synthetic preview line 0")
             && !node.isLongClickable());
         stage = step + ": editor keeps focus";
-        Rect editorAfter = new Rect();
-        await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused)).getBoundsInScreen(editorAfter);
+        // API 28 遮挡期间连系统焦点查询也可能返回空；从合成编辑器主线程读取真实状态。
+        Rect editorAfter = awaitFocusedField("msime-test-plain");
         stage = step + ": clipboard card stays in the panel";
         Rect cardAfter = new Rect();
         await(node -> node.isLongClickable() && node.getText() != null
@@ -293,10 +293,31 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(described("剪贴板"));
         stage = "changing input field removes floating preview";
         openFloatingPreview();
-        if (!await(field("msime-test-password")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
+        if (!editorProbe("focus", "msime-test-password").getBoolean("accepted"))
             throw new AssertionError("Synthetic editor focus switch refused");
-        await(field("msime-test-password").and(AccessibilityNodeInfo::isFocused));
+        awaitFocusedField("msime-test-password");
         previewClosed();
+    }
+
+    private android.os.Bundle editorProbe(String method, String field) {
+        android.os.Bundle snapshot = getTargetContext().getContentResolver().call(EditorProbeProvider.URI, method, field, null);
+        if (snapshot == null) throw new AssertionError("Synthetic editor probe returned no state");
+        return snapshot;
+    }
+
+    private Rect awaitFocusedField(String description) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        android.os.Bundle snapshot;
+        do {
+            snapshot = editorProbe("snapshot", description);
+            if (snapshot.getBoolean("focused") && snapshot.getBoolean("window_focused"))
+                return new Rect(snapshot.getInt("left"), snapshot.getInt("top"),
+                    snapshot.getInt("right"), snapshot.getInt("bottom"));
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic editor did not retain input focus (field="
+            + snapshot.getBoolean("focused") + ", window=" + snapshot.getBoolean("window_focused")
+            + ", focus loss=" + snapshot.getString("focus_loss") + ")");
     }
 
     private Rect openFloatingPreview() {
@@ -382,6 +403,12 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         card.refresh();
         assertFixedCard(card);
         stage = "horizontal delete still works after vertical drag";
+        // 纵向手势会交给外层列表；横滑前重新定位卡片，不能复用滚动前的坐标。
+        card.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+        card = awaitStableBounds(node -> node.isLongClickable() && node.getText() != null
+            && node.getText().toString().startsWith(word(0)));
+        card.getBoundsInScreen(bounds);
+        stage = "horizontal delete still works after vertical drag: " + bounds.toShortString();
         Rect swipeFrom = new Rect(bounds.right - 8, bounds.centerY(), bounds.right - 7, bounds.centerY() + 1);
         Rect swipeTo = new Rect(bounds.left + 8, bounds.centerY(), bounds.left + 9, bounds.centerY() + 1);
         drag(swipeFrom, swipeTo, false);

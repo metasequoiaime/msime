@@ -1060,11 +1060,11 @@ fn macos_repair_install_fails_only_when_the_install_breaks() {
         bundled: None,
         installed: None,
     };
-    assert!(super::repair_install_result(Ok(up_to_date)).is_ok());
-    assert!(super::repair_install_result(Err(InstallError::SourceUnavailable)).is_ok());
-    assert!(super::repair_install_result(Err(InstallError::RegistrationPending)).is_ok());
-    assert!(super::repair_install_result(Err(InstallError::Registration)).is_err());
-    assert!(super::repair_install_result(Err(InstallError::InvalidBundle)).is_err());
+    assert!(super::repair_install_result(&Ok(up_to_date)).is_ok());
+    assert!(super::repair_install_result(&Err(InstallError::SourceUnavailable)).is_ok());
+    assert!(super::repair_install_result(&Err(InstallError::RegistrationPending)).is_ok());
+    assert!(super::repair_install_result(&Err(InstallError::Registration)).is_err());
+    assert!(super::repair_install_result(&Err(InstallError::InvalidBundle)).is_err());
 }
 
 #[test]
@@ -2580,6 +2580,7 @@ fn input_source_status_rereads_only_what_the_user_can_change() {
         bundled_version: Some("0.50.0 (1)".into()),
         installed_version: Some("0.50.0 (1)".into()),
         system_bundles: Vec::new(),
+        installation_scope: None,
     }));
     let timeout = std::time::Duration::ZERO;
     let system_copy = || {
@@ -2638,6 +2639,7 @@ fn an_up_to_date_input_method_missing_from_the_registry_needs_a_login() {
         bundled_version: Some("0.50.0 (1)".into()),
         installed_version: Some("0.50.0 (1)".into()),
         system_bundles: Vec::new(),
+        installation_scope: None,
     };
     let timeout = std::time::Duration::ZERO;
     let state = super::InputSourceStartupState::default();
@@ -2710,6 +2712,7 @@ fn a_fresh_install_or_update_is_not_looked_up_in_the_registry() {
             bundled_version: Some("0.50.0 (1)".into()),
             installed_version: Some("0.50.0 (1)".into()),
             system_bundles: Vec::new(),
+            installation_scope: None,
         }));
         let status = super::input_source_status_now(
             &state,
@@ -2734,6 +2737,7 @@ fn concurrent_status_requests_look_up_the_registry_once() {
         bundled_version: Some("0.50.0 (1)".into()),
         installed_version: Some("0.50.0 (1)".into()),
         system_bundles: Vec::new(),
+        installation_scope: None,
     }));
     let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
@@ -2783,6 +2787,7 @@ fn a_lookup_overtaken_by_a_new_start_time_result_is_not_kept() {
         bundled_version: Some("0.50.0 (1)".into()),
         installed_version: Some("0.50.0 (1)".into()),
         system_bundles: Vec::new(),
+        installation_scope: None,
     };
     let timeout = std::time::Duration::ZERO;
     let state = super::InputSourceStartupState::default();
@@ -3161,4 +3166,41 @@ fn dictionary_scel_text_converts_a_cell_dictionary_and_keeps_the_codes() {
         refused(&bytes[..bytes.len() - 1]),
         "dictionary_scel_malformed"
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn explicit_system_repair_replaces_the_waiting_startup_status() {
+    use super::macos_input_source::{InstallError, Refresh, RefreshOutcome};
+    for (result, expected) in [
+        (
+            Ok(RefreshOutcome {
+                refresh: Refresh::Update,
+                bundled: None,
+                installed: None,
+            }),
+            "updated",
+        ),
+        (Err(InstallError::RegistrationPending), "login_required"),
+        (Err(InstallError::Cancelled), "cancelled"),
+    ] {
+        let state = super::InputSourceStartupState::default();
+        state.finish(Some(super::InputSourceStartupStatus {
+            action: "authorization_required",
+            enabled: Some(false),
+            bundled_version: None,
+            installed_version: None,
+            installation_scope: Some(super::macos_input_source::InstallationScope::System),
+            system_bundles: Vec::new(),
+        }));
+        let _ = super::finish_input_source_repair(
+            &state,
+            std::path::Path::new("/synthetic/Settings.app/Contents/Resources"),
+            result,
+        );
+        assert_eq!(
+            state.wait(std::time::Duration::ZERO).unwrap().action,
+            expected
+        );
+    }
 }

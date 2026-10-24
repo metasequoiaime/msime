@@ -4,19 +4,21 @@
 
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
+#include "../input/ToggleHotkeyEvent.h"
 
 namespace msime::mac
 {
-// `letter` 是按当前键盘布局认出的快捷键字母（见 InputControllerPhysicalKeys.h 的 `ShortcutLetter`），Option+Shift+H 按它匹配；空格在各布局上是同一个键，仍按 keyCode 认。
-inline bool IsFullWidthInputToggle(unsigned short keyCode, char letter, NSEventModifierFlags modifiers)
+// `character` 是当前键盘布局的无修饰字符。全半角有两条触发臂：共享偏好 `keybindings.toggle_full_width`
+// 绑定的 chord（出厂 Ctrl+Shift+Space，各布局上同一个键，按 keyCode 认），以及
+// macOS 既有的 Option+Shift+H（按布局字母认），见 ToggleHotkeys.h。
+inline ToggleFullWidthArm FullWidthInputToggleArm(unsigned short keyCode, unsigned short character,
+                                                  NSEventModifierFlags modifiers, ToggleChord chord)
 {
-    const NSEventModifierFlags allModifiers = NSEventModifierFlagCommand | NSEventModifierFlagControl |
-        NSEventModifierFlagOption | NSEventModifierFlagShift;
-    if (keyCode == kVK_Space && (modifiers & allModifiers) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) return true;
-    const NSEventModifierFlags competingModifiers =
-        modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl);
-    return letter == 'h' && (modifiers & NSEventModifierFlagOption) != 0 &&
-           (modifiers & NSEventModifierFlagShift) != 0 && competingModifiers == 0;
+    return FullWidthToggleArmFor(chord, keyCode, character,
+        (modifiers & NSEventModifierFlagControl) != 0,
+        (modifiers & NSEventModifierFlagOption) != 0,
+        (modifiers & NSEventModifierFlagShift) != 0,
+        (modifiers & NSEventModifierFlagCommand) != 0);
 }
 
 inline bool IsFullWidthConvertibleCharacter(unichar character)

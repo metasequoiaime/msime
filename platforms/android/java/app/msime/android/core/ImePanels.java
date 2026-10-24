@@ -2288,109 +2288,122 @@ final class ImePanels {
     /** 没有常用语时的提示；它下面跟一个直达应用常用语页的「添加常用语」按钮。 */
     private static final String EMPTY_PHRASES = "还没有常用语";
 
-    /** 工具栏「常用语」：先完成当前组词，在工作线程经 {@link CommonPhrasesStore} 读无编码常用语，全宽列表，点一条上屏并关闭面板。 */
+    private String expandedPhraseCategory = "all";
+
+    /** 工具栏「常用语」：后台读共享文档，每次打开采用保存的默认展开项。 */
     void showCommonPhrases() {
         if (s.phraseScroll == null || s.phrasePanel == null) return;
         s.command(2);
         s.closeCandidatePanel();
         long generation = ++phraseGeneration;
-        renderCommonPhrases(java.util.List.of(), "正在读取常用语…");
+        renderCommonPhrases(CommonPhrasesStore.Document.EMPTY, "正在读取常用语…");
         ViewPolicy.show(s.phraseScroll);
-        Runnable load = () -> {
-            CommonPhrasesStore.Result result;
-            try {
-                result = CommonPhrasesStore.load(s);
-            } catch (RuntimeException | LinkageError error) {
-                result = null;
-            }
-            int phraseCapacity = result != null && result.ok()
-                ? result.document().phrases().size() : 0;
-            java.util.List<CommonPhrasesStore.Phrase> phrases = new java.util.ArrayList<>(phraseCapacity);
-            String message;
-            if (result == null || !result.ok()) {
-                message = result == null || result.failure().isEmpty() ? "常用语读取失败" : result.failure();
-            } else {
-                for (CommonPhrasesStore.Phrase phrase : result.document().phrases())
-                    if (!phrase.text().isEmpty()) phrases.add(phrase);
-                message = phrases.isEmpty() ? EMPTY_PHRASES : null;
-            }
-            final String note = message;
-            s.main.post(() -> {
-                if (generation != phraseGeneration || !ViewPolicy.isVisible(s.phraseScroll)) return;
-                renderCommonPhrases(phrases, note);
-            });
-        };
         try {
-            s.preferencesWorker.execute(load);
+            s.preferencesWorker.execute(() -> {
+                CommonPhrasesStore.Result result;
+                try { result = CommonPhrasesStore.load(s); }
+                catch (RuntimeException | LinkageError error) { result = null; }
+                CommonPhrasesStore.Document document = result != null && result.ok()
+                    ? result.document() : CommonPhrasesStore.Document.EMPTY;
+                String message = result == null ? "常用语读取失败" : result.ok() ? null : result.failure();
+                s.main.post(() -> {
+                    if (generation != phraseGeneration || !ViewPolicy.isVisible(s.phraseScroll)) return;
+                    expandedPhraseCategory = document.expandedCategory();
+                    renderCommonPhrases(document, message);
+                });
+            });
         } catch (RuntimeException error) {
-            renderCommonPhrases(java.util.List.of(), "常用语读取失败");
+            renderCommonPhrases(CommonPhrasesStore.Document.EMPTY, "常用语读取失败");
         }
     }
 
-    private void renderCommonPhrases(java.util.List<CommonPhrasesStore.Phrase> phrases, String message) {
+    private void renderCommonPhrases(CommonPhrasesStore.Document document, String message) {
         LinearLayout panel = s.phrasePanel;
         panel.removeAllViews();
         LayoutPolicy.setPaddingDp(panel, s, 8, 4, 8, 8);
         s.imeStyler.applySkinBackground(panel);
-        TextView note = null;
         if (message != null) {
-            note = centeredNote(message, 14);
-            LayoutPolicy.setPaddingDp(note, s, 12, 24, 12, 24);
-            panel.addView(note, LayoutPolicy.matchWidthWrapParams());
+            panel.addView(centeredNote(message, 14), LayoutPolicy.matchWidthWrapParams());
+            s.imeStyler.applySkin();
+            return;
         }
-        java.util.List<View> lines = new java.util.ArrayList<>(phrases.size());
-        for (CommonPhrasesStore.Phrase phrase : phrases) {
-            String text = phrase.text();
-            Runnable insert = () -> {
-                    if (s.connection == null) return;
-                    s.command(2);
-                    s.commitText(text);
-                    s.closeCommonPhrases();
-                    s.render();
-            };
-            String description = "常用语 " + (text.length() > 20 ? text.substring(0, 20) : text);
-            KeyboardPressButton row = phraseButton(KeyboardKeyRole.PLAIN, text, description, insert);
-            ViewPolicy.setStartCenteredTextSizeSp(row, 15);
-            ViewPolicy.setMaxLinesEllipsized(row, 2);
-            LayoutPolicy.setSymmetricPaddingDp(row, s, 12, 8);
-            LinearLayout entry = LayoutPolicy.column(s);
-            entry.addView(row, LayoutPolicy.matchWidthWrapParams());
-            if (!phrase.note().isEmpty()) {
-                TextView annotation = new TextView(s);
-                annotation.setText("备注：" + phrase.note());
-                annotation.setContentDescription("常用语备注：" + phrase.note());
-                ViewPolicy.setTextSizeSp(annotation, 12);
-                ViewPolicy.setMaxLinesEllipsized(annotation, 2);
-                annotation.setAlpha(.65f);
-                LayoutPolicy.setPaddingDp(annotation, s, 12, 0, 12, 8);
-                // 备注区域也响应插入，但回调只捕获独立的正文。
-                bindFeedbackAction(annotation, insert);
-                entry.addView(annotation, LayoutPolicy.matchWidthWrapParams());
-            }
-            panel.addView(entry, LayoutPolicy.matchWidthWrapParams());
-            View hairline = new View(s);
-            LinearLayout.LayoutParams line = LayoutPolicy.matchWidthHeightPx(
-                DimensionPolicy.atLeastOnePixel(s, 1));
-            LayoutPolicy.setHorizontalMargins(line, s.pixels(12));
-            panel.addView(hairline, line);
-            lines.add(hairline);
-        }
-        if (message == null || EMPTY_PHRASES.equals(message)) {
-            // 列表下面总有一个去处：空的时候是「添加常用语」，有内容时是「管理常用语」，都直接打开应用的常用语页去添加、修改和删除（#5673），而不是让人自己退出键盘去找。键盘里没有可输入的文本框，增删改放在应用里。读取中和读取失败时不放。
-            String label = CommonPhrasesPanelPolicy.entryLabel(phrases.size());
-            KeyboardPressButton manage = phraseButton(KeyboardKeyRole.RETURN, label, label, () -> {
-                s.closeCommonPhrases();
-                s.openHostPage("PHRASES");
-            });
-            LayoutPolicy.setHorizontalPaddingDp(manage, s, 24);
-            LinearLayout.LayoutParams params = LayoutPolicy.wrapParams();
-            params.gravity = Gravity.CENTER_HORIZONTAL;
-            if (!phrases.isEmpty()) params.topMargin = s.pixels(8);
-            panel.addView(manage, params);
+        LinearLayout toolbar = LayoutPolicy.row(s);
+        TextView capacity = centeredNote("常用语 " + document.phrases().size() + " 条（自建 "
+            + document.ownCount() + "/" + CommonPhrasesStore.MAX_OWN_PHRASES + "）", 12);
+        toolbar.addView(capacity, LayoutPolicy.weightedWrapParams(1));
+        String label = CommonPhrasesPanelPolicy.entryLabel(document.phrases().size());
+        toolbar.addView(phraseButton(KeyboardKeyRole.RETURN, label, label, () -> {
+            s.closeCommonPhrases();
+            s.openHostPage("PHRASES");
+        }), LayoutPolicy.wrapParams());
+        panel.addView(toolbar, LayoutPolicy.matchWidthWrapParams());
+        java.util.List<View> lines = new java.util.ArrayList<>();
+        addPhraseCategory(document, "all", "全部", document.phrases(), lines);
+        for (CommonPhrasesStore.Category category : document.categories()) {
+            java.util.List<CommonPhrasesStore.Phrase> phrases = new java.util.ArrayList<>();
+            for (CommonPhrasesStore.Phrase phrase : document.phrases())
+                if (phrase.category().equals(category.id())) phrases.add(phrase);
+            addPhraseCategory(document, category.id(), category.name(), phrases, lines);
         }
         s.imeStyler.applySkin();
         for (View hairline : lines) ViewPolicy.setBackgroundColor(hairline, Color.parseColor(s.skin.hairline()));
-        if (note != null) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
+        ViewPolicy.setTextColor(capacity, ImeStyler.fade(s.skin.keyForeground(), .6));
+    }
+
+    private void addPhraseCategory(CommonPhrasesStore.Document document, String id, String name,
+            java.util.List<CommonPhrasesStore.Phrase> phrases, java.util.List<View> lines) {
+        boolean expanded = id.equals(expandedPhraseCategory);
+        KeyboardPressButton heading = phraseButton(KeyboardKeyRole.PLAIN,
+            (expanded ? "▾ " : "▸ ") + name + "（" + phrases.size() + "）",
+            "常用语分类 " + name + (expanded ? "，已展开" : "，已收起"), () -> {
+                expandedPhraseCategory = expanded ? "" : id;
+                renderCommonPhrases(document, null);
+            });
+        ViewPolicy.setStartCenteredTextSizeSp(heading, 15);
+        LayoutPolicy.setSymmetricPaddingDp(heading, s, 12, 8);
+        s.phrasePanel.addView(heading, LayoutPolicy.matchWidthWrapParams());
+        if (!expanded) return;
+        if (phrases.isEmpty()) s.phrasePanel.addView(centeredNote(id.equals("all")
+            ? EMPTY_PHRASES : "该分类还没有常用语", 14), LayoutPolicy.matchWidthWrapParams());
+        for (CommonPhrasesStore.Phrase phrase : phrases) addCommonPhrase(phrase, lines);
+    }
+
+    private void addCommonPhrase(CommonPhrasesStore.Phrase phrase, java.util.List<View> lines) {
+        LinearLayout panel = s.phrasePanel;
+        String text = phrase.text();
+        Runnable insert = () -> {
+            if (s.connection == null) return;
+            s.command(2);
+            s.commitText(text);
+            s.closeCommonPhrases();
+            s.render();
+        };
+        String description = "常用语 " + (text.length() > 20 ? text.substring(0, 20) : text);
+        KeyboardPressButton row = phraseButton(KeyboardKeyRole.PLAIN, text, description, insert);
+        ViewPolicy.setStartCenteredTextSizeSp(row, 15);
+        ViewPolicy.setMaxLinesEllipsized(row, 2);
+        LayoutPolicy.setSymmetricPaddingDp(row, s, 12, 8);
+        LinearLayout entry = LayoutPolicy.column(s);
+        entry.addView(row, LayoutPolicy.matchWidthWrapParams());
+        if (!phrase.note().isEmpty()) {
+            TextView annotation = new TextView(s);
+            annotation.setText("备注：" + phrase.note());
+            annotation.setContentDescription("常用语备注：" + phrase.note());
+            ViewPolicy.setTextSizeSp(annotation, 12);
+            ViewPolicy.setMaxLinesEllipsized(annotation, 2);
+            annotation.setAlpha(.65f);
+            LayoutPolicy.setPaddingDp(annotation, s, 12, 0, 12, 8);
+            // 备注区域也响应插入，但回调只捕获独立的正文。
+            bindFeedbackAction(annotation, insert);
+            entry.addView(annotation, LayoutPolicy.matchWidthWrapParams());
+        }
+        panel.addView(entry, LayoutPolicy.matchWidthWrapParams());
+        View hairline = new View(s);
+        LinearLayout.LayoutParams line = LayoutPolicy.matchWidthHeightPx(
+            DimensionPolicy.atLeastOnePixel(s, 1));
+        LayoutPolicy.setHorizontalMargins(line, s.pixels(12));
+        panel.addView(hairline, line);
+        lines.add(hairline);
     }
 
     private KeyboardPressButton phraseButton(KeyboardKeyRole role, String text,

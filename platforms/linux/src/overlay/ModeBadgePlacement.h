@@ -48,19 +48,19 @@ constexpr WaveOverlayPosition mode_badge_caret_position(std::optional<ModeBadgeC
   return {x, clamp(preferred, minimum_y, maximum_y)};
 }
 
-// 一次切换给用户的提示。macOS 只在光标旁显示一块徽章；Linux 只有能把徽章放到光标旁（X11 客户端、X11 后端）时才这样做，其余情况由面板的文字提示跟随光标——Fcitx5 是 showCustomInputMethodInformation，IBus 是辅助文本——两处提示不同时出现。唯一的例外是用户要了标志（`show_app_logo`）而徽章只能放在屏幕角上：面板的文字提示带不了图，所以角上的徽章与它并存。
+// 一次切换给用户的提示。macOS 只在光标旁显示一块徽章；Linux 只有能把徽章放到光标旁（X11 客户端、X11 后端）时才这样做，其余情况由面板的文字提示跟随光标——Fcitx5 是 showCustomInputMethodInformation，IBus 是辅助文本——两处提示不同时出现。唯一的例外是用户要了标志（`show_app_logo`）、允许角落提示（`input_mode_corner_hud`）而徽章只能放在屏幕角上：面板的文字提示带不了图，所以角上的徽章与它并存。
 enum class ModeBadgeHint { CaretBadge, PanelText, PanelTextAndCornerBadge };
 
 constexpr ModeBadgeHint mode_badge_hint(bool badge_available, bool badge_follows_caret, bool caret_in_root_coordinates,
-                                        bool show_logo) {
+                                        bool show_logo, bool allow_corner = true) {
   if (badge_available && badge_follows_caret && caret_in_root_coordinates) return ModeBadgeHint::CaretBadge;
-  if (badge_available && show_logo) return ModeBadgeHint::PanelTextAndCornerBadge;
+  if (badge_available && show_logo && allow_corner) return ModeBadgeHint::PanelTextAndCornerBadge;
   return ModeBadgeHint::PanelText;
 }
 
-// 只有可能画出东西时才建徽章表面：输入框的光标不是根窗口坐标、用户也没要标志时，mode_badge_hint 无论有没有表面都回答面板提示，建了只是白占一条显示服务器连接。
-constexpr bool mode_badge_surface_wanted(bool caret_in_root_coordinates, bool show_logo) {
-  return caret_in_root_coordinates || show_logo;
+// 只有可能画出东西时才建徽章表面：输入框的光标不是根窗口坐标、用户也没要标志或关闭了角落提示时，mode_badge_hint 无论有没有表面都回答面板提示，建了只是白占一条显示服务器连接。
+constexpr bool mode_badge_surface_wanted(bool caret_in_root_coordinates, bool show_logo, bool allow_corner = true) {
+  return caret_in_root_coordinates || (show_logo && allow_corner);
 }
 
 // 获得焦点时的提示（#2589）在输入框补报光标之后才定（宿主最多等 ModeBadgeTiming::focus_caret_wait_ms）。等完仍没有可用的光标矩形时不把徽章放到屏幕下方的回退位置，因为用户看的是刚点进去的输入框：改用面板的文字提示，它由面板跟着之后报来的光标摆放。真正的切换不走这里，那时输入框早已报过光标，与 macOS 一样用回退位置。

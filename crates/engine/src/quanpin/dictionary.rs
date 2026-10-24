@@ -61,6 +61,11 @@ use super::typo_edges::collect_typo_edges;
 #[cfg(test)]
 mod marking_buffer_tests;
 
+mod page_copy;
+mod path_page;
+
+use path_page::PathPage;
+
 pub const CACHE_CAPACITY: usize = 128;
 pub const TYPO_SPAN_CACHE_CAPACITY: usize = 512;
 /// 词网格的跨度查询结果按跨度缓存的条数。九键每按一键要对几十条切分各解一次词网格，这些切分大量共用同样的跨度，下一键又会重复上一键的大部分跨度，所以容量按一次长输入里出现的不同跨度数来定。
@@ -129,6 +134,27 @@ enum ColdRows {
     Borrow,
 }
 
+enum ProjectedRows {
+    Selected(Vec<WordItem>),
+    /// 只供借用冷页使用，谓词已全部接受，尚未复制字段。
+    All,
+}
+
+impl From<Vec<WordItem>> for ProjectedRows {
+    fn from(rows: Vec<WordItem>) -> Self {
+        Self::Selected(rows)
+    }
+}
+
+impl ProjectedRows {
+    fn selected(self) -> Vec<WordItem> {
+        match self {
+            Self::Selected(rows) => rows,
+            Self::All => unreachable!("只有借用冷页可以延后复制"),
+        }
+    }
+}
+
 /// The reference answered a failed write with `ERROR_CODE` and no message; callers map any failure to their own diagnostic.
 const DICTIONARY_UNAVAILABLE: &str = "Pinyin dictionary is unavailable";
 const ENTRY_REJECTED: &str = "Pinyin does not spell the word one syllable per character";
@@ -171,8 +197,8 @@ pub struct QuanpinDictionary {
     personal_version: u64,
     /// Series keys whose lists were scored with the personal model, dropped when its version moves.
     personal_scored_keys: HashSet<String>,
-    /// Rows per segmentation (`query_single_path`).
-    cache: FifoCache<String, Vec<WordItem>>,
+    /// 每条切分的词典页，完整展开页保留原来的拥有型表示。
+    cache: FifoCache<String, PathPage>,
     /// Whole answers per series key, including online rows.
     series_cache: FifoCache<String, Vec<WordItem>>,
     segmentation_cache: FifoCache<String, Vec<String>>,
@@ -315,13 +341,29 @@ impl QuanpinDictionary {
                 match rows {
                     Cow::Owned(mut rows) => {
                         rows.retain(|row| keep(row, cached));
-                        rows
+                        ProjectedRows::Selected(rows)
                     }
                     Cow::Borrowed(rows) => {
+                        if !cached {
+                            // 谓词全部成功前不淘汰缓存；全留时留给外层复用旧页复制。
+                            let Some(rejected) = rows.iter().position(|row| !keep(row, false))
+                            else {
+                                return ProjectedRows::All;
+                            };
+                            let mut result = Vec::with_capacity(rows.len());
+                            result.extend_from_slice(&rows[..rejected]);
+                            result.extend(
+                                rows[rejected + 1..]
+                                    .iter()
+                                    .filter(|row| keep(row, false))
+                                    .cloned(),
+                            );
+                            return ProjectedRows::Selected(result);
+                        }
                         // 容器预留完整行数，只跳过拒绝行的字段复制。
                         let mut result = Vec::with_capacity(rows.len());
                         result.extend(rows.iter().filter(|row| keep(row, cached)).cloned());
-                        result
+                        ProjectedRows::Selected(result)
                     }
                 }
             });
@@ -417,7 +459,7 @@ impl QuanpinDictionary {
         });
         debug_assert_eq!(removed, limited_count);
         candidates.splice(first_limited..first_limited, expanded.iter().cloned());
-        self.cache.insert(code.to_string(), expanded);
+        self.cache.insert(code.to_string(), expanded.into());
         // 按参考规则写入不带 `C:` 的槽（QD:554）：单字母不纠错。根据调用方查询重算键，避免第二次光标前缀查询把整段输入的展开列表写入自己的槽。
         let cache_key =
             self.project_resolution(raw, segmentation, autocorrect_types, |resolution| {
@@ -718,16 +760,16 @@ impl QuanpinDictionary {
 
     /// 同步投影只能筛选、复制或移交原行，不改字段和顺序；冷页全保留时可交换副本与原页。
     /// 回调的布尔值只标识核对失效后的系列热命中，借用的冷页仍为 `false`。
-    fn query_exact_projected(
+    fn query_exact_projected<P: Into<ProjectedRows>>(
         &mut self,
         raw: &str,
         segmentation: &str,
         types: u32,
         cold: ColdRows,
-        project: impl FnOnce(Cow<'_, [WordItem]>, bool) -> Vec<WordItem>,
+        project: impl FnOnce(Cow<'_, [WordItem]>, bool) -> P,
     ) -> Vec<WordItem> {
         if raw.is_empty() {
-            return project(Cow::Owned(Vec::new()), false);
+            return project(Cow::Owned(Vec::new()), false).into().selected();
         }
         self.current_autocorrect_types = types;
         if types & TYPO_EDGE_TYPES != 0 {
@@ -791,7 +833,7 @@ impl QuanpinDictionary {
                 self.reset_cache();
             }
             if let Some(cached) = self.series_cache.get_ref(&slot) {
-                return project(Cow::Borrowed(cached), true);
+                return project(Cow::Borrowed(cached), true).into().selected();
             }
         }
 
@@ -851,31 +893,42 @@ impl QuanpinDictionary {
         let (cached, projected) = match cold {
             ColdRows::Transfer => {
                 let cached = result.clone();
-                (cached, project(Cow::Owned(result), false))
+                (
+                    Some(cached),
+                    project(Cow::Owned(result), false).into().selected(),
+                )
             }
             ColdRows::Borrow => {
-                let projected = project(Cow::Borrowed(&result), false);
-                if projected.len() == result.len() {
-                    // 全保留时副本可直接入缓存，原页作为输出，省去额外缩容。
-                    (projected, result)
-                } else {
-                    // 外层富余容量不随整页转移而长期留在 FIFO 中。
-                    result.shrink_to_fit();
-                    (result, projected)
+                match project(Cow::Borrowed(&result), false).into() {
+                    ProjectedRows::All => (None, result),
+                    ProjectedRows::Selected(projected) => {
+                        if projected.len() == result.len() {
+                            // 既有投影回调已复制的全页仍直接入缓存。
+                            (Some(projected), result)
+                        } else {
+                            // 外层富余容量不随整页转移而长期留在 FIFO 中。
+                            result.shrink_to_fit();
+                            (Some(result), projected)
+                        }
+                    }
                 }
             }
         };
         // 单音节主路径也可能沿完整备选切分组句，需要跟随个人模型失效。
-        if segments.len() >= 2
+        let personal_scored = segments.len() >= 2
             || resolution.corrected.len() >= 2
             || alternatives
                 .iter()
-                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path))
-        {
-            self.series_cache.insert(slot.clone(), cached);
-            self.remember_personal_scored_key(slot);
-        } else {
+                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path));
+        let personal_slot = personal_scored.then(|| slot.clone());
+        if let Some(cached) = cached {
             self.series_cache.insert(slot, cached);
+        } else {
+            let (cached, previous) = self.series_cache.insert_with_previous(slot, Vec::new());
+            *cached = page_copy::clone_rows_reusing(&projected, previous.unwrap_or_default());
+        }
+        if let Some(slot) = personal_slot {
+            self.remember_personal_scored_key(slot);
         }
         projected
     }
@@ -942,10 +995,14 @@ impl QuanpinDictionary {
             return result;
         }
         let cache_key = path_cache_key(raw, primary_segmentation);
+        enum PrimaryPage<'a> {
+            Cached(&'a PathPage),
+            Owned(Vec<WordItem>),
+        }
         let primary_full = if let Some(primary_full) = self.cache.get_ref_by(cache_key) {
-            Cow::Borrowed(primary_full.as_slice())
+            PrimaryPage::Cached(primary_full)
         } else {
-            Cow::Owned(self.query_single_path_miss(
+            PrimaryPage::Owned(self.query_single_path_miss(
                 cache_key,
                 primary_segmentation,
                 primary_segments,
@@ -964,10 +1021,12 @@ impl QuanpinDictionary {
             })
             .collect();
         match primary_full {
-            Cow::Borrowed(rows) => {
-                merge_alternative_rows(result, rows.iter().cloned(), alternative_full)
+            PrimaryPage::Cached(page) => {
+                merge_alternative_rows(result, page.cloned_rows(cache_key), alternative_full)
             }
-            Cow::Owned(rows) => merge_alternative_segmentations(result, rows, alternative_full),
+            PrimaryPage::Owned(rows) => {
+                merge_alternative_segmentations(result, rows, alternative_full)
+            }
         }
     }
 
@@ -1277,7 +1336,7 @@ impl QuanpinDictionary {
         matched_items(rows, segmentation)
     }
 
-    /// Dictionary rows for one segmentation, cached by segmentation (QD:751-765). With the Google decoder gone an empty lookup stays empty.
+    /// 单条切分的词典页按原键缓存（QD:751-765），空查询仍为空。
     fn query_single_path(
         &mut self,
         raw: &str,
@@ -1286,7 +1345,7 @@ impl QuanpinDictionary {
     ) -> Vec<WordItem> {
         let cache_key = path_cache_key(raw, segmentation);
         if let Some(cached) = self.cache.get_ref_by(cache_key) {
-            return cached.clone();
+            return cached.copy_rows(cache_key);
         }
         self.query_single_path_miss(cache_key, segmentation, segments)
     }
@@ -1305,8 +1364,7 @@ impl QuanpinDictionary {
         }
         let cache_key = path_cache_key(raw, segmentation);
         if let Some(rows) = self.cache.get_ref_by(cache_key) {
-            result.reserve(rows.len());
-            result.extend(rows.iter().cloned());
+            rows.append_to(cache_key, result);
             return;
         }
         let rows = self.query_single_path_miss(cache_key, segmentation, segments);
@@ -1321,7 +1379,10 @@ impl QuanpinDictionary {
         segments: &[String],
     ) -> Vec<WordItem> {
         let result = self.query_database(segments, segmentation);
-        self.cache.insert(cache_key.to_owned(), result.clone());
+        self.cache.insert(
+            cache_key.to_owned(),
+            PathPage::from_dictionary(cache_key, &result),
+        );
         result
     }
 
@@ -2089,6 +2150,9 @@ mod filtered_query_tests;
 
 #[cfg(test)]
 mod empty_projection_tests;
+
+#[cfg(test)]
+mod evicted_page_tests;
 
 #[cfg(test)]
 mod online_cache_update_tests;

@@ -32,7 +32,11 @@ Status: implemented
 
 **作者文档。** `docs/plugins.md` 新增「脚本插件」一节：在哪里运行（4 个桌面进程、只在开发构建、授权页之前要手写授权）、清单 v2、能力表、钩子表、ABI v1 的模块要求、限制（第 3 阶段的数值：模块 256 KiB、每轮 125 000、单次钩子 125 000/100 000/25 000、初始化 5 000 000、内存总账按每字节 128 倍估算）、隐私规则（含快照复位对未导出 global 和表的影响）、失败与停用、社区不收脚本包，以及 `msime-pack run` 的夹具和输出。开头"插件不能带可执行内容"一段写明唯一的例外。
 
+**持续验证执行工具自身的全部集成测试。** CI 的既有 Script plugins 作业运行 `cargo test --locked -p msime-pack-tool`，本地完整 `verify-local.sh` 同时枚举该包的测试与全目标严格 Clippy。`run`、`sdk`、`validate` 是三个独立集成测试目标；原 CI 的 `--test sdk` 只执行 `sdk` 目标的两项测试，构建工具再运行插件夹具也不执行其余目标。按 [Cargo 的目标选择规则](https://doc.rust-lang.org/cargo/commands/cargo-test.html#target-selection)，不指定目标时运行整包测试，从而将夹具解析、固定 fuel 金样、包校验和命令行退出码纳入同一既有作业。沿用作业路径范围与时限，`--quick` 仍只承担原有编译门禁。
+
 ## Alternatives considered
+
+- **只补本地完整测试，CI 继续只运行 SDK。** 最强理由是编译工具已经覆盖普通代码，完整测试可留给本地，CI 省去其余用例。不采用：现有作业已经构建同一工具与运行时，遗漏的目标直接验证作者会使用的校验、事件和退出码契约；复用现有作业运行整包不新增作业或触发范围。
 
 - **pack-tool 依赖 host-api，直接驱动 `ScriptSet`（甚至经 C ABI 开一个会话）。** 最强的理由是实例生命周期、属性门控和熔断也是产品代码，`run` 一条规则都不用复刻。不用：`ScriptSet` 挂在会话的 `LifecycleState` 上，事件由生命周期核心从真实的派发推导出来，要驱动它就得带上引擎、词库和整个 input-runtime，夹具也只能写按键而写不了"一次上屏、body 是什么"；进程级的模块缓存、后台编译线程和熔断表在一个命令行工具里只会添乱。复刻的只有 `set.rs` 里关于单个条目的五条规则，代价是两处要保持一致，写在 Consequences 里。
 - **修改类 import 的结果放进 `Outcome`（第 4 阶段大概率会给 `before_commit` 带回改写结果）。** 最强的理由是动作本来就是投递结果的一部分，不需要旁路输出。不用：第 3 阶段没有任何动作会被接受，`Outcome` 的形状应该由第 4 阶段按改写和候选变换的真实需要定；现在改它会和并行的第 4 阶段冲突。`ActionSink` 只旁观返回码，第 4 阶段可以让接通后的 import 继续喂它，或者改从 `Outcome` 取。
@@ -44,6 +48,7 @@ Status: implemented
 
 ## Consequences
 
+- 持续验证增加 `run`、`validate` 目标的编译与执行，以及本地完整验证中的工具 Clippy；复用现有工具依赖，CI 仍受原作业时限约束。这里只补已有测试的执行入口，不扩大插件运行时的验证结论。
 - 收益：作者在本机就能看到每个事件的 fuel、失败原因、授权和本地模式下读到的东西、想做的改写；这些都来自产品的运行时，配额、快照和门控不会和输入法不一致。SDK 的每个编号和 import 名都有测试对着运行时核对，host-api 的枚举判别值也有测试对着 ABI 核对。
 - 代价：`run` 复刻了 `scripts::set` 的五条实例规则（延迟实例化与初始化预算、聚焦丢弃、trap 后不重建、同轮续用配额、初始化失败停用）。改了 `set.rs` 里这些规则，要同步改 `run.rs`，没有测试替两边对拍。
 - 金样里的 fuel 数值取决于 wasmi 的计量。升级或回退 wasmi（沙箱运行时那篇写的 1.1.0 退路）会让 `crates/pack-tool/tests/run.rs` 的金样全部变化，这正是要人看一眼的信号，不是噪音。
@@ -55,7 +60,9 @@ Status: implemented
 
 ## Verification
 
-- `cargo test -p msime-pack-tool`：`tests/run.rs` 10 例（4 份金样含固定 fuel，夹具和 `--grant` 的错误，从磁盘读包经命令行和二进制运行的退出码），`tests/sdk.rs` 2 例，`tests/validate.rs` 原有 6 例不变。
+- `cargo test --locked -p msime-pack-tool --no-fail-fast`：`tests/run.rs` 17 项、`tests/sdk.rs` 2 项、`tests/validate.rs` 7 项，共 26 项通过、0 忽略；lib、bin 和 doc-tests 各 0 项。覆盖固定 fuel 金样、夹具和 `--grant` 错误、真实包与命令行退出码。
+- 完整包选择的真实负对照：临时反转现有模板校验的退出码断言，旧 `--test sdk` 仍两项通过、退出 0，完整包命令捕获该断言失败、退出 101；精确恢复源码并核对摘要后，完整 26 项通过。
+- `cargo clippy --locked -p msime-pack-tool --all-targets -- -D warnings` 通过。另一次性提取真实本地测试和 Clippy 循环，以实际负对照输出驱动命令替身：旧清单均退出 0，新清单均退出 1。该检查只证明清单选择与失败传播，不代替整套本地验证。
 - `cargo test -p msime-script-runtime`：新增 `debug_sinks_observe_denied_modifications_and_init_logs`、`the_scalar_value_tables_are_one_to_one`。
 - `cargo test -p msime-client-core script`：新增 `load_script_source_hands_over_what_validate_accepted`。
 - `cargo test -p msime-host-api the_abi_scalar_tables`：枚举判别值与 ABI 名字表一致。

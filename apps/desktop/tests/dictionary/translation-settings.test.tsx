@@ -140,9 +140,7 @@ test("only the chosen service's settings are shown, in the order the select list
   // AI 辅助复用「AI 与云联想」页的配置；没配好时显示提示而不是静默不翻译。
   fireEvent.change(select, { target: { value: "ai" } });
   expect(shown()).toEqual({ tencent: false, niutrans: false, custom: false, ai: true });
-  expect(
-    screen.getByText("请先在「AI 与云联想」页面填写接口地址、Token 和模型"),
-  ).toBeTruthy();
+  expect(screen.getByText("请先在「AI 与云联想」页面填写接口地址、Token 和模型")).toBeTruthy();
   fireEvent.change(select, { target: { value: "tencent" } });
   expect(shown()).toEqual({ tencent: true, niutrans: false, custom: false, ai: false });
   expect(screen.getByRole("heading", { name: "腾讯云机器翻译" })).toBeTruthy();

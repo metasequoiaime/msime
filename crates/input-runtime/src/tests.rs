@@ -2060,6 +2060,91 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
     );
 }
 
+#[test]
+fn cloud_mixing_reserves_first_page_space_before_extra_english_rows() {
+    for (count, page_size, ai, promoted, expected) in [
+        (
+            1,
+            5,
+            false,
+            false,
+            vec!["中", "云", "one", "文", "two", "three"],
+        ),
+        (
+            3,
+            5,
+            false,
+            false,
+            vec!["中", "云", "one", "two", "three", "文"],
+        ),
+        (
+            3,
+            5,
+            true,
+            false,
+            vec!["中", "云", "one", "two", "AI", "文", "three"],
+        ),
+        (
+            3,
+            3,
+            false,
+            false,
+            vec!["中", "云", "one", "文", "two", "three"],
+        ),
+        (
+            3,
+            3,
+            false,
+            true,
+            vec!["one", "中", "云", "文", "two", "three"],
+        ),
+        (
+            3,
+            5,
+            true,
+            true,
+            vec!["one", "two", "中", "云", "AI", "文", "three"],
+        ),
+    ] {
+        let mut words = vec!["中", "one", "文", "two", "three", "云"];
+        let mut sources = vec![0, 4, 0, 4, 4, 2];
+        if promoted {
+            words.swap(0, 1);
+            sources.swap(0, 1);
+        }
+        if ai {
+            words.push("AI");
+            sources.push(3);
+        }
+        let mut runtime = Runtime::new(
+            Fixture {
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                codes: (0..words.len())
+                    .map(|index| format!("synthetic-{index}"))
+                    .collect(),
+                sources,
+                ..Fixture::default()
+            },
+            page_size,
+        )
+        .unwrap();
+        runtime.set_english_first_page_count(count);
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        let actual: Vec<_> = runtime
+            .all_candidates()
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .collect();
+        assert_eq!(
+            actual, expected,
+            "英文数={count}，首页={page_size}，AI={ai}，英文领先={promoted}"
+        );
+    }
+}
+
 // 日文混输行（来源 13）按英文的规矩坐：领先时保持首位（英文已领先时第二位），云候选、AI 候选到达不挪它；不领先时坐英文的优先座位，排在英文前面。AI 候选坐第一页最后一格，这里第一页排不满，紧跟在其余行之后（#6888）。
 #[test]
 fn mixed_japanese_rows_keep_their_seat_like_english() {
@@ -5095,8 +5180,10 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         frequency_mode: "promote".into(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
+        mixed_candidates: true,
         mixed_english: true,
         english_minimum_prefix: 2,
+        english_first_page_count: 1,
         mixed_emoji: false,
         mixed_kaomoji: false,
         mixed_symbols: false,

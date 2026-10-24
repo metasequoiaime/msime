@@ -153,6 +153,8 @@ export type Preferences = PunctuationPreferences &
     input_mode_hud?: boolean;
     /** Linux 聚焦输入框时提示当前模式，独立于切换提示，缺省关闭。 */
     input_mode_focus_hud?: boolean;
+    /** Linux 允许屏幕角落的附加模式提示，缺省开启；关闭后保留光标旁提示。 */
+    input_mode_corner_hud?: boolean;
     /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
     input_mode_status_item?: boolean;
     candidate_layout?: "horizontal" | "vertical";

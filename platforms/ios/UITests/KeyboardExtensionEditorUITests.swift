@@ -182,6 +182,92 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         + "\(globe.exists) keys=[\(buttons)]")
   }
 
+  /// 从真实系统扩展横滑后插入标记，观察宿主文档的光标位置及起始按键取消。
+  func testCursorSwipeMovesInSystemEditorAndPreservesTaps() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    var original: [String: String] = [:]
+    func configure(_ enabled: Bool, restoring: Bool = false) {
+      app.terminate()
+      app.launch()
+      app.tabBars.buttons["设置"].tap()
+      let layout = app.buttons["keyboardLayoutLink"]
+      for _ in 0..<8 where !layout.isHittable { app.swipeUp() }
+      XCTAssertTrue(layout.waitForExistence(timeout: 5))
+      layout.tap()
+      for (identifier, desired) in [("appGlideTypingSwitch", "0"),
+                                     ("appCursorSwipeSwitch", enabled ? "1" : "0")] {
+        if restoring && original[identifier] == nil { continue }
+        let toggle = app.switches[identifier]
+        for _ in 0..<8 where !toggle.isHittable {
+          let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.84))
+          start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.6)))
+        }
+        XCTAssertTrue(toggle.exists && toggle.isHittable)
+        if original[identifier] == nil { original[identifier] = toggle.value as? String }
+        let value = restoring ? original[identifier, default: desired] : desired
+        if toggle.value as? String != value {
+          toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        let saved = XCTNSPredicateExpectation(
+          predicate: NSPredicate(format: "value == %@", value), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 5), .completed)
+      }
+      app.terminate()
+    }
+    addTeardownBlock { @MainActor in configure(false, restoring: true) }
+    configure(true)
+    app.launch()
+    app.terminate()
+    addKeyboardInSettingsIfNeeded()
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--system-keyboard-editor"]
+    addTeardownBlock { @MainActor in editor.terminate() }
+
+    func key(_ letter: String) -> XCUIElement {
+      editor.buttons.matching(NSPredicate(format: "label IN %@",
+        ["字母 \(letter.uppercased())", "字母 \(letter.lowercased())"])).firstMatch
+    }
+    for enabled in [true, false] {
+      if !enabled { configure(false) }
+      editor.launch()
+      let field = editor.textFields["systemKeyboardEditor"]
+      XCTAssertTrue(field.waitForExistence(timeout: 10))
+      _ = try activeSystemKeyboard(in: editor, field: field)
+      editor.buttons["schemeButton"].tap()
+      let quanpin = editor.buttons["schemeCard-quanpin"]
+      XCTAssertTrue(quanpin.waitForExistence(timeout: 5))
+      quanpin.tap()
+      let language = editor.buttons["bottomLanguageKey"]
+      if language.label == "切换到英文输入" { language.tap() }
+      XCTAssertEqual(language.value as? String, "英文输入")
+      let text = String(repeating: "abc", count: 10)
+      for letter in text { key(String(letter)).tap() }
+      XCTAssertEqual(field.value as? String, text, "连续点按不能丢字或移动光标")
+      let candidate = editor.buttons["candidate-1"]
+      if candidate.exists { candidate.tap() }
+      let start = key("L").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      let end = key("G").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      start.press(forDuration: 0.05, thenDragTo: end, withVelocity: 300, thenHoldForDuration: 0.1)
+      if enabled {
+        XCTAssertEqual(field.value as? String, text, "横滑抬手不能输入起始字母")
+        key("Q").tap()
+        let moved = try XCTUnwrap(field.value as? String)
+        XCTAssertEqual(moved.replacingOccurrences(of: "q", with: ""), text)
+        XCTAssertTrue(moved.contains("q"))
+        XCTAssertFalse(moved.hasPrefix("q"), "光标应停在合成文本内部")
+        XCTAssertFalse(moved.hasSuffix("q"), "真实文档光标必须向左移动")
+      } else {
+        let afterDrag = try XCTUnwrap(field.value as? String)
+        XCTAssertTrue(afterDrag.hasPrefix(text), "关闭后横滑不能移动已有文本中的光标")
+        key("Q").tap()
+        XCTAssertEqual(field.value as? String, afterDrag + "q")
+      }
+      keepScreenshot(enabled ? "CursorSwipe-Enabled" : "CursorSwipe-Disabled", in: editor)
+      editor.terminate()
+    }
+  }
+
   /// 宿主反复切换四种方案后，在系统键盘验证候选展开、收起和上屏。
   func testCandidatePanelAfterHostSchemeChanges() throws {
     let app = XCUIApplication()

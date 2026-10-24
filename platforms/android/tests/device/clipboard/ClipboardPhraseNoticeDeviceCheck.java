@@ -86,9 +86,7 @@ final class ClipboardPhraseNoticeDeviceCheck {
             t.stage = "successful phrase feedback uses independent window";
             add(SOURCE);
             t.stage = "success notice is at phone top";
-            Rect noticeBounds = notice("已添加到常用语");
-            SystemClock.sleep(250);
-            capture(noticeBounds);
+            notice("已添加到常用语", true);
             t.stage = "success notice preserves clipboard list position";
             requireSame(before, bounds(t.await(card(SOURCE))));
             t.stage = "success notice preserves editor window and view focus";
@@ -161,8 +159,6 @@ final class ClipboardPhraseNoticeDeviceCheck {
 
     private void openEditor() throws Exception {
         t.shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
-        if (!t.await(t.field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
-            throw new AssertionError("Synthetic editor focus request refused");
         t.tap(t.field("msime-test-plain"));
         t.await(t.field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
         t.await(t.key("n"));
@@ -204,13 +200,25 @@ final class ClipboardPhraseNoticeDeviceCheck {
         throw new AssertionError("Synthetic editor window unavailable");
     }
 
-    private Rect notice(String message) {
+    private void notice(String message) throws Exception {
+        notice(message, false);
+    }
+
+    private void notice(String message, boolean capturePixels) throws Exception {
         Rect bounds;
         if (Build.VERSION.SDK_INT < 30) {
             long deadline = SystemClock.uptimeMillis() + 10000;
             do {
-                bounds = legacyNoticeBounds();
-                if (message.equals(legacyMessage) && bounds != null) return bounds;
+                Bitmap bitmap = t.automation.takeScreenshot();
+                if (bitmap == null) throw new AssertionError("Legacy notice screenshot unavailable");
+                try {
+                    bounds = legacyNoticeBounds(bitmap);
+                    if (message.equals(legacyMessage) && bounds != null) {
+                        // 定位、留证与像素断言使用同一帧，避免短暂 Toast 在第二次截图前消失。
+                        if (capturePixels) capture(bitmap, bounds);
+                        return;
+                    }
+                } finally { bitmap.recycle(); }
                 SystemClock.sleep(50);
             } while (SystemClock.uptimeMillis() < deadline);
             throw new AssertionError("Legacy notice text and phone-top pixels were not observed");
@@ -219,7 +227,7 @@ final class ClipboardPhraseNoticeDeviceCheck {
         int height = t.getTargetContext().getResources().getDisplayMetrics().heightPixels;
         if (bounds.isEmpty() || bounds.top < 0 || bounds.bottom > height / 4)
             throw new AssertionError("Notice is outside phone top: " + bounds + ", height=" + height);
-        return bounds;
+        if (capturePixels) capture(bounds);
     }
 
     private AccessibilityNodeInfo awaitNotice(String message) {
@@ -257,29 +265,33 @@ final class ClipboardPhraseNoticeDeviceCheck {
         Bitmap bitmap = t.automation.takeScreenshot();
         if (bitmap == null) throw new AssertionError("Legacy notice screenshot unavailable");
         try {
-            int minimum = bitmap.getWidth() / 6;
-            for (int y = 0; y < bitmap.getHeight() / 4; y++) {
-                int start = -1;
-                for (int x = 0; x < bitmap.getWidth(); x++) {
-                    if (isDark(bitmap.getPixel(x, y))) {
-                        if (start < 0) start = x;
-                    } else {
-                        if (start >= 0 && x - start >= minimum) {
-                            int bottom = y + 1;
-                            for (; bottom < bitmap.getHeight() / 4; bottom++) {
-                                int dark = 0;
-                                for (int column = start; column < x; column++)
-                                    if (isDark(bitmap.getPixel(column, bottom))) dark++;
-                                if (dark < (x - start) / 2) break;
-                            }
-                            if (bottom - y >= 16) return new Rect(start, y, x, bottom);
+            return legacyNoticeBounds(bitmap);
+        } finally { bitmap.recycle(); }
+    }
+
+    private static Rect legacyNoticeBounds(Bitmap bitmap) {
+        int minimum = bitmap.getWidth() / 6;
+        for (int y = 0; y < bitmap.getHeight() / 4; y++) {
+            int start = -1;
+            for (int x = 0; x < bitmap.getWidth(); x++) {
+                if (isDark(bitmap.getPixel(x, y))) {
+                    if (start < 0) start = x;
+                } else {
+                    if (start >= 0 && x - start >= minimum) {
+                        int bottom = y + 1;
+                        for (; bottom < bitmap.getHeight() / 4; bottom++) {
+                            int dark = 0;
+                            for (int column = start; column < x; column++)
+                                if (isDark(bitmap.getPixel(column, bottom))) dark++;
+                            if (dark < (x - start) / 2) break;
                         }
-                        start = -1;
+                        if (bottom - y >= 16) return new Rect(start, y, x, bottom);
                     }
+                    start = -1;
                 }
             }
-            return null;
-        } finally { bitmap.recycle(); }
+        }
+        return null;
     }
 
     private static boolean isDark(int color) {
@@ -290,6 +302,12 @@ final class ClipboardPhraseNoticeDeviceCheck {
     private void capture(Rect noticeBounds) throws Exception {
         Bitmap bitmap = t.automation.takeScreenshot();
         if (bitmap == null) throw new AssertionError("Synthetic notice screenshot unavailable");
+        try {
+            capture(bitmap, noticeBounds);
+        } finally { bitmap.recycle(); }
+    }
+
+    private void capture(Bitmap bitmap, Rect noticeBounds) throws Exception {
         try (FileOutputStream output = new FileOutputStream(new File(t.getTargetContext().getCacheDir(),
                 "clipboard-phrase-notice.png"))) {
             if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
@@ -312,7 +330,7 @@ final class ClipboardPhraseNoticeDeviceCheck {
                 }
             if (total == 0 || same < total * 0.95)
                 throw new AssertionError("Notice changed pixels between phone top and keyboard");
-        } finally { bitmap.recycle(); }
+        }
     }
 
     private Predicate<AccessibilityNodeInfo> card(String text) {

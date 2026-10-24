@@ -221,6 +221,43 @@ final class OnboardingUITests: XCTestCase {
     add(attachment)
   }
 
+  /// 原生开关的两个状态都必须跨进程重启保留，不能只更新当前页面。
+  @MainActor
+  func testCursorSwipeSettingPersistsAcrossRelaunch() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    func openToggle() -> XCUIElement {
+      reachSettingsLink("keyboardLayoutLink", in: app)
+      settingsEntry("keyboardLayoutLink", in: app).tap()
+      let toggle = app.switches["appCursorSwipeSwitch"]
+      revealBelowKeyboardPreview(toggle, in: app)
+      XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+      return toggle
+    }
+    let original = try XCTUnwrap(openToggle().value as? String)
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      app.launch()
+      let toggle = openToggle()
+      if toggle.value as? String != original {
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(self.wait(toggle, until: "value == '\(original)'"))
+      }
+    }
+    for value in ["1", "0"] {
+      let toggle = app.switches["appCursorSwipeSwitch"]
+      if toggle.value as? String != value {
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      }
+      XCTAssertTrue(wait(toggle, until: "value == '\(value)'"))
+      app.terminate()
+      app.launch()
+      XCTAssertEqual(openToggle().value as? String, value)
+    }
+  }
+
   @MainActor
   func testKeyboardSpacingSettingsPersist() throws {
     let app = XCUIApplication()
