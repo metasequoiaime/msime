@@ -19,9 +19,9 @@ final class OcrCameraImage {
             canvas.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 40));
             String text = "SYNTHETIC OCR 2468";
             var metrics = canvas.getFontMetrics();
-            // 中央半幅内保留完整字符串，为模拟器不同宽高比的预览与 JPEG 流留足裁剪边缘。
+            // 两版 AVD 的纵向 imagefile 照片已确认能看到左半幅，完整文本放入该范围，保留原有精确断言。
             if (metrics.stringWidth(text) > image.getWidth() / 2) throw new IllegalStateException("fixture_width");
-            canvas.drawString(text, (image.getWidth() - metrics.stringWidth(text)) / 2,
+            canvas.drawString(text, (image.getWidth() / 2 - metrics.stringWidth(text)) / 2,
                 (image.getHeight() - metrics.getHeight()) / 2 + metrics.getAscent());
         } finally { canvas.dispose(); }
         if (!ImageIO.write(image, "png", new File(arguments[0]))) throw new IllegalStateException("fixture_image");
