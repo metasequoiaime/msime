@@ -159,26 +159,30 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         // 未拍照时隐藏键盘后再次打开，必须能重新取得相机，不能只验证拍照回调里的释放。
         stage = "release preview when keyboard hides";
         camera();
-        home();
+        home("hidden");
         editor();
         camera();
         screenshot("resumed");
         // 识别后离开输入框不能把待选结果带入下一个编辑器。
         stage = "discard results after editor switch";
         tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
-        home();
+        home("switched");
         editor();
         SystemClock.sleep(2000);
         dropStaleNodes();
         AccessibilityNodeInfo target = awaitAny(field("msime-test-plain"));
-        check(target.getText() == null || target.getText().length() == 0, "late recognition cannot insert in another editor");
+        // 空 EditText 的无障碍文本可能是提示词，必须用提示标志区分真实输入。
+        check(target.getText() == null || target.getText().length() == 0
+            || (target.isShowingHintText() && equalsText("Plain editor", target.getHintText())
+                && equalsText("Plain editor", target.getText())),
+            "late recognition cannot insert in another editor");
         for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
             check(findAny(window.getRoot(), described("拍照识字面板")) == null,
                 "late recognition cannot restore OCR panel in another editor");
     }
 
     /** HOME 请求异步切换任务，确认桌面已获得焦点且键盘消失后才能重开编辑器。 */
-    private void home() throws Exception {
+    private void home(String checkpoint) throws Exception {
         String launcher;
         // 通过测试的 shell 身份解析桌面，避免依赖产品进程的包可见性权限。
         try (InputStream input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(
@@ -194,6 +198,7 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         }
         check(automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME), "request home transition");
         long deadline = SystemClock.uptimeMillis() + 15000;
+        long activeSince = 0;
         do {
             dropStaleNodes();
             boolean activeHome = false, keyboard = false;
@@ -202,7 +207,11 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
                 if (window.getType() == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD) keyboard = true;
                 if (window.isActive() && root != null && equalsText(launcher, root.getPackageName())) activeHome = true;
             }
-            if (activeHome && !keyboard) { screenshot("hidden"); return; }
+            // 无障碍窗口先于退场动画更新，等待稳定后再保存画面并重开编辑器。
+            if (activeHome && !keyboard) {
+                if (activeSince == 0) activeSince = SystemClock.uptimeMillis();
+                if (SystemClock.uptimeMillis() - activeSince >= 500) { screenshot(checkpoint); return; }
+            } else activeSince = 0;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("home transition must finish before reopening synthetic editor");
