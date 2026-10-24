@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
+import android.os.Build;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -33,6 +34,70 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        String originalMode = null;
+        boolean completed = false;
+        String failureStage = null;
+        try {
+            stage = "handwriting single-character mode prerequisite";
+            originalMode = writingMode();
+            if (!"单字".equals(originalMode)) chooseWritingMode("单字");
+            else accessibleClick(description("取消"));
+            runHandwritingChecks();
+            completed = true;
+        } catch (Exception | AssertionError error) {
+            failureStage = stage;
+            throw error;
+        } finally {
+            if (originalMode != null && !"单字".equals(originalMode)) {
+                try {
+                    stage = "handwriting writing mode restore";
+                    writingMode();
+                    chooseWritingMode(originalMode);
+                } catch (Exception | AssertionError error) {
+                    if (completed) throw error;
+                }
+                if (!completed) stage = failureStage;
+            }
+        }
+    }
+
+    /** 通过原生设置页选择单字模式，避免默认叠写自动上屏使显式选字断言失去前提。 */
+    private String writingMode() throws Exception {
+        dropStaleNodes();
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android/.home.HomeActivity --es msime_open_page HANDWRITING");
+        AccessibilityNodeInfo row = awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName())
+            && equalsText("书写模式", node.getText()), 15_000);
+        while (!row.isClickable() && row.getParent() != null) row = row.getParent();
+        if (!row.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            throw new AssertionError("Handwriting writing mode row did not open");
+        String selected = null;
+        for (String option : new String[] {"单字", "叠写", "行写"}) {
+            AccessibilityNodeInfo control = awaitFor(description(option), 15_000);
+            CharSequence state = Build.VERSION.SDK_INT >= 30 ? control.getStateDescription()
+                : control.getExtras().getCharSequence("androidx.view.accessibility.AccessibilityNodeInfoCompat.STATE_DESCRIPTION_KEY");
+            if (equalsText("已选择", state)) {
+                if (selected != null) throw new AssertionError("Handwriting mode has multiple selections");
+                selected = option;
+            }
+        }
+        if (selected == null) throw new AssertionError("Handwriting mode has no selection");
+        return selected;
+    }
+
+    /** 重新打开设置页读取落盘结果，确认异步保存完成后才启动或恢复键盘专项。 */
+    private void chooseWritingMode(String mode) throws Exception {
+        accessibleClick(description(mode));
+        long deadline = SystemClock.uptimeMillis() + 15_000;
+        do {
+            String selected = writingMode();
+            accessibleClick(description("取消"));
+            if (mode.equals(selected)) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Handwriting writing mode was not saved");
+    }
+
+    private void runHandwritingChecks() throws Exception {
         if (ocrCoexistence) {
             stage = "IME handwriting OCR offline prerequisite";
             android.net.ConnectivityManager connectivity = getTargetContext().getSystemService(android.net.ConnectivityManager.class);
