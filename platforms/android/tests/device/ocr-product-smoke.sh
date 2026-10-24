@@ -85,7 +85,7 @@ if [[ "$product_status" == 0 ]]; then
 fi
 "$adb" -s "$serial" shell svc wifi enable
 "$adb" -s "$serial" shell svc data enable
-for frame in preview result editor selection permission failure; do
+for frame in captured preview result editor selection permission failure; do
   "$adb" -s "$serial" pull "/sdcard/Android/data/app.msime.android/files/ocr-product-$frame.png" \
     "target/android/ocr-product-$frame.png" >/dev/null 2>&1 || true
 done

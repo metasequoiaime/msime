@@ -51,17 +51,28 @@ final class OcrCamera implements AutoCloseable {
                     .orElseGet(() -> parameters.getSupportedPictureSizes().stream()
                         .min(Comparator.comparingLong(size -> (long) size.width * size.height)).orElseThrow());
                 parameters.setPictureSize(picture.width, picture.height);
+                // 预览和照片使用同一宽高比，避免用户框选范围与照片裁剪范围不一致。
+                double pictureRatio = (double) picture.width / picture.height;
+                Camera.Size previewSize = parameters.getSupportedPreviewSizes().stream()
+                    .min(Comparator.<Camera.Size>comparingDouble(size ->
+                        Math.abs((double) size.width / size.height - pictureRatio))
+                        .thenComparingLong(size -> Math.abs((long) size.width * size.height - 1280L * 960)))
+                    .orElseThrow();
+                parameters.setPreviewSize(previewSize.width, previewSize.height);
                 parameters.setRotation(orientation);
                 List<String> modes = parameters.getSupportedFocusModes();
                 if (modes != null && modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE))
                     parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
                 camera.setParameters(parameters);
                 camera.setPreviewDisplay(surface);
-                camera.startPreview();
                 Camera.Size preview = camera.getParameters().getPreviewSize();
                 int width = orientation % 180 == 0 ? preview.width : preview.height;
                 int height = orientation % 180 == 0 ? preview.height : preview.width;
-                if (closed) release(); else ready.accept(width, height);
+                // 驱动接受 startPreview 不代表首帧已到；收到首帧后才允许拍照。
+                camera.setOneShotPreviewCallback((bytes, source) -> {
+                    if (closed) release(); else ready.accept(width, height);
+                });
+                camera.startPreview();
             } catch (Exception | LinkageError unavailable) { release(); if (!closed) failure.run(); }
         });
     }

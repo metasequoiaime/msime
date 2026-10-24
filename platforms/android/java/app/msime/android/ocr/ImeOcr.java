@@ -147,8 +147,8 @@ final class ImeOcr {
                 int rotation = s.getSystemService(android.view.WindowManager.class).getDefaultDisplay().getRotation();
                 source.start(holder, rotation, (width, previewHeight) -> s.main.post(() -> {
                     if (!valid(expected) || source != camera) return;
-                    // 只裁剪预览边缘，不把竖直画面拉伸成键盘比例。
-                    float scale = Math.max((float) viewport.getWidth() / width, (float) viewport.getHeight() / previewHeight);
+                    // SurfaceView 的独立 Surface 不能依赖父容器裁剪；完整放入预览框，避免覆盖编辑器和按钮。
+                    float scale = Math.min((float) viewport.getWidth() / width, (float) viewport.getHeight() / previewHeight);
                     surface.setLayoutParams(new FrameLayout.LayoutParams(Math.round(width * scale),
                         Math.round(previewHeight * scale), android.view.Gravity.CENTER));
                     capture.setEnabled(true);

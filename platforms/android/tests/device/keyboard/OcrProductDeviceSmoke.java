@@ -125,6 +125,7 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
 
         stage = "native camera preview";
         automation.grantRuntimePermission(context.getPackageName(), "android.permission.CAMERA");
+        captureDiagnostic();
         restartIme();
         editor();
         camera();
@@ -179,6 +180,63 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
             byte[] buffer = new byte[8192];
             int count;
             while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+        }
+    }
+
+    /** 仅导出专用 AVD 的固定相机输入，经与产品相同的 JPEG 解码和 EXIF 路径诊断裁剪。 */
+    @SuppressWarnings("deprecation")
+    private void captureDiagnostic() throws Exception {
+        stage = "synthetic camera JPEG diagnostic";
+        android.app.Activity activity = startActivitySync(new Intent().setClassName(getTargetContext(),
+            "app.msime.android.OcrSetupActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        java.util.concurrent.CountDownLatch surfaceReady = new java.util.concurrent.CountDownLatch(1);
+        android.view.SurfaceView[] surface = new android.view.SurfaceView[1];
+        runOnMainSync(() -> {
+            surface[0] = new android.view.SurfaceView(activity);
+            surface[0].getHolder().addCallback(new android.view.SurfaceHolder.Callback() {
+                @Override public void surfaceCreated(android.view.SurfaceHolder holder) { surfaceReady.countDown(); }
+                @Override public void surfaceChanged(android.view.SurfaceHolder holder, int format, int width, int height) { }
+                @Override public void surfaceDestroyed(android.view.SurfaceHolder holder) { }
+            });
+            activity.setContentView(surface[0]);
+        });
+        ClassLoader loader = getTargetContext().getClassLoader();
+        Class<?> type = loader.loadClass("app.msime.android.OcrCamera");
+        var constructor = type.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Object camera = constructor.newInstance();
+        Method close = type.getDeclaredMethod("close");
+        close.setAccessible(true);
+        try {
+            check(surfaceReady.await(15, java.util.concurrent.TimeUnit.SECONDS), "diagnostic surface ready");
+            java.util.concurrent.CountDownLatch preview = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean();
+            Method start = type.getDeclaredMethod("start", android.view.SurfaceHolder.class, int.class,
+                java.util.function.BiConsumer.class, Runnable.class);
+            start.setAccessible(true);
+            int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
+            start.invoke(camera, surface[0].getHolder(), rotation,
+                (java.util.function.BiConsumer<Integer, Integer>) (width, height) -> preview.countDown(),
+                (Runnable) () -> { failed.set(true); preview.countDown(); });
+            check(preview.await(15, java.util.concurrent.TimeUnit.SECONDS) && !failed.get(), "diagnostic preview ready");
+            SystemClock.sleep(500);
+            java.util.concurrent.CountDownLatch captured = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicReference<byte[]> bytes = new java.util.concurrent.atomic.AtomicReference<>();
+            Method capture = type.getDeclaredMethod("capture", java.util.function.Consumer.class, Runnable.class);
+            capture.setAccessible(true);
+            capture.invoke(camera, (java.util.function.Consumer<byte[]>) value -> { bytes.set(value); captured.countDown(); },
+                (Runnable) () -> { failed.set(true); captured.countDown(); });
+            check(captured.await(15, java.util.concurrent.TimeUnit.SECONDS) && !failed.get(), "diagnostic JPEG captured");
+            Method decode = loader.loadClass("app.msime.android.ImeOcr").getDeclaredMethod("decode", byte[].class);
+            decode.setAccessible(true);
+            Bitmap image = (Bitmap) decode.invoke(null, (Object) bytes.get());
+            try (FileOutputStream output = new FileOutputStream(new File(
+                    getTargetContext().getExternalFilesDir(null), "ocr-product-captured.png"))) {
+                check(image.compress(Bitmap.CompressFormat.PNG, 100, output), "write synthetic camera diagnostic");
+            } finally { image.recycle(); }
+        } finally {
+            close.invoke(camera);
+            runOnMainSync(activity::finish);
         }
     }
 
