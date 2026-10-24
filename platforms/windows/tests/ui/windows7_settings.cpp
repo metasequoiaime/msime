@@ -260,14 +260,7 @@ int main() {
       account_signed_in = true; value = {{"user", account_user}};
     } else if (operation == "profile" || operation == "rename") {
       if (operation == "rename") account_user["displayName"] = action.at("display_name");
-<<<<<<< ours
-      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})},
-          {"providerNames", {{"email", "邮箱"}, {"google", "Google"}}}};
-||||||| base
-      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}};
-=======
       value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}, {"providerNames", account_provider_names}};
->>>>>>> theirs
     } else if (operation == "upload_avatar" || operation == "remove_avatar") {
       if (operation == "upload_avatar") {
         assert(action.at("path") == preview_file.u8string());
@@ -275,14 +268,7 @@ int main() {
         account_user["avatarUrl"] = "https://media.msime.app/avatars/synthetic.png";
         account_user["avatarUploaded"] = true;
       } else { account_user["avatarUrl"] = nullptr; account_user["avatarUploaded"] = false; }
-<<<<<<< ours
-      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})},
-          {"providerNames", {{"email", "邮箱"}, {"google", "Google"}}}};
-||||||| base
-      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}};
-=======
       value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}, {"providerNames", account_provider_names}};
->>>>>>> theirs
     } else if (operation == "avatar") {
       value = malformed_avatar ? "https://example.invalid/synthetic-avatar.png" : "data:image/png;base64," + preview_base64;
     } else if (operation == "preferences_schema") value = Json::object();
