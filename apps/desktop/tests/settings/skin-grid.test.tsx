@@ -130,7 +130,12 @@ test("rings and checks only the theme in use", () => {
   grid({ globalTheme: "night", keyboardTheme: "dark" });
   const selected = screen.getByRole("button", { name: "夜青" });
   expect(selected.getAttribute("aria-pressed")).toBe("true");
-  expect(selected.querySelector("[data-skin-check]")).not.toBeNull();
+  const check = selected.querySelector("[data-skin-check] svg");
+  expect(check).not.toBeNull();
+  expect(check?.getAttribute("width")).toBe("14");
+  expect(check?.getAttribute("stroke-width")).toBe("2.6");
+  expect(check?.getAttribute("aria-hidden")).toBe("true");
+  expect(check?.getAttribute("focusable")).toBe("false");
   expect(selected.querySelector("[data-skin-frame]")!.className).toContain(
     "0_0_0_4px_var(--accent-color)",
   );

@@ -2,6 +2,7 @@ import { useLayoutEffect, useState } from "react";
 import type { Preferences } from "../core/preferences-model";
 import type { ImeSetupClient, ImeSetupState } from "../core/host-contracts";
 import { MsimeMark } from "../core/brand-logo";
+import { CheckGlyph } from "../core/check-glyph";
 import { FluentIcon } from "../core/fluent-icons";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 import { useHostAction } from "../core/use-host-action";
@@ -50,18 +51,7 @@ function CheckBadge({ done }: { done: boolean | null }) {
         className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-color)] [color:var(--p-on-accent,#FFFFFF)]"
         aria-hidden="true"
       >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m5 12.5 4.5 4.5L19 7.5" />
-        </svg>
+        <CheckGlyph size={12} />
       </span>
     );
   if (done === false)

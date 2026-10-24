@@ -1,6 +1,7 @@
 import { candidateSkinSelection } from "../skin/candidate-skin-selection";
 import type { Preferences } from "../core/preferences-model";
 import { ActionButton } from "../core/action-button";
+import { CheckGlyph } from "../core/check-glyph";
 import { deepEqual } from "../core/deep-equal";
 import { FluentIcon } from "../core/fluent-icons";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
@@ -101,21 +102,9 @@ const aiTile =
 
 function Check() {
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-      data-skin-check=""
-    >
-      <path d="m5 12.5 4.5 4.5L19 7.5" />
-    </svg>
+    <span className="contents" data-skin-check="">
+      <CheckGlyph size={14} strokeWidth={2.6} />
+    </span>
   );
 }
 
