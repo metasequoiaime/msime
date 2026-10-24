@@ -75,11 +75,20 @@ pub fn decode(input: &str, lexemes: &[Lexeme], enabled: &[Language]) -> Option<C
                 let lexeme = &lexemes[index];
                 let language = lexeme.language as usize;
                 let target_slot = (used | (1 << language)) * 3 + language;
+                let switches = previous.switches + usize::from(used != 0 && last != language);
+                let rank = previous.rank + usize::from(lexeme.rank);
+                let target = &mut states[lexeme.input.end][target_slot];
+                // 成本已经更差时不复制整条前缀，同成本仍按原有稳定序比较。
+                if target.as_ref().is_some_and(|old| {
+                    (previous.lexemes.len() + 1, switches, rank)
+                        > (old.lexemes.len(), old.switches, old.rank)
+                }) {
+                    continue;
+                }
                 let mut path = previous.clone();
                 path.lexemes.push(index);
-                path.switches += usize::from(used != 0 && last != language);
-                path.rank += usize::from(lexeme.rank);
-                let target = &mut states[lexeme.input.end][target_slot];
+                path.switches = switches;
+                path.rank = rank;
                 if target
                     .as_ref()
                     .is_none_or(|old| path.precedes(old, lexemes))
