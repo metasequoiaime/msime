@@ -58,9 +58,9 @@ final class CompositionMagnifierChecks {
                 if (!nineKey) {
                     s.stage = "magnifier inserts and deletes in the middle without losing the suffix";
                     s.tap(s.key("h"));
-                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("nhihao", node.getText())));
+                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("nhi'hao", node.getText())));
                     s.tap(s.key("⌫"));
-                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("nihao", node.getText())));
+                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("ni'hao", node.getText())));
                 } else {
                     s.stage = "magnifier nine-key middle edit preserves remaining digits";
                     s.tap(s.key("DEF"));
@@ -123,7 +123,9 @@ final class CompositionMagnifierChecks {
         // 逐组等待真实触屏输入，避免 shell 连发注入未完成就开始验收拖动。
         for (int syllable = 0; syllable < 8; syllable++) {
             for (String key : new String[] {"n", "i", "h", "a", "o"}) s.tap(s.key(key));
-            spelling.append("nihao");
+            // 输入框显示引擎分音节的 preedit，放大条才显示未分隔的原始拼写。
+            if (spelling.length() > 0) spelling.append('\'');
+            spelling.append("ni'hao");
             String expected = prefix + spelling;
             s.await(s.field("msime-test-plain").and(node -> node.refresh()
                 && DeviceSmoke.equalsText(expected, node.getText())));

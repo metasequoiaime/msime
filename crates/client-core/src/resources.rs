@@ -1352,9 +1352,18 @@ mod tests {
             "the generation is part of the record"
         );
 
-        // Same length, written again: the modification time moves and the record stops matching.
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        fs::write(directory.path().join("msime-pinyin.db"), b"FIXTURE").unwrap();
+        // 同长度改写后显式推进修改时间，避免模拟器时钟或文件系统精度吞掉固定等待。
+        let artifact = directory.path().join("msime-pinyin.db");
+        let modified = fs::metadata(&artifact).unwrap().modified().unwrap();
+        fs::write(&artifact, b"FIXTURE").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&artifact)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(modified + std::time::Duration::from_secs(2)),
+            )
+            .unwrap();
         assert_ne!(
             VerifiedMarker::describe(directory.path(), &spec).unwrap(),
             Some(recorded.clone()),
