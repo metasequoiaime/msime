@@ -9552,7 +9552,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyFloatingLayout(boolean force) {
         boolean caret = caretCandidatesDrawn();
         boolean floating = caret || floatingDrawn();
-        boolean fullWindow = stableDockedWindow() || floating || clipboardPreviewExpanded;
+        boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded();
         if (!force && fullWindow == fullWindowLayoutApplied
                 && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
         fullWindowLayoutApplied = fullWindow;
