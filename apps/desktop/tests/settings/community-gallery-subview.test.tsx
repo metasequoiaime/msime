@@ -160,7 +160,7 @@ test("回复模板图库保留收藏筛选和逐层返回", async () => {
 
   expect(await screen.findByRole("heading", { level: 1, name: /^(AI|AI 辅助)$/ })).toBeTruthy();
   const gallery = await screen.findByRole("dialog", { name: "社区回复模板" });
-  fireEvent.click(within(gallery).getByRole("button", { name: "收藏", exact: true }));
+  fireEvent.click(within(gallery).getByRole("button", { name: "收藏" }));
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("reply", "saved", "", 0));
   expect(window.history.state).toMatchObject({
     page: "ai",
@@ -210,7 +210,7 @@ test("社区词库保留我的作品与收藏筛选", async () => {
   const gallery = screen.getByRole("tabpanel", { name: "词库" });
   fireEvent.click(within(gallery).getByRole("button", { name: "我的作品" }));
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "mine", "", 0));
-  fireEvent.click(within(gallery).getByRole("button", { name: "收藏", exact: true }));
+  fireEvent.click(within(gallery).getByRole("button", { name: "收藏" }));
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "saved", "", 0));
 });
 
