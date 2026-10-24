@@ -207,7 +207,10 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Hardware delete changed committed editor text");
 
             stage = "handwriting symbol layer open";
-            accessibleClick(description("切换符号键盘"));
+            // 手写底行由长按 123 打开符号面板，横排数字层的符号入口不在当前布局中。
+            AccessibilityNodeInfo symbols = awaitFor(description("切换到数字和符号"), 15_000);
+            if (!symbols.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("Handwriting symbol entry long press failed");
             stage = "handwriting symbol layer ready";
             awaitAnyFor(description("关闭符号面板"), 15_000);
             stage = "handwriting letter layer restore";
