@@ -18,7 +18,7 @@ Runtime 只在来源、编码、当前输入、完整词面和连续范围全部
 
 以词定字复用 `CandidateEdge::character`，由引擎自身的首末汉字规则判定。运行时按明确方向找到所属语言段，同一个汉字分别出现在中文和日文段时也不能只凭字符猜语言。来源 18 不参与整行中文释义。
 
-`Command::CommitCandidate` 保留引擎选择原始首行的语义，运行时经引擎顺序映射逆查其呈现座位，并在提交词面确实匹配后记录选择。`SelectionHow::FirstCandidateCommand = 12` 只追加枚举值，同步脚本 ABI 的 `first_candidate_command` 表和契约穷举，不复用高亮或点选的含义。
+`Command::CommitCandidate` 保留引擎选择原始首行的语义，运行时经引擎顺序映射逆查其呈现座位，并在提交词面确实匹配后记录选择。`SelectionHow::FirstCandidateCommand = 12` 只追加枚举值，同步脚本 ABI 的 `first_candidate_command` 表和契约穷举，以及作者 C SDK 的 `MSIME_HOW_FIRST_CANDIDATE_COMMAND` 和 Rust SDK 的 `how::FIRST_CANDIDATE_COMMAND`，不复用高亮或点选的含义。两份可复制绑定由 `pack-tool` 的既有 SDK 完整性测试逐项核对；只更新运行时会让此测试失败，原有 ABI 编号和版本保持不变。
 
 ## Host output
 
@@ -67,7 +67,7 @@ Windows 原生套件初次加载了测试目录中的旧 DLL；同步本次 Host
 
 ### 固定 develop 整合验证
 
-功能整合固定 develop `54d8a185c55323984f0a3fe1397c435b9382e2d0`，保留双方偏好回归。完整 `scripts/verify-local.sh --quick` 退出 0：portable Windows 179 项、Linux 原生 111 项通过，Rust 工作区、Android Rust/Java、WASM、Linux 桌面外壳、macOS 原生及 Apple bridge 编译通过。此前 Linux 聚焦提示断言在本轮通过，尚未查明此前失败原因，未修改测试或宣称修复时序问题。本机 Windows 原生阶段因无 MinGW 配置跳过，Harmony 资源当时未 staging，分别用以下原生构建补充。
+功能整合固定 develop `54d8a185c55323984f0a3fe1397c435b9382e2d0`，保留双方偏好回归。完整 `scripts/verify-local.sh --quick` 退出 0：portable Windows 179 项通过；Linux 原生注册 111 项，其中 110 项通过、`linux-ibus-demand-activation` 按环境条件跳过，无失败；Rust 工作区、Android Rust/Java、WASM、Linux 桌面外壳、macOS 原生及 Apple bridge 编译通过。此前 Linux 聚焦提示断言在本轮通过，尚未查明此前失败原因，未修改测试或宣称修复时序问题。本机 Windows 原生阶段因无 MinGW 配置跳过，Harmony 资源当时未 staging，分别用以下原生构建补充。
 
 整合后的引擎多语言 34 项、Host API 两项、偏好四项和共享设置交互三项通过，引擎及 Host API 严格 clippy 通过。iOS 重新构建原生工程并在专用模拟器运行 `InputBridgeResponseTests` 八项，通过后关闭专用模拟器。Android 重编发布形态 APK，并在指定 API35 `emulator-5590` 再次通过应用 UID 的真实 IME 多语言专项，沿用上述候选及繁简切换断言，结束后恢复偏好及原 IME。
 
@@ -82,6 +82,10 @@ SSH Session 0 中的 Windows 原生全套 267 项中 261 项通过，初步失�
 同一批 `windows-fullscreen-foreground`、`windows-server` 和 `msimeui-tests` 可执行程序，从 SSH 的 Session 0 改为临时任务调度器的交互令牌，在已登录的 Session 3 运行后全部通过；任务结束即移除。前者的诊断矩形确实铺满显示器，但 Session 0 的 `IsWindowVisible` 为假。此证据只说明这些用例依赖可用桌面，不能代替 TIP 在编辑器中的多语言验收，也不通过改产品可见性判定来掩盖失败。
 
 其余三项由实际失败分支定位到旧夹具假设：释义列高亮的是无释义云占位，夹具显式关闭云候选并断言首项合成词及释义；Home/End 旧用例把 Unicode `U` 当作无候选，但它实际生成原文回退行，直接改成回退断言仍在后续 no-op 断言失败，因此改为无词库、关闭云占位的普通全拼 `zz`，保留真正空候选分支及原有逐键视图不变断言；剪贴板最大容量用例显式选择 1000 条，仍检查默认 50 条，并按已有安全契约拒绝清除不可信叶重解析点，保留链接与外部目标内容。后两例补异常行号输出，免得原生异常退出丢失定位信息。三个完整用例在 Windows 定向复跑全部通过，不修改产品路由、容量默认值或文件访问边界。随后校验 517 个源码路径，恢复正式无诊断的全屏测试并重编，在交互桌面 Session 3 运行全部原生套件，267/267 项通过（40.05 秒）；执行后源码散列仍一致，临时计划任务已移除。
+
+### PR CI 的 SDK 完整性补齐
+
+首轮 PR CI 的 `Script plugins` 因作者 SDK 漏同步新枚举值失败，本地 `pack-tool --test sdk` 重现一项通过、一项失败。补齐 C 与 Rust 的 `FirstCandidateCommand = 12` 常量后两项通过；`msime-pack-tool` 与 `msime-script-runtime` 全套随后通过，原有四项性能测量按测试定义忽略。此遗漏属于本次新增 ABI 的配套缺口，不归为 develop 基线问题。
 
 ## Consequences
 
