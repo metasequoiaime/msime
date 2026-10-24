@@ -474,10 +474,12 @@ export {
 } from "./settings/mcp-connect";
 export { AccountPage } from "./account/account-page";
 export {
+  AccountMeSection,
   AccountMeGroup,
   AccountMeRow,
   AccountMeSupportGroup,
   type AccountMeGroupProps,
+  type AccountMeSectionProps,
   type AccountMeRowProps,
   type AccountMeSupportGroupProps,
 } from "./account/account-me-components";
