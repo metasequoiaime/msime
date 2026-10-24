@@ -214,6 +214,7 @@ int main() {
   unsigned google_cancellations = 0;
   unsigned account_confirmations = 0;
   Json account_user{{"id", "synthetic-account-0001"}, {"displayName", "合成账号"}, {"email", "synthetic@example.invalid"}, {"createdAt", "2026-01-02T03:04:05Z"}};
+  const Json account_provider_names{{"apple", "Apple"}, {"google", "合成 Google 方式"}, {"email", "合成邮箱方式"}, {"phone", "手机号"}, {"sms", "手机号"}};
   const std::string synthetic_id = "00000000-0000-4000-8000-000000000001";
   const std::string other_id = "00000000-0000-4000-8000-000000000002";
   Json community_item{{"id", synthetic_id}, {"package_id", "synthetic-light"}, {"name", "合成社区皮肤"},
@@ -259,7 +260,7 @@ int main() {
       account_signed_in = true; value = {{"user", account_user}};
     } else if (operation == "profile" || operation == "rename") {
       if (operation == "rename") account_user["displayName"] = action.at("display_name");
-      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}};
+      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}, {"providerNames", account_provider_names}};
     } else if (operation == "upload_avatar" || operation == "remove_avatar") {
       if (operation == "upload_avatar") {
         assert(action.at("path") == preview_file.u8string());
@@ -267,7 +268,7 @@ int main() {
         account_user["avatarUrl"] = "https://media.msime.app/avatars/synthetic.png";
         account_user["avatarUploaded"] = true;
       } else { account_user["avatarUrl"] = nullptr; account_user["avatarUploaded"] = false; }
-      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}};
+      value = {{"user", account_user}, {"providers", Json::array({"email", "google"})}, {"providerNames", account_provider_names}};
     } else if (operation == "avatar") {
       value = malformed_avatar ? "https://example.invalid/synthetic-avatar.png" : "data:image/png;base64," + preview_base64;
     } else if (operation == "preferences_schema") value = Json::object();
@@ -1809,6 +1810,7 @@ int main() {
   account_click(account_login);
   assert(account_signed_in && account_calls.back().at("operation") == "preferences_load");
   assert(caption(GetDlgItem(body, account_profile_text)).find(L"synthetic-account-0001") != std::wstring::npos);
+  assert(caption(GetDlgItem(body, account_profile_text)).find(L"合成邮箱方式　合成 Google 方式") != std::wstring::npos);
   assert(IsWindowEnabled(GetDlgItem(body, account_sync_apply)));
   assert(SetWindowTextW(GetDlgItem(body, account_name), L"  合成昵称  "));
   account_click(account_rename);
