@@ -2980,7 +2980,6 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             symbols: true,
             quick_phrase: true,
             quick_phrase_frequency: true,
-            ..Default::default()
         }
     );
     fs::write(store.path(), &bytes).unwrap();
