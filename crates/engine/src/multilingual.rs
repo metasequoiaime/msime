@@ -2,6 +2,9 @@
 
 use std::ops::Range;
 
+mod dictionaries;
+pub use dictionaries::DictionaryComposer;
+
 /// 词条所属的语言；不等同于键盘布局或输入方案。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Language {
