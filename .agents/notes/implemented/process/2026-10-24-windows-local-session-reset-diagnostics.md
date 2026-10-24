@@ -32,6 +32,8 @@ Windows 桌面端快速连续输入时，输入法会卡住数秒，候选框消
 
 日志不记录任何输入内容，只记长度、布尔量、token 和代次。
 
+直接抽取生产方法编译的回归夹具也声明诊断开关、空日志函数、`BoolFlag` 和默认关闭的 `_localSessionResetPending`。`application-key-replay` 的 `g_connected` 只定义一次；`deferred-recovery` 与 `wubi-commit-lifecycle` 保留对真实恢复、清队列及五笔收尾方法的执行，不删除生产方法中的诊断分支来绕过编译。
+
 ## Alternatives considered
 
 - **直接按闭环假设改代码。** 试过一次：把 `_localSessionResetPending` 从 `_ResolveDeferredKeyClassification` 的作废条件里挪到重试分支。编译前就发现方向错了：`_RetryDeferredKeyReplay` 无条件调 `MarkNamedpipeSessionDirtyForOwner`，每次重试都会再触发一次重连，把重连风暴放大。没有日志确认闭环之前，任何改法都是猜。
@@ -46,7 +48,8 @@ Windows 桌面端快速连续输入时，输入法会卡住数秒，候选框消
 
 ## Verification
 
-- 本机没有 C++ 与 Rust 工具链，只做了静态检查：确认没有残留 `L"..." + (cond ? L"1" : L"0")` 形式的指针相加，确认每处拼接链的起始表达式落在 `std::wstring` 上，确认 `<string>` 与 `Ipc.h` 两个文件都已经包含。
+- 最初只做了静态检查：确认没有残留 `L"..." + (cond ? L"1" : L"0")` 形式的指针相加，确认每处拼接链的起始表达式落在 `std::wstring` 上，确认 `<string>` 与 `Ipc.h` 两个文件都已经包含。
+- 2026-10-24 在 macOS 用 Clang 执行三个真实方法回归：`python3 scripts/test-windows-application-key-replay.py`（191 项）、`python3 scripts/test-windows-deferred-recovery.py`（0 失败）、`python3 scripts/test-windows-wubi-commit-lifecycle.py`（32 项）均通过。补齐夹具前分别因 `g_connected` 重复定义、重置状态缺失及诊断声明缺失编译失败。
 - 确认 `smart_punctuation_focus_wiring.cpp` 依赖的 `ThreadMgrEventSink.cpp` 原文未被改动。
 - 编译由 CI 的 Windows 作业验证。
 - 真机复验（需要装开发版）：打开诊断日志开关，连打 `szyd` 后快速按空格上屏，日志里应当出现 `[local-reset] complete stage=blocked`，且同一 token 的 `stage=cleared` 缺席；同时出现 `[deferred-recovery] stage=prefix raw_len=` 且值等于当时已输入的拼音长度。
