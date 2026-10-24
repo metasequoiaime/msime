@@ -77,9 +77,18 @@ jobs:
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
+          # 发布 APK 不允许 run-as；只在本任务的专用 AVD 上读取合成测试截图。
+          "$adb" -s "$SERIAL" root
+          "$adb" -s "$SERIAL" wait-for-device
           for image in text-edit-line-edges.png text-edit-line-edges-trackpad.png; do
-            "$adb" -s "$SERIAL" exec-out run-as app.msime.android cat "files/$image" > "target/android/$image" || true
+            "$adb" -s "$SERIAL" pull "/data/user/0/app.msime.android/files/$image" "target/android/$image"
           done
+          python3 - <<'PYPNG'
+          from pathlib import Path
+          for image in Path("target/android").glob("text-edit-line-edges*.png"):
+              if not image.read_bytes().startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10])):
+                  raise SystemExit(f"合成截图不是 PNG：{image.name}")
+          PYPNG
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
