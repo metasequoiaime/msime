@@ -61,13 +61,19 @@ printf 'core=%s baseline=%s\n' "$core_status" "$baseline_status" > target/androi
 MSIME_ANDROID_OCR_SMOKE=1 bash platforms/android/tests/device/build-editor.sh
 "$adb" -s "$serial" install -r target/android/editor-test.apk
 # release APK 不提供 run-as；专项在目标进程内清理自己先前生成的固定模块。
-"$adb" -s "$serial" shell svc wifi disable
-"$adb" -s "$serial" shell svc data disable
 instrument_options=()
 if (( api >= 31 )); then
   "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
   instrument_options=(--no-restart)
 fi
+# 手写模型单独联网准备，失败不掩盖原生相机专项；实际共存推理在断网后执行。
+"$adb" -s "$serial" shell svc wifi enable
+"$adb" -s "$serial" shell svc data enable
+prepared=$("$adb" -s "$serial" shell am instrument "${instrument_options[@]}" -w -e ocr-handwriting-prepare true \
+  app.msime.android.test/app.msime.android.test.OcrProductDeviceSmoke)
+printf '%s\n' "$prepared" | tee target/android/ocr-product-handwriting-model.log
+"$adb" -s "$serial" shell svc wifi disable
+"$adb" -s "$serial" shell svc data disable
 result=$("$adb" -s "$serial" shell am instrument "${instrument_options[@]}" -w app.msime.android.test/app.msime.android.test.OcrProductDeviceSmoke)
 printf '%s\n' "$result" | tee target/android/ocr-product-smoke.log
 product_status=0
@@ -83,16 +89,33 @@ denied=$("$adb" -s "$serial" shell am instrument "${instrument_options[@]}" -w -
   app.msime.android.test/app.msime.android.test.OcrProductDeviceSmoke)
 printf '%s\n' "$denied" | tee target/android/ocr-product-permission.log
 [[ "$denied" == *MSIME_DEVICE_SMOKE_PASSED* && "$denied" != *MSIME_DEVICE_SMOKE_FAILED* ]] || product_status=1
+coexistence_status=1
+if [[ "$prepared" == *MSIME_DEVICE_SMOKE_PASSED* && "$prepared" != *MSIME_DEVICE_SMOKE_FAILED* ]]; then
+  if (( api >= 31 )); then
+    "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
+  fi
+  coexistence=$("$adb" -s "$serial" shell am instrument "${instrument_options[@]}" -w -e ocr-handwriting-coexistence true \
+    app.msime.android.test/app.msime.android.test.OcrProductDeviceSmoke)
+  printf '%s\n' "$coexistence" | tee target/android/ocr-product-handwriting-coexistence.log
+  if [[ "$coexistence" == *MSIME_DEVICE_SMOKE_PASSED* && "$coexistence" != *MSIME_DEVICE_SMOKE_FAILED* ]]; then
+    coexistence_status=0
+  fi
+else
+  echo 'MSIME_DEVICE_SMOKE_FAILED: handwriting coexistence requires the prepared host model' \
+    | tee target/android/ocr-product-handwriting-coexistence.log
+fi
 "$adb" -s "$serial" shell svc wifi enable
 "$adb" -s "$serial" shell svc data enable
-for frame in captured preview result editor selection hidden resumed switched permission failure; do
+for frame in captured preview result editor selection hidden resumed switched permission failure \
+  failure-handwriting-model failure-handwriting-coexistence; do
   "$adb" -s "$serial" pull "/sdcard/Android/data/app.msime.android/files/ocr-product-$frame.png" \
     "target/android/ocr-product-$frame.png" >/dev/null 2>&1 || true
 done
-[[ "$product_status" == 0 ]]
-
+printf 'core=%s baseline=%s coexistence=%s\n' "$core_status" "$baseline_status" "$coexistence_status" \
+  > target/android/ocr-product-baseline-status.txt
 if [[ "$api" == 35 ]]; then
   bash platforms/android/tests/device/smoke.sh "$serial" || baseline_status=$?
 fi
-printf 'core=%s baseline=%s\n' "$core_status" "$baseline_status" | tee target/android/ocr-product-baseline-status.txt
-[[ "$core_status" == 0 && "$baseline_status" == 0 ]]
+printf 'core=%s baseline=%s coexistence=%s\n' "$core_status" "$baseline_status" "$coexistence_status" \
+  | tee target/android/ocr-product-baseline-status.txt
+[[ "$core_status" == 0 && "$baseline_status" == 0 && "$product_status" == 0 && "$coexistence_status" == 0 ]]

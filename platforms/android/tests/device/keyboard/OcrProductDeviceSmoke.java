@@ -14,6 +14,8 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -24,23 +26,42 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
     private Method install;
     private File source;
     private boolean permissionDenied;
+    private boolean prepareHandwriting;
+    private boolean handwritingCoexistence;
+    private HostHandwriting handwriting;
+    private List<?> handwritingBefore;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         permissionDenied = arguments != null && "true".equals(arguments.getString("ocr-permission-denied"));
+        prepareHandwriting = arguments != null && "true".equals(arguments.getString("ocr-handwriting-prepare"));
+        handwritingCoexistence = arguments != null && "true".equals(arguments.getString("ocr-handwriting-coexistence"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
-        return permissionDenied ? "revoked camera permission blocks native OCR preview"
+        return prepareHandwriting ? "host handwriting model prepared for offline OCR coexistence"
+            : handwritingCoexistence ? "same host handwriting recognizer infers before and after isolated OCR offline"
+            : permissionDenied ? "revoked camera permission blocks native OCR preview"
             : "pinned OCR import, readonly isolated loading, camera capture and editor insertion";
     }
 
     @Override protected void runChecks() throws Exception {
-        try { if (permissionDenied) permissionDeniedChecks(); else productChecks(); }
+        try {
+            if (prepareHandwriting) {
+                stage = "prepare host handwriting model";
+                handwriting = new HostHandwriting(getTargetContext());
+                handwriting.prepare();
+            } else if (handwritingCoexistence) moduleChecks();
+            else if (permissionDenied) permissionDeniedChecks();
+            else productChecks();
+        }
         catch (Exception | AssertionError error) {
-            try { screenshot("failure"); } catch (Exception ignored) { }
+            try { screenshot(prepareHandwriting ? "failure-handwriting-model"
+                : handwritingCoexistence ? "failure-handwriting-coexistence" : "failure"); }
+            catch (Exception ignored) { }
             throw error;
         }
+        finally { if (handwriting != null) handwriting.close(); }
     }
 
     /** 撤权会终止目标进程，由脚本在两次 instrumentation 之间撤回权限。 */
@@ -60,7 +81,7 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         screenshot("permission");
     }
 
-    private void productChecks() throws Exception {
+    private void moduleChecks() throws Exception {
         Context context = getTargetContext();
         stage = "offline prerequisite";
         long offlineDeadline = SystemClock.uptimeMillis() + 10000;
@@ -121,7 +142,11 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         source.delete();
         stage = "host handwriting client after OCR";
         handwritingClient();
+    }
 
+    private void productChecks() throws Exception {
+        moduleChecks();
+        Context context = getTargetContext();
         stage = "native camera preview";
         automation.grantRuntimePermission(context.getPackageName(), "android.permission.CAMERA");
         captureDiagnostic();
@@ -283,11 +308,90 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    /** 仅验证已有 SDK 容器仍能创建手写客户端，不把它报告成手写模型推理验收。 */
+    /** 共存专项保留同一识别器做前后真实推理，普通相机专项仍只检查客户端创建。 */
     private void handwritingClient() throws Exception {
+        if (handwritingCoexistence) {
+            if (handwriting == null) handwriting = new HostHandwriting(getTargetContext());
+            List<?> recognized = handwriting.recognize();
+            check(recognized.contains("中"), "host model recognizes the complete synthetic character");
+            if (handwritingBefore == null) handwritingBefore = recognized;
+            else check(handwritingBefore.equals(recognized), "same host recognizer keeps its inference across OCR");
+            return;
+        }
         Class<?> type = getTargetContext().getClassLoader().loadClass("app.msime.android.MlKitHandwritingRecognizer");
         Object client = type.getConstructor(Context.class).newInstance(getTargetContext());
         type.getMethod("close").invoke(client);
+    }
+
+    /** 只跨产品公开接口反射，不把 Google 类型或第二份 SDK 编进测试 APK。 */
+    private static final class HostHandwriting {
+        private final ClassLoader loader;
+        private final Class<?> type;
+        private final Object client;
+
+        HostHandwriting(Context context) throws Exception {
+            loader = context.getClassLoader();
+            type = loader.loadClass("app.msime.android.MlKitHandwritingRecognizer");
+            client = type.getConstructor(Context.class).newInstance(context);
+        }
+
+        void prepare() throws Exception {
+            Class<?> listener = loader.loadClass("app.msime.android.HandwritingRecognizer$DownloadListener");
+            var done = new java.util.concurrent.CountDownLatch(1);
+            var success = new java.util.concurrent.atomic.AtomicBoolean();
+            Object callback = Proxy.newProxyInstance(loader, new Class<?>[]{listener}, (proxy, method, values) -> {
+                if (method.getName().equals("onComplete")) { success.set(true); done.countDown(); }
+                if (method.getName().equals("onFailure")) done.countDown();
+                return null;
+            });
+            type.getMethod("download", listener).invoke(client, callback);
+            check(done.await(180, java.util.concurrent.TimeUnit.SECONDS) && success.get(),
+                "host handwriting model download completes");
+        }
+
+        List<?> recognize() throws Exception {
+            long deadline = SystemClock.uptimeMillis() + 15000;
+            while (!type.getMethod("availability").invoke(client).toString().equals("READY")) {
+                check(SystemClock.uptimeMillis() < deadline, "host handwriting model ready while offline");
+                SystemClock.sleep(100);
+            }
+            Class<?> point = loader.loadClass("app.msime.android.HandwritingInk$Point");
+            var pointConstructor = point.getConstructor(float.class, float.class, long.class);
+            // 与手写界面夹具相同的五笔「中」字，时间与坐标均为固定合成值。
+            float[][] segments = {{88,100,88,272},{88,100,312,100},{312,100,312,272},
+                {88,272,312,272},{200,40,200,360}};
+            List<List<Object>> strokes = new ArrayList<>();
+            long time = 1000;
+            for (float[] segment : segments) {
+                List<Object> stroke = new ArrayList<>();
+                for (int step = 0; step <= 12; step++) {
+                    float fraction = step / 12f;
+                    stroke.add(pointConstructor.newInstance(segment[0] + (segment[2] - segment[0]) * fraction,
+                        segment[1] + (segment[3] - segment[1]) * fraction, time));
+                    time += 16;
+                }
+                strokes.add(stroke);
+                time += 100;
+            }
+            Class<?> request = loader.loadClass("app.msime.android.HandwritingRecognizer$Request");
+            Object ink = request.getConstructor(long.class, List.class, float.class, float.class)
+                .newInstance(7L, strokes, 400f, 400f);
+            Class<?> listener = loader.loadClass("app.msime.android.HandwritingRecognizer$RecognitionListener");
+            var done = new java.util.concurrent.CountDownLatch(1);
+            var result = new java.util.concurrent.atomic.AtomicReference<List<?>>();
+            Object callback = Proxy.newProxyInstance(loader, new Class<?>[]{listener}, (proxy, method, values) -> {
+                if (method.getName().equals("onResult") && Long.valueOf(7).equals(values[0])
+                        && values[1] instanceof List<?> candidates) result.set(List.copyOf(candidates));
+                if (method.getName().equals("onResult") || method.getName().equals("onFailure")) done.countDown();
+                return null;
+            });
+            type.getMethod("recognize", request, listener).invoke(client, ink, callback);
+            check(done.await(60, java.util.concurrent.TimeUnit.SECONDS) && result.get() != null,
+                "host handwriting model returns a real inference");
+            return result.get();
+        }
+
+        void close() throws Exception { type.getMethod("close").invoke(client); }
     }
 
     private File importModule() throws Exception {
