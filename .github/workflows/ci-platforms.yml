@@ -55,6 +55,8 @@ jobs:
           name: ocr-isolation-api${{ matrix.api }}
           path: |
             target/android/ocr-runtime-probe.log
+            target/android/ocr-synthetic.png
+            target/android/ocr-module-dependencies.txt
             target/android/ocr-logcat.txt
             target/android/ocr-crash.txt
             target/android/emulator.log

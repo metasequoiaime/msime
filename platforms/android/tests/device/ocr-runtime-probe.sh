@@ -12,9 +12,11 @@ adb="$android_sdk/platform-tools/adb"
 }
 gradlew=apps/desktop/src-tauri/gen/android/gradlew
 gradle_project=platforms/android/gradle-app
+mkdir -p target/android/ocr-probe-assets
 "$gradlew" --project-dir "$gradle_project" --console=plain -PmsimeOcrProbe=true \
   :ocr-module:assembleDebug :ocr-module:lintDebug
-mkdir -p target/android/ocr-probe-assets
+"$gradlew" --project-dir "$gradle_project" --console=plain -PmsimeOcrProbe=true \
+  :ocr-module:dependencies --configuration debugRuntimeClasspath > target/android/ocr-module-dependencies.txt
 cp "$gradle_project/ocr-module/build/outputs/apk/debug/ocr-module-debug.apk" \
   target/android/ocr-probe-assets/ocr-module.apk
 "$gradlew" --project-dir "$gradle_project" --console=plain -PmsimeOcrProbe=true \
@@ -23,4 +25,6 @@ cp "$gradle_project/ocr-module/build/outputs/apk/debug/ocr-module-debug.apk" \
 "$adb" -s "$serial" shell pm clear app.msime.ocr.probe
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.ocr.probe/app.msime.ocr.probe.OcrProbe)
 printf '%s\n' "$result" | tee target/android/ocr-runtime-probe.log
+"$adb" -s "$serial" exec-out run-as app.msime.ocr.probe cat files/ocr-synthetic.png \
+  > target/android/ocr-synthetic.png
 [[ "$result" == *MSIME_OCR_PROBE_PASSED* && "$result" != *MSIME_OCR_PROBE_FAILED* ]]
