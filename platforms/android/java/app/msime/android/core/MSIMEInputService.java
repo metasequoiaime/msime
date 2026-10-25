@@ -4713,6 +4713,12 @@ public final class MSIMEInputService extends InputMethodService {
             && KeyboardActionRow.usesCommaSecondaryPeriod(imeLetterRows.drawnTouchLayout());
     }
 
+    /** 手写底行在场：逗号长按输入问号、句号长按输入叹号，接替原来书写区左列的 ？ ！。 */
+    boolean handwritingMarksShown() {
+        return keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && KeyboardActionRow.usesHandwritingMarks(imeLetterRows.drawnTouchLayout());
+    }
+
     private void showQuickPunctuationMenu() {
         if (quickPunctuationButton == null || !quickPunctuationVisible()) return;
         PopupMenu popup = new PopupMenu(this, quickPunctuationButton);
@@ -4735,12 +4741,14 @@ public final class MSIMEInputService extends InputMethodService {
         String face = entries.get(0).face();
         // 与句号键一样按墨迹居中放大画：全角「，」原样居中时只剩键底一个小点。
         CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
+        boolean question = handwritingMarksShown();
         if (quickPunctuationButton instanceof KeyHintButton hintButton) {
             hintButton.setCornerHint(commaSecondaryPeriod()
-                ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks()) : "");
+                ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks())
+                : question ? ChineseSymbolFaces.face("?", sendsChinesePunctuation(), punctuationMarks()) : "");
         }
         quickPunctuationButton.setContentDescription("常用标点：" + face
-            + (commaSecondaryPeriod() ? "；长按输入句号" : "；长按选择常用标点"));
+            + (commaSecondaryPeriod() ? "；长按输入句号" : question ? "；长按输入问号" : "；长按选择常用标点"));
     }
 
     private void updateSymbolKeyFaces() {
@@ -9156,10 +9164,10 @@ public final class MSIMEInputService extends InputMethodService {
         quickPunctuationButton = keyId(addRowButton(controls, new KeyHintButton(this), ",",
             this::insertQuickPunctuation, true), "Comma");
         quickPunctuationButton.setOnLongClickListener(ignored -> {
-            if (commaSecondaryPeriod()) {
+            if (commaSecondaryPeriod() || handwritingMarksShown()) {
                 imeKeyFeedback.playFeedback(quickPunctuationButton);
                 countKey(quickPunctuationButton);
-                type('.');
+                type(commaSecondaryPeriod() ? '.' : '?');
             } else showQuickPunctuationMenu();
             return true;
         });
