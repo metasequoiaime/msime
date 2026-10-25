@@ -14,7 +14,7 @@ Windows、Linux、macOS 三个桌面平台要加「更新通道」：稳定版�
 
 ### 偏好
 
-`client-core` 的 `Preferences::update_channel: UpdateChannel`，取值 `stable`、`beta`、`nightly`，缺省 `stable`，等于缺省时不写进文档。反序列化是宽松的：不认识的字符串按 `stable` 读，不让以后的版本加的通道把整份偏好读坏；不是字符串仍报错。它进 `settings_document::LOCAL_SECTIONS`（换电脑导入设置文件不该顺带把新电脑换到预发布），不进账号同步的白名单；恢复默认设置回到 `stable`。
+`client-core` 的 `Preferences::update_channel: UpdateChannel`，取值 `stable`、`beta`、`nightly`，缺省 `stable`，等于缺省时不写进文档。反序列化是宽松的：不认识的字符串按 `stable` 读，不让以后的版本加的通道把整份偏好读坏；不是字符串仍报错。它进 `settings_document::LOCAL_SECTIONS`（换电脑导入设置文件不该顺带把新电脑换到预发布），也不进账号同步：服务端字段表本来没有这个键，客户端另在 `cloud_sync::policy::LOCAL_ONLY_FRAGMENTS` 里把它列为本机设置，以后服务端字段表收录它也不会上传或应用（一台机器上试每日构建，不该让同账号的其他设备跟着换通道）；恢复默认设置回到 `stable`。
 
 ### 构建身份与发布元数据
 
