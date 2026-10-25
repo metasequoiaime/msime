@@ -8,19 +8,58 @@ Status: proposed
 
 ## Proposal
 
-先在 API 28 和 35 上验证一个独立 OCR 模块能否通过公开接口、隔离的类加载器及自己的资源和原生库运行，同时保留已经初始化的手写识别器。试验模块使用固定的 `com.google.mlkit:text-recognition-chinese:16.0.1`，以中文与拉丁文字合成图验证真正识别；宿主探针不申请网络权限。探针不是产品验收，不包含相机或编辑器插入，也不代表已经实现本 issue。
+可选模块 `msime-ocr-v1.apk`（`platforms/android/gradle-app/ocr-module`）的识别引擎是 ONNX Runtime 1.31.0（`com.microsoft.onnxruntime:onnxruntime-android`，MIT）加 PaddlePaddle 的 PP-OCRv6 tiny 检测与识别模型（Apache-2.0）。ONNX Runtime 只是模块的依赖，基础 APK 不带它，也不带模型；选型的测量与放弃的方案见下文[引擎选型](#引擎选型)。最初的可行性试验用的是 Google ML Kit 的 `text-recognition-chinese:16.0.1`，下文「产品接入边界」「产品设备证据」里各轮设备运行都是那个试验模块，宿主一侧的导入、选择器、相机、撤权与手写共存路径与引擎无关，换引擎时没有改动。
 
-候选模块接口只传递 Android `Context`、`Bitmap` 和文本行，不暴露 Google 类型。基础 APK 不依赖 OCR 模型和运行库；普通 Gradle 构建不包含试验模块。正式导入需要核验项目分发的模块身份、接口版本、ABI 和完整性，限制读取大小，先发布完整版本再切换，输入法进程只读。相机仅在用户打开面板并授权后工作，关闭面板或切换编辑器必须停止相机、作废识别任务并拒绝迟到结果。识别内容只在当前面板中待选，不写日志或自动复制。
+模块按上游 PP-OCR 管线自己实现前后处理，不依赖 OpenCV：检测输入长边限 960、两边取 32 的倍数、BGR 顺序按均值方差归一化成 NCHW；DB 后处理按 0.2 二值化，8 邻接连通域取凸包和最小外接矩形，框内均值低于 0.4 的丢弃，再按 `面积 × 1.4 / 周长` 外扩（三个阈值取自固定提交的 `inference.yml`）；用 `Matrix.setPolyToPoly` 透视裁出每行，边界外按边缘像素延伸，行高不小于宽 1.5 倍的竖排行逆时针转 90°；识别输入高 48、宽按比例（至少 320、至多 3200）补零，CTC 贪心解码。纯 Java 的部分在 `OcrPipeline`，由 `platforms/android/check-host.sh` 的 JVM 冒烟 `tests/ocr/OcrPipelineSmoke.java` 覆盖。
 
-宿主沿用手写依赖的自动 Provider 初始化，不能对已经存在的宿主容器重复调用 `MlKit.initialize`；公开初始化只用于尚未初始化的独立模块类加载器。探针识别断言同时要求合成英文单词、数字和中文，不能只认出数字就报告英文识别成功。手写检查只创建客户端，不等于已有手写模型的实际识别已经验收。
+阅读顺序与上游不同。上游 `sorted_boxes` 只按左上角从上到下、行内从左到右排，评测里两首竖排五言诗都被读成先左列；中文竖排从右往左读，所以多数框是竖排时按列从右到左、列内从上到下。分行（分列）比四个角的平均坐标，阈值是框自身行高（列宽）的一半：上游写死的 10 px 在大分辨率照片上会把同一行拆开，而用轴对齐外框做阈值时拍歪的长行外框远大于行高，第一版实现就因此把一段英文的前两行并成一行、按 x 排反，41 张评测图的重跑发现了这一点。横竖混排时按多数框的方向排，少数方向的框按同一规则插入，没有单独处理。
 
-ML Kit 的公开初始化仍通过宿主包的 `MlKitComponentDiscoveryService` 元数据发现组件。正式宿主与探针一样声明 `VisionCommonRegistrar`、`TextRegistrar`，仅组件名进入基础清单，OCR 类和模型只在模块内。各类加载器忽略自己不可见的声明，保留原手写组件。产品专项同时检查 OCR 前后的宿主手写客户端创建，不能只凭独立探针的组件声明就推断正式宿主也能初始化。
+会话参数是硬性要求：关掉 CPU 内存池与内存模式（默认开着时输入法进程峰值 PSS 330–440 MB，关掉后约 121 MB）；会话配置 `mlas.disable_kleidiai=1`（Apple 芯片上的 arm64 模拟器，包括本项目的 CI，报告 SME 特性却不支持，KleidiAI 在建会话时执行 `rdsvl` 触发 SIGILL，整个进程崩溃）；线程数限 2–4，`session.intra_op.allow_spinning=0`，识别结束后线程不再自旋占 CPU。`OrtEnvironment` 在模块类加载器内是进程单例，创建时 `setTelemetry(false)`；每个 `OcrModule` 实例在 `initialize` 建检测与识别两个会话，`close` 释放，重开不重建环境。模型和字典从模块 assets 读成 `byte[]` 交给 ONNX Runtime，输入法进程里不写文件；ONNX Runtime 的 Java 层在 Android 上只用 `System.loadLibrary`，不像桌面那样把原生库解压到临时目录。
 
-模块自己的类加载器在进程内复用公开 SDK 容器，只有首次初始化调用 `MlKit.initialize`；关闭后重新创建识别器或模块实例不重置该容器。多字号探针在用例之间关闭并新建模块实例，覆盖连续打开工具的生命周期，而不是只测进程内第一次调用。
+onnxruntime-android 的 AAR 自带向 Microsoft 上报的 1DS 遥测：清单合并进 `ai.onnxruntime.TelemetryInitializer`（ContentProvider）和网络权限，Provider 在应用启动时初始化 Java 端的 `HttpClient` 发送通道，原生层经它把事件发往 `mobile.events.data.microsoft.com`。1.31.0 里 `HttpClient` 调用的 JNI 方法 `isDeviceIdCollectionEnabled` 在原生库里找不到，通道初始化抛 `UnsatisfiedLinkError` 而失败，这只是今天碰巧不发，不能当作保证。模块清单删除这个 Provider 和 `INTERNET`、`ACCESS_NETWORK_STATE`（宿主经类加载器使用模块，Provider 本来就不会在宿主里运行；独立安装的调试模块同样没有它），并在创建环境时关掉原生一侧的遥测。设备上的实测见下文，识别和其后 65 秒内该 UID 没有任何套接字，抓包里也没有设备发出的流量。
+
+模型在构建时下载：`resources/ocr-models-android.lock.json` 是只供构建的锁，固定 Hugging Face 上 `PaddlePaddle/PP-OCRv6_tiny_det_onnx` 提交 `2ba1506c0380b8f0b03dd142459aac66d4421f6c`、`PaddlePaddle/PP-OCRv6_tiny_rec_onnx` 提交 `2612ab37152ae0a677521bae4e1e3d4fb4cf7c30` 的 `inference.onnx` 与 `inference.yml` 的长度和 SHA-256（与 Hugging Face API 报告的 LFS 摘要一致），从识别模型 `inference.yml` 抽出的 6904 条 CTC 字典的 SHA-256，检测后处理参数，以及三份许可证全文的上游地址和摘要。`scripts/fetch_ocr_models.py` 由模块的 Gradle 任务调用，限长下载、校验后才落盘；字典只按这份 yml 的固定形状抽取，遇到不认识的写法就失败，抽出结果与 Ruby Psych 解析整份 YAML 的结果逐字节相同。它不往 `resources/ocr-module-android.lock.json` 加字段：那份锁由 Rust 以 `deny_unknown_fields` 解析，是运行时唯一的信任依据，只固定整个模块 APK。
+
+发布由手动触发的 `publish-android-ocr-module.yml` 完成：构建 release 模块，检查每个 `.so` 是 STORED、`zipalign -c -P 16` 通过、两套 ABI 和模型、许可证资产都在、不超过 128 MiB，算出 SHA-256，`publish` 勾选时上传到 `ocr-module-android-v1` 标签的 `msime-ocr-v1.apk`，标签下已有同名资产时拒绝替换，并把应提交的锁 JSON 写进运行摘要。宿主不看模块签名，发的是 AGP 输出的未签名 release 包。
+
+候选模块接口只传递 Android `Context`、`Bitmap` 和文本行，不暴露引擎类型。基础 APK 不依赖 OCR 模型和运行库；普通 Gradle 构建不包含试验模块。正式导入需要核验项目分发的模块身份、接口版本、ABI 和完整性，限制读取大小，先发布完整版本再切换，输入法进程只读。相机仅在用户打开面板并授权后工作，关闭面板或切换编辑器必须停止相机、作废识别任务并拒绝迟到结果。识别内容只在当前面板中待选，不写日志或自动复制。
+
+模块不带 ML Kit，父加载器是启动类加载器，宿主手写依赖的 ML Kit 容器和自动初始化 Provider 与 OCR 互不可见；隔离探针断言模块加载器载不到 `MlKit`。探针识别断言同时要求合成英文单词、数字和中文，不能只认出数字就报告英文识别成功。
+
+ML Kit 试验模块阶段，宿主清单为 OCR 在 `MlKitComponentDiscoveryService` 下声明过 `VisionCommonRegistrar`、`TextRegistrar`，探针清单也照样声明；换成 ONNX Runtime 后这两项只为 OCR 存在，已从宿主和探针清单删除，合并后的清单里只剩手写依赖自己带来的组件。手写的实际推理在 OCR 前后由产品专项和真实 `:ime` 手写专项验证，结果见下文。
+
+多字号探针在用例之间关闭并新建模块实例，覆盖连续打开工具的生命周期，而不是只测进程内第一次调用；ML Kit 试验模块曾在这里因为重复初始化 SDK 容器失败，ONNX Runtime 模块共用一个环境、只重建会话。
 
 参考实现固定为 `LeanBitLab/LeanType@be774536dfb415634da176831852e0b8eed247dc` 及 `LeanBitLab/LeanType-OCR-Plugin@968949a7b54b8f0e3a4a5063ca03812554cf23ef`，仅用于研究，不复制未提交源码。其插件使用 ML Kit 私有初始化和识别文本日志，不沿用这两点。公开初始化接口见 [Google MlKit API](https://developers.google.com/android/reference/com/google/mlkit/common/MlKit)；模型安装方式见 [文本识别 Android 指南](https://developers.google.com/ml-kit/vision/text-recognition/v2/android)。
 
+## 引擎选型
+
+评测在 Apple 芯片主机上的 arm64 API 35 模拟器（`msime-client-test-api35-issue9124-live`）里进行：41 张合成图（25 张中文，其中 3 张竖排；16 张英文），系统字体渲染后加模拟拍照的模糊、噪声、透视和光照退化。模块按 `OcrRuntime` 的方式从只读 APK 经 `DexClassLoader` 加载，宿主进程有网络权限。CER 是 NFKC 规范化、去掉空白后的编辑距离；延迟是三轮常温识别的中位数与 p90；峰值 PSS 是每秒一次 `dumpsys meminfo` 的最大值。
+
+| 方案 | 中文 CER | 横排中文 CER | 竖排全对 | 英文 CER | 常温中位 / p90 | 峰值 PSS | 双 ABI 模块 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ML Kit `text-recognition-chinese:16.0.1` | 8.64% | 4.42% | 0/3 | 1.07% | 15.9 / 24.7 ms | 111.5 MB | — |
+| PP-OCRv6 small，内存池关 | 3.39% | 0% | 1/3 | 0.40% | 118.5 / 260.3 ms | 184.5 MB（开 442.4） | 102 MiB |
+| PP-OCRv6 tiny，内存池关（评测原型） | 4.07% | 0.71% | 1/3 | 1.07% | 49.8 / 117.1 ms | 121.0 MB（开 328.8） | 约 78 MiB |
+| PP-OCRv6 tiny，本模块 | 0.68% | 0.71% | 3/3 | 1.07% | 46.5 / 91.5 ms | 93.7 MB（11 个采样） | 77.4 MiB |
+
+本模块一行用同一个评测宿主重跑：横排中文和英文的每张输出与评测原型逐字相同，差别只在竖排列序修正后三张竖排全对，中文 CER 从 4.07% 降到 0.68%。剩下的错误是 `巳` 认成 `已`、`……` 多一个点、`Il1-O0o` 一类易混字符和句末的点。建会话约 100–115 ms，首张图约 110 ms。模块 `msime-ocr-v1.apk` 81,146,926 字节，其中 `lib/arm64-v8a` 34,300,736 字节（32.7 MiB）、`lib/x86_64` 40,916,520 字节（39.0 MiB），模型、字典和许可证压缩后约 5.8 MB。
+
+ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=FIREBASE_ML_SDK for destination cct`，`shared_prefs/com.google.mlkit.internal.xml` 里写入 `ml_sdk_instance_id`，开始识别约 50 秒后该 UID 出现到 `172.217.117.4:443` 的连接，同时段抓包里出现 `firebaselogging.googleapis.com`。同一流程下 tiny 模块的 103 个每秒套接字采样全部为空。
+
+## ONNX Runtime 模块的设备验收（2026-10-25）
+
+全部在 arm64 API 35 模拟器 `emulator-5690` 上，模块由本分支在 Mac Studio 构建，产品包按 release 模块的完整摘要写临时锁后构建（`MSIME_ANDROID_ABIS=arm64-v8a` 的开发包），本机用发布密钥重签后侧载；临时锁没有提交。
+
+- 隔离探针（`OcrProbe`）：无网络权限的探针 App 经 `DexClassLoader` 加载模块，三种字号的中英文合成图全部与简体原文完全一致（ML Kit 时代 API 28 有 `文/丈`、API 35 有 `測/测`），竖排两列右列在前；模块加载器载不到 `MlKit`；OCR 前后宿主手写客户端可创建。普通安装方式的对照（`DirectOcrProbe`）结果相同，四张合成图逐字节一致，两边识别结果 JSON 逐字节一致。
+- 产品专项（`OcrProductDeviceSmoke`，按 `ocr-product-smoke.sh` 的设备阶段逐项运行）：联网准备手写模型；断网后系统文件选择器的取消、损坏导入拒绝、有效导入后识别、取消替换与坏模块替换后原模块仍可识别；固定摘要导入、只读封装、可写或篡改拒绝、相机拍摄合成图后整行上屏与只选 `2468` 上屏、隐藏后重开相机、跨编辑器迟到结果拒绝；撤权后入口只显示授权提示；同一宿主手写识别器在 OCR 前后识别「中」结果一致；真实离线 `:ime` 里相机 OCR 前后手写识别、上屏、撤销和画布恢复，PID 不变。结果 `coexistence=0 picker=0 product=0 ime_handwriting=0`；结果、上屏和部分选择截图已逐张核对。
+- 两份 ONNX Runtime 共存：产品开发包自带 sherpa-onnx 的 `libonnxruntime.so`。专项在 OCR 前调用 `NativeClient.localSpeechAvailable()` 载入语音运行库（返回 true），识别后它仍可用；logcat 里同一进程既有先 OCR 后语音、也有先语音后 OCR 的顺序，没有崩溃或 SIGILL。模块的 `libonnxruntime4j_jni.so` 从 `msime-ocr-v1.apk!/lib/arm64-v8a` 载入独立命名空间 `clns-8`。
+- 网络：评测宿主（有 `INTERNET` 权限）跑一轮 41 张识别后再停 65 秒，73 个每秒采样里该 UID 在 `/proc/net/{tcp,tcp6,udp,udp6}` 没有任何套接字；同时段模拟器抓包只有两条虚拟路由器发出的 IPv6 路由通告，没有设备发出的包。模块清单合并后没有权限和 Provider。
+- 这次没有跑共享 crate 的设备单测和 `smoke.sh` 基础冒烟（本 PR 不改 Rust 与基础键盘），也没有跑 API 28、x86_64 和物理真机。
+
 ## 产品接入边界
+
+以下各节到「产品设备证据」为止记录的是 ML Kit 试验模块阶段的接入与设备运行；宿主一侧的路径换引擎后没有改动，ONNX Runtime 模块的验收见上一节。
 
 实际输入法共存专项复用现有 `HandwritingDeviceSmoke` 和原始触摸桥，在已准备模型且断网的专用 AVD 中，通过手写控件识别完整合成「中」字、打开键盘内相机识别固定图片、取消结果后再识别「中」。前后核对 `app.msime.android:ime` 的 PID，防止重启进程后通过被误当作同进程共存；取消 OCR 后编辑器必须保持此前的手写提交。触摸桥抽为共用设备脚本，普通手写验收与 OCR 专项使用同一条真实输入路径，不在两个脚本各维护一份。该路径在下述 `b78178a731` 两版设备运行中通过，仍不代表真机和照片质量通过。
 
@@ -74,15 +113,15 @@ ML Kit 的公开初始化仍通过宿主包的 `MlKitComponentDiscoveryService` 
 
 ## Related notes audit
 
-[手写会话清理](../../implemented/bug-fix/2026-10-17-android-handwriting-session-reset.md)部分相关，继续持有手写生命周期；OCR 不得重置它的单例或复用它的请求代次。[按需语音运行库](../../implemented/feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)部分相关，说明可选原生资源分发，不提供 OCR 推理接口。现有活跃笔记没有相机 OCR 的决定。
+[手写会话清理](../../implemented/bug-fix/2026-10-17-android-handwriting-session-reset.md)部分相关，继续持有手写生命周期；OCR 不得重置它的单例或复用它的请求代次。[按需语音运行库](../../implemented/feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)部分相关，说明可选原生资源分发，不提供 OCR 推理接口；Android 的 sherpa-onnx 语音运行库也带一份 ONNX Runtime，与 OCR 模块那份在同一进程里共存的验证见下文。[Google Play 分发](../../implemented/process/2026-10-23-android-google-play-distribution.md)部分相关：Play 渠道不提供外部可执行模块，OCR 入口在该渠道拒绝。现有活跃笔记没有相机 OCR 的决定。
 
 ## Probe invocation
 
-只在专用的 `x86_64` API 28/35 AVD 中运行 `bash platforms/android/tests/device/ocr-runtime-probe.sh <serial>`。脚本用仓库已有的 Gradle wrapper 显式启用 `-PmsimeOcrProbe=true`，分别构建、检查两个试验 APK，导入的模块文件放在标准 `target/android/ocr-probe-assets` 下。该脚本只清理两个试验应用的数据，不安装或修改产品 APK，也没有相机或编辑器验收。
+只在专用的 `arm64-v8a` 或 `x86_64` API 28/35 AVD 中运行 `bash platforms/android/tests/device/ocr-runtime-probe.sh <serial>`；模块带两套原生库，探针取设备首选的那套。脚本用仓库已有的 Gradle wrapper 显式启用 `-PmsimeOcrProbe=true`，分别构建、检查两个试验 APK，导入的模块文件放在标准 `target/android/ocr-probe-assets` 下。该脚本只清理两个试验应用的数据，不安装或修改产品 APK，也没有相机或编辑器验收。`ocr-product-smoke.sh` 同样按设备 ABI 构建产品包与共享层单测，接受 `msime-client-test` 前缀的专用 AVD。
 
-普通捆绑 SDK 对照只进模块的 `debug` 构建。两种方式使用同一份生成夹具；探针产物允许导出它自己生成的固定图片及其合成识别对照，不接受外部文件或用户图片，不在运行库中记录识别文本，也不把任意异常消息写入日志。这样能分别判断模型的识别偏差和动态模块加载问题，而不会把生产输入泄露到测试产物中。
+普通安装方式的对照（`DirectOcrProbe`，同一个 `OcrModule` 由系统类加载器加载）只进模块的 `debug` 构建。除三种字号的中英文图外，两边都识别一张竖排两列图（右列「春眠不觉晓」、左列「处处闻啼鸟」），只认两列逐字正确且右列在前。两种方式使用同一份生成夹具；探针产物允许导出它自己生成的固定图片及其合成识别对照，不接受外部文件或用户图片，不在运行库中记录识别文本，也不把任意异常消息写入日志。这样能分别判断模型的识别偏差和动态模块加载问题，而不会把生产输入泄露到测试产物中。
 
-原始 88 px 文字夹具在 API 28/35 均存在模型误识别；普通捆绑与动态模块的结果逐字一致，图片也逐字节一致，因此不能把该偏差归因于类加载器。保留这张原图及其失败结果，并增加内容不变、字号为 44 px 和 22 px 的两个用例。运行库探针要求所有图片、所有识别结果均与普通捆绑方式一致，且至少一张图片同时正确识别完整英文单词、数字与中文；不把几张图的局部成功拼成完整成功，不把运行库等价解释为模型精度通过。产品的识别质量、手写实际推理及真实拍照仍需独立验收。
+以下三段是 ML Kit 试验模块的记录。原始 88 px 文字夹具在 API 28/35 均存在模型误识别；普通捆绑与动态模块的结果逐字一致，图片也逐字节一致，因此不能把该偏差归因于类加载器。保留这张原图及其失败结果，并增加内容不变、字号为 44 px 和 22 px 的两个用例。运行库探针要求所有图片、所有识别结果均与普通捆绑方式一致，且至少一张图片同时正确识别完整英文单词、数字与中文；不把几张图的局部成功拼成完整成功，不把运行库等价解释为模型精度通过。产品的识别质量、手写实际推理及真实拍照仍需独立验收。
 
 API 35 的普通捆绑与动态模块均在三个字号输出同词的 `測/测` 字形差异，较小字号的完整英文均匹配；API 28 则在大字号出现 `文/丈` 的实质误识别。内容可用门禁接受「测试」的规范简繁字形组合，仍拒绝 `文/丈`、`O/0` 这类不同字词；逐图另报是否与简体原文完全一致，保留原始合成输出。这只调整探针对同义字形的判断，不转换、改写或纠正运行库返回的文本，也不把简繁混用视为产品精度已经验收。
 
@@ -90,10 +129,15 @@ API 28/35 的[最终隔离探针](https://github.com/metasequoiaime/msime/action
 
 ## Alternatives considered
 
+- **Google ML Kit 文字识别（`com.google.mlkit:text-recognition-chinese:16.0.1`）**：最强的理由是它最先跑通，模块已经在 API 28/35 通过了导入、隔离加载、相机和手写共存的全部产品专项；常温延迟最低（中位 15.9 ms），峰值 PSS 111.5 MB 也最小，宿主手写本来就依赖 ML Kit。放弃的原因有两个。一是精度：41 张合成图上中文 CER 8.64%（tiny 4.07%），形近字成批出错（侯/候、丙/两、大/太、輪人/输入、己/已），竖排三张全错，其中一张整列为空。二是隐私：有网络权限的进程里，识别时 ML Kit 经 Google datatransport 记下 `FIREBASE_ML_SDK` 事件，约 50 秒后连到 `firebaselogging.googleapis.com` 上传，并在应用数据里持久保存 `ml_sdk_instance_id`；事件内容按 ML Kit 的数据披露还包括设备型号、MCC/MNC、语言区域和时区；这是 SDK 条款允许的行为，模块无法在不碰私有状态的前提下关掉，而输入法进程有网络权限。
+- **PP-OCRv6 small（同一引擎，换大一号的模型）**：精度最好，中文 CER 3.39%、横排 0%、英文 0.40%。放弃是因为成本：关掉内存池后峰值 PSS 仍有 185 MB（开着 442 MB），常温中位 104–118 ms，双 ABI 模块 102 MiB，接近 128 MiB 上限；tiny 横排中文 CER 0.71% 已经够用。
+- **NCNN 或 MNN 跑 PP-OCR**：运行库通常只有几 MB，比 ONNX Runtime 每 ABI 33–39 MB 小得多，模块能小一半以上。放弃是因为模型要自己转换（官方只发 Paddle、ONNX 和 safetensors 格式），转换后的精度要重新验证，还要自己写并维护一层 JNI；ONNX Runtime 有官方 Android AAR 和 Java API，模型原样使用。
+- **Paddle Lite**：PaddleOCR 过去的移动端部署路线，模型和推理同出一家。放弃是因为它最近的发布是 2024-07 的 `v2.14-rc`，PP-OCRv6 没有现成的 `.nb` 模型，要用它的 opt 工具自己转换并重新验证精度，同样要自己写 JNI。
+- **Tesseract（tesseract4android 等）**：成熟、完全离线、Apache-2.0。没有纳入本次评测；放弃是因为它面向扫描件，拍照场景要自己补去噪、倾斜校正和版面切分，中文竖排还要另一份 `chi_sim_vert` 训练数据，而 PP-OCR 的检测加识别管线本来就是为拍照场景设计的。
+- **复用语音运行库资源包里的 `libonnxruntime.so`**：模块可以省掉 33–39 MB 的运行库。放弃是因为那份 ONNX Runtime 的版本由 sherpa-onnx 决定、只有 arm64、不带 Java 绑定，OCR 要自己写 JNI，还会让 OCR 依赖语音资源包的安装状态。
 - **用同发行者 APK 签名放行多个模块版本**：可避免宿主每次固定模块摘要，也能复用系统验包；但还需确认最低 API 的验包语义、签名轮换和接口兼容。本次选择共享层已有的固定完整摘要机制，信任边界随宿主源码审查，尚未提供产物时明确拒绝。
-- **在基础包内捆绑 OCR**：使用官方默认初始化，接入和设备兼容验证最简单；但违反报告人明确的可选模块与基础包体积要求。
+- **在基础包内捆绑 OCR**：接入和设备兼容验证最简单；但违反报告人明确的可选模块与基础包体积要求。
 - **原样加载参考插件**：已经包含多语言模型和 APK 加载流程；但接口示例与实现不一致，且会操作私有 ML Kit 状态、记录识别文本，不能直接采用。
-- **ONNX 开源 OCR 模型与现有可选运行库**：模型许可和推理链更可控，并能避免 Google SDK 的诊断收集；现有语音 API 不能直接执行 OCR，还需要检测、裁剪、矫正与识别管线。保留为真实备选，公开 API 探针或隐私、许可边界不能满足要求时重访，尚未否定。
 - **安装另一个 OCR 应用并绑定服务**：SDK 初始化和权限可按应用隔离；但增加系统安装流程，与用户要求的手动导入资源模块有差异，尚未作为实现方案。
 
 ## Acceptance criteria
@@ -101,8 +145,20 @@ API 28/35 的[最终隔离探针](https://github.com/metasequoiaime/msime/action
 - 不装模块时基础输入法可用，基础 APK 不包含 OCR 模型、OCR 原生库和识别依赖；不自动下载模块。
 - 用户手动导入项目配套模块后，在键盘内授权相机、拍照并离线识别中文和英文，选择部分文字或全部上屏，保留当前编辑器焦点。
 - API 28/35 真实设备验证导入、损坏/错误 ABI 拒绝、撤权、相机释放、会话切换、迟到结果以及手写识别共存；完整门禁和产品入口验收仍必须补齐。
-- 分发前记录实际引擎、模型和全部依赖的固定来源、许可、通知与分发限制；不把示例代码许可证当作 Google SDK 或模型许可证。
+- 分发前记录实际引擎、模型和全部依赖的固定来源、许可、通知与分发限制：ONNX Runtime 的 MIT 与第三方通知、PaddleOCR 的 Apache-2.0 全文随模块分发，来源和摘要固定在 `resources/ocr-models-android.lock.json`。
+- 模块不建立网络连接：有网络权限的宿主进程里识别前后没有该 UID 的套接字，抓包里没有设备发出的流量。
+- 经 `publish-android-ocr-module.yml` 发布 `ocr-module-android-v1/msime-ocr-v1.apk`，把运行摘要里的锁提交进 `resources/ocr-module-android.lock.json`，并在至少一台 arm64 真机上用发布的模块完成拍照识字；之后才把这篇笔记转为 implemented。
 
 ## Risks
 
-动态模块在 Android 14 起要求代码文件只读。隔离探针已在 API 28/35 完成模块资源、原生库和公开初始化的加载；临时固定摘要模块已在原生输入法进程中验收，正式模块分发、物理真机兼容仍需验证。官方说明识别输入和输出留在设备，但 SDK 仍可能收集诊断数据；无网络探针通过不能证明有网络权限的正式输入法进程绝不发诊断请求，正式方案必须处理并披露这一边界。相机恢复与撤权已通过模拟器专项，跨框迟到结果的两版专项也已通过，完整基础冒烟仍失败；已有模型的误识别与简繁混用需要单独评估。
+动态模块在 Android 14 起要求代码文件只读。ONNX Runtime 模块已在 arm64 API 35 模拟器上通过隔离探针和产品专项，物理真机、API 28 与 x86_64 还没有用这个模块跑过；正式模块分发和真机兼容仍需验证。
+
+`mlas.disable_kleidiai=1` 对所有设备生效，真机上放弃了 KleidiAI 的 ARM 优化内核，延迟可能比能用它时高；只在模拟器上测过，没有真机数据。真机上若要重新启用，必须先能可靠识别“报告 SME 却不支持”的环境，不能让一次 SIGILL 带走整个输入法进程。
+
+遥测的处置依赖两层：清单删掉 `TelemetryInitializer`，以及 `setTelemetry(false)`。升级 ONNX Runtime 时要重新检查 AAR 清单和遥测入口，1.31.0 里通道初始化失败这一缺陷修好后，任何一层缺了都可能开始上报。升级同时要重跑网络抽样。
+
+同一个输入法进程里可能有两份 ONNX Runtime：sherpa-onnx 语音运行库带的那份在宿主的链接器命名空间，模块这份在模块类加载器的命名空间。产品专项在识别前先加载宿主的语音运行库，识别后检查语音运行库仍可用；没有在同一进程里交替跑真实的语音识别和 OCR。
+
+评测图是合成的，带模拟拍照的退化，不是真实照片。tiny 的已知错误集中在形近字（巳/已）和标点（……、句末的点），倒置或大角度旋转的文字没有方向分类，会识别失败；横竖混排只按多数方向排序。识别结果仍需用户核对，界面保留了提示。
+
+模块双 ABI 约 77.4 MiB，用户手动下载；单 ABI 拆包能省一半，但要宿主按 ABI 选锁条目，本次没做。

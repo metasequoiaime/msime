@@ -359,12 +359,24 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | `matchit`（经 `axum`） | 0.8 | MIT AND BSD-3-Clause | axum 的路由表；中继只用一个兜底处理函数，不注册路由 |
 | `httpdate`（经 `axum`） | 1.0 | MIT OR Apache-2.0 | 响应的 `Date` 头 |
 
+## Android 可选离线 OCR 模块（`resources/ocr-models-android.lock.json`）
+
+键盘内拍照识字用的可选模块 `msime-ocr-v1.apk`（`platforms/android/gradle-app/ocr-module`）不进入基础 APK，由用户从本仓库 `ocr-module-android-v1` Release 手动下载后导入；宿主只接受 `resources/ocr-module-android.lock.json` 固定的整个 APK 摘要，锁文件的 `artifact` 为 `null` 时任何模块都导入不了。模块由 `publish-android-ocr-module.yml` 手动构建发布。
+
+`resources/ocr-models-android.lock.json` 只供构建使用：固定 ONNX Runtime 的 Maven 坐标与来源提交、两个模型仓库的 Hugging Face 提交和逐文件 SHA-256、从识别模型 `inference.yml` 抽出的 CTC 字典的条目数与 SHA-256、检测后处理参数，以及三份许可证全文的上游地址和 SHA-256。`scripts/fetch_ocr_models.py` 在模块构建时下载校验，`scripts/test-fetch-ocr-models.py` 离线核对许可证副本、Java 常量和 Gradle 依赖与锁一致。
+
+| 组件 | 许可证 | 说明 |
+| --- | --- | --- |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) 1.31.0（`com.microsoft.onnxruntime:onnxruntime-android`，来源提交 `402979ac1bef89dcd55add41eaa7277c407599eb`） | MIT | 推理引擎，只进模块。模块带 `arm64-v8a` 与 `x86_64` 两套原生库，STORED 并按 16 KB 对齐，宿主从只读 APK 直接映射。AAR 自带向 Microsoft 上报的 1DS 遥测：模块清单删除它的 `TelemetryInitializer` 和网络权限，创建运行环境时 `setTelemetry(false)`。许可证全文 `resources/licenses/onnxruntime-MIT.txt`，第三方通知 `resources/licenses/onnxruntime-ThirdPartyNotices.txt` |
+| [PaddlePaddle/PP-OCRv6_tiny_det_onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx)（提交 `2ba1506c0380b8f0b03dd142459aac66d4421f6c`） | Apache-2.0 | 文字检测模型，原样打包为模块的 `assets/ocr/det.onnx` |
+| [PaddlePaddle/PP-OCRv6_tiny_rec_onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_rec_onnx)（提交 `2612ab37152ae0a677521bae4e1e3d4fb4cf7c30`） | Apache-2.0 | 文字识别模型 `assets/ocr/rec.onnx`；CTC 字典 `assets/ocr/dict.txt` 逐条取自同一提交的 `inference.yml`。许可证全文取自 [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) 提交 `dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf` 的 `LICENSE`，在 `resources/licenses/PaddleOCR-Apache-2.0.txt`（PaddleOCR 没有 NOTICE 文件） |
+
 ## 各平台引入的第三方 SDK
 
 | 平台 | 组件 | 许可 |
 | --- | --- | --- |
 | Android | `com.google.mlkit:digital-ink-recognition:19.0.0` | **Google 的 ML Kit 服务条款，不是开源许可证** |
-| Android OCR 可选模块（未正式提供，不进入基础包） | `com.google.mlkit:text-recognition-chinese:16.0.1`（含中文及拉丁文字模型） | **Google 的 ML Kit 服务条款，不是开源许可证**；探针与原生产品合成验收的范围、通知在 `platforms/android/gradle-app/ocr-module/src/main/assets/MSIME-OCR-NOTICE.txt`，正式资源包的依赖通知与分发检查尚未完成 |
+| Android OCR 可选模块（尚未发布，不进入基础包） | `com.microsoft.onnxruntime:onnxruntime-android:1.31.0`，加 PaddlePaddle PP-OCRv6 tiny 检测与识别模型，见[Android 可选离线 OCR 模块](#android-可选离线-ocr-模块resourcesocr-models-androidlockjson) | ONNX Runtime 为 MIT，模型为 Apache-2.0 |
 | Android | AndroidX、`com.google.android.material` | Apache-2.0 |
 | Android | `io.noties.markwon:core:4.6.2`（“设置”页公告正文的 Markdown）及其依赖 `com.atlassian.commonmark:commonmark:0.13.0` | Markwon 为 Apache-2.0，commonmark-java 为 BSD-2-Clause |
 | Android | vcpkg 提供的 nlohmann/json（原生库，清单在 `platforms/android/vcpkg.json`） | MIT |
@@ -395,6 +407,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | `platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt` | macOS 客户端内嵌组件的完整通知 |
 | `platforms/linux/data/THIRD_PARTY_NOTICES.txt` | Linux 安装到 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/` 的组件总览，许可证全文由 `platforms/linux/CMakeLists.txt` 的 `MSIME_NOTICE_SOURCES` 一并安装 |
 | `platforms/ios/SharedResources/MLKit-NOTICES.txt`、`MLKit-Dependencies.txt`、`GoogleSignIn-Dependencies.txt` | iOS 的 ML Kit 与 Google 登录依赖通知；编进引擎的韩语汉字表的 `libhangul-hanja-BSD-3-Clause.txt` 由 `platforms/ios/project.yml` 作为 App 资源打包 |
+| Android OCR 模块 `msime-ocr-v1.apk` 的 `assets/MSIME-OCR-NOTICE.txt` 与 `assets/licenses/` | 模块的来源、模型摘要、隐私说明，以及 ONNX Runtime 的 MIT 与第三方通知、PaddleOCR 的 Apache-2.0 全文（与 `resources/licenses/` 逐字节相同） |
 | Android APK 的 `assets/native-notices/` | `platforms/android/build-native.sh` 收集的原生依赖声明，含编进引擎的韩语汉字表的 libhangul BSD-3-Clause 声明；两条打包路径都放进 APK |
 | HarmonyOS HAP 的 `resfile/licenses/` | `platforms/harmony/stage-resources.sh` 暂存的编进引擎的韩语汉字表的 libhangul BSD-3-Clause 声明 |
 | `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`、同目录 `NOTICE.md` | Android Gradle 模板的 Apache-2.0 文本与来源说明 |
