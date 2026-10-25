@@ -15036,9 +15036,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestGlossSensePage(appearance); }
         @autoreleasepool { TestGlossSenseTraditionalOutput(appearance); }
         @autoreleasepool { TestPinyinArrowCandidateNavigation(); }
-        @autoreleasepool { TestExpandedCandidateGrid(); }
-        @autoreleasepool { TestExpandedCandidateGridGeneration(); }
-        @autoreleasepool { TestExpandedCandidatePartialSelection(); }
+        // 原生滚动回归由 shortcut-expanded-scroll 在独立进程执行，避免前面的 AppKit 夹具污染手势状态。
         @autoreleasepool { TestSegmentEditingChords(appearance); }
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }
