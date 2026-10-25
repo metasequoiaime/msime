@@ -431,10 +431,10 @@ private:
     request.erase("operation"); request.erase("removed_path"); request["root"] = root.u8string();
     Json response;
     if (operation == "models") {
-      auto response = theme_data::call(msime_client_voice_local_models, request);
+      auto models = theme_data::call(msime_client_voice_local_models, request);
       // 目录读取在设置窗口的后台 Worker 中完成，顺便把语音服务目录带回 UI，避免首次进入语音页同步阻塞创建控件。
-      response["voice_provider_catalog"] = theme_data::response(msime_client_voice_provider_catalog());
-      return response;
+      models["voice_provider_catalog"] = theme_data::response(msime_client_voice_provider_catalog());
+      return models;
     }
     if (operation == "remove") response = theme_data::call(msime_client_voice_local_model_remove, request);
     if (operation == "install") {
