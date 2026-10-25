@@ -94,6 +94,7 @@ export const touchKeyboardRows: PreviewKey[][] = [
 export type HarmonyTouchLayout =
   | "twenty_six_key"
   | "fourteen_key"
+  | "eighteen_key"
   | "nine_key"
   | "japanese_nine_key";
 
@@ -121,6 +122,12 @@ export const harmonyTouchKeyboardRows: Record<HarmonyTouchLayout, PreviewKey[][]
     ["QW", "ER", "TY", "UI", "OP"].map((label) => key(label)),
     ["AS", "DF", "GH", "JK", "L"].map((label) => key(label)),
     [key("符", 1.4), ...["ZX", "CV", "BN", "M"].map((label) => key(label)), key("⌫", 1.4)],
+    harmonyActionRow,
+  ],
+  eighteen_key: [
+    ["Q", "WE", "RT", "Y", "U", "IO", "P"].map((label) => key(label)),
+    ["A", "SD", "FG", "H", "JK", "L"].map((label) => key(label)),
+    [key("符", 1.4), ...["Z", "XC", "V", "BN", "M"].map((label) => key(label)), key("⌫", 1.4)],
     harmonyActionRow,
   ],
   nine_key: [

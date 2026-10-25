@@ -18,7 +18,7 @@ import { HandwritingSettingsContent } from "./handwriting-page";
 import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections";
 import { useSettingsTabs } from "../use-settings-tabs";
 
-type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "nine_key";
+type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
 
 /** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26 键、14 键和 9 键，日语有 26 键和 9 键。其他方案在那里都只有一种键盘。 */
 const harmonyLayoutGroups: readonly (readonly (readonly [
@@ -28,6 +28,7 @@ const harmonyLayoutGroups: readonly (readonly (readonly [
   [
     ["twenty_six_key", "quanpin"],
     ["fourteen_key", "fourteen_key"],
+    ["eighteen_key", "eighteen_key"],
     ["nine_key", "nine_key"],
   ],
   [
@@ -39,12 +40,18 @@ const harmonyLayoutGroups: readonly (readonly (readonly [
 const harmonyLayoutTitles: Record<HarmonyKeyboardLayout, string> = {
   twenty_six_key: "26 键",
   fourteen_key: "14 键",
+  eighteen_key: "18 键",
   nine_key: "9 键",
 };
 
 /** 当前方案在 HarmonyOS 键盘上画成的中文键盘，「尺寸」预览照它画。只有 26 键的方案画 26 键。 */
 function harmonyTouchLayout(selected: TouchKeyboardScheme): HarmonyTouchLayout {
-  if (selected === "fourteen_key" || selected === "nine_key" || selected === "japanese_nine_key")
+  if (
+    selected === "fourteen_key" ||
+    selected === "eighteen_key" ||
+    selected === "nine_key" ||
+    selected === "japanese_nine_key"
+  )
     return selected;
   return "twenty_six_key";
 }

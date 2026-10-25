@@ -74,6 +74,7 @@ import {
   PreferenceMapping,
 } from "../entry/src/main/ets/keyboard/KeyboardScheme";
 import { FourteenKeyLayout } from "../entry/src/main/ets/keyboard/input/FourteenKeyLayout";
+import { EighteenKeyLayout } from "../entry/src/main/ets/keyboard/input/EighteenKeyLayout";
 import { AppEdition } from "../entry/src/main/ets/keyboard/AppEdition";
 import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboardPolicy";
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
@@ -568,6 +569,11 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
       TypingStatisticsPolicy.source("quanpin", "xiaohe", true, KeyGrid.FOURTEEN_KEY, "none") ===
         "english",
     "全拼 14 键记在 fourteenKey 名下，英文时仍记英文",
+  );
+  check(
+    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, KeyGrid.EIGHTEEN_KEY, "none") ===
+      "eighteenKey",
+    "全拼 18 键记在 eighteenKey 名下",
   );
   check(
     TypingStatisticsPolicy.source("shuangpin", "microsoft", false, KeyGrid.NONE, "none") ===
@@ -2324,7 +2330,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 7,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 8,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -2901,7 +2907,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 18,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 19,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -2990,8 +2996,9 @@ group("14 键的网格与键面", () => {
     KeyGrid.NONE === 0 &&
       KeyGrid.NINE_KEY === 1 &&
       KeyGrid.FOURTEEN_KEY === 2 &&
-      KeyGrid.NINE_KEY_SHUANGPIN === 3,
-    "取值与 msime_client_set_key_grid 的 0、1、2、3 相同",
+      KeyGrid.NINE_KEY_SHUANGPIN === 3 &&
+      KeyGrid.EIGHTEEN_KEY === 4,
+    "取值与 msime_client_set_key_grid 的 0、1、2、3、4 相同",
   );
   check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
   check(
@@ -3006,6 +3013,37 @@ group("14 键的网格与键面", () => {
   check(
     NineKeyPanelPolicy.threeColumn(true, SchemeTraits.QUANPIN, true),
     "14 键组字时展开候选也是九键的三栏面板",
+  );
+});
+
+group("全拼 18 键使用共享组码并覆盖全部字母", () => {
+  const rows = EighteenKeyLayout.rows();
+  const keys = rows.flat();
+  check(rows.map((row) => row.length).join(",") === "7,6,5", "18 键三排为 7、6、5 个键");
+  check(keys.length === 18, "18 键一共 18 个组");
+  check(
+    keys.map((key) => key.input).join(" ") === "q w r y u i p a s f h j l z x v b m",
+    "组码使用每组首字母",
+  );
+  const letters = keys
+    .flatMap((key) => key.letters.split(""))
+    .sort()
+    .join("");
+  check(letters === "abcdefghijklmnopqrstuvwxyz", "18 个组恰好覆盖 26 个字母");
+  for (const key of keys) {
+    check(
+      KeyIdPolicy.eighteenKey(key.letters) === `Eighteen${key.label}`,
+      `${key.label} 记在 18 键键位`,
+    );
+  }
+  check(EighteenKeyLayout.holdOptions(keys[1]).join(",") === "w,e", "双字母键长按弹出字母");
+  check(EighteenKeyLayout.holdOptions(keys[0]).length === 0, "单字母键不弹出长按选项");
+  check(
+    KeyboardScheme.fromPreferences("quanpin", null, "eighteen_key") ===
+      KeyboardScheme.QUANPIN_EIGHTEEN_KEY &&
+      KeyboardScheme.keyGrid("eighteen_key", "quanpin", false) === KeyGrid.EIGHTEEN_KEY &&
+      KeyboardScheme.keyGrid("eighteen_key", "quanpin", true) === KeyGrid.NONE,
+    "18 键方案、网格编号和 2in1 回落一致",
   );
 });
 
@@ -13104,7 +13142,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 18,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 19,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -15593,7 +15631,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 18 &&
+      KeyboardScheme.SCHEMES.length === 19 &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
@@ -15765,7 +15803,7 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 18 &&
+    KeyboardScheme.SCHEMES.length === 19 &&
       KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",

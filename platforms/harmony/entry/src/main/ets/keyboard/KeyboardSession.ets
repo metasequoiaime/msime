@@ -1264,7 +1264,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   // Hardware events report this independently of the Engine's dedicated-English mode. The
   // floating toolbar uses it as the same high-priority status shown by the Windows presenter.
   private capsLock: boolean = false;
-  // 网格也归引擎管：九键下它决定一个 2 是什么意思，14 键下它把一组字母解成拼音，都要先告诉它网格开着。取值见 `KeyGrid`。
+  // 网格也归引擎管：九键下它决定一个 2 是什么意思，14/18 键下它把一组字母解成拼音，都要先告诉它网格开着。取值见 `KeyGrid`。
   private keyGrid: number = KeyGrid.NONE;
   private nineKeyShuangpinRequest: string = '';
   private nineKeyShuangpinFaceCache: NineKeyShuangpinFace[] = [];
@@ -3600,7 +3600,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardFormFactor.isDesktop(), this.previewSupported, KeyboardSession.drawnReading(view),
       SchemeCompositionPolicy.fieldSpelling(rulesScheme, view.editing_text, view.preedit, view.nine_key_reading ?? ''),
       view.phrase_prefix ?? '', SchemeCompositionPolicy.drawsPreedit(rulesScheme),
-      SchemeCompositionPolicy.keepsReadingOnStrip(rulesScheme, this.keyGrid === KeyGrid.FOURTEEN_KEY));
+      SchemeCompositionPolicy.keepsReadingOnStrip(rulesScheme,
+        this.keyGrid === KeyGrid.FOURTEEN_KEY || this.keyGrid === KeyGrid.EIGHTEEN_KEY));
     if (inputClient === undefined || wanted === this.previewText) return;
     const shown: string = this.previewText;
     try {
@@ -3827,11 +3828,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * 14 键键面上的一键：`ascii` 是这一组的首字母，经 `msime_client_grid_key` 交给引擎，由它归成组码按网格解码。不走 `press()`：那条路给 26 键字母，会按 Shift 当辅助码、在双拼和英文直出里另有分支，而 14 键的一下是一组字母，不是其中某一个。
+   * 14/18 键键面上的一键：`ascii` 是这一组的首字母，经 `msime_client_grid_key` 交给引擎，由它归成组码按网格解码。不走 `press()`：那条路给 26 键字母，会按 Shift 当辅助码、在双拼和英文直出里另有分支，而组码键的一下是一组字母，不是其中某一个。
    *
    * 引擎不受理（26 键正在组字、专用英文或本地模式）时这一下不输入任何东西，与九键在这些情况下的数字键相同；键面在这些情况下本来也不画 14 键。
    *
-   * 不组字的编辑框（数字、电话、日期这类不是文本的输入框）同样不输入：14 键的一下是一组字母，照字面写进去只能挑这一组的首字母，未必是用户要的那个。与 Android 相同（没有引擎会话时 `gridKey` 不处理）。密码、网址和邮箱框画 26 键（`EditorPolicy.prefersFullFace`），走不到这里。
+   * 不组字的编辑框（数字、电话、日期这类不是文本的输入框）同样不输入：组码键的一下是一组字母，照字面写进去只能挑这一组的首字母，未必是用户要的那个。与 Android 相同（没有引擎会话时 `gridKey` 不处理）。密码、网址和邮箱框画 26 键（`EditorPolicy.prefersFullFace`），走不到这里。
    */
   pressGridKey(ascii: number): boolean {
     this.clearSmartPunctuationRepeat();

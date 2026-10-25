@@ -310,6 +310,12 @@ export class KeyIdPolicy {
     return KNOWN.has(id) ? id : null;
   }
 
+  /** 全拼 18 键的一键，按键面上的字母组定位。 */
+  static eighteenKey(letters: string): string | null {
+    const id: string = `Eighteen${letters.toUpperCase()}`;
+    return KNOWN.has(id) ? id : null;
+  }
+
   /**
    * A cell of the Japanese kana grid by its index in `JapaneseNineKeyLayout.keys()`, the same on the digit layer: あ through ら sit where 1 to 9 sit on a phone keypad, わ where 0 sits, and the 、。？！ cell beside it is side punctuation. The mapping iOS (`TypingKeyID.japaneseKana`) and Android (`KeyPressIds.forJapaneseKeyIndex`) use.
    */

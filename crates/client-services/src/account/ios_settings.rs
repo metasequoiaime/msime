@@ -449,6 +449,7 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "stroke" => Ok(TouchKeyboardScheme::Stroke),
         "fourteenKey" => Ok(TouchKeyboardScheme::FourteenKey),
         "nineKeyShuangpin" => Ok(TouchKeyboardScheme::NineKeyShuangpin),
+        "eighteenKey" => Ok(TouchKeyboardScheme::EighteenKey),
         _ => Err(AccountError::Invalid),
     }
 }
