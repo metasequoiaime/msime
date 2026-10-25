@@ -29,7 +29,7 @@ import { AccountIdentityDetails } from "./account-identity-details";
 import { SettingsSyncCard } from "./settings-sync-card";
 import { AppIconSettingsCard } from "./app-icon-settings-card";
 import { AppThemeRow } from "./app-theme-row";
-import { QqLinkCard } from "./qq-link-card";
+import { MobileQqLinksPage, QqLinkCard } from "./qq-link-card";
 import { LoginSheet } from "./login-sheet";
 import { MobileDownloadPage, otherPlatformCount } from "./mobile-download-page";
 import { StatusMessage } from "../core/status-message";
@@ -64,15 +64,15 @@ export type {
 
 type Confirmation = "logout-all" | "delete" | null;
 
-/** 触屏宿主在「我的」里推入的页面；鸿蒙手机还会推入「其他平台下载」。它们记在历史条目的 `accountSubpage` 里，所以系统返回手势能关掉它们。 */
-type AccountSubpage = "profile" | "download";
+/** 触屏宿主在「我的」里推入资料和 QQ 群助手页；鸿蒙手机还会推入「其他平台下载」。它们记在历史条目的 `accountSubpage` 里，所以系统返回手势能关掉它们。 */
+type AccountSubpage = "profile" | "download" | "qq-links";
 
 function accountSubpageOf(state: unknown): AccountSubpage | null {
   const value =
     state && typeof state === "object"
       ? (state as { accountSubpage?: unknown }).accountSubpage
       : null;
-  return value === "profile" || value === "download" ? value : null;
+  return value === "profile" || value === "download" || value === "qq-links" ? value : null;
 }
 
 export function AccountPage({
@@ -487,6 +487,9 @@ function AccountDetailsPage({
       />
     );
 
+  if (mobileSubpage === "qq-links" && user && client.qqLinks)
+    return <MobileQqLinksPage client={client.qqLinks} userId={user.id} onBack={closeSubpage} />;
+
   if (mobileSubpage === "profile" && user)
     return (
       <MobileAccountProfilePage
@@ -588,8 +591,18 @@ function AccountDetailsPage({
           <FluentIcon name="chevron_right" size={20} className={account.meCardChevron} />
         </button>
         {appIcon && <AppIconSettingsCard client={appIcon} />}
-        {/* 「绑定 QQ 群助手」：/bind 拿到的码多半就在这台手机的 QQ 里。 */}
-        {user && client.qqLinks && <QqLinkCard client={client.qqLinks} userId={user.id} />}
+        {client.qqLinks && (
+          <AccountMeGroup title="同步">
+            <NavRow
+              variant="me"
+              icon={icon("link")}
+              title="绑定 QQ 群助手"
+              description={user ? "在群里发 /stats 查看打字数据" : "登录后可用"}
+              disabled={busy || !user}
+              onClick={() => openSubpage("qq-links")}
+            />
+          </AccountMeGroup>
+        )}
         {(appTheme || onOpenPage || onOpenUrl) && (
           <AccountMeGroup title="通用">
             {appTheme && <AppThemeRow client={appTheme} disabled={busy} />}
@@ -1043,8 +1056,15 @@ function AccountDetailsPage({
           {user && client.settingsSync && (
             <SettingsSyncCard client={client.settingsSync} userId={user.id} />
           )}
-          {/* 「绑定 QQ 群助手」在手机上同样要有：/bind 拿到的码可能就在手机的 QQ 里。 */}
-          {user && client.qqLinks && <QqLinkCard client={client.qqLinks} userId={user.id} />}
+          {user && client.qqLinks && (
+            <GroupList title="同步">
+              <AccountMeRow
+                title="绑定 QQ 群助手"
+                disabled={busy}
+                onClick={() => openSubpage("qq-links")}
+              />
+            </GroupList>
+          )}
           {(onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity))) && (
             <GroupList title="我的内容">
               {onOpenLocalDesigns && (

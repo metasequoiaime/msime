@@ -1854,30 +1854,88 @@ test("Harmony 我的 has no manual 同步 rows even with a settings sync client"
   expect(screen.queryByRole("button", { name: "下载并应用云端设置" })).toBeNull();
 });
 
-// 「绑定 QQ 群助手」对所有平台都开放：鸿蒙手机走手机账号页，2in1 走桌面账号页，两边都要有这张卡片；宿主没提供 qqLinks 时不出现。
-test("the QQ bind card appears on the HarmonyOS phone and 2-in-1 account pages", async () => {
+test.each(["harmony", "ios", "android"] as const)(
+  "%s 手机的 QQ 群助手从同步行推入二级页，返回后收起表单",
+  async (platform) => {
+    window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+    const qqLinks = {
+      list: vi.fn().mockResolvedValue([]),
+      redeem: vi.fn(),
+      remove: vi.fn(),
+    };
+    render(
+      <AccountPage
+        client={account({ status: vi.fn().mockResolvedValue({ user }), qqLinks })}
+        platform={platform}
+      />,
+    );
+    const entry = await screen.findByRole("button", { name: "绑定 QQ 群助手" });
+    expect(
+      within(screen.getByRole("region", { name: "同步" })).getByRole("button", {
+        name: "绑定 QQ 群助手",
+      }),
+    ).toBe(entry);
+    expect(screen.queryByLabelText("绑定码")).toBeNull();
+    expect(qqLinks.list).not.toHaveBeenCalled();
+
+    fireEvent.click(entry);
+    await screen.findByLabelText("绑定码");
+    expect(screen.getAllByRole("heading", { name: "绑定 QQ 群助手" })).toHaveLength(1);
+    expect(window.history.state).toMatchObject({ accountSubpage: "qq-links" });
+    expect(screen.queryByRole("button", { name: "编辑个人资料" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "返回我的" }));
+    await screen.findByRole("button", { name: "编辑个人资料" });
+    expect(screen.queryByLabelText("绑定码")).toBeNull();
+    expect(window.history.state.accountSubpage).toBeUndefined();
+  },
+);
+
+test("鸿蒙 QQ 群助手恢复历史页并展示已有绑定，系统返回手势回到我的", async () => {
+  window.history.replaceState(
+    { msimeSettings: true, page: "account", accountSubpage: "qq-links" },
+    "",
+  );
   const qqLinks = {
-    list: vi.fn().mockResolvedValue([]),
+    list: vi.fn().mockResolvedValue([{ id: "fixture-link", createdAt: "2026-10-17T08:00:00Z" }]),
     redeem: vi.fn(),
     remove: vi.fn(),
   };
-  const withLinks = account({ status: vi.fn().mockResolvedValue({ user }), qqLinks });
-  const phone = render(<AccountPage client={withLinks} platform="harmony" />);
-  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
-  await waitFor(() => expect(qqLinks.list).toHaveBeenCalled());
-  phone.unmount();
+  harmonyMe({ client: account({ status: vi.fn().mockResolvedValue({ user }), qqLinks }) });
+  await screen.findByRole("button", { name: "解绑" });
+  expect(screen.queryByLabelText("绑定码")).toBeNull();
+  act(() => {
+    window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+  });
+  await screen.findByRole("button", { name: "绑定 QQ 群助手" });
+  expect(screen.queryByRole("button", { name: "解绑" })).toBeNull();
+});
 
-  const tablet = render(<AccountPage client={withLinks} platform="harmony" mobile={false} />);
-  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
-  tablet.unmount();
+test("鸿蒙未登录时显示禁用的 QQ 群助手入口，不读取绑定", async () => {
+  const qqLinks = { list: vi.fn(), redeem: vi.fn(), remove: vi.fn() };
+  harmonyMe({ client: account({ qqLinks }) });
+  const entry = await screen.findByRole("button", { name: "绑定 QQ 群助手" });
+  expect(entry).toHaveProperty("disabled", true);
+  expect(screen.getByText("登录后可用")).toBeTruthy();
+  fireEvent.click(entry);
+  expect(qqLinks.list).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("绑定码")).toBeNull();
+});
 
-  render(
+test("鸿蒙 2in1 保留 QQ 群助手卡片，缺少宿主能力时不显示入口", async () => {
+  const qqLinks = { list: vi.fn().mockResolvedValue([]), redeem: vi.fn(), remove: vi.fn() };
+  const tablet = render(
     <AccountPage
-      client={account({ status: vi.fn().mockResolvedValue({ user }) })}
+      client={account({ status: vi.fn().mockResolvedValue({ user }), qqLinks })}
       platform="harmony"
+      mobile={false}
     />,
   );
+  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
+  tablet.unmount();
+  harmonyMe({ client: account({ status: vi.fn().mockResolvedValue({ user }) }) });
   await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(screen.queryByRole("button", { name: "绑定 QQ 群助手" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "绑定 QQ 群助手" })).toBeNull();
 });
 
