@@ -20,7 +20,7 @@ import { useSettingsTabs } from "../use-settings-tabs";
 
 type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
 
-/** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26 键、14 键和 9 键，日语有 26 键和 9 键。其他方案在那里都只有一种键盘。 */
+/** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，日语有 26/9 键。 */
 const harmonyLayoutGroups: readonly (readonly (readonly [
   HarmonyKeyboardLayout,
   TouchKeyboardScheme,
@@ -45,7 +45,22 @@ const harmonyLayoutTitles: Record<HarmonyKeyboardLayout, string> = {
 };
 
 /** 当前方案在 HarmonyOS 键盘上画成的中文键盘，「尺寸」预览照它画。只有 26 键的方案画 26 键。 */
-function harmonyTouchLayout(selected: TouchKeyboardScheme): HarmonyTouchLayout {
+function harmonyTouchLayout(
+  selected: TouchKeyboardScheme,
+  shuangpinLayout: "twenty_six_key" | "fourteen_key" | "eighteen_key" = "twenty_six_key",
+): HarmonyTouchLayout {
+  if (
+    selected === "xiaohe" ||
+    selected === "ziranma" ||
+    selected === "microsoft" ||
+    selected === "shoudao"
+  ) {
+    return shuangpinLayout === "fourteen_key"
+      ? "fourteen_key_shuangpin"
+      : shuangpinLayout === "eighteen_key"
+        ? "eighteen_key_shuangpin"
+        : "twenty_six_key";
+  }
   if (
     selected === "fourteen_key" ||
     selected === "eighteen_key" ||
@@ -61,11 +76,34 @@ function harmonyTouchLayout(selected: TouchKeyboardScheme): HarmonyTouchLayout {
  */
 function HarmonyChineseKeyboardRow({
   selected,
+  shuangpinLayout,
   onSelect,
+  onShuangpinLayoutChange,
 }: {
   selected: TouchKeyboardScheme;
+  shuangpinLayout: "twenty_six_key" | "fourteen_key" | "eighteen_key";
   onSelect: (scheme: TouchKeyboardScheme) => void;
+  onShuangpinLayoutChange: (layout: "twenty_six_key" | "fourteen_key" | "eighteen_key") => void;
 }) {
+  const shuangpin =
+    selected === "xiaohe" ||
+    selected === "ziranma" ||
+    selected === "microsoft" ||
+    selected === "shoudao";
+  if (shuangpin) {
+    return (
+      <SelectRow
+        title="中文键盘"
+        aria-label="中文键盘"
+        value={shuangpinLayout}
+        onChange={(event) => onShuangpinLayoutChange(event.target.value as typeof shuangpinLayout)}
+      >
+        <option value="twenty_six_key">26 键</option>
+        <option value="fourteen_key">14 键</option>
+        <option value="eighteen_key">18 键</option>
+      </SelectRow>
+    );
+  }
   const group = harmonyLayoutGroups.find((layouts) =>
     layouts.some(([, scheme]) => scheme === selected),
   );
@@ -152,7 +190,12 @@ export function ScreenKeyboardSettingsPage() {
       phone={harmonyPhone}
       touchRows={
         harmonyPhone
-          ? harmonyTouchKeyboardRows[harmonyTouchLayout(selectedTouchKeyboardScheme)]
+          ? harmonyTouchKeyboardRows[
+              harmonyTouchLayout(
+                selectedTouchKeyboardScheme,
+                draft.touch_shuangpin_layout ?? "twenty_six_key",
+              )
+            ]
           : undefined
       }
     />
@@ -219,7 +262,11 @@ export function ScreenKeyboardSettingsPage() {
               harmonyPhone && (
                 <HarmonyChineseKeyboardRow
                   selected={selectedTouchKeyboardScheme}
+                  shuangpinLayout={draft.touch_shuangpin_layout ?? "twenty_six_key"}
                   onSelect={selectHomeScheme}
+                  onShuangpinLayoutChange={(touch_shuangpin_layout) =>
+                    onPreferencesChange({ touch_shuangpin_layout })
+                  }
                 />
               )
             }

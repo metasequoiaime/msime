@@ -862,6 +862,8 @@ interface PreparedPreferences {
   /** Read-only English word completions while typing directly in English. Defaults to on. */
   english_suggestions?: boolean;
   shuangpin_profile: string;
+  /** 双拼触屏字母组码布局；缺省为 26 键，与共享偏好保持一致。 */
+  touch_shuangpin_layout?: string;
   nine_key_shuangpin_profile?: string;
   nine_key_shuangpin_custom_profile?: Object;
   /** `wubi86` 或 `wubi98`；旧文档里没有这个键，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
@@ -1044,6 +1046,8 @@ export interface KeyboardPreferences {
   readonly appMode: string;
   readonly scheme: string;
   readonly shuangpinProfile: string;
+  /** `touch_shuangpin_layout`：双拼手机键盘的 26 / 14 / 18 键布局。 */
+  readonly shuangpinLayout: string;
   /** 归一后的五笔版本，决定五笔方案显示「86 五笔」还是「98 五笔」。 */
   readonly wubiProfile: string;
   readonly layout: string;
@@ -1347,6 +1351,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     selectedScheme: null,
     scheme: AppEdition.current().defaultScheme,
     shuangpinProfile: 'xiaohe',
+    shuangpinLayout: 'twenty_six_key',
     wubiProfile: KeyboardScheme.WUBI_86,
     layout: 'twenty_six_key',
     candidateFollowCursor: true,
@@ -1742,6 +1747,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       appMode: preferences.theme,
       scheme: preferences.scheme,
       shuangpinProfile: preferences.shuangpin_profile,
+      shuangpinLayout: preferences.touch_shuangpin_layout ?? 'twenty_six_key',
       wubiProfile: KeyboardScheme.normalizedWubiProfile(preferences.wubi_profile),
       layout: preferences.touch_keyboard_layout,
       selectedScheme: preferences.touch_keyboard_schemes?.selected ?? null,
@@ -1929,7 +1935,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.clearSmartPunctuationRepeat();
       this.toolbar = preferences.floating_toolbar;
       this.keyGrid = KeyboardScheme.keyGrid(preferences.touch_keyboard_layout, preferences.scheme,
-        KeyboardFormFactor.isDesktop());
+        KeyboardFormFactor.isDesktop(), preferences.touch_shuangpin_layout ?? 'twenty_six_key');
       this.soundPlugins = preferences.plugins;
       this.configureSounds();
       this.musicPlayer.configure(KeyboardFormFactor.isDesktop()
@@ -3068,8 +3074,9 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** 告诉引擎键面现在是哪种网格（`KeyGrid`），只在组字结束后调用。 */
   setKeyGrid(grid: number): void {
-    // 这个键盘只给全拼开引擎的组码网格：日文有自己的假名九宫格，注音九键只有 Android 有，其余方案引擎会拒绝。照样去开的话，每次日文获得焦点都会在日志里留一条拒绝。
-    const wanted: number = this.schemeName === 'quanpin' ? grid : KeyGrid.NONE;
+    // 拼音和双拼使用共享引擎的字母组码网格；日文有自己的假名九宫格，其他方案引擎会拒绝。照样去开的话，每次日文获得焦点都会在日志里留一条拒绝。
+    const wanted: number = this.schemeName === 'quanpin' || this.schemeName === 'shuangpin'
+      ? grid : KeyGrid.NONE;
     if (this.handle === 0 || this.keyGrid === wanted) {
       return;
     }
@@ -3626,7 +3633,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       SchemeCompositionPolicy.fieldSpelling(rulesScheme, view.editing_text, view.preedit, view.nine_key_reading ?? ''),
       view.phrase_prefix ?? '', SchemeCompositionPolicy.drawsPreedit(rulesScheme),
       SchemeCompositionPolicy.keepsReadingOnStrip(rulesScheme,
-        this.keyGrid === KeyGrid.FOURTEEN_KEY || this.keyGrid === KeyGrid.EIGHTEEN_KEY));
+        this.keyGrid === KeyGrid.FOURTEEN_KEY || this.keyGrid === KeyGrid.EIGHTEEN_KEY
+          || this.keyGrid === KeyGrid.EIGHTEEN_KEY_SHUANGPIN));
     if (inputClient === undefined || wanted === this.previewText) return;
     const shown: string = this.previewText;
     try {

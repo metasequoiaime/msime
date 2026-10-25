@@ -230,13 +230,14 @@ const CHINESE_ENGINE_SCHEMES: string[] = [
   "stroke",
 ];
 
-/** 引擎的组码网格，取值与 C ABI `msime_client_set_key_grid` 相同：0 关，1 九键，2 14 键，4 18 键。 */
+/** 引擎的组码网格，取值与 C ABI `msime_client_set_key_grid` 相同：0 关，1 九键，2 14 键，3 九键双拼，4 全拼 18 键，5 双拼 18 键。 */
 export class KeyGrid {
   static readonly NONE: number = 0;
   static readonly NINE_KEY: number = 1;
   static readonly FOURTEEN_KEY: number = 2;
   static readonly NINE_KEY_SHUANGPIN: number = 3;
   static readonly EIGHTEEN_KEY: number = 4;
+  static readonly EIGHTEEN_KEY_SHUANGPIN: number = 5;
 }
 
 export class KeyboardScheme {
@@ -669,14 +670,22 @@ export class KeyboardScheme {
   }
 
   /**
-   * 这个布局要引擎开哪种网格：全拼的九键、14 键和 18 键各开各的，其余（含日语九键，它有自己的假名网格）不开。
+   * 这个布局要引擎开哪种网格：全拼的九键、14 键和 18 键，以及双拼独立偏好的 14 键和 18 键各开各的，其余（含日语九键，它有自己的假名网格）不开。
    *
    * 2in1 有实体键盘，不提供 14 键和 18 键（`offeredSchemes` 把它们滤掉），同步过来的 `fourteen_key`、`eighteen_key` 在 2in1 上画 26 键，所以也不开对应网格；九键在 2in1 上的行为不在这里改变。
    */
-  static keyGrid(layout: string, engineScheme: string, desktop: boolean): number {
-    if (engineScheme !== "quanpin") {
+  static keyGrid(
+    layout: string,
+    engineScheme: string,
+    desktop: boolean,
+    shuangpinLayout: string = "twenty_six_key",
+  ): number {
+    if (engineScheme === "shuangpin" && !desktop && layout !== "handwriting") {
+      if (shuangpinLayout === "fourteen_key") return KeyGrid.FOURTEEN_KEY;
+      if (shuangpinLayout === "eighteen_key") return KeyGrid.EIGHTEEN_KEY_SHUANGPIN;
       return KeyGrid.NONE;
     }
+    if (engineScheme !== "quanpin") return KeyGrid.NONE;
     if (layout === "nine_key") {
       return KeyGrid.NINE_KEY;
     }

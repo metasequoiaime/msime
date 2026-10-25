@@ -487,6 +487,8 @@ struct KeyboardView {
   /** 光标前打到 `xxx@` 时给出的邮箱后缀，先于英文补全显示；没有时为空。 */
   @State @Watch('syncStripHeight') emailSuffixes: string[] = [];
   @State shuangpinProfile: string = 'xiaohe';
+  /** 双拼触屏字母组码布局；26/14/18 键独立于当前双拼方案保存。 */
+  @State shuangpinLayout: string = 'twenty_six_key';
   @State localMode: string = 'none';
   @State @Watch('syncStripHeight') diagnostic: string = '';
   @State punctuation: boolean = false;
@@ -2399,22 +2401,28 @@ struct KeyboardView {
     KeyboardSession.shared.setKeyGrid(this.keyGrid());
   }
 
-  /** 这个方案在这台设备上是否画 14 键：2in1 有实体键盘，不提供 14 键（同九键），同步过来的 `fourteen_key` 在 2in1 上画 26 键。 */
+  /** 这个方案在这台设备上是否画 14 键：全拼看方案布局，双拼看独立布局偏好；2in1 有实体键盘，一律回落 26 键。 */
   private offersFourteenKey(scheme: SchemeDefinition): boolean {
-    return scheme.touchKeyboardLayout === 'fourteen_key' && !KeyboardFormFactor.isDesktop();
+    const layout: string = scheme.engineScheme === 'shuangpin'
+      ? this.shuangpinLayout : scheme.touchKeyboardLayout;
+    return layout === 'fourteen_key' && !KeyboardFormFactor.isDesktop();
   }
 
   private offersEighteenKey(scheme: SchemeDefinition): boolean {
-    return scheme.touchKeyboardLayout === 'eighteen_key' && !KeyboardFormFactor.isDesktop();
+    const layout: string = scheme.engineScheme === 'shuangpin'
+      ? this.shuangpinLayout : scheme.touchKeyboardLayout;
+    return layout === 'eighteen_key' && !KeyboardFormFactor.isDesktop();
   }
 
-  /** 交给引擎的网格（`KeyGrid`），由当前键面决定；不是全拼时会话不开网格。英文下 14/18 键网格照旧开着，引擎在专用英文里不受理组码，字母走 26 键。 */
+  /** 交给引擎的网格（`KeyGrid`），由当前键面决定；双拼 18 键使用独立的网格值 5。英文下网格照旧保留，引擎在专用英文里不受理组码，字母走 26 键。 */
   private keyGrid(): number {
     if (this.nineKey) {
       return KeyGrid.NINE_KEY;
     }
     if (this.fourteenKey) return KeyGrid.FOURTEEN_KEY;
-    return this.eighteenKey ? KeyGrid.EIGHTEEN_KEY : KeyGrid.NONE;
+    if (!this.eighteenKey) return KeyGrid.NONE;
+    return this.scheme.engineScheme === 'shuangpin'
+      ? KeyGrid.EIGHTEEN_KEY_SHUANGPIN : KeyGrid.EIGHTEEN_KEY;
   }
 
   /** 是否正在画 14 键或 18 键键面：英文和本地模式画 26 键。 */
@@ -2901,6 +2909,7 @@ struct KeyboardView {
     this.fuzzyPinyin = KeyboardSession.shared.usesFuzzyPinyin();
     this.applySkins();
     this.wubiProfile = this.settings.wubiProfile;
+    this.shuangpinLayout = this.settings.shuangpinLayout;
     this.scheme = this.enabledScheme();
     this.nineKey = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout);
     this.nineKeyShuangpinFaces = this.scheme.preferenceId === 'nine_key_shuangpin'
@@ -5068,8 +5077,8 @@ struct KeyboardView {
 
   private eighteenKeyOptions(key: FourteenKey): KeyOptions {
     return {
-      face: key.label,
-      label: key.description,
+      face: this.compactKeyFace(key),
+      label: this.compactKeyDescription(key),
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
@@ -5096,7 +5105,7 @@ struct KeyboardView {
     Column() {
       this.keyFace(this.eighteenKeyOptions(key))
     }
-    .accessibilityText(key.description)
+    .accessibilityText(this.compactKeyDescription(key))
     .layoutWeight(1)
     .height('100%')
     .backgroundColor(this.skin.keySurfaceBackground(false))
@@ -5119,13 +5128,23 @@ struct KeyboardView {
 
   private fourteenKeyOptions(key: FourteenKey): KeyOptions {
     return {
-      face: key.label,
-      label: key.description,
+      face: this.compactKeyFace(key),
+      label: this.compactKeyDescription(key),
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
       action: () => this.tapFourteenKey(key)
     };
+  }
+
+  /** 双拼 14/18 键把微软双拼所需的分号并入 L 键；其他方案沿用共享键表的键面和读屏。 */
+  private compactKeyFace(key: FourteenKey): string {
+    return this.scheme.engineScheme === 'shuangpin' && key.letters === 'l' ? 'L;' : key.label;
+  }
+
+  private compactKeyDescription(key: FourteenKey): string {
+    return this.scheme.engineScheme === 'shuangpin' && key.letters === 'l'
+      ? '按键 L 分号' : key.description;
   }
 
   /** 点一下 14 键：记这一键的键位，把这一组的首字母交给引擎。 */
@@ -5169,7 +5188,7 @@ struct KeyboardView {
     Column() {
       this.keyFace(this.fourteenKeyOptions(key))
     }
-    .accessibilityText(key.description)
+    .accessibilityText(this.compactKeyDescription(key))
     .layoutWeight(1)
     .height('100%')
     .backgroundColor(this.skin.keySurfaceBackground(false))

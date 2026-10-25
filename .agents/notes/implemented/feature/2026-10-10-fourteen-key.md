@@ -16,7 +16,7 @@ Status: implemented
 
 Android、iOS、HarmonyOS 提供触屏方案「全拼 14 键」。解码复用九宫格会话，只换一张码表（`KeyGrid::FourteenKey`）；组码经新的 `grid_key` 入口进来，不走 `character`；宿主按 `View.key_grid` 决定 14 键的读音行、拼音选择条和三栏面板。三端按下表的同一份规格实现，键表由 `scripts/test-fourteen-key-table.py` 核对。
 
-Android 的双拼扩展由 [Android 14 键双拼](2026-10-23-android-fourteen-key-shuangpin.md) 取代下表中 Android「只给全拼」的限制：使用独立布局偏好，沿用当前双拼方案，分号并入 L；iOS 和 HarmonyOS 保留原义。
+Android 的双拼扩展由 [Android 14 键双拼](2026-10-23-android-fourteen-key-shuangpin.md) 取代下表中 Android「只给全拼」的限制；iOS 由 [iOS 14 键双拼](2026-10-24-ios-fourteen-key-shuangpin.md) 接入，HarmonyOS 由 [HarmonyOS 双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md) 接入。三者都使用独立布局偏好，沿用当前双拼方案，分号并入 L。
 
 Android 的拼音选择位置与触摸尺寸由 [Android 14 键与九键共用左侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md) 取代；下表的读音行横向选择仍适用于 iOS、HarmonyOS，组码和消歧语义继续共用。
 

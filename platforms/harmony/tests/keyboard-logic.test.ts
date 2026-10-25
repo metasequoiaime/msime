@@ -2998,8 +2998,21 @@ group("14 键的网格与键面", () => {
       KeyGrid.NINE_KEY === 1 &&
       KeyGrid.FOURTEEN_KEY === 2 &&
       KeyGrid.NINE_KEY_SHUANGPIN === 3 &&
-      KeyGrid.EIGHTEEN_KEY === 4,
-    "取值与 msime_client_set_key_grid 的 0、1、2、3、4 相同",
+      KeyGrid.EIGHTEEN_KEY === 4 &&
+      KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5,
+    "取值与 msime_client_set_key_grid 的 0、1、2、3、4、5 相同",
+  );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "shuangpin", false, "fourteen_key") ===
+      KeyGrid.FOURTEEN_KEY &&
+      KeyboardScheme.keyGrid("twenty_six_key", "shuangpin", false, "eighteen_key") ===
+        KeyGrid.EIGHTEEN_KEY_SHUANGPIN,
+    "双拼的独立 14/18 键布局使用相应组码网格",
+  );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "shuangpin", true, "eighteen_key") === KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("twenty_six_key", "quanpin", false, "eighteen_key") === KeyGrid.NONE,
+    "双拼 2in1 和全拼的独立布局不误开网格",
   );
   check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
   check(
@@ -3046,6 +3059,7 @@ group("全拼 18 键使用共享组码并覆盖全部字母", () => {
       KeyboardScheme.keyGrid("eighteen_key", "quanpin", true) === KeyGrid.NONE,
     "18 键方案、网格编号和 2in1 回落一致",
   );
+  check(KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5, "双拼 18 键使用 C ABI 的网格编号 5");
 });
 
 group(
