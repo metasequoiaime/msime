@@ -26,7 +26,7 @@
     <color name="ms_spring_splash_disc">#F3FAF0</color>
     <color name="ms_spring_splash_bar">#B8E4A8</color>
     <color name="ms_spring_splash_glow">#579AD983</color>
-    <color name="ms_spring_stat_bar">#41563A</color>
+    <color name="ms_spring_stat_bar">#5A7A4E</color>
     <color name="ms_spring_heat_0">#2C3629</color>
     <color name="ms_spring_heat_1">#3A4B35</color>
     <color name="ms_spring_heat_2">#526E48</color>
@@ -46,7 +46,7 @@
     <color name="ms_summer_splash_disc">#ECFAF3</color>
     <color name="ms_summer_splash_bar">#8FE0B8</color>
     <color name="ms_summer_splash_glow">#575FD39A</color>
-    <color name="ms_summer_stat_bar">#2F5441</color>
+    <color name="ms_summer_stat_bar">#3D775A</color>
     <color name="ms_summer_heat_0">#24362C</color>
     <color name="ms_summer_heat_1">#2C4A3A</color>
     <color name="ms_summer_heat_2">#386B52</color>
@@ -66,7 +66,7 @@
     <color name="ms_autumn_splash_disc">#FDF3EC</color>
     <color name="ms_autumn_splash_bar">#F5B68F</color>
     <color name="ms_autumn_splash_glow">#57F0975F</color>
-    <color name="ms_autumn_stat_bar">#5B422F</color>
+    <color name="ms_autumn_stat_bar">#84593D</color>
     <color name="ms_autumn_heat_0">#382D24</color>
     <color name="ms_autumn_heat_1">#4F3B2C</color>
     <color name="ms_autumn_heat_2">#775138</color>
@@ -86,7 +86,7 @@
     <color name="ms_winter_splash_disc">#F2F8FC</color>
     <color name="ms_winter_splash_bar">#B3D8EE</color>
     <color name="ms_winter_splash_glow">#5793C7E6</color>
-    <color name="ms_winter_stat_bar">#3F5058</color>
+    <color name="ms_winter_stat_bar">#56717F</color>
     <color name="ms_winter_heat_0">#2B3436</color>
     <color name="ms_winter_heat_1">#38474D</color>
     <color name="ms_winter_heat_2">#4F6672</color>

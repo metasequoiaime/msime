@@ -131,7 +131,8 @@ public final class AppThemePalette {
         splashDisc = mix(accent, 12, WHITE);
         splashBar = mix(accent, 70, WHITE);
         splashGlow = ColorPolicy.withAlpha(accent, 0x57);
-        statBar = quantize(mixExact(channels(accent), dark ? 24 : 18, cardExact));
+        // 设计稿原是 18、24，非今日的柱子几乎看不出高低；与共享页的 `quietBar`、iOS 的 `StatisticsStyle.mutedBar` 用同一组比例，季节色表里的 `ms_*_stat_bar` 是它算出的值。
+        statBar = quantize(mixExact(channels(accent), dark ? 45 : 40, cardExact));
         heat = new int[HEAT_WEIGHTS.length];
         for (int level = 0; level < heat.length; level++) heat[level] = quantize(mixExact(channels(accent), HEAT_WEIGHTS[level], cardExact));
         keyboardBackground = dark ? mix(accent, 10, DARK_KEYBOARD_BASE) : mix(accent, 12, background);
