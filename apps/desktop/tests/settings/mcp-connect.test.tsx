@@ -666,10 +666,17 @@ test("the terminal tab tells an assistant how to run the tools directly, with th
   const program = "/opt/msime/msime-mcp --options /state/runtime-options.json";
   expect(within(group).getByLabelText("命令行用法").textContent).toBe(
     [
-      "水杉输入法（MSIME）可以在终端里直接管理：",
-      `- 查看可用的工具和参数：${program} tools`,
-      `- 调用一个工具，参数是 JSON 对象，输出 JSON：${program} call <工具名> '<JSON 参数>'，参数中有单引号时改为写进 UTF-8 文件并传 @<文件路径>`,
-      `- 排查输入法问题（卡顿、候选窗口不见了）的步骤：${program} prompt diagnose`,
+      "这是给终端或 AI 助手使用的命令。通常不需要修改路径：复制整行到终端，按回车运行。",
+      "",
+      `1. 先查看可用的工具和参数：${program} tools`,
+      "   （不知道工具名时，先运行这一条。）",
+      "",
+      `2. 调用一个工具：${program} call <工具名> '<JSON 参数>'，参数中有单引号时改为写进 UTF-8 文件并传 @<文件路径>`,
+      "   参数是 JSON 对象，命令会输出 JSON。",
+      "",
+      `3. 排查输入法问题（卡顿、候选窗口不见了）：${program} prompt diagnose`,
+      "",
+      "命令中的权限参数由下方开关决定；修改开关后，请重新复制命令。如果要配置 Claude Code 或 Codex，请切换到对应页签，使用那里的一键安装命令。",
     ].join("\n"),
   );
   fireEvent.click(within(group).getByRole("switch", { name: "允许修改设置" }));
