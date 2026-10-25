@@ -1,3 +1,9 @@
+import type { Preferences } from "../core/preferences-model";
+import {
+  inferredTouchKeyboardScheme,
+  type TouchKeyboardScheme,
+} from "../settings/touch-keyboard-scheme-helpers";
+
 /**
  * A key drawn in a keyboard preview. `code` is the W3C `KeyboardEvent.code` (or soft-keyboard id) the statistics store counts the key under; it is absent on spacers and on keys the store has no id for.
  */
@@ -158,6 +164,40 @@ export const harmonyTouchKeyboardRows: Record<HarmonyTouchLayout, PreviewKey[][]
     [key("123", 1.25), key("符", 1.15), key("空白", 4.5), key("中", 0.9), key("↵", 1.55)],
   ],
 };
+
+/** 把触屏方案和鸿蒙自己的 26/14/18 键选择映射到实际绘制的键面。详情页和「屏幕键盘」页共用这条规则，避免预览各画各的键位。 */
+export function harmonyTouchLayout(
+  selected: TouchKeyboardScheme,
+  shuangpinLayout: "twenty_six_key" | "fourteen_key" | "eighteen_key" = "twenty_six_key",
+): HarmonyTouchLayout {
+  if (
+    selected === "xiaohe" ||
+    selected === "ziranma" ||
+    selected === "microsoft" ||
+    selected === "shoudao"
+  ) {
+    return shuangpinLayout === "fourteen_key"
+      ? "fourteen_key_shuangpin"
+      : shuangpinLayout === "eighteen_key"
+        ? "eighteen_key_shuangpin"
+        : "twenty_six_key";
+  }
+  if (
+    selected === "fourteen_key" ||
+    selected === "eighteen_key" ||
+    selected === "nine_key" ||
+    selected === "japanese_nine_key"
+  )
+    return selected;
+  return "twenty_six_key";
+}
+
+/** 鸿蒙手机当前方案对应的预览键面；没有方案字段时沿用默认的 26 键。 */
+export function harmonyTouchRowsForPreferences(preferences: Preferences): PreviewKey[][] {
+  const selected = inferredTouchKeyboardScheme(preferences);
+  const layout = harmonyTouchLayout(selected, preferences.touch_shuangpin_layout);
+  return harmonyTouchKeyboardRows[layout];
+}
 
 /** The nine-key pinyin grid, each cell named by the digit printed on it; `Nine1` is the punctuation and separator cell. */
 export const nineKeyHeatmapRows: PreviewKey[][] = [

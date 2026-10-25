@@ -312,6 +312,25 @@ test("the skin detail on a touch host previews the touch keyboard", async () => 
   expect(keys.length).toBeGreaterThan(0);
   expect(keys).not.toContain("Caps Lock");
   expect(keys).not.toContain("Win");
+  expect(document.querySelector("[data-keyboard-toolbar]")).not.toBeNull();
+});
+
+test("the Harmony skin detail follows the selected 14-key layout", async () => {
+  renderHarmony({
+    mobile: true,
+    preferences: {
+      ...preferences,
+      touch_keyboard_layout: "fourteen_key",
+      touch_keyboard_schemes: { enabled: ["fourteen_key"], selected: "fourteen_key" },
+    },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "查看皮肤 春芽" }));
+  await screen.findByRole("button", { name: "下载并试用" });
+  const keys = Array.from(document.querySelectorAll("[data-keyboard-key]"))
+    .map((key) => key.getAttribute("data-keyboard-key"))
+    .filter((key): key is string => key !== null);
+  expect(keys).toContain("QW");
+  expect(keys).not.toContain("q");
 });
 
 test("添加 imports a dictionary into this device and settles on 已添加", async () => {

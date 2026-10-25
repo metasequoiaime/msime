@@ -5,6 +5,7 @@ import { ErrorAlert } from "../core/error-alert";
 import { useTouchKeyboardSkinLibrary } from "./use-touch-keyboard-skin-library";
 import { useTouchKeyboardSkinEditorState } from "./use-touch-keyboard-skin-editor-state";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import type { PreviewKey } from "./keyboard-layouts";
 import { readAndCompressTouchSkinPhoto } from "./touch-skin-images";
 import {
   hasReadableSkinText,
@@ -47,6 +48,8 @@ export function TouchKeyboardSkinEditor({
   onUse,
   onClose,
   fullScreen = false,
+  touchRows,
+  phonePreview = false,
 }: {
   design: TouchKeyboardSkinDesign;
   selected: boolean;
@@ -60,6 +63,10 @@ export function TouchKeyboardSkinEditor({
   onClose: () => void;
   /** 作为独立视图呈现：覆盖整个设置界面，标题前带返回按钮，返回即 `onClose`，所以不再画「完成」。HarmonyOS 手机的皮肤页这样打开它，不在页面里就地展开。 */
   fullScreen?: boolean;
+  /** HarmonyOS 手机按当前中文键盘绘制全屏预览。 */
+  touchRows?: PreviewKey[][];
+  /** Android/iOS 的就地编辑器也使用手机比例；HarmonyOS 全屏时由 `fullScreen` 覆盖。 */
+  phonePreview?: boolean;
 }) {
   const [category, setCategory] = useState<Category>("背景");
   const [photoError, setPhotoError] = useState("");
@@ -125,7 +132,8 @@ export function TouchKeyboardSkinEditor({
               theme={theme}
               skin="custom"
               customDesign={design}
-              phone={fullScreen}
+              phone={fullScreen || phonePreview}
+              touchRows={touchRows}
             />
           </div>
           <div className={skin.previewBar}>
@@ -166,6 +174,8 @@ export function TouchKeyboardSkinEditor({
           client={aiSkins}
           library={library}
           communitySkins={communitySkins}
+          touchRows={touchRows}
+          phonePreview={phonePreview}
           onUse={(design) => {
             apply(design);
             setLibraryNotice("AI 设计已载入；可以继续调整。保存页面设置后会应用到键盘。");

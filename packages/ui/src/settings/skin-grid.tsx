@@ -5,6 +5,7 @@ import { CheckGlyph } from "../core/check-glyph";
 import { deepEqual } from "../core/deep-equal";
 import { FluentIcon } from "../core/fluent-icons";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import type { PreviewKey } from "../keyboard/keyboard-layouts";
 import type {
   SavedTouchKeyboardSkin,
   TouchKeyboardSkinDesign,
@@ -57,6 +58,8 @@ export interface SkinGridProps {
   onSelectSavedDesign?: (design: TouchKeyboardSkinDesign) => void;
   /** 键盘绘制所用的浅色或深色模式，供跟随模式的皮肤使用。 */
   keyboardTheme: "dark" | "light";
+  /** HarmonyOS 手机当前中文键盘的键面，供缩略图跟随 14/18/9 键。 */
+  touchRows?: PreviewKey[][];
   /** 把卡片的选择应用到偏好设置草稿，与主题轮播的切换做的更新相同。 */
   onApply: (patch: Partial<Preferences>) => void;
   /** 告知点击的卡片应用了哪个皮肤，用于换装达人徽章：主题 id，我的皮肤或自定义主题为 `custom`，或者皮肤包 id，与 Android 皮肤页记录的 id 相同。 */
@@ -291,6 +294,7 @@ export function SkinGrid(props: SkinGridProps) {
                   skin={card.skin}
                   customDesign={card.design}
                   thumbnail
+                  touchRows={props.touchRows}
                 />
               </span>
               <span className={caption(card.selected)}>

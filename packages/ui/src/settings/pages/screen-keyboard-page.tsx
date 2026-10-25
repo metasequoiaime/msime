@@ -1,7 +1,7 @@
 import { MobileKeyboardFeedbackSettings } from "../mobile-keyboard-feedback-settings";
 import { keyboardThemeId } from "../../theme/global-theme";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
-import { harmonyTouchKeyboardRows, type HarmonyTouchLayout } from "../../keyboard/keyboard-layouts";
+import { harmonyTouchKeyboardRows, harmonyTouchLayout } from "../../keyboard/keyboard-layouts";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow } from "../../core/platform-controls";
@@ -20,9 +20,8 @@ import { useSettingsTabs } from "../use-settings-tabs";
 import { pluginPreferences } from "../plugin-preferences";
 import { useTouchKeySoundPacks } from "../use-touch-key-sound-packs";
 
-type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
-
 /** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，日语有 26/9 键。 */
+type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
 const harmonyLayoutGroups: readonly (readonly (readonly [
   HarmonyKeyboardLayout,
   TouchKeyboardScheme,
@@ -45,33 +44,6 @@ const harmonyLayoutTitles: Record<HarmonyKeyboardLayout, string> = {
   eighteen_key: "18 键",
   nine_key: "9 键",
 };
-
-/** 当前方案在 HarmonyOS 键盘上画成的中文键盘，「尺寸」预览照它画。只有 26 键的方案画 26 键。 */
-function harmonyTouchLayout(
-  selected: TouchKeyboardScheme,
-  shuangpinLayout: "twenty_six_key" | "fourteen_key" | "eighteen_key" = "twenty_six_key",
-): HarmonyTouchLayout {
-  if (
-    selected === "xiaohe" ||
-    selected === "ziranma" ||
-    selected === "microsoft" ||
-    selected === "shoudao"
-  ) {
-    return shuangpinLayout === "fourteen_key"
-      ? "fourteen_key_shuangpin"
-      : shuangpinLayout === "eighteen_key"
-        ? "eighteen_key_shuangpin"
-        : "twenty_six_key";
-  }
-  if (
-    selected === "fourteen_key" ||
-    selected === "eighteen_key" ||
-    selected === "nine_key" ||
-    selected === "japanese_nine_key"
-  )
-    return selected;
-  return "twenty_six_key";
-}
 
 /**
  * HarmonyOS 手机的 中文键盘 行：当前方案的 26 键、14 键或 9 键，和 Android 的 `KeyboardOptionsPage` 提供 `touch_keyboard_layout` 的方式一致。选择时像键盘自己的方案选择器那样切到这一组中的另一个键盘，把 `touch_keyboard_layout` 与 `scheme`、`touch_keyboard_schemes.selected` 一起写入（并启用它），因为键盘先读取选中的方案再读布局，只改布局不会让键盘切换。

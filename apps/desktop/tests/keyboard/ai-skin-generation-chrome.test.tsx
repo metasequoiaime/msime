@@ -2,6 +2,8 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { AiSkinGeneration } from "../../../../packages/ui/src/keyboard/ai-skin-generation";
+import { harmonyTouchKeyboardRows } from "../../../../packages/ui/src/keyboard/keyboard-layouts";
+import { defaultTouchKeyboardSkinDesign } from "../../../../packages/ui/src/keyboard/touch-keyboard-skin-design";
 
 afterEach(cleanup);
 
@@ -52,4 +54,37 @@ test("the dialog draw keeps its 完成 button", () => {
   fireEvent.click(screen.getByRole("button", { name: "完成" }));
   expect(onClose).toHaveBeenCalledOnce();
   expect(screen.getByRole("button", { name: "抽三张皮肤" }).className).toBe("primary");
+});
+
+test("the full-screen draw uses the phone keyboard preview", async () => {
+  const client = {
+    generate: vi.fn().mockResolvedValue([
+      {
+        name: "合成手机皮肤",
+        description: "合成说明",
+        artworkPrompt: "合成插画",
+        design: defaultTouchKeyboardSkinDesign,
+        artwork: { b64_json: "YQ==", mime_type: "image/png", width: 1, height: 1 },
+      },
+    ]),
+    poll: vi.fn(),
+    cancel: vi.fn(),
+  };
+  render(
+    <AiSkinGeneration
+      client={client}
+      library={{ list: vi.fn(), save: vi.fn(), remove: vi.fn() } as never}
+      fullScreen
+      touchRows={harmonyTouchKeyboardRows.fourteen_key}
+      onUse={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "抽三张皮肤" }));
+  await screen.findByRole("heading", { name: "合成手机皮肤" });
+  expect(document.querySelector("[data-keyboard-toolbar]")).not.toBeNull();
+  expect(document.querySelector("svg[data-preview-skin]")?.getAttribute("viewBox")).toMatch(
+    /^0 0 390 /,
+  );
+  expect(document.querySelector("[data-keyboard-key='QW']")).not.toBeNull();
 });

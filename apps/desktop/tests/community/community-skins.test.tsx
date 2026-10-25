@@ -205,6 +205,10 @@ test("mobile skin details join the WebView history stack and system back restore
   fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` }));
   expect(window.history.state.communityDetail).toEqual({ kind: "skin", id: original.id });
   expect(await screen.findByRole("button", { name: "返回社区" })).not.toBeNull();
+  expect(document.querySelector("[data-keyboard-toolbar]")).not.toBeNull();
+  expect(document.querySelector("svg[data-preview-skin]")?.getAttribute("viewBox")).toMatch(
+    /^0 0 390 /,
+  );
   const state = { msimeSettings: true, page: "community" };
   window.history.replaceState(state, "");
   window.dispatchEvent(new PopStateEvent("popstate", { state }));

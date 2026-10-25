@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, expect, test, vi } from "vitest";
 import { CommunitySkinPublishDialog, type CommunitySkinPublishDialogProps } from "@msime/ui";
 import { defaultTouchKeyboardSkinDesign as design } from "../../../../packages/ui/src/keyboard/touch-keyboard-skin-design";
+import { harmonyTouchKeyboardRows } from "../../../../packages/ui/src/keyboard/keyboard-layouts";
 
 afterEach(cleanup);
 
@@ -18,11 +19,18 @@ test("从包入口独立渲染发布表单，只需加载与发布能力，阻�
   const props: CommunitySkinPublishDialogProps = {
     client: { publish: vi.fn(() => pending) },
     library: { load: vi.fn(async () => saved) },
+    phonePreview: true,
+    touchRows: harmonyTouchKeyboardRows.fourteen_key,
     onPublished: vi.fn(async () => {}),
     onClose: vi.fn(),
   };
   render(<CommunitySkinPublishDialog {...props} />);
   await screen.findByRole("option", { name: "合成湖泊" });
+  expect(document.querySelector("[data-keyboard-toolbar]")).not.toBeNull();
+  expect(document.querySelector("svg[data-preview-skin]")?.getAttribute("viewBox")).toMatch(
+    /^0 0 390 /,
+  );
+  expect(document.querySelector("[data-keyboard-key='QW']")).not.toBeNull();
   fireEvent.change(screen.getByRole("combobox", { name: "发布设计" }), {
     target: { value: saved[1].id },
   });

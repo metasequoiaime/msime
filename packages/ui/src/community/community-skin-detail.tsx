@@ -1,4 +1,5 @@
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import type { PreviewKey } from "../keyboard/keyboard-layouts";
 import { ActionButton } from "../core/action-button";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityDetailSummary } from "./community-detail-summary";
@@ -13,6 +14,10 @@ import * as style from "./community-style";
 export interface CommunitySkinDetailProps {
   skin: CommunitySkin;
   theme: "light" | "dark";
+  /** 手机详情使用带工具栏的真实键盘比例；桌面详情保留桌面预览。 */
+  phonePreview?: boolean;
+  /** HarmonyOS 手机按当前触屏方案绘制 26/14/18/9 键，其他宿主省略。 */
+  touchRows?: PreviewKey[][];
   actionBusy: boolean;
   detailBusy: boolean;
   actionNotice: string;
@@ -36,6 +41,8 @@ export interface CommunitySkinDetailProps {
 export function CommunitySkinDetail({
   skin,
   theme,
+  phonePreview = false,
+  touchRows,
   actionBusy,
   detailBusy,
   actionNotice,
@@ -63,7 +70,13 @@ export function CommunitySkinDetail({
       onLogin={onLogin}
     >
       <div className={style.detailStage}>
-        <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} />
+        <ScreenKeyboardPreview
+          theme={theme}
+          skin="custom"
+          customDesign={skin.design}
+          phone={phonePreview}
+          touchRows={touchRows}
+        />
       </div>
       <CommunityDetailSummary
         title={skin.name}

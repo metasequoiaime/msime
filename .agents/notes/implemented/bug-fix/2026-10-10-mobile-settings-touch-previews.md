@@ -6,7 +6,7 @@ Status: implemented
 
 共享设置页在 Android、iOS、HarmonyOS 手机上显示了一批只属于电脑的东西。
 
-- `ScreenKeyboardPreview` 没写 `layout` 时画 Windows 式屏幕键盘（数字行、Tab、Caps Lock、Ctrl、Win、Alt）。设置页里只有缩略图和桌面主页指定了布局，社区皮肤详情、发布对话框、社区卡片、键盘页预览、皮肤轮播、「我的皮肤」卡片、皮肤编辑器和 AI 设计皮肤的提案共八处，在手机上一直画电脑键盘。
+- `ScreenKeyboardPreview` 没写 `layout` 时画 Windows 式屏幕键盘（数字行、Tab、Caps Lock、Ctrl、Win、Alt）。设置页里只有缩略图和桌面主页指定了布局，社区皮肤详情、发布对话框、社区卡片、键盘页预览、皮肤轮播、「我的皮肤」卡片、皮肤编辑器和 AI 设计皮肤的提案共八处，在手机上一直画电脑键盘；其中全屏编辑器和 AI 提案还沿用桌面比例，社区发布对话框也会把手机键盘截在桌面高度里。HarmonyOS 的皮肤网格和社区卡片虽然画了触屏键位，却没有跟随当前的 14/18/9 键选择。
 - 皮肤页「更多选项」里有「外部皮肤」一行：它导入的是候选窗口的皮肤文件夹（`skin.toml` 加图片），导入型宿主还露出应用沙箱里的内部路径（如 `/data/storage/el2/...`）。
 - 同一处的七个候选颜色取色器作用于候选窗配色，而手机的触屏候选栏大多画键盘皮肤的颜色，改了看不到效果。
 - 从「我的 → 社区作品 → 我的设计」进入皮肤页时编辑器已经打开，但它在默认收起的「更多选项」里，用户只看到皮肤网格。
@@ -15,6 +15,7 @@ Status: implemented
 
 - 屏幕键盘布局是宿主级的默认契约：`packages/ui/src/keyboard/screen-keyboard-preview.tsx` 导出 `ScreenKeyboardLayoutContext` 和 `screenKeyboardLayoutFor(platform)`，`SettingsPage` 在根部按 `client.host.platform` 提供它，`android`、`ios`、`harmony` 为 `touch`，其余为 `desktop`。`ScreenKeyboardPreview` 的 `layout` 省略时取这个上下文；显式传入的 `layout`（如桌面主页的 `layout="desktop"`）和 `thumbnail` 仍优先。HarmonyOS 2in1 的宿主平台同样是 `harmony`，它的输入法也画触屏键盘，所以按平台而不是按 `mobile_settings` 判定。
 - 触屏布局的预览画布为 700 宽，单键接近手机上的竖长方形；桌面布局仍是 1100 宽，桌面插图不变。
+- 手机专用预览显式使用 `phone`：它画 390 宽、带工具栏的竖屏比例，发布对话框把画布限制在 300px 内避免超出可视高度。HarmonyOS 当前中文键面由 `harmonyTouchRowsForPreferences` 从共享偏好推导，贯穿尺寸页、皮肤网格、编辑器、AI 提案、社区卡片、详情和发布对话框；其他手机沿用通用 26 键。Android/iOS 的通用社区卡片和详情、皮肤轮播、我的皮肤卡片及就地编辑器同样使用手机比例，不再只依赖触屏布局上下文。
 - `mobile_settings` 宿主（手机）不显示 `ExternalSkinDirectoryRow`。HarmonyOS 2in1 等桌面形态不受影响，导入能力（HarmonyOS 的 `skin_directory_import`、iOS 的 `import_picked_skin`）的后端代码保留，2in1 仍在用。
 - 能用「导入皮肤」的宿主即使显示这一行，也不再显示皮肤目录路径：那是沙箱内部路径，用户既看不到也无法手动复制文件进去。
 - 手机上候选颜色取色器只在 `candidatePaletteFollowsDesktop === true` 时显示。逐个宿主核对过谁读这些颜色：HarmonyOS 手机的候选栏取键盘调色板，只有 2in1 用候选配色（`KeyboardView.ets` 的 `candidateColors()`）；Android 的候选栏不读解析出的候选配色；只有 iOS 在打开「候选栏使用主题配色」后才读，而这个字段也只有 iOS 宿主提供。桌面照旧显示。皮肤页因此不再渲染 `CandidatePaletteFallbackNotice`，组件本身仍从 `packages/ui` 导出。
@@ -34,4 +35,4 @@ Status: implemented
 
 ## Verification
 
-`apps/desktop/tests` 下新增或改写的用例覆盖：鸿蒙与 Android 键盘页预览没有 Caps Lock、Win、Tab，Windows 仍有（去掉上下文后这三条失败）；触屏布局下社区皮肤详情没有 Caps Lock、Win；鸿蒙、Android、iOS 手机没有外部皮肤一行，鸿蒙 2in1 仍提供导入皮肤；手机上候选颜色只在开关打开时出现，Android 不显示；导入型宿主不显示目录。另在 HarmonyOS 模拟器上用本分支的 HAP 看过社区皮肤详情、键盘设置、我的皮肤卡片和编辑器。
+`apps/desktop/tests` 下新增或改写的用例覆盖：鸿蒙与 Android 键盘页预览没有 Caps Lock、Win、Tab，Windows 仍有（去掉上下文后这三条失败）；触屏布局下社区皮肤详情没有 Caps Lock、Win，Android/iOS 通用详情使用手机工具栏与比例；鸿蒙详情和卡片跟随 14 键；全屏 AI 预览使用手机工具栏与比例；鸿蒙、Android、iOS 手机没有外部皮肤一行，鸿蒙 2in1 仍提供导入皮肤；手机上候选颜色只在开关打开时出现，Android 不显示；导入型宿主不显示目录。另在 HarmonyOS 模拟器上用本分支的 HAP 看过社区皮肤详情、键盘设置、我的皮肤卡片和编辑器。

@@ -27,6 +27,7 @@ import {
 import { useCommunitySkinLibrary } from "./use-community-skin-library";
 import { useCommunitySkinGallery } from "./use-community-skin-gallery";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
+import { harmonyTouchRowsForPreferences } from "../keyboard/keyboard-layouts";
 
 import { type CommunitySkinClient } from "./community-skin-model";
 export {
@@ -126,6 +127,8 @@ export function CommunitySkinsPage({
       <CommunitySkinDetail
         skin={selected}
         theme={theme}
+        phonePreview={mobile}
+        touchRows={harmony && preferences ? harmonyTouchRowsForPreferences(preferences) : undefined}
         actionBusy={actionBusy}
         detailBusy={detailBusy}
         actionNotice={actionNotice}
@@ -150,6 +153,8 @@ export function CommunitySkinsPage({
     <CommunitySkinPublishDialog
       client={client}
       library={localSkinLibrary}
+      phonePreview={mobile}
+      touchRows={harmony && preferences ? harmonyTouchRowsForPreferences(preferences) : undefined}
       onClose={() => setPublishOpen(false)}
       onPublished={publishDone}
       onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
@@ -236,6 +241,7 @@ export function CommunitySkinsPage({
                   key={skin.id}
                   skin={skin}
                   theme={theme}
+                  touchRows={preferences ? harmonyTouchRowsForPreferences(preferences) : undefined}
                   pill={pill}
                   open={() => open(skin)}
                   act={() => void (pill === "use" ? apply(skin) : take(skin))}
@@ -306,7 +312,16 @@ export function CommunitySkinsPage({
         {skins
           .filter((skin) => !mineOnly || skin.owned)
           .map((skin) => (
-            <CommunitySkinCard key={skin.id} skin={skin} theme={theme} open={() => open(skin)} />
+            <CommunitySkinCard
+              key={skin.id}
+              skin={skin}
+              theme={theme}
+              phonePreview={mobile}
+              touchRows={
+                harmony && preferences ? harmonyTouchRowsForPreferences(preferences) : undefined
+              }
+              open={() => open(skin)}
+            />
           ))}
       </CommunityGalleryGrid>
       <CommunityGalleryLoadMore

@@ -5,6 +5,7 @@ import {
   type CandidateWindowStylePreferences,
 } from "../candidate/candidate-window-style";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import type { PreviewKey } from "../keyboard/keyboard-layouts";
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import { globalThemeDescription } from "../settings/settings-options";
 import * as settings from "../settings/settings-style";
@@ -33,6 +34,7 @@ export interface BuiltinThemeCardProps {
   candidatePreviewTheme: ThemeAppearance;
   previewTheme?: ThemeAppearance;
   keyboardDesign: TouchKeyboardSkinDesign;
+  touchRows?: PreviewKey[][];
   mobile: boolean;
   linux: boolean;
   onPreferencesChange: (patch: Pick<Preferences, "global_theme" | "custom_theme">) => void;
@@ -49,6 +51,7 @@ export function BuiltinThemeCard({
   candidatePreviewTheme,
   previewTheme: previewOverride,
   keyboardDesign,
+  touchRows,
   mobile,
   linux,
   onPreferencesChange,
@@ -131,7 +134,9 @@ export function BuiltinThemeCard({
               theme={previewTheme}
               skin={id === "custom" ? keyboardThemeId("custom", preferences.custom_theme) : id}
               customDesign={id === "custom" ? keyboardDesign : undefined}
-              compact
+              compact={!mobile}
+              phone={mobile}
+              touchRows={touchRows}
             />
           </SkinPreviewStage>
         ) : (
