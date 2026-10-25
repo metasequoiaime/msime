@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 把一个 macOS 版本的 Sparkle 更新包和 appcast 发布到滚动的 macos-appcast release。release-macos.yml 在 main 的正式版（stable）、develop 的测试版（beta）和 nightly.yml 的每日构建（nightly）之后调用它，relocate-sparkle-archives.sh 迁移旧版本时也调用它。
 #
-# 顺序就是安全性：先在本地核对 appcast 签名、更新包长度与签名和 sparkle-SHA256SUMS，再确认不会把已发布的 appcast 退回更旧的构建；然后先传更新包、按 appcast 里的公开地址下载回来核对摘要，确认都下得到之后才传 appcast，下载回来比对；再把 appcast 复制到构建更旧（或还没有 appcast）的更宽通道；最后删掉 macos-appcast 上属于这个通道、不再被任何 appcast 指向的旧更新包。任何一步失败都停下，已经在线的 appcast 和它指向的更新包保持原样。本通道的 appcast 已经都是这个构建时（重跑、或每日构建没有新提交的日子）跳过上传，但仍做后两步：上一次运行可能在复制到更宽通道时失败，重跑要能补上。
+# 顺序就是安全性：先在本地核对 appcast 签名、更新包长度与签名和 sparkle-SHA256SUMS，再确认不会把已发布的 appcast 退回更旧的构建；然后先传更新包、按 appcast 里的公开地址下载回来核对摘要，确认都下得到之后才传 appcast，下载回来比对；再把 appcast 复制到构建更旧（或还没有 appcast）的更宽通道，并用在线的稳定版 appcast 补齐其他版本还不存在的更宽通道 feed；最后删掉 macos-appcast 上属于这个通道、不再被任何 appcast 指向的旧更新包。任何一步失败都停下，已经在线的 appcast 和它指向的更新包保持原样。本通道的 appcast 已经都是这个构建时（重跑、或每日构建没有新提交的日子）跳过上传，但仍做后两步：上一次运行可能在复制到更宽通道时失败，重跑要能补上。
 #
 # 每个通道有自己的 appcast 文件（命名规则见 sparkle_feed.py 的 feed_name）：稳定版 appcast-<版本 id>.xml 与引入通道之前相同，测试版和每日构建是 appcast-beta-<版本 id>.xml、appcast-nightly-<版本 id>.xml，设置应用同理。选了更宽通道的用户也该拿到更窄通道里更新的构建，所以发布正式版时，测试版和每日构建的 appcast 若是更旧的构建（或还不存在）也换成这一份，发布测试版时同样更新每日构建的；那边已有同样新或更新的构建时不动。appcast 里只有更新包地址，不含自己的文件名，同一份签过名的文件换个名字照样有效。
 # 一次运行只写自己通道的 appcast 和更宽通道的复制品，只删自己通道的更新包，同时进行的另一个通道的发布不会删掉它刚传上去、还没有 appcast 指向的更新包。
@@ -150,6 +150,28 @@ while IFS=$'\t' read -r feed build short url; do
     rm -f "$scratch/download"
   done
 done < "$scratch/enclosures-wider"
+
+# ---- 补齐还不存在的更宽通道 feed ----
+# 上面的复制只覆盖这次发布的版本。某个版本的测试版或每日构建 appcast 还不存在时（刚引入通道、或某个通道还没发过这个版本），选了那个通道的输入法和设置应用每次检查都读到 404：后台检查静默失败，手动检查报读取出错。所以每次发布（每晚的每日构建最频繁）都把在线的每份稳定版 appcast 复制到它还不存在的更宽通道；已经存在的一律不动，哪怕更旧，那由正常的发布和上面的复制负责。复制品指向稳定版的更新包，下面的清理按全部 appcast 的引用判断，不会把它删掉。
+if [[ "${MSIME_SPARKLE_SKIP_WIDER:-}" != 1 ]]; then
+  rm -rf "$scratch/online" "$scratch/seed"
+  mkdir -p "$scratch/online" "$scratch/seed"
+  gh release download "$tag" --pattern 'appcast-*.xml' --dir "$scratch/online"
+  for stable_feed in "$scratch/online"/appcast-*.xml; do
+    stable_name="$(basename "$stable_feed")"
+    # 只从稳定版 appcast 补：parse_feed_name 认不出或不是稳定版的跳过。
+    python3 "$feed_tool" feeds --channel stable "$stable_feed" > /dev/null 2>&1 || continue
+    for target in $(python3 "$feed_tool" wider "$stable_name"); do
+      [[ -f "$scratch/online/$target" ]] && continue
+      cp "$stable_feed" "$scratch/seed/$target"
+      gh release upload "$tag" "$scratch/seed/$target"
+      fetch "$appcast_base$target" "$scratch/download"
+      cmp -s "$scratch/download" "$stable_feed" || fail "$appcast_base$target 下载到的内容与刚上传的不同"
+      echo "$appcast_base$target 还不存在，先用稳定版 $stable_name 补上"
+      rm -f "$scratch/download"
+    done
+  done
+fi
 
 # ---- 删掉没有 appcast 指向的旧更新包 ----
 # 按 release 上全部 appcast 实际指向的文件判断，而不是按版本号：这次没有发布的版本（例如从 MACOS_EDITIONS 里去掉的）仍指着自己的更新包，不能删。只删这个通道的更新包（文件名里的通道见 sparkle_feed.py 的 archive_channel）：别的通道的发布可能正在进行，它先传更新包、后传 appcast，中间这段时间它的更新包还没有被引用。

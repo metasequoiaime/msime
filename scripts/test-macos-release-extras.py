@@ -480,6 +480,35 @@ class ReleaseExtrasTests(unittest.TestCase):
         for archive in self.archives_for("1.3.0", "nightly", 3000500).values():
             self.assertIn(archive, self.assets("macos-appcast"))
 
+    def test_nightly_fills_in_missing_beta_feeds_from_the_published_stable_feeds(self):
+        # 引入通道之前发布的稳定版：macos-appcast 上只有稳定版的 appcast。
+        stable = self.stage_new_version("1.3.0", 1003000100)
+        self.env["MSIME_SPARKLE_SKIP_WIDER"] = "1"
+        self.publish(stable, "1.3.0", "stable")
+        self.env.pop("MSIME_SPARKLE_SKIP_WIDER")
+        feed = self.state / "releases/macos-appcast"
+        stable_feeds = {name: (feed / name).read_bytes() for name in self.archives_for("1.3.0")}
+        self.assertFalse([name for name in self.assets("macos-appcast") if "-beta-" in name or "-nightly-" in name])
+        nightly = self.stage_new_version("1.3.0", 1003000500, "nightly")
+        self.publish(nightly, "1.3.0", "nightly")
+        for edition in self.editions:
+            for kind in ("", "settings-"):
+                # 测试版的 appcast 还不存在，由在线的稳定版补上，选了测试版的用户不再读到 404；每日构建是这次发布的构建。
+                self.assertEqual((feed / f"appcast-{kind}beta-{edition}.xml").read_bytes(), stable_feeds[f"appcast-{kind}{edition}.xml"])
+                self.feed_tool("verify", "--archives", str(feed), "--url-prefix", APPCAST_PREFIX, str(feed / f"appcast-{kind}beta-{edition}.xml"))
+                self.assertEqual(self.feed_build(f"appcast-{kind}nightly-{edition}.xml"), 1003000500)
+        for name, content in stable_feeds.items():
+            self.assertEqual((feed / name).read_bytes(), content, name)
+        # 补上的测试版 appcast 指向稳定版的更新包，清理时它们仍被引用。
+        for archive in self.archives_for("1.3.0").values():
+            self.assertIn(archive, self.assets("macos-appcast"))
+        # 已经存在的测试版 appcast 不被再次覆盖：再发一次更新的每日构建，测试版那份不变。
+        beta_before = {edition: (feed / f"appcast-beta-{edition}.xml").read_bytes() for edition in self.editions}
+        newer = self.stage_new_version("1.3.0", 1003000600, "nightly")
+        self.publish(newer, "1.3.0", "nightly")
+        for edition in self.editions:
+            self.assertEqual((feed / f"appcast-beta-{edition}.xml").read_bytes(), beta_before[edition])
+
     def test_a_channel_refuses_feeds_and_archives_of_another_channel(self):
         stable = self.stage_new_version("1.3.0", 1003000100)
         result = self.publish(stable, "1.3.0", "beta", check=False)
