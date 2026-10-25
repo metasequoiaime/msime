@@ -7,10 +7,12 @@ import {
 } from "../../../../packages/ui/src/settings/mobile-tab-helpers";
 import { fluentIconPaths } from "../../../../packages/ui/src/core/fluent-icons";
 
-test("maps the settings tab icon and compact labels", () => {
-  expect(mobileTabIcon("home", "home.svg")).toMatch(/settings\.svg$/);
+test("maps the home tab icon and compact labels", () => {
+  expect(mobileTabIcon("home", "msime.svg")).toMatch(/home\.svg$/);
+  expect(harmonyTabIcon("home")).toBe("home");
+  expect(fluentIconPaths.home).toBeDefined();
   expect(mobileTabIcon("community", "community.svg")).toBe("community.svg");
-  expect(mobileTabTitle("home", "首页")).toBe("设置");
+  expect(mobileTabTitle("home", "首页")).toBe("首页");
   expect(mobileTabTitle("typing-statistics", "打字统计")).toBe("统计");
   expect(mobileTabTitle("account", "账号与同步")).toBe("我的");
   expect(mobileTabTitle("community", "社区")).toBe("社区");
@@ -30,6 +32,8 @@ test("names the 社区 tab and draws the community glyph", () => {
 test("uses touch friendly page titles where desktop labels differ", () => {
   expect(mobilePageTitle("appearance", "候选窗口")).toBe("候选栏");
   expect(mobilePageTitle("screen-keyboard", "屏幕键盘")).toBe("键盘");
+  // 「首页」标签的根页以应用名作大标题，标签上仍写「首页」。
+  expect(mobilePageTitle("home", "首页")).toBe("水杉输入法");
   expect(mobilePageTitle("account", "账号与同步")).toBe("我的");
   expect(mobilePageTitle("community", "社区")).toBe("社区");
 });

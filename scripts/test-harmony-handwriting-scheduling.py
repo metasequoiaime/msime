@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the debounced multi-stroke OCR contract from Apple HandwritingTests."""
+"""Guard the debounced multi-stroke handwriting contract from Apple HandwritingTests."""
 
 from pathlib import Path
 
@@ -18,7 +18,7 @@ def main() -> int:
         and "this.scheduleHandwritingRecognition()" in touch,
         "lift point respects the cap":
             "this.handwritingCurrent.length < HANDWRITING_MAX_POINTS" in touch,
-        "changed ink invalidates old OCR": "this.handwritingRecognition.changed()" in view
+        "changed ink invalidates old recognition": "this.handwritingRecognition.changed()" in view
         and "this.handwritingRecognition.accepts(ticket)" in view,
         "latest canvas is queued": "this.handwritingRecognition.request()" in view
         and "this.handwritingRecognition.finish()" in view,
@@ -28,7 +28,7 @@ def main() -> int:
         for problem in problems:
             print(f"missing handwriting scheduling guard: {problem}")
         return 1
-    print("harmony handwriting scheduling: multi-stroke ink stays writable and OCR is debounced")
+    print("harmony handwriting scheduling: multi-stroke ink stays writable and recognition is debounced")
     return 0
 
 

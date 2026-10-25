@@ -25,21 +25,12 @@ pub(super) fn assert_rows(actual: &Vec<WordItem>, expected: &Vec<WordItem>, allo
     assert_eq!(actual, expected);
     capacity(actual.capacity(), expected.capacity());
     for (actual, expected) in actual.iter().zip(expected) {
-        for (actual, expected) in [
-            (&actual.pinyin, &expected.pinyin),
-            (&actual.canonical_pinyin, &expected.canonical_pinyin),
-            (&actual.word, &expected.word),
-            (&actual.corrected_from, &expected.corrected_from),
-        ] {
-            capacity(actual.capacity(), expected.capacity());
-        }
+        // `WordItem` 的文本字段是 `SharedString`。它们的 `String` 容量取决于
+        // 是从缓存克隆还是新建行，不能再拿旧实现的容量作分配契约。
         capacity(
             actual.sentence_words.capacity(),
             expected.sentence_words.capacity(),
         );
-        for (actual, expected) in actual.sentence_words.iter().zip(&expected.sentence_words) {
-            capacity(actual.capacity(), expected.capacity());
-        }
     }
 }
 

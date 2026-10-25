@@ -1,19 +1,18 @@
-//! Windows Ink handwriting recognition.
+//! Windows 系统中文手写识别，优先简体，必要时使用繁体识别器。
 //!
-//! Windows ships a handwriting recognizer for every installed language pack,
-//! and the reference panel uses it directly. Without this, Windows had no
-//! recognizer at all unless the optional packaged Engine model happened to be
-//! installed, so the handwriting panel answered "unavailable" on a stock
-//! machine — the one platform where a recognizer is already present.
-//!
-//! Nothing here reads user text beyond the strokes the panel passes in, and no
-//! stroke leaves the machine: `InkRecognizerContainer` resolves locally.
+//! 普通 Windows 使用 WinRT Ink；Win7 专用构建使用 Tablet PC COM。
+//! 两者都只处理调用方提交的笔划，不联网；缺少中文系统识别器时保留模型回退所需的错误区分。
 
+#[cfg(not(target_vendor = "win7"))]
 use windows::Foundation::Point;
+#[cfg(not(target_vendor = "win7"))]
 use windows::UI::Input::Inking::{
     InkPoint, InkRecognitionTarget, InkRecognizer, InkRecognizerContainer, InkStrokeBuilder,
     InkStrokeContainer,
 };
+
+#[cfg(any(target_vendor = "win7", test))]
+mod windows7;
 
 /// One handwritten stroke: the points the pointer passed through, in order.
 pub type Stroke = Vec<(f32, f32)>;
@@ -28,7 +27,7 @@ pub enum InkError {
     NoChineseRecognizer,
     /// Nothing to recognize.
     EmptyInput,
-    /// The Ink API itself failed.
+    /// 系统手写接口调用失败。
     Unavailable,
 }
 
@@ -114,6 +113,7 @@ pub fn recognize(strokes: &[Stroke]) -> Result<Vec<String>, InkError> {
 }
 
 /// 本机装着的最合适的中文识别器（简体优先，其次繁体），没有时为 `None`。
+#[cfg(not(target_vendor = "win7"))]
 fn best_chinese_recognizer(
     container: &InkRecognizerContainer,
 ) -> Result<Option<InkRecognizer>, InkError> {
@@ -142,6 +142,7 @@ fn best_chinese_recognizer(
 }
 
 /// Windows 是否装有中文手写识别器（简体或繁体）。设置应用据此决定要不要提供手写模型的下载：有识别器时手写面板先用它，不需要模型。Ink API 本身出错时按没有处理，让用户仍能下载模型兜底。
+#[cfg(not(target_vendor = "win7"))]
 pub fn has_chinese_recognizer() -> bool {
     InkRecognizerContainer::new()
         .map_err(|_| InkError::Unavailable)
@@ -149,6 +150,7 @@ pub fn has_chinese_recognizer() -> bool {
         .is_ok_and(|recognizer| recognizer.is_some())
 }
 
+#[cfg(not(target_vendor = "win7"))]
 fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, InkError> {
     let container = InkRecognizerContainer::new().map_err(|_| InkError::Unavailable)?;
     let Some(recognizer) = best_chinese_recognizer(&container)? else {
@@ -237,6 +239,17 @@ fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, 
         }
     }
     Ok(Ok(chinese))
+}
+
+/// Win7 通过系统 Tablet PC COM 查询中文识别器，不触发 WinRT 激活。
+#[cfg(target_vendor = "win7")]
+pub fn has_chinese_recognizer() -> bool {
+    windows7::has_chinese_recognizer()
+}
+
+#[cfg(target_vendor = "win7")]
+fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, InkError> {
+    Ok(windows7::recognize(strokes))
 }
 
 #[cfg(test)]

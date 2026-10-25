@@ -15,7 +15,7 @@ private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ lengt
 
 /// 经 client-services 的遥测队列（msime_client.h 中的 `msime_client_telemetry_*`）进行匿名使用上报，App 和键盘通过 App Group 共用。
 ///
-/// 键盘就是输入法本身，所以会话归它管：每次正常结束的键盘展示记一个会话，只有崩溃处理器留下了记录时才记一条 `session_crash`。App 负责发送队列里的内容，并把 MetricKit 的崩溃诊断转成崩溃记录。`usage_reporting` 偏好（默认开启）关闭时，什么都不记录也不发送。
+/// 键盘就是输入法本身，所以会话归它管：每次正常结束的键盘展示记一个会话，只有崩溃处理器留下了记录时才记一条 `session_crash`。App 负责发送队列里的内容，并把 MetricKit 的崩溃诊断转成崩溃记录：诊断按进程号对回键盘当时未结束的会话（键盘自己的处理程序已经记下的不再记第二份），系统强制结束（SIGKILL）按共享语义不算会话崩溃，只报 `crash`。`usage_reporting` 偏好（默认开启）关闭时，什么都不记录也不发送。
 enum UsageReporting {
   static let preferenceKey = "usage_reporting"
 
@@ -50,18 +50,31 @@ enum UsageReporting {
     return request
   }
 
-  /// Starts a keyboard session: closes the previous one, queues crash records and today's active. Returns the crash record path for the signal handler, or nil when reporting is off. No network I/O.
-  static func begin() -> String? {
-    guard let directory else { return nil }
-    guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request(directory)) as? [String: Any],
-          value["enabled"] as? Bool == true else { return nil }
-    return value["crash_record_path"] as? String
+  /// 一次已经开始的键盘会话：结束它、为它写崩溃记录都按这个 id，不看标记现在属于谁（同时可能有别的键盘进程在开始会话）。
+  struct Session: Equatable {
+    let id: String
+    /// 信号处理函数写这个会话崩溃记录的文件。
+    let crashRecordPath: String
   }
 
-  /// The keyboard was dismissed normally: queues the session event. No network I/O.
-  static func end() {
+  /// Starts a keyboard session: closes the previous one, queues crash records and today's active. Nil when reporting is off. No network I/O.
+  static func begin() -> Session? {
+    guard let directory else { return nil }
+    return begin(in: directory)
+  }
+
+  static func begin(in directory: URL) -> Session? {
+    guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request(directory)) as? [String: Any],
+          value["enabled"] as? Bool == true,
+          let id = value["session_id"] as? String,
+          let path = value["crash_record_path"] as? String else { return nil }
+    return Session(id: id, crashRecordPath: path)
+  }
+
+  /// The keyboard was dismissed normally: queues this session's event. No network I/O.
+  static func end(session: String) {
     guard let directory else { return }
-    ClientRequestEnvelope.call(msimeClientTelemetryEnd, ["directory": directory.path])
+    ClientRequestEnvelope.call(msimeClientTelemetryEnd, ["directory": directory.path, "session": session])
   }
 
   /// Queues today's active and sends the queue. Blocks on the network: never on the main thread.
@@ -70,27 +83,37 @@ enum UsageReporting {
     ClientRequestEnvelope.call(msimeClientTelemetryFlush, request(directory))
   }
 
-  /// From an uncaught-exception handler in the keyboard: writes the running session's crash record, sent on a later start.
-  static func recordCrash(message: String, stack: String) {
+  /// From an uncaught-exception handler in the keyboard: writes this session's crash record, sent on a later start.
+  static func recordCrash(session: String, message: String, stack: String) {
     guard let directory else { return }
-    ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, ["directory": directory.path, "message": message, "stack": stack])
+    ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash,
+                               ["directory": directory.path, "message": message, "stack": stack, "session": session])
   }
 
-  private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
-    SafePath.hasRefusedSymbolicLink(path)
+  /// MetricKit 崩溃诊断的摘要行和归类。`killed` 为真表示进程是被系统用 SIGKILL 强制结束的（看门狗、内存上限、挂起时持有 App Group 里的文件锁即 `0xdead10cc`），而不是自己出错：摘要以 `Killed` 开头，与以 `Crash` 开头的真崩溃分成不同的崩溃组。
+  struct DiagnosticSummary: Equatable {
+    let message: String
+    let killed: Bool
   }
 
-  /// A crash the system reported later (MetricKit), outside any session: written as a crash record under a fresh id, so the next keyboard start queues it as a crash event without counting a session_crash.
-  static func storeCrashDiagnostic(message: String, stack: String, in directory: URL) {
-    let crashes = directory.appendingPathComponent("telemetry-crashes", isDirectory: true)
-    let file = crashes.appendingPathComponent(UUID().uuidString.lowercased() + ".crash")
-    guard !rejectsSymlinkAncestors(file) else { return }
-    let summary = message.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
-    do {
-      try FileManager.default.createDirectory(at: crashes, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-      FileManager.default.createFile(atPath: file.path, contents: Data((summary + "\n" + stack).utf8),
-                                     attributes: [.posixPermissions: 0o600])
-    } catch {}
+  /// 只用异常类型、代码、信号、ObjC 异常名和系统给出的终止原因这些数字与系统文本，不取 ObjC 异常的 `composedMessage`（它可能引用 App 里的数据）。
+  static func diagnosticSummary(exceptionType: NSNumber?, exceptionCode: NSNumber?, signal: NSNumber?,
+                                exceptionName: String?, terminationReason: String?) -> DiagnosticSummary {
+    let killed = signal?.int32Value == SIGKILL
+    var parts = [killed ? "Killed" : "Crash"]
+    if let exceptionType { parts.append("exception \(exceptionType)") }
+    if let exceptionCode { parts.append("code \(exceptionCode)") }
+    if let signal { parts.append("signal \(signal)") }
+    if let exceptionName, !exceptionName.isEmpty { parts.append(exceptionName) }
+    if let terminationReason, !terminationReason.isEmpty { parts.append(terminationReason) }
+    return DiagnosticSummary(message: parts.joined(separator: " ").replacingOccurrences(of: "\n", with: " "), killed: killed)
+  }
+
+  /// 系统事后报告的一次崩溃（MetricKit，App 下次打开时才送到），写成下次键盘启动时排队的崩溃记录。真崩溃按进程号 `pid` 对回该进程未结束的键盘会话，下次启动时连同那个会话的 `session_crash` 补报；键盘自己的处理程序已经为它写过记录时不再写。被强制结束的、`pid` 不可用的和不属于任何会话的（App 自身、收起后被挂起的键盘）只报 `crash`。会加锁写文件：不要在主线程上调用。
+  static func recordDiagnosedCrash(_ summary: DiagnosticSummary, stack: String, pid: pid_t, in directory: URL) {
+    var request: [String: Any] = ["directory": directory.path, "message": summary.message, "stack": stack]
+    if summary.killed || pid <= 0 { request["outside_session"] = true } else { request["pid"] = Int(pid) }
+    ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request)
   }
 
   /// The frames of a MetricKit call stack tree (MXCallStackTree.jsonRepresentation()) as "index binary + offset" lines, the crashed thread's first: binary file names and offsets only, never paths or symbols from the device.

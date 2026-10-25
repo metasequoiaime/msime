@@ -95,6 +95,7 @@ import { testDesktopApiCredential } from "./account/credential-test-client";
 import { createAccountCommandClient } from "./account/account-command-client";
 import { isMobileHost } from "./input/mobile-host-capabilities";
 import { createMobileHostServices } from "./core/mobile-host-services";
+import { createDesktopOobeClient } from "./core/oobe-host";
 import {
   createDesktopCandidateSkinCommunity,
   createDesktopCommunityResources,
@@ -182,6 +183,7 @@ async function withLinuxSetupEvents(
   }
 }
 const linuxSetupClient: LinuxSetupClient = {
+  downloads: () => invoke("linux_dictionary_downloads"),
   run: ({ download, cloudCandidates }, onLine, onStage) =>
     withLinuxSetupEvents(onLine, onStage, () =>
       invoke<LinuxSetupStatus>("run_linux_setup", { download, cloudCandidates }),
@@ -451,6 +453,7 @@ function DesktopSettings() {
   const linuxHost = useRef(false);
   const linuxUpdateDeferred = useRef(false);
   const [macosInstall, setMacosInstall] = useState(false);
+  const [linuxRepair, setLinuxRepair] = useState(false);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
   // 首启引导准备资源之后重新读到的版本：第一次启动时 HostOptions 由这一步写下，发现宿主能力时还读不到版本。
   const [preparedEdition, setPreparedEdition] = useState<HostCapabilities["edition"]>();
@@ -639,20 +642,46 @@ function DesktopSettings() {
       // 应用启动时补传一次打字统计；没打开上传、没登录或十分钟内传过时宿主什么也不做，失败也不打扰用户。
       if (host?.typing_statistics && isDesktopAccountHost(host.platform))
         void typingStatisticsUpload.sync().catch(() => undefined);
+      const desktopOobe = createDesktopOobeClient(
+        host?.platform,
+        invoke,
+        async () => {
+          if (host?.platform === "linux") await invoke("open_linux_input_method_settings");
+          else if (host?.platform === "macos") await invoke("open_input_source_settings");
+        },
+        async () => {
+          if (host?.platform === "linux") {
+            setLinuxRepair(true);
+            setLinuxSetup(await invoke<LinuxSetupStatus>("linux_setup_status"));
+          } else if (host?.platform === "macos") {
+            await invoke("repair_macos_oobe_resources");
+            desktopOobe?.refresh?.();
+          }
+        },
+      );
       const hosted: SettingsClient = host
         ? {
             ...client,
             host,
+            oobe: desktopOobe ?? client.oobe,
+            // macOS 设置应用的 Sparkle 更新按页面当前选的通道读对应的 appcast；页面不传通道时宿主读稳定版的。
             ...(applicationUpdater
               ? {
-                  checkForApplicationUpdate: () => invoke<void>("application_update_check"),
+                  checkForApplicationUpdate: (channel) =>
+                    invoke<void>(
+                      "application_update_check",
+                      channel === undefined ? {} : { channel },
+                    ),
                 }
               : {}),
-            // Linux 设置应用每天在后台检查一次更新并发通知（不在应用里安装），关于页先显示它找到的新版本。
+            // Linux 设置应用每天在后台检查一次更新并发通知（不在应用里安装），关于页先显示它找到的新版本；页面传来当前选的通道时只要按这个通道找到的版本。
             ...(host.platform === "linux"
               ? {
-                  pendingUpdateCheck: () =>
-                    invoke<UpdateCheckResult | null>("pending_update_check"),
+                  pendingUpdateCheck: (channel) =>
+                    invoke<UpdateCheckResult | null>(
+                      "pending_update_check",
+                      channel === undefined ? {} : { channel },
+                    ),
                 }
               : {}),
             dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
@@ -931,6 +960,7 @@ function DesktopSettings() {
   const onboardingPlatform = settingsClient?.host?.platform;
   const onboardingActions: OnboardingActions = {
     platform: onboardingPlatform === "ios" ? "ios" : "android",
+    oobe: settingsClient?.oobe,
     prepareResources:
       onboardingPlatform === "android" || !onboardingPlatform
         ? async () => {
@@ -965,6 +995,7 @@ function DesktopSettings() {
     return (
       <LinuxSetupPage
         status={linuxSetup}
+        repair={linuxRepair}
         client={linuxSetupClient}
         edition={settingsClient?.host?.edition}
         onComplete={() => {
@@ -972,7 +1003,11 @@ function DesktopSettings() {
             linuxUpdateDeferred.current = true;
           void invoke("leave_linux_setup_window")
             .catch(() => undefined)
-            .then(() => setLinuxSetup(null));
+            .then(() => {
+              setLinuxSetup(null);
+              setLinuxRepair(false);
+              settingsClient?.oobe?.refresh?.();
+            });
         }}
       />
     );
@@ -983,7 +1018,10 @@ function DesktopSettings() {
         onComplete={() => {
           void invoke("leave_first_install_window")
             .catch(() => undefined)
-            .then(() => setMacosInstall(false));
+            .then(() => {
+              setMacosInstall(false);
+              settingsClient?.oobe?.refresh?.();
+            });
         }}
       />
     );

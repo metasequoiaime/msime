@@ -12,7 +12,7 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
 
 ## Decision
 
-- **入口**：第 14 个本地模式 `LocalInputMode::Symbol`，名字 `symbol`，入口键 `S`。判定在 `local_mode_for_entry`：受总开关 `shift_letter_entry` 约束，方案用 `opens_local_modes`（全拼、双拼），和 E、M 一致；五笔下不进，因为分组码与符号名都是字母，不经方案的拼写。进入后只收字母：撇号、数字、`;` 都交还宿主，`spelling_symbols` 为空。和 E、M 一样不显示注释、不补辅助码。
+- **入口**：第 14 个本地模式 `LocalInputMode::Symbol`，名字 `symbol`，入口键 `S`。判定在 `local_mode_for_entry`：受总开关 `shift_letter_entry` 约束，方案用 `opens_table_modes`（全拼、双拼、五笔）：分组码与符号名都是字母，不经方案的拼写，五笔下也能进（起初跟 E、M 一样只在全拼、双拼下进，#9696 后改为五笔也进，见[五笔打开不经拼音拼写的 Shift 模式](../../implemented/bug-fix/2026-10-25-wubi-scheme-free-shift-modes.md)）。进入后只收字母：撇号、数字、`;` 都交还宿主，`spelling_symbols` 为空。和 E、M 一样不显示注释、不补辅助码。
 - **行的来源复用 `CandidateSource::Emoji`（6）**。符号行选中时整段上屏、结束组字，不学习、不调频、不进个人上下文，不能置顶、固定或删除，不请求释义——这些规则今天由「来源是 Emoji」统一给出，与混排符号行同一条路。新增 `CandidateSource::Symbol` 要改线上值、`from_u8`、`CATALOG_SOURCES`、`normalize_online_slots`、各宿主的结束组字判断，漏一处就是只在某个平台出现的组字残留；[打拼音出符号那篇](2026-10-13-symbol-candidates.md) 已经权衡过一次，结论相同。
 - **两条查法共用一次查询**（`local::symbol_groups::query_symbol_mode`）：先查整串分组码；没有精确组时才查前缀组，最后查符号名。整串优先是为了让 `xl` 只出希腊字母小写，不被 `xld`、`xlc` 这类同前缀的组掺进来。同一个符号只出一行，合计最多 `SYMBOL_MODE_LIMIT`（200，与 Windows `query_symbols` 的默认上限一致，一个组最多 214 个符号）。符号名走已有的 `local::symbol_candidates::query_mixed_symbols`，所以 `alpha` 得 α、`infinity` 得 ∞、`gamma` 得 γ Γ，和「打拼音出符号」用同一张自写表。
 - **分组码表另建一张**：`crates/engine/src/local/symbol_groups.tsv`（`编码<TAB>中文组名<TAB>符号...`，87 组、3 929 个符号、约 43 KB），`symbol_groups.rs` 用 `include_str!` 编进引擎，第一次查询时解析一次。没往 `symbol_candidates.tsv` 里塞分组码：那张表的每一行是「名称 + 拼音」，写法规则（中文名称只含汉字、音节数等于字数、单音节只收派和度、拉丁名称至少四个字母）由它的单测钉死，分组码不是名称、没有读音，塞进去要么放宽这些规则、要么在表里造出假拼音。
@@ -24,7 +24,7 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
 
 - **只抄事实性映射**。上游是 rime-wanxiang 的 `wanxiang_symbols.yaml`（`amzxyz/rime-wanxiang`，发布 `v18.0.16`，提交 `7ab73ee0c7f80190004233e70f954833df64c80e`，CC BY 4.0）。本仓库取的是「分组码 → 码位集合」：编码、每组的码位和组内顺序。中文组名（`xl` → 希腊字母小写、`jt` → 箭头）是本项目自定的界面文字，组的先后也是本项目排的，不取上游的注释文字。
 - **不整段复制**。只收符号面板本来就有的 87 个组；表情分类、元素周期表、XCompose 合成三段完全不读，所以没有任何 emoji、元素信息文本或合成序列进二进制；数字编码（`/0`–`/10`、`/hx…`）也不收，S 模式只收字母。生成器把这几点写成不变量，`scripts/test-symbol-groups.py` 再把 87 组、3 929 个符号、五个样例组的组名与头几个符号钉死，上游改动会在这里红。
-- **署名义务随数据走**。CC BY 4.0 第 3(a) 条要求署名、给出许可证地址、说明改动。`resources/licenses/rime-wanxiang-CC-BY-4.0.txt` 写明上游、固定提交、版权行、取用范围、五条改动和「不背书」声明，后面接许可证全文；`resources/symbol-groups.lock.json` 按字节固定 `wanxiang_symbols.yaml` 与上游 `LICENSE`；`scripts/build_symbol_groups.py` 按锁下载并生成表，`--check` 逐字节比较。这份文件接进了十二个声明渠道（macOS 的 `CMakeLists.txt` 与 `Resources/Licenses`、Linux 的安装列表与 `THIRD_PARTY_NOTICES.txt`、Windows 的 `Collect-Notices.ps1` 与 `Notices.md`、Android 的 `build-native.sh`、HarmonyOS 的 `stage-resources.sh`、iOS 的 `project.yml` 与关于页、`docs/third-party.md`），清单由 `test-symbol-groups.py` 的 `NOTICE_CHANNELS` 核对。
+- **署名义务随数据走**。CC BY 4.0 第 3(a) 条要求署名、给出许可证地址、说明改动。`resources/licenses/rime-wanxiang-CC-BY-4.0.txt` 写明上游、固定提交、版权行、取用范围、五条改动和「不背书」声明，后面接许可证全文；`resources/symbol-groups.lock.json` 按字节固定 `wanxiang_symbols.yaml` 与上游 `LICENSE`，下载地址是词库仓 msime-dictionary `sources/symbols/` 下与上游同一提交逐字节一致的副本（`dictionary_commit`），不直连上游，符号数据统一由词库仓保管；`scripts/build_symbol_groups.py` 按锁下载并生成表，`--check` 逐字节比较。这份文件接进了十二个声明渠道（macOS 的 `CMakeLists.txt` 与 `Resources/Licenses`、Linux 的安装列表与 `THIRD_PARTY_NOTICES.txt`、Windows 的 `Collect-Notices.ps1` 与 `Notices.md`、Android 的 `build-native.sh`、HarmonyOS 的 `stage-resources.sh`、iOS 的 `project.yml` 与关于页、`docs/third-party.md`），清单由 `test-symbol-groups.py` 的 `NOTICE_CHANNELS` 核对。
 - **与 GPL-3.0 的关系**：CC BY 4.0 是允许再分发的宽松许可，没有 ShareAlike，改编数据可以随 GPL-3.0 的引擎一起分发，署名义务落在上面那份文件和声明渠道上。这条判断和拆字表（CC BY 3.0）的处理一致，同样未经法务审阅。上游文件头写明它的符号分组抄自 Rime 的 `symbols.yaml`，那一层授权链条也没有独立核实；两条都记在 `docs/third-party.md` 对应行的末尾。
 
 ## Alternatives considered
@@ -37,7 +37,7 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
 
 ## Consequences
 
-- **收益**：`xl`、`sx`、`szq`、`jt` 等 87 个分组码和 `alpha`、`infinity` 等符号名在六个平台同一套规则，都走 host-api → input-runtime → engine；数据编进引擎，不读磁盘、不依赖词库代次。
+- **收益**：`xl`、`sx`、`szq`、`jt` 等 87 个分组码和 `alpha`、`infinity` 等符号名在六个平台同一套规则，都走 host-api → input-runtime → engine；数据编进引擎，不读磁盘、不依赖词库代次。符号模式后来也认 LaTeX 命令名（`sum`、`leq`、`mathbbr`），数据取自官方短语表「LaTeX 符号」，见[补齐希腊字母与数学符号名称](2026-10-25-math-greek-symbol-names.md)。
 - **代价**：
   - 默认开，升级后句首或中英混打时按 Shift+S 会进入符号模式，`S` 之后打出的字母变成符号检索，不再是大写 S 开头的英文词。这是与 Windows 正式版一致的行为，用户可在设置里关掉，或用总开关一次性关掉所有 Shift+字母模式。
   - 表是生成物（43 KB），改表要发引擎版本；上游改动要重新生成并复核样例数。

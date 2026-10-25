@@ -14,6 +14,8 @@ Status: implemented
 
 设置应用的 `CFBundleVersion` 与内嵌输入法一致，保证跨版本构建号单调递增。打包工具从已暂存的输入法读取 feed、公钥和构建号；两份 appcast 和两份归档都由现有私钥签名，正式发布时同时核对和上传。设置应用只在用户主动检查时启动更新器，避免多个共享面板进程各自检查更新；输入法保留原来的后台检查策略。此改动不触发发布，不生成新产品密钥。
 
+设置应用读哪个通道的 appcast 由[macOS 的更新通道](2026-10-25-macos-update-channels.md)决定：Info.plist 里仍是稳定版的 `appcast-settings-<edition>.xml`，用户选了测试版或每日构建时，每次检查改读同目录下的 `appcast-settings-beta-<edition>.xml` 或 `appcast-settings-nightly-<edition>.xml`。
+
 ## Alternatives considered
 
 - **只从设置页唤起输入法的 Sparkle**：复用全部既有更新产物，接线最少。但设置应用及其界面仍然落后，用户依然要手动替换 DMG，不能满足整个应用直接升级。

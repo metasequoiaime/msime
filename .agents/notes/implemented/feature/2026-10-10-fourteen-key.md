@@ -2,6 +2,8 @@
 
 Status: implemented
 
+十八键全拼的 Android 原生接线复用本笔记的组码与确定字母边界，见 [Android 十八键全拼入口](2026-10-24-android-eighteen-key-quanpin.md)；十四键的既有布局与默认值不变。
+
 ## Problem
 
 移动三端的全拼只有两种触屏布局：26 键和九宫格。26 键在窄屏上每个键很小，九宫格把三四个字母压在一个数字键上，重码多（421 个全拼音节在电话键盘上只有 218 种码，133 种有重码，涉及 336 个音节）。14 键介于两者之间：QWERTY 的位置不变，相邻两个字母合成一个键（`QW ER TY UI OP / AS DF GH JK L / ZX CV BN M`），同样 421 个音节有 314 种码，86 种有重码，涉及 193 个音节。键比 26 键宽，记忆负担比九宫格小。
@@ -13,6 +15,8 @@ Status: implemented
 ## Decision
 
 Android、iOS、HarmonyOS 提供触屏方案「全拼 14 键」。解码复用九宫格会话，只换一张码表（`KeyGrid::FourteenKey`）；组码经新的 `grid_key` 入口进来，不走 `character`；宿主按 `View.key_grid` 决定 14 键的读音行、拼音选择条和三栏面板。三端按下表的同一份规格实现，键表由 `scripts/test-fourteen-key-table.py` 核对。
+
+Android 的双拼扩展由 [Android 14 键双拼](2026-10-23-android-fourteen-key-shuangpin.md) 取代下表中 Android「只给全拼」的限制；iOS 由 [iOS 14 键双拼](2026-10-24-ios-fourteen-key-shuangpin.md) 接入，HarmonyOS 由 [HarmonyOS 双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md) 接入。三者都使用独立布局偏好，沿用当前双拼方案，分号并入 L。
 
 Android 的拼音选择位置与触摸尺寸由 [Android 14 键与九键共用左侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md) 取代；下表的读音行横向选择仍适用于 iOS、HarmonyOS，组码和消歧语义继续共用。
 

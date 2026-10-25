@@ -18,7 +18,9 @@ HARNESS = r'''
 #include <stdexcept>
 
 #define CALLBACK
+#ifndef _Out_
 #define _Out_
+#endif
 using UINT = unsigned;
 using BYTE = uint8_t;
 using WPARAM = uintptr_t;
@@ -116,9 +118,9 @@ int main() {
   }
 
   reset(ime); press(ime);
-  physical['T'] = true; hook('T', false);
+  physical[static_cast<unsigned>('T')] = true; hook('T', false);
   ime._TrackModifierHotkeyArming('T', edge(false), false);
-  physical['T'] = false; hook('T', true);
+  physical[static_cast<unsigned>('T')] = false; hook('T', true);
   // 同一轮 Shift 的无重复位通知也不能把已经取消的轻点重新布防。
   ime._TrackModifierHotkeyArming(VK_SHIFT, edge(false), false);
   require(!release(ime), "a duplicate Shift notification must not rearm a chord");
@@ -128,12 +130,12 @@ int main() {
           "a release callback while Shift is still physically held must not toggle");
   require(release(ime), "an early release callback must not consume the real bare release");
 
-  reset(ime); physical['T'] = true; press(ime);
-  physical['T'] = false;
+  reset(ime); physical[static_cast<unsigned>('T')] = true; press(ime);
+  physical[static_cast<unsigned>('T')] = false;
   require(!release(ime), "pressing Shift after another held key is also a chord");
 
-  reset(ime); ime._bareShiftHook = nullptr; physical['T'] = true; press(ime);
-  physical['T'] = false;
+  reset(ime); ime._bareShiftHook = nullptr; physical[static_cast<unsigned>('T')] = true; press(ime);
+  physical[static_cast<unsigned>('T')] = false;
   require(!release(ime), "the TSF-only route must reject a key already held before Shift");
 
   reset(ime); ime._bareShiftHook = nullptr; press(ime);

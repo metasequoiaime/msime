@@ -134,6 +134,16 @@ def main():
             (root / "options.json").write_text(json.dumps(options))
 
         options["preferences"].update(learning=False, cloud_candidates=False)
+        shuangpin_helpcode = None
+        if "--shuangpin-helpcode" in sys.argv[4:]:
+            shuangpin_helpcode = sys.argv[sys.argv.index("--shuangpin-helpcode") + 1]
+            assert shuangpin_helpcode in ("on", "off"), "需要明确辅助码开关状态"
+            assert (resources / "helpcodes" / "shouyou2_0_helpcode.txt").is_file(), "验收资源缺少真实首右 2.0 码表"
+            options["preferences"].update(
+                scheme="shuangpin", shuangpin_profile="ziranma",
+                candidate_translations=False, candidate_english_gloss=False,
+                shuangpin_helpcode={"enabled": shuangpin_helpcode == "on", "schema": "shouyou2_0",
+                                    "show_in_candidate_window": True, "modes": {"direct_helpcode": True}})
         # 悬浮工具栏在有 DISPLAY 时会画在屏幕右下角；这些用例只看候选和组字，不让它多出一块窗口。
         options["preferences"]["floating_toolbar"]["enabled"] = False
         if "--wayland-punctuation" in sys.argv[4:]:
@@ -159,6 +169,15 @@ def main():
                 service = "org.fcitx.Fcitx5"
                 control = dbus.Interface(bus.get_object(service, "/controller"),
                                          "org.fcitx.Fcitx.Controller1")
+                if shuangpin_helpcode is not None:
+                    subprocess.run([sys.executable, str(source / "tests" / "gtk_editor.py"),
+                                    "--shuangpin-helpcode"],
+                                   env=dict(env, GTK_IM_MODULE="fcitx", GDK_BACKEND="x11"),
+                                   check=True, timeout=30)
+                    control.Exit()
+                    assert daemon.wait(timeout=10) == 0, "双拼验收 daemon 未正常退出"
+                    print(f"Fcitx5 自然码/首右 2.0 编辑器验收通过：辅助码 {shuangpin_helpcode}")
+                    return
                 if "--ibus-frontend" in sys.argv[4:]:
                     check_ibus_frontend(bus, control)
                     # GTK 从地址文件连接 IBus；该文件由 Fcitx5 的延迟初始化发布。

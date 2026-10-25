@@ -239,9 +239,9 @@ private enum DeveloperDiagnostics {
     AppThemePalette.resetToDefault()
   }
 
-  /// App 的 MetricKit 崩溃记录（`UsageReporting.storeCrashDiagnostic`，由 `CrashDiagnostics` 写入）以及键盘留下的记录，写成 `msime_client_diagnostic_bundle` 读取的 `{at, message, stack}` 行。键盘已排队上报的记录已从目录中移走，所以这里只有仍留在设备上的那些。没有记录时返回 nil。
+  /// App 收到的 MetricKit 崩溃记录（`UsageReporting.recordDiagnosedCrash`，由 `CrashDiagnostics` 写入）以及键盘留下的记录，写成 `msime_client_diagnostic_bundle` 读取的 `{at, message, stack}` 行。键盘已排队上报的记录已从目录中移走，所以这里只有仍留在设备上的那些。没有记录时返回 nil。
   private static func writeCrashLog(into directory: URL) -> URL? {
-    // 目录本身或它的上级是符号链接时不读，与写入方 `UsageReporting.storeCrashDiagnostic` 的检查一致。
+    // 目录本身或它的上级是符号链接时不读，与写入方（共享层 `TelemetryStore::record_crash_for`）拒绝符号链接的检查一致。
     guard let crashes = UsageReporting.directory?.appendingPathComponent("telemetry-crashes", isDirectory: true),
           !SafePath.hasRefusedSymbolicLink(crashes) else { return nil }
     let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]

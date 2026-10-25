@@ -1,4 +1,7 @@
-//! Bounded persistent clipboard history. Hosts decide which clipboard events to observe.
+//! 有界持久化剪贴板历史；宿主决定观察哪些系统剪贴板事件。
+
+mod categories;
+pub use categories::{ClipboardCategory, MAX_CATEGORIES, MAX_CATEGORY_NAME_CHARACTERS};
 
 #[cfg(test)]
 use std::fs;
@@ -44,6 +47,8 @@ pub struct ClipboardHistoryEntry {
     pub text: String,
     pub timestamp_ms: u64,
     pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -101,6 +106,7 @@ impl ClipboardHistoryStore {
             crate::storage::reject_symlink(parent)?;
         }
         crate::storage::reject_symlink(&self.path)?;
+        let categories = self.categories()?;
         match crate::storage::open_private_file_in(&self.path) {
             Ok(file) => {
                 let bytes = crate::bounded_io::read_bounded_file(file, MAX_HISTORY_BYTES, || {
@@ -129,11 +135,15 @@ impl ClipboardHistoryStore {
                                 text: normalize_text(&text),
                                 timestamp_ms: length.saturating_sub(index as u64),
                                 pinned: false,
+                                category_id: None,
                             })
                             .collect()
                     }
                 };
                 values.retain(|value| valid_stored(&value.text));
+                for value in &mut values {
+                    categories::retain_category(value, &categories);
+                }
                 sort_entries(&mut values);
                 let mut entries = Vec::new();
                 for value in values {
@@ -217,6 +227,7 @@ impl ClipboardHistoryStore {
                 text,
                 timestamp_ms,
                 pinned: false,
+                category_id: None,
             });
         }
         sort_entries(&mut next);
@@ -292,13 +303,16 @@ impl ClipboardHistoryStore {
         let _lock = self.lock_writer()?;
         let mut latest = Self::open_with_limit(&self.path, self.limit);
         latest.load()?;
+        let categories = latest.categories()?;
         for entry in entries {
             if !latest
                 .entries
                 .iter()
                 .any(|current| current.text == entry.text)
             {
-                latest.entries.push(entry.clone());
+                let mut entry = entry.clone();
+                categories::retain_category(&mut entry, &categories);
+                latest.entries.push(entry);
             }
         }
         sort_entries(&mut latest.entries);
@@ -824,16 +838,19 @@ mod tests {
                 text: "synthetic older".into(),
                 timestamp_ms: 10,
                 pinned: false,
+                category_id: None,
             },
             ClipboardHistoryEntry {
                 text: "synthetic pinned".into(),
                 timestamp_ms: 1,
                 pinned: true,
+                category_id: None,
             },
             ClipboardHistoryEntry {
                 text: "synthetic newer".into(),
                 timestamp_ms: 20,
                 pinned: false,
+                category_id: None,
             },
         ];
         fs::write(&path, serde_json::to_vec(&fixture).unwrap()).unwrap();
@@ -931,6 +948,7 @@ mod tests {
                 text: format!("synthetic pinned {index}"),
                 timestamp_ms: index as u64,
                 pinned: true,
+                category_id: None,
             })
             .collect();
         fs::write(&path, serde_json::to_vec(&pinned).unwrap()).unwrap();
@@ -971,16 +989,19 @@ mod tests {
                 text: "synthetic older".into(),
                 timestamp_ms: 10,
                 pinned: false,
+                category_id: None,
             },
             ClipboardHistoryEntry {
                 text: "synthetic pinned".into(),
                 timestamp_ms: 1,
                 pinned: true,
+                category_id: None,
             },
             ClipboardHistoryEntry {
                 text: "synthetic newer".into(),
                 timestamp_ms: 20,
                 pinned: false,
+                category_id: None,
             },
         ];
         fs::write(path, serde_json::to_vec(&fixture).unwrap()).unwrap();

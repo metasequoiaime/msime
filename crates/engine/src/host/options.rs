@@ -69,6 +69,8 @@ pub struct EngineOptions {
     pub learning: bool,
     /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。
     pub learn_english_on_enter: bool,
+    /// 上屏后联想；默认关闭，宿主只在支持空闲候选的键盘上启用。
+    pub next_word_prediction: bool,
     pub autocorrect_transposition: bool,
     pub autocorrect_neighbor: bool,
     /// Masked with `fuzzy_rule::ALL`.
@@ -116,6 +118,8 @@ pub struct EngineOptions {
     pub mixed_symbols: bool,
     /// 日文混输（实验，`SessionOptions::japanese_mixing`）。宿主只在会话带日文、日文模型在场时打开它。
     pub mixed_japanese: bool,
+    /// 连续输入所选语言；默认空集合关闭，由宿主完成版本与资源门控。
+    pub multilingual_languages: Vec<crate::multilingual::Language>,
     pub local_unicode: bool,
     /// Shift+T 日期时间快捷输入模式（`LocalModeOptions::date_time`）。行内日期时间混入普通候选由 `local_date_time_inline` 单独开关。
     pub local_date_time: bool,
@@ -167,6 +171,8 @@ pub struct EngineOptions {
     pub vietnamese_input_method: u8,
     /// 0 modern (hoà), 1 classic (hòa) (`vietnamese::ToneStyle`).
     pub vietnamese_tone_style: u8,
+    /// 0 两套式，1 罗马字（`KoreanLayout`）。
+    pub korean_layout: u8,
     /// Absolute path of `msime-cantonese.db`, empty when the host has none; the Cantonese scheme is unavailable without it.
     pub cantonese_dictionary: String,
     /// Absolute path of `msime-zhuyin.db`, empty when the host has none; the Zhuyin scheme is unavailable without it.
@@ -219,6 +225,7 @@ pub fn prepare_options_for(
         single_character_only: false,
         learning: false,
         learn_english_on_enter: true,
+        next_word_prediction: false,
         autocorrect_transposition: false,
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
@@ -250,6 +257,7 @@ pub fn prepare_options_for(
         mixed_kaomoji: false,
         mixed_symbols: false,
         mixed_japanese: false,
+        multilingual_languages: Vec::new(),
         local_unicode: true,
         local_date_time: true,
         local_date_time_inline: true,
@@ -279,6 +287,7 @@ pub fn prepare_options_for(
         first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
         vietnamese_input_method: VietnameseInputMethod::Telex as u8,
         vietnamese_tone_style: VietnameseToneStyle::Modern as u8,
+        korean_layout: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
@@ -310,6 +319,8 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_VIETNAMESE_METHOD))?;
     let vietnamese_tone_style = VietnameseToneStyle::from_u8(options.vietnamese_tone_style)
         .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_VIETNAMESE_TONE_STYLE))?;
+    let korean_layout = crate::KoreanLayout::from_u8(options.korean_layout)
+        .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_KOREAN_LAYOUT))?;
     // Only the two user switches; the quanpin dictionary widens them with missing and extra letters per request (`request_autocorrect_mask`), as the C++ did (bridge.cpp:376-378).
     let autocorrect_types = if options.autocorrect_transposition {
         autocorrect_type::TRANSPOSITION
@@ -329,12 +340,14 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.single_character_only = options.single_character_only;
     session.vietnamese_input_method = vietnamese_input_method;
     session.vietnamese_tone_style = vietnamese_tone_style;
+    session.korean_layout = korean_layout;
     session.cantonese_dictionary = PathBuf::from(&options.cantonese_dictionary);
     session.zhuyin_dictionary = PathBuf::from(&options.zhuyin_dictionary);
     session.stroke_dictionary = PathBuf::from(&options.stroke_dictionary);
     session.japanese_dictionary = PathBuf::from(&options.japanese_dictionary);
     session.learning = options.learning;
     session.learn_english_on_enter = options.learn_english_on_enter;
+    session.next_word_prediction = options.next_word_prediction;
     session.autocorrect_types = autocorrect_types;
     session.fuzzy_pinyin = FuzzyPinyinOptions {
         rules: options.fuzzy_pinyin_rules & fuzzy_rule::ALL,
@@ -387,6 +400,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         symbol_candidates: options.mixed_symbols,
     };
     session.japanese_mixing = options.mixed_japanese;
+    session.multilingual_languages = options.multilingual_languages.clone();
     session.local_modes = LocalModeOptions {
         unicode: options.local_unicode,
         date_time: options.local_date_time,

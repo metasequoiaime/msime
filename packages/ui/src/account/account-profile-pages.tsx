@@ -6,7 +6,6 @@ import { AccountAvatar } from "./account-avatar";
 import { AccountConfirmation } from "./account-confirmation";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { AccountIdentityDetails, AccountIdentityRows } from "./account-identity-details";
-import { accountProviderName, preferredAccountName } from "./account-labels";
 import type { AccountClient, AccountProfile, AccountUser } from "./account-model";
 import { AccountNicknameEditor, accountNicknameHelpText } from "./account-nickname-editor";
 import { useAccountAction } from "./account-operation";
@@ -80,7 +79,7 @@ export function MobileAccountProfilePage({
     perform,
     onClearedExpired: onSignedOut,
   });
-  const { normalizedName, validName, rename } = useAccountRename({
+  const { normalizedName, validName, rename, editorState } = useAccountRename({
     client,
     name,
     mounted,
@@ -117,7 +116,11 @@ export function MobileAccountProfilePage({
       <section className={`${account.section} ${account.profilePreviewLarge}`}>
         <AccountAvatar
           user={user}
-          name={normalizedName || "水杉用户"}
+          name={
+            editorState.checking || editorState.unavailable
+              ? undefined
+              : normalizedName || "水杉用户"
+          }
           load={client.avatar}
           size="large"
         />
@@ -127,6 +130,7 @@ export function MobileAccountProfilePage({
       <section className={`${account.section} ${account.stack}`}>
         <h2 className={account.heading}>社区昵称</h2>
         <AccountNicknameEditor
+          {...editorState}
           variant="mobile"
           value={name}
           disabled={busy}
@@ -148,6 +152,7 @@ export function MobileAccountProfilePage({
         <AccountIdentityDetails
           user={user}
           providers={profile?.providers ?? []}
+          providerNames={profile?.providerNames ?? {}}
           copied={copied}
           onCopy={copyId}
         />
@@ -200,7 +205,7 @@ export function HarmonyProfilePage({
     onDeleted: (voiceSamplesKept) =>
       onSignedOut(voiceSamplesKept ? ACCOUNT_DELETED_VOICE_SAMPLES_KEPT : "账号已注销"),
   });
-  const { normalizedName, validName, rename } = useAccountRename({
+  const { normalizedName, validName, rename, editorState } = useAccountRename({
     client,
     name,
     mounted,
@@ -213,7 +218,7 @@ export function HarmonyProfilePage({
       showToast("昵称已更新");
     },
   });
-  const shownName = preferredAccountName(user);
+  const shownName = user.preferredName;
   const provider = profile?.providers[0];
   const confirmAction = () => {
     const action = confirmation;
@@ -237,13 +242,16 @@ export function HarmonyProfilePage({
         <h3 className={account.profileHeroName}>{shownName}</h3>
         {user.email && <span className={account.profileHeroEmail}>{user.email}</span>}
         {provider && (
-          <span className={account.profileHeroPill}>通过 {accountProviderName(provider)} 登录</span>
+          <span className={account.profileHeroPill}>
+            通过 {profile?.providerNames[provider] ?? provider} 登录
+          </span>
         )}
       </div>
       <AccountIdentityRows
         user={user}
         name={shownName}
         providers={profile?.providers ?? null}
+        providerNames={profile?.providerNames ?? {}}
         disabled={busy}
         onRename={() => {
           setName(user.displayName);
@@ -271,6 +279,7 @@ export function HarmonyProfilePage({
         >
           <div className={account.sheetField}>
             <AccountNicknameEditor
+              {...editorState}
               variant="sheet"
               value={name}
               disabled={busy}

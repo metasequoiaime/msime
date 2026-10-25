@@ -2,6 +2,7 @@
 //
 // 皮肤怎么套用照 server_main.cpp：共享层的 msime_client_skin_catalog 扫目录、msime_client_resolve_theme 按排列和明暗解析主题，canvas 包按明暗选面板图、确认图片解得出来，面板画得出来时再带 `canvas_panel_drawn` 解析一次取贴图原配色，配色、最小宽度、装饰图、背景图、圆角、版式、字体、动效和 canvas 画布经同样的 setter 交给候选窗；共享默认偏好（msime_client_default_preferences）给出字体、字号、缩放、不透明度和首行设置。卷轴展开用 CandidateWindow::open_expansion 打开，Server 那一侧的「开着」和完整候选列表由这里的读取器扮演。
 #include "CandidateSkinGallery.h"
+#include "../../../compat/WindowsDpi.h"
 #include "CandidateCanvasImages.h"
 #include "CandidateFontSettings.h"
 #include "CandidateLayoutSettings.h"
@@ -684,7 +685,7 @@ int wmain(int argc, wchar_t **argv) {
       return usage();
   }
   // 自己的进程：整个进程按每显示器 DPI 感知，窗口矩形和屏幕截图都是物理像素。
-  if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+  if (!msime::windows::compat::process_context(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
     report("SetProcessDpiAwarenessContext failed with " + std::to_string(GetLastError()) +
         "; window rectangles may be scaled");
   const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

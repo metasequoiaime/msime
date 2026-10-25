@@ -5,6 +5,7 @@ import { createCommunitySkinClient } from "@msime/ui";
 
 import type {
   AccountClient,
+  AccountUser,
   AiSkinProposal,
   ChatClient,
   CommunitySkinOperation,
@@ -71,10 +72,7 @@ export function createMobileHostServices(
     platform === "ios"
       ? {
           ...baseAccount,
-          appleLogin: () =>
-            invoke<{ user?: { id: string; displayName: string; createdAt: string } | null }>(
-              "account_apple_login",
-            ),
+          appleLogin: () => invoke<{ user?: AccountUser | null }>("account_apple_login"),
           settingsSync: accountSettingsSync,
         }
       : { ...baseAccount, settingsSync: accountSettingsSync };

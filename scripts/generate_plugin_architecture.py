@@ -663,5 +663,5 @@ if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if a != "--open"]
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = args[0] if args else os.path.join(root, "docs", "plugin-architecture.html")
-    with open(out, "w", encoding="utf-8") as f:
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write(page(open_dev="--open" in sys.argv[1:]))

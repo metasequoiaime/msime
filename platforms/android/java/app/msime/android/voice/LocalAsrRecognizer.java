@@ -37,12 +37,15 @@ public final class LocalAsrRecognizer {
     private static ScheduledExecutorService releaser;
     private static boolean watchingMemory;
 
-    /** What the caller shows while the user speaks. Called on the recognizing worker. */
+    /** 中间文字和说话状态在识别线程回传，音量在采集线程回传；界面更新由调用方切回主线程。 */
     public interface Listener {
         void onPartial(String text);
 
         /** 经过 VAD 的整段模型（SenseVoice、离线 X-ASR 等）开始或停止判定在说话时调用一次。这类模型一段说完才出文字，调用方按「多久没有新文字」判断说完时，要在说话期间推迟，否则用户接着说下去会被截断。流式模型不报。 */
         default void onSpeech(boolean speaking) { }
+
+        /** 每次实际读取 PCM 后回传 0–1 音量，模型冷加载期间也能显示聆听反馈。 */
+        default void onVolume(float level) { }
     }
 
     /** Why a recognition did not produce text. The caller maps these onto its own messages. */
@@ -104,6 +107,7 @@ public final class LocalAsrRecognizer {
 
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    private final Object captureStartLock = new Object();
     private final Object handleLock = new Object();
     private long handle;
 
@@ -124,18 +128,26 @@ public final class LocalAsrRecognizer {
         }
     }
 
-    /** Stop recording and finish the transcript from what was captured. */
+    /** 停止采集，使用已经录到的音频完成转写。 */
     public void stop() {
-        stopped.set(true);
+        synchronized (captureStartLock) {
+            stopped.set(true);
+        }
     }
 
-    /** Abandon the dictation; a decode in progress stops at its next check. Any thread. */
+    /** 任意线程取消；返回后不得再启动麦克风，正在解码的会话在下次检查时退出。 */
     public void cancel() {
-        cancelled.set(true);
-        stopped.set(true);
-        synchronized (handleLock) {
-            NativeClient.localSpeechCancel(handle);
+        synchronized (captureStartLock) {
+            cancelled.set(true);
+            stopped.set(true);
         }
+        synchronized (handleLock) {
+            if (handle != 0) NativeClient.localSpeechCancel(handle);
+        }
+    }
+
+    private void checkCancelled() throws Refused {
+        if (cancelled.get()) throw new Refused(Failure.CANCELLED);
     }
 
     /**
@@ -170,7 +182,9 @@ public final class LocalAsrRecognizer {
     public String recognize(String modelDirectory, Path trustedRoot, String language, String hostOptions,
                             String[] hotwordTexts, String[] hotwordPinyin,
                             Listener listener) throws Refused {
+        checkCancelled();
         diagnostic(DiagnosticEventKind.VOICE_LOCAL_MODEL_CHECK);
+        checkCancelled();
         if (!LocalAsrPolicy.installed(modelDirectory, trustedRoot)) throw new Refused(Failure.MODEL);
         JSONObject manifest = manifest(modelDirectory, trustedRoot);
         if (manifest == null) throw new Refused(Failure.MODEL);
@@ -178,23 +192,30 @@ public final class LocalAsrRecognizer {
         String kind = manifestString(manifest, "kind");
         JSONArray hotwords = supplied(hotwordTexts, hotwordPinyin);
         if (hotwords.length() == 0) hotwords = hotwords(hostOptions);
+        checkCancelled();
         diagnostic(DiagnosticEventKind.VOICE_LOCAL_RUNTIME_CHECK);
+        checkCancelled();
         requireRuntime(trustedRoot);
+        checkCancelled();
         BlockingQueue<short[]> audio = new LinkedBlockingQueue<>();
         AtomicBoolean captureFailed = new AtomicBoolean();
         diagnostic(DiagnosticEventKind.VOICE_LOCAL_RECORDER_OPEN);
-        AudioRecord recorder = openRecorder();
+        AudioRecord recorder;
+        synchronized (captureStartLock) {
+            checkCancelled();
+            if (stopped.get()) throw new Refused(Failure.EMPTY);
+            recorder = openRecorder();
+        }
         Thread capture = ThreadPolicy.namedThread("msime-local-asr-capture",
-            () -> capture(recorder, audio, captureFailed));
+            () -> capture(recorder, audio, captureFailed, listener));
         long created = 0;
         boolean captureStarted = false;
         try {
-            // Native session creation can fail before the cleanup scope used to
-            // own the recorder exists. Keep both resources in this scope so a
-            // linker/runtime failure cannot leave the microphone allocated.
+            // 句柄创建失败也必须释放已打开的录音资源，两者共用清理范围。
             diagnostic(DiagnosticEventKind.VOICE_LOCAL_NATIVE_START);
-            created = NativeClient.localSpeechCreate();
             synchronized (handleLock) {
+                checkCancelled();
+                created = NativeClient.localSpeechCreate();
                 handle = created;
             }
             // Capture starts before the model loads, so the first words are queued rather than lost while a cold model is read from storage.
@@ -217,7 +238,7 @@ public final class LocalAsrRecognizer {
             // The session throws once cancelled; anything else is the recognizer failing.
             throw new Refused(cancelled.get() ? Failure.CANCELLED : Failure.RUNTIME);
         } finally {
-            stopped.set(true);
+            stop();
             joinQuietly(capture);
             if (!captureStarted) recorder.release();
             synchronized (handleLock) {
@@ -312,12 +333,15 @@ public final class LocalAsrRecognizer {
         return recorder;
     }
 
-    /** Runs on its own thread until stopped or the time cap; always releases the microphone. */
+    /** 独立线程采集到停止或时限，始终释放麦克风；启动与取消共用同一把锁。 */
     private void capture(AudioRecord recorder, BlockingQueue<short[]> audio,
-                         AtomicBoolean failed) {
+                         AtomicBoolean failed, Listener listener) {
         try {
             diagnostic(DiagnosticEventKind.VOICE_LOCAL_CAPTURE_START);
-            recorder.startRecording();
+            synchronized (captureStartLock) {
+                if (stopped.get()) return;
+                recorder.startRecording();
+            }
             if (recorder.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
                 diagnostic(DiagnosticEventKind.VOICE_LOCAL_CAPTURE_START_FAILURE);
                 failed.set(true);
@@ -336,6 +360,7 @@ public final class LocalAsrRecognizer {
                     return;
                 }
                 if (read == 0) continue;
+                if (listener != null) listener.onVolume(VoiceAudioLevel.fromPcm(chunk, read));
                 captured += read;
                 java.io.ByteArrayOutputStream keep = retained;
                 if (keep != null) {

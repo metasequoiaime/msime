@@ -91,6 +91,18 @@ export const keyboardRows: KeyboardKey[][] = [
   ],
 ];
 
+export const eighteenKeyRows: KeyboardKey[][] = [
+  [..."123456789"].map((label) => key(label, label.charCodeAt(0))),
+  ...["Q WE RT Y U IO P", "A SD FG H JK L", "Z XC V BN M"].map((row) =>
+    row.split(" ").map((label) => ({
+      label,
+      virtualKey: label.charCodeAt(0),
+      groupedLetter: label[0].toLowerCase(),
+    })),
+  ),
+  [key("分词", 0xde), key("Backspace", 0x08), key("Space", 0x20), key("Enter", 0x0d)],
+];
+
 export const nineKeyRows: KeyboardKey[][] = [
   [key("1", 0x31), key("2", 0x32), key("3", 0x33)],
   [key("4", 0x34), key("5", 0x35), key("6", 0x36)],

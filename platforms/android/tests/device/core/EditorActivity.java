@@ -62,6 +62,7 @@ public final class EditorActivity extends Activity {
         };
         // 需要验收真实换行的套件显式使用多行编辑器，普通单行夹具继续保留。
         plain.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra(
+            "msime_test_url", false) ? InputType.TYPE_TEXT_VARIATION_URI : getIntent().getBooleanExtra(
             "msime_test_multiline", false) ? InputType.TYPE_TEXT_FLAG_MULTI_LINE : 0));
         plain.setContentDescription("msime-test-plain");
         probePlain = plain;

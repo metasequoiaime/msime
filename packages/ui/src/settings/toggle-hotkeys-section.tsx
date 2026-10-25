@@ -8,11 +8,12 @@ import { KeyChordRecorder } from "./key-chord-recorder";
 
 type ToggleHotkeyField = ToggleHotkeyCheckRequest["field"];
 
-/** `checkToggleHotkey` 回传的 `owner` 到设置页文案：切换热键用本组三个行名，开关占用用那个开关的含义。 */
+/** `checkToggleHotkey` 回传的 `owner` 到设置页文案：切换热键用对应行名，开关占用用那个开关的含义。 */
 const OWNER_LABELS: Record<string, string> = {
   toggle_english_candidates: "中英切换（英文候选模式）",
   toggle_full_width: "全角 / 半角切换",
   toggle_punctuation: "中英文标点切换",
+  toggle_voice_input: "语音输入开始／结束",
   switch_language_shift: "Shift+Space 中英文切换",
   switch_language_ctrl_space: "Ctrl+Space 中英文切换",
   switch_language_ctrl_alt_space: "Ctrl+Alt+Space 中英文切换",
@@ -38,6 +39,8 @@ export interface ToggleHotkeysSectionProps {
   voiceCtrlF9: boolean;
   onChange: (patch: Partial<KeybindingPreferences>) => void;
   disabled?: boolean;
+  /** 语音页只编辑语音绑定，其余三个切换键仍在快捷键页。 */
+  voiceOnly?: boolean;
 }
 
 function rejectionMessage(result: ToggleHotkeyCheckResult & { ok: false }): string {
@@ -48,39 +51,48 @@ function rejectionMessage(result: ToggleHotkeyCheckResult & { ok: false }): stri
   return "无法识别的组合键";
 }
 
-/** 「切换热键」组：三个可重绑切换键各一行录键控件；宿主声明 `toggle_hotkey_chords` 才挂载。 */
+/** 共享录键组：语音页编辑语音绑定，快捷键页编辑另外三个切换键；宿主提供共享校验才挂载。 */
 export function ToggleHotkeysSection({
   keybindings,
   check,
   voiceCtrlF9,
   onChange,
   disabled,
+  voiceOnly = false,
 }: ToggleHotkeysSectionProps) {
   const [errors, setErrors] = useState<Partial<Record<ToggleHotkeyField, string>>>({});
   if (!check) return null;
   const commit = async (field: ToggleHotkeyField, chord: string) => {
-    const result = await check({
-      field,
-      chord,
-      keybindings: { ...keybindings } as Record<string, unknown>,
-      voice_ctrl_f9: voiceCtrlF9,
-      physical_recording: true,
-    });
-    if (result.ok) {
-      setErrors((current) => ({ ...current, [field]: undefined }));
-      onChange({ [field]: result.chord });
-    } else {
-      setErrors((current) => ({ ...current, [field]: rejectionMessage(result) }));
+    try {
+      const result = await check({
+        field,
+        chord,
+        keybindings: { ...keybindings } as Record<string, unknown>,
+        voice_ctrl_f9: voiceCtrlF9,
+        physical_recording: true,
+      });
+      if (result.ok) {
+        setErrors((current) => ({ ...current, [field]: undefined }));
+        onChange({ [field]: result.chord });
+      } else {
+        setErrors((current) => ({ ...current, [field]: rejectionMessage(result) }));
+      }
+    } catch {
+      setErrors((current) => ({ ...current, [field]: "无法检查快捷键，请稍后重试" }));
     }
   };
+  const title = voiceOnly ? "自定义语音快捷键" : "切换热键";
+  const rows = voiceOnly
+    ? [{ field: "toggle_voice_input" as const, title: "语音输入开始／结束" }]
+    : ROWS;
   return (
-    <GroupList title="切换热键">
-      <SettingsRowStack role="group" aria-label="切换热键">
+    <GroupList title={title}>
+      <SettingsRowStack role="group" aria-label={title}>
         <SettingsGroupNote>
           点击后按下新的组合键完成重绑，Esc 取消，Backspace / Delete
           解绑；写法与冲突判定与保存时相同。
         </SettingsGroupNote>
-        {ROWS.map(({ field, title }) => (
+        {rows.map(({ field, title }) => (
           <Row key={field} title={title}>
             <KeyChordRecorder
               value={keybindings[field] ?? ""}

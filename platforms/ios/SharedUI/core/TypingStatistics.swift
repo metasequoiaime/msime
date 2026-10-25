@@ -3,12 +3,13 @@ import Darwin
 import CoreFoundation
 
 enum TypingSource: String, CaseIterable {
-  case quanpin, nineKey, fourteenKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
     case .nineKey: "全拼 9 键"
     case .fourteenKey: "全拼 14 键"
+    case .eighteenKey: "全拼 18 键"
     case .shuangpin: "小鹤双拼"
     case .ziranma: "自然码双拼"
     case .microsoft: "微软双拼"
@@ -334,9 +335,10 @@ enum TypingKeyID {
     let nineKey: [String] = (0...9).map { "Nine\($0)" }
     // 全拼 14 键的各键，按键面上的字母命名，与 client-services 的 `KEY_IDS` 逐字一致。
     let fourteenKey: [String] = ["QW", "ER", "TY", "UI", "OP", "AS", "DF", "GH", "JK", "L", "ZX", "CV", "BN", "M"].map { "Fourteen\($0)" }
+    let eighteenKey: [String] = ["Q", "WE", "RT", "Y", "U", "IO", "P", "A", "SD", "FG", "H", "JK", "L", "Z", "XC", "V", "BN", "M"].map { "Eighteen\($0)" }
     let soft: [String] = ["SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji", "SoftVoice"]
     var keys: [String] = letters
-    for part in [digits, editing, functionKeys, numpadDigits, numpad, nineKey, soft, fourteenKey] {
+    for part in [digits, editing, functionKeys, numpadDigits, numpad, nineKey, soft, fourteenKey, eighteenKey] {
       keys += part
     }
     return keys
@@ -370,6 +372,12 @@ enum TypingKeyID {
   /// 全拼 14 键的一个键，按键面上的字母命名（`FourteenQW`）；不记到 `KeyQ` 这些 26 键字母上，否则会混进 26 键的热力图。键面不是 14 键的某一组时为 nil。
   static func fourteenKey(_ face: String) -> String? {
     let id = "Fourteen\(face)"
+    return known.contains(id) ? id : nil
+  }
+
+  /// 18 键的一个键（`EighteenWE`），全拼和双拼共用，与 14 键、26 键的热力图分开。键面不是 18 键的某一组时为 nil。
+  static func eighteenKey(_ face: String) -> String? {
+    let id = "Eighteen\(face)"
     return known.contains(id) ? id : nil
   }
 
@@ -425,6 +433,7 @@ enum TypingKeyID {
     if id.hasPrefix("Key") { return String(id.dropFirst(3)) }
     if id.hasPrefix("Digit") { return String(id.dropFirst(5)) }
     if id.hasPrefix("Nine") { return "九键 \(id.dropFirst(4))" }
+    if id.hasPrefix("Eighteen") { return "18 键 \(id.dropFirst(8))" }
     if id.hasPrefix("Fourteen") { return "14 键 \(id.dropFirst(8))" }
     return id
   }
@@ -881,14 +890,15 @@ enum TypingSummaryText {
     ]
   }
 
-  /// 输入方式：26 键、14 键、9 键、语音和手写，只列有输入的部分。除九键和 14 键外的所有键盘方案都在 26 个字母键上输入；AI 润色、回复和未归类的输入不算输入方式，不计入。与共享界面的 `summaryMethods` 一致。
+  /// 输入方式按二十六、十八、十四、九键、语音和手写分别汇总，只列有输入的部分。AI 润色、回复和未归类的输入不计入，与共享界面的 `summaryMethods` 一致。
   static func methods(_ sources: [String: Int]) -> [Share] {
-    let excluded = Set([TypingSource.nineKey, .fourteenKey, .voice, .handwriting, .unknown, .ai, .reply].map(\.rawValue))
+    let excluded = Set([TypingSource.nineKey, .fourteenKey, .eighteenKey, .voice, .handwriting, .unknown, .ai, .reply].map(\.rawValue))
     let full = sources.filter { !excluded.contains($0.key) }.values.reduce(0) { $0 + max(0, $1) }
     func value(_ source: TypingSource) -> Int { max(0, sources[source.rawValue] ?? 0) }
     return [
       Share(title: "26 键", count: full),
       Share(title: "14 键", count: value(.fourteenKey)),
+      Share(title: "18 键", count: value(.eighteenKey)),
       Share(title: "9 键", count: value(.nineKey)),
       Share(title: "语音", count: value(.voice)),
       Share(title: "手写", count: value(.handwriting)),

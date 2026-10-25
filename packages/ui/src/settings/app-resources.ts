@@ -1,5 +1,6 @@
 export const logo = new URL("../assets/msime.svg", import.meta.url).href;
 export const settingsIcon = new URL("../assets/settings.svg", import.meta.url).href;
+export const homeIcon = new URL("../assets/home.svg", import.meta.url).href;
 
 export const feedbackIcons = {
   github: new URL("../assets/github.svg", import.meta.url).href,

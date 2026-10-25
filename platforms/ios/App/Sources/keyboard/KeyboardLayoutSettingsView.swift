@@ -1,7 +1,10 @@
+import AudioToolbox
 import SwiftUI
 import UIKit
 
-/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 14 / 9 键、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
+/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 18 / 14 / 9 键、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
+///
+/// 按键反馈里的「音效」选按键音包：列表是 `msime_client_plugins` 的 `catalog` 里的按键音包（`KeySoundPackPolicy.packs`），选中时写共享偏好 `plugins.key_sound.pack` 并试听这个包的普通键声音。按键音关着时这一行置灰。
 ///
 /// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
@@ -10,6 +13,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var height = KeyboardLayoutPreference.heightAdjustment
   @State private var skin = KeyboardTheme.current
   @State private var scheme = InputSchemePreference.scheme
+  @State private var shuangpinLayout = TouchShuangpinLayoutPreference.layout
   @State private var hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
@@ -30,6 +34,11 @@ struct KeyboardLayoutSettingsView: View {
   @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults)
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @State private var previewFeedback: UIImpactFeedbackGenerator?
+  /// 选中的按键音包，取自共享文档。
+  @State private var keySoundPack = KeySoundPackPolicy.defaultPack
+  /// 本机能播的按键音包；目录还没读出来时为 nil。
+  @State private var keySoundPacks: [KeySoundPackPolicy.Pack]?
+  @State private var keySoundSaveFailed = false
 
   private enum Axis { case vertical, horizontal }
   /// 一次保存只写用户刚动的那一项，见 `save(_:)`。
@@ -59,19 +68,22 @@ struct KeyboardLayoutSettingsView: View {
     .navigationTitle("键盘").navigationBarTitleDisplayMode(.inline)
     // 这一页停在后台时，用户可能在键盘里改了高度或间距；回到前台重新读一遍文档，页面上才不会留着旧值。
     .reloadOnAppearAndActive(readPreferences)
+    // 目录要读每个包的清单，放到主线程之外；页面消失时任务随之取消。
+    .task { keySoundPacks = await Task.detached(priority: .userInitiated) { Self.installedKeySoundPacks() }.value }
   }
 
   // MARK: - 预览
 
   private var nineKey: Bool { scheme.isMandarinNineKey }
-  /// 键盘上有没有 iPad 的数字行：九键和全拼 14 键都不画它。
-  private var drawsNumberRow: Bool { !nineKey && scheme != .fourteenKey }
+  private var letterGrid: LetterKeyGrid? { LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout) }
+  /// 键盘上有没有 iPad 的数字行：九键、14 键和 18 键都不画它。
+  private var drawsNumberRow: Bool { !nineKey && letterGrid == nil }
 
   private var preview: some View {
     VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: nineKey, fourteenKey: scheme == .fourteenKey,
+        skin: skin, nineKey: nineKey, letterGrid: letterGrid,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height
       )
@@ -156,6 +168,18 @@ struct KeyboardLayoutSettingsView: View {
   private var layoutGroup: some View {
     DesignGroup(title: "布局", footer: saveFailed ? SettingsSaveFailure.message : nil) {
       chineseKeyboardRow
+      if scheme.shuangpinProfile != nil {
+        DesignDivider()
+        DesignSelectRow(
+          title: "双拼键盘",
+          subtitle: "当前双拼方案使用的字母键布局",
+          options: TouchShuangpinLayoutPreference.Layout.allCases.map {
+            DesignOption(title: $0.title, value: $0, identifier: "shuangpinKeyboard\($0.rawValue)")
+          },
+          selection: Binding(get: { shuangpinLayout }, set: { _ in }),
+          sheetTitle: "双拼键盘", identifier: "shuangpinKeyboardPicker",
+          onSelect: selectShuangpinLayout)
+      }
       DesignDivider()
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
       if ChineseInputScheme.shuangpin.isOfferedByEdition {
@@ -181,7 +205,7 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
-  /// 在当前方案所属的一组触屏方案之间切换：全拼是 26 键、14 键、9 键三选一，日语是 26 键和 9 键。只有一种排列的方案（双拼、五笔、手写等）没有这一组；在那里提供全拼会悄悄把小鹤用户切到全拼，所以这一行只显示方案名。
+  /// 在当前方案所属的一组触屏方案之间切换：全拼在 26 键、18 键、14 键、9 键中选一种，日语是 26 键和 9 键。双拼的布局独立保存，五笔、手写等只有一种排列，因此这些方案没有这一组；在那里提供全拼会悄悄把小鹤用户切到全拼，所以这一行只显示方案名。
   @ViewBuilder
   private var chineseKeyboardRow: some View {
     if let layouts = Self.layoutChoices(scheme), layouts.count > 1 {
@@ -195,7 +219,8 @@ struct KeyboardLayoutSettingsView: View {
       HStack(spacing: 12) {
         VStack(alignment: .leading, spacing: 2) {
           Text("中文键盘").font(.system(size: 17)).foregroundStyle(.primary)
-          Text(Self.layoutChoices(scheme) == nil ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘")
+          Text(scheme.shuangpinProfile != nil ? "下方可选择双拼的 26 键、14 键或 18 键布局"
+            : Self.layoutChoices(scheme) == nil ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘")
             .designSubtext()
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -210,12 +235,25 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
+  private var feedbackFooter: String {
+    let sound = "按键音需要在系统设置里为水杉输入法打开“允许完全访问”。所选音效由水杉输入法自己播放，跟随静音模式和媒体音量，与正在播放的音乐混音，不受“声音与触感 › 键盘反馈 › 声音”影响；音效还没准备好时用系统按键声。"
+    let footer = KeyboardFeedbackPreference.hapticsAvailable ? sound + "振动效果取决于设备与系统支持。" : sound
+    return keySoundSaveFailed ? SettingsSaveFailure.message + "\n\n" + footer : footer
+  }
+
   private var feedbackGroup: some View {
-    DesignGroup(title: "按键反馈", footer: KeyboardFeedbackPreference.hapticsAvailable
-      ? "按键音受系统静音设置控制；振动效果取决于设备与系统支持。"
-      : "按键音受系统静音设置控制。") {
+    DesignGroup(title: "按键反馈", footer: feedbackFooter) {
       DesignToggleRow(title: "按键音", isOn: $soundEnabled.markingSettingsChange())
         .accessibilityIdentifier("keyboardSoundToggle")
+      DesignDivider()
+      DesignSelectRow(
+        title: "音效",
+        options: keySoundPackOptions,
+        selection: Binding(get: { keySoundPack }, set: { _ in }),
+        sheetTitle: "按键音效", sheetMessage: "选中后试听一下", identifier: "keyboardSoundPackPicker",
+        onSelect: selectKeySoundPack)
+      .disabled(!soundEnabled)
+      .opacity(soundEnabled ? 1 : 0.45)
       if KeyboardFeedbackPreference.hapticsAvailable {
         DesignDivider()
         DesignToggleRow(title: "按键振动", isOn: $hapticsEnabled.markingSettingsChange())
@@ -368,12 +406,13 @@ struct KeyboardLayoutSettingsView: View {
 
   // MARK: - 存储
 
-  /// 当前方案所属的一组键盘，按 26 键、14 键、9 键排列，只留本版本提供的：全拼有 26 键、14 键和 9 键，日语有 26 键和 9 键。其余方案都只有一种排列，为 nil。
+  /// 当前方案所属的一组键盘，只留本版本提供的：全拼按 Android 的顺序有 26 键、18 键、14 键和 9 键，日语有 26 键和 9 键。双拼的 14 键、18 键布局单独由上面的行保存，避免切换方案时丢掉双拼 profile。
   static func layoutChoices(_ scheme: ChineseInputScheme) -> [(title: String, scheme: ChineseInputScheme, identifier: String)]? {
     let choices: [(title: String, scheme: ChineseInputScheme, identifier: String)]
     switch scheme {
-    case .quanpin, .fourteenKey, .nineKey:
-      choices = [("26 键", .quanpin, "chineseKeyboard26Key"), ("14 键", .fourteenKey, "chineseKeyboard14Key"),
+    case .quanpin, .eighteenKey, .fourteenKey, .nineKey:
+      choices = [("26 键", .quanpin, "chineseKeyboard26Key"), ("18 键", .eighteenKey, "chineseKeyboard18Key"),
+                 ("14 键", .fourteenKey, "chineseKeyboard14Key"),
                  ("9 键", .nineKey, "chineseKeyboard9Key")]
     case .japanese, .japaneseNineKey:
       choices = [("26 键", .japanese, "chineseKeyboard26Key"), ("9 键", .japaneseNineKey, "chineseKeyboard9Key")]
@@ -398,6 +437,16 @@ struct KeyboardLayoutSettingsView: View {
     readPreferences()
   }
 
+  private func selectShuangpinLayout(_ next: TouchShuangpinLayoutPreference.Layout) {
+    guard next != shuangpinLayout else { return }
+    saveFailed = !TouchShuangpinLayoutPreference.save(next)
+    if saveFailed {
+      shuangpinLayout = TouchShuangpinLayoutPreference.layout(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+    } else {
+      shuangpinLayout = next
+    }
+  }
+
   private func previewHaptics() {
     guard hapticsEnabled else { return }
     let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
@@ -405,6 +454,27 @@ struct KeyboardLayoutSettingsView: View {
     previewFeedback = generator
     strength.impact(generator)
     generator.prepare()
+  }
+
+  private var keySoundPackOptions: [DesignOption<String>] {
+    guard let keySoundPacks else { return [] }
+    return KeySoundPackPolicy.options(keySoundPacks, selected: keySoundPack).map {
+      DesignOption(title: $0.name, value: $0.id, identifier: "keyboardSoundPack.\($0.id)")
+    }
+  }
+
+  /// 写进共享文档的 `plugins.key_sound.pack`，键盘下次出现时换上；写不进去时这一行回到已存的选择。选中的（包括再点一次当前的）都试听一下。
+  private func selectKeySoundPack(_ id: String) {
+    let saved = MetasequoiaInputSessionBridge.updateSharedPreferences { KeySoundPackPolicy.choose(id, document: &$0) }
+    keySoundSaveFailed = !saved
+    keySoundPack = saved ? id : KeySoundPackPolicy.selectedPack(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+    if saved { KeySoundPackPreview.play(id) }
+  }
+
+  /// 本机的按键音包：随包内置的和装在共享状态目录里的。读每个包的清单，在主线程之外调用。
+  nonisolated static func installedKeySoundPacks() -> [KeySoundPackPolicy.Pack] {
+    guard case .success(let value) = MetasequoiaInputSessionBridge.plugins(["operation": "catalog"]) else { return [] }
+    return KeySoundPackPolicy.packs(inCatalog: value)
   }
 
   /// The drags and sliders only move the preview while they run; the settled value is saved here, into the shared document the keyboard reloads. A save the document refuses puts the page back to what is stored.
@@ -443,6 +513,7 @@ struct KeyboardLayoutSettingsView: View {
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     // 文档里的选择（取不到时退回 App Group 镜像）就是键盘下次打开时用的方案。
     scheme = InputSchemePreference.current(in: preferences).scheme
+    shuangpinLayout = TouchShuangpinLayoutPreference.layout(in: preferences)
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment
@@ -455,6 +526,7 @@ struct KeyboardLayoutSettingsView: View {
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     spaceVoice = KeyboardLayoutPreference.spaceVoice
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
+    keySoundPack = KeySoundPackPolicy.selectedPack(in: preferences)
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
@@ -510,5 +582,18 @@ private struct InlineSliderRow: View {
     .padding(.vertical, 8)
     .padding(.horizontal, 20)
     .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+  }
+}
+
+/// 设置 App 里试听一个按键音包：播放它的普通键样本。用系统声音（`AudioServicesPlaySystemSound`）而不是 `AVAudioPlayer`：App 的音频会话属于语音输入的录音服务（`VoiceSessionService`），试听不能去改它的类别；系统声音不碰会话，跟随静音模式，与正在播放的音乐混音。所以试听的音量是系统提示音的音量，不按 `plugins.key_sound.volume` 缩放。
+private enum KeySoundPackPreview {
+  static func play(_ pack: String) {
+    Task.detached(priority: .userInitiated) {
+      guard case .success(let value) = MetasequoiaInputSessionBridge.keySoundPack(pack),
+            let samples = KeySoundPackPolicy.Samples(pack: pack, value: value) else { return }
+      var sound: SystemSoundID = 0
+      guard AudioServicesCreateSystemSoundID(samples.standard as CFURL, &sound) == kAudioServicesNoError else { return }
+      AudioServicesPlaySystemSoundWithCompletion(sound) { AudioServicesDisposeSystemSoundID(sound) }
+    }
   }
 }

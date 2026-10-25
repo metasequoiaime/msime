@@ -15,7 +15,7 @@ namespace msime::windows {
 // gloss or translation provider, and the shared runtime hides answers from
 // them even when another row has the same text.
 inline bool source_gets_no_translation(unsigned source) {
-  return source == 6 || source == 7 || source == 13 || source == 14;
+  return source == 6 || source == 7 || source == 13 || source == 14 || source == 18;
 }
 
 // English dictionary glosses use ';' while Chinese glosses use the full-width semicolon. Ctrl+Enter commits the first non-empty sense, without leaking joined display text. The rule is shared with every other host - see shared/input/GlossSenses.h.

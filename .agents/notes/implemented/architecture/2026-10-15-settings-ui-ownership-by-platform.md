@@ -31,8 +31,48 @@ macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settin
 
 归属表和这两条规则的现行表述在 `docs/ARCHITECTURE.md` 的「设置界面按平台归属」一节，根 README、各语言 README、parity 文档和平台 README 都指向那里。
 
+### iOS 昵称
+
+iOS 的 `CommunityProfilePolicy` 只经既有 `msime_client_account_name` 取得规范化昵称、合法性与长度上限；昵称编辑页和保存入口消费同一份结果，不再用 Foundation 的空白集合、控制字符集合和本地常量重建规则。这个接口不创建会话、不访问文件和网络，可以同步用于输入提示；请求仍受共享 C 接口的 16 KiB 上限约束，失败时不能保存，不用 Swift 校验兜底。
+
+这会统一既有差异：首尾 U+FEFF 与共享设置页一样去掉，含 U+200D 的组合表情与 Windows、Rust 一样允许；64 个 Unicode 标量的上限、C0/C1 控制字符拒绝由共享层决定。Swift 只为计数展示读取规范化结果的 `unicodeScalars.count`。iOS 产品已静态链接宿主库，适配器直接调用纯 C 接口并释放响应，不扩充只供 `shared/backend` 动态调用的函数表。
+
+### Android 昵称
+
+Android 的 `AccountNamePolicy` 经 `NativeClient.accountName` 和受 16 KiB 限制的 JNI 接口调用同一个 `msime_client_account_name`，只严格解析规范化结果、合法性与两个长度上限。`ProfilePage` 的提示和 UTF-16 输入过滤器取共享结果，`DeviceDataApi.rename` 再读取同一纯函数后提交 `normalized`；桥接失败不能保存，不保留 Java 昵称常量或控制字符校验兜底。
+
+昵称编辑显式选择 `InputDialog.preserveWhitespace()`，让原文直接进入共享规则。通用对话框默认的 Java `trim()` 会吞掉 U+0000、U+001F 等首尾控制字符，若先做这一步，页面与保存入口就会验证不同的文本；其他输入框仍采用原有默认行为。规则测试放在产品进程的 `AccountNameChecks`，由既有 `SessionStoreDeviceSmoke` 调用，避免 JVM 的 `org.json` 桩和另一份 Java 规则掩盖 JNI 的实际行为。
+
+### 共享 React 昵称编辑
+
+共享 React 的 `useAccountRename` 通过必需的 `AccountClient.namePresentation` 读取规范化结果、合法性与两个长度上限。Tauri 的 `account_name` 直接调用 `client-services::account::name::present_name`，请求序列化后同样受 16 KiB 上限约束；Harmony 的 `accountName` 经 ArkWeb 注册和 NAPI 同步调用既有 `msime_client_account_name`。两条桥都不创建登录会话、不读文件或网络。
+
+输入提示按输入原文和客户端实例隔离异步结果，等待或桥接失败时禁止保存，但保持输入框可编辑；同客户端已知的长度上限在下一次等待和失败期间保留。保存入口再次请求共享校验，只提交返回的 `normalized`；预检和改名响应都检查页面存活与客户端代次。输入控件使用 `maximum_utf16_units`，计数提示使用 `maximum_chars`，不再用 HTML 的 64 个 UTF-16 单元限制 Unicode 码点。界面只严格解析响应，不保留 JS 昵称规范化与合法性规则。
+
+### 共享 React 昵称展示
+
+账号页的 `UserResponse` 在 Rust 转换时调用同一个 `present_name`，返回必需的 `preferredName`。状态、各类登录、资料、改名和头像操作共用这次转换，Tauri 和 Harmony 原样透传；React 的账号卡片、Harmony 资料页及头像占位直接读取该字段，删除 `preferredAccountName` 的 JS 去空白和默认昵称算法。头像只在绘制时读取显示名的首个 Unicode 码点，不截断补充平面字符；编辑页只在共享结果就绪时传入规范化草稿覆盖占位预览，等待或失败时显示已保存的共享显示名，不能把未经规范化的原文交给头像组件。
+
+`displayName` 保留原始值，继续用于编辑框；展示字段只属于脱敏的账号页响应，不进入账号存储格式或后端用户契约。代价是每份用户响应多携带一个派生字符串，所有页面替身也必须补齐字段；原生宿主的既有解析器忽略新增字段。页面和宿主随产品一起构建，TypeScript 将 `preferredName` 设为必需字段，不用可选字段配另一份本地规则维持旧宿主。展示无需等待昵称编辑接口，校验接口不可用也不影响已经加载的显示名。
+
+### 登录方式显示名称
+
+`client-services::account::page::ProfileResponse` 随资料返回必需的 `providerNames` 名称表。已知的 `apple`、`google`、`email`、`phone`、`sms` 只有 Rust 一处映射；资料里的未知标识由 Rust 原样作为名称加入。`providers` 继续保持原始标识、既有顺序和去重行为，不改变身份、登录请求或后端格式。名称表包含未关联的已知方式，Android 的关联入口也能读取同一名称，不必保留另一张表。iOS「我的」卡片保持既有提供方优先级，名称也从资料表读取。WinUI 接纳重新加载的会话时清空旧资料的登录方式和名称表，避免切换账号后新资料读取失败仍显示上一账号的快照。
+
+React 资料信息、Harmony 资料页的登录标记与登录方式行、SwiftUI 资料页、Android 资料页及关联成功提示、Windows 的 WinUI 与 Windows 7 设置窗口都只查这张表。Swift、Java 和 Windows 的解析器检查名称表的类型、非空名称与已关联方式的覆盖，解析失败沿用资料不可用状态；各平台不通过硬编码名称补救损坏响应。宿主的通用查表可保留原始标识用于不在资料中的查询，但不再维护提供方到品牌或中文名称的分支。
+
+字段只属于脱敏资料响应，资料、改名和头像操作都由同一个 DTO 构造。代价是每次资料响应多带一张小表，页面与测试替身须同时更新；收益是名称随资料一起就绪，无需增加 C ABI、JNI 或异步展示请求。
+
 ## Alternatives considered
 
+- **每个宿主调用单独的提供方名称接口。** 可以保留现在各页面的字符串参数，也无需扩充资料 DTO；但名称本来在读取资料时就能生成，新增桥接会让同步绘制多出等待、失败与旧回复隔离。直接随资料提供名称表可覆盖所有原生和共享界面。
+- **只给已关联的提供方附名称，或给两条平行数组。** 响应更短；但 Android 的未关联入口仍需要这些名称，平行数组还必须靠下标保持配对。名称表保留原始标识作为键，既不更改现有 `providers` 契约，也能供未关联入口读取。
+
+- **每处展示都异步请求昵称纯函数。** 可以直接复用上一片的 `namePresentation`，不扩充账号页响应；但账号卡片与头像会增加桥接、等待和旧回复隔离状态，而 Rust 在构造同一份用户响应时已有名字与 ID。把结果随用户一起传递可以同步绘制，也保证登录、改名和头像更新拿到成对的新原文与新显示名。
+- **React 保留同步 JS 校验。** 无须等待宿主回复，输入时能立即显示提示；但旧规则漏掉 C1 控制字符，HTML 的 64 单元限制还会截断允许的补充平面昵称。继续补字符表会保留另一份业务规则，因此接既有 Rust 纯函数，并明确等待和不可用状态。
+- **Android 继续在 Java 维护昵称校验。** 不必为同步输入提示增加 JNI 调用；但旧实现只拒绝 C0 与 DEL，漏掉 C1 控制字符，ASCII 去空白也与共享 UI 集合不同。已有纯计算 C 接口可以直接复用，继续补字符表会制造新的规则归属。
+- **iOS 继续用 Foundation 集合近似共享昵称规则。** 无须过 C 接口，页面代码较短；但 `controlCharacters` 会额外拒绝 U+200D，去空白集合也不等于共享设置页的集合。复用已服务 Windows 的纯函数，消除保存前后的平台分歧。
+- **为昵称扩充 Apple 的 Rust 函数表。** 可以沿用后端动态桥和替身表；但这一片只消费已经静态链接 Rust 的 iOS 产品入口，`shared/backend` 的 macOS 动态库不使用该适配器，扩表会额外改变两个宿主的跨语言契约。保持适配器在 iOS 服务层，测试直接调用真实 Rust 规则。
 - **全面原生：macOS、Linux、HarmonyOS 也各写原生设置。** 最强的理由是每个平台只剩一套设置实现，界面完全贴合系统，设置不依赖 WebView 或 Tauri 运行时；macOS 已经有 11 页、约 1 万行的 AppKit 设置，离全原生最近，改完还能顺带消掉 macOS 上 React 与 AppKit 并存的那一份重复。不选，因为 Linux 和 HarmonyOS 今天没有任何原生设置界面（fcitx5 插件声明 `Configurable=False`，`Settings.ets` 只是 ArkWeb 外壳），要为 IBus/Fcitx5 两个环境和 ArkTS 从零写全部页面；`packages/ui/src` 自 10-08 起有 451 个提交，是改动最多的设置代码，它服务的三个平台改成原生后，每个设置功能要写的份数从四份变成六份。
 - **回归 React 统一：Windows、iOS、Android 也改回共享 React 设置页。** 最强的理由是每个设置功能只写一次，Caps Lock 那种一天写三遍的情况直接消失；`packages/ui` 已经有完整页面，仓库里也有 Tauri iOS 工程（`MSIME_IOS_TAURI_COMPONENT=1`）和 Android 合包（`build-client-apk.sh`）的构建脚本，看上去有现成的路；但两者都不在任何 CI 或发布 workflow 里，能不能构建、构建出来能不能用都未经 CI 验证。不选，因为三个平台的原生设置是刚做完的有意选择：Windows 09-24 用 WinUI 3 重建（41f15b5b22，#733），10-11 把剩下交给共享应用的页面全部搬成原生（#7129），10-15 又按 macOS 结构重做了框架（2d7ad264c3，#7978）；Android 10-06 重新设计了原生设置 App（56495eff8a，#3782）；iOS 一直是原生 SwiftUI。回归要放弃这三份原生代码（Windows 设置 25,620 行、iOS App 19,749 行、Android `home/` 21,477 行），并把 Tauri/WebView 带进两个现在都不含它的移动发布包。逐个功能的决定也一直落在原生这一边：[Windows 界面采用 macOS 的分组与选中样式](../feature/2026-10-15-windows-ui-macos-layout.md)考虑过让 Windows 承载共享 React 设置页，因为会动到已有的账号、社区和文件对话框路径而放弃；[Android 原生设置页可以选识别服务、填密钥](../feature/2026-10-12-android-voice-provider-settings.md)和[Android 原生设置页可以下载、选用和删除本地语音模型](../feature/2026-10-12-android-local-voice-models.md)都考虑过把共享 React 的对应部分嵌进 WebView，都因为原生应用的其余页面都是原生的、单独嵌一个 WebView 页要接上 Tauri 命令桥、工作量和范围远超补原生设置而放弃；[五笔反查](../feature/2026-10-11-wubi-reverse-lookup.md)因为 iOS 与 Android 的产品里没有 WebView，在两边各写了一个原生查码页。
 
@@ -47,6 +87,12 @@ macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settin
 
 - Windows：`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 全部是 `PageHost::Native`，`shell_links::all` 只有 5 个面板；`ShellSurfaces.h` 的 `shell_executable_names` 对空面板返回 `msime-client-settings.exe`，其余返回 `MSIME.exe`。`tests/ui/settings_navigation.cpp` 核对页面模型。
 - iOS：`git grep -l -e "import WebKit" -e WKWebView -- platforms/ios/App platforms/ios/SharedUI platforms/ios/KeyboardExtension` 没有输出。
+- iOS 昵称：旧 Swift 规则的基线探针复现组合表情被拒绝、首尾 U+FEFF 未清除。`SkinCommunityAccountTests` 在 Xcode 27 / iOS 26.5 的临时干净模拟器上 15 项通过，其中新增三项直接调用真实 Rust 昵称接口，覆盖共享空白与控制字符、64 个 Unicode 标量（含补充平面与组合字符）、规范化后的提交和 16 KiB 请求上限；账号请求继续使用合成替身，不访问真实账号。`MSIMEApp` 原生模拟器构建通过；测试必须按 iOS README 保留 ad-hoc 签名与 App Group entitlement。
+- Android 昵称：旧 JVM 规则的 C1 控制字符回归先失败；设备 `AccountNameChecks` 通过产品真实 JNI 覆盖共享空白、C0/C1、64 个码点与补充平面字符、严格响应类型、传输上限，以及原生输入控件保留原文和保存入口拒绝无效昵称。API 35 的 `SessionStoreDeviceSmoke` 整套通过；原生 `build-apk.sh` 构建、JNI 导出、arm64 ELF 和 16 KiB 段对齐检查通过。设备测试沿用既有 instrumentation，新增适配类同时登记在产品依赖源码清单中。
 - Android：`.github/workflows/release-android.yml` 只调用 `platforms/android/build-apk.sh`，`.github/` 下没有任何 workflow 调用 `build-client-apk.sh`。
+- React 昵称：旧 JS 规则的 C1 控制字符回归先失败。组件测试验证共享规范化结果、动态码点/UTF-16 上限、检查与不可用提示、旧输入与旧客户端回复隔离、保存前再次预检和同刻重复保存；桌面 `account_name` 两项单测直接调用真实 Rust，覆盖 BOM/空白、C1、64/65 个补充平面码点和序列化后 16 KiB 请求上限；JS 替身不重建校验。macOS 原生宿主构建通过。Harmony `arm64-v8a` 原生库和完整未签名 HAP 构建通过，检查包内包含两个原生库和当前设置页，ArkWeb 注册清单由 bridge parity 检查覆盖；没有以真实账号做设备改名验收。
+- React 昵称展示：旧响应缺字段的 Rust 回归和旧组件的 6 项展示回归先失败；Rust 账号页测试覆盖原文保留、共享空白、空名回退、Unicode ID 截取与 ASCII 大写。前端测试覆盖各账号页直接消费共享显示名、Harmony 资料页与编辑框的数据分工、补充平面头像首字；头像草稿等待状态的回归也先失败，修复后覆盖等待、失败与恢复成功，只有共享规范化成功才覆盖预览。C 接口的合成会话状态测试核对新增字段，前端替身不重建昵称回退规则。
 - HarmonyOS：`platforms/harmony/entry/src/main/ets/pages/Settings.ets` 用 `$rawfile('settings/index.html')` 加载设置页。
 - macOS 冻结：`git log -- platforms/macos/src/settings platforms/macos/src/core/AISettingsWindow.mm platforms/macos/src/cloud/TranslationSettingsWindow.mm platforms/macos/src/voice/VoiceProviderSettings.mm` 在本篇之后只应出现缺陷修复，不出现新设置项。
+
+- 登录方式展示：Rust 回归覆盖名称表、未知提供方、原始标识与顺序；组件回归用有意不同于旧映射的合成名称验证桌面、移动资料页和 Harmony。Swift 解析回归拒绝缺失或类型错误的名称表，Java 与 C++ 的查表用例也使用合成名称，避免宿主重新映射后仍让测试通过。

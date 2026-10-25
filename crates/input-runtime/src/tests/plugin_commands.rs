@@ -418,21 +418,50 @@ fn focus_loss_commits_the_typed_command_instead_of_a_plugin_row() {
 /// 连续两次重新查询同一插件指令时，行容器应复用第一次提供者调用的容量。
 #[test]
 fn repeated_command_queries_reuse_the_output_rows_buffer() {
+    struct BufferProbe {
+        provider: FakeProvider,
+        reservations: Rc<RefCell<Vec<usize>>>,
+    }
+
+    impl CommandProvider for BufferProbe {
+        fn provide(
+            &mut self,
+            trigger: &str,
+            argument: &str,
+            out: &mut Vec<(String, String)>,
+        ) -> CommandOutcome {
+            // 只统计回包行容器的容量申请，不把候选字符串或视图的分配算进来。
+            let (_, count) = allocations::count(|| out.reserve(1));
+            self.reservations.borrow_mut().push(count);
+            self.provider.provide(trigger, argument, out)
+        }
+    }
+
     let directory = tempfile::tempdir().unwrap();
     let (mut runtime, script) = plugin_runtime(directory.path(), rows(&[("甲", "注释")]));
+    let reservations = Rc::new(RefCell::new(Vec::new()));
+    runtime.set_command_provider(Some(Box::new(BufferProbe {
+        provider: FakeProvider(Rc::clone(&script)),
+        reservations: Rc::clone(&reservations),
+    })));
     type_text(&mut runtime, "/uuid");
     assert_eq!(script.borrow().calls.len(), 1);
+    assert_eq!(*reservations.borrow(), [1]);
     for calls in 2..=3 {
         runtime
             .dispatch(Action::Command(Command::Backspace))
             .unwrap();
-        let (transition, count) = allocations::count(|| character(&mut runtime, b'd'));
+        let transition = character(&mut runtime, b'd');
         assert_eq!(script.borrow().calls.len(), calls);
         assert_eq!(texts(&transition.view), ["甲"]);
         assert_eq!(
             transition.view.candidates[0].script_annotation.as_deref(),
             Some("UUID 注释")
         );
-        assert_eq!(count, 46, "预热后的插件指令查询超出分配预算：{count}");
+        assert_eq!(
+            reservations.borrow()[calls - 1],
+            0,
+            "预热后重新申请了回包行容量"
+        );
     }
 }

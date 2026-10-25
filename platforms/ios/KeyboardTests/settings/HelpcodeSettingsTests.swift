@@ -34,10 +34,11 @@ final class HelpcodeSettingsTests: XCTestCase {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertFalse(bridge.initializationFailed, bridge.cancel().diagnosticText ?? "运行时初始化失败")
     let plain = compose(bridge, "shi", helpcode: nil)
-    // 自然码 Y is the 讠 radical: 识 试 诗 lead instead of 是.
+    // 自然码 Y 是讠旁：「识」「试」「诗」先于「是」，显示分词用隔音符区分辅助码。
     let narrowed = compose(bridge, "shi", helpcode: "Y")
     XCTAssertEqual(plain.candidates.first, "是")
-    XCTAssertEqual(narrowed.preedit, "shiY")
+    XCTAssertEqual(narrowed.preedit, "shi'Y")
+    XCTAssertEqual(narrowed.editingText, "shiY")
     XCTAssertEqual(narrowed.candidates.first, "识")
 
     update { $0["enabled"] = false }

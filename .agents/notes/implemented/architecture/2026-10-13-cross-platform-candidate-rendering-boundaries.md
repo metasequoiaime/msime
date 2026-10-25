@@ -27,7 +27,7 @@ Status: implemented
 审计时没有采到三平台的实机数据，下面记录的是现有的测量入口和预算，供下一次采基线时直接使用：
 
 - macOS 诊断日志的 `candidate-frame show … build_ms=` 记录每次排版耗时（`InputController.mm`），打开诊断日志即可采样。
-- Windows 没有候选绘制计时；可用的上限是按键等候选回执的 30 ms（`CandidateRenderSync.h` 的 `candidate_render_wait_max_ms`）。DirectWrite 文本格式有 128 项 LRU，文本布局不缓存，每次刷新和每帧闪光都重新测量。空闲时 Server 主循环每 50 ms 醒一次，候选卡本身没有常驻帧循环。
+- Windows 没有候选绘制计时；可用的上限是按键等候选回执的 30 ms（`CandidateRenderSync.h` 的 `candidate_render_wait_max_ms`）；回执未到时屏障先叫醒候选窗立即绘制，见 [渲染屏障叫醒候选窗](../bug-fix/2026-10-25-windows-candidate-render-wake.md)。DirectWrite 文本格式有 128 项 LRU，文本布局不缓存，每次刷新和每帧闪光都重新测量。空闲时 Server 主循环每 50 ms 醒一次，候选卡本身没有常驻帧循环。
 - Linux 面板由桌面绘制，本项目可测的只有填表耗时；Fcitx5 每个聚焦上下文有一个 250 ms 的轮询，每次读运行时选项和 `classicui.conf`，内容变化时才写主题。
 
 ## Alternatives considered

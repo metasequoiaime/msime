@@ -440,8 +440,20 @@
      3,
      4
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
+     {
+      "word": "你你",
+      "pinyin": "nin",
+      "canonical_pinyin": "ni'ni",
+      "source": 8,
+      "scheme": "shuangpin",
+      "weight": -9210,
+      "annotation": "(aA)",
+      "sentence_association": true,
+      "sentence_words": ["你", "你"],
+      "answers_key": true
+     },
      {
       "word": "你",
       "pinyin": "ni",
@@ -603,8 +615,20 @@
      3,
      4
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
+     {
+      "word": "你你",
+      "pinyin": "nin",
+      "canonical_pinyin": "ni'ni",
+      "source": 8,
+      "scheme": "shuangpin",
+      "weight": -9210,
+      "annotation": "(aA)",
+      "sentence_association": true,
+      "sentence_words": ["你", "你"],
+      "answers_key": true
+     },
      {
       "word": "你",
       "pinyin": "ni",
@@ -650,8 +674,20 @@
      3,
      4
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
+     {
+      "word": "你你",
+      "pinyin": "nin",
+      "canonical_pinyin": "ni'ni",
+      "source": 8,
+      "scheme": "shuangpin",
+      "weight": -9210,
+      "annotation": "(aA)",
+      "sentence_association": true,
+      "sentence_words": ["你", "你"],
+      "answers_key": true
+     },
      {
       "word": "你",
       "pinyin": "ni",

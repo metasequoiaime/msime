@@ -180,8 +180,9 @@ void ApplyUiFontFallback(IDWriteFactory *factory, IDWriteTextFormat *format)
         return;
     }
 
-    static ComPtr<IDWriteFontFallback> cachedFallback;
-    static IDWriteFactory *cachedFactory = nullptr;
+    // 每个桌面的 UI 线程持有自己的回退缓存，不能并发改写同一个 ComPtr。
+    thread_local ComPtr<IDWriteFontFallback> cachedFallback;
+    thread_local IDWriteFactory *cachedFactory = nullptr;
     if (!cachedFallback || cachedFactory != factory)
     {
         ComPtr<IDWriteFontFallbackBuilder> builder;

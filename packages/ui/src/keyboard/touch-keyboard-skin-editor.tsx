@@ -5,11 +5,11 @@ import { ErrorAlert } from "../core/error-alert";
 import { useTouchKeyboardSkinLibrary } from "./use-touch-keyboard-skin-library";
 import { useTouchKeyboardSkinEditorState } from "./use-touch-keyboard-skin-editor-state";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import type { PreviewKey } from "./keyboard-layouts";
 import { readAndCompressTouchSkinPhoto } from "./touch-skin-images";
 import {
   hasReadableSkinText,
   skinColor,
-  skinColorNumber,
   touchKeyboardBackgroundPresets,
   touchKeyboardSkinTemplates,
   type AiSkinClient,
@@ -28,75 +28,11 @@ import { GroupList, Row } from "../core/platform-controls";
 import { SelectRow } from "../settings/select-row";
 import { SliderRow } from "../settings/slider-row";
 import { SwitchRow } from "../settings/switch-row";
+import { CheckGlyph } from "../core/check-glyph";
+import { ChevronGlyph } from "../core/chevron-glyph";
+import { RgbColorRow } from "../settings/rgb-color-row";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
-
-/** 颜色设置行：末端是当前色值和一个圆形色块，色块就是原生取色器，点开即系统的取色面板。 */
-function ColorRow({
-  title,
-  value,
-  hidden,
-  onChange,
-}: {
-  title: string;
-  value: number;
-  hidden?: boolean;
-  onChange: (value: number) => void;
-}) {
-  const hex = skinColor(value);
-  return (
-    <Row title={title} hidden={hidden}>
-      <span className={skin.colorControl}>
-        <span className={skin.colorValue} aria-hidden="true">
-          {hex}
-        </span>
-        <input
-          className={skin.colorSwatch}
-          aria-label={title}
-          type="color"
-          value={hex}
-          onChange={(event) => onChange(skinColorNumber(event.target.value))}
-        />
-      </span>
-    </Row>
-  );
-}
-
-function CheckGlyph() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m5 12.5 4.5 4.5L19 7.5" />
-    </svg>
-  );
-}
-
-function ChevronGlyph() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m9 6 6 6-6 6" />
-    </svg>
-  );
-}
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -112,6 +48,8 @@ export function TouchKeyboardSkinEditor({
   onUse,
   onClose,
   fullScreen = false,
+  touchRows,
+  phonePreview = false,
 }: {
   design: TouchKeyboardSkinDesign;
   selected: boolean;
@@ -125,6 +63,10 @@ export function TouchKeyboardSkinEditor({
   onClose: () => void;
   /** 作为独立视图呈现：覆盖整个设置界面，标题前带返回按钮，返回即 `onClose`，所以不再画「完成」。HarmonyOS 手机的皮肤页这样打开它，不在页面里就地展开。 */
   fullScreen?: boolean;
+  /** HarmonyOS 手机按当前中文键盘绘制全屏预览。 */
+  touchRows?: PreviewKey[][];
+  /** Android/iOS 的就地编辑器也使用手机比例；HarmonyOS 全屏时由 `fullScreen` 覆盖。 */
+  phonePreview?: boolean;
 }) {
   const [category, setCategory] = useState<Category>("背景");
   const [photoError, setPhotoError] = useState("");
@@ -190,7 +132,8 @@ export function TouchKeyboardSkinEditor({
               theme={theme}
               skin="custom"
               customDesign={design}
-              phone={fullScreen}
+              phone={fullScreen || phonePreview}
+              touchRows={touchRows}
             />
           </div>
           <div className={skin.previewBar}>
@@ -231,6 +174,8 @@ export function TouchKeyboardSkinEditor({
           client={aiSkins}
           library={library}
           communitySkins={communitySkins}
+          touchRows={touchRows}
+          phonePreview={phonePreview}
           onUse={(design) => {
             apply(design);
             setLibraryNotice("AI 设计已载入；可以继续调整。保存页面设置后会应用到键盘。");
@@ -315,7 +260,7 @@ export function TouchKeyboardSkinEditor({
                 <strong>AI 皮肤抽卡</strong>
                 <small>一次抽三款原创皮肤，喜欢就留下</small>
               </span>
-              <ChevronGlyph />
+              <ChevronGlyph size={16} />
             </>
           }
         />
@@ -389,7 +334,7 @@ export function TouchKeyboardSkinEditor({
               </div>
             </GroupList>
             <GroupList title="颜色">
-              <ColorRow
+              <RgbColorRow
                 title={design.gradientEnd === undefined ? "背景颜色" : "渐变起始色"}
                 value={design.background}
                 onChange={(background) => patch({ background })}
@@ -401,7 +346,7 @@ export function TouchKeyboardSkinEditor({
                   patch({ gradientEnd: checked ? design.background : undefined })
                 }
               />
-              <ColorRow
+              <RgbColorRow
                 title="渐变结束色"
                 hidden={design.gradientEnd === undefined}
                 value={design.gradientEnd ?? design.background}
@@ -507,17 +452,17 @@ export function TouchKeyboardSkinEditor({
         {category === "按键" && (
           <>
             <GroupList title="颜色">
-              <ColorRow
+              <RgbColorRow
                 title="键帽颜色"
                 value={design.keyBackground}
                 onChange={(keyBackground) => patch({ keyBackground })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="功能键颜色"
                 value={design.actionBackground}
                 onChange={(actionBackground) => patch({ actionBackground })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="边框颜色"
                 value={design.customBorderColor ?? design.accent}
                 onChange={(customBorderColor) => patch({ customBorderColor })}
@@ -604,12 +549,12 @@ export function TouchKeyboardSkinEditor({
                 checked={design.monospaced}
                 onChange={(monospaced) => patch({ monospaced })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="按键文字"
                 value={design.keyForeground}
                 onChange={(keyForeground) => patch({ keyForeground })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="提示与工具栏"
                 value={design.accent}
                 onChange={(accent) => patch({ accent })}

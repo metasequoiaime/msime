@@ -12,6 +12,8 @@ Status: implemented
 
 在下载器唯一的 `fetch` 入口用 `urllib.request.Request` 设置 `User-Agent: msime-linux-setup`，让镜像和原地址都收到稳定的项目客户端身份。沿用 Python 标准库的超时、流式读取、大小上限、完整性校验和失败换源。仓库已有模型下载器声明项目 User-Agent，本入口采用相同惯例。
 
+手动下载入口见[首次配置下载清单](../feature/2026-10-24-linux-dictionary-download-links.md)；它导出同一锁和镜像规则，自动下载的客户端身份仍由本篇管理。
+
 ## Alternatives considered
 
 - **调整 Cloudflare Browser Integrity Check**：可以让使用 Python 默认标识的历史客户端一并恢复；但会修改站点安全策略，影响范围超过当前客户端缺少身份声明的问题，也不保证其他用户镜像接纳默认 Python 标识。

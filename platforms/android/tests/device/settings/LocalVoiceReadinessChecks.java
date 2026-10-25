@@ -56,7 +56,7 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
             read.setAccessible(true);
             original = read.invoke(null, activity);
             check(original != null, "原生页能读取共享状态");
-            tap(text("模型"));
+            tap(text("服务"));
 
             stage = "selected model without runtime";
             show(true, false);
@@ -64,7 +64,8 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
             onMain(() -> {
                 View root = activity.getWindow().getDecorView();
                 TextView preparation = find(root, "本地识别准备");
-                TextView models = find(root, "本地模型");
+                // 识别服务列表里也有一项叫「本地模型」，排在准备入口之上；模型列表的分组标题是页面上最后一个同名文字。
+                TextView models = findLast(root, "本地模型");
                 check(preparation != null && models != null && preparation.isShown(), "准备状态在模型页可见");
                 int[] before = new int[2];
                 int[] after = new int[2];
@@ -138,6 +139,17 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
             }
         }
         return null;
+    }
+
+    private static TextView findLast(View view, String value) {
+        TextView last = view instanceof TextView text && text.isShown() && value.contentEquals(text.getText()) ? text : null;
+        if (view instanceof ViewGroup group) {
+            for (int index = 0; index < group.getChildCount(); index++) {
+                TextView found = findLast(group.getChildAt(index), value);
+                if (found != null) last = found;
+            }
+        }
+        return last;
     }
 
     @FunctionalInterface private interface MainAction { void run() throws Exception; }

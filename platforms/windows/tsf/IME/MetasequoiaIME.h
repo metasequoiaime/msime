@@ -1,5 +1,8 @@
 #pragma once
 #include "../HostFocusState.h"
+#include "../WubiCommitOwner.h"
+#include "../PreferenceBarrier.h"
+#include "../../common/GroupedPanelKeyLease.h"
 
 #include "KeyHandlerEditSession.h"
 #include "MetasequoiaIMEBaseStructure.h"
@@ -11,6 +14,7 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -55,6 +59,7 @@ const DWORD WM_CandidateContinuationFailed = WM_USER + 32;
 const DWORD WM_ApplyCapsLockEdge = WM_USER + 33;
 const DWORD WM_ApplyUiLessCandidates = WM_USER + 34;
 const DWORD WM_HostOnlineCandidates = WM_USER + 35;
+const DWORD WM_ApplyPreferenceTransition = WM_USER + 36;
 constexpr ULONG_PTR SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535050u;
 // Marker for caret movement synthesized by paired punctuation. Key sinks and
 // the bare-Shift hook must pass these events through to the host.
@@ -90,6 +95,7 @@ constexpr UINT_PTR TIMER_DEFERRED_FOCUS_LOSS = 4;
 constexpr UINT_PTR TIMER_FOCUS_STATUS_RESEND = 5;
 constexpr UINT_PTR TIMER_REFRESH_HOST_PREFERENCES = 6;
 constexpr UINT_PTR TIMER_PAIRED_PUNCTUATION_CARET = 7;
+constexpr UINT_PTR TIMER_PREFERENCE_TRANSITION = 8;
 constexpr UINT PAIRED_PUNCTUATION_CARET_RETRY_MS = 15;
 constexpr ULONGLONG PAIRED_PUNCTUATION_CARET_TIMEOUT_MS = 2000;
 constexpr int PAIRED_PUNCTUATION_CARET_MAX_STEPS = 8;
@@ -100,7 +106,7 @@ constexpr UINT FOCUS_LOSS_DEFER_MS = 300;
 constexpr UINT FOCUS_STATUS_RESEND_DELAY_MS = 50;
 LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND wndHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-namespace msime::tsf { struct EngineResult; }
+namespace msime::tsf { struct EngineResult; struct HostConfiguration; }
 
 class CMetasequoiaIME : public ITfTextInputProcessorEx,
                         public ITfThreadMgrEventSink,
@@ -256,7 +262,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
 
     // key event handlers for composition object.
-    HRESULT _HandleCompositionInput(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch, uint64_t requestId);
+    HRESULT _HandleCompositionInput(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch, uint64_t requestId, bool groupedPanelKey = false);
     HRESULT _HandleCompositionFinalize(TfEditCookie ec, _In_ ITfContext *pContext, BOOL fCandidateList);
     HRESULT _HandleCompositionConvert(TfEditCookie ec, _In_ ITfContext *pContext, BOOL isWildcardSearch);
     HRESULT _HandleCompositionBackspace(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId);
@@ -343,7 +349,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _SelectHighlightedHostCandidate(TfEditCookie ec, _In_ ITfContext *pContext,
                                             _In_opt_ const std::wstring *serverChoice = nullptr);
     HRESULT _ApplyHostCompositionResult(TfEditCookie ec, ITfContext *pContext,
-                                         const msime::tsf::EngineResult &result);
+                                         const msime::tsf::EngineResult &result, bool serverCommit = false);
     HRESULT _HandleCandidateConvert(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId,
                                     const std::wstring &prefetchedText);
     HRESULT _HandleCandidateArrowKey(TfEditCookie ec, _In_ ITfContext *pContext, _In_ KEYSTROKE_FUNCTION keyFunction,
@@ -394,6 +400,10 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                      _In_opt_ ITfContext *expectedContext) const;
     bool _IsDeferredApplicationTextCurrent(uint64_t replayToken, uint64_t focusGeneration, ITfContext *context,
                                             HWND foregroundWindow, uint64_t focusToken);
+    bool _IsWubiWorkerEditCurrent(uint64_t token, uint64_t generation, ITfContext *context) const;
+    bool _FinishWubiLocalEdit(uint64_t replayToken, bool applied);
+    void _FinishWubiWorkerEdit(uint64_t replayToken, bool applied);
+    void _PollWubiCommit();
     void _CompleteDeferredKeyReplay(uint64_t replayToken);
     void _RetryDeferredKeyReplay(uint64_t replayToken);
 
@@ -446,6 +456,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _PostServerTextDelivery(UINT windowMessage, _In_z_ const WCHAR *text,
                                  uint64_t expectedFocus = 0, uint64_t expectedEpoch = 0);
     bool _TakeServerCandidateCommit(UINT token, _Out_ WorkerCandidateCommit &request);
+    bool _PeekServerCandidateCommit(UINT token, _Out_ WorkerCandidateCommit &request);
     void _ResetVoiceCompositionAssemble();
     void _AssembleVoiceCompositionFrame(const FanyImeNamedpipeDataToTsfWorkerThread &buf);
     void _DispatchServerText(WPARAM wParam, KEYSTROKE_FUNCTION function);
@@ -491,6 +502,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         bool capsLockOn = false;
         bool windowsKeyDown = false;
         HWND foregroundWindow = nullptr;
+        msime::panel_key::Owner groupedOwner;
     };
     enum class KeyDownDispatchResult
     {
@@ -498,6 +510,11 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         Retry,
         AwaitingCompletion
     };
+    bool _HasGroupedPanelComposition() const;
+    bool _CaptureGroupedPanelOwner(msime::panel_key::Owner &owner, ITfContext **context);
+    bool _HandleGroupedPanelKey(const msime::panel_key::Request &request);
+    bool _IsGroupedPanelReplayCurrent(uint64_t token);
+    msime::panel_key::Leases _groupedPanelLeases;
     bool _HasDeferredKeyBarrier() const;
     bool _DeferredKeyQueueHasCapacity() const;
     void _EnsureDeferredKeyProjection();
@@ -510,12 +527,17 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                   _Out_ WCHAR *classifiedWch, _Out_ UINT *classifiedCode,
                                   _Out_ _KEYSTROKE_STATE *keyState, _In_opt_ const DeferredKeyDown *replayedKey = nullptr);
     bool _QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam, WCHAR translatedWch,
-                               UINT modifiersDown, const _KEYSTROKE_STATE &keyState);
+                               UINT modifiersDown, const _KEYSTROKE_STATE &keyState,
+                               const msime::panel_key::Owner *groupedOwner = nullptr);
     bool _QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFGUID preservedKey);
     void _ClearDeferredKeyDowns();
+    void _PollPreferenceTransition();
+    bool _ApplyHostPreferences(const std::shared_ptr<const msime::tsf::HostConfiguration> &configuration);
     void _ScheduleDeferredKeyDownDrain(bool allowSyncFallback = true);
     bool _ResolveDeferredKeyClassification(uint64_t replayToken);
-    bool _IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration, HWND foregroundWindow) const;
+    // 仅尚未发送的分类允许在重置期间核验焦点；实际写入与注入保持默认屏障。
+    bool _IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration, HWND foregroundWindow,
+                                   bool allowPendingReset = false) const;
     void _DrainOneDeferredKeyDown();
     void _TryLeaveServerUnavailableFallback();
     void _WakeServerIfNeeded();
@@ -812,6 +834,11 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     UINT _pendingServerCandidateMsgType;
     std::wstring _pendingServerCandidateString;
     std::deque<CCandidateListUIPresenter *> _pendingCandidatePresenterCleanup;
+    msime::tsf::WubiCommitOwner _wubiCommitOwner;
+    msime::tsf::PreferenceBarrier _preferenceBarrier;
+    std::atomic<bool> _preferenceNotificationPending{false};
+    std::deque<FanyImePreferencePipe::Transition> _preferenceTransitions;
+    ULONGLONG _preferenceTransitionStarted = 0;
     std::deque<DeferredKeyDown> _deferredKeyDowns;
     std::deque<DeferredKeyDown> _deferredAppliedPrefix;
     DeferredKeyDown _deferredKeyInFlight;

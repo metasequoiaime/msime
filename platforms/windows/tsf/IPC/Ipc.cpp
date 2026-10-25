@@ -1,4 +1,5 @@
 #include "Ipc.h"
+#include "ReplyWaitPolicy.h"
 #include "AuxNamedpipeSender.h"
 #include "../../../../shared/contracts/ipc_negotiation.h"
 #include "../../common/PipeMetadata.h"
@@ -540,7 +541,8 @@ bool WritePipeHello(HANDLE hPipeHandle, UINT pipeRole)
                                    FanyImeProtocol::Capabilities | FanyImeProtocol::CharacterSetShortcut |
                                        FanyImeProtocol::CandidateContinuation |
                                        FanyImeProtocol::UiLessCandidates |
-                      FanyImeProtocol::HostOnlineCandidates |
+                      FanyImeProtocol::HostOnlineCandidates | FanyImeProtocol::GroupedPanelKeys |
+                      FanyImeProtocol::OrderedPreferences |
                                        FanyImeProtocol::KeyboardCompositionCancel |
                                        FanyImeProtocol::GameHostCandidate | FanyImeProtocol::FieldTraits |
                                        FanyImeProtocol::JapaneseToggleShortcut);
@@ -921,6 +923,18 @@ bool SupportsCharacterSetShortcut()
 {
     return hPipe && hPipe != INVALID_HANDLE_VALUE &&
            (negotiatedServerCapabilities & FanyImeProtocol::CharacterSetShortcut) != 0;
+}
+
+bool SupportsGroupedPanelKeys()
+{
+    return hPipe && hPipe != INVALID_HANDLE_VALUE &&
+           (negotiatedServerCapabilities & FanyImeProtocol::GroupedPanelKeys) != 0;
+}
+
+bool SupportsOrderedPreferences()
+{
+    return hPipe && hPipe != INVALID_HANDLE_VALUE &&
+           (negotiatedServerCapabilities & FanyImeProtocol::OrderedPreferences) != 0;
 }
 
 bool SupportsJapaneseToggleShortcut()
@@ -1331,7 +1345,6 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
 struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
                                                                        bool abortTransportOnTimeout)
 {
-    constexpr int timeoutMs = 50;
     PerfTimer replyWaitTimer;
 
     auto transportUnavailable = []() {
@@ -1376,7 +1389,7 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
         }
     }
 
-    const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+    const ULONGLONG deadline = GetTickCount64() + msime::windows::tsf::kServerReplyWaitTimeoutMs;
 
     while (true)
     {

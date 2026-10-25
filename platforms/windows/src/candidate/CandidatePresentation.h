@@ -7,6 +7,7 @@
 #include "GlossColumnPolicy.h"
 #include "InputSchemeTraits.h"
 #include "PipeMetadata.h"
+#include "PreeditDisplayCaret.h"
 #include "ReplyComposer.h"
 #include "ShuangpinKeymapLayout.h"
 #include "TranslationDisplay.h"
@@ -264,11 +265,7 @@ struct CandidatePresentation {
   int x = 0;
   int y = 0;
   std::string preedit;
-  // Byte offset of the caret within `preedit`, or npos when it cannot be
-  // placed. The Engine reports the caret against editing_text, which is not
-  // always the same string as the preedit being drawn; putting the caret at
-  // the wrong character is worse than not drawing one, so it is only carried
-  // when the two agree.
+  // Byte offset of the caret within `preedit`, or npos when it cannot be placed. The Engine reports the caret against editing_text, which is not always the same string as the preedit being drawn; putting the caret at the wrong character is worse than not drawing one, so it is only carried when the two agree or the preedit is editing_text's letters with display separators (preedit_display_caret).
   size_t preedit_caret = std::string::npos;
   std::vector<PresentationCandidate> candidates;
   bool traditional_output = false;
@@ -351,7 +348,7 @@ inline std::vector<ExpandedCandidate> expanded_candidates_from_snapshot(const nl
     if (text.empty() || text.size() > 4096 || source == candidate_source_ai_pending ||
         source == candidate_source_cloud_pending)
       continue;
-    items.push_back({index, std::move(text)});
+    items.push_back({index, std::move(text), source});
   }
   return items;
 }
@@ -392,15 +389,12 @@ candidate_presentation_from_view(const FocusLease &lease,
     throw std::invalid_argument("Oversized candidate presentation");
   output.traditional_output = traditional_output;
   output.preedit = prefix + text;
-  // caret_position is a byte offset into the Engine's ASCII editing_text. It
-  // transfers to the drawn preedit only when the two are the same string; the
-  // prefix this host prepends shifts it by its own length.
+  // caret_position is a byte offset into the Engine's ASCII editing_text. It carries over to the drawn preedit when the two are the same string, or when the preedit is those letters with display separators added (segmented quanpin), see preedit_display_caret; the prefix this host prepends shifts it by its own length.
   const auto editing = view.at("editing_text").get<std::string>();
-  if (editing == text) {
-    const auto caret = view.value("caret_position", text.size());
-    if (caret <= text.size())
-      output.preedit_caret = prefix.size() + caret;
-  }
+  const auto caret =
+      preedit_display_caret(editing, text, view.value("caret_position", editing.size()));
+  if (caret != std::string::npos)
+    output.preedit_caret = prefix.size() + caret;
   size_t highlighted = 0;
   const bool hanja = korean_hanja_view(view);
   for (const auto &candidate : view.at("candidates")) {
@@ -412,8 +406,8 @@ candidate_presentation_from_view(const FocusLease &lease,
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
-        simplified_to_traditional(candidate.at("text").get<std::string>(),
-                                  traditional_output),
+        candidate_output(candidate.at("text").get<std::string>(),
+                         traditional_output, candidate_source),
         candidate.at("highlighted").get<bool>(),
         candidate.value("corrected", false),
         candidate.value("annotation", std::string{}),
@@ -496,8 +490,8 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
-        simplified_to_traditional(candidate.at("text").get<std::string>(),
-                                  reply.traditional_output),
+        candidate_output(candidate.at("text").get<std::string>(),
+                         reply.traditional_output, candidate_source),
         candidate.at("highlighted").get<bool>(),
         candidate.value("corrected", false),
         candidate.value("annotation", std::string{}),

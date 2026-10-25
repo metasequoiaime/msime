@@ -1,17 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// 后端在 `identities` 中报告的登录方式的显示名称。
-private func providerTitle(_ provider: String) -> String {
-  switch provider {
-  case "apple": return "Apple"
-  case "google": return "Google"
-  case "email": return "邮箱"
-  case "phone", "sms": return "手机号"
-  default: return provider
-  }
-}
-
 /// 单独占一张卡片、居中的 16pt 红色行：「退出登录」和「注销账号」。
 private struct ProfileDangerRow: View {
   let title: String
@@ -62,8 +51,7 @@ struct AccountProfileEditor: View {
 
   /// 已关联的登录方式，按 Rust 列出的顺序，每种只出现一次。
   private var providers: [String] {
-    var seen = Set<String>()
-    return (profile?.providers ?? []).filter { seen.insert($0).inserted }
+    profile?.providers ?? []
   }
 
   private static func looksLikeEmail(_ value: String) -> Bool {
@@ -150,7 +138,7 @@ struct AccountProfileEditor: View {
           .padding(.top, 2)
       }
       if let provider = providers.first {
-        Text("通过 \(providerTitle(provider)) 登录")
+        Text("通过 \(profile?.providerNames[provider] ?? provider) 登录")
           .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.accent)
           .padding(.horizontal, 10).padding(.vertical, 3)
           .background(MetasequoiaTheme.accentSoft, in: Capsule())
@@ -199,7 +187,7 @@ struct AccountProfileEditor: View {
     DesignGroup(title: "登录方式", radius: MetasequoiaTheme.tabCardRadius) {
       ForEach(Array(providers.enumerated()), id: \.element) { index, provider in
         if index > 0 { DesignDivider() }
-        SettingsNavigationLabel(title: providerTitle(provider), value: "已关联", showsChevron: false,
+        SettingsNavigationLabel(title: profile?.providerNames[provider] ?? provider, value: "已关联", showsChevron: false,
           valueTruncationMode: .middle)
       }
     }
@@ -307,12 +295,14 @@ private struct AccountNicknameEditor: View {
     _name = State(initialValue: profile.user.preferredDisplayName)
   }
 
-  private var normalizedName: String { CommunityProfilePolicy.normalizedName(name) }
-  private var validName: Bool { CommunityProfilePolicy.validName(name) }
+  private var namePresentation: CommunityProfilePolicy.NamePresentation? { try? CommunityProfilePolicy.present(name) }
+  private var normalizedName: String { namePresentation?.normalized ?? name }
+  private var validName: Bool { namePresentation?.valid ?? false }
   private var hasChanges: Bool { normalizedName != profile.user.preferredDisplayName }
   private var nameHint: String {
+    guard let presentation = namePresentation else { return "昵称无法校验，请缩短后重试。" }
     if normalizedName.isEmpty { return "取一个喜欢的名字，让大家记住你。" }
-    if !validName { return "昵称最多 64 个字符，请勿使用换行或控制字符。" }
+    if !validName { return "昵称最多 \(presentation.maximumCharacters) 个字符，请勿使用换行或控制字符。" }
     return "昵称会显示在社区作品中，已发布的作品也会同步更新。"
   }
 
@@ -341,9 +331,11 @@ private struct AccountNicknameEditor: View {
         HStack(alignment: .top, spacing: 16) {
           Text(nameHint).fixedSize(horizontal: false, vertical: true)
           Spacer(minLength: 0)
-          Text("\(normalizedName.unicodeScalars.count)/64")
-            .monospacedDigit().fixedSize()
-            .accessibilityLabel("已输入 \(normalizedName.unicodeScalars.count) 个字符，最多 64 个")
+          if let presentation = namePresentation {
+            Text("\(normalizedName.unicodeScalars.count)/\(presentation.maximumCharacters)")
+              .monospacedDigit().fixedSize()
+              .accessibilityLabel("已输入 \(normalizedName.unicodeScalars.count) 个字符，最多 \(presentation.maximumCharacters) 个")
+          }
         }
         .font(.system(size: 13))
         .foregroundStyle(validName || normalizedName.isEmpty ? MetasequoiaTheme.sub : MetasequoiaTheme.danger)

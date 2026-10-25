@@ -58,6 +58,8 @@ public:
   bool send_caps_lock(const FocusLease &lease, bool enabled);
   // External maintenance callback. The Engine operation remains queue-owned.
   bool reset_cache();
+  // 外部偏好写入完成后唤醒监视器，让当前会话尽快收到新快照。
+  void wake_preferences();
   // Push the TSF-local settings to every registered TIP. Returns true only
   // when every snapshot ticket accepted the complete frame set.
   bool send_tsf_config(const TsfLocalConfig &config);
@@ -74,6 +76,10 @@ public:
   // frame. The receipt is generation- and lease-bound.
   void candidate_rendered(const FocusLease &lease, uint64_t generation) {
     candidates_.rendered(lease, generation);
+  }
+  // 候选界面的绘制请求（#9519）：按键和点选的渲染屏障要等回执时调用它，叫醒候选窗立即读快照绘制，不等它下一次轮询。任何线程都可能调用；回调只能发信号（如 SetEvent），不得回调本控制器或候选信箱。候选窗销毁前传空函数撤掉，返回后旧回调不会再被调用。
+  void set_candidate_render_request(std::function<void()> request) {
+    candidates_.set_render_request(std::move(request));
   }
   std::optional<ModePresentation> mode_view();
   // Definitive: is a focused client's mode on file at all. mode_view() returns

@@ -18,20 +18,37 @@ HARNESS = r'''
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <mutex>
 #include <utility>
 #include <string>
 #include "InputSchemeTraits.h"
-namespace Global { std::atomic<int> InputModeScheme{msime::windows::scheme::Quanpin}; }
+#include "WubiCommitOwner.h"
+#include "PreferenceBarrier.h"
+#include "GroupedPanelKeyLease.h"
+namespace Global {
+std::atomic<int> InputModeScheme{msime::windows::scheme::Quanpin};
+std::atomic_bool TsfDiagnosticLogEnabled{false};
+}
+// 生产代码里的诊断日志在测试里关闭，记录进空实现即可。
+void QueueTsfDiagnosticLog(const std::wstring &) {}
+inline std::wstring BoolFlag(bool value) { return value ? L"1" : L"0"; }
+
 using std::min;
 using WCHAR = wchar_t;
 using SHORT = short;
 using WPARAM = std::uintptr_t;
+#ifndef _In_
 #define _In_
+#endif
+#ifndef _In_opt_
 #define _In_opt_
+#endif
 constexpr WPARAM VK_PACKET = 0xe7, VK_LEFT = 0x25;
 using UINT = unsigned;
 // 生产按键类型
-constexpr int FANY_IME_NO_REQUEST_ID = 0, S_OK = 0, S_FALSE = 1, E_FAIL = -1;
+constexpr int S_OK = 0, S_FALSE = 1, E_FAIL = -1;
+constexpr unsigned TIMER_PREFERENCE_TRANSITION = 99;
+void KillTimer(void *, unsigned) {}
 constexpr unsigned kMaxDeferredKeyReplayAttempts = 8, WM_IpcReconnect = 1;
 void *testWindow = nullptr;
 bool IsWindow(void *) { return false; }
@@ -83,6 +100,16 @@ using CCompositionProcessorEngine = Engine;
 template<typename... Args> void DebugTsfIssue47(Args...) {}
 // 生产前缀规则
 struct CMetasequoiaIME {
+    std::atomic<bool> _localSessionResetPending{false};
+    msime::tsf::PreferenceBarrier _preferenceBarrier;
+    std::uint64_t _preferenceTransitionStarted = 0;
+    std::mutex _pendingCommitCandidateMutex;
+    std::deque<FanyImePreferencePipe::Transition> _preferenceTransitions;
+    std::atomic<bool> _preferenceNotificationPending{false};
+    msime::tsf::WubiCommitOwner _wubiCommitOwner;
+    msime::panel_key::Leases _groupedPanelLeases;
+    bool groupedComposition = false;
+    bool _HasGroupedPanelComposition() const { return groupedComposition; }
     Engine *_pCompositionProcessorEngine = nullptr;
     std::deque<DeferredKeyDown> _deferredAppliedPrefix;
     std::uint64_t _deferredKeyFocusGeneration = 7;
@@ -107,9 +134,16 @@ struct CMetasequoiaIME {
     void _ArmDeferredRecoveryForTransport(ITfContext *);
     void _RetryDeferredKeyReplay(std::uint64_t);
     void *_msgWndHandle = testWindow;
-    void _ClearDeferredKeyDowns() { std::abort(); }
+    void _ClearDeferredKeyDowns();
+    void _FinishWubiWorkerEdit(uint64_t, bool);
+    void _ClearApplicationKeyReplay() {}
+    bool _backspaceHoldArmed = false, _deferredKeyDrainPosted = false;
+    bool _shiftHotkeyArmed = false, _ctrlHotkeyArmed = false;
+    bool _deferredProjectedImeOpen = false, _deferredProjectedPunctuationOpen = false,
+         _deferredProjectedDoubleSingleByteOpen = false;
+    int dirtyNotifications = 0;
 };
-void MarkNamedpipeSessionDirtyForOwner(CMetasequoiaIME *) {}
+void MarkNamedpipeSessionDirtyForOwner(CMetasequoiaIME *ime) { ++ime->dirtyNotifications; }
 '''
 
 TESTS = r'''
@@ -254,6 +288,108 @@ int main() {
           }
         }
     }
+    // 使用真实 retry、finish 与 clear 验证已推进字符不能在恢复时输入第二次。
+    for (const bool observed : {false, true}) {
+      for (const bool committed : {false, true}) {
+        engine.current = {L"old", 3};
+        check(ime._RefreshDeferredRecoveryPrefix(&context), "Wubi recovery checkpoint created");
+        DeferredKeyDown next;
+        next.context = &context;
+        next.translatedWch = L'x';
+        next.focusGeneration = ime._deferredKeyFocusGeneration;
+        next.keyState = {CATEGORY_COMPOSING, FUNCTION_INPUT};
+        context.AddRef(); ime._deferredKeyDowns.push_back(next);
+        context.AddRef(); ime._deferredKeyInFlight = next;
+        ime._hasDeferredKeyInFlight = true;
+        ime._deferredKeyReplayToken = 42;
+        ime._wubiCommitOwner.begin(42, 1);
+        if (observed) {
+            msime::tsf::EngineResult result{};
+            result.has_commit = committed;
+            ime._wubiCommitOwner.observe(result);
+        }
+        const auto refs = context.refs;
+        const auto generation = ime._deferredKeyFocusGeneration;
+        const auto dirty = ime.dirtyNotifications;
+        const auto schedules = ime.drainSchedules;
+        ime._RetryDeferredKeyReplay(41);
+        ime._FinishWubiWorkerEdit(41, false);
+        check(ime._wubiCommitOwner.current(42) && context.refs == refs &&
+              ime.dirtyNotifications == dirty && ime._hasDeferredKeyInFlight,
+              "stale Wubi failure cannot affect the current token");
+        ime._RetryDeferredKeyReplay(42);
+        if (observed) {
+            check(!ime._wubiCommitOwner.active() && !ime._hasDeferredKeyInFlight &&
+                  keys.empty() && ime._deferredKeyDowns.empty() && context.refs == 1 &&
+                  ime.dirtyNotifications == dirty + 1 && ime.drainSchedules == schedules &&
+                  ime._deferredKeyFocusGeneration != generation,
+                  "applied Wubi retry clears all ownership without replay even when no commit exists");
+        } else {
+            check(!ime._wubiCommitOwner.active() && !ime._hasDeferredKeyInFlight &&
+                  keys.empty() && ime._deferredKeyDowns.size() == 5 &&
+                  context.refs == 6 && ime.dirtyNotifications == dirty + 1,
+                  "unapplied Wubi retry restores the checkpoint and original key exactly once");
+        }
+        ime._preferenceBarrier.begin(77);
+        ime._preferenceBarrier.sent(12);
+        ime._preferenceTransitionStarted = 100;
+        ime._preferenceTransitions.push_back({42, 12, 77, 3});
+        ime._preferenceNotificationPending.store(true);
+        ime._ClearDeferredKeyDowns();
+        check(!ime._preferenceBarrier.active() && ime._preferenceTransitionStarted == 0 &&
+              ime._preferenceTransitions.empty() && !ime._preferenceNotificationPending.load(),
+              "focus cleanup cancels the old preference barrier and notification mailbox");
+        check(context.refs == 1, "Wubi retry cleanup releases every context reference");
+      }
+    }
+    {
+        engine.current = {};
+        DeferredKeyDown next;
+        next.context = &context;
+        next.focusGeneration = ime._deferredKeyFocusGeneration;
+        context.AddRef(); ime._deferredKeyInFlight = next;
+        ime._hasDeferredKeyInFlight = true;
+        ime._deferredKeyReplayToken = 43;
+        ime._wubiCommitOwner.begin(43, 1);
+        ime._FinishWubiWorkerEdit(43, true);
+        check(!ime._wubiCommitOwner.active() && !ime._hasDeferredKeyInFlight &&
+              ime._deferredKeyReplayToken == 0 && context.refs == 1,
+              "successful Wubi finish clears the owner before actual FIFO completion");
+    }
+    // 执行真实恢复方法，验证多义组码不会变成确定字母检查点或重连重放。
+    for (const bool sourceGrouped : {false, true}) {
+        engine.current = {L"old", 3};
+        check(ime._RefreshDeferredRecoveryPrefix(&context), "exact checkpoint created before grouped input");
+        ime.groupedComposition = true;
+        engine.current = {L"bihai", 5};
+        check(ime._RefreshDeferredRecoveryPrefix(&context) && keys.empty() && context.refs == 1,
+              "grouped composition cannot create a raw-letter checkpoint");
+        DeferredKeyDown key;
+        key.context = &context;
+        key.focusGeneration = ime._deferredKeyFocusGeneration;
+        key.keyState.groupedPanelKey = sourceGrouped;
+        context.AddRef(); ime._deferredKeyInFlight = key;
+        context.AddRef(); ime._deferredKeyDowns.push_back(key);
+        ime._hasDeferredKeyInFlight = true;
+        ime._deferredKeyReplayToken = 51;
+        // 首个组码尚未作用于会话时，也必须按已捕获来源清掉，而非重试。
+        ime.groupedComposition = !sourceGrouped;
+        const auto dirty = ime.dirtyNotifications;
+        const auto generation = ime._deferredKeyFocusGeneration;
+        ime._RetryDeferredKeyReplay(50);
+        check(ime._hasDeferredKeyInFlight && context.refs == 3, "stale grouped retry keeps current ownership");
+        ime._RetryDeferredKeyReplay(51);
+        check(!ime._hasDeferredKeyInFlight && ime._deferredKeyDowns.empty() && keys.empty() &&
+              context.refs == 1 && ime.dirtyNotifications == dirty + 1 &&
+              ime._deferredKeyFocusGeneration != generation,
+              "grouped retry discards its batch and invalidates the session without replay");
+        ime.groupedComposition = true;
+        context.AddRef(); ime._deferredKeyDowns.push_back(key);
+        ime._ArmDeferredRecoveryForTransport(&context);
+        check(ime._deferredKeyDowns.empty() && keys.empty() && context.refs == 1,
+              "transport reset cannot materialize grouped composition as ordinary keys");
+        ime.groupedComposition = false;
+    }
     std::printf("deferred recovery checkpoint: %d failures\n", failures);
     return failures ? 1 : 0;
 }
@@ -280,16 +416,24 @@ def main() -> int:
     complete_end = source.index("\nbool CMetasequoiaIME::_IsDeferredKeyReplayCurrent(", complete_start)
     retry_start = source.index("void CMetasequoiaIME::_RetryDeferredKeyReplay(")
     retry_end = source.index("\nvoid CMetasequoiaIME::_ScheduleDeferredKeyDownDrain(", retry_start)
+    clear_start = source.index("void CMetasequoiaIME::_ClearDeferredKeyDowns()")
+    clear_end = source.index("\nvoid CMetasequoiaIME::_CompleteDeferredKeyReplay(", clear_start)
+    ime_source = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.cpp").read_text(encoding="utf-8")
+    finish_start = ime_source.index("void CMetasequoiaIME::_FinishWubiWorkerEdit(")
+    finish_end = ime_source.index("\nvoid CMetasequoiaIME::_PollWubiCommit(", finish_start)
     with tempfile.TemporaryDirectory(prefix="msime-deferred-recovery-") as directory:
         root = pathlib.Path(directory)
         unit, binary = root / "recovery.cpp", root / "recovery"
         unit.write_text(
             harness + source[start:end] + source[complete_start:complete_end] + source[arm_start:arm_end] +
-            source[retry_start:retry_end] + TESTS,
+            source[retry_start:retry_end] + source[clear_start:clear_end] +
+            ime_source[finish_start:finish_end] + TESTS,
             encoding="utf-8",
         )
         subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-DMSIME_EDITION_FULL",
-                        "-I" + str(ROOT / "platforms/windows/common"), str(unit), "-o", str(binary)], check=True)
+                        "-I" + str(ROOT / "platforms/windows/common"),
+                        "-I" + str(ROOT / "platforms/windows/tsf"),
+                        "-I" + str(ROOT / "crates/host-api/include"), str(unit), "-o", str(binary)], check=True)
         return subprocess.run([str(binary)], check=False).returncode
 
 

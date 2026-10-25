@@ -2,6 +2,7 @@
 #include "../../../common/HostApiString.h"
 #include "LinuxEdition.h"
 #include "KeyRouterAdapter.h"
+#include "ToggleHotkeyChord.h"
 #include "BackspaceHoldPolicy.h"
 #include "../clipboard/ClipboardText.h"
 #include "../clipboard/ClipboardAtomicWrite.h"
@@ -568,6 +569,7 @@ struct State {
   // 空格锁定固定为开，不读存下的 `hotkey_hold_space_lock`：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
+  msime::host_api::ToggleHotkeyChord voice_toggle_chord;
   // The lock state as the last key event reported it; IBus sends no event of its own when it changes.
   bool caps_lock = false;
   // 当前模式来自这次聚焦的应用例外，用户还没有手动切换：全局作用域不拿全局状态覆盖它。
@@ -923,6 +925,7 @@ struct State {
     voice_hotkey_ctrl_win = voice_preferences.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt = voice_preferences.value("hotkey_rctrl_ralt", false);
     voice_hotkey_ctrl_f9 = voice_preferences.value("hotkey_ctrl_f9", true);
+    voice_toggle_chord = msime::host_api::decode_toggle_hotkey(preferences, "voice_input");
     const auto keybindings = preferences.value("keybindings", Json::object());
     mode_ctrl_space_enabled = keybindings.value("switch_language_ctrl_space", true);
     mode_shift_enabled = keybindings.value("switch_language_shift", true);
@@ -972,7 +975,8 @@ struct State {
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see PhrasePreedit.h.
     options["phrase_preedit"] = true;
-    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就排在普通候选后面，仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
+    options["korean_romaja"] = true;
+    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就混在普通候选里（没学过时排在首页最后），仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
     options["quick_phrase_candidates"] = true;
     auto encoded = options.dump();
     auto bindings =
@@ -1197,6 +1201,7 @@ struct State {
     voice_hotkey_ctrl_win = voice.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt = voice.value("hotkey_rctrl_ralt", false);
     voice_hotkey_ctrl_f9 = voice.value("hotkey_ctrl_f9", true);
+    voice_toggle_chord = msime::host_api::decode_toggle_hotkey(preferences, "voice_input");
     const auto keybindings = preferences.value("keybindings", Json::object());
     mode_ctrl_space_enabled = keybindings.value("switch_language_ctrl_space", true);
     mode_shift_enabled = keybindings.value("switch_language_shift", true);
@@ -1332,6 +1337,7 @@ std::string scheme_title(const State &s, std::string_view scheme) {
 // 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字，笔画候选按 msime-stroke.db 里存的字形原样取用（`script_conversion_applies`）。
 bool script_conversion_applies(const Json &context) {
   return context.is_object() &&
+         context.value("script_conversion", true) &&
          msime::linux_host::scheme::ScriptConversionApplies(context.value("scheme", 255)) &&
          context.value("local_mode", "none") != "unicode";
 }
@@ -4284,7 +4290,8 @@ void render(IBusEngine *engine, const Json &view) {
       value += msime::linux_host::candidate_annotation_text(annotation);
     value += msime::linux_host::candidate_source_badge(static_cast<std::uint64_t>(source));
     // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
-    value = traditional_display(state(engine), view, std::move(value));
+    if (source != 18)
+      value = traditional_display(state(engine), view, std::move(value));
     const auto gloss_start = static_cast<guint>(g_utf8_strlen(value.c_str(), -1));
     if (!gloss.empty())
       value += traditional_display(state(engine), view, std::move(gloss));
@@ -4951,7 +4958,14 @@ guint canonical_modifiers(guint flags) {
     return (m & ~IBUS_SUPER_MASK) | IBUS_MOD4_MASK;
   return m;
 }
-// Hold shortcuts match the physical key, as the Windows hook does: X11, GDK and mutter report the modifier state from before the key, so a modifier's own bit may or may not be set on its own press and is ignored here.
+// 自定义切换键精确匹配修饰键；真实事件使用 evdev 位置，合成事件回退到规范化符号。
+bool voice_toggle_hotkey(const State &s, guint key, guint modifiers, guint keycode = 0) {
+  const guint allowed = IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SHIFT_MASK | IBUS_MOD4_MASK;
+  return (modifiers & ~allowed) == 0 && s.voice_toggle_chord.matches(
+      msime::linux_host::toggle_key_name(key, keycode), modifiers & IBUS_CONTROL_MASK,
+      modifiers & IBUS_MOD1_MASK, modifiers & IBUS_SHIFT_MASK, modifiers & IBUS_MOD4_MASK);
+}
+// 按住录音按物理修饰键判定；不同桌面传入的状态可能尚未包含该键自己的位。
 bool voice_hotkey(const State &s, guint key, guint modifiers) {
   if (key == IBUS_F9 && modifiers == IBUS_CONTROL_MASK)
     return s.voice_hotkey_ctrl_f9;
@@ -7026,7 +7040,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // Physical key identity survives releasing Shift before the letter. Use a
   // normalized keysym only for synthetic events without a hardware keycode.
   const guint host_stroke = keycode != 0 ? keycode
-      : ((key >= 'A' && key <= 'Z' ? key - 'A' + 'a' : key) | 0x80000000u);
+      : (msime::linux_host::toggle_key_symbol(key) | 0x80000000u);
   if (s.host_shortcut_strokes.count(host_stroke) != 0) {
     if (release) s.host_shortcut_strokes.erase(host_stroke);
     return TRUE;
@@ -7139,6 +7153,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   s.pure_shift_candidate = false;
   s.pure_ctrl_candidate = false;
   const guint modifiers = canonical_modifiers(flags);
+  if (s.voice_enabled && !s.voice_provider_socket.empty() && s.focused && !s.blocked &&
+      voice_toggle_hotkey(s, key, modifiers, keycode)) {
+    s.host_shortcut_strokes.insert(host_stroke);
+    guarded(engine, "voice_toggle_hotkey", [&] {
+      if (s.voice_active) voice_stop(engine);
+      else voice_start(engine);
+    });
+    return TRUE;
+  }
   const bool screen_keyboard_key =
       (key == IBUS_k || key == IBUS_K) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD4_MASK);

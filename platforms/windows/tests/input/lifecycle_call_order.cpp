@@ -10,6 +10,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace msime::windows;
@@ -30,8 +31,9 @@ struct Call {
 };
 std::vector<Call> calls;
 
-// 假会话的状态：正在组的字母、方案、整句改字的文本和生成号。
+// 假会话的状态：正在组的字母、暂存词段、方案、整句改字的文本和生成号。
 std::string fake_editing;
+std::string fake_phrase_prefix;
 uint32_t fake_scheme = 0;
 std::string fake_conversion;
 uint64_t fake_generation = 1;
@@ -68,13 +70,24 @@ nlohmann::json view() {
                           {"translation", fake_translation}});
   return {{"session", fake_session},  {"generation", fake_generation}, {"focused", true},
           {"editing_text", fake_editing},  {"preedit", fake_editing},       {"caret_position", fake_editing.size()},
+          {"phrase_prefix", fake_phrase_prefix},
           {"candidates", candidates}, {"local_mode", "none"},     {"scheme", fake_scheme},
           {"spelling_symbols", ""},   {"dedicated_english", false}, {"conversion", fake_conversion},
           {"page", 0}};
 }
 
 // 一次派发的回复。像核心一样：会话开着 FEEDBACK 时每个派发回复都带 feedback，有上屏时特效不为 0；`picked` 的选词上屏了、读音还剩时是部分选词，HOST_HOLDS_PIECES 下核心按暂存的一段算，特效为 0。
-char *transition(const nlohmann::json &commit, bool picked = false) {
+char *transition(nlohmann::json commit, bool picked = false) {
+  // Server 总是请求 Runtime 暂存词段；替身也必须先暂存、最后一次选词才返回整段。
+  // 整段候选和不暂存词段的方案继续直接上屏，不能用旧回复投影替代真实契约。
+  if (picked && commit.is_string() && fake_scheme == 0 && fake_source != 8) {
+    if (!fake_editing.empty()) {
+      fake_phrase_prefix += commit.get<std::string>();
+      commit = nullptr;
+    } else if (!fake_phrase_prefix.empty()) {
+      commit = std::exchange(fake_phrase_prefix, {}) + commit.get<std::string>();
+    }
+  }
   const bool held = picked && !commit.is_null() && !fake_editing.empty() &&
                     (fake_lifecycle & MSIME_LIFECYCLE_HOST_HOLDS_PIECES) != 0;
   ++fake_generation;
@@ -146,8 +159,10 @@ FanyImeNamedpipeData key(uint32_t keycode, char16_t text, uint64_t request) {
 
 extern "C" {
 uint32_t msime_client_abi_version(void) { return 3; }
-char *msime_client_create(const uint8_t *, size_t) {
+char *msime_client_create(const uint8_t *options, size_t length) {
   record("create");
+  REQUIRE(nlohmann::json::parse(options, options + length).value("phrase_preedit", false));
+  fake_phrase_prefix.clear();
   return answer({{"session", fake_session}});
 }
 char *msime_client_destroy(uint64_t) {
@@ -158,9 +173,20 @@ void msime_client_string_free(char *value) { std::free(value); }
 char *msime_client_view(uint64_t) { return answer(view()); }
 char *msime_client_focus(uint64_t, bool focused) {
   record("focus", focused);
-  if (!focused)
+  if (!focused) {
     fake_editing.clear();
+    fake_phrase_prefix.clear();
+  }
   return answer({{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", view()}});
+}
+// 这个夹具只验证确定键盘的生命周期；组码路径由独立双会话测试覆盖，误入必须失败。
+char *msime_client_set_key_grid(uint64_t, uint8_t) {
+  std::cerr << "Unexpected key grid call in lifecycle fixture\n";
+  std::abort();
+}
+char *msime_client_grid_key(uint64_t, uint8_t) {
+  std::cerr << "Unexpected grouped key call in lifecycle fixture\n";
+  std::abort();
 }
 char *msime_client_character(uint64_t, uint8_t ascii, bool) {
   record("character", ascii);
@@ -185,6 +211,7 @@ char *msime_client_command(uint64_t, uint32_t command) {
     fake_editing.clear();
   } else if (command == MSIME_CANCEL || command == MSIME_CANCEL_AFTER_HOST_COMMIT) {
     fake_editing.clear();
+    fake_phrase_prefix.clear();
     fake_conversion.clear();
   }
   return transition(commit, command == MSIME_COMMIT_CANDIDATE);
@@ -261,6 +288,7 @@ char *msime_client_update_preferences(uint64_t, const uint8_t *, size_t) {
   return answer({{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", view()}});
 }
 char *msime_client_set_chinese_punctuation(uint64_t, bool) { return answer(nullptr); }
+char *msime_client_set_multilingual_output(uint64_t, bool) { return answer(nullptr); }
 char *msime_client_set_english_mode(uint64_t, bool) { return answer(view()); }
 char *msime_client_balance_paired_punctuation_after_auto_close(uint64_t, uint8_t) { return answer(nullptr); }
 char *msime_client_punctuation(uint64_t, uint8_t) { return transition(nullptr); }
@@ -327,7 +355,7 @@ int main() {
       REQUIRE(recorded == std::vector<std::string>{"啊"});
       REQUIRE(effects.take() == typing_effect_mark_commit((1u << 17) | 3u));
 
-      // 部分选词：选中的一段留在 Server 的前缀里、没进文档，不画上屏特效（那次回复里的特效为 0 时还会把连击徽标清零），候选窗只拿到按键的特效；整段送出的那次才画。
+      // 部分选词：选中的一段留在 Runtime 的前缀里、没进文档，不画上屏特效（那次回复里的特效为 0 时还会把连击徽标清零），候选窗只拿到按键的特效；整段送出的那次才画。
       REQUIRE(focused.configured_key(lease, key('N', u'n', request), TsfPreeditStyle::Pinyin, {}).has_value());
       REQUIRE(focused.confirm(lease, request++));
       calls.clear();

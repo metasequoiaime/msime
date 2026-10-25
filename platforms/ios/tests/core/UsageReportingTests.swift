@@ -46,10 +46,50 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(UsageReporting.frames(fromCallStackTree: data), "0 MSIMEApp + 0\n1 Engine + 0")
   }
 
-  func testCrashDiagnosticIsWrittenAsAPrivateRecordWithOneSummaryLine() throws {
+  func testDiagnosticSummaryTellsSystemKillsFromCrashes() {
+    let killed = UsageReporting.diagnosticSummary(exceptionType: 10, exceptionCode: 0, signal: NSNumber(value: SIGKILL),
+                                                  exceptionName: nil,
+                                                  terminationReason: "Namespace RUNNINGBOARD, Code 0xdead10cc")
+    XCTAssertEqual(killed, .init(message: "Killed exception 10 code 0 signal 9 Namespace RUNNINGBOARD, Code 0xdead10cc", killed: true))
+    let crashed = UsageReporting.diagnosticSummary(exceptionType: 10, exceptionCode: 0, signal: NSNumber(value: SIGABRT),
+                                                   exceptionName: "NSInvalidArgumentException", terminationReason: "line\nbreak")
+    XCTAssertEqual(crashed, .init(message: "Crash exception 10 code 0 signal 6 NSInvalidArgumentException line break", killed: false))
+    XCTAssertFalse(UsageReporting.diagnosticSummary(exceptionType: nil, exceptionCode: nil, signal: nil,
+                                                    exceptionName: nil, terminationReason: nil).killed)
+  }
+
+  /// 键盘进程崩溃的诊断由 App 事后收到：要记到这个进程当时未结束的会话名下（下次启动报 `session_crash`），同一次崩溃只记一份；被系统强制结束的不算会话崩溃。
+  func testCrashDiagnosticOfAKeyboardProcessBelongsToItsOpenSessionOnce() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    UsageReporting.storeCrashDiagnostic(message: "Crash signal 11\nsecond line", stack: "0 MSIMEApp + 1", in: directory)
+    let session = try XCTUnwrap(UsageReporting.begin(in: directory))
+    let crashes = directory.appendingPathComponent("telemetry-crashes")
+    let crash = UsageReporting.diagnosticSummary(exceptionType: 10, exceptionCode: 0, signal: NSNumber(value: SIGABRT),
+                                                 exceptionName: nil, terminationReason: nil)
+
+    UsageReporting.recordDiagnosedCrash(crash, stack: "0 MSIMEKeyboardExtension + 1", pid: getpid(), in: directory)
+    let record = crashes.appendingPathComponent(session.id + ".crash")
+    XCTAssertEqual(URL(fileURLWithPath: session.crashRecordPath).standardizedFileURL, record.standardizedFileURL)
+    XCTAssertEqual(try String(contentsOf: record, encoding: .utf8),
+                   "Crash exception 10 code 0 signal 6\n0 MSIMEKeyboardExtension + 1")
+    // MetricKit 再送一次，或键盘自己的信号处理函数已经写过：保留第一份。
+    UsageReporting.recordDiagnosedCrash(crash, stack: "0 other + 2", pid: getpid(), in: directory)
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [session.id + ".crash"])
+
+    let killed = UsageReporting.diagnosticSummary(exceptionType: 10, exceptionCode: 0, signal: NSNumber(value: SIGKILL),
+                                                  exceptionName: nil, terminationReason: nil)
+    UsageReporting.recordDiagnosedCrash(killed, stack: "0 libsystem_kernel.dylib + 3", pid: getpid(), in: directory)
+    let files = try FileManager.default.contentsOfDirectory(atPath: crashes.path).filter { $0 != session.id + ".crash" }
+    XCTAssertEqual(files.count, 1)
+    XCTAssertNotNil(UUID(uuidString: (files[0] as NSString).deletingPathExtension))
+  }
+
+  func testCrashDiagnosticOutsideASessionIsAPrivateRecordWithOneSummaryLine() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let summary = UsageReporting.DiagnosticSummary(message: "Crash signal 11\nsecond line", killed: false)
+    // 没有会话的进程（App 自身）。
+    UsageReporting.recordDiagnosedCrash(summary, stack: "0 MSIMEApp + 1", pid: getpid(), in: directory)
     let crashes = directory.appendingPathComponent("telemetry-crashes")
     let files = try FileManager.default.contentsOfDirectory(at: crashes, includingPropertiesForKeys: nil)
     XCTAssertEqual(files.count, 1)
@@ -74,7 +114,8 @@ final class UsageReportingTests: XCTestCase {
       withDestinationURL: outside
     )
 
-    UsageReporting.storeCrashDiagnostic(message: "Synthetic crash", stack: "0 synthetic + 1", in: root)
+    UsageReporting.recordDiagnosedCrash(.init(message: "Synthetic crash", killed: true), stack: "0 synthetic + 1",
+                                        pid: getpid(), in: root)
 
     let outsideFiles = try FileManager.default.contentsOfDirectory(at: outside, includingPropertiesForKeys: nil)
     XCTAssertTrue(outsideFiles.isEmpty)

@@ -88,6 +88,14 @@ export function InputModeShortcutsSection({
             </option>
           ))}
         </SelectRow>
+        {macos && (
+          <SwitchRow
+            title="仅在可编辑焦点时单按 Shift 切换"
+            description="默认关闭。开启后需在系统设置的「隐私与安全性 › 辅助功能」中授权水杉输入法；未授权或无法确认当前焦点可编辑时，单按 Shift 不切换中英文。部分应用可能不支持焦点确认。"
+            checked={keybindings.switch_language_shift_requires_editable ?? false}
+            onChange={(checked) => onChange({ switch_language_shift_requires_editable: checked })}
+          />
+        )}
         {linux && (
           <SettingsGroupNote>
             Ctrl+Space 未选用或关闭后水杉不处理此组合键；若 IBus 或 Fcitx5

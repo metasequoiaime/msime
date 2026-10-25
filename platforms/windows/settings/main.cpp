@@ -1,3 +1,4 @@
+#include "InputMethodSetup.h"
 // windows.h comes first so shellapi.h sees its types; the two macros it defines that collide with WinRT member names are dropped before any WinRT header is read.
 #include <windows.h>
 
@@ -7,6 +8,7 @@
 #include <dwrite.h>
 #include <wincodec.h>
 #include "../common/StateDirectory.h"
+#include "../common/UpdateRecordDirectory.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -72,6 +74,7 @@
 #include "TranslationServiceSettings.h"
 #include "TypingStatisticsModel.h"
 #include "VoiceSettings.h"
+#include "../src/input/ToggleHotkeyChord.h"
 #include "msime_client.h"
 #include "msimeui/AnimatedImage.h"
 
@@ -263,18 +266,11 @@ std::string path_utf8(const std::filesystem::path &path) {
   return result;
 }
 
-// ---- Default input method ----
-
-// Whether this input method is in the user's keyboard list, and whether it is the default one. Unknown when input.dll cannot answer, in which case no banner is shown rather than a wrong one.
-enum class InputMethodState { unknown, missing, not_default, ready };
-
-// 本版本的文本服务和语言 profile，与 TSF 的 Globals.cpp 和看门狗读同一份 shared/contracts/msime_edition.h。
-constexpr GUID input_method_clsid = MSIME_EDITION_CLSID;
-constexpr GUID input_method_profile = MSIME_EDITION_PROFILE_GUID;
-// The same profile in the <LangID>:<CLSID><profile> form InstallLayoutOrTip and SetDefaultLayoutOrTip take.
-constexpr const wchar_t *input_method_id =
-    MSIME_EDITION_LANGID_STRING L":" MSIME_EDITION_CLSID_STRING
-    MSIME_EDITION_PROFILE_GUID_STRING;
+// WinUI 与 Win7 使用同一套系统状态查询和修复操作。
+using msime::settings::input_method::InputMethodState;
+using msime::settings::input_method::input_method_state;
+using msime::settings::input_method::add_input_method;
+using msime::settings::input_method::make_input_method_default;
 
 // 本版本是否提供这个方案（版本表 input_schemes）。不提供的方案不出现在输入方案的选项里。
 bool edition_offers_scheme(std::wstring_view scheme) {
@@ -286,78 +282,6 @@ bool edition_offers_scheme(std::wstring_view scheme) {
       return true;
   }
   return false;
-}
-
-// input.dll's "Install Layout or Tip" functions are documented but ship without a header or an import library, so the structure and flags are declared here as the documentation gives them (LAYOUTORTIPPROFILE, LOT_DEFAULT, LOT_DISABLED).
-struct LayoutOrTipProfile {
-  DWORD profile_type;
-  LANGID language;
-  GUID clsid;
-  GUID profile;
-  GUID category;
-  DWORD substitute_layout;
-  DWORD flags;
-  WCHAR id[MAX_PATH];
-};
-constexpr DWORD layout_or_tip_default = 0x0001;
-constexpr DWORD layout_or_tip_disabled = 0x0002;
-
-template <typename Function> Function input_dll_function(const char *name) {
-  // A system DLL, loaded from System32 only and kept until the process exits.
-  static const HMODULE module =
-      LoadLibraryExW(L"input.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-  if (!module)
-    return nullptr;
-  // Through void*: GetProcAddress returns a generic FARPROC, and casting that straight to the real signature is what -Wcast-function-type rejects.
-  return reinterpret_cast<Function>(
-      reinterpret_cast<void *>(GetProcAddress(module, name)));
-}
-
-bool same_guid(GUID const &a, GUID const &b) {
-  return std::memcmp(&a, &b, sizeof(GUID)) == 0;
-}
-
-InputMethodState input_method_state() {
-  using Enumerate = UINT(WINAPI *)(LPCWSTR, LPCWSTR, LPCWSTR,
-                                   LayoutOrTipProfile *, UINT);
-  const auto enumerate = input_dll_function<Enumerate>("EnumEnabledLayoutOrTip");
-  if (!enumerate)
-    return InputMethodState::unknown;
-  // With a null buffer the function returns how many items the user has enabled; the buffer length is in items.
-  const UINT count = enumerate(nullptr, nullptr, nullptr, nullptr, 0);
-  if (count == 0)
-    return InputMethodState::unknown;
-  std::vector<LayoutOrTipProfile> profiles(count);
-  const UINT copied =
-      std::min(enumerate(nullptr, nullptr, nullptr, profiles.data(), count), count);
-  if (copied == 0)
-    return InputMethodState::unknown;
-  for (UINT i = 0; i < copied; ++i) {
-    const auto &item = profiles[i];
-    if (!same_guid(item.clsid, input_method_clsid) ||
-        !same_guid(item.profile, input_method_profile))
-      continue;
-    if (item.flags & layout_or_tip_disabled)
-      return InputMethodState::missing;
-    return (item.flags & layout_or_tip_default) != 0
-               ? InputMethodState::ready
-               : InputMethodState::not_default;
-  }
-  return InputMethodState::missing;
-}
-
-// Adds the input method to the current user's keyboard list.
-bool add_input_method() {
-  using Install = BOOL(WINAPI *)(LPCWSTR, DWORD);
-  const auto install = input_dll_function<Install>("InstallLayoutOrTip");
-  return install && install(input_method_id, 0) != FALSE;
-}
-
-// Makes the input method the current user's default, for this session too.
-bool make_input_method_default() {
-  using SetDefault = BOOL(WINAPI *)(LPCWSTR, DWORD);
-  const auto set_default = input_dll_function<SetDefault>("SetDefaultLayoutOrTip");
-  return set_default && set_default(input_method_id, 0) != FALSE;
 }
 
 // 保留启动请求的类别，窗口解析承载页时也恢复旧路由对应的顶部标签。
@@ -1106,23 +1030,28 @@ std::wstring app_version_label() {
 
 // 检查更新的结果，措辞与共享设置页一致。
 struct UpdateOutcome {
-  // 「当前版本」下面的那一行：「已是最新版本」「暂无可用发行版」「检查失败，请稍后重试」或「发现新版本 vX」。
+  // 「当前版本」下面的那一行：「已是最新版本」「暂无可用发行版」「检查失败，请稍后重试」或「发现新版本 vX」（测试版和每日构建写明通道，见 AboutPageModel.h 的 update_build_title）。
   std::wstring status;
   // 当前运行的已是最新版本（回答的 status 是 current），这时状态下面画 updated 插画。
   bool current = false;
-  // 发现新版本时结果块里的内容（共享页的 `updateResult`）：版本号、安装包的可信度说明和国内镜像地址（拼不出时为空）。没有可用更新时 version 为空。
+  // 发现新版本时结果块里的内容（共享页的 `updateResult`）：版本号、构建的称呼、安装包的可信度说明和国内镜像地址（拼不出时为空）。没有可用更新时 version 为空。
   std::wstring version;
+  std::wstring title;
   msime::settings::InstallerTrust trust;
   std::wstring mirror_url;
+  // 下载按钮打开的地址和文字：正式版是官网下载页「前往下载」，测试版和每日构建是这个构建的发布页「前往发布页」（官网只列正式版）。
+  std::wstring download_url;
+  std::wstring download_label;
 };
 
-// `msime_client_update_check` 的请求：本版本的 Windows 发布。不带架构：同一个安装程序同时支持 x64 和 Arm64。
-JsonObject update_check_request() {
+// `msime_client_update_check` 的请求：本版本的 Windows 发布，`channel` 是偏好里的更新通道（已归一成 stable、beta、nightly）。不带架构：同一个安装程序同时支持 x64 和 Arm64。加上 `directory` 就是 `msime_client_update_pending` 的请求。
+JsonObject update_check_request(std::wstring_view channel) {
   JsonObject request;
   request.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
   request.SetNamedValue(L"current_version",
                         JsonValue::CreateStringValue(hstring(app_version)));
   request.SetNamedValue(L"edition", JsonValue::CreateStringValue(text(MSIME_EDITION_ID)));
+  request.SetNamedValue(L"channel", JsonValue::CreateStringValue(hstring(channel)));
   return request;
 }
 
@@ -1149,51 +1078,92 @@ std::wstring installer_placeholder() {
   return L"MetasequoiaIME-" + id + L"_Setup_v<版本>.exe";
 }
 
-// 读取 `msime_client_update_check` 的答复。发布页不在本仓库的 tag 下时视为检查失败。安装包名和摘要照共享页的 `fromHostUpdate` 先查形状，不合的当作没有；可信度说明和镜像地址的拼法在 AboutPageModel.h。
+// 读取检查结果 `value`（{status, update}）。发布页不在本仓库的 tag 下时视为检查失败。安装包名和摘要照共享页的 `fromHostUpdate` 先查形状，不合的当作没有；构建的称呼、可信度说明和镜像地址的拼法在 AboutPageModel.h。回答里的 `channel` 和 `build_run` 是这个构建所属的通道和运行 ID，以前的共享层没有这两项，按正式版、没有运行 ID；`channel` 不是三种之一时当作失败。缺少必需的字段时抛出，由调用方当作失败。
+UpdateOutcome describe_update_value(JsonObject const &value) {
+  const UpdateOutcome failed{L"检查失败，请稍后重试"};
+  const std::wstring status(value.GetNamedString(L"status", L"").c_str());
+  if (status == L"none")
+    return {L"暂无可用发行版"};
+  const auto update = value.GetNamedObject(L"update");
+  const std::wstring version(
+      update.GetNamedObject(L"version").GetNamedString(L"display", L"").c_str());
+  const std::wstring url(update.GetNamedString(L"release_url", L"").c_str());
+  if (version.empty() || !url.starts_with(std::wstring(releases_url) + L"/tag/"))
+    return failed;
+  if (status == L"current") {
+    UpdateOutcome latest{L"已是最新版本"};
+    latest.current = true;
+    return latest;
+  }
+  if (status != L"available")
+    return failed;
+  const auto string_field = [&update](wchar_t const *key) {
+    const auto field = update.GetNamedValue(key, JsonValue::CreateNullValue());
+    return field.ValueType() == JsonValueType::String ? std::wstring(field.GetString().c_str())
+                                                      : std::wstring();
+  };
+  const auto channel_field = update.GetNamedValue(L"channel", JsonValue::CreateStringValue(L"stable"));
+  if (channel_field.ValueType() != JsonValueType::String)
+    return failed;
+  const std::wstring found(channel_field.GetString().c_str());
+  if (msime::windows::update_channel::title(found).empty())
+    return failed;
+  std::optional<uint64_t> build_run;
+  const auto run_field = update.GetNamedValue(L"build_run", JsonValue::CreateNullValue());
+  // WinRT 把 JSON 数读成 double；运行 ID 远小于 2^53，只收精确的非负整数。
+  if (run_field.ValueType() == JsonValueType::Number) {
+    const double raw = run_field.GetNumber();
+    if (std::isfinite(raw) && raw >= 0 && std::trunc(raw) == raw && raw <= 9007199254740991.0)
+      build_run = static_cast<uint64_t>(raw);
+  }
+  const auto title = msime::settings::update_build_title(found, version, build_run);
+  UpdateOutcome outcome{msime::settings::update_found_status(title)};
+  outcome.version = version;
+  outcome.title = title;
+  outcome.download_url =
+      msime::settings::update_download_from_release_page(found) ? url : std::wstring(download_url);
+  outcome.download_label = std::wstring(msime::settings::update_download_label(found));
+  auto name = string_field(L"installer_name");
+  if (!msime::settings::installer_name_valid(name))
+    name.clear();
+  auto sha256 = string_field(L"installer_sha256");
+  if (!msime::settings::installer_sha256_valid(sha256))
+    sha256.clear();
+  std::optional<bool> is_signed;
+  const auto signed_value = update.GetNamedValue(L"signed", JsonValue::CreateNullValue());
+  if (signed_value.ValueType() == JsonValueType::Boolean)
+    is_signed = signed_value.GetBoolean();
+  outcome.trust = msime::settings::installer_trust(is_signed, name, sha256, installer_placeholder());
+  outcome.mirror_url = msime::settings::update_mirror_url(url, name);
+  return outcome;
+}
+
+// 读取 `msime_client_update_check` 的答复。
 UpdateOutcome describe_update_check(Response const &response) {
   const UpdateOutcome failed{L"检查失败，请稍后重试"};
   if (!response.ok)
     return failed;
   try {
-    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
-    const std::wstring status(value.GetNamedString(L"status", L"").c_str());
-    if (status == L"none")
-      return {L"暂无可用发行版"};
-    const auto update = value.GetNamedObject(L"update");
-    const std::wstring version(
-        update.GetNamedObject(L"version").GetNamedString(L"display", L"").c_str());
-    const std::wstring url(update.GetNamedString(L"release_url", L"").c_str());
-    if (version.empty() || !url.starts_with(std::wstring(releases_url) + L"/tag/"))
-      return failed;
-    if (status == L"current") {
-      UpdateOutcome latest{L"已是最新版本"};
-      latest.current = true;
-      return latest;
-    }
-    if (status != L"available")
-      return failed;
-    UpdateOutcome outcome{L"发现新版本 v" + version};
-    outcome.version = version;
-    const auto string_field = [&update](wchar_t const *key) {
-      const auto field = update.GetNamedValue(key, JsonValue::CreateNullValue());
-      return field.ValueType() == JsonValueType::String ? std::wstring(field.GetString().c_str())
-                                                        : std::wstring();
-    };
-    auto name = string_field(L"installer_name");
-    if (!msime::settings::installer_name_valid(name))
-      name.clear();
-    auto sha256 = string_field(L"installer_sha256");
-    if (!msime::settings::installer_sha256_valid(sha256))
-      sha256.clear();
-    std::optional<bool> is_signed;
-    const auto signed_value = update.GetNamedValue(L"signed", JsonValue::CreateNullValue());
-    if (signed_value.ValueType() == JsonValueType::Boolean)
-      is_signed = signed_value.GetBoolean();
-    outcome.trust = msime::settings::installer_trust(is_signed, name, sha256, installer_placeholder());
-    outcome.mirror_url = msime::settings::update_mirror_url(url, name);
-    return outcome;
+    return describe_update_value(JsonObject::Parse(text(response.text)).GetNamedObject(L"value"));
   } catch (...) {
     return failed;
+  }
+}
+
+// 读取 `msime_client_update_pending` 的答复：Server 的后台检查已经找到、仍比本版本新的构建。没有（value 为 null）、读不出来或不是可用更新时为空，关于页什么都不显示，等用户自己检查。
+std::optional<UpdateOutcome> describe_pending_update(Response const &response) {
+  if (!response.ok)
+    return std::nullopt;
+  try {
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedValue(L"value");
+    if (value.ValueType() != JsonValueType::Object)
+      return std::nullopt;
+    auto outcome = describe_update_value(value.GetObject());
+    if (outcome.version.empty())
+      return std::nullopt;
+    return outcome;
+  } catch (...) {
+    return std::nullopt;
   }
 }
 
@@ -2123,46 +2093,20 @@ std::vector<std::wstring> json_texts(JsonObject const &object, wchar_t const *ke
   return values;
 }
 
-// The content type and bytes of a msime_client_skin_resource answer, {"ok":true,"value":{"contentType":...,"bytes":[...]}}. The byte array is read by hand: an image of a few hundred kilobytes is that many JSON numbers, which Windows.Data.Json would turn into as many objects.
+// The content type and bytes of a msime_client_skin_resource answer asked for with encoding:"base64", {"ok":true,"value":{"contentType":...,"bytesBase64":...}}. The default `bytes` array would cost the shared layer a JSON value per byte (about 512 MiB at the 8 MiB resource limit) and `take_response`'s Windows.Data.Json parse an object per byte.
 std::optional<std::pair<std::string, std::vector<uint8_t>>>
 skin_resource_bytes(std::string const &answer) {
-  const std::string type_key = "\"contentType\":\"";
-  const std::string bytes_key = "\"bytes\":[";
-  const auto type_at = answer.find(type_key);
-  const auto bytes_at = answer.find(bytes_key);
-  if (type_at == std::string::npos || bytes_at == std::string::npos)
+  try {
+    const auto value = JsonObject::Parse(text(answer)).GetNamedObject(L"value");
+    const auto buffer = Windows::Security::Cryptography::CryptographicBuffer::DecodeFromBase64String(
+        value.GetNamedString(L"bytesBase64"));
+    com_array<uint8_t> bytes;
+    Windows::Security::Cryptography::CryptographicBuffer::CopyToByteArray(buffer, bytes);
+    return std::pair{utf8(value.GetNamedString(L"contentType")),
+                     std::vector<uint8_t>(bytes.begin(), bytes.end())};
+  } catch (hresult_error const &) {
     return std::nullopt;
-  const auto type_start = type_at + type_key.size();
-  const auto type_end = answer.find('"', type_start);
-  if (type_end == std::string::npos)
-    return std::nullopt;
-  std::vector<uint8_t> bytes;
-  size_t at = bytes_at + bytes_key.size();
-  unsigned value = 0;
-  bool digits = false;
-  bool closed = false;
-  for (; at < answer.size() && !closed; ++at) {
-    const char c = answer[at];
-    if (c >= '0' && c <= '9') {
-      value = value * 10 + static_cast<unsigned>(c - '0');
-      if (value > 255)
-        return std::nullopt;
-      digits = true;
-    } else if (c == ',' || c == ']') {
-      if (digits)
-        bytes.push_back(static_cast<uint8_t>(value));
-      else if (c == ',' || !bytes.empty())
-        return std::nullopt;
-      value = 0;
-      digits = false;
-      closed = c == ']';
-    } else if (c != ' ') {
-      return std::nullopt;
-    }
   }
-  if (!closed)
-    return std::nullopt;
-  return std::pair{answer.substr(type_start, type_end - type_start), std::move(bytes)};
 }
 
 // 只由这款包组成的自定义主题配色；排列取包支持的一种，面板确认可画后才使用 panel_drawn 配色。
@@ -2196,6 +2140,7 @@ std::vector<uint8_t> skin_image(std::string const &root, std::wstring const &id,
   request.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
   request.SetNamedValue(L"relative", JsonValue::CreateStringValue(hstring(relative)));
   request.SetNamedValue(L"kind", JsonValue::CreateStringValue(L"image"));
+  request.SetNamedValue(L"encoding", JsonValue::CreateStringValue(L"base64"));
   const auto body = utf8(request.Stringify());
   const auto response = take_response(
       msime_client_skin_resource(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
@@ -5474,7 +5419,7 @@ private:
     if (!available)
       return;
     auto const &outcome = *update_outcome_;
-    auto headline = make_text(msime::settings::update_release_headline(outcome.version), 12,
+    auto headline = make_text(msime::settings::update_release_headline(outcome.title), 12,
                               palette_.sub);
     headline.IsTextSelectionEnabled(true);
     update_result_.Children().Append(headline);
@@ -5493,7 +5438,8 @@ private:
     if (!outcome.mirror_url.empty())
       actions.Children().Append(button_control(
           L"国内镜像下载", [this, url = outcome.mirror_url] { open_url(url.c_str()); }));
-    actions.Children().Append(button_control(L"前往下载", [this] { open_url(download_url); }));
+    actions.Children().Append(button_control(
+        outcome.download_label, [this, url = outcome.download_url] { open_url(url.c_str()); }));
     update_result_.Children().Append(actions);
   }
 
@@ -5515,20 +5461,66 @@ private:
     check_for_update();
   }
 
-  // GitHub 可能要十秒才回应，所以请求在 UI 线程之外执行，只把结果传回来。
+  // 偏好里的更新通道（`update_channel`），归一成 stable、beta、nightly；偏好没读到时是稳定版。
+  std::wstring current_update_channel() const {
+    return std::wstring(msime::windows::update_channel::normalize(
+        std::wstring_view(document_.String(L"update_channel", msime::windows::update_channel::stable))));
+  }
+
+  // 换了更新通道：上一次的结果是按旧通道检查的，不再显示；还在路上的检查回来时也丢掉（update_generation_）。然后读新通道下 Server 后台检查找到的版本。
+  void on_update_channel_changed() {
+    ++update_generation_;
+    update_checking_ = false;
+    update_outcome_.reset();
+    show_update_outcome();
+    load_pending_update();
+  }
+
+  // GitHub 可能要十秒才回应，所以请求在 UI 线程之外执行，只把结果传回来。按点下按钮时偏好里的通道检查。
   fire_and_forget check_for_update() {
     update_checking_ = true;
     update_outcome_.reset();
     show_update_outcome();
+    const auto generation = ++update_generation_;
     auto weak = get_weak();
     auto queue = DispatcherQueue();
-    const auto body = utf8(update_check_request().Stringify());
+    const auto channel = current_update_channel();
+    const auto body = utf8(update_check_request(channel).Stringify());
     co_await resume_background();
     auto outcome = describe_update_check(take_response(msime_client_update_check(
         reinterpret_cast<const uint8_t *>(body.data()), body.size())));
-    queue.TryEnqueue([weak, outcome = std::move(outcome)] {
+    queue.TryEnqueue([weak, generation, outcome = std::move(outcome)] {
       if (auto self = weak.get()) {
+        if (self->update_generation_ != generation)
+          return;
         self->update_checking_ = false;
+        self->update_outcome_ = outcome;
+        self->show_update_outcome();
+      }
+    });
+  }
+
+  // 「版本更新」标签画出来、还没有结果时，先显示 Server 后台检查（UpdateNotifier）已经找到、仍比本版本新的构建（`msime_client_update_pending`，只读本用户更新记录目录里的 update-check.json，与 Server 写的是同一个目录（common/UpdateRecordDirectory.h），不联网），点通知打开这一页时用户直接看到是哪个版本。读文件也放在 UI 线程之外；回来时用户已经点了检查、换了通道或者已有结果就不覆盖。
+  fire_and_forget load_pending_update() {
+    const auto directory = msime::windows::update_record_directory();
+    if (directory.empty() || !directory.is_absolute())
+      co_return;
+    const auto generation = update_generation_;
+    auto weak = get_weak();
+    auto queue = DispatcherQueue();
+    const auto channel = current_update_channel();
+    auto request = update_check_request(channel);
+    request.SetNamedValue(L"directory", JsonValue::CreateStringValue(hstring(directory.wstring())));
+    const auto body = utf8(request.Stringify());
+    co_await resume_background();
+    auto outcome = describe_pending_update(take_response(msime_client_update_pending(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size())));
+    if (!outcome)
+      co_return;
+    queue.TryEnqueue([weak, generation, outcome = std::move(*outcome)] {
+      if (auto self = weak.get()) {
+        if (self->update_generation_ != generation || self->update_checking_ || self->update_outcome_)
+          return;
         self->update_outcome_ = outcome;
         self->show_update_outcome();
       }
@@ -5997,8 +5989,21 @@ private:
       for (auto const &item : list.GetArray())
         if (item.ValueType() == JsonValueType::String)
           providers.emplace_back(item.GetString().c_str());
+    const auto names_value = object.GetNamedValue(L"providerNames", JsonValue::CreateNullValue());
+    if (names_value.ValueType() != JsonValueType::Object)
+      return false;
+    am::ProviderNames names;
+    for (auto const &entry : names_value.GetObject()) {
+      if (entry.Value().ValueType() != JsonValueType::String || entry.Value().GetString().empty())
+        return false;
+      names.emplace(entry.Key().c_str(), entry.Value().GetString().c_str());
+    }
+    for (auto const &provider : providers)
+      if (names.find(provider) == names.end())
+        return false;
     account_user_ = std::move(user);
     account_providers_linked_ = std::move(providers);
+    account_provider_names_ = std::move(names);
     if (!keep_name)
       account_name_ = account_user_->display_name;
     return true;
@@ -6007,6 +6012,7 @@ private:
   void account_signed_out() {
     account_user_.reset();
     account_providers_linked_.clear();
+    account_provider_names_.clear();
     account_name_.clear();
     reset_settings_sync();
     reset_qq_links();
@@ -6106,6 +6112,8 @@ private:
       return;
     }
     account_name_ = account_user_->display_name;
+    account_providers_linked_.clear();
+    account_provider_names_.clear();
     account_request(account_action(L"profile"), [this](Response const &response) {
       if (!response.ok || !apply_account_profile(response, false)) {
         if (const auto code = account_failure(response); !am::cancelled(code))
@@ -6143,6 +6151,7 @@ private:
     account_user_ = std::move(user);
     account_name_ = account_user_->display_name;
     account_providers_linked_.clear();
+    account_provider_names_.clear();
     account_request(account_action(L"profile"), [this](Response const &profile) {
       if (!profile.ok || !apply_account_profile(profile, false)) {
         account_finish(account_failure(profile));
@@ -7446,7 +7455,7 @@ private:
       if (auto value = weak_providers.get()) {
         std::wstring names;
         for (auto const &provider : account_providers_linked_)
-          names += (names.empty() ? L"" : L"、") + am::provider_name(provider);
+          names += (names.empty() ? L"" : L"、") + am::provider_name(provider, account_provider_names_);
         value.Text(hstring(names.empty() ? L"正在读取" : names));
       }
       if (auto value = weak_joined.get())
@@ -9503,13 +9512,13 @@ private:
           // ResourceDetail 的 unpublish 只关上详情：列表不重读，也不说明。
           if constexpr (resource_item<Item>) {
             gallery_end<Item>();
-            return;
+          } else {
+            gallery.installed = false;
+            gallery.confirm_replace = false;
+            gallery.notice = message;
+            gallery_list<Item>(gallery.active_search, false, gallery.active_mine,
+                               [this](bool) { gallery_end<Item>(); });
           }
-          gallery.installed = false;
-          gallery.confirm_replace = false;
-          gallery.notice = message;
-          gallery_list<Item>(gallery.active_search, false, gallery.active_mine,
-                             [this](bool) { gallery_end<Item>(); });
         });
   }
 
@@ -13249,13 +13258,14 @@ private:
                L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
                L"wubi_auto_commit_unique", true);
     }
-    // 日语、韩语、粤拼、注音和笔画各只有一个方案，没有可选的东西，只在对应方案下用一行说明怎么打，标题和说明与共享页 InputSchemeDetailsSection 的 schemeNote 相同。
+    // 单一布局只展示输入说明；韩语另外提供实体键盘布局选择。
     if (scheme == L"japanese")
       add_row(group, 0xE8AB, L"日语方案",
               L"罗马音：直接输入罗马音，提供平假名、片假名及日语词库候选", nullptr);
     if (scheme == L"korean")
-      add_row(group, 0xE8AB, L"韩语方案",
-              L"两套式：按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角", nullptr);
+      segment_row(group, 0xE8AB, L"韩语布局",
+                  L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
+                  L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
     if (scheme == L"cantonese")
       add_row(group, 0xE8AB, L"粤拼方案",
               L"粤拼：按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词", nullptr);
@@ -13635,6 +13645,236 @@ private:
     append_row_frame(group, save).Padding(Thickness{row_inset, 10, row_inset, 10});
   }
 
+  void request_sentence_packs() {
+    if (!indexing_ && sentence_pack_statuses_.empty() && !sentence_packs_requested_) {
+      sentence_packs_requested_ = true;
+      refresh_sentence_packs();
+    }
+  }
+
+  // 安装包不带落定重排模型（Prepare-PackageFiles.ps1），与共享页一样在「桌面神经联想」打开时给出它的下载行，否则开关打开了也没有模型可用。
+  void build_neural_desktop_settings(StackPanel const &group) {
+    bool_row(group, 0xE8C1, L"桌面神经联想",
+             L"使用神经模型重排整句候选；没有模型时保持现有候选",
+             L"sentence_association.neural_desktop", false, true);
+    if (!document_.Boolean(L"sentence_association.neural_desktop", false))
+      return;
+    request_sentence_packs();
+    sentence_pack_row(group, L"settled-model", L"神经联想模型");
+  }
+
+  // Windows 原生设置页也提供共享设置页中的 octagram 语法模型管理。
+  void build_sentence_model_settings(StackPanel const &group) {
+    request_sentence_packs();
+    const std::wstring model = document_.String(L"sentence_association.grammar_model", L"none");
+    std::vector<Option> choices = {
+        {L"none", L"不使用"},
+        {L"wanxiang", L"万象 LTS（约 380 MB，CC-BY-4.0）"},
+        {L"baguwen_word", L"八股文·词级（约 197 MB，LGPL-3.0）"},
+        {L"baguwen_compact", L"八股文·词级紧凑（约 39 MB，LGPL-3.0）"},
+    };
+    auto selector = select_control(L"语法模型", choices, model, [this](std::wstring const &value) {
+      change([&](PreferencesDocument &doc) {
+        doc.SetString(L"sentence_association.grammar_model", value);
+      }, true);
+    });
+    A11y::SetAutomationId(selector, L"sentence-grammar-model");
+    add_row(group, 0xE8C1, L"语法模型",
+            L"octagram 语法模型给整句候选加分；模型按需下载，不随安装包。选择后切换一次输入框生效。",
+            selector);
+    const auto pack = grammar_pack_for_model(model);
+    if (!pack.empty())
+      sentence_pack_row(group, pack, L"模型文件");
+  }
+
+  void sentence_pack_row(StackPanel const &group, std::wstring const &pack,
+                         std::wstring const &title) {
+    const auto status = sentence_pack_status(pack);
+    const bool installing = sentence_pack_installing_.count(pack) > 0;
+    const bool removing = sentence_pack_removing_.count(pack) > 0;
+    std::wstring subtitle;
+    if (installing)
+      subtitle = L"正在下载和校验模型…";
+    else if (removing)
+      subtitle = L"正在删除模型…";
+    else if (status == L"installed")
+      subtitle = L"已安装；切换一次输入框后生效。";
+    else if (status == L"outdated")
+      subtitle = L"已安装的文件需要更新。";
+    else
+      subtitle = L"模型尚未安装。";
+    StackPanel actions;
+    actions.Orientation(Orientation::Horizontal);
+    actions.Spacing(8);
+    if (status != L"installed" && !installing && !removing) {
+      auto download = button_control(status == L"outdated" ? L"更新" : L"下载",
+                                     [this, pack] { install_sentence_pack(pack); }, loaded_);
+      A11y::SetAutomationId(download, L"sentence-model-download-" + pack);
+      actions.Children().Append(download);
+    }
+    if (status == L"installed" && !installing && !removing)
+      actions.Children().Append(button_control(L"删除", [this, pack] { remove_sentence_pack(pack); },
+                                                loaded_));
+    if (installing)
+      actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
+    add_row(group, 0xE8C1, title, subtitle, actions);
+  }
+
+  static std::wstring grammar_pack_for_model(std::wstring const &model) {
+    if (model == L"wanxiang") return L"grammar-model-wanxiang";
+    if (model == L"baguwen_word") return L"grammar-model-baguwen";
+    if (model == L"baguwen_compact") return L"grammar-model-baguwen-compact";
+    return {};
+  }
+
+  std::wstring sentence_pack_status(std::wstring const &id) const {
+    for (auto const &status : sentence_pack_statuses_)
+      if (status.first == id)
+        return status.second;
+    return L"missing";
+  }
+
+  void refresh_sentence_packs() {
+    const auto root = state_directory();
+    if (root.empty() || !root.is_absolute())
+      return;
+    JsonObject request;
+    request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
+    run_host(
+        [body = utf8(request.Stringify())] {
+          return take_response(msime_client_resource_packs(
+              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+        },
+        [this](Response const &response) {
+          if (!response.ok)
+            return;
+          try {
+            auto values = JsonObject::Parse(text(response.text)).GetNamedArray(L"value");
+            sentence_pack_statuses_.clear();
+            for (auto const &item : values) {
+              if (item.ValueType() != JsonValueType::Object)
+                continue;
+              const auto object = item.GetObject();
+              const auto id = named_string(object, L"id");
+              if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
+                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact")
+                sentence_pack_statuses_.push_back({id, named_string(object, L"state")});
+            }
+            redraw_input();
+          } catch (...) {
+          }
+        });
+  }
+
+  void redraw_input() {
+    if (!closed_ && current_page_ == "input")
+      render_page(true);
+  }
+
+  static void sentence_pack_progress(void *, const char *, uint64_t, uint64_t) noexcept {
+  }
+
+  void install_sentence_pack(std::wstring const &id) {
+    const auto root = state_directory();
+    if (root.empty() || !root.is_absolute()) return;
+    sentence_pack_installing_.insert(id);
+    redraw_input();
+    JsonObject request;
+    request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
+    request.SetNamedValue(L"pack", JsonValue::CreateStringValue(hstring(id)));
+    const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
+    if (!mirror.empty()) {
+      JsonArray sources;
+      sources.Append(JsonValue::CreateStringValue(hstring(mirror)));
+      request.SetNamedValue(L"sources", sources);
+    }
+    run_host(
+        [body = utf8(request.Stringify())] {
+          return take_response(msime_client_resource_pack_install(
+              reinterpret_cast<const uint8_t *>(body.data()), body.size(),
+              &MainWindow::sentence_pack_progress, nullptr));
+        },
+        [this, id](Response const &response) {
+          sentence_pack_installing_.erase(id);
+          if (!response.ok)
+            show_notice(L"模型下载失败，请检查网络或稍后重试。", InfoBarSeverity::Error);
+          refresh_sentence_packs();
+          redraw_input();
+        });
+  }
+
+  void cancel_sentence_pack(std::wstring const &id) {
+    const auto bytes = utf8(hstring(id));
+    msime_client_resource_pack_cancel(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size());
+  }
+
+  fire_and_forget remove_sentence_pack(std::wstring const &id) {
+    const bool settled = id == L"settled-model";
+    if (!co_await confirm(settled ? L"删除桌面神经联想模型" : L"删除语法模型",
+                          settled ? L"删除后切换输入框即可退回不经神经模型重排的整句候选。确定删除？"
+                                  : L"删除后切换输入框即可退回无语法模型的候选行为。确定删除？",
+                          L"删除"))
+      co_return;
+    const auto root = state_directory();
+    if (root.empty() || !root.is_absolute()) co_return;
+    sentence_pack_removing_.insert(id);
+    redraw_input();
+    JsonObject request;
+    request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
+    request.SetNamedValue(L"pack", JsonValue::CreateStringValue(hstring(id)));
+    run_host(
+        [body = utf8(request.Stringify())] {
+          return take_response(msime_client_resource_pack_remove(
+              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+        },
+        [this, id](Response const &response) {
+          sentence_pack_removing_.erase(id);
+          if (!response.ok)
+            show_notice(L"模型正在使用或无法删除，请先切换输入框后重试。", InfoBarSeverity::Error);
+          refresh_sentence_packs();
+          redraw_input();
+        });
+  }
+
+  // 语言列表缺省才使用共享默认值；显式空列表保留为全不选。
+  void build_multilingual_input(StackPanel const &group, bool mixed_enabled) {
+    if (!edition_offers_scheme(L"quanpin"))
+      return;
+    const bool enabled = document_.Boolean(L"multilingual_input.enabled", false);
+    bool_row(group, 0xE774, L"连续多语言输入（实验）",
+             L"开启候选混输后，在全拼 26 键中连续输入所选语言的编码；完整中文优先，混合结果作为备选。至少需要两种可用语言",
+             L"multilingual_input.enabled", false, true);
+    const auto stored = document_.Value(L"multilingual_input.languages");
+    const auto languages = stored && stored.ValueType() == JsonValueType::Array
+                               ? document_.Strings(L"multilingual_input.languages")
+                               : std::vector<std::wstring>{L"chinese", L"english", L"japanese"};
+    for (auto const &option : std::vector<Option>{{L"chinese", L"中文"},
+                                                 {L"english", L"英文"},
+                                                 {L"japanese", L"日文"}}) {
+      if constexpr (!MSIME_EDITION_TEMPORARY_JAPANESE) {
+        if (option.value == L"japanese")
+          continue;
+      }
+      const auto language = option.value;
+      const auto title = L"连续输入：" + option.label;
+      add_row(group, 0xE774, title,
+              language == L"japanese" ? L"使用已有日文词典，未安装或准备中时暂不参与" : L"",
+              toggle_control(title, std::find(languages.begin(), languages.end(), language) != languages.end(),
+                             [this, language](bool selected) {
+                               change([&](PreferencesDocument &doc) {
+                                 const auto value = doc.Value(L"multilingual_input.languages");
+                                 auto next = value && value.ValueType() == JsonValueType::Array
+                                                 ? doc.Strings(L"multilingual_input.languages")
+                                                 : std::vector<std::wstring>{L"chinese", L"english", L"japanese"};
+                                 next.erase(std::remove(next.begin(), next.end(), language), next.end());
+                                 if (selected)
+                                   next.push_back(language);
+                                 doc.SetOrderedStrings(L"multilingual_input.languages", next);
+                               }, false);
+                             }, enabled && mixed_enabled));
+    }
+  }
+
   // 「候选与联想」「输出设置」「高级选项」三个标签的内容，与共享页 InputSharedSettingsSection 的 candidates、output、advanced 三块相同。
   void build_input_habits(StackPanel const &page, std::wstring const &tab) {
     if (in_tab(tab, L"candidates")) {
@@ -13676,12 +13916,18 @@ private:
                  L"全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）；词典不在时不生效",
                  L"mixed_input.japanese", false, false, mixed_enabled);
       }
+      build_multilingual_input(candidates_more, mixed_enabled);
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
                L"single_character_only", false);
       bool_row(candidates_more, 0xE8C1, L"本地整句联想",
                L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
                L"sentence_association.word_lattice", true);
+      build_neural_desktop_settings(candidates);
+      bool_row(candidates, 0xE8C1, L"去重后补充次选",
+               L"某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果",
+               L"sentence_association.show_next_on_duplicate", false);
+      build_sentence_model_settings(candidates);
     }
 
     if (in_tab(tab, L"output")) {
@@ -14772,6 +15018,7 @@ private:
   void set_lexicon_feedback(std::wstring message, InfoBarSeverity severity) {
     lexicon_feedback_ = std::move(message);
     lexicon_feedback_severity_ = severity;
+    lexicon_feedback_reveal_ = true;
     if (!closed_ && current_page_ == "lexicon")
       queue_refresh();
   }
@@ -14947,13 +15194,18 @@ private:
                          JsonValue::CreateStringValue(request_id(previous ? L"ui-edit-" : L"ui-add-")));
     const uint32_t reload = previous ? lexicon_offset_ : 0;
     lexicon_feedback_.clear();
-    lexicon_request(action, [this, kind, reload](Response const &response) {
+    const bool added = !previous;
+    lexicon_request(action, [this, kind, reload, added, key = replacement.key](Response const &response) {
       if (!response.ok) {
         set_lexicon_feedback(dictionary_error_text(response_error(response), kind,
                                                    lexicon_kind_label(kind) + L"保存失败，请稍后重试。"),
                              InfoBarSeverity::Error);
         return;
       }
+      // 列表按个人词条、权重排，新词条不一定落在第一页上；只换列表的话，看不见它的人只能当作没加上（#9434）。
+      set_lexicon_feedback(added ? L"已添加到" + lexicon_kind_label(kind) + L"，编码 " + key + L"。"
+                                 : L"已保存。",
+                           InfoBarSeverity::Success);
       lexicon_list(reload);
     });
   }
@@ -15735,6 +15987,23 @@ private:
     A11y::SetAutomationId(bar, L"lexicon-feedback");
     bar.Margin(Thickness{0, 12, 0, 0});
     bar.Closed([this](InfoBar const &, InfoBarClosedEventArgs const &) { lexicon_feedback_.clear(); });
+    // 结果条画在页内标签下面，「新增词条」「导入」却在页面下方：窗口不够高、页面往下滚过时，新的结果正好落在视野外面，看上去点了什么也没发生（#9434）。新的结果画出来后滚进视野一次；先等这一轮其余的 Loaded（render_page_at 恢复滚动位置）跑完，换下来的旧结果条不滚。
+    if (lexicon_feedback_reveal_)
+      bar.Loaded([weak = get_weak()](Inspectable const &sender, RoutedEventArgs const &) {
+        auto self = weak.get();
+        if (!self)
+          return;
+        self->DispatcherQueue().TryEnqueue(
+            Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
+            [weak, shown = sender.as<InfoBar>()] {
+              auto self = weak.get();
+              if (!self || self->closed_ || !self->lexicon_feedback_reveal_ ||
+                  self->lexicon_feedback_bar_ != shown)
+                return;
+              self->lexicon_feedback_reveal_ = false;
+              shown.StartBringIntoView();
+            });
+      });
     return bar;
   }
 
@@ -21394,10 +21663,101 @@ private:
                                  doc.SetBoolean(L"voice_input." + std::wstring(key), on);
                              }, true);
                            }));
+    add_row(shortcuts, 0xEDA7, L"语音输入开始／结束",
+            L"点击后按组合键，Esc 取消，Backspace / Delete 解绑。按一次开始，再按一次结束。",
+            voice_toggle_recorder());
     auto rows = add_fold(
         shortcuts, L"更多选项", voice_hotkeys_more_open_ || focus_row_ == L"Ctrl+F9 切换语音",
         [this](bool expanded) { voice_hotkeys_more_open_ = expanded; });
     bool_row(rows, 0xEDA7, L"Ctrl+F9 切换语音", L"", L"voice_input.hotkey_ctrl_f9", true);
+  }
+
+  // 录键只产生规范主键名；语法、冲突和归一化通过 C ABI 使用共享偏好规则。
+  FrameworkElement voice_toggle_recorder() {
+    auto recording = std::make_shared<bool>(false);
+    auto message = make_text(L"", 12, palette_.text);
+    message.TextWrapping(TextWrapping::Wrap);
+    auto recorder = make_row_button(false);
+    const auto label = [this] {
+      const auto stored = document_.String(L"keybindings.toggle_voice_input", L"");
+      return stored.empty() ? std::wstring(L"未绑定") : stored;
+    };
+    const auto show = [](Button const &button, std::wstring const &value) {
+      button.Content(box_value(hstring(value)));
+      A11y::SetName(button, hstring(L"语音输入开始／结束：" + value));
+    };
+    show(recorder, label());
+    recorder.IsEnabled(loaded_);
+    A11y::SetAutomationId(recorder, L"voice-toggle-recorder");
+    recorder.Click([recording, message, show](Inspectable const &sender, RoutedEventArgs const &) {
+      *recording = true;
+      message.Text(L"");
+      show(sender.as<Button>(), L"请按组合键…");
+    });
+    recorder.LostFocus([recording, label, show](Inspectable const &sender, RoutedEventArgs const &) {
+      *recording = false;
+      show(sender.as<Button>(), label());
+    });
+    recorder.PreviewKeyDown([this, recording, label, message, show](
+        Inspectable const &sender, Input::KeyRoutedEventArgs const &args) {
+      if (!*recording) return;
+      args.Handled(true);
+      const auto key = static_cast<unsigned>(args.Key());
+      if (key == VK_ESCAPE) {
+        *recording = false;
+        message.Text(L"");
+        show(sender.as<Button>(), label());
+        return;
+      }
+      if (key == VK_CONTROL || key == VK_SHIFT || key == VK_MENU ||
+          key == VK_LWIN || key == VK_RWIN) return;
+      auto chord = msime::windows::toggle_key_name(key);
+      if (key == VK_BACK || key == VK_DELETE) chord.clear();
+      else if (chord.empty()) {
+        message.Text(L"此主键暂不支持，请换一个组合键");
+        return;
+      } else {
+        const auto pressed = [](int modifier) { return (GetKeyState(modifier) & 0x8000) != 0; };
+        std::string prefix;
+        if (pressed(VK_CONTROL)) prefix += "Ctrl+";
+        if (pressed(VK_MENU)) prefix += "Alt+";
+        if (pressed(VK_SHIFT)) prefix += "Shift+";
+        if (pressed(VK_LWIN) || pressed(VK_RWIN)) prefix += "Meta+";
+        chord = prefix + chord;
+      }
+      JsonObject request;
+      request.SetNamedValue(L"field", JsonValue::CreateStringValue(L"toggle_voice_input"));
+      request.SetNamedValue(L"chord", JsonValue::CreateStringValue(text(chord)));
+      const auto keys = document_.Value(L"keybindings");
+      request.SetNamedValue(L"keybindings", keys && keys.ValueType() == JsonValueType::Object
+          ? keys : JsonObject());
+      request.SetNamedValue(L"voice_ctrl_f9", JsonValue::CreateBooleanValue(
+          document_.Boolean(L"voice_input.hotkey_ctrl_f9", true)));
+      const auto bytes = utf8(request.Stringify());
+      const auto response = take_response(msime_client_check_toggle_hotkey(
+          reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
+      try {
+        if (!response.ok) throw std::runtime_error("hotkey check unavailable");
+        const auto checked = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+        if (!checked.GetNamedBoolean(L"ok", false)) {
+          message.Text(checked.GetNamedString(L"kind", L"") == L"conflict"
+              ? L"与现有快捷键冲突，请换一个组合键" : L"无法识别的组合键");
+          return;
+        }
+        const auto normalized = std::wstring(checked.GetNamedString(L"chord"));
+        *recording = false;
+        change([&](PreferencesDocument &doc) {
+          doc.SetString(L"keybindings.toggle_voice_input", normalized);
+        }, true);
+      } catch (...) {
+        message.Text(L"无法检查快捷键，请稍后重试");
+      }
+    });
+    StackPanel field;
+    field.Spacing(4);
+    field.Children().Append(recorder);
+    field.Children().Append(message);
+    return field;
   }
 
   void redraw_voice() {
@@ -23128,7 +23488,7 @@ private:
 
   // ---- 维护与诊断 ----
 
-  // 共享「维护与诊断」页（`pages/developer-page.tsx`）在 Windows 上的样子，顺序也相同：「输入法服务」（`input-method-service-section.tsx` 非 macOS、非 Linux 的一支）、「诊断日志」（`diagnostic-logs-section.tsx` 的 Windows 一支）、「数据目录」，最后是 Windows 独有的「设置文件」。macOS 的「卸载」一组不画，Windows 从系统的「应用」设置卸载。
+  // 共享「维护与诊断」页（`pages/developer-page.tsx`）在 Windows 上的样子，顺序也相同：「输入法服务」（`input-method-service-section.tsx` 非 macOS、非 Linux 的一支）、「诊断日志」（`diagnostic-logs-section.tsx` 的 Windows 一支）、「数据目录」，最后是 Windows 独有的「设置文件」；「命令行工具」一组排在「诊断日志」之后。macOS 的「卸载」一组不画，Windows 从系统的「应用」设置卸载。
   void build_dev_page(StackPanel const &page) {
     auto service = add_group(page, L"输入法服务");
     service.Children().Append(group_note(L"请求受监督的输入法服务重新启动。"));
@@ -23146,6 +23506,12 @@ private:
     bool_row(logs, 0xEBE8, L"TSF 端日志",
              L"排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。",
              L"diagnostic_log.tsf", false);
+
+    // `msime-mcp candidates` 的开关（#9663）：命令按用户自己的词库给出候选，等于把打过的词交给能运行它的任何程序，所以缺省关闭。键在 `diagnostic_log` 下，与两个日志开关一样只属于本机，不随云同步、不进设置文件；bool_row 只改这一个键，同组的 server、tsf 原样保留。安装器把 msime-mcp.exe 放在安装目录的 server 文件夹里（msime_setup.iss）。
+    auto command_line = add_group(page, L"命令行工具");
+    bool_row(command_line, 0xE756, L"命令行查询候选",
+             L"允许安装目录下 server 文件夹里的 msime-mcp.exe candidates 命令按你现在的输入方案、设置和词库，输出一串拼音或按键会给出的候选，供编写测试和演示程序使用。词库里有你打过的词，任何能运行这个命令的程序都能借此读到它们，不用时请保持关闭；关闭时命令会提示并以错误码退出。",
+             L"diagnostic_log.command_line_candidates", false);
 
     // 数据目录登记在安装器写的 HKLM DataDir 里（common/StateDirectory.h），32 位和 64 位 TSF DLL 与 Server 都按它解析状态根，改它要管理员权限，搬迁时还要先停掉 Server 和看门狗；这些安装器都已经做了（「选择数据位置」一步、MigrateUserDataDir 只复制、安装成功后 FinishDataDirMove 才删旧目录），所以这里没有共享页的「选择位置…」，只显示和打开，搬迁的办法写在组注里指向安装器。路径照共享页的 `<code>` 用 Consolas。
     auto data = add_group(page, L"数据目录");
@@ -23663,6 +24029,20 @@ private:
     update_result.Spacing(8);
     auto update_result_frame = append_row_frame(updates, update_result);
     update_result_frame.Padding(Thickness{row_inset, 10, row_inset, 10});
+    // 「更新通道」（偏好 `update_channel`）：检查更新和 Server 的后台提醒都按它选版本。选项在 AboutPageModel.h；换了通道，上面的结果作废（on_update_channel_changed）。
+    {
+      std::vector<Option> channels;
+      for (auto const &option : msime::settings::update_channel_options)
+        channels.push_back({std::wstring(option.value), std::wstring(option.label)});
+      add_row(updates, 0xE7C1, L"更新通道", std::wstring(msime::settings::update_channel_description),
+              select_control(L"更新通道", std::move(channels), current_update_channel(),
+                             [this](std::wstring const &value) {
+                               change([&](PreferencesDocument &doc) {
+                                 doc.SetString(L"update_channel", value);
+                               }, false);
+                               on_update_channel_changed();
+                             }));
+    }
     if (!indexing_) {
       update_button_ = update_button;
       update_lines_ = update_lines;
@@ -23671,6 +24051,8 @@ private:
       update_result_ = update_result;
       update_result_frame_ = update_result_frame;
       show_update_outcome();
+      if (!update_checking_ && !update_outcome_)
+        load_pending_update();
     }
     url_row(updates, L"其他平台下载", L"在水杉输入法官网的下载页获取其他平台的版本。",
             download_url);
@@ -24254,6 +24636,8 @@ private:
   Border lexicon_results_host_{nullptr};
   // 页上正画着的操作结果条，查询条件变化时就地收起它（clear_lexicon_feedback_for_query）；没画时为空。
   InfoBar lexicon_feedback_bar_{nullptr};
+  // 刚有新的操作结果，结果条画出来后要滚进视野一次（make_lexicon_feedback）。
+  bool lexicon_feedback_reveal_ = false;
   bool lexicon_results_queued_ = false;
   Microsoft::UI::Dispatching::DispatcherQueueTimer lexicon_search_timer_{nullptr};
   // 导入导出的文件格式，跨重画保留；换到不能用它的词库类型时退回标准格式。
@@ -24316,6 +24700,11 @@ private:
   bool candidates_more_open_ = false;
   bool local_modes_more_open_ = false;
   bool helpcode_more_open_ = false;
+  // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态。
+  bool sentence_packs_requested_ = false;
+  std::vector<std::pair<std::wstring, std::wstring>> sentence_pack_statuses_;
+  std::set<std::wstring> sentence_pack_installing_;
+  std::set<std::wstring> sentence_pack_removing_;
   // 「输入 › 候选与联想」云候选服务的草稿（共享页 CloudCandidatesSection 的组件状态）和它出自的那份文档配置（序列化后的文字）；文档里的配置变了草稿作废。
   std::optional<JsonObject> cloud_provider_draft_;
   std::wstring cloud_provider_base_;
@@ -24357,6 +24746,7 @@ private:
   std::optional<Response> account_pending_providers_;
   std::optional<AccountUser> account_user_;
   std::vector<std::wstring> account_providers_linked_;
+  am::ProviderNames account_provider_names_;
   bool account_email_ = false;
   bool account_phone_ = false;
   bool account_google_ = false;
@@ -24396,6 +24786,8 @@ private:
 
   // 检查更新：状态跨页面重建保留；控件是「关于」页当前的那一组。
   bool update_checking_ = false;
+  // 每次检查和每次换通道加一；回来的结果代次不对就丢掉，免得旧通道的结果盖住新通道的。
+  uint64_t update_generation_ = 0;
   std::optional<UpdateOutcome> update_outcome_;
   Button update_button_{nullptr};
   StackPanel update_lines_{nullptr};

@@ -6,6 +6,7 @@ import { SettingsGroupBlock } from "./settings-group-block";
 
 export interface ScreenKeyboardSkinsSectionProps {
   theme: "dark" | "light";
+  phone?: boolean;
   /** Whether the custom theme draws the keyboard with 我的皮肤 rather than its base theme's keyboard. */
   selected: boolean;
   customDesign: TouchKeyboardSkinDesign;
@@ -17,6 +18,7 @@ export interface ScreenKeyboardSkinsSectionProps {
 /** 我的皮肤, the custom keyboard skin that is part of the custom theme, and the switch for its editor. The built-in keyboard looks are the global themes themselves. */
 export function ScreenKeyboardSkinsSection({
   theme,
+  phone = false,
   selected,
   customDesign,
   editorOpen,
@@ -39,7 +41,8 @@ export function ScreenKeyboardSkinsSection({
                   theme={theme}
                   skin="custom"
                   customDesign={customDesign}
-                  compact
+                  compact={!phone}
+                  phone={phone}
                 />
                 <span className={skin.skinCardCopy}>
                   <strong>我的皮肤</strong>

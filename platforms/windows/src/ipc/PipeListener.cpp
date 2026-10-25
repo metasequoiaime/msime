@@ -41,14 +41,15 @@ bool descriptor(PSECURITY_DESCRIPTOR &output, DWORD &error) {
     return false;
   }
   Local sid_text{text};
-  // Match the existing product's account/System + connect-only AppContainer
-  // access and low integrity label. Never admit Everyone or grant AC the
-  // FILE_CREATE_PIPE_INSTANCE bit. Peer checks still enforce account/session.
+  // 保留当前账号、SYSTEM、AppContainer 仅连接权限和低完整性标签，
+  // 不允许 Everyone，也不授予 AppContainer 创建管道实例的权限。
+  // Win7 的 SDDL 解析器不认识 AC 别名，但接受同一个数值 SID；
+  // 使用数值形式保持所有系统上的 ACL 完全一致，对端仍校验账号和会话。
   constexpr DWORD client_access =
       (FILE_GENERIC_READ | FILE_GENERIC_WRITE) & ~FILE_CREATE_PIPE_INSTANCE;
   static_assert(client_access == 0x12019bu);
   const auto sddl = std::wstring(L"S:(ML;;NW;;;LW)D:P(A;;FA;;;SY)(A;;FA;;;") +
-                    text + L")(A;;0x12019b;;;AC)";
+                    text + L")(A;;0x12019b;;;S-1-15-2-1)";
   if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
           sddl.c_str(), SDDL_REVISION_1, &output, nullptr)) {
     error = GetLastError();

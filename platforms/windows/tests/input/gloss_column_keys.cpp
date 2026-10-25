@@ -42,7 +42,10 @@ int main() {
   nlohmann::json options{{"api_version", 1},
                          {"preferences",
                           {{"scheme", "quanpin"},
+                           {"default_ime_mode", "chinese"},
+                           {"cloud_candidates", false},
                            {"learning", true},
+                           {"cloud_candidates", false},
                            {"candidate_page_size", 5},
                            {"chinese_punctuation", true},
                            {"candidate_translations", true}}}};
@@ -96,12 +99,19 @@ int main() {
 
   ReplyComposer composer(42, epoch);
   compose(glosses);
+  // 此夹具只注入 AI 候选，关闭云占位后高亮行必须是带释义的合成词。
+  const auto initial = session.view();
+  require(initial.at("candidates").front().at("text") == "你好" &&
+              initial.at("candidates").front().at("translation") == glosses,
+          "the highlighted fixture candidate has no gloss");
   // Tab 预选第 1 列，回执不上屏，view 带着列号。
   auto tab = key(0x09, 0);
   auto reply = composer.configured_key(session, tab, epoch, TsfPreeditStyle::Pinyin, {});
   require(reply.has_value() && reply->encoded && *reply->encoded, "Tab did not arm the gloss column");
   require(reply->encoded->packet.msg_type == FanyImeReplyType::NavigationIgnored,
           "arming a column committed or paged");
+  if (reply->source.transition.at("view").value("armed_gloss_column", 0) != 1)
+    std::fprintf(stderr, "Unexpected column view: %s\n", reply->source.transition.dump().c_str());
   require(reply->source.transition.at("view").value("armed_gloss_column", 0) == 1,
           "the armed column did not reach the view");
   require(composer.armed_gloss_column() == 1, "Tab did not arm column 1");

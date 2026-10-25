@@ -53,14 +53,71 @@ int main() {
       require(candidate_presentation_from_view(lease, view("ni", "ni", 2), 0, 0, "")
                   .preedit_caret == 2);
     }
-    // The Engine reports the caret against editing_text. When the drawn preedit
-    // is a different string the offset means nothing there, and a caret at the
-    // wrong character is worse than none, so it is dropped.
+    // Quanpin preedit is segmented by the Engine (`ni'hao`) while editing_text and caret_position stay on the raw keys (`nihao`). The caret is carried through the apostrophes the Engine inserted, the same mapping as macOS MSIMEPreeditCaretPosition: a raw caret at a syllable boundary lands before the inserted apostrophe, and both ends stay at the ends.
+    {
+      const size_t expected[] = {0, 1, 2, 4, 5, 6};
+      for (int raw = 0; raw <= 5; ++raw) {
+        const auto out = candidate_presentation_from_view(
+            lease, view("ni'hao", "nihao", raw), 0, 0, "");
+        require(out.preedit == "ni'hao");
+        require(out.preedit_caret == expected[raw]);
+      }
+      require(candidate_presentation_from_view(
+                  lease, view("pin'yin", "pinyin", 3), 0, 0, "")
+                  .preedit_caret == 3);
+      require(candidate_presentation_from_view(
+                  lease, view("pin'yin", "pinyin", 4), 0, 0, "")
+                  .preedit_caret == 5);
+    }
+    // The host's prefix shifts a mapped caret just as it shifts an unmapped one.
     {
       const auto out = candidate_presentation_from_view(
-          lease, view("ni'hao", "nihao", 2), 0, 0, "");
-      require(out.preedit == "ni'hao");
-      require(out.preedit_caret == std::string::npos);
+          lease, view("ni'hao", "nihao", 3), 0, 0, "U");
+      require(out.preedit == "Uni'hao");
+      require(out.preedit_caret == 5);
+    }
+    // An apostrophe the user typed is in editing_text too. A caret right after it stays after it and a caret right before it stays before it, while the apostrophes the Engine added elsewhere are still skipped.
+    {
+      const auto caret_of = [&](int raw) {
+        return candidate_presentation_from_view(
+                   lease, view("pin'yin'shu'ru'fa", "pinyin'shurufa", raw), 0, 0, "")
+            .preedit_caret;
+      };
+      require(caret_of(6) == 7);
+      require(caret_of(7) == 8);
+      require(caret_of(10) == 11);
+      require(caret_of(11) == 13);
+      require(caret_of(14) == 17);
+      // The Engine's display keeps a trailing typed apostrophe.
+      require(candidate_presentation_from_view(
+                  lease, view("ni'hao'", "nihao'", 5), 0, 0, "")
+                  .preedit_caret == 6);
+      require(candidate_presentation_from_view(
+                  lease, view("ni'hao'", "nihao'", 6), 0, 0, "")
+                  .preedit_caret == 7);
+    }
+    // A view with no caret lands at the end of the segmented preedit, not at editing_text's length inside it.
+    {
+      auto without = view("ni'hao", "nihao", 0);
+      without.erase("caret_position");
+      require(candidate_presentation_from_view(lease, without, 0, 0, "")
+                  .preedit_caret == 6);
+    }
+    // When the preedit is not the raw letters plus separators the offset has no map into it, and a caret at the wrong character is worse than none, so it is still dropped: expanded shuangpin, Korean Hangul, stroke glyphs, Japanese kana.
+    {
+      require(candidate_presentation_from_view(lease, view("ni'hao", "nihc", 2), 0, 0, "")
+                  .preedit_caret == std::string::npos);
+      require(candidate_presentation_from_view(lease, view("\xED\x95\x9C", "gks", 1), 0, 0, "")
+                  .preedit_caret == std::string::npos);
+      require(candidate_presentation_from_view(
+                  lease, view("\xE4\xB8\x80\xE4\xB8\xA8", "hs", 1), 0, 0, "")
+                  .preedit_caret == std::string::npos);
+      require(candidate_presentation_from_view(
+                  lease, view("\xE3\x81\xAB\xE3\x81\xBB\xE3\x82\x93", "nihon", 2), 0, 0, "")
+                  .preedit_caret == std::string::npos);
+      // A segmented preedit whose caret is past the raw keys is refused like an unsegmented one.
+      require(candidate_presentation_from_view(lease, view("ni'hao", "nihao", 6), 0, 0, "")
+                  .preedit_caret == std::string::npos);
     }
     // An offset past the end is refused rather than clamped: it means the two
     // sides disagree, and guessing would put the caret somewhere arbitrary.

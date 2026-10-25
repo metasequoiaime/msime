@@ -7,6 +7,7 @@ import { SkinGrid } from "../../../../packages/ui/src/settings/skin-grid";
 import type { ExternalSkin } from "../../../../packages/ui/src/skin/external-skins";
 import { offeredThemeCatalog } from "../../../../packages/ui/src/theme/global-theme";
 import { recordSkinSafely } from "../../../../packages/ui/src/settings/typing-statistics-model";
+import { harmonyTouchKeyboardRows } from "../../../../packages/ui/src/keyboard/keyboard-layouts";
 import { testHost } from "../support/host";
 import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
 
@@ -97,6 +98,15 @@ test("内置 lists the built-in themes then the packages, and 我的 starts with
   expect(thumbnails).toHaveLength(builtinTitles.length + 2);
 });
 
+test("手机皮肤缩略图 follows the selected HarmonyOS key face", () => {
+  grid({ touchRows: harmonyTouchKeyboardRows.fourteen_key });
+  const labels = Array.from(document.querySelectorAll("[data-skin-frame] [data-keyboard-key]"))
+    .map((key) => key.getAttribute("data-keyboard-key"))
+    .filter((label): label is string => label !== null);
+  expect(labels).toContain("QW");
+  expect(labels).not.toContain("q");
+});
+
 // 每次应用皮肤的点按都会为「换装达人」徽章上报，id 与 Android 皮肤页记录的一致；已在使用的卡片不上报。
 test("reports the applied skin's id for the badge", () => {
   const onApplied = vi.fn();
@@ -130,7 +140,12 @@ test("rings and checks only the theme in use", () => {
   grid({ globalTheme: "night", keyboardTheme: "dark" });
   const selected = screen.getByRole("button", { name: "夜青" });
   expect(selected.getAttribute("aria-pressed")).toBe("true");
-  expect(selected.querySelector("[data-skin-check]")).not.toBeNull();
+  const check = selected.querySelector("[data-skin-check] svg");
+  expect(check).not.toBeNull();
+  expect(check?.getAttribute("width")).toBe("14");
+  expect(check?.getAttribute("stroke-width")).toBe("2.6");
+  expect(check?.getAttribute("aria-hidden")).toBe("true");
+  expect(check?.getAttribute("focusable")).toBe("false");
   expect(selected.querySelector("[data-skin-frame]")!.className).toContain(
     "0_0_0_4px_var(--accent-color)",
   );

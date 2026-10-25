@@ -394,6 +394,7 @@ fn keyboard_layout(layout: TouchKeyboardLayout) -> &'static str {
         TouchKeyboardLayout::Handwriting => "handwriting",
         TouchKeyboardLayout::FourteenKey => "fourteen_key",
         TouchKeyboardLayout::NineKeyShuangpin => "nine_key_shuangpin",
+        TouchKeyboardLayout::EighteenKey => "eighteen_key",
     }
 }
 
@@ -1100,7 +1101,7 @@ pub(super) fn apply_touch_settings(
 
     apply_input_settings(&mut applier)?;
     applier.set_string(keys.keyboard_layout, |preferences, value| {
-        // 道理同 `input.schema`：本机的 14 键没有导出（见 `uploads_fourteen_key`），云端这个值是本机切到 14 键之前的，不应用。
+        // 道理同 `input.schema`：本机的 14 键没有导出（见 `uploads_fourteen_key`），云端这个值是本机切到 14 键之前的，不应用；18 键不受这条旧版兼容保护影响。
         if !keys.uploads_fourteen_key
             && preferences.touch_keyboard_layout == TouchKeyboardLayout::FourteenKey
         {
@@ -1112,6 +1113,7 @@ pub(super) fn apply_touch_settings(
             "handwriting" => TouchKeyboardLayout::Handwriting,
             "fourteen_key" => TouchKeyboardLayout::FourteenKey,
             "nine_key_shuangpin" => TouchKeyboardLayout::NineKeyShuangpin,
+            "eighteen_key" => TouchKeyboardLayout::EighteenKey,
             _ => return None,
         };
         Some(())

@@ -1,11 +1,9 @@
-//! How an English gloss or an English candidate is said, for the line a host draws beside it.
+//! 英文候选与英文释义的统一读音，供宿主绘制在释义旁。
 //!
-//! The data is `pronunciations/en-phonetic.db` beside the resource directory, built from ECDICT by
-//! `scripts/build_pronunciations.py`; the lookup is the bridge's `english_phonetics`. What this
-//! module owns is the choice of *which* words to look up, so every host shows the same thing: a
-//! gloss line such as `"to love; affection"` is pronounced by its first term, without the
-//! infinitive `to` or an article, and a term with any word the table does not know is not
-//! pronounced at all — half a transcription reads as the whole one.
+//! `scripts/build_pronunciations.py` 从 ECDICT 构建 `pronunciations/en-phonetic.db`。
+//! 优先读取资源目录旁的表，缺失时使用宿主显式传入的随包补充目录；底层查询复用
+//! `english_phonetics`。释义只读首个词组，去掉不定式 `to` 和冠词；任一词未知时
+//! 整组不显示音标，避免把不完整的读音当作完整读音。
 
 use std::path::{Path, PathBuf};
 
@@ -13,13 +11,20 @@ use std::path::{Path, PathBuf};
 pub(crate) const MAX_WORDS: usize = 4;
 const MAX_WORD_BYTES: usize = 40;
 
-/// `pronunciations/en-phonetic.db` beside the resource directory, when it is installed.
-pub(crate) fn english_database_beside(resources: &Path) -> Option<PathBuf> {
-    let path = resources
-        .parent()?
-        .join("pronunciations")
-        .join("en-phonetic.db");
-    path.is_file().then_some(path)
+/// 活动资源旁的音标表优先；只在缺失时使用宿主显式给出的补充目录。
+pub(crate) fn english_database_beside(
+    resources: &Path,
+    supplementary_resources: Option<&Path>,
+) -> Option<PathBuf> {
+    [
+        resources
+            .parent()
+            .map(|root| root.join("pronunciations").join("en-phonetic.db")),
+        supplementary_resources.map(|root| root.join("pronunciations").join("en-phonetic.db")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|path| path.is_file())
 }
 
 /// The lowercase words that pronounce `text`, or `None` when it is not plain English.

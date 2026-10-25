@@ -27,6 +27,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
 import app.msime.android.AccountFailureText;
+import app.msime.android.AccountNamePolicy;
 import app.msime.android.AccountStore;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.BackendAccount;
@@ -64,7 +65,7 @@ public final class ProfilePage extends ReloadingDetailPage {
         return java.util.List.of("账号", "登录方式", "数据");
     }
 
-    private static final String[][] PROVIDERS = {{"apple", "Apple"}, {"google", "Google"}, {"email", "邮箱"}};
+    private static final String[] PROVIDERS = {"apple", "google", "email"};
     private static final String EXPORTS = "exports";
     private static final long EXPORT_RETENTION_MILLIS = 24L * 60 * 60 * 1000;
     /** 头像解码后的长边上限（像素）：最大的头像画 88dp，xxxhdpi 下约 352 像素，留一点余量。 */
@@ -222,10 +223,10 @@ public final class ProfilePage extends ReloadingDetailPage {
         if (!profile.email().isEmpty()) account.value("邮箱", null, profile.email());
 
         GroupCard methods = GroupCard.add(sectionColumn(target, "登录方式"), "登录方式").withDividers(16);
-        for (String[] provider : PROVIDERS) {
-            boolean linked = profile.linked(provider[0]);
-            if (!linked && !offered(state.providers(), provider[0])) continue;
-            methods.nav(provider[1], null, linked ? "已关联" : "关联", linked ? null : this::link);
+        for (String provider : PROVIDERS) {
+            boolean linked = profile.linked(provider);
+            if (!linked && !offered(state.providers(), provider)) continue;
+            methods.nav(profile.providerName(provider), null, linked ? "已关联" : "关联", linked ? null : this::link);
         }
         methods.footer("关联后可以用任意一种方式登录同一个账号");
 
@@ -291,7 +292,7 @@ public final class ProfilePage extends ReloadingDetailPage {
         String kind = SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)) ? SyncSwitch.loginKind(context)
             : profile.loginKind();
         if (!kind.isEmpty()) {
-            TextView chip = ViewPolicy.styledLabel(context, "通过 " + providerName(kind) + " 登录", 12, 500,
+            TextView chip = ViewPolicy.styledLabel(context, "通过 " + profile.providerName(kind) + " 登录", 12, 500,
                 ThemeColorPolicy.accent(context));
             ViewPolicy.setBackground(chip, DrawablePolicy.pill(ThemeColorPolicy.accentSoft(context)));
             ViewPolicy.setSymmetricPaddingDp(context, chip, 10, 3);
@@ -317,21 +318,25 @@ public final class ProfilePage extends ReloadingDetailPage {
         }
     }
 
-    static String providerName(String kind) {
-        for (String[] provider : PROVIDERS) if (provider[0].equals(kind)) return provider[1];
-        return kind;
-    }
-
     // ---- 动作 ----
 
     private void rename() {
         Loaded state = loaded;
         if (state == null || state.profile() == null || state.sessionId().isEmpty()) return;
         String expectedSessionId = state.sessionId();
-        InputDialog dialog = new InputDialog(requireContext(), "昵称", "1 到 64 个字");
+        AccountNamePolicy.Presentation name = AccountNamePolicy.present(state.profile().displayName());
+        if (name == null) {
+            MsToast.show(requireContext(), "昵称校验暂不可用，请稍后重试");
+            return;
+        }
+        InputDialog dialog = new InputDialog(requireContext(), "昵称", "1 到 " + name.maximumChars() + " 个字")
+            .preserveWhitespace();
         dialog.addField("昵称", state.profile().displayName(), 0)
-            .setFilters(new InputFilter[] {new InputFilter.LengthFilter(DeviceDataApi.MAX_DISPLAY_NAME * 2)});
-        dialog.setValidator(values -> DeviceDataApi.validDisplayName(TextPolicy.trimmed(values.get(0))));
+            .setFilters(new InputFilter[] {new InputFilter.LengthFilter(name.maximumUtf16Units())});
+        dialog.setValidator(values -> {
+            AccountNamePolicy.Presentation draft = AccountNamePolicy.present(values.get(0));
+            return draft != null && draft.valid();
+        });
         dialog.setPrimary("保存", values -> run(context -> {
             new DeviceDataApi(context, expectedSessionId).rename(values.get(0));
             return "";
@@ -355,9 +360,9 @@ public final class ProfilePage extends ReloadingDetailPage {
             }
             reload(result -> {
                 if (result.profile() == null) return;
-                for (String[] provider : PROVIDERS) {
-                    if (result.profile().linked(provider[0]) && !linked.contains(provider[0])) {
-                        MsToast.show(requireContext(), "已关联 " + provider[1]);
+                for (String provider : PROVIDERS) {
+                    if (result.profile().linked(provider) && !linked.contains(provider)) {
+                        MsToast.show(requireContext(), "已关联 " + result.profile().providerName(provider));
                         return;
                     }
                 }

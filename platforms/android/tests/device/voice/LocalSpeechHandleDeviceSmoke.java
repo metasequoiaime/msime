@@ -23,7 +23,7 @@ public final class LocalSpeechHandleDeviceSmoke extends Instrumentation {
         }
     }
 
-    private void runCases() throws ReflectiveOperationException {
+    private void runCases() throws ReflectiveOperationException, java.io.IOException {
         Class<?> client = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
         Method create = client.getMethod("localSpeechCreate");
         Method destroy = client.getMethod("localSpeechDestroy", long.class);
@@ -65,6 +65,26 @@ public final class LocalSpeechHandleDeviceSmoke extends Instrumentation {
             Object error = start.invoke(null, second, missing, "zh-CN", "", 0);
             check(error instanceof String && !((String) error).isEmpty()
                 && !"invalid local speech session".equals(error), "Live speech handle was refused");
+            // 应用私有目录经过系统别名时，原生层必须接受与共享安装器相同的路径。
+            var model = java.nio.file.Files.createTempDirectory(getTargetContext().getCacheDir().toPath(),
+                "synthetic-speech-path-");
+            var manifest = model.resolve("msime-model.json");
+            var linked = model.resolveSibling(model.getFileName() + "-link");
+            try {
+                java.nio.file.Files.write(manifest, "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                Object modelError = start.invoke(null, second, model.toString(), "zh-CN", "", 0);
+                check(modelError instanceof String && !((String) modelError).isEmpty()
+                    && !"Not an installed local speech model".equals(modelError),
+                    "Native model validation rejected the application's private directory");
+                java.nio.file.Files.createSymbolicLink(linked, model);
+                check("Not an installed local speech model".equals(
+                    start.invoke(null, second, linked.toString(), "zh-CN", "", 0)),
+                    "Native model validation accepted an application-created alias");
+            } finally {
+                java.nio.file.Files.deleteIfExists(linked);
+                java.nio.file.Files.deleteIfExists(manifest);
+                java.nio.file.Files.deleteIfExists(model);
+            }
             destroy.invoke(null, second);
             second = 0;
             long replacement = (Long) create.invoke(null);

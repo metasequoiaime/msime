@@ -410,6 +410,30 @@ pub fn is_user_inserted(
         .is_some_and(|inserted| inserted != 0)
 }
 
+/// 当前候选与有效的用户覆盖权重完全一致；没有日志或读取失败时不保护首选。
+pub(crate) fn has_matching_user_weight(
+    user_db: &Path,
+    kind: PersonalDictionaryKind,
+    key: &str,
+    value: &str,
+    weight: i64,
+) -> bool {
+    if key.is_empty() || value.is_empty() {
+        return false;
+    }
+    let Some(journal) = existing_journal(user_db) else {
+        return false;
+    };
+    journal
+        .prepare_cached(
+            "SELECT 1 FROM user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value=?3 AND operation='upsert' AND weight=?4",
+        )
+        .and_then(|mut statement| {
+            statement.exists(params![kind.journal_name(), key, value, weight])
+        })
+        .unwrap_or(false)
+}
+
 /// A delete tombstone exists (J:611-621).
 pub fn is_user_deleted(
     user_db: &Path,

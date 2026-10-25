@@ -250,6 +250,7 @@ if(BUILD_TESTING)
     MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../tests/runtime/stroke_dictionary.py")
   # The candidate card's brand mark, decoded from the icons the package installs.
   add_executable(linux-candidate-fcitx-logo-test ../tests/candidate/candidate_fcitx_logo.cpp)
+  target_compile_features(linux-candidate-fcitx-logo-test PRIVATE cxx_std_20)
   target_compile_options(linux-candidate-fcitx-logo-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_link_libraries(linux-candidate-fcitx-logo-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
   add_test(NAME linux-candidate-fcitx-logo
@@ -261,6 +262,7 @@ if(BUILD_TESTING)
   target_link_libraries(linux-candidate-fcitx-overlay-scale-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
   add_test(NAME linux-candidate-fcitx-overlay-scale COMMAND linux-candidate-fcitx-overlay-scale-test)
   add_executable(linux-candidate-fcitx-canvas-test ../tests/candidate/candidate_fcitx_canvas.cpp)
+  target_compile_features(linux-candidate-fcitx-canvas-test PRIVATE cxx_std_20)
   target_compile_options(linux-candidate-fcitx-canvas-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-candidate-fcitx-canvas-test PRIVATE ../../../crates/host-api/include)
   target_link_libraries(linux-candidate-fcitx-canvas-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
@@ -283,6 +285,9 @@ if(BUILD_TESTING)
   add_test(NAME fcitx5-cloud-clipboard COMMAND fcitx5-native-test --cloud-clipboard)
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
+    add_test(NAME fcitx5-custom-voice-hotkey
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --voice-hotkey)
+    set_tests_properties(fcitx5-custom-voice-hotkey PROPERTIES TIMEOUT 60)
     add_test(NAME fcitx5-helpcode-trigger
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --helpcode-trigger)
     set_tests_properties(fcitx5-helpcode-trigger PROPERTIES TIMEOUT 60)
@@ -336,6 +341,14 @@ if(BUILD_TESTING)
             "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
+        foreach(helpcode_state on off)
+          add_test(NAME fcitx5-shuangpin-helpcode-editor-${helpcode_state}
+            COMMAND "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+              "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/daemon.py"
+              "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+              "$<TARGET_FILE:msime-fcitx5>" --shuangpin-helpcode ${helpcode_state})
+          set_tests_properties(fcitx5-shuangpin-helpcode-editor-${helpcode_state} PROPERTIES TIMEOUT 90)
+        endforeach()
         # 自定义模式提示从 5.1.11 起可用，旧开发库不编入这条生产路径。
         if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
           add_test(NAME fcitx5-mode-hint-preferences

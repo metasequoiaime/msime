@@ -5,6 +5,7 @@ export type KeyboardKey = {
   shifted?: string;
   virtualKey: number;
   modifier?: Modifier;
+  groupedLetter?: string;
 };
 
 export const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({

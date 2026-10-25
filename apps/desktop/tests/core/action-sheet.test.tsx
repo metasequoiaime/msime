@@ -71,7 +71,9 @@ test("a sheet opens as a modal dialog in place under the platform root, with the
   const current = within(dialog).getByRole("button", { name: "水杉四季（自动）" });
   expect(current.getAttribute("aria-current")).toBe("true");
   expect(current.className).toContain("font-semibold");
-  expect(current.querySelector("svg")).toBeTruthy();
+  const check = current.querySelector("svg");
+  expect(check).toBeTruthy();
+  expect(check?.getAttribute("focusable")).toBe("false");
   expect(document.activeElement).toBe(current);
   expect((within(dialog).getByRole("button", { name: "冬雪" }) as HTMLButtonElement).disabled).toBe(
     true,

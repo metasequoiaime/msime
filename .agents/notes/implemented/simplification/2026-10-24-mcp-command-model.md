@@ -10,7 +10,7 @@ Status: implemented
 
 新增无 React 依赖的 `mcp-command-model.ts`，持有 MCP 客户端和服务器状态类型，以及命令 token、终端说明、配置追加和授权文案的纯模型函数。[连接状态 hook](2026-10-24-mcp-connect-state.md)持有加载、复制、安装、刷新和本地权限偏好状态，展示组件保留确认框和命令展示；两者调用模型函数。`mcp-connect.tsx` 继续重导出原有类型，`SettingsClient` 和包入口的类型路径保持兼容。
 
-模型继续使用既有 `mcp-syntax` token 类型，因此复制文本与高亮展示来自同一结果。保留 POSIX 单引号与 Windows 双引号转义、`--options` 和两个权限参数的顺序、Claude Code/Codex 两种命令、终端文件参数说明、无权限时保留宿主原始 JSON 格式，以及无效 JSON 或 MCP 条目形状时原文回退。
+模型继续使用既有 `mcp-syntax` token 类型，因此复制文本与高亮展示来自同一结果。保留 POSIX 单引号与 Windows 双引号转义、`--options` 和两个权限参数的顺序、Claude Code/Codex 两种命令、终端文件参数说明、无权限时保留宿主原始 JSON 格式，以及无效 JSON 或 MCP 条目形状时原文回退。命令行页先说明复制、运行和三步用途，再展示完整命令；路径和权限参数仍由模型生成，但不再要求用户自行推断它们的作用。
 
 ## Existing notes audit
 
@@ -26,7 +26,7 @@ Status: implemented
 
 ## Verification
 
-独立模型测试先因模块缺失失败；实现后 4 项通过，覆盖权限顺序、两种安装/移除命令、终端说明、授权文案、JSON 追加与回退、Windows 路径转义。既有 MCP 设置页与代次回归 2 个文件 31 项通过。桌面 TypeScript 类型检查、变更文件 lint、格式检查和差异空白检查通过。
+独立模型测试先因模块缺失失败；实现后 5 项通过，覆盖权限顺序、两种安装/移除命令、终端说明、授权文案、JSON 追加与回退、Windows 路径转义。命令行页测试同步覆盖面向操作的三步文案；本次环境因共享工作区的 `@msime/ui` 链接指向已不存在的外部 worktree，无法启动完整设置页测试。`git diff --check` 通过。
 
 ## Consequences
 

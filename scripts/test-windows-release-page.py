@@ -11,6 +11,8 @@ import json
 import os
 import pathlib
 import shutil
+import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/release-windows.yml"
 EDITION_WINDOWS = ROOT / "platforms/windows/scripts/edition_windows.py"
 PUBLISH_SYMBOLS = ROOT / "platforms/windows/scripts/publish-symbols.sh"
+BUILD_MARKER = ROOT / "scripts/release-build-marker.py"
 EDITIONS = ROOT / "shared/contracts/editions.json"
 DOWNLOAD = "https://github.com/metasequoiaime/msime/releases/download/"
 MARKER = "<!-- msime-download-guide -->"
@@ -88,6 +91,17 @@ def sha256_line(path: pathlib.Path) -> str:
     return f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
 
 
+def remove_temporary_repository(path):
+    def make_writable(function, name, error):
+        if os.name != "nt" or not isinstance(error[1], PermissionError):
+            raise error[1]
+        os.chmod(name, stat.S_IWRITE)
+        function(name)
+
+    # Windows Git 的对象只读；只恢复本测试临时仓库中的删除权限。
+    shutil.rmtree(path, onerror=make_writable)
+
+
 class Workspace(unittest.TestCase):
     """一个临时的仓库检出：版本表、edition_windows.py 和 publish-symbols.sh 是仓库里的，dist 里是 publish 任务下载到的合成产物。"""
 
@@ -96,7 +110,7 @@ class Workspace(unittest.TestCase):
             if shutil.which(tool) is None:
                 self.skipTest(f"{tool} is not installed")
         self.work = pathlib.Path(tempfile.mkdtemp(prefix="windows-release-page-"))
-        self.addCleanup(shutil.rmtree, self.work)
+        self.addCleanup(remove_temporary_repository, self.work)
         (self.work / "platforms/windows/scripts").mkdir(parents=True)
         shutil.copy(EDITION_WINDOWS, self.work / "platforms/windows/scripts/edition_windows.py")
         shutil.copy(PUBLISH_SYMBOLS, self.work / "platforms/windows/scripts/publish-symbols.sh")
@@ -116,7 +130,7 @@ class Workspace(unittest.TestCase):
             installer = self.dist / name
             installer.write_bytes(f"synthetic installer {index}".encode())
             # package 任务（PowerShell）写的 .sha256：一行 sha256sum 格式，结尾一个换行。
-            (self.dist / f"{name}.sha256").write_text(sha256_line(installer) + "\n", encoding="utf-8")
+            (self.dist / f"{name}.sha256").write_text(sha256_line(installer) + "\n", encoding="utf-8", newline="\n")
         for index, name in enumerate(symbol_names("1.1.0")):
             (self.dist / name).write_bytes(f"synthetic symbols {index}".encode())
 
@@ -131,12 +145,23 @@ class Workspace(unittest.TestCase):
             "RELEASE": release,
             "PRERELEASE": "false",
             "GITHUB_REPOSITORY": "metasequoiaime/msime",
+            "GITHUB_RUN_ID": "4242",
         }
 
     def run_step(self, name: str, release: str = "1.1.0") -> subprocess.CompletedProcess:
         # publish 任务的步骤写了 shell: bash，GitHub 用 `bash --noprofile --norc -eo pipefail {0}` 运行。
-        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step_script(name)],
-                              cwd=self.work, env=self.env(release), capture_output=True, text=True)
+        script = f'python3() {{ {shlex.quote(sys.executable)} -X utf8 "$@"; }}\n' + step_script(name)
+        if os.name == "nt":
+            # 发布任务在 Ubuntu 运行；这些合成 ASCII 安装包沿用其文本模式摘要标记。
+            script = '''sha256sum() {
+  for argument; do
+    case "$argument" in -c|--check) command sha256sum "$@"; return ;; esac
+  done
+  command sha256sum --text "$@"
+}
+''' + script
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                              cwd=self.work, env=self.env(release), capture_output=True, text=True, encoding="utf-8")
 
 
 class PublishStepTests(Workspace):
@@ -146,6 +171,7 @@ class PublishStepTests(Workspace):
         super().setUp()
         scripts = self.work / "scripts"
         scripts.mkdir()
+        shutil.copy(BUILD_MARKER, scripts / "release-build-marker.py")
         (scripts / "generate-release-notes.py").write_text(
             "import sys\n"
             "output = sys.argv[sys.argv.index('--output') + 1]\n"
@@ -191,7 +217,10 @@ class PublishStepTests(Workspace):
         guide, changes = notes.split("<!-- /msime-download-guide -->\n", 1)
         self.assertIn(f"({DOWNLOAD}windows-v1.1.0/MetasequoiaIME-Full_Setup_v1.1.0.exe)", guide)
         self.assertNotIn("预览版", guide)
-        self.assertEqual(changes, "\n## 更新内容\n\n- 合成的更新条目\n")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.work, check=True, capture_output=True, text=True).stdout.strip()
+        # 更新内容之后是给应用内检查更新看的隐藏构建标记，记着这次运行和源码提交。
+        self.assertEqual(changes, "\n## 更新内容\n\n- 合成的更新条目\n\n"
+                         f'<!-- msime-build {{"run":4242,"source":"{head}","channel":"stable"}} -->\n')
 
     def test_beta_notes_link_the_beta_tag_and_say_it_is_a_preview(self):
         result = self.publish("1.1.0-beta")
@@ -201,6 +230,7 @@ class PublishStepTests(Workspace):
         # 安装程序名只带版本号，不带 -beta；链接指向 beta 的 tag。
         self.assertIn(f"({DOWNLOAD}windows-v1.1.0-beta/MetasequoiaIME-Full_Setup_v1.1.0.exe)", notes)
         self.assertIn("这是预览版", notes)
+        self.assertTrue(notes.endswith('"channel":"beta"} -->\n'), notes[-120:])
 
     def test_missing_installer_publishes_nothing(self):
         (self.dist / "MetasequoiaIME-Wubi_Setup_v1.1.0.exe").unlink()
@@ -266,9 +296,9 @@ class SymbolsStepTests(Workspace):
 class DownloadGuideTests(unittest.TestCase):
     def guide(self, editions: str, *extra: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-I", str(EDITION_WINDOWS), "download-guide", "--editions", editions, "--version", "1.2.0",
+            [sys.executable, "-I", "-X", "utf8", str(EDITION_WINDOWS), "download-guide", "--editions", editions, "--version", "1.2.0",
              "--download-base", DOWNLOAD + "windows-v1.2.0/", *extra],
-            capture_output=True, text=True, check=check,
+            capture_output=True, text=True, encoding="utf-8", check=check,
         )
 
     def test_full_edition_comes_first_with_names_from_the_edition_table(self):

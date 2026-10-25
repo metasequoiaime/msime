@@ -1,4 +1,5 @@
 import { customCandidatePalette } from "../theme/global-theme";
+import { canvasToBytes } from "../core/canvas-to-bytes";
 import { previewSamples } from "./skin-candidate-preview";
 import type { ExternalSkin } from "./external-skins";
 import { skinImageUrl, type SkinImageReader } from "./skin-image";
@@ -43,19 +44,6 @@ function fitted(
   const w = image.naturalWidth * ratio;
   const h = image.naturalHeight * ratio;
   return [(width - w) / 2, (height - h) / 2, w, h];
-}
-
-function toBytes(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Uint8Array> {
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) reject(new Error("preview encoding failed"));
-        else void blob.arrayBuffer().then((buffer) => resolve(new Uint8Array(buffer)), reject);
-      },
-      type,
-      quality,
-    ),
-  );
 }
 
 /**
@@ -158,9 +146,10 @@ export async function renderSkinPreview(
     x += width + 4;
   }
 
-  const png = await toBytes(canvas, "image/png");
+  const createError = () => new Error("preview encoding failed");
+  const png = await canvasToBytes(canvas, { type: "image/png", createError });
   if (png.length <= previewLimit) return Array.from(png);
-  const jpeg = await toBytes(canvas, "image/jpeg", 0.85);
+  const jpeg = await canvasToBytes(canvas, { type: "image/jpeg", quality: 0.85, createError });
   if (jpeg.length <= previewLimit) return Array.from(jpeg);
   throw new Error("preview too large");
 }

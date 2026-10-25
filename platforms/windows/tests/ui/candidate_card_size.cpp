@@ -1342,8 +1342,8 @@ int main() {
       const auto rows = candidate_page_layout(exact.items, card.width, shape, false);
       require(!rows[0].item.text_wrapped && near(rows[0].item.height, shape.candidate_row));
       exact.items = {{text * 0.5, text * 0.25, text * 0.3}};
-      const auto inline_card = candidate_card_size(exact);
-      const auto inline_rows = candidate_page_layout(exact.items, inline_card.width, shape, false);
+      const auto exact_inline_card = candidate_card_size(exact);
+      const auto inline_rows = candidate_page_layout(exact.items, exact_inline_card.width, shape, false);
       require(!inline_rows[0].item.annotation.below && !inline_rows[0].item.translation.below);
     }
   }

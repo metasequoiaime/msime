@@ -28,6 +28,10 @@ constexpr std::uint32_t CandidateContinuation = 1u << 8;
 // 可选：TIP 以 ServerUiLessCandidates 明确请求旧管道路径的后台候选页。
 constexpr std::uint32_t UiLessCandidates = 1u << 9;
 constexpr std::uint32_t HostOnlineCandidates = 1u << 10;
+// 可选：明确区分十八键面板组码与实体键盘的确定字母。
+constexpr std::uint32_t GroupedPanelKeys = 1u << 11;
+// 可选：方案通知携带存储修订，日语切换在双方应用后才放行后续键。
+constexpr std::uint32_t OrderedPreferences = 1u << 12;
 constexpr std::uint32_t Capabilities = RequestIds | FocusEpochs | FramedVoice;
 constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 

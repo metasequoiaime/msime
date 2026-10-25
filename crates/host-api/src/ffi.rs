@@ -219,6 +219,8 @@ pub mod cloud_sync;
 pub mod community;
 pub mod credentials;
 pub mod google;
+#[cfg(not(target_os = "android"))]
+pub mod handwriting;
 pub mod harmony_settings;
 pub mod host;
 pub mod input;
@@ -234,8 +236,13 @@ pub mod session;
 pub mod session_store;
 pub mod settled;
 pub mod skin_image;
+pub mod spacing;
 pub mod translation;
 pub mod voice;
+#[cfg(windows)]
+pub mod windows_handwriting;
+#[cfg(windows)]
+pub mod windows_voice;
 
 #[cfg(test)]
 mod preference_schema_tests;
@@ -257,3 +264,7 @@ pub use settled::*;
 pub use skin_image::*;
 pub use translation::*;
 pub use voice::*;
+#[cfg(windows)]
+pub use windows_handwriting::*;
+#[cfg(windows)]
+pub use windows_voice::*;

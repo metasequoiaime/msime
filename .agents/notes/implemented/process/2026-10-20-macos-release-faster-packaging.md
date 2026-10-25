@@ -57,7 +57,7 @@ Status: implemented
 
 维护者批准为这个 job 加编译缓存。沿用仓库已经在用的 `mozilla-actions/sccache-action`（固定在 `fc920bf0…`，v0.0.11），后端用 GitHub Actions 缓存（`SCCACHE_GHA_ENABLED=true`），与 `release-windows.yml` 在托管 runner 上的做法相同；`CARGO_INCREMENTAL=0`。
 
-- **缓存不能让发版失败**：安装步骤 `continue-on-error`；只有 `sccache --start-server` 成功才把 `RUSTC_WRAPPER=sccache` 写进 `GITHUB_ENV`，否则照常编译；`SCCACHE_IGNORE_SERVER_IO_ERROR=1` 让构建途中 sccache 服务出错时 rustc 直接在本机编；缓存读写失败 sccache 按未命中处理。统计步骤同样 `continue-on-error`。
+- **缓存不能让发版失败**：安装步骤 `continue-on-error`；只有 `sccache --start-server` 成功才把 `RUSTC_WRAPPER=sccache` 写进 `GITHUB_ENV`，否则照常编译；`SCCACHE_IGNORE_SERVER_IO_ERROR=1` 让构建途中 sccache 服务出错时 rustc 直接在本机编；缓存读写失败 sccache 按未命中处理。统计步骤同样 `continue-on-error`。同一接法后来推广到 CI 与 Windows 发版里所有用 Depot Cache 的 Rust 任务，见 [CI 的 sccache 起不来时照常编译](2026-10-25-ci-optional-sccache.md)。
 - **可见范围与投毒**：GitHub 缓存按 ref 隔离。main 上的发布只能读 main 和默认分支 develop 写入的条目，PR（包括 fork 的 PR）写在 `refs/pull/<n>/merge` 下，发布读不到；在其他分支手动触发的运行只写自己分支的范围。能写入发布可读条目的只有在 develop 或 main 上运行的 workflow，而那需要先合并代码，与被发布的源码处在同一条信任边界上。条目的键是 rustc 的全部输入（编译器版本、参数、源文件与依赖产物的哈希、dep-info 里登记的环境变量），命中时拿到的是同样输入编出的同一份 rlib。
 - **服务不随空闲退出**：`SCCACHE_IDLE_TIMEOUT=0`。默认空闲 600 秒退出，而六个版本打包时十几分钟不编 Rust，最后的统计步骤会起一个计数为零的新服务；第一次验证运行就因此显示 0 次请求，实际已写入 1321 个条目。
 - **缓存覆盖面**：rustc 对 rlib 的编译可缓存；`bin`、`cdylib`、过程宏这类 crate 类型不缓存（第二次验证运行统计里 155 次）。cc crate 看到 `RUSTC_WRAPPER=sccache` 也经它编 C/C++ 和汇编，同样命中缓存。收益主要来自第三方依赖；工作区 crate（engine、client-core 等）每次发版都有改动，照样要编，所以真实发版的命中率低于下文验证运行的 100%。

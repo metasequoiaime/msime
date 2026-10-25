@@ -1,6 +1,8 @@
 #include "ReplyCodec.h"
 #include "../../tsf/Global/PairedPunctuationHostPolicy.h"
 #include "windows_ipc.h"
+#include "preference_transition.h"
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -43,6 +45,14 @@ int main() {
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
     require(frames.size() == 13);
+    config.preference_revision = 42;
+    const auto ordered = tsf_config_frames(config, true);
+    require(ordered.size() == frames.size());
+    require(frame_type(ordered[5]) == FanyImeWorkerReplyType::PreferenceTransition);
+    FanyImeNamedpipeDataToTsfWorkerThread transition{};
+    std::memcpy(&transition, ordered[5].data(), sizeof(transition));
+    require(FanyImePreferencePipe::parse(transition)->revision == 42);
+    require(frame_type(frames[5]) == FanyImeWorkerReplyType::InputModeChanged);
     for (const auto &frame : frames)
       require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
 
@@ -183,21 +193,21 @@ int main() {
     require(frame_text(tsf_config_frames(config)[12]) == L"1/?");
     config.wubi_candidate_selection = false;
 
-    // The TIP drops every type above MaxKnown, so the new type has to be inside it.
-    require(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
+    // TIP 丢弃 MaxKnown 以上的帧类型，因此在编译时检查新类型的范围。
+    static_assert(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
             FanyImeWorkerReplyType::MaxKnown);
     // The Engine's own English mode travels on its own frame too, after every older one: the TIP keeps reporting Chinese there, and under Stroke it would otherwise hand an idle non-stroke letter (the 'a' of "apple") to the application instead of the Engine.
     require(frame_text(tsf_config_frames(TsfLocalConfig{})[9]) == L"0");
     config.dedicated_english = true;
     require(frame_text(tsf_config_frames(config)[9]) == L"1");
     config.dedicated_english = false;
-    require(FanyImeWorkerReplyType::DedicatedEnglishChanged < FanyImeWorkerReplyType::MaxKnown);
+    static_assert(FanyImeWorkerReplyType::DedicatedEnglishChanged < FanyImeWorkerReplyType::MaxKnown);
     // 二三候选单独一帧，排在所有旧帧之后：关着时是 "0"，TIP 据此把 ';' 和 '\'' 留作标点。
     require(frame_text(tsf_config_frames(TsfLocalConfig{})[10]) == L"0");
     config.second_third_candidate = true;
     require(frame_text(tsf_config_frames(config)[10]) == L"1");
     config.second_third_candidate = false;
-    require(FanyImeWorkerReplyType::SecondThirdCandidateChanged < FanyImeWorkerReplyType::MaxKnown);
+    static_assert(FanyImeWorkerReplyType::SecondThirdCandidateChanged < FanyImeWorkerReplyType::MaxKnown);
     // 引号与方头括号样式也单独一帧，排在最后，缺省是弯引号、实心括号。
     require(frame_text(tsf_config_frames(TsfLocalConfig{})[11]) == L"q0b0");
     {
@@ -215,7 +225,7 @@ int main() {
       require(marks("", "", true) == L"q0b0");
       require(marks("semantic", "round", true) == L"q0b0");
     }
-    require(FanyImeWorkerReplyType::WubiCandidateSelectionChanged <
+    static_assert(FanyImeWorkerReplyType::WubiCandidateSelectionChanged <
             FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:

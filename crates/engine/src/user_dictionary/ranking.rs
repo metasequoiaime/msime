@@ -124,7 +124,7 @@ pub(crate) fn ranking_target(
     }
 }
 
-/// 快捷短语组的槽位（`quick_phrase_slots` 日志表）：混进普通候选的整组短语按「组前面有几个普通候选」记位置。没有记录时组追加在末尾，这是混输的默认落位；学习写回槽位后组按它摆放（`mixed_input.quick_phrase_frequency`）。`candidate_selection_state` 表里的方向计数用这个前缀做 context_key，和普通调频的计数互不干扰。
+/// 快捷短语组的槽位（`quick_phrase_slots` 日志表）：混进普通候选的整组短语按「组前面有几个普通候选」记位置。没有记录时组落在首页尾部（`default_quick_phrase_slot`），这是混输的默认落位；学习写回槽位后组按它摆放（`mixed_input.quick_phrase_frequency`）。`candidate_selection_state` 表里的方向计数用这个前缀做 context_key，和普通调频的计数互不干扰。
 const QUICK_PHRASE_SLOT_CONTEXT: &str = "quick_phrase_slot:";
 
 fn read_quick_phrase_slot(connection: &Connection, code: &str) -> Result<Option<i64>> {
@@ -134,14 +134,14 @@ fn read_quick_phrase_slot(connection: &Connection, code: &str) -> Result<Option<
         .optional()?)
 }
 
-/// 槽位一律 upsert：存的 0 是「整组在首位」这个学过的位置，不是没有记录；没记录才表示从未学过、追加在末尾。
+/// 槽位一律 upsert：存的 0 是「整组在首位」这个学过的位置，不是没有记录；没记录才表示从未学过、按默认落位。
 fn write_quick_phrase_slot(connection: &Connection, code: &str, slot: i64) -> Result<()> {
     connection.prepare_cached("INSERT INTO quick_phrase_slots(code,slot) VALUES(?1,?2) ON CONFLICT(code) DO UPDATE SET slot=excluded.slot")?
         .execute(params![code, slot.max(0)])?;
     Ok(())
 }
 
-/// 混输建列表时读整组短语学过的位置；没有日志、没有记录或读不了都按「追加在末尾」（`None`）处理。存了 0 的槽位是「整组在首位」这个学过的位置，照常返回。
+/// 混输建列表时读整组短语学过的位置；没有日志、没有记录或读不了都按默认落位（`None`）处理。存了 0 的槽位是「整组在首位」这个学过的位置，照常返回。
 pub fn quick_phrase_slot(journal_path: &Path, code: &str) -> Option<usize> {
     if code.is_empty() {
         return None;
@@ -591,11 +591,11 @@ pub fn adjust_english_candidate_ranking(request: &RankingRequest<'_>) -> Result<
 /// The key a row is stored under for a context (J:229-249).
 pub fn candidate_dictionary_key(item: &WordItem, context_key: &str) -> String {
     if !item.canonical_pinyin.is_empty() {
-        return item.canonical_pinyin.clone();
+        return item.canonical_pinyin.to_string();
     }
     let mut segments = pinyin_segments(context_key);
     if segments.len() <= 1 {
-        return item.pinyin.clone();
+        return item.pinyin.to_string();
     }
     // A context "ni'hao'a" answered by the two-character row 你好 stores it under the first two syllables.
     let characters = item.word.chars().count();
@@ -1028,7 +1028,7 @@ mod tests {
         assert_eq!(candidate_dictionary_key(&row, "ni'hao'a"), "ni'hao");
         assert_eq!(candidate_dictionary_key(&row, "nihao"), "ni");
         assert_eq!(candidate_dictionary_key(&row, "ni''hao"), "ni");
-        row.word = "你好啊呀".to_owned();
+        row.word = "你好啊呀".into();
         assert_eq!(candidate_dictionary_key(&row, "ni'hao"), "ni'hao");
     }
 

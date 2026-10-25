@@ -1,4 +1,5 @@
-# LaTeX 命令名到 Unicode 码位，plugins/phrase_table/tools/gen_latex_symbols.py 由它生成 pack/plugin.toml。
+# LaTeX 命令名到 Unicode 码位，msime 的 plugins/phrase_table/tools/gen_latex_symbols.py 由它生成官方短语表「LaTeX 符号」的 pack/plugin.toml，符号模式（Shift+S）也按它查命令名。MIT 许可，Copyright (c) 2026 Metasequoia IME contributors，全文见 msime 的 plugins/phrase_table/LICENSE。
+# 唯一的编辑入口是 msime-dictionary 的 sources/symbols/latex-symbols.tsv。msime 的 plugins/phrase_table/latex-symbols/symbols.tsv 是 scripts/sync_symbol_tables.py 按 resources/symbol-tables.lock.json 同步的逐字节副本；不要在 msime 里手改。
 # 每行「命令名<TAB>U+码位」，按分组排列，生成的短语表照这个顺序；同一个编码下小写的命令排在前面。
 # 命令名取自 LaTeX 内核、amssymb、amsmath、latexsym、stmaryrd、mathtools、gensymb 和 textcomp，码位按它们排出的字形（\phi 是 ϕ，\varphi 是 φ；\epsilon 是 ϵ，\varepsilon 是 ε）。
 # 只收单个非 ASCII 字符：\vert、\backslash 这类直接能打的不收。

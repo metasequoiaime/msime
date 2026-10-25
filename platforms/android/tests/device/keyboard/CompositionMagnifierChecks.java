@@ -12,7 +12,7 @@ import java.nio.file.Files;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 只使用合成拼写，在安装后的原生键盘中验收组字内点击、放大、插删和偏移拖动。 */
+/** 只使用合成拼写，在安装后的原生键盘中验收组字内点击、放大、插删和在拼写条上的相对拖动。 */
 final class CompositionMagnifierChecks {
     private CompositionMagnifierChecks() { }
 
@@ -58,9 +58,9 @@ final class CompositionMagnifierChecks {
                 if (!nineKey) {
                     s.stage = "magnifier inserts and deletes in the middle without losing the suffix";
                     s.tap(s.key("h"));
-                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("nhihao", node.getText())));
+                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("nhi'hao", node.getText())));
                     s.tap(s.key("⌫"));
-                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("nihao", node.getText())));
+                    s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("ni'hao", node.getText())));
                 } else {
                     s.stage = "magnifier nine-key middle edit preserves remaining digits";
                     s.tap(s.key("DEF"));
@@ -68,20 +68,19 @@ final class CompositionMagnifierChecks {
                     s.tap(s.key("⌫"));
                     s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 1));
                 }
-                s.stage = "magnifier offset handle can reach both ends";
+                s.stage = "magnifier stays one compact row";
+                float density = s.getTargetContext().getResources().getDisplayMetrics().density;
+                Rect panel = bounds(s.await(s.described("拼写编辑面板")));
+                if (panel.height() > 64 * density)
+                    throw new AssertionError("Spelling editor is taller than one row: " + panel.height() / density + "dp");
+                s.stage = "dragging along the magnified spelling reaches both ends";
                 select(s.await(s.described("放大拼写")), 0);
                 s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
                 Rect text = bounds(s.await(s.described("放大拼写")));
-                Rect handle = bounds(s.await(s.described("拼写光标拖动手柄")));
-                float density = s.getTargetContext().getResources().getDisplayMetrics().density;
-                if (handle.width() < 55 * density || handle.height() < 55 * density)
-                    throw new AssertionError("Handle is too small for a thumb");
-                if (handle.left <= text.left || handle.top - text.bottom < 28 * density)
-                    throw new AssertionError("Handle is too close to the magnified spelling");
-                drag(s, handle, text.right - 4, 1400);
+                drag(s, text, text.right - 4, 1400);
                 s.await(s.described("放大拼写").and(node -> node.getText() != null
                     && node.getTextSelectionStart() == node.getText().length()));
-                drag(s, bounds(s.await(s.described("拼写光标拖动手柄"))), text.left + 4, 1400);
+                drag(s, text, text.left + 4, 1400);
                 s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
                 s.stage = "magnifier completion preserves candidates and the keyboard entry reopens it";
                 s.tap(s.described("完成拼写编辑"));
@@ -123,7 +122,7 @@ final class CompositionMagnifierChecks {
         // 逐组等待真实触屏输入，避免 shell 连发注入未完成就开始验收拖动。
         for (int syllable = 0; syllable < 8; syllable++) {
             for (String key : new String[] {"n", "i", "h", "a", "o"}) s.tap(s.key(key));
-            spelling.append("nihao");
+            spelling.append(syllable == 0 ? "ni'hao" : "'ni'hao");
             String expected = prefix + spelling;
             s.await(s.field("msime-test-plain").and(node -> node.refresh()
                 && DeviceSmoke.equalsText(expected, node.getText())));
@@ -134,10 +133,44 @@ final class CompositionMagnifierChecks {
         select(text, 0);
         s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
         Rect area = bounds(text);
-        drag(s, bounds(s.await(s.described("拼写光标拖动手柄"))), area.right - 4, 5000);
-        s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == node.getText().length()));
-        drag(s, bounds(s.await(s.described("拼写光标拖动手柄"))), area.left + 4, 5000);
-        s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
+        s.stage = "long spelling right edge reaches the end before release";
+        dragToEdge(s, area, true);
+        s.stage = "long spelling left edge reaches the start before release";
+        dragToEdge(s, area, false);
+    }
+
+    private static void dragToEdge(DeviceSmoke s, Rect area, boolean end) {
+        // 从拼写条中间按下，相对拖到边缘后按住，让边缘持续移动走完长拼写。
+        int target = end ? area.right - 4 : area.left + 4;
+        long start = SystemClock.uptimeMillis();
+        // 沿用原来拖住 5 秒与随后等待 15 秒的总预算，在真正到达边缘后再松手。
+        long deadline = start + 20_000;
+        inject(s, start, MotionEvent.ACTION_DOWN, area.centerX(), area.centerY());
+        try {
+            for (int step = 1; step <= 12; step++) {
+                SystemClock.sleep(16);
+                inject(s, start, MotionEvent.ACTION_MOVE,
+                    area.centerX() + (target - area.centerX()) * step / 12f, area.centerY());
+            }
+            awaitEdge(s, end, deadline);
+        } finally {
+            inject(s, start, MotionEvent.ACTION_UP, target, area.centerY());
+        }
+        // 松手后的断言共用同一个截止时间，不能重新取得一份等待预算。
+        awaitEdge(s, end, deadline);
+    }
+
+    private static void awaitEdge(DeviceSmoke s, boolean end, long deadline) {
+        do {
+            for (var window : s.automation.getWindows()) {
+                AccessibilityNodeInfo found = s.find(window.getRoot(), s.described("放大拼写").and(node ->
+                    node.refresh() && node.getText() != null
+                    && node.getTextSelectionStart() == (end ? node.getText().length() : 0)));
+                if (found != null) return;
+            }
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError(end ? "Long spelling did not reach the end" : "Long spelling did not reach the start");
     }
 
     private static void select(AccessibilityNodeInfo node, int position) {
@@ -154,16 +187,17 @@ final class CompositionMagnifierChecks {
         return bounds;
     }
 
-    private static void drag(DeviceSmoke s, Rect handle, int target, long hold) {
+    /** 从 {@code from} 的中心按下，拖到 {@code target} 后按住 {@code hold} 毫秒再松手。 */
+    private static void drag(DeviceSmoke s, Rect from, int target, long hold) {
         long start = SystemClock.uptimeMillis();
-        inject(s, start, MotionEvent.ACTION_DOWN, handle.centerX(), handle.centerY());
+        inject(s, start, MotionEvent.ACTION_DOWN, from.centerX(), from.centerY());
         for (int step = 1; step <= 12; step++) {
             SystemClock.sleep(16);
             inject(s, start, MotionEvent.ACTION_MOVE,
-                handle.centerX() + (target - handle.centerX()) * step / 12f, handle.centerY());
+                from.centerX() + (target - from.centerX()) * step / 12f, from.centerY());
         }
         SystemClock.sleep(hold);
-        inject(s, start, MotionEvent.ACTION_UP, target, handle.centerY());
+        inject(s, start, MotionEvent.ACTION_UP, target, from.centerY());
     }
 
     private static void inject(DeviceSmoke s, long start, int action, float x, float y) {

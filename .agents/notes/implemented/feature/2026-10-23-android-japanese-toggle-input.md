@@ -37,6 +37,12 @@ macOS 的偏好覆盖检查将此项明确列为不适用：原生宿主通过�
 - 后续运行在连接或收尾阶段出现 `UiAutomation` 残留注册及系统拒绝附着，尚未证明热更新后的右箭头行为和原生设置落盘往返。启动日志或 instrumentation 的退出码 0 不代替 `MSIME_DEVICE_SMOKE_PASSED` 标记。
 - 当前版本设备专项已通过：`MSIME_DEVICE_SMOKE_PASSED: Japanese toggle preference, repeated kana and flick input`。它覆盖关闭时「ささ」「やや」、左滑「し」、按住提示中心格、开启热更新、右箭头清理连点、设置页关闭并读回落盘。开启循环的两次事件计时满足一秒窗口后才允许通过；此前连接残留导致的失败日志不计作当前版本结果。`platforms/android/check-host.sh` 当前版本重新通过 258 项 JVM 冒烟、225 个设备源编译、JNI 和资源契约。该实现提交的正常 pre-push quick 已通过，详见原 PR 的验证记录；不能把旧替代实现的 Linux 基线失败当成本次通过证据。补齐 macOS 不适用声明后的首轮 quick 在 Linux 剪贴板工具检查发生 3 秒子进程超时；后续主题测试持续等待文件系统同步，确认已有失败后主动停止该轮 Linux 容器，因此没有完整的 111 项测试结果。原 quick 随后完成 macOS 与 Apple bridge 构建并以 1 退出。日志已归档于 `target/diagnostics/issue-9459-ci-coverage-quick-first.log` 和 `target/diagnostics/issue-9459-ci-coverage-linux-first.log`，该轮不计为通过。复验使用命令级 Docker 包装器，为 Linux 原生测试容器配置可执行的 512 MiB tmpfs `/tmp`，继续由正常 pre-push 执行全部门禁；编译产物仍复用规定的 `target/linux-build-gate`，完整结果单独记录。
 
+## 后续整合回归
+
+#9124 的独立整合验收在 API 35 的「关闭时读屏」断言失败。源码历史确认 `#9482` 的合并结果丢失本篇已落地的三个键盘消费者：`japaneseToggleCurrent`、`tapJapaneseKey` 与 `japaneseKey`；共享字段和设置页仍存在，偏好键门禁因此未能发现行为断链。恢复这三个消费者，关闭时连点、按住中心提示及读屏同时遵循同一个运行时开关。既有设备专项是失败回归，继续覆盖热更新、实际输出、四向滑动和原生保存；右箭头定位同步 `iconKey` 的「按键 」统一描述前缀。恢复不改变默认值，不回退英文长按拖选实现。本次跟进单独引用 #9459，与十八键布局分别提交。
+
+跟进基于 `develop` 固定提交 `ed8a8e77d09adb0e318412159050b3fdf4a93702`。Android 门禁通过 265 项 JVM 冒烟、233 份设备测试源编译及 JNI／资源契约。标准 `build-apk.sh` 完整构建通过，本机既有签名重签后核对 1336 项非签名载荷完全一致；11,391 份已跟踪源码与远端逐文件哈希一致。修复 APK 在独占 API 28 `emulator-5566` 与 API 35 `emulator-5580` 上均得到完整日语专项通过标记，覆盖关闭时重复假名、按住提示、滑动、热更新、计时合格的开启循环、右箭头和原生设置落盘。标准 `scripts/verify-local.sh --quick` 按本分支改动范围以 0 退出，契约、笔记、Rust workspace、Android Rust、Android Java 和共享 Apple bridge 通过；其他平台按 scope 跳过，不称为那些平台的验收。启动重试中的空无障碍树不算产品失败，也不跳过任何行为断言。
+
 ## Consequences
 
 共享层持有默认、校验和持久化，Android 保留原有语言卡片入口，不新增账号同步或第二个开关。默认开启仍保留一秒循环窗口，用户需主动关闭。关闭时旧状态及提示一起清理，增加启动与热更新之间必须一致的约束。

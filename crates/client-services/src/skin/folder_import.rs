@@ -50,10 +50,7 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     }
     #[cfg(unix)]
     let staging_directory = Some(create_staging_directory(root, &staging).map_err(|_| "storage")?);
-    #[cfg(not(unix))]
-    {
-        std::fs::create_dir(&staging).map_err(|_| "storage")?;
-    }
+    // Unix 使用已打开的暂存目录句柄；其他平台由 copy_tree 创建目录，不能重复创建。
     let mut budget = ImportBudget::default();
     if copy_tree(
         source,

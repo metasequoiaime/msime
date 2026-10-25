@@ -6,7 +6,8 @@ use super::with_bounded_bytes;
 use crate::*;
 use msime_client_services::account::BackendAccountClient;
 use msime_client_services::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
-use msime_client_services::telemetry::{TelemetryApp, TelemetryStore};
+use msime_client_services::telemetry::{DiagnosedCrash, TelemetryApp, TelemetryStore};
+use msime_client_services::update_check::background::{pending_update, run_background_check};
 use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
 use std::time::SystemTime;
 
@@ -88,7 +89,7 @@ struct DirectoryRequest {
     directory: String,
 }
 
-/// Starts a reporting session at host start. With reporting on: closes the previous session, queues its crash records and today's `active`, writes the new session marker and returns `{enabled:true, crash_record_path, previous_session_crashed, crashes}`. With reporting off: clears the queue, marker and crash records and returns `{enabled:false}`. No network I/O.
+/// Starts a reporting session at host start. With reporting on: closes the previous session, queues its crash records and today's `active`, writes the new session marker and returns `{enabled:true, crash_record_path, session_id, previous_session_crashed, crashes}`. With reporting off: clears the queue, marker and crash records and returns `{enabled:false}`. No network I/O.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -118,7 +119,16 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
     })
 }
 
-/// Ends the running session normally (`{directory}`), queueing its `session` event for the next flush. Value is false when no session was running. No network I/O, so it can run on a shutdown path.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EndRequest {
+    directory: String,
+    /// begin 返回的 `session_id`。给了就只结束这个会话；不给则结束标记里记着的会话（旧宿主的行为）。
+    #[serde(default)]
+    session: Option<String>,
+}
+
+/// 正常结束会话（`{directory, session?}`），排进它的 `session` 事件，下次 flush 时发送。带 `session`（begin 返回的 `session_id`）时只结束这个会话，同目录里别的进程的会话不受影响；不带时结束标记里记着的会话。没有对应的会话在运行时值为 false。不联网，可以在退出路径上调用。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -128,11 +138,14 @@ pub unsafe extern "C" fn msime_client_telemetry_end(
 ) -> *mut c_char {
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
-        let request: DirectoryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
-        TelemetryStore::new(absolute_directory(&request.directory)?)
-            .end_session()
-            .map(Value::Bool)
-            .map_err(|error| error.to_string())
+        let request: EndRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let store = TelemetryStore::new(absolute_directory(&request.directory)?);
+        match request.session.as_deref() {
+            Some(session) => store.end_session_by_id(session),
+            None => store.end_session(),
+        }
+        .map(Value::Bool)
+        .map_err(|error| error.to_string())
     })
 }
 
@@ -143,9 +156,24 @@ struct CrashRequest {
     message: String,
     #[serde(default)]
     stack: String,
+    /// begin 返回的 `session_id`。给了就写这个会话的记录，不看标记现在属于谁。
+    #[serde(default)]
+    session: Option<String>,
+    /// 系统事后报告的崩溃（iOS 的 MetricKit 诊断）所属的进程号：按它认领该进程未结束的会话，见 `TelemetryStore::record_diagnosed_crash`。
+    #[serde(default)]
+    pid: Option<u32>,
+    /// 系统事后报告的强制结束（SIGKILL），不属于任何会话：只报 `crash`，不报 `session_crash`。
+    #[serde(default)]
+    outside_session: bool,
 }
 
-/// Writes the running session's crash record (`{directory, message, stack}`) from a crash handler that may allocate, such as a C++ terminate handler. Takes no lock and does no network I/O; the record becomes a `crash` event on the next start. Value is false when no session is running or this session already has a record. Signal handlers write the record file returned by `msime_client_telemetry_begin` directly instead.
+/// 写会话的崩溃记录（`{directory, message, stack, session?, pid?, outside_session?}`），记录在下次启动时成为 `crash` 事件。三种用法互斥：
+///
+/// - 可以分配内存的崩溃处理（如 C++ terminate handler）：带 `session` 时写这个会话的记录；都不带时写标记里记着的会话的记录，而标记可能已属于同目录里别的进程。不加锁。没有会话在运行或这个会话已有记录时值为 false。信号处理函数改为直接写 `msime_client_telemetry_begin` 返回的记录文件。
+/// - 系统事后报告的崩溃带 `pid`：写成该进程未结束会话的记录（下次启动时连同 `session_crash` 补报）；该进程这次崩溃已被它自己的处理程序记下时不写，值为 false；没有未结束的会话时写成单独的记录，只报 `crash`。
+/// - 系统事后报告的强制结束带 `outside_session: true`：总是写成单独的记录，只报 `crash`。
+///
+/// 后两种会加锁，不能在崩溃处理程序里调用。都不联网。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -156,10 +184,22 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
         let request: CrashRequest = unsafe { document(request, length, MAX_CRASH_REQUEST_BYTES)? };
-        TelemetryStore::new(absolute_directory(&request.directory)?)
-            .record_crash(&request.message, &request.stack)
-            .map(Value::Bool)
-            .map_err(|error| error.to_string())
+        let store = TelemetryStore::new(absolute_directory(&request.directory)?);
+        let (message, stack) = (&request.message, &request.stack);
+        match (
+            request.session.as_deref(),
+            request.pid,
+            request.outside_session,
+        ) {
+            (Some(session), None, false) => store.record_crash_for(session, message, stack),
+            (None, None, false) => store.record_crash(message, stack),
+            (None, pid, outside) if pid.is_some() != outside => store
+                .record_diagnosed_crash(pid, message, stack)
+                .map(|recorded| recorded != DiagnosedCrash::Duplicate),
+            _ => return Err("session, pid and outside_session are exclusive".to_owned()),
+        }
+        .map(Value::Bool)
+        .map_err(|error| error.to_string())
     })
 }
 
@@ -266,7 +306,7 @@ pub unsafe extern "C" fn msime_client_notices(request: *const u8, length: usize)
     })
 }
 
-/// 把宿主所在平台最新的已发布版本与当前运行的版本号比较，结果为 `{status:"available"|"current", update:{version:{display,parts}, release_url, installer_name, installer_sha256, signed}}`；该平台还没有发布时为 `{status:"none"}`。请求为 `{platform, current_version, edition?, arch?}`。会在网络上阻塞最多十秒，不要在 UI 线程或输入线程上调用。
+/// 把宿主所在平台在请求通道里最新的构建与当前运行的构建比较，结果为 `{status:"available"|"current", update:{version:{display,parts}, release_url, installer_name, installer_sha256, signed, channel, build_run}}`；该平台还没有发布时为 `{status:"none"}`。请求为 `{platform, current_version, edition?, arch?, channel?}`，`channel` 是 `stable`（缺省）、`beta` 或 `nightly`。会在网络上阻塞，每个请求最多十秒，不要在 UI 线程或输入线程上调用。
 /// # Safety
 /// `request` 指向 `length` 个可读的 UTF-8 JSON 字节。传入空指针会被拒绝。
 #[no_mangle]
@@ -279,6 +319,74 @@ pub unsafe extern "C" fn msime_client_update_check(
         let request: UpdateCheckRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
         let check = check_for_update(&request).map_err(|error| error.to_string())?;
         serde_json::to_value(check).map_err(|error| error.to_string())
+    })
+}
+
+/// 后台检查和读缓存的请求：`msime_client_update_check` 的请求加上宿主的状态目录 `directory`（绝对路径，记录 `update-check.json` 放在这里）。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackgroundUpdateRequest {
+    directory: String,
+    platform: String,
+    current_version: String,
+    #[serde(default)]
+    edition: Option<String>,
+    #[serde(default)]
+    arch: Option<String>,
+    #[serde(default)]
+    channel: Option<String>,
+}
+
+impl BackgroundUpdateRequest {
+    fn split(self) -> (String, UpdateCheckRequest) {
+        (
+            self.directory,
+            UpdateCheckRequest {
+                platform: self.platform,
+                current_version: self.current_version,
+                edition: self.edition,
+                arch: self.arch,
+                channel: self.channel,
+            },
+        )
+    }
+}
+
+/// 后台检查一次更新（`msime_client_services::update_check::background::run_background_check`）：距上次成功检查不满一天、距上次失败不满六小时、另一个进程正在检查、开发构建或设置了 `MSIME_DISABLE_UPDATE_CHECK` 时不联网。请求为 `{directory, platform, current_version, edition?, arch?, channel?}`，`directory` 是宿主状态目录的绝对路径，同一宿主的读缓存请求要用同一个目录。结果为 `{status:"disabled"|"not_due"|"unavailable"|"checked", notify: update|null}`，`notify` 的形状同 `msime_client_update_check` 的 `update`，是这次该提醒、而且已经记成提醒过的构建。没到时间时只读一个小文件，可以每小时调用；到时间时会在网络上阻塞，不要在 UI 线程或输入线程上调用。
+/// # Safety
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节。传入空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_update_background_check(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // SAFETY: 由文档写明的调用方契约保证。
+        let request: BackgroundUpdateRequest =
+            unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let (directory, request) = request.split();
+        let outcome = run_background_check(absolute_directory(&directory)?, &request)
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(outcome).map_err(|error| error.to_string())
+    })
+}
+
+/// 后台检查已经找到、仍比当前运行的构建新的版本，关于页打开时先显示它：`{status:"available", update}`，没有时为 null。请求与 `msime_client_update_background_check` 相同；记录是按别的通道检查的时也为 null。只读记录，不联网、不拿锁。
+/// # Safety
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节。传入空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_update_pending(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // SAFETY: 由文档写明的调用方契约保证。
+        let request: BackgroundUpdateRequest =
+            unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let (directory, request) = request.split();
+        let pending = pending_update(absolute_directory(&directory)?, &request)
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(pending).map_err(|error| error.to_string())
     })
 }
 

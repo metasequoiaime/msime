@@ -29,6 +29,8 @@ import {
 } from "./voice-capture-devices-section";
 import { VoiceAsrServiceTestSection } from "./voice-asr-service-test-section";
 import { VoiceHotkeysSection } from "./voice-hotkeys-section";
+import { ToggleHotkeysSection } from "./toggle-hotkeys-section";
+import { defaultKeybindings } from "./keybinding-defaults";
 import { VoicePolishSettingsSection } from "./voice-polish-settings-section";
 import { DoubaoOptionsRows } from "./doubao-options-section";
 import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavior-settings-section";
@@ -326,22 +328,42 @@ export function VoiceSettingsContent({
   };
   const doubaoOptionsVisible = showVoiceProviderSettings && voiceInput.asr_provider === "doubao";
   const hotkeys = showVoiceHotkeys && (
-    <VoiceHotkeysSection
-      platform={
-        macosPlatform
-          ? "macos"
-          : windowsPlatform
-            ? "windows"
-            : linuxPlatform
-              ? "linux"
-              : harmonyPlatform
-                ? "harmony"
-                : "other"
-      }
-      values={draft.voice_input ?? {}}
-      onChange={updateVoice}
-      spaceLock={showVoiceSpaceLockSwitch}
-    />
+    <>
+      <VoiceHotkeysSection
+        platform={
+          macosPlatform
+            ? "macos"
+            : windowsPlatform
+              ? "windows"
+              : linuxPlatform
+                ? "linux"
+                : harmonyPlatform
+                  ? "harmony"
+                  : "other"
+        }
+        values={draft.voice_input ?? {}}
+        onChange={updateVoice}
+        spaceLock={showVoiceSpaceLockSwitch}
+      />
+      {(macosPlatform || linuxPlatform) && (
+        <ToggleHotkeysSection
+          voiceOnly
+          keybindings={draft.keybindings ?? defaultKeybindings}
+          check={client.checkToggleHotkey}
+          voiceCtrlF9={draft.voice_input?.hotkey_ctrl_f9 !== false}
+          disabled={disabled}
+          onChange={(patch) =>
+            setDraft(
+              (current) =>
+                current && {
+                  ...current,
+                  keybindings: { ...defaultKeybindings, ...current.keybindings, ...patch },
+                },
+            )
+          }
+        />
+      )}
+    </>
   );
   // 桌面把边说边显示与结果提交都放在「识别与输入」，服务配置只负责服务接入。
   const recognitionResult = (showStreamPreedit: boolean) => (

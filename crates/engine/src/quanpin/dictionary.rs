@@ -1313,7 +1313,7 @@ impl QuanpinDictionary {
         );
         sentence.sentence_association = true;
         sentence.sentence_words = typo.words;
-        sentence.corrected_from = fold_reading(raw);
+        sentence.corrected_from = fold_reading(raw).into();
         result.insert(at, sentence);
     }
 

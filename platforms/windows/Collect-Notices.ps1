@@ -40,6 +40,7 @@ foreach ($notice in @(
     @('platforms/windows/third_party/miniaudio/LICENSE', 'miniaudio (Server microphone capture and cue sounds)'),
     @('shared/voice/third_party/cppcodec/LICENSE', 'cppcodec 0.2, header-only, Base64 for Alibaba Cloud Bailian speech requests, tplgy/cppcodec, MIT'),
     @('platforms/windows/settings/assets/feedback/NOTICE.md', 'Feedback channel icons on the about page of msime-client-settings.exe, GitHub and Telegram from yldm-tech/ai-logo (MIT), QQ from bytedance/IconPark (Apache-2.0)'),
+    @('resources/licenses/world-clock-NOTICE.txt', '离线世界时钟：IANA 城市目录与 Rust 时间、时区和太阳事件依赖'),
     @('resources/licenses/OpenCC-Apache-2.0.txt', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'),
     @('plugins/script/LICENSE', 'Official script plugin uuid in server\plugin-packs, this project''s own code under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'),
     @('plugins/phrase_table/LICENSE', 'Official phrase table latex-symbols in server\plugin-packs, this project''s own data under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'))) {

@@ -136,6 +136,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *cancelTransition;
 @property(nonatomic) NSUInteger snapshotCalls;
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
+@property(nonatomic, copy) NSDictionary *fixtureView;
 @property(nonatomic) NSUInteger settledRerankCalls;
 @property(nonatomic) NSUInteger rawCommitCalls;
 @property(nonatomic) NSUInteger commandCalls;
@@ -215,11 +216,16 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
 }
+- (NSDictionary *)setMultilingualOutput:(BOOL)traditional error:(NSError **)error {
+    (void)traditional;
+    return [self viewWithError:error];
+}
 - (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error {
     (void)error; self.capsLock = enabled; ++self.capsLockCalls; return YES;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
+    if (self.fixtureView) return self.fixtureView;
     return @{@"focused":@NO, @"editing_text":@"", @"candidates":@[], @"dedicated_english":@(self.dedicatedEnglish)};
 }
 - (NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error {
@@ -2078,17 +2084,27 @@ static void TestCharacterSetShortcut(void) {
     appearance.englishMode = NO;
     session.lastCommand = UINT32_MAX;
     NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    // 从真实快捷键入口检查提示，不能只证明繁简偏好翻转。
+    appearance.inputModeHUD = YES;
+    MSIMEInputModeHUDPanel *hud = MSIMEInputModeHUDPanel.sharedPanel;
+    [hud orderOut:nil];
     assert([controller handleEvent:ModeKey(3, flags, NO) client:client]);
     assert(appearance.traditionalOutput != traditional);
+    assert(hud.visible && [hud.displayedText isEqual:appearance.traditionalOutput ? @"繁" : @"简"]);
+    [hud orderOut:nil];
     assert([controller handleEvent:ModeKey(3, flags, YES) client:client]);
     assert(appearance.traditionalOutput != traditional);
+    assert(!hud.visible);
     assert([[controller valueForKey:@"view"] isEqual:view]);
     assert(session.lastCommand == UINT32_MAX && client.committed == nil);
     assert([controller handleEvent:ModeKey(3, flags | NSEventModifierFlagCapsLock, NO) client:client]);
     assert(appearance.traditionalOutput == traditional);
+    assert(hud.visible && [hud.displayedText isEqual:traditional ? @"繁" : @"简"]);
+    [hud orderOut:nil];
     appearance.englishMode = YES;
     assert([controller handleEvent:ModeKey(3, flags, NO) client:client]);
     assert(appearance.traditionalOutput == traditional && appearance.englishMode);
+    assert(!hud.visible);
     for (NSUInteger mask = 0; mask < 16; ++mask) {
         NSEventModifierFlags mods = (mask & 1 ? NSEventModifierFlagControl : 0) |
             (mask & 2 ? NSEventModifierFlagShift : 0) | (mask & 4 ? NSEventModifierFlagOption : 0) |
@@ -2111,6 +2127,27 @@ static void TestCharacterSetShortcut(void) {
     assert(appearance.traditionalOutput != traditional);
     assert([controller handleEvent:LayoutKey(3, @"\u0430", flags) client:client]);
     assert(appearance.traditionalOutput == traditional);
+    // 关闭 HUD 仍能切换；菜单、工具栏与快捷键共用状态反馈，同值选择不提示。
+    appearance.inputModeHUD = NO;
+    [hud orderOut:nil];
+    assert([controller handleEvent:ModeKey(3, flags, NO) client:client]);
+    assert(appearance.traditionalOutput != traditional && !hud.visible);
+    appearance.inputModeHUD = YES;
+    [controller selectSimplifiedOutput:nil];
+    assert(hud.visible && [hud.displayedText isEqual:@"简"]);
+    [hud orderOut:nil];
+    [controller selectSimplifiedOutput:nil];
+    assert(!hud.visible);
+    [controller selectTraditionalOutput:nil];
+    assert(hud.visible && [hud.displayedText isEqual:@"繁"]);
+    [controller floatingToolbarDidRequestToggleTraditionalOutput:nil];
+    assert(hud.visible && [hud.displayedText isEqual:@"简"]);
+    [hud orderOut:nil];
+    [controller setValue:nil forKey:@"activeClient"];
+    [controller selectTraditionalOutput:nil];
+    assert(appearance.traditionalOutput && !hud.visible);
+    [controller selectSimplifiedOutput:nil];
+    [controller setValue:client forKey:@"activeClient"];
     appearance.englishMode = YES;
     [appearance applySharedInputPreferences:@{@"keybindings":keys}];
     assert(![controller handleEvent:ModeKey(3, flags, NO) client:client]);
@@ -2423,30 +2460,32 @@ static void TestSessionOptions() {
     NSDictionary *requested = MSIMESessionOptions(file, nil);
     assert([requested[@"phrase_preedit"] isEqual:@YES]);
     assert([requested[@"quick_phrase_candidates"] isEqual:@YES]);
-    // Everything the file carried is passed through untouched, including nested objects.
+    assert([requested[@"korean_romaja"] isEqual:@YES]);
+    // 原配置中的字段及嵌套对象保持原样，宿主额外声明三项运行时能力。
     for (NSString *key in file) assert([requested[key] isEqual:file[key]]);
-    assert(requested.count == file.count + 2);
-    // The caller's dictionary is not modified: prepareSession reads preferences_directory back out
-    // of the result, and the options file dictionary is handed around elsewhere.
+    assert(requested.count == file.count + 3);
+    // 不修改调用方的字典，原配置仍供其他读取方使用。
     assert(!file[@"phrase_preedit"]);
+    assert(!file[@"korean_romaja"]);
 
     // An options file that already says something about it does not get to say no: this host draws
     // the field, and a stale file predates the behaviour entirely.
-    NSDictionary *stale = MSIMESessionOptions(@{@"api_version":@1, @"phrase_preedit":@NO}, nil);
+    NSDictionary *stale = MSIMESessionOptions(@{@"api_version":@1, @"phrase_preedit":@NO, @"korean_romaja":@NO}, nil);
     assert([stale[@"phrase_preedit"] isEqual:@YES]);
     assert([stale[@"quick_phrase_candidates"] isEqual:@YES]);
+    assert([stale[@"korean_romaja"] isEqual:@YES]);
 
     // The built-in sound packs live in the bundle, while resources is EngineResources in Application Support, so the host library cannot find them beside it: the bundle's directory is named, unless the options file names one itself.
     NSDictionary *sounds = MSIMESessionOptions(file, @"/synthetic/bundle/Contents/Resources/sound-packs");
     assert([sounds[@"sound_packs"] isEqual:@"/synthetic/bundle/Contents/Resources/sound-packs"]);
-    assert(sounds.count == file.count + 3 && !file[@"sound_packs"]);
+    assert(sounds.count == file.count + 4 && !file[@"sound_packs"]);
     NSDictionary *named = MSIMESessionOptions(@{@"api_version":@1, @"sound_packs":@"/configured/sound-packs"}, @"/synthetic/sound-packs");
     assert([named[@"sound_packs"] isEqual:@"/configured/sound-packs"]);
 
     // 下载词库缺少辅助码时，会话从当前输入法包回退；原始配置继续供旧宿主读取。
     NSDictionary *helpcodes = MSIMESessionOptions(file, nil, @"/synthetic/bundle/Contents/Resources");
     assert([helpcodes[@"helpcode_fallback_resources"] isEqual:@"/synthetic/bundle/Contents/Resources"]);
-    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 3);
+    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 4);
     assert(!MSIMESessionOptions(file, nil, @"relative/resources")[@"helpcode_fallback_resources"]);
     NSDictionary *explicitHelpcodes = MSIMESessionOptions(@{@"helpcode_fallback_resources":@"/configured/resources"},
         nil, @"/synthetic/bundle/Contents/Resources");
@@ -3471,6 +3510,10 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
              @"preedit": self.editing, @"caret_position": @(self.editing.length), @"page": @(start / self.pageSize),
              @"page_count": @((self.total + self.pageSize - 1) / self.pageSize), @"candidates": page};
 }
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error;
+    return [self gridView];
+}
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     switch (command) {
         case MSIME_NEXT_CANDIDATE: self.highlighted = MIN(self.highlighted + 1, self.total - 1); break;
@@ -3505,6 +3548,31 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     return @{@"handled": @YES, @"commit": [NSString stringWithFormat:@"%@%lu", self.prefix, (unsigned long)index],
              @"view": @{@"focused": @YES, @"session": @1, @"generation": @(self.generation + 1), @"editing_text": @"",
                         @"caret_position": @0, @"candidates": @[]}};
+}
+@end
+
+// 部分选词会推进组字前缀并更换候选代次，直至最后一次才整句上屏。
+@interface PartialExpandedGridSession : ExpandedGridSession
+@property(nonatomic, copy) NSArray<NSNumber *> *remainingTotals;
+@property(nonatomic, copy) NSString *selectedPrefix;
+@end
+@implementation PartialExpandedGridSession
+- (NSDictionary *)gridView {
+    NSMutableDictionary *view = [[super gridView] mutableCopy];
+    view[@"scheme"] = @1;
+    view[@"phrase_prefix"] = self.selectedPrefix ?: @"";
+    return view;
+}
+- (NSDictionary *)selectAnyCandidateGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    NSDictionary *selected = [super selectAnyCandidateGeneration:generation index:index error:error];
+    if (!selected || !self.remainingTotals.count) return selected;
+    self.total = self.remainingTotals.firstObject.unsignedIntegerValue;
+    self.remainingTotals = [self.remainingTotals subarrayWithRange:NSMakeRange(1, self.remainingTotals.count - 1)];
+    self.selectedPrefix = [(self.selectedPrefix ?: @"") stringByAppendingString:@"合成前缀"];
+    self.editing = [self.editing substringFromIndex:1];
+    self.highlighted = 0;
+    ++self.generation;
+    return @{@"handled": @YES, @"view": [self gridView]};
 }
 @end
 
@@ -4272,6 +4340,78 @@ static void TestExpandedCandidateGridGeneration() {
     other.caret = NSMakeRect(300, 400, 1, 18);
     [controller handleEvent:ModeKey(0, 0, NO) client:other];
     assert(!expanded());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestExpandedCandidatePartialSelection() {
+    NSString *suite = [@"msime.expanded-partial." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.vertical = NO;
+    prefs.pageSize = 5;
+    prefs.englishMode = NO;
+    prefs.expandCandidates = YES;
+    // 数字、空格、回车和鼠标都通过相同的带代次选词接口。
+    for (NSNumber *input in @[@18, @49, @36, @(-1)]) {
+        ModeController *controller = [ModeController alloc];
+        PartialExpandedGridSession *session = [PartialExpandedGridSession new];
+        session.generation = 10;
+        session.total = 23;
+        session.pageSize = 5;
+        session.prefix = @"合成词";
+        session.editing = @"yigelaji";
+        session.remainingTotals = @[@9, @4];
+        NestingClient *client = [NestingClient new];
+        client.caret = NSMakeRect(200, 400, 1, 18);
+        HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert([controller openExpandedCandidates]);
+        auto select = [&] {
+            if (input.intValue < 0) [controller selectExpandedCandidate:ExpandedGridSubview(panel, 0)];
+            else assert([controller handleEvent:ModeKey(input.unsignedShortValue, 0, NO) client:client]);
+        };
+        for (NSNumber *remaining in @[@9, @4]) {
+            const uint64_t generation = session.generation;
+            MSIMECandidateButton *oldButton = ExpandedGridSubview(panel, 0);
+            select();
+            assert(session.selectAnyGeneration == generation && session.total == remaining.unsignedIntegerValue);
+            assert([controller valueForKey:@"expandedCandidates"] && !client.committed);
+            assert([[controller valueForKey:@"expandedGeneration"] isEqual:@(generation + 1)]);
+            assert([[controller valueForKey:@"expandedCursor"] unsignedIntegerValue] == 0);
+            assert(ExpandedGridHighlightedTag(panel) == 0);
+            const NSUInteger selections = session.selectAnyCalls;
+            [controller selectExpandedCandidate:oldButton];
+            assert(session.selectAnyCalls == selections && [controller valueForKey:@"expandedCandidates"]);
+        }
+        select();
+        assert(![controller valueForKey:@"expandedCandidates"] && client.committed.length);
+
+        // 普通候选剩一页时没有新入口；显式收起后的下一次输入也不自动展开。
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert(![controller openExpandedCandidates]);
+
+        // 部分选词写入 marked text 时若有更新回复重入，旧选择不重新打开网格。
+        session.total = 12;
+        session.remainingTotals = @[@4];
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert([controller openExpandedCandidates]);
+        __weak ModeController *weakController = controller;
+        client.onMarkedText = ^{
+            ++session.generation;
+            session.editing = @"syntheticnew";
+            [weakController apply:@{@"view": [session gridView]}];
+        };
+        select();
+        assert(![controller valueForKey:@"expandedCandidates"]);
+        assert([[controller valueForKey:@"view"][@"editing_text"] isEqual:@"syntheticnew"]);
+    }
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -6147,6 +6287,101 @@ static void TestShiftChordRecoversWithoutFlagsChanged() {
     }
 }
 
+// 焦点和鼠标监视器是系统边界，用替身驱动真实控制器，CI 无需辅助功能授权。
+@interface EditableShiftController : ModeController
+@property(nonatomic, strong) id focusIdentity;
+@property(nonatomic) pid_t focusPID;
+@property(nonatomic) NSUInteger focusCaptures;
+@property(nonatomic) NSUInteger modeSwitchCalls;
+@property(nonatomic) NSUInteger monitorStarts;
+@property(nonatomic) BOOL monitoring;
+@property(nonatomic) BOOL allowMonitoring;
+@end
+@implementation EditableShiftController
+- (msime::mac::EditableShiftFocus)editableShiftFocusForClient:(id)sender {
+    (void)sender;
+    ++self.focusCaptures;
+    return {self.focusPID, self.focusIdentity};
+}
+- (BOOL)startEditableShiftMouseMonitoring {
+    ++self.monitorStarts;
+    self.monitoring = self.allowMonitoring;
+    return self.allowMonitoring;
+}
+- (void)stopEditableShiftMouseMonitoring { self.monitoring = NO; }
+- (void)toggleInputModeFromModifierTap {
+    ++self.modeSwitchCalls;
+    [super toggleInputModeFromModifierTap];
+}
+@end
+
+static void TestEditableShiftController() {
+    NSString *suite = [@"msime.editable-shift." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!prefs.shiftTapRequiresEditable);
+    NSDictionary *restricted = @{@"keybindings":@{@"switch_language_shift_requires_editable":@YES}};
+    [prefs applySharedInputPreferences:restricted];
+    assert(prefs.shiftTapRequiresEditable);
+    assert([[prefs sharedPreferencesByMerging:restricted][@"keybindings"][@"switch_language_shift_requires_editable"] boolValue]);
+    for (NSDictionary *removed : @[@{}, @{@"keybindings":@{}}, @{@"keybindings":NSNull.null},
+                                   @{@"keybindings":@{@"switch_language_shift_requires_editable":@"true"}}]) {
+        [prefs applySharedInputPreferences:removed];
+        assert(!prefs.shiftTapRequiresEditable);
+        [prefs applySharedInputPreferences:restricted];
+    }
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [reopened applySharedInputPreferences:restricted];
+    assert(reopened.shiftTapRequiresEditable);
+    EditableShiftController *controller = [EditableShiftController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    controller.allowMonitoring = YES;
+    controller.focusPID = 1;
+    controller.focusIdentity = @"synthetic-empty-field";
+    prefs.englishMode = NO;
+    auto down = TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0);
+    auto up = TapEvent(NSEventTypeFlagsChanged, 56, 0, 1.1);
+    assert(![controller handleEvent:down client:client]);
+    assert(controller.monitoring);
+    assert([controller handleEvent:up client:client]);
+    assert(prefs.englishMode && controller.modeSwitchCalls == 1 && !controller.monitoring);
+    for (int failure = 0; failure < 6; ++failure) {
+        [controller resetModifierTap];
+        controller.focusPID = 1;
+        controller.focusIdentity = failure == 0 ? nil : @"synthetic-empty-field";
+        controller.allowMonitoring = failure != 5;
+        assert(![controller handleEvent:down client:client]);
+        if (failure == 1) controller.focusIdentity = nil; // 权限撤回或焦点未知。
+        if (failure == 2) controller.focusIdentity = @"other-field";
+        if (failure == 3) controller.focusPID = 2;
+        if (failure == 4) [controller cancelEditableShiftTap]; // 鼠标事件原样放行，但取消本轮。
+        assert(![controller handleEvent:up client:client]);
+        assert(prefs.englishMode && controller.modeSwitchCalls == 1 && !controller.monitoring);
+    }
+    // 焦点无法确认不会进入模式切换，自然也不会走切换 HUD。
+    controller.focusIdentity = nil;
+    controller.allowMonitoring = YES;
+    const NSUInteger captures = controller.focusCaptures;
+    [prefs applySharedInputPreferences:@{}];
+    assert(![controller handleEvent:down client:client]);
+    assert([controller handleEvent:up client:client]);
+    assert(!prefs.englishMode && controller.modeSwitchCalls == 2);
+    assert(controller.focusCaptures == captures && !controller.monitoring);
+    [prefs applySharedInputPreferences:restricted];
+    prefs.controlTapShortcut = YES;
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 59, NSEventModifierFlagControl, 2.0) client:client]);
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 59, 0, 2.1) client:client]);
+    assert(prefs.englishMode && controller.modeSwitchCalls == 3);
+    controller.focusIdentity = @"synthetic-empty-field";
+    assert(![controller handleEvent:down client:client]);
+    [controller resetModifierTap];
+    assert(!controller.monitoring && ![controller handleEvent:up client:client]);
+    assert(controller.modeSwitchCalls == 3);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestModifierTaps() {
     for (NSNumber *key in @[@56, @60, @59, @62]) {
         const auto code = key.unsignedShortValue;
@@ -6465,25 +6700,44 @@ static void TestInputModeStatusItem() {
 // 单按 Caps Lock 切换中英文。合成的时钟、按键状态和撤回大写锁定：单测不能动跑测试那台机器的真实大写锁定。
 static std::int64_t gCapsNow = 0;
 static bool gCapsHeld = false;
+static bool gCapsHIDKnown = false;
+static bool gCapsHIDHeld = false;
 static bool gCapsReleaseWorks = true;
 static NSUInteger gCapsReleases = 0;
 static std::int64_t SyntheticCapsNow() { return gCapsNow; }
+static bool SyntheticCapsHID(bool *known) {
+    if (known) *known = gCapsHIDKnown;
+    return gCapsHIDHeld;
+}
 static CGEventFlags SyntheticCapsFlags(CGEventSourceStateID state) {
     assert(state == kCGEventSourceStateHIDSystemState);
     // 松手后逻辑锁定位仍为真，只有实体按住位清除；不能把锁定当成长按。
     return NX_ALPHASHIFTMASK | (gCapsHeld ? NX_ALPHASHIFT_STATELESS_MASK : 0);
 }
 static bool SyntheticCapsRelease() { ++gCapsReleases; return gCapsReleaseWorks; }
+static NSUInteger gCapsHIDStarts = 0;
+static void SyntheticCapsHIDStart() { ++gCapsHIDStarts; }
 
 static void TestCapsLockTap() {
     const auto realRelease = MSIMECapsLockRelease;
+    const auto realHID = MSIMECapsLockHIDState;
     const auto realFlags = MSIMEPhysicalModifierFlagsState;
     const auto realNow = MSIMECapsLockNow;
+    const auto realHIDStart = MSIMECapsLockHIDStart;
+    MSIMECapsLockHIDStart = &SyntheticCapsHIDStart;
+    gCapsHIDStarts = 0;
     MSIMECapsLockRelease = &SyntheticCapsRelease;
+    MSIMECapsLockHIDState = &SyntheticCapsHID;
     MSIMEPhysicalModifierFlagsState = &SyntheticCapsFlags;
     MSIMECapsLockNow = &SyntheticCapsNow;
     gCapsReleases = 0;
     gCapsReleaseWorks = true;
+    gCapsHIDKnown = true;
+    gCapsHIDHeld = true;
+    assert(MSIMECapsLockPhysicallyHeld());
+    gCapsHIDHeld = false;
+    assert(!MSIMECapsLockPhysicallyHeld());
+    gCapsHIDKnown = false;
 
     NSString *suite = [@"msime.caps-lock-tap." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -6498,6 +6752,7 @@ static void TestCapsLockTap() {
     assert(toggle.state == NSControlStateValueOn);
 
     ModeController *controller = [ModeController alloc];
+    __weak ModeController *weakController = controller;
     ShortcutClient *client = [ShortcutClient new];
     ShortcutSession *session = [ShortcutSession new];
     [controller setValue:prefs forKey:@"appearance"];
@@ -6611,8 +6866,15 @@ static void TestCapsLockTap() {
 
     // 真正推进运行循环：直接调用 pollCapsLockTap 看不出默认模式的定时器会在事件跟踪或模态面板期间停住。
     prefs.capsLockTapShortcut = YES;
+    // 独立测试进程没有真实用户事件，保持这段有界验收活动，避免后台节能合并 10 毫秒计时器。
+    id timerActivity = [NSProcessInfo.processInfo beginActivityWithOptions:
+        NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
+        reason:@"验收输入法修饰键计时器"];
     for (NSRunLoopMode mode in @[NSDefaultRunLoopMode, NSEventTrackingRunLoopMode, NSModalPanelRunLoopMode]) {
         CFRunLoopAddCommonMode(CFRunLoopGetMain(), (__bridge CFStringRef)mode);
+        // 偏好窗口首次进入事件循环会触发布局与 AppKit 初始化；先完成夹具准备再计时。
+        // 保留下面一秒的响应断言，不把这些启动回调算作已经送出的轻点。
+        [NSRunLoop.mainRunLoop runMode:mode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         assert(![controller handleEvent:capsOff(10.0) client:client]);
         prefs.englishMode = NO;
         const NSUInteger releasesBefore = gCapsReleases;
@@ -6622,6 +6884,14 @@ static void TestCapsLockTap() {
         NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
         while (gCapsReleases == releasesBefore && deadline.timeIntervalSinceNow > 0)
             [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        if (gCapsReleases != releasesBefore + 1 || !prefs.englishMode || session.capsLock)
+            fprintf(stderr, "Caps Lock tap mode=%s releases=%lu expected=%lu english=%d caps=%d timer_valid=%d timer_present=%d on_main=%d weak_live=%d until_fire=%f\n",
+                mode.UTF8String, (unsigned long)gCapsReleases, (unsigned long)(releasesBefore + 1),
+                (int)prefs.englishMode, (int)session.capsLock,
+                (int)[[controller valueForKey:@"capsLockTapTimer"] isValid],
+                (int)([controller valueForKey:@"capsLockTapTimer"] != nil), (int)NSThread.isMainThread,
+                (int)(weakController != nil),
+                [(NSTimer *)[controller valueForKey:@"capsLockTapTimer"] fireDate].timeIntervalSinceNow);
         assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
 
         // 同一运行模式下超过阈值仍保留大写锁定，不能为了让轻点响应而把长按也切换掉。
@@ -6635,6 +6905,7 @@ static void TestCapsLockTap() {
         assert(session.capsLock && prefs.englishMode && gCapsReleases == releasesBefore + 1);
         gCapsHeld = false;
     }
+    [NSProcessInfo.processInfo endActivity:timerActivity];
 
     // 实体松手的 FlagsChanged 可能先于下一次轮询抵达；锁定位仍开时不能取消这次轻点，也不能重新计时。
     for (unsigned short code : {static_cast<unsigned short>(0x39), static_cast<unsigned short>(0xff)}) {
@@ -6657,8 +6928,21 @@ static void TestCapsLockTap() {
     gCapsNow = 13050;
     [controller pollCapsLockTap];
     assert(session.capsLock && !prefs.englishMode && gCapsReleases == releasesBefore);
+    // 报实体按住位的设备从不启动 HID 监听，不会被要求「输入监控」授权；只有这台不报的设备才启动一次。
+    assert(gCapsHIDStarts == 1);
+    // HID 有了结果之后，同一台设备的轻点按实体按下和松开判定，照常切换。
+    assert(![controller handleEvent:capsOff(13.5) client:client]);
+    gCapsHIDKnown = true; gCapsHIDHeld = true;
+    gCapsNow = 14000;
+    assert(![controller handleEvent:capsOn(14.0) client:client]);
+    gCapsNow = 14050; gCapsHIDHeld = false;
+    [controller pollCapsLockTap];
+    assert(prefs.englishMode && gCapsReleases == releasesBefore + 1 && gCapsHIDStarts == 1);
+    gCapsHIDKnown = false;
 
+    MSIMECapsLockHIDStart = realHIDStart;
     MSIMECapsLockRelease = realRelease;
+    MSIMECapsLockHIDState = realHID;
     MSIMEPhysicalModifierFlagsState = realFlags;
     MSIMECapsLockNow = realNow;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
@@ -6846,6 +7130,132 @@ static void TestTemporaryJapaneseLongVowelThroughRealSession(BOOL paging) {
         MSIMERemoveTestPreferenceSuite(defaults, suite);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
     }
+}
+
+// 用真实 NSEvent、控制器和 Rust 会话检查调频，客户端仅记录合成上屏。
+static void TestInitialLearningThroughRealKeys(BOOL numeric, BOOL priorContext) {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:[root stringByAppendingPathComponent:@"preferences"] error:&error];
+    assert(snapshot && !error);
+    NSMutableDictionary *preferences = [snapshot[@"preferences"] mutableCopy];
+    preferences[@"scheme"] = @"shuangpin";
+    preferences[@"shuangpin_profile"] = @"xiaohe";
+    preferences[@"default_ime_mode"] = @"chinese";
+    preferences[@"learning"] = @YES;
+    preferences[@"cloud_candidates"] = @NO;
+    preferences[@"frequency"] = @{@"mode": @"promote", @"trigger_count": @1, @"linear_step": @1};
+    NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences,
+        @"quick_phrase_candidates": @YES, @"phrase_preedit": @YES} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    for (NSString *name in @[@"resources", @"dictionaries"]) {
+        sqlite3 *database = nullptr;
+        NSString *path = [options[name] stringByAppendingPathComponent:@"msime-pinyin.db"];
+        assert(sqlite3_open(path.fileSystemRepresentation, &database) == SQLITE_OK);
+        assert(sqlite3_exec(database,
+            "CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+            "INSERT INTO tbl_1_l VALUES('lai','l','甲',14837007),('li','l','丁',7329328),"
+            "('lao','l','戊',3762961),('la','l','己',3655999),('le','l','乙',3481243),"
+            "('liang','l','庚',3302466),('li','l','辛',3298612),('liao','l','乙',999);"
+            "CREATE TABLE tbl_2_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+            "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+            "INSERT INTO tbl_1_w VALUES('wan','w','丙',100);"
+            "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);", nullptr, nullptr, nullptr) == SQLITE_OK);
+        assert(sqlite3_close(database) == SQLITE_OK);
+    }
+    auto query = [&](NSString *path, const char *sql) -> sqlite3_int64 {
+        sqlite3 *database = nullptr;
+        assert(sqlite3_open_v2(path.fileSystemRepresentation, &database, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+        sqlite3_stmt *statement = nullptr;
+        assert(sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) == SQLITE_OK);
+        assert(sqlite3_step(statement) == SQLITE_ROW);
+        sqlite3_int64 result = sqlite3_column_int64(statement, 0);
+        assert(sqlite3_finalize(statement) == SQLITE_OK);
+        assert(sqlite3_close(database) == SQLITE_OK);
+        return result;
+    };
+    NSString *working = [options[@"dictionaries"] stringByAppendingPathComponent:@"msime-pinyin.db"];
+    NSString *journal = [options[@"user_data"] stringByAppendingPathComponent:@"msime_user.db"];
+    if (priorContext) {
+        // 首次创建真实会话前预置合成历史，检验旧上下文不能推翻全局调频首选。
+        sqlite3 *database = nullptr;
+        assert(sqlite3_open(journal.fileSystemRepresentation, &database) == SQLITE_OK);
+        assert(sqlite3_exec(database,
+            "CREATE TABLE personal_bigram(previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),PRIMARY KEY(previous,word)) WITHOUT ROWID;"
+            "CREATE TABLE personal_trigram(earlier TEXT NOT NULL,previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),PRIMARY KEY(earlier,previous,word)) WITHOUT ROWID;"
+            "INSERT INTO personal_bigram VALUES('丙','甲',10);", nullptr, nullptr, nullptr) == SQLITE_OK);
+        assert(sqlite3_close(database) == SQLITE_OK);
+    }
+    const char *weightSQL = "SELECT weight FROM tbl_1_l WHERE key='le' AND value='乙'";
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error);
+    NSDictionary *view = [session setFocused:YES error:&error][@"view"];
+    assert(view && !error);
+    NSString *suite = [@"msime.initial-learning." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
+    [prefs applySharedInputPreferences:preferences];
+    prefs.englishMode = NO;
+    prefs.expandCandidates = NO;
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"";
+    client.selection = NSMakeRange(0, 0);
+    client.caret = NSMakeRect(100, 100, 1, 16);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:view forKey:@"view"];
+    [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+    BOOL displayedBeforeGlobal = NO;
+    for (NSUInteger round = 0; round < 5; ++round) {
+        assert([controller handleEvent:KeypadKey(37, @"l", 0, NO) client:client]);
+        NSArray *rows = [controller valueForKey:@"view"][@"candidates"];
+        NSUInteger index = [rows indexOfObjectPassingTest:^BOOL(NSDictionary *row, NSUInteger offset, BOOL *stop) {
+            (void)offset; (void)stop;
+            return [row[@"text"] isEqual:@"乙"];
+        }];
+        assert(index != NSNotFound && index < 6);
+        sqlite3_int64 before = query(working, weightSQL);
+        if (index == 0 && before < 14837007) displayedBeforeGlobal = YES;
+        if (numeric) {
+            static const unsigned short codes[] = {18, 19, 20, 21, 23, 22};
+            NSString *digit = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
+            assert([controller handleEvent:KeypadKey(codes[index], digit, 0, NO) client:client]);
+        } else {
+            // 双拼的左右键编辑音节，使用向下键逐项选择候选。
+            for (NSUInteger move = 0; move < index; ++move)
+                assert([controller handleEvent:ModeKey(125, 0, NO) client:client]);
+            NSArray *highlighted = [controller valueForKey:@"view"][@"candidates"];
+            assert([highlighted[index][@"highlighted"] boolValue]);
+            assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+        }
+        assert([client.committed isEqual:@"乙"] && client.insertions.count == round + 1);
+        sqlite3_int64 after = query(working, weightSQL);
+        if (before < 14837007) assert(after > before);
+        assert(query(journal, "SELECT weight FROM user_dictionary_operations WHERE dictionary='pinyin' AND key='le' AND value='乙' AND operation='upsert'") == after);
+    }
+    assert(displayedBeforeGlobal && query(working, weightSQL) > 14837007);
+    assert([controller handleEvent:KeypadKey(13, @"w", 0, NO) client:client]);
+    assert([controller handleEvent:KeypadKey(38, @"j", 0, NO) client:client]);
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert([client.committed isEqual:@"丙"]);
+    assert([controller handleEvent:KeypadKey(37, @"l", 0, NO) client:client]);
+    assert([[controller valueForKey:@"view"][@"candidates"][0][@"text"] isEqual:@"乙"]);
+    assert([session closeWithError:&error] && !error);
+    MSIMEClientSession *reopened = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(reopened && !error);
+    assert([reopened setFocused:YES error:&error] && !error);
+    NSDictionary *result = [reopened typeASCII:'l' shift:NO error:&error];
+    assert(result && !error && [result[@"view"][@"candidates"][0][@"text"] isEqual:@"乙"]);
+    assert([reopened closeWithError:&error] && !error);
+    assert(query([options[@"resources"] stringByAppendingPathComponent:@"msime-pinyin.db"], weightSQL) == 3481243);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
 // 只注入一次命令失败，其余按键、快照、偏好保存和方案切换均走真实引擎。
@@ -12027,6 +12437,137 @@ static void TestIdleSessionRecovery() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+// 测试进程不是输入法 bundle，prepareSession 指给本进程 bundle 的码表回退目录在这里换成合成的随包资源；其余配置原样交给真实会话。
+@interface HelpcodeBundleController : SessionRecoveryController
+@property(copy) NSString *bundleResources;
+@property(strong) NSDictionary *requestedOptions;
+@end
+@implementation HelpcodeBundleController
+- (MSIMEClientSession *)createSessionWithOptions:(NSDictionary *)options error:(NSError **)error {
+    self.requestedOptions = options;
+    NSMutableDictionary *session = [options mutableCopy];
+    if ([options[@"helpcode_fallback_resources"] isEqual:NSBundle.mainBundle.resourcePath])
+        session[@"helpcode_fallback_resources"] = self.bundleResources;
+    return [super createSessionWithOptions:session error:error];
+}
+@end
+
+// #9421：双拼辅助码只在部分应用里失效，既没有辅助码注释，按辅助码也筛不掉候选。IMK 给每个文本客户端一个控制器，每个控制器在第一次需要时按当时的 runtime-options.json 建自己的会话，之后一直用它。设置应用启动时把配置刷到下载的词库代次，而那个代次只有锁文件列出的词库，没有 `helpcodes/`；正在运行的输入法里，之前打开过的应用还拿着旧代次的会话，辅助码照常，之后才打开的应用读到新代次，码表为空。这里用两个合成客户端重现这条时间线：两个会话都要显示并按辅助码筛选，后一个靠随包码表回退（#8939）。
+static void TestHelpcodeAfterDictionaryGenerationSwitch() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSMutableDictionary *preferences = [snapshot[@"preferences"] mutableCopy];
+    preferences[@"scheme"] = @"shuangpin";
+    preferences[@"shuangpin_profile"] = @"xiaohe";
+    preferences[@"default_ime_mode"] = @"chinese";
+    preferences[@"learning"] = @NO;
+    preferences[@"cloud_candidates"] = @NO;
+    NSMutableDictionary *helpcode = [preferences[@"shuangpin_helpcode"] mutableCopy];
+    helpcode[@"enabled"] = @YES;
+    helpcode[@"schema"] = @"xiaohe";
+    helpcode[@"show_in_candidate_window"] = @YES;
+    preferences[@"shuangpin_helpcode"] = helpcode;
+    // 合成码表只收这两个字：「阳」词频高排在前，辅助码 m 把「杨」提到首位。
+    NSString *table = @"阳=rr\n杨=mu\n";
+    auto writeTable = ^(NSString *resources) {
+        NSString *directory = [resources stringByAppendingPathComponent:@"helpcodes"];
+        assert([files createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil]);
+        assert([table writeToFile:[directory stringByAppendingPathComponent:@"xiaohe_helpcode.txt"] atomically:YES
+                         encoding:NSUTF8StringEncoding error:nil]);
+    };
+    auto generation = ^NSDictionary *(NSString *name, BOOL helpcodes) {
+        NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences} mutableCopy];
+        for (NSString *key in @[@"user_data", @"cache"]) {
+            NSString *path = [root stringByAppendingPathComponent:key];
+            assert([files createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+            options[key] = path;
+        }
+        for (NSString *key in @[@"resources", @"dictionaries"]) {
+            NSString *path = [[root stringByAppendingPathComponent:name] stringByAppendingPathComponent:key];
+            assert([files createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+            options[key] = path;
+            sqlite3 *database = nullptr;
+            assert(sqlite3_open([path stringByAppendingPathComponent:@"msime-pinyin.db"].fileSystemRepresentation, &database) == SQLITE_OK);
+            assert(sqlite3_exec(database,
+                "CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                "INSERT INTO tbl_1_y VALUES('yang','y','阳',2000),('yang','y','杨',1000);"
+                "CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);", nullptr, nullptr, nullptr) == SQLITE_OK);
+            assert(sqlite3_close(database) == SQLITE_OK);
+        }
+        if (helpcodes) writeTable(options[@"resources"]);
+        return options;
+    };
+    // 随包资源带码表；下载的代次和真实的一样只有词库。
+    NSDictionary *installed = generation(@"installed", YES);
+    NSDictionary *downloaded = generation(@"downloaded", NO);
+    NSString *bundle = [root stringByAppendingPathComponent:@"bundle"];
+    writeTable(bundle);
+
+    auto candidateTexts = ^NSArray<NSString *> *(NSDictionary *view) {
+        NSMutableArray<NSString *> *texts = [NSMutableArray array];
+        for (NSDictionary *candidate in view[@"candidates"]) [texts addObject:candidate[@"text"] ?: @""];
+        return texts;
+    };
+    auto assertHelpcodes = ^(HelpcodeBundleController *controller, const char *label) {
+        MSIMEClientSession *session = [controller valueForKey:@"session"];
+        assert(session);
+        NSError *typingError = nil;
+        [session typeASCII:'y' shift:NO error:&typingError];
+        NSDictionary *view = [session typeASCII:'h' shift:NO error:&typingError][@"view"];
+        assert(view && !typingError);
+        NSString *annotation = nil;
+        for (NSDictionary *candidate in view[@"candidates"])
+            if ([candidate[@"text"] isEqual:@"杨"]) annotation = candidate[@"annotation"];
+        if (![annotation.lowercaseString containsString:@"mu"])
+            fprintf(stderr, "helpcode %s: yh candidates=%s annotation=%s\n", label,
+                    [candidateTexts(view) componentsJoinedByString:@" "].UTF8String, annotation.UTF8String ?: "(none)");
+        assert([annotation.lowercaseString containsString:@"mu"]);
+        view = [session typeASCII:'m' shift:NO error:&typingError][@"view"];
+        assert(view && !typingError);
+        NSArray<NSString *> *texts = candidateTexts(view);
+        if (![texts.firstObject isEqual:@"杨"])
+            fprintf(stderr, "helpcode %s: yhm candidates=%s\n", label, [texts componentsJoinedByString:@" "].UTF8String);
+        assert([texts.firstObject isEqual:@"杨"]);
+        [controller apply:[session command:MSIME_CANCEL error:&typingError]];
+        assert(!typingError);
+    };
+    auto makeController = ^HelpcodeBundleController *(NSDictionary *options, NSString *application) {
+        HelpcodeBundleController *controller = [HelpcodeBundleController alloc];
+        controller.testOptions = options;
+        controller.bundleResources = bundle;
+        ApplicationShortcutClient *client = [ApplicationShortcutClient new];
+        client.bundleIdentifier = application;
+        client.document = @"";
+        client.caret = NSMakeRect(100, 100, 1, 16);
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        return controller;
+    };
+
+    // 词库更新之前就打开过的应用：会话建在随包代次上。
+    HelpcodeBundleController *earlier = makeController(installed, @"test.msime.synthetic.earlier");
+    [earlier prepareSession];
+    assertHelpcodes(earlier, "earlier");
+    // 设置应用把配置刷到下载的代次之后才打开的应用：会话读到的是没有码表的目录，同一进程里旧的会话不受影响。
+    HelpcodeBundleController *later = makeController(downloaded, @"test.msime.synthetic.later");
+    [later prepareSession];
+    assert([later.requestedOptions[@"resources"] isEqual:downloaded[@"resources"]]);
+    assert([later.requestedOptions[@"helpcode_fallback_resources"] isEqual:NSBundle.mainBundle.resourcePath]);
+    assertHelpcodes(later, "later");
+    assertHelpcodes(earlier, "earlier again");
+
+    for (HelpcodeBundleController *controller in @[earlier, later]) {
+        [controller releaseDictionarySession];
+        [controller setValue:nil forKey:@"activeClient"];
+    }
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+    assert([files removeItemAtPath:root error:&error] && !error);
+}
+
 // Every preference object built here without an explicit skins root reads msime::mac::DefaultSkinsRoot(), which is otherwise the user's real skins folder: an external skin installed there adds a card to the skin page and breaks the counts below. The whole run gets an empty folder of its own, removed when main returns.
 struct IsolatedDefaultSkinsRoot {
     std::filesystem::path path;
@@ -12072,6 +12613,254 @@ struct IsolatedUserHome {
     }
 };
 
+@interface SpacingQueryShortcutClient : ApplicationShortcutClient
+@property(nonatomic, copy) void (^duringContextRead)(void);
+@property(nonatomic, copy) void (^duringBundleRead)(void);
+@property(nonatomic, copy) void (^afterInsert)(void);
+@property(nonatomic, copy) void (^duringReplacement)(void);
+@end
+@implementation SpacingQueryShortcutClient
+- (void)insertText:(id)text replacementRange:(NSRange)range {
+    [super insertText:text replacementRange:range];
+    void (^callback)(void) = self.afterInsert;
+    self.afterInsert = nil;
+    if (callback) callback();
+    if (range.location != NSNotFound) {
+        void (^replacement)(void) = self.duringReplacement;
+        self.duringReplacement = nil;
+        if (replacement) replacement();
+    }
+}
+- (NSRange)selectedRange {
+    void (^callback)(void) = self.duringContextRead;
+    self.duringContextRead = nil;
+    if (callback) callback();
+    return [super selectedRange];
+}
+- (NSString *)bundleIdentifier {
+    void (^callback)(void) = self.duringBundleRead;
+    self.duringBundleRead = nil;
+    if (callback) callback();
+    return [super bundleIdentifier];
+}
+@end
+
+static void TestCrossCommitSpacingReentrancy() {
+    NSString *suite = [@"msime.cross-commit-spacing-reentrant." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"com.example.Writer"];
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    prefs.inputScheme = @"quanpin";
+    prefs.englishMode = YES;
+    prefs.fullWidthInput = NO;
+    SpacingQueryShortcutClient *client = [SpacingQueryShortcutClient new];
+    client.bundleIdentifier = @"com.example.Writer";
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    __weak SpacingQueryShortcutClient *weakClient = client;
+    // 查询发生在原字落地后；新事件无需排队或重放。
+    client.duringContextRead = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        assert([client.document isEqual:@"用R"]);
+        assert([controller handleEvent:LayoutKey(32, @"u", 0) client:client]);
+        assert(![controller handleEvent:LayoutKey(49, @" ", 0) client:client]);
+        [client insertText:@" " replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用Ru "]);
+    // 原始写入本身重入，也不能让外层事后改写较新的文字。
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    client.afterInsert = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        assert([controller handleEvent:LayoutKey(32, @"u", 0) client:client]);
+        assert([controller handleEvent:LayoutKey(1, @"s", 0) client:client]);
+    };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用Rus"]);
+    // 退格和导航维持原来的 NO；查询过期后不补写被删掉的 R。
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    client.duringContextRead = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        assert(![controller handleEvent:LayoutKey(51, @"\x7f", 0) client:client]);
+        [client insertText:@"" replacementRange:NSMakeRange(client.selection.location - 1, 1)];
+        assert(![controller handleEvent:LayoutKey(123, @"\uf702", 0) client:client]);
+        client.selection = NSMakeRange(0, 0);
+    };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用"] && client.selection.location == 0);
+    // 普通上屏查询里重入新组字，不让旧上屏清掉它的标记或视图。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    prefs.englishMode = NO;
+    NSDictionary *nextView = @{@"scheme":@0, @"editing_text":@"n", @"preedit":@"n", @"candidates":@[]};
+    client.duringContextRead = ^{ [controller apply:@{@"view":nextView}]; };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"},
+                        @"view":@{@"editing_text":@"", @"candidates":@[]}}];
+    assert([client.document isEqual:@"Rust写"] && [client.marked isEqual:@"n"]);
+    assert([[controller valueForKey:@"view"] isEqual:nextView]);
+    // 最后的显式替换同样可能重入；替换完成后不能再画旧空标记。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    client.duringReplacement = ^{ [controller apply:@{@"view":nextView}]; };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"},
+                        @"view":@{@"editing_text":@"", @"candidates":@[]}}];
+    assert([client.document isEqual:@"Rust 写"] && [client.marked isEqual:@"n"]);
+    assert([[controller valueForKey:@"view"] isEqual:nextView]);
+    // 无副作用的抬键只取消格式化，不能阻止已完成上屏清理旧候选。
+    NSDictionary *idleAfterCommit = @{@"scheme":@0, @"editing_text":@"", @"candidates":@[]};
+    [controller setValue:nextView forKey:@"view"];
+    client.afterInsert = ^{
+        SpacingQueryShortcutClient *client = weakClient;
+        NSEvent *up = [NSEvent keyEventWithType:NSEventTypeKeyUp location:NSZeroPoint modifierFlags:0 timestamp:0
+            windowNumber:0 context:nil characters:@"r" charactersIgnoringModifiers:@"r" isARepeat:NO keyCode:15];
+        [controller handleEvent:up client:client];
+    };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idleAfterCommit}];
+    assert([[controller valueForKey:@"view"] isEqual:idleAfterCommit]);
+    assert([client.marked isEqual:@""]);
+    // 查询回调里变更开关也取消剩余读取及格式化。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    client.duringContextRead = ^{ [prefs applySharedInputPreferences:@{}]; };
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idleAfterCommit}];
+    assert([client.document isEqual:@"Rust写"]);
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    // 安全或焦点变化只取消格式化，已经落地的原文保留。
+    client.document = @"Rust";
+    client.selection = NSMakeRange(4, 0);
+    prefs.englishMode = NO;
+    client.duringContextRead = ^{ controller.secureInput = YES; };
+    NSDictionary *idle = @{@"editing_text":@"", @"candidates":@[]};
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document isEqual:@"Rust写"]);
+    controller.secureInput = NO;
+    prefs.englishMode = YES;
+    ShortcutClient *other = [ShortcutClient new];
+    client.duringBundleRead = ^{ [controller setValue:other forKey:@"activeClient"]; };
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"Rust写R"]);
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:nil forKey:@"view"];
+    prefs.inputScheme = @"japanese";
+    NSUInteger reads = client.documentReads;
+    assert(![controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert(client.documentReads == reads);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+@interface SpacingTextView : NSTextView <MSIMETextClient>
+@end
+@implementation SpacingTextView
+- (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement {
+    [self setMarkedText:text selectedRange:selection replacementRange:replacement];
+}
+- (NSString *)bundleIdentifier { return @"com.example.Writer"; }
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    return [self attributedSubstringForProposedRange:range actualRange:NULL];
+}
+@end
+
+static void TestCrossCommitSpacingInTextView() {
+    NSString *suite = [@"msime.cross-commit-spacing-appkit." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"com.example.Writer"];
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    prefs.inputScheme = @"quanpin";
+    prefs.englishMode = YES;
+    prefs.fullWidthInput = NO;
+    SpacingTextView *textView = [[SpacingTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 100)];
+    textView.string = @"用";
+    textView.selectedRange = NSMakeRange(1, 0);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:textView forKey:@"activeClient"];
+    for (NSString *letter in @[@"R", @"u", @"s", @"t"])
+        assert([controller handleEvent:LayoutKey(32, letter, 0) client:textView]);
+    prefs.englishMode = NO;
+    NSDictionary *idle = @{@"scheme":@0, @"editing_text":@"", @"candidates":@[]};
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([textView.string isEqual:@"用 Rust 写"] && textView.selectedRange.location == textView.string.length);
+    // 真实 marked text 被替换后读取刚上屏部分，既不读拼音，也不改右侧文本。
+    textView.string = @"Rust右";
+    textView.selectedRange = NSMakeRange(4, 0);
+    [textView setMarkedText:@"xie" selectionRange:NSMakeRange(3, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    [controller setValue:@YES forKey:@"clientHasMarkedText"];
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([textView.string isEqual:@"Rust 写右"] && textView.selectedRange.location == 6);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestCrossCommitSpacing() {
+    NSString *suite = [@"msime.cross-commit-spacing." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"com.example.Writer"];
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    prefs.englishMode = YES;
+    prefs.fullWidthInput = NO;
+    ApplicationShortcutClient *client = [ApplicationShortcutClient new];
+    client.bundleIdentifier = @"com.example.Writer";
+    client.document = @"用";
+    client.selection = NSMakeRange(1, 0);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    NSDictionary *idle = @{@"scheme":@0, @"editing_text":@"", @"candidates":@[]};
+    [controller setValue:idle forKey:@"view"];
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"用 R"]);
+    assert(![controller valueForKey:@"session"]);
+    for (NSString *letter in @[@"u", @"s", @"t"]) {
+        assert([controller handleEvent:LayoutKey(32, letter, 0) client:client]);
+    }
+    prefs.englishMode = NO;
+    [controller apply:@{@"commit":@"写", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document isEqual:@"用 Rust 写"]);
+    [controller apply:@{@"commit":@"Rust", @"commit_context":@{@"scheme":@0, @"local_mode":@"temporary_english"}, @"view":idle}];
+    assert([client.document isEqual:@"用 Rust 写 Rust"]);
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[@"COM.EXAMPLE.WRITER"]}];
+    NSUInteger reads = client.documentReads;
+    [controller apply:@{@"commit":@"字", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document hasSuffix:@"Rust字"] && client.documentReads == reads);
+    prefs.englishMode = YES;
+    assert(![controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert(client.documentReads == reads);
+    prefs.englishMode = NO;
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    for (NSString *mode in @[@"url", @"date_time", @"calculator", @"temporary_japanese"]) {
+        reads = client.documentReads;
+        [controller apply:@{@"commit":@"A", @"commit_context":@{@"scheme":@0, @"local_mode":mode}, @"view":idle}];
+        assert([client.committed isEqual:@"A"] && client.documentReads == reads);
+    }
+    controller.secureInput = YES;
+    reads = client.documentReads;
+    [controller apply:@{@"commit":@"字", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.committed isEqual:@"字"] && client.documentReads == reads);
+    controller.secureInput = NO;
+    prefs.fullWidthInput = YES;
+    reads = client.documentReads;
+    [controller apply:@{@"commit":@"A", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.committed isEqual:@"A"] && client.documentReads == reads);
+    prefs.fullWidthInput = NO;
+    // 鼠标选择替换已有文字，使用替换起点之前的实时前文，不使用上次上屏的影子。
+    client.document = @"Rust旧";
+    client.selection = NSMakeRange(4, 1);
+    [controller apply:@{@"commit":@"新", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.document isEqual:@"Rust 新"]);
+    [prefs applySharedInputPreferences:@{}];
+    reads = client.documentReads;
+    [controller apply:@{@"commit":@"A", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"}, @"view":idle}];
+    assert([client.committed isEqual:@"A"] && client.documentReads == reads);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 int main(int argc, char **argv) {
     const IsolatedUserHome userHome;
     const IsolatedDefaultSkinsRoot skinsRoot;
@@ -12081,14 +12870,26 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--cross-commit-spacing") {
+            TestCrossCommitSpacing();
+            TestCrossCommitSpacingReentrancy();
+            TestCrossCommitSpacingInTextView();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--expanded-scroll") {
             TestExpandedCandidateGrid();
             TestExpandedCandidateGridGeneration();
+            TestExpandedCandidatePartialSelection();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--session-recovery") {
             TestSessionUnavailableIsReported();
             TestIdleSessionRecovery();
+            TestHelpcodeAfterDictionaryGenerationSwitch();
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--helpcode-generation-switch") {
+            TestHelpcodeAfterDictionaryGenerationSwitch();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--english-punctuation") {
@@ -12097,6 +12898,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
+            [NSApp finishLaunching];
             TestCapsLockTap();
             return 0;
         }
@@ -12115,7 +12917,12 @@ int main(int argc, char **argv) {
             return 0;
         }
         // 可重绑切换热键的重绑路径单独可跑：全量 suite 里皮肤颜色断言在无图形会话的机器上先于它中止。
+        if (argc == 2 && std::string(argv[1]) == "--editable-shift") {
+            TestEditableShiftController();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--toggle-hotkeys") {
+            @autoreleasepool { TestCharacterSetShortcut(); }
             TestToggleHotkeyRebinding();
             return 0;
         }
@@ -12179,6 +12986,7 @@ int main(int argc, char **argv) {
         NSDictionary *previousVoiceHoldKeys = MSIMEDisableVoiceHoldKeys(standardDefaults);
         @autoreleasepool { TestSessionUnavailableIsReported(); }
         @autoreleasepool { TestIdleSessionRecovery(); }
+        @autoreleasepool { TestHelpcodeAfterDictionaryGenerationSwitch(); }
         @autoreleasepool { TestCloudCandidateScheduling(); }
         @autoreleasepool { TestCloudCandidateRetryAfterRejectedResponse(); }
         @autoreleasepool { TestCloudCandidateEngineDelivery(); }
@@ -13200,6 +14008,8 @@ int main(int argc, char **argv) {
         }
         appearance.vertical = NO;
         session.lastCommand = UINT32_MAX;
+        // 外观通知会重新读取会话；夹具与控制器必须持有同一代候选。
+        session.fixtureView = pageView;
         [controller appearanceChanged:nil];
         assert(session.lastCommand == UINT32_MAX);
         assert(layoutPanel.frame.size.height < verticalHeight);
@@ -13728,6 +14538,8 @@ int main(int argc, char **argv) {
         // Japanese and Unicode commits keep the Engine's text untouched, the same rule apply: uses for every commit.
         assert([pressEdge(@"头发", YES, @"发", @{@"scheme": @0, @"local_mode": @"temporary_japanese", @"script_conversion": @NO}) isEqual:@"发"]);
         assert([pressEdge(@"头发", YES, @"发", @{@"scheme": @0, @"local_mode": @"unicode", @"script_conversion": @NO}) isEqual:@"发"]);
+        // 混合候选中文段已转换，日文汉字和共享运行时给出的边缘文字必须原样上屏。
+        assert([pressEdge(@"hello網絡学校", NO, @"学", @{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @NO}) isEqual:@"学"]);
         [controller selectSimplifiedOutput:nil];
         assert([pressEdge(@"头发", YES, @"发", chineseContext) isEqual:@"发"]);
         assert([pressHeldEdge(@"你好", @"头发", YES, @"你好发", chineseContext) isEqual:@"你好发"]);
@@ -13870,6 +14682,9 @@ int main(int argc, char **argv) {
         assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @" wqvb wqv "}, NO) isEqual:@"你好(wqvb wqv)"]);
         assert([CandidateDisplay(@{@"text": @"深圳市", @"annotation": @"（广东省）"}, NO) isEqual:@"深圳市（广东省）"]);
         assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @"  "}, NO) isEqual:@"你好"]);
+        assert(([CandidateDisplay(@{@"text": @"hello網絡学校", @"source": @18}, NO) isEqual:@"hello網絡学校"]));
+        assert(([CandidateDisplay(@{@"text": @"hello網絡学校", @"source": @18}, YES) isEqual:@"hello網絡学校"]));
+        assert(([CandidateDisplay(@{@"text": @"学校", @"source": @0}, YES) isEqual:@"學校"]));
         assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":@YES, @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語*(aB) ☁️"]));
         for (id corrected in @[@NO, @1, @"true", NSNull.null])
             assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":corrected}, NO) isEqual:@"汉语"]));
@@ -13884,6 +14699,7 @@ int main(int argc, char **argv) {
         assert([CandidateDisplayWithBadges(@{@"source": @3}, NO, nil, @"") isEqual:@" 🤖"]);
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES, @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
+        session.fixtureView = scriptView;
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
         [controller selectTraditionalOutput:nil];
         [controller appearanceChanged:nil];
@@ -14058,12 +14874,17 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestRealSessionComposition(); }
         @autoreleasepool { TestEnglishOnlineCandidatesThroughRealSession(); }
         @autoreleasepool { TestRealTrilingualCycle(); }
+        @autoreleasepool { TestInitialLearningThroughRealKeys(YES, NO); }
+        @autoreleasepool { TestInitialLearningThroughRealKeys(YES, YES); }
+        @autoreleasepool { TestInitialLearningThroughRealKeys(NO, NO); }
+        @autoreleasepool { TestInitialLearningThroughRealKeys(NO, YES); }
         @autoreleasepool { TestSmartPunctuationVersionNumberThroughRealSession(); }
+        @autoreleasepool { TestEditableShiftController(); }
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
-        @autoreleasepool { TestCapsLockTap(); }
+        // Caps Lock 的完整真实运行循环由 caps-lock 独立进程覆盖，避免其他窗口留下的通知和计时器污染。
         @autoreleasepool { TestPunctuationAfterCompositionKeepsRawInput(appearance); }
         @autoreleasepool { TestStaleClientDeactivation(); }
         @autoreleasepool { TestStaleDeactivationLeavesTheCurrentPairOpen(); }
@@ -14098,6 +14919,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestPinyinArrowCandidateNavigation(); }
         @autoreleasepool { TestExpandedCandidateGrid(); }
         @autoreleasepool { TestExpandedCandidateGridGeneration(); }
+        @autoreleasepool { TestExpandedCandidatePartialSelection(); }
         @autoreleasepool { TestSegmentEditingChords(appearance); }
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }

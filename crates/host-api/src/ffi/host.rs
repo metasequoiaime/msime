@@ -202,6 +202,9 @@ pub unsafe extern "C" fn msime_client_prepare_host(
         /// 版本 id，缺省是 full；见 `prepare_host_configuration_for_edition`。
         #[serde(default)]
         edition: Option<String>,
+        /// 已发布的 runtime-options.json；给了时把这次准备的代次写进去，见 [`publish_prepared_dictionaries`]。
+        #[serde(default)]
+        runtime_options: Option<String>,
     }
     response(|| {
         if options.is_null() || length > 16384 {
@@ -213,7 +216,11 @@ pub unsafe extern "C" fn msime_client_prepare_host(
             serde_json::from_slice(bytes).map_err(|_| "invalid bootstrap document")?;
         let resources = std::path::Path::new(&options.resources);
         let state = std::path::Path::new(&options.state_root);
-        if !resources.is_absolute() || !state.is_absolute() {
+        let published = options.runtime_options.as_deref().map(std::path::Path::new);
+        if !resources.is_absolute()
+            || !state.is_absolute()
+            || published.is_some_and(|path| !path.is_absolute())
+        {
             return Err("bootstrap paths must be absolute".into());
         }
         let edition = match options.edition.as_deref() {
@@ -222,7 +229,17 @@ pub unsafe extern "C" fn msime_client_prepare_host(
         };
         let document = prepare_host_configuration_for_edition(resources, state, edition)
             .map_err(|e| e.to_string())?;
-        serde_json::from_str(&document).map_err(|e| e.to_string())
+        let document: Value = serde_json::from_str(&document).map_err(|e| e.to_string())?;
+        // 发布失败不挡住宿主启动：会话照样用这份文档，设置窗口和 TIP 留在旧代次上，下次启动再试。
+        if let Some(path) = published {
+            if let Err(error) = publish_prepared_dictionaries(path, &document) {
+                crate::diagnostics::report(
+                    "runtime options generation not published",
+                    &error.to_string(),
+                );
+            }
+        }
+        Ok(document)
     })
 }
 
@@ -347,6 +364,19 @@ pub extern "C" fn msime_client_default_preferences() -> *mut c_char {
     response(|| {
         serde_json::to_value(msime_client_core::preferences::Preferences::default())
             .map_err(|e| e.to_string())
+    })
+}
+
+/// 触控板设置控件的默认值和范围，宿主只负责展示；结果用 `msime_client_string_free` 释放。
+#[no_mangle]
+pub extern "C" fn msime_client_text_trackpad_options() -> *mut c_char {
+    use msime_client_core::preferences::TextTrackpadPreferences as Trackpad;
+    response(|| {
+        Ok(json!({
+            "defaults": Trackpad::default(),
+            "horizontal_dp": {"minimum": Trackpad::HORIZONTAL_MIN_DP, "maximum": Trackpad::HORIZONTAL_MAX_DP},
+            "vertical_dp": {"minimum": Trackpad::VERTICAL_MIN_DP, "maximum": Trackpad::VERTICAL_MAX_DP},
+        }))
     })
 }
 
@@ -835,8 +865,8 @@ pub unsafe extern "C" fn msime_client_load_preferences(
     })
 }
 
-/// 三个可重绑切换热键（`keybindings.toggle_english_candidates`、`toggle_full_width`、
-/// `toggle_punctuation`）按共享 `KeyChord` 契约解码：每个键给出 `null`（不绑定）或
+/// 可重绑切换热键（`keybindings.toggle_english_candidates`、`toggle_full_width`、
+/// `toggle_punctuation`、`toggle_voice_input`）按共享 `KeyChord` 契约解码：每个键给出 `null`（不绑定）或
 /// `{"key": 主键规范名, "ctrl", "alt", "shift", "meta"}`，宿主按规范名认键，
 /// 写法解析只在 Rust 一侧。keybindings 缺键或值为 null 时按出厂值。
 /// # Safety
@@ -871,7 +901,52 @@ pub unsafe extern "C" fn msime_client_toggle_hotkey_chords(
             "english_candidates": toggle_hotkey_chord(keys.english_candidates_chord()),
             "full_width": toggle_hotkey_chord(keys.full_width_chord()),
             "punctuation": toggle_hotkey_chord(keys.punctuation_chord()),
+            "voice_input": toggle_hotkey_chord(keys.toggle_voice_input.parse().ok()),
         }))
+    })
+}
+
+/// 原生设置录键的试写检查：复用共享偏好的语法、规范化和冲突表，不写入配置。
+/// # Safety
+/// `request` 指向不超过 64 KiB 的有效 JSON；返回字符串交由 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_check_toggle_hotkey(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_core::preferences::{
+        KeybindingPreferences, ToggleHotkeyRejection, ToggleHotkeySlot,
+    };
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        field: ToggleHotkeySlot,
+        chord: String,
+        #[serde(default)]
+        keybindings: KeybindingPreferences,
+        voice_ctrl_f9: bool,
+    }
+    response(|| {
+        if request.is_null() || length > 64 * 1024 {
+            return Err("invalid toggle hotkey request buffer".into());
+        }
+        // SAFETY: 调用方保证缓冲区可读，上方已检查长度上限。
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request = serde_json::from_slice(bytes)
+            .map_err(|_| "invalid toggle hotkey request".to_owned())?;
+        Ok(
+            match request.keybindings.check_toggle_hotkey(
+                request.field,
+                &request.chord,
+                request.voice_ctrl_f9,
+            ) {
+                Ok(chord) => json!({"ok": true, "chord": chord}),
+                Err(ToggleHotkeyRejection::Invalid(_)) => json!({"ok": false, "kind": "invalid"}),
+                Err(ToggleHotkeyRejection::Conflict { owner, .. }) => json!({
+                    "ok": false, "kind": "conflict", "owner": owner.id(),
+                }),
+            },
+        )
     })
 }
 
@@ -1266,6 +1341,9 @@ struct SkinResourceRequest {
     id: String,
     relative: String,
     kind: String,
+    /// `"base64"` returns the bytes as one base64 string, `bytesBase64`, instead of the `bytes` array. Absent keeps the array for older callers; every msime host asks for base64.
+    #[serde(default)]
+    encoding: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1331,6 +1409,8 @@ struct SkinResourceResponse {
 /// call, so a stale catalog cannot turn this endpoint into an arbitrary file
 /// reader. `kind` is deliberately checked here as well: a WebView image reader
 /// must never receive CSS or a font by mistake.
+///
+/// The default `bytes` array costs about 64 bytes of heap per resource byte while the response is built (a `serde_json::Value` per byte, measured on a 1 MiB image), and a JSON parser on the host side spends tens more turning it back into bytes. The iOS keyboard extension reads candidate-skin images under the system's per-extension memory limit, where that spike for a single 1 MiB image is larger than everything else the keyboard holds, so it asks for `encoding: "base64"`. So do the Android and HarmonyOS keyboards, the HarmonyOS settings page and both Windows settings apps: at the 8 MiB resource limit the array is about 512 MiB on this side alone. The array stays the default so an older caller keeps working.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -1349,6 +1429,11 @@ pub unsafe extern "C" fn msime_client_skin_resource(
         if request.kind != "image" && request.kind != "font" {
             return Err("unsupported skin resource kind".into());
         }
+        let as_base64 = match request.encoding.as_deref() {
+            None => false,
+            Some("base64") => true,
+            Some(_) => return Err("unsupported skin resource encoding".into()),
+        };
         if !Path::new(&request.directory).is_absolute() {
             return Err("skin directory must be absolute".into());
         }
@@ -1365,6 +1450,13 @@ pub unsafe extern "C" fn msime_client_skin_resource(
         };
         if !resource.content_type.starts_with(expected) {
             return Err("skin resource type mismatch".into());
+        }
+        if as_base64 {
+            use base64::Engine as _;
+            return Ok(json!({
+                "contentType": resource.content_type,
+                "bytesBase64": base64::engine::general_purpose::STANDARD.encode(&resource.bytes),
+            }));
         }
         serde_json::to_value(SkinResourceResponse {
             content_type: resource.content_type,
@@ -1575,6 +1667,32 @@ pub unsafe extern "C" fn msime_client_custom_skin_library(
         }
         .map_err(custom_skin_library_code)?;
         serde_json::to_value(items).map_err(|_| "community_storage".into())
+    })
+}
+
+/// 读取共用键盘皮肤目录，或显式重置、选择模板／背景及优化对比度；不写设置或命名库。
+/// # Safety
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节；空指针和超过 1 MiB 的请求被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_keyboard_skin_design(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // SAFETY: 调用方保证指针有效，公共边界先检查长度和空指针。
+        unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                1024 * 1024,
+                "keyboard_skin_invalid",
+                |bytes| {
+                    let action = serde_json::from_slice(bytes)
+                        .map_err(|_| "keyboard_skin_invalid".to_owned())?;
+                    msime_client_core::keyboard_skin::edit(action).map_err(str::to_owned)
+                },
+            )
+        }
     })
 }
 
@@ -2035,6 +2153,21 @@ struct MobileClipboardRequest {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum MobileClipboardAction {
     Load,
+    Categories,
+    AddCategory {
+        name: String,
+    },
+    RenameCategory {
+        id: String,
+        name: String,
+    },
+    RemoveCategory {
+        id: String,
+    },
+    SetCategory {
+        text: String,
+        id: Option<String>,
+    },
     ExportText,
     Capture {
         text: String,
@@ -2085,6 +2218,48 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
             clipboard_history_limit(root),
         );
         match request.action {
+            MobileClipboardAction::Categories => {
+                let categories = history
+                    .categories()
+                    .map_err(|_| "mobile clipboard categories unavailable")?;
+                Ok(
+                    json!({"categories": categories, "maxCategories": msime_client_core::clipboard::MAX_CATEGORIES,
+                    "maxNameCharacters": msime_client_core::clipboard::MAX_CATEGORY_NAME_CHARACTERS}),
+                )
+            }
+            MobileClipboardAction::AddCategory { name } => {
+                history.add_category(&name).map_err(|error| {
+                    if error.kind() == std::io::ErrorKind::InvalidInput {
+                        "invalid clipboard category name or category limit reached"
+                    } else {
+                        "mobile clipboard categories unavailable"
+                    }
+                })?;
+                Ok(json!({"updated": true}))
+            }
+            MobileClipboardAction::RenameCategory { id, name } => {
+                let updated = history
+                    .rename_category(&id, &name)
+                    .map_err(|_| "mobile clipboard category rename failed")?;
+                Ok(json!({"updated": updated}))
+            }
+            MobileClipboardAction::RemoveCategory { id } => {
+                let updated = history
+                    .remove_category(&id)
+                    .map_err(|_| "mobile clipboard category removal failed")?;
+                Ok(json!({"updated": updated}))
+            }
+            MobileClipboardAction::SetCategory { text, id } => {
+                if text.is_empty()
+                    || text.len() > msime_client_core::clipboard::MAX_MOBILE_TEXT_BYTES
+                {
+                    return Err("invalid mobile clipboard entry".into());
+                }
+                let updated = history
+                    .set_category(&text, id.as_deref())
+                    .map_err(|_| "mobile clipboard category update failed")?;
+                Ok(json!({"updated": updated}))
+            }
             MobileClipboardAction::ExportText => {
                 history
                     .load()
@@ -2097,7 +2272,10 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 history
                     .load()
                     .map_err(|_| "mobile clipboard history unavailable")?;
-                Ok(json!({"entries": history.entries(), "limit": history.limit()}))
+                Ok(
+                    json!({"entries": history.entries(), "limit": history.limit(),
+                    "categories": history.categories().map_err(|_| "mobile clipboard categories unavailable")?}),
+                )
             }
             MobileClipboardAction::Capture { text } => {
                 if !msime_client_core::clipboard::mobile_text_is_valid(&text) {

@@ -49,6 +49,11 @@ struct sigaction gPreviousActions[NSIG];
 // Room to report a stack overflow on the main thread.
 char gAlternateStack[64 * 1024];
 
+// 输入法进程几乎从不走 `NSApplicationWillTerminateNotification`：设置应用装好或更新输入法时用 `pkill` 结束旧进程（`macos_input_source.rs` 的 `stop_running_copies`），系统注销、关机时结束它也可能是 SIGTERM；默认处置下进程当场死掉，会话标记留在磁盘上，下次启动按「只有标记」处理，什么事件都不产生。所以把 SIGTERM 接到这个调度源上：先排进 `session`，再按 SIGTERM 原样退出。
+dispatch_source_t gTerminationSource;
+// 结束会话最多等这么久。到点无论如何按 SIGTERM 退出，`pkill`、注销和关机照样能结束一个卡住的进程。
+constexpr int64_t kTerminationGraceNanoseconds = 2 * NSEC_PER_SEC;
+
 NSDictionary *SessionRequest(void)
 {
     NSMutableDictionary *request = [@{
@@ -133,6 +138,32 @@ void InstallCrashHandlers(NSString *recordPath)
     gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
     NSSetUncaughtExceptionHandler(UncaughtException);
 }
+
+// 恢复默认处置后把 SIGTERM 发给整个进程，结束方式和退出状态与没有接管时一样，launchd 看到的仍是被 SIGTERM 结束。用 kill 而不是 raise：调度队列的工作线程可能屏蔽了 SIGTERM，发给进程才能落到没有屏蔽它的主线程上。
+void ExitBySigterm(void)
+{
+    signal(SIGTERM, SIG_DFL);
+    kill(getpid(), SIGTERM);
+}
+
+void InstallTerminationHandler(void)
+{
+    // 只接管本来会直接结束进程的 SIGTERM。继承来的忽略或别人装的处理函数保持原样：那种进程收到 SIGTERM 后不一定退出，提前结束会话会让之后的崩溃没有会话可归。
+    struct sigaction current = {};
+    if (sigaction(SIGTERM, nullptr, &current) != 0 || (current.sa_flags & SA_SIGINFO) || current.sa_handler != SIG_DFL) return;
+    dispatch_queue_t queue = dispatch_queue_create("app.msime.usage-reporting.termination", DISPATCH_QUEUE_SERIAL);
+    gTerminationSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, queue);
+    if (!gTerminationSource) return;
+    dispatch_source_set_event_handler(gTerminationSource, ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kTerminationGraceNanoseconds),
+                       dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{ ExitBySigterm(); });
+        MSIMEUsageReportingStop();
+        ExitBySigterm();
+    });
+    // 调度源在 kqueue 里登记好之后才忽略 SIGTERM：先忽略的话，登记完成前到达的 SIGTERM 既不结束进程也不会被调度源看到。登记之前到达的仍按默认处置结束进程，和以前一样。
+    dispatch_source_set_registration_handler(gTerminationSource, ^{ signal(SIGTERM, SIG_IGN); });
+    dispatch_resume(gTerminationSource);
+}
 } // namespace
 
 NSString *MSIMEUsageReportingDirectory(void)
@@ -157,6 +188,7 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
         if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
         NSString *recordPath = started[@"crash_record_path"];
         if ([recordPath isKindOfClass:NSString.class]) InstallCrashHandlers(recordPath);
+        InstallTerminationHandler();
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillTerminateNotification
                                                         object:nil
                                                          queue:nil

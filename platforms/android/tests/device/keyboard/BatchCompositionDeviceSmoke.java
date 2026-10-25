@@ -28,12 +28,12 @@ public final class BatchCompositionDeviceSmoke extends DeviceSmoke {
     }
 
     private void composeAndCommit(String prefix, String committed) throws Exception {
-        String spelling = "";
-        for (String letter : new String[] {"n", "i", "h", "a", "o"}) {
-            stage = "deferred composition length " + (spelling.length() + 1);
-            tap(key(letter));
-            spelling += letter;
-            String expected = prefix + spelling;
+        String[][] steps = {{"n", "n"}, {"i", "ni"}, {"h", "ni'h"},
+            {"a", "ni'ha"}, {"o", "ni'hao"}};
+        for (int index = 0; index < steps.length; index++) {
+            stage = "deferred composition length " + (index + 1);
+            tap(key(steps[index][0]));
+            String expected = prefix + steps[index][1];
             await(field("msime-test-batch-editor").and(node -> equalsText(expected, node.getText())));
         }
         stage = "deferred Chinese commit";

@@ -17,6 +17,7 @@ msime-client-core = { path = "../client-core" }
 msime-client-providers = { path = "../client-providers" }
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Security_Cryptography",
   "Win32_Graphics_Gdi",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
@@ -44,6 +45,24 @@ windows = { version = "0.62", features = [
 # The 0.62 projection takes these from their own crates, and they have to be the versions windows 0.62 itself uses: a Matrix3x2 or an IIterable from a different windows-numerics / windows-collections is a different type to the compiler, however identical it looks.
 windows-numerics = "0.3"
 windows-collections = "0.3"
+
+# Win7 使用系统 Tablet PC COM，普通 Windows 的发布构建不启用这组投影。
+[target.'cfg(all(windows, target_vendor = "win7"))'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_UI_TabletPC",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+] }
+
+# 普通 Windows 的单测同样执行兼容后端，避免只能在专用目标发现 COM 边界错误。
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = [
+  "Win32_UI_TabletPC",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+] }
 
 [lints]
 workspace = true

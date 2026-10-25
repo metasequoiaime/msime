@@ -9,11 +9,11 @@ namespace {
   throw std::runtime_error("Input mode HUD layout test failed at line " +
                            std::to_string(line));
 }
-#define require(value)                                                         \
-  do {                                                                         \
-    if (!(value))                                                              \
-      require_failed(__LINE__);                                                \
-  } while (false)
+void require_at(bool value, int line) {
+  if (!value)
+    require_failed(line);
+}
+#define require(value) require_at((value), __LINE__)
 } // namespace
 int main() {
   try {
@@ -40,7 +40,7 @@ int main() {
     require(metrics.window_height() == 32.0 + metrics.shadow.top + metrics.shadow.bottom);
 
     // 完全显示 0.6 秒，再在 0.18 秒里线性淡出，与 macOS 相同。
-    require(input_mode_hud_visible_ms == 600 && input_mode_hud_fade_ms == 180);
+    static_assert(input_mode_hud_visible_ms == 600 && input_mode_hud_fade_ms == 180);
     require(input_mode_hud_fade_opacity(0) == 1.0f);
     require(input_mode_hud_fade_opacity(90) == 0.5f);
     require(input_mode_hud_fade_opacity(179) > 0.0f);

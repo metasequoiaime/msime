@@ -27,7 +27,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成 {@link VoiceListeningView}（「正在聆听…」「点任意处取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
+ * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成聆听面板（「正在聆听…」「说完了／取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
  *
  * <p>系统识别服务以前一律走识别窗口：窗口抢走焦点，键盘随之收起，屏幕上只剩对话框主题的灰色蒙层，看不到任何正在录音的提示，结果还要再到语音结果面板里手动插入（#5553）。键盘可见时系统给输入法进程前台的麦克风能力，本机模型与豆包也是在这里录音的，所以系统识别服务同样留在键区里。
  *
@@ -53,7 +53,7 @@ final class ImeVoiceEntry {
     private Runnable silenceStop;
     private VoiceListeningView listening;
     private View listeningPanel;
-    private Button uploadDone;
+    private Button finishButton;
     /** 用户已经结束整句采集后，权限错误不能重新弹窗录音。 */
     private boolean uploadStopped;
     private ViewGroup host;
@@ -155,7 +155,7 @@ final class ImeVoiceEntry {
             && !EditorPolicy.password(s.editorInputType);
         // 记下开始聆听时的输入位置；结果出来时位置变了就不直接上屏。
         s.captureVoiceTarget();
-        show(keyArea, engine == Engine.UPLOAD);
+        show(keyArea);
         uploadStopped = false;
         long session = ++generation;
         long startedAt = SystemClock.uptimeMillis();
@@ -177,7 +177,7 @@ final class ImeVoiceEntry {
             local.retainAudio(contribute);
         } else if (engine == Engine.UPLOAD) {
             upload = new HttpAsrRecognizer();
-            listening.setHint("说完点「完成」；按住空格说话时松开结束");
+            listening.setHint("说完点「说完了」，识别后自动上屏");
         } else {
             streaming = new DoubaoRecognizer();
             streaming.retainAudio(contribute);
@@ -322,6 +322,7 @@ final class ImeVoiceEntry {
     boolean hold(long before) {
         if (generation == before || !recognizing || listening == null) return false;
         held = true;
+        if (finishButton != null) ViewPolicy.hide(finishButton);
         listening.setHint("松开结束，上滑取消");
         return true;
     }
@@ -354,7 +355,7 @@ final class ImeVoiceEntry {
             uploadStopped = true;
             upload.stop();
         }
-        if (uploadDone != null) ViewPolicy.setEnabled(uploadDone, false);
+        if (finishButton != null) ViewPolicy.setEnabled(finishButton, false);
         if (platform != null) {
             platformStopped = true;
             platform.stopListening();
@@ -527,6 +528,7 @@ final class ImeVoiceEntry {
         if (text != null && !text.isEmpty()) recordDiagnostic(DiagnosticEventKind.VOICE_SUCCESS);
         else if (failure == null) recordDiagnostic(DiagnosticEventKind.VOICE_EMPTY);
         recognizing = false;
+        if (finishButton != null) ViewPolicy.setEnabled(finishButton, false);
         local = null;
         streaming = null;
         upload = null;
@@ -628,7 +630,7 @@ final class ImeVoiceEntry {
     }
 
     /** 把键区的内容换成聆听面板；键区被重建（换布局、收起键盘）时自动取消。 */
-    private void show(ViewGroup keyArea, boolean manualStop) {
+    private void show(ViewGroup keyArea) {
         dismiss();
         host = keyArea;
         hidden.clear();
@@ -643,25 +645,23 @@ final class ImeVoiceEntry {
         VoiceListeningView view = new VoiceListeningView(s);
         view.setColors(Color.parseColor(s.skin.accent()), Color.parseColor(s.skin.onAccent()),
             Color.parseColor(s.skin.keyForeground()), Color.parseColor(s.skin.toolbarIcon()));
-        ViewPolicy.bindClick(view, this::cancel);
-        View panel = view;
-        if (manualStop) {
-            LinearLayout column = LayoutPolicy.column(s);
-            column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-            LinearLayout actions = LayoutPolicy.row(s);
-            Button done = ViewPolicy.newPressButton(s);
-            done.setText("完成");
-            done.setContentDescription("结束聆听并识别");
-            ViewPolicy.bindClick(done, this::finishListening);
-            uploadDone = done;
-            actions.addView(done, LayoutPolicy.weightedWrapParams(1));
-            Button cancel = ViewPolicy.newPressButton(s);
-            cancel.setText("取消");
-            ViewPolicy.bindClick(cancel, this::cancel);
-            actions.addView(cancel, LayoutPolicy.weightedWrapParams(1));
-            column.addView(actions, LayoutPolicy.matchWidthWrapParams());
-            panel = column;
-        }
+        view.setHint("停顿后自动上屏，也可点「说完了」");
+        view.setContentDescription("正在聆听，识别结束后自动上屏");
+        LinearLayout column = LayoutPolicy.column(s);
+        column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        LinearLayout actions = LayoutPolicy.row(s);
+        Button done = ViewPolicy.newPressButton(s);
+        done.setText("说完了");
+        done.setContentDescription("结束聆听并识别，文字自动上屏");
+        ViewPolicy.bindClick(done, this::finishListening);
+        finishButton = done;
+        actions.addView(done, LayoutPolicy.weightedWrapParams(1));
+        Button cancel = ViewPolicy.newPressButton(s);
+        cancel.setText("取消");
+        ViewPolicy.bindClick(cancel, this::cancel);
+        actions.addView(cancel, LayoutPolicy.weightedWrapParams(1));
+        column.addView(actions, LayoutPolicy.matchWidthWrapParams());
+        View panel = column;
         listeningPanel = panel;
         panel.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View attached) { }
@@ -695,7 +695,7 @@ final class ImeVoiceEntry {
         View panel = listeningPanel;
         ViewGroup parent = host;
         listeningPanel = null;
-        uploadDone = null;
+        finishButton = null;
         listening = null;
         host = null;
         for (View child : hidden) ViewPolicy.show(child);

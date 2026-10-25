@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-输入视图每次开始显示时立即重读声音、振动与本地触控设置，反馈不依赖会重建引擎的延迟刷新。九键复用字母预览覆盖层和密码保护；按下显示当前键面，松手与取消按所有者关闭，滑动数字更新预览，长按或反向滑动选项出现时关闭预览。默认声音按应用音量调用[双参数系统接口](https://developer.android.com/reference/android/media/AudioManager#playSoundEffect(int,%20float))，应用按键音关闭时不播放；不改变振动档位映射。
+输入视图每次开始显示时立即重读声音、振动与本地触控设置，反馈不依赖会重建引擎的延迟刷新。九键复用字母预览覆盖层和密码保护；按下显示当前键面，松手与取消按所有者关闭，滑动数字更新预览，长按或反向滑动选项出现时关闭预览。默认声音按应用音量调用[双参数系统接口](https://developer.android.com/reference/android/media/AudioManager#playSoundEffect(int,%20float))，应用按键音关闭时不播放；不改变振动档位映射。默认声音后来改为播放内置的「清脆键盘」包，系统接口只作加载前的兜底，见[安卓默认按键音](2026-10-25-mobile-key-sound.md)。
 
 ## Alternatives considered
 

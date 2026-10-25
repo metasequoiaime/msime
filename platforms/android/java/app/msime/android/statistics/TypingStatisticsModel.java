@@ -47,7 +47,7 @@ public final class TypingStatisticsModel {
     private static final Map<String, String> CHARACTER_KINDS = kinds();
     private static final Map<String, String> SOURCES = sources();
     private static final List<String> CHINESE_SOURCES = List.of(
-        "quanpin", "nineKey", "fourteenKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
+        "quanpin", "nineKey", "fourteenKey", "eighteenKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
         "cantonese", "zhuyin", "stroke");
 
     private final boolean enabled;
@@ -311,6 +311,7 @@ public final class TypingStatisticsModel {
         titles.put("quanpin", "全拼 26 键");
         titles.put("nineKey", "全拼 9 键");
         titles.put("fourteenKey", "全拼 14 键");
+        titles.put("eighteenKey", "全拼 18 键");
         titles.put("shuangpin", "小鹤双拼");
         titles.put("ziranma", "自然码双拼");
         titles.put("microsoft", "微软双拼");

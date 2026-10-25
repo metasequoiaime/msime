@@ -4,7 +4,7 @@ import { useSettingsPageModel, type SettingsPageProps } from "./use-settings-pag
 import { SettingsMascotIntro, settingsMascotIntro } from "./settings-mascot-intro";
 import { SettingsSidebar } from "./settings-sidebar";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
-import { SetupWarningStrip } from "../keyboard/setup-status-card";
+import { SetupWarningStrip, OobeStatusNotice } from "../keyboard/setup-status-card";
 import { KeyboardSwitchGuideHost } from "../keyboard/keyboard-switch-guide";
 import { useSettingsWindowInteractions } from "./use-settings-window-interactions";
 import { useSettingsShellState } from "./use-settings-shell-state";
@@ -357,6 +357,7 @@ function SettingsShell(props: SettingsPageProps) {
                 (page === "input" || page === "about") && (
                   <SetupWarningStrip actions={client.home} />
                 )}
+              {(macosPlatform || linuxShell) && <OobeStatusNotice client={client.oobe} />}
               <SettingsPageStatus
                 error={error}
                 notice={notice}

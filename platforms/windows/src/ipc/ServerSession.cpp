@@ -5,6 +5,7 @@
 #include "InputSchemeTraits.h"
 #include "../../common/CandidateSources.h"
 #include "../../common/PhrasePreeditOptions.h"
+#include "../../common/PanelCharacter.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include "LifecyclePolicy.h"
@@ -168,8 +169,9 @@ void ServerSession::balance_paired_punctuation(uint64_t epoch,
 }
 nlohmann::json ServerSession::toggle_traditional_output(uint64_t epoch) {
   check_active(epoch);
+  auto current = response(msime_client_set_multilingual_output(session_, !traditional_output_));
   traditional_output_ = !traditional_output_;
-  return view();
+  return current;
 }
 nlohmann::json ServerSession::dedicated_english(uint64_t epoch, bool exit) {
   check_active(epoch);
@@ -269,8 +271,9 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
               {"diagnostic", nullptr},
               {"view", view()}};
   } else if (action.kind == KeyKind::Character) {
-    result = response(msime_client_character(
-        session_, static_cast<uint8_t>(action.value), action.shift));
+    const bool grouped = (packet.modifiers_down & PipeMetadata::GroupedPanelKey) != 0;
+    if (grouped && modifiers != 0) throw std::invalid_argument("Modified grouped panel key");
+    result = panel_character(session_, current, static_cast<uint8_t>(action.value), action.shift, grouped);
   } else {
     if ((action.value == MSIME_BACKSPACE_SEGMENT || action.value == MSIME_MOVE_LEFT_SEGMENT ||
          action.value == MSIME_MOVE_RIGHT_SEGMENT) && current.at("editing_text").get<std::string>().empty() &&

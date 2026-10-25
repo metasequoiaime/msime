@@ -1,4 +1,5 @@
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import type { PreviewKey } from "../keyboard/keyboard-layouts";
 import { StatusMessage } from "../core/status-message";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityNotice } from "./community-notice";
@@ -14,6 +15,9 @@ import {
 
 export interface CommunitySkinPublishDialogProps extends CommunitySkinPublicationOptions {
   onClose: () => void;
+  /** 手机发布表单使用手机键盘比例；HarmonyOS 还传入当前中文键面。 */
+  phonePreview?: boolean;
+  touchRows?: PreviewKey[][];
   /** 未登录导致发布失败时的登录入口；未提供时只显示错误。 */
   onLogin?: () => void;
 }
@@ -22,6 +26,8 @@ export function CommunitySkinPublishDialog({
   client,
   library,
   onClose,
+  phonePreview = false,
+  touchRows,
   onPublished,
   onLogin,
 }: CommunitySkinPublishDialogProps) {
@@ -78,8 +84,16 @@ export function CommunitySkinPublishDialog({
             ))}
           </CommunitySelectField>
           {selected && (
-            <div className={`${style.cardStage} max-h-[220px]`}>
-              <ScreenKeyboardPreview theme="light" skin="custom" customDesign={selected.design} />
+            <div
+              className={`${style.cardStage} ${phonePreview ? "mx-auto w-full max-w-[300px]" : "max-h-[220px]"}`}
+            >
+              <ScreenKeyboardPreview
+                theme="light"
+                skin="custom"
+                customDesign={selected.design}
+                phone={phonePreview}
+                touchRows={touchRows}
+              />
             </div>
           )}
           <CommunitySkinPublicationFields

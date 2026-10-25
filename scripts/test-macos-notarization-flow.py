@@ -5,7 +5,9 @@
 
 只用标准库；没有 bash 或打包脚本时打印 skipped 并以 0 退出。
 """
+import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -49,15 +51,24 @@ def run(bash: str, helpers: str, body: str, plan: str = "") -> tuple:
         calls = Path(directory) / "calls"
         calls.touch()
         script = "set -Eeuo pipefail\nnotary_ids=()\n" + FAKES + helpers + body
+        # 使用当前解释器解析合成 JSON；不假定系统目录中有 python3。
+        script = f'python3() {{ {shlex.quote(sys.executable)} -I -X utf8 "$@"; }}\n' + script
         environment = {
-            "PATH": "/usr/bin:/bin",
+            # Windows 的 Python 启动器仍需通过 PATH 查找解释器动态库。
+            "PATH": os.environ["PATH"] if os.name == "nt" else "/usr/bin:/bin",
             "APPLE_ID": "synthetic@example.invalid",
             "APPLE_TEAM_ID": "SYNTHETIC",
             "APPLE_APP_SPECIFIC_PASSWORD": PASSWORD,
             "MSIME_TEST_CALLS": str(calls),
             "MSIME_TEST_INFO_PLAN": plan,
         }
-        result = subprocess.run([bash, "-c", script], env=environment, capture_output=True, text=True, timeout=20)
+        if os.name == "nt":
+            for key in ("SystemRoot", "TEMP", "TMP"):
+                if key in os.environ:
+                    environment[key] = os.environ[key]
+        # Windows 要反复启动 MSYS 工具和隔离 Python；预算不改变合成重试次数或任何结果断言。
+        timeout = 60 if os.name == "nt" else 20
+        result = subprocess.run([bash, "-c", script], env=environment, capture_output=True, text=True, timeout=timeout)
         return result, calls.read_text().splitlines()
 
 

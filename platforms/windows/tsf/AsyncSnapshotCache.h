@@ -13,6 +13,12 @@ public:
   using Snapshot = std::shared_ptr<const T>;
   using Clock = std::chrono::steady_clock;
 
+  // 失效只表示需要在通知后开始一次新读取，不代表指定存储修订已经可用。
+  void invalidate() {
+    std::lock_guard<std::mutex> lock(refreshMutex_);
+    invalidated_ = true;
+  }
+
   Snapshot snapshot() const { return std::atomic_load(&snapshot_); }
 
   // 仅首次激活调用：在决定游戏 UILess 策略前准备配置，不让默认值覆盖用户规则。
@@ -26,21 +32,31 @@ public:
   template <class Loader, class Schedule>
   bool refresh(Loader load, Schedule schedule, Clock::time_point now = Clock::now()) {
     if (!initialized_.load(std::memory_order_acquire)) return false;
-    bool expected = false;
-    if (!inFlight_.compare_exchange_strong(expected, true)) return false;
-    // 此字段仅由持有 inFlight_ 的线程访问；慢读期间不会排队补跑。
-    if (now < nextRefresh_) {
-      inFlight_.store(false, std::memory_order_release);
-      return false;
+    {
+      std::lock_guard<std::mutex> lock(refreshMutex_);
+      if (inFlight_ || (now < nextRefresh_ && !invalidated_)) return false;
+      inFlight_ = true;
+      nextRefresh_ = now + std::chrono::milliseconds(250);
     }
-    nextRefresh_ = now + std::chrono::milliseconds(250);
     try {
       if (schedule([this, load = std::move(load)] {
-            publish(load);
-            inFlight_.store(false, std::memory_order_release);
+            for (;;) {
+              {
+                std::lock_guard<std::mutex> lock(refreshMutex_);
+                invalidated_ = false;
+              }
+              publish(load);
+              std::lock_guard<std::mutex> lock(refreshMutex_);
+              // 完成与失效共锁，避免最后一次检查和释放读取中状态之间丢通知。
+              if (!invalidated_) {
+                inFlight_ = false;
+                return;
+              }
+            }
           })) return true;
     } catch (...) {}
-    inFlight_.store(false, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(refreshMutex_);
+    inFlight_ = false;
     return false;
   }
 
@@ -56,7 +72,9 @@ private:
   Snapshot snapshot_;
   std::once_flag initializedOnce_;
   std::atomic<bool> initialized_{false};
-  std::atomic<bool> inFlight_{false};
+  std::mutex refreshMutex_;
+  bool inFlight_ = false;
+  bool invalidated_ = false;
   Clock::time_point nextRefresh_{};
 };
 }

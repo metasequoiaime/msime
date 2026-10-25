@@ -19,13 +19,27 @@ HARNESS = r'''
 #include <vector>
 #include <string>
 #include "InputSchemeTraits.h"
-namespace Global { std::atomic<int> InputModeScheme{msime::windows::scheme::Quanpin}; bool g_connected = true; }
+#include "WubiCommitOwner.h"
+#include "GroupedPanelKeyLease.h"
+namespace Global {
+std::atomic<int> InputModeScheme{msime::windows::scheme::Quanpin};
+bool g_connected = true;
+std::atomic_bool TsfDiagnosticLogEnabled{false};
+}
+// 生产代码里的诊断日志在测试里关闭，记录进空实现即可。
+void QueueTsfDiagnosticLog(const std::wstring &) {}
+inline std::wstring BoolFlag(bool value) { return value ? L"1" : L"0"; }
+
 using std::min;
 using WCHAR = wchar_t;
 using SHORT = short;
 using WPARAM = std::uintptr_t;
+#ifndef _In_
 #define _In_
+#endif
+#ifndef _In_opt_
 #define _In_opt_
+#endif
 constexpr WPARAM VK_PACKET = 0xe7, VK_LEFT = 0x25;
 using UINT = unsigned;
 // 生产按键类型
@@ -165,10 +179,12 @@ using CCompositionProcessorEngine = Engine;
 template<typename... Args> void DebugTsfIssue47(Args...) {}
 // 生产前缀规则
 struct CMetasequoiaIME {
+    msime::tsf::WubiCommitOwner _wubiCommitOwner;
     Engine *_pCompositionProcessorEngine = nullptr;
     std::deque<DeferredKeyDown> _deferredAppliedPrefix;
     std::uint64_t _deferredKeyFocusGeneration = 7;
     bool _RefreshDeferredRecoveryPrefix(ITfContext *);
+    bool _HasGroupedPanelComposition() const { return false; }
     std::deque<DeferredKeyDown> _deferredKeyDowns;
     DeferredKeyDown _deferredKeyInFlight;
     bool _hasDeferredKeyInFlight = false;
@@ -201,7 +217,7 @@ struct CMetasequoiaIME {
     void _RunKoreanSyllableKeyReplay(UINT);
     bool _IsDeferredKeyReplayCurrent(uint64_t, uint64_t, ITfContext * = nullptr) const;
     bool _IsDeferredApplicationTextCurrent(uint64_t, uint64_t, ITfContext *, HWND, uint64_t);
-    bool _IsDeferredKeyOwnerCurrent(ITfContext *, uint64_t, HWND) const;
+    // 生产焦点声明
     ITfThreadMgr *_pThreadMgr = nullptr;
     std::atomic<bool> _localSessionResetPending{false};
     bool _serverUnavailableFallbackActive = false, disabled = false;
@@ -280,6 +296,30 @@ struct Fixture {
     }
 };
 int main() {
+    {
+        Fixture f;
+        f.ime._wubiCommitOwner.begin(42, 1);
+        const auto refs = f.context.refs;
+        f.complete();
+        check(f.ime._hasDeferredKeyInFlight && f.ime._deferredKeyReplayToken == 42 &&
+              f.context.refs == refs && f.ime._deferredAppliedPrefix.empty() && posted.empty(),
+              "current Wubi owner retains the in-flight slot until worker completion");
+        f.ime._wubiCommitOwner.clear();
+        f.complete();
+        check(!f.ime._hasDeferredKeyInFlight && posted.size() == 1,
+              "clearing the Wubi owner releases completion and schedules the next key once");
+    }
+    {
+        Fixture f;
+        f.ime._wubiCommitOwner.begin(41, 1);
+        f.complete();
+        check(!f.ime._hasDeferredKeyInFlight && f.ime._wubiCommitOwner.current(41) && posted.empty(),
+              "a different Wubi token cannot block completion but still blocks the next drain");
+        f.ime._wubiCommitOwner.clear();
+        f.ime._ScheduleDeferredKeyDownDrain();
+        f.ime._ScheduleDeferredKeyDownDrain();
+        check(posted.size() == 1, "clearing an active Wubi owner schedules only one pending drain");
+    }
     for (int mode = 0; mode != 3; ++mode) {
         Fixture f; f.queue(); f.complete();
         check(!f.ime._hasDeferredKeyInFlight, "committed syllable retires before application ack");
@@ -476,11 +516,13 @@ def main() -> int:
     types = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIMEBaseStructure.h").read_text()
     types = types[types.index("enum KEYSTROKE_CATEGORY"):types.index("struct _PUNCTUATION")]
     header = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.h").read_text()
+    owner_start = header.index("    bool _IsDeferredKeyOwnerCurrent(")
+    owner_declaration = header[owner_start:header.index(";", owner_start) + 1]
     marker_rules = method(header, "constexpr UINT APPLICATION_KEY_REPLAY_PREFIX", "// 单按 Caps Lock")
     replay_state = method(header, "    struct ApplicationKeyReplay", "    int _pendingPairedCaretDelta")
     ime_source = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.cpp").read_text()
     application_text_session = method(ime_source, "class CDeferredApplicationTextEditSession", "\n} // namespace")
-    harness = HARNESS.replace("// 生产应用插字会话", application_text_session).replace("// 生产队列类型", method(header, "    struct DeferredKeyDown", "    enum class KeyDownDispatchResult")).replace("// 生产标记规则", marker_rules).replace("    // 生产回放状态", replay_state).replace("// 生产按键类型", types).replace("// 生产前缀规则", method(
+    harness = HARNESS.replace("    // 生产焦点声明", owner_declaration).replace("// 生产应用插字会话", application_text_session).replace("// 生产队列类型", method(header, "    struct DeferredKeyDown", "    enum class KeyDownDispatchResult")).replace("// 生产标记规则", marker_rules).replace("    // 生产回放状态", replay_state).replace("// 生产按键类型", types).replace("// 生产前缀规则", method(
         sink, "bool IsRecoverableDeferredPrefix(", "\nUINT CaptureIpcModifiers("))
     body = method(sink, "bool CMetasequoiaIME::_RefreshDeferredRecoveryPrefix(",
                   "\nvoid CMetasequoiaIME::_ArmDeferredRecoveryForTransport(")
@@ -517,7 +559,9 @@ def main() -> int:
         unit, binary = pathlib.Path(directory) / "order.cpp", pathlib.Path(directory) / "order"
         unit.write_text(harness + body + TESTS)
         subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-DMSIME_EDITION_FULL",
-                        "-I" + str(ROOT / "platforms/windows/common"), str(unit), "-o", str(binary)], check=True)
+                        "-I" + str(ROOT / "platforms/windows/common"),
+                        "-I" + str(ROOT / "platforms/windows/tsf"),
+                        "-I" + str(ROOT / "crates/host-api/include"), str(unit), "-o", str(binary)], check=True)
         return subprocess.run([str(binary)], check=False).returncode
 if __name__ == "__main__":
     raise SystemExit(main())

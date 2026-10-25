@@ -12,6 +12,8 @@ const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
 /// 帮助文本。`{program}` 换成用户实际敲的命令名，见 [`usage`]。不手动折行：每一行是一个完整的条目或句子，并且短到在 80 列的终端里也不会被折断，改动措辞时不会牵动别的行。
 const USAGE: &str = "usage: {program} expand <keys>... [--scheme <scheme>] [--limit <n>] [--json]
+       {program} candidates [<keys>] [--limit <n>]
+       {program} session
        {program} config [--json]
        {program} config get <key>... [--json]
        {program} config set <key>=<value>...
@@ -38,9 +40,22 @@ Testing by hand:
   The input method applies config set within a few seconds.
   Pick a skin with config set candidate_skin=<id> candidate_skin_dark=<id>.
   expand leaves out cloud and AI candidates and the context of earlier words.
+  session reads JSON requests from stdin, one transition JSON per line.
   From a terminal, expand implies --allow-dictionary-read.
   From a terminal, config set implies --allow-write.
   Run by an AI assistant, they need those flags as call does.
+
+For programs that test the input method:
+  candidates <keys>        The candidates typing <keys> offers, as JSON
+  candidates               Read keys from stdin: a line of JSON for each line
+    --limit <n>            At most n candidates, 1 to 500; 50 by default
+  A | in <keys> marks the caret, as in 'ni|hao'; it is at the end otherwise.
+  Your scheme, settings, dictionaries and learned words rank them, as when
+  you type; cloud and AI candidates are left out and nothing is learned.
+  Off until you turn it on in the settings: 维护与诊断 > 命令行查询候选.
+  Exit codes: 3 turned off, 4 input method not set up, 5 dictionaries busy,
+  6 dictionaries unavailable, 7 keys refused, 2 bad command line.
+  Reading stdin, a refused line gets an error line and the rest go on.
 
 For an AI assistant:
   (no command)             Serve the Model Context Protocol over stdio
@@ -120,6 +135,14 @@ pub enum Command {
         limit: Option<u64>,
         json: bool,
     },
+    /// `candidates`：按用户现在的设置打 `keys`（`|` 标出光标），输出候选的 JSON；没有 `keys` 时从 stdin 逐行读，每行输出一行。默认关闭，要用户在设置里打开（`diagnostic_log.command_line_candidates`），见 [`crate::candidates`]。
+    Candidates {
+        config: Config,
+        keys: Option<String>,
+        limit: Option<u64>,
+    },
+    /// `session`：在一个完整的 Host API 会话里按键，逐行输出含光标位置的 transition JSON。
+    Session(Config),
     /// `config`：打印当前偏好。
     ShowConfig {
         config: Config,
@@ -146,6 +169,7 @@ impl Command {
     pub fn run_by_a_person(mut self) -> Self {
         match &mut self {
             Command::Expand { config, .. } => config.allow_dictionary_read = true,
+            Command::Session(config) => config.allow_dictionary_read = true,
             Command::SetConfig { config, .. } => config.allow_write = true,
             _ => {}
         }
@@ -157,6 +181,9 @@ impl Command {
         match self {
             Command::Expand { config, .. } if !config.allow_dictionary_read => Some(
                 "expand reads the dictionary, so outside a terminal it needs --allow-dictionary-read",
+            ),
+            Command::Session(config) if !config.allow_dictionary_read => Some(
+                "session reads the dictionary, so outside a terminal it needs --allow-dictionary-read",
             ),
             Command::SetConfig { config, .. } if !config.allow_write => {
                 Some("config set changes preferences, so outside a terminal it needs --allow-write")
@@ -271,6 +298,32 @@ pub fn parse(
                 json,
             });
         }
+        Some("candidates") => {
+            // 方案和别的设置都只在设置页里改，命令行查到的就是用户打字时看到的。
+            if scheme.is_some() {
+                return Err(
+                    "candidates always uses your scheme; change it in the settings or with config set"
+                        .into(),
+                );
+            }
+            if positional.len() > 2 {
+                return Err(
+                    "candidates takes one <keys>; quote keys holding a |, as in 'ni|hao'".into(),
+                );
+            }
+            // 输出本来就是 JSON，`--json` 不改变什么，照收。
+            return Ok(Command::Candidates {
+                config,
+                keys: positional.get(1).cloned(),
+                limit,
+            });
+        }
+        Some("session") if scheme.is_none() && limit.is_none() && !json => {
+            if positional.len() != 1 {
+                return Err("session does not take positional arguments".into());
+            }
+            return Ok(Command::Session(config));
+        }
         Some("config") if scheme.is_none() && limit.is_none() => {
             return match positional.get(1).map(String::as_str) {
                 None => Ok(Command::ShowConfig { config, json }),
@@ -299,10 +352,9 @@ pub fn parse(
                 Some(word) => Err(format!("unknown config command {word}")),
             };
         }
-        _ if scheme.is_some() || limit.is_some() => {
-            return Err("--scheme and --limit only go with expand".into())
-        }
-        _ if json => return Err("--json only goes with expand and config".into()),
+        _ if scheme.is_some() => return Err("--scheme only goes with expand".into()),
+        _ if limit.is_some() => return Err("--limit only goes with expand and candidates".into()),
+        _ if json => return Err("--json only goes with expand, candidates and config".into()),
         _ => {}
     }
     let mut positional = positional.into_iter();
@@ -527,6 +579,18 @@ mod tests {
         assert_eq!(
             serve(parse(args(&[]), ibus_only).unwrap()).options,
             PathBuf::from("/env/ibus.json")
+        );
+    }
+
+    #[test]
+    fn session_is_a_stdin_json_command() {
+        let parsed = parse(
+            args(&["--options", "/state/options.json", "session"]),
+            |_: &str| None,
+        )
+        .unwrap();
+        assert!(
+            matches!(parsed, Command::Session(config) if config.options.as_path() == Path::new("/state/options.json"))
         );
     }
 
@@ -768,6 +832,64 @@ mod tests {
         assert!(parsed(&["--options", "/a.json", "config", "--scheme", "wubi"]).is_err());
         assert!(parsed(&["--options", "/a.json", "tools", "--json"]).is_err());
         assert!(parsed(&["--options", "/a.json", "--limit", "3"]).is_err());
+    }
+
+    #[test]
+    fn candidates_take_one_keys_or_read_stdin_and_never_a_scheme() {
+        let parsed = |list: &[&str]| parse(args(list), |_: &str| None);
+        let Command::Candidates {
+            config,
+            keys,
+            limit,
+        } = parsed(&[
+            "--options",
+            "/a.json",
+            "candidates",
+            "ni|hao",
+            "--limit",
+            "5",
+        ])
+        .unwrap()
+        else {
+            panic!("expected candidates");
+        };
+        assert_eq!(keys.as_deref(), Some("ni|hao"));
+        assert_eq!(limit, Some(5));
+        // 开关在设置页里，不在命令行上：不需要也不因 allow 开关改变什么。
+        assert!(!config.allow_dictionary_read && !config.allow_write);
+        let Command::Candidates { keys, limit, .. } =
+            parsed(&["--options", "/a.json", "candidates"]).unwrap()
+        else {
+            panic!("expected candidates");
+        };
+        assert_eq!((keys, limit), (None, None));
+        // 输出本来就是 JSON。
+        assert!(matches!(
+            parsed(&["--options", "/a.json", "candidates", "nihao", "--json"]).unwrap(),
+            Command::Candidates { .. }
+        ));
+        // 有人在终端里运行也不会被悄悄加上开关，快捷命令的缺开关检查也不管它。
+        let person = parsed(&["--options", "/a.json", "candidates", "nihao"])
+            .unwrap()
+            .run_by_a_person();
+        assert!(person.missing_flag().is_none());
+        let Command::Candidates { config, .. } = person else {
+            panic!("expected candidates");
+        };
+        assert!(!config.allow_dictionary_read && !config.allow_write);
+
+        assert!(parsed(&["--options", "/a.json", "candidates", "a", "b"]).is_err());
+        assert!(parsed(&[
+            "--options",
+            "/a.json",
+            "candidates",
+            "a",
+            "--scheme",
+            "wubi"
+        ])
+        .is_err());
+        assert!(parsed(&["--options", "/a.json", "candidates", "a", "--limit", "x"]).is_err());
+        assert!(parsed(&["--options", "/a.json", "tools", "--limit", "3"]).is_err());
     }
 
     #[test]

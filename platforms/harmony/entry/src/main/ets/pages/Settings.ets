@@ -1,3 +1,4 @@
+import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
 import { NativeCleanup } from '../keyboard/NativeCleanup';
 import web_webview from '@ohos.web.webview';
 import common from '@ohos.app.ability.common';
@@ -27,6 +28,7 @@ import { TypingStatisticsPolicy } from '../keyboard/TypingStatisticsPolicy';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
+import { KeySoundPreview } from '../keyboard/KeySoundPreview';
 import inputMethod from '@ohos.inputMethod';
 import { PreferenceRevisionPolicy } from '../keyboard/input/PreferenceRevisionPolicy';
 import { PreferencesErrorCode } from '../keyboard/settings/PreferencesErrorCode';
@@ -53,6 +55,7 @@ import { VocabularyAction, VocabularyReviewRequest } from '../keyboard/settings/
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
 import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from '../keyboard/input/HttpAsrConfigurationPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
+import { CredentialStatusPolicy } from '../keyboard/settings/CredentialStatusPolicy';
 import { AiEndpoint } from '../keyboard/settings/AiEndpoint';
 import {
   CustomTranslationProbeDescriptor,
@@ -77,11 +80,13 @@ interface LocalVoiceModelRequest {
 /** 「从文件导入」一次最多让用户选几个文件；目录里的模型最多要两个。 */
 const MAX_VOICE_MODEL_IMPORT_PICKS: number = 8;
 
-/** One key-feedback operation from the page: load, save or preview. */
+/** 页面发来的一次按键反馈操作：`load`、`save`、`preview`（试振动），或 `preview_sound`（试听 `pack`，音量 `volume`）。 */
 interface KeyboardFeedbackAction {
   operation: string;
   settings?: MobileKeyboardFeedback;
   strength?: string;
+  pack?: string;
+  volume?: number;
 }
 
 interface KeyboardFeedbackReply {
@@ -148,6 +153,21 @@ interface SetupStatusReply {
   ok: boolean;
   ready: boolean;
   value: SetupState;
+}
+
+interface OnboardingSeenValue { seen: boolean; }
+
+interface OobeStatusValue {
+  resourcesReady: boolean | null;
+  systemEnabled: boolean | null;
+  systemCurrent: boolean | null;
+  preferencesSaved: boolean | null;
+  onboardingSeen: boolean;
+}
+
+interface OobeStatusReply {
+  ok: boolean;
+  value: OobeStatusValue;
 }
 
 /** 一次应用主题请求：`load`、带 id 的 `save`、带页面深色标志的 `resolve`，或 `catalog`。 */
@@ -245,6 +265,7 @@ const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
 /** 欢迎开屏是否已播放过的标记，与应用主题文件同在状态目录。 */
 const SPLASH_SEEN_FILE: string = 'welcome-splash.json';
+const ONBOARDING_SEEN_FILE: string = 'onboarding-seen.json';
 // 页面一直没报告第一帧上屏时，启动画面最多盖这么久。
 const LAUNCH_COVER_LIMIT_MS: number = 4000;
 /** The settings page and native save bridge hold one complete export in memory. */
@@ -636,6 +657,7 @@ struct Settings {
     this.bridge.watchSetup();
     this.loadNotices();
     EntryAbility.onActivated = (): void => {
+      this.bridge.resumeStatistics();
       this.bridge.syncShared();
       this.bridge.refreshPreferencesIfChanged();
       this.loadNotices();
@@ -645,6 +667,7 @@ struct Settings {
       this.bridge.notifyAppThemeChanged();
     };
     EntryAbility.onDeactivated = (): void => {
+      this.bridge.lockStatistics();
       this.bridge.publishShared();
     };
     EntryAbility.onOpenPage = (page: string): void => {
@@ -787,6 +810,8 @@ struct Settings {
     // has gone.
     EntryAbility.onActivated = undefined;
     EntryAbility.onOpenPage = undefined;
+    this.bridge.lockStatistics();
+    EntryAbility.onDeactivated = undefined;
     this.bridge.unwatchSetup();
   }
 
@@ -836,12 +861,12 @@ struct Settings {
               this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
                 ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion', 'appReleaseDate',
                   'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                  'dictionaryManifest', 'dictionary', 'nineKeyShuangpinLayout', 'cloudDictionaryDownload',
+                  'dictionaryManifest', 'dictionary', 'nineKeyShuangpinLayout', 'accountName', 'cloudDictionaryDownload',
                   'typingStatistics', 'openExternalUrl', 'copyText',
                   'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                   'keyboardFeedback', 'onboardingStatus',
                   'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
-                  'setupStatus', 'refreshSetupStatus', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
+                  'setupStatus', 'refreshSetupStatus', 'oobeStatus', 'retryOobeResources', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
                   'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted'],
                 []);
             } catch (error) {
@@ -886,6 +911,7 @@ class SettingsBridge {
   private onboardingReady: boolean = false;
   // 页面告知欢迎流程结束后置位，之后的设置状态读取不再压住通知卡片。
   private onboardingDone: boolean = false;
+  private resourcesReady: boolean | null = null;
   // 上次读到的两项设置状态；首次读取完成前都为 null。
   private setup: SetupState = { enabled: null, current: null } as SetupState;
   // 设置状态读取的计数，让先开始却后返回的读取不能覆盖更新的结果。
@@ -894,6 +920,17 @@ class SettingsBridge {
   private setupDescription: string = '';
   // 设置文档是否已加载完成，让宿主到页面的调用只发给能接收的页面。在此之前页面会在启动时自己读取所需的一切。
   private pageReady: boolean = false;
+  private statisticsAuthentication: StatisticsAuthentication = new StatisticsAuthentication();
+
+  resumeStatistics(): void {
+    this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-statistics-active'))").catch((): void => {});
+  }
+
+  lockStatistics(): void {
+    this.statisticsAuthentication.cancel();
+    this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-statistics-locked'))").catch((): void => {});
+  }
+
   // 结构体的通知卡片开关：告知欢迎流程显示期间卡片是否应保持不出现在屏幕上。
   onNoticeHold: ((held: boolean) => void) | undefined = undefined;
   // 由页面组件设置：告知网页绘制的背景，即页面随系统栏颜色最后一次发来的值。
@@ -917,6 +954,8 @@ class SettingsBridge {
   // 「从文件导入」从打开选择器到安装结束的模型 id。复制进缓存的那段时间原生安装还没登记，原生取消找不到它，所以取消先记在 voiceImportsCancelled 里，由导入流程在复制每个文件前和开始安装前检查。
   private voiceImportsPending: Set<string> = new Set<string>();
   private voiceImportsCancelled: Set<string> = new Set<string>();
+  // 「音效」里选了包之后的那一声试听。
+  private keySoundPreview: KeySoundPreview = new KeySoundPreview();
 
   useWebview(controller: web_webview.WebviewController): void {
     this.webview = controller;
@@ -925,6 +964,12 @@ class SettingsBridge {
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    const seen = this.readStateFile(ONBOARDING_SEEN_FILE, 64);
+    this.onboardingDone = false;
+    if (seen !== null) {
+      try { this.onboardingDone = (JSON.parse(seen) as OnboardingSeenValue).seen === true; }
+      catch (_) { KeyboardLog.warn('onboarding seen marker is invalid'); }
+    }
     SharedStateMirror.resolve(context).then((groupDir: string | null): void => {
       const sharedSandbox = HarmonySharedSandboxPolicy.status(groupDir);
       this.sharedSandboxAvailable = sharedSandbox.available;
@@ -938,10 +983,11 @@ class SettingsBridge {
     this.accountBridge = new HarmonyAccountCloudBridge(context);
     // The same copy the keyboard makes, by the same rule. The page reaches the dictionary through
     // it too, and two staging rules for one directory is how it came to hold a set matching neither.
-    StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
+    this.resourcesReady = StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
       `${context.filesDir}/engine.ready`);
     // Here as well as in the keyboard, so the page offers Cantonese, Zhuyin and Stroke (see hostCapabilities) before the keyboard has ever run.
     StagedResources.stageLanguageDictionaries(context.resourceDir, context.filesDir);
+    StagedResources.stageHandwriting(context.resourceDir, context.filesDir);
   }
 
 
@@ -1186,6 +1232,16 @@ class SettingsBridge {
         KeyboardLog.error(`dictionary scel request failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'dictionary_scel_invalid' }));
       });
+    } else if (kind === 'statistics_auth_settings') {
+      this.statisticsAuthenticationSettings(payload).then(deliver).catch(failed);
+    } else if (kind === 'statistics_auth') {
+      if (this.context === undefined) {
+        failed(new Error('认证宿主未就绪'));
+      } else {
+        this.statisticsAuthentication.authenticate(this.context).then((success: boolean): void => {
+          deliver(success ? JSON.stringify({ ok: true, value: true }) : JSON.stringify({ ok: false, error: '未完成身份验证，请重试。' }));
+        }).catch(failed);
+      }
     } else if (kind === 'typing_statistics') {
       this.typingStatisticsOnWorker(payload).then(deliver).catch(failed);
     } else if (kind === 'typing_upload') {
@@ -1923,17 +1979,17 @@ class SettingsBridge {
     return client.dictionaryManifest(`${this.context.filesDir}/engine`);
   }
 
-  /** Read only an image declared by a validated external skin manifest. */
+  /** Read only an image declared by a validated external skin manifest, as base64: the default `bytes` array costs the shared layer a JSON value per byte, about 512 MiB at the 8 MiB resource limit. The page side turns it back into bytes. */
   readSkinImage(id: string, relative: string): string {
     return client.skinResource(JSON.stringify({
-      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image'
+      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image', encoding: 'base64'
     }));
   }
 
-  /** Read only a font declared by a validated external skin manifest. */
+  /** Read only a font declared by a validated external skin manifest, as base64 for the same reason as `readSkinImage`. */
   readSkinFont(id: string, relative: string): string {
     return client.skinResource(JSON.stringify({
-      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'font'
+      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'font', encoding: 'base64'
     }));
   }
 
@@ -2036,6 +2092,7 @@ class SettingsBridge {
       value['wordbook_packs'] = projection.wordbookPacks;
       value['symbol_set_packs'] = projection.symbolSetPacks;
       value['touch_toolbar_tools'] = projection.touchToolbarTools;
+      value['touch_key_sound_packs'] = projection.touchKeySoundPacks;
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
@@ -2097,6 +2154,11 @@ class SettingsBridge {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
     return this.accountBridge.request(action);
+  }
+
+  /** 昵称纯计算可以同步调用，不访问账号或存储。 */
+  accountName(request: string): string {
+    return client.accountName(request);
   }
 
   /** 云剪贴板面板的动作，经 Rust 的端到端加密驱动。 */
@@ -2220,12 +2282,27 @@ class SettingsBridge {
     }
   }
 
+  private async statisticsAuthenticationSettings(payload: string): Promise<string> {
+    if (this.context === undefined) throw new Error('认证宿主未就绪');
+    const action: TypingStatisticsAction = JSON.parse(payload) as TypingStatisticsAction;
+    if (action.operation === 'save' && typeof action.enabled === 'boolean') {
+      await this.statisticsAuthentication.setEnabled(this.context, action.enabled);
+    } else if (action.operation !== 'load') {
+      throw new Error('无效的认证设置');
+    }
+    return JSON.stringify({ ok: true, value: this.statisticsAuthentication.enabled(this.context) });
+  }
+
   typingStatistics(actionDocument: string): string {
     if (actionDocument.length === 0 || actionDocument.length > 4096) {
       return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
     }
     try {
       const action: TypingStatisticsAction = JSON.parse(actionDocument) as TypingStatisticsAction;
+      if (action.operation === 'cancel_authentication') {
+        this.statisticsAuthentication.cancel();
+        return JSON.stringify({ ok: true, value: true });
+      }
       if (!['load', 'set_enabled', 'set_retention', 'reset'].includes(action.operation)
         || (action.operation === 'set_enabled' && typeof action.enabled !== 'boolean')
         || (action.operation === 'set_retention'
@@ -2688,13 +2765,8 @@ class SettingsBridge {
       if (response.responseCode >= 200 && response.responseCode < 300) {
         return this.credentialReply(true, '连接成功，API Key 和模型配置有效。');
       }
-      if (response.responseCode === 401 || response.responseCode === 403) {
-        return this.credentialReply(false, '认证失败，请检查 API Key 和访问权限。');
-      }
-      if (response.responseCode === 429) {
-        return this.credentialReply(false, '服务限流或额度不足，请稍后重试。');
-      }
-      return this.credentialReply(false, '服务拒绝请求，请检查接口地址和模型配置。');
+      return this.credentialReply(false,
+        CredentialStatusPolicy.rejected(response.responseCode, '服务拒绝请求，请检查接口地址和模型配置'));
     } catch (error) {
       KeyboardLog.error(`chat credential unavailable: ${describeError(error)}`);
       return this.credentialReply(false, '连接失败，请检查接口地址、模型、API Key 和网络。');
@@ -2735,13 +2807,8 @@ class SettingsBridge {
       if (response.responseCode >= 200 && response.responseCode < 300) {
         return this.credentialReply(true, '连接成功，API Key 和模型配置有效。');
       }
-      if (response.responseCode === 401 || response.responseCode === 403) {
-        return this.credentialReply(false, '认证失败，请检查 API Key 和访问权限。');
-      }
-      if (response.responseCode === 429) {
-        return this.credentialReply(false, '服务限流或额度不足，请稍后重试。');
-      }
-      return this.credentialReply(false, '转写测试未成功，请检查接口地址、模型和服务配置。');
+      return this.credentialReply(false,
+        CredentialStatusPolicy.rejected(response.responseCode, '转写测试未成功，请检查接口地址、模型和服务配置'));
     } catch (error) {
       KeyboardLog.error(`ASR credential unavailable: ${describeError(error)}`);
       return this.credentialReply(false, '连接失败，请检查转写接口、模型、API Key 和网络。');
@@ -2995,6 +3062,11 @@ class SettingsBridge {
       return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
         KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
     }
+    if (action.operation === 'preview_sound') {
+      this.previewKeySound(action.pack, action.volume);
+      return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
+        KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
+    }
     if (action.operation === 'save') {
       // 页面没有发送的字段（旧页面没有手写设置）保留已存的值，而不是重置。
       const settings: FeedbackSettings = KeyboardFeedbackBridge.fromShared(action.settings ?? null,
@@ -3008,6 +3080,17 @@ class SettingsBridge {
     }
     return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
       KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
+  }
+
+  /** 用 `pack` 的普通键样本试听一声。包 id 由 `msime_client_key_sound_pack` 校验；页面给的音量不在 0–100 时按默认的 50。 */
+  private previewKeySound(pack: string | undefined, volume: number | undefined): void {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined || typeof pack !== 'string' || pack.length === 0) {
+      return;
+    }
+    const gainVolume: number = typeof volume === 'number' && volume >= 0 && volume <= 100 ? volume : 50;
+    this.keySoundPreview.play(this.soundPacks(), this.stateDirectory, `${context.cacheDir}/key-sound-preview`,
+      pack, gainVolume);
   }
 
   /** One buzz at the strength being previewed, exactly as a key press at that strength would feel (`KeyboardSession.vibrate`). A device without a vibrator simply does nothing. */
@@ -3094,7 +3177,7 @@ class SettingsBridge {
    */
   onboardingStatus(): string {
     return JSON.stringify({
-      ok: true, value: this.onboardingRequired, ready: this.onboardingReady, error: ''
+      ok: true, value: this.onboardingRequired && !this.onboardingDone, ready: this.onboardingReady, error: ''
     } as OnboardingReply);
   }
 
@@ -3108,6 +3191,30 @@ class SettingsBridge {
     return JSON.stringify(reply);
   }
 
+  /** 资源使用实际暂存结果，系统能力使用同一次系统查询；引导离开记录独立持久化。 */
+  oobeStatus(): string {
+    const preferences: RevisionReply = JSON.parse(client.loadPreferences(this.stateDirectory)) as RevisionReply;
+    const value: OobeStatusValue = {
+      resourcesReady: this.resourcesReady,
+      systemEnabled: this.setup.enabled,
+      systemCurrent: this.setup.current,
+      preferencesSaved: preferences.ok === true,
+      onboardingSeen: this.onboardingDone
+    };
+    const reply: OobeStatusReply = { ok: true, value };
+    return JSON.stringify(reply);
+  }
+
+  /** 设置页提供显式重试，不把暂存失败当成资源已经就绪。 */
+  retryOobeResources(): string {
+    if (this.context !== undefined) {
+      this.resourcesReady = StagedResources.stage(`${this.context.resourceDir}/engine`,
+        `${this.context.filesDir}/engine`, `${this.context.filesDir}/engine.ready`);
+    }
+    const reply: FlagReply = { ok: this.resourcesReady === true, value: this.resourcesReady === true };
+    return JSON.stringify(reply);
+  }
+
   /** 页面请求现在重读一次设置状态。从键盘的 🌐 菜单切换输入法不会触发 `imeChange`，页面的「设为默认」引导打开期间靠它轮询；读到变化时照常推给页面。 */
   refreshSetupStatus(): void {
     this.refreshSetupState();
@@ -3116,6 +3223,9 @@ class SettingsBridge {
   /** 页面的欢迎流程已结束（完成或跳过），通知卡片可以回来。 */
   onboardingFinished(): void {
     this.onboardingDone = true;
+    if (!this.writeStateFile(ONBOARDING_SEEN_FILE, '{"seen":true}')) {
+      KeyboardLog.error('onboarding flag not saved');
+    }
     this.onNoticeHold?.(false);
   }
 

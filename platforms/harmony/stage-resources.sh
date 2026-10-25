@@ -9,6 +9,14 @@
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
+
+# 鸿蒙手写直接使用锁定版本的离线笔画模型；下载器校验大小与 SHA-256，许可证随模型一起打包。
+python3 scripts/fetch_handwriting_model.py
+handwriting_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/handwriting"
+mkdir -p "$handwriting_staged"
+cp "$repo_root/target/handwriting-model/handwriting-zh_CN.model" \
+  "$repo_root/target/handwriting-model/HandwritingModel-LICENSE.txt" "$handwriting_staged/"
+cp resources/licenses/Zinnia-LICENSE.txt "$handwriting_staged/"
 resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory] [wordbooks-directory]}
 resource_dir=$(cd "$resource_dir" && pwd)
 # The directory has to match the lock exactly, down to containing no extra file, because the same
@@ -46,6 +54,7 @@ cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$licenses_staged/"
 cp resources/licenses/Unicode-License-V3.txt "$licenses_staged/"
 # 简繁转换内嵌的 OpenCC 词表许可证随 HAP 分发。
 cp resources/licenses/OpenCC-Apache-2.0.txt "$licenses_staged/"
+cp resources/licenses/world-clock-NOTICE.txt "$licenses_staged/"
 echo "Licences staged for the HAP: $licenses_staged"
 
 # 内置音效包，由 scripts/generate_sound_packs.py 合成。放在 engine 目录旁边而不是里面，因为放进去会被上面的锁文件校验拒绝；resfile 会把它们解压到 context.resourceDir/sound-packs，也就是键盘告诉 client-services 的内置包根目录。

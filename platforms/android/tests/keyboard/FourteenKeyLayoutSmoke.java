@@ -121,6 +121,10 @@ public final class FourteenKeyLayoutSmoke {
         check(KeyboardLayout.drawsKeyGrid(fourteen), "the 14 keys are a key-grid face");
         check(NineKeyPanelPolicy.threeColumn(fourteen, true, false, true), "the three-column panel opens while composing");
         check(!NineKeyPanelPolicy.threeColumn(fourteen, false, false, true), "the 123 layer keeps the candidate grid");
+        FourteenKeyLayout.Key l = new FourteenKeyLayout.Key("l");
+        check(FourteenKeyLayout.face(l, true).equals("L;")
+            && FourteenKeyLayout.accessibilityLabel(l, true).equals("按键 L 分号")
+            && FourteenKeyLayout.face(l, false).equals("L"), "双拼分号入口可见且可读");
         // 方案与统计。
         check(KeyboardScheme.QUANPIN_FOURTEEN_KEY.touchKeyboardLayout().equals("fourteen_key")
             && KeyboardScheme.QUANPIN_FOURTEEN_KEY.preferenceId().equals("fourteen_key")

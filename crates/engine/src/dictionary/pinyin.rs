@@ -12,15 +12,16 @@ use crate::format::{
     build_table_name, quanpin_table, MAXIMUM_NUMBERED_SYLLABLES, SHIPPED_INITIALS,
 };
 use crate::pinyin::jianpin::{
-    build_key_like_pattern, build_mixed_jianpin_scan_limit, can_match_exact_key, is_pure_jianpin,
-    key_prefix_upper_bound, matches_mixed_segments, needs_mixed_jianpin_query, QuerySource,
+    build_key_like_pattern, build_mixed_jianpin_scan_limit, can_match_exact_key,
+    extract_initial_token, is_pure_jianpin, key_prefix_upper_bound, matches_mixed_segments,
+    needs_mixed_jianpin_query, QuerySource,
 };
 #[cfg(test)]
 use crate::pinyin::segment::split_segments;
 use crate::pinyin::segment::{join_segments, segments_to_jianpin};
 use crate::pinyin::syllables::{
-    canonical_lattice_syllable, has_only_complete_pinyin_segments, intact_pinyin_set,
-    prefix_pinyin_set,
+    canonical_lattice_syllable, has_only_complete_pinyin_segments, intact_pinyin_list,
+    intact_pinyin_set, is_intact, prefix_pinyin_set,
 };
 
 pub const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
@@ -213,6 +214,65 @@ impl PinyinDatabase {
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
         rows.truncate(limit);
         rows
+    }
+
+    /// 上屏后的词库续词：先限定完整读音和汉字前缀，再按权重取未上屏的后缀。只遍历对应的索引范围，不反查整份词库。
+    pub fn query_next_words(&self, word: &str, pinyin: &str, limit: usize) -> Vec<DictRow> {
+        let segments: Vec<String> = pinyin.split('\'').map(str::to_owned).collect();
+        if self.connection.is_none()
+            || !crate::text::is_all_han(word)
+            || segments.len() != word.chars().count()
+            || !has_only_complete_pinyin_segments(&segments)
+            || limit == 0
+        {
+            return Vec::new();
+        }
+        let limit = limit.min(32);
+        let prefix = longer_phrase_prefix(&segments);
+        let upper = key_prefix_upper_bound(&prefix);
+        let initial = segments[0].as_bytes()[0];
+        let mut result = Vec::new();
+        // 编号表之后只有一个溢出桶；同一词面有多条读音时在 LIMIT 前去重，避免吞掉后面的建议。
+        for size in segments.len() + 1..=MAXIMUM_NUMBERED_SYLLABLES.max(segments.len()) + 1 {
+            let Some(table) = quanpin_table(size, initial) else {
+                continue;
+            };
+            let sql = format!(
+                "SELECT MIN(key), value, MAX(weight) FROM \"{table}\" \
+                 WHERE key>=?1 AND key<?2 AND substr(value,1,?3)=?4 \
+                 AND length(value)>?3 GROUP BY value ORDER BY MAX(weight) DESC, value LIMIT ?5"
+            );
+            for mut row in self.rows(
+                &sql,
+                rusqlite::params![
+                    prefix,
+                    upper,
+                    word.chars().count() as i64,
+                    word,
+                    limit as i64
+                ],
+                Some(limit),
+            ) {
+                let Some(suffix) = row.value.strip_prefix(word) else {
+                    continue;
+                };
+                if !crate::text::is_all_han(suffix) {
+                    continue;
+                }
+                row.value = suffix.to_owned();
+                row.key = row.key.strip_prefix(&prefix).unwrap_or_default().to_owned();
+                result.push(row);
+            }
+        }
+        result.sort_by(|left, right| {
+            right
+                .weight
+                .cmp(&left.weight)
+                .then_with(|| left.value.cmp(&right.value))
+        });
+        deduplicate_by_value(&mut result);
+        result.truncate(limit);
+        result
     }
 
     /// Exact-key batch lookup of complete segmentations, one `IN (...)` statement per table in table-name order, stable-sorted by weight; no value dedup (QQ:1268-1303).
@@ -411,6 +471,49 @@ impl PinyinDatabase {
         }
         // 唯一跨度没有分组与去重需求，直接接管 SQL 页，避免复制同一份行存储。
         let mut rows = self.batch_rows(&table, &[key.as_str()], span_limit);
+        rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
+        rows
+    }
+
+    /// 双拼仅补最后一个声母；枚举合法完整音节后精确查库，词边保留完整读音。
+    pub(crate) fn query_lattice_span_with_trailing_initial(
+        &self,
+        span: &[String],
+        span_limit: usize,
+    ) -> Vec<DictRow> {
+        if has_only_complete_pinyin_segments(span) {
+            return self.query_lattice_span(span, span_limit);
+        }
+        let Some((initial, leading)) = span.split_last() else {
+            return Vec::new();
+        };
+        if self.connection.is_none()
+            || span_limit == 0
+            || is_intact(initial)
+            || extract_initial_token(initial) != initial
+            || (!leading.is_empty() && !has_only_complete_pinyin_segments(leading))
+        {
+            return Vec::new();
+        }
+        let Some(table) = build_table_name(span) else {
+            return Vec::new();
+        };
+        let mut prefix = String::new();
+        for syllable in leading {
+            prefix.push_str(canonical_lattice_syllable(syllable));
+            prefix.push('\'');
+        }
+        let mut keys = Vec::new();
+        for syllable in intact_pinyin_list() {
+            if extract_initial_token(syllable) != initial {
+                continue;
+            }
+            let key = format!("{prefix}{}", canonical_lattice_syllable(syllable));
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        let mut rows = self.batch_rows(&table, &keys, span_limit);
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
         rows
     }
@@ -1356,6 +1459,51 @@ mod tests {
     }
 
     #[test]
+    fn next_word_continuations_filter_han_prefix_before_limiting() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = pinyin_db(
+            directory.path(),
+            &[
+                ("tbl_2_c", "chi'fan", "迟返", 1000),
+                ("tbl_2_c", "chi'fan", "吃饭", 100),
+                ("tbl_2_c", "chi'fan", "吃饭", 50),
+                ("tbl_3_c", "chi'dong'xi", "吃东西", 80),
+                ("tbl_2_c", "chi'hao", "吃好", 70),
+                ("tbl_2_c", "chuan'fan", "吃错", 900),
+                ("tbl_2_c", "chi'fan", "吃", 200),
+            ],
+        );
+        let database = PinyinDatabase::open(&path);
+        let rows = database.query_next_words("吃", "chi", 2);
+        assert_eq!(values(&rows), ["饭", "东西"]);
+        assert_eq!(rows[0].key, "fan");
+        assert_eq!(rows[1].key, "dong'xi");
+        assert!(database.query_next_words("", "chi", 2).is_empty());
+        assert!(database.query_next_words("吃", "ch", 2).is_empty());
+        assert!(database.query_next_words("吃", "chi", 0).is_empty());
+        assert!(database.query_next_words("吃%", "chi", 2).is_empty());
+    }
+
+    #[test]
+    fn next_word_continuations_handle_multi_character_and_supplementary_han() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = pinyin_db(
+            directory.path(),
+            &[
+                ("tbl_3_p", "ping'guo'shu", "苹果树", 100),
+                ("tbl_4_p", "ping'guo'shou'ji", "苹果手机", 90),
+                ("tbl_2_j", "ji'xiang", "𠮷祥", 80),
+            ],
+        );
+        let database = PinyinDatabase::open(&path);
+        assert_eq!(
+            values(&database.query_next_words("苹果", "ping'guo", 8)),
+            ["树", "手机"]
+        );
+        assert_eq!(values(&database.query_next_words("𠮷", "ji", 8)), ["祥"]);
+    }
+
+    #[test]
     fn value_dedup_skips_trivial_row_lists() {
         let mut rows = vec![DictRow {
             key: "ni".to_owned(),
@@ -1567,6 +1715,50 @@ mod tests {
         );
         assert!(database
             .query_lattice_span(&strings(&["gun", "q"]), 32)
+            .is_empty());
+    }
+
+    #[test]
+    fn lattice_trailing_initial_is_bounded_exact_elsewhere_and_keeps_full_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("msime-pinyin.db");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_2_g(key TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_2_g VALUES('gong''ju','工具',700),\
+                 ('gong''ji','公鸡',100),('gong''jing','工井',500),\
+                 ('gong''zuo','工作',9000);\
+                 CREATE TABLE tbl_1_z(key TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_1_z VALUES('zi','子',100),('zhi','知',9000);\
+                 CREATE TABLE tbl_2_j(key TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_2_j VALUES('ju''gong','居功',300);\
+                 CREATE TABLE tbl_others_n(key TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_others_n VALUES('ni''ni''ni''ni''ni''ni''ni''qi','合成八字词',100),\
+                 ('ni''ni''ni''ni''ni''ni''ni''qing''jiu','合成九字词',9000);",
+            )
+            .unwrap();
+        let database = PinyinDatabase::open(&path);
+        let query = |keys: &[&str], limit| {
+            database.query_lattice_span_with_trailing_initial(&strings(keys), limit)
+        };
+        let rows = query(&["gong", "j"], 32);
+        assert_eq!(values(&rows), ["工具", "工井", "公鸡"]);
+        assert_eq!(rows[0].key, "gong'ju");
+        assert_eq!(values(&query(&["gong", "j"], 1)), ["工具"]);
+        assert_eq!(values(&query(&["gong", "ji"], 32)), ["公鸡"]);
+        assert_eq!(values(&query(&["z"], 32)), ["子"]);
+        assert_eq!(values(&query(&["jv", "g"], 32)), ["居功"]);
+        assert_eq!(
+            values(&query(&["ni", "ni", "ni", "ni", "ni", "ni", "ni", "q"], 32)),
+            ["合成八字词"]
+        );
+        assert!(query(&["gong", "j"], 0).is_empty());
+        assert!(query(&["g", "j"], 32).is_empty());
+        assert!(query(&["gong", "ia"], 32).is_empty());
+        assert!(query(&[], 32).is_empty());
+        assert!(database
+            .query_lattice_span(&strings(&["gong", "j"]), 32)
             .is_empty());
     }
 

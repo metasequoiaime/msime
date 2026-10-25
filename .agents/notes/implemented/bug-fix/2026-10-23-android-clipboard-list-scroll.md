@@ -29,3 +29,5 @@ Status: implemented
 - 修复后 API 28/35 的 `ClipboardSegmentDragDeviceSmoke -e fixed-cards-only true` 通过：20 条多行合成记录从卡片正文起手拖动，外层列表确实移动并可向回滚动，卡片没有独立滚动动作，编辑器和历史保持不变。混合大小写的合成正文同时防止普通按钮自动大写。
 - `check-host.sh` 的 256 项 JVM 冒烟、215 个设备源码与 JNI/Java 契约通过；完整原生库、原生发布宿主 APK、开发签名与 16 KiB 对齐构建通过。
 - API 28/35 完整 `ClipboardSegmentDragDeviceSmoke` 通过：全文浮层实际像素、滚动及生命周期，固定卡片、列表滚动、左滑和分词拖选均明确报告成功。最终远端 `scripts/verify-local.sh --quick`（`20261023-052500`）通过，额外覆盖 Rust、Android、WebAssembly、Linux 设置壳与原生宿主（111 项）、macOS 和共享 Apple 桥。笔记与 diff 检查通过。
+
+[手动分类与返回顶部](../../implemented/feature/2026-10-23-android-clipboard-categories.md)复用外层列表滚动；返回顶部只改变列表偏移，不恢复卡片内部滚动，也不写历史。

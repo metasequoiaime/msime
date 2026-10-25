@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 设置 tab，按设计的 Android 设置首页排：大标题「设置」、搜索胶囊、r24 状态卡（logo 圆盘、名字、状态行、两条检查、系统输入法设置、整宽「试用键盘」药丸）、通知横幅，然后是各组导航行（KeyboardFragment 用 HomeNavGroup 生成）。大标题滚走后顶部淡入一条紧凑标题栏。 -->
+<!-- 首页 tab，按设计的 Android 设置首页排：大标题是应用名、搜索胶囊、r24 状态卡（logo 圆盘、状态、当前方案、两条检查、系统输入法设置、整宽「试用键盘」药丸）、通知横幅，然后是各组导航行（KeyboardFragment 用 HomeNavGroup 生成）。大标题滚走后顶部淡入一条紧凑标题栏。 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -28,7 +28,7 @@
                 android:paddingStart="4dp"
                 android:paddingTop="22dp"
                 android:paddingBottom="18dp"
-                android:text="@string/tab_settings"
+                android:text="@string/app_name"
                 android:textColor="?attr/colorOnSurface"
                 android:textSize="28sp" />
 
@@ -75,10 +75,12 @@
                         android:layout_weight="1"
                         android:orientation="vertical">
 
+                        <!-- 应用名已经是页面大标题，卡片首行写设置状态，下一行写当前方案。 -->
                         <TextView
+                            android:id="@+id/keyboard_status_title"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/app_name"
+                            android:text="@string/keyboard_status_checking"
                             android:textColor="?attr/colorOnSurface"
                             android:textFontWeight="600"
                             android:textSize="17sp"
@@ -89,7 +91,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="@string/keyboard_status_checking"
+                            android:visibility="gone"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="13sp" />
                     </LinearLayout>
@@ -269,7 +271,7 @@
         android:importantForAccessibility="no"
         android:paddingStart="20dp"
         android:paddingEnd="16dp"
-        android:text="@string/tab_settings"
+        android:text="@string/app_name"
         android:textColor="?attr/colorOnSurface"
         android:textSize="22sp"
         android:visibility="invisible" />

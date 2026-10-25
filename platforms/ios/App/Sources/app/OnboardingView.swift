@@ -64,7 +64,7 @@ struct InputSettingsView: View {
   @State private var addingLanguage = false
   @State private var failedGroup: PageGroup?
 
-  private enum PageGroup { case languages, chinese, helpcode, translation, more }
+  private enum PageGroup { case languages, chinese, helpcode, translation }
 
   /// 语言选项面板里的一个选项。
   private enum LanguageChoice: Hashable {
@@ -97,7 +97,6 @@ struct InputSettingsView: View {
         chineseGroup
         helpcodeGroup
         translationGroup
-        moreGroup
       }
       .padding(.horizontal, 16)
       .padding(.top, 16)
@@ -176,9 +175,7 @@ struct InputSettingsView: View {
       let pack = shown.flatMap(IOSResourcePacks.requiredPack)
       InputLanguageRow(language: language, value: pack.map { resourcePacks.available($0) ? (shown?.shortLabel ?? "") : resourcePacks.describe($0) } ?? shown?.shortLabel, options: options(for: language),
                        selected: selectedChoice(in: language)) { choose($0, in: language) }
-      if language == .mandarin && available(language).contains(where: \.needsLanguageDictionary) && !resourcePacks.available("language-dictionaries") {
-        packDownloadRow("language-dictionaries", title: "粤拼、注音和笔画词库")
-      } else if let pack, !resourcePacks.available(pack) {
+      if let pack, !resourcePacks.available(pack) {
         packDownloadRow(pack, title: "\(language.name)词库")
       }
     }
@@ -198,7 +195,7 @@ struct InputSettingsView: View {
         HStack(spacing: 12) {
           Image(systemName: "plus").font(.system(size: 20, weight: .regular))
             .frame(width: 30, height: 30).accessibilityHidden(true)
-          Text(addingLanguage ? "完成" : "添加语言").font(.system(size: 17))
+          Text(addingLanguage ? "完成" : "添加方案").font(.system(size: 17))
           Spacer(minLength: 0)
         }
         .foregroundStyle(MetasequoiaTheme.accent)
@@ -216,26 +213,16 @@ struct InputSettingsView: View {
     return inputScheme == .wubi ? .wubi(wubiProfile) : .scheme(inputScheme)
   }
 
-  /// 语言的选项面板：按顺序列出它的方案，双拼和五笔各开一层二级面板，不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id。
+  /// 语言的选项面板：按顺序直接列出它的方案，双拼列小鹤、自然码等，五笔列 86 和 98，不再各开一层二级面板（那样「双拼」行、方案面板、双拼面板就成了三层）；不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id，五笔版本是 `inputScheme_wubi_<profile>`。
   private func options(for language: InputLanguage) -> [DesignOption<LanguageChoice>] {
     let schemes = available(language)
-    let shuangpin = schemes.filter { $0.shuangpinProfile != nil }
     var options: [DesignOption<LanguageChoice>] = []
     for scheme in schemes {
-      if scheme.shuangpinProfile != nil {
-        guard scheme == shuangpin.first else { continue }
-        if shuangpin.count == 1 {
-          options.append(schemeOption(scheme, title: scheme.shortLabel))
-        } else {
-          options.append(DesignOption(title: "双拼", value: .scheme(scheme), identifier: "inputSchemeGroup_shuangpin",
-                                      children: shuangpin.map { schemeOption($0, title: optionTitle($0)) }))
-        }
-      } else if scheme == .wubi {
-        options.append(DesignOption(title: "五笔", value: .scheme(.wubi), identifier: "inputSchemeGroup_wubi",
-                                    children: WubiProfilePreference.profiles.map { profile in
+      if scheme == .wubi {
+        options += WubiProfilePreference.profiles.map { profile in
           DesignOption(title: profile == "wubi98" ? "五笔 98" : "五笔 86", value: .wubi(profile),
                        identifier: "inputScheme_wubi_\(profile)")
-        }))
+        }
       } else {
         options.append(schemeOption(scheme, title: optionTitle(scheme)))
       }
@@ -379,6 +366,7 @@ struct InputSettingsView: View {
         DesignDivider()
         navRow("模糊音规则", identifier: "fuzzyPinyinSettingsLink") { FuzzyPinyinSettingsView() }
       }
+      additionalChineseRows
     }
   }
 
@@ -459,17 +447,17 @@ struct InputSettingsView: View {
     })
   }
 
-  // MARK: - 更多
+  // MARK: - 其他输入选项
 
-  private var moreGroup: some View {
-    DesignGroup(title: "更多", footer: footer(.more)) {
+  private var additionalChineseRows: some View {
+    Group {
       DesignToggleRow(title: "退格键回退已选候选词",
                       subtitle: "关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字",
                       isOn: Binding(get: { backspaceRevertsSelection }, set: { enabled in
                         backspaceRevertsSelection = enabled
                         record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                           $0["backspace_reverts_selection"] = enabled
-                        }, .more)
+                        }, .chinese)
                         reloadPreferences()
                       }))
         .accessibilityIdentifier("backspaceRevertsSelection")
@@ -480,7 +468,7 @@ struct InputSettingsView: View {
                           wubiMixedPinyin = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                             $0["wubi_mixed_pinyin"] = enabled
-                          }, .more)
+                          }, .chinese)
                           reloadPreferences()
                         }))
           .accessibilityIdentifier("wubiMixedPinyin")
@@ -490,7 +478,7 @@ struct InputSettingsView: View {
                           wubiCodeHint = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                             $0["wubi_code_hint"] = enabled
-                          }, .more)
+                          }, .chinese)
                           reloadPreferences()
                         }))
           .accessibilityIdentifier("wubiCodeHint")
@@ -501,7 +489,7 @@ struct InputSettingsView: View {
                           wubiAutoCommitUnique = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                             $0["wubi_auto_commit_unique"] = enabled
-                          }, .more)
+                          }, .chinese)
                           reloadPreferences()
                         }))
           .accessibilityIdentifier("wubiAutoCommitUnique")
@@ -519,7 +507,7 @@ struct InputSettingsView: View {
                         startsInEnglish = english
                         record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                           $0["default_ime_mode"] = english ? "english" : "chinese"
-                        }, .more)
+                        }, .chinese)
                         reloadPreferences()
                       }),
                       sheetTitle: "默认中英文", identifier: "defaultImeModePicker")
@@ -607,7 +595,7 @@ private struct InputLanguageRow<Choice: Hashable>: View {
     .buttonStyle(PressFillButtonStyle())
     .accessibilityLabel(language.name)
     .accessibilityValue(value ?? "")
-    .accessibilityIdentifier("inputLanguage_\(language.rawValue)")
+    .accessibilityIdentifier("inputLanguage_\(language.accessibilityKey)")
     .designOptionSheet(isPresented: $presented, title: language.name, message: "选择输入方案", options: options,
                        selected: selected, onSelect: onSelect)
   }

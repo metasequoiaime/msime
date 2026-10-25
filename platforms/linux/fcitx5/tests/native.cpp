@@ -1,5 +1,6 @@
 // Real Fcitx input contexts and the real Host API. All input is synthetic.
 #include "../FcitxEngine.cpp"
+#include "../../tests/voice/voice_provider_fixture.h"
 #include <fcitx-config/option.h>
 #include <array>
 #include <cstdlib>
@@ -1376,6 +1377,7 @@ int main(int argc, char **argv) {
     translationPreferenceChangesIncludeAccount();
     emojiGroupResultFencing();
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--helpcode-trigger" ||
+                                       std::string(argv[2]) == "--voice-hotkey" ||
                                        std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--caps-lock" ||
@@ -1384,7 +1386,7 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
                                        std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
+            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--ai|--ctrl-space|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1453,6 +1455,14 @@ int main(int argc, char **argv) {
     require(bind(voiceServer, reinterpret_cast<sockaddr *>(&voiceAddress), sizeof(voiceAddress)) == 0 &&
             listen(voiceServer, 1) == 0, "voice listener");
     options["voice_provider_socket"] = voiceSocketPath;
+    std::unique_ptr<VoiceProviderFixture> customVoiceProvider;
+    if (argc == 3 && std::string(argv[2]) == "--voice-hotkey") {
+      const auto customSocket = std::string(directory) + "/custom-voice.sock";
+      customVoiceProvider = std::make_unique<VoiceProviderFixture>(customSocket);
+      options["voice_provider_socket"] = customSocket;
+      options["preferences"]["keybindings"]["toggle_voice_input"] = "Ctrl+Alt+KeyQ";
+    }
+
     const auto path = std::string(directory) + "/runtime-options.json";
     // 设置页的做法：先写偏好存储，再把同一份偏好抄进 runtime options。新会话以存储为准，所以夹具要生效的偏好两边都写；`edit` 同时改存储和 `options`。
     const auto settingsPageSaves = [&](const auto &edit) {
@@ -1700,6 +1710,44 @@ int main(int argc, char **argv) {
     require(state->voice_hotkey_hold_space_lock_,
             "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    if (customVoiceProvider) {
+      // 原始 X 键码 24 对应物理 Q；布局给出 a 时仍须命中同一录键位置。
+      const auto chord = [&](bool release = false, bool shift = false) {
+        auto modifiers = fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt};
+        if (shift) modifiers |= fcitx::KeyState::Shift;
+        if (release) modifiers = fcitx::KeyStates{};
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_a, modifiers, 24), release);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto waitVoice = [&](auto ready) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!ready() && std::chrono::steady_clock::now() < deadline) {
+          state->refreshVoice();
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return ready();
+      };
+      require(!chord(false, true), "自定义语音键接受了多余 Shift");
+      require(chord(), "Fcitx5 未接收非美式布局的物理语音键");
+      require(waitVoice([&] { return customVoiceProvider->started.load() == 1; }),
+              "Fcitx5 自定义语音键未启动合成服务");
+      require(chord() && customVoiceProvider->stop_requests.load() == 0,
+              "Fcitx5 自动重复错误结束录音");
+      require(chord(true), "Fcitx5 未消费修饰键先松开的语音键释放");
+      require(chord() && chord(true), "Fcitx5 第二次语音键未被接收");
+      require(waitVoice([&] { return customVoiceProvider->stop_requests.load() == 1; }),
+              "Fcitx5 自定义语音键未结束合成服务");
+      customVoiceProvider->release_final = true;
+      require(waitVoice([&] { return ic.committed == "synthetic voice"; }),
+              "Fcitx5 自定义语音结果未上屏");
+      blur();
+      customVoiceProvider.reset();
+      close(voiceServer);
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 自定义语音物理键、修饰键、重复、松键与合成结果上屏通过\n";
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--helpcode-trigger") {
       const auto press = [&](fcitx::KeySym sym) {
         fcitx::KeyEvent event(&ic, fcitx::Key(sym));

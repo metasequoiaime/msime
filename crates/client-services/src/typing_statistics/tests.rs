@@ -5,6 +5,24 @@
 use super::*;
 use std::sync::Arc;
 
+#[test]
+fn eighteen_key_quanpin_commits_and_keys_have_their_own_statistics() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    let source: TypingSource = serde_json::from_str("\"eighteenKey\"").unwrap();
+    store.record("你好", source, "2026-10-24", Some(5)).unwrap();
+    let snapshot = store.load().unwrap();
+    assert_eq!(snapshot.detail.sources["eighteenKey"], 2);
+    assert!(!snapshot.detail.sources.contains_key("quanpin"));
+    for group in [
+        "Q", "WE", "RT", "Y", "U", "IO", "P", "A", "SD", "FG", "H", "JK", "L", "Z", "XC", "V",
+        "BN", "M",
+    ] {
+        assert!(is_known_key_id(&format!("Eighteen{group}")), "{group}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn statistics_writes_stay_bound_to_the_locked_directory_after_replacement() {

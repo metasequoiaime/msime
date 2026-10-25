@@ -11,6 +11,12 @@ export function keyboardDeliveryNotice(error: unknown, platform?: string): strin
     if (code === "input_target_changed")
       return "输入位置已变化，本次按键未发送：请点击目标输入框后重新输入";
   }
+  if (platform === "windows") {
+    if (code === "grouped_key_unavailable")
+      return "十八键暂不可用：请先选择水杉全拼输入法，并结束当前组字后重试";
+    if (code === "grouped_key_unconfirmed")
+      return "按键结果尚未确认，后续排队按键已取消，请先检查输入框";
+  }
   if (platform === "linux") {
     // Linux 宿主只报这两种：找不到能接收按键的输入位置（没有 xdotool、wtype、ydotool，也没有正在运行的水杉输入法），或这个键在当前桌面上发不出去。
     if (code === "unavailable")

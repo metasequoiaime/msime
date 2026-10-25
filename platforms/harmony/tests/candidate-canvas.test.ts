@@ -65,6 +65,16 @@ const geometry = Canvas.geometry(spec, 320, 50);
 check(geometry.scale === 0.5, "固定高度按最紧的轴等比缩放");
 check(50 - geometry.content.top - geometry.content.bottom === 28, "保留 28vp 文字区");
 equal(geometry.card, { x: 2, y: 1, width: 316, height: 48 }, "外留白与几何同尺度");
+const lane = Canvas.geometry(spec, 320, 50, undefined, 34);
+check(
+  50 - lane.content.top - lane.content.bottom === 34,
+  "手机候选条传入 34vp 候选通道时，留白缩到让出整条通道",
+);
+const reading = Canvas.geometry(spec, 320, 50, undefined, 50);
+check(
+  reading.scale === 0 && reading.content.top === 0 && reading.content.bottom === 0,
+  "读音行也占位、内容要满 50vp 时留白缩到零，文字不压在面板外",
+);
 const decoration = (
   anchor: string,
   image: string = anchor,

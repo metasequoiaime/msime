@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   SettingsPage,
   type SettingsClient,
   type Snapshot,
   type ToggleHotkeyCheckResult,
 } from "@msime/ui";
-import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
+import { saveSettingsNow, selectSettingsTab, settingsFormReady } from "../support/settings-form";
 import { testHost } from "../support/host";
 
 afterEach(cleanup);
@@ -113,7 +113,7 @@ test("Backspace 解绑并把行显示成未绑定", async () => {
   fireEvent.click(button);
   fireEvent.keyDown(button, { code: "Backspace" });
   await act(async () => {});
-  expect(screen.getByText("未绑定")).toBeTruthy();
+  expect(within(row).getByText("未绑定")).toBeTruthy();
 });
 
 test("宿主报冲突时行内指出冲突项且不写入", async () => {
@@ -145,4 +145,97 @@ test("宿主报非法写法时行内报错且不写入", async () => {
   fireEvent.keyDown(button, { code: "Tab", ctrlKey: true });
   await act(async () => {});
   expect(screen.getByText("无法识别的组合键")).toBeTruthy();
+});
+
+async function openVoiceHotkey(client: Partial<SettingsClient>) {
+  mount({ host: host(), ...client });
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  return within(screen.getByRole("region", { name: "自定义语音快捷键" }));
+}
+
+test.each(["macos", "linux"] as const)(
+  "%s 语音页录入组合键经共享校验归一，保存时保留其他绑定",
+  async (platform) => {
+    const check = vi.fn(async () => ok("Ctrl+Alt+F8"));
+    const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
+      ...initial,
+      revision: 4,
+      preferences,
+    }));
+    const group = await openVoiceHotkey({
+      host: testHost({ platform }),
+      checkToggleHotkey: check,
+      save,
+    });
+    const button = group.getByRole("button", { name: "录制快捷键" });
+    expect(group.getByText("未绑定")).toBeTruthy();
+    fireEvent.click(button);
+    fireEvent.keyDown(button, { code: "F8", ctrlKey: true, altKey: true });
+    await waitFor(() => expect(group.getByText("Ctrl+Alt+F8")).toBeTruthy());
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: "toggle_voice_input",
+        chord: "Ctrl+Alt+F8",
+        voice_ctrl_f9: true,
+      }),
+    );
+    saveSettingsNow();
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        3,
+        expect.objectContaining({
+          keybindings: expect.objectContaining({
+            ...initial.preferences.keybindings,
+            toggle_voice_input: "Ctrl+Alt+F8",
+          }),
+        }),
+      ),
+    );
+  },
+);
+
+test("语音录键取消不校验，冲突拒绝后仍为未绑定", async () => {
+  const check = vi.fn(async (): Promise<ToggleHotkeyCheckResult> => ({
+    ok: false,
+    kind: "conflict",
+    owner: "toggle_punctuation",
+    chord: "Ctrl+Period",
+  }));
+  const group = await openVoiceHotkey({ checkToggleHotkey: check });
+  const button = group.getByRole("button", { name: "录制快捷键" });
+  fireEvent.click(button);
+  fireEvent.keyDown(button, { code: "Escape" });
+  expect(check).not.toHaveBeenCalled();
+  fireEvent.click(button);
+  fireEvent.keyDown(button, { code: "Period", ctrlKey: true });
+  await waitFor(() => expect(group.getByText(/与「中英文标点切换」相同/)).toBeTruthy());
+  expect(group.getByText("未绑定")).toBeTruthy();
+});
+
+test("语音页没有校验桥时不显示录入入口", async () => {
+  mount({ host: host() });
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  expect(screen.queryByRole("region", { name: "自定义语音快捷键" })).toBeNull();
+});
+
+test("语音录键校验桥失败时显示重试提示并保留原绑定", async () => {
+  const save = vi.fn();
+  const group = await openVoiceHotkey({
+    checkToggleHotkey: async () => {
+      throw new Error("synthetic unavailable");
+    },
+    save,
+  });
+  fireEvent.click(group.getByRole("button", { name: "录制快捷键" }));
+  fireEvent.keyDown(group.getByRole("button", { name: "正在录制快捷键" }), {
+    code: "F8",
+    key: "F8",
+    ctrlKey: true,
+    altKey: true,
+  });
+  expect(await screen.findByText("无法检查快捷键，请稍后重试")).toBeTruthy();
+  expect(group.getByText("未绑定")).toBeTruthy();
+  expect(save).not.toHaveBeenCalled();
 });

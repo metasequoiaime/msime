@@ -334,7 +334,13 @@ mod tests {
         provider
             .query(&request(code))
             .into_iter()
-            .map(|item| (item.pinyin, item.word, item.weight))
+            .map(|item| {
+                (
+                    item.pinyin.into_string(),
+                    item.word.into_string(),
+                    item.weight,
+                )
+            })
             .collect()
     }
 
@@ -349,7 +355,13 @@ mod tests {
         provider
             .query(&wildcard_request(code))
             .into_iter()
-            .map(|item| (item.pinyin, item.word, item.weight))
+            .map(|item| {
+                (
+                    item.pinyin.into_string(),
+                    item.word.into_string(),
+                    item.weight,
+                )
+            })
             .collect()
     }
 
@@ -433,7 +445,7 @@ mod tests {
             .provider
             .query(&request("b"))
             .into_iter()
-            .map(|item| item.word)
+            .map(|item| item.word.into_string())
             .collect();
         let expected: Vec<String> = (0..QUERY_LIMIT)
             .map(|index| format!("合成{index:02}"))

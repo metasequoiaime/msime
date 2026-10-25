@@ -1,6 +1,8 @@
 package app.msime.android.home;
 
 import android.content.Context;
+import android.content.ComponentName;
+import androidx.annotation.Nullable;
 import android.content.Intent;
 import android.provider.Settings;
 import android.view.inputmethod.InputMethodManager;
@@ -23,6 +25,24 @@ final class ImeSetup {
         return app.msime.android.DeviceInfoCollector.keyboardDefault(context);
     }
 
+    /** 系统服务不可用或查询被拒时保留未知，不能当成尚未启用。 */
+    @Nullable static Boolean enabledState(Context context) {
+        try {
+            InputMethodManager manager = context.getSystemService(InputMethodManager.class);
+            return manager == null ? null : enabled(context);
+        } catch (RuntimeException unavailable) { return null; }
+    }
+
+    /** 默认输入法标识尚不可读时保留未知。 */
+    @Nullable static Boolean currentState(Context context) {
+        try {
+            String id = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+            ComponentName component = id == null ? null : ComponentName.unflattenFromString(id);
+            return component == null ? null : context.getPackageName().equals(component.getPackageName())
+                && "app.msime.android.MSIMEInputService".equals(component.getClassName());
+        } catch (RuntimeException unavailable) { return null; }
+    }
+
     /** The system's on-screen keyboard list, where the user turns this keyboard on. */
     static void openSettings(Context context) {
         context.startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS));
@@ -40,7 +60,7 @@ final class ImeSetup {
 
     /** The system's keyboard picker; only an enabled keyboard is listed there, so before that the settings list is the way. */
     static void makeDefault(Context context) {
-        if (!enabled(context)) {
+        if (!Boolean.TRUE.equals(enabledState(context))) {
             openSettings(context);
             return;
         }

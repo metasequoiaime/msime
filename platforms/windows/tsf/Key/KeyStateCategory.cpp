@@ -298,13 +298,13 @@ CKeyStateComposing::CKeyStateComposing(_In_ CMetasequoiaIME *pTextService) : CKe
 
 HRESULT CKeyStateComposing::HandleKeyInput(KeyHandlerEditSessionDTO dto)
 {
-    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId);
+    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId, dto.groupedPanelKey);
 }
 
 HRESULT CKeyStateComposing::HandleKeyFinalizeTextStoreAndInput(KeyHandlerEditSessionDTO dto)
 {
     _pTextService->_HandleCompositionFinalize(dto.ec, dto.pContext, FALSE);
-    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId);
+    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId, dto.groupedPanelKey);
 }
 
 HRESULT CKeyStateComposing::HandleKeyFinalizeTextStore(KeyHandlerEditSessionDTO dto)
@@ -315,7 +315,7 @@ HRESULT CKeyStateComposing::HandleKeyFinalizeTextStore(KeyHandlerEditSessionDTO 
 HRESULT CKeyStateComposing::HandleKeyFinalizeCandidatelistAndInput(KeyHandlerEditSessionDTO dto)
 {
     _pTextService->_HandleCompositionFinalize(dto.ec, dto.pContext, TRUE);
-    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId);
+    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId, dto.groupedPanelKey);
 }
 
 HRESULT CKeyStateComposing::HandleKeyFinalizeCandidatelist(KeyHandlerEditSessionDTO dto)
@@ -410,7 +410,7 @@ HRESULT CKeyStateCandidate::HandleKeyFinalizeCandidatelistForVKReturn(KeyHandler
 HRESULT CKeyStateCandidate::HandleKeyFinalizeCandidatelistAndInput(KeyHandlerEditSessionDTO dto)
 {
     _pTextService->_HandleCandidateFinalize(dto.ec, dto.pContext, dto.requestId, dto.prefetchedText);
-    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId);
+    return _pTextService->_HandleCompositionInput(dto.ec, dto.pContext, dto.wch, dto.requestId, dto.groupedPanelKey);
 }
 
 //_HandleCandidateConvert

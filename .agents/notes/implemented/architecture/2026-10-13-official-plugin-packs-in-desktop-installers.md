@@ -69,3 +69,5 @@ Status: implemented
 - 没有做的：三个桌面平台的装机打字验收（5 级）。在本机装 macOS 开发构建会替换用户日常用的输入法，这一轮没有做；Windows 只到 CI 的交叉构建，安装包只在发版工作流里产出。
 
 当场分类：[脚本插件合集](2026-10-12-script-plugin-collection.md) 被部分取代——它「不随输入法分发」的决定对官方包翻转了，其余（目录约定、构建和测试脚本、fuel 计法）仍然成立，那篇只加了指向这里的链接；[脚本插件在自己的 `/` 指令里出候选](2026-10-13-script-plugin-command-rows.md) 部分重叠，uuid 是它的第一个真实消费者，互链；[脚本插件进入插件包体系](2026-10-12-script-plugin-kind-and-grants.md) 部分重叠（授权绑定哈希、导入拒绝保留 id 的规则对官方包照旧），那篇加了链接；[Windows 设置的插件页](../feature/2026-10-11-windows-settings-plugins.md) 部分重叠，就地补了请求里的 `plugin_packs`；[删除与内置重复的脚本插件](../simplification/2026-10-13-remove-duplicate-script-plugins.md) 无关（被删的三个插件仍不分发）。
+
+Windows 的内置辅助码表也按同一个先例由宿主写明目录：码表在 DataDir 的 `helpcodes`，Server 和 TIP 经 `src/system/HelpcodeRoot.h` 把 DataDir 写成 `helpcode_fallback_resources`，见 [下载的词库代次回退到随包辅助码表](../bug-fix/2026-10-23-downloaded-generation-helpcode-fallback.md)，部分重叠，互链。

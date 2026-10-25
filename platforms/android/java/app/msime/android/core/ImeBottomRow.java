@@ -13,14 +13,17 @@ import app.msime.android.KeyboardGeometry;
 import android.widget.LinearLayout;
 
 /**
- * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布。26 键为 123 | 符 | 空格 | ， | 中 | ↵，逗号长按输入句号；14 键、手写和大千注音保留独立逗号句号；拼音九键和笔画为 符 | 123 | 空格 | 中 | ↵。地球键按系统能力插在 123 之后，空格保留语音与移光标手势，回车始终使用操作色。
+ * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布。26 键为 123 | 符 | 空格 | ， | 中 | ↵，逗号长按输入句号；14 键和大千注音保留独立逗号句号；手写为 123 | ， | 空格 | 。 | 中 | 重写 | ⌫ | ↵，逗号长按输入问号、句号长按输入叹号；拼音九键和笔画为 符 | 123 | 空格 | 中 | ↵。地球键按系统能力插在 123 之后，空格保留语音与移光标手势，回车始终使用操作色。
  *
  * <p>空格与回车换成画图标的 {@link SpaceKeyFace} / {@link KeyboardIconKey}：SVC 建的原按钮留作点击的执行者（它带着计数、反馈与动作），新键点一下就让原按钮 performClick，所以 SVC 里的动作不必搬动；节点 text 照旧由 SVC 设置（「空格」、「换行/确认/…」）。
  */
 final class ImeBottomRow {
     private final MSIMEInputService s;
-    /** 底行的句号键（新设计里逗号右侧那个）；第一次排布时建。 */
-    private Button periodButton;
+    /** 底行的句号键（新设计里逗号右侧那个）；第一次排布时建。手写底行上它带「！」角标，长按输入叹号。 */
+    private KeyHintButton periodButton;
+    /** 手写底行的「重写」和 ⌫：书写区铺满整行后从它右侧的列搬到这里；第一次排布手写底行时建。 */
+    private Button rewriteButton;
+    private Button handwritingDeleteButton;
     /** 九键数字层的唯一 0，普通层不挂载。 */
     private Button zeroButton;
     /** 分离式键盘右半边内侧的第二个空格键；第一次分离时建，换了一套控件（onCreateInputView）时作废重建。 */
@@ -365,6 +368,8 @@ final class ImeBottomRow {
             case SPACE -> s.spaceButton;
             case ZERO -> zeroButton();
             case PERIOD -> periodButton();
+            case REWRITE -> rewriteButton();
+            case DELETE -> handwritingDeleteButton();
             case RETURN -> s.enterButton;
         };
     }
@@ -378,13 +383,46 @@ final class ImeBottomRow {
         return zeroButton;
     }
 
-    /** 底行句号键：中文标点模式画「。」，否则「.」；发出的都是 `.`，由 Engine 按标点模式转换。 */
+    /** 底行句号键：中文标点模式画「。」，否则「.」；发出的都是 `.`，由 Engine 按标点模式转换。手写底行上长按输入叹号（{@link KeyboardActionRow#usesHandwritingMarks}），其他底行长按不做事。 */
     private Button periodButton() {
         if (periodButton == null) {
-            periodButton = s.keyId(s.keyboardKey(".", "句号", () -> s.type('.')), "Period");
+            KeyHintButton period = new KeyHintButton(s);
+            KeyboardTypographyPolicy.normalizeKeyCap(period);
+            ViewPolicy.setAllCapsFalse(period);
+            period.setText(".");
+            s.imeStyler.styleButton(period, false);
+            s.bindCountedAction(period, () -> s.type('.'));
+            period.setOnLongClickListener(ignored -> {
+                if (!s.handwritingMarksShown()) return false;
+                s.imeKeyFeedback.playFeedback(period);
+                s.countKey(period);
+                s.type('!');
+                return true;
+            });
+            periodButton = s.keyId(period, "Period");
             KeyboardTypographyPolicy.setKeyTextSize(periodButton, 22);
         }
         return periodButton;
+    }
+
+    /** 手写底行的「重写」：清空书写区和还没停笔识别的笔迹。 */
+    private Button rewriteButton() {
+        if (rewriteButton == null) {
+            rewriteButton = s.keyboardKey("重写", "清空手写", () -> {
+                s.imeLayoutRows.cancelPendingInk();
+                s.clearHandwriting();
+            });
+        }
+        return rewriteButton;
+    }
+
+    /** 手写底行的 ⌫：有笔迹时撤回一笔，没有时删除光标前的字符；和其他布局的删除键一样按住连删、上滑快速删除（#5585）。 */
+    private Button handwritingDeleteButton() {
+        if (handwritingDeleteButton == null) {
+            handwritingDeleteButton = s.keyId(s.backspaceKey(s::deleteFromHandwriting), "Backspace");
+            s.imeLetterRows.bindBackspaceRepeat(handwritingDeleteButton, s::deleteFromHandwriting);
+        }
+        return handwritingDeleteButton;
     }
 
     /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
@@ -409,9 +447,12 @@ final class ImeBottomRow {
         if (periodButton != null) {
             String periodFace = KeyboardActionRow.punctuationFace(
                 KeyboardActionRow.DesignSlot.PERIOD, chinesePunctuation);
+            boolean exclamation = s.handwritingMarksShown();
             // 句号沿用字体里的大小和基线位置，避免放大居中后看起来像圆圈。
             periodButton.setText(periodFace);
-            periodButton.setContentDescription("按键 " + periodFace);
+            periodButton.setCornerHint(exclamation
+                ? ChineseSymbolFaces.face("!", chinesePunctuation, s.punctuationMarks()) : "");
+            periodButton.setContentDescription("按键 " + periodFace + (exclamation ? "；长按输入叹号" : ""));
             // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
             ViewPolicy.setEnabled(periodButton, s.connection != null);
         }

@@ -20,6 +20,7 @@ test("中文语言扇区聚合全部中文方案，其他来源保留独立模�
     "quanpin",
     "nineKey",
     "fourteenKey",
+    "eighteenKey",
     "shuangpin",
     "ziranma",
     "microsoft",
@@ -47,7 +48,7 @@ test("中文语言扇区聚合全部中文方案，其他来源保留独立模�
   const frozen = Object.freeze({ characters: Object.freeze({}), sources: Object.freeze(sources) });
   const { languageSlices, sourceSlices } = statisticsDistributionSlices(frozen);
   expect(languageSlices.map(({ id, count }) => [id, count])).toEqual([
-    ["chinese", 12],
+    ["chinese", 13],
     ["japanese", 2],
     ["korean", 3],
     ["vietnamese", 4],
@@ -68,11 +69,13 @@ test("中文语言扇区聚合全部中文方案，其他来源保留独立模�
   });
   expect(sourceSlices.find(({ id }) => id === "handwriting")?.count).toBe(12);
   expect(sourceSlices.find(({ id }) => id === "fourteenKey")?.title).toBe("全拼 14 键");
+  expect(sourceSlices.find(({ id }) => id === "eighteenKey")?.title).toBe("全拼 18 键");
   expect(sourceSlices.find(({ id }) => id === "smart_abc")?.title).toBe("智能 ABC 双拼");
   expect(sourceSlices.map(({ id }) => id)).toEqual([
     "quanpin",
     "nineKey",
     "fourteenKey",
+    "eighteenKey",
     "shuangpin",
     "ziranma",
     "microsoft",

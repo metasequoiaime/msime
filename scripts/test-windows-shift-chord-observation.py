@@ -21,7 +21,9 @@ unit = r'''
 using UINT=unsigned; using BYTE=unsigned char; using WPARAM=std::uintptr_t;
 using LPARAM=std::intptr_t; using LRESULT=std::intptr_t; using ULONG_PTR=std::uintptr_t;
 using ULONGLONG=unsigned long long; using GUID=int;
+#ifndef _Out_
 #define _Out_
+#endif
 namespace Global { constexpr int MetasequoiaIMEGuidImeModePreserveKey=1, MetasequoiaIMEGuidImeModePreserveKey03=2; }
 namespace FanyUtils {
  struct Hotkeys { bool shift=true, ctrl=true; };

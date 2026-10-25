@@ -122,6 +122,8 @@ public final class KeyboardGeometrySmoke {
             check(KeyboardHeightPolicy.bottomRowAdjustment(adjustment, false)
                 == KeyboardHeightPolicy.bottomRowAdjustment(adjustment), "其他布局保留四行均分");
         }
+        // 手写区竖屏四行键高、横屏三行，与 iOS、HarmonyOS 同一条规则（scripts/test-mobile-handwriting-pad-parity.py）。
+        check(KeyboardGeometry.handwritingRows(false) == 4 && KeyboardGeometry.handwritingRows(true) == 3, "handwriting rows");
         check(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP == 48);
         check(KeyboardHeightPolicy.heightAdjustment(-13) == -12);
         check(KeyboardHeightPolicy.heightAdjustment(49) == 48);

@@ -4,6 +4,12 @@ import SwiftUI
 ///
 /// 统计只保留聚合计数，所以设计稿里的常用词和最常打错两张卡片没有做：它们需要用户打过的词本身。
 struct TypingStatisticsView: View {
+  var body: some View {
+    StatisticsAuthenticationGate { NavigationStack { AuthenticatedTypingStatisticsView() } }
+  }
+}
+
+private struct AuthenticatedTypingStatisticsView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var statistics = TypingStatistics()
   /// 统计文档是否至少读到过一次，这样关闭提示说的是存储里的开关，而不是空的默认值。

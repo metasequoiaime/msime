@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("settings_updater", ROOT / "platforms/macos/scripts/settings_updater.py")
 updater = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(updater)
+feed_spec = importlib.util.spec_from_file_location("sparkle_feed", ROOT / "platforms/macos/scripts/sparkle_feed.py")
+sparkle_feed = importlib.util.module_from_spec(feed_spec)
+feed_spec.loader.exec_module(sparkle_feed)
 
 
 class SettingsUpdaterTests(unittest.TestCase):
@@ -27,8 +30,8 @@ class SettingsUpdaterTests(unittest.TestCase):
         framework = self.native / "Contents/Frameworks/Sparkle.framework"
         (framework / "Versions/B").mkdir(parents=True)
         (framework / "Versions/B/Sparkle").write_bytes(b"synthetic-framework")
-        (framework / "Versions/Current").symlink_to("B")
-        (framework / "Sparkle").symlink_to("Versions/Current/Sparkle")
+        (framework / "Versions/Current").symlink_to("B", target_is_directory=True)
+        (framework / "Sparkle").symlink_to(Path("Versions") / "Current" / "Sparkle")
         self.write_plists()
 
     def write_plists(self):
@@ -50,6 +53,9 @@ class SettingsUpdaterTests(unittest.TestCase):
                 self.assertTrue(updater.configure(self.app, self.native, edition["id"]))
                 settings = self.read_settings()
                 self.assertEqual(settings["SUFeedURL"], f'https://updates.example.invalid/appcast-settings-{edition["id"]}.xml')
+                # 设置应用的 SUFeedURL 是稳定版的 feed，名字与发布一侧 sparkle_feed.py 写出的稳定版 appcast 相同；测试版和每日构建由设置应用在运行时推出（UpdateChannelFeed.h），Info.plist 不随通道变。
+                self.assertEqual(settings["SUFeedURL"].rsplit("/", 1)[1], sparkle_feed.feed_name("settings", "stable", edition["id"]))
+                self.assertEqual(self.metadata["SUFeedURL"].rsplit("/", 1)[1], sparkle_feed.feed_name("input", "stable", edition["id"]))
                 self.assertEqual(settings["CFBundleVersion"], self.metadata["CFBundleVersion"])
                 self.assertEqual(settings["CFBundleIdentifier"], self.settings["CFBundleIdentifier"])
                 self.assertEqual(settings["SUPublicEDKey"], self.metadata["SUPublicEDKey"])

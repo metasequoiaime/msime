@@ -12,6 +12,93 @@ import {
 
 afterEach(cleanup);
 
+const manualDownloads = {
+  directory: "/home/synthetic/.local/share/msime-client/resources",
+  artifacts: [
+    {
+      name: "synthetic.db",
+      url: "https://example.invalid/locked/synthetic.db",
+      mirrorUrl: "https://mirror.example.invalid/https://example.invalid/locked/synthetic.db",
+      size: 1024,
+      sha256: "a".repeat(64),
+    },
+  ],
+};
+
+test("manual dictionary links load on demand and copy the package URLs and destination", async () => {
+  const downloads = vi.fn().mockResolvedValue(manualDownloads);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const run = vi.fn().mockResolvedValue({ ...missing, prepared: true });
+  render(
+    <LinuxSetupPage status={missing} client={{ run, downloads, copyText }} onComplete={vi.fn()} />,
+  );
+  expect(downloads).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "手动下载词库" }));
+  await screen.findByText(manualDownloads.directory);
+  expect(screen.getByText(manualDownloads.artifacts[0].sha256)).toBeTruthy();
+  expect(run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "复制全部原地址" }));
+  await waitFor(() => expect(copyText).toHaveBeenLastCalledWith(manualDownloads.artifacts[0].url));
+  fireEvent.click(screen.getByRole("button", { name: "复制国内镜像" }));
+  await waitFor(() =>
+    expect(copyText).toHaveBeenLastCalledWith(manualDownloads.artifacts[0].mirrorUrl),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "复制保存目录" }));
+  await waitFor(() => expect(copyText).toHaveBeenLastCalledWith(manualDownloads.directory));
+  fireEvent.click(screen.getByRole("button", { name: "手动下载词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "手动下载词库" }));
+  expect(downloads).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "开始配置" }));
+  await screen.findByRole("heading", { name: "配置完成" });
+  expect(run).toHaveBeenCalledWith(
+    { download: false, cloudCandidates: false },
+    expect.any(Function),
+    expect.any(Function),
+  );
+});
+
+test("a failed manual manifest can be retried while ordinary setup stays available", async () => {
+  const downloads = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("synthetic failure"))
+    .mockResolvedValue(manualDownloads);
+  render(
+    <LinuxSetupPage status={missing} client={{ run: vi.fn(), downloads }} onComplete={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "手动下载词库" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "msime-linux-setup --list-downloads",
+  );
+  expect((screen.getByRole("button", { name: "开始配置" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "重试读取" }));
+  await screen.findByText(manualDownloads.directory);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("missing dictionary URLs stay explicit and failed copies do not report success", async () => {
+  const downloads = vi.fn().mockResolvedValue({
+    ...manualDownloads,
+    artifacts: [
+      ...manualDownloads.artifacts,
+      { name: "unavailable.db", url: null, mirrorUrl: null, size: 1, sha256: "b".repeat(64) },
+    ],
+  });
+  const copyText = vi.fn().mockRejectedValue(new Error("synthetic clipboard failure"));
+  render(
+    <LinuxSetupPage
+      status={missing}
+      client={{ run: vi.fn(), downloads, copyText }}
+      onComplete={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "手动下载词库" }));
+  await screen.findByText("本安装包未提供下载地址");
+  fireEvent.click(screen.getByRole("button", { name: "复制原地址" }));
+  expect((await screen.findByRole("status")).textContent).toContain("复制失败");
+});
+
 const missing: LinuxSetupStatus = {
   prepared: false,
   stateDirectory: "/home/user/.config/msime-client",
@@ -334,4 +421,22 @@ test("首次配置页的产品名、结果卡片和终端命令随安装的版�
   expect(card.textContent).toContain("「水杉五笔」");
   expect(card.textContent).toContain("「Metasequoia 水杉五笔」");
   expect(card.textContent).not.toContain("水杉输入法");
+});
+
+test("资源损坏的已有配置走修复事务，不重复创建状态目录", async () => {
+  const run = vi.fn();
+  const update = vi.fn().mockResolvedValue({ ...missing, prepared: true });
+  render(
+    <LinuxSetupPage
+      status={{ ...missing, prepared: true, dictionaryOutdated: false }}
+      repair
+      client={{ run, update }}
+      onComplete={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("heading", { name: "运行资源需要修复" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "立即修复" }));
+  await screen.findByRole("heading", { name: "词库已更新" });
+  expect(update).toHaveBeenCalledOnce();
+  expect(run).not.toHaveBeenCalled();
 });

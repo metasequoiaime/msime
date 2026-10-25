@@ -94,6 +94,7 @@ export function SettingsAccountPage({ model, onReplayOnboarding }: SettingsAccou
       preferences={draft}
       onOpenPage={selectPage}
       appTheme={client.appTheme}
+      statisticsAuthentication={client.typingStatistics?.authentication?.settings}
       onOpenUrl={
         client.openExternalUrl
           ? (url: string) => {

@@ -315,6 +315,9 @@ if(BUILD_TESTING)
     MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
     MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
   if(MSIME_ENGINE_RESOURCES)
+    add_test(NAME ibus-custom-voice-hotkey
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --voice-hotkey)
+    set_tests_properties(ibus-custom-voice-hotkey PROPERTIES TIMEOUT 60)
     add_test(NAME ibus-helpcode-trigger
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --helpcode-trigger)
     set_tests_properties(ibus-helpcode-trigger PROPERTIES TIMEOUT 60)

@@ -61,9 +61,13 @@ public final class MsToast {
         params.bottomMargin = DimensionPolicy.pixels(activity, Ui.TOAST_BOTTOM) + navigationInset(frame);
         toast.setAlpha(0f);
         frame.addView(toast, params);
-        toast.animate().alpha(1f).setDuration(Ui.FADE_MILLIS).withEndAction(() ->
-            toast.animate().alpha(0f).setStartDelay(Ui.TOAST_MILLIS).setDuration(Ui.FADE_MILLIS)
-                .withEndAction(() -> frame.removeView(toast)).start()).start();
+        toast.animate().alpha(1f).setDuration(Ui.FADE_MILLIS).start();
+        // 停留时间按真实时间计，不能用动画的 startDelay：它和动画时长一样乘系统的动画缩放，关掉动画（无障碍「移除动画」、开发者选项）时缩成 0，提示只显示一帧。被新提示替换后它已不在内容层里，就不再处理。
+        toast.postDelayed(() -> {
+            if (toast.getParent() != frame) return;
+            toast.animate().alpha(0f).setDuration(Ui.FADE_MILLIS)
+                .withEndAction(() -> frame.removeView(toast)).start();
+        }, Ui.FADE_MILLIS + Ui.TOAST_MILLIS);
     }
 
     /** 手势区或三键导航栏的高度：内容层在边到边模式下伸到它下面，toast 要留在它上方。 */

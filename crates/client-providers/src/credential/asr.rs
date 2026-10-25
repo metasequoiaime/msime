@@ -106,16 +106,14 @@ pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
     // The reference treats successful processing of silent audio as success;
     // no transcript is required or returned to the settings window.
     let message = match status {
-        Some(200..=299) => "连接成功，API Key 和模型配置有效。",
-        Some(401 | 403) => "认证失败，请检查 API Key 和访问权限。",
-        Some(429) => "服务限流或额度不足，请稍后重试。",
-        Some(_) => "转写测试未成功，请检查接口地址、模型和服务对静音音频的支持。",
-        None => "连接失败或响应超出限制，请检查网络后重试。",
+        Some(200..=299) => "连接成功，API Key 和模型配置有效。".into(),
+        Some(status) => crate::credential::probe::rejected_status_message(
+            status,
+            "转写测试未成功，请检查接口地址、模型和服务对静音音频的支持",
+        ),
+        None => "连接失败或响应超出限制，请检查网络后重试。".into(),
     };
-    ProbeResult {
-        ok,
-        message: message.into(),
-    }
+    ProbeResult { ok, message }
 }
 
 #[cfg(test)]
@@ -174,6 +172,21 @@ mod tests {
                 assert!(!result.ok);
                 assert!(!result.message.contains("synthetic-key"));
             }
+        }
+        for (status, explanation) in [
+            (402, "账户余额不足（HTTP 402）"),
+            (503, "服务暂时不可用（HTTP 503）"),
+            (
+                404,
+                "转写测试未成功，请检查接口地址、模型和服务对静音音频的支持（HTTP 404）",
+            ),
+        ] {
+            let result = test(&config("openai"), &Fake(Some(status)));
+            assert!(
+                result.message.starts_with(explanation),
+                "{status}: {}",
+                result.message
+            );
         }
     }
     #[test]

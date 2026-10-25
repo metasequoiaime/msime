@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
+import { SearchGlyph } from "../core/search-glyph";
 import { ActionButton } from "./action-button";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { MAX_COMMAND_TABLES } from "./plugin-preferences";
@@ -194,18 +195,7 @@ export function PluginLibraryView({
           </p>
         )}
         <label className={style.search}>
-          <svg
-            aria-hidden="true"
-            className="size-4 shrink-0"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          >
-            <circle cx="7" cy="7" r="5" />
-            <path d="m11 11 3.5 3.5" />
-          </svg>
+          <SearchGlyph strokeWidth={1.5} className="size-4 shrink-0" />
           <input
             type="search"
             aria-label="搜索已安装插件"

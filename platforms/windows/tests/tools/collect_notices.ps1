@@ -15,6 +15,7 @@ try {
         'resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'resources/licenses/librime-octagram-BSD-3-Clause.txt',
         'resources/licenses/kfcd-chaizi-CC-BY-3.0.txt',
         'resources/licenses/Unicode-License-V3.txt',
+        'resources/licenses/world-clock-NOTICE.txt',
         'resources/licenses/rime-wanxiang-CC-BY-4.0.txt',
         'resources/licenses/rime-cantonese-CC-BY-4.0.txt',
         'resources/licenses/libchewing-data-LGPL-2.1.txt', 'resources/licenses/rime-stroke-LGPL-3.0.txt',

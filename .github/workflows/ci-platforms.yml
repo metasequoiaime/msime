@@ -196,16 +196,27 @@ jobs:
     runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 45
     env:
-      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
       CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Depot 的 runner 启动时已把 SCCACHE_WEBDAV_ENDPOINT 指向 Depot Cache，配上 job 级 env 的 RUSTC_WRAPPER，rustc 的产物就跨运行缓存，不需要 token。CARGO_INCREMENTAL=0 是因为 sccache 不缓存增量编译。
+      # Depot 的 runner 启动时已把 SCCACHE_WEBDAV_ENDPOINT 指向 Depot Cache，rustc 的产物跨运行缓存，不需要 token。缓存只为加速：sccache 装不上或服务起不来时（Depot Cache 一时连不上，#9658 的 Web engine 就这样在 cargo 第一步退出）照常不带缓存编译，只有服务真正启动了，「Enable sccache」才把 RUSTC_WRAPPER 写进环境；SCCACHE_IGNORE_SERVER_IO_ERROR=1 让构建途中服务出错时退回直接编译。CARGO_INCREMENTAL=0 是因为 sccache 不缓存增量编译。
       - name: Install sccache
+        id: sccache
         if: ${{ needs.changes.outputs.linux == 'true' }}
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ needs.changes.outputs.linux == 'true' && steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       - name: Install the Tauri build dependencies
         if: ${{ needs.changes.outputs.linux == 'true' }}
         run: |
@@ -238,15 +249,26 @@ jobs:
     runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 30
     env:
-      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
       CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install sccache
+        id: sccache
         if: ${{ needs.changes.outputs.engine == 'true' }}
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ needs.changes.outputs.engine == 'true' && steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       # 拆字表（crates/engine/src/local/chaizi*.tsv）由生成器从锁定的 kfcd/chaizi 和 Unihan 生成并提交。MSIME_FETCH=1 让契约检查在缓存里没有输入时按锁下载并逐字节核对，而不是打印 skip；输入按两份锁的摘要缓存，锁不变就不重新下载。
       - name: Restore the pinned chaizi sources
         if: ${{ needs.changes.outputs.engine == 'true' }}
@@ -277,15 +299,26 @@ jobs:
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 30
     env:
-      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
       CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install sccache
+        id: sccache
         if: ${{ needs.changes.outputs.plugins == 'true' }}
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ needs.changes.outputs.plugins == 'true' && steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       - name: Restore the pinned Unihan zip
         if: ${{ needs.changes.outputs.plugins == 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -495,7 +528,8 @@ jobs:
     needs: changes
     name: Windows native settings
     runs-on: windows-2025
-    timeout-minutes: 40
+    # 完整 WinUI、Win7 设置、手写及多版本门禁已实测耗时 39 分钟，保留冷构建余量。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -517,12 +551,78 @@ jobs:
           & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
           Copy-Item target/debug/msime_host_api.dll $output
+      - name: Build and test the compatibility settings host
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          if (-not (Test-Path -LiteralPath $toolchain -PathType Leaf)) { throw 'vcpkg toolchain not found' }
+          $output = 'target/windows-full/x64/win7-settings'
+          # 使用同一提交的普通核心验证 HWND 和持久化；Win7 目标与实机另做验收。
+          cmake -S platforms/windows/settings/win7 -B $output -A x64 "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DVCPKG_INSTALLED_DIR=$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DMSIME_HOST_LIBRARY=$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
+          if ($LASTEXITCODE -ne 0) { throw 'Compatibility settings configuration failed' }
+          cmake --build $output --config RelWithDebInfo --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Compatibility settings build failed' }
+          Copy-Item target/debug/msime_host_api.dll "$output/RelWithDebInfo/"
+          ctest --test-dir $output -C RelWithDebInfo --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Compatibility settings tests failed' }
+          cmake -S platforms/windows/compat -B target/windows7-compat/x64 -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Compatibility API configuration failed' }
+          cmake --build target/windows7-compat/x64 --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Compatibility API build failed' }
+          ctest --test-dir target/windows7-compat/x64 -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Compatibility API tests failed' }
+          & ./platforms/windows/tests/tools/windows7_imports.ps1
+      - name: Build and test Windows 7 handwriting host
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p msime-host-windows --lib ink::
+          if ($LASTEXITCODE -ne 0) { throw 'Windows handwriting backend tests failed' }
+          cargo test --locked -p msime-host-api --lib windows_handwriting::
+          if ($LASTEXITCODE -ne 0) { throw 'Windows handwriting ABI tests failed' }
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          $output = 'target/windows-full/x64/win7-panels'
+          # 复用设置窗口的最小依赖清单；普通核心验证控件，Win7 目标另做兼容验收。
+          cmake -S platforms/windows/panels/win7 -B $output -A x64 "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DVCPKG_MANIFEST_DIR=$env:GITHUB_WORKSPACE/platforms/windows/settings/win7" "-DVCPKG_INSTALLED_DIR=$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DMSIME_HOST_LIBRARY=$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 7 handwriting configuration failed' }
+          cmake --build $output --config RelWithDebInfo --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 7 handwriting build failed' }
+          Copy-Item target/debug/msime_host_api.dll "$output/RelWithDebInfo/"
+          ctest --test-dir $output -C RelWithDebInfo --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 7 handwriting controls tests failed' }
+      - name: Check Windows 7 product editions
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          foreach ($edition in @('wubi', 'japanese')) {
+            foreach ($surface in @('settings', 'panels')) {
+              $output = "target/windows-$edition/x64/win7-$surface"
+              cmake -S "platforms/windows/$surface/win7" -B $output -A x64 "-DMSIME_EDITION=$edition" "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DVCPKG_MANIFEST_DIR=$env:GITHUB_WORKSPACE/platforms/windows/settings/win7" "-DVCPKG_INSTALLED_DIR=$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DMSIME_HOST_LIBRARY=$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
+              if ($LASTEXITCODE -ne 0) { throw "Windows 7 $edition $surface configuration failed" }
+              cmake --build $output --config RelWithDebInfo --parallel 2
+              if ($LASTEXITCODE -ne 0) { throw "Windows 7 $edition $surface build failed" }
+              Copy-Item target/debug/msime_host_api.dll "$output/RelWithDebInfo/"
+              ctest --test-dir $output -C RelWithDebInfo --output-on-failure
+              if ($LASTEXITCODE -ne 0) { throw "Windows 7 $edition $surface tests failed" }
+            }
+          }
       - name: Inspect native settings pages
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: powershell
         run: |
           & platforms/windows/tests/tools/settings_ui.ps1 -Program target/windows-full/x64/settings/msime-client-settings.exe -OutputDirectory target/windows-full/x64/settings-screenshots
           if ($LASTEXITCODE -ne 0) { throw 'Settings UI smoke failed' }
+      - name: Inspect custom voice recorder
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: powershell
+        run: |
+          & platforms/windows/tests/tools/settings_ui.ps1 -Program target/windows-full/x64/settings/msime-client-settings.exe -OutputDirectory target/windows-full/x64/settings-screenshots/voice-hotkey -VoiceHotkeyOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Voice hotkey UI smoke failed' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && needs.changes.outputs.windows == 'true' }}
         with:
@@ -576,15 +676,26 @@ jobs:
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 60
     env:
-      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
       CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install sccache
+        id: sccache
         if: ${{ needs.changes.outputs.web == 'true' }}
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ needs.changes.outputs.web == 'true' && steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       # wasm-bindgen CLI 必须和 crates/engine-wasm 钉住的 wasm-bindgen crate 同为 0.2.128，wasm-opt 用 binaryen version_133；两个官方 tarball 的 SHA-256 记在这里，下载后先校验再用。release-web-engine.yml 用同样的两份。
       - name: Install LLVM, the wasm target, wasm-bindgen and wasm-opt
         if: ${{ needs.changes.outputs.web == 'true' }}

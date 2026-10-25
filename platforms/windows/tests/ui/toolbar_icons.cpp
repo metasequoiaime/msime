@@ -12,11 +12,11 @@ namespace {
   throw std::runtime_error("Toolbar icon table failed at line " +
                            std::to_string(line));
 }
-#define require(value)                                                         \
-  do {                                                                         \
-    if (!(value))                                                              \
-      require_failed(__LINE__);                                                \
-  } while (false)
+void require_at(bool value, int line) {
+  if (!value)
+    require_failed(line);
+}
+#define require(value) require_at((value), __LINE__)
 // The text a button draws when it has no glyph, and that it has none.
 bool text(const ToolbarIcon &icon, const wchar_t *expected) {
   return icon.codepoint == 0 && std::wcscmp(icon.fallback, expected) == 0;
@@ -47,7 +47,7 @@ int main() {
     require(std::wcscmp(toolbar_icon(kToolbarInputScheme, std::nullopt).fallback, L"方") == 0);
     // Text is drawn in the Chinese UI font at macOS's 0.95 of the font size; only the Tibetan badge names a face of its own.
     require(std::wcscmp(toolbar_text_font, L"Microsoft YaHei UI") == 0);
-    require(toolbar_glyph_scale == 0.95f);
+    static_assert(toolbar_glyph_scale == 0.95f);
     for (int button = kToolbarLanguage; button <= kToolbarInputScheme; ++button)
       for (const std::optional<bool> state :
            {std::optional<bool>{}, std::optional<bool>{true}, std::optional<bool>{false}})

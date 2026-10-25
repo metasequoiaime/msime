@@ -91,6 +91,18 @@ if(BUILD_TESTING)
     target_compile_options(shared-voice-local-helper-queue PRIVATE -Wall -Wextra -Werror)
   endif()
   add_test(NAME shared-voice-local-helper-queue COMMAND shared-voice-local-helper-queue)
+  if(WIN32 AND MSIME_LOCAL_ASR_TEST_RUNTIME)
+    add_executable(shared-voice-local-runtime tests/local_runtime_windows.cpp)
+    target_link_libraries(shared-voice-local-runtime PRIVATE msime-voice-local-asr)
+    if(MSVC)
+      target_compile_options(shared-voice-local-runtime PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+    else()
+      target_compile_options(shared-voice-local-runtime PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    endif()
+    add_test(NAME shared-voice-local-runtime
+      COMMAND shared-voice-local-runtime "${MSIME_LOCAL_ASR_TEST_RUNTIME}")
+    set_tests_properties(shared-voice-local-runtime PROPERTIES TIMEOUT 30)
+  endif()
   # With a fetched runtime and an installed model (scripts/fetch_voice_runtime.py, then a model from resources/local-asr-models.json) this also transcribes a real recording through the helper. Both are downloads, so the test is opt-in.
   if(MSIME_LOCAL_ASR_TEST_MODEL AND MSIME_LOCAL_ASR_TEST_RUNTIME)
     add_test(NAME shared-voice-local-helper

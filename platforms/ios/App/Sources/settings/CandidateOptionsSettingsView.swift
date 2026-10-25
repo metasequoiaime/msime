@@ -8,6 +8,8 @@ import CoreFoundation
 ///
 /// 设计稿里的候选栏高度和翻页两行没有做：键盘没有候选栏高度设置和翻页按钮，扩展也拿不到可用来翻页的硬件按键。
 struct CandidateOptionsSettingsView: View {
+  @State private var multilingualEnabled = false
+  @State private var multilingualLanguages = ["chinese", "english", "japanese"]
   @State private var mixedEnabled = true
   @State private var firstPageCount = 1
   @State private var english = true
@@ -83,6 +85,20 @@ struct CandidateOptionsSettingsView: View {
           DesignToggleRow(title: "双拼显示原始按键", subtitle: "关闭后显示按键对应的完整拼音",
                           isOn: storedTop("shuangpin_preedit_uses_raw", $shuangpinRaw))
             .accessibilityIdentifier("shuangpinPreeditUsesRaw")
+        }
+
+        if MSIMEAppEdition.offers("quanpin") {
+          DesignGroup(title: "连续多语言输入", footer: "至少选择两种可用语言。日文使用已有词典，未安装或准备中时暂不参与。") {
+            DesignToggleRow(title: "连续多语言输入（实验）", subtitle: "开启候选混输后，在全拼 26 键中连续输入所选语言的编码；完整中文优先，混合结果作为备选",
+                            isOn: stored("multilingual_input", "enabled", $multilingualEnabled))
+              .accessibilityIdentifier("multilingualInputEnabled")
+            ForEach([("chinese", "中文"), ("english", "英文"), ("japanese", "日文")], id: \.0) { language, title in
+              DesignDivider()
+              DesignToggleRow(title: "连续输入：\(title)", isOn: multilingualLanguage(language))
+                .accessibilityIdentifier("multilingualInput.\(language)")
+                .disabled(!multilingualEnabled)
+            }
+          }
         }
 
         DesignGroup(title: "候选内容", footer: saveFailed ? SettingsSaveFailure.message : nil) {
@@ -209,6 +225,20 @@ struct CandidateOptionsSettingsView: View {
     CandidateFontPreference.isInstalled(family) ? family : "\(family)（未安装）"
   }
 
+  /// 修改一个语言时保留其它语言和未来字段；显式空列表不回退到默认值。
+  private func multilingualLanguage(_ language: String) -> Binding<Bool> {
+    Binding(get: { multilingualLanguages.contains(language) }, set: { selected in
+      write {
+        var multilingual = $0["multilingual_input"] as? [String: Any] ?? [:]
+        var languages = multilingual["languages"] as? [String] ?? ["chinese", "english", "japanese"]
+        languages.removeAll { $0 == language }
+        if selected { languages.append(language) }
+        multilingual["languages"] = languages
+        $0["multilingual_input"] = multilingual
+      }
+    })
+  }
+
   private func write(_ mutate: (inout [String: Any]) -> Void) {
     saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences(mutate)
     reload()
@@ -228,6 +258,9 @@ struct CandidateOptionsSettingsView: View {
     if provider["source"] as? String == "custom", let endpoint = provider["endpoint"] as? String {
       cloudRecipient = URL(string: endpoint.replacingOccurrences(of: "{query}", with: "query"))?.host ?? "所选自定义服务"
     } else { cloudRecipient = "Google input-tools（inputtools.google.com）" }
+    let multilingual = preferences["multilingual_input"] as? [String: Any] ?? [:]
+    multilingualEnabled = multilingual["enabled"] as? Bool ?? false
+    multilingualLanguages = multilingual["languages"] as? [String] ?? ["chinese", "english", "japanese"]
     let mixed = preferences["mixed_input"] as? [String: Any] ?? [:]
     mixedEnabled = mixed["enabled"] as? Bool ?? true
     firstPageCount = mixed["first_page_count"] as? Int ?? 1

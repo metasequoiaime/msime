@@ -98,7 +98,7 @@ struct TabletSettingsView: View {
     .overlay {
       if groups.isEmpty { ContentUnavailableView.search(text: query) }
     }
-    .navigationTitle("设置")
+    .navigationTitle("水杉输入法")
   }
 
   private func row(_ page: SettingsPage) -> some View {

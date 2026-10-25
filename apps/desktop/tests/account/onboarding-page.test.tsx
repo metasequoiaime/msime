@@ -243,6 +243,29 @@ test("the HarmonyOS phone walks the design's steps and 跳过 keeps the keyboard
   );
 });
 
+test("鸿蒙跳过保存失败时保留方案并可重试", async () => {
+  const onSkip = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("synthetic save failure"))
+    .mockResolvedValue(undefined);
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      onSkip={onSkip}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  fireEvent.click(screen.getByRole("radio", { name: /双拼.*默认小鹤/ }));
+  fireEvent.click(screen.getByRole("button", { name: "跳过" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("操作失败");
+  expect(screen.getByRole("radio", { name: /双拼/ }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "跳过" }));
+  await waitFor(() => expect(onSkip).toHaveBeenCalledTimes(2));
+  expect(onSkip.mock.calls[1]).toEqual(onSkip.mock.calls[0]);
+});
+
 test("跳过 before choosing a keyboard asks the host to keep the saved scheme", async () => {
   const onSkip = vi.fn().mockResolvedValue(undefined);
   render(

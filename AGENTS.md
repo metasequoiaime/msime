@@ -5,7 +5,7 @@
 ## 改动范围
 
 - 只暂存明确列出的路径，不用 `git add -A`。
-- **一个 issue 一个 PR。** 处理 GitHub issue 时，每个 issue 单独一条分支、一个 PR，正文写 `Fixes #N`（只做了其中一部分时写 `Refs #N`，不自动关闭）。不要把几个 issue 合进同一个 PR，即使它们是同一次一起处理的。做某件事时顺带发现、没有对应 issue 的小问题，并进那件事的 PR，不必另开。#7045 把 7 个互不相关的 issue（AI 候选占位、Linux 设置窗口闪烁、DeepL、五笔查码、Android 图片发送、Caps Lock 切换、候选栏跟随光标）塞进一个横跨六个平台的 PR，审查、合并和回滚都没法按 issue 分开，几项还没补完的验证也跟着其余的一起进了 develop。见 `.agents/notes/implemented/process/2026-10-11-one-issue-one-pr.md`。
+- **一个 issue 一个 PR。** 处理 GitHub issue 时，每个 issue 单独一条分支、一个 PR，正文写 `Fixes #N`；只有 issue 要求的行为或平台还有一部分没实现时才写 `Refs #N`，并在正文列出还差什么。没在真机、报告者环境或真实编辑器里验收过不算没做完：缺的验收写进 PR 的验证段，需要报告者复验就在合并后到 issue 里请对方确认，照样写 `Fixes`。不要把几个 issue 合进同一个 PR，即使它们是同一次一起处理的。做某件事时顺带发现、没有对应 issue 的小问题，并进那件事的 PR，不必另开。#7045 把 7 个互不相关的 issue（AI 候选占位、Linux 设置窗口闪烁、DeepL、五笔查码、Android 图片发送、Caps Lock 切换、候选栏跟随光标）塞进一个横跨六个平台的 PR，审查、合并和回滚都没法按 issue 分开，几项还没补完的验证也跟着其余的一起进了 develop。见 `.agents/notes/implemented/process/2026-10-11-one-issue-one-pr.md`。
 - 不复制相邻仓库的未提交内容；上游来源以远端实际默认分支和固定提交为准。
 - **「把功能对齐某个平台」不等于「把默认值改成那个平台的出厂值」。** 对齐的验收标准是**能力可达**：字段存在、有宿主读、设置页有控件、行为能按用户选择生效。出厂默认值属于产品决策，会改变现有用户的手感，必须单独授权。做对齐任务时若发现默认值与参考平台不同，**只记录不改**，把差异表写进决策笔记（参考平台出厂值、本仓现值、为什么这次不动）。2026-10-22 一次「补齐 Windows 对齐」的 PR 顺手把 `helpcode.enabled`、`emoji`、`kaomoji`、`navigation.left_right` 等 7 个默认值翻成 Windows 出厂值，被维护者当场指出越界：这些翻转会静默改变所有 macOS 老用户的输入手感，且没有单独评审。
 - 日志、测试和提交中不得包含真实输入、凭据或私人资料，测试数据使用合成值。
@@ -60,7 +60,7 @@
 - 打版本一律从 `develop` 新建 `release/<版本号>` 分支（例如 `release/0.51.0`），由这个分支向 `main` 开 PR。禁止直接从 `develop` 向 `main` 开 PR 或合并，`branch-guard.yml` 的 Base branch 检查会拒绝这种 PR。
 - 各平台版本号（`platforms/<os>/version.txt` 及随它一起改的文件，macOS 还有 `build-number.txt`）先经普通 PR 合入 `develop`，再从包含它的 `develop` 切 release 分支，让 `main` 上的版本号始终来自 `develop`。
 - release 分支合入 `main` 用 merge commit，不要 squash：squash 会让 `develop` 的提交不在 `main` 的祖先里，下一次发版会在双方各自新增过的文件上冲突。
-- 各平台的 Release 工作流按触发分支给发布加后缀：`main` 不加（`android-v0.1.4`），`develop` 加 `-beta`（`android-v0.1.4-beta`），其他分支加 `-alpha`。后缀只在 tag、标题和发布说明上，包内版本号仍是 `X.Y.Z`；带后缀的发布一律标为 prerelease，应用内更新检查不会提供它，Homebrew cask 和 Linux 发行版包定义也只在 `main` 的正式版之后更新。网页引擎只能从 `main` 发布，后缀只出现在其他分支的构建产物里。
+- 各平台的 Release 工作流按触发分支给发布加后缀：`main` 不加（`android-v0.1.4`），`develop` 加 `-beta`（`android-v0.1.4-beta`），其他分支加 `-alpha`。后缀只在 tag、标题和发布说明上，包内版本号仍是 `X.Y.Z`；带后缀的发布一律标为 prerelease，稳定版通道的应用内更新检查不会提供它（Windows、Linux、macOS 选了测试版或每日构建通道时提供 `-beta`、不提供 `-alpha`，见 `crates/client-services/src/update_check.rs`；Android 的预览版通道见 `UpdateApi.java`），Homebrew cask 和 Linux 发行版包定义也只在 `main` 的正式版之后更新。网页引擎只能从 `main` 发布，后缀只出现在其他分支的构建产物里。
 - Release Android 的 `publish` 依赖 `device` job（`android-device.yml`，API 28 和 35 模拟器上跑 client-base、client-core、client-providers 和 client-services 单测和装包验收），它不过就不发。不要为了赶发版把这个依赖去掉；它失败时先看上传的 logcat，确认是设备环境问题还是产品问题。
 - 网页引擎（Release Web Engine）勾选 `publish` 时只能在 `main` 上运行，workflow 会拒绝其他分支：它同时发布 npm 包 `@msime/web-engine`，npm 的 `latest` 会被接入方的版本范围和不带版本号的 CDN 地址自动取走。只构建不发布时任何分支都可以。
 

@@ -427,7 +427,7 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertNil(KeyboardViewController.preferredGloss(offline: nil, online: nil, route: .none))
   }
 
-  /// The reserved rows come out of the keyboard's own height, not out of the keys.
+  /// 顶栏预留行加到键盘总高度，不能从按键区扣除；十四键的独立读音行也计入同一契约。
   func testTheKeyboardGrowsByTheRowsTheStripReserves() throws {
     let previousGloss = CandidateGlossPreference.enabled
     let previousSecondary = CandidateTranslationPreference.secondaryIndex
@@ -447,11 +447,15 @@ final class CandidateTranslationTests: XCTestCase {
 
     CandidateGlossPreference.enabled = false
     let bare = try XCTUnwrap(keyboardHeight())
+    let scheme = InputSchemePreference.scheme
+    let separateReadingRow = [.fourteenKey, .eighteenKey].contains(scheme)
     CandidateGlossPreference.enabled = true
     let glossed = try XCTUnwrap(keyboardHeight())
+    XCTAssertEqual(InputSchemePreference.scheme, scheme, "比较释义开关时输入方案必须保持一致")
     XCTAssertEqual(glossed - bare,
-                   KeyboardViewController.topRowHeight(glossLines: 1) - KeyboardViewController.topRowHeight(glossLines: 0),
-                   accuracy: 0.5, "the gloss row was taken off the keys instead of added to the keyboard")
+                   KeyboardViewController.topRowHeight(glossLines: 1, separateReadingRow: separateReadingRow)
+                     - KeyboardViewController.topRowHeight(glossLines: 0, separateReadingRow: separateReadingRow),
+                   accuracy: 0.5, "释义行必须加到键盘总高度，不能挤占按键区")
   }
 
   /// 带释义的词块按内容取宽：候选字和释义里更宽的那个，释义最多把词块撑到一栏，候选字本身更宽时照旧按候选字。

@@ -29,6 +29,7 @@ struct EngineView {
   std::size_t caret = 0;
   // The Engine's SchemeType ordinal; the numbers are named in common/InputSchemeTraits.h.
   uint32_t scheme = 0;
+  std::string key_grid = "none";
   // The non-letter keys that spell the composition rather than end it (Zhuyin's digit and punctuation keys, VNI's tone digits); empty when every such key is punctuation.
   std::string spelling_symbols;
   // 本地模式名（"none" 是普通组字）和引擎自己的英文模式，决定整句改字的方向键是否适用（HostEditsSentence）。
@@ -55,6 +56,7 @@ public:
   void destroy() noexcept;
   bool valid() const noexcept { return session_ != 0; }
   bool character(uint8_t, bool, std::string *, std::string *);
+  bool panel_character(uint8_t, bool, bool, std::string *, std::string *);
   bool command(uint32_t, std::string *, std::string *);
   bool select(uint64_t, std::size_t, std::string *, std::string *);
   bool select_edge(uint64_t, std::size_t, uint8_t, std::string *, std::string *);

@@ -57,7 +57,8 @@ struct SettingsView: View {
     .overlay {
       if groups.isEmpty { ContentUnavailableView.search(text: query) }
     }
-    .navigationTitle("设置")
+    // 「首页」标签的根页以应用名作大标题，与共享设置组件的 `mobilePageTitle("home")` 一致。
+    .navigationTitle("水杉输入法")
     .navigationBarTitleDisplayMode(.large)
     // 不按当前选中的标签页过滤：切走时读到 nil 会把推入的页面弹掉，切回来再重新推入，页面里更深一层的导航就丢了。
     .navigationDestination(item: $selectedPage) { $0.destination }
@@ -79,6 +80,7 @@ struct SettingsView: View {
   private func refresh() {
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     InputSchemePreference.mirror(preferences)
+    TouchShuangpinLayoutPreference.mirror(preferences)
     scheme = InputSchemePreference.scheme
     skin = KeyboardTheme.reload(preferences)
     values = Self.rowValues(scheme: scheme, preferences: preferences)
@@ -94,7 +96,8 @@ struct SettingsView: View {
     default: chinesePunctuation = preferences?["chinese_punctuation"] as? Bool ?? true
     }
     let learning = InputHabitPreference.settings(in: preferences).learning
-    let keys = scheme.isMandarinNineKey || scheme == .japaneseNineKey ? "9 键" : scheme == .fourteenKey ? "14 键" : "26 键"
+    let grid = LetterKeyGrid.of(scheme, shuangpinLayout: TouchShuangpinLayoutPreference.layout(in: preferences))
+    let keys = scheme.isMandarinNineKey || scheme == .japaneseNineKey ? "9 键" : grid?.title ?? "26 键"
     let height = KeyboardLayoutPreference.sharedHeightAdjustment(preferences?["touch_keyboard_height_adjustment"])
       ?? KeyboardLayoutPreference.heightAdjustment
     let language = VoicePolishSettings(preferences).language

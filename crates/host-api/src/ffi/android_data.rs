@@ -41,6 +41,35 @@ fn absolute_directory(path: &str) -> Result<&Path, String> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct WorldClockRequest {
+    directory: String,
+    action: msime_client_core::world_clock::ClockAction,
+}
+
+/// 离线世界时钟。有界 JSON 请求 `{directory, action}`；操作与稳定错误码见共享 `world_clock` 模块。
+/// # Safety
+/// `request` 必须指向 `length` 个可读字节，返回值由 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_world_clock(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // SAFETY: 调用方按上面的契约提供可读缓冲区。
+        unsafe {
+            super::with_bounded_bytes(request, length, 16384, "world_clock_invalid", |bytes| {
+                let request: WorldClockRequest =
+                    serde_json::from_slice(bytes).map_err(|_| "world_clock_invalid".to_owned())?;
+                let directory = absolute_directory(&request.directory)?;
+                msime_client_core::world_clock::perform(directory, request.action)
+                    .map_err(|error| error.code().to_owned())
+            })
+        }
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CommonPhrasesRequest {
     directory: String,
     action: CommonPhrasesAction,

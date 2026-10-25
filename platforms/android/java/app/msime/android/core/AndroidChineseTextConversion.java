@@ -22,4 +22,11 @@ public final class AndroidChineseTextConversion {
         return ChineseOutputPolicy.output(text, traditional, applies,
             NativeClient::simplifiedToTraditional);
     }
+
+    public static String candidateOutput(String text, boolean traditional, boolean dedicatedEnglish,
+                                         int scheme, String localMode, int source) {
+        return ChineseOutputPolicy.candidateOutput(text, traditional,
+            ChineseOutputPolicy.applies(dedicatedEnglish, scheme, localMode), source,
+            NativeClient::simplifiedToTraditional);
+    }
 }

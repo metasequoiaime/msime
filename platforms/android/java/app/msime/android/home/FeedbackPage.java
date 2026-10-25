@@ -64,7 +64,7 @@ import org.json.JSONObject;
  */
 public final class FeedbackPage extends DetailPage {
     @Override protected java.util.List<String> sectionTitles() {
-        return java.util.List.of("反馈", "选项", "其他渠道");
+        return java.util.List.of("反馈", "其他渠道");
     }
 
     private static final String QQ_GROUP = "829919142";
@@ -92,7 +92,8 @@ public final class FeedbackPage extends DetailPage {
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         Context context = requireContext();
 
-        GroupCard kind = GroupCard.add(sectionColumn(column, "选项"), "类型");
+        // 类型和诊断开关是这张表单的一部分，和描述、提交放在同一个分类里，不用切分类再回来提交。
+        GroupCard kind = GroupCard.add(sectionColumn(column, "反馈"), "类型");
         GroupCard.Row[] typeRow = new GroupCard.Row[1];
         typeRow[0] = kind.nav("反馈类型", null, type.title(), () -> chooseType(typeRow[0]));
         kind.toggle("附带诊断信息", "包含机型、系统版本、当前方案与键盘设置，不含输入内容", diagnostics,

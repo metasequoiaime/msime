@@ -164,7 +164,11 @@ export function KeyboardPanel({
           {notice}
         </span>
         <button type="button" aria-label="切换键盘布局" onClick={switchLayout}>
-          {activeLayout === "twenty_six_key" ? "九宫格" : "全键"}
+          {platform === "windows" && activeLayout === "twenty_six_key"
+            ? "十八键"
+            : activeLayout === "twenty_six_key" || activeLayout === "eighteen_key"
+              ? "九宫格"
+              : "全键"}
         </button>
         {voiceShortcut && client.openVoice && (
           <button
@@ -189,7 +193,9 @@ export function KeyboardPanel({
                   material={keyMaterial}
                   disabled={openingVoice}
                   flexGrow={
-                    activeLayout === "nine_key" || activeLayout === "nine_key_shuangpin"
+                    activeLayout === "nine_key" ||
+                    activeLayout === "nine_key_shuangpin" ||
+                    activeLayout === "eighteen_key"
                       ? 1
                       : keyboardKeyWeight(
                           keyToRender.label,

@@ -237,9 +237,9 @@ def verify_signature(path: pathlib.Path) -> None:
         [shell, "-NoProfile", "-NonInteractive", "-Command", script],
         env={**os.environ, "MSIME_INSTALLER": str(path)}, capture_output=True, text=True, check=False,
     )
-    lines = [line.strip() for line in result.stdout.splitlines()]
+    lines = [line.strip() for line in (result.stdout or "").splitlines()]
     if result.returncode != 0 or not lines or lines[0] != "Valid":
-        detail = " / ".join(line for line in lines if line) or result.stderr.strip()
+        detail = " / ".join(line for line in lines if line) or (result.stderr or "").strip()
         raise RenderError(f"{path.name} has no valid Authenticode signature ({detail}); render only after the SimplySign-signed installer has replaced the CI build on the release")
     print(f"signature ok: {path.name}: {lines[2] if len(lines) > 2 else ''}", file=sys.stderr)
 

@@ -57,6 +57,7 @@ impl InputEngine for FactEngine {
         let composing = !self.text.is_empty() || !self.conversion.is_empty();
         let count = self.words.len();
         Ok(EngineSnapshot {
+            prediction: false,
             scheme: self.scheme,
             key_grid: self.key_grid,
             grid_composing: self.key_grid.is_some() && !self.text.is_empty(),

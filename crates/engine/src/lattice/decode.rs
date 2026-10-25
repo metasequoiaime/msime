@@ -312,8 +312,8 @@ pub fn edge_log_prob(weight: i64, syllables: usize, options: &LatticeOptions<'_>
     }
 }
 
-/// Build the span graph over `syllables` (each span looked up once) and beam-search it, then rescore with the trigram table (WL:110-186, WL:385-485). The product decodes through `merge_lattice_candidates`, which keeps the graph for the typo pass; this is the C++ `decode_word_lattice` the reference tests drive.
-#[cfg(test)]
+/// 建词格、束搜索并做三元重排。调用方负责音节准入，查询行必须携带完整读音。
+/// 普通整句合并仍走 `merge_lattice_candidates`，为纠错复用同一张图。
 pub fn decode_sentences(
     syllables: &[String],
     lookup: &mut LatticeLookup<'_>,
@@ -1042,6 +1042,17 @@ pub(super) fn decode_typo_on_graph(
     literal_best: &SentencePath,
     edges: &[TypoEdge],
 ) -> Option<TypoSentence> {
+    decode_typo_on_graph_with_policy(graph, options, literal_best, edges, false)
+}
+
+/// 解码纠错整句；双拼即使纠错句分数低于当前字面整句，也要把它作为候选提供给用户。
+pub(super) fn decode_typo_on_graph_with_policy(
+    graph: &Graph,
+    options: &LatticeOptions<'_>,
+    literal_best: &SentencePath,
+    edges: &[TypoEdge],
+    allow_nonleading: bool,
+) -> Option<TypoSentence> {
     let n = graph.len();
     let mut capacities = vec![0usize; n];
     for typo in edges {
@@ -1069,15 +1080,24 @@ pub(super) fn decode_typo_on_graph(
     }
     let typo_options = LatticeOptions {
         beam: options.typo_beam,
+        nbest: if allow_nonleading {
+            options.nbest.max(64)
+        } else {
+            options.nbest
+        },
         ..options.clone()
     };
     let paths = decode_graph(graph, &typo_options, Some(&extra));
-    let best = paths.into_iter().next()?;
+    let best = if allow_nonleading {
+        paths.into_iter().find(|path| path.typo_edges > 0)?
+    } else {
+        paths.into_iter().next()?
+    };
     // The narrower beam can lose the literal best path, so beating it is checked rather than assumed.
-    if best.typo_edges == 0
-        || best.sentence == literal_best.sentence
-        || best.log_prob <= literal_best.log_prob
-    {
+    if best.typo_edges == 0 || best.sentence == literal_best.sentence {
+        return None;
+    }
+    if !allow_nonleading && best.log_prob <= literal_best.log_prob {
         return None;
     }
     Some(TypoSentence {

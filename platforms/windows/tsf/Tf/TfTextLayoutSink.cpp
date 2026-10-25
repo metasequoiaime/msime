@@ -8,6 +8,7 @@
 #include "../Utils/PerfTimer.h"
 
 #include "../Global/CandidateOverlayHostPolicy.h"
+#include "../../compat/WindowsDpi.h"
 
 POINT GetPhysicalTextAnchor(_In_ ITfContextView *pContextView, _In_ const RECT &textExtent)
 {
@@ -24,7 +25,7 @@ POINT GetPhysicalTextAnchor(_In_ ITfContextView *pContextView, _In_ const RECT &
             return {monitorInfo.rcWork.left, monitorInfo.rcWork.top};
         }
         POINT physicalAnchor = anchor;
-        if (hostWindow && LogicalToPhysicalPointForPerMonitorDPI(hostWindow, &physicalAnchor))
+        if (hostWindow && msime::windows::compat::physical_point(hostWindow, &physicalAnchor))
         {
             anchor = physicalAnchor;
         }

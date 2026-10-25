@@ -679,8 +679,9 @@ mod tests {
                 assert_eq!(rows, expected);
                 minimum_allocations = minimum_allocations.min(allocations);
             }
+            // 两行的读音和词面各多一个 `SharedString` 的 `Arc`，比原来的 12 多 4 次。
             assert!(
-                minimum_allocations <= 12 + lowercase_allocations,
+                minimum_allocations <= 16 + lowercase_allocations,
                 "混排查询不应复制读法列表：{code} 至少分配了 {minimum_allocations} 次"
             );
         }
@@ -705,7 +706,8 @@ mod tests {
         let (rows, allocations) = crate::ime::personal_rerank::allocations::count(load);
         assert_eq!(rows, expected);
         assert_eq!(mixed_words(&rows), ["🇺🇸", "🇺🇲"]);
-        assert!(allocations <= 11, "混排读取分配了 {allocations} 次");
+        // 两行的读音和词面各多一个 `SharedString` 的 `Arc`，比原来的 11 多 4 次。
+        assert!(allocations <= 15, "混排读取分配了 {allocations} 次");
     }
 
     #[test]

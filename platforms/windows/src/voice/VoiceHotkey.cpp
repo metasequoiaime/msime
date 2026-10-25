@@ -130,7 +130,7 @@ LRESULT VoiceHotkeyController::handle_window(HWND hwnd, UINT message,
       voice_.toggle();
     return 0;
   case kToggleMessage:
-    voice_.toggle();
+    if (config_provider_().enabled && active_provider_()) voice_.toggle();
     return 0;
   case kStopMessage:
     voice_.stop();
@@ -171,8 +171,6 @@ void VoiceHotkeyController::reset_state() {
   rctrl_pressed_ = false;
   lwin_pressed_ = false;
   rwin_pressed_ = false;
-  f9_pressed_ = false;
-  ctrl_f9_consumed_ = false;
   cancel_posted_ = false;
   suppress_ralt_until_up_ = false;
   suppress_win_until_up_ = false;
@@ -204,6 +202,7 @@ LRESULT CALLBACK VoiceHotkeyController::keyboard_proc(int code, WPARAM wparam,
   self.lwin_pressed_.store(modifiers.lwin);
   self.rwin_pressed_.store(modifiers.rwin);
 
+  const auto toggle_stroke = self.toggle_strokes_.observe(key->vkCode, down, up);
   if (!config.enabled || !self.active_provider_()) {
     self.active_hold_ = VoiceHoldShortcut::None;
     if (self.voice_.recording() && !self.cancel_posted_.exchange(true))
@@ -215,23 +214,18 @@ LRESULT CALLBACK VoiceHotkeyController::keyboard_proc(int code, WPARAM wparam,
       self.suppress_ralt_until_up_ = false;
     if (voice_key_clears_win_latch(key->vkCode, up))
       self.suppress_win_until_up_ = false;
-    return suppressed ? 1 : CallNextHookEx(self.hook_, code, wparam, lparam);
+    return suppressed || toggle_stroke.consumed ? 1 : CallNextHookEx(self.hook_, code, wparam, lparam);
   }
+  if (toggle_stroke.consumed) return 1;
 
-  if (key->vkCode == VK_F9 && config.hotkey_ctrl_f9) {
-    if (down && !self.f9_pressed_.exchange(true) && modifiers.ctrl()) {
-      self.ctrl_f9_consumed_ = true;
-      PostMessageW(self.window_, kToggleMessage, 0, 0);
-      return 1;
-    }
-    if (up) {
-      self.f9_pressed_ = false;
-      if (self.ctrl_f9_consumed_.exchange(false))
-        return 1;
-    }
-  } else if (key->vkCode == VK_F9 && up) {
-    self.f9_pressed_ = false;
-    self.ctrl_f9_consumed_ = false;
+  const bool custom_toggle = voice_toggle_matches(config.toggle_hotkey, key->vkCode,
+      modifiers.ctrl(), (GetAsyncKeyState(VK_MENU) & 0x8000) != 0,
+      (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0, modifiers.win());
+  const bool fixed_toggle = key->vkCode == VK_F9 && config.hotkey_ctrl_f9 && modifiers.ctrl();
+  if (down && !toggle_stroke.repeat && (custom_toggle || fixed_toggle)) {
+    self.toggle_strokes_.claim(key->vkCode);
+    PostMessageW(self.window_, kToggleMessage, 0, 0);
+    return 1;
   }
 
   if (active_before == VoiceHoldShortcut::None && down) {

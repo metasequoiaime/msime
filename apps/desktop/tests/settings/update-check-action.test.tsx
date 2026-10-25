@@ -184,3 +184,41 @@ test("后台检查已经找到的新版本在页面打开时直接显示，没�
   expect(quiet.result.current.available).toBeNull();
   expect(quiet.result.current.status).toBe("");
 });
+
+test("给了通道时请求带上它，没给时不带", async () => {
+  const checkUpdate = vi.fn().mockResolvedValue(available("1.5.0"));
+  const { result, rerender } = renderHook(
+    ({ channel }: { channel?: "stable" | "beta" | "nightly" }) =>
+      useUpdateCheck({ checkUpdate, platform: "linux", channel, currentAppVersion: "1.0.0" }),
+    { initialProps: { channel: "nightly" } as { channel?: "stable" | "beta" | "nightly" } },
+  );
+  await act(async () => result.current.checkForUpdate());
+  expect(checkUpdate).toHaveBeenLastCalledWith({
+    platform: "linux",
+    currentVersion: "1.0.0",
+    channel: "nightly",
+  });
+  rerender({ channel: undefined });
+  await act(async () => result.current.checkForUpdate());
+  expect(checkUpdate).toHaveBeenLastCalledWith({ platform: "linux", currentVersion: "1.0.0" });
+});
+
+test("换了通道时进行中的检查作废，按旧通道找到的结果也清掉", async () => {
+  const request = deferred<UpdateCheckResult>();
+  const checkUpdate = vi.fn().mockReturnValue(request.promise);
+  const { result, rerender } = renderHook(
+    ({ channel }: { channel: "stable" | "beta" | "nightly" }) =>
+      useUpdateCheck({ checkUpdate, platform: "linux", channel, currentAppVersion: "1.0.0" }),
+    { initialProps: { channel: "stable" } as { channel: "stable" | "beta" | "nightly" } },
+  );
+  let pending!: Promise<void>;
+  act(() => {
+    pending = result.current.checkForUpdate();
+  });
+  await waitFor(() => expect(result.current.busy).toBe(true));
+  rerender({ channel: "beta" });
+  request.resolve(available("1.5.0"));
+  await act(async () => pending);
+  expect(result.current.available).toBeNull();
+  expect(result.current.status).toBe("");
+});

@@ -1,0 +1,10 @@
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_n VALUES('ni','n','你',100);
+CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_b VALUES('bo','b','波',90);
+CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_h VALUES('hao','h','好',100);
+CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200);
+CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_b VALUES('bo''hao','bh','波好',150);

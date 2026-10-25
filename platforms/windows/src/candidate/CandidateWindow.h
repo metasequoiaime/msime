@@ -44,11 +44,8 @@ struct CandidateSuppressionChange {
   DWORD pid;
   const char *cause;
 };
-// Main/UI thread owns construction, polling, painting and destruction. Reader
-// outlives the window and returns a freshly validated value, never Engine
-// state.
-// One owner-drawn menu row's label. Owner drawing keeps the platform's own
-// keyboard handling and dismissal while letting the skin paint the row.
+// 所属桌面的 UI 线程独占构造、轮询、绘制与销毁；Reader 比窗口长寿，返回经租约验证的值，
+// 不暴露 Engine 状态。上下文菜单和关联浮层也由同一线程更新与销毁。
 class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
@@ -62,7 +59,7 @@ public:
                            std::optional<bool> dark_theme = std::nullopt,
                            bool horizontal = false, bool show_preedit = true,
                            Page page = {}, Rendered rendered = {},
-                           bool mouse_wheel = false);
+                           bool mouse_wheel = false, bool attach_typing_effect = true);
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -135,6 +132,8 @@ public:
   // The user's scale, opacity and corner radius. Scale changes the card's size, so the next refresh lays it out again. Invalid values leave the previous style intact.
   bool set_style(const CandidateWindowStyle &style);
   void hide();
+  // 多桌面路由只让当前焦点所属的窗口领取全局打字特效，失焦窗口不会消费其他桌面的信号。
+  void set_typing_effect_active(bool active);
   bool failed() const { return failed_; }
   // 第一次失败的位置，只有固定标签和数字，可以写进诊断日志。
   const std::optional<ComponentFailureSite> &failure_site() const { return failure_site_; }

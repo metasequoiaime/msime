@@ -358,6 +358,7 @@ GVariant *call(GDBusConnection *connection, const char *destination,
 
 int main(int argc, char **argv) {
   if (argc != 2 && !(argc == 3 && (std::string(argv[2]) == "--helpcode-trigger" ||
+                                  std::string(argv[2]) == "--voice-hotkey" ||
                                   std::string(argv[2]) == "--page-number" ||
                                   std::string(argv[2]) == "--ctrl-space" ||
                                   std::string(argv[2]) == "--empty-translation" ||
@@ -540,6 +541,60 @@ int main(int argc, char **argv) {
                          std::to_string(call))
                             .c_str());
     };
+    const auto check_custom_voice_hotkey = [&] {
+      // 自定义切换在英文态走真实 IBus 入口和合成语音服务，重复按下不停止，完整松键后再按才结束。
+      const auto voice_starts = voice_provider.started.load();
+      auto custom_stops = voice_provider.stop_requests.load();
+      require(!key(IBUS_F8, IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SHIFT_MASK),
+              "custom voice shortcut accepted extra Shift");
+      require(key(IBUS_F8, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+              "custom voice shortcut was not consumed");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "custom voice shortcut did not start the provider");
+      require(key(IBUS_F8, IBUS_CONTROL_MASK | IBUS_MOD1_MASK) &&
+                  voice_provider.stop_requests.load() == custom_stops,
+              "custom voice shortcut repeat stopped the recording");
+      require(key(IBUS_F8, IBUS_RELEASE_MASK), "custom voice release was not consumed");
+      require(key(IBUS_F8, IBUS_CONTROL_MASK | IBUS_MOD1_MASK) &&
+                  key(IBUS_F8, IBUS_RELEASE_MASK), "custom voice shortcut did not stop recording");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == custom_stops + 1; }),
+              "custom voice stop did not reach the provider");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return seen.committed == "synthetic voice"; }),
+              "custom voice result was not committed");
+      require(!seen.input_enabled, "custom voice shortcut changed the input mode");
+      seen.committed.clear();
+    };
+    const auto finish = [&] {
+      g_dbus_connection_signal_unsubscribe(client, subscription);
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      g_dbus_connection_close_sync(client, nullptr, nullptr);
+      g_dbus_connection_close_sync(server, nullptr, nullptr);
+      g_object_unref(client);
+      g_object_unref(server);
+      g_test_dbus_down(bus);
+      g_object_unref(bus);
+    };
+    if (argc == 3 && std::string(argv[2]) == "--voice-hotkey") {
+      // 专项直接建立语音上下文；完整验收的候选面板断言仍由原入口执行。
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      auto voice_options = options;
+      voice_options.erase("preferences_directory");
+      voice_options["preferences"]["ime_mode_scope"] = "app";
+      voice_options["preferences"]["default_ime_mode"] = "english";
+      voice_options["preferences"]["keybindings"]["toggle_voice_input"] = "Ctrl+Alt+F8";
+      msime_ibus_configure(voice_options.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      check_custom_voice_hotkey();
+      invoke("FocusOut");
+      finish();
+      std::cout << "IBus 自定义语音切换、修饰键、重复、松键与合成结果上屏通过\n";
+      return 0;
+    }
 #if IBUS_CHECK_VERSION(1, 5, 27)
     // 全局引擎下没有输入框获得焦点时，IBus 让自己的 "fake" 上下文获得焦点，这时没有可以显示模式的输入框。信号按顺序到达，所以只有 fake 焦点没显示提示时，下面输入框的提示才是第一次。
     invoke("FocusInId", g_variant_new("(ss)", "/org/freedesktop/IBus/InputContext_1", "fake"));
@@ -566,17 +621,6 @@ int main(int argc, char **argv) {
     };
     require(wait_until([&] { return panel_status() == "{\"host\":\"ibus\",\"limit\":\"ibus_panel\"}\n"; }),
             ("IBus 宿主没有在候选面板状态里报告 ibus_panel：[" + panel_status() + "]").c_str());
-    const auto finish = [&] {
-      g_dbus_connection_signal_unsubscribe(client, subscription);
-      ibus_object_destroy(IBUS_OBJECT(engine));
-      g_object_unref(engine);
-      g_dbus_connection_close_sync(client, nullptr, nullptr);
-      g_dbus_connection_close_sync(server, nullptr, nullptr);
-      g_object_unref(client);
-      g_object_unref(server);
-      g_test_dbus_down(bus);
-      g_object_unref(bus);
-    };
     if (argc == 3 && std::string(argv[2]) == "--helpcode-trigger") {
       for (const auto *scheme : {"Scheme/Quanpin", "Scheme/Shuangpin"}) {
         invoke("PropertyActivate", g_variant_new("(su)", scheme, PROP_STATE_CHECKED));
@@ -1407,6 +1451,7 @@ int main(int argc, char **argv) {
       english_voice["preferences"]["ime_mode_scope"] = "app";
       english_voice["preferences"]["default_ime_mode"] = "english";
       english_voice["preferences"]["keybindings"]["switch_language_shift"] = true;
+      english_voice["preferences"]["keybindings"]["toggle_voice_input"] = "Ctrl+Alt+F8";
       msime_ibus_configure(english_voice.dump());
       engine = create_engine();
       seen = Observation{};
@@ -1430,6 +1475,7 @@ int main(int argc, char **argv) {
       voice_provider.release_final = true;
       require(wait_until([&] { return voice_provider.finished.load() == voice_finals + 1; }),
               "Cancelled English-mode provider did not finish");
+      check_custom_voice_hotkey();
       // Ctrl+F9 starts, stops and commits a recording without ever leaving English mode, so the result lands with no Engine session or view to render.
       voice_starts = voice_provider.started.load();
       voice_cancels = voice_provider.cancelled.load();

@@ -27,3 +27,5 @@ Status: implemented
 ## Consequences
 
 同一轮 Shift 中先输入字符后按空格会按普通空格处理；用户松开并重新按下 Shift 后，原有 `Shift+空格` 快捷键仍可用。状态只保存在当前输入控制器，不记录输入内容或按键文本。
+
+[可编辑焦点限制](../feature/2026-10-24-macos-editable-shift.md) 只约束可选的单按 Shift，不改变本文的快捷键或状态归属规则。

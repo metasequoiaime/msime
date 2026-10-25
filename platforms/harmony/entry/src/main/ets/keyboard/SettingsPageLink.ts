@@ -1,11 +1,18 @@
 /**
- * 键盘可以直接打开哪些设置页。请求方（`KeyboardSession.openSettings`，功能面板的「词库」「反馈」「关于」图块，皮肤选择器的「更多皮肤」，长按工具栏任一按钮打开的「屏幕键盘」）和应答方（`EntryAbility`，读取 Want 的 `page` 参数）共用这一份，两边不会走样。
+ * 键盘可以直接打开哪些设置页。请求方（`KeyboardSession.openSettings`，功能面板的「词库」「反馈」「关于」图块，皮肤选择器的「更多皮肤」，长按工具栏任一按钮打开的「屏幕键盘」、「添加语言」打开的「输入」）和应答方（`EntryAbility`，读取 Want 的 `page` 参数）共用这一份，两边不会走样。
  *
  * 这些 id 是 `packages/ui` 里 `settings-page-registry` 的 id，设置页把它作为初始页路由，或在打开时导航过去。其他值一律不认：Want 可能来自别的应用，设置页不该被引到没人打算开放的路由上。
  */
 export class SettingsPageLink {
   /** 这些页面，不分先后。 */
-  static readonly PAGES: string[] = ["dictionary", "feedback", "about", "skin", "screen-keyboard"];
+  static readonly PAGES: string[] = [
+    "input",
+    "dictionary",
+    "feedback",
+    "about",
+    "skin",
+    "screen-keyboard",
+  ];
 
   /** `page` 是否是可链接的页面之一。 */
   static accepts(page: string): boolean {

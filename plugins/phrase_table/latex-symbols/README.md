@@ -23,11 +23,13 @@ K 模式的短语表（`kind = "phrase_table"`，纯数据，不带代码）：�
 
 ## 和内置符号面板的关系
 
-内置符号面板（`resources/dictionary-sources/symbols/piliapp_symbols.txt` 的「希腊字母」「数学符号」等分类，`crates/engine/src/local/catalog.rs`）能按分类浏览同一批符号。这个包补的只是「按名字查」：知道 LaTeX 命令名时，打 `Kalpha` 比翻分类快。
+内置符号面板（msime-dictionary `sources/symbols/piliapp-symbols.txt` 的「希腊字母」「数学符号」等分类，`crates/engine/src/local/catalog.rs`）能按分类浏览同一批符号。这个包补的只是「按名字查」：知道 LaTeX 命令名时，打 `Kalpha` 比翻分类快。
+
+`symbols.tsv` 同时编进引擎，供符号模式（Shift+S）按完整命令名查符号：`Salpha`、`Ssum`、`Smathbbr` 在六个平台上都能用，不需要启用这个包（`crates/engine/src/local/symbol_groups.rs`）。符号模式用的编码规则与这里相同，改这张表会同时改变两处。这个包仍有用处：K 模式按前缀列出，打 `Kal` 就能看到所有以 `al` 开头的命令；符号模式只认完整的命令名。
 
 ## 生成和核对
 
-`symbols.tsv` 是唯一的数据源，每行「命令名<TAB>U+码位」。`pack/plugin.toml` 由生成器写出，不要手改：
+`symbols.tsv` 每行「命令名<TAB>U+码位」，是 msime-dictionary `sources/symbols/latex-symbols.tsv` 的逐字节副本：加命令名、改码位都改词库仓那份，再更新 `resources/symbol-tables.lock.json` 并运行 `python3 scripts/sync_symbol_tables.py` 同步过来，`scripts/test-symbol-tables.py` 会拒绝在这里手改的副本。`pack/plugin.toml` 由生成器写出，不要手改：
 
 ```sh
 python3 plugins/phrase_table/tools/gen_latex_symbols.py          # 重新生成 pack/plugin.toml

@@ -1,15 +1,24 @@
 import Foundation
 
-/// 「输入」页「语言与方案」卡片中的一种语言，以及能输入它的触屏方案，顺序与其选项面板列出的一致。它对应 Android 的 `TypingPage.Language`：英文没有自己的触屏方案（中/英键始终都在），所以这里不把它当作一种语言。
+/// 「输入」页「语言与方案」卡片中的一行，以及它能选择的触屏方案。它对应 Android 的 `TypingPage.Language`：英文没有自己的触屏方案（中/英键始终都在），所以这里不把它当作一种语言。
 enum InputLanguage: String, CaseIterable, Identifiable {
-  case mandarin, cantonese, japanese, korean, vietnamese, tibetan
+  case quanpin, shuangpin, wubi, zhuyin, stroke, handwriting
+  case cantonese, japanese, korean, vietnamese, tibetan
 
   var id: String { rawValue }
 
+  /// 保留旧版全拼行的无障碍标识，已安装的 UI 测试和外部自动化仍能找到同一行。
+  var accessibilityKey: String { self == .quanpin ? "mandarin" : rawValue }
+
   var name: String {
     switch self {
-    case .mandarin: "普通话"
-    case .cantonese: "粤语"
+    case .quanpin: "全拼"
+    case .shuangpin: "双拼"
+    case .wubi: "五笔"
+    case .zhuyin: "注音"
+    case .stroke: "笔画"
+    case .handwriting: "手写"
+    case .cantonese: "粤拼"
     case .japanese: "日语"
     case .korean: "韩语"
     case .vietnamese: "越南语"
@@ -20,7 +29,12 @@ enum InputLanguage: String, CaseIterable, Identifiable {
   /// 该语言 30pt 图块上的字形。
   var tile: String {
     switch self {
-    case .mandarin: "汉"
+    case .quanpin: "拼"
+    case .shuangpin: "双"
+    case .wubi: "五"
+    case .zhuyin: "注"
+    case .stroke: "笔"
+    case .handwriting: "写"
     case .cantonese: "粤"
     case .japanese: "あ"
     case .korean: "한"
@@ -31,8 +45,12 @@ enum InputLanguage: String, CaseIterable, Identifiable {
 
   var schemes: [ChineseInputScheme] {
     switch self {
-    // 全拼的三种键盘按 26 键、14 键、9 键排列，与共享界面的普通话方案列表一致。
-    case .mandarin: [.quanpin, .fourteenKey, .nineKey, .nineKeyShuangpin, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .zhuyin, .stroke, .handwriting]
+    case .quanpin: [.quanpin, .fourteenKey, .nineKey]
+    case .shuangpin: [.shuangpin, .ziranma, .microsoft, .shoudao, .nineKeyShuangpin]
+    case .wubi: [.wubi]
+    case .zhuyin: [.zhuyin]
+    case .stroke: [.stroke]
+    case .handwriting: [.handwriting]
     case .cantonese: [.cantonese]
     case .japanese: [.japanese, .japaneseNineKey]
     case .korean: [.korean]
@@ -41,11 +59,11 @@ enum InputLanguage: String, CaseIterable, Identifiable {
     }
   }
 
-  /// 「普通话」始终保留它的行；其他语言都可以移除后再加回来。
-  var isRemovable: Bool { self != .mandarin }
+  /// 每一行都可以移除，前提是键盘还剩至少一个可运行的方案。
+  var isRemovable: Bool { true }
 
   static func of(_ scheme: ChineseInputScheme) -> InputLanguage {
-    allCases.first { $0.schemes.contains(scheme) } ?? .mandarin
+    allCases.first { $0.schemes.contains(scheme) } ?? .quanpin
   }
 
   /// 设置合并随包词库与 App Group 已发布的资源包，下载后无需重启主应用。

@@ -1,7 +1,7 @@
 import { useId, type ReactNode } from "react";
 import * as account from "./account-style";
-import { accountProviderName } from "./account-labels";
 import { ActionButton } from "../core/action-button";
+import { ChevronGlyph } from "../core/chevron-glyph";
 import { formatZhDate } from "../core/format-date";
 
 export interface AccountIdentityDetailsProps {
@@ -11,14 +11,16 @@ export interface AccountIdentityDetailsProps {
     email?: string;
   };
   providers: string[];
+  providerNames: Record<string, string>;
   copied?: boolean;
   onCopy: () => void;
 }
 
-/** Shared account metadata list used by the mobile profile page and desktop dialog. */
+/** 移动资料页和桌面对话框共用的账号信息列表。 */
 export function AccountIdentityDetails({
   user,
   providers,
+  providerNames,
   copied = false,
   onCopy,
 }: AccountIdentityDetailsProps) {
@@ -42,32 +44,16 @@ export function AccountIdentityDetails({
       )}
       <div>
         <dt>登录方式</dt>
-        <dd>{providers.map(accountProviderName).join("、") || "正在读取"}</dd>
+        <dd>
+          {providers.map((provider) => providerNames[provider] ?? provider).join("、") ||
+            "正在读取"}
+        </dd>
       </div>
       <div>
         <dt>加入水杉</dt>
         <dd>{formatZhDate(user.createdAt)}</dd>
       </div>
     </dl>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg
-      width="7"
-      height="12"
-      viewBox="0 0 8 14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={account.profileRowChevron}
-    >
-      <path d="m1 1 6 6-6 6" />
-    </svg>
   );
 }
 
@@ -89,7 +75,7 @@ function ProfileRow({
     <>
       <span className={account.profileRowLabel}>{label}</span>
       <span className={account.profileRowValue}>{value}</span>
-      {onClick && <Chevron />}
+      {onClick && <ChevronGlyph variant="profile" className={account.profileRowChevron} />}
     </>
   );
   if (!onClick) return <div className={account.profileRow}>{body}</div>;
@@ -139,6 +125,7 @@ export interface AccountIdentityRowsProps {
   name: string;
   /** 已关联的登录提供方；「登录方式」分组会等它们就绪，而不是去猜。 */
   providers: string[] | null;
+  providerNames: Record<string, string>;
   disabled?: boolean;
   onRename: () => void;
   onCopyId: () => void;
@@ -149,6 +136,7 @@ export function AccountIdentityRows({
   user,
   name,
   providers,
+  providerNames,
   disabled,
   onRename,
   onCopyId,
@@ -174,7 +162,7 @@ export function AccountIdentityRows({
       {providers && providers.length > 0 && (
         <ProfileGroup title="登录方式" footer="关联后可以用任意一种方式登录同一个账号">
           {providers.map((provider) => (
-            <ProfileRow key={provider} label={accountProviderName(provider)} value="已关联" />
+            <ProfileRow key={provider} label={providerNames[provider] ?? provider} value="已关联" />
           ))}
         </ProfileGroup>
       )}

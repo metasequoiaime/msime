@@ -27,3 +27,5 @@ Status: implemented
 
 - `cargo test -p msime-engine`：`local::date_time::tests::lunar_aliases_with_weekday_variants`（三个关键词、闰月、限行、换算不了的日期）、`local::command::tests`（裸 `/`、`nongli`、前缀 `yin`、标题）、`backend::tests::date_time_validates_the_supplied_date`（服务端白名单）、`session::tests::a_date_row_commits_and_leaves_date_time_mode`（会话里 Shift+T 打 `nongli` 选带星期的那行上屏并退出模式）。
 - `apps/desktop` 的 `vitest run tests/settings/settings.test.tsx tests/settings/plugins-section.test.tsx tests/settings/local-modes-section.test.tsx`。
+
+键盘内免触发词查看和插入多国时间的独立入口见[离线世界时钟](2026-10-23-offline-world-clock.md)，本篇保留引擎关键词候选的决定。

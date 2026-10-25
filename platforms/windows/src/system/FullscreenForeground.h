@@ -49,14 +49,14 @@ constexpr ForegroundPresentation classify_foreground(bool covers_monitor,
   return d3d_exclusive ? ForegroundPresentation::ExclusiveFullscreen
                        : ForegroundPresentation::Fullscreen;
 }
-// 前台窗口的呈现方式，只在主循环线程上调用。只有几何铺满时才调 SHQueryUserNotificationState，并且只认 QUNS_RUNNING_D3D_FULL_SCREEN（QUNS_BUSY 有误报，不作判据）。前台 HWND 不变时结果缓存 300ms。真正调用了 QUNS 时，quns_microseconds 收到这一次的耗时，主循环据此判断要不要把分类挪出主循环。
+// 前台窗口的呈现方式，每个桌面的 UI 线程独立缓存。只有几何铺满时才调 SHQueryUserNotificationState，并且只认 QUNS_RUNNING_D3D_FULL_SCREEN（QUNS_BUSY 有误报，不作判据）。前台 HWND 不变时结果缓存 300ms。真正调用了 QUNS 时，quns_microseconds 收到这一次的耗时。
 inline ForegroundPresentation
 foreground_presentation(HWND foreground, uint64_t now_ms,
                         std::optional<uint64_t> *quns_microseconds = nullptr) {
-  static HWND cached_window = nullptr;
-  static uint64_t cached_at = 0;
-  static bool cached = false;
-  static ForegroundPresentation cached_value = ForegroundPresentation::Windowed;
+  thread_local HWND cached_window = nullptr;
+  thread_local uint64_t cached_at = 0;
+  thread_local bool cached = false;
+  thread_local ForegroundPresentation cached_value = ForegroundPresentation::Windowed;
   if (cached && foreground == cached_window && now_ms - cached_at < 300)
     return cached_value;
   const bool covers = foreground_is_fullscreen(foreground);

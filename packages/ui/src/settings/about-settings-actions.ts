@@ -3,6 +3,7 @@ import type { Preferences } from "../core/preferences-model";
 import type { DiagnosticLogPreferences } from "./diagnostic-logs-section";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
 import { createSettingsDraftActions } from "./settings-draft-actions";
+import type { UpdateChannel } from "./update-manifest";
 
 export interface CreateAboutSettingsActionsOptions {
   checkForUpdate: () => Promise<void>;
@@ -21,17 +22,30 @@ export function createAboutSettingsActions({
   setDraft,
 }: CreateAboutSettingsActionsOptions) {
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  // diagnostic_log 下的各项共用一个对象：先展开草稿里已有的整块，改一项时其他项（包括这个页面不显示的项）原样保留。
+  const patchDiagnosticLog = (patch: NonNullable<Preferences["diagnostic_log"]>) =>
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            diagnostic_log: {
+              ...current.diagnostic_log,
+              ...diagnosticLogPreferences(current),
+              ...patch,
+            },
+          }
+        : current,
+    );
   return {
     onCheckForUpdate: () => void checkForUpdate(),
     onChooseDataDirectory: () => void chooseDataDirectory(),
     onConfirmUninstall: () => void confirmUninstall(),
-    onDiagnosticLogChange: (patch: Partial<DiagnosticLogPreferences>) =>
-      setDraft((current) =>
-        current
-          ? { ...current, diagnostic_log: { ...diagnosticLogPreferences(current), ...patch } }
-          : current,
-      ),
+    onDiagnosticLogChange: (patch: Partial<DiagnosticLogPreferences>) => patchDiagnosticLog(patch),
+    onCommandLineCandidatesChange: (command_line_candidates: boolean) =>
+      patchDiagnosticLog({ command_line_candidates }),
     onTelemetryChange: (usage_reporting: boolean) => onPreferencesChange({ usage_reporting }),
+    onUpdateChannelChange: (update_channel: UpdateChannel) =>
+      onPreferencesChange({ update_channel }),
     onHelp: () => selectPage("help"),
     onFeedback: () => selectPage("feedback"),
   } as const;

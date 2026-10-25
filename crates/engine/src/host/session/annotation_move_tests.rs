@@ -2,9 +2,9 @@ use super::*;
 use crate::host::tests::{generated_mode_options, helpcode_fixture};
 use crate::ime::personal_rerank::allocations;
 
-// 冻结 d2434c7f88 的完整宿主快照构造，只改函数名和接收参数并去掉注释。
+// 冻结 d2434c7f88 的宿主注释复制路径；预编辑沿用当前宿主显示契约。
 fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
-    let value = session.inner.snapshot();
+    let value = session.inner.snapshot_for_host(true);
     let helpcode_scheme = value.scheme.helpcode();
     let uppercase_all = value.scheme == SchemeType::Quanpin;
     let keymap = session.helpcode_keymap.as_deref().filter(|_| {
@@ -24,6 +24,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         value.normalized_segmentation.clone()
     };
     let mut output = EngineSnapshot {
+        prediction: false,
         local_mode: value.local_mode.name().to_owned(),
         spelling_symbols: value.spelling_symbols,
         dedicated_english: value.dedicated_english,
@@ -58,6 +59,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         wubi_unique_four_code: value.wubi_unique_four_code,
         candidate_annotations: Vec::with_capacity(count),
         candidate_sources: Vec::with_capacity(count),
+        multilingual_conversion: None,
         candidate_positions: Vec::with_capacity(count),
         candidate_corrected: Vec::with_capacity(count),
         candidate_answers_key: Vec::with_capacity(count),
@@ -72,12 +74,12 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
             .candidate_annotations
             .get(index)
             .cloned()
-            .unwrap_or_else(|| candidate.corrected_from.clone());
+            .unwrap_or_else(|| candidate.corrected_from.to_string());
         if let Some(keymap) = keymap {
             if !session.show_helpcode {
                 let helpcode = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 if !helpcode.is_empty() && annotation == helpcode {
-                    annotation = candidate.corrected_from.clone();
+                    annotation = candidate.corrected_from.to_string();
                 }
             } else if annotation.is_empty() && candidate.source == CandidateSource::Generated {
                 annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
@@ -118,8 +120,8 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         output
             .candidate_static_evidence
             .push(candidate.static_evidence());
-        output.candidate_codes.push(candidate.pinyin);
-        output.candidates.push(candidate.word);
+        output.candidate_codes.push(candidate.pinyin.into_string());
+        output.candidates.push(candidate.word.into_string());
     }
     Ok(output)
 }

@@ -38,7 +38,7 @@
 
 ### 平台目录
 
-`platforms/{android,ios,macos,linux,windows,harmony}` 各自持有系统入口、平台适配和该平台的测试；`platforms/common` 放桌面宿主之间共用的 C++：Linux 与 Windows 编译的 `Telemetry`，以及 Linux 与 macOS 共用的词库维护租约 `DictionaryQuiesceLease.h`（单测在 `tests/`）。`shared/` 是跨语言而非跨平台的共享层：`shared/apple` 与 `shared/apple-bridge` 被 macOS 宿主和 iOS 键盘扩展同时依赖，`shared/backend`、`shared/backend-ui` 是 Swift Package 形态的账号与界面后端，`shared/voice` 是 C++ 的 provider 注册表与录音常量，`shared/snapshot` 是词库快照，`shared/input` 是 `CompositionDisplay.h` 与 `EnglishModeOutput.h` 两个 C++ 头文件。
+`platforms/{android,ios,macos,linux,windows,harmony}` 各自持有系统入口、平台适配和该平台的测试；`platforms/common` 放桌面宿主之间共用的 C++：Linux 与 Windows 编译的 `Telemetry`，以及 Linux 与 macOS 共用的词库维护租约 `DictionaryQuiesceLease.h`（单测在 `tests/`；租约格式在 `DictionaryQuiesceLeaseFormat.h`，Windows TIP 经 `platforms/windows/common/DictionaryQuiesceLease.h` 读同一份租约）。`shared/` 是跨语言而非跨平台的共享层：`shared/apple` 与 `shared/apple-bridge` 被 macOS 宿主和 iOS 键盘扩展同时依赖，`shared/backend`、`shared/backend-ui` 是 Swift Package 形态的账号与界面后端，`shared/voice` 是 C++ 的 provider 注册表与录音常量，`shared/snapshot` 是词库快照，`shared/input` 是 `CompositionDisplay.h` 与 `EnglishModeOutput.h` 两个 C++ 头文件。
 
 ### 引擎与资源
 

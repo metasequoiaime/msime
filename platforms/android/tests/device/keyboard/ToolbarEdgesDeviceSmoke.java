@@ -150,6 +150,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             for (int widthDp : new int[] {320, 600}) {
                 layout(surface, Math.round(widthDp * density), Math.round(300 * density));
                 scroll.scrollTo(0, 0);
+                method(panels.getClass(), "updateClipboardBackToTop").invoke(panels);
+                Button backToTop = (Button) field(type, "clipboardBackToTop").get(service);
+                check(backToTop.getVisibility() == View.GONE, "back to top is visible before scrolling");
                 check(header.getChildCount() > 0 && cards.getChildCount() > 1,
                     "clipboard renderer did not create header and synthetic cards");
                 Rect fixed = bounds(surface, header);
@@ -157,9 +160,15 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(first.top >= fixed.bottom, "clipboard cards overlap fixed header");
                 scroll.scrollTo(0, cards.getHeight());
                 check(scroll.getScrollY() > 0, "synthetic clipboard history did not overflow");
+                method(panels.getClass(), "updateClipboardBackToTop").invoke(panels);
+                check(backToTop.getVisibility() == View.VISIBLE, "back to top did not appear after scrolling");
                 check(fixed.equals(bounds(surface, header)), "clipboard scrolling moved header");
                 check(bounds(surface, cards.getChildAt(0)).top < first.top,
                     "clipboard scrolling did not move history cards");
+                check(backToTop.performClick(), "back to top action was not handled");
+                check(scroll.getScrollY() == 0, "back to top did not reset history position");
+                method(panels.getClass(), "updateClipboardBackToTop").invoke(panels);
+                check(backToTop.getVisibility() == View.GONE, "back to top stayed visible at top");
             }
             check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
                 "visible clipboard surface is not reported open");

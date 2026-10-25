@@ -49,10 +49,10 @@ int main(int argc, char **argv) {
         subprocess.run([compiler, "-std=c++17", "-I", str(ROOT), str(source), "-o", str(program)],
                        check=True, timeout=60)
         for identifier, prompt in expected.items():
-            result = subprocess.check_output([str(program), identifier], timeout=10).decode("utf-8")
+            result = subprocess.check_output([str(program), identifier], timeout=10, text=True, encoding="utf-8")
             assert result == prompt, f"C++ 润色正文不同：{identifier}"
         for preset in PRESETS:
-            title = subprocess.check_output([str(program), preset["id"], "title"], timeout=10).decode("utf-8")
+            title = subprocess.check_output([str(program), preset["id"], "title"], timeout=10, text=True, encoding="utf-8")
             assert title == preset["title"], f"C++ 润色名称不同：{preset['id']}"
         source.write_text('''#include "platforms/windows/settings/VoiceSettings.h"
 #include "shared/voice/PolishPromptWideCatalog.h"
@@ -145,6 +145,18 @@ if not java or not version or int(version[1]) < 17:
 else:
     with tempfile.TemporaryDirectory(prefix="msime-polish-java-") as directory:
         source = Path(directory) / "CatalogCheck.java"
+        (Path(directory) / "NativeClient.java").write_text('''package app.msime.android;
+public final class NativeClient {
+  private NativeClient() {}
+  public static String mobileVoicePolishStatus(boolean enabled, boolean configured, boolean hasToken) { return "ok"; }
+}
+''', encoding="utf-8")
+        (Path(directory) / "VoiceProviderPolicy.java").write_text('''package app.msime.android;
+public final class VoiceProviderPolicy {
+  private VoiceProviderPolicy() {}
+  static String parseStatus(String raw) { return raw; }
+}
+''', encoding="utf-8")
         source.write_text('''package app.msime.android;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -169,6 +181,7 @@ public final class CatalogCheck {
         voice = ROOT / "platforms/android/java/app/msime/android/voice"
         subprocess.run([javac, "--release", "17", "-encoding", "UTF-8", "-Xlint:all", "-Werror",
                         "-d", directory, str(voice / "VoicePolishPresetCatalog.java"),
+                        str(Path(directory) / "NativeClient.java"), str(Path(directory) / "VoiceProviderPolicy.java"),
                         str(voice / "VoicePolishSettingsPolicy.java"), str(source)],
                        check=True, timeout=60)
         lines = subprocess.check_output([java, "-cp", directory, "app.msime.android.CatalogCheck"],

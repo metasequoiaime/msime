@@ -41,7 +41,7 @@ static msime::mac::ToggleChord MSIMEDecodeToggleChord(id decoded) {
         [decoded[@"shift"] isEqual:@YES], [decoded[@"meta"] isEqual:@YES]);
 }
 
-// keybindings 原值（nil 或为 null 按出厂值）→ {"english_candidates","full_width","punctuation"}
+// keybindings 原值（nil 或为 null 按出厂值）→ 切换热键的规范主键与修饰键。
 // 各自的解码项；不是表、请求写不出或回答不合法时为 nil，调用方保持现值。
 static NSDictionary *MSIMEToggleHotkeyChords(id keys) {
     NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"keybindings": keys ?: NSNull.null} options:0 error:nil];
@@ -1047,6 +1047,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSDictionary<NSString *, NSString *> *_sharedAppInputModeRules;
     // 共享文档里的 Vim 模式名单；文档没有这个键时为 nil，查找退回本地键（本机从没写过，等同空名单）。
     NSArray<NSString *> *_sharedVimModeApps;
+    NSDictionary *_sharedCrossCommitSpacing;
     // 文档收不下的旧规则：标识不合法（超过 64 字节、带 / 或 \ 等），或文档已满 32 条。它们留在 NSUserDefaults 里，只在本机查找时生效，不发布。
     NSDictionary<NSString *, NSString *> *_localOnlyAppInputModeRules;
     // 有文档还没有、但收得下的规则，需要保存一次才能发布；见 applicationInputModeRulesAwaitPublication。
@@ -1086,6 +1087,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSPopUpButton *_toolbarFontSizeButton;
     NSNumber *_sharedInputModeShortcut;
     NSNumber *_sharedShiftTapShortcut;
+    BOOL _sharedShiftTapRequiresEditable;
     NSNumber *_sharedControlTapShortcut;
     NSNumber *_sharedCapsLockTapShortcut;
     NSNumber *_sharedTrilingualCycle;
@@ -1099,6 +1101,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     msime::mac::ToggleChord _englishCandidatesToggleChord;
     msime::mac::ToggleChord _fullWidthToggleChord;
     msime::mac::ToggleChord _punctuationToggleChord;
+    msime::mac::ToggleChord _voiceInputToggleChord;
     NSSwitch *_characterSetShortcutToggle;
     NSMutableDictionary *_sharedHelpcodeOptions;
     // 共享文档里每个方案选中的辅助码表插件 id，空串是没有选；文档没读过时没有这一项。
@@ -1324,6 +1327,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         _englishCandidatesToggleChord = msime::mac::FactoryEnglishCandidatesToggleChord();
         _fullWidthToggleChord = msime::mac::FactoryFullWidthToggleChord();
         _punctuationToggleChord = msime::mac::FactoryPunctuationToggleChord();
+        _voiceInputToggleChord = msime::mac::UnboundToggleChord();
         [self reloadSkins];
     }
     return self;
@@ -1337,6 +1341,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         _englishCandidatesToggleChord = msime::mac::FactoryEnglishCandidatesToggleChord();
         _fullWidthToggleChord = msime::mac::FactoryFullWidthToggleChord();
         _punctuationToggleChord = msime::mac::FactoryPunctuationToggleChord();
+        _voiceInputToggleChord = msime::mac::UnboundToggleChord();
         [self reloadSkins];
     }
     return self;
@@ -1344,6 +1349,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (msime::mac::ToggleChord)englishCandidatesToggleChord { return _englishCandidatesToggleChord; }
 - (msime::mac::ToggleChord)fullWidthToggleChord { return _fullWidthToggleChord; }
 - (msime::mac::ToggleChord)punctuationToggleChord { return _punctuationToggleChord; }
+- (msime::mac::ToggleChord)voiceInputToggleChord { return _voiceInputToggleChord; }
 - (NSURL *)skinsRoot { return _skinsRoot; }
 - (void)setTranslationPreferencesDirectory:(NSString *)directory {
     if ([_translationPreferencesDirectory isEqual:directory]) return;
@@ -2227,14 +2233,23 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         _localOnlyAppInputModeRules = nil;
         _applicationInputModeRulesAwaitPublication = PublishableInputModeRules(legacy).count > 0;
     }
+    id spacing = preferences[@"cross_commit_spacing"];
+    id excluded = preferences[@"cross_commit_spacing_excluded_apps"];
+    _sharedCrossCommitSpacing = @{
+        @"enabled":@([spacing isKindOfClass:NSNumber.class] && [spacing boolValue]),
+        @"excluded_apps":[excluded isKindOfClass:NSArray.class] ? [excluded copy] : @[]};
     // vim_mode_apps 是字符串数组，标识认法与应用例外相同；文档缺这个键就是空名单，没有要迁移的旧键。
     id vimApps = preferences[@"vim_mode_apps"];
     _sharedVimModeApps = [vimApps isKindOfClass:NSArray.class] ? ValidVimModeApps(vimApps) : nil;
     id keys = preferences[@"keybindings"];
+    // 新开关没有旧版偏好回退；移除字段也应恢复默认关闭。
+    _sharedShiftTapRequiresEditable = NO;
     if ([keys isKindOfClass:NSDictionary.class]) {
         // 中日英循环切换：缺键读作关，和共享偏好的默认值（对齐旧版 Windows 出厂值）一致。
         id cycle = keys[@"trilingual_cycle"];
         if (LocalModeBoolean(cycle)) _sharedTrilingualCycle = cycle;
+        id editable = keys[@"switch_language_shift_requires_editable"];
+        if (LocalModeBoolean(editable)) _sharedShiftTapRequiresEditable = [editable boolValue];
         id shift = keys[@"switch_language_shift"];
         if (LocalModeBoolean(shift)) {
             // The shared Tauri setting reaches both native Shift routes.
@@ -2250,13 +2265,14 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         id fullWidth = keys[@"toggle_fullwidth_option_shift_h"];
         if (LocalModeBoolean(fullWidth)) _sharedFullWidthShortcut = fullWidth;
     }
-    // 三个可重绑切换热键的写法交给共享契约解码：msime_client_toggle_hotkey_chords
+    // 可重绑切换热键的写法交给共享契约解码：msime_client_toggle_hotkey_chords
     // 给出主键规范名与修饰键集合，宿主按 ToggleChord 认键。keybindings 不是表或
     // 解码失败时保持现值；keybindings 缺省或为 null 按出厂值。
     if (NSDictionary *chords = MSIMEToggleHotkeyChords(keys)) {
         _englishCandidatesToggleChord = MSIMEDecodeToggleChord(chords[@"english_candidates"]);
         _fullWidthToggleChord = MSIMEDecodeToggleChord(chords[@"full_width"]);
         _punctuationToggleChord = MSIMEDecodeToggleChord(chords[@"punctuation"]);
+        _voiceInputToggleChord = MSIMEDecodeToggleChord(chords[@"voice_input"]);
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
@@ -2355,6 +2371,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setObject:value forKey:ImeModeScopeKey];
     [self preferencesChanged];
 }
+- (NSString *)activeInputModeApplication { return _activeModeApplication; }
 - (void)activateInputModeForApplication:(NSString *)identifier {
     NSString *next = [identifier isKindOfClass:NSString.class] && identifier.length ? [identifier copy] : nil;
     // Coming back to an application from somewhere else starts it in its rule again, so the hand-made override from the last visit goes. Refocusing within the same application is not a new visit and keeps it.
@@ -2375,6 +2392,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     return ValidInputModeRules([_defaults dictionaryForKey:AppInputModeRulesKey]);
 }
 - (BOOL)applicationInputModeRulesAwaitPublication { return _applicationInputModeRulesAwaitPublication; }
+- (NSDictionary *)crossCommitSpacing { return _sharedCrossCommitSpacing ?: @{}; }
 /// 名单按 ASCII 不分大小写查，与应用例外的标识认法一致：共享设置页写下的标识大小写未必和 bundle id 相同。
 - (NSArray<NSString *> *)vimModeApps {
     return _sharedVimModeApps ?: ValidVimModeApps([_defaults arrayForKey:VimModeAppsKey]);
@@ -2685,6 +2703,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if (_sharedShiftTapShortcut) return _sharedShiftTapShortcut.boolValue;
     return [_defaults objectForKey:ShiftTapShortcutKey] == nil || [_defaults boolForKey:ShiftTapShortcutKey];
 }
+- (BOOL)shiftTapRequiresEditable { return _sharedShiftTapRequiresEditable; }
 - (void)setShiftTapShortcut:(BOOL)value {
     _sharedInputModeShortcut = nil;
     _sharedShiftTapShortcut = nil;
@@ -4597,7 +4616,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         [self settingRow:@"单按 Shift 切换中英文" control:_shiftTapShortcutToggle aka:@[@"中英文切换"]],
         [self settingRow:@"单按 Control 切换中英文" control:_controlTapShortcutToggle aka:@[@"中英文切换"]],
         [self settingRow:@"单按 Caps Lock 切换中英文"
-                  detail:@"轻点（300 毫秒内松开）切换中英文，不打开大写锁定；按住更久照常打开大写锁定。若打开了系统的「使用大写锁定键切换 ABC」，请先把它关掉。"
+                  detail:@"轻点（300 毫秒内松开）切换中英文，不打开大写锁定；按住更久照常打开大写锁定。若打开了系统的「使用大写锁定键切换 ABC」，请先把它关掉。部分外接键盘不报告 Caps Lock 是否按住，第一次在这类键盘上轻点时，系统会请求「输入监控」授权：允许后轻点才能切换，不允许时轻点照常打开大写锁定。"
                  control:_capsLockTapShortcutToggle
                      aka:@[@"中英文切换", @"大写锁定"]],
         [self settingRow:@"Control + Option + 空格切换中英文" control:_controlOptionSpaceShortcutToggle aka:@[@"中英文切换"]],

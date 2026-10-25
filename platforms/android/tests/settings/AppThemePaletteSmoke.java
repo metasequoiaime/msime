@@ -51,7 +51,7 @@ public final class AppThemePaletteSmoke {
         expect("autumn L splash disc", p.splashDisc, 0xFFF6EBE6);
         expect("autumn L splash bar", p.splashBar, 0xFFCB896B);
         expect("autumn L splash glow", p.splashGlow, 0x57B5562B);
-        expect("autumn L stat bar", p.statBar, 0xFFEED8CC);
+        expect("autumn L stat bar", p.statBar, 0xFFDFB5A1);
         int[] heat = {0xFFF7ECE3, 0xFFEED8CC, 0xFFE0B9A5, 0xFFD09276, 0xFFBC663F};
         for (int level = 0; level < heat.length; level++) expect("autumn L heat" + level, p.heat(level), heat[level]);
         expect("autumn L kb.bg", p.keyboardBackground, 0xFFEED7C7);
@@ -85,7 +85,7 @@ public final class AppThemePaletteSmoke {
         expect("autumn D splash disc", p.splashDisc, 0xFFFDF3EC);
         expect("autumn D splash bar", p.splashBar, 0xFFF5B68F);
         expect("autumn D splash glow", p.splashGlow, 0x57F0975F);
-        expect("autumn D stat bar", p.statBar, 0xFF5B422F);
+        expect("autumn D stat bar", p.statBar, 0xFF84593D);
         int[] heat = {0xFF382D24, 0xFF4F3B2C, 0xFF775138, 0xFFA66C47, 0xFFDC8C59};
         for (int level = 0; level < heat.length; level++) expect("autumn D heat" + level, p.heat(level), heat[level]);
         expect("autumn D kb.bg", p.keyboardBackground, 0xFF2C241D);
@@ -118,12 +118,12 @@ public final class AppThemePaletteSmoke {
     }
 
     static void otherSeasons() {
-        sample("spring", SPRING, false, 0xFFF6FAF1, 0xFF407E30, 0xFFDEEDD7, 0xFF182814, 0xFFD7E9D0, 0xFFD7E9CC, 0xFFFAFCF7, 0xFFC5DEB8);
-        sample("spring", SPRING, true, 0xFF252C23, 0xFF7EB26B, 0xFF3F5238, 0xFF273422, 0xFF41563A, 0xFF232A21, 0xFF444C41, 0xFF364133);
-        sample("summer", SUMMER, false, 0xFFF0F8F3, 0xFF135C3D, 0xFFD1E5DB, 0xFF0D1F17, 0xFFC9DFD4, 0xFFC5E0D2, 0xFFF7FBF8, 0xFFADD1BF);
-        sample("summer", SUMMER, true, 0xFF202C25, 0xFF4EAD7E, 0xFF2E503F, 0xFF1B3327, 0xFF2F5441, 0xFF1D2A23, 0xFF3E4B44, 0xFF2E4036);
-        sample("winter", WINTER, false, 0xFFF4F7FA, 0xFF305771, 0xFFDAE4EA, 0xFF141E24, 0xFFD2DEE6, 0xFFD1DEE7, 0xFFF9FBFC, 0xFFBDCEDB);
-        sample("winter", WINTER, true, 0xFF252B2B, 0xFF79A3BD, 0xFF3D4D54, 0xFF253136, 0xFF3F5058, 0xFF22292B, 0xFF434A4B, 0xFF353E41);
+        sample("spring", SPRING, false, 0xFFF6FAF1, 0xFF407E30, 0xFFDEEDD7, 0xFF182814, 0xFFB3D4A8, 0xFFD7E9CC, 0xFFFAFCF7, 0xFFC5DEB8);
+        sample("spring", SPRING, true, 0xFF252C23, 0xFF7EB26B, 0xFF3F5238, 0xFF273422, 0xFF5A7A4E, 0xFF232A21, 0xFF444C41, 0xFF364133);
+        sample("summer", SUMMER, false, 0xFFF0F8F3, 0xFF135C3D, 0xFFD1E5DB, 0xFF0D1F17, 0xFF99C1AF, 0xFFC5E0D2, 0xFFF7FBF8, 0xFFADD1BF);
+        sample("summer", SUMMER, true, 0xFF202C25, 0xFF4EAD7E, 0xFF2E503F, 0xFF1B3327, 0xFF3D775A, 0xFF1D2A23, 0xFF3E4B44, 0xFF2E4036);
+        sample("winter", WINTER, false, 0xFFF4F7FA, 0xFF305771, 0xFFDAE4EA, 0xFF141E24, 0xFFA9BFCD, 0xFFD1DEE7, 0xFFF9FBFC, 0xFFBDCEDB);
+        sample("winter", WINTER, true, 0xFF252B2B, 0xFF79A3BD, 0xFF3D4D54, 0xFF253136, 0xFF56717F, 0xFF22292B, 0xFF434A4B, 0xFF353E41);
         AppThemePalette summerLight = AppThemePalette.of(SUMMER, false);
         expect("summer L splash disc", summerLight.splashDisc, 0xFFE3EEE9);
         expect("summer L splash bar", summerLight.splashBar, 0xFF5D9B80);

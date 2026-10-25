@@ -1,5 +1,7 @@
 export type KeybindingPreferences = {
   switch_language_shift: boolean;
+  /** macOS 单按 Shift 仅在可编辑焦点生效，需辅助功能权限，缺省为关。 */
+  switch_language_shift_requires_editable?: boolean;
   switch_language_ctrl: boolean;
   switch_language_ctrl_space?: boolean;
   switch_language_ctrl_alt_space: boolean;
@@ -17,4 +19,6 @@ export type KeybindingPreferences = {
   toggle_full_width?: string;
   /** 中英文标点切换热键（如 `Ctrl+Period`）；空串表示不绑定，缺省为出厂值。 */
   toggle_punctuation?: string;
+  /** 额外的语音开始／结束热键，缺省或空串表示不绑定。 */
+  toggle_voice_input?: string;
 };

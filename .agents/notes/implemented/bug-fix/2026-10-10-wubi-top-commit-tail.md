@@ -25,3 +25,5 @@ Status: implemented
 ## Verification
 
 先让大写后续按键回归测试在旧实现上失败，再实现尾部合并。`cargo test -p msime-input-runtime --lib --locked`：160 passed；`cargo fmt --all -- --check`、`cargo clippy -p msime-input-runtime --all-targets --locked -- -D warnings`、`git diff --check` 和 `bash scripts/verify-local.sh --quick` 均通过。
+
+Windows 双会话写入归属见[五笔最终提交文本](2026-10-23-windows-wubi-commit-owner.md)，本篇继续持有引擎的顶字尾部规则。

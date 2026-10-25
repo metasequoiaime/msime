@@ -3,19 +3,17 @@ package app.msime.android;
 import android.view.KeyEvent;
 import java.util.List;
 
-/**
- * 文本编辑面板（#5625，从功能面板「文本编辑」打开）：方向键、选择、全选、复制、剪切、粘贴、跳到文档开头和结尾、删除。按 Gboard 的编辑面板排成 4 × 4：左边三列是方向键（←、→ 各占三行，中间一列 ↑ 选择 ↓）和底下一行的 开头 / 结尾 / 删除，右边一列是 全选 / 复制 / 剪切 / 粘贴；右列下方还可滚动到数字键盘、空格和换行快捷键。
- *
- * <p>只描述键、位置和每个键交给编辑器的是什么：方向和开头结尾是按键事件（「选择」开着时带 Shift，延伸选区；开头结尾带 Ctrl，到整篇文档的两端），全选、复制、剪切、粘贴是 InputConnection 的上下文菜单动作，删除是退格键事件（有选区时删选区）。无 Android 依赖（只用按键码和资源 id 常量），由 JVM 回归验证。
- */
+/** 文本编辑面板的固定十字、行与文档边界、七个可排序侧边键；只把动作适配为 Android 编辑器事件。 */
 public final class TextEditPanelModel {
     public static final int ROWS = 4;
-    public static final int COLUMNS = 4;
+    /** 横向以半格计数，底部两个文档边界键各占一点五格。 */
+    public static final int COLUMNS = 10;
+    public static final String ORDER_PREFERENCE = "touch_text_edit_button_order";
 
     /** 键的动作，IME 按它接线。 */
     public enum Action {
         LEFT, UP, SELECT, DOWN, RIGHT, SELECT_ALL, COPY, CUT, PASTE, DOCUMENT_START, DOCUMENT_END, DELETE,
-        NUMBER_PAD, SPACE, RETURN
+        NUMBER_PAD, SPACE, RETURN, LINE_START, LINE_END
     }
 
     /**
@@ -26,41 +24,48 @@ public final class TextEditPanelModel {
      * @param row 起始行（从 0 起）
      * @param column 起始列（从 0 起）
      * @param rowSpan 占几行
+     * @param columnSpan 占几个半格
      * @param repeats 按住是否连发（方向键和删除）
      */
     public record Key(Action action, String label, String description, int row, int column,
-                      int rowSpan, boolean repeats) {}
+                      int rowSpan, int columnSpan, boolean repeats) {}
 
     private static final List<Key> KEYS = List.of(
-        new Key(Action.LEFT, "←", "光标左移", 0, 0, 3, true),
-        new Key(Action.UP, "↑", "光标上移", 0, 1, 1, true),
-        new Key(Action.SELECT, "选择", "选择模式", 1, 1, 1, false),
-        new Key(Action.DOWN, "↓", "光标下移", 2, 1, 1, true),
-        new Key(Action.RIGHT, "→", "光标右移", 0, 2, 3, true),
-        new Key(Action.SELECT_ALL, "全选", "全选", 0, 3, 1, false),
-        new Key(Action.COPY, "复制", "复制", 1, 3, 1, false),
-        new Key(Action.CUT, "剪切", "剪切", 2, 3, 1, false),
-        new Key(Action.PASTE, "粘贴", "粘贴", 3, 3, 1, false),
-        new Key(Action.DOCUMENT_START, "⇤", "移到开头", 3, 0, 1, false),
-        new Key(Action.DOCUMENT_END, "⇥", "移到结尾", 3, 1, 1, false),
-        new Key(Action.DELETE, "⌫", "退格", 3, 2, 1, true));
-
-    private static final List<Key> SHORTCUTS = List.of(
-        new Key(Action.NUMBER_PAD, "数字键盘", "打开数字键盘", 0, 0, 1, false),
-        new Key(Action.SPACE, "空格", "插入空格", 1, 0, 1, false),
-        new Key(Action.RETURN, "换行", "插入换行", 2, 0, 1, false));
+        new Key(Action.LEFT, "←", "光标左移", 1, 2, 1, 2, true),
+        new Key(Action.UP, "↑", "光标上移", 0, 4, 1, 2, true),
+        new Key(Action.SELECT, "选择", "选择模式", 1, 4, 1, 2, false),
+        new Key(Action.DOWN, "↓", "光标下移", 2, 4, 1, 2, true),
+        new Key(Action.RIGHT, "→", "光标右移", 1, 6, 1, 2, true),
+        new Key(Action.LINE_START, "行首", "移到行首", 0, 2, 1, 2, false),
+        new Key(Action.LINE_END, "行尾", "移到行尾", 0, 6, 1, 2, false),
+        new Key(Action.SELECT_ALL, "全选", "全选", 0, 0, 1, 2, false),
+        new Key(Action.COPY, "复制", "复制", 0, 0, 1, 2, false),
+        new Key(Action.CUT, "剪切", "剪切", 0, 0, 1, 2, false),
+        new Key(Action.PASTE, "粘贴", "粘贴", 0, 0, 1, 2, false),
+        new Key(Action.DOCUMENT_START, "⇤", "移到开头", 3, 2, 1, 3, false),
+        new Key(Action.DOCUMENT_END, "⇥", "移到结尾", 3, 5, 1, 3, false),
+        new Key(Action.DELETE, "⌫", "退格", 0, 0, 1, 2, true),
+        new Key(Action.NUMBER_PAD, "123", "打开数字键盘", 0, 0, 1, 2, false),
+        new Key(Action.SPACE, "空格", "插入空格", 0, 0, 1, 2, false),
+        new Key(Action.RETURN, "换行", "插入换行，长按打开符号", 3, 8, 1, 2, false));
 
     private TextEditPanelModel() { }
 
-    /** 全部键，按行再按列排。 */
-    public static List<Key> keys() { return KEYS; }
-
-    /** 右侧可滚动的快捷键；它们不占左侧的 4 × 4 编辑网格。 */
-    public static List<Key> shortcuts() { return SHORTCUTS; }
+    /** 根据共享偏好给出的完整顺序排键，列表按行列排序，下排两个空白角不生成键。 */
+    public static List<Key> keys(List<Action> order) {
+        java.util.ArrayList<Key> result = new java.util.ArrayList<>();
+        for (Key key : KEYS) {
+            int slot = order.indexOf(key.action());
+            if (slot < 0) result.add(key);
+            else result.add(new Key(key.action(), key.label(), key.description(),
+                slot < 4 ? slot : slot - 4, slot < 4 ? 0 : 8, 1, 2, key.repeats()));
+        }
+        result.sort(java.util.Comparator.comparingInt(Key::row).thenComparingInt(Key::column));
+        return List.copyOf(result);
+    }
 
     public static Key key(Action action) {
         for (Key key : KEYS) if (key.action() == action) return key;
-        for (Key key : SHORTCUTS) if (key.action() == action) return key;
         throw new IllegalArgumentException("Unknown text edit action " + action);
     }
 
@@ -71,8 +76,8 @@ public final class TextEditPanelModel {
             case RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT;
             case UP -> KeyEvent.KEYCODE_DPAD_UP;
             case DOWN -> KeyEvent.KEYCODE_DPAD_DOWN;
-            case DOCUMENT_START -> KeyEvent.KEYCODE_MOVE_HOME;
-            case DOCUMENT_END -> KeyEvent.KEYCODE_MOVE_END;
+            case DOCUMENT_START, LINE_START -> KeyEvent.KEYCODE_MOVE_HOME;
+            case DOCUMENT_END, LINE_END -> KeyEvent.KEYCODE_MOVE_END;
             case DELETE -> KeyEvent.KEYCODE_DEL;
             case SPACE -> KeyEvent.KEYCODE_SPACE;
             case RETURN -> KeyEvent.KEYCODE_ENTER;
@@ -80,11 +85,12 @@ public final class TextEditPanelModel {
         };
     }
 
-    /** 按键事件的修饰键：移动类的键在选择模式下带 Shift；开头结尾始终带 Ctrl（整篇文档而不是当前行）；删除不带。 */
+    /** 移动键在选择模式下带 Shift；只有文档首尾始终带 Ctrl，行边界与删除不带 Ctrl。 */
     public static int metaState(Action action, boolean selecting) {
         int meta = 0;
         boolean moves = action == Action.LEFT || action == Action.RIGHT || action == Action.UP
-            || action == Action.DOWN || action == Action.DOCUMENT_START || action == Action.DOCUMENT_END;
+            || action == Action.DOWN || action == Action.DOCUMENT_START || action == Action.DOCUMENT_END
+            || action == Action.LINE_START || action == Action.LINE_END;
         if (moves && selecting) meta |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON;
         if (action == Action.DOCUMENT_START || action == Action.DOCUMENT_END)
             meta |= KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON;

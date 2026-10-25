@@ -10,6 +10,8 @@ Status: implemented
 
 macOS 输入法 bundle 自带七份内置码表，并通过仅在当前会话中添加的 `helpcode_fallback_resources` 指定只读回退资源根目录。Engine 仅在主资源中的内置表确实不存在时使用该目录；已有空表、不可读表、自定义表与插件表保持既有语义。会话切换方案时继续使用同一回退目录，不重写用户配置或词库目录。旧宿主不传该可选键，行为不变。
 
+#9421 报告 0.54.0 的双拼辅助码「只在部分界面失效」：失效的地方既没有注释，按辅助码也不筛选。缺表在 macOS 上可以只落在一部分应用上，原因是会话的生命周期：IMK 给每个文本客户端一个控制器，控制器在第一次需要时按当时的 `runtime-options.json` 建会话，之后一直沿用；设置应用每次启动都把这份文件刷到已装好的词库代次（`refresh_host_options_from`），设置页挂载时又会自动检查并下载在线词库（0.54.0 默认开启，随包 dict-v2.0.24，报告前已发布 v2.0.33 至 v2.0.35）。下载的代次没有 `helpcodes/`，刷新又不动运行中的会话，于是同一个输入法进程里，切换前打开过的应用还拿着随包代次的会话、辅助码正常，切换后才建会话的应用（新开的应用和窗口；现在的 develop 上还有被闲置上限回收后重建的会话）读到空表；输入法重启后全部失效，就成了 #8931 的样子。`shortcut-test --helpcode-generation-switch`（`TestHelpcodeAfterDictionaryGenerationSwitch`）用两个合成客户端走 `prepareSession` 重现这条时间线：合成双拼词库里「阳」词频高于「杨」，码表只在随包资源和合成 bundle 里有。去掉 `prepareSession` 传给 `MSIMESessionOptions` 的 bundle 目录时，先建的会话在 `yh` 下给「杨」注释 `mu`、`yhm` 把它提到首位，后建的会话注释为空、`yhm` 仍是「阳」在前，与报告的两个症状一致；带着回退两边都通过。测试同时断言后建会话请求的配置带着本进程 bundle 的回退目录，`TestSessionOptions` 只验证了静态函数，`prepareSession` 少传这个参数原先没有测试会失败。
+
 ## Alternatives considered
 
 复制随包表到每份下载资源可以复用已有资源路径，Linux 的安装脚本采用此法；但 macOS 还需覆盖旧目录、升级和在线更新，并且输入法会向可能只读的资源目录写入。只读回退无需修改这些目录。将内置表编进 Engine 可消除路径问题，但会改变所有缺表宿主和测试夹具的现有行为；这里由宿主显式选择回退。

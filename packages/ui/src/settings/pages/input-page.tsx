@@ -7,6 +7,7 @@ import { GroupList, Row } from "../../core/platform-controls";
 import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
 import { supportedInputSchemes } from "../input-scheme-options";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
+import { CrossCommitSpacingSection } from "../cross-commit-spacing-section";
 import { AppInputModeRulesSection } from "../app-input-mode-rules-section";
 import { VimModeAppsSection } from "../vim-mode-apps-section";
 import { LocalModesSection } from "../local-modes-section";
@@ -140,7 +141,7 @@ export function InputSettingsPage() {
   const neuralKeyboard = host?.edition?.neural_keyboard ?? true;
   // 应用例外只在认得前台应用的宿主上提供（macOS 按 bundle id，Windows 按进程基名，Linux 按输入法框架报告的程序名）。
   const showAppInputModeRules = host?.app_input_mode_rules === true;
-  // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译 直接可见，其余都放进末尾的 更多 折叠区。翻页键在它的 外接键盘快捷键 页，整句联想 在它的 表达 页，所以这里不画。
+  // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译直接可见，输入通用设置也直接展开，不再额外套一个「更多」分组。翻页键在它的 外接键盘快捷键 页，整句联想 在它的 表达 页，所以这里不画。
   const harmonyPhone = harmonyPlatform && mobilePlatform;
   // 拼音纠错 是两项全拼纠错共用的一个开关，只有两项都开启时才显示为开；打开或关闭会同时设置两项，和 Android 的 `TypingPage` 一样。
   const autocorrect =
@@ -223,6 +224,7 @@ export function InputSettingsPage() {
           <InputSchemeSettingsContent
             preferences={draft}
             hasTouchKeyboardSchemes={Boolean(client.touchKeyboardSchemes)}
+            koreanRomaja={host?.korean_romaja === true}
             touchKeyboardSchemes={touchKeyboardSchemes}
             selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
             macos={macosPlatform}
@@ -357,8 +359,22 @@ export function InputSettingsPage() {
         </>
       )}
       <InputSharedSettingsSection
+        crossCommitSpacing={
+          macosPlatform ? (
+            <CrossCommitSpacingSection
+              enabled={draft.cross_commit_spacing}
+              excludedApps={draft.cross_commit_spacing_excluded_apps}
+              onChange={(cross_commit_spacing) => onPreferencesChange({ cross_commit_spacing })}
+              onExcludedAppsChange={(cross_commit_spacing_excluded_apps) =>
+                onPreferencesChange({ cross_commit_spacing_excluded_apps })
+              }
+              pickApplication={client.pickApplication}
+              applicationNames={client.applicationNames}
+            />
+          ) : undefined
+        }
         renderGroup={panel}
-        foldIntoMore={harmonyPhone}
+        showTraditionalOutput={!harmonyPhone}
         traditionalChineseVariants={host?.traditional_chinese_variants === true}
         preferences={draft}
         wordCharacter={wordCharacter}
@@ -406,6 +422,7 @@ export function InputSettingsPage() {
         onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
         showMixedInputMinimumPrefix={showMixedInputMinimumPrefix}
         temporaryJapanese={temporaryJapanese}
+        showMultilingualInput={host?.edition?.input_schemes.includes("quanpin") ?? true}
         quickPhraseCandidates={host?.quick_phrase_candidates ?? false}
         paging={
           !harmonyPhone && (

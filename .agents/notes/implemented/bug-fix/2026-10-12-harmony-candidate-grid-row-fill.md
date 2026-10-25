@@ -18,6 +18,10 @@ Status: implemented
 - **保持设计稿的 CSS 网格，不拉宽**：与设计稿 `repeat(auto-fill, minmax(64px, 1fr))` 完全一致，但行尾空列正是用户嫌弃的地方，而且 Android 已经改成拉宽，三端会不一致。
 - **把行尾的空列平均分给这一行的各格**：行内更均匀，但各行的格子边缘不再落在同一组列线上。
 
+## Related decisions
+
+[鸿蒙离线候选释义即时显示](2026-10-24-harmony-immediate-candidate-glosses.md) 对候选条采用相同的刷新键约束，另行负责本地查词与在线请求的时序。
+
 ## Consequences
 
 - 收益：除最后一行外每行都填到右边，与 Android、iOS 一致；格子边缘仍落在列线上。

@@ -2,6 +2,7 @@
 """临时文件创建失败时必须停止门禁，清理不得匹配工作区隐藏文件。"""
 
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -9,7 +10,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "scripts/verify-local.sh").read_text()
+SOURCE = (ROOT / "scripts/verify-local.sh").read_text(encoding="utf-8")
 STARTUP = SOURCE[SOURCE.index("failed=0\n"):SOURCE.index("note() {")]
 
 
@@ -36,13 +37,20 @@ mktemp() {
   printf '%s\n' "$result"
 }
 '''
+            environment = {"PATH": os.environ["PATH"] if os.name == "nt" else "/usr/bin:/bin",
+                           "FAIL_AT": str(fail_at)}
+            if os.name == "nt":
+                for key in ("SystemRoot", "TEMP", "TMP"):
+                    if key in os.environ:
+                        environment[key] = os.environ[key]
             result = subprocess.run(
                 ["bash", "-c", shell + STARTUP + body],
                 cwd=root,
-                env={"PATH": "/usr/bin:/bin", "FAIL_AT": str(fail_at)},
+                env=environment,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                # Windows 上还要启动 Git Bash 及其外部工具，断言仍逐项核对清理结果。
+                timeout=30 if os.name == "nt" else 5,
             )
             self.assertTrue((root / ".git").exists(), "清理删除了工作区 .git")
             self.assertTrue((root / ".gitignore").exists(), "清理删除了工作区隐藏文件")

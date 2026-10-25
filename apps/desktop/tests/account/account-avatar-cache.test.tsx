@@ -10,6 +10,7 @@ function avatarUser(avatarUrl: string): AccountUser {
   return {
     id: "synthetic-avatar-cache-user",
     displayName: "合成头像用户",
+    preferredName: "合成头像用户",
     createdAt: "2026-01-01T00:00:00Z",
     avatarUrl,
   };

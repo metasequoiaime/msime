@@ -173,7 +173,7 @@ export class HarmonyVoiceRecognizer {
         throw new Error('语音采集启动失败');
       }
     } catch (error) {
-      KeyboardLog.error('keyboard.input.HarmonyVoiceRecognizer.start failed');
+      KeyboardLog.error('语音识别启动失败');
       throw error as Error;
     }
   }

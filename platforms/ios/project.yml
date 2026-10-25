@@ -77,12 +77,14 @@ targets:
         CFBundleLocalizations: [zh-Hans]
         # 按住空格说话：键盘扩展不能录音，App 在后台保持录音会话，替键盘录音识别（App/Services/VoiceSessionService.swift）。会话空闲 5 分钟自动关闭。
         UIBackgroundModes: [audio]
+        NSFaceIDUsageDescription: 验证身份以查看打字统计
     sources:
       - path: App/Sources
       - path: App/Services
       - path: KeyboardExtension/Sources
         includes:
           - input/FourteenKeyLayout.swift
+          - input/EighteenKeyLayout.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**
@@ -135,6 +137,9 @@ targets:
         buildPhase: resources
       # 这张表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
       - path: ../../resources/licenses/Unicode-License-V3.txt
+        buildPhase: resources
+      # 世界时钟的城市目录和时间计算依赖随 App 分发许可。
+      - path: ../../resources/licenses/world-clock-NOTICE.txt
         buildPhase: resources
       # 简繁转换内嵌的 OpenCC 词表许可证随 App 分发。
       - path: ../../resources/licenses/OpenCC-Apache-2.0.txt
@@ -266,6 +271,11 @@ targets:
         buildPhase: resources
         type: folder
         optional: true
+      # stage-resources.sh 暂存的内置按键音包（`mode = "keys"` 的那几个，连同各自的 plugin.toml 许可），键盘按选中的音效播放；设置 App 从内嵌的键盘扩展里读同一份来列出音效和试听。
+      - path: ../../target/ios/sound-packs
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
       # 表情面板的水杉娘表情包：66 张 320px 透明 WebP 和清单，三个手机键盘共用仓库里的同一份。
@@ -313,6 +323,11 @@ targets:
         optional: true
       # Staged by stage-resources.sh beside EngineResources: the settings app reads 背单词's bundled wordbooks from the wordbooks/ sibling of the EngineResources it finds in the keyboard extension. Empty when none were built.
       - path: ../../target/ios/wordbooks
+        buildPhase: resources
+        type: folder
+        optional: true
+      # 同键盘扩展：按键音包的测试经 `msime_client_key_sound_pack` 读这一份。
+      - path: ../../target/ios/sound-packs
         buildPhase: resources
         type: folder
         optional: true

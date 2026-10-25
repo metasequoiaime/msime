@@ -13,8 +13,16 @@ import android.widget.TextView;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.Nullable;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.AuthenticationPauseTracker;
+import app.msime.android.ClipboardOperationAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import java.io.IOException;
+import java.util.function.Consumer;
 
 /** 设置页与历史页共用目录选择和显式导出动作；结果由 HostTask 绑定当前视图。 */
 final class ClipboardExportActions {
@@ -24,6 +32,8 @@ final class ClipboardExportActions {
     private boolean exportAfterPicking;
     private boolean busy;
     private TextView button;
+    private BiometricPrompt authentication;
+    @Nullable private Consumer<Boolean> authenticationEnded;
 
     ClipboardExportActions(ReloadingDetailPage page, Runnable reload) {
         this.page = page;
@@ -31,9 +41,20 @@ final class ClipboardExportActions {
         picker = page.registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), this::selected);
     }
 
+    /** 系统认证窗口仍在进行；宿主页据此判断这次暂停是不是认证本身引起的。 */
+    boolean authenticating() { return authentication != null; }
+
+    /** 认证结束时通知宿主页，参数表示是否被系统取消（见 {@link AuthenticationPauseTracker#systemCanceled}）；历史页据此判断离开页面时被取消的导出认证是否要按重新进入处理。 */
+    void onAuthenticationEnded(Consumer<Boolean> listener) { authenticationEnded = listener; }
+
     void restore(Bundle state) { exportAfterPicking = state != null && state.getBoolean("clipboardExportAfterPicking"); }
     void save(Bundle state) { state.putBoolean("clipboardExportAfterPicking", exportAfterPicking); }
-    void destroyed() { busy = false; button = null; }
+    void destroyed() {
+        if (authentication != null) authentication.cancelAuthentication();
+        authentication = null;
+        busy = false;
+        button = null;
+    }
 
     TextView button() {
         var context = page.requireContext();
@@ -48,6 +69,44 @@ final class ClipboardExportActions {
 
     void export() {
         if (busy) return;
+        if (ClipboardOperationAuthenticationPolicy.requiresAuthentication()) {
+            requestAuthentication();
+            return;
+        }
+        exportAfterAuthentication();
+    }
+
+    private void requestAuthentication() {
+        if (!ClipboardOperationAuthenticationPolicy.shouldStartAuthentication(authentication != null)) return;
+        int authenticators = SystemAuthenticators.allowed();
+        android.content.Context context = page.requireContext();
+        if (BiometricManager.from(context).canAuthenticate(authenticators)
+                != BiometricManager.BIOMETRIC_SUCCESS) {
+            MsToast.show(context, "这台设备没有可用的系统认证");
+            return;
+        }
+        authentication = new BiometricPrompt(page, ContextCompat.getMainExecutor(context),
+            new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult value) {
+                    authentication = null;
+                    if (page.getView() != null) exportAfterAuthentication();
+                    if (authenticationEnded != null) authenticationEnded.accept(false);
+                }
+
+                @Override public void onAuthenticationError(int code, CharSequence message) {
+                    authentication = null;
+                    if (authenticationEnded != null) authenticationEnded.accept(AuthenticationPauseTracker.systemCanceled(code, android.os.Build.VERSION.SDK_INT));
+                }
+            });
+        BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle("导出剪贴板历史包含本机记录")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        authentication.authenticate(info);
+    }
+
+    private void exportAfterAuthentication() {
         setBusy(true);
         HostTask.run(page, context -> ClipboardExport.export(context), message -> {
             setBusy(false);

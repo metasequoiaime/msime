@@ -357,10 +357,10 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(lines[3], "2026-09-20,120,60,30,10,8,12,3.0,31")
   }
 
-  /// The ids are a copy of the shared store's whitelist, which rejects a whole batch for one id it does not know, so every one of them has to be accepted.
+  /// 键位与共享存储白名单一致；未知键位会拒绝整批，因此每个已知键位都必须可记录。
   func testKeyIDsAreTheSharedWhitelist() throws {
-    XCTAssertEqual(TypingKeyID.all.count, 141)
-    XCTAssertEqual(TypingKeyID.known.count, 141)
+    XCTAssertEqual(TypingKeyID.all.count, 159)
+    XCTAssertEqual(TypingKeyID.known.count, 159)
     for id in TypingKeyID.all {
       XCTAssertTrue(id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }, id)
     }
@@ -370,7 +370,7 @@ final class TypingStatisticsTests: XCTestCase {
     let store = TypingStatisticsStore(directory: directory)
     try store.setEnabled(true)
     let everyKey = Dictionary(uniqueKeysWithValues: TypingKeyID.all.map { ($0, 1) })
-    XCTAssertEqual(try store.recordKeys(everyKey, day: "2026-09-30"), 141)
+    XCTAssertEqual(try store.recordKeys(everyKey, day: "2026-09-30"), 159)
     XCTAssertThrowsError(try store.recordKeys(["KeyA": 1, "NineComma": 1], day: "2026-09-30"))
     XCTAssertEqual(try store.load().dailyKeys["2026-09-30"]?["KeyA"], 1)
   }
@@ -400,6 +400,11 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(TypingKeyID.fourteenKey("L"), "FourteenL")
     XCTAssertNil(TypingKeyID.fourteenKey("Q"))
     XCTAssertEqual(TypingKeyID.label("FourteenBN"), "14 键 BN")
+    // 18 键另有一组 id，全拼和双拼共用，不混进 14 键和 26 键。
+    XCTAssertEqual(TypingKeyID.eighteenKey("WE"), "EighteenWE")
+    XCTAssertEqual(TypingKeyID.eighteenKey("Q"), "EighteenQ")
+    XCTAssertNil(TypingKeyID.eighteenKey("QW"))
+    XCTAssertEqual(TypingKeyID.label("EighteenBN"), "18 键 BN")
     // The quick punctuation key counts as the comma key it sits on, whatever mark it types.
     XCTAssertEqual(TypingKeyID.quickPunctuation, "Comma")
     XCTAssertTrue(TypingKeyID.known.contains(TypingKeyID.quickPunctuation))

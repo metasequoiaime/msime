@@ -48,7 +48,7 @@ final class OnboardingChoices {
         SAVED,
         /** 偏好还读不到，选择留着，之后再写。 */
         WAITING,
-        /** 偏好读得到但写不进去，选择已放弃，键盘保留原来的设置。 */
+        /** 偏好读得到但写不进去，选择保留，用户可以重试。 */
         FAILED,
         /** 读写时出了意外的异常：选择留着，调用方可以稍后再试，也会在下次准备完成或下次启动时再写。 */
         ERROR
@@ -67,6 +67,11 @@ final class OnboardingChoices {
     @Nullable static Boolean pendingGloss(Context context) {
         SharedPreferences store = store(context);
         return store.contains(PENDING_GLOSS) ? store.getBoolean(PENDING_GLOSS, false) : null;
+    }
+
+    static boolean hasPending(Context context) {
+        SharedPreferences preferences = store(context);
+        return preferences.contains(PENDING_SCHEME) || preferences.contains(PENDING_GLOSS);
     }
 
     static void rememberScheme(Context context, KeyboardScheme scheme) {
@@ -142,7 +147,6 @@ final class OnboardingChoices {
             }
             JSONObject pending = edited(snapshot, schemeChange, glossChange);
             if (pending == null) {
-                clear(store, scheme, gloss);
                 return new Result(Outcome.FAILED, snapshot);
             }
             JSONObject saved = HostStore.savePreferences(context, pending);
@@ -154,8 +158,7 @@ final class OnboardingChoices {
             // 被拒多半是键盘在这期间也写了偏好：按刚读到的新修订号再算一遍。
             if (fresh != null) snapshot = fresh;
         }
-        // 几次都写不进去：放弃这次的选择，页面按偏好里实际存的显示，不让卡片一直停在没生效的选择上。
-        clear(store, scheme, gloss);
+        // 有限重试耗尽后仍保留选择；离开引导或重启进程都不能吞掉用户尚未保存的设置。
         return new Result(Outcome.FAILED, snapshot);
     }
 

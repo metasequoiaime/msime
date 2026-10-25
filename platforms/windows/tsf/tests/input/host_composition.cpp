@@ -232,6 +232,35 @@ int main() {
         view.scheme = scheme::Wubi;
         check(!msime::tsf::HostEditsSentence(view));
     }
+    // 行内「原始按键」样式画打出来的按键：全拼宿主视图的 preedit 带显示用的隔音符（#9675），这一样式改画 editing_text；双拼、韩文这类 preedit 不是按键加隔音符的方案，以及本地模式和专用英文，照旧画 preedit。
+    {
+        msime::tsf::EngineView view;
+        view.preedit = "pin'yin";
+        view.editing_text = "pinyin";
+        check(msime::tsf::HostRawStyleText(view) == "pinyin");
+        view.preedit = "ni'hao'";
+        view.editing_text = "ni'hao'";
+        check(msime::tsf::HostRawStyleText(view) == "ni'hao'");
+        view.scheme = scheme::Shuangpin;
+        view.preedit = "ni'hao";
+        view.editing_text = "nihc";
+        check(msime::tsf::HostRawStyleText(view) == "ni'hao");
+        view.scheme = scheme::Korean;
+        view.preedit = "한";
+        view.editing_text = "gks";
+        check(msime::tsf::HostRawStyleText(view) == "한");
+        view.scheme = scheme::Quanpin;
+        // 下面两种状态的两个字段故意写成不同的串，只为看出画的是哪一个。
+        view.local_mode = "temporary_japanese";
+        view.preedit = "Rni'hao";
+        view.editing_text = "Rnihao";
+        check(msime::tsf::HostRawStyleText(view) == "Rni'hao");
+        view.local_mode = "none";
+        view.dedicated_english = true;
+        view.preedit = "he'llo";
+        view.editing_text = "hello";
+        check(msime::tsf::HostRawStyleText(view) == "he'llo");
+    }
     // Home 键：候选窗显示时发两段式的 MSIME_FIRST_CANDIDATE_OR_HOME；没有候选时发 MSIME_FIRST_CANDIDATE，什么也不动，和 Server 只在有候选时接 Home 一致。
     {
         msime::tsf::EngineView view;

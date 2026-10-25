@@ -148,6 +148,24 @@ export const KEY_IDS: readonly string[] = [
   "FourteenCV",
   "FourteenBN",
   "FourteenM",
+  "EighteenQ",
+  "EighteenWE",
+  "EighteenRT",
+  "EighteenY",
+  "EighteenU",
+  "EighteenIO",
+  "EighteenP",
+  "EighteenA",
+  "EighteenSD",
+  "EighteenFG",
+  "EighteenH",
+  "EighteenJK",
+  "EighteenL",
+  "EighteenZ",
+  "EighteenXC",
+  "EighteenV",
+  "EighteenBN",
+  "EighteenM",
 ];
 
 const KNOWN: Set<string> = new Set<string>(KEY_IDS);
@@ -289,6 +307,12 @@ export class KeyIdPolicy {
   /** 全拼 14 键的一键，按键面上的字母（`FourteenKey.letters`，如 `qw`、`l`）定位；不是 14 键的键面时不计。 */
   static fourteenKey(letters: string): string | null {
     const id: string = `Fourteen${letters.toUpperCase()}`;
+    return KNOWN.has(id) ? id : null;
+  }
+
+  /** 全拼 18 键的一键，按键面上的字母组定位。 */
+  static eighteenKey(letters: string): string | null {
+    const id: string = `Eighteen${letters.toUpperCase()}`;
     return KNOWN.has(id) ? id : null;
   }
 

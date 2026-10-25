@@ -20,6 +20,19 @@ jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 mkdir -p "$build_dir/assets/contracts/account-session-layouts"
 cp shared/contracts/account-session-layouts/cases.json "$build_dir/assets/contracts/account-session-layouts/cases.json"
 editor_manifest=platforms/android/tests/device/AndroidManifest.xml
+# 世界时钟专项复用一个产品宿主入口，避免超过 API 35 的 100 项 instrumentation 上限。
+if [[ "${MSIME_ANDROID_WORLD_CLOCK:-0}" == 1 ]]; then
+  editor_manifest="$build_dir/world-clock-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.WorldClockDeviceSmoke/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+fi
+# OCR 专项只装入固定合成模块，不改变产品 APK 的信任入口。
+if [[ "${MSIME_ANDROID_OCR_SMOKE:-0}" == 1 ]]; then
+  cp target/android/ocr-product-module.apk "$build_dir/assets/ocr-product-module.apk"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.OcrProductDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/ocr-manifest.xml"
+  editor_manifest="$build_dir/ocr-manifest.xml"
+fi
 # 完整上游皮肤仅用于显式验收；固定提交归档，不能复制检出目录里的未提交资源，也不进入默认测试包。
 if [[ -n "${MSIME_ANDROID_UPSTREAM_SKINS:-}" ]]; then
   upstream_commit=dd018f79858314ed542a47c528608752b13bd261
@@ -46,11 +59,29 @@ if [[ "${MSIME_ANDROID_INLINE_AUTOFILL:-0}" == 1 ]]; then
     "$editor_manifest" > "$build_dir/autofill-manifest.xml"
   editor_manifest="$build_dir/autofill-manifest.xml"
 fi
+if [[ "${MSIME_ANDROID_CLIPBOARD_CATEGORIES_SMOKE:-0}" == 1 ]]; then
+  # 分类专项复用一个原生宿主入口，不突破系统 instrumentation 数量上限。
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.ClipboardCategoriesDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/clipboard-categories-manifest.xml"
+  editor_manifest="$build_dir/clipboard-categories-manifest.xml"
+fi
 if [[ "${MSIME_ANDROID_RELATIVE_DATE:-0}" == 1 ]]; then
   # 专项复用现有入口，避免超过系统清单项数限制。
   sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.RelativeDateDeviceSmoke/' \
     "$editor_manifest" > "$build_dir/relative-date-manifest.xml"
   editor_manifest="$build_dir/relative-date-manifest.xml"
+fi
+if [[ "${MSIME_ANDROID_MULTILINGUAL:-0}" == 1 ]]; then
+  # 连续输入专项复用一个原生宿主入口，保持在系统 instrumentation 数量限制内。
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.MultilingualInputDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/multilingual-manifest.xml"
+  editor_manifest="$build_dir/multilingual-manifest.xml"
+fi
+# 引导专项复用现有入口，不突破 API 35 的 instrumentation 数量上限。
+if [[ "${MSIME_ANDROID_OOBE_SMOKE:-0}" == 1 ]]; then
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.OnboardingDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/oobe-manifest.xml"
+  editor_manifest="$build_dir/oobe-manifest.xml"
 fi
 "$tools_dir/aapt2" compile --dir platforms/android/tests/device/res -o "$build_dir/resources.zip"
 "$tools_dir/aapt2" link -I "$android_jar" --manifest "$editor_manifest" -A "$build_dir/assets" \

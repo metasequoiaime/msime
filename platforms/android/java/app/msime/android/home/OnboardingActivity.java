@@ -168,6 +168,8 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void finishFlow() {
+        // 离开只记「看过」，后台继续保存；首页显示未完成的资源和待保存选择。
+        OnboardingChoices.sync(this, null);
         markSeen(this);
         finish();
     }
@@ -219,8 +221,8 @@ public final class OnboardingActivity extends AppCompatActivity {
     private void enable(LinearLayout column) {
         header(column, R.drawable.ic_ms_keyboard, ordinal() + " · 约 30 秒", "把水杉加进键盘",
             "在系统设置里启用水杉，并设为默认输入法，之后在任何应用里都能直接用。");
-        boolean enabled = ImeSetup.enabled(this);
-        boolean current = enabled && ImeSetup.isDefault(this);
+        Boolean enabled = ImeSetup.enabledState(this);
+        Boolean current = ImeSetup.currentState(this);
         LinearLayout card = card(column, 6);
         check(card, getString(R.string.settings_check_enabled), enabled,
             getString(R.string.settings_action_enable), () -> ImeSetup.openSettings(this), false);
@@ -443,9 +445,18 @@ public final class OnboardingActivity extends AppCompatActivity {
                 syncRetries = 0;
             }
             if (choices && result.outcome() == OnboardingChoices.Outcome.FAILED) {
-                note = steps[page] == STEP_SCHEMES ? "保存失败，键盘保留当前方案" : "保存失败，保留原来的设置";
+                note = "暂未保存，选择已保留；点击重试或返回首页继续保存。";
             }
-            if (choices) render(false);
+            if (choices) {
+                render(false);
+                if (result.outcome() == OnboardingChoices.Outcome.FAILED
+                        || result.outcome() == OnboardingChoices.Outcome.ERROR) {
+                    TextView retry = ViewPolicy.label(this, "重试保存", 15, ThemeColorPolicy.accent(this));
+                    ViewPolicy.setMinimumHeightDp(this, retry, 48);
+                    ViewPolicy.bindClick(retry, () -> { syncRetries = 0; syncChoices(); });
+                    ((LinearLayout) findViewById(R.id.onboarding_page)).addView(retry);
+                }
+            }
         });
     }
 
@@ -484,7 +495,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     /** One setup fact: a disc that is a tick or a warning, the fact, and the fix when it is not done yet. */
-    private void check(LinearLayout card, String label, boolean done, String action,
+    private void check(LinearLayout card, String label, Boolean done, String action,
             Runnable fix, boolean divider) {
         if (divider) {
             View line = new View(this);
@@ -497,8 +508,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         ViewPolicy.setMinimumHeightDp(this, row, Ui.COMPACT_ROW_MIN_HEIGHT);
         ViewPolicy.setPaddingDp(this, row, 14, 6, 8, 6);
 
-        TextView mark = ViewPolicy.centeredLabel(this, done ? "✓" : "!", 13,
-            done ? ThemeColorPolicy.onAccent(this) : 0xFFFFFFFF);
+        TextView mark = ViewPolicy.centeredLabel(this, Boolean.TRUE.equals(done) ? "✓" : done == null ? "?" : "!", 13,
+            Boolean.TRUE.equals(done) ? ThemeColorPolicy.onAccent(this) : 0xFFFFFFFF);
         // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
         ViewPolicy.setTextSizeDp(mark, 13);
         StatusMarkPolicy.apply(mark, this, done);
@@ -508,9 +519,9 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout.LayoutParams textParams = LayoutPolicy.weightedWrapParams(1f);
         textParams.setMarginStart(DimensionPolicy.pixels(this, 12));
         row.addView(text, textParams);
-        text.setContentDescription(label + (done ? "，已完成" : "，未完成"));
+        text.setContentDescription(label + (done == null ? "，无法自动确认" : done ? "，已完成" : "，未完成"));
 
-        if (!done) {
+        if (!Boolean.TRUE.equals(done)) {
             TextView button = ViewPolicy.centeredLabel(this, action, 15, ThemeColorPolicy.accent(this));
             ViewPolicy.setHorizontalPaddingDp(this, button, 8);
             ViewPolicy.setBackground(button, ViewPolicy.ripple(this));

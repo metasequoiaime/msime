@@ -17,6 +17,7 @@ mod literal;
 mod online;
 pub mod options;
 mod plugin_commands;
+mod prediction;
 #[cfg(test)]
 mod tests;
 
@@ -43,6 +44,7 @@ pub struct Session {
     /// 触屏的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来；`None` 是不用网格。
     key_grid: Option<KeyGrid>,
     shuangpin_preedit_uses_raw: bool,
+    prediction: prediction::Prediction,
 }
 
 impl Session {
@@ -82,6 +84,10 @@ impl Session {
             nine_key,
             key_grid: None,
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
+            prediction: prediction::Prediction::new(
+                options.next_word_prediction,
+                options.paths.dictionary(crate::assets::MAIN_DICTIONARY),
+            ),
         })
     }
 
@@ -101,6 +107,7 @@ impl Session {
 
     /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). 全拼下九键开启且没有别的组字时，数字 2-9 交给九宫格会话；九键双拼交的是方案用到的数字（可以有 1 和 0）；注音九键的数字由注音编辑器自己处理。
     pub fn character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        self.prediction.clear();
         // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。九键双拼没有英文九键，专用英文里数字照常是数字。
         let grid_digit = match self.key_grid {
             Some(KeyGrid::NineKey) => (b'2'..=b'9').contains(&value),
@@ -130,6 +137,7 @@ impl Session {
 
     /// 滑过字母键的一笔：它最可能拼出的全拼字母写到光标处，与已有组字之间用 `'` 隔开。不是全拼、在本地模式或专用英文里、九键数字正在组字，以及没有串跟得上这一笔时，不处理。
     pub fn glide(&mut self, keyboard: &GlideKeyboard, points: &[GlidePoint]) -> KeyResult {
+        self.prediction.clear();
         if self.nine_key.active() {
             return KeyResult::unhandled();
         }
@@ -148,6 +156,7 @@ impl Session {
 
     /// 换触屏的组码网格，先丢掉网格里的组字，所以在换键盘布局、没有组字时调用。英文九键和注音九键只在九键下打开（注音组字会被丢掉）：14 键的英文模式画全键盘，注音没有 14 键。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) {
+        self.prediction.clear();
         self.input.helpcode_entry = None;
         self.nine_key.command(Command::Cancel);
         if let Some(grid) = grid {
@@ -160,15 +169,31 @@ impl Session {
         self.input.set_zhuyin_nine_key(nine_key);
     }
 
-    /// 14 键的一键：`letter` 是这一组里的任一字母，由 `KeyGrid::code_of` 归成组码交给九宫格会话，宿主约定送这一组的首字母。不复用 `character`，因为硬件键盘的字母也走 `character`，物理 q 不能变成有歧义的 QW 组。只在 14 键、全拼、没有本地模式、不在专用英文里、26 键没有组字（或九宫格正在组字）时处理 `a`–`z`，其余不处理，状态不变。
+    /// 字母网格的一键：小写字母由 `KeyGrid::code_of` 归成整组，十八键双拼另收大写 ASCII 标记精确字母。标记保留在组码里，不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
     pub fn grid_key(&mut self, letter: u8) -> KeyResult {
-        let Some(grid @ KeyGrid::FourteenKey) = self.key_grid else {
+        self.prediction.clear();
+        let Some(
+            grid @ (KeyGrid::FourteenKey
+            | KeyGrid::EighteenKey
+            | KeyGrid::FourteenKeyShuangpin(_)
+            | KeyGrid::EighteenKeyShuangpin(_)),
+        ) = self.key_grid
+        else {
             return KeyResult::unhandled();
         };
         let Some(code) = grid.code_of(letter) else {
             return KeyResult::unhandled();
         };
-        if self.input.scheme() != SchemeType::Quanpin
+        let supported = match grid {
+            KeyGrid::FourteenKey | KeyGrid::EighteenKey => {
+                self.input.scheme() == SchemeType::Quanpin
+            }
+            KeyGrid::FourteenKeyShuangpin(_) | KeyGrid::EighteenKeyShuangpin(_) => {
+                self.input.scheme() == SchemeType::Shuangpin
+            }
+            _ => false,
+        };
+        if !supported
             || self.input.local_mode != LocalInputMode::None
             || self.input.dedicated_english
             || !(self.input.preedit().is_empty() || self.nine_key.active())
@@ -179,10 +204,15 @@ impl Session {
         self.after_nine_key(result)
     }
 
-    /// 九宫格组码已经到上限时，这一键能不能先选掉首选、再接着打（`NineKeySession::limit_pick_ready`）。`grid_key` 为真时 `value` 是 `grid_key` 收到的 14 键字母，否则是 `character` 收到的九键或九键双拼数字；两条路由各自只认自己的网格。
+    /// 九宫格组码已经到上限时，这一键能不能先选掉首选、再接着打（`NineKeySession::limit_pick_ready`）。`grid_key` 为真时 `value` 是 `grid_key` 收到的归组字母，否则是 `character` 收到的九键或九键双拼数字；两条路由各自只认自己的网格。
     pub fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
         let code = match self.key_grid {
-            Some(grid @ KeyGrid::FourteenKey) if grid_key => grid.code_of(value),
+            Some(
+                grid @ (KeyGrid::FourteenKey
+                | KeyGrid::EighteenKey
+                | KeyGrid::FourteenKeyShuangpin(_)
+                | KeyGrid::EighteenKeyShuangpin(_)),
+            ) if grid_key => grid.code_of(value),
             Some(KeyGrid::NineKey | KeyGrid::NineKeyShuangpin(_)) if !grid_key => Some(value),
             _ => None,
         };
@@ -207,6 +237,17 @@ impl Session {
     }
 
     pub fn command(&mut self, command: Command) -> KeyResult {
+        if !self.prediction.rows.is_empty() {
+            self.prediction.clear();
+            return if command == Command::Cancel {
+                KeyResult::handled()
+            } else {
+                self.input.handle_command(command)
+            };
+        }
+        let selected = (self.prediction.enabled && command == Command::CommitCandidate)
+            .then(|| self.snapshot().candidates.first().cloned())
+            .flatten();
         if self.nine_key.active() {
             // 九宫格没有整句改字，改字的光标键就是它的光标键。
             let command = match command {
@@ -215,21 +256,27 @@ impl Session {
                 other => other,
             };
             let result = self.nine_key.command(command);
-            return self.after_nine_key(result);
+            let result = self.after_nine_key(result);
+            self.predict_after_commit(selected, &result);
+            return result;
         }
-        self.input.handle_command(command)
+        let result = self.input.handle_command(command);
+        self.predict_after_commit(selected, &result);
+        result
     }
 
     /// 整句改字的左移，进入改字时从第 `index` 个候选（宿主高亮的那一行）开始；已在改字里时与 `command(ConversionLeft)` 相同。九宫格和进不了改字时按 `MoveLeft` 处理。
     pub fn conversion_left_from(&mut self, index: usize) -> KeyResult {
+        self.prediction.clear();
         if self.nine_key.active() {
             return self.command(Command::MoveLeft);
         }
         self.input.conversion_left_from(index)
     }
 
-    /// `1`..`9` select the first nine candidates.
+    /// `1`..`9` 选择组字候选；空闲联想不接管数字键。
     pub fn candidate_key(&mut self, value: u8) -> KeyResult {
+        self.prediction.clear();
         if self.nine_key.active() {
             if !(b'1'..=b'9').contains(&value) {
                 return KeyResult::unhandled();
@@ -242,6 +289,7 @@ impl Session {
 
     /// Finishes the composition and appends the Chinese mark; unhandled when Chinese punctuation is off or locked to ASCII, or the key has no mark.
     pub fn punctuation(&mut self, value: u8) -> KeyResult {
+        self.prediction.clear();
         if !self.nine_key.active() {
             return self.input.handle_punctuation(value);
         }
@@ -289,15 +337,35 @@ impl Session {
     }
 
     pub fn select(&mut self, index: usize) -> KeyResult {
+        if !self.prediction.rows.is_empty() {
+            let Some((row, word, pinyin)) = self.prediction.selected(index) else {
+                return KeyResult::unhandled();
+            };
+            let diagnostic = self.input.record_personal_context(Some(&row), false, false);
+            self.show_prediction(&word, &pinyin, &row.word);
+            return KeyResult::committed(row.word.to_string()).with_diagnostic(diagnostic);
+        }
+        let selected = self
+            .prediction
+            .enabled
+            .then(|| self.snapshot().candidates.get(index).cloned())
+            .flatten();
         if self.nine_key.active() {
             let result = self.nine_key.select(index);
-            return self.after_nine_key(result);
+            let result = self.after_nine_key(result);
+            self.predict_after_commit(selected, &result);
+            return result;
         }
-        self.input.select_candidate(index)
+        let result = self.input.select_candidate(index);
+        self.predict_after_commit(selected, &result);
+        result
     }
 
     /// Commit the first or last Han character of a candidate and drop the rest of the composition.
     pub fn select_edge(&mut self, index: usize, edge: CandidateEdge) -> KeyResult {
+        if !self.prediction.rows.is_empty() {
+            return KeyResult::unhandled();
+        }
         if self.nine_key.active() {
             return KeyResult::unhandled();
         }
@@ -306,6 +374,9 @@ impl Session {
 
     /// Promote a dictionary candidate without committing; unsupported rows are unhandled, persistence failures carry a diagnostic.
     pub fn pin(&mut self, index: usize) -> KeyResult {
+        if !self.prediction.rows.is_empty() {
+            return KeyResult::unhandled();
+        }
         if self.nine_key.active() {
             return self.nine_key.pin(index);
         }
@@ -314,6 +385,9 @@ impl Session {
 
     /// Remove a dictionary phrase without committing; single-character non-English rows are protected.
     pub fn remove(&mut self, index: usize) -> KeyResult {
+        if !self.prediction.rows.is_empty() {
+            return KeyResult::unhandled();
+        }
         if self.nine_key.active() {
             return self.nine_key.remove(index);
         }
@@ -322,6 +396,9 @@ impl Session {
 
     /// Fix a dictionary candidate to slot 1..=5 in this input context; unhandled for any other slot.
     pub fn fix_position(&mut self, index: usize, position: i32) -> KeyResult {
+        if !self.prediction.rows.is_empty() {
+            return KeyResult::unhandled();
+        }
         if !(1..=5).contains(&position) {
             return KeyResult::unhandled();
         }
@@ -332,6 +409,9 @@ impl Session {
     }
 
     pub fn clear_position(&mut self, index: usize) -> KeyResult {
+        if !self.prediction.rows.is_empty() {
+            return KeyResult::unhandled();
+        }
         if self.nine_key.active() {
             return self.nine_key.set_position(index, 0);
         }
@@ -340,6 +420,7 @@ impl Session {
 
     /// 从宿主高亮的候选开始结束整段组字（没有高亮时为 0），剩余片段使用各自首选；索引无效时提交原文。普通拼音中的大写片段由字面候选保留。
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
+        self.prediction.clear();
         if self.nine_key.active() {
             let result = self.nine_key.finish(first_index);
             return self.after_nine_key(result);
@@ -350,6 +431,7 @@ impl Session {
     /// Discards the composition. Fails, staying in the current scheme with the composition untouched, when the new scheme's dictionary cannot be opened (Cantonese without a usable `msime-cantonese.db`, Stroke without a usable `msime-stroke.db`: `LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`).
     pub fn switch_scheme(&mut self, scheme: SchemeType) -> Result<()> {
         self.input.switch_scheme(scheme)?;
+        self.prediction.clear();
         self.nine_key.command(Command::Cancel);
         Ok(())
     }
@@ -378,6 +460,7 @@ impl Session {
         if self.input.dedicated_english == enabled {
             return;
         }
+        self.prediction.clear();
         self.nine_key.command(Command::Cancel);
         self.input.set_dedicated_english_mode(enabled);
         // 九键在英文里用数字拼单词，在中文里拼音节，模式或网格改变时都要同步。
@@ -404,6 +487,7 @@ impl Session {
 
     /// 宿主的清缓存动作（维护快捷键、iOS 键盘扩展的内存告警）：清掉本会话各方案的候选缓存，并放掉进程级缓存里的日文模型，让不再用它的进程能交还前缀索引和映射；本会话若正持有模型，照常用到会话结束。
     pub fn reset_cache(&mut self) {
+        self.prediction.clear();
         self.input.reset_cache();
         crate::japanese::decoder::JapaneseDictionary::release_shared();
     }
@@ -440,11 +524,18 @@ impl Session {
 
     /// Forget the committed-word context (focus or application change, host-inserted text).
     pub fn reset_context(&mut self) {
+        self.prediction.clear();
         self.input.reset_commit_context();
+    }
+
+    /// 宿主的即时隐私门禁；关闭时清掉建议，用户偏好仍保留。
+    pub fn set_prediction_allowed(&mut self, allowed: bool) {
+        self.prediction.set_allowed(allowed);
     }
 
     /// Disabling also ends the current context.
     pub fn set_personal_context_enabled(&mut self, enabled: bool) {
+        self.prediction.clear();
         self.input.set_personal_context_enabled(enabled);
         self.nine_key.set_personal_context_enabled(enabled);
     }
@@ -491,6 +582,7 @@ impl Session {
 
     /// 设置前缀解码的组字光标（overlays.md §7.6）；位置限制在可编辑范围，不能越过本地模式的入口标记。`None` 回到末尾，九键组码时无操作。
     pub fn set_caret(&mut self, caret: Option<usize>) {
+        self.prediction.clear();
         if self.nine_key.active() {
             return;
         }
@@ -514,10 +606,32 @@ impl Session {
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
-        self.snapshot_with_helpcode_visibility(true)
+        self.snapshot_with_display_options(true, false)
     }
 
-    pub(crate) fn snapshot_with_helpcode_visibility(&self, show_helpcode: bool) -> SessionSnapshot {
+    pub(crate) fn snapshot_for_host(&self, show_helpcode: bool) -> SessionSnapshot {
+        self.snapshot_with_display_options(show_helpcode, true)
+    }
+
+    fn snapshot_with_display_options(
+        &self,
+        show_helpcode: bool,
+        segmented_quanpin: bool,
+    ) -> SessionSnapshot {
+        if !self.prediction.rows.is_empty() {
+            return SessionSnapshot {
+                prediction: true,
+                scheme: self.input.scheme(),
+                local_mode: self.input.local_mode,
+                spelling_symbols: self.input.spelling_symbols(),
+                shuangpin_profile: self.input.profile.kind.name().to_owned(),
+                candidates: self.prediction.rows.clone(),
+                candidate_sources: self.prediction.rows.iter().map(|row| row.source).collect(),
+                candidate_annotations: vec![String::new(); self.prediction.rows.len()],
+                candidate_answers_key: vec![false; self.prediction.rows.len()],
+                ..SessionSnapshot::default()
+            };
+        }
         if self.nine_key.active() {
             return self.nine_key.snapshot();
         }
@@ -529,8 +643,10 @@ impl Session {
         for item in &mut candidates {
             input.apply_english_word_case(item.source, &mut item.word);
         }
-        let preedit = if !self.shuangpin_preedit_uses_raw
-            && input.scheme() == SchemeType::Shuangpin
+        // 宿主显示全拼分词；参考回放的底层快照仍保留原文。
+        let segmented_preedit = (segmented_quanpin && input.scheme() == SchemeType::Quanpin)
+            || (!self.shuangpin_preedit_uses_raw && input.scheme() == SchemeType::Shuangpin);
+        let preedit = if segmented_preedit
             && input.local_mode == LocalInputMode::None
             && !input.dedicated_english
         {
@@ -539,6 +655,7 @@ impl Session {
             input.preedit()
         };
         SessionSnapshot {
+            prediction: false,
             scheme: input.scheme(),
             local_mode: input.local_mode,
             spelling_symbols: input.spelling_symbols(),
@@ -556,6 +673,11 @@ impl Session {
             wubi_unique_four_code: input.wubi_unique_four_code(),
             shuangpin_profile: input.profile.kind.name().to_owned(),
             candidate_sources: candidates.iter().map(|item| item.source).collect(),
+            multilingual_conversion: candidates
+                .iter()
+                .any(|item| item.source == CandidateSource::Multilingual)
+                .then(|| input.multilingual_conversion.clone())
+                .flatten(),
             candidate_annotations: input.candidate_annotations(hide_helpcode),
             // 纠错候选按原始按键长度消费；普通候选仍按 `pinyin`，两者都由组字推进判断。
             candidate_answers_key: candidates
@@ -710,5 +832,37 @@ impl Session {
             self.input.note_external_commit();
         }
         result
+    }
+
+    fn predict_after_commit(&mut self, selected: Option<WordItem>, result: &KeyResult) {
+        if !self.prediction.enabled
+            || self.nine_key.active()
+            || self.input.has_composition()
+            || self.input.dedicated_english
+            || self.input.local_mode != LocalInputMode::None
+            || !matches!(
+                self.input.scheme(),
+                SchemeType::Quanpin | SchemeType::Shuangpin
+            )
+        {
+            return;
+        }
+        let Some(selected) = selected else { return };
+        if result.commit.as_deref() != Some(selected.word.as_str()) {
+            return;
+        }
+        let previous = selected
+            .sentence_words
+            .last()
+            .map_or(selected.word.as_str(), String::as_str);
+        self.show_prediction(&selected.word, &selected.canonical_pinyin, previous);
+    }
+
+    fn show_prediction(&mut self, word: &str, pinyin: &str, previous: &str) {
+        let personal = self
+            .input
+            .personal_context_applies()
+            .then_some(self.input.personal_context.as_ref());
+        self.prediction.show(word, pinyin, previous, personal);
     }
 }

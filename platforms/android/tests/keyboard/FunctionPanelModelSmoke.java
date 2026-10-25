@@ -11,16 +11,16 @@ public final class FunctionPanelModelSmoke {
         check(labels(0).equals(List.of("全角", "中文标点", "模糊音", "繁体", "手写", "本地输入", "AI 辅助", "设置",
             "单手模式", "浮动键盘", "无痕输入", "键盘高度")),
             "page one");
-        check(labels(1).equals(List.of("按键音", "振动", "振动强度", "插入语音文字", "词库", "文本编辑",
-            "编辑工具栏", "设备信息", "反馈", "宣传", "打开官网", "关于")), "page two");
-        check(labels(2).equals(List.of("表情", "剪贴板历史")), "page three");
+        check(labels(1).equals(List.of("按键音", "振动", "振动强度", "语音输入", "插入语音文字", "词库", "文本编辑",
+            "编辑工具栏", "设备信息", "反馈", "宣传", "打开官网")), "page two");
+        check(labels(2).equals(List.of("关于", "表情", "剪贴板历史", "世界时钟", "拍照识字")), "page three");
         List<Item> screenshotItems = FunctionPanelModel.itemsExcept(java.util.Set.of(
             Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_RESULT));
         List<String> screenshotPage = new ArrayList<>();
         for (Item item : screenshotItems.subList(FunctionPanelModel.PAGE_SIZE, screenshotItems.size()))
             screenshotPage.add(item.label());
-        check(screenshotPage.equals(List.of("振动", "振动强度", "词库", "编辑工具栏",
-            "设备信息", "反馈", "宣传", "打开官网", "关于")), "#9191 的第二页顺序");
+        check(screenshotPage.equals(List.of("振动", "振动强度", "语音输入", "词库", "编辑工具栏",
+            "设备信息", "反馈", "宣传", "打开官网", "关于", "世界时钟", "拍照识字")), "#9191 的第二页顺序");
         check(!FunctionPanelModel.item(Id.TEXT_EDIT).toggle() && FunctionPanelModel.pageOf(Id.TEXT_EDIT) == 1,
             "文本编辑 opens a panel from page two");
         check(FunctionPanelModel.page(3).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),
@@ -50,8 +50,8 @@ public final class FunctionPanelModelSmoke {
         check(FunctionPanelModel.state(FunctionPanelModel.item(Id.SETTINGS), false, true) == null,
             "actions carry no on/off state");
         // 所有顶部快捷入口的组合都能去重，未启用的入口仍在菜单里。
-        Id[] shortcuts = {Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT};
-        for (int mask = 0; mask < 16; mask++) {
+        Id[] shortcuts = {Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_INPUT};
+        for (int mask = 0; mask < (1 << shortcuts.length); mask++) {
             java.util.Set<Id> toolbar = java.util.EnumSet.noneOf(Id.class);
             for (int index = 0; index < shortcuts.length; index++)
                 if ((mask & (1 << index)) != 0) toolbar.add(shortcuts[index]);
@@ -64,6 +64,7 @@ public final class FunctionPanelModelSmoke {
             check(visible.size() <= 3 * FunctionPanelModel.PAGE_SIZE, "menu stays within three pages");
         }
         List<Item> idle = FunctionPanelModel.itemsExcept(java.util.Set.of(Id.VOICE_RESULT));
+        check(idle.stream().anyMatch(item -> item.id() == Id.VOICE_INPUT), "无待取结果时也能直接开始语音输入");
         check(idle.stream().noneMatch(item -> item.id() == Id.VOICE_RESULT), "no empty voice result entrance");
         check(FunctionPanelModel.item(Id.VOICE_RESULT).label().equals("插入语音文字"), "pending voice entry states its action");
         System.out.println("Android function panel: three pages, toolbar deduplication and toggle states passed");

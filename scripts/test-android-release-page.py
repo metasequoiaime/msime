@@ -11,6 +11,8 @@ import json
 import os
 import pathlib
 import shutil
+import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -49,13 +51,24 @@ def apk_names() -> list[str]:
     return [entry["platforms"]["android"]["apk_name"] + ".apk" for entry in android_table()]
 
 
+def remove_temporary_repository(path):
+    def make_writable(function, name, error):
+        if os.name != "nt" or not isinstance(error[1], PermissionError):
+            raise error[1]
+        os.chmod(name, stat.S_IWRITE)
+        function(name)
+
+    # Windows Git 的对象只读；只恢复本测试临时仓库中的删除权限。
+    shutil.rmtree(path, onerror=make_writable)
+
+
 class PublishStepTests(unittest.TestCase):
     def setUp(self):
         for tool in ("git", "sha256sum", "bash"):
             if shutil.which(tool) is None:
                 self.skipTest(f"{tool} is not installed")
         self.work = pathlib.Path(tempfile.mkdtemp(prefix="android-release-page-"))
-        self.addCleanup(shutil.rmtree, self.work)
+        self.addCleanup(remove_temporary_repository, self.work)
         (self.work / "platforms/android/scripts").mkdir(parents=True)
         shutil.copy(EDITION_ANDROID, self.work / "platforms/android/scripts/edition_android.py")
         (self.work / "shared/contracts").mkdir(parents=True)
@@ -95,7 +108,8 @@ class PublishStepTests(unittest.TestCase):
             "GITHUB_REPOSITORY": "metasequoiaime/msime",
         }
         # GitHub 托管 runner 上 run 的默认 shell 是 `bash -e {0}`。
-        return subprocess.run(["bash", "-e", "-c", publish_script()], cwd=self.work, env=env, capture_output=True, text=True)
+        script = f'python3() {{ {shlex.quote(sys.executable)} -X utf8 "$@"; }}\n' + publish_script()
+        return subprocess.run(["bash", "-e", "-c", script], cwd=self.work, env=env, capture_output=True, text=True, encoding="utf-8")
 
     def published(self) -> list[str]:
         return (self.work / "published.txt").read_text(encoding="utf-8").splitlines()
@@ -108,9 +122,10 @@ class PublishStepTests(unittest.TestCase):
         apks = apk_names()
         self.assertEqual(sorted(published[2:]), sorted(apks + ["SHA256SUMS"] + [f"{apk}.sha256" for apk in apks]))
         sums = (self.dist / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(sorted(line.split("  ", 1)[1] for line in sums), sorted(apks), "SHA256SUMS lists exactly the APKs")
+        self.assertTrue(all(line[64:66] in ("  ", " *") for line in sums))
+        self.assertEqual(sorted(line[66:] for line in sums), sorted(apks), "SHA256SUMS lists exactly the APKs")
         for line in sums:
-            digest, name = line.split("  ", 1)
+            digest, name = line[:64], line[66:]
             self.assertEqual(digest, hashlib.sha256((self.dist / name).read_bytes()).hexdigest())
             # 旧版本应用内更新读的 `<apk>.sha256` 与 SHA256SUMS 里那一行相同。
             self.assertEqual((self.dist / f"{name}.sha256").read_text(encoding="utf-8").strip(), line)
@@ -150,9 +165,9 @@ class PublishStepTests(unittest.TestCase):
 class DownloadGuideTests(unittest.TestCase):
     def guide(self, editions: str, *extra: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-I", str(EDITION_ANDROID), "download-guide", "--editions", editions,
+            [sys.executable, "-I", "-X", "utf8", str(EDITION_ANDROID), "download-guide", "--editions", editions,
              "--download-base", DOWNLOAD + "android-v1.2.0/", *extra],
-            capture_output=True, text=True, check=check,
+            capture_output=True, text=True, encoding="utf-8", check=check,
         )
 
     def test_full_edition_comes_first_with_names_from_the_edition_table(self):

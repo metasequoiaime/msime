@@ -97,6 +97,7 @@ mod tests {
             shift: true,
             modifiers: KeyboardModifiers::default(),
             include_sticky_modifiers: true,
+            grouped_letter: None,
         };
         assert!(remember_keyboard_input_target(&mut stub).is_ok());
         assert!(stub.remembered);

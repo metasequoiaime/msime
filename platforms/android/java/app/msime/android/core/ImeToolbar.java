@@ -58,6 +58,7 @@ final class ImeToolbar {
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
             s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton};
         for (Button button : shortcutButtons) bindEditor(button);
+        s.imeTextEditPanel.bindShortcut(s.textEditShortcutButton);
         for (Button button : new Button[] {s.moreButton, dismissButton}) {
             bindEditor(button);
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
@@ -208,8 +209,8 @@ final class ImeToolbar {
             KeyboardShortcutIconPolicy.Icon.REDO, () -> performHistory(true));
         s.redoShortcutButton.setContentDescription("重做");
         s.voiceShortcutButton = s.shortcutButton(s.shortcutBar, "语音",
-            KeyboardShortcutIconPolicy.Icon.VOICE, s::showVoiceResult);
-        s.voiceShortcutButton.setContentDescription("打开语音结果");
+            KeyboardShortcutIconPolicy.Icon.VOICE, s::startVoiceRecognition);
+        s.voiceShortcutButton.setContentDescription("语音输入");
         s.keyId(s.voiceShortcutButton, "SoftVoice");
         s.aiPolishShortcutButton = s.button(s.shortcutBar, "AI", s.imePanels::showAiPolish);
         s.aiPolishShortcutButton.setContentDescription("打开 AI 润色");
@@ -422,8 +423,9 @@ final class ImeToolbar {
         if (recentClipCollapseButton instanceof KeyboardShortcutButton collapse)
             collapse.setIconColors(foregroundColor, foregroundColor);
         if (s.moreButton instanceof KeyboardBrandButton brand) {
-            // 品牌标记与工具栏共用皮肤的图标色，面板打开时也采用相同的选中色。
-            brand.setLogoColor(s.anyToolbarPanelOpen() ? activeIconColor : iconColor);
+            // 设计的 logoCirc / logoBg 是应用主题的季节色（与开屏、设置页的 logo 同一套），不是从键盘皮肤的强调色混出来的。
+            AppThemePalette palette = AppThemePalette.of(s.imeStyler.appThemeSeed(), skin.dark());
+            brand.setLogoColors(palette.logoDisc, palette.logoBackground);
             brand.setPanelOpen(s.anyToolbarPanelOpen(), activeBackgroundColor);
         }
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {

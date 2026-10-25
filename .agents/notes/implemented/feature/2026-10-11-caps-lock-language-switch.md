@@ -56,3 +56,5 @@ Windows 的 `0x4D535053` 留给[面板文字注入](2026-10-10-windows-clipboard
 - Windows：`crates/host-windows/tests/send_input_marker.rs` 保证面板标记与 C++ 一致且不出现在 TIP 自注入集合中，防止 Caps Lock 再次与面板碰撞。`msime-tsf-caps-lock-tap` 逐条钉住共享判定规则，并检查 TSF 接线（按下前状态、两个松开入口、先撤回后切换、撤回后记成关、`KLF_SHIFTLOCK` 时不布防、合成事件标记、Server 钩子在跳过注入按键之前计入 Caps Lock、偏好键与缺省值），本机 clang 运行通过；`windows-maintenance-hotkeys` 覆盖 `CapsLockTracker`：真实的一下加注入的一下之后报告关，之后的长按照常；`KeyEventSink.cpp` 用 MinGW 做过语法检查。WinUI 3 的原生设置窗口只能交给 Windows CI 编译。
 - Linux：`linux-caps-lock-tap` 覆盖判定规则和 X11/Wayland 会话判断。宿主层面 `CapsLockRelease.h` 有一个只给测试用的替换入口，`ibus-engine-smoke --caps-lock` 和 `fcitx5-native-test --caps-lock`（ctest 里的 `ibus-caps-lock-tap`、`fcitx5-caps-lock-tap`，需要已校验的词库）从真实的按键处理路径驱动：缺省关时不切换、偏好热重载打开与关闭、轻点切到英文并从英文透传切回、长按、大写锁定开着时按下、按着打字、和 Shift 一起按、撤不回不切换、组字中上屏原文；Fcitx5 还覆盖组字中长按不上屏。在 `build-container.sh` 的镜像里编译两个宿主、跑 ctest，并对着本机已校验的词库手动跑了这两个模式和两个宿主的其他模式。
 - 没有在任何平台上实机按 Caps Lock 验证：macOS 只验证了 IOKit 调用在无授权进程里可用，Windows 与 Linux 没有实机。
+
+[可编辑焦点限制](../feature/2026-10-24-macos-editable-shift.md) 只约束可选的单按 Shift，不改变本文的快捷键或状态归属规则。

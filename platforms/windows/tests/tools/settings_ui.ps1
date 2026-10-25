@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Program,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
-    [switch]$InputOnly
+    [switch]$InputOnly,
+    [switch]$VoiceHotkeyOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -290,9 +291,11 @@ function Assert-SelectedAccent($element) {
         $bitmap.Dispose()
     }
 }
+# 页首名称最多等多久。`scripts/test-windows-settings-page-readiness.py` 只加载下面两个函数来测它们，把它调短：那里有一项要等满超时，按 15 秒等，加上 pwsh 冷启动和 Add-Type，在并行跑检查的 CI 机上会超过外层的 40 秒。
+$script:pageIntroNameSeconds = 15
 function Wait-PageIntroName($window, [string]$page) {
     # 节点先出现、名称稍后才可读；每轮重新查询，返回当次名称，避免断言再读到重建中的节点。
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    $deadline = [DateTime]::UtcNow.AddSeconds($script:pageIntroNameSeconds)
     do {
         try {
             $content = Find-ById $window 'settings-content'
@@ -373,7 +376,7 @@ function Assert-WubiCandidateSelection($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $keys = $saved.preferences.wubi_candidate_selection
     } while (($keys.second_key -ne "'" -or $keys.third_key -ne ';') -and [DateTime]::UtcNow -lt $deadline)
     if (-not $keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Wubi shortcut pair was not saved together' }
@@ -388,11 +391,35 @@ function Assert-WubiCandidateSelection($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $keys = $saved.preferences.wubi_candidate_selection
     } while ($keys.enabled -and [DateTime]::UtcNow -lt $deadline)
     if ($keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Disabling Wubi shortcuts lost custom keys' }
     Write-Host 'Wubi shortcut toggle, atomic swap, reload and retained keys passed'
+}
+function Assert-CommandLineCandidates($window) {
+    # 「命令行查询候选」（#9663）缺省关闭；经实际开关打开再关上，每次只改 diagnostic_log.command_line_candidates，同组的两个日志开关保持合成偏好里的值。
+    $content = Find-ById $window 'settings-content'
+    $name = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '命令行查询候选')
+    $toggleable = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
+    $toggle = $content.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition($name, $toggleable)))
+    if (-not $toggle -or -not $toggle.Current.IsEnabled) { throw 'Maintenance page is missing the 命令行查询候选 switch' }
+    $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw '命令行查询候选 must default to off' }
+    $path = Join-Path $state 'preferences.json'
+    $before = (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).preferences.diagnostic_log
+    if ($before.command_line_candidates -ne $false) { throw 'Synthetic preferences do not start with command_line_candidates off' }
+    foreach ($expected in @($true, $false)) {
+        $pattern.Toggle()
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $diagnostics = (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).preferences.diagnostic_log
+        } while ($diagnostics.command_line_candidates -ne $expected -and [DateTime]::UtcNow -lt $deadline)
+        if ($diagnostics.command_line_candidates -ne $expected) { throw "命令行查询候选 was not saved as $expected" }
+        if ($diagnostics.server -ne $before.server -or $diagnostics.tsf -ne $before.tsf) { throw 'Saving 命令行查询候选 changed the diagnostic log switches' }
+    }
+    Write-Host '命令行查询候选 default, save and retained diagnostic log switches passed'
 }
 function Find-CandidatePageSizeSlider($window) {
     $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '每页候选项数量')
@@ -480,7 +507,7 @@ function Wait-CandidatePageSizeSaved([int]$expected) {
     $path = Join-Path $state 'preferences.json'
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($saved.preferences.candidate_page_size -eq $expected) { return }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -603,6 +630,171 @@ function Select-ComboChoice($window, [string]$id, [string]$label) {
     $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
 }
+# 仅操作独立合成窗口，验证录键经过原生事件、共享预检及真实偏好保存。
+function Assert-VoiceToggleRecorder($window, [IntPtr]$handle) {
+    function Read-VoiceBinding {
+        $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $field = $saved.preferences.keybindings.PSObject.Properties['toggle_voice_input']
+        if ($field) { return [string]$field.Value }
+        return ''
+    }
+    function Wait-VoiceBinding([string]$expected) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            if ((Read-VoiceBinding) -eq $expected) { return }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        throw "语音绑定保存值不符：期望 $expected，实际 $(Read-VoiceBinding)"
+    }
+    function Wait-VoiceRecorder([string]$expected = '') {
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            $button = Find-ById $window 'voice-toggle-recorder'
+            if ($button -and -not $button.Current.IsOffscreen -and $button.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $button.Current.IsEnabled -and
+                (-not $expected -or $button.Current.Name -eq "语音输入开始／结束：$expected")) { return $button }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        $actual = if ($button) { "Name=$($button.Current.Name), Offscreen=$($button.Current.IsOffscreen), Focus=$($button.Current.HasKeyboardFocus)" } else { '控件不存在' }
+        Save-Window $window 'voice-hotkey-failed.png'
+        throw "语音录键控件缺失或显示值不符：期望 $expected，实际 $actual"
+    }
+    function Show-VoiceRecorder {
+        # 滚动是一次准备动作；录键中只读状态，避免 UIA 滚动把焦点从按钮移走并取消录键。
+        $content = Find-ById $window 'settings-content'
+        if ($content) {
+            [object]$scroll = $null
+            if ($content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll) -and $scroll.Current.VerticallyScrollable) {
+                $scroll.SetScrollPercent(-1, 100)
+            }
+        }
+        return Wait-VoiceRecorder
+    }
+    function Record-VoiceKeys([string]$keys) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            # 页面延后重画可能取消录键；这里只重试尚未送键的准备动作，不重放已投递的组合键。
+            $button = Show-VoiceRecorder
+            [SettingsWindowProbe]::SetForegroundWindow($handle) | Out-Null
+            $button.SetFocus()
+            if ([SettingsWindowProbe]::GetForegroundWindow() -ne $handle) { throw '合成设置窗口未获得前台焦点' }
+            $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $ready = $true
+            foreach ($sample in @(1, 2)) {
+                Start-Sleep -Milliseconds 100
+                $current = Find-ById $window 'voice-toggle-recorder'
+                if (-not $current -or $current.Current.IsOffscreen -or -not $current.Current.HasKeyboardFocus -or
+                    $current.Current.Name -ne '语音输入开始／结束：请按组合键…') { $ready = $false; break }
+            }
+            if ($ready -and [SettingsWindowProbe]::GetForegroundWindow() -eq $handle) {
+                [System.Windows.Forms.SendKeys]::SendWait($keys)
+                Write-Host "语音录键已投递：$keys"
+                return
+            }
+        } while ([DateTime]::UtcNow -lt $deadline)
+        throw '语音录键准备阶段未能稳定获得键盘焦点，尚未投递组合键'
+    }
+    Wait-VoiceBinding ''
+    Open-Page $window 'voice'
+    Select-PageTab $window 'voice-tab-input' '服务配置'
+    Record-VoiceKeys '^%{F8}'
+    Wait-VoiceBinding 'Ctrl+Alt+F8'
+    Show-VoiceRecorder | Out-Null
+    Wait-VoiceRecorder 'Ctrl+Alt+F8' | Out-Null
+    Start-Sleep -Milliseconds 150
+    Save-Window $window 'voice-hotkey-bound.png'
+    Record-VoiceKeys '{ESC}'
+    Wait-VoiceBinding 'Ctrl+Alt+F8'
+    Record-VoiceKeys '^{F9}'
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $conflict = Find-ByName $window '与现有快捷键冲突，请换一个组合键'
+        if ($conflict) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $conflict) { throw '原生录键没有显示固定语音键冲突' }
+    Wait-VoiceBinding 'Ctrl+Alt+F8'
+    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Open-Page $window 'about'
+    Open-Page $window 'voice'
+    Select-PageTab $window 'voice-tab-input' '服务配置'
+    Show-VoiceRecorder | Out-Null
+    Wait-VoiceRecorder 'Ctrl+Alt+F8' | Out-Null
+    Record-VoiceKeys '{BACKSPACE}'
+    Wait-VoiceBinding ''
+    Show-VoiceRecorder | Out-Null
+    Wait-VoiceRecorder '未绑定' | Out-Null
+    Start-Sleep -Milliseconds 150
+    Save-Window $window 'voice-hotkey-cleared.png'
+    Write-Host '语音原生录键、取消、固定键冲突、切页恢复与解绑通过'
+}
+function Assert-SentenceModelSettings($window, [string]$theme) {
+    Open-Page $window 'typing'
+    Select-PageTab $window 'input-tab-candidates' '语法模型'
+    $models = @(
+        @{value = 'wanxiang'; label = '万象 LTS（约 380 MB，CC-BY-4.0）'; pack = 'grammar-model-wanxiang'},
+        @{value = 'baguwen_word'; label = '八股文·词级（约 197 MB，LGPL-3.0）'; pack = 'grammar-model-baguwen'},
+        @{value = 'baguwen_compact'; label = '八股文·词级紧凑（约 39 MB，LGPL-3.0）'; pack = 'grammar-model-baguwen-compact'},
+        @{value = 'none'; label = '不使用'; pack = ''}
+    )
+    $path = Join-Path $state 'preferences.json'
+    foreach ($width in @(1000, 800)) {
+        $handle = [IntPtr]$window.Current.NativeWindowHandle
+        if (-not [SettingsWindowProbe]::SetWindowPos($handle, [IntPtr]::Zero, 0, 0, $width, 780, 0x0040)) { throw 'Model fixture resize failed' }
+        foreach ($model in $models) {
+            # 模型设置在页面底部，必须滚到控件可见再操作和截图。
+            $content = Find-ById $window 'settings-content'
+            $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1, 100)
+            Start-Sleep -Milliseconds 250
+            $combo = Find-ById $window 'sentence-grammar-model'
+            if (-not $combo -or $combo.Current.IsOffscreen) { throw 'Grammar model selector is not visible' }
+            $combo.SetFocus()
+            $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                Start-Sleep -Milliseconds 100
+                $item = Find-ByName $combo $model.label
+            } while (-not $item -and [DateTime]::UtcNow -lt $deadline)
+            if (-not $item) { throw "Missing grammar model option: $($model.value)" }
+            # 选择后页面会重建，不再调用旧下拉框的 Collapse。
+            $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+            $ready = $false
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                Start-Sleep -Milliseconds 150
+                try {
+                    $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $property = $saved.preferences.sentence_association.PSObject.Properties['grammar_model']
+                    $value = if ($property) { $property.Value } else { 'none' }
+                    $ready = $value -eq $model.value
+                    foreach ($choice in $models) {
+                        if (-not $choice.pack) { continue }
+                        $download = Find-ById $window "sentence-model-download-$($choice.pack)"
+                        if ($choice.pack -eq $model.pack) {
+                            $ready = $ready -and $null -ne $download -and $download.Current.IsEnabled
+                        } else {
+                            $ready = $ready -and $null -eq $download
+                        }
+                    }
+                } catch [System.Windows.Automation.ElementNotAvailableException] {
+                    $ready = $false
+                }
+            } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
+            if (-not $ready) { throw "Grammar model selection did not save and refresh its download action: $($model.value)" }
+            $content = Find-ById $window 'settings-content'
+            $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1, 100)
+            Start-Sleep -Milliseconds 250
+            Save-Window $window "$theme-$width-model-$($model.value).png"
+            # 导航后重新读取持久化值；整个专项不点击下载，不访问模型服务。
+            Open-Page $window 'toolbar'
+            Open-Page $window 'typing'
+            Select-PageTab $window 'input-tab-candidates' '语法模型'
+            $combo = Find-ById $window 'sentence-grammar-model'
+            $selection = @($combo.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection())
+            if ($selection.Count -ne 1 -or $selection[0].Current.Name -ne $model.label) { throw 'Grammar model selection was not retained after navigation' }
+        }
+    }
+    Write-Host "$theme grammar model choices, persisted values and immediate download actions passed"
+}
 function Start-SettingsWindow([string]$route) {
     # 进程先记进脚本作用域的 $process，窗口没打开时 finally 也能把它收掉。
     $script:process = Start-Process -FilePath $programPath -ArgumentList "--route=$route" -PassThru
@@ -679,7 +871,7 @@ function Assert-CloudClipboardRelaySettings($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $relay = Read-RelayPreference $saved
     } while (($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') -and [DateTime]::UtcNow -lt $deadline)
     if ($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') { throw 'Relay address and token were not saved together' }
@@ -694,7 +886,7 @@ function Assert-CloudClipboardRelaySettings($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $relay = Read-RelayPreference $saved
     } while ($relay -and [DateTime]::UtcNow -lt $deadline)
     if ($relay) { throw 'Switching to account retained relay credentials' }
@@ -723,6 +915,20 @@ function Save-Window($element, [string]$file) {
 try {
     New-Item -ItemType Directory -Force $state | Out-Null
     $env:MSIME_CLIENT_STATE_DIR = $state
+    if ($VoiceHotkeyOnly) {
+        if (-not [SettingsWindowProbe]::SetDllDirectory([IO.Path]::GetDirectoryName($programPath))) { throw 'Settings DLL path could not be set' }
+        $defaults = [SettingsWindowProbe]::DefaultPreferences() | ConvertFrom-Json
+        if (-not $defaults.ok) { throw 'Default preferences could not be loaded' }
+        $defaults.value.keybindings | Add-Member -NotePropertyName toggle_voice_input -NotePropertyValue '' -Force
+        $document = @{format_version = 1; revision = 1; preferences = $defaults.value}
+        [IO.File]::WriteAllText((Join-Path $state 'preferences.json'), ($document | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
+        $window = Start-SettingsWindow 'settings:voice'
+        Assert-VoiceToggleRecorder $window $process.MainWindowHandle
+        $process.CloseMainWindow() | Out-Null
+        if (-not $process.WaitForExit(10000) -or $process.ExitCode -ne 0) { throw '语音录键验证窗口未正常退出' }
+        $process = $null
+        exit 0
+    }
     New-CanvasPreviewFixture
     if (-not [SettingsWindowProbe]::SetDllDirectory([IO.Path]::GetDirectoryName($programPath))) { throw 'Settings DLL path could not be set' }
     $defaults = [SettingsWindowProbe]::DefaultPreferences() | ConvertFrom-Json
@@ -833,12 +1039,13 @@ try {
                     Select-PageTab $window 'about-tab-version' '当前版本'
                     $content = Find-ById $window 'settings-content'
                     if (-not (Find-ByName $content '检查更新')) { throw 'About version tab is missing the update check' }
+                    if (-not (Find-ByName $content '更新通道')) { throw 'About version tab is missing the update channel' }
                     if (Find-ByName $content '复制下载链接') { throw 'About page still offers 复制下载链接' }
                     if (Find-ByName $content '反馈描述') { throw 'Feedback rendered inside the about version tab' }
                 }
                 if ($page -eq 'dev') {
-                    # 照 macOS 的维护页依次是输入法服务、诊断日志、数据目录和 Windows 独有的设置文件；只查行在不在，不点「重启」，免得重启跑验收这台机器上真正的 Server。
-                    foreach ($name in @('输入法服务', '立即重启输入法服务', '诊断日志', '日志文件', 'TSF 端日志', '数据目录', '当前目录', '设置文件')) {
+                    # 照 macOS 的维护页依次是输入法服务、诊断日志、数据目录和 Windows 独有的设置文件，诊断日志之后还有「命令行工具」；只查行在不在，不点「重启」，免得重启跑验收这台机器上真正的 Server。开关的缺省值和保存见 Assert-CommandLineCandidates。
+                    foreach ($name in @('输入法服务', '立即重启输入法服务', '诊断日志', '日志文件', 'TSF 端日志', '命令行工具', '命令行查询候选', '数据目录', '当前目录', '设置文件')) {
                         if (-not (Find-ByName $content $name)) { throw "Maintenance page is missing: $name" }
                     }
                 }
@@ -1100,6 +1307,9 @@ try {
                 }
             }
         }
+        Assert-SentenceModelSettings $window $theme
+        Open-Page $window 'dev'
+        Assert-CommandLineCandidates $window
         # 通过真实单选控件切换方案，再读合成偏好确认保存成功，避免只验证静态页面。方案卡片在「输入方案」标签里。
         Open-Page $window 'typing'
         Select-PageTab $window 'input-tab-scheme' '中文方案'
@@ -1111,7 +1321,7 @@ try {
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             do {
                 Start-Sleep -Milliseconds 200
-                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
+                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
             } while ($saved.preferences.scheme -ne $scheme -and [DateTime]::UtcNow -lt $deadline)
             if ($saved.preferences.scheme -ne $scheme) { throw "Scheme was not saved: $scheme" }
             $content = Find-ById $window 'settings-content'
@@ -1313,7 +1523,7 @@ try {
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             do {
                 Start-Sleep -Milliseconds 200
-                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
+                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
                 $size = Find-ById $window 'toolbar-preview-label'
                 $changed = $size -and ($size.Current.HelpText -ne $original)
             } while (($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) -and [DateTime]::UtcNow -lt $deadline)
@@ -1344,7 +1554,7 @@ try {
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
-            $savedEntries = @(Get-Content -LiteralPath (Join-Path $state 'clipboard_history.json') -Raw | ConvertFrom-Json)
+            $savedEntries = @(Get-Content -LiteralPath (Join-Path $state 'clipboard_history.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
         } while (-not $savedEntries[0].pinned -and [DateTime]::UtcNow -lt $deadline)
         if (-not $savedEntries[0].pinned) { throw 'Clipboard pin action was not saved' }
         # 写盘完成不等于 UI 回调已呈现；确认固定标记与可用操作后再验收最终画面。

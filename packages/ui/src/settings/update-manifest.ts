@@ -2,12 +2,16 @@ import { releasesPageUrl } from "./app-resources";
 
 export type Version = { display: string; parts: number[] };
 
-/** 设置页向宿主发出的请求：本平台的发布 tag 前缀、当前运行的版本号，以及宿主报告了时的版本 id 和架构。 */
+/** 桌面应用检查更新跟的发布通道（偏好 `update_channel`，见 `crates/client-core/src/preferences.rs` 的 `UpdateChannel`）：稳定版只认正式发布，测试版另外接受 develop 发出的 `-beta` 预发布，每日构建再接受滚动的 `nightly` 发布。 */
+export type UpdateChannel = "stable" | "beta" | "nightly";
+
+/** 设置页向宿主发出的请求：本平台的发布 tag 前缀、当前运行的版本号，以及宿主报告了时的版本 id 和架构；提供通道选择的宿主（macOS、Linux）还带上偏好里的通道，不带时宿主按稳定版检查。 */
 export type UpdateCheckRequest = {
   platform: string;
   currentVersion: string;
   edition?: string;
   arch?: string;
+  channel?: UpdateChannel;
 };
 
 /** `msime_client_services::update_check::ReleaseUpdate` 序列化后的发布。 */
@@ -17,6 +21,10 @@ export type HostReleaseUpdate = {
   installer_name: string | null;
   installer_sha256: string | null;
   signed: boolean | null;
+  /** 这个发布属于哪个通道；以前的宿主不报这一项，按稳定版处理。 */
+  channel?: UpdateChannel;
+  /** 构建它的发布 workflow 运行 ID，每日构建在页面上显示为「构建 N」；没有标记的旧发布为 null。 */
+  build_run?: number | null;
 };
 
 /** 宿主检查更新的结果（`msime_client_services::update_check::UpdateCheck`）：有更新的发布、当前运行的已是最新版本，或者本平台还没有发布。 */
@@ -42,7 +50,27 @@ export type ValidatedUpdate = {
   installerName: string | null;
   installerSha256: string | null;
   signed: boolean | null;
+  channel: UpdateChannel;
+  buildRun: number | null;
 };
+
+const updateChannels: readonly UpdateChannel[] = ["stable", "beta", "nightly"];
+
+/** 偏好或宿主给出的通道名；不认识的值（以后的版本加的通道、手改的文件）按稳定版，与 client-core 读偏好文档的规则一致。 */
+export function updateChannelOf(value: unknown): UpdateChannel {
+  return updateChannels.find((channel) => channel === value) ?? "stable";
+}
+
+/** 页面上称呼一个发布的方式：稳定版只写版本号，测试版写「测试版 v1.2.0」，每日构建写「每日构建 v1.2.0（构建 123）」。同一个版本号每天都有新的每日构建，只有带上构建号用户才分得清是不是又出了新的。 */
+export function describeUpdateVersion(update: ValidatedUpdate): string {
+  const version = `v${update.version.display}`;
+  if (update.channel === "beta") return `测试版 ${version}`;
+  if (update.channel === "nightly")
+    return update.buildRun === null
+      ? `每日构建 ${version}`
+      : `每日构建 ${version}（构建 ${update.buildRun}）`;
+  return version;
+}
 
 /** 把宿主报告的版本字符串（`v1.2.0`、`1.2.0-beta`）规整为页面展示的点分数字。 */
 export function parseVersion(value: string): Version | null {
@@ -82,6 +110,13 @@ export function fromHostUpdate(update: HostReleaseUpdate): ValidatedUpdate | nul
         ? update.installer_sha256
         : null,
     signed: typeof update.signed === "boolean" ? update.signed : null,
+    channel: updateChannelOf(update.channel),
+    buildRun:
+      typeof update.build_run === "number" &&
+      Number.isSafeInteger(update.build_run) &&
+      update.build_run >= 0
+        ? update.build_run
+        : null,
   };
 }
 

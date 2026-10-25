@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
+import { presentAccountName } from "../support/account-name";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsAccountPage, type AccountClient, type SettingsAccountPageProps } from "@msime/ui";
@@ -12,6 +14,7 @@ function account(): AccountClient {
   const user = {
     id: "fixture-account",
     displayName: "合成测试账号",
+    preferredName: "合成测试账号",
     createdAt: "2026-01-01T00:00:00Z",
   };
   return {
@@ -19,7 +22,10 @@ function account(): AccountClient {
     providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
     requestCode: vi.fn(),
     login: vi.fn(),
-    profile: vi.fn().mockResolvedValue({ user, providers: [] }),
+    profile: vi
+      .fn()
+      .mockResolvedValue({ user, providers: [], providerNames: accountProviderNames }),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),

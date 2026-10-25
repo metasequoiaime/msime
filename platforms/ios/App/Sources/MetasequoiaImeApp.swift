@@ -10,7 +10,8 @@ struct MetasequoiaImeApp: App {
   @StateObject private var tabNavigation = AppNavigation()
   @StateObject private var router = SettingsRouter()
   @Environment(\.scenePhase) private var scenePhase
-  @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+  /// 这里只记录用户是否离开过首次引导，不代表系统键盘已经配置完成。
+  @AppStorage(OnboardingState.hasSeenKey) private var hasSeenOnboarding = false
   /// 作为内容的 key，使季节或所选应用主题变化时所有动态颜色都重新解析；UIKit 只在 trait 变化时才重新解析动态颜色提供者。
   @State private var paletteVersion = AppThemePalette.version
 
@@ -27,7 +28,8 @@ struct MetasequoiaImeApp: App {
     #if DEBUG
     let arguments = ProcessInfo.processInfo.arguments
     if arguments.contains("--reset-onboarding-for-ui-tests") {
-      UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
+      UserDefaults.standard.removeObject(forKey: OnboardingState.hasSeenKey)
+      UserDefaults.standard.removeObject(forKey: OnboardingState.legacyCompletedKey)
     }
     // Scheme visibility lives in the app group and outlives the app, so a test that hides a scheme
     // would otherwise decide what later tests -- in this bundle and in the keyboard unit tests that
@@ -46,7 +48,8 @@ struct MetasequoiaImeApp: App {
       CustomSkinLibrary.removeAll()
     }
     #endif
-    _hasCompletedOnboarding = AppStorage(wrappedValue: false, "hasCompletedOnboarding")
+    OnboardingState.migrateLegacyValue()
+    _hasSeenOnboarding = AppStorage(wrappedValue: false, OnboardingState.hasSeenKey)
     Self.applyChrome()
   }
 
@@ -75,6 +78,7 @@ struct MetasequoiaImeApp: App {
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
+      OnboardingChoices.shared.sync()
       // 「水杉四季」跟随月份，所以启动或从后台返回时会重新解析季节；季节变化时发出 `AppThemePalette.didChange`。
       AppThemePalette.refresh()
       applyAppearance()
@@ -145,7 +149,7 @@ struct MetasequoiaImeApp: App {
   #endif
 
   private var applicationContent: some View {
-    FirstRunContainer(hasCompletedOnboarding: $hasCompletedOnboarding, navigation: tabNavigation, router: router)
+    FirstRunContainer(hasSeenOnboarding: $hasSeenOnboarding, navigation: tabNavigation, router: router)
       .environmentObject(onboardingNavigation)
       .toggleStyle(GreenSwitchToggleStyle())
       .id(paletteVersion)
@@ -158,6 +162,19 @@ struct MetasequoiaImeApp: App {
       applyAppearance()
       paletteVersion = AppThemePalette.version
     }
+  }
+}
+
+/// 首次引导的离开记录和系统键盘能力是两件事。iOS 没有公开 API 读取键盘列表或完全访问状态，不能把这个记录当成系统配置成功。
+private enum OnboardingState {
+  static let hasSeenKey = "hasSeenOnboarding"
+  static let legacyCompletedKey = "hasCompletedOnboarding"
+
+  static func migrateLegacyValue() {
+    let defaults = UserDefaults.standard
+    guard defaults.object(forKey: hasSeenKey) == nil,
+          defaults.object(forKey: legacyCompletedKey) != nil else { return }
+    defaults.set(defaults.bool(forKey: legacyCompletedKey), forKey: hasSeenKey)
   }
 }
 
@@ -180,7 +197,7 @@ private struct KeyboardVoicePreviewFixture: View {
 
 /// The splash and the onboarding sit in front of the tabs until onboarding is done. A phone shows the onboarding full screen; an iPad at regular width shows the tabs with the onboarding as a modal card over them, as the design does.
 private struct FirstRunContainer: View {
-  @Binding var hasCompletedOnboarding: Bool
+  @Binding var hasSeenOnboarding: Bool
   let navigation: AppNavigation
   let router: SettingsRouter
   @State private var showsSplash = true
@@ -189,17 +206,17 @@ private struct FirstRunContainer: View {
   private var isTablet: Bool { UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular }
 
   var body: some View {
-    if !hasCompletedOnboarding && showsSplash {
+    if !hasSeenOnboarding && showsSplash {
       SplashView { showsSplash = false }
-    } else if hasCompletedOnboarding || isTablet {
+    } else if hasSeenOnboarding || isTablet {
       // Hidden before the overlay is attached, so only the tabs leave the accessibility tree and the card stays in it.
       MainTabView(navigation: navigation, router: router)
-        .accessibilityHidden(!hasCompletedOnboarding)
+        .accessibilityHidden(!hasSeenOnboarding)
         .overlay {
-          if !hasCompletedOnboarding { OnboardingModalCard { hasCompletedOnboarding = true } }
+          if !hasSeenOnboarding { OnboardingModalCard { hasSeenOnboarding = true } }
         }
     } else {
-      WelcomeFlowView(onFinish: { hasCompletedOnboarding = true })
+      WelcomeFlowView(onFinish: { hasSeenOnboarding = true })
     }
   }
 }
@@ -284,10 +301,10 @@ private struct MainTabView: View {
         .background(TabReselectionObserver {
           navigation.select(.settings, router: router)
         }.frame(width: 0, height: 0))
-        .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
+        .tabItem { Label("首页", systemImage: "house.fill") }.tag(AppNavigation.Tab.settings)
       NavigationStack { CommunityHomeView() }.id(navigation.communityRoot)
         .tabItem { Label("社区", systemImage: "globe.asia.australia.fill") }.tag(AppNavigation.Tab.community)
-      NavigationStack { TypingStatisticsView() }
+      TypingStatisticsView()
         .tabItem { Label("统计", systemImage: "chart.bar.fill") }.tag(AppNavigation.Tab.statistics)
       NavigationStack { AccountSettingsView() }
         .tabItem { Label("我的", systemImage: "person.fill") }.tag(AppNavigation.Tab.account)

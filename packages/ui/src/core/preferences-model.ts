@@ -10,6 +10,7 @@ import type { PunctuationPreferences } from "../settings/punctuation-preferences
 import type { KeybindingPreferences } from "../settings/keybinding-preferences";
 import type { WubiPreferences } from "../settings/wubi-preferences";
 import type { VietnamesePreferences } from "../settings/vietnamese-preferences";
+import type { KoreanPreferences } from "../settings/korean-preferences";
 import type { FloatingToolbarPreferences } from "../settings/floating-toolbar-preferences";
 import type { TraditionalChineseVariant } from "../settings/chinese-output-preferences";
 import type {
@@ -32,6 +33,7 @@ import type {
 } from "../settings/candidate-paging-preferences";
 import type { SentenceAssociationPreferences } from "../settings/sentence-association-preferences";
 import type { MixedInputPreferences } from "../settings/mixed-input-preferences";
+import type { MultilingualInputPreferences } from "../settings/multilingual-input-section";
 import type { FrequencyPreferences } from "../settings/frequency-preferences";
 import type { AiAssistantPreferences } from "../settings/ai-assistant-preferences";
 import type { LocalModePreferences } from "../settings/local-mode-preferences";
@@ -87,8 +89,11 @@ export type Preferences = PunctuationPreferences &
     translation_ai?: boolean;
     /** 各宿主共用的匿名用量上报（每日活跃、会话结束与崩溃摘要）；缺省为开启。 */
     usage_reporting?: boolean;
+    /** 桌面应用检查更新跟的发布通道，关于页「版本与更新」里选；等于缺省的稳定版时 client-core 不写进文档。只属于本机，不进设置文件、不进账号同步。 */
+    update_channel?: "stable" | "beta" | "nightly";
     floating_toolbar?: FloatingToolbarPreferences;
     mixed_input?: MixedInputPreferences;
+    multilingual_input?: MultilingualInputPreferences;
     fuzzy_pinyin?: FuzzyPinyinPreferences;
     frequency?: FrequencyPreferences;
     word_character?: WordCharacterPreferences;
@@ -101,13 +106,16 @@ export type Preferences = PunctuationPreferences &
     navigation?: NavigationPreferences;
     keybindings?: KeybindingPreferences;
     scheme: InputScheme;
-    /** 触屏键盘的布局；`fourteen_key` 是全拼 14 键，`nine_key_shuangpin` 是九键双拼，都只配全拼。 */
+    /** 触屏键盘的布局；14 键和 18 键都是全拼组码键面，九键双拼也只配全拼。 */
     touch_keyboard_layout?:
       | "twenty_six_key"
       | "nine_key"
       | "handwriting"
       | "fourteen_key"
-      | "nine_key_shuangpin";
+      | "nine_key_shuangpin"
+      | "eighteen_key";
+    /** Android 双拼的 26 / 14 / 18 键、iOS 双拼的 26 / 14 键选择；缺省为 26 键，与全拼布局独立保存。 */
+    touch_shuangpin_layout?: "twenty_six_key" | "fourteen_key" | "eighteen_key";
     touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
     touch_key_spacing_tenths?: number;
     touch_row_spacing_tenths?: number;
@@ -115,6 +123,16 @@ export type Preferences = PunctuationPreferences &
     touch_voice_shortcut?: boolean;
     /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
     touch_number_keypad_order?: "phone" | "calculator";
+    /** Android 文本编辑面板的七个侧边键；其他宿主保留该顺序。 */
+    touch_text_edit_button_order?: (
+      | "copy"
+      | "paste"
+      | "select_all"
+      | "cut"
+      | "space"
+      | "number_pad"
+      | "delete"
+    )[];
     /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
     /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
@@ -144,6 +162,7 @@ export type Preferences = PunctuationPreferences &
     /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
     shuangpin_keymap_hint?: boolean;
     vietnamese?: VietnamesePreferences;
+    korean?: KoreanPreferences;
     /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
     single_character_only?: boolean;
     candidate_page_size: number;
@@ -172,7 +191,12 @@ export type Preferences = PunctuationPreferences &
     learning: boolean;
     /** 回车上屏英文时把该单词写入英文词库；Windows 出厂缺省为开启。 */
     enter_learns_english_word?: boolean;
-    diagnostic_log?: { server?: boolean; tsf?: boolean };
+    diagnostic_log?: {
+      server?: boolean;
+      tsf?: boolean;
+      /** 允许终端里的 `msime candidates` 按本机设置和词库输出候选；缺省关闭，和诊断日志一样只属于本机，不随云同步和设置文件导出。 */
+      command_line_candidates?: boolean;
+    };
     /** 只有 Windows TSF 读取：游戏声明自己画候选却不画时由水杉的候选窗显示。由 Windows 原生设置页编辑，这个页面没有对应控件；缺省为开启、两张进程表为空。 */
     game_compatibility?: {
       candidate_overlay?: boolean;
@@ -190,6 +214,9 @@ export type Preferences = PunctuationPreferences &
     traditional_chinese_variant?: TraditionalChineseVariant;
     /** 中英文之间加空格：上屏文本里汉字与 ASCII 字母、数字相邻处加一个半角空格。缺省为关，关着时文档里没有这个键。 */
     chinese_english_spacing?: boolean;
+    /** 跨次上屏的中英文边界补空格，独立开关、缺省关闭；目前仅 macOS 接入。 */
+    cross_commit_spacing?: boolean;
+    cross_commit_spacing_excluded_apps?: string[];
     /** 提示音包、音乐和指令表；全部取默认值时文档省略这一段。 */
     plugins?: PluginPreferences;
   };

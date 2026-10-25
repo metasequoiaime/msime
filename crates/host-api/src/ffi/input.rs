@@ -26,6 +26,27 @@ pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) ->
     })
 }
 
+/// 即时投影混合候选的中文片段，不改语言集合、组字或磁盘偏好。
+/// 变体取最新请求的共享偏好；后续偏好更新可替换本次宿主临时设置。
+#[no_mangle]
+pub extern "C" fn msime_client_set_multilingual_output(
+    handle: u64,
+    traditional: bool,
+) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            let preferences = session
+                .requested
+                .as_ref()
+                .map_or(&session.applied, |snapshot| &snapshot.preferences);
+            session
+                .runtime
+                .set_multilingual_output(traditional, preferences.traditional_chinese_variant);
+            serialized_runtime_view(session)
+        })
+    })
+}
+
 /// Override the live host punctuation mode without persisting preferences.
 #[no_mangle]
 pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: bool) -> *mut c_char {
@@ -194,12 +215,19 @@ pub extern "C" fn msime_client_set_caps_lock(handle: u64, enabled: bool) -> *mut
     })
 }
 
-/// 标出隐私会话：隐私模式或不允许学习的输入框。只影响打字统计（选词位置和上屏效率不计），学习仍由偏好里的 `learning` 决定。
+/// 标出隐私会话：隐私模式或不允许学习的输入框。不记打字统计，并立即禁止上屏后联想；学习仍由偏好里的 `learning` 决定。
 #[no_mangle]
 pub extern "C" fn msime_client_set_private_session(handle: u64, enabled: bool) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            let changed = session.statistics_private != enabled;
             session.statistics_private = enabled;
+            if changed {
+                session
+                    .runtime
+                    .set_prediction_allowed(!enabled)
+                    .map_err(|error| error.to_string())?;
+            }
             Ok(Value::Bool(enabled))
         })
     })
@@ -220,7 +248,7 @@ pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> 
     })
 }
 
-/// 在组字空闲后换引擎的组码网格：0 关，1 九键，2 全拼 14 键，3 九键双拼（表按已应用的偏好 `nine_key_shuangpin_profile` 取，自定义表不能用时按默认的内置方案）。其他取值报错，会话不变。
+/// 在组字空闲后换引擎的组码网格：0 关，1 九键，2 当前方案的 14 键（全拼或双拼），3 九键双拼，4 全拼 18 键，5 双拼 18 键。双拼表按已应用的偏好取，自定义表不能用时按默认的内置方案；其他取值报错，会话不变。
 #[no_mangle]
 pub extern "C" fn msime_client_set_key_grid(handle: u64, grid: u8) -> *mut c_char {
     response(|| {
@@ -228,8 +256,13 @@ pub extern "C" fn msime_client_set_key_grid(handle: u64, grid: u8) -> *mut c_cha
             let grid = match grid {
                 0 => None,
                 1 => Some(KeyGrid::NineKey),
+                2 if session.options.scheme == crate::scheme_code(InputScheme::Shuangpin) => {
+                    Some(crate::fourteen_key_shuangpin_grid(&session.applied))
+                }
                 2 => Some(KeyGrid::FourteenKey),
                 3 => Some(crate::nine_key_shuangpin_grid(&session.applied).0),
+                4 => Some(KeyGrid::EighteenKey),
+                5 => Some(crate::eighteen_key_shuangpin_grid(&session.applied)),
                 _ => return Err("unknown key grid".into()),
             };
             session

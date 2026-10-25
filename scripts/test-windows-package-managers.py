@@ -17,7 +17,9 @@ import json
 import pathlib
 import re
 import sys
+import subprocess
 import tempfile
+from unittest.mock import patch
 import xml.etree.ElementTree as ElementTree
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -77,6 +79,11 @@ def full_edition() -> dict:
 def check_installer_facts(render) -> None:
     setup = SETUP.read_text(encoding="utf-8")
     editions_iss = EDITIONS_ISS.read_text(encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("msime_windows_editions_check", ROOT / "scripts/test-windows-editions.py")
+    editions_check = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(editions_check)
+    # 包管理器只消费现代 full 包；按实际预处理结果核对架构和文件名。
+    modern = editions_check.preprocess("full")
     full = full_edition()
     # 安装包的 AppId、显示名和文件名前缀按版本取自 editions.iss，那里的值由版本表生成；包管理器只发 full，所以与版本表 full 的 Windows 段对照。Inno 的卸载键（也就是各包的 ProductCode）是 {GUID}_is1。
     check(setup_value(setup, "AppId") == "{#MyEditionAppId}", "msime_setup.iss AppId no longer comes from editions.iss MyEditionAppId")
@@ -91,9 +98,9 @@ def check_installer_facts(render) -> None:
     check(re.search(r"(?m)^#define\s+MyAppName\s+MyEditionAppName\s*$", setup) is not None, "msime_setup.iss MyAppName no longer comes from MyEditionAppName")
     publisher = setup_define(setup, "MyAppPublisher")
     check(setup_value(setup, "AppName") == "{#MyAppName}" and setup_value(setup, "AppPublisher") == "{#MyAppPublisher}", "AppName/AppPublisher no longer come from MyAppName/MyAppPublisher")
-    check(setup_value(setup, "ArchitecturesAllowed") == "x64compatible", "the installer is no longer x64 only; add or drop installers in winget, Scoop and Chocolatey to match")
+    check(setup_value(modern, "ArchitecturesAllowed") == "x64compatible", "the installer is no longer x64 only; add or drop installers in winget, Scoop and Chocolatey to match")
     check(setup_value(setup, "PrivilegesRequired") == "admin", "the installer is no longer per-machine (PrivilegesRequired=admin); winget Scope and the Scoop notes say machine")
-    check(setup_value(setup, "OutputBaseFilename") == "{#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffix}", "the installer file name changed; update render.installer_name")
+    check(setup_value(modern, "OutputBaseFilename") == full["installer_base_name"] + "_v0.0.1", "the installer file name changed; update render.installer_name")
     check(full_defines.get("MyEditionInstallerBaseName") == full["installer_base_name"], "editions.iss full MyEditionInstallerBaseName differs from the edition table")
     check(render.installer_name("1.2.3") == f"{full['installer_base_name']}_v1.2.3.exe", "render.installer_name does not follow the full edition's installer_base_name")
 
@@ -228,6 +235,16 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
             check(False, "render.verify_signature accepted a file with no signature")
         except render.RenderError:
             pass
+    # 子进程没有输出也必须按签名检查失败拒绝，不能抛 AttributeError 或放行。
+    for status in (0, 1):
+        with patch.object(render, "check_can_verify"), \
+             patch.object(render.shutil, "which", return_value="synthetic-powershell"), \
+             patch.object(render.subprocess, "run", return_value=subprocess.CompletedProcess([], status, None, None)):
+            try:
+                render.verify_signature(fake)
+                check(False, "signature verification accepted a process with no output")
+            except render.RenderError:
+                pass
     return written
 
 

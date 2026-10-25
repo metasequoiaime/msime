@@ -3,6 +3,7 @@ package app.msime.android.home;
 import android.content.Context;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
+import app.msime.android.AppEdition;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
@@ -29,7 +30,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     private static final int DISCOVER_LIMIT = 8;
     private static final String[] SENTENCE_LABELS = {"关闭", "标准", "增强"};
     private static final String SENTENCE_DESCRIPTION =
-        "输入多音节拼音时组合整句候选；标准使用词库，增强增加神经模型重排。上屏后不推荐下一个词";
+        "输入多音节拼音时组合整句候选；标准使用词库，增强增加神经模型重排。下一词推荐由「上屏后联想」单独控制";
     /** 共享偏好 `quote_style` 的取值与显示文字，缺省（文档里没有这个键）是弯引号。 */
     private static final String[] QUOTE_STYLES = {"curly", "corner", "corner_when_traditional"};
     private static final String[] QUOTE_STYLE_LABELS = {"弯引号 “ ” ‘ ’", "直角引号 「 」『 』", "繁体输出时用直角引号"};
@@ -128,10 +129,16 @@ public final class ExpressionPage extends ReloadingDetailPage {
         GroupCard intelligence = GroupCard.add(sectionColumn(target, "智能"), "智能");
         int sentence = sentenceLevel(values.optJSONObject("sentence_association"));
         intelligence.nav("整句候选", SENTENCE_DESCRIPTION, SENTENCE_LABELS[sentence], () -> pickSentence(sentence));
+        intelligence.toggle("上屏后联想", "选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
+            values.optBoolean("next_word_prediction", false),
+            checked -> savePreferences(edit -> edit.put("next_word_prediction", checked)));
         InputFeatureToggle english = InputFeatureToggle.ENGLISH_SUGGESTIONS;
         intelligence.toggle(english.title(), english.description(),
             values.optBoolean(english.key(), english.enabledByDefault()),
             checked -> savePreferences(edit -> edit.put(english.key(), checked)));
+        if (AppEdition.current().offers("quanpin")) {
+            multilingualInputRows(intelligence, values);
+        }
         JSONObject mixed = values.optJSONObject("mixed_input");
         // 中英混输（#7081）：Engine 和 Android 运行时早就按共享偏好 mixed_input.english / minimum_prefix 在中文候选里补英文词，桌面和 iOS 都能开关、调触发长度，Android 只是没有设置项。滑块行没有副标题，触发长度的说明只能写进开关的副标题；九键、14 键在拼音一行候选都没有且没有锁定拼音时、或处在英文模式时不看这两项照样给英文词，所以副标题不说关闭后完全没有英文。
         boolean mixedEnabled = mixed == null || mixed.optBoolean("enabled", true);
@@ -160,6 +167,39 @@ public final class ExpressionPage extends ReloadingDetailPage {
             mixed != null && mixed.optBoolean("kaomoji", false),
             checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked))).setEnabled(mixedEnabled);
 
+    }
+
+    /** 只编辑共享偏好，至少两种可用语言与日文资源门槛由 Host API 决定。 */
+    private void multilingualInputRows(GroupCard group, JSONObject preferences) {
+        JSONObject stored = preferences.optJSONObject("multilingual_input");
+        boolean enabled = stored != null && stored.optBoolean("enabled", false);
+        group.toggle("连续多语言输入（实验）", "开启候选混输后，在全拼 26 键连续输入所选语言；完整中文优先、混合结果作为备选，至少需要两种可用语言",
+            enabled, checked -> savePreferences(edit -> KeyboardSheets.child(edit, "multilingual_input").put("enabled", checked)));
+        String[] values = {"chinese", "english", "japanese"};
+        String[] labels = {"中文", "英文", "日文"};
+        JSONArray selected = stored == null ? null : stored.optJSONArray("languages");
+        for (int index = 0; index < values.length; index++) {
+            String language = values[index];
+            if ("japanese".equals(language) && !AppEdition.current().temporaryJapanese()) continue;
+            boolean checked = selected == null;
+            if (selected != null) for (int item = 0; item < selected.length(); item++) {
+                if (language.equals(selected.optString(item))) checked = true;
+            }
+            group.toggle("连续输入：" + labels[index], "japanese".equals(language)
+                ? "使用已有日文词典，词典未安装或准备中时暂不参与" : null,
+                checked, on -> savePreferences(edit -> {
+                    JSONObject section = KeyboardSheets.child(edit, "multilingual_input");
+                    JSONArray previous = section.optJSONArray("languages");
+                    if (previous == null) previous = new JSONArray().put("chinese").put("english").put("japanese");
+                    JSONArray next = new JSONArray();
+                    for (int item = 0; item < previous.length(); item++) {
+                        String value = previous.getString(item);
+                        if (!language.equals(value)) next.put(value);
+                    }
+                    if (on) next.put(language);
+                    section.put("languages", next);
+                })).setEnabled(enabled);
+        }
     }
 
     private android.view.View phraseRow(Context context, CommunityCatalog.Item item) {

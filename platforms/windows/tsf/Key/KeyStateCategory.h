@@ -46,6 +46,7 @@ typedef struct KeyHandlerEditSessionDTO
     KEYSTROKE_FUNCTION arrowKey;
     uint64_t requestId;
     uint64_t deferredReplayToken = 0;
+    bool groupedPanelKey = false;
     std::wstring prefetchedText;
 } KeyHandlerEditSessionDTO;
 

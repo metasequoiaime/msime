@@ -31,6 +31,22 @@ int main() {
     require(rejected);
   }
   {
+    // 维护期间连入只登记传输，即使没有可创建引擎会话的配置也应成功。
+    InputQueue queue(gate, 1, 1, "{}");
+    auto maintenance = queue.submit([](InputState &state) {
+      require(state.quiesce_dictionaries() == 0);
+      PipeTicket ticket{314, {41, 42, 43}};
+      require(state.connected(ticket).accepted);
+      require(state.quiesce_dictionaries() == 0);
+      ticket.generations = {44, 45, 46};
+      require(state.connected(ticket).accepted);
+      require(state.quiesce_dictionaries() == 0);
+      require(state.disconnected(ticket).accepted);
+    });
+    require(maintenance && maintenance->get() == InputTaskStatus::Completed);
+    queue.stop();
+  }
+  {
     InputQueue queue(gate, 1, 2, "{}");
     std::vector<int> order;
     const auto owner = std::this_thread::get_id();

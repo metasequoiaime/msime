@@ -6,10 +6,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { HomePage, SettingsPage, type Snapshot } from "@msime/ui";
 import type {
   ImeSetupClient,
+  OobeClient,
   ImeSetupState,
 } from "../../../../packages/ui/src/core/host-contracts";
 import { ToastProvider } from "../../../../packages/ui/src/core/toast";
-import { SetupWarningStrip } from "../../../../packages/ui/src/keyboard/setup-status-card";
+import {
+  OobeStatusNotice,
+  SetupWarningStrip,
+} from "../../../../packages/ui/src/keyboard/setup-status-card";
 import {
   voiceLanguageTitle,
   type RootPage,
@@ -292,7 +296,8 @@ test("the status card says 检查中 and offers no step until the host reports, 
   expect(setup.client.read).toHaveBeenCalledOnce();
 
   setup.push({ enabled: false, current: false });
-  expect(within(card).getByText("尚未完成设置 · 小鹤双拼")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("尚未完成设置");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
   fireEvent.click(within(card).getByRole("button", { name: "去开启" }));
   // 选择器只列出已启用的输入法，所以在第一步之前，「设为默认」还会打开系统列表。
   fireEvent.click(within(card).getByRole("button", { name: "设为默认" }));
@@ -300,13 +305,15 @@ test("the status card says 检查中 and offers no step until the host reports, 
   expect(actions.showInputMethodPicker).not.toHaveBeenCalled();
 
   setup.push({ enabled: true, current: false });
-  expect(within(card).getByText("尚未完成设置 · 小鹤双拼")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("尚未完成设置");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
   expect(within(card).queryByRole("button", { name: "去开启" })).toBeNull();
   fireEvent.click(within(card).getByRole("button", { name: "设为默认" }));
   expect(actions.showInputMethodPicker).toHaveBeenCalledOnce();
 
   setup.push({ enabled: true, current: true });
-  expect(within(card).getByText("已启用 · 小鹤双拼")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("已启用");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
   expect(within(card).queryByRole("button", { name: "去开启" })).toBeNull();
   expect(within(card).queryByRole("button", { name: "设为默认" })).toBeNull();
 });
@@ -315,7 +322,16 @@ test("the status card reads the host's state on mount and unsubscribes on unmoun
   const setup = fakeSetup({ enabled: true, current: true });
   renderTouchHome({ actions: { setup: setup.client } });
 
-  expect(within(statusCard()).getByText("已启用 · 小鹤双拼")).toBeTruthy();
+  const card = statusCard();
+  expect(within(card).getByRole("status").textContent).toBe("已启用");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
+  // 应用名是页面的大标题，卡片里不再写一遍。
+  expect(within(card).queryByText("水杉输入法")).toBeNull();
+  expect(
+    card
+      .querySelector('svg path[d="m5 12.5 4.5 4.5L19 7.5"]')
+      ?.parentElement?.getAttribute("focusable"),
+  ).toBe("false");
   expect(setup.listeners.size).toBe(1);
   cleanup();
   expect(setup.listeners.size).toBe(0);
@@ -762,3 +778,58 @@ test.each([
     );
   },
 );
+
+test("资源失败使用资源修复入口，系统设置动作独立，返回前台重新查询", async () => {
+  const refresh = vi.fn();
+  const prepareResources = vi.fn().mockResolvedValue(undefined);
+  const openSetup = vi.fn().mockResolvedValue(undefined);
+  const stop = vi.fn();
+  const client: OobeClient = {
+    read: () => ({
+      resourcesReady: false,
+      systemEnabled: false,
+      systemCurrent: false,
+      preferencesSaved: true,
+      onboardingSeen: null,
+    }),
+    subscribe: () => stop,
+    refresh,
+    prepareResources,
+    openSetup,
+  };
+  const view = render(
+    <ToastProvider>
+      <OobeStatusNotice client={client} />
+    </ToastProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "修复运行资源" }));
+  expect(prepareResources).toHaveBeenCalledOnce();
+  expect(openSetup).not.toHaveBeenCalled();
+  const before = refresh.mock.calls.length;
+  fireEvent(window, new Event("focus"));
+  expect(refresh).toHaveBeenCalledTimes(before + 1);
+  view.unmount();
+  expect(stop).toHaveBeenCalledOnce();
+  fireEvent(window, new Event("focus"));
+  expect(refresh).toHaveBeenCalledTimes(before + 1);
+});
+
+test("未知的桌面状态不显示虚假的失败提示", () => {
+  render(
+    <ToastProvider>
+      <OobeStatusNotice
+        client={{
+          read: () => ({
+            resourcesReady: null,
+            systemEnabled: null,
+            systemCurrent: null,
+            preferencesSaved: null,
+            onboardingSeen: null,
+          }),
+          subscribe: () => () => {},
+        }}
+      />
+    </ToastProvider>,
+  );
+  expect(screen.queryByRole("status")?.textContent ?? "").toBe("");
+});

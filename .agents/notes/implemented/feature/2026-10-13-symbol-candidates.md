@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-- **数据编进引擎。** 本项目自写的 `crates/engine/src/local/symbol_candidates.tsv`（`名称<TAB>拼音<TAB>符号...`，约 300 行，按数学、单位、希腊字母、形状与记号、标点与括号、其他、数字序号分组）由 `crates/engine/src/local/symbol_candidates.rs` 用 `include_str!` 编入，第一次查询时在 `OnceLock` 里建三个索引：全拼（去掉 `'`）、两个音节以上非数字中文名称的首字母、拉丁名称。拼音列取 `msime-pinyin.db` 里那个词的键（圆周率是 `yuan'zhou'lv`），同一个拼音有几个名称时词库里有的写在前面。
+- **数据编进引擎。**（源数据后来迁到 msime-dictionary 的 `sources/symbols/symbol-names.tsv`，这里的文件是按锁同步的副本，见[补齐希腊字母与数学符号名称](2026-10-25-math-greek-symbol-names.md)。）本项目自写的 `crates/engine/src/local/symbol_candidates.tsv`（`名称<TAB>拼音<TAB>符号...`，约 300 行，按数学、单位、希腊字母、形状与记号、标点与括号、其他、数字序号分组）由 `crates/engine/src/local/symbol_candidates.rs` 用 `include_str!` 编入，第一次查询时在 `OnceLock` 里建三个索引：全拼（去掉 `'`）、两个音节以上非数字中文名称的首字母、拉丁名称。拼音列取 `msime-pinyin.db` 里那个词的键（圆周率是 `yuan'zhou'lv`），同一个拼音有几个名称时词库里有的写在前面。
 - **只认整段完全相等，不按前缀。** 26 键（`query_mixed_symbols`）：全拼认名称的全拼、两个音节以上非数字名称的首字母（`ssd` 摄氏度，只限全拼）和至少 4 个字母的拉丁名称（`gamma`）；双拼用 `normalize_input` 归一成全拼后比全拼，另按原样比拉丁名称。微软双拼的 `;` 是 `ing` 韵母键，在归一化前保留（`p;mi` 读作 `pingmi`），只在方案实际使用分号键时接受；全拼和其他双拼方案仍拒绝分号。九宫格（`query_symbol_readings`）只认读法与名称全拼完全相等，并且要过 `splits_into_syllables_at` 的边界检查。输入不到 `MIXED_EXPRESSIVE_MINIMUM_INPUT`（2）键不查。单音节名称只收派、度及一至十，依据分别为 W#40、W#759 和 #9088，由表检查钉死。
 - **来源复用 `CandidateSource::Emoji`（6）。** 于是不学习、不调频、不进个人上下文（`learn_candidate`、`record_personal_context`）、选中即整段上屏结束组字（`commit_selection`，所以部分选词后选符号不会造出「大于≥」），不能置顶、固定或删除（`is_editable_source`），重排器不碰它（`CATALOG_SOURCES`），有云候选、AI 候选时按 emoji 的座位坐（`normalize_online_slots`），不请求释义，Windows 选中即结束组字。`CandidateSource::Emoji` 的文档注释写明它也用于符号行。
 - **位置**（`crates/engine/src/ime/queries.rs` 的 `place_symbol_rows`，26 键和九宫格的 `insert_expressive_rows` 共用）：
@@ -54,6 +54,6 @@ macOS 的 `sharedPreferencesByMerging` 整对象重写 `mixed_input`，所以 `s
   - 有云候选或 AI 候选时，第二个以后的符号行排到本地候选之后，与 emoji 现状相同。
   - 改表要发引擎版本；表只有几十 KB。
 - **数字序号**：一至五十的序号及数字只认完整拼音的规则由[数字序号候选](2026-10-21-number-symbol-candidates.md)持有。#9088 的参考截图提供了「一」作为 ① 的自然名称依据，数字序号不再排除在表外；其单音节仍受锚定及最早第 4 位约束。
-- **没有收录**：用户可编辑的符号表；μ、ν、ρ、τ、φ、χ 的单字中文名（单音节不收）。
+- **没有收录**：用户可编辑的符号表。μ、ν、ρ、τ、φ、χ 的单字中文名当时以单音节不收为由没有收录，3 个字母的拉丁名称也一并排除；两者后来由[补齐希腊字母与数学符号名称](2026-10-25-math-greek-symbol-names.md)放开，拉丁名称的下限改为 3 个字母且不能拆成拼音。
 - **验证缺口**：Windows（MinGW）和 Android 原生编译留给 CI；HarmonyOS 只跑了类型检查与键盘逻辑测试，没有打 HAP；Windows 候选窗是否把 ★ ✓ 这类码位画成 emoji 字形（`platforms/windows/msimeui/src/Fonts.cpp` 按码位区间映射 emoji 字体）没有在装机上看过。
 - 已检索的相关笔记：[2026-10-08-expressive-rows-follow-their-word.md](2026-10-08-expressive-rows-follow-their-word.md) 是 emoji 行跟着词的规则，符号沿用它的锚定做法，找词的线性扫描与排序二分抽成 `with_first_position` 共用，那篇已加互链；[2026-10-08-nine-key-expressive-candidates.md](2026-10-08-nine-key-expressive-candidates.md) 的九宫格读法与边界检查被符号复用，已加互链；[2026-10-07-mixed-candidate-dedup-state.md](../testing/2026-10-07-mixed-candidate-dedup-state.md) 的栈上去重表容量加上了符号上限，事实已就地更新；[2026-10-12-mixed-japanese-candidates.md](2026-10-12-mixed-japanese-candidates.md) 是「后加的可选偏好成员」的先例，本篇反过来默认开，用 `skip_serializing_if = "is_true"`，无需改那篇。

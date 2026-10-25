@@ -11,6 +11,8 @@ statistics=false
 core=false
 feedback=false
 diagnostics=false
+text_edit_layout=false
+oobe=false
 for option in "${@:2}"; do
   case "$option" in
     # --core 跑安装、词库准备、打字主路径及剪贴板保存生命周期；其余键盘套件在 API 28 上仍不支持。
@@ -20,20 +22,27 @@ for option in "${@:2}"; do
     --statistics) statistics=true ;;
     --feedback) feedback=true ;;
     --diagnostics) diagnostics=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics]" >&2; exit 1 ;;
+    --text-edit-layout) text_edit_layout=true ;;
+    --oobe) oobe=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
 avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 [[ "$avd_name" == msime-client-test || "$avd_name" == msime-client-test-api* ]] || { echo "Refusing a non-test AVD" >&2; exit 1; }
 [[ $("$adb" -s "$serial" shell getprop sys.boot_completed | tr -d '\r') == 1 ]] || { echo "Test AVD has not booted" >&2; exit 1; }
-bash platforms/android/tests/device/build-editor.sh
-"$adb" -s "$serial" install --no-incremental -r target/android/msime-android.apk
-"$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
-"$adb" -s "$serial" install --no-incremental -r target/android/first-frame-editor.apk
+if [[ "$oobe" == true ]]; then
+  MSIME_ANDROID_OOBE_SMOKE=1 bash platforms/android/tests/device/build-editor.sh
+else
+  bash platforms/android/tests/device/build-editor.sh
+fi
+# 先推送完整 APK 再交给包管理器，避免 API 28 的流式安装桥卡住而阻塞整套验收。
+"$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/msime-android.apk
+"$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/editor-test.apk
+"$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/first-frame-editor.apk
 # 同包名搜索夹具只在专用兼容验收时安装，不进入默认设备测试。
 if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
-  "$adb" -s "$serial" install --no-incremental -r target/android/composition-search-editor.apk
+  "$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/composition-search-editor.apk
 fi
 mkdir -p target/android/device-test
 xml="$repo_root/target/android/device-test/window.xml"
@@ -81,6 +90,10 @@ sdk=$("$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
 # 连续跑设备套件时，系统偶尔来不及重新绑定输入法。以测试 APK 为目标的用例继续正常启动 instrumentation。
 run_instrumentation() {
   local component=$1 class=${1#*/} target
+  # 引导专项替换这个清单入口，目标进程仍与原入口相同。
+  if [[ "$oobe" == true && "$class" == app.msime.android.test.OnboardingDeviceSmoke ]]; then
+    class=app.msime.android.test.CandidateCanvasDeviceSmoke
+  fi
   target=$(xmllint --xpath "string(//instrumentation[@*[local-name()='name']='$class']/@*[local-name()='targetPackage'])" \
     platforms/android/tests/device/AndroidManifest.xml)
   [[ "$target" == app.msime.android || "$target" == app.msime.android.test ]] \
@@ -99,6 +112,23 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+if [[ "$oobe" == true ]]; then
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.OnboardingDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "原生引导保存与系统状态验收失败" >&2; exit 1; }
+  echo "Dedicated Android AVD: OOBE resource setup, system state and save recovery acceptance passed"
+  exit 0
+fi
+if [[ "$text_edit_layout" == true ]]; then
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e layout-only true)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Text edit layout acceptance failed" >&2; exit 1; }
+  exit 0
+fi
+# 十八键复用已有入口，API 28 核心验收与 API 35 完整验收都覆盖组码、回落和实际几何。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_key true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "十八键全拼验收失败" >&2; exit 1; }
 if [[ "$core" != true ]]; then
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-toggle true)
   printf '%s\n' "$result"
@@ -157,6 +187,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Stale candidate callback acceptance failed" >&2; exit 1; }
+# 空闲联想只在点选时上屏，自己的选区回声保留候选，外部移动和隐私模式清除候选。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke -e next-word true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Next word prediction acceptance failed" >&2; exit 1; }
 # 横向候选条不展开也能越过分页和分批边界，左右返回后按全局身份选词。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e continuous-strip true)
 printf '%s\n' "$result"
@@ -210,6 +244,10 @@ printf '%s\n' "$result"
 # 分词拖选在最低与目标 API 的真实键盘上覆盖跨行、取消和边缘滚动。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke)
 printf '%s\n' "$result"
+# 清空历史前的系统认证用合成锁屏 PIN（DeviceCredentialFixture.PIN）；套件中途崩溃时它来不及清除，这里兜底，免得后面的套件遇到锁屏。只在确有凭据时清除，理由见 clipboard-export.sh 的 clear_credential。
+if ! "$adb" -s "$serial" shell locksettings verify 2>/dev/null | grep -q "verified successfully"; then
+  "$adb" -s "$serial" shell locksettings clear --old 2580 >/dev/null 2>&1 || true
+fi
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Clipboard segment drag acceptance failed" >&2; exit 1; }
 
 # 数字默认九宫格涉及常规键面和字面提交，API 28 的核心验收同样覆盖。
@@ -279,6 +317,11 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-categories true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native common phrase category acceptance failed" >&2; exit 1; }
+# 触控板通过独立编辑器验收真实 DPAD、选区、临时面板和密码回读，最低 API 同样覆盖。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e trackpad true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Text trackpad acceptance failed" >&2; exit 1; }
+
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
@@ -348,7 +391,11 @@ do
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "${entry#*|}" >&2; exit 1; }
 done
-# 九键逐字选词复用原入口；真实触摸后必须自动刷新剩余组字，不能依靠手动返回解除旧面板。
+# 18 键双拼复用字母组布局入口，避免超过 Android 35 的清单数量限制。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_shuangpin true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "十八键双拼验收失败" >&2; exit 1; }
+# 九键逐字选词复用原入口；真实触摸部分选词后面板必须留着并换上剩余组字的候选（#9193），选完最后一个字才收起，全程不发返回操作。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyPanelDeviceSmoke -e partial-selection true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Nine-key partial selection acceptance failed" >&2; exit 1; }
@@ -368,6 +415,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-hold true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "English letter hold acceptance failed" >&2; exit 1; }
+# 英文三排角标在两种方向上均应上屏，包含 D、X、C 的非 ASCII 符号。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-swipe true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "English symbol swipe acceptance failed" >&2; exit 1; }
 if [[ "$settings" == true ]]; then
   for suite in OptionSheetDeviceSmoke SettingsDeviceSmoke SettingsLifecycleSmoke AccountStorageDeviceSmoke CloudClipboardKeystoreDeviceSmoke CloudClipboardDriverDeviceSmoke CloudClipboardRelayDeviceSmoke; do
     result=$("$adb" -s "$serial" shell am instrument -w "app.msime.android.test/app.msime.android.test.$suite")
@@ -385,84 +436,7 @@ if [[ "$statistics" == true ]]; then
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Typing statistics acceptance failed" >&2; exit 1; }
 fi
 if [[ "$handwriting" == true ]]; then
-  touch_request=/data/user/0/app.msime.android.test/cache/msime-handwriting-touch.request
-  touch_ack=/data/user/0/app.msime.android.test/cache/msime-handwriting-touch.ack
-  handwriting_output=""
-  original_adbd_uid=$("$adb" -s "$serial" shell id -u | tr -d '\r')
-  cleanup_handwriting_bridge() {
-    "$adb" -s "$serial" shell rm -f "$touch_request" "$touch_ack" >/dev/null 2>&1 || true
-    if [[ -n "$handwriting_output" && -f "$handwriting_output" ]]; then
-      unlink "$handwriting_output"
-    fi
-    if [[ "$original_adbd_uid" != 0 ]]; then
-      "$adb" -s "$serial" unroot >/dev/null 2>&1 || true
-      "$adb" -s "$serial" wait-for-device >/dev/null 2>&1 || true
-    fi
-  }
-  trap cleanup_handwriting_bridge EXIT INT TERM
-  "$adb" -s "$serial" root >/dev/null
-  "$adb" -s "$serial" wait-for-device
-  touch_devices=$("$adb" -s "$serial" shell getevent -lp)
-  touch_device=$(printf '%s\n' "$touch_devices" | awk '
-    /^add device/ { device=$NF }
-    /name: +"virtio_input_multi_touch_1"/ { print device; exit }
-  ')
-  [[ "$touch_device" =~ ^/dev/input/event[0-9]+$ ]] || { echo "Primary emulator touch device was not found" >&2; exit 1; }
-  touch_info=$("$adb" -s "$serial" shell getevent -lp "$touch_device")
-  raw_max_x=$(printf '%s\n' "$touch_info" | sed -n 's/.*ABS_MT_POSITION_X.*max \([0-9][0-9]*\).*/\1/p' | head -1)
-  raw_max_y=$(printf '%s\n' "$touch_info" | sed -n 's/.*ABS_MT_POSITION_Y.*max \([0-9][0-9]*\).*/\1/p' | head -1)
-  physical_size=$("$adb" -s "$serial" shell wm size | sed -n 's/^Physical size: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | head -1)
-  read -r screen_width screen_height <<<"$physical_size"
-  [[ "$raw_max_x" =~ ^[0-9]+$ && "$raw_max_y" =~ ^[0-9]+$
-      && "$screen_width" =~ ^[0-9]+$ && "$screen_height" =~ ^[0-9]+$
-      && "$screen_width" -gt 1 && "$screen_height" -gt 1 ]] \
-    || { echo "Primary emulator touch geometry was unavailable" >&2; exit 1; }
-  raw_stroke() {
-    local request_id=$1 start_x=$2 start_y=$3 end_x=$4 end_y=$5
-    local raw_start_x=$(( start_x * raw_max_x / (screen_width - 1) ))
-    local raw_start_y=$(( start_y * raw_max_y / (screen_height - 1) ))
-    local raw_end_x=$(( end_x * raw_max_x / (screen_width - 1) ))
-    local raw_end_y=$(( end_y * raw_max_y / (screen_height - 1) ))
-    local events="sendevent $touch_device 3 47 0; sendevent $touch_device 3 57 0; sendevent $touch_device 3 48 $request_id; sendevent $touch_device 3 49 $request_id; sendevent $touch_device 3 58 100"
-    local step raw_x raw_y
-    for step in {0..12}; do
-      raw_x=$(( raw_start_x + (raw_end_x - raw_start_x) * step / 12 ))
-      raw_y=$(( raw_start_y + (raw_end_y - raw_start_y) * step / 12 ))
-      events+="; sendevent $touch_device 3 53 $raw_x; sendevent $touch_device 3 54 $raw_y; sendevent $touch_device 0 0 0; usleep 12000"
-    done
-    events+="; sendevent $touch_device 3 58 0; sendevent $touch_device 3 57 -1; sendevent $touch_device 0 0 0"
-    "$adb" -s "$serial" shell "$events"
-  }
-  "$adb" -s "$serial" shell rm -f "$touch_request" "$touch_ack"
-  handwriting_output=$(mktemp "$repo_root/target/android/device-test/handwriting.XXXXXX")
-  "$adb" -s "$serial" shell am instrument -w \
-    app.msime.android.test/app.msime.android.test.HandwritingDeviceSmoke \
-    >"$handwriting_output" &
-  instrumentation_pid=$!
-  last_request=0
-  touch_deadline=$((SECONDS + 240))
-  while kill -0 "$instrumentation_pid" 2>/dev/null; do
-    request=$("$adb" -s "$serial" shell cat "$touch_request" 2>/dev/null | tr -d '\r\n' || true)
-    if [[ "$request" =~ ^([0-9]+)\ ([0-9]+)\ ([0-9]+)\ ([0-9]+)\ ([0-9]+)$
-        && "${BASH_REMATCH[1]}" != "$last_request" ]]; then
-      request_id=${BASH_REMATCH[1]}
-      raw_stroke "$request_id" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" \
-        "${BASH_REMATCH[4]}" "${BASH_REMATCH[5]}"
-      "$adb" -s "$serial" shell "printf '%s\\n' '$request_id' > '$touch_ack'"
-      last_request=$request_id
-    fi
-    if (( SECONDS >= touch_deadline )); then
-      "$adb" -s "$serial" shell am force-stop app.msime.android.test
-      break
-    fi
-    sleep 0.1
-  done
-  wait "$instrumentation_pid" || true
-  result=$(<"$handwriting_output")
-  printf '%s\n' "$result"
-  cleanup_handwriting_bridge
-  trap - EXIT INT TERM
-  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Handwriting acceptance failed" >&2; exit 1; }
+  bash platforms/android/tests/device/handwriting-smoke.sh "$serial"
 fi
 # 生命周期回归会重启宿主进程，放在键盘套件之后，避免打断系统已经绑定的输入法服务。
 bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android

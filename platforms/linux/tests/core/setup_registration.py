@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -433,7 +434,38 @@ def registering_again() -> None:
         assert result.returncode == 2 and "不能同时使用" in result.stderr, result
 
 
+def status_queries() -> None:
+    setup = load_setup()
+    with patch.object(setup, "active_host", return_value=None):
+        assert setup.input_method_status() == {"host": None, "enabled": None, "current": None}
+    with patch.object(setup, "active_host", return_value="fcitx5"), \
+            patch.object(setup, "fcitx5_current_group", return_value="Default"), \
+            patch.object(setup, "fcitx5_group", return_value=("us", [("keyboard-us", ""), (setup.FCITX5_INPUT_METHOD, "")])), \
+            patch.object(setup, "fcitx5_call", return_value=f"('{setup.FCITX5_INPUT_METHOD}',)"):
+        assert setup.input_method_status() == {"host": "fcitx5", "enabled": True, "current": True}
+    with patch.object(setup, "active_host", return_value="fcitx5"), \
+            patch.object(setup, "fcitx5_current_group", side_effect=setup.RegistrationFailed("synthetic")), \
+            patch.object(setup, "fcitx5_call", return_value="('keyboard-us',)"):
+        assert setup.input_method_status() == {"host": "fcitx5", "enabled": None, "current": False}
+    with patch.object(setup, "active_host", return_value="ibus"), \
+            patch.object(setup, "ibus_input_list", return_value=("synthetic.schema", "sources", ("ibus", setup.IBUS_ENGINE))), \
+            patch.object(setup, "command_output", side_effect=["[('xkb', 'us')]", setup.IBUS_ENGINE]):
+        assert setup.input_method_status() == {"host": "ibus", "enabled": False, "current": True}
+    with tempfile.TemporaryDirectory() as name:
+        harness = Harness(Path(name))
+        harness.world()
+        result = subprocess.run([str(harness.setup), "--status", "--json"], env=harness.environment,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result
+        assert json.loads(result.stdout) == {"host": None, "enabled": None, "current": None}
+        assert not harness.calls("systemctl") and not harness.calls("msime-linux-prepare")
+        result = subprocess.run([str(harness.setup), "--status", "--register"], env=harness.environment,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 2, result
+
+
 def main() -> int:
+    status_queries()
     gvariant_round_trip()
     with tempfile.TemporaryDirectory() as name:
         harness = Harness(Path(name))

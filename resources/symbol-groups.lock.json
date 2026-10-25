@@ -4,16 +4,18 @@
   "source_commit": "7ab73ee0c7f80190004233e70f954833df64c80e",
   "license": "CC-BY-4.0",
   "attribution": "amzxyz and contributors",
+  "dictionary_repository": "https://github.com/metasequoiaime/msime-dictionary",
+  "dictionary_commit": "4ab096a20736be1c8d134852e21b558e80097ac0",
   "artifacts": [
     {
       "name": "wanxiang_symbols.yaml",
-      "url": "https://raw.githubusercontent.com/amzxyz/rime-wanxiang/7ab73ee0c7f80190004233e70f954833df64c80e/wanxiang_symbols.yaml",
+      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/4ab096a20736be1c8d134852e21b558e80097ac0/sources/symbols/wanxiang_symbols.yaml",
       "sha256": "8cd64dd226ccdddc0771085ad4d072c19713529ec02c9f4c00d97e6fd6e4c8df",
       "size": 98894
     },
     {
       "name": "LICENSE",
-      "url": "https://raw.githubusercontent.com/amzxyz/rime-wanxiang/7ab73ee0c7f80190004233e70f954833df64c80e/LICENSE",
+      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/4ab096a20736be1c8d134852e21b558e80097ac0/sources/symbols/LICENSE",
       "sha256": "9e5f1b3c610b9c2da5c313bf81d577a7d1acec686bdb0384edefa6df0f90cd94",
       "size": 18656
     }

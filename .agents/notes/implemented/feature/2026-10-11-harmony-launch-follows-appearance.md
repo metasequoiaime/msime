@@ -45,3 +45,5 @@ Status: implemented
 - `apps/desktop/tests/account/onboarding-page.test.tsx`：开屏期间的系统栏在浅色和深色文档下分别是 #F1F3F5 / #0A0B0A。
 - `python3 scripts/test-harmony-launch-continuity.py`，并反向验证：改动开屏遮罩的浅色圆盘色后报出不一致的两处。
 - 没有在真机上验证。
+
+手机的播放时机由[冷启动恢复简短开屏动画](2026-10-24-harmony-cold-launch-animation.md)取代：每个设置文档播放一次 1.4 秒动画，后台恢复不重播；本篇的深浅色、标志与盖板衔接继续适用。

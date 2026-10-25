@@ -41,4 +41,6 @@ Status: implemented
 
 ## 历史笔记检索
 
+[单码学习宿主边界诊断](../testing/2026-10-23-initial-learning-host-boundaries.md)沿用分开核对持久化与呈现的方法排查 #9384；该问题没有证明与本篇模糊覆盖排序同因，不能把本篇已有修复当作它的解决证据。
+
 [全拼模糊整词让位](2026-10-08-fuzzy-whole-input-before-stand-in-sentence.md)明确记录双拼曾依靠分隔符字节数把模糊整词放在整句之前，本次改用实际按键覆盖与明确的整句让位规则，部分重叠，保留互链。[双拼模糊标签借用](../testing/2026-10-15-shuangpin-fuzzy-relabel-borrow.md)持有编码字符串复用；[短候选去重](../testing/2026-10-08-shuangpin-fuzzy-dedup.md)持有去重阈值与首次出现顺序；两者不持有本次调频决定，继续保留。[双拼纠错整句](../feature/2026-10-09-shuangpin-typo-sentence.md)的纠错不抢首选约束继续由查询出口执行，与本次无冲突。九宫格排序、英文大小写与词网格分配的检索命中不属于本次双拼合并范围。

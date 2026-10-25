@@ -2,7 +2,7 @@ import XCTest
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
-/// 全拼 14 键：键表与引擎的组码一致，键面、无障碍标签和长按，键盘在窄屏和宽屏上的排布与 26 键等高，经桥接层和真实键盘打出「你好」「西安」，拼音选择条在读音行右侧，以及 iPad 上的布局。
+/// 全拼和双拼 14 键：桥接层、键面、读屏、读音选择、布局热加载与 iPad 排布保持一致。
 @MainActor
 final class FourteenKeyKeyboardTests: XCTestCase {
   private var previousScheme = InputSchemePreference.scheme
@@ -66,6 +66,125 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     // 换回 26 键后网格关掉，组码不再被收下。
     _ = bridge.switch(toShuangpin: false)
     XCTAssertFalse(bridge.gridKey("b").isHandled)
+  }
+
+  /// 双拼 14 键沿用当前双拼 profile；同一张键面交给双拼网格后，组码仍按双拼规则解码。
+  func testTheBridgeTypesShuangpinFourteenKeyWithTheSelectedProfile() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    for (profile, codes) in [("xiaohe", "bugc"), ("ziranma", "bugj"),
+                              ("microsoft", "bugj"), ("shoudao", "bugd")] {
+      XCTAssertNil(bridge.switchToFourteenKeyShuangpin(profile: profile).diagnosticText)
+      for rebuilt in [false, true] {
+        _ = bridge.cancel()
+        if rebuilt {
+          XCTAssertTrue(bridge.suspendDictionarySession())
+          try bridge.resumeDictionarySession()
+        }
+        XCTAssertEqual(bridge.sharedPreferences?["shuangpin_profile"] as? String, profile)
+        var snapshot = bridge.cancel()
+        for code in codes { snapshot = bridge.gridKey(String(code)) }
+        XCTAssertTrue(snapshot.isHandled, profile)
+        XCTAssertTrue(snapshot.candidates.contains("你好"), "\(profile): \(snapshot.candidates)")
+        // 多义组码的首选读音受词频影响；明确选 ni 后核对读音与候选，不绑定未消歧的首选。
+        let ni = try XCTUnwrap(snapshot.nineKeySpellings.firstIndex(of: "ni"), profile)
+        snapshot = bridge.chooseNineKeySpelling(at: UInt(ni))
+        XCTAssertTrue(snapshot.nineKeyReading.hasPrefix("ni"), snapshot.nineKeyReading)
+        XCTAssertTrue(snapshot.candidates.contains("你好"), "\(profile): \(snapshot.candidates)")
+      }
+      _ = bridge.cancel()
+    }
+    XCTAssertNil(bridge.switchToFourteenKeyShuangpin(profile: "microsoft").diagnosticText)
+    _ = bridge.gridKey("q")
+    XCTAssertTrue(bridge.gridKey("l").nineKeySpellings.contains("qing"), "微软 q; 的分号由 L 键承载")
+  }
+
+  /// 设置页会立即更新 App Group；键盘必须对照自身已应用布局，才能在方案不变时重画键面和读音行。
+  func testShuangpinLayoutReloadChangesKeysAndReadingWithoutChangingProfile() throws {
+    let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    let previousLayout = TouchShuangpinLayoutPreference.layout
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = document }
+      TouchShuangpinLayoutPreference.layout = previousLayout
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    XCTAssertTrue(InputSchemePreference.select(.shuangpin))
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.twentySixKey))
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    let qw = try button("fourteenKeyQW", in: controller)
+    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    let initialHeight = height.constant
+    XCTAssertFalse(shown(qw))
+
+    func reload(until done: () -> Bool) {
+      controller.viewWillAppear(false)
+      let deadline = Date().addingTimeInterval(15)
+      while !done() && Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+      }
+      controller.view.layoutIfNeeded()
+    }
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.fourteenKey))
+    reload { shown(qw) }
+    XCTAssertTrue(shown(qw))
+    XCTAssertEqual(height.constant - initialHeight, readingRowCost)
+    XCTAssertEqual(InputSchemePreference.scheme, .shuangpin)
+    try tap(["BN", "UI", "GH", "CV"], in: controller)
+    XCTAssertTrue(candidates(in: controller).contains { $0.contains("你好") })
+    XCTAssertEqual(controller.inlineMarkedText, "")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "14键")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+
+    // 组字期间读入 26 键设置，当前键面保持 14 键；提交后同一控制器立即换成 26 键。
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.twentySixKey))
+    KeyboardLayoutPreference.shuangpinKeyHints = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences {
+      $0["touch_shuangpin_key_hints"] = true
+    })
+    // 键位提示只由重载回调镜像，不能用已被 save 同步写入的布局镜像当作重载完成信号。
+    reload { KeyboardLayoutPreference.shuangpinKeyHints }
+    XCTAssertTrue(KeyboardLayoutPreference.shuangpinKeyHints)
+    XCTAssertTrue(shown(qw))
+    try button("spaceKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(shown(qw))
+    XCTAssertEqual(height.constant, initialHeight)
+    XCTAssertEqual(InputSchemePreference.scheme, .shuangpin)
+  }
+
+  /// 微软双拼 14 键显示分号入口；平板横屏开启分离时仍画完整网格，不露出 26 键分号。
+  func testMicrosoftShuangpinFourteenKeysStayWholeOnTablet() throws {
+    let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    let previousLayout = TouchShuangpinLayoutPreference.layout
+    let previousSplit = KeyboardLayoutPreference.tabletSplit
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = document }
+      TouchShuangpinLayoutPreference.layout = previousLayout
+      KeyboardLayoutPreference.tabletSplit = previousSplit
+    }
+    XCTAssertTrue(InputSchemePreference.select(.microsoft))
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.fourteenKey))
+    KeyboardLayoutPreference.tabletSplit = true
+    let controller = KeyboardViewController()
+    controller.traitOverrides.userInterfaceIdiom = .pad
+    controller.traitOverrides.horizontalSizeClass = .regular
+    controller.traitOverrides.verticalSizeClass = .compact
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 1032, height: 400)
+    controller.view.layoutIfNeeded()
+    defer { controller.viewDidDisappear(false) }
+    let l = try button("fourteenKeyL", in: controller)
+    XCTAssertTrue(shown(l))
+    XCTAssertEqual(l.configuration?.title, "L;")
+    XCTAssertEqual(l.accessibilityLabel, "字母 L 和分号")
+    XCTAssertFalse(shown(try button("microsoftFinalKey", in: controller)))
+    XCTAssertFalse(shown(try view("numberRow", in: controller)))
+    XCTAssertFalse(shown(try button("tabletLayerKey", in: controller)))
+    try tap(["QW", "L"], in: controller)
+    XCTAssertTrue(shown(try button("readingSpelling_qing", in: controller)))
+    attachScreenshot(of: controller, named: "微软双拼十四键平板横屏")
   }
 
   // MARK: - 键面

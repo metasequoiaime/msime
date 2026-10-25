@@ -4,6 +4,7 @@ import { ActionButton } from "../core/action-button";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
 import { useFullScreenScrollToTop } from "../core/use-full-screen-scroll-to-top";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import type { PreviewKey } from "./keyboard-layouts";
 import type { TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { useAiSkinGeneration, type UseAiSkinGenerationOptions } from "./use-ai-skin-generation";
 import {
@@ -17,6 +18,9 @@ import { SettingsPageHeader } from "../settings/settings-page-header";
 
 export interface AiSkinGenerationProps extends UseAiSkinGenerationOptions {
   fullScreen?: boolean;
+  phonePreview?: boolean;
+  /** 手机全屏视图使用手机预览；HarmonyOS 传入当前中文键面。 */
+  touchRows?: PreviewKey[][];
   useLabel?: string;
   onUse: (design: TouchKeyboardSkinDesign) => void;
   onClose: () => void;
@@ -30,6 +34,8 @@ export function AiSkinGeneration({
   library,
   communitySkins,
   fullScreen = false,
+  phonePreview = false,
+  touchRows,
   useLabel = "使用并继续编辑",
   onUse,
   onClose,
@@ -126,7 +132,13 @@ export function AiSkinGeneration({
               <article className={doc.card} key={proposal.name}>
                 <h3>{proposal.name}</h3>
                 <p>{proposal.description}</p>
-                <ScreenKeyboardPreview theme="light" skin="custom" customDesign={proposal.design} />
+                <ScreenKeyboardPreview
+                  theme="light"
+                  skin="custom"
+                  customDesign={proposal.design}
+                  phone={fullScreen || phonePreview}
+                  touchRows={touchRows}
+                />
                 <div className={doc.cardActions}>
                   <ActionButton
                     action={() => {

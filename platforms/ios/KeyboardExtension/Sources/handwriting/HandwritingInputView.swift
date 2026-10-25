@@ -12,6 +12,7 @@ private final class HandwritingDownloadFailure: @unchecked Sendable {
 @MainActor
 final class HandwritingRecognizer {
   init() {
+    MLKitStatsOptOut.apply()
     // ML Kit creates its download session while checking model availability, before download().
     _ = HandwritingDownloadSession.configureSharedContainer(InputSchemePreference.appGroupIdentifier)
   }
@@ -238,7 +239,7 @@ final class HandwritingInputView: UIView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     accessibilityIdentifier = "handwritingInput"
-    // 识别结果归共用的候选条，书写区旁边的标点键和工具键归键盘（对应 Android 的 `rebuildHandwritingRows`），所以这个视图只有书写卡片本身。
+    // 识别结果归共用的候选条，标点键和「重写」、⌫ 在键盘的底行（对应 Android 的 `rebuildHandwritingRows` 与 `KeyboardActionRow`），所以这个视图只有书写卡片本身。
     status.font = .systemFont(ofSize: 13); status.text = Self.idleStatus
     status.textColor = KeyboardTheme.current.secondary
     status.accessibilityIdentifier = "handwritingStatus"

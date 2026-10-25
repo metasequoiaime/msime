@@ -1,4 +1,5 @@
 #include "WaveOverlayUtils.h"
+#include "../../compat/WindowsDpi.h"
 
 #include "WaveOverlayScale.h"
 
@@ -41,8 +42,8 @@ UINT monitor_effective_dpi(HMONITOR monitor) {
   const GetDpiForMonitorFn query = resolve_get_dpi_for_monitor();
   if (query && SUCCEEDED(query(monitor, 0 /* MDT_EFFECTIVE_DPI */, &dpi_x,
                                &dpi_y)))
-    return wave_overlay_dpi(dpi_x, GetDpiForSystem());
-  return wave_overlay_dpi(0, GetDpiForSystem());
+    return wave_overlay_dpi(dpi_x, msime::windows::compat::system_dpi());
+  return wave_overlay_dpi(0, msime::windows::compat::system_dpi());
 }
 
 bool wave_overlay_monitor_metrics(WaveOverlayMonitorMetrics *metrics) {

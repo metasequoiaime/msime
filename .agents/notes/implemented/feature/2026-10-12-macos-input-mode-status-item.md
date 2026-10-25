@@ -41,3 +41,5 @@ Windows 有托盘语言栏，Linux 有 Fcitx5/IBus 面板，触屏键盘的键�
 - 前端：`apps/desktop/tests/settings/settings.test.tsx` 断言 macOS 下开关默认关闭、点开后保存 `input_mode_status_item: true`；`apps/desktop/tests/input/host-capabilities.test.tsx` 断言开关只在声明能力的宿主上出现。
 - macOS 原生：`tests/input/InputModeIdentifiersTest.mm` 覆盖 full 和五笔版 info 的图标查找与各级回退；`tests/input/ShortcutTest.mm` 的 `TestInputModeStatusItem` 用替身断言关闭时只隐藏、打开立即显示、Shift 轻点在「中」「英」间切换、双拼显示「双」、⌃⇧E 显示「中」、关上立即隐藏、没有客户端时不显示，原生开关关上时没有客户端的控制器经 `appearanceChanged:` 立即隐藏、打开时不显示，以及原生开关与共享文档读写同一个值；`tests/settings/info_plist_icons.py` 检查最后的回退图标仍是 plist 声明的那张。
 - 真机（图形会话）还没有做：浅色、深色菜单栏的外观，切到 ABC 后消失、切回出现，重启输入法进程后位置保持，以及加入「英」输入源后系统图标是否跟随。
+
+[可编辑焦点限制](../feature/2026-10-24-macos-editable-shift.md) 只约束可选的单按 Shift，不改变本文的快捷键或状态归属规则。

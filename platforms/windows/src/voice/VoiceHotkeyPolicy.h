@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace msime::windows {
@@ -25,6 +26,37 @@ inline constexpr unsigned voice_key_ralt = 0xA5;
 inline constexpr unsigned voice_key_f9 = 0x78;
 inline constexpr unsigned voice_key_space = 0x20;
 inline constexpr unsigned voice_key_escape = 0x1B;
+
+// 一个物理按键直到松开才结束；改绑、禁用、失焦与修饰键变化都不释放已消费的按键。
+class VoiceToggleStrokes {
+public:
+  struct Event { bool repeat = false; bool consumed = false; };
+  Event observe(unsigned key, bool down, bool up) {
+    if (key >= pressed_.size()) return {};
+    const Event event{down && pressed_[key], consumed_[key]};
+    if (down) pressed_[key] = true;
+    if (up) { pressed_[key] = false; consumed_[key] = false; }
+    return event;
+  }
+  void claim(unsigned key) { if (key < consumed_.size()) consumed_[key] = true; }
+private:
+  std::array<bool, 256> pressed_{};
+  std::array<bool, 256> consumed_{};
+};
+
+// 自定义切换键已由共享层解码，空主键不触发；固定 Ctrl+F9 的旧语义独立保留。
+struct VoiceToggleBinding {
+  unsigned key = 0;
+  bool ctrl = false;
+  bool alt = false;
+  bool shift = false;
+  bool meta = false;
+};
+constexpr bool voice_toggle_matches(const VoiceToggleBinding &binding, unsigned key,
+                                     bool ctrl, bool alt, bool shift, bool meta) {
+  return binding.key != 0 && binding.key == key && binding.ctrl == ctrl &&
+         binding.alt == alt && binding.shift == shift && binding.meta == meta;
+}
 
 enum class VoiceHoldShortcut { None, RAlt, CtrlWin, RCtrlRAlt };
 

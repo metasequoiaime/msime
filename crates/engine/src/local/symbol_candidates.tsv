@@ -1,8 +1,9 @@
 # 打拼音出符号：符号名称 → 符号。本项目自写，随引擎以 GPL-3.0-only 发布；名称与码位是事实，没有整段复制任何现成的表。
+# 唯一的编辑入口是 msime-dictionary 的 sources/symbols/symbol-names.tsv。msime 的 crates/engine/src/local/symbol_candidates.tsv 是 scripts/sync_symbol_tables.py 按 resources/symbol-tables.lock.json 同步的逐字节副本，引擎用 include_str! 编进去；不要在 msime 里手改。
 # 格式：名称<TAB>拼音<TAB>符号[<空格>符号...]，`#` 开头的行是注释。
 # 拼音用引擎词库的写法：音节以 ' 分隔，ü 写 v；拉丁名称（希腊字母的英文拼写）的拼音列写 -。
 # 符号之间用一个空格分隔，所以符号本身不含空格，成对的括号算一个符号。专用码位在前，ASCII 组合在后（全角时 ASCII 会变宽）。
-# 写法规则由 symbol_candidates.rs 的单元测试检查：名称必须是符号的名字，不收常用虚词；单音节名称只收派、度和一至十；每个名称最多 6 个符号。
+# 写法规则由 symbol_candidates.rs 的单元测试检查：名称必须是符号的名字，不收常用虚词；单音节名称只收派、度、一至十和希腊字母的单字读音（缪、纽、柔、套、斐、凯）；每个名称最多 6 个符号。
 # 同一个拼音有几个名称时，词库里有的那个写在前面：符号按文字去重，留下的那行跟着排在前面的名称找锚定词。
 
 # ---- 数学 ----
@@ -67,7 +68,7 @@
 合取	he'qu	∧
 析取	xi'qu	∨
 异或	yi'huo	⊕
-百分号	bai'fen'hao	％
+百分号	bai'fen'hao	％ %
 千分号	qian'fen'hao	‰
 万分号	wan'fen'hao	‱
 度	du	°
@@ -84,6 +85,64 @@
 圆周率	yuan'zhou'lv	π
 直径	zhi'jing	⌀ Φ
 卡方	ka'fang	χ²
+等号	deng'hao	＝ =
+等于	deng'yu	＝ =
+加号	jia'hao	＋ +
+不大于	bu'da'yu	≯ ≤
+不小于	bu'xiao'yu	≮ ≥
+定义为	ding'yi'wei	≜ ≔
+蕴含	yun'han	⇒ →
+当且仅当	dang'qie'jin'dang	⇔
+包含于	bao'han'yu	⊆ ⊂
+超集	chao'ji	⊇ ⊃
+真超集	zhen'chao'ji	⊋ ⊃
+补集	bu'ji	∁
+差集	cha'ji	∖
+映射	ying'she	↦ →
+梯度	ti'du	∇
+哈密顿算子	ha'mi'dun'suan'zi	∇
+拉普拉斯算子	la'pu'la'si'suan'zi	Δ ∇²
+环路积分	huan'lu'ji'fen	∮
+曲面积分	qu'mian'ji'fen	∯ ∬
+阶乘	jie'cheng	!
+四次方	si'ci'fang	⁴
+四次方根	si'ci'fang'gen	∜
+角分	jiao'fen	′
+角秒	jiao'miao	″
+直角	zhi'jiao	∟ ⊾
+圆弧	yuan'hu	⌒
+不平行	bu'ping'xing	∦
+垂直于	chui'zhi'yu	⊥
+平行于	ping'xing'yu	∥
+张量积	zhang'liang'ji	⊗
+直和	zhi'he	⊕
+卷积	juan'ji	∗
+不存在	bu'cun'zai	∄
+比号	bi'hao	∶
+正负无穷	zheng'fu'wu'qiong	±∞
+实数集	shi'shu'ji	ℝ
+自然数集	zi'ran'shu'ji	ℕ
+整数集	zheng'shu'ji	ℤ
+有理数集	you'li'shu'ji	ℚ
+复数集	fu'shu'ji	ℂ
+阿列夫	a'lie'fu	ℵ
+普朗克常数	pu'lang'ke'chang'shu	ℎ ℏ
+约化普朗克常数	yue'hua'pu'lang'ke'chang'shu	ℏ
+自然常数	zi'ran'chang'shu	ℯ e
+虚数单位	xu'shu'dan'wei	ⅈ i
+五分之一	wu'fen'zhi'yi	⅕
+五分之二	wu'fen'zhi'er	⅖
+五分之三	wu'fen'zhi'san	⅗
+五分之四	wu'fen'zhi'si	⅘
+六分之一	liu'fen'zhi'yi	⅙
+六分之五	liu'fen'zhi'wu	⅚
+七分之一	qi'fen'zhi'yi	⅐
+八分之一	ba'fen'zhi'yi	⅛
+八分之三	ba'fen'zhi'san	⅜
+八分之五	ba'fen'zhi'wu	⅝
+八分之七	ba'fen'zhi'qi	⅞
+九分之一	jiu'fen'zhi'yi	⅑
+十分之一	shi'fen'zhi'yi	⅒
 
 # ---- 单位 ----
 平方米	ping'fang'mi	㎡ m²
@@ -153,6 +212,12 @@
 西格玛	xi'ge'ma	σ Σ
 宇普西隆	yu'pu'xi'long	υ Υ
 普西	pu'xi	ψ Ψ
+缪	miu	μ Μ
+纽	niu	ν Ν
+柔	rou	ρ Ρ
+套	tao	τ Τ
+斐	fei	φ Φ
+凯	kai	χ Χ
 欧米茄	ou'mi'jia	ω Ω
 欧米伽	ou'mi'jia	ω Ω
 alpha	-	α Α
@@ -169,9 +234,15 @@ omicron	-	ο Ο
 sigma	-	σ Σ
 upsilon	-	υ Υ
 omega	-	ω Ω
+phi	-	φ Φ
+psi	-	ψ Ψ
+rho	-	ρ Ρ
+tau	-	τ Τ
 
 # ---- 英文名称：Windows 正式版的 S 模式举例点名的那些 ----
 infinity	-	∞
+nabla	-	∇
+aleph	-	ℵ
 
 # ---- 形状与记号 ----
 五角星	wu'jiao'xing	★ ☆
@@ -192,8 +263,8 @@ infinity	-	∞
 项目符号	xiang'mu'fu'hao	• ◦ ▪
 间隔号	jian'ge'hao	·
 对号	dui'hao	√ ✓
-对钩	dui'gou	√ ✓
-对勾	dui'gou	√ ✓
+对钩	dui'gou	√ ✓ ✔
+对勾	dui'gou	√ ✓ ✔
 打钩	da'gou	√ ✓
 打勾	da'gou	√ ✓
 叉号	cha'hao	× ✗
@@ -221,37 +292,50 @@ infinity	-	∞
 回车	hui'che	↵
 回车键	hui'che'jian	↵
 退格键	tui'ge'jian	⌫
-竖线	shu'xian	｜
+竖线	shu'xian	｜ |
 男性符号	nan'xing'fu'hao	♂
 女性符号	nv'xing'fu'hao	♀
 雄性	xiong'xing	♂
 雌性	ci'xing	♀
 
 # ---- 标点与括号 ----
-括号	kuo'hao	（） 【】 ［］ ｛｝
+逗号	dou'hao	， ,
+句号	ju'hao	。 .
+顿号	dun'hao	、
+问号	wen'hao	？ ?
+叹号	tan'hao	！ !
+感叹号	gan'tan'hao	！ !
+冒号	mao'hao	： :
+分号	fen'hao	； ;
+斜杠	xie'gang	／ /
+斜线	xie'xian	／ /
+反斜杠	fan'xie'gang	\
+下划线	xia'hua'xian	_
+艾特	ai'te	@
+括号	kuo'hao	（） 【】 ［］ ｛｝ ()
 圆括号	yuan'kuo'hao	（）
-小括号	xiao'kuo'hao	（）
-方括号	fang'kuo'hao	［］ 【】
-中括号	zhong'kuo'hao	［］ 【】
-花括号	hua'kuo'hao	｛｝
-大括号	da'kuo'hao	｛｝
+小括号	xiao'kuo'hao	（） ()
+方括号	fang'kuo'hao	［］ 【】 []
+中括号	zhong'kuo'hao	［］ 【】 []
+花括号	hua'kuo'hao	｛｝ {}
+大括号	da'kuo'hao	｛｝ {}
 尖括号	jian'kuo'hao	〈〉
 六角括号	liu'jiao'kuo'hao	〔〕
 方头括号	fang'tou'kuo'hao	【】
 空心方头括号	kong'xin'fang'tou'kuo'hao	〖〗
 书名号	shu'ming'hao	《》 〈〉
 单书名号	dan'shu'ming'hao	〈〉
-引号	yin'hao	“” ‘’
+引号	yin'hao	“” ‘’ 「」
 双引号	shuang'yin'hao	“”
 单引号	dan'yin'hao	‘’
 直角引号	zhi'jiao'yin'hao	「」
 双直角引号	shuang'zhi'jiao'yin'hao	『』
 省略号	sheng'lve'hao	…… …
 破折号	po'zhe'hao	—— —
-连接号	lian'jie'hao	– —
+连接号	lian'jie'hao	– — -
 波浪线	bo'lang'xian	～
-波浪号	bo'lang'hao	～
-井号	jing'hao	＃
+波浪号	bo'lang'hao	～ ~
+井号	jing'hao	＃ #
 段落符号	duan'luo'fu'hao	¶
 章节号	zhang'jie'hao	§
 

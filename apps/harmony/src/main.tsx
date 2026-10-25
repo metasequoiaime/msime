@@ -1,3 +1,4 @@
+import { HarmonyLaunch } from "./launch";
 import { StrictMode } from "react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -92,6 +93,8 @@ import type {
   HostChromeClient,
   ImeSetupClient,
   ImeSetupState,
+  OobeClient,
+  OobeState,
   MobileKeyboardFeedback,
   OnboardingChoices,
   OnboardingInputScheme,
@@ -132,6 +135,8 @@ interface NativeBridge {
   dictionary(action: string): string;
   /** 只计算九键双拼键位和错误，不读写偏好。 */
   nineKeyShuangpinLayout(request: string): string;
+  /** 昵称草稿的共享纯计算，不读取登录会话。 */
+  accountName(request: string): string;
   cloudDictionaryDownload(entry: string): string;
   typingStatistics(action: string): string;
   /**
@@ -176,6 +181,10 @@ interface NativeBridge {
    * `{"ok":true,"ready":boolean,"value":{"enabled":boolean|null,"current":boolean|null}}`：本键盘是否已在系统中启用、是否为当前输入法。和 `onboardingStatus` 一样是同步调用，宿主第一次读取完成前 `ready` 一直为 false。
    */
   setupStatus(): string;
+  /** 实际资源准备结果、系统状态和独立引导离开记录。 */
+  oobeStatus(): string;
+  /** 显式重试资源暂存。 */
+  retryOobeResources(): string;
   /** 现在重新读一次设置状态，有变化时照常调用 `msimeHarmonySetupChanged`。从键盘的 🌐 菜单切换输入法不会触发宿主监听的 `imeChange`，引导打开期间靠它轮询。 */
   refreshSetupStatus(): void;
   /**
@@ -184,10 +193,6 @@ interface NativeBridge {
   appTheme(request: string): string;
   /** `{background,navigationBar,dark}`，均为 `#RRGGBB` 颜色：宿主据此把状态栏和导航栏涂成与页面一致。 */
   setSystemBars(bars: string): void;
-  /** `{"ok":true,"value":boolean}`：欢迎闪屏是否已在本设备上播放过。 */
-  splashSeen(): string;
-  /** 记录闪屏已播放。写在宿主的文件里而不是页面存储里，因为从资源加载的页面不保证留得住页面存储。 */
-  markSplashSeen(): void;
   /** 从设置重放欢迎流程，宿主在流程显示期间暂缓显示通知卡片。 */
   onboardingStarted(): void;
   /** 欢迎流程已结束（走完或跳过），宿主可以重新显示它的通知卡片。 */
@@ -294,6 +299,15 @@ function unwrap<T>(raw: string): T {
   const reply = JSON.parse(raw) as Reply<T>;
   if (!reply.ok) throw { code: reply.error };
   return reply.value;
+}
+
+/** A skin image or font the native side read as base64 (see `Settings.readSkinImage`), in the `bytes` array the settings pages take. The array the shared layer would build instead costs it a JSON value per byte, about 512 MiB at the 8 MiB resource limit. */
+function unwrapSkinResource(raw: string): SkinImage {
+  const value = unwrap<{ contentType: string; bytesBase64: string }>(raw);
+  const binary = atob(value.bytesBase64);
+  const bytes = new Array<number>(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return { contentType: value.contentType, bytes };
 }
 
 /** The startup failure has no settings page left to decode it, so it reads both shapes itself. */
@@ -440,6 +454,54 @@ function imeSetupClient(native: NativeBridge): ImeSetupClient | undefined {
   };
 }
 
+/** 从原生宿主读取真实快照；查询失败清掉旧结果，保留未知。 */
+function oobeClient(native: NativeBridge, setup: ImeSetupClient | undefined): OobeClient {
+  let cached: OobeState | null = null;
+  const listeners = new Set<(state: OobeState) => void>();
+  let unsubscribeSetup: (() => void) | undefined;
+  const refresh = () => {
+    try {
+      cached = unwrap<OobeState>(native.oobeStatus());
+    } catch {
+      cached = {
+        resourcesReady: null,
+        systemEnabled: null,
+        systemCurrent: null,
+        preferencesSaved: null,
+        onboardingSeen: null,
+      };
+    }
+    for (const listener of listeners) listener(cached);
+  };
+  return {
+    read: () => cached,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      if (listeners.size === 1) unsubscribeSetup = setup?.subscribe(refresh);
+      refresh();
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) {
+          unsubscribeSetup?.();
+          unsubscribeSetup = undefined;
+        }
+      };
+    },
+    refresh: () => {
+      setup?.refresh?.();
+      refresh();
+    },
+    prepareResources: async () => {
+      try {
+        unwrap<boolean>(native.retryOobeResources());
+      } finally {
+        refresh();
+      }
+    },
+    openSetup: async () => native.openSystemKeyboardSettings(),
+  };
+}
+
 /**
  * 应用主题：随季节变化的水杉四季，或固定为四季中的某一季。
  *
@@ -567,16 +629,11 @@ function savedFlowTheme(native: NativeBridge): FlowTheme {
   return { themeMode, settingsTheme };
 }
 
-/** 欢迎闪屏是否已在本设备上播放过。宿主答不上来时就播放，在有这个标记之前每个宿主都是这么做的。 */
-function splashSeen(native: NativeBridge): boolean {
-  if (typeof native.splashSeen !== "function") return false;
-  return bridgeValue(native.splashSeen()) === true;
-}
-
 /**
- * 键盘直接打开的页面：功能面板的「词库」「反馈」「关于」、皮肤选择器的「更多皮肤」，以及长按工具栏按钮打开的「屏幕键盘」（工具栏的显示方式和工具开关在这一页）。与 `EntryAbility` 从 Want 中接受的列表（`SettingsPageLink.PAGES`）相同，scripts/test-harmony-settings-links.py 核对两份一致；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
+ * 键盘直接打开的页面：功能面板的「词库」「反馈」「关于」、皮肤选择器的「更多皮肤」，「添加语言」打开的「输入」，以及长按工具栏按钮打开的「屏幕键盘」（工具栏的显示方式和工具开关在这一页）。与 `EntryAbility` 从 Want 中接受的列表（`SettingsPageLink.PAGES`）相同，scripts/test-harmony-settings-links.py 核对两份一致；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
  */
 const LINKED_PAGES: readonly string[] = [
+  "input",
   "dictionary",
   "feedback",
   "about",
@@ -613,11 +670,15 @@ globalThis.msimeHarmonyOpenPage = (page: string) => {
 const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
 
 function accountClient(native: NativeBridge): AccountClient {
-  // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），回答已经是共享账号页读的形状：user 是 {id,displayName,createdAt,email?,avatarUrl?,avatarUploaded?}，不再在这里换写法。
+  // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），user 含原始 displayName 和共享 preferredName，直接透传共享账号页，不在这里重建显示名。
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
   return {
     status: () => request<{ user: AccountUser | null }>({ operation: "status" }),
+    namePresentation: async (name, id = "") => {
+      if (typeof native.accountName !== "function") throw { code: "account_unavailable" };
+      return unwrap(native.accountName(JSON.stringify({ name, id })));
+    },
     providers: () => request<AccountProviders>({ operation: "providers" }),
     requestCode: (provider, target) =>
       request<AccountChallenge>({ operation: "request_code", provider, target }),
@@ -1161,6 +1222,44 @@ function makeClient(
     }
   };
   const typingStatistics: TypingStatisticsClient = {
+    authentication: {
+      settings: {
+        load: async () =>
+          unwrap<boolean>(
+            await bridgeRequest(
+              native,
+              "statistics_auth_settings",
+              JSON.stringify({ operation: "load" }),
+            ),
+          ),
+        save: async (enabled: boolean) => {
+          unwrap<boolean>(
+            await bridgeRequest(
+              native,
+              "statistics_auth_settings",
+              JSON.stringify({ operation: "save", enabled }),
+            ),
+          );
+        },
+      },
+      authenticate: async () => {
+        const authorized = unwrap<boolean>(
+          await bridgeRequest(native, "statistics_auth", "{}", 120000),
+        );
+        if (authorized !== true) throw new Error("未完成身份验证");
+      },
+      cancel: () => {
+        native.typingStatistics(JSON.stringify({ operation: "cancel_authentication" }));
+      },
+      onLock: (listener) => {
+        window.addEventListener("msime-statistics-locked", listener);
+        return () => window.removeEventListener("msime-statistics-locked", listener);
+      },
+      onResume: (listener) => {
+        window.addEventListener("msime-statistics-active", listener);
+        return () => window.removeEventListener("msime-statistics-active", listener);
+      },
+    },
     cloudUpload: typingStatisticsUploadClient(native),
     load: async () =>
       unwrap<TypingStatisticsStatus>(
@@ -1254,6 +1353,7 @@ function makeClient(
   // 只读一次：能力记录在应用运行期间不会变化，下面的反馈报告据此写明版本。
   const host = unwrap<HostCapabilities>(native.hostCapabilities());
   const setup = imeSetupClient(native);
+  const oobe = oobeClient(native, setup);
   const chrome = hostChrome(native);
   // 「反馈」经账号桥接提交：有人登录时桥接附上已登录的会话，无人登录时附上设备的匿名账号会话（宿主在原生层持有，与 Android 一致）。只有两者都没有时（例如匿名注册还没成功）提交才会以 `account_unauthorized` 被拒绝，页面会如实提示。
   const feedback: FeedbackClient = {
@@ -1374,9 +1474,9 @@ function makeClient(
         ),
     },
     readSkinImage: async (id: string, relative: string) =>
-      unwrap<SkinImage>(native.readSkinImage(id, relative)),
-    readSkinFont: async (id: string, relative: string) =>
-      unwrap<SkinFont>(native.readSkinFont(id, relative)),
+      unwrapSkinResource(native.readSkinImage(id, relative)),
+    readSkinFont: async (id: string, relative: string): Promise<SkinFont> =>
+      unwrapSkinResource(native.readSkinFont(id, relative)),
     readSkinToolbarCss: async (id: string, relative?: string) =>
       relative ? null : unwrap<string | null>(native.readSkinToolbarCss(id)),
     openExternalUrl: async (url: string) => native.openExternalUrl(url),
@@ -1418,6 +1518,12 @@ function makeClient(
       preview: async (strength) => {
         unwrap<MobileKeyboardFeedback>(
           native.keyboardFeedback(JSON.stringify({ operation: "preview", strength })),
+        );
+      },
+      // 宿主在后台读包、解码并播放，这里只等它收下请求。
+      previewKeySound: async (pack, volume) => {
+        unwrap<MobileKeyboardFeedback>(
+          native.keyboardFeedback(JSON.stringify({ operation: "preview_sound", pack, volume })),
         );
       },
     },
@@ -1480,6 +1586,7 @@ function makeClient(
             },
       // 「设置」卡片各项检查背后的两项设置状态，在 2in1 上也是「输入」和「关于」页警告条的依据。2in1 没有首页要画，但仍需要这些操作：警告条调用的是同样两个。
       setup,
+      oobe,
     },
     appTheme: appThemeClient(native),
     chrome,
@@ -1509,14 +1616,12 @@ type OnboardingFinish = (
 function HarmonyWelcomeFlow({
   native,
   client,
-  splash,
   theme,
   onComplete,
   onSkip,
 }: {
   native: NativeBridge;
   client: SettingsClient;
-  splash: boolean;
   theme: FlowTheme;
   onComplete: OnboardingFinish;
   onSkip: OnboardingFinish;
@@ -1561,17 +1666,11 @@ function HarmonyWelcomeFlow({
       current = false;
     };
   }, [client]);
-  // 在闪屏开始而不是结束时标记，与 Android 相同，这样闪屏中途被关掉的那次启动不会再播一遍。
-  useEffect(() => {
-    if (splash && typeof native.markSplashSeen === "function") native.markSplashSeen();
-  }, [native, splash]);
   return (
     <WelcomeFlowPage
       actions={{
         platform: "harmony",
         mobileSettings,
-        // 资源由键盘启动时就绪，这里没有单独的步骤要执行；流程需要的是这个 promise，而不是实际工作。
-        prepareResources: async () => {},
         openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
         showInputMethodPicker:
           mobileSettings !== false
@@ -1579,6 +1678,12 @@ function HarmonyWelcomeFlow({
             : async () => {
                 native.showInputMethodPicker();
               },
+        oobe: client.home?.oobe,
+        prepareResources: async () => {
+          const prepare = client.home?.oobe?.prepareResources;
+          if (!prepare) throw new Error("宿主未提供资源准备入口");
+          await prepare();
+        },
       }}
       // 方案步骤只提供本版本和本宿主具备的键盘。
       edition={client.host?.edition}
@@ -1590,7 +1695,6 @@ function HarmonyWelcomeFlow({
       chrome={client.chrome}
       onComplete={onComplete}
       onSkip={onSkip}
-      splash={splash}
     />
   );
 }
@@ -1598,13 +1702,10 @@ function HarmonyWelcomeFlow({
 function HarmonySettings({
   native,
   onboarding,
-  splashUnseen,
   linkedPage,
 }: {
   native: NativeBridge;
   onboarding: boolean;
-  /** 闪屏尚未在本设备上播放过，取自宿主在启动时的报告。 */
-  splashUnseen: boolean;
   /** 键盘要求本窗口打开的页面，启动时从宿主读取。 */
   linkedPage: string | undefined;
 }): ReactNode {
@@ -1612,8 +1713,6 @@ function HarmonySettings({
   // the flow replaces the page rather than sitting somewhere inside it. Skipping is allowed: a
   // keyboard the user has decided to set up later is not a reason to withhold its settings.
   const [bootstrapRequired, setBootstrapRequired] = useState(onboarding);
-  // The splash belongs to a first launch; a flow replayed from settings opens on its first step.
-  const [replayed, setReplayed] = useState(false);
   // 流程绘制所用的外观：首次启动用系统外观，重放时用用户自己的选择。
   const [flowTheme, setFlowTheme] = useState<FlowTheme>(SYSTEM_THEME);
   // 设置打开时所在的页面：键盘链接到的页面，或流程最后「登录」之后的「我的」，登录入口就在那里。
@@ -1679,6 +1778,18 @@ function HarmonySettings({
       linkedPageListener = undefined;
     };
   }, [bootstrapRequired]);
+  const dark = useDocumentDark();
+  const appTheme = useResolvedAppTheme(client.appTheme, dark);
+  const withLaunch = (content: ReactNode) => (
+    <HarmonyLaunch
+      mobile={client.host?.mobile_settings !== false}
+      appTheme={appTheme}
+      chrome={client.chrome}
+      dark={dark}
+    >
+      {content}
+    </HarmonyLaunch>
+  );
   if (bootstrapRequired) {
     // 流程中选的方案正是那一步的意义所在；丢掉它会让用户的键盘仍是他们刚刚放弃的布局。写入方式与移动端宿主相同，这样在它们之间同步的配置含义一致。「跳过」也保留它：提前离开引导不等于放弃已在其中做出的选择。
     const applyChoices = async (scheme: OnboardingInputScheme, choices: OnboardingChoices) => {
@@ -1693,11 +1804,10 @@ function HarmonySettings({
       if (typeof native.onboardingFinished === "function") native.onboardingFinished();
       setBootstrapRequired(false);
     };
-    return (
+    return withLaunch(
       <HarmonyWelcomeFlow
         native={native}
         client={client}
-        splash={client.host?.mobile_settings !== false && !replayed && splashUnseen}
         theme={flowTheme}
         onComplete={async (scheme, choices) => {
           await applyChoices(scheme, choices);
@@ -1705,46 +1815,56 @@ function HarmonySettings({
           leaveFlow();
         }}
         onSkip={async (scheme, choices) => {
-          // 「跳过」是离开流程的出口，而流程后面的设置页才是报告和恢复无法读取的文档的地方。因此，已做选择写入失败（文档无法读取，或保存时与键盘发生竞争）不会把用户卡在这里：无论如何都离开流程，设置页加载文档时会报告文档无法读取。
-          await applyChoices(scheme, choices).catch(() => undefined);
+          // 保存失败由流程显示重试提示；保留当前选择，不能静默离开后丢失。
+          await applyChoices(scheme, choices);
           leaveFlow();
         }}
-      />
+      />,
     );
   }
-  return (
+  return withLaunch(
     <>
-      <SettingsPage
-        client={client}
-        initialPage={initialPage}
-        route={route}
-        onReplayOnboarding={() => {
-          setFlowTheme(savedFlowTheme(native));
-          // 重放与首次运行在同一处结束，而不是停在之前链接的页面上。
-          setInitialPage(undefined);
-          setReplayed(true);
-          // 重放的流程同样不应被宿主的通知卡片压在下面；离开流程时 leaveFlow 会让它恢复。
-          if (typeof native.onboardingStarted === "function") native.onboardingStarted();
-          setBootstrapRequired(true);
-        }}
-      />
-      {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboard} />}
-      {cloudDictionaryOpen && cloudDictionaryPage === "main" && (
-        <CloudDictionaryPanel client={dictionaryClient} />
+      <div className="contents" inert={cloudClipboardOpen || cloudDictionaryOpen}>
+        <SettingsPage
+          client={client}
+          initialPage={initialPage}
+          route={route}
+          onReplayOnboarding={() => {
+            setFlowTheme(savedFlowTheme(native));
+            // 重放与首次运行在同一处结束，而不是停在之前链接的页面上。
+            setInitialPage(undefined);
+            // 重放的流程同样不应被宿主的通知卡片压在下面；离开流程时 leaveFlow 会让它恢复。
+            if (typeof native.onboardingStarted === "function") native.onboardingStarted();
+            setBootstrapRequired(true);
+          }}
+        />
+      </div>
+      {(cloudClipboardOpen || cloudDictionaryOpen) && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={cloudClipboardOpen ? "云剪贴板" : "云词库"}
+          className="fixed inset-0 z-[500] overflow-y-auto bg-chrome"
+        >
+          {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboard} />}
+          {cloudDictionaryOpen && cloudDictionaryPage === "main" && (
+            <CloudDictionaryPanel client={dictionaryClient} />
+          )}
+          {cloudDictionaryOpen && cloudDictionaryPage === "catalog" && (
+            <CloudDictionaryCatalogPanel client={dictionaryClient} />
+          )}
+          {cloudDictionaryOpen && cloudDictionaryPage === "candidates" && (
+            <CloudCandidatesPanel client={dictionaryClient} />
+          )}
+          {cloudDictionaryOpen && cloudDictionaryPage === "files" && (
+            <CloudDictionaryFilesPanel client={filesClient} />
+          )}
+          {cloudDictionaryOpen && cloudDictionaryPage === "apply" && (
+            <CloudDictionaryApplyPanel client={dictionaryClient} />
+          )}
+        </div>
       )}
-      {cloudDictionaryOpen && cloudDictionaryPage === "catalog" && (
-        <CloudDictionaryCatalogPanel client={dictionaryClient} />
-      )}
-      {cloudDictionaryOpen && cloudDictionaryPage === "candidates" && (
-        <CloudCandidatesPanel client={dictionaryClient} />
-      )}
-      {cloudDictionaryOpen && cloudDictionaryPage === "files" && (
-        <CloudDictionaryFilesPanel client={filesClient} />
-      )}
-      {cloudDictionaryOpen && cloudDictionaryPage === "apply" && (
-        <CloudDictionaryApplyPanel client={dictionaryClient} />
-      )}
-    </>
+    </>,
   );
 }
 
@@ -1760,7 +1880,7 @@ function reportLaunchPainted(): void {
 /**
  * 子树第一次提交后再等两帧（第一帧回调时这一帧还没上屏）调用 `onPainted`。
  *
- * 冷启动时宿主在网页上盖着和系统启动窗一模一样的启动画面，页面加载期间不露出空白的网页。设置页第一次提交时还在读设置（「正在读取设置」），但读取是同步的桥接调用，下一个微任务就带着设置重画，所以两帧之后上屏的已经是设置本身；欢迎流程的第一帧则是和启动窗一样的开屏。撤掉盖板时看到的就是画好的页面。
+ * 冷启动时宿主在网页上盖着和系统启动窗一模一样的启动画面，页面加载期间不露出空白的网页。设置页第一次提交时还在读设置（「正在读取设置」），但读取是同步的桥接调用，下一个微任务就带着设置重画，所以两帧之后上屏的已经是设置本身；手机文档的第一帧则是和启动窗一样的开屏。撤掉盖板时看到的就是画好的页面。
  */
 function AfterFirstPaint({ onPainted, children }: { onPainted: () => void; children: ReactNode }) {
   useEffect(() => {
@@ -1788,7 +1908,7 @@ if (root) {
   const app = createRoot(root);
   // 启动页是第一帧，所以必须在它渲染前设好主题。它跟随系统，直到知道用户自选外观的欢迎流程或设置页接管文档。
   const stopFollowingSystemTheme = followSystemTheme();
-  // 等桥接最多要五秒。手机上这段时间什么都不画：宿主盖着和系统启动窗一样的画面（跟随系统深浅色），等设置页或首次启动的欢迎流程画出来才撤掉，中间不露出启动页、空白网页或「正在读取设置」。二合一是桌面形态，照旧显示共享的启动页。此时还不知道宿主报告的形态，按与样式表 max-phone 相同的宽度判断。
+  // 等桥接最多要五秒。手机上这段时间什么都不画：宿主盖着和系统启动窗一样的画面（跟随系统深浅色），等手机开屏或二合一设置页画出来才撤掉，中间不露出启动页、空白网页或「正在读取设置」。二合一是桌面形态，照旧显示共享的启动页。此时还不知道宿主报告的形态，按与样式表 max-phone 相同的宽度判断。
   const phoneLaunch = window.matchMedia("(max-width: 600px)").matches;
   if (!phoneLaunch)
     app.render(
@@ -1806,20 +1926,14 @@ if (root) {
       // 在页面表明欢迎流程不会挡路之前，宿主会暂缓显示通知卡片。页面直接打开设置时（包括等首次读取等太久而放弃之后），不会再有别的地方告诉它。
       if (!onboarding && typeof native.onboardingFinished === "function")
         native.onboardingFinished();
-      // 两者都在这里、在 React 之外读取，因为都是一次性的宿主读取：链接的页面只交出一次，而闪屏标记会在欢迎流程播完开屏时写入。
+      // 链接的页面只交出一次，在 React 之外读取，避免重渲染消耗或丢失它。
       const linkedPage = pendingLinkedPage(native);
-      const splashUnseen = !splashSeen(native);
       stopFollowingSystemTheme();
-      // 开屏只属于首次启动：欢迎流程在闪屏标记未写入时播它，平时冷启动直接进设置。
+      // 每个手机设置文档先播一段开屏，再显示设置或首次引导；前台恢复不重建文档。
       app.render(
         <StrictMode>
           <AfterFirstPaint onPainted={reportLaunchPainted}>
-            <HarmonySettings
-              native={native}
-              onboarding={onboarding}
-              splashUnseen={splashUnseen}
-              linkedPage={linkedPage}
-            />
+            <HarmonySettings native={native} onboarding={onboarding} linkedPage={linkedPage} />
           </AfterFirstPaint>
         </StrictMode>,
       );

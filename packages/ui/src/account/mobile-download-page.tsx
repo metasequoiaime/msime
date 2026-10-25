@@ -1,8 +1,10 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
+import { ChevronGlyph } from "../core/chevron-glyph";
 import { useToast } from "../core/toast";
 import { useMountedRef } from "../settings/use-mounted-ref";
 import * as account from "./account-style";
+import { AccountMeSection } from "./account-me-components";
 
 /**
  * HarmonyOS 手机上 我的 内推入页面的页头：起始边是用于返回的 '‹ 我的'，页面标题在 44px 的栏里居中。
@@ -25,19 +27,7 @@ export function MeSubpageHeader({
         disabled={backDisabled}
         onClick={onBack}
       >
-        <svg
-          width="12"
-          height="21"
-          viewBox="0 0 12 21"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M10 2 2 10.5 10 19" />
-        </svg>
+        <ChevronGlyph variant="subpage-back" />
         <span aria-hidden="true">我的</span>
       </button>
       <h2 className={account.subpageTitle}>{title}</h2>
@@ -88,12 +78,8 @@ function PlatformGroup({
   platforms: readonly DownloadPlatform[];
   onOpen?: () => void;
 }) {
-  const titleId = useId();
   return (
-    <section className={account.meGroup} aria-labelledby={titleId}>
-      <h3 id={titleId} className={account.meGroupTitle}>
-        {title}
-      </h3>
+    <AccountMeSection title={title}>
       <div className={account.downloadRows}>
         {platforms.map((item) => {
           const content = (
@@ -129,7 +115,7 @@ function PlatformGroup({
           );
         })}
       </div>
-    </section>
+    </AccountMeSection>
   );
 }
 

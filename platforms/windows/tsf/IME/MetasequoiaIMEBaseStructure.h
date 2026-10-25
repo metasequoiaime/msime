@@ -119,6 +119,8 @@ struct _KEYSTROKE_STATE
 {
     KEYSTROKE_CATEGORY Category;
     KEYSTROKE_FUNCTION Function;
+    // 复制进 FIFO 和编辑会话，延迟执行时不再从系统消息推断来源。
+    bool groupedPanelKey = false;
 };
 
 struct _PUNCTUATION

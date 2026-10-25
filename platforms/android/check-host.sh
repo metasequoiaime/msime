@@ -78,6 +78,16 @@ if ! rg -q 'ShuangpinKeyHintPolicy\.profileWithoutView\(' \
   echo "Double-pinyin key hints must keep the remembered profile while the view is briefly missing" >&2
   exit 1
 fi
+# 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。0.5.0 取的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写后都落到全拼 26 键。入口怎么选由 KeyboardSchemeSmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：离开手写经 handwritingReturn 取入口，并把记下的英文状态交给方案保存，保存成功后再进英文。
+toggle_body=$(sed -n '/^    void toggleHandwritingScheme() {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
+if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$toggle_body" \
+  || ! rg -q 'englishBeforeHandwriting' <<< "$toggle_body" \
+  || ! rg -q 'if \(english && !dedicatedEnglish\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
+  exit 1
+fi
 # Hangul composition is Engine state. Android labels the Dubeolsik keys and sends their ASCII letters; a syllable table here would be a second automaton that can drift from the Engine's.
 if ! rg -q '4 korean' "$repo_root/crates/host-api/include/msime_client.h" \
   || ! rg -q 'KOREAN_SCHEME = 4;' \
@@ -654,13 +664,14 @@ if ! rg -A 12 'void addClipboardTextToPhrases\(' \
   echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
   exit 1
 fi
-# 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。
-swipe_body=$(rg -A 60 'private final class ClipboardSwipeCell implements' \
+# 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。未被外层列表接手的纵向拖动也要取消卡片按压；列表只有一条时不可滚，Button 否则会把整段拖动当成点按。
+swipe_body=$(rg -A 80 'private final class ClipboardSwipeCell implements' \
   "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" || true)
 if ! rg -q 'ClipboardSwipePolicy\.claims\(' <<< "$swipe_body" \
   || ! rg -q 'requestDisallowInterceptTouchEvent\(true\)' <<< "$swipe_body" \
+  || ! rg -q 'cancelledPress' <<< "$swipe_body" \
   || ! rg -q 'ACTION_CANCEL\);' <<< "$swipe_body"; then
-  echo "Android clipboard swipe must claim only through ClipboardSwipePolicy, keep the panel from scrolling and cancel the card's own press (#5962)" >&2
+  echo "Android clipboard swipe must claim only through ClipboardSwipePolicy, keep the panel from scrolling and cancel the card's own press after any drag (#5962)" >&2
   exit 1
 fi
 # 「编辑」打开应用里的编辑页，不在键盘里弹对话框或放文本框（#5971）。打开之前要把系统剪贴板当前那一条记为已处理，否则改完回来一打开面板，补读又把原文记回来；交给编辑页的是 AndroidKeyStore 令牌，不是文字。编辑页的 PageId 名必须和键盘这边写死的页面名一致。
@@ -1038,6 +1049,16 @@ if ! rg -Uq 'android:name="app\.msime\.android\.MlKitImeInitProvider"[[:space:]]
   echo "Android native host must initialize ML Kit inside the isolated IME process" >&2
   exit 1
 fi
+# ML Kit 带进来的 Google datatransport 会把 FIREBASE_ML_SDK 诊断事件上传到 firebaselogging.googleapis.com（2026-10-25 真机抓包）。清单删掉它的后端发现服务、上传任务和闹钟入口，三者缺一都留着一条上传途径。
+for component in \
+    'service android:name="com\.google\.android\.datatransport\.runtime\.backends\.TransportBackendDiscovery" tools:node="remove"' \
+    'service android:name="com\.google\.android\.datatransport\.runtime\.scheduling\.jobscheduling\.JobInfoSchedulerService" tools:node="remove"' \
+    'receiver android:name="com\.google\.android\.datatransport\.runtime\.scheduling\.jobscheduling\.AlarmManagerSchedulerBroadcastReceiver" tools:node="remove"'; do
+  if ! rg -q "<$component />" "$repo_root/platforms/android/AndroidManifest.xml"; then
+    echo "Android host manifest must remove the ML Kit datatransport upload path: $component" >&2
+    exit 1
+  fi
+done
 # The rotating refresh token must be spent by one process only. The session provider stays in the main process (no android:process) and unexported; the :ime keyboard asks it for a token instead of refreshing its own copy.
 if ! rg -Uq 'android:name="app\.msime\.android\.AccountSessionProvider"[[:space:]]+android:authorities="\$\{applicationId\}\.account-session"[[:space:]]+android:exported="false"[[:space:]]*/>' \
     "$repo_root/platforms/android/AndroidManifest.xml"; then
@@ -1159,6 +1180,16 @@ if [[ ${#client_sources[@]} -eq 0 ]]; then
   echo "No Android client sources selected for compilation; the source filter is wrong" >&2
   exit 1
 fi
+# 详情页最多四个顶部分类（.agents/notes/implemented/feature/2026-10-13-android-settings-top-tabs.md）：分类是等宽分段，第五个会把每段挤得比其他页面窄。条件性分类也算在内，它出现时同样会挤。
+for page in "$repo_root"/platforms/android/java/app/msime/android/home/*.java; do
+  titles=$(tr '\n' ' ' < "$page" | grep -oE 'sectionTitles\(\) *\{ *return +(java\.util\.)?List\.of\([^)]*\)' || true)
+  [ -n "$titles" ] || continue
+  count=$({ grep -o '"[^"]*"' <<< "$titles" || true; } | wc -l | tr -d ' ')
+  if [ "$count" -gt 4 ]; then
+    echo "Android detail page declares $count section tabs, more than four: ${page#"$repo_root/"}" >&2
+    exit 1
+  fi
+done
 # 冒烟测试按文件自动发现：`tests/` 下除设备套件外的每个 `.java` 都参与编译，每个以 `Smoke.java` 结尾的类都会运行，没有 `static void main(` 入口的会让检查直接失败而不是被跳过，新加冒烟不必再登记到这里。排除的三处各有原因：`tests/device/**` 是要装进模拟器的设备套件，`core/NativeSmoke.java` 要加载 `libmsime_android.so`，`settings/KeyboardGeometryStrictIntSmoke.java` 要真实的 `org.json`，而这里只有 android.jar 里抛 `Stub!` 的桩。路径同样按仓库内的相对路径匹配，理由见上面那段关于 /home/runner 的说明。
 test_sources=()
 smoke_classes=()
@@ -1192,7 +1223,9 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
+  "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \
   "${test_sources[@]}"
+# 可选 OCR 模块的前后处理只用 Java 标准库，跟宿主的纯 Java 模型一起编译，由 tests/ocr/OcrPipelineSmoke.java 覆盖；模块里调用 ONNX Runtime 和 Android 图形接口的 OcrModule 只由 Gradle 编译。
 # 统一用 `$output_dir:$android_jar` 运行：改成自动发现前逐个核对过，原先按类分别给的 classpath（有的不带 android.jar）与统一 classpath 下 108 个冒烟的输出和退出码完全相同。
 for smoke in "${smoke_classes[@]}"; do
   if ! java -cp "$output_dir:$android_jar" "$smoke"; then

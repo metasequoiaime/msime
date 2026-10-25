@@ -122,7 +122,7 @@ void local_mode_trigger_tests(const std::string &options) {
   session.activate(epoch);
   require(session.view().at("spelling_symbols") == "",
           "Switched-off modes listed trigger symbols");
-  // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 不进模式，大写 C 交还应用。
+  // 拆字反查在桌面默认关：没有这个键时 Shift+C 留在普通组字中，不进入拆字模式。
   {
     FanyImeNamedpipeData packet{};
     packet.event_type = FanyImePipeEventType::KeyEvent;
@@ -131,10 +131,18 @@ void local_mode_trigger_tests(const std::string &options) {
     packet.keycode = 'C';
     packet.wch = static_cast<FanyImeWireChar>('C');
     packet.modifiers_down = 1;
+    const auto ordinary = session.key(packet, epoch);
+    require(ordinary.transition.at("handled") == true &&
+                session.view().at("local_mode") == "none" &&
+                session.view().at("editing_text") == "C",
+            "Shift+C did not preserve ordinary composition with chaizi disabled");
+    packet.request_id = 2;
+    packet.keycode = 0x1B;
+    packet.wch = 0;
+    packet.modifiers_down = 0;
     session.key(packet, epoch);
-    require(session.view().at("local_mode") == "none" &&
-                session.view().at("editing_text") == "",
-            "Shift+C opened the chaizi mode while its switch was absent");
+    require(session.view().at("editing_text") == "",
+            "Ordinary Shift+C composition did not reset");
   }
   auto preferences = Json::parse(options).at("preferences");
   preferences["local_modes"] = {
@@ -168,12 +176,14 @@ void local_mode_trigger_tests(const std::string &options) {
   require(session.view().at("spelling_symbols") == "/@",
           "An idle pinyin session did not list the trigger symbols");
 
-  // V: digits and operators compose, including '-' while minus/equal paging is on and Shift+8's '*'.
+  // V 的数字和运算符参与组字；只有入口大写字母时，还允许字面符号退回普通组字。
   press('V', 'V', 1);
   require(session.view().at("local_mode") == "expression" &&
-              session.view().at("spelling_symbols") == "0123456789+-*/.()%^",
+              session.view().at("spelling_symbols") == "0123456789+-*/.()%^#$&",
           "Shift+V did not open the expression mode");
   press('1', '1');
+  require(session.view().at("spelling_symbols") == "0123456789+-*/.()%^",
+          "Expression content retained entry-only literal symbols");
   press(0xBB, '+', 1);
   press('2', '2');
   press('8', '*', 1);
@@ -205,11 +215,11 @@ void local_mode_trigger_tests(const std::string &options) {
               !transition_counts_as_typing(command.source.transition),
           "Space did not commit the command row");
 
-  // 拆字反查：Shift+C 进入，部件拼音是字母。跟在部件后面的 ' 由 Engine 列进 spelling_symbols，EditPolicy 因此把它当字符交给 Engine 当分隔符；只有入口字母 C 时不列。空格上屏首行，计入打字统计。
+  // 拆字入口 C 允许字面符号退回普通组字；部件后的分隔符由 Engine 决定，空格上屏计入统计。
   press('C', 'C', 1);
   require(session.view().at("local_mode") == "chaizi" &&
               session.view().at("editing_text") == "C" &&
-              session.view().at("spelling_symbols") == "",
+              session.view().at("spelling_symbols") == "#$%&",
           "Shift+C did not open the chaizi mode");
   for (const char *part : {"huo", "'", "huo", "'", "huo"}) {
     for (const unsigned char character : std::string(part)) {
@@ -819,11 +829,11 @@ int main(int argc, char **argv) {
       first_preferences["candidate_translations"] = true;
       auto latest_preferences = preferences;
       latest_preferences["candidate_page_size"] = 4;
-      const auto first = Json{{"format_version", 1},
+      const auto first_document = Json{{"format_version", 1},
                               {"revision", 1},
                               {"preferences", first_preferences}}
                              .dump();
-      const auto latest = Json{{"format_version", 1},
+      const auto latest_document = Json{{"format_version", 1},
                                {"revision", 2},
                                {"preferences", latest_preferences}}
                               .dump();
@@ -836,8 +846,11 @@ int main(int argc, char **argv) {
         require(static_cast<bool>(file), "Synthetic preference write failed");
         return PreferenceSnapshot::load(preference_directory);
       };
-      const auto first_snapshot = load_snapshot(first);
-      const auto latest_snapshot = load_snapshot(latest);
+      const auto first_snapshot = load_snapshot(first_document);
+      const auto latest_snapshot = load_snapshot(latest_document);
+      // 重试同一修订时复用共享存储迁移后的文档，避免旧格式夹具造成内容冲突。
+      const auto &first = first_snapshot.serialized();
+      const auto &latest = latest_snapshot.serialized();
       const auto attempted = PreferenceSnapshot::try_load(preference_directory);
       require(attempted && attempted->serialized() == latest_snapshot.serialized(),
               "Try-load did not return shared validated snapshot");
@@ -846,7 +859,7 @@ int main(int argc, char **argv) {
       const auto conflicting_snapshot = load_snapshot(conflicting.dump());
       {
         FocusGate maintenance_gate;
-        InputQueue maintenance_queue(maintenance_gate, 1, 2, options.dump());
+        InputQueue maintenance_queue(maintenance_gate, 2, 2, options.dump());
         PipeTicket maintenance_ticket{314, {41, 42, 43}};
         auto maintenance = maintenance_queue.submit(
             [&](InputState &state) {
@@ -854,9 +867,22 @@ int main(int argc, char **argv) {
                       "Maintenance preference client failed");
               require(state.quiesce_dictionaries() == 1,
                       "Maintenance did not release the session");
+              // 新窗口或新线程在维护期间接入，不能重新持有共享词库锁。
+              PipeTicket arriving{315, {44, 45, 46}};
+              require(state.connected(arriving).accepted,
+                      "Maintenance rejected a new connection");
+              require(state.quiesce_dictionaries() == 0,
+                      "Connection recreated a session during maintenance");
+              arriving.generations = {47, 48, 49};
+              require(state.connected(arriving).accepted,
+                      "Maintenance rejected a reconnection");
+              require(state.quiesce_dictionaries() == 0,
+                      "New connection reacquired a dictionary session");
               state.publish_preferences(latest_snapshot);
-              require(state.resume_dictionaries() == 1,
+              require(state.resume_dictionaries() == 2,
                       "Maintenance did not rebuild the session");
+              require(state.resume_dictionaries() == 0,
+                      "Repeated resume rebuilt existing sessions");
             });
         require(maintenance && maintenance->get() == InputTaskStatus::Completed,
                 "Preference publication during maintenance failed");
@@ -911,8 +937,7 @@ int main(int argc, char **argv) {
         rejected([&] { state.delivered(lease, 99); });
         require(state.delivered(lease, packet.request_id),
                 "Preference retry receipt failed");
-        // The host must have received revision 2 automatically on delivery,
-        // even though its application waits for the active composition to end.
+        // 回复送达时宿主必须已收到修订 2，实际应用仍等待当前组字结束。
         rejected([&] { state.update_preferences(lease, first); });
         const auto deferred = state.update_preferences(lease, latest);
         require(deferred && deferred->at("deferred") == true,

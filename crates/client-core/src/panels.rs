@@ -142,12 +142,25 @@ pub struct KeyboardInputRequest {
     pub modifiers: KeyboardModifiers,
     /// Commit/navigation keys must not inherit sticky Ctrl/Alt/Win state.
     pub include_sticky_modifiers: bool,
+    /// 十八键面板的多义组码，仅 Windows 的焦点绑定 TIP 路径接收。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grouped_letter: Option<char>,
 }
 
 impl KeyboardInputRequest {
     pub fn validate(&self) -> Result<(), PanelContractError> {
         if self.virtual_key == 0 || self.virtual_key > 0xff {
             return Err(PanelContractError::InvalidVirtualKey);
+        }
+        if let Some(letter) = self.grouped_letter {
+            if !letter.is_ascii_lowercase()
+                || self.virtual_key != letter.to_ascii_uppercase() as u16
+                || self.shift
+                || self.modifiers != KeyboardModifiers::default()
+                || self.include_sticky_modifiers
+            {
+                return Err(PanelContractError::InvalidKeyboardInput);
+            }
         }
         Ok(())
     }
@@ -360,6 +373,7 @@ mod tests {
             shift: false,
             modifiers: KeyboardModifiers::default(),
             include_sticky_modifiers: true,
+            grouped_letter: None,
         };
         assert_eq!(
             request.validate(),
@@ -369,6 +383,45 @@ mod tests {
         request.modifiers.ctrl = true;
         request.include_sticky_modifiers = false;
         assert!(request.validate().is_ok());
+    }
+
+    #[test]
+    fn grouped_keys_require_exact_ascii_source_without_modifiers() {
+        let mut request = KeyboardInputRequest {
+            virtual_key: u16::from(b'B'),
+            shift: false,
+            modifiers: KeyboardModifiers::default(),
+            include_sticky_modifiers: false,
+            grouped_letter: Some('b'),
+        };
+        assert!(request.validate().is_ok());
+        for letter in ['B', '你', '1', '\0'] {
+            request.grouped_letter = Some(letter);
+            assert_eq!(
+                request.validate(),
+                Err(PanelContractError::InvalidKeyboardInput)
+            );
+        }
+        request.grouped_letter = Some('b');
+        request.virtual_key = u16::from(b'N');
+        assert!(request.validate().is_err());
+        request.virtual_key = u16::from(b'B');
+        request.shift = true;
+        assert!(request.validate().is_err());
+        request.shift = false;
+        request.modifiers.ctrl = true;
+        assert!(request.validate().is_err());
+        request.modifiers.ctrl = false;
+        request.include_sticky_modifiers = true;
+        assert!(request.validate().is_err());
+        let legacy = serde_json::json!({
+            "virtual_key": 66, "shift": false,
+            "modifiers": {"ctrl": false, "alt": false, "win": false},
+            "include_sticky_modifiers": true
+        });
+        let legacy_request: KeyboardInputRequest = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(legacy_request.grouped_letter, None);
+        assert_eq!(serde_json::to_value(legacy_request).unwrap(), legacy);
     }
 
     #[test]

@@ -11,6 +11,15 @@ import app.msime.android.ViewPolicy;
 public final class StatusMarkPolicy {
     private StatusMarkPolicy() {}
 
+    /** 查询未知时使用中性标记，不显示警告或完成。 */
+    public static void apply(TextView mark, Context context, Boolean done) {
+        if (done != null) { apply(mark, context, done.booleanValue()); return; }
+        mark.setText("?");
+        ViewPolicy.setTextColor(mark, ThemeColorPolicy.text(context));
+        ViewPolicy.setBackground(mark, DrawablePolicy.circle(ThemeColorPolicy.hairline(context)));
+        ViewPolicy.hideFromAccessibility(mark);
+    }
+
     /** 根据安装状态更新字形、前景色、圆形背景与无障碍可见性。 */
     public static void apply(TextView mark, Context context, boolean done) {
         mark.setText(done ? "✓" : "!");

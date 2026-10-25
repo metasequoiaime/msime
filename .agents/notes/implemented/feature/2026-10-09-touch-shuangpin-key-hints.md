@@ -11,7 +11,7 @@ Status: implemented
 - 新增共享偏好 `touch_shuangpin_key_hints: bool`（client-core `Preferences`），serde 缺省和 `Default` 都是 `true`：旧文档、没写过这个键的设备照旧画提示。桌面宿主原样保留、不使用（`preference_coverage.py` 记为不适用）。
 - 开关只是叠加在原有三个条件上的第四个条件，关掉时提示为空，其余规则不变：全拼、独立英文和本地模式本来就不画，打开开关也不会让它们画。
   - Android：`ShuangpinKeyHintPolicy.visible/hint` 多一个 `enabled` 参数；`MSIMEInputService` 从偏好读出 `shuangpinKeyHintsEnabled`，空串交给 `KeyHintButton.setHintText` 后提示的内边距自然收回，原字号恢复，`contentDescription` 也不再带「；双拼提示」。提示内边距按字体实际度量计算，开启底部提示时也为右上角符号留空；与九键双拼共用的边界适配见[收简键面提示](2026-10-13-android-shuangpin-compact-keyfaces.md)。这个值进了 `touchGeometryKey()`，偏好快照改了它就触发 `render()` 重画（`check-host.sh` 锁住 `touchGeometryKey()` 含这一位）；也进了 `SKIN_HINT_KEYS`，冷启动的第一帧按皮肤片段画，不会先闪一帧提示（`check-host.sh` 锁住这一点）。
-  - HarmonyOS：`ShuangpinKeyHintPolicy.visible/hint` 多一个 `enabled` 参数；`KeyboardPreferences.shuangpinKeyHints` 由 `touch_shuangpin_key_hints !== false` 得出，`KeyboardView` 的 `@State shuangpinKeyHints` 在 `applySettings` 和 `applyGeometry`（键盘内拖动几何时重读设置的另一处）里更新，并进了 `faceKey()`，字母键随之重建；`tests/run.sh` 锁住 `faceKey()` 含这一位。提示行是键面 `Column` 里的一个 `Text`，空串时不画，不占高度；HarmonyOS 的读屏文字本来就不含提示。
+  - HarmonyOS：`ShuangpinKeyHintPolicy.visible/hint` 多一个 `enabled` 参数；`KeyboardPreferences.shuangpinKeyHints` 由 `touch_shuangpin_key_hints !== false` 得出，`KeyboardView` 的 `@State shuangpinKeyHints` 在 `applySettings` 和 `applyGeometry`（键盘内拖动几何时重读设置的另一处）里更新，并进了 `faceKey()`，字母键随之重建；`tests/run.sh` 锁住 `faceKey()` 含这一位。提示行是键面 `Column` 里的一个 `Text`，空串时不画，不占高度；HarmonyOS 的读屏文字本来就不含提示。键面用当前选中方案及其双拼配置决定提示，不等下一次按键的引擎快照；这样切进双拼立即显示，切出立即移除。角标、主字母和底部提示分配独立区域，长提示允许缩至 6fp，避免窄键上的 `iang uang` 被截断。
   - iOS：`KeyboardLayoutPreference` 加 `sharedShuangpinKeyHints(in:)`（缺省为开）、App Group 镜像 `keyboard.shuangpin.keyHints` 和 `saveShuangpinKeyHints`。键盘出现时 `synchronizeSharedTouchPreferences` 把文档的值抄进镜像，变了就调 `updateLetterCaseControls` 重画；`hint == nil` 同时驱动下边距和 `accessibilityValue`。
 - 设置入口：共享设置页「屏幕键盘 › 布局」在移动宿主（`mobilePlatform`）上、且宿主的 `input_schemes` 含双拼时显示「双拼键位提示」开关（五笔、日文、越南文、藏文等不含双拼的版本经 `narrow_to_edition` 收窄后不列出，和原生设置页一致；数字键盘顺序不收窄，因为九键数字层每个版本都有），HarmonyOS 手机上跟在「数字键盘顺序」后面放进已经叫「布局」的尺寸组；Android 键盘页和 iOS 键盘设置页的「布局」组各加一行，本版本没有双拼方案时不显示。
 - 账号同步沿用 `touch_number_keypad_order` 的做法：Android 经 client-core `settings_sync` 用 `platform.android.shuangpin_key_hints`，HarmonyOS 用 `platform.harmony.shuangpin_key_hints`。服务端字段表还没有这两个键，上传时会被按字段表过滤掉，目前只存在本机，等服务端登记后自动开始同步。iOS 的账号同步（`IOSCloudSettings`）本来就不带触屏键盘的几何和数字键盘顺序，这个开关也不进去。
@@ -30,6 +30,8 @@ Status: implemented
 - **待办**：服务端账号字段表登记 `platform.android.shuangpin_key_hints` 和 `platform.harmony.shuangpin_key_hints` 之后才会跨设备同步。
 
 ## Verification
+
+- HarmonyOS 真机在不输入字符的情况下切换小鹤与其他 26 键方案，检查提示立即出现或消失；开启提示时检查 26 个字母键的文字边界与截图，包含最长的 `iang uang`。
 
 - `cargo test -p msime-client-core`：旧文档缺省为开、保存 `false` 后读回、同步导出与导入往返（`settings_sync_export_is_exactly_the_shared_android_keys`、`settings_sync_round_trips_every_exported_key`）。
 - apps/desktop vitest：`touch-keyboard-geometry-section.test.tsx`（只在给出时画、两种分组位置）、`settings.test.tsx`（桌面不画、Android 上缺省为开并写回 `false`、不含双拼的版本不画）。

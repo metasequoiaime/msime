@@ -13,6 +13,8 @@
 #   certutil -addstore Root MetasequoiaImeLocalTest.cer
 #   certutil -addstore TrustedPublisher MetasequoiaImeLocalTest.cer
 
+param([string]$PackageDirectory = $PSScriptRoot)
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -154,8 +156,8 @@ function Invoke-Sign {
 }
 
 $packageDirectories = @(
-    (Join-Path $PSScriptRoot 'server_exe'),
-    (Join-Path $PSScriptRoot 'tsf_dll')
+    (Join-Path $PackageDirectory 'server_exe'),
+    (Join-Path $PackageDirectory 'tsf_dll')
 )
 foreach ($directory in $packageDirectories) {
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) {

@@ -21,6 +21,8 @@ pub struct StatusResponse {
 pub struct UserResponse {
     id: String,
     display_name: String,
+    /// 共享昵称规则给出的显示名；原始昵称仍保留给编辑草稿。
+    preferred_name: String,
     created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     email: Option<String>,
@@ -34,6 +36,7 @@ pub struct UserResponse {
 
 impl From<AccountUser> for UserResponse {
     fn from(user: AccountUser) -> Self {
+        let preferred_name = super::name::present_name(&user.display_name, &user.id).preferred;
         // A URL this client would never fetch is not passed on either, so the page cannot show a placeholder for an avatar that will not load.
         let avatar_url = user
             .avatar_url
@@ -41,6 +44,7 @@ impl From<AccountUser> for UserResponse {
         Self {
             id: user.id,
             display_name: user.display_name,
+            preferred_name,
             created_at: user.created_at,
             email: user.email,
             avatar_uploaded: avatar_url
@@ -114,12 +118,27 @@ impl From<AccountChallenge> for ChallengeResponse {
 pub struct ProfileResponse {
     user: UserResponse,
     providers: Vec<String>,
+    /// 已知登录方式及本次资料中新增标识的显示名称；未关联的已知方式也供关联入口使用。
+    provider_names: BTreeMap<String, String>,
 }
 
 impl From<AccountProfile> for ProfileResponse {
     fn from(profile: AccountProfile) -> Self {
         let mut providers = Vec::with_capacity(profile.identities.len());
+        let mut provider_names: BTreeMap<String, String> = [
+            ("apple", "Apple"),
+            ("google", "Google"),
+            ("email", "邮箱"),
+            ("phone", "手机号"),
+            ("sms", "手机号"),
+        ]
+        .into_iter()
+        .map(|(provider, name)| (provider.into(), name.into()))
+        .collect();
         for identity in profile.identities {
+            provider_names
+                .entry(identity.provider.clone())
+                .or_insert_with(|| identity.provider.clone());
             if !providers.contains(&identity.provider) {
                 providers.push(identity.provider);
             }
@@ -127,6 +146,7 @@ impl From<AccountProfile> for ProfileResponse {
         Self {
             user: profile.user.into(),
             providers,
+            provider_names,
         }
     }
 }
@@ -205,6 +225,27 @@ mod tests {
     }
 
     #[test]
+    fn user_response_includes_the_shared_preferred_name_without_changing_the_draft() {
+        for (name, id, expected) in [
+            ("\u{feff} 合成昵称 \u{3000}", "synthetic-user", "合成昵称"),
+            ("", "abc123-rest", "水杉小鹿·ABC123"),
+            ("\u{feff}\u{a0}\u{3000}", "abc123-rest", "水杉小鹿·ABC123"),
+            ("", "ab😀cde-tail", "水杉小鹿·AB😀CDE"),
+            ("", "abßcde-tail", "水杉小鹿·ABßCDE"),
+        ] {
+            let mut account = user();
+            account.id = id.into();
+            account.display_name = name.into();
+            let response = serde_json::to_value(StatusResponse {
+                user: Some(account.into()),
+            })
+            .unwrap();
+            assert_eq!(response["user"]["displayName"], name);
+            assert_eq!(response["user"]["preferredName"], expected);
+        }
+    }
+
+    #[test]
     fn account_responses_match_the_shared_webview_contract() {
         let status = serde_json::to_value(StatusResponse {
             user: Some(user().into()),
@@ -212,7 +253,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             status,
-            json!({"user":{"id":"synthetic-user","displayName":"测试账号","createdAt":"2026-01-01T00:00:00Z"}})
+            json!({"user":{"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z"}})
         );
 
         // A signed-out status is `{ user: null }`, which the webview's `user?: AccountUser | null` accepts.
@@ -228,7 +269,7 @@ mod tests {
                 user: Some(google.clone().into())
             })
             .unwrap()["user"],
-            json!({"id":"synthetic-user","displayName":"测试账号","createdAt":"2026-01-01T00:00:00Z","email":"person@example.test","avatarUrl":"https://media.msime.app/avatars/abc.jpg","avatarUploaded":true})
+            json!({"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z","email":"person@example.test","avatarUrl":"https://media.msime.app/avatars/abc.jpg","avatarUploaded":true})
         );
         google.avatar_url = Some("https://lh3.googleusercontent.com/a/person".into());
         let from_google = serde_json::to_value(StatusResponse {
@@ -257,6 +298,37 @@ mod tests {
         assert_eq!(
             challenge,
             json!({"challengeId":"synthetic-challenge","expiresIn":300})
+        );
+    }
+
+    #[test]
+    fn profile_response_carries_shared_provider_names_and_preserves_identity_order() {
+        let response = serde_json::to_value(ProfileResponse::from(AccountProfile {
+            user: user(),
+            identities: ["sms", "email", "synthetic-provider", "sms", "phone"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, provider)| AccountProfileIdentity {
+                    provider: provider.into(),
+                    subject: format!("synthetic-subject-{index}"),
+                })
+                .collect(),
+        }))
+        .unwrap();
+        assert_eq!(
+            response["providers"],
+            json!(["sms", "email", "synthetic-provider", "phone"])
+        );
+        assert_eq!(
+            response["providerNames"],
+            json!({
+                "apple": "Apple",
+                "google": "Google",
+                "email": "邮箱",
+                "phone": "手机号",
+                "sms": "手机号",
+                "synthetic-provider": "synthetic-provider"
+            })
         );
     }
 
@@ -293,8 +365,9 @@ mod tests {
         assert_eq!(
             serde_json::to_value(profile).unwrap(),
             json!({
-                "user":{"id":"synthetic-user","displayName":"测试账号","createdAt":"2026-01-01T00:00:00Z"},
-                "providers":["email","phone"]
+                "user":{"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z"},
+                "providers":["email","phone"],
+                "providerNames":{"apple":"Apple","google":"Google","email":"邮箱","phone":"手机号","sms":"手机号"}
             })
         );
     }

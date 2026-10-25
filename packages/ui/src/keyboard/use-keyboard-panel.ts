@@ -13,7 +13,12 @@ import {
   type Modifier,
 } from "./keyboard-input";
 import { keyboardDeliveryNotice, MACOS_KEYBOARD_GUIDANCE } from "./keyboard-delivery-notice";
-import { keyboardRows, nineKeyRows, nineKeyShuangpinRows } from "./panel-keyboard-layouts";
+import {
+  keyboardRows,
+  nineKeyRows,
+  nineKeyShuangpinRows,
+  eighteenKeyRows,
+} from "./panel-keyboard-layouts";
 import { usePanelDrag } from "./use-panel-drag";
 
 export function useKeyboardPanel({
@@ -28,21 +33,30 @@ export function useKeyboardPanel({
   nineKeyShuangpinKeys?: readonly NineKeyShuangpinKeyFace[];
 }) {
   const [activeLayout, setActiveLayout] = useState<
-    "twenty_six_key" | "nine_key" | "nine_key_shuangpin"
+    "twenty_six_key" | "nine_key" | "nine_key_shuangpin" | "eighteen_key"
   >(() => {
     const saved = readOptionalStorage("msime.keyboard.layout");
+    if (platform === "windows" && saved === "eighteen_key") return saved;
     return saved === "nine_key" || saved === "twenty_six_key" || saved === "nine_key_shuangpin"
       ? saved
       : layout;
   });
   function switchLayout() {
     const next =
-      activeLayout === "twenty_six_key"
-        ? layout === "nine_key_shuangpin"
-          ? "nine_key_shuangpin"
-          : "nine_key"
-        : "twenty_six_key";
+      platform === "windows" && activeLayout === "twenty_six_key"
+        ? "eighteen_key"
+        : activeLayout === "eighteen_key"
+          ? layout === "nine_key_shuangpin"
+            ? "nine_key_shuangpin"
+            : "nine_key"
+          : activeLayout === "twenty_six_key"
+            ? layout === "nine_key_shuangpin"
+              ? "nine_key_shuangpin"
+              : "nine_key"
+            : "twenty_six_key";
     setActiveLayout(next);
+    modifiersRef.current = new Set();
+    setActiveModifiers(new Set());
     writeOptionalStorage("msime.keyboard.layout", next);
   }
   const previousHostLayout = useRef(layout);
@@ -53,11 +67,13 @@ export function useKeyboardPanel({
     setActiveLayout(layout);
   }, [layout]);
   const sourceRows =
-    activeLayout === "nine_key_shuangpin"
-      ? nineKeyShuangpinRows(nineKeyShuangpinKeys ?? [])
-      : activeLayout === "nine_key"
-        ? nineKeyRows
-        : keyboardRows;
+    activeLayout === "eighteen_key"
+      ? eighteenKeyRows
+      : activeLayout === "nine_key_shuangpin"
+        ? nineKeyShuangpinRows(nineKeyShuangpinKeys ?? [])
+        : activeLayout === "nine_key"
+          ? nineKeyRows
+          : keyboardRows;
   const rows =
     platform === "macos"
       ? sourceRows.map((row) => {
@@ -252,6 +268,13 @@ export function useKeyboardPanel({
       shift: withShift && includeStickyModifiers,
       modifiers,
       include_sticky_modifiers: includeStickyModifiers,
+      ...(keyToPress.groupedLetter
+        ? {
+            grouped_letter: keyToPress.groupedLetter,
+            shift: false,
+            include_sticky_modifiers: false,
+          }
+        : {}),
     };
     setNotice(
       client.sendKey ? `正在发送：${description}` : `已准备：${description}（等待宿主注入能力）`,

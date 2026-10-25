@@ -115,13 +115,28 @@ pub fn valid_voice_credential(provider: &str, value: &str) -> bool {
             && (provider != "doubao" || value.is_ascii()))
 }
 
+/// Android 语音设置需要的服务分类和鉴权模式；不读取偏好、凭据、文件或网络。
+#[derive(Debug, PartialEq, Eq)]
+pub struct MobileVoiceProviderPolicy {
+    pub network: bool,
+    pub legacy_auth: bool,
+}
+
+/// 统一计算 Android 设置页仍需展示的两个服务策略。
+pub fn mobile_voice_provider_policy(provider: &str, auth_mode: &str) -> MobileVoiceProviderPolicy {
+    MobileVoiceProviderPolicy {
+        network: !provider.is_empty() && provider != "system" && provider != "local",
+        legacy_auth: auth_mode.trim() == "legacy",
+    }
+}
+
 /// 设置页识别服务行的状态文案；`resolved` 表示共享解析已经得到可用云端配置。
 pub fn mobile_voice_provider_status(
     provider: &str,
     resolved: bool,
     platform_available: bool,
 ) -> Option<&'static str> {
-    let network = !provider.is_empty() && provider != "system" && provider != "local";
+    let network = mobile_voice_provider_policy(provider, "").network;
     if !network {
         return if provider.is_empty() || provider == "system" {
             Some(if platform_available {
@@ -152,12 +167,28 @@ pub fn mobile_voice_provider_status(
 /// 设置页本地模型行的状态文案。
 pub fn mobile_voice_local_status(model_ready: bool, runtime_ready: bool) -> Option<&'static str> {
     if !model_ready {
-        Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+        Some("还没有选用可用模型，请在下方「本地模型」选用、下载或导入")
     } else if runtime_ready {
         None
     } else {
-        Some("还需准备本地语音运行库，请到「模型」下载或导入")
+        Some("还需准备本地语音运行库，请在下方「本地识别准备」下载或导入")
     }
+}
+
+/// 设置页润色行的状态文案；configured 表示共享解析已经得到可用润色配置。
+pub fn mobile_voice_polish_status(
+    enabled: bool,
+    configured: bool,
+    has_token: bool,
+) -> Option<&'static str> {
+    if !enabled || configured {
+        return None;
+    }
+    Some(if has_token {
+        "配置不完整，识别结果不会润色"
+    } else {
+        "未填写 API Key，识别结果不会润色"
+    })
 }
 
 /// 在交给原生宿主前统一校验移动语音传输使用的 URL 形状。
@@ -826,14 +857,43 @@ mod tests {
     }
 
     #[test]
+    fn mobile_voice_policy_matches_android_provider_rules() {
+        let cloud = mobile_voice_provider_policy("openai", " legacy ");
+        assert!(cloud.network);
+        assert!(cloud.legacy_auth);
+
+        let offline = mobile_voice_provider_policy("local", "api_key");
+        assert!(!offline.network);
+        assert!(!offline.legacy_auth);
+
+        let system = mobile_voice_provider_policy("system", "");
+        assert!(!system.network);
+        assert!(!system.legacy_auth);
+    }
+
+    #[test]
+    fn mobile_voice_polish_status_explains_missing_configuration() {
+        assert_eq!(mobile_voice_polish_status(false, false, false), None);
+        assert_eq!(mobile_voice_polish_status(true, true, true), None);
+        assert_eq!(
+            mobile_voice_polish_status(true, false, false),
+            Some("未填写 API Key，识别结果不会润色")
+        );
+        assert_eq!(
+            mobile_voice_polish_status(true, false, true),
+            Some("配置不完整，识别结果不会润色")
+        );
+    }
+
+    #[test]
     fn mobile_voice_local_status_prioritizes_model_then_runtime() {
         assert_eq!(
             mobile_voice_local_status(false, true),
-            Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+            Some("还没有选用可用模型，请在下方「本地模型」选用、下载或导入")
         );
         assert_eq!(
             mobile_voice_local_status(true, false),
-            Some("还需准备本地语音运行库，请到「模型」下载或导入")
+            Some("还需准备本地语音运行库，请在下方「本地识别准备」下载或导入")
         );
         assert_eq!(mobile_voice_local_status(true, true), None);
     }

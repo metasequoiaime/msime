@@ -19,4 +19,20 @@ for title, key in expected.items():
     assert title in page, f"Windows 输入习惯页缺少「{title}」"
     assert key in page, f"Windows 输入习惯页没有接入偏好键 {key}"
 
-print("windows input habits: Japanese mixed input, single-character and sentence rows are present")
+assert "build_neural_desktop_settings(candidates);" in page
+assert "build_sentence_model_settings(candidates);" in page
+model = source[source.index("  void build_neural_desktop_settings("):]
+for key in (
+    'L"sentence_association.neural_desktop"',
+    'L"sentence_association.show_next_on_duplicate"',
+    'L"sentence_association.grammar_model"',
+    "msime_client_resource_packs",
+    "msime_client_resource_pack_install",
+    "msime_client_resource_pack_remove",
+    # 安装包不带落定重排模型，开了「桌面神经联想」必须能在这里下载它。
+    'sentence_pack_row(group, L"settled-model"',
+):
+    assert key in model, f"Windows 整句模型设置缺少 {key}"
+assert "grammar-model-baishuang" not in model
+
+print("windows input habits: sentence association switches, settled model download and locked grammar model management are present")

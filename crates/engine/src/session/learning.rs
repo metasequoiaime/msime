@@ -177,14 +177,16 @@ impl InputSession {
         if selected_source.is_sentence_learning() {
             return self.learn_sentence_candidate(index);
         }
-        // 混输英文或日文混输行占了首位（拼音拆不开、英文完全匹配，用户把英文固定在第一位，或者日文领先；英文和日文可以先后占住前两位）时，紧跟在这些领先行后面的那一行才是拼音给的首选：选它仍是默认的选择，不调词频，也不写日志。
+        // 英文、日文或连续混合行占了首位时，紧跟在这些领先行后面的那一行才是拼音给的首选：选它仍是默认的选择，不调词频，也不写日志。
         let leading = self
             .ranking_list()
             .iter()
             .take_while(|item| {
                 matches!(
                     item.source,
-                    CandidateSource::EnglishDictionary | CandidateSource::MixedJapanese
+                    CandidateSource::EnglishDictionary
+                        | CandidateSource::MixedJapanese
+                        | CandidateSource::Multilingual
                 )
             })
             .count();
@@ -536,12 +538,15 @@ impl InputSession {
             return None;
         }
         let dictionary = selected.source.is_dictionary();
-        // 借用现有词文本，避免为上下文记录额外构造中间词列表。
-        let words = if dictionary {
-            std::slice::from_ref(&selected.word)
+        // 借用现有词文本：词库行直接借用词面，整句只收集各段的借用。
+        let single = [selected.word.as_str()];
+        let sentence: Vec<&str>;
+        let words: &[&str] = if dictionary {
+            &single
         } else if selected.source.is_generated_or_fallback() && !selected.sentence_words.is_empty()
         {
-            selected.sentence_words.as_slice()
+            sentence = selected.sentence_words.iter().map(String::as_str).collect();
+            &sentence
         } else {
             self.chain.reset();
             return None;
@@ -560,7 +565,7 @@ impl InputSession {
             transitions.push(PersonalTransition {
                 earlier: self.chain.earlier.clone().unwrap_or_default(),
                 previous: self.chain.previous.clone().unwrap_or_default(),
-                word: word.to_owned(),
+                word: (*word).to_owned(),
                 times,
             });
             self.chain.advance(word, composition_left, now);
@@ -708,7 +713,7 @@ mod tests {
             .snapshot()
             .candidates
             .into_iter()
-            .map(|item| item.word)
+            .map(|item| item.word.into_string())
             .collect()
     }
 
@@ -1431,7 +1436,7 @@ mod tests {
             .candidates
             .iter()
             .position(|item| item.source.is_sentence_learning())
-            .map(|index| (index, session.snapshot().candidates[index].word.clone()))
+            .map(|index| (index, session.snapshot().candidates[index].word.to_string()))
     }
 
     /// ISC:51-53: a generated sentence longer than `MAX_LEARNED_SENTENCE_SYLLABLES` is committed but never stored; one at the cap is.

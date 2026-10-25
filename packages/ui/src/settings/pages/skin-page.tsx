@@ -40,6 +40,7 @@ import { pushMobileSettingsState } from "../mobile-navigation";
 import { useMobilePopState } from "../use-mobile-pop-state";
 import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { useAsyncGeneration } from "../use-async-generation";
+import { harmonyTouchRowsForPreferences } from "../../keyboard/keyboard-layouts";
 
 /** 设置表单的「主题」页（路由 id `skin`，手机上叫「皮肤」）：全局主题、自定义主题的组成，以及各界面的单独设置。`hidden` 让它在桌面外壳以「社区皮肤」标签页顶替时保持挂载。鸿蒙手机上主题按顶部的「内置 / 我的 / 社区」分成键盘缩略图网格，点按即应用；标签栏和「社区」的完整图库由设置外壳画在表单之外，这里只画前两个分类的网格（`tabs`）。 */
 export function SkinSettingsPage({
@@ -192,6 +193,7 @@ export function SkinSettingsPage({
     savedDesigns,
     onSelectSavedDesign: client.customTouchKeyboardSkins ? onCustomKeyboardChange : undefined,
     keyboardTheme: keyboardPreviewTheme,
+    touchRows: phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined,
     onApply: onPreferencesChange,
     onApplied: (id: string) => recordSkinSafely(client.typingStatistics, id),
     onOpenAi: aiSkins && customSkinLibrary ? openAi : undefined,
@@ -280,6 +282,7 @@ export function SkinSettingsPage({
       {client.customTouchKeyboardSkins && (
         <ScreenKeyboardSkinsSection
           theme={keyboardPreviewTheme}
+          phone={mobilePlatform}
           selected={customKeyboardSelected}
           customDesign={customTouchKeyboardSkin}
           editorOpen={showTouchSkinEditor}
@@ -298,6 +301,7 @@ export function SkinSettingsPage({
             library={client.customSkinLibrary}
             aiSkins={client.aiSkins}
             communitySkins={client.communitySkins}
+            phonePreview={mobilePlatform}
             onChange={(design) => onCustomThemeChange({ keyboard: design })}
             onUse={onUseCustomKeyboard}
             onClose={() => setShowTouchSkinEditor(false)}
@@ -328,6 +332,7 @@ export function SkinSettingsPage({
       candidatePreviewTheme={candidatePreviewTheme}
       previewTheme={skinPreviewThemes[entry.id]}
       keyboardDesign={customTouchKeyboardSkin}
+      touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
       mobile={mobilePlatform}
       linux={linuxPlatform}
       onPreferencesChange={onPreferencesChange}
@@ -467,6 +472,7 @@ export function SkinSettingsPage({
           library={client.customSkinLibrary}
           aiSkins={client.aiSkins}
           communitySkins={client.communitySkins}
+          touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
           onChange={(design) => onCustomThemeChange({ keyboard: design })}
           onUse={onUseCustomKeyboard}
           onClose={closeEditor}
@@ -477,6 +483,7 @@ export function SkinSettingsPage({
           client={aiSkins}
           library={customSkinLibrary}
           communitySkins={client.communitySkins}
+          touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
           fullScreen
           useLabel="使用这款皮肤"
           // 提案成为自定义主题的键盘设计，方式与「我的皮肤」卡片应用编辑器设计相同；流程交出提案后自行关闭。

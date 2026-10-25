@@ -94,6 +94,7 @@ echo "Linux clipboard remove-index acceptance passed"
 /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" clear
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
+/build/ibus/ibus-engine-smoke /resources --voice-hotkey
 /build/ibus/ibus-engine-smoke /resources
 /build/ibus/ibus-engine-smoke /resources --helpcode-trigger
 installed_host=/build/stage/usr/local/bin/msime-linux-ibus

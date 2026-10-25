@@ -18,7 +18,7 @@ void check(bool condition, const char *what) {
 }
 
 std::string read(const std::string &path) {
-    std::ifstream file(path, std::ios::binary);
+    std::ifstream file(path);
     if (!file) {
         std::fprintf(stderr, "FAIL: cannot open %s\n", path.c_str());
         std::exit(EXIT_FAILURE);

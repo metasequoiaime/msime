@@ -27,7 +27,10 @@ test("shares the input scheme labels used by settings controls", () => {
     { value: "stroke", label: "笔画" },
   ]);
   expect(japaneseInputSchemeOptions).toEqual([{ value: "romaji", label: "罗马音" }]);
-  expect(koreanInputSchemeOptions).toEqual([{ value: "dubeolsik", label: "两套式" }]);
+  expect(koreanInputSchemeOptions).toEqual([
+    { value: "dubeolsik", label: "两套式" },
+    { value: "romaja", label: "罗马字" },
+  ]);
   expect(cantoneseInputSchemeOptions).toEqual([{ value: "jyutping", label: "粤拼" }]);
   expect(zhuyinLayoutOptions).toEqual([{ value: "dachen", label: "大千" }]);
   expect(strokeLayoutOptions).toEqual([{ value: "hspnz", label: "横竖撇点折" }]);

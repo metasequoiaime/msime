@@ -7,7 +7,9 @@ enum class PumpResult {
   Disconnected,
   QueueUnavailable,
   DispatchFailed,
-  WriteFailed
+  WriteFailed,
+  // 一个按键请求没有通过边界校验（RequestRejected）：Engine 没动，没有回复帧；关闭这一个客户端的连接，让 TIP 按现有的重连路径从空会话重新开始，输入队列和其他客户端照常运行。
+  RequestRejected
 };
 class SessionPump final {
 public:
@@ -37,6 +39,8 @@ public:
     // Bounded pre-dispatch hook for keyboard paths that consume the visible
     // candidate page (digits/space). It must not perform Engine I/O.
     std::function<void(const FocusLease &, const FanyImeNamedpipeData &)> before_key;
+    // 管道线程，按键任务回来之后、断开这个客户端之前。参数是一行诊断（请求种类、客户端、请求号、校验名和计数），不含输入内容。只用来写日志：不能重入输入队列，也不能碰焦点或管道。
+    std::function<void(const std::string &)> rejected;
   };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
               KeyHandler key, EventHandler event, Presentation presentation = {},

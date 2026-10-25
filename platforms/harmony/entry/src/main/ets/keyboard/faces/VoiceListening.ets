@@ -14,11 +14,8 @@ const PULSE_START_OPACITY: number = 0.35;
 const PULSE_END_SCALE: number = (ORB_VP + 36) / ORB_VP;
 
 /**
- * 语音面板的聆听界面，移植自 Android 的 VoiceListeningView：一个 72vp 的 `accent` 圆球，中间是白色 30vp 麦克风，每 1.2s 从中脉冲出一圈光环，下面是标题（正在聆听…）和提示（点任意处取消），宿主会像 Android 视图那样在识别到文字时和结果上屏后改写它们。
- *
- * 整个界面是一个点击目标：点任意处调用 `onCancel`。设计稿把脉冲画成固定的绿色（rgba(46,125,80,.35)），在秋季和冬季强调色下显得突兀，所以光环用 `accent` 以同样的 .35 绘制。`micPath` 是 kb-core 中 24 单位 viewBox 下的 MIC 路径。
- *
- * 脉冲在光环出现时开始，重复直到界面被移除。它只对光环自身的缩放和不透明度状态做动画，所以随光环节点一同结束，没有计时器活得比组件更久。
+ * 手机语音面板展示录音、转写和上屏状态。主按钮结束采集或重试，取消按钮返回键盘；整句上传与流式识别共用同一界面，不把结果放进可编辑的输入框。
+ * 光环沿用当前皮肤强调色，只对自身缩放和透明度做动画，随组件移除而结束。
  */
 @Component
 export struct VoiceListening {
@@ -29,7 +26,11 @@ export struct VoiceListening {
   /** 圆球下方的那行文字；结果上屏后宿主显示识别完成。 */
   @Prop title: string = '正在聆听…';
   /** 再下面较小的一行：如何取消、目前听到的文字，或带上已上屏内容的已识别：…。 */
-  @Prop hint: string = '点任意处取消';
+  @Prop hint: string = '说完后自动上屏';
+  @Prop primaryLabel: string = '';
+  @Prop primaryEnabled: boolean = true;
+  @Prop cancelLabel: string = '取消';
+  onPrimary: () => void = (): void => {};
   @Require onCancel: () => void;
   @State private pulseScale: number = 1;
   @State private pulseOpacity: number = PULSE_START_OPACITY;
@@ -73,16 +74,29 @@ export struct VoiceListening {
       Text(this.hint)
         .fontSize(HINT_FONT_SIZE)
         .fontColor(this.secondary)
-        .maxLines(1)
+        .maxLines(2)
+        .textAlign(TextAlign.Center)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .padding({ left: HINT_SIDE_PADDING_VP, right: HINT_SIDE_PADDING_VP })
+      Row({ space: COLUMN_GAP_VP }) {
+        if (this.primaryLabel.length > 0) {
+          Button(this.primaryLabel)
+            .fontSize(TITLE_FONT_SIZE)
+            .fontColor(MIC_COLOR)
+            .backgroundColor(this.accent)
+            .enabled(this.primaryEnabled)
+            .onClick(() => this.onPrimary())
+        }
+        Button(this.cancelLabel)
+          .fontSize(TITLE_FONT_SIZE)
+          .fontColor(this.foreground)
+          .backgroundColor(Color.Transparent)
+          .onClick(() => this.onCancel())
+      }
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
-    .accessibilityGroup(true)
-    .accessibilityText(`${this.title}，${this.hint}`)
-    .onClick(() => this.onCancel())
   }
 }

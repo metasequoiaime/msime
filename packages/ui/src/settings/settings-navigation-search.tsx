@@ -1,4 +1,5 @@
 import { isComposingKeyEvent } from "../core/ime-key-event";
+import { SearchGlyph } from "../core/search-glyph";
 import type { SettingsPageGroup } from "./settings-page-projections";
 import type { SettingsPageId } from "./settings-page-registry";
 import * as settings from "./settings-style";
@@ -27,18 +28,7 @@ export function SettingsNavigationSearch({
 }: SettingsNavigationSearchProps) {
   return (
     <>
-      <svg
-        className={settings.searchGlyph}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        aria-hidden="true"
-      >
-        <circle cx="7" cy="7" r="5" />
-        <path d="m11 11 3.5 3.5" />
-      </svg>
+      <SearchGlyph className={settings.searchGlyph} />
       <input
         type="search"
         aria-controls={resultNavigation?.listId}

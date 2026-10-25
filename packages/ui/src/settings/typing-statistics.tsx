@@ -1,3 +1,4 @@
+import { StatisticsAuthenticationGate } from "./statistics-authentication-gate";
 import {
   retentionChoices,
   activityMetrics,
@@ -45,6 +46,7 @@ import { MobileStatistics, statisticsCardClass, type StatisticsLook } from "./mo
 import { StatisticsNote } from "./statistics-note";
 import { StatisticsOptionsMenu } from "./statistics-options-menu";
 import { StatisticsDailyDetails } from "./statistics-daily-details";
+import { StatisticsSection } from "./statistics-section";
 import { TypingStatisticsUpload } from "./typing-statistics-upload";
 export type { TypingBreakdown } from "./typing-speed";
 export type { TypingSummary } from "./typing-summary";
@@ -125,21 +127,34 @@ export function availabilityNotice(
   return `统计文件已建立，但当前还没有输入记录。${fullAccess}`;
 }
 
-export function TypingStatisticsPage({
+export function TypingStatisticsPage(props: TypingStatisticsPageProps) {
+  if (props.client.authentication) {
+    return (
+      <StatisticsAuthenticationGate client={props.client.authentication}>
+        <TypingStatisticsContent {...props} />
+      </StatisticsAuthenticationGate>
+    );
+  }
+  return <TypingStatisticsContent {...props} />;
+}
+
+type TypingStatisticsPageProps = {
+  client: TypingStatisticsClient;
+  mobile?: boolean;
+  platform?: string;
+  /** iOS 共享面板打开系统设置；原生 iOS App 不使用此页面。 */
+  openSystemSettings?: () => Promise<void>;
+  /** 鸿蒙统计摘要使用「概览 / 习惯 / 按键 / 成就」四个标签。 */
+  look?: StatisticsLook;
+};
+
+function TypingStatisticsContent({
   client,
   mobile = false,
   platform,
   openSystemSettings,
   look,
-}: {
-  client: TypingStatisticsClient;
-  mobile?: boolean;
-  platform?: string;
-  /** iOS only: opens this app's page in Settings, from which Full Access is reachable. */
-  openSystemSettings?: () => Promise<void>;
-  /** HarmonyOS 手机或 2in1 外观。客户端能应答 `summary` 时，页面是基于摘要的「概览 / 习惯 / 按键 / 成就」标签页，而不是趋势图和分布图。 */
-  look?: StatisticsLook;
-}) {
+}: TypingStatisticsPageProps) {
   const { confirm, confirmation } = useConfirm();
   const { status, today, busy, error, summary, summaryFailed, update, openDataDirectory } =
     useTypingStatisticsState(client, look);
@@ -284,10 +299,7 @@ export function TypingStatisticsPage({
       {error && <ErrorAlert>{error}</ErrorAlert>}
       {mobile && <StatisticsOptionsMenu {...menuActions} className="-mb-1" />}
       {!statistics.enabled && (
-        <section className="section m-0" aria-labelledby="statistics-disabled-title">
-          <h2 id="statistics-disabled-title" className={heading}>
-            输入统计已关闭
-          </h2>
+        <StatisticsSection id="statistics-disabled-title" title="输入统计已关闭">
           <p className="mt-2 mb-0 leading-relaxed text-secondary">
             {uploadEnabled
               ? "开启后这里会显示输入字数、速度、时段分布与按键热力图。统计不记录输入内容；已打开「上传到云端」，每日计数会上传到你的水杉账号。"
@@ -300,7 +312,7 @@ export function TypingStatisticsPage({
             disabled={busy}
             label={busy ? "处理中…" : "启用输入统计"}
           />
-        </section>
+        </StatisticsSection>
       )}
       <section className="section m-0" aria-label="统计概览">
         <div className={metricGrid}>
@@ -351,10 +363,10 @@ export function TypingStatisticsPage({
         ))}
       </div>
       {contentTab === "trend" && (
-        <section className="section m-0" aria-labelledby="statistics-trend-title">
-          <h2 className={heading} id="statistics-trend-title">
-            每日趋势 · {mobile && trendDays.length >= 360 ? "近一年" : `近 ${trendDays.length} 天`}
-          </h2>
+        <StatisticsSection
+          id="statistics-trend-title"
+          title={`每日趋势 · ${mobile && trendDays.length >= 360 ? "近一年" : `近 ${trendDays.length} 天`}`}
+        >
           <StatisticsDailyTrend
             days={trendDays}
             counts={statistics.days}
@@ -378,24 +390,18 @@ export function TypingStatisticsPage({
           {selectedDay && (
             <ActionButton action={() => setSelectedDay(null)} label="返回整个时间范围" />
           )}
-        </section>
+        </StatisticsSection>
       )}
       {contentTab === "trend" && activity.todayHours && (
-        <section className="section m-0" aria-labelledby="statistics-hours-title">
-          <h2 className={heading} id="statistics-hours-title">
-            今日时段
-          </h2>
+        <StatisticsSection id="statistics-hours-title" title="今日时段">
           <StatisticsHourlyBars
             hours={activity.todayHours}
             usual={usualHours(statistics.dailyHours, today.key)}
           />
-        </section>
+        </StatisticsSection>
       )}
       {contentTab === "trend" && (
-        <section className="section m-0" aria-labelledby="statistics-speed-title">
-          <h2 className={heading} id="statistics-speed-title">
-            速度趋势
-          </h2>
+        <StatisticsSection id="statistics-speed-title" title="速度趋势">
           <SpeedTrend
             days={trendDays}
             speeds={dailySpeeds(
@@ -405,20 +411,17 @@ export function TypingStatisticsPage({
             averageSpeed={activity.averageSpeed}
             selectedDay={selectedDay}
           />
-        </section>
+        </StatisticsSection>
       )}
       {!mobile && contentTab === "trend" && (
-        <section className="section m-0" aria-labelledby="statistics-calendar-title">
-          <h2 className={heading} id="statistics-calendar-title">
-            日历热力图
-          </h2>
+        <StatisticsSection id="statistics-calendar-title" title="日历热力图">
           <StatisticsNote>近 12 个月，颜色越深输入越多</StatisticsNote>
           <StatisticsHeatmap
             days={statistics.days}
             selectedDay={selectedDay}
             onSelect={(key) => setSelectedDay((current) => (current === key ? null : key))}
           />
-        </section>
+        </StatisticsSection>
       )}
       {contentTab === "keys" && (
         <KeyboardHeatmap

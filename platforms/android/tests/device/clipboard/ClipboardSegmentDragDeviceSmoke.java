@@ -21,15 +21,18 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private long downTime;
     private boolean fixedCardsOnly;
     private boolean previewActionsOnly;
+    private boolean firstRecordOnly;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         fixedCardsOnly = arguments != null && "true".equals(arguments.getString("fixed-cards-only"));
         previewActionsOnly = arguments != null && "true".equals(arguments.getString("preview-actions-only"));
+        firstRecordOnly = arguments != null && "true".equals(arguments.getString("first-record-only"));
         super.onCreate(arguments);
     }
     private static String word(int i) { return "Synthetic" + (char) ('A' + i); }
 
     @Override protected String successDescription() {
+        if (firstRecordOnly) return "first clipboard record exposes inline actions after clear and copy in single and double columns";
         if (fixedCardsOnly) return "fixed clipboard cards delegate vertical drags to history without insertion";
         if (previewActionsOnly) return "full-text preview inserts original text, edits, saves and returns without leaking its window";
         return "floating full-text preview above IME and lifecycle cleanup; fixed cards, list scroll, swipe, segment drag and preview action regression";
@@ -43,7 +46,12 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         File local = new File(root, "bootstrap/state/android-settings.json");
         for (File f : new File[] {preferences, history, local})
             backups.put(f, f.isFile() ? Files.readAllBytes(f.toPath()) : null);
+        android.content.SharedPreferences onboarding = getTargetContext().getSharedPreferences("msime_onboarding_v1", 0);
+        boolean seenPresent = onboarding.contains("seen"), seen = onboarding.getBoolean("seen", false);
         try {
+            // 全新专用设备也能进入编辑页；首次引导不是本套件要测的操作。
+            if (!onboarding.edit().putBoolean("seen", true).commit())
+                throw new AssertionError("Synthetic onboarding preparation failed");
             JSONObject prefs = read(preferences);
             prefs.put("revision", prefs.getLong("revision") + 1);
             prefs.getJSONObject("preferences").put("clipboard_history", true)
@@ -55,6 +63,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 .put("platform.android.toolbar_hidden", false)).toString());
             if (fixedCardsOnly) { fixedCardsScrollList(history); return; }
             if (previewActionsOnly) { previewActions(history); return; }
+            if (firstRecordOnly) { firstRecordActions(history, local); return; }
             StringBuilder source = new StringBuilder();
             for (int i = 0; i < 26; i++) { if (i > 0) source.append(' '); source.append(word(i)); }
             StringBuilder preview = new StringBuilder();
@@ -126,13 +135,134 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             tap(key("插入"));
             await(field("msime-test-plain").and(node -> equalsText(source.toString(), node.getText())));
             previewActions(history);
+            firstRecordActions(history, local);
+        } catch (Exception | AssertionError error) {
+            if (firstRecordOnly) {
+                Bitmap screenshot = automation.takeScreenshot();
+                if (screenshot != null) {
+                    try (var output = new java.io.FileOutputStream(new File(getTargetContext().getCacheDir(),
+                            "clipboard-first-record-failure.png"))) {
+                        screenshot.compress(Bitmap.CompressFormat.PNG, 100, output);
+                    } finally { screenshot.recycle(); }
+                }
+            }
+            throw error;
         } finally {
             for (Map.Entry<File, byte[]> entry : backups.entrySet()) {
                 if (entry.getValue() == null) Files.deleteIfExists(entry.getKey().toPath());
                 else publish(entry.getKey(), entry.getValue());
             }
+            android.content.SharedPreferences.Editor editor = onboarding.edit();
+            if (seenPresent) editor.putBoolean("seen", seen); else editor.remove("seen");
+            if (!editor.commit()) throw new AssertionError("Synthetic onboarding restore failed");
             restartIme();
         }
+    }
+
+    private void firstRecordActions(File history, File local) throws Exception {
+        // 清空剪贴板历史要先通过系统认证：专用 AVD 默认没有锁屏凭据，先确认此时清空被拒绝且记录保留，再设置合成 PIN 走认证成功的路径。
+        write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
+            .put("platform.android.toolbar_hidden", false)).toString());
+        write(history, new JSONArray().put(new JSONObject().put("text", "Synthetic prior record")
+            .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
+        stage = "clear clipboard without device credential is refused";
+        if (DeviceCredentialFixture.secure(getTargetContext()))
+            throw new AssertionError("Dedicated AVD starts with a device credential");
+        openClipboardEditor();
+        tap(key("清空"));
+        tap(described("确认清空剪贴板历史"));
+        SystemClock.sleep(1500);
+        if (DeviceCredentialFixture.promptVisible(automation))
+            throw new AssertionError("System credential prompt opened without a device credential");
+        awaitHistoryCount(history, 1);
+        DeviceCredentialFixture.set(getTargetContext(), automation);
+        try {
+            firstRecordActionsAuthenticated(history, local);
+        } finally {
+            DeviceCredentialFixture.clear(getTargetContext(), automation);
+        }
+    }
+
+    private void firstRecordActionsAuthenticated(File history, File local) throws Exception {
+        for (String columns : new String[] {"one", "two"}) {
+            write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
+                .put("platform.android.toolbar_hidden", false)
+                .put("platform.android.clipboard_columns", columns)).toString());
+            for (boolean multiline : new boolean[] {false, true}) {
+                String text = "Synthetic first clipboard " + columns + (multiline
+                    ? "\nSecond synthetic line\nThird synthetic line\nSynthetic hidden tail" : " short");
+                write(history, new JSONArray().put(new JSONObject().put("text", "Synthetic prior record")
+                    .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
+                openClipboardEditor();
+                stage = "clear clipboard before first copy: " + columns + ", multiline=" + multiline;
+                tap(key("清空"));
+                tap(described("确认清空剪贴板历史"));
+                DeviceCredentialFixture.enter(automation);
+                awaitHistoryCount(history, 0);
+                // 认证界面的密码框也由水杉键盘输入，回到编辑器之前键盘仍按密码框不记剪贴板；先回到合成编辑器再复制，和用户认证完回来再复制一致。
+                openClipboardEditor();
+                copySynthetic(text);
+                awaitHistoryCount(history, 1);
+                // 与报告步骤一致：复制后重新进入面板，等设置重载与剪贴板补读完成再长按。
+                openClipboardEditor();
+                assertRecordActions(history, text, columns + ", multiline=" + multiline + ", count=1");
+                if ("two".equals(columns)) {
+                    copySynthetic("Synthetic second clipboard record");
+                    awaitHistoryCount(history, 2);
+                    openClipboardEditor();
+                    assertRecordActions(history, text, columns + ", multiline=" + multiline + ", count=2");
+                }
+            }
+        }
+    }
+
+    private void copySynthetic(String text) {
+        runOnMainSync(() -> getTargetContext().getSystemService(android.content.ClipboardManager.class)
+            .setPrimaryClip(android.content.ClipData.newPlainText("Synthetic fixture", text)));
+    }
+
+    private void assertRecordActions(File history, String text, String fixture) throws Exception {
+        stage = "physical long press on clipboard record: " + fixture;
+        AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
+            && node.getText().toString().startsWith(text));
+        byte[] seeded = Files.readAllBytes(history.toPath());
+        Rect bounds = new Rect();
+        card.getBoundsInScreen(bounds);
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY());
+        SystemClock.sleep(ViewConfiguration.getLongPressTimeout() + 200);
+        event(MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY());
+        stage = "inline actions visible for clipboard record: " + fixture;
+        for (String action : new String[] {"固定", "删除", "编辑", "分词", "分享", "移动分类", "添加到常用语", "收起"})
+            await(node -> equalsText(action, node.getText()) && node.isVisibleToUser()
+                && node.getParent() != null
+                && equalsText("剪贴板记录操作", node.getParent().getContentDescription()));
+        if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
+            throw new AssertionError("First-record preview changed history");
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
+        // 保存的画面只含本套件生成的内容，方便区分未触发长按和操作行被挤出视口。
+        Bitmap screenshot = automation.takeScreenshot();
+        if (screenshot != null) {
+            try (var output = new java.io.FileOutputStream(new File(getTargetContext().getCacheDir(),
+                    "clipboard-first-record-" + fixture.replaceAll("[^a-z0-9=]", "-") + ".png"))) {
+                screenshot.compress(Bitmap.CompressFormat.PNG, 100, output);
+            } finally { screenshot.recycle(); }
+        }
+        touch(node -> equalsText("收起", node.getText()) && node.getParent() != null
+            && equalsText("剪贴板记录操作", node.getParent().getContentDescription()));
+        previewClosed();
+    }
+
+    private void awaitHistoryCount(File history, int count) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        do {
+            if ((!history.isFile() && count == 0) || (history.isFile()
+                    && new JSONArray(new String(Files.readAllBytes(history.toPath()), StandardCharsets.UTF_8)).length() == count))
+                return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic history count did not settle: " + count);
     }
 
     private void previewActions(File history) throws Exception {
@@ -402,6 +532,12 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         SystemClock.sleep(200);
         card.refresh();
         assertFixedCard(card);
+        stage = "vertical drag inside a fixed card does not insert it";
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
+        card = await(node -> node.isLongClickable() && node.isVisibleToUser()
+            && node.getText() != null && node.getText().toString().startsWith(word(0)));
+        card.getBoundsInScreen(bounds);
         stage = "horizontal delete still works after vertical drag";
         // 纵向手势会交给外层列表；横滑前重新定位卡片，不能复用滚动前的坐标。
         card.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());

@@ -68,6 +68,7 @@ impl InputEngine for TransformEngine {
         let count = if composing { self.words.len() } else { 0 };
         let codes = count - usize::from(self.short_codes && count > 0);
         Ok(EngineSnapshot {
+            prediction: false,
             scheme: self.scheme,
             candidate_codes: vec!["k".into(); codes],
             candidate_annotations: (0..count).map(|index| format!("e{index}")).collect(),

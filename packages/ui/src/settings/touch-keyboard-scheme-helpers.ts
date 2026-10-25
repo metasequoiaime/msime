@@ -21,7 +21,8 @@ export type TouchKeyboardScheme =
   | "tibetan"
   | "stroke"
   | "zhuyin_nine_key"
-  | "fourteen_key";
+  | "fourteen_key"
+  | "eighteen_key";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -36,6 +37,7 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
     case "nine_key":
     case "nine_key_shuangpin":
     case "fourteen_key":
+    case "eighteen_key":
       return "quanpin";
     case "xiaohe":
     case "ziranma":
@@ -80,9 +82,11 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
   if (preferences.scheme === "stroke") return touchKeyboardSchemeOptionTitle("stroke");
   if (preferences.touch_keyboard_layout === "handwriting")
     return touchKeyboardSchemeOptionTitle("handwriting");
-  // 14 键只配全拼；别的方案记着这个布局时按各自的键盘命名。
+  // 14 键和 18 键只配全拼；别的方案记着这些布局时按各自的键盘命名。
   if (preferences.touch_keyboard_layout === "fourteen_key" && preferences.scheme === "quanpin")
     return touchKeyboardSchemeOptionTitle("fourteen_key");
+  if (preferences.touch_keyboard_layout === "eighteen_key" && preferences.scheme === "quanpin")
+    return touchKeyboardSchemeOptionTitle("eighteen_key");
   if (preferences.touch_keyboard_layout === "nine_key")
     return touchKeyboardSchemeOptionTitle(
       preferences.scheme === "japanese" ? "japanese_nine_key" : "nine_key",
@@ -120,6 +124,7 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["zhuyin_nine_key", "注音 9 键"],
   ["fourteen_key", "全拼 14 键"],
   ["nine_key_shuangpin", "九键双拼"],
+  ["eighteen_key", "全拼 18 键"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
@@ -133,7 +138,8 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "stroke" &&
     scheme !== "zhuyin_nine_key" &&
     scheme !== "nine_key_shuangpin" &&
-    scheme !== "fourteen_key",
+    scheme !== "fourteen_key" &&
+    scheme !== "eighteen_key",
 );
 
 /**
@@ -173,6 +179,8 @@ export function inferredTouchKeyboardScheme(
     inferred = "nine_key_shuangpin";
   else if (preferences.touch_keyboard_layout === "fourteen_key" && scheme === "quanpin")
     inferred = "fourteen_key";
+  else if (preferences.touch_keyboard_layout === "eighteen_key" && scheme === "quanpin")
+    inferred = "eighteen_key";
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
 }
 
@@ -305,9 +313,11 @@ export function selectTouchKeyboardScheme(
         ? "nine_key"
         : selected === "fourteen_key"
           ? "fourteen_key"
-          : selected === "handwriting"
-            ? "handwriting"
-            : "twenty_six_key",
+          : selected === "eighteen_key"
+            ? "eighteen_key"
+            : selected === "handwriting"
+              ? "handwriting"
+              : "twenty_six_key",
     touch_keyboard_schemes,
   };
 }
@@ -352,14 +362,19 @@ export function selectHomeTouchKeyboardScheme(
 // ---- 语言与方案（HarmonyOS 手机） ----
 
 export type TouchKeyboardLanguageId =
-  | "mandarin"
+  | "mandarin_quanpin"
+  | "mandarin_shuangpin"
+  | "mandarin_wubi"
+  | "mandarin_zhuyin"
+  | "mandarin_stroke"
+  | "mandarin_handwriting"
   | "cantonese"
   | "japanese"
   | "korean"
   | "vietnamese"
   | "tibetan";
 
-/** 「语言与方案」卡片中的一种语言：徽标、名称，以及按面板顺序排列的触摸方案。 */
+/** 「语言与方案」卡片中的一行：徽标、名称，以及按面板顺序排列的触摸方案。 */
 export interface TouchKeyboardLanguage {
   id: TouchKeyboardLanguageId;
   badge: string;
@@ -367,29 +382,29 @@ export interface TouchKeyboardLanguage {
   schemes: readonly TouchKeyboardScheme[];
 }
 
-/** 按语言分组的触摸方案，移植自 Android `TypingPage` 的 `Language` 枚举。英文没有自己的触摸方案（它是每种键盘的一种模式），所以这里不算一种语言。 */
+/**
+ * 按方案族分组的触摸方案，三端手机设置页共用这套顺序。
+ * 中文方案各自独立成行；日语、韩语、越南语和藏语仍按语言成行。
+ * 英文没有自己的触摸方案（它是每种键盘的一种模式），所以这里不算一种语言。
+ */
 export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
   {
-    id: "mandarin",
-    badge: "汉",
-    title: "普通话",
-    schemes: [
-      "quanpin",
-      "fourteen_key",
-      "nine_key",
-      "nine_key_shuangpin",
-      "xiaohe",
-      "ziranma",
-      "microsoft",
-      "shoudao",
-      "wubi",
-      "zhuyin",
-      "zhuyin_nine_key",
-      "stroke",
-      "handwriting",
-    ],
+    id: "mandarin_quanpin",
+    badge: "拼",
+    title: "全拼",
+    schemes: ["quanpin", "fourteen_key", "eighteen_key", "nine_key"],
   },
-  { id: "cantonese", badge: "粤", title: "粤语", schemes: ["cantonese"] },
+  {
+    id: "mandarin_shuangpin",
+    badge: "双",
+    title: "双拼",
+    schemes: ["xiaohe", "ziranma", "microsoft", "shoudao", "nine_key_shuangpin"],
+  },
+  { id: "mandarin_wubi", badge: "五", title: "五笔", schemes: ["wubi"] },
+  { id: "mandarin_zhuyin", badge: "注", title: "注音", schemes: ["zhuyin", "zhuyin_nine_key"] },
+  { id: "mandarin_stroke", badge: "笔", title: "笔画", schemes: ["stroke"] },
+  { id: "mandarin_handwriting", badge: "写", title: "手写", schemes: ["handwriting"] },
+  { id: "cantonese", badge: "粤", title: "粤拼", schemes: ["cantonese"] },
   { id: "japanese", badge: "あ", title: "日语", schemes: ["japanese", "japanese_nine_key"] },
   { id: "korean", badge: "한", title: "韩语", schemes: ["korean"] },
   { id: "vietnamese", badge: "Vi", title: "越南语", schemes: ["vietnamese"] },
@@ -404,7 +419,7 @@ export function offeredLanguageSchemes(
   return language.schemes.filter((scheme) => available.includes(scheme));
 }
 
-/** 语言行显示的方案：选中的方案属于该语言时就是它，否则是该语言按已启用列表顺序的第一个已启用方案；该语言提供的方案都未启用时为 null。 */
+/** 一行显示的方案：选中的方案属于该行时就是它，否则是该行按已启用列表顺序的第一个已启用方案；该行提供的方案都未启用时为 null。 */
 export function shownLanguageScheme(
   language: TouchKeyboardLanguage,
   selected: TouchKeyboardScheme,
@@ -416,13 +431,12 @@ export function shownLanguageScheme(
   return enabled.find((scheme) => offered.includes(scheme)) ?? null;
 }
 
-/** 移除某种语言时键盘退回的方案：按选择器顺序，另一种语言中第一个已启用且已提供的方案；移除后会没有任何方案启用时为 null。普通话永远不会被移除。 */
+/** 移除一行方案时键盘退回的方案：按选择器顺序，另一行中第一个已启用且已提供的方案；移除后会没有任何方案启用时为 null。 */
 export function languageRemovalFallback(
   language: TouchKeyboardLanguage,
   enabled: readonly TouchKeyboardScheme[],
   available: readonly TouchKeyboardScheme[],
 ): TouchKeyboardScheme | null {
-  if (language.id === "mandarin") return null;
   return (
     allTouchKeyboardSchemes.find(
       (scheme) =>

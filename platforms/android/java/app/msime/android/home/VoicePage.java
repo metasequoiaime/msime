@@ -55,7 +55,7 @@ import org.json.JSONObject;
  */
 public final class VoicePage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
-        return java.util.List.of("识别", "服务", "模型", "润色", "隐私");
+        return java.util.List.of("识别", "服务", "润色", "隐私");
     }
 
     private static final String[] TRIGGER_LABELS = {"长按空格", "工具栏按钮", "无"};
@@ -316,9 +316,9 @@ public final class VoicePage extends ReloadingDetailPage {
         });
     }
 
-    /** 模型页先说明本地识别缺哪一项，再列出模型的下载、取消、选用和删除。 */
+    /** 「服务」分页里识别服务下面的本地识别部分：先说明本地识别缺哪一项，再列出模型的下载、取消、选用和删除。本地模型本身就是一种识别服务，和服务选择放在同一个分页，页面最多四个分页。 */
     private void modelsGroup(LinearLayout target, JSONObject voice, State state) {
-        LinearLayout column = sectionColumn(target, "模型");
+        LinearLayout column = sectionColumn(target, "服务");
         GroupCard preparation = GroupCard.add(column, "本地识别准备");
         LocalVoiceModels.Model chosenModel = selectedModel(voice, state);
         preparation.value("已选模型", null, chosenModel == null ? "未选用" : chosenModel.title());

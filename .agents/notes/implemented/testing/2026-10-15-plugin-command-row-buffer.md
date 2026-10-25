@@ -22,7 +22,7 @@ Status: implemented
 
 ## Verification
 
-新增 `repeated_command_queries_reuse_the_output_rows_buffer`，先完成一次真实 `/uuid` 查询预热 runtime，再连续触发两次相同查询。旧实现两次各为 50 次分配；复用缓冲后两次各为 49 次，测试固定断言预热后的查询预算并确认提供者仍被调用。还原旧实现时该测试按预期失败。[插件候选注释直接写入截断缓冲](2026-10-15-plugin-annotation-buffer.md)随后移除注释拼接和收集的中间分配，该测试的当前预算为 46 次；这里的 50 → 49 保留为行容器切片的独立验证。插件指令相关测试还覆盖 `NotRun`、零行、暂停、缓存和注释行为。
+新增 `repeated_command_queries_reuse_the_output_rows_buffer`，先完成一次真实 `/uuid` 查询预热 runtime，再连续触发两次相同查询。旧实现两次各为 50 次分配；复用缓冲后两次各为 49 次，当时的测试固定断言预热后的查询预算并确认提供者仍被调用。还原旧实现时该测试按预期失败。[插件候选注释直接写入截断缓冲](2026-10-15-plugin-annotation-buffer.md)随后移除注释拼接和收集的中间分配，该切片完成后的总预算为 46 次；共享候选字符串合入后总数变为 49 次，当前测试改在[容量申请边界](2026-10-24-plugin-row-buffer-allocation-boundary.md)计数，冷调用 1 次、两次热调用均为 0，并用每次丢弃容量的变异验证失败。这里的 50 → 49 保留为行容器切片的历史独立验证。插件指令相关测试还覆盖 `NotRun`、零行、暂停、缓存和注释行为。
 
 ## Consequences
 

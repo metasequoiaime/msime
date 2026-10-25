@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
+import android.os.Build;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -13,19 +14,108 @@ import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.function.Predicate;
 
-/** Device-only acceptance for the packaged ML Kit recognizer and real IME controls. */
+/** 在专用设备上通过真实手写控件验证包内 ML Kit，OCR 专项同时检查输入法进程的共存。 */
 public final class HandwritingDeviceSmoke extends DeviceSmoke {
     private static final String PREVIEW_PACKAGE = "app.msime.android";
     private static final long MODEL_TIMEOUT_MILLIS = 180_000;
     private static final String TOUCH_REQUEST = "msime-handwriting-touch.request";
     private static final String TOUCH_ACK = "msime-handwriting-touch.ack";
     private int touchRequestSequence;
+    private boolean ocrCoexistence;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        ocrCoexistence = arguments != null && "true".equals(arguments.getString("ocr-coexistence"));
+        super.onCreate(arguments);
+    }
 
     @Override protected String successDescription() {
-        return "ML Kit readiness, real ink recognition, first-candidate keys, undo and scheme restore";
+        return ocrCoexistence ? "same offline IME process recognizes real handwriting before and after camera OCR"
+            : "ML Kit readiness, real ink recognition, first-candidate keys, undo and scheme restore";
     }
 
     @Override protected void runChecks() throws Exception {
+        String originalMode = null;
+        boolean completed = false;
+        String failureStage = null;
+        try {
+            stage = "handwriting single-character mode prerequisite";
+            originalMode = writingMode();
+            if (!"单字".equals(originalMode)) chooseWritingMode("单字");
+            else accessibleClick(description("取消"));
+            runHandwritingChecks();
+            completed = true;
+        } catch (Exception | AssertionError error) {
+            failureStage = stage;
+            throw error;
+        } finally {
+            if (originalMode != null && !"单字".equals(originalMode)) {
+                try {
+                    stage = "handwriting writing mode restore";
+                    writingMode();
+                    chooseWritingMode(originalMode);
+                } catch (Exception | AssertionError error) {
+                    if (ocrCoexistence) {
+                        try { shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-failure.png"); }
+                        catch (Exception ignored) { }
+                    }
+                    if (completed) throw error;
+                }
+                if (!completed) stage = failureStage;
+            }
+        }
+    }
+
+    /** 通过原生设置页选择单字模式，避免默认叠写自动上屏使显式选字断言失去前提。 */
+    private String writingMode() throws Exception {
+        String operation = stage;
+        stage = operation + " / settings window ready";
+        dropStaleNodes();
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android/.home.HomeActivity --es msime_open_page HANDWRITING");
+        // am start 完成时旧页面仍可能在转场；等空闲后重新取节点，避免弹出的选项页被随后导航移除。
+        automation.waitForIdle(500, 5000);
+        dropStaleNodes();
+        AccessibilityNodeInfo row = awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName())
+            && equalsText("书写模式", node.getText()), 15_000);
+        stage = operation + " / open writing mode sheet";
+        while (!row.isClickable() && row.getParent() != null) row = row.getParent();
+        if (!row.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            throw new AssertionError("Handwriting writing mode row did not open");
+        String selected = null;
+        for (String option : new String[] {"单字", "叠写", "行写"}) {
+            stage = operation + " / inspect " + option;
+            AccessibilityNodeInfo control = awaitFor(description(option), 15_000);
+            CharSequence state = Build.VERSION.SDK_INT >= 30 ? control.getStateDescription()
+                : control.getExtras().getCharSequence("androidx.view.accessibility.AccessibilityNodeInfoCompat.STATE_DESCRIPTION_KEY");
+            if (equalsText("已选择", state)) {
+                if (selected != null) throw new AssertionError("Handwriting mode has multiple selections");
+                selected = option;
+            }
+        }
+        if (selected == null) throw new AssertionError("Handwriting mode has no selection");
+        stage = operation;
+        return selected;
+    }
+
+    /** 重新打开设置页读取落盘结果，确认异步保存完成后才启动或恢复键盘专项。 */
+    private void chooseWritingMode(String mode) throws Exception {
+        accessibleClick(description(mode));
+        long deadline = SystemClock.uptimeMillis() + 15_000;
+        do {
+            String selected = writingMode();
+            accessibleClick(description("取消"));
+            if (mode.equals(selected)) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Handwriting writing mode was not saved");
+    }
+
+    private void runHandwritingChecks() throws Exception {
+        if (ocrCoexistence) {
+            stage = "IME handwriting OCR offline prerequisite";
+            android.net.ConnectivityManager connectivity = getTargetContext().getSystemService(android.net.ConnectivityManager.class);
+            if (connectivity.getActiveNetwork() != null)
+                throw new AssertionError("IME coexistence requires an offline dedicated AVD");
+        }
         stage = "handwriting preview wake";
         shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         stage = "handwriting IME rebind";
@@ -59,10 +149,12 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Packaged handwriting recognizer was unavailable");
             AccessibilityNodeInfo download = findVisible(description("下载中文手写模型；完成后可离线识别"));
             if (download != null) {
+                if (ocrCoexistence) throw new AssertionError("IME coexistence requires the prepared real model");
                 stage = "handwriting model download";
                 tap(description("下载中文手写模型；完成后可离线识别"));
             }
             awaitFor(imeTextContains("在此手写，停笔后选字"), MODEL_TIMEOUT_MILLIS);
+            String imeProcess = ocrCoexistence ? imeProcess() : null;
 
             stage = "handwriting ink recognition for space";
             drawMiddleCharacter(canvasBounds());
@@ -73,11 +165,18 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
             CharSequence firstText = first.getText();
             if (firstText == null || firstText.length() == 0)
                 throw new AssertionError("Recognized candidate was empty");
+            if (ocrCoexistence) {
+                awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && equalsText("中", node.getText())
+                    && node.getContentDescription() != null
+                    && node.getContentDescription().toString().startsWith("按键 手写候选 "), 15_000);
+                shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-before.png");
+            }
             tap(key("空格"));
             AccessibilityNodeInfo afterSpace = awaitFor(field("msime-test-plain").and(node ->
                 node.getText() != null && !node.getText().toString().isEmpty()
                     && node.getText().chars().noneMatch(Character::isWhitespace)), 15_000);
             String firstCommitted = afterSpace.getText().toString();
+            if (ocrCoexistence) cameraOcrBetweenHandwriting(firstCommitted, imeProcess);
 
             stage = "handwriting ink recognition for return";
             drawMiddleCharacter(canvasBounds());
@@ -85,6 +184,15 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
             CharSequence secondText = second.getText();
             if (secondText == null || secondText.length() == 0)
                 throw new AssertionError("Recognized candidate was empty");
+            if (ocrCoexistence) {
+                stage = "IME handwriting inference after camera OCR";
+                awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && equalsText("中", node.getText())
+                    && node.getContentDescription() != null
+                    && node.getContentDescription().toString().startsWith("按键 手写候选 "), 15_000);
+                if (!imeProcess.equals(imeProcess()))
+                    throw new AssertionError("IME process restarted across real handwriting and OCR");
+                shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-after.png");
+            }
             stage = "handwriting return key commit";
             tap(returnKey());
             AccessibilityNodeInfo afterReturn = awaitFor(field("msime-test-plain").and(node ->
@@ -111,7 +219,10 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Hardware delete changed committed editor text");
 
             stage = "handwriting symbol layer open";
-            accessibleClick(description("切换符号键盘"));
+            // 手写底行由长按 123 打开符号面板，横排数字层的符号入口不在当前布局中。
+            AccessibilityNodeInfo symbols = awaitFor(description("切换到数字和符号"), 15_000);
+            if (!symbols.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("Handwriting symbol entry long press failed");
             stage = "handwriting symbol layer ready";
             awaitAnyFor(description("关闭符号面板"), 15_000);
             stage = "handwriting letter layer restore";
@@ -121,6 +232,10 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
             completed = true;
         } catch (Exception | AssertionError error) {
             failureStage = stage;
+            if (ocrCoexistence) {
+                try { shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-failure.png"); }
+                catch (Exception ignored) { }
+            }
             throw error;
         } finally {
             if (restoreScheme) {
@@ -135,6 +250,42 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
                     stage = failureStage;
                 }
             }
+        }
+    }
+
+    /** 识别相机输入后主动返回，不把 OCR 文字写入用于手写键验收的编辑器。 */
+    private void cameraOcrBetweenHandwriting(String committed, String imeProcess) throws Exception {
+        stage = "same IME process opens camera OCR after handwriting";
+        if (!imeProcess.equals(imeProcess())) throw new AssertionError("IME process changed before OCR");
+        tap(key("更多"));
+        showTool("拍照识字");
+        tap(tool("拍照识字"));
+        awaitFor(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled(), 30_000);
+        tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        stage = "same IME process recognizes synthetic camera text";
+        awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && node.getText() != null
+            && node.getText().toString().replaceAll("\\s", "").contains("SYNTHETICOCR2468"), 60_000);
+        shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-result.png");
+        tap(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && equalsText("返回", node.getText()));
+        tap(tool("返回键盘"));
+        stage = "handwriting UI restores without OCR insertion";
+        awaitFor(imeTextContains("在此手写，停笔后选字"), 30_000);
+        awaitFor(field("msime-test-plain").and(node -> equalsText(committed, node.getText())), 15_000);
+        if (!imeProcess.equals(imeProcess())) throw new AssertionError("IME process restarted during camera OCR");
+        dropStaleNodes();
+    }
+
+    /** 仅记录专用输入法进程的身份，不读取编辑器或其他进程信息。 */
+    private String imeProcess() throws Exception {
+        try (var input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                automation.executeShellCommand("pidof app.msime.android:ime"))) {
+            var output = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[64];
+            int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            String pid = output.toString(StandardCharsets.UTF_8.name()).trim();
+            if (!pid.matches("[1-9][0-9]*")) throw new AssertionError("One isolated IME process must be running");
+            return pid;
         }
     }
 

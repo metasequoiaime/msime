@@ -50,8 +50,12 @@ public:
     return unpack_typing_effect_palette(first, palette_second_.load(std::memory_order_acquire));
   }
   // UI thread: the waiting value, which may be 0, or nothing when an earlier message already took it.
-  std::optional<uint32_t> take() {
+  std::optional<uint32_t> take(HWND target = nullptr) {
+    if (target && target_.load(std::memory_order_acquire) != target)
+      return std::nullopt;
     const uint32_t value = latest_.exchange(0, std::memory_order_acq_rel);
+    if (target && target_.load(std::memory_order_acquire) != target)
+      return std::nullopt;
     if ((value & waiting_bit) == 0)
       return std::nullopt;
     return value & ~waiting_bit;

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -19,11 +20,15 @@ void require(bool value, int line) {
 #define REQUIRE(value) require((value), __LINE__)
 }
 int main() {
+  try {
   const auto directory = std::filesystem::temp_directory_path() / "msime-clipboard-history-test";
   const auto path = directory / "history.json";
   std::error_code error; std::filesystem::remove_all(directory, error);
   std::filesystem::create_directory(directory);
   msime::windows::ClipboardHistory history(path);
+  REQUIRE(history.limit() == 50);
+  // 本用例验证最大容量；运行时默认保留 50 条，必须显式选择 1000 条。
+  history.set_limit(msime::windows::ClipboardHistory::max_items);
 
   // Newlines and whitespace are user content and survive the round trip
   // exactly: `normalize_clipboard_text` removes only what CF_UNICODETEXT adds.
@@ -140,8 +145,7 @@ int main() {
     std::filesystem::remove(linked_directory, error);
   }
 
-  // The final store file is untrusted too. A leaf reparse point must not make
-  // history load or mutate a file outside the state directory.
+  // 最终存储文件也不可信：拒绝读写或清除符号链接，不能触及状态目录之外的文件。
   const auto outside_store = outside_directory / "outside-history.json";
   const auto linked_store = directory / "linked-history.json";
   {
@@ -154,7 +158,8 @@ int main() {
     REQUIRE(linked_history.load().empty());
     REQUIRE(!linked_history.add("synthetic-reparse"));
     REQUIRE(!linked_history.remove("synthetic-outside"));
-    REQUIRE(linked_history.clear());
+    REQUIRE(!linked_history.clear());
+    REQUIRE(std::filesystem::is_symlink(linked_store));
     std::ifstream input(outside_store);
     const std::string outside_payload((std::istreambuf_iterator<char>(input)),
                                       std::istreambuf_iterator<char>());
@@ -211,4 +216,8 @@ int main() {
 #endif
 
   std::filesystem::remove_all(directory, error);
+  } catch (const std::exception &failure) {
+    std::cerr << failure.what() << '\n';
+    return 1;
+  }
 }

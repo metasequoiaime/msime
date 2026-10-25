@@ -30,7 +30,9 @@ public enum KeyboardScheme {
     // 全拼 14 键：QWERTY 上相邻两个字母合成一个键，引擎按组码网格解码。追加在末尾，与共享 `TouchKeyboardScheme::ALL` 的顺序一致；默认不启用（{@link #optIn}）。
     QUANPIN_FOURTEEN_KEY("fourteen_key", "quanpin", null, "fourteen_key", "全拼 14 键", "拼", "14"),
     // 九键双拼（#6572）：九宫格上每个音节两位数字，声母一位、韵母一位，用哪张表由偏好 `nine_key_shuangpin_profile` 选；引擎方案是全拼，解码复用九宫格。追加在末尾，与共享 `TouchKeyboardScheme::ALL` 的顺序一致；默认不启用（{@link #optIn}）。
-    NINE_KEY_SHUANGPIN("nine_key_shuangpin", "quanpin", null, "nine_key_shuangpin", "九键双拼", "双", "9");
+    NINE_KEY_SHUANGPIN("nine_key_shuangpin", "quanpin", null, "nine_key_shuangpin", "九键双拼", "双", "9"),
+    // 全拼十八键使用共享引擎的多义组码；追加入口，保留已有方案顺序和默认启用列表。
+    QUANPIN_EIGHTEEN_KEY("eighteen_key", "quanpin", null, "eighteen_key", "全拼 18 键", "拼", "18");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -90,6 +92,18 @@ public enum KeyboardScheme {
         }
         return HANDWRITING;
     }
+
+    /**
+     * 功能面板「手写」磁贴离开手写时回到的入口（#9703）：`before`（经磁贴进入手写前的入口）还在启用列表 `enabled` 里就回到它；不知道它（键盘是从方案选择进的手写）或它已被移除时，取 `enabled` 里第一个不是手写的入口，再没有就是 {@link #fallback}。与 iOS `InputSchemePreference.handwritingReturn`、鸿蒙 `KeyboardScheme.handwritingReturn` 一致。
+     */
+    public static KeyboardScheme handwritingReturn(
+            KeyboardScheme before, List<KeyboardScheme> enabled, AppEdition edition) {
+        if (before != null && before != HANDWRITING && enabled.contains(before)) return before;
+        for (KeyboardScheme candidate : enabled) {
+            if (candidate != HANDWRITING) return candidate;
+        }
+        return fallback(edition);
+    }
     public String shuangpinProfile() { return shuangpinProfile; }
     public String touchKeyboardLayout() { return touchKeyboardLayout; }
     public String title() { return title; }
@@ -125,7 +139,7 @@ public enum KeyboardScheme {
     public boolean optIn() {
         return this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
             || this == TIBETAN || this == STROKE || this == QUANPIN_FOURTEEN_KEY
-            || this == NINE_KEY_SHUANGPIN;
+            || this == NINE_KEY_SHUANGPIN || this == QUANPIN_EIGHTEEN_KEY;
     }
 
     /** 日文词典资源包的 id，与 client-providers `ResourcePack::Japanese` 一致。 */
@@ -301,6 +315,7 @@ public enum KeyboardScheme {
         if (handwritingScheme.equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;
         if ("quanpin".equals(scheme) && "fourteen_key".equals(touchLayout)) return QUANPIN_FOURTEEN_KEY;
+        if ("quanpin".equals(scheme) && "eighteen_key".equals(touchLayout)) return QUANPIN_EIGHTEEN_KEY;
         if ("quanpin".equals(scheme) && "nine_key_shuangpin".equals(touchLayout)) return NINE_KEY_SHUANGPIN;
         if ("japanese".equals(scheme) && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY;
         if ("zhuyin".equals(scheme) && "nine_key".equals(touchLayout)) return ZHUYIN_NINE_KEY;
@@ -315,6 +330,7 @@ public enum KeyboardScheme {
             if (candidate.shuangpinProfile == null && candidate.engineScheme.equals(scheme)
                     && !"nine_key".equals(candidate.touchKeyboardLayout)
                     && !"fourteen_key".equals(candidate.touchKeyboardLayout)
+                    && !"eighteen_key".equals(candidate.touchKeyboardLayout)
                     && !"nine_key_shuangpin".equals(candidate.touchKeyboardLayout)) return candidate;
         }
         return QUANPIN;

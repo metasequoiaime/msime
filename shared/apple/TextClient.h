@@ -36,8 +36,12 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
 void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText);
+/// 客户端同步写入后先运行 observer，再判定是否仍可写旧预编辑；observer 接收含待闭合符的实际上屏文本。
+void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETextClient> client,
+                                            MSIMEInlinePreeditStyle style, NSString *closing,
+                                            BOOL *clientHasMarkedText, BOOL (^isCurrent)(void),
+                                            void (^didCommit)(NSString *text));
 /// 同步客户端调用可能处理较新的转换；宿主判定旧转换过期后，不再写它的预编辑。
-/// 判定与代次由宿主持有，nil 保留既有入口的行为；已落地的上屏不会撤销。
 void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextClient> client,
                                        MSIMEInlinePreeditStyle style, NSString *closing,
                                        BOOL *clientHasMarkedText, BOOL (^isCurrent)(void));
@@ -50,3 +54,7 @@ NSString * MSIMETextClientFollowingCharacter(id<MSIMETextClient> client);
 /// Returns the Unicode scalar immediately preceding the selection, or zero when
 /// the host cannot safely expose document context.
 uint32_t MSIMETextClientPrecedingUnicodeScalar(id<MSIMETextClient> client);
+
+/// 校验刚上屏文本仍紧邻折叠光标，返回其文档范围与左侧标量；未知、过长或过期时返回 NSNotFound。
+NSRange MSIMETextClientCommittedRange(id<MSIMETextClient> client, NSString *text,
+                                      uint32_t *preceding, BOOL (^isCurrent)(void));

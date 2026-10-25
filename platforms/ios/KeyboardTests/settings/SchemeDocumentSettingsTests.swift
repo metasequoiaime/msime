@@ -172,6 +172,7 @@ final class SchemeDocumentSettingsTests: XCTestCase {
       switch scheme {
       case .nineKey, .japaneseNineKey: expected = "nine_key"
       case .fourteenKey: expected = "fourteen_key"
+      case .eighteenKey: expected = "eighteen_key"
       case .nineKeyShuangpin: expected = "nine_key_shuangpin"
       case .handwriting: expected = "handwriting"
       default: expected = "twenty_six_key"
@@ -192,7 +193,7 @@ final class SchemeDocumentSettingsTests: XCTestCase {
       InputSchemePreference.scheme = previousMirror.0
       InputSchemePreference.enabledSchemes = previousMirror.1
     }
-    for (scheme, layout, nineKey) in [(ChineseInputScheme.fourteenKey, "fourteen_key", false),
+    for (scheme, layout, nineKey) in [(ChineseInputScheme.fourteenKey, "fourteen_key", false), (.eighteenKey, "eighteen_key", false),
                                       (.nineKey, "nine_key", true), (.nineKeyShuangpin, "nine_key_shuangpin", false), (.quanpin, "twenty_six_key", false)] {
       XCTAssertTrue(InputSchemePreference.select(scheme), "\(scheme)")
       let settings = try RustSettingsExport.settings()

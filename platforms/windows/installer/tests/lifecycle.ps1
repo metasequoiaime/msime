@@ -11,12 +11,17 @@ function Get-Block([string]$Begin, [string]$End) {
 }
 
 # ---- processes stopped before files are replaced or removed ----
-# The WinUI 3 settings window, the shared Tauri panel shell and the MCP server are separate processes outside the Server's process tree; all of them live in the server directory and must be stopped before it is replaced.
-$settings = [regex]::Match($script, '#define MySettingsExeName "([^"]+)"').Groups[1].Value
+# 两种构建的安装器与 Server 必须选择相同的设置和面板入口；分别核对编译分支。
 $shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw -Encoding UTF8
-$shellNames = [regex]::Match($shell, 'shell_executable_names\(const ShellSurfaceRequest &request\)\s*\{\s*if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"')
-if (-not $settings -or -not $shellNames.Success -or $shellNames.Groups[1].Value -ne $settings) {
-    throw 'The installer does not name the Tauri executable the Server launches'
+$branches = [regex]::Match($shell, '(?s)#if defined\(MSIME_WINDOWS7_CLIENT\) && MSIME_WINDOWS7_CLIENT\s*(.*?)#else\s*(.*?)#endif')
+if (-not $branches.Success) { throw 'Missing explicit Win7/modern shell branches' }
+foreach ($variant in @(@(1, 'msime-client-settings-win7.exe', 'msime-client-panels-win7.exe'), @(2, 'msime-client-settings.exe', 'MSIME.exe'))) {
+    $body = $branches.Groups[$variant[0]].Value
+    $names = [regex]::Match($body, 'if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"\};\s*return\s*\{L"([^"]+)"\};')
+    if (-not $names.Success -or $names.Groups[1].Value -cne $variant[1] -or $names.Groups[2].Value -cne $variant[2] -or
+        -not $script.Contains(('#define MySettingsExeName "' + $variant[1] + '"'))) {
+        throw "Installer/Server entry mismatch: $($variant[1])"
+    }
 }
 # Every edition, full included, stops the processes whose executable is inside its own server directory, not by image name: the editions' processes share names, and taskkill /IM would also stop the other editions installed side by side. The Watchdog stops first, or it restarts the Server.
 $stop = Get-Block 'procedure StopImeProcesses;' 'procedure DeleteWatchdogLogonTask;'
@@ -25,7 +30,7 @@ $rest = $stop.IndexOf("StopProcessesUnder(ServerDir, '');")
 if ($watchdogFirst -lt 0 -or $rest -lt 0 -or $watchdogFirst -gt $rest) {
     throw 'StopImeProcesses must stop the Watchdog first and then everything else under the server directory'
 }
-if (-not $stop.Contains("ServerDir := ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server');")) {
+if (-not $stop.Contains("ServerDir := ExpandConstant('{autopf}\{#MyEditionInstallDir}\server');")) {
     throw 'StopImeProcesses does not stop processes under its own server directory'
 }
 if ($script.Contains('taskkill.exe') -or $script.Contains('procedure StopProcess(')) {
@@ -38,7 +43,9 @@ $uninstall = Get-Block 'procedure CurUninstallStepChanged' 'else if CurUninstall
 $systemCleanup = Get-Block 'procedure TryDeleteSystemVersionDirs' 'procedure TryDeleteOldVersionDirs'
 $nativePowerShell = "\{#ExecNativeSys\}\(\s*ExpandConstant\('\{sys\}\\WindowsPowerShell\\v1\.0\\powershell\.exe'\)"
 if ($systemCleanup -notmatch $nativePowerShell -or
-    -not $systemCleanup.Contains('[Environment]::Is64BitProcess') -or
+    -not $systemCleanup.Contains('[IntPtr]::Size -ne 8') -or
+    -not $systemCleanup.Contains('if not IsWin64 then') -or
+    $systemCleanup.Contains('-Directory') -or
     $systemCleanup.Contains('DelTree(')) {
     throw 'System32 TIP cleanup does not run in a 64-bit PowerShell'
 }
@@ -67,7 +74,7 @@ foreach ($block in @($prepare, $uninstall)) {
     }
 }
 $flatPrepare = $prepare -replace '\s+', ' '
-$serverRemoval = $flatPrepare.IndexOf("TryDeleteTree(ExpandConstant( '{commonpf64}\{#MyEditionInstallDir}\server'))")
+$serverRemoval = $flatPrepare.IndexOf("TryDeleteTree(ExpandConstant( '{autopf}\{#MyEditionInstallDir}\server'))")
 if ($serverRemoval -lt 0 -or $flatPrepare.IndexOf('StopImeProcesses;') -gt $serverRemoval) {
     throw 'Upgrade removes the server directory before stopping its processes'
 }

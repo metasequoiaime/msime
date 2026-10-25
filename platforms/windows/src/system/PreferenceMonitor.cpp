@@ -22,6 +22,13 @@ void PreferenceMonitor::request_stop() {
   }
   wake_.notify_all();
 }
+void PreferenceMonitor::wake() {
+  {
+    std::lock_guard lock(mutex_);
+    wake_pending_ = true;
+  }
+  wake_.notify_all();
+}
 void PreferenceMonitor::stop() {
   if (input_.on_worker_thread())
     throw std::logic_error("Cannot join preference monitor from input queue");
@@ -33,13 +40,15 @@ void PreferenceMonitor::stop() {
     worker_.join();
 }
 void PreferenceMonitor::run() {
-  std::optional<PreferenceSnapshot> published, pending;
+  std::optional<PreferenceSnapshot> published;
   std::optional<std::future<InputTaskStatus>> receipt;
+  std::shared_ptr<std::optional<PreferenceSnapshot>> applied;
   for (;;) {
     {
       std::lock_guard lock(mutex_);
       if (stopping_)
         break;
+      wake_pending_ = false;
     }
     if (!input_.stats().accepting) {
       status_ = PreferenceMonitorStatus::InputUnavailable;
@@ -53,8 +62,8 @@ void PreferenceMonitor::run() {
           return;
         }
         receipt.reset();
-        published = std::move(pending);
-        pending.reset();
+        published = std::move(*applied);
+        applied.reset();
         if (published_) published_(*published);
         status_ = PreferenceMonitorStatus::Current;
       }
@@ -75,11 +84,11 @@ void PreferenceMonitor::run() {
             if (stopping_)
               break;
           }
-          receipt = input_.submit([value = *snapshot](InputState &state) {
-            state.publish_preferences(value);
+          applied = std::make_shared<std::optional<PreferenceSnapshot>>();
+          receipt = input_.submit([value = *snapshot, result = applied](InputState &state) {
+            *result = state.publish_preferences_at_least(value);
           });
           if (receipt) {
-            pending = std::move(snapshot);
             status_ = PreferenceMonitorStatus::Publishing;
           } else
             status_ = PreferenceMonitorStatus::QueueFull;
@@ -94,8 +103,9 @@ void PreferenceMonitor::run() {
       status_ = PreferenceMonitorStatus::ReadFailed;
     }
     std::unique_lock lock(mutex_);
-    if (wake_.wait_for(lock, interval_, [&] { return stopping_; }))
-      break;
+    // 等待队列回执时只做短轮询；否则一次唤醒后的配置广播仍会再晚一个空闲周期。
+    const auto delay = receipt ? std::chrono::milliseconds(10) : interval_;
+    wake_.wait_for(lock, delay, [&] { return stopping_ || wake_pending_; });
   }
   status_ = PreferenceMonitorStatus::Stopped;
 }

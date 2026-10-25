@@ -28,6 +28,7 @@ fn options(root: &Path) -> EngineOptions {
         single_character_only: false,
         learning: false,
         learn_english_on_enter: true,
+        next_word_prediction: false,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
@@ -57,6 +58,7 @@ fn options(root: &Path) -> EngineOptions {
         mixed_kaomoji: false,
         mixed_symbols: false,
         mixed_japanese: false,
+        multilingual_languages: Vec::new(),
         local_unicode: true,
         local_date_time: true,
         local_date_time_inline: true,
@@ -92,6 +94,7 @@ fn options(root: &Path) -> EngineOptions {
         sentence_alternatives: true,
         vietnamese_input_method: 0,
         vietnamese_tone_style: 0,
+        korean_layout: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
@@ -109,6 +112,92 @@ fn type_text(session: &mut Session, text: &[u8]) {
 const ENGLISH_SCHEMA: &str = "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
     CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT);
     CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT);";
+
+#[test]
+fn quanpin_host_preedit_uses_segmentation_without_changing_editing_or_commit() {
+    for (raw, display) in [
+        (b"nihao".as_slice(), "ni'hao"),
+        (b"ni'hao".as_slice(), "ni'hao"),
+        (b"nihao'".as_slice(), "ni'hao'"),
+        (b"sahnghao".as_slice(), "sahng'hao"),
+        (b"sahnghao'".as_slice(), "sahng'hao'"),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut options = helpcode_fixture(root.path(), "", "");
+        options.helpcode = false;
+        let mut session = Session::new(&options).unwrap();
+        type_text(&mut session, raw);
+        let view = session.snapshot().unwrap();
+        assert_eq!(view.preedit, display);
+        assert_eq!(view.editing_text.as_bytes(), raw);
+        assert_eq!(view.caret_position, raw.len());
+        session.set_caret(Some(2));
+        let moved = session.snapshot().unwrap();
+        assert_eq!(moved.preedit, display);
+        assert_eq!(moved.editing_text, view.editing_text);
+        assert_eq!(moved.caret_position, 2);
+        session.command(Command::MoveEnd).unwrap();
+        assert_eq!(
+            session
+                .command(Command::CommitRaw)
+                .unwrap()
+                .commit
+                .as_bytes(),
+            raw
+        );
+    }
+}
+
+#[test]
+fn quanpin_host_preedit_keeps_literal_and_local_modes_unsegmented() {
+    let root = tempfile::tempdir().unwrap();
+    let options = options(root.path());
+    let mut session = Session::new(&options).unwrap();
+    session.set_dedicated_english(true).unwrap();
+    type_text(&mut session, b"nihao");
+    assert_eq!(session.snapshot().unwrap().preedit, "nihao");
+    session.command(Command::Cancel).unwrap();
+    session.set_dedicated_english(false).unwrap();
+    for raw in [b"Ynihao".as_slice(), b"https://example.test".as_slice()] {
+        for byte in raw {
+            assert!(
+                session
+                    .character(*byte, byte.is_ascii_uppercase())
+                    .unwrap()
+                    .handled
+            );
+        }
+        let view = session.snapshot().unwrap();
+        assert_eq!(view.preedit.as_bytes(), raw);
+        session.command(Command::Cancel).unwrap();
+    }
+}
+
+#[test]
+fn quanpin_host_preedit_preserves_case_and_shuangpin_display_preference() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = options(root.path());
+    let mut session = Session::new(&options).unwrap();
+    for byte in b"niHao" {
+        assert!(
+            session
+                .character(*byte, byte.is_ascii_uppercase())
+                .unwrap()
+                .handled
+        );
+    }
+    assert_eq!(session.snapshot().unwrap().preedit, "niHao");
+    assert_eq!(session.snapshot().unwrap().editing_text, "niHao");
+    drop(session);
+    options.scheme = SchemeType::Shuangpin as u8;
+    for (raw_display, expected) in [(true, "nihc"), (false, "ni'hao")] {
+        options.shuangpin_preedit_uses_raw = raw_display;
+        let mut session = Session::new(&options).unwrap();
+        type_text(&mut session, b"nihc");
+        assert_eq!(session.snapshot().unwrap().preedit, expected);
+        assert_eq!(session.snapshot().unwrap().editing_text, "nihc");
+    }
+}
 
 #[test]
 fn normalizes_full_pinyin_using_the_expected_word_length() {
@@ -749,7 +838,9 @@ fn helpcode_settings_reach_the_real_engine() {
             let mut session = Session::new(&value).unwrap();
             type_text(&mut session, b"ni");
             assert!(session.character(b'H', true).unwrap().handled);
-            assert_eq!(session.snapshot().unwrap().preedit, "niH");
+            let snapshot = session.snapshot().unwrap();
+            assert_eq!(snapshot.preedit, if enabled { "ni'H" } else { "niH" });
+            assert_eq!(snapshot.editing_text, "niH");
         }
     }
     value.helpcode_schema = "unknown".into();
@@ -843,6 +934,9 @@ fn invalid_options_return_errors_instead_of_unwinding_into_rust() {
     value.vietnamese_tone_style = 2;
     assert_eq!(message(&value), "Unsupported Vietnamese tone style");
     value.vietnamese_tone_style = 1;
+    value.korean_layout = 2;
+    assert_eq!(message(&value), "Unsupported Korean layout");
+    value.korean_layout = 1;
     assert!(Session::new(&value).is_ok());
     value.resources = "relative".into();
     assert_eq!(message(&value), "Runtime directories must be absolute");
@@ -3700,4 +3794,97 @@ fn resource_dictionary_browse_distinguishes_missing_files_and_preserves_model_pa
     assert_eq!(std::fs::read(path).unwrap(), bytes);
     assert!(dictionary_resource_entries(&options, Japanese, "", 0, 1001).is_err());
     assert!(dictionary_resource_entries(&options, Japanese, "", 1_000_001, 1).is_err());
+}
+
+fn multilingual_fixture(root: &Path) -> EngineOptions {
+    let mut value = helpcode_fixture(root, "", "");
+    value.helpcode = false;
+    value.mixed_english = false;
+    value.multilingual_languages = vec![
+        crate::multilingual::Language::Chinese,
+        crate::multilingual::Language::English,
+        crate::multilingual::Language::Japanese,
+    ];
+    Connection::open(Path::new(&value.dictionaries).join("msime-english.db"))
+        .unwrap()
+        .execute_batch("INSERT INTO english_words VALUES('hello','hello',100);")
+        .unwrap();
+    std::fs::write(
+        Path::new(&value.resources).join("msime-japanese.dat"),
+        crate::japanese::decoder::test_model::bytes(
+            &[("おはよう", "おはよう", 0, 0, 500)],
+            1,
+            &[0],
+        ),
+    )
+    .unwrap();
+    value
+}
+
+#[test]
+fn host_multilingual_options_map_the_selected_languages() {
+    let root = tempfile::tempdir().unwrap();
+    let value = multilingual_fixture(root.path());
+    assert_eq!(
+        options::session_options(&value)
+            .unwrap()
+            .multilingual_languages,
+        value.multilingual_languages
+    );
+}
+
+#[test]
+fn host_multilingual_snapshot_keeps_the_raw_identity_and_language_ranges() {
+    use crate::multilingual::Language;
+    let root = tempfile::tempdir().unwrap();
+    let value = multilingual_fixture(root.path());
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"hellonihaoohayou");
+    let snapshot = session.snapshot().unwrap();
+    let index = snapshot
+        .candidate_sources
+        .iter()
+        .position(|source| *source == CandidateSource::Multilingual as u8)
+        .expect("宿主应保留连续混合行");
+    assert_eq!(snapshot.candidates[index], "hello你好おはよう");
+    let metadata = snapshot
+        .multilingual_conversion
+        .expect("宿主快照应保留语言边界");
+    assert_eq!(metadata.raw_input, "hellonihaoohayou");
+    assert_eq!(metadata.raw_input, snapshot.editing_text);
+    assert_eq!(
+        metadata
+            .conversion
+            .segments
+            .iter()
+            .map(|segment| (
+                segment.language,
+                segment.input.clone(),
+                segment.text.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (Language::English, 0..5, "hello"),
+            (Language::Chinese, 5..10, "你好"),
+            (Language::Japanese, 10..16, "おはよう"),
+        ]
+    );
+    assert_eq!(session.select(index).unwrap().commit, "hello你好おはよう");
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .multilingual_conversion
+        .is_none());
+    type_text(&mut session, b"nihao");
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .multilingual_conversion
+        .is_none());
+    session.command(Command::Cancel).unwrap();
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .multilingual_conversion
+        .is_none());
 }

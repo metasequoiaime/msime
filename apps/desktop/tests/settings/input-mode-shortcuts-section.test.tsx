@@ -484,3 +484,45 @@ test("a document without the Control+Shift+F key shows the switch on, as client-
       .checked,
   ).toBe(true);
 });
+
+test("macOS editable-focus Shift option defaults off and explains permission", () => {
+  const onChange = vi.fn();
+  renderLanguageSwitch({}, onChange, true);
+  const toggle = screen.getByRole("switch", { name: "仅在可编辑焦点时单按 Shift 切换" });
+  expect((toggle as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByText(/辅助功能/)).toBeTruthy();
+  expect(screen.getByText(/无法确认/)).toBeTruthy();
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.click(toggle);
+  expect(onChange).toHaveBeenCalledExactlyOnceWith({
+    switch_language_shift_requires_editable: true,
+  });
+});
+
+test("editable-focus Shift restriction stays hidden outside macOS", () => {
+  for (const linux of [false, true]) {
+    renderLanguageSwitch({}, vi.fn(), false, linux);
+    expect(screen.queryByRole("switch", { name: /可编辑焦点/ })).toBeNull();
+    cleanup();
+  }
+});
+
+test("changing the chosen shortcut preserves an enabled editable-focus restriction", () => {
+  const onChange = vi.fn();
+  render(
+    <InputModeShortcutsSection
+      keybindings={{ ...keybindings, switch_language_shift_requires_editable: true }}
+      onChange={onChange}
+      showModeSwitchShortcuts
+      macos
+      showFullwidthChord={false}
+      windows={false}
+    />,
+  );
+  const toggle = screen.getByRole("switch", { name: "仅在可编辑焦点时单按 Shift 切换" });
+  expect((toggle as HTMLInputElement).checked).toBe(true);
+  fireEvent.change(screen.getByLabelText("切换中英文"), { target: { value: "ctrl" } });
+  expect(onChange.mock.calls[0][0]).not.toHaveProperty("switch_language_shift_requires_editable");
+  fireEvent.click(toggle);
+  expect(onChange).toHaveBeenLastCalledWith({ switch_language_shift_requires_editable: false });
+});

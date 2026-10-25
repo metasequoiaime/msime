@@ -31,12 +31,18 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
+        if (arguments != null && "true".equals(arguments.getString("english-swipe")))
+            return "English symbol swipes in both directions, Unicode hints and cancellation";
         if (arguments != null && "true".equals(arguments.getString("letter-swipe")))
             return "letter option drag, release/cancel, engine punctuation and swipe direction/disable";
         return "letter hints and comma hold route punctuation once, commit composition and preserve the symbol panel entry";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (arguments != null && "true".equals(arguments.getString("english-swipe"))) {
+            runConfiguredChecks(false, true);
+            return;
+        }
         if (arguments != null && "true".equals(arguments.getString("letter-swipe"))) {
             runConfiguredChecks(true);
             return;
@@ -63,7 +69,8 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
 
         stage = "composition";
         for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(described("字母 " + key.toUpperCase(java.util.Locale.ROOT)));
-        await(field(PLAIN).and(node -> equalsText("？nihao", node.getText())));
+        // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md），提交的仍是候选。
+        await(field(PLAIN).and(node -> equalsText("？ni'hao", node.getText())));
         stage = "commit composition before symbol swipe";
         tap(key("空格"));
         await(field(PLAIN).and(node -> equalsText("？你好", node.getText())));
@@ -119,6 +126,10 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
 
     /** 配置只写专用模拟器中的产品沙盒，结束时恢复；输入与断言均使用合成值。 */
     private void runConfiguredChecks(boolean swipeOptions) throws Exception {
+        runConfiguredChecks(swipeOptions, false);
+    }
+
+    private void runConfiguredChecks(boolean swipeOptions, boolean englishSwipes) throws Exception {
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
         swipePreferences = new File(options.getString("preferences_directory"), "preferences.json").getCanonicalFile();
@@ -142,6 +153,10 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
                 .put("enabled", new JSONArray().put("quanpin")).put("selected", "quanpin"));
         try {
             if (!modes.edit().clear().commit()) throw new AssertionError("输入模式准备失败");
+            if (englishSwipes) {
+                runEnglishSwipeChecks();
+                return;
+            }
             configureSwipe(true, "down", true, false);
             if (!swipeOptions) {
                 runPunctuationChecks();
@@ -275,8 +290,15 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
 
     private void gestureOption(String letter, boolean hold, String direction, String choice,
             boolean cancel, boolean outside) throws Exception {
+        String upper = letter.toUpperCase(java.util.Locale.ROOT);
+        gestureOption(described("字母 " + upper), hold, direction, choice,
+            described("输入 " + (choice.equals(upper) ? letter : upper)), cancel, outside);
+    }
+
+    private void gestureOption(Predicate<AccessibilityNodeInfo> anchor, boolean hold, String direction,
+            String choice, Predicate<AccessibilityNodeInfo> alternate, boolean cancel, boolean outside) throws Exception {
         String originalStage = stage;
-        Rect keyBounds = bounds(awaitStableBounds(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT))));
+        Rect keyBounds = bounds(awaitStableBounds(anchor));
         long started = SystemClock.uptimeMillis();
         inject(started, MotionEvent.ACTION_DOWN, keyBounds.centerX(), keyBounds.centerY());
         if (hold) SystemClock.sleep(ViewConfiguration.getLongPressTimeout() + 100);
@@ -286,10 +308,8 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
                 keyBounds.centerY() + ("up".equals(direction) ? -dy : dy));
         }
         stage = originalStage + " open options";
-        Predicate<AccessibilityNodeInfo> option = described("输入 " + choice);
+        Predicate<AccessibilityNodeInfo> option = described("⮕".equals(choice) ? "切换到拼音键盘" : "输入 " + choice);
         Rect choiceBounds = bounds(awaitStableBounds(option));
-        String upper = letter.toUpperCase(java.util.Locale.ROOT);
-        Predicate<AccessibilityNodeInfo> alternate = described("输入 " + (choice.equals(upper) ? letter : upper));
         Rect alternateBounds = bounds(awaitStableBounds(alternate));
         stage = originalStage + " hover alternate";
         inject(started, MotionEvent.ACTION_MOVE, alternateBounds.centerX(), alternateBounds.centerY());
@@ -372,6 +392,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             await(described("切换到所选输入方案"));
         }
         runUnicode18SubscriptHolds(expected);
+        runEnglishDragChecks(expected);
         stage = "English hold tone on last row";
         holdLetter("e");
         touch(bounds(await(described("输入 è"))));
@@ -382,8 +403,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         expected.append("2");
         await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
         stage = "O retains Chinese keyboard entry";
-        holdLetter("o");
-        touch(bounds(await(described("切换到拼音键盘"))));
+        gestureOption(key("o"), true, "down", "⮕", described("输入 O"), false, false);
         await(described("切换到英文输入"));
         // 回到中文后的候选提交仍留在中文，延续 O 键入口的既有规则。
         for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
@@ -391,6 +411,26 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         expected.append("你好");
         await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
         await(described("切换到英文输入"));
+    }
+
+    /** 同一次按压覆盖同行左右切换、多行末项、取消与滑出，不用第二次点击代替拖选。 */
+    private void runEnglishDragChecks(StringBuilder expected) throws Exception {
+        for (String[] entry : new String[][] {{"g", "&", "G"}, {"g", "G", "&"},
+                {"e", "è", "E"}, {"q", "Q", "1"}, {"m", "ḿ", "M"}}) {
+            stage = "English hold drag " + entry[0] + " to " + entry[1];
+            gestureOption(key(entry[0]), true, "down", entry[1], described("输入 " + entry[2]), false, false);
+            expected.append(entry[1]);
+            expect(expected.toString());
+            await(described("切换到所选输入方案"));
+        }
+        stage = "English hold drag cancel";
+        gestureOption(key("g"), true, "down", "&", described("输入 G"), true, false);
+        expect(expected.toString());
+        assertNoOptions();
+        stage = "English hold drag outside";
+        gestureOption(key("g"), true, "down", "&", described("输入 G"), false, true);
+        expect(expected.toString());
+        assertNoOptions();
     }
 
     /** 专项可独立跑，也保留在完整英文长按套件内，验证原始码位通过真实触摸上屏。 */
@@ -529,19 +569,63 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         await(described("字母 V").and(AccessibilityNodeInfo::isClickable));
     }
 
+    /** 英文角标包含三个非 ASCII 字符，期望表独立于产品字符表。 */
+    private void runEnglishSwipeChecks() throws Exception {
+        String letters = "dxcqwertyuiopasfghjklzvbnm";
+        String[] symbols = {"¥", "…", "、", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+            "@", "#", "%", "&", "*", "(", ")", "\"", "~", "?", "!", "-", "/"};
+        for (String direction : new String[] {"down", "up"}) {
+            shellDiscard("am force-stop app.msime.android.test");
+            configureSwipe(true, direction, true, false);
+            tap(described("切换到英文输入"));
+            await(described("切换到所选输入方案"));
+            StringBuilder expected = new StringBuilder();
+            for (int index = 0; index < letters.length(); index++) {
+                String letter = letters.substring(index, index + 1);
+                stage = "English " + direction + " swipe " + letter;
+                swipeLetter(letter, direction, false);
+                expected.append(symbols[index]);
+                expect(expected.toString());
+                await(described("切换到所选输入方案"));
+            }
+            stage = "English " + direction + " swipe cancellation";
+            swipeLetter("d", direction, true);
+            expect(expected.toString());
+            stage = "English letter after Unicode hints";
+            tap(described("字母 G"));
+            expected.append("g");
+            expect(expected.toString());
+            tap(described("切换到所选输入方案"));
+            await(described("切换到英文输入"));
+        }
+        shellDiscard("am force-stop app.msime.android.test");
+        configureSwipe(false, "down", true, false);
+        tap(described("切换到英文输入"));
+        await(described("切换到所选输入方案"));
+        stage = "disabled English symbol swipe keeps the letter";
+        simpleSwipe("d", "down");
+        expect("d");
+    }
+
     /** 在 `letter` 键中心按下，向下移过阈值后抬起。 */
     private void swipeDown(String letter) throws Exception {
+        swipeLetter(letter, "down", false);
+    }
+
+    private void swipeLetter(String letter, String direction, boolean cancel) throws Exception {
         automation.waitForIdle(500, 5000);
         AccessibilityNodeInfo target = await(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT)));
         Rect bounds = new Rect();
         target.getBoundsInScreen(bounds);
         float x = bounds.centerX();
         float startY = bounds.centerY();
-        float endY = startY + SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
+        float distance = SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
+        float endY = startY + ("up".equals(direction) ? -distance : distance);
         long downTime = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, startY, 0);
         MotionEvent move = MotionEvent.obtain(downTime, downTime + 40, MotionEvent.ACTION_MOVE, x, endY, 0);
-        MotionEvent up = MotionEvent.obtain(downTime, downTime + 80, MotionEvent.ACTION_UP, x, endY, 0);
+        MotionEvent up = MotionEvent.obtain(downTime, downTime + 80,
+            cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, x, endY, 0);
         try {
             for (MotionEvent event : new MotionEvent[] {down, move, up}) {
                 event.setSource(InputDevice.SOURCE_TOUCHSCREEN);

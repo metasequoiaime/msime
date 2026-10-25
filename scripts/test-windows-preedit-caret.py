@@ -26,7 +26,9 @@ HARNESS = r'''
 #include "Composition/PreeditCaret.h"
 #include "shared/input/CompositionDisplay.h"
 
+#ifndef _In_
 #define _In_
+#endif
 using BOOL = int;
 using HRESULT = int;
 using UINT = unsigned;
@@ -34,6 +36,7 @@ using LONG = int;
 using DWORD_PTR = std::size_t;
 using TfEditCookie = int;
 constexpr int TRUE = 1, FALSE = 0, S_OK = 0, E_FAIL = -1;
+constexpr int E_INVALIDARG = -2, S_FALSE = 1;
 constexpr int TF_ANCHOR_START = 0, TF_ANCHOR_END = 1, TF_AE_NONE = 0;
 constexpr int FANY_IME_NO_REQUEST_ID = 0, CP_UTF8 = 65001, MB_ERR_INVALID_CHARS = 8;
 constexpr int ERROR_BROKEN_PIPE = 109;
@@ -127,15 +130,32 @@ struct CCompositionProcessorEngine {
     CStringRange GetKeystrokeBuffer() { return {legacy.c_str(), legacy.size()}; }
     std::size_t GetCaretPosition() const { return caret; }
     void SetRenderedPreedit(std::wstring text, std::size_t prefix) { rendered = std::move(text); renderedPrefix = prefix; }
+    std::size_t GetRenderedCaretPosition(const std::wstring &text, std::size_t position) const {
+        return msime::tsf::MapPreeditCaret(text, position, rendered, renderedPrefix);
+    }
     void GetCandidateList(CMetasequoiaImeArray<CCandidateListItem> *, BOOL, BOOL) {}
 };
 
 // 模型只负责记录生产方法对 TSF 范围和选区的调用，不替代真实 COM 或编辑器。
+enum class RangeFault { None, GetRange, NullRange, Start, Shift, PartialShift, End, Selection };
+RangeFault rangeFault = RangeFault::None;
+unsigned rangeReleases = 0;
 struct ITfRange {
     LONG start = 2, end = 2;
-    void Collapse(TfEditCookie, int anchor) { if (anchor == TF_ANCHOR_START) end = start; else start = end; }
-    void ShiftEnd(TfEditCookie, LONG shift, LONG *shifted, void *) { end += shift; *shifted = shift; }
-    void Release() {}
+    HRESULT Collapse(TfEditCookie, int anchor) {
+        if ((anchor == TF_ANCHOR_START && rangeFault == RangeFault::Start) ||
+            (anchor == TF_ANCHOR_END && rangeFault == RangeFault::End)) return E_FAIL;
+        if (anchor == TF_ANCHOR_START) end = start; else start = end;
+        return S_OK;
+    }
+    HRESULT ShiftEnd(TfEditCookie, LONG shift, LONG *shifted, void *) {
+        *shifted = 0;
+        if (rangeFault == RangeFault::Shift) return E_FAIL;
+        *shifted = rangeFault == RangeFault::PartialShift ? shift / 2 : shift;
+        end += *shifted;
+        return S_OK;
+    }
+    void Release() { ++rangeReleases; }
 };
 struct TF_SELECTION {
     ITfRange *range = nullptr;
@@ -147,19 +167,32 @@ struct ITfContext {
     unsigned selections = 0;
     HRESULT SetSelection(TfEditCookie, int count, TF_SELECTION *value) {
         if (count != 1) std::abort();
-        selection = value->range->start;
         ++selections;
+        if (rangeFault == RangeFault::Selection) return E_FAIL;
+        selection = value->range->start;
         return S_OK;
     }
 };
 struct Composition {
     ITfRange range;
-    HRESULT GetRange(ITfRange **out) { *out = &range; return S_OK; }
+    ITfRange temporary;
+    HRESULT GetRange(ITfRange **out) {
+        *out = nullptr;
+        if (rangeFault == RangeFault::GetRange) return E_FAIL;
+        if (rangeFault != RangeFault::NullRange) {
+            temporary = range;
+            *out = &temporary;
+        }
+        return S_OK;
+    }
 };
+using ITfComposition = Composition;
+// 生产光标定位方法
 struct CMetasequoiaIME {
     Composition composition;
     Composition *_pComposition = &composition;
     Presenter *_pCandidateListUIPresenter = nullptr;
+    CCompositionProcessorEngine *_pCompositionProcessorEngine = nullptr;
     unsigned writes = 0;
     bool writeOK = true;
     HRESULT _AddComposingAndChar(TfEditCookie, ITfContext *context, CStringRange *text) {
@@ -167,15 +200,18 @@ struct CMetasequoiaIME {
         ++writes;
         context->document = L"4M" + text->ToWString();
         composition.range = {2, static_cast<LONG>(context->document.size())};
+        context->selection = static_cast<LONG>(context->document.size());
         return S_OK;
     }
     HRESULT _CreateAndStartCandidate(CCompositionProcessorEngine *, TfEditCookie, ITfContext *) { std::abort(); }
     void _DeleteCandidateList(BOOL, ITfContext *) { std::abort(); }
     HRESULT _HandleCompositionInputWorker(CCompositionProcessorEngine *, TfEditCookie, ITfContext *, uint64_t);
+    HRESULT _MoveCompositionCaretToHost(TfEditCookie, ITfContext *, const msime::tsf::EngineResult &);
 };
 
 // 生产光标映射包装
 // 生产完整绘制方法
+// 生产纯光标移动方法
 
 void check(bool condition, const char *message) {
     if (!condition) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
@@ -185,6 +221,9 @@ struct Fixture {
     CMetasequoiaIME ime;
     ITfContext context;
     Fixture() {
+        ime._pCompositionProcessorEngine = &engine;
+        rangeFault = RangeFault::None;
+        rangeReleases = 0;
         currentResult = {};
         parseOK = true;
         Global::InputModeScheme = msime::windows::scheme::Quanpin;
@@ -287,6 +326,42 @@ int main() {
         Fixture f; f.hostText("moxing", 6); f.ime.writeOK = false;
         check(f.render() == E_FAIL && f.context.selections == 0, "failed text write does not place a caret");
     }
+    // 写入文字后，定位失败不能再用临时范围覆盖已建立的选区，也不能触发文字重放。
+    for (const auto fault : {RangeFault::GetRange, RangeFault::NullRange, RangeFault::Start,
+                             RangeFault::Shift, RangeFault::PartialShift, RangeFault::End}) {
+        Fixture f; f.hostText("moxing", 6); rangeFault = fault;
+        check(f.render() == S_OK && f.ime.writes == 1, "caret failure does not turn a completed text write into replay");
+        check(f.context.selection == 8 && f.context.selections == 0,
+              "failed or incomplete positioning preserves the existing selection");
+        check(rangeReleases == (fault == RangeFault::GetRange || fault == RangeFault::NullRange ? 0u : 1u),
+              "positioning releases each acquired range exactly once");
+    }
+    for (const auto fault : {RangeFault::Start, RangeFault::Shift, RangeFault::PartialShift,
+                             RangeFault::End, RangeFault::Selection}) {
+        Fixture f; f.hostText("moxing", 6);
+        check(f.render() == S_OK, "pure movement starts from an established composition");
+        f.context.selections = 0; rangeReleases = 0; rangeFault = fault;
+        check(f.ime._MoveCompositionCaretToHost(1, &f.context, currentResult) == E_FAIL,
+              "pure caret movement returns the actual positioning failure");
+        check(f.context.selection == 8 && f.context.selections == (fault == RangeFault::Selection ? 1u : 0u),
+              "pure movement never publishes a failed temporary range");
+        check(rangeReleases == 1, "pure movement releases its range after every failure");
+    }
+    {
+        Fixture f; f.hostText("moxing", 6);
+        check(f.render() == S_OK, "continuous movement starts from rendered text");
+        check(f.ime.composition.range.start == 2 && f.ime.composition.range.end == 8,
+              "rendering keeps the stable composition extent");
+        for (const std::size_t position : {std::size_t{3}, std::size_t{6}, std::size_t{0}}) {
+            currentResult.view.caret = position;
+            check(f.ime._MoveCompositionCaretToHost(1, &f.context, currentResult) == S_OK &&
+                  f.context.selection == static_cast<LONG>(2 + position),
+                  "continuous movement keeps valid middle, end and beginning positions");
+            check(f.ime.composition.range.start == 2 && f.ime.composition.range.end == 8,
+                  "temporary caret ranges never change the composition extent");
+        }
+        check(rangeReleases == 4, "rendering and consecutive movements release their own references");
+    }
     std::puts("production preedit rendering: text and TSF selection share the host view");
 }
 '''
@@ -301,12 +376,22 @@ def main() -> int:
     begin = source.index("HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(")
     end = source.index("\n//+---------------------------------------------------------------------------", begin)
     worker = source[begin:end]
+    begin = source.index("HRESULT CMetasequoiaIME::_MoveCompositionCaretToHost(")
+    end = source.index("\n}\n", begin) + 2
+    movement = source[begin:end]
     wrapper = ""
     if "DWORD_PTR MapRawCaretToPreedit(" in source:
         begin = source.index("DWORD_PTR MapRawCaretToPreedit(")
         end = source.index("\n}", begin) + 2
         wrapper = source[begin:end]
+    placement = ""
+    if "HRESULT SetCompositionCaret(" in source:
+        begin = source.index("HRESULT SetCompositionCaret(")
+        end = source.index("\n}", begin) + 2
+        placement = source[begin:end]
     harness = HARNESS.replace("// 生产光标映射包装", wrapper).replace("// 生产完整绘制方法", worker)
+    harness = harness.replace("// 生产光标定位方法", placement)
+    harness = harness.replace("// 生产纯光标移动方法", movement)
     with tempfile.TemporaryDirectory(prefix="msime-tsf-preedit-") as temporary:
         directory = pathlib.Path(temporary)
         cpp, binary = directory / "render.cpp", directory / "render"

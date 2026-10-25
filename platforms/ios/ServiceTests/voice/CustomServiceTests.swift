@@ -23,7 +23,10 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     let body = denied ? "private server detail" : replies[request.url?.path ?? ""]
       ?? #"{"choices":[{"message":{"content":"润色结果"}}]}"#
     let data = Data(body.utf8)
-    let response = HTTPURLResponse(url: request.url!, statusCode: denied ? 401 : 200,
+    // `/status/402` 这样的路径回对应的状态码，用来测「测试连接」按状态码给出的提示。
+    let path = request.url?.path ?? ""
+    let fixedStatus = path.hasPrefix("/status/") ? Int(path.dropFirst("/status/".count)) : nil
+    let response = HTTPURLResponse(url: request.url!, statusCode: fixedStatus ?? (denied ? 401 : 200),
                                    httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
     client?.urlProtocol(self, didLoad: data)
@@ -515,6 +518,71 @@ final class CustomServiceTests: XCTestCase {
     }
   }
 
+  /// 与共享 Rust 的 `rejected_status_message` 相同：402 和 5xx 不再把用户打发去改接口地址。
+  func testConnectionTestNamesBalanceAndServerFailuresByStatus() async throws {
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [FixtureProtocol.self]
+    var configuration = CustomServiceConfiguration()
+    configuration.model = "fixture"
+    let cases: [(CustomServiceKind, Int, String)] = [
+      (.ai, 401, "认证失败（HTTP 401），请检查 API Key 和访问权限。"),
+      (.ai, 402, "账户余额不足（HTTP 402），请到服务商控制台充值后重试。"),
+      (.ai, 429, "服务限流或额度不足（HTTP 429），请稍后重试。"),
+      (.ai, 503, "服务暂时不可用（HTTP 503），请稍后重试；一直如此时，请确认该服务支持所填的模型。"),
+      (.ai, 404, "服务拒绝请求，请检查接口地址和模型配置（HTTP 404）"),
+      (.voice, 500, "服务暂时不可用（HTTP 500），请稍后重试；一直如此时，请确认该服务支持所填的模型。"),
+      (.voice, 404, "转写测试未成功，请检查接口地址、模型和服务对静音音频的支持（HTTP 404）"),
+    ]
+    for (kind, status, expected) in cases {
+      configuration.endpoint = "https://msime-tests.invalid/status/\(status)"
+      do {
+        try await CustomServiceClient.test(kind: kind, configuration: configuration, token: "fixture-token",
+                                           sessionConfiguration: session)
+        XCTFail("HTTP \(status) was accepted")
+      } catch {
+        XCTAssertEqual(error.localizedDescription, expected, "\(kind) \(status)")
+      }
+    }
+  }
+
+  /// 豆包握手被拒、错误帧都要说出状态码或错误码；错误帧以前被当成空的最终结果，测试会报连接成功。
+  func testDoubaoConnectionTestNamesRejectionsAndErrorFrames() async throws {
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
+    func errorFrame(_ code: UInt32) -> Data {
+      var frame = Data([0x11, 0xF0, 0x00, 0x00])
+      withUnsafeBytes(of: code.bigEndian) { frame.append(contentsOf: $0) }
+      let message = Data("synthetic-diagnostic".utf8)
+      withUnsafeBytes(of: UInt32(message.count).bigEndian) { frame.append(contentsOf: $0) }
+      return frame + message
+    }
+    let codec = DoubaoVoiceCoordinator.FrameCodec(
+      startFrame: { Data([0x01]) },
+      audioFrame: { _, _, _ in Data([0x02]) },
+      decodeFrame: DoubaoHostFrameCodec.decodeFrame
+    )
+    let cases: [(DoubaoErrorFixtureTransport.Reply, String)] = [
+      (.rejected(401), "豆包认证失败（HTTP 401），请确认密钥来自豆包语音控制台，且鉴权方式与之对应。"),
+      (.rejected(403), "豆包拒绝访问（HTTP 403），请检查密钥的权限，以及资源 ID 对应的服务是否已开通。"),
+      (.rejected(503), "豆包服务暂时不可用（HTTP 503），请稍后重试。"),
+      (.rejected(404), "豆包拒绝了连接（HTTP 404），请检查接口地址和资源 ID。"),
+      (.frame(errorFrame(45_000_001)), "豆包返回错误码 45000001，请检查资源 ID 和识别选项。"),
+      (.frame(errorFrame(55_000_031)), "豆包服务暂时不可用（错误码 55000031），请稍后重试。"),
+      (.timedOut, "豆包测试超时，请检查网络后重试。"),
+    ]
+    for (reply, expected) in cases {
+      do {
+        try await CustomServiceClient.test(kind: .voice, configuration: configuration, token: "fixture-access",
+                                           doubaoClient: DoubaoVoiceClient(transport: DoubaoErrorFixtureTransport(reply), codec: codec))
+        XCTFail("\(reply) was accepted")
+      } catch {
+        XCTAssertEqual(error.localizedDescription, expected, "\(reply)")
+        XCTAssertFalse(error.localizedDescription.contains("synthetic-diagnostic"))
+      }
+    }
+  }
+
   func testConnectionTestSendsOneSecondOfSilence() throws {
     let pcm = Data(count: 32_000)
     let wav = CustomServiceClient.silentWAV(pcm)
@@ -546,6 +614,27 @@ private final class DoubaoRequestFixtureTransport: DoubaoVoiceTransport {
   func start(endpoint: URL, handshake: DoubaoHandshake) async throws { self.handshake = handshake }
   func send(binary frame: Data) async throws { sent.append(frame) }
   func receive() async throws -> Data { Data([0xFF]) }
+  func finish() {}
+}
+
+private final class DoubaoErrorFixtureTransport: DoubaoVoiceTransport {
+  enum Reply { case rejected(Int), frame(Data), timedOut }
+  private let reply: Reply
+
+  init(_ reply: Reply) { self.reply = reply }
+
+  func start(endpoint: URL) async throws {}
+  func start(endpoint: URL, handshake: DoubaoHandshake) async throws {
+    if case .rejected(let status) = reply { throw DoubaoWebSocketTransport.Failure.rejected(status: status) }
+  }
+  func send(binary frame: Data) async throws {}
+  func receive() async throws -> Data {
+    switch reply {
+    case .frame(let frame): return frame
+    case .timedOut: throw URLError(.timedOut)
+    case .rejected: throw DoubaoWebSocketTransport.Failure.notConnected
+    }
+  }
   func finish() {}
 }
 

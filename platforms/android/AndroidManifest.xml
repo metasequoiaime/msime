@@ -1,7 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:versionCode="1" android:versionName="0.1.0-dev">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools" android:versionCode="1" android:versionName="0.1.0-dev">
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 用户打开拍照识字时才通过独立设置页申请，不要求设备具备相机。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- 关于页「检查更新」下载安装包后交给系统安装器。 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -39,7 +43,15 @@
         <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity android:name="app.msime.android.OcrSetupActivity" android:exported="false" android:label="拍照识字设置" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="app.msime.android.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
+        <activity android:name="app.msime.android.ClipboardAuthenticationActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
+        <activity android:name="app.msime.android.OfflineVoiceRecognitionActivity" android:label="水杉离线语音输入" android:exported="true" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <!-- 自动更新：每天一次检查、下载并核对更新，只在用户打开「自动更新」后排程。 -->
         <service android:name="app.msime.android.home.UpdateJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 按需资源包下载：只由用户操作启动，跑在主进程（不设 android:process），:ime 进程从不安装资源包。 -->
@@ -57,6 +69,10 @@
             android:authorities="${applicationId}.mlkit-ime-init"
             android:exported="false"
             android:process=":ime" />
+        <!-- ML Kit 手写经 Google datatransport 把 FIREBASE_ML_SDK 诊断事件（带持久的 ml_sdk_instance_id、机型、系统指纹、语言、时区等）存进应用数据库，再排一个 JobScheduler 任务上传到 firebaselogging.googleapis.com（2026-10-25 真机抓包确认）。删掉后端发现服务，datatransport 找不到 cct 后端就不存事件、不排任务；再删掉上传任务和闹钟入口，旧版本存下的事件也没有上传途径。识别和模型下载不经过这条路径。 -->
+        <service android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery" tools:node="remove" />
+        <service android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.JobInfoSchedulerService" tools:node="remove" />
+        <receiver android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.AlarmManagerSchedulerBroadcastReceiver" tools:node="remove" />
         <!-- 把缓存里的诊断包、更新安装包、导出文件、键盘发送的剪贴板图片副本和表情包贴纸以 content:// 交给别的应用，可分享的目录见 res/xml/msime_file_paths.xml。 -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../compat/WindowsDpi.h"
 
 #include <windows.h>
 
@@ -32,11 +33,11 @@ UINT monitor_effective_dpi(HMONITOR monitor);
 struct WaveOverlayDpiScope {
   DPI_AWARENESS_CONTEXT previous;
   WaveOverlayDpiScope()
-      : previous(SetThreadDpiAwarenessContext(
+      : previous(msime::windows::compat::thread_context(
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {}
   ~WaveOverlayDpiScope() {
     if (previous)
-      SetThreadDpiAwarenessContext(previous);
+      msime::windows::compat::thread_context(previous);
   }
   WaveOverlayDpiScope(const WaveOverlayDpiScope &) = delete;
   WaveOverlayDpiScope &operator=(const WaveOverlayDpiScope &) = delete;

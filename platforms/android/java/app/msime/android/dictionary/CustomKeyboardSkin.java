@@ -30,7 +30,7 @@ public final class CustomKeyboardSkin {
     private String soundPack = DEFAULT_SOUND_PACK;
     private String pressAnimation = DEFAULT_PRESS_ANIMATION;
 
-    /** 缺省按键音包：沿用系统按键音（plan P23）。 */
+    /** 缺省按键音包：随包内置的「清脆键盘」（plan P23）。 */
     public static final String DEFAULT_SOUND_PACK = "default";
     /** 「静音」：应用这个皮肤时关掉 Android 本地的按键音开关，`plugins.key_sound.pack` 保持原样（plan P23）。 */
     public static final String SILENT_SOUND_PACK = "silent";

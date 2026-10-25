@@ -24,7 +24,14 @@ class InputConfigurationSnapshot(unittest.TestCase):
         end = source.index("if (wParam == TIMER_DEFERRED_FOCUS_LOSS)", start)
         timer = source[start:end]
         self.assertIn("refresh_host_configuration()", timer)
-        self.assertIn("host->update_preferences(configuration->preferenceSnapshot", timer)
+        self.assertIn("pIME->_ApplyHostPreferences(configuration)", timer)
+        self.assertIn("pIME->_PollPreferenceTransition()", timer)
+        apply_start = source.index("bool CMetasequoiaIME::_ApplyHostPreferences(")
+        apply_end = source.index("void CMetasequoiaIME::_PollPreferenceTransition()", apply_start)
+        apply = source[apply_start:apply_end]
+        self.assertIn("host->update_preferences(configuration->preferenceSnapshot", apply)
+        self.assertNotIn("reload_preferences", apply)
+        self.assertNotIn("default_state_directory", apply)
         self.assertNotIn("reload_preferences", timer)
         self.assertNotIn("default_state_directory", timer)
         activation = source[source.index("STDAPI CMetasequoiaIME::ActivateEx"):]

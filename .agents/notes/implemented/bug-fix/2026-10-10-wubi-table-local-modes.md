@@ -18,7 +18,7 @@ Status: implemented
 
 ## Consequences
 
-五笔在空闲状态可进入 K、`/`、`@`，并继续把 Shift+V 等拼音专用模式交还宿主；有组字时 `/` 和 `@` 仍按普通字符结束或延续编码。运行时和引擎共享同一能力划分。在把按键交给 Engine 之前自行判断的宿主各有一份副本（Linux `SpellingSymbols.h`、Windows Server 下发给 TSF 的触发帧），它们随后一起改为同一份方案集合，见 [插件门控如实显示、宿主侧五笔表模式与插件失败的诊断出口](2026-10-09-plugin-gates-and-wubi-table-modes.md)。
+五笔在空闲状态可进入 K、`/`、`@`，并继续把 Shift+V 等拼音专用模式交还宿主（U、T、Y、S 后来也对五笔打开，下面「让五笔复用所有 Shift 模式」那条备选里「临时英文依赖拼音输入」的判断不成立，见[五笔打开不经拼音拼写的 Shift 模式](2026-10-25-wubi-scheme-free-shift-modes.md)）；有组字时 `/` 和 `@` 仍按普通字符结束或延续编码。运行时和引擎共享同一能力划分。在把按键交给 Engine 之前自行判断的宿主各有一份副本（Linux `SpellingSymbols.h`、Windows Server 下发给 TSF 的触发帧），它们随后一起改为同一份方案集合，见 [插件门控如实显示、宿主侧五笔表模式与插件失败的诊断出口](2026-10-09-plugin-gates-and-wubi-table-modes.md)。
 
 ## Verification
 

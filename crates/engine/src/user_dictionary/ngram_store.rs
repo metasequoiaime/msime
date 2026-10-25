@@ -152,6 +152,62 @@ impl PersonalNgramStore {
         self.version.load(Ordering::Acquire)
     }
 
+    /// 枚举真实词面供上屏后联想使用；持有 writer 和 pending 直到合并完成，后台刷新不会使同一转移被漏算或重复计数。读取不创建日志。
+    pub fn next_words(&self, previous: &str, limit: usize) -> Vec<(String, u64)> {
+        if previous.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let limit = limit.min(32);
+        let writer = lock(&self.writer);
+        let pending = lock(&self.pending);
+        let mut queued = HashMap::<String, u64>::new();
+        for row in pending.iter().filter(|row| row.previous == previous) {
+            let count = queued.entry(row.word.clone()).or_default();
+            *count = count.saturating_add(u64::from(row.times));
+        }
+        let reader = if writer.connection.is_none() {
+            open_existing_read_only(&self.path).ok().flatten()
+        } else {
+            None
+        };
+        let mut counts = HashMap::<String, u64>::new();
+        if let Some(connection) = writer.connection.as_ref().or(reader.as_ref()) {
+            if let Ok(mut statement) = connection.prepare_cached(
+                "SELECT word,count FROM personal_bigram WHERE previous=?1 AND count>0 ORDER BY count DESC,word LIMIT ?2"
+            ) {
+                if let Ok(rows) = statement.query_map(params![previous, limit as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?.max(0) as u64))
+                }) {
+                    counts.extend(rows.flatten());
+                }
+            }
+            // 待写词可能尚不在磁盘的前几名；补读这些词的旧计数，合并后它们才有机会进入前几名。
+            if let Ok(mut statement) = connection
+                .prepare_cached("SELECT count FROM personal_bigram WHERE previous=?1 AND word=?2")
+            {
+                for word in queued.keys() {
+                    if !counts.contains_key(word) {
+                        let count = statement
+                            .query_row(params![previous, word], |row| row.get::<_, i64>(0))
+                            .unwrap_or(0);
+                        counts.insert(word.clone(), count.max(0) as u64);
+                    }
+                }
+            }
+        }
+        for (word, times) in queued {
+            let count = counts.entry(word).or_default();
+            *count = count.saturating_add(times);
+        }
+        let mut result: Vec<_> = counts
+            .into_iter()
+            .filter(|(word, count)| !word.is_empty() && *count > 0)
+            .collect();
+        result.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+        result.truncate(limit);
+        result
+    }
+
     pub fn flush(&self) -> Result<()> {
         let mut writer = lock(&self.writer);
         self.flush_locked(&mut writer)
@@ -643,6 +699,58 @@ mod tests {
             previous = word;
         }
         result
+    }
+
+    #[test]
+    fn next_words_merge_pending_and_persisted_without_double_counting() {
+        let dir = Dir::new();
+        let store = PersonalNgramStore::for_journal(&dir.journal());
+        store
+            .record(&[transition("", "吃", "饭", 3), transition("", "吃", "面", 2)])
+            .unwrap();
+        assert_eq!(
+            store.next_words("吃", 8),
+            [("饭".into(), 3), ("面".into(), 2)]
+        );
+        store.flush().unwrap();
+        store
+            .record(&[
+                transition("", "吃", "面", 2),
+                transition("甲", "吃", "饭", 2),
+            ])
+            .unwrap();
+        let expected = vec![("饭".into(), 5), ("面".into(), 4)];
+        assert_eq!(store.next_words("吃", 8), expected);
+        assert_eq!(store.next_words("吃", 1), expected[..1]);
+        store.flush().unwrap();
+        assert_eq!(store.next_words("吃", 8), expected);
+        assert!(store.next_words("喝", 8).is_empty());
+        assert!(store.next_words("吃", 0).is_empty());
+    }
+
+    #[test]
+    fn next_words_reading_never_creates_a_journal() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let store = PersonalNgramStore::for_journal(&journal);
+        assert!(store.next_words("吃", 8).is_empty());
+        assert!(!journal.exists());
+        assert!(store.next_words("", 8).is_empty());
+    }
+
+    #[test]
+    fn next_words_preserve_counts_larger_than_u32_before_and_after_flush() {
+        let dir = Dir::new();
+        let store = PersonalNgramStore::for_journal(&dir.journal());
+        store
+            .record(&[transition("", "吃", "饭", u32::MAX)])
+            .unwrap();
+        store.flush().unwrap();
+        store.record(&[transition("", "吃", "饭", 1)]).unwrap();
+        let expected = vec![("饭".into(), u64::from(u32::MAX) + 1)];
+        assert_eq!(store.next_words("吃", 8), expected);
+        store.flush().unwrap();
+        assert_eq!(store.next_words("吃", 8), expected);
     }
 
     /// test_personal_context_input_session.cpp:356-420: recorded context is held in memory at once, on disk after a flush, and read back by a store that reloads.

@@ -56,6 +56,7 @@
 #include "../src/candidates/PairedPunctuation.h"
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/GlobalTheme.h"
+#include "../src/core/ToggleHotkeyChord.h"
 #include "../src/core/DictionaryQuiesceLease.h"
 #include "../src/core/EmojiPluginGroups.h"
 #include "../src/core/RuntimeOptionsRefresh.h"
@@ -666,6 +667,7 @@ public:
     voice_hotkey_hold_space_lock_ = true;
     voice_ralt_held_ = false;
     voice_f9_held_ = false;
+    voice_toggle_held_ = 0;
     voice_ctrl_win_held_ = false;
     voice_rctrl_ralt_held_ = false;
     voice_space_consumed_ = false;
@@ -1969,7 +1971,8 @@ public:
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
     options["phrase_preedit"] = true;
-    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就排在普通候选后面，仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
+    options["korean_romaja"] = true;
+    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就混在普通候选里（没学过时排在首页最后），仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
     options["quick_phrase_candidates"] = true;
     // The built-in sound packs of this installation, unless the runtime options name others. The Host API's own fallback looks beside the configured resource directory, which is no longer the installed one once the user has downloaded a newer dictionary into their own data directory.
     if (std::error_code error; !options.contains("sound_packs") &&
@@ -3229,6 +3232,7 @@ public:
   }
   // An oversized prompt must not take the rest of the configuration down with it; like the IBus host, the refusal surfaces when voice input starts.
   void loadVoiceOptions() {
+    voice_toggle_chord_ = msime::host_api::decode_toggle_hotkey(preferences_, "voice_input");
     try {
       voice_options_ = msime::linux_host::voice_provider_options(preferences_);
       voice_options_valid_ = true;
@@ -3362,7 +3366,9 @@ public:
     pair_inserted_ = false;
     if (result.contains("commit") && result["commit"].is_string()) {
       auto text = result["commit"].get<std::string>();
-      if (traditionalApplies()) text = msime_linux_simplified_to_traditional(text, traditional_variant_);
+      const auto context = result.value("commit_context", Json(nullptr));
+      if (traditionalApplies() && (!context.is_object() || context.value("script_conversion", true)))
+        text = msime_linux_simplified_to_traditional(text, traditional_variant_);
       // `、` 的 ASCII 孪生按产生它的键和 View 的顿号开关定（enumerationComma 段）。
       const auto spaceConvertAscii =
           spaceConvertPreceding
@@ -3387,7 +3393,6 @@ public:
         last_smart_punctuation_ = 0;
         last_smart_punctuation_at_ = {};
       }
-      const auto context = result.value("commit_context", Json(nullptr));
       commitText(text, std::nullopt,
                  !context.is_object() || context.value("typing_statistics", true));
       // 上屏音（或随上屏前进的旋律音符）由生命周期核心在这次派发里出过了，排在按键音之后；隐私字段里核心什么都不出。回复的 feedback 带着上屏之后的打字特效：上屏不计数，只报告连击现在的样子，停顿后断掉的连击就这样让接着画出的辅助行跟着清掉。focus 等不是派发的调用没有它，连击照旧。
@@ -4199,6 +4204,8 @@ public:
   Json voice_host_options_;
   bool voice_enabled_ = true;
   bool voice_hotkey_ctrl_f9_ = true;
+  msime::host_api::ToggleHotkeyChord voice_toggle_chord_;
+  unsigned voice_toggle_held_ = 0;
   bool voice_hotkey_ralt_ = true;
   bool voice_hotkey_ctrl_win_ = false;
   bool voice_hotkey_rctrl_ralt_ = false;
@@ -4311,7 +4318,7 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
         fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit});
     return display;
   }
-  display.decoration_text = traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
+  display.decoration_text = traditional && candidate.value("source", 0) != 18 ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
                                        : candidate.at("text").get<std::string>();
   const auto source = msime::linux_host::strict_json_value(candidate, "source", uint64_t{});
   display.decoration_badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
@@ -8476,7 +8483,7 @@ bool FcitxState::renderNativeCanvas() {
       const auto *item = dynamic_cast<const FcitxCandidate *>(&list->candidate(at));
       if (!item) return result;
       for (const auto &[id, text] : candidateMenuActions(*this, *item)) {
-        result.push_back({text, [this, list, at, id] {
+        result.push_back({text, [this, list, at, id = id] {
           const auto &candidate = static_cast<const FcitxCandidate &>(list->candidate(at));
           triggerCandidateMenuAction(*this, candidate, id);
         }});
@@ -8723,6 +8730,13 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   // An accepted stroke owns its repeats and release, even if modifiers or
   // preferences change while held. Unmatched releases must not stop voice.
+  const auto voiceStroke = event.rawKey().code() != 0
+      ? static_cast<unsigned>(event.rawKey().code())
+      : msime::linux_host::toggle_key_symbol(event.rawKey().sym()) | 0x80000000u;
+  if (voice_toggle_held_ != 0 && voice_toggle_held_ == voiceStroke) {
+    if (event.isRelease()) voice_toggle_held_ = 0;
+    return true;
+  }
   if (sym == FcitxKey_F9 && voice_f9_held_) {
     if (event.isRelease()) voice_f9_held_ = false;
     return true;
@@ -8951,6 +8965,21 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       // 锁定后的样子（圆形操作按钮，或文本回退里的锁定提示）立即显示，不等下一次 250 ms 的轮询。
       updateVoiceOverlay();
     }
+    return true;
+  }
+  const auto voiceModifiers = event.rawKey().states();
+  const bool customVoiceToggle = !voiceModifiers.testAny(fcitx::KeyStates{
+      fcitx::KeyState::Hyper, fcitx::KeyState::Meta, fcitx::KeyState::Mod5}) &&
+      voice_toggle_chord_.matches(msime::linux_host::toggle_key_name(event.rawKey().sym(),
+          event.rawKey().code() >= 8 ? event.rawKey().code() - 8 : 0),
+          voiceModifiers.test(fcitx::KeyState::Ctrl), voiceModifiers.test(fcitx::KeyState::Alt),
+          voiceModifiers.test(fcitx::KeyState::Shift), voiceModifiers.test(fcitx::KeyState::Super));
+  if (customVoiceToggle && voice_enabled_ && !voice_socket_.empty() && !restricted() &&
+      !privateInput() && ic_.hasFocus()) {
+    if (voice_loading_) {
+      if (!stopVoice()) return false;
+    } else if (!requestVoice()) return false;
+    voice_toggle_held_ = voiceStroke;
     return true;
   }
   if (sym == FcitxKey_F9 && ctrl && !alt && !shift &&

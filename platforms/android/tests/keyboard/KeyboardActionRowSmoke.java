@@ -5,8 +5,55 @@ import app.msime.android.ZhuyinKeyboardLayout;
 import java.util.List;
 
 public final class KeyboardActionRowSmoke {
+    /**
+     * 手写底行：书写区铺满整行，原来它右侧的「重写」和 ⌫ 排在中/英与回车之间，空格让到 2.4、回车让到 1.6；没有 符。原来左侧的 ？ ！ 由逗号、句号长按输入。iOS 与 HarmonyOS 的手写底行相同（scripts/test-mobile-handwriting-pad-parity.py）。
+     */
+    private static void handwritingRow() {
+        int layout = KeyboardLayout.HANDWRITING_LAYOUT;
+        check(KeyboardActionRow.designEntries(layout, false).equals(List.of(
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, 1.25f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.COMMA, 1f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SPACE, 2.4f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.PERIOD, 1f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, 1.05f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.REWRITE, 1.25f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.DELETE, 1.25f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.6f))),
+            "handwriting row: 123 | ， | space | 。 | 中 | 重写 | ⌫ | return");
+        for (boolean globe : new boolean[] {false, true}) {
+            List<KeyboardActionRow.DesignSlot> slots = designSlots(layout, globe, false);
+            check(slots.contains(KeyboardActionRow.DesignSlot.GLOBE) == globe
+                    && (!globe || slots.indexOf(KeyboardActionRow.DesignSlot.GLOBE) == 1),
+                "the globe follows 123 on the handwriting row only when switching is offered");
+            check(!slots.contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL), "no 符 on the handwriting row");
+            check(!KeyboardActionRow.languageBesideReturn(KeyboardActionRow.designEntries(layout, globe)),
+                "⌫ sits beside return on the handwriting row, so return keeps its whole cap");
+            // 交换中/英与 123：两键互换位置并带走各自的宽度，「重写」和 ⌫ 不动。
+            List<KeyboardActionRow.DesignEntry> original = KeyboardActionRow.designEntries(layout, globe);
+            List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.designEntries(layout, globe, true);
+            int language = slots.indexOf(KeyboardActionRow.DesignSlot.LANGUAGE);
+            check(swapped.get(0).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
+                    && swapped.get(language).slot() == KeyboardActionRow.DesignSlot.LAYER
+                    && swapped.get(0).weight() == KeyboardActionRow.HANDWRITING_LANGUAGE_WEIGHT
+                    && swapped.get(language).weight() == KeyboardActionRow.HANDWRITING_LAYER_WEIGHT,
+                "swapping 中/英 and 123 on the handwriting row");
+            for (int index = 1; index < original.size(); index++) {
+                if (index != language) check(swapped.get(index).equals(original.get(index)),
+                    "other handwriting keys keep position and width");
+            }
+        }
+        check(KeyboardActionRow.usesHandwritingMarks(layout)
+                && !KeyboardActionRow.usesHandwritingMarks(KeyboardLayout.FOURTEEN_KEY_LAYOUT)
+                && !KeyboardActionRow.usesHandwritingMarks(KeyboardLayout.STANDARD_TOUCH_LAYOUT)
+                && !KeyboardActionRow.usesCommaSecondaryPeriod(layout),
+            "only the handwriting row types ？ and ！ on a long press of ， and 。");
+        check("清空手写".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.REWRITE, true))
+                && "删除".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.DELETE, true)),
+            "重写 and ⌫ describe what they do");
+    }
+
     public static void main(String[] args) {
-        // 14 键（以及手写、大千注音）的底行：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9，地球键条件插在 123 之后。
+        // 14 键（以及大千注音）的底行：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9，地球键条件插在 123 之后。
         List<KeyboardActionRow.DesignEntry> design =
             KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false);
         check(design.equals(List.of(
@@ -68,18 +115,18 @@ public final class KeyboardActionRowSmoke {
         check(!KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.FOURTEEN_KEY_LAYOUT)
             && !KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT),
             "其他布局不改长按动作");
-        // 14 键第三行左端已经有 符；它和手写、大千注音的底行不带 符，仍有逗号句号。
-        for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
-                KeyboardLayout.HANDWRITING_LAYOUT}) {
+        // 14 键第三行左端已经有 符；它和大千注音的底行不带 符，仍有逗号句号。
+        for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT}) {
             for (boolean globe : new boolean[] {false, true}) {
                 check(!designSlots(layout, globe, false).contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL)
                         && !designSlots(layout, globe, true).contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL),
-                    "no 符 on the 14-key, handwriting or Dachen row, layout " + layout);
+                    "no 符 on the 14-key or Dachen row, layout " + layout);
                 check(KeyboardActionRow.designEntries(layout, globe).equals(
                         KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, globe)),
-                    "the 14-key, handwriting and Dachen rows keep comma and period, layout " + layout);
+                    "the 14-key and Dachen rows keep comma and period, layout " + layout);
             }
         }
+        handwritingRow();
         check("打开符号面板".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.SYMBOL_PANEL, true)),
             "符 describes the panel it opens");
         // 数字层只保留一个 0，原空格挪进右列；地球键和语言/数字交换仍可组合。
@@ -116,7 +163,7 @@ public final class KeyboardActionRowSmoke {
         // 各普通底行交换动作与宽度，地球和其它按键顺序保持，回车不向数字入口让位。
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT,
                 KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
-                KeyboardLayout.STROKE_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
+                KeyboardLayout.STROKE_LAYOUT}) {
             for (boolean globe : new boolean[] {false, true}) {
                 List<KeyboardActionRow.DesignEntry> original = KeyboardActionRow.designEntries(layout, globe);
                 List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.designEntries(layout, globe, true);

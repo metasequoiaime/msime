@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "commit": "b979dba422e445492b0eb9951ac52ee0b4d648c3",
+  "source": "ofl/notoemoji/NotoEmoji[wght].ttf",
+  "license": "OFL-1.1",
+  "files": {
+    "OFL.txt": "500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b",
+    "NotoEmoji.ttf": "de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551"
+  }
+}

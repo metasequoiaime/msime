@@ -41,6 +41,11 @@ final class ImeFunctionPanel {
 
     void renderMoreTools() {
         if (s.moreToolsPanel == null) return;
+        if (s.imeOcr != null && s.imeOcr.active()) return;
+        if (s.imeWorldClock != null && s.imeWorldClock.active()) {
+            s.imeWorldClock.render();
+            return;
+        }
         // 子页没有 FunctionPanelView，由容器自己承担「更多工具」的描述，免得同一面板出现两个同名节点。
         s.moreToolsPanel.setContentDescription(
             s.localInputToolsOpen || s.aiAssistChooserOpen ? "更多工具" : null);
@@ -67,6 +72,7 @@ final class ImeFunctionPanel {
             if (s.toolbarClipboard) hiddenItems.add(FunctionPanelModel.Id.CLIPBOARD);
             if (s.toolbarFloating) hiddenItems.add(FunctionPanelModel.Id.FLOATING);
             if (s.toolbarTextEdit) hiddenItems.add(FunctionPanelModel.Id.TEXT_EDIT);
+            if (ViewPolicy.isVisible(s.voiceShortcutButton)) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);
         }
         if (!s.hasPendingVoiceResult()) hiddenItems.add(FunctionPanelModel.Id.VOICE_RESULT);
         List<FunctionPanelModel.Item> visibleItems = FunctionPanelModel.itemsExcept(hiddenItems);
@@ -133,6 +139,12 @@ final class ImeFunctionPanel {
             case SETTINGS -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.SETTINGS, () -> host(null), null),
                 FunctionPanelView.State.NONE, true);
+            case OCR -> add(entries, states, enabled,
+                glyph(item, "照", s.imeOcr::open),
+                FunctionPanelView.State.NONE, s.connection != null && !AppVersionPolicy.playDistribution());
+            case WORLD_CLOCK -> add(entries, states, enabled,
+                glyph(item, "◷", s.imeWorldClock::open),
+                FunctionPanelView.State.NONE, s.connection != null);
             case TOOLBAR_EDITOR -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.SETTINGS, s.imeToolbar::openEditor, null),
                 FunctionPanelView.State.NONE, true);
@@ -187,6 +199,12 @@ final class ImeFunctionPanel {
                     item.description(), KeyboardIconPaths.Icon.VIBRATION_STRENGTH,
                     played(s::cycleHapticStrength), null),
                 FunctionPanelView.State.NONE, s.hapticsEnabled);
+            case VOICE_INPUT -> add(entries, states, enabled,
+                icon(item, KeyboardIconPaths.Icon.VOICE_RESULT, () -> {
+                    s.closeMoreTools();
+                    s.startVoiceRecognition();
+                }, null),
+                FunctionPanelView.State.NONE, s.voiceInsertionReady());
             case VOICE_RESULT -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.VOICE_RESULT, () -> {
                     s.closeMoreTools();

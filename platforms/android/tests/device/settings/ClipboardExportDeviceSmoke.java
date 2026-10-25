@@ -31,7 +31,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.json.JSONObject;
 
-/** 合成全文经真实设置、系统授权和跨进程重启导出，并覆盖隐私与提供方故障。 */
+/** 合成全文经真实设置、系统认证、存储授权和跨进程重启导出，并覆盖无锁屏凭据、隐私与提供方故障。 */
 public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private static final String KEY = "platform.android.clipboard_export_tree";
     private static final String ROOT = "content://" + DiagnosticDocumentsProvider.AUTHORITY + "/tree/root";
@@ -80,6 +80,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         } finally {
             if (code != Activity.RESULT_OK || !phase.equals("select")) {
                 try { restore(); } catch (Exception ignored) { result.putString("cleanup", "restore failed"); }
+                try { DeviceCredentialFixture.clear(getTargetContext(), automation); }
+                catch (Exception | AssertionError ignored) { result.putString("cleanup", "device credential clear failed"); }
             }
             if (activity != null) runOnMainSync(activity::finish);
         }
@@ -98,15 +100,30 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         enabled(true);
         seed();
         openPage();
+        stage = "export without device credential is refused";
+        // 专用 AVD 默认没有锁屏凭据。导出要求系统认证，此时必须说明原因，不写出文件、不打开目录选择器，按钮仍可再次使用。
+        check(!DeviceCredentialFixture.secure(getTargetContext()), "dedicated AVD starts without a device credential");
+        tap(text("导出"));
+        await(text("这台设备没有可用的系统认证"));
+        SystemClock.sleep(1000);
+        check(downloadsUnchecked().isEmpty() && filesUnchecked().isEmpty() && findAll(ClipboardExportDeviceSmoke::picker) == null
+            && !DeviceCredentialFixture.promptVisible(automation), "no export without device credential");
+        await(node -> text("导出").test(node) && node.isEnabled());
+        stage = "device credential fixture";
+        DeviceCredentialFixture.set(getTargetContext(), automation);
         stage = "native export to default destination";
         tap(text("导出"));
+        DeviceCredentialFixture.enter(automation);
         if (Build.VERSION.SDK_INT < 29) {
             selectFolder(null);
             waitFor(() -> filesUnchecked().size() == 1, "first authorized export");
-            checkText(files().values().iterator().next());
+            Map<String, byte[]> exported = files();
+            check(exported.size() == 1, "first authorized export");
+            for (String id : exported.keySet()) checkName(documentName(id));
+            checkText(exported.values().iterator().next());
         } else {
             waitFor(() -> downloadsUnchecked().size() == 1, "default Download export");
-            for (byte[] bytes : downloads().values()) checkText(bytes);
+            for (var entry : downloads().entrySet()) { checkName(downloadName(entry.getKey())); checkText(entry.getValue()); }
             choose();
             selectFolder(null);
         }
@@ -120,9 +137,10 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         openPage();
         stage = "native direct export after restart";
         tap(text("导出"));
+        DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == first.size() + 1, "direct export");
         Map<String, byte[]> second = files();
-        for (byte[] bytes : second.values()) checkText(bytes);
+        for (var entry : second.entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
         for (var entry : first.entrySet()) check(Arrays.equals(entry.getValue(), second.get(entry.getKey())), "old file retained");
         stage = "real keyboard panel export action";
         int beforeKeyboard = files().size();
@@ -136,13 +154,52 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         tap(node -> "msime-test-plain".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。
+        DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
-        for (byte[] bytes : files().values()) checkText(bytes);
+        for (var entry : files().entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
+        stage = "history page prompt interrupted by leaving";
+        // 认证窗口开着时离开再回来：Android 10 起系统关掉后台应用的认证窗口，回来必须重新认证并读出记录，不能停在既无授权也无认证窗口的「正在读取…」；Android 9 的凭据确认是本任务里的 Activity，回来时仍在原处，认证成功后不再弹第二次。
+        seed();
+        activity = startActivitySync(new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
+            .putExtra("msime_open_page", "CLIPBOARD_SEARCH").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
+        stage = "history page prompt interrupted by leaving: prompt before leaving";
+        DeviceCredentialFixture.awaitPrompt(automation);
+        stage = "history page prompt interrupted by leaving: leave and return";
+        leaveAndReturn();
+        stage = "history page prompt interrupted by leaving: prompt after return";
+        DeviceCredentialFixture.enter(automation);
+        stage = "history page prompt interrupted by leaving: records";
+        await(text("合成新记录"));
+        SystemClock.sleep(1000);
+        check(!DeviceCredentialFixture.promptVisible(automation), "history page prompted again after authentication");
+        stage = "history page export prompt interrupted by leaving";
+        // 已授权时导出认证被离开打断：Android 10 起导出认证被系统取消，回来按重新进入处理，先认证页面、不导出；Android 9 回到仍在进行的凭据确认，认证后照常导出。
+        int beforeInterrupted = files().size();
+        tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        stage = "history page export prompt interrupted by leaving: prompt before leaving";
+        DeviceCredentialFixture.awaitPrompt(automation);
+        stage = "history page export prompt interrupted by leaving: leave and return";
+        leaveAndReturn();
+        stage = "history page export prompt interrupted by leaving: prompt after return";
+        DeviceCredentialFixture.enter(automation);
+        stage = "history page export prompt interrupted by leaving: outcome";
+        if (Build.VERSION.SDK_INT < 29) {
+            waitFor(() -> filesUnchecked().size() == beforeInterrupted + 1, "credential confirmation survives leaving");
+        } else {
+            await(text("合成新记录"));
+            SystemClock.sleep(1000);
+            check(filesUnchecked().size() == beforeInterrupted && !DeviceCredentialFixture.promptVisible(automation),
+                "interrupted export re-authenticates the page without exporting");
+        }
         stage = "history page export action";
         activity = startActivitySync(new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
             .putExtra("msime_open_page", "CLIPBOARD_SEARCH").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
+        // 历史页打开时先认证才读取记录，页内导出再认证一次。
+        DeviceCredentialFixture.enter(automation);
         int beforeSearch = files().size();
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeSearch + 1, "history page export action");
         openPage();
         stage = "cancel directory change";
@@ -237,13 +294,50 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         store.getClass().getMethod("setPinned", String.class, boolean.class).invoke(store, LONG, true);
     }
 
+    /** 认证窗口开着时切到另一个应用再回到原任务；Android 10 起系统应已关掉后台应用的认证窗口。 */
+    private void leaveAndReturn() throws Exception {
+        shell("am start -W -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        if (Build.VERSION.SDK_INT >= 30) {
+            waitFor(() -> !DeviceCredentialFixture.promptVisible(automation), "system kept the prompt of a background app");
+        }
+        SystemClock.sleep(1000);
+        shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+        automation.waitForIdle(300, 3000);
+    }
+
     private void openPage() throws Exception {
         Intent intent = new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
             .putExtra("msime_open_page", "KEYBOARD_OPTIONS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         activity = startActivitySync(intent);
-        tap(text("剪贴板"));
-        await(text("导出文件夹"));
+        // 剪贴板设置并进了「工具栏」分页，排在键盘工具栏一组之后，可能在屏幕外。
+        tap(text("工具栏"));
+        reveal(text("导出文件夹"));
         await(node -> text("导出").test(node) && node.isEnabled());
+    }
+
+    /** 向下滚动设置页，直到目标可见；查找只认可见节点，屏幕外的行等不到。 */
+    private void reveal(Predicate<AccessibilityNodeInfo> predicate) throws Exception {
+        for (int attempt = 0; attempt < 12 && findAll(predicate) == null; attempt++) {
+            AccessibilityNodeInfo scroller = null;
+            for (var window : automation.getWindows()) scroller = tallestScrollable(window.getRoot(), scroller);
+            if (scroller == null || !scroller.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) break;
+            automation.waitForIdle(300, 3000);
+        }
+        await(predicate);
+    }
+
+    /** 页面主体的纵向列表是最高的可滚动节点；分页标签和工具栏预览也可滚动，但是横向的矮条。 */
+    private static AccessibilityNodeInfo tallestScrollable(AccessibilityNodeInfo node, AccessibilityNodeInfo best) {
+        if (node == null || !node.isVisibleToUser()) return best;
+        if (node.isScrollable()) {
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            Rect current = new Rect();
+            if (best != null) best.getBoundsInScreen(current);
+            if (best == null || bounds.height() > current.height()) best = node;
+        }
+        for (int index = 0; index < node.getChildCount(); index++) best = tallestScrollable(node.getChild(index), best);
+        return best;
     }
 
     private void choose() throws Exception {
@@ -280,7 +374,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
                 new String[] {MediaStore.MediaColumns._ID}, MediaStore.MediaColumns.IS_PENDING
                     + " = 1 AND (" + MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? OR "
                     + MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?)",
-                new String[] {"msime-clipboard-%", "synthetic-export-probe-%"}, null)) {
+                new String[] {namePrefix() + "%", "msime-clipboard-%"}, null)) {
             if (cursor == null) return;
             while (cursor.moveToNext()) resolver.delete(android.content.ContentUris.withAppendedId(
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0)), null, null);
@@ -292,7 +386,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         if (Build.VERSION.SDK_INT < 29) return result;
         try (Cursor cursor = getTargetContext().getContentResolver().query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                 new String[] {MediaStore.MediaColumns._ID, MediaStore.MediaColumns.IS_PENDING},
-                MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?", new String[] {"msime-clipboard-%.txt"}, null)) {
+                MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?", new String[] {namePrefix() + "%.txt"}, null)) {
             check(cursor != null, "download listing");
             while (cursor.moveToNext()) {
                 check(cursor.getInt(1) == 0, "download published");
@@ -311,6 +405,21 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private boolean hasGrant() { return getTargetContext().getContentResolver().getPersistedUriPermissions().stream().anyMatch(
         grant -> grant.getUri().toString().equals(ROOT) && grant.isReadPermission() && grant.isWritePermission()); }
     private static Uri document(String tree, String id) { return DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree), id); }
+    /** files() 以文档 ID（root/<文件名>）为键；文件名规则要对提供方报告的显示名验收。 */
+    private String documentName(String id) throws Exception {
+        try (Cursor cursor = getTargetContext().getContentResolver().query(document(ROOT, id),
+                new String[] {DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            check(cursor != null && cursor.moveToFirst(), "document name");
+            return cursor.getString(0);
+        }
+    }
+    private String downloadName(Uri uri) throws Exception {
+        try (Cursor cursor = getTargetContext().getContentResolver().query(uri,
+                new String[] {MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+            check(cursor != null && cursor.moveToFirst(), "download name");
+            return cursor.getString(0);
+        }
+    }
     private Path state(String part) { return getTargetContext().getCacheDir().toPath().resolve("clipboard-export-suite-" + part); }
     private Path history() { return getTargetContext().getFilesDir().toPath().resolve("MSIME/clipboard_history.json"); }
     private Path settingsFile() throws Exception { return (Path) settings.getMethod("file", Context.class).invoke(null, getTargetContext()); }
@@ -359,6 +468,34 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             && text.contains("2 ==========\n合成新记录\n"), "complete Unicode snapshot and order");
     }
 
+    private String namePrefix() {
+        String app = safeNamePart(getTargetContext().getApplicationInfo().loadLabel(
+            getTargetContext().getPackageManager()).toString(), "msime");
+        String version;
+        try { version = getTargetContext().getPackageManager()
+            .getPackageInfo(getTargetContext().getPackageName(), 0).versionName; }
+        catch (Exception missing) { version = "0"; }
+        return safeNamePart(app, "msime") + "-" + safeNamePart(version, "0") + "-";
+    }
+
+    private String safeNamePart(String value, String fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        StringBuilder name = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            boolean unsafe = character < 0x20 || "/\\:*?\"<>|".indexOf(character) >= 0
+                || Character.isWhitespace(character);
+            name.append(unsafe ? '_' : character);
+        }
+        return name.toString();
+    }
+
+    /** 文件名到分钟为止；同一分钟内再导出时，存储提供方按系统惯例追加「 (n)」，产品不能覆盖前一份。 */
+    private void checkName(String name) {
+        check(name.matches(java.util.regex.Pattern.quote(namePrefix()) + "\\d{8}-\\d{4}( \\([1-9]\\d*\\))?\\.txt"),
+            "clipboard export uses the shared app-version timestamp name: " + name);
+    }
+
     private void selectFolder(String child) throws Exception {
         String reason = stage;
         await(node -> picker(node) && node.isVisibleToUser());
@@ -375,7 +512,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         long deadline = SystemClock.uptimeMillis() + 5000;
         while (SystemClock.uptimeMillis() < deadline) {
             AccessibilityNodeInfo allow = findAll(node -> text("ALLOW").test(node) || text("允许").test(node));
-            if (allow != null) { click(allow); break; }
+            // 授权确认框刚弹出、窗口还没摆好时读到的位置不可信：按它点屏幕会点到框外，确认框被当作点外部取消，选择器停在原目录、不返回结果，设置页永远等不回来（CI 的 API 35 上确认框弹出 0.65 秒后被这样点掉，documentsui 记下「Attempted to finish an input event but the input event receiver has already been disposed」，没有 PickerActionHandler.onFinished）。直接对按钮发无障碍点击，不依赖坐标；按钮还不接受时下一轮再试。
+            if (allow != null && allow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) break;
             if (findAll(text("导出文件夹")) != null) break;
             SystemClock.sleep(100);
         }

@@ -1,4 +1,4 @@
-import type { ImeSetupClient } from "../core/host-contracts";
+import type { ImeSetupClient, OobeClient } from "../core/host-contracts";
 
 export interface HomePageActions {
   openKeyboard?: () => Promise<void>;
@@ -8,6 +8,8 @@ export interface HomePageActions {
   showInputMethodPicker?: () => Promise<void>;
   /** 本输入法是否已启用、是否为当前输入法，供触屏首页的状态卡片使用；没有它的宿主照常显示卡片并提供两个步骤。 */
   setup?: ImeSetupClient;
+  /** 跨平台首次运行引导的状态快照。 */
+  oobe?: OobeClient;
 }
 
 /** 宿主缺少键盘窗口或异步打开失败时，执行调用方提供的回退。 */

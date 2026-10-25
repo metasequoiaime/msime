@@ -65,6 +65,31 @@ public class DeviceSmoke extends Instrumentation {
         throw new AssertionError("Test input method selection did not settle after restart");
     }
 
+    /**
+     * 等系统放弃被强停的输入法连接，再开始本套件。
+     *
+     * <p>Android 11 以下 smoke.sh 不能附着到已运行的产品进程，以产品为目标的上一个套件结束时，系统连同 `:ime` 一起强停产品。输入法管理服务收到断开时把它当作服务崩溃，记下这一刻、等系统重启服务（`InputMethodManagerService.onServiceDisconnected` 把 `mLastBindTime` 设为现在），而强停已经移除了服务，系统不会再拉起它。断开后 `TIME_TO_RECONNECT`（3 秒）以内，编辑器取得焦点只得到「等待输入法绑定」，弹键盘的请求被丢掉；`ime disable/enable/set` 选回同一个输入法也不会重绑，因为当前绑定的 id 没变。下一个套件若在这 3 秒内打开编辑器，键盘就一直不出现（CI 上 API 28 的「deferred composition length 1 … IME showed []」）。过了这段时间，焦点请求会让系统断开重连，所以这里在看到「有连接、没有输入法接口」时等到它恢复或满 3 秒半。dumpsys 只读输入法绑定状态，不读编辑器内容。
+     */
+    private void outlastDeadImeConnection() throws Exception {
+        if (Build.VERSION.SDK_INT >= 31) return;
+        long deadline = SystemClock.uptimeMillis() + 3500;
+        while (SystemClock.uptimeMillis() < deadline) {
+            String state = shellOutput("dumpsys input_method");
+            if (!(state.contains("mHaveConnect=true") && state.contains("mCurMethod=null"))) return;
+            SystemClock.sleep(250);
+        }
+    }
+
+    private String shellOutput(String command) throws Exception {
+        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int length;
+            while ((length = input.read(buffer)) != -1) output.write(buffer, 0, length);
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
     /** 只读取默认输入法标识，不读取编辑器内容或用户设置日志。 */
     private boolean selectedIme(String ime) throws Exception {
         try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
@@ -107,6 +132,7 @@ public class DeviceSmoke extends Instrumentation {
             AccessibilityServiceInfo info = automation.getServiceInfo();
             info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(info);
+            outlastDeadImeConnection();
             if (pinyinStartup) PinyinStartupDeviceSmoke.runChecks(this, pinyinHideResume);
             else runChecks();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: " + successDescription() + "\n");
@@ -131,7 +157,7 @@ public class DeviceSmoke extends Instrumentation {
             stage = "typing";
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
             stage = "phrase composition";
-            await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
+            await(field("msime-test-plain").and(node -> equalsText("ni'hao", node.getText())));
             stage = "phrase commit key";
             tap(key("空格"));
             stage = "phrase commit result";
@@ -215,7 +241,7 @@ public class DeviceSmoke extends Instrumentation {
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
             // The field still holds 你輸入法 from the traditional stage, and getText() includes the
             // composing region, so this is that text with the pinyin still being composed on it.
-            await(field("msime-test-plain").and(node -> equalsText("你輸入法nihao", node.getText())));
+            await(field("msime-test-plain").and(node -> equalsText("你輸入法ni'hao", node.getText())));
             if (!automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK))
                 throw new AssertionError("Keyboard hide action failed");
             SystemClock.sleep(500);

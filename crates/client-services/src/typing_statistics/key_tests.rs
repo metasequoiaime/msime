@@ -19,7 +19,7 @@ fn keys(entries: &[(&str, u64)]) -> BTreeMap<String, u64> {
 
 #[test]
 fn the_whitelist_is_the_published_contract() {
-    assert_eq!(KEY_IDS.len(), 141);
+    assert_eq!(KEY_IDS.len(), 159);
     let unique: HashSet<&str> = KEY_IDS.iter().copied().collect();
     assert_eq!(unique.len(), KEY_IDS.len());
     // Every id must also pass the document's own key-name rule shape: plain ASCII alphanumerics, which is what lets a settings page use them as lookup keys verbatim.
@@ -44,6 +44,8 @@ fn the_whitelist_is_the_published_contract() {
         "FourteenQW",
         "FourteenL",
         "FourteenM",
+        "EighteenWE",
+        "EighteenL",
     ] {
         assert!(is_known_key_id(id), "{id}");
     }

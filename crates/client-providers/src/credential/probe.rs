@@ -15,6 +15,19 @@ fn result(ok: bool, message: &str) -> ProbeResult {
     }
 }
 
+/// HTTP 测试被拒时给设置页的一句话，带上状态码，不带服务端正文。402 是 DeepSeek、OpenRouter 等的「余额不足」，不该让用户去改接口地址和模型。5xx 多半是服务端自己的故障，先让用户稍后重试；但 one-api、new-api 这类中转对没有渠道的模型名也回 503，所以重试无效时要提醒核对模型。`other` 是其余状态码时的建议。
+pub(crate) fn rejected_status_message(status: u16, other: &str) -> String {
+    match status {
+        401 | 403 => format!("认证失败（HTTP {status}），请检查 API Key 和访问权限。"),
+        402 => "账户余额不足（HTTP 402），请到服务商控制台充值后重试。".into(),
+        429 => "服务限流或额度不足（HTTP 429），请稍后重试。".into(),
+        500..=599 => format!(
+            "服务暂时不可用（HTTP {status}），请稍后重试；一直如此时，请确认该服务支持所填的模型。"
+        ),
+        _ => format!("{other}（HTTP {status}）"),
+    }
+}
+
 /// 探测仅保留固定错误类别，不向设置页返回服务端文字或凭据。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProbeFailure {
@@ -170,9 +183,10 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
     match transport.post(endpoint, token, &body) {
         Ok(200..=299) if !uses_token => result(true, "连接成功，模型配置有效。"),
         Ok(200..=299) => result(true, "连接成功，API Key 和模型配置有效。"),
-        Ok(401 | 403) => result(false, "认证失败，请检查 API Key 和访问权限。"),
-        Ok(429) => result(false, "服务限流或额度不足，请稍后重试。"),
-        Ok(_) => result(false, "服务拒绝请求，请检查接口地址和模型配置。"),
+        Ok(status) => ProbeResult {
+            ok: false,
+            message: rejected_status_message(status, "服务拒绝请求，请检查接口地址和模型配置"),
+        },
         Err(ProbeFailure::OutputLimit) => result(
             false,
             "服务已响应，但模型耗尽测试输出预算，未完成回复。可换用思考较少的模型后重试。",
@@ -320,6 +334,40 @@ mod tests {
             assert!(!result.ok);
             assert!(result.message.len() < 256);
             assert!(!result.message.contains("synthetic-key"));
+        }
+    }
+
+    // DeepSeek 的错误码表：402 是余额不足、500/503 是服务端故障，都不能让用户回头检查接口地址和模型。
+    #[test]
+    fn credential_chat_names_balance_and_server_failures_with_their_status() {
+        for (status, explanation) in [
+            (401, "认证失败（HTTP 401）"),
+            (403, "认证失败（HTTP 403）"),
+            (402, "账户余额不足（HTTP 402）"),
+            (429, "服务限流或额度不足（HTTP 429）"),
+            (500, "服务暂时不可用（HTTP 500）"),
+            (503, "服务暂时不可用（HTTP 503）"),
+            (404, "服务拒绝请求，请检查接口地址和模型配置（HTTP 404）"),
+            (422, "服务拒绝请求，请检查接口地址和模型配置（HTTP 422）"),
+        ] {
+            let fake = Fake {
+                status: Some(status),
+                bodies: RefCell::default(),
+            };
+            let result = test_chat("voice.polish", &config("deepseek"), &fake);
+            assert!(!result.ok);
+            assert!(
+                result.message.starts_with(explanation),
+                "{status}: {}",
+                result.message
+            );
+            if matches!(status, 402 | 500..=599) {
+                assert!(!result.message.contains("接口地址"), "{status}");
+            }
+            // 中转服务对没有渠道的模型名也回 503，重试无效时得让用户想到模型。
+            if matches!(status, 500..=599) {
+                assert!(result.message.contains("所填的模型"), "{status}");
+            }
         }
     }
 

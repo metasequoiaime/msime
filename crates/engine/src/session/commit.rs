@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::pinyin::segment::{join_segments, split_segments};
 use crate::pinyin::syllables::normalize_umlaut_aliases;
 use crate::quanpin::QuanpinEngine;
-use crate::text::{count_utf8_chars, first_han_char, last_han_char};
+use crate::text::count_utf8_chars;
 use crate::types::{
     CandidateEdge, CandidateSource, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType,
     WordItem,
@@ -81,11 +81,7 @@ impl InputSession {
         let Some(candidate) = self.candidates().get(index) else {
             return KeyResult::unhandled();
         };
-        let character = match edge {
-            CandidateEdge::FirstHan => first_han_char(&candidate.word),
-            CandidateEdge::LastHan => last_han_char(&candidate.word),
-        }
-        .to_owned();
+        let character = edge.character(&candidate.word).to_owned();
         if character.is_empty() {
             return KeyResult::unhandled();
         }
@@ -201,7 +197,10 @@ impl InputSession {
             diagnostic,
         };
         if self.local_mode != LocalInputMode::None {
-            let text = self.candidates().get(index).map(|item| item.word.clone());
+            let text = self
+                .candidates()
+                .get(index)
+                .map(|item| item.word.to_string());
             let diagnostic = self
                 .ranking_index(index)
                 .and_then(|learn_index| self.learn_candidate(learn_index));
@@ -212,7 +211,7 @@ impl InputSession {
         if self.stroke_rules_apply() {
             let text = self.candidates().get(index).map_or_else(
                 || self.engine.request().raw_input.clone(),
-                |item| item.word.clone(),
+                |item| item.word.to_string(),
             );
             self.reset_composition();
             self.chain.reset();
@@ -240,7 +239,7 @@ impl InputSession {
             let text = self
                 .candidates()
                 .get(index)
-                .map_or_else(|| self.preedit(), |item| item.word.clone());
+                .map_or_else(|| self.preedit(), |item| item.word.to_string());
             self.reset_composition();
             self.chain.reset();
             return KeyResult::committed(text);
@@ -252,7 +251,7 @@ impl InputSession {
             .map(|item| clone_selected_candidate(item, copy_sentence_words));
         let text = match &selected {
             Some(item) => {
-                let mut text = item.word.clone();
+                let mut text = item.word.to_string();
                 self.apply_english_word_case(item.source, &mut text);
                 Some(text)
             }
@@ -344,7 +343,7 @@ impl InputSession {
             && self.personal_context_enabled)
             .then(|| Pick {
                 canonical_pinyin: transition.selected_canonical_pinyin.clone(),
-                word: selected.word.clone(),
+                word: selected.word.to_string(),
                 committed_at: self.steady_now(),
             });
         // Recording the context has already ended the chain for a commit that does not follow the previous one.

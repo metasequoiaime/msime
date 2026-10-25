@@ -33,6 +33,7 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         {
             if (textService && token != 0)
             {
+                if (textService->_FinishWubiLocalEdit(token, applied)) return;
                 if (applied)
                 {
                     textService->_CompleteDeferredKeyReplay(token);
@@ -75,6 +76,10 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         return S_FALSE;
     }
 
+    if (_KeyState.groupedPanelKey &&
+        (!SupportsGroupedPanelKeys() || _pTextService->_IsServerUnavailableFallbackActive() ||
+         !_pTextService->_IsGroupedPanelReplayCurrent(_deferredReplayToken))) return S_FALSE;
+
     const bool serverCandidateOperation = _KeyState.Function == FUNCTION_CANDIDATE_CONTINUATION ||
                                           _KeyState.Function == FUNCTION_HOST_ONLINE_CANDIDATES;
     HRESULT hResult = serverCandidateOperation ? E_FAIL : S_OK;
@@ -97,6 +102,7 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
                                                          _prefetchedText,
                                                          MapVirtualKeyW(_uCode, MAPVK_VK_TO_VSC));
         keyHandlerEditSessioDTO.deferredReplayToken = _deferredReplayToken;
+        keyHandlerEditSessioDTO.groupedPanelKey = _KeyState.groupedPanelKey;
         hResult = pKeyStateCategory->KeyStateHandler(_KeyState.Function, keyHandlerEditSessioDTO);
         deferredReplayCompletion.applied = hResult == S_OK;
 

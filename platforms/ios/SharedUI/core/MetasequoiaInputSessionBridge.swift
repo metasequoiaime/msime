@@ -148,6 +148,8 @@ private func msimeClientResolveOnlineCandidatesRaw(
 private func msimeClientDictionary(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_plugins")
 private func msimeClientPlugins(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_key_sound_pack")
+private func msimeClientKeySoundPack(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_version")
 private func msimeClientSnapshotVersion(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_activate")
@@ -377,6 +379,8 @@ struct MetasequoiaCandidateIdentity: Equatable, Sendable {
 struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let isHandled: Bool
   let commitText: String?
+  /// Runtime 已经按候选来源分段转换时为 false，宿主不能再次把整行转成繁体。
+  let scriptConversion: Bool
   let preedit: String
   let reading: String
   /// 已经选中的那一段，运行时替这个宿主留在组字里而不是立刻上屏。
@@ -432,7 +436,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     return editingText[..<caret] + "|" + editingText[caret...]
   }
 
-  init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
+  init(isHandled: Bool = false, commitText: String? = nil, scriptConversion: Bool = true, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [],
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
@@ -446,6 +450,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false) {
     self.isHandled = isHandled
     self.commitText = commitText
+    self.scriptConversion = scriptConversion
     self.preedit = preedit
     self.reading = reading
     self.phrasePrefix = phrasePrefix
@@ -573,14 +578,16 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var documentRevision: UInt64 = 0
   private var appliedFuzzyPinyinRules: UInt32?
   private var suspended = false
-  /// 引擎的组码网格，取值与 `msime_client_set_key_grid` 的 `grid` 相同：0 不用网格（26 键），1 九键，2 全拼 14 键，3 九键双拼。
+  /// 引擎的组码网格，取值与 `msime_client_set_key_grid` 的 `grid` 相同：0 不用网格（26 键），1 九键，2 当前方案的 14 键，3 九键双拼，4 全拼 18 键，5 双拼 18 键。
   enum KeyGrid: UInt8 {
     case none = 0
     case nineKey = 1
     case fourteenKey = 2
     case nineKeyShuangpin = 3
+    case eighteenKey = 4
+    case eighteenKeyShuangpin = 5
   }
-  // 网格（九键或 14 键）是会话状态，不在选项带的偏好里，所以重建的会话要再告诉一次，否则会回到 26 键。
+  // 网格（九键、14 键或 18 键）是会话状态，不在选项带的偏好里，所以重建的会话要再告诉一次，否则会回到 26 键。
   private var keyGrid = KeyGrid.none
   // The width, like nine-key, is session state the options do not carry, so a rebuilt session is told it again.
   private var fullwidth = false
@@ -702,7 +709,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // 标点页的引号样式、方头括号样式：会话空闲时重建 Engine 换字，View 的 `punctuation_marks` 随之更新键面。
     "quote_style", "bracket_style",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
-    "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
+    "quanpin", "mixed_input", "multilingual_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // 整句联想 on the 输入 page: the session attaches or drops the keyboard sentence model once idle, so turning 增强 off stops it in the keyboard that is already open.
     "sentence_association",
     // 输入页五笔组的混拼与四码唯一自动上屏：都是引擎字段，会话空闲时重建 Engine 应用它，所以要交给活着的会话，而不等键盘扩展被杀掉后重建会话。
@@ -811,6 +818,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     switch selected {
     case .nineKey, .japaneseNineKey: layout = "nine_key"
     case .fourteenKey: layout = "fourteen_key"
+    case .eighteenKey: layout = "eighteen_key"
     case .nineKeyShuangpin: layout = "nine_key_shuangpin"
     case .handwriting: layout = "handwriting"
     default: layout = "twenty_six_key"
@@ -878,6 +886,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return (try? callDirectory(msimeClientLoadPreferences, directory))?["preferences"] as? [String: Any]
   }
 
+  /// 首次引导也准备键盘实际使用的宿主资源和偏好；只校验、准备，不创建输入会话，不要求完全访问。
+  static func prepareOnboardingResources() -> Bool {
+    guard let resources = PersonalDictionaryBridge.packagedResources else { return false }
+    return (try? callOptions(msimeClientPrepareHost,
+      bootstrapOptions(resources: resources, stateRoot: nil))) != nil
+  }
+
   /// Change fields of the shared document from the settings app.
   ///
   /// The keyboard picks the change up the next time it appears (`reloadSharedPreferences`). A write that loses the compare-and-swap to the keyboard returns false and changes nothing.
@@ -893,18 +908,35 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     var detail: String? = nil
   }
 
-  /// 插件目录的一次操作（`msime_client_plugins`），给设置 App 导入、列出和删除辅助码表用，不建输入会话。
+  /// 插件目录的一次操作（`msime_client_plugins`），给设置 App 导入、列出和删除辅助码表、列出按键音效用，不建输入会话。
   ///
-  /// `state_root` 是 App Group 里的共享状态目录，键盘的 `preferences_directory` 就是它，所以这里装进 `<state_root>/plugins` 的包键盘读得到。会读写文件，导入时还要校验整张码表：调用方放到主线程之外。`stateRoot` 只给测试用。
+  /// `state_root` 是 App Group 里的共享状态目录，键盘的 `preferences_directory` 就是它，所以这里装进 `<state_root>/plugins` 的包键盘读得到。`sound_packs` 是随包内置的音效包目录（`KeySoundPackPolicy.bundledDirectory`），`catalog` 因此也列出内置的按键音包；找不到时传 null，只列装在状态目录里的包。会读写文件，导入时还要校验整张码表：调用方放到主线程之外。`stateRoot` 只给测试用。
   static func plugins(_ action: [String: Any], stateRoot: URL? = nil) -> Result<Any, PluginFailure> {
     let root = sharedStateRoot(stateRoot)
-    let request: [String: Any] = ["state_root": root, "sound_packs": NSNull(), "action": action]
-    guard !root.isEmpty, JSONSerialization.isValidJSONObject(request),
+    let request: [String: Any] = ["state_root": root, "sound_packs": bundledSoundPacks, "action": action]
+    return pluginCall(msimeClientPlugins, request, valid: !root.isEmpty)
+  }
+
+  /// 一个按键音包里校验过的样本（`msime_client_key_sound_pack`），给自己播放按键音的键盘和设置 App 的试听用。内置包从随包的 `sound-packs/` 找，其余的 id 在共享状态目录的 `plugins/` 里找。value 是 `{id, name, mode, sounds:{default, space, enter, backspace, …: 绝对路径|null}, …}`，见 `include/msime_client.h`；由 `KeySoundPackPolicy.Samples` 读。要读包的清单和文件：不要在按键路径上调用。`stateRoot` 和 `soundPacks` 只给测试用。
+  static func keySoundPack(_ pack: String, stateRoot: URL? = nil, soundPacks: URL? = nil) -> Result<Any, PluginFailure> {
+    let root = sharedStateRoot(stateRoot)
+    let request: [String: Any] = ["state_root": root.isEmpty ? NSNull() : root,
+                                  "sound_packs": soundPacks?.path ?? bundledSoundPacks, "pack": pack]
+    return pluginCall(msimeClientKeySoundPack, request, valid: !pack.isEmpty)
+  }
+
+  /// 内置音效包目录的绝对路径，没有时是 JSON null。
+  private static var bundledSoundPacks: Any { KeySoundPackPolicy.bundledDirectory()?.path ?? NSNull() }
+
+  /// `msime_client_plugins` 一类入口的一次调用：请求编成 JSON 交给 `entry`，读回标准应答。
+  private static func pluginCall(_ entry: (UnsafePointer<MSIMEByte>?, UInt) -> UnsafeMutablePointer<CChar>?,
+                                 _ request: [String: Any], valid: Bool) -> Result<Any, PluginFailure> {
+    guard valid, JSONSerialization.isValidJSONObject(request),
           let data = try? JSONSerialization.data(withJSONObject: request) else {
       return .failure(PluginFailure(code: "invalid"))
     }
     let pointer = data.withUnsafeBytes { bytes in
-      msimeClientPlugins(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count))
+      entry(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count))
     }
     guard let pointer else { return .failure(PluginFailure(code: "unavailable")) }
     defer { msimeClientStringFree(pointer) }
@@ -1397,6 +1429,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// 偏好投影变更后读取新候选，不发送按键或改变组字。
+  func currentSnapshot() -> MetasequoiaInputSnapshot {
+    do { return try Self.snapshot(["view": view()]) }
+    catch { return diagnostic(error.localizedDescription) }
+  }
+
   func snapshot(from value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     try Self.snapshot(value)
   }
@@ -1450,22 +1488,43 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func `switch`(toShuangpinProfile profile: String) -> MetasequoiaInputSnapshot {
     switchScheme("shuangpin", profile: profile)
   }
+  /// 双拼 14 键：先切到选定的双拼方案，再打开共享引擎的 14 键网格。
+  func switchToFourteenKeyShuangpin(profile: String) -> MetasequoiaInputSnapshot {
+    switchToShuangpinGrid(.fourteenKey, profile: profile)
+  }
+  /// 双拼 18 键：先切到选定的双拼方案，再打开共享引擎的双拼 18 键网格；横滑的精确字母经 `gridKey` 以大写送入。
+  func switchToEighteenKeyShuangpin(profile: String) -> MetasequoiaInputSnapshot {
+    switchToShuangpinGrid(.eighteenKeyShuangpin, profile: profile)
+  }
+  private func switchToShuangpinGrid(_ grid: KeyGrid, profile: String) -> MetasequoiaInputSnapshot {
+    let snapshot = self.switch(toShuangpinProfile: profile)
+    guard snapshot.diagnosticText == nil else { return snapshot }
+    keyGrid = grid
+    return dispatch { msimeClientSetKeyGrid(handle, grid.rawValue) }
+  }
   func switchToNineKeyShuangpin() -> MetasequoiaInputSnapshot { switchToKeyGrid(.nineKeyShuangpin) }
 
   func switchToNineKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.nineKey) }
   /// 全拼 14 键：方案是全拼，按键经 `gridKey` 送组码。
   func switchToFourteenKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.fourteenKey) }
+  /// 全拼 18 键：方案是全拼，按键经 `gridKey` 送组码。
+  func switchToEighteenKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.eighteenKey) }
 
-  /// 先把方案切到全拼，再开网格：引擎只给全拼开九键和 14 键，方案改变时还会丢掉宿主之前设下的网格。只在组字结束后调用。
+  /// 先把方案切到全拼，再开网格：引擎只给全拼开九键、14 键和 18 键，方案改变时还会丢掉宿主之前设下的网格。只在组字结束后调用。
   private func switchToKeyGrid(_ grid: KeyGrid) -> MetasequoiaInputSnapshot {
     guard updatePreferences({ $0["scheme"] = "quanpin" }) else {
-      return diagnostic(grid == .fourteenKey ? "14 键模式切换失败" : "九键模式切换失败")
+      let failure = switch grid {
+      case .fourteenKey: "14 键模式切换失败"
+      case .eighteenKey: "18 键模式切换失败"
+      default: "九键模式切换失败"
+      }
+      return diagnostic(failure)
     }
     keyGrid = grid
     return dispatch { msimeClientSetKeyGrid(handle, grid.rawValue) }
   }
 
-  /// 14 键的一键：`letter` 是这一组的首字母（q e t u o a d g j l z c b m），引擎把整组当作一个组码。不在 14 键下、在本地模式里或 26 键正在组字时引擎不处理（`isHandled` 为 false），会话不变。
+  /// 字母网格的一键：`letter` 是这一组的首字母（14 键 q e t u o a d g j l z c b m，18 键是各组的首字母），引擎把整组当作一个组码；双拼 18 键另收大写字母，表示横滑选中的精确字母。不在字母网格下、在本地模式里或 26 键正在组字时引擎不处理（`isHandled` 为 false），会话不变。
   func gridKey(_ letter: String) -> MetasequoiaInputSnapshot {
     dispatch { Self.ascii(letter).flatMap { msimeClientGridKey(handle, $0) } }
   }
@@ -1945,8 +2004,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let editingText = view["editing_text"] as? String ?? ""
     let caretPosition = try strictInt(view["caret_position"], fallback: 0, range: 0...editingText.utf8.count)
     let marks = view["punctuation_marks"] as? [String: Any] ?? [:]
+    let commitContext = value["commit_context"] as? [String: Any]
+    let scriptConversion = try strictBool(commitContext?["script_conversion"], fallback: true)
     return MetasequoiaInputSnapshot(isHandled: try strictBool(value["handled"], fallback: false),
-      commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
+      commitText: value["commit"] as? String, scriptConversion: scriptConversion,
+      preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
       phrasePrefix: view["phrase_prefix"] as? String ?? "",
       candidates: rows.compactMap { $0["text"] as? String },

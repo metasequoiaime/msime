@@ -19,8 +19,8 @@ public final class FunctionPanelModel {
         FULL_WIDTH, CHINESE_PUNCTUATION, FUZZY_PINYIN, TRADITIONAL, HANDWRITING, DICTIONARY,
         KEYBOARD_HEIGHT, SETTINGS,
         KEY_SOUND, VIBRATION, ONE_HAND, PRIVACY, FEEDBACK, ABOUT, WEBSITE, AI_ASSIST, LOCAL_INPUT,
-        VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT, COPY_DEVICE_INFO,
-        PROMOTION, TOOLBAR_EDITOR
+        VOICE_INPUT, VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT, COPY_DEVICE_INFO,
+        PROMOTION, TOOLBAR_EDITOR, WORLD_CLOCK, OCR
     }
 
     /**
@@ -49,6 +49,7 @@ public final class FunctionPanelModel {
         toggle(Id.KEY_SOUND, "按键音", "按键音"),
         toggle(Id.VIBRATION, "振动", "按键振动"),
         action(Id.VIBRATION_STRENGTH, "振动强度"),
+        action(Id.VOICE_INPUT, "语音输入"),
         action(Id.VOICE_RESULT, "插入语音文字"),
         action(Id.DICTIONARY, "词库"),
         action(Id.TEXT_EDIT, "文本编辑"),
@@ -59,7 +60,9 @@ public final class FunctionPanelModel {
         action(Id.WEBSITE, "打开官网"),
         action(Id.ABOUT, "关于"),
         action(Id.EMOJI, "表情"),
-        action(Id.CLIPBOARD, "剪贴板历史"));
+        action(Id.CLIPBOARD, "剪贴板历史"),
+        action(Id.WORLD_CLOCK, "世界时钟"),
+        action(Id.OCR, "拍照识字"));
 
     private FunctionPanelModel() { }
 

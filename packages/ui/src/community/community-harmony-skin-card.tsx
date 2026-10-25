@@ -1,4 +1,5 @@
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import type { PreviewKey } from "../keyboard/keyboard-layouts";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { communitySkinCategoryLabel } from "./community-skin-category-model";
 import type { CommunitySkinCardProps } from "./community-skin-card";
@@ -8,6 +9,7 @@ import * as style from "./community-style";
 export interface CommunityHarmonySkinCardProps extends CommunitySkinCardProps {
   pill: CommunitySkinPillState;
   act: () => void;
+  touchRows?: PreviewKey[][];
 }
 
 const skinPillLabels: Record<CommunitySkinPillState, string> = {
@@ -25,6 +27,7 @@ export function CommunityHarmonySkinCard({
   pill,
   open,
   act,
+  touchRows,
 }: CommunityHarmonySkinCardProps) {
   const author = [
     communitySkinCategoryLabel(skin.category),
@@ -39,7 +42,13 @@ export function CommunityHarmonySkinCard({
     <div className={style.harmonySkinCard} onClick={open}>
       <span className={style.harmonySkinStage}>
         <span className={style.harmonySkinStageClip}>
-          <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} thumbnail />
+          <ScreenKeyboardPreview
+            theme={theme}
+            skin="custom"
+            customDesign={skin.design}
+            thumbnail
+            touchRows={touchRows}
+          />
         </span>
       </span>
       <div className={style.harmonySkinFooter}>

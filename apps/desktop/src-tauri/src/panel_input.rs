@@ -1259,6 +1259,19 @@ pub(crate) fn send_panel_key_windows(
     request.validate().map_err(|_| HostActionError {
         code: "invalid_key",
     })?;
+    if let Some(letter) = request.grouped_letter {
+        if !keyboard_panel {
+            return Err(HostActionError {
+                code: "invalid_key",
+            });
+        }
+        return msime_host_windows::send_grouped_key(letter).map_err(|error| HostActionError {
+            code: match error {
+                msime_host_windows::GroupedKeyError::Unavailable => "grouped_key_unavailable",
+                msime_host_windows::GroupedKeyError::Unconfirmed => "grouped_key_unconfirmed",
+            },
+        });
+    }
     // The on-screen keyboard follows whatever the user is typing into now, as
     // the reference does with RememberInputTargetWindow on every press. The
     // panel is WS_EX_NOACTIVATE, so the foreground genuinely is the editor;

@@ -102,6 +102,7 @@ test("the helper exposes the complete stable scheme order", () => {
     "zhuyin_nine_key",
     "fourteen_key",
     "nine_key_shuangpin",
+    "eighteen_key",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -214,7 +215,7 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
 });
 
 test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(19);
+  expect(allTouchKeyboardSchemes).toHaveLength(20);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
@@ -225,6 +226,7 @@ test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korea
     "zhuyin_nine_key",
     "fourteen_key",
     "nine_key_shuangpin",
+    "eighteen_key",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
   // 没有列表的文档出自默认值改成只有中文之前的版本，按那时的默认列表回退（client-core 的 `LEGACY_DEFAULT_ENABLED`），日语和韩语不会在升级后消失。

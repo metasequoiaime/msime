@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { Preferences } from "../core/preferences-model";
 import { ActionSheet, type SheetOption } from "../core/action-sheet";
+import { ChevronGlyph } from "../core/chevron-glyph";
+import { PlusGlyph } from "../core/plus-glyph";
 import {
   languageRemovalFallback,
   offeredLanguageSchemes,
@@ -45,6 +47,8 @@ function schemeName(scheme: TouchKeyboardScheme, wubiProfile: Preferences["wubi_
       return "九键双拼";
     case "fourteen_key":
       return "全拼 14 键";
+    case "eighteen_key":
+      return "全拼 18 键";
     case "wubi":
       return wubiName(wubiProfile);
     case "zhuyin":
@@ -80,7 +84,7 @@ const row =
 /** 第一行之后每个语言行上方的细线，从名称开始的位置起画（16px 内边距、30px 徽标、12px 间距）。 */
 const languageRule =
   "[background-image:linear-gradient(var(--p-hair),var(--p-hair))] [background-position:right_top] [background-size:calc(100%_-_58px)_0.5px] [background-repeat:no-repeat]";
-/** 语言下方的行（可添加的语言和「添加语言」开关）使用通栏细线，与设计稿一致。 */
+/** 方案行下方的行（可添加的方案和「添加方案」开关）使用通栏细线，与设计稿一致。 */
 const actionRule = "[box-shadow:inset_0_1px_0_var(--p-hair)]";
 const badge =
   "flex size-[30px] flex-none items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[15px] font-semibold [color:var(--p-accent-text)]";
@@ -102,9 +106,9 @@ export interface LanguageCardProps {
 }
 
 /**
- * HarmonyOS 手机的「语言与方案」卡片，是 Android `TypingPage` 语言列表的 Web 版本。触控方案按语言分组；每行显示该语言的当前方案，点开弹窗可选另一个（双拼和五笔为子菜单），普通话以外的语言可在弹窗里移除，这会把它的所有方案从键盘上撤下。「添加语言」列出没有任何方案开启的语言，添加时开启其第一个方案但不切换过去。
+ * 三端手机共用的「语言与方案」卡片。中文的全拼、双拼、五笔、注音、笔画和手写各自成行，粤拼也直接作为方案显示；日语、韩语、越南语和藏语仍按语言成行。点开一行可选该行的方案（双拼直接列小鹤、自然码等，五笔直接列 86 和 98，都不再套子菜单），移除会把这一行的所有方案从键盘上撤下。「添加方案」列出没有任何方案开启的行，添加时开启其第一个方案但不切换过去。
  *
- * 在弹窗里选中的方案若处于关闭状态会先启用，所以普通话的弹窗列出宿主提供的所有方案。卡片绝不会让键盘没有方案：当某语言持有仅有的已启用方案时，不能移除它。
+ * 在弹窗里选中的方案若处于关闭状态会先启用。卡片绝不会让键盘没有方案：当某一行持有仅有的已启用方案时，不能移除它。
  */
 export function LanguageCard({
   available,
@@ -124,9 +128,9 @@ export function LanguageCard({
       shown: shownLanguageScheme(language, selected, enabled, available),
     }))
     .filter(({ schemes }) => schemes.length > 0);
-  // 普通话始终有一行；其他语言在有任一方案开启时有一行，否则列在「添加语言」下。
-  const listed = offered.filter(({ language, shown }) => language.id === "mandarin" || shown);
-  const addable = offered.filter(({ language, shown }) => language.id !== "mandarin" && !shown);
+  // 有任一方案开启的行直接显示，其余行列在「添加方案」下。
+  const listed = offered.filter(({ shown }) => shown);
+  const addable = offered.filter(({ shown }) => !shown);
   const open = offered.find(({ language }) => language.id === sheet);
 
   const selectedIn = (scheme: TouchKeyboardScheme) =>
@@ -142,71 +146,27 @@ export function LanguageCard({
       label: schemeName(scheme, wubiProfile),
       selected: selectedIn(scheme),
     });
-    if (language.id !== "mandarin") {
-      options.push(...schemes.map(plain));
-      options.push({
-        value: REMOVE,
-        label: `移除${language.title}`,
-        destructive: true,
-        disabled: languageRemovalFallback(language, enabled, available) === null,
-      });
-      return options;
-    }
-    for (const scheme of schemes) {
-      if (
-        scheme === "quanpin" ||
-        scheme === "fourteen_key" ||
-        scheme === "nine_key" ||
-        scheme === "nine_key_shuangpin"
-      )
-        options.push(plain(scheme));
-    }
-    const shuangpin = schemes.filter(isShuangpin);
-    if (shuangpin.length > 0) {
-      const current =
-        shuangpin.find(selectedIn) ??
-        shuangpin.find((scheme) => enabled.includes(scheme)) ??
-        shuangpin[0];
-      options.push({
-        value: "shuangpin",
-        label: `双拼（${shuangpinNames[current]}）`,
-        selected: shuangpin.some(selectedIn),
-        submenu: {
-          title: "双拼",
-          options: shuangpin.map((scheme) => ({
-            value: scheme,
-            label: shuangpinNames[scheme],
-            selected: selectedIn(scheme),
-          })),
-        },
-      });
-    }
-    if (schemes.includes("wubi")) {
+    // 每行的方案直接列在这一层：双拼列小鹤、自然码等，五笔列 86 和 98。再套一层子菜单，「双拼」行、方案面板、双拼面板就成了三层。
+    if (language.id === "mandarin_wubi" && schemes.includes("wubi")) {
+      // 选中 86 或 98 即保存版本并切到五笔。
       const wubi = selectedIn("wubi");
       const profile = wubiProfile ?? "wubi86";
-      options.push({
-        value: "wubi",
-        label: `五笔（${wubiName(profile)}）`,
-        selected: wubi,
-        submenu: {
-          title: "五笔",
-          options: wubiProfiles.map((option) => ({
-            value: `${WUBI_PREFIX}${option}`,
-            label: wubiName(option),
-            selected: wubi && option === profile,
-          })),
-        },
-      });
+      options.push(
+        ...wubiProfiles.map((option) => ({
+          value: `${WUBI_PREFIX}${option}`,
+          label: wubiName(option),
+          selected: wubi && option === profile,
+        })),
+      );
+    } else {
+      options.push(...schemes.map(plain));
     }
-    for (const scheme of schemes) {
-      if (
-        scheme === "zhuyin" ||
-        scheme === "zhuyin_nine_key" ||
-        scheme === "stroke" ||
-        scheme === "handwriting"
-      )
-        options.push(plain(scheme));
-    }
+    options.push({
+      value: REMOVE,
+      label: `移除${language.title}`,
+      destructive: true,
+      disabled: languageRemovalFallback(language, enabled, available) === null,
+    });
     return options;
   };
 
@@ -246,20 +206,7 @@ export function LanguageCard({
           </span>
           <span className={name}>{language.title}</span>
           {shown && <span className={value}>{rowValue(shown, wubiProfile)}</span>}
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            className="flex-none [color:var(--p-sub)]"
-          >
-            <path d="m9 6 6 6-6 6" />
-          </svg>
+          <ChevronGlyph size={14} className="flex-none [color:var(--p-sub)]" />
         </button>
       ))}
       {adding &&
@@ -271,7 +218,7 @@ export function LanguageCard({
             aria-label={`添加${language.title}`}
             onClick={() => {
               onToggle(schemes[0], true);
-              // 添加最后一个可添加的语言后就无事可做，开关也随之消失；之后再移除时会重新从「添加语言」开始。
+              // 添加最后一个可添加的方案后就无事可做，开关也随之消失；之后再移除时会重新从「添加方案」开始。
               if (addable.length === 1) setAdding(false);
             }}
           >
@@ -295,19 +242,9 @@ export function LanguageCard({
             className="flex size-[30px] flex-none items-center justify-center"
             aria-hidden="true"
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            <PlusGlyph variant="row" size={20} strokeWidth={2.2} />
           </span>
-          <span className="[font-size:var(--p-row-fs)]">{adding ? "完成" : "添加语言"}</span>
+          <span className="[font-size:var(--p-row-fs)]">{adding ? "完成" : "添加方案"}</span>
         </button>
       )}
       <ActionSheet

@@ -349,7 +349,7 @@ export class KeySoundPlayer {
     }
   }
 
-  /** Open a rendered note and bind the descriptor to the path produced by the renderer. */
+  /** 打开一个渲染出的音符，并确认描述符指向的就是渲染器写出的那个文件。 */
   private static openVerified(path: string): fs.File {
     try {
       const pathStat: fs.Stat = fs.lstatSync(path);
@@ -373,6 +373,11 @@ export class KeySoundPlayer {
       KeyboardLog.error('keyboard.KeySoundPlayer.openVerified failed');
       throw error as Error;
     }
+  }
+
+  /** 设置页试听使用与播放器相同的受校验文件打开路径。 */
+  static openPreview(path: string): fs.File {
+    return KeySoundPlayer.openVerified(path);
   }
 
   private async loadFile(generation: number, pool: media.SoundPool, path: string,

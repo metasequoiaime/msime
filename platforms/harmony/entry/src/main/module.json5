@@ -19,6 +19,7 @@
     // signed with a provisioning profile that carries the ACL for it. Declared so such a build works,
     // and the keyboard checks at runtime rather than presenting an empty clipboard as an empty one.
     "requestPermissions": [
+      { "name": "ohos.permission.ACCESS_BIOMETRIC" },
       {
         // Account and cloud clipboard requests use the HTTPS account service only when the user
         // opens the account or cloud surface; ordinary offline typing never touches the network.

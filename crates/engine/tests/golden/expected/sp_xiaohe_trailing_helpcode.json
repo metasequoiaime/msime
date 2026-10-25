@@ -38,7 +38,7 @@
      2,
      3
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "是",
@@ -48,6 +48,18 @@
       "scheme": "shuangpin",
       "weight": 100,
       "annotation": "(uC)",
+      "answers_key": true
+     },
+     {
+      "word": "使使",
+      "pinyin": "uiu",
+      "canonical_pinyin": "shi'shi",
+      "source": 8,
+      "scheme": "shuangpin",
+      "weight": -17034,
+      "annotation": "(aA)",
+      "sentence_association": true,
+      "sentence_words": ["使", "使"],
       "answers_key": true
      },
      {
@@ -105,8 +117,20 @@
      3,
      4
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
+     {
+      "word": "使使",
+      "pinyin": "uiu",
+      "canonical_pinyin": "shi'shi",
+      "source": 8,
+      "scheme": "shuangpin",
+      "weight": -17034,
+      "annotation": "(aA)",
+      "sentence_association": true,
+      "sentence_words": ["使", "使"],
+      "answers_key": true
+     },
      {
       "word": "使",
       "pinyin": "ui",

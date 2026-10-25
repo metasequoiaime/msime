@@ -27,7 +27,7 @@ export function RootSettingsRowView({
   );
 }
 
-/** 「设置」根页面的分组行：每组一张无边框卡片，间距 20px，不显示组标题。 */
+/** 「首页」根页面的分组行：每组一张无边框卡片，间距 20px，不显示组标题。 */
 export function RootSettingsList({
   groups,
   onOpenPage,

@@ -92,6 +92,10 @@ pub(super) struct InputSession {
     pub expressive_options: MixedExpressiveOptions,
     /// 日文混输开着（`SessionOptions::japanese_mixing`）。
     pub japanese_mixing: bool,
+    /// 所选语言的独立词库查询状态，不修改活动方案的提供者。
+    pub multilingual: Option<crate::multilingual::DictionaryComposer>,
+    /// 当前唯一的完整混合备选；快照据此保留语言边界。
+    pub multilingual_conversion: Option<crate::multilingual::Conversion>,
     pub dedicated_english: bool,
     pub dedicated_english_preedit: String,
     pub dedicated_english_candidates: Vec<WordItem>,
@@ -160,6 +164,7 @@ impl InputSession {
         engine.set_autocorrect_types(0);
         engine.set_quanpin_helpcode_enabled(true);
         engine.set_shuangpin_helpcode_enabled(true);
+        engine.set_korean_layout(options.korean_layout);
         engine.set_vietnamese_options(
             options.vietnamese_input_method,
             options.vietnamese_tone_style,
@@ -194,6 +199,19 @@ impl InputSession {
             english_options: EnglishInputOptions::default(),
             expressive_options: MixedExpressiveOptions::default(),
             japanese_mixing: false,
+            multilingual: (options.multilingual_languages.len() >= 2).then(|| {
+                let model = if options.japanese_dictionary.as_os_str().is_empty() {
+                    paths.resource(assets::JAPANESE_MODEL)
+                } else {
+                    options.japanese_dictionary.clone()
+                };
+                crate::multilingual::DictionaryComposer::with_japanese_model(
+                    &paths,
+                    &options.multilingual_languages,
+                    &model,
+                )
+            }),
+            multilingual_conversion: None,
             dedicated_english: false,
             dedicated_english_preedit: String::new(),
             dedicated_english_candidates: Vec::new(),
@@ -267,6 +285,11 @@ impl InputSession {
         session.japanese_mixing = options.japanese_mixing;
         if options.japanese_mixing {
             session.engine.warm_up_japanese();
+        }
+        if options.mixed_candidates {
+            if let Some(composer) = &session.multilingual {
+                composer.warm_up_in_background();
+            }
         }
         session.set_wubi_input_options(options.wubi);
         session.set_personal_context_enabled(options.personal_context);
@@ -1580,6 +1603,7 @@ impl InputSession {
         self.dedicated_english_preedit.clear();
         self.dedicated_english_candidates.clear();
         self.mixed_candidates.clear();
+        self.multilingual_conversion = None;
         self.personal_reranked = false;
         self.ranking_candidates = None;
         self.engine.reset();
@@ -1605,6 +1629,9 @@ impl InputSession {
 
     pub fn reset_cache(&mut self) {
         self.engine.reset_cache();
+        if let Some(composer) = &mut self.multilingual {
+            composer.clear();
+        }
         if let Some(engine) = self.canonical_phrase_engine.as_mut() {
             engine.reset_cache();
         }
@@ -1953,8 +1980,16 @@ impl InputSession {
             b'S' => (LocalInputMode::Symbol, options.symbol),
             _ => return None,
         };
-        // 拆字和快捷短语一样在五笔下也能进入：它查的是编进引擎的部件拼音表，不经过当前方案的拼写，五笔用户同样会遇到不会读的字。
-        let scheme_opens = if matches!(mode, LocalInputMode::QuickPhrase | LocalInputMode::Chaizi) {
+        // 五笔编码只用小写字母，没有组字时的 Shift+字母不会和编码冲突，所以不经过当前方案拼写的模式在五笔下也能进入（`opens_table_modes`）：快捷短语、Unicode 码位、日期时间关键词、临时英文和符号分组码各有自己的输入，拆字查的是编进引擎的部件拼音表，五笔用户同样会遇到不会读的字（#9696）。Emoji、颜文字和超级简拼按当前方案的拼音拼写查，计算模式的数字和运算符要宿主按方案路由（Windows 的 LocalModeTriggersChanged），它们仍只在全拼、双拼下进入（`opens_local_modes`）。
+        let scheme_opens = if matches!(
+            mode,
+            LocalInputMode::QuickPhrase
+                | LocalInputMode::Chaizi
+                | LocalInputMode::Unicode
+                | LocalInputMode::DateTime
+                | LocalInputMode::TemporaryEnglish
+                | LocalInputMode::Symbol
+        ) {
             self.scheme().opens_table_modes()
         } else {
             self.scheme().opens_local_modes()
@@ -2068,7 +2103,7 @@ impl InputSession {
             }
             _ => false,
         };
-        continues.then(|| item.word.clone())
+        continues.then(|| item.word.to_string())
     }
 
     fn enter_local_mode(&mut self, mode: LocalInputMode, letter: u8) -> Option<String> {

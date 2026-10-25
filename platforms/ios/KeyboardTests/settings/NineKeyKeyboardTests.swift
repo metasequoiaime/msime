@@ -127,7 +127,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testHidingLanguageKeyExpandsSpaceAndReloadsAcrossPhoneLayouts() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
-    for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .nineKey] {
+    for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .eighteenKey, .nineKey] {
       InputSchemePreference.scheme = scheme
       for width in [320.0, 414.0] {
         KeyboardLayoutPreference.hideLanguageKey = false
@@ -2312,13 +2312,13 @@ final class NineKeyKeyboardTests: XCTestCase {
         // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），全拼 14 键的读音单独一行，键盘为这些行长高而不是从按键里扣，所以视图要按方案自己请求的高度布局，按键才保持各自的设计高度。
         let keyboardHeight = KeyboardViewController.keyboardHeight(
           glossLines: KeyboardViewController.stripGlossLines(scheme: scheme, fullAccess: false, onlineRoute: false),
-          separateReadingRow: scheme == .fourteenKey)
+          separateReadingRow: [.fourteenKey, .eighteenKey].contains(scheme))
         controller.view.frame.size.height = keyboardHeight
         controller.viewWillAppear(false)
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           try layoutAtRequestedHeight(controller)
-          let paddedLetters = !symbols && ![.nineKey, .nineKeyShuangpin, .stroke, .zhuyin, .fourteenKey].contains(scheme)
+          let paddedLetters = !symbols && ![.nineKey, .nineKeyShuangpin, .stroke, .zhuyin, .fourteenKey, .eighteenKey].contains(scheme)
           let expectedKeyHeight: CGFloat = paddedLetters ? 44 : reference
           if scheme == .zhuyin && !symbols {
             // The Dachen layout fits four rows of keys above the action row into the same keyboard height, as the system Zhuyin keyboard does, so its rows are shorter than the three letter rows and all of them stay the same height.
@@ -2379,14 +2379,14 @@ final class NineKeyKeyboardTests: XCTestCase {
             let space = try button("spaceKey", in: controller)
             XCTAssertEqual(punctuation.bounds.width, space.bounds.width / KeyboardViewController.phoneSpaceWeight, accuracy: 0.5)
             XCTAssertGreaterThanOrEqual(space.bounds.width, 79.2)
-            let secondary = ![.handwriting, .fourteenKey, .zhuyin].contains(scheme)
+            let secondary = ![.handwriting, .fourteenKey, .eighteenKey, .zhuyin].contains(scheme)
             XCTAssertEqual(punctuation.menu?.children.count, secondary ? nil : 7)
             XCTAssertEqual((punctuation as? KeyboardKeyButton)?.cornerHint != nil, secondary)
           }
           // 底行的 ⌫ 只属于 Dachen 符号行：123 / #+= 层的 ⌫ 在第三行，九键网格的在右列，假名网格的在它自己的网格里。
           XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !(symbols && scheme == .zhuyin))
           // 全拼 14 键画自己的三排键，键位与等高由 FourteenKeyKeyboardTests 覆盖。
-          if !symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .handwriting, .zhuyin, .stroke, .fourteenKey].contains(scheme) {
+          if !symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .handwriting, .zhuyin, .stroke, .fourteenKey, .eighteenKey].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
             let shift = try button("shiftButton", in: controller)
             // Korean keys are named by the jamo they type.
@@ -2605,7 +2605,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(toolbar.isHidden)
     XCTAssertEqual(reading.frame.width, 0, accuracy: 0.5, "the strip draws no spelling")
     XCTAssertTrue(try button("preeditButton", in: controller).isHidden)
-    XCTAssertEqual(controller.inlineMarkedText, "nihao", "the spelling is written into the field")
+    // 全拼宿主快照显示分词；输入框里的拼音样式预编辑使用同一出口。
+    XCTAssertEqual(controller.inlineMarkedText, "ni'hao", "分词拼音写入输入框")
     let candidate = try button("candidate-1", in: controller)
     let candidateFrame = candidate.convert(candidate.bounds, to: strip)
     XCTAssertLessThanOrEqual(candidateFrame.minX, 2.5, "the first candidate starts at the leading edge")
@@ -2805,8 +2806,8 @@ final class NineKeyKeyboardTests: XCTestCase {
         key.sendActions(for: .primaryActionTriggered)
       }
       controller.view.layoutIfNeeded()
-      XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, "nihao",
-                     "round \(round): the keystrokes never reached the engine")
+      XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, "ni'hao",
+                     "第 \(round) 轮：按键未形成分词预编辑")
       XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"),
                     "round \(round): no Chinese candidate")
       controller.viewWillDisappear(false)
@@ -3980,6 +3981,103 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(panelCandidates(in: controller).contains { $0.count > 1 })
   }
 
+  /// 面板里文字为 `text` 的候选按钮。网格按需复用格子，屏幕外的候选没有按钮，所以逐格滚过去找；复用池里藏起来的旧格子不算。
+  private func panelCandidateButton(_ text: String, in controller: KeyboardViewController) throws -> UIButton {
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+    let collection = try XCTUnwrap(descendants(panel).compactMap { $0 as? UICollectionView }.first)
+    func shown() -> UIButton? {
+      descendants(collection).compactMap { $0 as? UIButton }.first { chip in
+        guard (chip.accessibilityIdentifier ?? "").hasPrefix("panelCandidate-"),
+              sequence(first: chip as UIView, next: \.superview).allSatisfy({ !$0.isHidden }),
+              let title = chip.configuration?.attributedTitle.map({ String($0.characters) }) else { return false }
+        return title.split(separator: "\n").first.map(String.init) == text
+      }
+    }
+    collection.layoutIfNeeded()
+    if let chip = shown() { return chip }
+    for item in 0..<collection.numberOfItems(inSection: 0) {
+      collection.scrollToItem(at: IndexPath(item: item, section: 0), at: .top, animated: false)
+      collection.layoutIfNeeded()
+      if let chip = shown() { return chip }
+    }
+    return try XCTUnwrap(nil as UIButton?, "the panel lists no candidate \(text)")
+  }
+
+  /// 九键面板里逐字选词（#9193）：选掉第一个字后面板留着，换上剩下音节的候选；「单字」留着，笔画清空（它比的是刚选掉的字）。选完最后一个字整句上屏，面板收起。
+  func testNineKeyExpandedPanelStaysOpenAcrossPartialSelections() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    let controller = try nineKeyController(typing: "64426")
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+    try button("candidatePanelSingleToggle", in: controller).sendActions(for: .primaryActionTriggered)
+    let strokeToggle = try button("candidatePanelStrokeToggle", in: controller)
+    let strokes = !strokeToggle.isHidden
+    if strokes {
+      // 你（亻）起笔是撇。
+      strokeToggle.sendActions(for: .primaryActionTriggered)
+      try button("candidatePanelStroke_p", in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+
+    try panelCandidateButton("你", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(candidatePanel(in: controller) === panel, "a partial selection keeps the panel open")
+    let remaining = try preedit(in: controller)
+    XCTAssertTrue(remaining.hasPrefix("你") && remaining != "你", remaining)
+    let next = panelCandidates(in: controller)
+    // 好（女）起笔不是撇：笔画前缀没清掉的话它不在列表里。
+    XCTAssertTrue(next.contains("好"), "\(next)")
+    XCTAssertFalse(next.contains("你"), "the panel shows the remaining syllable, not the old generation: \(next)")
+    XCTAssertTrue(next.allSatisfy { $0.count == 1 }, "单字 stays on: \(next)")
+    XCTAssertEqual(try button("candidatePanelSingleToggle", in: controller).configuration?.title, "全部")
+    if strokes {
+      let prefix = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityIdentifier == "candidatePanelStrokePrefix"
+      } as? UILabel)
+      XCTAssertEqual(prefix.text, "笔画", "the stroke prefix described the character just chosen")
+    }
+
+    try panelCandidateButton("好", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller), "the last selection commits the phrase and closes the panel")
+    XCTAssertTrue(try preedit(in: controller).isEmpty)
+  }
+
+  /// 普通候选网格同样在部分选词后留着、换上剩下组字的候选，整句上屏才收起（#9193）。
+  func testQuanpinPanelStaysOpenAcrossPartialSelections() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    for letter in ["N", "I", "H", "A", "O"] {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(letter)" } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+
+    try panelCandidateButton("你", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(candidatePanel(in: controller) === panel, "a partial selection keeps the grid open")
+    let remaining = try preedit(in: controller)
+    XCTAssertTrue(remaining.hasPrefix("你") && remaining != "你", remaining)
+    XCTAssertEqual(try button("expandCandidates", in: controller).accessibilityLabel, "收起候选")
+
+    try panelCandidateButton("好", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller))
+    XCTAssertTrue(try preedit(in: controller).isEmpty)
+    XCTAssertEqual(try button("expandCandidates", in: controller).accessibilityLabel, "展开全部候选")
+  }
+
   /// 「重输」清掉组字，面板随组字一起收起。
   func testNineKeyExpandedPanelClearEndsTheComposition() throws {
     let previousScheme = InputSchemePreference.scheme
@@ -4091,11 +4189,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
 
     // CI 只暂存核心词库；可下载词库缺失时方案会回落全拼，只验收实际可用的入口。
-    var schemes: [ChineseInputScheme] = [.quanpin, .shuangpin, .fourteenKey, .handwriting]
+    var schemes: [ChineseInputScheme] = [.quanpin, .shuangpin, .fourteenKey, .eighteenKey, .handwriting]
     if InputSchemePreference.installedLanguageSchemes?.contains(.stroke) != false { schemes.append(.stroke) }
     // 返回键与 Android 一样：26 键一族和手写印「拼音」，14 键和笔画印各自的短名。
     let returnTitles: [ChineseInputScheme: String] = [
-      .quanpin: "拼音", .shuangpin: "拼音", .handwriting: "拼音", .fourteenKey: "14键", .stroke: "笔",
+      .quanpin: "拼音", .shuangpin: "拼音", .handwriting: "拼音", .fourteenKey: "14键", .eighteenKey: "18键", .stroke: "笔",
     ]
     for scheme in schemes {
       for tablet in [false, true] {
@@ -4193,8 +4291,9 @@ final class NineKeyKeyboardTests: XCTestCase {
   /// 借用数字页的返回键键面按原键面取，与 Android `KeyboardActionRow.layerTitle` 相同；词库没装时上面的界面用例跳过笔画，这里按方案直接固定。
   func testBorrowedNumberPadReturnTitleFollowsTheLayout() {
     XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.fourteenKey), "14键")
+    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.eighteenKey), "18键")
     XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.stroke), "笔")
-    for scheme in ChineseInputScheme.allCases where ![.fourteenKey, .stroke].contains(scheme) {
+    for scheme in ChineseInputScheme.allCases where ![.fourteenKey, .eighteenKey, .stroke].contains(scheme) {
       XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme), SymbolLayerLayout.lettersTitle(chinese: true),
                      "\(scheme)")
     }

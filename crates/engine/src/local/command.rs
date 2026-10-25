@@ -188,13 +188,13 @@ pub fn query_command(
             if exact {
                 if aliases.contains(&code) {
                     for row in query_date_time(code, now) {
-                        push(code, row.word);
+                        push(code, row.word.into_string());
                     }
                 }
             } else if !aliases.contains(&code) {
                 if let Some(alias) = aliases.iter().find(|alias| alias.starts_with(code)) {
                     if let Some(row) = query_date_time(alias, now).into_iter().next() {
-                        push(alias, row.word);
+                        push(alias, row.word.into_string());
                     }
                 }
             }

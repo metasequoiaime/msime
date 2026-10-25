@@ -74,6 +74,11 @@ import {
   PreferenceMapping,
 } from "../entry/src/main/ets/keyboard/KeyboardScheme";
 import { FourteenKeyLayout } from "../entry/src/main/ets/keyboard/input/FourteenKeyLayout";
+import { EighteenKeyLayout } from "../entry/src/main/ets/keyboard/input/EighteenKeyLayout";
+import {
+  EighteenKeySwipeGesture,
+  EighteenKeySwipePolicy,
+} from "../entry/src/main/ets/keyboard/input/EighteenKeySwipePolicy";
 import { AppEdition } from "../entry/src/main/ets/keyboard/AppEdition";
 import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboardPolicy";
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
@@ -90,6 +95,7 @@ import {
   NineKeyPanelMode,
   NineKeyPanelPolicy,
 } from "../entry/src/main/ets/keyboard/input/NineKeyPanelPolicy";
+import { CandidatePanelSelectionPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePanelSelectionPolicy";
 import {
   LayerCharacterRoute,
   LayerKey,
@@ -570,6 +576,11 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
     "全拼 14 键记在 fourteenKey 名下，英文时仍记英文",
   );
   check(
+    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, KeyGrid.EIGHTEEN_KEY, "none") ===
+      "eighteenKey",
+    "全拼 18 键记在 eighteenKey 名下",
+  );
+  check(
     TypingStatisticsPolicy.source("shuangpin", "microsoft", false, KeyGrid.NONE, "none") ===
       "microsoft",
     "shuangpin profile is retained",
@@ -614,7 +625,7 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
 
 group("names keys with the shared key heatmap ids and nothing else", () => {
   const knownKeyId = (id: string): boolean => KEY_IDS.includes(id);
-  check(KEY_IDS.length === 141, "the whitelist has the shared store's 141 ids");
+  check(KEY_IDS.length === 159, "白名单包含共享存储的原有键位和新增十八键");
   check(new Set(KEY_IDS).size === KEY_IDS.length, "no id is listed twice");
   for (const id of [
     KeyIdPolicy.SPACE,
@@ -993,6 +1004,7 @@ group("keeps translation provider policy bounded and credential-free in signatur
       TranslationPolicy.sourceGetsNoGloss(7) &&
       TranslationPolicy.sourceGetsNoGloss(13) &&
       TranslationPolicy.sourceGetsNoGloss(14) &&
+      TranslationPolicy.sourceGetsNoGloss(18) &&
       !TranslationPolicy.sourceGetsNoGloss(0),
     "special candidate sources never receive glosses",
   );
@@ -1492,6 +1504,12 @@ group("projects the same form factor into every settings capability", () => {
   );
   check(desktop.voiceHotkeys, "2-in-1 settings offer the voice hotkeys");
   check(
+    phone.touchKeySoundPacks &&
+      SettingsFormFactorCapabilities.resolve("tablet").touchKeySoundPacks &&
+      !desktop.touchKeySoundPacks,
+    "phones and tablets offer the touch key sound pack choice, a 2-in-1 keeps its plugin page",
+  );
+  check(
     desktop.keySound && desktop.music && desktop.pluginTriggers && desktop.typingEffects,
     "2-in-1 settings offer key sounds, background music, the V, / and @ modes and the typing effects",
   );
@@ -1603,6 +1621,35 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
   check(
     point.x === HANDWRITING_CANVAS_SIZE && point.y === 0,
     "handwriting points stay inside the canvas",
+  );
+  const widePoint = HandwritingStrokePolicy.pointInCanvas(600, 300, 700, 420);
+  check(
+    widePoint.x === 600 && widePoint.y === 300,
+    "wide handwriting areas retain points outside the fixed recognition canvas",
+  );
+  // 铺满键盘宽度的书写区（约 352×197vp）横竖按同一比例映射到 420 的识别坐标：方的笔画仍是方的，点都留在 420 以内。
+  const corner = HandwritingStrokePolicy.recognitionPoint(352, 197, 352, 197);
+  const square = [
+    HandwritingStrokePolicy.recognitionPoint(100, 50, 352, 197),
+    HandwritingStrokePolicy.recognitionPoint(200, 150, 352, 197),
+  ];
+  check(
+    Math.abs(corner.x - HANDWRITING_CANVAS_SIZE) < 1e-9 && corner.y < HANDWRITING_CANVAS_SIZE,
+    "the longer side of the pad spans the recognition canvas",
+  );
+  check(
+    Math.abs((square[1].x - square[0].x) - (square[1].y - square[0].y)) < 1e-9,
+    "a square stroke stays square instead of being stretched to the canvas height",
+  );
+  const tall = HandwritingStrokePolicy.recognitionPoint(100, 400, 200, 400);
+  check(
+    Math.abs(tall.y - HANDWRITING_CANVAS_SIZE) < 1e-9 && Math.abs(tall.x - 105) < 1e-9,
+    "a pad taller than wide scales by its height",
+  );
+  const tablet = HandwritingStrokePolicy.recognitionPoint(800, 260, 800, 260);
+  check(
+    tablet.x === HANDWRITING_CANVAS_SIZE && tablet.y < HANDWRITING_CANVAS_SIZE,
+    "a pad wider than 420vp still maps inside the canvas",
   );
   check(!HandwritingStrokePolicy.canRecognize([]), "empty ink does not trigger OCR");
   check(
@@ -2319,7 +2366,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 7,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 8,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -2827,6 +2874,29 @@ group("the nine-key expanded panel's backspace, strokes and layout", () => {
   );
 });
 
+group("a partial selection keeps the expanded panel (#9193)", () => {
+  check(
+    CandidatePanelSelectionPolicy.keepsOpen(true, true),
+    "a selection that leaves part of the composition keeps the panel and lists what remains",
+  );
+  check(
+    !CandidatePanelSelectionPolicy.keepsOpen(true, false),
+    "committing the whole phrase closes the panel",
+  );
+  check(
+    !CandidatePanelSelectionPolicy.keepsOpen(false, true),
+    "a stale generation the Engine refused does not keep the old panel",
+  );
+  check(
+    CandidatePanelSelectionPolicy.strokesAfterPartialSelection("hs") === "",
+    "the stroke prefix described the character just chosen, so it is cleared",
+  );
+  check(
+    CandidatePanelSelectionPolicy.strokesAfterPartialSelection("") === null,
+    "and nothing is sent when there was none",
+  );
+});
+
 group("a long press exposes the literal digit and letters", () => {
   const rows: NineKey[][] = NineKeyLayout.rows();
   check(NineKeyLayout.holdOptions(rows[0][1]).join("") === "2abc", "ABC offers 2, a, b and c");
@@ -2896,7 +2966,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 18,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 19,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -2985,8 +3055,22 @@ group("14 键的网格与键面", () => {
     KeyGrid.NONE === 0 &&
       KeyGrid.NINE_KEY === 1 &&
       KeyGrid.FOURTEEN_KEY === 2 &&
-      KeyGrid.NINE_KEY_SHUANGPIN === 3,
-    "取值与 msime_client_set_key_grid 的 0、1、2、3 相同",
+      KeyGrid.NINE_KEY_SHUANGPIN === 3 &&
+      KeyGrid.EIGHTEEN_KEY === 4 &&
+      KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5,
+    "取值与 msime_client_set_key_grid 的 0、1、2、3、4、5 相同",
+  );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "shuangpin", false, "fourteen_key") ===
+      KeyGrid.FOURTEEN_KEY &&
+      KeyboardScheme.keyGrid("twenty_six_key", "shuangpin", false, "eighteen_key") ===
+        KeyGrid.EIGHTEEN_KEY_SHUANGPIN,
+    "双拼的独立 14/18 键布局使用相应组码网格",
+  );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "shuangpin", true, "eighteen_key") === KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("twenty_six_key", "quanpin", false, "eighteen_key") === KeyGrid.NONE,
+    "双拼 2in1 和全拼的独立布局不误开网格",
   );
   check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
   check(
@@ -3001,6 +3085,173 @@ group("14 键的网格与键面", () => {
   check(
     NineKeyPanelPolicy.threeColumn(true, SchemeTraits.QUANPIN, true),
     "14 键组字时展开候选也是九键的三栏面板",
+  );
+});
+
+group("全拼 18 键使用共享组码并覆盖全部字母", () => {
+  const rows = EighteenKeyLayout.rows();
+  const keys = rows.flat();
+  check(rows.map((row) => row.length).join(",") === "7,6,5", "18 键三排为 7、6、5 个键");
+  check(keys.length === 18, "18 键一共 18 个组");
+  check(
+    keys.map((key) => key.input).join(" ") === "q w r y u i p a s f h j l z x v b m",
+    "组码使用每组首字母",
+  );
+  const letters = keys
+    .flatMap((key) => key.letters.split(""))
+    .sort()
+    .join("");
+  check(letters === "abcdefghijklmnopqrstuvwxyz", "18 个组恰好覆盖 26 个字母");
+  for (const key of keys) {
+    check(
+      KeyIdPolicy.eighteenKey(key.letters) === `Eighteen${key.label}`,
+      `${key.label} 记在 18 键键位`,
+    );
+  }
+  check(EighteenKeyLayout.holdOptions(keys[1]).join(",") === "w,e", "双字母键长按弹出字母");
+  check(EighteenKeyLayout.holdOptions(keys[0]).length === 0, "单字母键不弹出长按选项");
+  check(
+    KeyboardScheme.fromPreferences("quanpin", null, "eighteen_key") ===
+      KeyboardScheme.QUANPIN_EIGHTEEN_KEY &&
+      KeyboardScheme.keyGrid("eighteen_key", "quanpin", false) === KeyGrid.EIGHTEEN_KEY &&
+      KeyboardScheme.keyGrid("eighteen_key", "quanpin", true) === KeyGrid.NONE,
+    "18 键方案、网格编号和 2in1 回落一致",
+  );
+  check(KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5, "双拼 18 键使用 C ABI 的网格编号 5");
+});
+
+group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
+  const letter = (dx: number, dy: number): string => EighteenKeySwipePolicy.letter("we", dx, dy);
+  check(EighteenKeySwipePolicy.THRESHOLD_VP === 24, "阈值与 Android 的 24 dp、iOS 的 24 pt 相同");
+  check(
+    letter(-25, 0) === "W" && letter(25, 0) === "E",
+    "左滑取左字母、右滑取右字母，送大写精确标记",
+  );
+  check(letter(24, 0) === "" && letter(-24, 0) === "", "阈值以内仍是点按");
+  check(letter(25, 20) === "" && letter(-25, -20) === "", "纵向位移不能被识别为横滑");
+  check(
+    letter(40, 20) === "E" && letter(30, 20) === "",
+    "明显横滑允许少量纵向移动，横向须大于纵向 1.5 倍",
+  );
+  check(letter(0, 0) === "", "回到起点不选字母");
+  check(
+    letter(Number.NaN, 0) === "" && letter(Number.POSITIVE_INFINITY, 0) === "",
+    "无效坐标不选字母",
+  );
+  for (const unsupported of ["q", "l", "l;", "", "abc", "WE"]) {
+    check(
+      EighteenKeySwipePolicy.letter(unsupported, 50, 0) === "",
+      `「${unsupported}」不是两个小写字母，不横滑`,
+    );
+  }
+  const twoLetterKeys = EighteenKeyLayout.rows()
+    .flat()
+    .filter((key) => EighteenKeySwipePolicy.swipeable(key.letters))
+    .map((key) => key.letters);
+  check(
+    twoLetterKeys.join(" ") === "we rt io sd fg jk xc bn" &&
+      twoLetterKeys.every(
+        (letters) =>
+          EighteenKeyLayout.holdOptions({ letters, input: "", label: "", description: "" })
+            .length === 2,
+      ),
+    "横滑的键正是有长按字母的那八个双字母键",
+  );
+
+  const gesture = new EighteenKeySwipeGesture();
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 110, 100) === "", "轻微移动不选字母");
+  check(gesture.up("we", 4, 110, 100) === "", "轻点抬手不输入字母");
+  const tap = gesture.click("we", 110, 100);
+  check(tap.group && tap.letter === "", "轻点由点击送整组");
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 65, 100) === "W", "越过阈值后键面显示选中的字母");
+  check(gesture.move("we", 4, 135, 100) === "E", "同一次触摸可以反向重选");
+  check(gesture.up("we", 4, 135, 100) === "E", "抬手输入选中的字母");
+  const afterSwipe = gesture.click("we", 135, 100);
+  check(!afterSwipe.group && afterSwipe.letter === "", "抬手先到时随后的点击不再送整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 65, 100);
+  const clickFirst = gesture.click("we", 65, 100);
+  check(
+    !clickFirst.group && clickFirst.letter === "",
+    "点击先于抬手到达且已越过阈值时，点击不送整组",
+  );
+  check(gesture.up("we", 4, 65, 100) === "W", "随后的抬手照常输入字母");
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 115, 100) === "", "快速一甩时只送了一次没过阈值的移动");
+  check(gesture.up("we", 4, 130, 100) === "E", "抬手那一点过了阈值就取那个字母");
+  check(!gesture.click("we", 130, 100).group, "抬手判成横滑后点击不送整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 115, 100);
+  const flickClick = gesture.click("we", 70, 100);
+  check(
+    !flickClick.group && flickClick.letter === "W",
+    "点击先到且它的位置过了阈值时，由点击输入字母",
+  );
+  check(gesture.up("we", 4, 70, 100) === "", "之后的抬手不再输入第二次");
+
+  gesture.down("we", 4, 100, 100);
+  const plainClickFirst = gesture.click("we", 105, 100);
+  check(plainClickFirst.group && plainClickFirst.letter === "", "点击先到且没过阈值时送整组");
+  check(gesture.up("we", 4, 105, 100) === "", "之后的抬手不输入");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 65, 100);
+  check(gesture.move("we", 4, 100, 100) === "", "回到起点不再选中字母");
+  check(gesture.up("we", 4, 100, 100) === "", "回到起点抬手不输入");
+  check(!gesture.click("we", 100, 100).group, "回到起点也不补一次整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 135, 100);
+  gesture.down("we", 5, 140, 100);
+  check(gesture.move("we", 4, 135, 100) === "", "同一键上落下第二根手指后不再选字母");
+  check(
+    gesture.up("we", 4, 135, 100) === "" && gesture.up("we", 5, 140, 100) === "",
+    "两根手指抬起都不输入",
+  );
+  check(!gesture.click("we", 135, 100).group, "两指按压也不送整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.down("bn", 5, 300, 200);
+  gesture.move("we", 4, 135, 100);
+  check(gesture.move("bn", 4, 135, 100) === null, "另一根手指的移动不影响别的键");
+  check(
+    gesture.up("bn", 5, 300, 200) === "" && gesture.click("bn", 300, 200).group,
+    "另一个键照常点按",
+  );
+  check(gesture.up("we", 4, 135, 100) === "E", "两个拇指各按一个键时互不取消");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 135, 100);
+  gesture.cancel("we");
+  check(
+    gesture.up("we", 4, 135, 100) === "" && !gesture.click("we", 135, 100).group,
+    "系统取消后什么也不输入",
+  );
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.hold("we"), "没有横滑时长按照常弹出字母");
+  check(gesture.move("we", 4, 135, 100) === "", "长按之后不抢成横滑");
+  check(
+    gesture.up("we", 4, 135, 100) === "" && !gesture.click("we", 135, 100).group,
+    "长按之后抬手和点击都不输入",
+  );
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 135, 100);
+  check(!gesture.hold("we"), "横滑先接管时长按不再弹出字母");
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 135, 100) === "E", "新按压不继承取消、长按或横滑状态");
+  gesture.clear();
+  check(
+    gesture.up("we", 4, 135, 100) === "" && gesture.click("we", 135, 100).group,
+    "键被替换后丢弃按压，没有触摸的点击照常送整组",
   );
 });
 
@@ -4127,13 +4378,26 @@ group("resolves external candidate skin tokens without trusting missing fields",
     "the toolbar block is exposed only for a drawn package",
   );
   check(
-    CandidateSkinCatalogPolicy.imageDataUrl("image/png", [0, 1, 2]) ===
-      "data:image/png;base64,AAEC",
-    "image bytes become an image-only data URL",
+    CandidateSkinCatalogPolicy.imageDataUrl("image/png", "AAEC") === "data:image/png;base64,AAEC",
+    "base64 image bytes become an image-only data URL",
   );
   check(
-    CandidateSkinCatalogPolicy.imageDataUrl("text/css", [0, 1, 2]) === null,
+    CandidateSkinCatalogPolicy.imageDataUrl("text/css", "AAEC") === null,
     "non-image resources cannot become decoration URLs",
+  );
+  check(
+    CandidateSkinCatalogPolicy.imageDataUrl("image/png", "") === null &&
+      CandidateSkinCatalogPolicy.imageDataUrl("image/png", "AAE") === null &&
+      CandidateSkinCatalogPolicy.imageDataUrl("image/png", 'AA");x') === null,
+    "empty or malformed base64 cannot become a decoration URL",
+  );
+  check(
+    CandidateSkinCatalogPolicy.base64ByteLength("AAEC") === 3 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("AAE=") === 2 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("AA==") === 1 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("") === 0 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("AAE") === -1,
+    "the canvas budget counts decoded bytes from the base64 length",
   );
   check(
     CandidateSkinCatalogPolicy.imageAspectRatio(
@@ -5911,6 +6175,18 @@ group("traditional output never loses text when conversion fails", () => {
   check(
     ChineseOutputPolicy.output("发展", true, true, phrase) === "發展",
     "发展 converts as a phrase",
+  );
+  check(
+    ChineseOutputPolicy.candidateOutput("hello網絡学校", true, true, 18, (text) =>
+      text.replace("学", "學"),
+    ) === "hello網絡学校",
+    "混合候选保留日文汉字",
+  );
+  check(
+    ChineseOutputPolicy.candidateOutput("学校", true, true, 0, (text) =>
+      text.replace("学", "學"),
+    ) === "學校",
+    "普通中文照常转换",
   );
   check(ChineseOutputPolicy.applies(false, 0, "none") === true, "quanpin converts");
   check(ChineseOutputPolicy.applies(true, 0, "none") === false, "dedicated English does not");
@@ -11206,6 +11482,42 @@ group("the language editions offer only their own scheme and no handwriting", ()
   );
 });
 
+group("leaving handwriting from the tile returns to the scheme it was entered from (#9703)", () => {
+  const offered = [
+    KeyboardScheme.QUANPIN,
+    KeyboardScheme.QUANPIN_NINE_KEY,
+    KeyboardScheme.XIAOHE,
+    KeyboardScheme.HANDWRITING,
+  ];
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.QUANPIN_NINE_KEY, offered) ===
+      KeyboardScheme.QUANPIN_NINE_KEY,
+    "全拼 9 键 comes back to 全拼 9 键, not the first card",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.XIAOHE, offered) === KeyboardScheme.XIAOHE,
+    "and 小鹤双拼 to 小鹤双拼",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(null, offered) === KeyboardScheme.QUANPIN,
+    "handwriting picked from the picker leaves for the first card that is not handwriting",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.JAPANESE, offered) === KeyboardScheme.QUANPIN,
+    "a scheme removed while writing is not brought back",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.HANDWRITING, offered) ===
+      KeyboardScheme.QUANPIN,
+    "handwriting is never its own way out",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(null, [KeyboardScheme.HANDWRITING], wubiEdition) ===
+      KeyboardScheme.WUBI,
+    "with only handwriting left the edition's own scheme is the way out",
+  );
+});
+
 group("a device's own buttons are not a keyboard", () => {
   // Every phone enumerates a keyboard source for volume and power. Only the type separates them,
   // which is the whole reason this decision is not `sources.includes("keyboard")`.
@@ -13099,7 +13411,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 18,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 19,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -14889,6 +15201,63 @@ group("key sounds follow the desktop player's settings and pack rules", () => {
     "50 is half amplitude, as on the desktop",
   );
   check(KeySoundPolicy.gain({ ...on, volume: 0 }) === 0, "0 is silent");
+  const touch: KeySoundSettings = KeySoundPolicy.touchSettings(undefined, true);
+  check(
+    touch.key && touch.pack === "default" && KeySoundPolicy.selection(touch).pack === "default",
+    "a touch keyboard with its local switch on loads the built-in default pack without any plugins record",
+  );
+  check(
+    !KeySoundPolicy.wanted(KeySoundPolicy.touchSettings({ key_sound: { enabled: true } }, false)),
+    "the touch switch, not the 2in1 plugin switch, decides whether touch keys sound",
+  );
+  const touchPicked: KeySoundSettings = KeySoundPolicy.touchSettings(
+    {
+      key_sound: { enabled: false, mode: "melody", pack: "msime-bubble", volume: 80 },
+      commit_sound: { enabled: true },
+      achievements: { enabled: true },
+      combo_counter: true,
+      combo_tier_sound: true,
+    },
+    true,
+  );
+  check(
+    touchPicked.key &&
+      touchPicked.pack === "msime-bubble" &&
+      touchPicked.volume === 80 &&
+      !touchPicked.melody &&
+      !touchPicked.commit &&
+      !touchPicked.achievements &&
+      !touchPicked.tierSound,
+    "touch keys take the shared pack and volume but none of the 2in1 plugin effects",
+  );
+  check(
+    KeySoundPolicy.touchKeyClass("Space", false) === KeySoundClass.SPACE &&
+      KeySoundPolicy.touchKeyClass("Enter", false) === KeySoundClass.ENTER &&
+      KeySoundPolicy.touchKeyClass("Backspace", false) === KeySoundClass.BACKSPACE &&
+      KeySoundPolicy.touchKeyClass("KeyA", false) === KeySoundClass.DEFAULT &&
+      KeySoundPolicy.touchKeyClass(null, false) === KeySoundClass.DEFAULT,
+    "touch keys sound by their key id",
+  );
+  check(
+    KeySoundPolicy.touchKeyClass("Space", true) === KeySoundClass.DEFAULT &&
+      KeySoundPolicy.touchKeyClass("Backspace", true) === KeySoundClass.DEFAULT,
+    "a password field sounds every touch key alike",
+  );
+  check(
+    KeySoundPolicy.previewSample(keys) === "/packs/default/key.wav",
+    "the settings preview plays a key pack's default key sample, as a letter key sounds",
+  );
+  check(
+    KeySoundPolicy.previewSample(twinkle) === null,
+    "a melody pack has no key sample to preview",
+  );
+  check(
+    KeySoundPolicy.previewSample(
+      files({ sounds: { ...keys.sounds, default: "/packs/user/key.ogg" } }),
+    ) === null &&
+      KeySoundPolicy.previewSample(files({ sounds: { ...keys.sounds, default: null } })) === null,
+    "the preview stays silent for an Ogg sample or a pack with no default key sample",
+  );
   check(!KeySoundPolicy.keysSilent(false, false, false), "Chinese mode sounds its keys");
   check(KeySoundPolicy.keysSilent(true, false, false), "a password field is silent");
   check(KeySoundPolicy.keysSilent(false, true, false), "English mode is silent, as on the desktop");
@@ -15588,7 +15957,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 18 &&
+      KeyboardScheme.SCHEMES.length === 19 &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
@@ -15760,7 +16129,7 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 18 &&
+    KeyboardScheme.SCHEMES.length === 19 &&
       KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",

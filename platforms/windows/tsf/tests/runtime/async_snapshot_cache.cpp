@@ -5,7 +5,62 @@
 #include <stdexcept>
 #include <thread>
 
+namespace {
+void invalidationDuringReadIsRetried() {
+  using Cache = msime::tsf::AsyncSnapshotCache<int>;
+  Cache cache;
+  cache.initialize([](const auto &) { return std::make_shared<const int>(1); });
+  std::promise<void> entered, resume;
+  auto resumed = resume.get_future().share();
+  std::atomic<int> backing{2};
+  int reads = 0;
+  std::thread worker;
+  auto load = [&](const auto &) {
+    const int value = backing.load();
+    if (++reads == 1) {
+      entered.set_value();
+      resumed.wait();
+    }
+    return std::make_shared<const int>(value);
+  };
+  const auto start = Cache::Clock::now();
+  auto schedule = [&](auto task) { worker = std::thread(std::move(task)); return true; };
+  assert(cache.refresh(load, schedule, start));
+  assert(entered.get_future().wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+  backing.store(3);
+  cache.invalidate();
+  assert(!cache.refresh(load, schedule, start));
+  resume.set_value();
+  worker.join();
+  assert(reads == 2 && *cache.snapshot() == 3);
+}
+
+void invalidationBypassesThrottleAndSurvivesRejection() {
+  using Cache = msime::tsf::AsyncSnapshotCache<int>;
+  Cache cache;
+  cache.initialize([](const auto &) { return std::make_shared<const int>(1); });
+  auto immediate = [](auto task) { task(); return true; };
+  int value = 2;
+  auto load = [&](const auto &) { return std::make_shared<const int>(value); };
+  const auto start = Cache::Clock::now();
+  assert(cache.refresh(load, immediate, start));
+  cache.invalidate();
+  assert(!cache.refresh(load, [](auto) { return false; }, start));
+  value = 3;
+  assert(cache.refresh(load, immediate, start));
+  assert(*cache.snapshot() == 3);
+  assert(!cache.refresh(load, immediate, start));
+  cache.invalidate();
+  assert(!cache.refresh(load, [](auto) -> bool { throw std::bad_alloc(); }, start));
+  value = 4;
+  assert(cache.refresh(load, immediate, start));
+  assert(*cache.snapshot() == 4);
+}
+}
+
 int main() {
+  invalidationDuringReadIsRetried();
+  invalidationBypassesThrottleAndSurvivesRejection();
   using Cache = msime::tsf::AsyncSnapshotCache<int>;
   Cache cache;
   int loads = 0;

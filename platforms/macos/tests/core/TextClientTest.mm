@@ -16,6 +16,7 @@
 @property(nonatomic) NSRange documentSelection;
 @property(nonatomic, copy) NSString *following;
 @property(nonatomic, copy) NSString *document;
+@property(nonatomic) BOOL expandSurrogates;
 - (NSString *)markedString;
 @end
 @implementation FakeTextClient
@@ -31,9 +32,39 @@
     }
     if (!self.document || range.location == NSNotFound || range.location > self.document.length ||
         range.length > self.document.length - range.location) return nil;
+    if (self.expandSurrogates && range.length == 1 && range.location > 0 &&
+        CFStringIsSurrogateLowCharacter([self.document characterAtIndex:range.location]))
+        range = NSMakeRange(range.location - 1, 2);
     return [[NSAttributedString alloc] initWithString:[self.document substringWithRange:range]];
 }
 @end
+
+static void TestCommittedContext() {
+    FakeTextClient *client = [[FakeTextClient alloc] init];
+    uint32_t preceding = 0;
+    client.document = @"Rust写";
+    client.documentSelection = NSMakeRange(5, 0);
+    NSRange range = MSIMETextClientCommittedRange(client, @"写", &preceding, nil);
+    assert(NSEqualRanges(range, NSMakeRange(4, 1)) && preceding == 't');
+    client.document = @"𠀀R";
+    client.documentSelection = NSMakeRange(3, 0);
+    range = MSIMETextClientCommittedRange(client, @"R", &preceding, nil);
+    assert(NSEqualRanges(range, NSMakeRange(2, 1)) && preceding == 0x20000);
+    client.expandSurrogates = YES;
+    range = MSIMETextClientCommittedRange(client, @"R", &preceding, nil);
+    assert(range.location == 2 && preceding == 0x20000);
+    assert(MSIMETextClientCommittedRange(client, @"S", &preceding, nil).location == NSNotFound);
+    client.documentSelection = NSMakeRange(2, 1);
+    assert(MSIMETextClientCommittedRange(client, @"R", &preceding, nil).location == NSNotFound);
+    client.documentSelection = NSMakeRange(0, 0);
+    assert(MSIMETextClientCommittedRange(client, @"R", &preceding, nil).location == NSNotFound);
+    client.documentSelection = NSMakeRange(NSNotFound, 0);
+    assert(MSIMETextClientCommittedRange(client, @"R", &preceding, nil).location == NSNotFound);
+    client.documentSelection = NSMakeRange(3, 0);
+    assert(MSIMETextClientCommittedRange(client, @"R", &preceding, ^BOOL { return NO; }).location == NSNotFound);
+    NSString *longText = [@"R" stringByPaddingToLength:4097 withString:@"R" startingAtIndex:0];
+    assert(MSIMETextClientCommittedRange(client, longText, &preceding, nil).location == NSNotFound);
+}
 
 static NSDictionary *MaintenanceCandidate(MSIMEClientSession *session) {
     for (NSDictionary *candidate in [session viewWithError:nil][@"candidates"])
@@ -566,6 +597,7 @@ static void TestInlinePreeditCaretStyle() {
 
 int main() {
     @autoreleasepool {
+        TestCommittedContext();
         assert(MSIMEPreeditCaretPosition(@"abc", @"abc", @1) == 1);
         for (id invalid in @[@YES, @0.5, @1.5])
             assert(MSIMEPreeditCaretPosition(@"abc", @"abc", invalid) == 3);

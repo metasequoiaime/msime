@@ -1,7 +1,7 @@
 import { MobileKeyboardFeedbackSettings } from "../mobile-keyboard-feedback-settings";
 import { keyboardThemeId } from "../../theme/global-theme";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
-import { harmonyTouchKeyboardRows, type HarmonyTouchLayout } from "../../keyboard/keyboard-layouts";
+import { harmonyTouchKeyboardRows, harmonyTouchLayout } from "../../keyboard/keyboard-layouts";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow } from "../../core/platform-controls";
@@ -17,10 +17,11 @@ import { defaultTouchKeyboardGeometry } from "../touch-keyboard-geometry-default
 import { HandwritingSettingsContent } from "./handwriting-page";
 import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections";
 import { useSettingsTabs } from "../use-settings-tabs";
+import { pluginPreferences } from "../plugin-preferences";
+import { useTouchKeySoundPacks } from "../use-touch-key-sound-packs";
 
-type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "nine_key";
-
-/** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26 键、14 键和 9 键，日语有 26 键和 9 键。其他方案在那里都只有一种键盘。 */
+/** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，日语有 26/9 键。 */
+type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
 const harmonyLayoutGroups: readonly (readonly (readonly [
   HarmonyKeyboardLayout,
   TouchKeyboardScheme,
@@ -28,6 +29,7 @@ const harmonyLayoutGroups: readonly (readonly (readonly [
   [
     ["twenty_six_key", "quanpin"],
     ["fourteen_key", "fourteen_key"],
+    ["eighteen_key", "eighteen_key"],
     ["nine_key", "nine_key"],
   ],
   [
@@ -39,26 +41,43 @@ const harmonyLayoutGroups: readonly (readonly (readonly [
 const harmonyLayoutTitles: Record<HarmonyKeyboardLayout, string> = {
   twenty_six_key: "26 键",
   fourteen_key: "14 键",
+  eighteen_key: "18 键",
   nine_key: "9 键",
 };
-
-/** 当前方案在 HarmonyOS 键盘上画成的中文键盘，「尺寸」预览照它画。只有 26 键的方案画 26 键。 */
-function harmonyTouchLayout(selected: TouchKeyboardScheme): HarmonyTouchLayout {
-  if (selected === "fourteen_key" || selected === "nine_key" || selected === "japanese_nine_key")
-    return selected;
-  return "twenty_six_key";
-}
 
 /**
  * HarmonyOS 手机的 中文键盘 行：当前方案的 26 键、14 键或 9 键，和 Android 的 `KeyboardOptionsPage` 提供 `touch_keyboard_layout` 的方式一致。选择时像键盘自己的方案选择器那样切到这一组中的另一个键盘，把 `touch_keyboard_layout` 与 `scheme`、`touch_keyboard_schemes.selected` 一起写入（并启用它），因为键盘先读取选中的方案再读布局，只改布局不会让键盘切换。
  */
 function HarmonyChineseKeyboardRow({
   selected,
+  shuangpinLayout,
   onSelect,
+  onShuangpinLayoutChange,
 }: {
   selected: TouchKeyboardScheme;
+  shuangpinLayout: "twenty_six_key" | "fourteen_key" | "eighteen_key";
   onSelect: (scheme: TouchKeyboardScheme) => void;
+  onShuangpinLayoutChange: (layout: "twenty_six_key" | "fourteen_key" | "eighteen_key") => void;
 }) {
+  const shuangpin =
+    selected === "xiaohe" ||
+    selected === "ziranma" ||
+    selected === "microsoft" ||
+    selected === "shoudao";
+  if (shuangpin) {
+    return (
+      <SelectRow
+        title="中文键盘"
+        aria-label="中文键盘"
+        value={shuangpinLayout}
+        onChange={(event) => onShuangpinLayoutChange(event.target.value as typeof shuangpinLayout)}
+      >
+        <option value="twenty_six_key">26 键</option>
+        <option value="fourteen_key">14 键</option>
+        <option value="eighteen_key">18 键</option>
+      </SelectRow>
+    );
+  }
   const group = harmonyLayoutGroups.find((layouts) =>
     layouts.some(([, scheme]) => scheme === selected),
   );
@@ -124,6 +143,28 @@ export function ScreenKeyboardSettingsPage() {
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const harmonyPhone = harmonyPlatform && mobilePlatform;
+  // 只有触屏键盘按所选包发按键音的宿主（HarmonyOS 手机和平板）才读目录、给「音效」行；2in1 和其他宿主在插件页或原生设置里选包，这里不变。
+  const keySoundPacks = useTouchKeySoundPacks(
+    host?.touch_key_sound_packs ? client.plugins?.catalog : undefined,
+    page === "screen-keyboard",
+  );
+  const plugins = pluginPreferences(draft);
+  const keySoundPack =
+    keySoundPacks && keySoundPacks.length > 0
+      ? {
+          selected: plugins.key_sound.pack,
+          packs: keySoundPacks,
+          onSelect: (pack: string) => {
+            onPreferencesChange({
+              plugins: { ...plugins, key_sound: { ...plugins.key_sound, pack } },
+            });
+            // 试听只是顺带的：播不出来不影响已经写入的选择，所以不报错。
+            void client.mobileKeyboardFeedback
+              ?.previewKeySound?.(pack, plugins.key_sound.volume)
+              .catch(() => undefined);
+          },
+        }
+      : undefined;
   // 宿主不按存下的高度或间距画键盘时（macOS），预览画键盘实际的样子：默认高度和默认间距，不画存下的值。
   const previewKeySpacingTenths = showTouchKeyboardSpacing
     ? touchKeySpacingTenths
@@ -145,7 +186,12 @@ export function ScreenKeyboardSettingsPage() {
       phone={harmonyPhone}
       touchRows={
         harmonyPhone
-          ? harmonyTouchKeyboardRows[harmonyTouchLayout(selectedTouchKeyboardScheme)]
+          ? harmonyTouchKeyboardRows[
+              harmonyTouchLayout(
+                selectedTouchKeyboardScheme,
+                draft.touch_shuangpin_layout ?? "twenty_six_key",
+              )
+            ]
           : undefined
       }
     />
@@ -212,7 +258,11 @@ export function ScreenKeyboardSettingsPage() {
               harmonyPhone && (
                 <HarmonyChineseKeyboardRow
                   selected={selectedTouchKeyboardScheme}
+                  shuangpinLayout={draft.touch_shuangpin_layout ?? "twenty_six_key"}
                   onSelect={selectHomeScheme}
+                  onShuangpinLayoutChange={(touch_shuangpin_layout) =>
+                    onPreferencesChange({ touch_shuangpin_layout })
+                  }
                 />
               )
             }
@@ -302,6 +352,7 @@ export function ScreenKeyboardSettingsPage() {
             ios={iosPlatform}
             // 「英文建议」管的是候选，放在输入页的「候选与联想」组。
             showEnglishSuggestions={false}
+            keySoundPack={keySoundPack}
             onChange={(value) => void saveMobileKeyboardFeedback(value)}
             onPreview={() => void previewMobileKeyboardHaptics()}
           />

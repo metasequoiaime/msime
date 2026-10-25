@@ -47,6 +47,57 @@ export interface ImeSetupState {
   current: boolean | null;
 }
 
+/** 跨平台首次运行引导的事实快照；`null` 是宿主无法可靠查询，不是未完成。 */
+export interface OobeState {
+  resourcesReady: boolean | null;
+  systemEnabled: boolean | null;
+  systemCurrent: boolean | null;
+  preferencesSaved: boolean | null;
+  onboardingSeen: boolean | null;
+}
+
+export type OobeStep =
+  | "prepare_resources"
+  | "enable_system_input_method"
+  | "make_default_input_method"
+  | "save_preferences";
+
+/** 宿主提供 OOBE 状态时使用的读取和通知接口。 */
+export interface OobeClient {
+  read(): OobeState | null;
+  subscribe(listener: (state: OobeState) => void): () => void;
+  refresh?(): void;
+  /** 重试宿主的资源准备，桌面宿主可以打开自己的安装或配置页。 */
+  prepareResources?(): Promise<void>;
+  /** 打开宿主的安装或系统配置入口。 */
+  openSetup?(): Promise<void>;
+}
+
+export function oobeFlowComplete(state: OobeState): boolean {
+  return (
+    state.onboardingSeen === true &&
+    state.resourcesReady === true &&
+    state.preferencesSaved === true
+  );
+}
+
+export function oobeSystemReady(state: OobeState): boolean {
+  return state.systemEnabled === true && state.systemCurrent === true;
+}
+
+export function oobeComplete(state: OobeState): boolean {
+  return oobeFlowComplete(state) && oobeSystemReady(state);
+}
+
+/** 只返回明确失败的第一步；未知值交给宿主显示无法确认，不强行当成失败。 */
+export function oobeNextAction(state: OobeState): OobeStep | null {
+  if (state.resourcesReady === false) return "prepare_resources";
+  if (state.systemEnabled === false) return "enable_system_input_method";
+  if (state.systemCurrent === false) return "make_default_input_method";
+  if (state.preferencesSaved === false) return "save_preferences";
+  return null;
+}
+
 export interface ImeSetupClient {
   /** 最近已知的状态；宿主尚不能回答时为 null。 */
   read(): ImeSetupState | null;

@@ -112,7 +112,7 @@ export function MixedInputMoreRows({
         <>
           <SwitchRow
             title="快捷短语混输"
-            description="中文输入的编码恰好是某条快捷短语的编码时，短语排在普通候选之后；Shift+K 的 K 模式不受影响"
+            description="中文输入的编码恰好是某条快捷短语的编码时，短语混进候选，默认排在首页最后；Shift+K 的 K 模式不受影响"
             checked={state.quickPhraseChecked}
             disabled={!state.enabled}
             onChange={(quick_phrase) => onChange({ ...preferences, quick_phrase })}

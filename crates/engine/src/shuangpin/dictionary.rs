@@ -6,7 +6,10 @@ use std::sync::Arc;
 use super::mid_sentence::{
     satisfies_syllable_helpcodes, syllable_helpcode_matches, syllable_helpcodes_signature,
 };
-use super::query::{remove_manual_delimiters, trim_trailing_letters_preserve_delimiters};
+use super::query::{
+    raw_length_for_effective_prefix, remove_manual_delimiters,
+    trim_trailing_letters_preserve_delimiters,
+};
 use super::typo_edges::{collect_shuangpin_typo_edges, SHUANGPIN_TYPO_TYPES};
 use super::utils::{convert_seg_shuangpin_to_seg_complete_pinyin, pinyin_segmentation};
 use super::ShuangpinProfile;
@@ -20,8 +23,11 @@ use crate::helpcode::{
 use crate::ime::online_batch::{
     replace_cached_online_candidate_batch, replace_online_candidate_batch,
 };
-use crate::lattice::decode::{decode_constrained_sentences, SentenceNgramTables};
-use crate::lattice::merge::{merge_lattice_candidates, whole_sentence_insert_position};
+use crate::lattice::decode::{decode_constrained_sentences, decode_sentences, SentenceNgramTables};
+use crate::lattice::merge::{
+    merge_decoded, merge_lattice_candidates_with_typo_policy, whole_sentence_insert_position,
+    DecodedSentences,
+};
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
@@ -30,6 +36,7 @@ use crate::ordering::apply_order;
 use crate::paths::RuntimePaths;
 use crate::pinyin::jianpin::QuerySource;
 use crate::pinyin::segment::split_segments;
+use crate::pinyin::syllables::{has_only_complete_pinyin_segments, is_intact};
 use crate::quanpin::dictionary::{
     CACHE_CAPACITY, INITIAL_CANDIDATE_LIMIT, TYPO_SPAN_CACHE_CAPACITY,
 };
@@ -339,6 +346,13 @@ impl ShuangpinDictionary {
             }
         }
 
+        let segments = split_segments(&convert_seg_shuangpin_to_seg_complete_pinyin(
+            segmentation,
+            self.profile,
+        ));
+        let incomplete_tail = segments.split_last().is_some_and(|(last, leading)| {
+            !is_intact(last) && has_only_complete_pinyin_segments(leading)
+        });
         let mut candidates = self.generate(pure, segmentation, rows_key);
         // Every shorter prefix group follows, longest first; phrase creation picks from them (SD:215-231). The reference appended each group whole, so a word several groups answer (a manual delimiter leaves empty pieces, and ni'''nn'i holds the ni group three times) was listed once per group; a word already listed keeps its first, longest-prefix seat instead.
         let mut prefix_rows = Vec::with_capacity(prefix_group_count(segmentation));
@@ -346,14 +360,17 @@ impl ShuangpinDictionary {
         while let Some(cut) = prefix.rfind('\'') {
             prefix = &prefix[..cut];
             let prefix_pure = remove_manual_delimiters(prefix);
-            prefix_rows.push(self.generate(&prefix_pure, prefix, ""));
+            // 完整前缀作为补全失败时的回退，沿用它自己的缓存和按键范围。
+            let rows = if incomplete_tail && prefix_rows.is_empty() {
+                let end = raw_length_for_effective_prefix(rows_key, prefix_pure.len());
+                self.generate_series(&prefix_pure, prefix, &rows_key[..end])
+            } else {
+                self.generate(&prefix_pure, prefix, "")
+            };
+            prefix_rows.push(rows);
         }
         append_prefix_rows(&mut candidates, prefix_rows);
 
-        let segments = split_segments(&convert_seg_shuangpin_to_seg_complete_pinyin(
-            segmentation,
-            self.profile,
-        ));
         self.merge_sentences(&mut candidates, &segments, segmentation, pure, rows_key);
 
         let key = key.take().unwrap_or_else(|| series_key.to_owned());
@@ -388,6 +405,13 @@ impl ShuangpinDictionary {
             segmentation,
             self.profile,
         ));
+        if !has_only_complete_pinyin_segments(&segments)
+            && !segments.split_last().is_some_and(|(last, leading)| {
+                !is_intact(last) && has_only_complete_pinyin_segments(leading)
+            })
+        {
+            return Vec::new();
+        }
         let mut options = self.sentence_tables.options(self.sentence_alternatives);
         let scorer;
         if has_collocation {
@@ -403,7 +427,8 @@ impl ShuangpinDictionary {
         options.personal = (!model.is_empty()).then_some(&*model);
         let mut lookup = |span: &[String]| {
             // 先按辅助码过滤再做搜索，不能用普通查询的每段截断提前丢掉目标字。
-            self.database.query_lattice_span(span, UNLIMITED_ROWS)
+            self.database
+                .query_lattice_span_with_trailing_initial(span, UNLIMITED_ROWS)
         };
         let mut paths = decode_constrained_sentences(&segments, &mut lookup, &options, accepts);
         if options.emit > 0 {
@@ -465,6 +490,24 @@ impl ShuangpinDictionary {
         options.personal = (!model.is_empty()).then_some(&*model);
         let database = &self.database;
         let span_limit = options.span_limit;
+        if segments.split_last().is_some_and(|(last, leading)| {
+            !is_intact(last) && has_only_complete_pinyin_segments(leading)
+        }) {
+            let mut lookup = |span: &[String]| {
+                database.query_lattice_span_with_trailing_initial(span, span_limit)
+            };
+            let paths = decode_sentences(segments, &mut lookup, &options);
+            merge_decoded(
+                candidates,
+                segments,
+                typed,
+                &options,
+                &mut self.rerankers,
+                &self.rescoring_context,
+                DecodedSentences { paths, typo: None },
+            );
+            return;
+        }
         let mut lookup = |span: &[String]| database.query_lattice_span(span, span_limit);
         let codes = typo_codes(self.autocorrect_types, segments, segmentation, rows_key);
         let types = self.autocorrect_types;
@@ -486,7 +529,7 @@ impl ShuangpinDictionary {
         } else {
             Some(&mut typo_edges)
         };
-        let typo = merge_lattice_candidates(
+        let typo = merge_lattice_candidates_with_typo_policy(
             candidates,
             segments,
             &mut lookup,
@@ -495,8 +538,8 @@ impl ShuangpinDictionary {
             typo_source,
             &mut self.rerankers,
             &self.rescoring_context,
+            true,
         );
-
         // 纠错整句不抢首选：不论比字面整句好多少，一律排在全码词条和整句块之后，只作为一个可选的改正。
         let Some(typo) = typo else {
             return;
@@ -516,7 +559,7 @@ impl ShuangpinDictionary {
         );
         sentence.sentence_association = true;
         sentence.sentence_words = typo.words;
-        sentence.corrected_from = fold_reading(typed);
+        sentence.corrected_from = fold_reading(typed).into();
         candidates.insert(at, sentence);
     }
 

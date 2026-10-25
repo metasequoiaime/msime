@@ -1,6 +1,7 @@
 #include "EngineSessionAdapter.h"
 #include "../common/HostOnlineCandidateSync.h"
 #include "../../common/HostApiString.h"
+#include "../common/PanelCharacter.h"
 #include "../common/PhrasePreeditOptions.h"
 #include <nlohmann/json.hpp>
 namespace msime::tsf {
@@ -54,6 +55,16 @@ void EngineSessionAdapter::destroy() noexcept {
 bool EngineSessionAdapter::character(uint8_t value, bool shift, std::string *out, std::string *error) {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_character(session_, value, shift), out, error);
+}
+bool EngineSessionAdapter::panel_character(uint8_t value, bool shift, bool grouped,
+                                            std::string *out, std::string *error) {
+  if (!session_) return false;
+  try {
+    const auto current = msime::windows::panel_response(msime_client_view(session_));
+    const auto result = msime::windows::panel_character(session_, current, value, shift, grouped);
+    if (out) *out = json{{"ok", true}, {"value", result}}.dump();
+    return true;
+  } catch (...) { if (error) *error = "Panel character operation failed"; return false; }
 }
 bool EngineSessionAdapter::command(uint32_t value, std::string *out, std::string *error) {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }

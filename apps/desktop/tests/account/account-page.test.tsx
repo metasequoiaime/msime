@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
+import { accountNameResult, presentAccountName } from "../support/account-name";
 import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { useState } from "react";
@@ -15,7 +17,6 @@ import {
   type AppThemeCatalogEntry,
   type AppThemeClient,
   type AppThemeId,
-  type Preferences,
   type SettingsSyncClient,
   type Snapshot,
 } from "@msime/ui";
@@ -29,9 +30,10 @@ afterEach(() => {
 const user: AccountUser = {
   id: "fixture-user-id",
   displayName: "水杉测试用户",
+  preferredName: "水杉测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
-const profile: AccountProfile = { user, providers: ["email"] };
+const profile: AccountProfile = { user, providers: ["email"], providerNames: accountProviderNames };
 
 function account(overrides: Partial<AccountClient> = {}): AccountClient {
   return {
@@ -40,6 +42,7 @@ function account(overrides: Partial<AccountClient> = {}): AccountClient {
     requestCode: vi.fn().mockResolvedValue({ challengeId: "fixture-challenge", expiresIn: 300 }),
     login: vi.fn().mockResolvedValue({ user }),
     profile: vi.fn().mockResolvedValue(profile),
+    namePresentation: presentAccountName,
     rename: vi.fn().mockResolvedValue(profile),
     logout: vi.fn().mockResolvedValue(undefined),
     deleteAccount: vi.fn().mockResolvedValue(undefined),
@@ -112,10 +115,15 @@ test("ignores a same-tick duplicate verification-code request", async () => {
 });
 
 test("profile rename, logout-all confirmation and account deletion use explicit actions", async () => {
-  const renamed = { ...user, displayName: "新昵称" };
+  const renamed = { ...user, displayName: "新昵称", preferredName: "新昵称" };
   const client = account({
+    namePresentation: async (name) => accountNameResult(name === "  新昵称  " ? "新昵称" : name),
     status: vi.fn().mockResolvedValue({ user }),
-    rename: vi.fn().mockResolvedValue({ user: renamed, providers: ["email"] }),
+    rename: vi.fn().mockResolvedValue({
+      user: renamed,
+      providers: ["email"],
+      providerNames: accountProviderNames,
+    }),
   });
   render(<AccountPage client={client} />);
   fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
@@ -123,6 +131,9 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   expect(screen.getAllByRole("textbox", { name: /社区昵称/ })).toHaveLength(1);
   const name = screen.getByRole("textbox", { name: "编辑社区昵称" });
   fireEvent.change(name, { target: { value: "  新昵称  " } });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存修改" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
   await waitFor(() => expect(client.rename).toHaveBeenCalledWith("新昵称"));
   expect(await screen.findByText("昵称已更新。")).not.toBeNull();
@@ -152,9 +163,17 @@ test("a late profile mutation is ignored after the profile page unmounts", async
   fireEvent.change(await screen.findByRole("textbox", { name: "编辑社区昵称" }), {
     target: { value: "晚到的昵称" },
   });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存昵称" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
+  await waitFor(() => expect(client.rename).toHaveBeenCalledOnce());
   view.unmount();
-  finish({ user: { ...user, displayName: "晚到的昵称" }, providers: ["email"] });
+  finish({
+    user: { ...user, displayName: "晚到的昵称", preferredName: "晚到的昵称" },
+    providers: ["email"],
+    providerNames: accountProviderNames,
+  });
   await Promise.resolve();
 });
 
@@ -176,13 +195,20 @@ test("a desktop profile rename response from a replaced client is ignored", asyn
   fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
   const name = screen.getByRole("textbox", { name: "编辑社区昵称" });
   fireEvent.change(name, { target: { value: "旧客户端昵称" } });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存修改" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
   await waitFor(() => expect(oldClient.rename).toHaveBeenCalledWith("旧客户端昵称"));
 
   view.rerender(<AccountPage client={nextClient} />);
   await screen.findByRole("button", { name: "编辑个人资料" });
   await act(async () => {
-    resolveOld({ user: { ...user, displayName: "响应旧昵称" }, providers: ["email"] });
+    resolveOld({
+      user: { ...user, displayName: "响应旧昵称", preferredName: "响应旧昵称" },
+      providers: ["email"],
+      providerNames: accountProviderNames,
+    });
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -219,12 +245,17 @@ test("mobile profile ignores a same-tick duplicate nickname save", async () => {
   const name = screen.getByRole("textbox", { name: "编辑社区昵称" });
   fireEvent.change(name, { target: { value: "移动端新昵称" } });
   const save = screen.getByRole("button", { name: "保存昵称" });
+  await waitFor(() => expect(save).toHaveProperty("disabled", false));
   act(() => {
     fireEvent.click(save);
     fireEvent.click(save);
   });
-  expect(rename).toHaveBeenCalledOnce();
-  pending.resolve({ user: { ...user, displayName: "移动端新昵称" }, providers: ["email"] });
+  await waitFor(() => expect(rename).toHaveBeenCalledOnce());
+  pending.resolve({
+    user: { ...user, displayName: "移动端新昵称", preferredName: "移动端新昵称" },
+    providers: ["email"],
+    providerNames: accountProviderNames,
+  });
   await waitFor(() => expect(screen.getByText("昵称已更新。")).not.toBeNull());
 });
 
@@ -240,10 +271,17 @@ test("a mobile profile rename response from a replaced client is ignored", async
   fireEvent.change(await screen.findByRole("textbox", { name: "编辑社区昵称" }), {
     target: { value: "旧客户端昵称" },
   });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存昵称" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
   await waitFor(() => expect(oldClient.rename).toHaveBeenCalled());
   view.rerender(<AccountPage client={nextClient} platform="ios" />);
-  resolveOld({ user: { ...user, displayName: "响应旧昵称" }, providers: ["email"] });
+  resolveOld({
+    user: { ...user, displayName: "响应旧昵称", preferredName: "响应旧昵称" },
+    providers: ["email"],
+    providerNames: accountProviderNames,
+  });
   await Promise.resolve();
   expect(screen.queryByText("响应旧昵称")).toBeNull();
 });
@@ -425,7 +463,9 @@ test("desktop Google sign-in runs through the native account client", async () =
   const onLoginComplete = vi.fn();
   const client = account({
     providers: vi.fn().mockResolvedValue({ email: true, phone: false, google: true }),
-    profile: vi.fn().mockResolvedValue({ user, providers: ["google"] }),
+    profile: vi
+      .fn()
+      .mockResolvedValue({ user, providers: ["google"], providerNames: accountProviderNames }),
     googleLogin,
   });
   render(<AccountPage client={client} onLoginComplete={onLoginComplete} />);
@@ -1288,7 +1328,11 @@ test("a signed-in card shows the avatar the host fetched and the Google email", 
     <AccountPage
       client={account({
         status: vi.fn().mockResolvedValue({ user: signedIn }),
-        profile: vi.fn().mockResolvedValue({ user: signedIn, providers: ["google"] }),
+        profile: vi.fn().mockResolvedValue({
+          user: signedIn,
+          providers: ["google"],
+          providerNames: accountProviderNames,
+        }),
         avatar,
       })}
     />,
@@ -1327,15 +1371,24 @@ test("the edit dialog uploads and removes a custom avatar without losing the nam
   const withUpload: AccountProfile = {
     user: { ...signedIn, avatarUrl: uploaded, avatarUploaded: true },
     providers: ["google"],
+    providerNames: accountProviderNames,
   };
   const avatar = vi.fn().mockImplementation(async () => avatarImage);
   const chooseAvatar = vi.fn().mockResolvedValue(withUpload);
-  const removeAvatar = vi.fn().mockResolvedValue({ user: signedIn, providers: ["google"] });
+  const removeAvatar = vi.fn().mockResolvedValue({
+    user: signedIn,
+    providers: ["google"],
+    providerNames: accountProviderNames,
+  });
   render(
     <AccountPage
       client={account({
         status: vi.fn().mockResolvedValue({ user: signedIn }),
-        profile: vi.fn().mockResolvedValue({ user: signedIn, providers: ["google"] }),
+        profile: vi.fn().mockResolvedValue({
+          user: signedIn,
+          providers: ["google"],
+          providerNames: accountProviderNames,
+        }),
         avatar,
         chooseAvatar,
         removeAvatar,
@@ -1597,18 +1650,24 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   const mailUser = { ...user, email: "fixture@example.test" };
   const client = account({
     status: vi.fn().mockResolvedValue({ user: mailUser }),
-    profile: vi.fn().mockResolvedValue({ user: mailUser, providers: ["email"] }),
+    profile: vi.fn().mockResolvedValue({
+      user: mailUser,
+      providers: ["email"],
+      providerNames: accountProviderNames,
+    }),
   });
   harmonyMe({
     client,
-    preferences: { ...preferences.preferences, global_theme: "shuishan" } as Preferences,
     onOpenPage,
     onOpenUrl,
     appTheme: appThemeClient(),
     desktopDownloadUrl: "https://msime.app/download/",
     appVersion: "1.2.3",
+    onOpenCloudDictionary: record("dictionary"),
     onOpenCloudClipboard: record("clipboard"),
     onOpenLocalDesigns: record("designs"),
+    onOpenCommunity: record("community"),
+    onOpenPublishedSkins: record("published-skins"),
     onOpenFeedback: record("feedback"),
     onOpenAbout: record("about"),
     onReplayOnboarding: record("onboarding"),
@@ -1617,22 +1676,24 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   const card = await screen.findByRole("button", { name: "编辑个人资料" });
   expect(card.textContent).toContain("fixture@example.test");
 
-  const content = within(screen.getByRole("region", { name: "我的内容" }));
-  expect(content.getAllByRole("button").map((button) => button.textContent)).toEqual([
-    "我的皮肤水杉",
+  // 本地内容留在设置页，发布与收藏留在社区；宿主仍传入这些能力时也不重复列入口。
+  expect(screen.queryByRole("region", { name: "我的内容" })).toBeNull();
+  for (const title of [
+    "我的皮肤",
     "我的词库",
+    "云词库",
     "云剪贴板",
-  ]);
-  fireEvent.click(content.getByRole("button", { name: "我的皮肤" }));
-  fireEvent.click(content.getByRole("button", { name: "我的词库" }));
-  fireEvent.click(content.getByRole("button", { name: "云剪贴板" }));
-  expect(onOpenPage.mock.calls).toEqual([["skin"], ["dictionary"]]);
+    "我的设计",
+    "我发布的皮肤",
+    "我发布的词库",
+    "我发布的回复模板",
+    "收藏的词库",
+    "收藏的回复模板",
+  ]) {
+    expect(screen.queryByRole("button", { name: title })).toBeNull();
+  }
 
-  fireEvent.click(
-    within(screen.getByRole("region", { name: "社区作品" })).getByRole("button", {
-      name: "我的设计",
-    }),
-  );
+  expect(screen.queryByRole("region", { name: "社区作品" })).toBeNull();
 
   const general = within(screen.getByRole("region", { name: "通用" }));
   expect(general.getByRole("button", { name: "应用主题" }).textContent).toContain("四季 · 秋杉");
@@ -1648,7 +1709,7 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   fireEvent.click(screen.getByRole("button", { name: "新手引导" }));
-  expect(calls).toEqual(["clipboard", "designs", "feedback", "about", "onboarding"]);
+  expect(calls).toEqual(["feedback", "about", "onboarding"]);
 
   // 旧的区块都没了：没有工具分组，没有内嵌的同步卡片，也没有数据区块标题。
   expect(screen.queryByRole("region", { name: "工具" })).toBeNull();
@@ -1728,11 +1789,14 @@ test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet 
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
   const renamed: AccountProfile = {
-    user: { ...user, displayName: "新的名字" },
+    user: { ...user, displayName: "新的名字", preferredName: "新的名字" },
     providers: ["email"],
+    providerNames: accountProviderNames,
   };
   const client = account({
     status: vi.fn().mockResolvedValue({ user }),
+    namePresentation: async (name) =>
+      accountNameResult(name === "  新的名字  " ? "新的名字" : name),
     rename: vi.fn().mockResolvedValue(renamed),
   });
   harmonyMe({ client });
@@ -1756,6 +1820,7 @@ test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet 
   fireEvent.change(sheet.getByRole("textbox", { name: "编辑社区昵称" }), {
     target: { value: "  新的名字  " },
   });
+  await waitFor(() => expect(save.disabled).toBe(false));
   fireEvent.click(save);
   await waitFor(() => expect(client.rename).toHaveBeenCalledWith("新的名字"));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "昵称" })).toBeNull());
@@ -1789,29 +1854,100 @@ test("Harmony 我的 has no manual 同步 rows even with a settings sync client"
   expect(screen.queryByRole("button", { name: "下载并应用云端设置" })).toBeNull();
 });
 
-// 「绑定 QQ 群助手」对所有平台都开放：鸿蒙手机走手机账号页，2in1 走桌面账号页，两边都要有这张卡片；宿主没提供 qqLinks 时不出现。
-test("the QQ bind card appears on the HarmonyOS phone and 2-in-1 account pages", async () => {
+test.each(["harmony", "ios", "android"] as const)(
+  "%s 手机的 QQ 群助手从同步行推入二级页，返回后收起表单",
+  async (platform) => {
+    window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+    const qqLinks = {
+      list: vi.fn().mockResolvedValue([]),
+      redeem: vi.fn(),
+      remove: vi.fn(),
+    };
+    render(
+      <AccountPage
+        client={account({ status: vi.fn().mockResolvedValue({ user }), qqLinks })}
+        platform={platform}
+      />,
+    );
+    const entry = await screen.findByRole("button", { name: "绑定 QQ 群助手" });
+    expect(
+      within(screen.getByRole("region", { name: "同步" })).getByRole("button", {
+        name: "绑定 QQ 群助手",
+      }),
+    ).toBe(entry);
+    expect(screen.queryByLabelText("绑定码")).toBeNull();
+    expect(qqLinks.list).not.toHaveBeenCalled();
+
+    fireEvent.click(entry);
+    await screen.findByLabelText("绑定码");
+    expect(screen.getAllByRole("heading", { name: "绑定 QQ 群助手" })).toHaveLength(1);
+    expect(window.history.state).toMatchObject({ accountSubpage: "qq-links" });
+    expect(screen.queryByRole("button", { name: "编辑个人资料" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "返回我的" }));
+    await screen.findByRole("button", { name: "编辑个人资料" });
+    expect(screen.queryByLabelText("绑定码")).toBeNull();
+    expect(window.history.state.accountSubpage).toBeUndefined();
+  },
+);
+
+test("鸿蒙 QQ 群助手恢复历史页并展示已有绑定，系统返回手势回到我的", async () => {
+  window.history.replaceState(
+    { msimeSettings: true, page: "account", accountSubpage: "qq-links" },
+    "",
+  );
   const qqLinks = {
-    list: vi.fn().mockResolvedValue([]),
+    list: vi.fn().mockResolvedValue([{ id: "fixture-link", createdAt: "2026-10-17T08:00:00Z" }]),
     redeem: vi.fn(),
     remove: vi.fn(),
   };
-  const withLinks = account({ status: vi.fn().mockResolvedValue({ user }), qqLinks });
-  const phone = render(<AccountPage client={withLinks} platform="harmony" />);
-  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
-  await waitFor(() => expect(qqLinks.list).toHaveBeenCalled());
-  phone.unmount();
+  harmonyMe({ client: account({ status: vi.fn().mockResolvedValue({ user }), qqLinks }) });
+  await screen.findByRole("button", { name: "解绑" });
+  expect(screen.queryByLabelText("绑定码")).toBeNull();
+  act(() => {
+    window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+  });
+  await screen.findByRole("button", { name: "绑定 QQ 群助手" });
+  expect(screen.queryByRole("button", { name: "解绑" })).toBeNull();
+});
 
-  const tablet = render(<AccountPage client={withLinks} platform="harmony" mobile={false} />);
-  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
-  tablet.unmount();
+test("鸿蒙未登录时显示禁用的 QQ 群助手入口，不读取绑定", async () => {
+  const qqLinks = { list: vi.fn(), redeem: vi.fn(), remove: vi.fn() };
+  harmonyMe({ client: account({ qqLinks }) });
+  const entry = await screen.findByRole("button", { name: "绑定 QQ 群助手" });
+  expect(entry).toHaveProperty("disabled", true);
+  expect(screen.getByText("登录后可用")).toBeTruthy();
+  fireEvent.click(entry);
+  expect(qqLinks.list).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("绑定码")).toBeNull();
+});
 
-  render(
+test("鸿蒙 2in1 保留 QQ 群助手卡片，缺少宿主能力时不显示入口", async () => {
+  const qqLinks = { list: vi.fn().mockResolvedValue([]), redeem: vi.fn(), remove: vi.fn() };
+  const tablet = render(
     <AccountPage
-      client={account({ status: vi.fn().mockResolvedValue({ user }) })}
+      client={account({ status: vi.fn().mockResolvedValue({ user }), qqLinks })}
       platform="harmony"
+      mobile={false}
     />,
   );
+  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
+  tablet.unmount();
+  harmonyMe({ client: account({ status: vi.fn().mockResolvedValue({ user }) }) });
   await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(screen.queryByRole("button", { name: "绑定 QQ 群助手" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "绑定 QQ 群助手" })).toBeNull();
+});
+
+test("桌面昵称共享校验失败时保留编辑能力并禁用保存", async () => {
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    namePresentation: vi.fn().mockRejectedValue({ code: "account_unavailable" }),
+  });
+  render(<AccountPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  expect(await screen.findByText("昵称校验暂不可用，请稍后重试。")).not.toBeNull();
+  expect(screen.getByRole("textbox", { name: "编辑社区昵称" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "保存修改" })).toHaveProperty("disabled", true);
+  expect(client.rename).not.toHaveBeenCalled();
 });

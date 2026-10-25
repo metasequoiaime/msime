@@ -41,7 +41,7 @@ BOOL CTextContainer::RemoveText(int nPos, UINT nCnt)
     if (nPos < 0 || static_cast<UINT>(nPos) > _nTextSize)
         return FALSE;
 
-    nCnt = std::min(nCnt, _nTextSize - static_cast<UINT>(nPos));
+    nCnt = (std::min)(nCnt, _nTextSize - static_cast<UINT>(nPos));
     if (!nCnt)
         return TRUE;
 
@@ -62,7 +62,7 @@ BOOL CTextContainer::GetText(int nPos, WCHAR *psz, UINT nCnt)
     if (!nCnt || !psz || nPos < 0 || static_cast<UINT>(nPos) > _nTextSize)
         return FALSE;
 
-    nCnt = std::min(nCnt, _nTextSize - static_cast<UINT>(nPos));
+    nCnt = (std::min)(nCnt, _nTextSize - static_cast<UINT>(nPos));
 
     if (nCnt)
         memcpy(psz, _psz + nPos, nCnt * sizeof(WCHAR));
@@ -89,7 +89,7 @@ BOOL CTextContainer::EnsureBuffer(UINT nNewTextSize)
     }
 
     if (nNewTextSize > kMaxTextUnits ||
-        static_cast<size_t>(nNewTextSize) > std::numeric_limits<size_t>::max() / sizeof(WCHAR))
+        static_cast<size_t>(nNewTextSize) > (std::numeric_limits<size_t>::max)() / sizeof(WCHAR))
         return FALSE;
 
     if (nNewTextSize <= _nTextSize)

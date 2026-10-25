@@ -34,3 +34,5 @@ Apple 固定源码 [IOHIKeyboardMapper.cpp](https://github.com/apple-oss-distrib
 收益是控制器按实体状态而非逻辑锁定计算轻点时长，测试覆盖的边界下移到原生 API，能发现过去被布尔替换隐藏的接口语义错误；代价是依赖公开 IOKit stateless 标志在 Quartz HID 状态表中的传递。
 
 不同键盘和系统版本是否都把 stateless 位传递至 Quartz 状态表仍须实测；初始事件和状态均缺位时保留系统行为，不提供轻点切换。不能据 Apple 源码或合成测试就宣称所有键盘实机修复；如果报告人的设备仍无法观察该位，需要重访 IOHID 的实体事件来源与权限边界。
+
+本决定随后因 #9094 外接蓝牙键盘仍缺失 Quartz stateless 位而翻转；HID 监听与回退策略见[用 HID 实体事件补足 Caps Lock 按住状态](2026-10-24-macos-caps-lock-hid-state.md)。

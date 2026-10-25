@@ -103,6 +103,27 @@ int main() {
         check(state.rawInput.empty() && state.caret == 0 && !state.urlMode && !state.unicodeMode,
               "failed host view does not resurrect stale composition");
     }
+    // 回车观测解析真实宿主 JSON，不能拿显示文字或旧缓冲代替原文与词段。
+    {
+        Host host{true, true, R"({"ok":true,"value":{"view":{"editing_text":"ab","preedit":"display","phrase_prefix":"synthetic-"}}})"};
+        check(ReadLocalCommitObservation(&host, L"stale", toWide) == L"synthetic-ab",
+              "Enter observation uses the host raw text and prefix");
+        host.reply = R"({"ok":true,"value":{"view":{"editing_text":"","phrase_prefix":"synthetic-prefix"}}})";
+        check(ReadLocalCommitObservation(&host, L"stale", toWide) == L"synthetic-prefix",
+              "prefix-only Enter observation comes from the host");
+        host.readable = false;
+        check(ReadLocalCommitObservation(&host, L"stale", toWide).empty(),
+              "unreadable host cannot supply stale Enter text");
+        host.readable = true;
+        host.reply = "invalid";
+        check(ReadLocalCommitObservation(&host, L"stale", toWide).empty(),
+              "invalid host JSON cannot supply stale Enter text");
+        host.active = false;
+        check(ReadLocalCommitObservation(&host, L"legacy", toWide) == L"legacy",
+              "inactive host keeps the legacy Enter observation");
+        check(ReadLocalCommitObservation<Host>(nullptr, L"legacy", toWide) == L"legacy",
+              "missing host keeps the legacy Enter observation");
+    }
     std::printf("key composition state: %d failures\n", failures);
     return failures ? 1 : 0;
 }

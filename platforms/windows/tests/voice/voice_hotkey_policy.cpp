@@ -1,4 +1,5 @@
 #include "VoiceHotkeyPolicy.h"
+#include "../../src/input/ToggleHotkeyChord.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -126,6 +127,33 @@ int main() {
     REQUIRE(voice_escape_cancels(voice_key_escape, true));
     REQUIRE(!voice_escape_cancels(voice_key_escape, false));
     REQUIRE(!voice_escape_cancels(voice_key_space, true));
+
+    // 自定义切换键精确匹配全部修饰键；默认不额外绑定，别的主键与多按修饰键均不触发。
+    VoiceToggleStrokes strokes;
+    REQUIRE(!strokes.observe(0x77, true, false).repeat);
+    REQUIRE(strokes.observe(0x77, true, false).repeat);
+    strokes.claim(0x77);
+    REQUIRE(strokes.observe(0x77, true, false).consumed);
+    REQUIRE(!strokes.observe(0x78, true, false).consumed);
+    REQUIRE(strokes.observe(0x77, false, true).consumed);
+    const auto nextStroke = strokes.observe(0x77, true, false);
+    REQUIRE(!nextStroke.repeat && !nextStroke.consumed);
+    REQUIRE(!strokes.observe(0x100, true, false).consumed);
+    const VoiceToggleBinding custom{toggle_key_code("F8"), true, true, false, false};
+    REQUIRE(voice_toggle_matches(custom, 0x77, true, true, false, false));
+    REQUIRE(!voice_toggle_matches(custom, 0x77, true, true, true, false));
+    REQUIRE(!voice_toggle_matches(custom, 0x77, true, true, false, true));
+    REQUIRE(!voice_toggle_matches(custom, 0x77, true, false, false, false));
+    REQUIRE(!voice_toggle_matches(custom, 0x78, true, true, false, false));
+    REQUIRE(!voice_toggle_matches({}, 0x77, false, false, false, false));
+    REQUIRE(toggle_key_code("KeyA") == 'A');
+    REQUIRE(toggle_key_code("Digit0") == '0');
+    REQUIRE(toggle_key_code("F1") == 0x70);
+    REQUIRE(toggle_key_code("F12") == 0x7B);
+    REQUIRE(toggle_key_code("Period") == 0xBE);
+    REQUIRE(toggle_key_code("Quote") == 0xDE);
+    REQUIRE(toggle_key_code("Banana") == 0);
+    REQUIRE(toggle_key_name(0x1B).empty());
 
     std::cout << "Windows voice hotkey policy checks passed\n";
     return 0;

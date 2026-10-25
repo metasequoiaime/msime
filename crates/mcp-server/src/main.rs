@@ -3,6 +3,7 @@
 //! stdout carries the protocol, or a command's JSON result, and nothing else; anything for a person goes to stderr.
 
 mod bounded;
+mod candidates;
 mod cli;
 mod community;
 mod config;
@@ -11,6 +12,7 @@ mod preferences;
 mod prompts;
 mod runtime_options;
 mod server;
+mod session;
 mod skins;
 mod statistics;
 mod words;
@@ -102,6 +104,13 @@ fn main() -> ExitCode {
                 }),
             )
         }
+        // 不经 MCP 服务器，也不需要异步运行时：一次查询就是本线程上的一个输入会话。
+        Ok(config::Command::Candidates {
+            config,
+            keys,
+            limit,
+        }) => return candidates::run(&config, keys, limit),
+        Ok(config::Command::Session(config)) => (config, Some(cli::Action::Session)),
         Ok(config::Command::GetConfig { config, keys, json }) => {
             (config, Some(cli::Action::GetConfig { keys, json }))
         }

@@ -66,6 +66,51 @@ pub enum InputScheme {
     Stroke,
 }
 
+/// 桌面应用（Windows、macOS、Linux）检查更新时跟的发布通道：稳定版只认正式发布，测试版另外接受 develop 发出的 `-beta` 预发布，每日构建再接受滚动的 `nightly` 发布。选择规则在 `msime_client_services::update_check`，macOS 的 Sparkle 按它选 appcast。
+///
+/// 读文档时不认识的值（以后的版本加的通道、手改的文件）按稳定版读，不让整份偏好读不出来；等于默认值时不写进文档。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Beta,
+    Nightly,
+}
+
+impl UpdateChannel {
+    /// 文档和宿主请求里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Beta => "beta",
+            Self::Nightly => "nightly",
+        }
+    }
+
+    /// 严格解析：只认 `stable`、`beta`、`nightly`，其他值为 `None`。宿主请求用它，写错的通道名直接报错；偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "stable" => Some(Self::Stable),
+            "beta" => Some(Self::Beta),
+            "nightly" => Some(Self::Nightly),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for UpdateChannel {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串按稳定版；不是字符串（数字、对象）照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -78,6 +123,24 @@ pub enum TouchKeyboardLayout {
     FourteenKey,
     /// 九键双拼：数字键上每个音节固定两位（声母一位、韵母一位），表由 `nine_key_shuangpin_profile` 选，与九键共用九宫格会话（#6572）。引擎方案是全拼，不配别的方案。
     NineKeyShuangpin,
+    /// 全拼十八键；Android 和 iOS 原生宿主创建会话时按它自动开启十八键全拼网格（host-api 的 `layout_key_grid_for`），鸿蒙宿主自己按它调用 `msime_client_set_key_grid`，其他宿主保留但忽略这个偏好。
+    EighteenKey,
+}
+
+/// 触屏双拼的字母键布局；与全拼的布局独立保存，切换方案后仍保留选择。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchShuangpinLayout {
+    #[default]
+    TwentySixKey,
+    FourteenKey,
+    EighteenKey,
+}
+
+impl TouchShuangpinLayout {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
@@ -89,6 +152,25 @@ pub enum NumberKeypadOrder {
     Phone,
     /// 计算器：7 8 9 在最上面，1 2 3 在最下面。
     Calculator,
+}
+
+/// 文本编辑面板可排序的侧边动作；方向、选择、文档边界与换行固定。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextEditButton {
+    Copy,
+    Paste,
+    SelectAll,
+    Cut,
+    Space,
+    NumberPad,
+    Delete,
+}
+
+/// 从左列上到下，再到右列前三格；换行固定在右下角。
+pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
+    use TextEditButton::*;
+    vec![Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete]
 }
 
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
@@ -111,6 +193,47 @@ pub enum TouchSpellingPosition {
     Editor,
     /// 只画在候选栏上，不写进输入框。
     CandidateBar,
+}
+
+/// Android 文本编辑触控板的本机偏好；默认值、步长范围和恢复设置归共享层，不参与账号同步。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextTrackpadPreferences {
+    pub enabled: bool,
+    pub hold_to_open: bool,
+    pub horizontal_dp: u16,
+    pub vertical_dp: u16,
+    pub tap_selection: bool,
+    pub haptics: bool,
+    pub trail: bool,
+    pub magnifier: bool,
+}
+
+impl Default for TextTrackpadPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            hold_to_open: false,
+            horizontal_dp: 12,
+            vertical_dp: 28,
+            tap_selection: true,
+            haptics: true,
+            trail: true,
+            magnifier: true,
+        }
+    }
+}
+
+impl TextTrackpadPreferences {
+    pub const HORIZONTAL_MIN_DP: u16 = 4;
+    pub const HORIZONTAL_MAX_DP: u16 = 48;
+    pub const VERTICAL_MIN_DP: u16 = 8;
+    pub const VERTICAL_MAX_DP: u16 = 96;
+
+    pub fn validate(&self) -> bool {
+        (Self::HORIZONTAL_MIN_DP..=Self::HORIZONTAL_MAX_DP).contains(&self.horizontal_dp)
+            && (Self::VERTICAL_MIN_DP..=Self::VERTICAL_MAX_DP).contains(&self.vertical_dp)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -447,11 +570,13 @@ pub enum TouchKeyboardScheme {
     FourteenKey,
     /// 九键双拼（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::NineKeyShuangpin`，表由 `nine_key_shuangpin_profile` 选）。默认不启用。
     NineKeyShuangpin,
+    /// 全拼十八键（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::EighteenKey`），Android、iOS 和鸿蒙的触屏键盘都有；默认不启用，由用户选择布局。
+    EighteenKey,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -471,6 +596,7 @@ impl TouchKeyboardScheme {
         Self::ZhuyinNineKey,
         Self::FourteenKey,
         Self::NineKeyShuangpin,
+        Self::EighteenKey,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。
@@ -701,13 +827,36 @@ fn valid_app_input_mode_rules(rules: &BTreeMap<String, AppInputModeRule>) -> boo
             .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
 }
 
-/// `vim_mode_apps` 的名单：与应用例外同一口径、同一档上限。标识认法相同，只差大小写的两条会命中同一个应用。
-fn valid_vim_mode_apps(apps: &[String]) -> bool {
+/// 应用名单与应用例外使用同一口径、同一档上限。标识认法相同，只差大小写的两条会命中同一个应用。
+fn valid_app_identifier_list(apps: &[String]) -> bool {
     let mut seen = BTreeSet::new();
     apps.len() <= MAX_APP_INPUT_MODE_RULES
         && apps
             .iter()
             .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
+}
+
+/// 跨次上屏空格：只补新输入与前文的接缝。默认关，应用排除采用共享应用标识口径。
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CrossCommitSpacing {
+    pub enabled: bool,
+    pub excluded_apps: Vec<String>,
+}
+
+impl CrossCommitSpacing {
+    pub fn validate(&self) -> bool {
+        valid_app_identifier_list(&self.excluded_apps)
+    }
+
+    pub fn enabled_for_application(&self, application: &str) -> bool {
+        self.enabled
+            && valid_app_list_identifier(application)
+            && !self
+                .excluded_apps
+                .iter()
+                .any(|entry| entry.eq_ignore_ascii_case(application))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -750,6 +899,21 @@ impl From<ChineseScheme> for InputScheme {
             ChineseScheme::Stroke => Self::Stroke,
         }
     }
+}
+
+/// 韩语实体键盘布局；缺少字段时保留两套式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KoreanLayout {
+    #[default]
+    Dubeolsik,
+    Romaja,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct KoreanPreferences {
+    pub layout: KoreanLayout,
 }
 
 /// How Vietnamese letters and tones are typed. The Engine code is the declaration order (`vietnamese_input_method`).
@@ -1075,6 +1239,9 @@ pub struct Preferences {
     /// its model is installed.
     #[serde(default)]
     pub sentence_association: SentenceAssociationPreferences,
+    /// 上屏后推荐下一词；Android 原生键盘提供入口，独立于整句候选，默认关闭。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub next_word_prediction: bool,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     #[serde(default)]
@@ -1176,6 +1343,9 @@ pub struct Preferences {
     /// Android 大屏竖屏也使用分离键盘；还需宿主的分离主开关开启，默认关闭。其他宿主原样保留。
     #[serde(default)]
     pub touch_keyboard_split_portrait: bool,
+    /// Android 和 iOS 双拼键盘的 26 / 14 键选择；默认 26 键，其他宿主保留该字段。
+    #[serde(default, skip_serializing_if = "TouchShuangpinLayout::is_default")]
+    pub touch_shuangpin_layout: TouchShuangpinLayout,
     /// 触屏键盘列出哪些方案、选中哪一个；桌面宿主原样保留、不使用。
     ///
     /// 总是写进文档，哪怕等于默认值：以前的版本在等于默认值时省略它，于是文档里没有它只能说明是以前的版本写的，按以前的默认列表读（[`TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`]）。新装的默认值已经不同，再省略就分不出这两种文档。
@@ -1196,6 +1366,9 @@ pub struct Preferences {
     /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
     #[serde(default)]
     pub touch_number_keypad_order: NumberKeypadOrder,
+    /// Android 文本编辑面板七个侧边动作的完整排列；其他宿主保留但不使用。
+    #[serde(default = "default_text_edit_button_order")]
+    pub touch_text_edit_button_order: Vec<TextEditButton>,
     /// 26 键按「123」时出一行 1 到 0 的数字符号页，还是九宫格那样的 3×3 数字层。
     #[serde(default)]
     pub touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout,
@@ -1208,6 +1381,9 @@ pub struct Preferences {
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
+    /// 仅 Android 使用，其他宿主原样保留。
+    #[serde(default)]
+    pub android_text_trackpad: TextTrackpadPreferences,
     /// 中文触屏键盘的快捷符号，单个字素、去重，最多十二项；宿主只负责显示与提交。
     #[serde(default = "default_touch_quick_symbols")]
     pub touch_quick_punctuation_symbols: Vec<String>,
@@ -1241,6 +1417,9 @@ pub struct Preferences {
     /// The Vietnamese input method and tone placement.
     #[serde(default)]
     pub vietnamese: VietnamesePreferences,
+    /// 可选韩语布局；宿主未声明能力时仍运行两套式。
+    #[serde(default)]
+    pub korean: KoreanPreferences,
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
@@ -1319,6 +1498,12 @@ pub struct Preferences {
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "is_false")]
     pub chinese_english_spacing: bool,
+    /// 跨次上屏的中英文边界补空格，独立于单次上屏内的空格开关，默认关。宿主必须提供光标前的真实字符；目前仅 macOS 接入。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cross_commit_spacing: bool,
+    /// 跨次空格的应用排除名单，macOS 使用 Bundle ID；写代码、网址或邮箱的应用可在这里保留原样。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cross_commit_spacing_excluded_apps: Vec<String>,
     pub chinese_punctuation: bool,
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation: bool,
@@ -1392,6 +1577,12 @@ pub struct Preferences {
     pub frequency: FrequencyPreferences,
     #[serde(default)]
     pub mixed_input: MixedInputPreferences,
+    /// 连续多语言输入的语言集合；默认关闭，只有至少两种不同语言时才交给 Engine。
+    #[serde(
+        default,
+        skip_serializing_if = "MultilingualInputPreferences::is_default"
+    )]
+    pub multilingual_input: MultilingualInputPreferences,
     #[serde(default)]
     pub local_modes: LocalModePreferences,
     /// Sound packs, background music, achievements and the enabled command tables. Left out of the document while every part is at its default, so a build from before plugins still reads a document that never touched them; the packs themselves and the @ name list live under the plugins directory, not here.
@@ -1477,6 +1668,9 @@ pub struct Preferences {
     /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
+    /// 桌面应用检查更新跟哪个发布通道，见 [`UpdateChannel`]。只属于本机：不随设置文件走（`settings_document::LOCAL_SECTIONS`），也不进账号同步。等于稳定版时不写进文档，没有这个键的旧文档按稳定版读。
+    #[serde(default, skip_serializing_if = "UpdateChannel::is_default")]
+    pub update_channel: UpdateChannel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1767,6 +1961,8 @@ pub struct DiagnosticLogPreferences {
     pub server: bool,
     /// In-process TSF preedit and input latency, buffered and batched out.
     pub tsf: bool,
+    /// 允许 `msime-mcp candidates` 在终端里按用户的设置和词库打出一串按键的候选（#9663）。候选来自用户自己的词库，等于把打过的词交给任何能运行这个命令的程序，所以缺省关闭，只在桌面「维护与诊断」里由用户打开。和诊断日志一样只属于本机：不随云同步、不进设置文件（键名在 `diagnostic_log` 下，两处的本机清单已经按这个名字排除）。MCP 的偏好工具不提供这一项，助手不能自己把它打开。
+    pub command_line_candidates: bool,
 }
 
 /// Windows 游戏兼容：游戏声明自己画候选却不画时，由水杉的候选窗显示。DLL 在每次激活时读取，对已打开的游戏要重新激活输入法才生效。各项都等于默认值时不写进文档，没有这个键的旧版本照样能读。
@@ -2290,6 +2486,60 @@ pub struct AchievementPreferences {
 /// 中英混输默认的补全与英文领先门槛；26 键中更短的完整词仍可选。调低会让常见简拼被英文词抢走首选（见 `.agents/notes/implemented/feature/2026-10-12-mixed-english-leads-unsegmentable-input.md`）；不读偏好的宿主固定用它（`HostPlatform::reads_mixed_input_minimum_prefix`）。
 pub const DEFAULT_MIXED_INPUT_MINIMUM_PREFIX: u8 = 5;
 
+/// 连续多语言解码支持的语言；不依赖 Engine 或宿主的输入方案枚举。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MultilingualLanguage {
+    Chinese,
+    English,
+    Japanese,
+}
+
+/// 连续多语言输入的共享偏好。默认关闭，避免未完成接线的宿主改变行为。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MultilingualInputPreferences {
+    pub enabled: bool,
+    pub languages: Vec<MultilingualLanguage>,
+}
+
+impl Default for MultilingualInputPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            languages: vec![
+                MultilingualLanguage::Chinese,
+                MultilingualLanguage::English,
+                MultilingualLanguage::Japanese,
+            ],
+        }
+    }
+}
+
+impl MultilingualInputPreferences {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    /// 只返回已打开且至少包含两种不同语言的集合，并按用户配置顺序去重。
+    pub fn active_languages(&self) -> Vec<MultilingualLanguage> {
+        if !self.enabled {
+            return Vec::new();
+        }
+        let mut active = Vec::with_capacity(3);
+        for language in &self.languages {
+            if !active.contains(language) {
+                active.push(*language);
+            }
+        }
+        if active.len() >= 2 {
+            active
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MixedInputPreferences {
     /// 候选混输总开关（Windows `utility.mixed_candidates`）：关掉后英文、emoji、颜文字、符号、日文、快捷短语和行内日期时间都不再混进普通候选，各分开关的原值保留。后加的成员，开着时不写进文档，旧版本和没有这个键的文档都按开处理。
@@ -2311,7 +2561,7 @@ pub struct MixedInputPreferences {
     /// 打拼音出符号：全拼、双拼整段打出符号的名称时（`zhengfu`、`pingfangmi`），在候选里接着那个词给出符号（± ㎡）。后加的成员，所有宿主默认开；缺这个键的旧文档读作开，只有用户关掉时才写进文档（`"symbols": false`），开着时文档逐字节不变，旧版本和只写前四项的宿主都还能读。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
-    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语追加在普通候选之后。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）生效，它们此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）生效，它们此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase: bool,
     /// 快捷短语参与调频（Windows `utility.quick_phrase_frequency`，出厂开）：常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移。默认开，与 Windows 出厂一致；只在混输打开时起作用，缺这个键的旧文档读作开。
@@ -2585,6 +2835,9 @@ impl Default for NavigationPreferences {
 pub struct KeybindingPreferences {
     #[serde(default = "enabled_by_default")]
     pub switch_language_shift: bool,
+    /// macOS 单按 Shift 只在可确认的可编辑焦点生效；依赖辅助功能权限，默认关闭。
+    #[serde(default)]
+    pub switch_language_shift_requires_editable: bool,
     #[serde(default)]
     pub switch_language_ctrl: bool,
     /// Linux 已默认处理这个组合键；关闭时交还应用，不改输入法框架的全局绑定。
@@ -2624,6 +2877,9 @@ pub struct KeybindingPreferences {
         skip_serializing_if = "is_default_toggle_punctuation"
     )]
     pub toggle_punctuation: String,
+    /// 额外的语音开始／结束热键；空串表示不绑定，不改变既有固定语音快捷键。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub toggle_voice_input: String,
 }
 
 /// 三个切换热键的出厂值，沿用旧版 Windows v0.11.1 `engine/contracts/input_state_shortcuts.h` 的 `defaultBinding`。
@@ -2646,6 +2902,11 @@ impl KeybindingPreferences {
     pub fn punctuation_chord(&self) -> Option<crate::key_chord::KeyChord> {
         toggle_chord(&self.toggle_punctuation)
     }
+
+    /// 自定义语音切换键；空串或非法写法为 `None`。
+    pub fn voice_input_chord(&self) -> Option<crate::key_chord::KeyChord> {
+        toggle_chord(&self.toggle_voice_input)
+    }
 }
 
 /// 「不绑定」在文档里存成空串而不是缺键：缺键读回出厂值，空串才留在「不绑定」。
@@ -2658,7 +2919,7 @@ fn toggle_chord(text: &str) -> Option<crate::key_chord::KeyChord> {
     }
 }
 
-/// 三个可重绑切换热键之一。
+/// 可重绑切换热键之一。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToggleHotkeySlot {
     /// `keybindings.toggle_english_candidates`。
@@ -2670,6 +2931,9 @@ pub enum ToggleHotkeySlot {
     /// `keybindings.toggle_punctuation`。
     #[serde(rename = "toggle_punctuation")]
     Punctuation,
+    /// `keybindings.toggle_voice_input`。
+    #[serde(rename = "toggle_voice_input")]
+    VoiceInput,
 }
 
 /// 一个组合键已被谁占用：另一个切换热键，或某个开关随附的快捷键 / macOS 维护键。
@@ -2678,6 +2942,7 @@ pub enum ToggleChordOwner {
     EnglishCandidates,
     FullWidth,
     Punctuation,
+    VoiceInput,
     /// `keybindings.switch_language_shift` 打开时 macOS 同时启用 `Shift+Space`。
     SwitchLanguageShift,
     /// `keybindings.switch_language_ctrl_space` 打开时的 `Ctrl+Space`。
@@ -2705,6 +2970,7 @@ impl ToggleChordOwner {
             Self::EnglishCandidates => "toggle_english_candidates",
             Self::FullWidth => "toggle_full_width",
             Self::Punctuation => "toggle_punctuation",
+            Self::VoiceInput => "toggle_voice_input",
             Self::SwitchLanguageShift => "switch_language_shift",
             Self::SwitchLanguageCtrlSpace => "switch_language_ctrl_space",
             Self::SwitchLanguageCtrlAltSpace => "switch_language_ctrl_alt_space",
@@ -2733,8 +2999,8 @@ pub enum ToggleHotkeyRejection {
 }
 
 impl KeybindingPreferences {
-    /// 三个切换热键的槽位与当前 chord：空串或非法写法为 `None`（不绑定）。
-    fn toggle_chords(&self) -> [(ToggleHotkeySlot, Option<crate::key_chord::KeyChord>); 3] {
+    /// 切换热键的槽位与当前 chord：空串或非法写法为 `None`（不绑定）。
+    fn toggle_chords(&self) -> [(ToggleHotkeySlot, Option<crate::key_chord::KeyChord>); 4] {
         [
             (
                 ToggleHotkeySlot::EnglishCandidates,
@@ -2742,6 +3008,7 @@ impl KeybindingPreferences {
             ),
             (ToggleHotkeySlot::FullWidth, self.full_width_chord()),
             (ToggleHotkeySlot::Punctuation, self.punctuation_chord()),
+            (ToggleHotkeySlot::VoiceInput, self.voice_input_chord()),
         ]
     }
 
@@ -2847,6 +3114,7 @@ impl KeybindingPreferences {
                         ToggleHotkeySlot::EnglishCandidates => ToggleChordOwner::EnglishCandidates,
                         ToggleHotkeySlot::FullWidth => ToggleChordOwner::FullWidth,
                         ToggleHotkeySlot::Punctuation => ToggleChordOwner::Punctuation,
+                        ToggleHotkeySlot::VoiceInput => ToggleChordOwner::VoiceInput,
                     },
                     chord,
                 });
@@ -2860,12 +3128,13 @@ impl KeybindingPreferences {
         Ok(chord.to_string())
     }
 
-    /// 三个切换热键的写法归一成规范形；不是 chord 的原样留下，交给 `Preferences::validate` 拒绝。
+    /// 切换热键的写法归一成规范形；不是 chord 的原样留下，交给 `Preferences::validate` 拒绝。
     pub fn normalize_toggle_hotkeys(&mut self) {
         for text in [
             &mut self.toggle_english_candidates,
             &mut self.toggle_full_width,
             &mut self.toggle_punctuation,
+            &mut self.toggle_voice_input,
         ] {
             if let Ok(chord) = text.trim().parse::<crate::key_chord::KeyChord>() {
                 *text = chord.to_string();
@@ -2878,6 +3147,7 @@ impl Default for KeybindingPreferences {
     fn default() -> Self {
         Self {
             switch_language_shift: true,
+            switch_language_shift_requires_editable: false,
             switch_language_ctrl: false,
             switch_language_ctrl_space: true,
             switch_language_ctrl_alt_space: true,
@@ -2889,6 +3159,7 @@ impl Default for KeybindingPreferences {
             toggle_english_candidates: default_toggle_english_candidates(),
             toggle_full_width: default_toggle_full_width(),
             toggle_punctuation: default_toggle_punctuation(),
+            toggle_voice_input: String::new(),
         }
     }
 }
@@ -3092,6 +3363,7 @@ impl Default for Preferences {
             vim_mode_apps: Vec::new(),
             ai_assistant: AiAssistantPreferences::default(),
             sentence_association: SentenceAssociationPreferences::default(),
+            next_word_prediction: false,
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
@@ -3132,12 +3404,15 @@ impl Default for Preferences {
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_split_portrait: false,
+            touch_shuangpin_layout: TouchShuangpinLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
+            android_text_trackpad: TextTrackpadPreferences::default(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
             touch_number_keypad_order: NumberKeypadOrder::default(),
+            touch_text_edit_button_order: default_text_edit_button_order(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
             touch_japanese_toggle_input: true,
@@ -3153,6 +3428,7 @@ impl Default for Preferences {
             shuangpin_preedit_uses_raw: true,
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
+            korean: KoreanPreferences::default(),
             single_character_only: false,
             candidate_page_size: 6,
             number_row_selection: true,
@@ -3181,6 +3457,8 @@ impl Default for Preferences {
             traditional_chinese_output: false,
             traditional_chinese_variant: TraditionalVariant::default(),
             chinese_english_spacing: false,
+            cross_commit_spacing: false,
+            cross_commit_spacing_excluded_apps: Vec::new(),
             chinese_punctuation: true,
             smart_punctuation: smart_punctuation_default(),
             smart_punctuation_repeat: smart_punctuation_default(),
@@ -3204,6 +3482,7 @@ impl Default for Preferences {
             escape_keeps_selected_word: false,
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
+            multilingual_input: MultilingualInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
             plugins: PluginPreferences::default(),
             game_compatibility: GameCompatibilityPreferences::default(),
@@ -3230,6 +3509,7 @@ impl Default for Preferences {
             translation_account: false,
             translation_ai: false,
             usage_reporting: true,
+            update_channel: UpdateChannel::Stable,
         }
     }
 }
@@ -3871,6 +4151,14 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        let expected = default_text_edit_button_order();
+        if self.touch_text_edit_button_order.len() != expected.len()
+            || !expected
+                .iter()
+                .all(|button| self.touch_text_edit_button_order.contains(button))
+        {
+            return Err(PreferencesError::InvalidTextEditButtonOrder);
+        }
         for helpcode in [&self.quanpin_helpcode, &self.shuangpin_helpcode] {
             if !matches!(
                 helpcode.trigger_key.as_str(),
@@ -3974,8 +4262,11 @@ impl Preferences {
         if !valid_app_input_mode_rules(&self.app_input_mode_rules) {
             return Err(PreferencesError::InvalidAppInputModeRules);
         }
-        if !valid_vim_mode_apps(&self.vim_mode_apps) {
+        if !valid_app_identifier_list(&self.vim_mode_apps) {
             return Err(PreferencesError::InvalidVimModeApps);
+        }
+        if !valid_app_identifier_list(&self.cross_commit_spacing_excluded_apps) {
+            return Err(PreferencesError::InvalidCrossCommitSpacingApps);
         }
         if !self.cloud_clipboard_relay.validate() {
             return Err(PreferencesError::InvalidCloudClipboardRelay);
@@ -3987,6 +4278,9 @@ impl Preferences {
         }
         if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
+        }
+        if !self.android_text_trackpad.validate() {
+            return Err(PreferencesError::InvalidTextTrackpad);
         }
         if !(30..=60).contains(&self.touch_key_spacing_tenths)
             || !(40..=100).contains(&self.touch_row_spacing_tenths)
@@ -4070,7 +4364,7 @@ impl Preferences {
         if self.word_character.enabled && paging {
             return Err(PreferencesError::ConflictingKeyBindings);
         }
-        // 三个切换热键两两不同，且不占已被其他开关认走的组合键。保留表随各开关开合：开关关掉时组合键已经还给应用，绑给它不冲突。占用表的完整说明见 `KeybindingPreferences::occupied_toggle_chords`，设置页的录键试写走同一个表。
+        // 切换热键两两不同，且不占已被其他开关认走的组合键。保留表随各开关开合：开关关掉时组合键已经还给应用，绑给它不冲突。占用表的完整说明见 `KeybindingPreferences::occupied_toggle_chords`，设置页的录键试写走同一个表。
         let keybindings = &self.keybindings;
         let occupied: Vec<crate::key_chord::KeyChord> = keybindings
             .occupied_toggle_chords(self.voice_input.hotkey_ctrl_f9)
@@ -4082,6 +4376,7 @@ impl Preferences {
             &keybindings.toggle_english_candidates,
             &keybindings.toggle_full_width,
             &keybindings.toggle_punctuation,
+            &keybindings.toggle_voice_input,
         ] {
             if text.trim().is_empty() {
                 continue;
@@ -4128,6 +4423,8 @@ impl PreferencesSnapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesError {
+    #[error("text edit button order must contain each of the seven side actions once")]
+    InvalidTextEditButtonOrder,
     #[error("辅助码触发键必须为空或 ; / \\ ` = 中的一个标点")]
     InvalidHelpcodeTriggerKey,
     #[error("五笔二三候选键必须是两个不同的单个 ASCII 标点")]
@@ -4136,7 +4433,9 @@ pub enum PreferencesError {
     InvalidFloatingToolbar,
     #[error("AI assistant provider or candidate limit is invalid")]
     InvalidAiAssistant,
-    #[error("网络代理地址必须是 host:port（可带 http:// 或 https:// 前缀），不能包含用户名、路径、查询或片段")]
+    #[error(
+        "网络代理地址必须是 host:port（可带 http:// 或 https:// 前缀），不能包含用户名、路径、查询或片段"
+    )]
     InvalidNetwork,
     #[error("voice recognition or polishing provider is not supported")]
     InvalidVoiceInput,
@@ -4150,6 +4449,8 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
+    #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]
+    InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
     InvalidTouchQuickSymbols,
     #[error(
@@ -4166,7 +4467,9 @@ pub enum PreferencesError {
     InvalidCustomThemeBase,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
-    #[error("candidate window scale must be 50-200%, opacity 50-100%, corner radius 0-32 and padding 0-16")]
+    #[error(
+        "candidate window scale must be 50-200%, opacity 50-100%, corner radius 0-32 and padding 0-16"
+    )]
     InvalidCandidateWindowStyle,
     #[error("candidate text color must be #RRGGBB or omitted")]
     InvalidCandidateTextColor,
@@ -4182,7 +4485,9 @@ pub enum PreferencesError {
     InvalidCandidateSurfaceColor,
     #[error("candidate border color must be #RRGGBB or omitted")]
     InvalidCandidateBorderColor,
-    #[error("candidate font family must be non-empty, contain no control characters, and be at most 128 bytes")]
+    #[error(
+        "candidate font family must be non-empty, contain no control characters, and be at most 128 bytes"
+    )]
     InvalidCandidateFontFamily,
     #[error("custom theme candidate skin identifier is invalid")]
     InvalidCandidateSkin,
@@ -4198,13 +4503,25 @@ pub enum PreferencesError {
     InvalidMixedInput,
     #[error("plugin settings are invalid")]
     InvalidPlugins,
-    #[error("game compatibility process names must be distinct .exe base names of at most 64 characters, at most 32 in total")]
+    #[error(
+        "game compatibility process names must be distinct .exe base names of at most 64 characters, at most 32 in total"
+    )]
     InvalidGameCompatibility,
-    #[error("app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    #[error(
+        "app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total"
+    )]
     InvalidAppInputModeRules,
-    #[error("vim mode app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    #[error(
+        "vim mode app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total"
+    )]
     InvalidVimModeApps,
-    #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
+    #[error(
+        "cross-commit spacing app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total"
+    )]
+    InvalidCrossCommitSpacingApps,
+    #[error(
+        "cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters"
+    )]
     InvalidCloudClipboardRelay,
     #[error(
         "云候选配置无效：请检查地址、方法、请求头、JSON 模板、响应路径和超时（100–10000 毫秒）"
@@ -4382,7 +4699,16 @@ impl PreferencesStore {
             MAX_DOCUMENT_BYTES,
             || PreferencesError::DocumentTooLarge,
         )?;
-        let document: serde_json::Value = serde_json::from_slice(&bytes)?;
+        let mut document: serde_json::Value = serde_json::from_slice(&bytes)?;
+        // 只在读磁盘时回退新版本的未知布局；设置提交仍由枚举反序列化严格校验。
+        if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
+            if layout
+                .as_str()
+                .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
+            {
+                *layout = "dubeolsik".into();
+            }
+        }
         let (mut snapshot, unknown) =
             deserialize_keeping_unknown::<PreferencesSnapshot>(&document, &["preferences"])?;
         if snapshot.format_version != 1 {

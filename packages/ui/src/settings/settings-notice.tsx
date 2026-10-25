@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CloseGlyph } from "../core/close-glyph";
 
 export interface SettingsNoticeProps {
   children: ReactNode;
@@ -25,18 +26,7 @@ export function SettingsNotice({ children, role, onDismiss }: SettingsNoticeProp
         aria-label="关闭提示"
         onClick={onDismiss}
       >
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-          aria-hidden="true"
-        >
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
+        <CloseGlyph size={10} />
       </button>
     </div>
   );

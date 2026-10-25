@@ -20,16 +20,19 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
     private volatile int resumed;
     private volatile Activity voiceActivity;
     private volatile String returnedResultId;
+    private OfflineVoiceDeviceCases offline;
     private final java.util.List<Integer> diagnosticCodes = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         scenario = arguments == null ? "ready-error" : arguments.getString("scenario", "ready-error");
+        if (scenario.startsWith("offline-")) offline = new OfflineVoiceDeviceCases(this, scenario);
         start();
     }
 
     @Override public void callActivityOnCreate(Activity activity, Bundle state) {
         super.callActivityOnCreate(activity, state);
+        if (offline != null) offline.onCreated(activity);
         if (!isVoice(activity)) return;
         voiceActivity = activity;
         created++;
@@ -75,6 +78,10 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
     }
 
     @Override public void onStart() {
+        if (offline != null) {
+            offline.run();
+            return;
+        }
         Bundle result = new Bundle();
         boolean passed = false;
         BroadcastReceiver receiver = new BroadcastReceiver() {

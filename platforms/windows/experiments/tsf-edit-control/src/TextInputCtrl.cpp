@@ -1,4 +1,5 @@
 #include "TextInputCtrl.h"
+#include "../../../compat/WindowsDpi.h"
 #include "commdlg.h"
 #include "TsfTextServices.h"
 
@@ -261,7 +262,7 @@ BOOL CTextInputCtrl::CreateDeviceResources()
         return FALSE;
     }
 
-    const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+    const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
     _pRenderTarget->SetDpi(dpi, dpi);
 
     return TRUE;
@@ -307,7 +308,7 @@ void CTextInputCtrl::OnPaint()
         return;
     }
 
-    const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+    const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
     _pRenderTarget->SetDpi(dpi, dpi);
     _pRenderTarget->BeginDraw();
     _pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
@@ -331,7 +332,7 @@ void CTextInputCtrl::OnSize()
     {
         RECT rc = {};
         GetClientRect(_hwnd, &rc);
-        const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+        const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
         _pRenderTarget->SetDpi(dpi, dpi);
         _pRenderTarget->Resize(D2D1::SizeU(max(rc.right, 1L), max(rc.bottom, 1L)));
     }
@@ -345,7 +346,7 @@ void CTextInputCtrl::OnSize()
 //
 //----------------------------------------------------------------
 
-void CTextInputCtrl::OnKeyDown(WPARAM wParam, LPARAM lParam)
+void CTextInputCtrl::OnKeyDown(WPARAM wParam, LPARAM)
 {
     UINT nSelStart;
     UINT nSelEnd;
@@ -438,7 +439,7 @@ void CTextInputCtrl::OnKeyDown(WPARAM wParam, LPARAM lParam)
 //
 //----------------------------------------------------------------
 
-void CTextInputCtrl::OnCreate(HWND hwnd, WPARAM wParam, LPARAM lParam)
+void CTextInputCtrl::OnCreate(HWND hwnd, WPARAM, LPARAM)
 {
     if (!InitializeTsfTextServices(g_hInst))
     {
@@ -469,7 +470,7 @@ void CTextInputCtrl::OnDestroy()
 //
 //----------------------------------------------------------------
 
-void CTextInputCtrl::OnSetFocus(WPARAM wParam, LPARAM lParam)
+void CTextInputCtrl::OnSetFocus(WPARAM, LPARAM)
 {
     _editor.SetFocusDocumentMgr();
 }
@@ -480,7 +481,7 @@ void CTextInputCtrl::OnSetFocus(WPARAM wParam, LPARAM lParam)
 //
 //----------------------------------------------------------------
 
-void CTextInputCtrl::OnLButtonDown(WPARAM wParam, LPARAM lParam)
+void CTextInputCtrl::OnLButtonDown(WPARAM, LPARAM lParam)
 {
     SetFocus(_hwnd);
 
@@ -508,7 +509,7 @@ void CTextInputCtrl::OnLButtonDown(WPARAM wParam, LPARAM lParam)
 //
 //----------------------------------------------------------------
 
-void CTextInputCtrl::OnLButtonUp(WPARAM wParam, LPARAM lParam)
+void CTextInputCtrl::OnLButtonUp(WPARAM, LPARAM lParam)
 {
     if (AleartMouseSink(lParam))
     {
@@ -535,7 +536,7 @@ void CTextInputCtrl::OnLButtonUp(WPARAM wParam, LPARAM lParam)
 //
 //----------------------------------------------------------------
 
-void CTextInputCtrl::OnRButtonDown(WPARAM wParam, LPARAM lParam)
+void CTextInputCtrl::OnRButtonDown(WPARAM, LPARAM lParam)
 {
     if (AleartMouseSink(lParam))
     {
@@ -549,7 +550,7 @@ void CTextInputCtrl::OnRButtonDown(WPARAM wParam, LPARAM lParam)
 //
 //----------------------------------------------------------------
 
-void CTextInputCtrl::OnRButtonUp(WPARAM wParam, LPARAM lParam)
+void CTextInputCtrl::OnRButtonUp(WPARAM, LPARAM lParam)
 {
     if (AleartMouseSink(lParam))
     {

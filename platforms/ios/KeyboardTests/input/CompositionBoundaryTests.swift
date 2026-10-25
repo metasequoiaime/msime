@@ -24,6 +24,10 @@ final class CompositionBoundaryTests: XCTestCase {
                      "nine-key raw keys are digits")
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .nineKeyShuangpin, boundary: boundary), .finishComposition,
                      "九键双拼原码是数字，切换模式和回车不能把组码直接提交")
+      for grid in [ChineseInputScheme.fourteenKey, .eighteenKey] {
+        XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: grid, boundary: boundary), .finishComposition,
+                       "\(grid) 的原码是组码字母")
+      }
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .japanese, boundary: boundary), .finishComposition,
                      "Japanese confirms the kana")
     }

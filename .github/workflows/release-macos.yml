@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       version: {description: Semantic version (defaults to platforms/macos/version.txt), required: false, type: string}
-      build_number: {description: 唯一的 macOS bundle 构建号（缺省使用本次工作流运行 ID）, required: false, type: string}
+      build_number: {description: 唯一的 macOS bundle 构建号（缺省由所构建提交的时间算出）, required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a macos-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
   workflow_call:
@@ -12,7 +12,12 @@ on:
       build_number: {description: 唯一的 macOS bundle 构建号, required: false, default: '', type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build, required: false, default: false, type: boolean}
+      # nightly.yml 传 nightly：这次构建的 Sparkle 更新发到每日构建通道的 appcast。留空时按分支：develop 是测试版（beta），其他分支是稳定版（stable）的文件名，是否上传见下面的「Resolve independent macOS version」。
+      appcast_channel: {description: 'Sparkle 更新通道：nightly，或留空按分支决定', required: false, default: '', type: string}
 permissions: {contents: write}
+# 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
+env:
+  MSIME_BUILD_RUN: ${{ github.run_id }}
 concurrency: {group: release-macos, cancel-in-progress: false}
 jobs:
   # 随桌面安装包分发的官方插件包（plugins/official-packs.json），只在这里构建一次，打包作业下载同一份：scripts/build-official-plugins.sh 编出 wasm，并和锁定的内容哈希比对（授权绑定在它上面），所以装进安装包的就是评审过的那一份；锁以这台 ubuntu 的构建为准，和 CI 的 Script plugins 作业一致。打包的 runner 不用装 wasm 目标。
@@ -46,7 +51,7 @@ jobs:
     #   MACOS_DEVELOPER_ID_APPLICATION           the identity name, e.g. "Developer ID Application: Name (TEAMID)"
     #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
-    #   SPARKLE_ED_PRIVATE_KEY                   对应 platforms/macos/sparkle-public-key.txt 的 Sparkle EdDSA 私钥（2026-10-15 轮换，维护者保留备份；更换它会使所有已安装副本无法更新）；输入法和完整设置应用分别读取 macos-appcast 发布中的独立通道
+    #   SPARKLE_ED_PRIVATE_KEY                   对应 platforms/macos/sparkle-public-key.txt 的 Sparkle EdDSA 私钥（2026-10-15 轮换，维护者保留备份；更换它会使所有已安装副本无法更新）；输入法和完整设置应用分别读取 macos-appcast 发布中的独立 appcast，每个更新通道（正式版、测试版、每日构建）各有一组
     env:
       # 钉死 Xcode 26.3（macOS 26 SDK），与 ci-macos.yml、ci-macos-package.yml 和 iOS 的 CI、发布同一个版本；不钉就是镜像默认的 Xcode 16.4，CI 测的就不是发出去的构建。
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -79,20 +84,44 @@ jobs:
           else
             echo "::warning::sccache did not start; the Rust build runs without the compile cache"
           fi
-      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
       - id: version
         name: Resolve independent macOS version
-        env: {REQUESTED: "${{ inputs.version }}", REQUESTED_BUILD_NUMBER: "${{ inputs.build_number }}"}
+        env: {REQUESTED: "${{ inputs.version }}", REQUESTED_BUILD_NUMBER: "${{ inputs.build_number }}", REQUESTED_APPCAST_CHANNEL: "${{ inputs.appcast_channel }}", PUBLISH: "${{ inputs.publish }}", PRERELEASE_INPUT: "${{ inputs.prerelease }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/macos/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           build_number="$REQUESTED_BUILD_NUMBER"
-          [[ -n "$build_number" ]] || build_number="$((GITHUB_RUN_ID % 999999999))"
-          [[ "$build_number" != 0 ]] || build_number=999999999
+          # 缺省构建号是所构建提交的提交时间距 2026-01-01T00:00:00Z（Unix 时间 1767225600）的分钟数，九位数够用到 3900 年之后。CFBundleVersion 把它放在版本号之后（CMakeLists.txt），Sparkle 按它判断同一版本号的几个构建谁新：用时间而不是运行 ID，测试版、每日构建和正式版之间就按代码的先后排序，同一个提交重跑得到同一个构建号；运行 ID 对 999999999 取模约两个月回绕一次，回绕后的新构建会被 Sparkle 当成降级拒装。
+          if [[ -z "$build_number" ]]; then
+            committed="$(git log -1 --format=%ct HEAD)"
+            build_number=$(( (committed - 1767225600) / 60 ))
+            if (( build_number < 1 || build_number > 999999999 )); then
+              echo "::error::提交时间 $committed 算出的构建号 $build_number 不在 1 到 999999999 之间；用 build_number 输入指定"
+              exit 1
+            fi
+          fi
           [[ "$build_number" =~ ^[1-9][0-9]{0,8}$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+          # Sparkle 更新通道（与偏好 update_channel 同名）决定 package-release.sh 产出的 appcast 和更新包文件名。发到 macos-appcast 的只有三种：main 上的正式版发布（stable，与引入通道之前相同）、develop 上的测试版发布（beta）和 develop 上 nightly.yml 的每日构建（nightly）；alpha、从其他分支手动跑的每日构建和不发布的构建只留在 workflow artifact 里。
+          channel="$REQUESTED_APPCAST_CHANNEL"
+          if [[ -z "$channel" ]]; then
+            if [[ "$GITHUB_REF_NAME" == develop ]]; then channel=beta; else channel=stable; fi
+          fi
+          if [[ ! "$channel" =~ ^(stable|beta|nightly)$ ]]; then
+            echo "::error::appcast_channel must be nightly or empty, not '$channel'"
+            exit 1
+          fi
+          feed_publish=false
+          if [[ "$channel" == stable && "$PUBLISH" == true && "$PRERELEASE_INPUT" != true && "$GITHUB_REF_NAME" == main ]]; then feed_publish=true; fi
+          if [[ "$channel" == beta && "$PUBLISH" == true && "$GITHUB_REF_NAME" == develop ]]; then feed_publish=true; fi
+          # 每日构建也只从 develop 推出去：nightly.yml 可以从任意分支手动触发，从功能分支跑一次本来只是想看包能不能编出来，却会让选了每日构建的用户被 Sparkle 静默装上未合并的代码；功能分支的提交通常比 develop 新，「不退回更旧构建」的守卫拦不住。定时触发跑在默认分支 develop 上。
+          if [[ "$channel" == nightly && "$GITHUB_REF_NAME" == develop ]]; then feed_publish=true; fi
+          if [[ "$channel" == nightly && "$feed_publish" != true ]]; then echo "::notice::每日构建运行在 $GITHUB_REF_NAME 而不是 develop，不更新 macos-appcast 上的每日构建 appcast"; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "feed_publish=$feed_publish" >> "$GITHUB_OUTPUT"
       - name: Install dependencies
         run: brew install nlohmann-json
       # platforms/macos/CMakeLists.txt makes an empty MSIME_SPARKLE_ROOT a FATAL_ERROR, so the
@@ -172,6 +201,7 @@ jobs:
         env:
           VERSION: "${{ steps.version.outputs.value }}"
           MSIME_BUILD_NUMBER: "${{ steps.version.outputs.build_number }}"
+          MSIME_UPDATE_CHANNEL: "${{ steps.version.outputs.channel }}"
           MSIME_REQUIRE_OFFICIAL_PLUGINS: '1'
           MSIME_REQUIRE_WORDBOOKS: '1'
           APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"
@@ -190,7 +220,7 @@ jobs:
         if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
         run: security delete-keychain "$MSIME_SIGNING_KEYCHAIN"
       - name: Verify release assets
-        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        env: {VERSION: "${{ steps.version.outputs.value }}", BUILD_NUMBER: "${{ steps.version.outputs.build_number }}", CHANNEL: "${{ steps.version.outputs.channel }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -207,17 +237,20 @@ jobs:
           done
           # package-release.sh 剥离发布的可执行文件（输入法、它的 msime-voice-local 辅助程序、设置应用、msime-mcp）之前先写出 dSYM，再打成一个 zip；各版本共用同一组可执行文件，一份覆盖全部版本。它长期保留在 macos-symbols release 上，用来符号化这个版本的崩溃报告，不像 workflow artifact 那样 90 天后过期。
           [[ -f "dist/msime-macos-${VERSION}-dsym.zip" ]]
-          # 有 Sparkle 私钥时，每个版本分别提供输入法和完整设置应用的归档与 appcast，必须全部存在；归档的摘要在 sparkle-SHA256SUMS 里，不在 SHA256SUMS 里。
+          # 有 Sparkle 私钥时，每个版本分别提供输入法和完整设置应用的归档与 appcast，必须全部存在；归档的摘要在 sparkle-SHA256SUMS 里，不在 SHA256SUMS 里。文件名随更新通道变（sparkle_feed.py names），appcast 也必须都属于这个通道。
           appcasts=(dist/appcast-*.xml)
           if [[ ${#appcasts[@]} -gt 0 ]]; then
             [[ ${#appcasts[@]} -eq $((${#editions[@]} * 2)) ]]
             [[ "$(wc -l < dist/sparkle-SHA256SUMS | tr -d ' ')" -eq $((${#editions[@]} * 2)) ]]
+            python3 platforms/macos/scripts/sparkle_feed.py feeds --channel "$CHANNEL" "${appcasts[@]}" > /dev/null
             for edition in "${editions[@]}"; do
               prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
-              [[ -f "dist/appcast-${edition}.xml" && -f "dist/${prefix}-${VERSION}-input-method.zip" ]]
-              grep -q " ${prefix}-${VERSION}-input-method.zip\$" dist/sparkle-SHA256SUMS
-              [[ -f "dist/appcast-settings-${edition}.xml" && -f "dist/${prefix}-${VERSION}-settings.zip" ]]
-              grep -q " ${prefix}-${VERSION}-settings.zip\$" dist/sparkle-SHA256SUMS
+              names="$(python3 platforms/macos/scripts/sparkle_feed.py names --channel "$CHANNEL" --edition "$edition" --prefix "$prefix" --version "$VERSION" --build "$BUILD_NUMBER")"
+              IFS=$'\t' read -r input_feed settings_feed input_zip settings_zip <<< "$names"
+              [[ -f "dist/${input_feed}" && -f "dist/${input_zip}" ]]
+              awk -v name="$input_zip" '$2 == name {found = 1} END {exit !found}' dist/sparkle-SHA256SUMS
+              [[ -f "dist/${settings_feed}" && -f "dist/${settings_zip}" ]]
+              awk -v name="$settings_zip" '$2 == name {found = 1} END {exit !found}' dist/sparkle-SHA256SUMS
             done
             python3 platforms/macos/scripts/sparkle_feed.py verify --archives dist \
               --url-prefix https://github.com/metasequoiaime/msime/releases/download/macos-appcast/ "${appcasts[@]}"
@@ -250,6 +283,8 @@ jobs:
           python3 platforms/macos/scripts/edition_bundle.py download-guide --editions "$MACOS_EDITIONS" --version "$VERSION" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${homebrew[@]+"${homebrew[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
+          # 发布正文末尾的隐藏构建标记（scripts/release-build-marker.py）：应用内检查更新按它的运行 ID 比较同一版本号的构建，测试版通道也靠它分辨 beta 之后发的正式版。
+          python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           # 版本发布页只放给用户下载的 DMG 和 SHA256SUMS。Sparkle 更新包随 appcast 放在 macos-appcast（下面的「Update the Sparkle appcasts」），dSYM 放在 macos-symbols（下一步）；重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/SHA256SUMS
       # 每个发布版本的 dSYM 都长期留在滚动的 macos-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。
@@ -257,10 +292,12 @@ jobs:
         if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}"}
         run: bash platforms/macos/scripts/publish-dsym.sh "dist/msime-macos-${VERSION}-dsym.zip" "msime-macos-${RELEASE}-dsym.zip"
-      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，分别写进各自的 SUFeedURL；它们指向的更新 zip 也放在那里，不进版本发布页。和 Homebrew 一样只有 main 上的正式版才更新它：beta 与 alpha 不推给所有用户，它们的更新 zip 只留在 workflow artifact 里。publish-sparkle-feed.sh 先传 zip 并按公开地址下载核对，确认都下得到之后才传 appcast，最后删掉不再被任何 appcast 指向的旧 zip；已发布的 appcast 版本更高时停下，免得重跑旧版本的发布把它退回去。
+      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，稳定版的写进各自的 SUFeedURL，测试版和每日构建的由输入法和设置应用按用户选的更新通道从 SUFeedURL 推出（platforms/macos/src/core/UpdateChannelFeed.h）；它们指向的更新 zip 也放在那里，不进版本发布页。三种运行会更新它（见「Resolve independent macOS version」的 feed_publish）：main 上的正式版写稳定版的 appcast，与引入通道之前相同；develop 上的测试版发布写 appcast-beta-*；develop 上 nightly.yml 的每日构建写 appcast-nightly-*（从其他分支手动跑的不写）。alpha 不推给任何人，它的更新 zip 只留在 workflow artifact 里。publish-sparkle-feed.sh 先传 zip 并按公开地址下载核对，确认都下得到之后才传 appcast，再把它复制到构建更旧的更宽通道（正式版也进测试版和每日构建，测试版也进每日构建），最后删掉这个通道不再被任何 appcast 指向的旧 zip；同一通道已发布的 appcast 构建更高时停下，免得重跑旧版本的发布把它退回去，已经是同一个构建时不再传 zip 和本通道的 appcast，只补上更宽通道里还缺的或更旧的 appcast（上一次运行可能在那一步失败）。
+      # 每日构建这一步失败（例如 develop 上手工推送的提交时间偏早、构建号比已发布的小，被上面的守卫拦下）不让 macOS 的 nightly 作业失败：那会让 nightly.yml 跳过这个平台的每日构建下载，比 appcast 停在上一次更糟。
       - name: Update the Sparkle appcasts
-        if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}"}
+        if: ${{ steps.version.outputs.feed_publish == 'true' }}
+        continue-on-error: ${{ steps.version.outputs.channel == 'nightly' }}
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", CHANNEL: "${{ steps.version.outputs.channel }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -269,7 +306,7 @@ jobs:
             echo "::warning::SPARKLE_ED_PRIVATE_KEY is not set; the input methods in this release have no Sparkle feed and the appcasts were left as they were"
             exit 0
           fi
-          bash platforms/macos/scripts/publish-sparkle-feed.sh dist "$VERSION"
+          bash platforms/macos/scripts/publish-sparkle-feed.sh dist "$VERSION" "$CHANNEL"
       # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (which every release dispatched from a branch other than main is) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
       - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}

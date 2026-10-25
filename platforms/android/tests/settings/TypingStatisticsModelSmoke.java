@@ -60,12 +60,14 @@ public final class TypingStatisticsModelSmoke {
         check(TypingStatisticsModel.sum(kinds) == model.total(), "kinds sum to the total");
 
         List<Slice> schemes = model.slices(Section.SCHEME, null);
-        check(schemes.size() == 22 && "quanpin".equals(schemes.get(0).id()), "schemes are ordered");
+        check(schemes.size() == 23 && "quanpin".equals(schemes.get(0).id()), "schemes are ordered");
         // 全拼 14 键紧跟在全拼 9 键后面，与共享 UI 的来源顺序一致。
         check("fourteenKey".equals(schemes.get(2).id()) && "全拼 14 键".equals(schemes.get(2).title()),
             "the fourteen-key source follows the nine-key one");
-        check("korean".equals(schemes.get(9).id()) && "韩语".equals(schemes.get(9).title())
-            && schemes.get(9).count() == 10, "Korean is its own source, after Japanese");
+        check("eighteenKey".equals(schemes.get(3).id()) && "全拼 18 键".equals(schemes.get(3).title()),
+            "十八键在十四键后独立列出");
+        check("korean".equals(schemes.get(10).id()) && "韩语".equals(schemes.get(10).title())
+            && schemes.get(10).count() == 10, "Korean is its own source, after Japanese");
         check(TypingStatisticsModel.sum(schemes) == model.total(), "schemes sum to the total");
 
         List<Slice> modes = model.slices(Section.MODE, null);

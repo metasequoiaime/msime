@@ -77,6 +77,24 @@ pub struct LinuxSetupRegistration {
     registered: bool,
 }
 
+/// 安装器从本版本锁文件导出的只读下载清单；地址和摘要不在设置应用里另维护一份。
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinuxDictionaryDownloads {
+    directory: String,
+    artifacts: Vec<LinuxDictionaryDownload>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinuxDictionaryDownload {
+    name: String,
+    url: Option<String>,
+    mirror_url: Option<String>,
+    size: u64,
+    sha256: String,
+}
+
 /// 脚本输出里的一行：机读的阶段、结果或提示，或者给人看的输出。
 #[derive(Debug, PartialEq, Eq)]
 enum ReportLine {
@@ -454,6 +472,85 @@ pub fn linux_setup_status(options: State<'_, RuntimeOptionsState>) -> LinuxSetup
     )
 }
 
+/// 复用安装脚本的只读查询，使用相同版本标识和有界进程执行器；失败保留未知。
+pub fn input_method_status() -> (Option<bool>, Option<bool>) {
+    match input_method_status_document() {
+        Ok(value) => (value["enabled"].as_bool(), value["current"].as_bool()),
+        Err(_) => (None, None),
+    }
+}
+
+fn input_method_status_document() -> Result<serde_json::Value, LinuxSetupError> {
+    let program = setup_program().ok_or(LinuxSetupError::new("setup_unavailable"))?;
+    let output = Arc::new(std::sync::Mutex::new(String::new()));
+    let captured = Arc::clone(&output);
+    run_setup(
+        &program,
+        &["--status".into(), "--json".into()],
+        Duration::from_secs(40),
+        move |line| {
+            if !line.error {
+                if let Ok(mut value) = captured.lock() {
+                    value.push_str(&line.text);
+                }
+            }
+        },
+    )?;
+    let output = output
+        .lock()
+        .map_err(|_| LinuxSetupError::new("setup_failed"))?;
+    serde_json::from_str(&output).map_err(|_| LinuxSetupError::new("setup_failed"))
+}
+
+/// 只打开当前框架自己的设置，不把已配置的用户再次送进首次准备流程。
+#[tauri::command]
+pub async fn open_linux_input_method_settings() -> Result<(), LinuxSetupError> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let status = input_method_status_document()?;
+        let program = match status["host"].as_str() {
+            Some("fcitx5") => "fcitx5-configtool",
+            Some("ibus") => "ibus-setup",
+            _ => return Err(LinuxSetupError::new("configtool_unavailable")),
+        };
+        super::linux_process::launch(program, &[], Duration::from_millis(300))
+            .then_some(())
+            .ok_or(LinuxSetupError::new("configtool_unavailable"))
+    })
+    .await
+    .map_err(|_| LinuxSetupError::new("configtool_unavailable"))?
+}
+
+fn load_dictionary_downloads(
+    program: &Path,
+    arguments: &[OsString],
+) -> Result<LinuxDictionaryDownloads, LinuxSetupError> {
+    let output = Arc::new(std::sync::Mutex::new(String::new()));
+    let captured = Arc::clone(&output);
+    run_setup(program, arguments, Duration::from_secs(10), move |line| {
+        if !line.error {
+            if let Ok(mut output) = captured.lock() {
+                output.push_str(&line.text);
+                output.push('\n');
+            }
+        }
+    })?;
+    let output = output
+        .lock()
+        .map_err(|_| LinuxSetupError::new("setup_failed"))?;
+    serde_json::from_str(&output).map_err(|_| LinuxSetupError::new("setup_failed"))
+}
+
+/// 按需读取链接，不启动实际配置；沿用脚本执行器的超时与有界输出保护。
+#[tauri::command]
+pub async fn linux_dictionary_downloads() -> Result<LinuxDictionaryDownloads, LinuxSetupError> {
+    let program = setup_program().ok_or(LinuxSetupError::new("setup_unavailable"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        load_dictionary_downloads(&program, &["--list-downloads".into(), "--json".into()])
+    })
+    .await
+    .map_err(|_| LinuxSetupError::new("setup_failed"))?
+}
+
 /// 在阻塞线程里跑脚本：给人看的行发到页面，阶段行发成进度事件，结果行和提示行留下来随返回值交给页面。
 async fn run_reporting(
     app: AppHandle,
@@ -611,6 +708,40 @@ mod tests {
         let mut shell_arguments = vec![OsString::from("-c"), body.into(), "sh".into()];
         shell_arguments.extend(arguments.iter().cloned());
         (PathBuf::from("/bin/sh"), shell_arguments)
+    }
+
+    #[test]
+    fn download_links_read_json_without_mixing_diagnostics_into_the_manifest() {
+        let (program, arguments) = shell(
+            r#"
+            [ "$1" = '--list-downloads' ] && [ "$2" = '--json' ] || exit 2
+            printf 'synthetic diagnostic\n' >&2
+            printf '%s\n' '{"directory":"/synthetic/resources","artifacts":[{"name":"synthetic.db","url":"https://example.invalid/fixed","mirrorUrl":null,"size":12,"sha256":"synthetic-hash"}]}'
+            "#,
+            &["--list-downloads".into(), "--json".into()],
+        );
+        let manifest = load_dictionary_downloads(&program, &arguments).unwrap();
+        assert_eq!(manifest.directory, "/synthetic/resources");
+        assert_eq!(manifest.artifacts.len(), 1);
+        assert_eq!(manifest.artifacts[0].size, 12);
+        assert_eq!(
+            manifest.artifacts[0].url.as_deref(),
+            Some("https://example.invalid/fixed")
+        );
+        assert!(serde_json::to_value(manifest).unwrap()["artifacts"][0]["mirrorUrl"].is_null());
+    }
+
+    #[test]
+    fn download_links_reject_failed_or_incomplete_script_output() {
+        for body in ["printf 'not json'", "printf '{}'", "exit 2"] {
+            let (program, arguments) = shell(body, &[]);
+            assert_eq!(
+                load_dictionary_downloads(&program, &arguments)
+                    .unwrap_err()
+                    .code,
+                "setup_failed"
+            );
+        }
     }
 
     #[test]

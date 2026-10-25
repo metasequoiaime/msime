@@ -288,7 +288,7 @@ fn prefix_append_preserves_metadata_capacity_and_fifo_age() {
                         CandidateSource::CloudSuggestion,
                         "ni",
                     );
-                    row.corrected_from = "合成纠错".to_owned();
+                    row.corrected_from = "合成纠错".into();
                     row.corrected_from.reserve(60);
                     row.sentence_words = vec!["合成".to_owned(), "分词😀".to_owned()];
                     row.sentence_words.reserve(8);

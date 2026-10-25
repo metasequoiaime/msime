@@ -2,6 +2,7 @@ import type { KeybindingPreferences } from "./keybinding-preferences";
 
 export const defaultKeybindings: KeybindingPreferences = {
   switch_language_shift: true,
+  switch_language_shift_requires_editable: false,
   switch_language_ctrl: false,
   switch_language_ctrl_space: true,
   switch_language_ctrl_alt_space: true,

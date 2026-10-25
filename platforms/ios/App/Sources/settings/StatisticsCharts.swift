@@ -6,8 +6,8 @@ enum StatisticsStyle {
   /// 设计稿的 `cubic-bezier(.2,.8,.2,1)`，所有生长动画都用它。
   static func curve(_ duration: Double) -> Animation { .timingCurve(0.2, 0.8, 0.2, 1, duration: duration) }
 
-  /// 非高亮柱的颜色：浅色 aM18，深色 aM24。
-  static let mutedBar = MetasequoiaTheme.accentMix(18, 24)
+  /// 非高亮柱的颜色：浅色 aM40，深色 aM45。设计稿原是 aM18、aM24，在手机上太淡，非今日的柱子几乎看不出高低；与共享页的 `quietBar`、Android 的 `ms_*_stat_bar` 用同一组比例。
+  static let mutedBar = MetasequoiaTheme.accentMix(40, 45)
 
   /// 进度条的未填充部分：rgba(0,0,0,.07) / rgba(255,255,255,.1)。
   static let track = Color(uiColor: UIColor { traits in

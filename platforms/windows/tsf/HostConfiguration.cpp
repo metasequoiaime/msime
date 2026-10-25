@@ -2,6 +2,7 @@
 #include "AsyncSnapshotCache.h"
 #include "HostOptionsPaths.h"
 #include "../../common/HostApiString.h"
+#include "../src/system/HelpcodeRoot.h"
 #include <atomic>
 #include <filesystem>
 #include <functional>
@@ -35,14 +36,26 @@ std::shared_ptr<const HostConfiguration> LoadConfiguration(
   if (next->directory.empty()) next->directory = default_state_directory();
   if (next->directory.empty()) return previous;
   if (const auto value = LoadPreferences(next->directory, initial)) {
-    next->preferences = (*value)["preferences"];
-    next->preferenceSnapshot = value->dump();
+    const auto revision = value->find("revision");
+    if (revision != value->end() && revision->is_number_unsigned() &&
+        (!previous || revision->get<std::uint64_t>() >= previous->revision)) {
+      next->revision = revision->get<std::uint64_t>();
+      next->preferences = (*value)["preferences"];
+      next->preferenceSnapshot = value->dump();
+    }
   }
   const auto options = read_prepared_host_options(
       std::filesystem::u8path(next->directory) / L"runtime-options.json");
   const auto parsed = nlohmann::json::parse(options, nullptr, false);
   if (parsed.is_object()) {
-    next->hostOptions = options;
+    // The TIP creates its sessions from this document, as the Server does from the one it prepared; both name the built-in helpcode tables in DataDir the same way, in memory only.
+    auto session = parsed;
+    msime::windows::name_builtin_helpcodes(session, std::filesystem::u8path(next->directory));
+    next->hostOptions = session == parsed ? options : session.dump();
+    const auto user = parsed.find("user_data");
+    next->userData = user != parsed.end() && user->is_string()
+                         ? std::filesystem::u8path(user->get<std::string>())
+                         : std::filesystem::path{};
     const auto directory = parsed.find("language_dictionaries");
     if (directory != parsed.end() && directory->is_string()) {
       const auto path = std::filesystem::u8path(directory->get<std::string>());
@@ -100,6 +113,10 @@ std::shared_ptr<const HostConfiguration> cached_host_configuration() {
 }
 void refresh_host_configuration() {
   configuration.refresh([](const auto &previous) { return LoadConfiguration(previous, false); }, ScheduleRefresh);
+}
+void invalidate_host_configuration() {
+  configuration.invalidate();
+  refresh_host_configuration();
 }
 std::shared_ptr<const nlohmann::json> load_activation_preferences() {
   if (initialSnapshotPending.exchange(false, std::memory_order_acquire)) {

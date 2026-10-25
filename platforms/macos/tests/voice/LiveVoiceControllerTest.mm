@@ -582,6 +582,37 @@ int main(int argc, char **) {
         assert(!capture.active); // No queued gesture leaks into restored focus.
         globalHotkey(ctrlF9); assert(capture.active);
         [controller cancelLiveVoiceInput];
+        // 额外绑定独立于固定 Ctrl+F9；同一共享解码同时供全局监视器与 IMK 事件入口使用。
+        MSIMEAppearancePreferences *voiceAppearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [voiceAppearance applySharedInputPreferences:@{@"keybindings": @{@"toggle_voice_input": @"Ctrl+Alt+F8"}}];
+        [controller setValue:voiceAppearance forKey:@"appearance"];
+        voiceArguments[@"MSIMEClientVoiceHotkeyCtrlF9"] = @NO;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        NSEventModifierFlags customFlags = NSEventModifierFlagControl | NSEventModifierFlagOption;
+        NSEvent *customVoice = key(100, customFlags, NSEventTypeKeyDown);
+        globalHotkey(ctrlF9); assert(!capture.active);
+        globalHotkey(customVoice); assert(capture.active);
+        globalHotkey([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:customFlags timestamp:1 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:YES keyCode:100]);
+        assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        globalHotkey(customVoice); assert([[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        capture.transcript(@"synthetic custom final", YES); assert(!capture.active);
+        [voiceAppearance applySharedInputPreferences:@{@"keybindings": @{@"toggle_voice_input": @"Ctrl+Alt+F7"}}];
+        globalHotkey(customVoice); assert(!capture.active);
+        NSEvent *reboundVoice = key(98, customFlags, NSEventTypeKeyDown);
+        assert([controller handleEvent:reboundVoice client:client] && capture.active);
+        [controller cancelLiveVoiceInput];
+        voiceArguments[@"MSIMEClientVoiceEnabled"] = @NO;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        globalHotkey(reboundVoice); assert(!capture.active);
+        voiceArguments[@"MSIMEClientVoiceEnabled"] = @YES;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [controller setValue:nil forKey:@"activeClient"];
+        globalHotkey(reboundVoice); assert(!capture.active);
+        [controller setValue:client forKey:@"activeClient"];
+        [voiceAppearance applySharedInputPreferences:@{@"keybindings": @{@"toggle_voice_input": @""}}];
+        globalHotkey(reboundVoice); assert(!capture.active);
+        voiceArguments[@"MSIMEClientVoiceHotkeyCtrlF9"] = @YES;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         LiveTextFixture *nextClient = [LiveTextFixture new];
         [controller setValue:nextClient forKey:@"activeClient"];
         [controller toggleVoiceInput:nil]; assert(capture.active);

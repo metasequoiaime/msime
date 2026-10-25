@@ -85,6 +85,31 @@ final class VoiceSessionTests: XCTestCase {
     XCTAssertNil(dictation.request)
   }
 
+  /// 结束操作马上进入识别状态；迟到的聆听回调不能重新开放结束按钮或显示仍在录音。
+  func testFinishBeforeAcknowledgementKeepsRecognizingUntilTheFinalResult() throws {
+    let channel = VoiceSessionChannel(directory: directory)
+    channel.publish(state(.ready, request: nil))
+    let dictation = KeyboardVoiceDictation(channel: channel)
+    var events: [KeyboardVoiceDictation.Event] = []
+    let finished = expectation(description: "结束后收到最终转写")
+    dictation.onEvent = { event in
+      events.append(event)
+      if case .finished = event { finished.fulfill() }
+    }
+    dictation.start()
+    let request = try XCTUnwrap(dictation.request)
+    dictation.finish()
+    XCTAssertEqual(events.last, .recognizing(text: "", message: ""))
+    channel.publish(state(.listening, request: request, text: "合成"))
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertEqual(events.last, .recognizing(text: "合成", message: ""))
+    XCTAssertEqual(channel.readCommand()?.action, .stop)
+    channel.publish(state(.finished, request: request, text: "合成文字"))
+    wait(for: [finished], timeout: 2)
+    XCTAssertEqual(events.last, .finished("合成文字"))
+    XCTAssertNil(dictation.request)
+  }
+
   func testAnotherDictationsStateIsIgnored() {
     let channel = VoiceSessionChannel(directory: directory)
     channel.publish(state(.ready, request: nil))
@@ -157,7 +182,7 @@ final class VoiceSessionTests: XCTestCase {
     panel.showRecognizing(text: "今天天气不错啊", message: "正在润色…")
     XCTAssertEqual(panel.statusLabel.text, "正在润色…")
     let tapped = KeyboardVoicePanelView(dictationHeld: false, skin: KeyboardTheme.current)
-    XCTAssertEqual(tapped.captionLabel.text, "点圆球结束，点其他地方取消")
+    XCTAssertEqual(tapped.captionLabel.text, "说完后点「说完了」，识别后自动上屏")
   }
 
   func testTheSessionLinkNamesThisEdition() {

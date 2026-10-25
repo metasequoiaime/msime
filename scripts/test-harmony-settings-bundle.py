@@ -8,6 +8,7 @@ It used to be committed. That went wrong twice over. First it went stale: fifty-
 Building it from the same checkout as the HAP removes both: it cannot be older than the UI it ships with, and there is nothing to conflict on. What is left to check is that it stays that way, which is that the page is not tracked again, and that it still builds into the one file the webview can read.
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -39,7 +40,12 @@ def main() -> int:
         print("skipped: dependencies not installed, run pnpm install at the repository root")
         return 0
     try:
-        result = subprocess.run(STAGE, cwd=ROOT, capture_output=True, text=True)
+        # 编译门禁禁用的 MSYS 路径转换不能传给 Corepack 的 POSIX 启动脚本。
+        environment = dict(os.environ)
+        if os.name == "nt":
+            environment.pop("MSYS_NO_PATHCONV", None)
+            environment.pop("MSYS2_ARG_CONV_EXCL", None)
+        result = subprocess.run(STAGE, cwd=ROOT, capture_output=True, text=True, env=environment)
     except OSError as error:
         print(f"skipped: could not run the settings build ({error})")
         return 0

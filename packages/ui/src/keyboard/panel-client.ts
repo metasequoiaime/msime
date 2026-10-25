@@ -8,6 +8,7 @@ export interface KeyboardInputRequest {
   shift: boolean;
   modifiers: { ctrl: boolean; alt: boolean; win: boolean };
   include_sticky_modifiers: boolean;
+  grouped_letter?: string;
 }
 
 export interface InkPoint {

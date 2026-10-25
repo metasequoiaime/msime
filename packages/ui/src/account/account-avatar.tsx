@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type { AccountUser } from "./account-model";
-import { preferredAccountName } from "./account-labels";
 import * as account from "./account-style";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 
@@ -29,9 +28,9 @@ function loadAvatar(url: string, load: () => Promise<string | null>): Promise<st
 }
 
 /**
- * The user's avatar, or the first character of their name while there is none or it has not loaded.
+ * 没有头像或尚未加载时，显示共享显示名的首个 Unicode 码点。
  *
- * The page loads no remote image, so the host fetches the avatar and hands it over as a `data:` URL; `user.avatarUrl` changes whenever the avatar does, which is what decides when to ask again. Without a `load` (the mobile hosts) the initial is all there is.
+ * 页面不加载远程图片；宿主取回图片并提供 `data:` URL，`user.avatarUrl` 变化时重新请求。未提供 `load` 时只显示首字。
  */
 export function AccountAvatar({
   user,
@@ -40,7 +39,7 @@ export function AccountAvatar({
   size,
 }: {
   user: AccountUser;
-  /** The name whose first character stands in for a missing avatar; the edit dialog passes the name being typed. */
+  /** 编辑页传入已规范化的草稿，覆盖已保存的显示名。 */
   name?: string;
   load?: () => Promise<string | null>;
   size: account.AvatarSize;
@@ -61,7 +60,7 @@ export function AccountAvatar({
       {src ? (
         <img className="size-full object-cover" src={src} alt="" draggable={false} />
       ) : (
-        (name?.trim() || preferredAccountName(user)).slice(0, 1)
+        Array.from(name || user.preferredName)[0]
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   describeInstallerTrust,
+  describeUpdateVersion,
   fromHostUpdate,
   mirrorDownloadUrl,
   type HostReleaseUpdate,
@@ -29,6 +30,8 @@ test("the installer placeholder names the edition's installer", () => {
     installerName: null,
     installerSha256: null,
     signed: false,
+    channel: "stable" as const,
+    buildRun: null,
   };
   expect(describeInstallerTrust(update, "windows").warning).toContain(
     "MetasequoiaIME-Full_Setup_v<版本>.exe.sha256",
@@ -63,6 +66,8 @@ test("the mirror link points at the chosen installer under its GitHub download U
     installerName: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
     installerSha256: null,
     signed: false,
+    channel: "stable",
+    buildRun: null,
   };
   expect(mirrorDownloadUrl(pageOnly, mirror)).toBeNull();
 });
@@ -74,10 +79,47 @@ test("the host's release becomes the page's update", () => {
     installerName: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
     installerSha256: "a".repeat(64),
     signed: false,
+    channel: "stable",
+    buildRun: null,
   });
   expect(
     fromHostUpdate(hostUpdate({ installer_name: null, installer_sha256: null, signed: null })),
   ).toMatchObject({ installerName: null, installerSha256: null, signed: null });
+});
+
+test("the release's channel and build run reach the page, and the label names them", () => {
+  const nightly = fromHostUpdate(
+    hostUpdate({
+      release_url: `${page}/tag/nightly`,
+      installer_name: "MetasequoiaIME-Full_Setup_v1.2.0-nightly.38812345678.1.exe",
+      channel: "nightly",
+      build_run: 38812345678,
+    }),
+  );
+  expect(nightly).toMatchObject({ channel: "nightly", buildRun: 38812345678 });
+  expect(nightly && describeUpdateVersion(nightly)).toBe("每日构建 v1.2.0（构建 38812345678）");
+  // 镜像照样给每日构建的附件，tag 是 nightly。
+  expect(nightly && mirrorDownloadUrl(nightly, "https://dl.msime.app/gh/")).toBe(
+    "https://dl.msime.app/gh/https://github.com/metasequoiaime/msime/releases/download/nightly/MetasequoiaIME-Full_Setup_v1.2.0-nightly.38812345678.1.exe",
+  );
+  const beta = fromHostUpdate(
+    hostUpdate({ release_url: `${page}/tag/windows-v1.2.0-beta`, channel: "beta", build_run: 7 }),
+  );
+  expect(beta && describeUpdateVersion(beta)).toBe("测试版 v1.2.0");
+  const stable = fromHostUpdate(hostUpdate({ channel: "stable", build_run: 7 }));
+  expect(stable && describeUpdateVersion(stable)).toBe("v1.2.0");
+  // 没有构建号的每日构建只写通道；不认识的通道、不像运行 ID 的构建号按稳定版、没有构建号处理。
+  const unnumbered = fromHostUpdate(hostUpdate({ channel: "nightly", build_run: null }));
+  expect(unnumbered && describeUpdateVersion(unnumbered)).toBe("每日构建 v1.2.0");
+  expect(
+    fromHostUpdate(
+      hostUpdate({
+        channel: "canary" as HostReleaseUpdate["channel"],
+        build_run: -1,
+      }),
+    ),
+  ).toMatchObject({ channel: "stable", buildRun: null });
+  expect(fromHostUpdate(hostUpdate({ build_run: 1.5 }))).toMatchObject({ buildRun: null });
 });
 
 test("a release the page would open or show unsafely is refused or trimmed", () => {

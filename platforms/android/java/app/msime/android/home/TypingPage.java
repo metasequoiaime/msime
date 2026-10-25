@@ -38,9 +38,9 @@ import org.json.JSONObject;
 /**
  * 输入页：语言与方案、中文（字符集、中英文之间加空格、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、离线英文释义、目标语言）。
  *
- * <p>语言列表是键盘自己的方案列表 `touch_keyboard_schemes.enabled` 按语言分组后的样子：普通话一直在，其他语言在列表里有它的方案时出现。在语言的面板里选一个方案，经 {@link SchemePreferences#withScheme} 同时写 `scheme` 那几个键和 `touch_keyboard_schemes.selected`（并在缺失时加进 `enabled`），否则键盘会按旧的 `selected` 解析方案；「移除」把这门语言的方案全部移出 `enabled`，键盘正用着它时先切回剩下的第一个方案；「添加语言」把这门语言的第一个方案加进 `enabled`，不切换。粤语只有粤拼（P18：仓颉、速成没有方案和码表）；英语没有自己的触屏方案（中英切换键一直在），所以不出现在列表里。
+ * <p>语言与方案列表是键盘自己的方案列表 `touch_keyboard_schemes.enabled` 按方案族分组后的样子：全拼、双拼、五笔、注音、笔画、手写和粤拼各自成行，其他语言按语言成行。在一行的面板里选一个方案，经 {@link SchemePreferences#withScheme} 同时写 `scheme` 那几个键和 `touch_keyboard_schemes.selected`（并在缺失时加进 `enabled`）；「移除」把这一行的方案全部移出 `enabled`，键盘正用着它时先切回剩下的第一个方案；「添加方案」把这一行的第一个方案加进 `enabled`，不切换。英语没有自己的触屏方案（中英切换键一直在），所以不出现在列表里。
  *
- * <p>日语的日文词典，粤拼、注音和笔画共用的语言词库，以及英文以外目标语言的离线释义都是按需下载的资源包（{@link ResourcePacks}）。还没下载的语言照样列在「添加语言」里，标出要下载的大小；添加时先把方案写进 `enabled`，再经 {@link ResourcePackService} 下载（按流量计费的网络先确认），词典到达前键盘不列出它，装好后下一次进入输入框就出现。已经添加、词典还没到的语言在列表里显示下载状态：需下载、下载中 x%、校验中、失败和原因，点开可以下载、取消、重试或移除。页面从不自己发起下载，只响应用户的点击。
+ * <p>日语的日文词典，粤拼、注音和笔画共用的语言词库，以及英文以外目标语言的离线释义都是按需下载的资源包（{@link ResourcePacks}）。还没下载的方案照样列在「添加方案」里，标出要下载的大小；添加时先把方案写进 `enabled`，再经 {@link ResourcePackService} 下载（按流量计费的网络先确认），词典到达前键盘不列出它，装好后下一次进入输入框就出现。已经添加、词典还没到的方案在列表里显示下载状态：需下载、下载中 x%、校验中、失败和原因，点开可以下载、取消、重试或移除。页面从不自己发起下载，只响应用户的点击。
  *
  * <p>辅助码方案列表先是内置方案，来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；后面是用户导入的码表（#7176），即 `msime_client_plugins` 的 `catalog` 里 `kind = "helpcode"` 的包。开关和方案都写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`），选导入的码表写 `plugins.helpcode_pack_*`，规则见 {@link HelpcodeChoicePolicy}；关掉时不再列出方案。「导入辅助码表…」经系统文件选择器（SAF）选一个 `.txt`，严格按 UTF-8 解码后交给 `import_helpcode_table`，成功后自动选中它；「管理已导入的码表」里可以删除，删的是正在用的码表时退回内置方案。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
  */
@@ -63,14 +63,17 @@ public final class TypingPage extends ReloadingDetailPage {
     private static final List<KeyboardScheme> SHUANGPIN = List.of(KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA,
         KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO);
 
-    /** 一门语言：徽标、名字和它的触屏方案（按面板里的顺序）。 */
+    /** 手机设置页的一行：中文方案族独立成行，其它语言按语言成行。 */
     private enum Language {
-        MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
-            KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
-            KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO,
-            KeyboardScheme.NINE_KEY_SHUANGPIN, KeyboardScheme.WUBI,
-            KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING),
-        CANTONESE("粤", "粤语", KeyboardScheme.CANTONESE),
+        QUANPIN("拼", "全拼", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
+            KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.QUANPIN_NINE_KEY),
+        SHUANGPIN("双", "双拼", KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA,
+            KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.NINE_KEY_SHUANGPIN),
+        WUBI("五", "五笔", KeyboardScheme.WUBI),
+        ZHUYIN("注", "注音", KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY),
+        STROKE("笔", "笔画", KeyboardScheme.STROKE),
+        HANDWRITING("写", "手写", KeyboardScheme.HANDWRITING),
+        CANTONESE("粤", "粤拼", KeyboardScheme.CANTONESE),
         JAPANESE("あ", "日语", KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY),
         KOREAN("한", "韩语", KeyboardScheme.KOREAN),
         VIETNAMESE("越", "越南语", KeyboardScheme.VIETNAMESE),
@@ -250,7 +253,7 @@ public final class TypingPage extends ReloadingDetailPage {
             if (provided.isEmpty()) continue;
             List<KeyboardScheme> offered = offered(language, edition, state);
             KeyboardScheme shown = shownScheme(language, applied, enabled);
-            if (language != Language.MANDARIN && shown == null) {
+            if (shown == null) {
                 addable.add(language);
                 continue;
             }
@@ -264,6 +267,13 @@ public final class TypingPage extends ReloadingDetailPage {
             languages.addView(KeyboardSheets.badgeNavRow(context, language.badge, language.title, null,
                 shown == null ? null : schemeLabel(shown, preferences),
                 () -> showLanguage(language, offered, applied, preferences, state)));
+            if (language == Language.SHUANGPIN && offered.contains(KeyboardScheme.NINE_KEY_SHUANGPIN)) {
+                // 九键双拼是一种键盘加一张表：面板里只选中这个键盘，表在这一页里选、编辑、导入和导出，与 iOS 的「九键双拼方案与自定义」相同。
+                String table = NineKeyShuangpinKeypad.normalizedProfile(InputViewValuePolicy.textOr(preferences,
+                    "nine_key_shuangpin_profile", NineKeyShuangpinKeypad.DEFAULT_PROFILE));
+                languages.nav("九键双拼方案与自定义", null, NineKeyShuangpinKeypad.profileTitle(table),
+                    () -> SettingsNavigator.open(context, PageId.NINE_KEY_SHUANGPIN, null));
+            }
             if (language == Language.JAPANESE && offered.contains(KeyboardScheme.JAPANESE_NINE_KEY)) {
                 InputFeatureToggle toggle = InputFeatureToggle.JAPANESE_TOGGLE_INPUT;
                 languages.toggle(toggle.title(), toggle.description(),
@@ -272,7 +282,7 @@ public final class TypingPage extends ReloadingDetailPage {
             }
         }
         if (!addable.isEmpty()) {
-            languages.addView(KeyboardSheets.actionRow(context, adding ? "✓" : "＋", adding ? "完成" : "添加语言", () -> {
+            languages.addView(KeyboardSheets.actionRow(context, adding ? "✓" : "＋", adding ? "完成" : "添加方案", () -> {
                 adding = !adding;
                 reload();
             }));
@@ -492,7 +502,7 @@ public final class TypingPage extends ReloadingDetailPage {
 
     private static String schemeLabel(KeyboardScheme scheme, JSONObject preferences) {
         return switch (scheme) {
-            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_NINE_KEY -> "全拼";
+            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_EIGHTEEN_KEY, QUANPIN_NINE_KEY -> "全拼";
             case CANTONESE -> "粤拼";
             case WUBI -> scheme.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
             case JAPANESE -> "26 键";
@@ -505,66 +515,19 @@ public final class TypingPage extends ReloadingDetailPage {
             JSONObject preferences, State state) {
         Context context = requireContext();
         OptionSheet sheet = new OptionSheet(context, language.title, offered.size() > 1 ? "选择输入方案" : null);
-        if (language == Language.MANDARIN) {
-            // 全拼的 26 / 14 / 9 键是同一个方案的几种排法，这里只列一项「全拼」，保留正在用的排法；换排法在「键盘 › 中文键盘」里。
-            boolean quanpin = applied == KeyboardScheme.QUANPIN || applied == KeyboardScheme.QUANPIN_FOURTEEN_KEY
-                || applied == KeyboardScheme.QUANPIN_NINE_KEY;
-            KeyboardScheme quanpinChoice = quanpin ? applied : KeyboardScheme.QUANPIN;
-            if (offered.contains(quanpinChoice)) sheet.option("全拼", quanpin, () -> applyScheme(quanpinChoice, null));
-            List<KeyboardScheme> shuangpin = new ArrayList<>(SHUANGPIN.size());
-            for (KeyboardScheme scheme : SHUANGPIN) {
-                if (offered.contains(scheme)) shuangpin.add(scheme);
-            }
-            if (!shuangpin.isEmpty()) {
-                KeyboardScheme shown = shuangpin.contains(applied) ? applied : shuangpin.get(0);
-                sheet.submenu("双拼（" + shuangpinName(shown) + "）", shuangpin.contains(applied), () -> {
-                    OptionSheet next = new OptionSheet(context, "双拼", "选择双拼方案");
-                    for (KeyboardScheme scheme : shuangpin)
-                        next.option(shuangpinName(scheme), scheme == applied, () -> applyScheme(scheme, null));
-                    return next;
-                });
-            }
-            if (offered.contains(KeyboardScheme.NINE_KEY_SHUANGPIN)) {
-                // 九键双拼是一种键盘加一张表：子菜单选表（选中即切到九键双拼键盘），自定义表在「九键双拼」页里编辑、导入和导出。
-                String table = NineKeyShuangpinKeypad.normalizedProfile(InputViewValuePolicy.textOr(preferences,
-                    "nine_key_shuangpin_profile", NineKeyShuangpinKeypad.DEFAULT_PROFILE));
-                boolean nineKeyShuangpin = applied == KeyboardScheme.NINE_KEY_SHUANGPIN;
-                boolean customSaved = preferences.optJSONObject("nine_key_shuangpin_custom_profile") != null;
-                sheet.submenu("九键双拼（" + NineKeyShuangpinKeypad.profileTitle(table) + "）", nineKeyShuangpin, () -> {
-                    OptionSheet next = new OptionSheet(context, "九键双拼", "选择九键双拼的表");
-                    for (String option : NineKeyShuangpinKeypad.BUILTIN_PROFILES)
-                        next.option(NineKeyShuangpinKeypad.profileTitle(option), nineKeyShuangpin && option.equals(table),
-                            () -> applyNineKeyShuangpin(option));
-                    if (customSaved)
-                        next.option("自定义", nineKeyShuangpin && NineKeyShuangpinKeypad.CUSTOM_PROFILE.equals(table),
-                            () -> applyNineKeyShuangpin(NineKeyShuangpinKeypad.CUSTOM_PROFILE));
-                    next.option("编辑自定义表…", false,
-                        () -> SettingsNavigator.open(context, PageId.NINE_KEY_SHUANGPIN, null));
-                    return next;
-                });
-            }
+        // 每行的方案直接列在这一层：双拼列小鹤、自然码、微软、首道和九键双拼，五笔列 86 和 98。再套一层子菜单，「双拼」行、方案面板、双拼面板就成了三层（双拼布局原先还在第四层）。双拼的 26／14／18 键布局在键盘页「中文键盘」里选，九键双拼的表在「九键双拼方案与自定义」页里选，与 iOS、鸿蒙相同。
+        if (language == Language.SHUANGPIN) {
+            for (KeyboardScheme scheme : offered)
+                sheet.option(SHUANGPIN.contains(scheme) ? shuangpinName(scheme) : scheme.title(), scheme == applied,
+                    () -> applyScheme(scheme, null));
+        } else if (language == Language.WUBI) {
             if (offered.contains(KeyboardScheme.WUBI)) {
                 String profile = KeyboardScheme.normalizedWubiProfile(
                     InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
                 boolean wubi = applied == KeyboardScheme.WUBI;
-                sheet.submenu("五笔（" + wubiName(profile) + "）", wubi, () -> {
-                    OptionSheet next = new OptionSheet(context, "五笔", "选择五笔方案");
-                    for (String option : List.of(KeyboardScheme.WUBI_86, KeyboardScheme.WUBI_98))
-                        next.option(wubiName(option), wubi && option.equals(profile),
-                            () -> applyScheme(KeyboardScheme.WUBI, option));
-                    return next;
-                });
-            }
-            AppEdition edition = AppEdition.current();
-            for (KeyboardScheme scheme : List.of(KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY,
-                    KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING)) {
-                if (offered.contains(scheme)) {
-                    sheet.option(mandarinName(scheme), scheme == applied, () -> applyScheme(scheme, null));
-                } else if (scheme.offeredBy(edition) && scheme.resourcePack() != null) {
-                    // 注音和笔画的词库还没到：照样列出并标明下载状态，选了先加进列表再下载，不切换。
-                    sheet.option(mandarinName(scheme) + "（" + packState(state, scheme.resourcePack()) + "）", false,
-                        () -> addLanguage(scheme, state));
-                }
+                for (String option : List.of(KeyboardScheme.WUBI_86, KeyboardScheme.WUBI_98))
+                    sheet.option(wubiName(option), wubi && option.equals(profile),
+                        () -> applyScheme(KeyboardScheme.WUBI, option));
             }
         } else {
             KeyboardScheme shown = language.schemes.contains(applied) ? applied : null;
@@ -572,27 +535,9 @@ public final class TypingPage extends ReloadingDetailPage {
                 sheet.option(schemeLabel(scheme, preferences), scheme == shown || (shown == null && offered.size() == 1),
                     () -> applyScheme(scheme, null));
             }
-            sheet.destructive("移除" + language.title, () -> removeLanguage(language));
         }
+        sheet.destructive("移除" + language.title, () -> removeLanguage(language));
         sheet.show();
-    }
-
-    /** 切到九键双拼键盘，并选用 `table` 这张表。 */
-    private void applyNineKeyShuangpin(String table) {
-        HostTask.run(this, context -> {
-            JSONObject pending = SchemePreferences.withScheme(HostStore.loadPreferences(context),
-                KeyboardScheme.NINE_KEY_SHUANGPIN, null);
-            if (pending == null) return null;
-            try {
-                pending.getJSONObject("preferences").put("nine_key_shuangpin_profile", table);
-            } catch (JSONException error) {
-                return null;
-            }
-            return HostStore.savePreferences(context, pending);
-        }, saved -> {
-            if (saved == null) MsToast.show(requireContext(), "切换失败，保留当前方案");
-            reload();
-        });
     }
 
     private static String shuangpinName(KeyboardScheme scheme) {
@@ -606,15 +551,6 @@ public final class TypingPage extends ReloadingDetailPage {
 
     private static String wubiName(String profile) {
         return KeyboardScheme.WUBI_98.equals(profile) ? "五笔 98" : "五笔 86";
-    }
-
-    private static String mandarinName(KeyboardScheme scheme) {
-        return switch (scheme) {
-            case ZHUYIN -> "注音";
-            case ZHUYIN_NINE_KEY -> "注音 9 键";
-            case STROKE -> "笔画";
-            default -> "手写";
-        };
     }
 
     private void applyScheme(KeyboardScheme scheme, @Nullable String wubiProfile) {

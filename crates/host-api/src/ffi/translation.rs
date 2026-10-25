@@ -818,13 +818,11 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
     })
 }
 
-/// Pronounce copied English texts — English candidates or English gloss lines — from the offline
-/// table beside resources. Like the gloss request this owns no session state, runs on a host
-/// worker thread, and echoes the generation for the host to match against its current view.
+/// 从离线表查询英文候选或英文释义的读音，活动资源旁缺表时可回退到显式补充目录。
+/// 不持有会话状态，可在宿主工作线程调用；返回代次供宿主匹配当前视图。
 ///
 /// # Safety
-/// Both pointers must reference readable buffers for their stated lengths and
-/// remain valid for this call. The buffers are not retained.
+/// 两个指针必须在调用期间指向各自长度的可读缓冲区；本函数不保留缓冲区。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_pronunciation_request(
     request: *const u8,
@@ -837,6 +835,8 @@ pub unsafe extern "C" fn msime_client_pronunciation_request(
     struct Request {
         generation: u64,
         items: Vec<Item>,
+        #[serde(default)]
+        supplementary_resources: Option<String>,
     }
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -875,11 +875,25 @@ pub unsafe extern "C" fn msime_client_pronunciation_request(
         if !std::path::Path::new(resources).is_absolute() {
             return Err("resources path must be absolute".into());
         }
-        // Not installed is an empty answer, not an error, so a host without the table draws the
-        // gloss exactly as before.
-        let Some(database) =
-            crate::pronunciation::english_database_beside(std::path::Path::new(resources))
-        else {
+        let supplementary_resources = request
+            .supplementary_resources
+            .as_deref()
+            .map(|path| {
+                if path.len() > 4096 {
+                    return Err("supplementary resources path is too long".into());
+                }
+                super::parse_absolute_path(
+                    path.as_bytes(),
+                    "supplementary resources path is not UTF-8",
+                    "supplementary resources path must be absolute",
+                )
+            })
+            .transpose()?;
+        // 未安装音标表时返回空结果，宿主继续显示原有释义。
+        let Some(database) = crate::pronunciation::english_database_beside(
+            std::path::Path::new(resources),
+            supplementary_resources.map(std::path::Path::new),
+        ) else {
             return Ok(json!({"generation": request.generation, "pronunciations": []}));
         };
         let database = database

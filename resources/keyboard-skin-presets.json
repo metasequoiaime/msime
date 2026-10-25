@@ -1,0 +1,366 @@
+{
+  "default": {
+    "background": 15266027,
+    "keyBackground": 16777215,
+    "keyForeground": 1516829,
+    "accent": 1596487,
+    "actionBackground": 1596487,
+    "cornerRadius": 8,
+    "borderWidth": 0,
+    "shadow": 0,
+    "pattern": 0,
+    "monospaced": false
+  },
+  "templates": [
+    {
+      "title": "薄荷晨光",
+      "design": {
+        "background": 14217444,
+        "keyBackground": 16449529,
+        "keyForeground": 1522992,
+        "accent": 2382403,
+        "actionBackground": 2382403,
+        "cornerRadius": 14,
+        "borderWidth": 0.5,
+        "shadow": 0.08,
+        "pattern": 0,
+        "monospaced": false,
+        "gradientEnd": 15660765,
+        "customBorderColor": 11983045
+      }
+    },
+    {
+      "title": "苔庭晨雾",
+      "design": {
+        "background": 14739935,
+        "keyBackground": 16251635,
+        "keyForeground": 2375474,
+        "accent": 2182458,
+        "actionBackground": 3104839,
+        "cornerRadius": 12,
+        "borderWidth": 0.5,
+        "shadow": 0.1,
+        "pattern": 3,
+        "monospaced": false,
+        "gradientEnd": 13031882,
+        "gradientHorizontal": true,
+        "patternOpacity": 0.035,
+        "customBorderColor": 12111294
+      }
+    },
+    {
+      "title": "竹影青瓷",
+      "design": {
+        "background": 14280930,
+        "keyBackground": 16120046,
+        "keyForeground": 2375480,
+        "accent": 2511939,
+        "actionBackground": 2511939,
+        "cornerRadius": 4,
+        "borderWidth": 1,
+        "shadow": 0.04,
+        "pattern": 0,
+        "monospaced": false,
+        "gradientEnd": 15463143,
+        "gradientHorizontal": true,
+        "patternOpacity": 0,
+        "customBorderColor": 9745571
+      }
+    },
+    {
+      "title": "月下银砂",
+      "design": {
+        "background": 1580843,
+        "keyBackground": 3161679,
+        "keyForeground": 15726076,
+        "accent": 13558003,
+        "actionBackground": 13294572,
+        "cornerRadius": 10,
+        "borderWidth": 0.5,
+        "shadow": 0.08,
+        "pattern": 1,
+        "monospaced": false,
+        "gradientEnd": 2635333,
+        "gradientHorizontal": true,
+        "patternOpacity": 0.07,
+        "customBorderColor": 7308185
+      }
+    },
+    {
+      "title": "黑金刻度",
+      "design": {
+        "background": 1645337,
+        "keyBackground": 2698537,
+        "keyForeground": 15722965,
+        "accent": 14797969,
+        "actionBackground": 14337158,
+        "cornerRadius": 3,
+        "borderWidth": 0.75,
+        "shadow": 0,
+        "pattern": 2,
+        "monospaced": true,
+        "gradientEnd": 2107168,
+        "gradientHorizontal": true,
+        "patternOpacity": 0.04,
+        "customBorderColor": 9273432
+      }
+    },
+    {
+      "title": "樱雪糯米",
+      "design": {
+        "background": 16048101,
+        "keyBackground": 16775414,
+        "keyForeground": 5256265,
+        "accent": 7552600,
+        "actionBackground": 9457001,
+        "cornerRadius": 18,
+        "borderWidth": 0,
+        "shadow": 0.14,
+        "pattern": 3,
+        "monospaced": false,
+        "gradientEnd": 15196914,
+        "gradientHorizontal": true,
+        "patternOpacity": 0.04,
+        "customBorderColor": 14662601
+      }
+    },
+    {
+      "title": "落日陶土",
+      "design": {
+        "background": 15389892,
+        "keyBackground": 16774367,
+        "keyForeground": 5650476,
+        "accent": 7552811,
+        "actionBackground": 10112562,
+        "cornerRadius": 7,
+        "borderWidth": 0.75,
+        "shadow": 0.18,
+        "pattern": 1,
+        "monospaced": false,
+        "gradientEnd": 15983825,
+        "gradientHorizontal": true,
+        "patternOpacity": 0.05,
+        "customBorderColor": 13346701
+      }
+    },
+    {
+      "title": "冰川薄荷",
+      "design": {
+        "background": 14281706,
+        "keyBackground": 16121855,
+        "keyForeground": 2113099,
+        "accent": 2577248,
+        "actionBackground": 3436924,
+        "cornerRadius": 14,
+        "borderWidth": 0.5,
+        "shadow": 0.06,
+        "pattern": 3,
+        "monospaced": false,
+        "gradientEnd": 14542836,
+        "gradientHorizontal": true,
+        "patternOpacity": 0.035,
+        "customBorderColor": 12639451
+      }
+    },
+    {
+      "title": "奶咖手账",
+      "design": {
+        "background": 14274496,
+        "keyBackground": 16183266,
+        "keyForeground": 4537137,
+        "accent": 5916208,
+        "actionBackground": 6640187,
+        "cornerRadius": 5,
+        "borderWidth": 1,
+        "shadow": 0.2,
+        "pattern": 2,
+        "monospaced": true,
+        "gradientEnd": 15261648,
+        "gradientHorizontal": true,
+        "patternOpacity": 0.06,
+        "customBorderColor": 11574147
+      }
+    },
+    {
+      "title": "水杉留白",
+      "design": {
+        "background": 15266027,
+        "keyBackground": 16777215,
+        "keyForeground": 1516829,
+        "accent": 1596487,
+        "actionBackground": 1596487,
+        "cornerRadius": 8,
+        "borderWidth": 0,
+        "shadow": 0,
+        "pattern": 0,
+        "monospaced": false
+      }
+    },
+    {
+      "title": "复古纸感",
+      "design": {
+        "background": 14931645,
+        "keyBackground": 16774623,
+        "keyForeground": 3680796,
+        "accent": 5454111,
+        "actionBackground": 5454111,
+        "cornerRadius": 4,
+        "borderWidth": 1,
+        "shadow": 0.3,
+        "pattern": 1,
+        "monospaced": true,
+        "keyShape": "ticket",
+        "keyMaterial": "paper"
+      }
+    },
+    {
+      "title": "紫夜星光",
+      "design": {
+        "background": 1380386,
+        "keyBackground": 2694720,
+        "keyForeground": 16777215,
+        "accent": 13941759,
+        "actionBackground": 6899355,
+        "cornerRadius": 8,
+        "borderWidth": 1,
+        "shadow": 0,
+        "pattern": 1,
+        "monospaced": false,
+        "gradientEnd": 3154506,
+        "customBorderColor": 11110376,
+        "keyShape": "rounded",
+        "keyMaterial": "glass"
+      }
+    },
+    {
+      "title": "奶油桃桃",
+      "design": {
+        "background": 16769232,
+        "keyBackground": 16775406,
+        "keyForeground": 5318714,
+        "accent": 8663887,
+        "actionBackground": 8663887,
+        "cornerRadius": 18,
+        "borderWidth": 0,
+        "shadow": 0.15,
+        "pattern": 3,
+        "monospaced": false,
+        "gradientEnd": 16373477,
+        "keyShape": "pebble",
+        "keyMaterial": "raised"
+      }
+    },
+    {
+      "title": "海盐渐变",
+      "design": {
+        "background": 14478072,
+        "keyBackground": 16777215,
+        "keyForeground": 1516829,
+        "accent": 2248309,
+        "actionBackground": 2248309,
+        "cornerRadius": 8,
+        "borderWidth": 0.5,
+        "shadow": 0,
+        "pattern": 0,
+        "monospaced": false,
+        "gradientEnd": 14544873,
+        "gradientHorizontal": true
+      }
+    },
+    {
+      "title": "工程蓝图",
+      "design": {
+        "background": 1057848,
+        "keyBackground": 1520975,
+        "keyForeground": 16777215,
+        "accent": 10672378,
+        "actionBackground": 2645380,
+        "cornerRadius": 2,
+        "borderWidth": 1,
+        "shadow": 0,
+        "pattern": 2,
+        "monospaced": true,
+        "customBorderColor": 5541034,
+        "keyShape": "rounded",
+        "keyMaterial": "glass"
+      }
+    }
+  ],
+  "backgrounds": [
+    {
+      "title": "纯白",
+      "start": 16777215,
+      "keyBackground": 15856629,
+      "keyForeground": 2040617,
+      "accent": 1596487,
+      "actionBackground": 1596487
+    },
+    {
+      "title": "雾灰",
+      "start": 14672619,
+      "keyBackground": 16777215,
+      "keyForeground": 2040617,
+      "accent": 3099258,
+      "actionBackground": 3099258
+    },
+    {
+      "title": "曜黑",
+      "start": 1513239,
+      "keyBackground": 3026480,
+      "keyForeground": 15921906,
+      "accent": 9426342,
+      "actionBackground": 2914891
+    },
+    {
+      "title": "樱粉",
+      "start": 16766427,
+      "keyBackground": 16777215,
+      "keyForeground": 4005671,
+      "accent": 10694735,
+      "actionBackground": 10694735
+    },
+    {
+      "title": "晴空",
+      "start": 11461619,
+      "keyBackground": 16777215,
+      "keyForeground": 1323594,
+      "accent": 1925002,
+      "actionBackground": 1925002
+    },
+    {
+      "title": "嫩绿",
+      "start": 13035943,
+      "keyBackground": 16777215,
+      "keyForeground": 2044695,
+      "accent": 3827225,
+      "actionBackground": 3827225
+    },
+    {
+      "title": "紫夜渐变",
+      "start": 1444415,
+      "end": 10962911,
+      "keyBackground": 3022691,
+      "keyForeground": 16777215,
+      "accent": 16777215,
+      "actionBackground": 9133302
+    },
+    {
+      "title": "极光渐变",
+      "start": 12973567,
+      "end": 16439542,
+      "keyBackground": 16777215,
+      "keyForeground": 2764613,
+      "accent": 5980080,
+      "actionBackground": 5980080
+    },
+    {
+      "title": "森林渐变",
+      "start": 998703,
+      "end": 3506282,
+      "keyBackground": 1002040,
+      "keyForeground": 16777215,
+      "accent": 16777215,
+      "actionBackground": 10216384
+    }
+  ]
+}

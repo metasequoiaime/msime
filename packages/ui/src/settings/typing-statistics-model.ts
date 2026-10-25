@@ -1,3 +1,4 @@
+import type { StatisticsAuthenticationClient } from "./statistics-authentication-gate";
 import type { DailyKeyCounts } from "./keyboard-heatmap";
 import type { TypingSummary } from "./typing-summary";
 import {
@@ -81,6 +82,8 @@ export function recordSkinSafely(
 }
 
 export interface TypingStatisticsClient {
+  /** 由移动宿主提供；其他宿主保持直接访问统计的现有行为。 */
+  authentication?: StatisticsAuthenticationClient;
   load(): Promise<TypingStatisticsStatus>;
   setEnabled(enabled: boolean): Promise<TypingStatisticsStatus>;
   /** 宿主不自行保存统计时不提供此方法。 */

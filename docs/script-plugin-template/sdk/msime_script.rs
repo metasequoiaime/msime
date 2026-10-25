@@ -63,6 +63,7 @@ pub mod how {
     pub const HIGHLIGHTED: u64 = 9;
     pub const WUBI_AUTO: u64 = 10;
     pub const GRID_LIMIT: u64 = 11;
+    pub const FIRST_CANDIDATE_COMMAND: u64 = 12;
 }
 
 /// `event::OUTCOME`：选中之后的结果（`candidate_selected`）。

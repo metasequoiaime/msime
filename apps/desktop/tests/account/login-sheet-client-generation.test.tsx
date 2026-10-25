@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
+import { presentAccountName } from "../support/account-name";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -10,6 +12,7 @@ afterEach(cleanup);
 const user: AccountUser = {
   id: "synthetic-google-user",
   displayName: "合成测试用户",
+  preferredName: "合成测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
 const providers = { email: true, phone: false, google: true };
@@ -30,7 +33,10 @@ function client(overrides: Partial<AccountClient>): AccountClient {
     providers: vi.fn().mockResolvedValue(providers),
     requestCode: vi.fn().mockResolvedValue({ challengeId: "synthetic-challenge", expiresIn: 300 }),
     login: vi.fn().mockResolvedValue({ user }),
-    profile: vi.fn().mockResolvedValue({ user, providers: ["google"] }),
+    profile: vi
+      .fn()
+      .mockResolvedValue({ user, providers: ["google"], providerNames: accountProviderNames }),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),

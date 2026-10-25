@@ -142,6 +142,8 @@ public final class LocalAsrPolicySmoke {
                 "local ASR rejects numeric correction text instead of coercing it");
             Method transcript = LocalAsrPolicy.class.getDeclaredMethod("transcript", Object.class);
             transcript.setAccessible(true);
+            check(transcript.invoke(null, new Object[] {null}) == null,
+                "unchanged native transcript must not erase the previous partial result");
             check("synthetic transcript".equals(transcript.invoke(null, "synthetic transcript")),
                 "local ASR accepts bounded transcript text");
             check("".equals(transcript.invoke(null, "bad\u0000text")),

@@ -11,6 +11,9 @@ struct WelcomeFlowView: View {
   @State private var scheme = InputSchemePreference.scheme
   @State private var showsGloss = InputHabitPreference.mirrored.glossEnabled
   @State private var glossSaveFailed = false
+  @State private var choicesPending = OnboardingChoices.shared.hasPending
+  @State private var resourcesReady: Bool?
+  @State private var preparingResources = false
   @State private var signedIn = false
   @State private var showsLogin = false
 
@@ -55,7 +58,10 @@ struct WelcomeFlowView: View {
       .accessibilityAction(named: "上一步") { if page > 0 { page -= 1 } }
     }
     .tint(MetasequoiaTheme.accent)
-    .task { await refreshSignIn() }
+    .task {
+      prepareResources()
+      await refreshSignIn()
+    }
     .sheet(isPresented: $showsLogin, onDismiss: { Task { await refreshSignIn() } }) { AccountLoginSheet() }
   }
 
@@ -93,12 +99,27 @@ struct WelcomeFlowView: View {
         default: syncStep
         }
       }.padding(.top, 6)
+      if choicesPending {
+        Text("引导选择尚未保存，已保留；离开后也可在首页重试。")
+          .font(.footnote).foregroundStyle(.red)
+          .accessibilityIdentifier("onboardingPendingChoices")
+        Button("重试保存") { retryChoices() }
+          .accessibilityIdentifier("retryOnboardingChoices")
+      }
     }
     .id(page)
   }
 
   private var keyboardStep: some View {
     VStack(alignment: .leading, spacing: 12) {
+      if resourcesReady == false {
+        Text("运行资源准备失败，可以重试；系统键盘配置与资源准备是独立步骤。")
+          .font(.footnote).foregroundStyle(.red)
+        Button("重试准备资源") { prepareResources() }.disabled(preparingResources)
+          .accessibilityIdentifier("retryOnboardingResources")
+      } else if preparingResources {
+        ProgressView("正在准备运行资源")
+      }
       card {
         VStack(alignment: .leading, spacing: 12) {
           instruction(1, "打开「设置 → 通用 → 键盘 → 键盘」，选择「添加新键盘」里的水杉输入法")
@@ -147,7 +168,7 @@ struct WelcomeFlowView: View {
     }
     .onAppear {
       InputSchemePreference.mirror(MetasequoiaInputSessionBridge.loadSharedPreferences())
-      scheme = InputSchemePreference.scheme
+      scheme = OnboardingChoices.shared.scheme ?? InputSchemePreference.scheme
     }
   }
 
@@ -185,7 +206,7 @@ struct WelcomeFlowView: View {
         Text("先试试键盘").font(.system(size: 15))
       }.padding(.top, 4).accessibilityIdentifier("welcomeTryoutLink")
     }
-    .onAppear { showsGloss = InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences()).glossEnabled }
+    .onAppear { showsGloss = OnboardingChoices.shared.gloss ?? InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences()).glossEnabled }
   }
 
   private var syncStep: some View {
@@ -321,23 +342,32 @@ struct WelcomeFlowView: View {
   })
 
   private func select(_ choice: ChineseInputScheme) {
-    // The first run has no page to report a failed document write on; the App Group still holds the choice until the keyboard first records a scheme of its own.
-    if !InputSchemePreference.select(choice) {
-      var enabled = InputSchemePreference.enabledSchemes
-      if !enabled.contains(choice) { enabled.append(choice) }
-      InputSchemePreference.enabledSchemes = enabled
-      InputSchemePreference.scheme = choice
-    }
+    OnboardingChoices.shared.remember(choice)
+    retryChoices()
     scheme = choice
   }
 
   /// The same setting as 词库 → 显示英文释义, written through the shared document the keyboard reloads.
   private func saveGloss(_ enabled: Bool) {
-    if let saved = InputHabitPreference.update({ $0.glossEnabled = enabled }) {
-      showsGloss = saved.glossEnabled
-      glossSaveFailed = false
-    } else {
-      glossSaveFailed = true
+    OnboardingChoices.shared.remember(gloss: enabled)
+    showsGloss = enabled
+    retryChoices()
+  }
+
+  private func retryChoices() {
+    choicesPending = !OnboardingChoices.shared.sync()
+    glossSaveFailed = OnboardingChoices.shared.gloss != nil
+  }
+
+  private func prepareResources() {
+    guard !preparingResources else { return }
+    preparingResources = true
+    Task { @MainActor in
+      resourcesReady = await Task.detached(priority: .userInitiated) {
+        MetasequoiaInputSessionBridge.prepareOnboardingResources()
+      }.value
+      preparingResources = false
+      retryChoices()
     }
   }
 
@@ -346,6 +376,7 @@ struct WelcomeFlowView: View {
   }
 
   private func finish() {
+    OnboardingChoices.shared.sync()
     if let onFinish { onFinish() } else { dismiss() }
   }
 }

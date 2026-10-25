@@ -233,7 +233,7 @@ fn repeated_input(size: usize, words: &[String], mode: usize) -> Vec<WordItem> {
             candidates.len() - count
         };
         for (slot, word) in candidates[offset..].iter_mut().zip(words) {
-            slot.word.clone_from(word);
+            (*slot.word).clone_from(word);
         }
     }
     candidates

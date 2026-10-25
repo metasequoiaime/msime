@@ -432,7 +432,11 @@ impl ProviderRegistry {
         &mut self,
         request: &QueryRequest,
     ) -> Option<WholeReadingLemma> {
-        self.japanese.as_mut()?.whole_reading_lemma(request)
+        let japanese = self.japanese.as_mut()?;
+        if !japanese.prepare_if_cached() {
+            return None;
+        }
+        japanese.whole_reading_lemma(request)
     }
 
     /// 日文混输：整段罗马字读音的最佳整句。没有 provider 时答 `None`；其余见 `JapaneseProvider::whole_reading_best_path`。
@@ -503,8 +507,10 @@ impl ProviderRegistry {
         for (target, candidate) in destination.iter_mut().take(common).zip(candidates.iter()) {
             target.pinyin.clear();
             target.pinyin.push_str(input);
-            target.canonical_pinyin.clone_from(&candidate.key);
-            target.word.clone_from(&candidate.text);
+            target.canonical_pinyin.clear();
+            target.canonical_pinyin.push_str(&candidate.key);
+            target.word.clear();
+            target.word.push_str(&candidate.text);
             target.weight = candidate.weight;
             target.source = CandidateSource::Database;
             target.scheme = SchemeType::Stroke;
@@ -637,7 +643,7 @@ mod tests {
         assert_eq!(destination[0].word, "字199");
         assert_eq!(destination[199].word, "補099");
         assert_eq!(destination.last().unwrap().word, "字000");
-        let expected = destination.clone();
+        let expected = crate::ime::personal_rerank::allocations::unshared_rows(&destination);
         let pointer = destination.as_ptr();
         for row in &mut destination {
             row.fixed_position = 9;
@@ -728,7 +734,7 @@ mod tests {
         assert_eq!(destination[0].word, "字199");
         assert_eq!(destination[199].word, "補099");
         assert_eq!(destination.last().unwrap().word, "字000");
-        let expected = destination.clone();
+        let expected = crate::ime::personal_rerank::allocations::unshared_rows(&destination);
         let pointer = destination.as_ptr();
         for _ in 0..3 {
             let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
@@ -751,8 +757,8 @@ mod tests {
             expected
                 .iter()
                 .map(|row| StrokeCandidate {
-                    text: row.word.clone(),
-                    key: row.canonical_pinyin.clone(),
+                    text: row.word.to_string(),
+                    key: row.canonical_pinyin.to_string(),
                     weight: row.weight,
                 })
                 .collect::<Vec<_>>()
@@ -801,7 +807,7 @@ mod tests {
             assert_eq!(destination[0].word, "字199");
             assert_eq!(destination[0].weight, 199);
             assert_eq!(destination[0].canonical_pinyin, "h");
-            let expected = destination.clone();
+            let expected = crate::ime::personal_rerank::allocations::unshared_rows(&destination);
             let mut scheme = StrokeScheme::new();
             scheme.set_raw_input(raw);
             let (owned, owned_allocations) =
@@ -815,8 +821,8 @@ mod tests {
                 expected
                     .iter()
                     .map(|row| StrokeCandidate {
-                        text: row.word.clone(),
-                        key: row.canonical_pinyin.clone(),
+                        text: row.word.to_string(),
+                        key: row.canonical_pinyin.to_string(),
                         weight: row.weight,
                     })
                     .collect::<Vec<_>>()
@@ -910,7 +916,7 @@ mod tests {
         scheme.set_raw_input("nei'hou");
         let request = scheme.build_request();
         registry.query_cantonese_scheme_into(&scheme, &mut direct);
-        requested.clone_from(&direct);
+        requested = crate::ime::personal_rerank::allocations::unshared_rows(&direct);
         let ((), direct_allocations) = crate::ime::personal_rerank::allocations::count(|| {
             registry.query_cantonese_scheme_into(&scheme, &mut direct);
         });

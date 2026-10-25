@@ -35,24 +35,27 @@ pub unsafe extern "C" fn msime_client_update_preferences(
 
 #[no_mangle]
 pub extern "C" fn msime_client_destroy(handle: u64) -> *mut c_char {
-    response(|| {
-        SESSIONS.with(|sessions| {
-            let mut session = sessions
-                .try_borrow_mut()
-                .map_err(|_| "reentrant host call")?
-                .remove(&handle)
-                .ok_or("unknown session or wrong thread")?;
-            // 还在组字时先发 composition_end{Destroyed}；是音乐所有者时关掉音乐。
-            session.lifecycle_destroy();
-            // A host may tear a session down without a focus-out first; what it counted is still written.
-            session.flush_selections();
-            // Dropping the engine session writes its own journal's delayed context learning; this also covers every other journal the process learned into, while this session still holds its dictionary access.
-            msime_engine::flush_personal_learning();
-            // 停顿模型可能仍在后台评分；销毁会话时放弃任务，避免模型残留在作业表中。
-            crate::ffi::settled::abandon_settled_job(handle);
-            drop(session);
-            Ok(Value::Null)
-        })
+    response(|| destroy_session(handle))
+}
+
+/// `msime_client_destroy` 的本体。
+pub(crate) fn destroy_session(handle: u64) -> Result<Value, String> {
+    SESSIONS.with(|sessions| {
+        let mut session = sessions
+            .try_borrow_mut()
+            .map_err(|_| "reentrant host call")?
+            .remove(&handle)
+            .ok_or("unknown session or wrong thread")?;
+        // 还在组字时先发 composition_end{Destroyed}；是音乐所有者时关掉音乐。
+        session.lifecycle_destroy();
+        // A host may tear a session down without a focus-out first; what it counted is still written.
+        session.flush_selections();
+        // Dropping the engine session writes its own journal's delayed context learning; this also covers every other journal the process learned into, while this session still holds its dictionary access.
+        msime_engine::flush_personal_learning();
+        // 停顿模型可能仍在后台评分；销毁会话时放弃任务，避免模型残留在作业表中。
+        crate::ffi::settled::abandon_settled_job(handle);
+        drop(session);
+        Ok(Value::Null)
     })
 }
 

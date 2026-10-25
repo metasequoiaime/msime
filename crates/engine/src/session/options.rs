@@ -30,6 +30,8 @@ pub struct SessionOptions {
     pub vietnamese_input_method: VietnameseInputMethod,
     /// Where the Vietnamese scheme puts the tone on `oa`, `oe` and `uy`.
     pub vietnamese_tone_style: VietnameseToneStyle,
+    /// 韩语实体键盘布局，缺省两套式。
+    pub korean_layout: crate::KoreanLayout,
     /// Where `msime-cantonese.db` is; empty when the host has none. Read only when Cantonese is activated, which fails without it.
     pub cantonese_dictionary: PathBuf,
     /// Where `msime-zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
@@ -74,9 +76,13 @@ pub struct SessionOptions {
     pub expressive: MixedExpressiveOptions,
     /// 日文混输（实验选项，默认关）：全拼、双拼组字时，整段输入像日文罗马字就混进一行日文转换（来源 `MixedJapanese`），见 `ImeSession::mixed_japanese_conversion`。需要会话带日文（`enabled_schemes` 含 `JapaneseRomaji`）和日文模型；开着时建会话就在后台预热模型。
     pub japanese_mixing: bool,
+    /// 连续多语言输入所选的语言；默认空集合关闭，少于两种不生成混合行。
+    pub multilingual_languages: Vec<crate::multilingual::Language>,
     pub wubi: WubiInputOptions,
     /// Learn word sequences and pick pairs; also needs `learning`.
     pub personal_context: bool,
+    /// 上屏后联想；独立于整句候选，默认关闭。
+    pub next_word_prediction: bool,
     pub sentence_association: SentenceAssociationOptions,
     /// Committed text the neural sentence models condition on; `Session::set_rescoring_context` updates it live.
     pub rescoring_context: String,
@@ -90,7 +96,7 @@ pub struct SessionOptions {
     pub quick_phrase_table: Vec<QuickPhraseEntry>,
     /// 普通候选是否追加编码匹配的快捷短语。仅 macOS 桌面宿主打开；其他宿主保留独立 K 模式。
     pub quick_phrase_candidates: bool,
-    /// 快捷短语参与调频：追加进普通候选的整组短语有自己的槽位（`quick_phrase_slots` 日志表），越过它选普通候选让整组后退（最多退到首页末位），选中组内短语让整组前移。关掉时组固定追加在末尾，槽位记录保留但不读。
+    /// 快捷短语参与调频：追加进普通候选的整组短语有自己的槽位（`quick_phrase_slots` 日志表），越过它选普通候选让整组后退（最多退到首页末位），选中组内短语让整组前移。关掉时组固定在默认位置（首页最后几格，普通候选不满一页时接在它们之后，见 `default_quick_phrase_slot`），槽位记录保留但不读。
     pub quick_phrase_frequency: bool,
     /// 宿主会把候选转成繁体输出：拆字（`C`）行按转换后的字形去重，免得一屏出现两个相同的繁体字。
     pub chaizi_traditional_output: bool,
@@ -108,6 +114,7 @@ impl SessionOptions {
             shuangpin_preedit_uses_raw: true,
             vietnamese_input_method: VietnameseInputMethod::Telex,
             vietnamese_tone_style: VietnameseToneStyle::Modern,
+            korean_layout: crate::KoreanLayout::Dubeolsik,
             cantonese_dictionary: PathBuf::new(),
             zhuyin_dictionary: PathBuf::new(),
             stroke_dictionary: PathBuf::new(),
@@ -135,8 +142,10 @@ impl SessionOptions {
             english: EnglishInputOptions::default(),
             expressive: MixedExpressiveOptions::default(),
             japanese_mixing: false,
+            multilingual_languages: Vec::new(),
             wubi: WubiInputOptions::default(),
             personal_context: true,
+            next_word_prediction: false,
             sentence_association: SentenceAssociationOptions::default(),
             rescoring_context: String::new(),
             command_table: Vec::new(),
@@ -153,6 +162,8 @@ impl SessionOptions {
 /// A value copy of the composition; safe to hand to another thread. `candidate_sources`, `candidate_annotations` and `candidate_answers_key` are aligned with `candidates`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SessionSnapshot {
+    /// 非组字的上屏后联想，只接受显式选择，不由空格、回车或失焦提交。
+    pub prediction: bool,
     pub scheme: SchemeType,
     pub local_mode: LocalInputMode,
     /// The non-letter characters `character` takes in this state: the active local mode's `spelling_symbols` (拆字按光标处列出部件分隔符 `'` 和微软双拼的韵母 `;`), or while nothing is composed the keys that open the `/` and `@` modes. A host or runtime that would send one of these as punctuation sends it as a character instead.
@@ -177,6 +188,8 @@ pub struct SessionSnapshot {
     pub wubi_unique_four_code: bool,
     pub shuangpin_profile: String,
     pub candidate_sources: Vec<CandidateSource>,
+    /// 当前唯一的连续混合行所携带的语言边界；没有该行时为空，不随普通候选重排而错位。
+    pub multilingual_conversion: Option<crate::multilingual::Conversion>,
     /// Helpcodes or correction hints.
     pub candidate_annotations: Vec<String>,
     /// Whether each candidate answers the whole key rather than a prefix of it or a completion past it.

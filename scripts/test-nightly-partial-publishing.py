@@ -87,7 +87,8 @@ class PartialPublishingTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.source = self.root / "source"
         for platform, suffixes in PUBLISHING.PACKAGING.PLATFORM_SUFFIXES.items():
-            directory = self.source / platform / "artifact"
+            # 复用的 release-*.yml 把包内版本号写在 artifact 名末尾，publish-nightly.py 从这里取 version。
+            directory = self.source / platform / f"msime-{platform}-1.2.3"
             directory.mkdir(parents=True)
             for suffix in suffixes:
                 (directory / f"new-{platform}{suffix}").write_bytes(f"new {platform} {suffix}".encode())
@@ -137,6 +138,49 @@ class PartialPublishingTests(unittest.TestCase):
         self.assertIn("保留上次成功构建", self.client.current["body"])
         self.assertIn("待 Apple 审核", self.client.current["body"])
         self.assertLess(self.client.events.index("commit"), self.client.events.index("delete"))
+
+    def test_updated_platforms_record_their_version_and_run(self):
+        state = self.publish({"windows", "linux", "ios"}, build_id="900.2")
+        for platform in ("windows", "linux"):
+            self.assertEqual(state["platforms"][platform]["version"], "1.2.3")
+            self.assertEqual(state["platforms"][platform]["run"], 900)
+        # iOS 没有附件，也就没有 artifact 名可取版本号；运行标识照样记。
+        self.assertNotIn("version", state["platforms"]["ios"])
+        self.assertEqual(state["platforms"]["ios"]["run"], 900)
+        # 保留下来的旧条目没有这两个字段，状态照常解析。
+        self.assertNotIn("version", state["platforms"]["android"])
+        self.assertNotIn("run", state["platforms"]["android"])
+        self.assertEqual(self.state(), state)
+        self.assertIn('"version": "1.2.3"', self.client.current["body"])
+        # 下一轮只更新 Linux：Windows 的版本号和运行标识原样留着。
+        state = self.publish({"linux"}, build_id="901.1")
+        self.assertEqual(state["platforms"]["windows"]["run"], 900)
+        self.assertEqual(state["platforms"]["linux"]["run"], 901)
+
+    def test_artifacts_without_one_version_record_no_version(self):
+        other = self.source / "linux" / "msime-linux-rpm-x86_64-1.2.4"
+        other.mkdir()
+        next((self.source / "linux").rglob("*.rpm")).rename(other / "new-linux.rpm")
+        unversioned = self.source / "windows" / "artifact"
+        (self.source / "windows" / "msime-windows-1.2.3").rename(unversioned)
+        state = self.publish({"linux", "windows"})
+        self.assertNotIn("version", state["platforms"]["linux"])
+        self.assertNotIn("version", state["platforms"]["windows"])
+        self.assertEqual(state["platforms"]["linux"]["run"], 10)
+
+    def test_invalid_recorded_version_or_run_prevents_mutations(self):
+        import json
+        self.publish({"windows"})
+        valid = self.state()
+        body = self.client.current["body"].split(PUBLISHING.MARKER, 1)[0]
+        for field, value in (("version", "1.2"), ("version", 3), ("run", 0), ("run", "10"), ("run", True)):
+            state = copy.deepcopy(valid)
+            state["platforms"]["windows"][field] = value
+            self.client.current["body"] = body + PUBLISHING.MARKER + json.dumps(state) + "\n-->\n"
+            self.client.events.clear()
+            with self.assertRaisesRegex(ValueError, "无效"):
+                self.publish({"linux"}, build_id="11.1")
+            self.assertEqual(self.client.events, [], (field, value))
 
     def test_first_run_partial_success_is_published(self):
         self.client = FakeGitHub(legacy=False)

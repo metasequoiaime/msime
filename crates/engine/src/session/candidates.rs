@@ -18,10 +18,12 @@ use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, KeyResult,
     LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
 };
+use crate::user_dictionary::journal::has_matching_user_weight;
 use crate::user_dictionary::positions::{
     apply_fixed_positions_with_state, clear_fixed_position, is_pinned_candidate,
     record_pinned_candidate, set_fixed_position,
 };
+use crate::user_dictionary::ranking::candidate_dictionary_key;
 use crate::user_dictionary::removal::delete_dictionary_candidate;
 
 fn english_position_context(input: &str) -> String {
@@ -93,6 +95,7 @@ impl InputSession {
 
     /// 前缀或引擎候选经过个人上下文重排，再混入英文、表情、颜文字并应用固定位置。
     pub(super) fn update_mixed_candidates(&mut self) {
+        self.multilingual_conversion = None;
         if self.update_literal_candidates() {
             return;
         }
@@ -112,7 +115,7 @@ impl InputSession {
                 && self.local_mode_options.quick_phrase
             {
                 let code = self.engine.request().raw_input.clone();
-                // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时照旧追加在末尾。
+                // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时落在首页尾部，普通候选不满一页时接在它们后面。
                 let slot = (self.quick_phrase_frequency
                     && self.frequency.mode != FrequencyAdjustmentMode::Disabled)
                     .then(|| {
@@ -122,13 +125,18 @@ impl InputSession {
                         )
                     })
                     .flatten();
-                self.queries
-                    .insert_quick_phrase_candidates(&code, &mut decoded, slot);
+                self.queries.insert_quick_phrase_candidates(
+                    &code,
+                    &mut decoded,
+                    slot,
+                    self.first_page_rows,
+                );
             }
         }
         self.personal_reranked = false;
         // 日文整段转换只算一次：个人上下文重排生效时下面要混排两张表。
         let japanese = self.mixed_japanese_conversion();
+        self.multilingual_conversion = self.query_multilingual();
         // 提交链起点没有上下文，候选偏好由词频设置负责。
         let reordered = match self.chain.previous.as_deref() {
             Some(previous) if self.personal_context_applies() => {
@@ -140,7 +148,28 @@ impl InputSession {
                     &model,
                     self.chain.earlier.as_deref(),
                     previous,
-                    &mut |leader: &str| is_pinned_candidate(journal, &context, leader),
+                    &mut |leader: &str| {
+                        is_pinned_candidate(journal, &context, leader)
+                            || (self.frequency.mode != FrequencyAdjustmentMode::Disabled
+                                && decoded.first().is_some_and(|row| {
+                                    if !row.source.is_dictionary() || !row.scheme.is_pinyin() {
+                                        return false;
+                                    }
+                                    // 用调频写入的真实读音匹配，单码和双拼不能拿显示编码查日志。
+                                    let key = if row.canonical_pinyin.is_empty() {
+                                        Cow::Owned(candidate_dictionary_key(row, &context))
+                                    } else {
+                                        Cow::Borrowed(row.canonical_pinyin.as_ref())
+                                    };
+                                    has_matching_user_weight(
+                                        journal,
+                                        PersonalDictionaryKind::Pinyin,
+                                        &key,
+                                        &row.word,
+                                        row.weight,
+                                    )
+                                }))
+                    },
                 )
             }
             _ => None,
@@ -608,7 +637,65 @@ impl InputSession {
         MixedJapaneseRow { item, lead }
     }
 
-    /// Mixed rows and fixed positions over one decoded list.
+    /// 只在全串普通全拼里查询连续多语言；其它编码和局部选择不能借用全串路径。
+    fn query_multilingual(&mut self) -> Option<crate::multilingual::Conversion> {
+        if !self.mixed_candidates_enabled
+            || self.scheme() != SchemeType::Quanpin
+            || self.local_mode != LocalInputMode::None
+            || self.dedicated_english
+            || self.prefix_active
+            || self.has_active_helpcode()
+            || self.single_character_only
+        {
+            return None;
+        }
+        self.multilingual
+            .as_mut()?
+            .convert(&self.engine.request().raw_input)
+    }
+
+    /// 完整中文解释在前，混合路径作为备选；已有同文行保留自己的来源。
+    fn insert_multilingual_row(&self, items: &mut Vec<WordItem>) {
+        let Some(conversion) = &self.multilingual_conversion else {
+            return;
+        };
+        let text: String = conversion
+            .segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect();
+        if items.iter().any(|row| row.word == text) {
+            return;
+        }
+        let position = if conversion.chinese_complete {
+            items
+                .iter()
+                .position(|row| {
+                    (row.source.is_dictionary() || row.source.is_generated_or_fallback())
+                        && self.selection_completes_composition(row)
+                })
+                .map_or(items.len(), |index| index + 1)
+        } else {
+            0
+        };
+        // 在已有固定槽位和联系人组之后插入，不把用户指定的位置向后挤一格。
+        let reserved = items
+            .iter()
+            .rposition(|row| row.fixed_position > 0 || row.source == CandidateSource::Contact)
+            .map_or(0, |index| index + 1);
+        items.insert(
+            position.max(reserved),
+            WordItem::new(
+                self.engine.request().raw_input.as_str(),
+                text,
+                0,
+                CandidateSource::Multilingual,
+                "",
+            ),
+        );
+    }
+
+    /// 对一份解码结果混排并应用固定位置。
     fn mixed_from(
         &mut self,
         decoded: Vec<WordItem>,
@@ -694,6 +781,7 @@ impl InputSession {
                 self.queries.append_contact_candidates(&input, &mut mixed);
             }
         }
+        self.insert_multilingual_row(&mut mixed);
         mixed
     }
 
@@ -777,15 +865,15 @@ mod tests {
     #[test]
     fn cloning_candidate_rows_replaces_metadata_and_handles_length_changes() {
         let marked = WordItem {
-            pinyin: "ni'hao".to_owned(),
-            canonical_pinyin: "li'hao".to_owned(),
-            word: "合成词".to_owned(),
+            pinyin: "ni'hao".into(),
+            canonical_pinyin: "li'hao".into(),
+            word: "合成词".into(),
             weight: 42,
             source: CandidateSource::Generated,
             scheme: crate::types::SchemeType::Shuangpin,
             fixed_position: 2,
             fuzzy: true,
-            corrected_from: "lihao".to_owned(),
+            corrected_from: "lihao".into(),
             sentence_association: true,
             sentence_words: vec!["合".to_owned(), "成词".to_owned()],
         };

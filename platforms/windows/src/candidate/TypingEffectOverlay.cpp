@@ -1,4 +1,5 @@
 #include "TypingEffectOverlay.h"
+#include "../../compat/WindowsDpi.h"
 #include "FullscreenForeground.h"
 #include "InputModeHudWindow.h"
 #include <algorithm>
@@ -13,15 +14,8 @@ constexpr wchar_t kClassName[] = L"MSIME.Client.TypingEffect" MSIME_EDITION_NAME
 // 动画进行时按帧重画；动画都停了、只剩静止的徽标时换成一次性的收起计时器。
 constexpr UINT_PTR kFrameTimer = 0x4701;
 constexpr UINT_PTR kSettleTimer = 0x4702;
-// 和候选窗一样只在这次界面操作里切到每显示器 DPI v2，结束时恢复调用方的线程设置；窗口在整个生命期里保持 v2，坐标都是物理像素，和 TSF 报来的光标锚点一致。
-struct DpiScope {
-  DPI_AWARENESS_CONTEXT previous;
-  DpiScope() : previous(SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
-    if (!previous)
-      throw std::runtime_error("Per-monitor DPI unavailable");
-  }
-  ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
-};
+// 系统支持时只在这次界面操作中切换线程 DPI 并恢复；旧系统沿用宿主启动时设置的系统 DPI。
+using DpiScope = msime::windows::compat::ThreadDpiScope;
 D2D1_COLOR_F rgb(uint32_t value) {
   return D2D1::ColorF(static_cast<float>((value >> 16) & 0xFF) / 255.0f, static_cast<float>((value >> 8) & 0xFF) / 255.0f,
                       static_cast<float>(value & 0xFF) / 255.0f, 1.0f);
@@ -81,7 +75,7 @@ std::optional<TypingRect> TypingEffectOverlay::caret_rect(HWND foreground, const
   // 没有系统光标的应用：用最近一次组字的锚点，它是文字底边的左端，往上估一行 20 个设备无关像素，和中英文提示的估法相同。
   if (!anchor)
     return std::nullopt;
-  const float line = static_cast<float>(MulDiv(20, static_cast<int>(GetDpiForSystem()), USER_DEFAULT_SCREEN_DPI));
+  const float line = static_cast<float>(MulDiv(20, static_cast<int>(msime::windows::compat::system_dpi()), USER_DEFAULT_SCREEN_DPI));
   const float x = static_cast<float>(anchor->x);
   const float y = static_cast<float>(anchor->y);
   return TypingRect{x, y - line, x + 1.0f, y};
@@ -241,7 +235,7 @@ bool TypingEffectOverlay::present(const TypingEffectPresentation &presentation) 
                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW))
         throw std::runtime_error("Typing effect monitor move failed");
     }
-    scale_ = static_cast<float>(GetDpiForWindow(window_)) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
+    scale_ = static_cast<float>(msime::windows::compat::window_dpi(window_)) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
     if (!(scale_ > 0.0f))
       scale_ = 1.0f;
 

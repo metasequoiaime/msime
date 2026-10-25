@@ -4,7 +4,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.SystemClock;
 import android.os.Build;
-import android.graphics.Rect;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -30,6 +29,9 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             .getJSONObject("preferences").toString())
             .put("scheme", "quanpin").put("touch_keyboard_layout", "twenty_six_key")
             .put("privacy_mode", false).put("clipboard_history", true)
+            // 固定工具栏入口和方案，让菜单内容与设备上的用户设置无关。
+            .put("touch_voice_shortcut", false)
+            .put("touch_toolbar", new JSONObject().put("emoji", true).put("clipboard", true))
             .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put("quanpin"))
                 .put("selected", "quanpin"));
         JSONObject settings = originalLocal == null ? new JSONObject().put("version", 1)
@@ -74,21 +76,17 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             clipboard.setPrimaryClip(ClipData.newPlainText("synthetic", "MSIME synthetic clipboard sentinel"));
             stage = "device information copy retains editor";
             for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
-            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("nihao", node.getText())));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("ni'hao", node.getText())));
             stage = "device information initial commit (preview " + previewEnabled + ")";
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> node.refresh() && equalsText("你好", node.getText())));
-            Rect toolbar = new Rect();
-            await(described("键盘快捷栏")).getBoundsInScreen(toolbar);
             stage = "device information menu open";
             tap(key("更多"));
+            await(toolPanel());
+            // 按条目的无障碍描述找「设备信息」，翻页由网格的前后翻页动作完成，菜单增减、重排条目都不影响；API 28 上同样读得到菜单磁贴。
             stage = "device information menu copy";
-            if (Build.VERSION.SDK_INT < 30) {
-                copyFromLegacyMenu(toolbar);
-            } else {
-                showTool("设备信息");
-                tap(tool("设备信息"));
-            }
+            showTool("设备信息");
+            tap(tool("设备信息"));
             stage = "device information clipboard result";
             String copied = awaitDeviceInfo(clipboard);
             if (previewEnabled) {
@@ -112,7 +110,7 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             for (int index = 0; index < labels.length; index++)
                 if (!lines[index + 2].startsWith(labels[index] + "："))
                     throw new AssertionError("Device information field missing: " + labels[index]);
-            if (copied.contains("nihao") || copied.contains("你好") || copied.contains("MSIME synthetic clipboard sentinel")
+            if (copied.contains("nihao") || copied.contains("ni'hao") || copied.contains("你好") || copied.contains("MSIME synthetic clipboard sentinel")
                 || !copied.contains("键盘：已启用 · 当前默认")
                 || copied.contains("屏幕分辨率：未知") || copied.contains("应用版本：未知"))
                 throw new AssertionError("Device information contains invalid diagnostics");
@@ -141,26 +139,6 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
 
     private void restore(File file, byte[] original) throws Exception {
         if (original == null) Files.deleteIfExists(file.toPath()); else publish(file, original);
-    }
-
-    /**
-     * API 28 的 UiAutomation 不提供覆盖在字母键上的菜单节点，改用真实触摸翻页和点击。
-     * 夹具固定工具栏的浮动键盘和文本编辑入口关闭；无语音结果的入口隐藏后，复制入口是第二页第二行第三列。坐标从当前工具栏边界和密度推导，
-     * 不假设设备分辨率。结果仍读取系统剪贴板并验证完整白名单，触摸无效就失败。
-     */
-    private void copyFromLegacyMenu(Rect toolbar) throws Exception {
-        float density = getTargetContext().getResources().getDisplayMetrics().density;
-        int firstRow = toolbar.bottom + Math.round(36 * density);
-        int right = toolbar.left + toolbar.width() * 7 / 8;
-        int left = toolbar.left + toolbar.width() / 8;
-        shellDiscard("input swipe " + right + " " + firstRow + " " + left + " " + firstRow + " 320");
-        // 网格翻页动画为 260 毫秒，结束后才点击第二行，避免点中滑动中的上一页磁贴。
-        SystemClock.sleep(400);
-        // 模拟器负载高时动画可能延迟调度；等待界面空闲后再点，不能只靠固定延时。
-        automation.waitForIdle(1000, 10000);
-        int secondRow = firstRow + Math.round(68 * density);
-        int thirdColumn = toolbar.left + toolbar.width() * 5 / 8;
-        shellDiscard("input tap " + thirdColumn + " " + secondRow);
     }
 
     /** 测试编辑器保持前台，由当前默认输入法的 UID 读取系统剪贴板，不输出报告正文。 */

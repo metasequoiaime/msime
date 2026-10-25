@@ -8,11 +8,28 @@ crates/client-services/tests/fixtures/plugin-packs/** -text -whitespace
 # 拆字表由 scripts/build_chaizi_table.py 生成、按 split_once('\t') 解析，Windows 的 autocrlf 检出成 CRLF 后行尾的 \r 会进最后一个字段，--check 也会逐字节失败。
 crates/engine/src/local/chaizi*.tsv text eol=lf
 
+# 这些生成结果按字节校验；Windows 检出也保留生成器写入的 LF。
+crates/engine/src/local/symbol_groups.tsv text eol=lf
+crates/engine/src/local/symbol_candidates.tsv text eol=lf
+plugins/phrase_table/latex-symbols/symbols.tsv text eol=lf
+docs/plugin-architecture.html text eol=lf
+packages/ui/src/voice/voice-language-catalog.json text eol=lf
+packages/ui/src/settings/voice-hold-key-catalog.ts text eol=lf
+shared/voice/VoiceLanguageCatalog.h text eol=lf
+shared/voice/VoiceHoldKeyCatalog.h text eol=lf
+platforms/android/java/app/msime/android/voice/VoiceLanguageCatalog.java text eol=lf
+platforms/ios/App/Services/VoiceLanguageCatalog.swift text eol=lf
+
 # Unicode 许可证按锁文件校验原始字节，跨平台检出必须保持 LF。
 resources/licenses/Unicode-License-V3.txt text eol=lf
 
 # OpenCC 许可证与固定源码输入逐字节核对，Windows 检出也保持 LF。
 resources/licenses/OpenCC-Apache-2.0.txt text eol=lf
+
+# Android OCR 模块的三份许可证与 resources/ocr-models-android.lock.json 固定的上游字节逐字节核对，Windows 检出也保持 LF。
+resources/licenses/onnxruntime-MIT.txt text eol=lf
+resources/licenses/onnxruntime-ThirdPartyNotices.txt text eol=lf
+resources/licenses/PaddleOCR-Apache-2.0.txt text eol=lf
 
 # GitHub 语言统计默认归入 Rust，主要语言仅按扩展名覆盖。
 * linguist-language=Rust

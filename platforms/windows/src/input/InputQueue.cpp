@@ -198,10 +198,12 @@ FocusRoute InputState::connected(const PipeTicket &ticket) {
     found->second.ticket = ticket;
   else {
     try {
+      // 维护期间只登记连接，不能创建会话重新拿住共享词库锁；恢复时统一重建。
       clients_.emplace(ticket.client,
                        Client{ticket,
-                              std::make_unique<FocusedSession>(
-                                  gate_, ticket.client, options_),
+                              quiesced_ ? nullptr
+                                        : std::make_unique<FocusedSession>(
+                                              gate_, ticket.client, options_),
                               std::nullopt});
     } catch (...) {
       router_.disconnected(ticket);
@@ -439,6 +441,12 @@ InputState::page_candidate(const FocusLease &lease, uint64_t session,
   return owner ? owner->page_candidate(lease, session, generation, previous,
                                        steps)
                : std::nullopt;
+}
+PreferenceSnapshot InputState::publish_preferences_at_least(const PreferenceSnapshot &snapshot) {
+  check_thread();
+  if (preferences_ && preferences_->revision() > snapshot.revision()) return *preferences_;
+  publish_preferences(snapshot);
+  return *preferences_;
 }
 void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
   check_thread();

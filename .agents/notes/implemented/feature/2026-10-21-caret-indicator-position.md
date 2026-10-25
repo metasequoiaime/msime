@@ -19,11 +19,13 @@ Status: implemented
 
 旧键的实际覆盖面也比「一个布尔」大。徽标共四类：中/英（`InputModeBadge`）、中英标点（`PunctuationBadge`，两格「，。」+「中」）、全/半（`CaretStateKind::Width`）、简/繁（`CaretStateKind::CharacterSet`，`event_listener_keys.cpp:1043`），由 `IMESwitch`、`PuncSwitch`、`DoubleSingleByteSwitch` 三类事件触发。位置是六向，不是四角：`top-left`、`top`、`top-right`、`bottom-left`、`bottom`、`bottom-right`，`top`/`bottom` 是正上、正下（`caret_state_indicator_policy.h:81-83`、`CaretStateIndicatorX` 第 100 行）。
 
-新架构的 macOS 对应物是另一件东西：只画「中」/「英」一个格子，18pt 字号、32pt 高、显示 0.6 秒（`InputModeHUDPanel.mm:12,19-20,201-207`），摆放规则固定在 `MSIMEInputModeHUDFrame` 里——水平居中于光标、优先下方、下面放不下翻到上方、夹进可见区域、没有可用光标时屏幕下方居中（第 36-49 行）。它没有位置字段，也没有焦点进入时的额外播报。
+本次迁移审查时，新架构的 macOS 对应物是另一件东西：只画「中」/「英」一个格子，18pt 字号、32pt 高、显示 0.6 秒（`InputModeHUDPanel.mm:12,19-20,201-207`），摆放规则固定在 `MSIMEInputModeHUDFrame` 里——水平居中于光标、优先下方、下面放不下翻到上方、夹进可见区域、没有可用光标时屏幕下方居中（第 36-49 行）。它没有位置字段，也没有焦点进入时的额外播报。
 
 ## Decision
 
 **不迁。macOS 的输入模式 HUD 不是这三个键的等价物，也不应该为了对上键名去加位置和聚焦触发。**
+
+后续用户明确要求的[繁简切换反馈](2026-10-25-macos-character-set-hud.md)扩展同一个单格 HUD，改变「仅中英文」的状态范围；本篇不迁入六向位置、焦点播报及旧版整套徽标的决定继续成立。
 
 - 位置属于被裁掉的那套徽标体系。新架构只保留了「中/英」一格，标点、全/半、简/繁三类徽标没有对应物；把六向位置单独搬过来，留下的只是一个 32pt、0.6 秒提示的方向选择。
 - 摆放规则已经是跨宿主的一份契约。Windows 的 `input_mode_hud_placement`（`platforms/windows/src/candidate/InputModeHudLayout.h:81`）按 macOS 的 `MSIMEInputModeHUDFrame` 逐条对齐，两端各有纯函数测试钉住「下方优先 / 放不下翻上 / 夹进工作区 / 无光标时回退」。给 macOS 单开六向位置会让这两份实现分叉，或者要求 Windows 一起接一个新偏好字段与设置项。

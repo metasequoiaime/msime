@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+固定网格与七个侧边键的排序替代本篇的旧滚动布局，见[固定网格与七键排序](2026-10-24-android-text-edit-layout.md)；本篇保留旧布局的选择理由及编辑器动作约束。
+
 面板打开时的复制预览及返回键由 [文本编辑中实时显示最近复制](2026-10-15-android-recent-copy-in-text-edit.md) 持有；本篇继续描述编辑器动作和键盘布局。
 
 - 功能面板第 3 页加一格「文本编辑」（`FunctionPanelModel.Id.TEXT_EDIT`，Lucide text-cursor-input 图标，经 `generate_keyboard_icons.py` 生成），点开 `ImeTextEditPanel`。面板是又一个工具栏面板：加入 `closeToolbarPanels`、`anyToolbarPanelOpen`、`alignOverlaysBelowTopRow` 和皮肤底色，打开功能面板时先关掉它（它后加入外框，否则会盖住功能面板）。只要有输入连接就可用，不要求引擎会话。

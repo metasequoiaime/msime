@@ -61,6 +61,12 @@ bool traditional_projection(const ServerSession &session) {
 }
 // The view's scheme, as the scheme traits take it.
 int view_scheme(const nlohmann::json &view) { return static_cast<int>(view.value("scheme", 0u)); }
+
+// 提交上下文属于上屏前的候选；混合行的中文片段已在运行时转换。
+bool commit_conversion(const nlohmann::json &transition, bool traditional) {
+  const auto context = transition.value("commit_context", nlohmann::json::object());
+  return traditional && (!context.is_object() || context.value("script_conversion", true));
+}
 } // namespace
 ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase)
     : client_(client), epoch_(epoch), runtime_phrase_(runtime_phrase) {
@@ -88,7 +94,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();
   const auto output_delta =
-      simplified_to_traditional(delta, traditional_output_);
+      simplified_to_traditional(delta, commit_conversion(result.transition, traditional_output_));
   // By name, not by position: PendingReply has gained fields twice, and a
   // positional list silently shifts every value past the new one rather than
   // failing to compile.
@@ -194,6 +200,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       next.encoded = uiless_composition(result.request_id, display_prefix + display, view);
     }
     break;
+  case ReplyPath::HostCharacter:
   case ReplyPath::SyllableCommit:
     // TIP 已从自己的 Runtime 上屏（音节完成或退格删空前缀）；这里只投影后续组字，避免重复插入。
     if (!commit_prefix.empty()) {
@@ -266,12 +273,18 @@ const PendingReply &ReplyComposer::dispatch(
   if (path == ReplyPath::LocalCommit && session.input_enabled()) {
     const auto action = translate_key(packet);
     const auto raw = session.view().at("editing_text").get<std::string>();
-    // The TSF has already inserted its local text. Validate that observation
-    // before MSIME_COMMIT_RAW can clear Engine state. The postflight check in
-    // stage() remains necessary; never manufacture proof from Engine's result.
-    if (action.kind != KeyKind::Command || action.value != MSIME_COMMIT_RAW ||
-        !local_text || *local_text != prefix_ + raw)
-      throw std::invalid_argument("Invalid local commit observation");
+    // TIP 已经把本地文本写进文档。MSIME_COMMIT_RAW 清掉 Engine 状态之前先核对这份观测；stage() 里的事后核对仍然需要，不能拿 Engine 的结果反过来伪造证明。
+    if (action.kind != KeyKind::Command || action.value != MSIME_COMMIT_RAW)
+      throw std::logic_error("Local commit route on a non-commit key");
+    // 观测不符只拒绝这一个请求；detail 只记字节数，不记文本。
+    const auto expected = prefix_ + raw;
+    if (!local_text)
+      throw RequestRejected("local_commit_observation", "observation=missing expected_bytes=" +
+                                                            std::to_string(expected.size()));
+    if (*local_text != expected)
+      throw RequestRejected("local_commit_observation",
+                            "observation=mismatch observed_bytes=" + std::to_string(local_text->size()) +
+                                " expected_bytes=" + std::to_string(expected.size()));
   }
   // 这几条路径的上屏 TIP 已经从自己的宿主会话写进了文档（本地回车、整句改字的回车、韩文音节），派发前后打开 COMMIT_OBSERVE_ONLY：只能观察、不能改写。FocusedSession 按方案和整句改字已经打开时，这里什么都不做。
   const CommitObserveOnly observe(
@@ -396,6 +409,12 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     const bool candidate_active =
         (packet.modifiers_down & PipeMetadata::CandidateActive) != 0;
     const bool has_candidates = candidate_active && !current.at("candidates").empty();
+    if (!has_candidates && current.value("key_grid", std::string{}) == "eighteen_key") {
+      // 多义组码没有候选时保持组字，不能沿裸回车路径上屏组首字母。
+      KeyResult result{client_, epoch_, packet.request_id, true,
+                       {{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", current}}};
+      return stage(result, ReplyPath::IgnoredNavigation, uiless);
+    }
     const auto path = has_candidates ? ReplyPath::Selection : ReplyPath::LocalCommit;
     return dispatch(session, packet, epoch, path, uiless,
                     std::move(local_text));
@@ -663,8 +682,8 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       selected_source = candidate.value("source", uint8_t{});
     }
   }
-  if (!found || (expanded_text && simplified_to_traditional(selected_candidate,
-                                                            traditional_output_) !=
+  if (!found || (expanded_text && candidate_output(selected_candidate,
+                                                  traditional_output_, selected_source) !=
                                       *expanded_text))
     return std::nullopt;
   auto transition = expanded_text
@@ -674,7 +693,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();
   const auto output_delta =
-      simplified_to_traditional(delta, traditional_output_);
+      simplified_to_traditional(delta, commit_conversion(transition, traditional_output_));
   const auto &next_view = transition.at("view");
   const auto raw = next_view.at("editing_text").get<std::string>();
   PendingReply next;
@@ -1170,6 +1189,21 @@ std::optional<PendingReply> ReplyComposer::configured_key(
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
+  if (packet.modifiers_down & PipeMetadata::GroupedPanelKey) {
+    // 组码不能被用户定义的字母快捷键、以词定字或释义页截成确定字符。
+    armed_gloss_column_ = 0;
+    translation_page_active_ = false;
+    return dispatch(session, packet, epoch, ReplyPath::HostCharacter,
+                    (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
+  }
+  const auto panel_view = session.view();
+  const auto text = static_cast<uint32_t>(packet.wch);
+  if (panel_view.value("key_grid", std::string{"none"}) == "eighteen_key" &&
+      !panel_view.at("editing_text").get_ref<const std::string &>().empty() &&
+      ((text >= 'a' && text <= 'z') || (text >= 'A' && text <= 'Z')) &&
+      (PipeMetadata::key_modifiers(packet.modifiers_down) & ~1u) == 0)
+    return dispatch(session, packet, epoch, ReplyPath::HostCharacter,
+                    (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
   if (auto word = session.word_character(packet, epoch, word_binding)) {
     armed_gloss_column_ = 0;
     return stage(word->key, word->exact

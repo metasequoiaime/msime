@@ -17,7 +17,7 @@ Windows 有两个快捷短语偏好，新架构没有对应物：
 
 **宿主能力与用户开关相与。** `HostOptions::quick_phrase_candidates`（macOS、Linux 声明）保留为「这个宿主提供这个功能」，`EngineOptions.quick_phrase_candidates = 宿主请求 && mixed_input.quick_phrase`。其他宿主（Windows、iOS、Android、HarmonyOS）不声明能力，开关写了也不生效，和 2026-10-17 笔记里「其他平台保持现状」的决定一致。macOS 的 `InputController.mm` 里的 `@YES` 不再直接等于「开启」，而是「声明能力」。
 
-**A4 移植 Windows 的槽位机制，落位沿用新架构的「追加在末尾」。** journal 新增 `quick_phrase_slots(code, slot)` 表，slot 是「组前面有几个计位候选」；没有记录时组追加在末尾（新架构的默认落位，Windows 是固定在首位），学过之后组按槽位摆放。学习在 `learn_quick_phrase_order`：选中组内短语满 `trigger_count` 次，整组按调频规则前移（`ranking_target` 同一套公式）；越过整组选排在后面的普通候选满 `trigger_count` 次，槽位 +1，封顶 `first_page_rows - 1`（首页末位）。选中组内非首条时那条短语在同码里升到最高权重 + 1，走 `quick_parases` 表和日志重放，和 Windows 一致。槽位计数的候选口径照搬 `counts_toward_quick_phrase_slot`：固定位置的行、快捷短语自己和混输/在线/插件/联系人行都不算。
+**A4 移植 Windows 的槽位机制，落位沿用新架构的「追加在末尾」。** journal 新增 `quick_phrase_slots(code, slot)` 表，slot 是「组前面有几个计位候选」；没有记录时组追加在末尾（新架构的默认落位，Windows 是固定在首位），学过之后组按槽位摆放。学习在 `learn_quick_phrase_order`：选中组内短语满 `trigger_count` 次，整组按调频规则前移（`ranking_target` 同一套公式）；越过整组选排在后面的普通候选满 `trigger_count` 次，槽位 +1，封顶 `first_page_rows - 1`（首页末位）。选中组内非首条时那条短语在同码里升到最高权重 + 1，走 `quick_parases` 表和日志重放，和 Windows 一致。槽位计数的候选口径照搬 `counts_toward_quick_phrase_slot`：固定位置的行、快捷短语自己和混输/在线/插件/联系人行都不算。没有记录时的落位后来改成首页尾部，见 [快捷短语混输默认落在首页末位](2026-10-25-quick-phrase-first-page-default.md)；槽位和学习规则不变。
 
 ## Alternatives considered
 
@@ -29,7 +29,7 @@ Windows 有两个快捷短语偏好，新架构没有对应物：
 ## Intended behavior
 
 - macOS、Linux 上设置页「候选与联想 → 更多选项」多出「快捷短语混输」和「快捷短语参与调频」两行；调频行在混输关着时置灰。其他宿主的设置页不显示这两行。
-- 混输开着时，编码恰好等于某条快捷短语的编码，整组短语跟在普通候选之后；常越过它选别的，它一格一格退到末尾；选中组内短语，整组前移。
+- 混输开着时，编码恰好等于某条快捷短语的编码，整组短语混进普通候选（默认落位见 [快捷短语混输默认落在首页末位](2026-10-25-quick-phrase-first-page-default.md)）；常越过它选别的，它一格一格后退，最多退到首页末位；选中组内短语，整组前移。
 - 混输关着时普通候选不出现快捷短语，`Shift+K` 的 K 模式不受影响。
 - 升级用户的文档没有这两个键，读作开，行为不变；新装默认关混输、开调频。
 

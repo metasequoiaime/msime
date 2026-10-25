@@ -3,6 +3,7 @@
 #include "VoiceCaptureSelection.h"
 #include "VoiceSessionEpoch.h"
 #include "VoiceSessionPolicy.h"
+#include "VoiceHotkeyPolicy.h"
 
 #include "FocusGate.h"
 #include "SessionController.h"
@@ -33,6 +34,7 @@ struct VoiceInputConfig {
   bool mute_system_audio = false;
   bool hotkey_ralt = true;
   bool hotkey_ctrl_f9 = true;
+  VoiceToggleBinding toggle_hotkey;
   bool hotkey_ctrl_win = false;
   bool hotkey_rctrl_ralt = false;
   bool hotkey_hold_space_lock = true;

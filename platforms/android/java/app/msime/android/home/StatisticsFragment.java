@@ -5,6 +5,7 @@ import app.msime.android.DimensionPolicy;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.LayoutPolicy;
 
+import android.app.KeyguardManager;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -15,7 +16,6 @@ import android.text.style.AbsoluteSizeSpan;
 import android.text.style.ForegroundColorSpan;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
-import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -24,7 +24,12 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import app.msime.android.NativeClient;
+import app.msime.android.StatisticsAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
+import app.msime.android.AuthenticationPauseTracker;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
@@ -47,7 +52,6 @@ import app.msime.android.policy.HostOptionsPolicy;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.json.JSONException;
@@ -73,7 +77,6 @@ public final class StatisticsFragment extends HomeTabFragment {
     /** 一次读取的结果：统计文档（开关、保留期、逐日按键）和派生指标。两者都可能为 null。 */
     private record Snapshot(@Nullable TypingStatisticsModel model, @Nullable TypingStatisticsSummary summary) {}
 
-    private static final Map<String, String> RETENTIONS = retentions();
     private Tab tab = Tab.OVERVIEW;
     @Nullable private TypingStatisticsModel statistics;
     @Nullable private TypingStatisticsSummary summary;
@@ -82,6 +85,9 @@ public final class StatisticsFragment extends HomeTabFragment {
     private boolean uploadBusy;
     /** 按键热力图上次选的布局；null 表示还没选过，按数据决定。 */
     @Nullable private Boolean nineKey;
+    private boolean authorized;
+    @Nullable private BiometricPrompt authentication;
+    private final AuthenticationPauseTracker pause = new AuthenticationPauseTracker();
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -109,10 +115,64 @@ public final class StatisticsFragment extends HomeTabFragment {
             lock.setTint(ThemeColorPolicy.subText(requireContext()));
             footer.setCompoundDrawablesRelative(lock, null, null, null);
         }
-        reload();
+        requestAuthentication();
     }
 
-    /** 记录开关、保留期、刷新和清空：偶尔才改一次，收在菜单里，不占读数字的地方。 */
+    @Override public void onDestroyView() {
+        if (authentication != null) authentication.cancelAuthentication();
+        authentication = null;
+        authorized = false;
+        pause.reset();
+        super.onDestroyView();
+    }
+
+    private void requestAuthentication() {
+        if (authentication != null) return;
+        Context context = requireContext();
+        if (!StatisticsAuthenticationPreference.enabled(context)) {
+            reload();
+            return;
+        }
+        KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        if (keyguard == null) {
+            MsToast.show(context, "无法读取系统认证状态，请稍后重试");
+            return;
+        }
+        // 未设置锁屏凭据时直接读统计；已配置认证的设备仍需认证成功，临时不可用不算未配置。
+        if (!StatisticsAuthenticationPolicy.requiresAuthentication(authorized, keyguard.isDeviceSecure())) {
+            reload();
+            return;
+        }
+        int authenticators = SystemAuthenticators.allowed();
+        if (BiometricManager.from(context).canAuthenticate(authenticators)
+                != BiometricManager.BIOMETRIC_SUCCESS) {
+            MsToast.show(context, "这台设备没有可用的系统认证");
+            return;
+        }
+        authentication = new BiometricPrompt(this, ContextCompat.getMainExecutor(context),
+            new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    authentication = null;
+                    authorized = true;
+                    if (getView() != null) reload();
+                    authenticationEnded(false);
+                }
+
+                @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
+                    authentication = null;
+                    authorized = false;
+                    authenticationEnded(AuthenticationPauseTracker.systemCanceled(errorCode, android.os.Build.VERSION.SDK_INT));
+                }
+            });
+        BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle("统计页面包含本机输入习惯数据")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        authentication.authenticate(prompt);
+    }
+
+    /** 记录开关、刷新和清空：偶尔才改一次，收在菜单里，不占读数字的地方。每日明细的保留期不在这里改，已存的值照旧生效。 */
     private void showMenu(View anchor) {
         TypingStatisticsModel current = statistics;
         if (current == null) return;
@@ -125,19 +185,6 @@ public final class StatisticsFragment extends HomeTabFragment {
             HostTask.run(this, context -> HostStore.setStatisticsEnabled(context, next), this::adoptModel);
             return true;
         });
-        SubMenu retention = menu.getMenu().addSubMenu("保留每日明细");
-        for (Map.Entry<String, String> entry : RETENTIONS.entrySet()) {
-            String key = entry.getKey();
-            MenuItem item = retention.add(entry.getValue());
-            item.setCheckable(true);
-            item.setChecked(key.equals(current.retention()));
-            item.setOnMenuItemClickListener(ignored -> {
-                HostTask.run(this, context -> HostStore.setStatisticsRetention(context, key),
-                    value -> reload());
-                return true;
-            });
-        }
-        retention.setGroupCheckable(0, true, true);
         menu.getMenu().add("刷新统计").setOnMenuItemClickListener(item -> {
             reload();
             return true;
@@ -151,9 +198,24 @@ public final class StatisticsFragment extends HomeTabFragment {
         menu.show();
     }
 
-    // 键盘在另一个进程里，这个页面不在眼前时它一直在记。
+    @Override public void onPause() {
+        super.onPause();
+        pause.paused(authentication != null);
+    }
+
+    // 键盘在另一个进程里，这个页面不在眼前时它一直在记，所以每次重新可见都重新认证再读一次。例外是暂停时认证还开着：回来时是否重新认证由这次认证的结果决定，见 AuthenticationPauseTracker；认证成功的回调自己会读。
     @Override protected void onBecameVisible() {
-        reload();
+        if (pause.reentersOnVisible(authentication != null)) reenter();
+    }
+
+    private void reenter() {
+        authorized = false;
+        requestAuthentication();
+    }
+
+    /** 认证在离开页面时被系统取消、而页面已经回到眼前：按重新进入处理，否则统计页既没有数据也没有认证窗口。 */
+    private void authenticationEnded(boolean systemCanceled) {
+        if (pause.reentersOnEnd(systemCanceled, isResumed() && !isHidden() && getView() != null)) reenter();
     }
 
     private void reload() {
@@ -572,13 +634,4 @@ public final class StatisticsFragment extends HomeTabFragment {
         return text;
     }
 
-    private static Map<String, String> retentions() {
-        LinkedHashMap<String, String> values = new LinkedHashMap<>(5);
-        values.put("forever", "一直保留");
-        values.put("365d", "一年");
-        values.put("180d", "半年");
-        values.put("90d", "90 天");
-        values.put("30d", "30 天");
-        return java.util.Collections.unmodifiableMap(values);
-    }
 }

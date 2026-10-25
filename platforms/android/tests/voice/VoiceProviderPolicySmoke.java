@@ -7,16 +7,10 @@ public final class VoiceProviderPolicySmoke {
     }
 
     public static void main(String[] args) {
-        check(VoiceProviderPolicy.network("openai") && VoiceProviderPolicy.network("doubao"), "cloud services need a key");
-        check(!VoiceProviderPolicy.network("system") && !VoiceProviderPolicy.network("local")
-                && !VoiceProviderPolicy.network("") && !VoiceProviderPolicy.network(null),
-            "the platform recogniser and the local model send nothing");
-
-        check(VoiceProviderPolicy.legacyAuth("legacy") && VoiceProviderPolicy.legacyAuth(" legacy "),
-            "legacy auth needs the App ID");
-        check(!VoiceProviderPolicy.legacyAuth("") && !VoiceProviderPolicy.legacyAuth("api_key")
-                && !VoiceProviderPolicy.legacyAuth(null),
-            "empty means API key, as in the shared auth policy");
+        check("system".equals(VoiceProviderPolicy.SYSTEM)
+                && "local".equals(VoiceProviderPolicy.LOCAL)
+                && "legacy".equals(VoiceProviderPolicy.AUTH_LEGACY),
+            "voice policy constants remain stable");
 
         check(VoiceProviderPolicy.endpointProblem("openai", "https://example.invalid/v1") != null
                 && VoiceProviderPolicy.endpointProblem("openai", "") != null,

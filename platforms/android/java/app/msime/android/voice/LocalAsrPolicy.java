@@ -130,9 +130,9 @@ public final class LocalAsrPolicy {
         };
     }
 
-    /** Native ASR text must be plain, well-formed Unicode before it reaches the editor. */
+    /** 原生转写必须是有界的合法文本；null 表示没有新结果，不能清空上一条中间结果。 */
     static String transcript(Object value) {
-        return AiProviderResponse.boundedText(value, MAX_TRANSCRIPT);
+        return value == null ? null : AiProviderResponse.boundedText(value, MAX_TRANSCRIPT);
     }
 
     /**

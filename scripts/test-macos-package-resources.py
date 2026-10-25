@@ -99,6 +99,47 @@ printf '%s %s %s\\n' "$calls" "$status" "$([ -e "$1" ] && echo present || echo a
                   f"DMG creation with {count} failures: expected {expected}, got {result.stdout.strip()}")
 
 
+def check_input_method_supplementary_tables() -> None:
+    bash = shutil.which("bash")
+    if not bash:
+        print("skipped: input method supplementary tables need bash")
+        return
+    source = PACKAGE.read_text(encoding="utf-8")
+    loop = re.search(r"^for table in [^\n]+; do\n.*?^done$", source, re.MULTILINE | re.DOTALL)
+    check(loop is not None, "package-release.sh has no input method supplementary table staging")
+    if loop is None:
+        return
+    # 执行真实打包循环，只用文件复制代替 macOS 的 ditto；三张表必须跟随独立输入法安装。
+    probe = """set -euo pipefail
+repo_root=$1
+staged_bundle=$2
+ditto() { cp -R "$1" "$2"; }
+""" + loop.group()
+    tables = {
+        "pronunciations": ("en-phonetic.db", "pronunciations-NOTICE.txt"),
+        "character-glosses": ("zh-en.db", "character-glosses-NOTICE.txt"),
+        "word-glosses": ("zh-en.db", "word-glosses-NOTICE.txt"),
+    }
+    with tempfile.TemporaryDirectory(prefix="msime-input-tables-") as directory:
+        root = Path(directory)
+        bundle = root / "合成 输入法.app"
+        (bundle / "Contents/Resources").mkdir(parents=True)
+        for table, files in tables.items():
+            origin = root / "target/macos" / table
+            origin.mkdir(parents=True)
+            for name in files:
+                (origin / name).write_text(f"synthetic {table}/{name}", encoding="utf-8")
+        result = subprocess.run([bash, "-c", probe, "probe", str(root), str(bundle)],
+                                capture_output=True, text=True, timeout=10)
+        check(result.returncode == 0, f"input method supplementary table staging failed: {result.stderr}")
+        for table, files in tables.items():
+            for name in files:
+                expected = root / "target/macos" / table / name
+                installed = bundle / "Contents/Resources" / table / name
+                check(installed.is_file() and installed.read_bytes() == expected.read_bytes(),
+                      f"input method bundle is missing supplementary {table}/{name}")
+
+
 def main() -> int:
     missing = [str(path.relative_to(ROOT)) for path in INPUTS if not path.is_file()]
     if missing:
@@ -166,6 +207,7 @@ def main() -> int:
 
     check('create_dmg "$dmg" -volname' in package_text, "package-release.sh bypasses the DMG creation retry")
     check_dmg_creation()
+    check_input_method_supplementary_tables()
 
     if failures:
         for failure in failures:

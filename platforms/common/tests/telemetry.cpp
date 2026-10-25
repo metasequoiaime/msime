@@ -61,6 +61,21 @@ template <class Body> int crash_child(Body body) {
 }
 
 void previous_handler(int) { _exit(42); }
+
+// 同一目录里另一个宿主进程开始了自己的会话（例如同一用户的另一个图形会话）：直接经 Host API 开始，不动本进程包装层的状态。返回那个会话的 id（崩溃记录文件名去掉扩展名）。
+std::string foreign_session(const fs::path &directory) {
+  const auto body = nlohmann::json{{"directory", directory.string()}, {"platform", "linux"}, {"version", "9.9.9"}, {"enabled", true}}.dump();
+  auto response = msime::host_api::own_string(msime_client_telemetry_begin(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+  const auto value = nlohmann::json::parse(response.get()).at("value");
+  return fs::path(value.at("crash_record_path").get<std::string>()).stem().string();
+}
+
+std::string marker_id(const fs::path &directory) {
+  std::ifstream file(directory / "telemetry-session.json");
+  if (!file)
+    return {};
+  return nlohmann::json::parse(std::string(std::istreambuf_iterator<char>(file), {})).value("id", std::string());
+}
 } // namespace
 
 int main() {
@@ -190,6 +205,52 @@ int main() {
   }
   assert(!msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(queue(shared).empty());
+
+  // 同目录里还有别的进程的会话：本进程 terminate 时只为自己的会话写一份记录（随后的 SIGABRT 不再写第二份），下次启动只为它补报一次 session_crash，别的进程的会话不算崩溃。
+  const auto concurrent = directory / "concurrent";
+  fs::create_directories(concurrent);
+  status = crash_child([&] {
+    msime::telemetry::install_crash_handlers();
+    msime::telemetry::begin(host(concurrent));
+    foreign_session(concurrent);
+    synthetic_terminate();
+  });
+  assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT);
+  assert(msime::telemetry::begin(host(concurrent)));
+  {
+    const auto crashed = of_kind(concurrent, "crash");
+    const auto sessions_crashed = of_kind(concurrent, "session_crash");
+    assert(crashed.size() == 1);
+    assert(crashed[0].at("message") == "std::terminate: std::runtime_error: synthetic failure");
+    assert(sessions_crashed.size() == 1);
+    // 崩溃和 session_crash 属于同一个会话，也就是崩溃的那个进程的会话（版本是它的 1.2.3，不是另一个进程的 9.9.9）。
+    assert(crashed[0].at("id").get<std::string>().substr(6) == sessions_crashed[0].at("id").get<std::string>().substr(8));
+    assert(sessions_crashed[0].at("version") == "1.2.3");
+  }
+
+  // 正常结束只结束自己的会话：别的进程后来写下的标记留着，它之后崩溃仍报 session_crash。
+  const auto other = foreign_session(concurrent);
+  assert(marker_id(concurrent) == other);
+  msime::telemetry::end();
+  {
+    const auto ended = of_kind(concurrent, "session");
+    assert(ended.size() == 1);
+    assert(ended[0].at("id") != "session-" + other);
+    assert(ended[0].at("version") == "1.2.3");
+  }
+  assert(marker_id(concurrent) == other);
+  {
+    std::ofstream record(concurrent / "telemetry-crashes" / (other + ".crash"));
+    record << "SIGSEGV: segmentation fault\n";
+  }
+  assert(msime::telemetry::begin(host(concurrent)));
+  {
+    const auto sessions_crashed = of_kind(concurrent, "session_crash");
+    assert(sessions_crashed.size() == 2);
+    assert(sessions_crashed[1].at("id") == "session-" + other);
+    assert(sessions_crashed[1].at("version") == "9.9.9");
+  }
+  msime::telemetry::end();
 
   // Off from the start: nothing is queued.
   const auto off = directory / "off";

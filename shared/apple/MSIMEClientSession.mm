@@ -204,6 +204,12 @@ static NSDictionary *decode(char *response, NSError **error) {
     return decode(msime_client_resolve_online_candidates(_handle, (const uint8_t *)queryData.bytes, queryData.length,
         (uint8_t)source), error);
 }
++ (NSDictionary *)crossCommitSpacingRequest:(NSDictionary *)request {
+    if (![NSJSONSerialization isValidJSONObject:request]) return nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!data || data.length > 65536) return nil;
+    return decode(msime_client_cross_commit_spacing((const uint8_t *)data.bytes, data.length), nil);
+}
 + (NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"自定义翻译请求格式错误"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
@@ -632,6 +638,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *view = decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
     if (view) _punctuationOverride = @(enabled);
     return view;
+}
+- (nullable NSDictionary *)setMultilingualOutput:(BOOL)traditional error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_multilingual_output(_handle, traditional), error);
 }
 - (nullable NSDictionary *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;

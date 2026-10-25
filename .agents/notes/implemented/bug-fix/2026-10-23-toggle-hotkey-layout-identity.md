@@ -47,3 +47,5 @@ Status: implemented
 ## Consequences
 
 Dvorak 下默认 `Ctrl+Period` 会跟随句号字符，原先物理句号位置改为按该位置的布局字符解释。这是统一认键所需的行为变化，不能声称仅修了错误提示。非拉丁字符回退与无字符合成事件需要独立回归；不以英文 QWERTY 上的成功替代布局用例。
+
+[可编辑焦点限制](../feature/2026-10-24-macos-editable-shift.md) 只约束可选的单按 Shift，不改变本文的快捷键或状态归属规则。

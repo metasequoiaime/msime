@@ -204,6 +204,8 @@ test("the hero pill runs the release check and reports an outcome that is not cu
   renderAbout({}, vi.fn(), checkUpdate);
   const about = await screen.findByRole("group", { name: "关于" });
 
+  // 版本变化会作废旧检查，先等待宿主版本完成初始化。
+  await within(about).findByText("版本 1.4.2 · HarmonyOS");
   fireEvent.click(within(about).getByRole("button", { name: "检查更新" }));
   expect(await within(about).findByText("暂无可用发行版")).toBeTruthy();
   expect(checkUpdate).toHaveBeenCalledTimes(1);

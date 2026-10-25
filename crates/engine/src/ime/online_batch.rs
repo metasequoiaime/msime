@@ -421,7 +421,8 @@ mod tests {
             });
 
             assert!(accepted);
-            assert_eq!(allocations, 2, "云候选只需分配词面和键：{with_ai}");
+            // 词面和键各一个字符串加一个 `SharedString` 的 `Arc`。
+            assert_eq!(allocations, 4, "云候选只需分配词面和键：{with_ai}");
             assert_eq!(list.as_ptr(), pointer);
             assert_eq!(list.capacity(), capacity);
             assert_eq!(list[1].word, "云");

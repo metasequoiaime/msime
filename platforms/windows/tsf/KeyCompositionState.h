@@ -35,4 +35,15 @@ KeyCompositionState ReadKeyCompositionState(Host *host, KeyCompositionState lega
     legacy.caret = (std::min)(legacy.caret, legacy.rawInput.size());
     return legacy;
 }
+
+// 回车原文观测与实际提交使用同一宿主会话；有效宿主读失败时不能改用另一份旧组字。
+template<class Host, class ToWide>
+std::wstring ReadLocalCommitObservation(Host *host, std::wstring legacy, ToWide toWide) {
+    if (host && host->valid()) {
+        EngineResult current;
+        if (!HostView(*host, &current)) return {};
+        return toWide(current.view.phrase_prefix + current.view.editing_text);
+    }
+    return legacy;
+}
 } // namespace msime::tsf

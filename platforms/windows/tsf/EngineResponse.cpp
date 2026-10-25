@@ -29,6 +29,7 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
       parsed.view.generation = view.value("generation", uint64_t{0});
       parsed.view.caret = view.value("caret_position", std::size_t{0});
       parsed.view.scheme = view.value("scheme", uint32_t{0});
+      parsed.view.key_grid = view.value("key_grid", std::string{"none"});
       parsed.view.spelling_symbols = view.value("spelling_symbols", "");
       parsed.view.local_mode = view.value("local_mode", "none");
       parsed.view.dedicated_english = view.value("dedicated_english", false);

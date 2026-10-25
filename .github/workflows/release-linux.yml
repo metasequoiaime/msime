@@ -13,6 +13,9 @@ on:
       publish: {description: Publish the build, required: false, default: false, type: boolean}
       legacy: {description: Build the glibc 2.28 legacy package, required: false, default: false, type: boolean}
 permissions: {contents: write}
+# 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
+env:
+  MSIME_BUILD_RUN: ${{ github.run_id }}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
   # Resolves the dispatched commit up front, so the deb and rpm builds and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
@@ -64,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
@@ -274,6 +277,8 @@ jobs:
           python3 platforms/linux/scripts/edition_linux.py download-guide --version "$VERSION" --dist "$dist" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${repositories[@]+"${repositories[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
+          # 发布正文末尾的隐藏构建标记（scripts/release-build-marker.py）：应用内检查更新按它的运行 ID 比较同一版本号的构建，测试版通道也靠它分辨 beta 之后发的正式版。
+          python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           { echo "tag=$tag"; echo "prerelease=$PRERELEASE"; } >> "$GITHUB_OUTPUT"
       # 发行版源码包传到滚动的 linux-sources release（预发布、不设为 latest），每个版本一组、文件名带版本号、长期保留，不进版本发布页。只对从 main 发出的版本：下面的 package-definitions、COPR、OBS 与 PPA 也只用它们；beta 与 alpha 的文件名同样不带后缀，传上去会覆盖同一版本号的正式版，所以只留在 workflow artifact 里。放在版本发布页之前，发布页上线时包定义要的源码包已经在了；上传后按 GitHub 记录的摘要逐个核对。
       - name: Upload the distro source tarballs to linux-sources

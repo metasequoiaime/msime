@@ -109,6 +109,50 @@ def resource_candidates(prefix: Path) -> list[Path]:
     ]
 
 
+def read_dictionary_lock(prefix: Path) -> dict:
+    lock_file = next((path for path in lock_candidates(prefix) if path.is_file()), None)
+    if lock_file is None:
+        raise SystemExit(
+            "找不到 desktop-dictionary.lock.json。它随安装提供；"
+            "自定义前缀可用 MSIME_DICTIONARY_LOCK 指向它。"
+        )
+    return json.loads(lock_file.read_text())
+
+
+def dictionary_downloads(lock: dict) -> dict:
+    """只读导出本版本的锁定清单；不下载，也不创建保存目录。"""
+    return {
+        "directory": str(data_home() / "msime-client/resources"),
+        "artifacts": [
+            {
+                "name": artifact["name"],
+                "url": artifact.get("url") or None,
+                "mirrorUrl": MIRROR_PREFIX + artifact["url"] if MIRROR_PREFIX and artifact.get("url") else None,
+                "size": artifact["size"],
+                "sha256": artifact["sha256"],
+            }
+            for artifact in lock["artifacts"]
+        ],
+    }
+
+
+def print_dictionary_downloads(lock: dict, as_json: bool) -> None:
+    manifest = dictionary_downloads(lock)
+    if as_json:
+        # 多行输出也能经过设置应用原有的有界逐行读取器。
+        print(json.dumps(manifest, ensure_ascii=False, indent=2))
+        return
+    print(f"将以下全部文件按原名保存到：{manifest['directory']}")
+    for artifact in manifest["artifacts"]:
+        print(f"\n{artifact['name']}（{artifact['size']} 字节）")
+        print(f"  SHA-256：{artifact['sha256']}")
+        print(f"  原地址：{artifact['url'] or '本安装包未提供下载地址'}")
+        if artifact["mirrorUrl"]:
+            print(f"  国内镜像：{artifact['mirrorUrl']}")
+    print("\n下载完成后，在首次配置页取消自动下载并开始配置；也可在终端运行本命令（不加 --download）。")
+    print("保存到其他目录时，用 --resources 指向该目录的绝对路径。安装器仍会核对全部文件的大小和 SHA-256。")
+
+
 def digest(path: Path) -> str:
     value = hashlib.sha256()
     with path.open("rb") as handle:
@@ -1228,6 +1272,39 @@ def active_host() -> str | None:
     return None
 
 
+def input_method_status() -> dict:
+    """只查询当前会话，不启用服务、不注册输入法，也不把查询失败当成未启用。"""
+    host = active_host()
+    result = {"host": host, "enabled": None, "current": None}
+    if host == "fcitx5":
+        try:
+            _, entries = fcitx5_group(fcitx5_current_group())
+            result["enabled"] = any(entry[0] == FCITX5_INPUT_METHOD for entry in entries)
+        except RegistrationFailed:
+            pass
+        try:
+            current = parse_gvariant(fcitx5_call("CurrentInputMethod"))
+            if isinstance(current, tuple) and len(current) == 1 and isinstance(current[0], str):
+                result["current"] = current[0] == FCITX5_INPUT_METHOD
+        except RegistrationFailed:
+            pass
+    elif host == "ibus":
+        try:
+            schema, key, entry = ibus_input_list()
+            entries = parse_gvariant(command_output(["gsettings", "get", schema, key]))
+            if isinstance(entries, list) and entries:
+                result["enabled"] = entry in entries
+        except RegistrationFailed:
+            pass
+        try:
+            current = command_output(["ibus", "engine"]).strip()
+            if current:
+                result["current"] = current == IBUS_ENGINE
+        except RegistrationFailed:
+            pass
+    return result
+
+
 # GNOME 的 Wayland 会话不让输入法自己弹出候选窗。GTK 程序设了 GTK_IM_MODULE=fcitx 时，候选窗由程序里的 fcitx5-gtk 客户端面板绘制，它在 GTK3 上移动弹窗必须先隐藏再显示，于是不停闪烁，也不用水杉的 Fcitx5 主题；不设时 GTK 走 text-input → GNOME Shell → Fcitx5 的 IBus 前端，候选窗由 Fcitx5 经典界面按水杉主题绘制。见 README「GNOME Wayland 下候选窗闪烁」。
 GNOME_WAYLAND_GTK_NOTE = (
     "提示：当前是 GNOME 的 Wayland 会话，且设置了 GTK_IM_MODULE=fcitx。这时 GTK 程序的候选窗由程序自己绘制，"
@@ -1433,6 +1510,9 @@ def main() -> int:
     )
     parser.add_argument("--resources", type=Path, help="已备齐的词库目录（绝对路径）")
     parser.add_argument("--state", type=Path, help="要创建的状态目录，默认 $XDG_CONFIG_HOME/msime-client")
+    parser.add_argument("--list-downloads", action="store_true", help="只显示本版本词库的下载链接、大小、SHA-256 和保存目录，不联网也不配置")
+    parser.add_argument("--status", action="store_true", help="只查询当前会话的启用及当前输入法状态，不配置、不重启服务")
+    parser.add_argument("--json", action="store_true", help="与 --list-downloads 一起使用，输出 JSON 清单")
     parser.add_argument(
         "--download",
         action="store_true",
@@ -1470,10 +1550,28 @@ def main() -> int:
         help="已完成首次配置时，重新启用在线、语音和剪贴板服务，并把水杉输入法加回正在运行的 Fcitx5 或 IBus 的输入法列表，不检查词库也不改状态；还没有配置过时什么也不做。发行版仓库的包替换掉另一个同样内容的包（例如 msime 替换发布页的 msime-linux）之后自动执行：被替换的包卸载时撤销了这两样",
     )
     arguments = parser.parse_args()
+    if arguments.json and not (arguments.list_downloads or arguments.status):
+        parser.error("--json 只能与 --list-downloads 或 --status 一起使用")
+    if arguments.status and any((arguments.list_downloads, arguments.download, arguments.update,
+                                arguments.register, arguments.unregister, arguments.cloud_candidates,
+                                arguments.no_cloud_candidates, arguments.no_register,
+                                arguments.resources, arguments.state)):
+        parser.error("--status 只查询系统状态，不能与配置选项一起使用")
+    if arguments.list_downloads and any((arguments.download, arguments.update, arguments.register,
+                                       arguments.unregister, arguments.cloud_candidates,
+                                       arguments.no_cloud_candidates, arguments.no_register,
+                                       arguments.resources, arguments.state)):
+        parser.error("--list-downloads 只读取清单，不能与配置、下载或注册选项一起使用")
     if arguments.register and arguments.unregister:
         parser.error("--register 与 --unregister 不能同时使用")
     if arguments.edition and arguments.edition != installed_edition():
         delegate_to_edition(arguments.edition, without_edition_argument(sys.argv[1:]))
+    if arguments.status:
+        print(json.dumps(input_method_status(), ensure_ascii=False))
+        return 0
+    if arguments.list_downloads:
+        print_dictionary_downloads(read_dictionary_lock(install_prefix()), arguments.json)
+        return 0
     if arguments.unregister:
         unregister_input_method()
         return 0
@@ -1497,13 +1595,7 @@ def main() -> int:
             "升级之后要把这份状态换到新版本的词库，运行 msime-linux-setup --update --download。"
         )
 
-    lock_file = next((path for path in lock_candidates(prefix) if path.is_file()), None)
-    if lock_file is None:
-        raise SystemExit(
-            "找不到 desktop-dictionary.lock.json。它随安装提供；"
-            "自定义前缀可用 MSIME_DICTIONARY_LOCK 指向它。"
-        )
-    lock = json.loads(lock_file.read_text())
+    lock = read_dictionary_lock(prefix)
     if update:
         status = update_dictionaries(prefix, lock, options_file, arguments.download)
         if status == 0:

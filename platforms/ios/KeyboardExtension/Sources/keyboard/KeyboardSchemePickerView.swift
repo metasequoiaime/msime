@@ -60,6 +60,7 @@ final class KeyboardSchemePickerView: UIView {
       case .stroke: glyph = "笔"; badge = "5"
       case .handwriting: glyph = "写"; badge = "手"
       case .fourteenKey: glyph = "拼"; badge = "14"
+      case .eighteenKey: glyph = "拼"; badge = "18"
       }
       return KeyboardSchemeTileView(
         title: scheme.title, face: .glyph(glyph, badge: badge), selected: isChineseMode && scheme == selected,

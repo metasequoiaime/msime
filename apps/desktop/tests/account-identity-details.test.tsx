@@ -3,17 +3,14 @@ import type { ComponentType } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import * as ui from "@msime/ui";
+import { accountProviderNames } from "./support/account-provider-names";
 
 afterEach(cleanup);
 
 type IdentityDetailsProps = {
-  user: {
-    id: string;
-    displayName: string;
-    createdAt: string;
-    email?: string;
-  };
+  user: ui.AccountUser;
   providers: string[];
+  providerNames: Record<string, string>;
   copied?: boolean;
   onCopy: () => void;
 };
@@ -29,10 +26,12 @@ test("account identity details share the account fields and copy action", () => 
       user={{
         id: "abcdef123456",
         displayName: "合成用户",
+        preferredName: "合成用户",
         createdAt: "2026-01-02T00:00:00Z",
         email: "user@example.test",
       }}
       providers={["email"]}
+      providerNames={accountProviderNames}
       onCopy={onCopy}
     />,
   );
@@ -49,8 +48,14 @@ test("account identity details show the copied label", () => {
     .AccountIdentityDetails;
   render(
     <Details
-      user={{ id: "abcdef123456", displayName: "合成用户", createdAt: "2026-01-02T00:00:00Z" }}
+      user={{
+        id: "abcdef123456",
+        displayName: "合成用户",
+        preferredName: "合成用户",
+        createdAt: "2026-01-02T00:00:00Z",
+      }}
       providers={[]}
+      providerNames={accountProviderNames}
       copied
       onCopy={vi.fn()}
     />,

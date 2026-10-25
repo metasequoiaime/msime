@@ -2,14 +2,14 @@ import { KeyboardIconPaths } from '../KeyboardIconPaths';
 
 const TILE_SIDE_VP: number = 40;
 const TILE_RADIUS_VP: number = 12;
-const DISC_VP: number = 30;
-/** 设计稿的 18vp。Android 应用户要求把标志放大到 24dp；在 HarmonyOS 也做出决定之前，本宿主保持设计稿的尺寸。 */
-const MARK_HEIGHT_VP: number = 18;
+/** 圆底只比工具图标略大；标志扣除 viewBox 内留白后，与相邻线条图标的实际高度接近。 */
+const DISC_VP: number = KeyboardIconPaths.TOOLBAR_SIZE_VP + 3;
+const MARK_HEIGHT_VP: number = KeyboardIconPaths.TOOLBAR_SIZE_VP - 2;
 
 /**
  * 工具栏的「功能」键：季节色圆盘上的官方标志，移植自 Android 的 `KeyboardBrandButton`。
  *
- * 40x40、圆角 12 的图块，平时透明，`active` 时（功能面板、选择器或其他工具界面打开）用 `toggleBackground` 填充。其中是一个 `logoCirc` 色的 30vp 圆盘，承载 18vp 的标志：用 `logoBg` 填充的 `msime_frame` 矩形，加一道宽 9、圆头的白色描边。两条路径字符串都来自 kb-core 的 `KeyboardIconPaths`（`BRAND_FRAME`、`BRAND_STROKE`），viewBox 为 116x132。
+ * 40x40、圆角 12 的图块，平时透明，`active` 时（功能面板、选择器或其他工具界面打开）用 `toggleBackground` 填充。其中是一个 `logoCirc` 色的 26vp 圆盘，承载 21vp 的标志：用 `logoBg` 填充的 `msime_frame` 矩形，加一道宽 9、圆头的白色描边。两条路径字符串都来自 kb-core 的 `KeyboardIconPaths`（`BRAND_FRAME`、`BRAND_STROKE`），viewBox 为 116x132。
  *
  * ArkUI 的 `Path` 以 px 解释命令，所以 viewport 和描边宽度也用 px，由 `Shape` 的 viewport 变换把整幅图缩放到标志尺寸。哪些行为需要在真机上确认，见 `KeyboardLineIcon`。
  */
@@ -48,7 +48,7 @@ export struct BrandTile {
             .strokeLineJoin(LineJoinStyle.Round)
         }
         .viewPort({ x: 0, y: 0, width: `${KeyboardIconPaths.BRAND_VIEW_WIDTH}px`, height: `${KeyboardIconPaths.BRAND_VIEW_HEIGHT}px` })
-        // 用 viewBox 自身的宽高比，使标志恰好 18vp 高，也不依赖 viewport 变换如何居中另一种比例的框。
+        // 用 viewBox 自身的宽高比，使标志按工具图标的尺寸等比居中，也不依赖 viewport 变换如何居中另一种比例的框。
         .width(MARK_HEIGHT_VP * KeyboardIconPaths.BRAND_VIEW_WIDTH / KeyboardIconPaths.BRAND_VIEW_HEIGHT)
         .height(MARK_HEIGHT_VP)
       }

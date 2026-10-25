@@ -45,7 +45,20 @@ export interface LinuxSetupChoices {
   cloudCandidates: boolean;
 }
 
+export interface LinuxDictionaryDownloads {
+  directory: string;
+  artifacts: {
+    name: string;
+    url: string | null;
+    mirrorUrl: string | null;
+    size: number;
+    sha256: string;
+  }[];
+}
+
 export interface LinuxSetupClient {
+  /** 从当前安装包读取手动下载清单；只在用户打开手动下载入口时调用。 */
+  downloads?: () => Promise<LinuxDictionaryDownloads>;
   /** Runs the packaged setup script; each output line is delivered as it is printed. */
   run: (
     choices: LinuxSetupChoices,
@@ -106,16 +119,19 @@ export function LinuxSetupPage({
   status,
   client,
   edition,
+  repair = false,
   onComplete,
 }: {
   status: LinuxSetupStatus;
+  /** 已有配置的资源校验失败时，复用更新事务修复词库，不覆盖用户状态。 */
+  repair?: boolean;
   client: LinuxSetupClient;
   /** 本安装包所属的版本（`HostCapabilities.edition`），决定页面上的产品名和终端命令。 */
   edition?: EditionInfo;
   onComplete: () => void;
 }) {
   const names = linuxEditionNames(edition);
-  const updating = status.prepared && status.dictionaryOutdated === true;
+  const updating = status.prepared && (repair || status.dictionaryOutdated === true);
   const [download, setDownload] = useState(false);
   const [cloudCandidates, setCloudCandidates] = useState(false);
   const [phase, setPhase] = useState<Phase>("ready");
@@ -124,6 +140,11 @@ export function LinuxSetupPage({
   const [result, setResult] = useState<LinuxSetupStatus | null>(null);
   const [error, setError] = useState("");
   const [lines, setLines] = useState<LinuxSetupLine[]>([]);
+  const [downloads, setDownloads] = useState<LinuxDictionaryDownloads | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualError, setManualError] = useState("");
+  const [manualLoading, setManualLoading] = useState(false);
+  const [copied, setCopied] = useState("");
   const log = useRef<HTMLPreElement>(null);
   const { busy, run } = useAsyncActionRunner(setError, undefined, client);
   const directory = status.stateDirectory ?? "~/.config/msime-client";
@@ -182,6 +203,32 @@ export function LinuxSetupPage({
     );
   };
 
+  const showDownloads = async () => {
+    setManualOpen(true);
+    if (downloads || manualLoading || !client.downloads) return;
+    setManualError("");
+    setManualLoading(true);
+    try {
+      setDownloads(await client.downloads());
+    } catch {
+      setManualError(
+        `未能读取下载清单。可在终端运行 ${names.setupCommand} --list-downloads 查看；自动配置仍可使用。`,
+      );
+    } finally {
+      setManualLoading(false);
+    }
+  };
+  const copyDownloadText = async (text: string, label: string) => {
+    if (!client.copyText) return;
+    setCopied("");
+    try {
+      await client.copyText(text);
+      setCopied(`已复制${label}`);
+    } catch {
+      setCopied("复制失败，请选中文字手动复制。");
+    }
+  };
+
   const percent = Math.floor(progress);
   const action = updating ? "更新" : "配置";
   const failed = Boolean(error) && phase === "ready";
@@ -232,7 +279,9 @@ export function LinuxSetupPage({
             : failed
               ? `${action}没有完成`
               : updating
-                ? "词库需要更新"
+                ? repair
+                  ? "运行资源需要修复"
+                  : "词库需要更新"
                 : "准备词库和配置"}
         </h2>
         <p className="mt-2 mb-0 max-w-[400px] text-center text-[13px] leading-relaxed text-[var(--p-sub)]">
@@ -241,7 +290,9 @@ export function LinuxSetupPage({
               ? "已切换到当前版本的词库，用户词库已一并迁移，新的输入即使用新词库。"
               : "输入法配置已就绪。"
             : updating
-              ? "已安装的词库早于当前版本，输入法暂时继续使用旧词库。立即更新会取回新词库并切换，用户词库会一并迁移。"
+              ? repair
+                ? "将重新校验并取回当前版本的词库，保留已有偏好和用户词库。"
+                : "已安装的词库早于当前版本，输入法暂时继续使用旧词库。立即更新会取回新词库并切换，用户词库会一并迁移。"
               : `首次使用需要校验词库，并在 ${directory} 创建输入法配置。拼音切分、候选排序和词频学习都在本机完成。`}
         </p>
         {phase === "ready" && !updating && !blocked && (
@@ -261,6 +312,116 @@ export function LinuxSetupPage({
                 服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。默认不启用，之后可在设置里更改。
               </span>
             </label>
+          </div>
+        )}
+        {phase === "ready" && !updating && client.downloads && (
+          <div className="mt-4 w-full max-w-[400px] text-left text-xs leading-relaxed select-text">
+            <button
+              type="button"
+              className={settings.backLink}
+              onClick={() => (manualOpen ? setManualOpen(false) : void showDownloads())}
+              aria-expanded={manualOpen}
+            >
+              手动下载词库
+            </button>
+            {manualOpen && (
+              <div className="mt-2 space-y-3 text-[var(--p-sub)]">
+                <p>
+                  可复制链接交给浏览器或其他下载工具。将全部文件按原名放入以下目录，取消自动下载后点击「开始配置」，安装器会核对文件大小和
+                  SHA-256。
+                </p>
+                {manualLoading && <p role="status">正在读取下载清单…</p>}
+                {manualError && (
+                  <p role="alert">
+                    {manualError}{" "}
+                    <button
+                      type="button"
+                      className={settings.backLink}
+                      onClick={() => void showDownloads()}
+                    >
+                      重试读取
+                    </button>
+                  </p>
+                )}
+                {downloads && (
+                  <>
+                    <p className="break-all">
+                      保存目录：<code>{downloads.directory}</code>
+                    </p>
+                    {client.copyText && (
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          className={settings.backLink}
+                          onClick={() => void copyDownloadText(downloads.directory, "保存目录")}
+                        >
+                          复制保存目录
+                        </button>
+                        <button
+                          type="button"
+                          className={settings.backLink}
+                          disabled={!downloads.artifacts.some((file) => file.url)}
+                          onClick={() =>
+                            void copyDownloadText(
+                              downloads.artifacts
+                                .flatMap((file) => (file.url ? [file.url] : []))
+                                .join("\n"),
+                              "原地址",
+                            )
+                          }
+                        >
+                          复制全部原地址
+                        </button>
+                      </div>
+                    )}
+                    <ul className="m-0 list-none space-y-3 p-0">
+                      {downloads.artifacts.map((file) => (
+                        <li key={file.name} className="space-y-1 break-all">
+                          <strong className="text-[var(--p-text)]">{file.name}</strong>（
+                          {file.size.toLocaleString()} 字节）
+                          <div>
+                            SHA-256：<code>{file.sha256}</code>
+                          </div>
+                          <div>
+                            原地址：<span>{file.url ?? "本安装包未提供下载地址"}</span>
+                          </div>
+                          {file.mirrorUrl && (
+                            <div>
+                              国内镜像：<span>{file.mirrorUrl}</span>
+                            </div>
+                          )}
+                          {client.copyText && file.url && (
+                            <div className="flex gap-3">
+                              <button
+                                type="button"
+                                className={settings.backLink}
+                                onClick={() =>
+                                  void copyDownloadText(file.url!, file.name + "原地址")
+                                }
+                              >
+                                复制原地址
+                              </button>
+                              {file.mirrorUrl && (
+                                <button
+                                  type="button"
+                                  className={settings.backLink}
+                                  onClick={() =>
+                                    void copyDownloadText(file.mirrorUrl!, file.name + "镜像地址")
+                                  }
+                                >
+                                  复制国内镜像
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {copied && <p role="status">{copied}</p>}
+              </div>
+            )}
           </div>
         )}
         {phase === "done" && !updating && (
@@ -313,7 +474,17 @@ export function LinuxSetupPage({
                 action={() => void start()}
                 className={primary}
                 disabled={busy || Boolean(blocked)}
-                label={updating ? (error ? "重试" : "立即更新") : error ? "重新配置" : "开始配置"}
+                label={
+                  updating
+                    ? error
+                      ? "重试"
+                      : repair
+                        ? "立即修复"
+                        : "立即更新"
+                    : error
+                      ? "重新配置"
+                      : "开始配置"
+                }
               />
               {updating && (
                 <ActionButton

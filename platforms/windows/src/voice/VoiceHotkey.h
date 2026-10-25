@@ -43,8 +43,8 @@ private:
   std::atomic<bool> rctrl_pressed_{false};
   std::atomic<bool> lwin_pressed_{false};
   std::atomic<bool> rwin_pressed_{false};
-  std::atomic<bool> f9_pressed_{false};
-  std::atomic<bool> ctrl_f9_consumed_{false};
+  // 已消费的切换按键直到松开才释放，改绑、禁用或失焦不能把重复键交回应用。
+  VoiceToggleStrokes toggle_strokes_;
   std::atomic<bool> cancel_posted_{false};
   std::atomic<bool> suppress_ralt_until_up_{false};
   std::atomic<bool> suppress_win_until_up_{false};

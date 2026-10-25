@@ -168,6 +168,10 @@ SessionController::SessionController(
            },
            [this](const FocusLease &lease, const FanyImeNamedpipeData &packet) {
              wait_candidate_render_for_key(lease, packet);
+           },
+           [this](const std::string &line) {
+             if (presentation_.rejected)
+               presentation_.rejected(line);
            }},
           transactions_) {
   if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||
@@ -674,18 +678,22 @@ bool SessionController::reset_cache() {
   return submitted->get() == InputTaskStatus::Completed &&
          result->load(std::memory_order_acquire);
 }
+void SessionController::wake_preferences() {
+  if (preferences_)
+    preferences_->wake();
+}
 bool SessionController::send_tsf_config(const TsfLocalConfig &config) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Config push cannot reenter controller callbacks");
   if (stopping_)
     return false;
   const auto tickets = transport_.current_tickets();
-  const auto frames = tsf_config_frames(config);
   std::unique_lock transaction(*transactions_, std::try_to_lock);
   if (!transaction.owns_lock())
     return false;
   bool all_sent = true;
   for (const auto &ticket : tickets) {
+    const auto frames = tsf_config_frames(config, (ticket.capabilities & FanyImeProtocol::OrderedPreferences) != 0);
     for (const auto &frame : frames) {
       bool sent = false;
       try {

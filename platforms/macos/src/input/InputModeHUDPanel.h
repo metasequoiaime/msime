@@ -8,12 +8,14 @@ FOUNDATION_EXPORT NSString *MSIMEInputModeHUDText(BOOL englishInputMode);
 FOUNDATION_EXPORT BOOL MSIMEInputModeHUDUsableCaretRect(NSRect caretRect);
 FOUNDATION_EXPORT NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visibleFrame);
 
-/// A short, non-activating badge shown after the user switches Chinese/English input.
+/// 中英文或繁简切换后的短暂提示，不激活窗口。
 @interface MSIMEInputModeHUDPanel : NSPanel
 /// 系统主题在 macOS 26 起使用原生材质，旧系统与减少透明度模式回退。
 @property(nonatomic) BOOL liquidGlassEnabled;
 + (instancetype)sharedPanel;
 - (void)showEnglishInputMode:(BOOL)englishInputMode nearCaretRect:(NSRect)caretRect;
+/// 与中英文切换共用尺寸、主题、位置和消失计时；播报使用完整状态名称。
+- (void)showText:(NSString *)text announcement:(NSString *)announcement nearCaretRect:(NSRect)caretRect;
 /// The badge's fill, outline and glyph colour: the floating toolbar's, so it follows the selected theme and skin. Pass dynamic colours to follow the appearance. Until set, the system window colours.
 - (void)setSurfaceColor:(NSColor *)surface borderColor:(NSColor *)border textColor:(NSColor *)text;
 /// 提示画成哪种明暗。它用悬浮工具栏的调色板，所以也按工具栏的规则：取 `theme`，为 `system` 或缺省时跟随系统外观。控制器传入交给工具栏的同一个字典，全局主题自带明暗时其中的 `theme` 已被钉住。工具栏和提示在 macOS 上没有单独的明暗设置。

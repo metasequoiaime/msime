@@ -10,10 +10,14 @@ inline constexpr std::uint32_t AutoRepeat = 0x20000000u;
 // TSF 在强制使用我们候选窗的游戏宿主上设这一位，表示这次会话是游戏会话、宿主给的锚点可能不可信。只有协商到 FanyImeProtocol::GameHostCandidate 之后才会设。
 // 只能设在 Key/Show/Move/Hide 包上：src/input/ModeMailbox.h 对 StatusSnapshot/FocusRestored 用的是 `modifiers_down != 0` 判全角，src/input/MainFrame.h 要求这两类包的 modifiers_down <= 1，带上这一位会把全角状态读错，或者整帧被判为非法。
 inline constexpr std::uint32_t GameHost = 0x10000000u;
+// 只在协商 GroupedPanelKeys 后用于无修饰键的小写组码。
+inline constexpr std::uint32_t GroupedPanelKey = 0x04000000u;
+static_assert((GroupedPanelKey & (FanyImePipeFlags::UiLess |
+    FanyImePipeFlags::ServerUiLessCandidates | CandidateActive | AutoRepeat | GameHost)) == 0);
 
 inline constexpr std::uint32_t key_modifiers(std::uint32_t value) {
   return value &
          ~(FanyImePipeFlags::UiLess | FanyImePipeFlags::ServerUiLessCandidates |
-           CandidateActive | AutoRepeat | GameHost);
+           CandidateActive | AutoRepeat | GameHost | GroupedPanelKey);
 }
 } // namespace msime::windows::PipeMetadata

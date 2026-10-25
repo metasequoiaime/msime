@@ -65,7 +65,7 @@ STDAPI_(ULONG) CTextStore::Release()
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::AdviseSink(REFIID riid, IUnknown *punk, DWORD dwMask)
+STDAPI CTextStore::AdviseSink(REFIID riid, IUnknown *punk, DWORD)
 {
 
     if (!IsEqualGUID(riid, IID_ITextStoreACPSink))
@@ -87,7 +87,7 @@ STDAPI CTextStore::AdviseSink(REFIID riid, IUnknown *punk, DWORD dwMask)
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::UnadviseSink(IUnknown *punk)
+STDAPI CTextStore::UnadviseSink(IUnknown *)
 {
     // we're dealing with TSF. We don't have to check punk is same instance of _pSink.
     _pSink->Release();
@@ -139,7 +139,7 @@ STDAPI CTextStore::QueryInsert(LONG acpInsertStart, LONG acpInsertEnd, ULONG cch
         acpInsertEnd > static_cast<LONG>(_pEditor->GetTextLength()) ||
         cch > CTextContainer::kMaxTextUnits -
                    (_pEditor->GetTextLength() - static_cast<ULONG>(acpInsertEnd - acpInsertStart)) ||
-        cch > static_cast<ULONG>(std::numeric_limits<LONG>::max() - acpInsertStart))
+        cch > static_cast<ULONG>((std::numeric_limits<LONG>::max)() - acpInsertStart))
         return E_INVALIDARG;
 
     *pacpResultStart = acpInsertStart;
@@ -251,7 +251,7 @@ STDAPI CTextStore::GetText(LONG acpStart, LONG acpEnd, __out_ecount(cchPlainReq)
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::SetText(DWORD dwFlags, LONG acpStart, LONG acpEnd, __in_ecount(cch) const WCHAR *pchText, ULONG cch,
+STDAPI CTextStore::SetText(DWORD, LONG acpStart, LONG acpEnd, __in_ecount(cch) const WCHAR *pchText, ULONG cch,
                            TS_TEXTCHANGE *pChange)
 {
     if (!pChange || (cch && !pchText))
@@ -263,7 +263,7 @@ STDAPI CTextStore::SetText(DWORD dwFlags, LONG acpStart, LONG acpEnd, __in_ecoun
 
     const ULONG removed = static_cast<ULONG>(acpEnd - acpStart);
     if (cch > CTextContainer::kMaxTextUnits - (_pEditor->GetTextLength() - removed) ||
-        cch > static_cast<ULONG>(std::numeric_limits<LONG>::max() - acpStart))
+        cch > static_cast<ULONG>((std::numeric_limits<LONG>::max)() - acpStart))
         return E_INVALIDARG;
 
     // Check the composition status
@@ -296,7 +296,7 @@ STDAPI CTextStore::SetText(DWORD dwFlags, LONG acpStart, LONG acpEnd, __in_ecoun
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::GetFormattedText(LONG acpStart, LONG acpEnd, IDataObject **ppDataObject)
+STDAPI CTextStore::GetFormattedText(LONG, LONG, IDataObject **)
 {
     return E_NOTIMPL;
 }
@@ -307,7 +307,7 @@ STDAPI CTextStore::GetFormattedText(LONG acpStart, LONG acpEnd, IDataObject **pp
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::GetEmbedded(LONG acpPos, REFGUID rguidService, REFIID riid, IUnknown **ppunk)
+STDAPI CTextStore::GetEmbedded(LONG, REFGUID, REFIID, IUnknown **)
 {
     return E_NOTIMPL;
 }
@@ -318,8 +318,8 @@ STDAPI CTextStore::GetEmbedded(LONG acpPos, REFGUID rguidService, REFIID riid, I
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::InsertEmbedded(DWORD dwFlags, LONG acpStart, LONG acpEnd, IDataObject *pDataObject,
-                                  TS_TEXTCHANGE *pChange)
+STDAPI CTextStore::InsertEmbedded(DWORD, LONG, LONG, IDataObject *,
+                                  TS_TEXTCHANGE *)
 {
     return E_NOTIMPL;
 }
@@ -330,7 +330,7 @@ STDAPI CTextStore::InsertEmbedded(DWORD dwFlags, LONG acpStart, LONG acpEnd, IDa
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::RequestSupportedAttrs(DWORD dwFlags, ULONG cFilterAttrs, const TS_ATTRID *paFilterAttrs)
+STDAPI CTextStore::RequestSupportedAttrs(DWORD, ULONG cFilterAttrs, const TS_ATTRID *paFilterAttrs)
 {
     PrepareAttributes(cFilterAttrs, paFilterAttrs);
     if (!_nAttrVals)
@@ -344,8 +344,8 @@ STDAPI CTextStore::RequestSupportedAttrs(DWORD dwFlags, ULONG cFilterAttrs, cons
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::RequestAttrsAtPosition(LONG acpPos, ULONG cFilterAttrs, const TS_ATTRID *paFilterAttrs,
-                                          DWORD dwFlags)
+STDAPI CTextStore::RequestAttrsAtPosition(LONG, ULONG cFilterAttrs, const TS_ATTRID *paFilterAttrs,
+                                          DWORD)
 {
     PrepareAttributes(cFilterAttrs, paFilterAttrs);
     if (!_nAttrVals)
@@ -359,8 +359,8 @@ STDAPI CTextStore::RequestAttrsAtPosition(LONG acpPos, ULONG cFilterAttrs, const
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::RequestAttrsTransitioningAtPosition(LONG acpPos, ULONG cFilterAttrs, const TS_ATTRID *paFilterAttrs,
-                                                       DWORD dwFlags)
+STDAPI CTextStore::RequestAttrsTransitioningAtPosition(LONG, ULONG, const TS_ATTRID *,
+                                                       DWORD)
 {
     return E_NOTIMPL;
 }
@@ -371,8 +371,8 @@ STDAPI CTextStore::RequestAttrsTransitioningAtPosition(LONG acpPos, ULONG cFilte
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::FindNextAttrTransition(LONG acpStart, LONG acpHalt, ULONG cFilterAttrs,
-                                          const TS_ATTRID *paFilterAttrs, DWORD dwFlags, LONG *pacpNext, BOOL *pfFound,
+STDAPI CTextStore::FindNextAttrTransition(LONG, LONG, ULONG,
+                                          const TS_ATTRID *, DWORD, LONG *pacpNext, BOOL *pfFound,
                                           LONG *plFoundOffset)
 {
     *pacpNext = 0;
@@ -429,7 +429,7 @@ STDAPI CTextStore::GetActiveView(TsViewCookie *pvcView)
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::GetACPFromPoint(TsViewCookie vcView, const POINT *pt, DWORD dwFlags, LONG *pacp)
+STDAPI CTextStore::GetACPFromPoint(TsViewCookie, const POINT *, DWORD, LONG *)
 {
     return E_NOTIMPL;
 }
@@ -440,7 +440,7 @@ STDAPI CTextStore::GetACPFromPoint(TsViewCookie vcView, const POINT *pt, DWORD d
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::GetTextExt(TsViewCookie vcView, LONG acpStart, LONG acpEnd, RECT *prc, BOOL *pfClipped)
+STDAPI CTextStore::GetTextExt(TsViewCookie, LONG acpStart, LONG acpEnd, RECT *prc, BOOL *pfClipped)
 {
     RECT rcStart;
     RECT rcEnd;
@@ -483,7 +483,7 @@ STDAPI CTextStore::GetTextExt(TsViewCookie vcView, LONG acpStart, LONG acpEnd, R
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::GetScreenExt(TsViewCookie vcView, RECT *prc)
+STDAPI CTextStore::GetScreenExt(TsViewCookie, RECT *prc)
 {
     GetClientRect(_pEditor->GetWnd(), prc);
     ClientToScreen(_pEditor->GetWnd(), (POINT *)&prc->left);
@@ -497,7 +497,7 @@ STDAPI CTextStore::GetScreenExt(TsViewCookie vcView, RECT *prc)
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::GetWnd(TsViewCookie vcView, HWND *phwnd)
+STDAPI CTextStore::GetWnd(TsViewCookie, HWND *phwnd)
 {
     *phwnd = _pEditor->GetWnd();
     return S_OK;
@@ -509,7 +509,7 @@ STDAPI CTextStore::GetWnd(TsViewCookie vcView, HWND *phwnd)
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::QueryInsertEmbedded(const GUID *pguidService, const FORMATETC *pFormatEtc, BOOL *pfInsertable)
+STDAPI CTextStore::QueryInsertEmbedded(const GUID *, const FORMATETC *, BOOL *)
 {
     return E_NOTIMPL;
 }
@@ -528,7 +528,7 @@ STDAPI CTextStore::InsertTextAtSelection(DWORD dwFlags, __in_ecount(cch) const W
     const ULONG removed = static_cast<ULONG>(acpEnd - acpStart);
 
     if ((cch && !pchText) || cch > CTextContainer::kMaxTextUnits - (_pEditor->GetTextLength() - removed) ||
-        cch > static_cast<ULONG>(std::numeric_limits<LONG>::max() - acpStart))
+        cch > static_cast<ULONG>((std::numeric_limits<LONG>::max)() - acpStart))
         return E_INVALIDARG;
 
     if (dwFlags & TS_IAS_QUERYONLY)
@@ -575,8 +575,8 @@ STDAPI CTextStore::InsertTextAtSelection(DWORD dwFlags, __in_ecount(cch) const W
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::InsertEmbeddedAtSelection(DWORD dwFlags, IDataObject *pDataObject, LONG *pacpStart, LONG *pacpEnd,
-                                             TS_TEXTCHANGE *pChange)
+STDAPI CTextStore::InsertEmbeddedAtSelection(DWORD, IDataObject *, LONG *, LONG *,
+                                             TS_TEXTCHANGE *)
 {
     return E_NOTIMPL;
 }
@@ -589,7 +589,7 @@ STDAPI CTextStore::InsertEmbeddedAtSelection(DWORD dwFlags, IDataObject *pDataOb
 
 STDAPI CTextStore::AdviseMouseSink(ITfRangeACP *range, ITfMouseSink *pSink, DWORD *pdwCookie)
 {
-    DWORD dwCookie;
+    DWORD dwCookie = 1;
     if (!_prgMouseSinks)
     {
         _prgMouseSinks = (MOUSESINK *)LocalAlloc(LPTR, sizeof(MOUSESINK));
@@ -752,7 +752,7 @@ STDAPI CTextStore::OnStartComposition(ITfCompositionView *pComposition, BOOL *pf
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::OnUpdateComposition(ITfCompositionView *pComposition, ITfRange *pRangeNew)
+STDAPI CTextStore::OnUpdateComposition(ITfCompositionView *pComposition, ITfRange *)
 {
     if (_pCurrentCompositionView)
     {
@@ -771,7 +771,7 @@ STDAPI CTextStore::OnUpdateComposition(ITfCompositionView *pComposition, ITfRang
 //
 //----------------------------------------------------------------------------
 
-STDAPI CTextStore::OnEndComposition(ITfCompositionView *pComposition)
+STDAPI CTextStore::OnEndComposition(ITfCompositionView *)
 {
     if (_pCurrentCompositionView)
     {

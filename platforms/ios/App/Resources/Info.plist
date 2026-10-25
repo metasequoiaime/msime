@@ -54,6 +54,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>验证身份以查看打字统计</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

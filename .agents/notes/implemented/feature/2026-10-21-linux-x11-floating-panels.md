@@ -11,6 +11,8 @@ macOS 有两块 Linux 没有的屏幕浮窗：
 
 ## Decision
 
+本篇关于“有 `DISPLAY` 即可使用”的 Xwayland 前提由 [satellite 浮层回退](../bug-fix/2026-10-25-linux-satellite-overlay-fallback.md) 收窄：xwayland-satellite 不具备独立 root overlay 语义。原窗口、绘制和菜单架构保留；不得再把下面的兼容性推断当作 satellite 桌面验收。
+
 两块浮窗都在 X11 上自绘，IBus 宿主和 Fcitx5 插件共用 `platforms/linux/src/overlay/` 里的同一份实现，行为、几何、文案照 macOS，视觉保留 Linux 的配色（产品决定：系统主题在 Linux 上用 Adwaita 的配色，皮肤画自己的颜色）。
 
 ### 分层

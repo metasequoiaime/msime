@@ -87,14 +87,17 @@ pub enum CharacterWidth {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
+    /// 非组字的上屏后联想；空格、回车、数字和失焦均不自动提交这些候选。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub prediction: bool,
     pub scheme: u8,
     /// The active scheme writes Chinese (`SchemeType::is_chinese`): what 中文 returns to and what the Chinese statistics count. Hosts branch on this rather than on scheme ordinals.
     pub chinese_text: bool,
     /// The host's Simplified-to-Traditional conversion applies to this view's preedit and to its commits: a scheme it applies to (`SchemeType::script_conversion_applies`) outside the `unicode` and `temporary_japanese` modes, whose text is not Chinese to convert.
     pub script_conversion: bool,
-    /// 引擎的触屏九键模式：开着时数字是输入，不当选词键。只表示九键（全拼九宫格或注音九键），14 键下为假。
+    /// 引擎的触屏九键模式：开着时数字是输入，不当选词键。只表示九键（全拼九宫格或注音九键），字母组网格下为假。
     pub nine_key: bool,
-    /// 引擎当前的组码网格：`"none"`、`"nine_key"`、`"fourteen_key"` 或 `"nine_key_shuangpin"`。宿主据此决定是否显示拼音条、读音行和三栏面板：几种网格共用 `nine_key_spellings`、`nine_key_reading`、`nine_key_single_character` 和 `nine_key_strokes`。九键双拼的数字和九键一样不当选词键，但 `nine_key` 为假（它没有英文九键，也不开注音九键）。
+    /// 引擎当前的组码网格：`"none"`、`"nine_key"`、`"fourteen_key"`、`"nine_key_shuangpin"` 或 `"eighteen_key"`。宿主据此决定是否显示拼音条、读音行和三栏面板：几种网格共用 `nine_key_spellings`、`nine_key_reading`、`nine_key_single_character` 和 `nine_key_strokes`。九键双拼的数字和九键一样不当选词键，但 `nine_key` 为假（它没有英文九键，也不开注音九键）。
     pub key_grid: &'static str,
     pub nine_key_spellings: Vec<String>,
     /// 全拼九键组字时，首选候选覆盖的数字显示成它的拼音（`xi'an`），给键盘的读音行用；其他情况为空，包括注音九键。全拼下 `preedit` 仍是数字；注音下是转换结果加上未完成的数字。
@@ -205,6 +208,8 @@ pub enum SelectionHow {
     WubiAuto = 10,
     /// 九宫格组码到上限后再按一键，先选掉首选再接着打。
     GridLimit = 11,
+    /// `Command::CommitCandidate` 由引擎选择原始首行，呈现座位可经重排改变。
+    FirstCandidateCommand = 12,
 }
 
 /// 选中之后发生了什么。

@@ -114,6 +114,7 @@ fn local_only_settings_are_dropped() {
             "voice.contribute_audio",
             AccountPreferenceValue::Boolean(true),
         ),
+        ("update_channel", string("nightly")),
     ]);
     without_local_only(&mut values);
     assert_eq!(values, settings(&[("input.schema", string("quanpin"))]));

@@ -32,25 +32,24 @@ function check(condition: boolean, message: string): void {
 console.log("KeyboardSession settings links and common phrases");
 
 // 皮肤选择器的「更多皮肤」打开「皮肤」页：键盘读不到设置应用下载的社区皮肤，那一页能用全部皮肤。长按工具栏按钮打开「屏幕键盘」页，工具栏的显示方式和工具开关在那里。
-group(
-  "the function panel's 词库, 反馈, 关于, the skin picker's 更多皮肤 and a held toolbar button open their settings pages",
-  () => {
-    check(
-      SettingsPageLink.PAGES.length === 5 &&
-        SettingsPageLink.accepts("dictionary") &&
-        SettingsPageLink.accepts("feedback") &&
-        SettingsPageLink.accepts("about") &&
-        SettingsPageLink.accepts("skin") &&
-        SettingsPageLink.accepts("screen-keyboard"),
-      "exactly the five packages/ui page ids",
-    );
-    check(!SettingsPageLink.accepts("account"), "another real page is not linked");
-    check(!SettingsPageLink.accepts(""), "nor is an empty id");
-    check(!SettingsPageLink.accepts("About"), "and ids are matched exactly");
-  },
-);
+group("添加语言、功能面板、皮肤选择器与长按工具栏都能打开对应的设置页", () => {
+  check(
+    SettingsPageLink.PAGES.length === 6 &&
+      SettingsPageLink.accepts("input") &&
+      SettingsPageLink.accepts("dictionary") &&
+      SettingsPageLink.accepts("feedback") &&
+      SettingsPageLink.accepts("about") &&
+      SettingsPageLink.accepts("skin") &&
+      SettingsPageLink.accepts("screen-keyboard"),
+    "exactly the five packages/ui page ids",
+  );
+  check(!SettingsPageLink.accepts("account"), "another real page is not linked");
+  check(!SettingsPageLink.accepts(""), "nor is an empty id");
+  check(!SettingsPageLink.accepts("About"), "and ids are matched exactly");
+});
 
 group("a Want's page parameter is honoured only for a linked page", () => {
+  check(SettingsPageLink.fromParameter("input") === "input", "添加语言的输入页通过 Want 校验");
   check(SettingsPageLink.fromParameter("feedback") === "feedback", "a linked id passes through");
   check(SettingsPageLink.fromParameter(undefined) === null, "no parameter is no page");
   check(SettingsPageLink.fromParameter(null) === null, "nor is a null one");

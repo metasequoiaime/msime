@@ -1,10 +1,15 @@
 #include "SessionPump.h"
+#include "PipeMetadata.h"
 #include "ipc_negotiation.h"
 #include "UiSelectionDelivery.h"
 #include "CandidatePresentation.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
+#include "preference_transition.h"
+#include <cstddef>
+#include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <atomic>
 #include <exception>
 
@@ -72,7 +77,236 @@ public:
   }
 };
 } // namespace
+void grouped_panel_pump_tests(const std::string &options) {
+  // 未协商、带修饰键或键码与组码不一致时，必须在输入线程接收之前拒绝。
+  for (unsigned mode = 0; mode < 3; ++mode) {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.ticket.capabilities = mode == 0 ? 0 : FanyImeProtocol::GroupedPanelKeys;
+    transport.packets.resize(2);
+    auto &packet = transport.packets[1];
+    packet.keycode = mode == 2 ? 'N' : 'B';
+    packet.wch = 'b';
+    packet.modifiers_down = PipeMetadata::GroupedPanelKey | (mode == 1 ? 2u : 0u);
+    unsigned keys = 0;
+    SessionPump pump(transport, queue, gate,
+      [&](InputState &, const FocusLease &, const FanyImeNamedpipeData &) -> std::optional<PendingReply> {
+        ++keys;
+        return std::nullopt;
+      }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::DispatchFailed && keys == 0);
+    queue.stop();
+  }
+  // 协商完成后的组码走真实主通道与会话，不能被当成 UILess 候选页标志。
+  {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.ticket.capabilities = FanyImeProtocol::GroupedPanelKeys;
+    transport.packets.resize(2);
+    auto &packet = transport.packets[1];
+    packet.keycode = 'B'; packet.wch = 'b';
+    packet.modifiers_down = PipeMetadata::GroupedPanelKey;
+    unsigned keys = 0;
+    SessionPump pump(transport, queue, gate,
+      [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &key) {
+        ++keys;
+        auto reply = state.configured_key(lease, key, TsfPreeditStyle::Local, {});
+        require(reply && reply->source.transition.at("view").at("key_grid") == "eighteen_key");
+        return reply;
+      }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 1);
+    queue.stop();
+  }
+}
+void ordered_preference_pump_tests(const std::string &options) {
+ for (bool capable : {false, true}) for (unsigned scenario = 0; scenario < 3; ++scenario) {
+  const auto directory = std::filesystem::temp_directory_path() /
+      ("msime-ordered-preferences-" + std::to_string(
+          std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(directory);
+  struct Cleanup {
+    std::filesystem::path directory;
+    ~Cleanup() { std::filesystem::remove_all(directory); }
+  } cleanup{directory};
+  auto document = nlohmann::json{{"format_version", 1}, {"revision", 42},
+      {"preferences", nlohmann::json::parse(options).at("preferences")}};
+  document["preferences"]["keybindings"]["toggle_japanese_ctrl_shift_j"] = true;
+  { std::ofstream file(directory / "preferences.json"); file << document; }
+  const auto snapshot = PreferenceSnapshot::load(directory.u8string());
+  std::promise<std::optional<PreferenceSnapshot>> saved;
+  auto completion = saved.get_future().share();
+  if (scenario != 1) saved.set_value(scenario == 2 ? std::optional<PreferenceSnapshot>{} : snapshot);
+  auto japanese_options = nlohmann::json::parse(options);
+  japanese_options["preferences"]["scheme"] = "japanese";
+  FocusGate gate;
+  InputQueue queue(gate, 2, 8, japanese_options.dump());
+  FixtureTransport transport;
+  transport.ticket.capabilities = capable ? FanyImeProtocol::OrderedPreferences : 0;
+  transport.packets.resize(3);
+  transport.packets[1].keycode = 'J';
+  transport.packets[1].wch = 'j';
+  transport.packets[1].modifiers_down = 3;
+  transport.packets[2].keycode = 'N';
+  transport.packets[2].wch = 'n';
+  transport.packets[2].modifiers_down = 0;
+  bool next_key_used_saved_preferences = false;
+  std::promise<void> submitted;
+  auto submitted_future = submitted.get_future();
+  std::future<bool> writer;
+  if (scenario == 1) writer = std::async(std::launch::async, [&] {
+    submitted_future.wait();
+    auto unrelated = queue.submit([](InputState &) {});
+    const bool available = unrelated && unrelated->get() == InputTaskStatus::Completed;
+    saved.set_value(snapshot);
+    return available;
+  });
+  SessionPump pump(transport, queue, gate,
+    [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+      if (packet.keycode == 'J') {
+        auto reply = state.toggle_japanese(lease, packet, true, [] { return true; });
+        require(reply.has_value());
+        reply->preference_change = completion;
+        submitted.set_value();
+        return reply;
+      }
+      next_key_used_saved_preferences = state.japanese_toggle_shortcut_enabled();
+      auto reply = state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+      require(reply.has_value());
+      require(reply->source.transition.at("view").value("scheme", 0u) ==
+          (scenario == 2 ? static_cast<unsigned>(scheme::Japanese) : static_cast<unsigned>(scheme::Quanpin)));
+      return reply;
+    }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+  require(pump.run(transport.ticket) == PumpResult::Disconnected);
+  if (writer.valid()) require(writer.get());
+  queue.stop();
+  require(next_key_used_saved_preferences == (scenario != 2));
+  std::optional<FanyImePreferencePipe::Transition> receipt;
+  for (const auto &write : transport.writes) {
+    if (write.first != FanyImePipeRole::ToTsfWorkerThread ||
+        write.second.size() != sizeof(FanyImeNamedpipeDataToTsfWorkerThread)) continue;
+    FanyImeNamedpipeDataToTsfWorkerThread frame{};
+    std::memcpy(&frame, write.second.data(), sizeof(frame));
+    if (const auto decoded = FanyImePreferencePipe::parse(frame); decoded && decoded->request != 0) receipt = decoded;
+  }
+  require(receipt.has_value() == capable);
+  if (capable) {
+    require(transport.writes.size() >= 2);
+    FanyImeNamedpipeDataToTsfWorkerThread before_ready{}, ready{};
+    std::memcpy(&before_ready, transport.writes[0].second.data(), sizeof(before_ready));
+    std::memcpy(&ready, transport.writes[1].second.data(), sizeof(ready));
+    require(FanyImePreferencePipe::parse(before_ready)->request == 0 &&
+        ready.msg_type == FanyImeWorkerReplyType::FocusSessionReady);
+  }
+  if (receipt) require(receipt->revision == (scenario == 2 ? 0 : 42) &&
+      receipt->request == 2 && receipt->focus == 77 && receipt->epoch != 0);
+ }
+}
+// 主通道上写给 TIP 的回复帧的请求号。
+uint64_t reply_request(const std::vector<uint8_t> &frame) {
+  constexpr size_t offset = offsetof(FanyImeNamedpipeDataToTsf, request_id);
+  if (frame.size() < offset + 8)
+    return 0;
+  uint64_t value = 0;
+  for (size_t n = 0; n < 8; ++n)
+    value |= uint64_t(frame[offset + n]) << (8 * n);
+  return value;
+}
+// #9525、#9706：本地回车带来的原文观测和 Server 的组字对不上，异常从回复合成器一路冒到输入队列，整个 Server 停机重启。生产按键处理器经真实的输入队列和 pump 派发：这一次请求被拒绝，不发回复帧，只断开这一个客户端；输入队列继续接收，重连后的按键照常处理。别的异常仍然停掉队列。
+void local_commit_rejection_pump_tests(const std::string &options) {
+  {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.packets.resize(1);
+    FanyImeNamedpipeData packet{};
+    packet.client_id = transport.ticket.client;
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 2;
+    for (char c : std::string("ab")) {
+      packet.keycode = static_cast<uint32_t>(c - 'a' + 'A');
+      packet.wch = c;
+      transport.packets.push_back(packet);
+      ++packet.request_id;
+    }
+    // TIP 拿不到观测时（超过 127 个 UTF-16 码元，或读不出宿主快照）清空载荷照样发出回车。
+    packet.keycode = 0x0D;
+    packet.wch = 0;
+    transport.packets.push_back(packet);
+    const auto enter_request = packet.request_id;
+    std::vector<std::string> lines;
+    std::vector<std::string> editing;
+    size_t closed = 0, keys = 0;
+    SessionPump::Presentation presentation;
+    presentation.rejected = [&](const std::string &line) { lines.push_back(line); };
+    presentation.disconnected = [&](const PipeTicket &) { ++closed; };
+    const auto production = production_key_handler();
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &key) {
+          ++keys;
+          auto reply = production(state, lease, key);
+          if (reply)
+            editing.push_back(reply->source.transition.at("view").at("editing_text").get<std::string>());
+          return reply;
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; }, presentation);
+    require(pump.run(transport.ticket) == PumpResult::RequestRejected && keys == 3);
+    require(queue.stats().accepting && queue.stats().failed == 0);
+    require(!transport.open && closed == 1);
+    require(lines.size() == 1);
+    const auto &line = lines.front();
+    require(line.find("kind=key") != std::string::npos &&
+            line.find("request=" + std::to_string(enter_request)) != std::string::npos &&
+            line.find("check=local_commit_observation") != std::string::npos &&
+            line.find("observed_bytes=0 expected_bytes=2") != std::string::npos);
+    require(line.find("ab") == std::string::npos);
+    // 两个字母照常组字；被拒的回车没有回复，主通道上也没有带它请求号的帧。
+    require(editing == std::vector<std::string>{"a", "ab"});
+    for (const auto &write : transport.writes)
+      if (write.first == FanyImePipeRole::ToTsf)
+        require(reply_request(write.second) != enter_request);
+
+    // 同一个客户端重新连上：新的会话从空组字开始，下一个键照常处理。
+    auto activation = transport.packets.front();
+    activation.request_id = 78;
+    packet.request_id = enter_request + 1;
+    packet.keycode = 'C';
+    packet.wch = 'c';
+    transport.packets = {activation, packet};
+    transport.ticket.generations = {4, 5, 6};
+    transport.next = 0;
+    transport.writes.clear();
+    transport.open = true;
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 4);
+    require(queue.stats().accepting && queue.stats().failed == 0 && lines.size() == 1);
+    // 旧会话里没上屏的 ab 随断开丢掉，和 TIP 那边已经结束的组字对齐，不会接成 abc。
+    require(editing.size() == 3 && editing.back() == "c");
+    queue.stop();
+  }
+  {
+    // 不是 RequestRejected 的异常照旧停掉输入队列：Engine 或路由已经不可信，不能只断一个客户端了事。
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    std::vector<std::string> lines;
+    SessionPump::Presentation presentation;
+    presentation.rejected = [&](const std::string &line) { lines.push_back(line); };
+    SessionPump pump(
+        transport, queue, gate,
+        [](InputState &, const FocusLease &, const FanyImeNamedpipeData &) -> std::optional<PendingReply> {
+          throw std::invalid_argument("Synthetic invariant failure");
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; }, presentation);
+    require(pump.run(transport.ticket) == PumpResult::QueueUnavailable);
+    require(!queue.stats().accepting && queue.stats().failed == 1 && lines.empty());
+    queue.stop();
+  }
+}
 void session_pump_tests(const std::string &options) {
+  ordered_preference_pump_tests(options);
+  grouped_panel_pump_tests(options);
   // 真实 pump 的主通道：协商后的本地 UI-less 只收到导航意图；旧宿主仍收到候选页。
   for (bool capable : {false, true}) for (bool serverPage : {false, true}) {
     for (auto key : {0x28u, 0x22u}) {
@@ -810,7 +1044,7 @@ void session_pump_tests(const std::string &options) {
           return result;
         }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 12);
-    require(transport.writes.size() == 13 + (uiless ? 12 : mode == 1 ? 9 : 0));
+    require(transport.writes.size() == 13u + (uiless ? 12u : mode == 1 ? 9u : 0u));
     queue.stop();
   }
   for (auto event : {FanyImePipeEventType::PuncSwitch,
