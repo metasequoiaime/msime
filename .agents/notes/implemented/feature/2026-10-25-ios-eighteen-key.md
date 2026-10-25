@@ -40,7 +40,7 @@ iOS 与 Android 一样提供两个入口，不新增双拼方案值：全拼 18 
 - `touch_shuangpin_layout=eighteen_key` 与 `touch_keyboard_layout=eighteen_key` 在 iOS 上开始生效：从 Android 同步过来、或旧版本留下的这两个值，在 iOS 新版本上会画 18 键。
 - 18 键第二排的边距在布局后按行宽计算，第一次布局前取第一排的宽度；键距、单手或浮动改变宽度时随 `viewDidLayoutSubviews` 重算。
 - 横滑的单元测试用脚本化的触摸驱动识别器和处理函数，不经过真实的系统事件分发，抬手才过阈值时按键的点按被扣下这一点只能核对 `delaysTouchesEnded` 已打开；真机或模拟器系统键盘里的手感、与系统手势的冲突仍需实际设备确认。
-- HarmonyOS 的 18 键由另一项工作接入，#8930 在三端都完成前保持打开。
+- HarmonyOS 的 18 键与横滑由另一项工作接入，见 [HarmonyOS 双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md)。
 
 ## Verification
 

@@ -62,6 +62,7 @@ import { NineKeyAction, NineKeyActionKind, NineKeyLayout, NineKey } from './inpu
 import { NineKeyShuangpinFace, nineKeyShuangpinFace, nineKeyShuangpinLabel } from './input/NineKeyShuangpinKeypad';
 import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
 import { EighteenKeyLayout } from './input/EighteenKeyLayout';
+import { EighteenKeySwipeGesture, EighteenKeyTap } from './input/EighteenKeySwipePolicy';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import { ChineseSymbolFaces } from './input/ChineseSymbolFaces';
 import {
@@ -172,6 +173,8 @@ interface KeyOptions {
    * 字母键的小写字母。设了它，键面和读屏文字在绘制时按当前大小写现算，`face` 和 `label` 不再用：自动大写在每次文字变化后异步切换大小写，若把大小写放进 `ForEach` 的键标识，每次切换都会重建全部字母键，手指正按着的那个键也被换掉，这次按键就丢了。
    */
   letter?: string;
+  /** 双拼 18 键上这一键的字母（`FourteenKey.letters`）。设了它，横滑选中这一键的某个字母时键面在绘制时改画那个字母，与 `letter` 同理不进 `ForEach` 的键标识，正按着的键不会被重建。 */
+  swipeLetters?: string;
   size: number;
   /** 用操作色填充：2in1 上按住的 Shift，或有组合串时的回车键（在触屏键盘的设计行上则始终填充）。 */
   emphasized: boolean;
@@ -763,6 +766,11 @@ struct KeyboardView {
   private letterHints: LetterHintGesture = new LetterHintGesture();
   /** 每个被跟踪手指的长按计时器。 */
   private hintHoldTimers: Map<number, number> = new Map<number, number>();
+  /** 双拼 18 键两个字母的键上的横滑。 */
+  private eighteenSwipes: EighteenKeySwipeGesture = new EighteenKeySwipeGesture();
+  /** 横滑正选中字母的那个 18 键（`FourteenKey.letters`）和选中的大写字母；没有时都为空串。 */
+  @State eighteenSwipeKey: string = '';
+  @State eighteenSwipeLetter: string = '';
   private glideContext: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
@@ -1546,6 +1554,9 @@ struct KeyboardView {
     this.hintHoldTimers.forEach((timer: number): void => clearTimeout(timer));
     this.hintHoldTimers.clear();
     this.letterHints.clear();
+    this.eighteenSwipes.clear();
+    this.eighteenSwipeKey = '';
+    this.eighteenSwipeLetter = '';
     this.keyPreview = null;
     this.keyPreviewFinger = -1;
   }
@@ -1735,7 +1746,8 @@ struct KeyboardView {
               : this.skin.keyLabelColor($$.emphasized, $$.special === true)
           })
         } else {
-          Text($$.letter === undefined ? $$.face : this.letterFace($$.letter))
+          Text($$.letter !== undefined ? this.letterFace($$.letter)
+            : this.eighteenSwipeFace($$.swipeLetters, $$.face))
             .fontSize($$.size)
             .minFontSize(KEY_HINT_FONT_SIZE)
             .maxFontSize($$.size)
@@ -5097,6 +5109,7 @@ struct KeyboardView {
     return {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
+      swipeLetters: key.letters,
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
@@ -5137,11 +5150,105 @@ struct KeyboardView {
     .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
     .animation({ duration: KEY_PRESS_MS })
     .responseRegion(this.keyHitRegion())
-    .onClick(() => this.tapEighteenKey(key))
+    .onTouch((event: TouchEvent): void => this.eighteenKeySwipeTouch(key, event))
+    .onClick((event: ClickEvent): void => this.clickEighteenKey(key, event))
     .gesture(LongPressGesture().onAction(() => {
+      if (this.swipesEighteenKey() && !this.eighteenSwipes.hold(key.letters)) {
+        // 横滑已经接管这次按压，长按不再弹出字母。
+        return;
+      }
+      this.endEighteenSwipeFace(key.letters);
       KeyboardSession.shared.softKeyPress(KeyIdPolicy.eighteenKey(key.letters));
       this.openKeyHold(EighteenKeyLayout.holdOptions(key));
     }))
+  }
+
+  /** 两个字母的 18 键是否接横滑：只有双拼 18 键，全拼 18 键只点按。 */
+  private swipesEighteenKey(): boolean {
+    return this.scheme.engineScheme === 'shuangpin' && this.drawsEighteenKey();
+  }
+
+  /**
+   * 双拼 18 键两个字母的键上的一次触摸（`EighteenKeySwipePolicy`）：拖动时键面画选中的字母，抬手把它以大写精确标记交给引擎；回到起点、同一键上的第二根手指和系统取消都不输入。没越过阈值的触摸交给这个键的点击。
+   */
+  private eighteenKeySwipeTouch(key: FourteenKey, event: TouchEvent): void {
+    if (!this.swipesEighteenKey()) {
+      return;
+    }
+    if (event.type === TouchType.Down) {
+      if (event.changedTouches.length > 0) {
+        const touch: TouchObject = event.changedTouches[0];
+        this.eighteenSwipes.down(key.letters, touch.id, touch.windowX, touch.windowY);
+        this.showEighteenSwipeFace(key.letters, '');
+      }
+    } else if (event.type === TouchType.Move) {
+      const moved: TouchObject[] = event.changedTouches.length > 0 ? event.changedTouches : event.touches;
+      for (const touch of moved) {
+        const selected: string | null = this.eighteenSwipes.move(key.letters, touch.id, touch.windowX, touch.windowY);
+        if (selected !== null) {
+          this.showEighteenSwipeFace(key.letters, selected);
+        }
+      }
+    } else if (event.type === TouchType.Up) {
+      if (event.changedTouches.length > 0) {
+        const touch: TouchObject = event.changedTouches[0];
+        const letter: string = this.eighteenSwipes.up(key.letters, touch.id, touch.windowX, touch.windowY);
+        this.endEighteenSwipeFace(key.letters);
+        this.typeEighteenKeyLetter(key, letter);
+      }
+    } else if (event.type === TouchType.Cancel) {
+      this.eighteenSwipes.cancel(key.letters);
+      this.endEighteenSwipeFace(key.letters);
+    }
+  }
+
+  /** 18 键的点击：全拼送整组；双拼由横滑判定这次按压是整组、精确字母还是已被横滑接管。 */
+  private clickEighteenKey(key: FourteenKey, event: ClickEvent): void {
+    if (!this.swipesEighteenKey()) {
+      this.tapEighteenKey(key);
+      return;
+    }
+    const tap: EighteenKeyTap = this.eighteenSwipes.click(key.letters, event.windowX, event.windowY);
+    if (tap.group) {
+      this.tapEighteenKey(key);
+    } else {
+      this.endEighteenSwipeFace(key.letters);
+      this.typeEighteenKeyLetter(key, tap.letter);
+    }
+  }
+
+  /** 横滑选中的字母以大写精确标记送入当前网格；键位与点按、长按同记在这一键上。 */
+  private typeEighteenKeyLetter(key: FourteenKey, letter: string): void {
+    if (letter.length === 0) {
+      return;
+    }
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.eighteenKey(key.letters));
+    KeyboardSession.shared.pressGridKey(letter.charCodeAt(0));
+  }
+
+  private showEighteenSwipeFace(letters: string, letter: string): void {
+    if (letter.length === 0 && this.eighteenSwipeKey !== letters) {
+      return;
+    }
+    if (this.eighteenSwipeKey !== letters) {
+      this.eighteenSwipeKey = letters;
+    }
+    if (this.eighteenSwipeLetter !== letter) {
+      this.eighteenSwipeLetter = letter;
+    }
+  }
+
+  private endEighteenSwipeFace(letters: string): void {
+    if (this.eighteenSwipeKey === letters) {
+      this.eighteenSwipeKey = '';
+      this.eighteenSwipeLetter = '';
+    }
+  }
+
+  /** 键面文字：横滑正选中这一键的字母时画那个字母，否则画原来的键面。 */
+  private eighteenSwipeFace(letters: string | undefined, face: string): string {
+    return letters !== undefined && letters === this.eighteenSwipeKey && this.eighteenSwipeLetter.length > 0
+      ? this.eighteenSwipeLetter : face;
   }
 
   private fourteenKeyOptions(key: FourteenKey): KeyOptions {

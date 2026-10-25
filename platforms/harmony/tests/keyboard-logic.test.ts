@@ -75,6 +75,10 @@ import {
 } from "../entry/src/main/ets/keyboard/KeyboardScheme";
 import { FourteenKeyLayout } from "../entry/src/main/ets/keyboard/input/FourteenKeyLayout";
 import { EighteenKeyLayout } from "../entry/src/main/ets/keyboard/input/EighteenKeyLayout";
+import {
+  EighteenKeySwipeGesture,
+  EighteenKeySwipePolicy,
+} from "../entry/src/main/ets/keyboard/input/EighteenKeySwipePolicy";
 import { AppEdition } from "../entry/src/main/ets/keyboard/AppEdition";
 import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboardPolicy";
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
@@ -3066,6 +3070,141 @@ group("全拼 18 键使用共享组码并覆盖全部字母", () => {
     "18 键方案、网格编号和 2in1 回落一致",
   );
   check(KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5, "双拼 18 键使用 C ABI 的网格编号 5");
+});
+
+group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
+  const letter = (dx: number, dy: number): string => EighteenKeySwipePolicy.letter("we", dx, dy);
+  check(EighteenKeySwipePolicy.THRESHOLD_VP === 24, "阈值与 Android 的 24 dp、iOS 的 24 pt 相同");
+  check(
+    letter(-25, 0) === "W" && letter(25, 0) === "E",
+    "左滑取左字母、右滑取右字母，送大写精确标记",
+  );
+  check(letter(24, 0) === "" && letter(-24, 0) === "", "阈值以内仍是点按");
+  check(letter(25, 20) === "" && letter(-25, -20) === "", "纵向位移不能被识别为横滑");
+  check(
+    letter(40, 20) === "E" && letter(30, 20) === "",
+    "明显横滑允许少量纵向移动，横向须大于纵向 1.5 倍",
+  );
+  check(letter(0, 0) === "", "回到起点不选字母");
+  check(
+    letter(Number.NaN, 0) === "" && letter(Number.POSITIVE_INFINITY, 0) === "",
+    "无效坐标不选字母",
+  );
+  for (const unsupported of ["q", "l", "l;", "", "abc", "WE"]) {
+    check(
+      EighteenKeySwipePolicy.letter(unsupported, 50, 0) === "",
+      `「${unsupported}」不是两个小写字母，不横滑`,
+    );
+  }
+  const twoLetterKeys = EighteenKeyLayout.rows()
+    .flat()
+    .filter((key) => EighteenKeySwipePolicy.swipeable(key.letters))
+    .map((key) => key.letters);
+  check(
+    twoLetterKeys.join(" ") === "we rt io sd fg jk xc bn" &&
+      twoLetterKeys.every(
+        (letters) =>
+          EighteenKeyLayout.holdOptions({ letters, input: "", label: "", description: "" })
+            .length === 2,
+      ),
+    "横滑的键正是有长按字母的那八个双字母键",
+  );
+
+  const gesture = new EighteenKeySwipeGesture();
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 110, 100) === "", "轻微移动不选字母");
+  check(gesture.up("we", 4, 110, 100) === "", "轻点抬手不输入字母");
+  const tap = gesture.click("we", 110, 100);
+  check(tap.group && tap.letter === "", "轻点由点击送整组");
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 65, 100) === "W", "越过阈值后键面显示选中的字母");
+  check(gesture.move("we", 4, 135, 100) === "E", "同一次触摸可以反向重选");
+  check(gesture.up("we", 4, 135, 100) === "E", "抬手输入选中的字母");
+  const afterSwipe = gesture.click("we", 135, 100);
+  check(!afterSwipe.group && afterSwipe.letter === "", "抬手先到时随后的点击不再送整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 65, 100);
+  const clickFirst = gesture.click("we", 65, 100);
+  check(
+    !clickFirst.group && clickFirst.letter === "",
+    "点击先于抬手到达且已越过阈值时，点击不送整组",
+  );
+  check(gesture.up("we", 4, 65, 100) === "W", "随后的抬手照常输入字母");
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 115, 100) === "", "快速一甩时只送了一次没过阈值的移动");
+  check(gesture.up("we", 4, 130, 100) === "E", "抬手那一点过了阈值就取那个字母");
+  check(!gesture.click("we", 130, 100).group, "抬手判成横滑后点击不送整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 115, 100);
+  const flickClick = gesture.click("we", 70, 100);
+  check(
+    !flickClick.group && flickClick.letter === "W",
+    "点击先到且它的位置过了阈值时，由点击输入字母",
+  );
+  check(gesture.up("we", 4, 70, 100) === "", "之后的抬手不再输入第二次");
+
+  gesture.down("we", 4, 100, 100);
+  const plainClickFirst = gesture.click("we", 105, 100);
+  check(plainClickFirst.group && plainClickFirst.letter === "", "点击先到且没过阈值时送整组");
+  check(gesture.up("we", 4, 105, 100) === "", "之后的抬手不输入");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 65, 100);
+  check(gesture.move("we", 4, 100, 100) === "", "回到起点不再选中字母");
+  check(gesture.up("we", 4, 100, 100) === "", "回到起点抬手不输入");
+  check(!gesture.click("we", 100, 100).group, "回到起点也不补一次整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 135, 100);
+  gesture.down("we", 5, 140, 100);
+  check(gesture.move("we", 4, 135, 100) === "", "同一键上落下第二根手指后不再选字母");
+  check(
+    gesture.up("we", 4, 135, 100) === "" && gesture.up("we", 5, 140, 100) === "",
+    "两根手指抬起都不输入",
+  );
+  check(!gesture.click("we", 135, 100).group, "两指按压也不送整组");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.down("bn", 5, 300, 200);
+  gesture.move("we", 4, 135, 100);
+  check(gesture.move("bn", 4, 135, 100) === null, "另一根手指的移动不影响别的键");
+  check(
+    gesture.up("bn", 5, 300, 200) === "" && gesture.click("bn", 300, 200).group,
+    "另一个键照常点按",
+  );
+  check(gesture.up("we", 4, 135, 100) === "E", "两个拇指各按一个键时互不取消");
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 135, 100);
+  gesture.cancel("we");
+  check(
+    gesture.up("we", 4, 135, 100) === "" && !gesture.click("we", 135, 100).group,
+    "系统取消后什么也不输入",
+  );
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.hold("we"), "没有横滑时长按照常弹出字母");
+  check(gesture.move("we", 4, 135, 100) === "", "长按之后不抢成横滑");
+  check(
+    gesture.up("we", 4, 135, 100) === "" && !gesture.click("we", 135, 100).group,
+    "长按之后抬手和点击都不输入",
+  );
+
+  gesture.down("we", 4, 100, 100);
+  gesture.move("we", 4, 135, 100);
+  check(!gesture.hold("we"), "横滑先接管时长按不再弹出字母");
+
+  gesture.down("we", 4, 100, 100);
+  check(gesture.move("we", 4, 135, 100) === "E", "新按压不继承取消、长按或横滑状态");
+  gesture.clear();
+  check(
+    gesture.up("we", 4, 135, 100) === "" && gesture.click("we", 135, 100).group,
+    "键被替换后丢弃按压，没有触摸的点击照常送整组",
+  );
 });
 
 group(
