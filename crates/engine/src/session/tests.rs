@@ -13451,3 +13451,20 @@ fn wubi_fourteen_key_needs_the_wubi_scheme_and_plain_input() {
     assert!(quanpin.grid_key(b'n').handled);
     assert!(!quanpin.input.wubi_grid_composing());
 }
+
+/// 快捷短语按用户打出的字母对码；五笔 14 键的组码（`qq`）不是这样的字母，不拿它去对。26 键照旧。
+#[test]
+fn wubi_fourteen_key_codes_do_not_match_quick_phrases() {
+    let fixture = Fixture::new(&format!(
+        "{WUBI_GRID_FIXTURE}CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('qq','腾讯',20);"
+    ));
+    let mut session = wubi_grid_session(&fixture, |options| {
+        options.quick_phrase_candidates = true;
+    });
+    grid_type(&mut session, b"qq");
+    assert!(!words(&session).contains(&"腾讯".to_owned()));
+    session.command(Command::Cancel);
+    type_text(&mut session, "qq");
+    assert!(words(&session).contains(&"腾讯".to_owned()));
+}
