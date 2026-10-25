@@ -103,7 +103,8 @@ public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
             await(describedPrefix("候选 1：我的"));
             if (findVisible(describedPrefix("译文 1：")) != null)
                 throw new AssertionError("Escape left the sense page open; IME showed " + imeTexts());
-            await(field("msime-test-plain").and(node -> equalsText(afterDigit + "wode", node.getText())));
+            // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md）。
+            await(field("msime-test-plain").and(node -> equalsText(afterDigit + "wo'de", node.getText())));
 
             // 再开一次页，空格上屏高亮的第一项。
             stage = "sense page space commit";
@@ -123,11 +124,11 @@ public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
             type(keyboard, KeyEvent.KEYCODE_N, KeyEvent.KEYCODE_I, KeyEvent.KEYCODE_H, KeyEvent.KEYCODE_A,
                 KeyEvent.KEYCODE_O);
             await(describedPrefix("候选 1：你好"));
-            await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
+            await(field("msime-test-plain").and(node -> equalsText("ni'hao", node.getText())));
             ctrlChord(keyboard, KeyEvent.KEYCODE_ENTER);
             SystemClock.sleep(800);
             AccessibilityNodeInfo composing = await(field("msime-test-plain"));
-            if (!equalsText("nihao", composing.getText()) || findVisible(describedPrefix("候选 1：你好")) == null)
+            if (!equalsText("ni'hao", composing.getText()) || findVisible(describedPrefix("候选 1：你好")) == null)
                 throw new AssertionError("Ctrl+Enter with glosses off did not leave the composition alone; IME showed "
                     + imeTexts());
 
