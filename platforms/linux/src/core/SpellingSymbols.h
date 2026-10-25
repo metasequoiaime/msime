@@ -70,4 +70,11 @@ inline bool number_row_picks(const nlohmann::json &view, char32_t character, boo
   return !shift && !local_mode_spelling(view, character) && !scheme_spelling(view, character);
 }
 
+// 普通拼音组字中若引擎把 AZERTY 数字行当前字面符号列为 `spelling_symbols`，裸物理数字行仍优先选候选；真正列出数字的本地模式（Unicode、算式、网址等）继续把按键交给模式输入。
+inline bool number_row_picks(const nlohmann::json &view, bool shift, bool number_row_key,
+                             bool picking) {
+  return picking && !shift && number_row_key && !spelling_digits(view) &&
+         view.value("local_mode", std::string("none")) == "none";
+}
+
 } // namespace msime::linux_host

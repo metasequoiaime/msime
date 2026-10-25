@@ -9215,7 +9215,11 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     const bool picks = msime::linux_host::number_row_picks(
         view_, spelled, event.rawKey().states().test(fcitx::KeyState::Shift), rowCode >= 10 && rowCode <= 19,
         preferences_.value("number_row_selection", true) && !view_.value("nine_key", false) &&
-            !view_.value("candidates", Json::array()).empty());
+            !view_.value("candidates", Json::array()).empty()) ||
+        msime::linux_host::number_row_picks(
+            view_, event.rawKey().states().test(fcitx::KeyState::Shift), rowCode >= 10 && rowCode <= 19,
+            preferences_.value("number_row_selection", true) && !view_.value("nine_key", false) &&
+                !view_.value("candidates", Json::array()).empty());
     if ((!picks && msime::linux_host::engine_spelling(view_, spelled)) ||
         (spelled == U' ' && !states.test(fcitx::KeyState::Shift) && msime::linux_host::spelling_space(view_)))
       return apply(msime_client_character(session_, static_cast<uint8_t>(spelled),

@@ -42,6 +42,21 @@ int main() {
   assert(!number_row_picks(pinyin_literal, U'&', true, true, true));
   assert(!number_row_picks(pinyin_literal, U'&', false, false, true));
   assert(!number_row_picks(pinyin_literal, U'&', false, true, false));
+  using msime::linux_host::shifted_number_row_picks;
+  assert(shifted_number_row_picks(unicode, U'1', true, true, true));
+  assert(!shifted_number_row_picks(unicode, U'1', false, true, true));
+  assert(!shifted_number_row_picks(unicode, U'1', true, false, true));
+  assert(!shifted_number_row_picks(unicode, U'1', true, true, false));
+  assert(!shifted_number_row_picks(unicode, U'!', true, true, true));
+  assert(!shifted_number_row_picks(expression, U'%', true, true, true));
+
+  // AZERTY 的裸数字行即使输出拼音可接受的字面符号，也先选候选；关掉选词、离开数字行或按 Shift 时继续输入符号。
+  const Json literal = {{"scheme", 0}, {"local_mode", "none"}, {"editing_text", "nihao"}, {"spelling_symbols", "@#$%&"}};
+  assert(number_row_picks(literal, false, true, true));
+  assert(!number_row_picks(literal, false, false, true));
+  assert(!number_row_picks(literal, false, true, false));
+  assert(!number_row_picks(literal, true, true, true));
+  assert(!number_row_picks(expression, false, true, true));
 
   // Idle, the mode-entry keys are listed but left to the punctuation route, and digits stay candidate shortcuts.
   const Json idle = {{"local_mode", "none"}, {"spelling_symbols", "/@"}};
