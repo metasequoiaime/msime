@@ -97,7 +97,7 @@ int main() {
     empty_devices = true; click(Form::device_refresh);
     assert(!IsWindowEnabled(control(Form::enabled)) && text(Form::device_status).find("未检测到麦克风") != std::string::npos);
     // 无麦克风只应收窄录音入口，已选豆包服务的网络处理参数仍可编辑。
-    assert(IsWindowEnabled(control(Form::punc)) && IsWindowEnabled(control(Form::itn)) && IsWindowEnabled(control(Form::ddc)));
+    assert(IsWindowEnabled(control(Form::hold_key)) && IsWindowEnabled(control(Form::punc)) && IsWindowEnabled(control(Form::itn)) && IsWindowEnabled(control(Form::ddc)));
     empty_devices = false; click(Form::device_refresh);
     assert(IsWindowEnabled(control(Form::enabled)) && SendMessageW(control(Form::devices),CB_GETCOUNT,0,0) == 2); choose(Form::devices,1);
     assert(voice().at("capture_device") == "synthetic-device" && voice().at("capture_backend") == "windows");

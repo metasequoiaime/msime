@@ -80,9 +80,8 @@ public:
     for (const auto id : {auth_mode, resource, punc, itn, ddc, boosting, stream_endpoint}) EnableWindow(get(id), ready && doubao);
     EnableWindow(get(asr_app_key), ready && doubao && selected(auth_mode) == 1);
     EnableWindow(get(devices), capture_ready); EnableWindow(get(device_refresh), ready);
-    // 豆包的标点、数字规范化和语气词处理是网络服务参数，不依赖本机麦克风；只有录音入口本身在无设备时禁用。
-    for (const auto id : {enabled, sound, mute, inline_text, hold_key, f9, commit})
-      EnableWindow(get(id), capture_ready);
+    // 没有设备时只阻止启动录音和切换设备；快捷键、提示音及服务参数仍可先配置，接入设备后即可使用。
+    EnableWindow(get(enabled), capture_ready);
   }
   Command command(WPARAM event) {
     const int id = LOWORD(event), notification = HIWORD(event); if (!controls_.count(id)) return {};
