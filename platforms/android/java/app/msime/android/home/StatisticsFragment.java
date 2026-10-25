@@ -15,7 +15,6 @@ import android.text.style.AbsoluteSizeSpan;
 import android.text.style.ForegroundColorSpan;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
-import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -51,7 +50,6 @@ import app.msime.android.policy.HostOptionsPolicy;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.json.JSONException;
@@ -77,7 +75,6 @@ public final class StatisticsFragment extends HomeTabFragment {
     /** 一次读取的结果：统计文档（开关、保留期、逐日按键）和派生指标。两者都可能为 null。 */
     private record Snapshot(@Nullable TypingStatisticsModel model, @Nullable TypingStatisticsSummary summary) {}
 
-    private static final Map<String, String> RETENTIONS = retentions();
     private Tab tab = Tab.OVERVIEW;
     @Nullable private TypingStatisticsModel statistics;
     @Nullable private TypingStatisticsSummary summary;
@@ -159,7 +156,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         authentication.authenticate(prompt);
     }
 
-    /** 记录开关、保留期、刷新和清空：偶尔才改一次，收在菜单里，不占读数字的地方。 */
+    /** 记录开关、刷新和清空：偶尔才改一次，收在菜单里，不占读数字的地方。每日明细的保留期不在这里改，已存的值照旧生效。 */
     private void showMenu(View anchor) {
         TypingStatisticsModel current = statistics;
         if (current == null) return;
@@ -172,19 +169,6 @@ public final class StatisticsFragment extends HomeTabFragment {
             HostTask.run(this, context -> HostStore.setStatisticsEnabled(context, next), this::adoptModel);
             return true;
         });
-        SubMenu retention = menu.getMenu().addSubMenu("保留每日明细");
-        for (Map.Entry<String, String> entry : RETENTIONS.entrySet()) {
-            String key = entry.getKey();
-            MenuItem item = retention.add(entry.getValue());
-            item.setCheckable(true);
-            item.setChecked(key.equals(current.retention()));
-            item.setOnMenuItemClickListener(ignored -> {
-                HostTask.run(this, context -> HostStore.setStatisticsRetention(context, key),
-                    value -> reload());
-                return true;
-            });
-        }
-        retention.setGroupCheckable(0, true, true);
         menu.getMenu().add("刷新统计").setOnMenuItemClickListener(item -> {
             reload();
             return true;
@@ -620,13 +604,4 @@ public final class StatisticsFragment extends HomeTabFragment {
         return text;
     }
 
-    private static Map<String, String> retentions() {
-        LinkedHashMap<String, String> values = new LinkedHashMap<>(5);
-        values.put("forever", "一直保留");
-        values.put("365d", "一年");
-        values.put("180d", "半年");
-        values.put("90d", "90 天");
-        values.put("30d", "30 天");
-        return java.util.Collections.unmodifiableMap(values);
-    }
 }
