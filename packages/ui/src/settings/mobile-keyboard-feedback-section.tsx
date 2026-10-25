@@ -73,9 +73,7 @@ export function MobileKeyboardFeedbackSection({
         <SwitchRow
           title="按键音"
           description={
-            ios
-              ? "需要为键盘开启“允许完全访问”，并受系统键盘声音和静音设置控制"
-              : "按键音跟随媒体音量"
+            ios ? "需要为键盘开启“允许完全访问”；跟随静音模式和媒体音量" : "按键音跟随媒体音量"
           }
           disabled={busy}
           checked={value.soundEnabled}

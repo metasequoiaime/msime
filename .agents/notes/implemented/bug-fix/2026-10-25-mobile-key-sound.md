@@ -14,7 +14,7 @@ iOS：键盘用 `UIDevice.playInputClick()`（输入视图实现 `UIInputViewAud
 
 ## Decision
 
-安卓：`default` 和其他声音包走同一条路，经 `NativeClient.keySoundPack` 取到校验过的样本路径，由键盘进程自己的 `SoundPool`（`USAGE_ASSISTANCE_SONIFICATION`）按键类播放，音量取 `plugins.key_sound.volume`。`onStartInputView` 调 `ImeKeyFeedback.prepare()`，让包在第一下按键前开始加载。样本还没加载好或加载失败时才退回系统的 `FX_KEYPRESS_STANDARD`，作为兜底而不是默认声音。
+安卓：`default` 和其他声音包走同一条路，经 `NativeClient.keySoundPack` 取到校验过的样本路径，由键盘进程自己的 `SoundPool`（`USAGE_ASSISTANCE_SONIFICATION`）按键类播放，音量取 `plugins.key_sound.volume`。`onStartInputView` 调 `ImeKeyFeedback.prepare()`，让包在第一下按键前开始加载。样本还没加载好或加载失败时才退回系统的 `FX_KEYPRESS_STANDARD`，作为兜底而不是默认声音。用哪个包在键盘页「反馈」的「音效」里选，见 [Android 键盘设置可选按键音效包](../feature/2026-10-25-android-key-sound-pack-picker.md)。
 
 HarmonyOS 手机和平板：`KeySoundPlayer` 按 `KeySoundPolicy.touchSettings` 配置，开关是本机 `key-feedback.json` 的 `sound`，包和音量取共享的 `plugins.key_sound`，没选包时是内置 `default`。触屏只播按键音，旋律、上屏音、成就音和连击音仍只在 2in1 上。视图里每个软键按下时调的统计入口改为 `KeyboardSession.softKeyPress`，它记入按键统计，再按 `KeySoundPolicy.touchKeyClass` 播放空格、回车、删除或普通键的样本，所以有统计 id 的软键都会出声，按住删除连删只响一次。按键反馈文件重读或保存后立即重新配置播放器，切换开关当场生效。2in1 的实体键仍走 `hardwareKeySound`。
 
