@@ -7,7 +7,7 @@
  *
  * 手写板的识别延迟和笔迹也出于同样的原因放在这里：它们描述的是这台设备上手写板的行为，共享偏好设置里也没有对应的键。
  *
- * 按键弹出预览和滑动输入符号及其方向同样如此，Android 把它们存在自己的本地设置文件里（`platform.android.key_popup`、`platform.android.swipe_down_symbols`、`platform.android.swipe_symbols_direction`），默认值相同：都开启，向下滑动。
+ * 按键弹出预览和滑动输入符号及其方向同样如此，Android 把它们存在自己的本地设置文件里（`platform.android.key_popup`、`platform.android.swipe_down_symbols`、`platform.android.swipe_symbols_direction`），默认值相同：都开启，向上滑动。
  *
  * 功能面板的单手模式和隐私模式也是如此，对应 Android 的 `platform.android.one_handed`（关）和 `platform.android.incognito`（关）。隐私模式尤其只属于这台设备：Android 从不同步它，这里的账号同步也只携带三个反馈字段。
  */
@@ -141,7 +141,7 @@ export class KeyboardFeedback {
     handwritingStrokeWidth: 3,
     keyPopup: true,
     swipeSymbols: true,
-    swipeSymbolsDirection: SwipeSymbolsDirection.DOWN,
+    swipeSymbolsDirection: SwipeSymbolsDirection.UP,
     oneHanded: OneHandedPolicy.DEFAULT,
     incognito: PrivacyGate.DEFAULT,
   };

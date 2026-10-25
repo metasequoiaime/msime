@@ -258,6 +258,64 @@ final class OnboardingUITests: XCTestCase {
     }
   }
 
+  /// 方向由真实设置控件保存，关闭总开关时不可编辑，重新开启保留选择。
+  @MainActor
+  func testSwipeSymbolDirectionPersistsAndFollowsTheSwitch() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    func openDirection() -> XCUIElement {
+      reachSettingsLink("keyboardLayoutLink", in: app)
+      settingsEntry("keyboardLayoutLink", in: app).tap()
+      let row = app.buttons["appSwipeSymbolsDirection"]
+      revealBelowKeyboardPreview(app.switches["appSwipeSymbolsSwitch"], in: app)
+      if row.isEnabled { revealBelowKeyboardPreview(row, in: app) }
+      XCTAssertTrue(row.waitForExistence(timeout: 5))
+      return row
+    }
+    let row = openDirection()
+    let toggle = app.switches["appSwipeSymbolsSwitch"]
+    let originalEnabled = try XCTUnwrap(toggle.value as? String)
+    let originalDirection = try XCTUnwrap(row.value as? String)
+    func setEnabled(_ value: String) {
+      revealBelowKeyboardPreview(toggle, in: app)
+      if toggle.value as? String != value {
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      }
+      XCTAssertTrue(wait(toggle, until: "value == '\(value)'"))
+      if value == "1" { revealBelowKeyboardPreview(row, in: app) }
+    }
+    func select(_ title: String) {
+      row.tap()
+      let choice = app.buttons[title == "上滑" ? "appSwipeSymbolsUp" : "appSwipeSymbolsDown"]
+      XCTAssertTrue(choice.waitForExistence(timeout: 5))
+      choice.tap()
+      XCTAssertTrue(wait(row, until: "value == '\(title)'"))
+    }
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      app.launch()
+      _ = openDirection()
+      setEnabled("1")
+      select(originalDirection)
+      setEnabled(originalEnabled)
+    }
+    setEnabled("1")
+    for title in ["下滑", "上滑"] {
+      select(title)
+      app.terminate()
+      app.launch()
+      _ = openDirection()
+      XCTAssertEqual(row.value as? String, title)
+    }
+    setEnabled("0")
+    XCTAssertFalse(row.isEnabled)
+    setEnabled("1")
+    XCTAssertTrue(row.isEnabled)
+    XCTAssertEqual(row.value as? String, "上滑")
+  }
+
   @MainActor
   func testKeyboardSpacingSettingsPersist() throws {
     let app = XCUIApplication()

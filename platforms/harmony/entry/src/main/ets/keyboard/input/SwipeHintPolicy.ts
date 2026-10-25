@@ -14,7 +14,7 @@ export class SwipeHintPolicy {
   /** 本版本认识的已存储方向，其他任何值取 `fallback`。 */
   static direction(
     value: string | null | undefined,
-    fallback: SwipeSymbolsDirection = SwipeSymbolsDirection.DOWN,
+    fallback: SwipeSymbolsDirection = SwipeSymbolsDirection.UP,
   ): SwipeSymbolsDirection {
     if (value === SwipeSymbolsDirection.DOWN) {
       return SwipeSymbolsDirection.DOWN;

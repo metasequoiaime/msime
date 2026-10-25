@@ -77,7 +77,7 @@ export function TouchKeyboardGeometrySection({
   tabletSplitKeyboard,
   glideTyping,
   swipeSymbols,
-  swipeSymbolsDirection = "down",
+  swipeSymbolsDirection = "up",
   shuangpinKeyHints,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,

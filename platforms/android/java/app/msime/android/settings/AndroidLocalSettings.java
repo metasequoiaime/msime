@@ -182,7 +182,7 @@ public final class AndroidLocalSettings {
         bool(SPLIT_KEYBOARD, false, true);
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
-        choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.DOWN, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);
+        choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.UP, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);
         bool(SPACE_CURSOR, true, true);
         bool(SPACE_VOICE, true, true);
         choice(KEY_ANIMATION, "none", true, "none", "bounce", "ripple", "glow", "lift");

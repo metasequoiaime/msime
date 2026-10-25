@@ -20,6 +20,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
+  @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
   @State private var quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
   @State private var tabOpensCandidates = true
@@ -298,12 +299,22 @@ struct KeyboardLayoutSettingsView: View {
 
   private var gestureGroup: some View {
     DesignGroup(title: "手势", footer: "滑行输入只在全拼 26 键的字母键盘上生效，轻点照常输入单个字母。") {
-      DesignToggleRow(title: "滑动输入符号", subtitle: "在字母键上下滑，输入角标符号；长按字母键始终可以输入",
+      DesignToggleRow(title: "滑动输入符号", subtitle: "沿设定方向滑动输入角标符号，默认上滑；长按字母键始终可以输入",
                       isOn: Binding(get: { swipeSymbols }, set: { enabled in
                         swipeSymbols = enabled
                         KeyboardLayoutPreference.swipeSymbols = enabled
                       }))
       .accessibilityIdentifier("appSwipeSymbolsSwitch")
+      DesignDivider()
+      DesignSelectRow(title: "滑动方向",
+                      options: [DesignOption(title: "上滑", value: KeyboardLayoutPreference.SwipeDirection.up, identifier: "appSwipeSymbolsUp"),
+                                DesignOption(title: "下滑", value: KeyboardLayoutPreference.SwipeDirection.down, identifier: "appSwipeSymbolsDown")],
+                      selection: Binding(get: { swipeSymbolsDirection }, set: { direction in
+                        swipeSymbolsDirection = direction
+                        KeyboardLayoutPreference.swipeSymbolsDirection = direction
+                      }),
+                      sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
+        .disabled(!swipeSymbols)
       DesignDivider()
       DesignToggleRow(title: "滑行输入", subtitle: "在字母键上连续滑动输入拼音，停留可确认经过的键",
                       isOn: Binding(get: { glideTyping }, set: { enabled in
@@ -524,6 +535,7 @@ struct KeyboardLayoutSettingsView: View {
     glideTyping = KeyboardLayoutPreference.glideTyping
     cursorSwipe = KeyboardLayoutPreference.cursorSwipe
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
+    swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
     spaceVoice = KeyboardLayoutPreference.spaceVoice
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
     keySoundPack = KeySoundPackPolicy.selectedPack(in: preferences)

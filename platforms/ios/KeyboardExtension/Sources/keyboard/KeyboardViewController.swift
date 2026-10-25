@@ -144,6 +144,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var spaceVoiceEnabled = true
   /// 「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）的开关，每次键盘出现时读一次，再交给每个字母键。
   private var swipeSymbolsEnabled = true
+  private var swipeSymbolsDirection: KeyboardLayoutPreference.SwipeDirection = .up
   /// 上次配置诊断日志时闸门是否挡着它，`textDidChange` 据此判断要不要重新配置。
   private var diagnosticLogSuppressed = false
   /// 存储的单手模式，在键盘出现时读取，由它的磁贴和侧栏修改。
@@ -980,10 +981,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func readGesturePreferences() {
     spaceVoiceEnabled = KeyboardLayoutPreference.spaceVoice
     swipeSymbolsEnabled = KeyboardLayoutPreference.swipeSymbols
+    swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
     cursorSwipeEnabled = KeyboardLayoutPreference.cursorSwipe
     if !cursorSwipeEnabled { endKeyboardCursorSwipe() }
     keyboardCursorPan.isEnabled = cursorSwipeEnabled
-    for letter in letterButtons { (letter.button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled }
+    for letter in letterButtons {
+      (letter.button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled
+      (letter.button as? KeyboardKeyButton)?.cornerHintSwipeDirection = swipeSymbolsDirection
+    }
     for space in spaceKeys {
       space.configuration?.contentInsets = .zero
       space.titleLabel?.adjustsFontSizeToFitWidth = true
@@ -4165,6 +4170,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       cornerLabel.isHidden = corner == nil
       (button as? KeyboardKeyButton)?.cornerHint = corner
       (button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled
+      (button as? KeyboardKeyButton)?.cornerHintSwipeDirection = swipeSymbolsDirection
       // Korean draws the jamo each key types, with the doubled consonants and extra vowels while Shift is on.
       if korean, let jamo = DubeolsikKeyLayout.keycap(for: lowercase, shifted: koreanShifted) {
         if var configuration = button.configuration {
