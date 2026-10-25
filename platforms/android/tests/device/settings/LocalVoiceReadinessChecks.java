@@ -56,8 +56,7 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
             read.setAccessible(true);
             original = read.invoke(null, activity);
             check(original != null, "原生页能读取共享状态");
-            // 语音页最多四个分类（#9658），本地识别准备和本地模型两组跟在「服务」分类的识别服务下面。
-            tap(text("服务"));
+            tap(text("模型"));
 
             stage = "selected model without runtime";
             show(true, false);
@@ -65,8 +64,7 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
             onMain(() -> {
                 View root = activity.getWindow().getDecorView();
                 TextView preparation = find(root, "本地识别准备");
-                // 「服务」分类里识别服务那一组也会把当前服务写成「本地模型」，模型列表的组标题是最后一个。
-                TextView models = findLast(root, "本地模型");
+                TextView models = find(root, "本地模型");
                 check(preparation != null && models != null && preparation.isShown(), "准备状态在模型页可见");
                 int[] before = new int[2];
                 int[] after = new int[2];
@@ -129,17 +127,6 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
 
     private static Predicate<AccessibilityNodeInfo> text(String value) {
         return node -> node.isVisibleToUser() && value.contentEquals(node.getText() == null ? "" : node.getText());
-    }
-
-    private static TextView findLast(View view, String value) {
-        TextView last = view instanceof TextView text && text.isShown() && value.contentEquals(text.getText()) ? text : null;
-        if (view instanceof ViewGroup group) {
-            for (int index = 0; index < group.getChildCount(); index++) {
-                TextView found = findLast(group.getChildAt(index), value);
-                if (found != null) last = found;
-            }
-        }
-        return last;
     }
 
     private static TextView find(View view, String value) {
