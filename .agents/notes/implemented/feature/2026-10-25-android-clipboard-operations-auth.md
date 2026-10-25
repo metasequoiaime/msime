@@ -34,3 +34,5 @@ Android 9、10 的锁屏凭据确认是设置应用里的独立 Activity，输�
 设备验收用合成锁屏 PIN（`DeviceCredentialFixture`）驱动真实的系统认证界面：专用 AVD 默认没有锁屏凭据，`ClipboardExportDeviceSmoke` 先确认此时设置页导出被拒绝、提示原因且不写文件、不打开选择器，再设置 PIN，覆盖设置页、重启后直接导出、键盘面板经认证桥导出、历史页打开与页内导出的认证，以及历史页打开时和页内导出时认证窗口开着就切到别的应用再回来（Android 10 起系统应已关掉认证窗口，回来要重新认证并读出记录、导出不发生；Android 9 回到仍在进行的凭据确认，认证后照常读取或导出，不弹第二次）；`ClipboardSegmentDragDeviceSmoke` 同样先确认无凭据时键盘清空被拒绝、记录保留，再带 PIN 走清空。PIN 在套件结束时清除，`clipboard-export.sh` 和 `smoke.sh` 只在确有凭据时兜底清除：Android 9 把无凭据时的 `clear --old` 记作一次输错，累积几次后 `set-pin` 都会被限速拒绝。
 
 验证：JDK 21 下 `compileFullDebugJavaWithJavac` 成功；`platforms/android/check-host.sh` 成功，包含 267 项 Android JVM smoke、240 项设备套件源码编译和服务 Java/API 检查；`git diff --check` 成功。
+
+2026-10-25 补做的设备验收（本机 arm64 专用 AVD，产品 APK 在 Mac Studio 构建后用同一把发布密钥重签）：API 35 上 `clipboard-export.sh` 的 select、verify 两段通过，含历史页打开时和页内导出时离开再回来两段；只按 `ERROR_CANCELED` 判断系统取消的版本停在「history page prompt interrupted by leaving: prompt after return」，logcat 里是 `AuthController: Evicting client` 和 `Reason: 3, Error: 10`。API 28 上 `smoke.sh --core` 一路通过到剪贴板导出之后，导出两段走 Android 9 的分支（回到仍在进行的凭据确认，认证后照常读取或导出）。`check-host.sh` 276 项 JVM smoke 通过，含 `AuthenticationPauseTrackerSmoke` 新增的错误码归类。
