@@ -7,6 +7,8 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <string>
 #include <mutex>
 #include <thread>
 
@@ -33,9 +35,20 @@ void WaitForRevision(int revision) {
   }
   assert(false && "background configuration was not published");
 }
+// The state root, absolute and holding the installer's DataDir\helpcodes, so the TIP names it to its sessions.
+const std::filesystem::path &state_root() {
+  static const auto root = [] {
+    auto path = std::filesystem::temp_directory_path() /
+                ("msime-tsf-host-configuration-" +
+                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path / "helpcodes");
+    return path;
+  }();
+  return root;
+}
 }
 namespace msime::tsf {
-std::string default_state_directory() { return "synthetic-state"; }
+std::string default_state_directory() { return state_root().u8string(); }
 std::string read_prepared_host_options(const std::filesystem::path &path) {
   assert(path.filename() == "runtime-options.json");
   ++optionsReads;
@@ -63,6 +76,10 @@ int main() {
   assert(first && first->preferences["scheme"] == "quanpin");
   assert(!first->preferences["game_compatibility"]["candidate_overlay"].get<bool>());
   assert(initialReads == 1 && optionsReads == 1);
+  // The session options carry DataDir as the root of the built-in helpcode tables; the published file does not.
+  const auto sessionOptions = nlohmann::json::parse(first->hostOptions);
+  assert(sessionOptions.at("format_version") == 1);
+  assert(sessionOptions.at("helpcode_fallback_resources") == state_root().u8string());
   // 首次激活已经发布了同一份配置，游戏策略读取不得再次打开偏好文件。
   const auto firstActivation = load_activation_preferences();
   assert(firstActivation && (*firstActivation)["scheme"] == "quanpin");
@@ -113,4 +130,6 @@ int main() {
   assert(cached_host_configuration() != beforeBusyRead);
   WaitForRevision(2);
   assert(cached_host_configuration()->preferences["scheme"] == "wubi");
+  std::error_code error;
+  std::filesystem::remove_all(state_root(), error);
 }
