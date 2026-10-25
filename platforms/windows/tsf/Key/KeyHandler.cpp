@@ -780,7 +780,7 @@ HRESULT CMetasequoiaIME::_ApplyKeyboardCancellation(TfEditCookie ec, ITfContext 
 HRESULT CMetasequoiaIME::_HandleHostCandidateNavigation(TfEditCookie ec, ITfContext *context, uint32_t command)
 {
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
-    if (!Global::IsUiLessMode() || !host || !host->valid() || !_IsComposing()) return S_FALSE;
+    if (!host || !host->valid() || !_IsComposing()) return S_FALSE;
     std::string raw, error;
     if (command && !host->command(command, &raw, &error)) return E_FAIL;
     return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, context, FANY_IME_NO_REQUEST_ID);
