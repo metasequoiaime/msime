@@ -719,6 +719,8 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 
 ### 完整 Win7 产品与安装包
 
+Win7 使用独立版本源 `platforms/windows/version-win7.txt`；现代 Windows 继续使用 `platforms/windows/version.txt`。两个文件初始可以相同，但后续版本号可分别递增。Win7 安装器、关于页、MCP 握手和 `windows7-v<版本>` 更新检查都取 Win7 版本源，不能把普通 Windows 版本文件当作兼容包版本。
+
 在 Windows 构建机使用 PowerShell 7 和 MSVC 开发环境运行 `Build-Windows7Client.ps1`。依赖前缀必须为对应架构的 Release 包，curl 必须启用 `websockets`（例如 vcpkg 的 `curl[websockets]`）；构建会实际运行功能探针，只有头文件或静态库存在不算通过。`-VcpkgRoot` 只使用官方 toolchain 查找已安装依赖，不执行依赖安装。`-CoreOutputs` 和 `-VoiceOutputs` 可复用同源兼容核心与语音运行库。
 
 ```powershell
@@ -734,11 +736,11 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
   -X86RuntimeDirectories @('<SDK Redist UCRT/x86>','<VC Redist/x86/Microsoft.VC143.CRT>') `
   -VcpkgRoot '<官方 vcpkg 根目录>' `
   -CoreOutputs "$PWD/target/windows7-core" -VoiceOutputs "$PWD/target/windows7-voice"
-./platforms/windows/installer/Prepare-PackageFiles.ps1 -Windows7Architecture x64
+./platforms/windows/installer/Prepare-PackageFiles.ps1 -Windows7Architecture x64 -TargetVersion (Get-Content platforms/windows/version-win7.txt -TotalCount 1).Trim()
 ./platforms/windows/installer/Sign-PackageBinaries-Local.ps1 -PackageDirectory "$PWD/target/windows7-package/full/x64"
 ./platforms/windows/installer/Compile-Installer.ps1 -Windows7Architecture x64 `
   -SourceDirectory "$PWD/target/windows7-package/full/x64" -OutputDirectory "$PWD/target/windows7-installer" `
-  -TargetVersion (Get-Content platforms/windows/version.txt -TotalCount 1).Trim()
+  -TargetVersion (Get-Content platforms/windows/version-win7.txt -TotalCount 1).Trim()
 ```
 
 构建目录固定为 `target/windows7-<edition>/<arch>`；`runtime` 只保留实际 PE 依赖闭包、摘要与产品声明。x64 安装包带 x64 Server、原生设置与面板、x64 和 x86 TIP；x86 包只用于 32 位系统。两者不含 WinUI、Tauri、WebView2 或 Arm64 产物，不改变普通 Windows 构建和默认值。完整资源、第三方声明、插件及词书仍由现有暂存规则负责；正式分发继续完成许可收集和受信任签名，本机测试证书只用于内部验收。未指定 `-Windows7Architecture` 时原安装流程保持。与现代构建相同，受信任签名并安装到安全目录的构建可显式传 `Build-Windows7Client.ps1 -ServerUiAccess`，保留跨完整性级别能力；未签名开发构建默认关闭，不能把两种权限能力视为相同。

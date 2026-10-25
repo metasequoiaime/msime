@@ -39,7 +39,8 @@ $editionEntry = @($table.editions | Where-Object { $_.id -ceq $Edition -and $nul
 if ($editionEntry.Count -ne 1) { throw 'Unknown Windows product edition' }
 $hostName = [string]$editionEntry[0].platforms.windows.host_dll
 $buildRoot = Join-Path $RepoRoot "target/windows7-$Edition"
-$version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'version.txt') -TotalCount 1).Trim()
+$version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'version-win7.txt') -TotalCount 1).Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Win7 version-win7.txt 不是有效的语义版本' }
 Push-Location $RepoRoot
 try {
     if ($CoreOutputs -eq '') {
@@ -94,6 +95,7 @@ try {
             Invoke-Windows7Build lib @('/NOLOGO',"/DEF:$definition","/OUT:$hostLibrary","/MACHINE:$machine")
         }
         $common = @('-G','Visual Studio 17 2022','-A',$platform,"-DCMAKE_PREFIX_PATH=$prefix",
+            "-DMSIME_WINDOWS_VERSION=$version",
             "-DMSIME_HOST_LIBRARY=$hostLibrary","-DMSIME_EDITION=$Edition",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=$bin",'-DBUILD_TESTING=ON')
         if ($VcpkgRoot -ne '') {
