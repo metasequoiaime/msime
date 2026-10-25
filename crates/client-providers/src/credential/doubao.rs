@@ -201,8 +201,15 @@ fn failure_message(failure: Failure) -> String {
         Failure::Rejected(429) => {
             "豆包限流或额度不足（HTTP 429），请稍后重试或检查资源用量。".into()
         }
+        Failure::Rejected(status @ 500..=599) => {
+            format!("豆包服务暂时不可用（HTTP {status}），请稍后重试。")
+        }
         Failure::Rejected(status) => {
             format!("豆包拒绝了连接（HTTP {status}），请检查接口地址和资源 ID。")
+        }
+        // 《大模型流式语音识别 API》的错误码表：450xxxxx 是请求本身的问题（参数无效、空音频、音频格式），550xxxxx 是服务内部错误，其中 55000031 是服务过载。后者改配置没有用。
+        Failure::Service(Some(code @ 55_000_000..=55_099_999)) => {
+            format!("豆包服务暂时不可用（错误码 {code}），请稍后重试。")
         }
         Failure::Service(Some(code)) => {
             format!("豆包返回错误码 {code}，请检查资源 ID 和识别选项。")
@@ -551,8 +558,20 @@ mod tests {
             (Failure::Rejected(429), "豆包限流或额度不足（HTTP 429）"),
             (Failure::Rejected(404), "豆包拒绝了连接（HTTP 404）"),
             (
+                Failure::Rejected(503),
+                "豆包服务暂时不可用（HTTP 503），请稍后重试",
+            ),
+            (
                 Failure::Service(Some(45_000_001)),
                 "豆包返回错误码 45000001",
+            ),
+            (
+                Failure::Service(Some(55_000_031)),
+                "豆包服务暂时不可用（错误码 55000031），请稍后重试",
+            ),
+            (
+                Failure::Service(Some(55_000_002)),
+                "豆包服务暂时不可用（错误码 55000002），请稍后重试",
             ),
             (Failure::Service(None), "豆包返回了错误"),
             (Failure::Connection, "无法连接豆包"),
