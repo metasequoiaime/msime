@@ -11,7 +11,7 @@ import java.util.function.IntSupplier;
 /**
  * 绘制随主题配色的水杉品牌标记。
  *
- * <p>新设计里品牌键是 34 dp 的 logoCirc 圆盘托着 28 dp 的 logoBg 标记，功能面板或任何面板打开时整个 40 dp 按钮垫一块圆角 12 dp 的 accentSoft。调用 {@link #setLogoColors} 之后按新设计画；没调用时保持原来只画一枚 accent 标记的样子，旧调用点不受影响。节点 text（如「更多」）照常保留给无障碍，不绘制。
+ * <p>品牌键是 34 dp 的 logoCirc 圆盘托着 24 dp 的 logoBg 标记，功能面板或任何面板打开时整个 40 dp 按钮垫一块圆角 12 dp 的 accentSoft。调用 {@link #setLogoColors} 之后按新设计画；没调用时保持原来只画一枚 accent 标记的样子，旧调用点不受影响。节点 text（如「更多」）照常保留给无障碍，不绘制。
  */
 public final class KeyboardBrandButton extends KeyboardPressButton {
     /**
@@ -22,8 +22,8 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
      */
     private static final float MARK_SCALE = 0.72f;
     private static final float DISC_DP = 34f;
-    /** 品牌标记与旁边的工具栏图标同为 28 dp，使放大后的九键界面比例协调。 */
-    private static final float DISC_MARK_DP = 28f;
+    /** 标记与圆盘之间留白，避免方框的四角贴近圆盘边缘。 */
+    private static final float DISC_MARK_DP = 24f;
     private static final float ACTIVE_SIDE_DP = 40f;
     private static final float ACTIVE_RADIUS_DP = 12f;
     private static final float ACTIVE_INSET_DP = 4f;
