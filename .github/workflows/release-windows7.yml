@@ -1,0 +1,258 @@
+name: Release Windows 7
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release-windows7.yml'
+      - 'crates/**'
+      - 'resources/**'
+      - 'shared/**'
+      - 'plugins/**'
+      - 'scripts/build-official-plugins.sh'
+      - 'scripts/build-script-plugins.sh'
+      - 'scripts/fetch_*.py'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'rust-toolchain.toml'
+      - 'platforms/windows/Build-Windows7*.ps1'
+      - 'platforms/windows/Copy-Windows7RuntimeClosure.ps1'
+      - 'platforms/windows/compat/**'
+      - 'platforms/windows/installer/**'
+      - 'platforms/windows/panels/win7/**'
+      - 'platforms/windows/scripts/edition_windows.py'
+      - 'platforms/windows/settings/win7/**'
+      - 'platforms/windows/tests/**'
+      - 'platforms/windows/version.txt'
+      - 'platforms/windows/Edition.cmake'
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: '要构建的 Windows 版本'
+        required: false
+        default: full
+        type: choice
+        options: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows7-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  official-plugins:
+    name: 构建官方插件包
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 构建并校验官方插件包
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+          bash scripts/build-official-plugins.sh
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: official-plugin-packs-windows7
+          path: target/plugin-packs/
+          if-no-files-found: error
+
+  package:
+    name: Windows 7 安装包（${{ github.event.inputs.edition || 'full' }}）
+    needs: official-plugins
+    runs-on: windows-2025
+    timeout-minutes: 240
+    env:
+      EDITION: ${{ github.event.inputs.edition || 'full' }}
+      CARGO_INCREMENTAL: '0'
+      VCPKG_DISABLE_METRICS: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: official-plugin-packs-windows7
+          path: target/plugin-packs
+
+      - name: 安装 Rust 工具链和 Win7 标准库源码
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install
+          if ($LASTEXITCODE -ne 0) { throw 'Rust 工具链安装失败' }
+          rustup component add rust-src
+          if ($LASTEXITCODE -ne 0) { throw 'rust-src 安装失败' }
+
+      - name: 准备 MSVC 和 Windows SDK 工具
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = @(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath) | Select-Object -First 1
+          if (-not $vs) { throw '找不到 Visual Studio 安装目录' }
+          $vc = @(Get-ChildItem -LiteralPath (Join-Path $vs 'VC\Tools\MSVC') -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'bin\Hostx64\x64' } | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'dumpbin.exe') } | Select-Object -First 1)
+          $sdk = @(Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'x64' } | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'rc.exe') } | Select-Object -First 1)
+          if ($vc.Count -ne 1 -or $sdk.Count -ne 1) { throw '找不到 dumpbin、lib 或 rc 工具' }
+          $vc[0] >> $env:GITHUB_PATH
+          $sdk[0] >> $env:GITHUB_PATH
+
+      - name: 准备 vcpkg
+        id: vcpkg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $baseline = (Get-Content platforms/windows/compat/vcpkg.json -Raw | ConvertFrom-Json)."builtin-baseline"
+          "baseline=$baseline" >> $env:GITHUB_OUTPUT
+          $vcpkg = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone --quiet --filter=blob:none https://github.com/microsoft/vcpkg.git $vcpkg
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg 克隆失败' }
+          git -C $vcpkg checkout --quiet $baseline
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg 基线检出失败' }
+          & (Join-Path $vcpkg 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg 引导失败' }
+
+      - name: 恢复 vcpkg 依赖缓存
+        id: vcpkg-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/msime-win7-deps
+          key: windows7-deps-${{ hashFiles('platforms/windows/compat/vcpkg.json', 'platforms/windows/settings/win7/vcpkg.json') }}-${{ steps.vcpkg.outputs.baseline }}
+
+      - name: 安装 Win7 原生依赖
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkg = Join-Path $env:RUNNER_TEMP 'vcpkg/vcpkg.exe'
+          $root = Join-Path $env:RUNNER_TEMP 'msime-win7-deps'
+          foreach ($triplet in @('x64-windows-static-md', 'x86-windows-static-md')) {
+            $installRoot = Join-Path $root $triplet
+            & $vcpkg install --triplet $triplet --x-manifest-root=platforms/windows/compat "--x-install-root=$installRoot"
+            if ($LASTEXITCODE -ne 0) { throw "vcpkg 安装失败：$triplet" }
+          }
+
+      - name: 下载安装包锁定资源
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $resources = cargo run --quiet --locked -p msime-client-core --example install_resources -- (Join-Path $env:RUNNER_TEMP 'windows7-desktop-resources')
+          if ($LASTEXITCODE -ne 0) { throw '桌面资源下载失败' }
+          "MSIME_DESKTOP_RESOURCES=$(@($resources)[-1].Trim())" >> $env:GITHUB_ENV
+          python scripts/fetch_offline_glosses.py
+          if ($LASTEXITCODE -ne 0) { throw '离线释义下载失败' }
+          python scripts/fetch_gloss_tables.py
+          if ($LASTEXITCODE -ne 0) { throw '英文释义表下载失败' }
+          python scripts/fetch_language_dictionaries.py
+          if ($LASTEXITCODE -ne 0) { throw '语言词库下载失败' }
+          python scripts/fetch_wordbooks.py
+          if ($LASTEXITCODE -ne 0) { throw '内置词书下载失败' }
+
+      - name: 保存 vcpkg 依赖缓存
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/msime-win7-deps
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: 构建 Win7 核心和语音运行库
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($arch in @('x64', 'x86')) {
+            ./platforms/windows/Build-Windows7Core.ps1 -Architecture $arch -OutputDirectory "$PWD/target/windows7-core"
+            ./platforms/windows/Build-Windows7VoiceRuntime.ps1 -Architecture $arch -Parallel 4
+          }
+
+      - name: 构建 Win7 原生产品
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deps = Join-Path $env:RUNNER_TEMP 'msime-win7-deps'
+          $x64 = Join-Path $deps 'x64-windows-static-md/x64-windows-static-md'
+          $x86 = Join-Path $deps 'x86-windows-static-md/x86-windows-static-md'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = @(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath) | Select-Object -First 1
+          if (-not $vs) { throw '找不到 Visual Studio 安装目录' }
+          $vcRoot = Join-Path $vs 'VC\Redist\MSVC'
+          $vc64 = @(Get-ChildItem -LiteralPath $vcRoot -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'x64\Microsoft.VC143.CRT' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1)
+          $vc86 = @(Get-ChildItem -LiteralPath $vcRoot -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'x86\Microsoft.VC143.CRT' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1)
+          $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Redist'
+          $ucrt64 = @(Get-ChildItem -LiteralPath $kitsRoot -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'ucrt\DLLs\x64' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1)
+          $ucrt86 = @(Get-ChildItem -LiteralPath $kitsRoot -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'ucrt\DLLs\x86' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1)
+          if ($vc64.Count -ne 1 -or $vc86.Count -ne 1 -or $ucrt64.Count -ne 1 -or $ucrt86.Count -ne 1) { throw '找不到 Win7 所需的 VC/UCRT 运行库目录' }
+          ./platforms/windows/Build-Windows7Client.ps1 -X64Dependencies $x64 -X86Dependencies $x86 -X64RuntimeDirectories @($ucrt64[0], $vc64[0]) -X86RuntimeDirectories @($ucrt86[0], $vc86[0]) -VcpkgRoot (Join-Path $env:RUNNER_TEMP 'vcpkg') -Edition $env:EDITION -CoreOutputs "$PWD/target/windows7-core" -VoiceOutputs "$PWD/target/windows7-voice"
+
+      - name: 收集 Win7 安装包声明
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./platforms/windows/Collect-Notices.ps1 -DependencyPrefixes "$env:RUNNER_TEMP/msime-win7-deps/x64-windows-static-md/x64-windows-static-md", "$env:RUNNER_TEMP/msime-win7-deps/x86-windows-static-md/x86-windows-static-md" -OutputDirectory "$PWD/target/windows7-notices" -Edition $env:EDITION
+
+      - name: 准备并编译 Win7 x64、x86 安装包
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content platforms/windows/version.txt -TotalCount 1).Trim()
+          $inno = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          if (-not (Test-Path -LiteralPath "$inno\ISCC.exe")) {
+            choco install innosetup --version 6.7.1 --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 安装失败' }
+          }
+          $isl = "$inno\Languages\ChineseSimplified.isl"
+          if (-not (Test-Path -LiteralPath $isl)) {
+            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/cfdf48923178df4b4f040e038b423aa555a61ffc/Files/Languages/Unofficial/ChineseSimplified.isl' -OutFile $isl
+            if ((Get-FileHash -LiteralPath $isl -Algorithm SHA256).Hash -ne '7D544B9BB1D142CFA11F2E5D3CC8ABE2E55F8E066C5124E3772675AA236E1278') { throw 'ChineseSimplified.isl 摘要不匹配' }
+          }
+          foreach ($arch in @('x64', 'x86')) {
+            $env:MSIME_REQUIRE_OFFICIAL_PLUGINS = '1'
+            $env:MSIME_REQUIRE_WORDBOOKS = '1'
+            $env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES = '1'
+            ./platforms/windows/installer/Prepare-PackageFiles.ps1 -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -NoticesDirectory "$PWD/target/windows7-notices" -DesktopResourcesDirectory $env:MSIME_DESKTOP_RESOURCES -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
+            ./platforms/windows/installer/Sign-PackageBinaries-Local.ps1 -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
+            ./platforms/windows/installer/Compile-Installer.ps1 -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -SourceDirectory "$PWD/target/windows7-package/$env:EDITION/$arch" -OutputDirectory "$PWD/target/windows7-installer"
+          }
+          $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
+          if ($LASTEXITCODE -ne 0) { throw '安装包名称读取失败' }
+          foreach ($arch in @('x64', 'x86')) {
+            $installer = Join-Path $PWD "target/windows7-installer/${base}_v${version}_win7_${arch}.exe"
+            if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "安装包不存在：$installer" }
+            ./platforms/windows/installer/Sign-Installer-Local.ps1 -InstallerPath $installer
+            $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText("$installer.sha256", "$hash  $([IO.Path]::GetFileName($installer))`n")
+          }
+
+      - name: 验证 Win7 x64 安装包布局
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content platforms/windows/version.txt -TotalCount 1).Trim()
+          $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
+          $identity = (Get-Content shared/contracts/editions.json -Raw | ConvertFrom-Json).editions | Where-Object { $_.id -ceq $env:EDITION } | Select-Object -ExpandProperty platforms | Select-Object -ExpandProperty windows
+          $xml = New-Object System.Xml.XmlDocument
+          $root = $xml.CreateElement('windows')
+          foreach ($name in @('registry_key','install_dir','clsid','watchdog_task','host_dll','name_suffix','user_data_dir')) { $root.SetAttribute($name, [string]$identity.$name) }
+          [void]$xml.AppendChild($root)
+          $identityPath = Join-Path $env:RUNNER_TEMP 'windows7-identity.xml'
+          $xml.Save($identityPath)
+          $installer = "target/windows7-installer/${base}_v${version}_win7_x64.exe"
+          ./platforms/windows/installer/tests/windows7-install-smoke.ps1 -Installer $installer -IdentityFile $identityPath -Architecture x64
+
+      - name: 上传 Win7 安装包
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: msime-windows7-${{ github.event.inputs.edition || 'full' }}-${{ github.sha }}
+          path: |
+            target/windows7-installer/*.exe
+            target/windows7-installer/*.sha256
+            target/windows7-notices/THIRD_PARTY_NOTICES.txt
+          if-no-files-found: error
