@@ -27,7 +27,8 @@ void scenario(const std::filesystem::path &fixture, TsfPreeditStyle style,
               const std::string &input, const std::string &expected,
               const std::string &remainder, bool select = false,
               std::size_t expected_commits = 1,
-              const std::string &expected_phrase = "") {
+              const std::string &expected_phrase = "",
+              const std::string &expected_selection = "合成甲") {
   const auto root = std::filesystem::temp_directory_path() /
       ("msime-wubi-commit-" + std::to_string(
           std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -133,7 +134,7 @@ void scenario(const std::filesystem::path &fixture, TsfPreeditStyle style,
     packet.wch = ' ';
     packet.modifiers_down = uiless ? FanyImePipeFlags::UiLess : 0u;
     const auto reply = composer.basic_key(server, packet, 1, style);
-    require(reply && reply->committed_text == "合成甲" && reply->encoded &&
+    require(reply && reply->committed_text == expected_selection && reply->encoded &&
             static_cast<bool>(*reply->encoded), "ordinary candidate selection still commits");
     composer.confirm_delivery(42, 1, request);
   }
@@ -191,6 +192,9 @@ int main(int argc, char **argv) {
           scenario(argv[1], style, uiless, wubi98, true, true, "wqabA", "合成乙A", "");
           scenario(argv[1], style, uiless, wubi98, false, true, "wqaaw", "", "w", false, 1, "合成甲");
           scenario(argv[1], style, uiless, wubi98, false, false, "wqaa", "", "wqaa", true);
+          // #9696：没有组字时 Shift+T、Shift+U 在五笔下进入日期时间和 Unicode 模式，两边会话都把后面的字母留在模式里，不当五笔码组字，也不走四码自动上屏和顶字；空格上屏模式的首选。临时英文要英文词库，这份合成表没有，由 Engine 的回归覆盖。
+          scenario(argv[1], style, uiless, wubi98, true, true, "Tdate", "", "Tdate");
+          scenario(argv[1], style, uiless, wubi98, true, true, "Uabcd", "", "Uabcd", true, 1, "", "\xEA\xAF\x8D");
         }
   } catch (const std::exception &error) {
     std::fprintf(stderr, "FAIL: %s\n", error.what());

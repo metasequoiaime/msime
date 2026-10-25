@@ -6791,6 +6791,62 @@ fn shift_letter_entry_switch_off_types_every_capital() {
     assert_eq!(session.input.local_mode, LocalInputMode::DateTime);
 }
 
+/// #9696：五笔编码只用小写字母，没有组字时的 Shift+字母不会和编码冲突。输入不经过拼音拼写的 U、T、Y、S 和 K、C 一样在五笔下进入；E、M、J 按拼音查，V 的数字和运算符要宿主按方案路由，这几个仍只在全拼、双拼下进入，大写字母交还宿主。
+#[test]
+fn wubi_opens_the_shift_letter_modes_that_spell_no_pinyin() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.local_modes.expression = true;
+    });
+    TestClock::install(&mut session);
+    for (letter, mode) in [
+        (b'U', LocalInputMode::Unicode),
+        (b'T', LocalInputMode::DateTime),
+        (b'Y', LocalInputMode::TemporaryEnglish),
+        (b'S', LocalInputMode::Symbol),
+    ] {
+        assert!(
+            session.character(letter, true).handled,
+            "{}",
+            letter as char
+        );
+        assert_eq!(session.snapshot().local_mode, mode, "{}", letter as char);
+        assert!(session.command(Command::Cancel).handled);
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    }
+
+    // 报告里的两个例子：Shift+Y 后打 superuser 上屏原文，Shift+T 后打 date 上屏日期，都不进五笔组字。
+    assert!(session.character(b'Y', true).handled);
+    type_text(&mut session, "superuser");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.scheme, SchemeType::Wubi);
+    assert_eq!(snapshot.preedit, "Ysuperuser");
+    assert_eq!(session.select(0).commit.as_deref(), Some("superuser"));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
+    assert!(session.character(b'T', true).handled);
+    type_text(&mut session, "date");
+    assert_eq!(session.snapshot().preedit, "Tdate");
+    assert!(
+        words(&session).contains(&"2026-08-09".to_owned()),
+        "{:?}",
+        words(&session)
+    );
+    assert_eq!(session.select(0).commit.as_deref(), Some("2026年8月9日"));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
+    for letter in *b"EMJV" {
+        assert!(
+            !session.character(letter, true).handled,
+            "{}",
+            letter as char
+        );
+        assert_eq!(session.input.local_mode, LocalInputMode::None);
+        assert!(!session.input.has_composition());
+    }
+}
+
 fn chaizi_session(fixture: &Fixture, configure: impl FnOnce(&mut SessionOptions)) -> Session {
     fixture.session_with(|options| {
         options.local_modes.chaizi = true;

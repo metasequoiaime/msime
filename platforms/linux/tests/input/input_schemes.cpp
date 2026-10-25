@@ -30,7 +30,7 @@ int main() {
     assert(scheme::IsChinese(number));
   for (int number : {3, 4, 7, 8, 10, -1})
     assert(!scheme::IsChinese(number));
-  // K、"/"、"@" 只查自己的表，五笔也打开（`opens_table_modes`）；其余 Shift+字母模式只在全拼和双拼里（`opens_local_modes`）。
+  // K、C、U、T、Y、S 和 "/"、"@" 不经过方案的拼写，五笔也打开（`opens_table_modes`）；按拼音拼写查的 E、M、J、R 和计算模式 V 只在全拼和双拼里（`opens_local_modes`）。
   for (int number : {0, 1, 2})
     assert(scheme::OpensTableModes(number));
   for (int number : {3, 4, 5, 6, 7, 8, 9, -1})
