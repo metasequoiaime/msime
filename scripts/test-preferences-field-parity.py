@@ -35,6 +35,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "android_text_trackpad",
         # 上屏后联想先在 Android 原生键盘验收，其他宿主保留字段，尚无共享设置入口。
         "next_word_prediction",
+        # 更新通道的共享设置页控件随后续的 Linux 与共享设置页 PR 加入；那个 PR 加上「更新通道」一行时删掉这一项。
+        "update_channel",
 
     },
     "KeybindingPreferences": set(),
