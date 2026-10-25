@@ -110,11 +110,12 @@ final class EighteenKeyQuanpinDeviceChecks {
             for (int index = 0; index < 3; index++) t.tap(t.key("⌫"));
             t.await(group("W E"));
 
-            t.stage = "eighteen quanpin password and URL fallback";
+            t.stage = "eighteen quanpin password fallback, URL keeps the layout";
             t.tap(t.field("msime-test-password"));
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
+            // 网址框（浏览器地址栏同时是搜索框）按默认中英文进框，保留 18 键（#9725）。
             editor(true);
-            t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
+            t.await(group("W E"));
             editor(false);
             t.await(group("W E"));
             t.stage = "eighteen quanpin restart preserves selection";

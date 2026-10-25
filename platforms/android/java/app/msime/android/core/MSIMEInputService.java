@@ -3233,6 +3233,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean englishSuggestionsActive() {
         return directEnglishActive() && englishSuggestionsEnabled
             && EditorPolicy.useEngine(editorInputType) && !EditorPolicy.prefersLatin(editorInputType)
+            && !EditorPolicy.uri(editorInputType)
             && !EditorPolicy.password(editorInputType)
             && (editorInputType & android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0;
     }

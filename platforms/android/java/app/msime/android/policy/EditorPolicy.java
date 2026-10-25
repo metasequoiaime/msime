@@ -45,16 +45,21 @@ public final class EditorPolicy {
         return password(type) || !allowLearning(options);
     }
 
-    /** 进框时临时切成英文的输入框：只看网址、邮箱、密码这几种 variation。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 不算：React Native 的 `autoCorrect={false}`、Flutter 的 `enableSuggestions: false` 和不少网页输入框都带着它，算进来的话这些聊天框、搜索框每次进框都是英文，「默认中英文」和按应用记住的模式都被盖掉（#5998）。 */
+    /** 进框时临时切成英文的输入框：只看邮箱、密码这几种 variation。网址框不算（#9725）：Android 没有 iOS 的 `.webSearch`，Firefox、Chrome 这些浏览器的地址栏同时是搜索框，却只能声明成 `TYPE_TEXT_VARIATION_URI`，算进来的话九宫格用户每次点地址栏都被切成 26 键英文，「默认中英文」和按应用记住的模式都被盖掉；网址框按默认模式进框，中文模式下打 `www.`、`http:` 由引擎的网址模式接管。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 不算：React Native 的 `autoCorrect={false}`、Flutter 的 `enableSuggestions: false` 和不少网页输入框都带着它，算进来的话这些聊天框、搜索框每次进框都是英文，「默认中英文」和按应用记住的模式都被盖掉（#5998）。 */
     public static boolean prefersLatin(int type) {
         if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
         int variation = type & InputType.TYPE_MASK_VARIATION;
-        return variation == InputType.TYPE_TEXT_VARIATION_URI
-            || variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        return variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             || variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
             || variation == InputType.TYPE_TEXT_VARIATION_PASSWORD
             || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
             || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+    }
+
+    /** 网址输入框（`TYPE_TEXT_VARIATION_URI`），包括浏览器地址栏。进框不切英文（见 {@link #prefersLatin}），但英文模式下照样不给英文建议和纠错、不自动大写：网址不是词典里的单词，也不是句子。 */
+    public static boolean uri(int type) {
+        return (type & InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT
+            && (type & InputType.TYPE_MASK_VARIATION) == InputType.TYPE_TEXT_VARIATION_URI;
     }
 
     /** 打到 `xxx@` 时可以给邮箱后缀（{@link EmailSuffixPolicy}，#6147）的输入框：除了密码框（文字和数字密码的各种 variation）都给，不只是系统标记为邮箱的输入框，聊天框、搜索框里写邮箱地址同样能用。密码框里不读上文，与算式结果（`ImeCalculator`）同一个隐私口径。 */

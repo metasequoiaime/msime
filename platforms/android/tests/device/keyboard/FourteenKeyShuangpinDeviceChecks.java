@@ -100,13 +100,13 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.await(t.described(layoutKeyDescription));
             assertStored("xiaohe", layout);
 
-            t.stage = "fourteen shuangpin password and URL fallback";
+            t.stage = "fourteen shuangpin password fallback, URL keeps the layout";
             t.tap(t.field("msime-test-password"));
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
             absent(t.described(layoutKeyDescription));
+            // 网址框（浏览器地址栏同时是搜索框）按默认中英文进框，保留 14 键（#9725）。
             editor(true);
-            t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
-            absent(t.described(layoutKeyDescription));
+            t.await(t.described(layoutKeyDescription));
             editor(false);
             t.await(t.described(layoutKeyDescription));
             t.restartIme();
