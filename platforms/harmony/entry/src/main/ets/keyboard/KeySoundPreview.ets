@@ -76,90 +76,95 @@ export class KeySoundPreview {
 
   private async load(generation: number, soundPacks: string, stateRoot: string, cacheRoot: string,
     pack: string, volume: number): Promise<void> {
-    const request: KeySoundPreviewRequest = { state_root: stateRoot, sound_packs: soundPacks, pack: pack };
-    const response: KeySoundPreviewResponse =
-      JSON.parse(client.keySoundPack(JSON.stringify(request))) as KeySoundPreviewResponse;
-    const files: KeySoundPackFiles | null = NativeReplyPolicy.successfulValue<KeySoundPackFiles>(response);
-    if (files === null) {
-      KeyboardLog.error(`key sound preview: pack unavailable: ${response.error}`);
-      return;
-    }
-    const sample: string | null = KeySoundPolicy.previewSample(files);
-    if (sample === null || generation !== this.generation) {
-      return;
-    }
-    // 上一次试听写出的音符不再有用；每次从空目录开始，目录里最多只有这一个音符。
-    StagedResources.removeDirectory(cacheRoot);
-    const directory: string = `${cacheRoot}/${generation}`;
-    fs.mkdirSync(directory, true);
-    const notes: string[] = await client.keySoundRenderNotes(sample, [0], directory, files.max_sample_millis);
-    if (notes.length === 0 || generation !== this.generation) {
-      return;
-    }
-    const pool: media.SoundPool = await media.createSoundPool(1, {
-      usage: audio.StreamUsage.STREAM_USAGE_MUSIC, rendererFlags: 0
-    });
-    if (generation !== this.generation) {
-      pool.release().catch((error: Object): void => {
-        KeyboardLog.error(`key sound preview pool would not release: ${describeError(error)}`);
+    try {
+      const request: KeySoundPreviewRequest = { state_root: stateRoot, sound_packs: soundPacks, pack: pack };
+      const response: KeySoundPreviewResponse =
+        JSON.parse(client.keySoundPack(JSON.stringify(request))) as KeySoundPreviewResponse;
+      const files: KeySoundPackFiles | null = NativeReplyPolicy.successfulValue<KeySoundPackFiles>(response);
+      if (files === null) {
+        KeyboardLog.error(`key sound preview: pack unavailable: ${response.error}`);
+        return;
+      }
+      const sample: string | null = KeySoundPolicy.previewSample(files);
+      if (sample === null || generation !== this.generation) {
+        return;
+      }
+      // 上一次试听写出的音符不再有用；每次从空目录开始，目录里最多只有这一个音符。
+      StagedResources.removeDirectory(cacheRoot);
+      const directory: string = `${cacheRoot}/${generation}`;
+      fs.mkdirSync(directory, true);
+      const notes: string[] = await client.keySoundRenderNotes(sample, [0], directory, files.max_sample_millis);
+      if (notes.length === 0 || generation !== this.generation) {
+        return;
+      }
+      const pool: media.SoundPool = await media.createSoundPool(1, {
+        usage: audio.StreamUsage.STREAM_USAGE_MUSIC, rendererFlags: 0
       });
-      return;
-    }
-    this.pool = pool;
-    const gain: number = AudioVolumePolicy.gain(volume);
-    const holdMillis: number = files.max_sample_millis + RELEASE_MARGIN_MILLIS;
-    // loadComplete 可能早于 load() 返回，所以只用回调给出的编号，描述符也要等到这时才能关。
-    pool.on('loadComplete', (sound: number): void => {
       if (generation !== this.generation) {
+        pool.release().catch((error: Object): void => {
+          KeyboardLog.error(`key sound preview pool would not release: ${describeError(error)}`);
+        });
         return;
       }
-      const file: fs.File | undefined = this.file;
-      this.file = undefined;
-      if (file !== undefined) {
-        NativeCleanup.close(file);
-      }
-      if (gain <= 0) {
-        this.stop();
-        return;
-      }
-      const parameters: media.PlayParameters = {
-        loop: 0, rate: audio.AudioRendererRate.RENDER_RATE_NORMAL, leftVolume: gain, rightVolume: gain,
-        priority: 0
-      };
-      pool.play(sound, parameters).then((): void => {
-        if (generation === this.generation) {
-          this.releaseTimer = setTimeout((): void => {
-            if (generation === this.generation) {
-              this.stop();
-            }
-          }, holdMillis);
+      this.pool = pool;
+      const gain: number = AudioVolumePolicy.gain(volume);
+      const holdMillis: number = files.max_sample_millis + RELEASE_MARGIN_MILLIS;
+      // loadComplete 可能早于 load() 返回，所以只用回调给出的编号，描述符也要等到这时才能关。
+      pool.on('loadComplete', (sound: number): void => {
+        if (generation !== this.generation) {
+          return;
         }
-      }).catch((error: Object): void => {
-        KeyboardLog.error(`key sound preview did not play: ${describeError(error)}`);
+        const file: fs.File | undefined = this.file;
+        this.file = undefined;
+        if (file !== undefined) {
+          NativeCleanup.close(file);
+        }
+        if (gain <= 0) {
+          this.stop();
+          return;
+        }
+        const parameters: media.PlayParameters = {
+          loop: 0, rate: audio.AudioRendererRate.RENDER_RATE_NORMAL, leftVolume: gain, rightVolume: gain,
+          priority: 0
+        };
+        pool.play(sound, parameters).then((): void => {
+          if (generation === this.generation) {
+            this.releaseTimer = setTimeout((): void => {
+              if (generation === this.generation) {
+                this.stop();
+              }
+            }, holdMillis);
+          }
+        }).catch((error: Object): void => {
+          KeyboardLog.error(`key sound preview did not play: ${describeError(error)}`);
+          if (generation === this.generation) {
+            this.stop();
+          }
+        });
+      });
+      pool.on('error', (error: Object): void => {
         if (generation === this.generation) {
+          KeyboardLog.error(`key sound preview pool error: ${describeError(error)}`);
           this.stop();
         }
       });
-    });
-    pool.on('error', (error: Object): void => {
-      if (generation === this.generation) {
-        KeyboardLog.error(`key sound preview pool error: ${describeError(error)}`);
-        this.stop();
+      const file: fs.File = KeySoundPlayer.openVerified(notes[0]);
+      this.file = file;
+      try {
+        await pool.load(file.fd, 0, fs.statSync(file.fd).size);
+      } catch (error) {
+        if (this.file === file) {
+          this.file = undefined;
+          NativeCleanup.close(file);
+        }
+        // 被新的试听赶超时 `stop` 已经关了描述符，这次加载失败是预料之中的，不必记录。
+        if (generation !== this.generation) {
+          return;
+        }
+        throw error as Error;
       }
-    });
-    const file: fs.File = KeySoundPlayer.openVerified(notes[0]);
-    this.file = file;
-    try {
-      await pool.load(file.fd, 0, fs.statSync(file.fd).size);
     } catch (error) {
-      if (this.file === file) {
-        this.file = undefined;
-        NativeCleanup.close(file);
-      }
-      // 被新的试听赶超时 `stop` 已经关了描述符，这次加载失败是预料之中的，不必记录。
-      if (generation !== this.generation) {
-        return;
-      }
+      KeyboardLog.error('keyboard.KeySoundPreview.load failed');
       throw error as Error;
     }
   }
