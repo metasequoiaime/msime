@@ -1292,11 +1292,13 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             // means, what the candidates are for, and what Enter commits. The one case that keeps
             // the letters is a caret the user moved into them, because the Engine's offset is an
             // offset into the romaji - see shared/input/CompositionDisplay.h.
+            // 「原始按键」样式画打出来的按键，全拼的 preedit 带显示用的隔音符（HostRawStyleText）；「拼音分词」样式下这段只在 Server 的预编辑没到时兜底，照旧取 preedit。
+            const bool rawStyle = GlobalSettings::getTsfPreeditStyle() == GlobalSettings::TsfPreeditStyle::Raw;
             const auto &value = msime::input::composition_shows_reading(
                                     result.view.reading, result.view.caret,
                                     result.view.editing_text.size())
                                     ? result.view.reading
-                                    : result.view.preedit;
+                                    : rawStyle ? msime::tsf::HostRawStyleText(result.view) : result.view.preedit;
             const int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
                                                                   value.data(), static_cast<int>(value.size()), nullptr, 0);
             hostPreedit.assign(static_cast<size_t>(n > 0 ? n : 0), L'\0');
@@ -1999,7 +2001,11 @@ HRESULT CMetasequoiaIME::_HandleCompositionDelete(TfEditCookie ec, _In_ ITfConte
                 msime::tsf::EngineResult result;
                 if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
                 {
-                    const auto &value = result.view.preedit;
+                    // 与重画组字时同一条规则：「原始按键」样式不画全拼显示用的隔音符。
+                    const auto &value =
+                        GlobalSettings::getTsfPreeditStyle() == GlobalSettings::TsfPreeditStyle::Raw
+                            ? msime::tsf::HostRawStyleText(result.view)
+                            : result.view.preedit;
                     const int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
                                                                           value.data(), static_cast<int>(value.size()), nullptr, 0);
                     std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');

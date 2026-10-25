@@ -72,6 +72,14 @@ inline bool HostEditsSentence(const EngineView &view) {
            !view.dedicated_english;
 }
 
+// 行内「原始按键」样式从 TIP 自己的宿主会话画的文字（UTF-8，不含已选词段）。全拼普通组字时宿主视图的 preedit 是引擎为显示按音节加了隔音符的拼写（`pin'yin`，#9406 起），原始样式要的是打出来的按键，所以画 editing_text，与 macOS、Linux 的原始样式一致；候选窗和「拼音分词」样式仍画 preedit。其他情况照旧画 preedit：双拼的 preedit 随「双拼预编辑」偏好，韩文、注音、越南文、藏文的 preedit 是正在写的文字而 editing_text 是按键，本地模式和专用英文的 preedit 本来就不加隔音符。
+inline const std::string &HostRawStyleText(const EngineView &view) {
+    return view.scheme == static_cast<uint32_t>(msime::windows::scheme::Quanpin) && view.local_mode == "none" &&
+                   !view.dedicated_english
+               ? view.editing_text
+               : view.preedit;
+}
+
 // 宿主会话的当前视图；读不到时为空。
 template<class Host> bool HostView(Host &host, EngineResult *view) {
     std::string raw, error;
