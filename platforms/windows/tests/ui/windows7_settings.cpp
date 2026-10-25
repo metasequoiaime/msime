@@ -1169,7 +1169,7 @@ int main() {
   const auto ai_origin = saved.snapshot->preferences().at("ai_assistant").at("tokens");
   assert(!ai_origin.empty());
   assert(std::any_of(ai_origin.begin(), ai_origin.end(), [](const auto& entry) {
-    return entry.is_string() && entry.get<std::string>() == "synthetic-ai-token";
+    return entry.is_string() && entry.template get<std::string>() == "synthetic-ai-token";
   }));
   assert(saved.snapshot->preferences().at("ai_assistant").at("token") == "");
   tokens = ai_origin;
