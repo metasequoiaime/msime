@@ -1427,6 +1427,12 @@ function makeClient(
           native.keyboardFeedback(JSON.stringify({ operation: "preview", strength })),
         );
       },
+      // 宿主在后台读包、解码并播放，这里只等它收下请求。
+      previewKeySound: async (pack, volume) => {
+        unwrap<MobileKeyboardFeedback>(
+          native.keyboardFeedback(JSON.stringify({ operation: "preview_sound", pack, volume })),
+        );
+      },
     },
     dictionary,
     nineKeyShuangpinLayout:

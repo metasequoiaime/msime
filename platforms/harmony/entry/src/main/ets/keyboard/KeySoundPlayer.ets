@@ -349,8 +349,8 @@ export class KeySoundPlayer {
     }
   }
 
-  /** Open a rendered note and bind the descriptor to the path produced by the renderer. */
-  private static openVerified(path: string): fs.File {
+  /** 打开一个渲染出的音符，并确认描述符指向的就是渲染器写出的那个文件。设置页的试听（`KeySoundPreview`）也用它。 */
+  static openVerified(path: string): fs.File {
     try {
       const pathStat: fs.Stat = fs.lstatSync(path);
       if (pathStat.isSymbolicLink() || !pathStat.isFile()) {

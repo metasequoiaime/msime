@@ -39,6 +39,8 @@ export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
   save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
   preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
+  /** 在「音效」里选了一个包后，用它的普通键样本试听一下，`volume` 是 `plugins.key_sound.volume`（0–100）。只有能播放音效包的宿主（HarmonyOS 手机和平板）提供。 */
+  previewKeySound?(pack: string, volume: number): Promise<void>;
 };
 
 /** 只投影反馈控件的显示状态，保留本设备用不了的已存选择。 */
