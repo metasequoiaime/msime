@@ -31,8 +31,8 @@ Status: implemented
   - 否则问 host-api 的 `msime_client_resource_packs`，`voice-runtime-macos` 是 `installed` 且文件是普通文件时，把路径作为 `--runtime` 交给 `msime-voice-local`（`set_sherpa_library_path` 早已存在，Android 在用）；
   - 都没有时，开始识别就报「本地语音识别运行库还没有下载」。
 - **下载时机**：
-  - 设置页在用户刚把识别服务切到本地时 `ensure`，并在模型列表上方显示下载行；
-  - 设置应用启动时，已保存的识别服务是本地的，`ensure_saved_packs` 补下；
+  - 设置页在用户刚把识别服务切到本地、或在本地识别下刚选用模型时 `ensure`，并在模型列表上方显示下载行；
+  - 设置应用启动时，已保存的识别服务是本地且选用了模型（`asr_model_path` 非空），`ensure_saved_packs` 补下。出厂服务改为本地后加了模型这个条件，免得每个新用户一启动就下载，见[六端出厂识别服务改为本地模型](2026-10-26-voice-local-default.md)；
   - `offered_by` 只在 macOS、且 `~/Library/Input Methods` 里的输入法没有自带运行库时列出它。
 
 ### 五笔码表：资源包 `wubi`

@@ -15,6 +15,7 @@ Status: implemented
 - **原生「未设置」回退**：各宿主在字段缺失时回退的服务一并从 `doubao` 改成 `local`，让「未设置」只有一个含义——macOS 的 `InputController.mm` 两处、回退设置窗 `VoiceProviderSettings.mm`（含非法值回退），Windows 设置页 `main.cpp` 四处、Server 的 `server_main.cpp` 和 `VoiceInputConfig` 成员默认值，Linux IBus/Fcitx5 的三处（只影响边说边显示，`doubao` 与 `local` 结论相同）。
 - **macOS 录音前检查**：`MSIMEVoiceASRTokenMissing` 不再把未设置的服务当豆包要求填 Token；`MSIMEVoiceLocalModelMissing` 把未设置的服务当本地模型，没有模型时拒绝录音并指向语音设置。
 - **不改的地方**：`shared/voice` 的 `normalize_voice_provider` 仍把空值规整成 `doubao`。它是云端请求层的规整（接口地址、请求格式、语言参数），调用方此时已经决定走云端；宿主的回退都已改成 `local`，空值到不了这里。Windows 安装包里的 `config.default.toml` 是来源产品的模板，运行时不读，也不改。
+- **macOS 语音运行库只在选用模型后下载**：省略运行库的 macOS 包，设置应用启动时按已保存偏好补齐运行库（`ensure_saved_packs` → `needed_by_preferences`），原来只看服务是不是 `local`。出厂改成本地后，这会让每个新用户第一次打开设置应用就在后台下载约 16 MB，哪怕从不用语音，违背[按需运行库](2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)的初衷。现在启动补齐还要求 `asr_model_path` 非空；没有模型时运行库用不上。设置页原来只在「切到本地」那一刻 `ensure`，出厂就是本地的新用户没有这一步，所以「本地识别下刚选用模型」也触发 `ensure`，用户主动切到本地时照旧立即下载。
 - **Android / HarmonyOS 的取舍**：明确选了本地而没有模型时，Android 按[本地识别准备](../bug-fix/2026-10-21-android-local-voice-readiness.md)提示下载或导入，不回退系统识别（系统识别器可能走云端）；HarmonyOS 同样走本地模型缺失的提示。新用户因此要先准备模型才能用语音键，这是维护者确认过的代价。
 
 ## Existing notes audit
@@ -33,13 +34,13 @@ Status: implemented
 ## Consequences
 
 - **收益**：桌面新用户第一次打开语音设置就看到本地模型，下载后即可离线使用，不再卡在「未填写 API Key」；六端出厂值一致，音频默认不离开设备。
-- **代价**：Android、HarmonyOS 新用户在下载或导入模型前语音键不可用，此前它们开箱即可经系统识别使用。模型和运行库按需下载，体积与首次准备时间由用户承担。
+- **代价**：macOS 新用户选用模型后运行库才开始下载，模型装好后还要等它下完（约 16 MB）才能录音。Android、HarmonyOS 新用户在下载或导入模型前语音键不可用，此前它们开箱即可经系统识别使用。模型和运行库按需下载，体积与首次准备时间由用户承担。
 - **不变**：已保存的选择、豆包的出厂接口与资源 ID、云端请求层对空值的规整。
 
 ## Verification
 
-- `cargo test -p msime-client-core -p msime-client-providers -p msime-host-api -p msime-tauri-mobile-platform`：1893 项通过。新增 `voice_provider_defaults_to_the_offline_local_model`，覆盖出厂值、出厂文档通过校验、旧文档的 `doubao` 原样保留。
-- 前端：`voice-input-preferences.test.ts` 钉住 React 出厂值；`voice-provider.test.tsx` 按真实宿主注入本地模型客户端，要求出厂选中的「本地模型」是下拉里可用的一项；`settings.test.tsx` 里依赖豆包专属控件（鉴权方式、数字格式化）的用例改为显式选豆包。`vitest run tests/settings tests/voice tests/input` 3427 项通过，`tsc --noEmit`、lint、格式检查通过。
+- `cargo test -p msime-client-core -p msime-client-providers -p msime-host-api -p msime-tauri-mobile-platform`：1893 项通过；`cargo test -p msime-desktop -p msime-client-services` 全部通过，`local_recognition_needs_the_macos_voice_runtime` 覆盖出厂本地不下载运行库、选用模型后下载，依赖豆包出厂值的 `ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences` 改为显式选豆包；`cargo clippy -p msime-desktop --all-targets -- -D warnings` 无告警。新增 `voice_provider_defaults_to_the_offline_local_model`，覆盖出厂值、出厂文档通过校验、旧文档的 `doubao` 原样保留。
+- 前端：`voice-input-preferences.test.ts` 钉住 React 出厂值；`voice-provider.test.tsx` 按真实宿主注入本地模型客户端，要求出厂选中的「本地模型」是下拉里可用的一项；`settings.test.tsx` 里依赖豆包专属控件（鉴权方式、数字格式化）的用例改为显式选豆包；`resource-packs.test.tsx` 新增出厂本地下选用模型时下载运行库的用例（改动前失败）。全量 `vitest run` 5488 项通过，`tsc --noEmit`、lint、格式检查通过。
 - HarmonyOS `platforms/harmony/tests/run.sh`：0 失败，`keyboard-logic.test.ts` 钉住键盘出厂值，豆包未配置的用例改为描述旧默认。
 - macOS `VoiceProviderOptionsTest.mm` 以 CMake 同样的 `-Wall -Wextra -Werror -UNDEBUG` 编译运行通过：未设置的服务没有模型时拒绝录音、不要求 Token。
 - 未在 Windows、Linux、Android、HarmonyOS 真机或模拟器上装包验收新装首次录音的提示。
