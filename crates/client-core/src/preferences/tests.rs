@@ -1627,10 +1627,9 @@ fn command_line_candidates_stay_off_until_the_user_turns_them_on() {
             .diagnostic_log
             .command_line_candidates
     );
-    let legacy: Preferences = serde_json::from_value(serde_json::json!({
-        "diagnostic_log": { "server": true, "tsf": false }
-    }))
-    .unwrap();
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document["diagnostic_log"] = serde_json::json!({ "server": true, "tsf": false });
+    let legacy: Preferences = serde_json::from_value(document).unwrap();
     assert!(legacy.diagnostic_log.server);
     assert!(!legacy.diagnostic_log.command_line_candidates);
 
