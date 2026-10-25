@@ -65,8 +65,10 @@ export interface InputSharedSettingsSectionProps {
   crossCommitSpacing?: ReactNode;
   beforeFrequency?: ReactNode;
   afterFrequency?: ReactNode;
-  /** 鸿蒙手机的「输入」页只把主要分组留在视野内：这里的每个分组都放进末尾「更多」分组的同一个「更多选项」折叠中，「中文输出」单选不放，因为该页以「中文字符集」提供它。 */
+  /** 把这里的共享分组整体收进末尾「更多」分组的同一个「更多选项」折叠中；折叠时不显示「中文输出」单选，由调用方提供等价的中文字符集控件。 */
   foldIntoMore?: boolean;
+  /** 是否显示「中文输出」单选；HarmonyOS 手机已经在「中文」组提供「中文字符集」。 */
+  showTraditionalOutput?: boolean;
   /** 宿主能按 OpenCC 变体做繁体转换（`HostCapabilities.traditional_chinese_variants`），「中文输出」单选列出台湾正体和台湾用词。 */
   traditionalChineseVariants?: boolean;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
@@ -101,6 +103,7 @@ export function InputSharedSettingsSection({
   beforeFrequency,
   afterFrequency,
   foldIntoMore = false,
+  showTraditionalOutput = true,
   traditionalChineseVariants = false,
   onPreferencesChange,
 }: InputSharedSettingsSectionProps) {
@@ -143,7 +146,7 @@ export function InputSharedSettingsSection({
     />
   );
 
-  // 少有人改的候选行收进组末的「更多选项」。鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套一层，混输各行和只出单字仍在学习开关之前。
+  // 少有人改的候选行收进组末的「更多选项」；整体折叠时这里不再套第二层，混输各行和只出单字仍在学习开关之前。
   const candidatesMoreRows = (
     <>
       {mixedInput && onMixedInputChange && (
@@ -284,7 +287,7 @@ export function InputSharedSettingsSection({
         "output",
         <GroupList title="输出">
           {foldIntoMore && outputExtra}
-          {!foldIntoMore && traditionalOutputRow}
+          {!foldIntoMore && showTraditionalOutput && traditionalOutputRow}
           <ChineseEnglishSpacingSection
             value={preferences.chinese_english_spacing}
             onChange={(chinese_english_spacing) => onPreferencesChange({ chinese_english_spacing })}

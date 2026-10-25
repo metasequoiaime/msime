@@ -316,12 +316,23 @@ function groupTitles(page: HTMLElement) {
   );
 }
 
-test("the HarmonyOS phone 输入 page shows the design's groups and folds the rest into 更多", async () => {
+test("the HarmonyOS phone 输入 page shows its groups without an outer 更多 fold", async () => {
   renderInputPage("harmony");
   await settingsFormReady();
   const page = inputPage();
 
-  expect(groupTitles(page)).toEqual(["语言与方案", "中文", "辅助码", "翻译", "更多"]);
+  expect(groupTitles(page)).toEqual([
+    "语言与方案",
+    "中文",
+    "辅助码",
+    "翻译",
+    "中英文",
+    "选词与翻页",
+    "候选与联想",
+    "输出",
+    "快捷模式",
+    "拼音方案调频",
+  ]);
   expect(within(page).getByRole("group", { name: "输入方案" })).toBeTruthy();
   expect(within(page).queryByRole("switch", { name: /^显示输入方案/ })).toBeNull();
   // 辅助码分组列出当前方案族的码表，另一族的留在折叠区里。
@@ -329,11 +340,19 @@ test("the HarmonyOS phone 输入 page shows the design's groups and folds the re
   expect(within(page).getByRole("combobox", { name: "双拼辅助码方案" })).toBeTruthy();
   expect(within(page).getByText("在候选词下方显示英语释义")).toBeTruthy();
   expect(within(page).getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
-  // 中英文设置和其余设置仍可在更多下找到；整句联想和翻页键在那里属于其他页面。
-  const more = topGroups(page).at(-1) as HTMLElement;
+  // 输入通用设置直接显示；整句联想和翻页键属于其他页面，所以仍不在这里出现。
+  expect(groupTitles(page)).not.toContain("更多");
+  const selection = topGroups(page).find(
+    (section) => section.querySelector(":scope > [data-group-title]")?.textContent === "选词与翻页",
+  ) as HTMLElement;
   // 以词定字和它的键组合成了一个「关闭 / [ ] / - =」选择。
-  expect(within(more).getByText("以词定字")).toBeTruthy();
-  expect(within(more).getByText("拼音方案调频")).toBeTruthy();
+  expect(within(selection).getByText("以词定字")).toBeTruthy();
+  expect(
+    topGroups(page).find(
+      (section) =>
+        section.querySelector(":scope > [data-group-title]")?.textContent === "拼音方案调频",
+    ),
+  ).toBeTruthy();
   expect(within(page).queryByRole("switch", { name: "本地整句联想" })).toBeNull();
   expect(within(page).queryByRole("radiogroup", { name: "中文输出" })).toBeNull();
 });
