@@ -4,7 +4,7 @@ import android.graphics.Color;
 import android.widget.Button;
 import android.widget.LinearLayout;
 
-/** 临时拼写编辑表面；组字与光标状态仍由引擎持有。 */
+/** 临时拼写编辑表面：一行放大拼写加「完成」；组字与光标状态仍由引擎持有。 */
 final class ImeCompositionEditor {
     private final MSIMEInputService s;
     private LinearLayout container;
@@ -14,12 +14,14 @@ final class ImeCompositionEditor {
     ImeCompositionEditor(MSIMEInputService service) { s = service; }
 
     void install(LinearLayout parent) {
-        container = new LinearLayout(s);
-        container.setOrientation(LinearLayout.VERTICAL);
+        // 只占一行，拼写条在左、「完成」在右，不再另起提示行和手柄区把键盘顶高。
+        container = LayoutPolicy.row(s);
+        container.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        container.setPadding(s.pixels(8), s.pixels(4), s.pixels(8), s.pixels(4));
         container.setContentDescription("拼写编辑面板");
-        LinearLayout row = LayoutPolicy.row(s);
-        row.addView(ViewPolicy.textLabel(s, "拖动右侧手柄移动光标", 12),
-            new LinearLayout.LayoutParams(0, s.pixels(40), 1));
+        spelling = new CompositionEditorView(s, s::moveCompositionCaret);
+        container.addView(spelling, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         Button done = new Button(s);
         done.setText("完成");
         done.setContentDescription("完成拼写编辑");
@@ -27,10 +29,9 @@ final class ImeCompositionEditor {
             close();
             s.command(CompositionCaretPolicy.MOVE_END);
         });
-        row.addView(done, new LinearLayout.LayoutParams(s.pixels(64), s.pixels(40)));
-        container.addView(row);
-        spelling = new CompositionEditorView(s, s::moveCompositionCaret);
-        container.addView(spelling, LayoutPolicy.matchWidthWrapParams());
+        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(s.pixels(64), s.pixels(40));
+        doneParams.setMarginStart(s.pixels(8));
+        container.addView(done, doneParams);
         parent.addView(container, LayoutPolicy.matchWidthWrapParams());
         ViewPolicy.hide(container);
     }
