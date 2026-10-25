@@ -86,12 +86,22 @@ jobs:
           ./platforms/windows/Build-Windows7Core.ps1 -Architecture $arch -OutputDirectory "$PWD/target/windows7-core"
           ./platforms/windows/Build-Windows7VoiceRuntime.ps1 -Architecture $arch -Parallel 4
 
+      - name: 整理 Win7 运行库产物
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arch = '${{ matrix.architecture }}'
+          $stage = Join-Path $PWD 'target/windows7-runtime-artifact'
+          $core = Join-Path $stage "windows7-core/$arch"
+          $voice = Join-Path $stage "windows7-voice/$arch"
+          New-Item -ItemType Directory -Force -Path $core, $voice | Out-Null
+          Copy-Item -Path (Join-Path $PWD "target/windows7-core/$arch/*") -Destination $core -Recurse -Force
+          Copy-Item -Path (Join-Path $PWD "target/windows7-voice/$arch/bin/*") -Destination $voice -Recurse -Force
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows7-runtime-${{ matrix.architecture }}
-          path: |
-            target/windows7-core/${{ matrix.architecture }}
-            target/windows7-voice/${{ matrix.architecture }}
+          path: target/windows7-runtime-artifact/
           if-no-files-found: error
 
   package:

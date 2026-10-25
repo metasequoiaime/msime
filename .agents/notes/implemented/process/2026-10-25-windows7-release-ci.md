@@ -30,4 +30,5 @@ Win7 相关手动运行会获得可下载的 x64/x86 安装包和安装冒烟证
 - `actionlint .github/workflows/release-windows7.yml` 通过。
 - `git diff --check` 通过。
 - 运行库矩阵的每个 artifact 都包含 `windows7-core/<arch>` 和 `windows7-voice/<arch>`；打包 job 在复制前检查两个目录，缺失即失败。
+- 运行库上传前只从 `windows7-core/<arch>` 和 `windows7-voice/<arch>/bin` 整理最终文件，ONNX Runtime 与 sherpa-onnx 的构建目录不会进入 artifact。
 - 工作流的 Windows runner 执行结果由 GitHub Actions 负责；本机 macOS 不执行 Windows 原生构建。
