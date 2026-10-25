@@ -74,6 +74,14 @@ Windows 原生设置页现在与共享设置页提供同一组能力：桌面神
 
 独立 Windows 工作区的同源生产 host-api DLL 另已通过真实资源链路验收（DLL SHA-256 `76520af29246332d7c05240f5e18cb9694032a7fc2308a412aaa9c213bcaa666`）：三种包在登记后的首次回调中均可取消；紧凑模型在实际收到下载字节后取消，状态仍为缺失，重试后完成续传、安装和锁定的 40,925,228 字节及 SHA-256 校验。使用同一 DLL、独立合成词库与状态目录建立全拼会话，发送合成拼音并得到候选，同时用 Windows `VirtualQuery`／`GetMappedFileNameW` 确认进程已映射锁定的 `.gram`。销毁会话后经资源包 C ABI 删除，查询回到缺失，文件与映射均消失。此项不覆盖万象和非紧凑八股文的完整下载，也不证明真实编辑器中的模型排序效果；不把 C ABI 调用写成 WinUI 下载／取消／确认删除按钮已被点击。
 
+## 2026-10-25 补充：Windows 桌面神经联想补上模型下载行
+
+上一条补充说 Windows 原生页「与共享设置页提供同一组能力」，实际只做到了一半：「桌面神经联想」只是一个写 `sentence_association.neural_desktop` 的开关，页面从不列出、也不下载 `settled-model`。Windows 安装包从 `Prepare-PackageFiles.ps1` 改为不内置落定重排模型之后，安装包里没有这个模型，设置页也拿不到它，于是在 Windows 上打开这个开关不会产生任何效果。共享页的做法是开关打开后在下面显示 `settled-model` 资源包行。
+
+`build_neural_desktop_settings` 照共享页的做法：开关打开时显示「神经联想模型」行，下载、更新、取消、删除与语法模型共用 `sentence_pack_row`，状态查询的过滤名单也加上 `settled-model`。删除确认按包区分措辞。下载由用户点按钮发起，不在打开开关时自动开始，与本页语法模型行的交互一致；共享页的自动 `ensure` 依赖它常驻的资源包状态，原生页首次建页时状态可能还没查回来，在那时自动安装会对已装好的包重复下载。
+
+Windows 0.3.0（2026-10-23 发布）早于本节和上一节，更新说明列出了 octagram 支持，但设置页里两个入口都没有；`docs/sentence-models.md` 按版本写明了这一点。契约脚本 `scripts/test-windows-input-habits-settings.py` 增加 `settled-model` 下载行与 `build_neural_desktop_settings` 调用的断言。原生 UI 专项没有覆盖神经联想开关和这一行，WinUI 中的实际下载还没有验收。
+
 ## 2026-10-22 补充：octagram 调参系数进偏好（对应 Windows `sentence_collocation_*`）
 
 Windows v0.11.1 出厂模板的 `[association]` 有七个不进设置页的高级调参键：`sentence_collocation_weight`（1.0）、`sentence_collocation_max_length`（6）、`sentence_collocation_min_length`（2）、`sentence_collocation_penalty`（-14.0）、`sentence_collocation_non_penalty`（-6.0）、`sentence_collocation_weak_penalty`（-100.0）、`sentence_collocation_rear_penalty`（-18.0）。新架构的 `GramConfig` 早已是这些参数的结构体，但值是定值，偏好层不可调。本轮把同名七键加进 `SentenceAssociationPreferences`（键名逐字与 Windows 一致），host-api 的 `engine_sentence_association` 逐字段透传进 `collocation_weight` 与 `collocation_grammar`。

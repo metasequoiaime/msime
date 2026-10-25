@@ -13653,12 +13653,27 @@ private:
     append_row_frame(group, save).Padding(Thickness{row_inset, 10, row_inset, 10});
   }
 
-  // Windows 原生设置页也提供共享设置页中的神经联想和 octagram 语法模型管理。
-  void build_sentence_model_settings(StackPanel const &group) {
+  void request_sentence_packs() {
     if (!indexing_ && sentence_pack_statuses_.empty() && !sentence_packs_requested_) {
       sentence_packs_requested_ = true;
       refresh_sentence_packs();
     }
+  }
+
+  // 安装包不带落定重排模型（Prepare-PackageFiles.ps1），与共享页一样在「桌面神经联想」打开时给出它的下载行，否则开关打开了也没有模型可用。
+  void build_neural_desktop_settings(StackPanel const &group) {
+    bool_row(group, 0xE8C1, L"桌面神经联想",
+             L"使用神经模型重排整句候选；没有模型时保持现有候选",
+             L"sentence_association.neural_desktop", false, true);
+    if (!document_.Boolean(L"sentence_association.neural_desktop", false))
+      return;
+    request_sentence_packs();
+    sentence_pack_row(group, L"settled-model", L"神经联想模型");
+  }
+
+  // Windows 原生设置页也提供共享设置页中的 octagram 语法模型管理。
+  void build_sentence_model_settings(StackPanel const &group) {
+    request_sentence_packs();
     const std::wstring model = document_.String(L"sentence_association.grammar_model", L"none");
     std::vector<Option> choices = {
         {L"none", L"不使用"},
@@ -13676,8 +13691,12 @@ private:
             L"octagram 语法模型给整句候选加分；模型按需下载，不随安装包。选择后切换一次输入框生效。",
             selector);
     const auto pack = grammar_pack_for_model(model);
-    if (pack.empty())
-      return;
+    if (!pack.empty())
+      sentence_pack_row(group, pack, L"模型文件");
+  }
+
+  void sentence_pack_row(StackPanel const &group, std::wstring const &pack,
+                         std::wstring const &title) {
     const auto status = sentence_pack_status(pack);
     const bool installing = sentence_pack_installing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
@@ -13706,7 +13725,7 @@ private:
                                                 loaded_));
     if (installing)
       actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
-    add_row(group, 0xE8C1, L"模型文件", subtitle, actions);
+    add_row(group, 0xE8C1, title, subtitle, actions);
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
@@ -13745,8 +13764,8 @@ private:
                 continue;
               const auto object = item.GetObject();
               const auto id = named_string(object, L"id");
-              if (id == L"grammar-model-wanxiang" || id == L"grammar-model-baguwen" ||
-                  id == L"grammar-model-baguwen-compact")
+              if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
+                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact")
                 sentence_pack_statuses_.push_back({id, named_string(object, L"state")});
             }
             redraw_input();
@@ -13798,7 +13817,11 @@ private:
   }
 
   fire_and_forget remove_sentence_pack(std::wstring const &id) {
-    if (!co_await confirm(L"删除语法模型", L"删除后切换输入框即可退回无语法模型的候选行为。确定删除？", L"删除"))
+    const bool settled = id == L"settled-model";
+    if (!co_await confirm(settled ? L"删除桌面神经联想模型" : L"删除语法模型",
+                          settled ? L"删除后切换输入框即可退回不经神经模型重排的整句候选。确定删除？"
+                                  : L"删除后切换输入框即可退回无语法模型的候选行为。确定删除？",
+                          L"删除"))
       co_return;
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) co_return;
@@ -13868,9 +13891,7 @@ private:
       bool_row(candidates_more, 0xE8C1, L"本地整句联想",
                L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
                L"sentence_association.word_lattice", true);
-      bool_row(candidates, 0xE8C1, L"桌面神经联想",
-               L"使用神经模型重排整句候选；没有模型时保持现有候选",
-               L"sentence_association.neural_desktop", false, true);
+      build_neural_desktop_settings(candidates);
       bool_row(candidates, 0xE8C1, L"去重后补充次选",
                L"某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果",
                L"sentence_association.show_next_on_duplicate", false);
