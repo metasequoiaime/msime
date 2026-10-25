@@ -18,6 +18,7 @@ import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.AuthenticationPauseTracker;
 import app.msime.android.ClipboardOperationAuthenticationPolicy;
 import app.msime.android.SystemAuthenticators;
 import java.io.IOException;
@@ -43,7 +44,7 @@ final class ClipboardExportActions {
     /** 系统认证窗口仍在进行；宿主页据此判断这次暂停是不是认证本身引起的。 */
     boolean authenticating() { return authentication != null; }
 
-    /** 认证结束时通知宿主页，参数表示是否被系统取消（`ERROR_CANCELED`）；历史页据此判断离开页面时被取消的导出认证是否要按重新进入处理。 */
+    /** 认证结束时通知宿主页，参数表示是否被系统取消（见 {@link AuthenticationPauseTracker#systemCanceled}）；历史页据此判断离开页面时被取消的导出认证是否要按重新进入处理。 */
     void onAuthenticationEnded(Consumer<Boolean> listener) { authenticationEnded = listener; }
 
     void restore(Bundle state) { exportAfterPicking = state != null && state.getBoolean("clipboardExportAfterPicking"); }
@@ -94,7 +95,7 @@ final class ClipboardExportActions {
 
                 @Override public void onAuthenticationError(int code, CharSequence message) {
                     authentication = null;
-                    if (authenticationEnded != null) authenticationEnded.accept(code == BiometricPrompt.ERROR_CANCELED);
+                    if (authenticationEnded != null) authenticationEnded.accept(AuthenticationPauseTracker.systemCanceled(code, android.os.Build.VERSION.SDK_INT));
                 }
             });
         BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()

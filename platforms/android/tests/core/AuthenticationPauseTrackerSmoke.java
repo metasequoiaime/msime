@@ -44,6 +44,14 @@ public final class AuthenticationPauseTrackerSmoke {
         tracker.paused(false);
         check(!tracker.reentersOnEnd(true, true), "cancel without a pause does not re-enter");
 
+        // 错误码的归类：ERROR_CANCELED 一直算系统取消；Android 11 起 SystemUI 关掉后台应用的认证窗口报 ERROR_USER_CANCELED（10），也算；Android 9、10 凭据确认页按返回报的同一个错误码是用户自己取消。
+        check(AuthenticationPauseTracker.systemCanceled(5, 28), "AndroidX onStop cancel on Android 9");
+        check(AuthenticationPauseTracker.systemCanceled(5, 35), "system cancel on Android 15");
+        check(AuthenticationPauseTracker.systemCanceled(10, 30), "SystemUI eviction on Android 11");
+        check(AuthenticationPauseTracker.systemCanceled(10, 35), "SystemUI eviction on Android 15");
+        check(!AuthenticationPauseTracker.systemCanceled(10, 28), "credential confirmation back on Android 9");
+        check(!AuthenticationPauseTracker.systemCanceled(10, 29), "credential confirmation back on Android 10");
+
         tracker.paused(true);
         tracker.reset();
         check(tracker.reentersOnVisible(false), "destroyed view forgets the pause");

@@ -150,7 +150,7 @@ public final class StatisticsFragment extends HomeTabFragment {
                 @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
                     authentication = null;
                     authorized = false;
-                    authenticationEnded(errorCode == BiometricPrompt.ERROR_CANCELED);
+                    authenticationEnded(AuthenticationPauseTracker.systemCanceled(errorCode, android.os.Build.VERSION.SDK_INT));
                 }
             });
         BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()

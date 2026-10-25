@@ -204,7 +204,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
                 @Override public void onAuthenticationError(int code, CharSequence message) {
                     authentication = null;
                     authorized = false;
-                    authenticationEnded(code == BiometricPrompt.ERROR_CANCELED);
+                    authenticationEnded(AuthenticationPauseTracker.systemCanceled(code, android.os.Build.VERSION.SDK_INT));
                 }
             });
         BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
