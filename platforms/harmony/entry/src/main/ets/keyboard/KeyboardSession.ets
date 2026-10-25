@@ -7302,14 +7302,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** Select by position in the full list rather than in the page. */
-  chooseAny(index: number): void {
+  /** Select by position in the full list rather than in the page. 返回引擎是否接受了这次选择，展开面板据此决定留不留（`CandidatePanelSelectionPolicy`）。 */
+  chooseAny(index: number): boolean {
     if (this.handle === 0) {
-      return;
+      return false;
     }
     const actualIndex: number = this.expandedCandidateIndices[index] ?? -1;
-    if (actualIndex < 0) return;
-    this.apply(client.selectAnyCandidate(this.handle, this.generation, actualIndex));
+    if (actualIndex < 0) return false;
+    return this.apply(client.selectAnyCandidate(this.handle, this.generation, actualIndex));
   }
 
   /** Commit to one reading of the digits typed so far. */

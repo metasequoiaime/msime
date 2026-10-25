@@ -20,6 +20,7 @@ import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
 import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
+import { CandidatePanelSelectionPolicy } from './candidate/CandidatePanelSelectionPolicy';
 import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
 import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
@@ -2623,6 +2624,25 @@ struct KeyboardView {
     this.expanded = KeyboardSession.shared.allCandidates();
     if (this.expandedGloss >= this.expanded.length) {
       this.expandedGloss = -1;
+    }
+  }
+
+  /**
+   * 展开面板里点中一个候选。只选掉前面一段、组字还在时面板留着：选词的回报经 onChanged 同步走到 refreshExpanded，换上剩下组字的全部候选，用户接着在面板里往下选（#9193，规则在 `CandidatePanelSelectionPolicy`）。整句上屏、组字清空或引擎拒绝了这次选择就收起，组字还在的话 leaveNineKeyPanel 照旧清掉筛选。九键面板开着笔画筛选时顺带清掉笔画：它比的是刚被选掉的那个字。
+   */
+  private chooseExpanded(index: number): void {
+    const nineKeyPanel: boolean = this.nineKeyPanel();
+    const handled: boolean = KeyboardSession.shared.chooseAny(index);
+    if (!CandidatePanelSelectionPolicy.keepsOpen(handled, KeyboardSession.shared.composing())) {
+      if (this.surface === SURFACE_EXPANDED) {
+        this.show(SURFACE_NONE);
+      }
+      return;
+    }
+    const strokes: string | null = nineKeyPanel && this.nineKeyPanel()
+      ? CandidatePanelSelectionPolicy.strokesAfterPartialSelection(this.nineKeyStrokes) : null;
+    if (strokes !== null) {
+      KeyboardSession.shared.setNineKeyFilter(this.nineKeySingleCharacter, strokes);
     }
   }
 
@@ -7975,8 +7995,7 @@ struct KeyboardView {
                 })
                 .accessibilityText(this.expandedLabel(cell.index))
                 .onClick(() => {
-                  KeyboardSession.shared.chooseAny(cell.index);
-                  this.show(SURFACE_NONE);
+                  this.chooseExpanded(cell.index);
                 })
                 // 原版对这里的长按给出与工具条上相同的注释。只给注释：管理操作按页面而不是按这个列表编号，所以这里没有对它们有意义的序号。
                 .gesture(LongPressGesture().onAction(() => {

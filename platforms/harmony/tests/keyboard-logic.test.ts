@@ -91,6 +91,7 @@ import {
   NineKeyPanelMode,
   NineKeyPanelPolicy,
 } from "../entry/src/main/ets/keyboard/input/NineKeyPanelPolicy";
+import { CandidatePanelSelectionPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePanelSelectionPolicy";
 import {
   LayerCharacterRoute,
   LayerKey,
@@ -2842,6 +2843,29 @@ group("the nine-key expanded panel's backspace, strokes and layout", () => {
     !NineKeyPanelPolicy.clearsFilterOnClose(false, true, "h") &&
       !NineKeyPanelPolicy.clearsFilterOnClose(true, false, ""),
     "but sends nothing once the Engine has cleared it, or when there was none",
+  );
+});
+
+group("a partial selection keeps the expanded panel (#9193)", () => {
+  check(
+    CandidatePanelSelectionPolicy.keepsOpen(true, true),
+    "a selection that leaves part of the composition keeps the panel and lists what remains",
+  );
+  check(
+    !CandidatePanelSelectionPolicy.keepsOpen(true, false),
+    "committing the whole phrase closes the panel",
+  );
+  check(
+    !CandidatePanelSelectionPolicy.keepsOpen(false, true),
+    "a stale generation the Engine refused does not keep the old panel",
+  );
+  check(
+    CandidatePanelSelectionPolicy.strokesAfterPartialSelection("hs") === "",
+    "the stroke prefix described the character just chosen, so it is cleared",
+  );
+  check(
+    CandidatePanelSelectionPolicy.strokesAfterPartialSelection("") === null,
+    "and nothing is sent when there was none",
   );
 });
 
