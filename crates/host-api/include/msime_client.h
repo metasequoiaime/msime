@@ -468,7 +468,8 @@ int32_t msime_client_skin_animation_decode(const uint8_t *bytes, size_t length,
     msime_client_skin_animation_callback on_frame, void *context);
 /* JSON {directory:absolute path,id:skin id,relative:package asset,kind:"image"|"font"}.
  * Returns {contentType,bytes}; the manifest and package containment are
- * revalidated for every call and the requested kind must match the asset. */
+ * revalidated for every call and the requested kind must match the asset.
+ * With the optional encoding:"base64" it returns {contentType,bytesBase64} instead: the bytes array costs about 64 bytes of heap per resource byte while the response is built, which a host under a tight memory limit (the iOS keyboard extension) cannot afford. Any other encoding is an error. */
 char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */

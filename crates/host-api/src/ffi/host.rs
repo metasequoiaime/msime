@@ -1324,6 +1324,9 @@ struct SkinResourceRequest {
     id: String,
     relative: String,
     kind: String,
+    /// `"base64"` returns the bytes as one base64 string, `bytesBase64`, instead of the `bytes` array. Absent keeps the array the existing hosts read.
+    #[serde(default)]
+    encoding: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1389,6 +1392,8 @@ struct SkinResourceResponse {
 /// call, so a stale catalog cannot turn this endpoint into an arbitrary file
 /// reader. `kind` is deliberately checked here as well: a WebView image reader
 /// must never receive CSS or a font by mistake.
+///
+/// The default `bytes` array costs about 64 bytes of heap per resource byte while the response is built (a `serde_json::Value` per byte, measured on a 1 MiB image), and a JSON parser on the host side spends tens more turning it back into bytes. The iOS keyboard extension reads candidate-skin images under the system's per-extension memory limit, where that spike for a single 1 MiB image is larger than everything else the keyboard holds, so it asks for `encoding: "base64"`. The array stays the default for the hosts that read it.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -1407,6 +1412,11 @@ pub unsafe extern "C" fn msime_client_skin_resource(
         if request.kind != "image" && request.kind != "font" {
             return Err("unsupported skin resource kind".into());
         }
+        let as_base64 = match request.encoding.as_deref() {
+            None => false,
+            Some("base64") => true,
+            Some(_) => return Err("unsupported skin resource encoding".into()),
+        };
         if !Path::new(&request.directory).is_absolute() {
             return Err("skin directory must be absolute".into());
         }
@@ -1423,6 +1433,13 @@ pub unsafe extern "C" fn msime_client_skin_resource(
         };
         if !resource.content_type.starts_with(expected) {
             return Err("skin resource type mismatch".into());
+        }
+        if as_base64 {
+            use base64::Engine as _;
+            return Ok(json!({
+                "contentType": resource.content_type,
+                "bytesBase64": base64::engine::general_purpose::STANDARD.encode(&resource.bytes),
+            }));
         }
         serde_json::to_value(SkinResourceResponse {
             content_type: resource.content_type,

@@ -5783,6 +5783,29 @@ fn skin_resource_bridge_revalidates_kind_and_package_containment() {
     assert_eq!(image["ok"], true);
     assert_eq!(image["value"]["contentType"], "image/png");
     assert_eq!(image["value"]["bytes"], json!([1, 2, 3]));
+    // The iOS keyboard asks for base64 so a large image does not cost a JSON number per byte.
+    let encoded = call(json!({
+        "directory": directory,
+        "id": "sample",
+        "relative": "images/preview.png",
+        "kind": "image",
+        "encoding": "base64"
+    }));
+    assert_eq!(
+        encoded,
+        json!({"ok": true, "value": {"contentType": "image/png", "bytesBase64": "AQID"}})
+    );
+    let unknown_encoding = call(json!({
+        "directory": directory,
+        "id": "sample",
+        "relative": "images/preview.png",
+        "kind": "image",
+        "encoding": "hex"
+    }));
+    assert_eq!(
+        unknown_encoding,
+        json!({"ok": false, "error": "unsupported skin resource encoding"})
+    );
     let font = call(json!({
         "directory": root.to_str().unwrap(),
         "id": "sample",

@@ -180,9 +180,11 @@ extension ExternalCandidateSkin {
     var remaining = 8_000_000, loaded: [String: Canvas.Frames] = [:]
     func load(_ relative: String) -> Canvas.Frames? {
       if let frames = loaded[relative] { return frames }
-      guard let value = reply(["directory": root.path, "id": id, "relative": relative, "kind": "image"], resource: true),
-            let bytes = value["bytes"] as? [NSNumber],
-            let frames = Canvas.Frames.decode(Data(bytes.map { UInt8(truncating: $0) }), remaining: &remaining) else { return nil }
+      // base64 rather than the default `bytes` array: for a 1 MiB image the array costs about 64 MiB while the shared layer builds it and about 40 MiB more while JSONSerialization turns it back into bytes, either of which is more than the keyboard extension holds for everything else; base64 costs about 5 MiB and 3 MiB.
+      guard let value = reply(["directory": root.path, "id": id, "relative": relative, "kind": "image", "encoding": "base64"],
+                              resource: true),
+            let encoded = value["bytesBase64"] as? String, let bytes = Data(base64Encoded: encoded),
+            let frames = Canvas.Frames.decode(bytes, remaining: &remaining) else { return nil }
       loaded[relative] = frames
       return frames
     }
