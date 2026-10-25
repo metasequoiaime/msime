@@ -308,49 +308,10 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private void openPage() throws Exception {
         Intent intent = new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
             .putExtra("msime_open_page", "KEYBOARD_OPTIONS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        String reason = stage;
-        stage = reason + ": keyboard page";
         activity = startActivitySync(intent);
-        // 键盘页最多四个分类（#9658），剪贴板设置是「工具栏」分类里键盘工具栏下面的一组，打开分类后还要滚到它；同一分类里还有工具栏按钮「剪贴板」，不能再按这个字去点。
-        stage = reason + ": toolbar section";
-        tap(text("工具栏"));
-        stage = reason + ": clipboard group";
-        reveal(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()),
-            text("导出文件夹"));
-        stage = reason + ": export button";
+        tap(text("剪贴板"));
+        await(text("导出文件夹"));
         await(node -> text("导出").test(node) && node.isEnabled());
-        stage = reason;
-    }
-
-    /**
-     * 把页面往下拖，直到这些控件同时出现在屏幕上。
-     *
-     * <p>不用无障碍的显示或翻页动作：页面的滚动容器伸到底部导航栏下面，按钮露在导航栏后面时系统认为它已经在容器里、请求显示不滚动；整页前翻又按容器高度翻，会把导航栏后面那一截跳过去。所以按可见滚动容器的位置做慢速拖动，一次只挪一小段，每次重新判断。
-     */
-    @SafeVarargs
-    private void reveal(Predicate<AccessibilityNodeInfo>... targets) throws Exception {
-        for (int attempt = 0; attempt < 12; attempt++) {
-            if (allVisible(targets)) return;
-            AccessibilityNodeInfo scroll = findAll(node -> node.isScrollable()
-                && "android.widget.ScrollView".contentEquals(node.getClassName() == null ? "" : node.getClassName()));
-            check(scroll != null, "settings page scroll container");
-            Rect bounds = new Rect();
-            scroll.getBoundsInScreen(bounds);
-            int x = bounds.centerX();
-            shell("input swipe " + x + " " + (bounds.top + bounds.height() * 3 / 4) + " " + x + " " + (bounds.top + bounds.height() * 2 / 5) + " 1200");
-            automation.waitForIdle(300, 3000);
-        }
-        long deadline = SystemClock.uptimeMillis() + 3000;
-        while (!allVisible(targets)) {
-            check(SystemClock.uptimeMillis() < deadline, "settings controls scrolled into view");
-            SystemClock.sleep(100);
-        }
-    }
-
-    @SafeVarargs
-    private boolean allVisible(Predicate<AccessibilityNodeInfo>... targets) {
-        for (Predicate<AccessibilityNodeInfo> target : targets) if (findAll(target) == null) return false;
-        return true;
     }
 
     private void choose() throws Exception {
@@ -615,7 +576,6 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     }
 
     private AccessibilityNodeInfo findAll(Predicate<AccessibilityNodeInfo> predicate) {
-        if (Build.VERSION.SDK_INT >= 34) automation.clearCache();
         AccessibilityNodeInfo active = find(automation.getRootInActiveWindow(), predicate);
         if (active != null) return active;
         for (var window : automation.getWindows()) {
