@@ -68,7 +68,7 @@
 合取	he'qu	∧
 析取	xi'qu	∨
 异或	yi'huo	⊕
-百分号	bai'fen'hao	％
+百分号	bai'fen'hao	％ %
 千分号	qian'fen'hao	‰
 万分号	wan'fen'hao	‱
 度	du	°
@@ -263,8 +263,8 @@ aleph	-	ℵ
 项目符号	xiang'mu'fu'hao	• ◦ ▪
 间隔号	jian'ge'hao	·
 对号	dui'hao	√ ✓
-对钩	dui'gou	√ ✓
-对勾	dui'gou	√ ✓
+对钩	dui'gou	√ ✓ ✔
+对勾	dui'gou	√ ✓ ✔
 打钩	da'gou	√ ✓
 打勾	da'gou	√ ✓
 叉号	cha'hao	× ✗
@@ -292,37 +292,50 @@ aleph	-	ℵ
 回车	hui'che	↵
 回车键	hui'che'jian	↵
 退格键	tui'ge'jian	⌫
-竖线	shu'xian	｜
+竖线	shu'xian	｜ |
 男性符号	nan'xing'fu'hao	♂
 女性符号	nv'xing'fu'hao	♀
 雄性	xiong'xing	♂
 雌性	ci'xing	♀
 
 # ---- 标点与括号 ----
-括号	kuo'hao	（） 【】 ［］ ｛｝
+逗号	dou'hao	， ,
+句号	ju'hao	。 .
+顿号	dun'hao	、
+问号	wen'hao	？ ?
+叹号	tan'hao	！ !
+感叹号	gan'tan'hao	！ !
+冒号	mao'hao	： :
+分号	fen'hao	； ;
+斜杠	xie'gang	／ /
+斜线	xie'xian	／ /
+反斜杠	fan'xie'gang	\
+下划线	xia'hua'xian	_
+艾特	ai'te	@
+括号	kuo'hao	（） 【】 ［］ ｛｝ ()
 圆括号	yuan'kuo'hao	（）
-小括号	xiao'kuo'hao	（）
-方括号	fang'kuo'hao	［］ 【】
-中括号	zhong'kuo'hao	［］ 【】
-花括号	hua'kuo'hao	｛｝
-大括号	da'kuo'hao	｛｝
+小括号	xiao'kuo'hao	（） ()
+方括号	fang'kuo'hao	［］ 【】 []
+中括号	zhong'kuo'hao	［］ 【】 []
+花括号	hua'kuo'hao	｛｝ {}
+大括号	da'kuo'hao	｛｝ {}
 尖括号	jian'kuo'hao	〈〉
 六角括号	liu'jiao'kuo'hao	〔〕
 方头括号	fang'tou'kuo'hao	【】
 空心方头括号	kong'xin'fang'tou'kuo'hao	〖〗
 书名号	shu'ming'hao	《》 〈〉
 单书名号	dan'shu'ming'hao	〈〉
-引号	yin'hao	“” ‘’
+引号	yin'hao	“” ‘’ 「」
 双引号	shuang'yin'hao	“”
 单引号	dan'yin'hao	‘’
 直角引号	zhi'jiao'yin'hao	「」
 双直角引号	shuang'zhi'jiao'yin'hao	『』
 省略号	sheng'lve'hao	…… …
 破折号	po'zhe'hao	—— —
-连接号	lian'jie'hao	– —
+连接号	lian'jie'hao	– — -
 波浪线	bo'lang'xian	～
-波浪号	bo'lang'hao	～
-井号	jing'hao	＃
+波浪号	bo'lang'hao	～ ~
+井号	jing'hao	＃ #
 段落符号	duan'luo'fu'hao	¶
 章节号	zhang'jie'hao	§
 

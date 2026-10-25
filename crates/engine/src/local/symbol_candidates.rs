@@ -486,6 +486,23 @@ mod tests {
     }
 
     #[test]
+    fn punctuation_names_offer_full_width_then_ascii_forms() {
+        for (input, expected) in [
+            ("douhao", vec!["，", ","]),
+            ("juhao", vec!["。", "."]),
+            ("wenhao", vec!["？", "?"]),
+            ("maohao", vec!["：", ":"]),
+            ("xiegang", vec!["／", "/"]),
+            ("fanxiegang", vec!["\\"]),
+            ("aite", vec!["@"]),
+            ("xiaokuohao", vec!["（）", "()"]),
+            ("jinghao", vec!["＃", "#"]),
+        ] {
+            assert_eq!(texts(&quanpin(input)), expected, "{input}");
+        }
+    }
+
+    #[test]
     fn math_names_offer_set_logic_and_calculus_symbols() {
         for (input, expected) in [
             ("tidu", vec!["∇"]),
@@ -549,9 +566,9 @@ mod tests {
         let rows = quanpin("xigema");
         assert_eq!(texts(&rows), vec!["σ", "Σ"]);
         assert_eq!(rows[0].anchors, ["西格马", "西格玛"]);
-        // 首字母 dg 命中对钩、对勾、打钩、打勾，√ ✓ 各出一次，四个名称都记下。
+        // 首字母 dg 命中对钩、对勾、打钩、打勾，√ ✓ ✔ 各出一次，四个名称都记下。
         let rows = quanpin("dg");
-        assert_eq!(texts(&rows), vec!["√", "✓"]);
+        assert_eq!(texts(&rows), vec!["√", "✓", "✔"]);
         assert_eq!(rows[0].anchors, ["对钩", "对勾", "打钩", "打勾"]);
         assert!(rows[0].ambiguous && !rows[0].unanchored);
         // 合计不超过上限。
@@ -576,7 +593,7 @@ mod tests {
         assert!(query_symbol_readings(&["gamma".to_owned()], &|_| true).is_empty());
         // 几个读法给出同一个符号时只出一行，锚定词合在一起。
         let rows = query_symbol_readings(&["duigou".to_owned(), "dagou".to_owned()], &|_| true);
-        assert_eq!(texts(&rows), vec!["√", "✓"]);
+        assert_eq!(texts(&rows), vec!["√", "✓", "✔"]);
         assert_eq!(rows[0].anchors, ["对钩", "对勾", "打钩", "打勾"]);
         // `accept` 拒绝的读法不算。
         assert!(
