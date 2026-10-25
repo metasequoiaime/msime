@@ -34,7 +34,7 @@ Status: implemented
 
 - 收益：五笔用户 Shift+Y、T、U、S 进入临时英文、日期时间、Unicode 和符号模式，各平台一致；以后加不经方案拼写的模式时，在 `local_mode_for_entry` 的同一个 `matches!` 里加一项。
 - 代价：五笔下空闲时 Shift+Y/T/U/S 不再打出大写字母（打大写要关总开关或对应模式）。E、M、J、V 在五笔下仍是「设置里有、按了不进」，设置页没写出这一点。
-- 遗留：Windows TIP 在五笔下吞掉 Engine 不收的空闲大写字母（例如 Shift+A，以及 E、M、J、V），重放 7 次后丢弃并重连。按同一段代码推断，拼音方案在总开关关闭时也会这样，没有用测试确认。这一层没有在本次修改，需要单独处理。
+- 遗留：Windows TIP 吞掉 Engine 不收的空闲大写字母（五笔的 Shift+A 以及 E、M、J、V，拼音总开关关掉时的大写字母），重放后丢弃并重连。这一层没有在本次修改，由 [Windows TIP 把 Engine 不收的空闲字符当上屏写入](2026-10-25-windows-declined-idle-character.md) 处理，拼音的情形在那里用测试确认。
 
 ## Verification
 
