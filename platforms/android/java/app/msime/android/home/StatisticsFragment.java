@@ -29,6 +29,7 @@ import androidx.biometric.BiometricPrompt;
 import app.msime.android.NativeClient;
 import app.msime.android.StatisticsAuthenticationPolicy;
 import app.msime.android.SystemAuthenticators;
+import app.msime.android.AuthenticationPauseTracker;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
@@ -88,6 +89,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     @Nullable private Boolean nineKey;
     private boolean authorized;
     @Nullable private BiometricPrompt authentication;
+    private final AuthenticationPauseTracker pause = new AuthenticationPauseTracker();
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -122,6 +124,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         if (authentication != null) authentication.cancelAuthentication();
         authentication = null;
         authorized = false;
+        pause.reset();
         super.onDestroyView();
     }
 
@@ -144,11 +147,13 @@ public final class StatisticsFragment extends HomeTabFragment {
                     authentication = null;
                     authorized = true;
                     if (getView() != null) reload();
+                    authenticationEnded(false);
                 }
 
                 @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
                     authentication = null;
                     authorized = false;
+                    authenticationEnded(errorCode == BiometricPrompt.ERROR_CANCELED);
                 }
             });
         BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
@@ -198,10 +203,24 @@ public final class StatisticsFragment extends HomeTabFragment {
         menu.show();
     }
 
-    // 键盘在另一个进程里，这个页面不在眼前时它一直在记。
+    @Override public void onPause() {
+        super.onPause();
+        pause.paused(authentication != null);
+    }
+
+    // 键盘在另一个进程里，这个页面不在眼前时它一直在记，所以每次重新可见都重新认证再读一次。例外是暂停时认证还开着：回来时是否重新认证由这次认证的结果决定，见 AuthenticationPauseTracker；认证成功的回调自己会读。
     @Override protected void onBecameVisible() {
+        if (pause.reentersOnVisible(authentication != null)) reenter();
+    }
+
+    private void reenter() {
         authorized = false;
         requestAuthentication();
+    }
+
+    /** 认证在离开页面时被系统取消、而页面已经回到眼前：按重新进入处理，否则统计页既没有数据也没有认证窗口。 */
+    private void authenticationEnded(boolean systemCanceled) {
+        if (pause.reentersOnEnd(systemCanceled, isResumed() && !isHidden() && getView() != null)) reenter();
     }
 
     private void reload() {
