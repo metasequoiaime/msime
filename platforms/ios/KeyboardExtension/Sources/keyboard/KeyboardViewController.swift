@@ -452,6 +452,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateCanvasSkin: ExternalCandidateSkin.Canvas?
   private var candidateCanvasRequestKey: Data?
   private var candidateCanvasEpoch: UInt64 = 0
+  /// Whether the top row shows candidates (or the reading, a diagnostic or the local mode) rather than the toolbar; set by `renderCandidateStrip`, read by `currentStripBackground`.
+  private var stripShowsCandidates = false
   private var candidateCanvasActive = true
   private var candidatePreeditGapConstraint: NSLayoutConstraint?
   private static let candidateCanvasQueue = DispatchQueue(label: "app.msime.candidate-canvas", qos: .userInitiated)
@@ -6716,6 +6718,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     exitLocalModeButton.isHidden = !isInLocalMode
     updateHanjaButton()
     let showsCandidates = isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
+    stripShowsCandidates = showsCandidates
+    compositionContainer?.backgroundColor = currentStripBackground(KeyboardTheme.current)
     // 内联高度调节条占据工具栏的位置；下面的按键照常可用，所以打字时候选仍会盖在两者之上显示。
     shortcutBar.isHidden = showsCandidates || inlineHeightBar != nil || toolbarRowHidden
     // 工具栏内容可以隐藏，但 iOS 键盘扩展不能在组字开始和结束时改变顶栏高度；否则 UIKit 会重排键盘，表现为键盘抖动，严重时还会重新选择输入法。
@@ -8162,6 +8166,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateToolbarActiveState()
   }
 
+  /// The top row's fill for what it shows now. With nothing to show it is the toolbar, part of the keyboard, so it takes the keyboard's own fill: the candidate palette's surface there put keyboard-coloured icons on, say, a white skin card over a dark keyboard, where they all but vanished. While a canvas panel is still decoding or failed to, the same holds.
+  private func currentStripBackground(_ skin: KeyboardTheme) -> UIColor {
+    guard stripShowsCandidates else { return Self.stripBackground(skin, palette: nil) }
+    return candidateCanvasSkin?.panelLoaded == true ? .clear : Self.stripBackground(skin, palette: candidatePalette)
+  }
+
   /// The top row sits straight on the keyboard in the design (dc.html `mobCands`, the 48px row); the desktop palette brings its own surface, and a keyboard design keeps a veil of its key fill so the candidates stay legible over a photo or pattern.
   static func stripBackground(_ skin: KeyboardTheme, palette: CandidatePalette?) -> UIColor {
     if let palette { return palette.surface }
@@ -8195,7 +8205,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       if node.accessibilityIdentifier == "nineKeySidebar" || node.accessibilityIdentifier == "candidateStrip" {
         node.backgroundColor = node.accessibilityIdentifier == "candidateStrip"
-          ? Self.stripBackground(skin, palette: candidatePalette)
+          ? currentStripBackground(skin)
           : skin.keyBackground.withAlphaComponent(0.6)
       }
       if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.secondary }
@@ -8304,7 +8314,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let skin = KeyboardTheme.current
     compositionContainer?.canvas = candidateCanvasSkin
     updateCandidateCanvasMetrics()
-    compositionContainer?.backgroundColor = candidateCanvasSkin?.panelLoaded == true ? .clear : Self.stripBackground(skin, palette: candidatePalette)
+    compositionContainer?.backgroundColor = currentStripBackground(skin)
     candidatePanel?.applyAppearance(palette: candidatePalette, canvas: candidateCanvasSkin)
     candidatePanel?.canvasVisible = candidateCanvasActive
     exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
@@ -8315,8 +8325,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateCanvasMetrics() {
     let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale)
-    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。
-    let textHeight = max(28, Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0)
+    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。下限是词块的最小高度：低于它时词块和首选高亮会伸出面板。
+    let textHeight = max(Self.candidateChipMinimumSize.height, Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0)
       + Self.glossHeight(lines: glossLineCount - 1) - 10)
     let gap = separateReadingRow ? min(candidateCanvasSkin?.lineGap ?? 0, max(0, shownTopRowHeight - readingHeight - textHeight)) : 0
     compositionContainer?.minimumContentHeight = textHeight + (separateReadingRow ? readingHeight + gap : 0)
