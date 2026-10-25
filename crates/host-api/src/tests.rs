@@ -17279,6 +17279,83 @@ fn update_check_abi_refuses_a_bad_request_before_reaching_the_network() {
     // SAFETY: 空指针属于文档写明的拒绝契约。
     let null = read(unsafe { msime_client_update_check(std::ptr::null(), 0) });
     assert_eq!(null["ok"], false);
+    // 不认识的通道在联网之前被拒绝。
+    let refused = reporting_call(
+        msime_client_update_check,
+        json!({"platform": "windows", "current_version": "1.0.0", "channel": "canary"}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+}
+
+#[test]
+fn update_background_abi_is_off_in_dev_builds_and_pending_reads_the_record() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("state");
+    let request = |channel: &str| {
+        json!({
+            "directory": directory,
+            "platform": "linux",
+            "current_version": "1.2.3",
+            "arch": "x86_64",
+            "channel": channel,
+        })
+    };
+    // 测试是开发构建：后台检查什么也不做，不建目录也不联网。
+    let background = reporting_call(msime_client_update_background_check, request("beta"));
+    assert_eq!(background["ok"], true, "{background}");
+    assert_eq!(
+        background["value"],
+        json!({"status": "disabled", "notify": null})
+    );
+    assert!(!directory.exists());
+    // 没有记录时没有要显示的版本。
+    let none = reporting_call(msime_client_update_pending, request("beta"));
+    assert_eq!(none["ok"], true, "{none}");
+    assert_eq!(none["value"], Value::Null);
+
+    // 另一个进程按测试版找到了 9.9.9。
+    std::fs::create_dir_all(&directory).unwrap();
+    let update = json!({
+        "version": {"display": "9.9.9", "parts": [9, 9, 9]},
+        "release_url": "https://github.com/metasequoiaime/msime/releases/tag/linux-v9.9.9-beta",
+        "installer_name": "msime-linux_9.9.9_amd64.deb",
+        "installer_sha256": "a".repeat(64),
+        "signed": false,
+        "channel": "beta",
+        "build_run": 42,
+    });
+    std::fs::write(
+        directory.join("update-check.json"),
+        json!({"checked_at": 1, "attempted_at": 1, "channel": "beta", "available": update})
+            .to_string(),
+    )
+    .unwrap();
+    let pending = reporting_call(msime_client_update_pending, request("beta"));
+    assert_eq!(
+        pending["value"],
+        json!({"status": "available", "update": update}),
+        "{pending}"
+    );
+    // 换到稳定版以后不再显示测试版通道找到的版本。
+    let stable = reporting_call(msime_client_update_pending, request("stable"));
+    assert_eq!(stable["value"], Value::Null);
+
+    for bad in [
+        json!({"directory": "relative", "platform": "linux", "current_version": "1.2.3"}),
+        json!({"directory": directory, "platform": "linux", "current_version": "1.2.3", "channel": "canary"}),
+        json!({"directory": directory, "platform": "linux", "current_version": "unknown"}),
+        json!({"platform": "linux", "current_version": "1.2.3"}),
+        json!({"directory": directory, "platform": "linux", "current_version": "1.2.3", "url": "https://example.com"}),
+    ] {
+        for function in [
+            msime_client_update_background_check,
+            msime_client_update_pending,
+        ] {
+            let refused = reporting_call(function, bad.clone());
+            assert_eq!(refused["ok"], false, "{bad} -> {refused}");
+        }
+    }
 }
 
 #[test]

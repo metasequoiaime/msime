@@ -1,11 +1,14 @@
 #pragma once
+#include "../common/UpdateChannelText.h"
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-// 「关于」页里只拼文字的两块，照共享设置 UI 逐字搬来：「系统信息」一组列出的各项和「复制系统信息」放进剪贴板的文本（`packages/ui/src/settings/system-info-section.tsx` 的 `systemInfoEntries`、`systemInfoText`），以及检查更新发现新版本时结果块里的几项（`update-manifest.ts` 的 `mirrorDownloadUrl` 和 `describeInstallerTrust` 的 Windows 一支）。版本号、系统版本、检查更新的回答这些输入由 main.cpp 取得；这里不依赖 Windows 和 WinRT 头文件，方便在主机上单独测试。
+// 「关于」页里只拼文字的两块，照共享设置 UI 逐字搬来：「系统信息」一组列出的各项和「复制系统信息」放进剪贴板的文本（`packages/ui/src/settings/system-info-section.tsx` 的 `systemInfoEntries`、`systemInfoText`），以及检查更新发现新版本时结果块里的几项（`update-manifest.ts` 的 `mirrorDownloadUrl` 和 `describeInstallerTrust` 的 Windows 一支），还有「更新通道」的选项和结果里构建的称呼（称呼的写法在 common/UpdateChannelText.h，与 Server 的新版本通知共用）。版本号、系统版本、检查更新的回答这些输入由 main.cpp 取得；这里不依赖 Windows 和 WinRT 头文件，方便在主机上单独测试。
 namespace msime::settings {
 
 struct SystemInfoEntry {
@@ -136,9 +139,51 @@ inline std::wstring update_mirror_url(std::wstring_view release_url, std::wstrin
   return url;
 }
 
-// 结果块的第一句：「水杉 IME vX 已发布。」
-inline std::wstring update_release_headline(std::wstring_view version) {
-  return L"水杉 IME v" + std::wstring(version) + L" 已发布。";
+// 「更新通道」一行的选项：值是偏好 `update_channel` 的写法，标签与共享设置页相同，顺序从稳到新。
+struct UpdateChannelOption {
+  std::wstring_view value;
+  std::wstring_view label;
+};
+inline constexpr std::array<UpdateChannelOption, 3> update_channel_options{{
+    {msime::windows::update_channel::stable, L"稳定版"},
+    {msime::windows::update_channel::beta, L"测试版"},
+    {msime::windows::update_channel::nightly, L"每日构建"},
+}};
+
+// 检查结果里怎么称呼找到的构建（共享页 `update-manifest.ts` 的 `describeUpdateVersion`）：`found` 是回答里这个构建的 `channel`。正式版只写「v0.3.1」，与引入通道之前的措辞相同；测试版和每日构建带上通道，如「测试版 v0.3.1」「每日构建 v0.3.1（构建 123）」。
+inline std::wstring update_build_title(std::wstring_view found, std::wstring_view version,
+                                       std::optional<std::uint64_t> build_run) {
+  if (found == msime::windows::update_channel::stable)
+    return L"v" + std::wstring(version);
+  return msime::windows::update_channel::build_label(found, version, build_run);
+}
+
+// 「更新通道」一行的说明，与共享页 Windows、macOS 一支相同。
+inline constexpr std::wstring_view update_channel_description =
+    L"测试版先于正式版推送，每日构建每天从开发分支自动生成、可能不稳定。";
+
+// 结果块里下载按钮的文字：正式版去官网下载页，是「前往下载」；测试版和每日构建去发布页，是「前往发布页」（共享页相同）。
+inline std::wstring_view update_download_label(std::wstring_view found) {
+  return found == msime::windows::update_channel::stable ? L"前往下载" : L"前往发布页";
+}
+
+// 版本号下面那一行：「发现新版本 v0.3.1」「发现新版本 测试版 v0.3.1」。
+inline std::wstring update_found_status(std::wstring_view title) {
+  return L"发现新版本 " + std::wstring(title);
+}
+
+// 结果块的第一句：「水杉 IME v0.3.1 已发布。」「水杉 IME 每日构建 v0.3.1（构建 123）已发布。」。西文和汉字之间留一个空格，全角括号后面不留。
+inline std::wstring update_release_headline(std::wstring_view title) {
+  std::wstring headline = L"水杉 IME " + std::wstring(title);
+  if (headline.back() != L'）')
+    headline.append(L" ");
+  headline.append(L"已发布。");
+  return headline;
+}
+
+// 「前往下载」去哪里：官网下载页只列正式版，测试版和每日构建打开回答里的发布页（共享层只给本仓库 releases/tag 下的地址，main.cpp 照样再查一遍）。
+inline bool update_download_from_release_page(std::wstring_view found) {
+  return found != msime::windows::update_channel::stable;
 }
 
 // 结果块里关于安装包可信度的几行（共享页 `describeInstallerTrust` 的 Windows 一支）：`warning` 是红字警告，签了名时为空；有 SHA256 时 `sha256` 和 `command` 是「下载后请核对 SHA256：」「核对命令：」后面那两段。

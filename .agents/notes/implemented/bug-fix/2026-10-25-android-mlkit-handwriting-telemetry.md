@@ -20,7 +20,7 @@ Status: implemented
 
 `platforms/android/check-host.sh` 检查清单里三条 `tools:node="remove"` 都在，缺一条就失败。依赖链里只有 ML Kit 用 datatransport：`play-services-auth` 21.1.1、`play-services-base` 18.5.0、`play-services-fido`、`googleid` 和 `androidx.credentials` 的 POM 都不依赖它，仓库代码也不引用它。
 
-不在本次范围：iOS 键盘扩展经 `MLKitCommon` 14.0.0 链接 `GoogleDataTransport` 10.1.0，只做了静态核对，没有实测，也没有关；`apps/desktop/src-tauri/gen/android` 的 Tauri 外壳同样依赖 ML Kit，但不进任何发布构建。
+不在本次范围：iOS 键盘扩展经 `MLKitCommon` 14.0.0 链接 `GoogleDataTransport` 10.1.0，后来实测因为没有链接 CCT 传输而没有上传，并改用 ML Kit 的统计开关关掉，见 [iOS 手写调用 ML Kit 前关掉它的使用统计](2026-10-25-ios-mlkit-stats-opt-out.md)；`apps/desktop/src-tauri/gen/android` 的 Tauri 外壳同样依赖 ML Kit，但不进任何发布构建。
 
 ## Alternatives considered
 

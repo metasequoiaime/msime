@@ -55,6 +55,8 @@
 #include "ToolbarModeCommand.h"
 #include "TrayMenuDispatch.h"
 #include "TrayMenuWindow.h"
+#include "UpdateNotifier.h"
+#include "../../common/UpdateRecordDirectory.h"
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
 #include "VoiceInputSession.h"
@@ -1051,6 +1053,9 @@ int wmain(int argc, wchar_t **argv) {
     // 「鼠标滚轮翻页」同样经原子量发布，候选窗每轮取用，改了设置不用重启 Server。
     auto candidate_mouse_wheel = std::make_shared<std::atomic<bool>>(
         config.navigation.mouse_wheel);
+    // 更新通道（共享偏好 `update_channel`，归一成 stable、beta、nightly），后台更新检查的线程每次调用前读它，同样随偏好发布更新。
+    auto update_channel = std::make_shared<std::pair<std::mutex, std::string>>();
+    update_channel->second = update_channel_preference(prepared.at("value").at("preferences"));
     // The TSF Ctrl+Shift+F route is delivered through the same bounded worker
     // as the toolbar button. It must exist before WindowsServer construction:
     // a newly connected client may dispatch its first key immediately.
@@ -1166,7 +1171,7 @@ int wmain(int argc, wchar_t **argv) {
          input_mode_hud_enabled, input_mode_hud_logo, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
          tsf_config_revision, candidate_theme, toolbar_settings,
-         language_dictionaries](const PreferenceSnapshot &snapshot) {
+         language_dictionaries, update_channel](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
@@ -1200,6 +1205,11 @@ int wmain(int argc, wchar_t **argv) {
           input_mode_hud_enabled->store(preferences.value("input_mode_hud", true),
                                         std::memory_order_release);
           input_mode_hud_logo->store(hud_show_app_logo(preferences), std::memory_order_release);
+          {
+            auto channel = update_channel_preference(preferences);
+            std::lock_guard<std::mutex> lock(update_channel->first);
+            update_channel->second = std::move(channel);
+          }
           // 工具栏、托盘菜单和语音浮层跟随颜色模式，只看全局的 `theme`（见上面三个原子量的说明）。语音浮层在后面才建，所以经原子量交给循环去套用。
           const auto surface_mode =
               surface_theme_mode("follow", preferences.value("theme", std::string("dark")));
@@ -2153,6 +2163,40 @@ int wmain(int argc, wchar_t **argv) {
     bool quns_cost_logged = false;
     uint64_t tsf_config_applied_revision = 0;
     uint64_t caps_lock_applied_revision = 0;
+    // 后台更新检查只在受管理的 Server 里做：预览实例是开发和测试用的，不该替用户联网，也不该弹通知。线程五分钟后第一次调用共享层，之后每小时一次（UpdateNotifier.h）；有新版本时弹一个临时的通知区域气泡，点它和托盘的「关于」一样打开设置窗口的「关于」页。记录放在本用户的目录（UpdateRecordDirectory.h）而不是状态根：安装后的状态根整台机器共用，几个用户共用一份「提醒过哪个构建」会让后登录的用户收不到通知。拿不到这个目录或建不出窗口时只记一条诊断，不影响输入。
+    startup_stage = "update_notifier";
+    std::optional<UpdateNotifier> update_notifier;
+    if (production) {
+      try {
+        const auto record_directory = msime::windows::update_record_directory();
+        if (record_directory.empty())
+          throw std::runtime_error("Update record directory unavailable");
+        UpdateNotifier::Options update_options;
+        const auto record_directory_utf8 = record_directory.u8string();
+        update_options.directory.assign(record_directory_utf8.begin(), record_directory_utf8.end());
+#if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
+        update_options.windows7 = true;
+#endif
+        update_options.architecture = std::string(update_build_architecture());
+        update_options.version = MSIME_WINDOWS_VERSION;
+        update_options.edition = MSIME_EDITION_ID;
+        update_options.product_name = MSIME_EDITION_DISPLAY_NAME;
+        update_options.channel = [update_channel] {
+          std::lock_guard<std::mutex> lock(update_channel->first);
+          return update_channel->second;
+        };
+        update_options.open_about = [&] {
+          const auto request = shell_surface_request(TrayMenuCommand::OpenAbout);
+          return request && launch_shell(*request);
+        };
+        // 诊断日志有意不析构（见上面登记诊断出口处），工作线程在 Server 退出途中晚回来时写它也安全；不经过 notice，它是 wmain 里的局部变量。
+        update_options.log = [log = &diagnostic_log](const std::string &line) { log->server(line); };
+        update_notifier.emplace(std::move(update_options));
+      } catch (const std::exception &) {
+        update_notifier.reset();
+        notice("Update notifier unavailable; continuing without background update checks");
+      }
+    }
     startup_stage = "message_loop";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
@@ -2507,6 +2551,9 @@ int wmain(int argc, wchar_t **argv) {
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
     }
+    // 先停后台更新检查：它最多等两秒，正在联网时放手让线程自己结束，不拖住下面的停机。
+    if (update_notifier)
+      update_notifier->stop();
     candidates.stop();
     for (auto &line : candidates.take_diagnostics())
       notice(std::move(line));

@@ -12,7 +12,8 @@ import { FeedbackSections } from "./feedback-page";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { androidPrivacyUrl, downloadMirrorPrefix, privacyUrl } from "../app-resources";
-import { mirrorDownloadUrl } from "../update-manifest";
+import { describeUpdateVersion, mirrorDownloadUrl, updateChannelOf } from "../update-manifest";
+import { SelectRow } from "../select-row";
 import { SystemInfoSection } from "../system-info-section";
 import { schemeTitle } from "../label-helpers";
 import { aboutTabs } from "../about-tabs";
@@ -44,6 +45,7 @@ export function AboutSettingsPage() {
     updateBusy,
     updateCheckSupported,
     availableUpdate,
+    updateInstallerDetailsStale,
     currentAppVersion,
     appReleaseDate,
     openExternalUrl,
@@ -55,18 +57,35 @@ export function AboutSettingsPage() {
     setError,
     aboutTab,
     setAboutTab,
+    showUpdateChannel,
   } = useSettingsForm();
-  const { onCheckForUpdate, onTelemetryChange } = createAboutSettingsActions({
-    checkForUpdate,
-    chooseDataDirectory,
-    confirmUninstall,
-    selectPage,
-    setDraft,
-  });
-  const mirrorUrl = availableUpdate && mirrorDownloadUrl(availableUpdate, downloadMirrorPrefix);
+  const { onCheckForUpdate, onTelemetryChange, onUpdateChannelChange } = createAboutSettingsActions(
+    {
+      checkForUpdate,
+      chooseDataDirectory,
+      confirmUninstall,
+      selectPage,
+      setDraft,
+    },
+  );
+  // 镜像链接指向记录里的那个安装包名；它可能已从发布里删掉时不给（见 `useUpdateCheck` 的 `installerDetailsStale`）。
+  const mirrorUrl =
+    availableUpdate &&
+    !updateInstallerDetailsStale &&
+    mirrorDownloadUrl(availableUpdate, downloadMirrorPrefix);
+  // 官网下载页只列正式版；测试版和每日构建的安装包只在它们自己的 GitHub 发布页上。
+  const releasePageUrl =
+    availableUpdate && availableUpdate.channel !== "stable"
+      ? availableUpdate.releaseUrl
+      : desktopDownloadUrl;
   const updateResult = availableUpdate && (
     <div className={doc.updateResult}>
-      <p>水杉 IME v{availableUpdate.version.display} 已发布。</p>
+      <p>水杉 IME {describeUpdateVersion(availableUpdate)} 已发布。</p>
+      {updateInstallerDetailsStale && (
+        <p>
+          这是之前在后台检查时找到的版本，发布页上的安装包可能已经更新。请点「检查更新」获取当前的安装包和校验值。
+        </p>
+      )}
       {installerTrust?.warning && <p className={doc.updateWarning}>{installerTrust.warning}</p>}
       {installerTrust?.verify && (
         <>
@@ -82,7 +101,10 @@ export function AboutSettingsPage() {
       {mirrorUrl && (
         <ActionButton action={() => void openExternalUrl(mirrorUrl)} label="国内镜像下载" />
       )}
-      <ActionButton action={() => void openExternalUrl(desktopDownloadUrl)} label="前往下载" />
+      <ActionButton
+        action={() => void openExternalUrl(releasePageUrl)}
+        label={releasePageUrl === desktopDownloadUrl ? "前往下载" : "前往发布页"}
+      />
     </div>
   );
   const openPrivacy = () =>
@@ -142,6 +164,22 @@ export function AboutSettingsPage() {
                     />
                   )}
                 </div>
+              )}
+              {showUpdateChannel && (
+                <SelectRow
+                  title="更新通道"
+                  description={
+                    linuxPlatform
+                      ? "测试版先于正式版推送，每日构建每天从开发分支自动生成、可能不稳定。测试版和每日构建不经包管理器分发，需要从发布页下载安装。"
+                      : "测试版先于正式版推送，每日构建每天从开发分支自动生成、可能不稳定。"
+                  }
+                  value={updateChannelOf(draft.update_channel)}
+                  onChange={(event) => onUpdateChannelChange(updateChannelOf(event.target.value))}
+                >
+                  <option value="stable">稳定版</option>
+                  <option value="beta">测试版</option>
+                  <option value="nightly">每日构建</option>
+                </SelectRow>
               )}
               {updateResult}
               <OtherPlatformDownloadRows />

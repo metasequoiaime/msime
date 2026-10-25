@@ -44,7 +44,11 @@ import type { CandidateSkinCommunityClient } from "../community/community-candid
 import type { CommunityPluginClient } from "../community/community-plugin-model";
 import type { SkinImageReader } from "../skin/skin-image";
 import type { SkinFontReader } from "../skin/skin-font";
-import type { UpdateCheckRequest, UpdateCheckResult } from "../settings/update-manifest";
+import type {
+  UpdateChannel,
+  UpdateCheckRequest,
+  UpdateCheckResult,
+} from "../settings/update-manifest";
 import type { AiAssistantClient } from "./ai-assistant-client";
 import type { ApiCredentialTestService, ApiCredentialTestResult } from "./api-credential-test";
 import type { CloudDictionaryPanelClient } from "../keyboard/panel-client";
@@ -122,12 +126,12 @@ export interface SettingsClient {
   readAppVersion?: () => Promise<string>;
   /** 本次构建的发布日期 `YYYY-MM-DD`，关于页把它写在版本号后面。构建时拿不到日期（没有 git 的源码树、开发构建）时返回空字符串，页面只显示版本号。反馈和使用统计里的 `app_version` 仍只是版本号。 */
   readAppReleaseDate?: () => Promise<string>;
-  /** 原生更新器自行检查、下载、验签并安装完整应用；提供时优先于仅查发布列表的入口。 */
-  checkForApplicationUpdate?: () => Promise<void>;
+  /** 原生更新器自行检查、下载、验签并安装完整应用；提供时优先于仅查发布列表的入口。提供通道选择的页面（macOS）传入当前选的通道，宿主读这个通道的更新 feed；不传时宿主按稳定版。 */
+  checkForApplicationUpdate?: (channel?: UpdateChannel) => Promise<void>;
   /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
-  /** 宿主在后台已经找到的新版本（Linux 设置应用每天一次的后台检查），关于页打开时直接显示；没有时为 `null`。 */
-  pendingUpdateCheck?: () => Promise<UpdateCheckResult | null>;
+  /** 宿主在后台已经找到的新版本（Linux 设置应用每天一次的后台检查），关于页打开时直接显示；没有时为 `null`。提供通道选择的页面传入当前选的通道，记录是按别的通道检查的时宿主返回 `null`；不传时宿主按偏好里的通道读。 */
+  pendingUpdateCheck?: (channel?: UpdateChannel) => Promise<UpdateCheckResult | null>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** 控制台应用通知；宿主读取并缓存通知，记住已关闭的条目。未提供时不显示。 */
   notices?: NoticesClient;

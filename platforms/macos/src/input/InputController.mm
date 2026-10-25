@@ -6287,6 +6287,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (snapshot[@"revision"] && !MSIMEStrictUnsignedInteger(snapshot[@"revision"], &revision)) { msime_macos_diagnostic_write("preferences_load_failed"); return; }
     if (!_preferenceLoadState.needsApply(revision)) return;
     NSDictionary *preferences = snapshot[@"preferences"];
+    // 更新通道与会话无关，读到新的偏好就交给 Sparkle：下一次检查按它取 appcast，通道变了时重排检查周期（UpdateController.mm）。没有 feed 的构建不创建更新控制器。
+    if ([preferences isKindOfClass:NSDictionary.class] && MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle))
+        [[MSIMEUpdateController sharedController] applyUpdateChannelPreference:preferences[@"update_channel"]];
     NSMutableDictionary *inputPreferences = [preferences isKindOfClass:NSDictionary.class] ? [preferences mutableCopy] : nil;
     id inlinePreedit = inputPreferences[@"tsf_preedit_style"];
     if (![inlinePreedit isKindOfClass:NSString.class] ||

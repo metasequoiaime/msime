@@ -21,7 +21,7 @@ Status: implemented
 
 `notarytool` 获批后，票据装订交给 `platforms/macos/scripts/staple-ticket.sh`：仅当 `stapler` 返回 68 且同时报告 `NSURLErrorDomain Code=-1005` 连接中断或 `CloudKit's response is inconsistent`（stapler 原文拼作 expections）时，依次在 15、30、60、90、120 秒后重试同一个 DMG，最多 6 次、合计约 5 分钟。Nightly `38806414451` 已出现这一下载断线，先前单次装订会丢弃已经完成构建和公证的整轮产物。重试不重复提交公证；其他错误及最终失败保留原退出码，打包仍然失败。
 
-Nightly 不再向可复用 macOS workflow 传入完整的 GitHub `run_id`；复用 workflow 在 shell 中把未提供的构建号按 `999999999` 取模。`CFBundleVersion` 的构建号字段由 CMake 限制为 1 到 999999999；直接传完整 run ID 会在资源、签名都完成后才让 CMake 配置失败。取模得到 0 时仍映射为上限值，手动传入的构建号继续经过原有范围校验。
+Nightly 不再向可复用 macOS workflow 传入完整的 GitHub `run_id`；复用 workflow 在 shell 中把未提供的构建号按 `999999999` 取模。`CFBundleVersion` 的构建号字段由 CMake 限制为 1 到 999999999；直接传完整 run ID 会在资源、签名都完成后才让 CMake 配置失败。取模得到 0 时仍映射为上限值，手动传入的构建号继续经过原有范围校验。缺省构建号后来改为所构建提交的时间距 2026-01-01 的分钟数，取模和映射都不再需要，见[macOS 的更新通道](../feature/2026-10-25-macos-update-channels.md)；nightly 仍不传 `build_number`，另外传 `appcast_channel: nightly`。
 
 窗口最初是 15、30 秒后共三次。Release macOS 0.54.0（run `39267138324` 第 1 次尝试）的五笔版在 15:22:41 公证获批，15:22:49、15:23:11、15:23:48 三次装订都向 `api.apple-cloudkit.com` 的 `com.apple.gk.ticket-delivery` 查询时断线（`NSURLErrorDomain Code=-1005`，随后 `CloudKit's response is inconsistent with expections: (null)`，`Error 68`），一分钟内用完重试，已经编好、公证过的整轮产物作废，job 在 1 小时 7 分后失败，只能整个重跑。断线持续的时间比原窗口长，所以把窗口放宽到分钟级；只在这一组合上等待，签名或票据本身的错误仍立即失败。
 

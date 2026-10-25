@@ -401,7 +401,7 @@ def download_guide(edition_ids: list[str], version: str, download_base: str, pre
         "`SHA256SUMS` 是这些安装程序的 SHA-256 校验值；每个安装程序旁边的 `.exe.sha256` 是包管理器清单和设置页的校验提示要用的，一般不用下载。",
     ]
     if prerelease:
-        lines += ["", "这是预览版：设置里的「检查更新」只提供正式版，不会提示它。"]
+        lines += ["", "这是预览版：设置里的「检查更新」只提供正式版，不会提示它；在「关于」页把更新通道换成「测试版」或「每日构建」后，才会提示 develop 发出的测试版（-alpha 一律不提示）。"]
     lines.append("<!-- /msime-download-guide -->")
     return "\n".join(lines) + "\n"
 

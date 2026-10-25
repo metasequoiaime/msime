@@ -309,6 +309,21 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("func use(at index: Int) -> Bool { false }", fallback)
         self.assertIn("func commitFirst() -> Bool { false }", fallback)
 
+    def test_mlkit_stats_collection_is_switched_off_before_the_first_mlkit_call(self):
+        # ML Kit logs usage statistics unless the process's own defaults say no (MLKitStatsOptOut.swift). Only the keyboard extension links it and only HandwritingRecognizer calls it, so the recognizer's initializer writes the opt-out before anything else.
+        podfile = (IOS_ROOT / "Podfile").read_text()
+        app = podfile.split("target 'MSIMEKeyboardExtension' do", 1)[0]
+        self.assertNotIn("pod 'MLKit", app)
+        roots = [IOS_ROOT / name for name in ("App", "KeyboardExtension", "KeyboardTestHost", "SharedUI")]
+        importers = sorted(
+            path.relative_to(IOS_ROOT).as_posix()
+            for root in roots for path in root.rglob("*")
+            if path.suffix in (".swift", ".m", ".mm") and re.search(r"import\s+<?MLKit", path.read_text())
+        )
+        self.assertEqual(importers, ["KeyboardExtension/Sources/handwriting/HandwritingInputView.swift"])
+        source = (IOS_ROOT / importers[0]).read_text()
+        self.assertRegex(source, r"final class HandwritingRecognizer \{\n  init\(\) \{\n    MLKitStatsOptOut\.apply\(\)\n")
+
     def test_google_sign_in_is_linked_into_the_app_only(self):
         podfile = (IOS_ROOT / "Podfile").read_text()
         app, extension = podfile.split("target 'MSIMEKeyboardExtension' do", 1)

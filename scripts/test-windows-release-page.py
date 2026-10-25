@@ -22,6 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/release-windows.yml"
 EDITION_WINDOWS = ROOT / "platforms/windows/scripts/edition_windows.py"
 PUBLISH_SYMBOLS = ROOT / "platforms/windows/scripts/publish-symbols.sh"
+BUILD_MARKER = ROOT / "scripts/release-build-marker.py"
 EDITIONS = ROOT / "shared/contracts/editions.json"
 DOWNLOAD = "https://github.com/metasequoiaime/msime/releases/download/"
 MARKER = "<!-- msime-download-guide -->"
@@ -144,6 +145,7 @@ class Workspace(unittest.TestCase):
             "RELEASE": release,
             "PRERELEASE": "false",
             "GITHUB_REPOSITORY": "metasequoiaime/msime",
+            "GITHUB_RUN_ID": "4242",
         }
 
     def run_step(self, name: str, release: str = "1.1.0") -> subprocess.CompletedProcess:
@@ -169,6 +171,7 @@ class PublishStepTests(Workspace):
         super().setUp()
         scripts = self.work / "scripts"
         scripts.mkdir()
+        shutil.copy(BUILD_MARKER, scripts / "release-build-marker.py")
         (scripts / "generate-release-notes.py").write_text(
             "import sys\n"
             "output = sys.argv[sys.argv.index('--output') + 1]\n"
@@ -214,7 +217,10 @@ class PublishStepTests(Workspace):
         guide, changes = notes.split("<!-- /msime-download-guide -->\n", 1)
         self.assertIn(f"({DOWNLOAD}windows-v1.1.0/MetasequoiaIME-Full_Setup_v1.1.0.exe)", guide)
         self.assertNotIn("预览版", guide)
-        self.assertEqual(changes, "\n## 更新内容\n\n- 合成的更新条目\n")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.work, check=True, capture_output=True, text=True).stdout.strip()
+        # 更新内容之后是给应用内检查更新看的隐藏构建标记，记着这次运行和源码提交。
+        self.assertEqual(changes, "\n## 更新内容\n\n- 合成的更新条目\n\n"
+                         f'<!-- msime-build {{"run":4242,"source":"{head}","channel":"stable"}} -->\n')
 
     def test_beta_notes_link_the_beta_tag_and_say_it_is_a_preview(self):
         result = self.publish("1.1.0-beta")
@@ -224,6 +230,7 @@ class PublishStepTests(Workspace):
         # 安装程序名只带版本号，不带 -beta；链接指向 beta 的 tag。
         self.assertIn(f"({DOWNLOAD}windows-v1.1.0-beta/MetasequoiaIME-Full_Setup_v1.1.0.exe)", notes)
         self.assertIn("这是预览版", notes)
+        self.assertTrue(notes.endswith('"channel":"beta"} -->\n'), notes[-120:])
 
     def test_missing_installer_publishes_nothing(self):
         (self.dist / "MetasequoiaIME-Wubi_Setup_v1.1.0.exe").unlink()

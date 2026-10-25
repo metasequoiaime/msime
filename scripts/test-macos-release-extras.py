@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""验证 macOS 发布页瘦身的脚本：sparkle_feed.py 的验签与比较、publish-sparkle-feed.sh 的上传顺序与清理、relocate-release-extras.sh 只在全部核对通过后才删除版本发布页上的资产。
+"""验证 macOS 发布页瘦身的脚本：sparkle_feed.py 的验签与比较、publish-sparkle-feed.sh 的上传顺序与清理、relocate-release-extras.sh 只在全部核对通过后才删除版本发布页上的资产；以及更新通道：各通道的 appcast 与更新包文件名、测试版和每日构建只写自己的 appcast、复制到构建更旧的更宽通道、只清理自己通道的更新包。
 
 不访问 GitHub，不用发布私钥：`gh` 和 `curl` 是在临时目录里模拟 release 的替身，签名用每次新生成的一次性 Ed25519 密钥。`generate_appcast` 默认也是替身，按 Sparkle 2.9.6 的输出格式生成并签名；设置 `MSIME_SPARKLE_ROOT` 指向解压好的 Sparkle 2.9.6 时改用真的 `generate_appcast`。需要支持 Ed25519 的 OpenSSL 3（`MSIME_OPENSSL`、Homebrew 的 openssl@3 或 PATH 里的 openssl），没有时跳过。
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import plistlib
@@ -47,6 +48,10 @@ def find_openssl() -> str | None:
 
 
 OPENSSL = find_openssl()
+
+FEED_SPEC = importlib.util.spec_from_file_location("sparkle_feed", FEED_TOOL)
+sparkle_feed = importlib.util.module_from_spec(FEED_SPEC)
+FEED_SPEC.loader.exec_module(sparkle_feed)
 
 # 模拟 gh release 的替身：每个 release 是 state 下的一个目录，调用依次记进 calls.jsonl。
 FAKE_GH = r'''
@@ -239,13 +244,21 @@ class ReleaseExtrasTests(unittest.TestCase):
         subprocess.run([str(self.sparkle_root / "bin/generate_appcast"), "--ed-key-file", "-", "--download-url-prefix", prefix, "-o", str(output), str(source)],
                        input=self.private_key, text=True, env={**self.env, "TZ": "UTC"}, check=True, capture_output=True)
 
-    def archives_for(self, version: str) -> dict[str, str]:
-        """appcast 名到更新包名。"""
+    def archives_for(self, version: str, channel: str = "stable", build: int = 1) -> dict[str, str]:
+        """appcast 名到更新包名。稳定版是写死的旧文件名，与 sparkle_feed.py 的 names 对照；其他通道用 names 的结果。"""
         mapping = {}
         for edition in self.editions:
             prefix = "msime-macos" if edition == "full" else f"msime-macos-{edition}"
-            mapping[f"appcast-{edition}.xml"] = f"{prefix}-{version}-input-method.zip"
-            mapping[f"appcast-settings-{edition}.xml"] = f"{prefix}-{version}-settings.zip"
+            if channel == "stable":
+                mapping[f"appcast-{edition}.xml"] = f"{prefix}-{version}-input-method.zip"
+                mapping[f"appcast-settings-{edition}.xml"] = f"{prefix}-{version}-settings.zip"
+            names = self.feed_tool("names", "--channel", channel, "--edition", edition, "--prefix", prefix, "--version", version, "--build", str(build)).stdout.strip().split("\t")
+            self.assertEqual(len(names), 4)
+            if channel == "stable":
+                self.assertEqual(names, [f"appcast-{edition}.xml", f"appcast-settings-{edition}.xml", mapping[f"appcast-{edition}.xml"], mapping[f"appcast-settings-{edition}.xml"]])
+            else:
+                mapping[names[0]] = names[2]
+                mapping[names[1]] = names[3]
         return mapping
 
     def publish_version(self, version: str, build: int, archives_on: str, dsym: bool = True) -> None:
@@ -381,11 +394,11 @@ class ReleaseExtrasTests(unittest.TestCase):
 
     # ---- publish-sparkle-feed.sh ----
 
-    def stage_new_version(self, version: str, build: int) -> Path:
-        dist = self.directory / f"dist-{version}"
-        dist.mkdir()
+    def stage_new_version(self, version: str, build: int, channel: str = "stable") -> Path:
+        dist = Path(tempfile.mkdtemp(prefix=f"dist-{version}-{channel}-{build}-", dir=self.directory))
         lines = []
-        for appcast, archive in self.archives_for(version).items():
+        # 更新包名里的构建号是 CFBundleVersion 末尾九位（release-macos.yml 的 build_number）。
+        for appcast, archive in self.archives_for(version, channel, build % 1_000_000_000).items():
             self.make_archive(dist / archive, "水杉输入法", version, build)
             self.generate(dist / archive, APPCAST_PREFIX, dist / appcast)
             lines.append(f"{hashlib.sha256((dist / archive).read_bytes()).hexdigest()}  {archive}")
@@ -415,6 +428,174 @@ class ReleaseExtrasTests(unittest.TestCase):
         self.assertIn("newer than", result.stderr)
         self.assertEqual(len(self.mutating_calls()), before)
 
+    # ---- 更新通道 ----
+
+    def feed_build(self, appcast: str) -> int:
+        line = self.feed_tool("enclosures", str(self.state / "releases/macos-appcast" / appcast)).stdout
+        return int(line.split("\t")[1])
+
+    def publish(self, dist: Path, version: str, channel: str, check: bool = True) -> subprocess.CompletedProcess:
+        return self.run_script(str(SCRIPTS / "publish-sparkle-feed.sh"), str(dist), version, channel, check=check)
+
+    def test_beta_writes_its_own_feeds_and_seeds_nightly_without_touching_stable(self):
+        stable = self.stage_new_version("1.3.0", 1003000100)
+        self.publish(stable, "1.3.0", "stable")
+        stable_feeds = {name: (self.state / "releases/macos-appcast" / name).read_bytes() for name in self.archives_for("1.3.0")}
+        beta = self.stage_new_version("1.3.0", 1003000200, "beta")
+        self.publish(beta, "1.3.0", "beta")
+        feed = self.state / "releases/macos-appcast"
+        for name, content in stable_feeds.items():
+            self.assertEqual((feed / name).read_bytes(), content, name)
+        for appcast, archive in self.archives_for("1.3.0", "beta", 3000200).items():
+            self.assertTrue(appcast.startswith(("appcast-beta-", "appcast-settings-beta-")), appcast)
+            self.assertIn("-beta-3000200-", archive)
+            self.assertEqual((feed / appcast).read_bytes(), (beta / appcast).read_bytes())
+            # 每日构建的 appcast 原来是稳定版发布时复制过去的更旧构建，换成这次测试版的同一份文件。
+            nightly = appcast.replace("-beta-", "-nightly-")
+            self.assertEqual((feed / nightly).read_bytes(), (beta / appcast).read_bytes())
+            self.feed_tool("verify", "--archives", str(feed), "--url-prefix", APPCAST_PREFIX, str(feed / nightly))
+        # 稳定版的更新包仍被稳定版的 appcast 引用，测试版的发布也不碰别的通道的更新包。
+        for archive in self.archives_for("1.3.0").values():
+            self.assertIn(archive, self.assets("macos-appcast"))
+        # 摘要文件按通道分开：测试版的发布不覆盖稳定版的 sparkle-SHA256SUMS，两份各自列出本通道的更新包。
+        self.assertEqual((feed / "sparkle-SHA256SUMS").read_bytes(), (stable / "sparkle-SHA256SUMS").read_bytes())
+        self.assertEqual((feed / "sparkle-SHA256SUMS-beta").read_bytes(), (beta / "sparkle-SHA256SUMS").read_bytes())
+        self.assertNotIn("sparkle-SHA256SUMS-nightly", self.assets("macos-appcast"))
+
+    def test_stable_seeds_wider_channels_only_where_their_build_is_older(self):
+        nightly = self.stage_new_version("1.3.0", 1003000500, "nightly")
+        self.publish(nightly, "1.3.0", "nightly")
+        # 还没有发布过任何通道时，每日构建只写自己的 appcast。
+        self.assertEqual([name for name in self.assets("macos-appcast") if name.startswith("appcast-")],
+                         sorted(self.archives_for("1.3.0", "nightly", 3000500)))
+        stable = self.stage_new_version("1.3.0", 1003000400)
+        self.publish(stable, "1.3.0", "stable")
+        for edition in self.editions:
+            for kind in ("", "settings-"):
+                self.assertEqual(self.feed_build(f"appcast-{kind}{edition}.xml"), 1003000400)
+                # 测试版的 appcast 还不存在，由稳定版建起来；每日构建已有更新的构建，不动。
+                self.assertEqual(self.feed_build(f"appcast-{kind}beta-{edition}.xml"), 1003000400)
+                self.assertEqual(self.feed_build(f"appcast-{kind}nightly-{edition}.xml"), 1003000500)
+        # 每日构建的更新包仍被引用，稳定版的清理也只看稳定版的更新包。
+        for archive in self.archives_for("1.3.0", "nightly", 3000500).values():
+            self.assertIn(archive, self.assets("macos-appcast"))
+
+    def test_nightly_fills_in_missing_beta_feeds_from_the_published_stable_feeds(self):
+        # 引入通道之前发布的稳定版：macos-appcast 上只有稳定版的 appcast。
+        stable = self.stage_new_version("1.3.0", 1003000100)
+        self.env["MSIME_SPARKLE_SKIP_WIDER"] = "1"
+        self.publish(stable, "1.3.0", "stable")
+        self.env.pop("MSIME_SPARKLE_SKIP_WIDER")
+        feed = self.state / "releases/macos-appcast"
+        stable_feeds = {name: (feed / name).read_bytes() for name in self.archives_for("1.3.0")}
+        self.assertFalse([name for name in self.assets("macos-appcast") if "-beta-" in name or "-nightly-" in name])
+        nightly = self.stage_new_version("1.3.0", 1003000500, "nightly")
+        self.publish(nightly, "1.3.0", "nightly")
+        for edition in self.editions:
+            for kind in ("", "settings-"):
+                # 测试版的 appcast 还不存在，由在线的稳定版补上，选了测试版的用户不再读到 404；每日构建是这次发布的构建。
+                self.assertEqual((feed / f"appcast-{kind}beta-{edition}.xml").read_bytes(), stable_feeds[f"appcast-{kind}{edition}.xml"])
+                self.feed_tool("verify", "--archives", str(feed), "--url-prefix", APPCAST_PREFIX, str(feed / f"appcast-{kind}beta-{edition}.xml"))
+                self.assertEqual(self.feed_build(f"appcast-{kind}nightly-{edition}.xml"), 1003000500)
+        for name, content in stable_feeds.items():
+            self.assertEqual((feed / name).read_bytes(), content, name)
+        # 补上的测试版 appcast 指向稳定版的更新包，清理时它们仍被引用。
+        for archive in self.archives_for("1.3.0").values():
+            self.assertIn(archive, self.assets("macos-appcast"))
+        # 已经存在的测试版 appcast 不被再次覆盖：再发一次更新的每日构建，测试版那份不变。
+        beta_before = {edition: (feed / f"appcast-beta-{edition}.xml").read_bytes() for edition in self.editions}
+        newer = self.stage_new_version("1.3.0", 1003000600, "nightly")
+        self.publish(newer, "1.3.0", "nightly")
+        for edition in self.editions:
+            self.assertEqual((feed / f"appcast-beta-{edition}.xml").read_bytes(), beta_before[edition])
+
+    def test_a_channel_refuses_feeds_and_archives_of_another_channel(self):
+        stable = self.stage_new_version("1.3.0", 1003000100)
+        result = self.publish(stable, "1.3.0", "beta", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("不是 beta", result.stderr)
+        self.assertEqual(self.mutating_calls(), [])
+        unknown = self.publish(stable, "1.3.0", "canary", check=False)
+        self.assertNotEqual(unknown.returncode, 0)
+        self.assertEqual(self.mutating_calls(), [])
+
+    def test_nightly_refuses_to_go_backwards_and_skips_the_same_build(self):
+        newer = self.stage_new_version("1.3.0", 1003000600, "nightly")
+        self.publish(newer, "1.3.0", "nightly")
+        before = len(self.mutating_calls())
+        # 没有新提交的那天编出的是同一个构建：什么也不传，正在下载的用户不会碰到被换掉的更新包。
+        again = self.stage_new_version("1.3.0", 1003000600, "nightly")
+        result = self.publish(again, "1.3.0", "nightly")
+        self.assertIn("已经都是这个构建", result.stdout)
+        self.assertEqual(len(self.mutating_calls()), before)
+        older = self.stage_new_version("1.3.0", 1003000300, "nightly")
+        refused = self.publish(older, "1.3.0", "nightly", check=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("newer than", refused.stderr)
+        self.assertEqual(len(self.mutating_calls()), before)
+
+    def rebuild_archives(self, dist: Path) -> None:
+        """把 dist 里的更新包换成内容不同、构建号相同的一份，并重新生成 appcast 和摘要，像重跑同一个提交时重新打出的包。"""
+        lines = []
+        for appcast in sorted(dist.glob("appcast-*.xml")):
+            archive = dist / self.feed_tool("enclosures", str(appcast)).stdout.split("\t")[3].strip().rsplit("/", 1)[1]
+            with zipfile.ZipFile(archive, "a") as bundle:
+                bundle.writestr("rebuilt.txt", "rebuilt")
+            os.utime(archive, (1792427849, 1792427849))
+            self.generate(archive, APPCAST_PREFIX, appcast)
+            lines.append(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}")
+        (dist / "sparkle-SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_rerun_after_a_failed_wider_copy_seeds_the_wider_channels_from_the_published_feeds(self):
+        stable = self.stage_new_version("1.3.0", 1003000100)
+        # 第一次运行传完稳定版的更新包和 appcast 之后，复制到测试版时下载核对失败。
+        self.env["MSIME_TEST_CORRUPT"] = "appcast-beta-full.xml"
+        failed = self.publish(stable, "1.3.0", "stable", check=False)
+        self.assertNotEqual(failed.returncode, 0)
+        self.env.pop("MSIME_TEST_CORRUPT")
+        feed = self.state / "releases/macos-appcast"
+        published = {name: (feed / name).read_bytes() for name in self.archives_for("1.3.0")}
+        archives = {name: (feed / name).read_bytes() for name in self.archives_for("1.3.0").values()}
+        self.assertNotIn("appcast-settings-nightly-wubi.xml", self.assets("macos-appcast"))
+        # 重跑同一个提交：构建号相同，重新打出的更新包与在线的不是同一份字节。
+        rerun = self.stage_new_version("1.3.0", 1003000100)
+        self.rebuild_archives(rerun)
+        before = len(self.mutating_calls())
+        result = self.publish(rerun, "1.3.0", "stable")
+        self.assertIn("已经都是这个构建", result.stdout)
+        uploads = [call for call in self.mutating_calls()[before:] if call[1] == "upload"]
+        self.assertTrue(uploads)
+        # 只补更宽通道的 appcast，不重传更新包、摘要和本通道的 appcast。
+        for call in uploads:
+            self.assertRegex(Path(call[3]).name, r"^appcast-(settings-)?(beta|nightly)-")
+        for name, content in published.items():
+            self.assertEqual((feed / name).read_bytes(), content, name)
+        for name, content in archives.items():
+            self.assertEqual((feed / name).read_bytes(), content, name)
+        for appcast, content in published.items():
+            for channel in ("beta", "nightly"):
+                wider = appcast.replace("appcast-", f"appcast-{channel}-", 1) if not appcast.startswith("appcast-settings-") else appcast.replace("appcast-settings-", f"appcast-settings-{channel}-", 1)
+                # 复制的是在线的 appcast，它的签名和长度对得上在线的更新包；重跑打出的本地 appcast 对不上。
+                self.assertEqual((feed / wider).read_bytes(), content, wider)
+                self.feed_tool("verify", "--archives", str(feed), "--url-prefix", APPCAST_PREFIX, str(feed / wider))
+
+    def test_each_channel_prunes_only_its_own_unreferenced_archives(self):
+        stable = self.stage_new_version("1.3.0", 1003000100)
+        self.publish(stable, "1.3.0", "stable")
+        feed = self.release("macos-appcast")
+        # 另一个稳定版发布刚传上去、还没有 appcast 指向的更新包：测试版的清理不能删它。
+        self.make_archive(feed / "msime-macos-1.4.0-input-method.zip", "水杉输入法", "1.4.0", 1004000001)
+        first = self.stage_new_version("1.3.0", 1003000200, "beta")
+        self.publish(first, "1.3.0", "beta")
+        second = self.stage_new_version("1.3.0", 1003000300, "beta")
+        self.publish(second, "1.3.0", "beta")
+        archives = [name for name in self.assets("macos-appcast") if name.endswith(".zip")]
+        self.assertEqual(archives, sorted([
+            *self.archives_for("1.3.0").values(),
+            *self.archives_for("1.3.0", "beta", 3000300).values(),
+            "msime-macos-1.4.0-input-method.zip",
+        ]))
+
     # ---- publish-dsym.sh ----
 
     def test_dsym_goes_to_symbols_under_the_release_name(self):
@@ -424,6 +605,47 @@ class ReleaseExtrasTests(unittest.TestCase):
         self.run_script(str(SCRIPTS / "publish-dsym.sh"), str(dsym))
         self.assertEqual(self.assets("macos-symbols"), ["msime-macos-1.3.0-beta-dsym.zip", "msime-macos-1.3.0-dsym.zip"])
         self.assertNotEqual(self.run_script(str(SCRIPTS / "publish-dsym.sh"), str(dsym), "notes.zip", check=False).returncode, 0)
+
+
+class FeedNameTests(unittest.TestCase):
+    """更新通道的文件名规则；输入法和设置应用从稳定版 feed 推出其他通道的地址（UpdateChannelFeed.h，ctest update-controller 核对同样的例子）。"""
+
+    def test_stable_names_are_the_names_from_before_channels(self):
+        self.assertEqual(sparkle_feed.feed_name("input", "stable", "full"), "appcast-full.xml")
+        self.assertEqual(sparkle_feed.feed_name("settings", "stable", "wubi"), "appcast-settings-wubi.xml")
+        self.assertEqual(sparkle_feed.archive_name_for("input", "stable", "msime-macos", "1.3.0", 12), "msime-macos-1.3.0-input-method.zip")
+        self.assertEqual(sparkle_feed.archive_name_for("settings", "stable", "msime-macos-wubi", "1.3.0", 12), "msime-macos-wubi-1.3.0-settings.zip")
+
+    def test_channel_names_insert_the_channel_before_the_edition(self):
+        self.assertEqual(sparkle_feed.feed_name("input", "beta", "full"), "appcast-beta-full.xml")
+        self.assertEqual(sparkle_feed.feed_name("settings", "nightly", "wubi"), "appcast-settings-nightly-wubi.xml")
+        self.assertEqual(sparkle_feed.archive_name_for("input", "beta", "msime-macos", "1.3.0", 425000), "msime-macos-1.3.0-beta-425000-input-method.zip")
+        self.assertEqual(sparkle_feed.archive_name_for("settings", "nightly", "msime-macos-wubi", "1.3.0", 7), "msime-macos-wubi-1.3.0-nightly-7-settings.zip")
+
+    def test_names_round_trip_for_every_macos_edition(self):
+        table = json.loads((ROOT / "shared/contracts/editions.json").read_text(encoding="utf-8"))
+        editions = [entry["id"] for entry in table["editions"] if entry["platforms"].get("macos")]
+        self.assertIn("full", editions)
+        for edition in editions:
+            for kind in sparkle_feed.KINDS:
+                for channel in sparkle_feed.CHANNELS:
+                    name = sparkle_feed.feed_name(kind, channel, edition)
+                    self.assertEqual(sparkle_feed.parse_feed_name(name), (kind, channel, edition))
+                    for prefix in ("msime-macos", f"msime-macos-{edition}"):
+                        self.assertEqual(sparkle_feed.archive_channel(sparkle_feed.archive_name_for(kind, channel, prefix, "1.3.0", 425000)), channel)
+
+    def test_wider_channels(self):
+        self.assertEqual(sparkle_feed.WIDER_CHANNELS, {"stable": ("beta", "nightly"), "beta": ("nightly",), "nightly": ()})
+
+    def test_bad_names_are_rejected(self):
+        for bad in (("input", "canary", "full"), ("input", "stable", "beta"), ("input", "stable", "settings"), ("input", "stable", "Full"), ("other", "stable", "full")):
+            with self.subTest(bad=bad), self.assertRaises(sparkle_feed.FeedError):
+                sparkle_feed.feed_name(*bad)
+        for bad in ("appcast.xml", "feed-full.xml", "appcast-full.rss", "appcast-beta-.xml", "appcast-settings-.xml"):
+            with self.subTest(bad=bad), self.assertRaises(sparkle_feed.FeedError):
+                sparkle_feed.parse_feed_name(bad)
+        with self.assertRaises(sparkle_feed.FeedError):
+            sparkle_feed.archive_name_for("input", "beta", "msime-macos", "1.3.0", 0)
 
 
 class DownloadGuideTests(unittest.TestCase):

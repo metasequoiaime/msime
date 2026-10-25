@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <wincodec.h>
 #include "../common/StateDirectory.h"
+#include "../common/UpdateRecordDirectory.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -1107,23 +1108,28 @@ std::wstring app_version_label() {
 
 // 检查更新的结果，措辞与共享设置页一致。
 struct UpdateOutcome {
-  // 「当前版本」下面的那一行：「已是最新版本」「暂无可用发行版」「检查失败，请稍后重试」或「发现新版本 vX」。
+  // 「当前版本」下面的那一行：「已是最新版本」「暂无可用发行版」「检查失败，请稍后重试」或「发现新版本 vX」（测试版和每日构建写明通道，见 AboutPageModel.h 的 update_build_title）。
   std::wstring status;
   // 当前运行的已是最新版本（回答的 status 是 current），这时状态下面画 updated 插画。
   bool current = false;
-  // 发现新版本时结果块里的内容（共享页的 `updateResult`）：版本号、安装包的可信度说明和国内镜像地址（拼不出时为空）。没有可用更新时 version 为空。
+  // 发现新版本时结果块里的内容（共享页的 `updateResult`）：版本号、构建的称呼、安装包的可信度说明和国内镜像地址（拼不出时为空）。没有可用更新时 version 为空。
   std::wstring version;
+  std::wstring title;
   msime::settings::InstallerTrust trust;
   std::wstring mirror_url;
+  // 下载按钮打开的地址和文字：正式版是官网下载页「前往下载」，测试版和每日构建是这个构建的发布页「前往发布页」（官网只列正式版）。
+  std::wstring download_url;
+  std::wstring download_label;
 };
 
-// `msime_client_update_check` 的请求：本版本的 Windows 发布。不带架构：同一个安装程序同时支持 x64 和 Arm64。
-JsonObject update_check_request() {
+// `msime_client_update_check` 的请求：本版本的 Windows 发布，`channel` 是偏好里的更新通道（已归一成 stable、beta、nightly）。不带架构：同一个安装程序同时支持 x64 和 Arm64。加上 `directory` 就是 `msime_client_update_pending` 的请求。
+JsonObject update_check_request(std::wstring_view channel) {
   JsonObject request;
   request.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
   request.SetNamedValue(L"current_version",
                         JsonValue::CreateStringValue(hstring(app_version)));
   request.SetNamedValue(L"edition", JsonValue::CreateStringValue(text(MSIME_EDITION_ID)));
+  request.SetNamedValue(L"channel", JsonValue::CreateStringValue(hstring(channel)));
   return request;
 }
 
@@ -1150,51 +1156,92 @@ std::wstring installer_placeholder() {
   return L"MetasequoiaIME-" + id + L"_Setup_v<版本>.exe";
 }
 
-// 读取 `msime_client_update_check` 的答复。发布页不在本仓库的 tag 下时视为检查失败。安装包名和摘要照共享页的 `fromHostUpdate` 先查形状，不合的当作没有；可信度说明和镜像地址的拼法在 AboutPageModel.h。
+// 读取检查结果 `value`（{status, update}）。发布页不在本仓库的 tag 下时视为检查失败。安装包名和摘要照共享页的 `fromHostUpdate` 先查形状，不合的当作没有；构建的称呼、可信度说明和镜像地址的拼法在 AboutPageModel.h。回答里的 `channel` 和 `build_run` 是这个构建所属的通道和运行 ID，以前的共享层没有这两项，按正式版、没有运行 ID；`channel` 不是三种之一时当作失败。缺少必需的字段时抛出，由调用方当作失败。
+UpdateOutcome describe_update_value(JsonObject const &value) {
+  const UpdateOutcome failed{L"检查失败，请稍后重试"};
+  const std::wstring status(value.GetNamedString(L"status", L"").c_str());
+  if (status == L"none")
+    return {L"暂无可用发行版"};
+  const auto update = value.GetNamedObject(L"update");
+  const std::wstring version(
+      update.GetNamedObject(L"version").GetNamedString(L"display", L"").c_str());
+  const std::wstring url(update.GetNamedString(L"release_url", L"").c_str());
+  if (version.empty() || !url.starts_with(std::wstring(releases_url) + L"/tag/"))
+    return failed;
+  if (status == L"current") {
+    UpdateOutcome latest{L"已是最新版本"};
+    latest.current = true;
+    return latest;
+  }
+  if (status != L"available")
+    return failed;
+  const auto string_field = [&update](wchar_t const *key) {
+    const auto field = update.GetNamedValue(key, JsonValue::CreateNullValue());
+    return field.ValueType() == JsonValueType::String ? std::wstring(field.GetString().c_str())
+                                                      : std::wstring();
+  };
+  const auto channel_field = update.GetNamedValue(L"channel", JsonValue::CreateStringValue(L"stable"));
+  if (channel_field.ValueType() != JsonValueType::String)
+    return failed;
+  const std::wstring found(channel_field.GetString().c_str());
+  if (msime::windows::update_channel::title(found).empty())
+    return failed;
+  std::optional<uint64_t> build_run;
+  const auto run_field = update.GetNamedValue(L"build_run", JsonValue::CreateNullValue());
+  // WinRT 把 JSON 数读成 double；运行 ID 远小于 2^53，只收精确的非负整数。
+  if (run_field.ValueType() == JsonValueType::Number) {
+    const double raw = run_field.GetNumber();
+    if (std::isfinite(raw) && raw >= 0 && std::trunc(raw) == raw && raw <= 9007199254740991.0)
+      build_run = static_cast<uint64_t>(raw);
+  }
+  const auto title = msime::settings::update_build_title(found, version, build_run);
+  UpdateOutcome outcome{msime::settings::update_found_status(title)};
+  outcome.version = version;
+  outcome.title = title;
+  outcome.download_url =
+      msime::settings::update_download_from_release_page(found) ? url : std::wstring(download_url);
+  outcome.download_label = std::wstring(msime::settings::update_download_label(found));
+  auto name = string_field(L"installer_name");
+  if (!msime::settings::installer_name_valid(name))
+    name.clear();
+  auto sha256 = string_field(L"installer_sha256");
+  if (!msime::settings::installer_sha256_valid(sha256))
+    sha256.clear();
+  std::optional<bool> is_signed;
+  const auto signed_value = update.GetNamedValue(L"signed", JsonValue::CreateNullValue());
+  if (signed_value.ValueType() == JsonValueType::Boolean)
+    is_signed = signed_value.GetBoolean();
+  outcome.trust = msime::settings::installer_trust(is_signed, name, sha256, installer_placeholder());
+  outcome.mirror_url = msime::settings::update_mirror_url(url, name);
+  return outcome;
+}
+
+// 读取 `msime_client_update_check` 的答复。
 UpdateOutcome describe_update_check(Response const &response) {
   const UpdateOutcome failed{L"检查失败，请稍后重试"};
   if (!response.ok)
     return failed;
   try {
-    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
-    const std::wstring status(value.GetNamedString(L"status", L"").c_str());
-    if (status == L"none")
-      return {L"暂无可用发行版"};
-    const auto update = value.GetNamedObject(L"update");
-    const std::wstring version(
-        update.GetNamedObject(L"version").GetNamedString(L"display", L"").c_str());
-    const std::wstring url(update.GetNamedString(L"release_url", L"").c_str());
-    if (version.empty() || !url.starts_with(std::wstring(releases_url) + L"/tag/"))
-      return failed;
-    if (status == L"current") {
-      UpdateOutcome latest{L"已是最新版本"};
-      latest.current = true;
-      return latest;
-    }
-    if (status != L"available")
-      return failed;
-    UpdateOutcome outcome{L"发现新版本 v" + version};
-    outcome.version = version;
-    const auto string_field = [&update](wchar_t const *key) {
-      const auto field = update.GetNamedValue(key, JsonValue::CreateNullValue());
-      return field.ValueType() == JsonValueType::String ? std::wstring(field.GetString().c_str())
-                                                        : std::wstring();
-    };
-    auto name = string_field(L"installer_name");
-    if (!msime::settings::installer_name_valid(name))
-      name.clear();
-    auto sha256 = string_field(L"installer_sha256");
-    if (!msime::settings::installer_sha256_valid(sha256))
-      sha256.clear();
-    std::optional<bool> is_signed;
-    const auto signed_value = update.GetNamedValue(L"signed", JsonValue::CreateNullValue());
-    if (signed_value.ValueType() == JsonValueType::Boolean)
-      is_signed = signed_value.GetBoolean();
-    outcome.trust = msime::settings::installer_trust(is_signed, name, sha256, installer_placeholder());
-    outcome.mirror_url = msime::settings::update_mirror_url(url, name);
-    return outcome;
+    return describe_update_value(JsonObject::Parse(text(response.text)).GetNamedObject(L"value"));
   } catch (...) {
     return failed;
+  }
+}
+
+// 读取 `msime_client_update_pending` 的答复：Server 的后台检查已经找到、仍比本版本新的构建。没有（value 为 null）、读不出来或不是可用更新时为空，关于页什么都不显示，等用户自己检查。
+std::optional<UpdateOutcome> describe_pending_update(Response const &response) {
+  if (!response.ok)
+    return std::nullopt;
+  try {
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedValue(L"value");
+    if (value.ValueType() != JsonValueType::Object)
+      return std::nullopt;
+    auto outcome = describe_update_value(value.GetObject());
+    if (outcome.version.empty())
+      return std::nullopt;
+    return outcome;
+  } catch (...) {
+    return std::nullopt;
   }
 }
 
@@ -5450,7 +5497,7 @@ private:
     if (!available)
       return;
     auto const &outcome = *update_outcome_;
-    auto headline = make_text(msime::settings::update_release_headline(outcome.version), 12,
+    auto headline = make_text(msime::settings::update_release_headline(outcome.title), 12,
                               palette_.sub);
     headline.IsTextSelectionEnabled(true);
     update_result_.Children().Append(headline);
@@ -5469,7 +5516,8 @@ private:
     if (!outcome.mirror_url.empty())
       actions.Children().Append(button_control(
           L"国内镜像下载", [this, url = outcome.mirror_url] { open_url(url.c_str()); }));
-    actions.Children().Append(button_control(L"前往下载", [this] { open_url(download_url); }));
+    actions.Children().Append(button_control(
+        outcome.download_label, [this, url = outcome.download_url] { open_url(url.c_str()); }));
     update_result_.Children().Append(actions);
   }
 
@@ -5491,20 +5539,66 @@ private:
     check_for_update();
   }
 
-  // GitHub 可能要十秒才回应，所以请求在 UI 线程之外执行，只把结果传回来。
+  // 偏好里的更新通道（`update_channel`），归一成 stable、beta、nightly；偏好没读到时是稳定版。
+  std::wstring current_update_channel() const {
+    return std::wstring(msime::windows::update_channel::normalize(
+        std::wstring_view(document_.String(L"update_channel", msime::windows::update_channel::stable))));
+  }
+
+  // 换了更新通道：上一次的结果是按旧通道检查的，不再显示；还在路上的检查回来时也丢掉（update_generation_）。然后读新通道下 Server 后台检查找到的版本。
+  void on_update_channel_changed() {
+    ++update_generation_;
+    update_checking_ = false;
+    update_outcome_.reset();
+    show_update_outcome();
+    load_pending_update();
+  }
+
+  // GitHub 可能要十秒才回应，所以请求在 UI 线程之外执行，只把结果传回来。按点下按钮时偏好里的通道检查。
   fire_and_forget check_for_update() {
     update_checking_ = true;
     update_outcome_.reset();
     show_update_outcome();
+    const auto generation = ++update_generation_;
     auto weak = get_weak();
     auto queue = DispatcherQueue();
-    const auto body = utf8(update_check_request().Stringify());
+    const auto channel = current_update_channel();
+    const auto body = utf8(update_check_request(channel).Stringify());
     co_await resume_background();
     auto outcome = describe_update_check(take_response(msime_client_update_check(
         reinterpret_cast<const uint8_t *>(body.data()), body.size())));
-    queue.TryEnqueue([weak, outcome = std::move(outcome)] {
+    queue.TryEnqueue([weak, generation, outcome = std::move(outcome)] {
       if (auto self = weak.get()) {
+        if (self->update_generation_ != generation)
+          return;
         self->update_checking_ = false;
+        self->update_outcome_ = outcome;
+        self->show_update_outcome();
+      }
+    });
+  }
+
+  // 「版本更新」标签画出来、还没有结果时，先显示 Server 后台检查（UpdateNotifier）已经找到、仍比本版本新的构建（`msime_client_update_pending`，只读本用户更新记录目录里的 update-check.json，与 Server 写的是同一个目录（common/UpdateRecordDirectory.h），不联网），点通知打开这一页时用户直接看到是哪个版本。读文件也放在 UI 线程之外；回来时用户已经点了检查、换了通道或者已有结果就不覆盖。
+  fire_and_forget load_pending_update() {
+    const auto directory = msime::windows::update_record_directory();
+    if (directory.empty() || !directory.is_absolute())
+      co_return;
+    const auto generation = update_generation_;
+    auto weak = get_weak();
+    auto queue = DispatcherQueue();
+    const auto channel = current_update_channel();
+    auto request = update_check_request(channel);
+    request.SetNamedValue(L"directory", JsonValue::CreateStringValue(hstring(directory.wstring())));
+    const auto body = utf8(request.Stringify());
+    co_await resume_background();
+    auto outcome = describe_pending_update(take_response(msime_client_update_pending(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size())));
+    if (!outcome)
+      co_return;
+    queue.TryEnqueue([weak, generation, outcome = std::move(*outcome)] {
+      if (auto self = weak.get()) {
+        if (self->update_generation_ != generation || self->update_checking_ || self->update_outcome_)
+          return;
         self->update_outcome_ = outcome;
         self->show_update_outcome();
       }
@@ -24013,6 +24107,20 @@ private:
     update_result.Spacing(8);
     auto update_result_frame = append_row_frame(updates, update_result);
     update_result_frame.Padding(Thickness{row_inset, 10, row_inset, 10});
+    // 「更新通道」（偏好 `update_channel`）：检查更新和 Server 的后台提醒都按它选版本。选项在 AboutPageModel.h；换了通道，上面的结果作废（on_update_channel_changed）。
+    {
+      std::vector<Option> channels;
+      for (auto const &option : msime::settings::update_channel_options)
+        channels.push_back({std::wstring(option.value), std::wstring(option.label)});
+      add_row(updates, 0xE7C1, L"更新通道", std::wstring(msime::settings::update_channel_description),
+              select_control(L"更新通道", std::move(channels), current_update_channel(),
+                             [this](std::wstring const &value) {
+                               change([&](PreferencesDocument &doc) {
+                                 doc.SetString(L"update_channel", value);
+                               }, false);
+                               on_update_channel_changed();
+                             }));
+    }
     if (!indexing_) {
       update_button_ = update_button;
       update_lines_ = update_lines;
@@ -24021,6 +24129,8 @@ private:
       update_result_ = update_result;
       update_result_frame_ = update_result_frame;
       show_update_outcome();
+      if (!update_checking_ && !update_outcome_)
+        load_pending_update();
     }
     url_row(updates, L"其他平台下载", L"在水杉输入法官网的下载页获取其他平台的版本。",
             download_url);
@@ -24754,6 +24864,8 @@ private:
 
   // 检查更新：状态跨页面重建保留；控件是「关于」页当前的那一组。
   bool update_checking_ = false;
+  // 每次检查和每次换通道加一；回来的结果代次不对就丢掉，免得旧通道的结果盖住新通道的。
+  uint64_t update_generation_ = 0;
   std::optional<UpdateOutcome> update_outcome_;
   Button update_button_{nullptr};
   StackPanel update_lines_{nullptr};

@@ -644,16 +644,24 @@ function DesktopSettings() {
         ? {
             ...client,
             host,
+            // macOS 设置应用的 Sparkle 更新按页面当前选的通道读对应的 appcast；页面不传通道时宿主读稳定版的。
             ...(applicationUpdater
               ? {
-                  checkForApplicationUpdate: () => invoke<void>("application_update_check"),
+                  checkForApplicationUpdate: (channel) =>
+                    invoke<void>(
+                      "application_update_check",
+                      channel === undefined ? {} : { channel },
+                    ),
                 }
               : {}),
-            // Linux 设置应用每天在后台检查一次更新并发通知（不在应用里安装），关于页先显示它找到的新版本。
+            // Linux 设置应用每天在后台检查一次更新并发通知（不在应用里安装），关于页先显示它找到的新版本；页面传来当前选的通道时只要按这个通道找到的版本。
             ...(host.platform === "linux"
               ? {
-                  pendingUpdateCheck: () =>
-                    invoke<UpdateCheckResult | null>("pending_update_check"),
+                  pendingUpdateCheck: (channel) =>
+                    invoke<UpdateCheckResult | null>(
+                      "pending_update_check",
+                      channel === undefined ? {} : { channel },
+                    ),
                 }
               : {}),
             dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,

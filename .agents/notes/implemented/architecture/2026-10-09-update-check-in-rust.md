@@ -15,7 +15,7 @@ Linux 的关于页还会异步读取后台检查缓存。缓存读取与手动�
 挑选规则和网络请求在 `crates/client-services/src/update_check.rs`，各宿主都调用它：
 
 - `check_for_update(&UpdateCheckRequest)` 读 `https://api.github.com/repos/metasequoiaime/msime/releases?per_page=100`（10 秒超时、16 MiB 上限、`User-Agent: msime-client`），交给 `evaluate_update` 判断。`select_platform_release` 跳过草稿和预发布、去掉 `<platform>-` 前缀、只接受 `https://github.com/metasequoiaime/msime/releases/tag/…` 的发布页，按版本号取最新；Linux 和 Windows 上再按版本 id（和 Linux 的架构）挑出唯一的安装包与 GitHub 给的 `sha256:` 摘要，`signed` 为 `false`。规则逐条沿用原 TypeScript 实现，原来的选择测试移植成了 `update_check/tests.rs`。
-- 结果序列化为 `{status:"available"|"current", update:{version:{display,parts}, release_url, installer_name, installer_sha256, signed}}` 或 `{status:"none"}`。
+- 结果序列化为 `{status:"available"|"current", update:{version:{display,parts}, release_url, installer_name, installer_sha256, signed, channel, build_run}}` 或 `{status:"none"}`。请求可带更新通道，上面「跳过草稿和预发布」是稳定版通道的规则；测试版、每日构建、按（版本号，运行 ID）比较和共享的后台检查见 [更新通道与后台检查下沉到共享 Rust](2026-10-25-update-channels-core.md)。
 - 各宿主的接入：
   - Tauri 外壳（Windows、macOS、Linux 的设置应用）：命令 `update_check`，在阻塞线程池里调用 `check_for_update`。
   - 原生宿主：`msime_client_update_check`（`crates/host-api/src/ffi/reporting.rs`，请求 `{platform, current_version, edition?, arch?}`）。

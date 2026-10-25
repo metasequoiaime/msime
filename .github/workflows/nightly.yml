@@ -38,7 +38,9 @@ jobs:
     with:
       prerelease: true
       publish: false
-      # 不传 build_number；复用 workflow 在 shell 中把 run_id 映射到 Apple 允许的九位范围。
+      # 不传 build_number；复用 workflow 由所构建提交的时间算出九位以内的构建号，没有新提交的日子编出的是同一个构建。
+      # 这次构建的 Sparkle 更新发到每日构建通道：输入法和设置应用里选了「每日构建」的用户读 macos-appcast 上的 appcast-nightly-*（见 release-macos.yml 的「Update the Sparkle appcasts」）。只有跑在 develop 上（定时触发总是如此）时才更新它，从其他分支手动触发只产出 workflow artifact。
+      appcast_channel: nightly
     secrets: inherit
 
   linux:

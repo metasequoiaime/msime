@@ -1039,6 +1039,7 @@ try {
                     Select-PageTab $window 'about-tab-version' '当前版本'
                     $content = Find-ById $window 'settings-content'
                     if (-not (Find-ByName $content '检查更新')) { throw 'About version tab is missing the update check' }
+                    if (-not (Find-ByName $content '更新通道')) { throw 'About version tab is missing the update channel' }
                     if (Find-ByName $content '复制下载链接') { throw 'About page still offers 复制下载链接' }
                     if (Find-ByName $content '反馈描述') { throw 'Feedback rendered inside the about version tab' }
                 }

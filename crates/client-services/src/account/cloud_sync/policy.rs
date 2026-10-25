@@ -24,13 +24,14 @@ pub const MAX_BACKOFF_MS: u64 = 24 * 60 * 60 * 1000;
 pub const STALL_BASE_MS: u64 = THROTTLE_MS;
 /// 词库合并退避的上限：云端有本机导入不了的词时合并永远做不完，这样每台设备一天最多自动重下几次整份快照。
 pub const MAX_STALL_MS: u64 = 6 * 60 * 60 * 1000;
-/// 设备本地且涉及隐私、无论如何都不上传也不应用的设置，按键名里的片段识别。
-pub const LOCAL_ONLY_FRAGMENTS: [&str; 5] = [
+/// 无论如何都不上传也不应用的设备本地设置，按键名里的片段识别：涉及隐私的几项，以及只对本机安装有意义的更新通道（一台机器上试每日构建，不该让同账号的其他设备也跟着换通道）。
+pub const LOCAL_ONLY_FRAGMENTS: [&str; 6] = [
     "incognito",
     "developer_options",
     "diagnostic_log",
     "contribute_audio",
     "english_online_candidates",
+    "update_channel",
 ];
 /// 整份偏好文档给皮肤库留预算时用的上限：服务端 1 MiB，这里只用到 900 KiB。
 pub const DOCUMENT_LIMIT_BYTES: usize = 900 * 1024;
@@ -211,7 +212,7 @@ pub fn is_local_only(key: &str) -> bool {
         .any(|fragment| key.contains(fragment))
 }
 
-/// 去掉设备本地且涉及隐私的键（隐私模式、开发者选项、诊断日志、语音贡献）。
+/// 去掉设备本地的键（隐私模式、开发者选项、诊断日志、语音贡献、英文在线候选、更新通道）。
 pub fn without_local_only(settings: &mut BTreeMap<String, AccountPreferenceValue>) {
     settings.retain(|key, _| !is_local_only(key));
 }

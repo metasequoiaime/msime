@@ -89,6 +89,8 @@ export type Preferences = PunctuationPreferences &
     translation_ai?: boolean;
     /** 各宿主共用的匿名用量上报（每日活跃、会话结束与崩溃摘要）；缺省为开启。 */
     usage_reporting?: boolean;
+    /** 桌面应用检查更新跟的发布通道，关于页「版本与更新」里选；等于缺省的稳定版时 client-core 不写进文档。只属于本机，不进设置文件、不进账号同步。 */
+    update_channel?: "stable" | "beta" | "nightly";
     floating_toolbar?: FloatingToolbarPreferences;
     mixed_input?: MixedInputPreferences;
     multilingual_input?: MultilingualInputPreferences;

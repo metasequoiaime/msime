@@ -120,6 +120,7 @@ export { useSettingsContentScrollReset } from "./settings/use-settings-content-s
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
 export type {
   HostReleaseUpdate,
+  UpdateChannel,
   UpdateCheckRequest,
   UpdateCheckResult,
 } from "./settings/update-manifest";

@@ -547,6 +547,12 @@ key_bindings 可选对象示例：
 
 隔离预览实例不注册 TSF，也不接管系统输入源：它挂上候选窗口、后台点击选词和悬浮工具条，走 configured_key 的同一套路径；未支持的路由会断开当前连接。生产模式复用同一份 Server 会话/窗口实现，只是换成安装器注册的生产管道名，TSF 注册和 DLL/Server 部署由安装器完成。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。预览实例不连接旧产品管道，也不替代生产 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻 Server 进程；CMake 另登记无副作用的 `windows-preview-help` --help 测试。
 
+#### 后台更新提醒
+
+受管理的 Server 定期在后台检查新版本，有新版本时主动提醒；预览实例不检查。`src/system/UpdateNotifier.cpp` 起一个工作线程，启动五分钟后第一次调用 `msime_client_update_background_check`，之后每小时一次；偏好里的更新通道（`update_channel`，随偏好发布更新）变了以后，下一次调用推到一小时之后：换通道几乎总在设置窗口「关于」页上做，用户多半当场点了「检查更新」，马上再弹一条说同一个版本的通知是重复的。多久真正联网一次（成功后一天、失败后六小时）、换通道后立刻重查、同一个构建（版本号和运行 ID）只提醒一次、开发构建和 `MSIME_DISABLE_UPDATE_CHECK` 不检查，全在共享层（`crates/client-services/src/update_check/background.rs`），Server 只决定什么时候问、怎么提醒；没到时间时只读记录目录里的 `update-check.json`。请求的平台是 `windows`，带通道、不带架构，与设置窗口相同；Win7 构建是 `windows7`，只有正式发布、不带通道，带本程序编译成的架构（`x86_64` 或 `x86`，与 Win7 专用设置相同，共享层按它在两个安装包里选）。记录目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\update`（full 是 `%LOCALAPPDATA%\MSIME\update`，`common/UpdateRecordDirectory.h`），设置窗口「关于」页读 `msime_client_update_pending` 用的是同一个目录；不放状态根，因为安装后的状态根整台机器共用，几个 Windows 用户共用一份「提醒过哪个构建」，后登录的用户就收不到通知。联网只发生在这个工作线程上，不在输入线程、管道线程或消息循环上。
+
+共享层让提醒时，消息循环线程上的一个不显示的窗口加一个临时的通知区域图标（`Shell_NotifyIconW`，`NOTIFYICON_VERSION_4`）并弹出气泡：标题「<产品名>有新版本 vX」（产品名按版本取 `MSIME_EDITION_DISPLAY_NAME`，如「水杉输入法」「水杉五笔」），正文写明通道和构建（「测试版 v0.3.1 已发布。……」「每日构建 v0.3.1（构建 123）已发布。……」，写法与设置窗口共用 `common/UpdateChannelText.h`），Windows 10/11 显示成通知，Windows 7 显示成气泡。系统正不接受通知（`SHQueryUserNotificationState` 不是 `QUNS_ACCEPTS_NOTIFICATIONS`：全屏游戏或演示、锁屏、新用户登录后的安静时间）时先不弹，留在内存里每分钟再看一次，最多等两小时（`QUNS_BUSY` 有误报，不能无限等）。共享层返回时已经把这个构建记成提醒过，所以气泡超时、被关掉时图标仍然留着：Windows 10/11 删掉图标会连操作中心里的那条通知一起删掉，被勿扰或专注助手压下的通知也只在操作中心里。点气泡或图标打开设置窗口的「关于」页（与托盘「关于水杉输入法…」同一条 `settings:about` 路由）并删掉图标，设置窗口不在时改用浏览器打开发布页；右键图标只删掉图标；用户都不理会时一天后删掉。不显示窗口，不抢焦点。Server 停下时先停这个线程：最多等两秒，正在联网时放手让它自己结束（它只持有共享状态，回来后看见停止标志就退出）。请求、回答解析和通知文字在 `src/system/UpdateNotification.h`，由 `windows-update-notification` 测试核对。取舍见 [决策笔记](../../.agents/notes/implemented/feature/2026-10-25-windows-update-channels.md)。
+
 #### TSF 适配器交接契约
 
 TSF DLL 与 WindowsServer 保持独立进程，通过 Engine contracts 定义的 Main、ToTsf、Worker 管道交换协议帧。DLL 不调用 `configured_key`、`basic_key`、`navigate`，也不缓存 Server 内部 `FocusLease` 或 `PendingReply`。DLL 使用自身的 focus token、composition epoch 和 request_id 验证异步回复，再在所属线程的 TSF edit session 中修改文本；这些值不能冒充 Server 的连接代次或焦点 epoch。

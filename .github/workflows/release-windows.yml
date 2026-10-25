@@ -13,6 +13,9 @@ on:
       publish: {description: Publish the build, required: false, default: false, type: boolean}
       signpath_test: {description: Exercise the SignPath test-signing policy, required: false, default: false, type: boolean}
 permissions: {contents: write}
+# 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
+env:
+  MSIME_BUILD_RUN: ${{ github.run_id }}
 # 签名测试不发布，单独一个并发组，不让它排在真正的发布前面。
 concurrency: {group: "release-windows${{ inputs.signpath_test && '-signpath-test' || '' }}", cancel-in-progress: false}
 jobs:
@@ -31,7 +34,7 @@ jobs:
         run: |
           # Build-Client.ps1 stamps this into the Tauri and Server metadata, which take three numeric components only.
           $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
-          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
           $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
       # SignPath 签名由本仓库的变量 WINDOWS_SIGNING_PROVIDER=signpath 打开；它不能建在组织级，否则别的仓库会一起打开。打开时其余配置缺一项就失败，不悄悄退回未签名；不设置时照旧发未签名安装包。只签 main 的正式版和 develop 的 beta：其他分支的 -alpha 是试验构建，不占用签名和审批，照旧不签名。
       # 输入 signpath_test 不看这个开关，在任何分支上用 test-signing 策略走一遍签名任务：测试证书不受系统信任，策略不需要审批，所以这种运行从不发布（publish 任务被跳过），只用来验证签名链路。签名流程见 docs/code-signing-policy.md。
@@ -642,6 +645,8 @@ jobs:
           python3 platforms/windows/scripts/edition_windows.py download-guide --editions "$editions" --version "$VERSION" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${prerelease[@]+"${prerelease[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
+          # 发布正文末尾的隐藏构建标记（scripts/release-build-marker.py）：应用内检查更新按它的运行 ID 比较同一版本号的构建，测试版通道也靠它分辨 beta 之后发的正式版。
+          python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           # 版本发布页只放给用户下载的安装程序、SHA256SUMS 和上面说的 .sha256；符号包放在 windows-symbols（下一步）。重跑同一版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装程序放在一起的符号包。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Windows ${RELEASE}" release-notes.md dist/*.exe dist/SHA256SUMS dist/*.exe.sha256
       # 每个发布版本六个版本的符号包都长期留在滚动的 windows-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。

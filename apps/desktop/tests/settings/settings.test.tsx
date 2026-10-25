@@ -8867,6 +8867,8 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
         installerName: "msime-linux_1.2.0_amd64.deb",
         installerSha256: digest,
         signed: false,
+        channel: "stable",
+        buildRun: null,
       },
       "linux",
     ),
@@ -8876,7 +8878,15 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   });
   expect(
     describeInstallerTrust(
-      { version, releaseUrl, installerName: null, installerSha256: null, signed: false },
+      {
+        version,
+        releaseUrl,
+        installerName: null,
+        installerSha256: null,
+        signed: false,
+        channel: "stable",
+        buildRun: null,
+      },
       "linux",
     ).verify,
   ).toBeNull();
@@ -8886,6 +8896,8 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
     installerName: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
     installerSha256: digest,
     signed: false,
+    channel: "stable" as const,
+    buildRun: null,
   };
   const expected = {
     warning:
