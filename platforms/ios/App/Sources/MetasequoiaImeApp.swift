@@ -284,7 +284,7 @@ private struct MainTabView: View {
         .background(TabReselectionObserver {
           navigation.select(.settings, router: router)
         }.frame(width: 0, height: 0))
-        .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
+        .tabItem { Label("首页", systemImage: "house.fill") }.tag(AppNavigation.Tab.settings)
       NavigationStack { CommunityHomeView() }.id(navigation.communityRoot)
         .tabItem { Label("社区", systemImage: "globe.asia.australia.fill") }.tag(AppNavigation.Tab.community)
       NavigationStack { TypingStatisticsView() }

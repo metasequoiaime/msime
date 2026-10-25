@@ -113,7 +113,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     if toolbarTest { app.launchArguments.append("--keyboard-toolbar-ui-test") }
     app.launch()
-    let settings = app.tabBars.buttons["设置"]
+    let settings = app.tabBars.buttons["首页"]
     XCTAssertTrue(settings.waitForExistence(timeout: 10))
     settings.tap()
     settings.tap()
@@ -201,7 +201,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     func configure(restoring: Bool = false) {
       app.terminate()
       app.launch()
-      let settings = app.tabBars.buttons["设置"]
+      let settings = app.tabBars.buttons["首页"]
       XCTAssertTrue(settings.waitForExistence(timeout: 10))
       settings.tap()
       let layout = app.buttons["keyboardLayoutLink"]
@@ -289,7 +289,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     func configure(_ enabled: Bool, restoring: Bool = false) {
       app.terminate()
       app.launch()
-      app.tabBars.buttons["设置"].tap()
+      app.tabBars.buttons["首页"].tap()
       let layout = app.buttons["keyboardLayoutLink"]
       for _ in 0..<8 where !layout.isHittable { app.swipeUp() }
       XCTAssertTrue(layout.waitForExistence(timeout: 5))
@@ -377,7 +377,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
 
     func selectInHost(_ scheme: String) {
       if app.state == .notRunning { app.launch() } else { app.activate() }
-      let settings = app.tabBars.buttons["设置"]
+      let settings = app.tabBars.buttons["首页"]
       XCTAssertTrue(settings.waitForExistence(timeout: 10))
       settings.tap()
       settings.tap()
@@ -841,7 +841,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
-    app.tabBars.buttons["设置"].tap()
+    app.tabBars.buttons["首页"].tap()
     let input = app.buttons["inputSettingsLink"].firstMatch
     for _ in 0..<6 where !input.isHittable { app.swipeUp() }
     XCTAssertTrue(input.waitForExistence(timeout: 10))
@@ -931,7 +931,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     func openSettings(_ identifier: String) {
       app.terminate()
       app.launch()
-      let settings = app.tabBars.buttons["设置"]
+      let settings = app.tabBars.buttons["首页"]
       XCTAssertTrue(settings.waitForExistence(timeout: 10))
       settings.tap()
       settings.tap()

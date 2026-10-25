@@ -206,7 +206,7 @@ struct SettingsSearchPill: View {
   }
 }
 
-/// 设置 顶部的卡片：app 标志、当前方案、两个设置步骤和 试用键盘 按钮。
+/// 首页顶部的卡片：app 标志、当前方案、两个设置步骤和 试用键盘 按钮。应用名已经是页面的大标题，卡片不再写一遍。
 ///
 /// 宿主 app 无法判断键盘是否已添加、是否已获得完全访问权限 —— iOS 对这两者都没有公开 API，而由键盘写入的标记在用户撤销权限后仍会保留 —— 所以每一步都显示中性的序号标记，而不是设计稿的 ✓ / ! 状态，两个 去开启 链接也始终显示。
 struct KeyboardStatusCard: View {
@@ -223,11 +223,9 @@ struct KeyboardStatusCard: View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(spacing: 12) {
         AppMarkDisc(diameter: 52, markSize: 30)
-        VStack(alignment: .leading, spacing: 2) {
-          Text("水杉输入法").font(.system(size: 17, weight: .semibold))
-          Text(scheme.shortLabel).designSubtext()
-            .accessibilityIdentifier("keyboardStatusScheme")
-        }
+        // 宿主 app 判断不了键盘是否已启用（见上），首行不写「已启用」这类状态，只写当前方案，与共享设置组件没有设置客户端时的卡片一样。
+        Text(scheme.shortLabel).font(.system(size: 17, weight: .semibold))
+          .accessibilityIdentifier("keyboardStatusScheme")
       }
       VStack(alignment: .leading, spacing: 8) {
         setupRow(1, "添加到键盘列表", identifier: "openKeyboardSettingsButton", hint: "设置 → 通用 → 键盘 → 键盘 → 添加新键盘")
