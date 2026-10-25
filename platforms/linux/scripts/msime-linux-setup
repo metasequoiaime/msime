@@ -496,14 +496,17 @@ def hosts_held_off(user_data: Path):
             lease.unlink()
 
 
-def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Path) -> tuple[subprocess.CompletedProcess, bool]:
-    """msime-linux-prepare --refresh, pointed at resources. Returns the result and whether runtime-options.json was rewritten.
+def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Path) -> tuple[subprocess.CompletedProcess, str | None]:
+    """msime-linux-prepare --refresh, pointed at resources. Returns the result and how runtime-options.json changed: "generation" when the refresh moved it to a new dictionary generation, "resources" when only the resource directory changed, None when the file was left as it was.
 
-    A new resource directory is written into a copy of the options beside the file, and the copy replaces the file only once the refresh has rewritten it; on any failure the file never names the new directory."""
+    A new resource directory is written into a copy of the options beside the file, and the copy replaces the file only once the refresh has accepted it; on any failure the file never names the new directory.
+
+    刷新只在词库代次变了时改写文件，代次没变就报告 current、一个字都不写。修复损坏的运行资源正是这种情况：锁没变，只是记录的目录里有文件坏了，新目录按同一份锁备齐，代次与原来相同。这时副本里换掉的 `resources` 就是要做的全部改动，同样用它替换正式配置；否则配置继续指向坏目录，脚本却以成功退出。"""
     command = str(prepare_executable(prefix))
     if Path(document["resources"]) == resources:
         result = subprocess.run([command, "--refresh", str(options_file)], capture_output=True, text=True, check=False)
-        return result, result.returncode == 0 and result.stdout.strip() == "refreshed"
+        refreshed = result.returncode == 0 and result.stdout.strip() == "refreshed"
+        return result, "generation" if refreshed else None
     # 保留文档约定的 runtime-options.json 文件名。刷新入口也会独立随安装包发布，不能因为副本是临时的就让它接受任意隐藏文件名。
     staged_directory = Path(tempfile.mkdtemp(prefix=".runtime-options-update-", dir=options_file.parent))
     staged = staged_directory / "runtime-options.json"
@@ -513,10 +516,10 @@ def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Pat
             handle.write("\n")
         staged.chmod(options_file.stat().st_mode & 0o777)
         result = subprocess.run([command, "--refresh", str(staged)], capture_output=True, text=True, check=False)
-        refreshed = result.returncode == 0 and result.stdout.strip() == "refreshed"
-        if refreshed:
+        outcome = {"refreshed": "generation", "current": "resources"}.get(result.stdout.strip()) if result.returncode == 0 else None
+        if outcome:
             staged.replace(options_file)
-        return result, refreshed
+        return result, outcome
     finally:
         shutil.rmtree(staged_directory, ignore_errors=True)
 
@@ -584,8 +587,8 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
     try:
         with hosts_held_off(user_data):
             install_helpcodes(prefix, target)
-            result, refreshed = run_refresh(prefix, options_file, document, target)
-            if refreshed and running("ibus-daemon"):
+            result, switched = run_refresh(prefix, options_file, document, target)
+            if switched and running("ibus-daemon"):
                 time.sleep(IBUS_OPTIONS_RELOAD)
     except HostsBusy:
         print("输入法仍有输入会话占用词库，没有切换：runtime-options.json 未改动，输入法继续使用旧词库。请稍后再运行一次。", file=sys.stderr)
@@ -593,12 +596,16 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
     except OSError as error:
         print(f"切换词库失败：{error}\nruntime-options.json 未改动，输入法继续使用旧词库。", file=sys.stderr)
         return 1
-    if refreshed:
-        print("已切换到新版本的词库，用户词库已回放进去。输入法在切换期间暂停了输入会话，现在已恢复，新的输入即使用新词库。")
+    if switched:
+        if switched == "generation":
+            print("已切换到新版本的词库，用户词库已回放进去。输入法在切换期间暂停了输入会话，现在已恢复，新的输入即使用新词库。")
+        else:
+            print(f"已改用校验通过的词库目录 {target}。词库版本没有变化，用户词库原样沿用，不需要回放；输入法在切换期间暂停了输入会话，现在已恢复。")
         if target != resources:
             print(f"旧词库目录 {resources} 保留未动，确认新词库正常后可以自行删除。")
         return 0
-    if result.returncode == 0:
+    if result.returncode == 0 and target == resources:
+        # 记录的目录本来就与锁一致：词库已校验，代次也已是当前的，没有要改的。新目录没能换进配置（刷新输出了认不出的结果）则不算成功，落到下面的失败说明。
         print(f"{options_file} 未改写：它已指向当前版本的词库，或不是 msime-linux-prepare 生成的布局。")
         return 0
     if result.stderr.strip():

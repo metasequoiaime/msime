@@ -440,3 +440,25 @@ test("资源损坏的已有配置走修复事务，不重复创建状态目录",
   expect(update).toHaveBeenCalledOnce();
   expect(run).not.toHaveBeenCalled();
 });
+
+test("修复后运行资源仍未通过校验时如实报失败，不显示「词库已更新」", async () => {
+  const update = vi.fn(async (onLine: (line: LinuxSetupLine) => void) => {
+    onLine({ text: "runtime-options.json 未改写：它已指向当前版本的词库", error: false });
+    throw { code: "resources_not_ready" };
+  });
+  render(
+    <LinuxSetupPage
+      status={{ ...missing, prepared: true, dictionaryOutdated: false }}
+      repair
+      client={{ run: vi.fn(), update }}
+      onComplete={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "立即修复" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("运行资源仍未通过校验");
+  expect(alert.textContent).toContain("msime-linux-setup --update --download");
+  expect(screen.getByRole("heading", { name: "更新没有完成" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "词库已更新" })).toBeNull();
+  expect(screen.getByRole("log").textContent).toContain("未改写");
+});

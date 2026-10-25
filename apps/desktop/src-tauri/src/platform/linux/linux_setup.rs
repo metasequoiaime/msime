@@ -656,6 +656,18 @@ pub async fn run_linux_dictionary_update(
         .ok_or(LinuxSetupError::new("setup_unavailable"))?
         .to_path_buf();
     run_reporting(app, &running, program, update_arguments(&state_directory)).await?;
+    // 脚本以 0 退出不等于配置真的指向了可用的资源（旧版脚本在词库代次没变时就是这样假成功的）。用设置页判断「运行资源尚未准备好」的同一条校验重读配置再查一次，不通过就如实报失败，过期标记也留着。
+    let runtime = options.inner().clone();
+    let ready = tauri::async_runtime::spawn_blocking(move || {
+        runtime
+            .snapshot()
+            .is_ok_and(|document| msime_host_api::runtime_resources_ready(&document))
+    })
+    .await
+    .map_err(|_| LinuxSetupError::new("setup_failed"))?;
+    if !ready {
+        return Err(LinuxSetupError::new("resources_not_ready"));
+    }
     let markers = session_dictionary_outdated_markers();
     for marker in &markers {
         if fs::symlink_metadata(marker).is_ok_and(|metadata| metadata.file_type().is_file()) {

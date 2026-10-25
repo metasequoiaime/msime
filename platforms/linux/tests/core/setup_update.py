@@ -31,7 +31,7 @@ def load_setup_module():
     spec.loader.exec_module(module)
     return module
 
-# Stands in for msime-linux-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
+# Stands in for msime-linux-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. Like the real command it only looks at the generation: options already on the current one (`dictionaries/next` here) get `current` and are not written, whatever `resources` says. STUB_REFRESH_STDOUT replaces what a successful refresh prints, standing in for output setup does not recognise. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
 # 首行用跑测试的同一个解释器，不经 /usr/bin/env：没有 FHS 布局的环境（Nix 构建沙箱）里没有它。
 PREPARE_STUB = f"#!{sys.executable}\n" + r'''import fcntl, json, os, sys, time
 from pathlib import Path
@@ -59,9 +59,16 @@ if sys.argv[1:2] == ["--refresh"]:
     if code:
         print("The recorded dictionaries do not match this version; runtime options were left unchanged", file=sys.stderr)
         sys.exit(code)
+    if "STUB_REFRESH_STDOUT" in os.environ:
+        print(os.environ["STUB_REFRESH_STDOUT"])
+        sys.exit(0)
     options = Path(sys.argv[2])
     document = json.loads(options.read_text())
-    document["dictionaries"] = str(Path(document["user_data"]) / "dictionaries/next")
+    generation = str(Path(document["user_data"]) / "dictionaries/next")
+    if document["dictionaries"] == generation:
+        print("current")
+        sys.exit(0)
+    document["dictionaries"] = generation
     options.write_text(json.dumps(document))
     print("refreshed")
     sys.exit(0)
@@ -268,6 +275,38 @@ def check_setup(harness: Harness) -> None:
     assert Artifacts.requested == [], Artifacts.requested
     assert harness.prepare_calls() == [["--refresh", str(state / "runtime-options.json")]]
     assert harness.refreshes() == [{"lease": True, "locked": True, "resources": str(staged)}], harness.refreshes()
+    assert leftovers(state) == [], leftovers(state)
+
+    # 设置页的「修复运行资源」走同一条更新：词库版本没变（代次已是当前的），只是记录的目录里有一项被改坏、大小不变。刷新只看代次，报告 current 且不改写副本；配置仍必须换到校验通过的新目录，否则页面报「词库已更新」，宿主却继续读坏文件。代次、用户目录和偏好原样保留，坏目录不动。
+    state = harness.installed("state-repair")
+    resources = Path(options(state)["resources"])
+    damaged = bytes(reversed(harness.current["b.db"]))
+    assert len(damaged) == len(harness.current["b.db"]) and damaged != harness.current["b.db"]
+    (resources / "b.db").write_bytes(damaged)
+    document = dict(options(state), dictionaries=str(state / "user/dictionaries/next"), preferences={"fuzzy": True})
+    (state / "runtime-options.json").write_text(json.dumps(document))
+    staged = harness.staged(resources)
+    result = harness.run("--update", "--download", "--state", str(state), MSIME_LINUX_SETUP_REPORT="1")
+    assert result.returncode == 0, result
+    assert Artifacts.requested == ["/b.db"], Artifacts.requested
+    assert harness.refreshes() == [{"lease": True, "locked": True, "resources": str(staged)}], harness.refreshes()
+    assert options(state) == dict(document, resources=str(staged)), options(state)
+    assert (staged / "b.db").read_bytes() == harness.current["b.db"]
+    assert (resources / "b.db").read_bytes() == damaged
+    assert leftovers(state) == [], leftovers(state)
+    assert "已改用校验通过的词库目录" in result.stdout and "未改写" not in result.stdout, result.stdout
+    # 再修一次时记录的目录已经完好：什么都不取回，配置不再改写。
+    result = harness.run("--update", "--download", "--state", str(state))
+    assert result.returncode == 0 and Artifacts.requested == [], result
+    assert options(state) == dict(document, resources=str(staged)), options(state)
+
+    # 刷新以 0 退出、却输出认不出的结果时，新目录没有换进配置，不能报成功。
+    state = harness.installed("state-repair-unrecognised")
+    before = (state / "runtime-options.json").read_bytes()
+    result = harness.run("--update", "--download", "--state", str(state), STUB_REFRESH_STDOUT="")
+    assert result.returncode == 1, result
+    assert "切换词库失败" in result.stderr, result.stderr
+    assert (state / "runtime-options.json").read_bytes() == before
     assert leftovers(state) == [], leftovers(state)
 
     # An input session that does not let go keeps the switch from happening: nothing is refreshed and the lease comes down again. The staged dictionaries stay for the next attempt.
