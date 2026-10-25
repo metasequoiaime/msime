@@ -309,9 +309,35 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         Intent intent = new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
             .putExtra("msime_open_page", "KEYBOARD_OPTIONS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         activity = startActivitySync(intent);
-        tap(text("剪贴板"));
-        await(text("导出文件夹"));
+        // 剪贴板设置并进了「工具栏」分页，排在键盘工具栏一组之后，可能在屏幕外。
+        tap(text("工具栏"));
+        reveal(text("导出文件夹"));
         await(node -> text("导出").test(node) && node.isEnabled());
+    }
+
+    /** 向下滚动设置页，直到目标可见；查找只认可见节点，屏幕外的行等不到。 */
+    private void reveal(Predicate<AccessibilityNodeInfo> predicate) throws Exception {
+        for (int attempt = 0; attempt < 12 && findAll(predicate) == null; attempt++) {
+            AccessibilityNodeInfo scroller = null;
+            for (var window : automation.getWindows()) scroller = tallestScrollable(window.getRoot(), scroller);
+            if (scroller == null || !scroller.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) break;
+            automation.waitForIdle(300, 3000);
+        }
+        await(predicate);
+    }
+
+    /** 页面主体的纵向列表是最高的可滚动节点；分页标签和工具栏预览也可滚动，但是横向的矮条。 */
+    private static AccessibilityNodeInfo tallestScrollable(AccessibilityNodeInfo node, AccessibilityNodeInfo best) {
+        if (node == null || !node.isVisibleToUser()) return best;
+        if (node.isScrollable()) {
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            Rect current = new Rect();
+            if (best != null) best.getBoundsInScreen(current);
+            if (best == null || bounds.height() > current.height()) best = node;
+        }
+        for (int index = 0; index < node.getChildCount(); index++) best = tallestScrollable(node.getChild(index), best);
+        return best;
     }
 
     private void choose() throws Exception {
