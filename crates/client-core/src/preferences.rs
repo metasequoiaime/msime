@@ -1895,6 +1895,8 @@ pub struct DiagnosticLogPreferences {
     pub server: bool,
     /// In-process TSF preedit and input latency, buffered and batched out.
     pub tsf: bool,
+    /// 允许 `msime-mcp candidates` 在终端里按用户的设置和词库打出一串按键的候选（#9663）。候选来自用户自己的词库，等于把打过的词交给任何能运行这个命令的程序，所以缺省关闭，只在桌面「维护与诊断」里由用户打开。和诊断日志一样只属于本机：不随云同步、不进设置文件（键名在 `diagnostic_log` 下，两处的本机清单已经按这个名字排除）。MCP 的偏好工具不提供这一项，助手不能自己把它打开。
+    pub command_line_candidates: bool,
 }
 
 /// Windows 游戏兼容：游戏声明自己画候选却不画时，由水杉的候选窗显示。DLL 在每次激活时读取，对已打开的游戏要重新激活输入法才生效。各项都等于默认值时不写进文档，没有这个键的旧版本照样能读。

@@ -252,6 +252,14 @@ pub extern "C" fn msime_client_poll_settled_rerank(
     })
 }
 
+/// 当场跑一次停顿重排，等它评完再返回，结果与 `msime_client_start_settled_rerank` 加上随后的 `msime_client_poll_settled_rerank(accept = true)` 相同。宿主在停顿 150 ms 后才这样做，`candidate_preview` 代表的是「打完这串键停下来」，所以直接在会话线程上评分，不起工作线程。
+pub(crate) fn settle_now(session: &mut HostSession) -> Result<Value, String> {
+    match session.runtime.begin_settled_rerank() {
+        Some(request) => publish(session, msime_input_runtime::score_settled_rerank(request)),
+        None => settled_on_session(session),
+    }
+}
+
 enum Take {
     Pending,
     Ready(Box<msime_input_runtime::SettledRerankScore>),

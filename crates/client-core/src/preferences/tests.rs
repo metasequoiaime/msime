@@ -1601,6 +1601,7 @@ fn diagnostic_logging_defaults_off_and_survives_a_round_trip() {
         diagnostic_log: DiagnosticLogPreferences {
             server: true,
             tsf: false,
+            command_line_candidates: false,
         },
         ..Preferences::default()
     };
@@ -1616,6 +1617,31 @@ fn diagnostic_logging_defaults_off_and_survives_a_round_trip() {
         store.load().unwrap().preferences.diagnostic_log,
         saved.preferences.diagnostic_log
     );
+}
+
+#[test]
+fn command_line_candidates_stay_off_until_the_user_turns_them_on() {
+    // 新装和加这一项之前写下的文档都关着：命令行查候选会交出用户的词库，不能因为升级就打开。
+    assert!(
+        !Preferences::default()
+            .diagnostic_log
+            .command_line_candidates
+    );
+    let legacy: Preferences = serde_json::from_value(serde_json::json!({
+        "diagnostic_log": { "server": true, "tsf": false }
+    }))
+    .unwrap();
+    assert!(legacy.diagnostic_log.server);
+    assert!(!legacy.diagnostic_log.command_line_candidates);
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut preferences = Preferences::default();
+    preferences.diagnostic_log.command_line_candidates = true;
+    store.save(0, preferences).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.diagnostic_log.command_line_candidates);
+    assert!(!loaded.diagnostic_log.server && !loaded.diagnostic_log.tsf);
 }
 
 #[test]
