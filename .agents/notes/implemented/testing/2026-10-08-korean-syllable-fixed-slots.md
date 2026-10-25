@@ -20,6 +20,8 @@ Status: implemented
 
 ## Consequences
 
+[可选罗马字布局](../feature/2026-10-23-korean-romaja-layout.md)复用固定槽组合规则，并保留两套式的原分配预算。
+
 每个音节不再拥有两个堆分配；固定数组让 `Syllable` 的内存布局稳定，代价是数组槽始终随状态存在。追加和弹出通过断言保护最多两项的不变量，已有行为测试覆盖超出边界不会发生的所有状态转移。代码与测试已随 `perf(engine): 韩文音节状态使用固定槽` 合入 `develop`。
 
 ## Related decisions

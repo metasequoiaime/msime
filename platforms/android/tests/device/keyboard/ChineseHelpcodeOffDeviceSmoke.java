@@ -38,7 +38,8 @@ public final class ChineseHelpcodeOffDeviceSmoke extends DeviceSmoke {
 
             stage = "complete quanpin composition";
             for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
-            await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
+            // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md）。
+            await(field("msime-test-plain").and(node -> equalsText("ni'hao", node.getText())));
 
             stage = "shift letter after the composition";
             // 全拼触屏显示分词，键盘 Shift 修饰仍必须保留原大写字母。

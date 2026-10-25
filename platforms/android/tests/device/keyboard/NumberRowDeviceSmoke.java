@@ -87,7 +87,8 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
 
             stage = "composition before a declined digit";
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
-            await(field("msime-test-plain").and(node -> equalsText("5nihao", node.getText())));
+            // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md）。
+            await(field("msime-test-plain").and(node -> equalsText("5ni'hao", node.getText())));
             // 0 不是选词键，Engine 不收：先按首选结束组合，再上屏 0。原来 0 直接写进组字区，把 nihao 换成 0。
             stage = "declined digit after the composition";
             tap(digit("0"));

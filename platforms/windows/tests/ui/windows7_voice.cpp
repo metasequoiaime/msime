@@ -44,7 +44,7 @@ int main() {
     assert(theme_data::value(catalog) && !catalog.at("value").at("models").empty());
     Json model = catalog.at("value").at("models").front(); model["path"] = (directory / L"models/synthetic").u8string();
     std::mutex mutex; std::vector<Json> requests; bool malformed = false, installed = false, allow = false, picker_cancel = false;
-    std::atomic<bool> block_install{false}, install_started{false}, malformed_devices{false}; HANDLE gate = CreateEventW(nullptr, TRUE, FALSE, nullptr); assert(gate);
+    std::atomic<bool> block_install{false}, install_started{false}, malformed_devices{false}, empty_devices{false}; HANDLE gate = CreateEventW(nullptr, TRUE, FALSE, nullptr); assert(gate);
     const DWORD ui_thread = GetCurrentThreadId(); unsigned picks = 0;
     const auto transport = [&](const std::string& bytes) {
       const auto request = Json::parse(bytes); const auto& config = request.at("config");
@@ -54,6 +54,7 @@ int main() {
       if (operation == "cancel") { assert(SetEvent(gate)); return Json{{"ok",true},{"value",true}}.dump(); }
       if (service != "voice.settings") return Json{{"ok",true},{"value",{{"message","合成配置测试成功"}}}}.dump();
       if (operation == "capture_devices" && malformed_devices) return Json{{"ok",true},{"value",{Json{{"label",1}}}}}.dump();
+      if (operation == "capture_devices" && empty_devices) return Json{{"ok",true},{"value",Json::array()}}.dump();
       if (operation == "capture_devices") return Json{{"ok",true},{"value",{{{"backend","windows"},{"id","synthetic-device"},{"label","合成麦克风🙂"}}}}}.dump();
       if (operation == "install" && block_install) { install_started = true; assert(WaitForSingleObject(gate, 10000) == WAIT_OBJECT_0); return Json{{"ok",false},{"error","local_model_cancelled"}}.dump(); }
       std::lock_guard<std::mutex> lock(mutex);
@@ -92,7 +93,13 @@ int main() {
     assert(count() == invalid_before && store.load().snapshot->revision() == revision);
     set(Form::asr_endpoint,L"https://synthetic.example.test/audio"); click(Form::save);
     choose(Form::hold_key,2); click(Form::save); assert(voice().at("hotkey_ctrl_win") == true && voice().at("hotkey_ralt") == false && voice().at("hotkey_rctrl_ralt") == false);
-    click(Form::device_refresh); assert(SendMessageW(control(Form::devices),CB_GETCOUNT,0,0) == 2); choose(Form::devices,1);
+    choose(Form::asr_provider,provider_index("asr","doubao"));
+    empty_devices = true; click(Form::device_refresh);
+    assert(!IsWindowEnabled(control(Form::enabled)) && text(Form::device_status).find("未检测到麦克风") != std::string::npos);
+    // 无麦克风只应收窄录音入口，已选豆包服务的网络处理参数仍可编辑。
+    assert(IsWindowEnabled(control(Form::hold_key)) && IsWindowEnabled(control(Form::punc)) && IsWindowEnabled(control(Form::itn)) && IsWindowEnabled(control(Form::ddc)));
+    empty_devices = false; click(Form::device_refresh);
+    assert(IsWindowEnabled(control(Form::enabled)) && SendMessageW(control(Form::devices),CB_GETCOUNT,0,0) == 2); choose(Form::devices,1);
     assert(voice().at("capture_device") == "synthetic-device" && voice().at("capture_backend") == "windows");
     assert(text(Models::detail).find("语言：") != std::string::npos && text(Models::detail).find("流式识别：") != std::string::npos);
     malformed_devices = true; click(Form::device_refresh);

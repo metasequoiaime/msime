@@ -197,7 +197,8 @@ public final class DiagnosticsExportDirectoryDeviceSmoke extends Instrumentation
         long deadline = SystemClock.uptimeMillis() + 5000;
         while (SystemClock.uptimeMillis() < deadline) {
             AccessibilityNodeInfo allow = findAll(node -> text("ALLOW").test(node) || text("允许").test(node));
-            if (allow != null) { click(allow); break; }
+            // 确认框刚弹出时读到的位置可能点到框外而被取消，理由见 ClipboardExportDeviceSmoke.selectFolder；直接对按钮发无障碍点击，不依赖坐标。
+            if (allow != null && allow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) break;
             if (findAll(text("默认导出文件夹")) != null) break;
             SystemClock.sleep(100);
         }

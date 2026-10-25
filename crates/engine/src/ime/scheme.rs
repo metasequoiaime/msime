@@ -38,6 +38,7 @@ impl Scheme {
         profile: &'static ShuangpinProfile,
         vietnamese_method: InputMethod,
         vietnamese_style: ToneStyle,
+        korean_layout: crate::KoreanLayout,
         cantonese_inventory: Option<Arc<Inventory>>,
         zhuyin_dictionary: Option<LanguageDictionary>,
     ) -> Result<Self> {
@@ -47,7 +48,7 @@ impl Scheme {
             SchemeType::Shuangpin => Self::Shuangpin(ShuangpinScheme::new(profile)),
             SchemeType::Wubi => Self::Wubi(WubiScheme::new()),
             SchemeType::JapaneseRomaji => Self::Japanese(JapaneseRomajiScheme::new()),
-            SchemeType::Korean => Self::Korean(KoreanScheme::new()),
+            SchemeType::Korean => Self::Korean(KoreanScheme::with_layout(korean_layout)),
             SchemeType::Cantonese => {
                 let inventory = cantonese_inventory.ok_or_else(unavailable)?;
                 Self::Cantonese(CantoneseScheme::new(inventory))

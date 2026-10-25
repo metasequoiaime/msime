@@ -98,7 +98,8 @@ final class ImeLayoutRows {
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
             addNineKey(punctuation, key);
         }
-        row.addView(punctuation, LayoutPolicy.weightedMatchParentParams(0.7f));
+        row.addView(punctuation, LayoutPolicy.weightedMatchParentParams(
+            KeyboardGeometry.HANDWRITING_PUNCTUATION_WEIGHT));
 
         FrameLayout area = new FrameLayout(s);
         s.handwritingCanvas = new HandwritingCanvas(s);
@@ -129,7 +130,7 @@ final class ImeLayoutRows {
         downloadParams.leftMargin = s.pixels(16);
         downloadParams.rightMargin = s.pixels(16);
         cardFrame.addView(s.handwritingDownload, downloadParams);
-        row.addView(area, LayoutPolicy.weightedMatchParentParams(3f));
+        row.addView(area, LayoutPolicy.weightedMatchParentParams(KeyboardGeometry.HANDWRITING_AREA_WEIGHT));
 
         LinearLayout tools = LayoutPolicy.column(s);
         Button delete = s.keyId(s.backspaceKey(s::deleteFromHandwriting), "Backspace");
@@ -143,7 +144,7 @@ final class ImeLayoutRows {
         });
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(tools, rewrite);
-        row.addView(tools, LayoutPolicy.weightedMatchParentParams(0.8f));
+        row.addView(tools, LayoutPolicy.weightedMatchParentParams(KeyboardGeometry.HANDWRITING_TOOLS_WEIGHT));
         // 手写区和其他布局的三行键一样高，切换布局时键盘总高度不跳。
         s.imeStyler.adjustThreeRowBlockHeight(row);
         s.keyRows.addView(row);

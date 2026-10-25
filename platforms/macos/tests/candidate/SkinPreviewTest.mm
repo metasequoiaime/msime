@@ -5,6 +5,7 @@
 #import "../../src/settings/PreferenceSnapshotMerge.h"
 #import <CoreText/CoreText.h>
 #include <cassert>
+#include <cstring>
 #include <fstream>
 #import "../settings/TestPreferenceSuite.h"
 #import "../settings/PreferenceViewLookup.h"
@@ -660,7 +661,11 @@ int main(int argc, const char **argv) {
         assert([preview.accessibilityLabel isEqual:@"候选窗口预览"]);
         __block NSUInteger notifications = 0;
         id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
-        for (NSString *skin in @[@"system", @"shuishan", @"light", @"paper", @"night", @"ink", @"custom"]) {
+        // 每个主题各跑完整矩阵；默认入口保留最后的自定义主题及后续交互状态。
+        const BOOL themeMatrix = argc == 3 && strcmp(argv[1], "--theme-matrix") == 0;
+        NSString *matrixSkin = themeMatrix ? @(argv[2]) : @"custom";
+        assert(([@[@"system", @"shuishan", @"light", @"paper", @"night", @"ink", @"custom"] containsObject:matrixSkin]));
+        for (NSString *skin in @[matrixSkin]) {
             preferences.globalTheme = skin;
             // The five built-in themes fix their mode; only 跟随系统 and 自定义 have another one to preview.
             const BOOL fixed = [skin isEqual:@"system"] || [skin isEqual:@"custom"] ? NO : YES;
@@ -700,6 +705,12 @@ int main(int argc, const char **argv) {
                     }
                 }
             }
+        }
+        if (themeMatrix) {
+            [NSNotificationCenter.defaultCenter removeObserver:observer];
+            MSIMERemoveTestPreferenceSuite(defaults, suite);
+            std::filesystem::remove_all(root);
+            return 0;
         }
         // Real layout control updates the preview, without a separate preview-specific setting.
         NSPopUpButton *layout = (id)FindControl(window.contentView, @"候选排列");

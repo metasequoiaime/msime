@@ -56,7 +56,11 @@ public:
         {"vietnamese", L"越南文"}, {"tibetan", L"藏文"}})
       if (offers(option.value)) languages_.push_back(option);
     language_ = choice(scheme_language, L"输入语言", languages_);
-    if (!chinese_.empty()) chinese_control_ = choice(scheme_chinese, L"中文方案", chinese_);
+    if (!chinese_.empty()) {
+      chinese_control_ = choice(scheme_chinese, L"中文方案", chinese_);
+      chinese_notice_ = add(L"STATIC", L"", SS_LEFT, -1, top, 36);
+      top += 48;
+    }
     description_ = add(L"STATIC", L"", SS_LEFT, scheme_description, top, 100);
     top += 120;
     if (offers("shuangpin")) {
@@ -149,7 +153,8 @@ public:
     preferences_ = preferences;
     const auto scheme = preferences.at("scheme").get<std::string>();
     select(language_, languages_, chinese(scheme) ? "chinese" : scheme);
-    select(chinese_control_, chinese_, chinese(scheme) ? scheme : preferences.value("last_chinese_scheme", std::string{}));
+    select(chinese_control_, chinese_, chinese(scheme) ? scheme : std::string{});
+    if (chinese_notice_) SetWindowTextW(chinese_notice_, chinese(scheme) ? L"" : L"当前输入语言不是中文，中文方案仅在选择中文时可用。");
     SetWindowTextW(description_, note(scheme));
     if (profile_) {
       auto options = profiles();
@@ -334,7 +339,7 @@ private:
         (*second != saved_keys_->at("second_key") || *third != saved_keys_->at("third_key"));
     EnableWindow(keys_save_, enabled_ && IsWindowEnabled(second_) && valid && changed);
   }
-  HWND language_ = nullptr, chinese_control_ = nullptr, description_ = nullptr;
+  HWND language_ = nullptr, chinese_control_ = nullptr, chinese_notice_ = nullptr, description_ = nullptr;
   HWND profile_ = nullptr, hint_ = nullptr, preedit_ = nullptr;
   HWND wubi_profile_ = nullptr, mixed_ = nullptr, code_hint_ = nullptr, unique_ = nullptr;
   HWND selection_ = nullptr, second_ = nullptr, third_ = nullptr, keys_save_ = nullptr, keys_description_ = nullptr;

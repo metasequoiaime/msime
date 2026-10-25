@@ -402,6 +402,8 @@ int main() {
   }, account_transport);
   assert(window.create(GetModuleHandleW(nullptr)));
   const HWND host = window.handle();
+  // 周期刷新由下面的 WM_TIMER 用例显式推进，避免运行速度改变合成传输的调用顺序。
+  assert(KillTimer(host, 72));
   const HWND body = GetDlgItem(host, page_body);
   const HWND language = GetDlgItem(body, language_switch);
   const HWND caps = GetDlgItem(body, caps_lock);
@@ -930,6 +932,7 @@ int main() {
     assert(saved.snapshot->preferences().at("scheme") == "japanese");
     assert(saved.snapshot->preferences().at("last_chinese_scheme") == "shuangpin");
     assert(!IsWindowEnabled(GetDlgItem(body, scheme_chinese)));
+    assert(SendMessageW(GetDlgItem(body, scheme_chinese), CB_GETCURSEL, 0, 0) == CB_ERR);
     assert(!IsWindowEnabled(GetDlgItem(body, scheme_shuangpin_profile)));
     select_value(scheme_language, find_combo(scheme_language, L"中文"));
     assert(store.load().snapshot->preferences().at("scheme") == "shuangpin");
@@ -1168,7 +1171,7 @@ int main() {
   const auto ai_origin = saved.snapshot->preferences().at("ai_assistant").at("tokens");
   assert(!ai_origin.empty());
   assert(std::any_of(ai_origin.begin(), ai_origin.end(), [](const auto& entry) {
-    return entry.is_string() && entry.get<std::string>() == "synthetic-ai-token";
+    return entry.is_string() && entry.template get<std::string>() == "synthetic-ai-token";
   }));
   assert(saved.snapshot->preferences().at("ai_assistant").at("token") == "");
   tokens = ai_origin;

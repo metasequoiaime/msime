@@ -43,6 +43,8 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         this.accent = accent;
         setKeyboardRole(KeyboardKeyRole.GLYPH);
         setContentDescription("更多快捷设置");
+        // 与相邻图标按钮一致，清除系统按钮内边距，避免固定触控区把品牌标记挤小。
+        ViewPolicy.clearPadding(this);
     }
 
     /** 新设计的配色：圆盘 logoCirc、logo 方框 logoBg（调用方从应用主题的季节色取，与设计一致，不随键盘皮肤变）。 */

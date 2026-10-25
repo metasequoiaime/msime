@@ -1,5 +1,6 @@
 #include "../../settings/win7/KeyboardSkinPage.h"
 #include "../../settings/win7/KeyboardSkin.h"
+#include "../../settings/win7/ControlText.h"
 #include <cassert>
 #include <cstdio>
 #include <fstream>
@@ -55,6 +56,7 @@ int main() {
     const auto wait = [&] { pump([&] { return IsWindowEnabled(control(Page::refresh)) != FALSE; }); };
     const auto click = [&](int id) { assert(IsWindowEnabled(control(id))); SendMessageW(control(id),BM_CLICK,0,0); wait(); };
     wait(); assert(library().empty() && store.load().snapshot->revision() == initial.snapshot->revision());
+    assert(control_text::read(control(Page::library))->find("暂无命名皮肤") != std::string::npos);
     SetWindowTextW(control(Page::name),L"合成晨光"); click(Page::create_skin); assert(library().size() == 1);
     const auto original = library()[0].at("design"); assert(store.load().snapshot->revision() == initial.snapshot->revision());
     generated_design = original; generated_design["cornerRadius"] = 11;

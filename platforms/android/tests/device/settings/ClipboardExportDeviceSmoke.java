@@ -512,7 +512,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         long deadline = SystemClock.uptimeMillis() + 5000;
         while (SystemClock.uptimeMillis() < deadline) {
             AccessibilityNodeInfo allow = findAll(node -> text("ALLOW").test(node) || text("允许").test(node));
-            if (allow != null) { click(allow); break; }
+            // 授权确认框刚弹出、窗口还没摆好时读到的位置不可信：按它点屏幕会点到框外，确认框被当作点外部取消，选择器停在原目录、不返回结果，设置页永远等不回来（CI 的 API 35 上确认框弹出 0.65 秒后被这样点掉，documentsui 记下「Attempted to finish an input event but the input event receiver has already been disposed」，没有 PickerActionHandler.onFinished）。直接对按钮发无障碍点击，不依赖坐标；按钮还不接受时下一轮再试。
+            if (allow != null && allow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) break;
             if (findAll(text("导出文件夹")) != null) break;
             SystemClock.sleep(100);
         }

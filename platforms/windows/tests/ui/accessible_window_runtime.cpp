@@ -14,7 +14,14 @@ using msime::windows::AccessibleWindow;
 namespace {
 void require_at(bool value, int line) { if (!value) throw std::runtime_error("UI Automation provider lifecycle failed at " + std::to_string(line)); }
 #define require(value) require_at((value),__LINE__)
-void check(HRESULT result) { require(SUCCEEDED(result)); }
+void check_at(HRESULT result, int line) {
+  if (FAILED(result)) {
+    char diagnostic[128];
+    std::snprintf(diagnostic, sizeof(diagnostic), "UI Automation call failed at %d: HRESULT=%08lx", line, static_cast<unsigned long>(result));
+    throw std::runtime_error(diagnostic);
+  }
+}
+#define check(value) check_at((value), __LINE__)
 LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
   if (message == WM_GETOBJECT) {
     const auto provider = reinterpret_cast<AccessibleWindow*>(GetWindowLongPtrW(window,GWLP_USERDATA));

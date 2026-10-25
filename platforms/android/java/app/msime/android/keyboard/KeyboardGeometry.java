@@ -8,6 +8,10 @@ public final class KeyboardGeometry {
     public static final int CANDIDATE_ROW_HEIGHT_DP = 48;
     public static final int NINE_KEY_HEIGHT_DP = 180;
     public static final int HANDWRITING_BODY_HEIGHT_DP = 220;
+    /** 触屏手写区三列的行宽份额，iOS 与 HarmonyOS 使用同一组值：左侧标点列 .6、书写区 4、右侧 ⌫ 与「重写」列 .7。两侧控制列收窄后书写区约占一行的四分之三。 */
+    public static final float HANDWRITING_PUNCTUATION_WEIGHT = 0.6f;
+    public static final float HANDWRITING_AREA_WEIGHT = 4f;
+    public static final float HANDWRITING_TOOLS_WEIGHT = 0.7f;
 
     /** 新设计的标准键高、工具栏高度和键盘外边距/间距。 */
     public static final int DESIGN_KEY_HEIGHT_DP = 46;

@@ -1267,7 +1267,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
-  /// 手写区，对应 Android 的 rebuildHandwritingRows：左边竖排 ，。？！，中间是书写卡片，右边竖排 ⌫ 和重写，三者按 Android 的 .7 / 3 / .8 分配一行的宽度。卡片上有笔迹时 ⌫ 撤回最后一笔，卡片为空时删除光标前的字符（`handleBackspace`）；重写清空卡片。下面的底行是所有 26 键界面共用的手机底行。
+  /// 手写区，对应 Android 的 rebuildHandwritingRows：左边竖排 ，。？！，中间是书写卡片，右边竖排 ⌫ 和重写，三者按 .6 / 4 / .7 分配一行的宽度，与 Android、HarmonyOS 相同。卡片上有笔迹时 ⌫ 撤回最后一笔，卡片为空时删除光标前的字符（`handleBackspace`）；重写清空卡片。下面的底行是所有 26 键界面共用的手机底行。
   private func makeHandwritingPad() -> UIStackView {
     handwritingPad.axis = .horizontal
     handwritingPad.alignment = .fill
@@ -1317,10 +1317,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手写板的标点列，对应 Android 的 `NineKeyLayout.punctuation()`。
   static let handwritingPunctuation = ["，", "。", "？", "！"]
-  /// 手写板在一行里的宽度份额，取 Android 的布局权重：标点 .7、书写卡片 3、工具 .8。
-  static let handwritingPunctuationShare: CGFloat = 0.7
-  static let handwritingCardShare: CGFloat = 3
-  static let handwritingToolsShare: CGFloat = 0.8
+  /// 手写板在一行里的宽度份额，三个移动端共用：标点 .6、书写卡片 4、工具 .7。两侧控制列收窄后，书写卡片约占一行的四分之三。
+  static let handwritingPunctuationShare: CGFloat = 0.6
+  static let handwritingCardShare: CGFloat = 4
+  static let handwritingToolsShare: CGFloat = 0.7
 
   /// 顶栏下面的那一行：填满它的按键列，以及单手模式的侧栏；侧栏默认隐藏，由 `applyOneHanded` 显示在按键的另一侧。这一行总是从左到右排列，因为存储的模式记的就是按键靠哪一侧。
   private func installOneHandRow(in root: UIStackView) {

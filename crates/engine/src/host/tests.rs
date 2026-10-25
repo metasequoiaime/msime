@@ -94,6 +94,7 @@ fn options(root: &Path) -> EngineOptions {
         sentence_alternatives: true,
         vietnamese_input_method: 0,
         vietnamese_tone_style: 0,
+        korean_layout: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
@@ -933,6 +934,9 @@ fn invalid_options_return_errors_instead_of_unwinding_into_rust() {
     value.vietnamese_tone_style = 2;
     assert_eq!(message(&value), "Unsupported Vietnamese tone style");
     value.vietnamese_tone_style = 1;
+    value.korean_layout = 2;
+    assert_eq!(message(&value), "Unsupported Korean layout");
+    value.korean_layout = 1;
     assert!(Session::new(&value).is_ok());
     value.resources = "relative".into();
     assert_eq!(message(&value), "Runtime directories must be absolute");

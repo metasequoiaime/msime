@@ -50,6 +50,7 @@ jobs:
       build: ${{ steps.decide.outputs.build }}
       # x86_64 与 Sanitizers 要不要跑。见下面 `Decide the extra legs`。
       full: ${{ steps.scope.outputs.full }}
+      installed_korean: ${{ steps.installed.outputs.needed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -108,6 +109,19 @@ jobs:
           echo "build=false" >> "$GITHUB_OUTPUT"
           echo "本次改动不涉及macOS,跳过构建。"
       # 发往 develop 的 PR 只跑 arm64：x86_64（中位 30 分钟，落在更紧俏的 macos-15-intel 上）和 Sanitizers（13 分钟）查的是架构相关和内存/未定义行为问题，留给发往 main 的发布 PR、定时运行、手动触发和合并队列，PR 阶段每次省下两台 runner。
+      # 已安装输入源验收使用稳定的 macOS 15 登录会话；macOS 26 的 TIS 启用限制另记前提。
+      - name: Decide installed Korean acceptance
+        id: installed
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]] &&
+             git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -Eq '^platforms/macos/tests/input/(KoreanSystemInputAcceptance|run-korean-system-ci)'; then
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Decide the extra legs
         id: scope
         env:
@@ -137,7 +151,7 @@ jobs:
             build: ${{ needs.changes.outputs.build }}
           - runner: macos-15-intel
             architecture: x86_64
-            build: ${{ needs.changes.outputs.full }}
+            build: ${{ (needs.changes.outputs.full == 'true' || needs.changes.outputs.installed_korean == 'true') && 'true' || 'false' }}
     # 只有真要构建时才落到 macOS runner 上。要出现的 check 名字由 `name:` 决定,和跑在哪台机器无关,
     # 所以分支保护照样等到 `macOS 15 arm64` 和 `macOS 15 x86_64`,上面那段注释说的问题不会回来。
     #
@@ -176,6 +190,13 @@ jobs:
       - name: Check formatting
         if: ${{ matrix.architecture == 'arm64' }}
         run: if [[ -x scripts/format.sh ]]; then scripts/format.sh --check; else echo 'format script is not present in this branch; skipped'; fi
+      - name: Build system input-source setup fixture
+        if: ${{ matrix.build == 'true' && matrix.architecture == 'x86_64' }}
+        run: >-
+          xcodebuild build-for-testing
+          -project platforms/macos/tests/input/SourceSetup/SourceSetup.xcodeproj
+          -scheme SourceSetup -destination "platform=macOS,arch=x86_64"
+          -derivedDataPath "$PWD/build/input-source-setup" CODE_SIGN_IDENTITY=-
       # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
       - name: Point the Sparkle download at the cache
         if: ${{ matrix.build == 'true' }}
@@ -242,17 +263,68 @@ jobs:
           fi
       - name: Configure
         if: ${{ matrix.build == 'true' }}
-        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime-pinyin.db"
+        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime-pinyin.db" -DMSIME_INPUT_SOURCE_REVISION="$(git rev-parse HEAD)"
       # An explicit job count: with the Makefile generator a bare `--parallel` becomes `make -j` with no limit, which starts every ready compile at once. Once whisper and ggml were linked into the input method (4737c9651) that was enough to run the 7 GB arm64 runner out of memory, and the step sat swapping until the 60-minute job limit cancelled it on every run that built.
       - name: Build
+        id: native-build
         if: ${{ matrix.build == 'true' }}
         run: cmake --build build --parallel "$(sysctl -n hw.logicalcpu)"
+      # 保留真实编译产物，后续诊断输入源准备流程时可以核对来源后复用，避免每次重新编译 Rust/C++。
+      - name: Archive Korean system-input build
+        id: source-build-archive
+        if: ${{ matrix.build == 'true' && matrix.architecture == 'x86_64' }}
+        run: |
+          tar -czf "$RUNNER_TEMP/korean-system-input-build-x86_64.tar.gz" -C build '水杉输入法.app' korean-system-input-acceptance.app
+          git rev-parse HEAD > "$RUNNER_TEMP/korean-system-input-build-revision.txt"
+          printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > "$RUNNER_TEMP/korean-system-input-build-head.txt"
+      - name: Upload Korean system-input build
+        if: ${{ steps.source-build-archive.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: korean-system-input-build-x86_64
+          path: |
+            ${{ runner.temp }}/korean-system-input-build-x86_64.tar.gz
+            ${{ runner.temp }}/korean-system-input-build-revision.txt
+            ${{ runner.temp }}/korean-system-input-build-head.txt
+          if-no-files-found: error
+          retention-days: 7
       # On the Intel runner every view SwiftUI draws through RenderBox aborted inside Metal: loading RenderBox's precompiled binary archive asks the paravirtual GPU for an architecture it does not report ("Target device architecture is nil"), and nothing of ours is on that stack. RenderBox's own switches skip the archive and the GPU, so these tests still lay out and draw there, on the CPU.
       - name: Test
         if: ${{ matrix.build == 'true' }}
         run: |
           if [[ "$(uname -m)" == x86_64 ]]; then export RB_USE_BINARY_ARCHIVE=0 RB_DISABLE_GPU=1; fi
-          ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
+          python3 platforms/macos/tests/run_native_ci.py build "$RUNNER_TEMP/native-test-diagnostics"
+      - name: Verify settings appearance stability
+        if: ${{ matrix.build == 'true' && matrix.architecture == 'arm64' }}
+        run: |
+          cp build/Testing/Temporary/LastTest.log "$RUNNER_TEMP/mac-native-full-LastTest.log"
+          ctest --no-tests=error --test-dir build -R '^settings-glass$' --repeat until-fail:10 --output-on-failure --timeout 20
+      # 记录实际条件，不能把前提探测成功当作系统输入通过。
+      - name: Record Korean system-input prerequisites
+        if: ${{ always() && matrix.build == 'true' }}
+        run: |
+          client=build/korean-system-input-acceptance.app/Contents/MacOS/korean-system-input-acceptance
+          if [[ -x "$client" ]]; then
+            "$client" --probe > "$RUNNER_TEMP/korean-system-input-prerequisites.json"
+          else
+            printf '%s\n' '{"system_input_executed":false,"blocked_by":"build failed"}' > "$RUNNER_TEMP/korean-system-input-prerequisites.json"
+          fi
+      - name: Test installed Korean input source
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' && matrix.architecture == 'x86_64' }}
+        run: bash platforms/macos/tests/input/run-korean-system-ci.sh build "$RUNNER_TEMP/korean-system-input"
+      - name: Upload Korean native validation evidence
+        if: ${{ always() && matrix.build == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: korean-native-validation-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/korean-system-input-prerequisites.json
+            build/Testing/Temporary/LastTest.log
+            ${{ runner.temp }}/mac-native-full-LastTest.log
+            ${{ runner.temp }}/native-test-diagnostics/
+            ${{ runner.temp }}/korean-system-input/
+          if-no-files-found: warn
+          retention-days: 7
       # A test that aborts inside a system framework prints only the assertion; the stack is in the crash report, which the runner discards with the machine.
       - name: Upload crash reports
         if: ${{ failure() && matrix.build == 'true' }}

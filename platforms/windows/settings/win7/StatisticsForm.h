@@ -85,8 +85,12 @@ public:
         !value->contains("signed_in") || !value->at("signed_in").is_boolean()) {
       const auto found = response.find("error");
       const auto error = found != response.end() && found->is_string() ? control_text::wide(found->get<std::string>()) : L"";
-      SetWindowTextW(get(statistics_upload_notice), statistics_model::upload_error_message(error,
-          SendMessageW(get(statistics_upload), BM_GETCHECK, 0, 0) == BST_CHECKED).c_str());
+      std::wstring message;
+      if (!upload_ && (error == L"account_storage" || error == L"account_unavailable" || error == L"account_unauthorized"))
+        message = L"Windows 7 兼容版没有账号登录入口，云端打字统计不可用；统计只保存在本机。";
+      else
+        message = statistics_model::upload_error_message(error, SendMessageW(get(statistics_upload), BM_GETCHECK, 0, 0) == BST_CHECKED);
+      SetWindowTextW(get(statistics_upload_notice), message.c_str());
       if (upload_) SendMessageW(get(statistics_upload), BM_SETCHECK, upload_->enabled ? BST_CHECKED : BST_UNCHECKED, 0);
       return;
     }
@@ -95,7 +99,9 @@ public:
     if (value->contains("last_upload_ms") && value->at("last_upload_ms").is_number_unsigned()) status.last_upload_ms = value->at("last_upload_ms").get<uint64_t>();
     upload_ = status;
     SendMessageW(get(statistics_upload), BM_SETCHECK, status.enabled ? BST_CHECKED : BST_UNCHECKED, 0);
-    std::wstring notice(statistics_model::upload_description(status.signed_in, status.enabled));
+    std::wstring notice = status.signed_in || status.enabled
+        ? std::wstring(statistics_model::upload_description(status.signed_in, status.enabled))
+        : L"当前未登录水杉账号，云端打字统计不可用；统计只保存在本机。";
     if (status.last_upload_ms) notice += L"\r\n上次上传：" + statistics_data::written_text(*status.last_upload_ms);
     const auto error = response.find("operation_error");
     if (error != response.end() && error->is_string()) notice += L"\r\n" + statistics_model::upload_error_message(control_text::wide(error->get<std::string>()),

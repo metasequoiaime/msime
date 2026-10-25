@@ -7639,6 +7639,77 @@ fn korean_session(fixture: &Fixture) -> Session {
     fixture.session_with(|options| options.scheme = SchemeType::Korean)
 }
 
+fn romaja_session(fixture: &Fixture) -> Session {
+    fixture.session_with(|options| {
+        options.scheme = SchemeType::Korean;
+        options.korean_layout = crate::KoreanLayout::Romaja;
+    })
+}
+
+#[test]
+fn korean_romaja_retains_raw_keys_for_backspace_and_commits_stable_syllables() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (keys, expected, backspaced) in [("bang", "방", "반"), ("gwa", "과", "구")] {
+        let mut session = romaja_session(&fixture);
+        assert!(type_korean(&mut session, keys).iter().all(Option::is_none));
+        assert_eq!(session.snapshot().preedit, expected);
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, backspaced);
+    }
+    let mut session = romaja_session(&fixture);
+    assert!(type_korean(&mut session, "hang")
+        .iter()
+        .all(Option::is_none));
+    assert_eq!(session.snapshot().preedit, "항");
+    let commits = type_korean(&mut session, "ug");
+    assert_eq!(commits.into_iter().flatten().collect::<String>(), "한");
+    assert_eq!(session.snapshot().preedit, "국");
+    assert_eq!(session.snapshot().editing_text, "gug");
+    assert_eq!(
+        session.command(Command::CommitReading).commit.as_deref(),
+        Some("국")
+    );
+    session.switch_scheme(SchemeType::Quanpin).unwrap();
+    session.switch_scheme(SchemeType::Korean).unwrap();
+    type_korean(&mut session, "xa");
+    assert_eq!(session.snapshot().preedit, "아");
+}
+
+#[test]
+fn korean_romaja_keeps_hanja_ascii_punctuation_and_unmapped_letters() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = romaja_session(&fixture);
+    type_korean(&mut session, "han");
+    assert!(session.command(Command::ConvertHanja).handled);
+    assert_eq!(words(&session)[..3], HAN_FIRST);
+    assert_eq!(
+        session.command(Command::CommitCandidate).commit.as_deref(),
+        Some("韓")
+    );
+    for (keys, expected) in [
+        ("Ga", "까"),
+        ("Da", "따"),
+        ("Ba", "빠"),
+        ("Ja", "짜"),
+        ("Sa", "싸"),
+    ] {
+        type_korean(&mut session, keys);
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+        assert_eq!(
+            session.punctuation(b',').commit.as_deref(),
+            Some(format!("{expected},").as_str())
+        );
+    }
+    for letter in *b"qvzQVZ" {
+        type_korean(&mut session, "han");
+        let result = session.character(letter, letter.is_ascii_uppercase());
+        assert!(result.handled);
+        assert_eq!(result.commit, Some(format!("한{}", char::from(letter))));
+        assert!(session.snapshot().preedit.is_empty());
+        assert!(!session.command(Command::Backspace).handled);
+    }
+}
+
 /// Rows in every table of the user journal, 0 when nothing ever opened it.
 fn journal_rows(journal: &Path) -> i64 {
     let Ok(connection) = Connection::open(journal) else {

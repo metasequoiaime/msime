@@ -46,8 +46,8 @@ public:
     button(show_secrets, L"显示密钥"); button(save, L"保存语音设置");
     button(test_asr, L"测试识别配置（发送合成静音）"); button(test_polish, L"测试润色配置（发送合成文字）");
     add(test_result, L"STATIC", L"", SS_LEFT, 80);
-    combo(devices, L"麦克风"); option(devices, L"系统默认设备"); button(device_refresh, L"刷新麦克风列表");
-    add(device_status, L"STATIC", L"", SS_LEFT, 56); button(models_open, L"管理本地识别模型");
+    combo(devices, L"麦克风"); option(devices, L"尚未读取麦克风列表"); select(devices, 0); button(device_refresh, L"刷新麦克风列表");
+    add(device_status, L"STATIC", L"尚未读取麦克风列表，请点击“刷新麦克风列表”。", SS_LEFT, 56); button(models_open, L"管理本地识别模型");
     load_catalog(); enable(false); return top;
   }
   void refresh(const Json& preferences) {
@@ -73,12 +73,15 @@ public:
   void enable(bool enabled_value) {
     enabled_ = enabled_value; const bool ready = enabled_ && loaded_;
     for (const auto& item : controls_) EnableWindow(item.second, ready);
+    const bool capture_ready = ready && devices_loaded_ && !devices_.empty();
     EnableWindow(get(asr_provider), ready && catalog_ok_); EnableWindow(get(polish_provider), ready && catalog_ok_);
     const auto provider = selected_provider(asr_provider, asr_); const bool doubao = provider == "doubao", cloud = !provider.empty() && provider != "local" && provider != "system";
     for (const auto id : {asr_endpoint, asr_model, asr_token, test_asr}) EnableWindow(get(id), ready && cloud);
     for (const auto id : {auth_mode, resource, punc, itn, ddc, boosting, stream_endpoint}) EnableWindow(get(id), ready && doubao);
     EnableWindow(get(asr_app_key), ready && doubao && selected(auth_mode) == 1);
-    EnableWindow(get(devices), ready && devices_loaded_); EnableWindow(get(device_refresh), ready);
+    EnableWindow(get(devices), capture_ready); EnableWindow(get(device_refresh), ready);
+    // 没有设备时只阻止启动录音和切换设备；快捷键、提示音及服务参数仍可先配置，接入设备后即可使用。
+    EnableWindow(get(enabled), capture_ready);
   }
   Command command(WPARAM event) {
     const int id = LOWORD(event), notification = HIWORD(event); if (!controls_.count(id)) return {};
@@ -158,7 +161,8 @@ public:
       }
       parsed.push_back(item);
     }
-    devices_ = std::move(parsed); devices_loaded_ = true; render_devices(); enable(enabled_); SetWindowTextW(get(device_status), L"麦克风列表已刷新，切换设备会立即保存。");
+    devices_ = std::move(parsed); devices_loaded_ = true; render_devices(); enable(enabled_);
+    SetWindowTextW(get(device_status), devices_.empty() ? L"未检测到麦克风，语音输入不可用；连接设备后再刷新。" : L"麦克风列表已刷新，切换设备会立即保存。");
   }
 private:
   struct Boolean { int id; const char* key; const wchar_t* title; };
@@ -220,7 +224,10 @@ private:
     return true;
   }
   void render_devices() {
-    SendMessageW(get(devices), CB_RESETCONTENT, 0, 0); option(devices, L"系统默认设备"); select(devices, 0);
+    SendMessageW(get(devices), CB_RESETCONTENT, 0, 0);
+    if (!devices_loaded_) { option(devices, L"尚未读取麦克风列表"); select(devices, 0); return; }
+    if (devices_.empty()) { option(devices, L"未检测到麦克风"); select(devices, 0); return; }
+    option(devices, L"系统默认设备"); select(devices, 0);
     for (size_t index = 0; index < devices_.size(); ++index) {
       option(devices, control_text::wide(devices_[index].at("label").get<std::string>()));
       if (saved_.value("capture_backend", std::string{}) == devices_[index].at("backend") && saved_.value("capture_device", std::string{}) == devices_[index].at("id")) select(devices, static_cast<int>(index + 1));

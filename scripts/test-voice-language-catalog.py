@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from contract_cargo import contract_cargo_lock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,9 +70,7 @@ EXPECTED = [
 
 
 def run_cargo_check(cargo: str) -> None:
-    lock_path = Path(tempfile.gettempdir()) / "msime-contract-cargo.lock"
-    with lock_path.open("a+") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with contract_cargo_lock():
         subprocess.run(
             [cargo, "run", "--quiet", "--locked", "-p", "msime-client-providers",
              "--example", "export_voice_language_catalog", "--", "--check"],
