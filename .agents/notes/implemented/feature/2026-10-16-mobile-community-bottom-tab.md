@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-iOS、Android 和 HarmonyOS 手机（共享触屏壳）的底部是「设置 / 社区 / 统计 / 我的」。
+iOS、Android 和 HarmonyOS 手机（共享触屏壳）的底部是「设置 / 社区 / 统计 / 我的」（第一格后来改名「首页」，见 [手机底部第一格改名首页](2026-10-25-mobile-home-tab.md)）。
 
 - **社区页**：标签页的根页面，标题「社区」，顶部固定「皮肤 / 词库」两个分类（皮肤在前），页面打开期间记住所选分类。每个分类就地嵌入该类作品的完整社区列表，搜索、分类、详情、获取或添加、举报、发布都在原处。iOS 是 `CommunityHomeView`，嵌入 `SkinCommunityView(embedded: true)` 和 `CommunityResourcesView(kind: .dictionary, embedded: true)`，所选分类存在 `AppNavigation.communitySegment`；Android 是 `CommunityTabPage`，经 `DetailPage.asTabRoot` 作为根页、不显示返回按钮，两个分类各挂一个嵌入模式的 `CommunityFragment`，切换只改可见性；共享壳的标签 id 是 `community`，用 `useSettingsTabs` 切换，图库画在设置表单之外。
 - **「浏览更多」切到社区标签页**：词库页的「浏览更多词库」、皮肤和词库的完整社区列表入口（Android 的 `CommunityFragment.browse` 与 `HomeActivity.openCommunity`、指向这两类的深链；共享壳的 `openCommunityGallery`）都切到社区标签页的对应分类，不在当前栈里再推入一份。回复模板、短语和「我的 → 我的发布与收藏」仍在原页面推入。
