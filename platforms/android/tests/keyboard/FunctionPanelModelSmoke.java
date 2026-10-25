@@ -8,14 +8,14 @@ import java.util.List;
 public final class FunctionPanelModelSmoke {
     public static void main(String[] args) {
         check(FunctionPanelModel.pageCount() == 3, "three pages");
-        check(labels(0).equals(List.of("全角", "中文标点", "模糊音", "繁体", "手写", "本地输入", "AI 辅助", "设置",
-            "单手模式", "浮动键盘", "无痕输入", "键盘高度")),
+        check(labels(0).equals(List.of("全角", "中文标点", "模糊音", "繁体", "输入方式", "手写", "本地输入", "AI 辅助", "设置",
+            "单手模式", "浮动键盘", "无痕输入")),
             "page one");
-        check(labels(1).equals(List.of("按键音", "振动", "振动强度", "语音输入", "插入语音文字", "词库", "文本编辑",
-            "编辑工具栏", "设备信息", "反馈", "宣传", "打开官网")), "page two");
-        check(labels(2).equals(List.of("关于", "表情", "剪贴板历史", "世界时钟", "拍照识字")), "page three");
+        check(labels(1).equals(List.of("键盘高度", "按键音", "振动", "振动强度", "语音输入", "插入语音文字", "词库", "文本编辑",
+            "编辑工具栏", "设备信息", "反馈", "宣传")), "page two");
+        check(labels(2).equals(List.of("打开官网", "关于", "表情", "剪贴板历史", "世界时钟", "拍照识字")), "page three");
         List<Item> screenshotItems = FunctionPanelModel.itemsExcept(java.util.Set.of(
-            Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_RESULT));
+            Id.SCHEME, Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_RESULT));
         List<String> screenshotPage = new ArrayList<>();
         for (Item item : screenshotItems.subList(FunctionPanelModel.PAGE_SIZE, screenshotItems.size()))
             screenshotPage.add(item.label());
@@ -50,7 +50,7 @@ public final class FunctionPanelModelSmoke {
         check(FunctionPanelModel.state(FunctionPanelModel.item(Id.SETTINGS), false, true) == null,
             "actions carry no on/off state");
         // 所有顶部快捷入口的组合都能去重，未启用的入口仍在菜单里。
-        Id[] shortcuts = {Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_INPUT};
+        Id[] shortcuts = {Id.SCHEME, Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_INPUT};
         for (int mask = 0; mask < (1 << shortcuts.length); mask++) {
             java.util.Set<Id> toolbar = java.util.EnumSet.noneOf(Id.class);
             for (int index = 0; index < shortcuts.length; index++)
