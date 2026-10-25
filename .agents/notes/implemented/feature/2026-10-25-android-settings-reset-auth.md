@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-在确认对话框的「重置」动作之后、执行任何写入之前调用 AndroidX `BiometricPrompt`，允许 `BIOMETRIC_STRONG | DEVICE_CREDENTIAL`。认证成功后才进入原有异步重置流程；取消、失败或认证不可用时不改动设置。视图销毁时取消认证请求，回调只在仍有视图时启动重置。
+在确认对话框的「重置」动作之后、执行任何写入之前调用 AndroidX `BiometricPrompt`，允许强生物识别或锁屏凭据（`SystemAuthenticators.allowed()`，Android 9、10 上为 AndroidX 支持的弱生物识别或锁屏凭据，理由见[剪贴板操作认证](2026-10-25-android-clipboard-operations-auth.md)）。认证成功后才进入原有异步重置流程；取消、失败或认证不可用时不改动设置。视图销毁时取消认证请求，回调只在仍有视图时启动重置。
 
 认证规则单独放在 `SettingsResetAuthenticationPolicy`，由主机 smoke 覆盖；页面负责认证 API 和已有 `NativeClient.restoreDefaultPreferences`、`AndroidLocalSettings.restoreDefaults` 流程。
 

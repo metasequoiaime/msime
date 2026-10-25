@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-统计页每次视图进入先调用 AndroidX `BiometricPrompt`，允许 `BIOMETRIC_STRONG | DEVICE_CREDENTIAL`；认证成功后才读取和显示统计数据。认证取消、失败或不可用时不加载统计。视图销毁或离开页面后清除授权，下一次进入重新认证；认证请求随视图销毁取消，迟到回调不启动加载。
+统计页每次视图进入先调用 AndroidX `BiometricPrompt`，允许强生物识别或锁屏凭据（`SystemAuthenticators.allowed()`，Android 9、10 上为 AndroidX 支持的弱生物识别或锁屏凭据，理由见[剪贴板操作认证](2026-10-25-android-clipboard-operations-auth.md)）；认证成功后才读取和显示统计数据。认证取消、失败或不可用时不加载统计。视图销毁或离开页面后清除授权，下一次进入重新认证；Android 9、10 的锁屏凭据确认是独立 Activity，由认证本身引起的暂停结束时不算重新进入，不再弹第二次认证；认证请求随视图销毁取消，迟到回调不启动加载。
 
 认证状态由 `StatisticsAuthenticationPolicy` 表达并以 smoke 覆盖，页面负责生命周期、系统认证和原有加载流程。
 

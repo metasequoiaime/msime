@@ -28,6 +28,7 @@ import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import app.msime.android.NativeClient;
 import app.msime.android.StatisticsAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
@@ -87,6 +88,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     @Nullable private Boolean nineKey;
     private boolean authorized;
     @Nullable private BiometricPrompt authentication;
+    private boolean pausedForAuthentication;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -121,6 +123,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         if (authentication != null) authentication.cancelAuthentication();
         authentication = null;
         authorized = false;
+        pausedForAuthentication = false;
         super.onDestroyView();
     }
 
@@ -130,8 +133,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             reload();
             return;
         }
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        int authenticators = SystemAuthenticators.allowed();
         Context context = requireContext();
         if (BiometricManager.from(context).canAuthenticate(authenticators)
                 != BiometricManager.BIOMETRIC_SUCCESS) {
@@ -199,7 +201,17 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     // 键盘在另一个进程里，这个页面不在眼前时它一直在记。
+    @Override public void onPause() {
+        super.onPause();
+        pausedForAuthentication = authentication != null;
+    }
+
     @Override protected void onBecameVisible() {
+        // Android 9、10 的锁屏凭据确认是独立 Activity，输入凭据时本页会暂停；回来时的这次可见只是认证结束，不是重新进入，否则每次认证成功都会立刻再弹一次。
+        if (pausedForAuthentication) {
+            pausedForAuthentication = false;
+            return;
+        }
         authorized = false;
         requestAuthentication();
     }

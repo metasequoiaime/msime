@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-每次点击「导出备份」先调用 AndroidX `BiometricPrompt`，允许 `BIOMETRIC_STRONG | DEVICE_CREDENTIAL`。只有认证成功后才打开 SAF 文件创建器；用户取消、失败或设备没有可用认证器时不打开文件选择器，也不写出文件。认证期间页面按钮保持忙碌，视图销毁时取消认证并清理引用。恢复流程不增加认证，因为它只读取用户主动选择的文件，并已有完整性校验和确认对话框。
+每次点击「导出备份」先调用 AndroidX `BiometricPrompt`，允许强生物识别或锁屏凭据（`SystemAuthenticators.allowed()`，Android 9、10 上为 AndroidX 支持的弱生物识别或锁屏凭据，理由见[剪贴板操作认证](2026-10-25-android-clipboard-operations-auth.md)）。只有认证成功后才打开 SAF 文件创建器；用户取消、失败或设备没有可用认证器时不打开文件选择器，也不写出文件。认证期间页面按钮保持忙碌，视图销毁时取消认证并清理引用。恢复流程不增加认证，因为它只读取用户主动选择的文件，并已有完整性校验和确认对话框。
 
 导出是否需要认证由 `BackupExportAuthenticationPolicy` 单独表达并以 smoke 覆盖，页面负责认证 API、文件选择器和生命周期衔接。
 

@@ -15,8 +15,7 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
     public static final String EXTRA_RESULT = "app.msime.android.clipboard.AUTH_RESULT";
     public static final String EXTRA_SUBTITLE = "app.msime.android.clipboard.AUTH_SUBTITLE";
     public static final int RESULT_AUTHENTICATED = 2001;
-    private static final int AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG
-        | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+    private static final int AUTHENTICATORS = SystemAuthenticators.allowed();
     @Nullable private ResultReceiver result;
     private boolean sent;
 

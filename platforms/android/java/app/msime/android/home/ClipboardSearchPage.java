@@ -29,6 +29,7 @@ import app.msime.android.ClipboardHistoryRetentionPolicy;
 import app.msime.android.ClipboardHistoryStore;
 import app.msime.android.ClipboardSearchPolicy;
 import app.msime.android.ClipboardOperationAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import app.msime.android.DeviceDataApi;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
@@ -59,6 +60,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     @Nullable private GroupCard results;
     private boolean authorized;
     @Nullable private BiometricPrompt authentication;
+    private boolean pausedForAuthentication;
 
     /** 查询框里的文字放在 ViewModel 里：旋转、换深浅模式会重建 Activity，Fragment 换成新实例，字段会回到空串。 */
     public static final class Query extends ViewModel {
@@ -110,7 +112,17 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
 
     @Override protected boolean shouldReloadOnContentReady() { return false; }
 
+    @Override public void onPause() {
+        super.onPause();
+        pausedForAuthentication = authentication != null || clipboardExport.authenticating();
+    }
+
     @Override protected void onVisible() {
+        // Android 9、10 的锁屏凭据确认是独立 Activity，输入凭据时本页会暂停；回来时的这次可见只是认证结束，不是重新进入。照常重新认证的话，每次认证成功都会立刻再弹一次，永远读不到记录。
+        if (pausedForAuthentication) {
+            pausedForAuthentication = false;
+            return;
+        }
         authorized = false;
         requestAuthentication();
     }
@@ -119,6 +131,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         if (authentication != null) authentication.cancelAuthentication();
         authentication = null;
         authorized = false;
+        pausedForAuthentication = false;
         results = null;
         clipboardExport.destroyed();
         // 视图没了，删除的回调就不会再交回来；不清掉的话这一页之后的操作全被挡住。
@@ -163,8 +176,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
             reload();
             return;
         }
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        int authenticators = SystemAuthenticators.allowed();
         Context context = requireContext();
         if (BiometricManager.from(context).canAuthenticate(authenticators)
                 != BiometricManager.BIOMETRIC_SUCCESS) {

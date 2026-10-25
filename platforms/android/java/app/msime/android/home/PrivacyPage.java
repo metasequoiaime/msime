@@ -8,6 +8,7 @@ import androidx.core.content.ContextCompat;
 import androidx.annotation.Nullable;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.ClipboardHistoryAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import app.msime.android.R;
 import app.msime.android.core.Telemetry;
 import java.util.EnumMap;
@@ -112,8 +113,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
     }
 
     private boolean requestClipboardAuthentication() {
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        int authenticators = SystemAuthenticators.allowed();
         BiometricManager manager = BiometricManager.from(requireContext());
         if (manager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) return false;
         clipboardAuthentication = new BiometricPrompt(this,

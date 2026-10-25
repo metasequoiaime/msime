@@ -18,6 +18,7 @@ import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.ClipboardOperationAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import java.io.IOException;
 
 /** 设置页与历史页共用目录选择和显式导出动作；结果由 HostTask 绑定当前视图。 */
@@ -35,6 +36,9 @@ final class ClipboardExportActions {
         this.reload = reload;
         picker = page.registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), this::selected);
     }
+
+    /** 系统认证窗口仍在进行；宿主页据此判断这次暂停是不是认证本身引起的。 */
+    boolean authenticating() { return authentication != null; }
 
     void restore(Bundle state) { exportAfterPicking = state != null && state.getBoolean("clipboardExportAfterPicking"); }
     void save(Bundle state) { state.putBoolean("clipboardExportAfterPicking", exportAfterPicking); }
@@ -67,8 +71,7 @@ final class ClipboardExportActions {
 
     private void requestAuthentication() {
         if (!ClipboardOperationAuthenticationPolicy.shouldStartAuthentication(authentication != null)) return;
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        int authenticators = SystemAuthenticators.allowed();
         android.content.Context context = page.requireContext();
         if (BiometricManager.from(context).canAuthenticate(authenticators)
                 != BiometricManager.BIOMETRIC_SUCCESS) {
