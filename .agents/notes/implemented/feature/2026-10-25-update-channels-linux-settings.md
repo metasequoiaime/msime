@@ -37,7 +37,7 @@ Linux 的 `pendingUpdateCheck` 把页面传来的通道作为 `pending_update_ch
 
 ### 文档
 
-`platforms/linux/README.md` 的检查更新段落同步写明三个通道、按（版本号，运行 ID）比较、通知标题带通道、记录里存通道和换通道立刻重查。PRIVACY.md 不在本切片，每日构建通道多出的 `releases/tags/nightly` 请求由协调方补进「资源与更新下载」。
+`platforms/linux/README.md` 的检查更新段落同步写明三个通道、按（版本号，运行 ID）比较、通知标题带通道、记录里存通道和换通道立刻重查。PRIVACY.md 的「资源与更新下载」已随 core 切片补上每日构建通道多出的 `releases/tags/nightly` 请求。
 
 ## Alternatives considered
 
