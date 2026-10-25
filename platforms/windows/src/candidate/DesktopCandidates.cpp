@@ -60,19 +60,26 @@ struct DesktopCandidates::State {
     std::shared_ptr<ClientDesktop> desktop;
     std::shared_ptr<const Input> input = std::make_shared<const Input>();
     std::atomic<bool> stopping{false};
+    // 协调线程发布新快照后叫醒本线程，不等 16 毫秒的轮询（#9519）。自动复位。
+    HANDLE wake_event = nullptr;
     std::thread thread;
     // 失焦时关闭候选菜单；句柄登记和销毁在同一把锁下，不向失效句柄发消息。
     std::mutex window_mutex;
     HWND window = nullptr;
     Surface(State &state, std::shared_ptr<ClientDesktop> target)
         : owner(state), desktop(std::move(target)) {
+      wake_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+      if (!wake_event) throw std::runtime_error("Candidate desktop wake event unavailable");
       thread = std::thread([this] { run(); });
     }
     ~Surface() {
       stopping.store(true, std::memory_order_release);
       cancel_menu();
+      wake();
       if (thread.joinable()) thread.join();
+      CloseHandle(wake_event);
     }
+    void wake() { SetEvent(wake_event); }
     void cancel_menu() {
       std::lock_guard lock(window_mutex);
       if (window) PostMessageW(window, WM_CANCELMODE, 0, 0);
@@ -200,7 +207,7 @@ struct DesktopCandidates::State {
             owner.diagnose(component_failure("Candidate window", candidates.failure_site()));
             break;
           }
-          if (MsgWaitForMultipleObjectsEx(0, nullptr, 16, QS_ALLINPUT, MWMO_INPUTAVAILABLE) == WAIT_FAILED)
+          if (MsgWaitForMultipleObjectsEx(1, &wake_event, 16, QS_ALLINPUT, MWMO_INPUTAVAILABLE) == WAIT_FAILED)
             throw std::runtime_error("Candidate desktop message wait failed");
         }
         candidates.set_typing_effect_active(false);
@@ -216,8 +223,13 @@ struct DesktopCandidates::State {
   explicit State(DesktopCandidateCallbacks value) : callbacks(std::move(value)) {
     stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!stop_event) throw std::runtime_error("Candidate desktop stop event unavailable");
+    wake_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!wake_event) {
+      CloseHandle(stop_event);
+      throw std::runtime_error("Candidate desktop wake event unavailable");
+    }
   }
-  ~State() { stop(); CloseHandle(stop_event); }
+  ~State() { stop(); CloseHandle(wake_event); CloseHandle(stop_event); }
   void diagnose(std::string line) {
     std::lock_guard lock(diagnostic_mutex);
     if (diagnostics.size() < 64) diagnostics.push_back(std::move(line));
@@ -232,6 +244,8 @@ struct DesktopCandidates::State {
       std::shared_ptr<ClientDesktop> resolved;
       std::optional<PipeTicket> transport;
       uint64_t retry_at = 0, diagnosed_at = 0;
+      // 上一轮等待是被 wake() 叫醒的：这一轮读到的快照立即交给各桌面线程，并叫醒它们绘制。
+      bool woken = false;
       while (!failed.load(std::memory_order_acquire) &&
              WaitForSingleObject(stop_event, 0) == WAIT_TIMEOUT) {
         auto view = callbacks.read();
@@ -278,8 +292,10 @@ struct DesktopCandidates::State {
                             callbacks.lease_current(*input->lease) && resolved && resolved->current();
           }
           surface->publish(std::move(input));
+          if (woken) surface->wake();
         }
-        WaitForSingleObject(stop_event, 16);
+        const HANDLE waits[] = {stop_event, wake_event};
+        woken = WaitForMultipleObjects(2, waits, FALSE, 16) == WAIT_OBJECT_0 + 1;
       }
       // 所有窗口先在所属线程销毁，之后 Server 才能停止候选回调依赖的服务。
       for (const auto &surface : surfaces) { surface->stopping.store(true); surface->cancel_menu(); }
@@ -292,6 +308,7 @@ struct DesktopCandidates::State {
   DesktopCandidateCallbacks callbacks;
   std::shared_ptr<const DesktopCandidateSettings> published_settings;
   HANDLE stop_event = nullptr;
+  HANDLE wake_event = nullptr;
   std::thread coordinator;
   std::atomic<bool> failed{false};
   std::mutex diagnostic_mutex;
@@ -310,6 +327,7 @@ void DesktopCandidates::publish(DesktopCandidateSettings settings) {
                     std::make_shared<const DesktopCandidateSettings>(std::move(settings)));
 }
 void DesktopCandidates::stop() { state_->stop(); }
+void DesktopCandidates::wake() { SetEvent(state_->wake_event); }
 bool DesktopCandidates::failed() const { return state_->failed.load(std::memory_order_acquire); }
 std::vector<std::string> DesktopCandidates::take_diagnostics() {
   std::lock_guard lock(state_->diagnostic_mutex);

@@ -21,16 +21,32 @@ public:
     rendered_lease_ = lease;
     rendered_ready_.notify_all();
   }
+  // 候选界面的绘制请求，见 wait_rendered。回调只能发信号，不得回调本信箱；传空函数撤掉，返回时正在进行的调用已经结束。
+  void set_render_request(std::function<void()> request) {
+    std::lock_guard lock(render_request_mutex_);
+    render_request_ = std::move(request);
+  }
+  // 候选界面线程按自己的周期轮询快照，周期（两级 16 毫秒等待，按系统默认 15.6 毫秒计时精度各要 16–31 毫秒）和这里的超时同一量级：只等的话，快速连打或重连后重放时空格几乎总是空等满超时，再加上引擎处理就越过 TIP 的回包预算（#9519）。所以还没画到这一页时先请界面立即绘制，再等回执。
   bool wait_rendered(const FocusLease &lease, uint64_t generation,
                      std::chrono::milliseconds timeout) {
-    std::unique_lock lock(mutex_);
-    return rendered_ready_.wait_for(lock, timeout, [&] {
+    const auto painted = [&] {
       return stopped_ ||
              (rendered_generation_ >= generation && rendered_lease_ &&
               rendered_lease_->epoch == lease.epoch &&
               rendered_lease_->token == lease.token &&
               same_ticket(rendered_lease_->transport, lease.transport));
-    }) && !stopped_;
+    };
+    std::unique_lock lock(mutex_);
+    if (painted())
+      return !stopped_;
+    lock.unlock();
+    {
+      std::lock_guard request(render_request_mutex_);
+      if (render_request_)
+        render_request_();
+    }
+    lock.lock();
+    return rendered_ready_.wait_for(lock, timeout, painted) && !stopped_;
   }
   void delivered(const FocusLease &lease, const PendingReply &reply,
                  const FanyImeNamedpipeData &packet) {
@@ -424,5 +440,7 @@ private:
   uint64_t rendered_generation_ = 0;
   uint64_t render_serial_ = 0;
   std::condition_variable rendered_ready_;
+  std::mutex render_request_mutex_;
+  std::function<void()> render_request_;
 };
 } // namespace msime::windows

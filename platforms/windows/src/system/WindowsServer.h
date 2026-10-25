@@ -41,6 +41,10 @@ public:
   void candidate_rendered(const FocusLease &lease, uint64_t generation) {
     controller_->candidate_rendered(lease, generation);
   }
+  // 见 SessionController::set_candidate_render_request。
+  void set_candidate_render_request(std::function<void()> request) {
+    controller_->set_candidate_render_request(std::move(request));
+  }
   std::optional<ModePresentation> mode_view() { return controller_->mode_view(); }
   bool mode_active() { return controller_->mode_active(); }
   bool focus_current(const FocusLease &lease) {

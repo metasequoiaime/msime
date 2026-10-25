@@ -77,6 +77,10 @@ public:
   void candidate_rendered(const FocusLease &lease, uint64_t generation) {
     candidates_.rendered(lease, generation);
   }
+  // 候选界面的绘制请求（#9519）：按键和点选的渲染屏障要等回执时调用它，叫醒候选窗立即读快照绘制，不等它下一次轮询。任何线程都可能调用；回调只能发信号（如 SetEvent），不得回调本控制器或候选信箱。候选窗销毁前传空函数撤掉，返回后旧回调不会再被调用。
+  void set_candidate_render_request(std::function<void()> request) {
+    candidates_.set_render_request(std::move(request));
+  }
   std::optional<ModePresentation> mode_view();
   // Definitive: is a focused client's mode on file at all. mode_view() returns
   // nothing for contention as well, so a UI needs this to tell busy from gone.

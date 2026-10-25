@@ -1717,6 +1717,17 @@ else()
 endif()
 add_test(NAME windows-candidate-skin-gallery-plan COMMAND windows-candidate-skin-gallery-plan)
 set_tests_properties(windows-candidate-skin-gallery-plan PROPERTIES TIMEOUT 10)
+# 按键的候选渲染屏障叫醒候选界面线程（#9519）：候选页投影的繁简转换在 msime-windows-composer 里。
+add_executable(windows-candidate-render-request tests/ui/candidate_render_request.cpp)
+target_include_directories(windows-candidate-render-request PRIVATE src/candidate src/system)
+target_link_libraries(windows-candidate-render-request PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-candidate-render-request PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+else()
+  target_compile_options(windows-candidate-render-request PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-candidate-render-request COMMAND windows-candidate-render-request)
+set_tests_properties(windows-candidate-render-request PROPERTIES TIMEOUT 30)
 # The clipboard store and its presentation mailbox. All three of these sat in
 # the tree with no CMakeLists naming them, so nothing compiled them and they
 # were absent from every build and every count - the same shape as the

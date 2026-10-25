@@ -97,6 +97,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
     "core/uiless_candidates.cpp": (["src/ipc/ReplyCodec.cpp"], False),
+    # 候选信箱发布页面时做繁简投影，需要真实的转换实现。
+    "ui/candidate_render_request.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 两份真实引擎会话通过外部候选选择继续组字。
     "input/host_online_candidates.cpp": (

@@ -43,6 +43,8 @@ public:
   void start(DesktopCandidateSettings settings);
   void publish(DesktopCandidateSettings settings);
   void stop();
+  // 任何线程：请求协调线程立即读一次快照并叫醒各桌面线程绘制，不等 16 毫秒的轮询。只发信号，不阻塞、不回调；stop() 之后调用无效果。渲染屏障等回执时经 SessionController::set_candidate_render_request 调用（#9519）。
+  void wake();
   // 只含固定标签和数值，主线程取出后统一写诊断日志；队列有界。
   std::vector<std::string> take_diagnostics();
   bool failed() const;
