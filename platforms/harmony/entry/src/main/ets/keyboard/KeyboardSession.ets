@@ -5183,13 +5183,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       ? canvasHeight : HANDWRITING_CANVAS_SIZE;
     const recognitionStrokes: HandwritingRecognitionStroke[] = [];
     for (const stroke of strokes) {
-      const points: HandwritingPoint[] = [];
-      for (const point of stroke.points) {
-        points.push(HandwritingStrokePolicy.point(
-          point.x * HANDWRITING_CANVAS_SIZE / width,
-          point.y * HANDWRITING_CANVAS_SIZE / height));
-      }
-      recognitionStrokes.push({ points: points });
+      recognitionStrokes.push({ points: stroke.points.map((point: HandwritingPoint): HandwritingPoint =>
+        HandwritingStrokePolicy.recognitionPoint(point.x, point.y, width, height)) });
     }
     const request: HandwritingNativeRequest = {
       model: `${files}/handwriting/handwriting-zh_CN.model`,
