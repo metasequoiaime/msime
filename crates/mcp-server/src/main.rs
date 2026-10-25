@@ -12,6 +12,7 @@ mod preferences;
 mod prompts;
 mod runtime_options;
 mod server;
+mod session;
 mod skins;
 mod statistics;
 mod words;
@@ -109,6 +110,7 @@ fn main() -> ExitCode {
             keys,
             limit,
         }) => return candidates::run(&config, keys, limit),
+        Ok(config::Command::Session(config)) => (config, Some(cli::Action::Session)),
         Ok(config::Command::GetConfig { config, keys, json }) => {
             (config, Some(cli::Action::GetConfig { keys, json }))
         }

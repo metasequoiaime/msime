@@ -4,6 +4,7 @@
 
 use crate::config::Config;
 use crate::server::MsimeServer;
+use crate::session;
 use rmcp::model::{CallToolRequestParams, CallToolResult, GetPromptRequestParams};
 use rmcp::service::RunningService;
 use rmcp::{RoleClient, ServiceExt};
@@ -31,6 +32,7 @@ pub enum Action {
         json: bool,
         batch: bool,
     },
+    Session,
     ShowConfig {
         json: bool,
     },
@@ -47,6 +49,9 @@ pub enum Action {
 
 /// Run `action` against a server built from `config`: the result goes to stdout as JSON, a refusal to stderr.
 pub async fn run(config: Config, action: Action) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    if matches!(action, Action::Session) {
+        return session::run(config).map_err(Box::<dyn std::error::Error>::from);
+    }
     let (server_io, client_io) = tokio::io::duplex(PIPE_CAPACITY);
     let server = tokio::spawn(async move {
         MsimeServer::new(config)
@@ -121,6 +126,7 @@ pub async fn run(config: Config, action: Action) -> Result<ExitCode, Box<dyn std
                 ExitCode::SUCCESS
             }
         }
+        Action::Session => unreachable!("session is handled before starting the MCP server"),
         Action::GetConfig { keys, json } => {
             match structured(call(&client, "get_preferences".into(), Map::new()).await?)? {
                 Ok(value) => match picked_preferences(&value, &keys) {

@@ -13,6 +13,7 @@ const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 /// 帮助文本。`{program}` 换成用户实际敲的命令名，见 [`usage`]。不手动折行：每一行是一个完整的条目或句子，并且短到在 80 列的终端里也不会被折断，改动措辞时不会牵动别的行。
 const USAGE: &str = "usage: {program} expand <keys>... [--scheme <scheme>] [--limit <n>] [--json]
        {program} candidates [<keys>] [--limit <n>]
+       {program} session
        {program} config [--json]
        {program} config get <key>... [--json]
        {program} config set <key>=<value>...
@@ -39,6 +40,7 @@ Testing by hand:
   The input method applies config set within a few seconds.
   Pick a skin with config set candidate_skin=<id> candidate_skin_dark=<id>.
   expand leaves out cloud and AI candidates and the context of earlier words.
+  session reads JSON requests from stdin, one transition JSON per line.
   From a terminal, expand implies --allow-dictionary-read.
   From a terminal, config set implies --allow-write.
   Run by an AI assistant, they need those flags as call does.
@@ -139,6 +141,8 @@ pub enum Command {
         keys: Option<String>,
         limit: Option<u64>,
     },
+    /// `session`：在一个完整的 Host API 会话里按键，逐行输出含光标位置的 transition JSON。
+    Session(Config),
     /// `config`：打印当前偏好。
     ShowConfig {
         config: Config,
@@ -165,6 +169,7 @@ impl Command {
     pub fn run_by_a_person(mut self) -> Self {
         match &mut self {
             Command::Expand { config, .. } => config.allow_dictionary_read = true,
+            Command::Session(config) => config.allow_dictionary_read = true,
             Command::SetConfig { config, .. } => config.allow_write = true,
             _ => {}
         }
@@ -176,6 +181,9 @@ impl Command {
         match self {
             Command::Expand { config, .. } if !config.allow_dictionary_read => Some(
                 "expand reads the dictionary, so outside a terminal it needs --allow-dictionary-read",
+            ),
+            Command::Session(config) if !config.allow_dictionary_read => Some(
+                "session reads the dictionary, so outside a terminal it needs --allow-dictionary-read",
             ),
             Command::SetConfig { config, .. } if !config.allow_write => {
                 Some("config set changes preferences, so outside a terminal it needs --allow-write")
@@ -309,6 +317,12 @@ pub fn parse(
                 keys: positional.get(1).cloned(),
                 limit,
             });
+        }
+        Some("session") if scheme.is_none() && limit.is_none() && !json => {
+            if positional.len() != 1 {
+                return Err("session does not take positional arguments".into());
+            }
+            return Ok(Command::Session(config));
         }
         Some("config") if scheme.is_none() && limit.is_none() => {
             return match positional.get(1).map(String::as_str) {
@@ -565,6 +579,18 @@ mod tests {
         assert_eq!(
             serve(parse(args(&[]), ibus_only).unwrap()).options,
             PathBuf::from("/env/ibus.json")
+        );
+    }
+
+    #[test]
+    fn session_is_a_stdin_json_command() {
+        let parsed = parse(
+            args(&["--options", "/state/options.json", "session"]),
+            |_: &str| None,
+        )
+        .unwrap();
+        assert!(
+            matches!(parsed, Command::Session(config) if config.options.as_path() == Path::new("/state/options.json"))
         );
     }
 
