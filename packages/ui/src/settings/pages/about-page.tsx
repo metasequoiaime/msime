@@ -45,6 +45,7 @@ export function AboutSettingsPage() {
     updateBusy,
     updateCheckSupported,
     availableUpdate,
+    updateInstallerDetailsStale,
     currentAppVersion,
     appReleaseDate,
     openExternalUrl,
@@ -67,7 +68,11 @@ export function AboutSettingsPage() {
       setDraft,
     },
   );
-  const mirrorUrl = availableUpdate && mirrorDownloadUrl(availableUpdate, downloadMirrorPrefix);
+  // 镜像链接指向记录里的那个安装包名；它可能已从发布里删掉时不给（见 `useUpdateCheck` 的 `installerDetailsStale`）。
+  const mirrorUrl =
+    availableUpdate &&
+    !updateInstallerDetailsStale &&
+    mirrorDownloadUrl(availableUpdate, downloadMirrorPrefix);
   // 官网下载页只列正式版；测试版和每日构建的安装包只在它们自己的 GitHub 发布页上。
   const releasePageUrl =
     availableUpdate && availableUpdate.channel !== "stable"
@@ -76,6 +81,11 @@ export function AboutSettingsPage() {
   const updateResult = availableUpdate && (
     <div className={doc.updateResult}>
       <p>水杉 IME {describeUpdateVersion(availableUpdate)} 已发布。</p>
+      {updateInstallerDetailsStale && (
+        <p>
+          这是之前在后台检查时找到的版本，发布页上的安装包可能已经更新。请点「检查更新」获取当前的安装包和校验值。
+        </p>
+      )}
       {installerTrust?.warning && <p className={doc.updateWarning}>{installerTrust.warning}</p>}
       {installerTrust?.verify && (
         <>

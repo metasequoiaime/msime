@@ -53,14 +53,21 @@ pub fn application_update_supported() -> bool {
     false
 }
 
-/// Sparkle 的标准界面负责下载、验签、替换应用和重启，始终运行在 AppKit 主线程。
+/// Sparkle 的标准界面负责下载、验签、替换应用和重启，始终运行在 AppKit 主线程。`channel` 是关于页当前选的更新通道（偏好 `update_channel` 的值，可能还没自动保存），决定读哪一份设置应用的 appcast（见 `msime_host_macos::check_settings_update_on_channel`）；不传时读稳定版的 feed，与以前的页面一致。不认识的通道名不检查，报 `application_update_unavailable`。
 #[tauri::command]
-pub async fn application_update_check(app: tauri::AppHandle) -> Result<(), CommandError> {
+pub async fn application_update_check(
+    app: tauri::AppHandle,
+    channel: Option<String>,
+) -> Result<(), CommandError> {
     #[cfg(target_os = "macos")]
     {
         let (sender, receiver) = std::sync::mpsc::channel();
         app.run_on_main_thread(move || {
-            let _ = sender.send(msime_host_macos::check_settings_update());
+            let started = match channel {
+                Some(channel) => msime_host_macos::check_settings_update_on_channel(&channel),
+                None => msime_host_macos::check_settings_update(),
+            };
+            let _ = sender.send(started);
         })
         .map_err(|_| CommandError {
             code: "application_update_unavailable",
@@ -75,7 +82,7 @@ pub async fn application_update_check(app: tauri::AppHandle) -> Result<(), Comma
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, channel);
         Err(CommandError {
             code: "application_update_unavailable",
         })

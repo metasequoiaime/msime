@@ -10,8 +10,8 @@ import {
 } from "./update-manifest";
 
 export interface UseUpdateCheckOptions {
-  /** 完整应用的原生更新流程，更新窗口由宿主呈现。 */
-  checkForApplicationUpdate?: () => Promise<void>;
+  /** 完整应用的原生更新流程，更新窗口由宿主呈现。给出了 `channel` 时一并传给宿主，按这个通道的更新 feed 检查。 */
+  checkForApplicationUpdate?: (channel?: UpdateChannel) => Promise<void>;
   /** 宿主的检查更新（`SettingsClient.checkUpdate`），经由 `msime_client_services::update_check` 询问 GitHub。未提供时页面不提供检查。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   /** 宿主后台检查已经找到的新版本（`SettingsClient.pendingUpdateCheck`），页面打开时先显示它；给出了 `channel` 时一并传给宿主，只要按这个通道找到的版本。 */
@@ -40,6 +40,8 @@ export function useUpdateCheck({
 }: UseUpdateCheckOptions) {
   const [status, setStatus] = useState("");
   const [available, setAvailable] = useState<ValidatedUpdate | null>(null);
+  // 从后台记录读到的那个结果；`available` 正是它（同一个对象）时，页面显示的是记录而不是这次打开后检查的结果。
+  const [recorded, setRecorded] = useState<ValidatedUpdate | null>(null);
   const manualCheckStarted = useRef(false);
   const supported = !!checkForApplicationUpdate || (!!checkUpdate && !!platform);
   const { busy, run } = useAsyncActionRunner(
@@ -58,6 +60,7 @@ export function useUpdateCheck({
     manualCheckStarted.current = false;
     setStatus("");
     setAvailable(null);
+    setRecorded(null);
   }, [arch, channel, checkUpdate, checkForApplicationUpdate, currentAppVersion, edition, platform]);
 
   // 后台检查已经找到新版本时直接显示，与手动检查发现新版本时一样；读不到或没有时保持原样。
@@ -69,6 +72,7 @@ export function useUpdateCheck({
         if (!active || manualCheckStarted.current || result?.status !== "available") return;
         const update = fromHostUpdate(result.update);
         if (!update) return;
+        setRecorded(update);
         setAvailable((current) => current ?? update);
         setStatus((current) => current || `发现新版本 ${describeUpdateVersion(update)}`);
       })
@@ -95,7 +99,9 @@ export function useUpdateCheck({
         async () => {
           manualCheckStarted.current = true;
           setAvailable(null);
-          await checkForApplicationUpdate();
+          await (channel === undefined
+            ? checkForApplicationUpdate()
+            : checkForApplicationUpdate(channel));
         },
         {
           formatError: () => "无法打开自动更新，请稍后重试",
@@ -135,5 +141,9 @@ export function useUpdateCheck({
     );
   }
 
-  return { available, busy, checkForUpdate, status, supported } as const;
+  // 显示的是后台记录里的测试版或每日构建时为 true：每日构建每天重新上传、删掉不再引用的旧安装包，测试版重跑会原地换掉同名安装包，而后台记录最多一天才刷新一次，记录里的安装包名和 SHA256 可能已经对不上发布页。这时页面不给镜像链接和校验值，请用户点「检查更新」拿到当前的。稳定版的发布不会被替换，照常显示。
+  const installerDetailsStale =
+    available !== null && available === recorded && available.channel !== "stable";
+
+  return { available, busy, checkForUpdate, installerDetailsStale, status, supported } as const;
 }

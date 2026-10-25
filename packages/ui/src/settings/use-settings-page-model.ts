@@ -392,6 +392,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     available: availableUpdate,
     busy: updateBusy,
     checkForUpdate,
+    installerDetailsStale: updateInstallerDetailsStale,
     status: updateStatus,
     supported: updateCheckSupported,
   } = useUpdateCheck({
@@ -560,13 +561,15 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     rowSpacingTenths: touchRowSpacingTenths,
     heightAdjustment: touchKeyboardHeightAdjustment,
   } = touchKeyboardGeometryPreferences(draft);
-  const installerTrust = availableUpdate
-    ? describeInstallerTrust(
-        availableUpdate,
-        client.host?.platform ?? null,
-        client.host?.edition?.id,
-      )
-    : null;
+  // 后台记录里的测试版、每日构建的安装包可能已被替换（见 `useUpdateCheck` 的 `installerDetailsStale`），不给校验值和签名提示。
+  const installerTrust =
+    availableUpdate && !updateInstallerDetailsStale
+      ? describeInstallerTrust(
+          availableUpdate,
+          client.host?.platform ?? null,
+          client.host?.edition?.id,
+        )
+      : null;
   const { showHelpcode, showDeveloperPage, untitledOnPhone } = settingsPageModelVisibility({
     mobilePlatform,
     settingsPlatform,
@@ -796,6 +799,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     updateBusy,
     updateCheckSupported,
     availableUpdate,
+    updateInstallerDetailsStale,
     currentAppVersion,
     appReleaseDate,
     copyFeedbackGroup,

@@ -261,3 +261,118 @@ test("后台记录按页面选的通道读，换了通道清掉旧通道的结�
   expect(within(about).queryByText("水杉 IME v1.4.0 已发布。")).toBeNull();
   expect(within(about).queryByText("发现新版本 v1.4.0")).toBeNull();
 });
+
+test("macOS 的原生应用更新按页面选的通道读更新 feed", async () => {
+  const checkForApplicationUpdate = vi.fn().mockResolvedValue(undefined);
+  const checkUpdate = vi.fn();
+  render(
+    <SettingsPage
+      initialPage="about"
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot()),
+        save: vi.fn(async (revision: number, preferences: Preferences) => ({
+          format_version: 1,
+          revision: revision + 1,
+          preferences,
+        })),
+        readAppVersion: vi.fn().mockResolvedValue("1.0.0"),
+        host: testHost({ platform: "macos" }),
+        checkForApplicationUpdate,
+        checkUpdate,
+      }}
+    />,
+  );
+  const about = await openAbout();
+  fireEvent.click(within(about).getByRole("button", { name: "检查更新" }));
+  await waitFor(() => expect(checkForApplicationUpdate).toHaveBeenLastCalledWith("stable"));
+
+  for (const channel of ["beta", "nightly"] as const) {
+    await act(async () => {
+      fireEvent.change(within(about).getByRole("combobox", { name: "更新通道" }), {
+        target: { value: channel },
+      });
+    });
+    // 不等自动保存：原生更新直接按页面上选的通道读 feed。
+    fireEvent.click(within(about).getByRole("button", { name: "检查更新" }));
+    await waitFor(() => expect(checkForApplicationUpdate).toHaveBeenLastCalledWith(channel));
+  }
+  expect(checkUpdate).not.toHaveBeenCalled();
+});
+
+test("后台记录里的每日构建不给镜像链接和校验值，重新检查后才给", async () => {
+  const recorded = release({
+    release_url: `${releases}/tag/nightly`,
+    installer_name: "msime-linux_1.4.0_amd64-nightly.123.1.deb",
+    installer_sha256: "a".repeat(64),
+    channel: "nightly",
+    build_run: 123,
+  });
+  const fresh = release({
+    release_url: `${releases}/tag/nightly`,
+    installer_name: "msime-linux_1.4.0_amd64-nightly.124.1.deb",
+    installer_sha256: "b".repeat(64),
+    channel: "nightly",
+    build_run: 124,
+  });
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="about"
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot({ update_channel: "nightly" })),
+        save: vi.fn(),
+        readAppVersion: vi.fn().mockResolvedValue("1.0.0"),
+        host: testHost({ platform: "linux", arch: "x86_64" }),
+        openExternalUrl,
+        pendingUpdateCheck: vi.fn().mockResolvedValue({ status: "available", update: recorded }),
+        checkUpdate: vi.fn().mockResolvedValue({ status: "available", update: fresh }),
+      }}
+    />,
+  );
+  const about = await openAbout();
+  expect(
+    await within(about).findByText("水杉 IME 每日构建 v1.4.0（构建 123） 已发布。"),
+  ).toBeTruthy();
+  expect(within(about).getByText(/发布页上的安装包可能已经更新/)).toBeTruthy();
+  expect(within(about).queryByText(/sha256sum/)).toBeNull();
+  expect(within(about).queryByText("a".repeat(64))).toBeNull();
+  expect(within(about).queryByRole("button", { name: "国内镜像下载" })).toBeNull();
+  fireEvent.click(within(about).getByRole("button", { name: "前往发布页" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(`${releases}/tag/nightly`));
+
+  fireEvent.click(within(about).getByRole("button", { name: "检查更新" }));
+  expect(
+    await within(about).findByText("水杉 IME 每日构建 v1.4.0（构建 124） 已发布。"),
+  ).toBeTruthy();
+  expect(within(about).queryByText(/发布页上的安装包可能已经更新/)).toBeNull();
+  expect(
+    within(about).getByText("sha256sum msime-linux_1.4.0_amd64-nightly.124.1.deb"),
+  ).toBeTruthy();
+  expect(within(about).getByRole("button", { name: "国内镜像下载" })).toBeTruthy();
+});
+
+test("后台记录里的正式版照常给镜像链接和校验值", async () => {
+  const recorded = release({
+    installer_name: "msime-linux_1.4.0_amd64.deb",
+    installer_sha256: "c".repeat(64),
+    channel: "stable",
+  });
+  render(
+    <SettingsPage
+      initialPage="about"
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot()),
+        save: vi.fn(),
+        readAppVersion: vi.fn().mockResolvedValue("1.0.0"),
+        host: testHost({ platform: "linux", arch: "x86_64" }),
+        pendingUpdateCheck: vi.fn().mockResolvedValue({ status: "available", update: recorded }),
+        checkUpdate: vi.fn(),
+      }}
+    />,
+  );
+  const about = await openAbout();
+  expect(await within(about).findByText("水杉 IME v1.4.0 已发布。")).toBeTruthy();
+  expect(within(about).queryByText(/发布页上的安装包可能已经更新/)).toBeNull();
+  expect(within(about).getByText("sha256sum msime-linux_1.4.0_amd64.deb")).toBeTruthy();
+  expect(within(about).getByRole("button", { name: "国内镜像下载" })).toBeTruthy();
+});
