@@ -89,9 +89,10 @@ export function LinuxInputMethodNotice({
   const showConfigtool = !registered && host === "fcitx5" && openFcitx5Config;
   const showCopy = !registered && host === "ibus" && copyText;
 
+  // 卡片是居中的纵向 flex，子项按内容的最小宽度排版：提示里的 README 网址不能断行时，整段会比卡片宽、向两侧溢出，左边被滚动区裁掉。`overflow-wrap:anywhere` 让长网址和路径参与最小宽度计算时可以在任意位置断开，提示列表再撑满卡片宽度、按左对齐换行。
   return (
     <div
-      className="flex w-full flex-col items-center gap-2 rounded-[12px] border border-[var(--p-hair)] bg-[var(--p-group-bg)] px-5 py-4 text-center"
+      className="flex w-full flex-col items-center gap-2 rounded-[12px] border border-[var(--p-hair)] bg-[var(--p-group-bg)] px-5 py-4 text-center [overflow-wrap:anywhere]"
       role="status"
       aria-label="输入法列表"
     >
@@ -101,7 +102,7 @@ export function LinuxInputMethodNotice({
       {steps.length > 0 && <Steps steps={steps} />}
       {notes.length > 0 && (
         <ul
-          className="m-0 mt-1 flex list-none flex-col gap-1.5 p-0 text-left text-[13px] leading-relaxed text-[var(--p-sub)] select-text"
+          className="m-0 mt-1 flex list-none flex-col gap-1.5 self-stretch p-0 text-left text-[13px] leading-relaxed text-[var(--p-sub)] select-text"
           aria-label="配置提示"
         >
           {notes.map((note) => (

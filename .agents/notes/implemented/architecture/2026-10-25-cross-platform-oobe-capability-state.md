@@ -28,7 +28,7 @@ Status: implemented
 
 Android 和 iOS 将引导中未写成的方案、译文选择保留在主应用的待保存队列中；只有共享偏好确认成功才清除对应字段，离开引导不清空队列。首页继续提供重试入口。HarmonyOS 的离开标记独立于系统输入法启用状态，跳过不伪造完成；保存失败时保留流程中的选择并显示重试提示，不能吞掉错误后离开。Android 的系统服务不可用、默认输入法标识不可读时也保留未知，以中性标记提示重新确认。
 
-桌面状态查询失败或原生桥返回空快照会清除旧的成功结果，返回前台重新查询。资源准备与系统设置是两个动作：macOS 重新从安装资源生成运行配置；Linux 资源修复显式复用已有目录的更新事务，系统设置则打开当前 Fcitx5 或 IBus 的配置工具。Windows 首次准备失败显示可重试的原生提示，WinUI 与 Win7 共用系统查询和添加、设为默认操作。
+桌面状态查询失败或原生桥返回空快照会清除旧的成功结果，返回前台重新查询。资源准备与系统设置是两个动作：macOS 重新从安装资源生成运行配置；Linux 资源修复显式复用已有目录的更新事务，系统设置则打开能改水杉所在那份输入法列表的界面：Fcitx5 是 `fcitx5-configtool`，GNOME 上的 IBus 是 GNOME 设置的键盘面板（GNOME Shell 只读自己的输入源），其他桌面的 IBus 是 `ibus-setup`，由 `msime-linux-setup --status --json` 的 `list` 决定。偏好读不出来时桌面提示不提供系统设置动作。Windows 首次准备失败显示可重试的原生提示，WinUI 与 Win7 共用系统查询和添加、设为默认操作。
 
 ## Alternatives considered
 
@@ -53,5 +53,6 @@ iOS 老用户的旧完成标记会迁移到 `hasSeenOnboarding`，不会再次�
 
 ## Related decisions
 
+- [Linux 设置提示打开能改那份输入法列表的界面](../bug-fix/2026-10-25-linux-setup-gnome-input-sources-entry.md) 记录了 GNOME 输入源入口、提示按钮的取舍和首次配置结果卡片的溢出修复。
 - [iOS 与鸿蒙宿主采用全平台设计稿](../feature/2026-10-07-ios-harmony-all-platform-design.md) 记录了 iOS 无法检测系统键盘和完全访问的既有平台边界。
 - [iOS 系统键盘验收显式准备状态](../testing/2026-10-20-ios-system-keyboard-acceptance-state.md) 记录了真实系统键盘验收为何必须显式准备环境。

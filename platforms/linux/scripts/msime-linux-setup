@@ -1273,9 +1273,12 @@ def active_host() -> str | None:
 
 
 def input_method_status() -> dict:
-    """只查询当前会话，不启用服务、不注册输入法，也不把查询失败当成未启用。"""
+    """只查询当前会话，不启用服务、不注册输入法，也不把查询失败当成未启用。
+
+    `list` 是水杉输入法该出现在哪份列表里：`fcitx5` 是 Fcitx5 的当前输入法组，`gnome` 是 GNOME 的输入源（`org.gnome.desktop.input-sources`，GNOME Shell 只读这一份，不读 IBus 的预载引擎），`ibus` 是 IBus 的预载引擎；查不出时为 None。设置应用据此打开能改这份列表的设置界面：GNOME 上的 ibus-setup 只改预载引擎，改完状态仍是未启用。
+    """
     host = active_host()
-    result = {"host": host, "enabled": None, "current": None}
+    result = {"host": host, "list": "fcitx5" if host == "fcitx5" else None, "enabled": None, "current": None}
     if host == "fcitx5":
         try:
             _, entries = fcitx5_group(fcitx5_current_group())
@@ -1291,6 +1294,7 @@ def input_method_status() -> dict:
     elif host == "ibus":
         try:
             schema, key, entry = ibus_input_list()
+            result["list"] = "gnome" if schema == GNOME_SOURCES[0] else "ibus"
             entries = parse_gvariant(command_output(["gsettings", "get", schema, key]))
             if isinstance(entries, list) and entries:
                 result["enabled"] = entry in entries

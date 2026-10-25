@@ -74,7 +74,18 @@ export function OobeStatusNotice({ client }: { client?: OobeClient }) {
             ? "当前使用的是其他输入法，可在系统输入法菜单中切换到水杉"
             : null;
   const repair = state?.resourcesReady === false;
-  const action = repair ? client?.prepareResources : client?.openSetup;
+  // 偏好读不出来时宿主没有能恢复它的入口：openSetup 打开的是系统的输入法配置，与偏好无关，按了只会让用户以为在修复，所以只留「重新检查」。
+  const unreadablePreferences = !repair && state?.preferencesSaved === false;
+  const action = repair
+    ? client?.prepareResources
+    : unreadablePreferences
+      ? undefined
+      : client?.openSetup;
+  const actionLabel = repair
+    ? "修复运行资源"
+    : state?.systemEnabled === false
+      ? "去添加"
+      : "检查设置";
   if (!message) return null;
   return (
     <div
@@ -84,7 +95,7 @@ export function OobeStatusNotice({ client }: { client?: OobeClient }) {
       <span className="flex-1">{message}</span>
       {action && (
         <button type="button" onClick={() => run(action)}>
-          {repair ? "修复运行资源" : "检查设置"}
+          {actionLabel}
         </button>
       )}
       {client?.refresh && (
