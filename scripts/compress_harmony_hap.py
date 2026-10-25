@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""压缩 HAP 中的资源条目，保留代码和原生库的可直接加载布局。"""
+"""签名前压缩 HAP 中的资源条目，保留代码和原生库的可直接加载布局。"""
 
 from __future__ import annotations
 
@@ -33,6 +33,12 @@ def compress_resources(source: Path, destination: Path) -> tuple[int, int]:
         with zipfile.ZipFile(source, "r") as archive, zipfile.ZipFile(
             temporary_path, "w", allowZip64=True
         ) as output:
+            # HAP V2/V3 签名块以 16 字节魔数和 4 字节版本号结尾，紧邻 ZIP 中央目录。
+            # ZIP 重写无法保留或更新这个块，因此必须拒绝已经签名的输入。
+            if archive.start_dir >= 20:
+                archive.fp.seek(archive.start_dir - 20)
+                if archive.fp.read(16) in (b"HAP Sig Block 42", b"<hap sign block>"):
+                    raise ValueError("不能压缩已签名 HAP：资源压缩必须在签名前完成")
             output.comment = archive.comment
             for original in archive.infolist():
                 entry = copy.copy(original)

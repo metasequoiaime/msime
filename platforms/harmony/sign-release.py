@@ -12,7 +12,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 import zipfile
@@ -22,7 +21,7 @@ BUNDLE = "app.msime.hmos"
 DATA_GROUP = "group.1516753898738609107"
 
 
-def run(command: list[str], **kwargs) -> bytes:
+def run(command: list[str], *, stage: str | None = None, **kwargs) -> bytes:
     # 签名工具的输出可能带命令参数，失败时也不将凭据写进日志。
     result = subprocess.run(command, capture_output=True, **kwargs)
     if result.returncode:
@@ -41,7 +40,7 @@ def run(command: list[str], **kwargs) -> bytes:
                 detail = detail.replace(str(argument), "<redacted>")
         suffix = f"：{detail}" if detail else ""
         raise ValueError(
-            f"{Path(command[0]).name} 执行失败（退出码 {result.returncode}）{suffix}"
+            f"{stage or Path(command[0]).name} 执行失败（退出码 {result.returncode}）{suffix}"
         )
     return result.stdout
 
@@ -145,22 +144,12 @@ def sign(args: argparse.Namespace) -> None:
                     "-keyPwd", os.environ.get("HARMONY_RELEASE_KEY_PASSWORD", password),
                     "-profileFile", str(profile_path), "-appCertFile", str(certificate),
                     "-inFile", str(args.input), "-outFile", str(signed),
-                    "-signAlg", "SHA256withECDSA", "-compatibleVersion", "21"])
+                    "-signAlg", "SHA256withECDSA", "-compatibleVersion", "21"], stage="签名 HAP")
         extracted_profile = directory / "verified.p7b"
         run(tool + ["verify-app", "-inFile", str(signed), "-outCertChain", str(directory / "verified.cer"),
-                    "-outProfile", str(extracted_profile)])
+                    "-outProfile", str(extracted_profile)], stage="验证 HAP 签名")
         if extracted_profile.read_bytes() != profile_path.read_bytes():
             raise ValueError("签名包中的 Profile 与提交的 Profile 不一致")
-        compressed = directory / "entry-default-compressed.hap"
-        run([sys.executable, str(Path(__file__).resolve().parents[2] / "scripts/compress_harmony_hap.py"),
-             str(signed), str(compressed)])
-        compressed_profile = directory / "verified-compressed.p7b"
-        run(tool + ["verify-app", "-inFile", str(compressed),
-                    "-outCertChain", str(directory / "verified-compressed.cer"),
-                    "-outProfile", str(compressed_profile)])
-        if compressed_profile.read_bytes() != profile_path.read_bytes():
-            raise ValueError("压缩后的签名包 Profile 校验失败")
-        signed = compressed
         validate_hap(signed, args.version)
         with zipfile.ZipFile(args.input) as original, zipfile.ZipFile(signed) as result:
             if not set(original.namelist()) <= set(result.namelist()) or any(
@@ -173,7 +162,8 @@ def sign(args: argparse.Namespace) -> None:
         market_app = directory / f"msime-harmony-{args.version}.app"
         run(["java", "-jar", str(args.tool_dir / "app_packing_tool.jar"), "--mode", "app",
              "--hap-path", str(signed), "--pack-info-path", str(directory / "pack.info"),
-             "--out-path", str(market_app), "--replace-pack-info", "false", "--force", "true"])
+             "--out-path", str(market_app), "--replace-pack-info", "false", "--force", "true"],
+            stage="打包应用市场 APP")
         with zipfile.ZipFile(market_app) as archive:
             haps = [name for name in archive.namelist() if name.endswith(".hap")]
             if len(haps) != 1 or archive.read(haps[0]) != signed.read_bytes():

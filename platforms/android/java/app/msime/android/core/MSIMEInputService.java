@@ -520,6 +520,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button japaneseSpaceKey;
     Button japaneseReturnKey;
     Button japaneseSymbolsKey;
+    /** 日语 9 键左列的中英键，键面写这一下要切到的语言（{@link #japaneseLanguageKeyLabel}）。 */
+    Button japaneseLanguageKey;
     Button japaneseVariantsButton;
     private Integer japaneseConversionIndex;
     private String japaneseConversionEditingText = "";
@@ -5111,6 +5113,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (japaneseSpaceKey != null) {
             japaneseSpaceKey.setText(spaceKeyTitle());
             japaneseSpaceKey.setContentDescription(spaceKeyDescription());
+        }
+        if (japaneseLanguageKey != null) {
+            // 要切到哪里取决于已启用的方案、轮换设置和最近的中文入口。换输入框时这些先回到出厂副本、再由后台读到的偏好补上；只在建键盘时写一次的话，键盘若在补上之前建好，键面就停在「英」、读屏也念切到英文，和点下去时按当前状态实际切到的地方对不上。每次重画都按当前状态重写。
+            japaneseLanguageKey.setText(japaneseLanguageKeyLabel());
+            japaneseLanguageKey.setContentDescription("按键 " + japaneseLanguageKeyDescription());
         }
         if (japaneseSymbolsKey != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;

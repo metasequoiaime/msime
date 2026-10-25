@@ -1375,6 +1375,7 @@ final class ImeLayoutRows {
         Button language = s.keyId(s.keyboardKey(s.japaneseLanguageKeyLabel(), s.japaneseLanguageKeyDescription(),
             s::languageKeyTapped), "SoftLanguage");
         s.bindInputMethodPicker(language);
+        s.japaneseLanguageKey = language;
         addJapaneseSideKey(modeColumn, swapLanguageNumber ? language : s.japaneseSymbolsKey, 1);
         boolean emojiKey = s.japaneseSideEmojiKey();
         if (emojiKey) {
