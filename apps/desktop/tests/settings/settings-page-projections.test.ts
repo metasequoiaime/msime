@@ -131,9 +131,9 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   });
 
   expect(mobile.availablePages.find((page) => page.id === "appearance")?.title).toBe("候选栏");
-  // 底部是 设置 / 社区 / 统计 / 我的：第二格是社区页，「全部设置」已去掉。
+  // 底部是 首页 / 社区 / 统计 / 我的（首页的根页以应用名作标题）：第二格是社区页，「全部设置」已去掉。
   expect(mobile.mobilePrimaryPages.map((page) => [page.id, page.title])).toEqual([
-    ["home", "设置"],
+    ["home", "水杉输入法"],
     ["community", "社区"],
     ["typing-statistics", "统计"],
     ["account", "我的"],
@@ -142,12 +142,12 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   const listed = mobile.mobileSecondaryGroups.flatMap((group) =>
     group.pages.map((page) => page.id),
   );
-  // 社区有自己的标签页，「设置」列表不重复列它；皮肤页回到「设置」列表的「外观」组。
+  // 社区有自己的标签页，「首页」列表不重复列它；皮肤页回到「首页」列表的「外观」组。
   for (const id of ["home", "chat", "community", "typing-statistics", "account", "shortcuts"]) {
     expect(listed).not.toContain(id);
   }
   expect(listed).not.toContain("floating-toolbar");
-  // 有账号页的宿主在「我的」里放了关于和帮助与反馈，「设置」列表不再重复列出。
+  // 有账号页的宿主在「我的」里放了关于和帮助与反馈，「首页」列表不再重复列出。
   expect(listed).not.toContain("about");
   expect(listed).not.toContain("feedback");
   expect(groupIds(mobile.mobileSecondaryGroups)).toEqual([
@@ -230,7 +230,7 @@ test("places the 插件 page in 工具 and drops it where the host does not back
   ).not.toContain("plugins");
 });
 
-// 日文、越南文和藏文版没有手写（版本表 features.handwriting 为 false）：桌面侧栏和手机「设置」列表都不列出手写页，同组的其他页照旧。
+// 日文、越南文和藏文版没有手写（版本表 features.handwriting 为 false）：桌面侧栏和手机「首页」列表都不列出手写页，同组的其他页照旧。
 test("drops the 手写输入 page from an edition without handwriting", () => {
   const desktop = project({ hasHandwriting: false });
   expect(desktop.availablePages.map((page) => page.id)).not.toContain("handwriting");
@@ -252,7 +252,7 @@ test("renames pages to the design's touch titles on mobile only", () => {
   const mobile = project({ mobilePlatform: true });
   const desktop = project();
   for (const [id, touch, registry] of [
-    ["home", "设置", "首页"],
+    ["home", "水杉输入法", "首页"],
     ["skin", "皮肤", "主题"],
     ["expression", "表达", "标点与翻译"],
     ["developer", "开发者选项", "维护与诊断"],
@@ -262,7 +262,7 @@ test("renames pages to the design's touch titles on mobile only", () => {
     expect(title(mobile, id)).toBe(touch);
     expect(title(desktop, id)).toBe(registry);
   }
-  // 「设置」根页的行也用同样的名字。
+  // 「首页」根页的行也用同样的名字。
   const rows = mobile.mobileSecondaryGroups.flatMap((group) => group.pages);
   expect(rows.find((page) => page.id === "expression")?.title).toBe("表达");
   expect(rows.find((page) => page.id === "developer")?.title).toBe("开发者选项");

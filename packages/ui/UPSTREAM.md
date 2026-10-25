@@ -12,7 +12,7 @@ Rules adapted from the upstream settings styles — `styles/sidebar.css`, `style
 
 ## Fluent UI System Icons
 
-`src/core/fluent-icons.tsx` carries path data from Microsoft's Fluent UI System Icons (https://github.com/microsoft/fluentui-system-icons), the 20px Regular variants, as static strings: the icons the HarmonyOS redesign draws on settings rows, the phone tab bar and the 我的 tab. The paths are unchanged copies of the ones in the redesign's icon map, which took them from that repository; no npm package is involved. The one exception is `chat`, the phone tab bar's 对话 tab, which the redesign does not draw: its path is an unchanged copy of `icons/chat_20_regular.svg` from `@fluentui/svg-icons@1.1.344`, the published form of the same repository, copied by hand rather than installed. License: MIT, Copyright (c) 2020 Microsoft Corporation.
+`src/core/fluent-icons.tsx` carries path data from Microsoft's Fluent UI System Icons (https://github.com/microsoft/fluentui-system-icons), the 20px Regular variants, as static strings: the icons the HarmonyOS redesign draws on settings rows, the phone tab bar and the 我的 tab. The paths are unchanged copies of the ones in the redesign's icon map, which took them from that repository; no npm package is involved. The exceptions are `chat` and `home`, the phone tab bar's 对话 and 首页 tabs, which the redesign does not draw: their paths are unchanged copies of `icons/chat_20_regular.svg` and `icons/home_20_regular.svg` from `@fluentui/svg-icons@1.1.344`, the published form of the same repository, copied by hand rather than installed. License: MIT, Copyright (c) 2020 Microsoft Corporation.
 
 ## Layout and shared behaviour
 

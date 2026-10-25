@@ -4,13 +4,13 @@ import { globalThemeTitle } from "../theme/global-theme";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 import { voiceLanguageTitle } from "../voice/voice-language-options";
 
-/** 「设置」根页面可以链接到的页面，以及手机上显示的标题。 */
+/** 「首页」根页面可以链接到的页面，以及手机上显示的标题。 */
 export interface RootPage {
   id: string;
   title: string;
 }
 
-/** 「设置」根页面的一行：它打开的页面、标题、图标，以及（页面有的话）显示在箭头前的当前值。 */
+/** 「首页」根页面的一行：它打开的页面、标题、图标，以及（页面有的话）显示在箭头前的当前值。 */
 export interface RootSettingsRow {
   id: string;
   title: string;
@@ -69,7 +69,7 @@ export function rootPageValue(id: string, preferences: Preferences): string | un
 }
 
 /**
- * 「设置」根页面的分组：设计稿的布局按宿主实际提供的页面过滤，保持原有顺序，布局未列出的已提供页面全部归入最后一组，这样宿主新增的页面永远不会从根页面失去入口。
+ * 「首页」根页面的分组：设计稿的布局按宿主实际提供的页面过滤，保持原有顺序，布局未列出的已提供页面全部归入最后一组，这样宿主新增的页面永远不会从根页面失去入口。
  */
 export function rootSettingsGroups(
   rootPages: readonly RootPage[],

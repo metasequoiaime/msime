@@ -35,7 +35,7 @@ const sendButton =
   "m-0 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 p-0 [background:var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80 disabled:cursor-default disabled:opacity-40";
 
 /**
- * 「设置」根页的子页面「试用键盘」，供自身没有键盘窗口可打开的宿主使用，按 Android 试用页的聊天样式：对话气泡（第一条是水杉的问候）、底部的输入框和圆形发送键，输入框上方一排切换输入法、收起键盘和清空。标题和返回由外壳绘制。
+ * 「首页」根页的子页面「试用键盘」，供自身没有键盘窗口可打开的宿主使用，按 Android 试用页的聊天样式：对话气泡（第一条是水杉的问候）、底部的输入框和圆形发送键，输入框上方一排切换输入法、收起键盘和清空。标题和返回由外壳绘制。
  *
  * 这里的键盘是系统绑定到输入框上的真正输入法。打的字不会被读取或保存；宿主提供 AI 对话时，点发送才把这一条作为 AI 对话发出去，回复显示在对话里。没有 AI 对话的宿主不显示发送键，页面只用来打字。
  */

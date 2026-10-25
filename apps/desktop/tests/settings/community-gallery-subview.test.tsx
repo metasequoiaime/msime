@@ -325,7 +325,7 @@ test("another touch host's 浏览更多词库 switches to the 社区 tab's 词�
 
   window.history.back();
   expect(await screen.findByRole("heading", { level: 1, name: /^(词库|词库管理)$/ })).toBeTruthy();
-  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
+  expect(within(bar).getByRole("button", { name: "首页" }).getAttribute("aria-current")).toBe(
     "page",
   );
 });

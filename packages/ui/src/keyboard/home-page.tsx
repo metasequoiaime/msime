@@ -36,7 +36,7 @@ const quickTitle = "text-[13px] font-semibold";
 const quickNote =
   "m-0 w-full overflow-hidden text-ellipsis whitespace-nowrap max-tight:text-[11px]";
 
-// 快捷方式格子上的图标块。桌面端保留六种浅色，因为在更宽的网格里，颜色是一眼区分格子的方式；触屏首页已经没有格子，它的页面是「设置」根页的行。
+// 快捷方式格子上的图标块。桌面端保留六种浅色，因为在更宽的网格里，颜色是一眼区分格子的方式；触屏首页已经没有格子，它的页面是「首页」根页的行。
 function QuickIcon({ desktopClass, glyph }: { desktopClass: string; glyph: string }) {
   return (
     <span className={`${quickIcon} ${desktopClass}`} aria-hidden="true">
@@ -109,7 +109,7 @@ const searchField =
   "m-0 h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[16px] [color:var(--p-text)] [font-family:inherit] outline-none placeholder:[color:var(--p-sub)] [&::-webkit-search-cancel-button]:hidden";
 
 /**
- * 触屏首页，即「设置」根页（大标题由外壳绘制）：一个搜索胶囊、设置状态卡片，以及分组行形式的各页面。有查询时隐藏卡片和分组，列出标题或当前值包含查询的行，与 Android 的「设置」页一样；Escape 清空查询。
+ * 触屏首页，即「首页」根页（大标题由外壳绘制）：一个搜索胶囊、设置状态卡片，以及分组行形式的各页面。有查询时隐藏卡片和分组，列出标题或当前值包含查询的行，与 Android 的「首页」一样；Escape 清空查询。
  *
  * 「试用键盘」在宿主有对应窗口时打开宿主的键盘，否则打开 AI 对话二级页并弹出键盘，与 Android 和 iOS 一样：试键盘就是在那里打字发给 AI。没有对话的宿主打开子页面「试用键盘」；宿主打开窗口失败时也按同样的顺序回退。
  */

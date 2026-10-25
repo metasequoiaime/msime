@@ -109,7 +109,7 @@ export const pages = [
     title: "隐私",
     icon: settingsIcons.about,
   },
-  // 触屏宿主「设置」根页状态卡片上的「试用键盘」打开的子页面；桌面首页有自己的键盘入口，没有这一页。
+  // 触屏宿主「首页」根页状态卡片上的「试用键盘」打开的子页面；桌面首页有自己的键盘入口，没有这一页。
   {
     id: "try-keyboard",
     title: "试用键盘",
@@ -120,7 +120,7 @@ export const pages = [
 export type SettingsPageId = (typeof pages)[number]["id"];
 
 /**
- * 一级导航的分组：桌面侧栏、手机「设置」列表和旧的分组导出都从这里派生，导航顺序只有这一个来源，`pages` 只登记页面。Windows 原生设置窗口的 `SettingsNavigation.h` 也要与它保持一致：和共享桌面侧栏一样，是这里去掉 `desktopMergedPages` 之后的页面。
+ * 一级导航的分组：桌面侧栏、手机「首页」列表和旧的分组导出都从这里派生，导航顺序只有这一个来源，`pages` 只登记页面。Windows 原生设置窗口的 `SettingsNavigation.h` 也要与它保持一致：和共享桌面侧栏一样，是这里去掉 `desktopMergedPages` 之后的页面。
  *
  * 先排输入设置和其他输入方式，再排外观、工具、数据与支持；桌面侧栏按组折叠，触屏列表沿用同一顺序。
  */

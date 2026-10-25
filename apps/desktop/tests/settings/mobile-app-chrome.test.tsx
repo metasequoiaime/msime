@@ -76,7 +76,7 @@ test("Harmony settings follow the actual phone or 2-in-1 form factor", async () 
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
   // 2-in-1 是没有手机根页面的桌面窗口：侧栏从 输入 开始，也在 输入 打开。
   expect(within(sidebar).queryByRole("button", { name: "首页" })).toBeNull();
-  expect(within(sidebar).queryByRole("button", { name: "设置" })).toBeNull();
+  expect(within(sidebar).queryByRole("button", { name: "首页" })).toBeNull();
   expect(sidebar.querySelector("button")?.textContent).toBe("输入");
   expect(within(sidebar).getByRole("button", { name: "输入" })).toBeTruthy();
   expect(screen.getByRole("heading", { level: 1, name: /^(输入|输入设置)$/ })).toBeTruthy();
@@ -145,7 +145,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(screen.queryByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ })).toBeNull();
   fireEvent.click(
     within(screen.getByRole("navigation", { name: "主要功能" })).getByRole("button", {
-      name: "设置",
+      name: "首页",
     }),
   );
   const phoneSettings = screen.getByRole("region", { name: "首页" });
@@ -171,7 +171,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   await settingsFormReady();
   fireEvent.click(
     within(screen.getByRole("navigation", { name: "主要功能" })).getByRole("button", {
-      name: "设置",
+      name: "首页",
     }),
   );
   fireEvent.click(
@@ -311,7 +311,7 @@ test("the phone home surface hides its duplicate page heading", async () => {
   await settingsFormReady();
 
   // 触屏宿主把根页面叫作 设置，也就是它所在的标签页。
-  const heading = screen.getByRole("heading", { name: "设置" });
+  const heading = screen.getByRole("heading", { name: "水杉输入法" });
   expect(heading.parentElement?.className).toContain("max-phone:sr-only");
 
   cleanup();
@@ -361,7 +361,7 @@ test("the phone navigation leads the content but is seated below it", async () =
   await settingsFormReady();
 
   const primary = screen.getByRole("navigation", { name: "主要功能" });
-  expect(within(primary).getByRole("button", { name: "设置" })).toBeTruthy();
+  expect(within(primary).getByRole("button", { name: "首页" })).toBeTruthy();
 
   const body = primary.parentElement!;
   const content = body.querySelector("#settings-content")!;
@@ -378,7 +378,7 @@ test("the phone navigation leads the content but is seated below it", async () =
   expect(utilities).toContain("android:pb-[env(safe-area-inset-bottom,0px)]");
   expect(utilities).toContain("harmony:min-h-[76px]");
   // Android marks the selected tab with the 64x32 active indicator behind its glyph.
-  const selected = within(primary).getByRole("button", { name: "设置" });
+  const selected = within(primary).getByRole("button", { name: "首页" });
   const indicator = selected.firstElementChild!.className.split(/\s+/);
   expect(indicator).toContain("android:w-16");
   expect(indicator).toContain("android:h-8");
@@ -420,7 +420,7 @@ const allTabs = {
 };
 
 // An iOS host wider than the phone breakpoint is an iPad, which the design lays out as a 320px settings sidebar beside the detail over the same four tabs. jsdom has no `matchMedia`, so the viewport is stubbed as wide for this one render.
-test("a wide iOS host splits the 设置 tab and gives the other tabs the whole width", async () => {
+test("a wide iOS host splits the 首页 tab and gives the other tabs the whole width", async () => {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: (query: string) => ({
@@ -437,7 +437,7 @@ test("a wide iOS host splits the 设置 tab and gives the other tabs the whole w
     await settingsFormReady();
     expect(document.querySelector("[data-platform]")?.getAttribute("data-platform")).toBe("ipad");
     const sidebar = screen.getByRole("navigation", { name: "设置分类" });
-    expect(within(sidebar).getByRole("heading", { level: 2, name: "设置" })).toBeTruthy();
+    expect(within(sidebar).getByRole("heading", { level: 2, name: "水杉输入法" })).toBeTruthy();
     expect(within(sidebar).getByRole("searchbox", { name: "搜索设置" })).toBeTruthy();
     // 标签栏上已经有这些，分栏不再列第二遍；触屏宿主没有「社区」页，侧栏里也没有它。
     for (const name of ["社区", "打字统计", "我的"]) {
@@ -459,7 +459,7 @@ test("a wide iOS host splits the 设置 tab and gives the other tabs the whole w
   }
 });
 
-// A phone page's large title scrolls away with the content, and a compact bar carrying the same name fades in over it. The bar is decorative (the `h1` still names the page) and belongs only to the 设置 tab's titled pages.
+// A phone page's large title scrolls away with the content, and a compact bar carrying the same name fades in over it. The bar is decorative (the `h1` still names the page) and belongs only to the 首页 tab's titled pages.
 test("a phone page collapses its large title into a compact bar once scrolled", async () => {
   renderSettings("android", {}, "input", allTabs);
   await settingsFormReady();
@@ -649,7 +649,7 @@ const shell = () => document.querySelector<HTMLElement>("[data-settings-shell]")
 test("a HarmonyOS phone titles the 设置, 统计 and 我的 roots", async () => {
   renderSettings("harmony", {}, undefined, { typingStatistics, account: {} });
   await settingsFormReady();
-  const root = screen.getByRole("heading", { level: 1, name: "设置" });
+  const root = screen.getByRole("heading", { level: 1, name: "水杉输入法" });
   expect(root.parentElement?.className).not.toContain("max-phone:sr-only");
 
   const bar = screen.getByRole("navigation", { name: "主要功能" });
@@ -715,7 +715,7 @@ test("a HarmonyOS phone page pushed onto a tab has a back button", async () => {
   const back = within(header).getByRole("button", { name: "返回" });
   expect(back.querySelector("svg")?.getAttribute("width")).toBe("22");
   fireEvent.click(back);
-  expect(await screen.findByRole("heading", { level: 1, name: "设置" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "水杉输入法" })).toBeTruthy();
   cleanup();
   window.history.replaceState({}, "");
 
@@ -740,7 +740,7 @@ test("the back button of the page the settings opened on goes up to its tab's ro
   const push = vi.spyOn(window.history, "pushState");
   fireEvent.click(screen.getByRole("button", { name: "返回" }));
   expect(back).not.toHaveBeenCalled();
-  expect(screen.getByRole("heading", { level: 1, name: "设置" })).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 1, name: "水杉输入法" })).toBeTruthy();
   // 根页面替换深链接页面的历史条目，而不是叠在它上面，这样在 设置 上做系统返回手势会直接离开，不会重新打开 词库。
   expect(push).not.toHaveBeenCalled();
   expect(window.history.state).toEqual(expect.objectContaining({ page: "home" }));

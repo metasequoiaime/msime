@@ -111,7 +111,7 @@ export function settingsPageProjections({
             : item.title,
     }));
 
-  // 触屏的「设置」列表（和 iPad 侧栏）不列底部标签页自己的根页：社区、统计、我的已经各占一格。桌面和 2in1 的侧栏不经过这条过滤。
+  // 触屏的「首页」列表（和 iPad 侧栏）不列底部标签页自己的根页：社区、统计、我的已经各占一格。桌面和 2in1 的侧栏不经过这条过滤。
   const mobileListedPage = (id: SettingsPageId): boolean =>
     ((id !== "about" && id !== "feedback") || !hasAccount) &&
     !mobilePrimaryPageIds.includes(id as MobilePrimaryPageId) &&

@@ -69,7 +69,7 @@ test("a mobile host's 浏览更多皮肤 switches to the 社区 tab", async () =
 
   window.history.back();
   expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
-  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
+  expect(within(bar).getByRole("button", { name: "首页" }).getAttribute("aria-current")).toBe(
     "page",
   );
 });
