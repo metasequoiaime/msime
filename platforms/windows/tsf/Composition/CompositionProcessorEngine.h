@@ -56,7 +56,7 @@ class CCompositionProcessorEngine
         return _hostEngineAdapter.get();
     }
     bool InitializeHostSession(const std::string &options, std::string *error);
-    // 词库维护：设置窗口或 msime-mcp 在 user_data 下写着租约时放开宿主会话（它以共享方式持有词库锁，Server 的 DictionaryQuiesce 放不开它），租约撤掉后重建（HostSessionMaintenance.h）。`composing` 为真时不放开。返回是否重建了会话：重建的会话不知道焦点，调用方要重新告诉它。
+    // 词库维护：设置窗口或 msime-mcp 在 user_data 下写着租约时放开宿主会话（它以共享方式持有词库锁，Server 的 DictionaryQuiesce 放不开它），租约撤掉后重建（HostSessionMaintenance.h）。`composing` 为真时既不放开也不重建。返回是否重建了会话：重建的会话不知道焦点，调用方要重新告诉它。
     bool RefreshHostSessionForDictionaryMaintenance(bool composing);
     void RemoveVirtualKey(DWORD_PTR dwIndex);
     BOOL RemoveVirtualKeyBeforeCaret();

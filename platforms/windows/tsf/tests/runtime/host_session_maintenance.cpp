@@ -19,9 +19,9 @@ int main() {
   expect(host_session_maintenance_step(true, false, true, false) == Step::Keep);
   expect(host_session_maintenance_step(true, false, false, false) == Step::Keep);
 
-  // 租约撤掉：为维护放开的会话重建，组字与否都一样（会话不在，没有组合可丢）。
+  // 租约撤掉：为维护放开的会话重建；会话不在时组合在旧组字流程里，正在组字时等这次组合结束，不在组字途中换成空的宿主会话。
   expect(host_session_maintenance_step(false, false, true, false) == Step::Restore);
-  expect(host_session_maintenance_step(false, false, true, true) == Step::Restore);
+  expect(host_session_maintenance_step(false, false, true, true) == Step::Keep);
   // 不是为维护放开的会话（建不起来、没有宿主选项）不在这里一轮一轮地重建；开着的会话不动。
   expect(host_session_maintenance_step(false, false, false, false) == Step::Keep);
   expect(host_session_maintenance_step(false, true, false, false) == Step::Keep);
