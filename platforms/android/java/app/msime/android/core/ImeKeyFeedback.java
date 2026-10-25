@@ -21,7 +21,7 @@ import org.json.JSONObject;
 /**
  * 按键反馈（P23）：按键音、振动与按键动画。
  *
- * <p>按键音开关仍是 Android 本地的 `KeyboardFeedbackStore`；声音包取共享偏好 `plugins.key_sound.pack`，音量取 `plugins.key_sound.volume`（0–100）。包是 `default`（或没选）时沿用系统的 `FX_KEYPRESS_STANDARD`；其他包经 `NativeClient.keySoundPack` 取到校验过的样本路径，用 `SoundPool` 按键类（其他键 / 空格 / 回车 / 退格）播放，密码框里不播。按键动画按 `touch_key_animation` 由 {@link KeyPressAnimator} 播放，`none` 保持原来的按压态。
+ * <p>按键音开关仍是 Android 本地的 `KeyboardFeedbackStore`；声音包取共享偏好 `plugins.key_sound.pack`，音量取 `plugins.key_sound.volume`（0–100）。包（没选时是 `default`，即随包内置的「清脆键盘」）经 `NativeClient.keySoundPack` 取到校验过的样本路径，用 `SoundPool` 按键类（其他键 / 空格 / 回车 / 退格）播放；密码框里 `default` 包一律播普通键的声音，其他包不播。样本还没加载好或加载失败时退回系统的 `FX_KEYPRESS_STANDARD`；系统关掉触摸提示音时会卸载这些音效，部分厂商系统也会屏蔽它，所以它只能兜底，不能当默认声音用。按键动画按 `touch_key_animation` 由 {@link KeyPressAnimator} 播放，`none` 保持原来的按压态。
  */
 final class ImeKeyFeedback {
     /** 按键类别：普通字符键。 */
@@ -41,7 +41,7 @@ final class ImeKeyFeedback {
     private String packId = "default";
     private float volume = 1f;
     private KeyPressAnimator.Style animation = KeyPressAnimator.Style.NONE;
-    /** 当前声音包加载出的样本；没有（default 包、加载中或失败）时为 null，此时用系统按键音。 */
+    /** 当前声音包加载出的样本；没有（加载中或失败）时为 null，此时用系统按键音。 */
     private volatile PackSounds sounds;
     private String loadingPack = "";
     /** 原按钮 → 键面替身，见 {@link #stageFace}。 */
@@ -142,13 +142,12 @@ final class ImeKeyFeedback {
         animation = KeyPressAnimator.Style.fromPreference(
             s.localSettings.choice(AndroidLocalSettings.KEY_ANIMATION));
         PackSounds loaded = sounds;
-        if ("default".equals(packId)) {
-            if (loaded != null) release(loaded);
-            sounds = null;
-            loadingPack = "";
-        } else if ((loaded == null || !loaded.id().equals(packId)) && !packId.equals(loadingPack)) {
-            load(packId);
-        }
+        if ((loaded == null || !loaded.id().equals(packId)) && !packId.equals(loadingPack)) load(packId);
+    }
+
+    /** 键盘开始显示时调用：让声音包在第一下按键前就开始加载。 */
+    void prepare() {
+        refreshPreferences();
     }
 
     private void feedback(View source, int keyClass) {
@@ -169,17 +168,18 @@ final class ImeKeyFeedback {
 
     private void playSound(int keyClass) {
         PackSounds loaded = sounds;
-        if (!"default".equals(packId) && loaded != null && loaded.id().equals(packId)) {
-            // 密码框里不播声音包：不同键的不同声音会泄露按了哪些键。
-            if (EditorPolicy.password(s.editorInputType)) return;
-            int sample = loaded.sample(keyClass);
+        if (loaded != null && loaded.id().equals(packId)) {
+            // 密码框里不同键的不同声音会泄露按了哪些键：默认包统一播普通键的声音，其他包不播。
+            boolean password = EditorPolicy.password(s.editorInputType);
+            if (password && !"default".equals(packId)) return;
+            int sample = loaded.sample(password ? KEY_STANDARD : keyClass);
             if (sample != 0) {
                 loaded.pool().play(sample, volume, volume, 1, 0, 1f);
                 return;
             }
         }
         AudioManager audio = (AudioManager) s.getSystemService(Context.AUDIO_SERVICE);
-        // 应用有独立按键音开关和音量，使用对应接口，避免受系统触摸音效开关限制。
+        // 声音包还没加载好时的兜底。应用有独立按键音开关和音量，使用对应接口，避免受系统触摸音效开关限制。
         if (audio != null) audio.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, volume);
     }
 

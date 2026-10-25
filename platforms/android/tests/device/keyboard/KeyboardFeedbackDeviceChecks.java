@@ -129,27 +129,27 @@ final class KeyboardFeedbackDeviceChecks {
         }
     }
 
-    /** 系统音效关闭时，直接观察 Android 音频服务是否收到播放，不依靠听模拟器声音。 */
+    /**
+     * 关掉系统触摸提示音并卸载系统音效（系统设置页关掉开关时就是这样做的），这时系统按键音一声不响；默认的「清脆键盘」包要由本进程自己的 SoundPool 播出来。直接观察 Android 音频服务的播放记录，不依靠听模拟器声音。新版系统只在播放器状态变化时记一笔，同一个 SoundPool 第二次播放不再留下记录，所以这里只断言第一次。
+     */
     private void checkSound() throws Exception {
         String beforeSetting = shell("settings get system sound_effects_enabled").trim();
+        android.media.AudioManager audio = (android.media.AudioManager)
+            test.getTargetContext().getSystemService(Context.AUDIO_SERVICE);
         try {
             test.shellDiscard("settings put system sound_effects_enabled 0");
-            onMain(() -> {
-                android.media.AudioManager audio = (android.media.AudioManager)
-                    test.getTargetContext().getSystemService(Context.AUDIO_SERVICE);
-                audio.loadSoundEffects();
-            });
-            SystemClock.sleep(800);
-            String before = lastPlayback();
-            test.stage = "enabled app key sound plays when system touch effects are disabled";
+            onMain(audio::unloadSoundEffects);
+            test.stage = "default key sound pack loads";
             playSound(true);
             long until = SystemClock.uptimeMillis() + 5000;
-            String after;
-            do { SystemClock.sleep(150); after = lastPlayback(); }
-            while (before.equals(after) && SystemClock.uptimeMillis() < until);
-            if (before.equals(after)) throw new AssertionError("Application key sound produced no system playback");
+            while (!defaultPackLoaded() && SystemClock.uptimeMillis() < until) SystemClock.sleep(150);
+            if (!defaultPackLoaded()) throw new AssertionError("Default key sound pack did not load");
+            // SoundPool 解码样本是异步的，留出时间再播。
+            SystemClock.sleep(800);
+            test.stage = "default key sound plays from the app when system effects are unloaded";
+            expectOwnPlayback(true);
             SystemClock.sleep(500);
-            before = lastPlayback();
+            String before = lastPlayback();
             test.stage = "disabled app key sound produces no playback";
             playSound(false);
             SystemClock.sleep(700);
@@ -157,7 +157,26 @@ final class KeyboardFeedbackDeviceChecks {
         } finally {
             test.shellDiscard("null".equals(beforeSetting) ? "settings delete system sound_effects_enabled"
                 : "settings put system sound_effects_enabled " + ("1".equals(beforeSetting) ? "1" : "0"));
+            if (!"0".equals(beforeSetting)) onMain(audio::loadSoundEffects);
         }
+    }
+
+    private void expectOwnPlayback(boolean enabled) throws Exception {
+        int before = ownStarts();
+        playSound(enabled);
+        long until = SystemClock.uptimeMillis() + 3000;
+        while (ownStarts() == before && SystemClock.uptimeMillis() < until) SystemClock.sleep(150);
+        if (ownStarts() == before) throw new AssertionError("Key sound produced no playback from the app's SoundPool");
+    }
+
+    private boolean defaultPackLoaded() throws Exception {
+        boolean[] loaded = {false};
+        onMain(() -> {
+            Object player = field(type, "imeKeyFeedback").get(service);
+            Object sounds = field(player.getClass(), "sounds").get(player);
+            loaded[0] = sounds != null && "default".equals(method(sounds.getClass(), "id").invoke(sounds));
+        });
+        return loaded[0];
     }
 
     private void playSound(boolean enabled) throws Exception {
@@ -173,8 +192,38 @@ final class KeyboardFeedbackDeviceChecks {
     private String lastPlayback() throws Exception {
         String last = "";
         for (String line : shell("dumpsys audio").split("\n"))
-            if (line.contains("player piid:") && line.contains("state:started")) last = line.trim();
+            if (line.contains("player piid:") && started(line)) last = line.trim();
         return last;
+    }
+
+    /** API 28 把开始播放记成 `state:started`，新版记成 `event:started`。 */
+    private static boolean started(String line) {
+        return line.contains("state:started") || line.contains("event:started");
+    }
+
+    /** 本进程的 SoundPool 播放器在音频服务里记下的开始播放次数；系统按键音的 SoundPool 属于 system_server，不计在内。播放器列表各版本格式不同，按同一行里的 `piid`、SoundPool 类型和本进程的 uid/pid 认。 */
+    private int ownStarts() throws Exception {
+        String[] lines = shell("dumpsys audio").split("\n");
+        String owner = "/pid:" + android.os.Process.myUid() + "/" + android.os.Process.myPid() + " ";
+        java.util.Set<String> players = new java.util.HashSet<>();
+        for (String line : lines) {
+            if (!line.contains("android.media.SoundPool") || !line.contains(owner)) continue;
+            String piid = idAfter(line, "piid:");
+            if (piid == null) piid = idAfter(line, "ID:");
+            if (piid != null) players.add(piid);
+        }
+        int starts = 0;
+        for (String line : lines)
+            if (line.contains("player piid:") && started(line) && players.contains(idAfter(line, "player piid:"))) starts++;
+        return starts;
+    }
+
+    private static String idAfter(String line, String label) {
+        int at = line.indexOf(label);
+        if (at < 0) return null;
+        int from = at + label.length(), to = from;
+        while (to < line.length() && Character.isDigit(line.charAt(to))) to++;
+        return to > from ? line.substring(from, to) : null;
     }
 
     private String shell(String command) throws Exception {

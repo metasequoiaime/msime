@@ -26,7 +26,7 @@ public final class OptionSheetDeviceSmoke extends DeviceSmoke {
 
     @Override protected String successDescription() {
         return keyFeedback == null ? "animation selection follows saved value and option sheet footer stays above system navigation"
-            : "sound-only".equals(keyFeedback) ? "app key sound follows its switch independently of system touch effects"
+            : "sound-only".equals(keyFeedback) ? "default key sound pack plays from the app even with system sound effects unloaded"
             : "nine-key preview lifecycle and immediate feedback preferences";
     }
 

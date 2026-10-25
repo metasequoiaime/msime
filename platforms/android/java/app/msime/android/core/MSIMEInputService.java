@@ -1763,6 +1763,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
         refreshLocalSettings();
+        imeKeyFeedback.prepare();
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         if (inlineAutofill != null) inlineAutofill.showInput();
         Telemetry.inputViewShown(this);
