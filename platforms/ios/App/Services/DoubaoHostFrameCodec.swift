@@ -74,7 +74,7 @@ enum DoubaoHostFrameCodec {
     return output
   }
 
-  private static func decodeFrame(_ frame: Data) -> (isFinal: Bool, text: String?)? {
+  static func decodeFrame(_ frame: Data) throws -> (isFinal: Bool, text: String?)? {
     let raw: UnsafeMutablePointer<CChar>? = frame.withUnsafeBytes { bytes in
       msimeClientDoubaoDecodeFrame(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(frame.count))
     }
@@ -86,6 +86,8 @@ enum DoubaoHostFrameCodec {
     guard let ok = envelope["ok"] as? Bool, ok,
           let value = envelope["value"] as? [String: Any]
     else { return (true, nil) }
+    // 错误帧不是「没识别出文字」：把它当成空的最终结果，会让「测试连接」把服务端报错说成连接成功。
+    if let code = value["error_code"] as? NSNumber { throw DoubaoVoiceCoordinator.Failure.service(code: code.int64Value) }
     if value["error_code"] != nil { return (true, nil) }
     guard let isFinal = strictFinal(in: value) else { return (true, nil) }
     guard let payload = value["payload"] as? String,

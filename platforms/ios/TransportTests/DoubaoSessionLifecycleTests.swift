@@ -39,6 +39,38 @@ final class DoubaoSessionLifecycleTests: XCTestCase {
     XCTAssertEqual(reply, frame)
   }
 
+  /// 豆包对无效密钥在握手时回 HTTP 401 和 `{"error":"Invalid X-Api-Key"}`。系统只报笼统的 -1011，状态码要从 `task.response` 取，正文不读。
+  func testRejectedHandshakeReportsItsStatusWithoutTheBody() async throws {
+    for status in [401, 503] {
+      let listener = try NWListener(using: .tcp, on: .any)
+      let queue = DispatchQueue(label: "app.msime.tests.rejected-handshake")
+      listener.newConnectionHandler = { connection in
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
+          let body = #"{"error":"synthetic-diagnostic"}"#
+          let reply = "HTTP/1.1 \(status) Rejected\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+          connection.send(content: Data(reply.utf8), completion: .contentProcessed { _ in connection.cancel() })
+        }
+      }
+      let ready = expectation(description: "listener ready")
+      listener.stateUpdateHandler = { state in
+        if case .ready = state { listener.stateUpdateHandler = nil; ready.fulfill() }
+      }
+      listener.start(queue: queue)
+      await fulfillment(of: [ready], timeout: 5)
+      defer { listener.cancel() }
+      let port = try XCTUnwrap(listener.port).rawValue
+      let transport = DoubaoWebSocketTransport()
+      do {
+        try await transport.start(endpoint: XCTUnwrap(URL(string: "ws://127.0.0.1:\(port)/asr")))
+        XCTFail("rejected handshake was accepted")
+      } catch DoubaoWebSocketTransport.Failure.rejected(let reported) {
+        XCTAssertEqual(reported, status)
+      }
+      XCTAssertFalse(transport.isConnected)
+    }
+  }
+
   private func checkRemoteClose(_ code: NWProtocolWebSocket.CloseCode,
                                cleanup: (DoubaoWebSocketTransport) -> Void) async throws {
     let server = try await makeLoopbackServer()

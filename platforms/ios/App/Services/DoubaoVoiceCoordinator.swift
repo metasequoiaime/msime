@@ -12,9 +12,14 @@ protocol DoubaoVoiceTransport: AnyObject {
 final class DoubaoVoiceCoordinator {
   static let pcmChunkBytes = 6400
   static let maximumResponseFrameBytes = 1_048_576
-  enum Failure: Error { case responseTooLarge }
+  enum Failure: Error {
+    case responseTooLarge
+    /// 豆包发来的错误帧，只带它的数字错误码；错误帧后面的文字不解析。
+    case service(code: Int64)
+  }
   typealias ApplyText = (_ text: String, _ generation: UInt64) -> Void
-  typealias DecodeFrame = (_ frame: Data) -> (isFinal: Bool, text: String?)?
+  /// 返回 nil 的帧被跳过；错误帧由编解码器抛出 `Failure.service`。
+  typealias DecodeFrame = (_ frame: Data) throws -> (isFinal: Bool, text: String?)?
   typealias AudioFrameBuilder = (_ sequence: Int32, _ pcm: Data, _ final: Bool) -> Data
 
   struct FrameCodec {
@@ -136,7 +141,7 @@ final class DoubaoVoiceCoordinator {
     while true {
       let frame = try await transport.receive()
       guard frame.count <= Self.maximumResponseFrameBytes else { throw Failure.responseTooLarge }
-      guard let response = decode(frame) else { continue }
+      guard let response = try decode(frame) else { continue }
       if let text = response.text, !text.isEmpty { applyText(text, generation) }
       if response.isFinal { return }
     }
@@ -189,5 +194,45 @@ final class DoubaoVoiceClient: @unchecked Sendable {
                                   generation: generation, pcm: pcm, codec: codec)
     guard !result.isEmpty else { throw Failure.emptyTranscript }
     return result
+  }
+}
+
+/// 豆包握手被拒和错误帧的一句话，与共享 Rust 的 `credential::doubao::failure_message` 逐字相同：带上 HTTP 状态码或数字错误码，不带服务端正文。设置页的「测试连接」和听写失败都用它。
+enum DoubaoFailureMessage {
+  static func rejected(status: Int) -> String {
+    switch status {
+    case 401: return "豆包认证失败（HTTP 401），请确认密钥来自豆包语音控制台，且鉴权方式与之对应。"
+    case 403: return "豆包拒绝访问（HTTP 403），请检查密钥的权限，以及资源 ID 对应的服务是否已开通。"
+    case 429: return "豆包限流或额度不足（HTTP 429），请稍后重试或检查资源用量。"
+    case 500...599: return "豆包服务暂时不可用（HTTP \(status)），请稍后重试。"
+    default: return "豆包拒绝了连接（HTTP \(status)），请检查接口地址和资源 ID。"
+    }
+  }
+
+  /// 《大模型流式语音识别 API》的错误码表：450xxxxx 是请求本身的问题，550xxxxx 是服务内部错误（55000031 是服务过载），后者改配置没有用。
+  static func service(code: Int64) -> String {
+    if (55_000_000...55_099_999).contains(code) { return "豆包服务暂时不可用（错误码 \(code)），请稍后重试。" }
+    return "豆包返回错误码 \(code)，请检查资源 ID 和识别选项。"
+  }
+
+  static let connection = "无法连接豆包或连接中断，请检查接口地址和网络。"
+  static let timeout = "豆包测试超时，请检查网络后重试。"
+}
+
+extension DoubaoVoiceCoordinator.Failure: LocalizedError {
+  var errorDescription: String? {
+    switch self {
+    case .responseTooLarge: return nil
+    case .service(let code): return DoubaoFailureMessage.service(code: code)
+    }
+  }
+}
+
+extension DoubaoWebSocketTransport.Failure: LocalizedError {
+  var errorDescription: String? {
+    switch self {
+    case .rejected(let status): return DoubaoFailureMessage.rejected(status: status)
+    case .notConnected, .closed: return nil
+    }
   }
 }

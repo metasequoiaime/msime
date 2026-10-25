@@ -10,8 +10,9 @@ Status: implemented
 
 ## Decision
 
-- `credential::probe::rejected_status_message(status, other)` 是 HTTP 测试被拒时的唯一文案来源：401 / 403 是认证失败，402 是账户余额不足、去服务商控制台充值，429 是限流或额度不足，5xx 是服务暂时不可用、稍后重试，其余状态用调用方给的建议。每句都带上「（HTTP N）」，从不带服务端正文。对话探测 `test_chat`（AI 辅助、语音润色）和整句识别探测 `credential::asr::test` 都走它。
-- 豆包探测的 `Transport::probe` 返回 `Result<(), Failure>`。`Failure` 只有五类：`Rejected(u16)` 是握手没升级成 WebSocket 时的 HTTP 状态码（从 tungstenite 的 `Error::Http` 取，正文不读），`Service(Option<i64>)` 是连上后的服务端错误（错误帧带它的数字错误码，例如 45000001 请求参数无效；或结果 JSON 里的非零 `code`、非空 `error`），`Connection`、`Timeout`、`InvalidResponse`。设置页按类说出该改哪一项：401 让用户确认密钥来自豆包语音控制台、鉴权方式与之对应，403 让用户检查权限和资源 ID 对应的服务是否开通，错误码原样给出。错误帧后面的 UTF-8 错误文字和握手响应的正文仍然不解析、不转发。
+- `credential::probe::rejected_status_message(status, other)` 是 HTTP 测试被拒时的唯一文案来源：401 / 403 是认证失败，402 是账户余额不足、去服务商控制台充值，429 是限流或额度不足，5xx 是服务暂时不可用、稍后重试，并提醒一直如此时确认服务支持所填的模型，其余状态用调用方给的建议。5xx 不能只说「稍后重试」：one-api 的 `middleware/distributor.go` 对「当前分组下对于模型 xxx 无可用渠道」回 503，填了中转没有的模型名的用户会照着提示一直重试。每句都带上「（HTTP N）」，从不带服务端正文。对话探测 `test_chat`（AI 辅助、语音润色）和整句识别探测 `credential::asr::test` 都走它。
+- 豆包探测的 `Transport::probe` 返回 `Result<(), Failure>`。`Failure` 只有五类：`Rejected(u16)` 是握手没升级成 WebSocket 时的 HTTP 状态码（从 tungstenite 的 `Error::Http` 取，正文不读），`Service(Option<i64>)` 是连上后的服务端错误（错误帧带它的数字错误码，例如 45000001 请求参数无效；或结果 JSON 里的非零 `code`、非空 `error`），`Connection`、`Timeout`、`InvalidResponse`。设置页按类说出该改哪一项：401 让用户确认密钥来自豆包语音控制台、鉴权方式与之对应，403 让用户检查权限和资源 ID 对应的服务是否开通，握手 5xx 和《大模型流式语音识别 API》错误码表里的 550xxxxx（服务内部处理错误，55000031 是服务器繁忙）说服务暂时不可用、稍后重试，其余错误码（450xxxxx 是参数无效、空音频、音频格式这类请求问题）原样给出并让用户检查资源 ID 和识别选项。错误帧后面的 UTF-8 错误文字和握手响应的正文仍然不解析、不转发。
+- iOS 的「测试连接」不走共享 Rust：`CustomServiceClient.test` 自己发请求，只要 2xx。HTTP 被拒的文案改由 `CustomService.swift` 里的 `CredentialStatusPolicy` 给出，豆包的由 `DoubaoVoiceCoordinator.swift` 里的 `DoubaoFailureMessage` 给出，都与共享 Rust 逐字相同。豆包握手被拒时 `URLSessionWebSocketTask` 只报笼统的 -1011，状态码留在 `task.response` 上，`DoubaoWebSocketTransport` 从那里取出抛 `rejected(status:)`。iOS 的帧解码以前把错误帧当成没有文字的最终结果，测试遇到 45000001 之类的错误帧反而报连接成功；现在 `DoubaoHostFrameCodec.decodeFrame` 对带数字错误码的错误帧抛 `DoubaoVoiceCoordinator.Failure.service(code:)`，听写遇到错误帧也说出错误码，不再是「豆包未返回可用的语音文本」。
 - HarmonyOS 的设置页自己发对话和整句识别的测试请求（`pages/Settings.ets`），文案改由 `keyboard/settings/CredentialStatusPolicy.ts` 给出，与共享 Rust 逐字相同。HarmonyOS 的豆包测试走 `@ohos.net.webSocket`，`connect` 只回布尔值，拿不到握手状态码，这一项没有跟进。
 
 ## 历史笔记审计
@@ -28,11 +29,12 @@ Status: implemented
 
 ## Consequences
 
-用户看到的失败提示从「检查接口地址和模型」变成能对上原因的一句话，带状态码也方便在 issue 里报告；代价是文案多了几种，HarmonyOS 有一份 TS 副本需要和 Rust 同步，豆包在 HarmonyOS 上仍是笼统的一句。没有改变任何请求的内容和判定成功的条件，原来通过的测试仍然通过。
+用户看到的失败提示从「检查接口地址和模型」变成能对上原因的一句话，带状态码也方便在 issue 里报告；代价是文案多了几种，HarmonyOS 有一份 TS 副本、iOS 有一份 Swift 副本需要和 Rust 同步，豆包在 HarmonyOS 上仍是笼统的一句。iOS 豆包测试仍只要握手成功、收到最终帧，不像 Rust 那样检查结果 JSON 里的非零 `code`。没有改变任何请求的内容和判定成功的条件，原来通过的测试仍然通过。
 
 ## Verification
 
 - `rbuild cargo test --locked -p msime-client-providers --lib credential`：45 项通过，新增 `credential_chat_names_balance_and_server_failures_with_their_status`（402、5xx 不再提接口地址）、`rejected_handshake_reports_its_status_without_the_body`（本机假服务回 401 和 JSON 正文，探测得到 `Rejected(401)`）、`each_failure_names_its_cause_and_never_echoes_input`，原有的握手不跟随重定向、帧序列、超时测试改为断言具体的失败类别。把 `test_chat` 的状态分支临时换回旧写法，新测试在 402 处失败。
 - `rbuild cargo clippy --locked -p msime-client-providers --all-targets -- -D warnings` 通过。
 - HarmonyOS：`tsc --project platforms/harmony/tests/tsconfig.json` 编译通过，`credential-status.test.js` 8 项断言通过；`Settings.ets` 未在本机做 ArkTS 构建，交给 CI。
+- iOS：`MSIMEDoubaoTransportTests` 新增 `testRejectedHandshakeReportsItsStatusWithoutTheBody`（本机 TCP 服务回 401、503 和 JSON 正文，传输层得到 `rejected(status:)`）；`MSIMEServiceTests` 新增按状态码给提示和豆包握手被拒、错误帧、超时的用例。
 - 用伪造密钥直连两家服务确认文档描述的形状：豆包握手回 HTTP 401、`{"error":"Invalid X-Api-Key"}`；DeepSeek 回 HTTP 401、`authentication_error`。没有真实密钥，余额不足和豆包资源未开通的真实响应没有验证。

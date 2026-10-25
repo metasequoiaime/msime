@@ -34,7 +34,11 @@ struct DoubaoHandshake {
 
 /// iOS 宿主侧的 WebSocket 生命周期，供注入的 client-providers 语音传输使用。
 final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, DoubaoVoiceTransport {
-  enum Failure: Error { case notConnected, closed }
+  enum Failure: Error {
+    case notConnected, closed
+    /// 握手没有升级成 WebSocket，服务端回了这个 HTTP 状态码（密钥无效是 401）。
+    case rejected(status: Int)
+  }
 
   private struct Connection {
     let session: URLSession
@@ -93,10 +97,13 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
       }
       guard stillCurrent else { throw Failure.closed }
     } catch {
+      // 握手没升级时，系统把服务端的 HTTP 响应留在 `task.response` 上（错误本身只是笼统的 -1011）。只取状态码，正文不读。
+      let status = (task.response as? HTTPURLResponse)?.statusCode
       // 握手失败只移除自己的登记，不能清除已经开始的替代连接。
       _ = detachConnection(matching: task)
       task.cancel(with: .goingAway, reason: nil)
       session.invalidateAndCancel()
+      if !Task.isCancelled, let status, status != 101 { throw Failure.rejected(status: status) }
       throw error
     }
   }
