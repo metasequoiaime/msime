@@ -346,12 +346,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if inputScheme.shuangpinProfile != nil && oldValue != shuangpinLayout { applyReadingRowPlacement() }
     }
   }
-  /// `scheme` 在本控制器已应用的双拼布局下画哪种字母网格（14 键或 18 键）；26 键字母和其他键区为 nil。
+  /// 当前控制器实际应用的五笔布局，理由同 `shuangpinLayout`。
+  private var wubiLayout: TouchWubiLayoutPreference.Layout = .twentySixKey {
+    didSet {
+      if inputScheme == .wubi && oldValue != wubiLayout { applyReadingRowPlacement() }
+    }
+  }
+  /// `scheme` 在本控制器已应用的双拼、五笔布局下画哪种字母网格（14 键或 18 键）；26 键字母和其他键区为 nil。
   private func letterGrid(for scheme: ChineseInputScheme) -> LetterKeyGrid? {
-    LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout)
+    LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
   }
   private var letterGrid: LetterKeyGrid? { letterGrid(for: inputScheme) }
-  /// 当前方案画字母网格：全拼或双拼的 14 键、18 键。
+  /// 当前方案画字母网格：全拼或双拼的 14 键、18 键，或五笔 14 键。
   private var usesLetterGrid: Bool { letterGrid != nil }
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
   // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
@@ -455,6 +461,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCaretSpelling: String?
   /// The spelling the caret can be moved through and where the caret sits in it, while one is being composed; nil for a Japanese reading, whose conversion owns the caret keys.
   private var editableSpelling: (text: String, caret: Int)?
+  /// 五笔 14 键正在组字时引擎的组码（`editing_text`，每一位是一键的代表字母）；其他情况为空。
+  private var visibleWubiGridKeys = ""
   /// Whether the current space-bar drag moves the caret inside the composition rather than in the document.
   private var spaceDragEditsComposition = false
   /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
@@ -739,7 +747,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 方案以共享文档为准。会话在本控制器创建时已经同步读过一次文档，先把其中记的方案抄进 App Group 镜像再按镜像行事，不额外读盘；否则在 `viewWillAppear` 的后台重载回来之前，键盘会先按镜像里的旧方案（比如双拼）画出来并开始接收按键。
     InputSchemePreference.mirror(session.sharedPreferences)
     TouchShuangpinLayoutPreference.mirror(session.sharedPreferences)
+    TouchWubiLayoutPreference.mirror(session.sharedPreferences)
     shuangpinLayout = TouchShuangpinLayoutPreference.layout
+    wubiLayout = TouchWubiLayoutPreference.layout
     inputScheme = InputSchemePreference.scheme
     isChineseMode = ImeModeMemoryPreference.startsInChinese(fallback: Self.startsInChinese(session.sharedPreferences))
     appliedCharacterWidth = CharacterWidthPreference.value(in: session.sharedPreferences)
@@ -2683,23 +2693,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.gridKey(key.code))
   }
 
-  /// 14 键和 18 键第三排的分词键，照搬九键的 1 键：组字时送 `'`，在已打的组码末尾定一个音节分界，只定在哪里断、不定是哪个拼音；空闲时打开符号面板。
+  /// 14 键和 18 键第三排的分词键，照搬九键的 1 键：组字时送 `'`，在已打的组码末尾定一个音节分界，只定在哪里断、不定是哪个拼音；空闲时打开符号面板。五笔 14 键没有音节可分，引擎也不收 `'`，这个键总是打开符号面板。
   private func handleFourteenKeySeparator() {
     // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、鸿蒙的 14 键相同。
     countKeyPress(TypingKeyID.symbol)
-    if hasComposition {
+    if separatorSplitsSyllables {
       handleCharacter("'")
     } else {
       showSymbolPanel()
     }
   }
 
+  /// 第三排左端键此刻是不是「分词」：拼音的字母网格正在组字时是，空闲时和五笔 14 键是「符」。
+  private var separatorSplitsSyllables: Bool { hasComposition && !typesWubiGrid }
+
   /// 分词键的键面跟着组字状态在「符」和「分词」之间换，render 时调用。
   private func updateFourteenKeySeparator() {
-    let face = hasComposition ? "分词" : "符"
+    let splits = separatorSplitsSyllables
+    let face = splits ? "分词" : "符"
     for button in letterGridSeparatorButtons {
       if button.configuration?.title != face { button.configuration?.title = face }
-      button.accessibilityLabel = hasComposition ? "拼音分词" : "符号"
+      button.accessibilityLabel = splits ? "拼音分词" : "符号"
     }
   }
 
@@ -2733,8 +2747,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 中文模式的全拼或双拼 14 键、18 键把触摸交给引擎网格；英文模式和本地输入模式画 26 键字母。
+  /// 中文模式的全拼或双拼 14 键、18 键和五笔 14 键把触摸交给引擎网格；英文模式和本地输入模式画 26 键字母。
   private var typesLetterGrid: Bool { isChineseMode && usesLetterGrid && !isInLocalMode }
+
+  /// 五笔 14 键：组码由五笔方案按组展开码表，没有拼音选择，候选照五笔展开；组码字母（`editing_text`）不显示。
+  private var typesWubiGrid: Bool { typesLetterGrid && inputScheme == .wubi }
 
   /// 18 键双拼：两个字母的键可以横滑选字母。全拼 18 键只点按，与 Android 相同。
   private var typesEighteenKeyShuangpin: Bool { typesLetterGrid && letterGrid == .eighteenKey && usesShuangpin }
@@ -4594,7 +4611,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .fourteenKey: session.switchToFourteenKey()
     case .eighteenKey: session.switchToEighteenKey()
     case .ziranma, .microsoft, .shoudao: switchShuangpinLayout(profile: inputScheme.rawValue)
-    case .wubi: session.switchToWubi()
+    case .wubi: letterGrid == .fourteenKey ? session.switchToFourteenKeyWubi() : session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .korean: session.switchToKorean()
     case .cantonese: session.switchToCantonese()
@@ -5026,6 +5043,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func synchronizeSharedTouchPreferences() -> Bool {
     guard let preferences = session.sharedPreferences else { return false }
     TouchShuangpinLayoutPreference.mirror(preferences)
+    TouchWubiLayoutPreference.mirror(preferences)
     let previousTranslationSettings = InputHabitPreference.mirrored
     // The Tauri host stores learning and frequency settings in the canonical
     // PreferencesStore. Keep the legacy App Group values in sync because the
@@ -5126,13 +5144,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return translationSettingsChanged
   }
 
-  /// 组字结束后再切布局，与 Host API 延迟应用设置的时机一致；相同方案的 26/14 切换也要重画。
+  /// 组字结束后再切布局，与 Host API 延迟应用设置的时机一致；相同方案的 26/14 切换也要重画。双拼和五笔的布局各自保存，只有当前方案的网格变了才重新切会话。
   private func synchronizeShuangpinLayoutPreference() {
     guard !hasComposition, let preferences = session.sharedPreferences else { return }
-    let next = TouchShuangpinLayoutPreference.layout(in: preferences)
-    guard next != shuangpinLayout else { return }
-    shuangpinLayout = next
-    if usesShuangpin {
+    let nextShuangpin = TouchShuangpinLayoutPreference.layout(in: preferences)
+    let nextWubi = TouchWubiLayoutPreference.layout(in: preferences)
+    guard nextShuangpin != shuangpinLayout || nextWubi != wubiLayout else { return }
+    let previousGrid = letterGrid
+    shuangpinLayout = nextShuangpin
+    wubiLayout = nextWubi
+    if letterGrid != previousGrid {
       let source = typingSource
       render(applyInputScheme(), source: source)
       synchronizeReplyKeyboard()
@@ -5271,9 +5292,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 全拼九键、14 键或 18 键正在组字时，展开的是三栏的九键面板（单字和笔画筛选照常可用）；其他方案、注音九键和本地模式使用铺满键区的候选网格，由顶部箭头收起。
+  /// 全拼九键、拼音的 14 键或 18 键正在组字时，展开的是三栏的九键面板（单字和笔画筛选照常可用）；其他方案、五笔 14 键（引擎不给它拼音选择和筛选）、注音九键和本地模式使用铺满键区的候选网格，由顶部箭头收起。
   private var opensNineKeyPanel: Bool {
-    (inputScheme.isMandarinNineKey || usesLetterGrid) && isChineseMode && hasComposition && !isInLocalMode
+    (inputScheme.isMandarinNineKey || (usesLetterGrid && inputScheme != .wubi))
+      && isChineseMode && hasComposition && !isInLocalMode
   }
 
   /// 面板格子上的字：打开和换代重建都按繁体输出偏好转换，换代后不能退回引擎原文（部分选词后普通网格也走换代重建，#9193）。
@@ -6280,7 +6302,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       cursorMovement.begin(at: position, document: document)
       // While spelling, the drag edits the spelling: the caret walks through the pinyin as ← / → do in the Windows composition, and typing or backspace then acts there. A Japanese reading keeps ending the composition, because its conversion owns the space key.
       // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them either, so the drag finishes them and moves the document caret.
-      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret
+      // 五笔 14 键的组码字母不显示（`typesWubiGrid`），光标在里面走用户看不见，所以同样结束组字、移动文档光标。
+      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret && !typesWubiGrid
       if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
       // 分离式键盘有两个空格，只给正在拖的那个换标题；结束时 updateSpaceKeyTitle 把两个都还原。
       // 拖动时的标签单独显示、不带麦克风，与 Android 的临时空格标签一致。
@@ -6664,8 +6687,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let composing = snapshot.phrasePrefix + shownPreedit
     visiblePhrasePrefix = snapshot.phrasePrefix
     // The `editing_text` of an in-place scheme is the keys of what it composes, not a spelling with a caret to move.
-    visibleCaretSpelling = inputScheme.hasSpellingCaret ? snapshot.editingTextWithCaret : nil
-    editableSpelling = hasComposition && inputScheme.hasSpellingCaret && !snapshot.isInLocalMode
+    // 五笔 14 键的 `editing_text` 是各组的代表字母（QW QW 是 `qq`），不是用户打的码，读音行和拼写菜单都不显示它；它只用来给其余候选比对编码提示（`wubiCodeHint`）。
+    let wubiGrid = typesWubiGrid
+    visibleWubiGridKeys = wubiGrid ? snapshot.editingText : ""
+    let spellingCaret = inputScheme.hasSpellingCaret && !wubiGrid
+    visibleCaretSpelling = spellingCaret ? snapshot.editingTextWithCaret : nil
+    editableSpelling = hasComposition && spellingCaret && !snapshot.isInLocalMode
       && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
       ? (snapshot.editingText, snapshot.caretPosition) : nil
     let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
@@ -7062,6 +7089,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func wubiCodeHint(code: String, typed: String) -> String {
     guard inputScheme == .wubi, !isInLocalMode,
           WubiCodeHintPreference.isEnabled(in: session.sharedPreferences) else { return "" }
+    // 五笔 14 键的读音只是首选编码的前几位；其余候选的编码前几位逐位落在已按的键上时，按它自己打过的那几位提示剩下的编码，与 26 键一样每个候选都有提示。
+    let typed = typesWubiGrid ? FourteenKeyLayout.typedPrefix(of: code, keys: visibleWubiGridKeys) ?? typed : typed
     return WubiCodeHintPreference.hint(
       code: code, typed: typed,
       answeredByPinyinFallback: visibleCandidatesAnsweredByPinyinFallback)

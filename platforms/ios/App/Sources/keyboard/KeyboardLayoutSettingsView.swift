@@ -2,7 +2,7 @@ import AudioToolbox
 import SwiftUI
 import UIKit
 
-/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 18 / 14 / 9 键、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
+/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 18 / 14 / 9 键、双拼和五笔的字母键布局、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
 ///
 /// 按键反馈里的「音效」选按键音包：列表是 `msime_client_plugins` 的 `catalog` 里的按键音包（`KeySoundPackPolicy.packs`），选中时写共享偏好 `plugins.key_sound.pack` 并试听这个包的普通键声音。按键音关着时这一行置灰。
 ///
@@ -14,6 +14,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var skin = KeyboardTheme.current
   @State private var scheme = InputSchemePreference.scheme
   @State private var shuangpinLayout = TouchShuangpinLayoutPreference.layout
+  @State private var wubiLayout = TouchWubiLayoutPreference.layout
   @State private var hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
@@ -75,7 +76,9 @@ struct KeyboardLayoutSettingsView: View {
   // MARK: - 预览
 
   private var nineKey: Bool { scheme.isMandarinNineKey }
-  private var letterGrid: LetterKeyGrid? { LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout) }
+  private var letterGrid: LetterKeyGrid? {
+    LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
+  }
   /// 键盘上有没有 iPad 的数字行：九键、14 键和 18 键都不画它。
   private var drawsNumberRow: Bool { !nineKey && letterGrid == nil }
 
@@ -83,7 +86,7 @@ struct KeyboardLayoutSettingsView: View {
     VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: nineKey, letterGrid: letterGrid,
+        skin: skin, nineKey: nineKey, letterGrid: letterGrid, gridSplitsSyllables: scheme != .wubi,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height
       )
@@ -180,6 +183,18 @@ struct KeyboardLayoutSettingsView: View {
           sheetTitle: "双拼键盘", identifier: "shuangpinKeyboardPicker",
           onSelect: selectShuangpinLayout)
       }
+      if scheme == .wubi {
+        DesignDivider()
+        DesignSelectRow(
+          title: "五笔键盘",
+          subtitle: "五笔使用的字母键布局，86 和 98 五笔共用",
+          options: TouchWubiLayoutPreference.Layout.allCases.map {
+            DesignOption(title: $0.title, value: $0, identifier: "wubiKeyboard\($0.rawValue)")
+          },
+          selection: Binding(get: { wubiLayout }, set: { _ in }),
+          sheetTitle: "五笔键盘", identifier: "wubiKeyboardPicker",
+          onSelect: selectWubiLayout)
+      }
       DesignDivider()
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
       if ChineseInputScheme.shuangpin.isOfferedByEdition {
@@ -205,7 +220,7 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
-  /// 在当前方案所属的一组触屏方案之间切换：全拼在 26 键、18 键、14 键、9 键中选一种，日语是 26 键和 9 键。双拼的布局独立保存，五笔、手写等只有一种排列，因此这些方案没有这一组；在那里提供全拼会悄悄把小鹤用户切到全拼，所以这一行只显示方案名。
+  /// 在当前方案所属的一组触屏方案之间切换：全拼在 26 键、18 键、14 键、9 键中选一种，日语是 26 键和 9 键。双拼和五笔的布局独立保存，手写等只有一种排列，因此这些方案没有这一组；在那里提供全拼会悄悄把小鹤用户切到全拼，所以这一行只显示方案名。
   @ViewBuilder
   private var chineseKeyboardRow: some View {
     if let layouts = Self.layoutChoices(scheme), layouts.count > 1 {
@@ -220,6 +235,7 @@ struct KeyboardLayoutSettingsView: View {
         VStack(alignment: .leading, spacing: 2) {
           Text("中文键盘").font(.system(size: 17)).foregroundStyle(.primary)
           Text(scheme.shuangpinProfile != nil ? "下方可选择双拼的 26 键、14 键或 18 键布局"
+            : scheme == .wubi ? "下方可选择五笔的 26 键或 14 键布局"
             : Self.layoutChoices(scheme) == nil ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘")
             .designSubtext()
             .fixedSize(horizontal: false, vertical: true)
@@ -447,6 +463,16 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
+  private func selectWubiLayout(_ next: TouchWubiLayoutPreference.Layout) {
+    guard next != wubiLayout else { return }
+    saveFailed = !TouchWubiLayoutPreference.save(next)
+    if saveFailed {
+      wubiLayout = TouchWubiLayoutPreference.layout(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+    } else {
+      wubiLayout = next
+    }
+  }
+
   private func previewHaptics() {
     guard hapticsEnabled else { return }
     let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
@@ -514,6 +540,7 @@ struct KeyboardLayoutSettingsView: View {
     // 文档里的选择（取不到时退回 App Group 镜像）就是键盘下次打开时用的方案。
     scheme = InputSchemePreference.current(in: preferences).scheme
     shuangpinLayout = TouchShuangpinLayoutPreference.layout(in: preferences)
+    wubiLayout = TouchWubiLayoutPreference.layout(in: preferences)
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment
