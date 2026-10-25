@@ -78,6 +78,21 @@ jobs:
           $vc[0] >> $env:GITHUB_PATH
           $sdk[0] >> $env:GITHUB_PATH
 
+      - name: 恢复 Win7 核心和语音编译缓存
+        id: runtime-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            target/tooling/onnxruntime-windows7-1.28.2
+            target/tooling/sherpa-onnx-windows7-1.13.8
+            target/windows7-compat/${{ matrix.architecture }}
+            target/windows7-voice/${{ matrix.architecture }}
+            target/x86_64-win7-windows-msvc
+            target/i686-win7-windows-msvc
+          key: windows7-runtime-${{ matrix.architecture }}-windows-2022-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'platforms/windows/Build-Windows7Core.ps1', 'platforms/windows/Build-Windows7VoiceRuntime.ps1', 'platforms/windows/compat/**') }}
+          restore-keys: |
+            windows7-runtime-${{ matrix.architecture }}-windows-2022-
+
       - name: 构建 Win7 核心和语音运行库
         shell: pwsh
         run: |
@@ -85,6 +100,19 @@ jobs:
           $arch = '${{ matrix.architecture }}'
           ./platforms/windows/Build-Windows7Core.ps1 -Architecture $arch -OutputDirectory "$PWD/target/windows7-core"
           ./platforms/windows/Build-Windows7VoiceRuntime.ps1 -Architecture $arch -Parallel 4
+
+      - name: 保存 Win7 核心和语音编译缓存
+        if: success() && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            target/tooling/onnxruntime-windows7-1.28.2
+            target/tooling/sherpa-onnx-windows7-1.13.8
+            target/windows7-compat/${{ matrix.architecture }}
+            target/windows7-voice/${{ matrix.architecture }}
+            target/x86_64-win7-windows-msvc
+            target/i686-win7-windows-msvc
+          key: windows7-runtime-${{ matrix.architecture }}-windows-2022-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'platforms/windows/Build-Windows7Core.ps1', 'platforms/windows/Build-Windows7VoiceRuntime.ps1', 'platforms/windows/compat/**') }}
 
       - name: 整理 Win7 运行库产物
         shell: pwsh

@@ -12,6 +12,8 @@ Status: implemented
 
 工作流只上传 CI 产物，不创建 GitHub Release，也不把本机测试证书当作正式发布签名。`windows7-install-smoke.ps1` 在 Windows runner 上验证安装、注册、升级、数据目录迁移和卸载；它不能替代 Win7 SP1 实机的系统 API、输入法上屏和音频验收，VM100 仍由产品验收流程执行。
 
+运行库矩阵 job 使用按架构、Windows runner 和工具链输入加锁的 Actions cache，保存 Rust target、ONNX Runtime/Sherpa-ONNX 源码及 CMake 构建目录。缓存放在 runtime job 内，因为矩阵 job 使用彼此独立的 runner；打包 job 的 vcpkg cache 不能被前面的运行库 job 复用。
+
 本决定与[Win7 语音页修复](../bug-fix/2026-10-25-windows7-voice-page-loading.md)相接：语音页修复的安装验收依赖这条独立包流程；也与[Windows 原生设置窗口](../feature/2026-10-11-windows-settings-voice-page.md)保持宿主归属不变。现代 Windows 的 `Release Windows` 不改为复用这条流程，因为两者的 Rust、宿主和安装器输入不同。
 
 ## Alternatives considered
@@ -31,4 +33,5 @@ Win7 相关手动运行会获得可下载的 x64/x86 安装包和安装冒烟证
 - `git diff --check` 通过。
 - 运行库矩阵的每个 artifact 都包含 `windows7-core/<arch>` 和 `windows7-voice/<arch>`；打包 job 在复制前检查两个目录，缺失即失败。
 - 运行库上传前只从 `windows7-core/<arch>` 和 `windows7-voice/<arch>/bin` 整理最终文件，ONNX Runtime 与 sherpa-onnx 的构建目录不会进入 artifact。
+- runtime job 在构建前恢复、成功后保存按架构隔离的编译缓存；缓存键变化时只退回同架构同 runner 的旧缓存，CMake 和 Cargo 会自行重建受影响部分。
 - 工作流的 Windows runner 执行结果由 GitHub Actions 负责；本机 macOS 不执行 Windows 原生构建。
