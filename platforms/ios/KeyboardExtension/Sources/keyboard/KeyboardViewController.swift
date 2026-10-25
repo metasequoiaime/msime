@@ -612,6 +612,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 根视图的内边距（`KeyboardFormFactor.padding`）：上、前、后、下。
   private var keyboardPaddingConstraints: [NSLayoutConstraint] = []
 
+  /// 按键音效包（`KeySoundPackPolicy`）：要哪个包、已经加载的样本和音量。偏好在键盘出现和重读之后由 `synchronizeKeySoundPack` 更新，按键时只读这几个缓存。
+  private let keySounds = KeyboardSoundPlayer()
+  private var wantedKeySoundPack: String?
+  private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
   private var keyFeedback: UIImpactFeedbackGenerator {
@@ -867,6 +871,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ = synchronizeTranslationRoute()
     synchronizeOnlineCandidatePreference()
     glideTypingEnabled = KeyboardLayoutPreference.glideTyping
+    // 完全访问和按键音开关都可能在两次出现之间变了；包先按会话手上的文档开始加载，重读之后选择变了再换。
+    synchronizeKeySoundPack()
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
     // Reload it off-thread so a fuzzy-pinyin change is visible the next time
@@ -887,6 +893,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeOnlineCandidatePreference()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
+      self.synchronizeKeySoundPack()
       let translationRouteChanged = self.synchronizeTranslationRoute()
       if translationSettingsChanged || translationRouteChanged {
         self.translations.cancel()
@@ -915,6 +922,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     handwriting.deactivate()
     snapshotWorker.stop()
+    // 按键音的播放器下次出现时重建，在那之前退回系统按键声。
+    keySounds.release()
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
     translations.clearCacheForMemoryPressure()
@@ -2372,8 +2381,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                    selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
         KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.soundEnabled,
                                        forKey: KeyboardFeedbackPreference.soundKey)
+        self?.synchronizeKeySoundPack()
         if KeyboardFeedbackPreference.soundEnabled {
-          // 系统只给开了完全访问的键盘播放按键音（`playInputClick`），没有权限时开关打开了也一声不响，要当场说明原因。
+          // 系统只给开了完全访问的键盘播放按键音（`playInputClick` 和音效包都是），没有权限时开关打开了也一声不响，要当场说明原因。
           if self?.hasFullAccess == false { self?.showDiagnostic("按键音需要开启键盘的“允许完全访问”。") }
           UIDevice.current.playInputClick()
         }
@@ -4800,7 +4810,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       spaceHoldMovesCursor = !spaceVoiceEnabled
       if !spaceHoldMovesCursor {
         countKeyPress(TypingKeyID.space)
-        playInputClick()
+        playInputClick(.space)
         startVoiceFromSpace(held: true, originY: hold.location(in: view).y)
       }
     }
@@ -5271,7 +5281,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .delete:
       // 笔画模式下先删笔画，删完了才删拼音。
       if nineKeyPanelStrokeMode && !currentNineKeyStrokes.isEmpty {
-        playInputClick()
+        playInputClick(.backspace)
         setNineKeyFilter(singleCharacter: currentNineKeySingleCharacter,
                          strokes: String(currentNineKeyStrokes.dropLast()))
       } else {
@@ -6000,7 +6010,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.flushPendingCharacters()
     flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
-    playInputClick()
+    playInputClick(.backspace)
     // Deleting document text may take the opening half of a pair with it; a backspace inside a spelling only edits the spelling.
     if !hasComposition { pairedPunctuation.clear() }
     if !isChineseMode {
@@ -6066,7 +6076,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if hasComposition && isChineseMode && inputScheme.editsBySyllable && !typesLetterGrid {
       didRepeatBackspace = true
-      playInputClick()
+      playInputClick(.backspace)
       render(session.segmentBackspace())
       if !hasComposition {
         backspaceRepeatTimer?.invalidate()
@@ -6078,7 +6088,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       backspaceRepeatTimer?.invalidate()
       backspaceRepeatTimer = nil
       didRepeatBackspace = true
-      playInputClick()
+      playInputClick(.backspace)
       render(session.cancel())
       return
     }
@@ -6224,7 +6234,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.flushPendingCharacters()
     flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
-    playInputClick()
+    playInputClick(.space)
     // A space right after a committed Chinese mark rewrites it as ASCII and is swallowed: the
     // user is correcting the mark they just typed, not typing a mark and then a space. Checked
     // before anything else claims the key, and before the English branch, because the mark it
@@ -6286,7 +6296,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     flushDeferredNineKeySnapshot()
     defer { finishTemporaryEnglish() }
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
-    playInputClick()
+    playInputClick(.enter)
     if inputScheme.isJapanese && hasComposition {
       let index = japaneseConversionIndex
       japaneseConversionIndex = nil
@@ -8359,14 +8369,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if rows(pickerLandscape) != rows(isLandscape) { closeKeyboardPicker() }
   }
 
+  /// 按当前的按键音开关、完全访问和共享偏好（`plugins.key_sound` 的包和音量）决定要加载哪个音效包。同一个包不会重新加载，所以键盘每次出现、偏好每次重读之后都调用。
+  private func synchronizeKeySoundPack() {
+    let preferences = session.sharedPreferences
+    keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.volume(in: preferences))
+    wantedKeySoundPack = KeySoundPackPolicy.wantedPack(
+      soundEnabled: KeyboardFeedbackPreference.soundEnabled, fullAccess: hasFullAccess, preferences: preferences)
+    keySounds.want(wantedKeySoundPack)
+  }
+
   @objc private func prepareKeyFeedback() {
     lastKeyTouchTime = ProcessInfo.processInfo.systemUptime
     if KeyboardFeedbackPreference.hapticsEnabled { keyFeedback.prepare() }
   }
 
-  private func playInputClick() {
-    if KeyboardFeedbackPreference.soundEnabled {
-      UIDevice.current.playInputClick()
+  /// 按键音按 `KeySoundPackPolicy.playback` 出声：有完全访问、选中的包已经加载好时播包里这一类按键的样本，密码框里一律播普通键的；否则退回系统按键声。
+  private func playInputClick(_ keyClass: KeySoundClass = .standard) {
+    // 普通键在密码框里外都播同一个样本，只有空格、回车和退格才需要问一下输入框。
+    let playback = KeySoundPackPolicy.playback(
+      soundEnabled: KeyboardFeedbackPreference.soundEnabled, wanted: wantedKeySoundPack, loaded: keySounds.loaded,
+      keyClass: keyClass, secure: keyClass != .standard && isCredentialField)
+    switch playback {
+    case .silent: break
+    case .system: UIDevice.current.playInputClick()
+    case .sample(let file): if !keySounds.play(file, gain: keySoundGain) { UIDevice.current.playInputClick() }
     }
     if KeyboardFeedbackPreference.hapticsEnabled {
       KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
