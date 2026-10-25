@@ -124,7 +124,7 @@ public final class ClipboardSegmentActionsDeviceSmoke extends DeviceSmoke {
     }
 
     private void openSegments() throws Exception {
-        tap(described("剪贴板"));
+        tap(clipboardEntry());
         Predicate<AccessibilityNodeInfo> card = node -> equalsText("app.msime.android", node.getPackageName())
             && node.isLongClickable() && node.getText() != null && node.getText().toString().startsWith(SOURCE);
         if (!await(card).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))

@@ -283,6 +283,11 @@ public class DeviceSmoke extends Instrumentation {
             && equalsText(description, node.getContentDescription());
     }
 
+    /** 键盘工具栏的「剪贴板」按钮，只认可用的。输入法进程刚起来时偏好在后台线程读，读到「剪贴板历史」开着之前按钮是灰的，点了没有反应，后面等面板的步骤会等满超时（CI 的 API 35 上「clipboard phrase notice」的 launch 和剪贴板导出的键盘导出都在输入法冷启动后停在过这一步）。 */
+    protected Predicate<AccessibilityNodeInfo> clipboardEntry() {
+        return described("剪贴板").and(AccessibilityNodeInfo::isEnabled);
+    }
+
     protected Predicate<AccessibilityNodeInfo> describedPrefix(String prefix) {
         return node -> equalsText("app.msime.android", node.getPackageName())
             && node.getContentDescription() != null

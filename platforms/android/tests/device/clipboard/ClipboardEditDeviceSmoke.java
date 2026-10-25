@@ -63,7 +63,7 @@ public final class ClipboardEditDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain"));
             tap(field("msime-test-plain"));
             await(key("n"));
-            click(described("剪贴板"));
+            click(clipboardEntry());
             stage = "saved clipboard entry inserts replacement";
             click(card(REPLACEMENT));
             await(field("msime-test-plain").and(node -> equalsText(REPLACEMENT, node.getText())));
@@ -104,7 +104,7 @@ public final class ClipboardEditDeviceSmoke extends DeviceSmoke {
 
     private void openClipboardEntry(String prefix) {
         stage = "clipboard toolbar entry";
-        click(described("剪贴板"));
+        click(clipboardEntry());
         stage = "long press synthetic clipboard card";
         if (!await(card(prefix)).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
             throw new AssertionError("Synthetic clipboard long press refused");

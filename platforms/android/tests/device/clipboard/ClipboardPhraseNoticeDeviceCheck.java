@@ -79,7 +79,7 @@ final class ClipboardPhraseNoticeDeviceCheck {
             clipboard.clearPrimaryClip();
             t.restartIme();
             openEditor();
-            t.tap(t.described("剪贴板"));
+            t.tap(t.clipboardEntry());
             Rect before = bounds(t.awaitStableBounds(card(SOURCE)));
             baseline = t.automation.takeScreenshot();
             if (baseline == null) throw new AssertionError("Synthetic baseline screenshot unavailable");
@@ -134,7 +134,7 @@ final class ClipboardPhraseNoticeDeviceCheck {
             t.stage = "reopened keyboard has no stale notice and accepts input";
             openEditor();
             awaitNoNotice(1000);
-            t.tap(t.described("剪贴板"));
+            t.tap(t.clipboardEntry());
             add(SOURCE);
             notice("已经有这条常用语了。");
             t.tap(t.described("返回键盘"));

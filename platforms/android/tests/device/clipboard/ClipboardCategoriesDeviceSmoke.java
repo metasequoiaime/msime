@@ -165,7 +165,7 @@ public final class ClipboardCategoriesDeviceSmoke extends DeviceSmoke {
         getContext().startActivity(intent);
         tap(field("msime-test-plain"));
         await(key("n"));
-        tap(described("剪贴板"));
+        tap(clipboardEntry());
         await(described("选择本机剪贴板分类"));
     }
 
