@@ -2765,7 +2765,7 @@ fn replace_options_file(
 ///
 /// Windows 的 Server 每次启动都重新准备宿主（`msime_client_prepare_host`），自己的会话用准备出的文档；`runtime-options.json` 却只在首次运行时写下（`FirstRun.h`）。升级换了词库锁、或者装上了在线词库更新之后，Server 的会话读新代次，而照这份文件工作的设置窗口、`msime-mcp` 和各应用进程里的 TIP 还在旧代次上：设置里新增的快捷短语和五笔词条写进旧代次，Server 要等下次启动回放日志才看得到，用户看到的就是「加了没用」（#9434）。
 ///
-/// 只改 `dictionaries`，不动 `resources`：在线词库更新的资源目录在状态目录下，而 Server 启动时从这份文件读 `resources` 并要求它与状态目录不相交，改了会让 Server 下次起不来。词库新增、编辑和查找都只经过代次里的工作副本，`resources` 留在安装包目录不影响它们。两份文档都必须是准备布局（[`prepared_layout`]）且属于同一个状态目录，否则原样不动。
+/// 只改 `dictionaries`，不动 `resources`：在线词库更新的资源目录在状态目录下，而 Server 启动时从这份文件读 `resources` 并要求它与状态目录不相交，改了会让 Server 下次起不来。词库新增、编辑和查找都只经过代次里的工作副本，`resources` 留在安装包目录不影响它们。两份文档都必须是准备布局（[`prepared_layout`]）且属于同一个状态目录，否则原样不动；写入的路径沿用文件自己的拼写，只换代次目录名。
 pub fn publish_prepared_dictionaries(
     path: &Path,
     prepared: &Value,
@@ -2788,9 +2788,6 @@ pub fn publish_prepared_dictionaries(
     else {
         return Ok(false);
     };
-    if published == generation {
-        return Ok(false);
-    }
     // 同一个状态目录可以写成不同的字面路径（Windows 的盘符大小写、短文件名），按规范化后的路径比较；文件记的状态目录已经不在，就不是这次准备的宿主的文件。
     let same_state = std::fs::canonicalize(state).is_ok_and(|state| {
         std::fs::canonicalize(prepared_state).is_ok_and(|prepared| state == prepared)
@@ -2798,7 +2795,21 @@ pub fn publish_prepared_dictionaries(
     if !same_state {
         return Ok(false);
     }
-    document["dictionaries"] = prepared["dictionaries"].clone();
+    // 两份文档的拼写可能不同，只取代次目录名，接在文件自己的 `user_data/dictionaries` 下：照搬准备出的整条路径会让 `dictionaries` 与文件里的 `user_data` 拼写不一致，文件从此不再是准备布局，之后的发布和刷新都会跳过它。
+    let (Some(current), Some(generation_name)) = (published.parent(), generation.file_name())
+    else {
+        return Ok(false);
+    };
+    if published.file_name() == Some(generation_name) {
+        return Ok(false);
+    }
+    document["dictionaries"] = Value::String(
+        current
+            .join(generation_name)
+            .to_str()
+            .ok_or("dictionary generation path is not UTF-8")?
+            .to_owned(),
+    );
     replace_options_file(&directory, name, &metadata, &document)?;
     Ok(true)
 }

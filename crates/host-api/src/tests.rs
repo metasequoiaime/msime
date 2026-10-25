@@ -14367,6 +14367,40 @@ fn prepared_dictionaries_are_not_published_into_a_foreign_document() {
     .unwrap();
     assert!(publish_prepared_dictionaries(&published, &prepared).unwrap());
 }
+/// 文件和准备出的文档把同一个状态目录写成不同的字面路径时（Windows 上是盘符大小写或短文件名，这里用符号链接模拟），发布只换代次目录名、沿用文件的拼写：文件仍是准备布局，下次换代次照样发布，同一代次不再改写。
+#[cfg(unix)]
+#[test]
+fn a_differently_spelled_state_directory_keeps_the_published_layout() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let alias = directory.path().join("alias");
+    std::os::unix::fs::symlink(&state, &alias).unwrap();
+    let layout = |state: &Path, generation: &str| {
+        json!({
+            "api_version": 1,
+            "resources": directory.path().join("resources"),
+            "user_data": state.join("user"),
+            "cache": state.join("cache"),
+            "dictionaries": state.join("user/dictionaries").join(generation),
+            "preferences_directory": state,
+            "preferences": {},
+        })
+    };
+    let published = state.join("runtime-options.json");
+    std::fs::write(
+        &published,
+        serde_json::to_vec_pretty(&layout(&state, "previous")).unwrap(),
+    )
+    .unwrap();
+    let file = || -> Value { serde_json::from_slice(&std::fs::read(&published).unwrap()).unwrap() };
+
+    assert!(publish_prepared_dictionaries(&published, &layout(&alias, "current")).unwrap());
+    assert_eq!(file(), layout(&state, "current"));
+    assert!(!publish_prepared_dictionaries(&published, &layout(&alias, "current")).unwrap());
+    assert!(publish_prepared_dictionaries(&published, &layout(&alias, "next")).unwrap());
+    assert_eq!(file(), layout(&state, "next"));
+}
 /// 带 `plugins` 的背单词请求把单词本插件列成 `pack-<插件 id>` 词书；相对路径被拒绝；不带时看不到它。
 #[test]
 fn vocabulary_boundary_lists_wordbook_packs_from_the_plugins_directory() {
