@@ -1310,7 +1310,7 @@ int wmain(int argc, wchar_t **argv) {
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
           // Read before the tokens: the slot lookup is keyed on them.
-          next.asr_provider = input.value("asr_provider", std::string{"doubao"});
+          next.asr_provider = input.value("asr_provider", std::string{"local"});
           next.asr_model_path = input.value("asr_model_path", std::string{});
           next.host_options = voice_host_options;
           next.polish_provider = input.value("polish_provider", std::string{});

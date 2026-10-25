@@ -21425,7 +21425,7 @@ private:
       voice_sync_.clear();
       local_model_views_.clear();
     }
-    const auto provider = document_.String(L"voice_input.asr_provider", L"doubao");
+    const auto provider = document_.String(L"voice_input.asr_provider", L"local");
     const bool system_voice = provider == L"system";
     const bool local_voice = provider == L"local";
     const bool service_voice = !system_voice && !local_voice;
@@ -21626,7 +21626,7 @@ private:
                             doubao ? L"测试豆包识别配置" : L"测试语音识别配置",
                             [this] { return asr_test_config(); },
                             [this] {
-                              const auto current = document_.String(L"voice_input.asr_provider", L"doubao");
+                              const auto current = document_.String(L"voice_input.asr_provider", L"local");
                               return vs::asr_test_disabled(
                                   current,
                                   vs::doubao_auth_mode(
@@ -22070,7 +22070,7 @@ private:
 
   // 「测试豆包识别配置」「测试语音识别配置」发给 msime_client_test_api_credential 的配置（asrServiceCredentialTestConfig）。
   JsonObject asr_test_config() const {
-    const auto provider = document_.String(L"voice_input.asr_provider", L"doubao");
+    const auto provider = document_.String(L"voice_input.asr_provider", L"local");
     auto string = [](std::wstring const &value) { return JsonValue::CreateStringValue(hstring(value)); };
     JsonObject config;
     config.SetNamedValue(L"provider", string(provider));
@@ -22143,7 +22143,7 @@ private:
 
   // 共享页的 onProviderChange（VoiceInputBasicsSection）：换上新服务的令牌、地址和模型，选系统识别时把「自动识别」换成 zh-CN。换到或换走本地模型时，模型列表像共享页的模型管理器重新挂载一样重读。
   void select_asr_provider(std::wstring const &provider) {
-    const auto previous = document_.String(L"voice_input.asr_provider", L"doubao");
+    const auto previous = document_.String(L"voice_input.asr_provider", L"local");
     if (provider == previous)
       return;
     const auto update = voice_provider_update(L"asr", provider, previous);

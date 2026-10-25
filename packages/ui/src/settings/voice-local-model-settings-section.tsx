@@ -24,7 +24,7 @@ export interface VoiceLocalModelSettingsSectionProps {
 
 /** Shared local voice model download, mirror, and path settings, inside the 识别服务配置 group: the model list is a block in the group, and the download mirror and manual directory sit under 更多选项. A host without a model store has only the manual directory, so it is the one entry and shows as a plain row.
  *
- * 输入法不带本地语音运行库时（只有省略了它的 macOS 发布包，宿主的资源包列表里才有 `voice-runtime-macos`），选用本地识别就开始下载运行库，模型列表上方显示它的下载行；宿主不列出这个资源包时什么也不显示。 */
+ * 输入法不带本地语音运行库时（只有省略了它的 macOS 发布包，宿主的资源包列表里才有 `voice-runtime-macos`），选用本地识别、或在本地识别下选用模型时开始下载运行库，模型列表上方显示它的下载行；宿主不列出这个资源包时什么也不显示。出厂服务就是本地识别，没有切换这一步，所以选用模型也要触发。 */
 export function VoiceLocalModelSettingsSection({
   client,
   localVoice,
@@ -39,13 +39,17 @@ export function VoiceLocalModelSettingsSection({
     value: voiceInput.asr_model_mirror ?? "",
     onChange: (asr_model_mirror) => updateVoice({ asr_model_mirror }),
   });
-  // 只在用户刚选用本地识别时下载；打开页面时不下载，已保存的选择由宿主启动时补齐。下载失败后不自动重试，等用户点下载行的「重试」。
+  // 只在用户刚选用本地识别、或本地识别下刚选用模型时下载；打开页面时不下载，已保存的选择由宿主启动时补齐。下载失败后不自动重试，等用户点下载行的「重试」。
+  const hasModel = (voiceInput.asr_model_path ?? "").trim() !== "";
   const wasLocal = useRef(localVoice);
+  const hadModel = useRef(hasModel);
   useEffect(() => {
-    if (localVoice && !wasLocal.current) runtimePacks.ensure("voice-runtime-macos");
+    if (localVoice && (!wasLocal.current || (hasModel && !hadModel.current)))
+      runtimePacks.ensure("voice-runtime-macos");
     wasLocal.current = localVoice;
+    hadModel.current = hasModel;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localVoice]);
+  }, [localVoice, hasModel]);
   if (!localVoice) return null;
 
   const runtimeRow = (

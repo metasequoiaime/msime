@@ -25,10 +25,13 @@ $cmakeArch = if ($Architecture -eq 'x64') { 'x64' } else { 'Win32' }
 $nativeBuild = Join-Path $RepoRoot "target/windows7-compat/$Architecture"
 $release = Join-Path $RepoRoot "target/$triple/release"
 $output = Join-Path $OutputDirectory $Architecture
+$version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'version-win7.txt') -TotalCount 1).Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Win7 version-win7.txt 不是有效的语义版本' }
 $previousBootstrap = $env:RUSTC_BOOTSTRAP
 $previousTarget = $env:CARGO_TARGET_DIR
 $previousDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
 $previousEncodedFlags = $env:CARGO_ENCODED_RUSTFLAGS
+$previousVersion = $env:MSIME_VERSION
 Push-Location $RepoRoot
 try {
     $sysroot = & rustc --print sysroot
@@ -40,6 +43,7 @@ try {
     $env:RUSTC_BOOTSTRAP = '1'
     $env:CARGO_TARGET_DIR = Join-Path $RepoRoot 'target'
     $env:CARGO_PROFILE_RELEASE_DEBUG = '2'
+    $env:MSIME_VERSION = $version
     # TSF 把核心作为插件载入任意应用；Win7 无法从插件目录解析随包 UCRT 转发。
     # 对标准库及原生依赖统一静态链接 CRT，不能只给最终 DLL 补链接参数。
     $flags = if ($null -ne $previousEncodedFlags) { @($previousEncodedFlags.Split([char]31)) }
@@ -85,5 +89,6 @@ try {
     $env:CARGO_TARGET_DIR = $previousTarget
     $env:CARGO_PROFILE_RELEASE_DEBUG = $previousDebug
     $env:CARGO_ENCODED_RUSTFLAGS = $previousEncodedFlags
+    $env:MSIME_VERSION = $previousVersion
     Pop-Location
 }

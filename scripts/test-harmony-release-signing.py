@@ -90,7 +90,13 @@ class ReleaseSigning(unittest.TestCase):
     def test_tool_errors_do_not_disclose_output_or_arguments(self):
         secret = "synthetic-secret-not-for-logs"
         with self.assertRaises(ValueError) as failure:
-            SIGNING.run([sys.executable, "-c", f"import sys;sys.exit({secret!r})", secret])
+            SIGNING.run([
+                sys.executable,
+                "-c",
+                f"import sys;sys.stderr.write('synthetic diagnostic');sys.exit({secret!r})",
+                secret,
+            ])
+        self.assertIn("synthetic diagnostic", str(failure.exception))
         self.assertNotIn(secret, str(failure.exception))
 
     def hap(self, version="0.2.0", omitted=None):
@@ -146,12 +152,19 @@ class ReleaseSigning(unittest.TestCase):
         self.assertIn('"$HAP" "$SUMS"', publish)
         self.assertIn('appgallery-msime-harmony-', workflow)
         self.assertNotIn("find platforms/harmony -type f -name '*.hap'", workflow)
+        locate = workflow.split("name: Locate the packaged HAP", 1)[1].split("- id: signing", 1)[0]
+        self.assertIn("compress_harmony_hap.py", locate)
+        self.assertIn('echo "input=$built" >> "$GITHUB_OUTPUT"', locate)
+        self.assertIn('echo "path=$hap" >> "$GITHUB_OUTPUT"', locate)
 
     def test_market_packer_preserves_hap_signature(self):
         source = (ROOT / "platforms/harmony/sign-release.py").read_text()
         self.assertIn('"--replace-pack-info", "false"', source)
         self.assertIn("compress_harmony_hap.py", source)
         self.assertIn("verified-compressed.p7b", source)
+        workflow = (ROOT / ".github/workflows/release-harmony.yml").read_text()
+        self.assertIn('echo "input=$built" >> "$GITHUB_OUTPUT"', workflow)
+        self.assertIn("UNSIGNED_HAP: ${{ steps.hap.outputs.input }}", workflow)
 
 
 if __name__ == "__main__":

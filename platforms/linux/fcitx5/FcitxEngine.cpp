@@ -3135,7 +3135,7 @@ public:
             // Fcitx5 commit is the only voice commit path on Linux and the settings page offers no strategy, so a stored commit_mode must not turn the inline preedit off.
             const bool inlinePreedit = msime_voice_stream_inline_enabled(
                 voice_options_.value("stream_inline_preedit", false),
-                voice_options_.value("asr_provider", std::string{"doubao"}), "tsf");
+                voice_options_.value("asr_provider", std::string{"local"}), "tsf");
             if (inlinePreedit) {
               voice_preedit_ = partial;
               voice_transcript_.clear();
@@ -3192,7 +3192,7 @@ public:
           latestPartial = msime_voice_bound_result(std::move(latestPartial));
           const bool inlinePreedit = msime_voice_stream_inline_enabled(
               voice_options_.value("stream_inline_preedit", false),
-              voice_options_.value("asr_provider", std::string{"doubao"}), "tsf");
+              voice_options_.value("asr_provider", std::string{"local"}), "tsf");
           (inlinePreedit ? voice_preedit_ : voice_transcript_) = std::move(latestPartial);
         }
         text = msime_voice_result_or_transcript(
@@ -9212,7 +9212,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     const auto spelled = static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym));
     // The XKB keycode (evdev + 8) of the number row is 10..19; Fcitx5 drops Shift from a normalised symbol, so ask the raw event.
     const auto rowCode = event.rawKey().code();
-    const bool picks = msime::linux_host::shifted_number_row_picks(
+    const bool picks = msime::linux_host::number_row_picks(
         view_, spelled, event.rawKey().states().test(fcitx::KeyState::Shift), rowCode >= 10 && rowCode <= 19,
         preferences_.value("number_row_selection", true) && !view_.value("nine_key", false) &&
             !view_.value("candidates", Json::array()).empty());

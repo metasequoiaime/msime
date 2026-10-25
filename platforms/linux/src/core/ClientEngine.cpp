@@ -4723,7 +4723,7 @@ void voice_start_impl(IBusEngine *engine) {
   // IBus commit is the only voice commit path on Linux and the settings page offers no strategy, so a stored commit_mode must not turn the inline preedit off.
   const bool stream_inline_preedit = msime_voice_stream_inline_enabled(
       provider_options.value("stream_inline_preedit", false),
-      provider_options.value("asr_provider", std::string{"doubao"}), "tsf");
+      provider_options.value("asr_provider", std::string{"local"}), "tsf");
   const auto alive = s.alive;
   const auto provider_succeeded = std::make_shared<std::atomic_bool>(false);
   // Written by the stream task and read by the result callback, which the worker runs afterwards on the same thread.
@@ -7577,7 +7577,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0) {
       const gunichar spelled = ibus_keyval_to_unicode(key);
       // IBus clients send evdev codes, where the number row is 2..11.
-      const bool picks = msime::linux_host::shifted_number_row_picks(
+      const bool picks = msime::linux_host::number_row_picks(
           s.view, spelled, (flags & IBUS_SHIFT_MASK) != 0, keycode >= 2 && keycode <= 11,
           s.number_row_selection && !s.view.value("nine_key", false) &&
               s.rendered_session == s.session && s.rendered_candidates.is_array() &&

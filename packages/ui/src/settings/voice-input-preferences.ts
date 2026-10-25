@@ -51,7 +51,7 @@ export type VoiceInputPreferences = {
 export const defaultVoiceInput: VoiceInputPreferences = {
   enabled: true,
   language: "zh-CN",
-  asr_provider: "doubao",
+  asr_provider: "local",
   doubao_auth_mode: "api_key",
   asr_resource_id: "volc.seedasr.sauc.duration",
 };

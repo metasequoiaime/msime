@@ -1716,6 +1716,7 @@ pub struct VoiceInputPreferences {
     pub capture_device: String,
     #[serde(default = "default_commit_mode")]
     pub commit_mode: String,
+    /// 识别服务，取值见 [`ASR_PROVIDERS`]。出厂默认是 `local`（本地模型，离线）：音频不离开设备、不需要 API Key，下载或导入模型后即可使用；已保存的选择原样保留，只有新文档取这个值。
     #[serde(default)]
     pub asr_provider: String,
     #[serde(default)]
@@ -1818,7 +1819,7 @@ impl Default for VoiceInputPreferences {
             capture_backend: String::new(),
             capture_device: String::new(),
             commit_mode: "tsf".into(),
-            asr_provider: "doubao".into(),
+            asr_provider: "local".into(),
             asr_app_key: String::new(),
             doubao_auth_mode: default_doubao_auth_mode(),
             asr_token: String::new(),

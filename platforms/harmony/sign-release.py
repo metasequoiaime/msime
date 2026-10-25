@@ -26,7 +26,23 @@ def run(command: list[str], **kwargs) -> bytes:
     # 签名工具的输出可能带命令参数，失败时也不将凭据写进日志。
     result = subprocess.run(command, capture_output=True, **kwargs)
     if result.returncode:
-        raise ValueError(f"{Path(command[0]).name} 执行失败（退出码 {result.returncode}）")
+        detail = b"\n".join(part for part in (result.stdout, result.stderr) if part).decode(
+            "utf-8", errors="replace"
+        ).strip()
+        for secret_name in (
+            "HARMONY_RELEASE_KEYSTORE_PASSWORD",
+            "HARMONY_RELEASE_KEY_PASSWORD",
+        ):
+            secret = os.environ.get(secret_name)
+            if secret:
+                detail = detail.replace(secret, "<redacted>")
+        for argument in command:
+            if argument:
+                detail = detail.replace(str(argument), "<redacted>")
+        suffix = f"：{detail}" if detail else ""
+        raise ValueError(
+            f"{Path(command[0]).name} 执行失败（退出码 {result.returncode}）{suffix}"
+        )
     return result.stdout
 
 

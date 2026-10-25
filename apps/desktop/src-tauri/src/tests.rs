@@ -776,6 +776,8 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
 #[test]
 fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
     let mut preferences = msime_client_core::preferences::Preferences::default();
+    // 出厂服务是本地识别，这里要的是豆包。
+    preferences.voice_input.asr_provider = "doubao".into();
     preferences.voice_input.asr_token = "synthetic-key".into();
     preferences.voice_input.asr_app_key = "stale-app".into();
     preferences.voice_input.doubao_auth_mode = "api_key".into();

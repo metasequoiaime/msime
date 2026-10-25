@@ -551,7 +551,9 @@ assert 'preferences_.value("default_ime_mode", "chinese")' in source
 assert '"hotkey_hold_space_lock"' not in source
 assert '"hotkey_hold_space_lock"' not in ibus_source
 assert "bool voice_hotkey_hold_space_lock_ = true;" in source
-assert 'voice_options_.value("asr_provider", std::string{"doubao"})' in source
+# 出厂识别服务是本地模型（离线），偏好里没有 `asr_provider` 时按 `local` 处理，与共享层默认值一致。
+assert 'voice_options_.value("asr_provider", std::string{"local"})' in source
+assert 'voice_options_.value("asr_provider", std::string{"doubao"})' not in source
 assert "fcitx_system_dark_theme()" in source
 # The portal read is a blocking D-Bus round trip: it runs once per addon on a worker, never from each context's loop tick.
 assert source.count("fcitx_system_dark_theme()") == 1

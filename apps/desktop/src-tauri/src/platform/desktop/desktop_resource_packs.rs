@@ -354,7 +354,10 @@ fn needed_by_preferences(preferences: &Preferences) -> Vec<ResourcePack> {
     if preferences.sentence_association.neural_desktop {
         needed.push(ResourcePack::SettledModel);
     }
-    if preferences.voice_input.asr_provider == "local" {
+    // 出厂服务就是本地识别，只看服务会让每个新用户一启动就下载运行库；没选用模型时运行库用不上，等设置页选用模型时再下载。
+    if preferences.voice_input.asr_provider == "local"
+        && !preferences.voice_input.asr_model_path.trim().is_empty()
+    {
         needed.push(ResourcePack::MacosVoiceRuntime);
     }
     needed
@@ -521,18 +524,21 @@ mod tests {
         assert!(!bundled_wubi_dictionary(&serde_json::json!({})));
     }
 
-    /// 语音用本地识别时，启动补齐 macOS 的语音运行库；别的识别服务不需要它。
+    /// 语音用本地识别、且选用了模型时，启动补齐 macOS 的语音运行库；别的识别服务、或出厂还没选模型时不需要它。
     #[test]
     fn local_recognition_needs_the_macos_voice_runtime() {
         let mut preferences = Preferences::default();
         preferences.sentence_association.neural_desktop = false;
-        preferences.voice_input.asr_provider = "doubao".into();
+        // 出厂就是本地识别但没有模型：新用户启动时不下载运行库。
+        assert_eq!(preferences.voice_input.asr_provider, "local");
         assert!(!needed_by_preferences(&preferences).contains(&ResourcePack::MacosVoiceRuntime));
-        preferences.voice_input.asr_provider = "local".into();
+        preferences.voice_input.asr_model_path = "/Users/fixture/voice-models/x-asr".into();
         assert_eq!(
             needed_by_preferences(&preferences),
             [ResourcePack::MacosVoiceRuntime]
         );
+        preferences.voice_input.asr_provider = "doubao".into();
+        assert!(!needed_by_preferences(&preferences).contains(&ResourcePack::MacosVoiceRuntime));
     }
 
     /// macOS 的语音运行库只在 macOS、且运行的输入法没有自带运行库时列出；Windows 和 Linux 从不列出。

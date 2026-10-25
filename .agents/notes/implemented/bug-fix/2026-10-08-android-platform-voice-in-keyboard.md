@@ -23,7 +23,7 @@ HTTP 整句上传进入键盘及必要窗口的自动结果回传由[语音自�
 - 每条提示（含错误码和出路）不超过 `PlatformSpeechPolicy.MAX_LENGTH` = 30 个字符。Android 12 起应用的文字 Toast 只显示两行、超出直接截掉，竖屏一行大约 16 个汉字；最初的提示有四五十字，2026-10-09 用户截图里错误码 9 的提示只剩「系统语音识别服务没有麦克风权限，请在系统设置里给默认语音识别…」，该做的事和错误码都被截掉了，「错误码排在出路前面」只在原因本身够短时才成立。出路因此从「也可在设置的「语音输入」页改用本地模型或填写豆包密钥」缩成「可改用本地模型或豆包」，原因里的「系统」二字也去掉。
 - 错误码 9 的归因、前台重试边界和启动时机由[权限拒绝与前台恢复](2026-10-15-android-speech-permission-foreground.md)部分取代。运行时权限已授予不能证明整条录音权限链获准，因此不再点名识别服务应用缺权限。
 - 识别服务走 `onResults` 却没有任何文字时提示「系统语音识别服务没有返回文字」并给同样的出路，不带错误码，也不冒用 `ERROR_NO_MATCH` 的 7：反馈回来的错误码必须只表示服务自己在 `onError` 里报的那个。识别窗口那条路以前遇到空结果直接关窗，现在给同一句提示。
-- 不在提示里说「你选的豆包缺密钥」：`voice_input.asr_provider` 的默认值就是 `doubao`，诊断包里的 `doubao` 不能说明用户主动选过它，每次都这么提示会打扰所有没配置服务商、系统识别好好的用户。
+- 不在提示里说「你选的豆包缺密钥」：`voice_input.asr_provider` 的默认值就是 `doubao`，诊断包里的 `doubao` 不能说明用户主动选过它，每次都这么提示会打扰所有没配置服务商、系统识别好好的用户。2026-10-26 起新装的出厂值是 `local`（见[六端出厂识别服务改为本地模型](../feature/2026-10-26-voice-local-default.md)），旧文档里的 `doubao` 照旧这样理解。
 - 键区里还没报 `onReadyForSpeech` 就失败、并且是 `ERROR_CLIENT`、`ERROR_INSUFFICIENT_PERMISSIONS`、`ERROR_SERVER_DISCONNECTED` 这类调用方一侧被拒时，`MSIMEInputService.launchVoiceActivity` 用原来的识别窗口再试一次；权限拒绝即使在聆听回调之后也转交，主动结束后不重试；其他已经开始聆听之后的失败直接提示。没有麦克风权限时仍交给识别窗口申请。
 - 识别窗口里的系统识别器也显示「正在录音」和「完成」「取消」，不再是只有灰色蒙层的空白对话框。设置应用的语音面板（`VoicePlugin`）也走这个窗口。
 - 识别请求带 `EXTRA_CALLING_PACKAGE`；两份清单（原生宿主和 Tauri 壳）在 `RECOGNIZE_SPEECH` 之外声明对 `android.speech.RecognitionService` 的包可见性，`check-host.sh` 守着这一条。

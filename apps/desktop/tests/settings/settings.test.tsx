@@ -1321,7 +1321,15 @@ test("voice settings default to the single API Key mode", async () => {
     revision: 8,
     preferences,
   }));
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save };
+  // 出厂服务是本地模型，鉴权方式只在选了豆包时出现。
+  const doubao: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      voice_input: { enabled: true, language: "zh-CN", asr_provider: "doubao" },
+    },
+  };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(doubao), save };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
@@ -7312,6 +7320,8 @@ const referenceSections: {
   // 子页从父页里进入；与别的组共用一页的组（输入页上的辅助码）按组名找它的 region。
   via?: string;
   group?: string;
+  // 只在某个偏好下出现的小节，按这份偏好打开页面。
+  preferences?: Partial<Snapshot["preferences"]>;
   titles: string[];
 }[] = [
   {
@@ -7412,6 +7422,8 @@ const referenceSections: {
   {
     page: "voice",
     button: "语音输入",
+    // 出厂服务是本地模型，豆包的选项只在选了豆包时出现。
+    preferences: { voice_input: { enabled: true, language: "zh-CN", asr_provider: "doubao" } },
     titles: [
       // 来源的「基础设置」与「启用语音输入」在这里合成一节。
       "语音输入",
@@ -7529,11 +7541,14 @@ const followedSurfaceThemeSections: Record<string, string> = {
 
 test.each(referenceSections)(
   "the $page page still carries the reference window's sections",
-  async ({ page: pageId, button, via, group, titles }) => {
+  async ({ page: pageId, button, via, group, preferences, titles }) => {
     render(
       <SettingsPage
         client={{
-          load: vi.fn().mockResolvedValue(initial),
+          load: vi.fn().mockResolvedValue({
+            ...initial,
+            preferences: { ...initial.preferences, ...preferences },
+          }),
           save: vi.fn(),
           // The dictionary and skin pages render their sections only once the host offers them
           // anything to show; without these two the pages would be empty and the table would be
@@ -7660,11 +7675,14 @@ const macosAbsentSections: Record<string, string> = {
 
 test.each(referenceSections)(
   "the $page page carries the reference window's sections on macOS too",
-  async ({ page: pageId, button, via, group, titles }) => {
+  async ({ page: pageId, button, via, group, preferences, titles }) => {
     render(
       <SettingsPage
         client={{
-          load: vi.fn().mockResolvedValue(initial),
+          load: vi.fn().mockResolvedValue({
+            ...initial,
+            preferences: { ...initial.preferences, ...preferences },
+          }),
           save: vi.fn(),
           // What `host_surface.rs` gives HostPlatform::Macos, so a missing section is a difference
           // in the page rather than a capability the fixture forgot to declare.
