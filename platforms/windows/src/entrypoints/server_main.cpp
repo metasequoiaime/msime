@@ -1839,6 +1839,7 @@ int wmain(int argc, wchar_t **argv) {
       theme_rows.push_back({std::move(id), std::move(title)});
     // 托盘卡片和悬浮工具栏的两个弹出菜单（切换输入方案、右键实用菜单）共用这一个命令处理和这一份状态，所以同一行从哪里点都走同一条路径。
     const auto tray_command = [&](TrayMenuCommand command) -> bool {
+          const auto command_foreground = reinterpret_cast<uintptr_t>(GetForegroundWindow());
           // The mode rows send what the toolbar button for the same mode sends, to the focused TIP, through the same worker. The card never takes focus, so the session the rows were drawn for is still the focused one.
           if (tray_menu_mode_row(command)) {
             const auto view = server.mode_view();
@@ -1867,8 +1868,7 @@ int wmain(int argc, wchar_t **argv) {
               return false;
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             tray_preferences->translations = next;
-            if (current != next)
-              hud_feedback.publish(translations_hud(next), {}, reinterpret_cast<uintptr_t>(GetForegroundWindow()));
+            hud_feedback.publish(translations_hud(next), {}, command_foreground);
             return true;
           }
           if (const char *scheme = tray_menu_scheme(command)) {
@@ -1878,7 +1878,7 @@ int wmain(int argc, wchar_t **argv) {
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             tray_preferences->scheme = scheme;
             if (changed)
-              hud_feedback.publish(scheme_hud(*tray_preferences), {}, reinterpret_cast<uintptr_t>(GetForegroundWindow()));
+              hud_feedback.publish(scheme_hud(*tray_preferences), {}, command_foreground);
             return true;
           }
           // 工具栏右键菜单的「隐藏悬浮状态栏」和托盘的工具栏开关写同一个偏好，与 macOS 一样把开关记成关，重启后也不再出现。
@@ -1920,7 +1920,7 @@ int wmain(int argc, wchar_t **argv) {
           }
           // 繁体输出和工具栏的简繁按钮、Ctrl+Shift+F 走同一个工作线程，翻转存储的 traditional_chinese_output。
           if (command == TrayMenuCommand::ToggleTraditionalOutput)
-            return character_set_clicks.submit(CharacterSetClick{{}, reinterpret_cast<uintptr_t>(GetForegroundWindow())});
+            return character_set_clicks.submit(CharacterSetClick{{}, command_foreground});
           // 英文候选模式按 TIP 报告的状态进入或退出 Engine 的英文模式，规则和 TIP 的 Ctrl+Shift+E 相同（tray_menu_dedicated_english_action）。
           if (command == TrayMenuCommand::ToggleDedicatedEnglish) {
             const auto view = server.mode_view();
