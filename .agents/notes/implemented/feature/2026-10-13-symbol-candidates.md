@@ -54,6 +54,6 @@ macOS 的 `sharedPreferencesByMerging` 整对象重写 `mixed_input`，所以 `s
   - 有云候选或 AI 候选时，第二个以后的符号行排到本地候选之后，与 emoji 现状相同。
   - 改表要发引擎版本；表只有几十 KB。
 - **数字序号**：一至五十的序号及数字只认完整拼音的规则由[数字序号候选](2026-10-21-number-symbol-candidates.md)持有。#9088 的参考截图提供了「一」作为 ① 的自然名称依据，数字序号不再排除在表外；其单音节仍受锚定及最早第 4 位约束。
-- **没有收录**：用户可编辑的符号表；μ、ν、ρ、τ、φ、χ 的单字中文名（单音节不收）。
+- **没有收录**：用户可编辑的符号表。μ、ν、ρ、τ、φ、χ 的单字中文名当时以单音节不收为由没有收录，3 个字母的拉丁名称也一并排除；两者后来由[补齐希腊字母与数学符号名称](2026-10-25-math-greek-symbol-names.md)放开，拉丁名称的下限改为 3 个字母且不能拆成拼音。
 - **验证缺口**：Windows（MinGW）和 Android 原生编译留给 CI；HarmonyOS 只跑了类型检查与键盘逻辑测试，没有打 HAP；Windows 候选窗是否把 ★ ✓ 这类码位画成 emoji 字形（`platforms/windows/msimeui/src/Fonts.cpp` 按码位区间映射 emoji 字体）没有在装机上看过。
 - 已检索的相关笔记：[2026-10-08-expressive-rows-follow-their-word.md](2026-10-08-expressive-rows-follow-their-word.md) 是 emoji 行跟着词的规则，符号沿用它的锚定做法，找词的线性扫描与排序二分抽成 `with_first_position` 共用，那篇已加互链；[2026-10-08-nine-key-expressive-candidates.md](2026-10-08-nine-key-expressive-candidates.md) 的九宫格读法与边界检查被符号复用，已加互链；[2026-10-07-mixed-candidate-dedup-state.md](../testing/2026-10-07-mixed-candidate-dedup-state.md) 的栈上去重表容量加上了符号上限，事实已就地更新；[2026-10-12-mixed-japanese-candidates.md](2026-10-12-mixed-japanese-candidates.md) 是「后加的可选偏好成员」的先例，本篇反过来默认开，用 `skip_serializing_if = "is_true"`，无需改那篇。

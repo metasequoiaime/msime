@@ -18,13 +18,17 @@ pub const MIXED_SYMBOL_LIMIT: usize = 8;
 /// 一个名称最多几个符号，由表检查保证。
 #[cfg(test)]
 pub const SYMBOLS_PER_NAME: usize = 6;
-/// 拉丁名称至少几个字母：`pi`、`mu`、`xi`、`nu` 都是常用拼音音节，这些希腊字母走中文名。
+/// 拉丁名称至少几个字母；不到 `LATIN_SPELLING_FREE_LENGTH` 个字母的还不能整段拆成拼音：`phi`、`psi`、`rho`、`tau` 收，`pi`、`mu`、`xi`、`nu`、`chi`、`eta` 是常用拼音（`eta` 拆成 e'ta），这些希腊字母走中文名，符号模式里另有 LaTeX 命令名。
 #[cfg(test)]
-pub const LATIN_NAME_MINIMUM: usize = 4;
-/// 单音节名称只收有 issue 依据的派、度和一至十：常用音节必须有名称锚定词，且最早排第 4 位（`SymbolRow::ambiguous`），避免序号挤动前三个普通词。
+pub const LATIN_NAME_MINIMUM: usize = 3;
+/// 至少这么多字母的拉丁名称不再检查能否拆成拼音，`beta`、`zeta` 这类表里原有的名称照收。
 #[cfg(test)]
-pub const SINGLE_SYLLABLE_NAMES: [&str; 12] = [
-    "派", "度", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+pub const LATIN_SPELLING_FREE_LENGTH: usize = 4;
+/// 单音节名称只收有依据的派、度、一至十和希腊字母的单字读音（缪 μ、纽 ν、柔 ρ、套 τ、斐 φ、凯 χ）：常用音节必须有名称锚定词，且最早排第 4 位（`SymbolRow::ambiguous`），避免序号和字母挤动前三个普通词。
+#[cfg(test)]
+pub const SINGLE_SYLLABLE_NAMES: [&str; 18] = [
+    "派", "度", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "缪", "纽", "柔", "套",
+    "斐", "凯",
 ];
 
 /// 混排的一行符号，带着决定它位置的信息，规则见 `queries::place_symbol_rows`。
@@ -188,6 +192,17 @@ pub fn query_mixed_symbols(
     rows_for(table, &hits, code)
 }
 
+/// 整串（已转小写）正好是某个拉丁名称时它的符号，按表的先后：符号模式先给这些正文用的字母，再给 LaTeX 命令名的字形变体。
+pub fn latin_name_symbols(code: &str) -> impl Iterator<Item = &'static str> {
+    let table = table();
+    table
+        .latin
+        .get(code)
+        .into_iter()
+        .flatten()
+        .flat_map(move |&index| table.entries[index].symbols())
+}
+
 /// 九宫格混排：依次按 `readings`（小写全拼，没有 `'`，可能性高的在前）找全拼与读法完全相等、并且通过 `accept` 的名称。不认首字母（数字串的首字母读法太多），也不认拉丁名称。行的 `pinyin` 是命中的读法，调用方换成整串数字。
 pub fn query_symbol_readings(readings: &[String], accept: &dyn Fn(&str) -> bool) -> Vec<SymbolRow> {
     let table = table();
@@ -321,12 +336,20 @@ mod tests {
                         );
                     }
                 }
-                None => assert!(
-                    entry.name.len() >= LATIN_NAME_MINIMUM
-                        && entry.name.bytes().all(|byte| byte.is_ascii_lowercase()),
-                    "拉丁名称全小写、至少 {LATIN_NAME_MINIMUM} 个字母：{}",
-                    entry.name
-                ),
+                None => {
+                    assert!(
+                        entry.name.len() >= LATIN_NAME_MINIMUM
+                            && entry.name.bytes().all(|byte| byte.is_ascii_lowercase()),
+                        "拉丁名称全小写、至少 {LATIN_NAME_MINIMUM} 个字母：{}",
+                        entry.name
+                    );
+                    assert!(
+                        entry.name.len() >= LATIN_SPELLING_FREE_LENGTH
+                            || !crate::pinyin::segment::is_complete_pinyin_input(entry.name),
+                        "不到 {LATIN_SPELLING_FREE_LENGTH} 个字母的拉丁名称不能是拼音：{}",
+                        entry.name
+                    );
+                }
             }
             let symbols: Vec<&str> = entry.symbols().collect();
             assert!(
@@ -434,16 +457,47 @@ mod tests {
     }
 
     #[test]
-    fn latin_names_need_four_letters() {
+    fn short_latin_names_must_not_spell_pinyin() {
         let rows = quanpin("gamma");
         assert_eq!(texts(&rows), vec!["γ", "Γ"]);
         assert_eq!(rows[0].anchors, ["gamma"]);
         assert!(rows[0].unanchored);
-        // pi 是常用音节，不作为拉丁名称；π 走中文名「派」。
+        // 三个字母、拆不成拼音的希腊字母名照收。
+        for (name, expected) in [
+            ("phi", ["φ", "Φ"]),
+            ("psi", ["ψ", "Ψ"]),
+            ("rho", ["ρ", "Ρ"]),
+            ("tau", ["τ", "Τ"]),
+        ] {
+            let rows = quanpin(name);
+            assert_eq!(texts(&rows), expected, "{name}");
+            assert!(rows[0].unanchored, "{name}");
+        }
+        // pi、chi、eta 能拆成拼音，不作为拉丁名称；π 走中文名「派」，χ 走「凯」。
         assert!(quanpin("pi").is_empty());
+        assert!(quanpin("chi").is_empty());
+        assert!(quanpin("eta").is_empty());
         let pai = quanpin("pai");
         assert_eq!(texts(&pai), vec!["π"]);
         assert!(pai[0].ambiguous);
+        let kai = quanpin("kai");
+        assert_eq!(texts(&kai), vec!["χ", "Χ"]);
+        assert!(kai[0].ambiguous && !kai[0].unanchored);
+    }
+
+    #[test]
+    fn math_names_offer_set_logic_and_calculus_symbols() {
+        for (input, expected) in [
+            ("tidu", vec!["∇"]),
+            ("dangqiejindang", vec!["⇔"]),
+            ("shishuji", vec!["ℝ"]),
+            ("baohanyu", vec!["⊆", "⊂"]),
+            ("huanlujifen", vec!["∮"]),
+            ("wufenzhiyi", vec!["⅕"]),
+            ("nabla", vec!["∇"]),
+        ] {
+            assert_eq!(texts(&quanpin(input)), expected, "{input}");
+        }
     }
 
     #[test]

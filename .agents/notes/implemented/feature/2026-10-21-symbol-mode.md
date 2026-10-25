@@ -37,7 +37,7 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
 
 ## Consequences
 
-- **收益**：`xl`、`sx`、`szq`、`jt` 等 87 个分组码和 `alpha`、`infinity` 等符号名在六个平台同一套规则，都走 host-api → input-runtime → engine；数据编进引擎，不读磁盘、不依赖词库代次。
+- **收益**：`xl`、`sx`、`szq`、`jt` 等 87 个分组码和 `alpha`、`infinity` 等符号名在六个平台同一套规则，都走 host-api → input-runtime → engine；数据编进引擎，不读磁盘、不依赖词库代次。符号模式后来也认 LaTeX 命令名（`sum`、`leq`、`mathbbr`），数据取自官方短语表「LaTeX 符号」，见[补齐希腊字母与数学符号名称](2026-10-25-math-greek-symbol-names.md)。
 - **代价**：
   - 默认开，升级后句首或中英混打时按 Shift+S 会进入符号模式，`S` 之后打出的字母变成符号检索，不再是大写 S 开头的英文词。这是与 Windows 正式版一致的行为，用户可在设置里关掉，或用总开关一次性关掉所有 Shift+字母模式。
   - 表是生成物（43 KB），改表要发引擎版本；上游改动要重新生成并复核样例数。

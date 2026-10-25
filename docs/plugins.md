@@ -245,7 +245,7 @@ text = "电话号码"
 - 设置的「输入 → 快捷模式」里关闭了快捷短语时，短语表不起作用。
 - K 模式只在全拼、双拼和五笔方案下可用，其他方案下按 Shift+K 不会进入 K 模式，短语表也就不起作用。
 - 短语从不写进词库，删除短语表后直接消失。
-- 桌面安装包随带一个官方短语表「LaTeX 符号」（id `latex-symbols`）：按 LaTeX 命令名打符号，`Kalpha` 出 α、`Kgamma` 出 γ 和 Γ、`Kmathbbr` 出 ℝ。它和导入的短语表一样要在插件页打开「启用」，见[内置插件](#内置插件)；编码规则在仓库的 [plugins/phrase_table/latex-symbols](../plugins/phrase_table/latex-symbols/)。
+- 桌面安装包随带一个官方短语表「LaTeX 符号」（id `latex-symbols`）：按 LaTeX 命令名打符号，`Kalpha` 出 α、`Kgamma` 出 γ 和 Γ、`Kmathbbr` 出 ℝ。它和导入的短语表一样要在插件页打开「启用」，见[内置插件](#内置插件)；编码规则在仓库的 [plugins/phrase_table/latex-symbols](../plugins/phrase_table/latex-symbols/)。同一份数据也编进了引擎：不启用这个表，在任何平台的符号模式（Shift+S）里打完整的命令名（`Ssum`、`Smathbbr`）同样能出符号，只是不按前缀列出。
 
 ## 辅助码表（`kind = "helpcode"`）
 
