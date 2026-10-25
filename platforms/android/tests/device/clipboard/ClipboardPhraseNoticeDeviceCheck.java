@@ -75,10 +75,16 @@ final class ClipboardPhraseNoticeDeviceCheck {
             for (String text : new String[] {SOURCE, SECOND, "SyntheticNotice\tInvalid"})
                 records.put(new JSONObject().put("text", text).put("timestampMs", 1700000000000L)
                     .put("pinned", true));
-            publish(history, records.toString());
             clipboard.clearPrimaryClip();
             t.restartIme();
             openEditor();
+            // 合成记录要等输入法用上实时偏好之后再写：上一个套件结束时恢复的偏好里剪贴板历史是关的，输入法实时读到「关」就清空历史（ClipboardHistoryRetentionPolicy，#5602）。慢的模拟器上这次清空可能落在这里写完记录之后，面板打开时只剩「本机已存 0 条」（运行 40212793727）。面板顶行的「本机已存 N 条」只在实时偏好开着历史时才画，看到它之后不会再有旧的清空，这时写入记录，再关开一次面板让它重新读。
+            t.tap(t.clipboardEntry());
+            t.await(node -> DeviceSmoke.equalsText("app.msime.android", node.getPackageName())
+                && node.getContentDescription() != null && node.getContentDescription().toString().startsWith("本机已存 "));
+            publish(history, records.toString());
+            t.tap(t.clipboardEntry());
+            t.await(t.key("n"));
             t.tap(t.clipboardEntry());
             Rect before;
             try {
