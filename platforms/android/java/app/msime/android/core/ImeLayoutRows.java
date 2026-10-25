@@ -75,7 +75,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 手写键区：左列 ，。？！，中间书写区（「在此手写，停笔后选字」），右列 ⌫ 与「重写」。底行（123 / 写 / 空格 / ↵）由底行构建负责。
+     * 手写键区：书写区（「在此手写，停笔后选字」）铺满键区宽度，竖屏有四行键高（{@link KeyboardGeometry#handwritingRows}）。⌫、「重写」和标点在底行（{@link KeyboardActionRow#designEntries}：123 | ， | 空格 | 。 | 中 | 重写 | ⌫ | ↵，逗号长按 ？、句号长按 ！），由底行构建负责。
      *
      * <p>按 `touch_handwriting` 生效：单字一字一识别；叠写停笔后识别并自动上屏首选、清空画布；行写整行一次识别并把光标前的上文交给识别器。识别等待时间比服务的防抖长时补足差值；识别后可在书写区下方显示首选的拼音；笔迹颜色与粗细跟偏好。
      */
@@ -88,18 +88,6 @@ final class ImeLayoutRows {
         ViewPolicy.setNonInteractive(s.handwritingStatus);
 
         LinearLayout row = LayoutPolicy.row(s);
-
-        LinearLayout punctuation = LayoutPolicy.column(s);
-        for (String symbol : NineKeyLayout.punctuation()) {
-            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
-                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
-            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
-            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-            addNineKey(punctuation, key);
-        }
-        row.addView(punctuation, LayoutPolicy.weightedMatchParentParams(
-            KeyboardGeometry.HANDWRITING_PUNCTUATION_WEIGHT));
 
         FrameLayout area = new FrameLayout(s);
         s.handwritingCanvas = new HandwritingCanvas(s);
@@ -130,23 +118,11 @@ final class ImeLayoutRows {
         downloadParams.leftMargin = s.pixels(16);
         downloadParams.rightMargin = s.pixels(16);
         cardFrame.addView(s.handwritingDownload, downloadParams);
-        row.addView(area, LayoutPolicy.weightedMatchParentParams(KeyboardGeometry.HANDWRITING_AREA_WEIGHT));
-
-        LinearLayout tools = LayoutPolicy.column(s);
-        Button delete = s.keyId(s.backspaceKey(s::deleteFromHandwriting), "Backspace");
-        // 和其他布局的删除键一样按住加速连删、上滑快速删除（#5585）；有墨迹时每次删一笔。
-        s.imeLetterRows.bindBackspaceRepeat(delete, s::deleteFromHandwriting);
-        if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(tools, delete);
-        Button rewrite = s.keyboardKey("重写", "清空手写", () -> {
-            cancelPendingInk();
-            s.clearHandwriting();
-        });
-        if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(tools, rewrite);
-        row.addView(tools, LayoutPolicy.weightedMatchParentParams(KeyboardGeometry.HANDWRITING_TOOLS_WEIGHT));
-        // 手写区和其他布局的三行键一样高，切换布局时键盘总高度不跳。
-        s.imeStyler.adjustThreeRowBlockHeight(row);
+        // 书写区占满整行；卡片四周内缩的 3 dp 正好是默认键距的一半，左右边缘与上下各行的键对齐。
+        row.addView(area, LayoutPolicy.weightedMatchParentParams(1f));
+        // 竖屏比其他布局多一行键高，横屏保留三行（KeyboardGeometry.handwritingRows），与 iOS、HarmonyOS 同一条规则。
+        s.imeStyler.adjustRowBlockHeight(row, KeyboardGeometry.handwritingRows(
+            s.getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE));
         s.keyRows.addView(row);
 
         s.handwritingRecognizer = new HandwritingResultTap(HandwritingRecognizerFactory.create(s),
@@ -195,7 +171,7 @@ final class ImeLayoutRows {
         s.main.postDelayed(task, extra);
     }
 
-    private void cancelPendingInk() {
+    void cancelPendingInk() {
         if (pendingInk != null) s.main.removeCallbacks(pendingInk);
         pendingInk = null;
     }

@@ -78,6 +78,16 @@ if ! rg -q 'ShuangpinKeyHintPolicy\.profileWithoutView\(' \
   echo "Double-pinyin key hints must keep the remembered profile while the view is briefly missing" >&2
   exit 1
 fi
+# 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。0.5.0 取的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写后都落到全拼 26 键。入口怎么选由 KeyboardSchemeSmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：离开手写经 handwritingReturn 取入口，并把记下的英文状态交给方案保存，保存成功后再进英文。
+toggle_body=$(sed -n '/^    void toggleHandwritingScheme() {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
+if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$toggle_body" \
+  || ! rg -q 'englishBeforeHandwriting' <<< "$toggle_body" \
+  || ! rg -q 'if \(english && !dedicatedEnglish\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
+  exit 1
+fi
 # Hangul composition is Engine state. Android labels the Dubeolsik keys and sends their ASCII letters; a syllable table here would be a second automaton that can drift from the Engine's.
 if ! rg -q '4 korean' "$repo_root/crates/host-api/include/msime_client.h" \
   || ! rg -q 'KOREAN_SCHEME = 4;' \

@@ -92,6 +92,18 @@ public enum KeyboardScheme {
         }
         return HANDWRITING;
     }
+
+    /**
+     * 功能面板「手写」磁贴离开手写时回到的入口（#9703）：`before`（经磁贴进入手写前的入口）还在启用列表 `enabled` 里就回到它；不知道它（键盘是从方案选择进的手写）或它已被移除时，取 `enabled` 里第一个不是手写的入口，再没有就是 {@link #fallback}。与 iOS `InputSchemePreference.handwritingReturn`、鸿蒙 `KeyboardScheme.handwritingReturn` 一致。
+     */
+    public static KeyboardScheme handwritingReturn(
+            KeyboardScheme before, List<KeyboardScheme> enabled, AppEdition edition) {
+        if (before != null && before != HANDWRITING && enabled.contains(before)) return before;
+        for (KeyboardScheme candidate : enabled) {
+            if (candidate != HANDWRITING) return candidate;
+        }
+        return fallback(edition);
+    }
     public String shuangpinProfile() { return shuangpinProfile; }
     public String touchKeyboardLayout() { return touchKeyboardLayout; }
     public String title() { return title; }

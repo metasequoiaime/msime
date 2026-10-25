@@ -116,10 +116,10 @@ constexpr bool ShowsGlosses(int scheme) { return scheme == Quanpin || scheme == 
 // `detects_urls`：组字中键入 `www.`、`http:` 这类触发词会进入网址模式。TIP 把全拼、双拼、五笔都记成 quanpin（mode_scheme），三者都检测网址，所以 TIP 用 InputModeScheme 判断不会看错。
 constexpr bool DetectsUrls(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
-// `opens_local_modes`: Shift+letter opens the local modes other than K (U, T, E, M, J, Y, R, V) while nothing is composed; of them the TIP routes only V's keys, as the expression flag of LocalModeTriggersChanged. K and the `/` and `@` keys follow `opens_table_modes`. The Server decides it from the scheme that runs (apply_local_mode_switches in src/ipc/ReplyCodec.h); the TIP must not, because it keys Wubi as quanpin (mode_scheme) and this is false for Wubi.
+// `opens_local_modes`: Shift+letter opens the local modes that read the scheme's pinyin spelling (E, M, J, R) and V while nothing is composed; of them the TIP routes only V's keys, as the expression flag of LocalModeTriggersChanged. K, C, U, T, Y, S and the `/` and `@` keys follow `opens_table_modes` (`local_mode_for_entry` in crates/engine/src/session/input.rs). The Server decides it from the scheme that runs (apply_local_mode_switches in src/ipc/ReplyCodec.h); the TIP must not, because it keys Wubi as quanpin (mode_scheme) and this is false for Wubi.
 constexpr bool OpensLocalModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
 
-// `opens_table_modes`: Shift+K and the `/` and `@` keys open the quick phrase, command and mention modes while nothing is composed, so the Server sends the command and mention flags of LocalModeTriggersChanged on only here. In every other scheme the symbols a view lists outside a local mode are the scheme's own spelling.
+// `opens_table_modes`: Shift+K and the `/` and `@` keys open the quick phrase, command and mention modes while nothing is composed (and Shift+C, U, T, Y, S the modes whose input is not the scheme's spelling), so the Server sends the command and mention flags of LocalModeTriggersChanged on only here. In every other scheme the symbols a view lists outside a local mode are the scheme's own spelling.
 constexpr bool OpensTableModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
 // ---- The input mode the Server tells the TIP about ----

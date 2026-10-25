@@ -21,7 +21,38 @@
    "op": "char",
    "arg": "U",
    "result": {
-    "handled": false
+    "handled": true
+   },
+   "snapshot": {
+    "scheme": "wubi",
+    "local_mode": "unicode",
+    "preedit": "U",
+    "raw_segmentation": "U",
+    "normalized_segmentation": "U",
+    "editing_text": "U",
+    "caret": 1,
+    "dedicated_english": false,
+    "shuangpin_profile": "xiaohe",
+    "answered_by_pinyin_fallback": true,
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "word": "U",
+      "pinyin": "U",
+      "canonical_pinyin": "",
+      "source": 9,
+      "scheme": "quanpin",
+      "weight": 1,
+      "answers_key": true
+     }
+    ]
+   }
+  },
+  {
+   "op": "command",
+   "arg": "Cancel",
+   "result": {
+    "handled": true
    },
    "snapshot": {
     "scheme": "wubi",
@@ -41,7 +72,38 @@
    "op": "char",
    "arg": "T",
    "result": {
-    "handled": false
+    "handled": true
+   },
+   "snapshot": {
+    "scheme": "wubi",
+    "local_mode": "date_time",
+    "preedit": "T",
+    "raw_segmentation": "T",
+    "normalized_segmentation": "T",
+    "editing_text": "T",
+    "caret": 1,
+    "dedicated_english": false,
+    "shuangpin_profile": "xiaohe",
+    "answered_by_pinyin_fallback": true,
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "word": "T",
+      "pinyin": "T",
+      "canonical_pinyin": "",
+      "source": 9,
+      "scheme": "quanpin",
+      "weight": 1,
+      "answers_key": true
+     }
+    ]
+   }
+  },
+  {
+   "op": "command",
+   "arg": "Cancel",
+   "result": {
+    "handled": true
    },
    "snapshot": {
     "scheme": "wubi",

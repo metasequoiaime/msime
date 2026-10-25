@@ -168,6 +168,10 @@ SessionController::SessionController(
            },
            [this](const FocusLease &lease, const FanyImeNamedpipeData &packet) {
              wait_candidate_render_for_key(lease, packet);
+           },
+           [this](const std::string &line) {
+             if (presentation_.rejected)
+               presentation_.rejected(line);
            }},
           transactions_) {
   if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||

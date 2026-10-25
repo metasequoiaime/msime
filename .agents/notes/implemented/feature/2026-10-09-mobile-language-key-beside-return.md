@@ -14,6 +14,8 @@ Status: implemented
 - 各平台的落点：Android 是 `KeyboardActionRow.designEntries` 与 `DesignSlot` 的顺序；iOS 是 `KeyboardViewController.arrangeActionRow` 的 `.phone` 和 `.nineKey`；鸿蒙是 `KeyboardView.ets` 的 `designActionRow` 和 `nineKeyActionRow`。应用内画底行的预览（Android 的首页预览、按键热力图、皮肤缩略图，iOS 的皮肤预览、社区卡片、键盘内皮肤选择器）同步改成新顺序。
 - 不在范围内、保持原样的面：iPad 的 `.tablet` 底行（这一行没有回车）、日文假名九键和注音九键（语言键在侧边竖列，与回车不在同一行）、123 / #+= 符号层（底行没有中/英键）。鸿蒙的经典底行（笔画、假名、手写和 2in1）原本就是中/英紧挨回车。
 
+2026-10-25：三个移动端的手写底行改为 `123 | ， | 空格 | 。 | 中 | 重写 | ⌫ | 回车`，回车左边是 ⌫，见[手写区铺满整行](2026-10-25-mobile-handwriting-full-width-pad.md)；其余底行仍按本篇。
+
 2026-10-14：Android 日文假名九键的语言键后来因 #7751 移到右侧空格与回车之间；其余平台和注音九键仍按本篇决定保持原样。详见 [Android 外语轮换与日语九键布局修正](../bug-fix/2026-10-14-android-language-switch.md)。
 - Android 分离式键盘的空格拆分下限 `SplitKeyboardPolicy.MIN_SPACE_SHARE` 从 0.25 降到 0.15。中/英挪到右边后，空格右侧（`。 中 ↵`，3.95 份）比左侧（`123 ，`，2.25 份）宽得多；逗号被隐藏时（当前方案没有标点可给），要让中间空隙落在整行正中，右半空格只剩原宽的约 16%，原下限会把空隙推离中线。逗号显示时右半约 29%，不受影响。
 

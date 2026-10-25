@@ -50,7 +50,7 @@ TIP 超时后关管道、重连，并把整段组字前缀摊回队首重放（[
 - 每次屏障未满足时多一次 `SetEvent` 和一轮提前的快照读取与绘制，开销与原来每 16ms 一次的轮询同级。
 - 候选窗确实画不出来（失败、桌面未路由、快照读取正好争用）时，行为与原来相同：屏障在 30ms 后放行。
 - TIP 侧「超时 → 重连 → 重放前缀 → 再超时」的结构没有改，真正超过 100ms 的回包仍会进入有界的重试；本修复去掉的是让重放必然再超时的那一份等待。
-- 报告中约两分钟后的 `Server stopping: session controller failed (input queue)` 不在本修复范围内，现有日志不足以判断是哪个输入队列任务失败或队列已满。
+- 报告中约两分钟后的 `Server stopping: session controller failed (input queue)` 不在本修复范围内，现有日志不足以判断是哪个输入队列任务失败或队列已满。其中被拒的本地回车观测这一种来源已改为只断开那个客户端并写一行诊断，见[单个请求校验失败不再停掉输入队列](2026-10-25-windows-rejected-request-keeps-input-queue.md)。
 
 ## Verification
 

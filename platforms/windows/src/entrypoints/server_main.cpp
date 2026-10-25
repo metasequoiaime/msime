@@ -1348,11 +1348,15 @@ int wmain(int argc, wchar_t **argv) {
     name_builtin_helpcodes(session_options, config.state_root);
     name_official_plugin_packs(session_options, executable_directory());
     startup_stage = "pipe_server";
-    SessionPump::Presentation hud_presentation;
-    hud_presentation.delivered = [&](const FocusLease &lease, const PendingReply &reply,
+    SessionPump::Presentation pump_presentation;
+    pump_presentation.delivered = [&](const FocusLease &lease, const PendingReply &reply,
                                      const FanyImeNamedpipeData &) {
       if (reply.dedicated_english_change)
         hud_feedback.publish(dedicated_english_hud(*reply.dedicated_english_change), lease);
+    };
+    // 单个按键被拒（RequestRejected）只断开那一个客户端，原因写进 Server 日志；不然日志里只剩随后的重连，看不出是哪一项校验没过。
+    pump_presentation.rejected = [&diagnostic_log](const std::string &line) {
+      diagnostic_log.server(line);
     };
     WindowsServer server(
         options, session_options.dump(),
@@ -1387,7 +1391,7 @@ int wmain(int argc, wchar_t **argv) {
           }
           if (feedback) hud_feedback.publish(std::move(*feedback), *route.route);
           return true;
-        }, std::move(hud_presentation));
+        }, std::move(pump_presentation));
     // Server 构造期间已可接收切换；安装与调用共用锁，异常展开也先撤销并等完旧回调。
     struct PreferenceWakeBinding {
       decltype(wake_preferences) &callback;

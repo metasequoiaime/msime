@@ -216,7 +216,7 @@ final class ImeStyler {
     }
 
     /**
-     * 九键、笔画、手写的三行键块：与 26 键的三行字母键同高（3 × {@link KeyboardGeometry#KEY_ROW_HEIGHT_DP} + 底行以外的那部分键高调整 + 三份行距）。大千四行按四行键高分配。
+     * 九键、笔画的三行键块（手写区按 {@link KeyboardGeometry#handwritingRows} 取行数，走 {@link #adjustRowBlockHeight}）：与 26 键的三行字母键同高（3 × {@link KeyboardGeometry#KEY_ROW_HEIGHT_DP} + 底行以外的那部分键高调整 + 三份行距）。大千四行按四行键高分配。
      */
     void adjustThreeRowBlockHeight(View view) {
         adjustRowBlockHeight(view, 3);

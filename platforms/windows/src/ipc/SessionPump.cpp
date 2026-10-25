@@ -4,8 +4,19 @@
 #include "PipeMetadata.h"
 #include "preference_transition.h"
 #include <cstring>
+#include <string>
 
 namespace msime::windows {
+namespace {
+// 被拒按键的诊断行：只有标识、校验名和计数，见 RequestRejected。
+std::string rejected_key_line(uint64_t client, uint64_t request, const RequestRejected &error) {
+  std::string line = "Request rejected: kind=key client=" + std::to_string(client) +
+                     " request=" + std::to_string(request) + " check=" + error.check();
+  if (!error.detail().empty())
+    line += " " + error.detail();
+  return line + "; client connection reset";
+}
+} // namespace
 SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
                          FocusGate &focus, KeyHandler key, EventHandler event,
                          Presentation presentation,
@@ -190,12 +201,24 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           packet->event_type == FanyImePipeEventType::KeyEvent)
         presentation_.before_key(*route.route, *packet);
       std::optional<PendingReply> reply;
+      std::optional<RequestRejected> rejected;
       if (!enqueue(
               [&, lease = *route.route, packet = *packet](InputState &state) {
-                if (transport_.current(ticket))
+                if (!transport_.current(ticket))
+                  return;
+                // 只接住边界校验的拒绝：它在改动 Engine 之前抛出，队列状态完好。其他异常照旧由输入队列停机处理。
+                try {
                   reply = key_(state, lease, packet);
+                } catch (const RequestRejected &error) {
+                  rejected = error;
+                }
               }))
         return PumpResult::QueueUnavailable;
+      if (rejected) {
+        if (presentation_.rejected)
+          presentation_.rejected(rejected_key_line(ticket.client, packet->request_id, *rejected));
+        return PumpResult::RequestRejected;
+      }
       if (!focus_.with_active(*route.route, [] {}))
         continue;
       if (!reply || reply->source.client_id != ticket.client ||

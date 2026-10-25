@@ -53,6 +53,8 @@ export class KeyboardMetrics {
    * 触屏（`compact` 为 false）时框架固定：顶部内边距、50vp 条带、10vp 间距、按键行及其间的行间距、底部内边距。条带在自身高度内容纳候选及其释义，所以字号和释义行不会改变面板。`compact` 是 2in1 键盘和表情界面，它们保留一直以来的叠放组合行、候选行和释义预留。
    *
    * `withStrip` 为 false 时触屏框架不带条带和它下面的间距：工具栏设成隐藏或工具全关、又没有在组字也没有打开面板时（`TouchToolbarPolicy.stripShown`），这一行不画，键盘相应变矮。`compact` 时不看它。
+   *
+   * `extraRows` 是触屏框架在四行之外多出的行（`handwritingExtraRows`）：每行一个不带高度调整的 `ROW_HEIGHT_VP` 加一道行距，用户的高度调整仍只加一次。`compact` 时不看它。
    */
   static totalHeightVp(
     rowSpacingTenths: number = KeyboardMetrics.ROW_SPACING_VP * 10,
@@ -62,15 +64,18 @@ export class KeyboardMetrics {
     preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
     compact: boolean = false,
     withStrip: boolean = true,
+    extraRows: number = 0,
   ): number {
     const keys: number =
       KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
     if (!compact) {
+      const extra: number = Number.isFinite(extraRows) && extraRows > 0 ? Math.floor(extraRows) : 0;
       return (
         KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
         (withStrip ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0) +
         keys +
         KeyboardMetrics.touchRowGapsVp(rowSpacingTenths) +
+        extra * (KeyboardMetrics.ROW_HEIGHT_VP + rowSpacingTenths / 10) +
         KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP
       );
     }
@@ -83,6 +88,13 @@ export class KeyboardMetrics {
     // One gap between the strip and the first key row, and one between each pair of key rows.
     const gaps: number = (rowSpacingTenths / 10) * KeyboardMetrics.KEY_ROWS;
     return strip + keys + gaps + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
+  }
+
+  /**
+   * 手写区比其他键面多出的行数：竖屏触屏手写为 1，书写区铺满键区宽度并有四行键高；横屏（屏幕宽大于高，手机和平板都算）屏幕本来就矮，保留三行，为 0。iOS 的 `KeyboardFormFactor.handwritingAddsRow` 与 Android 的 `KeyboardGeometry.handwritingRows` 是同一条规则。
+   */
+  static handwritingExtraRows(handwritingFace: boolean, landscape: boolean): number {
+    return handwritingFace && !landscape ? 1 : 0;
   }
 
   /** 触屏键盘按键行之间的间隙：比行数少一，因为条带有自己的固定间距。 */

@@ -417,5 +417,29 @@ public final class KeyboardSchemeSmoke {
         // 本版本没有中文方案，要切回的中文方案仍按引入版本之前的规则落到全拼，host-api 不会跑它（本版本不提供）。
         mapping(VIETNAMESE, KeyboardScheme.VIETNAMESE, "quanpin", "xiaohe", "vietnamese", "quanpin", "xiaohe");
         mapping(JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY, "wubi", "xiaohe", "japanese", "quanpin", "xiaohe");
+        handwritingReturn();
+    }
+
+    /** 功能面板「手写」磁贴再点一次时回到的入口（#9703）：回到进入手写前的那个，而不是启用列表里的第一个。 */
+    static void handwritingReturn() {
+        List<KeyboardScheme> enabled = List.of(KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY,
+            KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA, KeyboardScheme.HANDWRITING);
+        // 报告者的设置：启用列表以全拼 26 键打头，从全拼 9 键、小鹤双拼进入手写，离开时回到它们自己。
+        check(KeyboardScheme.handwritingReturn(KeyboardScheme.QUANPIN_NINE_KEY, enabled, FULL)
+            == KeyboardScheme.QUANPIN_NINE_KEY);
+        check(KeyboardScheme.handwritingReturn(KeyboardScheme.XIAOHE, enabled, FULL) == KeyboardScheme.XIAOHE);
+        check(KeyboardScheme.handwritingReturn(KeyboardScheme.QUANPIN, enabled, FULL) == KeyboardScheme.QUANPIN);
+        // 不知道进入前的入口（经方案选择进的手写）时，取启用列表里第一个不是手写的入口。
+        check(KeyboardScheme.handwritingReturn(null, enabled, FULL) == KeyboardScheme.QUANPIN);
+        check(KeyboardScheme.handwritingReturn(null,
+            List.of(KeyboardScheme.HANDWRITING, KeyboardScheme.WUBI), FULL) == KeyboardScheme.WUBI);
+        // 进入手写后在设置里移除了原来的入口：不回到一个已关闭的入口。
+        check(KeyboardScheme.handwritingReturn(KeyboardScheme.JAPANESE, enabled, FULL) == KeyboardScheme.QUANPIN);
+        // 记着的就是手写本身不算数；启用列表只剩手写时退回本版本的入口。
+        check(KeyboardScheme.handwritingReturn(KeyboardScheme.HANDWRITING, enabled, FULL) == KeyboardScheme.QUANPIN);
+        check(KeyboardScheme.handwritingReturn(null, List.of(KeyboardScheme.HANDWRITING), FULL)
+            == KeyboardScheme.QUANPIN);
+        check(KeyboardScheme.handwritingReturn(null, List.of(KeyboardScheme.HANDWRITING), WUBI)
+            == KeyboardScheme.WUBI);
     }
 }

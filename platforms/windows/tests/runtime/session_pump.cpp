@@ -6,6 +6,7 @@
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
 #include "preference_transition.h"
+#include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <filesystem>
@@ -201,6 +202,107 @@ void ordered_preference_pump_tests(const std::string &options) {
   if (receipt) require(receipt->revision == (scenario == 2 ? 0 : 42) &&
       receipt->request == 2 && receipt->focus == 77 && receipt->epoch != 0);
  }
+}
+// 主通道上写给 TIP 的回复帧的请求号。
+uint64_t reply_request(const std::vector<uint8_t> &frame) {
+  constexpr size_t offset = offsetof(FanyImeNamedpipeDataToTsf, request_id);
+  if (frame.size() < offset + 8)
+    return 0;
+  uint64_t value = 0;
+  for (size_t n = 0; n < 8; ++n)
+    value |= uint64_t(frame[offset + n]) << (8 * n);
+  return value;
+}
+// #9525、#9706：本地回车带来的原文观测和 Server 的组字对不上，异常从回复合成器一路冒到输入队列，整个 Server 停机重启。生产按键处理器经真实的输入队列和 pump 派发：这一次请求被拒绝，不发回复帧，只断开这一个客户端；输入队列继续接收，重连后的按键照常处理。别的异常仍然停掉队列。
+void local_commit_rejection_pump_tests(const std::string &options) {
+  {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.packets.resize(1);
+    FanyImeNamedpipeData packet{};
+    packet.client_id = transport.ticket.client;
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 2;
+    for (char c : std::string("ab")) {
+      packet.keycode = static_cast<uint32_t>(c - 'a' + 'A');
+      packet.wch = c;
+      transport.packets.push_back(packet);
+      ++packet.request_id;
+    }
+    // TIP 拿不到观测时（超过 127 个 UTF-16 码元，或读不出宿主快照）清空载荷照样发出回车。
+    packet.keycode = 0x0D;
+    packet.wch = 0;
+    transport.packets.push_back(packet);
+    const auto enter_request = packet.request_id;
+    std::vector<std::string> lines;
+    std::vector<std::string> editing;
+    size_t closed = 0, keys = 0;
+    SessionPump::Presentation presentation;
+    presentation.rejected = [&](const std::string &line) { lines.push_back(line); };
+    presentation.disconnected = [&](const PipeTicket &) { ++closed; };
+    const auto production = production_key_handler();
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &key) {
+          ++keys;
+          auto reply = production(state, lease, key);
+          if (reply)
+            editing.push_back(reply->source.transition.at("view").at("editing_text").get<std::string>());
+          return reply;
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; }, presentation);
+    require(pump.run(transport.ticket) == PumpResult::RequestRejected && keys == 3);
+    require(queue.stats().accepting && queue.stats().failed == 0);
+    require(!transport.open && closed == 1);
+    require(lines.size() == 1);
+    const auto &line = lines.front();
+    require(line.find("kind=key") != std::string::npos &&
+            line.find("request=" + std::to_string(enter_request)) != std::string::npos &&
+            line.find("check=local_commit_observation") != std::string::npos &&
+            line.find("observed_bytes=0 expected_bytes=2") != std::string::npos);
+    require(line.find("ab") == std::string::npos);
+    // 两个字母照常组字；被拒的回车没有回复，主通道上也没有带它请求号的帧。
+    require(editing == std::vector<std::string>{"a", "ab"});
+    for (const auto &write : transport.writes)
+      if (write.first == FanyImePipeRole::ToTsf)
+        require(reply_request(write.second) != enter_request);
+
+    // 同一个客户端重新连上：新的会话从空组字开始，下一个键照常处理。
+    auto activation = transport.packets.front();
+    activation.request_id = 78;
+    packet.request_id = enter_request + 1;
+    packet.keycode = 'C';
+    packet.wch = 'c';
+    transport.packets = {activation, packet};
+    transport.ticket.generations = {4, 5, 6};
+    transport.next = 0;
+    transport.writes.clear();
+    transport.open = true;
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 4);
+    require(queue.stats().accepting && queue.stats().failed == 0 && lines.size() == 1);
+    // 旧会话里没上屏的 ab 随断开丢掉，和 TIP 那边已经结束的组字对齐，不会接成 abc。
+    require(editing.size() == 3 && editing.back() == "c");
+    queue.stop();
+  }
+  {
+    // 不是 RequestRejected 的异常照旧停掉输入队列：Engine 或路由已经不可信，不能只断一个客户端了事。
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    std::vector<std::string> lines;
+    SessionPump::Presentation presentation;
+    presentation.rejected = [&](const std::string &line) { lines.push_back(line); };
+    SessionPump pump(
+        transport, queue, gate,
+        [](InputState &, const FocusLease &, const FanyImeNamedpipeData &) -> std::optional<PendingReply> {
+          throw std::invalid_argument("Synthetic invariant failure");
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; }, presentation);
+    require(pump.run(transport.ticket) == PumpResult::QueueUnavailable);
+    require(!queue.stats().accepting && queue.stats().failed == 1 && lines.empty());
+    queue.stop();
+  }
 }
 void session_pump_tests(const std::string &options) {
   ordered_preference_pump_tests(options);

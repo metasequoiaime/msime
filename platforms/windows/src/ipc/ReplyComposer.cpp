@@ -273,12 +273,18 @@ const PendingReply &ReplyComposer::dispatch(
   if (path == ReplyPath::LocalCommit && session.input_enabled()) {
     const auto action = translate_key(packet);
     const auto raw = session.view().at("editing_text").get<std::string>();
-    // The TSF has already inserted its local text. Validate that observation
-    // before MSIME_COMMIT_RAW can clear Engine state. The postflight check in
-    // stage() remains necessary; never manufacture proof from Engine's result.
-    if (action.kind != KeyKind::Command || action.value != MSIME_COMMIT_RAW ||
-        !local_text || *local_text != prefix_ + raw)
-      throw std::invalid_argument("Invalid local commit observation");
+    // TIP 已经把本地文本写进文档。MSIME_COMMIT_RAW 清掉 Engine 状态之前先核对这份观测；stage() 里的事后核对仍然需要，不能拿 Engine 的结果反过来伪造证明。
+    if (action.kind != KeyKind::Command || action.value != MSIME_COMMIT_RAW)
+      throw std::logic_error("Local commit route on a non-commit key");
+    // 观测不符只拒绝这一个请求；detail 只记字节数，不记文本。
+    const auto expected = prefix_ + raw;
+    if (!local_text)
+      throw RequestRejected("local_commit_observation", "observation=missing expected_bytes=" +
+                                                            std::to_string(expected.size()));
+    if (*local_text != expected)
+      throw RequestRejected("local_commit_observation",
+                            "observation=mismatch observed_bytes=" + std::to_string(local_text->size()) +
+                                " expected_bytes=" + std::to_string(expected.size()));
   }
   // 这几条路径的上屏 TIP 已经从自己的宿主会话写进了文档（本地回车、整句改字的回车、韩文音节），派发前后打开 COMMIT_OBSERVE_ONLY：只能观察、不能改写。FocusedSession 按方案和整句改字已经打开时，这里什么都不做。
   const CommitObserveOnly observe(

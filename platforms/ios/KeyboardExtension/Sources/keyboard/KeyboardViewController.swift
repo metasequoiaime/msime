@@ -170,11 +170,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var voiceDictationContext: KeyboardDocumentContext?
   /// 按住空格开始听写时手指的纵坐标，用来判断上滑取消；松手后或读屏开始的听写为 nil。
   private var voiceHoldOriginY: CGFloat?
+  /// 手写区：铺满键盘宽度的书写卡片，与 Android 的 rebuildHandwritingRows、HarmonyOS 的 handwritingPad 一致；⌫ 与「重写」在底行（`handwritingRewriteButton`、`handwritingDeleteButton`）。
   private let handwriting = HandwritingInputView()
-  /// 手写区：标点列、书写卡片和 ⌫ / 重写列，与 Android 的 rebuildHandwritingRows 布局一致。
-  private let handwritingPad = UIStackView()
-  /// 手写板的两列按键，间距与按键行相同。
-  private var handwritingColumns: [UIStackView] = []
   private var handwritingResults: [String] = []
   private var handwritingActionHeight: NSLayoutConstraint?
   private var candidatePanel: KeyboardCandidatePanelView?
@@ -323,6 +320,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
   private var japaneseConversionIndex: Int?
   private var isChineseMode = true
+  /// 经功能菜单「手写」进入手写前的方案和中英状态，再点一次这个图块回到它们（#9703）；经其他途径换方案时清掉，那时离开手写按 `InputSchemePreference.handwritingReturn` 取第一个不是手写的方案。
+  private var schemeBeforeHandwriting: ChineseInputScheme?
+  private var englishBeforeHandwriting = false
   /// Shift 发起的英文片段不改变用户明确选择的语言，结束后回到原方案。
   private var temporaryEnglishFromScheme = false
 
@@ -420,6 +420,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// iPad 26 键底行，以空格键的 6.4 为基准（`TabletLetterLayout`）：123 1.5、中 1.2、地球键 1、123 1.5、⌄ 1.2。
   private var tabletActionWidths: [NSLayoutConstraint] = []
   private var phoneExpandedSpaceWidths: [NSLayoutConstraint] = []
+  /// 手写底行的弹性权重（`handwritingSpaceWeight` 等）；隐藏 中/英 时改用 expanded 那一组，把它的份额交给空格。
+  private var handwritingActionWidths: [NSLayoutConstraint] = []
+  private var handwritingExpandedSpaceWidths: [NSLayoutConstraint] = []
+  /// 手写底行 中 与回车之间的「重写」和 ⌫；其他底行上都隐藏。
+  private var handwritingRewriteButton: UIButton!
+  private var handwritingDeleteButton: UIButton!
+  /// 手写底行 ， 和 。 右上角的 ？ ！ 角标，长按输入它们；其他底行上隐藏。
+  private var handwritingCommaHint: UILabel!
+  private var handwritingPeriodHint: UILabel!
   private var nineKeyExpandedSpaceWidths: [NSLayoutConstraint] = []
   private var tabletExpandedSpaceWidths: [NSLayoutConstraint] = []
   private var tabletSplitExpandedSpaceWidths: [NSLayoutConstraint] = []
@@ -1225,7 +1234,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       updateCandidateStrip(preedit: "", candidates: words)
     }
     handwriting.canDownload = { [weak self] in self?.hasFullAccess == true }
-    keyColumn.addArrangedSubview(makeHandwritingPad())
+    keyColumn.addArrangedSubview(handwriting)
     for row in symbolRows {
       let rowView = makeSymbolRow(row)
       rowView.isHidden = true
@@ -1266,61 +1275,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     root.addGestureRecognizer(keyboardCursorPan)
     updateKeyboardLayout()
   }
-
-  /// 手写区，对应 Android 的 rebuildHandwritingRows：左边竖排 ，。？！，中间是书写卡片，右边竖排 ⌫ 和重写，三者按 .6 / 4 / .7 分配一行的宽度，与 Android、HarmonyOS 相同。卡片上有笔迹时 ⌫ 撤回最后一笔，卡片为空时删除光标前的字符（`handleBackspace`）；重写清空卡片。下面的底行是所有 26 键界面共用的手机底行。
-  private func makeHandwritingPad() -> UIStackView {
-    handwritingPad.axis = .horizontal
-    handwritingPad.alignment = .fill
-    handwritingPad.distribution = .fill
-    handwritingPad.spacing = 6
-    handwritingPad.accessibilityIdentifier = "handwritingPad"
-    handwritingPad.isHidden = true
-    let punctuation = UIStackView()
-    punctuation.accessibilityIdentifier = "handwritingPunctuation"
-    for symbol in Self.handwritingPunctuation {
-      let key = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)", function: true) { [weak self] in
-        self?.countKeyPress(TypingKeyID.punctuation)
-        self?.handleSymbol(symbol)
-      }
-      key.configuration?.contentInsets = .zero
-      key.accessibilityIdentifier = "handwritingPunctuation\(symbol)"
-      punctuation.addArrangedSubview(key)
-    }
-    let tools = UIStackView()
-    tools.accessibilityIdentifier = "handwritingTools"
-    let delete = makeDeleteKey()
-    delete.accessibilityIdentifier = "handwritingDelete"
-    tools.addArrangedSubview(delete)
-    let rewrite = makeKey(title: "重写", accessibilityLabel: "清空手写", function: true) { [weak self] in
-      self?.handwriting.clear()
-    }
-    rewrite.configuration?.contentInsets = .zero
-    rewrite.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
-    rewrite.accessibilityIdentifier = "handwritingRewrite"
-    tools.addArrangedSubview(rewrite)
-    for column in [punctuation, tools] {
-      column.axis = .vertical
-      column.alignment = .fill
-      column.distribution = .fillEqually
-      column.spacing = CGFloat(KeyboardLayoutPreference.rowSpacing)
-    }
-    handwritingColumns = [punctuation, tools]
-    handwritingPad.addArrangedSubview(punctuation)
-    handwritingPad.addArrangedSubview(handwriting)
-    handwritingPad.addArrangedSubview(tools)
-    NSLayoutConstraint.activate([
-      punctuation.widthAnchor.constraint(equalTo: handwriting.widthAnchor, multiplier: Self.handwritingPunctuationShare / Self.handwritingCardShare),
-      tools.widthAnchor.constraint(equalTo: handwriting.widthAnchor, multiplier: Self.handwritingToolsShare / Self.handwritingCardShare),
-    ])
-    return handwritingPad
-  }
-
-  /// 手写板的标点列，对应 Android 的 `NineKeyLayout.punctuation()`。
-  static let handwritingPunctuation = ["，", "。", "？", "！"]
-  /// 手写板在一行里的宽度份额，三个移动端共用：标点 .6、书写卡片 4、工具 .7。两侧控制列收窄后，书写卡片约占一行的四分之三。
-  static let handwritingPunctuationShare: CGFloat = 0.6
-  static let handwritingCardShare: CGFloat = 4
-  static let handwritingToolsShare: CGFloat = 0.7
 
   /// 顶栏下面的那一行：填满它的按键列，以及单手模式的侧栏；侧栏默认隐藏，由 `applyOneHanded` 显示在按键的另一侧。这一行总是从左到右排列，因为存储的模式记的就是按键靠哪一侧。
   private func installOneHandRow(in root: UIStackView) {
@@ -2365,11 +2319,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       KeyboardTool(id: "handwriting", title: "手写", face: .icon(.handwriting),
                    selected: isChineseMode && inputScheme == .handwriting,
                    enabled: InputSchemePreference.offeredSchemes.contains(.handwriting)) { [weak self] in
-        guard let self else { return }
-        // 与在方案选择里选手写的步骤相同。
-        closeKeyboardPicker()
-        if !isChineseMode { toggleInputMode() }
-        selectInputScheme(.handwriting)
+        self?.toggleHandwritingScheme()
       },
       KeyboardTool(id: "dictionary", title: "词库", face: .icon(.lexicon)) { [weak self] in
         self?.openApp(KeyboardAppLauncher.dictionaryURL)
@@ -3316,6 +3266,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     fullSymbolsWidth = nineKeySymbolsButton.widthAnchor.constraint(equalToConstant: 34)
     row.addArrangedSubview(language)
 
+    // 手写的「重写」和 ⌫：书写区铺满整行后从它两侧的列搬到底行，排在 中 和回车之间；⌫ 有笔迹时撤回一笔，没有时删除光标前的字符（`handleBackspace`）。其他底行隐藏。
+    let rewrite = makeKey(title: "重写", accessibilityLabel: "清空手写", function: true) { [weak self] in
+      self?.handwriting.clear()
+    }
+    rewrite.configuration?.contentInsets = .zero
+    rewrite.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
+    rewrite.titleLabel?.adjustsFontSizeToFitWidth = true
+    rewrite.titleLabel?.minimumScaleFactor = 0.7
+    rewrite.accessibilityIdentifier = "handwritingRewrite"
+    rewrite.isHidden = true
+    handwritingRewriteButton = rewrite
+    row.addArrangedSubview(rewrite)
+    let handwritingDelete = makeDeleteKey()
+    handwritingDelete.accessibilityIdentifier = "handwritingDelete"
+    handwritingDelete.isHidden = true
+    handwritingDeleteButton = handwritingDelete
+    row.addArrangedSubview(handwritingDelete)
+    // 原来书写区左侧的 ？ ！ 由 ， 和 。 的长按输入，角标与 26 键字母的符号角标画法相同。
+    handwritingCommaHint = attachCornerHintLabel(to: punctuation)
+    handwritingCommaHint.accessibilityIdentifier = "handwritingCommaHint"
+    handwritingCommaHint.text = Self.chineseSymbolFaces["?"]
+    handwritingPeriodHint = attachCornerHintLabel(to: period)
+    handwritingPeriodHint.accessibilityIdentifier = "handwritingPeriodHint"
+    handwritingPeriodHint.text = Self.chineseSymbolFaces["!"]
+
     // 九键网格数字层底行的 0：网格放 1-9，这个键补上 0。拼音网格和笔画键上它的位置让给最左边的 符。
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       guard let self else { return }
@@ -3441,6 +3416,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true), (delete, 1, true),
       (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ])
+    let handwritingSpace = Self.handwritingSpaceWeight
+    let handwritingEntries: [(UIView, CGFloat, Bool)] = [
+      (layoutToggle, Self.handwritingLayerWeight, false), (globe, 1, true),
+      (punctuation, Self.handwritingPunctuationWeight, true), (period, Self.handwritingPunctuationWeight, true),
+      (rewrite, Self.handwritingRewriteWeight, true), (handwritingDelete, Self.handwritingDeleteWeight, true),
+      (enter, Self.handwritingReturnWeight, false),
+    ]
+    handwritingActionWidths = expandedWidths(spaceWeight: handwritingSpace, entries: handwritingEntries)
+      + [weight(language, Self.handwritingLanguageWeight, space: handwritingSpace)]
+    handwritingExpandedSpaceWidths = expandedWidths(
+      spaceWeight: handwritingSpace + Self.handwritingLanguageWeight, entries: handwritingEntries)
     nineKeyExpandedSpaceWidths = expandedWidths(spaceWeight: Self.nineKeySpaceWeight + 1.05, entries: [
       (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true), (zero, 1.05, true), (enter, 1.6, false),
     ])
@@ -3460,6 +3446,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
+  /// 手写底行 123 |（地球键 1）| ， | 空格 | 。 | 中 | 重写 | ⌫ | 回车 的弹性权重，三个移动端相同（Android `KeyboardActionRow.HANDWRITING_*_WEIGHT`、HarmonyOS `HANDWRITING_*_SHARE`，`scripts/test-mobile-handwriting-pad-parity.py` 比对）。空格从 4 让到 2.4、回车从 1.9 让到 1.6（与九键底行的回车相同），腾出「重写」和 ⌫ 的位置：320pt 宽时 ， 。 约 25pt，与 26 键字母键相当，空格仍放得下麦克风和「手写」。
+  static let handwritingLayerWeight: CGFloat = 1.25
+  static let handwritingPunctuationWeight: CGFloat = 1
+  static let handwritingSpaceWeight: CGFloat = 2.4
+  static let handwritingLanguageWeight: CGFloat = 1.05
+  static let handwritingRewriteWeight: CGFloat = 1.25
+  static let handwritingDeleteWeight: CGFloat = 1.25
+  static let handwritingReturnWeight: CGFloat = 1.6
   /// 九键字母层空格键及需要底行地球键时数字层 0 键的弹性权重。
   static let nineKeySpaceWeight: CGFloat = 4.2
   /// 123 层表情键上的表情线框图标。
@@ -4339,7 +4333,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.title = face.label
       configuration.image = mic ? KeyboardIcon.mic.image(pointSize: Self.spaceMicSide) : nil
       configuration.imagePlacement = .leading
-      configuration.imagePadding = 5
+      // 麦克风与方案短名之间 4pt、两侧各 4pt，与 Android 的 `SpaceKeyFace`（GAP_DP 4、两侧共 8dp）相同。手写底行的空格只有 2.4 份，320pt 宽时约 60pt，按系统默认的 12pt 内边距放不下麦克风和「手写」两个字；内容居中，宽的空格键看不出差别。
+      configuration.imagePadding = Self.spaceLabelGap
+      configuration.contentInsets.leading = Self.spaceLabelGap
+      configuration.contentInsets.trailing = Self.spaceLabelGap
       configuration.baseForegroundColor = color
       configuration.titleTextAttributesTransformer = Self.spaceLabelTransformer
       space.configuration = configuration
@@ -4351,6 +4348,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 空格键上的麦克风线框图标，尺寸取 Android 的 `SpaceKeyFace.MIC_DP`。
   private static let spaceMicSide: CGFloat = 22
+  /// 空格键上麦克风与短名之间、以及键面两侧的留白，取 Android 的 `SpaceKeyFace.GAP_DP`。
+  private static let spaceLabelGap: CGFloat = 4
 
   /// 空格键的标签：13pt，与字母一样固定字号。
   private static let spaceLabelTransformer = UIConfigurationTextAttributesTransformer { attributes in
@@ -4618,9 +4617,35 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 功能菜单的「手写」：切到手写，并记下进入前的方案和中英状态；正在手写时回到记下的那个（#9703）。原先这个图块只进不出，再点一次仍停在手写上，要从方案选择离开。与 Android、鸿蒙的磁贴一样来回切换。
+  ///
+  /// 英文盖在手写上时键盘画的是英文，这时点图块是要手写：只退出英文，进入前记下的方案仍然有效。
+  private func toggleHandwritingScheme() {
+    closeKeyboardPicker()
+    if isChineseMode && inputScheme == .handwriting {
+      let before = schemeBeforeHandwriting
+      let back = InputSchemePreference.handwritingReturn(before: before, offered: InputSchemePreference.offeredSchemes)
+      let english = back == before && englishBeforeHandwriting
+      selectInputScheme(back)
+      if english && isChineseMode && inputScheme == back { toggleInputMode() }
+      return
+    }
+    let previous = inputScheme
+    let english = !isChineseMode
+    // 与在方案选择里选手写的步骤相同。
+    if !isChineseMode { toggleInputMode() }
+    selectInputScheme(.handwriting)
+    if previous != .handwriting && inputScheme == .handwriting {
+      schemeBeforeHandwriting = previous
+      englishBeforeHandwriting = english
+    }
+  }
+
   private func selectInputScheme(_ scheme: ChineseInputScheme, persistShared: Bool = true) {
     guard InputSchemePreference.offeredSchemes.contains(scheme) else { return }
     if scheme == inputScheme { return }
+    // 换到别的方案：「手写」图块记下的方案作废，图块自己在这之后重新记。
+    schemeBeforeHandwriting = nil
     playInputClick()
     let source = typingSource
     // An open Korean syllable, Zhuyin conversion or Vietnamese word is text the user already wrote, so leaving the scheme commits it; the switch below would otherwise discard it along with the marked text.
@@ -5560,8 +5585,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineControls?.spacing = layout.rowSpacing
     numberPadSidebar.spacing = layout.rowSpacing
     numberPadOperators.spacing = layout.rowSpacing
-    handwritingColumns.forEach { $0.spacing = layout.rowSpacing }
-    handwritingPad.spacing = layout.keySpacing
     strokeKeys?.applySpacing(row: layout.rowSpacing, key: layout.keySpacing)
     nineKeyHeight.constant = layout.rowSpacing * 2
     japaneseHeight?.constant = Self.japaneseKeyBlockHeight
@@ -5707,7 +5730,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       face.key.configuration?.title = title
       face.key.accessibilityLabel = "符号 \(title)"
     }
-    if let key = quickPunctuationButton as? KeyboardKeyButton, key.cornerHint != nil {
+    // 26 键的 ， 长按输入的句号跟随句号键面；手写底行的 ， 长按输入的是 ？，不在这里改。
+    if let key = quickPunctuationButton as? KeyboardKeyButton, key.cornerHint != nil, handwriting.isHidden {
       key.cornerHint = periodKey.configuration?.title ?? "."
     }
     // 藏文方案下 `=` 键显示它实际发出的 `+`。
@@ -5739,7 +5763,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !isInLocalMode
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
     handwriting.isHidden = !writes
-    handwritingPad.isHidden = !writes
     if writes { handwriting.activate() }
     handwritingActionHeight?.isActive = writes
     // Dachen takes the digit row and four punctuation keys for bopomofo, so Zhuyin draws its own four rows in place of the letter rows and the number row.
@@ -5800,6 +5823,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown, numberPad: numberPad)
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
         + tabletActionWidths + phoneExpandedSpaceWidths + nineKeyExpandedSpaceWidths
+        + handwritingActionWidths + handwritingExpandedSpaceWidths
         + tabletExpandedSpaceWidths + tabletSplitExpandedSpaceWidths
         + numberPadActionWidths + numberPadExpandedZeroWidths
         + numberPadGridWidths + numberPadExpandedGridWidths)
@@ -5847,27 +5871,55 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         quickPunctuationButton.accessibilityLabel = "常用标点"
         quickPunctuationButton.accessibilityValue = punctuation[0]
       }
+      // 手写底行：「重写」和 ⌫ 排在 中 与回车之间；， 长按输入 ？、。 长按输入 ！，代替原来书写区左侧的两个键。自定义了常用标点时 ， 仍按那份菜单。
+      let handwritingRow = style == .phone && writes
+      let handwritingQuestion = handwritingRow && !usesCustomQuickPunctuation
+      if handwritingRewriteButton.isHidden == handwritingRow { handwritingRewriteButton.isHidden = !handwritingRow }
+      if handwritingDeleteButton.isHidden == handwritingRow { handwritingDeleteButton.isHidden = !handwritingRow }
+      handwritingCommaHint.isHidden = !handwritingQuestion
+      handwritingPeriodHint.isHidden = !handwritingRow
       // 26 键复用角标的长按取消机制，松手只输入句号；其他布局继续长按打开常用标点。
-      quickPunctuationButton.menu = phoneLetterSymbols && !usesCustomQuickPunctuation ? nil : UIMenu(children: punctuation.map { symbol in
+      quickPunctuationButton.menu = handwritingQuestion || (phoneLetterSymbols && !usesCustomQuickPunctuation) ? nil : UIMenu(children: punctuation.map { symbol in
         UIAction(title: symbol) { [weak self] _ in
           self?.countKeyPress(TypingKeyID.quickPunctuation)
           self?.handleSymbol(symbol)
         }
       })
       if let key = quickPunctuationButton as? KeyboardKeyButton {
-        key.cornerHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? (periodKey.configuration?.title ?? ".") : nil
+        if handwritingQuestion {
+          key.cornerHint = Self.chineseSymbolFaces["?"]
+          key.onCornerHint = { [weak self] _ in
+            self?.countKeyPress(TypingKeyID.quickPunctuation)
+            self?.handleSymbol("?")
+          }
+          key.accessibilityHint = "轻点输入逗号，长按输入问号"
+        } else {
+          key.cornerHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? (periodKey.configuration?.title ?? ".") : nil
+          key.onCornerHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? { [weak self] _ in
+            self?.countKeyPress(TypingKeyID.quickPunctuation)
+            self?.handleSymbol(".")
+          } : nil
+          key.accessibilityHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? "轻点输入逗号，长按输入句号" : "轻点输入，长按选择常用标点"
+        }
         key.swipesCornerHint = false
-        key.onCornerHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? { [weak self] _ in
-          self?.countKeyPress(TypingKeyID.quickPunctuation)
-          self?.handleSymbol(".")
+      }
+      if let key = periodKey as? KeyboardKeyButton {
+        key.cornerHint = handwritingRow ? Self.chineseSymbolFaces["!"] : nil
+        key.swipesCornerHint = false
+        key.onCornerHint = handwritingRow ? { [weak self] _ in
+          self?.countKeyPress(TypingKeyID.character("."))
+          self?.handleSymbol("!")
         } : nil
-        key.accessibilityHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? "轻点输入逗号，长按输入句号" : "轻点输入，长按选择常用标点"
+        key.accessibilityHint = handwritingRow ? "轻点输入句号，长按输入叹号" : nil
       }
       // 底行的 ⌫ 是大千符号行唯一的 ⌫；123 / #+= 层和九键外框在各自的行里带 ⌫。
       actionDeleteButton.isHidden = !showsSymbols || kana || symbolLayer || nineKeyFrame
       symbolDeleteWidth?.isActive = !actionDeleteButton.isHidden && style == .standard
       switch style {
-      case .phone: NSLayoutConstraint.activate(hidesLanguage ? phoneExpandedSpaceWidths : phoneActionWidths)
+      case .phone:
+        NSLayoutConstraint.activate(handwritingRow
+          ? (hidesLanguage ? handwritingExpandedSpaceWidths : handwritingActionWidths)
+          : (hidesLanguage ? phoneExpandedSpaceWidths : phoneActionWidths))
       case .nineKey:
         if numberPad {
           // 系统要求额外地球键时仍保留其触控宽度；通常的手机数字页按网格对齐。
@@ -5918,7 +5970,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
   }
 
-  /// 底行是否为设计稿的手机底行（123 | ， | space | 。 | 中 | return）：手机键盘显示字母或大千符号行时是，任一设备形态上的手写板和全拼 14 键也是，与 Android 的 designEntries 给手写和 14 键共用底行一致（iPad 26 键底行的回车在第二排字母上，14 键没有那个位置）。九键外框和假名键保留自己的底行，123 / #+= 层自带一行（`ActionRowStyle.symbolLayer`），iPad 的字母也有自己的（`usesTabletBottomRow`）。
+  /// 底行是否为设计稿的手机底行（123 | ， | space | 。 | 中 | return；手写在 中 与 return 之间多出「重写」和 ⌫，空格让窄）：手机键盘显示字母或大千符号行时是，任一设备形态上的手写板和全拼 14 键也是，与 Android 的 designEntries 给手写和 14 键共用底行一致（iPad 26 键底行的回车在第二排字母上，14 键没有那个位置）。九键外框和假名键保留自己的底行，123 / #+= 层自带一行（`ActionRowStyle.symbolLayer`），iPad 的字母也有自己的（`usesTabletBottomRow`）。
   static func usesPhoneBottomRow(formFactor: KeyboardFormFactor, nineKeyFrame: Bool, handwriting: Bool, kana: Bool,
                                  fourteenKey: Bool = false) -> Bool {
     !nineKeyFrame && !kana && (handwriting || fourteenKey || formFactor == .phone)
@@ -5978,22 +6030,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let comma: UIView = quickPunctuationButton, period: UIView = periodKey
     let emoji: UIView = layerEmojiButton, zero: UIView = nineKeyZeroButton
     let tabletLayer: UIView = tabletLayerButton, dismiss: UIView = dismissKeyButton
+    // 手写底行的「重写」和 ⌫ 排在 中 与回车之间（只在手写时显示）；其他排法里它们隐藏，放在最后。
+    let rewrite: UIView = handwritingRewriteButton, handwritingDelete: UIView = handwritingDeleteButton
     let order: [UIView]
     switch style {
     case .phone:
       order = commaSecondary
-        ? [toggle, globe, symbols, space, gap, splitSpace, comma, language, enter, delete, period, emoji, zero, tabletLayer, dismiss]
-        : [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss]
+        ? [toggle, globe, symbols, space, gap, splitSpace, comma, language, enter, delete, period, emoji, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
+        : [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, rewrite, handwritingDelete, enter, emoji, zero, tabletLayer, dismiss]
     case .nineKey:
       order = numberPad
-        ? [symbols, toggle, globe, zero, space, gap, splitSpace, language, enter, delete, comma, period, emoji, tabletLayer, dismiss]
-        : [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss]
+        ? [symbols, toggle, globe, zero, space, gap, splitSpace, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
+        : [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
     case .symbolLayer:
-      order = [toggle, emoji, symbols, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss]
+      order = [toggle, emoji, symbols, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
     case .tablet:
-      order = [symbols, toggle, language, globe, space, gap, splitSpace, tabletLayer, dismiss, delete, comma, period, enter, emoji, zero]
+      order = [symbols, toggle, language, globe, space, gap, splitSpace, tabletLayer, dismiss, delete, comma, period, enter, emoji, zero, rewrite, handwritingDelete]
     case .standard:
-      order = [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss]
+      order = [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
     }
     guard actionRow.arrangedSubviews != order else { return }
     for (index, key) in order.enumerated() where actionRow.arrangedSubviews.firstIndex(of: key) != index {
