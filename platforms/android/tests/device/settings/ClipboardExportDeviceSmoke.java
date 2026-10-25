@@ -158,6 +158,32 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
         for (var entry : files().entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
+        stage = "history page prompt interrupted by leaving";
+        // 认证窗口开着时离开再回来：Android 10 起系统关掉后台应用的认证窗口，回来必须重新认证并读出记录，不能停在既无授权也无认证窗口的「正在读取…」；Android 9 的凭据确认是本任务里的 Activity，回来时仍在原处，认证成功后不再弹第二次。
+        seed();
+        activity = startActivitySync(new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
+            .putExtra("msime_open_page", "CLIPBOARD_SEARCH").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
+        DeviceCredentialFixture.awaitPrompt(automation);
+        leaveAndReturn();
+        DeviceCredentialFixture.enter(automation);
+        await(text("合成新记录"));
+        SystemClock.sleep(1000);
+        check(!DeviceCredentialFixture.promptVisible(automation), "history page prompted again after authentication");
+        stage = "history page export prompt interrupted by leaving";
+        // 已授权时导出认证被离开打断：Android 10 起导出认证被系统取消，回来按重新进入处理，先认证页面、不导出；Android 9 回到仍在进行的凭据确认，认证后照常导出。
+        int beforeInterrupted = files().size();
+        tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        DeviceCredentialFixture.awaitPrompt(automation);
+        leaveAndReturn();
+        DeviceCredentialFixture.enter(automation);
+        if (Build.VERSION.SDK_INT < 29) {
+            waitFor(() -> filesUnchecked().size() == beforeInterrupted + 1, "credential confirmation survives leaving");
+        } else {
+            await(text("合成新记录"));
+            SystemClock.sleep(1000);
+            check(filesUnchecked().size() == beforeInterrupted && !DeviceCredentialFixture.promptVisible(automation),
+                "interrupted export re-authenticates the page without exporting");
+        }
         stage = "history page export action";
         activity = startActivitySync(new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
             .putExtra("msime_open_page", "CLIPBOARD_SEARCH").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
@@ -258,6 +284,17 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         store.getClass().getMethod("add", String.class).invoke(store, LONG);
         store.getClass().getMethod("add", String.class).invoke(store, "合成新记录");
         store.getClass().getMethod("setPinned", String.class, boolean.class).invoke(store, LONG, true);
+    }
+
+    /** 认证窗口开着时切到另一个应用再回到原任务；Android 10 起系统应已关掉后台应用的认证窗口。 */
+    private void leaveAndReturn() throws Exception {
+        shell("am start -W -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        if (Build.VERSION.SDK_INT >= 30) {
+            waitFor(() -> !DeviceCredentialFixture.promptVisible(automation), "system kept the prompt of a background app");
+        }
+        SystemClock.sleep(1000);
+        shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+        automation.waitForIdle(300, 3000);
     }
 
     private void openPage() throws Exception {

@@ -39,9 +39,13 @@ final class DeviceCredentialFixture {
         return passwordField(automation) != null;
     }
 
+    static void awaitPrompt(UiAutomation automation) {
+        await(() -> promptVisible(automation), "system credential prompt did not appear");
+    }
+
     /** 等系统认证界面出现，在它的密码框里输入合成 PIN 并确认，直到界面关闭。 */
     static void enter(UiAutomation automation) throws Exception {
-        await(() -> promptVisible(automation), "system credential prompt did not appear");
+        awaitPrompt(automation);
         AccessibilityNodeInfo field = passwordField(automation);
         // 认证界面打开时通常已聚焦密码框；未聚焦时先点一下，避免合成按键落到其他窗口。
         if (field != null && !field.isFocused()) field.performAction(AccessibilityNodeInfo.ACTION_CLICK);
