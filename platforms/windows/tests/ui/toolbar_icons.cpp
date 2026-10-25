@@ -59,7 +59,7 @@ int main() {
                              kToolbarPunctuation, kToolbarCharacterSet})
       require(text(toolbar_icon(button, std::nullopt), L"?"));
 
-    // Every icon carries non-empty text: the mode buttons draw nothing else, and the glyph fonts are not present on every Windows build, where a missing glyph draws a blank box.
+    // 模式按钮依赖文字；功能按钮也保留非空标签，缺图标字体时悬浮栏优先画原生矢量图标。
     for (int button = kToolbarLanguage; button <= kToolbarInputScheme; ++button)
       for (const std::optional<bool> state :
            {std::optional<bool>{}, std::optional<bool>{true},
