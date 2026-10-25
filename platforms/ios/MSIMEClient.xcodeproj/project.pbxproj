@@ -315,6 +315,7 @@
 		4A7176EE2AA629371EDA664E /* CandidateOptionsSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FBA11810BAA522AC091061 /* CandidateOptionsSettingsTests.swift */; };
 		4ADD9D6348BCCB39A462BDCB /* InlineCompositionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE4C0D423F2A501E473C686 /* InlineCompositionPolicy.swift */; };
 		4B1259CBC4405F034ECEFF47 /* BoundedFileReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 915C95E1A1B908177DA4877A /* BoundedFileReader.swift */; };
+		4B738F3C3632E7F23C6E8B71 /* MLKitStatsOptOut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8710BA4EC739ADB8A35535 /* MLKitStatsOptOut.swift */; };
 		4BC1E1A11752EC66557A61C9 /* GlobalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CE1B2A79B2393496CDEF85 /* GlobalTheme.swift */; };
 		4BD8B1233035F298E6374FDF /* InlineCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76DA101B3EBB4BB070C5F919 /* InlineCompositionTests.swift */; };
 		4C20D26C1A0DF8BD52A963AA /* WubiLookupRequestState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4C9BFDD309672CF6D982C3 /* WubiLookupRequestState.swift */; };
@@ -407,6 +408,7 @@
 		642CEBC89D66E1BC20B47758 /* SkinCommunityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2134ADB15FD507683C832FF /* SkinCommunityTests.swift */; };
 		642E36636235F24F5A0C98DC /* AICandidatePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999B49E42E770ED3489631D8 /* AICandidatePreference.swift */; };
 		646DDE728B4C323C5CBBE572 /* BackendBoundedFileReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C644723BF97EB5CE275847 /* BackendBoundedFileReader.swift */; };
+		6485CD16F8FFD10148A63A9A /* MLKitStatsOptOutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA9AEEAB03B1005888107217 /* MLKitStatsOptOutTests.swift */; };
 		6492F138DE521AC5055F184B /* KeyboardSkinTrialTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 685BE6AFE6198B61D33EB140 /* KeyboardSkinTrialTests.swift */; };
 		655BEA06FCC1FDC1F311CFD1 /* AppThemePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E4A4E6D498517749D67839 /* AppThemePalette.swift */; };
 		659CCE2CA825D0FF09328626 /* ScrollEdgeEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA2E218C83BD4492D3233B5 /* ScrollEdgeEffects.swift */; };
@@ -492,6 +494,7 @@
 		790ED8222B1E97112FFF6F30 /* PersonalDictionaryBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070E2130BE0A27C9B3CFD530 /* PersonalDictionaryBridge.swift */; };
 		79263B4881D743B17809D551 /* CandidateFontSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8287109EE6C4EB060ACDFD01 /* CandidateFontSizeTests.swift */; };
 		792B0780AE547A90FDD3D0FA /* AIProviderCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962B4266475311E751681270 /* AIProviderCatalog.swift */; };
+		795DE58558905FF83E86FBD3 /* MLKitStatsOptOut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8710BA4EC739ADB8A35535 /* MLKitStatsOptOut.swift */; };
 		795F331A41B50D6F53E07DBC /* CloudDictionaryTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A110709829E2F84B461C4A8F /* CloudDictionaryTransfer.swift */; };
 		7A2B6F77616A8BCB9EAB8075 /* AppServicesBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB6AAAD4396BCADF6B7494DD /* AppServicesBridge.swift */; };
 		7A6248019AC34B794ABB9ED1 /* HelpcodeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96EEB4FF8EFD1144F0574D7 /* HelpcodeSettingsTests.swift */; };
@@ -668,6 +671,7 @@
 		A801B56779A10DAFFB19E8E6 /* VoicePolishServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA710F5959A43A89A98870EE /* VoicePolishServiceView.swift */; };
 		A8392344B9710B81B05C264A /* KeyboardFormFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D27FEBB5B52158F2A8914726 /* KeyboardFormFactor.swift */; };
 		A83EE5D5394DA92C45A84952 /* IOSSharedPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0504CF247D77C6734DD3AD7 /* IOSSharedPaths.swift */; };
+		A88CC8B28DF1DFB3E3C04D93 /* MLKitStatsOptOut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8710BA4EC739ADB8A35535 /* MLKitStatsOptOut.swift */; };
 		A8E97C4CAB68751DB828A38B /* DictionaryLearningPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFA351B25B4B763FC91766B /* DictionaryLearningPreference.swift */; };
 		A95E94CD246BDABFCE1F63FC /* DoubaoVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FE5DEC53AAC548F03142BC /* DoubaoVoiceCoordinator.swift */; };
 		A975F0F11D9FFA50097ED3A9 /* CloudDictionaryTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A110709829E2F84B461C4A8F /* CloudDictionaryTransfer.swift */; };
@@ -1146,6 +1150,7 @@
 		1A5447CB7E52E5F1AB20940B /* VoiceTextHandoffStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextHandoffStore.swift; sourceTree = "<group>"; };
 		1B319A3B9AD9C40C9B02A70B /* NineKeyKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NineKeyKeyboardTests.swift; sourceTree = "<group>"; };
 		1B520BB5EF76EE18DB6FF4CB /* BackendRustClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendRustClient.swift; sourceTree = "<group>"; };
+		1C8710BA4EC739ADB8A35535 /* MLKitStatsOptOut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLKitStatsOptOut.swift; sourceTree = "<group>"; };
 		1CBE9695A9999FED54F35DC6 /* InputBridgeResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBridgeResponseTests.swift; sourceTree = "<group>"; };
 		1CBFF32A9C25CBBDE6358AE8 /* CloudDictionaryCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryCatalogView.swift; sourceTree = "<group>"; };
 		1DA4A9885024430C0A5FC326 /* WubiMixedPinyinPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiMixedPinyinPreference.swift; sourceTree = "<group>"; };
@@ -1413,6 +1418,7 @@
 		AA066740F3F3043E5F57AE67 /* CandidateSkinPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateSkinPreviewTests.swift; sourceTree = "<group>"; };
 		AA4DF64DBA4E83E11DF1882F /* SkinCommunityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityView.swift; sourceTree = "<group>"; };
 		AA4E6A847043CEAF3C238278 /* SharedNumberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedNumberTests.swift; sourceTree = "<group>"; };
+		AA9AEEAB03B1005888107217 /* MLKitStatsOptOutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLKitStatsOptOutTests.swift; sourceTree = "<group>"; };
 		ABDA10E9E20C074236EA1C68 /* SmartPunctuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPunctuationTests.swift; sourceTree = "<group>"; };
 		AC601D4D0CBF4CCD8B1D39FA /* BackendLocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendLocalStore.swift; sourceTree = "<group>"; };
 		ACD87E9001BFA2C28DCCCC9F /* ReplyKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyKeyboardView.swift; sourceTree = "<group>"; };
@@ -1711,6 +1717,7 @@
 				B189D74A0FB8D21A92C60973 /* HandwritingDownloadSession.h */,
 				DA3994022F73A592AC2A907B /* HandwritingDownloadSession.m */,
 				A4EBCD4CEC6E752B1A464B4F /* HandwritingInputView.swift */,
+				1C8710BA4EC739ADB8A35535 /* MLKitStatsOptOut.swift */,
 			);
 			path = handwriting;
 			sourceTree = "<group>";
@@ -2073,6 +2080,7 @@
 				3B7C88992D4866617DCC4285 /* KoreanDubeolsikTests.swift */,
 				1E03EB48F31CAB4266A11C60 /* LanguageSchemesTests.swift */,
 				252FD97AF6F8C9E6CFCAA2D3 /* LetterCornerHintTests.swift */,
+				AA9AEEAB03B1005888107217 /* MLKitStatsOptOutTests.swift */,
 				CFB65ECFC97C3DB5B0DE0A82 /* NineKeyShuangpinTests.swift */,
 				EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */,
 				CD2C7C5382BE9875C3EFAD96 /* OwnEditEchoWindowTests.swift */,
@@ -3248,6 +3256,8 @@
 				04ADE1092AADEF4F432046DF /* LetterCornerHintTests.swift in Sources */,
 				69D094265B0744D4CBD12BE5 /* LetterHintTable.swift in Sources */,
 				E408DAE28A4E8CB4B42C2872 /* LocalModeSettingsTests.swift in Sources */,
+				795DE58558905FF83E86FBD3 /* MLKitStatsOptOut.swift in Sources */,
+				6485CD16F8FFD10148A63A9A /* MLKitStatsOptOutTests.swift in Sources */,
 				14B842D20FCD4A43757314B8 /* MSIMELogoShape.swift in Sources */,
 				3779D525B9020247AB817BDF /* MetasequoiaInputSessionBridge.swift in Sources */,
 				FF1818EC41EBBEF4FB50232F /* MetasequoiaTheme.swift in Sources */,
@@ -3459,6 +3469,7 @@
 				C4434161ADA1E2775930E031 /* KeyboardVoicePanelView.swift in Sources */,
 				D70BBC279D817CE3109811E8 /* KeyboardVoiceView.swift in Sources */,
 				0522121532482678D3F490DD /* LetterHintTable.swift in Sources */,
+				4B738F3C3632E7F23C6E8B71 /* MLKitStatsOptOut.swift in Sources */,
 				DB77C45FD314008017EFD68A /* MSIMELogoShape.swift in Sources */,
 				C2F73957B17C27CCD33AB971 /* MetasequoiaInputSessionBridge.swift in Sources */,
 				F2683763002AF661FC8367FA /* MetasequoiaTheme.swift in Sources */,
@@ -3654,6 +3665,7 @@
 				B3925080F278AF81719F415A /* KeyboardVoicePanelView.swift in Sources */,
 				262C056FDCA3214CD54FB035 /* KeyboardVoiceView.swift in Sources */,
 				30EEC9D84813804DA6329964 /* LetterHintTable.swift in Sources */,
+				A88CC8B28DF1DFB3E3C04D93 /* MLKitStatsOptOut.swift in Sources */,
 				5364F9B6D52C9C5DCA7F047D /* MSIMELogoShape.swift in Sources */,
 				C02096B80C178CBCCC15C8AD /* MetasequoiaInputSessionBridge.swift in Sources */,
 				495A3D912CFB2E270D8E810A /* MetasequoiaTheme.swift in Sources */,
