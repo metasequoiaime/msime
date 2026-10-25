@@ -61,7 +61,47 @@ int main() {
     require(update_mirror_url(L"https://github.com/metasequoiaime/msime/releases/tag/v1/x", L"a.exe").empty());
     require(update_mirror_url(L"https://github.com/metasequoiaime//releases/tag/v1", L"a.exe").empty());
 
-    require(update_release_headline(L"0.53.0") == L"水杉 IME v0.53.0 已发布。");
+    // 更新通道：三个选项的值就是偏好的写法；读偏好时认不出的值按稳定版。
+    require(update_channel_options.size() == 3);
+    require(update_channel_options[0].value == L"stable" && update_channel_options[0].label == L"稳定版");
+    require(update_channel_options[1].value == L"beta" && update_channel_options[1].label == L"测试版");
+    require(update_channel_options[2].value == L"nightly" && update_channel_options[2].label == L"每日构建");
+    namespace channel = msime::windows::update_channel;
+    require(channel::normalize(std::wstring_view(L"beta")) == L"beta");
+    require(channel::normalize(std::wstring_view(L"nightly")) == L"nightly");
+    require(channel::normalize(std::wstring_view(L"")) == L"stable");
+    require(channel::normalize(std::wstring_view(L"canary")) == L"stable");
+    require(channel::normalize(std::string_view("nightly")) == "nightly");
+    require(channel::normalize(std::string_view("NIGHTLY")) == "stable");
+
+    // 结果里构建的称呼，照共享页的 describeUpdateVersion：正式版与以前一样只写版本号；测试版和每日构建写明通道，每日构建带运行 ID。
+    require(update_build_title(L"stable", L"0.53.0", 42) == L"v0.53.0");
+    require(update_build_title(L"beta", L"0.53.0", std::nullopt) == L"测试版 v0.53.0");
+    require(update_build_title(L"beta", L"0.53.0", 123) == L"测试版 v0.53.0");
+    require(update_build_title(L"nightly", L"0.53.0", 123) == L"每日构建 v0.53.0（构建 123）");
+    require(update_build_title(L"nightly", L"0.53.0", std::nullopt) == L"每日构建 v0.53.0");
+    require(update_build_title(L"later", L"0.53.0", std::nullopt) == L"v0.53.0");
+    require(channel::build_label(L"stable", L"0.53.0", std::nullopt) == L"稳定版 v0.53.0");
+    require(update_found_status(L"v0.53.0") == L"发现新版本 v0.53.0");
+    require(update_found_status(L"测试版 v0.53.0") == L"发现新版本 测试版 v0.53.0");
+
+    require(update_release_headline(L"v0.53.0") == L"水杉 IME v0.53.0 已发布。");
+    require(update_release_headline(L"测试版 v0.53.0") == L"水杉 IME 测试版 v0.53.0 已发布。");
+    require(update_release_headline(L"每日构建 v0.53.0（构建 123）") == L"水杉 IME 每日构建 v0.53.0（构建 123）已发布。");
+
+    // 官网下载页只列正式版，测试版和每日构建去发布页，按钮文字跟着变。
+    require(!update_download_from_release_page(L"stable"));
+    require(update_download_from_release_page(L"beta"));
+    require(update_download_from_release_page(L"nightly"));
+    require(update_download_label(L"stable") == L"前往下载");
+    require(update_download_label(L"beta") == L"前往发布页");
+    require(update_download_label(L"nightly") == L"前往发布页");
+    require(!update_channel_description.empty());
+    // 每日构建的发布页也能拼出镜像地址，安装包名带 -nightly.<运行>.<重试>。
+    require(update_mirror_url(L"https://github.com/metasequoiaime/msime/releases/tag/nightly",
+                              L"MetasequoiaIME-Full_Setup_v0.53.0-nightly.123.1.exe") ==
+            L"https://dl.msime.app/gh/https://github.com/metasequoiaime/msime/releases/download/"
+            L"nightly/MetasequoiaIME-Full_Setup_v0.53.0-nightly.123.1.exe");
 
     // 安装包可信度，照 describeInstallerTrust 的 Windows 一支。
     const std::wstring unsigned_text =

@@ -12,11 +12,11 @@ windows-v0.3.0-beta 上是 18 个附件：六个安装程序、六个 `.exe.sha2
 
 - **符号包挪到滚动的 `windows-symbols` release**，照 macOS 的 `macos-symbols`：新脚本 `platforms/windows/scripts/publish-symbols.sh <version> <release> <zip>...` 把 `Collect-Symbols.ps1` 写出的六个符号包传上去，名字里的版本号换成发布名（beta 是 `msime-windows-full-0.3.0-beta-symbols.zip`，免得覆盖同一版本号的正式版），release 不存在时以预发布、非 latest 创建，上传后逐个和 GitHub 记录的 `digest` 比对。它是 publish 任务里版本页之后的单独一步，与 macOS 的 dSYM 一样；符号包是否六个齐全、版本号是否对得上，在发布版本页之前就核对，缺一个什么都不发。
 - **版本页上传的清单是六个安装程序、`SHA256SUMS` 和六个 `.exe.sha256`**。`SHA256SUMS` 在 publish 任务里按 `dist/*.exe` 现算（`sha256sum` 写、`sha256sum -c` 核对），安装程序必须每个版本恰好一个，每个 `.exe.sha256` 必须与 `SHA256SUMS` 里那一行相同，否则什么都不发。重跑旧版本时 `publish-release.sh` 会删掉版本页上不在清单里的资产，所以重跑也会把以前挂上去的符号包清掉。
-- **发布说明开头是 `edition_windows.py download-guide` 生成的下载指引**：一张「版本 | 安装程序」表，名字和安装程序名取自版本表，完整版排第一、标为推荐；说明其他版本可以和完整版装在一起、每个安装程序都支持 x64 和 ARM64（`msime_setup.iss` 的 `ArchitecturesAllowed=x64compatible`）、没加进键盘列表时设置窗口会提示「去添加」、`SHA256SUMS` 和 `.exe.sha256` 各是什么。带后缀的预发布另加一句：设置里的「检查更新」只提供正式版（`crates/client-services/src/update_check.rs` 跳过预发布）。整段夹在与其他平台同一对 `<!-- msime-download-guide -->` 标记之间。
+- **发布说明开头是 `edition_windows.py download-guide` 生成的下载指引**：一张「版本 | 安装程序」表，名字和安装程序名取自版本表，完整版排第一、标为推荐；说明其他版本可以和完整版装在一起、每个安装程序都支持 x64 和 ARM64（`msime_setup.iss` 的 `ArchitecturesAllowed=x64compatible`）、没加进键盘列表时设置窗口会提示「去添加」、`SHA256SUMS` 和 `.exe.sha256` 各是什么。带后缀的预发布另加一句：稳定版通道的「检查更新」不提示它，换成测试版或每日构建通道后才提示 develop 发出的 `-beta`，`-alpha` 一律不提示（`crates/client-services/src/update_check.rs` 的通道规则，见 [Windows 的更新通道](../feature/2026-10-25-windows-update-channels.md)）。整段夹在与其他平台同一对 `<!-- msime-download-guide -->` 标记之间。
 
 ### 为什么 .exe.sha256 不挪走
 
-Windows 的应用内更新不读它：`update_check.rs` 用的是 GitHub 给资产记录的 `digest`，而且只提供正式版。挡住撤掉它的是另外两处：
+Windows 的应用内更新不读它：`update_check.rs` 用的是 GitHub 给资产记录的 `digest`（每日构建用 nightly 状态里记的摘要）。挡住撤掉它的是另外两处：
 
 - `platforms/windows/packaging/render.py` 生成 winget、Scoop、Chocolatey 清单时，拿 `<安装程序>.sha256` 与 GitHub 摘要互相核对（`scripts/test-windows-package-managers.py` 检查 workflow 仍上传它）。维护者用 SimplySign 签名后替换安装程序的手工流程也是连同它一起换。
 - 设置页（原生 WinUI 窗口和共享页面）拿不到 GitHub 摘要时，未签名警告让用户「从发行页一并下载 `<安装程序>.sha256`」。已发出去的版本里这段文案改不了。
