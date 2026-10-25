@@ -124,8 +124,15 @@ def check_licence(lock: dict) -> None:
     check(lock["license"] == "CC-BY-4.0", "锁的 license 不是 CC-BY-4.0")
     for phrase in LICENCE_PHRASES:
         check(phrase in text, f"{LICENCE.relative_to(ROOT)} 不再含有 {phrase!r}")
+    # 输入取自词库仓 msime-dictionary 的 sources/symbols/（与上游 source_commit 逐字节一致，见词库仓 NOTICE.md），不直连上游。
+    dictionary = lock.get("dictionary_commit", "")
+    check(lock.get("dictionary_repository") == "https://github.com/metasequoiaime/msime-dictionary", "锁的 dictionary_repository 不是 msime-dictionary")
+    check(re.fullmatch(r"[0-9a-f]{40}", dictionary) is not None, "锁的 dictionary_commit 不是完整的 Git 提交")
     for artifact in lock["artifacts"]:
-        check(f"/{commit}/" in artifact["url"], f"锁里 {artifact['name']} 的地址不在固定提交 {commit} 上")
+        check(
+            artifact["url"] == f"https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/{dictionary}/sources/symbols/{artifact['name']}",
+            f"锁里 {artifact['name']} 的地址不是词库仓固定提交 {dictionary} 的 sources/symbols/{artifact['name']}",
+        )
     check(lock["outputs"] == [TABLE.relative_to(ROOT).as_posix()], "锁的 outputs 不是这张表")
     for channel, description in NOTICE_CHANNELS.items():
         path = ROOT / channel

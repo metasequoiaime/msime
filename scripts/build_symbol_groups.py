@@ -5,8 +5,9 @@
 的 `wanxiang_symbols.yaml`（amzxyz 与贡献者，CC BY 4.0）固定发布里的 `symbols:` 段，每行是
 `'/编码': [符号, ...]`。上游那张表是「码 → 码位集合」的事实性映射，本仓库只取分组码、中文组名和
 码位，不取注释文字与表情、元素周期表、XCompose 三段（S 模式只能输入字母，那三段的编码含标点或
-属于表情面板）。锁文件是 resources/symbol-groups.lock.json，许可证与改动说明在
-resources/licenses/rime-wanxiang-CC-BY-4.0.txt。
+属于表情面板）。输入不直连上游，取自词库仓 msime-dictionary 的 sources/symbols/：那里收的是上游同一
+提交的逐字节副本，符号数据统一由词库仓保管。锁文件是 resources/symbol-groups.lock.json（固定词库仓提交，
+另记上游提交供署名），许可证与改动说明在 resources/licenses/rime-wanxiang-CC-BY-4.0.txt。
 
 输出一张 UTF-8 TSV，提交进仓库，由 crates/engine/src/local/symbol_groups.rs 用 include_str!
 编进引擎：
