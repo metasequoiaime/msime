@@ -14240,6 +14240,133 @@ fn only_a_resource_mismatch_counts_as_outdated() {
         assert_eq!(mapped.to_string(), text);
     }
 }
+
+/// 带一张空快捷短语表的合成词库锁：新增快捷短语要有表可写。
+fn quick_phrase_desktop_lock(resources: &Path) -> ResourceSet {
+    let mut set = synthetic_desktop_lock(resources);
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("CREATE TABLE quick_parases(key TEXT NOT NULL,value TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,UNIQUE(key,value));")
+        .unwrap();
+    for artifact in &mut set.artifacts {
+        let bytes = std::fs::read(resources.join(&artifact.name)).unwrap();
+        artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        artifact.size = bytes.len() as u64;
+    }
+    set
+}
+
+/// 设置页新增一条快捷短语（`edit` 不带 `previous`），再按 `options` 列出快捷短语，返回列出的短语。
+fn add_then_browse_quick_phrases(
+    writer: &Value,
+    reader: &Value,
+    key: &str,
+    value: &str,
+) -> Vec<String> {
+    crate::settings_dictionary::request(
+        writer,
+        &json!({
+            "operation": "edit",
+            "previous": null,
+            "replacement": {"kind": "quick_phrase", "key": key, "value": value, "weight": 10, "source": "user"},
+            "request_id": format!("ui-add-{key}"),
+        }),
+        || {},
+    )
+    .unwrap();
+    let request = json!({
+        "options": reader,
+        "action": {"operation": "browse", "kind": "quick_phrase", "query": "", "offset": 0, "limit": 100},
+    });
+    dictionary_request_json(&serde_json::to_vec(&request).unwrap()).unwrap()["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["value"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// #9434：Windows 的 runtime-options.json 只在首次运行时写下，Server 每次启动重新准备、会话用准备出的文档。升级换了词库锁之后，设置窗口照文件写进旧代次，Server 的新代次里没有这条短语；把准备好的代次发布进文件之后，新增的短语落在 Server 读的代次里。
+#[test]
+fn the_published_options_follow_the_generation_the_input_method_prepared() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    let state = directory.path().join("state");
+    let first = quick_phrase_desktop_lock(&resources);
+    let prepare = |set: &ResourceSet| -> Value {
+        serde_json::from_str(
+            &prepare_host_with_updates(&resources, &state, Edition::full(), set).unwrap(),
+        )
+        .unwrap()
+    };
+    // 首次运行（FirstRun.h）发布的文件。
+    let installed = prepare(&first);
+    let published = state.join("runtime-options.json");
+    std::fs::write(&published, serde_json::to_vec_pretty(&installed).unwrap()).unwrap();
+    // 升级后的 Server 启动：同一个资源目录，新的锁，新的代次。
+    let mut upgraded = first.clone();
+    upgraded.source_commit = "b".repeat(40);
+    let server = prepare(&upgraded);
+    assert_ne!(server["dictionaries"], installed["dictionaries"]);
+
+    let file =
+        |path: &Path| -> Value { serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap() };
+    let listed = add_then_browse_quick_phrases(&file(&published), &server, "zzold", "旧代次短语");
+    assert!(!listed.contains(&"旧代次短语".to_owned()), "{listed:?}");
+
+    assert!(publish_prepared_dictionaries(&published, &server).unwrap());
+    let refreshed = file(&published);
+    assert_eq!(refreshed["dictionaries"], server["dictionaries"]);
+    let mut unchanged = refreshed.clone();
+    unchanged["dictionaries"] = installed["dictionaries"].clone();
+    assert_eq!(unchanged, installed, "only `dictionaries` changes");
+    // 已是当前代次时只读不写。
+    let written = std::fs::metadata(&published).unwrap().modified().unwrap();
+    assert!(!publish_prepared_dictionaries(&published, &server).unwrap());
+    assert_eq!(
+        std::fs::metadata(&published).unwrap().modified().unwrap(),
+        written
+    );
+
+    let listed = add_then_browse_quick_phrases(&refreshed, &server, "zznew", "新代次短语");
+    assert!(listed.contains(&"新代次短语".to_owned()), "{listed:?}");
+}
+
+/// 不是准备布局、或属于别的状态目录的文档原样不动：那不是这次准备的宿主发布的文件。
+#[test]
+fn prepared_dictionaries_are_not_published_into_a_foreign_document() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let layout = |state: &Path, generation: &str| {
+        json!({
+            "api_version": 1,
+            "resources": directory.path().join("resources"),
+            "user_data": state.join("user"),
+            "cache": state.join("cache"),
+            "dictionaries": state.join("user/dictionaries").join(generation),
+            "preferences_directory": state,
+            "preferences": {},
+        })
+    };
+    let prepared = layout(&state, "current");
+    let published = state.join("runtime-options.json");
+    for document in [
+        layout(&directory.path().join("other"), "previous"),
+        json!({"api_version": 1, "dictionaries": state.join("elsewhere"), "preferences": {}}),
+    ] {
+        let bytes = serde_json::to_vec_pretty(&document).unwrap();
+        std::fs::write(&published, &bytes).unwrap();
+        assert!(!publish_prepared_dictionaries(&published, &prepared).unwrap());
+        assert_eq!(std::fs::read(&published).unwrap(), bytes);
+    }
+    std::fs::write(
+        &published,
+        serde_json::to_vec_pretty(&layout(&state, "previous")).unwrap(),
+    )
+    .unwrap();
+    assert!(publish_prepared_dictionaries(&published, &prepared).unwrap());
+}
 /// 带 `plugins` 的背单词请求把单词本插件列成 `pack-<插件 id>` 词书；相对路径被拒绝；不带时看不到它。
 #[test]
 fn vocabulary_boundary_lists_wordbook_packs_from_the_plugins_directory() {

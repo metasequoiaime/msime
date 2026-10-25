@@ -948,6 +948,9 @@ int wmain(int argc, wchar_t **argv) {
     // 不是 full 的版本把版本 id 交给宿主库：它按版本选资源锁、收窄方案，并在状态根里记下版本。full 不带这个键，请求与引入版本之前相同。
     if constexpr (!MSIME_EDITION_IS_FULL)
       bootstrap_document["edition"] = MSIME_EDITION_ID;
+    // 会话用的是这里准备出的文档，runtime-options.json 却只在首次运行时写下。设置窗口、msime-mcp 和各应用里的 TIP 都照那份文件工作，升级换了词库代次后它们还在旧代次上，设置里新增的词条写进旧代次，输入法看不到（#9434）。让宿主库把这次的代次写回文件。
+    if (production)
+      bootstrap_document["runtime_options"] = config_path.u8string();
     const auto bootstrap = bootstrap_document.dump();
     auto response = msime::host_api::own_string(
         msime_client_prepare_host(

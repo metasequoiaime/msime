@@ -2761,6 +2761,48 @@ fn replace_options_file(
     Ok(())
 }
 
+/// 把输入法进程这次启动准备好的词库代次写进已发布的 `runtime-options.json`，只改 `dictionaries` 一个键；文件已经是这个代次时只读不写。返回是否改写了文件。
+///
+/// Windows 的 Server 每次启动都重新准备宿主（`msime_client_prepare_host`），自己的会话用准备出的文档；`runtime-options.json` 却只在首次运行时写下（`FirstRun.h`）。升级换了词库锁、或者装上了在线词库更新之后，Server 的会话读新代次，而照这份文件工作的设置窗口、`msime-mcp` 和各应用进程里的 TIP 还在旧代次上：设置里新增的快捷短语和五笔词条写进旧代次，Server 要等下次启动回放日志才看得到，用户看到的就是「加了没用」（#9434）。
+///
+/// 只改 `dictionaries`，不动 `resources`：在线词库更新的资源目录在状态目录下，而 Server 启动时从这份文件读 `resources` 并要求它与状态目录不相交，改了会让 Server 下次起不来。词库新增、编辑和查找都只经过代次里的工作副本，`resources` 留在安装包目录不影响它们。两份文档都必须是准备布局（[`prepared_layout`]）且属于同一个状态目录，否则原样不动。
+pub fn publish_prepared_dictionaries(
+    path: &Path,
+    prepared: &Value,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let parent = path.parent().ok_or("runtime options have no directory")?;
+    let name = path
+        .file_name()
+        .ok_or("runtime options have no file name")?;
+    let directory = msime_client_core::file_lock::open_private_directory(parent)?;
+    reject_symlinked_options_parent(path)?;
+    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return Ok(false);
+    }
+    let file = msime_client_core::file_lock::open_private_file_at(&directory, name)?;
+    let metadata = file.metadata()?;
+    let bytes = crate::bounded_file::read(file, HOST_OPTIONS_DOCUMENT_LIMIT as u64)?;
+    let mut document: Value = serde_json::from_slice(&bytes)?;
+    let (Some((_, published, state)), Some((_, generation, prepared_state))) =
+        (prepared_layout(&document), prepared_layout(prepared))
+    else {
+        return Ok(false);
+    };
+    if published == generation {
+        return Ok(false);
+    }
+    // 同一个状态目录可以写成不同的字面路径（Windows 的盘符大小写、短文件名），按规范化后的路径比较；文件记的状态目录已经不在，就不是这次准备的宿主的文件。
+    let same_state = std::fs::canonicalize(state).is_ok_and(|state| {
+        std::fs::canonicalize(prepared_state).is_ok_and(|prepared| state == prepared)
+    });
+    if !same_state {
+        return Ok(false);
+    }
+    document["dictionaries"] = prepared["dictionaries"].clone();
+    replace_options_file(&directory, name, &metadata, &document)?;
+    Ok(true)
+}
+
 /// 随包资源所在的目录：安装包里 Engine 资源目录的上一级，设置应用在这里找背单词的内置词书（`wordbooks/`）。
 ///
 /// 词库在线更新后，准备出的文档里 `resources` 指向状态目录下的下载代次，那里没有随包资源；这时取更新记录里的原安装包目录，与 [`prepare_host_with_updates`] 给音效包和插件包定位、[`with_installed_language_dictionaries`] 找语言词库的规则相同。文档不是准备布局、或没有可用的更新记录时用 `resources` 本身；`resources` 不是绝对路径时为 `None`。
