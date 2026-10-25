@@ -228,6 +228,26 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(shown(try button("readingSpelling_bi", in: controller)))
   }
 
+  /// 快速一甩：UIKit 只送了一次没过阈值的移动，抬手那一点才过阈值。与 Android 在抬手时也判一次横滑相同，BN 右甩取 N、IO 左甩取 I，读音只剩 ni；按键的抬手被扣下等手势判完（`delaysTouchesEnded`），识别了就不再补一次整组点按。抬手时仍在阈值以内则手势失败，交给按键算普通点按。
+  func testAFlickThatCrossesTheThresholdOnlyAtLiftOffPicksTheLetter() throws {
+    XCTAssertTrue(InputSchemePreference.select(.shuangpin))
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.eighteenKey))
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    XCTAssertTrue(try swipeGesture(on: "BN", in: controller).delaysTouchesEnded,
+                  "the key's touch-up must wait for the swipe, or a lift-off flick also taps the group")
+
+    // 没有真实事件分发时，失败的识别器当场被放回 `.possible`，所以这里只核对它没有识别。
+    XCTAssertNotEqual(try swipe("BN", through: [15], liftAt: 12, in: controller), .ended)
+    XCTAssertFalse(composing(controller), "a lift-off still inside the threshold is the key's own tap")
+
+    XCTAssertEqual(try swipe("BN", through: [15], liftAt: 30, in: controller), .ended)
+    XCTAssertEqual(try swipe("IO", through: [-15], liftAt: -30, in: controller), .ended)
+    XCTAssertEqual(try button("eighteenKeyBN", in: controller).configuration?.title, "BN")
+    XCTAssertTrue(shown(try button("readingSpelling_ni", in: controller)))
+    XCTAssertNil(spellingButton("bi", in: controller), "the lift-off flick was taken as the whole BN group")
+  }
+
   /// 长按两个字母的键弹出这两个字母，与 14 键相同；单字母键没有长按。
   func testHoldingAKeyOffersItsLetters() throws {
     let controller = makeController(width: 390)
@@ -321,11 +341,13 @@ final class EighteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - 辅助
 
-  /// 一根手指在键面中心按下、按 `offsets`（横向，pt）移动、再抬手或被取消，交给键盘的横滑处理；`whileMoving` 拿到最后一次移动时的键面。
+  /// 一根手指在键面中心按下、按 `offsets`（横向，pt）移动、再抬手或被取消，交给键盘的横滑处理；`liftAt` 给出时抬手前手指已到这个横向位置，但没有为它单独送一次移动，像快速一甩时 UIKit 只在抬手时报出最后的位置。`whileMoving` 拿到最后一次移动时的键面。返回抬手或取消后识别器的状态。
   ///
   /// 测试里没有真实的事件分发，UIKit 不会在序列结束后把识别器放回 `.possible`，所以每次用一个与键上那个同样配置的新识别器，挂到同一个键上跑完再摘掉。键上原有的识别器由 `swipeGesture(on:in:)` 和委托门控单独核对。
-  private func swipe(_ face: String, through offsets: [CGFloat], cancelled: Bool = false, in controller: KeyboardViewController,
-                     whileMoving: ((String?) -> Void)? = nil) throws {
+  @discardableResult
+  private func swipe(_ face: String, through offsets: [CGFloat], liftAt: CGFloat? = nil, cancelled: Bool = false,
+                     in controller: KeyboardViewController,
+                     whileMoving: ((String?) -> Void)? = nil) throws -> UIGestureRecognizer.State {
     let button = try button("eighteenKey\(face)", in: controller)
     let installed = try swipeGesture(on: face, in: controller)
     let handle = NSSelectorFromString("handleEighteenKeySwipe:")
@@ -345,10 +367,13 @@ final class EighteenKeyKeyboardTests: XCTestCase {
       }
     }
     whileMoving?(button.configuration?.title)
+    if let liftAt { touch.point = CGPoint(x: center.x + liftAt, y: center.y) }
     if cancelled { gesture.touchesCancelled([touch], with: UIEvent()) } else { gesture.touchesEnded([touch], with: UIEvent()) }
-    // 开始识别之后 UIKit 总会再送一次结束或取消的动作；没开始过的序列没有动作，按键自己处理这次点按。
-    if recognized { controller.perform(handle, with: gesture) }
+    // 开始识别之后 UIKit 总会再送一次结束或取消的动作，抬手时才识别的也送一次结束；没识别过的序列没有动作，按键自己处理这次点按。
+    let state = gesture.state
+    if recognized || state == .ended { controller.perform(handle, with: gesture) }
     controller.view.layoutIfNeeded()
+    return state
   }
 
   private func swipeGesture(on face: String, in controller: KeyboardViewController) throws -> EighteenKeySwipeGestureRecognizer {

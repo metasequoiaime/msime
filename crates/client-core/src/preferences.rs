@@ -78,7 +78,7 @@ pub enum TouchKeyboardLayout {
     FourteenKey,
     /// 九键双拼：数字键上每个音节固定两位（声母一位、韵母一位），表由 `nine_key_shuangpin_profile` 选，与九键共用九宫格会话（#6572）。引擎方案是全拼，不配别的方案。
     NineKeyShuangpin,
-    /// 全拼十八键；目前只由 Android 原生宿主自动启用，其他宿主保留偏好。
+    /// 全拼十八键；Android 和 iOS 原生宿主创建会话时按它自动开启十八键全拼网格（host-api 的 `layout_key_grid_for`），鸿蒙宿主自己按它调用 `msime_client_set_key_grid`，其他宿主保留但忽略这个偏好。
     EighteenKey,
 }
 
@@ -525,7 +525,7 @@ pub enum TouchKeyboardScheme {
     FourteenKey,
     /// 九键双拼（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::NineKeyShuangpin`，表由 `nine_key_shuangpin_profile` 选）。默认不启用。
     NineKeyShuangpin,
-    /// Android 全拼十八键；默认不启用，由用户选择布局。
+    /// 全拼十八键（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::EighteenKey`），Android、iOS 和鸿蒙的触屏键盘都有；默认不启用，由用户选择布局。
     EighteenKey,
 }
 

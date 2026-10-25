@@ -115,7 +115,7 @@ pub enum TypingSource {
     NineKey,
     /// 全拼 14 键。
     FourteenKey,
-    /// Android 全拼十八键。
+    /// 全拼十八键，Android、iOS 和鸿蒙的触屏键盘都记在这里。
     EighteenKey,
     Shuangpin,
     Ziranma,
