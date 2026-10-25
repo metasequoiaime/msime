@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
-"""用合成证书和包验证鸿蒙发布签名的拒绝条件，不访问真实签名资料。"""
+"""用合成证书和包验证鸿蒙发布签名与拒绝条件，不访问真实签名资料。"""
 
 from __future__ import annotations
 
+import argparse
+import base64
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("harmony_signing", ROOT / "platforms/harmony/sign-release.py")
 SIGNING = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SIGNING)
+COMPRESS_SPEC = importlib.util.spec_from_file_location("harmony_compression", ROOT / "scripts/compress_harmony_hap.py")
+COMPRESSION = importlib.util.module_from_spec(COMPRESS_SPEC)
+COMPRESS_SPEC.loader.exec_module(COMPRESSION)
+TOOL_DIR = Path(os.environ.get("DEVECO_SDK_HOME", "/missing-harmony-sdk")) / "default/openharmony/toolchains/lib"
 
 
 @unittest.skipUnless(shutil.which("openssl"), "缺少 openssl")
@@ -99,10 +108,16 @@ class ReleaseSigning(unittest.TestCase):
         self.assertIn("synthetic diagnostic", str(failure.exception))
         self.assertNotIn(secret, str(failure.exception))
 
+    def test_tool_failure_identifies_stage(self):
+        with self.assertRaisesRegex(ValueError, "验证 HAP 签名 执行失败"):
+            SIGNING.run([sys.executable, "-c", "raise SystemExit(1)"], stage="验证 HAP 签名")
+
     def hap(self, version="0.2.0", omitted=None):
         path = self.directory / "synthetic.hap"
+        major, minor, patch = map(int, version.split("."))
+        code = major * 1_000_000 + minor * 1_000 + patch
         entries = {
-            "module.json": json.dumps({"app": {"bundleName": SIGNING.BUNDLE, "versionName": version, "versionCode": 2000, "debug": False}}),
+            "module.json": json.dumps({"app": {"bundleName": SIGNING.BUNDLE, "versionName": version, "versionCode": code, "debug": False}}),
             "pack.info": "{}", "libs/arm64-v8a/libmsime_host_api.so": "synthetic",
             "libs/arm64-v8a/libmsimeclient.so": "synthetic", "resources/rawfile/settings/index.html": "synthetic",
             "resources/resfile/handwriting/handwriting-zh_CN.model": "synthetic",
@@ -154,17 +169,122 @@ class ReleaseSigning(unittest.TestCase):
         self.assertNotIn("find platforms/harmony -type f -name '*.hap'", workflow)
         locate = workflow.split("name: Locate the packaged HAP", 1)[1].split("- id: signing", 1)[0]
         self.assertIn("compress_harmony_hap.py", locate)
-        self.assertIn('echo "input=$built" >> "$GITHUB_OUTPUT"', locate)
         self.assertIn('echo "path=$hap" >> "$GITHUB_OUTPUT"', locate)
+        self.assertIn("UNSIGNED_HAP: ${{ steps.hap.outputs.path }}", workflow)
 
     def test_market_packer_preserves_hap_signature(self):
         source = (ROOT / "platforms/harmony/sign-release.py").read_text()
         self.assertIn('"--replace-pack-info", "false"', source)
-        self.assertIn("compress_harmony_hap.py", source)
-        self.assertIn("verified-compressed.p7b", source)
-        workflow = (ROOT / ".github/workflows/release-harmony.yml").read_text()
-        self.assertIn('echo "input=$built" >> "$GITHUB_OUTPUT"', workflow)
-        self.assertIn("UNSIGNED_HAP: ${{ steps.hap.outputs.input }}", workflow)
+
+    @unittest.skipUnless(
+        (TOOL_DIR / "hap-sign-tool.jar").is_file()
+        and (TOOL_DIR / "app_packing_tool.jar").is_file()
+        and shutil.which("java") and shutil.which("keytool"),
+        "缺少 HarmonyOS SDK 或 Java；配置 DEVECO_SDK_HOME 后验证真实签名工具",
+    )
+    def test_compressed_hap_signed_and_packed_by_real_tools(self):
+        # 全部证书和授权数据在测试中生成，不读取发布密钥或本机调试资料。
+        with tempfile.TemporaryDirectory(prefix="msime-harmony-signing-tool-test-") as temporary:
+            directory = Path(temporary)
+            self.create_signing_chain(directory)
+            profile = self.profile()
+            profile.update({
+                "version-name": "2.0.0", "version-code": 2,
+                "uuid": "00000000-0000-0000-0000-000000000000", "issuer": "pki_internal",
+                "validity": {"not-before": int(time.time()) - 60, "not-after": int(time.time()) + 3600},
+                "permissions": {"restricted-permissions": []},
+            })
+            profile["bundle-info"].update({
+                "distribution-certificate": (directory / "leaf.pem").read_text(),
+                "developer-id": "Synthetic", "apl": "normal", "app-feature": "hos_normal_app",
+            })
+            (directory / "profile.json").write_text(json.dumps(profile))
+            self.tool_command([
+                "openssl", "cms", "-sign", "-binary", "-nodetach", "-in", str(directory / "profile.json"),
+                "-signer", str(directory / "leaf.pem"), "-inkey", str(directory / "leaf.key"),
+                "-outform", "DER", "-out", str(directory / "profile.p7b"),
+            ])
+            source = self.hap(version="0.2.1")
+            complete = directory / "complete.hap"
+            compressed = directory / "compressed.hap"
+            pack_info = {
+                "summary": {"app": {"bundleName": SIGNING.BUNDLE, "bundleType": "app",
+                                    "version": {"code": 2001, "name": "0.2.1"}},
+                            "modules": [{"deviceType": ["phone"],
+                                         "distro": {"moduleName": "entry", "moduleType": "entry",
+                                                    "installationFree": False, "deliveryWithInstall": True},
+                                         "apiVersion": {"compatible": 21, "target": 21, "releaseType": "Release"}}]},
+                "packages": [{"deviceType": ["phone"], "moduleType": "entry",
+                              "deliveryWithInstall": True, "name": "entry-default"}],
+            }
+            with zipfile.ZipFile(source) as original, zipfile.ZipFile(complete, "w") as result:
+                for entry in original.infolist():
+                    data = original.read(entry)
+                    if entry.filename == "pack.info":
+                        data = json.dumps(pack_info).encode()
+                    elif entry.filename == "module.json":
+                        module = json.loads(data)
+                        module["module"] = {"name": "entry", "type": "entry", "packageName": "entry",
+                                            "deviceTypes": ["phone"], "deliveryWithInstall": True,
+                                            "installationFree": False}
+                        data = json.dumps(module).encode()
+                    result.writestr(entry, data)
+                result.writestr("resources/resfile/synthetic-large.txt", b"synthetic-resource-" * 4096)
+                result.writestr("ets/modules.abc", b"synthetic-code")
+            COMPRESSION.compress_resources(complete, compressed)
+            environment = {f"HARMONY_RELEASE_{key}_BASE64": base64.b64encode((directory / filename).read_bytes()).decode()
+                           for key, filename in [("KEYSTORE", "store.p12"), ("PROFILE", "profile.p7b"),
+                                                 ("CERTIFICATE", "chain.pem")]}
+            environment.update({"HARMONY_RELEASE_KEYSTORE_PASSWORD": "synthetic-password",
+                                "HARMONY_RELEASE_KEY_PASSWORD": "synthetic-password", "HARMONY_RELEASE_KEY_ALIAS": "msime"})
+            output = directory / "release"
+            with mock.patch.dict(os.environ, environment):
+                SIGNING.sign(argparse.Namespace(input=compressed, output_dir=output, version="0.2.1",
+                                                tool_dir=TOOL_DIR, check_only=False))
+            signed = output / "msime-harmony-0.2.1.hap"
+            # 独立复验最终文件，防止脚本内部验签后又改写发布产物。
+            self.tool_command(["java", "-jar", str(TOOL_DIR / "hap-sign-tool.jar"), "verify-app", "-inFile", str(signed),
+                               "-outCertChain", str(directory / "verified.cer"), "-outProfile", str(directory / "verified.p7b")])
+            self.assertEqual((directory / "verified.p7b").read_bytes(), (directory / "profile.p7b").read_bytes())
+            with zipfile.ZipFile(signed) as package:
+                self.assertEqual(package.getinfo("resources/resfile/synthetic-large.txt").compress_type, zipfile.ZIP_DEFLATED)
+                self.assertEqual(package.getinfo("libs/arm64-v8a/libmsime_host_api.so").compress_type, zipfile.ZIP_STORED)
+            with zipfile.ZipFile(output / "msime-harmony-0.2.1.app") as package:
+                self.assertEqual(package.read("entry-default.hap"), signed.read_bytes())
+            with self.assertRaisesRegex(ValueError, "必须在签名前"):
+                COMPRESSION.compress_resources(signed, directory / "invalid.hap")
+            self.assertFalse((directory / "invalid.hap").exists())
+
+    def tool_command(self, command):
+        result = subprocess.run(command, capture_output=True)
+        self.assertEqual(result.returncode, 0, (result.stdout + result.stderr).decode(errors="replace"))
+
+    def create_signing_chain(self, directory):
+        for name, parent in [("root", None), ("intermediate", "root"), ("leaf", "intermediate")]:
+            subject = f"/CN=Synthetic Harmony {name}"
+            if parent is None:
+                self.tool_command([
+                    "openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                    "-keyout", str(directory / "root.key"), "-out", str(directory / "root.pem"), "-days", "2", "-subj", subject,
+                    "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                ])
+                continue
+            self.tool_command([
+                "openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                "-keyout", str(directory / f"{name}.key"), "-out", str(directory / f"{name}.csr"), "-subj", subject,
+            ])
+            extensions = ("basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign" if name == "intermediate"
+                          else "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=codeSigning")
+            (directory / f"{name}.ext").write_text(extensions + "\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n")
+            self.tool_command([
+                "openssl", "x509", "-req", "-in", str(directory / f"{name}.csr"), "-CA", str(directory / f"{parent}.pem"),
+                "-CAkey", str(directory / f"{parent}.key"), "-CAcreateserial", "-out", str(directory / f"{name}.pem"),
+                "-days", "2", "-extfile", str(directory / f"{name}.ext"),
+            ])
+        (directory / "chain.pem").write_bytes(b"".join((directory / f"{name}.pem").read_bytes()
+                                                     for name in ["leaf", "intermediate", "root"]))
+        self.tool_command(["openssl", "pkcs12", "-export", "-inkey", str(directory / "leaf.key"), "-in", str(directory / "leaf.pem"),
+                           "-name", "msime", "-out", str(directory / "store.p12"), "-passout", "pass:synthetic-password"])
 
 
 if __name__ == "__main__":

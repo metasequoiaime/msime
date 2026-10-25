@@ -85,6 +85,9 @@ jobs:
           echo "MSIME_OHOS_NDK=$root/sdk/default/openharmony/native" >> "$GITHUB_ENV"
           rustup target add aarch64-unknown-linux-ohos
           df -h "$RUNNER_TEMP" | tail -1
+      - name: Verify HarmonyOS signing tools with synthetic credentials
+        if: ${{ inputs.publish }}
+        run: python3 scripts/test-harmony-release-signing.py
       - name: Build HarmonyOS native host
         run: bash platforms/harmony/build-native.sh arm64-v8a
       - name: Stage the sherpa-onnx HAR
@@ -96,7 +99,7 @@ jobs:
           set -euo pipefail
           ohpm install
           hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
-      # 只取指定 product 的本次产物，避免误选缓存或测试工程中的 HAP。签名前保持 Hvigor 生成的 ZIP 结构；签名脚本会在签名后压缩资源并重新验签。
+      # 只取指定 product 的本次产物，资源压缩必须在签名前完成，签名后重写 ZIP 会丢失 HAP 签名块。
       - id: hap
         name: Locate the packaged HAP
         env: {VERSION: "${{ steps.version.outputs.value }}"}
@@ -106,8 +109,6 @@ jobs:
           test -s "$built"
           hap="$RUNNER_TEMP/msime-harmony-${VERSION}-unsigned.hap"
           python3 scripts/compress_harmony_hap.py "$built" "$hap"
-          # 签名工具不接受 DEFLATE 资源；正式发布由 sign-release.py 对原始 HAP 签名后再压缩。
-          echo "input=$built" >> "$GITHUB_OUTPUT"
           echo "path=$hap" >> "$GITHUB_OUTPUT"
       - id: signing
         name: Sign and verify HarmonyOS release packages
@@ -117,7 +118,7 @@ jobs:
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
           HARMONY_RELEASE_CERTIFICATE_BASE64: ${{ secrets.HARMONY_RELEASE_CERTIFICATE_BASE64 }}
           HARMONY_RELEASE_PROFILE_BASE64: ${{ secrets.HARMONY_RELEASE_PROFILE_BASE64 }}
-          UNSIGNED_HAP: ${{ steps.hap.outputs.input }}
+          UNSIGNED_HAP: ${{ steps.hap.outputs.path }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
