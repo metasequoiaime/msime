@@ -152,6 +152,9 @@ class ReleaseSigning(unittest.TestCase):
         self.assertIn('"--replace-pack-info", "false"', source)
         self.assertIn("compress_harmony_hap.py", source)
         self.assertIn("verified-compressed.p7b", source)
+        workflow = (ROOT / ".github/workflows/release-harmony.yml").read_text()
+        self.assertIn('echo "input=$built" >> "$GITHUB_OUTPUT"', workflow)
+        self.assertIn("UNSIGNED_HAP: ${{ steps.hap.outputs.input }}", workflow)
 
 
 if __name__ == "__main__":

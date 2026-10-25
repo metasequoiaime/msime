@@ -106,6 +106,8 @@ jobs:
           test -s "$built"
           hap="$RUNNER_TEMP/msime-harmony-${VERSION}-unsigned.hap"
           python3 scripts/compress_harmony_hap.py "$built" "$hap"
+          # 签名工具不接受 DEFLATE 资源；正式发布由 sign-release.py 对原始 HAP 签名后再压缩。
+          echo "input=$built" >> "$GITHUB_OUTPUT"
           echo "path=$hap" >> "$GITHUB_OUTPUT"
       - id: signing
         name: Sign and verify HarmonyOS release packages
@@ -115,7 +117,7 @@ jobs:
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
           HARMONY_RELEASE_CERTIFICATE_BASE64: ${{ secrets.HARMONY_RELEASE_CERTIFICATE_BASE64 }}
           HARMONY_RELEASE_PROFILE_BASE64: ${{ secrets.HARMONY_RELEASE_PROFILE_BASE64 }}
-          UNSIGNED_HAP: ${{ steps.hap.outputs.path }}
+          UNSIGNED_HAP: ${{ steps.hap.outputs.input }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
