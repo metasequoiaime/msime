@@ -128,7 +128,9 @@ int main() {
     pump([&] { return install_started.load(); }); assert(IsWindowEnabled(control(Models::cancel)) && !IsWindowEnabled(control(Models::install)));
     SendMessageW(control(Models::cancel),BM_CLICK,0,0); wait(); block_install = false;
     assert(!IsWindowEnabled(control(Models::install)) && text(Models::notice).find("取消") != std::string::npos);
-    click(Models::refresh); click(Models::choose_directory); assert(voice().at("asr_model_path") == (directory / L"models/custom").u8string());
+    // 刷新模型列表会再次带回服务目录；重新填充选择器时不能覆盖表单里尚未保存的编辑。
+    set(Form::language,L"ja-JP"); click(Models::refresh); assert(text(Form::language) == "ja-JP"); set(Form::language,L"en-US");
+    click(Models::choose_directory); assert(voice().at("asr_model_path") == (directory / L"models/custom").u8string());
     { std::lock_guard<std::mutex> lock(mutex); malformed = true; } click(Models::refresh);
     assert(!IsWindowEnabled(control(Models::install)) && !IsWindowEnabled(control(Models::use)));
     // 直接用共享安装入口验证注册后的首次回调可取消，文件和网络都不必开始。

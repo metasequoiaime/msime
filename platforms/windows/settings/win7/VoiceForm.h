@@ -76,8 +76,9 @@ public:
     option(stream_endpoint, L"自定义地址（在接口地址中填写）");
     catalog_ok_ = true;
     catalog_loading_ = false;
-    if (saved_.is_object()) { loaded_ = false; refresh(saved_); }
-    else enable(enabled_);
+    // 目录可能晚于偏好到达，也会随「刷新模型列表」再次返回；只按已保存值重选依赖目录的三个选择器，不重写其他字段，避免丢掉未保存的编辑。
+    if (loaded_) { updating_ = true; choose_catalog_entries(); updating_ = false; }
+    enable(enabled_);
     if (!parsed) SetWindowTextW(get(test_result), L"语音服务目录读取失败，仍可使用 Windows 系统识别或本地模型。" );
   }
   void refresh(const Json& preferences) {
@@ -87,7 +88,7 @@ public:
     for (const auto& field : texts()) SetWindowTextW(get(field.id), control_text::wide(saved_.value(field.key, std::string{})).c_str());
     for (const auto& field : booleans()) SendMessageW(get(field.id), BM_SETCHECK, saved_.value(field.key, false) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(get(polish_enabled), BM_SETCHECK, saved_.value("polish_enabled", false) || saved_.value("polish_text", false) ? BST_CHECKED : BST_UNCHECKED, 0);
-    choose_provider(asr_provider, asr_, saved_.value("asr_provider", std::string{})); choose_provider(polish_provider, polish_, saved_.value("polish_provider", std::string{}));
+    choose_catalog_entries();
     select(commit, saved_.value("commit_mode", std::string{}) == "sendinput" ? 1 : saved_.value("commit_mode", std::string{}) == "ctrl_v" ? 2 : 0);
     select(auth_mode, saved_.value("doubao_auth_mode", std::string{}) == "legacy" ? 1 : 0);
     const auto thinking = saved_.value("polish_thinking", std::string{}); select(polish_thinking, thinking == "low" ? 1 : thinking == "high" ? 2 : thinking == "max" ? 3 : 0);
@@ -96,8 +97,6 @@ public:
     for (size_t index = 0; index < prompt_ids_.size(); ++index) if (prompt_ids_[index] == prompt) select(prompt_id, static_cast<int>(index));
     std::map<std::wstring_view, bool> holds; for (const auto& key : voice::hold_keys) holds[key.key] = saved_.value(control_text::utf8(key.key).value(), key.fallback);
     const auto chosen = voice::selected_hold_key(holds); int index = 3; for (int current = 0; current < 3; ++current) if (voice::hold_keys[static_cast<size_t>(current)].key == chosen) index = current; select(hold_key, index);
-    select(stream_endpoint, 0); for (size_t current = 0; current < endpoints_.size(); ++current)
-      if (endpoints_[current].at("endpoint") == saved_.value("asr_endpoint", std::string{})) select(stream_endpoint, static_cast<int>(current + 1));
     render_devices(); SetWindowTextW(get(test_result), L""); updating_ = false; enable(enabled_);
   }
   void enable(bool enabled_value) {
@@ -217,6 +216,11 @@ private:
   void option(int id, std::wstring_view title) { const std::wstring value(title); SendMessageW(get(id), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(value.c_str())); }
   static int field_id(const std::string& key) { for (const auto& field : texts()) if (field.key == key) return field.id; return -1; }
   std::string selected_provider(int id, const std::vector<Json>& table) const { const auto index = selected(id); return index >= 0 && static_cast<size_t>(index) < table.size() ? table[static_cast<size_t>(index)].at("id").get<std::string>() : std::string{}; }
+  void choose_catalog_entries() {
+    choose_provider(asr_provider, asr_, saved_.value("asr_provider", std::string{})); choose_provider(polish_provider, polish_, saved_.value("polish_provider", std::string{}));
+    select(stream_endpoint, 0); for (size_t current = 0; current < endpoints_.size(); ++current)
+      if (endpoints_[current].at("endpoint") == saved_.value("asr_endpoint", std::string{})) select(stream_endpoint, static_cast<int>(current + 1));
+  }
   void choose_provider(int id, const std::vector<Json>& table, const std::string& provider) { select(id, -1); for (size_t index = 0; index < table.size(); ++index) if (table[index].at("id") == provider) select(id, static_cast<int>(index)); }
   Json configuration(bool asr) const {
     const std::string prefix = asr ? "asr" : "polish"; const auto provider = selected_provider(asr ? asr_provider : polish_provider, asr ? asr_ : polish_);
