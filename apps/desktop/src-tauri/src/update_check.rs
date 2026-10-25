@@ -33,6 +33,7 @@ pub async fn update_check(
         current_version,
         edition,
         arch,
+        channel: None,
     };
     tauri::async_runtime::spawn_blocking(move || check_for_update(&request))
         .await
@@ -267,6 +268,7 @@ fn run_linux_background_update_check(app: &tauri::AppHandle, path: &std::path::P
         current_version: app.package_info().version.to_string(),
         edition: crate::host_edition(app).map(|edition| edition.id.clone()),
         arch: Some(std::env::consts::ARCH.to_owned()),
+        channel: None,
     };
     let write = |record: &BackgroundRecord| {
         if let Ok(text) = serde_json::to_vec(record) {
@@ -392,6 +394,8 @@ mod tests {
             installer_name: None,
             installer_sha256: None,
             signed: Some(false),
+            channel: Default::default(),
+            build_run: None,
         }
     }
 

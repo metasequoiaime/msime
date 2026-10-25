@@ -25,6 +25,9 @@ MARKER = "<!-- msime-nightly-state\n"
 SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:([0-9a-f]{64})")
 ASSET_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+# 各平台包内的版本号只有 X.Y.Z；复用的 release-*.yml 把它写在 artifact 名的末尾（msime-windows-full-0.3.1、msime-linux-deb-x86_64-0.11.0、msime-macos-0.52.0）。
+VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+ARTIFACT_VERSION = re.compile(r"-([0-9]+\.[0-9]+\.[0-9]+)$")
 
 
 class GitHub:
@@ -123,6 +126,11 @@ def previous_state(release, assets):
     for platform, build in state["platforms"].items():
         if platform not in PLATFORMS or not SHA.fullmatch(build["source"]):
             raise ValueError("旧 nightly 平台或源码提交无效")
+        # version 与 run 是后来加的可选字段（应用内检查更新的每日构建通道读它们），旧状态里没有。
+        if "version" in build and not (isinstance(build["version"], str) and VERSION.fullmatch(build["version"])):
+            raise ValueError("旧 nightly 平台版本号无效")
+        if "run" in build and not (type(build["run"]) is int and build["run"] > 0):
+            raise ValueError("旧 nightly 平台运行标识无效")
         for file in build["files"]:
             name = file["name"]
             if not ASSET_NAME.fullmatch(name) or not re.fullmatch(r"[0-9a-f]{64}", file["sha256"]):
@@ -133,6 +141,19 @@ def previous_state(release, assets):
             if digest and digest != f"sha256:{file['sha256']}":
                 raise ValueError(f"旧 nightly 附件摘要不符：{name}")
     return state
+
+
+def artifact_version(source, platform, paths):
+    """这批安装文件所在 artifact 名末尾共同的 X.Y.Z；没有或不一致时为 None，该平台的条目就不带版本号，应用内检查更新不提供它。"""
+    versions = set()
+    for path in paths:
+        artifact = path.relative_to(source / platform).parts[0]
+        match = ARTIFACT_VERSION.search(artifact)
+        versions.add(match.group(1) if match else None)
+    if len(versions) == 1 and None not in versions:
+        return versions.pop()
+    print(f"::warning::{platform}：无法从 artifact 名确定版本号，nightly 状态不记录版本", file=sys.stderr)
+    return None
 
 
 def render(state, results, updated, repository, source_sha, run_url, ios_group):
@@ -184,15 +205,18 @@ def publish(client, source, output, results, downloads, source_sha, build_id, ru
     assets = client.assets(release) if release else {}
     state = copy.deepcopy(previous_state(release, assets))
     updated, errors = set(), []
+    run = int(build_id.split(".", 1)[0])
     for platform in PLATFORMS:
         if results[platform] != "success":
             continue
         try:
             files = []
+            version = None
             if platform != "ios":
                 if downloads.get(platform, {}).get("outcome") != "success":
                     raise ValueError("产物下载失败")
                 paths = PACKAGING.platform_files(source, platform)
+                version = artifact_version(source, platform, paths)
                 staged = []
                 for path in paths:
                     if not ASSET_NAME.fullmatch(path.name):
@@ -207,10 +231,15 @@ def publish(client, source, output, results, downloads, source_sha, build_id, ru
                 for file in files:
                     if uploaded.get(file["name"], {}).get("digest") != f"sha256:{file['sha256']}":
                         raise ValueError("上传后的附件摘要不符")
-            state["platforms"][platform] = {
+            build = {
                 "source": source_sha, "updated_at": datetime.now(timezone.utc).isoformat(),
                 "run_url": run_url, "files": files,
             }
+            if run:
+                build["run"] = run
+            if version:
+                build["version"] = version
+            state["platforms"][platform] = build
             updated.add(platform)
         except (ValueError, RuntimeError, OSError) as error:
             results[platform] = "更新失败"

@@ -13,6 +13,9 @@ on:
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build, required: false, default: false, type: boolean}
 permissions: {contents: write}
+# 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
+env:
+  MSIME_BUILD_RUN: ${{ github.run_id }}
 concurrency: {group: release-macos, cancel-in-progress: false}
 jobs:
   # 随桌面安装包分发的官方插件包（plugins/official-packs.json），只在这里构建一次，打包作业下载同一份：scripts/build-official-plugins.sh 编出 wasm，并和锁定的内容哈希比对（授权绑定在它上面），所以装进安装包的就是评审过的那一份；锁以这台 ubuntu 的构建为准，和 CI 的 Script plugins 作业一致。打包的 runner 不用装 wasm 目标。
@@ -250,6 +253,8 @@ jobs:
           python3 platforms/macos/scripts/edition_bundle.py download-guide --editions "$MACOS_EDITIONS" --version "$VERSION" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${homebrew[@]+"${homebrew[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
+          # 发布正文末尾的隐藏构建标记（scripts/release-build-marker.py）：应用内检查更新按它的运行 ID 比较同一版本号的构建，测试版通道也靠它分辨 beta 之后发的正式版。
+          python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           # 版本发布页只放给用户下载的 DMG 和 SHA256SUMS。Sparkle 更新包随 appcast 放在 macos-appcast（下面的「Update the Sparkle appcasts」），dSYM 放在 macos-symbols（下一步）；重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/SHA256SUMS
       # 每个发布版本的 dSYM 都长期留在滚动的 macos-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。

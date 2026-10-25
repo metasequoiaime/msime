@@ -1234,6 +1234,80 @@ fn usage_reporting_defaults_on_and_survives_a_save() {
 }
 
 #[test]
+fn update_channel_defaults_to_stable_and_reads_unknown_values_as_stable() {
+    let defaults = Preferences::default();
+    assert_eq!(defaults.update_channel, UpdateChannel::Stable);
+    // 等于默认值时不写进文档，旧版本读到的文档和以前一样。
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized.get("update_channel").is_none());
+    assert_eq!(
+        serde_json::from_value::<Preferences>(serialized.clone())
+            .unwrap()
+            .update_channel,
+        UpdateChannel::Stable
+    );
+    for (value, expected) in [
+        ("beta", UpdateChannel::Beta),
+        ("nightly", UpdateChannel::Nightly),
+        ("stable", UpdateChannel::Stable),
+        // 以后的版本加的通道、手改的值：按稳定版读，整份偏好照常读出来。
+        ("canary", UpdateChannel::Stable),
+        ("Beta", UpdateChannel::Stable),
+        ("", UpdateChannel::Stable),
+    ] {
+        let mut document = serialized.clone();
+        document["update_channel"] = value.into();
+        assert_eq!(
+            serde_json::from_value::<Preferences>(document)
+                .unwrap()
+                .update_channel,
+            expected,
+            "{value}"
+        );
+    }
+    let mut malformed = serialized;
+    malformed["update_channel"] = 1.into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let nightly = Preferences {
+        update_channel: UpdateChannel::Nightly,
+        ..Preferences::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&nightly).unwrap()["update_channel"],
+        "nightly"
+    );
+    assert!(nightly.validate().is_ok());
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    store.save(0, nightly).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.update_channel,
+        UpdateChannel::Nightly
+    );
+    // 恢复默认设置回到稳定版。
+    assert_eq!(
+        store
+            .load()
+            .unwrap()
+            .preferences
+            .restored_to_defaults()
+            .update_channel,
+        UpdateChannel::Stable
+    );
+
+    assert_eq!(UpdateChannel::parse("beta"), Some(UpdateChannel::Beta));
+    assert_eq!(UpdateChannel::parse("canary"), None);
+    for channel in [
+        UpdateChannel::Stable,
+        UpdateChannel::Beta,
+        UpdateChannel::Nightly,
+    ] {
+        assert_eq!(UpdateChannel::parse(channel.as_str()), Some(channel));
+    }
+}
+
+#[test]
 fn app_logo_starts_hidden_but_an_upgraded_document_keeps_it() {
     let defaults = Preferences::default();
     assert!(!defaults.show_app_logo);

@@ -13,6 +13,9 @@ on:
       publish: {description: Publish the build, required: false, default: false, type: boolean}
       signpath_test: {description: Exercise the SignPath test-signing policy, required: false, default: false, type: boolean}
 permissions: {contents: write}
+# 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
+env:
+  MSIME_BUILD_RUN: ${{ github.run_id }}
 # 签名测试不发布，单独一个并发组，不让它排在真正的发布前面。
 concurrency: {group: "release-windows${{ inputs.signpath_test && '-signpath-test' || '' }}", cancel-in-progress: false}
 jobs:
@@ -642,6 +645,8 @@ jobs:
           python3 platforms/windows/scripts/edition_windows.py download-guide --editions "$editions" --version "$VERSION" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${prerelease[@]+"${prerelease[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
+          # 发布正文末尾的隐藏构建标记（scripts/release-build-marker.py）：应用内检查更新按它的运行 ID 比较同一版本号的构建，测试版通道也靠它分辨 beta 之后发的正式版。
+          python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           # 版本发布页只放给用户下载的安装程序、SHA256SUMS 和上面说的 .sha256；符号包放在 windows-symbols（下一步）。重跑同一版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装程序放在一起的符号包。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Windows ${RELEASE}" release-notes.md dist/*.exe dist/SHA256SUMS dist/*.exe.sha256
       # 每个发布版本六个版本的符号包都长期留在滚动的 windows-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。

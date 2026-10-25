@@ -8,6 +8,7 @@
 #   MSIME_PACKAGE_DESKTOP=0 packages without the Tauri desktop binary (no settings window); the default requires it.
 #   MSIME_RELEASE_DATE=YYYY-MM-DD 是设置应用关于页显示的发布日期（apps/desktop/src-tauri/build.rs），缺省取 HEAD 的提交日期。
 #   CARGO_BUILD_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are passed through when set, to bound memory on a shared Docker VM.
+#   MSIME_BUILD_RUN 设置时原样传进容器：release-linux.yml 把它设成 github.run_id，编进 msime-client-services 作为本构建的运行 ID（update_check::BUILD_RUN），应用内检查更新据此比较同一版本号的构建；本机打包不设，构建没有运行 ID，只比版本号。
 #   MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails unless target/language-dictionaries holds every dictionary resources/language-dictionaries.lock.json pins, each with its licence; the default packages whatever is there.
 #   MSIME_REQUIRE_WORDBOOKS=1 fails unless target/wordbooks holds every 背单词 wordbook resources/wordbook.lock.json lists, with wordbooks-NOTICE.txt (python3 scripts/fetch_wordbooks.py builds them; release-linux.yml sets it); the default installs them into share/<client>/wordbooks when they are there
 #   MSIME_REQUIRE_OFFICIAL_PLUGINS=1 fails unless target/plugin-packs holds the official plugin packs scripts/build-official-plugins.sh builds (release-linux.yml sets it); the default installs them into share/<client>/plugin-packs when they are there and packages without them otherwise.
@@ -94,6 +95,7 @@ docker run --rm --init \
   -e MSIME_REQUIRE_LANGUAGE_DICTIONARIES="${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" \
   -e MSIME_REQUIRE_OFFICIAL_PLUGINS="${MSIME_REQUIRE_OFFICIAL_PLUGINS:-0}" \
   -e MSIME_REQUIRE_WORDBOOKS="${MSIME_REQUIRE_WORDBOOKS:-0}" \
+  ${MSIME_BUILD_RUN:+-e MSIME_BUILD_RUN="$MSIME_BUILD_RUN"} \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
