@@ -25,8 +25,8 @@ pub mod system_fonts;
 use msime_client_core::preferences::{
     InputScheme, KoreanLayout, KoreanPreferences, MultilingualLanguage, NineKeyShuangpinProfile,
     Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardScheme, TouchShuangpinLayout, VietnameseInputMethod,
-    VietnamesePreferences, VietnameseToneStyle, WubiProfile,
+    TouchKeyboardLayout, TouchKeyboardScheme, TouchShuangpinLayout, TouchWubiLayout,
+    VietnameseInputMethod, VietnamesePreferences, VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -903,15 +903,17 @@ impl HostSession {
         let layout_changed = preferences.touch_keyboard_layout
             != self.applied.touch_keyboard_layout
             || preferences.touch_shuangpin_layout != self.applied.touch_shuangpin_layout
+            || preferences.touch_wubi_layout != self.applied.touch_wubi_layout
             || preferences.shuangpin_profile != self.applied.shuangpin_profile
             || preferences.shuangpin_custom_profile != self.applied.shuangpin_custom_profile
             || preferences.nine_key_shuangpin_profile != self.applied.nine_key_shuangpin_profile
             || preferences.nine_key_shuangpin_custom_profile
                 != self.applied.nine_key_shuangpin_custom_profile;
         let scheme = SchemeType::from_u8(options.scheme);
-        // 全拼、注音支持九键，双拼还支持派生的 14 键；具体组合由 `Runtime::set_key_grid` 校验。
-        let grid_scheme =
-            scheme.is_some_and(|value| value.nine_key() || value == SchemeType::Shuangpin);
+        // 全拼、注音支持九键，双拼还支持派生的 14 键，五笔支持 14 键；具体组合由 `Runtime::set_key_grid` 校验。
+        let grid_scheme = scheme.is_some_and(|value| {
+            value.nine_key() || matches!(value, SchemeType::Shuangpin | SchemeType::Wubi)
+        });
         // 宿主的网格覆盖只对它设下时的那个方案有效：全拼九宫格的开关带进注音，会让没选「注音 9 键」的注音也离开大千键位。
         let scheme_changed = options.scheme != self.options.scheme;
         let next_key_grid_override = if grid_scheme && !layout_changed && !scheme_changed {
@@ -3583,7 +3585,7 @@ const SELECTION_BATCH: u64 = 32;
 #[cfg(test)]
 mod tests;
 
-/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。Android 和 iOS 双拼看独立的 `touch_shuangpin_layout`，14 键和 18 键按当前 26 键方案派生；其他宿主保留但忽略这个偏好。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键，18 键只在 Android 和 iOS 上开启（鸿蒙的全拼 18 键由宿主自己按偏好调用 `msime_client_set_key_grid`，其他宿主还没有对应键面），九键双拼按 `nine_key_shuangpin_profile` 取表（自定义表不能用时按默认的内置方案）。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
+/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。Android 和 iOS 双拼看独立的 `touch_shuangpin_layout`，14 键和 18 键按当前 26 键方案派生；其他宿主保留但忽略这个偏好。Android 和 iOS 五笔看独立的 `touch_wubi_layout`，14 键与全拼 14 键同一种网格；鸿蒙的五笔 14 键由宿主自己按偏好调用 `msime_client_set_key_grid`。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键，18 键只在 Android 和 iOS 上开启（鸿蒙的全拼 18 键由宿主自己按偏好调用 `msime_client_set_key_grid`，其他宿主还没有对应键面），九键双拼按 `nine_key_shuangpin_profile` 取表（自定义表不能用时按默认的内置方案）。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
 pub(crate) fn layout_key_grid(
     scheme: Option<SchemeType>,
     preferences: &Preferences,
@@ -3609,6 +3611,13 @@ fn layout_key_grid_for(
             }
             TouchShuangpinLayout::TwentySixKey => {}
         }
+    }
+    // 五笔 14 键与全拼 14 键同一个键面，引擎按组展开码表；手写布局不画字母键。
+    if scheme == Some(SchemeType::Wubi) {
+        return (matches!(platform, HostPlatform::Android | HostPlatform::Ios)
+            && preferences.touch_wubi_layout == TouchWubiLayout::FourteenKey
+            && preferences.touch_keyboard_layout != TouchKeyboardLayout::Handwriting)
+            .then_some(KeyGrid::FourteenKey);
     }
     match (preferences.touch_keyboard_layout, scheme) {
         (TouchKeyboardLayout::NineKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::NineKey),

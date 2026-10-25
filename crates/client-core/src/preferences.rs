@@ -143,6 +143,21 @@ impl TouchShuangpinLayout {
     }
 }
 
+/// 触屏五笔的字母键布局；与全拼、双拼的布局独立保存，切换 86 / 98 码表后仍保留选择。14 键与全拼 14 键同一个键面，引擎按组展开五笔码表。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchWubiLayout {
+    #[default]
+    TwentySixKey,
+    FourteenKey,
+}
+
+impl TouchWubiLayout {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1346,6 +1361,9 @@ pub struct Preferences {
     /// Android 和 iOS 双拼键盘的 26 / 14 键选择；默认 26 键，其他宿主保留该字段。
     #[serde(default, skip_serializing_if = "TouchShuangpinLayout::is_default")]
     pub touch_shuangpin_layout: TouchShuangpinLayout,
+    /// Android、iOS 和鸿蒙五笔键盘的 26 / 14 键选择；默认 26 键且不写进文档，其他宿主保留该字段。
+    #[serde(default, skip_serializing_if = "TouchWubiLayout::is_default")]
+    pub touch_wubi_layout: TouchWubiLayout,
     /// 触屏键盘列出哪些方案、选中哪一个；桌面宿主原样保留、不使用。
     ///
     /// 总是写进文档，哪怕等于默认值：以前的版本在等于默认值时省略它，于是文档里没有它只能说明是以前的版本写的，按以前的默认列表读（[`TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`]）。新装的默认值已经不同，再省略就分不出这两种文档。
@@ -3405,6 +3423,7 @@ impl Default for Preferences {
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_split_portrait: false,
             touch_shuangpin_layout: TouchShuangpinLayout::default(),
+            touch_wubi_layout: TouchWubiLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             android_text_trackpad: TextTrackpadPreferences::default(),

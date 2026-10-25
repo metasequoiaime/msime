@@ -116,6 +116,8 @@ export type Preferences = PunctuationPreferences &
       | "eighteen_key";
     /** Android 双拼的 26 / 14 / 18 键、iOS 双拼的 26 / 14 键选择；缺省为 26 键，与全拼布局独立保存。 */
     touch_shuangpin_layout?: "twenty_six_key" | "fourteen_key" | "eighteen_key";
+    /** Android、iOS 和鸿蒙五笔的 26 / 14 键选择；缺省为 26 键，与全拼、双拼布局独立保存。 */
+    touch_wubi_layout?: "twenty_six_key" | "fourteen_key";
     touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
     touch_key_spacing_tenths?: number;
     touch_row_spacing_tenths?: number;

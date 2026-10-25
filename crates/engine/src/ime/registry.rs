@@ -92,9 +92,12 @@ impl ProviderRegistry {
             shuangpin: enabled
                 .contains(SchemeType::Shuangpin)
                 .then(|| ShuangpinEngine::new(profile, paths)),
-            wubi: enabled
-                .contains(SchemeType::Wubi)
-                .then(|| WubiProvider::new(&wubi_database(paths))),
+            wubi: enabled.contains(SchemeType::Wubi).then(|| {
+                WubiProvider::with_pinyin_dictionary(
+                    &wubi_database(paths),
+                    &paths.dictionary(assets::MAIN_DICTIONARY),
+                )
+            }),
             japanese: enabled
                 .contains(SchemeType::JapaneseRomaji)
                 .then(|| JapaneseProvider::new(&japanese_model)),
