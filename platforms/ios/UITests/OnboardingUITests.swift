@@ -1141,7 +1141,6 @@ final class OnboardingUITests: XCTestCase {
     reachSettingsLink("inputSettingsLink", in: app)
     settingsEntry("inputSettingsLink", in: app).tap()
     XCTAssertTrue(openSchemeSheet(.wubi, in: app))
-    app.buttons["inputSchemeGroup_wubi"].tap()
     let wubi98 = app.buttons["inputScheme_wubi_wubi98"]
     XCTAssertTrue(wubi98.waitForExistence(timeout: 5))
     wubi98.tap()
@@ -1165,7 +1164,6 @@ final class OnboardingUITests: XCTestCase {
     // 换回 86 五笔和全拼，后面的用例不受这里选的方案影响。
     app.navigationBars.buttons.element(boundBy: 0).tap()
     XCTAssertTrue(openSchemeSheet(.wubi, in: app))
-    app.buttons["inputSchemeGroup_wubi"].tap()
     let wubi86 = app.buttons["inputScheme_wubi_wubi86"]
     XCTAssertTrue(wubi86.waitForExistence(timeout: 5))
     wubi86.tap()
@@ -1178,11 +1176,13 @@ final class OnboardingUITests: XCTestCase {
     case quanpin = "mandarin", shuangpin, wubi, japanese
   }
 
-  /// 在 输入 页打开某个方案行的选项弹窗；双拼和五笔会再打开第二层弹窗。
+  /// 在 输入 页打开某个方案行的选项弹窗，弹窗里直接是这一行的方案。上一个弹窗还在退场、或这一行被滚到了屏幕外（从五笔查码返回时）时，点击落不到行上，所以先等弹窗退场、把行滚进可见区域再点。
   @MainActor
   private func openSchemeSheet(_ language: InputLanguageRow, in app: XCUIApplication) -> Bool {
+    _ = app.buttons["designOptionSheetCancel"].waitForNonExistence(timeout: 5)
     let row = app.buttons["inputLanguage_\(language.rawValue)"]
     guard row.waitForExistence(timeout: 5) else { return false }
+    reveal(row, in: app)
     row.tap()
     return app.buttons["designOptionSheetCancel"].waitForExistence(timeout: 5)
   }

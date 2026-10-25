@@ -388,11 +388,6 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       let language = app.buttons["inputLanguage_mandarin"]
       XCTAssertTrue(language.waitForExistence(timeout: 10))
       language.tap()
-      if scheme == "shuangpin" {
-        let group = app.buttons["inputSchemeGroup_shuangpin"]
-        XCTAssertTrue(group.waitForExistence(timeout: 5))
-        group.tap()
-      }
       let option = app.buttons["inputScheme_\(scheme)"]
       XCTAssertTrue(option.waitForExistence(timeout: 5), "宿主设置必须提供被测方案")
       option.tap()
@@ -926,7 +921,6 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
     editor.launchArguments = ["--system-keyboard-editor"]
-    let profiles = ["shuangpin", "ziranma", "microsoft", "shoudao"]
 
     func openSettings(_ identifier: String) {
       app.terminate()
@@ -953,9 +947,6 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
     func selectScheme(_ identifier: String) {
       openMandarin()
-      let raw = String(identifier.dropFirst("inputScheme_".count))
-      let group = profiles.contains(raw) ? "shuangpin" : raw.hasPrefix("wubi_") ? "wubi" : nil
-      if let group { app.buttons["inputSchemeGroup_\(group)"].tap() }
       let option = app.buttons[identifier]
       XCTAssertTrue(option.waitForExistence(timeout: 5))
       option.tap()
@@ -969,10 +960,6 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
 
     openMandarin()
-    if let group = ["shuangpin", "wubi"].map({ app.buttons["inputSchemeGroup_\($0)"] })
-      .first(where: { $0.exists && $0.isSelected }) {
-      group.tap()
-    }
     let previousScheme = try XCTUnwrap(app.buttons.allElementsBoundByIndex.first {
       $0.identifier.hasPrefix("inputScheme_") && $0.isSelected
     }?.identifier, "此专项需要已启用的普通话方案")
