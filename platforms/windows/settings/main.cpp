@@ -14986,6 +14986,7 @@ private:
   void set_lexicon_feedback(std::wstring message, InfoBarSeverity severity) {
     lexicon_feedback_ = std::move(message);
     lexicon_feedback_severity_ = severity;
+    lexicon_feedback_reveal_ = true;
     if (!closed_ && current_page_ == "lexicon")
       queue_refresh();
   }
@@ -15161,13 +15162,18 @@ private:
                          JsonValue::CreateStringValue(request_id(previous ? L"ui-edit-" : L"ui-add-")));
     const uint32_t reload = previous ? lexicon_offset_ : 0;
     lexicon_feedback_.clear();
-    lexicon_request(action, [this, kind, reload](Response const &response) {
+    const bool added = !previous;
+    lexicon_request(action, [this, kind, reload, added, key = replacement.key](Response const &response) {
       if (!response.ok) {
         set_lexicon_feedback(dictionary_error_text(response_error(response), kind,
                                                    lexicon_kind_label(kind) + L"保存失败，请稍后重试。"),
                              InfoBarSeverity::Error);
         return;
       }
+      // 列表按个人词条、权重排，新词条不一定落在第一页上；只换列表的话，看不见它的人只能当作没加上（#9434）。
+      set_lexicon_feedback(added ? L"已添加到" + lexicon_kind_label(kind) + L"，编码 " + key + L"。"
+                                 : L"已保存。",
+                           InfoBarSeverity::Success);
       lexicon_list(reload);
     });
   }
@@ -15949,6 +15955,23 @@ private:
     A11y::SetAutomationId(bar, L"lexicon-feedback");
     bar.Margin(Thickness{0, 12, 0, 0});
     bar.Closed([this](InfoBar const &, InfoBarClosedEventArgs const &) { lexicon_feedback_.clear(); });
+    // 结果条画在页内标签下面，「新增词条」「导入」却在页面下方：窗口不够高、页面往下滚过时，新的结果正好落在视野外面，看上去点了什么也没发生（#9434）。新的结果画出来后滚进视野一次；先等这一轮其余的 Loaded（render_page_at 恢复滚动位置）跑完，换下来的旧结果条不滚。
+    if (lexicon_feedback_reveal_)
+      bar.Loaded([weak = get_weak()](Inspectable const &sender, RoutedEventArgs const &) {
+        auto self = weak.get();
+        if (!self)
+          return;
+        self->DispatcherQueue().TryEnqueue(
+            Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
+            [weak, shown = sender.as<InfoBar>()] {
+              auto self = weak.get();
+              if (!self || self->closed_ || !self->lexicon_feedback_reveal_ ||
+                  self->lexicon_feedback_bar_ != shown)
+                return;
+              self->lexicon_feedback_reveal_ = false;
+              shown.StartBringIntoView();
+            });
+      });
     return bar;
   }
 
@@ -24559,6 +24582,8 @@ private:
   Border lexicon_results_host_{nullptr};
   // 页上正画着的操作结果条，查询条件变化时就地收起它（clear_lexicon_feedback_for_query）；没画时为空。
   InfoBar lexicon_feedback_bar_{nullptr};
+  // 刚有新的操作结果，结果条画出来后要滚进视野一次（make_lexicon_feedback）。
+  bool lexicon_feedback_reveal_ = false;
   bool lexicon_results_queued_ = false;
   Microsoft::UI::Dispatching::DispatcherQueueTimer lexicon_search_timer_{nullptr};
   // 导入导出的文件格式，跨重画保留；换到不能用它的词库类型时退回标准格式。
