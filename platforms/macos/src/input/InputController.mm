@@ -9027,7 +9027,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat decorationHeight = decorationImage ? MAX(0.0, skin.decorationTopDip) : 0.0;
     const CGFloat height = rowsHeight + 2 * verticalInset + decorationHeight + headerHeight + bodyRowGap;
     const CGFloat headerBottom = height - verticalInset - decorationHeight - headerHeight;
-    [_panel setContentSize:NSMakeSize(width, height)];
+    // 候选窗口只在补齐画布与阴影留白后调整尺寸，避免每次组字先缩小再撑高。
     MSIMECandidateChromeView *content = [self candidateChromeWithFrame:NSMakeRect(0, 0, width, height) skin:skin];
     content.candidateContentView.clipsToBounds = YES;
     content.candidateRowsRect = NSMakeRect(inset, verticalInset,
@@ -9385,7 +9385,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             return;
         }
     }
-    [_panel setContentSize:NSMakeSize(width, height)];
+    // 候选窗口只在补齐画布与阴影留白后调整尺寸，避免每次组字先缩小再撑高。
     MSIMECandidateChromeView *content = [self candidateChromeWithFrame:NSMakeRect(0, 0, width, height) skin:skin];
     content.candidateContentView.clipsToBounds = NO;
     content.candidateRowsRect = NSMakeRect(inset, verticalInset + listPager.row, pageGeometry.lineWidth, pageGeometry.rowsHeight);

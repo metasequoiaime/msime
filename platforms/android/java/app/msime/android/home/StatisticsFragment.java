@@ -5,6 +5,7 @@ import app.msime.android.DimensionPolicy;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.LayoutPolicy;
 
+import android.app.KeyguardManager;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -127,12 +128,18 @@ public final class StatisticsFragment extends HomeTabFragment {
 
     private void requestAuthentication() {
         if (authentication != null) return;
-        if (!StatisticsAuthenticationPolicy.requiresAuthentication(authorized)) {
+        Context context = requireContext();
+        KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        if (keyguard == null) {
+            MsToast.show(context, "无法读取系统认证状态，请稍后重试");
+            return;
+        }
+        // 未设置锁屏凭据时直接读统计；已配置认证的设备仍需认证成功，临时不可用不算未配置。
+        if (!StatisticsAuthenticationPolicy.requiresAuthentication(authorized, keyguard.isDeviceSecure())) {
             reload();
             return;
         }
         int authenticators = SystemAuthenticators.allowed();
-        Context context = requireContext();
         if (BiometricManager.from(context).canAuthenticate(authenticators)
                 != BiometricManager.BIOMETRIC_SUCCESS) {
             MsToast.show(context, "这台设备没有可用的系统认证");

@@ -18,14 +18,57 @@ static BOOL TestApplicationActive(id application, SEL selector) {
     return ApplicationActive;
 }
 
+@interface SettingsGlassTestNavigation : NSObject <WKNavigationDelegate>
+@property(nonatomic, strong) WKNavigation *navigation;
+@property(nonatomic) BOOL finished;
+@property(nonatomic, strong) NSError *error;
+@end
+@implementation SettingsGlassTestNavigation
+- (void)webView:(WKWebView *)webview didFinishNavigation:(WKNavigation *)navigation {
+    (void)webview;
+    if (navigation == self.navigation) self.finished = YES;
+}
+- (void)webView:(WKWebView *)webview didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    (void)webview;
+    if (navigation == self.navigation) self.error = error;
+}
+- (void)webView:(WKWebView *)webview didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    (void)webview;
+    if (navigation == self.navigation) self.error = error;
+}
+@end
+
+static void LoadHTML(WKWebView *webview, NSString *html) {
+    SettingsGlassTestNavigation *delegate = [SettingsGlassTestNavigation new];
+    webview.navigationDelegate = delegate;
+    delegate.navigation = [webview loadHTMLString:html baseURL:nil];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];
+    // 能力标记可能来自导航前的文档，只有本次导航结束才保证观察器装在新文档上。
+    while (!delegate.finished && !delegate.error && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+    if (!delegate.finished) NSLog(@"设置测试页面导航失败或超时：%@", delegate.error);
+    assert(delegate.finished && "设置测试页面未完成导航");
+    webview.navigationDelegate = nil;
+}
+
 static void CheckAppearance(WKWebView *webview, NSWindow *window, NSString *mode, NSAppearanceName expected) {
     NSString *script = [NSString stringWithFormat:@"document.documentElement.dataset.settingsAppearance = '%@'", mode];
-    [webview evaluateJavaScript:script completionHandler:nil];
+    __block BOOL evaluated = NO;
+    __block NSError *scriptError = nil;
+    [webview evaluateJavaScript:script completionHandler:^(id value, NSError *error) {
+        (void)value;
+        scriptError = error;
+        evaluated = YES;
+    }];
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];
     while (deadline.timeIntervalSinceNow > 0) {
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-        if (expected ? [window.appearance.name isEqual:expected] : window.appearance == nil) return;
+        if (evaluated && !scriptError && (expected ? [window.appearance.name isEqual:expected] : window.appearance == nil)) return;
+        if (scriptError) break;
     }
+    NSLog(@"设置外观同步失败：mode=%@，expected=%@，actual=%@，evaluated=%d，error=%@",
+        mode, expected, window.appearance.name, evaluated, scriptError);
     assert(false && "设置窗口未同步文档外观偏好");
 }
 
@@ -84,7 +127,7 @@ static void TestSettingsGlass() {
                 assert(window.opaque == !enabled);
                 assert([webview isDescendantOf:window.contentView]);
             }
-            [webview loadHTMLString:@"<!doctype html><html><body>synthetic settings</body></html>" baseURL:nil];
+            LoadHTML(webview, @"<!doctype html><html><body>synthetic settings</body></html>");
             // 页面重载通过消息读取实时状态；不能只验证原生视图存在却没有透出材质。
             NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];
             __block BOOL matched = NO;
@@ -124,7 +167,7 @@ static void TestSettingsGlass() {
             [controller updateEnabled:YES];
             assert(controller.glass.superview == window.contentView);
             assert([controller.glass.effectiveAppearance.name isEqual:NSAppearanceNameDarkAqua]);
-            [webview loadHTMLString:@"<!doctype html><html><body>synthetic reload</body></html>" baseURL:nil];
+            LoadHTML(webview, @"<!doctype html><html><body>synthetic reload</body></html>");
             deadline = [NSDate dateWithTimeIntervalSinceNow:8];
             while (window.appearance != nil && deadline.timeIntervalSinceNow > 0) {
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];

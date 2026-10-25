@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+本篇的「未配置系统认证也阻止查看」由[统计页按设备认证配置放行](../bug-fix/2026-10-25-android-statistics-auth-availability.md)取代；已配置凭据时的认证与生命周期约束仍生效。
+
 统计页每次视图进入先调用 AndroidX `BiometricPrompt`，允许强生物识别或锁屏凭据（`SystemAuthenticators.allowed()`，Android 9、10 上为 AndroidX 支持的弱生物识别或锁屏凭据，理由见[剪贴板操作认证](2026-10-25-android-clipboard-operations-auth.md)）；认证成功后才读取和显示统计数据。认证取消、失败或不可用时不加载统计。视图销毁或离开页面后清除授权，下一次进入重新认证；回到前台时走同一条可见生命周期，确保认证后的读取失败也能在下一次进入重试。唯一的例外是暂停时认证还开着（Android 9、10 的锁屏凭据确认是独立 Activity）：那次可见是否重新认证交给 `AuthenticationPauseTracker` 按认证结果决定，成功回调自己会读，用户自己取消不再弹，认证窗口开着时离开而被系统取消仍按重新进入处理，理由见[剪贴板操作认证](2026-10-25-android-clipboard-operations-auth.md)。认证请求随视图销毁取消，迟到回调不启动加载。
 
 认证状态由 `StatisticsAuthenticationPolicy` 表达并以 smoke 覆盖，页面负责生命周期、系统认证和原有加载流程。

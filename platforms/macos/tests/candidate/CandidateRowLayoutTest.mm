@@ -37,8 +37,16 @@
 
 // Keep the panel off the screen while it still lays its content out.
 @interface RowLayoutPanel : MSIMECandidatePanel
+@property(nonatomic, strong) NSMutableArray<NSValue *> *resizedSizes;
 @end
 @implementation RowLayoutPanel
+- (void)setFrame:(NSRect)frame display:(BOOL)display
+{
+    const NSSize previous = self.frame.size;
+    [super setFrame:frame display:display];
+    if (!NSEqualSizes(previous, self.frame.size))
+        [self.resizedSizes addObject:[NSValue valueWithSize:self.frame.size]];
+}
 - (void)orderFrontRegardless
 {
 }
@@ -1739,6 +1747,23 @@ static void TestFactoryShadows(RowLayoutClient *client)
                 [controller setValue:expanded.boolValue ? candidates : nil forKey:@"expandedCandidates"];
                 if (expanded.boolValue) assert([controller renderExpandedCandidates]);
                 else [controller renderCandidates];
+                // 连续组字逐次完整重画；最终大小相同也不能在中途先缩到裸卡片再补回阴影。
+                const NSSize stableSize = panel.frame.size;
+                panel.resizedSizes = [NSMutableArray array];
+                for (NSString *editing in @[@"ces", @"cesh", @"ceshi"]) {
+                    NSMutableDictionary *view = [[controller valueForKey:@"view"] mutableCopy];
+                    view[@"editing_text"] = editing;
+                    [controller setValue:view forKey:@"view"];
+                    if (expanded.boolValue) assert([controller renderExpandedCandidates]);
+                    else [controller renderCandidates];
+                    assert(NSEqualSizes(panel.frame.size, stableSize));
+                }
+                if (panel.resizedSizes.count)
+                    fprintf(stderr, "candidate intermediate resize: skin=%s dark=%d scale=%ld vertical=%d expanded=%d sizes=%s\n",
+                        kind, dark.boolValue, (long)percent.integerValue, vertical.boolValue, expanded.boolValue,
+                        panel.resizedSizes.description.UTF8String);
+                assert(panel.resizedSizes.count == 0);
+                panel.resizedSizes = nil;
                 MSIMECandidateChromeView *chrome = (id)panel.contentView;
                 assert(!panel.hasShadow && !chrome.nativeWindowShadowEnabled);
                 const auto skin = [appearance candidateWindowSkinForDark:dark.boolValue];
