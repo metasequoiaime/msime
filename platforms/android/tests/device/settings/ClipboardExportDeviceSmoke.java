@@ -152,8 +152,11 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         shell("ime set app.msime.android/.MSIMEInputService");
         shell("am start -W -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(node -> "msime-test-plain".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
-        tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
-        tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        // 输入法进程刚起来时偏好在后台线程读，读到「剪贴板历史」开着之前工具栏的「剪贴板」是灰的，点了没有反应（CI 的 API 35 上曾在输入法进程刚冷启动、主线程还在卡顿时停在这一步等满 15 秒）。等它可用再点。
+        tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+            && node.isEnabled());
+        tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+            && node.isEnabled());
         // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。
         DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
