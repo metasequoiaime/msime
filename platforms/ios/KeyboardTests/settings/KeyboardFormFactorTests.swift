@@ -44,6 +44,10 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(portrait, 306)
     XCTAssertEqual(tablet.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false, numberRow: true), 367)
     XCTAssertGreaterThan(tablet.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: true, handwriting: false), portrait)
+    // 竖屏手写多一排键：手机 289 + 52 + 7，iPad 306 + 54 + 7；横屏不加，仍按手写横屏的 40pt 键排四排：2 + 50 + 4 + 4 × 40 + 3 × 7 + 4。
+    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: true), 348)
+    XCTAssertEqual(tablet.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: true), 367)
+    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: true, handwriting: true), 241)
     // 「显示方式」为隐藏、顶栏收起时，它下面的间隔也一起去掉：2 + 4 × 52 + 3 × 7 + 4，与键区实际占的高度相同，按键不会被多出的 4pt 拉高。
     XCTAssertEqual(phone.keyboardHeight(topRow: 0, rowSpacing: 7, landscape: false, handwriting: false), 235)
     XCTAssertEqual(tablet.keyboardHeight(topRow: 0, rowSpacing: 7, landscape: false, handwriting: false), 247)
