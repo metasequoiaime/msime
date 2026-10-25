@@ -80,7 +80,13 @@ final class ClipboardPhraseNoticeDeviceCheck {
             t.restartIme();
             openEditor();
             t.tap(t.clipboardEntry());
-            Rect before = bounds(t.awaitStableBounds(card(SOURCE)));
+            Rect before;
+            try {
+                before = bounds(t.awaitStableBounds(card(SOURCE)));
+            } catch (AssertionError missing) {
+                // IME 的节点文字列表只到键区开头，面板开没开、列的是什么都看不出来；失败时把输入法各窗口的节点都写进断言，CI 上才能定位。
+                throw new AssertionError("Clipboard panel did not list " + SOURCE + "; nodes: " + productNodes(), missing);
+            }
             baseline = t.automation.takeScreenshot();
             if (baseline == null) throw new AssertionError("Synthetic baseline screenshot unavailable");
             t.stage = "successful phrase feedback uses independent window";
@@ -331,6 +337,30 @@ final class ClipboardPhraseNoticeDeviceCheck {
             if (total == 0 || same < total * 0.95)
                 throw new AssertionError("Notice changed pixels between phone top and keyboard");
         }
+    }
+
+    /** 输入法各窗口里带文字或描述的节点，标出是否可见；只用于失败说明，内容都是合成记录和键盘控件。 */
+    private String productNodes() {
+        StringBuilder out = new StringBuilder();
+        for (var window : t.automation.getWindows()) {
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root == null || !DeviceSmoke.equalsText("app.msime.android", root.getPackageName())) continue;
+            out.append("[window ").append(window.getType()).append(']');
+            java.util.ArrayDeque<AccessibilityNodeInfo> pending = new java.util.ArrayDeque<>();
+            pending.add(root);
+            while (!pending.isEmpty() && out.length() < 6000) {
+                AccessibilityNodeInfo node = pending.removeFirst();
+                if (node.getText() != null || node.getContentDescription() != null) {
+                    out.append(' ').append(node.getText()).append('|').append(node.getContentDescription())
+                        .append(node.isVisibleToUser() ? "" : "|hidden").append(';');
+                }
+                for (int index = 0; index < node.getChildCount(); index++) {
+                    AccessibilityNodeInfo child = node.getChild(index);
+                    if (child != null) pending.add(child);
+                }
+            }
+        }
+        return out.toString();
     }
 
     private Predicate<AccessibilityNodeInfo> card(String text) {
