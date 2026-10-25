@@ -576,7 +576,7 @@ test("the phone keyboard page opens with 布局 and its Chinese keyboard choice"
   expect(saved.touch_keyboard_schemes.enabled).toContain("nine_key");
 });
 
-test("the Chinese keyboard row offers 26, 14 and 9 keys for 全拼 and 26 and 9 for 日语", async () => {
+test("the Chinese keyboard row offers 26, 14, 18 and 9 keys for 全拼 and 26 and 9 for 日语", async () => {
   const { save } = renderSettings({ page: "screen-keyboard", feedback: padFeedback });
   await settingsFormReady();
   const quanpin = openSheet("中文键盘");
@@ -585,7 +585,7 @@ test("the Chinese keyboard row offers 26, 14 and 9 keys for 全拼 and 26 and 9 
       .getAllByRole("button")
       .filter((button) => button.hasAttribute("data-sheet-option"))
       .map((button) => button.textContent),
-  ).toEqual(["26 键", "14 键", "9 键"]);
+  ).toEqual(["26 键", "14 键", "18 键", "9 键"]);
   fireEvent.click(within(quanpin).getByRole("button", { name: "14 键" }));
   expect(shownValue("中文键盘").textContent).toContain("14 键");
   const preview = screen.getByRole("group", { name: "屏幕键盘预览" });
