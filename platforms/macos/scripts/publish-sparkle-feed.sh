@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 把一个 macOS 版本的 Sparkle 更新包和 appcast 发布到滚动的 macos-appcast release。release-macos.yml 在 main 的正式版（stable）、develop 的测试版（beta）和 nightly.yml 的每日构建（nightly）之后调用它，relocate-sparkle-archives.sh 迁移旧版本时也调用它。
 #
-# 顺序就是安全性：先在本地核对 appcast 签名、更新包长度与签名和 sparkle-SHA256SUMS，再确认不会把已发布的 appcast 退回更旧的构建；然后先传更新包、按 appcast 里的公开地址下载回来核对摘要，确认都下得到之后才传 appcast，下载回来比对；再把 appcast 复制到构建更旧（或还没有 appcast）的更宽通道；最后删掉 macos-appcast 上属于这个通道、不再被任何 appcast 指向的旧更新包。任何一步失败都停下，已经在线的 appcast 和它指向的更新包保持原样。
+# 顺序就是安全性：先在本地核对 appcast 签名、更新包长度与签名和 sparkle-SHA256SUMS，再确认不会把已发布的 appcast 退回更旧的构建；然后先传更新包、按 appcast 里的公开地址下载回来核对摘要，确认都下得到之后才传 appcast，下载回来比对；再把 appcast 复制到构建更旧（或还没有 appcast）的更宽通道；最后删掉 macos-appcast 上属于这个通道、不再被任何 appcast 指向的旧更新包。任何一步失败都停下，已经在线的 appcast 和它指向的更新包保持原样。本通道的 appcast 已经都是这个构建时（重跑、或每日构建没有新提交的日子）跳过上传，但仍做后两步：上一次运行可能在复制到更宽通道时失败，重跑要能补上。
 #
 # 每个通道有自己的 appcast 文件（命名规则见 sparkle_feed.py 的 feed_name）：稳定版 appcast-<版本 id>.xml 与引入通道之前相同，测试版和每日构建是 appcast-beta-<版本 id>.xml、appcast-nightly-<版本 id>.xml，设置应用同理。选了更宽通道的用户也该拿到更窄通道里更新的构建，所以发布正式版时，测试版和每日构建的 appcast 若是更旧的构建（或还不存在）也换成这一份，发布测试版时同样更新每日构建的；那边已有同样新或更新的构建时不动。appcast 里只有更新包地址，不含自己的文件名，同一份签过名的文件换个名字照样有效。
 # 一次运行只写自己通道的 appcast 和更宽通道的复制品，只删自己通道的更新包，同时进行的另一个通道的发布不会删掉它刚传上去、还没有 appcast 指向的更新包。
+# 更新包的摘要文件也按通道分开：稳定版沿用 sparkle-SHA256SUMS，测试版和每日构建是 sparkle-SHA256SUMS-beta、sparkle-SHA256SUMS-nightly，各自只列本通道的更新包。三个通道共用一个文件名时，每晚的每日构建都会把它换成只列 nightly 更新包的版本，稳定版的更新包就在已发布的摘要里查不到了。更新包名里带着通道（sparkle_feed.py 的 archive_channel），某个更新包的摘要在哪个文件里由它自己的名字决定，复制到更宽通道的 appcast 指向的仍是原通道的更新包。
 #
 # Usage: publish-sparkle-feed.sh <dir> <version> [channel]
 #   <dir> 里有 appcast-*.xml、它们指向的 *-input-method.zip / *-settings.zip 和列出这些更新包的 sparkle-SHA256SUMS（package-release.sh 的输出目录就是这样）。
@@ -25,6 +26,8 @@ appcast_base="${MSIME_SPARKLE_APPCAST_BASE_URL:-https://github.com/metasequoiaim
 here="$(cd "$(dirname "$0")" && pwd)"
 feed_tool="$here/sparkle_feed.py"
 sums="$dir/sparkle-SHA256SUMS"
+# 上传到 macos-appcast 时的名字，见开头的说明。
+if [[ "$channel" == stable ]]; then sums_asset=sparkle-SHA256SUMS; else sums_asset="sparkle-SHA256SUMS-$channel"; fi
 scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/msime-sparkle-publish.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 
@@ -64,7 +67,7 @@ cmp -s "$scratch/archives" "$scratch/summed" || { diff "$scratch/archives" "$scr
 # ---- 不退回更旧的构建 ----
 if ! gh release view "$tag" >/dev/null 2>&1; then
   gh release create "$tag" --prerelease --latest=false --title "macOS Sparkle appcasts" \
-    --notes "macOS 输入法与完整设置应用的 Sparkle appcast：每个发行版本各有 appcast-<edition>.xml 和 appcast-settings-<edition>.xml（正式版，由 main 上的正式发布更新），以及测试版的 appcast-beta-<edition>.xml、appcast-settings-beta-<edition>.xml（develop 的测试版发布）和每日构建的 appcast-nightly-<edition>.xml、appcast-settings-nightly-<edition>.xml（每日构建），更宽的通道也收到更窄通道里更新的构建；它们指向的更新包也放在这里，只保留仍被引用的，摘要见 sparkle-SHA256SUMS。"
+    --notes "macOS 输入法与完整设置应用的 Sparkle appcast：每个发行版本各有 appcast-<edition>.xml 和 appcast-settings-<edition>.xml（正式版，由 main 上的正式发布更新），以及测试版的 appcast-beta-<edition>.xml、appcast-settings-beta-<edition>.xml（develop 的测试版发布）和每日构建的 appcast-nightly-<edition>.xml、appcast-settings-nightly-<edition>.xml（每日构建），更宽的通道也收到更窄通道里更新的构建；它们指向的更新包也放在这里，只保留仍被引用的，摘要见 sparkle-SHA256SUMS（正式版）、sparkle-SHA256SUMS-beta 和 sparkle-SHA256SUMS-nightly，按更新包名里的通道查。"
 fi
 gh release view "$tag" --json assets --jq '.assets[].name' > "$scratch/published"
 mkdir -p "$scratch/current"
@@ -83,37 +86,43 @@ while IFS=$'\t' read -r feed build short url; do
   # 同一个构建、指向同一个地址，它指向的更新包也还在：这份 appcast 已经发布过了。
   if [[ "$old_build" -eq "$build" && "$old_url" == "$url" ]] && grep -qxF -- "${url##*/}" "$scratch/published"; then same=$((same + 1)); fi
 done < "$scratch/enclosures"
-# 构建号由提交时间算出（release-macos.yml），每日构建在没有新提交的日子编出的是同一个构建。全部 appcast 都已经是这个构建时什么也不传：重传同名更新包会在 appcast 换上新签名之前让正在下载的用户验签失败。
+# 构建号由提交时间算出（release-macos.yml），每日构建在没有新提交的日子编出的是同一个构建。全部 appcast 都已经是这个构建时不传更新包和本通道的 appcast：重传同名更新包会在 appcast 换上新签名之前让正在下载的用户验签失败。后面复制到更宽通道和清理旧更新包照常做，上一次运行若在那两步失败，重跑就在这里补上。
+already_published=0
 if [[ "$same" -eq ${#appcasts[@]} ]]; then
-  echo "$tag 上 $channel 通道的 appcast 已经都是这个构建，不再上传"
-  exit 0
+  already_published=1
+  echo "$tag 上 $channel 通道的 appcast 已经都是这个构建，不再上传更新包和本通道的 appcast"
 fi
 
-# ---- 先传更新包，确认下得到 ----
-archive_paths=()
-for name in "${archives[@]}"; do archive_paths+=("$dir/$name"); done
-gh release upload "$tag" "${archive_paths[@]}" "$sums" --clobber
-for name in "${archives[@]}"; do
-  fetch "$download_prefix$name" "$scratch/download"
-  expected="$(awk -v name="$name" '$2 == name {print $1}' "$sums")"
-  actual="$(shasum -a 256 "$scratch/download" | cut -d' ' -f1)"
-  [[ -n "$expected" && "$actual" == "$expected" ]] || fail "$download_prefix$name 下载到的内容与 sparkle-SHA256SUMS 不符"
-  echo "$download_prefix$name 可下载，SHA-256 $actual"
-  rm -f "$scratch/download"
-done
+if [[ "$already_published" -eq 0 ]]; then
+  # ---- 先传更新包，确认下得到 ----
+  archive_paths=()
+  for name in "${archives[@]}"; do archive_paths+=("$dir/$name"); done
+  mkdir -p "$scratch/sums"
+  cp "$sums" "$scratch/sums/$sums_asset"
+  gh release upload "$tag" "${archive_paths[@]}" "$scratch/sums/$sums_asset" --clobber
+  for name in "${archives[@]}"; do
+    fetch "$download_prefix$name" "$scratch/download"
+    expected="$(awk -v name="$name" '$2 == name {print $1}' "$sums")"
+    actual="$(shasum -a 256 "$scratch/download" | cut -d' ' -f1)"
+    [[ -n "$expected" && "$actual" == "$expected" ]] || fail "$download_prefix$name 下载到的内容与 sparkle-SHA256SUMS 不符"
+    echo "$download_prefix$name 可下载，SHA-256 $actual"
+    rm -f "$scratch/download"
+  done
 
-# ---- 再传 appcast，下载回来比对 ----
-gh release upload "$tag" "${appcasts[@]}" --clobber
-for appcast in "${appcasts[@]}"; do
-  feed="$(basename "$appcast")"
-  fetch "$appcast_base$feed" "$scratch/download"
-  cmp -s "$scratch/download" "$appcast" || fail "$appcast_base$feed 下载到的内容与刚上传的不同"
-  echo "$appcast_base$feed 已更新"
-  rm -f "$scratch/download"
-done
+  # ---- 再传 appcast，下载回来比对 ----
+  gh release upload "$tag" "${appcasts[@]}" --clobber
+  for appcast in "${appcasts[@]}"; do
+    feed="$(basename "$appcast")"
+    fetch "$appcast_base$feed" "$scratch/download"
+    cmp -s "$scratch/download" "$appcast" || fail "$appcast_base$feed 下载到的内容与刚上传的不同"
+    echo "$appcast_base$feed 已更新"
+    rm -f "$scratch/download"
+  done
+fi
 
 # ---- 复制到更宽的通道 ----
 # 那边已有同样新或更新的构建（例如测试版之后又发了更新的每日构建）时不动；没有那份 appcast 时新建，第一次发布某个通道之前，选了更宽通道的用户也有 feed 可读。
+# 复制的是已经在线的那份 appcast。这次上传过时它与本地文件相同（上面下载回来比对过）；跳过上传时两者可能不同：重跑重新打出的更新包不一定逐字节相同，本地 appcast 里的长度和签名对应的是本地的更新包，而在线的更新包是上一次运行传的，只有在线的 appcast 与它配套。
 mkdir -p "$scratch/wider"
 if [[ "${MSIME_SPARKLE_SKIP_WIDER:-}" == 1 ]]; then
   : > "$scratch/enclosures-wider"
@@ -131,10 +140,12 @@ while IFS=$'\t' read -r feed build short url; do
         continue
       fi
     fi
-    cp "$dir/$feed" "$scratch/wider/$target"
+    source_feed="$dir/$feed"
+    if [[ "$already_published" -eq 1 ]]; then source_feed="$scratch/current/$feed"; fi
+    cp "$source_feed" "$scratch/wider/$target"
     gh release upload "$tag" "$scratch/wider/$target" --clobber < /dev/null
     fetch "$appcast_base$target" "$scratch/download" < /dev/null
-    cmp -s "$scratch/download" "$dir/$feed" || fail "$appcast_base$target 下载到的内容与刚上传的不同"
+    cmp -s "$scratch/download" "$source_feed" || fail "$appcast_base$target 下载到的内容与刚上传的不同"
     echo "$appcast_base$target 已换成 $feed 的构建 $build"
     rm -f "$scratch/download"
   done

@@ -457,6 +457,10 @@ class ReleaseExtrasTests(unittest.TestCase):
         # 稳定版的更新包仍被稳定版的 appcast 引用，测试版的发布也不碰别的通道的更新包。
         for archive in self.archives_for("1.3.0").values():
             self.assertIn(archive, self.assets("macos-appcast"))
+        # 摘要文件按通道分开：测试版的发布不覆盖稳定版的 sparkle-SHA256SUMS，两份各自列出本通道的更新包。
+        self.assertEqual((feed / "sparkle-SHA256SUMS").read_bytes(), (stable / "sparkle-SHA256SUMS").read_bytes())
+        self.assertEqual((feed / "sparkle-SHA256SUMS-beta").read_bytes(), (beta / "sparkle-SHA256SUMS").read_bytes())
+        self.assertNotIn("sparkle-SHA256SUMS-nightly", self.assets("macos-appcast"))
 
     def test_stable_seeds_wider_channels_only_where_their_build_is_older(self):
         nightly = self.stage_new_version("1.3.0", 1003000500, "nightly")
@@ -500,6 +504,51 @@ class ReleaseExtrasTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn("newer than", refused.stderr)
         self.assertEqual(len(self.mutating_calls()), before)
+
+    def rebuild_archives(self, dist: Path) -> None:
+        """把 dist 里的更新包换成内容不同、构建号相同的一份，并重新生成 appcast 和摘要，像重跑同一个提交时重新打出的包。"""
+        lines = []
+        for appcast in sorted(dist.glob("appcast-*.xml")):
+            archive = dist / self.feed_tool("enclosures", str(appcast)).stdout.split("\t")[3].strip().rsplit("/", 1)[1]
+            with zipfile.ZipFile(archive, "a") as bundle:
+                bundle.writestr("rebuilt.txt", "rebuilt")
+            os.utime(archive, (1792427849, 1792427849))
+            self.generate(archive, APPCAST_PREFIX, appcast)
+            lines.append(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}")
+        (dist / "sparkle-SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_rerun_after_a_failed_wider_copy_seeds_the_wider_channels_from_the_published_feeds(self):
+        stable = self.stage_new_version("1.3.0", 1003000100)
+        # 第一次运行传完稳定版的更新包和 appcast 之后，复制到测试版时下载核对失败。
+        self.env["MSIME_TEST_CORRUPT"] = "appcast-beta-full.xml"
+        failed = self.publish(stable, "1.3.0", "stable", check=False)
+        self.assertNotEqual(failed.returncode, 0)
+        self.env.pop("MSIME_TEST_CORRUPT")
+        feed = self.state / "releases/macos-appcast"
+        published = {name: (feed / name).read_bytes() for name in self.archives_for("1.3.0")}
+        archives = {name: (feed / name).read_bytes() for name in self.archives_for("1.3.0").values()}
+        self.assertNotIn("appcast-settings-nightly-wubi.xml", self.assets("macos-appcast"))
+        # 重跑同一个提交：构建号相同，重新打出的更新包与在线的不是同一份字节。
+        rerun = self.stage_new_version("1.3.0", 1003000100)
+        self.rebuild_archives(rerun)
+        before = len(self.mutating_calls())
+        result = self.publish(rerun, "1.3.0", "stable")
+        self.assertIn("已经都是这个构建", result.stdout)
+        uploads = [call for call in self.mutating_calls()[before:] if call[1] == "upload"]
+        self.assertTrue(uploads)
+        # 只补更宽通道的 appcast，不重传更新包、摘要和本通道的 appcast。
+        for call in uploads:
+            self.assertRegex(Path(call[3]).name, r"^appcast-(settings-)?(beta|nightly)-")
+        for name, content in published.items():
+            self.assertEqual((feed / name).read_bytes(), content, name)
+        for name, content in archives.items():
+            self.assertEqual((feed / name).read_bytes(), content, name)
+        for appcast, content in published.items():
+            for channel in ("beta", "nightly"):
+                wider = appcast.replace("appcast-", f"appcast-{channel}-", 1) if not appcast.startswith("appcast-settings-") else appcast.replace("appcast-settings-", f"appcast-settings-{channel}-", 1)
+                # 复制的是在线的 appcast，它的签名和长度对得上在线的更新包；重跑打出的本地 appcast 对不上。
+                self.assertEqual((feed / wider).read_bytes(), content, wider)
+                self.feed_tool("verify", "--archives", str(feed), "--url-prefix", APPCAST_PREFIX, str(feed / wider))
 
     def test_each_channel_prunes_only_its_own_unreferenced_archives(self):
         stable = self.stage_new_version("1.3.0", 1003000100)

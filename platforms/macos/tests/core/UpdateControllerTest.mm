@@ -152,6 +152,19 @@ int main()
         assert([MSIMEUpdateChannelParse(@"beta") isEqualToString:@"beta"]);
         assert(MSIMEUpdateChannelParse(@"") == nil && MSIMEUpdateChannelParse(nil) == nil);
 
+        // 更新包的通道从文件名读，与 sparkle_feed.py 的 archive_channel 一致；换通道时据此决定还装不装已经下好的更新。
+        assert([MSIMEUpdateChannelOfArchiveName(@"msime-macos-0.55.0-input-method.zip") isEqualToString:@"stable"]);
+        assert([MSIMEUpdateChannelOfArchiveName(@"msime-macos-wubi-0.55.0-beta-430000-settings.zip") isEqualToString:@"beta"]);
+        assert([MSIMEUpdateChannelOfArchiveName(@"msime-macos-0.55.0-nightly-430001-input-method.zip") isEqualToString:@"nightly"]);
+        assert([MSIMEUpdateChannelOfArchiveName(@"msime-macos-0.55.0-nightly-0-input-method.zip") isEqualToString:@"stable"]);
+        assert([MSIMEUpdateChannelOfArchiveName(@"msime-macos-0.55.0-nightly-430001-input-method.zip.sig") isEqualToString:@"stable"]);
+        assert([MSIMEUpdateChannelOfArchiveName(nil) isEqualToString:@"stable"]);
+        assert(MSIMEUpdateChannelAccepts(@"nightly", @"stable") && MSIMEUpdateChannelAccepts(@"nightly", @"beta"));
+        assert(MSIMEUpdateChannelAccepts(@"beta", @"stable") && MSIMEUpdateChannelAccepts(@"beta", @"beta"));
+        assert(!MSIMEUpdateChannelAccepts(@"beta", @"nightly"));
+        assert(!MSIMEUpdateChannelAccepts(@"stable", @"beta") && !MSIMEUpdateChannelAccepts(@"stable", @"nightly"));
+        assert(MSIMEUpdateChannelAccepts(@"stable", @"stable"));
+
         // Sparkle is only startable inside an application bundle. Everywhere else - a test binary, a
         // command-line tool, a bundle whose identifier never made it into the plist - it answers a start
         // with a modal alert, and an input method that stops typing behind a dialog is the worse failure.

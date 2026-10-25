@@ -105,7 +105,7 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
-          # Sparkle 更新通道（与偏好 update_channel 同名）决定 package-release.sh 产出的 appcast 和更新包文件名。发到 macos-appcast 的只有三种：main 上的正式版发布（stable，与引入通道之前相同）、develop 上的测试版发布（beta）和 nightly.yml 的每日构建（nightly）；alpha 和不发布的构建只留在 workflow artifact 里。
+          # Sparkle 更新通道（与偏好 update_channel 同名）决定 package-release.sh 产出的 appcast 和更新包文件名。发到 macos-appcast 的只有三种：main 上的正式版发布（stable，与引入通道之前相同）、develop 上的测试版发布（beta）和 develop 上 nightly.yml 的每日构建（nightly）；alpha、从其他分支手动跑的每日构建和不发布的构建只留在 workflow artifact 里。
           channel="$REQUESTED_APPCAST_CHANNEL"
           if [[ -z "$channel" ]]; then
             if [[ "$GITHUB_REF_NAME" == develop ]]; then channel=beta; else channel=stable; fi
@@ -117,7 +117,9 @@ jobs:
           feed_publish=false
           if [[ "$channel" == stable && "$PUBLISH" == true && "$PRERELEASE_INPUT" != true && "$GITHUB_REF_NAME" == main ]]; then feed_publish=true; fi
           if [[ "$channel" == beta && "$PUBLISH" == true && "$GITHUB_REF_NAME" == develop ]]; then feed_publish=true; fi
-          if [[ "$channel" == nightly ]]; then feed_publish=true; fi
+          # 每日构建也只从 develop 推出去：nightly.yml 可以从任意分支手动触发，从功能分支跑一次本来只是想看包能不能编出来，却会让选了每日构建的用户被 Sparkle 静默装上未合并的代码；功能分支的提交通常比 develop 新，「不退回更旧构建」的守卫拦不住。定时触发跑在默认分支 develop 上。
+          if [[ "$channel" == nightly && "$GITHUB_REF_NAME" == develop ]]; then feed_publish=true; fi
+          if [[ "$channel" == nightly && "$feed_publish" != true ]]; then echo "::notice::每日构建运行在 $GITHUB_REF_NAME 而不是 develop，不更新 macos-appcast 上的每日构建 appcast"; fi
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "feed_publish=$feed_publish" >> "$GITHUB_OUTPUT"
       - name: Install dependencies
@@ -290,8 +292,8 @@ jobs:
         if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}"}
         run: bash platforms/macos/scripts/publish-dsym.sh "dist/msime-macos-${VERSION}-dsym.zip" "msime-macos-${RELEASE}-dsym.zip"
-      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，稳定版的写进各自的 SUFeedURL，测试版和每日构建的由输入法和设置应用按用户选的更新通道从 SUFeedURL 推出（platforms/macos/src/core/UpdateChannelFeed.h）；它们指向的更新 zip 也放在那里，不进版本发布页。三种运行会更新它（见「Resolve independent macOS version」的 feed_publish）：main 上的正式版写稳定版的 appcast，与引入通道之前相同；develop 上的测试版发布写 appcast-beta-*；nightly.yml 的每日构建写 appcast-nightly-*。alpha 不推给任何人，它的更新 zip 只留在 workflow artifact 里。publish-sparkle-feed.sh 先传 zip 并按公开地址下载核对，确认都下得到之后才传 appcast，再把它复制到构建更旧的更宽通道（正式版也进测试版和每日构建，测试版也进每日构建），最后删掉这个通道不再被任何 appcast 指向的旧 zip；同一通道已发布的 appcast 构建更高时停下，免得重跑旧版本的发布把它退回去，已经是同一个构建时什么也不传。
-      # 每日构建这一步失败（例如手动从更旧的分支跑 nightly 被上面的守卫拦下）不让 macOS 的 nightly 作业失败：那会让 nightly.yml 跳过这个平台的每日构建下载，比 appcast 停在上一次更糟。
+      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，稳定版的写进各自的 SUFeedURL，测试版和每日构建的由输入法和设置应用按用户选的更新通道从 SUFeedURL 推出（platforms/macos/src/core/UpdateChannelFeed.h）；它们指向的更新 zip 也放在那里，不进版本发布页。三种运行会更新它（见「Resolve independent macOS version」的 feed_publish）：main 上的正式版写稳定版的 appcast，与引入通道之前相同；develop 上的测试版发布写 appcast-beta-*；develop 上 nightly.yml 的每日构建写 appcast-nightly-*（从其他分支手动跑的不写）。alpha 不推给任何人，它的更新 zip 只留在 workflow artifact 里。publish-sparkle-feed.sh 先传 zip 并按公开地址下载核对，确认都下得到之后才传 appcast，再把它复制到构建更旧的更宽通道（正式版也进测试版和每日构建，测试版也进每日构建），最后删掉这个通道不再被任何 appcast 指向的旧 zip；同一通道已发布的 appcast 构建更高时停下，免得重跑旧版本的发布把它退回去，已经是同一个构建时不再传 zip 和本通道的 appcast，只补上更宽通道里还缺的或更旧的 appcast（上一次运行可能在那一步失败）。
+      # 每日构建这一步失败（例如 develop 上手工推送的提交时间偏早、构建号比已发布的小，被上面的守卫拦下）不让 macOS 的 nightly 作业失败：那会让 nightly.yml 跳过这个平台的每日构建下载，比 appcast 停在上一次更糟。
       - name: Update the Sparkle appcasts
         if: ${{ steps.version.outputs.feed_publish == 'true' }}
         continue-on-error: ${{ steps.version.outputs.channel == 'nightly' }}

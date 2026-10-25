@@ -79,6 +79,8 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 @interface MetasequoiaSparkleUpdateDriver : NSObject <MetasequoiaUpdateDriver, SPUUpdaterDelegate>
 @property(nonatomic, readonly) SPUStandardUpdaterController *updaterController;
 @property(nonatomic, copy, nullable) void (^pendingInstall)(void);
+// pendingInstall 那个更新包所属的通道（MSIMEUpdateChannelOfArchiveName），换通道时据此决定还装不装它。
+@property(nonatomic, copy, nullable) NSString *pendingInstallChannel;
 @property(nonatomic, copy) NSString *updateChannel;
 @end
 
@@ -103,6 +105,12 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
     NSString *next = MSIMEUpdateChannelFromPreference(channel);
     if ([next isEqualToString:_updateChannel]) return;
     _updateChannel = [next copy];
+    // 已经在后台下好、等着切换输入源时安装的更新，若不属于新通道接受的构建（例如从每日构建换回稳定版时手里那个每日构建），就不再在切换输入源时装它：用户换回更窄的通道就是不想要它，装上之后更窄的通道也不会把它降级回去。换到更宽的通道时它仍被接受，照常安装。Sparkle 2.9.6 没有公开接口撤回已经交出的退出时安装，这个更新在输入法进程正常退出（注销、关机）时仍会被 Sparkle 装上；这次会话里 Sparkle 的检查周期也一直停着（SPUUpdaterDelegate.h：委托接管安装后不再运行新的周期），要到下次启动才按新通道检查。
+    if (self.pendingInstall != nil && !MSIMEUpdateChannelAccepts(next, self.pendingInstallChannel))
+    {
+        self.pendingInstall = nil;
+        self.pendingInstallChannel = nil;
+    }
     // 换了通道就是换了 feed。按 SPUUpdater.h 的说明，设置变化后调用 resetUpdateCycle 重排检查计时，feed 变了时 Sparkle 会在后台马上检查一次；稍等片刻再重排，用户来回切换时只算最后一次。手动检查不受影响，下一次取 feed 时就读新通道。
     [self.updaterController.updater resetUpdateCycleAfterShortDelay];
 }
@@ -148,8 +156,8 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
     immediateInstallationBlock:(void (^)(void))immediateInstallHandler
 {
     (void)updater;
-    (void)item;
     self.pendingInstall = immediateInstallHandler;
+    self.pendingInstallChannel = MSIMEUpdateChannelOfArchiveName(item.fileURL.lastPathComponent);
     return YES;
 }
 

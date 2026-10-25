@@ -24,6 +24,27 @@ static inline NSString *_Nullable MSIMEUpdateChannelParse(NSString *_Nullable va
     return nil;
 }
 
+// 更新包属于哪个通道，从文件名读：测试版和每日构建的更新包名是 <前缀>-<版本>-<通道>-<构建号>-input-method.zip（设置应用是 -settings.zip），其余都算稳定版。与 sparkle_feed.py 的 archive_channel 是同一条规则。复制到更宽通道的 appcast 指向的仍是原通道的更新包，所以每日构建的 feed 里也可能是一个稳定版的更新包。
+static inline NSString *MSIMEUpdateChannelOfArchiveName(NSString *_Nullable name)
+{
+    if (![name isKindOfClass:NSString.class]) return @"stable";
+    NSRegularExpression *pattern = [NSRegularExpression
+        regularExpressionWithPattern:@"-(beta|nightly)-[1-9][0-9]*-(?:input-method|settings)\\.zip\\z"
+                             options:0
+                               error:nil];
+    NSTextCheckingResult *match = [pattern firstMatchInString:name options:0 range:NSMakeRange(0, name.length)];
+    return match ? [name substringWithRange:[match rangeAtIndex:1]] : @"stable";
+}
+
+// 选了 channel 的用户是否接受 archiveChannel 通道的构建：更宽的通道包含更窄的，每日构建接受三者，测试版接受测试版和正式版，正式版只接受正式版。与 sparkle_feed.py 的 WIDER_CHANNELS 一致。两个参数都按 MSIMEUpdateChannelFromPreference 读，nil 和不认识的值算稳定版。
+static inline BOOL MSIMEUpdateChannelAccepts(NSString *_Nullable channel, NSString *_Nullable archiveChannel)
+{
+    NSArray<NSString *> *order = @[ @"stable", @"beta", @"nightly" ];
+    NSUInteger chosen = [order indexOfObject:MSIMEUpdateChannelFromPreference(channel)];
+    NSUInteger offered = [order indexOfObject:MSIMEUpdateChannelFromPreference(archiveChannel)];
+    return offered <= chosen;
+}
+
 // 从稳定版 feed 推出某个通道的 feed。稳定版原样返回；地址不是 https、带查询或片段、文件名不是 appcast-[settings-]<版本 id>.xml 时返回 nil，调用方这时退回 Info.plist 的 SUFeedURL（即稳定版），不会去请求一个拼错的地址。
 static inline NSString *_Nullable MSIMEUpdateFeedURLForChannel(NSString *_Nullable stableFeed, NSString *channel)
 {
