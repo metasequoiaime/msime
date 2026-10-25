@@ -44,7 +44,9 @@ int main() {
     assert(theme_data::value(catalog) && !catalog.at("value").at("models").empty());
     Json model = catalog.at("value").at("models").front(); model["path"] = (directory / L"models/synthetic").u8string();
     std::mutex mutex; std::vector<Json> requests; bool malformed = false, installed = false, allow = false, picker_cancel = false;
-    std::atomic<bool> block_install{false}, install_started{false}, malformed_devices{false}, empty_devices{false}; HANDLE gate = CreateEventW(nullptr, TRUE, FALSE, nullptr); assert(gate);
+    std::atomic<bool> block_models{true}, models_started{false}, block_install{false}, install_started{false}, malformed_devices{false}, empty_devices{false};
+    HANDLE models_gate = CreateEventW(nullptr, TRUE, FALSE, nullptr); assert(models_gate);
+    HANDLE gate = CreateEventW(nullptr, TRUE, FALSE, nullptr); assert(gate);
     const DWORD ui_thread = GetCurrentThreadId(); unsigned picks = 0;
     const auto transport = [&](const std::string& bytes) {
       const auto request = Json::parse(bytes); const auto& config = request.at("config");
@@ -53,6 +55,7 @@ int main() {
       { std::lock_guard<std::mutex> lock(mutex); requests.push_back(request); }
       if (operation == "cancel") { assert(SetEvent(gate)); return Json{{"ok",true},{"value",true}}.dump(); }
       if (service != "voice.settings") return Json{{"ok",true},{"value",{{"message","合成配置测试成功"}}}}.dump();
+      if (operation == "models" && block_models) { models_started = true; assert(WaitForSingleObject(models_gate, 10000) == WAIT_OBJECT_0); }
       if (operation == "capture_devices" && malformed_devices) return Json{{"ok",true},{"value",{Json{{"label",1}}}}}.dump();
       if (operation == "capture_devices" && empty_devices) return Json{{"ok",true},{"value",Json::array()}}.dump();
       if (operation == "capture_devices") return Json{{"ok",true},{"value",{{{"backend","windows"},{"id","synthetic-device"},{"label","合成麦克风🙂"}}}}}.dump();
@@ -63,7 +66,11 @@ int main() {
       model["installed"] = installed;
       const Json listing{{"ok",true},{"value",{{"models",{model}},{"default",model.at("id")}}}};
       if (malformed) return Json{{"ok",true},{"value",{{"models",1}}}}.dump();
-      if (operation == "models") return listing.dump();
+      if (operation == "models") {
+        auto response = listing;
+        response["voice_provider_catalog"] = Json{{"ok", true}, {"value", providers}};
+        return response.dump();
+      }
       return Json{{"ok",true},{"value",operation == "install" ? Json{{"path",model.at("path")}} : Json()}, {"catalog",listing}}.dump();
     };
     const auto last = [&] { std::lock_guard<std::mutex> lock(mutex); assert(!requests.empty()); return requests.back(); };
@@ -74,7 +81,12 @@ int main() {
     assert(window.open_route("settings:voice") && window.create(GetModuleHandleW(nullptr)));
     const auto host = window.handle(), body = GetDlgItem(host,page_body), selector = GetDlgItem(host,page_selector);
     const auto control = [&](int id) { const auto value = GetDlgItem(body,id); assert(value); return value; };
-    const auto wait = [&] { pump([&] { return SendMessageW(selector,CB_GETCURSEL,0,0) == 19 && IsWindowEnabled(GetDlgItem(body,language_switch)); }); }; wait();
+    // 目录在后台读取时页面先显示占位项，创建窗口不会等待服务目录返回。
+    pump([&] { return models_started.load(); });
+    assert(SendMessageW(control(Form::asr_provider), CB_GETCOUNT, 0, 0) == 1);
+    assert(!IsWindowEnabled(control(Form::asr_provider)));
+    block_models = false; assert(SetEvent(models_gate));
+    const auto wait = [&] { pump([&] { return SendMessageW(selector,CB_GETCURSEL,0,0) == 19 && IsWindowEnabled(GetDlgItem(body,language_switch)) && IsWindowEnabled(GetDlgItem(body,Form::asr_provider)); }); }; wait();
     const auto click = [&](int id) { assert(IsWindowEnabled(control(id))); SendMessageW(control(id),BM_CLICK,0,0); wait(); };
     const auto choose = [&](int id, int index) { SendMessageW(control(id),CB_SETCURSEL,index,0); SendMessageW(body,WM_COMMAND,MAKEWPARAM(id,CBN_SELCHANGE),reinterpret_cast<LPARAM>(control(id))); wait(); };
     const auto set = [&](int id, const wchar_t* value) { assert(SetWindowTextW(control(id),value)); };
@@ -124,7 +136,7 @@ int main() {
     CancelContext context{model.at("id").get<std::string>(),false};
     const auto cancelled = theme_data::response(msime_client_voice_local_model_install(reinterpret_cast<const uint8_t*>(shared_request.data()),shared_request.size(),cancel_registered,&context));
     assert(context.called && cancelled.at("ok") == false && cancelled.at("error") == "local_model_cancelled");
-    DestroyWindow(host); assert(CloseHandle(gate));
+    DestroyWindow(host); assert(CloseHandle(models_gate)); assert(CloseHandle(gate));
   }
   assert(SetEnvironmentVariableW(L"MSIME_CLIENT_STATE_DIR",size ? previous.c_str() : nullptr)); std::error_code error; std::filesystem::remove_all(directory,error);
   std::puts("Windows 7 voice: native settings, shared provider isolation and validation, preserved old settings, model requests and cancellation passed");

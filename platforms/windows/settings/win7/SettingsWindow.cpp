@@ -430,7 +430,12 @@ private:
     const auto root = voice_model_root(); if (!root.is_absolute()) return dictionary_data::failure("local_model_storage");
     request.erase("operation"); request.erase("removed_path"); request["root"] = root.u8string();
     Json response;
-    if (operation == "models") return theme_data::call(msime_client_voice_local_models, request);
+    if (operation == "models") {
+      auto response = theme_data::call(msime_client_voice_local_models, request);
+      // 目录读取在设置窗口的后台 Worker 中完成，顺便把语音服务目录带回 UI，避免首次进入语音页同步阻塞创建控件。
+      response["voice_provider_catalog"] = theme_data::response(msime_client_voice_provider_catalog());
+      return response;
+    }
     if (operation == "remove") response = theme_data::call(msime_client_voice_local_model_remove, request);
     if (operation == "install") {
       if (snapshot_) request["mirror"] = snapshot_->preferences().at("voice_input").value("asr_model_mirror", std::string{});
@@ -2130,7 +2135,11 @@ struct SettingsWindow::State {
       else if (completed->credential_request->value("service", std::string{}) == "voice.settings") {
         const auto& config = completed->credential_request->at("config");
         if (config.value("operation", std::string{}) == "capture_devices") voice_form.capture_devices(*completed->credential_response);
-        else voice_followup = voice_models_form.completed(config, *completed->credential_response);
+        else {
+          if (config.value("operation", std::string{}) == "models" && completed->credential_response->contains("voice_provider_catalog"))
+            voice_form.catalog(completed->credential_response->at("voice_provider_catalog"));
+          voice_followup = voice_models_form.completed(config, *completed->credential_response);
+        }
       } else if (completed->credential_request->value("service", std::string{}).substr(0,6) == "voice.")
         voice_form.tested(*completed->credential_request, *completed->credential_response);
       else translation_form.tested(*completed->credential_request, *completed->credential_response);
