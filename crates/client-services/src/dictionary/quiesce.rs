@@ -4,7 +4,7 @@
 //!
 //! More than one process writes the lease: the settings window and the `msime-mcp` server. Each writes a second line naming itself and removes the lease only while that line is still its own, so one writer finishing does not take down a lease another one is still working under. The hosts read only the first line.
 //!
-//! On Windows every input session lives in the one Server process, which releases them when asked over its auxiliary pipe instead (see [`server`]). The Server does not track who asked, so one writer's resume can hand the sessions back while another is still working; that writer's next request then finds the dictionaries busy, asks again and is retried like the first.
+//! Windows 上输入会话由 Server 进程持有，经辅助管道请求时由它放开（见 [`server`]）。Server 不记是谁请求的，一个写者恢复时可能把会话交还回去，而另一个写者还在工作；后者的下一个请求于是遇到词库忙，再请求一次，和第一次一样重试。Windows 上还有第二类持锁者：每个用着输入法的应用进程里 TIP 自己的宿主会话，Server 管不到，所以 Windows 同时写下同一份租约，TIP 看着它放开（[`server::WindowsRelease`]）。
 
 use std::ffi::OsStr;
 #[cfg(not(unix))]
@@ -130,8 +130,8 @@ fn open_lease_lock(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 #[cfg(windows)]
-use server::ServerRelease as Release;
-/// What the hosts are released under: the lease, or on Windows the Server's own release. Both are taken with `acquire`, renewed with `publish` and let go when dropped.
+use server::WindowsRelease as Release;
+/// 宿主在什么之下放开：Linux 和 macOS 是租约；Windows 是 Server 自己的放开加上同一份租约（见 [`server::WindowsRelease`]）。都用 `acquire` 取得、`publish` 续期，放下时撤销。
 #[cfg(not(windows))]
 use Lease as Release;
 
@@ -346,10 +346,10 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
         let deadline = Instant::now() + budget;
         while matches!(&result, Err(reason) if reason == BUSY) && Instant::now() < deadline {
             std::thread::sleep(RETRY_INTERVAL);
-            // A session that came back after the Server released them (a window focused meanwhile, or another writer resuming) is only let go when the Server is asked again. The Linux and macOS hosts keep watching the lease, so there is nothing to repeat there.
+            // Server 放开之后又建起来的会话（期间有窗口拿到焦点，或者另一个写者恢复了会话）要再请求一次 Server 才放开。TIP 和 Linux、macOS 的宿主一样一直看着租约，所以只再问 Server。
             #[cfg(windows)]
             if let Some(release) = &mut self.lease {
-                let _ = release.publish();
+                let _ = release.ask_server_again();
             }
             result = attempt();
         }
@@ -441,6 +441,37 @@ pub mod server {
         /// Resume whatever happened: input without sessions because an import failed would be worse than the failure itself.
         fn drop(&mut self) {
             let _ = ask("DictionaryResume");
+        }
+    }
+
+    /// Windows 上一次维护的放开。Server 只能放开它自己进程里的会话；每个用着输入法的应用进程里，TIP 还从同一份 runtime-options.json 建了一个宿主会话（`platforms/windows/tsf`），它同样以共享方式持有词库锁，Server 管不到。所以这里同时写下 Linux 和 macOS 宿主看的那份租约，TIP 在偏好定时器上看到它就放开自己的宿主会话（`platforms/windows/common/DictionaryQuiesceLease.h`），租约撤掉后重建。只问 Server 时独占锁永远拿不到，设置页的新增、导入和清除学习数据都以 `dictionary_busy` 结束（#9434）。
+    ///
+    /// 租约写不下时照旧只问 Server：那只是回到以前的行为，不该因此连 Server 也不放开。字段按声明顺序放下：先撤租约，TIP 开始重建，再让 Server 恢复。
+    #[cfg(windows)]
+    pub struct WindowsRelease {
+        lease: Option<super::Lease>,
+        server: ServerRelease,
+    }
+
+    #[cfg(windows)]
+    impl WindowsRelease {
+        pub fn acquire(user_data: &std::path::Path) -> std::io::Result<Self> {
+            let lease = super::Lease::acquire(user_data).ok();
+            Ok(Self {
+                server: ServerRelease::acquire(user_data)?,
+                lease,
+            })
+        }
+
+        /// 每个请求之前续期：租约和 Server 的放开都有 30 秒上限。
+        pub fn publish(&mut self) -> std::io::Result<()> {
+            let lease = self.lease.as_mut().map_or(Ok(()), super::Lease::publish);
+            self.server.publish().and(lease)
+        }
+
+        /// 重试间隙只再问一次 Server：在这期间重新建起的会话要再叫一次才放开，TIP 一直看着租约，用不着每 50 毫秒重写一遍。
+        pub fn ask_server_again(&mut self) -> std::io::Result<()> {
+            self.server.publish()
         }
     }
 }

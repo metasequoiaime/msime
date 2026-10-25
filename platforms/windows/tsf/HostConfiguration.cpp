@@ -48,6 +48,10 @@ std::shared_ptr<const HostConfiguration> LoadConfiguration(
   const auto parsed = nlohmann::json::parse(options, nullptr, false);
   if (parsed.is_object()) {
     next->hostOptions = options;
+    const auto user = parsed.find("user_data");
+    next->userData = user != parsed.end() && user->is_string()
+                         ? std::filesystem::u8path(user->get<std::string>())
+                         : std::filesystem::path{};
     const auto directory = parsed.find("language_dictionaries");
     if (directory != parsed.end() && directory->is_string()) {
       const auto path = std::filesystem::u8path(directory->get<std::string>());

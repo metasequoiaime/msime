@@ -2898,6 +2898,18 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
             if (pIME->_wubiCommitOwner.active()) break;
             msime::tsf::refresh_host_configuration();
             const auto configuration = msime::tsf::cached_host_configuration();
+            // 设置窗口新增词条、导入或清除学习数据时放开宿主会话，让出词库锁；维护结束后重建（#9434）。会话放开期间焦点变化没有记下来，所以按线程此刻的焦点文档告诉新会话。
+            if (auto *engine = pIME->GetCompositionProcessorEngine();
+                engine && engine->RefreshHostSessionForDictionaryMaintenance(pIME->_IsComposing() != FALSE))
+            {
+                ITfDocumentMgr *focusedDocument = nullptr;
+                if (pIME->_pThreadMgr && FAILED(pIME->_pThreadMgr->GetFocus(&focusedDocument)))
+                    focusedDocument = nullptr;
+                pIME->_hostFocusState = {};
+                pIME->_SyncHostDocumentFocus(focusedDocument);
+                if (focusedDocument)
+                    focusedDocument->Release();
+            }
             if (SupportsOrderedPreferences()) {
                 if (configuration && configuration->revision > pIME->_preferenceBarrier.applied()) {
                     pIME->_preferenceBarrier.receive({configuration->revision, 0, 0, 0},
