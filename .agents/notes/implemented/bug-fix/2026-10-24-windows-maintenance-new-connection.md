@@ -16,6 +16,7 @@ Status: implemented
 
 ## Historical notes
 
+- [Windows 词库维护让 TIP 宿主会话放开，设置窗口写进输入法读的代次](2026-10-25-windows-dictionary-maintenance-tip-sessions.md)：部分重叠，同为 #9434。本篇只处理 Server 进程内维护期间的新连接；那篇处理 Server 管不到的持锁者（各应用里 TIP 的宿主会话）、设置窗口写错代次和结果不在视野里。
 - [词库访问租约结束时释放全部文件锁](../../implemented/bug-fix/2026-10-15-dictionary-access-lock-release.md)：部分重叠，处理 Rust 租约析构；本篇处理 Windows 宿主在维护窗口内重新创建持锁者，互链保留。
 - [个人词库操作结束时显式释放锁](../../implemented/bug-fix/2026-10-15-personal-dictionary-lock-release.md)：无关，处理 Unix 描述符继承。
 - `proposed` 与 `rejected` 中没有维护连接相关决定；其他维护命中涉及平台安装、资源准备或批处理，不规定 Windows 新连接的会话生命周期。
