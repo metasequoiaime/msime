@@ -20,3 +20,4 @@ platforms/linux/tests/provider/ai_service_contract.py
 platforms/linux/tests/clipboard/clipboard_capture_destination.py
 platforms/linux/tests/clipboard/clipboard_watch_lifecycle.py
 platforms/linux/tests/clipboard/clipboard_wayland_watch.py
+platforms/linux/tests/provider/installed_layout_library_lookup.py
