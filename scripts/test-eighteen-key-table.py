@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""校验 Android 十八键键面、引擎编码表和四端统计键位的契约。"""
+"""校验 Android、iOS 十八键键面、引擎编码表和四端统计键位的契约。"""
 
 from pathlib import Path
 import re
@@ -31,6 +31,14 @@ def main() -> None:
     rows = [row for row in rows if row]
     assert list(map(len, rows)) == [7, 6, 5], "Android 十八键行数或键数变化"
     assert [group for row in rows for group in row] == groups, "Android 键面与引擎分组不符"
+
+    ios_layout = read("platforms/ios/KeyboardExtension/Sources/input/EighteenKeyLayout.swift")
+    block = re.search(r"static let rows: \[\[FourteenKeyLayout\.Key\]\] = \[(.*?)\]\.map", ios_layout, re.S)
+    assert block, "iOS 十八键键表缺失"
+    rows = [re.findall(r'"([a-z]+)"', row) for row in re.findall(r"\[([^\[\]]*)\]", block[1])]
+    rows = [row for row in rows if row]
+    assert list(map(len, rows)) == [7, 6, 5], "iOS 十八键行数或键数变化"
+    assert [group for row in rows for group in row] == groups, "iOS 键面与引擎分组不符"
 
     expected = ["Eighteen" + group.upper() for group in groups]
     for path in [

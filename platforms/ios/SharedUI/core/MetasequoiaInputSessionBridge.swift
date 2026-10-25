@@ -573,14 +573,16 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var documentRevision: UInt64 = 0
   private var appliedFuzzyPinyinRules: UInt32?
   private var suspended = false
-  /// 引擎的组码网格，取值与 `msime_client_set_key_grid` 的 `grid` 相同：0 不用网格（26 键），1 九键，2 当前方案的 14 键，3 九键双拼。
+  /// 引擎的组码网格，取值与 `msime_client_set_key_grid` 的 `grid` 相同：0 不用网格（26 键），1 九键，2 当前方案的 14 键，3 九键双拼，4 全拼 18 键，5 双拼 18 键。
   enum KeyGrid: UInt8 {
     case none = 0
     case nineKey = 1
     case fourteenKey = 2
     case nineKeyShuangpin = 3
+    case eighteenKey = 4
+    case eighteenKeyShuangpin = 5
   }
-  // 网格（九键或 14 键）是会话状态，不在选项带的偏好里，所以重建的会话要再告诉一次，否则会回到 26 键。
+  // 网格（九键、14 键或 18 键）是会话状态，不在选项带的偏好里，所以重建的会话要再告诉一次，否则会回到 26 键。
   private var keyGrid = KeyGrid.none
   // The width, like nine-key, is session state the options do not carry, so a rebuilt session is told it again.
   private var fullwidth = false
@@ -811,6 +813,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     switch selected {
     case .nineKey, .japaneseNineKey: layout = "nine_key"
     case .fourteenKey: layout = "fourteen_key"
+    case .eighteenKey: layout = "eighteen_key"
     case .nineKeyShuangpin: layout = "nine_key_shuangpin"
     case .handwriting: layout = "handwriting"
     default: layout = "twenty_six_key"
@@ -1452,27 +1455,41 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
   /// 双拼 14 键：先切到选定的双拼方案，再打开共享引擎的 14 键网格。
   func switchToFourteenKeyShuangpin(profile: String) -> MetasequoiaInputSnapshot {
+    switchToShuangpinGrid(.fourteenKey, profile: profile)
+  }
+  /// 双拼 18 键：先切到选定的双拼方案，再打开共享引擎的双拼 18 键网格；横滑的精确字母经 `gridKey` 以大写送入。
+  func switchToEighteenKeyShuangpin(profile: String) -> MetasequoiaInputSnapshot {
+    switchToShuangpinGrid(.eighteenKeyShuangpin, profile: profile)
+  }
+  private func switchToShuangpinGrid(_ grid: KeyGrid, profile: String) -> MetasequoiaInputSnapshot {
     let snapshot = self.switch(toShuangpinProfile: profile)
     guard snapshot.diagnosticText == nil else { return snapshot }
-    keyGrid = .fourteenKey
-    return dispatch { msimeClientSetKeyGrid(handle, KeyGrid.fourteenKey.rawValue) }
+    keyGrid = grid
+    return dispatch { msimeClientSetKeyGrid(handle, grid.rawValue) }
   }
   func switchToNineKeyShuangpin() -> MetasequoiaInputSnapshot { switchToKeyGrid(.nineKeyShuangpin) }
 
   func switchToNineKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.nineKey) }
   /// 全拼 14 键：方案是全拼，按键经 `gridKey` 送组码。
   func switchToFourteenKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.fourteenKey) }
+  /// 全拼 18 键：方案是全拼，按键经 `gridKey` 送组码。
+  func switchToEighteenKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.eighteenKey) }
 
-  /// 先把方案切到全拼，再开网格：引擎只给全拼开九键和 14 键，方案改变时还会丢掉宿主之前设下的网格。只在组字结束后调用。
+  /// 先把方案切到全拼，再开网格：引擎只给全拼开九键、14 键和 18 键，方案改变时还会丢掉宿主之前设下的网格。只在组字结束后调用。
   private func switchToKeyGrid(_ grid: KeyGrid) -> MetasequoiaInputSnapshot {
     guard updatePreferences({ $0["scheme"] = "quanpin" }) else {
-      return diagnostic(grid == .fourteenKey ? "14 键模式切换失败" : "九键模式切换失败")
+      let failure = switch grid {
+      case .fourteenKey: "14 键模式切换失败"
+      case .eighteenKey: "18 键模式切换失败"
+      default: "九键模式切换失败"
+      }
+      return diagnostic(failure)
     }
     keyGrid = grid
     return dispatch { msimeClientSetKeyGrid(handle, grid.rawValue) }
   }
 
-  /// 14 键的一键：`letter` 是这一组的首字母（q e t u o a d g j l z c b m），引擎把整组当作一个组码。不在 14 键下、在本地模式里或 26 键正在组字时引擎不处理（`isHandled` 为 false），会话不变。
+  /// 字母网格的一键：`letter` 是这一组的首字母（14 键 q e t u o a d g j l z c b m，18 键是各组的首字母），引擎把整组当作一个组码；双拼 18 键另收大写字母，表示横滑选中的精确字母。不在字母网格下、在本地模式里或 26 键正在组字时引擎不处理（`isHandled` 为 false），会话不变。
   func gridKey(_ letter: String) -> MetasequoiaInputSnapshot {
     dispatch { Self.ascii(letter).flatMap { msimeClientGridKey(handle, $0) } }
   }

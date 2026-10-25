@@ -375,6 +375,12 @@ enum TypingKeyID {
     return known.contains(id) ? id : nil
   }
 
+  /// 18 键的一个键（`EighteenWE`），全拼和双拼共用，与 14 键、26 键的热力图分开。键面不是 18 键的某一组时为 nil。
+  static func eighteenKey(_ face: String) -> String? {
+    let id = "Eighteen\(face)"
+    return known.contains(id) ? id : nil
+  }
+
   /// A cell of the Japanese kana grid by its index in `JapaneseNineKeyView.keys`: あ through ら sit where 1 to 9 sit on a phone keypad, わ where 0 sits, and the punctuation cell beside it is side punctuation.
   static func japaneseKana(_ index: Int) -> String? {
     switch index {

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 14 / 9 键、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
+/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 18 / 14 / 9 键、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
 ///
 /// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
@@ -65,17 +65,15 @@ struct KeyboardLayoutSettingsView: View {
   // MARK: - 预览
 
   private var nineKey: Bool { scheme.isMandarinNineKey }
-  private var fourteenKey: Bool {
-    scheme == .fourteenKey || (scheme.shuangpinProfile != nil && shuangpinLayout == .fourteenKey)
-  }
-  /// 键盘上有没有 iPad 的数字行：九键和 14 键都不画它。
-  private var drawsNumberRow: Bool { !nineKey && !fourteenKey }
+  private var letterGrid: LetterKeyGrid? { LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout) }
+  /// 键盘上有没有 iPad 的数字行：九键、14 键和 18 键都不画它。
+  private var drawsNumberRow: Bool { !nineKey && letterGrid == nil }
 
   private var preview: some View {
     VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: nineKey, fourteenKey: fourteenKey,
+        skin: skin, nineKey: nineKey, letterGrid: letterGrid,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height
       )
@@ -197,7 +195,7 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
-  /// 在当前方案所属的一组触屏方案之间切换：全拼是 26 键、14 键、9 键三选一，日语是 26 键和 9 键。双拼的布局独立保存，五笔、手写等只有一种排列，因此这些方案没有这一组；在那里提供全拼会悄悄把小鹤用户切到全拼，所以这一行只显示方案名。
+  /// 在当前方案所属的一组触屏方案之间切换：全拼在 26 键、18 键、14 键、9 键中选一种，日语是 26 键和 9 键。双拼的布局独立保存，五笔、手写等只有一种排列，因此这些方案没有这一组；在那里提供全拼会悄悄把小鹤用户切到全拼，所以这一行只显示方案名。
   @ViewBuilder
   private var chineseKeyboardRow: some View {
     if let layouts = Self.layoutChoices(scheme), layouts.count > 1 {
@@ -211,7 +209,7 @@ struct KeyboardLayoutSettingsView: View {
       HStack(spacing: 12) {
         VStack(alignment: .leading, spacing: 2) {
           Text("中文键盘").font(.system(size: 17)).foregroundStyle(.primary)
-          Text(scheme.shuangpinProfile != nil ? "下方可选择双拼的 26 键或 14 键布局"
+          Text(scheme.shuangpinProfile != nil ? "下方可选择双拼的 26 键、14 键或 18 键布局"
             : Self.layoutChoices(scheme) == nil ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘")
             .designSubtext()
             .fixedSize(horizontal: false, vertical: true)
@@ -385,12 +383,13 @@ struct KeyboardLayoutSettingsView: View {
 
   // MARK: - 存储
 
-  /// 当前方案所属的一组键盘，按 26 键、14 键、9 键排列，只留本版本提供的：全拼有 26 键、14 键和 9 键，日语有 26 键和 9 键。双拼的 14 键布局单独由上面的行保存，避免切换方案时丢掉双拼 profile。
+  /// 当前方案所属的一组键盘，只留本版本提供的：全拼按 Android 的顺序有 26 键、18 键、14 键和 9 键，日语有 26 键和 9 键。双拼的 14 键、18 键布局单独由上面的行保存，避免切换方案时丢掉双拼 profile。
   static func layoutChoices(_ scheme: ChineseInputScheme) -> [(title: String, scheme: ChineseInputScheme, identifier: String)]? {
     let choices: [(title: String, scheme: ChineseInputScheme, identifier: String)]
     switch scheme {
-    case .quanpin, .fourteenKey, .nineKey:
-      choices = [("26 键", .quanpin, "chineseKeyboard26Key"), ("14 键", .fourteenKey, "chineseKeyboard14Key"),
+    case .quanpin, .eighteenKey, .fourteenKey, .nineKey:
+      choices = [("26 键", .quanpin, "chineseKeyboard26Key"), ("18 键", .eighteenKey, "chineseKeyboard18Key"),
+                 ("14 键", .fourteenKey, "chineseKeyboard14Key"),
                  ("9 键", .nineKey, "chineseKeyboard9Key")]
     case .japanese, .japaneseNineKey:
       choices = [("26 键", .japanese, "chineseKeyboard26Key"), ("9 键", .japaneseNineKey, "chineseKeyboard9Key")]

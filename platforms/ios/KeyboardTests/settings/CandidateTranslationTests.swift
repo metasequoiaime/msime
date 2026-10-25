@@ -448,7 +448,7 @@ final class CandidateTranslationTests: XCTestCase {
     CandidateGlossPreference.enabled = false
     let bare = try XCTUnwrap(keyboardHeight())
     let scheme = InputSchemePreference.scheme
-    let separateReadingRow = scheme == .fourteenKey
+    let separateReadingRow = [.fourteenKey, .eighteenKey].contains(scheme)
     CandidateGlossPreference.enabled = true
     let glossed = try XCTUnwrap(keyboardHeight())
     XCTAssertEqual(InputSchemePreference.scheme, scheme, "比较释义开关时输入方案必须保持一致")

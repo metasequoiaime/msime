@@ -127,7 +127,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testHidingLanguageKeyExpandsSpaceAndReloadsAcrossPhoneLayouts() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
-    for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .nineKey] {
+    for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .eighteenKey, .nineKey] {
       InputSchemePreference.scheme = scheme
       for width in [320.0, 414.0] {
         KeyboardLayoutPreference.hideLanguageKey = false
@@ -2312,13 +2312,13 @@ final class NineKeyKeyboardTests: XCTestCase {
         // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），全拼 14 键的读音单独一行，键盘为这些行长高而不是从按键里扣，所以视图要按方案自己请求的高度布局，按键才保持各自的设计高度。
         let keyboardHeight = KeyboardViewController.keyboardHeight(
           glossLines: KeyboardViewController.stripGlossLines(scheme: scheme, fullAccess: false, onlineRoute: false),
-          separateReadingRow: scheme == .fourteenKey)
+          separateReadingRow: [.fourteenKey, .eighteenKey].contains(scheme))
         controller.view.frame.size.height = keyboardHeight
         controller.viewWillAppear(false)
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           try layoutAtRequestedHeight(controller)
-          let paddedLetters = !symbols && ![.nineKey, .nineKeyShuangpin, .stroke, .zhuyin, .fourteenKey].contains(scheme)
+          let paddedLetters = !symbols && ![.nineKey, .nineKeyShuangpin, .stroke, .zhuyin, .fourteenKey, .eighteenKey].contains(scheme)
           let expectedKeyHeight: CGFloat = paddedLetters ? 44 : reference
           if scheme == .zhuyin && !symbols {
             // The Dachen layout fits four rows of keys above the action row into the same keyboard height, as the system Zhuyin keyboard does, so its rows are shorter than the three letter rows and all of them stay the same height.
@@ -2379,14 +2379,14 @@ final class NineKeyKeyboardTests: XCTestCase {
             let space = try button("spaceKey", in: controller)
             XCTAssertEqual(punctuation.bounds.width, space.bounds.width / KeyboardViewController.phoneSpaceWeight, accuracy: 0.5)
             XCTAssertGreaterThanOrEqual(space.bounds.width, 79.2)
-            let secondary = ![.handwriting, .fourteenKey, .zhuyin].contains(scheme)
+            let secondary = ![.handwriting, .fourteenKey, .eighteenKey, .zhuyin].contains(scheme)
             XCTAssertEqual(punctuation.menu?.children.count, secondary ? nil : 7)
             XCTAssertEqual((punctuation as? KeyboardKeyButton)?.cornerHint != nil, secondary)
           }
           // 底行的 ⌫ 只属于 Dachen 符号行：123 / #+= 层的 ⌫ 在第三行，九键网格的在右列，假名网格的在它自己的网格里。
           XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !(symbols && scheme == .zhuyin))
           // 全拼 14 键画自己的三排键，键位与等高由 FourteenKeyKeyboardTests 覆盖。
-          if !symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .handwriting, .zhuyin, .stroke, .fourteenKey].contains(scheme) {
+          if !symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .handwriting, .zhuyin, .stroke, .fourteenKey, .eighteenKey].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
             let shift = try button("shiftButton", in: controller)
             // Korean keys are named by the jamo they type.
@@ -4092,11 +4092,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
 
     // CI 只暂存核心词库；可下载词库缺失时方案会回落全拼，只验收实际可用的入口。
-    var schemes: [ChineseInputScheme] = [.quanpin, .shuangpin, .fourteenKey, .handwriting]
+    var schemes: [ChineseInputScheme] = [.quanpin, .shuangpin, .fourteenKey, .eighteenKey, .handwriting]
     if InputSchemePreference.installedLanguageSchemes?.contains(.stroke) != false { schemes.append(.stroke) }
     // 返回键与 Android 一样：26 键一族和手写印「拼音」，14 键和笔画印各自的短名。
     let returnTitles: [ChineseInputScheme: String] = [
-      .quanpin: "拼音", .shuangpin: "拼音", .handwriting: "拼音", .fourteenKey: "14键", .stroke: "笔",
+      .quanpin: "拼音", .shuangpin: "拼音", .handwriting: "拼音", .fourteenKey: "14键", .eighteenKey: "18键", .stroke: "笔",
     ]
     for scheme in schemes {
       for tablet in [false, true] {
@@ -4194,8 +4194,9 @@ final class NineKeyKeyboardTests: XCTestCase {
   /// 借用数字页的返回键键面按原键面取，与 Android `KeyboardActionRow.layerTitle` 相同；词库没装时上面的界面用例跳过笔画，这里按方案直接固定。
   func testBorrowedNumberPadReturnTitleFollowsTheLayout() {
     XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.fourteenKey), "14键")
+    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.eighteenKey), "18键")
     XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.stroke), "笔")
-    for scheme in ChineseInputScheme.allCases where ![.fourteenKey, .stroke].contains(scheme) {
+    for scheme in ChineseInputScheme.allCases where ![.fourteenKey, .eighteenKey, .stroke].contains(scheme) {
       XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme), SymbolLayerLayout.lettersTitle(chinese: true),
                      "\(scheme)")
     }

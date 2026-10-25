@@ -16,6 +16,7 @@ iOS 已有全拼 14 键和多种 26 键双拼方案，但双拼只能使用 26 �
 
 ### 历史笔记检索
 
+- [iOS 十八键](2026-10-25-ios-eighteen-key.md)：部分重叠，`touch_shuangpin_layout` 在 iOS 上追加 `eighteen_key`，沿用本篇的布局缓存、延迟热加载和英文回落。
 - [Android 14 键双拼](2026-10-23-android-fourteen-key-shuangpin.md)：部分重叠，共用 `touch_shuangpin_layout`、Host API 门控、14 键双拼引擎契约和多义读音处理；iOS 只增加原生 Swift 设置、会话桥和键盘扩展接线。
 - [全拼 14 键](2026-10-10-fourteen-key.md)：部分重叠，复用键位、触摸来源、拼音选择和候选面板契约；本方案保留双拼 profile。
 - [九键双拼](2026-10-10-nine-key-shuangpin.md)：部分重叠，复用两键多义解码、拼音选择和退格恢复；不改变九键数字方案。

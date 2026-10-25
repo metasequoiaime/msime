@@ -83,6 +83,7 @@ targets:
       - path: KeyboardExtension/Sources
         includes:
           - input/FourteenKeyLayout.swift
+          - input/EighteenKeyLayout.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**

@@ -400,6 +400,11 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(TypingKeyID.fourteenKey("L"), "FourteenL")
     XCTAssertNil(TypingKeyID.fourteenKey("Q"))
     XCTAssertEqual(TypingKeyID.label("FourteenBN"), "14 键 BN")
+    // 18 键另有一组 id，全拼和双拼共用，不混进 14 键和 26 键。
+    XCTAssertEqual(TypingKeyID.eighteenKey("WE"), "EighteenWE")
+    XCTAssertEqual(TypingKeyID.eighteenKey("Q"), "EighteenQ")
+    XCTAssertNil(TypingKeyID.eighteenKey("QW"))
+    XCTAssertEqual(TypingKeyID.label("EighteenBN"), "18 键 BN")
     // The quick punctuation key counts as the comma key it sits on, whatever mark it types.
     XCTAssertEqual(TypingKeyID.quickPunctuation, "Comma")
     XCTAssertTrue(TypingKeyID.known.contains(TypingKeyID.quickPunctuation))

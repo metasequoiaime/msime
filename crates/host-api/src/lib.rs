@@ -3387,7 +3387,7 @@ const SELECTION_BATCH: u64 = 32;
 #[cfg(test)]
 mod tests;
 
-/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。Android 和 iOS 双拼看独立的 `touch_shuangpin_layout`，14 键按当前 26 键方案派生，Android 另支持 18 键；其他宿主保留但忽略这个偏好。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键，九键双拼按 `nine_key_shuangpin_profile` 取表（自定义表不能用时按默认的内置方案）。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
+/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。Android 和 iOS 双拼看独立的 `touch_shuangpin_layout`，14 键和 18 键按当前 26 键方案派生；其他宿主保留但忽略这个偏好。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键，18 键只在 Android 和 iOS 上开启（其他宿主还没有对应键面），九键双拼按 `nine_key_shuangpin_profile` 取表（自定义表不能用时按默认的内置方案）。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
 pub(crate) fn layout_key_grid(
     scheme: Option<SchemeType>,
     preferences: &Preferences,
@@ -3408,17 +3408,17 @@ fn layout_key_grid_for(
             TouchShuangpinLayout::FourteenKey => {
                 return Some(fourteen_key_shuangpin_grid(preferences))
             }
-            TouchShuangpinLayout::EighteenKey if platform == HostPlatform::Android => {
+            TouchShuangpinLayout::EighteenKey => {
                 return Some(eighteen_key_shuangpin_grid(preferences))
             }
-            TouchShuangpinLayout::TwentySixKey | TouchShuangpinLayout::EighteenKey => {}
+            TouchShuangpinLayout::TwentySixKey => {}
         }
     }
     match (preferences.touch_keyboard_layout, scheme) {
         (TouchKeyboardLayout::NineKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::NineKey),
         (TouchKeyboardLayout::FourteenKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::FourteenKey),
         (TouchKeyboardLayout::EighteenKey, Some(SchemeType::Quanpin))
-            if platform == HostPlatform::Android =>
+            if matches!(platform, HostPlatform::Android | HostPlatform::Ios) =>
         {
             Some(KeyGrid::EighteenKey)
         }

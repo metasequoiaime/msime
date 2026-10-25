@@ -3,10 +3,10 @@ import Foundation
 enum ChineseInputScheme: String, CaseIterable {
   // 「高情商回复」已改为工具栏入口，不再是方案。旧版存下的 `thoughtfulReply`（App Group）或 `thoughtful_reply`（共享文档）在这里认不出来，与其他未知值一样走 `InputSchemePreference` 的回退：已选的落到全拼 26 键或第一个可用方案，启用列表里直接忽略。
   // 新方案按 client-core 的 `TouchKeyboardScheme::ALL` 只往后追加，九键双拼排在全拼 14 键后，启用列表也按这个顺序写回文档。
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan, stroke, fourteenKey, nineKeyShuangpin
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan, stroke, fourteenKey, nineKeyShuangpin, eighteenKey
 
-  /// 全新安装默认不打开、要用户自己启用的方案，与设置宿主一致（MobilePlatformPlugin 里的 `optInSchemes`）。全拼 14 键和九键双拼也不默认打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
-  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin]
+  /// 全新安装默认不打开、要用户自己启用的方案，与设置宿主一致（MobilePlatformPlugin 里的 `optInSchemes`）。全拼 14 键、18 键和九键双拼也不默认打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
+  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey]
 
   /// 两种普通话九宫格共用候选列与布局，组码规则分别由引擎的网格决定。
   var isMandarinNineKey: Bool { self == .nineKey || self == .nineKeyShuangpin }
@@ -58,7 +58,7 @@ enum ChineseInputScheme: String, CaseIterable {
   /// 这个入口背后的输入方案，即版本表和共享偏好 `scheme` 里的方案名。手写的识别由平台识别器完成，不属于任何一个方案，这里的 `quanpin` 只用来归类；它写进偏好的方案见 `MetasequoiaInputSessionBridge.schemeMapping`。
   var engineScheme: String {
     switch self {
-    case .quanpin, .nineKey, .fourteenKey, .nineKeyShuangpin, .handwriting: "quanpin"
+    case .quanpin, .nineKey, .fourteenKey, .eighteenKey, .nineKeyShuangpin, .handwriting: "quanpin"
     case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
     case .wubi: "wubi"
     case .japanese, .japaneseNineKey: "japanese"
@@ -113,13 +113,14 @@ enum ChineseInputScheme: String, CaseIterable {
     case .stroke: "stroke"
     case .fourteenKey: "fourteen_key"
     case .nineKeyShuangpin: "nine_key_shuangpin"
+    case .eighteenKey: "eighteen_key"
     }
   }
   /// 这个方案在云端设置文档里的 `input.schema`，云端带不了的方案为 nil。云端只认 quanpin、shuangpin、wubi、japanese 和 korean，任何设备收到其他值都会拒绝整份文档（Rust 的 `account::ios_settings`），所以粤拼、注音、越南语、藏文和笔画不写这个字段，保留账号里的方案，与 Tauri 的 `local_account_preferences` 一致。
   var cloudSchema: String? {
     switch self {
-    // 全拼的 26 键、9 键、14 键、九键双拼和手写使用全拼引擎，用哪种键盘由 `cloudKeyboardLayout` 说明。
-    case .quanpin, .nineKey, .fourteenKey, .nineKeyShuangpin, .handwriting: "quanpin"
+    // 全拼的 26 键、9 键、14 键、18 键、九键双拼和手写使用全拼引擎，用哪种键盘由 `cloudKeyboardLayout` 说明。
+    case .quanpin, .nineKey, .fourteenKey, .eighteenKey, .nineKeyShuangpin, .handwriting: "quanpin"
     case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
     case .wubi: "wubi"
     case .japanese, .japaneseNineKey: "japanese"
@@ -127,11 +128,12 @@ enum ChineseInputScheme: String, CaseIterable {
     case .cantonese, .zhuyin, .vietnamese, .tibetan, .stroke: nil
     }
   }
-  /// 这个方案在云端的 `platform.ios.keyboard_layout`，与 Android 的 `platform.android.keyboard_layout` 同一套词。只随 `input.schema` 一起上传；旧版本不认识它，所以同时照旧上传 `platform.ios.nine_key`，那台设备上 14 键和手写落成全拼 26 键。
+  /// 这个方案在云端的 `platform.ios.keyboard_layout`，与 Android 的 `platform.android.keyboard_layout` 同一套词。只随 `input.schema` 一起上传；旧版本不认识它，所以同时照旧上传 `platform.ios.nine_key`，那台设备上 14 键、18 键和手写落成全拼 26 键。
   var cloudKeyboardLayout: String {
     switch self {
     case .nineKey, .japaneseNineKey: "nine_key"
     case .fourteenKey: "fourteen_key"
+    case .eighteenKey: "eighteen_key"
     case .nineKeyShuangpin: "nine_key_shuangpin"
     case .handwriting: "handwriting"
     default: "twenty_six_key"
@@ -160,17 +162,51 @@ enum ChineseInputScheme: String, CaseIterable {
     case .stroke: "笔画"
     case .fourteenKey: "全拼 14 键"
     case .nineKeyShuangpin: "九键双拼"
+    case .eighteenKey: "全拼 18 键"
     }
   }
 }
 
-/// iOS 双拼字母键布局。它与当前选中的双拼方案分开保存，因此切换小鹤、自然码或微软双拼时不会丢掉 14 键选择。
+/// 中文触屏的字母组网格：全拼 14 键、18 键入口，或双拼的 14 键、18 键布局。两种网格共用组码入口、读音行、拼音选择条和三栏候选面板，键面和统计 id 各自独立。
+enum LetterKeyGrid: Equatable {
+  case fourteenKey, eighteenKey
+
+  /// `scheme` 在双拼布局 `shuangpinLayout` 下画哪种网格；26 键字母、九键和其他方案为 nil。
+  static func of(_ scheme: ChineseInputScheme, shuangpinLayout: TouchShuangpinLayoutPreference.Layout) -> LetterKeyGrid? {
+    switch scheme {
+    case .fourteenKey: return .fourteenKey
+    case .eighteenKey: return .eighteenKey
+    default:
+      guard scheme.shuangpinProfile != nil else { return nil }
+      switch shuangpinLayout {
+      case .twentySixKey: return nil
+      case .fourteenKey: return .fourteenKey
+      case .eighteenKey: return .eighteenKey
+      }
+    }
+  }
+
+  /// 键盘上的短名：借用数字页的返回键、方案卡片，与 Android、鸿蒙的 `LAYER_TITLE` 相同。
+  var shortTitle: String { self == .eighteenKey ? "18键" : "14键" }
+
+  /// 设置页和预览里的布局名。
+  var title: String { self == .eighteenKey ? "18 键" : "14 键" }
+}
+
+/// iOS 双拼字母键布局。它与当前选中的双拼方案分开保存，因此切换小鹤、自然码或微软双拼时不会丢掉 14 键或 18 键选择。选项按 Android 的设置排列：26、14、18 键。
 enum TouchShuangpinLayoutPreference {
   enum Layout: String, CaseIterable, Hashable {
     case twentySixKey = "twenty_six_key"
     case fourteenKey = "fourteen_key"
+    case eighteenKey = "eighteen_key"
 
-    var title: String { self == .fourteenKey ? "14 键" : "26 键" }
+    var title: String {
+      switch self {
+      case .twentySixKey: "26 键"
+      case .fourteenKey: "14 键"
+      case .eighteenKey: "18 键"
+      }
+    }
   }
 
   static let documentKey = "touch_shuangpin_layout"

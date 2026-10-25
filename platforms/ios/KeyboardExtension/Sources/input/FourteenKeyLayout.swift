@@ -7,6 +7,8 @@ enum FourteenKeyLayout {
   struct Key: Equatable {
     /// 这一组的字母，小写，按键面上的顺序：`qw`。
     let letters: String
+    /// 键所在的网格：18 键（`EighteenKeyLayout`）复用这里的组码、键面、读屏和长按，统计 id 另取 `Eighteen` 前缀。
+    var grid: LetterKeyGrid = .fourteenKey
 
     /// 送给引擎的组码：这一组的首字母。引擎收组里任一字母都会归成同一组，三端约定送首字母。
     var code: String { String(letters.prefix(1)) }
@@ -29,8 +31,8 @@ enum FourteenKeyLayout {
     /// 长按弹出的字母，小写；单字母键没有长按选项。
     var holdLetters: [String] { letters.count > 1 ? letters.map(String.init) : [] }
 
-    /// 打字统计里这一键的 id：`FourteenQW`。
-    var keyID: String? { TypingKeyID.fourteenKey(face) }
+    /// 打字统计里这一键的 id：14 键是 `FourteenQW`，18 键是 `EighteenWE`。
+    var keyID: String? { grid == .eighteenKey ? TypingKeyID.eighteenKey(face) : TypingKeyID.fourteenKey(face) }
   }
 
   /// 三排按键。第三排两端另有分词键和 ⌫，由键盘自己画。
@@ -38,7 +40,7 @@ enum FourteenKeyLayout {
     ["qw", "er", "ty", "ui", "op"],
     ["as", "df", "gh", "jk", "l"],
     ["zx", "cv", "bn", "m"],
-  ].map { $0.map(Key.init(letters:)) }
+  ].map { $0.map { Key(letters: $0) } }
 
   /// `letter` 所在的那一键；不是 a–z 时为 nil。
   static func key(for letter: Character) -> Key? {

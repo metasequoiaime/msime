@@ -120,11 +120,11 @@ enum KeyboardSplitLayout {
     formFactor == .tablet && landscape && enabled()
   }
 
-  /// 当前显示的键区是不是会分开的字母布局。英文和本地输入模式总是画 26 键字母；九键、全拼 14 键、笔画、假名九键、注音大千和手写画的是各自的键区，不分。
+  /// 当前显示的键区是不是会分开的字母布局。英文和本地输入模式总是画 26 键字母；九键、全拼 14 键和 18 键、笔画、假名九键、注音大千和手写画的是各自的键区，不分。
   static func splitsLayout(scheme: ChineseInputScheme, chinese: Bool, localMode: Bool) -> Bool {
     guard chinese, !localMode else { return true }
     switch scheme {
-    case .nineKey, .nineKeyShuangpin, .fourteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting: return false
+    case .nineKey, .nineKeyShuangpin, .fourteenKey, .eighteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting: return false
     default: return true
     }
   }

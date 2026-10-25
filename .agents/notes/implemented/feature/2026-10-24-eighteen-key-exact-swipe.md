@@ -20,6 +20,7 @@ Android 十八键双拼的双字母键左滑选择左字母，右滑选择右字
 
 - [十八键双拼](../../implemented/feature/2026-10-24-android-eighteen-key-shuangpin.md)：部分重叠，保留布局、默认值、组码和长按；本篇只增加横滑精确输入。
 - [十八键全拼](../../implemented/feature/2026-10-24-eighteen-key-quanpin-engine.md)：范围独立，本次不改变全拼入口。
+- [iOS 十八键](2026-10-25-ios-eighteen-key.md)：部分重叠，iOS 按同一阈值、方向和大写精确标记接入横滑，由键上的手势识别器取消这次点按。
 - [九键滑动数字](../../implemented/feature/2026-10-08-android-nine-key-number-pad.md)：复用取消按钮触摸的做法，不复用纵向偏好和直接上屏路径。
 - 检索 proposed、implemented、rejected 中的十八键、精确字母和横滑记录，未找到其他现有实现；旧混合 issue 工作树处于锁定状态，不读取或复用其未提交内容。
 

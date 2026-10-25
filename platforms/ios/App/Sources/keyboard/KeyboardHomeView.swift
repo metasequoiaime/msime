@@ -95,10 +95,8 @@ struct SettingsView: View {
     default: chinesePunctuation = preferences?["chinese_punctuation"] as? Bool ?? true
     }
     let learning = InputHabitPreference.settings(in: preferences).learning
-    let doubleShuangpinFourteen = scheme.shuangpinProfile != nil
-      && TouchShuangpinLayoutPreference.layout(in: preferences) == .fourteenKey
-    let keys = scheme.isMandarinNineKey || scheme == .japaneseNineKey
-      ? "9 键" : (scheme == .fourteenKey || doubleShuangpinFourteen) ? "14 键" : "26 键"
+    let grid = LetterKeyGrid.of(scheme, shuangpinLayout: TouchShuangpinLayoutPreference.layout(in: preferences))
+    let keys = scheme.isMandarinNineKey || scheme == .japaneseNineKey ? "9 键" : grid?.title ?? "26 键"
     let height = KeyboardLayoutPreference.sharedHeightAdjustment(preferences?["touch_keyboard_height_adjustment"])
       ?? KeyboardLayoutPreference.heightAdjustment
     let language = VoicePolishSettings(preferences).language

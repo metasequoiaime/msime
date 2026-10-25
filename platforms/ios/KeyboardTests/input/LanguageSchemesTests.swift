@@ -35,8 +35,8 @@ final class LanguageSchemesTests: XCTestCase {
     defer { defaults.set(previous, forKey: InputSchemePreference.enabledSchemesKey) }
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     let enabled = InputSchemePreference.enabledSchemes
-    // 全拼 14 键同样要用户自己打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
-    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin].contains($0) })
+    // 全拼 14 键和 18 键同样要用户自己打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
+    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey].contains($0) })
   }
 
   func testAMissingDictionaryHidesOnlyItsScheme() {
@@ -93,7 +93,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.stroke.sharedIdentifier, "stroke")
     XCTAssertEqual(ChineseInputScheme(rawValue: "stroke"), .stroke, "the App Group value is the shared one")
     XCTAssertEqual(ChineseInputScheme.stroke.title, "笔画")
-    XCTAssertEqual(ChineseInputScheme.allCases.last, .nineKeyShuangpin, "the scheme order is persisted, so new schemes go last")
+    XCTAssertEqual(ChineseInputScheme.allCases.suffix(2), [.nineKeyShuangpin, .eighteenKey], "the scheme order is persisted, so new schemes go last")
   }
 
   /// 全拼 14 键：引擎方案是全拼，共享文档里的 id 和布局都是 `fourteen_key`，云端按全拼上传，默认不启用，空格键和方案简称写「全拼」，统计来源是 `fourteenKey`。
@@ -121,12 +121,43 @@ final class LanguageSchemesTests: XCTestCase {
                    "the raw keys are group codes, so every boundary converts as nine-key does")
   }
 
+  /// 全拼 18 键与 14 键一样：引擎方案是全拼，共享文档里的 id 和布局都是 `eighteen_key`，云端按全拼上传、布局写 `eighteen_key`，默认不启用，简称写「全拼」，统计来源是 `eighteenKey`，回车和切换模式先结束组字。
+  func testTheEighteenKeySchemeIsQuanpinOnItsOwnLayout() {
+    let scheme = ChineseInputScheme.eighteenKey
+    XCTAssertEqual(scheme.engineScheme, "quanpin")
+    XCTAssertEqual(scheme.sharedIdentifier, "eighteen_key")
+    XCTAssertEqual(ChineseInputScheme.scheme(sharedIdentifier: "eighteen_key"), .eighteenKey)
+    XCTAssertEqual(scheme.cloudSchema, "quanpin")
+    XCTAssertEqual(scheme.cloudKeyboardLayout, "eighteen_key")
+    XCTAssertEqual(scheme.title, "全拼 18 键")
+    XCTAssertEqual(scheme.shortLabel, "全拼")
+    XCTAssertTrue(ChineseInputScheme.optInSchemes.contains(.eighteenKey))
+    XCTAssertFalse(scheme.editsBySyllable)
+    XCTAssertNil(scheme.shuangpinProfile)
+    XCTAssertEqual(LetterKeyGrid.of(scheme, shuangpinLayout: .twentySixKey), .eighteenKey)
+    XCTAssertEqual(TypingSource(rawValue: scheme.rawValue), .eighteenKey)
+    var document: [String: Any] = ["last_chinese_scheme": "wubi"]
+    MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: ChineseInputScheme.allCases)?(&document)
+    XCTAssertEqual(document["scheme"] as? String, "quanpin")
+    XCTAssertEqual(document["touch_keyboard_layout"] as? String, "eighteen_key")
+    XCTAssertEqual((document["touch_keyboard_schemes"] as? [String: Any])?["selected"] as? String, "eighteen_key")
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: .returnKey), .finishComposition)
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: .modeSwitch), .finishComposition)
+  }
+
   /// 双拼 14 键只改变字母键布局，不替换当前的小鹤、自然码或微软方案；布局字段缺省为 26 键。
   func testShuangpinLayoutIsIndependentFromTheSelectedProfile() {
     XCTAssertEqual(TouchShuangpinLayoutPreference.layout(in: nil), .twentySixKey)
     let document: [String: Any] = ["touch_shuangpin_layout": "fourteen_key", "shuangpin_profile": "microsoft"]
     XCTAssertEqual(TouchShuangpinLayoutPreference.layout(in: document), .fourteenKey)
     XCTAssertEqual(TouchShuangpinLayoutPreference.Layout(rawValue: "nine_key"), nil)
+    XCTAssertEqual(TouchShuangpinLayoutPreference.layout(in: ["touch_shuangpin_layout": "eighteen_key"]), .eighteenKey)
+    XCTAssertEqual(TouchShuangpinLayoutPreference.Layout.allCases.map(\.title), ["26 键", "14 键", "18 键"])
+    let grids: [(TouchShuangpinLayoutPreference.Layout, LetterKeyGrid?)] = [(.twentySixKey, nil), (.fourteenKey, .fourteenKey), (.eighteenKey, .eighteenKey)]
+    for (layout, grid) in grids {
+      XCTAssertEqual(LetterKeyGrid.of(.microsoft, shuangpinLayout: layout), grid, layout.rawValue)
+      XCTAssertNil(LetterKeyGrid.of(.quanpin, shuangpinLayout: layout), "the shuangpin layout never applies to quanpin")
+    }
 
     var mapped = document
     MetasequoiaInputSessionBridge.schemeMapping(.microsoft, enabledSchemes: ChineseInputScheme.allCases)?(&mapped)

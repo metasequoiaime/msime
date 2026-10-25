@@ -8,7 +8,7 @@ use msime_client_core::host_surface::compiled_input_schemes;
 use sha2::{Digest, Sha256};
 
 #[test]
-fn eighteen_key_quanpin_layout_only_starts_on_android() {
+fn eighteen_key_quanpin_layout_starts_on_android_and_ios() {
     let preferences = Preferences {
         touch_keyboard_layout: TouchKeyboardLayout::EighteenKey,
         ..Preferences::default()
@@ -23,7 +23,8 @@ fn eighteen_key_quanpin_layout_only_starts_on_android() {
     ] {
         assert_eq!(
             layout_key_grid_for(platform, Some(SchemeType::Quanpin), &preferences),
-            (platform == HostPlatform::Android).then_some(KeyGrid::EighteenKey),
+            matches!(platform, HostPlatform::Android | HostPlatform::Ios)
+                .then_some(KeyGrid::EighteenKey),
             "{platform:?}"
         );
         assert_eq!(
@@ -3488,7 +3489,7 @@ fn eighteen_key_grid_abi_numbers_keep_scheme_and_composition() {
 }
 
 #[test]
-fn eighteen_key_shuangpin_preference_is_only_applied_by_android() {
+fn eighteen_key_shuangpin_preference_is_applied_by_android_and_ios() {
     let mut document = serde_json::to_value(chinese_preferences()).unwrap();
     document["scheme"] = "shuangpin".into();
     document["touch_shuangpin_layout"] = "eighteen_key".into();
@@ -3505,7 +3506,7 @@ fn eighteen_key_shuangpin_preference_is_only_applied_by_android() {
         let grid = layout_key_grid_for(platform, Some(SchemeType::Shuangpin), &preferences);
         assert_eq!(
             grid.is_some(),
-            platform == HostPlatform::Android,
+            matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             "{platform:?}"
         );
         if let Some(grid) = grid {

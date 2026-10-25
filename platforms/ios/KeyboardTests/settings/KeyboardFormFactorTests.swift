@@ -383,9 +383,9 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertFalse(KeyboardSplitLayout.isActive(formFactor: .tablet, landscape: false, enabled: { XCTFail("read"); return true }()))
   }
 
-  /// 26 键字母方案分，九键、全拼 14 键、笔画、假名九键、注音大千和手写不分；英文和本地输入模式画的是字母，照样分。
+  /// 26 键字母方案分，九键、全拼 14 键和 18 键、笔画、假名九键、注音大千和手写不分；英文和本地输入模式画的是字母，照样分。
   func testOnlyTheLetterLayoutsSplit() {
-    let unsplit: Set<ChineseInputScheme> = [.nineKey, .nineKeyShuangpin, .fourteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting]
+    let unsplit: Set<ChineseInputScheme> = [.nineKey, .nineKeyShuangpin, .fourteenKey, .eighteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting]
     for scheme in ChineseInputScheme.allCases {
       XCTAssertEqual(KeyboardSplitLayout.splitsLayout(scheme: scheme, chinese: true, localMode: false),
                      !unsplit.contains(scheme), scheme.rawValue)
