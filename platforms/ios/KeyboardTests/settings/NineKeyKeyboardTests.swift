@@ -3981,6 +3981,103 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(panelCandidates(in: controller).contains { $0.count > 1 })
   }
 
+  /// 面板里文字为 `text` 的候选按钮。网格按需复用格子，屏幕外的候选没有按钮，所以逐格滚过去找；复用池里藏起来的旧格子不算。
+  private func panelCandidateButton(_ text: String, in controller: KeyboardViewController) throws -> UIButton {
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+    let collection = try XCTUnwrap(descendants(panel).compactMap { $0 as? UICollectionView }.first)
+    func shown() -> UIButton? {
+      descendants(collection).compactMap { $0 as? UIButton }.first { chip in
+        guard (chip.accessibilityIdentifier ?? "").hasPrefix("panelCandidate-"),
+              sequence(first: chip as UIView, next: \.superview).allSatisfy({ !$0.isHidden }),
+              let title = chip.configuration?.attributedTitle.map({ String($0.characters) }) else { return false }
+        return title.split(separator: "\n").first.map(String.init) == text
+      }
+    }
+    collection.layoutIfNeeded()
+    if let chip = shown() { return chip }
+    for item in 0..<collection.numberOfItems(inSection: 0) {
+      collection.scrollToItem(at: IndexPath(item: item, section: 0), at: .top, animated: false)
+      collection.layoutIfNeeded()
+      if let chip = shown() { return chip }
+    }
+    return try XCTUnwrap(nil as UIButton?, "the panel lists no candidate \(text)")
+  }
+
+  /// 九键面板里逐字选词（#9193）：选掉第一个字后面板留着，换上剩下音节的候选；「单字」留着，笔画清空（它比的是刚选掉的字）。选完最后一个字整句上屏，面板收起。
+  func testNineKeyExpandedPanelStaysOpenAcrossPartialSelections() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    let controller = try nineKeyController(typing: "64426")
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+    try button("candidatePanelSingleToggle", in: controller).sendActions(for: .primaryActionTriggered)
+    let strokeToggle = try button("candidatePanelStrokeToggle", in: controller)
+    let strokes = !strokeToggle.isHidden
+    if strokes {
+      // 你（亻）起笔是撇。
+      strokeToggle.sendActions(for: .primaryActionTriggered)
+      try button("candidatePanelStroke_p", in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+
+    try panelCandidateButton("你", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(candidatePanel(in: controller) === panel, "a partial selection keeps the panel open")
+    let remaining = try preedit(in: controller)
+    XCTAssertTrue(remaining.hasPrefix("你") && remaining != "你", remaining)
+    let next = panelCandidates(in: controller)
+    // 好（女）起笔不是撇：笔画前缀没清掉的话它不在列表里。
+    XCTAssertTrue(next.contains("好"), "\(next)")
+    XCTAssertFalse(next.contains("你"), "the panel shows the remaining syllable, not the old generation: \(next)")
+    XCTAssertTrue(next.allSatisfy { $0.count == 1 }, "单字 stays on: \(next)")
+    XCTAssertEqual(try button("candidatePanelSingleToggle", in: controller).configuration?.title, "全部")
+    if strokes {
+      let prefix = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityIdentifier == "candidatePanelStrokePrefix"
+      } as? UILabel)
+      XCTAssertEqual(prefix.text, "笔画", "the stroke prefix described the character just chosen")
+    }
+
+    try panelCandidateButton("好", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller), "the last selection commits the phrase and closes the panel")
+    XCTAssertTrue(try preedit(in: controller).isEmpty)
+  }
+
+  /// 普通候选网格同样在部分选词后留着、换上剩下组字的候选，整句上屏才收起（#9193）。
+  func testQuanpinPanelStaysOpenAcrossPartialSelections() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    for letter in ["N", "I", "H", "A", "O"] {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(letter)" } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+
+    try panelCandidateButton("你", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(candidatePanel(in: controller) === panel, "a partial selection keeps the grid open")
+    let remaining = try preedit(in: controller)
+    XCTAssertTrue(remaining.hasPrefix("你") && remaining != "你", remaining)
+    XCTAssertEqual(try button("expandCandidates", in: controller).accessibilityLabel, "收起候选")
+
+    try panelCandidateButton("好", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller))
+    XCTAssertTrue(try preedit(in: controller).isEmpty)
+    XCTAssertEqual(try button("expandCandidates", in: controller).accessibilityLabel, "展开全部候选")
+  }
+
   /// 「重输」清掉组字，面板随组字一起收起。
   func testNineKeyExpandedPanelClearEndsTheComposition() throws {
     let previousScheme = InputSchemePreference.scheme

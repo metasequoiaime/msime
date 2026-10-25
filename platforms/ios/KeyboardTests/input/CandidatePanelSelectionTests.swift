@@ -32,6 +32,19 @@ final class CandidatePanelSelectionTests: XCTestCase {
     XCTAssertEqual(selected.commitText, later.text)
   }
 
+  /// #9193：只选掉前面一段、组字还在时面板留着；整句上屏、组字清空或引擎拒绝时收起。
+  func testPanelStaysOpenOnlyWhileASelectionLeavesComposition() {
+    XCTAssertTrue(CandidatePanelSelectionPolicy.keepsOpen(handled: true, editingText: "hao"))
+    XCTAssertFalse(CandidatePanelSelectionPolicy.keepsOpen(handled: true, editingText: ""), "整句上屏后收起")
+    XCTAssertFalse(CandidatePanelSelectionPolicy.keepsOpen(handled: false, editingText: "hao"), "过期的一代被拒绝时不留旧面板")
+  }
+
+  /// 笔画比的是刚被选掉的那个字，部分选词后清空；没有笔画时不发请求。
+  func testAPartialSelectionClearsOnlyTheStrokePrefix() {
+    XCTAssertEqual(CandidatePanelSelectionPolicy.strokesAfterPartialSelection("hs"), "")
+    XCTAssertNil(CandidatePanelSelectionPolicy.strokesAfterPartialSelection(""))
+  }
+
   func testAStaleGenerationIsRefused() throws {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.cancel()
