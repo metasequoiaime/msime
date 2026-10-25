@@ -131,6 +131,42 @@ def check_pull_request_assignment() -> None:
     check([group["pr"] for group in groups] == [12, 13, None, None], f"按 PR 分组不对：{[group['pr'] for group in groups]}")
 
 
+def check_squashed_release_baseline() -> None:
+    # 正式版在 main 上 squash，而 beta 从 develop 发出时，已发布的源码不能重复进入说明。
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+
+        def run(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def commit(name: str, subject: str) -> None:
+            (root / "crates").mkdir(exist_ok=True)
+            (root / "crates" / name).write_text(name, encoding="utf-8")
+            run("add", ".")
+            run("commit", "-q", "-m", subject)
+
+        run("init", "-q", "-b", "develop")
+        run("config", "user.name", "test")
+        run("config", "user.email", "test@example.com")
+        commit("base", "chore: 基线")
+        run("branch", "main")
+        commit("old", "feat(engine): 已发布功能 (#21)")
+        run("checkout", "-q", "main")
+        run("merge", "-q", "--squash", "develop")
+        run("commit", "-q", "-m", "chore(release): 发布旧版")
+        run("tag", "linux-v1.0.0")
+        run("checkout", "-q", "develop")
+        commit("new", "fix(engine): 新版修复 (#22)")
+        records = MODULE.collect_commits(root, "linux-v1.0.0", "HEAD", "linux")
+        check([record["subject"] for record in records] == ["fix(engine): 新版修复 (#22)"], f"squash 发布重复带入旧功能：{records}")
+        # main 有额外热修、找不到完全相同的源码树时，保留原来的提交范围，不能误丢 develop 改动。
+        run("checkout", "-q", "main")
+        commit("hotfix", "fix(engine): main 热修")
+        run("tag", "linux-v1.0.1")
+        records = MODULE.collect_commits(root, "linux-v1.0.1", "develop", "linux")
+        check([record["subject"] for record in records] == ["feat(engine): 已发布功能 (#21)", "fix(engine): 新版修复 (#22)"], "不等价的源码树被误当成发布基线")
+
+
 def main() -> int:
     check(MODULE.platform_relevant(["platforms/android/java/app.kt"], "android"), "Android 路径没有被选中")
     check(MODULE.platform_relevant(["crates/engine/src/lib.rs"], "ios"), "纯共享改动没有被所有平台选中")
@@ -158,6 +194,7 @@ def main() -> int:
     check_model_configuration()
     check_model_reply_heading()
     check_pull_request_assignment()
+    check_squashed_release_baseline()
     print("release notes platform filtering: ok")
     return 0
 

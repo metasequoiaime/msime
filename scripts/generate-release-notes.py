@@ -82,7 +82,15 @@ def platform_relevant(paths: list[str], platform: str) -> bool:
 
 
 def collect_commits(root: Path, start_tag: str | None, end_ref: str, platform: str) -> list[dict[str, object]]:
-    revision_range = f"{start_tag}..{end_ref}" if start_tag else end_ref
+    start_ref = start_tag
+    if start_tag:
+        start_commit = git(root, "rev-parse", f"{start_tag}^{{commit}}").strip()
+        history = [line.split() for line in git(root, "log", "--format=%H %T", end_ref).splitlines()]
+        if not any(commit == start_commit for commit, _ in history):
+            # squash 发布不在 develop 的祖先中；只用完全相同的源码树认领已发布内容，找不到时保留原范围。
+            start_tree = git(root, "rev-parse", f"{start_tag}^{{tree}}").strip()
+            start_ref = next((commit for commit, tree in history if tree == start_tree), start_tag)
+    revision_range = f"{start_ref}..{end_ref}" if start_ref else end_ref
     # 一次 git 调用读出提交、正文和路径，避免首个版本没有平台 tag 时对整个历史逐提交启动子进程。
     output = git(root, "log", "--reverse", "--no-merges", "--format=%x1e%H%x00%s%x00%b%x1f", "--name-only", revision_range)
     records: list[dict[str, object]] = []
