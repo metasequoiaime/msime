@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           ohpm install
           hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
-      # 只取指定 product 的本次产物，避免误选缓存或测试工程中的 HAP；资源条目在这里压缩，原生库和代码保持原样。
+      # 只取指定 product 的本次产物，避免误选缓存或测试工程中的 HAP。签名前保持 Hvigor 生成的 ZIP 结构；签名脚本会在签名后压缩资源并重新验签。
       - id: hap
         name: Locate the packaged HAP
         env: {VERSION: "${{ steps.version.outputs.value }}"}

@@ -146,6 +146,10 @@ class ReleaseSigning(unittest.TestCase):
         self.assertIn('"$HAP" "$SUMS"', publish)
         self.assertIn('appgallery-msime-harmony-', workflow)
         self.assertNotIn("find platforms/harmony -type f -name '*.hap'", workflow)
+        locate = workflow.split("name: Locate the packaged HAP", 1)[1].split("- id: signing", 1)[0]
+        self.assertIn("compress_harmony_hap.py", locate)
+        self.assertIn('echo "input=$built" >> "$GITHUB_OUTPUT"', locate)
+        self.assertIn('echo "path=$hap" >> "$GITHUB_OUTPUT"', locate)
 
     def test_market_packer_preserves_hap_signature(self):
         source = (ROOT / "platforms/harmony/sign-release.py").read_text()

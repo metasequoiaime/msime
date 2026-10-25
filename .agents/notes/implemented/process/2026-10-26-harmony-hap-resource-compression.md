@@ -8,11 +8,11 @@ HarmonyOS 的 HAP 打包器把 `resources/` 下的词库、模型、设置页和
 
 ## Decision
 
-发布工作流在定位 hvigor 产物时调用 `scripts/compress_harmony_hap.py`，把原本存储的 `resources/` 非目录条目用 DEFLATE 复制到新的 HAP。脚本保留 ZIP 注释、条目内容和元数据，并用临时文件完成替换，避免失败时留下半个产物。
+发布工作流在签名前保留 hvigor 产物的 ZIP 结构；`hap-sign-tool` 不接受预先压缩的 HAP。签名脚本在签名后调用 `scripts/compress_harmony_hap.py`，把原本存储的 `resources/` 非目录条目用 DEFLATE 复制到新的 HAP。脚本保留 ZIP 注释、条目内容和元数据，并用临时文件完成替换，避免失败时留下半个产物。
 
 `libs/`、`ets/`、`module.json`、`pack.info`、`resources.index` 以及其他非 `resources/` 条目保持原压缩方式。这样原生库继续按鸿蒙加载器所需的未压缩布局存在，代码完整性索引也不被脚本改写。
 
-签名发布路径在 `hap-sign-tool` 签名后再次压缩，并用 `verify-app` 验证压缩后的签名包；未发布的工作流产物则使用压缩后的未签名 HAP。应用市场包从这份已验证的压缩 HAP 生成。
+签名发布路径在 `hap-sign-tool` 签名后压缩，并用 `verify-app` 验证压缩后的签名包；未发布的工作流产物保留 Hvigor 原始的未签名 HAP。应用市场包从这份已验证的压缩 HAP 生成。
 
 ## Alternatives considered
 
