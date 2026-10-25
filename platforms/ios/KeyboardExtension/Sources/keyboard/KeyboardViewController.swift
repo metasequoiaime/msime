@@ -5192,7 +5192,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard !snapshot.entries.isEmpty else { return }
       let columns = opensNineKeyPanel ? makeNineKeyPanelColumns() : nil
       let panel = KeyboardCandidatePanelView(
-        candidates: snapshot.entries.map { chineseOutput($0.text, source: $0.source) }, preedit: snapshot.preedit,
+        candidates: candidatePanelTexts(snapshot), preedit: snapshot.preedit,
         annotations: candidatePanelAnnotations(snapshot),
         markers: candidatePanelMarkers(snapshot),
         aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
@@ -5249,6 +5249,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 全拼九键、14 键或 18 键正在组字时，展开的是三栏的九键面板（单字和笔画筛选照常可用）；其他方案、注音九键和本地模式使用铺满键区的候选网格，由顶部箭头收起。
   private var opensNineKeyPanel: Bool {
     (inputScheme.isMandarinNineKey || usesLetterGrid) && isChineseMode && hasComposition && !isInLocalMode
+  }
+
+  /// 面板格子上的字：打开和换代重建都按繁体输出偏好转换，换代后不能退回引擎原文（部分选词后普通网格也走换代重建，#9193）。
+  private func candidatePanelTexts(_ snapshot: CandidatePanelSnapshot) -> [String] {
+    snapshot.entries.map { chineseOutput($0.text, source: $0.source) }
   }
 
   private func candidatePanelAnnotations(_ snapshot: CandidatePanelSnapshot) -> [KeyboardCandidateAnnotation] {
@@ -7019,7 +7024,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // AI 回答到达时也会换一代，但最多只有 AI 行变了（第一条插在第一页最后一格，多出来的接在末尾；回答的词都已在列表里时一行都没变）：面板留着、原地换上新的一代，不跳回开头。原来这里一换代就收起普通的候选网格，用户刚展开完整列表，AI 的结果一到它就没了（#6888）。
       if hasComposition, snapshot.onlyTheAISeatChanged(since: current) {
         candidatePanelSnapshot = snapshot
-        panel.reload(candidates: snapshot.entries.map(\.text), annotations: candidatePanelAnnotations(snapshot),
+        panel.reload(candidates: candidatePanelTexts(snapshot), annotations: candidatePanelAnnotations(snapshot),
                      markers: candidatePanelMarkers(snapshot), aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
                      keepingScrollPosition: true)
         updateNineKeyPanelColumns()
@@ -7031,7 +7036,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         return
       }
       candidatePanelSnapshot = snapshot
-      panel.reload(candidates: snapshot.entries.map(\.text), annotations: candidatePanelAnnotations(snapshot),
+      panel.reload(candidates: candidatePanelTexts(snapshot), annotations: candidatePanelAnnotations(snapshot),
                    markers: candidatePanelMarkers(snapshot), aiPlaceholders: candidatePanelAIPlaceholders(snapshot))
       updateNineKeyPanelColumns()
       return
