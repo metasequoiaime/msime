@@ -165,20 +165,21 @@ struct Editor {
     require(CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr,
                            nullptr, &startup, &process) != FALSE, "Cannot start a new synthetic Notepad session");
   }
+  static BOOL CALLBACK find_window(HWND candidate, LPARAM data) {
+    auto& self = *reinterpret_cast<Editor*>(data);
+    DWORD pid = 0; GetWindowThreadProcessId(candidate, &pid);
+    if (pid == self.process.dwProcessId && IsWindowVisible(candidate)) {
+      const auto child = FindWindowExW(candidate, nullptr, L"Edit", nullptr);
+      if (child) { self.window = candidate; self.edit = child; return FALSE; }
+    }
+    return TRUE;
+  }
   void ready() {
     BOOL own_wow64 = FALSE, editor_wow64 = FALSE;
     require(IsWow64Process(GetCurrentProcess(), &own_wow64) && IsWow64Process(process.hProcess, &editor_wow64) &&
             own_wow64 == editor_wow64, "The system Notepad architecture does not match this test process");
     wait_for([&] {
-      EnumWindows([](HWND candidate, LPARAM data) -> BOOL {
-        auto& self = *reinterpret_cast<Editor*>(data);
-        DWORD pid = 0; GetWindowThreadProcessId(candidate, &pid);
-        if (pid == self.process.dwProcessId && IsWindowVisible(candidate)) {
-          const auto child = FindWindowExW(candidate, nullptr, L"Edit", nullptr);
-          if (child) { self.window = candidate; self.edit = child; return FALSE; }
-        }
-        return TRUE;
-      }, reinterpret_cast<LPARAM>(this));
+      EnumWindows(find_window, reinterpret_cast<LPARAM>(this));
       return edit != nullptr;
     }, "The owned Notepad Edit control was not created");
   }
