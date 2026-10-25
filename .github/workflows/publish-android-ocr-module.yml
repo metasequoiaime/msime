@@ -1,0 +1,120 @@
+name: Publish Android OCR module
+# 构建 Android 可选离线 OCR 模块 msime-ocr-v1.apk（platforms/android/gradle-app/ocr-module：ONNX Runtime 加 PP-OCRv6 tiny，模型按 resources/ocr-models-android.lock.json 校验），检查打包方式后发布到 ocr-module-android-v1 标签。宿主只接受 resources/ocr-module-android.lock.json 固定的整个 APK 摘要，同一接口版本的模块只发一次：标签下已有同名资产时拒绝替换，已经发出去的宿主钉的是第一次的字节。
+# 发布之后把这次运行摘要里（也在 artifact 里）的 ocr-module-android.lock.json 提交到 resources/，之后打的 Android 发布包才接受用户导入这份模块；在那之前锁文件的 artifact 保持 null，任何模块都导入不了。
+on:
+  workflow_dispatch:
+    inputs:
+      publish: {description: Create the ocr-module-android-v1 release and upload msime-ocr-v1.apk (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
+permissions: {contents: write}
+concurrency: {group: publish-android-ocr-module, cancel-in-progress: false}
+env:
+  MSIME_OCR_TAG: ocr-module-android-v1
+  MSIME_OCR_ASSET: msime-ocr-v1.apk
+jobs:
+  build:
+    # 只构建、不碰签名密钥：宿主按完整 SHA-256 信任模块，不看 APK 签名，所以这里发的是 AGP 输出的未签名 release 包。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      # 模块的 build.gradle.kts 固定 ndkVersion，AGP 用这个 NDK 的 llvm-strip 处理原生库。
+      - name: Install the pinned Android NDK
+        run: bash platforms/android/install-ndk.sh
+      - name: Build the module
+        run: |
+          set -euo pipefail
+          apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain \
+            -PmsimeOcrModule=true :ocr-module:assembleRelease :ocr-module:lintRelease
+          apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain \
+            -PmsimeOcrModule=true :ocr-module:dependencies --configuration releaseRuntimeClasspath > ocr-module-dependencies.txt
+          mkdir -p dist
+          cp platforms/android/gradle-app/ocr-module/build/outputs/apk/release/ocr-module-release-unsigned.apk "dist/$MSIME_OCR_ASSET"
+          cp ocr-module-dependencies.txt dist/
+      # 宿主从只读 APK 的 lib/<abi> 直接映射原生库：每个 .so 必须 STORED 且按 16 KB 页对齐，两套 ABI 都要在；锁文件的 Rust 断言限制 128 MiB。
+      - name: Check packaging, size and digest
+        run: |
+          set -euo pipefail
+          apk="dist/$MSIME_OCR_ASSET"
+          python3 -I - "$apk" <<'PY'
+          import sys
+          import zipfile
+          abis = set()
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              for entry in apk.infolist():
+                  if entry.filename.startswith("lib/") and entry.filename.endswith(".so"):
+                      if entry.compress_type != zipfile.ZIP_STORED:
+                          raise SystemExit(f"{entry.filename} is compressed; native libraries must be STORED")
+                      abis.add(entry.filename.split("/")[1])
+              names = set(apk.namelist())
+          if abis != {"arm64-v8a", "x86_64"}:
+              raise SystemExit(f"native libraries for {sorted(abis)}, expected arm64-v8a and x86_64")
+          for required in ("assets/ocr/det.onnx", "assets/ocr/rec.onnx", "assets/ocr/dict.txt", "assets/MSIME-OCR-NOTICE.txt",
+                           "assets/licenses/onnxruntime-MIT.txt", "assets/licenses/onnxruntime-ThirdPartyNotices.txt",
+                           "assets/licenses/PaddleOCR-Apache-2.0.txt", "classes.dex"):
+              if required not in names:
+                  raise SystemExit(f"{required} is missing")
+          PY
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          "$build_tools/zipalign" -c -P 16 -v 4 "$apk" > zipalign.log || { tail -n 20 zipalign.log; exit 1; }
+          size=$(stat -c %s "$apk")
+          (( size <= 128 * 1024 * 1024 )) || { echo "::error::$MSIME_OCR_ASSET is $size bytes, over the 128 MiB limit"; exit 1; }
+          sha=$(sha256sum "$apk" | cut -d' ' -f1)
+          for abi in arm64-v8a x86_64; do
+            printf '%s: %s bytes in lib/%s\n' "$abi" "$(unzip -l "$apk" "lib/$abi/*" | tail -n 1 | awk '{print $1}')" "$abi"
+          done
+          python3 -I - "$size" "$sha" "$(git rev-parse HEAD)" <<'PY' > dist/ocr-module-android.lock.json
+          import json
+          import os
+          import sys
+          size, sha, commit = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+          tag, name = os.environ["MSIME_OCR_TAG"], os.environ["MSIME_OCR_ASSET"]
+          lock = {
+              "source_commit": commit,
+              "interface_version": 1,
+              "abis": ["arm64-v8a", "x86_64"],
+              "artifact": {
+                  "name": name,
+                  "url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{name}",
+                  "sha256": sha,
+                  "size": size,
+              },
+          }
+          print(json.dumps(lock, indent=2))
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-ocr-module
+          path: dist/
+          if-no-files-found: error
+      - name: Publish the module
+        if: ${{ inputs.publish }}
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}"}
+        run: |
+          set -euo pipefail
+          if gh release view "$MSIME_OCR_TAG" >/dev/null 2>&1; then
+            if gh release view "$MSIME_OCR_TAG" --json assets --jq '.assets[].name' | grep -qxF "$MSIME_OCR_ASSET"; then
+              echo "::error::$MSIME_OCR_TAG already carries $MSIME_OCR_ASSET. Shipped hosts pin its bytes, so it is never replaced; commit the lock that matches it instead."
+              exit 1
+            fi
+          else
+            # 不以 android-v 开头，也不标为最新：应用内更新检查和发布说明都按 android-v 找应用的发布。
+            gh release create "$MSIME_OCR_TAG" --prerelease --latest=false --target "$(git rev-parse HEAD)" --title "Android OCR module v1" \
+              --notes "Android 可选离线 OCR 模块（接口版本 1）：ONNX Runtime 1.31.0 与 PaddlePaddle PP-OCRv6 tiny 检测、识别模型，arm64-v8a 与 x86_64。用户手动下载后在「拍照识字」设置里导入，宿主按 resources/ocr-module-android.lock.json 固定的 SHA-256 校验。模块内附 MSIME-OCR-NOTICE.txt 与 onnxruntime、PaddleOCR 的许可证全文。资产发布后不再替换。"
+          fi
+          gh release upload "$MSIME_OCR_TAG" "dist/$MSIME_OCR_ASSET"
+          # 从发布地址取回来再核对一次摘要：锁文件钉的必须是用户真正下得到的字节。
+          gh release download "$MSIME_OCR_TAG" --pattern "$MSIME_OCR_ASSET" --dir "$RUNNER_TEMP/published"
+          expected=$(python3 -I -c 'import json; print(json.load(open("dist/ocr-module-android.lock.json"))["artifact"]["sha256"])')
+          printf '%s  %s\n' "$expected" "$RUNNER_TEMP/published/$MSIME_OCR_ASSET" | sha256sum --check
+      - name: Summarize the lock to commit
+        run: |
+          {
+            echo '### resources/ocr-module-android.lock.json'
+            echo
+            echo 'Commit this as resources/ocr-module-android.lock.json once the module is published; Android hosts built after that accept it for manual import.'
+            echo
+            echo '```json'
+            cat dist/ocr-module-android.lock.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
