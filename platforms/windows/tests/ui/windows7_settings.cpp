@@ -402,6 +402,8 @@ int main() {
   }, account_transport);
   assert(window.create(GetModuleHandleW(nullptr)));
   const HWND host = window.handle();
+  // 周期刷新由下面的 WM_TIMER 用例显式推进，避免运行速度改变合成传输的调用顺序。
+  assert(KillTimer(host, 72));
   const HWND body = GetDlgItem(host, page_body);
   const HWND language = GetDlgItem(body, language_switch);
   const HWND caps = GetDlgItem(body, caps_lock);

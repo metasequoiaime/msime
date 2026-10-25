@@ -66,6 +66,7 @@ pub const UNSUPPORTED_WUBI_PROFILE: &str = "Unsupported wubi profile";
 pub const UNSUPPORTED_FREQUENCY_MODE: &str = "Unsupported frequency mode";
 pub const UNSUPPORTED_VIETNAMESE_METHOD: &str = "Unsupported Vietnamese input method";
 pub const UNSUPPORTED_VIETNAMESE_TONE_STYLE: &str = "Unsupported Vietnamese tone style";
+pub const UNSUPPORTED_KOREAN_LAYOUT: &str = "Unsupported Korean layout";
 pub const UNSUPPORTED_DICTIONARY_KIND: &str = "Unsupported dictionary kind";
 pub const EXPECTED_AT_MOST_ONE_ENTRY: &str = "Expected at most one dictionary entry";
 pub const EXPECTED_AT_MOST_ONE_WEIGHT: &str = "Expected at most one weight";

@@ -299,4 +299,52 @@ int main() {
     assert(!enter || (!enter->committed_text && !enter->encoded));
     assert(korean.editing() == "gks" && !korean.candidates().empty());
   }
+
+  options["preferences"]["korean"]["layout"] = "romaja";
+  const auto romaja = options.dump();
+  // Server 必须和 TSF 的本地会话使用同一布局，稳定音节和最终音节合起来才是完整结果。
+  {
+    Fixture korean(romaja);
+    std::string committed;
+    for (const char letter : std::string("hangug")) {
+      const auto reply = korean.press(static_cast<uint32_t>(letter - 'a' + 'A'),
+                                      static_cast<char16_t>(letter));
+      assert(reply);
+      if (reply->committed_text) committed += *reply->committed_text;
+    }
+    const auto ended = korean.press(0x0D, u'\r');
+    assert(ended && ended->committed_text);
+    committed += *ended->committed_text;
+    assert(committed == "한국" && korean.editing().empty());
+  }
+  // 退格删掉一个拉丁按键，复合编码的韩文必须重新显示。
+  for (const auto &[spelling, before, after] :
+       {std::tuple<const char *, const char *, const char *>{"bang", "방", "반"},
+        {"gwa", "과", "구"}}) {
+    Fixture korean(romaja);
+    korean.type(spelling);
+    assert(korean.reading() == before);
+    assert(korean.press(0x08, u'\b'));
+    assert(korean.reading() == after);
+  }
+  // 布局外字母必须与当前韩文一起交给应用，不能丢字或让 TSF 重放。
+  for (const char letter : std::string("qvz")) {
+    Fixture korean(romaja);
+    korean.type("ga");
+    const auto ended = korean.press(static_cast<uint32_t>(letter - 'a' + 'A'),
+                                    static_cast<char16_t>(letter));
+    assert(ended && ended->committed_text && *ended->committed_text == std::string("가") + letter);
+    assert(korean.editing().empty());
+  }
+  // 罗马字的紧音和单音节汉字转换经过相同的原生按键路由。
+  {
+    Fixture korean(romaja);
+    korean.type("G");
+    assert(korean.reading() == "ㄲ");
+    assert(korean.press(0x1B, 0));
+    korean.type("han");
+    assert(korean.reading() == "한");
+    assert(korean.press(0x19, 0));
+    assert(korean.candidates().size() > 1 && korean.candidate(0) == "韓");
+  }
 }

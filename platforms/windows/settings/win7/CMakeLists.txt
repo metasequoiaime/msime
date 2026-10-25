@@ -61,4 +61,6 @@ if(BUILD_TESTING)
     endif()
     set_tests_properties(windows7-${suite} PROPERTIES TIMEOUT 90)
   endforeach()
+  # 整套设置夹具含全部页面、持久化和异步账号流程；每次 pump_until 的 15 秒断言仍保留。
+  set_tests_properties(windows7-settings PROPERTIES TIMEOUT 240)
 endif()

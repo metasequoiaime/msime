@@ -13242,13 +13242,14 @@ private:
                L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
                L"wubi_auto_commit_unique", true);
     }
-    // 日语、韩语、粤拼、注音和笔画各只有一个方案，没有可选的东西，只在对应方案下用一行说明怎么打，标题和说明与共享页 InputSchemeDetailsSection 的 schemeNote 相同。
+    // 单一布局只展示输入说明；韩语另外提供实体键盘布局选择。
     if (scheme == L"japanese")
       add_row(group, 0xE8AB, L"日语方案",
               L"罗马音：直接输入罗马音，提供平假名、片假名及日语词库候选", nullptr);
     if (scheme == L"korean")
-      add_row(group, 0xE8AB, L"韩语方案",
-              L"两套式：按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角", nullptr);
+      segment_row(group, 0xE8AB, L"韩语布局",
+                  L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
+                  L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
     if (scheme == L"cantonese")
       add_row(group, 0xE8AB, L"粤拼方案",
               L"粤拼：按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词", nullptr);

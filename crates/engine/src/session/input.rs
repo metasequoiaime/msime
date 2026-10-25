@@ -164,6 +164,7 @@ impl InputSession {
         engine.set_autocorrect_types(0);
         engine.set_quanpin_helpcode_enabled(true);
         engine.set_shuangpin_helpcode_enabled(true);
+        engine.set_korean_layout(options.korean_layout);
         engine.set_vietnamese_options(
             options.vietnamese_input_method,
             options.vietnamese_tone_style,

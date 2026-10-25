@@ -3668,6 +3668,51 @@ fn vietnamese_preferences_default_when_absent_and_round_trip() {
 }
 
 #[test]
+fn korean_layout_loads_legacy_files_and_roundtrips_romaja() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("korean");
+    let bytes = serde_json::to_vec(&document).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.preferences.korean.layout, KoreanLayout::Dubeolsik);
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    let mut preferences = loaded.preferences;
+    preferences.korean.layout = KoreanLayout::Romaja;
+    let saved = store.save(loaded.revision, preferences).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(
+        serde_json::to_value(saved.preferences).unwrap()["korean"]["layout"],
+        "romaja"
+    );
+}
+
+#[test]
+fn korean_unknown_disk_layout_falls_back_without_resetting_other_preferences() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]["korean"] =
+        serde_json::json!({ "layout": "future", "future_option": true });
+    document["preferences"]["candidate_page_size"] = 4.into();
+    let bytes = serde_json::to_vec(&document).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.preferences.korean.layout, KoreanLayout::Dubeolsik);
+    assert_eq!(loaded.preferences.candidate_page_size, 4);
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    store.save(loaded.revision, loaded.preferences).unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(saved["preferences"]["korean"]["future_option"], true);
+    assert!(serde_json::from_value::<Preferences>(document["preferences"].clone()).is_err());
+}
+
+#[test]
 fn vietnamese_preferences_reject_unknown_members_and_values() {
     // 多出的成员是更新版本的设置，记为未知键；未知的取值仍然拒绝。
     let mut document = serde_json::to_value(Preferences::default()).unwrap();

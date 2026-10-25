@@ -4,6 +4,11 @@ import { LinkRow, Row } from "../core/platform-controls";
 
 import { resolveVietnamesePreferences, type VietnamesePreferences } from "./vietnamese-preferences";
 import {
+  koreanLayoutDescription,
+  resolveKoreanLayout,
+  type KoreanPreferences,
+} from "./korean-preferences";
+import {
   cantoneseInputSchemeOptions,
   japaneseInputSchemeOptions,
   koreanInputSchemeOptions,
@@ -83,6 +88,9 @@ export interface InputSchemeDetailsSectionProps {
   /** The document's Vietnamese options; absent means the defaults, Telex with modern tone placement. */
   vietnamese?: VietnamesePreferences;
   onVietnameseChange?: (vietnamese: VietnamesePreferences) => void;
+  korean?: KoreanPreferences;
+  koreanRomaja?: boolean;
+  onKoreanChange?: (korean: KoreanPreferences) => void;
 }
 
 const cantoneseDescription = "按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词";
@@ -115,6 +123,9 @@ export function InputSchemeDetailsSection({
   onShuangpinPreeditChange,
   vietnamese,
   onVietnameseChange,
+  korean,
+  koreanRomaja = false,
+  onKoreanChange,
 }: InputSchemeDetailsSectionProps) {
   // 双拼方案和五笔方案只涉及拼音和五笔；粤拼、注音、越南文、藏文和笔画各有自己的行。
   const hideChineseSchemeOptions =
@@ -132,7 +143,7 @@ export function InputSchemeDetailsSection({
     onVietnameseChange?.({ input_method: inputMethod, tone_style: toneStyle, ...patch });
   // 双拼的各行只在双拼方案下出现：其他方案下它们改不了正在用的方案，原先灰着显示的双拼方案也只是多出来的一行。
   const hideShuangpinRows = hideChineseSchemeOptions || scheme !== "shuangpin";
-  // 日语、韩语、粤拼、注音、笔画和藏文各只有一个方案，没有可选的东西，只在对应方案下用一行说明它怎么打。
+  // 单一布局只展示输入说明；韩语在声明能力的桌面宿主上另给布局选择。
   const schemeNote = (
     shown: InputSchemeDetailsScheme,
     title: string,
@@ -203,11 +214,22 @@ export function InputSchemeDetailsSection({
         japaneseInputSchemeOptions,
         "直接输入罗马音，提供平假名、片假名及日语词库候选",
       )}
-      {schemeNote(
-        "korean",
-        "韩语方案",
-        koreanInputSchemeOptions,
-        "按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角",
+      {koreanRomaja ? (
+        <SegmentedRow
+          title="韩语布局"
+          description={koreanLayoutDescription}
+          hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
+          options={koreanInputSchemeOptions}
+          value={resolveKoreanLayout(korean)}
+          onChange={(layout) => onKoreanChange?.({ ...korean, layout })}
+        />
+      ) : (
+        schemeNote(
+          "korean",
+          "韩语方案",
+          koreanInputSchemeOptions,
+          "按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角",
+        )
       )}
       {schemeNote("cantonese", "粤拼方案", cantoneseInputSchemeOptions, cantoneseDescription)}
       {schemeNote("zhuyin", "注音键盘", zhuyinLayoutOptions, zhuyinDescription)}

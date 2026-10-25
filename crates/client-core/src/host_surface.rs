@@ -174,6 +174,8 @@ pub struct HostCapabilities {
     /// the inverse of `is_desktop`, but a host may override it from the actual device form factor:
     /// one HarmonyOS HAP runs on both phones and 2-in-1 machines.
     pub mobile_settings: bool,
+    /// 宿主的实体键盘会话接入了韩语罗马字布局。
+    pub korean_romaja: bool,
     /// The host can restart the input method service from the settings page.
     pub restart_input_method: bool,
     /// The host can open the shared panels as separate always-on-top windows.
@@ -538,6 +540,7 @@ impl HostCapabilities {
         HostCapabilities {
             platform,
             mobile_settings: !platform.is_desktop(),
+            korean_romaja: platform.is_desktop(),
             // Linux restarts IBus; Windows sends a request to the supervised
             // native Server over its session-less auxiliary pipe; macOS starts
             // a fresh bundle instance with --reregister-input-source so

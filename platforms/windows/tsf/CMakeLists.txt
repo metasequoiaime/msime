@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.25)
 
 project(MSIMEClientTsf LANGUAGES CXX)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../Edition.cmake")
+
+# TSF 及其独立测试都含 UTF-8 字面量，不能依赖本机代码页解释源码。
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
 enable_testing()
 add_subdirectory(tests/registration_profiles)
 add_subdirectory(tests/registration_categories)
@@ -216,7 +221,7 @@ add_test(NAME msime-tsf-lifecycle-boundary COMMAND msime-tsf-lifecycle-boundary-
 add_executable(msime-tsf-caps-lock-tap-test tests/input/caps_lock_tap.cpp)
 target_compile_features(msime-tsf-caps-lock-tap-test PRIVATE cxx_std_17)
 if(MSVC)
-  target_compile_options(msime-tsf-caps-lock-tap-test PRIVATE /W4 /WX)
+  target_compile_options(msime-tsf-caps-lock-tap-test PRIVATE /W4 /WX /utf-8)
 else()
   target_compile_options(msime-tsf-caps-lock-tap-test PRIVATE -Wall -Wextra -Werror)
 endif()

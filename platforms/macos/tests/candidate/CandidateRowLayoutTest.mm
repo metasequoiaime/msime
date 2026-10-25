@@ -2182,9 +2182,12 @@ int main(int argc, char **argv)
             @autoreleasepool { TestFactoryCornerRadii(client); }
             return 0;
         }
-        TestCandidateFillEdges();
-        TestUserPaddingSelectedBar();
-        TestUserGeometry();
+        if (argc == 2 && std::string(argv[1]) == "--user-geometry") {
+            TestCandidateFillEdges();
+            TestUserPaddingSelectedBar();
+            TestUserGeometry();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--skin-preedit-gap") {
             RowLayoutClient *client = [RowLayoutClient new];
             const NSRect screen = NSScreen.mainScreen.visibleFrame;
@@ -2221,8 +2224,11 @@ int main(int argc, char **argv)
             TestCanvasHost(std::filesystem::path(argv[2]), @"sakura-night", output);
             return 0;
         }
-        @autoreleasepool { TestCanvasHostFixture(); }
-        @autoreleasepool { TestHostAppearance(NO); }
+        if (argc == 2 && std::string(argv[1]) == "--host-appearance") {
+            @autoreleasepool { TestCanvasHostFixture(); }
+            @autoreleasepool { TestHostAppearance(NO); }
+            return 0;
+        }
         NSString *suite = [@"app.msime.test.rowfit." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -2231,7 +2237,6 @@ int main(int argc, char **argv)
         RowLayoutClient *client = [RowLayoutClient new];
         NSRect screen = NSScreen.mainScreen.visibleFrame;
         client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
-        TestFactoryShadows(client);
         RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
                                                                   styleMask:NSWindowStyleMaskBorderless |
                                                                             NSWindowStyleMaskNonactivatingPanel

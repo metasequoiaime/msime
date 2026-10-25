@@ -69,7 +69,8 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
 
         stage = "composition";
         for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(described("字母 " + key.toUpperCase(java.util.Locale.ROOT)));
-        await(field(PLAIN).and(node -> equalsText("？nihao", node.getText())));
+        // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md），提交的仍是候选。
+        await(field(PLAIN).and(node -> equalsText("？ni'hao", node.getText())));
         stage = "commit composition before symbol swipe";
         tap(key("空格"));
         await(field(PLAIN).and(node -> equalsText("？你好", node.getText())));

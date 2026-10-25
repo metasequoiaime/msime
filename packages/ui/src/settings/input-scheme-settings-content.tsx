@@ -37,6 +37,7 @@ import { ResourcePackRow, resourcePackForScheme, type ResourcePacks } from "./re
 export interface InputSchemeSettingsContentProps {
   preferences: Preferences;
   hasTouchKeyboardSchemes: boolean;
+  koreanRomaja?: boolean;
   touchKeyboardSchemes: { enabled: readonly TouchKeyboardScheme[] };
   selectedTouchKeyboardScheme: TouchKeyboardScheme;
   macos: boolean;
@@ -72,6 +73,7 @@ export interface InputSchemeSettingsContentProps {
 export function InputSchemeSettingsContent({
   preferences,
   hasTouchKeyboardSchemes,
+  koreanRomaja = false,
   touchKeyboardSchemes,
   selectedTouchKeyboardScheme,
   macos,
@@ -246,6 +248,9 @@ export function InputSchemeSettingsContent({
             onPreferencesChange({ shuangpin_preedit_uses_raw })
           }
           vietnamese={preferences.vietnamese}
+          koreanRomaja={koreanRomaja}
+          korean={preferences.korean}
+          onKoreanChange={(korean) => onPreferencesChange({ korean })}
           onVietnameseChange={(vietnamese) => onPreferencesChange({ vietnamese })}
         />
         {schemePackRow}

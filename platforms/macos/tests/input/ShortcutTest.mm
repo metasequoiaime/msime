@@ -2429,30 +2429,32 @@ static void TestSessionOptions() {
     NSDictionary *requested = MSIMESessionOptions(file, nil);
     assert([requested[@"phrase_preedit"] isEqual:@YES]);
     assert([requested[@"quick_phrase_candidates"] isEqual:@YES]);
-    // Everything the file carried is passed through untouched, including nested objects.
+    assert([requested[@"korean_romaja"] isEqual:@YES]);
+    // 原配置中的字段及嵌套对象保持原样，宿主额外声明三项运行时能力。
     for (NSString *key in file) assert([requested[key] isEqual:file[key]]);
-    assert(requested.count == file.count + 2);
-    // The caller's dictionary is not modified: prepareSession reads preferences_directory back out
-    // of the result, and the options file dictionary is handed around elsewhere.
+    assert(requested.count == file.count + 3);
+    // 不修改调用方的字典，原配置仍供其他读取方使用。
     assert(!file[@"phrase_preedit"]);
+    assert(!file[@"korean_romaja"]);
 
     // An options file that already says something about it does not get to say no: this host draws
     // the field, and a stale file predates the behaviour entirely.
-    NSDictionary *stale = MSIMESessionOptions(@{@"api_version":@1, @"phrase_preedit":@NO}, nil);
+    NSDictionary *stale = MSIMESessionOptions(@{@"api_version":@1, @"phrase_preedit":@NO, @"korean_romaja":@NO}, nil);
     assert([stale[@"phrase_preedit"] isEqual:@YES]);
     assert([stale[@"quick_phrase_candidates"] isEqual:@YES]);
+    assert([stale[@"korean_romaja"] isEqual:@YES]);
 
     // The built-in sound packs live in the bundle, while resources is EngineResources in Application Support, so the host library cannot find them beside it: the bundle's directory is named, unless the options file names one itself.
     NSDictionary *sounds = MSIMESessionOptions(file, @"/synthetic/bundle/Contents/Resources/sound-packs");
     assert([sounds[@"sound_packs"] isEqual:@"/synthetic/bundle/Contents/Resources/sound-packs"]);
-    assert(sounds.count == file.count + 3 && !file[@"sound_packs"]);
+    assert(sounds.count == file.count + 4 && !file[@"sound_packs"]);
     NSDictionary *named = MSIMESessionOptions(@{@"api_version":@1, @"sound_packs":@"/configured/sound-packs"}, @"/synthetic/sound-packs");
     assert([named[@"sound_packs"] isEqual:@"/configured/sound-packs"]);
 
     // 下载词库缺少辅助码时，会话从当前输入法包回退；原始配置继续供旧宿主读取。
     NSDictionary *helpcodes = MSIMESessionOptions(file, nil, @"/synthetic/bundle/Contents/Resources");
     assert([helpcodes[@"helpcode_fallback_resources"] isEqual:@"/synthetic/bundle/Contents/Resources"]);
-    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 3);
+    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 4);
     assert(!MSIMESessionOptions(file, nil, @"relative/resources")[@"helpcode_fallback_resources"]);
     NSDictionary *explicitHelpcodes = MSIMESessionOptions(@{@"helpcode_fallback_resources":@"/configured/resources"},
         nil, @"/synthetic/bundle/Contents/Resources");
@@ -6719,6 +6721,7 @@ static void TestCapsLockTap() {
     assert(toggle.state == NSControlStateValueOn);
 
     ModeController *controller = [ModeController alloc];
+    __weak ModeController *weakController = controller;
     ShortcutClient *client = [ShortcutClient new];
     ShortcutSession *session = [ShortcutSession new];
     [controller setValue:prefs forKey:@"appearance"];
@@ -6832,8 +6835,15 @@ static void TestCapsLockTap() {
 
     // 真正推进运行循环：直接调用 pollCapsLockTap 看不出默认模式的定时器会在事件跟踪或模态面板期间停住。
     prefs.capsLockTapShortcut = YES;
+    // 独立测试进程没有真实用户事件，保持这段有界验收活动，避免后台节能合并 10 毫秒计时器。
+    id timerActivity = [NSProcessInfo.processInfo beginActivityWithOptions:
+        NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
+        reason:@"验收输入法修饰键计时器"];
     for (NSRunLoopMode mode in @[NSDefaultRunLoopMode, NSEventTrackingRunLoopMode, NSModalPanelRunLoopMode]) {
         CFRunLoopAddCommonMode(CFRunLoopGetMain(), (__bridge CFStringRef)mode);
+        // 偏好窗口首次进入事件循环会触发布局与 AppKit 初始化；先完成夹具准备再计时。
+        // 保留下面一秒的响应断言，不把这些启动回调算作已经送出的轻点。
+        [NSRunLoop.mainRunLoop runMode:mode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         assert(![controller handleEvent:capsOff(10.0) client:client]);
         prefs.englishMode = NO;
         const NSUInteger releasesBefore = gCapsReleases;
@@ -6843,6 +6853,14 @@ static void TestCapsLockTap() {
         NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
         while (gCapsReleases == releasesBefore && deadline.timeIntervalSinceNow > 0)
             [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        if (gCapsReleases != releasesBefore + 1 || !prefs.englishMode || session.capsLock)
+            fprintf(stderr, "Caps Lock tap mode=%s releases=%lu expected=%lu english=%d caps=%d timer_valid=%d timer_present=%d on_main=%d weak_live=%d until_fire=%f\n",
+                mode.UTF8String, (unsigned long)gCapsReleases, (unsigned long)(releasesBefore + 1),
+                (int)prefs.englishMode, (int)session.capsLock,
+                (int)[[controller valueForKey:@"capsLockTapTimer"] isValid],
+                (int)([controller valueForKey:@"capsLockTapTimer"] != nil), (int)NSThread.isMainThread,
+                (int)(weakController != nil),
+                [(NSTimer *)[controller valueForKey:@"capsLockTapTimer"] fireDate].timeIntervalSinceNow);
         assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
 
         // 同一运行模式下超过阈值仍保留大写锁定，不能为了让轻点响应而把长按也切换掉。
@@ -6856,6 +6874,7 @@ static void TestCapsLockTap() {
         assert(session.capsLock && prefs.englishMode && gCapsReleases == releasesBefore + 1);
         gCapsHeld = false;
     }
+    [NSProcessInfo.processInfo endActivity:timerActivity];
 
     // 实体松手的 FlagsChanged 可能先于下一次轮询抵达；锁定位仍开时不能取消这次轻点，也不能重新计时。
     for (unsigned short code : {static_cast<unsigned short>(0x39), static_cast<unsigned short>(0xff)}) {
@@ -12848,6 +12867,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
+            [NSApp finishLaunching];
             TestCapsLockTap();
             return 0;
         }
@@ -14832,7 +14852,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
-        @autoreleasepool { TestCapsLockTap(); }
+        // Caps Lock 的完整真实运行循环由 caps-lock 独立进程覆盖，避免其他窗口留下的通知和计时器污染。
         @autoreleasepool { TestPunctuationAfterCompositionKeepsRawInput(appearance); }
         @autoreleasepool { TestStaleClientDeactivation(); }
         @autoreleasepool { TestStaleDeactivationLeavesTheCurrentPairOpen(); }

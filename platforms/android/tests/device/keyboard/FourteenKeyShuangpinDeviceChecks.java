@@ -116,10 +116,8 @@ final class FourteenKeyShuangpinDeviceChecks {
 
             t.stage = "switch shuangpin profile preserves fourteen keys";
             typingSettings();
-            t.stage = "open Mandarin to switch shuangpin profile";
-            t.tap(t.key("普通话"));
             t.stage = "open shuangpin choices to switch profile";
-            t.tap(t.described("双拼（小鹤），更多选项"));
+            t.tap(t.described("双拼，小鹤双拼"));
             t.stage = "choose Microsoft shuangpin";
             t.tap(t.key("微软"));
             assertStored("microsoft", layout);
@@ -265,21 +263,23 @@ final class FourteenKeyShuangpinDeviceChecks {
         t.dropStaleNodes();
     }
 
+    // 输入页「语言与方案」按方案族分行，双拼一行直接列各双拼方案（#9653，见 2026-10-25-mobile-scheme-rows.md）。
     private void typingSettings() throws Exception {
         t.stage = "open the typing settings language section";
         t.shellDiscard("am start -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page TYPING");
         t.await(t.key("语言").and(AccessibilityNodeInfo::isClickable));
-        t.await(t.key("普通话"));
+        t.await(t.described("双拼，小鹤双拼"));
     }
 
+    // 双拼的 26／14／18 键排法在键盘页「布局」的「中文键盘」，只换排法、保留双拼方案（#9653）。
     private void layoutSetting(String profile, String before, String after) throws Exception {
-        typingSettings();
-        t.stage = "open Mandarin choices for " + profile;
-        t.tap(t.key("普通话"));
-        t.stage = "open shuangpin choices for " + profile;
-        t.tap(t.described("双拼（" + profile + "），更多选项"));
+        t.stage = "open the keyboard layout section for " + profile;
+        t.shellDiscard("am start -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page KEYBOARD_OPTIONS");
+        t.await(t.key("布局").and(AccessibilityNodeInfo::isClickable));
         t.stage = "open shuangpin layout choices from " + before;
-        t.tap(t.described("键盘布局（" + before + "），更多选项"));
+        t.await(t.key(before));
+        t.tap(t.key("中文键盘"));
+        t.await(t.key("保留当前双拼方案"));
         t.stage = "choose shuangpin layout " + after;
         t.tap(t.key(after));
     }

@@ -688,19 +688,89 @@ else
   echo "  run platforms/linux/build-container.sh"
 fi
 
+# Windows 原生配置可能链接显式 MSVC 目标，而本机默认 Rust 是 GNU；必须重建缓存里真正链接的那一份。
+build_windows_host_library() {
+  local library profile_dir cargo_dir cargo_root profile target runtime build_status cargo_path msvc_tools host_arch target_arch linker linker_key
+  local target_args=() cargo_env=()
+  library=$(sed -n 's/^MSIME_HOST_LIBRARY:[A-Z]*=//p' "$MSIME_NATIVE_BUILD/CMakeCache.txt" 2>/dev/null | head -1)
+  if [ -z "$library" ]; then
+    echo "native: $MSIME_NATIVE_BUILD/CMakeCache.txt names no MSIME_HOST_LIBRARY"
+    return 1
+  fi
+  if command -v cygpath >/dev/null 2>&1; then
+    library=$(cygpath -u "$library") || return 1
+  fi
+  profile_dir=$(dirname "$library")
+  cargo_dir=$(cd "$(dirname "$profile_dir")" && pwd -P) || return 1
+  cargo_root=$(cd target && pwd -P) || return 1
+  if [ "$cargo_dir" != "$cargo_root" ]; then
+    target=$(basename "$cargo_dir")
+    if [ "$(dirname "$cargo_dir")" != "$cargo_root" ]; then
+      echo "native: configured host library is outside this checkout's target directory: $library"
+      return 1
+    fi
+    case "$target" in
+      *-pc-windows-msvc|*-pc-windows-gnu) target_args=(--target "$target") ;;
+      *) echo "native: unsupported Rust target directory: $cargo_dir"; return 1 ;;
+    esac
+  fi
+  profile=$(basename "$profile_dir")
+  [ "$profile" = debug ] && profile=dev
+  cargo_path="$PATH"
+  if [ -n "${VCToolsInstallDir:-}" ]; then
+    msvc_tools="$VCToolsInstallDir"
+    if command -v cygpath >/dev/null 2>&1; then msvc_tools=$(cygpath -u "$msvc_tools") || return 1; fi
+    host_arch=${VSCMD_ARG_HOST_ARCH:-x64}
+    target_arch=${VSCMD_ARG_TGT_ARCH:-x64}
+    [ "$host_arch" = amd64 ] && host_arch=x64
+    [ "$target_arch" = amd64 ] && target_arch=x64
+    msvc_tools="${msvc_tools%/}/bin/Host$host_arch/$target_arch"
+    # Git Bash 的 link.exe 是硬链接工具；仅给 Cargo 调整顺序，其他脚本仍使用原来的 Unix 工具。
+    if [ -f "$msvc_tools/link.exe" ]; then cargo_path="$msvc_tools:$cargo_path"; fi
+  fi
+  case "${target:-}" in
+    *-pc-windows-msvc)
+      linker=$(sed -n 's/^CMAKE_LINKER:[A-Z]*=//p' "$MSIME_NATIVE_BUILD/CMakeCache.txt" | head -1)
+      if command -v cygpath >/dev/null 2>&1 && [ -n "$linker" ]; then linker=$(cygpath -u "$linker") || return 1; fi
+      [ -n "$linker" ] || linker="${msvc_tools:-}/link.exe"
+      if [ ! -f "$linker" ]; then
+        echo "native: MSVC linker is unavailable; configure CMAKE_LINKER or initialize the Visual Studio environment"
+        return 1
+      fi
+      # 为实际 Rust 目标传入绝对路径，不能只凭 Bash 的 PATH 推断原生 rustc 会选谁。
+      linker_key=$(printf 'CARGO_TARGET_%s_LINKER' "$target" | tr '[:lower:]-' '[:upper:]_')
+      if command -v cygpath >/dev/null 2>&1; then linker=$(cygpath -w "$linker") || return 1; fi
+      cargo_env=("$linker_key=$linker")
+      echo "native: $linker_key=$linker"
+      ;;
+  esac
+  echo "native: rebuilding $library"
+  env PATH="$cargo_path" "${cargo_env[@]}" cargo build -p msime-host-api --locked --profile "$profile" "${target_args[@]}" 2>&1 |
+    tee "$MSIME_NATIVE_BUILD/host-library-build.log" | tail -2
+  build_status=${PIPESTATUS[0]}
+  if [ "$build_status" -ne 0 ]; then
+    cat "$MSIME_NATIVE_BUILD/host-library-build.log"
+    return 1
+  fi
+  runtime="$profile_dir/msime_host_api.dll"
+  [ -f "$runtime" ] || runtime="$profile_dir/libmsime_host_api.so"
+  if [ ! -f "$runtime" ]; then
+    echo "native: configured host runtime was not produced: $profile_dir"
+    return 1
+  fi
+  mkdir -p "$MSIME_NATIVE_BUILD/Debug" && cp -f "$runtime" "$MSIME_NATIVE_BUILD/Debug/"
+}
+
 note "compile: native host"
 if ! scoped windows desktop; then
   :
 elif [ -d "$MSIME_NATIVE_BUILD" ]; then
-  # The native tests link the Rust library, so it has to be current or they
-  # fail to start with an entry-point error that looks like a test failure.
-  cargo build -p msime-host-api 2>&1 | tail -2
-  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo build -p msime-host-api"
-  for built in target/debug/msime_host_api.dll target/debug/libmsime_host_api.so; do
-    [ -f "$built" ] && cp -f "$built" "$MSIME_NATIVE_BUILD/Debug/" 2>/dev/null
-  done
-  cmake --build "$MSIME_NATIVE_BUILD" --config Debug 2>&1 | grep -Ei "error C[0-9]|error LNK" | head -5
-  cmake --build "$MSIME_NATIVE_BUILD" --config Debug >/dev/null 2>&1 || fail "native build"
+  if build_windows_host_library; then
+    cmake --build "$MSIME_NATIVE_BUILD" --config Debug 2>&1 | grep -Ei "error C[0-9]|error LNK" | head -5
+    cmake --build "$MSIME_NATIVE_BUILD" --config Debug >/dev/null 2>&1 || fail "native build"
+  else
+    fail "cargo build -p msime-host-api (configured native host library)"
+  fi
 elif [ -n "$cross_vcpkg" ]; then
   # Not a Windows host, but the MinGW toolchain and a bootstrapped vcpkg are
   # both here, so the Windows compile gate can run anyway.
