@@ -728,6 +728,7 @@ final class ImeLetterRows {
         s.japaneseSpaceKey = null;
         s.japaneseReturnKey = null;
         s.japaneseSymbolsKey = null;
+        s.japaneseLanguageKey = null;
         s.japaneseVariantsButton = null;
         fourteenSeparatorKey = null;
         fourteenLKey = null;
