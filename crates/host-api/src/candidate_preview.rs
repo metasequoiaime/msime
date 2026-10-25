@@ -136,6 +136,7 @@ pub fn preview_candidates(
     }
     check_keys(keys, caret)?;
     let mut document = host_options.clone();
+    with_host_requests(&mut document);
     // 只看不学：选词和上屏都不改用户的词频、造词和上下文。排序只在一串键中途上屏之后才和打字时不同（上下文重排要求学习开着），见模块说明。
     if let Some(preferences) = document
         .get_mut("preferences")
@@ -166,6 +167,18 @@ pub fn preview_candidates(
         type_keys(session.0, keys, caret, limit)
     }))
     .unwrap_or_else(|_| Err(PreviewError::Unavailable("internal runtime failure".into())))
+}
+
+/// 本平台的宿主建会话时在运行时选项之外另外请求的能力：三个桌面宿主都请求 `phrase_preedit`（macOS `InputController.mm` 的 `MSIMESessionOptions`、Linux `ClientEngine.cpp` 和 `FcitxEngine.cpp`、Windows `PhrasePreeditOptions.h`），macOS 和 Linux 还请求 `quick_phrase_candidates`，让快捷短语编码混进普通候选（`HostCapabilities::quick_phrase_candidates` 记着哪些宿主这样做）。少了后者，快捷短语就不会出现在候选里，和打字时不一样。
+fn with_host_requests(document: &mut Value) {
+    let Some(fields) = document.as_object_mut() else {
+        return;
+    };
+    let capabilities = HostCapabilities::for_platform(ffi::host::compiled_platform());
+    fields.insert("phrase_preedit".into(), Value::Bool(true));
+    if capabilities.quick_phrase_candidates {
+        fields.insert("quick_phrase_candidates".into(), Value::Bool(true));
+    }
 }
 
 /// 用完销毁会话，出错返回时也一样。
@@ -288,7 +301,7 @@ mod tests {
     use super::*;
     use msime_client_core::preferences::{DefaultImeMode, Preferences};
 
-    /// 合成词库：你、好、书三个单字和「你好」「拟好」两个词。
+    /// 合成词库：你、好、书三个单字，「你好」「拟好」两个词，和编码 `dh` 的快捷短语「电话」。
     fn host_options(root: &std::path::Path, preferences: Preferences) -> Value {
         let path = |name: &str| {
             let path = root.join(name);
@@ -305,7 +318,8 @@ mod tests {
                        INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000),('ni''hao','nh','拟好',80);
                        CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
                        CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
-                       CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+                       CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);
+                       INSERT INTO quick_parases VALUES('dh','电话',10);";
         let resources = path("resources");
         let dictionaries = path("dictionaries");
         for directory in [&resources, &dictionaries] {
@@ -414,6 +428,31 @@ mod tests {
             .path()
             .join("dictionary-updates/loaded.json")
             .exists());
+    }
+
+    #[test]
+    fn quick_phrases_join_the_candidates_where_the_host_asks_for_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut preferences = chinese();
+        preferences.mixed_input.quick_phrase = true;
+        let options = host_options(directory.path(), preferences);
+        let preview = preview_candidates(&options, "dh", 2, 50).unwrap();
+        let requested =
+            HostCapabilities::for_platform(ffi::host::compiled_platform()).quick_phrase_candidates;
+        assert_eq!(
+            texts(&preview).contains(&"电话"),
+            requested,
+            "{:?}",
+            texts(&preview)
+        );
+        if requested {
+            let phrase = preview
+                .candidates
+                .iter()
+                .find(|candidate| candidate.text == "电话")
+                .unwrap();
+            assert_eq!(phrase.source, "quick_phrase");
+        }
     }
 
     #[test]
