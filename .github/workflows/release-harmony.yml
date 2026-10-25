@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           ohpm install
           hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
-      # 只取指定 product 的本次产物，避免误选缓存或测试工程中的 HAP。
+      # 只取指定 product 的本次产物，避免误选缓存或测试工程中的 HAP；资源条目在这里压缩，原生库和代码保持原样。
       - id: hap
         name: Locate the packaged HAP
         env: {VERSION: "${{ steps.version.outputs.value }}"}
@@ -105,7 +105,7 @@ jobs:
           built=platforms/harmony/entry/build/default/outputs/default/entry-default-unsigned.hap
           test -s "$built"
           hap="$RUNNER_TEMP/msime-harmony-${VERSION}-unsigned.hap"
-          cp "$built" "$hap"
+          python3 scripts/compress_harmony_hap.py "$built" "$hap"
           echo "path=$hap" >> "$GITHUB_OUTPUT"
       - id: signing
         name: Sign and verify HarmonyOS release packages

@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
@@ -134,6 +135,16 @@ def sign(args: argparse.Namespace) -> None:
                     "-outProfile", str(extracted_profile)])
         if extracted_profile.read_bytes() != profile_path.read_bytes():
             raise ValueError("签名包中的 Profile 与提交的 Profile 不一致")
+        compressed = directory / "entry-default-compressed.hap"
+        run([sys.executable, str(Path(__file__).resolve().parents[2] / "scripts/compress_harmony_hap.py"),
+             str(signed), str(compressed)])
+        compressed_profile = directory / "verified-compressed.p7b"
+        run(tool + ["verify-app", "-inFile", str(compressed),
+                    "-outCertChain", str(directory / "verified-compressed.cer"),
+                    "-outProfile", str(compressed_profile)])
+        if compressed_profile.read_bytes() != profile_path.read_bytes():
+            raise ValueError("压缩后的签名包 Profile 校验失败")
+        signed = compressed
         validate_hap(signed, args.version)
         with zipfile.ZipFile(args.input) as original, zipfile.ZipFile(signed) as result:
             if not set(original.namelist()) <= set(result.namelist()) or any(

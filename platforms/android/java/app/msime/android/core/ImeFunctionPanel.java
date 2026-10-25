@@ -68,6 +68,7 @@ final class ImeFunctionPanel {
             FunctionPanelView.CHROME_DP + MSIMEInputService.MORE_TOOLS_BOTTOM_PADDING_DP));
         java.util.Set<FunctionPanelModel.Id> hiddenItems = java.util.EnumSet.noneOf(FunctionPanelModel.Id.class);
         if (!s.toolbarHidden) {
+            if (s.toolbarScheme) hiddenItems.add(FunctionPanelModel.Id.SCHEME);
             if (s.toolbarEmoji) hiddenItems.add(FunctionPanelModel.Id.EMOJI);
             if (s.toolbarClipboard) hiddenItems.add(FunctionPanelModel.Id.CLIPBOARD);
             if (s.toolbarFloating) hiddenItems.add(FunctionPanelModel.Id.FLOATING);
@@ -124,6 +125,13 @@ final class ImeFunctionPanel {
                 toggle(s.fuzzyPinyinEnabled), ready && !s.panelPreferenceSaving);
             case TRADITIONAL -> add(entries, states, enabled, glyph(item, "繁", s::toggleChineseOutput),
                 toggle(s.traditionalChineseOutput), s.traditionalOutputToolAvailable());
+            case SCHEME -> add(entries, states, enabled,
+                icon(item, KeyboardIconPaths.Icon.TOOLBAR_SCHEME, () -> {
+                    s.closeMoreTools();
+                    s.imePanels.showSchemePicker();
+                    s.render();
+                }, null),
+                FunctionPanelView.State.NONE, ready);
             case HANDWRITING -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.HANDWRITING, () -> {
                     s.closeMoreTools();

@@ -23,6 +23,7 @@
 #include "KeyPressStatisticsQueue.h"
 #include "CommonUtils.h"
 #include "Global/FanyDefines.h"
+#include "../Global/CandidateNavigationPolicy.h"
 #include "Utils/FanyUtils.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostConfiguration.h"
@@ -3313,20 +3314,14 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
             break;
         }
 
-        if (Global::IsUiLessMode() && receivedData->msg_type >= FanyImeReplyType::NavigationIgnored &&
+        if (receivedData->msg_type >= FanyImeReplyType::NavigationIgnored &&
             receivedData->msg_type <= FanyImeReplyType::MovePageNext)
         {
             auto *engine = pIME->GetCompositionProcessorEngine();
             auto *host = engine ? engine->GetHostEngineAdapter() : nullptr;
             if (host && host->valid())
             {
-                uint32_t command = 0;
-                switch (receivedData->msg_type) {
-                case FanyImeReplyType::MoveSelectionPrevious: command = MSIME_PREVIOUS_CANDIDATE; break;
-                case FanyImeReplyType::MoveSelectionNext: command = MSIME_NEXT_CANDIDATE; break;
-                case FanyImeReplyType::MovePagePrevious: command = MSIME_PREVIOUS_PAGE; break;
-                case FanyImeReplyType::MovePageNext: command = MSIME_NEXT_PAGE; break;
-                }
+                const uint32_t command = msime::windows::tsf::CandidateNavigationCommand(receivedData->msg_type);
                 _KEYSTROKE_STATE state{};
                 state.Category = CATEGORY_COMPOSING;
                 state.Function = FUNCTION_HOST_CANDIDATE_NAVIGATION;
@@ -3338,6 +3333,39 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
                     if (SUCCEEDED(document->GetTop(&context)) && context)
                     {
                         pIME->_InvokeKeyHandler(context, command, 0, 0, state, request.requestId, {}, 0,
+                            request.compositionEpoch, request.focusToken, request.deferredReplayToken);
+                        handedOff = true;
+                        context->Release();
+                    }
+                    document->Release();
+                }
+                if (!handedOff) pIME->_RetryDeferredKeyReplay(request.deferredReplayToken);
+                break;
+            }
+
+            // 没有宿主会话时保留旧候选窗的本地高亮；回复已经被上面的读取消费，不能再次按 requestId 取包。
+            KEYSTROKE_FUNCTION keyFunction = FUNCTION_NONE;
+            switch (receivedData->msg_type)
+            {
+            case FanyImeReplyType::MoveSelectionPrevious: keyFunction = FUNCTION_MOVE_UP; break;
+            case FanyImeReplyType::MoveSelectionNext: keyFunction = FUNCTION_MOVE_DOWN; break;
+            case FanyImeReplyType::MovePagePrevious: keyFunction = FUNCTION_MOVE_PAGE_UP; break;
+            case FanyImeReplyType::MovePageNext: keyFunction = FUNCTION_MOVE_PAGE_DOWN; break;
+            default: break;
+            }
+            if (keyFunction != FUNCTION_NONE)
+            {
+                _KEYSTROKE_STATE state{};
+                state.Category = CATEGORY_CANDIDATE;
+                state.Function = keyFunction;
+                bool handedOff = false;
+                ITfDocumentMgr *document = nullptr;
+                if (pIME->_pThreadMgr && SUCCEEDED(pIME->_pThreadMgr->GetFocus(&document)) && document)
+                {
+                    ITfContext *context = nullptr;
+                    if (SUCCEEDED(document->GetTop(&context)) && context)
+                    {
+                        pIME->_InvokeKeyHandler(context, 0, 0, 0, state, FANY_IME_NO_REQUEST_ID, {}, 0,
                             request.compositionEpoch, request.focusToken, request.deferredReplayToken);
                         handedOff = true;
                         context->Release();
@@ -3390,7 +3418,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         {
             pIME->_CompleteDeferredKeyReplay(request.deferredReplayToken);
         }
-        // 普通宿主的导航回复只是确认；UI-less 的新页已在上面应用，不重复移动。
+        // 导航回复已经在上面同步宿主会话或旧候选窗。
         break;
     }
     case WM_AsyncNumberCandidateCommit: {

@@ -8,7 +8,7 @@ import java.util.function.Predicate;
 /** 真机验收功能菜单的排列、状态、子页和返回键盘。 */
 public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "toolbar row, two-page four-column function panel, local-input subpanel and keyboard return";
+        return "toolbar row, four-column function panel, local-input subpanel and keyboard return; hidden toolbar scheme entry opens the picker and switches layouts";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -117,6 +117,85 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         stage = "more tools return";
         tap(tool("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
+        checkHiddenSchemeShortcut();
+    }
+
+    /** 通过原生设置隐藏工具栏入口，再从品牌菜单切换方案，最后恢复原方案与开关。 */
+    private void checkHiddenSchemeShortcut() throws Exception {
+        String originalScheme = await(describedPrefix("输入方案：")).getContentDescription()
+            .toString().substring("输入方案：".length());
+        try {
+            setSchemeShortcut(false);
+            openEditor();
+            if (visible(describedPrefix("输入方案：")))
+                throw new AssertionError("关闭的输入方式仍显示在工具栏");
+            stage = "隐藏工具栏入口后从菜单打开输入方式";
+            tap(key("更多"));
+            showTool("全角");
+            tap(tool("输入方式"));
+            await(described("输入方案卡片区域"));
+            if (visible(toolPanel())) throw new AssertionError("输入方式面板仍被功能菜单覆盖");
+            tap(described("输入方案卡片 英文 26 键"));
+            await(key("q"));
+            stage = "菜单切换后再次打开并恢复原输入方案";
+            tap(key("更多"));
+            tap(tool("输入方式"));
+            await(described("输入方案卡片 英文 26 键").and(node ->
+                equalsText("已选中", node.getStateDescription())));
+            tap(described("输入方案卡片 " + originalScheme));
+            await(key("n"));
+            // 收起面板应回到字母键盘，不能回到已关闭的功能菜单。
+            tap(key("更多"));
+            tap(tool("输入方式"));
+            await(described("输入方案卡片 " + originalScheme).and(node ->
+                equalsText("已选中", node.getStateDescription())));
+            tap(described("返回键盘"));
+            await(key("n"));
+            if (visible(toolPanel())) throw new AssertionError("返回键盘后功能菜单仍可见");
+        } finally {
+            setSchemeShortcut(true);
+            openEditor();
+        }
+        stage = "重新显示工具栏入口后菜单去重";
+        await(describedPrefix("输入方案："));
+        tap(key("更多"));
+        showTool("全角");
+        if (visible(tool("输入方式"))) throw new AssertionError("工具栏与菜单重复显示输入方式");
+        tap(described("返回键盘"));
+    }
+
+    private void openEditor() throws Exception {
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        tap(field("msime-test-plain"));
+        await(shortcutBar());
+    }
+
+    private void setSchemeShortcut(boolean enabled) throws Exception {
+        stage = enabled ? "恢复输入方式工具栏入口" : "关闭输入方式工具栏入口";
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page TOOLBAR_EDITOR");
+        Predicate<AccessibilityNodeInfo> toggle = node -> node.isCheckable() && containsLabel(node, "输入方式");
+        await(node -> equalsText("编辑工具栏", node.getText()));
+        AccessibilityNodeInfo node = awaitAny(toggle);
+        node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+        node = await(toggle);
+        if (node.isChecked() != enabled) tap(toggle);
+        await(toggle.and(item -> item.isChecked() == enabled));
+    }
+
+    private boolean containsLabel(AccessibilityNodeInfo node, String label) {
+        if (equalsText(label, node.getText())) return true;
+        for (int index = 0; index < node.getChildCount(); index++) {
+            AccessibilityNodeInfo child = node.getChild(index);
+            if (child != null && containsLabel(child, label)) return true;
+        }
+        return false;
+    }
+
+    private boolean visible(Predicate<AccessibilityNodeInfo> match) {
+        dropStaleNodes();
+        for (var window : automation.getWindows())
+            if (find(window.getRoot(), match.and(AccessibilityNodeInfo::isVisibleToUser)) != null) return true;
+        return false;
     }
 
     private void assertSameRow(AccessibilityNodeInfo first, AccessibilityNodeInfo second,

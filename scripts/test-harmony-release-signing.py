@@ -150,6 +150,8 @@ class ReleaseSigning(unittest.TestCase):
     def test_market_packer_preserves_hap_signature(self):
         source = (ROOT / "platforms/harmony/sign-release.py").read_text()
         self.assertIn('"--replace-pack-info", "false"', source)
+        self.assertIn("compress_harmony_hap.py", source)
+        self.assertIn("verified-compressed.p7b", source)
 
 
 if __name__ == "__main__":

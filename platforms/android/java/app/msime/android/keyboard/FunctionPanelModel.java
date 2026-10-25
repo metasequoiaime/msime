@@ -16,7 +16,7 @@ public final class FunctionPanelModel {
 
     /** 条目标识，IME 按它接线。 */
     public enum Id {
-        FULL_WIDTH, CHINESE_PUNCTUATION, FUZZY_PINYIN, TRADITIONAL, HANDWRITING, DICTIONARY,
+        FULL_WIDTH, CHINESE_PUNCTUATION, FUZZY_PINYIN, TRADITIONAL, SCHEME, HANDWRITING, DICTIONARY,
         KEYBOARD_HEIGHT, SETTINGS,
         KEY_SOUND, VIBRATION, ONE_HAND, PRIVACY, FEEDBACK, ABOUT, WEBSITE, AI_ASSIST, LOCAL_INPUT,
         VOICE_INPUT, VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT, COPY_DEVICE_INFO,
@@ -38,6 +38,7 @@ public final class FunctionPanelModel {
         toggle(Id.CHINESE_PUNCTUATION, "中文标点", "中文标点"),
         toggle(Id.FUZZY_PINYIN, "模糊音", "模糊音"),
         toggle(Id.TRADITIONAL, "繁体", "繁体输出"),
+        action(Id.SCHEME, "输入方式"),
         action(Id.HANDWRITING, "手写"),
         action(Id.LOCAL_INPUT, "本地输入"),
         new Item(Id.AI_ASSIST, "AI 辅助", "AI 回复与润色", false),

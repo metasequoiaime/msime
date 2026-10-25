@@ -117,7 +117,11 @@ class Fixture:
                 os.killpg(launcher.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            launcher.communicate(timeout=10)
+            # Python 3.7 不允许再次读取 communicate 已关闭的管道；仍等待进程回收，未读取的管道照常排空。
+            if launcher.stderr is not None and not launcher.stderr.closed:
+                launcher.communicate(timeout=10)
+            else:
+                launcher.wait(timeout=10)
 
     def reset(self, plan: list, *, block_sleep: bool = False) -> None:
         # 每轮重建，因为有的剧本会删宿主或清除执行权限。

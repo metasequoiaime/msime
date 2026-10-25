@@ -73,6 +73,7 @@ public final class MoreToolsLayout {
             case "全角" -> "全";
             case "中文标点" -> "，";
             case "模糊音" -> "≈";
+            case "输入方式" -> "拼";
             case "手写" -> "✎";
             case "拍照识字" -> "照";
             case "词库" -> "▦";
