@@ -431,6 +431,8 @@ int main(int argc, char **argv) {
         {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#204060"}};
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["default_ime_mode"] = "chinese";
+    // 本夹具验证聚焦提示的生命周期，显式开启；默认关闭由 mode_hint_lifecycle 单独验证。
+    options["preferences"]["input_mode_focus_hud"] = true;
     options["preferences"]["smart_punctuation_space_convert"] = true;
     // Keep the mixed-Emoji path below explicit; the missing-field fallback is
     // checked separately before the main fixture starts.

@@ -17,6 +17,7 @@ on:
       - platforms/linux/tests/tools/legacy-runtime.sh
       - platforms/linux/tests/tools/check-elf-symbol-versions.sh
       - platforms/linux/tests/core/ibus_launcher_supervisor.py
+      - platforms/linux/tests/runtime/engine_smoke.cpp
   schedule:
     - cron: "23 2 * * 1"
   workflow_dispatch:
