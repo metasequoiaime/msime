@@ -189,7 +189,7 @@ Harmony 触屏键盘的工具栏没有语音按钮，语音从功能面板的「
 
 共享设置中的“中英文状态范围”现在也由 Harmony 消费，并由 `HostCapabilities::ime_mode_scope` 能力而非平台名决定是否出现：编辑器属性自 API 14 起带 `bundleName`，键盘据此按应用记忆中英文状态，这也是共享默认值 `app`。此前无论哪个应用都共用一个模式。`global` 保持所有输入上下文同一状态。范围在编辑器激活时读取，不在组合中途改变。密码框、地址框这类要求拉丁字母的编辑器覆盖是编辑器的选择而非用户的，不写入记忆，否则在某个应用里填过一次密码就会让之后每次进入该应用都停在英文。该映射只存在于键盘进程生命周期内，不落盘：它是一份"用户在哪些应用里打字"的记录，偏好文件没有理由携带，而忘记它的代价只是重启后多按一次切换键。最多记住 64 个应用，超出时丢弃最久未使用的。
 
-`build-native.sh` 在本机已跑通（2026-09-20）：`arm64-v8a`（真机）、`x86_64`（模拟器）和 `armeabi-v7a` 三个 ABI 的 Rust/C++/NAPI 交叉构建全部成功，各产出 `libmsimeclient.so`、`libmsime_host_api.so` 和 `libc++_shared.so`；`hvigorw assembleHap` 打出的 HAP 约 25 MB，包含全部三个 `libs/<abi>/`。`msime-client-core` 对 `aarch64-unknown-linux-ohos` 的 `cargo check` 亦通过。
+`build-native.sh` 在本机已跑通（2026-09-20）：`arm64-v8a`（真机）、`x86_64`（模拟器）和 `armeabi-v7a` 三个 ABI 的 Rust/C++/NAPI 交叉构建全部成功，各产出 `libmsimeclient.so`、`libmsime_host_api.so` 和 `libc++_shared.so`。`hvigorw assembleHap` 生成的是未压缩的中间 HAP；发布工作流随后只对 `resources/` 条目使用 DEFLATE，保留原生库、Ark 字节码和 `resources.index` 的布局。以 `harmony-v0.2.0` 为基线，发布 HAP 从 328,655,000 字节降到 197,712,995 字节，`msime-client-core` 对 `aarch64-unknown-linux-ohos` 的 `cargo check` 亦通过。
 
 Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI 上重新跑通，除 NDK 之外不再需要任何准备：以前要手工编译的 `libsqlite3.a` 前缀和 32 位 `armeabi-v7a` 需要的 fmt/spdlog 替身 config 都随 C++ Engine 一起去掉了，`libmsime_host_api.so` 的动态依赖只剩 `libc.so`。这一轮没有重新打 HAP，也没有上设备。
 
