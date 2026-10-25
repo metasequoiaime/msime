@@ -33,4 +33,5 @@ Status: implemented
 
 - `apps/desktop/tests/settings/harmony-key-sound-pack.test.tsx`：鸿蒙手机上「音效」紧跟「按键音」、缺省显示「清脆键盘」、面板只列五个按键包（不列旋律包和音乐包）、选中后试听一次并保存 `plugins.key_sound.pack` 且不动开关、模式和音量；手机页不出现旋律、上屏音、成就音和背景音乐；「按键音」关时整行禁用；目录里没有的包显示「（未找到）」；宿主不报能力时不画也不读目录；2in1 的屏幕键盘页没有这一行。
 - `platforms/harmony/tests/run.sh`：新增 `previewSample`（按键包取普通键样本，旋律包、Ogg、缺普通键样本时为空）和 `touchKeySoundPacks`（手机、平板为真，2in1 为假）的检查。
+- 编译机上 `build-native.sh arm64-v8a`、暂存和 `hvigorw assembleHap` 通过，新文件没有 ArkTS 告警。
 - 没有覆盖：真机上的选择面板、试听出声、换包后键盘换声音都没有在设备上验证。
