@@ -42,3 +42,10 @@ resources/licenses/PaddleOCR-Apache-2.0.txt text eol=lf
 *.java linguist-language=Java
 *.swift linguist-language=Swift
 *.mm linguist-language=Objective-C++
+
+# Win7 构建清单和字体锁按原始字节校验，Windows 检出必须保留 LF。
+platforms/windows/compat/Windows7Voice.cmake text eol=lf
+platforms/windows/compat/Windows7VoiceApi.h text eol=lf
+platforms/windows/compat/Windows7VoiceRedirect.h text eol=lf
+platforms/windows/compat/Windows7Sherpa.cmake text eol=lf
+platforms/windows/assets/fonts/OFL.txt text eol=lf
