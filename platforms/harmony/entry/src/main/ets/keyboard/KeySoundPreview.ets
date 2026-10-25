@@ -148,7 +148,7 @@ export class KeySoundPreview {
           this.stop();
         }
       });
-      const file: fs.File = KeySoundPlayer.openVerified(notes[0]);
+      const file: fs.File = KeySoundPlayer.openPreview(notes[0]);
       this.file = file;
       try {
         await pool.load(file.fd, 0, fs.statSync(file.fd).size);
