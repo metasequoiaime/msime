@@ -349,6 +349,9 @@ pub fn build_kaomoji(
 
 // ---- symbols ----
 
+/// 表情面板符号页的分类与符号，采集自 tw.piliapp.com/symbol/，在 msime-dictionary（经 `--dictionary` 读取）；许可未确认，见词库仓 NOTICE.md 的「待解决」。
+pub const PILIAPP_SYMBOLS: &str = "sources/symbols/piliapp-symbols.txt";
+
 static CATEGORY_LINE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^# \[piliapp/symbol/([^/\]]+)/\][\s\x1c-\x1f]*(.+)[\s\x1c-\x1f]*$")
         .expect("valid regex")

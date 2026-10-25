@@ -23,7 +23,7 @@ K 模式的短语表（`kind = "phrase_table"`，纯数据，不带代码）：�
 
 ## 和内置符号面板的关系
 
-内置符号面板（`resources/dictionary-sources/symbols/piliapp_symbols.txt` 的「希腊字母」「数学符号」等分类，`crates/engine/src/local/catalog.rs`）能按分类浏览同一批符号。这个包补的只是「按名字查」：知道 LaTeX 命令名时，打 `Kalpha` 比翻分类快。
+内置符号面板（msime-dictionary `sources/symbols/piliapp-symbols.txt` 的「希腊字母」「数学符号」等分类，`crates/engine/src/local/catalog.rs`）能按分类浏览同一批符号。这个包补的只是「按名字查」：知道 LaTeX 命令名时，打 `Kalpha` 比翻分类快。
 
 ## 生成和核对
 

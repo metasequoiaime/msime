@@ -38,6 +38,7 @@
 | `sources/english/google-word-counts.txt` | [Google 1/3 million 词频表](https://www.norvig.com/ngrams/count_1w.txt) | 以来源页面说明为准 |
 | `sources/unlicensed/oaldpe-words.txt` | 自 oaldpe.mdx 提取的词形列表 | 权利归词典出版方 |
 | `kaomoji/` | [aoguai/rime_kaomoji_dict](https://github.com/aoguai/rime_kaomoji_dict) | MIT |
+| `sources/symbols/piliapp-symbols.txt`（`msime-others.db` 的 `symbol_catalog`，表情面板的符号页） | 2026-08-17 采集自 [PiliApp 特殊符号](https://tw.piliapp.com/symbol/) 51 个分类页面上可直接复制的 Unicode 字符，按分类去重 | **未声明**：网站没有给出数据许可，再分发授权尚未确认 |
 | 候选翻译数据 | [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) | MIT |
 | `resources/dictionary-sources/pinyin-overrides.txt`（emoji、颜文字与符号关键词的整词读音） | [mozillazg/python-pinyin](https://github.com/mozillazg/python-pinyin) 0.55 的 `lazy_pinyin` 输出 | MIT |
 

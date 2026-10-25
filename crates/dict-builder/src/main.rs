@@ -1265,7 +1265,7 @@ impl Build {
             }
             Stage::Symbols => {
                 let categories = others::parse_piliapp(&text::read(
-                    &self.sources.repository("symbols/piliapp_symbols.txt")?,
+                    &self.sources.pinned(others::PILIAPP_SYMBOLS)?,
                 )?);
                 let rows = others::symbol_rows(&self.pinyin()?, &categories)?;
                 others::build_symbols(&mut self.database("msime-others.db")?, &rows)?;
