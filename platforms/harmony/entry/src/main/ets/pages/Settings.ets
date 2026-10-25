@@ -1924,17 +1924,17 @@ class SettingsBridge {
     return client.dictionaryManifest(`${this.context.filesDir}/engine`);
   }
 
-  /** Read only an image declared by a validated external skin manifest. */
+  /** Read only an image declared by a validated external skin manifest, as base64: the default `bytes` array costs the shared layer a JSON value per byte, about 512 MiB at the 8 MiB resource limit. The page side turns it back into bytes. */
   readSkinImage(id: string, relative: string): string {
     return client.skinResource(JSON.stringify({
-      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image'
+      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image', encoding: 'base64'
     }));
   }
 
-  /** Read only a font declared by a validated external skin manifest. */
+  /** Read only a font declared by a validated external skin manifest, as base64 for the same reason as `readSkinImage`. */
   readSkinFont(id: string, relative: string): string {
     return client.skinResource(JSON.stringify({
-      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'font'
+      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'font', encoding: 'base64'
     }));
   }
 

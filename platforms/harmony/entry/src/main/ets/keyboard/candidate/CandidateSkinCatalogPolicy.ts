@@ -89,8 +89,10 @@ export interface CandidateSkinBackground {
  * A package's colours, and whether it is drawn at all in this layout and mode, are no longer decided here: they arrive in the resolved global theme, whose `candidate_skin` is the single signal for drawing the decoration and minimum width. The Rust catalog scanner already bounds package ids and dimensions; this policy still treats every value as optional because a package may leave any of them out.
  */
 export class CandidateSkinCatalogPolicy {
-  private static readonly BASE64: string =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  /** How much of a resource's `bytesBase64` [`imageAspectRatio`] needs decoded: 5464 characters are the first 4098 bytes, past the SVG search window and every binary header it reads. */
+  static readonly ASPECT_RATIO_HEADER_BASE64: number = 5464;
+  /** The base64 length of the shared layer's 8 MiB resource limit. */
+  private static readonly MAX_IMAGE_BASE64: number = 11184812;
 
   static package(packages: CandidateSkinPackage[], id: string): CandidateSkinPackage | null {
     for (const candidate of packages) {
@@ -265,8 +267,8 @@ export class CandidateSkinCatalogPolicy {
       : null;
   }
 
-  /** Convert validated image bytes into an ArkUI image-only data URL. */
-  static imageDataUrl(contentType: string, bytes: number[]): string | null {
+  /** Wrap the `bytesBase64` of a `msime_client_skin_resource` answer as an ArkUI image-only data URL. */
+  static imageDataUrl(contentType: string, encoded: string): string | null {
     const imageType: boolean =
       contentType === "image/png" ||
       contentType === "image/jpeg" ||
@@ -278,31 +280,23 @@ export class CandidateSkinCatalogPolicy {
       contentType === "image/avif";
     if (
       !imageType ||
-      !Array.isArray(bytes) ||
-      bytes.length === 0 ||
-      bytes.length > 8 * 1024 * 1024
+      typeof encoded !== "string" ||
+      encoded.length === 0 ||
+      encoded.length > CandidateSkinCatalogPolicy.MAX_IMAGE_BASE64 ||
+      CandidateSkinCatalogPolicy.base64ByteLength(encoded) < 0
     ) {
       return null;
     }
-    for (const byte of bytes) {
-      if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
-        return null;
-      }
-    }
-    let encoded: string = "";
-    for (let index: number = 0; index < bytes.length; index += 3) {
-      const first: number = bytes[index];
-      const second: number = index + 1 < bytes.length ? bytes[index + 1] : 0;
-      const third: number = index + 2 < bytes.length ? bytes[index + 2] : 0;
-      encoded += CandidateSkinCatalogPolicy.BASE64[(first >> 2) & 0x3f];
-      encoded += CandidateSkinCatalogPolicy.BASE64[((first & 0x03) << 4) | (second >> 4)];
-      encoded +=
-        index + 1 < bytes.length
-          ? CandidateSkinCatalogPolicy.BASE64[((second & 0x0f) << 2) | (third >> 6)]
-          : "=";
-      encoded += index + 2 < bytes.length ? CandidateSkinCatalogPolicy.BASE64[third & 0x3f] : "=";
-    }
     return `data:${contentType};base64,${encoded}`;
+  }
+
+  /** The byte length a standard padded base64 string decodes to, or -1 when it is not one. */
+  static base64ByteLength(encoded: string): number {
+    if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+      return -1;
+    }
+    const padding: number = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+    return (encoded.length / 4) * 3 - padding;
   }
 
   /** Return the intrinsic image ratio for a native aspect-ratio modifier. */

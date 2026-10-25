@@ -1324,7 +1324,7 @@ struct SkinResourceRequest {
     id: String,
     relative: String,
     kind: String,
-    /// `"base64"` returns the bytes as one base64 string, `bytesBase64`, instead of the `bytes` array. Absent keeps the array the existing hosts read.
+    /// `"base64"` returns the bytes as one base64 string, `bytesBase64`, instead of the `bytes` array. Absent keeps the array for older callers; every msime host asks for base64.
     #[serde(default)]
     encoding: Option<String>,
 }
@@ -1393,7 +1393,7 @@ struct SkinResourceResponse {
 /// reader. `kind` is deliberately checked here as well: a WebView image reader
 /// must never receive CSS or a font by mistake.
 ///
-/// The default `bytes` array costs about 64 bytes of heap per resource byte while the response is built (a `serde_json::Value` per byte, measured on a 1 MiB image), and a JSON parser on the host side spends tens more turning it back into bytes. The iOS keyboard extension reads candidate-skin images under the system's per-extension memory limit, where that spike for a single 1 MiB image is larger than everything else the keyboard holds, so it asks for `encoding: "base64"`. The array stays the default for the hosts that read it.
+/// The default `bytes` array costs about 64 bytes of heap per resource byte while the response is built (a `serde_json::Value` per byte, measured on a 1 MiB image), and a JSON parser on the host side spends tens more turning it back into bytes. The iOS keyboard extension reads candidate-skin images under the system's per-extension memory limit, where that spike for a single 1 MiB image is larger than everything else the keyboard holds, so it asks for `encoding: "base64"`. So do the Android and HarmonyOS keyboards, the HarmonyOS settings page and both Windows settings apps: at the 8 MiB resource limit the array is about 512 MiB on this side alone. The array stays the default so an older caller keeps working.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]

@@ -16,6 +16,7 @@ import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
@@ -76,12 +77,14 @@ public final class CandidateCanvasAssets {
             if (loaded.containsKey(relative)) return loaded.get(relative);
             Image result = null;
             try {
+                // base64 而不是默认的 `bytes` 数组：数组在共享层每个字节建一个 JSON 值（1 MiB 的图峰值约 64 MiB，8 MiB 的资源上限约 512 MiB），org.json 再为每个字节建一个对象；base64 两边都只是图片大小的几倍。
                 JSONObject resource = value(NativeClient.skinResource(new JSONObject(query.toString())
-                    .put("relative", relative).put("kind", "image").toString()));
-                JSONArray raw = resource == null ? null : resource.optJSONArray("bytes");
-                if (raw == null || raw.length() == 0 || raw.length() > 1_048_576) throw new IOException();
-                byte[] bytes = new byte[raw.length()];
-                for (int i = 0; i < bytes.length; i++) bytes[i] = (byte) raw.getInt(i);
+                    .put("relative", relative).put("kind", "image").put("encoding", "base64").toString()));
+                String encoded = resource == null ? null : JsonPolicy.strictString(resource.opt("bytesBase64"));
+                // 1 MiB 的 base64 长度，解码前先挡掉更大的图。
+                if (encoded == null || encoded.isEmpty() || encoded.length() > 1_398_104) throw new IOException();
+                byte[] bytes = Base64.getDecoder().decode(encoded);
+                if (bytes.length == 0 || bytes.length > 1_048_576) throw new IOException();
                 String digest = digest(bytes);
                 fingerprint.append(relative).append(digest);
                 result = cache.get(digest);

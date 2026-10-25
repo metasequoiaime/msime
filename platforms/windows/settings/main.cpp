@@ -2124,46 +2124,20 @@ std::vector<std::wstring> json_texts(JsonObject const &object, wchar_t const *ke
   return values;
 }
 
-// The content type and bytes of a msime_client_skin_resource answer, {"ok":true,"value":{"contentType":...,"bytes":[...]}}. The byte array is read by hand: an image of a few hundred kilobytes is that many JSON numbers, which Windows.Data.Json would turn into as many objects.
+// The content type and bytes of a msime_client_skin_resource answer asked for with encoding:"base64", {"ok":true,"value":{"contentType":...,"bytesBase64":...}}. The default `bytes` array would cost the shared layer a JSON value per byte (about 512 MiB at the 8 MiB resource limit) and `take_response`'s Windows.Data.Json parse an object per byte.
 std::optional<std::pair<std::string, std::vector<uint8_t>>>
 skin_resource_bytes(std::string const &answer) {
-  const std::string type_key = "\"contentType\":\"";
-  const std::string bytes_key = "\"bytes\":[";
-  const auto type_at = answer.find(type_key);
-  const auto bytes_at = answer.find(bytes_key);
-  if (type_at == std::string::npos || bytes_at == std::string::npos)
+  try {
+    const auto value = JsonObject::Parse(text(answer)).GetNamedObject(L"value");
+    const auto buffer = Windows::Security::Cryptography::CryptographicBuffer::DecodeFromBase64String(
+        value.GetNamedString(L"bytesBase64"));
+    com_array<uint8_t> bytes;
+    Windows::Security::Cryptography::CryptographicBuffer::CopyToByteArray(buffer, bytes);
+    return std::pair{utf8(value.GetNamedString(L"contentType")),
+                     std::vector<uint8_t>(bytes.begin(), bytes.end())};
+  } catch (hresult_error const &) {
     return std::nullopt;
-  const auto type_start = type_at + type_key.size();
-  const auto type_end = answer.find('"', type_start);
-  if (type_end == std::string::npos)
-    return std::nullopt;
-  std::vector<uint8_t> bytes;
-  size_t at = bytes_at + bytes_key.size();
-  unsigned value = 0;
-  bool digits = false;
-  bool closed = false;
-  for (; at < answer.size() && !closed; ++at) {
-    const char c = answer[at];
-    if (c >= '0' && c <= '9') {
-      value = value * 10 + static_cast<unsigned>(c - '0');
-      if (value > 255)
-        return std::nullopt;
-      digits = true;
-    } else if (c == ',' || c == ']') {
-      if (digits)
-        bytes.push_back(static_cast<uint8_t>(value));
-      else if (c == ',' || !bytes.empty())
-        return std::nullopt;
-      value = 0;
-      digits = false;
-      closed = c == ']';
-    } else if (c != ' ') {
-      return std::nullopt;
-    }
   }
-  if (!closed)
-    return std::nullopt;
-  return std::pair{answer.substr(type_start, type_end - type_start), std::move(bytes)};
 }
 
 // 只由这款包组成的自定义主题配色；排列取包支持的一种，面板确认可画后才使用 panel_drawn 配色。
@@ -2197,6 +2171,7 @@ std::vector<uint8_t> skin_image(std::string const &root, std::wstring const &id,
   request.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
   request.SetNamedValue(L"relative", JsonValue::CreateStringValue(hstring(relative)));
   request.SetNamedValue(L"kind", JsonValue::CreateStringValue(L"image"));
+  request.SetNamedValue(L"encoding", JsonValue::CreateStringValue(L"base64"));
   const auto body = utf8(request.Stringify());
   const auto response = take_response(
       msime_client_skin_resource(reinterpret_cast<const uint8_t *>(body.data()), body.size()));

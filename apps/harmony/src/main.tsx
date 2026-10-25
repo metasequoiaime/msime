@@ -295,6 +295,15 @@ function unwrap<T>(raw: string): T {
   return reply.value;
 }
 
+/** A skin image or font the native side read as base64 (see `Settings.readSkinImage`), in the `bytes` array the settings pages take. The array the shared layer would build instead costs it a JSON value per byte, about 512 MiB at the 8 MiB resource limit. */
+function unwrapSkinResource(raw: string): SkinImage {
+  const value = unwrap<{ contentType: string; bytesBase64: string }>(raw);
+  const binary = atob(value.bytesBase64);
+  const bytes = new Array<number>(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return { contentType: value.contentType, bytes };
+}
+
 /** The startup failure has no settings page left to decode it, so it reads both shapes itself. */
 function startupFailure(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -1372,9 +1381,9 @@ function makeClient(
         ),
     },
     readSkinImage: async (id: string, relative: string) =>
-      unwrap<SkinImage>(native.readSkinImage(id, relative)),
-    readSkinFont: async (id: string, relative: string) =>
-      unwrap<SkinFont>(native.readSkinFont(id, relative)),
+      unwrapSkinResource(native.readSkinImage(id, relative)),
+    readSkinFont: async (id: string, relative: string): Promise<SkinFont> =>
+      unwrapSkinResource(native.readSkinFont(id, relative)),
     readSkinToolbarCss: async (id: string, relative?: string) =>
       relative ? null : unwrap<string | null>(native.readSkinToolbarCss(id)),
     openExternalUrl: async (url: string) => native.openExternalUrl(url),

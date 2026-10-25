@@ -727,11 +727,13 @@ interface SkinResourceRequest {
   id: string;
   relative: string;
   kind: string;
+  /** Always `'base64'`: the default `bytes` array costs the shared layer a JSON value per byte (about 64 MiB for a 1 MiB image, 512 MiB at the 8 MiB resource limit) and `JSON.parse` a number per byte, while every reader here ends at base64 anyway. */
+  encoding: string;
 }
 
 interface SkinResourceValue {
   contentType: string;
-  bytes: number[];
+  bytesBase64: string;
 }
 
 /** A candidate decoration image, already encoded for the component that draws it. */
@@ -1465,18 +1467,27 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     try {
       const request: SkinResourceRequest = {
-        directory: `${stateRoot}/skins`, id: id, relative: relative, kind: 'image'
+        directory: `${stateRoot}/skins`, id: id, relative: relative, kind: 'image', encoding: 'base64'
       };
       const response: SkinResourceResponse =
         JSON.parse(client.skinResource(JSON.stringify(request))) as SkinResourceResponse;
       if (response.ok !== true || response.value === undefined || response.value === null) {
         return NO_CANDIDATE_SKIN_IMAGE;
       }
+      const url: string | null = CandidateSkinCatalogPolicy.imageDataUrl(response.value.contentType,
+        response.value.bytesBase64);
+      if (url === null) {
+        return NO_CANDIDATE_SKIN_IMAGE;
+      }
+      // The ratio is read from the header, so only its first few kilobytes are decoded.
+      const header: number[] = [];
+      new util.Base64Helper().decodeSync(response.value.bytesBase64.substring(0,
+        CandidateSkinCatalogPolicy.ASPECT_RATIO_HEADER_BASE64)).forEach((byte: number) => {
+        header.push(byte);
+      });
       const image: CandidateSkinImage = {
-        image: CandidateSkinCatalogPolicy.imageDataUrl(response.value.contentType,
-          response.value.bytes),
-        aspectRatio: CandidateSkinCatalogPolicy.imageAspectRatio(response.value.contentType,
-          response.value.bytes)
+        image: url,
+        aspectRatio: CandidateSkinCatalogPolicy.imageAspectRatio(response.value.contentType, header)
       };
       return image;
     } catch (error) {
@@ -1565,13 +1576,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     for (const relative of paths) {
       try {
         const request: SkinResourceRequest = {
-          directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image'
+          directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image', encoding: 'base64'
         };
         const reply: SkinResourceResponse = JSON.parse(client.skinResource(JSON.stringify(request))) as SkinResourceResponse;
-        if (reply.ok === true && reply.value !== undefined && reply.value !== null
-          && reply.value.bytes.length <= remainingBytes) {
-          remainingBytes -= reply.value.bytes.length;
-          resources.push({ relative: relative, contentType: reply.value.contentType, base64: new util.Base64Helper().encodeToStringSync(new Uint8Array(reply.value.bytes)) });
+        const length: number = reply.ok === true && reply.value !== undefined && reply.value !== null
+          ? CandidateSkinCatalogPolicy.base64ByteLength(reply.value.bytesBase64) : -1;
+        if (length >= 0 && length <= remainingBytes) {
+          remainingBytes -= length;
+          resources.push({ relative: relative, contentType: reply.value.contentType, base64: reply.value.bytesBase64 });
         }
       } catch (_) {
         // 单张资源失败由绘制层回退，不影响候选输入。
@@ -1594,13 +1606,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     for (const relative of ToolbarImagePolicy.paths(entry.toolbarImage)) {
       try {
         const request: SkinResourceRequest = {
-          directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image'
+          directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image', encoding: 'base64'
         };
         const reply: SkinResourceResponse = JSON.parse(client.skinResource(JSON.stringify(request))) as SkinResourceResponse;
-        if (reply.ok && reply.value !== undefined && reply.value !== null && reply.value.bytes.length <= remaining) {
-          remaining -= reply.value.bytes.length;
-          resources.push({ relative: relative, contentType: reply.value.contentType,
-            base64: new util.Base64Helper().encodeToStringSync(new Uint8Array(reply.value.bytes)) });
+        const length: number = reply.ok && reply.value !== undefined && reply.value !== null
+          ? CandidateSkinCatalogPolicy.base64ByteLength(reply.value.bytesBase64) : -1;
+        if (length >= 0 && length <= remaining) {
+          remaining -= length;
+          resources.push({ relative: relative, contentType: reply.value.contentType, base64: reply.value.bytesBase64 });
         }
       } catch (_) {
         // 坏图留给原生文字与背景矩形回退，不影响输入会话。

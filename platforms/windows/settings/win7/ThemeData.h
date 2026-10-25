@@ -2,6 +2,7 @@
 
 #include "PreferencesStore.h"
 #include "../../src/candidate/CandidatePalette.h"
+#include <wincrypt.h>
 #include <array>
 #include <filesystem>
 #include <vector>
@@ -72,11 +73,19 @@ inline Json catalog(const std::filesystem::path& root) {
 inline Image image(const std::filesystem::path& root, const std::string& id, const std::string& relative, bool& failed) {
   Image result;
   if (relative.empty()) return result;
+  // base64 rather than the default `bytes` array, which costs the shared layer a JSON value per byte (about 512 MiB at the 8 MiB resource limit) and this parser one more.
   const auto resource = value(call(msime_client_skin_resource,
-      {{"directory", root.u8string()}, {"id", id}, {"relative", relative}, {"kind", "image"}}));
-  if (resource && resource->is_object() && resource->contains("bytes") && resource->at("bytes").is_array()) {
-    const auto bytes = resource->at("bytes").get<std::vector<uint8_t>>();
-    if (msime_client_skin_image_decode(bytes.data(), bytes.size(), Image::accept, &result) == 1) return result;
+      {{"directory", root.u8string()}, {"id", id}, {"relative", relative}, {"kind", "image"}, {"encoding", "base64"}}));
+  if (resource && resource->is_object() && resource->contains("bytesBase64") && resource->at("bytesBase64").is_string()) {
+    const auto& encoded = resource->at("bytesBase64").get_ref<const std::string&>();
+    DWORD length = 0;
+    if (!encoded.empty() && CryptStringToBinaryA(encoded.data(), static_cast<DWORD>(encoded.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_STRICT,
+            nullptr, &length, nullptr, nullptr) && length) {
+      std::vector<uint8_t> bytes(length);
+      if (CryptStringToBinaryA(encoded.data(), static_cast<DWORD>(encoded.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_STRICT,
+              bytes.data(), &length, nullptr, nullptr) &&
+          msime_client_skin_image_decode(bytes.data(), length, Image::accept, &result) == 1) return result;
+    }
   }
   failed = true;
   return {};

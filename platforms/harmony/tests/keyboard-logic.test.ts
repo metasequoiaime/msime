@@ -4170,13 +4170,26 @@ group("resolves external candidate skin tokens without trusting missing fields",
     "the toolbar block is exposed only for a drawn package",
   );
   check(
-    CandidateSkinCatalogPolicy.imageDataUrl("image/png", [0, 1, 2]) ===
-      "data:image/png;base64,AAEC",
-    "image bytes become an image-only data URL",
+    CandidateSkinCatalogPolicy.imageDataUrl("image/png", "AAEC") === "data:image/png;base64,AAEC",
+    "base64 image bytes become an image-only data URL",
   );
   check(
-    CandidateSkinCatalogPolicy.imageDataUrl("text/css", [0, 1, 2]) === null,
+    CandidateSkinCatalogPolicy.imageDataUrl("text/css", "AAEC") === null,
     "non-image resources cannot become decoration URLs",
+  );
+  check(
+    CandidateSkinCatalogPolicy.imageDataUrl("image/png", "") === null &&
+      CandidateSkinCatalogPolicy.imageDataUrl("image/png", "AAE") === null &&
+      CandidateSkinCatalogPolicy.imageDataUrl("image/png", 'AA");x') === null,
+    "empty or malformed base64 cannot become a decoration URL",
+  );
+  check(
+    CandidateSkinCatalogPolicy.base64ByteLength("AAEC") === 3 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("AAE=") === 2 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("AA==") === 1 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("") === 0 &&
+      CandidateSkinCatalogPolicy.base64ByteLength("A=AA") === -1,
+    "the canvas budget counts decoded bytes from the base64 length",
   );
   check(
     CandidateSkinCatalogPolicy.imageAspectRatio(
