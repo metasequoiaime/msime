@@ -55,7 +55,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：Windows 用户不打开设置窗口也能收到新版本提醒，选了测试版或每日构建的用户能拿到对应通道的构建；节流和只提醒一次与 Linux、macOS 是同一份 Rust 规则；点提醒直接落在显示校验值和镜像的「关于」页。
-- **网络与隐私**：受管理的 Server 每天最多成功联网一次（失败后六小时重试），请求是不带凭据的 GitHub 发布列表，每日构建通道另外 GET `releases/tags/nightly`；PRIVACY.md 的更新段落要随之补上（不在 Windows 切片的文件范围内，见 core 切片的未决事项）。
+- **网络与隐私**：受管理的 Server 每天最多成功联网一次（失败后六小时重试），请求是不带凭据的 GitHub 发布列表，每日构建通道另外 GET `releases/tags/nightly`；PRIVACY.md 的「资源与更新下载」已随 core 切片补上这些请求。
 - **代价与已知上限**：
   - 用户不点也不右键时，图标会在通知区域（Windows 11 默认在溢出区）留到一天；Server 退出时随之消失。
   - `SHQueryUserNotificationState` 报不出专注助手的状态，被它压下的通知不会推迟，而是直接进操作中心，靠图标保留住。
