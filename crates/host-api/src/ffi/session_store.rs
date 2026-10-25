@@ -268,8 +268,8 @@ unsafe fn client_agent(pointer: *const c_char) -> Result<Option<String>, ()> {
     }
     let mut bytes = Vec::new();
     for index in 0..=MAX_CLIENT_AGENT_BYTES {
-        // SAFETY: 头文件要求非 NULL 的 client_agent 是以 NUL 结尾的字符串；读到 NUL 或第 257 个字节就停。
-        let byte = unsafe { *pointer.add(index) } as u8;
+        // 安全性：头文件要求非 NULL 的 client_agent 是以 NUL 结尾的字符串；按无符号字节读取，读到 NUL 或第 257 个字节就停。
+        let byte = unsafe { *pointer.cast::<u8>().add(index) };
         if byte == 0 {
             let agent = String::from_utf8(bytes).map_err(|_| ())?;
             return valid_client_agent(&agent).then_some(Some(agent)).ok_or(());

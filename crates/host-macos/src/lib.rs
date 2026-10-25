@@ -148,6 +148,7 @@ pub fn restore_launch_target(target: LaunchTarget) -> bool {
     unsafe { msime_macos_restore_launch_target(target.pid, target.launched) }
 }
 
+#[cfg(any(target_os = "macos", test))]
 const INITIAL_CAPTURE_DEVICE_CAPACITY: usize = 128;
 
 #[cfg(any(target_os = "macos", test))]
