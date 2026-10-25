@@ -378,7 +378,7 @@ done
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_shuangpin true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "十八键双拼验收失败" >&2; exit 1; }
-# 九键逐字选词复用原入口；真实触摸后必须自动刷新剩余组字，不能依靠手动返回解除旧面板。
+# 九键逐字选词复用原入口；真实触摸部分选词后面板必须留着并换上剩余组字的候选（#9193），选完最后一个字才收起，全程不发返回操作。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyPanelDeviceSmoke -e partial-selection true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Nine-key partial selection acceptance failed" >&2; exit 1; }

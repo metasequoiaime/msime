@@ -20,7 +20,7 @@ import org.json.JSONObject;
 /**
  * 全拼九键的展开候选面板：点候选条右端的展开键后，键区换成三栏。左栏是与收起时侧栏相同的拼音列（可切成五个笔画键），中间是可纵向滚动的完整候选，右栏是 返回、⌫、重输、拼音/笔画、全部/单字。
  *
- * <p>选拼音、⌫ 和筛选都会让候选换一代，这个面板不因此收起，而是重新取完整候选再画；组字结束、点「返回」或选了候选才收起。筛选状态归引擎（`View.nine_key_single_character`、`View.nine_key_strokes`），面板只记左栏当前是拼音还是笔画。其他布局的展开面板仍是 {@link ImeCandidates#renderExpandedCandidates} 原来那块整面网格。
+ * <p>选拼音、⌫ 和筛选都会让候选换一代，这个面板不因此收起，而是重新取完整候选再画；选了只覆盖前面一段的候选时同样留着，换上剩下组字的候选（{@link MSIMEInputService#selectPanelCandidate}）。组字结束（含整句上屏）或点「返回」才收起。筛选状态归引擎（`View.nine_key_single_character`、`View.nine_key_strokes`），面板只记左栏当前是拼音还是笔画。其他布局的展开面板仍是 {@link ImeCandidates#renderExpandedCandidates} 原来那块整面网格。
  */
 final class ImeNineKeyPanel {
     private final MSIMEInputService s;

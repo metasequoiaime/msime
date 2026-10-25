@@ -8331,17 +8331,61 @@ public final class MSIMEInputService extends InputMethodService {
         if (imeNineKeyPanel != null) imeNineKeyPanel.dismiss();
     }
 
+    /**
+     * 展开面板里点中一个候选。只选掉前面一段、组字还在时面板留着，换上剩下组字的完整候选，用户接着在面板里往下选（#9193，规则在 {@link CandidatePanelSelectionPolicy}）；整句上屏、组字清空或会话换了照旧收起。九键面板开着笔画筛选时顺带清掉笔画：它比的是刚被选掉的那个字。
+     *
+     * <p>选词和清笔画的 apply 都不画：面板这时已标成收起，画一次会先把面板收掉（九键面板还会复位左栏、排队清筛选），紧接着又重开。面板状态定下来以后只画一次。手指还按在候选上时这次 render 照旧延后（{@link #candidateRenderDeferred}），松手补的那一帧按定下来的状态画，面板里不会留着旧一代的候选。
+     */
+    void selectPanelCandidate(JSONObject id) {
+        long selectedSession = session;
+        boolean nineKeyPanel = imeNineKeyPanel.eligible();
+        candidatePanelOpen = false;
+        candidatePanelSnapshot = null;
+        boolean previousSuppressed = renderingSuppressed;
+        renderingSuppressed = true;
+        boolean keepsOpen;
+        try {
+            boolean handled = apply(NativeClient.selectAnyCandidate(session,
+                strictCandidateLong(id, "generation"), strictCandidateLong(id, "index")));
+            keepsOpen = view != null && CandidatePanelSelectionPolicy.keepsOpen(handled, selectedSession,
+                session, InputViewValuePolicy.editingText(view));
+            String strokes = keepsOpen && nineKeyPanel && imeNineKeyPanel.eligible()
+                ? CandidatePanelSelectionPolicy.strokesAfterPartialSelection(
+                    InputViewValuePolicy.textOr(view, "nine_key_strokes", ""))
+                : null;
+            if (strokes != null)
+                apply(NativeClient.setNineKeyFilter(session,
+                    InputViewValuePolicy.booleanValue(view, "nine_key_single_character", false), strokes));
+        } catch (JSONException | LinkageError error) {
+            renderingSuppressed = previousSuppressed;
+            fail(error);
+            return;
+        } finally {
+            renderingSuppressed = previousSuppressed;
+        }
+        if (keepsOpen) openCandidatePanel(true);
+        else render();
+    }
+
     void openCandidatePanel() {
+        openCandidatePanel(false);
+    }
+
+    /** {@code afterSelection} 为真时是展开面板里部分选词之后重开（{@link #selectPanelCandidate}）：剩下的候选只有一页也开，没开成也要画一次。 */
+    private void openCandidatePanel(boolean afterSelection) {
         // 全拼九键的三栏面板只要在组字就能打开：左栏选拼音、右栏筛选在只有一页候选时同样有用。
         boolean nineKeyPanel = imeNineKeyPanel.eligible();
-        if (session == 0 || view == null
-                || (!nineKeyPanel && strictCandidatePage(view, "page_count") <= 1)) return;
+        if (session == 0 || view == null || (!nineKeyPanel && !afterSelection
+                && strictCandidatePage(view, "page_count") <= 1)) {
+            if (afterSelection) render();
+            return;
+        }
         try {
             JSONObject snapshot = currentCandidateSnapshot();
             JSONArray entries = snapshot.optJSONArray("candidates");
             JSONArray visible = view.optJSONArray("candidates");
-            if (!nineKeyPanel && (entries == null || visible == null
-                    || entries.length() <= visible.length())) {
+            if (!nineKeyPanel && (entries == null || (afterSelection ? entries.length() == 0
+                    : visible == null || entries.length() <= visible.length()))) {
                 render();
                 return;
             }

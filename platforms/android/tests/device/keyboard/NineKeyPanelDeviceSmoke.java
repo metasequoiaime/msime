@@ -25,7 +25,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
-        return partialSelection ? "九键展开后连续逐字选词，无需返回即可继续剩余组字并完成提交"
+        return partialSelection ? "九键展开后连续逐字选词，面板留着并换上剩余组字的候选，选完整句上屏后收起"
             : recentOnly ? "nine-key spelling picks lead the next unlocked composition across input restarts"
             : "nine-key panel locks, backspace, filters and recent spelling selections";
     }
@@ -179,7 +179,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    /** 每次只选一个字；必须先看到收起和剩余组字，再重新展开，整个过程不发返回操作。 */
+    /** 每次只选一个字（#9193）：只展开一次，部分选词后面板留着、直接换上剩下音节的候选，单字筛选也留着；选完最后一个字整句上屏、面板收起。整个过程不发返回操作。 */
     private void checkPartialSelection() throws Exception {
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/.EditorActivity"
             + " --ez msime_test_composition_spans true");
@@ -190,26 +190,28 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
         await(field("msime-test-plain").and(node -> node.getText() != null
             && node.getText().length() > 0 && !node.isShowingHintText()));
         assertComposition("", true);
+        stage = "expand the composition once";
+        tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
+        await(described(PANEL));
+        stage = "filter the first syllable to single-character candidates";
+        tap(inPanel(described("只显示单字")));
         String prefix = "";
         for (String character : new String[] {"你", "好", "你", "好"}) {
-            stage = "expand remaining composition after " + prefix.length() + " selections";
-            tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
-            await(described(PANEL));
-            stage = "filter the next syllable to single-character candidates";
-            if (findKey(inPanel(described("只显示单字"))))
-                tap(inPanel(described("只显示单字")));
+            stage = "single-character filter survives " + prefix.length() + " partial selections";
             await(inPanel(described("显示全部候选")));
-            stage = "touch a single character from the remaining syllables";
+            stage = "touch a single character from the remaining syllables " + prefix.length();
+            // 旧一代的面板里没有下一个字（你、好交替），面板没换上剩下音节的候选时这一步找不到目标。
             touch(inPanel(candidate(character)));
             prefix += character;
-            stage = "partial selection refreshes without the return action " + prefix.length();
-            awaitGone(described(PANEL));
             final String selected = prefix;
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().startsWith(selected)));
             boolean pending = prefix.length() < 4;
             assertComposition(prefix, pending);
-            if (pending) await(key("展开").and(AccessibilityNodeInfo::isEnabled));
+            stage = pending ? "partial selection keeps the panel open " + prefix.length()
+                : "the last selection commits and closes the panel";
+            if (pending) await(described(PANEL));
+            else awaitGone(described(PANEL));
         }
         await(field("msime-test-plain").and(node -> equalsText("你好你好", node.getText())));
     }
@@ -246,12 +248,6 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
         Rect bounds = new Rect();
         awaitStableBounds(match.and(AccessibilityNodeInfo::isVisibleToUser)).getBoundsInScreen(bounds);
         shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
-    }
-
-    private boolean findKey(Predicate<AccessibilityNodeInfo> match) {
-        for (AccessibilityWindowInfo window : automation.getWindows())
-            if (find(window.getRoot(), match) != null) return true;
-        return false;
     }
 
     /** 用合成输入交替选择竞争读法，确认锁定首候选会被新会话的未锁定输入读到。 */

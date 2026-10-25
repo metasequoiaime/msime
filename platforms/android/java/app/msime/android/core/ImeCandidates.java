@@ -13,7 +13,6 @@ import android.widget.PopupMenu;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 /** 候选按钮的构建与样式、展开的候选面板和候选长按菜单；从 MSIMEInputService 原样搬出，状态仍在服务里。 */
@@ -277,13 +276,7 @@ final class ImeCandidates {
                 s.imeKeyFeedback.playFeedback(button);
                 // 点占位行什么也不发生：Engine 本来就不上屏，这里连面板也不收起，用户还在看完整列表（#6888）。
                 if (placeholder || !s.candidateVersionIsCurrent(id)) return;
-                s.candidatePanelOpen = false;
-                s.candidatePanelSnapshot = null;
-                try {
-                    s.apply(NativeClient.selectAnyCandidate(
-                        s.session, MSIMEInputService.strictCandidateLong(id, "generation"),
-                        MSIMEInputService.strictCandidateLong(id, "index")));
-                } catch (JSONException | LinkageError error) { s.fail(error); }
+                s.selectPanelCandidate(id);
             });
             // 占位行不挂长按：没有可管理的词，读屏也不该提示长按（#6888）。
             if (AiPendingCandidatePolicy.offersMenu(source)) button.setOnLongClickListener(ignored -> {
@@ -323,11 +316,11 @@ final class ImeCandidates {
                 ViewPolicy.hide(s.expandedCandidates);
                 ViewPolicy.hide(s.expandedCandidateScroll);
             }
-            // 选了候选等路径只把 candidatePanelOpen 置为 false，九键三栏面板在这里跟着收起并清掉筛选。
+            // 候选条选词等路径只把 candidatePanelOpen 置为 false，九键三栏面板在这里跟着收起并清掉筛选；面板里部分选词后留着面板的路径见 selectPanelCandidate。
             s.imeNineKeyPanel.dismiss();
             return;
         }
-        // 全拼九键的三栏面板：选拼音、⌫、筛选换了一代候选时不收起，重新取完整候选再画；组字结束时 eligible 为假，落到下面按代次收起。
+        // 全拼九键的三栏面板：选拼音、⌫、筛选换了一代候选时不收起，重新取完整候选再画；组字结束时 eligible 为假，落到下面按代次收起。普通网格按代次收起，部分选词后由 selectPanelCandidate 先换上新一代的快照再画，走不到这里的收起。
         if (s.imeNineKeyPanel.eligible() && s.imeNineKeyPanel.refreshSnapshot()) {
             if (!ViewPolicy.isGone(s.expandedCandidates)) {
                 s.expandedCandidates.removeAllViews();
