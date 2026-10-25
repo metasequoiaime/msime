@@ -12387,6 +12387,137 @@ static void TestIdleSessionRecovery() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+// 测试进程不是输入法 bundle，prepareSession 指给本进程 bundle 的码表回退目录在这里换成合成的随包资源；其余配置原样交给真实会话。
+@interface HelpcodeBundleController : SessionRecoveryController
+@property(copy) NSString *bundleResources;
+@property(strong) NSDictionary *requestedOptions;
+@end
+@implementation HelpcodeBundleController
+- (MSIMEClientSession *)createSessionWithOptions:(NSDictionary *)options error:(NSError **)error {
+    self.requestedOptions = options;
+    NSMutableDictionary *session = [options mutableCopy];
+    if ([options[@"helpcode_fallback_resources"] isEqual:NSBundle.mainBundle.resourcePath])
+        session[@"helpcode_fallback_resources"] = self.bundleResources;
+    return [super createSessionWithOptions:session error:error];
+}
+@end
+
+// #9421：双拼辅助码只在部分应用里失效，既没有辅助码注释，按辅助码也筛不掉候选。IMK 给每个文本客户端一个控制器，每个控制器在第一次需要时按当时的 runtime-options.json 建自己的会话，之后一直用它。设置应用启动时把配置刷到下载的词库代次，而那个代次只有锁文件列出的词库，没有 `helpcodes/`；正在运行的输入法里，之前打开过的应用还拿着旧代次的会话，辅助码照常，之后才打开的应用读到新代次，码表为空。这里用两个合成客户端重现这条时间线：两个会话都要显示并按辅助码筛选，后一个靠随包码表回退（#8939）。
+static void TestHelpcodeAfterDictionaryGenerationSwitch() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSMutableDictionary *preferences = [snapshot[@"preferences"] mutableCopy];
+    preferences[@"scheme"] = @"shuangpin";
+    preferences[@"shuangpin_profile"] = @"xiaohe";
+    preferences[@"default_ime_mode"] = @"chinese";
+    preferences[@"learning"] = @NO;
+    preferences[@"cloud_candidates"] = @NO;
+    NSMutableDictionary *helpcode = [preferences[@"shuangpin_helpcode"] mutableCopy];
+    helpcode[@"enabled"] = @YES;
+    helpcode[@"schema"] = @"xiaohe";
+    helpcode[@"show_in_candidate_window"] = @YES;
+    preferences[@"shuangpin_helpcode"] = helpcode;
+    // 合成码表只收这两个字：「阳」词频高排在前，辅助码 m 把「杨」提到首位。
+    NSString *table = @"阳=rr\n杨=mu\n";
+    auto writeTable = ^(NSString *resources) {
+        NSString *directory = [resources stringByAppendingPathComponent:@"helpcodes"];
+        assert([files createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil]);
+        assert([table writeToFile:[directory stringByAppendingPathComponent:@"xiaohe_helpcode.txt"] atomically:YES
+                         encoding:NSUTF8StringEncoding error:nil]);
+    };
+    auto generation = ^NSDictionary *(NSString *name, BOOL helpcodes) {
+        NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences} mutableCopy];
+        for (NSString *key in @[@"user_data", @"cache"]) {
+            NSString *path = [root stringByAppendingPathComponent:key];
+            assert([files createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+            options[key] = path;
+        }
+        for (NSString *key in @[@"resources", @"dictionaries"]) {
+            NSString *path = [[root stringByAppendingPathComponent:name] stringByAppendingPathComponent:key];
+            assert([files createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+            options[key] = path;
+            sqlite3 *database = nullptr;
+            assert(sqlite3_open([path stringByAppendingPathComponent:@"msime-pinyin.db"].fileSystemRepresentation, &database) == SQLITE_OK);
+            assert(sqlite3_exec(database,
+                "CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                "INSERT INTO tbl_1_y VALUES('yang','y','阳',2000),('yang','y','杨',1000);"
+                "CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);", nullptr, nullptr, nullptr) == SQLITE_OK);
+            assert(sqlite3_close(database) == SQLITE_OK);
+        }
+        if (helpcodes) writeTable(options[@"resources"]);
+        return options;
+    };
+    // 随包资源带码表；下载的代次和真实的一样只有词库。
+    NSDictionary *installed = generation(@"installed", YES);
+    NSDictionary *downloaded = generation(@"downloaded", NO);
+    NSString *bundle = [root stringByAppendingPathComponent:@"bundle"];
+    writeTable(bundle);
+
+    auto candidateTexts = ^NSArray<NSString *> *(NSDictionary *view) {
+        NSMutableArray<NSString *> *texts = [NSMutableArray array];
+        for (NSDictionary *candidate in view[@"candidates"]) [texts addObject:candidate[@"text"] ?: @""];
+        return texts;
+    };
+    auto assertHelpcodes = ^(HelpcodeBundleController *controller, const char *label) {
+        MSIMEClientSession *session = [controller valueForKey:@"session"];
+        assert(session);
+        NSError *typingError = nil;
+        [session typeASCII:'y' shift:NO error:&typingError];
+        NSDictionary *view = [session typeASCII:'h' shift:NO error:&typingError][@"view"];
+        assert(view && !typingError);
+        NSString *annotation = nil;
+        for (NSDictionary *candidate in view[@"candidates"])
+            if ([candidate[@"text"] isEqual:@"杨"]) annotation = candidate[@"annotation"];
+        if (![annotation.lowercaseString containsString:@"mu"])
+            fprintf(stderr, "helpcode %s: yh candidates=%s annotation=%s\n", label,
+                    [candidateTexts(view) componentsJoinedByString:@" "].UTF8String, annotation.UTF8String ?: "(none)");
+        assert([annotation.lowercaseString containsString:@"mu"]);
+        view = [session typeASCII:'m' shift:NO error:&typingError][@"view"];
+        assert(view && !typingError);
+        NSArray<NSString *> *texts = candidateTexts(view);
+        if (![texts.firstObject isEqual:@"杨"])
+            fprintf(stderr, "helpcode %s: yhm candidates=%s\n", label, [texts componentsJoinedByString:@" "].UTF8String);
+        assert([texts.firstObject isEqual:@"杨"]);
+        [controller apply:[session command:MSIME_CANCEL error:&typingError]];
+        assert(!typingError);
+    };
+    auto makeController = ^HelpcodeBundleController *(NSDictionary *options, NSString *application) {
+        HelpcodeBundleController *controller = [HelpcodeBundleController alloc];
+        controller.testOptions = options;
+        controller.bundleResources = bundle;
+        ApplicationShortcutClient *client = [ApplicationShortcutClient new];
+        client.bundleIdentifier = application;
+        client.document = @"";
+        client.caret = NSMakeRect(100, 100, 1, 16);
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        return controller;
+    };
+
+    // 词库更新之前就打开过的应用：会话建在随包代次上。
+    HelpcodeBundleController *earlier = makeController(installed, @"test.msime.synthetic.earlier");
+    [earlier prepareSession];
+    assertHelpcodes(earlier, "earlier");
+    // 设置应用把配置刷到下载的代次之后才打开的应用：会话读到的是没有码表的目录，同一进程里旧的会话不受影响。
+    HelpcodeBundleController *later = makeController(downloaded, @"test.msime.synthetic.later");
+    [later prepareSession];
+    assert([later.requestedOptions[@"resources"] isEqual:downloaded[@"resources"]]);
+    assert([later.requestedOptions[@"helpcode_fallback_resources"] isEqual:NSBundle.mainBundle.resourcePath]);
+    assertHelpcodes(later, "later");
+    assertHelpcodes(earlier, "earlier again");
+
+    for (HelpcodeBundleController *controller in @[earlier, later]) {
+        [controller releaseDictionarySession];
+        [controller setValue:nil forKey:@"activeClient"];
+    }
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+    assert([files removeItemAtPath:root error:&error] && !error);
+}
+
 // Every preference object built here without an explicit skins root reads msime::mac::DefaultSkinsRoot(), which is otherwise the user's real skins folder: an external skin installed there adds a card to the skin page and breaks the counts below. The whole run gets an empty folder of its own, removed when main returns.
 struct IsolatedDefaultSkinsRoot {
     std::filesystem::path path;
@@ -12704,6 +12835,11 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--session-recovery") {
             TestSessionUnavailableIsReported();
             TestIdleSessionRecovery();
+            TestHelpcodeAfterDictionaryGenerationSwitch();
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--helpcode-generation-switch") {
+            TestHelpcodeAfterDictionaryGenerationSwitch();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--english-punctuation") {
@@ -12798,6 +12934,7 @@ int main(int argc, char **argv) {
         NSDictionary *previousVoiceHoldKeys = MSIMEDisableVoiceHoldKeys(standardDefaults);
         @autoreleasepool { TestSessionUnavailableIsReported(); }
         @autoreleasepool { TestIdleSessionRecovery(); }
+        @autoreleasepool { TestHelpcodeAfterDictionaryGenerationSwitch(); }
         @autoreleasepool { TestCloudCandidateScheduling(); }
         @autoreleasepool { TestCloudCandidateRetryAfterRejectedResponse(); }
         @autoreleasepool { TestCloudCandidateEngineDelivery(); }
