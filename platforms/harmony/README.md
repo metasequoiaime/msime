@@ -504,7 +504,7 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 
 ## 产品版本
 
-版本表 `shared/contracts/editions.json` 里每个版本的 HarmonyOS 段（`platforms.harmony`）目前都是 `null`：HarmonyOS 只有 `build-profile.json5` 里的 `default` 一个 product，也就是 full，`bundleName` 是 `app.msime.hmos`，HAP 不签名（`signingConfigs` 为空）。代码已经按版本参数化，full 的行为和产物与引入版本之前相同。
+版本表 `shared/contracts/editions.json` 里每个版本的 HarmonyOS 段（`platforms.harmony`）目前都是 `null`：HarmonyOS 只有 `build-profile.json5` 里的 `default` 一个 product，也就是 full，`bundleName` 是 `app.msime.hmos`，本地 Hvigor 工程不保存签名配置（`signingConfigs` 为空），正式发布由 `sign-release.py` 在临时目录中签名。代码已经按版本参数化，full 的行为和产物与引入版本之前相同。
 
 已经就位的部分：
 
@@ -519,7 +519,7 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 2. 工程：`build-profile.json5` 为每个版本加一个 product，覆盖 `bundleName`、应用名（水杉五笔、水杉拼音；图标与 full 相同）和输入法扩展在系统列表里显示的名字，并把版本 id、方案和默认方案作为构建参数写进去，再让 `AppEdition.current()` 读出来；`entry` 的 target 用 `applyToProducts` 关联到这些 product。多 product 下 hvigor 的这些参数我没有在本仓验证过。
 3. 设置页：`Settings.ets` 的 `hostCapabilities` 取自 `msime_client_host_capabilities`，这个 C ABI 目前只接受平台名、不按版本收窄方案，共享设置页因此仍会列出 full 的全部方案。需要让它（或 Harmony 一侧）按版本调用 client-core 的 `HostCapabilities::narrow_to_edition`。
 4. 资源：`stage-resources.sh` 目前按 full 的 `resources/desktop-dictionary.lock.json` 暂存，要改成按版本的 `resources/editions/<id>.lock.json`；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音、笔画词库。
-5. 签名与发布：零售设备装不上不签名的 HAP。要在 AppGallery Connect 为每个 `bundleName` 建应用，申请发布证书和 profile，填进 `signingConfigs` 并按 product 关联；`release-harmony.yml` 现在只打一个 HAP、按 `find ... | head -1` 取产物，要改成按版本逐个构建，产物名带版本 id。
+5. 签名与发布：零售设备装不上不签名的 HAP。要在 AppGallery Connect 为每个 `bundleName` 建应用，申请发布证书和带共享沙箱授权的 Profile，扩展 `sign-release.py` 的包名校验；`release-harmony.yml` 目前只构建并签名 default product，增加版本时要逐个构建与签名，产物名带版本 id。
 - `native/`：NAPI/C++ 适配层。
 - `tests/`：不依赖设备的 TypeScript 键盘逻辑测试。
 - `AppScope/`、`entry/src/main/resources/`：应用元数据和资源。
@@ -576,6 +576,16 @@ hvigorw assembleHap --no-daemon
 `stage-voice-runtime.sh` 用 `scripts/fetch_voice_runtime.py --platform harmony` 取回 `resources/voice-runtime.lock.json` 按 SHA-256 锁定的 sherpa-onnx `.har`，复制到 `entry/libs/sherpa_onnx.har`（同样被忽略、不提交）。`entry/oh-package.json5` 以固定文件名依赖它，所以不先暂存 `ohpm install` 会失败。本地语音识别（`local` 提供方）在 `workers/LocalAsrWorker.ets` 里加载 `voice_input.asr_model_path` 指向的模型目录，音频不出设备；该 HAR 自带的 `libc++_shared.so` 与 `build-native.sh` 暂存的同为 NDK 运行时，`entry/build-profile.json5` 用 `pickFirsts` 只打包一份。`arm64-v8a` 和 `x86_64` 之外（即 `armeabi-v7a`）上游 HAR 不带库，本地识别在该 ABI 上不可用。
 
 系统语音（`system` 提供方）以写音频模式（`recognitionMode: 0`）启动 CoreSpeechKit：麦克风由 `HarmonyPcmCapture` 采集，按 1280 字节切帧后 `writeAudio`，`isFinal` 只结束一句，`isLast` 才结束整个会话。资源准备仍使用根目录固定的 `resources/desktop-dictionary.lock.json`，不得把本机路径、凭据或用户输入放入 HAP。
+
+## 应用市场正式签名与发布
+
+`release-harmony.yml` 使用 `buildMode=release` 构建。`publish=true` 时必须配置四个仓库 secrets：`HARMONY_RELEASE_KEYSTORE_BASE64`（PKCS#12）、`HARMONY_RELEASE_KEYSTORE_PASSWORD`、`HARMONY_RELEASE_CERTIFICATE_BASE64`（PEM 证书链）、`HARMONY_RELEASE_PROFILE_BASE64`（华为签发的应用市场 release Profile）。密钥别名固定使用 `msime`，密钥密码与密钥库密码相同。签名资料不能提交到仓库，也不能将 debug Profile 用作正式发布资料。
+
+Profile 必须允许包名 `app.msime.hmos`、共享沙箱 `group.1516753898738609107` 和受限权限 `ohos.permission.READ_PASTEBOARD`。缺共享沙箱授权时，在 AGC 手动重新生成发布 Profile，不能本地编辑 P7B。构建前会核对这些授权、有效期与证书及密钥的对应关系；不满足就停止，不会发布未签名包。
+
+签名脚本还检查版本、原生库及必需资源，调用华为工具验证签名与代码完整性，并核对签名前后内容。GitHub release 只放 `msime-harmony-X.Y.Z.hap` 和 `SHA256SUMS`；供应用市场上传的 `msime-harmony-X.Y.Z.app` 位于 workflow artifact `appgallery-msime-harmony-X.Y.Z`。仅构建的 nightly 不读取正式密钥，产物仍标为 unsigned。
+
+应用市场类型的签名材料用于市场分发。生成 APP 包、创建 GitHub release 与通过华为市场审核各是独立步骤；创建 GitHub release 不代表应用已在市场上架。
 
 ## 模拟器验证（2026-09-20）
 

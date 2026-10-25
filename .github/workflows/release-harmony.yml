@@ -31,6 +31,18 @@ jobs:
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        if: ${{ inputs.publish }}
+        with: {distribution: temurin, java-version: '21'}
+      # 发布必须在耗时构建前确认正式证书与共享沙箱授权，缺凭据时不降级为未签名包。
+      - name: Check HarmonyOS release signing credentials
+        if: ${{ inputs.publish }}
+        env:
+          HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
+          HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
+          HARMONY_RELEASE_CERTIFICATE_BASE64: ${{ secrets.HARMONY_RELEASE_CERTIFICATE_BASE64 }}
+          HARMONY_RELEASE_PROFILE_BASE64: ${{ secrets.HARMONY_RELEASE_PROFILE_BASE64 }}
+        run: python3 platforms/harmony/sign-release.py --check-only
       # The settings page is built from packages/ui for every HAP rather than committed (see platforms/harmony/stage-settings.sh), with the Node the rest of the repository pins.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -83,29 +95,57 @@ jobs:
         run: |
           set -euo pipefail
           ohpm install
-          hvigorw assembleHap --no-daemon
-      # hvigor names its output <module>-<product>-<signed|unsigned>.hap, which reached the release page as entry-default-unsigned.hap. Publish it under the msime-<platform>-<version> name the other platforms use, keeping -unsigned while signingConfigs in build-profile.json5 is empty, since an unsigned HAP does not install on a retail device. Copied rather than moved so the build directory still holds what hvigor wrote.
+          hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+      # 只取指定 product 的本次产物，避免误选缓存或测试工程中的 HAP。
       - id: hap
         name: Locate the packaged HAP
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           set -euo pipefail
-          built=$(find platforms/harmony -type f -name '*.hap' | head -1)
-          test -n "$built"
-          suffix=; [[ "$built" == *-unsigned.hap ]] && suffix=-unsigned
-          hap="$RUNNER_TEMP/msime-harmony-${VERSION}${suffix}.hap"
+          built=platforms/harmony/entry/build/default/outputs/default/entry-default-unsigned.hap
+          test -s "$built"
+          hap="$RUNNER_TEMP/msime-harmony-${VERSION}-unsigned.hap"
           cp "$built" "$hap"
           echo "path=$hap" >> "$GITHUB_OUTPUT"
+      - id: signing
+        name: Sign and verify HarmonyOS release packages
+        if: ${{ inputs.publish }}
+        env:
+          HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
+          HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
+          HARMONY_RELEASE_CERTIFICATE_BASE64: ${{ secrets.HARMONY_RELEASE_CERTIFICATE_BASE64 }}
+          HARMONY_RELEASE_PROFILE_BASE64: ${{ secrets.HARMONY_RELEASE_PROFILE_BASE64 }}
+          UNSIGNED_HAP: ${{ steps.hap.outputs.path }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/harmony-release"
+          python3 platforms/harmony/sign-release.py --input "$UNSIGNED_HAP" --output-dir "$output" \
+            --version "$VERSION" --tool-dir "$DEVECO_SDK_HOME/default/openharmony/toolchains/lib"
+          {
+            echo "hap=$output/msime-harmony-${VERSION}.hap"
+            echo "app=$output/msime-harmony-${VERSION}.app"
+            echo "sums=$output/SHA256SUMS"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-harmony-${{ steps.version.outputs.value }}
-          path: ${{ steps.hap.outputs.path }}
+          path: |
+            ${{ steps.signing.outputs.hap || steps.hap.outputs.path }}
+            ${{ steps.signing.outputs.sums }}
+          if-no-files-found: error
+      # APP 是应用市场上传材料，放 workflow artifact，不混在用户下载的 HAP 附件里。
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ inputs.publish }}
+        with:
+          name: appgallery-msime-harmony-${{ steps.version.outputs.value }}
+          path: ${{ steps.signing.outputs.app }}
           if-no-files-found: error
       # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent HarmonyOS release
         if: ${{ inputs.publish }}
         # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", HAP: "${{ steps.hap.outputs.path }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", HAP: "${{ steps.signing.outputs.hap }}", SUMS: "${{ steps.signing.outputs.sums }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="harmony-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
@@ -113,4 +153,5 @@ jobs:
           stable='^harmony-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'harmony-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform harmony --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "HarmonyOS ${RELEASE}" release-notes.md "$HAP"
+          test -s "$HAP" && test -s "$SUMS"
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "HarmonyOS ${RELEASE}" release-notes.md "$HAP" "$SUMS"
