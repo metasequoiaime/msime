@@ -11458,6 +11458,42 @@ group("the language editions offer only their own scheme and no handwriting", ()
   );
 });
 
+group("leaving handwriting from the tile returns to the scheme it was entered from (#9703)", () => {
+  const offered = [
+    KeyboardScheme.QUANPIN,
+    KeyboardScheme.QUANPIN_NINE_KEY,
+    KeyboardScheme.XIAOHE,
+    KeyboardScheme.HANDWRITING,
+  ];
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.QUANPIN_NINE_KEY, offered) ===
+      KeyboardScheme.QUANPIN_NINE_KEY,
+    "全拼 9 键 comes back to 全拼 9 键, not the first card",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.XIAOHE, offered) === KeyboardScheme.XIAOHE,
+    "and 小鹤双拼 to 小鹤双拼",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(null, offered) === KeyboardScheme.QUANPIN,
+    "handwriting picked from the picker leaves for the first card that is not handwriting",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.JAPANESE, offered) === KeyboardScheme.QUANPIN,
+    "a scheme removed while writing is not brought back",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.HANDWRITING, offered) ===
+      KeyboardScheme.QUANPIN,
+    "handwriting is never its own way out",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(null, [KeyboardScheme.HANDWRITING], wubiEdition) ===
+      KeyboardScheme.WUBI,
+    "with only handwriting left the edition's own scheme is the way out",
+  );
+});
+
 group("a device's own buttons are not a keyboard", () => {
   // Every phone enumerates a keyboard source for volume and power. Only the type separates them,
   // which is the whole reason this decision is not `sources.includes("keyboard")`.

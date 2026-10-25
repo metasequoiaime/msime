@@ -739,6 +739,8 @@ struct KeyboardView {
   private heightDragOffset: number = 0;
   /** 「手写」磁贴切换前的方案，再次点按回到它；键盘不是由该磁贴切换过来时为 null。 */
   private schemeBeforeHandwriting: SchemeDefinition | null = null;
+  /** 「手写」磁贴切换前键盘是否在英文（英文 26 键、英文 9 键），再次点按时一并回到英文（#9703）。 */
+  private englishBeforeHandwriting: boolean = false;
   /** Glide typing (滑行输入): the letter keys a..z in window coordinates, as their area callbacks last reported them; null until a key has been laid out. */
   private glideKeys: (GlideKeyRect | null)[] = GlideTypingPolicy.emptyKeys();
   /** The finger being watched for a glide, from its touch-down on a letter key until it lifts; -1 while none is. */
@@ -2310,28 +2312,34 @@ struct KeyboardView {
   }
 
   /**
-   * 功能面板的「手写」磁贴：切换到手写板，或切回该磁贴切换前的方案。Android 的磁贴也这样来回切换；若键盘是经其他途径进入手写的，切回的是选择器提供的第一个其他方案，与 Android 的选法相同。
+   * 功能面板的「手写」磁贴：切换到手写板，或切回该磁贴切换前的方案和中英状态（#9703）。Android、iOS 的磁贴也这样来回切换；若键盘是经其他途径进入手写的，切回的是选择器提供的第一个其他方案（`KeyboardScheme.handwritingReturn`）。原先只记方案不记英文，从英文键盘进入手写再关掉会落到中文。
    */
   private toggleHandwritingScheme(): void {
     if (this.handwritingSelected()) {
-      const back: SchemeDefinition = this.schemeBeforeHandwriting ?? this.firstNonHandwritingScheme();
-      this.selectScheme(back);
+      const before: SchemeDefinition | null = this.schemeBeforeHandwriting;
+      const english: boolean = this.englishBeforeHandwriting;
+      const back: SchemeDefinition = KeyboardScheme.handwritingReturn(before, this.offeredSchemes());
+      if (this.selectScheme(back) && english && before !== null
+        && back.preferenceId === before.preferenceId && !this.english) {
+        this.toggleTouchLanguage();
+      }
       return;
     }
     const previous: SchemeDefinition = this.scheme;
-    if (this.selectScheme(KeyboardScheme.HANDWRITING)
-      && previous.preferenceId !== KeyboardScheme.HANDWRITING.preferenceId) {
+    const previousEnglish: boolean = this.english;
+    const remembered: SchemeDefinition | null = this.schemeBeforeHandwriting;
+    const rememberedEnglish: boolean = this.englishBeforeHandwriting;
+    if (!this.selectScheme(KeyboardScheme.HANDWRITING)) {
+      return;
+    }
+    if (previous.preferenceId !== KeyboardScheme.HANDWRITING.preferenceId) {
       this.schemeBeforeHandwriting = previous;
+      this.englishBeforeHandwriting = previousEnglish;
+    } else {
+      // 英文盖在手写上时点磁贴只是退出英文，回到手写板；经磁贴进入手写前的那个方案仍然有效。
+      this.schemeBeforeHandwriting = remembered;
+      this.englishBeforeHandwriting = rememberedEnglish;
     }
-  }
-
-  private firstNonHandwritingScheme(): SchemeDefinition {
-    for (const candidate of this.offeredSchemes()) {
-      if (candidate.preferenceId !== KeyboardScheme.HANDWRITING.preferenceId) {
-        return candidate;
-      }
-    }
-    return KeyboardScheme.fallback();
   }
 
   /**
