@@ -6,15 +6,18 @@
 
 namespace msime::windows {
 
-// Server 的后台更新检查和新版本提醒。一个工作线程在启动后 `update_first_check_delay` 第一次调用 `msime_client_update_background_check`，之后每 `update_check_interval` 调用一次，通道变了马上调用；联网、节流和只提醒一次都在共享层，不在输入线程、也不在消息循环所在的线程上联网。共享层让提醒时，在创建它的线程（Server 的消息循环线程）上加一个临时的通知区域图标并弹出气泡（Windows 10/11 显示为通知），点气泡或图标打开设置窗口的「关于」页，气泡超时、被关掉或点过以后删掉图标；不显示任何窗口，不抢焦点。
+// Server 的后台更新检查和新版本提醒。一个工作线程在启动后 `update_first_check_delay` 第一次调用 `msime_client_update_background_check`，之后每 `update_check_interval` 调用一次；通道变了以后等 `update_channel_settle` 再调用，不在用户刚在「关于」页换完通道时又弹一条重复的通知。联网、节流和只提醒一次都在共享层，不在输入线程、也不在消息循环所在的线程上联网。共享层让提醒时，在创建它的线程（Server 的消息循环线程）上加一个临时的通知区域图标并弹出气泡（Windows 10/11 显示为通知）：系统正不接受通知（全屏、演示、锁屏、安静时间）时先留在内存里，等它接受了再弹，最多等 `update_notice_max_defer`。共享层返回时已经把这个构建记成提醒过了，所以气泡超时或被关掉以后图标仍然留着（Windows 10/11 删掉图标会连操作中心里的那条通知一起删掉），点气泡或图标打开设置窗口的「关于」页并删掉图标，右键图标只删掉图标，一天后自动删掉；不显示任何窗口，不抢焦点。
 class UpdateNotifier {
 public:
   struct Options {
-    // 共享层的请求里除通道以外的部分：状态根（UTF-8）、是不是 Windows 7 构建、版本号、版本 id。
+    // 共享层的请求里除通道以外的部分：本用户的更新记录目录（UTF-8，common/UpdateRecordDirectory.h）、是不是 Windows 7 构建、本程序编译成的架构（只有 Windows 7 构建放进请求，见 update_background_request）、版本号、版本 id。
     std::string directory;
     bool windows7 = false;
+    std::string architecture;
     std::string version;
     std::string edition;
+    // 通知标题里的产品名（MSIME_EDITION_DISPLAY_NAME），几个版本同时安装时分得清是哪个。
+    std::wstring product_name;
     // 偏好里现在的通道（stable、beta、nightly），在工作线程上调用，必须线程安全。
     std::function<std::string()> channel;
     // 点了气泡或图标：打开设置窗口的「关于」页，打不开时返回 false，改用浏览器打开发布页。在消息循环线程上调用。

@@ -6,6 +6,7 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -26,9 +27,11 @@ constexpr UINT ready_message = WM_APP + 0x31;
 // 通知图标的回调消息；用 NOTIFYICON_VERSION_4，事件在 lParam 的低字。
 constexpr UINT icon_message = WM_APP + 0x32;
 constexpr UINT icon_id = 1;
-// 系统没有发来超时或关闭（例如气泡被勿扰模式压下）时，图标最多留这么久。辅助功能里「通知显示时间」最长五分钟，再多留一分钟。
+// 用户既没点也没右键时，图标最多留一天。气泡超时、被关掉都不删图标：共享层已经把这个构建记成提醒过，Windows 10/11 删掉图标会连操作中心里的那条通知一起删掉，被勿扰或专注助手压下的通知也只在操作中心里；一天后共享层早已不会再为它提醒，「关于」页仍显示它，图标不必在通知区域里一直挂着。
 constexpr UINT_PTR removal_timer = 1;
-constexpr UINT removal_delay_ms = 6 * 60 * 1000;
+constexpr UINT removal_delay_ms = 24 * 60 * 60 * 1000;
+// 系统不接受通知时，每 `update_notice_retry` 再看一次能不能弹出。
+constexpr UINT_PTR defer_timer = 2;
 // 停下时等工作线程多久：它在联网时可能要十几秒才回来，不能让 Server 退出卡在这里。
 constexpr std::chrono::seconds stop_wait{2};
 
@@ -56,6 +59,10 @@ struct UpdateNotifier::State {
   bool icon_shown = false;
   // 正在显示的那条提醒，点了以后打开它。
   std::optional<UpdateNotice> shown;
+  // 系统不接受通知时留下、还没弹出的构建，从哪一刻开始等，以及等待的计时器是否在走。
+  std::optional<UpdateNotice> deferred;
+  std::chrono::steady_clock::time_point deferred_since{};
+  bool deferring = false;
   std::thread worker;
 };
 
@@ -75,7 +82,7 @@ void remove_icon(UpdateNotifier::State &state) {
 
 // 加图标（已经有一个时改它的内容）并弹出气泡。先不带气泡加上、设好 NOTIFYICON_VERSION_4，再改出气泡，保证回调从第一条起就是新格式。
 void show_notice(UpdateNotifier::State &state, const UpdateNotice &notice) {
-  const auto text = update_notification_text(notice);
+  const auto text = update_notification_text(notice, state.options.product_name);
   NOTIFYICONDATAW data{};
   data.cbSize = sizeof(data);
   data.hWnd = state.window;
@@ -84,7 +91,7 @@ void show_notice(UpdateNotifier::State &state, const UpdateNotice &notice) {
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
     data.uCallbackMessage = icon_message;
     data.hIcon = state.small_icon;
-    copy_text(data.szTip, text.title);
+    copy_text(data.szTip, text.tip);
     if (!Shell_NotifyIconW(NIM_ADD, &data)) {
       if (state.options.log)
         state.options.log("Update notification icon unavailable");
@@ -95,7 +102,7 @@ void show_notice(UpdateNotifier::State &state, const UpdateNotice &notice) {
     Shell_NotifyIconW(NIM_SETVERSION, &data);
   }
   data.uFlags = NIF_INFO | NIF_TIP | NIF_SHOWTIP;
-  copy_text(data.szTip, text.title);
+  copy_text(data.szTip, text.tip);
   copy_text(data.szInfoTitle, text.title);
   copy_text(data.szInfo, text.body);
   data.dwInfoFlags = NIIF_INFO;
@@ -111,6 +118,48 @@ void show_notice(UpdateNotifier::State &state, const UpdateNotice &notice) {
   }
   state.shown = notice;
   SetTimer(state.window, removal_timer, removal_delay_ms, nullptr);
+}
+
+// 系统现在是否接受通知。全屏游戏或演示（QUNS_BUSY、QUNS_RUNNING_D3D_FULL_SCREEN、QUNS_PRESENTATION_MODE）、锁屏或屏保（QUNS_NOT_PRESENT）、新用户登录后的安静时间（QUNS_QUIET_TIME）、全屏的商店应用都不算；查询失败时按接受处理，不因此不提醒。
+bool system_accepts_notifications() {
+  QUERY_USER_NOTIFICATION_STATE notification_state{};
+  if (FAILED(SHQueryUserNotificationState(&notification_state)))
+    return true;
+  return notification_state == QUNS_ACCEPTS_NOTIFICATIONS;
+}
+
+// 把留下的构建弹出来：系统接受通知或者已经等满 `update_notice_max_defer` 时弹出，否则开着计时器，过一会儿再来。
+void show_deferred(UpdateNotifier::State &state) {
+  if (!state.deferred)
+    return;
+  const auto waited = std::chrono::duration_cast<std::chrono::minutes>(std::chrono::steady_clock::now() -
+                                                                       state.deferred_since);
+  if (!update_notice_may_show(system_accepts_notifications(), waited)) {
+    if (!state.deferring) {
+      state.deferring = true;
+      SetTimer(state.window, defer_timer,
+               static_cast<UINT>(std::chrono::duration_cast<std::chrono::milliseconds>(update_notice_retry).count()),
+               nullptr);
+      if (state.options.log)
+        state.options.log("Update notification deferred until the system accepts notifications");
+    }
+    return;
+  }
+  if (state.deferring) {
+    KillTimer(state.window, defer_timer);
+    state.deferring = false;
+  }
+  const UpdateNotice notice = std::move(*state.deferred);
+  state.deferred.reset();
+  show_notice(state, notice);
+}
+
+// 工作线程交来一个要提醒的构建。已经有一个在等时换成新的，但从最早那个开始计时，等待的上限不因此往后推。
+void present(UpdateNotifier::State &state, UpdateNotice notice) {
+  if (!state.deferred)
+    state.deferred_since = std::chrono::steady_clock::now();
+  state.deferred = std::move(notice);
+  show_deferred(state);
 }
 
 void open_shown(UpdateNotifier::State &state) {
@@ -135,7 +184,7 @@ LRESULT CALLBACK window_procedure(HWND window, UINT message, WPARAM wparam, LPAR
       state->pending.reset();
     }
     if (notice)
-      show_notice(*state, *notice);
+      present(*state, std::move(*notice));
     return 0;
   }
   case icon_message: {
@@ -143,14 +192,18 @@ LRESULT CALLBACK window_procedure(HWND window, UINT message, WPARAM wparam, LPAR
     // 点了气泡（Windows 10/11 的通知）或者点了图标本身：打开「关于」页。
     if (event == NIN_BALLOONUSERCLICK || event == NIN_SELECT || event == NIN_KEYSELECT)
       open_shown(*state);
-    // 气泡超时、被关掉、或者在图标上点了右键：不打开任何东西，只收起图标。
-    else if (event == NIN_BALLOONTIMEOUT || event == NIN_BALLOONHIDE || event == WM_CONTEXTMENU)
+    // 在图标上点了右键：不打开任何东西，只收起图标。气泡超时（NIN_BALLOONTIMEOUT）、被关掉或收起（NIN_BALLOONHIDE）时图标留着，见 removal_timer。
+    else if (event == WM_CONTEXTMENU)
       remove_icon(*state);
     return 0;
   }
   case WM_TIMER:
     if (wparam == removal_timer) {
       remove_icon(*state);
+      return 0;
+    }
+    if (wparam == defer_timer) {
+      show_deferred(*state);
       return 0;
     }
     break;
@@ -171,11 +224,15 @@ void log_line(const UpdateNotifier::State &state, const std::string &line) {
     state.options.log(line);
 }
 
-// 工作线程：到点或者通道变了就调用一次共享层，有要提醒的构建就交给窗口。共享层回答「关掉了」时结束（开发构建、MSIME_DISABLE_UPDATE_CHECK 在本进程里不会再变）。
+std::string current_channel(const UpdateNotifier::State &state) {
+  return state.options.channel ? state.options.channel() : std::string("stable");
+}
+
+// 工作线程：到点就调用一次共享层，有要提醒的构建就交给窗口。通道变了以后把下一次调用推到 `update_channel_settle` 之后（已经更晚的不提前），到时共享层见到新通道会立刻重查。共享层回答「关掉了」时结束（开发构建、MSIME_DISABLE_UPDATE_CHECK 在本进程里不会再变）。
 void run_worker(const std::shared_ptr<UpdateNotifier::State> &state) {
   using clock = std::chrono::steady_clock;
   auto next = clock::now() + update_first_check_delay;
-  std::string last_channel;
+  std::string last_channel = current_channel(*state);
   bool failure_logged = false;
   std::unique_lock<std::mutex> lock(state->mutex);
   while (!state->stopping) {
@@ -183,16 +240,20 @@ void run_worker(const std::shared_ptr<UpdateNotifier::State> &state) {
     if (state->stopping)
       break;
     lock.unlock();
-    const std::string channel = state->options.channel ? state->options.channel() : std::string("stable");
+    const std::string channel = current_channel(*state);
     const auto now = clock::now();
-    if (now < next && (last_channel.empty() || channel == last_channel)) {
+    if (channel != last_channel) {
+      last_channel = channel;
+      next = (std::max)(next, now + std::chrono::duration_cast<clock::duration>(update_channel_settle));
+    }
+    if (now < next) {
       lock.lock();
       continue;
     }
-    last_channel = channel;
     next = now + update_check_interval;
     const auto body = update_background_request(state->options.directory, state->options.windows7,
-                                                state->options.version, state->options.edition, channel)
+                                                state->options.version, state->options.edition, channel,
+                                                state->options.architecture)
                           .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
     std::string response;
     if (auto owned = host_api::own_string(msime_client_update_background_check(

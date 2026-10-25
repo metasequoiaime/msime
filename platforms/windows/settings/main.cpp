@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <wincodec.h>
 #include "../common/StateDirectory.h"
+#include "../common/UpdateRecordDirectory.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -5577,9 +5578,9 @@ private:
     });
   }
 
-  // 「版本更新」标签画出来、还没有结果时，先显示 Server 后台检查（UpdateNotifier）已经找到、仍比本版本新的构建（`msime_client_update_pending`，只读状态根里的 update-check.json，不联网），点通知打开这一页时用户直接看到是哪个版本。读文件也放在 UI 线程之外；回来时用户已经点了检查、换了通道或者已有结果就不覆盖。
+  // 「版本更新」标签画出来、还没有结果时，先显示 Server 后台检查（UpdateNotifier）已经找到、仍比本版本新的构建（`msime_client_update_pending`，只读本用户更新记录目录里的 update-check.json，与 Server 写的是同一个目录（common/UpdateRecordDirectory.h），不联网），点通知打开这一页时用户直接看到是哪个版本。读文件也放在 UI 线程之外；回来时用户已经点了检查、换了通道或者已有结果就不覆盖。
   fire_and_forget load_pending_update() {
-    const auto directory = state_directory();
+    const auto directory = msime::windows::update_record_directory();
     if (directory.empty() || !directory.is_absolute())
       co_return;
     const auto generation = update_generation_;

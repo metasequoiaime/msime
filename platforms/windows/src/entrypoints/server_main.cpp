@@ -56,6 +56,7 @@
 #include "TrayMenuDispatch.h"
 #include "TrayMenuWindow.h"
 #include "UpdateNotifier.h"
+#include "../../common/UpdateRecordDirectory.h"
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
 #include "VoiceInputSession.h"
@@ -2162,19 +2163,24 @@ int wmain(int argc, wchar_t **argv) {
     bool quns_cost_logged = false;
     uint64_t tsf_config_applied_revision = 0;
     uint64_t caps_lock_applied_revision = 0;
-    // 后台更新检查只在受管理的 Server 里做：预览实例是开发和测试用的，不该替用户联网，也不该弹通知。线程五分钟后第一次调用共享层，之后每小时一次（UpdateNotifier.h）；有新版本时弹一个临时的通知区域气泡，点它和托盘的「关于」一样打开设置窗口的「关于」页。建不出它的窗口只记一条诊断，不影响输入。
+    // 后台更新检查只在受管理的 Server 里做：预览实例是开发和测试用的，不该替用户联网，也不该弹通知。线程五分钟后第一次调用共享层，之后每小时一次（UpdateNotifier.h）；有新版本时弹一个临时的通知区域气泡，点它和托盘的「关于」一样打开设置窗口的「关于」页。记录放在本用户的目录（UpdateRecordDirectory.h）而不是状态根：安装后的状态根整台机器共用，几个用户共用一份「提醒过哪个构建」会让后登录的用户收不到通知。拿不到这个目录或建不出窗口时只记一条诊断，不影响输入。
     startup_stage = "update_notifier";
     std::optional<UpdateNotifier> update_notifier;
     if (production) {
       try {
+        const auto record_directory = msime::windows::update_record_directory();
+        if (record_directory.empty())
+          throw std::runtime_error("Update record directory unavailable");
         UpdateNotifier::Options update_options;
-        const auto state_root_utf8 = config.state_root.u8string();
-        update_options.directory.assign(state_root_utf8.begin(), state_root_utf8.end());
+        const auto record_directory_utf8 = record_directory.u8string();
+        update_options.directory.assign(record_directory_utf8.begin(), record_directory_utf8.end());
 #if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
         update_options.windows7 = true;
 #endif
+        update_options.architecture = std::string(update_build_architecture());
         update_options.version = MSIME_WINDOWS_VERSION;
         update_options.edition = MSIME_EDITION_ID;
+        update_options.product_name = MSIME_EDITION_DISPLAY_NAME;
         update_options.channel = [update_channel] {
           std::lock_guard<std::mutex> lock(update_channel->first);
           return update_channel->second;
