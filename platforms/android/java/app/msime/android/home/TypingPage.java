@@ -267,6 +267,13 @@ public final class TypingPage extends ReloadingDetailPage {
             languages.addView(KeyboardSheets.badgeNavRow(context, language.badge, language.title, null,
                 shown == null ? null : schemeLabel(shown, preferences),
                 () -> showLanguage(language, offered, applied, preferences, state)));
+            if (language == Language.SHUANGPIN && offered.contains(KeyboardScheme.NINE_KEY_SHUANGPIN)) {
+                // 九键双拼是一种键盘加一张表：面板里只选中这个键盘，表在这一页里选、编辑、导入和导出，与 iOS 的「九键双拼方案与自定义」相同。
+                String table = NineKeyShuangpinKeypad.normalizedProfile(InputViewValuePolicy.textOr(preferences,
+                    "nine_key_shuangpin_profile", NineKeyShuangpinKeypad.DEFAULT_PROFILE));
+                languages.nav("九键双拼方案与自定义", null, NineKeyShuangpinKeypad.profileTitle(table),
+                    () -> SettingsNavigator.open(context, PageId.NINE_KEY_SHUANGPIN, null));
+            }
             if (language == Language.JAPANESE && offered.contains(KeyboardScheme.JAPANESE_NINE_KEY)) {
                 InputFeatureToggle toggle = InputFeatureToggle.JAPANESE_TOGGLE_INPUT;
                 languages.toggle(toggle.title(), toggle.description(),
@@ -508,65 +515,19 @@ public final class TypingPage extends ReloadingDetailPage {
             JSONObject preferences, State state) {
         Context context = requireContext();
         OptionSheet sheet = new OptionSheet(context, language.title, offered.size() > 1 ? "选择输入方案" : null);
+        // 每行的方案直接列在这一层：双拼列小鹤、自然码、微软、首道和九键双拼，五笔列 86 和 98。再套一层子菜单，「双拼」行、方案面板、双拼面板就成了三层（双拼布局原先还在第四层）。双拼的 26／14／18 键布局在键盘页「中文键盘」里选，九键双拼的表在「九键双拼方案与自定义」页里选，与 iOS、鸿蒙相同。
         if (language == Language.SHUANGPIN) {
-            List<KeyboardScheme> shuangpin = new ArrayList<>(SHUANGPIN.size());
-            for (KeyboardScheme scheme : SHUANGPIN) {
-                if (offered.contains(scheme)) shuangpin.add(scheme);
-            }
-            if (!shuangpin.isEmpty()) {
-                KeyboardScheme shown = shuangpin.contains(applied) ? applied : shuangpin.get(0);
-                sheet.submenu("双拼（" + shuangpinName(shown) + "）", shuangpin.contains(applied), () -> {
-                    OptionSheet next = new OptionSheet(context, "双拼", "选择双拼方案");
-                    for (KeyboardScheme scheme : shuangpin)
-                        next.option(shuangpinName(scheme), scheme == applied, () -> applyScheme(scheme, null));
-                    boolean fourteen = "fourteen_key".equals(InputViewValuePolicy.textOr(
-                        preferences, "touch_shuangpin_layout", "twenty_six_key"));
-                    boolean eighteen = "eighteen_key".equals(InputViewValuePolicy.textOr(
-                        preferences, "touch_shuangpin_layout", "twenty_six_key"));
-                    next.submenu("键盘布局（" + (eighteen ? "18 键" : fourteen ? "14 键" : "26 键") + "）", false, () -> {
-                        OptionSheet layouts = new OptionSheet(context, "双拼键盘布局", "保留当前双拼方案");
-                        layouts.option("26 键", !fourteen && !eighteen, () -> savePreferences(
-                            values -> values.put("touch_shuangpin_layout", "twenty_six_key")));
-                        layouts.option("14 键", fourteen, () -> savePreferences(
-                            values -> values.put("touch_shuangpin_layout", "fourteen_key")));
-                        layouts.option("18 键", eighteen, () -> savePreferences(
-                            values -> values.put("touch_shuangpin_layout", "eighteen_key")));
-                        return layouts;
-                    });
-                    return next;
-                });
-            }
-            if (offered.contains(KeyboardScheme.NINE_KEY_SHUANGPIN)) {
-                // 九键双拼是一种键盘加一张表：子菜单选表（选中即切到九键双拼键盘），自定义表在「九键双拼」页里编辑、导入和导出。
-                String table = NineKeyShuangpinKeypad.normalizedProfile(InputViewValuePolicy.textOr(preferences,
-                    "nine_key_shuangpin_profile", NineKeyShuangpinKeypad.DEFAULT_PROFILE));
-                boolean nineKeyShuangpin = applied == KeyboardScheme.NINE_KEY_SHUANGPIN;
-                boolean customSaved = preferences.optJSONObject("nine_key_shuangpin_custom_profile") != null;
-                sheet.submenu("九键双拼（" + NineKeyShuangpinKeypad.profileTitle(table) + "）", nineKeyShuangpin, () -> {
-                    OptionSheet next = new OptionSheet(context, "九键双拼", "选择九键双拼的表");
-                    for (String option : NineKeyShuangpinKeypad.BUILTIN_PROFILES)
-                        next.option(NineKeyShuangpinKeypad.profileTitle(option), nineKeyShuangpin && option.equals(table),
-                            () -> applyNineKeyShuangpin(option));
-                    if (customSaved)
-                        next.option("自定义", nineKeyShuangpin && NineKeyShuangpinKeypad.CUSTOM_PROFILE.equals(table),
-                            () -> applyNineKeyShuangpin(NineKeyShuangpinKeypad.CUSTOM_PROFILE));
-                    next.option("编辑自定义表…", false,
-                        () -> SettingsNavigator.open(context, PageId.NINE_KEY_SHUANGPIN, null));
-                    return next;
-                });
-            }
+            for (KeyboardScheme scheme : offered)
+                sheet.option(SHUANGPIN.contains(scheme) ? shuangpinName(scheme) : scheme.title(), scheme == applied,
+                    () -> applyScheme(scheme, null));
         } else if (language == Language.WUBI) {
             if (offered.contains(KeyboardScheme.WUBI)) {
                 String profile = KeyboardScheme.normalizedWubiProfile(
                     InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
                 boolean wubi = applied == KeyboardScheme.WUBI;
-                sheet.submenu("五笔（" + wubiName(profile) + "）", wubi, () -> {
-                    OptionSheet next = new OptionSheet(context, "五笔", "选择五笔方案");
-                    for (String option : List.of(KeyboardScheme.WUBI_86, KeyboardScheme.WUBI_98))
-                        next.option(wubiName(option), wubi && option.equals(profile),
-                            () -> applyScheme(KeyboardScheme.WUBI, option));
-                    return next;
-                });
+                for (String option : List.of(KeyboardScheme.WUBI_86, KeyboardScheme.WUBI_98))
+                    sheet.option(wubiName(option), wubi && option.equals(profile),
+                        () -> applyScheme(KeyboardScheme.WUBI, option));
             }
         } else {
             KeyboardScheme shown = language.schemes.contains(applied) ? applied : null;
@@ -577,24 +538,6 @@ public final class TypingPage extends ReloadingDetailPage {
         }
         sheet.destructive("移除" + language.title, () -> removeLanguage(language));
         sheet.show();
-    }
-
-    /** 切到九键双拼键盘，并选用 `table` 这张表。 */
-    private void applyNineKeyShuangpin(String table) {
-        HostTask.run(this, context -> {
-            JSONObject pending = SchemePreferences.withScheme(HostStore.loadPreferences(context),
-                KeyboardScheme.NINE_KEY_SHUANGPIN, null);
-            if (pending == null) return null;
-            try {
-                pending.getJSONObject("preferences").put("nine_key_shuangpin_profile", table);
-            } catch (JSONException error) {
-                return null;
-            }
-            return HostStore.savePreferences(context, pending);
-        }, saved -> {
-            if (saved == null) MsToast.show(requireContext(), "切换失败，保留当前方案");
-            reload();
-        });
     }
 
     private static String shuangpinName(KeyboardScheme scheme) {
