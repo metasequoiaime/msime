@@ -452,6 +452,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateCanvasSkin: ExternalCandidateSkin.Canvas?
   private var candidateCanvasRequestKey: Data?
   private var candidateCanvasEpoch: UInt64 = 0
+  /// Whether the top row shows candidates (or the reading, a diagnostic or the local mode) rather than the toolbar; set by `renderCandidateStrip`, read by `currentStripBackground`.
+  private var stripShowsCandidates = false
   private var candidateCanvasActive = true
   private var candidatePreeditGapConstraint: NSLayoutConstraint?
   private static let candidateCanvasQueue = DispatchQueue(label: "app.msime.candidate-canvas", qos: .userInitiated)
@@ -612,6 +614,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 根视图的内边距（`KeyboardFormFactor.padding`）：上、前、后、下。
   private var keyboardPaddingConstraints: [NSLayoutConstraint] = []
 
+  /// 按键音效包（`KeySoundPackPolicy`）：要哪个包、已经加载的样本和音量。偏好在键盘出现和重读之后由 `synchronizeKeySoundPack` 更新，按键时只读这几个缓存。
+  private let keySounds = KeyboardSoundPlayer()
+  private var wantedKeySoundPack: String?
+  private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
   private var keyFeedback: UIImpactFeedbackGenerator {
@@ -867,6 +873,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ = synchronizeTranslationRoute()
     synchronizeOnlineCandidatePreference()
     glideTypingEnabled = KeyboardLayoutPreference.glideTyping
+    // 完全访问和按键音开关都可能在两次出现之间变了；包先按会话手上的文档开始加载，重读之后选择变了再换。
+    synchronizeKeySoundPack()
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
     // Reload it off-thread so a fuzzy-pinyin change is visible the next time
@@ -887,6 +895,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeOnlineCandidatePreference()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
+      self.synchronizeKeySoundPack()
       let translationRouteChanged = self.synchronizeTranslationRoute()
       if translationSettingsChanged || translationRouteChanged {
         self.translations.cancel()
@@ -915,6 +924,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     handwriting.deactivate()
     snapshotWorker.stop()
+    // 按键音的播放器下次出现时重建，在那之前退回系统按键声。
+    keySounds.release()
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
     translations.clearCacheForMemoryPressure()
@@ -2372,8 +2383,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                    selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
         KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.soundEnabled,
                                        forKey: KeyboardFeedbackPreference.soundKey)
+        self?.synchronizeKeySoundPack()
         if KeyboardFeedbackPreference.soundEnabled {
-          // 系统只给开了完全访问的键盘播放按键音（`playInputClick`），没有权限时开关打开了也一声不响，要当场说明原因。
+          // 系统只给开了完全访问的键盘播放按键音（`playInputClick` 和音效包都是），没有权限时开关打开了也一声不响，要当场说明原因。
           if self?.hasFullAccess == false { self?.showDiagnostic("按键音需要开启键盘的“允许完全访问”。") }
           UIDevice.current.playInputClick()
         }
@@ -4800,7 +4812,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       spaceHoldMovesCursor = !spaceVoiceEnabled
       if !spaceHoldMovesCursor {
         countKeyPress(TypingKeyID.space)
-        playInputClick()
+        playInputClick(.space)
         startVoiceFromSpace(held: true, originY: hold.location(in: view).y)
       }
     }
@@ -5271,7 +5283,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .delete:
       // 笔画模式下先删笔画，删完了才删拼音。
       if nineKeyPanelStrokeMode && !currentNineKeyStrokes.isEmpty {
-        playInputClick()
+        playInputClick(.backspace)
         setNineKeyFilter(singleCharacter: currentNineKeySingleCharacter,
                          strokes: String(currentNineKeyStrokes.dropLast()))
       } else {
@@ -6000,7 +6012,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.flushPendingCharacters()
     flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
-    playInputClick()
+    playInputClick(.backspace)
     // Deleting document text may take the opening half of a pair with it; a backspace inside a spelling only edits the spelling.
     if !hasComposition { pairedPunctuation.clear() }
     if !isChineseMode {
@@ -6066,7 +6078,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if hasComposition && isChineseMode && inputScheme.editsBySyllable && !typesLetterGrid {
       didRepeatBackspace = true
-      playInputClick()
+      playInputClick(.backspace)
       render(session.segmentBackspace())
       if !hasComposition {
         backspaceRepeatTimer?.invalidate()
@@ -6078,7 +6090,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       backspaceRepeatTimer?.invalidate()
       backspaceRepeatTimer = nil
       didRepeatBackspace = true
-      playInputClick()
+      playInputClick(.backspace)
       render(session.cancel())
       return
     }
@@ -6224,7 +6236,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.flushPendingCharacters()
     flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
-    playInputClick()
+    playInputClick(.space)
     // A space right after a committed Chinese mark rewrites it as ASCII and is swallowed: the
     // user is correcting the mark they just typed, not typing a mark and then a space. Checked
     // before anything else claims the key, and before the English branch, because the mark it
@@ -6286,7 +6298,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     flushDeferredNineKeySnapshot()
     defer { finishTemporaryEnglish() }
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
-    playInputClick()
+    playInputClick(.enter)
     if inputScheme.isJapanese && hasComposition {
       let index = japaneseConversionIndex
       japaneseConversionIndex = nil
@@ -6716,6 +6728,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     exitLocalModeButton.isHidden = !isInLocalMode
     updateHanjaButton()
     let showsCandidates = isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
+    stripShowsCandidates = showsCandidates
+    compositionContainer?.backgroundColor = currentStripBackground(KeyboardTheme.current)
     // 内联高度调节条占据工具栏的位置；下面的按键照常可用，所以打字时候选仍会盖在两者之上显示。
     shortcutBar.isHidden = showsCandidates || inlineHeightBar != nil || toolbarRowHidden
     // 工具栏内容可以隐藏，但 iOS 键盘扩展不能在组字开始和结束时改变顶栏高度；否则 UIKit 会重排键盘，表现为键盘抖动，严重时还会重新选择输入法。
@@ -8162,6 +8176,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateToolbarActiveState()
   }
 
+  /// The top row's fill for what it shows now. With nothing to show it is the toolbar, part of the keyboard, so it takes the keyboard's own fill: the candidate palette's surface there put keyboard-coloured icons on, say, a white skin card over a dark keyboard, where they all but vanished. While a canvas panel is still decoding or failed to, the same holds.
+  private func currentStripBackground(_ skin: KeyboardTheme) -> UIColor {
+    guard stripShowsCandidates else { return Self.stripBackground(skin, palette: nil) }
+    return candidateCanvasSkin?.panelLoaded == true ? .clear : Self.stripBackground(skin, palette: candidatePalette)
+  }
+
   /// The top row sits straight on the keyboard in the design (dc.html `mobCands`, the 48px row); the desktop palette brings its own surface, and a keyboard design keeps a veil of its key fill so the candidates stay legible over a photo or pattern.
   static func stripBackground(_ skin: KeyboardTheme, palette: CandidatePalette?) -> UIColor {
     if let palette { return palette.surface }
@@ -8195,7 +8215,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       if node.accessibilityIdentifier == "nineKeySidebar" || node.accessibilityIdentifier == "candidateStrip" {
         node.backgroundColor = node.accessibilityIdentifier == "candidateStrip"
-          ? Self.stripBackground(skin, palette: candidatePalette)
+          ? currentStripBackground(skin)
           : skin.keyBackground.withAlphaComponent(0.6)
       }
       if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.secondary }
@@ -8304,7 +8324,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let skin = KeyboardTheme.current
     compositionContainer?.canvas = candidateCanvasSkin
     updateCandidateCanvasMetrics()
-    compositionContainer?.backgroundColor = candidateCanvasSkin?.panelLoaded == true ? .clear : Self.stripBackground(skin, palette: candidatePalette)
+    compositionContainer?.backgroundColor = currentStripBackground(skin)
     candidatePanel?.applyAppearance(palette: candidatePalette, canvas: candidateCanvasSkin)
     candidatePanel?.canvasVisible = candidateCanvasActive
     exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
@@ -8315,8 +8335,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateCanvasMetrics() {
     let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale)
-    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。
-    let textHeight = max(28, Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0)
+    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。下限是词块的最小高度：低于它时词块和首选高亮会伸出面板。
+    let textHeight = max(Self.candidateChipMinimumSize.height, Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0)
       + Self.glossHeight(lines: glossLineCount - 1) - 10)
     let gap = separateReadingRow ? min(candidateCanvasSkin?.lineGap ?? 0, max(0, shownTopRowHeight - readingHeight - textHeight)) : 0
     compositionContainer?.minimumContentHeight = textHeight + (separateReadingRow ? readingHeight + gap : 0)
@@ -8359,14 +8379,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if rows(pickerLandscape) != rows(isLandscape) { closeKeyboardPicker() }
   }
 
+  /// 按当前的按键音开关、完全访问和共享偏好（`plugins.key_sound` 的包和音量）决定要加载哪个音效包。同一个包不会重新加载，所以键盘每次出现、偏好每次重读之后都调用。
+  private func synchronizeKeySoundPack() {
+    let preferences = session.sharedPreferences
+    keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.volume(in: preferences))
+    wantedKeySoundPack = KeySoundPackPolicy.wantedPack(
+      soundEnabled: KeyboardFeedbackPreference.soundEnabled, fullAccess: hasFullAccess, preferences: preferences)
+    keySounds.want(wantedKeySoundPack)
+  }
+
   @objc private func prepareKeyFeedback() {
     lastKeyTouchTime = ProcessInfo.processInfo.systemUptime
     if KeyboardFeedbackPreference.hapticsEnabled { keyFeedback.prepare() }
   }
 
-  private func playInputClick() {
-    if KeyboardFeedbackPreference.soundEnabled {
-      UIDevice.current.playInputClick()
+  /// 按键音按 `KeySoundPackPolicy.playback` 出声：有完全访问、选中的包已经加载好时播包里这一类按键的样本，密码框里一律播普通键的；否则退回系统按键声。
+  private func playInputClick(_ keyClass: KeySoundClass = .standard) {
+    // 普通键在密码框里外都播同一个样本，只有空格、回车和退格才需要问一下输入框。
+    let playback = KeySoundPackPolicy.playback(
+      soundEnabled: KeyboardFeedbackPreference.soundEnabled, wanted: wantedKeySoundPack, loaded: keySounds.loaded,
+      keyClass: keyClass, secure: keyClass != .standard && isCredentialField)
+    switch playback {
+    case .silent: break
+    case .system: UIDevice.current.playInputClick()
+    case .sample(let file): if !keySounds.play(file, gain: keySoundGain) { UIDevice.current.playInputClick() }
     }
     if KeyboardFeedbackPreference.hapticsEnabled {
       KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)

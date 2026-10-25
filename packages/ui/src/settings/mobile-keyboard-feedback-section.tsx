@@ -3,6 +3,8 @@ import { GroupList, Row, Select } from "../core/platform-controls";
 import { EnglishSuggestionsSection } from "./english-suggestions-section";
 import { SwitchRow } from "./switch-row";
 import { ActionButton } from "./action-button";
+import { SelectRow } from "./select-row";
+import type { PluginPackage } from "./plugin-types";
 
 import {
   mobileKeyboardFeedbackControlState,
@@ -16,6 +18,15 @@ export type {
   HandwritingStrokeColor,
 } from "./mobile-keyboard-feedback";
 
+/** 「按键音」下「音效」行的数据：当前选中的包和可选的包。 */
+export interface MobileKeySoundPackChoice {
+  /** `plugins.key_sound.pack`。 */
+  selected: string;
+  /** 目录里的按键音效包（`touchKeySoundPacks`），不含旋律包。 */
+  packs: readonly PluginPackage[];
+  onSelect: (pack: string) => void;
+}
+
 export interface MobileKeyboardFeedbackSectionProps {
   value: MobileKeyboardFeedback;
   busy: boolean;
@@ -23,6 +34,8 @@ export interface MobileKeyboardFeedbackSectionProps {
   /** 是否在这一组里画 iOS 的「英文建议」，默认跟随 `ios`。设置窗口把它放在输入页「候选与联想」组，所以屏幕键盘页传 false。 */
   showEnglishSuggestions?: boolean;
   canPreview: boolean;
+  /** 触屏键盘按所选音效包发按键音的宿主（`HostCapabilities.touch_key_sound_packs`）读到目录后给出；缺省时不画「音效」行。 */
+  keySoundPack?: MobileKeySoundPackChoice;
   onChange: (value: MobileKeyboardFeedback) => void;
   onPreview: () => void;
 }
@@ -49,6 +62,7 @@ export function MobileKeyboardFeedbackSection({
   ios,
   showEnglishSuggestions = ios,
   canPreview,
+  keySoundPack,
   onChange,
   onPreview,
 }: MobileKeyboardFeedbackSectionProps) {
@@ -59,14 +73,15 @@ export function MobileKeyboardFeedbackSection({
         <SwitchRow
           title="按键音"
           description={
-            ios
-              ? "需要为键盘开启“允许完全访问”，并受系统键盘声音和静音设置控制"
-              : "按键音跟随媒体音量"
+            ios ? "需要为键盘开启“允许完全访问”；跟随静音模式和媒体音量" : "按键音跟随媒体音量"
           }
           disabled={busy}
           checked={value.soundEnabled}
           onChange={(checked) => onChange({ ...value, soundEnabled: checked })}
         />
+        {keySoundPack && (
+          <KeySoundPackRow choice={keySoundPack} disabled={busy || !value.soundEnabled} />
+        )}
         {state.hapticsVisible && (
           <SwitchRow
             title="按键振动"
@@ -110,5 +125,32 @@ export function MobileKeyboardFeedbackSection({
         )}
       </SettingsRowStack>
     </GroupList>
+  );
+}
+
+/** 「音效」：按键音用哪个音效包。只列按键音效包；选中的包不在目录里（已删除）时照实标出，不让选择框显示成第一项。 */
+function KeySoundPackRow({
+  choice,
+  disabled,
+}: {
+  choice: MobileKeySoundPackChoice;
+  disabled: boolean;
+}) {
+  const listed = choice.packs.some((pack) => pack.id === choice.selected);
+  return (
+    <SelectRow
+      title="音效"
+      aria-label="音效"
+      disabled={disabled}
+      value={choice.selected}
+      onChange={(event) => choice.onSelect(event.target.value)}
+    >
+      {!listed && <option value={choice.selected}>{`${choice.selected}（未找到）`}</option>}
+      {choice.packs.map((pack) => (
+        <option key={pack.id} value={pack.id}>
+          {pack.name}
+        </option>
+      ))}
+    </SelectRow>
   );
 }

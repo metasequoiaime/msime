@@ -28,6 +28,7 @@ import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import app.msime.android.NativeClient;
 import app.msime.android.StatisticsAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
@@ -130,8 +131,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             reload();
             return;
         }
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        int authenticators = SystemAuthenticators.allowed();
         Context context = requireContext();
         if (BiometricManager.from(context).canAuthenticate(authenticators)
                 != BiometricManager.BIOMETRIC_SUCCESS) {

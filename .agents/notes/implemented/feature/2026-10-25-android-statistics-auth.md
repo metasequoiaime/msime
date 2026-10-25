@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-统计页每次视图进入先调用 AndroidX `BiometricPrompt`，允许 `BIOMETRIC_STRONG | DEVICE_CREDENTIAL`；认证成功后才读取和显示统计数据。认证取消、失败或不可用时不加载统计。视图销毁或离开页面后清除授权，下一次进入重新认证；认证请求随视图销毁取消，迟到回调不启动加载。
+统计页每次视图进入先调用 AndroidX `BiometricPrompt`，允许强生物识别或锁屏凭据（`SystemAuthenticators.allowed()`，Android 9、10 上为 AndroidX 支持的弱生物识别或锁屏凭据，理由见[剪贴板操作认证](2026-10-25-android-clipboard-operations-auth.md)）；认证成功后才读取和显示统计数据。认证取消、失败或不可用时不加载统计。视图销毁或离开页面后清除授权，下一次进入重新认证；回到前台时始终走同一条可见生命周期，确保认证后的读取失败也能在下一次进入重试；认证请求随视图销毁取消，迟到回调不启动加载。
 
 认证状态由 `StatisticsAuthenticationPolicy` 表达并以 smoke 覆盖，页面负责生命周期、系统认证和原有加载流程。
 
@@ -25,7 +25,7 @@ Status: implemented
 
 进入统计页多一个系统认证步骤，离开后再次进入需重新确认；统计计算、上传和清空操作仍复用原有实现。新增 Biometric 依赖和生命周期状态。真实 Android 模拟器验收仍需按 Android 改动门禁在合并前完成。
 
-验证：JDK 21 下 `compileFullDebugJavaWithJavac` 成功；`platforms/android/check-host.sh` 成功，主机 smoke 和设备套件源码检查通过。
+验证：JDK 21 下 `compileFullDebugJavaWithJavac` 成功；`platforms/android/check-host.sh` 成功，主机 smoke 和设备套件源码检查通过；统计页回前台契约要求 `onBecameVisible()` 无条件重试认证读取。
 
 ## Alternatives considered
 

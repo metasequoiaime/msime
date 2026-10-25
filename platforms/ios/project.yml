@@ -270,6 +270,11 @@ targets:
         buildPhase: resources
         type: folder
         optional: true
+      # stage-resources.sh 暂存的内置按键音包（`mode = "keys"` 的那几个，连同各自的 plugin.toml 许可），键盘按选中的音效播放；设置 App 从内嵌的键盘扩展里读同一份来列出音效和试听。
+      - path: ../../target/ios/sound-packs
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
       # 表情面板的水杉娘表情包：66 张 320px 透明 WebP 和清单，三个手机键盘共用仓库里的同一份。
@@ -317,6 +322,11 @@ targets:
         optional: true
       # Staged by stage-resources.sh beside EngineResources: the settings app reads 背单词's bundled wordbooks from the wordbooks/ sibling of the EngineResources it finds in the keyboard extension. Empty when none were built.
       - path: ../../target/ios/wordbooks
+        buildPhase: resources
+        type: folder
+        optional: true
+      # 同键盘扩展：按键音包的测试经 `msime_client_key_sound_pack` 读这一份。
+      - path: ../../target/ios/sound-packs
         buildPhase: resources
         type: folder
         optional: true

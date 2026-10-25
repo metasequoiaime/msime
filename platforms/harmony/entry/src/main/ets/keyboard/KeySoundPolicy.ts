@@ -422,6 +422,15 @@ export class KeySoundPolicy {
     return own ?? sounds.default;
   }
 
+  /** 设置页选了一个包后试听的那一声：按键包的普通键样本，与触屏上按一个字母键听到的相同。旋律包没有按键样本，包里没有普通键样本或它不是本宿主能播的 WAV 时也是 null，试听保持安静。 */
+  static previewSample(files: KeySoundPackFiles): string | null {
+    if (files.mode !== "keys") {
+      return null;
+    }
+    const file: string | null = KeySoundPolicy.keySample(files.sounds, KeySoundClass.DEFAULT);
+    return file !== null && file.length > 0 && KeySoundPolicy.isWav(file) ? file : null;
+  }
+
   /** The key SoundPool loads a prepared file at a pitch under. */
   static cueKey(file: string, semitone: number): string {
     return `${semitone}:${file}`;

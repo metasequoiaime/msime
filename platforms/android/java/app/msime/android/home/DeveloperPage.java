@@ -19,6 +19,7 @@ import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import app.msime.android.AccountFailureText;
 import app.msime.android.SettingsResetAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import app.msime.android.AccountStore;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppVersionPolicy;
@@ -592,8 +593,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
     }
 
     private void requestResetAuthentication() {
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        int authenticators = SystemAuthenticators.allowed();
         Context context = requireContext();
         if (BiometricManager.from(context).canAuthenticate(authenticators)
                 != BiometricManager.BIOMETRIC_SUCCESS) {

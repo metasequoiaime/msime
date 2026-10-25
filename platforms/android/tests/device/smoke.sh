@@ -227,6 +227,10 @@ printf '%s\n' "$result"
 # 分词拖选在最低与目标 API 的真实键盘上覆盖跨行、取消和边缘滚动。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke)
 printf '%s\n' "$result"
+# 清空历史前的系统认证用合成锁屏 PIN（DeviceCredentialFixture.PIN）；套件中途崩溃时它来不及清除，这里兜底，免得后面的套件遇到锁屏。只在确有凭据时清除，理由见 clipboard-export.sh 的 clear_credential。
+if ! "$adb" -s "$serial" shell locksettings verify 2>/dev/null | grep -q "verified successfully"; then
+  "$adb" -s "$serial" shell locksettings clear --old 2580 >/dev/null 2>&1 || true
+fi
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Clipboard segment drag acceptance failed" >&2; exit 1; }
 
 # 数字默认九宫格涉及常规键面和字面提交，API 28 的核心验收同样覆盖。

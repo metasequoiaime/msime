@@ -168,6 +168,8 @@ export struct CandidateCanvasFrame {
   @Prop @Watch('repaint') fallbackColor: string = '#FFFFFF';
   @Prop frameHeight: number | undefined = undefined;
   @Prop fixedContent: boolean = false;
+  /** The content the host lays out inside the panel, in vp; the insets are scaled down until it fits. 28 is enough for one line of text, but the phone strip lays out a 34vp candidate lane (and a reading line above it when it has something to show), so it passes its own. */
+  @Prop @Watch('repaint') minimumContentHeight: number = 28;
   @Prop @Watch('refreshPlayback') playing: boolean = true;
   onSize: (width: number, height: number) => void = (): void => {};
   onPanelReady: (key: string, ready: boolean) => void = (): void => {};
@@ -261,7 +263,9 @@ export struct CandidateCanvasFrame {
   }
 
   private geometry(): CandidateCanvasGeometry | null {
-    return this.scene === null ? null : CandidateCanvasPolicy.geometry(this.scene, this.widthVp, this.heightVp);
+    return this.scene === null ? null
+      : CandidateCanvasPolicy.geometry(this.scene, this.widthVp, this.heightVp, undefined,
+        this.minimumContentHeight);
   }
 
   private frame(value: DecodedCanvasImage): image.PixelMap {

@@ -27,6 +27,7 @@ import { TypingStatisticsPolicy } from '../keyboard/TypingStatisticsPolicy';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
+import { KeySoundPreview } from '../keyboard/KeySoundPreview';
 import inputMethod from '@ohos.inputMethod';
 import { PreferenceRevisionPolicy } from '../keyboard/input/PreferenceRevisionPolicy';
 import { PreferencesErrorCode } from '../keyboard/settings/PreferencesErrorCode';
@@ -78,11 +79,13 @@ interface LocalVoiceModelRequest {
 /** 「从文件导入」一次最多让用户选几个文件；目录里的模型最多要两个。 */
 const MAX_VOICE_MODEL_IMPORT_PICKS: number = 8;
 
-/** One key-feedback operation from the page: load, save or preview. */
+/** 页面发来的一次按键反馈操作：`load`、`save`、`preview`（试振动），或 `preview_sound`（试听 `pack`，音量 `volume`）。 */
 interface KeyboardFeedbackAction {
   operation: string;
   settings?: MobileKeyboardFeedback;
   strength?: string;
+  pack?: string;
+  volume?: number;
 }
 
 interface KeyboardFeedbackReply {
@@ -918,6 +921,8 @@ class SettingsBridge {
   // 「从文件导入」从打开选择器到安装结束的模型 id。复制进缓存的那段时间原生安装还没登记，原生取消找不到它，所以取消先记在 voiceImportsCancelled 里，由导入流程在复制每个文件前和开始安装前检查。
   private voiceImportsPending: Set<string> = new Set<string>();
   private voiceImportsCancelled: Set<string> = new Set<string>();
+  // 「音效」里选了包之后的那一声试听。
+  private keySoundPreview: KeySoundPreview = new KeySoundPreview();
 
   useWebview(controller: web_webview.WebviewController): void {
     this.webview = controller;
@@ -2038,6 +2043,7 @@ class SettingsBridge {
       value['wordbook_packs'] = projection.wordbookPacks;
       value['symbol_set_packs'] = projection.symbolSetPacks;
       value['touch_toolbar_tools'] = projection.touchToolbarTools;
+      value['touch_key_sound_packs'] = projection.touchKeySoundPacks;
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
@@ -2992,6 +2998,11 @@ class SettingsBridge {
       return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
         KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
     }
+    if (action.operation === 'preview_sound') {
+      this.previewKeySound(action.pack, action.volume);
+      return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
+        KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
+    }
     if (action.operation === 'save') {
       // 页面没有发送的字段（旧页面没有手写设置）保留已存的值，而不是重置。
       const settings: FeedbackSettings = KeyboardFeedbackBridge.fromShared(action.settings ?? null,
@@ -3005,6 +3016,17 @@ class SettingsBridge {
     }
     return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
       KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
+  }
+
+  /** 用 `pack` 的普通键样本试听一声。包 id 由 `msime_client_key_sound_pack` 校验；页面给的音量不在 0–100 时按默认的 50。 */
+  private previewKeySound(pack: string | undefined, volume: number | undefined): void {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined || typeof pack !== 'string' || pack.length === 0) {
+      return;
+    }
+    const gainVolume: number = typeof volume === 'number' && volume >= 0 && volume <= 100 ? volume : 50;
+    this.keySoundPreview.play(this.soundPacks(), this.stateDirectory, `${context.cacheDir}/key-sound-preview`,
+      pack, gainVolume);
   }
 
   /** One buzz at the strength being previewed, exactly as a key press at that strength would feel (`KeyboardSession.vibrate`). A device without a vibrator simply does nothing. */

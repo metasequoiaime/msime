@@ -36,6 +36,8 @@ export interface SettingsFormFactorProjection {
   symbolSetPacks: boolean;
   /** 工具栏的显示方式和工具开关（`harmony_toolbar`）：只有手机键盘画那一行工具栏，2in1 的键盘没有它，所以只在手机上声明。 */
   touchToolbarTools: boolean;
+  /** 屏幕键盘页「按键反馈」组的「音效」选择（`touch_key_sound_packs`）：手机和平板的触屏键盘按 `plugins.key_sound.pack` 发按键音，所以只在这两种形态声明；2in1 的音效包在插件页里选，它的屏幕键盘页也没有这一组。 */
+  touchKeySoundPacks: boolean;
   /** 皮肤页的「制作皮肤」标签：编辑器是桌面形态的设置界面，只在 2in1 上声明；手机的皮肤页保持原样。 */
   candidateSkinEditor: boolean;
 }
@@ -68,6 +70,7 @@ export class SettingsFormFactorCapabilities {
       wordbookPacks: desktop,
       symbolSetPacks: desktop,
       touchToolbarTools: !desktop,
+      touchKeySoundPacks: !desktop,
       candidateSkinEditor: desktop,
     };
   }

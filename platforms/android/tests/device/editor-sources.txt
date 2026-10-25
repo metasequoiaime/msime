@@ -9,6 +9,7 @@ platforms/android/tests/device/core/EnglishCorrectionEditorActivity.java
 platforms/android/tests/device/keyboard/EnglishCorrectionDeviceSmoke.java
 platforms/android/tests/device/keyboard/EnglishSuggestionPendingChecks.java
 platforms/android/tests/device/core/DeviceSmoke.java
+platforms/android/tests/device/core/DeviceCredentialFixture.java
 platforms/android/tests/device/core/PinyinStartupDeviceSmoke.java
 platforms/android/tests/device/core/ImageClipProvider.java
 platforms/android/tests/device/core/EditorProbeProvider.java

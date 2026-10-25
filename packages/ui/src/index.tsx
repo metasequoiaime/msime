@@ -1337,6 +1337,7 @@ export {
   type MobileKeyboardFeedback,
   type MobileKeyboardFeedbackClient,
   type MobileKeyboardFeedbackSectionProps,
+  type MobileKeySoundPackChoice,
 } from "./settings/mobile-keyboard-feedback-section";
 export {
   MobileKeyboardFeedbackSettings,

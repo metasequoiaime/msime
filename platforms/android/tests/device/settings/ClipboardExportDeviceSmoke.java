@@ -31,7 +31,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.json.JSONObject;
 
-/** 合成全文经真实设置、系统授权和跨进程重启导出，并覆盖隐私与提供方故障。 */
+/** 合成全文经真实设置、系统认证、存储授权和跨进程重启导出，并覆盖无锁屏凭据、隐私与提供方故障。 */
 public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private static final String KEY = "platform.android.clipboard_export_tree";
     private static final String ROOT = "content://" + DiagnosticDocumentsProvider.AUTHORITY + "/tree/root";
@@ -80,6 +80,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         } finally {
             if (code != Activity.RESULT_OK || !phase.equals("select")) {
                 try { restore(); } catch (Exception ignored) { result.putString("cleanup", "restore failed"); }
+                try { DeviceCredentialFixture.clear(getTargetContext(), automation); }
+                catch (Exception | AssertionError ignored) { result.putString("cleanup", "device credential clear failed"); }
             }
             if (activity != null) runOnMainSync(activity::finish);
         }
@@ -98,15 +100,27 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         enabled(true);
         seed();
         openPage();
+        stage = "export without device credential is refused";
+        // 专用 AVD 默认没有锁屏凭据。导出要求系统认证，此时必须说明原因，不写出文件、不打开目录选择器，按钮仍可再次使用。
+        check(!DeviceCredentialFixture.secure(getTargetContext()), "dedicated AVD starts without a device credential");
+        tap(text("导出"));
+        await(text("这台设备没有可用的系统认证"));
+        SystemClock.sleep(1000);
+        check(downloadsUnchecked().isEmpty() && filesUnchecked().isEmpty() && findAll(ClipboardExportDeviceSmoke::picker) == null
+            && !DeviceCredentialFixture.promptVisible(automation), "no export without device credential");
+        await(node -> text("导出").test(node) && node.isEnabled());
+        stage = "device credential fixture";
+        DeviceCredentialFixture.set(getTargetContext(), automation);
         stage = "native export to default destination";
         tap(text("导出"));
+        DeviceCredentialFixture.enter(automation);
         if (Build.VERSION.SDK_INT < 29) {
             selectFolder(null);
             waitFor(() -> filesUnchecked().size() == 1, "first authorized export");
-                Map<String, byte[]> exported = files();
-                check(exported.size() == 1, "first authorized export");
-                for (String name : exported.keySet()) checkName(name);
-                checkText(exported.values().iterator().next());
+            Map<String, byte[]> exported = files();
+            check(exported.size() == 1, "first authorized export");
+            for (String id : exported.keySet()) checkName(documentName(id));
+            checkText(exported.values().iterator().next());
         } else {
             waitFor(() -> downloadsUnchecked().size() == 1, "default Download export");
             for (var entry : downloads().entrySet()) { checkName(downloadName(entry.getKey())); checkText(entry.getValue()); }
@@ -123,9 +137,10 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         openPage();
         stage = "native direct export after restart";
         tap(text("导出"));
+        DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == first.size() + 1, "direct export");
         Map<String, byte[]> second = files();
-        for (var entry : second.entrySet()) { checkName(entry.getKey()); checkText(entry.getValue()); }
+        for (var entry : second.entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
         for (var entry : first.entrySet()) check(Arrays.equals(entry.getValue(), second.get(entry.getKey())), "old file retained");
         stage = "real keyboard panel export action";
         int beforeKeyboard = files().size();
@@ -139,13 +154,18 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         tap(node -> "msime-test-plain".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。
+        DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
-        for (var entry : files().entrySet()) { checkName(entry.getKey()); checkText(entry.getValue()); }
+        for (var entry : files().entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
         stage = "history page export action";
         activity = startActivitySync(new Intent().setClassName("app.msime.android", "app.msime.android.home.HomeActivity")
             .putExtra("msime_open_page", "CLIPBOARD_SEARCH").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
+        // 历史页打开时先认证才读取记录，页内导出再认证一次。
+        DeviceCredentialFixture.enter(automation);
         int beforeSearch = files().size();
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeSearch + 1, "history page export action");
         openPage();
         stage = "cancel directory change";
@@ -314,6 +334,14 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private boolean hasGrant() { return getTargetContext().getContentResolver().getPersistedUriPermissions().stream().anyMatch(
         grant -> grant.getUri().toString().equals(ROOT) && grant.isReadPermission() && grant.isWritePermission()); }
     private static Uri document(String tree, String id) { return DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree), id); }
+    /** files() 以文档 ID（root/<文件名>）为键；文件名规则要对提供方报告的显示名验收。 */
+    private String documentName(String id) throws Exception {
+        try (Cursor cursor = getTargetContext().getContentResolver().query(document(ROOT, id),
+                new String[] {DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            check(cursor != null && cursor.moveToFirst(), "document name");
+            return cursor.getString(0);
+        }
+    }
     private String downloadName(Uri uri) throws Exception {
         try (Cursor cursor = getTargetContext().getContentResolver().query(uri,
                 new String[] {MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
@@ -391,8 +419,9 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         return name.toString();
     }
 
+    /** 文件名到分钟为止；同一分钟内再导出时，存储提供方按系统惯例追加「 (n)」，产品不能覆盖前一份。 */
     private void checkName(String name) {
-        check(name.matches(java.util.regex.Pattern.quote(namePrefix()) + "\\d{8}-\\d{4}\\.txt"),
+        check(name.matches(java.util.regex.Pattern.quote(namePrefix()) + "\\d{8}-\\d{4}( \\([1-9]\\d*\\))?\\.txt"),
             "clipboard export uses the shared app-version timestamp name: " + name);
     }
 

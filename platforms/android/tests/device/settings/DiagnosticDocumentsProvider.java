@@ -62,6 +62,13 @@ public final class DiagnosticDocumentsProvider extends DocumentsProvider {
         if (parentId.equals("root/existing-target")) return "root/existing-target/existing.zip";
         String name = parentId.equals("root/failed-write") ? "partial.zip" : displayName;
         File child = file(parentId + "/" + name);
+        // 和系统的 FileSystemProvider 一样，同名文件已存在时改用「名称 (n).扩展名」，不覆盖也不拒绝：导出文件名精确到分钟，同一分钟内的第二次导出在真实设备上就是这样落盘的。
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name, extension = dot > 0 ? name.substring(dot) : "";
+        for (int copy = 1; child.exists() && !parentId.equals("root/failed-write") && copy < 32; copy++) {
+            name = stem + " (" + copy + ")" + extension;
+            child = file(parentId + "/" + name);
+        }
         try {
             if (!child.createNewFile()) throw new FileNotFoundException("fixture refuses replacement");
         } catch (IOException failure) { throw new FileNotFoundException("fixture create failed"); }

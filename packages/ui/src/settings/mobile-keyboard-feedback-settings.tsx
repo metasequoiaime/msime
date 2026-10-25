@@ -1,4 +1,7 @@
-import { MobileKeyboardFeedbackSection } from "./mobile-keyboard-feedback-section";
+import {
+  MobileKeyboardFeedbackSection,
+  type MobileKeySoundPackChoice,
+} from "./mobile-keyboard-feedback-section";
 import type {
   MobileKeyboardFeedback,
   MobileKeyboardFeedbackClient,
@@ -12,6 +15,8 @@ export interface MobileKeyboardFeedbackSettingsProps {
   ios: boolean;
   /** 见 `MobileKeyboardFeedbackSectionProps.showEnglishSuggestions`。 */
   showEnglishSuggestions?: boolean;
+  /** 见 `MobileKeyboardFeedbackSectionProps.keySoundPack`。 */
+  keySoundPack?: MobileKeySoundPackChoice;
   onChange: (value: MobileKeyboardFeedback) => void;
   onPreview: () => void;
 }
@@ -24,6 +29,7 @@ export function MobileKeyboardFeedbackSettings({
   busy,
   ios,
   showEnglishSuggestions,
+  keySoundPack,
   onChange,
   onPreview,
 }: MobileKeyboardFeedbackSettingsProps) {
@@ -36,6 +42,7 @@ export function MobileKeyboardFeedbackSettings({
       ios={ios}
       showEnglishSuggestions={showEnglishSuggestions}
       canPreview={Boolean(client.preview)}
+      keySoundPack={keySoundPack}
       onChange={onChange}
       onPreview={onPreview}
     />

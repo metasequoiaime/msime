@@ -11,6 +11,7 @@ import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import app.msime.android.BackupExportAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import app.msime.android.TimestampDisplayPolicy;
 
@@ -84,8 +85,7 @@ public final class BackupPage extends DetailPage {
     }
 
     private boolean requestExportAuthentication() {
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        int authenticators = SystemAuthenticators.allowed();
         Context context = requireContext();
         if (BiometricManager.from(context).canAuthenticate(authenticators)
                 != BiometricManager.BIOMETRIC_SUCCESS) return false;

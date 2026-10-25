@@ -14,11 +14,11 @@ iOS：键盘用 `UIDevice.playInputClick()`（输入视图实现 `UIInputViewAud
 
 ## Decision
 
-安卓：`default` 和其他声音包走同一条路，经 `NativeClient.keySoundPack` 取到校验过的样本路径，由键盘进程自己的 `SoundPool`（`USAGE_ASSISTANCE_SONIFICATION`）按键类播放，音量取 `plugins.key_sound.volume`。`onStartInputView` 调 `ImeKeyFeedback.prepare()`，让包在第一下按键前开始加载。样本还没加载好或加载失败时才退回系统的 `FX_KEYPRESS_STANDARD`，作为兜底而不是默认声音。
+安卓：`default` 和其他声音包走同一条路，经 `NativeClient.keySoundPack` 取到校验过的样本路径，由键盘进程自己的 `SoundPool`（`USAGE_ASSISTANCE_SONIFICATION`）按键类播放，音量取 `plugins.key_sound.volume`。`onStartInputView` 调 `ImeKeyFeedback.prepare()`，让包在第一下按键前开始加载。样本还没加载好或加载失败时才退回系统的 `FX_KEYPRESS_STANDARD`，作为兜底而不是默认声音。用哪个包在键盘页「反馈」的「音效」里选，见 [Android 键盘设置可选按键音效包](../feature/2026-10-25-android-key-sound-pack-picker.md)。
 
 HarmonyOS 手机和平板：`KeySoundPlayer` 按 `KeySoundPolicy.touchSettings` 配置，开关是本机 `key-feedback.json` 的 `sound`，包和音量取共享的 `plugins.key_sound`，没选包时是内置 `default`。触屏只播按键音，旋律、上屏音、成就音和连击音仍只在 2in1 上。视图里每个软键按下时调的统计入口改为 `KeyboardSession.softKeyPress`，它记入按键统计，再按 `KeySoundPolicy.touchKeyClass` 播放空格、回车、删除或普通键的样本，所以有统计 id 的软键都会出声，按住删除连删只响一次。按键反馈文件重读或保存后立即重新配置播放器，切换开关当场生效。2in1 的实体键仍走 `hardwareKeySound`。
 
-iOS：继续用 `playInputClick`，这是系统给第三方键盘的按键音接口。没有完全访问时，在键盘功能面板打开按键音会当场提示需要开启「允许完全访问」；App 设置页和共享设置组件的说明写明它依赖完全访问、系统键盘声音和静音模式。
+iOS：继续用 `playInputClick`，这是系统给第三方键盘的按键音接口。没有完全访问时，在键盘功能面板打开按键音会当场提示需要开启「允许完全访问」；App 设置页和共享设置组件的说明写明它依赖完全访问、系统键盘声音和静音模式。iOS 的这一部分随后由 [iOS 按键音效包](../feature/2026-10-25-ios-key-sound-packs.md)取代：键盘有完全访问时自己播放所选的音效包，`playInputClick` 只作退回。
 
 三端的密码框规则一致：不同键的不同声音会泄露按了哪些键，安卓 `default` 包与鸿蒙触屏统一播普通键的样本（与 iOS 系统按键声的单一声音一样），安卓的其他包维持不播。
 
@@ -33,7 +33,7 @@ iOS：继续用 `playInputClick`，这是系统给第三方键盘的按键音接
 
 安卓默认按键音的音色从系统按键声变成「清脆键盘」，不再受系统触摸提示音开关、`unloadSoundEffects()` 和厂商对系统音效的屏蔽影响；`USAGE_ASSISTANCE_SONIFICATION` 仍映射到系统流，系统流音量和静音、振动模式照样作用于按键音。代价是每个键盘进程常驻一个装着四个短样本的 `SoundPool`，服务启动后第一次显示（或换包）时多一次后台的声音包校验。服务刚启动、包还在加载时按下的头一两个键仍走系统按键音兜底，在系统音效不可用的设备上这一两下可能无声。
 
-鸿蒙手机和平板第一次真正有按键音，出厂仍是关（`KeyboardFeedback.DEFAULTS.sound`），没有改默认值。它跟随媒体音量，静音模式下照样出声，这是与安卓、iOS 不同的地方。开关打开后才创建 `SoundPool` 并加载包，关着时没有额外开销。
+鸿蒙手机和平板第一次真正有按键音，出厂仍是关（`KeyboardFeedback.DEFAULTS.sound`），没有改默认值。它跟随媒体音量，静音模式下照样出声，这是与安卓、iOS 不同的地方。开关打开后才创建 `SoundPool` 并加载包，关着时没有额外开销。用哪个包在屏幕键盘页「按键反馈」组的「音效」里选，见[鸿蒙触屏选按键音效包](../feature/2026-10-25-harmony-touch-key-sound-pack-picker.md)。
 
 iOS 行为不变，只是没有完全访问时用户能知道为什么没有声音。
 

@@ -1,7 +1,10 @@
+import AudioToolbox
 import SwiftUI
 import UIKit
 
 /// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 18 / 14 / 9 键、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
+///
+/// 按键反馈里的「音效」选按键音包：列表是 `msime_client_plugins` 的 `catalog` 里的按键音包（`KeySoundPackPolicy.packs`），选中时写共享偏好 `plugins.key_sound.pack` 并试听这个包的普通键声音。按键音关着时这一行置灰。
 ///
 /// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
@@ -31,6 +34,11 @@ struct KeyboardLayoutSettingsView: View {
   @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults)
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @State private var previewFeedback: UIImpactFeedbackGenerator?
+  /// 选中的按键音包，取自共享文档。
+  @State private var keySoundPack = KeySoundPackPolicy.defaultPack
+  /// 本机能播的按键音包；目录还没读出来时为 nil。
+  @State private var keySoundPacks: [KeySoundPackPolicy.Pack]?
+  @State private var keySoundSaveFailed = false
 
   private enum Axis { case vertical, horizontal }
   /// 一次保存只写用户刚动的那一项，见 `save(_:)`。
@@ -60,6 +68,8 @@ struct KeyboardLayoutSettingsView: View {
     .navigationTitle("键盘").navigationBarTitleDisplayMode(.inline)
     // 这一页停在后台时，用户可能在键盘里改了高度或间距；回到前台重新读一遍文档，页面上才不会留着旧值。
     .reloadOnAppearAndActive(readPreferences)
+    // 目录要读每个包的清单，放到主线程之外；页面消失时任务随之取消。
+    .task { keySoundPacks = await Task.detached(priority: .userInitiated) { Self.installedKeySoundPacks() }.value }
   }
 
   // MARK: - 预览
@@ -225,12 +235,25 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
+  private var feedbackFooter: String {
+    let sound = "按键音需要在系统设置里为水杉输入法打开“允许完全访问”。所选音效由水杉输入法自己播放，跟随静音模式和媒体音量，与正在播放的音乐混音，不受“声音与触感 › 键盘反馈 › 声音”影响；音效还没准备好时用系统按键声。"
+    let footer = KeyboardFeedbackPreference.hapticsAvailable ? sound + "振动效果取决于设备与系统支持。" : sound
+    return keySoundSaveFailed ? SettingsSaveFailure.message + "\n\n" + footer : footer
+  }
+
   private var feedbackGroup: some View {
-    DesignGroup(title: "按键反馈", footer: KeyboardFeedbackPreference.hapticsAvailable
-      ? "按键音由系统播放：需要在系统设置里为水杉输入法打开“允许完全访问”，并跟随“声音与触感 › 键盘反馈 › 声音”和静音模式。振动效果取决于设备与系统支持。"
-      : "按键音由系统播放：需要在系统设置里为水杉输入法打开“允许完全访问”，并跟随“声音与触感 › 键盘反馈 › 声音”和静音模式。") {
+    DesignGroup(title: "按键反馈", footer: feedbackFooter) {
       DesignToggleRow(title: "按键音", isOn: $soundEnabled.markingSettingsChange())
         .accessibilityIdentifier("keyboardSoundToggle")
+      DesignDivider()
+      DesignSelectRow(
+        title: "音效",
+        options: keySoundPackOptions,
+        selection: Binding(get: { keySoundPack }, set: { _ in }),
+        sheetTitle: "按键音效", sheetMessage: "选中后试听一下", identifier: "keyboardSoundPackPicker",
+        onSelect: selectKeySoundPack)
+      .disabled(!soundEnabled)
+      .opacity(soundEnabled ? 1 : 0.45)
       if KeyboardFeedbackPreference.hapticsAvailable {
         DesignDivider()
         DesignToggleRow(title: "按键振动", isOn: $hapticsEnabled.markingSettingsChange())
@@ -433,6 +456,27 @@ struct KeyboardLayoutSettingsView: View {
     generator.prepare()
   }
 
+  private var keySoundPackOptions: [DesignOption<String>] {
+    guard let keySoundPacks else { return [] }
+    return KeySoundPackPolicy.options(keySoundPacks, selected: keySoundPack).map {
+      DesignOption(title: $0.name, value: $0.id, identifier: "keyboardSoundPack.\($0.id)")
+    }
+  }
+
+  /// 写进共享文档的 `plugins.key_sound.pack`，键盘下次出现时换上；写不进去时这一行回到已存的选择。选中的（包括再点一次当前的）都试听一下。
+  private func selectKeySoundPack(_ id: String) {
+    let saved = MetasequoiaInputSessionBridge.updateSharedPreferences { KeySoundPackPolicy.choose(id, document: &$0) }
+    keySoundSaveFailed = !saved
+    keySoundPack = saved ? id : KeySoundPackPolicy.selectedPack(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+    if saved { KeySoundPackPreview.play(id) }
+  }
+
+  /// 本机的按键音包：随包内置的和装在共享状态目录里的。读每个包的清单，在主线程之外调用。
+  nonisolated static func installedKeySoundPacks() -> [KeySoundPackPolicy.Pack] {
+    guard case .success(let value) = MetasequoiaInputSessionBridge.plugins(["operation": "catalog"]) else { return [] }
+    return KeySoundPackPolicy.packs(inCatalog: value)
+  }
+
   /// The drags and sliders only move the preview while they run; the settled value is saved here, into the shared document the keyboard reloads. A save the document refuses puts the page back to what is stored.
   ///
   /// 只写动过的那一项：页面上其余的值可能已经过时（键盘里刚调过高度，这一页还停在后台），一起写回去就会把键盘里的调整盖掉。
@@ -482,6 +526,7 @@ struct KeyboardLayoutSettingsView: View {
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     spaceVoice = KeyboardLayoutPreference.spaceVoice
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
+    keySoundPack = KeySoundPackPolicy.selectedPack(in: preferences)
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
@@ -537,5 +582,18 @@ private struct InlineSliderRow: View {
     .padding(.vertical, 8)
     .padding(.horizontal, 20)
     .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+  }
+}
+
+/// 设置 App 里试听一个按键音包：播放它的普通键样本。用系统声音（`AudioServicesPlaySystemSound`）而不是 `AVAudioPlayer`：App 的音频会话属于语音输入的录音服务（`VoiceSessionService`），试听不能去改它的类别；系统声音不碰会话，跟随静音模式，与正在播放的音乐混音。所以试听的音量是系统提示音的音量，不按 `plugins.key_sound.volume` 缩放。
+private enum KeySoundPackPreview {
+  static func play(_ pack: String) {
+    Task.detached(priority: .userInitiated) {
+      guard case .success(let value) = MetasequoiaInputSessionBridge.keySoundPack(pack),
+            let samples = KeySoundPackPolicy.Samples(pack: pack, value: value) else { return }
+      var sound: SystemSoundID = 0
+      guard AudioServicesCreateSystemSoundID(samples.standard as CFURL, &sound) == kAudioServicesNoError else { return }
+      AudioServicesPlaySystemSoundWithCompletion(sound) { AudioServicesDisposeSystemSoundID(sound) }
+    }
   }
 }

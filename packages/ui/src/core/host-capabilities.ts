@@ -92,6 +92,8 @@ export interface HostCapabilities {
   touch_toolbar_components: boolean;
   /** 触屏键盘按 `harmony_toolbar` 选工具栏的工具和显示方式（只有 HarmonyOS 手机）。缺省按不提供处理，其他宿主的页面不变。 */
   touch_toolbar_tools?: boolean;
+  /** 触屏键盘的按键音按 `plugins.key_sound.pack` 选音效包，只播包里的按键样本，不播旋律、上屏音和成就音；屏幕键盘页「按键反馈」组在「按键音」下给出「音效」选择。目前只有 HarmonyOS 手机和平板的设置桥按设备形态报告（`SettingsFormFactorCapabilities`），2in1 的音效包仍在插件页里选。缺省按不提供处理。 */
+  touch_key_sound_packs?: boolean;
   /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
   touch_keyboard_height?: boolean;
   /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */

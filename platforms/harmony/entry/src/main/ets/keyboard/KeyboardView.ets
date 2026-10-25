@@ -3459,6 +3459,17 @@ struct KeyboardView {
       this.settings.candidateFontSize, this.settings.candidatePreeditFontSize, false, this.stripWasShown));
   }
 
+  /** 候选条的读音行要不要占位。没有 canvas 时一直占位，候选不会因为它出现、消失而上下移动；有 canvas 时只在有东西显示时占位，见 `stripCanvasContentHeight`。 */
+  private readingRowShown(): boolean {
+    return this.settings.candidateCanvas === null || this.diagnostic.length > 0 || this.visibleComposition().caret
+      || this.visibleComposition().text.length > 0 || this.readingRowSpellings();
+  }
+
+  /** canvas 在候选条里至少要让出的内容高度：34vp 的候选通道，读音行占位时再加它和间距。皮肤的留白按它缩放，高亮因此不会画到面板外面。 */
+  private stripCanvasContentHeight(): number {
+    return CHIP_HEIGHT_VP + (this.readingRowShown() ? PREEDIT_LINE_VP + CANDIDATE_BAR_GAP_VP : 0);
+  }
+
   /** Nothing to spell, choose or report on a touch keyboard: the strip is the logo bar. */
   private stripIdle(): boolean {
     return !KeyboardFormFactor.isDesktop() && this.editing.length === 0
@@ -3989,6 +4000,7 @@ struct KeyboardView {
   touchStrip() {
     CandidateCanvasFrame({ scene: this.stripIdle() || this.surface === SURFACE_GEOMETRY ? null : this.settings.candidateCanvas,
       fixedContent: true, frameHeight: KeyboardMetrics.STRIP_HEIGHT_VP, fallbackColor: this.settings.candidateColors.surface,
+      minimumContentHeight: this.stripCanvasContentHeight(),
       onSize: (width: number): void => { this.availableWidth = width; },
       onPanelReady: (key: string, ready: boolean): void => this.canvasReady('strip', key, ready) }) {
     Column() {
@@ -4016,7 +4028,9 @@ struct KeyboardView {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.settings.candidateCanvas === null || this.stripIdle() ? this.candidateCardColor(this.candidateColors().surface) : TRANSPARENT)
+    // 空闲时这里是工具栏，属于键盘：canvas 这时不画（见上面的 `scene`），底色也要用键盘的。用候选包的 `surface` 时，皮肤的白卡片配上按键前景色的图标，图标几乎看不见。
+    .backgroundColor(this.stripIdle() ? this.skin.background
+      : this.settings.candidateCanvas === null ? this.candidateCardColor(this.candidateColors().surface) : TRANSPARENT)
     .background(this.candidateBackground)
     .clip(this.settings.candidateBackgroundImage !== null)
     .borderRadius(KeyboardMetrics.STRIP_CORNER_VP)
@@ -4225,6 +4239,8 @@ struct KeyboardView {
         .height(PREEDIT_LINE_VP)
         .padding({ left: PREEDIT_INDENT_VP })
         .clip(true)
+        // canvas 在 50vp 的条里只留得出候选通道那么高，空着的读音行这时不占位（`None` 不参与布局）；有东西显示时照常占位，边框跟着再缩一些，见 `stripCanvasContentHeight`。
+        .visibility(this.readingRowShown() ? Visibility.Visible : Visibility.None)
 
         if (this.showsHandwritingCandidates()) {
           // OCR 结果也是候选，通过识别器而不是 Engine 选择。
@@ -4374,7 +4390,9 @@ struct KeyboardView {
       this.settings.candidateSkinLayout?.horizontal.itemPaddingRight, this.chipFontSize(), CHIP_PADDING_VP) })
     .justifyContent(FlexAlign.Center)
     .borderRadius(this.settings.candidateSkinLayout?.itemRadius ?? CHIP_RADIUS_VP)
-    .backgroundColor(candidate.highlighted ? this.skin.keyBackground : TRANSPARENT)
+    // canvas 下文字用候选包的配色，高亮也要用包的 `selected`；按键色配包的文字色会对不上，深色键盘配浅色模式的包时首选几乎看不见。
+    .backgroundColor(candidate.highlighted
+      ? this.settings.candidateCanvas === null ? this.skin.keyBackground : this.candidateColors().selected : TRANSPARENT)
     .stateStyles({
       normal: {
         .opacity(1)

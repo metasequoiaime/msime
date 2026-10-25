@@ -148,6 +148,8 @@ private func msimeClientResolveOnlineCandidatesRaw(
 private func msimeClientDictionary(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_plugins")
 private func msimeClientPlugins(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_key_sound_pack")
+private func msimeClientKeySoundPack(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_version")
 private func msimeClientSnapshotVersion(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_activate")
@@ -899,18 +901,35 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     var detail: String? = nil
   }
 
-  /// 插件目录的一次操作（`msime_client_plugins`），给设置 App 导入、列出和删除辅助码表用，不建输入会话。
+  /// 插件目录的一次操作（`msime_client_plugins`），给设置 App 导入、列出和删除辅助码表、列出按键音效用，不建输入会话。
   ///
-  /// `state_root` 是 App Group 里的共享状态目录，键盘的 `preferences_directory` 就是它，所以这里装进 `<state_root>/plugins` 的包键盘读得到。会读写文件，导入时还要校验整张码表：调用方放到主线程之外。`stateRoot` 只给测试用。
+  /// `state_root` 是 App Group 里的共享状态目录，键盘的 `preferences_directory` 就是它，所以这里装进 `<state_root>/plugins` 的包键盘读得到。`sound_packs` 是随包内置的音效包目录（`KeySoundPackPolicy.bundledDirectory`），`catalog` 因此也列出内置的按键音包；找不到时传 null，只列装在状态目录里的包。会读写文件，导入时还要校验整张码表：调用方放到主线程之外。`stateRoot` 只给测试用。
   static func plugins(_ action: [String: Any], stateRoot: URL? = nil) -> Result<Any, PluginFailure> {
     let root = sharedStateRoot(stateRoot)
-    let request: [String: Any] = ["state_root": root, "sound_packs": NSNull(), "action": action]
-    guard !root.isEmpty, JSONSerialization.isValidJSONObject(request),
+    let request: [String: Any] = ["state_root": root, "sound_packs": bundledSoundPacks, "action": action]
+    return pluginCall(msimeClientPlugins, request, valid: !root.isEmpty)
+  }
+
+  /// 一个按键音包里校验过的样本（`msime_client_key_sound_pack`），给自己播放按键音的键盘和设置 App 的试听用。内置包从随包的 `sound-packs/` 找，其余的 id 在共享状态目录的 `plugins/` 里找。value 是 `{id, name, mode, sounds:{default, space, enter, backspace, …: 绝对路径|null}, …}`，见 `include/msime_client.h`；由 `KeySoundPackPolicy.Samples` 读。要读包的清单和文件：不要在按键路径上调用。`stateRoot` 和 `soundPacks` 只给测试用。
+  static func keySoundPack(_ pack: String, stateRoot: URL? = nil, soundPacks: URL? = nil) -> Result<Any, PluginFailure> {
+    let root = sharedStateRoot(stateRoot)
+    let request: [String: Any] = ["state_root": root.isEmpty ? NSNull() : root,
+                                  "sound_packs": soundPacks?.path ?? bundledSoundPacks, "pack": pack]
+    return pluginCall(msimeClientKeySoundPack, request, valid: !pack.isEmpty)
+  }
+
+  /// 内置音效包目录的绝对路径，没有时是 JSON null。
+  private static var bundledSoundPacks: Any { KeySoundPackPolicy.bundledDirectory()?.path ?? NSNull() }
+
+  /// `msime_client_plugins` 一类入口的一次调用：请求编成 JSON 交给 `entry`，读回标准应答。
+  private static func pluginCall(_ entry: (UnsafePointer<MSIMEByte>?, UInt) -> UnsafeMutablePointer<CChar>?,
+                                 _ request: [String: Any], valid: Bool) -> Result<Any, PluginFailure> {
+    guard valid, JSONSerialization.isValidJSONObject(request),
           let data = try? JSONSerialization.data(withJSONObject: request) else {
       return .failure(PluginFailure(code: "invalid"))
     }
     let pointer = data.withUnsafeBytes { bytes in
-      msimeClientPlugins(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count))
+      entry(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count))
     }
     guard let pointer else { return .failure(PluginFailure(code: "unavailable")) }
     defer { msimeClientStringFree(pointer) }

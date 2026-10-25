@@ -43,12 +43,14 @@ import app.msime.android.SyncSwitch;
 import app.msime.android.TextTrackpadSettings;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
+import app.msime.android.JsonPolicy;
+import app.msime.android.policy.KeySoundPackPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
@@ -72,7 +74,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
     private static final String[] ANIMATION_LABELS = {"弹起", "涟漪", "发光", "浮起", "无"};
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local,
                          KeyboardFeedbackStore.Settings feedback, KeyboardSkin skin, String exportDirectory,
-                         JSONObject trackpadOptions) {}
+                         JSONObject trackpadOptions, java.util.List<KeySoundPackPolicy.Pack> soundPacks) {}
 
     @Override protected void reload() {
         boolean dark = AppMode.dark(requireContext());
@@ -81,7 +83,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             if (preferences == null) return null;
             return new State(preferences, AndroidLocalSettings.load(context), KeyboardFeedbackStore.load(context),
                 HostStore.keyboardSkin(preferences, dark, HostStore.seed(context)), ClipboardExport.directoryName(context),
-                HostStore.textTrackpadOptions());
+                HostStore.textTrackpadOptions(), KeySoundPacks.load(context));
         }, this::render);
     }
 
@@ -192,7 +194,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
-        feedback.toggle("按键音", null, local.soundEnabled(), checked -> saveFeedback(checked, null));
+        GroupCard.Row[] soundPackRow = new GroupCard.Row[1];
+        feedback.toggle("按键音", null, local.soundEnabled(), checked -> {
+            saveFeedback(checked, null);
+            soundPackRow[0].setEnabled(checked);
+        });
+        // 按键音包在共享偏好里（随设置同步），开关在本机：关着时这一行置灰，选了也听不到。
+        JSONObject plugins = preferences.optJSONObject("plugins");
+        JSONObject keySound = plugins == null ? null : plugins.optJSONObject("key_sound");
+        String soundPack = KeySoundPackPolicy.selected(keySound == null ? null
+            : JsonPolicy.strictStringOrEmpty(keySound.opt("pack")));
+        java.util.List<KeySoundPackPolicy.Pack> soundPacks = state.soundPacks();
+        soundPackRow[0] = feedback.nav("音效", null, KeySoundPackPolicy.label(soundPacks, soundPack),
+            () -> pickSoundPack(soundPacks, soundPackRow[0]));
+        soundPackRow[0].setEnabled(local.soundEnabled());
         feedback.toggle("按键振动", null, local.hapticsEnabled(), checked -> saveFeedback(null, checked));
         feedback.toggle("按键弹出预览", "按下时在键上方显示放大的字符",
             settings.bool(AndroidLocalSettings.KEY_POPUP), checked -> saveLocalSetting(AndroidLocalSettings.KEY_POPUP, checked));
@@ -412,6 +427,34 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 sheet.option(label, value.equals(selected), () -> {
                     row.setValue(label);
                     saveLocalSetting(AndroidLocalSettings.KEY_ANIMATION, value);
+                });
+            }
+            sheet.show();
+        });
+    }
+
+    /** 选按键音包：写进共享偏好 `plugins.key_sound.pack`，并用选中的包试听一声。当前值在打开时重读，免得别处刚改过。 */
+    private void pickSoundPack(java.util.List<KeySoundPackPolicy.Pack> packs, GroupCard.Row row) {
+        HostTask.run(this, KeyboardSheets::preferences, preferences -> {
+            if (preferences == null) {
+                MsToast.show(requireContext(), "读取设置失败，请重试");
+                return;
+            }
+            JSONObject plugins = preferences.optJSONObject("plugins");
+            JSONObject keySound = plugins == null ? null : plugins.optJSONObject("key_sound");
+            String selected = KeySoundPackPolicy.selected(keySound == null ? null
+                : JsonPolicy.strictStringOrEmpty(keySound.opt("pack")));
+            Object volume = keySound == null ? null : keySound.opt("volume");
+            OptionSheet sheet = new OptionSheet(requireContext(), "音效", null);
+            for (KeySoundPackPolicy.Pack pack : packs) {
+                sheet.option(pack.name(), pack.id().equals(selected), () -> {
+                    row.setValue(pack.name());
+                    HostTask.run(this, context -> {
+                        KeySoundPacks.preview(context, pack.id(), volume);
+                        return Boolean.TRUE;
+                    }, ignored -> { });
+                    if (!pack.id().equals(selected)) savePreferences(edited -> KeyboardSheets.child(
+                        KeyboardSheets.child(edited, "plugins"), "key_sound").put("pack", pack.id()));
                 });
             }
             sheet.show();

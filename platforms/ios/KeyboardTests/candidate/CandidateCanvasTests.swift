@@ -384,6 +384,64 @@ final class CandidateCanvasTests: XCTestCase {
     }
   }
 
+  /// 默认字号下皮肤的留白不能把内容区压到词块最小高度以下，否则首选高亮伸出面板；空闲时顶栏是工具栏，用键盘自己的底色。
+  func testRealControllerStripKeepsCandidatesInsideThePanelAtTheDefaultSize() async throws {
+    preserveSharedTheme()
+    let defaults = CandidatePalette.defaults
+    let follows = defaults.object(forKey: CandidatePalette.followsDesktopKey)
+    let oldScheme = InputSchemePreference.scheme
+    let oldFontSize = MetasequoiaInputSessionBridge.loadSharedPreferences()?[CandidateFontPreference.candidateKey]
+    addTeardownBlock {
+      defaults.set(follows, forKey: CandidatePalette.followsDesktopKey)
+      InputSchemePreference.scheme = oldScheme
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0[CandidateFontPreference.candidateKey] = oldFontSize }
+    }
+    defaults.set(true, forKey: CandidatePalette.followsDesktopKey)
+    InputSchemePreference.scheme = .quanpin
+    // 上下各 10 的边宽：按旧的 28 下限，42pt 的顶栏只给内容留 28。
+    let fixtureRoot = try root(border: "slice_dip = [2]\nwidth_dip = [10]\nfill = true")
+    let source = fixtureRoot.appendingPathComponent("canvas-fixture")
+    let destination = fixtureRoot.appendingPathComponent("installed-skins")
+    let id = "ios-canvas-" + UUID().uuidString.lowercased()
+    let renamed = source.deletingLastPathComponent().appendingPathComponent(id)
+    try FileManager.default.moveItem(at: source, to: renamed)
+    let manifest = renamed.appendingPathComponent("skin.toml")
+    let text = try String(contentsOf: manifest, encoding: .utf8).replacingOccurrences(of: "id = 'canvas-fixture'", with: "id = '\(id)'")
+    try text.write(to: manifest, atomically: true, encoding: .utf8)
+    XCTAssertEqual(ExternalCandidateSkin.importFolder(renamed, root: destination), .success(id))
+    addTeardownBlock { _ = ExternalCandidateSkin.remove(id, root: destination) }
+    XCTAssertTrue(GlobalThemePreference.update {
+      $0["global_theme"] = "custom"
+      $0[CandidateFontPreference.candidateKey] = nil
+      $0["custom_theme"] = ["candidate_skin": id, "candidate_skin_dark": id]
+    })
+    let controller = KeyboardViewController()
+    controller.candidateSkinsRoot = destination
+    controller.overrideUserInterfaceStyle = .light
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+    let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" } as? CandidateCanvasHostView)
+    for _ in 0..<300 where strip.canvas == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+    XCTAssertTrue(try XCTUnwrap(strip.canvas).panelLoaded)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(strip.backgroundColor, KeyboardViewController.stripBackground(KeyboardTheme.current, palette: nil), "空闲的顶栏是工具栏")
+    XCTAssertGreaterThanOrEqual(strip.minimumContentHeight, KeyboardViewController.candidateChipMinimumSize.height)
+    for character in "ni" {
+      let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(String(character).uppercased())" } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    let first = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" })
+    let content = strip.candidateContentGuide.layoutFrame
+    let frame = first.convert(first.bounds, to: strip)
+    XCTAssertGreaterThanOrEqual(content.height, KeyboardViewController.candidateChipMinimumSize.height)
+    XCTAssertLessThanOrEqual(frame.maxY, content.maxY + 0.5, "首选高亮不能伸出面板的内容区")
+    XCTAssertGreaterThanOrEqual(frame.minY, content.minY - 0.5)
+    controller.viewWillDisappear(false)
+  }
+
   func testRealControllerSharesCanvasWithExpandedPanelAndClearsItWhenDisabled() async throws {
     preserveSharedTheme()
     let defaults = CandidatePalette.defaults

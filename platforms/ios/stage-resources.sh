@@ -101,4 +101,15 @@ if [ "${MSIME_REQUIRE_WORDBOOKS:-0}" = 1 ]; then
     [ -f "$wordbooks_destination/$id.json" ] || { echo "MSIME_REQUIRE_WORDBOOKS=1 but $id.json, listed by resources/wordbook.lock.json, was not staged from $wordbooks_source; run python3 scripts/fetch_wordbooks.py first" >&2; exit 1; }
   done
 fi
+# 内置按键音包：resources/sound-packs 里 `mode = "keys"` 的包整目录（样本连同写着许可的 plugin.toml）放进键盘扩展的 sound-packs/，与 Android 的 assets/sound-packs 是同一批。键盘把这个目录作为 `sound_packs` 交给 `msime_client_key_sound_pack` 取校验过的样本路径，设置 App 从它内嵌的键盘扩展里找同一个目录列出音效、试听。旋律包和音乐包 iOS 不播，不打包：两个音乐包各 1.6 MB，键盘扩展的内存和体积都不该为用不到的东西付钱。
+sound_packs_destination="$repo_root/target/ios/sound-packs"
+rm -rf "$sound_packs_destination"
+mkdir -p "$sound_packs_destination"
+for pack_dir in "$repo_root"/resources/sound-packs/*/; do
+  grep -qx 'kind = "sound"' "$pack_dir/plugin.toml" || continue
+  grep -qx 'mode = "keys"' "$pack_dir/plugin.toml" || continue
+  cp -R "${pack_dir%/}" "$sound_packs_destination/$(basename "$pack_dir")"
+done
+[ -f "$sound_packs_destination/default/plugin.toml" ] || { echo "the default key sound pack was not staged into $sound_packs_destination" >&2; exit 1; }
+echo "key sound packs staged: $sound_packs_destination"
 echo "iOS resources staged from the pinned dictionary release: $destination"

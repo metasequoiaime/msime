@@ -17,6 +17,8 @@ import { defaultTouchKeyboardGeometry } from "../touch-keyboard-geometry-default
 import { HandwritingSettingsContent } from "./handwriting-page";
 import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections";
 import { useSettingsTabs } from "../use-settings-tabs";
+import { pluginPreferences } from "../plugin-preferences";
+import { useTouchKeySoundPacks } from "../use-touch-key-sound-packs";
 
 type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
 
@@ -169,6 +171,28 @@ export function ScreenKeyboardSettingsPage() {
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const harmonyPhone = harmonyPlatform && mobilePlatform;
+  // 只有触屏键盘按所选包发按键音的宿主（HarmonyOS 手机和平板）才读目录、给「音效」行；2in1 和其他宿主在插件页或原生设置里选包，这里不变。
+  const keySoundPacks = useTouchKeySoundPacks(
+    host?.touch_key_sound_packs ? client.plugins?.catalog : undefined,
+    page === "screen-keyboard",
+  );
+  const plugins = pluginPreferences(draft);
+  const keySoundPack =
+    keySoundPacks && keySoundPacks.length > 0
+      ? {
+          selected: plugins.key_sound.pack,
+          packs: keySoundPacks,
+          onSelect: (pack: string) => {
+            onPreferencesChange({
+              plugins: { ...plugins, key_sound: { ...plugins.key_sound, pack } },
+            });
+            // 试听只是顺带的：播不出来不影响已经写入的选择，所以不报错。
+            void client.mobileKeyboardFeedback
+              ?.previewKeySound?.(pack, plugins.key_sound.volume)
+              .catch(() => undefined);
+          },
+        }
+      : undefined;
   // 宿主不按存下的高度或间距画键盘时（macOS），预览画键盘实际的样子：默认高度和默认间距，不画存下的值。
   const previewKeySpacingTenths = showTouchKeyboardSpacing
     ? touchKeySpacingTenths
@@ -356,6 +380,7 @@ export function ScreenKeyboardSettingsPage() {
             ios={iosPlatform}
             // 「英文建议」管的是候选，放在输入页的「候选与联想」组。
             showEnglishSuggestions={false}
+            keySoundPack={keySoundPack}
             onChange={(value) => void saveMobileKeyboardFeedback(value)}
             onPreview={() => void previewMobileKeyboardHaptics()}
           />

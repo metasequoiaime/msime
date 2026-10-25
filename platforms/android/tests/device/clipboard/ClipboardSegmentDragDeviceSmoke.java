@@ -160,6 +160,30 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     }
 
     private void firstRecordActions(File history, File local) throws Exception {
+        // 清空剪贴板历史要先通过系统认证：专用 AVD 默认没有锁屏凭据，先确认此时清空被拒绝且记录保留，再设置合成 PIN 走认证成功的路径。
+        write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
+            .put("platform.android.toolbar_hidden", false)).toString());
+        write(history, new JSONArray().put(new JSONObject().put("text", "Synthetic prior record")
+            .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
+        stage = "clear clipboard without device credential is refused";
+        if (DeviceCredentialFixture.secure(getTargetContext()))
+            throw new AssertionError("Dedicated AVD starts with a device credential");
+        openClipboardEditor();
+        tap(key("清空"));
+        tap(described("确认清空剪贴板历史"));
+        SystemClock.sleep(1500);
+        if (DeviceCredentialFixture.promptVisible(automation))
+            throw new AssertionError("System credential prompt opened without a device credential");
+        awaitHistoryCount(history, 1);
+        DeviceCredentialFixture.set(getTargetContext(), automation);
+        try {
+            firstRecordActionsAuthenticated(history, local);
+        } finally {
+            DeviceCredentialFixture.clear(getTargetContext(), automation);
+        }
+    }
+
+    private void firstRecordActionsAuthenticated(File history, File local) throws Exception {
         for (String columns : new String[] {"one", "two"}) {
             write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
                 .put("platform.android.toolbar_hidden", false)
@@ -173,7 +197,10 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 stage = "clear clipboard before first copy: " + columns + ", multiline=" + multiline;
                 tap(key("清空"));
                 tap(described("确认清空剪贴板历史"));
+                DeviceCredentialFixture.enter(automation);
                 awaitHistoryCount(history, 0);
+                // 认证界面的密码框也由水杉键盘输入，回到编辑器之前键盘仍按密码框不记剪贴板；先回到合成编辑器再复制，和用户认证完回来再复制一致。
+                openClipboardEditor();
                 copySynthetic(text);
                 awaitHistoryCount(history, 1);
                 // 与报告步骤一致：复制后重新进入面板，等设置重载与剪贴板补读完成再长按。

@@ -1499,6 +1499,12 @@ group("projects the same form factor into every settings capability", () => {
   );
   check(desktop.voiceHotkeys, "2-in-1 settings offer the voice hotkeys");
   check(
+    phone.touchKeySoundPacks &&
+      SettingsFormFactorCapabilities.resolve("tablet").touchKeySoundPacks &&
+      !desktop.touchKeySoundPacks,
+    "phones and tablets offer the touch key sound pack choice, a 2-in-1 keeps its plugin page",
+  );
+  check(
     desktop.keySound && desktop.music && desktop.pluginTriggers && desktop.typingEffects,
     "2-in-1 settings offer key sounds, background music, the V, / and @ modes and the typing effects",
   );
@@ -15013,6 +15019,21 @@ group("key sounds follow the desktop player's settings and pack rules", () => {
     KeySoundPolicy.touchKeyClass("Space", true) === KeySoundClass.DEFAULT &&
       KeySoundPolicy.touchKeyClass("Backspace", true) === KeySoundClass.DEFAULT,
     "a password field sounds every touch key alike",
+  );
+  check(
+    KeySoundPolicy.previewSample(keys) === "/packs/default/key.wav",
+    "the settings preview plays a key pack's default key sample, as a letter key sounds",
+  );
+  check(
+    KeySoundPolicy.previewSample(twinkle) === null,
+    "a melody pack has no key sample to preview",
+  );
+  check(
+    KeySoundPolicy.previewSample(
+      files({ sounds: { ...keys.sounds, default: "/packs/user/key.ogg" } }),
+    ) === null &&
+      KeySoundPolicy.previewSample(files({ sounds: { ...keys.sounds, default: null } })) === null,
+    "the preview stays silent for an Ogg sample or a pack with no default key sample",
   );
   check(!KeySoundPolicy.keysSilent(false, false, false), "Chinese mode sounds its keys");
   check(KeySoundPolicy.keysSilent(true, false, false), "a password field is silent");
