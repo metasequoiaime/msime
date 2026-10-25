@@ -51,7 +51,7 @@ final class KeystrokeLatencyTests: XCTestCase {
       InputSchemePreference.scheme = previous
       CandidateGlossPreference.enabled = previousGloss
     }
-    CandidateGlossPreference.enabled = true
+    setCandidateGloss(true)
     let controller = self.controller(.quanpin)
 
     var samples: [Double] = []
@@ -120,7 +120,7 @@ final class KeystrokeLatencyTests: XCTestCase {
       InputSchemePreference.scheme = previous
       CandidateGlossPreference.enabled = previousGloss
     }
-    CandidateGlossPreference.enabled = true
+    setCandidateGloss(true)
     let controller = self.controller(.nineKey)
     defer { controller.viewDidDisappear(false) }
     var controllerSamples: [Double] = []
@@ -164,7 +164,7 @@ final class KeystrokeLatencyTests: XCTestCase {
       InputSchemePreference.scheme = previous
       CandidateGlossPreference.enabled = previousGloss
     }
-    CandidateGlossPreference.enabled = true
+    setCandidateGloss(true)
     let controller = self.controller(.nineKey)
     controller.asynchronousNineKeyInputEnabled = true
     defer { controller.viewWillDisappear(false) }
@@ -260,7 +260,7 @@ final class KeystrokeLatencyTests: XCTestCase {
       InputSchemePreference.scheme = previous
       CandidateGlossPreference.enabled = previousGloss
     }
-    CandidateGlossPreference.enabled = true
+    setCandidateGloss(true)
 
     // 九键按「nihao」的数字 64426 打，量的是共享引擎逐键刷新九键拼写之后的整条按键路径。
     for scheme in [ChineseInputScheme.quanpin, .nineKey] {

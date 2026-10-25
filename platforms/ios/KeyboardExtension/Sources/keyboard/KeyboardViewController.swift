@@ -748,6 +748,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     InputSchemePreference.mirror(session.sharedPreferences)
     TouchShuangpinLayoutPreference.mirror(session.sharedPreferences)
     TouchWubiLayoutPreference.mirror(session.sharedPreferences)
+    // 输入习惯（学习、调频、离线释义、候选翻译与语言）同理以文档为准。镜像里没写过释义开关时读作开启，而文档默认关闭（`candidate_english_gloss` 是 opt-in）；不先抄过来，下面按镜像算出的顶栏会多留一行释义，键盘高 4pt，等后台重载把文档抄进镜像后又缩回去，文档没有更新时重载不抄，就一直按镜像显示释义。
+    InputHabitPreference.mirror(InputHabitPreference.settings(in: session.sharedPreferences))
     shuangpinLayout = TouchShuangpinLayoutPreference.layout
     wubiLayout = TouchWubiLayoutPreference.layout
     inputScheme = InputSchemePreference.scheme
