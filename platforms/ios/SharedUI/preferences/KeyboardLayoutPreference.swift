@@ -16,6 +16,8 @@ enum KeyboardLayoutPreference {
   static let cursorSwipeKey = "keyboard.gesture.cursorSwipe"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
+  static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
+  enum SwipeDirection: String { case up, down }
   static let quickPunctuationSymbolsKey = "keyboard.quickPunctuationSymbols"
   static var defaultQuickPunctuationSymbols: [String] { normalizeQuickPunctuationSymbols([]) }
   static let hideLanguageKeyKey = "keyboard.bottom.hideLanguageKey"
@@ -157,10 +159,15 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: spaceVoiceKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: spaceVoiceKey) }
   }
-  /// 「滑动输入符号」：在字母键上下滑输入右上角的角标符号。默认开，与 Android 的 `platform.android.swipe_down_symbols` 相同；关掉后长按字母键仍能输入角标，与 Android 一致。只存在本机 App Group，不随设置同步。
+  /// 「滑动输入符号」：沿设定方向滑动字母键，输入右上角的角标符号。默认开，与 Android 的 `platform.android.swipe_down_symbols` 相同；关掉后长按字母键仍能输入角标，与 Android 一致。只存在本机 App Group，不随设置同步。
   static var swipeSymbols: Bool {
     get { defaults.object(forKey: swipeSymbolsKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: swipeSymbolsKey) }
+  }
+  /// 三端 26 键默认上滑输入角标，保留用户明确选择的下滑方向；只保存在本机 App Group。
+  static var swipeSymbolsDirection: SwipeDirection {
+    get { SwipeDirection(rawValue: defaults.string(forKey: swipeSymbolsDirectionKey) ?? "") ?? .up }
+    set { defaults.set(newValue.rawValue, forKey: swipeSymbolsDirectionKey) }
   }
   /// App Group 仅缓存共享文档的快捷符号，默认值和校验由 Rust 提供。
   static var quickPunctuationSymbols: [String] {

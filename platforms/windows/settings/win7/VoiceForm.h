@@ -32,9 +32,10 @@ public:
     combo(hold_key, L"长按录音快捷键"); for (const auto& key : voice::hold_keys) option(hold_key, key.label); option(hold_key, L"不使用");
     note(L"按住期间按空格锁定录音，再次按快捷键或点完成结束，Escape 取消。", 56);
     combo(commit, L"识别结果提交方式"); for (const auto title : {L"输入法会话", L"系统按键", L"剪贴板粘贴"}) option(commit, title);
-    combo(asr_provider, L"识别服务"); combo(polish_provider, L"文本润色服务");
+    combo(asr_provider, L"识别服务"); option(asr_provider, L"正在读取服务列表…");
+    combo(polish_provider, L"文本润色服务"); option(polish_provider, L"正在读取服务列表…");
     combo(auth_mode, L"豆包鉴权方式"); option(auth_mode, L"新版 API Key"); option(auth_mode, L"旧版 App ID + Access Token");
-    combo(stream_endpoint, L"豆包流式接口预设"); option(stream_endpoint, L"自定义地址（在接口地址中填写）");
+    combo(stream_endpoint, L"豆包流式接口预设"); option(stream_endpoint, L"正在读取服务列表…");
     combo(polish_thinking, L"DeepSeek 润色思考强度"); for (const auto title : {L"关闭", L"低", L"高", L"最高"}) option(polish_thinking, title);
     combo(prompt_id, L"文本润色方案"); for (const auto& item : voice::polish_presets) { prompt_ids_.push_back(item.id); option(prompt_id, item.name); }
     for (const auto& item : voice::polish_custom_slots) { prompt_ids_.push_back(item.value); option(prompt_id, item.label); }
@@ -48,7 +49,37 @@ public:
     add(test_result, L"STATIC", L"", SS_LEFT, 80);
     combo(devices, L"麦克风"); option(devices, L"尚未读取麦克风列表"); select(devices, 0); button(device_refresh, L"刷新麦克风列表");
     add(device_status, L"STATIC", L"尚未读取麦克风列表，请点击“刷新麦克风列表”。", SS_LEFT, 56); button(models_open, L"管理本地识别模型");
-    load_catalog(); enable(false); return top;
+    catalog_loading_ = true; enable(false); return top;
+  }
+  void catalog(const Json& response) {
+    asr_.clear(); polish_.clear(); endpoints_.clear();
+    SendMessageW(get(asr_provider), CB_RESETCONTENT, 0, 0);
+    SendMessageW(get(polish_provider), CB_RESETCONTENT, 0, 0);
+    SendMessageW(get(stream_endpoint), CB_RESETCONTENT, 0, 0);
+    bool parsed = false;
+    if (const auto value = theme_data::value(response); value && value->is_object()) {
+      try {
+        asr_ = value->at("asr").get<std::vector<Json>>();
+        polish_ = value->at("polish").get<std::vector<Json>>();
+        endpoints_ = value->at("doubao_stream_endpoints").get<std::vector<Json>>();
+        parsed = true;
+      } catch (const std::exception&) {
+        asr_.clear(); polish_.clear(); endpoints_.clear();
+      }
+    }
+    // 目录失败时仍保留本机可用的识别方式，服务列表失败不能让整个设置页不可用。
+    asr_.push_back({{"id", "system"}, {"title", "Windows 系统识别"}});
+    asr_.push_back({{"id", "local"}, {"title", "本地模型（离线）"}});
+    for (const auto& entry : asr_) option(asr_provider, control_text::wide(entry.value("title", std::string{})));
+    for (const auto& entry : polish_) option(polish_provider, control_text::wide(entry.value("title", std::string{})));
+    for (const auto& entry : endpoints_) option(stream_endpoint, control_text::wide(entry.value("title", std::string{})));
+    option(stream_endpoint, L"自定义地址（在接口地址中填写）");
+    catalog_ok_ = true;
+    catalog_loading_ = false;
+    // 目录可能晚于偏好到达，也会随「刷新模型列表」再次返回；只按已保存值重选依赖目录的三个选择器，不重写其他字段，避免丢掉未保存的编辑。
+    if (loaded_) { updating_ = true; choose_catalog_entries(); updating_ = false; }
+    enable(enabled_);
+    if (!parsed) SetWindowTextW(get(test_result), L"语音服务目录读取失败，仍可使用 Windows 系统识别或本地模型。" );
   }
   void refresh(const Json& preferences) {
     const auto value = preferences.find("voice_input"); if (value == preferences.end() || !value->is_object()) { enable(false); return; }
@@ -57,7 +88,7 @@ public:
     for (const auto& field : texts()) SetWindowTextW(get(field.id), control_text::wide(saved_.value(field.key, std::string{})).c_str());
     for (const auto& field : booleans()) SendMessageW(get(field.id), BM_SETCHECK, saved_.value(field.key, false) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(get(polish_enabled), BM_SETCHECK, saved_.value("polish_enabled", false) || saved_.value("polish_text", false) ? BST_CHECKED : BST_UNCHECKED, 0);
-    choose_provider(asr_provider, asr_, saved_.value("asr_provider", std::string{})); choose_provider(polish_provider, polish_, saved_.value("polish_provider", std::string{}));
+    choose_catalog_entries();
     select(commit, saved_.value("commit_mode", std::string{}) == "sendinput" ? 1 : saved_.value("commit_mode", std::string{}) == "ctrl_v" ? 2 : 0);
     select(auth_mode, saved_.value("doubao_auth_mode", std::string{}) == "legacy" ? 1 : 0);
     const auto thinking = saved_.value("polish_thinking", std::string{}); select(polish_thinking, thinking == "low" ? 1 : thinking == "high" ? 2 : thinking == "max" ? 3 : 0);
@@ -66,15 +97,13 @@ public:
     for (size_t index = 0; index < prompt_ids_.size(); ++index) if (prompt_ids_[index] == prompt) select(prompt_id, static_cast<int>(index));
     std::map<std::wstring_view, bool> holds; for (const auto& key : voice::hold_keys) holds[key.key] = saved_.value(control_text::utf8(key.key).value(), key.fallback);
     const auto chosen = voice::selected_hold_key(holds); int index = 3; for (int current = 0; current < 3; ++current) if (voice::hold_keys[static_cast<size_t>(current)].key == chosen) index = current; select(hold_key, index);
-    select(stream_endpoint, 0); for (size_t current = 0; current < endpoints_.size(); ++current)
-      if (endpoints_[current].at("endpoint") == saved_.value("asr_endpoint", std::string{})) select(stream_endpoint, static_cast<int>(current + 1));
     render_devices(); SetWindowTextW(get(test_result), L""); updating_ = false; enable(enabled_);
   }
   void enable(bool enabled_value) {
     enabled_ = enabled_value; const bool ready = enabled_ && loaded_;
     for (const auto& item : controls_) EnableWindow(item.second, ready);
     const bool capture_ready = ready && devices_loaded_ && !devices_.empty();
-    EnableWindow(get(asr_provider), ready && catalog_ok_); EnableWindow(get(polish_provider), ready && catalog_ok_);
+    EnableWindow(get(asr_provider), ready && catalog_ok_ && !catalog_loading_); EnableWindow(get(polish_provider), ready && catalog_ok_ && !catalog_loading_);
     const auto provider = selected_provider(asr_provider, asr_); const bool doubao = provider == "doubao", cloud = !provider.empty() && provider != "local" && provider != "system";
     for (const auto id : {asr_endpoint, asr_model, asr_token, test_asr}) EnableWindow(get(id), ready && cloud);
     for (const auto id : {auth_mode, resource, punc, itn, ddc, boosting, stream_endpoint}) EnableWindow(get(id), ready && doubao);
@@ -187,18 +216,12 @@ private:
   void option(int id, std::wstring_view title) { const std::wstring value(title); SendMessageW(get(id), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(value.c_str())); }
   static int field_id(const std::string& key) { for (const auto& field : texts()) if (field.key == key) return field.id; return -1; }
   std::string selected_provider(int id, const std::vector<Json>& table) const { const auto index = selected(id); return index >= 0 && static_cast<size_t>(index) < table.size() ? table[static_cast<size_t>(index)].at("id").get<std::string>() : std::string{}; }
-  void choose_provider(int id, const std::vector<Json>& table, const std::string& provider) { select(id, -1); for (size_t index = 0; index < table.size(); ++index) if (table[index].at("id") == provider) select(id, static_cast<int>(index)); }
-  void load_catalog() {
-    const auto value = theme_data::value(theme_data::response(msime_client_voice_provider_catalog()));
-    if (!value || !value->is_object()) return;
-    try {
-      asr_ = value->at("asr").get<std::vector<Json>>(); polish_ = value->at("polish").get<std::vector<Json>>(); endpoints_ = value->at("doubao_stream_endpoints").get<std::vector<Json>>();
-      asr_.push_back({{"id","system"},{"title","Windows 系统识别"}}); asr_.push_back({{"id","local"},{"title","本地模型（离线）"}});
-      for (const auto& entry : asr_) option(asr_provider, control_text::wide(entry.at("title").get<std::string>()));
-      for (const auto& entry : polish_) option(polish_provider, control_text::wide(entry.at("title").get<std::string>()));
-      for (const auto& entry : endpoints_) option(stream_endpoint, control_text::wide(entry.at("title").get<std::string>())); catalog_ok_ = true;
-    } catch (const std::exception&) { catalog_ok_ = false; }
+  void choose_catalog_entries() {
+    choose_provider(asr_provider, asr_, saved_.value("asr_provider", std::string{})); choose_provider(polish_provider, polish_, saved_.value("polish_provider", std::string{}));
+    select(stream_endpoint, 0); for (size_t current = 0; current < endpoints_.size(); ++current)
+      if (endpoints_[current].at("endpoint") == saved_.value("asr_endpoint", std::string{})) select(stream_endpoint, static_cast<int>(current + 1));
   }
+  void choose_provider(int id, const std::vector<Json>& table, const std::string& provider) { select(id, -1); for (size_t index = 0; index < table.size(); ++index) if (table[index].at("id") == provider) select(id, static_cast<int>(index)); }
   Json configuration(bool asr) const {
     const std::string prefix = asr ? "asr" : "polish"; const auto provider = selected_provider(asr ? asr_provider : polish_provider, asr ? asr_ : polish_);
     Json config{{"provider",provider}, {"endpoint",text(field_id(prefix + "_endpoint"))}, {"model",text(field_id(prefix + "_model"))}, {"token",text(field_id(prefix + "_token"))}};
@@ -234,6 +257,6 @@ private:
     }
   }
   std::set<int> dirty_; std::map<int,HWND> controls_; Json saved_; std::vector<Json> asr_, polish_, endpoints_, devices_; std::vector<std::wstring_view> prompt_ids_;
-  bool loaded_ = false, enabled_ = false, updating_ = false, catalog_ok_ = false, secrets_ = false, devices_loaded_ = false;
+  bool loaded_ = false, enabled_ = false, updating_ = false, catalog_ok_ = false, catalog_loading_ = false, secrets_ = false, devices_loaded_ = false;
 };
 } // namespace msime::settings::win7

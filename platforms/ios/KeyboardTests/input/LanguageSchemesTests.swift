@@ -134,7 +134,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertTrue(ChineseInputScheme.optInSchemes.contains(.eighteenKey))
     XCTAssertFalse(scheme.editsBySyllable)
     XCTAssertNil(scheme.shuangpinProfile)
-    XCTAssertEqual(LetterKeyGrid.of(scheme, shuangpinLayout: .twentySixKey), .eighteenKey)
+    XCTAssertEqual(LetterKeyGrid.of(scheme, shuangpinLayout: .twentySixKey, wubiLayout: .fourteenKey), .eighteenKey)
     XCTAssertEqual(TypingSource(rawValue: scheme.rawValue), .eighteenKey)
     var document: [String: Any] = ["last_chinese_scheme": "wubi"]
     MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: ChineseInputScheme.allCases)?(&document)
@@ -155,8 +155,13 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(TouchShuangpinLayoutPreference.Layout.allCases.map(\.title), ["26 键", "14 键", "18 键"])
     let grids: [(TouchShuangpinLayoutPreference.Layout, LetterKeyGrid?)] = [(.twentySixKey, nil), (.fourteenKey, .fourteenKey), (.eighteenKey, .eighteenKey)]
     for (layout, grid) in grids {
-      XCTAssertEqual(LetterKeyGrid.of(.microsoft, shuangpinLayout: layout), grid, layout.rawValue)
-      XCTAssertNil(LetterKeyGrid.of(.quanpin, shuangpinLayout: layout), "the shuangpin layout never applies to quanpin")
+      XCTAssertEqual(LetterKeyGrid.of(.microsoft, shuangpinLayout: layout, wubiLayout: .twentySixKey), grid, layout.rawValue)
+      XCTAssertEqual(LetterKeyGrid.of(.microsoft, shuangpinLayout: layout, wubiLayout: .fourteenKey), grid,
+                     "the wubi layout never applies to shuangpin")
+      XCTAssertNil(LetterKeyGrid.of(.quanpin, shuangpinLayout: layout, wubiLayout: .fourteenKey),
+                   "the shuangpin layout never applies to quanpin")
+      XCTAssertNil(LetterKeyGrid.of(.wubi, shuangpinLayout: layout, wubiLayout: .twentySixKey),
+                   "the shuangpin layout never applies to wubi")
     }
 
     var mapped = document
@@ -164,6 +169,69 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(mapped["scheme"] as? String, "shuangpin")
     XCTAssertEqual(mapped["shuangpin_profile"] as? String, "microsoft")
     XCTAssertEqual(mapped["touch_shuangpin_layout"] as? String, "fourteen_key")
+  }
+
+  /// 五笔 14 键是独立的 `touch_wubi_layout`：缺省 26 键，与双拼布局、86/98 码表互不影响；方案选择写文档时不碰它，所以切到别的方案再回到五笔仍是 14 键。
+  func testWubiLayoutIsIndependentFromTheShuangpinLayoutAndTheProfile() throws {
+    XCTAssertEqual(TouchWubiLayoutPreference.layout(in: nil), .twentySixKey)
+    XCTAssertEqual(TouchWubiLayoutPreference.layout(in: [:]), .twentySixKey)
+    XCTAssertEqual(TouchWubiLayoutPreference.layout(in: ["touch_wubi_layout": "eighteen_key"]), .twentySixKey,
+                   "五笔没有 18 键")
+    XCTAssertEqual(TouchWubiLayoutPreference.Layout.allCases.map(\.title), ["26 键", "14 键"])
+    XCTAssertEqual(TouchWubiLayoutPreference.Layout.allCases.map(\.rawValue), ["twenty_six_key", "fourteen_key"])
+    let document: [String: Any] = ["touch_wubi_layout": "fourteen_key", "touch_shuangpin_layout": "eighteen_key",
+                                   "wubi_profile": "wubi98"]
+    XCTAssertEqual(TouchWubiLayoutPreference.layout(in: document), .fourteenKey)
+    XCTAssertEqual(TouchShuangpinLayoutPreference.layout(in: document), .eighteenKey)
+    XCTAssertEqual(LetterKeyGrid.of(.wubi, shuangpinLayout: .eighteenKey, wubiLayout: .fourteenKey), .fourteenKey)
+    XCTAssertNil(LetterKeyGrid.of(.wubi, shuangpinLayout: .fourteenKey, wubiLayout: .twentySixKey))
+    for scheme in ChineseInputScheme.allCases where scheme != .wubi {
+      XCTAssertEqual(LetterKeyGrid.of(scheme, shuangpinLayout: .twentySixKey, wubiLayout: .fourteenKey),
+                     LetterKeyGrid.of(scheme, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey),
+                     "the wubi layout only applies to wubi: \(scheme)")
+    }
+
+    // 选别的方案、再选回五笔，都不改五笔布局和码表。
+    var mapped = document
+    for scheme in [ChineseInputScheme.quanpin, .microsoft, .wubi] {
+      MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: ChineseInputScheme.allCases)?(&mapped)
+      XCTAssertEqual(mapped["touch_wubi_layout"] as? String, "fourteen_key", scheme.rawValue)
+      XCTAssertEqual(mapped["wubi_profile"] as? String, "wubi98", scheme.rawValue)
+    }
+    XCTAssertEqual(mapped["scheme"] as? String, "wubi")
+    XCTAssertEqual(mapped["touch_keyboard_layout"] as? String, "twenty_six_key")
+
+    // 存进共享文档：五笔布局与双拼布局、码表分开保存，换码表不丢 14 键。
+    let previousWubi = TouchWubiLayoutPreference.layout
+    let previousShuangpin = TouchShuangpinLayoutPreference.layout
+    let previousProfile = WubiProfilePreference.profile
+    defer {
+      TouchWubiLayoutPreference.layout = previousWubi
+      TouchShuangpinLayoutPreference.layout = previousShuangpin
+      WubiProfilePreference.profile = previousProfile
+    }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertEqual(TouchWubiLayoutPreference.layout(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)),
+                   .twentySixKey, "a new document starts on 26 keys")
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.twentySixKey, stateRoot: state))
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.fourteenKey, stateRoot: state))
+    XCTAssertEqual(TouchWubiLayoutPreference.layout, .fourteenKey, "the App Group mirror follows a saved document")
+    for profile in ["wubi98", "wubi86"] {
+      XCTAssertTrue(WubiProfilePreference.save(profile, stateRoot: state))
+      let reloaded = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)
+      XCTAssertEqual(TouchWubiLayoutPreference.layout(in: reloaded), .fourteenKey, profile)
+      XCTAssertEqual(TouchShuangpinLayoutPreference.layout(in: reloaded), .twentySixKey, profile)
+    }
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.fourteenKey, stateRoot: state))
+    XCTAssertEqual(TouchWubiLayoutPreference.layout(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)),
+                   .fourteenKey)
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.twentySixKey, stateRoot: state))
+    let back = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)
+    XCTAssertEqual(TouchWubiLayoutPreference.layout(in: back), .twentySixKey)
+    XCTAssertEqual(TouchShuangpinLayoutPreference.layout(in: back), .fourteenKey)
+    // 镜像只认文档：没有文档时不动。
+    TouchWubiLayoutPreference.mirror(nil)
+    XCTAssertEqual(TouchWubiLayoutPreference.layout, .twentySixKey)
   }
 
   /// The cloud settings document knows quanpin, shuangpin, wubi, japanese and korean only; a device that uploaded any other `input.schema` would make every other device reject the whole document.

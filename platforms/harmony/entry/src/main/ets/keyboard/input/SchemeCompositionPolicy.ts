@@ -36,13 +36,19 @@ export class SchemeCompositionPolicy {
 
   /**
    * 全拼九键：`editing_text` 是按下的数字，`nine_key_reading` 是首选候选覆盖的那段数字的拼音加上还没换成拼音的数字（`ni'hao`、`ning'224`）。有它就画它，引擎算不出读音（模糊匹配的首选）时它是空的，仍画数字。
+   *
+   * 五笔 14 键：`editing_text` 是每组的代表字母（`qq`），不是用户打的码，绝不画；`nine_key_reading` 与 `preedit` 相同，是首选的编码前几位（`wq`）。五笔 26 键的 `nine_key_reading` 总是空的，不受影响。
    */
   static drawsNineKeyReading(
     rulesScheme: number,
     editing: string,
     nineKeyReading: string,
   ): boolean {
-    return rulesScheme === SchemeTraits.QUANPIN && editing.length > 0 && nineKeyReading.length > 0;
+    return (
+      (rulesScheme === SchemeTraits.QUANPIN || rulesScheme === SchemeTraits.WUBI) &&
+      editing.length > 0 &&
+      nineKeyReading.length > 0
+    );
   }
 
   /** The composition to draw: the written text for a scheme that composes it, the Stroke glyphs for Stroke, 全拼九键的拼音读音, the spelling for every other scheme. */
@@ -74,10 +80,11 @@ export class SchemeCompositionPolicy {
       : preedit;
   }
 
-  /** 读音只画在候选栏上、不写进输入框的组字：全拼 14/18 键的组码，以及日语的假名读音。 */
+  /** 读音只画在候选栏上、不写进输入框的组字：全拼 14/18 键和五笔 14 键的组码（与全拼 14 键同在读音行），以及日语的假名读音。 */
   static keepsReadingOnStrip(rulesScheme: number, fourteenKey: boolean): boolean {
     return (
-      rulesScheme === SchemeTraits.JAPANESE || (rulesScheme === SchemeTraits.QUANPIN && fourteenKey)
+      rulesScheme === SchemeTraits.JAPANESE ||
+      ((rulesScheme === SchemeTraits.QUANPIN || rulesScheme === SchemeTraits.WUBI) && fourteenKey)
     );
   }
 

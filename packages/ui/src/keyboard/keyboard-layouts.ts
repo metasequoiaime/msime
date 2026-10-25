@@ -165,11 +165,13 @@ export const harmonyTouchKeyboardRows: Record<HarmonyTouchLayout, PreviewKey[][]
   ],
 };
 
-/** 把触屏方案和鸿蒙自己的 26/14/18 键选择映射到实际绘制的键面。详情页和「屏幕键盘」页共用这条规则，避免预览各画各的键位。 */
+/** 把触屏方案和鸿蒙自己的 26/14/18 键选择映射到实际绘制的键面。详情页和「屏幕键盘」页共用这条规则，避免预览各画各的键位。五笔 14 键与全拼 14 键是同一个键面（左端「符」、L 单独一键）。 */
 export function harmonyTouchLayout(
   selected: TouchKeyboardScheme,
   shuangpinLayout: "twenty_six_key" | "fourteen_key" | "eighteen_key" = "twenty_six_key",
+  wubiLayout: "twenty_six_key" | "fourteen_key" = "twenty_six_key",
 ): HarmonyTouchLayout {
+  if (selected === "wubi") return wubiLayout === "fourteen_key" ? "fourteen_key" : "twenty_six_key";
   if (
     selected === "xiaohe" ||
     selected === "ziranma" ||
@@ -195,7 +197,11 @@ export function harmonyTouchLayout(
 /** 鸿蒙手机当前方案对应的预览键面；没有方案字段时沿用默认的 26 键。 */
 export function harmonyTouchRowsForPreferences(preferences: Preferences): PreviewKey[][] {
   const selected = inferredTouchKeyboardScheme(preferences);
-  const layout = harmonyTouchLayout(selected, preferences.touch_shuangpin_layout);
+  const layout = harmonyTouchLayout(
+    selected,
+    preferences.touch_shuangpin_layout,
+    preferences.touch_wubi_layout,
+  );
   return harmonyTouchKeyboardRows[layout];
 }
 

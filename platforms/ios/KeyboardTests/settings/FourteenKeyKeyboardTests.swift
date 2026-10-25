@@ -2,7 +2,7 @@ import XCTest
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
-/// 全拼和双拼 14 键：桥接层、键面、读屏、读音选择、布局热加载与 iPad 排布保持一致。
+/// 全拼、双拼和五笔 14 键：桥接层、键面、读屏、读音选择、布局热加载与 iPad 排布保持一致。
 @MainActor
 final class FourteenKeyKeyboardTests: XCTestCase {
   private var previousScheme = InputSchemePreference.scheme
@@ -98,6 +98,96 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(bridge.gridKey("l").nineKeySpellings.contains("qing"), "微软 q; 的分号由 L 键承载")
   }
 
+  /// 五笔 14 键：同一张键面交给五笔，QW QW 展开成 qq qw wq ww 查码表。读音是首选编码的前几位，没有拼音选择；硬件字母在 14 键组字中不处理、空闲时照常走 26 键五笔；网格在会话重建后仍在，换回 26 键五笔或别的方案后组码不再被收下。
+  func testTheBridgeTypesWubiOnTheFourteenKeys() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-wubi-fourteen-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertNil(bridge.switchToFourteenKeyWubi().diagnosticText)
+    func type(_ codes: String, on bridge: MetasequoiaInputSessionBridge) -> MetasequoiaInputSnapshot {
+      var snapshot = bridge.cancel()
+      for code in codes { snapshot = bridge.gridKey(String(code)) }
+      return snapshot
+    }
+    func assertTypesNi(_ bridge: MetasequoiaInputSessionBridge, _ context: String) throws {
+      let snapshot = type("qq", on: bridge)
+      XCTAssertTrue(snapshot.isHandled, context)
+      XCTAssertTrue(snapshot.candidates.contains("你"), "\(context): \(snapshot.candidates)")
+      XCTAssertTrue(snapshot.nineKeySpellings.isEmpty, "wubi has no pinyin to choose: \(context)")
+      XCTAssertEqual(snapshot.nineKeyReading, snapshot.preedit, context)
+      XCTAssertEqual(snapshot.nineKeyReading.count, 2, context)
+      XCTAssertTrue(snapshot.nineKeyReading.allSatisfy { "qw".contains($0) }, "\(context): \(snapshot.nineKeyReading)")
+      let top = try XCTUnwrap(snapshot.candidateCodes.first, context)
+      XCTAssertTrue(top.hasPrefix(snapshot.nineKeyReading), "\(context): the reading is the top code \(top)")
+    }
+    try assertTypesNi(bridge, "86")
+
+    // 14 键组字中硬件字母不处理，组字照样能接着打。
+    var snapshot = type("qq", on: bridge)
+    XCTAssertFalse(bridge.handleCharacter("a").isHandled, "a hardware letter during a 14-key composition")
+    snapshot = bridge.gridKey("q")
+    XCTAssertTrue(snapshot.isHandled, "the grid composition went on")
+    XCTAssertNil(snapshot.commitText)
+    snapshot = type("qq", on: bridge)
+    let ni = try XCTUnwrap(snapshot.candidates.firstIndex(of: "你"))
+    XCTAssertEqual(bridge.selectCandidate(at: UInt(ni)).commitText, "你")
+
+    // 空闲时硬件字母走 26 键五笔；26 键组字中网格键不处理。
+    _ = bridge.cancel()
+    snapshot = bridge.handleCharacter("a")
+    XCTAssertTrue(snapshot.candidates.contains("工"), "\(snapshot.candidates)")
+    XCTAssertFalse(bridge.gridKey("q").isHandled, "a grid key during a 26-key composition")
+    _ = bridge.cancel()
+
+    // 回车（原样上屏）在 14 键下由运行时改为结束组字取首选，不把组码 qq 写出去。
+    snapshot = type("qq", on: bridge)
+    let top = try XCTUnwrap(snapshot.candidates.first)
+    XCTAssertEqual(bridge.commitRaw().commitText, top)
+
+    // 最多四码：QW 四次是 qqqq（金）、wwww（人）等，第五键先把首选顶上屏，再开始下一个字。
+    snapshot = type("qqqq", on: bridge)
+    if snapshot.commitText == nil {
+      XCTAssertEqual(snapshot.preedit.count, 4, snapshot.preedit)
+      let fifth = bridge.gridKey("q")
+      XCTAssertNotNil(fifth.commitText, "the fifth key commits the top candidate")
+      XCTAssertEqual(fifth.preedit.count, 1, fifth.preedit)
+    }
+    _ = bridge.cancel()
+
+    // 你好是 wqvb：QW QW CV BN。四码唯一时按偏好自动上屏，否则在候选里。
+    snapshot = type("qqcb", on: bridge)
+    XCTAssertTrue(snapshot.commitText == "你好" || snapshot.candidates.contains("你好"),
+                  "\(snapshot.commitText ?? "") \(snapshot.candidates)")
+    _ = bridge.cancel()
+
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    try bridge.resumeDictionarySession()
+    try assertTypesNi(bridge, "rebuilt")
+    _ = bridge.cancel()
+    _ = bridge.switchToWubi()
+    XCTAssertFalse(bridge.gridKey("q").isHandled, "26-key wubi")
+    XCTAssertNil(bridge.switchToFourteenKeyWubi().diagnosticText)
+    _ = bridge.switch(toShuangpin: false)
+    XCTAssertFalse(bridge.gridKey("q").isHandled, "quanpin 26 after wubi 14")
+
+    // 共享文档记着 `touch_wubi_layout` 时，新会话由 Host API 直接以五笔 14 键开始，换成 98 码表也一样。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["scheme"] = "wubi"
+      $0["touch_wubi_layout"] = "fourteen_key"
+      $0["wubi_profile"] = "wubi98"
+    })
+    let fresh = MetasequoiaInputSessionBridge(stateRoot: state)
+    snapshot = type("qq", on: fresh)
+    XCTAssertTrue(snapshot.isHandled, "the document's wubi layout opened the grid")
+    XCTAssertTrue(snapshot.nineKeySpellings.isEmpty)
+    _ = fresh.cancel()
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["touch_wubi_layout"] = "twenty_six_key"
+    })
+    XCTAssertFalse(MetasequoiaInputSessionBridge(stateRoot: state).gridKey("q").isHandled, "26-key wubi document")
+  }
+
   /// 设置页会立即更新 App Group；键盘必须对照自身已应用布局，才能在方案不变时重画键面和读音行。
   func testShuangpinLayoutReloadChangesKeysAndReadingWithoutChangingProfile() throws {
     let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
@@ -185,6 +275,195 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     try tap(["QW", "L"], in: controller)
     XCTAssertTrue(shown(try button("readingSpelling_qing", in: controller)))
     attachScreenshot(of: controller, named: "微软双拼十四键平板横屏")
+  }
+
+  // MARK: - 五笔 14 键
+
+  /// 五笔 14 键画同一张键面，左端键总是「符」；QW QW 的读音行是首选编码的前几位，组码不写进输入框，没有拼音选择条，其余候选照样有编码提示，展开的是五笔的候选网格而不是九键三栏。长按、退格、英文、网址输入框和数字页与全拼 14 键相同。
+  func testWubiFourteenKeysTypeTheTopCode() throws {
+    let restore = try preserveWubiLayout()
+    defer { restore() }
+    XCTAssertTrue(InputSchemePreference.select(.wubi))
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.fourteenKey))
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
+                   KeyboardViewController.keyboardHeight(separateReadingRow: true))
+    for key in FourteenKeyLayout.rows.joined() {
+      XCTAssertTrue(shown(try button("fourteenKey\(key.face)", in: controller)), key.face)
+    }
+    XCTAssertFalse(shown(try button("shiftButton", in: controller)))
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" && shown($0) })
+    let separator = try button("fourteenKeySeparator", in: controller)
+    XCTAssertEqual(separator.configuration?.title, "符")
+
+    try tap(["QW", "QW"], in: controller)
+    let reading = preedit(in: controller)
+    XCTAssertEqual(reading.count, 2, reading)
+    XCTAssertTrue(reading.allSatisfy { "qw".contains($0) }, "the reading row shows the top code, not the group letters: \(reading)")
+    XCTAssertTrue(candidates(in: controller).contains { $0.contains("你") }, "\(candidates(in: controller))")
+    XCTAssertEqual(controller.inlineMarkedText, "", "the 14-key codes are not written into the editor")
+    XCTAssertEqual(separator.configuration?.title, "符", "wubi has no syllables to split")
+    XCTAssertEqual(separator.accessibilityLabel, "符号")
+    XCTAssertNil(descendants(controller.view).first { ($0.accessibilityIdentifier ?? "").hasPrefix("readingSpelling_") && shown($0) })
+    let strip = try view("readingSpellingStrip", in: controller)
+    XCTAssertFalse(shown(strip), "no pinyin strip for wubi")
+    let hinted = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden
+        && ($0.accessibilityLabel ?? "").contains("还需输入") }
+    XCTAssertFalse(hinted.isEmpty, "wubi code hints still show on the 14 keys")
+    attachScreenshot(of: controller, named: "五笔十四键 QW QW")
+
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" })
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanelSpellingColumn" },
+                 "wubi expands into its own candidate grid, not the nine-key columns")
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" })
+
+    // 长按 QW 弹出 q、w，选中先结束组字再上屏字母。
+    let qw = try button("fourteenKeyQW", in: controller)
+    let hold = try XCTUnwrap(qw.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }.first)
+    hold.state = .began
+    controller.perform(NSSelectorFromString("handleFourteenKeyHold:"), with: hold)
+    try button("nineKeyHoldOption-w", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(wubiComposing(controller), "choosing a letter finished the composition first")
+
+    // 退格逐键删组码。
+    try tap(["QW", "QW"], in: controller)
+    for _ in 0..<2 {
+      try button("fourteenKeyDelete", in: controller).sendActions(for: .touchDown)
+      try button("fourteenKeyDelete", in: controller).sendActions(for: .touchUpInside)
+    }
+    XCTAssertFalse(wubiComposing(controller))
+
+    // 回车结束组字，与全拼 14 键一样不把组码当原文上屏。
+    try tap(["QW", "QW"], in: controller)
+    try button("returnKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(wubiComposing(controller))
+
+    // 组字中点「符」：先上屏首选，再打开符号面板，不送分词符。
+    try tap(["QW", "QW"], in: controller)
+    separator.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(wubiComposing(controller), "符 finished the wubi composition")
+    XCTAssertFalse(preedit(in: controller).contains("'"))
+  }
+
+  /// 五笔 14 键的回落与全拼 14 键相同：英文模式、网址输入框和本地输入画 26 键，回到中文仍是 14 键；数字页的返回键印「14键」。
+  func testWubiFourteenKeysFallBackToTwentySixKeys() throws {
+    let restore = try preserveWubiLayout()
+    defer { restore() }
+    XCTAssertTrue(InputSchemePreference.select(.wubi))
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.fourteenKey))
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    let qw = try button("fourteenKeyQW", in: controller)
+    XCTAssertTrue(shown(qw))
+
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(shown(qw))
+    XCTAssertNotNil(descendants(controller.view).first { ($0.accessibilityLabel ?? "").hasSuffix(" Q") && shown($0) })
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(shown(qw))
+
+    let ordinary = UUID()
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
+    controller.applyInputContext(keyboardType: .URL, documentIdentifier: UUID())
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(shown(qw), "a URL field draws the 26 letters")
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(shown(qw), "leaving the URL field restores the 14 keys")
+
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(shown(qw))
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "14键")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(shown(qw))
+
+    XCTAssertEqual(InputSchemePreference.scheme, .wubi, "the fallbacks do not rewrite the scheme")
+    XCTAssertEqual(TouchWubiLayoutPreference.layout, .fourteenKey)
+  }
+
+  /// 设置页改五笔布局：空闲时键盘重载立即换键面和读音行；组字期间读入的布局留到组字结束再应用，与双拼相同。
+  func testWubiLayoutReloadIsDeferredDuringAComposition() throws {
+    let restore = try preserveWubiLayout()
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    defer {
+      restore()
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    XCTAssertTrue(InputSchemePreference.select(.wubi))
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.twentySixKey))
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    let qw = try button("fourteenKeyQW", in: controller)
+    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    let initialHeight = height.constant
+    XCTAssertFalse(shown(qw))
+
+    func reload(until done: () -> Bool) {
+      controller.viewWillAppear(false)
+      let deadline = Date().addingTimeInterval(15)
+      while !done() && Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+      }
+      controller.view.layoutIfNeeded()
+    }
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.fourteenKey))
+    reload { shown(qw) }
+    XCTAssertTrue(shown(qw))
+    XCTAssertEqual(height.constant - initialHeight, readingRowCost)
+    XCTAssertEqual(InputSchemePreference.scheme, .wubi)
+    try tap(["QW", "QW"], in: controller)
+    XCTAssertTrue(candidates(in: controller).contains { $0.contains("你") }, "\(candidates(in: controller))")
+    XCTAssertTrue(wubiComposing(controller))
+
+    // 组字期间读入 26 键设置，当前键面保持 14 键；上屏后同一控制器立即换成 26 键。
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.twentySixKey))
+    KeyboardLayoutPreference.shuangpinKeyHints = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences {
+      $0["touch_shuangpin_key_hints"] = true
+    })
+    // 键位提示只由重载回调镜像，用它作重载完成的信号；布局镜像已被 save 同步写入，不能当信号。
+    reload { KeyboardLayoutPreference.shuangpinKeyHints }
+    XCTAssertTrue(KeyboardLayoutPreference.shuangpinKeyHints)
+    XCTAssertTrue(shown(qw), "the layout waits for the composition")
+    XCTAssertTrue(wubiComposing(controller))
+    try button("spaceKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(shown(qw))
+    XCTAssertEqual(height.constant, initialHeight)
+    XCTAssertEqual(InputSchemePreference.scheme, .wubi)
+    let g = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 G" && shown($0) } as? UIButton)
+    g.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(candidates(in: controller).contains { $0.hasPrefix("一") }, "back on 26-key wubi: \(candidates(in: controller))")
+  }
+
+  /// 五笔 14 键的编码提示按键比对：编码前几位逐位落在已按的键上就算打过，ZX 键在引擎组码里记作 `x`。
+  func testWubiGridCodeHintsMatchCodesKeyByKey() {
+    XCTAssertEqual(FourteenKeyLayout.typedPrefix(of: "wqiy", keys: "qq"), "wq")
+    XCTAssertEqual(FourteenKeyLayout.typedPrefix(of: "qqqq", keys: "qq"), "qq")
+    XCTAssertEqual(FourteenKeyLayout.typedPrefix(of: "xa", keys: "x"), "x")
+    XCTAssertEqual(FourteenKeyLayout.typedPrefix(of: "xa", keys: "z"), "x")
+    XCTAssertEqual(FourteenKeyLayout.typedPrefix(of: "vb", keys: "cb"), "vb")
+    XCTAssertNil(FourteenKeyLayout.typedPrefix(of: "ab", keys: "q"))
+    XCTAssertNil(FourteenKeyLayout.typedPrefix(of: "w", keys: "qq"), "a code shorter than the keys")
+    XCTAssertNil(FourteenKeyLayout.typedPrefix(of: "wq", keys: ""))
+    XCTAssertEqual(WubiCodeHintPreference.hint(code: "wqiy", typed: FourteenKeyLayout.typedPrefix(of: "wqiy", keys: "qq") ?? "",
+                                               answeredByPinyinFallback: false), "iy")
+    // 统计仍记在五笔来源上，键位 id 与全拼 14 键相同。
+    XCTAssertEqual(TypingSource(rawValue: ChineseInputScheme.wubi.rawValue), .wubi)
+    XCTAssertEqual(FourteenKeyLayout.key(for: "w")?.keyID, "FourteenQW")
+    XCTAssertEqual(FourteenKeyLayout.key(for: "x")?.keyID, "FourteenZX")
   }
 
   // MARK: - 键面
@@ -451,6 +730,22 @@ final class FourteenKeyKeyboardTests: XCTestCase {
   private func tap(_ faces: [String], in controller: KeyboardViewController) throws {
     for face in faces { try button("fourteenKey\(face)", in: controller).sendActions(for: .primaryActionTriggered) }
     controller.view.layoutIfNeeded()
+  }
+
+  /// 五笔 14 键的左端键总是「符」，所以按读音行判断是否在组字：空闲时它写「水杉输入法」。
+  private func wubiComposing(_ controller: KeyboardViewController) -> Bool {
+    let title = preedit(in: controller)
+    return !title.isEmpty && title != "水杉输入法"
+  }
+
+  /// 记下共享文档、方案和五笔布局镜像，返回恢复它们的闭包。
+  private func preserveWubiLayout() throws -> () -> Void {
+    let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    let previousLayout = TouchWubiLayoutPreference.layout
+    return {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = document }
+      TouchWubiLayoutPreference.layout = previousLayout
+    }
   }
 
   /// 正在组字：分词键只在组字时写「分词」。

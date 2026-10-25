@@ -55,7 +55,11 @@ public final class AndroidLocalSettingsSmoke {
         check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD), "split keyboard is off by default");
         check(settings.bool(AndroidLocalSettings.KEY_POPUP), "key popup default");
         check(settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), "swipe default");
-        check("down".equals(settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)), "swipe direction default");
+        check("up".equals(settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)), "swipe direction default");
+        AndroidLocalSettings.Snapshot explicitDown = new AndroidLocalSettings.Snapshot(
+            AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, "down")));
+        check("down".equals(explicitDown.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)),
+            "saved downward direction survives the new default");
         check(settings.bool(AndroidLocalSettings.SPACE_CURSOR), "space cursor default");
         check(settings.bool(AndroidLocalSettings.SPACE_VOICE), "space voice default");
         check("none".equals(settings.choice(AndroidLocalSettings.KEY_ANIMATION)), "animation default");

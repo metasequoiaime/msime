@@ -1638,7 +1638,7 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
     "the longer side of the pad spans the recognition canvas",
   );
   check(
-    Math.abs((square[1].x - square[0].x) - (square[1].y - square[0].y)) < 1e-9,
+    Math.abs(square[1].x - square[0].x - (square[1].y - square[0].y)) < 1e-9,
     "a square stroke stays square instead of being stretched to the canvas height",
   );
   const tall = HandwritingStrokePolicy.recognitionPoint(100, 400, 200, 400);
@@ -3072,6 +3072,99 @@ group("14 键的网格与键面", () => {
       KeyboardScheme.keyGrid("twenty_six_key", "quanpin", false, "eighteen_key") === KeyGrid.NONE,
     "双拼 2in1 和全拼的独立布局不误开网格",
   );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "wubi", false, "twenty_six_key", "fourteen_key") ===
+      KeyGrid.FOURTEEN_KEY &&
+      KeyboardScheme.keyGrid("twenty_six_key", "wubi", false, "eighteen_key", "twenty_six_key") ===
+        KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("twenty_six_key", "wubi", false) === KeyGrid.NONE,
+    "五笔 14 键开网格 2，五笔 26 键（缺省）不开，双拼布局不影响五笔",
+  );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "wubi", true, "twenty_six_key", "fourteen_key") ===
+      KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("handwriting", "wubi", false, "twenty_six_key", "fourteen_key") ===
+        KeyGrid.NONE &&
+      KeyboardScheme.keyGrid(
+        "twenty_six_key",
+        "quanpin",
+        false,
+        "twenty_six_key",
+        "fourteen_key",
+      ) === KeyGrid.NONE &&
+      KeyboardScheme.keyGrid(
+        "twenty_six_key",
+        "shuangpin",
+        false,
+        "twenty_six_key",
+        "fourteen_key",
+      ) === KeyGrid.NONE,
+    "五笔 14 键在 2in1 和手写下不开网格，五笔布局不让全拼、双拼误开网格",
+  );
+  check(
+    KeyboardScheme.letterLayout(KeyboardScheme.WUBI, "twenty_six_key", "fourteen_key") ===
+      "fourteen_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.WUBI, "eighteen_key", "twenty_six_key") ===
+        "twenty_six_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.WUBI, "twenty_six_key", "eighteen_key") ===
+        "twenty_six_key",
+    "五笔按 touch_wubi_layout 画 14 键，只有 26 键和 14 键，不跟双拼布局",
+  );
+  check(
+    KeyboardScheme.letterLayout(KeyboardScheme.XIAOHE, "eighteen_key", "fourteen_key") ===
+      "eighteen_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.QUANPIN, "fourteen_key", "fourteen_key") ===
+        "twenty_six_key" &&
+      KeyboardScheme.letterLayout(
+        KeyboardScheme.QUANPIN_FOURTEEN_KEY,
+        "twenty_six_key",
+        "twenty_six_key",
+      ) === "fourteen_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.HANDWRITING, "fourteen_key", "fourteen_key") ===
+        "handwriting",
+    "双拼看自己的布局，全拼看方案布局，手写不画字母键，五笔布局不影响它们",
+  );
+  check(
+    KeyboardScheme.acceptedKeyGrid("wubi", KeyGrid.FOURTEEN_KEY) === KeyGrid.FOURTEEN_KEY &&
+      KeyboardScheme.acceptedKeyGrid("wubi", KeyGrid.EIGHTEEN_KEY) === KeyGrid.NONE &&
+      KeyboardScheme.acceptedKeyGrid("wubi", KeyGrid.NINE_KEY) === KeyGrid.NONE &&
+      KeyboardScheme.acceptedKeyGrid("shuangpin", KeyGrid.EIGHTEEN_KEY_SHUANGPIN) ===
+        KeyGrid.EIGHTEEN_KEY_SHUANGPIN &&
+      KeyboardScheme.acceptedKeyGrid("quanpin", KeyGrid.NINE_KEY) === KeyGrid.NINE_KEY &&
+      KeyboardScheme.acceptedKeyGrid("japanese", KeyGrid.NINE_KEY) === KeyGrid.NONE,
+    "会话只给五笔开 14 键网格，日文和其他方案不开",
+  );
+  check(
+    !KeyboardScheme.fourteenKeySeparates("wubi", true) &&
+      !KeyboardScheme.fourteenKeySeparates("wubi", false) &&
+      KeyboardScheme.fourteenKeySeparates("quanpin", true) &&
+      KeyboardScheme.fourteenKeySeparates("shuangpin", true) &&
+      !KeyboardScheme.fourteenKeySeparates("quanpin", false),
+    "五笔 14 键的左端键一直是「符」，不送分词符；拼音组字中才是「分词」",
+  );
+  check(
+    TypingStatisticsPolicy.source("wubi", "xiaohe", false, KeyGrid.FOURTEEN_KEY, "none") ===
+      "wubi" &&
+      TypingStatisticsPolicy.source("wubi", "xiaohe", true, KeyGrid.FOURTEEN_KEY, "none") ===
+        "english",
+    "五笔 14 键的统计来源仍是 wubi，不计入全拼 14 键",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.WUBI, "qq", "wq", "wq") === "wq" &&
+      SchemeCompositionPolicy.fieldSpelling(SchemeTraits.WUBI, "qq", "wq", "wq") === "wq" &&
+      SchemeCompositionPolicy.caret(SchemeTraits.WUBI, 1, "wq", true) === 2,
+    "五笔 14 键读音行画首选编码（nine_key_reading），不画内部组码 editing_text",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.WUBI, "wq", "", "") === "wq" &&
+      SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.WUBI, true) &&
+      !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.WUBI, false),
+    "五笔 26 键照旧画键入的编码并写进输入框；五笔 14 键的编码与全拼 14 键一样留在读音行",
+  );
+  check(
+    !NineKeyPanelPolicy.threeColumn(true, SchemeTraits.WUBI, true),
+    "五笔 14 键展开候选用五笔自己的展开，不用九键三栏面板",
+  );
   check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
   check(
     !KeyboardScheme.usesFourteenKeyFace(true, true, "none"),
@@ -3586,8 +3679,9 @@ group("a swipe types the hint only past 14 vp along the chosen direction", () =>
   check(SwipeHintPolicy.swiped(SwipeSymbolsDirection.UP, 100, 80), "but is a swipe up");
   check(
     SwipeHintPolicy.direction("up") === SwipeSymbolsDirection.UP &&
-      SwipeHintPolicy.direction("sideways") === SwipeSymbolsDirection.DOWN &&
-      SwipeHintPolicy.direction(undefined, SwipeSymbolsDirection.UP) === SwipeSymbolsDirection.UP,
+      SwipeHintPolicy.direction("sideways") === SwipeSymbolsDirection.UP &&
+      SwipeHintPolicy.direction(undefined, SwipeSymbolsDirection.DOWN) ===
+        SwipeSymbolsDirection.DOWN,
     "an unknown direction falls back",
   );
 });
@@ -3648,6 +3742,34 @@ group("a letter touch types its hint after a swipe or a hold, and swallows the t
   gestures.hold(8);
   gestures.clear();
   check(!gestures.tracking(8) && !gestures.swallows("j"), "clear forgets everything");
+});
+
+group("上滑角标默认生效、只提交一次，关闭与取消不提交", () => {
+  const key: HintKeyRect = { left: 10, top: 100, width: 36, height: 44 };
+  const gestures = new LetterHintGesture();
+  const direction = KeyboardFeedback.DEFAULTS.swipeSymbolsDirection;
+  gestures.down(1, "q", "1", 120, key);
+  check(gestures.move(1, 28, 106, true, direction) === null, "恰好阈值保留点按");
+  check(gestures.move(1, 28, 105, true, direction) === "1", "超过阈值选择角标");
+  check(gestures.move(1, 28, 90, true, direction) === null, "继续移动不重复触发");
+  check(gestures.up(1) === "1" && gestures.up(1) === null, "松手只提交一次");
+  check(gestures.swallows("q"), "不追加字母");
+  gestures.down(2, "q", "1", 120, key);
+  check(gestures.move(2, 28, 140, true, direction) === null, "反方向不输入角标");
+  check(gestures.up(2) === null && !gestures.swallows("q"), "保留普通字母路径");
+  gestures.down(3, "q", "1", 120, key);
+  check(gestures.move(3, 28, 100, false, direction) === null, "关闭开关不触发");
+  check(gestures.up(3) === null, "关闭时不提交角标");
+  gestures.down(4, "q", "1", 120, key);
+  gestures.move(4, 28, 100, true, direction);
+  gestures.cancel(4);
+  check(gestures.up(4) === null, "取消后不提交角标");
+  const savedDown = KeyboardFeedback.parse(JSON.stringify({ swipeSymbolsDirection: "down" }));
+  check(
+    KeyboardFeedback.parse(KeyboardFeedback.serialize(savedDown)).swipeSymbolsDirection ===
+      SwipeSymbolsDirection.DOWN,
+    "已保存的下滑选择不被新默认覆盖",
+  );
 });
 
 group("the preview bubble sits over its key, inside the keyboard", () => {
@@ -3904,6 +4026,26 @@ group("the wubi hint shows only the untyped suffix", () => {
     "a local mode candidate is not annotated",
   );
   check(WubiCodeHintPolicy.hint(null, "gg", true, 2, "none", false) === "", "a null code is safe");
+  // 五笔 14 键：组码 qq 下「多」（qqkk）和首选「你」（wqiy）各按自己的编码给出剩下的部分。
+  check(
+    WubiCodeHintPolicy.typed("qqkk", "wq", "fourteen_key", "qq") === "qq" &&
+      WubiCodeHintPolicy.typed("wqiy", "wq", "fourteen_key", "qq") === "wq" &&
+      WubiCodeHintPolicy.hint(
+        "qqkk",
+        WubiCodeHintPolicy.typed("qqkk", "wq", "fourteen_key", "qq"),
+        true,
+        2,
+        "none",
+        false,
+      ) === "kk",
+    "a fourteen-key candidate's typed part follows its own code on the typed groups",
+  );
+  check(
+    WubiCodeHintPolicy.typed("vbg", "wq", "fourteen_key", "qq") === "wq" &&
+      WubiCodeHintPolicy.typed("xxxx", "xx", "fourteen_key", "xx") === "xx" &&
+      WubiCodeHintPolicy.typed("ggll", "gg", "none", "gg") === "gg",
+    "a code off the typed groups and the 26-key layout fall back to the preedit",
+  );
   check(
     WubiCodeHintPolicy.hint("g".repeat(65), "g", true, 2, "none", false) === "",
     "an implausibly long code is refused rather than rendered",
@@ -7544,19 +7686,19 @@ group("滑行输入 is a device switch in the feedback file, off unless turned o
 });
 
 group(
-  "按键弹出预览 and 滑动输入符号 are device switches in the feedback file, on and down as on Android",
+  "按键弹出预览 and 滑动输入符号 are device switches in the feedback file, on and up as on Android",
   () => {
     check(
       KeyboardFeedback.DEFAULTS.keyPopup === true &&
         KeyboardFeedback.DEFAULTS.swipeSymbols === true &&
-        KeyboardFeedback.DEFAULTS.swipeSymbolsDirection === SwipeSymbolsDirection.DOWN,
-      "a keyboard that never saw them previews keys and swipes down",
+        KeyboardFeedback.DEFAULTS.swipeSymbolsDirection === SwipeSymbolsDirection.UP,
+      "a keyboard that never saw them previews keys and swipes up",
     );
     const old = KeyboardFeedback.parse(
       JSON.stringify({ sound: true, haptics: false, strength: "light" }),
     );
     check(
-      old.keyPopup === true && old.swipeSymbols === true && old.swipeSymbolsDirection === "down",
+      old.keyPopup === true && old.swipeSymbols === true && old.swipeSymbolsDirection === "up",
       "a file written before they existed reads as the defaults",
     );
     const stored = KeyboardFeedback.parse(
@@ -7593,7 +7735,7 @@ group(
     check(
       wild.keyPopup === true &&
         wild.swipeSymbols === true &&
-        wild.swipeSymbolsDirection === "down" &&
+        wild.swipeSymbolsDirection === "up" &&
         wild.sound === true,
       "values that are not theirs fall back one by one",
     );

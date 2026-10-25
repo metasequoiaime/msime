@@ -49,10 +49,35 @@ final class LetterCornerHintTests: XCTestCase {
     }
   }
 
-  func testSwipeNeedsMoreThanFourteenPointsDown() {
-    XCTAssertFalse(SwipeHintPolicy.swiped(downY: 10, currentY: 24), "exactly the threshold is not a swipe")
-    XCTAssertTrue(SwipeHintPolicy.swiped(downY: 10, currentY: 24.5))
-    XCTAssertFalse(SwipeHintPolicy.swiped(downY: 40, currentY: 10), "moving up is not a swipe down")
+  func testSwipeNeedsMoreThanFourteenPointsInTheSelectedDirection() {
+    XCTAssertFalse(SwipeHintPolicy.swiped(downY: 40, currentY: 26))
+    XCTAssertTrue(SwipeHintPolicy.swiped(downY: 40, currentY: 25.5))
+    XCTAssertFalse(SwipeHintPolicy.swiped(downY: 10, currentY: 40))
+    XCTAssertFalse(SwipeHintPolicy.swiped(direction: .down, downY: 10, currentY: 24))
+    XCTAssertTrue(SwipeHintPolicy.swiped(direction: .down, downY: 10, currentY: 24.5))
+    XCTAssertFalse(SwipeHintPolicy.swiped(direction: .down, downY: 40, currentY: 10))
+  }
+
+  func testSwipeDirectionDefaultsUpAndRefreshesExistingLetterKeys() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let name = KeyboardLayoutPreference.swipeSymbolsDirectionKey
+    let stored = defaults.object(forKey: name)
+    addTeardownBlock {
+      if let stored { defaults.set(stored, forKey: name) }
+      else { defaults.removeObject(forKey: name) }
+    }
+    defaults.removeObject(forKey: name)
+    XCTAssertEqual(KeyboardLayoutPreference.swipeSymbolsDirection, .up)
+    let controller = makeController(.quanpin)
+    let q = try key(labelled: "字母 Q", in: controller)
+    XCTAssertEqual(q.cornerHintSwipeDirection, .up)
+    KeyboardLayoutPreference.swipeSymbolsDirection = .down
+    controller.viewWillAppear(false)
+    XCTAssertEqual(q.cornerHintSwipeDirection, .down)
+    XCTAssertEqual(defaults.string(forKey: name), "down")
+    defaults.set("sideways", forKey: name)
+    controller.viewWillAppear(false)
+    XCTAssertEqual(q.cornerHintSwipeDirection, .up)
   }
 
   func testQwertyKeysDrawAndCarryTheirCornerSymbol() throws {
@@ -87,7 +112,7 @@ final class LetterCornerHintTests: XCTestCase {
     let preedit = try button("preeditButton", in: controller)
     XCTAssertTrue(preedit.accessibilityValue?.contains("ni") == true, "ni is composing")
 
-    // 在 q 上下滑、松手时交给控制器的内容。
+    // 在 q 上滑、松手时交给控制器的内容。
     let q = try key(labelled: "字母 Q", in: controller)
     let typeHint = try XCTUnwrap(q.onCornerHint)
     typeHint("1")
@@ -96,7 +121,7 @@ final class LetterCornerHintTests: XCTestCase {
                    "the composition was committed before the symbol, not extended by it")
   }
 
-  /// 「滑动输入符号」关掉后字母键不再响应下滑，长按仍输入角标（与 Android 一致）；键盘再次出现时读到新值。
+  /// 「滑动输入符号」关掉后字母键不再响应滑动，长按仍输入角标（与 Android 一致）；键盘再次出现时读到新值。
   func testSwipeSymbolsSwitchReachesTheLetterKeys() throws {
     let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.swipeSymbolsKey)
     addTeardownBlock {

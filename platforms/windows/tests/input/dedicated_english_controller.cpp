@@ -106,11 +106,17 @@ int main() {
     assert(!controller.dedicated_english_state(stale));
     assert(!mailbox.snapshot(stale));
     // 托盘「英文候选模式」在焦点会话上设置 Engine 的英文模式，读回来就是新状态；它不向 TIP 写任何东西，新状态之后由 DedicatedEnglishChanged 推送。过期的租约什么也不动。
-    assert(!controller.set_dedicated_english(stale, true));
-    assert(controller.set_dedicated_english(lease, true));
+    bool changed = true;
+    assert(!controller.set_dedicated_english(stale, true, &changed) && !changed);
+    assert(controller.set_dedicated_english(lease, true, &changed) && changed);
+    assert(controller.set_dedicated_english(lease, true, &changed) && !changed);
     assert(controller.dedicated_english_state(lease) == true);
-    assert(controller.set_dedicated_english(lease, false));
+    assert(controller.set_dedicated_english(lease, false, &changed) && changed);
     assert(controller.dedicated_english_state(lease) == false);
+    assert(controller.set_dedicated_english(lease, true, &changed) && changed);
+    assert(controller.exit_dedicated_english(lease, &changed) && changed);
+    assert(controller.dedicated_english_state(lease) == false);
+    assert(controller.exit_dedicated_english(lease, &changed) && !changed);
     // 250 毫秒一次的英文模式读取和托盘点击抢同一把事务锁。读取占着锁时托盘开关等它做完再切，不会点了没反应。
     {
       std::atomic<bool> reading{true};

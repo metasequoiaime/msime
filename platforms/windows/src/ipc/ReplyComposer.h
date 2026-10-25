@@ -66,6 +66,8 @@ struct PendingReply {
   // A copied, bounded candidate-translation query, submitted after delivery.
   std::optional<std::string> translation_query = std::nullopt;
   bool traditional_output = false;
+  // 只有真正切换英文候选的回复带此字段；送达确认后才交给 HUD。
+  std::optional<bool> dedicated_english_change = std::nullopt;
   // The exact text this reply puts into the document, set only on replies that
   // complete a commit. Partial selections leave it empty even though they
   // advance the prefix: that text is not in the document yet and is committed

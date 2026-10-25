@@ -139,10 +139,11 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
 }
 
 - (NSSize)panelSize {
-    // 四种状态取较宽者，切换时窗口宽度保持稳定。
+    // 单字状态保持稳定宽度，多字状态按完整文本展开，避免长方案名被截断。
     CGFloat glyph = 0.0;
     for (NSString *text in @[MSIMEInputModeHUDText(NO), MSIMEInputModeHUDText(YES), @"简", @"繁"])
         glyph = std::max(glyph, [text sizeWithAttributes:@{NSFontAttributeName : _label.font}].width);
+    glyph = std::max(glyph, [_label.stringValue sizeWithAttributes:@{NSFontAttributeName : _label.font}].width);
     const CGFloat logo = _logoView.hidden ? 0.0 : kLogoSide + kContentSpacing;
     return NSMakeSize(std::ceil(2.0 * kHorizontalInset + logo + glyph), kHeight);
 }

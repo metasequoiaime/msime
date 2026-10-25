@@ -27,7 +27,7 @@ export type MobileKeyboardFeedback = {
   keyPopup?: boolean;
   /** 滑动输入符号：在字母键上滑动输入其角落的符号，默认开启；长按则不论开关如何都输入该符号。与 `keyPopup` 同时存在。 */
   swipeSymbols?: boolean;
-  /** 该滑动的方向，默认向下。 */
+  /** 该滑动的方向，默认向上。 */
   swipeSymbolsDirection?: SwipeSymbolsDirection;
 };
 

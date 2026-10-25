@@ -7,6 +7,7 @@ use lru::LruCache;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
+use super::frequency::WubiFrequency;
 use crate::dictionary::pinyin::BUSY_TIMEOUT;
 use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem, WubiProfileKind};
 
@@ -28,6 +29,15 @@ const QUERY_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WH
 const WILDCARD_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" GLOB ?1 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?2";
 /// 与 `WILDCARD_SQL_86` 相同，只是读 `wubi98`。
 const WILDCARD_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" GLOB ?1 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?2";
+
+/// 14 键查询的完整编码行：组码展开后的每个编码各查一次，同一编码里按码表权重排。
+const GRID_EXACT_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" = ?1 ORDER BY \"weight\" DESC, rowid ASC LIMIT ?2";
+/// 与 `GRID_EXACT_SQL_86` 相同，只是读 `wubi98`。
+const GRID_EXACT_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" = ?1 ORDER BY \"weight\" DESC, rowid ASC LIMIT ?2";
+/// 14 键查询的补全行：比这个编码更长、以它开头的编码，按权重取前若干行。
+const GRID_LONGER_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" > ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
+/// 与 `GRID_LONGER_SQL_86` 相同，只是读 `wubi98`。
+const GRID_LONGER_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" > ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
 
 /// 反查按 `"value"` 找行，而发布词库只有 `("key","value")` 的唯一约束和 `("key","weight")` 索引，没有索引时每次反查都要扫整张表。每张五笔表配一个只按词条建的索引，由 [`ensure_reverse_indexes`] 在可写的代次副本里补上。
 const REVERSE_INDEXES: [(&str, &str, &str); 2] = [
@@ -62,6 +72,13 @@ fn query_sql(profile: WubiProfileKind) -> &'static str {
     match profile {
         WubiProfileKind::Wubi86 => QUERY_SQL_86,
         WubiProfileKind::Wubi98 => QUERY_SQL_98,
+    }
+}
+
+fn grid_sql(profile: WubiProfileKind) -> (&'static str, &'static str) {
+    match profile {
+        WubiProfileKind::Wubi86 => (GRID_EXACT_SQL_86, GRID_LONGER_SQL_86),
+        WubiProfileKind::Wubi98 => (GRID_EXACT_SQL_98, GRID_LONGER_SQL_98),
     }
 }
 
@@ -100,18 +117,30 @@ pub struct WubiProvider {
     query_upper_bound: String,
     /// 通配查询的 GLOB 模式，逐键复用容量。
     wildcard_pattern: String,
+    /// 14 键组码展开出的编码，逐键复用。
+    grid_expansions: Vec<String>,
+    /// 14 键跨编码排序用的词频，读拼音主词库。
+    frequency: WubiFrequency,
     reverse_cache: LruCache<String, Option<String>>,
 }
 
 impl WubiProvider {
-    /// Opens lazily, read-only, on the first query.
+    /// 测试用：码表与拼音主词库是同一个文件，与代次工作副本的布局相同。
+    #[cfg(test)]
     pub fn new(main_db: &Path) -> Self {
+        Self::with_pinyin_dictionary(main_db, main_db)
+    }
+
+    /// Opens lazily, read-only, on the first query. `pinyin_db` 是 14 键排序读词频的拼音主词库，可以与码表是同一个文件（代次工作副本），也可以是另一个文件（只读布局下码表单独是 `msime-wubi.db`）。
+    pub fn with_pinyin_dictionary(main_db: &Path, pinyin_db: &Path) -> Self {
         Self {
             main_db: main_db.to_path_buf(),
             profile: WubiProfileKind::Wubi86,
             connection: None,
             query_upper_bound: String::new(),
             wildcard_pattern: String::new(),
+            grid_expansions: Vec::new(),
+            frequency: WubiFrequency::new(pinyin_db),
             reverse_cache: LruCache::new(NonZeroUsize::new(REVERSE_CACHE_CAPACITY).unwrap()),
         }
     }
@@ -137,7 +166,16 @@ impl WubiProvider {
         let Some(connection) = self.connection.as_ref() else {
             return Vec::new();
         };
-        let rows = if request.wubi_z_wildcard {
+        let rows = if request.wubi_grid {
+            super::grid::expand_into(&request.normalized_input, &mut self.grid_expansions);
+            query_grid_rows(
+                connection,
+                profile,
+                &self.grid_expansions,
+                &mut self.query_upper_bound,
+                &mut self.frequency,
+            )
+        } else if request.wubi_z_wildcard {
             wildcard_pattern_into(&request.normalized_input, &mut self.wildcard_pattern);
             query_wildcard_rows(connection, profile, &self.wildcard_pattern)
         } else {
@@ -162,6 +200,7 @@ impl WubiProvider {
     pub fn reset_cache(&mut self) {
         self.connection = None;
         self.reverse_cache.clear();
+        self.frequency.reset_cache();
     }
 
     /// 返回词条的完整五笔 86 编码。反查只服务于候选展示，不改变候选排序或选择身份；同一词条的多个编码优先取完整编码、再取词库权重最高的一条。
@@ -270,6 +309,63 @@ fn collect_rows(rows: &mut rusqlite::Rows<'_>) -> rusqlite::Result<Vec<WordItem>
     Ok(candidates)
 }
 
+/// 14 键查询：`expansions` 是组码展开出的全部编码（[`super::grid::expand_into`]）。
+///
+/// 完整编码的行在前。它们来自不同的编码，码表权重只排同一编码里的先后，跨编码比的是词频（[`WubiFrequency`]）。同一编码里码表的先后（包括用户调频后的先后）保持不变：每行的分数取它和同一编码里排在它后面的行的最大词频，于是一个编码的首行带着这个编码最常用的那个词去和别的编码比，后面的行不会越过前面的行。分数相同时按码表权重，再按编码。
+///
+/// 补全行（更长的编码）在后，与 26 键一样按码表权重。总数同样最多 `QUERY_LIMIT` 行。
+fn query_grid_rows(
+    connection: &Connection,
+    profile: WubiProfileKind,
+    expansions: &[String],
+    upper: &mut String,
+    frequency: &mut WubiFrequency,
+) -> rusqlite::Result<Vec<WordItem>> {
+    let (exact_sql, longer_sql) = grid_sql(profile);
+    let mut scored: Vec<(i64, WordItem)> = Vec::new();
+    {
+        let mut statement = connection.prepare_cached(exact_sql)?;
+        for code in expansions {
+            let mut rows = statement.query((code.as_str(), QUERY_LIMIT))?;
+            let rows = collect_rows(&mut rows)?;
+            let start = scored.len();
+            scored.extend(rows.into_iter().map(|item| (0, item)));
+            let mut best = 0;
+            for (score, item) in scored[start..].iter_mut().rev() {
+                best = best.max(frequency.weight(&item.word));
+                *score = best;
+            }
+        }
+    }
+    scored.sort_by(|(left_score, left), (right_score, right)| {
+        right_score
+            .cmp(left_score)
+            .then(right.weight.cmp(&left.weight))
+            .then(left.pinyin.cmp(&right.pinyin))
+    });
+    let mut candidates: Vec<WordItem> = scored.into_iter().map(|(_, item)| item).collect();
+    let limit = QUERY_LIMIT as usize;
+    if candidates.len() < limit {
+        let mut longer = Vec::new();
+        let mut statement = connection.prepare_cached(longer_sql)?;
+        for code in expansions {
+            prefix_upper_bound_into(code, upper);
+            let mut rows = statement.query((code.as_str(), upper.as_str(), QUERY_LIMIT))?;
+            longer.extend(collect_rows(&mut rows)?);
+        }
+        longer.sort_by(|left, right| {
+            right
+                .weight
+                .cmp(&left.weight)
+                .then(left.pinyin.cmp(&right.pinyin))
+        });
+        longer.truncate(limit - candidates.len());
+        candidates.extend(longer);
+    }
+    candidates.truncate(limit);
+    Ok(candidates)
+}
+
 /// 通配查询的行收集：与 [`query_rows`] 同一个读法，只是绑定模式而不是范围。
 fn query_wildcard_rows(
     connection: &Connection,
@@ -367,6 +463,218 @@ mod tests {
 
     fn row(code: &str, word: &str, weight: i64) -> (String, String, i64) {
         (code.to_owned(), word.to_owned(), weight)
+    }
+
+    /// 五笔 14 键：组码 `q` 是 QW 键，`x` 是 ZX 键。
+    const GRID_WUBI_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO wubi86 VALUES('q','我',20),('q','金',10),('w','人',20),('w','八',10),\
+        ('qq','多',20),('qw','欠',10),('wq','你',10),('ww','从',10),\
+        ('wqiy','你',20),('qqiy','铄',20),('wwiy','人流',30),\
+        ('x','经',20),('xx','弱',20),('vb','好',10);";
+
+    fn grid_words(provider: &mut WubiProvider, code: &str) -> Vec<(String, String)> {
+        provider
+            .query(&QueryRequest {
+                wubi_grid: true,
+                ..request(code)
+            })
+            .into_iter()
+            .map(|item| (item.pinyin.into_string(), item.word.into_string()))
+            .collect()
+    }
+
+    fn pairs(expected: &[(&str, &str)]) -> Vec<(String, String)> {
+        expected
+            .iter()
+            .map(|(code, word)| ((*code).to_owned(), (*word).to_owned()))
+            .collect()
+    }
+
+    fn grid_fixture() -> Fixture {
+        fixture(&format!(
+            "{}{GRID_WUBI_FIXTURE}",
+            crate::wubi::frequency::tests::PINYIN_FIXTURE
+        ))
+    }
+
+    #[test]
+    fn a_grid_code_ranks_the_codes_of_its_keys_by_word_frequency() {
+        let mut fixture = grid_fixture();
+        // QW QW 展开成 qq、qw、wq、ww：完整编码的行按词频排（你 > 多 > 从 > 欠），补全行在后，照码表权重。
+        assert_eq!(
+            grid_words(&mut fixture.provider, "qq"),
+            pairs(&[
+                ("wq", "你"),
+                ("qq", "多"),
+                ("ww", "从"),
+                ("qw", "欠"),
+                ("wwiy", "人流"),
+                ("qqiy", "铄"),
+                ("wqiy", "你"),
+            ])
+        );
+        // ZX 只代表 x。
+        assert_eq!(
+            grid_words(&mut fixture.provider, "x"),
+            pairs(&[("x", "经"), ("xx", "弱")])
+        );
+        assert!(grid_words(&mut fixture.provider, "cb")
+            .iter()
+            .any(|(code, _)| code == "vb"));
+    }
+
+    #[test]
+    fn a_grid_code_keeps_the_order_inside_each_code() {
+        let mut fixture = grid_fixture();
+        // 金、人、八 在拼音词库里没有词频：q 的首行「我」带着它的词频领先，同一编码里「金」仍在「我」后面，没有词频的几行按码表权重。
+        assert_eq!(
+            grid_words(&mut fixture.provider, "q")[..4],
+            pairs(&[("q", "我"), ("w", "人"), ("q", "金"), ("w", "八")])
+        );
+        // 用户把「金」调到「我」前面以后，金继承这一编码最高的词频，仍排在整组最前，同一编码里的先后跟着码表。
+        Connection::open(&fixture.provider.main_db)
+            .unwrap()
+            .execute_batch("UPDATE wubi86 SET weight=30 WHERE key='q' AND value='金';")
+            .unwrap();
+        fixture.provider.reset_cache();
+        assert_eq!(
+            grid_words(&mut fixture.provider, "q")[..4],
+            pairs(&[("q", "金"), ("q", "我"), ("w", "人"), ("w", "八")])
+        );
+    }
+
+    #[test]
+    fn a_grid_code_falls_back_to_table_weights_without_the_pinyin_dictionary() {
+        let mut fixture = fixture(GRID_WUBI_FIXTURE);
+        assert_eq!(
+            grid_words(&mut fixture.provider, "qq")[..4],
+            pairs(&[("qq", "多"), ("qw", "欠"), ("wq", "你"), ("ww", "从")])
+        );
+    }
+
+    /// 在真实的 86 码表和拼音主词库上量 14 键：每个单字和词按自己的每个编码逐键打，记下每一键的查询耗时，以及打满编码时目标在第几位（按词频加权）。
+    ///
+    /// 需要一份代次工作副本那样的主词库（拼音各表加 `wubi86` 和索引），路径放在 `MSIME_WUBI_GRID_DB`：
+    /// `MSIME_WUBI_GRID_DB=… cargo test -p msime-engine --release --lib wubi_grid_real_table -- --ignored --nocapture`。
+    #[test]
+    #[ignore = "需要真实词库，见文档注释"]
+    fn wubi_grid_real_table_latency_and_rank() {
+        use std::time::{Duration, Instant};
+        let path = std::path::PathBuf::from(
+            std::env::var_os("MSIME_WUBI_GRID_DB").expect("MSIME_WUBI_GRID_DB"),
+        );
+        let connection = Connection::open(&path).unwrap();
+        let rows: Vec<(String, String)> = connection
+            .prepare("SELECT key, value FROM wubi86 ORDER BY rowid")
+            .unwrap()
+            .query_map((), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|(code, _)| {
+                (1..=4).contains(&code.len())
+                    && code.bytes().all(|letter| (b'a'..=b'y').contains(&letter))
+            })
+            .collect();
+        let mut provider = WubiProvider::new(&path);
+        let cold = Instant::now();
+        provider.query(&QueryRequest {
+            wubi_grid: true,
+            ..request("q")
+        });
+        let cold = cold.elapsed();
+        let mut frequency = WubiFrequency::new(&path);
+        let mut latencies: [Vec<Duration>; 4] = Default::default();
+        // 同一批编码按 26 键逐字母打的耗时，作对照。
+        let mut baseline: [Vec<Duration>; 4] = Default::default();
+        // (词频加权的总数, 首位, 前三, 前五)，单字和词分开。
+        let mut ranks = [[0f64; 4]; 2];
+        let mut unranked = 0usize;
+        for (index, (code, word)) in rows.iter().enumerate() {
+            let groups: String = code
+                .bytes()
+                .map(|letter| char::from(super::super::grid::representative_of(letter).unwrap()))
+                .collect();
+            // 逐键的耗时只抽样量，排名每行都算。
+            if index % 16 == 0 {
+                for length in 1..=groups.len() {
+                    let started = Instant::now();
+                    provider.query(&QueryRequest {
+                        wubi_grid: true,
+                        ..request(&groups[..length])
+                    });
+                    latencies[length - 1].push(started.elapsed());
+                    let started = Instant::now();
+                    provider.query(&request(&code[..length]));
+                    baseline[length - 1].push(started.elapsed());
+                }
+            }
+            let weight = frequency.weight(word) as f64;
+            if weight <= 0.0 {
+                unranked += 1;
+                continue;
+            }
+            let answer = provider.query(&QueryRequest {
+                wubi_grid: true,
+                ..request(&groups)
+            });
+            let position = answer
+                .iter()
+                .position(|item| item.pinyin.as_str() == code && item.word.as_str() == word)
+                .unwrap_or(usize::MAX);
+            let kind = usize::from(word.chars().count() > 1);
+            ranks[kind][0] += weight;
+            ranks[kind][1] += weight * f64::from(u8::from(position < 1));
+            ranks[kind][2] += weight * f64::from(u8::from(position < 3));
+            ranks[kind][3] += weight * f64::from(u8::from(position < 5));
+        }
+        eprintln!(
+            "rows {} (no frequency {unranked}), cold first query {cold:?}",
+            rows.len()
+        );
+        for (length, samples) in latencies.iter_mut().chain(baseline.iter_mut()).enumerate() {
+            samples.sort_unstable();
+            let at = |quantile: f64| samples[((samples.len() - 1) as f64 * quantile) as usize];
+            eprintln!(
+                "{} {} key(s): n={} p50={:?} p95={:?} p99={:?} max={:?}",
+                if length < 4 { "grid" } else { "26-key" },
+                length % 4 + 1,
+                samples.len(),
+                at(0.5),
+                at(0.95),
+                at(0.99),
+                samples.last().unwrap()
+            );
+        }
+        for (kind, [total, top1, top3, top5]) in ["characters", "words"].iter().zip(ranks) {
+            eprintln!(
+                "{kind}: weighted top-1 {:.3} top-3 {:.3} top-5 {:.3}",
+                top1 / total,
+                top3 / total,
+                top5 / total
+            );
+        }
+        let p95 = |samples: &[Duration]| samples[(samples.len() - 1) * 95 / 100];
+        assert!(latencies
+            .iter()
+            .all(|samples| p95(samples) < Duration::from_millis(20)));
+    }
+
+    #[test]
+    fn a_grid_code_answers_at_most_the_query_limit() {
+        let mut sql = String::from("CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);");
+        for index in 0..40 {
+            sql.push_str(&format!(
+                "INSERT INTO wubi86 VALUES('q','甲{index}',{index}),('wqiy','乙{index}',{index});"
+            ));
+        }
+        let mut fixture = fixture(&sql);
+        let words = grid_words(&mut fixture.provider, "q");
+        assert_eq!(words.len(), QUERY_LIMIT as usize);
+        // 四十行完整编码全部排在补全行前面。
+        assert!(words[..40].iter().all(|(code, _)| code == "q"));
+        assert!(words[40..].iter().all(|(code, _)| code == "wqiy"));
     }
 
     // test_wubi_input_session.cpp:68-73. The pinned assertions there are stale (tests-inventory §2.1); these follow the overlay order the golden `wubi_prefix_codes` records.

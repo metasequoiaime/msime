@@ -42,6 +42,8 @@ Status: implemented
 
 **留给后续：** iOS 17/18 上自绘的浮动标签栏胶囊（保留原生 `TabView`，iOS 26 走 Liquid Glass）、跟随季节的启动屏、iOS 键盘内皮肤面板的新缩略图（仍是 `KeyboardSkinMiniature`）、鸿蒙 `hm2` 的插件卡片网格与账号内联登录。
 
+默认方向由后续的[三端 26 键上滑角标](../../implemented/feature/2026-10-25-mobile-qwerty-swipe-symbols.md)改为上滑；本篇的其他交互规则继续生效。
+
 ## Alternatives considered
 
 - **首页完全照设计稿，去掉「键盘」行** — 视觉与设计稿一致，首页更短；但候选栏、键盘工具栏、AI 润色与回复、按键反馈要另找入口，UI 测试路径要跟着改，且和 Android 不一致。

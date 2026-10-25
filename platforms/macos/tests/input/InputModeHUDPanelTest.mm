@@ -74,6 +74,16 @@ int main() {
             Require([hud.displayedText isEqualToString:@"英"], "English HUD missing");
             [hud showEnglishInputMode:NO nearCaretRect:caret];
             Require([hud.displayedText isEqualToString:@"中"], "Chinese HUD missing");
+            // 长方案名必须完整容纳，回到单字提示时恢复紧凑尺寸。
+            NSString *longTitle = @"双拼（自然码）";
+            [hud showText:longTitle announcement:longTitle nearCaretRect:caret];
+            NSTextField *label = [hud valueForKey:@"label"];
+            const CGFloat textWidth = [longTitle sizeWithAttributes:@{NSFontAttributeName: label.font}].width;
+            Require(hud.panelSize.width >= textWidth + 16 && hud.frame.size.height == 32,
+                "长方案名被 HUD 截断");
+            [hud showText:@"简" announcement:@"简体输出" nearCaretRect:caret];
+            Require(hud.panelSize.width == defaultWidth && hud.frame.size.width == defaultWidth,
+                "单字 HUD 没有恢复紧凑尺寸");
             hud.liquidGlassEnabled = YES;
             if (@available(macOS 26.0, *)) {
                 if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency) {

@@ -20,7 +20,7 @@ import { useSettingsTabs } from "../use-settings-tabs";
 import { pluginPreferences } from "../plugin-preferences";
 import { useTouchKeySoundPacks } from "../use-touch-key-sound-packs";
 
-/** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，日语有 26/9 键。 */
+/** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，五笔有独立的 26/14 键，日语有 26/9 键。 */
 type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
 const harmonyLayoutGroups: readonly (readonly (readonly [
   HarmonyKeyboardLayout,
@@ -51,14 +51,32 @@ const harmonyLayoutTitles: Record<HarmonyKeyboardLayout, string> = {
 function HarmonyChineseKeyboardRow({
   selected,
   shuangpinLayout,
+  wubiLayout,
   onSelect,
   onShuangpinLayoutChange,
+  onWubiLayoutChange,
 }: {
   selected: TouchKeyboardScheme;
   shuangpinLayout: "twenty_six_key" | "fourteen_key" | "eighteen_key";
+  wubiLayout: "twenty_six_key" | "fourteen_key";
   onSelect: (scheme: TouchKeyboardScheme) => void;
   onShuangpinLayoutChange: (layout: "twenty_six_key" | "fourteen_key" | "eighteen_key") => void;
+  onWubiLayoutChange: (layout: "twenty_six_key" | "fourteen_key") => void;
 }) {
+  // 五笔的 26 / 14 键单独存在 `touch_wubi_layout`，只改它，不动 `scheme`、`wubi_profile` 和启用列表，86 / 98 版共用这一个选择。
+  if (selected === "wubi") {
+    return (
+      <SelectRow
+        title="五笔键盘"
+        aria-label="五笔键盘"
+        value={wubiLayout}
+        onChange={(event) => onWubiLayoutChange(event.target.value as typeof wubiLayout)}
+      >
+        <option value="twenty_six_key">26 键</option>
+        <option value="fourteen_key">14 键</option>
+      </SelectRow>
+    );
+  }
   const shuangpin =
     selected === "xiaohe" ||
     selected === "ziranma" ||
@@ -190,6 +208,7 @@ export function ScreenKeyboardSettingsPage() {
               harmonyTouchLayout(
                 selectedTouchKeyboardScheme,
                 draft.touch_shuangpin_layout ?? "twenty_six_key",
+                draft.touch_wubi_layout ?? "twenty_six_key",
               )
             ]
           : undefined
@@ -259,9 +278,13 @@ export function ScreenKeyboardSettingsPage() {
                 <HarmonyChineseKeyboardRow
                   selected={selectedTouchKeyboardScheme}
                   shuangpinLayout={draft.touch_shuangpin_layout ?? "twenty_six_key"}
+                  wubiLayout={draft.touch_wubi_layout ?? "twenty_six_key"}
                   onSelect={selectHomeScheme}
                   onShuangpinLayoutChange={(touch_shuangpin_layout) =>
                     onPreferencesChange({ touch_shuangpin_layout })
+                  }
+                  onWubiLayoutChange={(touch_wubi_layout) =>
+                    onPreferencesChange({ touch_wubi_layout })
                   }
                 />
               )

@@ -144,9 +144,9 @@ impl Session {
         self.input.glide(keyboard, points)
     }
 
-    /// 九宫格（九键或 14 键）正在组字：这时的快照、命令和上屏都来自九宫格会话。
+    /// 字母网格正在组字：九宫格会话（九键、14 键、18 键）在组字，快照、命令和上屏都来自它；或者五笔 14 键在组字，组码不是确定的字母。两种情况下的原样上屏都不是用户逐个打出的字母。
     pub fn grid_composing(&self) -> bool {
-        self.nine_key.active()
+        self.nine_key.active() || self.input.wubi_grid_composing()
     }
 
     /// `set_key_grid` 的九键开关：开是九键，关是不用网格。
@@ -169,7 +169,7 @@ impl Session {
         self.input.set_zhuyin_nine_key(nine_key);
     }
 
-    /// 字母网格的一键：小写字母由 `KeyGrid::code_of` 归成整组，十八键双拼另收大写 ASCII 标记精确字母。标记保留在组码里，不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
+    /// 字母网格的一键：小写字母由 `KeyGrid::code_of` 归成整组，十八键双拼另收大写 ASCII 标记精确字母。标记保留在组码里，不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表，五笔在 14 键下按组展开码表（`wubi::grid`）；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
     pub fn grid_key(&mut self, letter: u8) -> KeyResult {
         self.prediction.clear();
         let Some(
@@ -184,6 +184,13 @@ impl Session {
         let Some(code) = grid.code_of(letter) else {
             return KeyResult::unhandled();
         };
+        // 五笔 14 键：键面与全拼 14 键相同，组码交给五笔方案按码表展开，不经九宫格会话。
+        if grid == KeyGrid::FourteenKey && self.input.scheme() == SchemeType::Wubi {
+            let Some(representative) = crate::wubi::grid::representative(code) else {
+                return KeyResult::unhandled();
+            };
+            return self.input.handle_wubi_grid_key(representative);
+        }
         let supported = match grid {
             KeyGrid::FourteenKey | KeyGrid::EighteenKey => {
                 self.input.scheme() == SchemeType::Quanpin
@@ -583,7 +590,8 @@ impl Session {
     /// 设置前缀解码的组字光标（overlays.md §7.6）；位置限制在可编辑范围，不能越过本地模式的入口标记。`None` 回到末尾，九键组码时无操作。
     pub fn set_caret(&mut self, caret: Option<usize>) {
         self.prediction.clear();
-        if self.nine_key.active() {
+        // 五笔 14 键的组码不是逐个字母，没有可以落脚的光标位置。
+        if self.nine_key.active() || self.input.wubi_grid_composing() {
             return;
         }
         self.input.set_caret(caret);
@@ -666,7 +674,12 @@ impl Session {
             editing_text: input.editing_text(),
             caret_position: input.caret_position(),
             nine_key_spellings: input.zhuyin_spellings(),
-            nine_key_reading: String::new(),
+            // 五笔 14 键的读音行显示首选的编码（就是预编辑），宿主 14 键的读音行照常读这一项。
+            nine_key_reading: if input.wubi_grid_composing() {
+                input.preedit()
+            } else {
+                String::new()
+            },
             nine_key_single_character: false,
             nine_key_strokes: String::new(),
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),

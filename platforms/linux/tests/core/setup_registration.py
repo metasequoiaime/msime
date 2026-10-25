@@ -437,28 +437,42 @@ def registering_again() -> None:
 def status_queries() -> None:
     setup = load_setup()
     with patch.object(setup, "active_host", return_value=None):
-        assert setup.input_method_status() == {"host": None, "enabled": None, "current": None}
+        assert setup.input_method_status() == {"host": None, "list": None, "enabled": None, "current": None}
     with patch.object(setup, "active_host", return_value="fcitx5"), \
             patch.object(setup, "fcitx5_current_group", return_value="Default"), \
             patch.object(setup, "fcitx5_group", return_value=("us", [("keyboard-us", ""), (setup.FCITX5_INPUT_METHOD, "")])), \
             patch.object(setup, "fcitx5_call", return_value=f"('{setup.FCITX5_INPUT_METHOD}',)"):
-        assert setup.input_method_status() == {"host": "fcitx5", "enabled": True, "current": True}
+        assert setup.input_method_status() == {"host": "fcitx5", "list": "fcitx5", "enabled": True, "current": True}
     with patch.object(setup, "active_host", return_value="fcitx5"), \
             patch.object(setup, "fcitx5_current_group", side_effect=setup.RegistrationFailed("synthetic")), \
             patch.object(setup, "fcitx5_call", return_value="('keyboard-us',)"):
-        assert setup.input_method_status() == {"host": "fcitx5", "enabled": None, "current": False}
+        assert setup.input_method_status() == {"host": "fcitx5", "list": "fcitx5", "enabled": None, "current": False}
     with patch.object(setup, "active_host", return_value="ibus"), \
-            patch.object(setup, "ibus_input_list", return_value=("synthetic.schema", "sources", ("ibus", setup.IBUS_ENGINE))), \
-            patch.object(setup, "command_output", side_effect=["[('xkb', 'us')]", setup.IBUS_ENGINE]):
-        assert setup.input_method_status() == {"host": "ibus", "enabled": False, "current": True}
+            patch.object(setup, "ibus_input_list", return_value=(*setup.IBUS_PRELOAD, setup.IBUS_ENGINE)), \
+            patch.object(setup, "command_output", side_effect=["['xkb:us::eng']", setup.IBUS_ENGINE]):
+        assert setup.input_method_status() == {"host": "ibus", "list": "ibus", "enabled": False, "current": True}
+    with patch.object(setup, "active_host", return_value="ibus"), \
+            patch.object(setup, "ibus_input_list", side_effect=setup.RegistrationFailed("synthetic")), \
+            patch.object(setup, "command_output", return_value=""):
+        assert setup.input_method_status() == {"host": "ibus", "list": None, "enabled": None, "current": None}
     with tempfile.TemporaryDirectory() as name:
         harness = Harness(Path(name))
         harness.world()
         result = subprocess.run([str(harness.setup), "--status", "--json"], env=harness.environment,
                                 capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result
-        assert json.loads(result.stdout) == {"host": None, "enabled": None, "current": None}
+        assert json.loads(result.stdout) == {"host": None, "list": None, "enabled": None, "current": None}
         assert not harness.calls("systemctl") and not harness.calls("msime-linux-prepare")
+        # GNOME 上 IBus 的预载引擎里有水杉也不算启用：GNOME Shell 只读自己的输入源。状态要说出该改的是 GNOME 输入源，设置应用才会打开 GNOME 的键盘设置而不是 ibus-setup（2026-10-25 Ubuntu 24.04 验收里，在 ibus-setup 里加完仍是未启用）。
+        preloaded = {GNOME: {"sources": [["xkb", "us"]]}, IBUS: {"preload-engines": ["xkb:us::eng", "msime-linux"]}}
+        for desktop, expected in (("ubuntu:GNOME", {"list": "gnome", "enabled": False}),
+                                  ("KDE", {"list": "ibus", "enabled": True})):
+            harness.world(running=["ibus-daemon"], desktop=desktop, gsettings=preloaded, ibus={"known": True, "installed": True})
+            result = subprocess.run([str(harness.setup), "--status", "--json"], env=harness.environment,
+                                    capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0, result
+            assert json.loads(result.stdout) == {"host": "ibus", "current": None, **expected}, (desktop, result.stdout)
+            assert not any(call[0] == "set" for call in harness.calls("gsettings")), harness.calls("gsettings")
         result = subprocess.run([str(harness.setup), "--status", "--register"], env=harness.environment,
                                 capture_output=True, text=True, timeout=30)
         assert result.returncode == 2, result

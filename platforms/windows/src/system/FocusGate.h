@@ -1,5 +1,5 @@
 #pragma once
-#include "PipeTicket.h"
+#include "FocusLease.h"
 #include <atomic>
 #include <limits>
 #include <mutex>
@@ -7,11 +7,6 @@
 #include <utility>
 
 namespace msime::windows {
-struct FocusLease {
-  PipeTicket transport;
-  uint64_t epoch = 0;
-  uint64_t token = 0;
-};
 struct FocusChange {
   std::optional<FocusLease> previous;
   FocusLease pending;

@@ -42,6 +42,8 @@ Status: implemented
 
 ## Verification
 
+- [三端上滑角标](2026-10-25-mobile-qwerty-swipe-symbols.md)验收在当前基线再次复现英文 `¥` 无输出：`commitNineKeyLiteral` 缺失 ASCII 路由条件。本次恢复本篇既定的非 ASCII 字面路径，并复用完整 `english-swipe` 专项复核。
+
 - #9483 代码提交 `07d7aa6ea0` 的完整 `bash scripts/verify-local.sh --quick`（`20261024-092526`）退出码为 0：契约、Rust workspace、Android 目标、Android Java/JNI 与共享 Apple 桥接检查通过，其他平台阶段按改动范围跳过。本机与远端 3015 份相关受控文件哈希一致；复制的只有已有 Rust/Android 缓存，受控源码只刷新时间戳，不改内容。笔记在本机单独校验。报告人的 API 30 实际设备尚未现场复验，继续保留 `Refs #9483`。
 - #9483 的 `english-swipe` 专项使用独立的 26 键期望表，真实注入 DOWN/MOVE/UP 检查上滑、下滑全部角标、D 取消不提交、关闭滑动后正常输入字母及符号后继续输入字母。配置和输入模式在结束时恢复；该专项接入普通 `smoke.sh`。在 API 28（`emulator-5566`）和 API 35（`emulator-5590`）上均通过。设备包重编本分支 Java 与资源，复用已存在的 arm64 原生库；结果证明 Android 宿主手势路径，不代表本分支 Rust 核心重新构建验收。
 - #9483 的 Android 宿主检查通过：258 项 JVM 冒烟、225 份设备源码编译、Java/API 与 JNI 检查通过；仓库契约、笔记、shell 语法与差异检查通过。契约检查中按环境跳过的阶段不算运行验证。本机空间低于 50 GB 门槛，没有新建本机 Rust 构建树；完整门禁在远端复用已完成阶段的 APFS 缓存。

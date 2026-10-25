@@ -941,13 +941,13 @@ final class ImeLetterRows {
     }
 
     /**
-     * 全拼和双拼 14 键的字母层：{@link FourteenKeyLayout} 的三行，和 26 键字母行同样三行等高、按同样的方式分摊键盘高度调整，底行仍是 26 键的功能行，所以键盘总高与 26 键相同。
+     * 全拼、双拼和五笔 14 键的字母层：{@link FourteenKeyLayout} 的三行，和 26 键字母行同样三行等高、按同样的方式分摊键盘高度调整，底行仍是 26 键的功能行，所以键盘总高与 26 键相同。
      *
-     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。第 2 行不缩进，双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。拼音选择与九键共用左侧栏，空闲时显示符号，组字时纵向选择拼音，不挤占读音或候选行。
+     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。第 2 行不缩进，双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键；五笔不分音节，组字中也是「符」，见 {@link FourteenKeyLayout#separatesSyllables}），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。拼音选择与九键共用左侧栏，空闲时显示符号，组字时纵向选择拼音，不挤占读音或候选行。
      */
     private void rebuildFourteenKeyRows() {
         s.imeLayoutRows.dismissNineKeyHoldOptions();
-        boolean composing = s.hasEngineComposition();
+        boolean composing = separatesSyllables();
         boolean eighteen = s.displayedTouchLayout(s.view) == KeyboardLayout.EIGHTEEN_KEY_LAYOUT;
         java.util.List<java.util.List<FourteenKeyLayout.Key>> rows = eighteen
             ? EighteenKeyLayout.rows() : FourteenKeyLayout.rows();
@@ -1087,10 +1087,15 @@ final class ImeLetterRows {
         eighteenRowTrailingIndent.setLayoutParams(trailing);
     }
 
-    /** 分词键：组字时送 `'`，在已打的组码末尾定一个音节分界；空闲时打开符号面板。 */
+    /** 分词键：拼音组字时送 `'`，在已打的组码末尾定一个音节分界；空闲时和五笔组字中打开符号面板（面板先按高亮行结束组字）。 */
     private void fourteenKeySeparator() {
-        if (s.hasEngineComposition()) s.character('\'', false);
+        if (separatesSyllables()) s.character('\'', false);
         else s.imePanels.showSymbolPanel();
+    }
+
+    /** 左端键此刻是「分词」：正在组字，并且不是五笔（五笔没有音节切分，引擎也不收 `'`）。 */
+    private boolean separatesSyllables() {
+        return FourteenKeyLayout.separatesSyllables(s.hasEngineComposition(), InputViewValuePolicy.scheme(s.view, -1));
     }
 
     private boolean fourteenShuangpin() {
@@ -1108,7 +1113,7 @@ final class ImeLetterRows {
             }
         }
         if (fourteenSeparatorKey == null) return;
-        boolean composing = s.hasEngineComposition();
+        boolean composing = separatesSyllables();
         String face = FourteenKeyLayout.separatorFace(composing);
         if (face.contentEquals(fourteenSeparatorKey.getText())) return;
         fourteenSeparatorKey.setText(face);

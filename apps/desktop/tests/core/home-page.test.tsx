@@ -7,6 +7,7 @@ import { HomePage, SettingsPage, type Snapshot } from "@msime/ui";
 import type {
   ImeSetupClient,
   OobeClient,
+  OobeState,
   ImeSetupState,
 } from "../../../../packages/ui/src/core/host-contracts";
 import { ToastProvider } from "../../../../packages/ui/src/core/toast";
@@ -812,6 +813,49 @@ test("资源失败使用资源修复入口，系统设置动作独立，返回�
   expect(stop).toHaveBeenCalledOnce();
   fireEvent(window, new Event("focus"));
   expect(refresh).toHaveBeenCalledTimes(before + 1);
+});
+
+test("提示上的按钮只做它能做的事：偏好读不出来时不给打开输入法配置的按钮，未加入列表时是「去添加」", () => {
+  const openSetup = vi.fn().mockResolvedValue(undefined);
+  const notice = (state: Partial<OobeState>) => {
+    const client: OobeClient = {
+      read: () => ({
+        resourcesReady: true,
+        systemEnabled: true,
+        systemCurrent: true,
+        preferencesSaved: true,
+        onboardingSeen: null,
+        ...state,
+      }),
+      subscribe: () => () => {},
+      refresh: vi.fn(),
+      openSetup,
+    };
+    return render(
+      <ToastProvider>
+        <OobeStatusNotice client={client} />
+      </ToastProvider>,
+    );
+  };
+  const unreadable = notice({ preferencesSaved: false, systemEnabled: false });
+  const preferences = screen
+    .getByText(/无法读取偏好设置/)
+    .closest('[role="status"]') as HTMLElement;
+  expect(
+    within(preferences)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["重新检查"]);
+  unreadable.unmount();
+
+  const missing = notice({ systemEnabled: false });
+  const list = screen.getByText(/尚未加入系统输入法列表/).closest('[role="status"]') as HTMLElement;
+  fireEvent.click(within(list).getByRole("button", { name: "去添加" }));
+  expect(openSetup).toHaveBeenCalledOnce();
+  missing.unmount();
+
+  notice({ systemCurrent: false });
+  expect(screen.getByRole("button", { name: "检查设置" })).toBeTruthy();
 });
 
 test("未知的桌面状态不显示虚假的失败提示", () => {

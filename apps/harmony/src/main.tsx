@@ -1652,13 +1652,16 @@ function HarmonyWelcomeFlow({
       current = false;
     };
   }, [client]);
-  // 「五笔」卡片显示正在使用的码表，这是已保存的偏好，不是流程所选。文档无法读取时卡片保留默认文案；这类失败在保存流程的选择时报告。
+  // 「五笔」卡片显示正在使用的码表、释义开关显示已保存的释义设置，都是已保存的偏好，不是流程所选。文档无法读取时保留默认显示；这类失败在保存流程的选择时报告。
   const [wubiProfile, setWubiProfile] = useState<Preferences["wubi_profile"]>();
+  const [savedEnglishGloss, setSavedEnglishGloss] = useState<boolean>();
   useEffect(() => {
     let current = true;
     client.load().then(
       (snapshot) => {
-        if (current) setWubiProfile(snapshot.preferences.wubi_profile);
+        if (!current) return;
+        setWubiProfile(snapshot.preferences.wubi_profile);
+        setSavedEnglishGloss(snapshot.preferences.candidate_english_gloss);
       },
       () => undefined,
     );
@@ -1689,6 +1692,7 @@ function HarmonyWelcomeFlow({
       edition={client.host?.edition}
       inputSchemes={client.host?.input_schemes}
       wubiProfile={wubiProfile}
+      savedEnglishGloss={savedEnglishGloss}
       setup={client.home?.setup}
       signedIn={signedIn}
       appTheme={appTheme}

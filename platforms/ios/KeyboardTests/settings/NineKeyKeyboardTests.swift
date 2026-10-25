@@ -2082,7 +2082,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let previousGloss = CandidateGlossPreference.enabled
     InputSchemePreference.scheme = .nineKey
     ChineseOutputPreference.usesTraditional = false
-    CandidateGlossPreference.enabled = false
+    setCandidateGloss(false)
     defer {
       InputSchemePreference.scheme = previousScheme
       ChineseOutputPreference.usesTraditional = previousScript
@@ -3392,7 +3392,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       InputSchemePreference.scheme = previous
       CandidateGlossPreference.enabled = previousGloss
     }
-    CandidateGlossPreference.enabled = false
+    setCandidateGloss(false)
     InputSchemePreference.scheme = .nineKey
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()

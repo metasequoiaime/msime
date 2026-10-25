@@ -17,11 +17,11 @@ import org.json.JSONObject;
 /**
  * 字母角标与底行逗号长按通过共享标点路由提交，长按松手不追加逗号。
  *
- * <p>中文标点生效时，下滑 v 交给 Engine 的标点路由：空闲时上屏「？」，组字中先按首选结束再接「？」，得到「你好？」而不是按字面上屏的拼音原文加 `?`；用工具面板关掉中文标点后同一手势仍按字面上屏 `?`。JVM 冒烟只覆盖键面表，覆盖不到经 Engine 结束组字这一步，所以在设备上驱动真实手势。下滑靠注入按下、移动、抬起三个触屏事件（「滑动输入符号」默认开、方向默认下滑），无障碍点击没有移动这一步。
+ * <p>中文标点生效时，上滑 v 交给 Engine 的标点路由：空闲时上屏「？」，组字中先按首选结束再接「？」，得到「你好？」而不是按字面上屏的拼音原文加 `?`；用工具面板关掉中文标点后同一手势仍按字面上屏 `?`。JVM 冒烟只覆盖键面表，覆盖不到经 Engine 结束组字这一步，所以在设备上驱动真实手势。上滑靠注入按下、移动、抬起三个触屏事件（「滑动输入符号」默认开、方向默认上滑），无障碍点击没有移动这一步。
  */
 public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     private static final String PLAIN = "msime-test-plain";
-    /** 下滑距离（dp）：比 `SwipeHintPolicy.THRESHOLD_DP` 的 14 dp 大一截，不会落在阈值边上。 */
+    /** 滑动距离（dp）：比 `SwipeHintPolicy.THRESHOLD_DP` 的 14 dp 大一截，不会落在阈值边上。 */
     private static final float SWIPE_DP = 28f;
     private android.os.Bundle arguments;
 
@@ -53,7 +53,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             return;
         }
         if (arguments != null && "true".equals(arguments.getString("letter-hold"))) {
-            runLetterHoldChecks();
+            runConfiguredChecks(false);
             return;
         }
         runConfiguredChecks(false);
@@ -64,7 +64,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         setChinesePunctuation(true);
 
         stage = "idle swipe";
-        swipeDown("v");
+        swipeUp("v");
         await(field(PLAIN).and(node -> equalsText("？", node.getText())));
 
         stage = "composition";
@@ -75,13 +75,13 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         tap(key("空格"));
         await(field(PLAIN).and(node -> equalsText("？你好", node.getText())));
         stage = "committed composition swipe";
-        swipeDown("v");
+        swipeUp("v");
         await(field(PLAIN).and(node -> equalsText("？你好？", node.getText())));
 
         stage = "chinese punctuation off";
         setChinesePunctuation(false);
         stage = "ascii swipe";
-        swipeDown("v");
+        swipeUp("v");
         await(field(PLAIN).and(node -> equalsText("？你好？?", node.getText())));
 
         stage = "restore chinese punctuation";
@@ -157,11 +157,18 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
                 runEnglishSwipeChecks();
                 return;
             }
-            configureSwipe(true, "down", true, false);
+            if (arguments != null && "true".equals(arguments.getString("letter-hold"))) {
+                configureSwipe(true, "down", true, false);
+                runLetterHoldChecks();
+                return;
+            }
             if (!swipeOptions) {
+                // 删除方向字段，真实验证未配置时默认上滑，不用显式写 up 替代默认行为。
+                configureSwipe(true, null, true, false);
                 runPunctuationChecks();
                 return;
             }
+            configureSwipe(true, "down", true, false);
             stage = "up swipe drag uppercase";
             gestureOption("v", false, "up", "V", false);
             expect("V");
@@ -398,8 +405,8 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         touch(bounds(await(described("输入 è"))));
         expected.append("è");
         await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
-        stage = "English downward swipe remains literal";
-        swipeDown("w");
+        stage = "English default upward swipe remains literal";
+        swipeUp("w");
         expected.append("2");
         await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
         stage = "O retains Chinese keyboard entry";
@@ -478,14 +485,15 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         holdLetter("q");
         tap(described("输入 Q"));
         await(field(PLAIN).and(node -> equalsText("Q", node.getText())));
-        stage = "long press symbol choice";
-        holdLetter("a");
-        tap(described("输入 @"));
-        await(field(PLAIN).and(node -> equalsText("Q@", node.getText())));
+        // 先测上滑，再输入会打开邮箱候选的 @，避免候选态门控把手势按普通点击处理。
         stage = "upward swipe uppercase choice";
         swipeUpLetter("w");
         tap(described("输入 W"));
-        await(field(PLAIN).and(node -> equalsText("Q@W", node.getText())));
+        await(field(PLAIN).and(node -> equalsText("QW", node.getText())));
+        stage = "long press symbol choice";
+        holdLetter("a");
+        tap(described("输入 @"));
+        await(field(PLAIN).and(node -> equalsText("QW@", node.getText())));
     }
 
     private void holdLetter(String value) throws Exception {
@@ -607,9 +615,9 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         expect("d");
     }
 
-    /** 在 `letter` 键中心按下，向下移过阈值后抬起。 */
-    private void swipeDown(String letter) throws Exception {
-        swipeLetter(letter, "down", false);
+    /** 在 `letter` 键中心按下，向上移过阈值后抬起。 */
+    private void swipeUp(String letter) throws Exception {
+        swipeLetter(letter, "up", false);
     }
 
     private void swipeLetter(String letter, String direction, boolean cancel) throws Exception {

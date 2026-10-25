@@ -1354,13 +1354,17 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.pending_suffix()
     }
 
-    /// 换触屏的组码网格。九键要求全拼或注音，全拼十四键、十八键和九键双拼要求全拼，双拼 14 键和 18 键要求双拼；方案不符报 `InvalidNineKeyScheme`，组字中切换报 `CompositionActive`。
+    /// 换触屏的组码网格。九键要求全拼或注音，14 键要求全拼或五笔，十八键和九键双拼要求全拼，双拼 14 键和 18 键要求双拼；方案不符报 `InvalidNineKeyScheme`，组字中切换报 `CompositionActive`。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
         let scheme = scheme_type(self.cached.scheme);
         let supported = match grid {
             None => true,
             Some(KeyGrid::NineKey) => scheme.is_some_and(SchemeType::nine_key),
-            Some(KeyGrid::FourteenKey | KeyGrid::EighteenKey | KeyGrid::NineKeyShuangpin(_)) => {
+            // 五笔 14 键与全拼共用键面和组码，由引擎按方案分别解码。
+            Some(KeyGrid::FourteenKey) => {
+                matches!(scheme, Some(SchemeType::Quanpin | SchemeType::Wubi))
+            }
+            Some(KeyGrid::EighteenKey | KeyGrid::NineKeyShuangpin(_)) => {
                 scheme == Some(SchemeType::Quanpin)
             }
             Some(KeyGrid::FourteenKeyShuangpin(_) | KeyGrid::EighteenKeyShuangpin(_)) => {
@@ -3117,7 +3121,8 @@ impl<E: InputEngine> Runtime<E> {
         // A digit on the candidate page picks a candidate; the Engine is asked the same question as
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
-        let character_action = matches!(action, Action::Character { .. });
+        // 五笔 14 键的一键与字母键一样可能凑满四码。
+        let character_action = matches!(action, Action::Character { .. } | Action::GridKey(_));
         // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。混输拼音能继续当前候选的读音时，
         // 由引擎保留组字，避免把五字母拼音截成四码。判定本身是纯函数（`wubi_top_commit_on_next_key`），
         // 开关、混输、四码完整性与读音续输四项都在那里，方便单测覆盖。
@@ -3132,6 +3137,16 @@ impl<E: InputEngine> Runtime<E> {
                     pinyin_continues: self.engine.wubi_pinyin_continues(value, shift),
                 })
             }
+            // 五笔 14 键：组码不进混输拼音，四码之后的一键只能顶字，不看混输开关。
+            Action::GridKey(_) => wubi_top_commit_on_next_key(&WubiTopCommitRequest {
+                top_commit_enabled: self.wubi_fifth_code_top_commit,
+                mixed_pinyin: false,
+                four_code_is_complete: self.snapshot_valid
+                    && self.cached.grid_composing
+                    && wubi_four_code_is_complete(&self.cached),
+                phrase_prefix_empty: self.phrase_prefix.is_empty(),
+                pinyin_continues: false,
+            }),
             _ => false,
         };
         // 九宫格组码已经到上限（`DIGIT_LIMIT`）时再按一键：先替用户选掉首选腾出位置，再把这一键接着打，和顶字一样不丢键。引擎只在光标在末尾、首选确实占用组码时说可以；否则这一键照旧被拦下并给出提示。
@@ -3203,6 +3218,13 @@ impl<E: InputEngine> Runtime<E> {
                         }
                         Ok(committed)
                     })
+            }
+            // 五笔 14 键四码之后的一键：先顶首选上屏，这一键再开始下一组编码，与 26 键的第五码相同。
+            Action::GridKey(letter) if wubi_top_commit => {
+                pick = Some((SelectionHow::WubiTop, 0));
+                self.engine
+                    .select(self.engine_index(0))
+                    .and_then(|picked| Ok(join_after_pick(picked, self.engine.grid_key(letter)?)))
             }
             Action::Character { value, shift } if grid_limit_pick => {
                 pick = Some((SelectionHow::GridLimit, 0));

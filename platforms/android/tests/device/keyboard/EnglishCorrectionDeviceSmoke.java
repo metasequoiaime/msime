@@ -84,7 +84,7 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
             for (String field : new String[] {"correction-no-suggestions", "correction-url", "correction-email"}) {
                 stage = "editor gate " + field;
                 clear(field);
-                // 无建议框遵循全局模式记忆；网址、邮箱则临时进英文，三者都不能沿用旧副本切回中文。
+                // 无建议框和网址框（#9725）遵循全局模式记忆，邮箱临时进英文，三者都不能沿用旧副本切回中文。
                 await(key("英"));
                 typeWord("languge");
                 expect(field, "languge");

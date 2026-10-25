@@ -147,6 +147,42 @@ fn touch_shuangpin_layout_defaults_persists_and_rejects_unsupported_layouts() {
 }
 
 #[test]
+fn touch_wubi_layout_defaults_persists_and_rejects_unsupported_layouts() {
+    let defaults = Preferences::default();
+    let legacy = serde_json::to_value(&defaults).unwrap();
+    assert!(legacy.get("touch_wubi_layout").is_none());
+    assert_eq!(
+        serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .touch_wubi_layout,
+        TouchWubiLayout::TwentySixKey
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    // 五笔布局与全拼、双拼的布局互不覆盖，换 98 码表也保留。
+    let configured = Preferences {
+        scheme: InputScheme::Wubi,
+        wubi_profile: WubiProfile::Wubi98,
+        touch_wubi_layout: TouchWubiLayout::FourteenKey,
+        touch_shuangpin_layout: TouchShuangpinLayout::EighteenKey,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..defaults
+    };
+    store.save(0, configured.clone()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, configured);
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap()["touch_wubi_layout"],
+        "fourteen_key"
+    );
+    for unsupported in ["nine_key", "eighteen_key"] {
+        let mut invalid = legacy.clone();
+        invalid["touch_wubi_layout"] = unsupported.into();
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    }
+}
+
+#[test]
 fn japanese_toggle_input_persists_disabled() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["touch_japanese_toggle_input"] = false.into();

@@ -463,6 +463,40 @@ impl InputSession {
         KeyResult::handled()
     }
 
+    /// 五笔 14 键的一键：`representative` 是这一组的代表字母（[`crate::wubi::grid::representative`]）。不是五笔、在本地模式或专用英文里、整句改字中、光标不在末尾，或者正在打 26 键的五笔码时不处理，组字不变。
+    pub fn handle_wubi_grid_key(&mut self, representative: u8) -> KeyResult {
+        if !self.is_wubi()
+            || self.dedicated_english
+            || self.local_mode != LocalInputMode::None
+            || self.conversion.is_some()
+            || self
+                .caret
+                .is_some_and(|caret| caret < self.editing_text_len())
+        {
+            return KeyResult::unhandled();
+        }
+        if !self.has_composition()
+            && self.chain.previous.is_some()
+            && self.chain.paused(self.steady_now())
+        {
+            self.chain.reset();
+        }
+        if !self.engine.handle_wubi_grid_key(representative) {
+            return KeyResult::unhandled();
+        }
+        self.caret = None;
+        self.update_mixed_candidates();
+        self.invalidate_online_requests();
+        KeyResult::handled()
+    }
+
+    /// 当前组字是五笔 14 键打的组码。
+    pub fn wubi_grid_composing(&self) -> bool {
+        self.local_mode == LocalInputMode::None
+            && !self.dedicated_english
+            && self.engine.wubi_grid_composing()
+    }
+
     /// input_session.cpp:958-1036.
     pub fn handle_local_character(&mut self, value: u8) -> KeyResult {
         let letter = value.is_ascii_alphabetic();

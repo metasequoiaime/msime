@@ -323,11 +323,23 @@ pub fn shape_setup_window(window: &tauri::WebviewWindow) {
     SETUP_WINDOW_SHAPED.store(true, Ordering::Release);
 }
 
-/// 离开首次配置（或词库更新）页时把主窗口换回设置窗口的大小。
+/// 离开首次配置（或词库更新）页时把主窗口换回设置窗口的大小。返回 `true` 表示设置已交给新进程（本进程马上退出），页面不要再进入设置。
+///
+/// 首次配置刚写出 runtime-options.json 时，本进程的偏好、更新记录、账号会话等仍落在启动时定下的本应用数据目录，不是输入法读写的 `preferences_directory`；这时以本进程自己的参数把设置交给新进程（`hand_over_settings_process`），新进程按准备好的文件定目录、读宿主能力，用户不用自己重开设置。
 #[tauri::command]
-pub fn leave_linux_setup_window(window: tauri::WebviewWindow) -> Result<(), LinuxSetupError> {
+pub fn leave_linux_setup_window(window: tauri::WebviewWindow) -> Result<bool, LinuxSetupError> {
+    use tauri::Manager as _;
+    let args: Vec<String> = std::env::args_os()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect();
+    let cwd = std::env::current_dir()
+        .map(|directory| directory.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if crate::hand_over_settings_process(window.app_handle(), &args, &cwd) {
+        return Ok(true);
+    }
     if !SETUP_WINDOW_SHAPED.swap(false, Ordering::AcqRel) {
-        return Ok(());
+        return Ok(false);
     }
     let (width, height) = SETTINGS_WINDOW_SIZE;
     let (min_width, min_height) = SETTINGS_WINDOW_MIN_SIZE;
@@ -340,7 +352,8 @@ pub fn leave_linux_setup_window(window: tauri::WebviewWindow) -> Result<(), Linu
     window
         .set_size(tauri::LogicalSize::new(width, height))
         .map_err(unavailable)?;
-    window.center().map_err(unavailable)
+    window.center().map_err(unavailable)?;
+    Ok(false)
 }
 
 /// 首次配置没能自动加入 Fcitx5 输入法组时，结果卡片上的「打开 Fcitx5 配置」：启动 `fcitx5-configtool`，用户在里面把水杉输入法加入当前输入法组。
@@ -502,17 +515,60 @@ fn input_method_status_document() -> Result<serde_json::Value, LinuxSetupError> 
     serde_json::from_str(&output).map_err(|_| LinuxSetupError::new("setup_failed"))
 }
 
-/// 只打开当前框架自己的设置，不把已配置的用户再次送进首次准备流程。
+const GNOME_SETTINGS: &str = "gnome-control-center";
+
+/// `gnome-control-center --version` 打印的主版本号（形如 `gnome-control-center 46.0`，3.x 时代是 `3.36.8`）。
+fn gnome_settings_major(version: &str) -> Option<u32> {
+    version
+        .split_whitespace()
+        .last()?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// 能修改 `--status --json` 里 `list` 那份列表的设置界面：Fcitx5 是 `fcitx5-configtool`；IBus 的预载引擎是 `ibus-setup`；GNOME 的输入源只能在 GNOME 设置里改，GNOME 40 起在「键盘」面板，之前在「区域和语言」（`region`）面板，读不出版本时按现行版本打开「键盘」。脚本没报告 `list` 时（旧版脚本）保持原来的 `ibus-setup`。
+fn input_method_settings_command(
+    status: &serde_json::Value,
+    gnome_settings_version: impl FnOnce() -> Option<String>,
+) -> Option<(&'static str, &'static [&'static str])> {
+    match (status["host"].as_str(), status["list"].as_str()) {
+        (Some("fcitx5"), _) => Some(("fcitx5-configtool", &[])),
+        (Some("ibus"), Some("gnome")) => {
+            let before_keyboard_panel = gnome_settings_version()
+                .as_deref()
+                .and_then(gnome_settings_major)
+                .is_some_and(|major| major < 40);
+            Some((
+                GNOME_SETTINGS,
+                if before_keyboard_panel {
+                    &["region"]
+                } else {
+                    &["keyboard"]
+                },
+            ))
+        }
+        (Some("ibus"), _) => Some(("ibus-setup", &[])),
+        _ => None,
+    }
+}
+
+/// 只打开当前框架自己的设置，不把已配置的用户再次送进首次准备流程。GNOME 上 IBus 的输入法要加进 GNOME 的输入源才算启用（GNOME Shell 不读 IBus 的预载引擎），所以打开 GNOME 设置的键盘面板，而不是改了也不生效的 ibus-setup。
 #[tauri::command]
 pub async fn open_linux_input_method_settings() -> Result<(), LinuxSetupError> {
     tauri::async_runtime::spawn_blocking(|| {
         let status = input_method_status_document()?;
-        let program = match status["host"].as_str() {
-            Some("fcitx5") => "fcitx5-configtool",
-            Some("ibus") => "ibus-setup",
-            _ => return Err(LinuxSetupError::new("configtool_unavailable")),
-        };
-        super::linux_process::launch(program, &[], Duration::from_millis(300))
+        let (program, arguments) = input_method_settings_command(&status, || {
+            super::linux_process::read_text(
+                GNOME_SETTINGS,
+                &["--version"],
+                256,
+                Duration::from_secs(3),
+            )
+        })
+        .ok_or(LinuxSetupError::new("configtool_unavailable"))?;
+        super::linux_process::launch(program, arguments, Duration::from_millis(300))
             .then_some(())
             .ok_or(LinuxSetupError::new("configtool_unavailable"))
     })
@@ -656,6 +712,18 @@ pub async fn run_linux_dictionary_update(
         .ok_or(LinuxSetupError::new("setup_unavailable"))?
         .to_path_buf();
     run_reporting(app, &running, program, update_arguments(&state_directory)).await?;
+    // 脚本以 0 退出不等于配置真的指向了可用的资源（旧版脚本在词库代次没变时就是这样假成功的）。用设置页判断「运行资源尚未准备好」的同一条校验重读配置再查一次，不通过就如实报失败，过期标记也留着。
+    let runtime = options.inner().clone();
+    let ready = tauri::async_runtime::spawn_blocking(move || {
+        runtime
+            .snapshot()
+            .is_ok_and(|document| msime_host_api::runtime_resources_ready(&document))
+    })
+    .await
+    .map_err(|_| LinuxSetupError::new("setup_failed"))?;
+    if !ready {
+        return Err(LinuxSetupError::new("resources_not_ready"));
+    }
     let markers = session_dictionary_outdated_markers();
     for marker in &markers {
         if fs::symlink_metadata(marker).is_ok_and(|metadata| metadata.file_type().is_file()) {
@@ -708,6 +776,69 @@ mod tests {
         let mut shell_arguments = vec![OsString::from("-c"), body.into(), "sh".into()];
         shell_arguments.extend(arguments.iter().cloned());
         (PathBuf::from("/bin/sh"), shell_arguments)
+    }
+
+    #[test]
+    fn input_method_settings_open_the_tool_that_edits_the_reported_list() {
+        let command = |status: serde_json::Value, version: Option<&str>| {
+            input_method_settings_command(&status, || version.map(str::to_owned))
+        };
+        // GNOME 上 IBus 的输入法只有加进 GNOME 输入源才算启用；ibus-setup 只改预载引擎，改完仍是未启用（2026-10-25 Ubuntu 24.04 验收）。
+        assert_eq!(
+            command(
+                serde_json::json!({"host": "ibus", "list": "gnome", "enabled": false}),
+                Some("gnome-control-center 46.0\n"),
+            ),
+            Some((GNOME_SETTINGS, &["keyboard"][..]))
+        );
+        // GNOME 40 之前输入源在「区域和语言」面板。
+        assert_eq!(
+            command(
+                serde_json::json!({"host": "ibus", "list": "gnome"}),
+                Some("gnome-control-center 3.36.8"),
+            ),
+            Some((GNOME_SETTINGS, &["region"][..]))
+        );
+        // 读不出版本时按现行 GNOME 打开「键盘」面板。
+        for version in [
+            None,
+            Some(""),
+            Some("gnome-control-center 46.alpha"),
+            Some("unexpected"),
+        ] {
+            assert_eq!(
+                command(
+                    serde_json::json!({"host": "ibus", "list": "gnome"}),
+                    version
+                ),
+                Some((GNOME_SETTINGS, &["keyboard"][..])),
+                "{version:?}"
+            );
+        }
+        // 非 GNOME 桌面和 Fcitx5 不变，也不去问 GNOME 设置的版本。
+        let unexpected = || -> Option<String> { panic!("只有 GNOME 输入源才需要版本") };
+        assert_eq!(
+            input_method_settings_command(
+                &serde_json::json!({"host": "ibus", "list": "ibus"}),
+                unexpected
+            ),
+            Some(("ibus-setup", &[][..]))
+        );
+        assert_eq!(
+            input_method_settings_command(&serde_json::json!({"host": "ibus"}), unexpected),
+            Some(("ibus-setup", &[][..]))
+        );
+        assert_eq!(
+            input_method_settings_command(
+                &serde_json::json!({"host": "fcitx5", "list": "fcitx5"}),
+                unexpected
+            ),
+            Some(("fcitx5-configtool", &[][..]))
+        );
+        assert_eq!(
+            input_method_settings_command(&serde_json::json!({"host": null}), unexpected),
+            None
+        );
     }
 
     #[test]

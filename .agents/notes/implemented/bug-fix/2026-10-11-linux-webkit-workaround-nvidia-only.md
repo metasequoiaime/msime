@@ -33,7 +33,7 @@ issue #6847：Arch Linux、niri 26.04 Wayland 会话、Mesa 26.2、webkit2gtk-4.
 
 Arch 的 AUR 包有一条发布滞后兼容路径：`linux-v0.11.0` 标签切出来时还没有 DMA-BUF 变量，而新版 Arch WebKitGTK 已会在 NVIDIA + Wayland 上触发同一个 Error 71。`platforms/linux/packaging/arch/msime/PKGBUILD` 在源码包的 `prepare()`、`msime-bin/PKGBUILD` 在安装二进制时，都只对缺少该变量的旧启动器插入 `WEBKIT_DISABLE_DMABUF_RENDERER=${WEBKIT_DISABLE_DMABUF_RENDERER:-1}`；带有当前 NVIDIA 判断的后续源码与 RPM 不重复修改。这样不必改动发布标签或把开发分支源码混进 AUR，下一次 Linux 发布带上完整启动器后这条兼容分支自动变成空操作。
 
-有一条启动不经过启动器：升级后的交接。旧的设置进程在关窗后还会留十分钟，这期间升级再打开设置，单实例插件只把参数和工作目录转给旧进程，它的 `hand_over_to_replaced_program`（`apps/desktop/src-tauri/src/lib.rs`）发现自身程序已被替换，就直接以 `Command::new` 启动新的 `msime-linux-desktop`，新程序继承旧进程的环境。旧启动器无条件导出过两个 `1`，所以从旧版本升级上来的第一个新进程仍走非合成路径，并且它自己关窗后也会再留十分钟。交接这里不清掉继承来的 `WEBKIT_DISABLE_*`：进程无从分辨这两个值是旧启动器的默认还是用户显式设的，清掉会丢掉用户真正的覆盖；改为经同目录的 `msime-linux-settings` 重新拉起也没用，继承来的 `1` 在启动器看来就是显式值。这只影响升级那一次，进程链退出后就不再出现，所以只在 README 里写明升级后要先让旧的设置进程完全退出，并请报告者复测前照做。
+有一条启动不经过启动器：升级后的交接。旧的设置进程在关窗后还会留十分钟，这期间升级再打开设置，单实例插件只把参数和工作目录转给旧进程，它的 `hand_over_settings_process`（`apps/desktop/src-tauri/src/lib.rs`）发现自身程序已被替换，就直接以 `Command::new` 启动新的 `msime-linux-desktop`，新程序继承旧进程的环境。旧启动器无条件导出过两个 `1`，所以从旧版本升级上来的第一个新进程仍走非合成路径，并且它自己关窗后也会再留十分钟。交接这里不清掉继承来的 `WEBKIT_DISABLE_*`：进程无从分辨这两个值是旧启动器的默认还是用户显式设的，清掉会丢掉用户真正的覆盖；改为经同目录的 `msime-linux-settings` 重新拉起也没用，继承来的 `1` 在启动器看来就是显式值。这只影响升级那一次，进程链退出后就不再出现，所以只在 README 里写明升级后要先让旧的设置进程完全退出，并请报告者复测前照做。
 
 ### 测试
 

@@ -10480,3 +10480,108 @@ fn literal_symbol_survives_runtime_punctuation_without_early_commit() {
 }
 
 mod multilingual;
+
+/// 五笔 14 键的真实引擎：拼音主词库给词频，码表在同一个工作副本里。
+fn wubi_grid_runtime(root: &std::path::Path) -> Runtime {
+    let dictionaries = root.join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join(msime_engine::assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_1_n VALUES('ni','n','你',3000000);\
+             CREATE TABLE tbl_1_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_1_d VALUES('duo','d','多',1500000);\
+             CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_1_h VALUES('hao','h','好',2000000);\
+             CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubi86 VALUES('qq','多',20),('wq','你',10),('wqiy','你',20),('qqiy','铄',20),\
+             ('vb','好',10),('xxxx','纟',10);",
+        )
+        .unwrap();
+    let mut options = real_engine_options(root);
+    options.scheme = 2;
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+    runtime
+}
+
+fn grid_keys(runtime: &mut Runtime, letters: &[u8]) -> Transition {
+    let mut last = None;
+    for &letter in letters {
+        last = Some(runtime.dispatch(Action::GridKey(letter)).unwrap());
+    }
+    last.expect("至少一个键")
+}
+
+#[test]
+fn wubi_fourteen_key_reports_the_grid_and_the_top_code() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = wubi_grid_runtime(directory.path());
+    let view = grid_keys(&mut runtime, b"wq").view;
+    assert_eq!(view.key_grid, "fourteen_key");
+    assert_eq!(view.candidates[0].text, "你");
+    assert_eq!(view.nine_key_reading, "wq");
+    assert!(view.nine_key_spellings.is_empty());
+    assert_eq!(view.editing_text, "qq");
+}
+
+/// 四码之后的一键先顶首选，再开始下一组编码；「第五码顶字」关着也一样，因为 14 键没有混输拼音可以容纳这一键。
+#[test]
+fn wubi_fourteen_key_tops_the_first_candidate_on_a_fifth_key() {
+    for top_commit in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = wubi_grid_runtime(directory.path());
+        runtime.set_wubi_fifth_code_top_commit(top_commit);
+        grid_keys(&mut runtime, b"wqiy");
+        let topped = runtime.dispatch(Action::GridKey(b'v')).unwrap();
+        assert_eq!(topped.commit.as_deref(), Some("你"), "{top_commit}");
+        assert_eq!(topped.view.editing_text, "c");
+        let next = runtime.dispatch(Action::GridKey(b'b')).unwrap();
+        assert_eq!(next.view.candidates[0].text, "好");
+    }
+}
+
+#[test]
+fn wubi_fourteen_key_auto_commits_a_unique_fourth_code() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = wubi_grid_runtime(directory.path());
+    let committed = grid_keys(&mut runtime, b"zxzx");
+    assert_eq!(committed.commit.as_deref(), Some("纟"));
+    assert!(committed.view.editing_text.is_empty());
+
+    runtime.set_wubi_auto_commit_unique(false);
+    let kept = grid_keys(&mut runtime, b"zxzx");
+    assert!(kept.commit.is_none());
+    assert_eq!(kept.view.editing_text, "xxxx");
+}
+
+/// 14 键的组码不是可上屏的字母：原样上屏从高亮行结束组字，与全拼 14 键相同。
+#[test]
+fn wubi_fourteen_key_commit_raw_finishes_from_the_highlighted_row() {
+    for command in [Command::CommitRaw, Command::CommitRawWithoutLearning] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = wubi_grid_runtime(directory.path());
+        grid_keys(&mut runtime, b"wq");
+        let highlighted = runtime.dispatch(Action::NextCandidate).unwrap().view;
+        let expected = highlighted.candidates[1].text.clone();
+        assert_eq!(expected, "多");
+        let committed = runtime.dispatch(Action::Command(command)).unwrap();
+        assert_eq!(committed.commit.as_deref(), Some("多"), "{command:?}");
+        assert!(committed.view.editing_text.is_empty());
+    }
+}
+
+#[test]
+fn the_fourteen_key_grid_is_offered_to_quanpin_and_wubi_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = wubi_grid_runtime(directory.path());
+    runtime.set_key_grid(None).unwrap();
+    assert!(runtime.set_key_grid(Some(KeyGrid::FourteenKey)).is_ok());
+    assert!(matches!(
+        runtime.set_key_grid(Some(KeyGrid::EighteenKey)),
+        Err(RuntimeError::InvalidNineKeyScheme)
+    ));
+}

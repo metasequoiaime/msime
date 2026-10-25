@@ -395,6 +395,25 @@ test("配置成功时脚本报告的提示列在结果卡片上，不必展开�
   expect(screen.getByRole("log", { name: "配置输出" }).closest("details")?.open).toBe(false);
 });
 
+test("结果卡片上带网址的提示在卡片宽度内换行，不向两侧溢出", async () => {
+  // 脚本的 GNOME Wayland 提示带着 README 的完整网址。卡片是 items-center 的纵向 flex，提示列表按内容最小宽度排版，网址不能断开时整段比卡片宽、向两侧溢出，左边被滚动区裁掉（2026-10-25 Ubuntu 24.04 + Fcitx5 验收）。jsdom 不做排版，这里检查让网址可断开、列表撑满卡片的两项样式；实际宽度用 WebKit 与 Chromium 按 448×640 和 1280×800 核对过。
+  const note =
+    "提示：当前是 GNOME 的 Wayland 会话，且设置了 GTK_IM_MODULE=fcitx。做法见 platforms/linux/README.md 的「GNOME Wayland 下候选窗闪烁」一节（https://github.com/metasequoiaime/msime/blob/develop/platforms/linux/README.md），改完重新登录。";
+  const run = vi.fn().mockResolvedValue({
+    ...missing,
+    prepared: true,
+    registration: { host: "fcitx5" as const, registered: true },
+    notes: [note],
+  });
+  render(<LinuxSetupPage status={missing} client={{ run }} onComplete={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "开始配置" }));
+  const card = await screen.findByRole("status", { name: "输入法列表" });
+  expect(card.classList).toContain("[overflow-wrap:anywhere]");
+  const notes = card.querySelector('[aria-label="配置提示"]')!;
+  expect(notes.textContent).toContain("https://github.com/");
+  expect(notes.classList).toContain("self-stretch");
+});
+
 test("首次配置页的产品名、结果卡片和终端命令随安装的版本", async () => {
   const wubi = {
     id: "wubi",
@@ -439,4 +458,26 @@ test("资源损坏的已有配置走修复事务，不重复创建状态目录",
   await screen.findByRole("heading", { name: "词库已更新" });
   expect(update).toHaveBeenCalledOnce();
   expect(run).not.toHaveBeenCalled();
+});
+
+test("修复后运行资源仍未通过校验时如实报失败，不显示「词库已更新」", async () => {
+  const update = vi.fn(async (onLine: (line: LinuxSetupLine) => void) => {
+    onLine({ text: "runtime-options.json 未改写：它已指向当前版本的词库", error: false });
+    throw { code: "resources_not_ready" };
+  });
+  render(
+    <LinuxSetupPage
+      status={{ ...missing, prepared: true, dictionaryOutdated: false }}
+      repair
+      client={{ run: vi.fn(), update }}
+      onComplete={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "立即修复" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("运行资源仍未通过校验");
+  expect(alert.textContent).toContain("msime-linux-setup --update --download");
+  expect(screen.getByRole("heading", { name: "更新没有完成" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "词库已更新" })).toBeNull();
+  expect(screen.getByRole("log").textContent).toContain("未改写");
 });

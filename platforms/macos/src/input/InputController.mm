@@ -4391,7 +4391,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     }
     // 从英文回中文时先退出英文模式：`setEnglishInputMode:NO` 会把标点、工具栏和菜单栏都摆回中文，
     // 之后换方案的那一次写入才不会被仍在英文的状态盖掉。
-    if (_appearance.englishMode) [self setEnglishInputMode:NO];
+    if (_appearance.englishMode) [self setEnglishInputMode:NO showHUD:NO];
     // 换方案：走和输入菜单同一条路（`selectInputScheme:` 的写法），记下离开时的中文方案。
     if (step.scheme >= 0 && step.scheme < (int)names.count) {
         NSString *target = names[(NSUInteger)step.scheme];
@@ -4402,6 +4402,8 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
             [self applyPreferencesToSessionNow];
         }
     }
+    if (english != _appearance.englishMode || ![scheme isEqual:_appearance.inputScheme])
+        [self showCurrentInputModeHUD];
     return YES;
 }
 - (void)syncCharacterWidth {
@@ -4816,6 +4818,9 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 }
 
 - (void)setEnglishInputMode:(BOOL)enabled {
+    [self setEnglishInputMode:enabled showHUD:YES];
+}
+- (void)setEnglishInputMode:(BOOL)enabled showHUD:(BOOL)showHUD {
     [self ensureAppearance];
     if (enabled) [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     const BOOL changed = _appearance.englishMode != enabled;
@@ -4860,8 +4865,26 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     [self hideCandidatePanel:"mode_switch"];
     [_keymapPanel orderOut:nil];
     [self syncSystemInputModeForClient:_activeClient ?: self.client];
-    if (changed) [self showInputStateHUDText:MSIMEInputModeHUDText(enabled)
-        announcement:enabled ? @"英文输入" : @"中文输入"];
+    if (changed && showHUD) [self showCurrentInputModeHUD];
+}
+
+- (void)showCurrentInputModeHUD {
+    if (_appearance.englishMode) {
+        [self showInputStateHUDText:@"英" announcement:@"英文输入"];
+    } else if (MSIMEStrictBoolean(_view[@"dedicated_english"])) {
+        [self showInputStateHUDText:@"英文候选" announcement:@"英文候选模式"];
+    } else {
+        NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
+        NSArray<NSString *> *mode = @{@"japanese": @[@"日", @"日语输入"], @"korean": @[@"韩", @"韩语输入"],
+            @"vietnamese": @[@"越", @"越南语输入"], @"tibetan": @[@"藏", @"藏语输入"]}[scheme];
+        if (mode) [self showInputStateHUDText:mode[0] announcement:mode[1]];
+        else [self showInputStateHUDText:@"中" announcement:@"中文输入"];
+    }
+}
+- (void)showInputSchemeHUD {
+    NSString *title = nil;
+    [self inputSchemeMenuWithCurrentTitle:&title];
+    if (title) [self showInputStateHUDText:title announcement:[NSString stringWithFormat:@"输入方案：%@", title]];
 }
 
 - (void)showInputStateHUDText:(NSString *)text announcement:(NSString *)announcement {
@@ -4996,10 +5019,13 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
         _appearance.inputScheme = target;
         [self applyPreferencesToSessionNow];
     }
-    [self setEnglishInputMode:mode == MSIMEInputMode::English];
+    const BOOL english = _appearance.englishMode;
+    [self setEnglishInputMode:mode == MSIMEInputMode::English showHUD:NO];
     state.selecting = false;
     // setEnglishInputMode: can refuse the switch (an Engine cancel failure while composing) after the report was already recorded as shown; select the mode the controller actually has so the menu bar does not keep the refused one. A switch that went through makes this a no-op.
     [self syncSystemInputModeForClient:sender];
+    if (english != _appearance.englishMode) [self showCurrentInputModeHUD];
+    else if (![scheme isEqual:_appearance.inputScheme]) [self showInputSchemeHUD];
 }
 - (void)selectChineseMode:(id)sender {
     (void)sender;
@@ -5012,6 +5038,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     [self ensureAppearance];
     if (!_session || _focusPending) [self prepareSession];
     if (!_session) return;
+    const BOOL changed = _appearance.englishMode || MSIMEStrictBoolean(_view[@"dedicated_english"]) != enabled;
     if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
         // Ctrl+Shift+E is the reference's FUNCTION_CANCEL in both directions: _HandleCancel terminates the composition and commits nothing, so neither the highlighted Chinese candidate nor the English word being spelled reaches the document. A scheme that commits on blur (a Korean syllable, a Zhuyin or Vietnamese composition) is already text the user wrote, so it is committed instead. An Engine failure leaves the mode as it was.
         NSDictionary *cancelled = [_session command:MSIMESchemeTrait(_view, msime::mac::scheme::CommitsOnBlur) ? MSIME_FINISH_COMPOSITION : MSIME_CANCEL error:nil];
@@ -5025,6 +5052,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     _appearance.englishMode = NO;
     [self syncSystemInputModeForClient:_activeClient];
     [self apply:@{@"view":view}];
+    if (changed) [self showCurrentInputModeHUD];
 }
 - (void)toggleDedicatedEnglishMode:(id)sender {
     (void)sender;
@@ -6627,10 +6655,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self refreshFloatingToolbarState];
         return;
     }
-    // Like the reference's compartment, the toggle is this app's runtime state; the saved value stays the starting point.
+    // 标点切换只改变当前应用的运行态，保存值仍是初始状态。
     _appearance.runtimeChinesePunctuation = !_appearance.runtimeChinesePunctuation;
     [self syncPunctuation];
     [self refreshFloatingToolbarState];
+    [self showInputStateHUDText:_appearance.runtimeChinesePunctuation ? @"中文标点" : @"英文标点"
+        announcement:_appearance.runtimeChinesePunctuation ? @"中文标点" : @"英文标点"];
 }
 - (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self toggleRuntimeFullWidthInput]; }
 // The input menu's toggles run the same paths as the floating toolbar and the chords, so all three stay one state.
@@ -6640,6 +6670,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     (void)sender;
     [self ensureAppearance];
     _appearance.candidateTranslations = !_appearance.candidateTranslations;
+    [self showInputStateHUDText:_appearance.candidateTranslations ? @"译文开" : @"译文关"
+        announcement:_appearance.candidateTranslations ? @"显示译文" : @"隐藏译文"];
 }
 - (void)selectInputScheme:(id)sender {
     MSIMEInputController *focused = MSIMEFocusedController;
@@ -6655,6 +6687,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     _appearance.inputScheme = scheme;
     [self applyPreferencesToSessionNow];
+    [self showInputSchemeHUD];
 }
 - (void)selectGlobalTheme:(id)sender {
     [self ensureAppearance];
@@ -6666,6 +6699,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     _appearance.runtimeFullWidthInput = !_appearance.runtimeFullWidthInput;
     [self syncCharacterWidth];
     [self refreshFloatingToolbarState];
+    [self showInputStateHUDText:_appearance.runtimeFullWidthInput ? @"全角" : @"半角"
+        announcement:_appearance.runtimeFullWidthInput ? @"全角字符" : @"半角字符"];
 }
 - (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self toggleTraditionalOutput:nil]; }
 - (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self openCharacterPalette:nil]; }
@@ -7313,7 +7348,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                 if (!_session) [self prepareSession];
                 NSError *error = nil;
                 NSDictionary *transition = [_session resetCacheWithError:&error];
-                if (transition) [self apply:transition];
+                if (transition) {
+                    [self apply:transition];
+                    [self showInputStateHUDText:@"缓存已清理" announcement:@"输入缓存已清理"];
+                }
                 else if (error) NSBeep();
                 break;
             }

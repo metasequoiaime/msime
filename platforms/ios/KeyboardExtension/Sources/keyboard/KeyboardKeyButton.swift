@@ -233,7 +233,7 @@ final class KeyboardKeyButton: UIButton {
     }
   }
 
-  /// 手指下滑（`SwipeHintPolicy`）或按住 `cornerHintHoldDelay` 时，这个键代替自身动作输入的字符，即字母键的角标（`LetterHintTable`）。为 nil 时按键只响应普通点按。与 Android 的 `ImeLetterRows.bindLetterGestures` 一致：两种手势都会把预览切到角标，松手时输入它。
+  /// 手指沿设定方向滑动（`SwipeHintPolicy`）或按住 `cornerHintHoldDelay` 时，这个键代替自身动作输入的字符，即字母键的角标（`LetterHintTable`）。为 nil 时按键只响应普通点按。与 Android 的 `ImeLetterRows.bindLetterGestures` 一致：两种手势都会把预览切到角标，松手时输入它。
   var cornerHint: String? {
     didSet {
       if cornerHint == nil { resetCornerHint() }
@@ -243,8 +243,9 @@ final class KeyboardKeyButton: UIButton {
   /// 松手时输入角标。触发它的触摸被取消而不是正常结束，所以按键自身的动作不会再执行一次。
   var onCornerHint: ((String) -> Void)?
 
-  /// 下滑是否输入角标：「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）关掉时为假。长按不受它影响，与 Android 的 `bindLetterGestures` 一致。
+  /// 滑动是否输入角标：「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）关掉时为假。长按不受它影响，与 Android 的 `bindLetterGestures` 一致。
   var swipesCornerHint = true
+  var cornerHintSwipeDirection: KeyboardLayoutPreference.SwipeDirection = .up
 
   /// UIKit 默认的长按时长，与九键长按用的半秒相同；Android 等的是系统的长按超时。
   static let cornerHintHoldDelay: TimeInterval = 0.5
@@ -271,7 +272,7 @@ final class KeyboardKeyButton: UIButton {
 
   override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
     if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint,
-       SwipeHintPolicy.swiped(downY: cornerHintDownY, currentY: touch.location(in: nil).y) {
+       SwipeHintPolicy.swiped(direction: cornerHintSwipeDirection, downY: cornerHintDownY, currentY: touch.location(in: nil).y) {
       triggerCornerHint(hint)
     }
     return super.continueTracking(touch, with: event)

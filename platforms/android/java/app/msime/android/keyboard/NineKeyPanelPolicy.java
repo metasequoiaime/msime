@@ -47,6 +47,12 @@ public final class NineKeyPanelPolicy {
         return KeyboardLayout.drawsKeyGrid(layout) && letterLayer && !localMode && composing;
     }
 
+    /** 同 {@link #threeColumn(int, boolean, boolean, boolean)}，再按 `View.scheme` 的方案号排除五笔：五笔 14 键也画在字母组网格上，但没有拼音可选，引擎也不受理九键筛选和拼音选择，展开候选仍是五笔原来的整块候选面板。 */
+    public static boolean threeColumn(int layout, int scheme, boolean letterLayer,
+                                      boolean localMode, boolean composing) {
+        return scheme != InputSchemeTraits.WUBI && threeColumn(layout, letterLayer, localMode, composing);
+    }
+
     /** 面板里的 ⌫：笔画模式下有笔画就先撤一笔，否则交给引擎退格（引擎在全部锁定时撤销最后一次锁定，否则删一个数字）。 */
     public static Backspace backspace(Mode mode, String strokes) {
         return mode == Mode.STROKE && strokes != null && !strokes.isEmpty()

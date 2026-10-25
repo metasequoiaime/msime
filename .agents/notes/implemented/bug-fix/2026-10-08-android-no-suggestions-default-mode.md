@@ -35,7 +35,7 @@ Status: implemented
 
 - **收益**：聊天框、搜索框和网页输入框按用户设置的默认模式和按应用记忆进框，「默认中英文」在 Android 上对这些框重新生效。
 - **代价**：只带无建议标志、实际想要英文的输入框现在按默认模式（通常是中文）进框，需要用户自己切；切过之后按 `ime_mode_scope` 记住，同一应用的其他输入框也会跟着用这个模式。
-- **未改**：HarmonyOS 的 `EditorPolicy.prefersLatin` 也把 `noSuggestions` 算进去，但那边的 `noSuggestions` 只对应 `PATTERN_ONE_TIME_CODE`，范围本来就窄，不受这个问题影响。URI 字段（包括 Chrome 地址栏）是否也该改为按默认模式进框，是另一个问题，这次不动。
+- **未改**：HarmonyOS 的 `EditorPolicy.prefersLatin` 也把 `noSuggestions` 算进去，但那边的 `noSuggestions` 只对应 `PATTERN_ONE_TIME_CODE`，范围本来就窄，不受这个问题影响。URI 字段（包括 Chrome 地址栏）是否也该改为按默认模式进框，当时是另一个问题、没有动；后来由[Android 网址框按默认中英文进框](2026-10-25-android-uri-follows-default-mode.md)（#9725）改为按默认模式进框。
 - **覆盖边界**：最初 #5998 仅有 JVM 冒烟。此次追加的是专用 API 35 AVD 的真实编辑器验收，不代表已在 Chrome、Via 或其他真实应用与真机上验证。
 
 ## Verification

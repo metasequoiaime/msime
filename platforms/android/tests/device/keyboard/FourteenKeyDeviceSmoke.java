@@ -12,15 +12,17 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。
+ * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。完整运行之后接着验收双拼（{@link FourteenKeyShuangpinDeviceChecks}）和五笔（{@link FourteenKeyWubiDeviceChecks}）的 14 键；迭代时可用 `-e shuangpin_only true` 或 `-e wubi_only true` 只跑其中一种。
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private boolean shuangpinOnly;
+    private boolean wubiOnly;
     private boolean eighteenKey;
     private boolean eighteenShuangpin;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         shuangpinOnly = arguments != null && "true".equals(arguments.getString("shuangpin_only"));
+        wubiOnly = arguments != null && "true".equals(arguments.getString("wubi_only"));
         eighteenKey = arguments != null && "true".equals(arguments.getString("eighteen_key"));
         eighteenShuangpin = arguments != null && "true".equals(arguments.getString("eighteen_shuangpin"));
         super.onCreate(arguments);
@@ -32,8 +34,9 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         if (eighteenShuangpin) return "十八键双拼设置、组码、消歧、分号、自定义表、布局回落与几何";
         if (eighteenKey) return "十八键全拼设置、组码、消歧、实体字母、布局回落与几何";
+        if (wubiOnly) return "14 键五笔设置、组码、符号键、实体字母、86/98 保留与布局回落";
         return shuangpinOnly ? "14 键双拼设置、组码、消歧、分号、自定义表与布局回落"
-            : "14 键全拼与双拼的完整键面、侧栏、候选、分词、长按和布局回落";
+            : "14 键全拼、双拼与五笔的完整键面、侧栏、候选、分词、长按和布局回落";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -47,6 +50,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
         }
         if (shuangpinOnly) {
             FourteenKeyShuangpinDeviceChecks.run(this);
+            return;
+        }
+        if (wubiOnly) {
+            FourteenKeyWubiDeviceChecks.run(this);
             return;
         }
         File root = getTargetContext().getFilesDir();
@@ -280,6 +287,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             else publish(preferences, original);
         }
         FourteenKeyShuangpinDeviceChecks.run(this);
+        FourteenKeyWubiDeviceChecks.run(this);
     }
 
     // API 28 没有 clearCache；逐节点刷新，避免组字重建后仍点击已经拆掉的键面。

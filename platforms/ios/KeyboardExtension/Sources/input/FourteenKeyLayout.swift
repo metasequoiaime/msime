@@ -1,6 +1,6 @@
 import Foundation
 
-/// 全拼与双拼共用的 14 键键面。三端同一张表：Android、HarmonyOS 的 `FourteenKeyLayout` 和引擎的 `KeyGrid::FourteenKey`。
+/// 全拼、双拼与五笔共用的 14 键键面。三端同一张表：Android、HarmonyOS 的 `FourteenKeyLayout` 和引擎的 `KeyGrid::FourteenKey`。
 ///
 /// QWERTY 的位置不变，相邻两个字母合成一个键，L、M 各占一键：`QW ER TY UI OP / AS DF GH JK L / ZX CV BN M`，第二排不缩进。点一下输入的是这一组而不是某个字母：键盘经 `msime_client_grid_key` 把这一组的首字母（组码 `q e t u o a d g j l z c b m`）交给引擎，由引擎消歧。长按弹出这一键的两个字母（L、M 不弹），选中后与九键一样先结束组字，再上屏这个字母。
 enum FourteenKeyLayout {
@@ -45,6 +45,16 @@ enum FourteenKeyLayout {
   /// `letter` 所在的那一键；不是 a–z 时为 nil。
   static func key(for letter: Character) -> Key? {
     rows.joined().first { $0.letters.contains(letter) }
+  }
+
+  /// 五笔 14 键：`code` 的前几位逐位落在已按的 `keys` 上时返回这几位。`keys` 每一位是一键里的某个字母（引擎的 `editing_text`，ZX 记作 `x`）；码比已按的键短、某一位不在对应的键上或没有按键时为 nil。
+  static func typedPrefix(of code: String, keys: String) -> String? {
+    guard !keys.isEmpty, code.count >= keys.count else { return nil }
+    let prefix = code.prefix(keys.count)
+    for (letter, pressed) in zip(prefix, keys) {
+      guard let pressedKey = key(for: pressed), key(for: letter) == pressedKey else { return nil }
+    }
+    return String(prefix)
   }
 
   /// `a` 到 `z` 依次落在的组码，与引擎 `KeyGrid::FourteenKey` 的编码表 `abcdedggujjlmbooqeatucqztz` 相同。

@@ -13375,3 +13375,152 @@ fn eighteen_key_uses_ambiguous_groups_and_preserves_exact_hardware_input() {
     session.set_dedicated_english(true);
     assert!(!session.grid_key(b'n').handled);
 }
+
+/// 五笔 14 键：拼音主词库给词频，码表与它同在一个工作副本里。
+const WUBI_GRID_FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',3000000);\
+CREATE TABLE tbl_1_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_d VALUES('duo','d','多',1500000);\
+CREATE TABLE tbl_1_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_c VALUES('cong','c','从',1400000);\
+CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_w VALUES('wo','w','我',9000000);\
+CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('q','我',20),('w','人',20),('qq','多',20),('qw','欠',10),('wq','你',10),('ww','从',10),\
+('wqiy','你',20),('qqiy','铄',20),('x','经',20),('xxxx','纟',10);";
+
+fn wubi_grid_session(fixture: &Fixture, configure: impl FnOnce(&mut SessionOptions)) -> Session {
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        configure(options);
+    });
+    session.set_key_grid(Some(KeyGrid::FourteenKey));
+    session
+}
+
+fn grid_type(session: &mut Session, letters: &[u8]) {
+    for &letter in letters {
+        assert!(
+            session.grid_key(letter).handled,
+            "{:?} was not handled",
+            char::from(letter)
+        );
+    }
+}
+
+#[test]
+fn wubi_fourteen_key_expands_each_key_into_its_letters() {
+    let fixture = Fixture::new(WUBI_GRID_FIXTURE);
+    let mut session = wubi_grid_session(&fixture, |_| {});
+    // 宿主送这一组的首字母；W 也归 QW 组。
+    grid_type(&mut session, b"qw");
+    assert!(session.grid_composing());
+    let snapshot = session.snapshot();
+    assert_eq!(
+        words(&session)[..4],
+        [
+            "你".to_owned(),
+            "多".to_owned(),
+            "从".to_owned(),
+            "欠".to_owned()
+        ]
+    );
+    // 组码是每组的代表字母；预编辑和读音行显示首选的编码。
+    assert_eq!(snapshot.editing_text, "qq");
+    assert_eq!(snapshot.preedit, "wq");
+    assert_eq!(snapshot.nine_key_reading, "wq");
+    assert!(snapshot.nine_key_spellings.is_empty());
+    assert_eq!(snapshot.scheme, SchemeType::Wubi);
+    // 选词照常是五笔的选词。
+    let result = session.select(0);
+    assert_eq!(result.commit.as_deref(), Some("你"));
+    assert!(!session.grid_composing());
+    assert!(session.snapshot().editing_text.is_empty());
+}
+
+#[test]
+fn wubi_fourteen_key_keeps_hardware_letters_apart() {
+    let fixture = Fixture::new(WUBI_GRID_FIXTURE);
+    let mut session = wubi_grid_session(&fixture, |_| {});
+    grid_type(&mut session, b"q");
+    // 14 键组字中硬件键盘的字母不处理，组字不变。
+    assert!(!session.character(b'w', false).handled);
+    assert_eq!(session.snapshot().editing_text, "q");
+    // 退格到空，硬件字母照常打 26 键的码，这时 14 键的键不处理。
+    assert!(session.command(Command::Backspace).handled);
+    assert!(!session.grid_composing());
+    type_text(&mut session, "w");
+    assert_eq!(words(&session).first().map(String::as_str), Some("人"));
+    assert!(!session.grid_composing());
+    assert!(!session.grid_key(b'q').handled);
+    assert_eq!(session.snapshot().editing_text, "w");
+    // 14 键组码没有可落脚的光标。
+    session.command(Command::Cancel);
+    grid_type(&mut session, b"qq");
+    session.set_caret(Some(0));
+    assert_eq!(session.snapshot().caret_position, 2);
+}
+
+#[test]
+fn wubi_fourteen_key_stops_at_four_codes_and_ignores_mixed_pinyin() {
+    let fixture = Fixture::new(WUBI_GRID_FIXTURE);
+    let mut session = wubi_grid_session(&fixture, |options| {
+        options.wubi.mixed_pinyin = true;
+        options.wubi.z_wildcard = true;
+    });
+    // W Q I Y：QW QW UI TY，四码只有「你」「铄」两个字。
+    grid_type(&mut session, b"wqiy");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "qqut");
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|item| item.scheme == SchemeType::Wubi));
+    assert!(!snapshot.answered_by_pinyin_fallback);
+    assert!(!snapshot.wubi_unique_four_code);
+    // 第五键由 runtime 顶字；引擎自己不收。
+    assert!(!session.grid_key(b'q').handled);
+    assert_eq!(session.snapshot().editing_text, "qqut");
+
+    // ZX 键代表 x，四码唯一时报告给 runtime 自动上屏。
+    session.command(Command::Cancel);
+    grid_type(&mut session, b"zxzx");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "xxxx");
+    assert_eq!(words(&session), ["纟"]);
+    assert!(snapshot.wubi_unique_four_code);
+}
+
+#[test]
+fn wubi_fourteen_key_needs_the_wubi_scheme_and_plain_input() {
+    let fixture = Fixture::new(WUBI_GRID_FIXTURE);
+    let mut session = wubi_grid_session(&fixture, |_| {});
+    session.set_dedicated_english(true);
+    assert!(!session.grid_key(b'q').handled);
+    session.set_dedicated_english(false);
+    // 没有 14 键网格时不处理。
+    session.set_key_grid(None);
+    assert!(!session.grid_key(b'q').handled);
+    // 全拼 14 键照旧走九宫格会话。
+    let mut quanpin = fixture.session();
+    quanpin.set_key_grid(Some(KeyGrid::FourteenKey));
+    assert!(quanpin.grid_key(b'n').handled);
+    assert!(!quanpin.input.wubi_grid_composing());
+}
+
+/// 快捷短语按用户打出的字母对码；五笔 14 键的组码（`qq`）不是这样的字母，不拿它去对。26 键照旧。
+#[test]
+fn wubi_fourteen_key_codes_do_not_match_quick_phrases() {
+    let fixture = Fixture::new(&format!(
+        "{WUBI_GRID_FIXTURE}CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('qq','腾讯',20);"
+    ));
+    let mut session = wubi_grid_session(&fixture, |options| {
+        options.quick_phrase_candidates = true;
+    });
+    grid_type(&mut session, b"qq");
+    assert!(!words(&session).contains(&"腾讯".to_owned()));
+    session.command(Command::Cancel);
+    type_text(&mut session, "qq");
+    assert!(words(&session).contains(&"腾讯".to_owned()));
+}

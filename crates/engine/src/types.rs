@@ -1049,6 +1049,8 @@ pub struct QueryRequest {
     pub korean_hanja: bool,
     /// 五笔通配：码里确实有 `z`，provider 改用模式匹配而不是前缀范围扫描（见 [`WubiInputOptions::z_wildcard`]）。
     pub wubi_z_wildcard: bool,
+    /// 五笔 14 键：`normalized_input` 每一位是一组字母的代表字母（`wubi::grid`），provider 展开成这几组字母的每种组合再查码表。
+    pub wubi_grid: bool,
     /// False means no query at all.
     pub valid: bool,
 }

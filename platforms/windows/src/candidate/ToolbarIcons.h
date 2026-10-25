@@ -7,15 +7,19 @@ namespace msime::windows {
 //
 // The four mode buttons - language, punctuation, full width and character set - are text, as on macOS, where they are the button titles 中/英/A/En/双/五/日/한/粤/注/越/ཀ/笔, 。or ., 全/半 and 简/繁 in the regular system font at 0.95 of the toolbar font size. They carry no codepoint and draw `fallback` in `toolbar_text_font` (or `family` when set) at `toolbar_glyph_scale`. The icon font's own 中/英/全/半/简/繁 glyphs are drawings of a different shape, not those characters, and Segoe Fluent Icons is missing on Windows 10 altogether.
 //
-// The utility buttons (input scheme, emoji, handwriting, keyboard, voice, settings) are glyphs of the installed icon font, the counterparts of macOS's SF Symbols, at the full font size. Each carries a text fallback on purpose: "Segoe Fluent Icons" ships with Windows 11 only, and the Windows 10 build of "Segoe MDL2 Assets" may predate some of these codepoints. DirectWrite substitutes a font silently rather than failing, so a button whose glyph is missing renders as a blank box unless something checks first and draws the text instead.
+// 功能按钮（方案、表情、手写、键盘、语音、设置）优先使用系统图标字体，字号取工具栏全字号。
+// Win7 没有 Fluent / MDL2，旧版 Windows 10 的 MDL2 也可能缺字形；悬浮栏此时使用
+// ToolbarVectorIcons.h 的原生线性图标。文字替代标签继续保留给其它使用方。
 struct ToolbarIcon {
   wchar_t codepoint = 0;
   const wchar_t *fallback = L"";
   // The face for the text, when it is not `toolbar_text_font`: the Tibetan badge needs a font that has Tibetan.
   const wchar_t *family = nullptr;
 };
-// The face the text buttons are drawn in: the Chinese UI font, regular weight, the counterpart of the macOS system font that draws them. DirectWrite falls back per character for what it lacks (한).
-inline constexpr const wchar_t *toolbar_text_font = L"Microsoft YaHei UI";
+// 文字按钮统一用 Windows 7 起自带的微软雅黑。Win7 没有 Microsoft YaHei UI，
+// DirectWrite 仍会成功创建格式，再逐字回退，导致同一行按钮的字形与基线不一致。
+// 缺少的字符（如 한）仍由 DirectWrite 回退。
+inline constexpr const wchar_t *toolbar_text_font = L"Microsoft YaHei";
 // The Tibetan badge's face. Microsoft Himalaya ships with Windows; where it is missing, DirectWrite's own fallback picks whatever covers Tibetan.
 inline constexpr const wchar_t *toolbar_tibetan_font = L"Microsoft Himalaya";
 // Text buttons are drawn at this fraction of the toolbar font size, as macOS's kToolbarGlyphScale.

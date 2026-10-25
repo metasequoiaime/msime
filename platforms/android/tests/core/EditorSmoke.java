@@ -173,8 +173,13 @@ public final class EditorSmoke {
         check(!EditorPolicy.excludesKeyStatistics(InputType.TYPE_CLASS_TEXT, 0));
         check(!EditorPolicy.excludesKeyStatistics(InputType.TYPE_CLASS_NUMBER, 0));
         check(EditorPolicy.excludesKeyStatistics(InputType.TYPE_CLASS_TEXT, 0x1000000));
-        check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
+        // #9725：网址框（浏览器地址栏同时是搜索框）按默认中英文进框，不再临时切英文；英文模式下仍不给英文建议。
+        check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_VARIATION_URI));
+        check(EditorPolicy.uri(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI));
+        check(EditorPolicy.uri(0x80011));
+        check(!EditorPolicy.uri(InputType.TYPE_CLASS_TEXT));
+        check(!EditorPolicy.uri(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_TEXT_VARIATION_URI));
         check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
         // #6147：邮箱后缀除了密码框都给，普通文本框、聊天框（不给建议、短消息）、搜索框、网址框和邮箱框都算。
@@ -188,10 +193,10 @@ public final class EditorSmoke {
         check(EditorPolicy.offersEmailSuffixes(0));
         // 密码框（三种文字密码和数字密码）一律不给，也不读上文。
         for (int type : new int[] {0x81, 0x91, 0xe1, 0x12}) check(!EditorPolicy.offersEmailSuffixes(type));
-        // 只要求不给建议的聊天框、搜索框按用户的默认中英文进框（#5998）；Chrome 地址栏仍因 URI 进英文。
+        // 只要求不给建议的聊天框、搜索框按用户的默认中英文进框（#5998）；Chrome 地址栏（URI 加无建议）同样按默认中英文进框（#9725）。
         check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
-        check(EditorPolicy.prefersLatin(0x80011));
+        check(!EditorPolicy.prefersLatin(0x80011));
         check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT));
         check(EditorPolicy.capitalizationMode(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)

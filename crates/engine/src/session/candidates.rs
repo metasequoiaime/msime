@@ -109,10 +109,11 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
-            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。
+            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。五笔 14 键的组码不是用户打出的字母，不拿它去对快捷短语的码。
             if self.quick_phrase_candidates
                 && self.mixed_candidates_enabled
                 && self.local_mode_options.quick_phrase
+                && !self.wubi_grid_composing()
             {
                 let code = self.engine.request().raw_input.clone();
                 // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时落在首页尾部，普通候选不满一页时接在它们后面。

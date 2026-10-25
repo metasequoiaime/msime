@@ -381,7 +381,10 @@ std::optional<PendingReply> ReplyComposer::basic_key(
                      nlohmann::json{{"commit", nullptr},
                                     {"view", toggle ? session.toggle_dedicated_english(epoch)
                                                     : session.view()}}};
-    return stage(result, toggle ? ReplyPath::LocalCancel : ReplyPath::NoReply, uiless);
+    stage(result, toggle ? ReplyPath::LocalCancel : ReplyPath::NoReply, uiless);
+    if (toggle)
+      pending_->dedicated_english_change = result.transition.at("view").at("dedicated_english").get<bool>();
+    return *pending_;
   }
   if (auto korean = korean_syllable_end(session, packet, epoch))
     return korean;

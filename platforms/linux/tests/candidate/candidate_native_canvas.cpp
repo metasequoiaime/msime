@@ -19,6 +19,19 @@ std::uint32_t pixel(cairo_surface_t *surface, int x, int y) {
   std::memcpy(&value, cairo_image_surface_get_data(surface) + y * cairo_image_surface_get_stride(surface) + x * 4, 4);
   return value;
 }
+// 黑底上的抗锯齿像素仍保留分段色主通道，小字号的单个分隔符不保证有足够纯色像素。
+int segment_ink(cairo_surface_t *surface, const host::NativeCanvasLayout &layout, std::uint32_t color) {
+  const int own_channel = color == 0xff0000u ? 0 : color == 0x00ff00u ? 1 : 2;
+  int ink = 0;
+  for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) {
+    const auto value = pixel(surface, x, y);
+    const int rgb[3] = {static_cast<int>((value >> 16) & 0xff), static_cast<int>((value >> 8) & 0xff),
+        static_cast<int>(value & 0xff)};
+    const int own = rgb[own_channel], other = rgb[(own_channel + 1) % 3], third = rgb[(own_channel + 2) % 3];
+    if (own > 60 && other < own / 2 && third < own / 2) ++ink;
+  }
+  return ink;
+}
 void skin_layout() {
   const auto target = image(1000, 1000, 0);
   auto *cr = cairo_create(target.get());
@@ -389,15 +402,24 @@ void constrained_text_layout() {
       Json::object(), false, wide.first.item_text_widths[0]);
   assert(pango_layout_get_line_count(line) == 1);
   g_object_unref(line);
+  const auto segment_counts = [&](const host::NativeCanvasLayout &layout) {
+    host::paint_native_canvas(cr, assets, content, layout, palette);
+    std::map<std::uint32_t, int> counts;
+    for (const auto color : {0xff0000u, 0x00ff00u, 0x0000ffu})
+      counts[color] = segment_ink(target.get(), layout, color);
+    return counts;
+  };
+  const auto narrow_segments = segment_counts(narrow.first), wide_segments = segment_counts(wide.first);
   for (const auto color : {0xff0000u, 0x00ff00u, 0x0000ffu}) {
-    assert(narrow.second.at(color) > 2 && wide.second.at(color) > 2);
+    assert(narrow_segments.at(color) > 2 && wide_segments.at(color) > 2);
   }
   for (int at = 0; at < 24; ++at) content.items[0].translation += " 合成MMM";
   for (bool horizontal : {false, true}) {
     content.horizontal = horizontal;
     const auto wrapped = render(320);
     assert(wrapped.first.items[0].height > narrow.first.items[0].height * 2);
-    for (const auto color : {0xff0000u, 0x00ff00u, 0x0000ffu}) assert(wrapped.second.at(color) > 2);
+    const auto counts = segment_counts(wrapped.first);
+    for (const auto color : {0xff0000u, 0x00ff00u, 0x0000ffu}) assert(counts.at(color) > 2);
   }
   // 每个横排行独立撑高与均分；均分不能重排原先受限的文字。
   content.horizontal = true;

@@ -167,15 +167,17 @@ enum ChineseInputScheme: String, CaseIterable {
   }
 }
 
-/// 中文触屏的字母组网格：全拼 14 键、18 键入口，或双拼的 14 键、18 键布局。两种网格共用组码入口、读音行、拼音选择条和三栏候选面板，键面和统计 id 各自独立。
+/// 中文触屏的字母组网格：全拼 14 键、18 键入口，双拼的 14 键、18 键布局，或五笔的 14 键布局。几种网格共用组码入口和读音行；拼音的网格还共用拼音选择条和三栏候选面板，五笔 14 键没有拼音可选，候选照五笔展开。键面和统计 id 各自独立。
 enum LetterKeyGrid: Equatable {
   case fourteenKey, eighteenKey
 
-  /// `scheme` 在双拼布局 `shuangpinLayout` 下画哪种网格；26 键字母、九键和其他方案为 nil。
-  static func of(_ scheme: ChineseInputScheme, shuangpinLayout: TouchShuangpinLayoutPreference.Layout) -> LetterKeyGrid? {
+  /// `scheme` 在双拼布局 `shuangpinLayout`、五笔布局 `wubiLayout` 下画哪种网格；26 键字母、九键和其他方案为 nil。
+  static func of(_ scheme: ChineseInputScheme, shuangpinLayout: TouchShuangpinLayoutPreference.Layout,
+                 wubiLayout: TouchWubiLayoutPreference.Layout) -> LetterKeyGrid? {
     switch scheme {
     case .fourteenKey: return .fourteenKey
     case .eighteenKey: return .eighteenKey
+    case .wubi: return wubiLayout == .fourteenKey ? .fourteenKey : nil
     default:
       guard scheme.shuangpinProfile != nil else { return nil }
       switch shuangpinLayout {
@@ -211,6 +213,47 @@ enum TouchShuangpinLayoutPreference {
 
   static let documentKey = "touch_shuangpin_layout"
   private static let appGroupKey = "shuangpinKeyboardLayout"
+
+  static var layout: Layout {
+    get {
+      Layout(rawValue: InputSchemePreference.appGroupDefaults.string(forKey: appGroupKey) ?? "")
+        ?? .twentySixKey
+    }
+    set { InputSchemePreference.appGroupDefaults.set(newValue.rawValue, forKey: appGroupKey) }
+  }
+
+  static func layout(in document: [String: Any]?) -> Layout {
+    Layout(rawValue: document?[documentKey] as? String ?? "") ?? .twentySixKey
+  }
+
+  /// 文档是权威来源；键盘和设置页读到文档后才更新 App Group 镜像。
+  static func mirror(_ document: [String: Any]?) {
+    guard document != nil else { return }
+    layout = layout(in: document)
+  }
+
+  /// 与方案选择使用同一个 PreferencesStore 写入路径，避免只写 App Group 后被下一次会话重置。
+  @discardableResult
+  static func save(_ value: Layout, stateRoot: URL? = nil) -> Bool {
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, {
+      $0[documentKey] = value.rawValue
+    }) else { return false }
+    layout = value
+    return true
+  }
+}
+
+/// iOS 五笔字母键布局：26 键或 14 键（键面与全拼 14 键相同）。它与 86/98 码表（`wubi_profile`）和双拼布局分开保存，切换码表、换到别的方案再回到五笔都不会丢掉 14 键选择。默认 26 键，共享文档里不写默认值。
+enum TouchWubiLayoutPreference {
+  enum Layout: String, CaseIterable, Hashable {
+    case twentySixKey = "twenty_six_key"
+    case fourteenKey = "fourteen_key"
+
+    var title: String { self == .fourteenKey ? "14 键" : "26 键" }
+  }
+
+  static let documentKey = "touch_wubi_layout"
+  private static let appGroupKey = "wubiKeyboardLayout"
 
   static var layout: Layout {
     get {

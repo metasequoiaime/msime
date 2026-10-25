@@ -8,7 +8,7 @@
 #include <msimeui/DeviceResources.h>
 
 namespace msime::windows {
-// 中英文切换提示：切换中英文后在光标旁短暂显示「中」或「英」的小徽标，对应 macOS 的 MSIMEInputModeHUDPanel。不抢焦点、不接收鼠标，配色取悬浮工具栏的调色板，尺寸是固定的紧凑尺寸（InputModeHudLayout.h），只随显示器 DPI 缩放；完全显示 0.6 秒后用 0.18 秒淡出再隐藏。只在 Server 的界面线程上使用。
+// 输入状态提示：在光标旁短暂显示操作后的状态，对应 macOS 的 MSIMEInputModeHUDPanel。不抢焦点、不接收鼠标，配色取悬浮工具栏；固定字高，多字按实测宽度展开，只随显示器 DPI 缩放。停留 0.6 秒后淡出 0.18 秒。只在 Server 界面线程使用。
 class InputModeHudWindow final {
 public:
   InputModeHudWindow();
@@ -21,6 +21,8 @@ public:
   void set_show_logo(bool show);
   // 在光标旁显示 `chinese` 对应的字。`caret` 是光标所在行的屏幕矩形（物理像素），没有时用 `foreground` 所在显示器的居中位置。
   void show(bool chinese, std::optional<HudRect> caret, HWND foreground);
+  // 状态文字与完整无障碍播报分开，显示前用同一字体测量宽度。
+  void show(InputStateHudText text, std::optional<HudRect> caret, HWND foreground);
   void hide();
   // 前台线程的系统光标（GetGUIThreadInfo），换算成屏幕上的物理像素。只认每显示器 DPI 感知的窗口：其他窗口的光标坐标是缩放前的逻辑坐标，换算不可靠，宁可退回别的位置。
   static std::optional<HudRect> system_caret(HWND foreground);
@@ -47,7 +49,8 @@ private:
   HICON logo_ = nullptr;
   int logo_pixels_ = 0;
   bool logo_available_ = false;
-  bool chinese_ = true;
+  std::wstring text_ = L"中";
+  double text_width_ = 18.0;
   bool show_logo_ = false;
   // 淡出时整张徽标的不透明度，完全显示时是 1；淡出从 `fade_started_`（GetTickCount64）开始。
   float opacity_ = 1.0f;

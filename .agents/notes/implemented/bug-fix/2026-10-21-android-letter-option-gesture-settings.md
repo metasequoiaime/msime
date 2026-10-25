@@ -29,6 +29,8 @@ Status: implemented
 - [英文键盘进入拼音](../../implemented/feature/2026-10-18-android-english-pinyin-entry.md)：无关，保留英文 O 长按入口。
 - 其他命中的底行符号、九键/14 键布局、剪贴板、热图、鸿蒙设置、候选点击与反馈契约笔记不拥有中文 26 键字母选项的滑动决定，不做变更。
 
+默认方向由后续的[三端 26 键上滑角标](../../implemented/feature/2026-10-25-mobile-qwerty-swipe-symbols.md)改为上滑；本篇的其他交互规则继续生效。
+
 ## Alternatives considered
 
 - **恢复通用弹窗的单行结构**：能让原来的第一层按钮索引继续工作，但会撤掉英文变体的多行排版和窄屏适配；中文拖选改为跟踪实际按钮，保留通用弹窗结构。

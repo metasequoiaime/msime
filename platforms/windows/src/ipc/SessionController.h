@@ -89,9 +89,9 @@ public:
   // Empty means stale, busy or unavailable; never a guessed mode.
   std::optional<bool> dedicated_english_state(const FocusLease &lease);
   // Exit the Engine's dedicated-English mode for this exact focus lease.
-  bool exit_dedicated_english(const FocusLease &lease);
+  bool exit_dedicated_english(const FocusLease &lease, bool *changed = nullptr);
   // 托盘「英文候选模式」：把这个焦点租约的 Engine 英文模式设成 `enabled`。和退出一样只在外部工作线程上调用，最多等 2 秒；成功才返回 true。
-  bool set_dedicated_english(const FocusLease &lease, bool enabled);
+  bool set_dedicated_english(const FocusLease &lease, bool enabled, bool *changed = nullptr);
   // Control-thread lease validation, not a best-effort UI snapshot. Waits for
   // an existing focus transaction instead of treating a busy gate as loss.
   bool focus_current(const FocusLease &lease);
