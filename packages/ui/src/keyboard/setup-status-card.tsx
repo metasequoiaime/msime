@@ -102,9 +102,9 @@ function SetupCheck({
 }
 
 /**
- * 「首页」根页的状态卡片：水杉标志、当前方案下设置是否已完成、两项设置检查及每项还需的步骤，以及「试用键盘」。
+ * 「首页」根页的状态卡片：水杉标志、设置是否已完成（下一行是当前方案）、两项设置检查及每项还需的步骤，以及「试用键盘」。应用名已经是页面的大标题，卡片不再写一遍。
  *
- * 宿主还没报告状态的检查项画空圆环、不提供步骤，标题下一行显示「检查中」。完全没有设置客户端的宿主永远不会报告，所以那里的检查项两个步骤都提供，那一行只显示方案，而不声称正在检查。
+ * 宿主还没报告状态时首行显示「检查中」，检查项画空圆环、不提供步骤。完全没有设置客户端的宿主永远不会报告，所以那里的检查项两个步骤都提供，首行只显示方案，而不声称正在检查。
  */
 export function SetupStatusCard({
   actions,
@@ -123,12 +123,12 @@ export function SetupStatusCard({
   const scheme = touchKeyboardSchemeTitle(preferences);
   const status =
     enabled === true && current === true
-      ? `已启用 · ${scheme}`
+      ? "已启用"
       : enabled === false || current === false
-        ? `尚未完成设置 · ${scheme}`
+        ? "尚未完成设置"
         : reporting
           ? "检查中"
-          : scheme;
+          : null;
   // 检查待处理时提供对应步骤；宿主无法回答时始终提供。
   const offered = (done: boolean | null) => done === false || (!reporting && done === null);
   const enable = actions?.openSystemKeyboardSettings;
@@ -148,10 +148,10 @@ export function SetupStatusCard({
           <MsimeMark size={30} />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[17px] font-semibold">水杉输入法</span>
-          <span className="text-[13px] [color:var(--p-sub)]" role="status">
-            {status}
+          <span className="text-[17px] font-semibold" role="status">
+            {status ?? scheme}
           </span>
+          {status && <span className="text-[13px] [color:var(--p-sub)]">{scheme}</span>}
         </div>
       </div>
       <div className="flex flex-col gap-2">

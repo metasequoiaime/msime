@@ -292,7 +292,8 @@ test("the status card says 检查中 and offers no step until the host reports, 
   expect(setup.client.read).toHaveBeenCalledOnce();
 
   setup.push({ enabled: false, current: false });
-  expect(within(card).getByText("尚未完成设置 · 小鹤双拼")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("尚未完成设置");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
   fireEvent.click(within(card).getByRole("button", { name: "去开启" }));
   // 选择器只列出已启用的输入法，所以在第一步之前，「设为默认」还会打开系统列表。
   fireEvent.click(within(card).getByRole("button", { name: "设为默认" }));
@@ -300,13 +301,15 @@ test("the status card says 检查中 and offers no step until the host reports, 
   expect(actions.showInputMethodPicker).not.toHaveBeenCalled();
 
   setup.push({ enabled: true, current: false });
-  expect(within(card).getByText("尚未完成设置 · 小鹤双拼")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("尚未完成设置");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
   expect(within(card).queryByRole("button", { name: "去开启" })).toBeNull();
   fireEvent.click(within(card).getByRole("button", { name: "设为默认" }));
   expect(actions.showInputMethodPicker).toHaveBeenCalledOnce();
 
   setup.push({ enabled: true, current: true });
-  expect(within(card).getByText("已启用 · 小鹤双拼")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("已启用");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
   expect(within(card).queryByRole("button", { name: "去开启" })).toBeNull();
   expect(within(card).queryByRole("button", { name: "设为默认" })).toBeNull();
 });
@@ -316,7 +319,10 @@ test("the status card reads the host's state on mount and unsubscribes on unmoun
   renderTouchHome({ actions: { setup: setup.client } });
 
   const card = statusCard();
-  expect(within(card).getByText("已启用 · 小鹤双拼")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("已启用");
+  expect(within(card).getByText("小鹤双拼")).toBeTruthy();
+  // 应用名是页面的大标题，卡片里不再写一遍。
+  expect(within(card).queryByText("水杉输入法")).toBeNull();
   expect(
     card
       .querySelector('svg path[d="m5 12.5 4.5 4.5L19 7.5"]')
