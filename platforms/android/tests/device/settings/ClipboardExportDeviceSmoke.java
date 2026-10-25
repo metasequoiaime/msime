@@ -27,7 +27,6 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.json.JSONObject;
@@ -104,7 +103,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         stage = "export without device credential is refused";
         // 专用 AVD 默认没有锁屏凭据。导出要求系统认证，此时必须说明原因，不写出文件、不打开目录选择器，按钮仍可再次使用。
         check(!DeviceCredentialFixture.secure(getTargetContext()), "dedicated AVD starts without a device credential");
-        tapExpectingNotice(text("导出"), "这台设备没有可用的系统认证");
+        tap(text("导出"));
+        await(text("这台设备没有可用的系统认证"));
         SystemClock.sleep(1000);
         check(downloadsUnchecked().isEmpty() && filesUnchecked().isEmpty() && findAll(ClipboardExportDeviceSmoke::picker) == null
             && !DeviceCredentialFixture.promptVisible(automation), "no export without device credential");
@@ -284,33 +284,6 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         store.getClass().getMethod("add", String.class).invoke(store, LONG);
         store.getClass().getMethod("add", String.class).invoke(store, "合成新记录");
         store.getClass().getMethod("setPinned", String.class, boolean.class).invoke(store, LONG, true);
-    }
-
-    /**
-     * 点击后等应用内提示出现。MsToast 只停 1.6 秒，CI 的 x86_64 模拟器上逐窗口遍历一遍无障碍树就可能超过这段时间，只靠轮询会错过它（API 35 上 develop 连续两次停在这里，日志里认证查询确实返回了无凭据）。提示是 live region，出现时应用会发无障碍事件，所以点击前先监听事件里的文字，轮询保留为后备。
-     */
-    private void tapExpectingNotice(Predicate<AccessibilityNodeInfo> target, String message) throws Exception {
-        AtomicBoolean seen = new AtomicBoolean();
-        automation.setOnAccessibilityEventListener(event -> {
-            if (seen.get() || event.getPackageName() == null || !"app.msime.android".contentEquals(event.getPackageName())) return;
-            for (CharSequence text : event.getText()) if (text != null && text.toString().contains(message)) seen.set(true);
-            AccessibilityNodeInfo source = event.getSource();
-            if (source != null && source.getText() != null && source.getText().toString().contains(message)) seen.set(true);
-        });
-        try {
-            tap(target);
-            try {
-                waitFor(() -> seen.get() || findAll(text(message)) != null, "in-app notice did not appear");
-            } catch (AssertionError missing) {
-                // 只带系统设置与控件是否存在这类固定诊断，不带任何界面文字。
-                throw new AssertionError("in-app notice did not appear; animator_duration_scale="
-                    + shellText("settings get global animator_duration_scale").trim()
-                    + "; target present=" + (findAll(target) != null)
-                    + "; windows=" + automation.getWindows().size());
-            }
-        } finally {
-            automation.setOnAccessibilityEventListener(null);
-        }
     }
 
     /** 认证窗口开着时切到另一个应用再回到原任务；Android 10 起系统应已关掉后台应用的认证窗口。 */
@@ -646,15 +619,6 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             if (current.isClickable() && current.isEnabled() && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
         }
         shell("input tap " + bounds.centerX() + " " + bounds.centerY());
-    }
-
-    private String shellText(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
-            var output = new java.io.ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            for (int count; (count = input.read(buffer)) != -1; ) output.write(buffer, 0, count);
-            return output.toString("UTF-8");
-        }
     }
 
     private void shell(String command) throws Exception {
