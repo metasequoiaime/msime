@@ -4203,7 +4203,7 @@ group("resolves external candidate skin tokens without trusting missing fields",
       CandidateSkinCatalogPolicy.base64ByteLength("AAE=") === 2 &&
       CandidateSkinCatalogPolicy.base64ByteLength("AA==") === 1 &&
       CandidateSkinCatalogPolicy.base64ByteLength("") === 0 &&
-      CandidateSkinCatalogPolicy.base64ByteLength("A=AA") === -1,
+      CandidateSkinCatalogPolicy.base64ByteLength("AAE") === -1,
     "the canvas budget counts decoded bytes from the base64 length",
   );
   check(
