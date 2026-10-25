@@ -71,6 +71,30 @@ void home_end_route_tests() {
   ReplyComposer composer(42, 1);
   uint64_t request = 0;
   const auto bindings = preference_navigation(Json::object());
+  {
+    // 实际 Engine 的开、关回复都带成功标记；输入态禁用时不产生 HUD 标记。
+    FanyImeNamedpipeData packet{};
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.client_id = 42;
+    packet.keycode = 'E';
+    packet.wch = 'e';
+    packet.modifiers_down = 0b11;
+    packet.request_id = ++request;
+    auto toggle = composer.basic_key(session, packet, 1, TsfPreeditStyle::Local);
+    require(toggle && toggle->dedicated_english_change == true);
+    require(composer.pending().dedicated_english_change == true);
+    composer.confirm_delivery(42, 1, packet.request_id);
+    packet.request_id = ++request;
+    toggle = composer.basic_key(session, packet, 1, TsfPreeditStyle::Local);
+    require(toggle && toggle->dedicated_english_change == false);
+    composer.confirm_delivery(42, 1, packet.request_id);
+    session.set_input_enabled(1, false);
+    packet.request_id = ++request;
+    toggle = composer.basic_key(session, packet, 1, TsfPreeditStyle::Local);
+    require(toggle && !toggle->dedicated_english_change);
+    composer.confirm_delivery(42, 1, packet.request_id);
+    session.set_input_enabled(1, true);
+  }
   const auto press = [&](uint32_t code, char16_t text, uint32_t modifiers = 0) {
     FanyImeNamedpipeData packet{};
     packet.client_id = 42;

@@ -4,6 +4,7 @@
 #include "FloatingToolbarPlacement.h"
 #include "ToolbarAccessibility.h"
 #include "ToolbarIcons.h"
+#include "ToolbarVectorIcons.h"
 #include "ToolbarLayout.h"
 #include "ToolbarCoordinates.h"
 #include "ToolbarClick.h"
@@ -615,13 +616,17 @@ void FloatingToolbarWindow::paint() {
       // A skin image for the button's current state replaces the glyph.
       if (image_.active() && image_.draw(target, image_.buttons[i].image, box, unit)) continue;
       const auto icon = toolbar_icon(button, states[button], language_);
-      // Draw the glyph, at the full font size like macOS's SF Symbols, only when the installed icon font really has it; otherwise the text, which is always readable. The mode buttons have no glyph and are always text.
+      // 已安装的图标字体确实含有字形时才使用；缺失时画原生矢量图标，
+      // 避免 Win7 把方案、设置等功能按钮显示成「方」「设」。模式按钮仍是文字。
       IDWriteTextFormat *glyph_format = nullptr;
       if (icon.codepoint && icon_family && icon_font_has(factory, icon_family, icon.codepoint))
         glyph_format = device_.GetTextFormat(
             icon_family, icon_size, DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
             DWRITE_WORD_WRAPPING_NO_WRAP);
+      if (!glyph_format && draw_toolbar_vector_icon(target, button, cell, icon_size,
+                                                     brush(glyph_color)))
+        continue;
       const wchar_t text[] = {icon.codepoint, L'\0'};
       // An image toolbar draws its text at the skin's icon size in the shared Chinese UI face (or the Tibetan face the badge needs), as macOS's image canvas draws the system font at iconSizeDip; the normal bar uses the same face at 0.95 of the font size.
       IDWriteTextFormat *cell_format = glyph_format;
@@ -636,8 +641,20 @@ void FloatingToolbarWindow::paint() {
       const auto length = static_cast<UINT32>(wcslen(drawn_text));
       if (!length)
         continue;
-      target->DrawText(drawn_text, length, cell_format, cell,
-                       brush(glyph_color));
+      Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
+      if (FAILED(factory->CreateTextLayout(drawn_text, length, cell_format,
+                                          cell.right - cell.left, cell.bottom - cell.top,
+                                          text_layout.GetAddressOf())))
+        throw std::runtime_error("Toolbar text layout unavailable");
+      // 按可见字形居中，而不是按字体行框居中：句号的墨迹在字符框左下角，
+      // 不同字体的上下留白也不同，单独作为按钮图标时都应落在按钮中心。
+      DWRITE_OVERHANG_METRICS ink{};
+      if (FAILED(text_layout->GetOverhangMetrics(&ink)))
+        throw std::runtime_error("Toolbar text bounds unavailable");
+      target->DrawTextLayout(
+          D2D1::Point2F(cell.left + (ink.left - ink.right) / 2.0f,
+                       cell.top + (ink.top - ink.bottom) / 2.0f),
+          text_layout.Get(), brush(glyph_color));
     }
   }
   const HRESULT drawn = target->EndDraw();

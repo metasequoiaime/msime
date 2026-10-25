@@ -17,6 +17,8 @@ pub struct WubiScheme {
     pinyin_lookup_allowed: bool,
     /// `z` 通配：`z` 是未知码位，匹配码表该位置的任意一个字母。与混输无关，两条路都能让 `z` 进码；打开通配时会话关掉临时拼音反查，两条路不能同时占用这个键。
     z_wildcard: bool,
+    /// 这次组字是 14 键打的：`raw` 里每一位是一组字母的代表字母（[`super::grid`]），不是确定的字母。由第一个键决定，组字清空时复位；14 键组字中不收确定的字母，26 键组字中也不收 14 键的组码，两种码不混在一串里。
+    grid: bool,
 }
 
 /// 临时拼音反查的引导键。
@@ -35,12 +37,40 @@ impl WubiScheme {
     pub fn reset(&mut self) {
         self.raw.clear();
         self.extended_length_allowed = false;
+        self.grid = false;
+    }
+
+    /// 14 键的一键：`representative` 是这一组的代表字母（[`super::grid::representative`] 的结果）。26 键组字中、码已满四位或不是代表字母时不收。14 键组码不进混输拼音，也不开临时拼音反查，所以上限永远是四位。
+    pub fn handle_grid_key(&mut self, representative: u8) -> bool {
+        if super::grid::letters(representative).is_empty()
+            || (!self.raw.is_empty() && !self.grid)
+            || self.raw.len() >= MAX_CODE_LENGTH
+        {
+            return false;
+        }
+        self.grid = true;
+        self.extended_length_allowed = false;
+        self.raw.push(char::from(representative));
+        true
+    }
+
+    /// 当前组字是 14 键打的组码。
+    pub fn grid_composing(&self) -> bool {
+        self.grid && !self.raw.is_empty()
     }
 
     /// Keys beyond the length limit or outside the alphabet are ignored, which the session reports as unhandled.
     pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
-            SchemeKey::Backspace => self.raw.pop().is_some(),
+            SchemeKey::Backspace => {
+                let removed = self.raw.pop().is_some();
+                if self.raw.is_empty() {
+                    self.grid = false;
+                }
+                removed
+            }
+            // 14 键组字中硬件键盘的字母不并进组码：组码的每一位是一组，字母是确定的一个。
+            SchemeKey::Letter(_) if self.grid_composing() => false,
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 let lower = letter.to_ascii_lowercase();
                 let opens_lookup = self.pinyin_lookup_allowed
@@ -82,8 +112,9 @@ impl WubiScheme {
         request.raw_segmentation.clone_from(&self.raw);
         request.normalized_segmentation.clone_from(&self.raw);
         request.segmentation.clone_from(&self.raw);
-        // 通配只在码里真有 `z` 时改走模式匹配；混输单独打开时永远走前缀范围扫描。
+        // 通配只在码里真有 `z` 时改走模式匹配；混输单独打开时永远走前缀范围扫描。14 键组码不含 `z`。
         request.wubi_z_wildcard = self.z_wildcard && self.raw.contains('z');
+        request.wubi_grid = self.grid_composing();
         request.valid = !self.raw.is_empty();
     }
 
@@ -93,6 +124,8 @@ impl WubiScheme {
 
     /// 宿主编辑：转小写、只留字母表里的字母、按当前上限截断。C++ 在 `raw_input_with_cases` 非空时读它；转小写后两种拼写给出同一个码，传哪个都行。反查允许时，第一个字母是 `z` 的文本整段按反查收：字母全部保留，上限 32。
     pub fn set_raw_input(&mut self, raw: &str) {
+        // 宿主编辑写回的是确定的字母，不是 14 键组码。
+        self.grid = false;
         let lookup = self.pinyin_lookup_allowed
             && raw
                 .bytes()
@@ -333,6 +366,57 @@ mod tests {
 
         assert_eq!(scheme.preedit(), "ab");
         assert!(scheme.raw.capacity() >= capacity);
+    }
+
+    #[test]
+    fn grid_keys_compose_group_codes_up_to_four() {
+        let mut scheme = WubiScheme::new();
+        // 混输和通配都开着也不影响 14 键：组码最多四位，不延长。
+        scheme.set_mixed_pinyin_allowed(true);
+        scheme.set_z_wildcard(true);
+        scheme.set_pinyin_lookup_allowed(true);
+        for group in *b"qqut" {
+            assert!(scheme.handle_grid_key(group));
+        }
+        assert!(scheme.grid_composing());
+        assert!(!scheme.handle_grid_key(b'q'));
+        assert_eq!(scheme.preedit(), "qqut");
+        assert!(scheme.has_complete_code());
+        assert!(!scheme.in_pinyin_lookup());
+        let request = scheme.build_request();
+        assert!(request.wubi_grid);
+        assert!(!request.wubi_z_wildcard);
+        assert_eq!(request.normalized_input, "qqut");
+    }
+
+    #[test]
+    fn grid_codes_and_letters_never_share_a_composition() {
+        let mut scheme = WubiScheme::new();
+        assert!(scheme.handle_grid_key(b'q'));
+        // 14 键组字中硬件键盘的确定字母不收。
+        assert!(!scheme.handle_key(SchemeKey::Letter(b'a')));
+        assert_eq!(scheme.preedit(), "q");
+        // 退格到空就离开 14 键组字，下一个字母照常是 26 键的码。
+        assert!(scheme.handle_key(SchemeKey::Backspace));
+        assert!(!scheme.grid_composing());
+        assert!(!scheme.build_request().wubi_grid);
+        typed(&mut scheme, "w");
+        assert!(!scheme.handle_grid_key(b'q'));
+        assert_eq!(scheme.preedit(), "w");
+        assert!(!scheme.build_request().wubi_grid);
+        // `w`、`z` 不是代表字母。
+        scheme.reset();
+        assert!(!scheme.handle_grid_key(b'w'));
+        assert!(!scheme.handle_grid_key(b'z'));
+        assert!(scheme.handle_grid_key(b'x'));
+        // 宿主编辑写回的是字母，回到 26 键的码。
+        scheme.set_raw_input("wq");
+        assert!(!scheme.grid_composing());
+        scheme.reset();
+        assert!(scheme.handle_grid_key(b'm'));
+        scheme.reset();
+        assert!(!scheme.grid_composing());
+        assert!(scheme.preedit().is_empty());
     }
 
     #[test]

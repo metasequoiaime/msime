@@ -256,7 +256,7 @@ impl SchemeType {
         }
     }
 
-    /// Shift+字母打开除 K 以外的本地模式；K、`/` 和 `@` 由 `opens_table_modes` 单独判断。
+    /// 没有组字时，Shift+字母打开按拼音拼写查的本地模式（E、M、J、R）和计算模式 V；K、C、U、T、Y、S 和 `/`、`@` 由 `opens_table_modes` 判断（`InputSession::local_mode_for_entry`）。
     pub const fn opens_local_modes(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin => true,
@@ -271,7 +271,7 @@ impl SchemeType {
         }
     }
 
-    /// 没有组字时，Shift+K 打开短语模式，`/` 和 `@` 打开指令和提及模式；五笔也提供这些只查本地表的入口。
+    /// 没有组字时，Shift+K 打开短语模式，`/` 和 `@` 打开指令和提及模式，Shift+C、U、T、Y、S 打开拆字、Unicode、日期时间、临时英文和符号模式；五笔也提供这些不经过方案拼写的入口。
     pub const fn opens_table_modes(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::Wubi => true,
@@ -1049,6 +1049,8 @@ pub struct QueryRequest {
     pub korean_hanja: bool,
     /// 五笔通配：码里确实有 `z`，provider 改用模式匹配而不是前缀范围扫描（见 [`WubiInputOptions::z_wildcard`]）。
     pub wubi_z_wildcard: bool,
+    /// 五笔 14 键：`normalized_input` 每一位是一组字母的代表字母（`wubi::grid`），provider 展开成这几组字母的每种组合再查码表。
+    pub wubi_grid: bool,
     /// False means no query at all.
     pub valid: bool,
 }

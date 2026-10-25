@@ -2161,6 +2161,106 @@ static void TestCharacterSetShortcut(void) {
 
 // 三个可重绑切换热键按共享偏好 `keybindings.toggle_*` 认键：改成新键后按新键命中、
 // 按旧键不再命中，空串不绑定；Option+Shift+H 不随 `toggle_full_width` 改动。
+// 从快捷键和菜单入口验证状态反馈；失败、锁定和重复键不能谎报切换成功。
+static void TestInputStateHUDs() {
+    NSString *suite = [@"msime.input-state-huds." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    client.caret = NSMakeRect(700, 500, 2, 24);
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@{@"editing_text": @"", @"candidates": @[], @"dedicated_english": @NO} forKey:@"view"];
+    prefs.englishMode = NO;
+    prefs.inputModeHUD = YES;
+    prefs.runtimeFullWidthInput = NO;
+    prefs.runtimeChinesePunctuation = YES;
+    MSIMEInputModeHUDPanel *hud = MSIMEInputModeHUDPanel.sharedPanel;
+    auto shown = [&](NSString *text) { assert(hud.visible && [hud.displayedText isEqual:text]); [hud orderOut:nil]; };
+    const auto ctrlShift = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    assert([controller handleEvent:ModeKey(49, ctrlShift, NO) client:client]);
+    shown(@"全角");
+    assert([controller handleEvent:ModeKey(49, ctrlShift, YES) client:client]);
+    assert(!hud.visible);
+    [controller floatingToolbarDidRequestToggleFullWidth:nil];
+    shown(@"半角");
+    [controller toggleFullWidthInput:nil];
+    shown(@"全角");
+    assert([controller handleEvent:ModeKey(47, NSEventModifierFlagControl, NO) client:client]);
+    shown(@"英文标点");
+    assert([controller handleEvent:ModeKey(47, NSEventModifierFlagControl, YES) client:client]);
+    assert(!hud.visible);
+    [controller toggleChinesePunctuation:nil];
+    shown(@"中文标点");
+    prefs.punctuationLock = @"chinese";
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(!hud.visible && prefs.runtimeChinesePunctuation);
+    prefs.punctuationLock = @"follow";
+    [controller setValue:@{@"editing_text": @"synthetic", @"candidates": @[]} forKey:@"view"];
+    session.failFinish = YES;
+    [controller toggleChinesePunctuation:nil];
+    assert(!hud.visible && prefs.runtimeChinesePunctuation);
+    session.failFinish = NO;
+    [controller setValue:@{@"editing_text": @"", @"candidates": @[], @"dedicated_english": @NO} forKey:@"view"];
+    assert([controller handleEvent:ModeKey(14, ctrlShift, NO) client:client]);
+    shown(@"英文候选");
+    assert([controller handleEvent:ModeKey(14, ctrlShift, YES) client:client]);
+    assert(!hud.visible);
+    [controller setDedicatedEnglishInputMode:YES];
+    assert(!hud.visible);
+    [controller setDedicatedEnglishInputMode:NO];
+    shown(@"中");
+    [controller setValue:@{@"editing_text": @"synthetic", @"candidates": @[]} forKey:@"view"];
+    session.failCancel = YES;
+    [controller setDedicatedEnglishInputMode:YES];
+    assert(!hud.visible && !session.dedicatedEnglish);
+    session.failCancel = NO;
+    [controller setValue:@{@"editing_text": @"", @"candidates": @[]} forKey:@"view"];
+    prefs.candidateTranslations = NO;
+    [controller toggleCandidateTranslations:nil];
+    shown(@"译文开");
+    [controller toggleCandidateTranslations:nil];
+    shown(@"译文关");
+    prefs.inputScheme = @"quanpin";
+    NSMenuItem *scheme = [NSMenuItem new];
+    scheme.representedObject = @"japanese";
+    [controller selectInputScheme:scheme];
+    shown(@"日语");
+    [controller selectInputScheme:scheme];
+    assert(!hud.visible);
+    [controller setEnglishInputMode:YES];
+    shown(@"英");
+    [controller setEnglishInputMode:NO];
+    shown(@"日");
+    session.resetCacheTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"", @"candidates": @[]}};
+    const auto maintenance = ctrlShift | NSEventModifierFlagOption;
+    assert([controller handleEvent:ModeKey(8, maintenance, NO) client:client]);
+    shown(@"缓存已清理");
+    assert([controller handleEvent:ModeKey(8, maintenance, YES) client:client]);
+    assert(!hud.visible);
+    session.resetCacheTransition = nil;
+    assert([controller handleEvent:ModeKey(8, maintenance, NO) client:client]);
+    assert(!hud.visible);
+    prefs.inputModeHUD = NO;
+    [controller toggleFullWidthInput:nil];
+    [controller toggleChinesePunctuation:nil];
+    [controller toggleDedicatedEnglishMode:nil];
+    [controller toggleCandidateTranslations:nil];
+    scheme.representedObject = @"quanpin";
+    [controller selectInputScheme:scheme];
+    assert(!hud.visible);
+    prefs.inputModeHUD = YES;
+    [controller setValue:nil forKey:@"activeClient"];
+    [controller toggleFullWidthInput:nil];
+    [controller toggleChinesePunctuation:nil];
+    [controller toggleCandidateTranslations:nil];
+    assert(!hud.visible);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestToggleHotkeyRebinding(void) {
     NSString *suite = [@"msime.toggle-hotkeys." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -7300,7 +7400,9 @@ static void TestRealTrilingualCycle() {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
     [prefs applySharedInputPreferences:saved[@"preferences"]];
-    prefs.inputModeHUD = NO;
+    prefs.inputModeHUD = YES;
+    MSIMEInputModeHUDPanel *hud = MSIMEInputModeHUDPanel.sharedPanel;
+    [hud orderOut:nil];
     prefs.controlOptionSpaceShortcut = YES;
     prefs.englishMode = YES;
     assert([prefs.lastChineseScheme isEqual:@"quanpin"]);
@@ -7329,16 +7431,21 @@ static void TestRealTrilingualCycle() {
     // 从未选过中文方案的日语用户，也能从英文回到真实的中文方案。
     toggle();
     assert(!prefs.englishMode && [prefs.inputScheme isEqual:@"quanpin"] && [scheme() isEqual:@0]);
+    assert([hud.displayedText isEqual:@"中"]);
+    [hud orderOut:nil];
     compose();
     session.failRaw = YES;
     toggle();
     assert(!prefs.englishMode && [scheme() isEqual:@0] && [client.marked isEqual:@"U4e2d"] && client.insertions.count == 0);
+    assert(!hud.visible);
     session.failRaw = NO;
     toggle();
     assert(!prefs.englishMode && [scheme() isEqual:@3]);
+    assert([hud.displayedText isEqual:@"日"]);
     assert(client.marked.length == 0 && client.insertions.count == 1 && [client.insertions[0] isEqual:@"U4e2d"]);
     toggle();
     assert(prefs.englishMode && [scheme() isEqual:@3]);
+    assert([hud.displayedText isEqual:@"英"]);
     toggle();
     assert(!prefs.englishMode && [scheme() isEqual:@0]);
 
@@ -7353,6 +7460,7 @@ static void TestRealTrilingualCycle() {
     assert(prefs.englishMode && client.marked.length == 0 && client.insertions.count == 2);
     assert([client.insertions[1] isEqual:@"U4e2d"]);
     assert([session closeWithError:&error] && !error);
+    [hud orderOut:nil];
     [defaults removePersistentDomainForName:suite];
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
@@ -12923,6 +13031,8 @@ int main(int argc, char **argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--toggle-hotkeys") {
             @autoreleasepool { TestCharacterSetShortcut(); }
+            @autoreleasepool { TestInputStateHUDs(); }
+            @autoreleasepool { TestRealTrilingualCycle(); }
             TestToggleHotkeyRebinding();
             return 0;
         }
@@ -14941,6 +15051,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestEmojiBridgeFallback(); }
         @autoreleasepool { TestMixedInputPreferences(); }
         @autoreleasepool { TestCharacterSetShortcut(); }
+        @autoreleasepool { TestInputStateHUDs(); }
         @autoreleasepool { TestToggleHotkeyRebinding(); }
         @autoreleasepool { TestVimModeEscapeRouting(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }

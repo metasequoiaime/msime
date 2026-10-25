@@ -273,13 +273,21 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 双拼 14/18 键只在手机和平板显示，2in1、英文、密码框、网址框和本地模式回落到 26 键；布局偏好在回到中文或切换双拼方案后保留。统计仍按所选双拼方案记录，不计入全拼 14/18 键来源。
 
+## 五笔 14 键
+
+五笔的键盘布局单独读取共享偏好 `touch_wubi_layout`，可选 `twenty_six_key`（缺省，不写进文档）和 `fourteen_key`；设置页「屏幕键盘 › 布局」在当前方案是五笔时把「中文键盘」换成「五笔键盘」，切换只改这个字段，不改 `scheme`、`wubi_profile` 和启用列表，86 / 98 版共用这一个选择。键面与全拼 14 键相同（`QW ER TY UI OP` / `AS DF GH JK L` / `符 ZX CV BN M ⌫`），网格值同为 `2`：宿主在建会话、获得焦点和重建时按偏好自己调用 `setKeyGrid`（host-api 只在 Android 和 iOS 上自动打开它，`KeyboardScheme.keyGrid` 的 `wubiLayout` 参数），会话对五笔只放行 14 键网格（`KeyboardScheme.acceptedKeyGrid`）。点一下经 `pressGridKey` 送这一组的首字母，引擎按组展开五笔码表，最多四码。
+
+读音行显示 `nine_key_reading`，即首选的编码前几位（`QW QW` 首选是「你」时为 `wq`），与全拼 14 键一样留在候选栏上、不写进输入框；`editing_text` 是每组的代表字母，不显示。没有拼音选择条，展开候选是五笔自己的展开，不用九键三栏面板。五笔不切音节，第三排左端键一直是「符」（`KeyboardScheme.fourteenKeySeparates`），记作 `SoftSymbol`，不送 `'`；组字中点它照常先结束组字取首选。长按两个字母的键弹出这两个字母，L、M 不弹。
+
+五笔 14 键只在手机和平板显示，2in1、手写、英文、密码框、网址框和本地模式回落到 26 键；实体键盘的字母照常走 26 键五笔。打字统计来源仍是 `wubi`，键位 id 是 `Fourteen*`。
+
 ## 拼写写进输入框，候选栏不画读音
 
 读音画在候选上方时，每打一个键读音变长一截；把读音放到候选左边又会推着候选左右移动，另起一行读音则让顶栏太高。现在手机与 Apple 键盘、Gboard 一样：组字总是以拼音分词形式作为预上屏文字（`InputClient.setPreviewTextSync`）写进输入框，候选栏不画读音，候选总从行首开始，不会随拼写左右移动。没有开关：手机不看 `tsf_preedit_style`（「行内预编辑」），也不看 `candidate_preedit_style`（「候选栏预编辑」），这两项只对 2in1 的候选窗口和行内拼写生效。
 
 写进去的是拼音分词形式（`SchemeCompositionPolicy.fieldSpelling`）：全拼 26 键和双拼是 Engine 的 `preedit`（`ni'hao`），全拼九键是 `nine_key_reading`，绝不是按下的数字，笔画是笔画字形。候选栏只在拼写真的写进了输入框时才不画读音（`InlinePreeditPolicy.hidesStripReading`）；读音那一行的高度一直保留，所以候选不会上下移动。以下情况照旧把读音画在候选栏上，不写进输入框：
 
-- 全拼 14 键和 18 键：组字是成组的组码，写进输入框对用户没有意义（`SchemeCompositionPolicy.keepsReadingOnStrip`）。
+- 全拼 14 键和 18 键、五笔 14 键：组字是成组的组码，写进输入框对用户没有意义（`SchemeCompositionPolicy.keepsReadingOnStrip`）。
 - 日语的假名读音。
 - 编辑框的属性说它不接受预上屏文字（`isTextPreviewSupported`），或写入失败：拼写不能哪里都看不到。
 

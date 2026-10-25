@@ -284,7 +284,7 @@ final class KoreanDubeolsikTests: XCTestCase {
 
     InputSchemePreference.scheme = .korean
     for glosses in [false, true] {
-      CandidateGlossPreference.enabled = glosses
+      setCandidateGloss(glosses)
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)

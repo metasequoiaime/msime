@@ -23,6 +23,7 @@ class AccessibleWindow;
 // newer state that was already persisted by another surface.
 struct CharacterSetClick {
   std::optional<bool> desired;
+  uintptr_t foreground = 0;
 };
 using CharacterSetClickWorker = SingleClickWorker<CharacterSetClick>;
 // 从工具栏打开的菜单贴在哪里：按钮中心的横坐标和工具栏卡片的上下沿，屏幕物理像素。

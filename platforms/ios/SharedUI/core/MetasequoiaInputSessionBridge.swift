@@ -412,7 +412,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// paying for that several times over.
   let localMode: String
   let nineKeySpellings: [String]
-  /// 全拼九键和 14 键组字时首选候选覆盖的按键写成拼音（`ning'bai`；首选是英文词时是这个词的字母），给读音行显示；其他情况为空，这时照旧显示 `preedit`（九键下是数字，14 键下是组码字母）。
+  /// 全拼九键和 14 键组字时首选候选覆盖的按键写成拼音（`ning'bai`；首选是英文词时是这个词的字母），给读音行显示；五笔 14 键是首选编码的前几位（与 `preedit` 相同，键 QW QW 首选「你」时是 `wq`）。其他情况为空，这时照旧显示 `preedit`（九键下是数字，14 键下是组码字母）。
   let nineKeyReading: String
   /// 九键候选当前的筛选：只留单字，以及首字笔顺前缀（`hspnz`，空表示不按笔画）。组字结束时 Engine 把两者都清掉。
   let nineKeySingleCharacter: Bool
@@ -1562,6 +1562,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
   /// 只改 `scheme`，会话里的 `wubi_profile` 不动，所以切过去仍是当前的 86 或 98 五笔。
   func switchToWubi() -> MetasequoiaInputSnapshot { switchScheme("wubi", profile: nil) }
+  /// 五笔 14 键：先切到五笔（86/98 码表照旧），再打开共享引擎的 14 键网格，引擎按组展开码表；按键经 `gridKey` 送各组首字母。网格记在 `keyGrid` 里，重建会话时重放。
+  func switchToFourteenKeyWubi() -> MetasequoiaInputSnapshot {
+    let snapshot = switchToWubi()
+    guard snapshot.diagnosticText == nil else { return snapshot }
+    keyGrid = .fourteenKey
+    return dispatch { msimeClientSetKeyGrid(handle, KeyGrid.fourteenKey.rawValue) }
+  }
   /// 手写面板背后跑本版本的默认方案，与 `schemeMapping` 写进偏好的一致；full 是全拼。
   func switchToHandwriting() -> MetasequoiaInputSnapshot { switchScheme(MSIMEAppEdition.defaultScheme, profile: nil) }
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }

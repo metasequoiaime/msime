@@ -26,7 +26,7 @@ constexpr int kNotificationKindActionCompleted = 2;
 constexpr int kNotificationProcessingMostRecent = 3;
 
 // 把这次切换念给读屏软件，对应 macOS InputModeHUDPanel 的 NSAccessibilityAnnouncementRequestedNotification。UiaRaiseNotificationEvent 从 Windows 10 1709 起才有，而 Server 的目标版本是 1703，所以运行时从已加载的 uiautomationcore.dll 里取，取不到就不播报；直接导入会让 1703 上的 Server 整个起不来。没有读屏软件在听时什么也不做。提供者用系统给这个窗口的宿主提供者，徽标没有自己的元素树。
-void announce_input_mode(HWND window, bool chinese) noexcept {
+void announce_input_mode(HWND window, const std::wstring &announcement) noexcept {
   if (!UiaClientsAreListening())
     return;
   using RaiseNotification = HRESULT(WINAPI *)(IRawElementProviderSimple *, int, int, BSTR, BSTR);
@@ -42,7 +42,7 @@ void announce_input_mode(HWND window, bool chinese) noexcept {
   IRawElementProviderSimple *provider = nullptr;
   if (FAILED(UiaHostProviderFromHwnd(window, &provider)) || !provider)
     return;
-  BSTR text = SysAllocString(input_mode_hud_announcement(chinese));
+  BSTR text = SysAllocString(announcement.c_str());
   BSTR activity = SysAllocString(L"MSIME.InputModeHud");
   if (text && activity)
     (void)raise(provider, kNotificationKindActionCompleted, kNotificationProcessingMostRecent, text, activity);
@@ -156,11 +156,29 @@ void InputModeHudWindow::fail(ComponentFailureSite site) {
   hide();
 }
 void InputModeHudWindow::show(bool chinese, std::optional<HudRect> caret, HWND foreground) {
+  show({input_mode_hud_text(chinese), input_mode_hud_announcement(chinese)}, caret, foreground);
+}
+void InputModeHudWindow::show(InputStateHudText text, std::optional<HudRect> caret, HWND foreground) {
   if (failed_ || !window_)
     return;
   try {
     DpiScope dpi_scope;
-    chinese_ = chinese;
+    text_ = std::move(text.text);
+    if (text_.empty()) return;
+    if (!device_.EnsureFactories())
+      throw std::runtime_error("Input mode HUD factories unavailable");
+    auto *format = device_.GetTextFormat(L"Microsoft YaHei UI", 18.0f,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER,
+        DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (!format || FAILED(device_.GetDWriteFactory()->CreateTextLayout(
+          text_.c_str(), static_cast<UINT32>(text_.size()), format, 4096.0f, 32.0f,
+          layout.GetAddressOf())))
+      throw std::runtime_error("Input mode HUD text measurement unavailable");
+    DWRITE_TEXT_METRICS measured{};
+    if (FAILED(layout->GetMetrics(&measured)))
+      throw std::runtime_error("Input mode HUD text metrics unavailable");
+    text_width_ = std::ceil(measured.widthIncludingTrailingWhitespace);
     const bool usable = caret && input_mode_hud_usable_caret(*caret);
     const HMONITOR monitor =
         usable ? MonitorFromPoint(POINT{(caret->left + caret->right) / 2, (caret->top + caret->bottom) / 2},
@@ -177,7 +195,7 @@ void InputModeHudWindow::show(bool chinese, std::optional<HudRect> caret, HWND f
       throw std::runtime_error("Input mode HUD move failed");
     // 只按显示器 DPI 换算成像素，不乘工具栏的缩放。
     const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), 1.0);
-    const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_);
+    const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_, text_width_);
     InputModeHudPlacementInput placement;
     if (usable)
       placement.caret = *caret;
@@ -201,7 +219,7 @@ void InputModeHudWindow::show(bool chinese, std::optional<HudRect> caret, HWND f
     InvalidateRect(window_, nullptr, FALSE);
     if (!SetTimer(window_, kHideTimer, input_mode_hud_visible_ms, nullptr))
       throw std::runtime_error("Input mode HUD timer unavailable");
-    announce_input_mode(window_, chinese);
+    announce_input_mode(window_, text.announcement);
   } catch (...) {
     fail(failure_at_stage("show", static_cast<uint32_t>(GetLastError())));
   }
@@ -229,7 +247,7 @@ void InputModeHudWindow::paint() {
     return created;
   };
   // 固定尺寸：Direct2D 的 DIP 已经带上了显示器 DPI，这里不再乘工具栏的缩放。圆角和描边也是徽标自己的（8 和 1），只有颜色取工具栏的调色板。
-  const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_);
+  const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_, text_width_);
   const D2D1_RECT_F card{static_cast<float>(metrics.shadow.left), static_cast<float>(metrics.shadow.top),
                          static_cast<float>(metrics.shadow.left + metrics.card_width()),
                          static_cast<float>(metrics.shadow.top + metrics.height)};
@@ -266,9 +284,8 @@ void InputModeHudWindow::paint() {
                          D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     left += side + static_cast<float>(metrics.spacing);
   }
-  const wchar_t *text = input_mode_hud_text(chinese_);
   const D2D1_RECT_F glyph{left, card.top, left + static_cast<float>(metrics.glyph), card.bottom};
-  target->DrawText(text, static_cast<UINT32>(wcslen(text)), format, glyph, brush(palette_.text));
+  target->DrawText(text_.c_str(), static_cast<UINT32>(text_.size()), format, glyph, brush(palette_.text));
   if (fade)
     target->PopLayer();
   const HRESULT drawn = target->EndDraw();

@@ -217,6 +217,8 @@ interface EngineView extends EngineViewNumericFields {
   nine_key_spellings: string[];
   /** 全拼九键组字时首选候选的拼音读音（`ning'bai`），读音行画它而不是数字；其他情况为空。旧的原生库不带这个字段。 */
   nine_key_reading?: string;
+  /** 引擎当前的组码网格（`"none"`、`"nine_key"`、`"fourteen_key"` 等）；五笔 14 键据此按组对照候选编码的已打部分。旧的原生库不带这个字段。 */
+  key_grid?: string;
   /** 九宫格候选当前只留单字，组字结束时恢复为假。 */
   nine_key_single_character?: boolean;
   /** 九宫格候选当前的笔顺前缀（`hspnz`），空表示不按笔画筛选；组字结束时清空。 */
@@ -864,6 +866,8 @@ interface PreparedPreferences {
   shuangpin_profile: string;
   /** 双拼触屏字母组码布局；缺省为 26 键，与共享偏好保持一致。 */
   touch_shuangpin_layout?: string;
+  /** 五笔触屏字母键布局：`twenty_six_key`（缺省，不写进文档）或 `fourteen_key`；与全拼、双拼布局独立。 */
+  touch_wubi_layout?: string;
   nine_key_shuangpin_profile?: string;
   nine_key_shuangpin_custom_profile?: Object;
   /** `wubi86` 或 `wubi98`；旧文档里没有这个键，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
@@ -1048,6 +1052,8 @@ export interface KeyboardPreferences {
   readonly shuangpinProfile: string;
   /** `touch_shuangpin_layout`：双拼手机键盘的 26 / 14 / 18 键布局。 */
   readonly shuangpinLayout: string;
+  /** `touch_wubi_layout`：五笔手机键盘的 26 / 14 键布局，切换 86 / 98 版后保留。 */
+  readonly wubiLayout: string;
   /** 归一后的五笔版本，决定五笔方案显示「86 五笔」还是「98 五笔」。 */
   readonly wubiProfile: string;
   readonly layout: string;
@@ -1352,6 +1358,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     scheme: AppEdition.current().defaultScheme,
     shuangpinProfile: 'xiaohe',
     shuangpinLayout: 'twenty_six_key',
+    wubiLayout: 'twenty_six_key',
     wubiProfile: KeyboardScheme.WUBI_86,
     layout: 'twenty_six_key',
     candidateFollowCursor: true,
@@ -1748,6 +1755,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       scheme: preferences.scheme,
       shuangpinProfile: preferences.shuangpin_profile,
       shuangpinLayout: preferences.touch_shuangpin_layout ?? 'twenty_six_key',
+      wubiLayout: preferences.touch_wubi_layout ?? 'twenty_six_key',
       wubiProfile: KeyboardScheme.normalizedWubiProfile(preferences.wubi_profile),
       layout: preferences.touch_keyboard_layout,
       selectedScheme: preferences.touch_keyboard_schemes?.selected ?? null,
@@ -1935,7 +1943,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.clearSmartPunctuationRepeat();
       this.toolbar = preferences.floating_toolbar;
       this.keyGrid = KeyboardScheme.keyGrid(preferences.touch_keyboard_layout, preferences.scheme,
-        KeyboardFormFactor.isDesktop(), preferences.touch_shuangpin_layout ?? 'twenty_six_key');
+        KeyboardFormFactor.isDesktop(), preferences.touch_shuangpin_layout ?? 'twenty_six_key',
+        preferences.touch_wubi_layout ?? 'twenty_six_key');
       this.soundPlugins = preferences.plugins;
       this.configureSounds();
       this.musicPlayer.configure(KeyboardFormFactor.isDesktop()
@@ -3074,9 +3083,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** 告诉引擎键面现在是哪种网格（`KeyGrid`），只在组字结束后调用。 */
   setKeyGrid(grid: number): void {
-    // 拼音和双拼使用共享引擎的字母组码网格；日文有自己的假名九宫格，其他方案引擎会拒绝。照样去开的话，每次日文获得焦点都会在日志里留一条拒绝。
-    const wanted: number = this.schemeName === 'quanpin' || this.schemeName === 'shuangpin'
-      ? grid : KeyGrid.NONE;
+    // 拼音和双拼使用共享引擎的字母组码网格，五笔只用 14 键；日文有自己的假名九宫格，其他方案引擎会拒绝。照样去开的话，每次日文获得焦点都会在日志里留一条拒绝。
+    const wanted: number = KeyboardScheme.acceptedKeyGrid(this.schemeName, grid);
     if (this.handle === 0 || this.keyGrid === wanted) {
       return;
     }
@@ -4546,7 +4554,9 @@ export class KeyboardSession implements HardwareKeyTarget {
           ? null : candidate.translation ?? null,
         // Only the part of the code still untyped, and only where that means something. The policy
         // decides; this just supplies what it reasons about.
-        hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
+        hint: WubiCodeHintPolicy.hint(candidate.code,
+          WubiCodeHintPolicy.typed(candidate.code, view.preedit, view.key_grid ?? "none", view.editing_text),
+          this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
         annotation: CandidateGlossPolicy.annotation(
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
@@ -4620,7 +4630,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         fixedPosition: candidate.fixed_position, source: candidate.source,
         translation: TranslationPolicy.sourceGetsNoGloss(candidate.source)
           ? null : candidate.translation ?? null,
-        hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
+        hint: WubiCodeHintPolicy.hint(candidate.code,
+          WubiCodeHintPolicy.typed(candidate.code, view.preedit, view.key_grid ?? "none", view.editing_text),
+          this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
         annotation: CandidateGlossPolicy.annotation(
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),

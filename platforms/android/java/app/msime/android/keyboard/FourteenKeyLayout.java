@@ -3,7 +3,7 @@ package app.msime.android;
 import java.util.List;
 
 /**
- * 全拼 14 键的键面：QWERTY 的位置不变，相邻两个字母合成一个键（`QW ER TY UI OP / AS DF GH JK L / ZX CV BN M`），L、M 单独一键。
+ * 全拼、双拼和五笔 14 键的键面：QWERTY 的位置不变，相邻两个字母合成一个键（`QW ER TY UI OP / AS DF GH JK L / ZX CV BN M`），L、M 单独一键。
  *
  * <p>点一下输入的是这一组，不是某个字母：宿主经 `msime_client_grid_key` 送这一组的首字母（组码 `q e t u o a d g j l z c b m`），引擎按组码网格解码，组里哪个字母都会被归到这一组。键表与 iOS、HarmonyOS 的 `FourteenKeyLayout` 和引擎 `KeyGrid::FourteenKey` 是同一张。宿主不保存拼音表，读音和拼音选择条都来自引擎的 `View`。
  */
@@ -83,6 +83,11 @@ public final class FourteenKeyLayout {
     /** 按键热力图的键位 id：`FourteenQW`、`FourteenL`，与 client-services `KEY_IDS` 逐字一致。 */
     public static String keyId(Key key) {
         return "Fourteen" + face(key);
+    }
+
+    /** 左端键这一刻是不是「分词」：只有拼音（全拼、双拼）组字时才在组码末尾定音节分界。五笔没有音节切分，引擎在五笔下也不收 `'`，所以五笔 14 键组字中仍是「符」，打开符号面板。`scheme` 是 `View.scheme` 的方案号（{@link InputSchemeTraits}）。 */
+    public static boolean separatesSyllables(boolean composing, int scheme) {
+        return composing && scheme != InputSchemeTraits.WUBI;
     }
 
     /** 第 3 行左端的键面：组字时是「分词」（送 `'`，在已打的组码末尾定音节分界），空闲时是「符」（打开符号面板）。照搬九键 1 键。 */

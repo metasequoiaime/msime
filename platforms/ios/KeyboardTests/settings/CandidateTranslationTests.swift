@@ -249,6 +249,7 @@ final class CandidateTranslationTests: XCTestCase {
       CandidateGlossPreference.enabled = previousGloss
     }
     InputSchemePreference.scheme = .quanpin
+    setCandidateGloss(true)
 
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
@@ -445,11 +446,11 @@ final class CandidateTranslationTests: XCTestCase {
       return controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant
     }
 
-    CandidateGlossPreference.enabled = false
+    setCandidateGloss(false)
     let bare = try XCTUnwrap(keyboardHeight())
     let scheme = InputSchemePreference.scheme
     let separateReadingRow = [.fourteenKey, .eighteenKey].contains(scheme)
-    CandidateGlossPreference.enabled = true
+    setCandidateGloss(true)
     let glossed = try XCTUnwrap(keyboardHeight())
     XCTAssertEqual(InputSchemePreference.scheme, scheme, "比较释义开关时输入方案必须保持一致")
     XCTAssertEqual(glossed - bare,

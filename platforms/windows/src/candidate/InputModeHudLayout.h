@@ -3,9 +3,39 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <string>
 
 namespace msime::windows {
-// 中英文切换提示（输入模式 HUD）的几何与摆放，和 macOS 的 MSIMEInputModeHUDPanel 同一套规则：固定的紧凑尺寸，不随悬浮工具栏的字号和缩放变化，只随显示器 DPI 缩放；logo 只在 `show_app_logo` 开着时画；完全显示 0.6 秒，再用 0.18 秒淡出；有光标位置时水平居中在光标下方，下面放不下就放到上方，没有光标时放在屏幕水平居中、下方三分之一处。纯计算，不依赖 Windows 头文件，主机上的单测直接包含。
+struct InputStateHudText {
+  std::wstring text;
+  std::wstring announcement;
+};
+inline InputStateHudText character_set_hud(bool traditional) {
+  return {traditional ? L"繁" : L"简", traditional ? L"繁体输出" : L"简体输出"};
+}
+inline InputStateHudText fullwidth_hud(bool fullwidth) {
+  return {fullwidth ? L"全角" : L"半角", fullwidth ? L"全角输入" : L"半角输入"};
+}
+inline InputStateHudText punctuation_hud(bool chinese) {
+  return {chinese ? L"中文标点" : L"英文标点", chinese ? L"中文标点" : L"英文标点"};
+}
+inline InputStateHudText dedicated_english_hud(bool enabled) {
+  return {enabled ? L"英文候选" : L"英文候选关",
+          enabled ? L"英文候选模式已开启" : L"英文候选模式已关闭"};
+}
+inline InputStateHudText translations_hud(bool enabled) {
+  return {enabled ? L"译文开" : L"译文关", enabled ? L"候选译文已开启" : L"候选译文已关闭"};
+}
+// 字形沿用工具栏的语言标记，避免日语等方案切回输入态时误报「中」。
+inline InputStateHudText input_language_hud(bool chinese, const std::string &scheme) {
+  if (!chinese) return {L"英", L"英文输入"};
+  if (scheme == "japanese") return {L"日", L"日语输入"};
+  if (scheme == "korean") return {L"한", L"韩语输入"};
+  if (scheme == "vietnamese") return {L"越", L"越南语输入"};
+  if (scheme == "tibetan") return {L"ཀ", L"藏文输入"};
+  return {L"中", L"中文输入"};
+}
+// 输入状态 HUD 的几何与摆放，和 macOS 的 MSIMEInputModeHUDPanel 同一套规则：固定字高、按文字宽度展开，不随悬浮工具栏的字号和缩放变化，只随显示器 DPI 缩放；logo 只在 `show_app_logo` 开着时画；完全显示 0.6 秒，再用 0.18 秒淡出；有光标位置时水平居中在光标下方，下面放不下就放到上方，没有光标时放在屏幕水平居中、下方三分之一处。纯计算，不依赖 Windows 头文件，主机上的单测直接包含。
 
 // 「英」是英文模式，「中」是中文模式，与 macOS 的 MSIMEInputModeHUDText 相同。
 inline const wchar_t *input_mode_hud_text(bool chinese) { return chinese ? L"中" : L"英"; }
@@ -32,7 +62,7 @@ struct InputModeHudMetrics {
   double inset = 8.0;
   double logo = 16.0;
   double spacing = 4.0;
-  // 字的宽度：「中」「英」取较宽者，切换时宽度不变。两个都是全角汉字，宽度就是字号。
+  // 实测文字宽度，单字最少留出一个全角字的宽度。
   double glyph = 18.0;
   double radius = 8.0;
   double border = 1.0;
@@ -45,8 +75,9 @@ struct InputModeHudMetrics {
 };
 
 // `show_logo` 是偏好 `show_app_logo` 开着、而且可执行文件里取得到图标（单测链接的程序没有图标资源）：为假时不给 logo 留位置，和 macOS 一样。
-inline InputModeHudMetrics input_mode_hud_metrics(bool show_logo) {
+inline InputModeHudMetrics input_mode_hud_metrics(bool show_logo, double text_width = 18.0) {
   InputModeHudMetrics metrics;
+  metrics.glyph = std::max(18.0, std::ceil(text_width));
   if (!show_logo)
     metrics.logo = 0.0;
   metrics.shadow = toolbar_shadow(true);

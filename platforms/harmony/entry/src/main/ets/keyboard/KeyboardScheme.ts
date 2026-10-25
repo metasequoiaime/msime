@@ -661,6 +661,34 @@ export class KeyboardScheme {
     return layout === "nine_key" || layout === "nine_key_shuangpin";
   }
 
+  /**
+   * 这个方案在手机上按哪种字母键布局画：全拼看方案自己的布局，双拼看独立的 `touch_shuangpin_layout`，五笔看独立的 `touch_wubi_layout`（只有 26 键和 14 键）。手写方案不画字母键，照它自己的布局。2in1 的回落由调用方决定。
+   */
+  static letterLayout(
+    scheme: SchemeDefinition,
+    shuangpinLayout: string,
+    wubiLayout: string,
+  ): string {
+    if (scheme.touchKeyboardLayout === "handwriting") return scheme.touchKeyboardLayout;
+    if (scheme.engineScheme === "shuangpin") return shuangpinLayout;
+    if (scheme.engineScheme === "wubi") {
+      return wubiLayout === "fourteen_key" ? "fourteen_key" : "twenty_six_key";
+    }
+    return scheme.touchKeyboardLayout;
+  }
+
+  /** 14 键第三排左端键这一下是不是「分词」：拼音组字中是（送 `'`），空闲时是「符」。五笔不切音节，引擎在五笔里也不收 `'`，所以五笔 14 键这个键一直是「符」。 */
+  static fourteenKeySeparates(engineScheme: string, composing: boolean): boolean {
+    return composing && engineScheme !== "wubi";
+  }
+
+  /** 会话真正交给引擎的网格：全拼和双拼照键面要的网格；五笔只接受 14 键；其他方案（日文有自己的假名九宫格）引擎会拒绝，一律不开。 */
+  static acceptedKeyGrid(engineScheme: string, grid: number): number {
+    if (engineScheme === "quanpin" || engineScheme === "shuangpin") return grid;
+    if (engineScheme === "wubi" && grid === KeyGrid.FOURTEEN_KEY) return grid;
+    return KeyGrid.NONE;
+  }
+
   /** 是否画 14 键键面：布局是 14 键（视图已按形态和编辑框排除了 2in1、密码框和网址框），且英文和本地模式都没有接管按键。英文画 26 键 QWERTY，切回中文恢复 14 键，布局偏好不变。 */
   static usesFourteenKeyFace(fourteenKey: boolean, english: boolean, localMode: string): boolean {
     return fourteenKey && !english && localMode === "none";
@@ -693,7 +721,7 @@ export class KeyboardScheme {
   }
 
   /**
-   * 这个布局要引擎开哪种网格：全拼的九键、14 键和 18 键，以及双拼独立偏好的 14 键和 18 键各开各的，其余（含日语九键，它有自己的假名网格）不开。
+   * 这个布局要引擎开哪种网格：全拼的九键、14 键和 18 键，双拼独立偏好的 14 键和 18 键，以及五笔独立偏好的 14 键各开各的，其余（含日语九键，它有自己的假名网格）不开。
    *
    * 2in1 有实体键盘，不提供 14 键和 18 键（`offeredSchemes` 把它们滤掉），同步过来的 `fourteen_key`、`eighteen_key` 在 2in1 上画 26 键，所以也不开对应网格；九键在 2in1 上的行为不在这里改变。
    */
@@ -702,11 +730,18 @@ export class KeyboardScheme {
     engineScheme: string,
     desktop: boolean,
     shuangpinLayout: string = "twenty_six_key",
+    wubiLayout: string = "twenty_six_key",
   ): number {
     if (engineScheme === "shuangpin" && !desktop && layout !== "handwriting") {
       if (shuangpinLayout === "fourteen_key") return KeyGrid.FOURTEEN_KEY;
       if (shuangpinLayout === "eighteen_key") return KeyGrid.EIGHTEEN_KEY_SHUANGPIN;
       return KeyGrid.NONE;
+    }
+    // 五笔 14 键与全拼 14 键同一种网格（2），引擎按五笔方案把组码展开成码表；五笔没有 18 键。
+    if (engineScheme === "wubi") {
+      return wubiLayout === "fourteen_key" && !desktop && layout !== "handwriting"
+        ? KeyGrid.FOURTEEN_KEY
+        : KeyGrid.NONE;
     }
     if (engineScheme !== "quanpin") return KeyGrid.NONE;
     if (layout === "nine_key") {

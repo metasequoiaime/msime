@@ -1,4 +1,5 @@
 import app.msime.android.FourteenKeyLayout;
+import app.msime.android.InputSchemeTraits;
 import app.msime.android.KeyPressIds;
 import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardLayout;
@@ -20,7 +21,8 @@ public final class FourteenKeyLayoutSmoke {
         table();
         faces();
         gates();
-        System.out.println("Android fourteen-key layout: key table, group codes, faces, labels, hold letters, key ids and gates passed");
+        wubi();
+        System.out.println("Android fourteen-key layout: key table, group codes, faces, labels, hold letters, key ids, gates and Wubi passed");
     }
 
     private static void table() {
@@ -133,5 +135,38 @@ public final class FourteenKeyLayoutSmoke {
             && TypingSource.FOURTEEN_KEY.id().equals("fourteenKey"), "the source is fourteenKey");
         check(TypingSource.resolve(KeyboardScheme.QUANPIN_FOURTEEN_KEY, true, "none") == TypingSource.ENGLISH,
             "English on the fourteen-key scheme is English");
+    }
+
+    /** 五笔 14 键（#9691）：同一张键面，网格由引擎按 `touch_wubi_layout` 开；左端键始终是「符」，展开候选不画拼音三栏，统计仍记五笔。 */
+    private static void wubi() {
+        int fourteen = KeyboardLayout.FOURTEEN_KEY_LAYOUT;
+        int wubi = InputSchemeTraits.WUBI;
+        // 引擎开着 14 键网格时画 14 键；`touch_keyboard_layout` 仍是五笔的 26 键，不由它决定。
+        check(KeyboardLayout.resolveTouchLayout(false, false, true, wubi, "twenty_six_key") == fourteen,
+            "the Wubi fourteen-key grid draws the fourteen-key surface");
+        check(KeyboardLayout.resolveTouchLayout(false, false, false, wubi, "twenty_six_key")
+            == KeyboardLayout.STANDARD_TOUCH_LAYOUT, "Wubi without the grid (default, local mode) is 26 keys");
+        check(KeyboardLayout.resolveTouchLayout(true, false, false, wubi, "handwriting")
+            == KeyboardLayout.HANDWRITING_LAYOUT, "Wubi handwriting stays handwriting");
+        // 左端键：拼音组字时「分词」，五笔不分音节、引擎不收 `'`，组字中也是「符」。
+        check(FourteenKeyLayout.separatesSyllables(true, InputSchemeTraits.QUANPIN)
+            && FourteenKeyLayout.separatesSyllables(true, InputSchemeTraits.SHUANGPIN), "pinyin composing splits syllables");
+        check(!FourteenKeyLayout.separatesSyllables(true, wubi) && !FourteenKeyLayout.separatesSyllables(false, wubi)
+            && !FourteenKeyLayout.separatesSyllables(false, InputSchemeTraits.QUANPIN), "Wubi and idle keep 符");
+        check(FourteenKeyLayout.separatorFace(FourteenKeyLayout.separatesSyllables(true, wubi)).equals("符"),
+            "the Wubi composing face is 符");
+        // 三栏面板只给拼音：五笔 14 键组字时展开的是普通候选面板。
+        check(!NineKeyPanelPolicy.threeColumn(fourteen, wubi, true, false, true), "Wubi keeps the plain candidate panel");
+        check(NineKeyPanelPolicy.threeColumn(fourteen, InputSchemeTraits.QUANPIN, true, false, true)
+            && NineKeyPanelPolicy.threeColumn(fourteen, InputSchemeTraits.SHUANGPIN, true, false, true),
+            "pinyin fourteen keys keep the three-column panel");
+        check(!NineKeyPanelPolicy.threeColumn(KeyboardLayout.STANDARD_TOUCH_LAYOUT, wubi, true, false, true),
+            "26-key Wubi has no three-column panel");
+        // 统计仍记到五笔，键位 id 与拼音 14 键相同。
+        check(TypingSource.resolve(KeyboardScheme.WUBI, false, "none") == TypingSource.WUBI
+            && TypingSource.WUBI.id().equals("wubi"), "the Wubi fourteen-key source stays wubi");
+        check(KeyboardScheme.WUBI.touchKeyboardLayout().equals("twenty_six_key"),
+            "the Wubi entry keeps its own touch layout; the 14-key choice lives in touch_wubi_layout");
+        check(KeyboardActionRow.layerTitle(fourteen, true).equals("14键"), "the Wubi layer key reads 14键");
     }
 }

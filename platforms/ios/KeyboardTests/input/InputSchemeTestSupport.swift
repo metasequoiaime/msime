@@ -19,4 +19,16 @@ extension XCTestCase {
       InputSchemePreference.enabledSchemes = previous
     }
   }
+
+  /// 离线释义开关同理以共享文档为准：新建的键盘先把文档里的 `candidate_english_gloss` 抄进 App Group 镜像，只给 `CandidateGlossPreference.enabled` 赋值的用例会被文档盖掉（文档默认关）。这里文档和镜像一起写，用例结束后两边都放回原样。已经建好的键盘在下一次出现之前仍按镜像行事，所以用例中途只改镜像来模拟「刚关掉」仍然可以。
+  func setCandidateGloss(_ enabled: Bool) {
+    let previousDocument = MetasequoiaInputSessionBridge.loadSharedPreferences()?[InputHabitPreference.glossKey]
+    let previousMirror = CandidateGlossPreference.enabled
+    _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0[InputHabitPreference.glossKey] = enabled }
+    CandidateGlossPreference.enabled = enabled
+    addTeardownBlock {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0[InputHabitPreference.glossKey] = previousDocument }
+      CandidateGlossPreference.enabled = previousMirror
+    }
+  }
 }

@@ -2753,25 +2753,26 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         {
             pIME->GetCompositionProcessorEngine()->SetIMEMode(pIME->_GetThreadMgr(), pIME->_GetClientId(), TRUE);
         }
-        else if (request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToPuncEn)
+        else if (request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToPuncEn ||
+                 request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToPuncCn)
         {
-            pIME->GetCompositionProcessorEngine()->SetPunctuationMode(pIME->_GetThreadMgr(), pIME->_GetClientId(),
-                                                                      FALSE);
+            auto *engine = pIME->GetCompositionProcessorEngine();
+            const BOOL before = engine->GetPunctuationMode(pIME->_GetThreadMgr(), pIME->_GetClientId());
+            engine->SetPunctuationMode(pIME->_GetThreadMgr(), pIME->_GetClientId(),
+                request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToPuncCn);
+            const BOOL current = engine->GetPunctuationMode(pIME->_GetThreadMgr(), pIME->_GetClientId());
+            // 工具栏和托盘的显式请求：只在实际改变后发事件，配置加载仍只报快照。
+            if (current != before) SendPuncSwitchEventToUIProcessViaNamedPipe(current);
         }
-        else if (request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToPuncCn)
+        else if (request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToFullwidth ||
+                 request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToHalfwidth)
         {
-            pIME->GetCompositionProcessorEngine()->SetPunctuationMode(pIME->_GetThreadMgr(), pIME->_GetClientId(),
-                                                                      TRUE);
-        }
-        else if (request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToFullwidth)
-        {
-            pIME->GetCompositionProcessorEngine()->SetDoubleSingleByteMode(pIME->_GetThreadMgr(), pIME->_GetClientId(),
-                                                                           TRUE);
-        }
-        else if (request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToHalfwidth)
-        {
-            pIME->GetCompositionProcessorEngine()->SetDoubleSingleByteMode(pIME->_GetThreadMgr(), pIME->_GetClientId(),
-                                                                           FALSE);
+            auto *engine = pIME->GetCompositionProcessorEngine();
+            const BOOL before = engine->GetDoubleSingleByteMode(pIME->_GetThreadMgr(), pIME->_GetClientId());
+            engine->SetDoubleSingleByteMode(pIME->_GetThreadMgr(), pIME->_GetClientId(),
+                request.messageType == Global::DataToTsfWorkerThreadMsgType::SwitchToFullwidth);
+            const BOOL current = engine->GetDoubleSingleByteMode(pIME->_GetThreadMgr(), pIME->_GetClientId());
+            if (current != before) SendDoubleSingleByteSwitchEventToUIProcessViaNamedPipe(current);
         }
         // Read all three compartments after applying the exact worker command.
         // Sending a complete ordered snapshot prevents two queued status WMs

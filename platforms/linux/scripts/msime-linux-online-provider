@@ -78,14 +78,22 @@ class RustAccountApi:
             candidates.extend([
                 script_root / "lib" / "msime-client" / "libmsime_host_api.so",
                 script_root / "lib" / "msime-client" / "libmsime_host_api_full.so",
-                Path(__file__).resolve().parents[3] / "target" / "debug" / "libmsime_host_api.so",
-                Path(__file__).resolve().parents[3] / "target" / "debug" / "libmsime_host_api.dylib",
             ])
+            # 源码树里脚本在 <仓库>/platforms/linux/scripts，开发构建的库在 <仓库>/target/debug。装到 /usr/bin 时往上只有三层，取第四层会抛 IndexError，整份候选表都建不起来，已安装的库也就加载不到（postinst 的 --ensure-anonymous-account 因此崩溃），所以上溯不到时没有开发构建这几项。
+            script_parents = Path(__file__).resolve().parents
+            development_root = script_parents[3] if len(script_parents) > 3 else None
+            if development_root is not None:
+                candidates.extend([
+                    development_root / "target" / "debug" / "libmsime_host_api.so",
+                    development_root / "target" / "debug" / "libmsime_host_api.dylib",
+                ])
             installed_library_directory = script_root / "lib" / "msime-client"
             if installed_library_directory.is_dir():
                 candidates.extend(sorted(installed_library_directory.glob("libmsime_host_api*.so")))
-            development_library_directory = Path(__file__).resolve().parents[3] / "target" / "debug" / "deps"
-            if development_library_directory.is_dir():
+            development_library_directory = (
+                development_root / "target" / "debug" / "deps" if development_root is not None else None
+            )
+            if development_library_directory is not None and development_library_directory.is_dir():
                 candidates.extend(sorted(development_library_directory.glob("libmsime_host_api*.so")))
                 candidates.extend(sorted(development_library_directory.glob("libmsime_host_api*.dylib")))
             for candidate in candidates:

@@ -586,8 +586,21 @@ STDAPI CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, _In_ const RECT *
     {
         BOOL isOn = FALSE;
 
-        _pCompartment->_GetCompartmentBOOL(isOn);
-        _pCompartment->_SetCompartmentBOOL(isOn ? FALSE : TRUE);
+        if (SUCCEEDED(_pCompartment->_GetCompartmentBOOL(isOn)) &&
+            SUCCEEDED(_pCompartment->_SetCompartmentBOOL(isOn ? FALSE : TRUE)))
+        {
+            BOOL current = isOn;
+            GUID compartment{};
+            _pCompartment->_GetGUID(&compartment);
+            // 系统语言栏也只在读回的新状态不同后通知；初始化和配置更新不走点击入口。
+            if (SUCCEEDED(_pCompartment->_GetCompartmentBOOL(current)) && current != isOn)
+            {
+                if (IsEqualGUID(compartment, Global::MetasequoiaIMEGuidCompartmentDoubleSingleByte))
+                    SendDoubleSingleByteSwitchEventToUIProcessViaNamedPipe(current);
+                else if (IsEqualGUID(compartment, Global::MetasequoiaIMEGuidCompartmentPunctuation))
+                    SendPuncSwitchEventToUIProcessViaNamedPipe(current);
+            }
+        }
     }
 
     return S_OK;

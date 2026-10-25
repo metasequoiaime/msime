@@ -1,6 +1,7 @@
 {
  "name": "local_shortcuts_outside_pinyin",
  "source": "tests/src/test_input_session.cpp:384-430,534-535; cases :1319-1322,1376-1380,1420-1424,1578-1584",
+ "note": "Since #9696 Wubi opens the Shift letter modes whose input is not the scheme's spelling (U, T, Y, S, besides K and C); the reference refused U and T here. E and M still read pinyin and stay refused.",
  "covers": [
   "local modes",
   "wubi"
@@ -27,9 +28,17 @@
    "shift": true
   },
   {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
    "op": "char",
    "arg": "T",
    "shift": true
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
   },
   {
    "op": "char",

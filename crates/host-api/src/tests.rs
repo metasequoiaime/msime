@@ -3621,6 +3621,123 @@ fn fourteen_key_shuangpin_preference_is_applied_by_touch_hosts() {
     }
 }
 
+#[test]
+fn fourteen_key_wubi_preference_is_applied_by_touch_hosts() {
+    let preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        touch_wubi_layout: TouchWubiLayout::FourteenKey,
+        ..chinese_preferences()
+    };
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+    ] {
+        let grid = layout_key_grid_for(platform, Some(SchemeType::Wubi), &preferences);
+        assert_eq!(
+            grid,
+            matches!(platform, HostPlatform::Android | HostPlatform::Ios)
+                .then_some(KeyGrid::FourteenKey),
+            "{platform:?}"
+        );
+        // 五笔 14 键只看自己的布局：26 键时不开网格，全拼的 14 键也不带进五笔。
+        let twenty_six = Preferences {
+            touch_wubi_layout: TouchWubiLayout::TwentySixKey,
+            touch_keyboard_layout: TouchKeyboardLayout::FourteenKey,
+            ..preferences.clone()
+        };
+        assert_eq!(
+            layout_key_grid_for(platform, Some(SchemeType::Wubi), &twenty_six),
+            None
+        );
+        // 手写布局不画字母键。
+        let handwriting = Preferences {
+            touch_keyboard_layout: TouchKeyboardLayout::Handwriting,
+            ..preferences.clone()
+        };
+        assert_eq!(
+            layout_key_grid_for(platform, Some(SchemeType::Wubi), &handwriting),
+            None
+        );
+        // 五笔的布局不影响全拼。
+        assert_eq!(
+            layout_key_grid_for(platform, Some(SchemeType::Quanpin), &preferences),
+            None
+        );
+    }
+}
+
+/// 鸿蒙经网格值 2 自己打开五笔 14 键；组码按组展开码表，硬件字母与 14 键组码不混在一次组字里。
+#[test]
+fn fourteen_key_wubi_grid_decodes_through_the_c_abi() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    let dictionaries = path("dictionaries");
+    let fixture = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_n VALUES('ni','n','你',3000000);
+                   CREATE TABLE tbl_1_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_d VALUES('duo','d','多',1500000);
+                   CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO wubi86 VALUES('qq','多',20),('wq','你',10),('w','人',20);
+                   CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);";
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(fixture)
+            .unwrap();
+    }
+    bundle_wubi_table(&resources);
+    let preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    assert_eq!(read(msime_client_view(handle))["value"]["key_grid"], "none");
+    // 没有网格时 14 键的键不处理。
+    assert_eq!(
+        read(msime_client_grid_key(handle, b'q'))["value"]["handled"],
+        false
+    );
+    let opened = read(msime_client_set_key_grid(handle, 2));
+    assert_eq!(opened["ok"], true, "{opened}");
+    assert_eq!(opened["value"]["key_grid"], "fourteen_key");
+    let mut view = Value::Null;
+    for letter in b"qw" {
+        let result = read(msime_client_grid_key(handle, *letter));
+        assert_eq!(result["value"]["handled"], true, "{result}");
+        view = result["value"]["view"].clone();
+    }
+    assert_eq!(view["candidates"][0]["text"], "你");
+    assert_eq!(view["candidates"][1]["text"], "多");
+    assert_eq!(view["nine_key_reading"], "wq");
+    assert_eq!(view["editing_text"], "qq");
+    let hardware = read(msime_client_character(handle, b'w', false));
+    assert_eq!(hardware["value"]["handled"], false, "{hardware}");
+    read(msime_client_command(handle, 3));
+    // 组字结束后硬件字母照常打 26 键的码。
+    assert_eq!(type_letters(handle, b"w")["candidates"][0]["text"], "人");
+    assert_eq!(
+        read(msime_client_grid_key(handle, b'q'))["value"]["handled"],
+        false
+    );
+    // 别的网格不给五笔。
+    read(msime_client_command(handle, 3));
+    assert_eq!(read(msime_client_set_key_grid(handle, 4))["ok"], false);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 /// 双拼布局独立持久化，创建、延迟应用、实体字母和非法自定义表回退使用同一方案。
 #[test]
 fn fourteen_key_shuangpin_layout_tracks_profile_changes_and_preserves_hardware_input() {

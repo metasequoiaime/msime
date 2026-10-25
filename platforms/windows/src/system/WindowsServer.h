@@ -89,11 +89,11 @@ public:
   std::optional<bool> dedicated_english_state(const FocusLease &lease) {
     return controller_->dedicated_english_state(lease);
   }
-  bool exit_dedicated_english(const FocusLease &lease) {
-    return controller_->exit_dedicated_english(lease);
+  bool exit_dedicated_english(const FocusLease &lease, bool *changed = nullptr) {
+    return controller_->exit_dedicated_english(lease, changed);
   }
-  bool set_dedicated_english(const FocusLease &lease, bool enabled) {
-    return controller_->set_dedicated_english(lease, enabled);
+  bool set_dedicated_english(const FocusLease &lease, bool enabled, bool *changed = nullptr) {
+    return controller_->set_dedicated_english(lease, enabled, changed);
   }
   std::vector<PipeTicket> current_tsf_tickets() {
     return transport_->current_tickets();

@@ -46,6 +46,8 @@ struct KeyboardSkinPreview: View {
   let nineKey: Bool
   /// 14 键或 18 键的字母网格；nil 画 26 键字母或九键。
   var letterGrid: LetterKeyGrid?
+  /// 字母网格第三排左端画「分词」还是「符」：五笔 14 键没有音节可分，键盘上这个键总是「符」。
+  var gridSplitsSyllables: Bool = true
   var layout: KeyboardGeometry = KeyboardLayoutPreference.geometry
   var heightAdjustment: Double = 0
   var topStrip: KeyboardPreviewTopStrip = .candidates
@@ -197,7 +199,7 @@ struct KeyboardSkinPreview: View {
         ForEach(Array(FourteenKeyLayout.rows.enumerated()), id: \.offset) { index, keys in
           if index == FourteenKeyLayout.rows.count - 1 {
             HStack(spacing: 5) {
-              key("分词", function: true).frame(width: 38)
+              key(gridSplitsSyllables ? "分词" : "符", function: true).frame(width: 38)
               row(keys.map(\.face))
               key("⌫", function: true).frame(width: 38)
             }

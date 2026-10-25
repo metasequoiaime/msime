@@ -495,6 +495,8 @@ struct KeyboardView {
   @State shuangpinProfile: string = 'xiaohe';
   /** 双拼触屏字母组码布局；26/14/18 键独立于当前双拼方案保存。 */
   @State shuangpinLayout: string = 'twenty_six_key';
+  /** 五笔触屏字母键布局；26/14 键独立于 86 / 98 版保存。 */
+  @State wubiLayout: string = 'twenty_six_key';
   // 方案、中英文、123 层、本地模式和横竖屏决定手写区要不要多一行（`handwritingExtraRows`），变了就重定面板高度，见 `syncStripHeight`。
   @State @Watch('syncStripHeight') localMode: string = 'none';
   @State @Watch('syncStripHeight') diagnostic: string = '';
@@ -2437,17 +2439,15 @@ struct KeyboardView {
     KeyboardSession.shared.setKeyGrid(this.keyGrid());
   }
 
-  /** 这个方案在这台设备上是否画 14 键：全拼看方案布局，双拼看独立布局偏好；2in1 有实体键盘，一律回落 26 键。 */
+  /** 这个方案在这台设备上是否画 14 键：全拼看方案布局，双拼、五笔各看自己的独立布局偏好；2in1 有实体键盘，一律回落 26 键。 */
   private offersFourteenKey(scheme: SchemeDefinition): boolean {
-    const layout: string = scheme.engineScheme === 'shuangpin'
-      ? this.shuangpinLayout : scheme.touchKeyboardLayout;
-    return layout === 'fourteen_key' && !KeyboardFormFactor.isDesktop();
+    return KeyboardScheme.letterLayout(scheme, this.shuangpinLayout, this.wubiLayout) === 'fourteen_key'
+      && !KeyboardFormFactor.isDesktop();
   }
 
   private offersEighteenKey(scheme: SchemeDefinition): boolean {
-    const layout: string = scheme.engineScheme === 'shuangpin'
-      ? this.shuangpinLayout : scheme.touchKeyboardLayout;
-    return layout === 'eighteen_key' && !KeyboardFormFactor.isDesktop();
+    return KeyboardScheme.letterLayout(scheme, this.shuangpinLayout, this.wubiLayout) === 'eighteen_key'
+      && !KeyboardFormFactor.isDesktop();
   }
 
   /** 交给引擎的网格（`KeyGrid`），由当前键面决定；双拼 18 键使用独立的网格值 5。英文下网格照旧保留，引擎在专用英文里不受理组码，字母走 26 键。 */
@@ -2972,6 +2972,7 @@ struct KeyboardView {
     this.applySkins();
     this.wubiProfile = this.settings.wubiProfile;
     this.shuangpinLayout = this.settings.shuangpinLayout;
+    this.wubiLayout = this.settings.wubiLayout;
     this.scheme = this.enabledScheme();
     this.nineKey = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout);
     this.nineKeyShuangpinFaces = this.scheme.preferenceId === 'nine_key_shuangpin'
@@ -5072,10 +5073,10 @@ struct KeyboardView {
     .height(this.rowHeight(1))
 
     Row({ space: this.keySpacing() }) {
-      // 左端键组字中是「分词」，送 ' 在已打的键末尾定一个音节分界；没在组字时是「符」，打开符号面板。宽度同 26 键的 Shift。
+      // 左端键拼音组字中是「分词」，送 ' 在已打的键末尾定一个音节分界；没在组字时、以及五笔 14 键一直是「符」，打开符号面板。宽度同 26 键的 Shift。
       this.fixedKey({
-        face: this.editing.length > 0 ? '分词' : '符',
-        label: this.editing.length > 0 ? NineKeyLayout.separator().description
+        face: this.fourteenKeySeparates() ? '分词' : '符',
+        label: this.fourteenKeySeparates() ? NineKeyLayout.separator().description
           : KeyAccessibilityPolicy.symbolPanel(),
         size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
         fontWeight: FUNCTION_LABEL_WEIGHT,
@@ -5348,11 +5349,16 @@ struct KeyboardView {
     this.caseMode = this.letterCase.mode();
   }
 
-  /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板（Android `ImeLayoutRows.symbolKey`）。 */
+  /** 14 键第三排左端键此刻是不是「分词」：拼音组字中是；五笔不切音节，一直是「符」。 */
+  private fourteenKeySeparates(): boolean {
+    return KeyboardScheme.fourteenKeySeparates(this.scheme.engineScheme, this.editing.length > 0);
+  }
+
+  /** 第三行左端键：拼音组字中送分词符 '，空闲时和五笔 14 键打开符号面板（Android `ImeLayoutRows.symbolKey`）。 */
   private tapFourteenKeySeparator(): void {
     // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、iOS 的 14 键相同。
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
-    if (KeyboardSession.shared.composing()) {
+    if (KeyboardScheme.fourteenKeySeparates(this.scheme.engineScheme, KeyboardSession.shared.composing())) {
       KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
       return;
     }

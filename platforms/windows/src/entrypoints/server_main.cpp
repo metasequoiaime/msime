@@ -37,6 +37,7 @@
 #include "ModeAuthority.h"
 #include "AppInputModeRules.h"
 #include "InputModeHudWindow.h"
+#include "InputStateHudFeedback.h"
 #include "TypingEffectOverlay.h"
 #include "TypingFeedbackPreference.h"
 #include "ShuangpinKeymapWindow.h"
@@ -301,12 +302,12 @@ void write_document_atomic(const std::filesystem::path &path, const std::string 
     throw std::runtime_error("Configuration replace failed");
   }
 }
-// The native toolbar and TSF shortcut use the same revisioned store as the
-// settings shell. Read and write on their shared single action worker so
-// neither the UI thread nor the input queue waits on the preferences lock.
+// 原生工具栏和 TSF 快捷键共用带修订号的偏好存储和单次工作线程，界面和输入队列不等存储锁。
 bool persist_traditional_output(const std::filesystem::path &directory,
                                 std::atomic<bool> &state,
-                                std::optional<bool> desired = std::nullopt) {
+                                std::optional<bool> desired = std::nullopt,
+                                std::optional<bool> *changed = nullptr) {
+  if (changed) changed->reset();
   try {
     const auto root = directory.u8string();
     auto loaded = msime::host_api::own_string(
@@ -341,6 +342,7 @@ bool persist_traditional_output(const std::filesystem::path &directory,
         !saved_response.at("value").is_object())
       return false;
     state.store(next, std::memory_order_release);
+    if (changed) *changed = next;
     return true;
   } catch (...) {
     return false;
@@ -457,7 +459,8 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
 }
 // 通过带版本的存储选择输入方案，并像设置页一样维护 last_chinese_scheme：中文方案（包括粤拼、注音和笔画）也是日文、韩文、越南文和藏文切回时回到的方案，选择这些语言之一时记住被替换的中文方案。在它们之间切换保留记住的方案，因为它们都不是存储会接受的中文方案。
 bool store_input_scheme(const std::filesystem::path &directory,
-                        const std::string &scheme) {
+                        const std::string &scheme, bool &changed) {
+  changed = false;
   try {
     const auto root = directory.u8string();
     auto loaded = msime::host_api::own_string(
@@ -492,15 +495,17 @@ bool store_input_scheme(const std::filesystem::path &directory,
     if (!saved)
       return false;
     const auto saved_response = nlohmann::json::parse(saved.get());
-    return saved_response.value("ok", false) &&
-           saved_response.at("value").is_object();
+    changed = saved_response.value("ok", false) &&
+              saved_response.at("value").is_object();
+    return changed;
   } catch (...) {
     return false;
   }
 }
-// Ctrl+Shift+J 交给工作线程的一次请求，目标由 toggle_japanese_scheme 从存储算出，所以不带参数。
+// Ctrl+Shift+J 的目标从存储算出，请求只保留完成通知和发起窗口。
 struct JapaneseToggleRequest {
   std::shared_ptr<std::promise<std::optional<msime::windows::PreferenceSnapshot>>> completion;
+  uintptr_t foreground = reinterpret_cast<uintptr_t>(GetForegroundWindow());
 };
 // Ctrl+Shift+J：从存储读出偏好，按 Engine 实际运行的方案算出目标和要记的 last_chinese_scheme（scheme::japanese_toggle_write），带 revision 写回，和 store_input_scheme 一样维护 last_chinese_scheme。在工作线程上运行，读和写之间别的界面写进去的新修订会让保存失败，这一次按键就不切换，不会覆盖别人的写入。成功时返回写进去的方案，不切换或失败时为空。
 std::optional<std::string> toggle_japanese_scheme(
@@ -631,6 +636,25 @@ TrayMenuPreferences tray_menu_preferences(
   const auto lock = preferences.value("punctuation_lock", std::string("follow"));
   result.punctuation_locked = lock == "chinese" || lock == "english";
   return result;
+}
+// HUD 和菜单共用方案名称，避免双拼、五笔的配置名在两处不一致。
+msime::windows::InputStateHudText scheme_hud(const TrayMenuPreferences &preferences) {
+  msime::windows::TrayMenuState state;
+  state.scheme = preferences.scheme;
+  state.shuangpin_profile = preferences.shuangpin_profile;
+  state.wubi_profile = preferences.wubi_profile;
+  for (const auto &item : msime::windows::tray_menu_scheme_items({}, state)) {
+    const auto *name = msime::windows::tray_menu_scheme(item.command);
+    if (!name || preferences.scheme != name) continue;
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+        item.label.data(), static_cast<int>(item.label.size()), nullptr, 0);
+    if (count <= 0) break;
+    std::wstring title(static_cast<size_t>(count), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, item.label.data(),
+        static_cast<int>(item.label.size()), title.data(), count) != count) break;
+    return {title, L"输入方案：" + title};
+  }
+  return {};
 }
 // Map the shared preferences onto the settings the TIP keeps in its own
 // globals. The TIP consumes every one of these, but nothing ever sent them, so
@@ -1070,18 +1094,24 @@ int wmain(int argc, wchar_t **argv) {
     // as the toolbar button. It must exist before WindowsServer construction:
     // a newly connected client may dispatch its first key immediately.
     startup_stage = "workers";
+    InputStateHudFeedback hud_feedback;
+    InputStateHudModeTracker hud_mode_tracker;
     CharacterSetClickWorker character_set_clicks(
-        [traditional_output, directory = config.state_root](
+        [traditional_output, &hud_feedback, directory = config.state_root](
             const CharacterSetClick &click) {
-          (void)persist_traditional_output(directory, *traditional_output,
-                                           click.desired);
+          const auto foreground = click.foreground ? click.foreground :
+              reinterpret_cast<uintptr_t>(GetForegroundWindow());
+          std::optional<bool> changed;
+          if (persist_traditional_output(directory, *traditional_output, click.desired, &changed) && changed)
+            hud_feedback.publish(character_set_hud(*changed), {}, foreground);
         });
     // TSF 的 Ctrl+Shift+J 同样经一个有界工作线程写偏好，同样要在 WindowsServer 构造之前就有。写成功后立刻更新托盘看到的方案，并唤醒偏好监视器，让当前会话尽快切换方案。
     auto wake_preferences =
         std::make_shared<std::pair<std::mutex, std::function<void()>>>();
     SingleClickWorker<JapaneseToggleRequest> japanese_toggles(
         [directory = config.state_root, language_dictionaries, tray_preferences,
-         tray_preferences_mutex, wake_preferences](const JapaneseToggleRequest &request) {
+         tray_preferences_mutex, wake_preferences, &hud_feedback](const JapaneseToggleRequest &request) {
+          const auto foreground = request.foreground;
           const auto scheme =
               toggle_japanese_scheme(directory, language_dictionaries);
           if (!scheme) {
@@ -1093,10 +1123,12 @@ int wmain(int argc, wchar_t **argv) {
             request.completion->set_value(PreferenceSnapshot::load(directory.u8string()));
           } catch (...) {
             request.completion->set_exception(std::current_exception());
+            return;
           }
           {
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             tray_preferences->scheme = *scheme;
+            hud_feedback.publish(scheme_hud(*tray_preferences), {}, foreground);
           }
           std::lock_guard lock(wake_preferences->first);
           if (wake_preferences->second)
@@ -1316,8 +1348,13 @@ int wmain(int argc, wchar_t **argv) {
     name_builtin_helpcodes(session_options, config.state_root);
     name_official_plugin_packs(session_options, executable_directory());
     startup_stage = "pipe_server";
-    // 单个按键被拒（RequestRejected）只断开那一个客户端，原因写进 Server 日志；不然日志里只剩随后的重连，看不出是哪一项校验没过。
     SessionPump::Presentation pump_presentation;
+    pump_presentation.delivered = [&](const FocusLease &lease, const PendingReply &reply,
+                                     const FanyImeNamedpipeData &) {
+      if (reply.dedicated_english_change)
+        hud_feedback.publish(dedicated_english_hud(*reply.dedicated_english_change), lease);
+    };
+    // 单个按键被拒（RequestRejected）只断开那一个客户端，原因写进 Server 日志；不然日志里只剩随后的重连，看不出是哪一项校验没过。
     pump_presentation.rejected = [&diagnostic_log](const std::string &line) {
       diagnostic_log.server(line);
     };
@@ -1327,7 +1364,7 @@ int wmain(int argc, wchar_t **argv) {
               ? production_key_handler(
                   [&character_set_clicks](bool desired) {
                     return character_set_clicks.submit(
-                        CharacterSetClick{desired});
+                        CharacterSetClick{desired, reinterpret_cast<uintptr_t>(GetForegroundWindow())});
                   },
                   [&japanese_toggles]() -> PreferenceChange {
                     auto completion = std::make_shared<std::promise<std::optional<PreferenceSnapshot>>>();
@@ -1336,8 +1373,25 @@ int wmain(int argc, wchar_t **argv) {
                     return result;
                   })
             : preview_key_handler(config),
-        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
-        std::move(pump_presentation));
+        [&](const FocusRoute &route, const FanyImeNamedpipeData &packet) {
+          if (!route.route) return true;
+          std::optional<InputStateHudText> feedback;
+          switch (packet.event_type) {
+          case FanyImePipeEventType::StatusSnapshot:
+          case FanyImePipeEventType::FocusRestored:
+            (void)hud_mode_tracker.observe(*route.route, packet.modifiers_down != 0,
+                                          packet.pinyin_length != 0, false);
+            break;
+          case FanyImePipeEventType::DoubleSingleByteSwitch:
+            feedback = hud_mode_tracker.observe(*route.route, packet.keycode != 0, {}, true);
+            break;
+          case FanyImePipeEventType::PuncSwitch:
+            feedback = hud_mode_tracker.observe(*route.route, {}, packet.keycode != 0, true);
+            break;
+          }
+          if (feedback) hud_feedback.publish(std::move(*feedback), *route.route);
+          return true;
+        }, std::move(pump_presentation));
     // Server 构造期间已可接收切换；安装与调用共用锁，异常展开也先撤销并等完旧回调。
     struct PreferenceWakeBinding {
       decltype(wake_preferences) &callback;
@@ -1459,8 +1513,10 @@ int wmain(int argc, wchar_t **argv) {
     });
     ModeClickWorker mode_clicks([&](const ModeClick &click) {
       if (click.mode == WorkerMode::English && server.dedicated_english_state(click.lease).value_or(false)) {
-        if (!server.exit_dedicated_english(click.lease))
+        bool changed = false;
+        if (!server.exit_dedicated_english(click.lease, &changed))
           throw std::runtime_error("Dedicated English exit failed");
+        if (changed) hud_feedback.publish(dedicated_english_hud(false), click.lease);
         return;
       }
       if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)
@@ -1499,8 +1555,12 @@ int wmain(int argc, wchar_t **argv) {
     // 托盘「英文候选模式」：在焦点会话上设置 Engine 的英文模式，最多等 2 秒，所以不在 UI 线程上做。成功后立刻发布，下一轮循环就把新状态推给 TIP（DedicatedEnglishChanged），重新打开的卡片也不必等 250 毫秒一次的读取。声明在 click_shutdown 之后，先于它析构，等它做完时 Server 仍在运行。
     SingleClickWorker<DedicatedEnglishSwitch> english_switches(
         [&](const DedicatedEnglishSwitch &request) {
-          if (server.set_dedicated_english(request.lease, request.enabled))
+          bool changed = false;
+          if (server.set_dedicated_english(request.lease, request.enabled, &changed)) {
             english_state.publish(request.lease, request.enabled);
+            if (changed)
+              hud_feedback.publish(dedicated_english_hud(request.enabled), request.lease);
+          }
         });
     startup_stage = "candidate_window";
     DesktopCandidateSettings candidate_settings;
@@ -1749,7 +1809,7 @@ int wmain(int argc, wchar_t **argv) {
       return (request && launch_shell(*request)) || open_system_screen_keyboard();
     };
     toolbar.set_character_set_action([&] {
-      (void)character_set_clicks.submit(CharacterSetClick{});
+      (void)character_set_clicks.submit(CharacterSetClick{{}, reinterpret_cast<uintptr_t>(GetForegroundWindow())});
     });
     toolbar.set_shell_available(settings_shell.has_value(), preview_shell.has_value());
     toolbar.set_settings_action([&] {
@@ -1783,6 +1843,7 @@ int wmain(int argc, wchar_t **argv) {
       theme_rows.push_back({std::move(id), std::move(title)});
     // 托盘卡片和悬浮工具栏的两个弹出菜单（切换输入方案、右键实用菜单）共用这一个命令处理和这一份状态，所以同一行从哪里点都走同一条路径。
     const auto tray_command = [&](TrayMenuCommand command) -> bool {
+          const auto command_foreground = reinterpret_cast<uintptr_t>(GetForegroundWindow());
           // The mode rows send what the toolbar button for the same mode sends, to the focused TIP, through the same worker. The card never takes focus, so the session the rows were drawn for is still the focused one.
           if (tray_menu_mode_row(command)) {
             const auto view = server.mode_view();
@@ -1811,13 +1872,17 @@ int wmain(int argc, wchar_t **argv) {
               return false;
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             tray_preferences->translations = next;
+            hud_feedback.publish(translations_hud(next), {}, command_foreground);
             return true;
           }
           if (const char *scheme = tray_menu_scheme(command)) {
-            if (!store_input_scheme(config.state_root, scheme))
+            bool changed = false;
+            if (!store_input_scheme(config.state_root, scheme, changed))
               return false;
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             tray_preferences->scheme = scheme;
+            if (changed)
+              hud_feedback.publish(scheme_hud(*tray_preferences), {}, command_foreground);
             return true;
           }
           // 工具栏右键菜单的「隐藏悬浮状态栏」和托盘的工具栏开关写同一个偏好，与 macOS 一样把开关记成关，重启后也不再出现。
@@ -1859,7 +1924,7 @@ int wmain(int argc, wchar_t **argv) {
           }
           // 繁体输出和工具栏的简繁按钮、Ctrl+Shift+F 走同一个工作线程，翻转存储的 traditional_chinese_output。
           if (command == TrayMenuCommand::ToggleTraditionalOutput)
-            return character_set_clicks.submit(CharacterSetClick{});
+            return character_set_clicks.submit(CharacterSetClick{{}, command_foreground});
           // 英文候选模式按 TIP 报告的状态进入或退出 Engine 的英文模式，规则和 TIP 的 Ctrl+Shift+E 相同（tray_menu_dedicated_english_action）。
           if (command == TrayMenuCommand::ToggleDedicatedEnglish) {
             const auto view = server.mode_view();
@@ -2138,7 +2203,10 @@ int wmain(int argc, wchar_t **argv) {
         stopping.store(true);
         return true;
       case MaintenanceAction::ClearCache: {
-        return server.reset_cache();
+        const auto foreground = reinterpret_cast<uintptr_t>(GetForegroundWindow());
+        if (!server.reset_cache()) return false;
+        hud_feedback.publish({L"缓存已清理", L"输入缓存已清理"}, {}, foreground);
+        return true;
       }
       // 与工具栏和托盘的键盘入口走同一条路：共享应用不在或起不来时退回系统屏幕键盘 osk.exe。
       case MaintenanceAction::OpenScreenKeyboard:
@@ -2414,14 +2482,22 @@ int wmain(int argc, wchar_t **argv) {
                                                                    : WorkerMode::English) !=
                 ModeRequestResult::Sent)
           mode_authority = mode_authority_push_failed(mode_authority);
-        // 用户在同一会话里切换了中英文：在光标旁显示「中」或「英」。光标先取前台线程的系统光标，没有时取这个会话最近一次组字的锚点（TSF 报来的物理像素，是文字底边的左端），都没有时放在屏幕下方居中。
-        if (mode_hud && view &&
-            should_show_input_mode_hud(input_mode_hud_enabled->load(std::memory_order_acquire),
-                                       decision.user_changed,
-                                       presentation != ForegroundPresentation::Windowed)) {
+        // mode_view 也会因锁忙返回空，仍有活动会话时留到下一轮校验，不能误当失焦丢掉提示。
+        std::optional<InputStateHudText> feedback;
+        if (view || !server.mode_active())
+          feedback = hud_feedback.take(view ? std::optional<FocusLease>(view->lease) : std::nullopt,
+                                       reinterpret_cast<uintptr_t>(foreground));
+        if (!feedback && decision.user_changed && view && view->chinese) {
+          std::lock_guard lock(*tray_preferences_mutex);
+          feedback = input_language_hud(*view->chinese, tray_preferences->scheme);
+        }
+        if (mode_hud && should_show_input_mode_hud(
+                input_mode_hud_enabled->load(std::memory_order_acquire), feedback.has_value(),
+                presentation != ForegroundPresentation::Windowed)) {
           auto caret = InputModeHudWindow::system_caret(foreground);
           if (!caret)
             if (const auto shown = server.candidate_view();
+                view &&
                 shown && shown->lease.token == view->lease.token &&
                 shown->lease.epoch == view->lease.epoch &&
                 same_ticket(shown->lease.transport, view->lease.transport) &&
@@ -2430,7 +2506,7 @@ int wmain(int argc, wchar_t **argv) {
               caret = HudRect{shown->caret_anchor_x, shown->caret_anchor_y - line,
                               shown->caret_anchor_x + 1, shown->caret_anchor_y};
             }
-          mode_hud->show(*view->chinese, caret, foreground);
+          mode_hud->show(std::move(*feedback), caret, foreground);
         }
         if (mode_hud && mode_hud->failed() && !mode_hud_failure_reported) {
           mode_hud_failure_reported = true;
