@@ -91,16 +91,27 @@ jobs:
       matrix:
         arch: [x64, x86, arm64]
     env:
-      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
       CARGO_INCREMENTAL: '0'
       # GitHub 托管 runner 没有 Depot Cache，sccache 改用 GitHub Actions 缓存。
       SCCACHE_GHA_ENABLED: ${{ needs.source.outputs.signpath == 'true' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
-      # Depot runners start with SCCACHE_WEBDAV_ENDPOINT pointing at Depot Cache, so with RUSTC_WRAPPER in the job env rustc output is cached across runs without a token. CARGO_INCREMENTAL=0 because sccache does not cache incremental compilation.
+      # Depot 的 runner 启动时已把 SCCACHE_WEBDAV_ENDPOINT 指向 Depot Cache，rustc 的产物跨运行缓存，不需要 token。缓存只为加速：sccache 装不上或服务起不来时（Depot Cache 一时连不上，#9658 的 Web engine 就这样在 cargo 第一步退出）照常不带缓存编译，只有服务真正启动了，「Enable sccache」才把 RUSTC_WRAPPER 写进环境；SCCACHE_IGNORE_SERVER_IO_ERROR=1 让构建途中服务出错时退回直接编译。 CARGO_INCREMENTAL=0 because sccache does not cache incremental compilation.
       - name: Install sccache
+        id: sccache
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       - if: matrix.arch == 'x64'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: 24}
@@ -163,14 +174,25 @@ jobs:
       VCPKG_DISABLE_METRICS: '1'
       # Python on Windows otherwise decodes text as the ANSI code page, and the fetch and packaging scripts read UTF-8 sources.
       PYTHONUTF8: '1'
-      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
       CARGO_INCREMENTAL: '0'
       SCCACHE_GHA_ENABLED: ${{ needs.source.outputs.signpath == 'true' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - name: Install sccache
+        id: sccache
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       - id: version
         shell: pwsh
         env: {VERSION: "${{ needs.source.outputs.version }}", RELEASE: "${{ needs.source.outputs.release }}"}
