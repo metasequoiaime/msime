@@ -57,9 +57,7 @@ public:
     SendMessageW(get(intensity), CB_SETCURSEL, static_cast<int>(value.effect_intensity), 0);
     for (size_t index = 0; index < plugin_preferences::model::effect_style_options.size(); ++index)
       if (plugin_preferences::model::effect_style_options[index].value == value.effect_style) SendMessageW(get(effect_style), CB_SETCURSEL, index, 0);
-    const auto label = L"音效包：" + value.key_sound_pack + L"\r\n旋律包：" + value.melody_pack +
-        L"\r\n音乐包：" + value.music_pack + L"\r\n特效包：" + value.effect_pack;
-    SetWindowTextW(get(selected_packs), label.c_str()); update();
+    update();
   }
   void enable(bool enabled) { enabled_ = enabled; update(); }
   void catalog(std::vector<plugin_preferences::model::Package> packages, bool loaded) { packages_ = std::move(packages); listed_ = loaded; update(); }
@@ -101,6 +99,13 @@ private:
     for (const auto& control : controls_) EnableWindow(control.second, enabled);
     if (!preferences_) return;
     const auto& value = *preferences_;
+    std::wstring label = L"音效包：" + value.key_sound_pack + L"\r\n旋律包：" + value.melody_pack +
+        L"\r\n音乐包：" + value.music_pack + L"\r\n特效包：" + value.effect_pack;
+    if (!value.effect_pack.empty()) label += L"\r\n特效包已接管打字效果样式与强度。";
+    else if (!listed_) label += L"\r\n尚未读取插件目录，背景音乐暂不可用。";
+    else if (plugin_preferences::model::music_pack_to_select(packages_, listed_).empty()) label += L"\r\n没有可用的背景音乐插件，背景音乐暂不可用。";
+    if (!statistics_.value_or(false)) label += L"\r\n打字统计未开启，成就音效暂不可用。";
+    SetWindowTextW(get(selected_packs), label.c_str());
     EnableWindow(get(mode), enabled && value.key_sound_enabled);
     EnableWindow(get(effect_style), enabled && value.effect_pack.empty());
     EnableWindow(get(intensity), enabled && value.effect_pack.empty());

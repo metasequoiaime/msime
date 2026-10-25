@@ -930,6 +930,7 @@ int main() {
     assert(saved.snapshot->preferences().at("scheme") == "japanese");
     assert(saved.snapshot->preferences().at("last_chinese_scheme") == "shuangpin");
     assert(!IsWindowEnabled(GetDlgItem(body, scheme_chinese)));
+    assert(SendMessageW(GetDlgItem(body, scheme_chinese), CB_GETCURSEL, 0, 0) == CB_ERR);
     assert(!IsWindowEnabled(GetDlgItem(body, scheme_shuangpin_profile)));
     select_value(scheme_language, find_combo(scheme_language, L"中文"));
     assert(store.load().snapshot->preferences().at("scheme") == "shuangpin");

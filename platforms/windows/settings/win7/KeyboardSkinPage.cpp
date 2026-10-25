@@ -214,7 +214,8 @@ struct KeyboardSkinPage::State {
       items = std::move(out.items); draft = std::move(out.design); selected = std::move(out.id); look = std::move(out.look); dirty = draft.is_object();
       for (const auto& item : items) if (item.at("id") == selected && item.at("design") == draft) dirty = false;
       filling = true; SendMessageW(control(library),CB_RESETCONTENT,0,0);
-      int index = 0, chosen = -1;
+      if (items.empty()) SendMessageW(control(library),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"暂无命名皮肤，请点击“保存为新设计”创建。"));
+      int index = 0, chosen = items.empty() ? 0 : -1;
       for (const auto& item : items) { const auto title = control_text::wide(item.at("name").get<std::string>()); SendMessageW(control(library),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(title.c_str())); if (item.at("id") == selected) { chosen = index; text(name,title); } ++index; }
       SendMessageW(control(library),CB_SETCURSEL,chosen,0); filling = false; fill();
       for (const auto& choice : {std::pair<int,const char*>{templates,"templates"},{backgrounds,"backgrounds"}}) {
@@ -229,6 +230,7 @@ struct KeyboardSkinPage::State {
         SendMessageW(control(ai_proposals),CB_SETCURSEL,0,0);
       }
     }
+    if (out.success && out.operation == Operation::read && items.empty()) out.message = L"暂无命名皮肤，请点击“保存为新设计”创建第一个。";
     text(notice,out.message); enable();
   }
   void command(WPARAM event) {

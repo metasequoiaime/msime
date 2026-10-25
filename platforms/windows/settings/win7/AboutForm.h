@@ -29,7 +29,7 @@ public:
     add(-1, L"STATIC", MSIME_EDITION_DISPLAY_NAME L" · Windows 7 支持", SS_LEFT, 36);
     add(version, L"STATIC", (L"当前版本 v" + control_text::wide(app_version_)).c_str(), SS_LEFT);
     button(check_update, L"检查 Windows 7 更新");
-    add(update_status, L"STATIC", L"只检查本版本的 Windows 7 专用安装包。", SS_LEFT, 56);
+    add(update_status, L"STATIC", L"尚未检查更新；检查后才会提供可打开的 Windows 7 发行页。", SS_LEFT, 56);
     add(update_detail, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 160);
     button(download, L"打开所选 Windows 7 发行页"); button(mirror, L"打开所选 Windows 7 安装包镜像");
     add(-1, L"STATIC", L"系统信息（不包含账号、输入内容或用户目录）", SS_LEFT, 48);

@@ -82,6 +82,7 @@ int main() {
   assert(revision() == initial.snapshot->revision());
   assert(!IsWindowEnabled(control(PluginEffectsForm::music_enabled)));
   assert(!IsWindowEnabled(control(PluginEffectsForm::achievements_enabled)));
+  assert(control_text::read(control(PluginEffectsForm::selected_packs))->find("背景音乐暂不可用") != std::string::npos);
   // 默认省略的插件对象只补用户修改的字段，不把整个默认对象写回。
   click(PluginEffectsForm::key_enabled);
   assert(prefs().at("plugins").at("key_sound").at("enabled") == true);
@@ -96,6 +97,7 @@ int main() {
   // 列表包含中文类型前缀，按已知唯一条目选中。
   select(PluginLibraryForm::packages_list, 0, LBN_SELCHANGE);
   click(PluginLibraryForm::use_pack); assert(prefs().at("plugins").at("effect_pack") == "synthetic-effect");
+  assert(control_text::read(control(PluginEffectsForm::selected_packs))->find("特效包已接管") != std::string::npos);
   assert(!IsWindowEnabled(control(PluginEffectsForm::intensity)));
   click(PluginLibraryForm::stop_pack); assert(prefs().at("plugins").value("effect_pack", std::string{}).empty());
   select(PluginEffectsForm::intensity, 64); assert(prefs().at("plugins").at("effect_intensity") == 64);

@@ -42,6 +42,7 @@ int main() {
     const auto click = [&](int id) { SendMessageW(control(id), BM_CLICK, 0, 0); wait(); };
     const auto text = [&](int id) { return control_text::read(control(id)).value(); };
     assert(!IsWindowEnabled(control(AboutForm::download)) && requests == 0);
+    assert(text(AboutForm::update_status).find("尚未检查更新") != std::string::npos);
     assert(store.load().snapshot->revision() == initial.snapshot->revision());
     click(AboutForm::check_update); assert(requests == 1 && text(AboutForm::update_status).find("暂无可用") != std::string::npos);
     Json update{{"version", {{"display", "999.0.0"}, {"parts", {999u, 0u, 0u}}}}, {"release_url", "https://github.com/metasequoiaime/msime/releases/tag/windows7-v999.0.0"},
