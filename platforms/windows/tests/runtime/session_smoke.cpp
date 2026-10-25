@@ -339,6 +339,38 @@ int main(int argc, char **argv) {
             .accepted,
         "Shared protocol negotiation failed");
     {
+      // 英文候选切换只有实际成功的回复带 HUD 标记，普通按键和英文输入态不带。
+      using namespace msime::windows;
+      FocusGate gate;
+      FocusedSession focused(gate, 42, options.dump());
+      const auto activation = *gate.begin(PipeTicket{42, {1, 2, 3}}, 77);
+      const auto lease = activation.pending;
+      require(focused.prepare(lease) && gate.acknowledge(lease, [] { return true; }),
+              "HUD English candidate activation failed");
+      FanyImeNamedpipeData packet{};
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.client_id = 42;
+      packet.request_id = 2;
+      packet.keycode = 'E';
+      packet.wch = 'e';
+      packet.modifiers_down = 0b11;
+      auto toggle = focused.basic_key(lease, packet, TsfPreeditStyle::Local);
+      require(toggle && toggle->dedicated_english_change == true &&
+                  focused.confirm(lease, packet.request_id),
+              "English candidates enabled without HUD change");
+      ++packet.request_id;
+      toggle = focused.basic_key(lease, packet, TsfPreeditStyle::Local);
+      require(toggle && toggle->dedicated_english_change == false &&
+                  focused.confirm(lease, packet.request_id),
+              "English candidates disabled without HUD change");
+      require(focused.set_input_enabled(lease, false), "HUD English input fixture failed");
+      ++packet.request_id;
+      toggle = focused.basic_key(lease, packet, TsfPreeditStyle::Local);
+      require(toggle && !toggle->dedicated_english_change &&
+                  focused.confirm(lease, packet.request_id),
+              "Disabled English candidate toggle emitted HUD change");
+    }
+    {
       // Ctrl+Shift+J：只在开关打开、中文状态、不在 Engine 英文模式时交给 persist，不改组字，回复不带帧（TIP 不读它）。
       using namespace msime::windows;
       FocusGate gate;

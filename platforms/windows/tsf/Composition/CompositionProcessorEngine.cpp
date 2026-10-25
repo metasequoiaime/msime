@@ -1207,7 +1207,12 @@ void CCompositionProcessorEngine::OnPreservedKey( //
         CCompartment CompartmentDoubleSingleByte(pThreadMgr, tfClientId,
                                                  Global::MetasequoiaIMEGuidCompartmentDoubleSingleByte);
         CompartmentDoubleSingleByte._GetCompartmentBOOL(isDouble);
-        CompartmentDoubleSingleByte._SetCompartmentBOOL(isDouble ? FALSE : TRUE);
+        if (SUCCEEDED(CompartmentDoubleSingleByte._SetCompartmentBOOL(isDouble ? FALSE : TRUE)))
+        {
+            const BOOL current = GetDoubleSingleByteMode(pThreadMgr, tfClientId);
+            if (current != isDouble)
+                SendDoubleSingleByteSwitchEventToUIProcessViaNamedPipe(current);
+        }
         *pIsEaten = TRUE;
     }
     else if (IsEqualGUID(rguid, _PreservedKey_Punctuation.Guid))
@@ -1217,11 +1222,14 @@ void CCompositionProcessorEngine::OnPreservedKey( //
             *pIsEaten = FALSE;
             return;
         }
-        // Ctrl + .: toggle Chinese/English punctuation
+        // Ctrl + . 切换后读回实际状态，标点锁或写入失败时不发成功提示。
         BOOL isPunctuation = FALSE;
         CCompartment CompartmentPunctuation(pThreadMgr, tfClientId, Global::MetasequoiaIMEGuidCompartmentPunctuation);
         CompartmentPunctuation._GetCompartmentBOOL(isPunctuation);
         SetPunctuationMode(pThreadMgr, tfClientId, isPunctuation ? FALSE : TRUE);
+        const BOOL current = GetPunctuationMode(pThreadMgr, tfClientId);
+        if (current != isPunctuation)
+            SendPuncSwitchEventToUIProcessViaNamedPipe(current);
         *pIsEaten = TRUE;
     }
     else

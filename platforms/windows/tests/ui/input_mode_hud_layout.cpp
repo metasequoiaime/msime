@@ -23,6 +23,18 @@ int main() {
     require(std::wstring(input_mode_hud_announcement(true)) == L"中文输入");
     require(std::wstring(input_mode_hud_announcement(false)) == L"英文输入");
 
+    // 长文字按实测宽度展开；切回单字后恢复原来的紧凑宽度。
+    require(input_mode_hud_metrics(false, 90.2).card_width() == 107.0);
+    require(input_mode_hud_metrics(true, 90.2).card_width() == 127.0);
+    require(input_mode_hud_metrics(false, 8).glyph == 18.0);
+    require(character_set_hud(true).text == L"繁");
+    require(character_set_hud(false).announcement == L"简体输出");
+    require(dedicated_english_hud(false).text == L"英文候选关");
+    require(translations_hud(true).text == L"译文开");
+    require(input_language_hud(true, "japanese").text == L"日");
+    require(input_language_hud(true, "korean").announcement == L"韩语输入");
+    require(input_language_hud(false, "japanese").text == L"英");
+
     // macOS 的紧凑尺寸：18 号字、高 32、logo 16、两侧各 8、logo 和字之间 4、圆角 8、描边 1。
     const auto metrics = input_mode_hud_metrics(true);
     require(metrics.font == 18.0 && metrics.height == 32.0 && metrics.logo == 16.0);

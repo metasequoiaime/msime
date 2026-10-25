@@ -36,7 +36,20 @@ Status: implemented
 
 **托盘卡片（`TrayMenuLayout.h`、`ShellSurfaces.h`）。** 语言行是「中文输入」「英文输入」。日语、韩语、越南语和藏文方案下第一行写「日语输入」「韩语输入」「越南语输入」「藏文输入」：macOS 不改这一行，但 Windows 有只提供日语、越南语或藏文的版本，在那里写「中文输入」是错的。方案行的名字与 macOS 方案菜单相同：日语、韩语、越南语。图标工具条保留，顺序改成工具栏、表情、键盘、手写、语音（macOS 输入菜单里同一组行的顺序）。之后是「云剪贴板…」「云词库…」两行，紧接着「词库…」「水杉输入法设置…」「关于水杉输入法…」，中间不另加分隔线（macOS 这一组只在设置之前有一条，工具条之后已经有一条），产品名取 `TrayMenuCapabilities::product_name`。多了一行，卡片在矮工作区里压缩时命令行的最小行高从 28 改成 26 DIP（`tray_menu_compact_row_height`），压缩后的主页仍是 499 DIP，200% 缩放的 1080p 工作区（约 500 DIP）放得下，最后一行不被裁掉。「云词库…」是新命令 `TrayMenuCommand::OpenCloudDictionary`，`shell_surface_request` 把它映射到 `cloud-dictionary` 路由，由 MSIME.exe 打开共享应用的云词库面板，与 macOS 的 `MSIMEOpenDesktopCloudDictionary` 打开的是同一个面板（client-core 的 `SurfaceRoute::CloudDictionary`）；共享应用不在时这一行不可用。`tray_menu_scheme_items` 多一个 `omit_unavailable` 参数，悬浮工具栏的方案菜单传 true，缺词典的粤拼、注音、笔画不列出；托盘的方案页仍列出并显示为不可用。
 
+### 输入状态提示覆盖范围
+
+`InputModeHudWindow` 接受显示文字和独立的无障碍播报。单字保持 18 号字、32 DIP 高的紧凑尺寸，多字用相同 DirectWrite 字体实测宽度后展开，切回单字恢复原宽。繁简、全半角、标点、英文候选、输入方案、候选译文和清缓存均复用既有 HUD 的主题、logo、光标定位、计时、总开关和全屏抑制，不改任何偏好默认值。方案名称复用托盘行，含双拼配置和五笔版本；非中文方案进入输入态使用所属语言的字形及播报。
+
+`InputStateHudFeedback` 只保留最后一次成功操作，界面每轮取走，关闭 HUD 或全屏时照样消费，不在恢复后重播；超过一秒的消息丢弃。会话状态按完整 `FocusLease`（客户端、三条管道代次、能力、激活 epoch、焦点 token）校验，全局偏好操作绑定发起时的前台窗口，切应用后不播过期结果。
+
+全半角和标点原本只经 `StatusSnapshot` 报告，无法区别用户操作与配置加载。TSF 的保留键、系统语言栏点击及 Server 的显式模式命令在修改后读回实际 compartment；确实改变才发送已有的 `DoubleSingleByteSwitch` / `PuncSwitch` 事件，再发完整快照。后台 compartment 回调继续只报快照。Server 输入队列的 tracker 用快照建立基线，仅这些明确事件产生反馈；重复事件、标点锁及设值失败不提示。HUD 仍由 Server 绘制，注入应用的 TSF DLL 不创建提示窗口，协议枚举不变。
+
+Ctrl+Shift+E 的 `PendingReply::dedicated_english_change` 只在 Engine 真正切换时写入，收到送达确认后发布；托盘或退出英文候选通过同一个输入队列操作的 `changed` 结果判断，退出操作同时让超时后仍运行的任务持有自己的结果和租约，不把两次独立读取之间的变化算作本次成功。繁简和方案只在 revision 写入成功且数值变化后提示，译文写入及清缓存也只在成功路径提示。偏好监视器不发布 HUD。有独立面板或直接视觉状态的语音、手写、表情和工具栏显隐不叠加提示。
+
 ## Alternatives considered
+
+- **比较连续完整快照来推断全半角、标点的用户切换** — 改动集中在 Server，不需碰 TSF。但应用切换、输入模式联动和后台标点锁也会改变快照，缺少来源；因此仅显式成功操作发送现有切换事件，完整快照仍只建立基线。
+- **发出模式命令或存储请求就立即显示成功** — 反馈更早，但命令送达不等于 TSF 应用，标点锁、写盘失败和焦点变化会产生假成功，因此等实际状态及送达确认。
 
 - **托盘工具条换成七行，与 macOS 输入菜单逐行一致** — 文字行能放下「水杉表情面板…」「手写输入…」「开始/结束语音输入」这些完整标题，键盘导航也只剩上下。但七行替换一条 52 DIP 的工具条，卡片高出约 170 DIP，150% 缩放的 1080p 工作区里命令行就要被压到 28 DIP 才放得下；用户也明确要保留工具条，只改顺序、文案并补云词库。
 - **去掉托盘的「词库…」，只留「云词库…」** — 与 macOS 输入菜单完全一致。但用户只要求补云词库，没有要求删词库；「词库…」直接打开设置窗口的词库页，是 Windows 上进本机词库最短的路。
@@ -69,3 +82,5 @@ Status: implemented
 `platforms/windows/tests/ui/` 下的 `toolbar_layout.cpp`（macOS 的高度、按钮、间隔、分隔线和尾部，logo 和握把两种模式在各字号下的整条宽度、22 DIP 的 logo，按钮之间不是按钮）、`toolbar_coordinates.cpp`（按钮上下留白、按钮之间、分隔线一带和尾部都拖动，只有 logo 一段显示移动光标）、`toolbar_icons.cpp`（模式按钮是文字、「.」「ཀ」「En」、藏文的字体）、`floating_toolbar_reload.cpp`（按钮顺序、表情缺省关）、`preview_config.cpp`（启动配置缺 `floating_toolbar_items` 时表情同样缺省关）、`candidate_palette.cpp`（圆角 10、描边 1）、`candidate_skin.cpp`（`handle` 不再改 accent）、`input_mode_hud_layout.cpp`（固定尺寸、logo 开关、淡出曲线）、`tray_menu_layout.cpp`、`toolbar_menus.cpp`、`shell_surfaces.cpp`、`accessible_elements.cpp`（托盘文案、顺序、云词库路由、工具栏方案菜单省略缺词典的方案，主页在 500 DIP 的工作区里压缩后放得下）。这些纯头文件的单测在 macOS 上用 clang++ 编译运行通过，Server 源文件和测试用 `x86_64-w64-mingw32-g++ -std=c++17 -fsyntax-only` 检查过。没有在 Windows 上运行过：工具栏和提示的实际观感（YaHei 字的位置、Himalaya 的「ཀ」、淡出的流畅度）、按钮之间拖动的手感、`UISettings` 在 Server 线程上取到的强调色、托盘「云词库…」拉起的面板，以及设置窗口工具栏预览的编译和截图，要由 Windows CI 和真机确认。
 
 相关：[Windows 悬浮工具栏补齐 macOS 的按钮、菜单与行为](2026-10-10-windows-floating-toolbar-mac-parity.md)（按钮组与菜单）、[Windows 托盘菜单补齐 macOS 输入菜单](2026-10-10-windows-tray-menu-mac-parity.md)（卡片的页与键盘操作）、[Windows 中英文切换体验对齐 macOS](2026-10-10-windows-input-mode-parity.md)（提示何时出现、摆在哪里，尺寸由本篇取代）、[Windows 打字特效的光标浮层](2026-10-10-windows-typing-effects-caret-overlay.md)（强调色来源由本篇取代）。
+
+输入状态 HUD 的扩展回归在 `input_mode_hud_layout.cpp` 验证多字扩宽、单字恢复和语言文案；`candidate_mailbox.cpp` 验证完整焦点身份、前台窗口变化、过期消息、只保留最终状态、同值事件和快照静默。`session_smoke.cpp` 验证实际 Engine 英文候选切换的成功标记和禁用时无标记，`dedicated_english_controller.cpp` 验证队列内的实际 changed 与重复设值。Windows 真桌面和读屏验收仍须独立完成；编译和纯规则测试不代表真实编辑器验收。
