@@ -12,6 +12,8 @@ Status: implemented
 
 首轮最后一个宿主启动前故意延迟 2 秒，保留本次调度迟到的回归场景。正常与升级场景精确核对等待请求及对应的启动次数；升级时多一次等待也会失败。停止场景的等待不自行结束，因此遗漏信号转发会卡住而被超时检出。生产启动器和公开配置不增加测试开关。
 
+夹具退出时仍清理每个自建进程组；只对尚未关闭的标准错误管道调用 `communicate`，已经读完关闭的管道改为 `wait` 回收。Python 3.7 的 `Popen` 在重复 `communicate` 时会再次注册已关闭的管道，导致 legacy 包的产品构建与安装成功后，单测在清理阶段以 `ValueError: Invalid file object` 失败。监督器测试文件的改动纳入 legacy workflow 的 PR 路径，直接覆盖最低支持的 Python 3.7。
+
 ## Historical audit
 
 检索活跃 proposed、implemented、rejected 的监督器文件名、崩溃守护、IBus 退避与启动器，没有既有时钟隔离决定。[IBus 按需激活](../../implemented/bug-fix/2026-10-20-linux-ibus-demand-activation.md)持有静态组件总线名与真实 daemon 验收；[Windows 本地门禁](../../implemented/testing/2026-10-14-windows-local-gate-portability.md)持有平台兼容和独立临时目录，两者均不持有本测试的计时策略。其余皮肤、WebKit 与图标笔记无关，没有完全吸收项或过时提案。
@@ -29,6 +31,8 @@ Python 官方 [sleep 文档](https://docs.python.org/3/library/time.html#time.sl
 - 给生产脚本增加测试时钟环境变量：注入直接，但会为测试扩大产品配置面；命令边界已可在夹具隔离。
 
 ## Verification
+
+legacy 清理兼容性在仓库锁定的 Debian 10 镜像（`debian:buster@sha256:58ce6f1271ae1c8a2006ff7d3e54e9874d839f573d8009c20154ad0f2fb0a225`）与 Python 3.7.3 下做红绿对照：旧夹具以 `ValueError: Invalid file object` 失败，修正后完整监督器脚本通过。只改变管道回收方式，保留生命周期、退避和信号断言。
 
 迟到 2 秒的场景先在旧断言下失败，三个间隔为 2.023、4.039、10.038 秒。受控时钟下完整脚本通过，用时 4.17 秒，保留 2、4、8 秒翻倍、升级保留退避、停止码、配置和宿主失效、三种停止信号与退避中断覆盖。将最小退避改成 3 秒、在升级分支插入等待，分别触发精确请求序列断言；删除对等待进程的停止转发则触发超时，夹具清理进程组，三个错误变体均被检出。
 
