@@ -616,7 +616,7 @@ test("the Chinese keyboard row offers 26, 14, 18 and 9 keys for 全拼 and 26 an
 test("a scheme with one keyboard says where to change it", async () => {
   renderSettings({
     page: "screen-keyboard",
-    preferences: { scheme: "shuangpin", touch_keyboard_layout: "twenty_six_key" },
+    preferences: { scheme: "wubi", touch_keyboard_layout: "twenty_six_key" },
   });
   await settingsFormReady();
   const row = shownValue("中文键盘") as HTMLButtonElement;
