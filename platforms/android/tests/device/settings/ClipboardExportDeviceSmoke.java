@@ -299,7 +299,15 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         });
         try {
             tap(target);
-            waitFor(() -> seen.get() || findAll(text(message)) != null, "in-app notice did not appear");
+            try {
+                waitFor(() -> seen.get() || findAll(text(message)) != null, "in-app notice did not appear");
+            } catch (AssertionError missing) {
+                // 只带系统设置与控件是否存在这类固定诊断，不带任何界面文字。
+                throw new AssertionError("in-app notice did not appear; animator_duration_scale="
+                    + shellText("settings get global animator_duration_scale").trim()
+                    + "; target present=" + (findAll(target) != null)
+                    + "; windows=" + automation.getWindows().size());
+            }
         } finally {
             automation.setOnAccessibilityEventListener(null);
         }
@@ -638,6 +646,15 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             if (current.isClickable() && current.isEnabled() && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
         }
         shell("input tap " + bounds.centerX() + " " + bounds.centerY());
+    }
+
+    private String shellText(String command) throws Exception {
+        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
+            var output = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            for (int count; (count = input.read(buffer)) != -1; ) output.write(buffer, 0, count);
+            return output.toString("UTF-8");
+        }
     }
 
     private void shell(String command) throws Exception {
