@@ -19619,7 +19619,7 @@ fn mobile_voice_status_export_uses_shared_status_rules() {
     });
     assert_eq!(
         result["value"]["status"],
-        "还需准备本地语音运行库，请到「模型」下载或导入"
+        "还需准备本地语音运行库，请在下方「本地识别准备」下载或导入"
     );
 
     let provider = "system";

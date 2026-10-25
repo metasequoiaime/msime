@@ -72,14 +72,14 @@ public final class VoiceProviderSettingsDeviceSmoke extends Instrumentation {
                 && "使用设备自带的语音识别服务".equals(status.invoke(null, "", null, true)),
             "未选择服务时空 UTF-8 请求仍按系统识别解释");
         Method localStatus = policy.getMethod("localStatus", boolean.class, boolean.class);
-        check("还需准备本地语音运行库，请到「模型」下载或导入".equals(
+        check("还需准备本地语音运行库，请在下方「本地识别准备」下载或导入".equals(
                 localStatus.invoke(null, true, false)),
             "共享 JNI 返回本地运行库状态");
         check(localStatus.invoke(null, true, true) == null
                 && status.invoke(null, "openai", "openai", false) == null
                 && status.invoke(null, "local", "local", true) == null,
             "已就绪的配置无需状态提示");
-        check("还没有选用可用模型，请到「模型」选用、下载或导入".equals(
+        check("还没有选用可用模型，请在下方「本地模型」选用、下载或导入".equals(
                 localStatus.invoke(null, false, false)),
             "缺少模型时优先提示模型");
         Class<?> polishPolicy = loader.loadClass("app.msime.android.VoicePolishSettingsPolicy");

@@ -167,11 +167,11 @@ pub fn mobile_voice_provider_status(
 /// 设置页本地模型行的状态文案。
 pub fn mobile_voice_local_status(model_ready: bool, runtime_ready: bool) -> Option<&'static str> {
     if !model_ready {
-        Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+        Some("还没有选用可用模型，请在下方「本地模型」选用、下载或导入")
     } else if runtime_ready {
         None
     } else {
-        Some("还需准备本地语音运行库，请到「模型」下载或导入")
+        Some("还需准备本地语音运行库，请在下方「本地识别准备」下载或导入")
     }
 }
 
@@ -889,11 +889,11 @@ mod tests {
     fn mobile_voice_local_status_prioritizes_model_then_runtime() {
         assert_eq!(
             mobile_voice_local_status(false, true),
-            Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+            Some("还没有选用可用模型，请在下方「本地模型」选用、下载或导入")
         );
         assert_eq!(
             mobile_voice_local_status(true, false),
-            Some("还需准备本地语音运行库，请到「模型」下载或导入")
+            Some("还需准备本地语音运行库，请在下方「本地识别准备」下载或导入")
         );
         assert_eq!(mobile_voice_local_status(true, true), None);
     }
