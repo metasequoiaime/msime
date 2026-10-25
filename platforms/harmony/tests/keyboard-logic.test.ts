@@ -3072,6 +3072,99 @@ group("14 键的网格与键面", () => {
       KeyboardScheme.keyGrid("twenty_six_key", "quanpin", false, "eighteen_key") === KeyGrid.NONE,
     "双拼 2in1 和全拼的独立布局不误开网格",
   );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "wubi", false, "twenty_six_key", "fourteen_key") ===
+      KeyGrid.FOURTEEN_KEY &&
+      KeyboardScheme.keyGrid("twenty_six_key", "wubi", false, "eighteen_key", "twenty_six_key") ===
+        KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("twenty_six_key", "wubi", false) === KeyGrid.NONE,
+    "五笔 14 键开网格 2，五笔 26 键（缺省）不开，双拼布局不影响五笔",
+  );
+  check(
+    KeyboardScheme.keyGrid("twenty_six_key", "wubi", true, "twenty_six_key", "fourteen_key") ===
+      KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("handwriting", "wubi", false, "twenty_six_key", "fourteen_key") ===
+        KeyGrid.NONE &&
+      KeyboardScheme.keyGrid(
+        "twenty_six_key",
+        "quanpin",
+        false,
+        "twenty_six_key",
+        "fourteen_key",
+      ) === KeyGrid.NONE &&
+      KeyboardScheme.keyGrid(
+        "twenty_six_key",
+        "shuangpin",
+        false,
+        "twenty_six_key",
+        "fourteen_key",
+      ) === KeyGrid.NONE,
+    "五笔 14 键在 2in1 和手写下不开网格，五笔布局不让全拼、双拼误开网格",
+  );
+  check(
+    KeyboardScheme.letterLayout(KeyboardScheme.WUBI, "twenty_six_key", "fourteen_key") ===
+      "fourteen_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.WUBI, "eighteen_key", "twenty_six_key") ===
+        "twenty_six_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.WUBI, "twenty_six_key", "eighteen_key") ===
+        "twenty_six_key",
+    "五笔按 touch_wubi_layout 画 14 键，只有 26 键和 14 键，不跟双拼布局",
+  );
+  check(
+    KeyboardScheme.letterLayout(KeyboardScheme.XIAOHE, "eighteen_key", "fourteen_key") ===
+      "eighteen_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.QUANPIN, "fourteen_key", "fourteen_key") ===
+        "twenty_six_key" &&
+      KeyboardScheme.letterLayout(
+        KeyboardScheme.QUANPIN_FOURTEEN_KEY,
+        "twenty_six_key",
+        "twenty_six_key",
+      ) === "fourteen_key" &&
+      KeyboardScheme.letterLayout(KeyboardScheme.HANDWRITING, "fourteen_key", "fourteen_key") ===
+        "handwriting",
+    "双拼看自己的布局，全拼看方案布局，手写不画字母键，五笔布局不影响它们",
+  );
+  check(
+    KeyboardScheme.acceptedKeyGrid("wubi", KeyGrid.FOURTEEN_KEY) === KeyGrid.FOURTEEN_KEY &&
+      KeyboardScheme.acceptedKeyGrid("wubi", KeyGrid.EIGHTEEN_KEY) === KeyGrid.NONE &&
+      KeyboardScheme.acceptedKeyGrid("wubi", KeyGrid.NINE_KEY) === KeyGrid.NONE &&
+      KeyboardScheme.acceptedKeyGrid("shuangpin", KeyGrid.EIGHTEEN_KEY_SHUANGPIN) ===
+        KeyGrid.EIGHTEEN_KEY_SHUANGPIN &&
+      KeyboardScheme.acceptedKeyGrid("quanpin", KeyGrid.NINE_KEY) === KeyGrid.NINE_KEY &&
+      KeyboardScheme.acceptedKeyGrid("japanese", KeyGrid.NINE_KEY) === KeyGrid.NONE,
+    "会话只给五笔开 14 键网格，日文和其他方案不开",
+  );
+  check(
+    !KeyboardScheme.fourteenKeySeparates("wubi", true) &&
+      !KeyboardScheme.fourteenKeySeparates("wubi", false) &&
+      KeyboardScheme.fourteenKeySeparates("quanpin", true) &&
+      KeyboardScheme.fourteenKeySeparates("shuangpin", true) &&
+      !KeyboardScheme.fourteenKeySeparates("quanpin", false),
+    "五笔 14 键的左端键一直是「符」，不送分词符；拼音组字中才是「分词」",
+  );
+  check(
+    TypingStatisticsPolicy.source("wubi", "xiaohe", false, KeyGrid.FOURTEEN_KEY, "none") ===
+      "wubi" &&
+      TypingStatisticsPolicy.source("wubi", "xiaohe", true, KeyGrid.FOURTEEN_KEY, "none") ===
+        "english",
+    "五笔 14 键的统计来源仍是 wubi，不计入全拼 14 键",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.WUBI, "qq", "wq", "wq") === "wq" &&
+      SchemeCompositionPolicy.fieldSpelling(SchemeTraits.WUBI, "qq", "wq", "wq") === "wq" &&
+      SchemeCompositionPolicy.caret(SchemeTraits.WUBI, 1, "wq", true) === 2,
+    "五笔 14 键读音行画首选编码（nine_key_reading），不画内部组码 editing_text",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.WUBI, "wq", "", "") === "wq" &&
+      SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.WUBI, true) &&
+      !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.WUBI, false),
+    "五笔 26 键照旧画键入的编码并写进输入框；五笔 14 键的编码与全拼 14 键一样留在读音行",
+  );
+  check(
+    !NineKeyPanelPolicy.threeColumn(true, SchemeTraits.WUBI, true),
+    "五笔 14 键展开候选用五笔自己的展开，不用九键三栏面板",
+  );
   check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
   check(
     !KeyboardScheme.usesFourteenKeyFace(true, true, "none"),
@@ -3904,6 +3997,26 @@ group("the wubi hint shows only the untyped suffix", () => {
     "a local mode candidate is not annotated",
   );
   check(WubiCodeHintPolicy.hint(null, "gg", true, 2, "none", false) === "", "a null code is safe");
+  // 五笔 14 键：组码 qq 下「多」（qqkk）和首选「你」（wqiy）各按自己的编码给出剩下的部分。
+  check(
+    WubiCodeHintPolicy.typed("qqkk", "wq", "fourteen_key", "qq") === "qq" &&
+      WubiCodeHintPolicy.typed("wqiy", "wq", "fourteen_key", "qq") === "wq" &&
+      WubiCodeHintPolicy.hint(
+        "qqkk",
+        WubiCodeHintPolicy.typed("qqkk", "wq", "fourteen_key", "qq"),
+        true,
+        2,
+        "none",
+        false,
+      ) === "kk",
+    "a fourteen-key candidate's typed part follows its own code on the typed groups",
+  );
+  check(
+    WubiCodeHintPolicy.typed("vbg", "wq", "fourteen_key", "qq") === "wq" &&
+      WubiCodeHintPolicy.typed("xxxx", "xx", "fourteen_key", "xx") === "xx" &&
+      WubiCodeHintPolicy.typed("ggll", "gg", "none", "gg") === "gg",
+    "a code off the typed groups and the 26-key layout fall back to the preedit",
+  );
   check(
     WubiCodeHintPolicy.hint("g".repeat(65), "g", true, 2, "none", false) === "",
     "an implausibly long code is refused rather than rendered",
