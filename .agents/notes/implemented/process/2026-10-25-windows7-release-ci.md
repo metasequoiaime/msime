@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-新增 `.github/workflows/release-windows7.yml`。它在涉及 Win7 产品、共享运行时或安装器的 pull request 上运行，也支持手动选择 Windows edition。工作流先在 Ubuntu runner 上构建并校验官方插件包，再在 Windows runner 上固定执行以下顺序：安装 Rust 和 vcpkg 的 Win7 静态依赖，构建 x64/x86 兼容核心与语音运行库，构建完整 Win7 原生产品，下载锁定的资源和词书，收集第三方声明，强制把同一份官方插件包装入暂存目录，分别准备并编译 x64 与 x86 安装包，使用本机测试证书签名后运行 x64 安装器冒烟，最后上传两个安装包、摘要和声明文件。
+新增 `.github/workflows/release-windows7.yml`。它只支持手动选择 Windows edition 和 dispatch，不在每个 pull request 上自动运行昂贵的发布打包。工作流先在 Ubuntu runner 上构建并校验官方插件包，再在 `windows-2022` runner 上固定执行以下顺序：安装 Rust 和 vcpkg 的 Win7 静态依赖，构建 x64/x86 兼容核心与语音运行库，构建完整 Win7 原生产品，下载锁定的资源和词书，收集第三方声明，强制把同一份官方插件包装入暂存目录，分别准备并编译 x64 与 x86 安装包，使用本机测试证书签名后运行 x64 安装器冒烟，最后上传两个安装包、摘要和声明文件。选择 `windows-2022` 是因为 Win7 专用构建脚本固定使用 `Visual Studio 17 2022` 生成器；`windows-2025` 当前镜像不提供该实例。PR 的普通 Windows 验证继续由现有 CI 负责。
 
 工作流只上传 CI 产物，不创建 GitHub Release，也不把本机测试证书当作正式发布签名。`windows7-install-smoke.ps1` 在 Windows runner 上验证安装、注册、升级、数据目录迁移和卸载；它不能替代 Win7 SP1 实机的系统 API、输入法上屏和音频验收，VM100 仍由产品验收流程执行。
 

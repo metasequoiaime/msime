@@ -1,29 +1,6 @@
 name: Release Windows 7
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/release-windows7.yml'
-      - 'crates/**'
-      - 'resources/**'
-      - 'shared/**'
-      - 'plugins/**'
-      - 'scripts/build-official-plugins.sh'
-      - 'scripts/build-script-plugins.sh'
-      - 'scripts/fetch_*.py'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'rust-toolchain.toml'
-      - 'platforms/windows/Build-Windows7*.ps1'
-      - 'platforms/windows/Copy-Windows7RuntimeClosure.ps1'
-      - 'platforms/windows/compat/**'
-      - 'platforms/windows/installer/**'
-      - 'platforms/windows/panels/win7/**'
-      - 'platforms/windows/scripts/edition_windows.py'
-      - 'platforms/windows/settings/win7/**'
-      - 'platforms/windows/tests/**'
-      - 'platforms/windows/version.txt'
-      - 'platforms/windows/Edition.cmake'
   workflow_dispatch:
     inputs:
       edition:
@@ -67,7 +44,7 @@ jobs:
   package:
     name: Windows 7 安装包（${{ github.event.inputs.edition || 'full' }}）
     needs: official-plugins
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 240
     env:
       EDITION: ${{ github.event.inputs.edition || 'full' }}

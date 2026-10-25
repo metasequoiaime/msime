@@ -107,13 +107,13 @@ final class FourteenKeyWubiDeviceChecks {
             t.await(t.described("按键 Q W"));
             assertStored("wubi86", "fourteen_key");
 
-            t.stage = "fourteen wubi password and URL fallback";
+            t.stage = "fourteen wubi password fallback, URL keeps the layout";
             t.tap(t.field("msime-test-password"));
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
             absent(t.described("按键 Q W"));
+            // 网址框（浏览器地址栏同时是搜索框）按默认中英文进框，保留 14 键（#9725）。
             editor(true);
-            t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
-            absent(t.described("按键 Q W"));
+            t.await(t.described("按键 Q W"));
             editor(false);
             t.await(t.described("按键 Q W"));
             t.stage = "fourteen wubi restart preserves the layout";

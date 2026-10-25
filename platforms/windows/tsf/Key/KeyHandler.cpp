@@ -1190,7 +1190,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
                 result.commit.push_back(static_cast<char>(wch));
                 result.handled = true;
             }
-            workerResult = _ApplyHostCompositionResult(ec, pContext, result);
+            workerResult = _ApplyHostCompositionResult(ec, pContext, result, false, static_cast<char>(wch));
         }
         tfSelection.range->Release();
         return workerResult;
@@ -1216,10 +1216,16 @@ Exit:
 }
 
 HRESULT CMetasequoiaIME::_ApplyHostCompositionResult(TfEditCookie ec, ITfContext *pContext,
-                                                       const msime::tsf::EngineResult &result, bool serverCommit)
+                                                       const msime::tsf::EngineResult &hostResult, bool serverCommit,
+                                                       char typedKey)
 {
     // 在线五笔先推进会话，文档等待同一回放 token 的 Server 最终文本。
-    if (!serverCommit && _wubiCommitOwner.observe(result)) return S_OK;
+    if (!serverCommit && _wubiCommitOwner.observe(hostResult)) return S_OK;
+    // 没有组字时宿主会话不收的字符已经被 TIP 吃下：按上屏这个字符处理。答「未处理」会让编辑会话返回 S_FALSE，回放队列把同一个键重放 8 次（Engine 每次都答同样的 handled=false），然后丢掉这个键、清空队列并重连。
+    msime::tsf::EngineResult declinedCommit;
+    const auto &result = typedKey != '\0' && msime::tsf::DeclinedIdleCharacterCommit(hostResult, typedKey, &declinedCommit)
+                             ? declinedCommit
+                             : hostResult;
     HRESULT outcome = S_OK;
     const auto status = msime::tsf::ApplyHostCharacterResult(result, [&](const std::string &text) {
         if (text.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return false;
