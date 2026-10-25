@@ -28,6 +28,8 @@ foreach ($statement in $ast.EndBlock.Statements) {
     }
 }
 Add-Type 'namespace System.Windows.Automation { public class ElementNotAvailableException : System.Exception {} }'
+# 最后一项要等满超时；真实验收的 15 秒在这里只是白等，2 秒足够覆盖前几项的几轮 200 毫秒重试。
+$script:pageIntroNameSeconds = 2
 $script:names = [System.Collections.Generic.Queue[string]]::new()
 $script:stale = $false
 $script:missing = $true

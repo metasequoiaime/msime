@@ -291,9 +291,11 @@ function Assert-SelectedAccent($element) {
         $bitmap.Dispose()
     }
 }
+# 页首名称最多等多久。`scripts/test-windows-settings-page-readiness.py` 只加载下面两个函数来测它们，把它调短：那里有一项要等满超时，按 15 秒等，加上 pwsh 冷启动和 Add-Type，在并行跑检查的 CI 机上会超过外层的 40 秒。
+$script:pageIntroNameSeconds = 15
 function Wait-PageIntroName($window, [string]$page) {
     # 节点先出现、名称稍后才可读；每轮重新查询，返回当次名称，避免断言再读到重建中的节点。
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    $deadline = [DateTime]::UtcNow.AddSeconds($script:pageIntroNameSeconds)
     do {
         try {
             $content = Find-ById $window 'settings-content'
