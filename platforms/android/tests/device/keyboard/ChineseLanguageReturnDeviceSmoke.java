@@ -309,9 +309,15 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
                 restartIme();
                 if (!originalIme.isEmpty() && !originalIme.equals("null")) shellDiscard("ime set " + originalIme);
             } finally {
-                for (String[] animation : animations) shellDiscard(animation[1].equals("null")
-                    ? "settings delete global " + animation[0]
-                    : "settings put global " + animation[0] + " " + animation[1]);
+                // 原本没设过时不能只删掉这一项：窗口管理器读不到值就沿用它内存里的上一个值，也就是这里设的 0，之后的套件全在没有动画的系统上跑（`settings get` 却报 null）。2026-10-25 API 35 上剪贴板导出因此等不到「这台设备没有可用的系统认证」提示。先写回默认的 1 让系统真正恢复，再删掉，回到没设过的状态。
+                for (String[] animation : animations) {
+                    if (animation[1].equals("null")) {
+                        shellDiscard("settings put global " + animation[0] + " 1");
+                        shellDiscard("settings delete global " + animation[0]);
+                    } else {
+                        shellDiscard("settings put global " + animation[0] + " " + animation[1]);
+                    }
+                }
             }
         }
     }
