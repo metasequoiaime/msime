@@ -187,7 +187,12 @@ export type Preferences = PunctuationPreferences &
     learning: boolean;
     /** 回车上屏英文时把该单词写入英文词库；Windows 出厂缺省为开启。 */
     enter_learns_english_word?: boolean;
-    diagnostic_log?: { server?: boolean; tsf?: boolean };
+    diagnostic_log?: {
+      server?: boolean;
+      tsf?: boolean;
+      /** 允许终端里的 `msime candidates` 按本机设置和词库输出候选；缺省关闭，和诊断日志一样只属于本机，不随云同步和设置文件导出。 */
+      command_line_candidates?: boolean;
+    };
     /** 只有 Windows TSF 读取：游戏声明自己画候选却不画时由水杉的候选窗显示。由 Windows 原生设置页编辑，这个页面没有对应控件；缺省为开启、两张进程表为空。 */
     game_compatibility?: {
       candidate_overlay?: boolean;

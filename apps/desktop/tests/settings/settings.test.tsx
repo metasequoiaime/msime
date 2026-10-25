@@ -2565,7 +2565,13 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
   expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
   expect(await within(developer).findByText("/synthetic/default-state")).toBeDefined();
   // 基础的服务操作在前，破坏性的那个在最后。
-  expect(groupTitles(developer)).toEqual(["输入法服务", "诊断日志", "数据目录", "卸载"]);
+  expect(groupTitles(developer)).toEqual([
+    "输入法服务",
+    "诊断日志",
+    "命令行工具",
+    "数据目录",
+    "卸载",
+  ]);
   const remove = screen.getByRole("checkbox", { name: /同时删除词库/ }) as HTMLInputElement;
   expect(remove.checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "卸载…" }));
@@ -3876,6 +3882,78 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   expect((await screen.findByRole("alert")).textContent).toBe(
     "无法在文件管理器中显示诊断日志，可能是文件管理器不可用。",
   );
+});
+
+test.each([
+  ["macos", true],
+  ["linux", true],
+  ["windows", true],
+  ["harmony", false],
+  ["android", false],
+  ["ios", false],
+  [undefined, false],
+] as const)(
+  "the command line candidate switch is offered only where the command ships (%s)",
+  async (platform, offered) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: platform ? testHost({ platform }) : undefined,
+        }}
+      />,
+    );
+    await settingsReady();
+    const toggle = screen.queryByLabelText("命令行查询候选") as HTMLInputElement | null;
+    if (!offered) {
+      expect(toggle).toBeNull();
+      return;
+    }
+    expect(toggle).not.toBeNull();
+    // 没写过这个键的配置一律是关着的。
+    expect(toggle?.checked).toBe(false);
+    const description =
+      document.getElementById(toggle?.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+    // Windows 包里只有 msime-mcp.exe，没有 msime 这个链接。
+    expect(description).toContain(
+      platform === "windows" ? "msime-mcp candidates" : "msime candidates",
+    );
+    expect(description).toContain("词库里有你打过的词");
+  },
+);
+
+test("the command line candidate switch saves under diagnostic_log and keeps the log switches", async () => {
+  const loaded: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, diagnostic_log: { server: true, tsf: false } },
+  };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(loaded),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...loaded,
+      revision: 8,
+      preferences,
+    })),
+    host: testHost({ platform: "macos" }),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
+  const toggle = (await screen.findByRole("switch", {
+    name: "命令行查询候选",
+  })) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...loaded.preferences,
+    diagnostic_log: { server: true, tsf: false, command_line_candidates: true },
+  });
+  expect(toggle.checked).toBe(true);
+  // 已经打开的诊断日志不受影响。
+  expect((screen.getByLabelText("输入法日志") as HTMLInputElement).checked).toBe(true);
 });
 
 test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])(

@@ -54,6 +54,41 @@ test("applies diagnostic updates to the latest draft", () => {
   });
 });
 
+test("command line candidates and diagnostic logs share diagnostic_log without overwriting each other", () => {
+  const setDraft = vi.fn();
+  const actions = createAboutSettingsActions({
+    checkForUpdate: vi.fn().mockResolvedValue(undefined),
+    chooseDataDirectory: vi.fn().mockResolvedValue(undefined),
+    confirmUninstall: vi.fn().mockResolvedValue(undefined),
+    selectPage: vi.fn(),
+    setDraft,
+  });
+
+  actions.onCommandLineCandidatesChange(true);
+  actions.onDiagnosticLogChange({ tsf: true });
+
+  const candidatesUpdater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  const diagnosticUpdater = setDraft.mock.calls[1][0] as (value: Preferences) => Preferences;
+  expect(
+    candidatesUpdater({ ...draft, diagnostic_log: { server: true, tsf: false } }).diagnostic_log,
+  ).toEqual({ server: true, tsf: false, command_line_candidates: true });
+  // 开日志时不能把已经打开的命令行开关冲掉。
+  expect(
+    diagnosticUpdater({
+      ...draft,
+      diagnostic_log: { server: false, tsf: false, command_line_candidates: true },
+    }).diagnostic_log,
+  ).toEqual({ server: false, tsf: true, command_line_candidates: true });
+  // 草稿里还没有 diagnostic_log 时，只写入这一项和两个日志开关的缺省值。
+  const { diagnostic_log: _omitted, ...withoutDiagnostics } = draft;
+  expect(candidatesUpdater(withoutDiagnostics).diagnostic_log).toEqual({
+    server: false,
+    tsf: false,
+    command_line_candidates: true,
+  });
+  expect(candidatesUpdater(undefined as unknown as Preferences)).toBeUndefined();
+});
+
 test("wraps async maintenance operations", () => {
   const checkForUpdate = vi.fn().mockResolvedValue(undefined);
   const chooseDataDirectory = vi.fn().mockResolvedValue(undefined);
