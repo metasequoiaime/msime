@@ -147,6 +147,10 @@ class ReleaseSigning(unittest.TestCase):
         self.assertIn('appgallery-msime-harmony-', workflow)
         self.assertNotIn("find platforms/harmony -type f -name '*.hap'", workflow)
 
+    def test_market_packer_preserves_hap_signature(self):
+        source = (ROOT / "platforms/harmony/sign-release.py").read_text()
+        self.assertIn('"--replace-pack-info", "false"', source)
+
 
 if __name__ == "__main__":
     unittest.main()

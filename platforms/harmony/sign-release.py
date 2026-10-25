@@ -146,7 +146,7 @@ def sign(args: argparse.Namespace) -> None:
         market_app = directory / f"msime-harmony-{args.version}.app"
         run(["java", "-jar", str(args.tool_dir / "app_packing_tool.jar"), "--mode", "app",
              "--hap-path", str(signed), "--pack-info-path", str(directory / "pack.info"),
-             "--out-path", str(market_app), "--force", "true"])
+             "--out-path", str(market_app), "--replace-pack-info", "false", "--force", "true"])
         with zipfile.ZipFile(market_app) as archive:
             haps = [name for name in archive.namelist() if name.endswith(".hap")]
             if len(haps) != 1 or archive.read(haps[0]) != signed.read_bytes():

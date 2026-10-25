@@ -16,6 +16,8 @@ HAP 使用 release 模式完整构建，签名前拒绝调试标记，并核对�
 
 GitHub 版本发布页只放已签名 HAP 和只列该 HAP 的 `SHA256SUMS`；应用市场提交 APP 放独立 workflow artifact。生成市场提交材料与完成应用市场审核是两个结果，不能把创建 GitHub release 报成市场上架成功。
 
+APP 打包必须传 `--replace-pack-info false`：华为工具的默认行为会重打包内层 HAP，即使所有 ZIP 条目内容没有变化，也会丢掉 ZIP 外的签名块。以本机已签名包实测，默认命令生成的内层 HAP 不同；关闭替换后内层 HAP 与输入逐字节一致。末尾的完整字节比较专门守住这一点。
+
 ## Alternatives considered
 
 - 复用真机已验证的 debug 签名包：能最快重装开发者自己的设备，但它限定设备、有调试授权，不能充当正式发布签名。
