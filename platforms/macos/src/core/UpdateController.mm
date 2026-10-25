@@ -79,20 +79,41 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 @interface MetasequoiaSparkleUpdateDriver : NSObject <MetasequoiaUpdateDriver, SPUUpdaterDelegate>
 @property(nonatomic, readonly) SPUStandardUpdaterController *updaterController;
 @property(nonatomic, copy, nullable) void (^pendingInstall)(void);
+@property(nonatomic, copy) NSString *updateChannel;
 @end
 
 @implementation MetasequoiaSparkleUpdateDriver
 
-- (instancetype)init
+- (instancetype)initWithUpdateChannel:(NSString *)channel
 {
     self = [super init];
     if (self != nil)
     {
+        // 先记下通道再启动 Sparkle：启动时它就会问 feed 地址，随后安排的检查也按这个通道取 appcast。
+        _updateChannel = [MSIMEUpdateChannelFromPreference(channel) copy];
         _updaterController = [[SPUStandardUpdaterController alloc] initWithStartingUpdater:YES
                                                                            updaterDelegate:self
                                                                         userDriverDelegate:nil];
     }
     return self;
+}
+
+- (void)setUpdateChannel:(NSString *)channel
+{
+    NSString *next = MSIMEUpdateChannelFromPreference(channel);
+    if ([next isEqualToString:_updateChannel]) return;
+    _updateChannel = [next copy];
+    // 换了通道就是换了 feed。按 SPUUpdater.h 的说明，设置变化后调用 resetUpdateCycle 重排检查计时，feed 变了时 Sparkle 会在后台马上检查一次；稍等片刻再重排，用户来回切换时只算最后一次。手动检查不受影响，下一次取 feed 时就读新通道。
+    [self.updaterController.updater resetUpdateCycleAfterShortDelay];
+}
+
+// Sparkle 每次检查前取 feed 地址都会问这里（SPUUpdater.feedURL），所以设置页改了通道，下一次检查就读新通道的 appcast。Info.plist 的 SUFeedURL 是稳定版的 feed，测试版和每日构建的地址由它推出；推不出来时返回 nil，Sparkle 用 SUFeedURL，也就是退回稳定版。
+- (nullable NSString *)feedURLStringForUpdater:(SPUUpdater *)updater
+{
+    (void)updater;
+    NSString *stable = [NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"];
+    if ([self.updateChannel isEqualToString:@"stable"]) return nil;
+    return MSIMEUpdateFeedURLForChannel(stable, self.updateChannel);
 }
 
 - (BOOL)canCheckForUpdates
@@ -137,9 +158,21 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 @interface MetasequoiaUpdateController ()
 @property(nonatomic) id<MetasequoiaUpdateDriver> driver;
 @property(nonatomic, copy) MetasequoiaUpdateActivationHandler activationHandler;
+@property(nonatomic, readwrite, copy, nullable) NSString *updateChannel;
 @end
 
+// sharedControllerWithUpdateChannelPreference: 在创建共享控制器之前写下的通道，只在主线程读写。
+static NSString *MetasequoiaLaunchUpdateChannel = nil;
+
 @implementation MetasequoiaUpdateController
+
++ (instancetype)sharedControllerWithUpdateChannelPreference:(id)preference
+{
+    MetasequoiaLaunchUpdateChannel = MSIMEUpdateChannelFromPreference(preference);
+    MetasequoiaUpdateController *controller = [self sharedController];
+    [controller applyUpdateChannelPreference:preference];
+    return controller;
+}
 
 + (instancetype)sharedController
 {
@@ -150,9 +183,10 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
       MetasequoiaUpdateRoute route = MSIMEUpdateRouteForHost(
           host.bundleIdentifier, host.bundlePath, [host objectForInfoDictionaryKey:@"SUFeedURL"]);
       id<MetasequoiaUpdateDriver> driver = nil;
+      NSString *launchChannel = MetasequoiaLaunchUpdateChannel;
       if (route == MetasequoiaUpdateRouteSparkle)
       {
-          driver = [[MetasequoiaSparkleUpdateDriver alloc] init];
+          driver = [[MetasequoiaSparkleUpdateDriver alloc] initWithUpdateChannel:launchChannel ?: @"stable"];
       }
       else if (route == MetasequoiaUpdateRouteReleasePage)
       {
@@ -189,6 +223,8 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
                                               [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
                                               [NSApp activateIgnoringOtherApps:YES];
                                             }];
+      // 驱动已经按这个通道创建，之后同样的偏好不必再交给它。
+      controller.updateChannel = launchChannel;
     });
     return controller;
 }
@@ -224,6 +260,14 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 - (void)installDownloadedUpdateIfReady
 {
     if ([self.driver respondsToSelector:@selector(installDownloadedUpdate)]) [self.driver installDownloadedUpdate];
+}
+
+- (void)applyUpdateChannelPreference:(id)preference
+{
+    NSString *channel = MSIMEUpdateChannelFromPreference(preference);
+    if ([channel isEqualToString:self.updateChannel]) return;
+    self.updateChannel = channel;
+    if ([self.driver respondsToSelector:@selector(setUpdateChannel:)]) [self.driver setUpdateChannel:channel];
 }
 
 @end

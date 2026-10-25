@@ -10,7 +10,7 @@ Windows、Linux、macOS 三个桌面平台要加「更新通道」：稳定版�
 
 ## Decision
 
-这一篇是 core 切片：偏好、构建身份、选择规则、后台检查和发布元数据。各平台的界面与提醒（Windows 托盘气泡、Linux 通知、macOS 分通道 appcast）各有自己的笔记。
+这一篇是 core 切片：偏好、构建身份、选择规则、后台检查和发布元数据。各平台的界面与提醒（Windows 托盘气泡、Linux 通知、macOS 分通道 appcast，见 [macOS 的更新通道](../feature/2026-10-25-macos-update-channels.md)）各有自己的笔记。
 
 ### 偏好
 

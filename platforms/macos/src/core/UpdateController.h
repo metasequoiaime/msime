@@ -2,6 +2,8 @@
 
 #import <AppKit/AppKit.h>
 
+#import "UpdateChannelFeed.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 @protocol MetasequoiaUpdateDriver <NSObject>
@@ -13,6 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 // without relaunching it; the system starts the input method again from the new bundle when it is next
 // needed.
 - (void)installDownloadedUpdate;
+// 偏好 update_channel 读出的通道（stable、beta、nightly）。Sparkle 驱动每次取 feed 时按它选 appcast（UpdateChannelFeed.h），通道变了就请 Sparkle 重排检查周期；其他驱动没有通道的概念，不实现它。
+- (void)setUpdateChannel:(NSString *)channel;
 @end
 
 typedef void (^MetasequoiaUpdateActivationHandler)(void);
@@ -69,6 +73,8 @@ typedef void (^MetasequoiaUpdateReleaseFailure)(void);
 
 @interface MetasequoiaUpdateController : NSObject
 + (instancetype)sharedController;
+// 输入法进程启动时用：带着偏好里的 update_channel 创建共享控制器，Sparkle 启动之前驱动就知道通道，它安排的第一次检查不会先按稳定版取 feed。控制器已经存在时等同于 applyUpdateChannelPreference:。只在主线程调用。
++ (instancetype)sharedControllerWithUpdateChannelPreference:(nullable id)preference;
 - (instancetype)initWithDriver:(id<MetasequoiaUpdateDriver>)driver
              activationHandler:(MetasequoiaUpdateActivationHandler)activationHandler;
 @property(nonatomic, readonly) BOOL canCheckForUpdates;
@@ -77,6 +83,10 @@ typedef void (^MetasequoiaUpdateReleaseFailure)(void);
 // Hands a background-downloaded update to the driver for installation. Never activates the process or
 // shows anything: it is called when the user has just switched to another input source.
 - (void)installDownloadedUpdateIfReady;
+// 偏好文档里 update_channel 的原值（缺省、未知值按稳定版，见 MSIMEUpdateChannelFromPreference）。和上次相同时什么也不做，不同时交给驱动。只在主线程调用。
+- (void)applyUpdateChannelPreference:(nullable id)preference;
+// 最近一次交给驱动的通道；还没有读到偏好时为 nil。
+@property(nonatomic, readonly, copy, nullable) NSString *updateChannel;
 @end
 #define MSIMEUpdateController MetasequoiaUpdateController
 

@@ -8,7 +8,7 @@ macOS 设置应用原来只比较输入法 bundle 的 `CFBundleShortVersionStrin
 
 ## Decision
 
-发布工作流把全局工作流运行 ID 归一化到 macOS 构建号范围后传给 CMake，手动或 nightly 也可以通过可复用工作流的 `build_number` 输入明确指定。CMake 将构建号编码到 `CFBundleVersion` 的低九位十进制范围（1–999999999），保留版本号部分的跨版本排序，并拒绝超出范围的值。本地构建没有传入覆盖值时继续读取 `platforms/macos/build-number.txt`。
+发布工作流把全局工作流运行 ID 归一化到 macOS 构建号范围后传给 CMake，手动或 nightly 也可以通过可复用工作流的 `build_number` 输入明确指定。CMake 将构建号编码到 `CFBundleVersion` 的低九位十进制范围（1–999999999），保留版本号部分的跨版本排序，并拒绝超出范围的值。本地构建没有传入覆盖值时继续读取 `platforms/macos/build-number.txt`。缺省构建号的来源已由[macOS 的更新通道](../feature/2026-10-25-macos-update-channels.md)从运行 ID 取模改为所构建提交的提交时间：运行 ID 取模约两个月回绕一次，同一版本号里的测试版和每日构建多起来以后会被 Sparkle 当成降级。CMake 的编码和范围校验不变。
 
 发布包还在输入法 `Info.plist` 中写入源码修订 `MSIMEInputSourceRevision`。设置应用比较到相同数值版本但修订不同、且新 bundle 带有该标记时刷新输入法；没有标记的旧开发构建不会因为缺少元数据而被反复替换。这样资源随源码变更时可以在不依赖构建号的情况下被识别，同时不改变“已安装副本更新时不降级”的规则。
 

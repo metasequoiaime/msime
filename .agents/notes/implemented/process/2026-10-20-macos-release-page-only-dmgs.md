@@ -16,7 +16,7 @@ Status: implemented
 
 - `package-release.sh` 的 `sparkle_download_prefix` 缺省是 `https://github.com/metasequoiaime/msime/releases/download/macos-appcast/`，更新包和 appcast 放在一起。zip 名本来就带版本号，不会互相覆盖。`SHA256SUMS` 只列 DMG；更新包的摘要写进单独的 `sparkle-SHA256SUMS`，随更新包一起放在 workflow artifact 和 `macos-appcast` 上。
 - 「Update the Sparkle appcasts」（只在 main 的正式版之后）调用 `platforms/macos/scripts/publish-sparkle-feed.sh`，顺序固定：本地用公钥核对 appcast 签名、每个 zip 的长度与 `sparkle:edSignature` 和 `sparkle-SHA256SUMS` → 已发布的 appcast 构建号更高就停下（沿用原来的「不倒退」检查）→ 上传 zip 和 `sparkle-SHA256SUMS` → 按 appcast 里的公开地址逐个下载、核对摘要 → 上传 appcast、下载回来逐字节比对 → 删掉 `macos-appcast` 上没有任何 appcast 指向的 `*-input-method.zip` / `*-settings.zip`。清理按 appcast 实际指向的文件判断，不按版本号：这次没有发布的版本（例如从 `MACOS_EDITIONS` 里去掉的）仍指着自己的 zip，不能删。任何一步失败，在线的 appcast 和它指向的 zip 都保持原样；zip 先于 appcast 上线，旧 zip 在新 appcast 上线之后才删，中间没有 appcast 指向不存在文件的时刻。
-- beta、alpha 和 nightly 的 zip 不进任何 release，只在 workflow artifact 里，与它们不更新 appcast 的规则一致。
+- beta、alpha 和 nightly 的 zip 不进任何 release，只在 workflow artifact 里，与它们不更新 appcast 的规则一致。这一条已由[macOS 的更新通道](../feature/2026-10-25-macos-update-channels.md)部分取代：develop 的测试版发布和每日构建现在把各自通道的 appcast 和更新包（文件名带通道和构建号）传到 `macos-appcast`，`publish-sparkle-feed.sh` 只清理自己通道的更新包；alpha 仍只在 workflow artifact 里。
 - 验签不需要私钥：`platforms/macos/scripts/sparkle_feed.py` 用 OpenSSL 3 的 Ed25519 按 `sparkle-public-key.txt` 核对。Sparkle 自带的 `sign_update --verify` 要读私钥（钥匙串或 `--ed-key-file`），用不上。appcast 的签名覆盖签名注释之前的 `length` 个字节，更新包的签名覆盖整个文件。
 
 ### dSYM 在 macos-symbols

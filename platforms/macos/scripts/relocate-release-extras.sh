@@ -75,7 +75,8 @@ if [[ -s "$work/release-archives" ]]; then
   : > "$work/referenced-archives"
   while IFS=$'\t' read -r feed build short url; do
     name="${url##*/}"
-    if [[ "$short" != "$version" ]]; then
+    # 测试版和每日构建的 appcast（appcast-beta-*、appcast-nightly-* 等）由各自的发布维护，迁移只重签稳定版的；和别的版本一样，它们不能指向这次要删的文件。
+    if [[ "$short" != "$version" || "$feed" =~ ^appcast-(settings-)?(beta|nightly)- ]]; then
       # 别的版本的 appcast 与这次迁移无关，但它不能指向这次要删的文件。
       ! grep -qxF -- "$name" "$work/release-archives" || fail "$feed 是 $short 的 appcast，却指向 $release 的 $name"
       continue
@@ -124,7 +125,8 @@ fi
 
 # ---- 发布到 macos-appcast 和 macos-symbols ----
 if [[ ${#feeds[@]} -gt 0 ]]; then
-  bash "$here/publish-sparkle-feed.sh" "$work/publish" "$version"
+  # 只重新发布原有的稳定版 appcast（换了更新包地址），不往测试版和每日构建的 appcast 里复制。
+  MSIME_SPARKLE_SKIP_WIDER=1 bash "$here/publish-sparkle-feed.sh" "$work/publish" "$version" stable
   verify_published
   for feed in "${feeds[@]}"; do
     cmp -s "$work/final/$feed" "$work/publish/$feed" || fail "macos-appcast 上的 $feed 不是刚发布的那份"

@@ -754,7 +754,7 @@ pub fn settings_update_supported() -> bool {
     unsafe { msime_macos_settings_update_supported() }
 }
 
-/// 在主线程打开 Sparkle 的检查、下载与安装界面；不接受调用方提供的 URL。
+/// 在主线程打开 Sparkle 的检查、下载与安装界面，读稳定版的 feed；不接受调用方提供的 URL。等同于 `check_settings_update_on_channel("stable")`。
 #[cfg(target_os = "macos")]
 pub fn check_settings_update() -> bool {
     unsafe extern "C" {
@@ -762,6 +762,19 @@ pub fn check_settings_update() -> bool {
     }
     // 原生端核对主线程，并从当前应用的签名元数据取得更新通道。
     unsafe { msime_macos_settings_update_check() }
+}
+
+/// 按更新通道在主线程打开 Sparkle 的检查、下载与安装界面。`channel` 是偏好 `update_channel` 的值：`"stable"` 读 Info.plist 的 `appcast-settings-<版本 id>.xml`，`"beta"`、`"nightly"` 读同一目录下的 `appcast-settings-<通道>-<版本 id>.xml`。其他值返回 `false`，不检查；不接受调用方提供的 URL。
+#[cfg(target_os = "macos")]
+pub fn check_settings_update_on_channel(channel: &str) -> bool {
+    unsafe extern "C" {
+        fn msime_macos_settings_update_check_channel(channel: *const std::ffi::c_char) -> bool;
+    }
+    let Ok(channel) = std::ffi::CString::new(channel) else {
+        return false;
+    };
+    // SAFETY: `channel` 是以 NUL 结尾的字符串，调用期间一直有效；原生端核对主线程，只在调用期间读它、不保留。
+    unsafe { msime_macos_settings_update_check_channel(channel.as_ptr()) }
 }
 
 #[cfg(test)]

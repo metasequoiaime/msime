@@ -7,6 +7,12 @@ publish-sparkle-feed.sh 和 relocate-sparkle-archives.sh 用它：
 - `verify`：用 `sparkle-public-key.txt` 里的公钥核对 appcast 自带的签名（`sparkle-signatures` 注释，签的是注释之前的 `length` 个字节）；给了 `--archives` 时再核对目录里同名更新包的长度和 `sparkle:edSignature`，给了 `--url-prefix` 时要求地址就是这个前缀加文件名。
 - `compare`：两份 appcast 除更新包地址之外每一项都相同，用来证明重新生成的 appcast 只换了地址。
 - `set-mtime`：把更新包的修改时间设成 appcast 里的 `pubDate`，`generate_appcast` 按修改时间写 `pubDate`，重新生成时才不会变。
+- `names`：一个版本在某个更新通道上的 appcast 与更新包文件名（package-release.sh 和 release-macos.yml 用），以制表符分隔。
+- `feeds`：核对一组 appcast 都属于给定的通道，打印每份的文件名、种类（input 或 settings）和版本 id。
+- `wider`：一份 appcast 还要复制到哪些更宽的通道（稳定版 → 测试版、每日构建；测试版 → 每日构建），每行一个目标文件名。
+- `archive-channel`：更新包文件名属于哪个通道。
+
+更新通道与 client-core 的偏好 `update_channel` 相同：stable、beta、nightly。稳定版沿用原来的文件名（`appcast-<版本 id>.xml`、`appcast-settings-<版本 id>.xml`、`<dmg_prefix>-VERSION-input-method.zip`），测试版和每日构建在版本 id 前插入通道名（`appcast-beta-full.xml`），更新包名里带通道和构建号（`<dmg_prefix>-VERSION-beta-<构建号>-input-method.zip`），同一版本号的几次测试版、每日构建和正式版互不覆盖。输入法和设置应用由 Info.plist 的稳定版 feed 推出其他通道的地址，规则在 platforms/macos/src/core/UpdateChannelFeed.h，两边要一致。
 
 Ed25519 验签用 OpenSSL 3（macOS 自带的 LibreSSL 不支持）：依次取 `MSIME_OPENSSL`、Homebrew 的 `openssl@3`、PATH 里的 `openssl`。
 """
@@ -39,6 +45,68 @@ DEFAULT_PUBLIC_KEY = Path(os.environ.get("MSIME_SPARKLE_PUBLIC_KEY_FILE") or Pat
 
 class FeedError(Exception):
     pass
+
+
+CHANNELS = ("stable", "beta", "nightly")
+# 选了更宽通道的用户也要拿到更窄通道里更新的构建：每日构建包含测试版和正式版，测试版包含正式版。发布一个通道时，appcast 也复制到这些更宽的通道（publish-sparkle-feed.sh 只在那边的构建更旧或还没有时才写）。
+WIDER_CHANNELS = {"stable": ("beta", "nightly"), "beta": ("nightly",), "nightly": ()}
+KINDS = ("input", "settings")
+EDITION_ID = re.compile(r"[a-z][a-z0-9_]*\Z")
+ARCHIVE_CHANNEL = re.compile(r"-(beta|nightly)-[1-9][0-9]*-(?:input-method|settings)\.zip\Z")
+
+
+def check_channel(channel: str) -> str:
+    if channel not in CHANNELS:
+        raise FeedError(f"不认识的更新通道 {channel!r}，应为 {'、'.join(CHANNELS)}")
+    return channel
+
+
+def check_edition(edition: str) -> str:
+    if not EDITION_ID.match(edition) or edition in ("settings", *CHANNELS):
+        raise FeedError(f"版本 id {edition!r} 不能用在 appcast 文件名里")
+    return edition
+
+
+def feed_name(kind: str, channel: str, edition: str) -> str:
+    """appcast 文件名：稳定版是 appcast-[settings-]<版本 id>.xml，其他通道在版本 id 前插入通道名。"""
+    if kind not in KINDS:
+        raise FeedError(f"不认识的 appcast 种类 {kind!r}")
+    check_channel(channel)
+    check_edition(edition)
+    parts = ["appcast"] + (["settings"] if kind == "settings" else []) + ([] if channel == "stable" else [channel]) + [edition]
+    return "-".join(parts) + ".xml"
+
+
+def parse_feed_name(name: str) -> tuple[str, str, str]:
+    """feed_name 的反过来：返回（种类，通道，版本 id）。"""
+    if not name.startswith("appcast-") or not name.endswith(".xml"):
+        raise FeedError(f"{name} 不是 appcast-*.xml")
+    rest = name[len("appcast-"):-len(".xml")]
+    kind = "input"
+    if rest.startswith("settings-"):
+        kind, rest = "settings", rest[len("settings-"):]
+    channel = "stable"
+    for candidate in CHANNELS[1:]:
+        if rest.startswith(candidate + "-"):
+            channel, rest = candidate, rest[len(candidate) + 1:]
+            break
+    check_edition(rest)
+    return kind, channel, rest
+
+
+def archive_name_for(kind: str, channel: str, prefix: str, version: str, build: int) -> str:
+    check_channel(channel)
+    suffix = "input-method" if kind == "input" else "settings"
+    if channel == "stable":
+        return f"{prefix}-{version}-{suffix}.zip"
+    if build < 1:
+        raise FeedError(f"构建号必须是正整数，不是 {build}")
+    return f"{prefix}-{version}-{channel}-{build}-{suffix}.zip"
+
+
+def archive_channel(name: str) -> str:
+    match = ARCHIVE_CHANNEL.search(name)
+    return match.group(1) if match else "stable"
 
 
 def openssl() -> str:
@@ -186,6 +254,36 @@ def command_set_mtime(args: argparse.Namespace) -> None:
     os.utime(args.archive, (timestamp, timestamp))
 
 
+def command_names(args: argparse.Namespace) -> None:
+    fields = (
+        feed_name("input", args.channel, args.edition),
+        feed_name("settings", args.channel, args.edition),
+        archive_name_for("input", args.channel, args.prefix, args.version, args.build),
+        archive_name_for("settings", args.channel, args.prefix, args.version, args.build),
+    )
+    print("\t".join(fields))
+
+
+def command_feeds(args: argparse.Namespace) -> None:
+    check_channel(args.channel)
+    for path in args.appcasts:
+        kind, channel, edition = parse_feed_name(path.name)
+        if channel != args.channel:
+            raise FeedError(f"{path.name} 是 {channel} 通道的 appcast，不是 {args.channel}")
+        print("\t".join((path.name, kind, edition)))
+
+
+def command_wider(args: argparse.Namespace) -> None:
+    kind, channel, edition = parse_feed_name(args.appcast)
+    for wider in WIDER_CHANNELS[channel]:
+        print(feed_name(kind, wider, edition))
+
+
+def command_archive_channel(args: argparse.Namespace) -> None:
+    for name in args.names:
+        print(f"{name}\t{archive_channel(name)}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -206,6 +304,23 @@ def main() -> int:
     set_mtime.add_argument("appcast", type=Path)
     set_mtime.add_argument("archive", type=Path)
     set_mtime.set_defaults(run=command_set_mtime)
+    names = commands.add_parser("names")
+    names.add_argument("--channel", required=True)
+    names.add_argument("--edition", required=True)
+    names.add_argument("--prefix", required=True)
+    names.add_argument("--version", required=True)
+    names.add_argument("--build", type=int, required=True)
+    names.set_defaults(run=command_names)
+    feeds = commands.add_parser("feeds")
+    feeds.add_argument("--channel", required=True)
+    feeds.add_argument("appcasts", nargs="+", type=Path)
+    feeds.set_defaults(run=command_feeds)
+    wider = commands.add_parser("wider")
+    wider.add_argument("appcast")
+    wider.set_defaults(run=command_wider)
+    archive = commands.add_parser("archive-channel")
+    archive.add_argument("names", nargs="+")
+    archive.set_defaults(run=command_archive_channel)
     args = parser.parse_args()
     try:
         args.run(args)

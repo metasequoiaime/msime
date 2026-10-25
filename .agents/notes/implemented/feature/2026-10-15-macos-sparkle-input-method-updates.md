@@ -18,6 +18,8 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
 
 ### 版本号
 
+构建号字段后来扩成九位（[macOS 预发布构建号与随附资源刷新](../bug-fix/2026-10-22-macos-prerelease-resource-refresh.md)），发布工作流的缺省构建号现在由所构建提交的时间算出（[macOS 的更新通道](2026-10-25-macos-update-channels.md)）；下面一段保留当时的编码。
+
 `CFBundleVersion` 由 `platforms/macos/CMakeLists.txt` 算出：`((主 × 1000 + 次) × 1000 + 修订) × 1000 + build-number.txt`，0.54.0 的构建 1 是 `54000001`。它跨版本单调递增，满足 Sparkle 的降级检查；仍是一个整数，因为设置应用把构建号按 `u64` 解析（`macos_input_source.rs` 的 `BundleVersion`），带点的写法会让它读不出版本、把已装的输入法当成可以覆盖。次版本号、修订号和构建号必须小于 1000，CMake 在配置时检查。`build-number.txt` 的含义不变，每个新版本仍从 1 开始。已经装在用户机器上的旧版本构建号是个位数，比任何新值都小。
 
 ### 只有发布包带 feed
@@ -28,6 +30,8 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
 - 发布包只编 full，`edition_bundle.py` 把 bundle 改成其他版本时把 `appcast-full.xml` 换成 `appcast-<版本 id>.xml`。
 
 ### 更新包与 appcast
+
+测试版和每日构建不再只跟随正式版：[macOS 的更新通道](2026-10-25-macos-update-channels.md)给它们各加了一组 appcast（`appcast-beta-<版本 id>.xml`、`appcast-nightly-<版本 id>.xml`），由 develop 的测试版发布和每日构建上传，输入法按偏好 `update_channel` 从 `SUFeedURL` 推出要读的那一份；下面写的稳定版 appcast 和它的发布条件不变。
 
 更新包的存放位置已由[macOS 版本发布页只放 DMG](../process/2026-10-20-macos-release-page-only-dmgs.md)取代：更新包与 appcast 一起放在 `macos-appcast` 上，不再挂在 `macos-vVERSION` 上、也不写进 SHA256SUMS。下面两段保留当时的做法。
 

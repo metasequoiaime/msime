@@ -20,6 +20,7 @@ fn main() {
     // feature area` and the stale one meant an edit to the header rebuilt nothing.
     println!("cargo:rerun-if-changed=../../platforms/macos/src/voice/VoiceCaptureDevice.h");
     println!("cargo:rerun-if-changed=native/updater.mm");
+    println!("cargo:rerun-if-changed=../../platforms/macos/src/core/UpdateChannelFeed.h");
     cc::Build::new()
         .cpp(true)
         .file("native/keyboard.mm")

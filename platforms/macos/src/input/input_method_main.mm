@@ -10,6 +10,7 @@
 #import "../core/FloatingToolbarPanel.h"
 #import "../core/UsageReporting.h"
 #import "../core/UpdateController.h"
+#import "MSIMEClientSession.h"
 #import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
 #include "../core/DiagnosticLog.h"
@@ -157,7 +158,22 @@ int main(int argc, const char *argv[]) {
                     if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) [[MSIMEUpdateController sharedController] installDownloadedUpdateIfReady];
                 }];
         // 带 feed 的发布包在这里启动 Sparkle，它才会按 SUScheduledCheckInterval 在后台检查和下载；没有 feed 的构建不创建更新控制器，「检查更新…」用到时再建。
-        if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) (void)[MSIMEUpdateController sharedController];
+        // 先在后台队列读出偏好里的更新通道（update_channel），回到主线程再带着它创建控制器：Sparkle 启动后安排的第一次检查就取用户所选通道的 appcast，读偏好文件也不占用处理按键的主线程。偏好读不出来时按稳定版。之后的通道变化由 InputController 读偏好时交给控制器。
+        if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) {
+            NSString *updatePreferences = [reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath]
+                ? [reportingPreferences copy] : nil;
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                id channel = nil;
+                if (updatePreferences) {
+                    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:updatePreferences error:nil];
+                    NSDictionary *preferences = [snapshot[@"preferences"] isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+                    channel = preferences[@"update_channel"];
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    (void)[MSIMEUpdateController sharedControllerWithUpdateChannelPreference:channel];
+                });
+            });
+        }
         Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
         id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
         if ([shared respondsToSelector:@selector(startClipboardCaptureWithOptions:)]) {
