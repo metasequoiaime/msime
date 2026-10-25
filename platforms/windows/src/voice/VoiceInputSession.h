@@ -42,7 +42,7 @@ struct VoiceInputConfig {
   std::string commit_mode = "tsf";
   // 原生语音上屏前是否转成繁体：traditional_chinese_output 打开，而且正在运行的方案做简繁转换（scheme::ScriptConversionApplies，日文等方案原样上屏），与候选和上屏的 traditional_projection 同一规则。
   bool traditional_output = false;
-  std::string asr_provider = "doubao";
+  std::string asr_provider = "local";
   // Provider "local" only: the installed catalog model directory (voice_input.asr_model_path).
   std::string asr_model_path;
   // The Server's HostOptions JSON, for reading the user's dictionary words as local-recognition hotwords. Shared so that copying the config for each dictation does not copy the document.

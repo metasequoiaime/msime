@@ -13,7 +13,7 @@ test("语音输入偏好公共模型与总偏好保持一致", () => {
   expect(sharedDefault).toEqual({
     enabled: true,
     language: "zh-CN",
-    asr_provider: "doubao",
+    asr_provider: "local",
     doubao_auth_mode: "api_key",
     asr_resource_id: "volc.seedasr.sauc.duration",
   });

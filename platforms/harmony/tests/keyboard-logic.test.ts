@@ -1279,6 +1279,10 @@ group("bounds native speech language, session and result text", () => {
 group("voice input preference gates every Harmony entry point", () => {
   check(DEFAULT_VOICE_INPUT_CONFIGURATION.enabled, "voice input is enabled by default");
   check(
+    DEFAULT_VOICE_INPUT_CONFIGURATION.asr_provider === "local",
+    "the factory recognizer is the offline local model, as in client-core",
+  );
+  check(
     VoiceInputConfigurationPolicy.enabled(undefined),
     "legacy documents without the field remain enabled",
   );
@@ -1325,15 +1329,12 @@ group("describes the configured voice provider accurately", () => {
 });
 
 group(
-  "an untouched Doubao default stays on the system recognizer, a partial one says what is missing",
+  "an untouched legacy Doubao default stays on the system recognizer, a partial one says what is missing",
   () => {
     const doubao = { ...DEFAULT_VOICE_INPUT_CONFIGURATION, asr_provider: "doubao" };
-    // The shipped default is doubao with no credential at all: that is "not configured", not an error.
-    check(
-      !DoubaoCredentialPolicy.attempted(doubao),
-      "the shipped default does not route to Doubao",
-    );
-    check(DoubaoCredentialPolicy.missing(doubao) === null, "the shipped default raises no error");
+    // 旧版出厂是不带任何凭据的 doubao（现在出厂是 local），这读作「没有配置」，不是错误。
+    check(!DoubaoCredentialPolicy.attempted(doubao), "the legacy default does not route to Doubao");
+    check(DoubaoCredentialPolicy.missing(doubao) === null, "the legacy default raises no error");
     check(
       VoiceInputConfigurationPolicy.description(doubao).includes("暂用 HarmonyOS 系统语音识别"),
       "the voice panel says the system recognizer is in use",

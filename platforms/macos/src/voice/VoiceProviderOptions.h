@@ -16,15 +16,16 @@ static inline BOOL MSIMEVoiceUsesLocalModelHelper(NSString *provider, BOOL provi
     return !providerSocketAvailable && modelDirectory && [provider.lowercaseString isEqual:@"local"];
 }
 
-// `local` without an installed model directory - no path, a Whisper model file saved before the model catalog, or a model deleted since - has nothing to run. Recording is refused before capture and the user is pointed at the voice settings, as Android's LocalAsrPolicy refuses a Whisper file, rather than the audio going to a recognizer the user did not pick. An external provider socket still owns all routing when present.
+// `local` without an installed model directory - no path, a Whisper model file saved before the model catalog, or a model deleted since - has nothing to run. Recording is refused before capture and the user is pointed at the voice settings, as Android's LocalAsrPolicy refuses a Whisper file, rather than the audio going to a recognizer the user did not pick. 未设置的服务按出厂默认 `local` 算（client-core 的 `VoiceInputPreferences::default`）。An external provider socket still owns all routing when present.
 static inline BOOL MSIMEVoiceLocalModelMissing(NSString *provider, BOOL providerSocketAvailable, BOOL modelDirectory) {
-    return !providerSocketAvailable && !modelDirectory && [provider.lowercaseString isEqual:@"local"];
+    return !providerSocketAvailable && !modelDirectory &&
+        (!provider || [provider.lowercaseString isEqual:@"local"]);
 }
 
-// MSIME-Windows StartRecording refuses to record when the current ASR provider has no API token, and tells the user where to fill it in. Here that covers the providers this host calls itself with a token - the HTTPS presets and Doubao, which an unset provider preference means - and not the on-device, system Speech or external-socket paths, which take none from this preference.
+// MSIME-Windows StartRecording 在当前识别服务没有 API Token 时拒绝录音，并告诉用户去哪里填。这里覆盖本宿主自己带 Token 调用的服务——HTTPS 预设和豆包；本地模型（未设置时的出厂默认）、系统语音和外部 socket 都不从这项偏好取 Token，不在此列。
 static inline BOOL MSIMEVoiceASRTokenMissing(NSString *provider, NSString *token, BOOL providerSocketAvailable) {
     if (providerSocketAvailable || token.length) return NO;
-    return !provider || [provider.lowercaseString isEqual:@"doubao"] ||
+    return [provider.lowercaseString isEqual:@"doubao"] ||
         MSIMEVoiceUsesNativeHTTPProvider(provider, NO);
 }
 

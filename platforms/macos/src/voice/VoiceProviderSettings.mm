@@ -217,9 +217,9 @@ static NSString *SharedSetting(NSString *key, NSString *fallback)
     if (!saved)
         saved = @{};
     NSString *rawProvider =
-        SharedSetting(@"provider", @"doubao").lowercaseString;
+        SharedSetting(@"provider", @"local").lowercaseString;
     if (![MSIMEVoiceASRProviderIDs() containsObject:rawProvider])
-        rawProvider = @"doubao";
+        rawProvider = @"local";
     value.provider = rawProvider;
     value.endpoint = SharedSetting(@"endpoint", @"");
     value.model = SharedSetting(@"model", @"");

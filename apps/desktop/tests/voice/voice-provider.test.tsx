@@ -127,22 +127,33 @@ test("a stored system provider is preserved on macOS and Windows and marked unav
   }
 });
 
+// 桌面和鸿蒙的设置页都注入本地模型客户端（`apps/desktop/src/main.tsx`、`apps/harmony/src/main.tsx`），下拉里因此有「本地模型（离线）」。
+const localVoiceModels: NonNullable<SettingsClient["localVoiceModels"]> = {
+  list: async () => ({ models: [], default: "", root: "" }),
+  install: async () => "",
+  cancel: async () => false,
+  remove: async () => {},
+  onProgress: async () => () => {},
+};
+
 test("the recognition dropdown only offers providers a backend implements", async () => {
-  mount({});
+  mount({ localVoiceModels });
   const select = await openVoice();
   const offered = Array.from(select.options).map((option) => option.value);
-  expect(offered.sort()).toEqual([...REACHABLE].sort());
+  expect(offered.sort()).toEqual([...REACHABLE, "local"].sort());
   // These two shipped for a while and no backend has ever implemented them.
   expect(offered).not.toContain("local_whisper");
   expect(offered).not.toContain("cloud");
 });
 
-test("the default recognition provider is one the dropdown offers", async () => {
-  mount({});
+test("the default recognition provider is the offline local model the dropdown offers", async () => {
+  mount({ localVoiceModels });
   const select = await openVoice();
-  expect(REACHABLE).toContain(select.value);
-  // A default outside the option list would render as an empty selection.
-  expect(select.value).not.toBe("");
+  expect(select.value).toBe("local");
+  // A default outside the option list would render as an empty selection or a disabled entry.
+  expect(Array.from(select.options).find((option) => option.value === "local")?.disabled).toBe(
+    false,
+  );
 });
 
 test("a stored provider selection round-trips through save", async () => {

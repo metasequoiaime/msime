@@ -1476,6 +1476,20 @@ fn candidate_translations_keep_legacy_and_explicit_choices() {
 }
 
 #[test]
+fn voice_provider_defaults_to_the_offline_local_model() {
+    // 出厂识别服务是本地模型：音频不离开设备、不需要 API Key。出厂文档本身要能通过校验。
+    let defaults = Preferences::default();
+    assert_eq!(defaults.voice_input.asr_provider, "local");
+    defaults.validate().expect("factory preferences validate");
+    // 只改出厂值：旧版本写下的 `doubao` 原样保留，不迁移。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy["voice_input"]["asr_provider"] = "doubao".into();
+    let legacy = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert_eq!(legacy.voice_input.asr_provider, "doubao");
+    legacy.validate().expect("a stored doubao choice validates");
+}
+
+#[test]
 fn voice_language_default_uses_the_bcp47_region_form() {
     // 共享设置页（React 的 `defaultVoiceInput`）和 macOS 原生回退窗口都写 `zh-CN`。共享默认以前是
     // 小写的 `zh-cn`，同一份文档因此可能带着两种写法，界面和读盘比较只能靠不区分大小写兜住。

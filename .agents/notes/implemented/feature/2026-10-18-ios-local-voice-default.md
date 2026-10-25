@@ -21,7 +21,7 @@ iOS 的语音服务保存在本机 UserDefaults。没有配置时，`CustomServi
 ## Alternatives considered
 
 - 直接把所有读取失败都改为本地：分支最少，但旧版只有接口地址的自定义服务会被覆盖。保留这类旧配置的自定义含义，只让未配置用户使用本地。
-- 同时修改共享 Rust 语音默认值：其他宿主也能默认本地，但会超出本次 iOS 调整，而且无法替代 iOS 自己的 UserDefaults 默认值。
+- 同时修改共享 Rust 语音默认值：其他宿主也能默认本地，但会超出本次 iOS 调整，而且无法替代 iOS 自己的 UserDefaults 默认值。后来由[六端出厂识别服务改为本地模型](2026-10-26-voice-local-default.md)完成。
 
 ## Verification
 

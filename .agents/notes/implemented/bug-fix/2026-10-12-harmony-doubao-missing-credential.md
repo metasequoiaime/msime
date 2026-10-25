@@ -10,7 +10,7 @@ Status: implemented
 - 密钥存在分槽 `asr_tokens.doubao`、当前框为空时（共享设置页切换服务的分槽写法会留下这种文档），共享解析 `resolve_voice_fields` 认这个密钥，鸿蒙键盘不认，同样悄悄用系统识别。
 - 出厂配置就是 `doubao` 不带凭据，语音面板的说明 `VoiceInputConfigurationPolicy.description` 对它落到最后一支，写的是「当前语音服务不可用，请检查设置」，可它明明能用，只是用的是系统识别。设置页「服务配置」行也只写「未填写」，看不出键盘实际在用什么。
 
-不能简单地改成「选了豆包没密钥就报错」：出厂的 `asr_provider` 就是 `doubao`，这样会让所有从没配置过语音的用户一开口就报错，Android 那边的[键区内系统识别修复](2026-10-08-android-platform-voice-in-keyboard.md)出于同样的理由也没有这么提示。
+不能简单地改成「选了豆包没密钥就报错」：出厂的 `asr_provider` 就是 `doubao`，这样会让所有从没配置过语音的用户一开口就报错，Android 那边的[键区内系统识别修复](2026-10-08-android-platform-voice-in-keyboard.md)出于同样的理由也没有这么提示。2026-10-26 起出厂值改为 `local`（见[六端出厂识别服务改为本地模型](../feature/2026-10-26-voice-local-default.md)），按旧默认装好的用户文档里仍是不带凭据的 `doubao`，这条规则继续适用于他们。
 
 ## Decision
 
