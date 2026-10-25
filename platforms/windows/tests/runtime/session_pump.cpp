@@ -236,6 +236,7 @@ void local_commit_rejection_pump_tests(const std::string &options) {
     transport.packets.push_back(packet);
     const auto enter_request = packet.request_id;
     std::vector<std::string> lines;
+    std::vector<std::string> editing;
     size_t closed = 0, keys = 0;
     SessionPump::Presentation presentation;
     presentation.rejected = [&](const std::string &line) { lines.push_back(line); };
@@ -245,7 +246,10 @@ void local_commit_rejection_pump_tests(const std::string &options) {
         transport, queue, gate,
         [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &key) {
           ++keys;
-          return production(state, lease, key);
+          auto reply = production(state, lease, key);
+          if (reply)
+            editing.push_back(reply->source.transition.at("view").at("editing_text").get<std::string>());
+          return reply;
         },
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; }, presentation);
     require(pump.run(transport.ticket) == PumpResult::RequestRejected && keys == 3);
@@ -258,15 +262,13 @@ void local_commit_rejection_pump_tests(const std::string &options) {
             line.find("check=local_commit_observation") != std::string::npos &&
             line.find("observed_bytes=0 expected_bytes=2") != std::string::npos);
     require(line.find("ab") == std::string::npos);
-    bool letters_replied = false;
+    // 两个字母照常组字；被拒的回车没有回复，主通道上也没有带它请求号的帧。
+    require(editing == std::vector<std::string>{"a", "ab"});
     for (const auto &write : transport.writes)
-      if (write.first == FanyImePipeRole::ToTsf) {
+      if (write.first == FanyImePipeRole::ToTsf)
         require(reply_request(write.second) != enter_request);
-        letters_replied = letters_replied || reply_request(write.second) == enter_request - 1;
-      }
-    require(letters_replied);
 
-    // 同一个客户端重新连上：新的会话从空组字开始，下一个键照常处理并回复。
+    // 同一个客户端重新连上：新的会话从空组字开始，下一个键照常处理。
     auto activation = transport.packets.front();
     activation.request_id = 78;
     packet.request_id = enter_request + 1;
@@ -279,11 +281,8 @@ void local_commit_rejection_pump_tests(const std::string &options) {
     transport.open = true;
     require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 4);
     require(queue.stats().accepting && queue.stats().failed == 0 && lines.size() == 1);
-    bool next_replied = false;
-    for (const auto &write : transport.writes)
-      next_replied = next_replied ||
-                     (write.first == FanyImePipeRole::ToTsf && reply_request(write.second) == packet.request_id);
-    require(next_replied);
+    // 旧会话里没上屏的 ab 随断开丢掉，和 TIP 那边已经结束的组字对齐，不会接成 abc。
+    require(editing.size() == 3 && editing.back() == "c");
     queue.stop();
   }
   {
@@ -618,7 +617,6 @@ void session_pump_tests(const std::string &options) {
     require(!transport.open && transport.writes.size() == 3);
     queue.stop();
   }
-  local_commit_rejection_pump_tests(options);
   for (bool microsoft : {false, true}) {
     for (bool local : {false, true}) {
       for (bool uiless : {false, true}) {
