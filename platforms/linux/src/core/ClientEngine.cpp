@@ -7581,12 +7581,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
           s.view, spelled, (flags & IBUS_SHIFT_MASK) != 0, keycode >= 2 && keycode <= 11,
           s.number_row_selection && !s.view.value("nine_key", false) &&
               s.rendered_session == s.session && s.rendered_candidates.is_array() &&
-              !s.rendered_candidates.empty()) ||
-          msime::linux_host::number_row_picks(
-              s.view, (flags & IBUS_SHIFT_MASK) != 0, keycode >= 2 && keycode <= 11,
-              s.number_row_selection && !s.view.value("nine_key", false) &&
-                  s.rendered_session == s.session && s.rendered_candidates.is_array() &&
-                  !s.rendered_candidates.empty());
+              !s.rendered_candidates.empty());
       if ((!picks && msime::linux_host::engine_spelling(s.view, spelled)) ||
           (modifiers == 0 && spelled == U' ' && msime::linux_host::spelling_space(s.view))) {
         handled = apply(engine, msime_client_character(
