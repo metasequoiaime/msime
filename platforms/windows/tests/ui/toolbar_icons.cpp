@@ -45,8 +45,8 @@ int main() {
     require(std::wcscmp(toolbar_icon(kToolbarVoice, std::nullopt).fallback, L"音") == 0);
     require(toolbar_icon(kToolbarInputScheme, std::nullopt).codepoint == 0xE8FD);
     require(std::wcscmp(toolbar_icon(kToolbarInputScheme, std::nullopt).fallback, L"方") == 0);
-    // Text is drawn in the Chinese UI font at macOS's 0.95 of the font size; only the Tibetan badge names a face of its own.
-    require(std::wcscmp(toolbar_text_font, L"Microsoft YaHei UI") == 0);
+    // 使用 Win7 起自带的微软雅黑，避免不存在的 UI 字体触发逐字回退；字号仍为 macOS 的 0.95，藏文保留独立字体。
+    require(std::wcscmp(toolbar_text_font, L"Microsoft YaHei") == 0);
     static_assert(toolbar_glyph_scale == 0.95f);
     for (int button = kToolbarLanguage; button <= kToolbarInputScheme; ++button)
       for (const std::optional<bool> state :

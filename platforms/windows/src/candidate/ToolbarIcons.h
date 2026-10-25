@@ -14,8 +14,10 @@ struct ToolbarIcon {
   // The face for the text, when it is not `toolbar_text_font`: the Tibetan badge needs a font that has Tibetan.
   const wchar_t *family = nullptr;
 };
-// The face the text buttons are drawn in: the Chinese UI font, regular weight, the counterpart of the macOS system font that draws them. DirectWrite falls back per character for what it lacks (한).
-inline constexpr const wchar_t *toolbar_text_font = L"Microsoft YaHei UI";
+// 文字按钮统一用 Windows 7 起自带的微软雅黑。Win7 没有 Microsoft YaHei UI，
+// DirectWrite 仍会成功创建格式，再逐字回退，导致同一行按钮的字形与基线不一致。
+// 缺少的字符（如 한）仍由 DirectWrite 回退。
+inline constexpr const wchar_t *toolbar_text_font = L"Microsoft YaHei";
 // The Tibetan badge's face. Microsoft Himalaya ships with Windows; where it is missing, DirectWrite's own fallback picks whatever covers Tibetan.
 inline constexpr const wchar_t *toolbar_tibetan_font = L"Microsoft Himalaya";
 // Text buttons are drawn at this fraction of the toolbar font size, as macOS's kToolbarGlyphScale.

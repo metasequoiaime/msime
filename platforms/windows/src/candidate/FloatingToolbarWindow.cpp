@@ -636,8 +636,20 @@ void FloatingToolbarWindow::paint() {
       const auto length = static_cast<UINT32>(wcslen(drawn_text));
       if (!length)
         continue;
-      target->DrawText(drawn_text, length, cell_format, cell,
-                       brush(glyph_color));
+      Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
+      if (FAILED(factory->CreateTextLayout(drawn_text, length, cell_format,
+                                          cell.right - cell.left, cell.bottom - cell.top,
+                                          text_layout.GetAddressOf())))
+        throw std::runtime_error("Toolbar text layout unavailable");
+      // 按可见字形居中，而不是按字体行框居中：句号的墨迹在字符框左下角，
+      // 不同字体的上下留白也不同，单独作为按钮图标时都应落在按钮中心。
+      DWRITE_OVERHANG_METRICS ink{};
+      if (FAILED(text_layout->GetOverhangMetrics(&ink)))
+        throw std::runtime_error("Toolbar text bounds unavailable");
+      target->DrawTextLayout(
+          D2D1::Point2F(cell.left + (ink.left - ink.right) / 2.0f,
+                       cell.top + (ink.top - ink.bottom) / 2.0f),
+          text_layout.Get(), brush(glyph_color));
     }
   }
   const HRESULT drawn = target->EndDraw();
