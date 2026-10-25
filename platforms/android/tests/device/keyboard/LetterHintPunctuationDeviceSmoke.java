@@ -478,14 +478,15 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         holdLetter("q");
         tap(described("输入 Q"));
         await(field(PLAIN).and(node -> equalsText("Q", node.getText())));
-        stage = "long press symbol choice";
-        holdLetter("a");
-        tap(described("输入 @"));
-        await(field(PLAIN).and(node -> equalsText("Q@", node.getText())));
+        // 上滑放在 @ 之前：@ 上屏后候选栏列出邮箱后缀，候选栏显示时字母键的滑动按普通点按处理（#9319，见 2026-10-21-android-letter-option-gesture-settings.md），弹不出选项。
         stage = "upward swipe uppercase choice";
         swipeUpLetter("w");
         tap(described("输入 W"));
-        await(field(PLAIN).and(node -> equalsText("Q@W", node.getText())));
+        await(field(PLAIN).and(node -> equalsText("QW", node.getText())));
+        stage = "long press symbol choice";
+        holdLetter("a");
+        tap(described("输入 @"));
+        await(field(PLAIN).and(node -> equalsText("QW@", node.getText())));
     }
 
     private void holdLetter(String value) throws Exception {
