@@ -176,9 +176,7 @@ struct InputSettingsView: View {
       let pack = shown.flatMap(IOSResourcePacks.requiredPack)
       InputLanguageRow(language: language, value: pack.map { resourcePacks.available($0) ? (shown?.shortLabel ?? "") : resourcePacks.describe($0) } ?? shown?.shortLabel, options: options(for: language),
                        selected: selectedChoice(in: language)) { choose($0, in: language) }
-      if language == .mandarin && available(language).contains(where: \.needsLanguageDictionary) && !resourcePacks.available("language-dictionaries") {
-        packDownloadRow("language-dictionaries", title: "粤拼、注音和笔画词库")
-      } else if let pack, !resourcePacks.available(pack) {
+      if let pack, !resourcePacks.available(pack) {
         packDownloadRow(pack, title: "\(language.name)词库")
       }
     }
@@ -198,7 +196,7 @@ struct InputSettingsView: View {
         HStack(spacing: 12) {
           Image(systemName: "plus").font(.system(size: 20, weight: .regular))
             .frame(width: 30, height: 30).accessibilityHidden(true)
-          Text(addingLanguage ? "完成" : "添加语言").font(.system(size: 17))
+          Text(addingLanguage ? "完成" : "添加方案").font(.system(size: 17))
           Spacer(minLength: 0)
         }
         .foregroundStyle(MetasequoiaTheme.accent)
@@ -607,7 +605,7 @@ private struct InputLanguageRow<Choice: Hashable>: View {
     .buttonStyle(PressFillButtonStyle())
     .accessibilityLabel(language.name)
     .accessibilityValue(value ?? "")
-    .accessibilityIdentifier("inputLanguage_\(language.rawValue)")
+    .accessibilityIdentifier("inputLanguage_\(language.accessibilityKey)")
     .designOptionSheet(isPresented: $presented, title: language.name, message: "选择输入方案", options: options,
                        selected: selected, onSelect: onSelect)
   }

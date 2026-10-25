@@ -1126,7 +1126,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.tabBars.buttons["首页"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["nextOnboardingButton"].exists)
     app.buttons["inputSettingsLink"].tap()
-    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
     XCTAssertTrue(app.buttons["inputScheme_nineKey"].isSelected)
     app.buttons["designOptionSheetCancel"].tap()
   }
@@ -1140,7 +1140,7 @@ final class OnboardingUITests: XCTestCase {
     defer { restoreSchemeVisibility(in: app) }
     reachSettingsLink("inputSettingsLink", in: app)
     settingsEntry("inputSettingsLink", in: app).tap()
-    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    XCTAssertTrue(openSchemeSheet(.wubi, in: app))
     app.buttons["inputSchemeGroup_wubi"].tap()
     let wubi98 = app.buttons["inputScheme_wubi_wubi98"]
     XCTAssertTrue(wubi98.waitForExistence(timeout: 5))
@@ -1164,21 +1164,21 @@ final class OnboardingUITests: XCTestCase {
 
     // 换回 86 五笔和全拼，后面的用例不受这里选的方案影响。
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    XCTAssertTrue(openSchemeSheet(.wubi, in: app))
     app.buttons["inputSchemeGroup_wubi"].tap()
     let wubi86 = app.buttons["inputScheme_wubi_wubi86"]
     XCTAssertTrue(wubi86.waitForExistence(timeout: 5))
     wubi86.tap()
-    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
     app.buttons["inputScheme_quanpin"].tap()
   }
 
-  /// 输入 页 语言与方案 卡片里的各语言，以其行标识符的后缀表示。
+  /// 输入 页 语言与方案卡片里的各行，以其无障碍标识符的后缀表示。
   private enum InputLanguageRow: String {
-    case mandarin, japanese
+    case quanpin = "mandarin", shuangpin, wubi, japanese
   }
 
-  /// 在 输入 页打开某个语言的选项弹窗，该语言的每个方案都是一个 `inputScheme_<raw>` 选项；双拼 和 五笔 会再打开第二层弹窗。
+  /// 在 输入 页打开某个方案行的选项弹窗；双拼和五笔会再打开第二层弹窗。
   @MainActor
   private func openSchemeSheet(_ language: InputLanguageRow, in app: XCUIApplication) -> Bool {
     let row = app.buttons["inputLanguage_\(language.rawValue)"]
@@ -2390,10 +2390,9 @@ final class OnboardingUITests: XCTestCase {
     // Onboarding hands over to the 设置 home page.
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 10))
     app.buttons["inputSettingsLink"].tap()
-    // 方案是 普通话 弹窗里的选项；双拼方案有多个时，它们位于 双拼 › 之后。
-    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    // 全拼、双拼等方案各自有独立的行和选项面板。
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
-    XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists || app.buttons["inputSchemeGroup_shuangpin"].exists)
     let nineKey = app.buttons["inputScheme_nineKey"]
     XCTAssertTrue(nineKey.exists)
     nineKey.tap()
@@ -2402,7 +2401,7 @@ final class OnboardingUITests: XCTestCase {
     app.launch()
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
-    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
     XCTAssertTrue(app.buttons["inputScheme_nineKey"].isSelected)
     app.buttons["designOptionSheetCancel"].tap()
 
