@@ -2390,6 +2390,8 @@ final class OnboardingUITests: XCTestCase {
     // Onboarding hands over to the 设置 home page.
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 10))
     app.buttons["inputSettingsLink"].tap()
+    // 手机输入页直接展示通用设置，不再有独立的「更多」分组。
+    XCTAssertFalse(app.staticTexts["更多"].exists)
     // 全拼、双拼等方案各自有独立的行和选项面板。
     XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)

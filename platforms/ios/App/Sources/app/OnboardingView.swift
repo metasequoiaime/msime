@@ -64,7 +64,7 @@ struct InputSettingsView: View {
   @State private var addingLanguage = false
   @State private var failedGroup: PageGroup?
 
-  private enum PageGroup { case languages, chinese, helpcode, translation, more }
+  private enum PageGroup { case languages, chinese, helpcode, translation }
 
   /// 语言选项面板里的一个选项。
   private enum LanguageChoice: Hashable {
@@ -97,7 +97,6 @@ struct InputSettingsView: View {
         chineseGroup
         helpcodeGroup
         translationGroup
-        moreGroup
       }
       .padding(.horizontal, 16)
       .padding(.top, 16)
@@ -377,6 +376,7 @@ struct InputSettingsView: View {
         DesignDivider()
         navRow("模糊音规则", identifier: "fuzzyPinyinSettingsLink") { FuzzyPinyinSettingsView() }
       }
+      additionalChineseRows
     }
   }
 
@@ -457,17 +457,17 @@ struct InputSettingsView: View {
     })
   }
 
-  // MARK: - 更多
+  // MARK: - 其他输入选项
 
-  private var moreGroup: some View {
-    DesignGroup(title: "更多", footer: footer(.more)) {
+  private var additionalChineseRows: some View {
+    Group {
       DesignToggleRow(title: "退格键回退已选候选词",
                       subtitle: "关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字",
                       isOn: Binding(get: { backspaceRevertsSelection }, set: { enabled in
                         backspaceRevertsSelection = enabled
                         record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                           $0["backspace_reverts_selection"] = enabled
-                        }, .more)
+                        }, .chinese)
                         reloadPreferences()
                       }))
         .accessibilityIdentifier("backspaceRevertsSelection")
@@ -478,7 +478,7 @@ struct InputSettingsView: View {
                           wubiMixedPinyin = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                             $0["wubi_mixed_pinyin"] = enabled
-                          }, .more)
+                          }, .chinese)
                           reloadPreferences()
                         }))
           .accessibilityIdentifier("wubiMixedPinyin")
@@ -488,7 +488,7 @@ struct InputSettingsView: View {
                           wubiCodeHint = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                             $0["wubi_code_hint"] = enabled
-                          }, .more)
+                          }, .chinese)
                           reloadPreferences()
                         }))
           .accessibilityIdentifier("wubiCodeHint")
@@ -499,7 +499,7 @@ struct InputSettingsView: View {
                           wubiAutoCommitUnique = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                             $0["wubi_auto_commit_unique"] = enabled
-                          }, .more)
+                          }, .chinese)
                           reloadPreferences()
                         }))
           .accessibilityIdentifier("wubiAutoCommitUnique")
@@ -517,7 +517,7 @@ struct InputSettingsView: View {
                         startsInEnglish = english
                         record(MetasequoiaInputSessionBridge.updateSharedPreferences {
                           $0["default_ime_mode"] = english ? "english" : "chinese"
-                        }, .more)
+                        }, .chinese)
                         reloadPreferences()
                       }),
                       sheetTitle: "默认中英文", identifier: "defaultImeModePicker")
