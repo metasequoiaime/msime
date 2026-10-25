@@ -1,6 +1,11 @@
 {
-  "source_commit": "d79bd159c972cfc57d58fbc50cbbaa8396d9c138",
+  "source_commit": "8e4c92657de3b2163297c122668059fbb2c746a9",
   "interface_version": 1,
   "abis": ["arm64-v8a", "x86_64"],
-  "artifact": null
+  "artifact": {
+    "name": "msime-ocr-v1.apk",
+    "url": "https://github.com/metasequoiaime/msime/releases/download/ocr-module-android-v1/msime-ocr-v1.apk",
+    "sha256": "1e08af23485a1abccfebe1ac1b9289ea621dae62d47690d1c52cca17b8eef8cf",
+    "size": 81146926
+  }
 }

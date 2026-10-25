@@ -1,12 +1,12 @@
 # Agent Note: Android 键盘内拍照与可选离线 OCR 模块
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
 #9207 要求在键盘区域完成相机预览、拍照、离线识别和选字上屏。报告人的补充明确要求模块不进入基础安装包，由用户从本项目 GitHub 下载后手动导入。外部相机应用、仅导入图片或 Google Play 按需下载不能代替该流程。
 
-## Proposal
+## Decision
 
 可选模块 `msime-ocr-v1.apk`（`platforms/android/gradle-app/ocr-module`）的识别引擎是 ONNX Runtime 1.31.0（`com.microsoft.onnxruntime:onnxruntime-android`，MIT）加 PaddlePaddle 的 PP-OCRv6 tiny 检测与识别模型（Apache-2.0）。ONNX Runtime 只是模块的依赖，基础 APK 不带它，也不带模型；选型的测量与放弃的方案见下文[引擎选型](#引擎选型)。最初的可行性试验用的是 Google ML Kit 的 `text-recognition-chinese:16.0.1`，下文「产品接入边界」「产品设备证据」里各轮设备运行都是那个试验模块，宿主一侧的导入、选择器、相机、撤权与手写共存路径与引擎无关，换引擎时没有改动。
 
@@ -57,6 +57,27 @@ ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=F
 - 网络：评测宿主（有 `INTERNET` 权限）跑一轮 41 张识别后再停 65 秒，73 个每秒采样里该 UID 在 `/proc/net/{tcp,tcp6,udp,udp6}` 没有任何套接字；同时段模拟器抓包只有两条虚拟路由器发出的 IPv6 路由通告，没有设备发出的包。模块清单合并后没有权限和 Provider。
 - 这次没有跑共享 crate 的设备单测和 `smoke.sh` 基础冒烟（本 PR 不改 Rust 与基础键盘），也没有跑 API 28、x86_64 和物理真机。
 
+## 已发布模块的真机验收（2026-10-25）
+
+设备是维护者的 Pixel 3 XL（Snapdragon 845，Android 12 / API 31，arm64-v8a）。产品包是固定了正式锁的 `MSIME_ANDROID_ABIS=arm64-v8a` 开发包，在 Mac Studio 构建、本机用发布密钥重签后 `install -r` 覆盖安装，用户数据保留。模块是从 `ocr-module-android-v1` 下载、核对长度和 SHA-256 后的 `msime-ocr-v1.apk` 原件，不是本地构建。
+
+- 导入：模块推到手机的 Download 目录，在拍照识字设置页点「选择已下载的配套模块」，经系统 DocumentsUI 选中后一秒内显示「配套模块已导入。」。导入前页面显示「尚未导入模块…」，即宿主认出了锁里固定的产物（旧锁的包显示「配套模块尚未提供」）。同长度、改了一个字节的副本走同一路径，显示「导入失败：下载的文件校验未通过，请重试」。
+- 隔离探针：`ocr-runtime-probe.sh` 只接受模拟器，设备阶段用仓库外的临时脚本在真机上逐项复现，探针包内嵌的模块换成已发布的 release 原件。结果 `MSIME_OCR_PROBE_PASSED`；直接安装源码 debug 模块的 `DirectOcrProbe` 为 `MSIME_OCR_DIRECT_PASSED: complete_cases=3/3,vertical_right_to_left=true`，四张合成图逐字节一致，两边识别结果 JSON 逐字节一致。
+- 输入法进程内的测量：仓库外的临时 instrumentation 用 `android:targetProcesses="app.msime.android:ime"` 跑在 `:ime` 进程里，直接调用产品的 `OcrRuntime.open`（全模块 SHA-256 复核、隔离类加载器、建两个会话）和 `recognize`，输入是上文引擎选型用的 41 张合成图。
+
+| 项目 | Pixel 3 XL 结果 |
+| --- | --- |
+| 新进程首次 `OcrRuntime.open`（含 81 MB 摘要复核、类加载、建两个会话） | 7 次 328–391 ms，其余 6 次都在 328–343 ms |
+| 同进程再次 `open`（每次拍照都会走一遍） | 270–316 ms |
+| 新进程首张图识别 | 314–341 ms（每秒 `dumpsys meminfo` 采样时 736 ms） |
+| 常温识别，41 张 × 3 轮 | 中位 280.4 ms，p90 541.7 ms；带内存与网络采样那轮 266.0 / 516.5 ms |
+| 中文 CER / 竖排全对 / 英文 CER | 0.68% / 3/3 / 1.07%，逐图输出与模拟器相同 |
+| `:ime` 峰值 PSS | `dumpsys meminfo` 每秒采样最大 136.7 MB（42 个采样）；键盘内拍照那次最大 150.4 MB，键盘常驻约 105 MB |
+
+- 键盘内拍照：在真实键盘「更多 → 拍照识字」里经系统对话框授权相机、预览、拍照，拍照后相机立即释放，模块对真实相机 JPEG 跑完识别回到面板。手机平放在桌上，后置摄像头对着桌面，照片全黑，结果是「未识别到文字，请调整距离或光线。」。所以真机上没有验证识别出文字之后的整行、部分上屏；这段宿主代码与引擎无关，已在 arm64 API 35 模拟器上通过。也没有真实照片的识别数据。
+- 网络：每 0.5 秒读一次 `/proc/net/{tcp,tcp6,udp,udp6}` 里属于水杉应用 UID 的行，前后各 `dumpsys netstats --poll` 一次。只跑 `:ime` 测量、不开界面的那轮（识别 55 秒加其后 60 秒，207 个采样）没有任何套接字，该 UID 的收发字节不变。键盘内拍照那轮，打开拍照面板前就有三条到 `104.21.44.153:443` 的已建立连接，识别后约 55 秒又建了一条，地址都是项目自己的 `api.msime.app`；`/proc/net` 分不出是哪个进程开的，主进程和 `:ime` 共用这个 UID。两轮都没有到其他地址的连接，没有到 Microsoft 遥测端点的连接。
+- 拍照那轮的「之后 60 秒」没跑满：识别后约 63 秒，有不属于本次验收的操作经 adb 推送并 `pm install -r` 了另一个 `app.msime.android` 包，进程被强停。
+
 ## 产品接入边界
 
 以下各节到「产品设备证据」为止记录的是 ML Kit 试验模块阶段的接入与设备运行；宿主一侧的路径换引擎后没有改动，ONNX Runtime 模块的验收见上一节。
@@ -83,7 +104,7 @@ ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=F
 
 [第十三轮产品专项](https://github.com/metasequoiaime/msime/actions/runs/40101164998)中，API 28 的系统文件选择器完整导入、取消与损坏替换均通过；相机与主进程共存仍在清理未知 ART 条目时失败。API 35 的模型准备、原生相机 OCR 通过，文件选择器失败于损坏导入步骤，撤权后的 `--no-restart` 又触发系统 `ProcessRecord` 空指针，尚未执行后续专项。脚本现在在每次附着前启动并确认主进程，撤权后先显式停止旧进程，instrumentation 命令异常也写入失败标记并继续其他专项；选择器操作细分阶段，便于下一轮定位。两版四个共享 crate 设备套件通过，基础冒烟均停在十八键窄布局的三排字母键宽度断言；不能称完整门禁通过。这些新夹具修正仍待设备验证。第十一轮 API 28 的剩余原图已逐张检查：部分选择只插入 `2468`，恢复预览显示完整源图，撤权后无预览；`hidden` 与 `switched` 是 HOME 检查点，不是最终跨编辑器截图。
 
-产品分支接入键盘内相机和主进程导入页，但在真实设备验证及正式模块分发完成前保持提案状态。`resources/ocr-module-android.lock.json` 的 `artifact: null` 明确表示尚未提供配套模块：共享层不列出、不安装、不导入它，设置页不能选择任意 APK 绕过检查。此时没有下载地址，也不能宣称 #9207 已交付。
+`resources/ocr-module-android.lock.json` 的 `artifact` 是宿主是否提供这个功能的唯一开关。为 `null` 时共享层不列出、不安装、不导入模块，设置页显示「配套模块尚未提供」，不能选择任意 APK 绕过检查。现在锁固定的是 `publish-android-ocr-module.yml` 从提交 `8e4c92657de3b2163297c122668059fbb2c746a9` 构建并发布到 `ocr-module-android-v1` 的 `msime-ocr-v1.apk`（81,146,926 字节，SHA-256 `1e08af23485a1abccfebe1ac1b9289ea621dae62d47690d1c52cca17b8eef8cf`）；这之后构建的 Android 包列出这个资源包、只接受这一份字节，共享层的 `install` 仍拒绝自动下载它。资源包测试 `the_published_ocr_module_is_offered_for_manual_import_only` 覆盖已固定的状态（列出、导入文件清单、拒绝下载、同长度错误字节不发布），`an_unpinned_pack_cannot_be_listed_imported_or_verified` 用永远不固定的白霜语法模型覆盖未固定的状态。
 
 导入复用 `resource_packs::import` 的固定长度、完整 SHA-256、限长暂存和整体替换。正式锁由源码审查固定本项目 GitHub Release 的已审计产物，完整摘要才是运行时的信任依据；接口版本为 1，仅支持宿主已有的 `arm64-v8a`、`x86_64`。主进程导入后将 APK 封为只读；输入法加载前通过新增的 `resource_pack_verify` 再读全量摘要，并拒绝有写权限的 APK。暂存清单和文件选择器提供的名字均不能决定信任。Play 分发不提供外部可执行模块，Java 安装入口和运行库入口也拒绝该渠道，不能只隐藏按钮。
 
@@ -140,25 +161,16 @@ API 28/35 的[最终隔离探针](https://github.com/metasequoiaime/msime/action
 - **原样加载参考插件**：已经包含多语言模型和 APK 加载流程；但接口示例与实现不一致，且会操作私有 ML Kit 状态、记录识别文本，不能直接采用。
 - **安装另一个 OCR 应用并绑定服务**：SDK 初始化和权限可按应用隔离；但增加系统安装流程，与用户要求的手动导入资源模块有差异，尚未作为实现方案。
 
-## Acceptance criteria
+## Consequences
 
-- 不装模块时基础输入法可用，基础 APK 不包含 OCR 模型、OCR 原生库和识别依赖；不自动下载模块。
-- 用户手动导入项目配套模块后，在键盘内授权相机、拍照并离线识别中文和英文，选择部分文字或全部上屏，保留当前编辑器焦点。
-- API 28/35 真实设备验证导入、损坏/错误 ABI 拒绝、撤权、相机释放、会话切换、迟到结果以及手写识别共存；完整门禁和产品入口验收仍必须补齐。
-- 分发前记录实际引擎、模型和全部依赖的固定来源、许可、通知与分发限制：ONNX Runtime 的 MIT 与第三方通知、PaddleOCR 的 Apache-2.0 全文随模块分发，来源和摘要固定在 `resources/ocr-models-android.lock.json`。
-- 模块不建立网络连接：有网络权限的宿主进程里识别前后没有该 UID 的套接字，抓包里没有设备发出的流量。
-- 经 `publish-android-ocr-module.yml` 发布 `ocr-module-android-v1/msime-ocr-v1.apk`，把运行摘要里的锁提交进 `resources/ocr-module-android.lock.json`，并在至少一台 arm64 真机上用发布的模块完成拍照识字；之后才把这篇笔记转为 implemented。
-
-## Risks
-
-动态模块在 Android 14 起要求代码文件只读。ONNX Runtime 模块已在 arm64 API 35 模拟器上通过隔离探针和产品专项，物理真机、API 28 与 x86_64 还没有用这个模块跑过；正式模块分发和真机兼容仍需验证。
-
-`mlas.disable_kleidiai=1` 对所有设备生效，真机上放弃了 KleidiAI 的 ARM 优化内核，延迟可能比能用它时高；只在模拟器上测过，没有真机数据。真机上若要重新启用，必须先能可靠识别“报告 SME 却不支持”的环境，不能让一次 SIGILL 带走整个输入法进程。
-
-遥测的处置依赖两层：清单删掉 `TelemetryInitializer`，以及 `setTelemetry(false)`。升级 ONNX Runtime 时要重新检查 AAR 清单和遥测入口，1.31.0 里通道初始化失败这一缺陷修好后，任何一层缺了都可能开始上报。升级同时要重跑网络抽样。
-
-同一个输入法进程里可能有两份 ONNX Runtime：sherpa-onnx 语音运行库带的那份在宿主的链接器命名空间，模块这份在模块类加载器的命名空间。产品专项在识别前先加载宿主的语音运行库，识别后检查语音运行库仍可用；没有在同一进程里交替跑真实的语音识别和 OCR。
-
-评测图是合成的，带模拟拍照的退化，不是真实照片。tiny 的已知错误集中在形近字（巳/已）和标点（……、句末的点），倒置或大角度旋转的文字没有方向分类，会识别失败；横竖混排只按多数方向排序。识别结果仍需用户核对，界面保留了提示。
-
-模块双 ABI 约 77.4 MiB，用户手动下载；单 ABI 拆包能省一半，但要宿主按 ABI 选锁条目，本次没做。
+- 不装模块时基础输入法照常可用，基础 APK 不包含 OCR 模型、OCR 原生库和识别依赖，也不自动下载模块。用户从 `ocr-module-android-v1` 下载 `msime-ocr-v1.apk`，在拍照识字设置里经系统文件选择器导入，之后在键盘内授权相机、拍照、离线识别中文和英文，勾选整行或长按选部分文字上屏。
+- 信任只来自编译进宿主的锁：同一接口版本的模块只发一次，换模块就要改锁、重新发宿主。已经发出去的宿主只认这份字节，标签下的资产不能替换。
+- 引擎、模型和全部依赖的固定来源、许可与通知已记录：ONNX Runtime 的 MIT 与第三方通知、PaddleOCR 的 Apache-2.0 全文随模块分发，来源和摘要固定在 `resources/ocr-models-android.lock.json`。
+- 已验证的设备覆盖：ML Kit 试验模块阶段在 API 28/35 模拟器上验证了宿主一侧的导入、损坏与错误替换拒绝、撤权、相机释放、会话切换、迟到结果和手写共存；ONNX Runtime 模块在 arm64 API 35 模拟器上通过隔离探针与产品专项；已发布的模块在 Pixel 3 XL 真机上通过系统选择器导入、篡改拒绝、隔离探针、`:ime` 进程内识别和键盘内拍照。
+- 还没有验证的：ONNX Runtime 模块在 API 28 和 x86_64 AVD 上的探针与产品专项；真机上识别出文字后的上屏（测试手机的摄像头对不到文字）；真实照片的识别质量。评测图是合成的，带模拟拍照的退化。tiny 的已知错误集中在形近字（巳/已）和标点（……、句末的点），倒置或大角度旋转的文字没有方向分类，会识别失败；横竖混排只按多数方向排序。识别结果仍需用户核对，界面保留了提示。
+- 真机延迟明显高于模拟器：Snapdragon 845 上常温识别中位 280 ms、p90 542 ms，模拟器是 46.5 / 91.5 ms；每次拍照还要重新 `open`（复核 81 MB 摘要并建两个会话）约 0.3 s，从按下拍照到出结果约 0.6–0.7 s 加相机出图时间。每次拍照都复核整个模块是有意的，不能为省这 0.3 s 改成只信安装清单。
+- `mlas.disable_kleidiai=1` 对所有设备生效，真机上放弃了 KleidiAI 的 ARM 优化内核；上面的真机延迟是关着它测的，没有打开它的对照数据。若要在真机上重新启用，必须先能可靠识别「报告 SME 却不支持」的环境，不能让一次 SIGILL 带走整个输入法进程。
+- 动态模块在 Android 14 起要求代码文件只读，宿主导入后封为只读，输入法进程拒绝有写权限的 APK。
+- 遥测的处置依赖两层：清单删掉 `TelemetryInitializer`，以及 `setTelemetry(false)`。升级 ONNX Runtime 时要重新检查 AAR 清单和遥测入口，1.31.0 里通道初始化失败这一缺陷修好后，任何一层缺了都可能开始上报。升级同时要重跑网络抽样。
+- 同一个输入法进程里可能有两份 ONNX Runtime：sherpa-onnx 语音运行库带的那份在宿主的链接器命名空间，模块这份在模块类加载器的命名空间。产品专项在识别前先加载宿主的语音运行库，识别后检查语音运行库仍可用；没有在同一进程里交替跑真实的语音识别和 OCR。
+- 模块双 ABI 约 77.4 MiB，用户手动下载；单 ABI 拆包能省一半，但要宿主按 ABI 选锁条目，本次没做。

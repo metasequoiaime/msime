@@ -37,7 +37,7 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
         setContentView(scroll);
         text(panel, "离线拍照识字", 22);
         text(panel, "在键盘的「更多工具 → 拍照识字」里预览相机、拍照、选择文字上屏。模块不在基础安装包中，也不会自动下载。", 16);
-        text(panel, "仅导入本项目提供的配套模块，安装器按宿主内固定的完整文件摘要校验。识别图片和文字在本机处理，不自动存图、复制或上屏。Google ML Kit 可能联网获取更新并发送性能和使用诊断，请阅读模块附带的许可与隐私说明后再导入。", 14);
+        text(panel, "仅导入本项目提供的配套模块，安装器按宿主内固定的完整文件摘要校验。识别图片和文字在本机离线处理，不自动存图、复制或上屏；模块关闭了 ONNX Runtime 的遥测。请阅读模块附带的许可与隐私说明后再导入。", 14);
         status = text(panel, "正在读取模块状态…", 16);
         choose = button(panel, "选择已下载的配套模块", this::choose);
         choose.setEnabled(false);

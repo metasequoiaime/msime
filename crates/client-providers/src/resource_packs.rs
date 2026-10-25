@@ -965,12 +965,11 @@ mod tests {
         assert!(published.exists());
     }
 
+    /// 锁文件没有固定产物的资源包（白霜语法模型永远如此，OCR 模块发布前也是）不列出、不导入、不校验，也不创建资源包目录。
     #[test]
-    fn an_unpublished_ocr_module_cannot_be_listed_installed_or_verified() {
-        let pack = ResourcePack::AndroidOcrModule;
-        if pack.pinned() {
-            return;
-        }
+    fn an_unpinned_pack_cannot_be_listed_imported_or_verified() {
+        let pack = ResourcePack::GrammarBaishuang;
+        assert!(!pack.pinned());
         let dir = tempfile::tempdir().unwrap();
         assert!(ResourcePack::from_id(pack.id()).is_none());
         assert!(!list(dir.path()).iter().any(|entry| entry.id == pack.id()));
@@ -983,6 +982,70 @@ mod tests {
             Err(LocalModelError::UnknownModel)
         ));
         assert!(!root(dir.path()).exists());
+    }
+
+    /// 已发布的 OCR 模块固定在本仓库 `ocr-module-android-v1` 标签下的唯一一个 APK：列出供手动导入，但不提供自动下载；导入只接受锁文件里的完整字节，长度对而摘要不对的文件什么也不发布。
+    #[test]
+    fn the_published_ocr_module_is_offered_for_manual_import_only() {
+        let pack = ResourcePack::AndroidOcrModule;
+        assert!(pack.pinned());
+        assert_eq!(ResourcePack::from_id(pack.id()), Some(pack));
+        let artifacts = pack.import_artifacts();
+        assert_eq!(artifacts.len(), 1);
+        let module = &artifacts[0];
+        assert_eq!(module.name, ANDROID_OCR_MODULE_FILE);
+        assert_eq!(
+            module.url,
+            format!(
+                "https://github.com/metasequoiaime/msime/releases/download/ocr-module-android-v1/{ANDROID_OCR_MODULE_FILE}"
+            )
+        );
+        assert!(crate::is_lower_hex(&module.sha256, 64));
+        assert!(module.size > 0 && module.size <= 128 * 1024 * 1024);
+        assert!(crate::is_lower_hex(&pack.set().source_commit, 40));
+        assert_eq!(pack.size(), module.size);
+        assert!(pack.archive().is_none() && pack.schemes().is_empty());
+
+        let state = tempfile::tempdir().unwrap();
+        let listed = list(state.path())
+            .into_iter()
+            .find(|status| status.id == pack.id())
+            .unwrap();
+        assert_eq!(listed.state, PackState::Missing);
+        assert_eq!(listed.import_files.len(), 1);
+        assert_eq!(listed.import_files[0].name, module.name);
+        assert_eq!(listed.import_files[0].url, module.url);
+        assert_eq!(listed.import_files[0].size, module.size);
+
+        let cancel = AtomicBool::new(false);
+        assert!(matches!(
+            install(state.path(), pack, &[], &mut |_| {}, &cancel),
+            Err(LocalModelError::UnknownModel)
+        ));
+        assert!(matches!(
+            verify_installed(state.path(), pack),
+            Err(LocalModelError::InvalidRoot)
+        ));
+        assert!(matches!(
+            import(state.path(), pack, &[], &mut |_| {}, &cancel),
+            Err(LocalModelError::MissingImportFile(name)) if name == ANDROID_OCR_MODULE_FILE
+        ));
+        let picked = tempfile::tempdir().unwrap();
+        let forged = picked.path().join("download.apk");
+        fs::File::create(&forged)
+            .unwrap()
+            .set_len(module.size)
+            .unwrap();
+        let error = import(state.path(), pack, &[forged], &mut |_| {}, &cancel).unwrap_err();
+        assert!(
+            matches!(error, LocalModelError::ChecksumMismatch(_)),
+            "{error:?}"
+        );
+        assert!(published_directory(state.path(), pack).is_none());
+        assert!(matches!(
+            verify_installed(state.path(), pack),
+            Err(LocalModelError::InvalidRoot)
+        ));
     }
 
     fn synthetic_executable_set() -> ResourceSet {
@@ -1866,6 +1929,9 @@ mod tests {
         // macOS 的语音运行库是重签后发布在本仓库固定标签下的资产，标签下的资产发布后不再替换。
         const MACOS_RUNTIME_RELEASE: &str =
             "https://github.com/metasequoiaime/msime/releases/download/voice-runtime-macos-v";
+        // Android OCR 模块发布在本仓库按接口版本命名的标签下，发布 workflow 拒绝替换已有资产。
+        const OCR_MODULE_RELEASE: &str =
+            "https://github.com/metasequoiaime/msime/releases/download/ocr-module-android-v";
         // 语法模型的上游发布：万象（amzxyz）、八股文（lotem）。字节由锁文件的 SHA-256 固定。
         const GRAMMAR_UPSTREAM_RELEASES: [&str; 2] = [
             "https://github.com/amzxyz/rime-wanxiang-data/releases/download/",
@@ -1897,6 +1963,7 @@ mod tests {
                         || url.starts_with(MODEL_RELEASE)
                         || url.starts_with(SHERPA_RELEASE)
                         || url.starts_with(MACOS_RUNTIME_RELEASE)
+                        || url.starts_with(OCR_MODULE_RELEASE)
                         || pinned_engine
                         || upstream_release
                         || pinned_raw,

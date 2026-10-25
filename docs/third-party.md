@@ -361,7 +361,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 
 ## Android 可选离线 OCR 模块（`resources/ocr-models-android.lock.json`）
 
-键盘内拍照识字用的可选模块 `msime-ocr-v1.apk`（`platforms/android/gradle-app/ocr-module`）不进入基础 APK，由用户从本仓库 `ocr-module-android-v1` Release 手动下载后导入；宿主只接受 `resources/ocr-module-android.lock.json` 固定的整个 APK 摘要，锁文件的 `artifact` 为 `null` 时任何模块都导入不了。模块由 `publish-android-ocr-module.yml` 手动构建发布。
+键盘内拍照识字用的可选模块 `msime-ocr-v1.apk`（`platforms/android/gradle-app/ocr-module`）不进入基础 APK，由用户从本仓库 `ocr-module-android-v1` Release 手动下载后导入；宿主只接受 `resources/ocr-module-android.lock.json` 固定的整个 APK 摘要，锁文件的 `artifact` 为 `null` 时任何模块都导入不了。模块由 `publish-android-ocr-module.yml` 手动构建发布；现在锁定的是从提交 `8e4c92657de3b2163297c122668059fbb2c746a9` 构建的那一份（81,146,926 字节，SHA-256 `1e08af23…b8eef8cf`），标签下的资产发布后不再替换。
 
 `resources/ocr-models-android.lock.json` 只供构建使用：固定 ONNX Runtime 的 Maven 坐标与来源提交、两个模型仓库的 Hugging Face 提交和逐文件 SHA-256、从识别模型 `inference.yml` 抽出的 CTC 字典的条目数与 SHA-256、检测后处理参数，以及三份许可证全文的上游地址和 SHA-256。`scripts/fetch_ocr_models.py` 在模块构建时下载校验，`scripts/test-fetch-ocr-models.py` 离线核对许可证副本、Java 常量和 Gradle 依赖与锁一致。
 
@@ -376,7 +376,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | 平台 | 组件 | 许可 |
 | --- | --- | --- |
 | Android | `com.google.mlkit:digital-ink-recognition:19.0.0` | **Google 的 ML Kit 服务条款，不是开源许可证** |
-| Android OCR 可选模块（尚未发布，不进入基础包） | `com.microsoft.onnxruntime:onnxruntime-android:1.31.0`，加 PaddlePaddle PP-OCRv6 tiny 检测与识别模型，见[Android 可选离线 OCR 模块](#android-可选离线-ocr-模块resourcesocr-models-androidlockjson) | ONNX Runtime 为 MIT，模型为 Apache-2.0 |
+| Android OCR 可选模块（发布在 `ocr-module-android-v1`，不进入基础包） | `com.microsoft.onnxruntime:onnxruntime-android:1.31.0`，加 PaddlePaddle PP-OCRv6 tiny 检测与识别模型，见[Android 可选离线 OCR 模块](#android-可选离线-ocr-模块resourcesocr-models-androidlockjson) | ONNX Runtime 为 MIT，模型为 Apache-2.0 |
 | Android | AndroidX、`com.google.android.material` | Apache-2.0 |
 | Android | `io.noties.markwon:core:4.6.2`（“设置”页公告正文的 Markdown）及其依赖 `com.atlassian.commonmark:commonmark:0.13.0` | Markwon 为 Apache-2.0，commonmark-java 为 BSD-2-Clause |
 | Android | vcpkg 提供的 nlohmann/json（原生库，清单在 `platforms/android/vcpkg.json`） | MIT |
