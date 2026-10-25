@@ -115,7 +115,7 @@ impl InputSession {
                 && self.local_mode_options.quick_phrase
             {
                 let code = self.engine.request().raw_input.clone();
-                // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时照旧追加在末尾。
+                // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时落在首页尾部，普通候选不满一页时接在它们后面。
                 let slot = (self.quick_phrase_frequency
                     && self.frequency.mode != FrequencyAdjustmentMode::Disabled)
                     .then(|| {
@@ -125,8 +125,12 @@ impl InputSession {
                         )
                     })
                     .flatten();
-                self.queries
-                    .insert_quick_phrase_candidates(&code, &mut decoded, slot);
+                self.queries.insert_quick_phrase_candidates(
+                    &code,
+                    &mut decoded,
+                    slot,
+                    self.first_page_rows,
+                );
             }
         }
         self.personal_reranked = false;

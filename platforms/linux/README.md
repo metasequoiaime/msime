@@ -749,7 +749,7 @@ IBus 注册入口通过 launcher 启动，配置优先级为 `MSIME_IBUS_OPTIONS
 
 九键歧义拼音：Engine 返回 `nine_key_spellings` 时，IBus 属性菜单显示当前代次的拼音选项（如 `ni`、`mi`）。选择菜单项通过 Host API 携带会话和 generation 调用 `choose_nine_key_spelling`；组合已变化或失焦后，旧菜单项会被忽略，不会改写新组合。
 
-快捷短语编码也和 macOS 一样直接参与普通候选：两个宿主建会话时请求 `quick_phrase_candidates`（与 `phrase_preedit` 一样是宿主能力，不写进偏好），中文模式下直接打快捷短语的编码，展开就排在普通候选后面；仍可按 Shift+K 进入 K 模式只查快捷短语。设置页「快捷模式」里快捷短语一行的说明据 `HostCapabilities.quick_phrase_candidates` 写成「直接输入编码即可调用」。
+快捷短语编码也和 macOS 一样直接参与普通候选：两个宿主建会话时请求 `quick_phrase_candidates`（与 `phrase_preedit` 一样是宿主能力，不写进偏好），中文模式下直接打快捷短语的编码，展开就混在普通候选里，没有学习记录时排在首页最后（普通候选不满一页时接在它们之后）；仍可按 Shift+K 进入 K 模式只查快捷短语。设置页「快捷模式」里快捷短语一行的说明据 `HostCapabilities.quick_phrase_candidates` 写成「直接输入编码即可调用」。
 
 快捷模式：属性菜单中的“快捷模式”提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文/日文、拆字（C），以及计算与数字（V）、指令（/）和名单（@）模式的会话级开关。后三个默认关闭，偏好文件在它们关闭时不写这几个键；拆字在桌面默认关闭，偏好文件只在用户动过开关后才有这个键。两个宿主的菜单因此把这四个的缺省读作关闭，其余模式缺省读作开启。切换会结束当前组合并重建 Engine 会话，开关只覆盖当前输入上下文；共享 Preferences 和设置页中的持久化开关仍作为新会话默认值。
 

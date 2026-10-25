@@ -976,7 +976,7 @@ struct State {
     // time. Requesting it and drawing it are one decision; see PhrasePreedit.h.
     options["phrase_preedit"] = true;
     options["korean_romaja"] = true;
-    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就排在普通候选后面，仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
+    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就混在普通候选里（没学过时排在首页最后），仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
     options["quick_phrase_candidates"] = true;
     auto encoded = options.dump();
     auto bindings =

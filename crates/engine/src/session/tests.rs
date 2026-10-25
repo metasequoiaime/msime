@@ -10662,7 +10662,10 @@ INSERT INTO quick_parases VALUES('nihao','号码二',20);",
     };
     type_text(&mut session, "nihao");
     let before = group_at(&session);
-    assert_eq!(before, 7, "整组追加在普通候选之后（组内按权重排序）");
+    assert_eq!(
+        before, 7,
+        "普通候选不满一页，整组接在它们之后（组内按权重排序）"
+    );
 
     // 选中组内一条：整组按调频规则前移（Promote 把组的位置拉到第四格），选中的这条升到同码最高权重、排到组首。
     assert_eq!(session.select(before).commit.as_deref(), Some("号码一"));
@@ -10724,6 +10727,176 @@ INSERT INTO quick_parases VALUES('nihao','号码一',10);",
     session.select(last);
     type_text(&mut session, "nihao");
     assert_eq!(group_at(&session), position, "关掉调频后越过组不挪组");
+}
+
+/// 小鹤双拼 `zj`（zan）的合成词库：`ordinary` 个单字读 zan，权重递减，第一个是 U+4E00；再加 `phrases` 里编码为 `zj` 的快捷短语（权重递减，组内按这个顺序排）。#9702 实测这个码有 83 个普通候选。
+fn zan_fixture(ordinary: usize, phrases: &[&str]) -> Fixture {
+    let mut sql = String::from("CREATE TABLE tbl_1_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);");
+    for index in 0..ordinary {
+        let word = char::from_u32(0x4E00 + index as u32).unwrap();
+        sql.push_str(&format!(
+            "INSERT INTO tbl_1_z VALUES('zan','z','{word}',{});",
+            10_000 - index
+        ));
+    }
+    sql.push_str("CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);");
+    for (index, phrase) in phrases.iter().enumerate() {
+        sql.push_str(&format!(
+            "INSERT INTO quick_parases VALUES('zj','{phrase}',{});",
+            100 - index
+        ));
+    }
+    Fixture::new(&sql)
+}
+
+fn zan_session(fixture: &Fixture, page: usize, frequency: FrequencyAdjustmentMode) -> Session {
+    fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        options.helpcode = false;
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_frequency = true;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: frequency,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+        options.first_page_rows = page;
+        options.personal_context = false;
+    })
+}
+
+/// 快捷短语组在列表里的起点。
+fn quick_phrase_group_at(session: &Session) -> usize {
+    session
+        .snapshot()
+        .candidates
+        .iter()
+        .position(|item| item.source == CandidateSource::QuickPhrase)
+        .expect("quick phrase group")
+}
+
+/// #9702：普通候选有一页以上时，没有学习记录的快捷短语落在首页最后一格，而不是排到 83 个普通候选之后（每页 6 个时在第 14 页）。首选仍是普通候选，每页 5、6、9 个都一样；调频关着时也是这个默认位置。
+#[test]
+fn an_unlearned_quick_phrase_takes_the_last_slot_of_the_first_page() {
+    let fixture = zan_fixture(83, &["「」"]);
+    for frequency in [
+        FrequencyAdjustmentMode::Promote,
+        FrequencyAdjustmentMode::Disabled,
+    ] {
+        for page in [5, 6, 9] {
+            let mut session = zan_session(&fixture, page, frequency);
+            type_text(&mut session, "zj");
+            let words = words(&session);
+            assert_eq!(words.len(), 84, "{frequency:?} {page}: {words:?}");
+            assert_eq!(
+                quick_phrase_group_at(&session),
+                page - 1,
+                "{frequency:?} 每页 {page} 个"
+            );
+            assert_eq!(words[page - 1], "「」");
+            assert_eq!(words[0], "一", "首选仍是普通候选");
+            // 被挤下去的普通候选接在短语后面，相对顺序不变。
+            let ordinary: Vec<&String> = words.iter().filter(|word| *word != "「」").collect();
+            assert_eq!(ordinary.len(), 83);
+            assert!(ordinary.iter().enumerate().all(|(index, word)| **word
+                == char::from_u32(0x4E00 + index as u32).unwrap().to_string()));
+        }
+    }
+}
+
+/// 默认落位之后，学习规则照旧：选中短语整组前移（Promote 从首页末格拉到第 4 个普通候选之后，再选一次到第 3 个之后）；越过整组选后面的普通候选，整组最多退回首页末位，不会再退到首页之外。
+#[test]
+fn learning_still_moves_the_quick_phrase_group_from_its_default_slot() {
+    let fixture = zan_fixture(83, &["「」"]);
+    let mut session = zan_session(&fixture, 6, FrequencyAdjustmentMode::Promote);
+    type_text(&mut session, "zj");
+    assert_eq!(quick_phrase_group_at(&session), 5);
+
+    assert_eq!(session.select(5).commit.as_deref(), Some("「」"));
+    type_text(&mut session, "zj");
+    assert_eq!(quick_phrase_group_at(&session), 4, "选中一次前移一格");
+    assert_eq!(session.select(4).commit.as_deref(), Some("「」"));
+    type_text(&mut session, "zj");
+    assert_eq!(quick_phrase_group_at(&session), 3, "再选一次继续前移");
+
+    // 越过整组选后面的普通候选：在首页末位时不再后退；前移过一格的组退回首页末位就停。
+    let fixture = zan_fixture(83, &["「」"]);
+    let mut session = zan_session(&fixture, 6, FrequencyAdjustmentMode::Promote);
+    type_text(&mut session, "zj");
+    session.select(20);
+    type_text(&mut session, "zj");
+    assert_eq!(quick_phrase_group_at(&session), 5, "默认位置已是首页末位");
+    assert_eq!(session.select(5).commit.as_deref(), Some("「」"));
+    type_text(&mut session, "zj");
+    assert_eq!(quick_phrase_group_at(&session), 4);
+    for _ in 0..2 {
+        session.select(20);
+        type_text(&mut session, "zj");
+        assert_eq!(quick_phrase_group_at(&session), 5, "最多退回首页末位");
+    }
+}
+
+/// 同码有多条短语：组内顺序不变、整组连在一起，首页最多让出一半（向下取整）的格子给它们，普通候选的前一半（向上取整）留在首页；放不下的接在下一页开头。每页只有 1 个时首页不让格子，整组紧跟首选。
+#[test]
+fn several_quick_phrases_share_the_tail_of_the_first_page() {
+    let phrases = ["甲短语", "乙短语", "丙短语", "丁短语", "戊短语"];
+    // (每页候选数, 短语条数, 组的起点)
+    for (page, count, start) in [
+        (6, 3, 3),
+        (5, 3, 3),
+        (9, 3, 6),
+        (9, 5, 5),
+        (6, 2, 4),
+        (2, 3, 1),
+        (1, 1, 1),
+    ] {
+        let fixture = zan_fixture(83, &phrases[..count]);
+        let mut session = zan_session(&fixture, page, FrequencyAdjustmentMode::Disabled);
+        type_text(&mut session, "zj");
+        let words = words(&session);
+        assert_eq!(
+            words[start..start + count],
+            phrases[..count],
+            "每页 {page} 个、{count} 条短语: {words:?}"
+        );
+        assert_eq!(words[0], "一");
+    }
+}
+
+/// 普通候选不满一页时短语照旧接在普通候选之后，不把任何普通候选挤到下一页。
+#[test]
+fn quick_phrases_follow_fewer_than_a_page_of_candidates() {
+    let phrases = ["甲短语", "乙短语", "丙短语"];
+    for (ordinary, count) in [(3, 1), (3, 3), (5, 3), (0, 1)] {
+        let fixture = zan_fixture(ordinary, &phrases[..count]);
+        let mut session = zan_session(&fixture, 6, FrequencyAdjustmentMode::Promote);
+        type_text(&mut session, "zj");
+        let words = words(&session);
+        let start = words.len() - count;
+        assert_eq!(
+            words[start..],
+            phrases[..count],
+            "{ordinary} 个普通候选: {words:?}"
+        );
+        assert_eq!(quick_phrase_group_at(&session), start);
+    }
+}
+
+/// K 模式只列快捷短语，不经过混输落位，每页候选数也不改变它的顺序。
+#[test]
+fn quick_phrase_mode_is_unaffected_by_the_first_page_default() {
+    let fixture = zan_fixture(83, &["甲短语", "乙短语", "丙短语"]);
+    for page in [1, 5, 6, 9] {
+        let mut session = zan_session(&fixture, page, FrequencyAdjustmentMode::Promote);
+        assert!(session.character(b'K', true).handled);
+        type_text(&mut session, "zj");
+        assert_eq!(
+            words(&session),
+            ["甲短语", "乙短语", "丙短语"],
+            "每页 {page} 个"
+        );
+    }
 }
 
 /// 五笔四码唯一时，同编码的快捷短语追加在后面也不妨碍自动上屏，提交的仍是五笔那一行。

@@ -11,7 +11,7 @@ export type MixedInputPreferences = {
   japanese?: boolean;
   /** 符号混输（打拼音出符号）。后加的可选成员：Rust 端开着时不写这个键，旧文档和只写前四项的宿主都没有它，缺省按开处理；也因此不放进 `defaultMixedInput`。 */
   symbols?: boolean;
-  /** 快捷短语混输（编码恰好是某条快捷短语的编码时，短语排在普通候选之后）。后加的可选成员：只对声明 `quick_phrase_candidates` 能力的宿主（macOS、Linux）生效，它们此前无条件混入，旧文档缺键读作开；新装默认关，开着时不写键。 */
+  /** 快捷短语混输（编码恰好是某条快捷短语的编码时，短语混进普通候选，没有学习记录时落在首页最后几格，普通候选不满一页时接在它们之后）。后加的可选成员：只对声明 `quick_phrase_candidates` 能力的宿主（macOS、Linux）生效，它们此前无条件混入，旧文档缺键读作开；新装默认关，开着时不写键。 */
   quick_phrase?: boolean;
   /** 快捷短语参与调频：常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移。后加的可选成员，缺键读作开，只在混输打开时起作用。 */
   quick_phrase_frequency?: boolean;
