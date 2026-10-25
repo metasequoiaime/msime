@@ -323,6 +323,12 @@ enum InputSchemePreference {
     return offered.isEmpty ? [.editionFallback] : offered
   }
 
+  /// 功能菜单「手写」离开手写时回到的方案（#9703）：`before`（经这个图块进入手写前的方案）还在 `offered` 里就回到它；不知道它（键盘是从方案选择进的手写）或它已被关掉时，取 `offered` 里第一个不是手写的方案，再没有就是本版本的默认方案。与 Android、鸿蒙的 `KeyboardScheme.handwritingReturn` 一致。
+  static func handwritingReturn(before: ChineseInputScheme?, offered: [ChineseInputScheme]) -> ChineseInputScheme {
+    if let before, before != .handwriting, offered.contains(before) { return before }
+    return offered.first { $0 != .handwriting } ?? .editionFallback
+  }
+
   /// 键盘「输入方式」面板里列出的方案：`schemes` 里的双拼只留一种，其余方案原样、按原顺序保留。
   ///
   /// 留下的那一种依次取：`selected` 本身是双拼且在 `schemes` 里时就是它；否则是共享文档 `shuangpin_profile`（`profile`，缺省或不认识时按小鹤，与 client-core 的缺省相同）对应的那一种；它不在 `schemes` 里时取 `schemes` 里第一种双拼。大多数人只用一种双拼，四种都列出来会把手写挤到第二页（#6450）；换双拼方案在 App 的「双拼」子菜单里。与 Android、鸿蒙的 `KeyboardScheme.pickerSchemes` 一致。

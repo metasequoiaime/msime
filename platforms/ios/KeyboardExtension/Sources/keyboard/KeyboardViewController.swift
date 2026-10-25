@@ -323,6 +323,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
   private var japaneseConversionIndex: Int?
   private var isChineseMode = true
+  /// 经功能菜单「手写」进入手写前的方案和中英状态，再点一次这个图块回到它们（#9703）；经其他途径换方案时清掉，那时离开手写按 `InputSchemePreference.handwritingReturn` 取第一个不是手写的方案。
+  private var schemeBeforeHandwriting: ChineseInputScheme?
+  private var englishBeforeHandwriting = false
   /// Shift 发起的英文片段不改变用户明确选择的语言，结束后回到原方案。
   private var temporaryEnglishFromScheme = false
 
@@ -2365,11 +2368,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       KeyboardTool(id: "handwriting", title: "手写", face: .icon(.handwriting),
                    selected: isChineseMode && inputScheme == .handwriting,
                    enabled: InputSchemePreference.offeredSchemes.contains(.handwriting)) { [weak self] in
-        guard let self else { return }
-        // 与在方案选择里选手写的步骤相同。
-        closeKeyboardPicker()
-        if !isChineseMode { toggleInputMode() }
-        selectInputScheme(.handwriting)
+        self?.toggleHandwritingScheme()
       },
       KeyboardTool(id: "dictionary", title: "词库", face: .icon(.lexicon)) { [weak self] in
         self?.openApp(KeyboardAppLauncher.dictionaryURL)
@@ -4618,9 +4617,35 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 功能菜单的「手写」：切到手写，并记下进入前的方案和中英状态；正在手写时回到记下的那个（#9703）。原先这个图块只进不出，再点一次仍停在手写上，要从方案选择离开。与 Android、鸿蒙的磁贴一样来回切换。
+  ///
+  /// 英文盖在手写上时键盘画的是英文，这时点图块是要手写：只退出英文，进入前记下的方案仍然有效。
+  private func toggleHandwritingScheme() {
+    closeKeyboardPicker()
+    if isChineseMode && inputScheme == .handwriting {
+      let before = schemeBeforeHandwriting
+      let back = InputSchemePreference.handwritingReturn(before: before, offered: InputSchemePreference.offeredSchemes)
+      let english = back == before && englishBeforeHandwriting
+      selectInputScheme(back)
+      if english && isChineseMode && inputScheme == back { toggleInputMode() }
+      return
+    }
+    let previous = inputScheme
+    let english = !isChineseMode
+    // 与在方案选择里选手写的步骤相同。
+    if !isChineseMode { toggleInputMode() }
+    selectInputScheme(.handwriting)
+    if previous != .handwriting && inputScheme == .handwriting {
+      schemeBeforeHandwriting = previous
+      englishBeforeHandwriting = english
+    }
+  }
+
   private func selectInputScheme(_ scheme: ChineseInputScheme, persistShared: Bool = true) {
     guard InputSchemePreference.offeredSchemes.contains(scheme) else { return }
     if scheme == inputScheme { return }
+    // 换到别的方案：「手写」图块记下的方案作废，图块自己在这之后重新记。
+    schemeBeforeHandwriting = nil
     playInputClick()
     let source = typingSource
     // An open Korean syllable, Zhuyin conversion or Vietnamese word is text the user already wrote, so leaving the scheme commits it; the switch below would otherwise discard it along with the marked text.

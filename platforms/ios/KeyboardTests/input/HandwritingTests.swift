@@ -137,6 +137,70 @@ final class HandwritingTests: XCTestCase {
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
     XCTAssertFalse(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
   }
+  /// 功能菜单的「手写」再点一次回到进入手写前的布局和中英状态（#9703），不是启用列表里的第一个方案，也不是停在手写上。
+  func testHandwritingTileReturnsToTheLayoutItWasOpenedFrom() throws {
+    let previous = InputSchemePreference.scheme
+    let memory = [ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]
+      .map { ($0, ImeModeMemoryPreference.defaults.object(forKey: $0)) }
+    defer {
+      InputSchemePreference.scheme = previous
+      for (key, value) in memory { ImeModeMemoryPreference.defaults.set(value, forKey: key) }
+    }
+    // 新键盘从中文开始，不继承模拟器上一次留下的英文。
+    ImeModeMemoryPreference.defaults.set(true, forKey: ImeModeMemoryPreference.enabledKey)
+    ImeModeMemoryPreference.defaults.set(true, forKey: ImeModeMemoryPreference.lastChineseKey)
+    XCTAssertEqual(InputSchemePreference.enabledSchemes.first, .quanpin, "全拼 26 键排在启用列表第一个，才看得出回到的是不是它")
+
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController(); controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey, "关掉手写回到了别的布局")
+    XCTAssertEqual(try languageKey(in: controller).accessibilityValue, KeyboardViewController.languageKeyValue(.nineKey))
+
+    // 从英文键盘（全拼 9 键上的英文）进入手写，关掉后回到英文，底下的方案仍是全拼 9 键。用同一个键盘：新建的键盘会先读共享文档里刚记下的方案，赋给 `InputSchemePreference.scheme` 的值盖不过它。
+    try languageKey(in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try languageKey(in: controller).accessibilityValue, "英文输入")
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
+    XCTAssertNotEqual(try languageKey(in: controller).accessibilityValue, "英文输入")
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey)
+    XCTAssertEqual(try languageKey(in: controller).accessibilityValue, "英文输入", "关掉手写没有回到英文")
+  }
+
+  /// 离开手写回到哪个方案：记着的还启用着就是它，否则是启用列表里第一个不是手写的方案，与 Android、鸿蒙的 `handwritingReturn` 一致。
+  func testHandwritingReturnPrefersTheSchemeItWasOpenedFrom() {
+    let offered: [ChineseInputScheme] = [.quanpin, .nineKey, .shuangpin, .handwriting]
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .nineKey, offered: offered), .nineKey)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .shuangpin, offered: offered), .shuangpin)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: nil, offered: offered), .quanpin,
+                   "经方案选择进入手写时，取第一个不是手写的方案")
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .japanese, offered: offered), .quanpin,
+                   "进入手写后被关掉的方案不再回去")
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .handwriting, offered: offered), .quanpin)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: nil, offered: [.handwriting, .wubi]), .wubi)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: nil, offered: [.handwriting]),
+                   ChineseInputScheme.editionFallback)
+  }
+
+  private func tapHandwritingTile(in controller: KeyboardViewController) throws {
+    let more = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" } as? UIButton)
+    more.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let tile = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "moreCard-手写" } as? UIControl,
+                             "No 手写 tile in the function menu.")
+    tile.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+  }
+
+  private func languageKey(in controller: KeyboardViewController) throws -> UIButton {
+    try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
+  }
+
   func testHandwritingHeightTracksOrientationAndSymbolMode() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
