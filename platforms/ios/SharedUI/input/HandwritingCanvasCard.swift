@@ -4,8 +4,8 @@ import UIKit
 ///
 /// 卡片是一块按键表面：皮肤的按键填充色、按键圆角，下面带按键的投影。设计稿的辅助线用细线色画在上面：一个从边缘内缩 `guideInset`、圆角 8pt 的虚线框，以及穿过框中心的虚线十字。笔迹由画布自己画在最上层。
 enum HandwritingCanvasCard {
-  /// 虚线辅助框相对卡片边缘的内缩距离（dc.html：inset 14）。
-  static let guideInset: CGFloat = 14
+  /// 虚线辅助框相对卡片边缘的内缩距离。设计稿 dc.html 原为 14；为了让可见书写区更大，三个移动端统一收窄到 8。
+  static let guideInset: CGFloat = 8
   /// 辅助框的圆角半径（dc.html：r8）。
   static let guideRadius: CGFloat = 8
   /// 辅助线的虚线样式。

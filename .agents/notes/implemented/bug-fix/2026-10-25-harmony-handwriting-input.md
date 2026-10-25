@@ -16,7 +16,7 @@ Status: implemented
 
 ## Related notes
 
-检索鸿蒙、手写与 Core Vision 相关记录后，旧的[手写板设置预览](../../implemented/feature/2026-10-12-harmony-handwriting-pad-preview.md)只规定设置动画，属于部分重叠，本次不改变其示例笔画和默认值。其他命中的计时器、翻译和语言入口记录不涉及本次识别决定。
+检索鸿蒙、手写与 Core Vision 相关记录后，旧的[手写板设置预览](../../implemented/feature/2026-10-12-harmony-handwriting-pad-preview.md)只规定设置动画，属于部分重叠，本次不改变其示例笔画和默认值。其他命中的计时器、翻译和语言入口记录不涉及本次识别决定。本次扩大书写区的比例随后由 [三个移动端统一并扩大触屏手写区](2026-10-25-mobile-handwriting-pad-size.md) 推广到 iOS 与 Android，并把虚线辅助框的内缩改为 8。
 
 ## Alternatives considered
 

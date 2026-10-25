@@ -121,7 +121,12 @@ final class HandwritingTests: XCTestCase {
       XCTAssertFalse(panel.isHidden)
       // 书写区是操作行上方设计稿三排 42pt 键的高度，减去面板自身的内边距。
       XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 130)
-      XCTAssertGreaterThan(panel.canvas.bounds.width, 200)
+      // 书写卡片约占键盘宽度的七成：320pt 宽时不小于 215pt，414pt 时不小于 285pt；虚线框只从卡片边缘内缩 8pt。
+      XCTAssertGreaterThan(panel.canvas.bounds.width, width * 0.67)
+      let guide = try XCTUnwrap(HandwritingCanvasCard.guideRect(for: panel.canvas.bounds))
+      XCTAssertEqual(panel.canvas.bounds.width - guide.width, 2 * HandwritingCanvasCard.guideInset, accuracy: 0.5)
+      XCTAssertEqual(HandwritingCanvasCard.guideInset, 8)
+      print("Handwriting pad at \(Int(width))pt: card \(panel.canvas.bounds.size), guide \(guide.size)")
       let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) }); shot.name = "Handwriting keyboard \(Int(width))"; shot.lifetime = .keepAlways; add(shot)
     }
     let language = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
@@ -192,7 +197,7 @@ final class HandwritingTests: XCTestCase {
     view.convert(view.bounds, to: controller.view)
   }
 
-  /// 手写键盘沿用 Android 的 rebuildHandwritingRows：左侧竖排 ，。？！，中间是书写卡片，右侧竖排 ⌫ 和「重写」，宽度按 Android 的 .7 / 3 / .8 比例分配；下方是 Android 的 designEntries 给手写用的手机 26 键底排（123 | ， | 手写 | 。 | 中 | return）。
+  /// 手写键盘沿用 Android 的 rebuildHandwritingRows：左侧竖排 ，。？！，中间是书写卡片，右侧竖排 ⌫ 和「重写」，宽度按三个移动端共用的 .6 / 4 / .7 比例分配；下方是 Android 的 designEntries 给手写用的手机 26 键底排（123 | ， | 手写 | 。 | 中 | return）。
   func testThePadHasAndroidsColumnsAndThePhoneBottomRow() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
@@ -205,7 +210,7 @@ final class HandwritingTests: XCTestCase {
     XCTAssertEqual(marks.map { $0.configuration?.title }, ["，", "。", "？", "！"])
     for mark in marks {
       XCTAssertLessThan(frame(mark, in: controller).maxX, card.minX)
-      XCTAssertEqual(mark.bounds.width, card.width * 0.7 / 3, accuracy: 0.5)
+      XCTAssertEqual(mark.bounds.width, card.width * 0.6 / 4, accuracy: 0.5)
     }
     // 四个标点从上到下平分卡片的高度。
     XCTAssertEqual(frame(marks[0], in: controller).minY, card.minY, accuracy: 0.5)
@@ -215,9 +220,12 @@ final class HandwritingTests: XCTestCase {
     XCTAssertEqual(rewrite.configuration?.title, "重写")
     for tool in [delete, rewrite] {
       XCTAssertGreaterThan(frame(tool, in: controller).minX, card.maxX)
-      XCTAssertEqual(tool.bounds.width, card.width * 0.8 / 3, accuracy: 0.5)
+      XCTAssertEqual(tool.bounds.width, card.width * 0.7 / 4, accuracy: 0.5)
     }
     XCTAssertLessThan(frame(delete, in: controller).maxY, frame(rewrite, in: controller).minY)
+    // 书写卡片占标点列左缘到工具列右缘的约四分之三（两道键距之外）。
+    let row = frame(marks[0], in: controller).minX...frame(delete, in: controller).maxX
+    XCTAssertGreaterThanOrEqual(card.width / (row.upperBound - row.lowerBound), 0.72)
     XCTAssertTrue(KeyboardViewController.usesPhoneBottomRow(formFactor: .phone, nineKeyFrame: false, handwriting: true, kana: false))
     XCTAssertTrue(KeyboardViewController.usesPhoneBottomRow(formFactor: .tablet, nineKeyFrame: false, handwriting: true, kana: false))
     let comma = try control("quickPunctuationKey", in: controller)

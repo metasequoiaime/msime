@@ -360,7 +360,7 @@ const PICKER_ENGLISH_26: string = 'english-26';
 const PICKER_ENGLISH_9: string = 'english-9';
 const PICKER_ADD_LANGUAGE: string = 'add-language';
 const HANDWRITING_CANVAS_ID: string = 'msime-harmony-handwriting-canvas';
-// 触屏手写板的三列按份额分配行宽：收窄两侧控制列，把书写区扩大到约四分之三。
+// 触屏手写板的三列按份额分配行宽：收窄两侧控制列，把书写区扩大到约四分之三。iOS 与 Android 使用同一组份额。
 const HANDWRITING_PUNCTUATION_WEIGHT: number = 0.6;
 const HANDWRITING_AREA_WEIGHT: number = 4;
 const HANDWRITING_TOOLS_WEIGHT: number = 0.7;
@@ -368,7 +368,8 @@ const HANDWRITING_SIDE_GAP_VP: number = 6;
 const HANDWRITING_PUNCTUATION_FONT_SIZE: number = 17;
 const HANDWRITING_REWRITE_FONT_SIZE: number = 14;
 const HANDWRITING_STATUS_FONT_SIZE: number = 13;
-const HANDWRITING_GUIDE_INSET_VP: number = 14;
+// 虚线辅助框距书写区边缘的距离；设计稿原为 14，三个移动端统一收窄到 8，让可见书写区更大。
+const HANDWRITING_GUIDE_INSET_VP: number = 8;
 const HANDWRITING_GUIDE_RADIUS_VP: number = 8;
 const HANDWRITING_IDLE_STATUS: string = '在此手写，停笔后选字';
 // Enough tint to mark the card without drowning the glyph sitting on it.
@@ -7233,7 +7234,7 @@ struct KeyboardView {
           .borderWidth(this.handwritingSkin.borderWidth)
           .borderColor(this.handwritingSkin.borderColor)
           .onReady(() => this.redrawHandwriting())
-        // 设计稿的参考线：距边缘 14vp 的虚线框，以及穿过其中心的虚线十字，用细线颜色。
+        // 设计稿的参考线：距边缘 HANDWRITING_GUIDE_INSET_VP 的虚线框，以及穿过其中心的虚线十字，用细线颜色。
         Stack() {
           Column()
             .width('100%')
