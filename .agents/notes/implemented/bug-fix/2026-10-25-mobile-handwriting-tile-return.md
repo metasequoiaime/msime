@@ -42,6 +42,6 @@ Android 的方案切换是异步保存，英文要在保存成功、新方案应
 
 ## Verification
 
-- Android：`platforms/android/tests/keyboard/KeyboardSchemeSmoke.java` 的 `handwritingReturn` 覆盖入口选法；`check-host.sh` 钉住 `toggleHandwritingScheme` 经 `handwritingReturn` 取入口、并把英文交给方案保存。专用模拟器上安装 APK，以全拼 9 键、英文 26 键开关手写验收。
-- 鸿蒙：`platforms/harmony/tests/keyboard-logic.test.ts` 覆盖 `KeyboardScheme.handwritingReturn`；`tests/run.sh` 钉住 `KeyboardView.toggleHandwritingScheme` 的接线。
-- iOS：`KeyboardTests/input/HandwritingTests.swift` 的 `testHandwritingTileReturnsToTheLayoutItWasOpenedFrom` 在真实的 `KeyboardViewController` 上从全拼 9 键、小鹤双拼上的英文各开关一次手写；`testHandwritingReturnPrefersTheSchemeItWasOpenedFrom` 覆盖入口选法。
+- Android：`platforms/android/tests/keyboard/KeyboardSchemeSmoke.java` 的 `handwritingReturn` 覆盖入口选法；`check-host.sh` 钉住 `toggleHandwritingScheme` 经 `handwritingReturn` 取入口、并把英文交给方案保存。API 35 专用模拟器上装 full 版 APK，从全拼 9 键、英文 26 键、小鹤双拼各用磁贴开关一次手写，都回到原来的键盘。
+- 鸿蒙：`platforms/harmony/tests/keyboard-logic.test.ts` 覆盖 `KeyboardScheme.handwritingReturn`；`tests/run.sh` 钉住 `KeyboardView.toggleHandwritingScheme` 的接线；`hvigorw assembleHap` 编译 ArkTS 通过。没有在鸿蒙设备上验收。
+- iOS：`KeyboardTests/input/HandwritingTests.swift` 的 `testHandwritingTileReturnsToTheLayoutItWasOpenedFrom` 在真实的 `KeyboardViewController` 上从全拼 9 键、全拼 9 键上的英文各开关一次手写；`testHandwritingReturnPrefersTheSchemeItWasOpenedFrom` 覆盖入口选法。
