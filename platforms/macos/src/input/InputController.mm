@@ -1109,35 +1109,48 @@ static CFMutableDictionaryRef MSIMECapsLockHIDMatching(uint32_t usage) {
     return matching;
 }
 
-static void MSIMEEnsureCapsLockHIDTracking() {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
-        if (!manager) return;
-        CFMutableDictionaryRef capsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardCapsLock);
-        CFMutableDictionaryRef lockingCapsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardLockingCapsLock);
-        const void *matches[] = {capsLock, lockingCapsLock};
-        CFArrayRef matching = CFArrayCreate(kCFAllocatorDefault, matches, 2, &kCFTypeArrayCallBacks);
-        IOHIDManagerSetInputValueMatchingMultiple(manager, matching);
-        CFRelease(matching);
-        CFRelease(capsLock);
-        CFRelease(lockingCapsLock);
-        IOHIDManagerRegisterDeviceMatchingCallback(manager, &MSIMECapsLockHIDDeviceMatched, nullptr);
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, &MSIMECapsLockHIDDeviceRemoved, nullptr);
-        IOHIDManagerRegisterInputValueCallback(manager, &MSIMECapsLockHIDInputValue, nullptr);
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
-        if (IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
-            CFRelease(manager);
-            return;
-        }
-    });
+// 只在按下 Caps Lock 时设备没报实体按住位、HID 也还没有结果时调用（observeCapsLockTap），报这个位的内置键盘不会走到这里，也就不会被要求「输入监控」授权。打开键盘的 HID 管理器需要这项授权：未询问时请系统询问一次，授权之前不打开，免得在用户没准备时弹框；没打开就留到下一次这样的按键再试，用户之后在系统设置里允许也不必重启输入法。只在主线程调用。
+static void MSIMEStartCapsLockHIDTracking() {
+    static IOHIDManagerRef tracking = nullptr;
+    static bool accessRequested = false;
+    if (tracking) return;
+    const IOHIDAccessType access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
+    if (access == kIOHIDAccessTypeUnknown && !accessRequested) {
+        accessRequested = true;
+        // 询问框由系统弹出，放到后台队列，主线程不等用户作答。
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
+        });
+        return;
+    }
+    if (access != kIOHIDAccessTypeGranted) return;
+    IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    if (!manager) return;
+    CFMutableDictionaryRef capsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardCapsLock);
+    CFMutableDictionaryRef lockingCapsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardLockingCapsLock);
+    const void *matches[] = {capsLock, lockingCapsLock};
+    CFArrayRef matching = CFArrayCreate(kCFAllocatorDefault, matches, 2, &kCFTypeArrayCallBacks);
+    IOHIDManagerSetInputValueMatchingMultiple(manager, matching);
+    CFRelease(matching);
+    CFRelease(capsLock);
+    CFRelease(lockingCapsLock);
+    IOHIDManagerRegisterDeviceMatchingCallback(manager, &MSIMECapsLockHIDDeviceMatched, nullptr);
+    IOHIDManagerRegisterDeviceRemovalCallback(manager, &MSIMECapsLockHIDDeviceRemoved, nullptr);
+    IOHIDManagerRegisterInputValueCallback(manager, &MSIMECapsLockHIDInputValue, nullptr);
+    IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+    IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+    if (IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
+        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+        CFRelease(manager);
+        return;
+    }
+    tracking = manager;
 }
+// 测试换成计数的：单测不能打开跑测试那台机器的真实键盘，也不能替它申请授权。
+static void (*MSIMECapsLockHIDStart)() = &MSIMEStartCapsLockHIDTracking;
 
 static bool MSIMEReadCapsLockHIDState(bool *known) {
-    MSIMEEnsureCapsLockHIDTracking();
     const bool stateKnown = MSIMECapsLockHIDStateKnown.load(std::memory_order_acquire);
     if (known) *known = stateKnown;
     return MSIMECapsLockHIDStateHeld.load(std::memory_order_acquire);
@@ -4258,8 +4271,11 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
         [self cancelCapsLockTap];
         // 只有大写锁定从关变开才可能是轻点；开着时按它是关掉大写锁定，照常处理，不切换。
         if (!capsLock || _capsLock || !sender || !_appearance.capsLockTapShortcut) return NO;
-        // 设备没有提供实体按住位时保留系统大写锁定，不能把缺失状态当作已经松手。
-        if (!(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld()) return NO;
+        // 设备没有提供实体按住位时保留系统大写锁定，不能把缺失状态当作已经松手；同时开始（或重试）HID 监听，拿到结果之后的轻点才能判定。
+        if (!(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld()) {
+            MSIMECapsLockHIDStart();
+            return NO;
+        }
         _capsLockTap.press(MSIMECapsLockNow(), true, false, (event.modifierFlags & others) != 0);
         if (!_capsLockTap.armed()) return NO;
         __weak MSIMEInputController *weakSelf = self;

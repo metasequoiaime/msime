@@ -6672,12 +6672,17 @@ static CGEventFlags SyntheticCapsFlags(CGEventSourceStateID state) {
     return NX_ALPHASHIFTMASK | (gCapsHeld ? NX_ALPHASHIFT_STATELESS_MASK : 0);
 }
 static bool SyntheticCapsRelease() { ++gCapsReleases; return gCapsReleaseWorks; }
+static NSUInteger gCapsHIDStarts = 0;
+static void SyntheticCapsHIDStart() { ++gCapsHIDStarts; }
 
 static void TestCapsLockTap() {
     const auto realRelease = MSIMECapsLockRelease;
     const auto realHID = MSIMECapsLockHIDState;
     const auto realFlags = MSIMEPhysicalModifierFlagsState;
     const auto realNow = MSIMECapsLockNow;
+    const auto realHIDStart = MSIMECapsLockHIDStart;
+    MSIMECapsLockHIDStart = &SyntheticCapsHIDStart;
+    gCapsHIDStarts = 0;
     MSIMECapsLockRelease = &SyntheticCapsRelease;
     MSIMECapsLockHIDState = &SyntheticCapsHID;
     MSIMEPhysicalModifierFlagsState = &SyntheticCapsFlags;
@@ -6863,7 +6868,19 @@ static void TestCapsLockTap() {
     gCapsNow = 13050;
     [controller pollCapsLockTap];
     assert(session.capsLock && !prefs.englishMode && gCapsReleases == releasesBefore);
+    // 报实体按住位的设备从不启动 HID 监听，不会被要求「输入监控」授权；只有这台不报的设备才启动一次。
+    assert(gCapsHIDStarts == 1);
+    // HID 有了结果之后，同一台设备的轻点按实体按下和松开判定，照常切换。
+    assert(![controller handleEvent:capsOff(13.5) client:client]);
+    gCapsHIDKnown = true; gCapsHIDHeld = true;
+    gCapsNow = 14000;
+    assert(![controller handleEvent:capsOn(14.0) client:client]);
+    gCapsNow = 14050; gCapsHIDHeld = false;
+    [controller pollCapsLockTap];
+    assert(prefs.englishMode && gCapsReleases == releasesBefore + 1 && gCapsHIDStarts == 1);
+    gCapsHIDKnown = false;
 
+    MSIMECapsLockHIDStart = realHIDStart;
     MSIMECapsLockRelease = realRelease;
     MSIMECapsLockHIDState = realHID;
     MSIMEPhysicalModifierFlagsState = realFlags;

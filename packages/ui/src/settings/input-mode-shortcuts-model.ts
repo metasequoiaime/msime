@@ -49,7 +49,7 @@ export function capsLockLanguageSwitchDescription(macos: boolean, linux: boolean
   const base =
     "轻点 Caps Lock（300 毫秒内松开）切换中英文，不打开大写锁定；按住更久照常打开大写锁定，大写锁定开着时按一下照常关掉。";
   if (macos)
-    return `${base}若在系统设置 › 键盘 › 文字输入中打开了「使用大写锁定键切换 ABC」，系统会先截走轻点，请把它关掉。`;
+    return `${base}若在系统设置 › 键盘 › 文字输入中打开了「使用大写锁定键切换 ABC」，系统会先截走轻点，请把它关掉。部分外接键盘不报告 Caps Lock 是否按住，第一次在这类键盘上轻点时，系统会请求「输入监控」授权：允许后轻点才能切换，不允许时轻点照常打开大写锁定。`;
   if (linux)
     return `${base}只在 X11 会话中可用；Wayland 会话里大写锁定由桌面环境掌管，轻点照常打开大写锁定。`;
   return base;
