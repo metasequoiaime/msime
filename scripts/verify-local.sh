@@ -745,7 +745,8 @@ build_windows_host_library() {
       ;;
   esac
   echo "native: rebuilding $library"
-  env PATH="$cargo_path" "${cargo_env[@]}" cargo build -p msime-host-api --locked --profile "$profile" "${target_args[@]}" 2>&1 |
+  # macOS 系统 Bash 在 nounset 下把空数组视为未设置，可选参数只在数组非空时展开。
+  env PATH="$cargo_path" ${cargo_env[@]+"${cargo_env[@]}"} cargo build -p msime-host-api --locked --profile "$profile" ${target_args[@]+"${target_args[@]}"} 2>&1 |
     tee "$MSIME_NATIVE_BUILD/host-library-build.log" | tail -2
   build_status=${PIPESTATUS[0]}
   if [ "$build_status" -ne 0 ]; then
