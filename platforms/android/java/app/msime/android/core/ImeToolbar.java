@@ -423,8 +423,9 @@ final class ImeToolbar {
         if (recentClipCollapseButton instanceof KeyboardShortcutButton collapse)
             collapse.setIconColors(foregroundColor, foregroundColor);
         if (s.moreButton instanceof KeyboardBrandButton brand) {
-            // 品牌标记与工具栏共用皮肤的图标色，面板打开时也采用相同的选中色。
-            brand.setLogoColor(s.anyToolbarPanelOpen() ? activeIconColor : iconColor);
+            // 设计的 logoCirc / logoBg 是应用主题的季节色（与开屏、设置页的 logo 同一套），不是从键盘皮肤的强调色混出来的。
+            AppThemePalette palette = AppThemePalette.of(s.imeStyler.appThemeSeed(), skin.dark());
+            brand.setLogoColors(palette.logoDisc, palette.logoBackground);
             brand.setPanelOpen(s.anyToolbarPanelOpen(), activeBackgroundColor);
         }
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {
