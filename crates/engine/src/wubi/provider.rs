@@ -552,6 +552,115 @@ mod tests {
         );
     }
 
+    /// 在真实的 86 码表和拼音主词库上量 14 键：每个单字和词按自己的每个编码逐键打，记下每一键的查询耗时，以及打满编码时目标在第几位（按词频加权）。
+    ///
+    /// 需要一份代次工作副本那样的主词库（拼音各表加 `wubi86` 和索引），路径放在 `MSIME_WUBI_GRID_DB`：
+    /// `MSIME_WUBI_GRID_DB=… cargo test -p msime-engine --release --lib wubi_grid_real_table -- --ignored --nocapture`。
+    #[test]
+    #[ignore = "需要真实词库，见文档注释"]
+    fn wubi_grid_real_table_latency_and_rank() {
+        use std::time::{Duration, Instant};
+        let path = std::path::PathBuf::from(
+            std::env::var_os("MSIME_WUBI_GRID_DB").expect("MSIME_WUBI_GRID_DB"),
+        );
+        let connection = Connection::open(&path).unwrap();
+        let rows: Vec<(String, String)> = connection
+            .prepare("SELECT key, value FROM wubi86 ORDER BY rowid")
+            .unwrap()
+            .query_map((), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|(code, _)| {
+                (1..=4).contains(&code.len())
+                    && code.bytes().all(|letter| (b'a'..=b'y').contains(&letter))
+            })
+            .collect();
+        let mut provider = WubiProvider::new(&path);
+        let cold = Instant::now();
+        provider.query(&QueryRequest {
+            wubi_grid: true,
+            ..request("q")
+        });
+        let cold = cold.elapsed();
+        let mut frequency = WubiFrequency::new(&path);
+        let mut latencies: [Vec<Duration>; 4] = Default::default();
+        // 同一批编码按 26 键逐字母打的耗时，作对照。
+        let mut baseline: [Vec<Duration>; 4] = Default::default();
+        // (词频加权的总数, 首位, 前三, 前五)，单字和词分开。
+        let mut ranks = [[0f64; 4]; 2];
+        let mut unranked = 0usize;
+        for (index, (code, word)) in rows.iter().enumerate() {
+            let groups: String = code
+                .bytes()
+                .map(|letter| char::from(super::super::grid::representative_of(letter).unwrap()))
+                .collect();
+            // 逐键的耗时只抽样量，排名每行都算。
+            if index % 16 == 0 {
+                for length in 1..=groups.len() {
+                    let started = Instant::now();
+                    provider.query(&QueryRequest {
+                        wubi_grid: true,
+                        ..request(&groups[..length])
+                    });
+                    latencies[length - 1].push(started.elapsed());
+                    let started = Instant::now();
+                    provider.query(&request(&code[..length]));
+                    baseline[length - 1].push(started.elapsed());
+                }
+            }
+            let weight = frequency.weight(word) as f64;
+            if weight <= 0.0 {
+                unranked += 1;
+                continue;
+            }
+            let answer = provider.query(&QueryRequest {
+                wubi_grid: true,
+                ..request(&groups)
+            });
+            let position = answer
+                .iter()
+                .position(|item| item.pinyin.as_str() == code && item.word.as_str() == word)
+                .unwrap_or(usize::MAX);
+            let kind = usize::from(word.chars().count() > 1);
+            ranks[kind][0] += weight;
+            ranks[kind][1] += weight * f64::from(u8::from(position < 1));
+            ranks[kind][2] += weight * f64::from(u8::from(position < 3));
+            ranks[kind][3] += weight * f64::from(u8::from(position < 5));
+        }
+        eprintln!(
+            "rows {} (no frequency {unranked}), cold first query {cold:?}",
+            rows.len()
+        );
+        for (length, samples) in latencies.iter_mut().chain(baseline.iter_mut()).enumerate() {
+            samples.sort_unstable();
+            let at = |quantile: f64| samples[((samples.len() - 1) as f64 * quantile) as usize];
+            eprintln!(
+                "{} {} key(s): n={} p50={:?} p95={:?} p99={:?} max={:?}",
+                if length < 4 { "grid" } else { "26-key" },
+                length % 4 + 1,
+                samples.len(),
+                at(0.5),
+                at(0.95),
+                at(0.99),
+                samples.last().unwrap()
+            );
+        }
+        for (kind, [total, top1, top3, top5]) in ["characters", "words"].iter().zip(ranks) {
+            eprintln!(
+                "{kind}: weighted top-1 {:.3} top-3 {:.3} top-5 {:.3}",
+                top1 / total,
+                top3 / total,
+                top5 / total
+            );
+        }
+        let p95 = |samples: &[Duration]| samples[(samples.len() - 1) * 95 / 100];
+        assert!(latencies
+            .iter()
+            .all(|samples| p95(samples) < Duration::from_millis(20)));
+    }
+
     #[test]
     fn a_grid_code_answers_at_most_the_query_limit() {
         let mut sql = String::from("CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);");
