@@ -40,8 +40,9 @@ void PreferenceMonitor::stop() {
     worker_.join();
 }
 void PreferenceMonitor::run() {
-  std::optional<PreferenceSnapshot> published, pending;
+  std::optional<PreferenceSnapshot> published;
   std::optional<std::future<InputTaskStatus>> receipt;
+  std::shared_ptr<std::optional<PreferenceSnapshot>> applied;
   for (;;) {
     {
       std::lock_guard lock(mutex_);
@@ -61,8 +62,8 @@ void PreferenceMonitor::run() {
           return;
         }
         receipt.reset();
-        published = std::move(pending);
-        pending.reset();
+        published = std::move(*applied);
+        applied.reset();
         if (published_) published_(*published);
         status_ = PreferenceMonitorStatus::Current;
       }
@@ -83,11 +84,11 @@ void PreferenceMonitor::run() {
             if (stopping_)
               break;
           }
-          receipt = input_.submit([value = *snapshot](InputState &state) {
-            state.publish_preferences(value);
+          applied = std::make_shared<std::optional<PreferenceSnapshot>>();
+          receipt = input_.submit([value = *snapshot, result = applied](InputState &state) {
+            *result = state.publish_preferences_at_least(value);
           });
           if (receipt) {
-            pending = std::move(snapshot);
             status_ = PreferenceMonitorStatus::Publishing;
           } else
             status_ = PreferenceMonitorStatus::QueueFull;

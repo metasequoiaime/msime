@@ -24,7 +24,10 @@ int main() {
   assert(settings_page_for_route("settings:appearance") == 5 && settings_page_for_route("settings:skin") == 8);
   assert(settings_page_for_route("settings:dictionary") == 13 && settings_page_for_route("settings:vocabulary") == 14);
   assert(settings_page_for_route("settings:plugins") == 15);
-  assert(settings_page_for_route("settings:mcp") == 21);
+  assert(!settings_page_for_route("settings:ai") && !settings_page_for_route("settings:chat") &&
+      !settings_page_for_route("settings:account") && !settings_page_for_route("settings:cloud-clipboard") &&
+      !settings_page_for_route("settings:community") && !settings_page_for_route("settings:mcp") &&
+      !settings_page_for_route("settings:community-plugins") && !settings_page_for_route("settings:community-resources"));
   assert(settings_page_for_route("settings:keyboard-skin") == 22);
   assert(settings_page_for_route("settings:screen-keyboard") == 20 && settings_page_for_route("settings:osk") == 20);
   assert(settings_page_for_route("settings:handwriting") == (MSIME_EDITION_HANDWRITING != 0 ? 20 : 3));
@@ -52,28 +55,12 @@ int main() {
     }
     assert(window.open_route("settings:input") && SendMessageW(selector, CB_GETCURSEL, 0, 0) == 3);
     assert(!window.open_route("settings:unknown") && SendMessageW(selector, CB_GETCURSEL, 0, 0) == 3);
-    assert(window.open_route("settings:mcp"));
-    // 输入页可能正在后台读取辅助码目录，路由在这次读取完成后应用。
-    const auto route_deadline = GetTickCount64() + 5000;
-    while (SendMessageW(selector,CB_GETCURSEL,0,0) != 21) {
-      MSG message{}; while (PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { assert(message.message != WM_QUIT); TranslateMessage(&message); DispatchMessageW(&message); }
-      assert(GetTickCount64() < route_deadline); MsgWaitForMultipleObjects(0,nullptr,FALSE,20,QS_ALLINPUT);
-    }
-    HWND mcp_page = nullptr;
-    for (HWND child = GetWindow(body,GW_CHILD); child; child = GetWindow(child,GW_HWNDNEXT))
-      if (GetDlgItem(child,McpPage::refresh)) { mcp_page = child; break; }
-    assert(mcp_page);
-    const auto mcp_deadline = GetTickCount64() + 5000;
-    while (!IsWindowEnabled(GetDlgItem(mcp_page,McpPage::refresh))) {
-      MSG message{}; while (PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { assert(message.message != WM_QUIT); TranslateMessage(&message); DispatchMessageW(&message); }
-      assert(GetTickCount64() < mcp_deadline); MsgWaitForMultipleObjects(0,nullptr,FALSE,20,QS_ALLINPUT);
-    }
-    assert(!IsWindowEnabled(GetDlgItem(mcp_page,McpPage::copy_primary)));
+    assert(!window.open_route("settings:mcp") && SendMessageW(selector, CB_GETCURSEL, 0, 0) == 3);
     // 深链接和分类导航必须选中同一页面；切换分类不能写偏好。
     const auto navigation = GetDlgItem(window.handle(), page_navigation);
     assert(navigation && !(GetWindowLongPtrW(selector, GWL_STYLE) & WS_VISIBLE));
     TVITEMW selected{}; selected.mask = TVIF_PARAM; selected.hItem = TreeView_GetSelection(navigation);
-    assert(TreeView_GetItem(navigation, &selected) && selected.lParam == 21);
+    assert(TreeView_GetItem(navigation, &selected) && selected.lParam == 3);
     assert(window.open_route("settings:input"));
     const auto nav_deadline = GetTickCount64() + 5000;
     while (SendMessageW(selector, CB_GETCURSEL, 0, 0) != 3 || !IsWindowEnabled(GetDlgItem(body, language_switch))) {

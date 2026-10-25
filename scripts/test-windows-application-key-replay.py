@@ -217,7 +217,7 @@ struct CMetasequoiaIME {
     void _RunKoreanSyllableKeyReplay(UINT);
     bool _IsDeferredKeyReplayCurrent(uint64_t, uint64_t, ITfContext * = nullptr) const;
     bool _IsDeferredApplicationTextCurrent(uint64_t, uint64_t, ITfContext *, HWND, uint64_t);
-    bool _IsDeferredKeyOwnerCurrent(ITfContext *, uint64_t, HWND) const;
+    // 生产焦点声明
     ITfThreadMgr *_pThreadMgr = nullptr;
     std::atomic<bool> _localSessionResetPending{false};
     bool _serverUnavailableFallbackActive = false, disabled = false;
@@ -516,11 +516,13 @@ def main() -> int:
     types = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIMEBaseStructure.h").read_text()
     types = types[types.index("enum KEYSTROKE_CATEGORY"):types.index("struct _PUNCTUATION")]
     header = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.h").read_text()
+    owner_start = header.index("    bool _IsDeferredKeyOwnerCurrent(")
+    owner_declaration = header[owner_start:header.index(";", owner_start) + 1]
     marker_rules = method(header, "constexpr UINT APPLICATION_KEY_REPLAY_PREFIX", "// 单按 Caps Lock")
     replay_state = method(header, "    struct ApplicationKeyReplay", "    int _pendingPairedCaretDelta")
     ime_source = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.cpp").read_text()
     application_text_session = method(ime_source, "class CDeferredApplicationTextEditSession", "\n} // namespace")
-    harness = HARNESS.replace("// 生产应用插字会话", application_text_session).replace("// 生产队列类型", method(header, "    struct DeferredKeyDown", "    enum class KeyDownDispatchResult")).replace("// 生产标记规则", marker_rules).replace("    // 生产回放状态", replay_state).replace("// 生产按键类型", types).replace("// 生产前缀规则", method(
+    harness = HARNESS.replace("    // 生产焦点声明", owner_declaration).replace("// 生产应用插字会话", application_text_session).replace("// 生产队列类型", method(header, "    struct DeferredKeyDown", "    enum class KeyDownDispatchResult")).replace("// 生产标记规则", marker_rules).replace("    // 生产回放状态", replay_state).replace("// 生产按键类型", types).replace("// 生产前缀规则", method(
         sink, "bool IsRecoverableDeferredPrefix(", "\nUINT CaptureIpcModifiers("))
     body = method(sink, "bool CMetasequoiaIME::_RefreshDeferredRecoveryPrefix(",
                   "\nvoid CMetasequoiaIME::_ArmDeferredRecoveryForTransport(")

@@ -6,6 +6,10 @@ public final class ClipboardOperationAuthenticationPolicySmoke {
         if (!ClipboardOperationAuthenticationPolicy.requiresAuthentication()) {
             throw new AssertionError("clipboard operations must require device authentication");
         }
+        if (!ClipboardOperationAuthenticationPolicy.shouldStartAuthentication(false)
+                || ClipboardOperationAuthenticationPolicy.shouldStartAuthentication(true)) {
+            throw new AssertionError("clipboard export must not start a second prompt while authentication is active");
+        }
         System.out.println("ClipboardOperationAuthenticationPolicySmoke ok");
     }
 }

@@ -1078,6 +1078,10 @@ struct SettingsWindow::State {
     TreeView_SetItemHeight(navigation_tree, dip(32));
     TreeView_SetIndent(navigation_tree, dip(14));
     const auto group = [&](const wchar_t* title, std::initializer_list<int> children, bool expanded) {
+      const auto available = std::count_if(children.begin(), children.end(), [](const int page) {
+        return chrome::page_available(static_cast<size_t>(page));
+      });
+      if (!available) return;
       TVINSERTSTRUCTW entry{};
       entry.hParent = TVI_ROOT; entry.hInsertAfter = TVI_LAST;
       entry.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_STATE;
@@ -1085,6 +1089,7 @@ struct SettingsWindow::State {
       entry.item.stateMask = TVIS_BOLD; entry.item.state = TVIS_BOLD;
       const auto parent = TreeView_InsertItem(navigation_tree, &entry);
       for (const auto page : children) {
+        if (!chrome::page_available(static_cast<size_t>(page))) continue;
         entry.hParent = parent; entry.item.state = 0;
         entry.item.pszText = const_cast<wchar_t*>(chrome::pages[static_cast<size_t>(page)].title);
         if (page == 20 && !MSIME_EDITION_HANDWRITING) entry.item.pszText = const_cast<wchar_t*>(L"屏幕键盘");
@@ -1098,7 +1103,7 @@ struct SettingsWindow::State {
     group(L"词库与数据", {13, 14, 11, 12, 15}, false);
     group(L"个性外观", {8, 22}, true);
     group(L"社区", {9, 17, 18}, false);
-    group(L"账号与应用", {7, 10, 2, 16}, false);
+    group(L"统计与支持", {7, 10, 2, 16}, false);
     syncing_navigation = true;
     TreeView_SelectItem(navigation_tree, navigation_pages[0]);
     syncing_navigation = false;
@@ -1178,10 +1183,9 @@ struct SettingsWindow::State {
                                       int id, int top, int height) {
       return surface_row(Surface::ai, type, text, style, id, top, height);
     });
-    surface_row(Surface::account, L"BUTTON", L"打开社区词库、回复模板与我的作品", WS_TABSTOP | BS_PUSHBUTTON, CommunityResourceForm::open, 0, 32);
-    account_height = 48 + account_form.create([this](const wchar_t* type, const wchar_t* text, DWORD style,
+    account_height = account_form.create([this](const wchar_t* type, const wchar_t* text, DWORD style,
                                                 int id, int top, int height) {
-      return surface_row(Surface::account, type, text, style, id, top + 48, height);
+      return surface_row(Surface::account, type, text, style, id, top, height);
     });
     statistics_height = statistics_form.create([this](const wchar_t* type, const wchar_t* text, DWORD style,
         int id, int top, int height) {
@@ -1284,8 +1288,7 @@ struct SettingsWindow::State {
     const auto row = [this](const wchar_t* type, const wchar_t* text, DWORD style, int id, int top, int height) {
       return surface_row(Surface::plugins, type, text, style, id, top, height);
     };
-    row(L"BUTTON", L"打开社区插件与发布", WS_TABSTOP | BS_PUSHBUTTON | BS_NOTIFY, CommunityPluginForm::open, 0, 32);
-    plugins_height = 48 + plugin_effects_form.create([&](const wchar_t* type, const wchar_t* text, DWORD style, int id, int top, int height) { return row(type, text, style, id, top + 48, height); });
+    plugins_height = plugin_effects_form.create(row);
     plugins_height = plugin_library_form.create(row, plugins_height + 24);
     plugins_height = plugin_scripts_form.create(row, plugins_height + 24);
     plugins_height = plugin_mentions_form.create(row, plugins_height + 24);

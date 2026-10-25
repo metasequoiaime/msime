@@ -35,7 +35,7 @@ const HARMONY_GLOBAL_THEME: &str = "platform.harmony.global_theme";
 const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     platform: HostPlatform::Harmony,
     keyboard_layout: HARMONY_KEYBOARD_LAYOUT,
-    // 14 键先不上传：已经发出去的鸿蒙版本读到 `fourteen_key` 会拒收整份文档。上传是把本机的键盖在云端文档上，省略这个键等于保留云端原值；写成 26 键则会把同账号的其他鸿蒙设备切回 26 键。本机是 14 键时应用也跳过这个键。
+    // 14 键先不上传：已经发出去的鸿蒙版本读到 `fourteen_key` 会拒收整份文档。上传是把本机的键盖在云端文档上，省略这个键等于保留云端原值；写成 26 键则会把同账号的其他鸿蒙设备切回 26 键。本机是 14 键时应用也跳过这个键。18 键由新版本识别，按共享布局映射正常上传。
     uploads_fourteen_key: false,
     global_theme: HARMONY_GLOBAL_THEME,
     custom_theme_base: "platform.harmony.custom_theme_base",
@@ -71,7 +71,7 @@ pub fn export_harmony_settings(
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
-    // 本机是 14 键时不导出触屏布局，见 `HARMONY_KEYS.uploads_fourteen_key`。
+    // 本机是 14 键时不导出触屏布局，见 `HARMONY_KEYS.uploads_fourteen_key`；18 键按共享布局映射导出。
     insert_touch_settings(&mut settings, preferences, feedback, &HARMONY_KEYS)?;
     // 鸿蒙不提供的全局主题（只在 iOS 的 `native`）在鸿蒙上按 `system` 绘制，也按 `system` 上传：已经发出去的鸿蒙版本只认七个主题 id，收到别的会拒收整份文档。
     if !preferences

@@ -18,10 +18,12 @@ HARNESS = r'''
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <mutex>
 #include <utility>
 #include <string>
 #include "InputSchemeTraits.h"
 #include "WubiCommitOwner.h"
+#include "PreferenceBarrier.h"
 #include "GroupedPanelKeyLease.h"
 namespace Global {
 std::atomic<int> InputModeScheme{msime::windows::scheme::Quanpin};
@@ -44,7 +46,9 @@ using WPARAM = std::uintptr_t;
 constexpr WPARAM VK_PACKET = 0xe7, VK_LEFT = 0x25;
 using UINT = unsigned;
 // 生产按键类型
-constexpr int FANY_IME_NO_REQUEST_ID = 0, S_OK = 0, S_FALSE = 1, E_FAIL = -1;
+constexpr int S_OK = 0, S_FALSE = 1, E_FAIL = -1;
+constexpr unsigned TIMER_PREFERENCE_TRANSITION = 99;
+void KillTimer(void *, unsigned) {}
 constexpr unsigned kMaxDeferredKeyReplayAttempts = 8, WM_IpcReconnect = 1;
 void *testWindow = nullptr;
 bool IsWindow(void *) { return false; }
@@ -97,6 +101,11 @@ template<typename... Args> void DebugTsfIssue47(Args...) {}
 // 生产前缀规则
 struct CMetasequoiaIME {
     std::atomic<bool> _localSessionResetPending{false};
+    msime::tsf::PreferenceBarrier _preferenceBarrier;
+    std::uint64_t _preferenceTransitionStarted = 0;
+    std::mutex _pendingCommitCandidateMutex;
+    std::deque<FanyImePreferencePipe::Transition> _preferenceTransitions;
+    std::atomic<bool> _preferenceNotificationPending{false};
     msime::tsf::WubiCommitOwner _wubiCommitOwner;
     msime::panel_key::Leases _groupedPanelLeases;
     bool groupedComposition = false;
@@ -321,7 +330,15 @@ int main() {
                   context.refs == 6 && ime.dirtyNotifications == dirty + 1,
                   "unapplied Wubi retry restores the checkpoint and original key exactly once");
         }
+        ime._preferenceBarrier.begin(77);
+        ime._preferenceBarrier.sent(12);
+        ime._preferenceTransitionStarted = 100;
+        ime._preferenceTransitions.push_back({42, 12, 77, 3});
+        ime._preferenceNotificationPending.store(true);
         ime._ClearDeferredKeyDowns();
+        check(!ime._preferenceBarrier.active() && ime._preferenceTransitionStarted == 0 &&
+              ime._preferenceTransitions.empty() && !ime._preferenceNotificationPending.load(),
+              "focus cleanup cancels the old preference barrier and notification mailbox");
         check(context.refs == 1, "Wubi retry cleanup releases every context reference");
       }
     }

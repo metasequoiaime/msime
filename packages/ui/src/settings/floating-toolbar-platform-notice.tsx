@@ -24,10 +24,10 @@ export function FloatingToolbarPlatformNotice({
   );
 }
 
-/** 画悬浮工具栏的 Linux 宿主放在预览下的说明：窗口画在 X11 上，Wayland 桌面经 Xwayland 显示；Wayland 桌面上看不出原生应用是否全屏，所以只在那里输入框失焦时工具栏也收起（`FloatingToolbar.h` 的 `hide_on_focus_out`）。没有 X 服务器可连时画不出来，工具栏退回输入法菜单里的「工具栏」子菜单，按钮选择和显示开关两处都照样生效（`platforms/linux/src/overlay/FloatingToolbarFactory.cpp`）。`gnomeShell` 是宿主报告 GNOME Shell 面板（`candidate_panel_limit` 为 `gnome_shell`）的情形：IBus 在那里的输入源菜单只发布输入模式和设置两项（`ClientEngine.cpp` 的 `publish_mode`），没有「工具栏」子菜单可退，也没有「显示工具栏」开关，所以照实说工具栏要靠 Xwayland、只能在这一页开关（或用工具栏右键菜单里的「隐藏悬浮状态栏」关掉）。 */
+/** 画悬浮工具栏的 Linux 宿主放在预览下的说明：窗口画在 X11 上，Wayland 桌面经 Xwayland 显示；Wayland 桌面上看不出原生应用是否全屏，所以只在那里输入框失焦时工具栏也收起（`FloatingToolbar.h` 的 `hide_on_focus_out`）。没有 X 服务器可连或使用不支持独立浮层的 xwayland-satellite 时画不出来，工具栏退回输入法菜单里的「工具栏」子菜单，按钮选择和显示开关两处都照样生效（`platforms/linux/src/overlay/FloatingToolbarFactory.cpp`）。`gnomeShell` 是宿主报告 GNOME Shell 面板（`candidate_panel_limit` 为 `gnome_shell`）的情形：IBus 在那里的输入源菜单只发布输入模式和设置两项（`ClientEngine.cpp` 的 `publish_mode`），没有「工具栏」子菜单可退，也没有「显示工具栏」开关，所以照实说工具栏要靠 Xwayland、只能在这一页开关（或用工具栏右键菜单里的「隐藏悬浮状态栏」关掉）。 */
 export function FloatingToolbarLinuxWindowNotice({ gnomeShell = false }: { gnomeShell?: boolean }) {
   const drawn =
-    "Linux 在 X11 上显示悬浮工具栏，Wayland 桌面经 Xwayland 显示，在 Wayland 桌面上离开输入框时工具栏随之收起。";
+    "Linux 在 X11 上显示悬浮工具栏，Wayland 桌面经 Xwayland 显示，在 Wayland 桌面上离开输入框时工具栏随之收起。使用 xwayland-satellite 的桌面不显示悬浮窗口。";
   return (
     <SettingsGroupNote>
       {gnomeShell

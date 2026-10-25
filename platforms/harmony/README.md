@@ -25,7 +25,7 @@ OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享�
 
 Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列表、自定义触摸键盘皮肤设计和候选英文释义开关。这四项此前都只有键盘一侧在消费：`PreferencesStore` 里有值，键盘准备 Engine 会话时会读，但设置页从未开启对应的客户端开关，用户没有任何途径改动它们。它们各自只写共享偏好，不需要平台能力。
 
-手写方案使用 HarmonyOS Core Vision Kit 的 `textRecognition`：键盘内的 ArkUI Canvas 记录受界限约束的笔画，组件快照转换为 `PixelMap` 后交给系统 OCR，候选结果仍由共享 Engine 会话提交到编辑器。OCR 服务不可用时保留明确提示，不回退到伪造的 Engine 手写模型；该路径需要设备提供 `SystemCapability.AI.OCR.TextRecognition`。
+手写方案直接使用 `crates/engine` 已有的离线中文单字笔画识别器：书写区外层接收触摸，ArkUI Canvas 绘制有界笔画，停笔后经 `msime_client_handwriting` 与 NAPI 工作线程返回候选，选字仍由共享 Engine 会话提交到编辑器。`stage-resources.sh` 自动获取 `resources/handwriting-model.lock.json` 固定的 Tegaki zh_CN 模型并校验大小与 SHA-256，随包附带模型和 Zinnia 许可证，约增加 26.8 MB 模型；不调用系统 OCR、不联网、不保存笔画。
 
 语音输入的麦克风由键盘自己采集（`HarmonyPcmCapture`），再交给选中的识别方式：系统识别把音频写进 Core Speech Kit `speechRecognizer` 的写音频模式（见下文），豆包、HTTP 服务商和本地模型各自接收同一份 PCM。工具面板可以开始、停止或取消识别，最终文字经过长度和控制字符边界检查后通过当前 `KeyboardSession` 提交；原始音频不写入文件、不进入日志，也不复制到 Engine，只有选了云端服务时才发给那个服务。选了豆包却一项凭据都没填（这就是出厂配置）时用系统识别，语音面板和设置页都写明这一点；填了一部分时，语音面板报出缺的那一项，不再悄悄换成系统识别。系统识别需要 `SystemCapability.AI.SpeechRecognizer`，所有识别方式都需要用户授予 `ohos.permission.MICROPHONE`。
 
@@ -259,13 +259,19 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 同步：导入端认识 `fourteen_key`，这个键的未知值只跳过、不再整份拒收；本版导出时本机是 `fourteen_key` 就省略这个键，上传按 merge 合到云端快照上，等于保留云端旧值。打字统计的来源是 `fourteenKey`，键位 id 是 `FourteenQW` 到 `FourteenM`（`KeyIdPolicy.fourteenKey`）。逻辑测试在 `tests/keyboard-logic.test.ts` 的 14 键三组。
 
+## 全拼 18 键
+
+触屏方案 `QUANPIN_EIGHTEEN_KEY` 使用 `Q WE RT Y U IO P` / `A SD FG H JK L` / `Z XC V BN M` 三排组码键，编号为共享 C ABI 的 `KeyGrid::EighteenKey`（4）。它与 14 键共用候选、读音选择、拼音条、三栏展开面板和长按字母行为；键表与引擎分组、`Eighteen*` 统计键位由 `scripts/test-harmony-eighteen-key-table.py` 核对。18 键同样只在手机和平板提供，2in1、英文、密码框、网址框和本地模式回落到 26 键。
+
+18 键的布局偏好是 `eighteen_key`，默认不启用；鸿蒙新版本可正常同步，旧版遇到未知值时只跳过该键。打字统计来源为 `eighteenKey`，键面第三排左端保留分词/符号键，右端为删除。
+
 ## 拼写写进输入框，候选栏不画读音
 
 读音画在候选上方时，每打一个键读音变长一截；把读音放到候选左边又会推着候选左右移动，另起一行读音则让顶栏太高。现在手机与 Apple 键盘、Gboard 一样：组字总是以拼音分词形式作为预上屏文字（`InputClient.setPreviewTextSync`）写进输入框，候选栏不画读音，候选总从行首开始，不会随拼写左右移动。没有开关：手机不看 `tsf_preedit_style`（「行内预编辑」），也不看 `candidate_preedit_style`（「候选栏预编辑」），这两项只对 2in1 的候选窗口和行内拼写生效。
 
 写进去的是拼音分词形式（`SchemeCompositionPolicy.fieldSpelling`）：全拼 26 键和双拼是 Engine 的 `preedit`（`ni'hao`），全拼九键是 `nine_key_reading`，绝不是按下的数字，笔画是笔画字形。候选栏只在拼写真的写进了输入框时才不画读音（`InlinePreeditPolicy.hidesStripReading`）；读音那一行的高度一直保留，所以候选不会上下移动。以下情况照旧把读音画在候选栏上，不写进输入框：
 
-- 全拼 14 键：组字是成组的组码，写进输入框对用户没有意义（`SchemeCompositionPolicy.keepsReadingOnStrip`）。
+- 全拼 14 键和 18 键：组字是成组的组码，写进输入框对用户没有意义（`SchemeCompositionPolicy.keepsReadingOnStrip`）。
 - 日语的假名读音。
 - 编辑框的属性说它不接受预上屏文字（`isTextPreviewSupported`），或写入失败：拼写不能哪里都看不到。
 

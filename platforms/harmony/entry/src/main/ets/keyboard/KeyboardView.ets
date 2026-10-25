@@ -61,6 +61,7 @@ import { HitOffset, KeyboardGeometry } from './KeyboardGeometry';
 import { NineKeyAction, NineKeyActionKind, NineKeyLayout, NineKey } from './input/NineKeyLayout';
 import { NineKeyShuangpinFace, nineKeyShuangpinFace, nineKeyShuangpinLabel } from './input/NineKeyShuangpinKeypad';
 import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
+import { EighteenKeyLayout } from './input/EighteenKeyLayout';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import { ChineseSymbolFaces } from './input/ChineseSymbolFaces';
 import {
@@ -102,8 +103,6 @@ import {
   CloudClipboardSendOutcome, CloudClipboardState
 } from './clipboard/CloudClipboardPolicy';
 import { CloudClipboardBoundListing } from './clipboard/CloudClipboardClient';
-import { image } from '@kit.ImageKit';
-import { textRecognition } from '@kit.CoreVisionKit';
 import {
   HandwritingPoint, HandwritingStroke, HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_POINTS, HANDWRITING_MAX_STROKES
@@ -253,7 +252,7 @@ const PREEDIT_FONT_SIZE: number = 12;
 const PREEDIT_LETTER_SPACING: number = 0.24;
 const PREEDIT_INDENT_VP: number = 10;
 const PREEDIT_LINE_VP: number = 14;
-// 14 键的拼音选择条与读音同一行：读音最多占这一行的一半，其余留给选择条，与 Android、iOS 相同；拼音比读音大一号、用强调色，两侧各留 6vp 当触摸余量。
+// 14/18 键的拼音选择条与读音同一行：读音最多占这一行的一半，其余留给选择条，与 Android、iOS 相同；拼音比读音大一号、用强调色，两侧各留 6vp 当触摸余量。
 const READING_WITH_SPELLINGS_MAX_WIDTH: string = '50%';
 const READING_SPELLING_FONT_SIZE: number = 13;
 const READING_SPELLING_PADDING_VP: number = 6;
@@ -357,10 +356,10 @@ const PICKER_ENGLISH_26: string = 'english-26';
 const PICKER_ENGLISH_9: string = 'english-9';
 const PICKER_ADD_LANGUAGE: string = 'add-language';
 const HANDWRITING_CANVAS_ID: string = 'msime-harmony-handwriting-canvas';
-// 触屏手写板的三列像 Android 的手写行一样按份额分配行宽：标点 .7，书写区 3，工具 .8。
-const HANDWRITING_PUNCTUATION_WEIGHT: number = 0.7;
-const HANDWRITING_AREA_WEIGHT: number = 3;
-const HANDWRITING_TOOLS_WEIGHT: number = 0.8;
+// 触屏手写板的三列按份额分配行宽：收窄两侧控制列，把书写区扩大到约四分之三。
+const HANDWRITING_PUNCTUATION_WEIGHT: number = 0.6;
+const HANDWRITING_AREA_WEIGHT: number = 4;
+const HANDWRITING_TOOLS_WEIGHT: number = 0.7;
 const HANDWRITING_SIDE_GAP_VP: number = 6;
 const HANDWRITING_PUNCTUATION_FONT_SIZE: number = 17;
 const HANDWRITING_REWRITE_FONT_SIZE: number = 14;
@@ -527,8 +526,10 @@ struct KeyboardView {
   @State @Watch('dropLetterGestures') moreSymbols: boolean = false;
   @State nineKey: boolean = false;
   @State nineKeyShuangpinFaces: NineKeyShuangpinFace[] = [];
-  /** 全拼 14 键在这台设备上生效：方案是 14 键且不是 2in1；地址栏、密码框这类编辑框由 `applyEditorFace` 收回到 26 键。英文时仍为真，只是画 26 键（`drawsFourteenKey`）。 */
+  /** 全拼 14/18 键在这台设备上生效：方案是对应键面且不是 2in1；地址栏、密码框这类编辑框由 `applyEditorFace` 收回到 26 键。英文时仍为真，只是画 26 键（`drawsFourteenKey`）。 */
   @State fourteenKey: boolean = false;
+  /** 全拼 18 键在手机和平板上生效；英文、本地模式和特殊编辑框回落到 26 键。 */
+  @State eighteenKey: boolean = false;
   /** Scheme 3 is Japanese, which has its own grid rather than a pinyin one. */
   @State japanese: boolean = false;
   /** The active kana key's live flick target; -1 means no finger is previewing a key. */
@@ -576,7 +577,7 @@ struct KeyboardView {
   private hoverTimer: number = -1;
   @State symbolCategory: number = 0;
   @State symbolLocked: boolean = false;
-  /** 长按九键字母格或 14 键双字母键时弹出的字母（九键还有数字），两种键面共用 `SURFACE_NINE_KEY_HOLD`。 */
+  /** 长按九键字母格或 14/18 键双字母键时弹出的字母（九键还有数字），这些键面共用 `SURFACE_NINE_KEY_HOLD`。 */
   @State nineKeyHoldOptions: string[] = [];
   /** 拼音网格的 1 键（@#）放进候选条的常用标点；为空时候选条画 Engine 的候选。Engine 下一次回报（`onChanged`）、点选其中一个或打开别的界面时清空。 */
   @State @Watch('syncStripHeight') nineKeyQuickMarks: PunctuationEntry[] = [];
@@ -2223,7 +2224,7 @@ struct KeyboardView {
     }
   }
 
-  /** 长按弹出的字母：九键格子的 `NineKeyLayout.holdOptions`，或 14 键的 `FourteenKeyLayout.holdOptions`。选中后都是先结束组字再上屏（`selectNineKeyHoldOption`）。 */
+  /** 长按弹出的字母：九键格子的 `NineKeyLayout.holdOptions`，或 14/18 键的组码键表。选中后都是先结束组字再上屏（`selectNineKeyHoldOption`）。 */
   private openKeyHold(options: string[]): void {
     if (options.length === 0 || this.symbols) {
       return;
@@ -2277,6 +2278,7 @@ struct KeyboardView {
     this.nineKeyShuangpinFaces = candidate.preferenceId === 'nine_key_shuangpin'
       ? KeyboardSession.shared.nineKeyShuangpinFaces().slice() : [];
     this.fourteenKey = this.offersFourteenKey(candidate);
+    this.eighteenKey = this.offersEighteenKey(candidate);
     // The kana grid belongs to the scheme, not to what the Engine last reported: the Engine only
     // says so once something has been typed, and the face has to change before that.
     this.japanese = candidate.engineScheme === 'japanese' && candidate.touchKeyboardLayout
@@ -2384,11 +2386,13 @@ struct KeyboardView {
     const grid: boolean = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout) && !fullFace;
     // 14 键同理：地址、密码这些编辑框画整块 26 键，离开后回到 14 键。
     const fourteen: boolean = this.offersFourteenKey(this.scheme) && !fullFace;
-    if (grid === this.nineKey && fourteen === this.fourteenKey) {
+    const eighteen: boolean = this.offersEighteenKey(this.scheme) && !fullFace;
+    if (grid === this.nineKey && fourteen === this.fourteenKey && eighteen === this.eighteenKey) {
       return;
     }
     this.nineKey = grid;
     this.fourteenKey = fourteen;
+    this.eighteenKey = eighteen;
     // Same reason the scheme cards set this rather than waiting for the Engine: the Engine only
     // reports Japanese once something has been typed, and the face has to change before that.
     this.japanese = grid && this.scheme.engineScheme === 'japanese';
@@ -2400,17 +2404,27 @@ struct KeyboardView {
     return scheme.touchKeyboardLayout === 'fourteen_key' && !KeyboardFormFactor.isDesktop();
   }
 
-  /** 交给引擎的网格（`KeyGrid`），由当前键面决定；不是全拼时会话不开网格。英文下 14 键网格照旧开着，引擎在专用英文里不受理组码，字母走 26 键。 */
+  private offersEighteenKey(scheme: SchemeDefinition): boolean {
+    return scheme.touchKeyboardLayout === 'eighteen_key' && !KeyboardFormFactor.isDesktop();
+  }
+
+  /** 交给引擎的网格（`KeyGrid`），由当前键面决定；不是全拼时会话不开网格。英文下 14/18 键网格照旧开着，引擎在专用英文里不受理组码，字母走 26 键。 */
   private keyGrid(): number {
     if (this.nineKey) {
       return KeyGrid.NINE_KEY;
     }
-    return this.fourteenKey ? KeyGrid.FOURTEEN_KEY : KeyGrid.NONE;
+    if (this.fourteenKey) return KeyGrid.FOURTEEN_KEY;
+    return this.eighteenKey ? KeyGrid.EIGHTEEN_KEY : KeyGrid.NONE;
   }
 
-  /** 是否正在画 14 键键面：英文和本地模式画 26 键。 */
+  /** 是否正在画 14 键或 18 键键面：英文和本地模式画 26 键。 */
   private drawsFourteenKey(): boolean {
-    return KeyboardScheme.usesFourteenKeyFace(this.fourteenKey, this.english, this.localMode);
+    return KeyboardScheme.usesFourteenKeyFace(
+      this.fourteenKey || this.eighteenKey, this.english, this.localMode);
+  }
+
+  private drawsEighteenKey(): boolean {
+    return this.eighteenKey && !this.english && this.localMode === 'none';
   }
 
   /**
@@ -2450,6 +2464,7 @@ struct KeyboardView {
     this.nineKey = nineKey;
     if (nineKey) {
       this.fourteenKey = false;
+      this.eighteenKey = false;
     }
     KeyboardSession.shared.setKeyGrid(this.keyGrid());
     if (!this.english) {
@@ -2475,24 +2490,15 @@ struct KeyboardView {
    * nine keys is a different scheme from quanpin on twenty-six, so switching the face has to switch
    * the scheme with it or the strip goes on claiming a layout that is no longer on screen.
    */
-  /**
-   * The schemes this host can actually deliver.
-   *
-   * Handwriting and the thoughtful reply surface were both absent when this was written and both
-   * exist now — handwriting through Core Vision Kit rather than an injected recognizer, and the
-   * reply keyboard with its own surface — so the only thing filtered here is what the user turned
-   * off, plus the grids a machine with real keys has no use for.
-   *
-   * Filtered here rather than in KeyboardScheme, whose declaration order is the fixed order every
-   * host's pickers render in.
-   */
+  /** 仅提供用户启用且当前设备可操作的方案；手写由本机离线笔画模型识别。 */
   private offeredSchemes(): SchemeDefinition[] {
     return KeyboardScheme.SCHEMES.filter((candidate: SchemeDefinition): boolean =>
       this.settings.enabledSchemes.includes(candidate.preferenceId)
       // A grid is a way of getting twenty-six letters out of nine keys, which is a problem only a
       // touch screen has. On a machine with a physical keyboard every letter already has a key.
       && !(KeyboardFormFactor.isDesktop() && (KeyboardScheme.isNineKeyLayout(candidate.touchKeyboardLayout)
-        || candidate.touchKeyboardLayout === 'fourteen_key')));
+        || candidate.touchKeyboardLayout === 'fourteen_key'
+        || candidate.touchKeyboardLayout === 'eighteen_key')));
   }
 
   private schemeAvailable(candidate: SchemeDefinition): boolean {
@@ -2621,12 +2627,12 @@ struct KeyboardView {
     }
   }
 
-  /** 读音行右侧是否画 14 键的拼音选择条：14 键组字、有可选的拼音时。在 123 层和三栏面板开着时照样画，与 Android、iOS 相同：读音行一直在，选择条跟着它。 */
+  /** 读音行右侧是否画 14/18 键的拼音选择条：组码组字、有可选的拼音时。在 123 层和三栏面板开着时照样画，与 Android、iOS 相同：读音行一直在，选择条跟着它。 */
   private readingRowSpellings(): boolean {
     return this.drawsFourteenKey() && this.spellings.length > 0;
   }
 
-  /** 展开面板是否画成全拼九键的三栏；14 键用同一个面板。 */
+  /** 展开面板是否画成全拼九键的三栏；14/18 键用同一个面板。 */
   private nineKeyPanel(): boolean {
     return NineKeyPanelPolicy.threeColumn(
       KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.drawsFourteenKey(),
@@ -2900,6 +2906,7 @@ struct KeyboardView {
     this.nineKeyShuangpinFaces = this.scheme.preferenceId === 'nine_key_shuangpin'
       ? KeyboardSession.shared.nineKeyShuangpinFaces().slice() : [];
     this.fourteenKey = this.offersFourteenKey(this.scheme);
+    this.eighteenKey = this.offersEighteenKey(this.scheme);
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
     KeyboardSession.shared.setKeyGrid(this.keyGrid());
   }
@@ -3074,6 +3081,7 @@ struct KeyboardView {
       case 'quanpin':
       case 'nine_key':
       case 'fourteen_key':
+      case 'eighteen_key':
         return '全拼';
       case 'nine_key_shuangpin':
         return '九键双拼';
@@ -3170,7 +3178,7 @@ struct KeyboardView {
       && KeyboardSession.shared.glossRows() > 0;
   }
 
-  /** 画出来的组字，见 CandidatePreeditStylePolicy：2in1 的候选窗口照「候选窗口预编辑」；手机没有这个设置，拼写写在输入框里时候选栏不画读音，写不进去（14 键、日语、不接受预上屏文字的编辑框）时照旧画。 */
+  /** 画出来的组字，见 CandidatePreeditStylePolicy：2in1 的候选窗口照「候选窗口预编辑」；手机没有这个设置，拼写写在输入框里时候选栏不画读音，写不进去（14/18 键、日语、不接受预上屏文字的编辑框）时照旧画。 */
   private visibleComposition(): VisibleComposition {
     return CandidatePreeditStylePolicy.visible(KeyboardFormFactor.isDesktop()
       ? this.settings.candidateShowPreedit : !this.compositionInField, this.phrasePrefix, this.editing, this.localMode);
@@ -4997,6 +5005,48 @@ struct KeyboardView {
     this.actionRow()
   }
 
+  /** 全拼 18 键的三排组码键面；第二排居中半个键距，第三排两端留给分词和删除。 */
+  @Builder
+  eighteenKeyFace() {
+    Row({ space: this.keySpacing() }) {
+      ForEach(EighteenKeyLayout.rows()[0], (key: FourteenKey) => {
+        this.eighteenKeyButton(key)
+      }, (key: FourteenKey) => key.letters + this.faceKey())
+    }
+    .width('100%').height(this.rowHeight(0))
+
+    Row({ space: this.keySpacing() }) {
+      Column().layoutWeight(0.5).height('100%')
+      ForEach(EighteenKeyLayout.rows()[1], (key: FourteenKey) => {
+        this.eighteenKeyButton(key)
+      }, (key: FourteenKey) => key.letters + this.faceKey())
+      Column().layoutWeight(0.5).height('100%')
+    }
+    .width('100%').height(this.rowHeight(1))
+
+    Row({ space: this.keySpacing() }) {
+      this.fixedKey({
+        face: this.editing.length > 0 ? '分词' : '符',
+        label: this.editing.length > 0 ? NineKeyLayout.separator().description
+          : KeyAccessibilityPolicy.symbolPanel(),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        fontWeight: FUNCTION_LABEL_WEIGHT,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: LETTER_EDGE_SHARE,
+        action: () => this.tapEighteenKeySeparator()
+      });
+      ForEach(EighteenKeyLayout.rows()[2], (key: FourteenKey) => {
+        this.eighteenKeyButton(key)
+      }, (key: FourteenKey) => key.letters + this.faceKey())
+      this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP, true, LETTER_EDGE_SHARE);
+    }
+    .width('100%').height(this.rowHeight(2))
+
+    this.actionRow()
+  }
+
   /** 14 键的一个字母键：两个字母的键可以长按，L、M 只有点按。 */
   @Builder
   fourteenKeyButton(key: FourteenKey) {
@@ -5005,6 +5055,66 @@ struct KeyboardView {
     } else {
       this.flexibleKey(this.fourteenKeyOptions(key))
     }
+  }
+
+  @Builder
+  eighteenKeyButton(key: FourteenKey) {
+    if (EighteenKeyLayout.holdOptions(key).length > 0) {
+      this.eighteenKeyHoldKey(key)
+    } else {
+      this.flexibleKey(this.eighteenKeyOptions(key))
+    }
+  }
+
+  private eighteenKeyOptions(key: FourteenKey): KeyOptions {
+    return {
+      face: key.label,
+      label: key.description,
+      size: TOUCH_LETTER_FONT_SIZE,
+      emphasized: false,
+      width: 0,
+      action: () => this.tapEighteenKey(key)
+    };
+  }
+
+  private tapEighteenKey(key: FourteenKey): void {
+    KeyboardSession.shared.recordKey(KeyIdPolicy.eighteenKey(key.letters));
+    KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
+  }
+
+  private tapEighteenKeySeparator(): void {
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+    if (KeyboardSession.shared.composing()) {
+      KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
+      return;
+    }
+    this.openSymbolSurface();
+  }
+
+  @Builder
+  eighteenKeyHoldKey(key: FourteenKey) {
+    Column() {
+      this.keyFace(this.eighteenKeyOptions(key))
+    }
+    .accessibilityText(key.description)
+    .layoutWeight(1)
+    .height('100%')
+    .backgroundColor(this.skin.keySurfaceBackground(false))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
+    .borderWidth(this.skin.borderWidth)
+    .borderColor(this.skin.borderColor)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
+    .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+    .animation({ duration: KEY_PRESS_MS })
+    .responseRegion(this.keyHitRegion())
+    .onClick(() => this.tapEighteenKey(key))
+    .gesture(LongPressGesture().onAction(() => {
+      KeyboardSession.shared.recordKey(KeyIdPolicy.eighteenKey(key.letters));
+      this.openKeyHold(EighteenKeyLayout.holdOptions(key));
+    }))
   }
 
   private fourteenKeyOptions(key: FourteenKey): KeyOptions {
@@ -6347,12 +6457,19 @@ struct KeyboardView {
   }
 
   private handwritingPoint(event: TouchEvent): HandwritingPoint {
-    const touch = event.touches[0];
-    return HandwritingStrokePolicy.point(touch.x, touch.y);
+    const touch = event.changedTouches[0];
+    return HandwritingStrokePolicy.pointInCanvas(
+      touch.x, touch.y, this.handwritingContext.width, this.handwritingContext.height);
   }
 
   private handwritingTouch(event: TouchEvent): void {
-    if (event.touches.length === 0) {
+    if (event.type === TouchType.Cancel) {
+      // 被系统接管的笔画不参与识别，取消事件不要求仍有触点。
+      this.handwritingCurrent = [];
+      this.redrawHandwriting();
+      return;
+    }
+    if (event.changedTouches.length === 0) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -6389,13 +6506,6 @@ struct KeyboardView {
       this.scheduleHandwritingRecognition();
       return;
     }
-    if (event.type === TouchType.Cancel) {
-      // A cancelled gesture must not become a real stroke. Harmony can cancel a Canvas touch
-      // when the system takes the gesture (for example, a panel edge swipe); keeping the partial
-      // stroke made the next pen lift recognise ink the user never finished.
-      this.handwritingCurrent = [];
-      this.redrawHandwriting();
-    }
   }
 
   private cancelHandwritingTimer(): void {
@@ -6412,7 +6522,7 @@ struct KeyboardView {
     this.handwritingCandidates = [];
   }
 
-  /** 等待用户设定的停顿时长（「识别等待时间」，`KeyboardFeedback` 的 200–1500 ms，默认 600）后再对整个字截图。 */
+  /** 等待用户设定的停顿时长（「识别等待时间」，`KeyboardFeedback` 的 200–1500 ms，默认 600）后识别已完成的笔画。 */
   private scheduleHandwritingRecognition(): void {
     this.cancelHandwritingTimer();
     if (!HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
@@ -6517,44 +6627,23 @@ struct KeyboardView {
     }
     this.handwritingBusy = true;
     this.handwritingNotice = '正在识别…';
-    this.getUIContext().getComponentSnapshot().get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
-      // Testing the error object itself took this branch on every successful snapshot, so every
-      // stroke answered 无法读取手写画布 and nothing was ever recognised.
-      if (BusinessErrorPolicy.failed(error)) {
-        if (this.handwritingRecognition.accepts(ticket)) {
-          this.handwritingNotice = '无法读取手写画布';
-        }
-        this.finishHandwritingRecognition();
+    KeyboardSession.shared.recognizeHandwriting(
+      this.handwritingStrokes, this.handwritingContext.width, this.handwritingContext.height)
+      .then((candidates: string[]): void => {
+      if (!this.handwritingRecognition.accepts(ticket)) {
         return;
       }
-      textRecognition.init().then((ready: boolean): Promise<textRecognition.TextRecognitionResult> => {
-        if (!ready) {
-          throw new Error('text recognition unavailable');
-        }
-        return textRecognition.recognizeText({ pixelMap: pixelMap });
-      }).then((result: textRecognition.TextRecognitionResult): void => {
-        if (!this.handwritingRecognition.accepts(ticket)) {
-          return;
-        }
-        this.handwritingCandidates = HandwritingStrokePolicy.candidates(result.value);
-        this.handwritingNotice = this.handwritingCandidates.length > 0
-          ? '' : '没有识别到文字，请重写';
-      }).catch((reason: Error): void => {
-        if (this.handwritingRecognition.accepts(ticket)) {
-          KeyboardLog.error(`handwriting recognition unavailable: ${describeError(reason)}`);
-          this.handwritingCandidates = [];
-          this.handwritingNotice = '手写识别服务不可用';
-        }
-      }).finally((): void => {
-        void pixelMap.release();
-        // The recognizer is process-global. Do not start the queued snapshot until its previous
-        // invocation has actually released, or init() can race the outstanding release promise.
-        void textRecognition.release().then((): void => {
-          this.finishHandwritingRecognition();
-        }, (_reason: Object): void => {
-          this.finishHandwritingRecognition();
-        });
-      });
+      this.handwritingCandidates = candidates;
+      this.handwritingNotice = this.handwritingCandidates.length > 0
+        ? '' : '没有识别到文字，请重写';
+    }).catch((reason: Error): void => {
+      if (this.handwritingRecognition.accepts(ticket)) {
+        KeyboardLog.error(`handwriting recognition unavailable: ${describeError(reason)}`);
+        this.handwritingCandidates = [];
+        this.handwritingNotice = '手写识别服务不可用';
+      }
+    }).finally((): void => {
+      this.finishHandwritingRecognition();
     });
   }
 
@@ -6938,7 +7027,7 @@ struct KeyboardView {
   /**
    * 触屏手写板，即 Android 的 `rebuildHandwritingRows`：左侧竖排 ，。？！，中间是书写区，右侧竖排 ⌫ 和「重写」，下方是 `handwritingFace` 里的共享底行。⌫ 撤回最后一笔，手写板为空时删除光标前的字符；这里没有重做按钮，与 Android 一致。
    *
-   * 参考线和状态行画在画布上层而不是画进画布：识别通过 `componentSnapshot` 读取画布，画进去的任何东西都会被当成笔迹。
+   * 参考线和状态行独立叠放；书写区外层统一接收触摸，识别只使用已完成的笔画。
    */
   @Builder
   handwritingPad() {
@@ -6980,7 +7069,6 @@ struct KeyboardView {
           .borderWidth(this.handwritingSkin.borderWidth)
           .borderColor(this.handwritingSkin.borderColor)
           .onReady(() => this.redrawHandwriting())
-          .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
         // 设计稿的参考线：距边缘 14vp 的虚线框，以及穿过其中心的虚线十字，用细线颜色。
         Stack() {
           Column()
@@ -7014,6 +7102,7 @@ struct KeyboardView {
       }
       .layoutWeight(HANDWRITING_AREA_WEIGHT)
       .height('100%')
+      .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
 
       Column({ space: HANDWRITING_SIDE_GAP_VP }) {
         Column() {
@@ -9721,8 +9810,12 @@ struct KeyboardView {
       } else if (this.strokeFace() && !this.symbols) {
         this.strokeKeypadFace()
       } else if (this.drawsFourteenKey() && !this.symbols) {
-        // 14 键只在字母层画自己的键组，数字页复用前面的九宫格。
-        this.fourteenKeyFace()
+        // 字母组网格只在字母层画自己的键组，数字页复用前面的九宫格。
+        if (this.drawsEighteenKey()) {
+          this.eighteenKeyFace()
+        } else {
+          this.fourteenKeyFace()
+        }
       } else if (this.designLayerShowing()) {
         this.designLayerFace()
       } else {

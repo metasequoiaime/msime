@@ -21,6 +21,7 @@ def section(source, begin, end):
 
 unit = r'''
 #include "platforms/windows/tsf/WubiCommitOwner.h"
+#include "platforms/windows/tsf/PreferenceBarrier.h"
 #include "platforms/windows/common/GroupedPanelKeyLease.h"
 #include <atomic>
 #include <deque>
@@ -33,7 +34,8 @@ unit = r'''
 using UINT=unsigned; using WPARAM=std::uintptr_t; using HRESULT=long;
 using TfEditCookie=int; using HWND=int;
 constexpr HRESULT S_OK=0, S_FALSE=1, TF_S_ASYNC=2, E_FAIL=-1;
-constexpr UINT WM_CommitCandidateAndContinue=29, FANY_IME_NO_REQUEST_ID=0;
+constexpr UINT WM_CommitCandidateAndContinue=29, TIMER_PREFERENCE_TRANSITION=99;
+void KillTimer(HWND, UINT) {}
 constexpr int TF_ES_ASYNCDONTCARE=1, TF_ES_READWRITE=2;
 #ifndef _Out_
 #define _Out_
@@ -89,6 +91,10 @@ struct CMetasequoiaIME {
     struct DeferredKeyDown { ITfContext *context=nullptr; WPARAM wParam=0; wchar_t translatedWch=0; uint64_t focusGeneration=0;
         struct { int Category=0,Function=0; } keyState; };
     std::atomic<bool> _localSessionResetPending{false};
+    msime::tsf::PreferenceBarrier _preferenceBarrier;
+    uint64_t _preferenceTransitionStarted=0;
+    std::deque<FanyImePreferencePipe::Transition> _preferenceTransitions;
+    std::atomic<bool> _preferenceNotificationPending{false};
     msime::tsf::WubiCommitOwner _wubiCommitOwner;
     msime::panel_key::Leases _groupedPanelLeases;
     std::deque<DeferredKeyDown> _deferredKeyDowns, _deferredAppliedPrefix;
@@ -226,6 +232,6 @@ with tempfile.TemporaryDirectory(prefix="msime-wubi-lifecycle-") as temporary:
     source = pathlib.Path(temporary) / "probe.cpp"
     binary = pathlib.Path(temporary) / "probe"
     source.write_text(unit)
-    subprocess.run([compiler,"-std=c++17","-Wall","-Wextra","-Werror", "-I",str(ROOT),
+    subprocess.run([compiler,"-std=c++17","-Wall","-Wextra","-Werror", "-DMSIME_EDITION_FULL", "-I",str(ROOT),
                     "-I",str(ROOT / "crates/host-api/include"),str(source),"-o",str(binary)],check=True)
     raise SystemExit(subprocess.run([str(binary)]).returncode)

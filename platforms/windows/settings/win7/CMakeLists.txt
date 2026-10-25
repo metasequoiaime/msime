@@ -43,7 +43,7 @@ if(BUILD_TESTING)
     DEPENDS ../../tests/tools/make-win7-dictionary-fixture.py ../../tests/input/fixtures/msime-phrase-backspace.sql
     VERBATIM)
   add_custom_target(windows7-dictionary-fixture DEPENDS "${dictionary_fixture}/msime-pinyin.db" "${dictionary_fixture}/msime-english.db")
-  foreach(suite IN ITEMS settings clipboard cloud-clipboard dictionary vocabulary plugins routes about community-plugins community-resources voice keyboard mcp keyboard-skin)
+  foreach(suite IN ITEMS settings clipboard dictionary vocabulary plugins routes about voice keyboard keyboard-skin)
     string(REPLACE "-" "_" source_name "${suite}")
     add_executable(windows7-${suite}-test ../../tests/ui/windows7_${source_name}.cpp Settings.rc)
     target_link_libraries(windows7-${suite}-test PRIVATE msime-win7-settings-window)

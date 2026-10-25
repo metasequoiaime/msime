@@ -452,6 +452,81 @@ void keymap(Display *display) {
   wait_until([&] { return !visible(display, "MSIMEShuangpinKeymap").has_value(); }, "没有光标时键位图还在");
 }
 
+// satellite 的 root 浮层会变成可抢焦点的 Wayland 顶层；按真实 EWMH 属性识别，不能只看桌面环境变量。
+void satellite_fallback(Display *display) {
+  const auto root = DefaultRootWindow(display);
+  const auto check = XInternAtom(display, "_NET_SUPPORTING_WM_CHECK", False);
+  const auto name = XInternAtom(display, "_NET_WM_NAME", False);
+  const auto utf8 = XInternAtom(display, "UTF8_STRING", False);
+  const auto wm = XCreateSimpleWindow(display, root, 0, 0, 1, 1, 0, 0, 0);
+  const auto set_check = [&](Window window, Window target, Atom type = XA_WINDOW) {
+    XChangeProperty(display, window, check, type, 32, PropModeReplace,
+                    reinterpret_cast<const unsigned char *>(&target), 1);
+  };
+  const auto set_name = [&](const std::string &value, Atom type = XA_STRING) {
+    XChangeProperty(display, wm, name, type, 8, PropModeReplace,
+                    reinterpret_cast<const unsigned char *>(value.data()), value.size());
+  };
+  const auto expect_connection = [&](bool allowed) {
+    XSync(display, False);
+    bool lost = false;
+    auto *connection = host::open_overlay_display(nullptr, &lost);
+    const bool connected = connection != nullptr;
+    host::close_overlay_display(connection);
+    require(connected == allowed, allowed ? "非 satellite 的 X11 浮层被误禁用" : "satellite 上仍然创建 root 浮层连接");
+    require(!lost, "WM 属性探测破坏了 X 连接");
+  };
+  set_check(root, wm);
+  set_check(wm, wm);
+  set_name("xwayland-satellite");
+  expect_connection(false);
+  set_name("xwayland-satellite", utf8);
+  expect_connection(false);
+
+  PollLoop loop;
+  const auto overlay = loop.loop();
+  const auto toolbar = host::FloatingToolbar::create(
+      overlay, [](const void *, host::FloatingToolbarAction, const std::string &) {}, {},
+      host::FloatingToolbar::default_surfaces(overlay));
+  require(toolbar == nullptr, "satellite 上未使用工具栏菜单回退");
+  host::ShuangpinKeymapX11Surface keymap;
+  require(!keymap.show("", {"xiaohe", 'H'}, host::shuangpin_keymap_colors(host::CandidateTheme{}),
+                       {200, 150, 2, 20, 60, std::nullopt}), "satellite 上仍然显示键位图浮层");
+  require(!visible(display, "MSIMEFloatingToolbar") && !visible(display, "MSIMEShuangpinKeymap"),
+          "satellite 回退后仍有浮层窗口");
+  require(loop.watches() == 0, "不可用后端仍然保留连接监听");
+
+  set_name("synthetic-window-manager");
+  expect_connection(true);
+  set_name("xwayland-satellite-extra");
+  expect_connection(true);
+  set_name(std::string("xwayland-satellite\0extra", 23));
+  expect_connection(true);
+  XDeleteProperty(display, wm, name);
+  expect_connection(true);
+  set_name("xwayland-satellite", XA_ATOM);
+  expect_connection(true);
+  set_name("xwayland-satellite");
+  set_check(root, wm, XA_CARDINAL);
+  expect_connection(true);
+  set_check(root, wm);
+  const Window extra_windows[]{wm, wm};
+  XChangeProperty(display, root, check, XA_WINDOW, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char *>(extra_windows), 2);
+  expect_connection(true);
+  set_check(root, wm);
+  set_check(wm, root);
+  expect_connection(true);
+  XDeleteProperty(display, wm, check);
+  expect_connection(true);
+  set_check(wm, wm);
+  XDestroyWindow(display, wm);
+  // 窗口管理器退出时 root 可短暂留着已销毁的窗口编号，不能让 BadWindow 结束输入法。
+  expect_connection(true);
+  XDeleteProperty(display, root, check);
+  expect_connection(true);
+}
+
 }  // namespace
 
 // 在 Xvfb 里真的建出悬浮工具栏和双拼键位图的窗口：位置、点按钮、悬停提示、两种菜单、拖动和位置记忆，以及键位图的摆放和翻转。
@@ -459,6 +534,7 @@ int main() {
   try {
     Display *display = XOpenDisplay(nullptr);
     require(display != nullptr, "连不上 Xvfb");
+    satellite_fallback(display);
     toolbar(display);
     unfocused_toolbar(display);
     keymap(display);

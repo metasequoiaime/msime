@@ -169,7 +169,7 @@ impl Session {
         self.input.set_zhuyin_nine_key(nine_key);
     }
 
-    /// 字母网格的一键：`letter` 是这一组里的任一字母，由 `KeyGrid::code_of` 归成组码交给九宫格会话，宿主约定送首字母。不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
+    /// 字母网格的一键：小写字母由 `KeyGrid::code_of` 归成整组，十八键双拼另收大写 ASCII 标记精确字母。标记保留在组码里，不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
     pub fn grid_key(&mut self, letter: u8) -> KeyResult {
         self.prediction.clear();
         let Some(

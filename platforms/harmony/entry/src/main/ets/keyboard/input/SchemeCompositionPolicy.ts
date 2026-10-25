@@ -74,7 +74,7 @@ export class SchemeCompositionPolicy {
       : preedit;
   }
 
-  /** 读音只画在候选栏上、不写进输入框的组字：全拼 14 键的组码（`fourteenKey` 指会话开着 14 键网格），以及日语的假名读音。英文和本地模式下 `rulesScheme` 是 -1，照常写进输入框。 */
+  /** 读音只画在候选栏上、不写进输入框的组字：全拼 14/18 键的组码，以及日语的假名读音。 */
   static keepsReadingOnStrip(rulesScheme: number, fourteenKey: boolean): boolean {
     return (
       rulesScheme === SchemeTraits.JAPANESE || (rulesScheme === SchemeTraits.QUANPIN && fourteenKey)

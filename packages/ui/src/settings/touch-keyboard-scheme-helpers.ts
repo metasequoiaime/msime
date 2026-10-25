@@ -21,7 +21,8 @@ export type TouchKeyboardScheme =
   | "tibetan"
   | "stroke"
   | "zhuyin_nine_key"
-  | "fourteen_key";
+  | "fourteen_key"
+  | "eighteen_key";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -36,6 +37,7 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
     case "nine_key":
     case "nine_key_shuangpin":
     case "fourteen_key":
+    case "eighteen_key":
       return "quanpin";
     case "xiaohe":
     case "ziranma":
@@ -80,9 +82,11 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
   if (preferences.scheme === "stroke") return touchKeyboardSchemeOptionTitle("stroke");
   if (preferences.touch_keyboard_layout === "handwriting")
     return touchKeyboardSchemeOptionTitle("handwriting");
-  // 14 键只配全拼；别的方案记着这个布局时按各自的键盘命名。
+  // 14 键和 18 键只配全拼；别的方案记着这些布局时按各自的键盘命名。
   if (preferences.touch_keyboard_layout === "fourteen_key" && preferences.scheme === "quanpin")
     return touchKeyboardSchemeOptionTitle("fourteen_key");
+  if (preferences.touch_keyboard_layout === "eighteen_key" && preferences.scheme === "quanpin")
+    return touchKeyboardSchemeOptionTitle("eighteen_key");
   if (preferences.touch_keyboard_layout === "nine_key")
     return touchKeyboardSchemeOptionTitle(
       preferences.scheme === "japanese" ? "japanese_nine_key" : "nine_key",
@@ -120,6 +124,7 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["zhuyin_nine_key", "注音 9 键"],
   ["fourteen_key", "全拼 14 键"],
   ["nine_key_shuangpin", "九键双拼"],
+  ["eighteen_key", "全拼 18 键"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
@@ -133,7 +138,8 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "stroke" &&
     scheme !== "zhuyin_nine_key" &&
     scheme !== "nine_key_shuangpin" &&
-    scheme !== "fourteen_key",
+    scheme !== "fourteen_key" &&
+    scheme !== "eighteen_key",
 );
 
 /**
@@ -173,6 +179,8 @@ export function inferredTouchKeyboardScheme(
     inferred = "nine_key_shuangpin";
   else if (preferences.touch_keyboard_layout === "fourteen_key" && scheme === "quanpin")
     inferred = "fourteen_key";
+  else if (preferences.touch_keyboard_layout === "eighteen_key" && scheme === "quanpin")
+    inferred = "eighteen_key";
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
 }
 
@@ -305,9 +313,11 @@ export function selectTouchKeyboardScheme(
         ? "nine_key"
         : selected === "fourteen_key"
           ? "fourteen_key"
-          : selected === "handwriting"
-            ? "handwriting"
-            : "twenty_six_key",
+          : selected === "eighteen_key"
+            ? "eighteen_key"
+            : selected === "handwriting"
+              ? "handwriting"
+              : "twenty_six_key",
     touch_keyboard_schemes,
   };
 }
@@ -376,6 +386,7 @@ export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
     schemes: [
       "quanpin",
       "fourteen_key",
+      "eighteen_key",
       "nine_key",
       "nine_key_shuangpin",
       "xiaohe",

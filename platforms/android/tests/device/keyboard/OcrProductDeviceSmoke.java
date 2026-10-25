@@ -19,6 +19,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Predicate;
 
 /** 只操作专用模拟器中的合成模块、相机图和编辑器，不导出任意用户内容。 */
 public final class OcrProductDeviceSmoke extends DeviceSmoke {
@@ -132,18 +133,44 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         stage = operation + " / open picker";
         openPicker();
         stage = operation + " / show document roots";
-        tap(node -> pickerNode(node) && node.getContentDescription() != null
+        clickPicker(node -> pickerNode(node) && node.getContentDescription() != null
             && (node.getContentDescription().toString().equalsIgnoreCase("Show roots")
                 || node.getContentDescription().toString().contains("根目录")
                 || node.getContentDescription().toString().contains("导航")));
         stage = operation + " / choose synthetic provider";
-        tap(node -> pickerNode(node) && equalsText("MSIME OCR 测试模块", node.getText())
+        clickPicker(node -> pickerNode(node) && equalsText("MSIME OCR 测试模块", node.getText())
             && "android:id/title".equals(node.getViewIdResourceName()));
         stage = operation + " / choose synthetic document";
-        awaitAny(node -> pickerNode(node) && equalsText("msime-synthetic-ocr-" + id + ".apk", node.getText()));
+        Predicate<AccessibilityNodeInfo> document = node -> pickerNode(node)
+            && equalsText("msime-synthetic-ocr-" + id + ".apk", node.getText()) && node.isEnabled();
+        AccessibilityNodeInfo target = awaitStableBounds(document);
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        target.getBoundsInScreen(bounds);
+        check(bounds.width() > 0 && bounds.height() > 0, "synthetic document has visible touch bounds");
         screenshot("picker-documents");
-        tap(node -> pickerNode(node) && equalsText("msime-synthetic-ocr-" + id + ".apk", node.getText()));
+        // Android 9 的文档条目不提供可点击节点；只对这个已确认位置的合成文件实走触摸。
+        if (android.os.Build.VERSION.SDK_INT == 28) tap(document);
+        else clickPicker(document);
         stage = operation;
+    }
+
+    /** 点击系统文档控件或同包可点击父节点，避免抽屉动画使坐标落到别的根。 */
+    private void clickPicker(Predicate<AccessibilityNodeInfo> match) throws Exception {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            dropStaleNodes();
+            automation.waitForIdle(500, 5000);
+            AccessibilityNodeInfo target = awaitAny(match);
+            if (!target.isVisibleToUser()) {
+                check(target.performAction(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId()),
+                    "show synthetic document picker control");
+                continue;
+            }
+            while (target != null && pickerNode(target) && !target.isClickable()) target = target.getParent();
+            check(target != null && pickerNode(target) && target.isClickable(), "clickable document picker control");
+            if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
+        }
+        throw new AssertionError("System document picker action failed");
     }
 
     private boolean pickerNode(AccessibilityNodeInfo node) {

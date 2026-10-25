@@ -11,8 +11,8 @@ Rust 新版仍支持本地整句候选、神经模型重排和 octagram `.gram` 
 | Trigram / Unigram 模型整句 | 本地词格组合词库生成整句，结合随词库提供的 n-gram 数据打分；设置为「本地整句联想」，没有保留这两个独立开关 |
 | 神经网络模型整句（效果优先） | 「桌面神经联想」，偏好 `sentence_association.neural_desktop`；输入停顿后由桌面运行时重排，模型资源包为 `settled-model` |
 | 神经网络模型整句（速度优先） | 偏好 `sentence_association.neural_keyboard`，使用键盘神经模型；手机提供该能力的版本通过「整句联想 → 增强」启用 |
-| 去重后补充次选 | 偏好 `sentence_association.show_next_on_duplicate`，共享桌面设置页提供同名开关 |
-| octagram 语法模型 | 偏好 `sentence_association.grammar_model`，共享桌面设置页提供「语法模型」选择及资源包下载、删除 |
+| 去重后补充次选 | 偏好 `sentence_association.show_next_on_duplicate`，共享桌面设置页与 Windows 原生设置页提供同名开关 |
+| octagram 语法模型 | 偏好 `sentence_association.grammar_model`，共享桌面设置页与 Windows 原生设置页提供「语法模型」选择及资源包下载、删除 |
 
 本地词格默认开启，神经重排与语法模型默认关闭。没有安装可选模型时，本地整句仍可生成。语法模型参与本地解码打分，神经模型负责重排；它们不要求登录或调用云端 AI 服务。
 
@@ -31,9 +31,16 @@ Rust 新版仍支持本地整句候选、神经模型重排和 octagram `.gram` 
 
 ### Windows
 
-新版使用原生设置窗口。目前「输入 → 候选与联想 → 更多选项」只有「本地整句联想」，**尚未提供截图中的神经模型、语法模型选择及下载管理控件**。引擎支持这些模型，不代表 Windows 原生设置页已经提供入口；找不到这些行是当前界面的缺口。
+新版使用原生设置窗口，入口与 macOS、Linux 相同，在「输入 → 候选与联想」：
 
-旧版配置文件及其模型目录不会仅因安装新版而自动成为新版已安装的资源包。普通用户目前无法通过新版 Windows 设置窗口完成整套模型管理；需要图形界面操作时，仍须等待原生入口补齐。下文的开发工具流程适合能使用 Rust 工具链的用户，不是安装包中已有的菜单。
+1. 「更多选项」中的「本地整句联想」控制本地整句候选。
+2. 打开「桌面神经联想」后，下面出现「神经联想模型」行，点「下载」安装 `settled-model`。安装包不带这个模型，不下载时开关不起作用。
+3. 在「语法模型」选择一种模型，再在下面的「模型文件」行点「下载」。下载中可以取消，已安装的可以删除。
+4. 模型安装完成后切换一次输入框；仍未生效时重新启动输入法。
+
+Windows 0.3.0 及更早版本的原生设置页只有「本地整句联想」，没有上面第 2、3 步的行；这两项入口从 0.3.0 之后的版本开始提供。在这些版本上需要使用模型时，可以按下文的开发工具流程操作。
+
+旧版配置文件及其模型目录不会仅因安装新版而自动成为新版已安装的资源包，需要在设置页重新下载。
 
 ### Android、HarmonyOS、iOS
 
@@ -93,8 +100,8 @@ cargo run --locked -p msime-client-providers --example install_resource_pack -- 
 ## 实现与验收边界
 
 - 共享桌面控件：[sentence-association-section.tsx](../packages/ui/src/settings/sentence-association-section.tsx)。
-- Windows 原生输入设置：[main.cpp](../platforms/windows/settings/main.cpp) 的 `build_input_habits`。
+- Windows 原生输入设置：[main.cpp](../platforms/windows/settings/main.cpp) 的 `build_input_habits`、`build_neural_desktop_settings` 与 `build_sentence_model_settings`。
 - 宿主模型装配：[host-api](../crates/host-api/src/lib.rs) 的 `engine_sentence_association`。
 - 下载、校验与安装状态：[resource_packs.rs](../crates/client-providers/src/resource_packs.rs)。
 
-这些入口用于核对当前能力。源码支持、资源包安装成功和 Windows 真实编辑器中的整句效果属于不同的验证范围；本说明没有把 Windows 缺失的界面入口标为已完成。
+这些入口用于核对当前能力。源码支持、资源包安装成功和 Windows 真实编辑器中的整句效果属于不同的验证范围。

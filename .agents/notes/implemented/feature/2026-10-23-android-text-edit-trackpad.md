@@ -62,3 +62,5 @@ Status: implemented
 - [上游同一固定提交的光标文字预览实现](https://github.com/wasi-master/wmkeyboard/blob/8d81058e9d400df486aaf2c9a77cb464bfb6592c/feature/ime/src/main/java/com/wasimaster/wmkeyboard/ime/CaretMagnifier.kt)：用于核对文字回读、光标锚点和异步生命周期的可实现性，没有复制代码。
 - [Android `Magnifier`](https://developer.android.com/reference/android/widget/Magnifier)：源对象是附着窗口的 `View`。
 - [Android `InputConnection.getExtractedText`](https://developer.android.com/reference/android/view/inputmethod/InputConnection#getExtractedText(android.view.inputmethod.ExtractedTextRequest,%20int))：编辑器可以返回空结果，返回范围不保证严格服从请求。
+
+[行边界与换行长按符号](2026-10-25-android-text-edit-line-keys.md)保留上排行首尾，将触控区限制在中央第二、三行；本篇的移动、预览和取消生命周期继续成立。

@@ -1510,7 +1510,8 @@ bool CMetasequoiaIME::_HasDeferredKeyBarrier() const
 {
     if (_localSessionResetPending.load(std::memory_order_acquire) || _focusResetPending || _activationRequired ||
         _deferredKeyProjectionValid || !_deferredKeyDowns.empty() || _hasDeferredKeyInFlight ||
-        _HasPendingApplicationKeyReplay() || _wubiCommitOwner.active())
+        _HasPendingApplicationKeyReplay() || _wubiCommitOwner.active() || _preferenceBarrier.active() ||
+        _preferenceNotificationPending.load(std::memory_order_acquire))
     {
         return true;
     }
@@ -1809,7 +1810,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     const UINT capturedModifiers =
         Global::CharacterModifiers(modifiersDown ? *modifiersDown : CaptureIpcModifiers(), *classifiedWch,
                                    *classifiedCode);
-    if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay()) && (capturedModifiers & 0b110u) == 0 &&
+    if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
+         _preferenceNotificationPending.load(std::memory_order_acquire)) && (capturedModifiers & 0b110u) == 0 &&
         !windowsKeyDown && !IsBareModifierKey(*classifiedCode) && !_IsKeyboardDisabled())
     {
         const bool printable = *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
@@ -2544,7 +2546,8 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     key.keyState = keyState;
     key.focusGeneration = _deferredKeyFocusGeneration;
     key.queuedAtMs = GetTickCount64();
-    key.needsClassification = (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay()) &&
+    key.needsClassification = (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
+         _preferenceNotificationPending.load(std::memory_order_acquire)) &&
         keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE;
     key.capsLockOn = (GetKeyState(VK_CAPITAL) & 1) != 0;
     key.windowsKeyDown = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
@@ -2586,6 +2589,14 @@ bool CMetasequoiaIME::_QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFG
 
 void CMetasequoiaIME::_ClearDeferredKeyDowns()
 {
+    _preferenceBarrier.reset();
+    _preferenceTransitionStarted = 0;
+    if (_msgWndHandle) KillTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION);
+    {
+        std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
+        _preferenceTransitions.clear();
+        _preferenceNotificationPending.store(false, std::memory_order_release);
+    }
     _groupedPanelLeases.clear();
     _wubiCommitOwner.clear();
     _ClearApplicationKeyReplay();
@@ -2902,7 +2913,7 @@ bool CMetasequoiaIME::_ResolveDeferredKeyClassification(uint64_t replayToken)
         return _IsDeferredKeyReplayCurrent(replayToken, captured.focusGeneration, context);
     };
     const bool initiallyEnabled = _pCompositionProcessorEngine && _pThreadMgr && !_IsKeyboardDisabled();
-    bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
+    bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow, true);
     if (!current()) { context->Release(); return false; }
     if (!ownerCurrent || !initiallyEnabled)
     {
@@ -2918,15 +2929,12 @@ bool CMetasequoiaIME::_ResolveDeferredKeyClassification(uint64_t replayToken)
     const bool enabled = _pCompositionProcessorEngine && _pThreadMgr && !_IsKeyboardDisabled();
     const uint64_t focusToken = _CaptureFocusSessionToken();
     const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(focusToken, context);
-    ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
+    ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow, true);
     context->Release();
     if (!current()) return false;
-    if (!ownerCurrent || !enabled || _localSessionResetPending.load(std::memory_order_acquire) ||
-        GetForegroundWindow() != captured.foregroundWindow)
+    if (!ownerCurrent || !enabled || GetForegroundWindow() != captured.foregroundWindow)
     {
-        // 这四个条件都会整队作废，但含义完全不同：前三项是焦点或键盘状态真的变了，最后一项是
-        // 传输在重连。重置标志挂在这里时作废队列，会让组字永远结束不了，反过来又让重置清不掉，
-        // 正是 #9519 的闭环。日志把命中的是哪一项分开记。
+        // 真正失去焦点或禁用键盘时才作废；同焦点传输重置由下方保留尚未发送的键。
         if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
         {
             QueueTsfDiagnosticLog(L"[msime][deferred-clear] stage=classification-aborted owner_current=" +
@@ -2939,6 +2947,18 @@ bool CMetasequoiaIME::_ResolveDeferredKeyClassification(uint64_t replayToken)
                                   std::to_wstring(_deferredKeyDowns.size()));
         }
         _ClearDeferredKeyDowns();
+        return false;
+    }
+    if (_localSessionResetPending.load(std::memory_order_acquire))
+    {
+        // COM 分类期间可重入本地重置；此键尚未发送，不消耗发送重试次数，也不再标脏传输。
+        // 先交回槽的引用所有权，再让现有恢复路径将检查点放到尾键之前；重置完成负责唤醒。
+        --_deferredKeyInFlight.replayAttempts;
+        _deferredKeyDowns.push_front(_deferredKeyInFlight);
+        _deferredKeyInFlight = {};
+        _hasDeferredKeyInFlight = false;
+        _deferredKeyReplayToken = 0;
+        _ArmDeferredRecoveryForTransport(context);
         return false;
     }
     if (!ready || (!_serverUnavailableFallbackActive && !_IsFocusSessionCurrent(focusToken)))
@@ -2971,7 +2991,8 @@ bool CMetasequoiaIME::_ResolveDeferredKeyClassification(uint64_t replayToken)
 void CMetasequoiaIME::_DrainOneDeferredKeyDown()
 {
     _deferredKeyDrainPosted = false;
-    if (_hasDeferredKeyInFlight || _wubiCommitOwner.active() || _HasPendingApplicationKeyReplay() || _deferredKeyDowns.empty() ||
+    if (_preferenceBarrier.active() || _preferenceNotificationPending.load(std::memory_order_acquire) ||
+        _hasDeferredKeyInFlight || _wubiCommitOwner.active() || _HasPendingApplicationKeyReplay() || _deferredKeyDowns.empty() ||
         !Global::g_connected)
     {
         return;
@@ -3491,7 +3512,17 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
             _pCompositionProcessorEngine->GetHostEngineAdapter() &&
             _pCompositionProcessorEngine->GetHostEngineAdapter()->valid())
             _wubiCommitOwner.begin(deferredReplayToken, GetTickCount64());
+        const bool orderedToggle = KeystrokeState.Function == FUNCTION_TOGGLE_JAPANESE && SupportsOrderedPreferences();
+        if (orderedToggle) {
+            _preferenceBarrier.begin(_expectedWorkerFocusToken.load(std::memory_order_acquire));
+            _preferenceTransitionStarted = GetTickCount64();
+            SetTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION, 10, nullptr);
+        }
         const KeyEventSendResult sendResult = SendKeyEventToUIProcess(&requestId);
+        if (orderedToggle) {
+            if (sendResult == KeyEventSendResult::Sent) _preferenceBarrier.sent(requestId);
+            else MarkNamedpipeSessionDirtyForOwner(this);
+        }
         if (KeystrokeState.Function == FUNCTION_TOGGLE_CHARACTER_SET || KeystrokeState.Function == FUNCTION_TOGGLE_JAPANESE)
         {
             // No document edit or response is needed. In particular, an ambiguous

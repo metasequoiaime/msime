@@ -20,6 +20,8 @@ Windows 桌面端快速连续输入时，输入法会卡住数秒，候选框消
 
 ## Decision
 
+2026-10-25 复核：上文的第 4、5 步自锁仍是假设。取消组字专用编辑会话绕过普通 worker Ready 检查，并主动完成本地重置，不能据静态路径认定必须靠普通按键结束组字。已单独确认并修复的是分类期间同焦点重置清掉尚未发送尾键，见[分类重置保留 FIFO](../bug-fix/2026-10-25-windows-classification-reset-fifo.md)。本篇保留诊断决定，不把新增日志或局部修复当作整项卡顿已解决。
+
 加五处诊断日志，不改任何行为，全部走 `QueueTsfDiagnosticLog` 并且只在 `TsfDiagnosticLogEnabled` 打开时输出。
 
 - `_RequestLocalSessionReset`：入口和「编辑会话已排过」两条，记 token、是否有组字、是否有候选窗、是否需要取消

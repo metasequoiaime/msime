@@ -1,6 +1,10 @@
 import CMSIMEClient
 import Foundation
 
+// The module already binds this symbol through @_silgen_name in many files; calling the CMSIMEClient import alongside them is a SIL function type conflict (@convention(c) vs thin).
+@_silgen_name("msime_client_string_free")
+private func msimeClientCommunityStringFree(_ value: UnsafeMutablePointer<CChar>?)
+
 struct CommunitySkin: Codable, Identifiable, Sendable {
   let id: String
   let name: String
@@ -118,7 +122,7 @@ enum CommunityProfilePolicy {
       msime_client_account_name(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
     }
     guard let raw else { throw BackendRustClient.Failure.invalidResponse }
-    defer { msime_client_string_free(raw) }
+    defer { msimeClientCommunityStringFree(raw) }
     let data = Data(bytes: raw, count: strlen(raw))
     return try JSONDecoder().decode(NamePresentation.self, from: BackendRustClient.envelope(data).get())
   }

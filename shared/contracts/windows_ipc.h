@@ -339,7 +339,9 @@ constexpr std::uint32_t CandidateContinuation = 33;
 constexpr std::uint32_t UiLessCandidatesChanged = 35;
 // 有效 TIP 会话的异步候选操作，沿用分帧传输，不传 Server 候选身份。
 constexpr std::uint32_t HostOnlineCandidates = 36;
-constexpr std::uint32_t MaxKnown = HostOnlineCandidates;
+// 已协商的偏好修订广播或焦点请求回执，载荷见 preference_transition.h。
+constexpr std::uint32_t PreferenceTransition = 37;
+constexpr std::uint32_t MaxKnown = PreferenceTransition;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

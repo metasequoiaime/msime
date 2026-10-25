@@ -992,8 +992,11 @@ final class ImeLetterRows {
                 else KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
                 if (keyButton instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 String letters = FourteenKeyLayout.holdLetters(key);
+                EighteenKeySwipePolicy.Gesture swipe = eighteen && letters.length() == 2
+                    ? bindEighteenKeySwipe(keyButton, letters) : null;
                 if (!letters.isEmpty()) {
                     keyButton.setOnLongClickListener(ignored -> {
+                        if (swipe != null) swipe.hold();
                         // 长按是这个键的一次按压，之后从弹窗里选的不是另一次按键。
                         s.countKey(keyButton);
                         s.imeLayoutRows.showNineKeyHoldOptions(keyButton, "", letters);
@@ -1009,6 +1012,68 @@ final class ImeLetterRows {
             if (last) addLetterRowEdgeKey(row, s.deleteButton, row.getChildCount(),
                 edgeWeight);
         }
+    }
+
+    /** 十八键双拼的横滑进入当前网格；未接管时仍由 Button 处理点按和长按。 */
+    private EighteenKeySwipePolicy.Gesture bindEighteenKeySwipe(Button key, String letters) {
+        EighteenKeySwipePolicy.Gesture gesture = new EighteenKeySwipePolicy.Gesture(letters);
+        String face = key.getText().toString();
+        key.setOnTouchListener((view, event) -> {
+            updateKeyPreview(key, event);
+            if (!fourteenShuangpin()) {
+                gesture.cancel();
+                key.setText(face);
+                hideKeyPreview(key);
+                return false;
+            }
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    s.imeLayoutRows.dismissNineKeyHoldOptions();
+                    gesture.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
+                        DimensionPolicy.fromPixels(s, event.getY()));
+                    return false;
+                }
+                case MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
+                    boolean wasConsumed = gesture.consumed();
+                    gesture.move(event.getPointerId(0), event.getPointerCount(),
+                        DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()));
+                    if (!wasConsumed && gesture.consumed()) cancelKeyTouch(key, event);
+                    char selected = gesture.selected();
+                    String label = selected == 0 ? face : String.valueOf(selected);
+                    key.setText(label);
+                    updateKeyPreviewLabel(key, label);
+                    if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                        key.setText(face);
+                        if (gesture.consumed()) key.setPressed(false);
+                        if (selected != 0) {
+                            s.imeKeyFeedback.playFeedback(key);
+                            s.countKey(key);
+                            s.gridKey(selected);
+                        }
+                    }
+                    return gesture.consumed();
+                }
+                case MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP,
+                        MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
+                    gesture.cancel();
+                    cancelKeyTouch(key, event);
+                    key.setText(face);
+                    hideKeyPreview(key);
+                    s.imeLayoutRows.dismissNineKeyHoldOptions();
+                    return true;
+                }
+                default -> { return gesture.consumed(); }
+            }
+        });
+        return gesture;
+    }
+
+    private void cancelKeyTouch(Button key, MotionEvent event) {
+        MotionEvent cancel = MotionEvent.obtain(event);
+        cancel.setAction(MotionEvent.ACTION_CANCEL);
+        key.onTouchEvent(cancel);
+        cancel.recycle();
+        key.setPressed(false);
     }
 
     /** 两个半键占位合计保留一个键的横向边距，键距就地变化时也与上下排等宽。 */

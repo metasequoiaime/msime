@@ -684,12 +684,12 @@ bool SessionController::send_tsf_config(const TsfLocalConfig &config) {
   if (stopping_)
     return false;
   const auto tickets = transport_.current_tickets();
-  const auto frames = tsf_config_frames(config);
   std::unique_lock transaction(*transactions_, std::try_to_lock);
   if (!transaction.owns_lock())
     return false;
   bool all_sent = true;
   for (const auto &ticket : tickets) {
+    const auto frames = tsf_config_frames(config, (ticket.capabilities & FanyImeProtocol::OrderedPreferences) != 0);
     for (const auto &frame : frames) {
       bool sent = false;
       try {

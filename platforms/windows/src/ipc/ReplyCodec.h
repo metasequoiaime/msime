@@ -73,6 +73,7 @@ commit_candidate_and_continue_bytes(size_t consumed, std::string_view text);
 // did nothing, the Microsoft shuangpin ';' key was never enabled, and the
 // inline preedit style stayed "raw" whatever the user chose.
 struct TsfLocalConfig {
+  uint64_t preference_revision = 0;
   bool paging_comma_period = false;
   // "raw" | "pinyin" | "empty" - rides along with the paging frame.
   std::string preedit_style = "raw";
@@ -110,7 +111,7 @@ void apply_punctuation_marks(TsfLocalConfig &config, std::string_view quote_styl
 // Set the V, "/" and "@" flags from the user's `local_modes` switches for `scheme`, the `SchemeType` number of the scheme the Engine runs (scheme::scheme_from_name; -1 for a name no build knows). A switch stays off where the Engine would not open its mode: V follows scheme::OpensLocalModes, "/" and "@" follow scheme::OpensTableModes.
 void apply_local_mode_switches(TsfLocalConfig &config, int scheme, bool expression, bool command, bool mention);
 // One frame per setting, in the order the reference pushes them.
-std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config);
+std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config, bool ordered_preferences = false);
 // Caps Lock changes on its own cadence, so it gets its own frame rather than
 // resending the whole configuration on every press.
 std::vector<uint8_t> caps_lock_frame(bool enabled);

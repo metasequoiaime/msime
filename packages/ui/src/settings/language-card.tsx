@@ -47,6 +47,8 @@ function schemeName(scheme: TouchKeyboardScheme, wubiProfile: Preferences["wubi_
       return "九键双拼";
     case "fourteen_key":
       return "全拼 14 键";
+    case "eighteen_key":
+      return "全拼 18 键";
     case "wubi":
       return wubiName(wubiProfile);
     case "zhuyin":
@@ -158,6 +160,7 @@ export function LanguageCard({
       if (
         scheme === "quanpin" ||
         scheme === "fourteen_key" ||
+        scheme === "eighteen_key" ||
         scheme === "nine_key" ||
         scheme === "nine_key_shuangpin"
       )

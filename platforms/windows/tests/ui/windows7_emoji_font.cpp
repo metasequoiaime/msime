@@ -66,9 +66,12 @@ int main() {
   std::vector<std::thread> desktops;
   for (unsigned desktop = 0; desktop < 4; ++desktop) {
     desktops.emplace_back([&] {
+      // IDWriteTextFormat 不保证线程安全；每个 UI 线程持有独立格式，共享字体与排版器仍并发访问。
+      ComPtr<IDWriteTextFormat> thread_format;
+      assert(SUCCEEDED(font.factory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 24, L"zh-CN", &thread_format)));
       for (unsigned iteration = 0; iteration < 64; ++iteration) {
         ComPtr<IDWriteTextLayout> concurrent;
-        assert(SUCCEEDED(font.factory->CreateTextLayout(clusters.c_str(), static_cast<UINT32>(clusters.size()), format.Get(), 400, 100, &concurrent)));
+        assert(SUCCEEDED(font.factory->CreateTextLayout(clusters.c_str(), static_cast<UINT32>(clusters.size()), thread_format.Get(), 400, 100, &concurrent)));
         assert(ApplyWindows7EmojiFallback(font.factory.Get(), concurrent.Get(), clusters.c_str(), static_cast<UINT32>(clusters.size())) == 3);
         GlyphCheck rendered;
         assert(SUCCEEDED(concurrent->Draw(nullptr, &rendered, 0, 0)) && rendered.missing == 0 && rendered.glyphs == 5);

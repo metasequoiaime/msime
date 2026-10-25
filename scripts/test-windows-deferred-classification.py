@@ -22,6 +22,7 @@ HARNESS = r'''
 #include <vector>
 #include "InputSchemeTraits.h"
 #include "WubiCommitOwner.h"
+#include "PreferenceBarrier.h"
 #include "GroupedPanelKeyLease.h"
 #include "SecondThirdCandidatePolicy.h"
 #include "WubiCandidateSelectionPolicy.h"
@@ -49,7 +50,6 @@ using GUID = int;
 #endif
 [[maybe_unused]] constexpr BOOL TRUE = 1, FALSE = 0;
 constexpr int S_OK = 0;
-constexpr int FANY_IME_NO_REQUEST_ID = 0;
 [[maybe_unused]] constexpr UINT WM_IpcReconnect = 1;
 void PostOwnerMessageWithSyncFallback(void *, UINT) {}
 bool EnsureNamedpipeFocusSessionActivated() { return true; }
@@ -64,7 +64,8 @@ bool capsOn = false, winDown = false;
 short GetKeyState(UINT vk) { return vk == VK_CAPITAL && capsOn ? 1 : 0; }
 short GetAsyncKeyState(UINT vk) { return winDown && (vk == VK_LWIN || vk == VK_RWIN) ? short(0x8000) : 0; }
 ULONGLONG GetTickCount64() { return 1; }
-HWND GetForegroundWindow() { return reinterpret_cast<HWND>(1); }
+HWND foregroundWindow = reinterpret_cast<HWND>(1);
+HWND GetForegroundWindow() { return foregroundWindow; }
 bool IsAutoRepeat(LPARAM value) { return (value & 0x40000000) != 0; }
 UINT CaptureIpcModifiers() { return 0; }
 UINT VKeyFromVKPacketAndWchar(UINT vk, WCHAR) { return vk; }
@@ -91,6 +92,29 @@ std::atomic_bool TsfDiagnosticLogEnabled{false};
 void QueueTsfDiagnosticLog(const std::wstring &) {}
 inline std::wstring BoolFlag(bool value) { return value ? L"1" : L"0"; }
 struct ITfContext { int refs = 1; void AddRef() { ++refs; } void Release() { --refs; } };
+
+bool SUCCEEDED(int result) { return result >= 0; }
+struct ITfDocumentMgr {
+    ITfContext *top = nullptr;
+    int refs = 1;
+    void AddRef() { ++refs; }
+    void Release() { --refs; }
+    int GetTop(ITfContext **out) { *out = top; if (top) top->AddRef(); return S_OK; }
+};
+struct ITfThreadMgr {
+    ITfDocumentMgr *document = nullptr;
+    bool focused = true;
+    int refs = 1;
+    std::function<void()> onGetFocus;
+    void AddRef() { ++refs; }
+    void Release() { --refs; }
+    int IsThreadFocus(BOOL *out) { *out = focused; return S_OK; }
+    int GetFocus(ITfDocumentMgr **out) {
+        if (onGetFocus) onGetFocus();
+        *out = document; if (document) document->AddRef(); return S_OK;
+    }
+};
+
 namespace msime::tsf {
 struct KeyCompositionState { std::wstring rawInput; std::size_t caret = 0; bool unicodeMode = false, urlMode = false, phraseActive = false; };
 }
@@ -117,8 +141,10 @@ using CCompositionProcessorEngine = Engine;
 // 生产投影规则
 struct CMetasequoiaIME {
     msime::tsf::WubiCommitOwner _wubiCommitOwner;
+    msime::tsf::PreferenceBarrier _preferenceBarrier;
+    std::atomic<bool> _preferenceNotificationPending{false};
     Engine *_pCompositionProcessorEngine = nullptr;
-    void *_pThreadMgr = reinterpret_cast<void *>(1);
+    ITfThreadMgr *_pThreadMgr = nullptr;
     int _tfClientId = 1, _candidateMode = CANDIDATE_NONE;
     bool _serverUnavailableFallbackActive = false, _backspaceHoldArmed = false;
     bool _deferredKeyProjectionValid = false;
@@ -131,12 +157,13 @@ struct CMetasequoiaIME {
          _deferredProjectedPhraseActive = false, _deferredProjectedUrlMode = false, _deferredProjectedKoreanHanjaListOpen = false;
     std::uint64_t _deferredKeyFocusGeneration = 7;
     // 生产队列类型
-    std::deque<DeferredKeyDown> _deferredKeyDowns;
+    std::deque<DeferredKeyDown> _deferredKeyDowns, _deferredAppliedPrefix;
+    ITfContext *_pContext = nullptr;
+    void _ArmDeferredRecoveryForTransport(ITfContext *);
+    bool _RefreshDeferredRecoveryPrefix(ITfContext *) { return true; }
     bool _IsComposing() const { return !_pCompositionProcessorEngine->current.rawInput.empty() || _pCompositionProcessorEngine->current.phraseActive; }
     bool _IsKoreanHanjaListOpen() const { return false; }
-    bool disabled = false, ownerCurrent = true;
-    int ownerQueries = 0;
-    std::function<void()> onOwnerQuery;
+    bool disabled = false;
     BOOL _IsKeyboardDisabled() const { return disabled; }
     WCHAR ConvertVKey(UINT vk) const { return vk >= 'A' && vk <= 'Z' ? WCHAR(vk + 32) : WCHAR(vk); }
     bool _DeferredKeyQueueHasCapacity() const { return _deferredKeyDowns.size() < 64; }
@@ -145,7 +172,8 @@ struct CMetasequoiaIME {
     void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &, WCHAR, UINT);
     bool _QueueDeferredKeyDown(ITfContext *, WPARAM, LPARAM, WCHAR, UINT, const _KEYSTROKE_STATE &,
                                const msime::panel_key::Owner * = nullptr);
-    bool _HasGroupedPanelComposition() const { return false; }
+    bool groupedComposition = false;
+    bool _HasGroupedPanelComposition() const { return groupedComposition; }
     bool _IsGroupedPanelReplayCurrent(uint64_t) const { return true; }
     DeferredKeyDown _deferredKeyInFlight;
     bool _hasDeferredKeyInFlight = false, _deferredKeyDrainPosted = false;
@@ -163,9 +191,7 @@ struct CMetasequoiaIME {
     // 生产派发类型
     bool _ResolveDeferredKeyClassification(uint64_t);
     void _DrainOneDeferredKeyDown();
-    bool _IsDeferredKeyOwnerCurrent(ITfContext *, uint64_t, HWND) {
-        ++ownerQueries; if (onOwnerQuery) onOwnerQuery(); return ownerCurrent;
-    }
+    // 生产焦点声明
     bool _IsDeferredKeyReplayCurrent(uint64_t token, uint64_t generation, ITfContext *context) const {
         return _hasDeferredKeyInFlight && token == _deferredKeyReplayToken && generation == _deferredKeyFocusGeneration && context == _deferredKeyInFlight.context;
     }
@@ -182,6 +208,8 @@ struct CMetasequoiaIME {
         ++_deferredKeyFocusGeneration;
         for (auto &key : _deferredKeyDowns) key.context->Release();
         _deferredKeyDowns.clear();
+        for (auto &key : _deferredAppliedPrefix) key.context->Release();
+        _deferredAppliedPrefix.clear();
         if (_hasDeferredKeyInFlight) _deferredKeyInFlight.context->Release();
         _hasDeferredKeyInFlight = false; _deferredKeyInFlight = {}; _deferredKeyReplayToken = 0;
     }
@@ -196,7 +224,7 @@ struct CMetasequoiaIME {
         applicationText += wch; _CompleteDeferredKeyReplay(token);
     }
     void _InvokeKeyHandler(ITfContext *, WPARAM, WCHAR, DWORD, const _KEYSTROKE_STATE &state,
-                          int, const std::wstring &, int, int, int, uint64_t token) {
+                          uint64_t, const std::wstring &, int, int, int, uint64_t token) {
         dispatched.push_back(state.Function); _CompleteDeferredKeyReplay(token);
     }
     KeyDownDispatchResult _DispatchKeyDown(ITfContext *, WPARAM, LPARAM, BOOL *, const WCHAR *wch, const UINT *modifiers,
@@ -217,12 +245,15 @@ void check(bool condition, const char *message) {
 struct Fixture {
     Engine engine;
     ITfContext context;
+    ITfDocumentMgr document;
+    ITfThreadMgr thread;
     CMetasequoiaIME ime;
     Fixture(KEYSTROKE_FUNCTION operation = FUNCTION_SELECT_BY_NUMBER) {
-        capsOn = winDown = false;
+        capsOn = winDown = false; foregroundWindow = reinterpret_cast<HWND>(1);
         Global::InputModeScheme = msime::windows::scheme::Quanpin;
         engine.current = {L"ht", 2, false, false};
         ime._pCompositionProcessorEngine = &engine;
+        document.top = &context; thread.document = &document; ime._pThreadMgr = &thread;
         _KEYSTROKE_STATE selection{};
         selection.Category = CATEGORY_CANDIDATE; selection.Function = operation;
         ime._QueueDeferredKeyDown(&context, '1', 0, L'1', 0, selection);
@@ -240,10 +271,34 @@ struct Fixture {
     }
     ~Fixture() {
         ime._ClearDeferredKeyDowns();
-        check(context.refs == 1, "all queued and in-flight context references released");
+        check(context.refs == 1 && document.refs == 1 && thread.refs == 1,
+              "all queued, in-flight and focus query COM references released");
     }
 };
 int main() {
+    for (bool notificationOnly : {false, true}) {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._deferredKeyClassificationPending = false;
+        f.ime._deferredKeyProjectionValid = false;
+        if (notificationOnly) f.ime._preferenceNotificationPending.store(true);
+        else { f.ime._preferenceBarrier.begin(77); f.ime._preferenceBarrier.sent(12); }
+        check(f.capture('N', L'n'), "preference transition captures the following key");
+        check(f.ime._deferredKeyDowns.back().needsClassification,
+              "preference transition postpones classification until the snapshot is applied");
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.empty() && f.ime._deferredKeyDowns.size() == 1,
+              "preference transition preserves the FIFO before dispatch");
+        if (notificationOnly) f.ime._preferenceNotificationPending.store(false);
+        else {
+            check(f.ime._preferenceBarrier.receive({42, 12, 77, 3}, 77) &&
+                  f.ime._preferenceBarrier.complete(42), "applied snapshot releases the preference barrier");
+        }
+        f.ime._DrainOneDeferredKeyDown();
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.ime._deferredKeyDowns.empty() && f.context.refs == 1,
+              "released preference transition dispatches the following key exactly once");
+    }
     {
         Fixture f;
         f.ime._ClearDeferredKeyDowns();
@@ -433,7 +488,7 @@ int main() {
     }
     for (bool disabled : {true, false}) {
         Fixture f; f.capture(VK_RETURN, L'\r'); f.finishSelection();
-        f.ime.disabled = disabled; f.ime.ownerCurrent = !disabled ? false : true;
+        f.ime.disabled = disabled; f.thread.focused = !disabled ? false : true;
         f.ime._DrainOneDeferredKeyDown();
         check(f.ime.applicationText.empty() && f.ime.dispatched.empty() && !f.ime.applicationKey,
               "disabled keyboard or lost owner never converts classifier failure to input");
@@ -441,7 +496,7 @@ int main() {
     for (bool duringClassifier : {true, false}) {
         Fixture f; f.capture(VK_RETURN, L'\r'); f.finishSelection();
         if (duringClassifier) f.engine.onRead = [&] { f.ime._ClearDeferredKeyDowns(); };
-        else f.ime.onOwnerQuery = [&] { f.ime._ClearDeferredKeyDowns(); };
+        else f.thread.onGetFocus = [&] { f.ime._ClearDeferredKeyDowns(); };
         f.ime._DrainOneDeferredKeyDown();
         check(f.ime.applicationText.empty() && f.ime.dispatched.empty() && !f.ime._hasDeferredKeyInFlight,
               "COM reentry cannot resurrect cleared replay slot");
@@ -450,6 +505,79 @@ int main() {
         Fixture f; f.capture(VK_RETURN, L'\r'); f.finishSelection(L"", false);
         f.ime._serverUnavailableFallbackActive = true; f.ime._DrainOneDeferredKeyDown();
         check(f.ime.applicationKey == VK_RETURN, "offline editing tail keeps application semantics");
+    }
+    for (bool withPrefix : {false, true}) {
+        Fixture f; f.capture('A', L'a'); f.capture('B', L'b'); f.finishSelection(L"", false);
+        const auto generation = f.ime._deferredKeyFocusGeneration;
+        if (withPrefix) {
+            auto prefix = f.ime._deferredKeyDowns.front();
+            prefix.kind = CMetasequoiaIME::DeferredKeyDown::Kind::KeyDown;
+            prefix.needsClassification = false; prefix.wParam = 'H'; prefix.translatedWch = L'h';
+            prefix.keyState.Category = CATEGORY_COMPOSING; prefix.keyState.Function = FUNCTION_INPUT;
+            prefix.context->AddRef(); f.ime._deferredAppliedPrefix.push_back(prefix);
+        }
+        f.engine.onRead = [&] { f.ime._localSessionResetPending = true; };
+        f.ime._DrainOneDeferredKeyDown();
+        check(!f.ime._hasDeferredKeyInFlight && f.ime._deferredKeyReplayToken == 0 &&
+              f.ime._deferredKeyDowns.size() == (withPrefix ? 3u : 2u) &&
+              f.ime._deferredKeyFocusGeneration == generation && f.context.refs == (withPrefix ? 4 : 3) &&
+              f.ime.dispatched.empty() && f.ime.retries == 0,
+              "same-focus reset retains unsent FIFO and ownership without transport retry");
+        // 重置仍挂起时不取队首，不派发，也不消耗重试次数。
+        for (int i = 0; i < 10; ++i) f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.empty() && f.ime.retries == 0, "pending reset never dispatches retained keys");
+        f.engine.onRead = {}; f.ime._localSessionResetPending = false;
+        if (withPrefix) {
+            f.ime._DrainOneDeferredKeyDown();
+            check(f.ime.observedCharacter == L'h', "checkpoint precedes unsent tail");
+        }
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.observedCharacter == L'a', "original first tail key resumes");
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.observedCharacter == L'b' && f.ime.dispatched.size() == (withPrefix ? 3u : 2u) &&
+              f.ime._deferredKeyDowns.empty() && f.ime._deferredAppliedPrefix.empty() && f.context.refs == 1,
+              "reset completion resumes FIFO once and releases references");
+    }
+    {
+        Fixture f; f.capture('A', L'a'); f.finishSelection(L"", false);
+        f.engine.onRead = [&] { f.ime._localSessionResetPending = true; };
+        for (int i = 0; i < 10; ++i) {
+            f.ime._localSessionResetPending = false; f.ime._DrainOneDeferredKeyDown();
+            check(!f.ime._deferredKeyDowns.empty() && f.ime._deferredKeyDowns.front().replayAttempts == 0,
+                  "classification suspension does not consume send retry budget");
+        }
+    }
+    for (int invalidation = 0; invalidation < 5; ++invalidation) {
+        Fixture f; f.capture('A', L'a'); f.finishSelection(L"", false);
+        f.engine.onRead = [&] {
+            f.ime._localSessionResetPending = true;
+            if (invalidation == 0) f.thread.focused = false;
+            if (invalidation == 1) f.ime.disabled = true;
+            if (invalidation == 2) f.ime.groupedComposition = true;
+            if (invalidation == 3) f.document.top = nullptr;
+            if (invalidation == 4) foregroundWindow = reinterpret_cast<HWND>(2);
+        };
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime._deferredKeyDowns.empty() && !f.ime._hasDeferredKeyInFlight &&
+              f.ime.dispatched.empty() && f.context.refs == 1,
+              "reset cannot preserve keys after owner loss, disable or ambiguous grouped composition");
+    }
+    for (int resetQuery : {1, 2}) {
+        Fixture f; f.capture('A', L'a'); f.finishSelection(L"", false);
+        int queries = 0;
+        f.thread.onGetFocus = [&] {
+            if (++queries == resetQuery) f.ime._localSessionResetPending = true;
+        };
+        f.ime._DrainOneDeferredKeyDown();
+        check(!f.ime._hasDeferredKeyInFlight && f.ime._deferredKeyDowns.size() == 1 &&
+              f.context.refs == 2 && f.ime.dispatched.empty() && f.ime.retries == 0,
+              "reset during either real owner query preserves unsent key");
+        check(!f.ime._IsDeferredKeyOwnerCurrent(&f.context, f.ime._deferredKeyFocusGeneration, foregroundWindow),
+              "application write owner keeps strict reset fence by default");
+        f.thread.onGetFocus = {}; f.ime._localSessionResetPending = false;
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.context.refs == 1,
+              "owner-query suspension resumes once after reset");
     }
     std::printf("deferred selection classification: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
@@ -470,6 +598,9 @@ def main() -> int:
         return 0
     sink = (ROOT / "platforms/windows/tsf/Key/KeyEventSink.cpp").read_text()
     header = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.h").read_text()
+    handler = (ROOT / "platforms/windows/tsf/Key/KeyHandler.cpp").read_text()
+    owner_start = header.index("    bool _IsDeferredKeyOwnerCurrent(")
+    owner_declaration = header[owner_start:header.index(";", owner_start) + 1]
     types = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIMEBaseStructure.h").read_text()
     types = between(types, "enum KEYSTROKE_CATEGORY", "struct _PUNCTUATION")
     virtual_keys = {
@@ -487,10 +618,12 @@ def main() -> int:
     shadow = between(sink, "struct DeferredShadowState", "bool IsRecoverableDeferredPrefix(")
     dispatch_type = between(header, "    enum class KeyDownDispatchResult", "    bool _HasGroupedPanelComposition")
     segment = between(sink, "KEYSTROKE_FUNCTION SegmentEditFunction(", "\n}\n") + "\n}\n"
-    harness = HARNESS.replace("// 生产分段编辑规则", segment).replace("    // 生产派发类型", dispatch_type).replace("// 生产按键类型与虚拟键码", types + vk).replace(
+    harness = HARNESS.replace("    // 生产焦点声明", owner_declaration).replace("// 生产分段编辑规则", segment).replace("    // 生产派发类型", dispatch_type).replace("// 生产按键类型与虚拟键码", types + vk).replace(
         "// 生产投影规则", shadow).replace("    // 生产队列类型", queue_type).replace(
         "    // 生产分类声明", declaration)
-    body = between(sink, "void CMetasequoiaIME::_EnsureDeferredKeyProjection()", "void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(")
+    body = between(handler, "bool CMetasequoiaIME::_IsDeferredKeyOwnerCurrent(", "bool CMetasequoiaIME::_IsDeferredApplicationTextCurrent(")
+    body += between(sink, "void CMetasequoiaIME::_EnsureDeferredKeyProjection()", "void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(")
+    body += between(sink, "void CMetasequoiaIME::_ArmDeferredRecoveryForTransport(", "bool CMetasequoiaIME::_ClassifyDeferredKeyDown(")
     body += between(sink, "bool CMetasequoiaIME::_ClassifyDeferredKeyDown(", "//+---------------------------------------------------------------------------")
     body += between(sink, "bool CMetasequoiaIME::_QueueDeferredKeyDown(", "bool CMetasequoiaIME::_QueueDeferredPreservedKey(")
     body += between(sink, "bool CMetasequoiaIME::_ResolveDeferredKeyClassification(", "//+---------------------------------------------------------------------------")

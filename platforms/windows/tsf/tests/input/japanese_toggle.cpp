@@ -80,7 +80,7 @@ void wiring(const std::string &root) {
            "a Server replaced by an older one never gets it as ordinary input");
     expect(sink,
            "if (KeystrokeState.Function == FUNCTION_TOGGLE_CHARACTER_SET || KeystrokeState.Function == FUNCTION_TOGGLE_JAPANESE)",
-           true, "the TIP does not wait for a reply after sending it");
+           true, "TIP 不读主回复帧，后续键由偏好修订屏障放行");
 
     const std::string ipc = read(root + "/IPC/Ipc.cpp");
     expect(ipc, "FanyImeProtocol::JapaneseToggleShortcut);", true, "the TIP advertises the capability in its hello");
@@ -102,7 +102,7 @@ void wiring(const std::string &root) {
     // Server 侧：生产环境宣告这一位，并把按键交给工作线程写偏好。
     const std::string server = read(root + "/../src/entrypoints/server_main.cpp");
     expect(server, "FanyImeProtocol::JapaneseToggleShortcut)", true, "the production Server advertises the capability");
-    expect(server, "japanese_toggles.submit(JapaneseToggleRequest{})", true, "the key hands the write to a worker");
+    expect(server, "japanese_toggles.submit(JapaneseToggleRequest{completion})", true, "the key hands the write to a worker");
     expect(server, "msime::windows::scheme::japanese_toggle_write(", true,
            "the worker writes what windows-input-scheme-traits tests");
     expect(server, "japanese.request_stop();", true, "the worker stops with the other click workers");
