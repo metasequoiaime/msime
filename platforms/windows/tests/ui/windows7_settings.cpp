@@ -1488,12 +1488,34 @@ int main() {
   pump_until([&] { return IsWindowEnabled(server_log) != FALSE; });
   saved = store.load();
   assert(saved.snapshot->preferences().at("diagnostic_log").at("server").get<bool>() != previous_server);
+  // 「命令行查询候选」（#9663）在维护页、缺省关闭；经控件打开后只改这一个键，同组的两个日志开关不变。打开的状态留到下面的导出导入，验证它和日志开关一样只属于本机。
+  const HWND command_line = GetDlgItem(body, diagnostic_command_line_candidates);
+  assert(command_line && (GetWindowLongPtrW(command_line, GWL_STYLE) & WS_VISIBLE) != 0);
+  assert(caption(command_line) == L"命令行查询候选");
+  assert(saved.snapshot->preferences().at("diagnostic_log").at("command_line_candidates") == false);
+  assert(SendMessageW(command_line, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  const auto diagnostics_before_command_line = saved.snapshot->preferences().at("diagnostic_log");
+  SendMessageW(command_line, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(command_line) != FALSE; });
+  saved = store.load();
+  {
+    auto expected = diagnostics_before_command_line;
+    expected["command_line_candidates"] = true;
+    assert(saved.snapshot->preferences().at("diagnostic_log") == expected);
+  }
+  assert(SendMessageW(command_line, BM_GETCHECK, 0, 0) == BST_CHECKED);
   SendMessageW(body, WM_COMMAND, MAKEWPARAM(export_settings, BN_CLICKED),
       reinterpret_cast<LPARAM>(GetDlgItem(body, export_settings)));
   pump_until([&] { return IsWindowEnabled(server_log) != FALSE; });
   if (!std::filesystem::is_regular_file(file)) {
     std::fwprintf(stderr, L"Export status: %ls\n", caption(GetDlgItem(host, status_text)).c_str());
     std::abort();
+  }
+  {
+    std::ifstream input(file, std::ios::binary);
+    std::string exported_text;
+    exported_text.assign(std::istreambuf_iterator<char>(input), {});
+    assert(!exported_text.empty() && exported_text.find("command_line_candidates") == std::string::npos);
   }
   const auto exported_revision = saved.snapshot->revision();
   assert(store.load().snapshot->revision() == exported_revision);
@@ -1515,6 +1537,8 @@ int main() {
   assert(saved.snapshot->revision() == exported_revision + 3);
   assert(saved.snapshot->preferences().at("keybindings").at("switch_language_caps_lock").get<bool>() == exported_caps);
   assert(saved.snapshot->preferences().at("diagnostic_log").at("tsf").get<bool>() == current_tsf);
+  assert(saved.snapshot->preferences().at("diagnostic_log").at("command_line_candidates") == true);
+  assert(SendMessageW(command_line, BM_GETCHECK, 0, 0) == BST_CHECKED);
   assert(saved.snapshot->preferences().at("ai_assistant").at("tokens") == tokens);
   assert(selections == 2);
   cancel_selection = true;

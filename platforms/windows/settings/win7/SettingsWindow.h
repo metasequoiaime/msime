@@ -22,6 +22,7 @@ enum ControlId {
   toolbar_preview, toolbar_preview_description, toolbar_theme,
   diagnostic_server = 300, diagnostic_tsf, restart_service, open_data_directory,
   open_logs_directory, export_settings, import_settings, data_directory_text,
+  diagnostic_command_line_candidates,
   word_character_keys = 400, backspace_reverts, navigation_minus_equal, navigation_comma_period,
   navigation_brackets, navigation_mouse_wheel, navigation_arrows, navigation_left_right,
   traditional_output = 500, output_description, chinese_english_spacing, fullwidth_output,

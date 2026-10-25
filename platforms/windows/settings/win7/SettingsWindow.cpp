@@ -1364,16 +1364,20 @@ struct SettingsWindow::State {
     item(L"BUTTON", L"打开日志目录", WS_TABSTOP | BS_PUSHBUTTON, open_logs_directory, 266, 32);
     item(L"BUTTON", L"TSF 端日志", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, diagnostic_tsf, 312, 28);
     item(L"STATIC", L"排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，通过独立管道批量汇总，不记录按键、输入内容或候选文本。", SS_LEFT, -1, 348, 62);
-    item(L"STATIC", L"数据目录", SS_LEFT, -1, 430, 24);
-    item(L"STATIC", L"词库、学习记录、皮肤、剪贴板历史和设置共用此位置。要迁移，请重新运行完整安装包，在「选择数据位置」一步选择空文件夹。", SS_LEFT, -1, 466, 62);
-    item(L"EDIT", L"", WS_TABSTOP | ES_READONLY | ES_AUTOHSCROLL, data_directory_text, 540, 28);
-    item(L"BUTTON", L"打开数据目录", WS_TABSTOP | BS_PUSHBUTTON, open_data_directory, 580, 32);
-    item(L"STATIC", L"设置文件", SS_LEFT, -1, 638, 24);
-    item(L"STATIC", L"导出当前设置，换电脑或重装后可以导入。服务配置与密钥、诊断日志、使用统计和剪贴板历史开关只属于本机，不写进文件；词库和学习记录也不在其中。", SS_LEFT, -1, 674, 66);
-    item(L"BUTTON", L"导出设置…", WS_TABSTOP | BS_PUSHBUTTON, export_settings, 752, 32);
-    item(L"STATIC", L"导入文件里的设置并立即生效。本机的服务配置与密钥、诊断日志、使用统计和剪贴板历史开关保持不变。", SS_LEFT, -1, 796, 50);
-    item(L"BUTTON", L"导入设置…", WS_TABSTOP | BS_PUSHBUTTON, import_settings, 858, 32);
-    developer_height = 906;
+    // `msime-mcp candidates` 的开关（#9663），与现代窗口同名同文案。命令按用户自己的词库给出候选，缺省关闭；键在 `diagnostic_log` 下，只属于本机。Win7 安装包同样把 msime-mcp.exe 放在 server 文件夹里。
+    item(L"STATIC", L"命令行工具", SS_LEFT, -1, 430, 24);
+    item(L"BUTTON", L"命令行查询候选", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, diagnostic_command_line_candidates, 464, 28);
+    item(L"STATIC", L"允许安装目录下 server 文件夹里的 msime-mcp.exe candidates 命令按你现在的输入方案、设置和词库，输出一串拼音或按键会给出的候选，供编写测试和演示程序使用。词库里有你打过的词，任何能运行这个命令的程序都能借此读到它们，不用时请保持关闭；关闭时命令会提示并以错误码退出。", SS_LEFT, -1, 500, 108);
+    item(L"STATIC", L"数据目录", SS_LEFT, -1, 628, 24);
+    item(L"STATIC", L"词库、学习记录、皮肤、剪贴板历史和设置共用此位置。要迁移，请重新运行完整安装包，在「选择数据位置」一步选择空文件夹。", SS_LEFT, -1, 664, 62);
+    item(L"EDIT", L"", WS_TABSTOP | ES_READONLY | ES_AUTOHSCROLL, data_directory_text, 738, 28);
+    item(L"BUTTON", L"打开数据目录", WS_TABSTOP | BS_PUSHBUTTON, open_data_directory, 778, 32);
+    item(L"STATIC", L"设置文件", SS_LEFT, -1, 836, 24);
+    item(L"STATIC", L"导出当前设置，换电脑或重装后可以导入。服务配置与密钥、诊断日志、使用统计和剪贴板历史开关只属于本机，不写进文件；词库和学习记录也不在其中。", SS_LEFT, -1, 872, 66);
+    item(L"BUTTON", L"导出设置…", WS_TABSTOP | BS_PUSHBUTTON, export_settings, 950, 32);
+    item(L"STATIC", L"导入文件里的设置并立即生效。本机的服务配置与密钥、诊断日志、使用统计和剪贴板历史开关保持不变。", SS_LEFT, -1, 994, 50);
+    item(L"BUTTON", L"导入设置…", WS_TABSTOP | BS_PUSHBUTTON, import_settings, 1056, 32);
+    developer_height = 1104;
   }
 
   std::optional<std::filesystem::path> pick_dictionary_file(bool save, bool vocabulary = false, bool plugin = false, bool voice_model = false) const {
@@ -1639,7 +1643,7 @@ struct SettingsWindow::State {
       if (HWND control = GetDlgItem(body, field.id)) EnableWindow(control, enabled);
     EnableWindow(GetDlgItem(body, toolbar_size), enabled);
     EnableWindow(GetDlgItem(body, toolbar_theme), enabled);
-    for (int id : {diagnostic_server, diagnostic_tsf, export_settings, import_settings})
+    for (int id : {diagnostic_server, diagnostic_tsf, diagnostic_command_line_candidates, export_settings, import_settings})
       EnableWindow(GetDlgItem(body, id), enabled);
     for (int id : {word_character_keys, backspace_reverts}) EnableWindow(GetDlgItem(body, id), enabled);
     for (const auto& field : navigation_checks) EnableWindow(GetDlgItem(body, field.id), enabled);
@@ -1857,7 +1861,7 @@ struct SettingsWindow::State {
     }
     const auto diagnostics = preferences.find("diagnostic_log");
     if (diagnostics == preferences.end() || !diagnostics->is_object()) return false;
-    for (const auto* field : {"server", "tsf"}) {
+    for (const auto* field : {"server", "tsf", "command_line_candidates"}) {
       const auto value = diagnostics->find(field);
       if (value == diagnostics->end() || !value->is_boolean()) return false;
     }
@@ -2089,6 +2093,8 @@ struct SettingsWindow::State {
           diagnostics.at("server").get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
       SendMessageW(GetDlgItem(body, diagnostic_tsf), BM_SETCHECK,
           diagnostics.at("tsf").get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
+      SendMessageW(GetDlgItem(body, diagnostic_command_line_candidates), BM_SETCHECK,
+          diagnostics.at("command_line_candidates").get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
     }
     SetWindowTextW(GetDlgItem(body, data_directory_text), completed->directory.empty() ?
         L"未找到数据目录" : completed->directory.c_str());
@@ -2885,8 +2891,9 @@ struct SettingsWindow::State {
         if (checked && word.at("enabled").get<bool>() && word.at("keys") == field.field)
           job.changes.push_back({{"word_character", "enabled"}, false});
       }
-      if (id == diagnostic_server || id == diagnostic_tsf)
-        job.changes.push_back({{"diagnostic_log", id == diagnostic_server ? "server" : "tsf"},
+      if (id == diagnostic_server || id == diagnostic_tsf || id == diagnostic_command_line_candidates)
+        job.changes.push_back({{"diagnostic_log", id == diagnostic_server ? "server" :
+            id == diagnostic_tsf ? "tsf" : "command_line_candidates"},
             SendMessageW(GetDlgItem(body, id), BM_GETCHECK, 0, 0) == BST_CHECKED});
       for (const auto& field : check_fields)
         if (id == field.first)

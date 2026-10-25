@@ -23471,7 +23471,7 @@ private:
 
   // ---- 维护与诊断 ----
 
-  // 共享「维护与诊断」页（`pages/developer-page.tsx`）在 Windows 上的样子，顺序也相同：「输入法服务」（`input-method-service-section.tsx` 非 macOS、非 Linux 的一支）、「诊断日志」（`diagnostic-logs-section.tsx` 的 Windows 一支）、「数据目录」，最后是 Windows 独有的「设置文件」。macOS 的「卸载」一组不画，Windows 从系统的「应用」设置卸载。
+  // 共享「维护与诊断」页（`pages/developer-page.tsx`）在 Windows 上的样子，顺序也相同：「输入法服务」（`input-method-service-section.tsx` 非 macOS、非 Linux 的一支）、「诊断日志」（`diagnostic-logs-section.tsx` 的 Windows 一支）、「数据目录」，最后是 Windows 独有的「设置文件」；「命令行工具」一组排在「诊断日志」之后。macOS 的「卸载」一组不画，Windows 从系统的「应用」设置卸载。
   void build_dev_page(StackPanel const &page) {
     auto service = add_group(page, L"输入法服务");
     service.Children().Append(group_note(L"请求受监督的输入法服务重新启动。"));
@@ -23489,6 +23489,12 @@ private:
     bool_row(logs, 0xEBE8, L"TSF 端日志",
              L"排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。",
              L"diagnostic_log.tsf", false);
+
+    // `msime-mcp candidates` 的开关（#9663）：命令按用户自己的词库给出候选，等于把打过的词交给能运行它的任何程序，所以缺省关闭。键在 `diagnostic_log` 下，与两个日志开关一样只属于本机，不随云同步、不进设置文件；bool_row 只改这一个键，同组的 server、tsf 原样保留。安装器把 msime-mcp.exe 放在安装目录的 server 文件夹里（msime_setup.iss）。
+    auto command_line = add_group(page, L"命令行工具");
+    bool_row(command_line, 0xE756, L"命令行查询候选",
+             L"允许安装目录下 server 文件夹里的 msime-mcp.exe candidates 命令按你现在的输入方案、设置和词库，输出一串拼音或按键会给出的候选，供编写测试和演示程序使用。词库里有你打过的词，任何能运行这个命令的程序都能借此读到它们，不用时请保持关闭；关闭时命令会提示并以错误码退出。",
+             L"diagnostic_log.command_line_candidates", false);
 
     // 数据目录登记在安装器写的 HKLM DataDir 里（common/StateDirectory.h），32 位和 64 位 TSF DLL 与 Server 都按它解析状态根，改它要管理员权限，搬迁时还要先停掉 Server 和看门狗；这些安装器都已经做了（「选择数据位置」一步、MigrateUserDataDir 只复制、安装成功后 FinishDataDirMove 才删旧目录），所以这里没有共享页的「选择位置…」，只显示和打开，搬迁的办法写在组注里指向安装器。路径照共享页的 `<code>` 用 Consolas。
     auto data = add_group(page, L"数据目录");
