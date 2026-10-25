@@ -3,6 +3,7 @@ import type { Preferences } from "../core/preferences-model";
 import type { DiagnosticLogPreferences } from "./diagnostic-logs-section";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
 import { createSettingsDraftActions } from "./settings-draft-actions";
+import type { UpdateChannel } from "./update-manifest";
 
 export interface CreateAboutSettingsActionsOptions {
   checkForUpdate: () => Promise<void>;
@@ -43,6 +44,8 @@ export function createAboutSettingsActions({
     onCommandLineCandidatesChange: (command_line_candidates: boolean) =>
       patchDiagnosticLog({ command_line_candidates }),
     onTelemetryChange: (usage_reporting: boolean) => onPreferencesChange({ usage_reporting }),
+    onUpdateChannelChange: (update_channel: UpdateChannel) =>
+      onPreferencesChange({ update_channel }),
     onHelp: () => selectPage("help"),
     onFeedback: () => selectPage("feedback"),
   } as const;

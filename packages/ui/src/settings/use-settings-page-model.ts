@@ -54,7 +54,7 @@ import { useCommunityGalleryNavigation } from "./use-community-gallery-navigatio
 import { floatingToolbarPreferences } from "./floating-toolbar-preferences";
 import { defaultTouchKeyboardSchemes } from "./touch-keyboard-scheme-helpers";
 import { communityDestinationView } from "../community/community-destination";
-import { describeInstallerTrust } from "./update-manifest";
+import { describeInstallerTrust, updateChannelOf } from "./update-manifest";
 import { editionUsesHelpcode } from "./input-scheme-options";
 import { useSettingsIntroTabs } from "./use-settings-intro-tabs";
 import { useAutomaticDictionaryUpdates } from "./use-automatic-dictionary-updates";
@@ -150,6 +150,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showWordbookPacks,
     showSymbolSetPacks,
     showScriptPlugins,
+    showUpdateChannel,
   } = capabilities;
   const {
     fullwidthChord,
@@ -400,6 +401,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     platform: client.host?.platform ?? null,
     edition: client.host?.edition?.id,
     arch: client.host?.arch,
+    // 偏好读出来之前不带通道（宿主按偏好里的读）；读出来以后跟着草稿走，改了通道就按新通道重新显示，检查时不必等自动保存。
+    channel: showUpdateChannel && draft ? updateChannelOf(draft.update_channel) : undefined,
     currentAppVersion,
   });
 
@@ -754,6 +757,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showWordbookPacks,
     showSymbolSetPacks,
     showScriptPlugins,
+    showUpdateChannel,
     snapshot,
     draft,
     setDraft,

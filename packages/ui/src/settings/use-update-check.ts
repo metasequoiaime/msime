@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import {
+  describeUpdateVersion,
   fromHostUpdate,
+  type UpdateChannel,
   type UpdateCheckRequest,
   type UpdateCheckResult,
   type ValidatedUpdate,
@@ -12,14 +14,16 @@ export interface UseUpdateCheckOptions {
   checkForApplicationUpdate?: () => Promise<void>;
   /** 宿主的检查更新（`SettingsClient.checkUpdate`），经由 `msime_client_services::update_check` 询问 GitHub。未提供时页面不提供检查。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
-  /** 宿主后台检查已经找到的新版本（`SettingsClient.pendingUpdateCheck`），页面打开时先显示它。 */
-  pendingUpdateCheck?: () => Promise<UpdateCheckResult | null>;
+  /** 宿主后台检查已经找到的新版本（`SettingsClient.pendingUpdateCheck`），页面打开时先显示它；给出了 `channel` 时一并传给宿主，只要按这个通道找到的版本。 */
+  pendingUpdateCheck?: (channel?: UpdateChannel) => Promise<UpdateCheckResult | null>;
   /** 宿主所在平台（`HostCapabilities.platform`），同时也是它的发布 tag 前缀。 */
   platform: string | null;
   /** 运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full：只选本版本的安装包。 */
   edition?: string;
   /** The host's architecture (`HostCapabilities.arch`): a Linux release carries one package per architecture. */
   arch?: string;
+  /** 偏好里的更新通道，只有提供通道选择的宿主（macOS、Linux）才给；不给时请求里不带通道，宿主按稳定版检查。换了通道时清掉按旧通道找到的结果。 */
+  channel?: UpdateChannel;
   currentAppVersion: string;
 }
 
@@ -31,6 +35,7 @@ export function useUpdateCheck({
   platform,
   edition,
   arch,
+  channel,
   currentAppVersion,
 }: UseUpdateCheckOptions) {
   const [status, setStatus] = useState("");
@@ -45,6 +50,7 @@ export function useUpdateCheck({
     currentAppVersion,
     edition,
     arch,
+    channel,
     platform,
   );
 
@@ -52,19 +58,19 @@ export function useUpdateCheck({
     manualCheckStarted.current = false;
     setStatus("");
     setAvailable(null);
-  }, [arch, checkUpdate, checkForApplicationUpdate, currentAppVersion, edition, platform]);
+  }, [arch, channel, checkUpdate, checkForApplicationUpdate, currentAppVersion, edition, platform]);
 
   // 后台检查已经找到新版本时直接显示，与手动检查发现新版本时一样；读不到或没有时保持原样。
   useEffect(() => {
     if (!pendingUpdateCheck) return;
     let active = true;
-    void pendingUpdateCheck()
+    void (channel === undefined ? pendingUpdateCheck() : pendingUpdateCheck(channel))
       .then((result) => {
         if (!active || manualCheckStarted.current || result?.status !== "available") return;
         const update = fromHostUpdate(result.update);
         if (!update) return;
         setAvailable((current) => current ?? update);
-        setStatus((current) => current || `发现新版本 v${update.version.display}`);
+        setStatus((current) => current || `发现新版本 ${describeUpdateVersion(update)}`);
       })
       .catch(() => undefined);
     return () => {
@@ -73,6 +79,7 @@ export function useUpdateCheck({
     // 上面的重置在这些值变化时清空结果，这里随之重新读取一次。
   }, [
     arch,
+    channel,
     checkUpdate,
     checkForApplicationUpdate,
     currentAppVersion,
@@ -107,6 +114,7 @@ export function useUpdateCheck({
           currentVersion: currentAppVersion,
           ...(edition === undefined ? {} : { edition }),
           ...(arch === undefined ? {} : { arch }),
+          ...(channel === undefined ? {} : { channel }),
         });
         if (!isCurrent()) return;
         if (result.status === "none") {
@@ -118,7 +126,7 @@ export function useUpdateCheck({
           throw new Error("invalid update check result");
         if (result.status === "available") {
           setAvailable(update);
-          setStatus(`发现新版本 v${update.version.display}`);
+          setStatus(`发现新版本 ${describeUpdateVersion(update)}`);
         } else {
           setStatus("已是最新版本");
         }

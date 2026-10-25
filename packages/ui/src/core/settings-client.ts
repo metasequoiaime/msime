@@ -44,7 +44,11 @@ import type { CandidateSkinCommunityClient } from "../community/community-candid
 import type { CommunityPluginClient } from "../community/community-plugin-model";
 import type { SkinImageReader } from "../skin/skin-image";
 import type { SkinFontReader } from "../skin/skin-font";
-import type { UpdateCheckRequest, UpdateCheckResult } from "../settings/update-manifest";
+import type {
+  UpdateChannel,
+  UpdateCheckRequest,
+  UpdateCheckResult,
+} from "../settings/update-manifest";
 import type { AiAssistantClient } from "./ai-assistant-client";
 import type { ApiCredentialTestService, ApiCredentialTestResult } from "./api-credential-test";
 import type { CloudDictionaryPanelClient } from "../keyboard/panel-client";
@@ -126,8 +130,8 @@ export interface SettingsClient {
   checkForApplicationUpdate?: () => Promise<void>;
   /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
-  /** 宿主在后台已经找到的新版本（Linux 设置应用每天一次的后台检查），关于页打开时直接显示；没有时为 `null`。 */
-  pendingUpdateCheck?: () => Promise<UpdateCheckResult | null>;
+  /** 宿主在后台已经找到的新版本（Linux 设置应用每天一次的后台检查），关于页打开时直接显示；没有时为 `null`。提供通道选择的页面传入当前选的通道，记录是按别的通道检查的时宿主返回 `null`；不传时宿主按偏好里的通道读。 */
+  pendingUpdateCheck?: (channel?: UpdateChannel) => Promise<UpdateCheckResult | null>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** 控制台应用通知；宿主读取并缓存通知，记住已关闭的条目。未提供时不显示。 */
   notices?: NoticesClient;
