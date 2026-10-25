@@ -460,6 +460,9 @@ public final class MSIMEInputService extends InputMethodService {
     KeyboardScheme selectedScheme = KeyboardScheme.fallback(edition);
     /** 最近一次用的中文入口（不是其他语言键盘的那个），中英键轮换回到中文时切回它（{@link LanguageKeyCyclePolicy#chineseReturn}）。 */
     private KeyboardScheme lastChineseScheme;
+    /** 经功能面板「手写」磁贴进入手写前的入口和中英状态，再点一次磁贴回到它们（#9703）；经其他途径换方案时清掉，那时离开手写按 {@link KeyboardScheme#handwritingReturn} 取启用列表里第一个非手写入口。 */
+    private KeyboardScheme schemeBeforeHandwriting;
+    private boolean englishBeforeHandwriting;
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null, edition);
     // 「输入方式」面板列出的方案：已启用且词典已装好的方案，双拼只留用户设置的那一种（见 `schemeConfiguration` 和 `KeyboardScheme.pickerSchemes`）。`enabledSchemes` 仍是存下的列表，面板里的一次保存不会丢掉用户在词典到达之前打开的方案。
@@ -7095,17 +7098,28 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void selectKeyboardScheme(KeyboardScheme scheme) {
+        selectKeyboardScheme(scheme, false);
+    }
+
+    /**
+     * 换到 `scheme`；`english` 为真时保存成功后进英文（手写磁贴回到进入手写前的英文键盘），否则停在中文。
+     *
+     * @return 是否接受了这次选择：保存进行中、会话或偏好未就绪时什么都不做，返回假。
+     */
+    private boolean selectKeyboardScheme(KeyboardScheme scheme, boolean english) {
         if (schemeSaving || touchGeometrySaving || traditionalOutputSaving
                 || session == 0 || preferencesSnapshot == null
-                || preferencesDirectory.isEmpty()) return;
+                || preferencesDirectory.isEmpty()) return false;
         // 目标方案不变时只退出英文；更换方案时保留英文键盘到保存成功，避免异步等待期间显示中文中间帧。
         if (scheme == selectedScheme) {
             if (dedicatedEnglish) toggleInputLanguage();
-            if (session == 0) return;
+            if (session == 0) return true;
             closeSchemePicker();
             render();
-            return;
+            return true;
         }
+        // 换到别的方案：手写磁贴记下的入口作废，磁贴自己在这之后重新记。
+        schemeBeforeHandwriting = null;
         replyModel.resetResults();
         clearReplyRequestReferences();
         final long targetSession = session;
@@ -7116,7 +7130,7 @@ public final class MSIMEInputService extends InputMethodService {
             // Scheme replacement is never deferred: complete Engine composition first.
             apply(NativeClient.command(targetSession, 2));
             if (session != targetSession || preferencesSnapshot == null
-                    || !targetDirectory.equals(preferencesDirectory)) return;
+                    || !targetDirectory.equals(preferencesDirectory)) return false;
             pending = new JSONObject(preferencesSnapshot.toString());
             expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
@@ -7142,7 +7156,7 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesNotice = " · 输入方案切换失败，保留当前设置";
             closeSchemePicker();
             render();
-            return;
+            return false;
         }
         closeSchemePicker();
         schemeSaving = true;
@@ -7157,7 +7171,7 @@ public final class MSIMEInputService extends InputMethodService {
                 response = null;
             }
             final String savedResponse = response;
-            main.post(() -> finishSchemeSave(operation, targetSession, targetDirectory, savedResponse));
+            main.post(() -> finishSchemeSave(operation, targetSession, targetDirectory, savedResponse, english));
         };
         try {
             preferencesWorker.execute(save);
@@ -7168,10 +7182,11 @@ public final class MSIMEInputService extends InputMethodService {
                 render();
             }
         }
+        return true;
     }
 
     private void finishSchemeSave(long operation, long targetSession, String targetDirectory,
-                                  String response) {
+                                  String response, boolean english) {
         if (operation != preferenceSaveGeneration || session != targetSession
                 || !targetDirectory.equals(preferencesDirectory)) return;
         schemeSaving = false;
@@ -7191,6 +7206,11 @@ public final class MSIMEInputService extends InputMethodService {
                     if (session != targetSession) return;
                 }
                 applyPreferencesSnapshot(saved);
+                // 回到进入手写前的英文键盘：新方案已经应用，再在同一次回调里进英文，中间不画中文帧。
+                if (english && !dedicatedEnglish) {
+                    toggleInputLanguage(false);
+                    if (session != targetSession) return;
+                }
                 preferencesNotice = " · 输入方案已切换";
             }
         } catch (JSONException | LinkageError error) {
@@ -10077,19 +10097,23 @@ public final class MSIMEInputService extends InputMethodService {
 
     long inputLifecycleGeneration() { return engineStartGeneration; }
 
-    /** 功能面板的手写：切到手写方案；已经是手写时切回上一个中文方案。 */
+    /**
+     * 功能面板的手写：切到手写，并记下进入前的入口和中英状态；正在手写时回到记下的那个（#9703）。0.5.0 回到的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写都落到全拼 26 键。
+     *
+     * <p>英文盖在手写上时（选中的是手写、中英键切到了英文）键盘画的是英文，这时点磁贴是要手写，与鸿蒙、iOS 相同。
+     */
     void toggleHandwritingScheme() {
-        if (selectedScheme == KeyboardScheme.HANDWRITING) {
-            KeyboardScheme back = KeyboardScheme.fallback(edition);
-            for (KeyboardScheme scheme : enabledSchemes) {
-                if (scheme != KeyboardScheme.HANDWRITING) {
-                    back = scheme;
-                    break;
-                }
-            }
-            selectKeyboardScheme(back);
-        } else {
-            selectKeyboardScheme(KeyboardScheme.HANDWRITING);
+        if (selectedScheme == KeyboardScheme.HANDWRITING && !dedicatedEnglish) {
+            KeyboardScheme back = KeyboardScheme.handwritingReturn(schemeBeforeHandwriting, enabledSchemes, edition);
+            selectKeyboardScheme(back, back == schemeBeforeHandwriting && englishBeforeHandwriting);
+            return;
+        }
+        KeyboardScheme previous = selectedScheme;
+        boolean english = dedicatedEnglish;
+        if (selectKeyboardScheme(KeyboardScheme.HANDWRITING, false)
+                && previous != KeyboardScheme.HANDWRITING) {
+            schemeBeforeHandwriting = previous;
+            englishBeforeHandwriting = english;
         }
     }
 
