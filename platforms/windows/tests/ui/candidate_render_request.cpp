@@ -51,7 +51,8 @@ private:
         return;
       requested_ = false;
       lock.unlock();
-      if (const auto shown = mailbox_.snapshot(gate_, false))
+      // 测试只验证请求链路，用阻塞读取避开与屏障线程瞬间争用信箱锁造成的偶发读空；产品的非阻塞读取读空时屏障照旧有界放行。
+      if (const auto shown = mailbox_.snapshot(gate_))
         mailbox_.rendered(shown->lease, shown->render_serial);
       lock.lock();
     }
