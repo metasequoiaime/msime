@@ -1039,6 +1039,16 @@ if ! rg -Uq 'android:name="app\.msime\.android\.MlKitImeInitProvider"[[:space:]]
   echo "Android native host must initialize ML Kit inside the isolated IME process" >&2
   exit 1
 fi
+# ML Kit 带进来的 Google datatransport 会把 FIREBASE_ML_SDK 诊断事件上传到 firebaselogging.googleapis.com（2026-10-25 真机抓包）。清单删掉它的后端发现服务、上传任务和闹钟入口，三者缺一都留着一条上传途径。
+for component in \
+    'service android:name="com\.google\.android\.datatransport\.runtime\.backends\.TransportBackendDiscovery" tools:node="remove"' \
+    'service android:name="com\.google\.android\.datatransport\.runtime\.scheduling\.jobscheduling\.JobInfoSchedulerService" tools:node="remove"' \
+    'receiver android:name="com\.google\.android\.datatransport\.runtime\.scheduling\.jobscheduling\.AlarmManagerSchedulerBroadcastReceiver" tools:node="remove"'; do
+  if ! rg -q "<$component />" "$repo_root/platforms/android/AndroidManifest.xml"; then
+    echo "Android host manifest must remove the ML Kit datatransport upload path: $component" >&2
+    exit 1
+  fi
+done
 # The rotating refresh token must be spent by one process only. The session provider stays in the main process (no android:process) and unexported; the :ime keyboard asks it for a token instead of refreshing its own copy.
 if ! rg -Uq 'android:name="app\.msime\.android\.AccountSessionProvider"[[:space:]]+android:authorities="\$\{applicationId\}\.account-session"[[:space:]]+android:exported="false"[[:space:]]*/>' \
     "$repo_root/platforms/android/AndroidManifest.xml"; then

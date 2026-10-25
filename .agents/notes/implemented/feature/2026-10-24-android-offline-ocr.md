@@ -45,7 +45,7 @@ ML Kit 试验模块阶段，宿主清单为 OCR 在 `MlKitComponentDiscoveryServ
 
 本模块一行用同一个评测宿主重跑：横排中文和英文的每张输出与评测原型逐字相同，差别只在竖排列序修正后三张竖排全对，中文 CER 从 4.07% 降到 0.68%。剩下的错误是 `巳` 认成 `已`、`……` 多一个点、`Il1-O0o` 一类易混字符和句末的点。建会话约 100–115 ms，首张图约 110 ms。模块 `msime-ocr-v1.apk` 81,146,926 字节，其中 `lib/arm64-v8a` 34,300,736 字节（32.7 MiB）、`lib/x86_64` 40,916,520 字节（39.0 MiB），模型、字典和许可证压缩后约 5.8 MB。
 
-ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=FIREBASE_ML_SDK for destination cct`，`shared_prefs/com.google.mlkit.internal.xml` 里写入 `ml_sdk_instance_id`，开始识别约 50 秒后该 UID 出现到 `172.217.117.4:443` 的连接，同时段抓包里出现 `firebaselogging.googleapis.com`。同一流程下 tiny 模块的 103 个每秒套接字采样全部为空。
+ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=FIREBASE_ML_SDK for destination cct`，`shared_prefs/com.google.mlkit.internal.xml` 里写入 `ml_sdk_instance_id`，开始识别约 50 秒后该 UID 出现到 `172.217.117.4:443` 的连接，同时段抓包里出现 `firebaselogging.googleapis.com`。同一流程下 tiny 模块的 103 个每秒套接字采样全部为空。基础 APK 的手写 ML Kit 走的是同一条 datatransport 上传，处理见 [Android 手写关掉 ML Kit 的 datatransport 诊断上传](../bug-fix/2026-10-25-android-mlkit-handwriting-telemetry.md)。
 
 ## ONNX Runtime 模块的设备验收（2026-10-25）
 

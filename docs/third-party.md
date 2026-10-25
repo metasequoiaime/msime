@@ -375,12 +375,12 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 
 | 平台 | 组件 | 许可 |
 | --- | --- | --- |
-| Android | `com.google.mlkit:digital-ink-recognition:19.0.0` | **Google 的 ML Kit 服务条款，不是开源许可证** |
+| Android | `com.google.mlkit:digital-ink-recognition:19.0.0`，连带 Google datatransport（`transport-runtime` 2.2.6、`transport-backend-cct` 2.3.3）。宿主清单删掉 datatransport 的 `TransportBackendDiscovery`、`JobInfoSchedulerService` 和 `AlarmManagerSchedulerBroadcastReceiver`，ML Kit 的 `FIREBASE_ML_SDK` 诊断不再存储和上传到 `firebaselogging.googleapis.com`，见 [PRIVACY.md](../PRIVACY.md) | **Google 的 ML Kit 服务条款，不是开源许可证** |
 | Android OCR 可选模块（发布在 `ocr-module-android-v1`，不进入基础包） | `com.microsoft.onnxruntime:onnxruntime-android:1.31.0`，加 PaddlePaddle PP-OCRv6 tiny 检测与识别模型，见[Android 可选离线 OCR 模块](#android-可选离线-ocr-模块resourcesocr-models-androidlockjson) | ONNX Runtime 为 MIT，模型为 Apache-2.0 |
 | Android | AndroidX、`com.google.android.material` | Apache-2.0 |
 | Android | `io.noties.markwon:core:4.6.2`（“设置”页公告正文的 Markdown）及其依赖 `com.atlassian.commonmark:commonmark:0.13.0` | Markwon 为 Apache-2.0，commonmark-java 为 BSD-2-Clause |
 | Android | vcpkg 提供的 nlohmann/json（原生库，清单在 `platforms/android/vcpkg.json`） | MIT |
-| iOS | `MLKitDigitalInkRecognition` 8.0.0（CocoaPods，链接进键盘扩展 target） | **Google 的 ML Kit 服务条款，不是开源许可证** |
+| iOS | `MLKitDigitalInkRecognition` 8.0.0（CocoaPods，链接进键盘扩展 target；经 `MLKitCommon` 14.0.0 带进 `GoogleDataTransport` 10.1.0 与 nanopb，诊断上报还没有关掉） | **Google 的 ML Kit 服务条款，不是开源许可证** |
 | iOS | `GoogleSignIn` 10.0.0（CocoaPods，只链接进主 App target，用于通过 Google 登录）及其依赖 AppAuth、GTMAppAuth、GTMSessionFetcher、AppCheckCore、GoogleUtilities、Promises、RecaptchaInterop | Apache-2.0，全文见 `platforms/ios/SharedResources/GoogleSignIn-Dependencies.txt` |
 | macOS | Sparkle 2.9.6 | 以上游发布附带的许可证为准；框架不随仓库分发，由构建者按 `platforms/macos/README.md` 记录的 SHA-256 自行取得 |
 | macOS、Windows | [tplgy/cppcodec](https://github.com/tplgy/cppcodec) v0.2（标签提交 `302dc28f8fd5c8bf2ea8d7212aed3be884d5d166`，归档 SHA-256 `0edaea2a9d9709d456aa99a1c3e17812ed130f9ef2b5c2d152c230a5cbc5c482`），只有头文件 | MIT。`shared/voice` 的阿里云百炼请求把录音编成 Base64 数据 URL 时用它。只原样取 `base64_rfc4648.hpp` 需要的 8 个头文件，放在 `shared/voice/third_party/cppcodec/`，许可证全文在同目录 `LICENSE`；macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`）和 Windows 的 `Collect-Notices.ps1` 收录这份文本。Linux 不编译 `msime-voice-providers`，不带它 |

@@ -10,7 +10,7 @@
 
 新装的默认配置下，**没有任何功能会把你输入的内容发出设备**。会这样做的两项都要你自己打开：云联想把当前正在组的拼音串发给 Google 输入工具，新装默认关闭，Windows、Linux 与 macOS 在第一次使用时说明并让你选择，默认选项是不启用（见[云联想](#云联想新装默认关闭)）；候选翻译要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」，后者把当前页的中文候选词发到 `api.msime.app`，见[候选翻译](#候选翻译默认不联网)）。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。从旧版本升级时沿用配置文件里已存的值，不会替你改。
 
-另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。打字统计的每日计数只有在你登录账号并打开「上传到云端」后才会上传，默认关闭，见[打字统计上传](#打字统计上传默认关闭需要登录)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报](#社区举报与审核)。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。上述自有上报不依赖第三方统计或崩溃上报 SDK。可选的 Android 拍照识字模块在本机离线识别，关闭了所用推理库的遥测，见[拍照识字](#android-拍照识字可选模块手动导入)。
+另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。打字统计的每日计数只有在你登录账号并打开「上传到云端」后才会上传，默认关闭，见[打字统计上传](#打字统计上传默认关闭需要登录)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报](#社区举报与审核)。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。上述自有上报不依赖第三方统计或崩溃上报 SDK。可选的 Android 拍照识字模块在本机离线识别，关闭了所用推理库的遥测，见[拍照识字](#android-拍照识字可选模块手动导入)；Android 手写所用 ML Kit 自带的诊断上报也在基础 APK 里关掉了，见[资源与更新下载](#资源与更新下载)。
 
 ## 逐项说明
 
@@ -148,7 +148,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 镜像规则和下面本地语音模型的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件，校验不过就换下一个来源。不需要这些功能就不会发生这些请求；缺少资源包时对应的方案或手写面板显示为不可用，桌面神经联想保持现有候选；Android 上缺少的语言不出现在键盘里，离线释义只有英文，本地语音识别不可用，中文输入不受影响。
 
-Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**，之后在设备上离线识别。Windows 先用系统的 Windows Ink 识别器，没有中文识别器时用 Engine 的离线 Zinnia 模型；Linux 与其余桌面端都用这个 Zinnia 模型。发行版仓库的 Linux 包随附该模型，从安装路径读取，全程不联网；macOS、Windows 和我们自己发布的 Linux deb/rpm 按上一段在需要时下载，之后同样离线识别。
+Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**（从 Google 的 `dl.google.com` 下载），之后在设备上离线识别。ML Kit 自带经 Google datatransport 上报的使用诊断：每次检查模型、下载模型或识别时记一条 `FIREBASE_ML_SDK` 事件（带 ML Kit 在本机生成并长期保留的 `ml_sdk_instance_id`、应用包名与版本、手写模型语言、机型与硬件、系统版本与指纹、系统语言、国家、时区、运营商代码 MCC/MNC 和网络类型，不含笔迹和识别结果），攒在应用数据库里，由系统任务调度在设备空闲时上传到 `firebaselogging.googleapis.com`。2026-10-25 在 Pixel 3 XL（Android 12）上用 PCAPdroid 抓包确认过这条上传（HTTPS，发出约 1.9 KB）。基础 APK 的清单删掉了 datatransport 的后端发现服务、上传任务和闹钟入口：ML Kit 照常识别，诊断事件不再写入、不再排上传任务；从旧版本升级时数据库里已有的事件也不会再上传。删掉之后在模拟器上从下载模型到识别上屏，整机抓包只有 `dl.google.com`（模型）和本项目的 `api.msime.app`。升级 ML Kit 时要重新做这项网络检查。iOS 键盘扩展链接的 ML Kit 同样带 GoogleDataTransport，扩展只有在「允许完全访问」打开时才能联网；iOS 这条路径还没有实测，也还没有关掉。Windows 先用系统的 Windows Ink 识别器，没有中文识别器时用 Engine 的离线 Zinnia 模型；Linux 与其余桌面端都用这个 Zinnia 模型。发行版仓库的 Linux 包随附该模型，从安装路径读取，全程不联网；macOS、Windows 和我们自己发布的 Linux deb/rpm 按上一段在需要时下载，之后同样离线识别。
 
 ### Android 拍照识字（可选模块，手动导入）
 
@@ -215,7 +215,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ## 没有的东西
 
-本项目没有集成 Sentry、Mixpanel、Amplitude、Crashlytics 或 Google Analytics 作为统计或崩溃上报工具；自行实现的上报路径见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。这不包含 ML Kit 等第三方功能 SDK 自身的诊断收集，拍照识字的边界见上文。下面的命令用于核对本项目直接实现的上报代码，不能据此排除 SDK 内部的联网行为；命中的文件主要有：
+本项目没有集成 Sentry、Mixpanel、Amplitude、Crashlytics 或 Google Analytics 作为统计或崩溃上报工具；自行实现的上报路径见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。这不包含 ML Kit 等第三方功能 SDK 自身的诊断收集；Android 手写和拍照识字里已知的 SDK 上报已经关掉，边界见上文。下面的命令用于核对本项目直接实现的上报代码，不能据此排除 SDK 内部的联网行为；命中的文件主要有：
 
 - 共享实现与 C ABI：`crates/client-services/src/telemetry.rs`、`crates/client-services/src/telemetry/tests.rs`、`crates/client-services/src/lib.rs`、`crates/client-services/Cargo.toml`（crate 描述）、`crates/client-services/src/account/client.rs`（发送用的 HTTP 客户端）、`crates/client-services/src/notices.rs`（文档注释里提到它）、`crates/client-core/src/preferences.rs`（`usage_reporting` 开关）、`crates/host-api/include/msime_client.h`、`crates/host-api/src/ffi/reporting.rs`、`crates/host-api/src/tests.rs`。
 - 设置页开关：`packages/ui/src/index.tsx`、`packages/ui/src/settings/telemetry-section.tsx`、`packages/ui/src/settings/about-settings-actions.ts`、`packages/ui/src/settings/pages/about-page.tsx`、`apps/desktop/tests/settings/settings.test.tsx`。
