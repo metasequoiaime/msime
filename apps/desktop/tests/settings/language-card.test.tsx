@@ -151,12 +151,17 @@ test("the 全拼 sheet lists its offered layouts and supports removal", () => {
   expect(languageRow("全拼").textContent).toContain("全拼 9 键");
 });
 
-test("the 双拼 sheet keeps its profiles together", () => {
+test("the 双拼 sheet lists its profiles directly, two levels deep", () => {
   const preferences = renderCard(["quanpin", "xiaohe"]);
 
   fireEvent.click(languageRow("双拼"));
-  fireEvent.click(within(sheet()).getByRole("button", { name: /双拼（小鹤）/ }));
-  expect(within(sheet()).getByRole("button", { name: "自然码" })).toBeTruthy();
+  const options = within(sheet())
+    .getAllByRole("button")
+    .filter((button) => button.hasAttribute("data-sheet-option"))
+    .map((button) => button.textContent);
+  expect(options.slice(0, 4)).toEqual(["小鹤", "自然码", "微软", "首道"]);
+  // 没有再进一层的「双拼（小鹤）」，每项都不带子菜单箭头。
+  expect(options.some((label) => label?.includes("›"))).toBe(false);
   fireEvent.click(within(sheet()).getByRole("button", { name: "自然码" }));
   expect(preferences()).toMatchObject({
     scheme: "shuangpin",
@@ -206,14 +211,15 @@ test("the 双拼 sheet labels and selects 九键双拼 when the host has it", ()
   expect(languageRow("双拼").textContent).toContain("九键双拼");
 });
 
-test("a 五笔 profile picked in its submenu sets the profile and switches to 五笔", () => {
+test("a 五笔 profile picked straight from the 五笔 sheet sets the profile and switches to 五笔", () => {
   const preferences = renderCard(["quanpin"]);
 
   const card = screen.getByRole("group", { name: "输入方案" });
   fireEvent.click(within(card).getByRole("button", { name: "添加方案" }));
   fireEvent.click(within(card).getByRole("button", { name: "添加五笔" }));
   fireEvent.click(languageRow("五笔"));
-  fireEvent.click(within(sheet()).getByRole("button", { name: "五笔（五笔 86）" }));
+  expect(within(sheet()).queryByRole("button", { name: /五笔（/ })).toBeNull();
+  expect(within(sheet()).getByRole("button", { name: "五笔 86" })).toBeTruthy();
   fireEvent.click(within(sheet()).getByRole("button", { name: "五笔 98" }));
 
   expect(preferences()).toMatchObject({

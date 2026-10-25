@@ -106,7 +106,7 @@ export interface LanguageCardProps {
 }
 
 /**
- * 三端手机共用的「语言与方案」卡片。中文的全拼、双拼、五笔、注音、笔画和手写各自成行，粤拼也直接作为方案显示；日语、韩语、越南语和藏语仍按语言成行。点开一行可选该行的方案（双拼和五笔为子菜单），移除会把这一行的所有方案从键盘上撤下。「添加方案」列出没有任何方案开启的行，添加时开启其第一个方案但不切换过去。
+ * 三端手机共用的「语言与方案」卡片。中文的全拼、双拼、五笔、注音、笔画和手写各自成行，粤拼也直接作为方案显示；日语、韩语、越南语和藏语仍按语言成行。点开一行可选该行的方案（双拼直接列小鹤、自然码等，五笔直接列 86 和 98，都不再套子菜单），移除会把这一行的所有方案从键盘上撤下。「添加方案」列出没有任何方案开启的行，添加时开启其第一个方案但不切换过去。
  *
  * 在弹窗里选中的方案若处于关闭状态会先启用。卡片绝不会让键盘没有方案：当某一行持有仅有的已启用方案时，不能移除它。
  */
@@ -146,42 +146,18 @@ export function LanguageCard({
       label: schemeName(scheme, wubiProfile),
       selected: selectedIn(scheme),
     });
-    if (language.id === "mandarin_shuangpin") {
-      const shuangpin = schemes.filter(isShuangpin);
-      const current =
-        shuangpin.find(selectedIn) ??
-        shuangpin.find((scheme) => enabled.includes(scheme)) ??
-        shuangpin[0];
-      options.push({
-        value: "shuangpin",
-        label: `双拼（${shuangpinNames[current]}）`,
-        selected: shuangpin.some(selectedIn),
-        submenu: {
-          title: "双拼",
-          options: shuangpin.map((scheme) => ({
-            value: scheme,
-            label: shuangpinNames[scheme],
-            selected: selectedIn(scheme),
-          })),
-        },
-      });
-      if (schemes.includes("nine_key_shuangpin")) options.push(plain("nine_key_shuangpin"));
-    } else if (language.id === "mandarin_wubi" && schemes.includes("wubi")) {
+    // 每行的方案直接列在这一层：双拼列小鹤、自然码等，五笔列 86 和 98。再套一层子菜单，「双拼」行、方案面板、双拼面板就成了三层。
+    if (language.id === "mandarin_wubi" && schemes.includes("wubi")) {
+      // 选中 86 或 98 即保存版本并切到五笔。
       const wubi = selectedIn("wubi");
       const profile = wubiProfile ?? "wubi86";
-      options.push({
-        value: "wubi",
-        label: `五笔（${wubiName(profile)}）`,
-        selected: wubi,
-        submenu: {
-          title: "五笔",
-          options: wubiProfiles.map((option) => ({
-            value: `${WUBI_PREFIX}${option}`,
-            label: wubiName(option),
-            selected: wubi && option === profile,
-          })),
-        },
-      });
+      options.push(
+        ...wubiProfiles.map((option) => ({
+          value: `${WUBI_PREFIX}${option}`,
+          label: wubiName(option),
+          selected: wubi && option === profile,
+        })),
+      );
     } else {
       options.push(...schemes.map(plain));
     }
