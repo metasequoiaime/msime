@@ -42,7 +42,7 @@ Status: implemented
 
 `FocusLease.h` 只提供焦点身份的数据结构，HUD 不依赖焦点门操作；信箱及过滤回归可在无 Windows SDK 的主机执行。`InputStateHudFeedback` 只保留最后一次成功操作，界面每轮取走，关闭 HUD 或全屏时照样消费，不在恢复后重播；超过一秒的消息丢弃。会话状态按完整 `FocusLease`（客户端、三条管道代次、能力、激活 epoch、焦点 token）校验，全局偏好操作绑定发起时的前台窗口，切应用后不播过期结果。
 
-全半角和标点原本只经 `StatusSnapshot` 报告，无法区别用户操作与配置加载。TSF 的保留键、系统语言栏点击及 Server 的显式模式命令在修改后读回实际 compartment；确实改变才发送已有的 `DoubleSingleByteSwitch` / `PuncSwitch` 事件，再发完整快照。后台 compartment 回调继续只报快照。Server 输入队列的 tracker 用快照建立基线，仅这些明确事件产生反馈；重复事件、标点锁及设值失败不提示。HUD 仍由 Server 绘制，注入应用的 TSF DLL 不创建提示窗口，协议枚举不变。
+全半角和标点原本只经 `StatusSnapshot` 报告，无法区别用户操作与配置加载。TSF 的保留键、系统语言栏点击及 Server 的显式模式命令在修改后读回实际 compartment；确实改变才发送已有的 `DoubleSingleByteSwitch` / `PuncSwitch` 事件，再发完整快照。后台 compartment 回调继续只报快照。Server 输入队列的 tracker 用快照建立基线，仅这些明确事件产生反馈；已确认的成功事件早于第一份快照时也立即提示，不能把它误当作初始化。重复事件、标点锁及设值失败不提示。HUD 仍由 Server 绘制，注入应用的 TSF DLL 不创建提示窗口，协议枚举不变。
 
 Ctrl+Shift+E 的 `PendingReply::dedicated_english_change` 只在 Engine 真正切换时写入，收到送达确认后发布；托盘或退出英文候选通过同一个输入队列操作的 `changed` 结果判断，退出操作同时让超时后仍运行的任务持有自己的结果和租约，不把两次独立读取之间的变化算作本次成功。繁简和方案只在 revision 写入成功且数值变化后提示，译文写入及清缓存也只在成功路径提示。偏好监视器不发布 HUD。有独立面板或直接视觉状态的语音、手写、表情和工具栏显隐不叠加提示。
 

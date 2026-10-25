@@ -53,9 +53,9 @@ public:
       punctuation_.reset();
     }
     std::optional<InputStateHudText> result;
-    if (user_event && fullwidth_ && fullwidth && fullwidth_ != fullwidth)
+    if (user_event && fullwidth && (!fullwidth_ || fullwidth_ != fullwidth))
       result = fullwidth_hud(*fullwidth);
-    if (user_event && punctuation_ && punctuation && punctuation_ != punctuation)
+    if (user_event && punctuation && (!punctuation_ || punctuation_ != punctuation))
       result = punctuation_hud(*punctuation);
     if (fullwidth) fullwidth_ = fullwidth;
     if (punctuation) punctuation_ = punctuation;

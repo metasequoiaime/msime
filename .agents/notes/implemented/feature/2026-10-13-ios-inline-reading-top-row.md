@@ -35,4 +35,4 @@ Status: implemented
 - iOS 模拟器（Xcode 27、iPhone 17）上 `CandidateFontSizeTests`、`FourteenKeyKeyboardTests`、`NineKeyKeyboardTests`、`CandidateTranslationTests`、`KeyboardFormFactorTests`、`HandwritingTests` 共 155 项通过，2 项跳过（含 `run_ui_tests.sh` 登记的已知失败 `testKeyLayoutsKeepNineKeyHeight`）。顶栏测试附了截图：26 键的 `nihao` 以小字排在候选行最左边，长拼写截成 `nihaozhonghu…` 后候选仍完整可见；14 键的读音和拼音选择条仍在候选行上面一行。
 - 没有在真机或系统键盘里看过，只有测试宿主里渲染的截图。
 
-相关：[全拼 14 键](2026-10-10-fourteen-key.md) 定义 14 键的读音行和拼音选择条；[iOS 键盘高度](2026-10-08-ios-keyboard-height-tile.md) 是用户自己调整的那份高度，加在本篇的默认高度之上。
+相关：[全拼 14 键](2026-10-10-fourteen-key.md) 定义 14 键的读音行和拼音选择条；[iOS 键盘高度](2026-10-08-ios-keyboard-height-tile.md) 是用户自己调整的那份高度，加在本篇的默认高度之上。释义开关以共享文档为准、文档默认关，上文的「默认开释义」是当时 App Group 镜像没写过时的读法，键盘出现时按文档读见 [iOS 键盘按文档读输入习惯](../bug-fix/2026-10-25-ios-keyboard-habits-from-document.md)。

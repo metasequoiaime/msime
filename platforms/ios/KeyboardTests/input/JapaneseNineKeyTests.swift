@@ -21,7 +21,7 @@ final class JapaneseNineKeyTests: XCTestCase {
       InputSchemePreference.scheme = previous
       CandidateGlossPreference.enabled = previousGloss
     }
-    CandidateGlossPreference.enabled = false
+    setCandidateGloss(false)
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     InputSchemePreference.scheme = .japaneseNineKey
     XCTAssertEqual(InputSchemePreference.scheme, .japaneseNineKey)

@@ -41,6 +41,10 @@ int main() {
     auto next = first;
     ++next.epoch;
     InputStateHudModeTracker changes;
+    // 显式成功事件早于第一份快照时也提示；初始化快照仍保持静默。
+    InputStateHudModeTracker first_event;
+    require(first_event.observe(first, true, {}, true)->text == L"全角");
+    require(!first_event.observe(first, true, {}, true));
     require(!changes.observe(first, false, true, false));
     require(!changes.observe(first, false, true, true));
     auto changed = changes.observe(first, true, {}, true);
