@@ -10,6 +10,7 @@ import type { PunctuationPreferences } from "../settings/punctuation-preferences
 import type { KeybindingPreferences } from "../settings/keybinding-preferences";
 import type { WubiPreferences } from "../settings/wubi-preferences";
 import type { VietnamesePreferences } from "../settings/vietnamese-preferences";
+import type { KoreanPreferences } from "../settings/korean-preferences";
 import type { FloatingToolbarPreferences } from "../settings/floating-toolbar-preferences";
 import type { TraditionalChineseVariant } from "../settings/chinese-output-preferences";
 import type {
@@ -159,6 +160,7 @@ export type Preferences = PunctuationPreferences &
     /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
     shuangpin_keymap_hint?: boolean;
     vietnamese?: VietnamesePreferences;
+    korean?: KoreanPreferences;
     /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
     single_character_only?: boolean;
     candidate_page_size: number;

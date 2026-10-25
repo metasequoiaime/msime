@@ -39,7 +39,7 @@ struct DecorationCandidate {
   double fittedFont(double naturalWidth, double boxWidth) const {
     const double limit = maxWidthDip > 0 ? maxWidthDip : boxWidth;
     return naturalWidth > limit && naturalWidth > 0
-      ? std::max(std::min(fontSizeDip, minFontSizeDip), fontSizeDip * limit / naturalWidth)
+      ? (std::max)((std::min)(fontSizeDip, minFontSizeDip), fontSizeDip * limit / naturalWidth)
       : fontSizeDip;
   }
 

@@ -72,6 +72,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     );
     let edition = options.edition();
     let quick_phrase_candidates_requested = options.quick_phrase_candidates.unwrap_or(false);
+    let korean_romaja_requested = options.korean_romaja.unwrap_or(false);
     let mut options = options.into_engine_options();
     let plugin_tables = plugin_tables::PluginTables::stamp(
         plugin_roots.installed.as_deref(),
@@ -177,6 +178,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 runtime,
                 options,
                 quick_phrase_candidates_requested,
+                korean_romaja_requested,
                 edition,
                 applied,
                 requested: None,

@@ -10,9 +10,13 @@ crates/engine/src/local/chaizi*.tsv text eol=lf
 
 # 这些生成结果按字节校验；Windows 检出也保留生成器写入的 LF。
 crates/engine/src/local/symbol_groups.tsv text eol=lf
+crates/engine/src/local/symbol_candidates.tsv text eol=lf
+plugins/phrase_table/latex-symbols/symbols.tsv text eol=lf
 docs/plugin-architecture.html text eol=lf
 packages/ui/src/voice/voice-language-catalog.json text eol=lf
+packages/ui/src/settings/voice-hold-key-catalog.ts text eol=lf
 shared/voice/VoiceLanguageCatalog.h text eol=lf
+shared/voice/VoiceHoldKeyCatalog.h text eol=lf
 platforms/android/java/app/msime/android/voice/VoiceLanguageCatalog.java text eol=lf
 platforms/ios/App/Services/VoiceLanguageCatalog.swift text eol=lf
 

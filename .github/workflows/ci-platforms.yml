@@ -528,7 +528,8 @@ jobs:
     needs: changes
     name: Windows native settings
     runs-on: windows-2025
-    timeout-minutes: 40
+    # 完整 WinUI、Win7 设置、手写及多版本门禁已实测耗时 39 分钟，保留冷构建余量。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

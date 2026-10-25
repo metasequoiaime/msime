@@ -193,7 +193,7 @@ int main() {
     require(frame_text(tsf_config_frames(config)[12]) == L"1/?");
     config.wubi_candidate_selection = false;
 
-    // The TIP drops every type above MaxKnown, so the new type has to be inside it.
+    // TIP 丢弃 MaxKnown 以上的帧类型，因此在编译时检查新类型的范围。
     static_assert(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
             FanyImeWorkerReplyType::MaxKnown);
     // The Engine's own English mode travels on its own frame too, after every older one: the TIP keeps reporting Chinese there, and under Stroke it would otherwise hand an idle non-stroke letter (the 'a' of "apple") to the application instead of the Engine.

@@ -7,6 +7,7 @@ namespace msime::windows {
 inline std::string phrase_preedit_options(const std::string &options) {
   auto document = nlohmann::json::parse(options);
   document["phrase_preedit"] = true;
+  document["korean_romaja"] = true;
   return document.dump();
 }
 } // namespace msime::windows

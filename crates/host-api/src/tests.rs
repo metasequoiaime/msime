@@ -397,6 +397,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         sentence_alternatives: true,
         vietnamese_input_method: 0,
         vietnamese_tone_style: 0,
+        korean_layout: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
@@ -12044,6 +12045,121 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     );
 }
 
+#[test]
+fn korean_layout_switches_both_ways_in_the_same_idle_host_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.scheme = InputScheme::Korean;
+    preferences.korean.layout = KoreanLayout::Dubeolsik;
+    let document = json!({
+        "api_version": 1, "resources": dir.path(), "user_data": dir.path(),
+        "cache": dir.path(), "dictionaries": dir.path(), "preferences": preferences,
+        "korean_romaja": true
+    })
+    .to_string();
+    let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    for (revision, layout, keys, expected) in [
+        (1, KoreanLayout::Romaja, "han", "한"),
+        (2, KoreanLayout::Dubeolsik, "gks", "한"),
+        (3, KoreanLayout::Romaja, "bang", "방"),
+    ] {
+        preferences.korean.layout = layout;
+        let changed = update(handle, revision, &preferences);
+        assert_eq!(changed["ok"], true, "{changed}");
+        assert_eq!(changed["value"]["deferred"], false, "{changed}");
+        for key in keys.bytes() {
+            let typed = read(msime_client_character(handle, key, false));
+            assert_eq!(typed["ok"], true, "{typed}");
+        }
+        assert_eq!(
+            read(msime_client_view(handle))["value"]["preedit"],
+            expected
+        );
+        assert_eq!(
+            read(msime_client_command(handle, 2))["value"]["commit"],
+            expected
+        );
+    }
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
+fn korean_romaja_requires_explicit_host_capability_and_survives_rebuilds() {
+    for supported in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = |name| {
+            let path = dir.path().join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+        let mut preferences = chinese_preferences();
+        preferences.scheme = InputScheme::Korean;
+        preferences.korean.layout = KoreanLayout::Romaja;
+        let mut document = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences });
+        // 旧宿主不发能力字段，不能被同步的罗马字偏好改变键盘。
+        if supported {
+            document["korean_romaja"] = true.into();
+        }
+        assert_eq!(
+            serde_json::from_value::<HostOptions>(document.clone())
+                .unwrap()
+                .into_engine_options()
+                .korean_layout,
+            u8::from(supported)
+        );
+        let options = document.to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        read(msime_client_focus(handle, true));
+        let old_keys = if supported { b"han" } else { b"gks" };
+        for &key in old_keys {
+            read(msime_client_character(handle, key, false));
+        }
+        assert_eq!(read(msime_client_view(handle))["value"]["preedit"], "한");
+        preferences.korean.layout = KoreanLayout::Dubeolsik;
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+        assert_eq!(read(msime_client_view(handle))["value"]["preedit"], "한");
+        let committed = read(msime_client_command(handle, 2));
+        assert_eq!(committed["value"]["commit"], "한");
+        for &key in b"gks" {
+            read(msime_client_character(handle, key, false));
+        }
+        assert_eq!(read(msime_client_view(handle))["value"]["preedit"], "한");
+        preferences.korean.layout = KoreanLayout::Romaja;
+        assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], true);
+        read(msime_client_command(handle, 2));
+        for &key in old_keys {
+            read(msime_client_character(handle, key, false));
+        }
+        assert_eq!(read(msime_client_view(handle))["value"]["preedit"], "한");
+        SESSIONS.with(|sessions| {
+            assert_eq!(
+                sessions.borrow()[&handle].options.korean_layout,
+                u8::from(supported)
+            )
+        });
+        read(msime_client_destroy(handle));
+    }
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+    ] {
+        assert!(HostCapabilities::for_platform(platform).korean_romaja);
+    }
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).korean_romaja);
+    }
+}
+
 /// Cantonese, Zhuyin and Stroke run on every build once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs regardless.
 #[test]
 fn installed_language_dictionaries_enable_their_schemes() {
@@ -13730,6 +13846,32 @@ fn stale_dictionary_generation_is_prepared_and_other_keys_survive() {
     let mut expected = document.clone();
     expected["dictionaries"] = json!("/home/u/.config/msime-client/user/dictionaries/new");
     assert_eq!(refreshed, expected);
+}
+
+#[test]
+fn korean_romaja_capability_survives_resource_option_refresh() {
+    let document = json!({
+        "api_version": 1, "resources": "old-resources", "user_data": "user",
+        "cache": "cache", "dictionaries": "old-dictionaries", "korean_romaja": true,
+        "preferences": Preferences {
+            scheme: InputScheme::Korean,
+            korean: KoreanPreferences { layout: KoreanLayout::Romaja },
+            ..chinese_preferences()
+        },
+    });
+    let refreshed = refreshed_layout(
+        &document,
+        json!({
+            "resources": "new-resources", "dictionaries": "new-dictionaries",
+        }),
+    )
+    .unwrap();
+    assert_eq!(refreshed["korean_romaja"], true);
+    assert_eq!(refreshed["preferences"], document["preferences"]);
+    let options = serde_json::from_value::<HostOptions>(refreshed)
+        .unwrap()
+        .into_engine_options();
+    assert_eq!(options.korean_layout, 1);
 }
 
 #[test]

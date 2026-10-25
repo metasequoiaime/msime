@@ -32,17 +32,16 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             stage = "baseline typing";
             typePhrase();
             stage = "baseline five candidates";
-            // Page size is about how many candidates the page renders, not how many happen to fit
-            // on screen: the strip scrolls horizontally, so a wide candidate pushes later slots out
-            // of view without changing the page.
+            // 横向候选条连续列出全部候选，不再只装引擎当前页（#9472，见 2026-10-23-android-continuous-candidate-strip.md），每页几个只体现在候选条旁的引擎页码上。
             awaitAny(candidateAt(5));
-            assertNoRendered(candidateAt(6));
+            int fivePerPage = pageCount();
             stage = "active composition defers preferences";
             snapshot.put("revision", revision + 2);
             snapshot.getJSONObject("preferences").put("candidate_page_size", 2).put("chinese_punctuation", false);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
             await(imeTextContains("设置将在组词结束后应用"));
-            await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
+            // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md）。
+            await(field("msime-test-plain").and(node -> equalsText("ni'hao", node.getText())));
             stage = "commit preserves composition";
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
@@ -57,10 +56,13 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             stage = "updated page size";
             typePhrase();
             awaitAny(candidateAt(2));
-            assertNoRendered(candidateAt(3));
+            // 同一组字的候选总数 n 不变：每页 5 个时页数是 ⌈n/5⌉，换成每页 2 个后应是 ⌈n/2⌉；页数仍按 5 个或按默认的 6 个计都落不进这个范围。
+            int twoPerPage = pageCount();
+            if (twoPerPage < (5 * fivePerPage - 3) / 2 || twoPerPage > (5 * fivePerPage + 1) / 2)
+                throw new AssertionError("Page count " + twoPerPage + " does not follow page size 2 after " + fivePerPage + " pages of 5");
             stage = "updated second candidate selection";
             tap(candidateAt(2));
-            await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("nihao")));
+            await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("ni'hao")));
             stage = "malformed preferences preserve working input";
             byte[] broken = "broken".getBytes(StandardCharsets.UTF_8);
             publish(preferences, broken);
@@ -103,11 +105,10 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             && node.isClickable();
     }
 
-    private void assertNoRendered(
-            java.util.function.Predicate<android.view.accessibility.AccessibilityNodeInfo> match) {
-        for (var window : automation.getWindows()) {
-            if (findAny(window.getRoot(), match) != null)
-                throw new AssertionError("Unexpected rendered candidate slot");
-        }
+    /** 候选条旁的引擎页码「1/页数」里的页数。 */
+    private int pageCount() {
+        android.view.accessibility.AccessibilityNodeInfo page = await(node -> equalsText("app.msime.android", node.getPackageName())
+            && node.getText() != null && node.getText().toString().matches("1/[0-9]+"));
+        return Integer.parseInt(page.getText().toString().substring(2));
     }
 }

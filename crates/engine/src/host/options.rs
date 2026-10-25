@@ -171,6 +171,8 @@ pub struct EngineOptions {
     pub vietnamese_input_method: u8,
     /// 0 modern (hoà), 1 classic (hòa) (`vietnamese::ToneStyle`).
     pub vietnamese_tone_style: u8,
+    /// 0 两套式，1 罗马字（`KoreanLayout`）。
+    pub korean_layout: u8,
     /// Absolute path of `msime-cantonese.db`, empty when the host has none; the Cantonese scheme is unavailable without it.
     pub cantonese_dictionary: String,
     /// Absolute path of `msime-zhuyin.db`, empty when the host has none; the Zhuyin scheme is unavailable without it.
@@ -285,6 +287,7 @@ pub fn prepare_options_for(
         first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
         vietnamese_input_method: VietnameseInputMethod::Telex as u8,
         vietnamese_tone_style: VietnameseToneStyle::Modern as u8,
+        korean_layout: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
@@ -316,6 +319,8 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_VIETNAMESE_METHOD))?;
     let vietnamese_tone_style = VietnameseToneStyle::from_u8(options.vietnamese_tone_style)
         .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_VIETNAMESE_TONE_STYLE))?;
+    let korean_layout = crate::KoreanLayout::from_u8(options.korean_layout)
+        .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_KOREAN_LAYOUT))?;
     // Only the two user switches; the quanpin dictionary widens them with missing and extra letters per request (`request_autocorrect_mask`), as the C++ did (bridge.cpp:376-378).
     let autocorrect_types = if options.autocorrect_transposition {
         autocorrect_type::TRANSPOSITION
@@ -335,6 +340,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.single_character_only = options.single_character_only;
     session.vietnamese_input_method = vietnamese_input_method;
     session.vietnamese_tone_style = vietnamese_tone_style;
+    session.korean_layout = korean_layout;
     session.cantonese_dictionary = PathBuf::from(&options.cantonese_dictionary);
     session.zhuyin_dictionary = PathBuf::from(&options.zhuyin_dictionary);
     session.stroke_dictionary = PathBuf::from(&options.stroke_dictionary);

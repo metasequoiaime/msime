@@ -856,6 +856,21 @@ impl From<ChineseScheme> for InputScheme {
     }
 }
 
+/// 韩语实体键盘布局；缺少字段时保留两套式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KoreanLayout {
+    #[default]
+    Dubeolsik,
+    Romaja,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct KoreanPreferences {
+    pub layout: KoreanLayout,
+}
+
 /// How Vietnamese letters and tones are typed. The Engine code is the declaration order (`vietnamese_input_method`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1357,6 +1372,9 @@ pub struct Preferences {
     /// The Vietnamese input method and tone placement.
     #[serde(default)]
     pub vietnamese: VietnamesePreferences,
+    /// 可选韩语布局；宿主未声明能力时仍运行两套式。
+    #[serde(default)]
+    pub korean: KoreanPreferences,
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
@@ -3362,6 +3380,7 @@ impl Default for Preferences {
             shuangpin_preedit_uses_raw: true,
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
+            korean: KoreanPreferences::default(),
             single_character_only: false,
             candidate_page_size: 6,
             number_row_selection: true,
@@ -4631,7 +4650,16 @@ impl PreferencesStore {
             MAX_DOCUMENT_BYTES,
             || PreferencesError::DocumentTooLarge,
         )?;
-        let document: serde_json::Value = serde_json::from_slice(&bytes)?;
+        let mut document: serde_json::Value = serde_json::from_slice(&bytes)?;
+        // 只在读磁盘时回退新版本的未知布局；设置提交仍由枚举反序列化严格校验。
+        if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
+            if layout
+                .as_str()
+                .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
+            {
+                *layout = "dubeolsik".into();
+            }
+        }
         let (mut snapshot, unknown) =
             deserialize_keeping_unknown::<PreferencesSnapshot>(&document, &["preferences"])?;
         if snapshot.format_version != 1 {

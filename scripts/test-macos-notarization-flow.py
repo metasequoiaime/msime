@@ -62,9 +62,13 @@ def run(bash: str, helpers: str, body: str, plan: str = "") -> tuple:
             "MSIME_TEST_CALLS": str(calls),
             "MSIME_TEST_INFO_PLAN": plan,
         }
-        if os.name == "nt" and "SystemRoot" in os.environ:
-            environment["SystemRoot"] = os.environ["SystemRoot"]
-        result = subprocess.run([bash, "-c", script], env=environment, capture_output=True, text=True, timeout=20)
+        if os.name == "nt":
+            for key in ("SystemRoot", "TEMP", "TMP"):
+                if key in os.environ:
+                    environment[key] = os.environ[key]
+        # Windows 要反复启动 MSYS 工具和隔离 Python；预算不改变合成重试次数或任何结果断言。
+        timeout = 60 if os.name == "nt" else 20
+        result = subprocess.run([bash, "-c", script], env=environment, capture_output=True, text=True, timeout=timeout)
         return result, calls.read_text().splitlines()
 
 

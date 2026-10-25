@@ -5251,6 +5251,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         sentence_alternatives: true,
         vietnamese_input_method: 0,
         vietnamese_tone_style: 0,
+        korean_layout: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
@@ -5928,6 +5929,61 @@ fn korean_runtime(directory: &std::path::Path) -> Runtime {
     let mut runtime = Runtime::new(session, 5).unwrap();
     runtime.focus(true).unwrap();
     runtime
+}
+
+#[test]
+fn korean_romaja_focus_commits_the_reading_and_new_client_discards_old_keys() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.scheme = KOREAN_SCHEME;
+    options.korean_layout = 1;
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    assert_eq!(runtime.set_phrase_preedit(true), None);
+    runtime.focus(true).unwrap();
+    let mut committed = String::new();
+    for value in *b"hangug" {
+        let result = runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+        assert!(result.handled);
+        assert!(result.view.phrase_prefix.is_empty());
+        committed.push_str(result.commit.as_deref().unwrap_or_default());
+    }
+    assert_eq!(committed, "한");
+    assert_eq!(runtime.view().preedit, "국");
+    let blur = runtime.focus(false).unwrap();
+    assert_eq!(blur.commit.as_deref(), Some("국"));
+    assert!(blur.view.editing_text.is_empty());
+    runtime.focus(true).unwrap();
+    for value in *b"bang" {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    assert_eq!(runtime.view().preedit, "방");
+    let attached = runtime.focus(true).unwrap();
+    assert!(attached.commit.is_none());
+    assert!(attached.view.editing_text.is_empty());
+    runtime
+        .dispatch(Action::Character {
+            value: b'a',
+            shift: false,
+        })
+        .unwrap();
+    assert_eq!(runtime.view().preedit, "ㅏ");
+    assert!(runtime
+        .dispatch(Action::Command(Command::Cancel))
+        .unwrap()
+        .view
+        .preedit
+        .is_empty());
 }
 
 /// Types `keys` and opens the Hanja list of the syllable they leave composing.

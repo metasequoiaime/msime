@@ -7,6 +7,7 @@ import { accountMessage } from "./account-errors";
 import type { AccountQqLink, QqLinksClient } from "./account-model";
 import { useAccountAction } from "./account-operation";
 import * as account from "./account-style";
+import { MeSubpageHeader } from "./mobile-download-page";
 
 /** 绑定失败时的说法；其余错误沿用账号页的通用说法。 */
 export function qqLinkMessage(error: unknown): string {
@@ -26,7 +27,15 @@ export function qqLinkMessage(error: unknown): string {
 /**
  * 账号页的「绑定 QQ 群助手」：输入机器人给的绑定码，列出已有的绑定，可以解绑。绑定后在 QQ 群里 @机器人 发 /stats 能看到打字数据，数据来自打字统计页的「上传到云端」。
  */
-export function QqLinkCard({ client, userId }: { client: QqLinksClient; userId: string }) {
+export function QqLinkCard({
+  client,
+  userId,
+  showHeading = true,
+}: {
+  client: QqLinksClient;
+  userId: string;
+  showHeading?: boolean;
+}) {
   const [links, setLinks] = useState<AccountQqLink[] | null>(null);
   const [code, setCode] = useState("");
   const [adding, setAdding] = useState(false);
@@ -78,7 +87,9 @@ export function QqLinkCard({ client, userId }: { client: QqLinksClient; userId: 
 
   return (
     <section className={`${account.section} ${account.stack}`}>
-      <h2 className={account.heading}>{hasLinks ? "QQ 群助手" : "绑定 QQ 群助手"}</h2>
+      {showHeading && (
+        <h2 className={account.heading}>{hasLinks ? "QQ 群助手" : "绑定 QQ 群助手"}</h2>
+      )}
       {hasLinks && (
         <p className={account.note}>
           已绑定。在 QQ 群里 @机器人 发 /stats
@@ -171,5 +182,23 @@ export function QqLinkCard({ client, userId }: { client: QqLinksClient; userId: 
       {busy && <StatusMessage role="status">正在处理…</StatusMessage>}
       {message && <StatusMessage role="status">{message}</StatusMessage>}
     </section>
+  );
+}
+
+/** 触屏「我的 → 同步 → 绑定 QQ 群助手」二级页，与 Android 的独立页面保持同一导航层级。 */
+export function MobileQqLinksPage({
+  client,
+  userId,
+  onBack,
+}: {
+  client: QqLinksClient;
+  userId: string;
+  onBack: () => void;
+}) {
+  return (
+    <div className={account.subpage}>
+      <MeSubpageHeader title="绑定 QQ 群助手" onBack={onBack} />
+      <QqLinkCard client={client} userId={userId} showHeading={false} />
+    </div>
   );
 }

@@ -376,7 +376,7 @@ function Assert-WubiCandidateSelection($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $keys = $saved.preferences.wubi_candidate_selection
     } while (($keys.second_key -ne "'" -or $keys.third_key -ne ';') -and [DateTime]::UtcNow -lt $deadline)
     if (-not $keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Wubi shortcut pair was not saved together' }
@@ -391,7 +391,7 @@ function Assert-WubiCandidateSelection($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $keys = $saved.preferences.wubi_candidate_selection
     } while ($keys.enabled -and [DateTime]::UtcNow -lt $deadline)
     if ($keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Disabling Wubi shortcuts lost custom keys' }
@@ -507,7 +507,7 @@ function Wait-CandidatePageSizeSaved([int]$expected) {
     $path = Join-Path $state 'preferences.json'
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($saved.preferences.candidate_page_size -eq $expected) { return }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -633,7 +633,7 @@ function Select-ComboChoice($window, [string]$id, [string]$label) {
 # 仅操作独立合成窗口，验证录键经过原生事件、共享预检及真实偏好保存。
 function Assert-VoiceToggleRecorder($window, [IntPtr]$handle) {
     function Read-VoiceBinding {
-        $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         $field = $saved.preferences.keybindings.PSObject.Properties['toggle_voice_input']
         if ($field) { return [string]$field.Value }
         return ''
@@ -670,14 +670,30 @@ function Assert-VoiceToggleRecorder($window, [IntPtr]$handle) {
         return Wait-VoiceRecorder
     }
     function Record-VoiceKeys([string]$keys) {
-        $button = Show-VoiceRecorder
-        [SettingsWindowProbe]::SetForegroundWindow($handle) | Out-Null
-        $button.SetFocus()
-        if ([SettingsWindowProbe]::GetForegroundWindow() -ne $handle) { throw '合成设置窗口未获得前台焦点' }
-        $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        Wait-VoiceRecorder '请按组合键…' | Out-Null
-        [System.Windows.Forms.SendKeys]::SendWait($keys)
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            # 页面延后重画可能取消录键；这里只重试尚未送键的准备动作，不重放已投递的组合键。
+            $button = Show-VoiceRecorder
+            [SettingsWindowProbe]::SetForegroundWindow($handle) | Out-Null
+            $button.SetFocus()
+            if ([SettingsWindowProbe]::GetForegroundWindow() -ne $handle) { throw '合成设置窗口未获得前台焦点' }
+            $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $ready = $true
+            foreach ($sample in @(1, 2)) {
+                Start-Sleep -Milliseconds 100
+                $current = Find-ById $window 'voice-toggle-recorder'
+                if (-not $current -or $current.Current.IsOffscreen -or -not $current.Current.HasKeyboardFocus -or
+                    $current.Current.Name -ne '语音输入开始／结束：请按组合键…') { $ready = $false; break }
+            }
+            if ($ready -and [SettingsWindowProbe]::GetForegroundWindow() -eq $handle) {
+                [System.Windows.Forms.SendKeys]::SendWait($keys)
+                Write-Host "语音录键已投递：$keys"
+                return
+            }
+        } while ([DateTime]::UtcNow -lt $deadline)
+        throw '语音录键准备阶段未能稳定获得键盘焦点，尚未投递组合键'
     }
+    Wait-VoiceBinding ''
     Open-Page $window 'voice'
     Select-PageTab $window 'voice-tab-input' '服务配置'
     Record-VoiceKeys '^%{F8}'
@@ -746,7 +762,7 @@ function Assert-SentenceModelSettings($window, [string]$theme) {
             do {
                 Start-Sleep -Milliseconds 150
                 try {
-                    $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+                    $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
                     $property = $saved.preferences.sentence_association.PSObject.Properties['grammar_model']
                     $value = if ($property) { $property.Value } else { 'none' }
                     $ready = $value -eq $model.value
@@ -855,7 +871,7 @@ function Assert-CloudClipboardRelaySettings($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $relay = Read-RelayPreference $saved
     } while (($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') -and [DateTime]::UtcNow -lt $deadline)
     if ($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') { throw 'Relay address and token were not saved together' }
@@ -870,7 +886,7 @@ function Assert-CloudClipboardRelaySettings($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $relay = Read-RelayPreference $saved
     } while ($relay -and [DateTime]::UtcNow -lt $deadline)
     if ($relay) { throw 'Switching to account retained relay credentials' }
@@ -903,8 +919,9 @@ try {
         if (-not [SettingsWindowProbe]::SetDllDirectory([IO.Path]::GetDirectoryName($programPath))) { throw 'Settings DLL path could not be set' }
         $defaults = [SettingsWindowProbe]::DefaultPreferences() | ConvertFrom-Json
         if (-not $defaults.ok) { throw 'Default preferences could not be loaded' }
+        $defaults.value.keybindings | Add-Member -NotePropertyName toggle_voice_input -NotePropertyValue '' -Force
         $document = @{format_version = 1; revision = 1; preferences = $defaults.value}
-        [IO.File]::WriteAllText((Join-Path $state 'preferences.json'), ($document | ConvertTo-Json -Depth 64))
+        [IO.File]::WriteAllText((Join-Path $state 'preferences.json'), ($document | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
         $window = Start-SettingsWindow 'settings:voice'
         Assert-VoiceToggleRecorder $window $process.MainWindowHandle
         $process.CloseMainWindow() | Out-Null
@@ -1303,7 +1320,7 @@ try {
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             do {
                 Start-Sleep -Milliseconds 200
-                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
+                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
             } while ($saved.preferences.scheme -ne $scheme -and [DateTime]::UtcNow -lt $deadline)
             if ($saved.preferences.scheme -ne $scheme) { throw "Scheme was not saved: $scheme" }
             $content = Find-ById $window 'settings-content'
@@ -1505,7 +1522,7 @@ try {
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             do {
                 Start-Sleep -Milliseconds 200
-                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
+                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
                 $size = Find-ById $window 'toolbar-preview-label'
                 $changed = $size -and ($size.Current.HelpText -ne $original)
             } while (($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) -and [DateTime]::UtcNow -lt $deadline)
@@ -1536,7 +1553,7 @@ try {
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
-            $savedEntries = @(Get-Content -LiteralPath (Join-Path $state 'clipboard_history.json') -Raw | ConvertFrom-Json)
+            $savedEntries = @(Get-Content -LiteralPath (Join-Path $state 'clipboard_history.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
         } while (-not $savedEntries[0].pinned -and [DateTime]::UtcNow -lt $deadline)
         if (-not $savedEntries[0].pinned) { throw 'Clipboard pin action was not saved' }
         # 写盘完成不等于 UI 回调已呈现；确认固定标记与可用操作后再验收最终画面。

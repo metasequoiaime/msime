@@ -23,10 +23,10 @@ pub mod mcp_clients;
 pub mod settings_dictionary;
 pub mod system_fonts;
 use msime_client_core::preferences::{
-    InputScheme, MultilingualLanguage, NineKeyShuangpinProfile, Preferences, PreferencesSnapshot,
-    PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout,
-    TouchKeyboardScheme, TouchShuangpinLayout, VietnameseInputMethod, VietnamesePreferences,
-    VietnameseToneStyle, WubiProfile,
+    InputScheme, KoreanLayout, KoreanPreferences, MultilingualLanguage, NineKeyShuangpinProfile,
+    Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile,
+    TouchKeyboardLayout, TouchKeyboardScheme, TouchShuangpinLayout, VietnameseInputMethod,
+    VietnamesePreferences, VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -274,6 +274,8 @@ struct HostSession {
     options: EngineOptions,
     /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
     quick_phrase_candidates_requested: bool,
+    /// 原始宿主能力；偏好重建时不能从已经回退的有效布局推断它。
+    korean_romaja_requested: bool,
     /// HostOptions 记录的版本：偏好里的方案只在本版本提供的方案里取，回退到本版本的默认方案。
     edition: &'static Edition,
     applied: Preferences,
@@ -778,6 +780,8 @@ impl HostSession {
         options.scheme = scheme_code(scheme);
         options.vietnamese_input_method = vietnamese_input_method_code(preferences.vietnamese);
         options.vietnamese_tone_style = vietnamese_tone_style_code(preferences.vietnamese);
+        options.korean_layout =
+            korean_layout_code(preferences.korean, self.korean_romaja_requested);
         let profile_fallback = apply_shuangpin_profile(&mut options, &preferences);
         // 自定义双拼表不能用的原因只在真的跑双拼时才值得报告。
         let fallback =
@@ -1655,6 +1659,10 @@ fn vietnamese_input_method_code(vietnamese: VietnamesePreferences) -> u8 {
     }
 }
 
+fn korean_layout_code(korean: KoreanPreferences, supported: bool) -> u8 {
+    u8::from(supported && korean.layout == KoreanLayout::Romaja)
+}
+
 fn vietnamese_tone_style_code(vietnamese: VietnamesePreferences) -> u8 {
     match vietnamese.tone_style {
         VietnameseToneStyle::Modern => 0,
@@ -1987,6 +1995,9 @@ struct HostOptions {
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
+    /// 仅完成键盘接入的桌面宿主显式打开；缺字段时同步偏好仍按两套式运行。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    korean_romaja: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     clipboard_history_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2191,6 +2202,10 @@ impl HostOptions {
             sentence_alternatives: true,
             vietnamese_input_method: vietnamese_input_method_code(self.preferences.vietnamese),
             vietnamese_tone_style: vietnamese_tone_style_code(self.preferences.vietnamese),
+            korean_layout: korean_layout_code(
+                self.preferences.korean,
+                self.korean_romaja.unwrap_or(false),
+            ),
             cantonese_dictionary: path_text(dictionaries.cantonese),
             zhuyin_dictionary: path_text(dictionaries.zhuyin),
             stroke_dictionary: path_text(dictionaries.stroke),
@@ -2627,6 +2642,7 @@ fn prepare_shipped_host_configuration(
         ),
         phrase_preedit: None,
         quick_phrase_candidates: None,
+        korean_romaja: None,
         clipboard_history_path: None,
         online_provider_socket: None,
         translation_provider_socket: None,

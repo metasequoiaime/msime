@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/common" "${CMAKE_CURRENT_SOURCE_DIR}/src/ipc" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/clipboard" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/system")
 project(MSIMEClientWindowsBoundary LANGUAGES CXX)
+# 原生宿主、演示和测试均使用 UTF-8 源码，MSVC 不能按本机代码页读取。
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
 option(MSIME_WINDOWS7_CLIENT "使用 Win7 原生设置与面板承载" OFF)
 include("${CMAKE_CURRENT_SOURCE_DIR}/Edition.cmake")
 # vcpkg-style dependency prefixes ship a Release variant under bin/ and a Debug
@@ -1999,6 +2003,8 @@ if(WIN32)
     endif()
   endforeach()
   add_test(NAME windows-server COMMAND windows-server-smoke)
+  # 两项测试查询真实桌面的前台窗口、鼠标捕获或 UIA 提供者，不能与其他窗口夹具争用桌面。
+  set_tests_properties(windows-server windows-accessible-window-runtime PROPERTIES RUN_SERIAL TRUE)
   set_tests_properties(windows-server PROPERTIES TIMEOUT 30)
   install(TARGETS msime-client-server msime-client-watchdog msime-client-prepare
           RUNTIME DESTINATION bin)

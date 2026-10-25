@@ -39,6 +39,7 @@ from pathlib import Path
 # Preferences that no macOS input method can act on. Each entry says why, because "macOS does not read it"
 # is exactly what a defect looks like from the outside.
 NOT_APPLICABLE = {
+    "android_text_trackpad": "仅 Android 原生键盘的 TextTrackpadSettings 和 KeyboardOptionsPage 使用的文本拖拽手势；macOS 没有 Android 输入法键面或对应设置入口",
     "input_mode_corner_hud": "仅 Linux 的 IBus 与 Fcitx5 在无法定位光标时使用屏幕角落徽章；共享设置页只在 Linux 显示此项，macOS 没有对应角落提示",
     "input_mode_focus_hud": "仅 Linux 的 IBus 与 Fcitx5 在聚焦输入框时显示模式提示；共享设置页只在 Linux 显示此项，macOS 没有聚焦提示入口",
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
