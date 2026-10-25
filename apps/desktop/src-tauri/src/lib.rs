@@ -3960,15 +3960,26 @@ fn macos_settings_launch(route: Option<SurfaceRoute>) -> bool {
     route.is_none_or(|route| route.panel().is_none())
 }
 
-/// 升级后的第一次启动：本进程执行的程序已被新文件替换时，把这次启动交给新程序，自己退出，否则用户看到的一直是旧界面（见 `linux_program_handover`）。先隐藏所有窗口，让页面把待保存的编辑写完，过 [`linux_program_handover::FLUSH_GRACE`] 再放开单实例的 D-Bus 名、以转来的参数启动新程序并退出；新程序因此拿得到这个名字，不会又把参数转回来。正在下载或删除模型、资源包时不交接，免得把它打断，等下一次启动再说。返回是否接手了这次启动；没有接手时由调用方照旧激活界面。
+/// 把设置交给一个新进程，自己退出。两种情况要交：
+///
+/// - 升级后的第一次启动：本进程执行的程序已被新文件替换，不交的话用户看到的一直是旧界面（见 `linux_program_handover`），新进程执行原路径上的新程序。
+/// - 状态目录换了：本进程启动时还没有 runtime-options.json，偏好、更新记录等都落在本应用的数据目录；首次配置（设置里的首次配置页或终端里的 `msime-linux-setup`）写出这份文件后，输入法读写的是其中的 `preferences_directory`（见 `LinuxStateDirectory`）。这些状态对象在启动时就定了目录，进程里换不了，新进程执行同一个程序，按准备好的文件重新定目录。
+///
+/// 收到下一次启动时（`args`、`cwd` 是转来的参数）和离开首次配置页时（`leave_linux_setup_window`，传本进程自己的参数）各检查一次。先隐藏所有窗口，让页面把待保存的编辑写完，过 [`linux_program_handover::FLUSH_GRACE`] 再放开单实例的 D-Bus 名、以 `args` 启动新进程并退出；新进程因此拿得到这个名字，不会又把参数转回来。正在下载或删除模型、资源包时不交接，免得把它打断，等下一次启动再说。返回是否交了出去；没有交时由调用方照旧激活界面。
 #[cfg(target_os = "linux")]
-fn hand_over_to_replaced_program(app: &tauri::AppHandle, args: &[String], cwd: &str) -> bool {
+fn hand_over_settings_process(app: &tauri::AppHandle, args: &[String], cwd: &str) -> bool {
     static HANDING_OVER: AtomicBool = AtomicBool::new(false);
     if HANDING_OVER.load(Ordering::Acquire) {
         // 交接已经开始：新程序启动后就能拿到单实例名，这次启动的参数也会由它处理。
         return true;
     }
-    let Some(program) = linux_program_handover::running_program_replaced() else {
+    let program = linux_program_handover::running_program_replaced().or_else(|| {
+        app.try_state::<LinuxStateDirectory>()
+            .is_some_and(|directory| directory.moved())
+            .then(|| std::env::current_exe().ok())
+            .flatten()
+    });
+    let Some(program) = program else {
         return false;
     };
     if app
@@ -4003,8 +4014,9 @@ fn hand_over_to_replaced_program(app: &tauri::AppHandle, args: &[String], cwd: &
         match command.spawn() {
             Ok(_) => app.exit(0),
             Err(_) => {
-                // 新程序起不来：留在旧程序上，至少把用户要的界面打开。
-                eprintln!("msime: could not start the upgraded settings program");
+                // 新进程起不来：留在本进程上，至少把用户要的界面打开；放开交接标记，离开首次配置页时还能再试一次。
+                eprintln!("msime: could not start the new settings process");
+                HANDING_OVER.store(false, Ordering::Release);
                 if let Some(linger) = app.try_state::<DesktopSettingsLinger>() {
                     linger.quitting.store(false, Ordering::Release);
                 }
@@ -5085,6 +5097,60 @@ fn linux_runtime_state_directory_at(options_path: &Path) -> Result<Option<PathBu
     }
 }
 
+/// Linux 设置进程的状态目录（偏好、剪贴板历史、统计、后台更新记录、账号会话、皮肤和插件都在这里），以及它是怎么定下来的。
+///
+/// 目录在启动时定下，之后交给各个状态对象，进程里不再换。首次运行时 runtime-options.json 还不存在，只能先用 `fallback`（本应用的数据目录）；首次配置页写出这份文件后，它的 `preferences_directory` 才是输入法读写的目录。[`Self::moved`] 回答启动时定下的目录是否已经不是现在该用的那个，是的话由 `hand_over_settings_process` 把设置交给一个新进程，新进程按准备好的文件重新定目录。`MSIME_CLIENT_STATE_DIR` 指定的目录由调用方负责，永远不算换过。
+#[cfg(any(target_os = "linux", test))]
+struct LinuxStateDirectory {
+    /// 启动时定下的目录，各状态对象用的就是它。
+    startup: PathBuf,
+    /// 启动时读的 runtime-options.json；目录由 `MSIME_CLIENT_STATE_DIR` 指定、或没有给出这份文件时为 `None`。
+    options: Option<PathBuf>,
+    /// runtime-options.json 不存在或没写 `preferences_directory` 时用的目录。
+    fallback: PathBuf,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl LinuxStateDirectory {
+    fn resolve(
+        state_override: Option<std::ffi::OsString>,
+        options: Option<PathBuf>,
+        fallback: PathBuf,
+    ) -> Result<Self, String> {
+        if let Some(value) = state_override {
+            let path = PathBuf::from(value);
+            if !path.is_absolute() {
+                return Err("MSIME_CLIENT_STATE_DIR must be absolute".into());
+            }
+            return Ok(Self {
+                startup: path,
+                options: None,
+                fallback,
+            });
+        }
+        let configured = match options.as_deref() {
+            Some(path) => linux_runtime_state_directory_at(path)?,
+            None => None,
+        };
+        Ok(Self {
+            startup: configured.unwrap_or_else(|| fallback.clone()),
+            options,
+            fallback,
+        })
+    }
+
+    /// 按现在的 runtime-options.json 该用的目录已经不是启动时定下的那个。文件读不了或内容不对时不算：新进程启动时同样读不了它，交过去只会起不来。
+    fn moved(&self) -> bool {
+        let Some(options) = self.options.as_deref() else {
+            return false;
+        };
+        match linux_runtime_state_directory_at(options) {
+            Ok(configured) => configured.as_ref().unwrap_or(&self.fallback) != &self.startup,
+            Err(_) => false,
+        }
+    }
+}
+
 #[cfg(any(target_os = "ios", test))]
 fn ios_host_options_document(
     contents: Option<&str>,
@@ -5336,7 +5402,7 @@ pub fn run() {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
         #[cfg(target_os = "linux")]
-        if hand_over_to_replaced_program(app, &args, &_cwd) {
+        if hand_over_settings_process(app, &args, &_cwd) {
             return;
         }
         let route = second_launch_route(&args);
@@ -5437,7 +5503,20 @@ pub fn run() {
             let directory = macos_launch.preferences_directory.clone();
             #[cfg(target_os = "android")]
             let directory = app.path().app_data_dir()?.join("files/bootstrap/state");
-            #[cfg(not(any(target_os = "android", target_os = "macos")))]
+            // 首次运行时 runtime-options.json 还不存在，目录先落在本应用的数据目录；首次配置写出这份文件后由 `hand_over_settings_process` 换到新进程，见 `LinuxStateDirectory`。
+            #[cfg(target_os = "linux")]
+            let state_directory = LinuxStateDirectory::resolve(
+                std::env::var_os("MSIME_CLIENT_STATE_DIR"),
+                std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+                    .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"))
+                    .map(PathBuf::from),
+                app.path().app_data_dir()?,
+            )?;
+            #[cfg(target_os = "linux")]
+            let directory = state_directory.startup.clone();
+            #[cfg(target_os = "linux")]
+            app.manage(state_directory);
+            #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "linux")))]
             let directory = match std::env::var_os("MSIME_CLIENT_STATE_DIR") {
                 Some(value) => {
                     let path = std::path::PathBuf::from(value);
@@ -5447,11 +5526,9 @@ pub fn run() {
                     path
                 }
                 None => {
-                    #[cfg(target_os = "linux")]
-                    let runtime_directory = linux_runtime_state_directory()?;
                     #[cfg(target_os = "windows")]
                     let runtime_directory = windows_server_preferences_directory();
-                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                    #[cfg(not(target_os = "windows"))]
                     let runtime_directory: Option<PathBuf> = None;
                     match runtime_directory {
                         Some(path) => path,

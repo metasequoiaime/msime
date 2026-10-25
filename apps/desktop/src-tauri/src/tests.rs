@@ -182,6 +182,73 @@ fn linux_runtime_state_directory_treats_a_missing_locator_as_first_run() {
     );
 }
 
+/// 首次运行：设置进程启动时没有 runtime-options.json，状态目录落在本应用的数据目录；首次配置写出带 `preferences_directory` 的文件后，启动时定下的目录就不再是输入法读写的那个，设置必须交给新进程（Ubuntu 24.04 实机验收：更新通道写进了 `~/.local/share/app.msime.linux`，重开后回到稳定版）。
+#[test]
+fn linux_first_run_state_directory_moves_once_setup_publishes_the_options() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("msime-client");
+    let options = state.join("runtime-options.json");
+    let fallback = root.path().join("app.msime.linux");
+
+    let directory =
+        super::LinuxStateDirectory::resolve(None, Some(options.clone()), fallback.clone()).unwrap();
+    assert_eq!(directory.startup, fallback);
+    assert!(!directory.moved());
+
+    std::fs::create_dir(&state).unwrap();
+    std::fs::write(
+        &options,
+        serde_json::json!({ "preferences_directory": state }).to_string(),
+    )
+    .unwrap();
+    assert!(directory.moved());
+
+    // 新进程按准备好的文件定目录，之后不再换。
+    let restarted =
+        super::LinuxStateDirectory::resolve(None, Some(options.clone()), fallback.clone()).unwrap();
+    assert_eq!(restarted.startup, state);
+    assert!(!restarted.moved());
+}
+
+/// 不该交接的情况：文件没写 `preferences_directory`（仍用数据目录）、文件坏了（新进程同样起不来）、目录由 `MSIME_CLIENT_STATE_DIR` 指定、根本没有给出 runtime-options。
+#[test]
+fn linux_state_directory_stays_put_unless_prepared_options_name_another_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let options = root.path().join("runtime-options.json");
+    let fallback = root.path().join("app.msime.linux");
+
+    let directory =
+        super::LinuxStateDirectory::resolve(None, Some(options.clone()), fallback.clone()).unwrap();
+    std::fs::write(&options, r#"{"resources":"/synthetic"}"#).unwrap();
+    assert!(!directory.moved());
+    std::fs::write(&options, "{").unwrap();
+    assert!(!directory.moved());
+
+    let overridden = root.path().join("override");
+    std::fs::write(
+        &options,
+        serde_json::json!({ "preferences_directory": root.path().join("prepared") }).to_string(),
+    )
+    .unwrap();
+    let directory = super::LinuxStateDirectory::resolve(
+        Some(overridden.clone().into_os_string()),
+        Some(options.clone()),
+        fallback.clone(),
+    )
+    .unwrap();
+    assert_eq!(directory.startup, overridden);
+    assert!(!directory.moved());
+
+    let directory = super::LinuxStateDirectory::resolve(None, None, fallback.clone()).unwrap();
+    assert_eq!(directory.startup, fallback);
+    assert!(!directory.moved());
+
+    assert!(
+        super::LinuxStateDirectory::resolve(Some("relative".into()), None, fallback.clone())
+            .is_err()
+    );
+}
+
 #[test]
 fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary() {
     use msime_client_core::host_surface::{HostCapabilities, HostPlatform};

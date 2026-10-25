@@ -323,11 +323,23 @@ pub fn shape_setup_window(window: &tauri::WebviewWindow) {
     SETUP_WINDOW_SHAPED.store(true, Ordering::Release);
 }
 
-/// 离开首次配置（或词库更新）页时把主窗口换回设置窗口的大小。
+/// 离开首次配置（或词库更新）页时把主窗口换回设置窗口的大小。返回 `true` 表示设置已交给新进程（本进程马上退出），页面不要再进入设置。
+///
+/// 首次配置刚写出 runtime-options.json 时，本进程的偏好、更新记录、账号会话等仍落在启动时定下的本应用数据目录，不是输入法读写的 `preferences_directory`；这时以本进程自己的参数把设置交给新进程（`hand_over_settings_process`），新进程按准备好的文件定目录、读宿主能力，用户不用自己重开设置。
 #[tauri::command]
-pub fn leave_linux_setup_window(window: tauri::WebviewWindow) -> Result<(), LinuxSetupError> {
+pub fn leave_linux_setup_window(window: tauri::WebviewWindow) -> Result<bool, LinuxSetupError> {
+    use tauri::Manager as _;
+    let args: Vec<String> = std::env::args_os()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect();
+    let cwd = std::env::current_dir()
+        .map(|directory| directory.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if crate::hand_over_settings_process(window.app_handle(), &args, &cwd) {
+        return Ok(true);
+    }
     if !SETUP_WINDOW_SHAPED.swap(false, Ordering::AcqRel) {
-        return Ok(());
+        return Ok(false);
     }
     let (width, height) = SETTINGS_WINDOW_SIZE;
     let (min_width, min_height) = SETTINGS_WINDOW_MIN_SIZE;
@@ -340,7 +352,8 @@ pub fn leave_linux_setup_window(window: tauri::WebviewWindow) -> Result<(), Linu
     window
         .set_size(tauri::LogicalSize::new(width, height))
         .map_err(unavailable)?;
-    window.center().map_err(unavailable)
+    window.center().map_err(unavailable)?;
+    Ok(false)
 }
 
 /// 首次配置没能自动加入 Fcitx5 输入法组时，结果卡片上的「打开 Fcitx5 配置」：启动 `fcitx5-configtool`，用户在里面把水杉输入法加入当前输入法组。

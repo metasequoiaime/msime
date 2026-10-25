@@ -1001,9 +1001,11 @@ function DesktopSettings() {
         onComplete={() => {
           if (linuxSetup.prepared && linuxSetup.dictionaryOutdated)
             linuxUpdateDeferred.current = true;
-          void invoke("leave_linux_setup_window")
-            .catch(() => undefined)
-            .then(() => {
+          // 宿主返回 true 表示首次配置换了状态目录，设置已交给新进程、本进程即将退出：不再进入设置，免得在旧目录上读写偏好。
+          void invoke<boolean>("leave_linux_setup_window")
+            .catch(() => false)
+            .then((handedOver) => {
+              if (handedOver) return;
               setLinuxSetup(null);
               setLinuxRepair(false);
               settingsClient?.oobe?.refresh?.();
