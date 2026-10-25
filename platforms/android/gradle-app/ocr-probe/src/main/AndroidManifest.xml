@@ -3,15 +3,8 @@
     <!-- 无网络权限探针只用于证明离线识别，不作为产品安装或相机验收。 -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
-    <application android:label="水杉 OCR 隔离探针" android:allowBackup="false">
-        <service android:name="com.google.mlkit.common.internal.MlKitComponentDiscoveryService"
-            android:exported="false">
-            <meta-data android:name="com.google.firebase.components:com.google.mlkit.vision.common.internal.VisionCommonRegistrar"
-                android:value="com.google.firebase.components.ComponentRegistrar" />
-            <meta-data android:name="com.google.firebase.components:com.google.mlkit.vision.text.internal.TextRegistrar"
-                android:value="com.google.firebase.components.ComponentRegistrar" />
-        </service>
-    </application>
+    <!-- 和产品宿主一样只带手写依赖自己合并进来的 ML Kit 组件声明；OCR 模块不用 ML Kit。 -->
+    <application android:label="水杉 OCR 隔离探针" android:allowBackup="false" />
     <instrumentation android:name="app.msime.ocr.probe.OcrProbe"
         android:targetPackage="app.msime.ocr.probe" />
 </manifest>

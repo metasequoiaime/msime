@@ -56,15 +56,6 @@
         <service android:name="app.msime.android.home.UpdateJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 按需资源包下载：只由用户操作启动，跑在主进程（不设 android:process），:ime 进程从不安装资源包。 -->
         <service android:name="app.msime.android.ResourcePackService" android:exported="false" android:foregroundServiceType="dataSync" />
-        <!-- 隔离 OCR 使用 SDK 的公开组件发现；这里只声明组件名，不把 OCR 依赖带入基础包。
-             当前类加载器没有对应组件时，SDK 按其发现协议忽略该项，手写组件仍由原依赖声明。 -->
-        <service android:name="com.google.mlkit.common.internal.MlKitComponentDiscoveryService"
-            android:exported="false">
-            <meta-data android:name="com.google.firebase.components:com.google.mlkit.vision.common.internal.VisionCommonRegistrar"
-                android:value="com.google.firebase.components.ComponentRegistrar" />
-            <meta-data android:name="com.google.firebase.components:com.google.mlkit.vision.text.internal.TextRegistrar"
-                android:value="com.google.firebase.components.ComponentRegistrar" />
-        </service>
         <service android:name="app.msime.android.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />

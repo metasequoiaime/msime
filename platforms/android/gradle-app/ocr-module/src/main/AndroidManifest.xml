@@ -1,7 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- 模块只是离线代码与模型容器，不自行安装、启动或下载。 -->
+    <!-- 模块只是离线代码与模型容器，不自行安装、启动或下载。onnxruntime-android 的清单为遥测申请了这两项权限，这里删掉。 -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
-    <application android:label="水杉 OCR 模块" android:allowBackup="false" />
+    <application android:label="水杉 OCR 模块" android:allowBackup="false">
+        <!-- onnxruntime-android 用这个 Provider 在应用启动时初始化向 Microsoft 上报的 1DS 遥测通道。宿主经类加载器使用模块，本来就不会运行它；独立安装的调试模块也不能有它。 -->
+        <provider android:name="ai.onnxruntime.TelemetryInitializer"
+            android:authorities="${applicationId}.onnxruntime_telemetry_initializer"
+            tools:node="remove" />
+    </application>
 </manifest>

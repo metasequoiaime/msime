@@ -8,8 +8,11 @@ android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 adb="$android_sdk/platform-tools/adb"
 [[ "$serial" == emulator-* ]] || { echo 'Dedicated AVD required' >&2; exit 1; }
 avd=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
-[[ "$avd" == msime-client-test || "$avd" == msime-client-test-api28 ]] || { echo 'Unexpected AVD' >&2; exit 1; }
-[[ $("$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r') == x86_64 ]] || exit 1
+# 只接受 start-emulator.sh 建的专用测试 AVD（以及从它们复制出的同名前缀副本），不碰日常使用的模拟器。
+[[ "$avd" == msime-client-test || "$avd" == msime-client-test-* ]] || { echo 'Unexpected AVD' >&2; exit 1; }
+# 模块带 arm64-v8a 与 x86_64 两套原生库；产品包、共享层单测都按设备的 ABI 构建。
+abi=$("$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')
+[[ "$abi" == x86_64 || "$abi" == arm64-v8a ]] || { echo "Unsupported AVD ABI $abi" >&2; exit 1; }
 mkdir -p target/android
 lock=resources/ocr-module-android.lock.json
 backup=target/android/ocr-product-production-lock.json
@@ -29,7 +32,7 @@ cp platforms/android/gradle-app/ocr-module/build/outputs/apk/release/ocr-module-
   target/android/ocr-product-module.apk
 # 共享层整套单测读取正式锁；合成地址只属于后续产品专项，不改变发布 URL 契约。
 core_status=0
-MSIME_ANDROID_TEST_SERIAL="$serial" bash platforms/android/tests/device/build-core-test.sh x86_64 2>&1 | tee target/android/ocr-product-core.log || core_status=$?
+MSIME_ANDROID_TEST_SERIAL="$serial" bash platforms/android/tests/device/build-core-test.sh "$abi" 2>&1 | tee target/android/ocr-product-core.log || core_status=$?
 python3 - <<'PY'
 import hashlib, json, subprocess
 from pathlib import Path
@@ -47,12 +50,12 @@ lock['artifact'] = {
 path.write_text(json.dumps(lock, indent=2) + '\n')
 Path('target/android/ocr-product-test-lock.json').write_text(path.read_text())
 PY
-# x86_64 验收使用普通开发包；发布瘦包仅支持 arm64，不能绕过产品的 ABI 限制。
+# 验收使用普通开发包（按设备 ABI 构建），不是发布瘦包。
 python3 scripts/fetch_language_dictionaries.py
 python3 scripts/fetch_wordbooks.py
 bash platforms/windows/bootstrap-vcpkg.sh
 resource_dir=$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)
-MSIME_ANDROID_ABIS=x86_64 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 MSIME_REQUIRE_WORDBOOKS=1 \
+MSIME_ANDROID_ABIS="$abi" MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 MSIME_REQUIRE_WORDBOOKS=1 \
   bash platforms/android/build-apk.sh "$resource_dir"
 api=$("$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
 baseline_status=0

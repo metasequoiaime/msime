@@ -36,7 +36,7 @@ public final class OcrProbe extends Instrumentation {
         Bundle result = new Bundle();
         try {
             runProbe();
-            result.putString("stream", "MSIME_OCR_PROBE_PASSED: isolated offline Chinese/Latin OCR and handwriting coexist\n");
+            result.putString("stream", "MSIME_OCR_PROBE_PASSED: isolated offline Chinese/Latin OCR, vertical column order and handwriting coexist\n");
             finish(-1, result);
         } catch (Throwable error) {
             // 只记录异常类型，不输出识别文本或任意模块的异常消息。
@@ -75,13 +75,22 @@ public final class OcrProbe extends Instrumentation {
         }
         File libraries = new File(directory, "lib");
         if (!libraries.mkdirs() && !libraries.isDirectory()) throw new AssertionError("probe_libraries");
+        // 模块带 arm64-v8a 和 x86_64 两套原生库，取设备首选的那一套。
+        String abi = null;
+        for (String supported : android.os.Build.SUPPORTED_ABIS) {
+            if (supported.equals("arm64-v8a") || supported.equals("x86_64")) { abi = supported; break; }
+        }
+        if (abi == null) throw new AssertionError("probe_abi");
+        String prefix = "lib/" + abi + "/";
+        int libraryCount = 0;
         try (ZipFile zip = new ZipFile(apk)) {
             var entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 String name = entry.getName();
-                if (!name.startsWith("lib/x86_64/") || !name.endsWith(".so")) continue;
-                String filename = name.substring("lib/x86_64/".length());
+                if (!name.startsWith(prefix) || !name.endsWith(".so")) continue;
+                libraryCount++;
+                String filename = name.substring(prefix.length());
                 if (filename.contains("/") || filename.contains("\\")) throw new AssertionError("probe_library_name");
                 File file = new File(libraries, filename);
                 try (InputStream input = zip.getInputStream(entry);
@@ -91,12 +100,16 @@ public final class OcrProbe extends Instrumentation {
                 if (!file.setReadOnly()) throw new AssertionError("probe_readonly_library");
             }
         }
+        if (libraryCount == 0) throw new AssertionError("probe_module_abi");
         stage = "class-loader";
         DexClassLoader loader = new DexClassLoader(apk.getAbsolutePath(),
             context.getCodeCacheDir().getAbsolutePath(), libraries.getAbsolutePath(),
             context.getClassLoader().getParent());
-        if (loader.loadClass(MlKit.class.getName()) == MlKit.class)
-            throw new AssertionError("probe_shared_mlkit_singleton");
+        // 模块不带 ML Kit，父加载器是启动类加载器，宿主的手写 SDK 对模块不可见。
+        try {
+            loader.loadClass(MlKit.class.getName());
+            throw new AssertionError("probe_module_sees_mlkit");
+        } catch (ClassNotFoundException expected) { }
         ApplicationInfo info = new ApplicationInfo(context.getApplicationInfo());
         info.sourceDir = apk.getAbsolutePath();
         info.publicSourceDir = apk.getAbsolutePath();
@@ -116,10 +129,11 @@ public final class OcrProbe extends Instrumentation {
             throw new AssertionError("probe_interface_version");
         stage = "public-initialization";
         moduleClass.getMethod("initialize", Context.class).invoke(module, moduleContext);
-        String[][] cases = new String[SyntheticOcrFixture.CASE_COUNT][];
+        String[][] cases = new String[SyntheticOcrFixture.CASE_COUNT + 1][];
         int completeCases = 0;
+        boolean vertical;
         try {
-            for (int index = 0; index < cases.length; index++) {
+            for (int index = 0; index < SyntheticOcrFixture.CASE_COUNT; index++) {
                 if (index > 0) {
                     stage = "module-reopen-" + index;
                     moduleClass.getMethod("close").invoke(module);
@@ -141,6 +155,18 @@ public final class OcrProbe extends Instrumentation {
                     bitmap.recycle();
                 }
             }
+            // 竖排两列必须先读右列：评测发现上游的排序会把竖排的列序读反。
+            stage = "offline-recognition-vertical";
+            Bitmap columns = SyntheticOcrFixture.renderVertical();
+            try {
+                SyntheticOcrFixture.saveImage(context, columns, SyntheticOcrFixture.CASE_COUNT);
+                cases[SyntheticOcrFixture.CASE_COUNT] = (String[]) moduleClass.getMethod("recognize", Bitmap.class)
+                    .invoke(module, columns);
+            } finally {
+                columns.recycle();
+            }
+            vertical = SyntheticOcrFixture.verticalOrder(cases[SyntheticOcrFixture.CASE_COUNT]);
+            android.util.Log.i("MSIME_OCR_PROBE", "synthetic_vertical_right_to_left=" + vertical);
             SyntheticOcrFixture.saveResult(context, cases);
         } finally {
             moduleClass.getMethod("close").invoke(module);
@@ -150,8 +176,9 @@ public final class OcrProbe extends Instrumentation {
         stage = "handwriting-after-ocr";
         handwritingClient().close();
         // 模型误识别不能让手写共存检查被跳过；完整识别仍是独立的硬条件。
-        stage = "offline-recognition(complete-cases=" + completeCases + ",handwriting-after=true)";
+        stage = "offline-recognition(complete-cases=" + completeCases + ",vertical=" + vertical + ",handwriting-after=true)";
         if (completeCases == 0) throw new AssertionError("probe_synthetic_recognition");
+        if (!vertical) throw new AssertionError("probe_vertical_column_order");
     }
 
     private static void copy(InputStream input, OutputStream output) throws Exception {

@@ -212,6 +212,11 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
             Context.class, String.class, List.class, List.class, progress);
         stage = "host handwriting client before OCR";
         handwritingClient();
+        // 本地语音识别的 sherpa-onnx 自带另一份 libonnxruntime.so，加载在宿主自己的链接器命名空间；OCR 模块的 ONNX Runtime 在模块类加载器的命名空间里。两份先后进同一个进程后，OCR 和语音运行库都必须照常可用。
+        stage = "host speech runtime before OCR";
+        Method speech = loader.loadClass("app.msime.android.NativeClient").getMethod("localSpeechAvailable");
+        boolean speechRuntime = (Boolean) speech.invoke(null);
+        android.util.Log.i("MSIME_OCR_PRODUCT", "speech_runtime_loaded_before_ocr=" + speechRuntime);
         source = new File(context.getCacheDir(), "synthetic-ocr-import.apk");
         try (InputStream input = getContext().getAssets().open("ocr-product-module.apk");
              FileOutputStream output = new FileOutputStream(source)) {
@@ -244,14 +249,23 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         importModule();
         recognizeFixture();
         source.delete();
+        stage = "host speech runtime after OCR";
+        if (speechRuntime) check((Boolean) speech.invoke(null), "host speech runtime stays loaded beside the OCR runtime");
         stage = "host handwriting client after OCR";
         handwritingClient();
+    }
+
+    /** ART 编译产物所在的指令集目录名：arm64-v8a 设备是 `arm64`，x86_64 设备是 `x86_64`。 */
+    private static String artInstructionSet() {
+        String abi = android.os.Build.SUPPORTED_64_BIT_ABIS.length == 0 ? "" : android.os.Build.SUPPORTED_64_BIT_ABIS[0];
+        return abi.equals("arm64-v8a") ? "arm64" : abi;
     }
 
     /** ART 还会生成性能采样和锁；只清理固定合成模块的已知条目，不跟随符号链接。 */
     private void clearSyntheticModule(File path, String relative) throws Exception {
         int mode = Os.lstat(path.getAbsolutePath()).st_mode;
-        if (relative.isEmpty() || relative.equals("oat") || relative.equals("oat/x86_64")) {
+        String isa = artInstructionSet();
+        if (relative.isEmpty() || relative.equals("oat") || relative.equals("oat/" + isa)) {
             check(OsConstants.S_ISDIR(mode), "synthetic module cache is a real directory");
             File[] entries = path.listFiles();
             check(entries != null, "synthetic module directory readable");
@@ -259,13 +273,13 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
                 clearSyntheticModule(entry, relative.isEmpty() ? entry.getName() : relative + "/" + entry.getName());
         } else {
             check(relative.equals("msime-ocr-v1.apk") || relative.equals("msime-model.json")
-                || relative.equals("msime-ocr-v1.apk.x86_64.flock")
+                || relative.equals("msime-ocr-v1.apk." + isa + ".flock")
                 || relative.equals("oat/msime-ocr-v1.apk.cur.prof")
                 || relative.equals("oat/msime-ocr-v1.apk.prof")
-                || relative.equals("oat/x86_64/msime-ocr-v1.odex")
-                || relative.equals("oat/x86_64/msime-ocr-v1.vdex")
-                || relative.equals("oat/x86_64/msime-ocr-v1.art"), "only known synthetic module files can be removed: "
-                    + (relative.matches("(?:oat/|oat/x86_64/)?msime-ocr-v1[.a-z0-9_-]{0,80}")
+                || relative.equals("oat/" + isa + "/msime-ocr-v1.odex")
+                || relative.equals("oat/" + isa + "/msime-ocr-v1.vdex")
+                || relative.equals("oat/" + isa + "/msime-ocr-v1.art"), "only known synthetic module files can be removed: "
+                    + (relative.matches("(?:oat/|oat/(?:x86_64|arm64)/)?msime-ocr-v1[.a-z0-9_-]{0,80}")
                         ? relative : "unrecognized path"));
             check(OsConstants.S_ISREG(mode), "synthetic module cache is a regular file");
         }

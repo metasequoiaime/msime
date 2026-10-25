@@ -1,18 +1,14 @@
-水杉 OCR 运行库试验模块
+水杉输入法 Android 可选离线 OCR 模块（接口版本 1）
 
-本项目适配代码：GPL-3.0-only，源码及许可证全文见 https://github.com/metasequoiaime/msime 。
+本项目适配代码（检测与识别的前后处理、模块接口）：GPL-3.0-only，源码及许可证全文见 https://github.com/metasequoiaime/msime 。
 
-识别引擎与内置中文/拉丁文字模型：
-com.google.mlkit:text-recognition-chinese:16.0.1
-Google Maven 固定版本来源：
-https://dl.google.com/dl/android/maven2/com/google/mlkit/text-recognition-chinese/16.0.1/
+推理引擎：ONNX Runtime 1.31.0（Maven Central 上的 com.microsoft.onnxruntime:onnxruntime-android:1.31.0），来源 https://github.com/microsoft/onnxruntime 的 v1.31.0（提交 402979ac1bef89dcd55add41eaa7277c407599eb）。许可：MIT，全文见 licenses/onnxruntime-MIT.txt；ONNX Runtime 自带的第三方组件声明见 licenses/onnxruntime-ThirdPartyNotices.txt。
 
-Google ML Kit SDK 与模型适用 Google 的 ML Kit 服务条款，并非本项目 GPL 许可证。
-条款与隐私说明：https://developers.google.com/ml-kit/terms
-Google APIs Terms of Service：https://developers.google.com/terms
-数据披露：https://developers.google.com/ml-kit/android-data-disclosure
+文字检测与识别模型：PaddlePaddle PP-OCRv6 tiny，许可：Apache-2.0，全文见 licenses/PaddleOCR-Apache-2.0.txt。模型文件原样分发，未经转换、量化或修改。
+- 检测 ocr/det.onnx：https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx 提交 2ba1506c0380b8f0b03dd142459aac66d4421f6c 的 inference.onnx，SHA-256 193bab7a04fca699a6c82e6abb5b81bdb28177f0abd4062552b04908dafb19f8
+- 识别 ocr/rec.onnx：https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_rec_onnx 提交 2612ab37152ae0a677521bae4e1e3d4fb4cf7c30 的 inference.onnx，SHA-256 9ef676d6ed3c88256a2d92c640c44f25b0c40947e111b14b8be8f594091563e6
+- 字典 ocr/dict.txt：从上述识别模型同一提交的 inference.yml（PostProcess.character_dict）逐条抽出，内容未作修改。
 
-识别输入和输出在设备上处理；SDK 可能联网获取更新、兼容信息，并发送性能和使用诊断。
-本模块目前用于独立兼容性探针和原生产品的合成设备验收，不进入基础输入法安装包，
-不作为已完成许可审计的正式资源包发布。正式分发前还需补齐实际解析依赖的
-固定版本、通知全文与再分发检查；参考仓库的 GPL 许可不覆盖 Google 的模型。
+隐私：识别在设备上完成，图片和识别结果不离开设备。模块不申请网络权限，删除了 ONNX Runtime 用来初始化遥测的 TelemetryInitializer，并在创建运行环境时关闭遥测；模块不建立网络连接，也不在输入法进程里写文件。
+
+本模块不进入基础输入法安装包，由用户从本项目 GitHub Release 手动下载后导入；宿主按源码中固定的完整 SHA-256 校验后才加载。

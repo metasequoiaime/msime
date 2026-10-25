@@ -29,6 +29,32 @@ public final class SyntheticOcrFixture {
         return bitmap;
     }
 
+    /** 竖排两列，按中文竖排的读法右列在前：「春眠不觉晓」在右，「处处闻啼鸟」在左。 */
+    public static Bitmap renderVertical() {
+        Bitmap bitmap = Bitmap.createBitmap(440, 720, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(Color.WHITE);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(Color.BLACK);
+        paint.setTextSize(88);
+        String[] columns = {VERTICAL_RIGHT, VERTICAL_LEFT};
+        float[] left = {270, 80};
+        for (int column = 0; column < columns.length; column++) {
+            for (int index = 0; index < columns[column].length(); index++)
+                canvas.drawText(columns[column], index, index + 1, left[column], 130 + 120 * index, paint);
+        }
+        return bitmap;
+    }
+
+    public static final String VERTICAL_RIGHT = "春眠不觉晓";
+    public static final String VERTICAL_LEFT = "处处闻啼鸟";
+
+    /** 竖排用例只认两列逐字正确且右列在前；读反或漏列都失败。 */
+    public static boolean verticalOrder(String[] lines) {
+        return lines != null && lines.length == 2 && VERTICAL_RIGHT.equals(lines[0].replaceAll("\\s", ""))
+            && VERTICAL_LEFT.equals(lines[1].replaceAll("\\s", ""));
+    }
+
     public static void saveImage(Context context, Bitmap bitmap, int index) throws Exception {
         try (FileOutputStream output = new FileOutputStream(new File(context.getFilesDir(), "ocr-synthetic-" + index + ".png"))) {
             if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))

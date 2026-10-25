@@ -22,6 +22,11 @@ resources/licenses/Unicode-License-V3.txt text eol=lf
 # OpenCC 许可证与固定源码输入逐字节核对，Windows 检出也保持 LF。
 resources/licenses/OpenCC-Apache-2.0.txt text eol=lf
 
+# Android OCR 模块的三份许可证与 resources/ocr-models-android.lock.json 固定的上游字节逐字节核对，Windows 检出也保持 LF。
+resources/licenses/onnxruntime-MIT.txt text eol=lf
+resources/licenses/onnxruntime-ThirdPartyNotices.txt text eol=lf
+resources/licenses/PaddleOCR-Apache-2.0.txt text eol=lf
+
 # GitHub 语言统计默认归入 Rust，主要语言仅按扩展名覆盖。
 * linguist-language=Rust
 *.cpp linguist-language=C++
