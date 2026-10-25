@@ -41,9 +41,62 @@ jobs:
           path: target/plugin-packs/
           if-no-files-found: error
 
+  runtime:
+    name: 构建 Win7 ${{ matrix.architecture }} 核心和语音运行库
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, x86]
+    runs-on: windows-2022
+    timeout-minutes: 240
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 安装 Rust 工具链和 Win7 标准库源码
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install
+          if ($LASTEXITCODE -ne 0) { throw 'Rust 工具链安装失败' }
+          rustup component add rust-src
+          if ($LASTEXITCODE -ne 0) { throw 'rust-src 安装失败' }
+
+      - name: 准备 MSVC 和 Windows SDK 工具
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = @(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath) | Select-Object -First 1
+          if (-not $vs) { throw '找不到 Visual Studio 安装目录' }
+          $vc = @(Get-ChildItem -LiteralPath (Join-Path $vs 'VC\Tools\MSVC') -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'bin\Hostx64\x64' } | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'dumpbin.exe') } | Select-Object -First 1)
+          $sdk = @(Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'x64' } | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'rc.exe') } | Select-Object -First 1)
+          if ($vc.Count -ne 1 -or $sdk.Count -ne 1) { throw '找不到 dumpbin、lib 或 rc 工具' }
+          $vc[0] >> $env:GITHUB_PATH
+          $sdk[0] >> $env:GITHUB_PATH
+
+      - name: 构建 Win7 核心和语音运行库
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arch = '${{ matrix.architecture }}'
+          ./platforms/windows/Build-Windows7Core.ps1 -Architecture $arch -OutputDirectory "$PWD/target/windows7-core"
+          ./platforms/windows/Build-Windows7VoiceRuntime.ps1 -Architecture $arch -Parallel 4
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows7-runtime-${{ matrix.architecture }}
+          path: |
+            target/windows7-core/${{ matrix.architecture }}
+            target/windows7-voice/${{ matrix.architecture }}
+          if-no-files-found: error
+
   package:
     name: Windows 7 安装包（${{ github.event.inputs.edition || 'full' }}）
-    needs: official-plugins
+    needs: [official-plugins, runtime]
     runs-on: windows-2022
     timeout-minutes: 240
     env:
@@ -60,6 +113,26 @@ jobs:
         with:
           name: official-plugin-packs-windows7
           path: target/plugin-packs
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: windows7-runtime-*
+          path: target/windows7-runtime
+          merge-multiple: true
+
+      - name: 整理 Win7 核心和语音运行库
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($arch in @('x64', 'x86')) {
+            $core = Join-Path $PWD "target/windows7-runtime/windows7-core/$arch"
+            $voice = Join-Path $PWD "target/windows7-runtime/windows7-voice/$arch"
+            if (-not (Test-Path -LiteralPath $core -PathType Container)) { throw "缺少 Win7 核心产物：$arch" }
+            if (-not (Test-Path -LiteralPath $voice -PathType Container)) { throw "缺少 Win7 语音产物：$arch" }
+            New-Item -ItemType Directory -Force -Path "target/windows7-core/$arch", "target/windows7-voice/$arch" | Out-Null
+            Copy-Item -Path (Join-Path $core '*') -Destination "target/windows7-core/$arch" -Recurse -Force
+            Copy-Item -Path (Join-Path $voice '*') -Destination "target/windows7-voice/$arch" -Recurse -Force
+          }
 
       - name: 安装 Rust 工具链和 Win7 标准库源码
         shell: pwsh
@@ -140,15 +213,6 @@ jobs:
         with:
           path: ${{ runner.temp }}/msime-win7-deps
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-
-      - name: 构建 Win7 核心和语音运行库
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          foreach ($arch in @('x64', 'x86')) {
-            ./platforms/windows/Build-Windows7Core.ps1 -Architecture $arch -OutputDirectory "$PWD/target/windows7-core"
-            ./platforms/windows/Build-Windows7VoiceRuntime.ps1 -Architecture $arch -Parallel 4
-          }
 
       - name: 构建 Win7 原生产品
         shell: pwsh
