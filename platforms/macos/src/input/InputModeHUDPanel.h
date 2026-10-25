@@ -8,7 +8,7 @@ FOUNDATION_EXPORT NSString *MSIMEInputModeHUDText(BOOL englishInputMode);
 FOUNDATION_EXPORT BOOL MSIMEInputModeHUDUsableCaretRect(NSRect caretRect);
 FOUNDATION_EXPORT NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visibleFrame);
 
-/// 中英文或繁简切换后的短暂提示，不激活窗口。
+/// 输入状态切换后的短暂提示，不激活窗口。
 @interface MSIMEInputModeHUDPanel : NSPanel
 /// 系统主题在 macOS 26 起使用原生材质，旧系统与减少透明度模式回退。
 @property(nonatomic) BOOL liquidGlassEnabled;
