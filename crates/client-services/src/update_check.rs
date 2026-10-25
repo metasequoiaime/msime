@@ -459,12 +459,13 @@ fn is_nightly_release(release: &Value) -> bool {
     release.get("tag_name").and_then(Value::as_str) == Some(NIGHTLY_TAG)
 }
 
-/// 发布正文里 `msime-build` 标记的运行 ID；没有标记、标记不是 JSON 或 `run` 不是正整数时为 `None`。
+/// 发布正文里 `msime-build` 标记的运行 ID；正文最后一行不是标记、标记不是 JSON 或 `run` 不是正整数时为 `None`。
+///
+/// 只认最后一行：`release-*.yml` 把标记追加在 `release-notes.md` 最末尾，而它前面的更新说明是 `generate-release-notes.py` 拿 PR 标题、正文和提交说明让模型写的，外部贡献者能控制其中的文字。正文中间出现的同名标记（PR 描述里的示例、故意写的大运行 ID）不能算数，否则一个写坏的会让这个发布没有运行 ID，一个写大的会让装了这个版本的每个用户一直被提醒同版本号的「新版本」。
 fn build_marker_run(body: Option<&Value>) -> Option<u64> {
-    let body = body?.as_str()?;
-    let start = body.find(BUILD_MARKER)? + BUILD_MARKER.len();
-    let end = start + body[start..].find(" -->")?;
-    let marker: Value = serde_json::from_str(&body[start..end]).ok()?;
+    let last_line = body?.as_str()?.trim_end().lines().next_back()?;
+    let payload = last_line.strip_prefix(BUILD_MARKER)?.strip_suffix(" -->")?;
+    let marker: Value = serde_json::from_str(payload).ok()?;
     marker.get("run")?.as_u64().filter(|run| *run > 0)
 }
 

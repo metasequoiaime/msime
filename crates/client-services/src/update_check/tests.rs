@@ -1029,8 +1029,31 @@ fn the_build_marker_and_build_run_parse_strictly() {
         ))),
         Some(123)
     );
+    // GitHub 网页上编辑过的正文是 CRLF 换行，末尾可能多出空白。
+    assert_eq!(
+        build_marker_run(Some(&body(
+            "说明\r\n\r\n<!-- msime-build {\"run\":123,\"source\":\"x\",\"channel\":\"beta\"} -->\r\n\r\n"
+        ))),
+        Some(123)
+    );
+    // 更新说明由模型按 PR 文字生成，外部贡献者能在中间塞进同名标记：只认末尾 `release-build-marker.py` 追加的那一行。
+    assert_eq!(
+        build_marker_run(Some(&body(
+            "- 示例 <!-- msime-build {\"run\":<u64>,\"source\":\"x\"} -->\n\n<!-- msime-build {\"run\":123,\"source\":\"x\",\"channel\":\"stable\"} -->\n"
+        ))),
+        Some(123)
+    );
+    assert_eq!(
+        build_marker_run(Some(&body(
+            "<!-- msime-build {\"run\":99999999999,\"source\":\"x\",\"channel\":\"stable\"} -->\n\n<!-- msime-build {\"run\":123,\"source\":\"x\",\"channel\":\"stable\"} -->\n"
+        ))),
+        Some(123)
+    );
     for text in [
         "没有标记",
+        // 标记不在最后一行（比如混在更新说明里、或者后面又被人加了文字）都不算。
+        "<!-- msime-build {\"run\":99999999999} -->\n\n- 合成的更新条目\n",
+        "前缀 <!-- msime-build {\"run\":123} -->",
         "<!-- msime-build {\"run\":0} -->",
         "<!-- msime-build {\"run\":-1} -->",
         "<!-- msime-build {\"run\":\"123\"} -->",

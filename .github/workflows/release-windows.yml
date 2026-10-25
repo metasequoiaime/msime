@@ -34,7 +34,7 @@ jobs:
         run: |
           # Build-Client.ps1 stamps this into the Tauri and Server metadata, which take three numeric components only.
           $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
-          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
           $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
       # SignPath 签名由本仓库的变量 WINDOWS_SIGNING_PROVIDER=signpath 打开；它不能建在组织级，否则别的仓库会一起打开。打开时其余配置缺一项就失败，不悄悄退回未签名；不设置时照旧发未签名安装包。只签 main 的正式版和 develop 的 beta：其他分支的 -alpha 是试验构建，不占用签名和审批，照旧不签名。
       # 输入 signpath_test 不看这个开关，在任何分支上用 test-signing 策略走一遍签名任务：测试证书不受系统信任，策略不需要审批，所以这种运行从不发布（publish 任务被跳过），只用来验证签名链路。签名流程见 docs/code-signing-policy.md。
