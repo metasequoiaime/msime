@@ -1980,8 +1980,16 @@ impl InputSession {
             b'S' => (LocalInputMode::Symbol, options.symbol),
             _ => return None,
         };
-        // 拆字和快捷短语一样在五笔下也能进入：它查的是编进引擎的部件拼音表，不经过当前方案的拼写，五笔用户同样会遇到不会读的字。
-        let scheme_opens = if matches!(mode, LocalInputMode::QuickPhrase | LocalInputMode::Chaizi) {
+        // 五笔编码只用小写字母，没有组字时的 Shift+字母不会和编码冲突，所以不经过当前方案拼写的模式在五笔下也能进入（`opens_table_modes`）：快捷短语、Unicode 码位、日期时间关键词、临时英文和符号分组码各有自己的输入，拆字查的是编进引擎的部件拼音表，五笔用户同样会遇到不会读的字（#9696）。Emoji、颜文字和超级简拼按当前方案的拼音拼写查，计算模式的数字和运算符要宿主按方案路由（Windows 的 LocalModeTriggersChanged），它们仍只在全拼、双拼下进入（`opens_local_modes`）。
+        let scheme_opens = if matches!(
+            mode,
+            LocalInputMode::QuickPhrase
+                | LocalInputMode::Chaizi
+                | LocalInputMode::Unicode
+                | LocalInputMode::DateTime
+                | LocalInputMode::TemporaryEnglish
+                | LocalInputMode::Symbol
+        ) {
             self.scheme().opens_table_modes()
         } else {
             self.scheme().opens_local_modes()

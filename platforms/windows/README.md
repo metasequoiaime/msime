@@ -452,7 +452,7 @@ request_stop 可从回调调用，不 join；stop 由外部控制线程调用，
 
 SessionPump 在外部 I/O worker 运行一个完整 ticket 的消息循环，通过 MainTransport 接口连接实际 PipeMainTransport/PipeRegistry。登记通知消费时检查 current，再在 InputQueue 创建会话；每条 Main 消息经过路由与 prepare、worker 焦点确认、队列确认、Engine 输入、回复发送、队列回执之后才读下一条。队列任务复制单帧数据，管道读取和写入都在外部 worker；禁止从输入队列调用 run，入口会拒绝自等待。
 
-PipeMainTransport 的 read 复用 Registry 的可取消空闲等待与消息校验；send 要求显式有限超时，仅完整成功返回 true。is_current 只是登记快照，不证明进程存活或焦点；实际读写继续复核身份/代次，发送同时经过 FocusGate。正常焦点切换导致的过期任务和输出被丢弃，不视为连接故障；确实尝试但失败的写入、无法编码的回复、身份/请求不匹配的分发结果和队列故障终止循环，不重放输入或不确定写入。重复 hello 无操作。退出撤销匹配焦点与主注册，并在队列清理会话；若连清理也无法入队，停止共享输入队列，宿主还必须停止其他管道循环。
+PipeMainTransport 的 read 复用 Registry 的可取消空闲等待与消息校验；send 要求显式有限超时，仅完整成功返回 true。is_current 只是登记快照，不证明进程存活或焦点；实际读写继续复核身份/代次，发送同时经过 FocusGate。正常焦点切换导致的过期任务和输出被丢弃，不视为连接故障；确实尝试但失败的写入、无法编码的回复、身份/请求不匹配的分发结果和队列故障终止循环，不重放输入或不确定写入。按键任务里只有 `RequestRejected` 被就地接住：循环返回 `PumpResult::RequestRejected`，经 `Presentation::rejected` 交出一行诊断（请求种类、客户端、请求号、校验名和计数），断开这一个客户端，输入队列继续运行；其他异常仍让输入队列停机。重复 hello 无操作。退出撤销匹配焦点与主注册，并在队列清理会话；若连清理也无法入队，停止共享输入队列，宿主还必须停止其他管道循环。
 
 KeyHandler 在输入队列上使用真实 TSF 模式/消费路径选择 ReplyPath，并且只调用一次 state.key；测试里的 Unicode 专用分发不是生产 VK 推断器。EventHandler 必须显式提供，用于发布携带 lease 的模式/候选 UI 工作；有活动 route 时回调处于焦点锁内，不得重入 gate、调用 Engine 或执行 I/O。清理类通知没有新前台授权，不得隐藏其他客户端 UI；异步消费者仍须检查 lease。无编码帧的返回只能表示 ReplyComposer 已验证的本地完成或无回复路径，不能拿它绕过待回复门禁。
 
@@ -637,7 +637,7 @@ InputState::basic_key(lease, packet, style, local_text) 统一基础分发：复
 
 普通模式的无修饰 1..9 与 Unicode 模式的 Shift+1..9 均按 VK 槽位选择当前共享候选 ID，不依赖 wch；例如非美式布局数字键产生 & 时仍选词，Unicode 裸数字仍编辑。小键盘按同样规则归一化。空候选返回未提交状态，不把布局字符作为替代文本上屏。
 
-LocalCommit 分发先验证该包确为原始文本提交键，且调用方提供的本地完成文本等于已选前缀加 Engine 当前 editing_text，再执行共享提交；缺少文本、内容不符或错误键型抛错，并保留组合和待回复状态。stage 的提交后校验仍保留，调用方不能用 Engine 返回值反过来伪造本地已上屏的证明。拒绝并不能撤回 TSF 已经错误插入的文本，仍需宿主处理协议分歧。
+LocalCommit 分发先验证该包确为原始文本提交键，且调用方提供的本地完成文本等于已选前缀加 Engine 当前 editing_text，再执行共享提交。键型不对是路由内部不变量，抛 `std::logic_error`；缺少文本或内容不符是 TIP 交来的数据，抛 `RequestRejected`（固定校验名 `local_commit_observation` 加字节计数，不含文本）。两者都在改动 Engine 之前抛出，保留组合和待回复状态。stage 的提交后校验仍保留，调用方不能用 Engine 返回值反过来伪造本地已上屏的证明。拒绝并不能撤回 TSF 已经插入的文本，所以 SessionPump 拒绝这个请求后断开这一个客户端，TIP 经重连从空会话重新开始，Server 不留着对不上的旧组字。
 
 InputState::edit(lease, packet, style) 按 Engine 当前模式判定字母、组合中的手动分隔符、Unicode 裸数字/加号、Backspace/Delete 和左右光标移动，并在同一焦点/待回复门禁中推进会话。非编辑键、快捷键、空组合删除、关闭输入或 unknown 模式返回空，不调用 Engine；调用方继续其余原生分发，不能将空结果当作完成了一次输入。
 

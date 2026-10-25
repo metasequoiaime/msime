@@ -100,6 +100,9 @@ public final class KeyHeatmapLayout {
                 case PERIOD -> new Key("。", entry.weight(), List.of("Period"));
                 case LANGUAGE -> new Key(LanguageKeyCyclePolicy.label(false, KeyboardScheme.QUANPIN, false,
                     List.of()), entry.weight(), List.of("SoftLanguage"));
+                // 只有手写底行带这两个键；热力图画的 26 键和九键底行不会走到这里。
+                case REWRITE -> new Key("重写", entry.weight(), List.of());
+                case DELETE -> new Key("⌫", entry.weight(), List.of("Backspace"));
                 case RETURN -> new Key("↵", entry.weight(), List.of("Enter"));
             });
         }

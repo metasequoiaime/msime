@@ -51,20 +51,26 @@ enum KeyboardFormFactor: Equatable {
     }
   }
 
-  /// 键盘按几排按键来排布：四排；iPad 显示数字行时为五排，因为那是整整多出的一排，而不是从字母行里挤出来的。
-  func keyRows(numberRow: Bool) -> Int { self == .tablet && numberRow ? 5 : 4 }
+  /// 键盘按几排按键来排布：四排；iPad 显示数字行时为五排，因为那是整整多出的一排，而不是从字母行里挤出来的。竖屏手写也多一排（`handwritingAddsRow`），书写区因此有四排键高。
+  func keyRows(numberRow: Bool, handwriting: Bool = false, landscape: Bool = false) -> Int {
+    (self == .tablet && numberRow ? 5 : 4) + (Self.handwritingAddsRow(handwriting: handwriting, landscape: landscape) ? 1 : 0)
+  }
+
+  /// 手写模式是否比其他布局多一排键高：竖屏的手机和 iPad 都多，书写区占四排键高、铺满键盘宽度；横屏屏幕本来就矮，保留原来的三排书写区。Android 与 HarmonyOS 按同一条规则（见 .agents/notes/implemented/feature/2026-10-25-mobile-handwriting-full-width-pad.md）。
+  static func handwritingAddsRow(handwriting: Bool, landscape: Bool) -> Bool { handwriting && !landscape }
 
   /// 用户调整之前的键盘高度，按设计稿的结构逐项相加：上边距、顶部那一行、它下面的间隔、各排按键连同排间距，以及下边距。顶部那一行收起（`topRow` 为 0，「显示方式」为隐藏时）时间隔也一起去掉，与 `applyKeyboardMetrics` 把那段间隔设为 0 一致，否则多出的高度会被分给按键，组字开始和结束时按键高度跟着跳。
   func keyboardHeight(topRow: CGFloat, rowSpacing: CGFloat, landscape: Bool, handwriting: Bool,
                       numberRow: Bool = false, letterKeys: Bool = false) -> CGFloat {
+    let rows = keyRows(numberRow: numberRow, handwriting: handwriting, landscape: landscape)
     let keyBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting, letterKeys: letterKeys),
-      rows: keyRows(numberRow: numberRow), rowSpacing: rowSpacing)
+      rows: rows, rowSpacing: rowSpacing)
     let standardRowSpacing = rowSpacing - (self == .phone && !landscape && letterKeys
       ? Self.phoneLetterRowPadding : 0)
     let standardBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting),
-      rows: keyRows(numberRow: numberRow), rowSpacing: standardRowSpacing)
+      rows: rows, rowSpacing: standardRowSpacing)
     // 26 键的键帽从 52pt 收紧到 44pt 后，用上下内边距补回这 20pt，切换布局时键盘外框不跳。
     let letterHeightCompensation = self == .phone && letterKeys ? standardBlock - keyBlock : 0
     return padding.top + topRow + (topRow > 0 ? topRowGap : 0)

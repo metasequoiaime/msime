@@ -16,7 +16,7 @@ Status: implemented
 
 ## Related notes
 
-检索鸿蒙、手写与 Core Vision 相关记录后，旧的[手写板设置预览](../../implemented/feature/2026-10-12-harmony-handwriting-pad-preview.md)只规定设置动画，属于部分重叠，本次不改变其示例笔画和默认值。其他命中的计时器、翻译和语言入口记录不涉及本次识别决定。本次扩大书写区的比例随后由 [三个移动端统一并扩大触屏手写区](2026-10-25-mobile-handwriting-pad-size.md) 推广到 iOS 与 Android，并把虚线辅助框的内缩改为 8。
+检索鸿蒙、手写与 Core Vision 相关记录后，旧的[手写板设置预览](../../implemented/feature/2026-10-12-harmony-handwriting-pad-preview.md)只规定设置动画，属于部分重叠，本次不改变其示例笔画和默认值。其他命中的计时器、翻译和语言入口记录不涉及本次识别决定。书写区随后由 [三个移动端的手写区铺满整行、竖屏加高一行](../feature/2026-10-25-mobile-handwriting-full-width-pad.md) 改为铺满键区宽度、竖屏四行高，虚线辅助框内缩为 8，映射到 420×420 时横竖改按同一比例缩放。
 
 ## Alternatives considered
 
@@ -27,7 +27,7 @@ Status: implemented
 
 - 鸿蒙逻辑测试、ArkTS HAP 构建、原生 `aarch64-unknown-linux-ohos` 交叉构建和签名包校验通过。
 - C ABI 合成「中」笔画测试返回包含「中」的候选；边界请求测试通过。
-- 手写区扩大后，设备坐标按实际画布尺寸记录，再映射到固定 420×420 识别坐标。
+- 手写区扩大后，设备坐标按实际画布尺寸记录，再按同一比例映射到固定 420×420 识别坐标（较长的一边对齐 420）。
 - 签名包已覆盖安装；真机端到端候选、上屏、删除和重写验收因设备锁屏未完成。
 
 ## Consequences

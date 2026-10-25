@@ -359,6 +359,29 @@ export class KeyboardScheme {
     return offered.length > 0 ? offered[0] : HANDWRITING;
   }
 
+  /**
+   * 功能面板「手写」磁贴离开手写时回到的入口（#9703）：`before`（经磁贴进入手写前的入口）还在 `offered` 里就回到它；不知道它（键盘是从方案选择进的手写）或它已被移除时，取 `offered` 里第一个不是手写的入口，再没有就是 {@link KeyboardScheme.fallback}。与 Android `KeyboardScheme.handwritingReturn`、iOS `InputSchemePreference.handwritingReturn` 一致。
+   */
+  static handwritingReturn(
+    before: SchemeDefinition | null,
+    offered: SchemeDefinition[],
+    edition: AppEdition = AppEdition.current(),
+  ): SchemeDefinition {
+    if (before !== null && before.preferenceId !== HANDWRITING.preferenceId) {
+      for (const candidate of offered) {
+        if (candidate.preferenceId === before.preferenceId) {
+          return candidate;
+        }
+      }
+    }
+    for (const candidate of offered) {
+      if (candidate.preferenceId !== HANDWRITING.preferenceId) {
+        return candidate;
+      }
+    }
+    return KeyboardScheme.fallback(edition);
+  }
+
   /** 文档里没有启用列表时键盘显示的方案，与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文、笔画和全拼 14/18 键由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。新装只启用中文方案（`TouchKeyboardScheme::DEFAULT_ENABLED`），由 client-core 显式写进文档，不经过这里。本版本不提供的入口不在里面。只有一个方案的版本例外：越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 和 Android 的 `KeyboardScheme.enabledFromPreferenceIds` 一致。 */
   static defaultEnabled(edition: AppEdition): SchemeDefinition[] {
     const optInEnabled: boolean = !edition.offersSchemeChoice();

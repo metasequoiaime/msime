@@ -12,7 +12,7 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
 
 ## Decision
 
-- **入口**：第 14 个本地模式 `LocalInputMode::Symbol`，名字 `symbol`，入口键 `S`。判定在 `local_mode_for_entry`：受总开关 `shift_letter_entry` 约束，方案用 `opens_local_modes`（全拼、双拼），和 E、M 一致；五笔下不进，因为分组码与符号名都是字母，不经方案的拼写。进入后只收字母：撇号、数字、`;` 都交还宿主，`spelling_symbols` 为空。和 E、M 一样不显示注释、不补辅助码。
+- **入口**：第 14 个本地模式 `LocalInputMode::Symbol`，名字 `symbol`，入口键 `S`。判定在 `local_mode_for_entry`：受总开关 `shift_letter_entry` 约束，方案用 `opens_table_modes`（全拼、双拼、五笔）：分组码与符号名都是字母，不经方案的拼写，五笔下也能进（起初跟 E、M 一样只在全拼、双拼下进，#9696 后改为五笔也进，见[五笔打开不经拼音拼写的 Shift 模式](../../implemented/bug-fix/2026-10-25-wubi-scheme-free-shift-modes.md)）。进入后只收字母：撇号、数字、`;` 都交还宿主，`spelling_symbols` 为空。和 E、M 一样不显示注释、不补辅助码。
 - **行的来源复用 `CandidateSource::Emoji`（6）**。符号行选中时整段上屏、结束组字，不学习、不调频、不进个人上下文，不能置顶、固定或删除，不请求释义——这些规则今天由「来源是 Emoji」统一给出，与混排符号行同一条路。新增 `CandidateSource::Symbol` 要改线上值、`from_u8`、`CATALOG_SOURCES`、`normalize_online_slots`、各宿主的结束组字判断，漏一处就是只在某个平台出现的组字残留；[打拼音出符号那篇](2026-10-13-symbol-candidates.md) 已经权衡过一次，结论相同。
 - **两条查法共用一次查询**（`local::symbol_groups::query_symbol_mode`）：先查整串分组码；没有精确组时才查前缀组，最后查符号名。整串优先是为了让 `xl` 只出希腊字母小写，不被 `xld`、`xlc` 这类同前缀的组掺进来。同一个符号只出一行，合计最多 `SYMBOL_MODE_LIMIT`（200，与 Windows `query_symbols` 的默认上限一致，一个组最多 214 个符号）。符号名走已有的 `local::symbol_candidates::query_mixed_symbols`，所以 `alpha` 得 α、`infinity` 得 ∞、`gamma` 得 γ Γ，和「打拼音出符号」用同一张自写表。
 - **分组码表另建一张**：`crates/engine/src/local/symbol_groups.tsv`（`编码<TAB>中文组名<TAB>符号...`，87 组、3 929 个符号、约 43 KB），`symbol_groups.rs` 用 `include_str!` 编进引擎，第一次查询时解析一次。没往 `symbol_candidates.tsv` 里塞分组码：那张表的每一行是「名称 + 拼音」，写法规则（中文名称只含汉字、音节数等于字数、单音节只收派和度、拉丁名称至少四个字母）由它的单测钉死，分组码不是名称、没有读音，塞进去要么放宽这些规则、要么在表里造出假拼音。

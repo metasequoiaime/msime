@@ -36,6 +36,14 @@ if ! grep -qF 'this.shuangpinKeyHints' <<< "$face_key_body"; then
   echo "KeyboardView.faceKey must include the shuangpin key hint switch so a live change redraws the letter keys" >&2
   exit 1
 fi
+# 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。入口怎么选由 keyboard-logic.test.ts 的 `KeyboardScheme.handwritingReturn` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：离开手写经 handwritingReturn 取入口，进入前是英文时回到英文。
+toggle_body=$(sed -n '/^  private toggleHandwritingScheme(): void {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+if ! grep -qF 'KeyboardScheme.handwritingReturn(before' <<< "$toggle_body" \
+  || ! grep -qF 'this.englishBeforeHandwriting' <<< "$toggle_body"; then
+  echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do

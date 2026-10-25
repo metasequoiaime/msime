@@ -136,3 +136,5 @@ Since #5667 / #5907 the mixed emoji and kaomoji rows no longer take the priority
 #8043 修复本地模式静默吞键：`local_date_time_incomplete`、`local_emoji_edges`、`local_quick_phrase`、`local_quick_phrase_edges`、`local_super_jianpin_queries`、`local_unicode_edges` 和 `personal_dictionary_entries` 中不被模式接受的字符改为先提交所见原文（含入口字母），再以未处理结果交还当前键。对应步骤及随后空组字的取消／退格期望据此更新，其他步骤保留固定参考断言；临时英文、临时日文和网址的独立拒绝分支保持原有行为。
 
 #9098 之后，全拼、双拼的空 `J` 入口遇到下一枚大写转为普通字面组字，避免 `JIT`、`JNH` 被当作超级简拼查询中文。`local_super_jianpin_queries` 中 `JNH` 的候选改为原文，模式、分词和逐字编辑边界相应更新；后接小写的查询、Unicode 合法大写以及其他步骤继续保留参考断言。
+
+#9696 之后，五笔在没有组字时也打开输入不经过方案拼写的 Shift+字母模式（U、T、Y、S，加上原有的 K、C），参考引擎在五笔下拒绝 U、T。`local_shortcuts_outside_pinyin` 因此在 U、T 之后各加一步 `Cancel`，U、T 两步记录进入 Unicode 和日期时间模式（兜底行是入口字母）；E、M 按拼音拼写查，仍保留参考的拒绝断言。见 `.agents/notes/implemented/bug-fix/2026-10-25-wubi-scheme-free-shift-modes.md`。

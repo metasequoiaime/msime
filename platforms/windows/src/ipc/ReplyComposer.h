@@ -7,9 +7,25 @@
 #include <future>
 #include <functional>
 #include <optional>
+#include <stdexcept>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace msime::windows {
+// TIP 交来的单个请求没有通过边界校验，例如本地回车的原文观测缺失或与 Server 的组字对不上。只在改动 Engine 之前抛出，所以会话和回复合成器都保持原样。SessionPump 的按键任务只接住这一种异常，拒绝这一个请求并重置这一个客户端的连接，输入队列继续运行；其他异常（Engine 失败、路由或待回复不变量被破坏）仍然停止输入队列。check 是固定的校验名，detail 只放计数，两者都会进诊断日志，不能带输入内容。
+class RequestRejected final : public std::invalid_argument {
+public:
+  RequestRejected(const char *check, std::string detail)
+      : std::invalid_argument(check), check_(check), detail_(std::move(detail)) {}
+  const char *check() const noexcept { return check_; }
+  const std::string &detail() const noexcept { return detail_; }
+
+private:
+  const char *check_;
+  std::string detail_;
+};
+
 // Supplied by the TSF-compatible dispatch path, not inferred from a VK alone:
 // e.g. a digit in Unicode mode is composition, not candidate selection.
 enum class ReplyPath {
@@ -77,9 +93,7 @@ public:
   stage(const KeyResult &result, ReplyPath path, bool uiless = false,
         std::optional<std::string> local_text = std::nullopt,
         std::size_t continue_consumed = 4);
-  // Normal input entry: enforce the pending-reply gate BEFORE advancing Engine.
-  // LocalCommit also requires an Enter/raw-commit key and caller-observed text
-  // equal to selected_prefix + Engine editing_text BEFORE clearing composition.
+  // 普通按键入口：先检查待回复闸门，再推进 Engine。LocalCommit 还要求按键是回车（原文提交），并且调用方观察到的文本等于已选前缀加 Engine 的 editing_text，都在清掉组字之前核对。按键不是回车说明路由选错了，是内部不变量，抛 std::logic_error；观测缺失或不符是 TIP 交来的数据，抛 RequestRejected。
   const PendingReply &
   dispatch(ServerSession &session, const FanyImeNamedpipeData &packet,
            uint64_t epoch, ReplyPath path, bool uiless = false,

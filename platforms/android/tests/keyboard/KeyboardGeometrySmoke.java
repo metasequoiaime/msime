@@ -122,13 +122,8 @@ public final class KeyboardGeometrySmoke {
             check(KeyboardHeightPolicy.bottomRowAdjustment(adjustment, false)
                 == KeyboardHeightPolicy.bottomRowAdjustment(adjustment), "其他布局保留四行均分");
         }
-        // 手写区三列与 iOS、HarmonyOS 同一组份额（scripts/test-mobile-handwriting-pad-parity.py），书写区至少占一行的四分之三。
-        check(KeyboardGeometry.HANDWRITING_PUNCTUATION_WEIGHT == 0.6f
-            && KeyboardGeometry.HANDWRITING_AREA_WEIGHT == 4f
-            && KeyboardGeometry.HANDWRITING_TOOLS_WEIGHT == 0.7f, "handwriting column shares");
-        float handwritingRow = KeyboardGeometry.HANDWRITING_PUNCTUATION_WEIGHT
-            + KeyboardGeometry.HANDWRITING_AREA_WEIGHT + KeyboardGeometry.HANDWRITING_TOOLS_WEIGHT;
-        check(KeyboardGeometry.HANDWRITING_AREA_WEIGHT / handwritingRow >= 0.75f, "handwriting area takes three quarters of the row");
+        // 手写区竖屏四行键高、横屏三行，与 iOS、HarmonyOS 同一条规则（scripts/test-mobile-handwriting-pad-parity.py）。
+        check(KeyboardGeometry.handwritingRows(false) == 4 && KeyboardGeometry.handwritingRows(true) == 3, "handwriting rows");
         check(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP == 48);
         check(KeyboardHeightPolicy.heightAdjustment(-13) == -12);
         check(KeyboardHeightPolicy.heightAdjustment(49) == 48);

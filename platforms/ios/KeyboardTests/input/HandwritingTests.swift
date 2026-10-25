@@ -113,16 +113,21 @@ final class HandwritingTests: XCTestCase {
     InputSchemePreference.scheme = .handwriting
     XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
     let controller = KeyboardViewController(); controller.loadViewIfNeeded()
+    let writingHeight = KeyboardViewController.keyboardHeight(handwriting: true)
+    // 竖屏手写比其他布局高一排键（52pt）和一道排间距。
+    XCTAssertEqual(writingHeight - KeyboardViewController.defaultKeyboardHeight,
+                   52 + CGFloat(KeyboardLayoutPreference.rowSpacing), accuracy: 0.5)
     for width in [320.0, 414.0] {
       let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
-      XCTAssertEqual(height.constant, KeyboardViewController.defaultKeyboardHeight)
+      XCTAssertEqual(height.constant, writingHeight)
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height.constant); controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
       XCTAssertFalse(panel.isHidden)
-      // 书写区是操作行上方设计稿三排 42pt 键的高度，减去面板自身的内边距。
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 130)
-      // 书写卡片约占键盘宽度的七成：320pt 宽时不小于 215pt，414pt 时不小于 285pt；虚线框只从卡片边缘内缩 8pt。
-      XCTAssertGreaterThan(panel.canvas.bounds.width, width * 0.67)
+      // 书写区有四排 52pt 键连同三道排间距那么高（底行的键只有 44pt，省下的 8pt 也归书写区）。
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 4 * 52 + 3 * CGFloat(KeyboardLayoutPreference.rowSpacing))
+      // 书写卡片铺满键盘宽度，只留键盘本身两侧的内边距；虚线框从卡片边缘内缩 8pt。
+      let padding = KeyboardFormFactor.phone.padding
+      XCTAssertEqual(panel.canvas.bounds.width, width - padding.leading - padding.trailing, accuracy: 0.5)
       let guide = try XCTUnwrap(HandwritingCanvasCard.guideRect(for: panel.canvas.bounds))
       XCTAssertEqual(panel.canvas.bounds.width - guide.width, 2 * HandwritingCanvasCard.guideInset, accuracy: 0.5)
       XCTAssertEqual(HandwritingCanvasCard.guideInset, 8)
@@ -133,10 +138,77 @@ final class HandwritingTests: XCTestCase {
     language.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
     XCTAssertTrue(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
+    // 离开手写后底行的「重写」和 ⌫ 也一起收起。
+    XCTAssertTrue(try control("handwritingRewrite", in: controller).isHidden)
+    XCTAssertTrue(try control("handwritingDelete", in: controller).isHidden)
     language.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, writingHeight)
     XCTAssertFalse(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
   }
+  /// 功能菜单的「手写」再点一次回到进入手写前的布局和中英状态（#9703），不是启用列表里的第一个方案，也不是停在手写上。
+  func testHandwritingTileReturnsToTheLayoutItWasOpenedFrom() throws {
+    let previous = InputSchemePreference.scheme
+    let memory = [ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]
+      .map { ($0, ImeModeMemoryPreference.defaults.object(forKey: $0)) }
+    defer {
+      InputSchemePreference.scheme = previous
+      for (key, value) in memory { ImeModeMemoryPreference.defaults.set(value, forKey: key) }
+    }
+    // 新键盘从中文开始，不继承模拟器上一次留下的英文。
+    ImeModeMemoryPreference.defaults.set(true, forKey: ImeModeMemoryPreference.enabledKey)
+    ImeModeMemoryPreference.defaults.set(true, forKey: ImeModeMemoryPreference.lastChineseKey)
+    XCTAssertEqual(InputSchemePreference.enabledSchemes.first, .quanpin, "全拼 26 键排在启用列表第一个，才看得出回到的是不是它")
+
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController(); controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey, "关掉手写回到了别的布局")
+    XCTAssertEqual(try languageKey(in: controller).accessibilityValue, KeyboardViewController.languageKeyValue(.nineKey))
+
+    // 从英文键盘（全拼 9 键上的英文）进入手写，关掉后回到英文，底下的方案仍是全拼 9 键。用同一个键盘：新建的键盘会先读共享文档里刚记下的方案，赋给 `InputSchemePreference.scheme` 的值盖不过它。
+    try languageKey(in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try languageKey(in: controller).accessibilityValue, "英文输入")
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
+    XCTAssertNotEqual(try languageKey(in: controller).accessibilityValue, "英文输入")
+    try tapHandwritingTile(in: controller)
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey)
+    XCTAssertEqual(try languageKey(in: controller).accessibilityValue, "英文输入", "关掉手写没有回到英文")
+  }
+
+  /// 离开手写回到哪个方案：记着的还启用着就是它，否则是启用列表里第一个不是手写的方案，与 Android、鸿蒙的 `handwritingReturn` 一致。
+  func testHandwritingReturnPrefersTheSchemeItWasOpenedFrom() {
+    let offered: [ChineseInputScheme] = [.quanpin, .nineKey, .shuangpin, .handwriting]
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .nineKey, offered: offered), .nineKey)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .shuangpin, offered: offered), .shuangpin)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: nil, offered: offered), .quanpin,
+                   "经方案选择进入手写时，取第一个不是手写的方案")
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .japanese, offered: offered), .quanpin,
+                   "进入手写后被关掉的方案不再回去")
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: .handwriting, offered: offered), .quanpin)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: nil, offered: [.handwriting, .wubi]), .wubi)
+    XCTAssertEqual(InputSchemePreference.handwritingReturn(before: nil, offered: [.handwriting]),
+                   ChineseInputScheme.editionFallback)
+  }
+
+  private func tapHandwritingTile(in controller: KeyboardViewController) throws {
+    let more = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" } as? UIButton)
+    more.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let tile = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "moreCard-手写" } as? UIControl,
+                             "No 手写 tile in the function menu.")
+    tile.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+  }
+
+  private func languageKey(in controller: KeyboardViewController) throws -> UIButton {
+    try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
+  }
+
   func testHandwritingHeightTracksOrientationAndSymbolMode() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
@@ -154,10 +226,13 @@ final class HandwritingTests: XCTestCase {
     let enter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
     // Annotated rather than inferred: three tuples of four components, where one is an enum written with a leading dot and two are overloaded `+` on CGFloat, give the solver enough freedom that it gives up with "unable to type-check this expression in reasonable time". Naming the type leaves it nothing to solve.
     let layouts: [(UIUserInterfaceSizeClass, CGFloat, CGFloat, CGFloat)] = [
-      (.regular, 414.0, KeyboardViewController.defaultKeyboardHeight, KeyboardViewController.defaultKeyboardHeight),
+      (.regular, 414.0, KeyboardViewController.keyboardHeight(handwriting: true), KeyboardViewController.defaultKeyboardHeight),
       (.compact, 812.0, KeyboardViewController.keyboardHeight(landscape: true, handwriting: true), KeyboardViewController.keyboardHeight(landscape: true)),
-      (.regular, 320.0, KeyboardViewController.defaultKeyboardHeight, KeyboardViewController.defaultKeyboardHeight),
+      (.regular, 320.0, KeyboardViewController.keyboardHeight(handwriting: true), KeyboardViewController.defaultKeyboardHeight),
     ]
+    // 横屏不加高：手写横屏仍是原来那四排的高度（书写区三排）。
+    XCTAssertEqual(KeyboardFormFactor.phone.keyRows(numberRow: false, handwriting: true, landscape: true), 4)
+    XCTAssertEqual(KeyboardFormFactor.phone.keyRows(numberRow: false, handwriting: true, landscape: false), 5)
     for (verticalSize, width, writingHeight, typingHeight) in layouts {
       parent.setOverrideTraitCollection(UITraitCollection(verticalSizeClass: verticalSize), forChild: controller)
       controller.viewDidLayoutSubviews()
@@ -165,7 +240,7 @@ final class HandwritingTests: XCTestCase {
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: writingHeight)
       controller.view.layoutIfNeeded()
       XCTAssertEqual(enter.bounds.height, 44, accuracy: 0.5)
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 90 : 130)
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 90 : 229)
       toggle.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(panel.isHidden)
       XCTAssertEqual(height.constant, typingHeight)
@@ -184,7 +259,7 @@ final class HandwritingTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.keyboardHeight(handwriting: true))
     controller.view.layoutIfNeeded()
     return controller
   }
@@ -197,47 +272,70 @@ final class HandwritingTests: XCTestCase {
     view.convert(view.bounds, to: controller.view)
   }
 
-  /// 手写键盘沿用 Android 的 rebuildHandwritingRows：左侧竖排 ，。？！，中间是书写卡片，右侧竖排 ⌫ 和「重写」，宽度按三个移动端共用的 .6 / 4 / .7 比例分配；下方是 Android 的 designEntries 给手写用的手机 26 键底排（123 | ， | 手写 | 。 | 中 | return）。
-  func testThePadHasAndroidsColumnsAndThePhoneBottomRow() throws {
+  /// 手写键盘：书写卡片铺满键盘宽度；底行是三个移动端共用的 123 | ， | 手写 | 。 | 中 | 重写 | ⌫ | return（Android `KeyboardActionRow.designEntries`、HarmonyOS `handwritingActionRow`），宽度按 `handwriting*Weight` 分配。原来书写区左侧的 ？ ！ 由 ， 和 。 的长按输入。
+  func testThePadSpansTheRowAndTheBottomRowCarriesTheTools() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
     defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
-    let controller = try handwritingController(width: 390)
-    let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
-    XCTAssertFalse(panel.isHidden)
-    let card = frame(panel, in: controller)
-    let marks = try KeyboardViewController.handwritingPunctuation.map { try control("handwritingPunctuation\($0)", in: controller) }
-    XCTAssertEqual(marks.map { $0.configuration?.title }, ["，", "。", "？", "！"])
-    for mark in marks {
-      XCTAssertLessThan(frame(mark, in: controller).maxX, card.minX)
-      XCTAssertEqual(mark.bounds.width, card.width * 0.6 / 4, accuracy: 0.5)
+    for width in [320.0, 390.0, 414.0] {
+      let controller = try handwritingController(width: width)
+      let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
+      XCTAssertFalse(panel.isHidden)
+      let card = frame(panel, in: controller)
+      let padding = KeyboardFormFactor.phone.padding
+      XCTAssertEqual(card.minX, padding.leading, accuracy: 0.5)
+      XCTAssertEqual(card.maxX, width - padding.trailing, accuracy: 0.5)
+      XCTAssertFalse(nodes(controller.view).contains { ($0.accessibilityIdentifier ?? "").hasPrefix("handwritingPunctuation") },
+                     "the side punctuation column is gone")
+      let toggle = try control("layoutToggleButton", in: controller)
+      let comma = try control("quickPunctuationKey", in: controller)
+      let space = try control("spaceKey", in: controller)
+      let period = try control("bottomPeriodKey", in: controller)
+      let language = try control("bottomLanguageKey", in: controller)
+      let rewrite = try control("handwritingRewrite", in: controller)
+      let delete = try control("handwritingDelete", in: controller)
+      let enter = try control("returnKey", in: controller)
+      let row = [toggle, comma, space, period, language, rewrite, delete, enter]
+      for key in row {
+        XCTAssertFalse(key.isHidden, key.accessibilityIdentifier ?? "")
+        XCTAssertGreaterThan(frame(key, in: controller).minY, card.maxY, key.accessibilityIdentifier ?? "")
+        XCTAssertEqual(frame(key, in: controller).minY, frame(enter, in: controller).minY, accuracy: 0.5)
+      }
+      for (left, right) in zip(row, row.dropFirst()) {
+        XCTAssertLessThan(frame(left, in: controller).maxX, frame(right, in: controller).minX,
+                          "\(left.accessibilityIdentifier ?? "") before \(right.accessibilityIdentifier ?? "")")
+      }
+      XCTAssertEqual(rewrite.configuration?.title, "重写")
+      let unit = space.bounds.width / KeyboardViewController.handwritingSpaceWeight
+      XCTAssertEqual(comma.bounds.width, unit * KeyboardViewController.handwritingPunctuationWeight, accuracy: 0.5)
+      XCTAssertEqual(period.bounds.width, unit * KeyboardViewController.handwritingPunctuationWeight, accuracy: 0.5)
+      XCTAssertEqual(rewrite.bounds.width, unit * KeyboardViewController.handwritingRewriteWeight, accuracy: 0.5)
+      XCTAssertEqual(delete.bounds.width, unit * KeyboardViewController.handwritingDeleteWeight, accuracy: 0.5)
+      XCTAssertEqual(enter.bounds.width, unit * KeyboardViewController.handwritingReturnWeight, accuracy: 0.5)
+      // 最窄的 320pt 上 ， 和 。 仍有约一个 26 键字母键宽，空格放得下麦克风和完整的「手写」。
+      XCTAssertGreaterThanOrEqual(comma.bounds.width, 24, "\(Int(width))pt")
+      let spaceTitle = try XCTUnwrap(space.titleLabel)
+      XCTAssertEqual(spaceTitle.text, "手写")
+      XCTAssertGreaterThanOrEqual(spaceTitle.bounds.width + 0.5, spaceTitle.intrinsicContentSize.width,
+                                  "the space label is clipped at \(Int(width))pt")
+      // ？ 和 ！ 是 ， 和 。 的长按角标。
+      let commaKey = try XCTUnwrap(comma as? KeyboardKeyButton)
+      let periodKey = try XCTUnwrap(period as? KeyboardKeyButton)
+      XCTAssertEqual(commaKey.cornerHint, "？")
+      XCTAssertEqual(periodKey.cornerHint, "！")
+      XCTAssertNotNil(commaKey.onCornerHint)
+      XCTAssertNotNil(periodKey.onCornerHint)
+      XCTAssertNil(comma.menu, "a long press on ， types ？ instead of opening the quick punctuation menu")
+      for hint in ["handwritingCommaHint", "handwritingPeriodHint"] {
+        let label = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == hint } as? UILabel, hint)
+        XCTAssertFalse(label.isHidden, hint)
+      }
+      print("Handwriting bottom row at \(Int(width))pt: \(row.map { "\($0.accessibilityIdentifier ?? "")=\($0.bounds.width)" }.joined(separator: " "))")
     }
-    // 四个标点从上到下平分卡片的高度。
-    XCTAssertEqual(frame(marks[0], in: controller).minY, card.minY, accuracy: 0.5)
-    XCTAssertEqual(frame(marks[3], in: controller).maxY, card.maxY, accuracy: 0.5)
-    let delete = try control("handwritingDelete", in: controller)
-    let rewrite = try control("handwritingRewrite", in: controller)
-    XCTAssertEqual(rewrite.configuration?.title, "重写")
-    for tool in [delete, rewrite] {
-      XCTAssertGreaterThan(frame(tool, in: controller).minX, card.maxX)
-      XCTAssertEqual(tool.bounds.width, card.width * 0.7 / 4, accuracy: 0.5)
-    }
-    XCTAssertLessThan(frame(delete, in: controller).maxY, frame(rewrite, in: controller).minY)
-    // 书写卡片占标点列左缘到工具列右缘的约四分之三（两道键距之外）。
-    let row = frame(marks[0], in: controller).minX...frame(delete, in: controller).maxX
-    XCTAssertGreaterThanOrEqual(card.width / (row.upperBound - row.lowerBound), 0.72)
     XCTAssertTrue(KeyboardViewController.usesPhoneBottomRow(formFactor: .phone, nineKeyFrame: false, handwriting: true, kana: false))
     XCTAssertTrue(KeyboardViewController.usesPhoneBottomRow(formFactor: .tablet, nineKeyFrame: false, handwriting: true, kana: false))
-    let comma = try control("quickPunctuationKey", in: controller)
-    let period = try control("bottomPeriodKey", in: controller)
+    let controller = try handwritingController(width: 390)
     let space = try control("spaceKey", in: controller)
-    let language = try control("bottomLanguageKey", in: controller)
-    let enter = try control("returnKey", in: controller)
-    for key in [comma, period, space, language, enter] { XCTAssertFalse(key.isHidden, key.accessibilityIdentifier ?? "") }
-    XCTAssertLessThan(frame(comma, in: controller).maxX, frame(space, in: controller).minX)
-    XCTAssertLessThan(frame(space, in: controller).maxX, frame(period, in: controller).minX)
-    XCTAssertLessThan(frame(period, in: controller).maxX, frame(language, in: controller).minX)
-    XCTAssertLessThan(frame(language, in: controller).maxX, frame(enter, in: controller).minX)
     XCTAssertEqual(space.configuration?.title, "手写")
     XCTAssertNotNil(space.configuration?.image, "the space bar keeps its mic")
   }

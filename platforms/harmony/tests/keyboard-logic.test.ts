@@ -1627,6 +1627,30 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
     widePoint.x === 600 && widePoint.y === 300,
     "wide handwriting areas retain points outside the fixed recognition canvas",
   );
+  // 铺满键盘宽度的书写区（约 352×197vp）横竖按同一比例映射到 420 的识别坐标：方的笔画仍是方的，点都留在 420 以内。
+  const corner = HandwritingStrokePolicy.recognitionPoint(352, 197, 352, 197);
+  const square = [
+    HandwritingStrokePolicy.recognitionPoint(100, 50, 352, 197),
+    HandwritingStrokePolicy.recognitionPoint(200, 150, 352, 197),
+  ];
+  check(
+    Math.abs(corner.x - HANDWRITING_CANVAS_SIZE) < 1e-9 && corner.y < HANDWRITING_CANVAS_SIZE,
+    "the longer side of the pad spans the recognition canvas",
+  );
+  check(
+    Math.abs((square[1].x - square[0].x) - (square[1].y - square[0].y)) < 1e-9,
+    "a square stroke stays square instead of being stretched to the canvas height",
+  );
+  const tall = HandwritingStrokePolicy.recognitionPoint(100, 400, 200, 400);
+  check(
+    Math.abs(tall.y - HANDWRITING_CANVAS_SIZE) < 1e-9 && Math.abs(tall.x - 105) < 1e-9,
+    "a pad taller than wide scales by its height",
+  );
+  const tablet = HandwritingStrokePolicy.recognitionPoint(800, 260, 800, 260);
+  check(
+    tablet.x === HANDWRITING_CANVAS_SIZE && tablet.y < HANDWRITING_CANVAS_SIZE,
+    "a pad wider than 420vp still maps inside the canvas",
+  );
   check(!HandwritingStrokePolicy.canRecognize([]), "empty ink does not trigger OCR");
   check(
     HandwritingStrokePolicy.canRecognize([{ points: [point] }]),
@@ -11455,6 +11479,42 @@ group("the language editions offer only their own scheme and no handwriting", ()
     KeyboardScheme.fromPreferences("nonsense", null, "twenty_six_key", vietnameseEdition) ===
       KeyboardScheme.VIETNAMESE,
     "an unknown scheme reads as the edition's default",
+  );
+});
+
+group("leaving handwriting from the tile returns to the scheme it was entered from (#9703)", () => {
+  const offered = [
+    KeyboardScheme.QUANPIN,
+    KeyboardScheme.QUANPIN_NINE_KEY,
+    KeyboardScheme.XIAOHE,
+    KeyboardScheme.HANDWRITING,
+  ];
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.QUANPIN_NINE_KEY, offered) ===
+      KeyboardScheme.QUANPIN_NINE_KEY,
+    "全拼 9 键 comes back to 全拼 9 键, not the first card",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.XIAOHE, offered) === KeyboardScheme.XIAOHE,
+    "and 小鹤双拼 to 小鹤双拼",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(null, offered) === KeyboardScheme.QUANPIN,
+    "handwriting picked from the picker leaves for the first card that is not handwriting",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.JAPANESE, offered) === KeyboardScheme.QUANPIN,
+    "a scheme removed while writing is not brought back",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(KeyboardScheme.HANDWRITING, offered) ===
+      KeyboardScheme.QUANPIN,
+    "handwriting is never its own way out",
+  );
+  check(
+    KeyboardScheme.handwritingReturn(null, [KeyboardScheme.HANDWRITING], wubiEdition) ===
+      KeyboardScheme.WUBI,
+    "with only handwriting left the edition's own scheme is the way out",
   );
 });
 

@@ -1316,6 +1316,11 @@ int wmain(int argc, wchar_t **argv) {
     name_builtin_helpcodes(session_options, config.state_root);
     name_official_plugin_packs(session_options, executable_directory());
     startup_stage = "pipe_server";
+    // 单个按键被拒（RequestRejected）只断开那一个客户端，原因写进 Server 日志；不然日志里只剩随后的重连，看不出是哪一项校验没过。
+    SessionPump::Presentation pump_presentation;
+    pump_presentation.rejected = [&diagnostic_log](const std::string &line) {
+      diagnostic_log.server(line);
+    };
     WindowsServer server(
         options, session_options.dump(),
         production
@@ -1331,7 +1336,8 @@ int wmain(int argc, wchar_t **argv) {
                     return result;
                   })
             : preview_key_handler(config),
-        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        std::move(pump_presentation));
     // Server 构造期间已可接收切换；安装与调用共用锁，异常展开也先撤销并等完旧回调。
     struct PreferenceWakeBinding {
       decltype(wake_preferences) &callback;

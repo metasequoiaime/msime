@@ -296,7 +296,14 @@ cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcp
 # `backend-library-load` 加载 bundle 里的 MSIMEBackend.dylib（Release 构建会对它做优化、dead strip 和剥离符号，见 scripts/build_backend_swift.sh），确认输入法按名字查找的 Objective-C 类和 selector 都还在。
 ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^(bundle-contents|backend-library-load)$'
 
-built_bundle="$(only "$build_dir"/*.app)"
+# 构建目录里不止输入法一个 app bundle：测试用的 korean-system-input-acceptance.app（CMakeLists.txt 里的 MACOSX_BUNDLE 测试程序）也在这里，按通配符取唯一一个会找到两个而失败。只取 Info.plist 里有 InputMethodConnectionName 的那个，它才是输入法本体。
+input_method_bundles=()
+for candidate in "$build_dir"/*.app; do
+  if /usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$candidate/Contents/Info.plist" >/dev/null 2>&1; then
+    input_method_bundles+=("$candidate")
+  fi
+done
+built_bundle="$(only ${input_method_bundles[@]+"${input_method_bundles[@]}"})"
 imk_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$built_bundle/Contents/Info.plist")"
 if [ "$imk_version" != "$version" ]; then
   echo "the input method reports $imk_version but the package is $version; the bundle takes its version from platforms/macos/version.txt, so pass the release version as VERSION or bump version.txt" >&2

@@ -360,13 +360,14 @@ const PICKER_ENGLISH_26: string = 'english-26';
 const PICKER_ENGLISH_9: string = 'english-9';
 const PICKER_ADD_LANGUAGE: string = 'add-language';
 const HANDWRITING_CANVAS_ID: string = 'msime-harmony-handwriting-canvas';
-// 触屏手写板的三列按份额分配行宽：收窄两侧控制列，把书写区扩大到约四分之三。iOS 与 Android 使用同一组份额。
-const HANDWRITING_PUNCTUATION_WEIGHT: number = 0.6;
-const HANDWRITING_AREA_WEIGHT: number = 4;
-const HANDWRITING_TOOLS_WEIGHT: number = 0.7;
-const HANDWRITING_SIDE_GAP_VP: number = 6;
-const HANDWRITING_PUNCTUATION_FONT_SIZE: number = 17;
-const HANDWRITING_REWRITE_FONT_SIZE: number = 14;
+// 触屏手写底行 123 | ， | space | 。 | 中 | 重写 | ⌫ | return 的份额，iOS（`KeyboardViewController.handwriting*Weight`）与 Android（`KeyboardActionRow.HANDWRITING_*_WEIGHT`）相同：书写区铺满整行后「重写」和 ⌫ 搬到底行，空格从 4 让到 2.4、回车从 1.9 让到 1.6。
+const HANDWRITING_LAYER_SHARE: number = 1.25;
+const HANDWRITING_PUNCTUATION_SHARE: number = 1;
+const HANDWRITING_SPACE_SHARE: number = 2.4;
+const HANDWRITING_LANGUAGE_SHARE: number = 1.05;
+const HANDWRITING_REWRITE_SHARE: number = 1.25;
+const HANDWRITING_DELETE_SHARE: number = 1.25;
+const HANDWRITING_RETURN_SHARE: number = 1.6;
 const HANDWRITING_STATUS_FONT_SIZE: number = 13;
 // 虚线辅助框距书写区边缘的距离；设计稿原为 14，三个移动端统一收窄到 8，让可见书写区更大。
 const HANDWRITING_GUIDE_INSET_VP: number = 8;
@@ -494,7 +495,8 @@ struct KeyboardView {
   @State shuangpinProfile: string = 'xiaohe';
   /** 双拼触屏字母组码布局；26/14/18 键独立于当前双拼方案保存。 */
   @State shuangpinLayout: string = 'twenty_six_key';
-  @State localMode: string = 'none';
+  // 方案、中英文、123 层、本地模式和横竖屏决定手写区要不要多一行（`handwritingExtraRows`），变了就重定面板高度，见 `syncStripHeight`。
+  @State @Watch('syncStripHeight') localMode: string = 'none';
   @State @Watch('syncStripHeight') diagnostic: string = '';
   @State punctuation: boolean = false;
   /** The Japanese digit layer's bracket list, which shares the strip the other long presses use. */
@@ -525,10 +527,10 @@ struct KeyboardView {
   @State handwritingSkin: KeyboardSkin = KeyboardSkin.fromTheme('system', 'system', null, false);
   /** The 2in1 candidate context menu's colours: the candidate palette, in the menu's own mode. */
   @State menuColors: CandidateColors = GlobalTheme.candidateColors(null, false);
-  @State english: boolean = false;
+  @State @Watch('syncStripHeight') english: boolean = false;
   /** Which surface the toolbar asked this window to carry, on a machine with no key faces. */
   @State desktop: DesktopSurface = DesktopSurface.NONE;
-  @State @Watch('dropLetterGestures') symbols: boolean = false;
+  @State @Watch('symbolLayerChanged') symbols: boolean = false;
   /** 在触屏键盘的符号层中，当前显示的是否是 #+= 层而不是 123 层；在字母层上始终为 false（Android 的 `ImeLetterRows.moreSymbols`）。 */
   @State @Watch('dropLetterGestures') moreSymbols: boolean = false;
   @State nineKey: boolean = false;
@@ -634,7 +636,7 @@ struct KeyboardView {
   @State effectCardHeight: number = 0;
   @State caseMode: LetterCaseMode = LetterCaseMode.LOWERCASE;
   @State skin: KeyboardSkin = KeyboardSkin.fromTheme('system', 'system', null, false);
-  @State scheme: SchemeDefinition = KeyboardScheme.fallback();
+  @State @Watch('syncStripHeight') scheme: SchemeDefinition = KeyboardScheme.fallback();
   /** 五笔版本：方案仍是同一个五笔，只换卡片和工具栏上的「86」「98」字样；单独设成状态，只改版本时也会重绘。 */
   @State wubiProfile: string = KeyboardScheme.WUBI_86;
   @State handwritingStrokes: HandwritingStroke[] = [];
@@ -676,6 +678,8 @@ struct KeyboardView {
   @State panelResetToken: number = 0;
   /** 手机横屏（`KeyboardFormFactorPolicy.phoneLandscape`）：功能面板和方案选择只排两行。转屏时随屏幕变化重读，开着的面板跟着按新行数重排。 */
   @State phoneLandscape: boolean = false;
+  /** 屏幕宽大于高（手机、平板都算）：横屏时手写区保持三行，不像竖屏那样多一行（`KeyboardMetrics.handwritingExtraRows`），与 iOS、Android 同一条规则。 */
+  @State @Watch('syncStripHeight') landscape: boolean = false;
   private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
@@ -684,6 +688,8 @@ struct KeyboardView {
   /** 面板上一次按工具条显示与否定下的高度，`syncStripHeight` 只在它和现在不一样时改面板高度。 */
   private stripWasShown: boolean =
     !TouchToolbarPolicy.rowHidden(KeyboardSession.shared.preferences().toolbarTools);
+  /** 面板上一次定高时手写区多出的行数，`syncStripHeight` 只在它和现在不一样时改面板高度。扩展能力建面板时按没有多出的行算。 */
+  private extraRowsWere: number = 0;
 
   /** 按下的键变暗和缩小的程度：触屏上是设计稿的 .86 和 .96；2in1 上保持不变，它的设备形态在进程存续期间不会改变。 */
   private readonly keyPressedBrightness: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_BRIGHTNESS;
@@ -739,6 +745,8 @@ struct KeyboardView {
   private heightDragOffset: number = 0;
   /** 「手写」磁贴切换前的方案，再次点按回到它；键盘不是由该磁贴切换过来时为 null。 */
   private schemeBeforeHandwriting: SchemeDefinition | null = null;
+  /** 「手写」磁贴切换前键盘是否在英文（英文 26 键、英文 9 键），再次点按时一并回到英文（#9703）。 */
+  private englishBeforeHandwriting: boolean = false;
   /** Glide typing (滑行输入): the letter keys a..z in window coordinates, as their area callbacks last reported them; null until a key has been laid out. */
   private glideKeys: (GlideKeyRect | null)[] = GlideTypingPolicy.emptyKeys();
   /** The finger being watched for a glide, from its touch-down on a letter key until it lifts; -1 while none is. */
@@ -881,6 +889,8 @@ struct KeyboardView {
     // The editor may already be attached by the time the view appears, in which case its override
     // never produced a callback and has to be read off the session here.
     this.applyEditorFace();
+    // 扩展能力按没有多出的行建了面板；开着手写的竖屏键盘在这里补上那一行的高度。
+    this.syncStripHeight();
     KeyboardSession.shared.onEditorChanged = (): void => {
       // A URI or password field opens in Latin whatever the user last chose, so the face has to
       // follow or it would claim a language the Engine is not composing in.
@@ -1552,6 +1562,12 @@ struct KeyboardView {
   }
 
   /** 被跟踪触摸下的键正在被替换（换了层或界面，或视图即将销毁）：丢弃这些触摸、它们的计时器和气泡，与 Android 的 `rebuildKeyRows` 一样。 */
+  /** 切进或退出 123 层：丢掉进行中的字母手势；手写的 123 层不带多出的那一行，面板跟着改高度。 */
+  private symbolLayerChanged(): void {
+    this.dropLetterGestures();
+    this.syncStripHeight();
+  }
+
   private dropLetterGestures(): void {
     this.hintHoldTimers.forEach((timer: number): void => clearTimeout(timer));
     this.hintHoldTimers.clear();
@@ -2310,28 +2326,34 @@ struct KeyboardView {
   }
 
   /**
-   * 功能面板的「手写」磁贴：切换到手写板，或切回该磁贴切换前的方案。Android 的磁贴也这样来回切换；若键盘是经其他途径进入手写的，切回的是选择器提供的第一个其他方案，与 Android 的选法相同。
+   * 功能面板的「手写」磁贴：切换到手写板，或切回该磁贴切换前的方案和中英状态（#9703）。Android、iOS 的磁贴也这样来回切换；若键盘是经其他途径进入手写的，切回的是选择器提供的第一个其他方案（`KeyboardScheme.handwritingReturn`）。原先只记方案不记英文，从英文键盘进入手写再关掉会落到中文。
    */
   private toggleHandwritingScheme(): void {
     if (this.handwritingSelected()) {
-      const back: SchemeDefinition = this.schemeBeforeHandwriting ?? this.firstNonHandwritingScheme();
-      this.selectScheme(back);
+      const before: SchemeDefinition | null = this.schemeBeforeHandwriting;
+      const english: boolean = this.englishBeforeHandwriting;
+      const back: SchemeDefinition = KeyboardScheme.handwritingReturn(before, this.offeredSchemes());
+      if (this.selectScheme(back) && english && before !== null
+        && back.preferenceId === before.preferenceId && !this.english) {
+        this.toggleTouchLanguage();
+      }
       return;
     }
     const previous: SchemeDefinition = this.scheme;
-    if (this.selectScheme(KeyboardScheme.HANDWRITING)
-      && previous.preferenceId !== KeyboardScheme.HANDWRITING.preferenceId) {
+    const previousEnglish: boolean = this.english;
+    const remembered: SchemeDefinition | null = this.schemeBeforeHandwriting;
+    const rememberedEnglish: boolean = this.englishBeforeHandwriting;
+    if (!this.selectScheme(KeyboardScheme.HANDWRITING)) {
+      return;
+    }
+    if (previous.preferenceId !== KeyboardScheme.HANDWRITING.preferenceId) {
       this.schemeBeforeHandwriting = previous;
+      this.englishBeforeHandwriting = previousEnglish;
+    } else {
+      // 英文盖在手写上时点磁贴只是退出英文，回到手写板；经磁贴进入手写前的那个方案仍然有效。
+      this.schemeBeforeHandwriting = remembered;
+      this.englishBeforeHandwriting = rememberedEnglish;
     }
-  }
-
-  private firstNonHandwritingScheme(): SchemeDefinition {
-    for (const candidate of this.offeredSchemes()) {
-      if (candidate.preferenceId !== KeyboardScheme.HANDWRITING.preferenceId) {
-        return candidate;
-      }
-    }
-    return KeyboardScheme.fallback();
   }
 
   /**
@@ -2538,7 +2560,14 @@ struct KeyboardView {
     for (let row: number = 0; row < KeyboardMetrics.KEY_ROWS; row++) {
       total += this.rowHeight(row);
     }
-    return total;
+    // 竖屏手写多一行键高和一道行距；从工具栏打开的面板也盖这么高，打开表情等面板时键盘不跳。
+    return total + this.handwritingExtraRows() * (KeyboardMetrics.ROW_HEIGHT_VP + this.rowSpacing());
+  }
+
+  /** 手写区比其他键面多出的行数（`KeyboardMetrics.handwritingExtraRows`）：竖屏触屏手写为 1，其余为 0。 */
+  private handwritingExtraRows(): number {
+    return KeyboardMetrics.handwritingExtraRows(this.touchDesign()
+      && KeyboardScheme.usesHandwritingFace(this.scheme, this.english, this.symbols, this.localMode), this.landscape);
   }
 
   /**
@@ -3479,7 +3508,7 @@ struct KeyboardView {
 
   /** 工具条出现或消失时让面板跟着改高度，没变时什么也不做：组字时每打一个字母都会走到这里。 */
   private syncStripHeight(): void {
-    if (this.stripShown() !== this.stripWasShown) {
+    if (this.stripShown() !== this.stripWasShown || this.handwritingExtraRows() !== this.extraRowsWere) {
       this.resizeTouchPanel();
     }
   }
@@ -3487,9 +3516,11 @@ struct KeyboardView {
   /** 按当前的行距、高度调整和工具条显示与否给手机面板定高度；2in1 上会话不做任何事。 */
   private resizeTouchPanel(): void {
     this.stripWasShown = this.stripShown();
+    this.extraRowsWere = this.handwritingExtraRows();
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-      this.settings.candidateFontSize, this.settings.candidatePreeditFontSize, false, this.stripWasShown));
+      this.settings.candidateFontSize, this.settings.candidatePreeditFontSize, false, this.stripWasShown,
+      this.extraRowsWere));
   }
 
   /** 候选条的读音行要不要占位。没有 canvas 时一直占位，候选不会因为它出现、消失而上下移动；有 canvas 时只在有东西显示时占位，见 `stripCanvasContentHeight`。 */
@@ -5365,7 +5396,7 @@ struct KeyboardView {
    * from those faces was tapping a candidate. It is a builder now so that every face ends the same
    * way, which is also how the Apple host is arranged.
    *
-   * 触屏键盘的字母键面改用设计稿的底行（`designActionRow`），九键网格和笔画键盘用九键外框的底行（`nineKeyActionRow`）；触屏 123 和 #+= 层自己绘制底行（`designLayerFace`）。假名网格、手写和所有 2in1 屏幕键盘仍用这一行。
+   * 触屏键盘的字母键面改用设计稿的底行（`designActionRow`），九键网格和笔画键盘用九键外框的底行（`nineKeyActionRow`）；触屏 123 和 #+= 层自己绘制底行（`designLayerFace`），触屏手写用 `handwritingActionRow`。假名网格和所有 2in1 屏幕键盘（含 2in1 的手写面板）仍用这一行。
    */
   @Builder
   actionRow() {
@@ -5378,7 +5409,7 @@ struct KeyboardView {
     }
   }
 
-  /** 到这里结束的键面是否使用设计稿的底行：触屏键盘的字母行（26 键、大千行以及大千键面保留的共享符号行），而不是带自己标点列的网格、假名网格或手写板。 */
+  /** 到这里结束的键面是否使用设计稿的底行：触屏键盘的字母行（26 键、大千行以及大千键面保留的共享符号行），而不是带自己标点列的网格、假名网格或手写板（触屏手写板另有 `handwritingActionRow`）。 */
   private designBottomRow(): boolean {
     return this.touchDesign() && !this.gridActionRow() && !this.japanese
       && !KeyboardScheme.usesHandwritingFace(this.scheme, this.english, this.symbols, this.localMode);
@@ -5543,6 +5574,110 @@ struct KeyboardView {
         }
       });
       this.designReturnKey(RETURN_SHARE, true);
+    }
+    .width('100%')
+    .height(this.rowHeight(3))
+  }
+
+  /**
+   * 触屏手写的底行：123 1.25 | ， 1 | space 2.4 | 。 1 | 中 1.05 | 重写 1.25 | ⌫ 1.25 | return 1.6，即 Android 的 `KeyboardActionRow.designEntries(HANDWRITING_LAYOUT)` 和 iOS 的手写底行。书写区铺满整行，原来它右侧的「重写」和 ⌫ 排在中/英与回车之间；原来左侧的 ？ ！ 由 ， 和 。 的长按输入，两键都画角标。
+   *
+   * ⌫ 有笔迹时撤回一笔、没有时删除光标前的字符（`deleteHandwriting`），紧挨回车，所以回车不让出键帽（`besideLanguage` 为假）。
+   */
+  @Builder
+  handwritingActionRow() {
+    Row({ space: this.keySpacing() }) {
+      Column() {
+        this.fixedKey({
+          face: '123',
+          label: KeyAccessibilityPolicy.layoutToggle(false),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: '100%',
+          action: () => this.toggleSymbolLayer()
+        });
+      }
+      .layoutWeight(HANDWRITING_LAYER_SHARE)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
+      Column() {
+        this.fixedKey({
+          face: this.chinesePunctuationFaces() ? '，' : ',',
+          label: '逗号；长按输入问号',
+          size: TOUCH_LETTER_FONT_SIZE,
+          emphasized: false,
+          width: '100%',
+          cornerHint: this.chinesePunctuationFaces() ? '？' : '?',
+          action: () => this.typeComma()
+        });
+      }
+      .layoutWeight(HANDWRITING_PUNCTUATION_SHARE)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => {
+        // 统计实际按下的逗号键，长按识别后不再触发普通点按。
+        KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
+        KeyboardSession.shared.punctuation(0x3f);
+      }))
+      this.spaceKey(true, HANDWRITING_SPACE_SHARE);
+      Column() {
+        this.fixedKey({
+          face: this.chinesePunctuationFaces() ? '。' : '.',
+          label: '句号；长按输入叹号',
+          size: TOUCH_LETTER_FONT_SIZE,
+          emphasized: false,
+          width: '100%',
+          cornerHint: this.chinesePunctuationFaces() ? '！' : '!',
+          action: () => this.typePeriod()
+        });
+      }
+      .layoutWeight(HANDWRITING_PUNCTUATION_SHARE)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => {
+        KeyboardSession.shared.softKeyPress(KeyIdPolicy.character('.'));
+        KeyboardSession.shared.punctuation(0x21);
+      }))
+      this.fixedKey({
+        face: this.languageFace(),
+        label: KeyAccessibilityPolicy.language(),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        fontWeight: FUNCTION_LABEL_WEIGHT,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: HANDWRITING_LANGUAGE_SHARE,
+        action: () => {
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LANGUAGE);
+          this.toggleTouchLanguage();
+        }
+      });
+      this.fixedKey({
+        face: '重写',
+        label: '清空手写',
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        fontWeight: FUNCTION_LABEL_WEIGHT,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: HANDWRITING_REWRITE_SHARE,
+        action: () => this.clearHandwriting()
+      });
+      this.fixedKey({
+        face: '⌫',
+        label: KeyAccessibilityPolicy.delete(),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: HANDWRITING_DELETE_SHARE,
+        icon: KeyboardIconPaths.BACKSPACE,
+        action: () => {
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.BACKSPACE);
+          this.deleteHandwriting();
+        }
+      });
+      this.designReturnKey(HANDWRITING_RETURN_SHARE, false);
     }
     .width('100%')
     .height(this.rowHeight(3))
@@ -6593,10 +6728,12 @@ struct KeyboardView {
   private redrawHandwriting(): void {
     const context: CanvasRenderingContext2D = this.handwritingContext;
     const pad: FeedbackSettings = KeyboardSession.shared.feedbackSettings();
-    context.clearRect(0, 0, HANDWRITING_CANVAS_SIZE, HANDWRITING_CANVAS_SIZE);
+    // 书写区铺满键盘宽度，平板和折叠屏上会比 420vp 宽：按画布实际大小清，免得右侧留下上一笔。
+    context.clearRect(0, 0, Math.max(context.width, HANDWRITING_CANVAS_SIZE),
+      Math.max(context.height, HANDWRITING_CANVAS_SIZE));
     // 「笔迹颜色」：「跟随皮肤」取手写板皮肤的文字颜色，这样笔迹在任何底色上都看得清；其余是 `KeyboardFeedback` 的固定墨色。
     context.strokeStyle = KeyboardFeedback.strokeInk(pad.handwritingStrokeColor, this.handwritingSkin.keyForeground);
-    // 「笔迹粗细」以 vp 为单位，这块画布也是：笔画按触摸的 vp 坐标记录，限制在 `HANDWRITING_CANVAS_SIZE` 的正方形内，绘制上下文用的也是同一单位，所以线宽无需缩放就与设置显示的一致。
+    // 「笔迹粗细」以 vp 为单位，这块画布也是：笔画按触摸的 vp 坐标记录，限制在画布自己的宽高之内（`HandwritingStrokePolicy.pointInCanvas`），绘制上下文用的也是同一单位，所以线宽无需缩放就与设置显示的一致。
     context.lineWidth = KeyboardFeedback.handwritingStrokeWidth(pad.handwritingStrokeWidth);
     context.lineCap = 'round';
     context.lineJoin = 'round';
@@ -7178,51 +7315,26 @@ struct KeyboardView {
     Column({ space: this.rowSpacing() }) {
       if (this.touchDesign()) {
         this.handwritingPad()
+        this.handwritingActionRow()
       } else {
         this.handwritingPanel()
+        // 手写 reaches the letters through the same language key every other face uses, which is what
+        // HandwritingSchemeKeepsToolbarAndSwitchesBackToLetters asks of it.
+        this.actionRow()
       }
-      // 手写 reaches the letters through the same language key every other face uses, which is what
-      // HandwritingSchemeKeepsToolbarAndSwitchesBackToLetters asks of it.
-      this.actionRow()
     }
     .width('100%')
     .height(this.surfaceHeight())
   }
 
   /**
-   * 触屏手写板，即 Android 的 `rebuildHandwritingRows`：左侧竖排 ，。？！，中间是书写区，右侧竖排 ⌫ 和「重写」，下方是 `handwritingFace` 里的共享底行。⌫ 撤回最后一笔，手写板为空时删除光标前的字符；这里没有重做按钮，与 Android 一致。
+   * 触屏手写板，即 Android 的 `rebuildHandwritingRows`：书写区铺满键区宽度，竖屏有四行键高（`KeyboardMetrics.handwritingExtraRows`），下方是 `handwritingActionRow`。⌫、「重写」和标点都在底行；⌫ 撤回最后一笔，手写板为空时删除光标前的字符；这里没有重做按钮，与 Android 一致。
    *
    * 参考线和状态行独立叠放；书写区外层统一接收触摸，识别只使用已完成的笔画。
    */
   @Builder
   handwritingPad() {
-    Row({ space: this.keySpacing() }) {
-      Column({ space: HANDWRITING_SIDE_GAP_VP }) {
-        ForEach(NineKeyLayout.punctuation(), (symbol: string) => {
-          Column() {
-            Text(this.symbolFace(symbol))
-              .fontSize(HANDWRITING_PUNCTUATION_FONT_SIZE)
-              .fontColor(this.handwritingSkin.keyLabelColor(false, true))
-              .textAlign(TextAlign.Center)
-              .width('100%')
-          }
-          .layoutWeight(1)
-          .width('100%')
-          .justifyContent(FlexAlign.Center)
-          .backgroundColor(this.handwritingSkin.keySurfaceBackground(false, true))
-          .borderRadius(this.handwritingSkin.keyCornerRadius())
-          .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
-          .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
-          .animation({ duration: KEY_PRESS_MS })
-          .onClick(() => {
-            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
-            KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
-          })
-        }, (symbol: string) => symbol + this.faceKey())
-      }
-      .layoutWeight(HANDWRITING_PUNCTUATION_WEIGHT)
-      .height('100%')
-
+    Row() {
       Stack() {
         Canvas(this.handwritingContext)
           .id(HANDWRITING_CANVAS_ID)
@@ -7265,44 +7377,9 @@ struct KeyboardView {
             .hitTestBehavior(HitTestMode.None)
         }
       }
-      .layoutWeight(HANDWRITING_AREA_WEIGHT)
+      .layoutWeight(1)
       .height('100%')
       .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
-
-      Column({ space: HANDWRITING_SIDE_GAP_VP }) {
-        Column() {
-          KeyboardLineIcon({
-            d: KeyboardIconPaths.BACKSPACE,
-            iconSize: KEY_ICON_VP,
-            stroke: KeyboardIconPaths.KEY_STROKE,
-            color: this.handwritingSkin.keyLabelColor(false, true)
-          })
-        }
-        .layoutWeight(1)
-        .width('100%')
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .backgroundColor(this.handwritingSkin.keySurfaceBackground(false, true))
-        .borderRadius(this.handwritingSkin.keyCornerRadius())
-        .accessibilityText(KeyAccessibilityPolicy.delete())
-        .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
-        .animation({ duration: KEY_PRESS_MS })
-        .onClick(() => this.deleteHandwriting())
-        Text('重写')
-          .fontSize(HANDWRITING_REWRITE_FONT_SIZE)
-          .fontColor(this.handwritingSkin.keyLabelColor(false, true))
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .width('100%')
-          .backgroundColor(this.handwritingSkin.keySurfaceBackground(false, true))
-          .borderRadius(this.handwritingSkin.keyCornerRadius())
-          .accessibilityText('清空手写')
-          .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
-          .animation({ duration: KEY_PRESS_MS })
-          .onClick(() => this.clearHandwriting())
-      }
-      .layoutWeight(HANDWRITING_TOOLS_WEIGHT)
-      .height('100%')
     }
     .width('100%')
     .height(this.gridHeight())
@@ -7416,6 +7493,7 @@ struct KeyboardView {
       const screen: display.Display = display.getDefaultDisplaySync();
       this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
         screen.height / screen.densityPixels);
+      this.landscape = screen.width > screen.height;
     } catch {
       // 显示服务暂不可用时保留上次方向，等待下一次窗口布局通知。
       KeyboardLog.error('keyboard orientation unavailable');

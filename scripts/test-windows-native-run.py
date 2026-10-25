@@ -169,6 +169,16 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
         ],
         True,
     ),
+    # 本地回车观测被拒只拒绝那一个请求，对真实 Engine 会话核对状态不变、下一个键照常处理。
+    "input/local_commit_rejection.cpp": (
+        [
+            "src/ipc/ReplyComposer.cpp",
+            "src/ipc/ReplyCodec.cpp",
+            "src/ipc/ServerSession.cpp",
+            "src/input/ChineseTextConversion.cpp",
+        ],
+        True,
+    ),
     # Book-title nesting paid back after the TSF auto-closes, against a real Engine session.
     "input/paired_punctuation_balance.cpp": (
         ["src/ipc/ServerSession.cpp", "src/ipc/ReplyCodec.cpp", "src/input/ChineseTextConversion.cpp"],

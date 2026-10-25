@@ -38,6 +38,19 @@ export class HandwritingStrokePolicy {
     };
   }
 
+  /**
+   * 书写区的一个点在识别器 420×420 坐标里的位置：横竖按同一比例缩放（取书写区较长的一边对齐 420），字形不被拉长或压扁。书写区铺满键盘宽度后宽高比约 1.7，分别缩放会把字压扁近一半；引擎再把整个字的外框缩放到自己的画布，同样保持比例。
+   */
+  static recognitionPoint(x: number, y: number, width: number, height: number): HandwritingPoint {
+    const canvasWidth: number =
+      Number.isFinite(width) && width > 0 ? width : HANDWRITING_CANVAS_SIZE;
+    const canvasHeight: number =
+      Number.isFinite(height) && height > 0 ? height : HANDWRITING_CANVAS_SIZE;
+    const scale: number = HANDWRITING_CANVAS_SIZE / Math.max(canvasWidth, canvasHeight);
+    return HandwritingStrokePolicy.point(
+      (Number.isFinite(x) ? x : 0) * scale, (Number.isFinite(y) ? y : 0) * scale);
+  }
+
   static canRecognize(strokes: HandwritingStroke[]): boolean {
     return (
       strokes.length > 0 &&

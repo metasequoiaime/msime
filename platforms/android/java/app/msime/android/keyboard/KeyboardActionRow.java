@@ -11,7 +11,7 @@ import java.util.List;
  * composition has to be a decision rather than a side effect, and it is made here where a smoke test
  * can read it without an emulator.
  *
- * <p>No key appears twice. Delete and 大小写 belong to the last of the 26 key rows whenever those rows are on screen; the quanpin nine-key and the stroke keypad keep punctuation in their sidebar and delete in their right column, the Zhuyin nine-key grid carries the symbol panel key, punctuation and delete itself, handwriting keeps delete in its tool column, and the Japanese kana grid brings its own side columns and takes no action row at all.
+ * <p>No key appears twice. Delete and 大小写 belong to the last of the 26 key rows whenever those rows are on screen; the quanpin nine-key and the stroke keypad keep punctuation in their sidebar and delete in their right column, the Zhuyin nine-key grid carries the symbol panel key, punctuation and delete itself, handwriting's writing pad spans the whole row so its 重写 and delete keys sit in this row, and the Japanese kana grid brings its own side columns and takes no action row at all.
  */
 public final class KeyboardActionRow {
     /** A key the row can carry, in the order the row lays them out. */
@@ -110,10 +110,10 @@ public final class KeyboardActionRow {
         return symbols ? "切换到字母键盘" : "切换到数字和符号";
     }
 
-    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：14 键、手写和大千注音是 123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9；26 键是 123 / 符 / 空格 / ， / 中 / ↵，九键外框是 符 / 123 / 空格 / 中 / ↵ ----
+    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：14 键和大千注音是 123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9；手写是 123 1.25 / ， 1 / 空格 2.4 / 。 1 / 中 1.05 / 重写 1.25 / ⌫ 1.25 / ↵ 1.6；26 键是 123 / 符 / 空格 / ， / 中 / ↵，九键外框是 符 / 123 / 空格 / 中 / ↵ ----
 
-    /** 新设计底行的键，按排列顺序；符 在 26 键一族的数字入口之后、九键外框的最左边出现，地球键只在宿主允许切换输入法时插在 123 之后，中/英紧挨在回车左边。 */
-    public enum DesignSlot { SYMBOL_PANEL, LAYER, GLOBE, COMMA, SPACE, ZERO, PERIOD, LANGUAGE, RETURN }
+    /** 新设计底行的键，按排列顺序；符 在 26 键一族的数字入口之后、九键外框的最左边出现，地球键只在宿主允许切换输入法时插在 123 之后，中/英紧挨在回车左边（手写在两者之间放「重写」和 ⌫）。 */
+    public enum DesignSlot { SYMBOL_PANEL, LAYER, GLOBE, COMMA, SPACE, ZERO, PERIOD, LANGUAGE, REWRITE, DELETE, RETURN }
 
     /** 新设计底行里的一个键与它的宽度份额。 */
     public record DesignEntry(DesignSlot slot, float weight) {}
@@ -130,7 +130,18 @@ public final class KeyboardActionRow {
     public static final float DESIGN_LETTER_EDGE_WEIGHT = 1.4f;
 
     /**
-     * 新设计的底行：123 |（地球）| ， | 空格 | 。 | 中/英 | 回车。中/英放在回车左边，右手拇指够得着；注音 9 键的逗号句号在网格最后一行，日文假名网格不带底行。这一行留给 14 键（第三行左端已经有 符）、手写和大千注音。
+     * 手写底行 123 |（地球键 1）| ， | 空格 | 。 | 中 | 重写 | ⌫ | 回车 的宽度份额，iOS（`KeyboardViewController.handwriting*Weight`）与 HarmonyOS（`HANDWRITING_*_SHARE`）相同，由 scripts/test-mobile-handwriting-pad-parity.py 比对。书写区铺满整行后「重写」和 ⌫ 搬进这一行，空格从 4 让到 2.4、回车从 1.9 让到 1.6（与九键底行的回车相同）：360 dp 宽时 ， 。 约 27 dp，与 26 键字母键相当，空格仍画得下麦克风和「手写」。
+     */
+    public static final float HANDWRITING_LAYER_WEIGHT = 1.25f;
+    public static final float HANDWRITING_PUNCTUATION_WEIGHT = 1f;
+    public static final float HANDWRITING_SPACE_WEIGHT = 2.4f;
+    public static final float HANDWRITING_LANGUAGE_WEIGHT = 1.05f;
+    public static final float HANDWRITING_REWRITE_WEIGHT = 1.25f;
+    public static final float HANDWRITING_DELETE_WEIGHT = 1.25f;
+    public static final float HANDWRITING_RETURN_WEIGHT = 1.6f;
+
+    /**
+     * 新设计的底行：123 |（地球）| ， | 空格 | 。 | 中/英 | 回车。中/英放在回车左边，右手拇指够得着；注音 9 键的逗号句号在网格最后一行，日文假名网格不带底行。这一行留给 14 键（第三行左端已经有 符）和大千注音；手写另有一行（{@code handwritingEntries}）。
      *
      * <p>26 键一族（标准 26 键，含全拼、双拼、五笔、英文等，以及韩文键面）是 123 |（地球）| 符 | 空格 | ， | 中/英 | 回车。符 打开符号面板，逗号长按输入句号，中英文模式相同。123 / #+= 层自带底行，有自己的符号入口。
      *
@@ -143,6 +154,7 @@ public final class KeyboardActionRow {
         // 日语九键和注音九键的四行键块自带 123、中/英、空格、换行（注音九键的这几个是挪过去的底栏键），不再要底栏。
         if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT
                 || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) return List.of();
+        if (touchLayout == KeyboardLayout.HANDWRITING_LAYOUT) return handwritingEntries(globe);
         // 九键外框以符号键打头；26 键把符号入口放在数字入口之后，逗号放在空格右边。
         boolean symbolPanelRow = touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
             || touchLayout == KeyboardLayout.STROKE_LAYOUT;
@@ -163,6 +175,28 @@ public final class KeyboardActionRow {
         entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.RETURN, DESIGN_RETURN_WEIGHT));
         return List.copyOf(entries);
+    }
+
+    /**
+     * 手写底行：123 |（地球）| ， | 空格 | 。 | 中/英 | 重写 | ⌫ | 回车。书写区铺满键区宽度，原来书写区两侧的 ⌫、「重写」排在中/英和回车之间；原来左列的 ？ ！ 由逗号、句号的长按输入（{@link #usesHandwritingMarks}）。三个移动端的手写底行一致。
+     */
+    private static List<DesignEntry> handwritingEntries(boolean globe) {
+        List<DesignEntry> entries = new ArrayList<>(9);
+        entries.add(new DesignEntry(DesignSlot.LAYER, HANDWRITING_LAYER_WEIGHT));
+        if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.COMMA, HANDWRITING_PUNCTUATION_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.SPACE, HANDWRITING_SPACE_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.PERIOD, HANDWRITING_PUNCTUATION_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.LANGUAGE, HANDWRITING_LANGUAGE_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.REWRITE, HANDWRITING_REWRITE_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.DELETE, HANDWRITING_DELETE_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.RETURN, HANDWRITING_RETURN_WEIGHT));
+        return List.copyOf(entries);
+    }
+
+    /** 手写底行的逗号长按输入问号、句号长按输入叹号，两键都画角标；它们接替原来书写区左列的 ？ ！。 */
+    public static boolean usesHandwritingMarks(int touchLayout) {
+        return touchLayout == KeyboardLayout.HANDWRITING_LAYOUT;
     }
 
     /** 26 键字母层用逗号的长按动作输入句号，其他底行保留原标点菜单。 */
@@ -230,6 +264,8 @@ public final class KeyboardActionRow {
             case COMMA, PERIOD -> punctuationFace(slot, chinesePunctuation);
             case SPACE -> "空格";
             case ZERO -> "数字 0";
+            case REWRITE -> "清空手写";
+            case DELETE -> "删除";
             case RETURN -> "换行";
         };
     }
