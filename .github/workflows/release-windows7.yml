@@ -44,7 +44,7 @@ jobs:
   package:
     name: Windows 7 安装包（${{ github.event.inputs.edition || 'full' }}）
     needs: official-plugins
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 240
     env:
       EDITION: ${{ github.event.inputs.edition || 'full' }}
