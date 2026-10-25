@@ -342,8 +342,10 @@ public final class KeyboardFragment extends HomeTabFragment {
         boolean current = enabled && ImeSetup.isDefault(requireContext());
         String state = getString(prepared && current
             ? R.string.settings_status_ready : R.string.settings_status_incomplete);
-        ((TextView) view.findViewById(R.id.keyboard_status_line)).setText(
-            schemeTitle == null ? state : state + " · " + schemeTitle);
+        ((TextView) view.findViewById(R.id.keyboard_status_title)).setText(state);
+        TextView scheme = view.findViewById(R.id.keyboard_status_line);
+        scheme.setText(schemeTitle);
+        scheme.setVisibility(schemeTitle == null ? View.GONE : View.VISIBLE);
         check(view, R.id.keyboard_check_enabled, R.id.keyboard_check_enabled_mark,
             R.id.keyboard_check_enabled_action, R.string.settings_check_enabled, enabled,
             this::openInputMethodSettings);

@@ -61,7 +61,7 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         if (visible(id("onboarding_skip"))) tap(id("onboarding_skip"));
         await(id("tab_settings"));
         tap(id("tab_settings"));
-        await(id("keyboard_title").and(node -> equalsText("设置", node.getText())));
+        await(id("keyboard_title").and(node -> equalsText("水杉输入法", node.getText())));
         await(id("tab_settings").and(AccessibilityNodeInfo::isSelected));
         stage = "settings list has the skin row";
         AccessibilityNodeInfo rows = awaitAny(id("keyboard_rows"));
@@ -95,7 +95,7 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         // 旧版系统的返回事件异步更新窗口，先等事件与动画结束，避免读到上次首页的节点。
         automation.waitForIdle(500, 5000);
         await(id("tab_settings").and(AccessibilityNodeInfo::isSelected));
-        await(id("keyboard_title").and(node -> equalsText("设置", node.getText())));
+        await(id("keyboard_title").and(node -> equalsText("水杉输入法", node.getText())));
         stage = "AI settings open secondary chat";
         reveal("AI 润色与回复");
         stage = "AI settings row click";
@@ -117,7 +117,7 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         await(id("tab_settings").and(AccessibilityNodeInfo::isSelected));
         shellDiscard("input keyevent 4");
         automation.waitForIdle(500, 5000);
-        awaitAny(id("keyboard_title").and(node -> equalsText("设置", node.getText())));
+        awaitAny(id("keyboard_title").and(node -> equalsText("水杉输入法", node.getText())));
         stage = "home tryout uses secondary chat";
         tap(id("tab_settings"));
         // 返回时保留了查找 AI 设置的滚动位置，试用按钮可能被紧凑标题栏盖住；
@@ -132,7 +132,7 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         await(id("tryout_field").and(AccessibilityNodeInfo::isFocused));
         if (visible(id("tab_settings"))) throw new AssertionError("The tryout chat must hide the bottom tabs");
         tap(id("tryout_back"));
-        await(id("keyboard_title").and(node -> equalsText("设置", node.getText())));
+        await(id("keyboard_title").and(node -> equalsText("水杉输入法", node.getText())));
         await(id("tab_settings").and(AccessibilityNodeInfo::isSelected));
     }
 }

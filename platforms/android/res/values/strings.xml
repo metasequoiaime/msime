@@ -2,7 +2,7 @@
 <resources>
     <!-- 启动器、应用信息，以及系统输入法设置里这个键盘的名字，都取自这里。 -->
     <string name="app_name">水杉输入法</string>
-    <string name="tab_settings">设置</string>
+    <string name="tab_settings">首页</string>
     <string name="splash_latin" translatable="false">METASEQUOIA IME</string>
     <string name="splash_skip">轻点跳过</string>
     <string name="tab_chat">对话</string>

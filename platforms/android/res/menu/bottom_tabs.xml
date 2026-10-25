@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 底部四个入口与 HostDeepLink 下标保持一致：设置、社区、统计、我的，图标是 Material Symbols 的 settings、public、bar_chart、person。社区 tab 的根页是 CommunityTabPage（皮肤 / 词库）；AI 对话通过设置详情页打开。 -->
+<!-- 底部四个入口与 HostDeepLink 下标保持一致：首页、社区、统计、我的，图标是 Material Symbols 的 home、public、bar_chart、person。社区 tab 的根页是 CommunityTabPage（皮肤 / 词库）；AI 对话通过设置详情页打开。 -->
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@+id/tab_settings" android:icon="@drawable/ic_ms_settings" android:title="@string/tab_settings" />
+    <item android:id="@+id/tab_settings" android:icon="@drawable/ic_ms_home" android:title="@string/tab_settings" />
     <item android:id="@+id/tab_community" android:icon="@drawable/ic_ms_public" android:title="@string/tab_community" />
     <item android:id="@+id/tab_statistics" android:icon="@drawable/ic_ms_bar_chart" android:title="@string/tab_statistics" />
     <item android:id="@+id/tab_account" android:icon="@drawable/ic_ms_person" android:title="@string/tab_account" />
