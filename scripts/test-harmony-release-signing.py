@@ -90,7 +90,13 @@ class ReleaseSigning(unittest.TestCase):
     def test_tool_errors_do_not_disclose_output_or_arguments(self):
         secret = "synthetic-secret-not-for-logs"
         with self.assertRaises(ValueError) as failure:
-            SIGNING.run([sys.executable, "-c", f"import sys;sys.exit({secret!r})", secret])
+            SIGNING.run([
+                sys.executable,
+                "-c",
+                f"import sys;sys.stderr.write('synthetic diagnostic');sys.exit({secret!r})",
+                secret,
+            ])
+        self.assertIn("synthetic diagnostic", str(failure.exception))
         self.assertNotIn(secret, str(failure.exception))
 
     def hap(self, version="0.2.0", omitted=None):
