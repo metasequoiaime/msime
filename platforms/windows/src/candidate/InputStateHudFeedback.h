@@ -1,6 +1,6 @@
 #pragma once
 #include "InputModeHudLayout.h"
-#include "../system/FocusGate.h"
+#include "../system/FocusLease.h"
 #include <chrono>
 #include <mutex>
 #include <utility>

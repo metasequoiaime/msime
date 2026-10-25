@@ -40,7 +40,7 @@ Status: implemented
 
 `InputModeHudWindow` 接受显示文字和独立的无障碍播报。单字保持 18 号字、32 DIP 高的紧凑尺寸，多字用相同 DirectWrite 字体实测宽度后展开，切回单字恢复原宽。繁简、全半角、标点、英文候选、输入方案、候选译文和清缓存均复用既有 HUD 的主题、logo、光标定位、计时、总开关和全屏抑制，不改任何偏好默认值。方案名称复用托盘行，含双拼配置和五笔版本；非中文方案进入输入态使用所属语言的字形及播报。
 
-`InputStateHudFeedback` 只保留最后一次成功操作，界面每轮取走，关闭 HUD 或全屏时照样消费，不在恢复后重播；超过一秒的消息丢弃。会话状态按完整 `FocusLease`（客户端、三条管道代次、能力、激活 epoch、焦点 token）校验，全局偏好操作绑定发起时的前台窗口，切应用后不播过期结果。
+`FocusLease.h` 只提供焦点身份的数据结构，HUD 不依赖焦点门操作；信箱及过滤回归可在无 Windows SDK 的主机执行。`InputStateHudFeedback` 只保留最后一次成功操作，界面每轮取走，关闭 HUD 或全屏时照样消费，不在恢复后重播；超过一秒的消息丢弃。会话状态按完整 `FocusLease`（客户端、三条管道代次、能力、激活 epoch、焦点 token）校验，全局偏好操作绑定发起时的前台窗口，切应用后不播过期结果。
 
 全半角和标点原本只经 `StatusSnapshot` 报告，无法区别用户操作与配置加载。TSF 的保留键、系统语言栏点击及 Server 的显式模式命令在修改后读回实际 compartment；确实改变才发送已有的 `DoubleSingleByteSwitch` / `PuncSwitch` 事件，再发完整快照。后台 compartment 回调继续只报快照。Server 输入队列的 tracker 用快照建立基线，仅这些明确事件产生反馈；重复事件、标点锁及设值失败不提示。HUD 仍由 Server 绘制，注入应用的 TSF DLL 不创建提示窗口，协议枚举不变。
 
@@ -83,4 +83,4 @@ Ctrl+Shift+E 的 `PendingReply::dedicated_english_change` 只在 Engine 真正�
 
 相关：[Windows 悬浮工具栏补齐 macOS 的按钮、菜单与行为](2026-10-10-windows-floating-toolbar-mac-parity.md)（按钮组与菜单）、[Windows 托盘菜单补齐 macOS 输入菜单](2026-10-10-windows-tray-menu-mac-parity.md)（卡片的页与键盘操作）、[Windows 中英文切换体验对齐 macOS](2026-10-10-windows-input-mode-parity.md)（提示何时出现、摆在哪里，尺寸由本篇取代）、[Windows 打字特效的光标浮层](2026-10-10-windows-typing-effects-caret-overlay.md)（强调色来源由本篇取代）。
 
-输入状态 HUD 的扩展回归在 `input_mode_hud_layout.cpp` 验证多字扩宽、单字恢复和语言文案；`candidate_mailbox.cpp` 验证完整焦点身份、前台窗口变化、过期消息、只保留最终状态、同值事件和快照静默。`session_smoke.cpp` 验证实际 Engine 英文候选切换的成功标记和禁用时无标记，`dedicated_english_controller.cpp` 验证队列内的实际 changed 与重复设值。Windows 真桌面和读屏验收仍须独立完成；编译和纯规则测试不代表真实编辑器验收。
+输入状态 HUD 的扩展回归在 `input_mode_hud_layout.cpp` 验证多字扩宽、单字恢复、语言文案、完整焦点身份、前台窗口变化、过期消息、只保留最终状态、同值事件和快照静默。`reply_composer.cpp` 验证实际 Engine 英文候选切换的成功标记和禁用时无标记，`dedicated_english_controller.cpp` 验证队列内的实际 changed 与重复设值。Windows 真桌面和读屏验收仍须独立完成；编译和纯规则测试不代表真实编辑器验收。
