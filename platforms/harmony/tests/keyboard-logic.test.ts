@@ -14932,6 +14932,48 @@ group("key sounds follow the desktop player's settings and pack rules", () => {
     "50 is half amplitude, as on the desktop",
   );
   check(KeySoundPolicy.gain({ ...on, volume: 0 }) === 0, "0 is silent");
+  const touch: KeySoundSettings = KeySoundPolicy.touchSettings(undefined, true);
+  check(
+    touch.key && touch.pack === "default" && KeySoundPolicy.selection(touch).pack === "default",
+    "a touch keyboard with its local switch on loads the built-in default pack without any plugins record",
+  );
+  check(
+    !KeySoundPolicy.wanted(KeySoundPolicy.touchSettings({ key_sound: { enabled: true } }, false)),
+    "the touch switch, not the 2in1 plugin switch, decides whether touch keys sound",
+  );
+  const touchPicked: KeySoundSettings = KeySoundPolicy.touchSettings(
+    {
+      key_sound: { enabled: false, mode: "melody", pack: "msime-bubble", volume: 80 },
+      commit_sound: { enabled: true },
+      achievements: { enabled: true },
+      combo_counter: true,
+      combo_tier_sound: true,
+    },
+    true,
+  );
+  check(
+    touchPicked.key &&
+      touchPicked.pack === "msime-bubble" &&
+      touchPicked.volume === 80 &&
+      !touchPicked.melody &&
+      !touchPicked.commit &&
+      !touchPicked.achievements &&
+      !touchPicked.tierSound,
+    "touch keys take the shared pack and volume but none of the 2in1 plugin effects",
+  );
+  check(
+    KeySoundPolicy.touchKeyClass("Space", false) === KeySoundClass.SPACE &&
+      KeySoundPolicy.touchKeyClass("Enter", false) === KeySoundClass.ENTER &&
+      KeySoundPolicy.touchKeyClass("Backspace", false) === KeySoundClass.BACKSPACE &&
+      KeySoundPolicy.touchKeyClass("KeyA", false) === KeySoundClass.DEFAULT &&
+      KeySoundPolicy.touchKeyClass(null, false) === KeySoundClass.DEFAULT,
+    "touch keys sound by their key id",
+  );
+  check(
+    KeySoundPolicy.touchKeyClass("Space", true) === KeySoundClass.DEFAULT &&
+      KeySoundPolicy.touchKeyClass("Backspace", true) === KeySoundClass.DEFAULT,
+    "a password field sounds every touch key alike",
+  );
   check(!KeySoundPolicy.keysSilent(false, false, false), "Chinese mode sounds its keys");
   check(KeySoundPolicy.keysSilent(true, false, false), "a password field is silent");
   check(KeySoundPolicy.keysSilent(false, true, false), "English mode is silent, as on the desktop");

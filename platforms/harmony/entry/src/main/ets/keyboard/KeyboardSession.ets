@@ -61,7 +61,7 @@ import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, 
   VoiceKey } from './input/VoiceHotkeyPolicy';
 import { HarmonyVoiceRecordingBehaviour } from './input/HarmonyVoiceRecordingBehaviour';
 import { KeySoundPlayer } from './KeySoundPlayer';
-import { KEY_SOUNDS_OFF, KeySoundPolicy, PluginPreferenceDocument } from './KeySoundPolicy';
+import { KeySoundPolicy, PluginPreferenceDocument } from './KeySoundPolicy';
 import { MusicPlayer } from './MusicPlayer';
 import { MUSIC_OFF, MusicPolicy } from './MusicPolicy';
 import {
@@ -1905,8 +1905,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.toolbar = preferences.floating_toolbar;
       this.keyGrid = KeyboardScheme.keyGrid(preferences.touch_keyboard_layout, preferences.scheme,
         KeyboardFormFactor.isDesktop());
-      this.soundPlayer.configure(KeyboardFormFactor.isDesktop()
-        ? KeySoundPolicy.settings(preferences.plugins) : KEY_SOUNDS_OFF, stateRoot);
+      this.soundPlugins = preferences.plugins;
+      this.configureSounds();
       this.musicPlayer.configure(KeyboardFormFactor.isDesktop()
         ? MusicPolicy.settings(preferences.plugins) : MUSIC_OFF, stateRoot);
       this.typingEffectPreferences = KeyboardFormFactor.isDesktop()
@@ -4390,6 +4390,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private bindings: ModeBindings = DEFAULT_MODE_BINDINGS;
   /** 上次读到的设备本地反馈和手写设置：在启动时、每次编辑框获得焦点时以及键盘保存它们时更新。 */
   private feedbackCurrent: FeedbackSettings = KeyboardFeedback.DEFAULTS;
+  /** 最近一次应用的偏好里的 `plugins`，声音播放器的包和音量从这里取。 */
+  private soundPlugins: PluginPreferenceDocument | undefined = undefined;
   /** 当前会话是否按隐私模式构建：关闭学习并标记为私密。隐私模式与之不再相符时重建会话。 */
   private sessionPrivate: boolean = false;
   // 上次解析出的应用主题季节种子，每种模式一份；为 `null` 时键盘停留在基础令牌上。
@@ -5565,6 +5567,24 @@ export class KeyboardSession implements HardwareKeyTarget {
     const fresh: FeedbackSettings | null = this.readFeedback();
     if (fresh !== null) {
       this.feedbackCurrent = fresh;
+      this.configureSounds();
+    }
+  }
+
+  /** 按当前偏好和本机按键音开关配置声音播放器：2in1 按共享插件设置播实体键的声音，手机和平板按 `key-feedback.json` 的开关播触屏按键音（`KeySoundPolicy.touchSettings`）。只有换了包才会重新加载。 */
+  private configureSounds(): void {
+    this.soundPlayer.configure(KeyboardFormFactor.isDesktop()
+      ? KeySoundPolicy.settings(this.soundPlugins)
+      : KeySoundPolicy.touchSettings(this.soundPlugins, this.feedbackCurrent.sound), this.stateDirectory);
+  }
+
+  /**
+   * 触屏上的一次按键：记入按键统计（`recordKey`），开着按键音时按键类播放声音包里的样本。视图里每个软键每次按下调一次，按住删除连删也只算一次。2in1 的实体键在 `hardwareKeySound` 里另外出声。
+   */
+  softKeyPress(id: string | null): void {
+    this.recordKey(id);
+    if (!KeyboardFormFactor.isDesktop() && this.feedbackCurrent.sound) {
+      this.soundPlayer.key(KeySoundPolicy.touchKeyClass(id, this.soundsSilencedByEditor()));
     }
   }
 
@@ -5578,6 +5598,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         return false;
       }
       this.feedbackCurrent = settings;
+      this.configureSounds();
       return true;
     } catch (error) {
       KeyboardLog.error(`key feedback not saved: ${describeError(error)}`);

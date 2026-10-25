@@ -5,6 +5,7 @@
  */
 
 import { AudioVolumePolicy } from "./AudioVolumePolicy";
+import { KeyIdPolicy } from "./KeyIdPolicy";
 
 /** A key's sound class, numbered as `msime_client_key_sound` numbers them. */
 export enum KeySoundClass {
@@ -205,6 +206,42 @@ export class KeySoundPolicy {
       volume: volume,
       tierSound: plugins.combo_counter === true && plugins.combo_tier_sound === true,
     };
+  }
+
+  /**
+   * 手机和平板触屏键盘的按键音：开关是本机 `key-feedback.json` 的 `sound`（与 Android、iOS 一样不在共享偏好里），包和音量取共享的 `plugins.key_sound`，没选包时是内置的 `default`（「清脆键盘」）。触屏只播按键音，旋律、上屏音、成就音和连击音是 2in1 的插件效果，这里不开。
+   */
+  static touchSettings(
+    plugins: PluginPreferenceDocument | undefined,
+    sound: boolean,
+  ): KeySoundSettings {
+    const shared: KeySoundSettings = KeySoundPolicy.settings(plugins);
+    return {
+      key: sound,
+      melody: false,
+      commit: false,
+      achievements: false,
+      pack: shared.pack,
+      melodyPack: shared.melodyPack,
+      volume: shared.volume,
+      tierSound: false,
+    };
+  }
+
+  /**
+   * 触屏按键的声音类别，`id` 是 `KeyIdPolicy` 给这次按键的 id（没有 id 的键为 null，按普通键）。密码框里一律按普通键：每个键同一种声音，不泄露按的是空格、回车还是删除，与 Android 默认包和 iOS 系统按键声一样。
+   */
+  static touchKeyClass(id: string | null, password: boolean): number {
+    if (password) {
+      return KeySoundClass.DEFAULT;
+    }
+    if (id === KeyIdPolicy.SPACE) {
+      return KeySoundClass.SPACE;
+    }
+    if (id === KeyIdPolicy.ENTER) {
+      return KeySoundClass.ENTER;
+    }
+    return id === KeyIdPolicy.BACKSPACE ? KeySoundClass.BACKSPACE : KeySoundClass.DEFAULT;
   }
 
   /** Whether anything plays at all. Nothing is loaded, and no SoundPool created, until this holds. */

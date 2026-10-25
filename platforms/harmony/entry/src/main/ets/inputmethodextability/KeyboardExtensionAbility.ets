@@ -751,7 +751,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     } else if (event.action === KeyAction.DOWN) {
       this.backspaceHold.reset();
     }
-    // A key sound belongs to the typing, not to what became of the key, so every key-down from here on has one: composed, handed back or released to the application. Only a 2in1 has sounds configured, and the session leaves password fields and English mode silent.
+    // 按键音属于这次敲击，与这个键最后被组字、交还还是放给应用无关，所以从这里起每次按下都出声。实体键只在 2in1 上出声（触屏键经 `KeyboardSession.softKeyPress` 出声），会话让密码框和英文模式保持安静。
     const sound = (): void => {
       if (event.action === KeyAction.DOWN && KeyboardFormFactor.isDesktop()) {
         session.hardwareKeySound(event.key.code, event.unicodeChar, event.ctrlKey, event.altKey,

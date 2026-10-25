@@ -1047,7 +1047,7 @@ struct KeyboardView {
    */
   private startBackspace(): void {
     // Counted once per press here, on the way down, never per repeat of a hold.
-    KeyboardSession.shared.recordKey(KeyIdPolicy.BACKSPACE);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.BACKSPACE);
     this.cancelBackspace();
     this.backspaceRepeated = false;
     this.backspaceTimer = setTimeout((): void => {
@@ -1202,7 +1202,7 @@ struct KeyboardView {
    * A Dachen key. The Engine's editor reads the ASCII key, so that is what is sent; with the list open a digit 1-9 would pick a row instead, so the list is closed first and the key types what its face shows.
    */
   private tapZhuyinKey(key: string): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character(key));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(key));
     if (ZhuyinLayout.selectsWhileListOpen(key) && KeyboardSession.shared.candidateListOpen()) {
       KeyboardSession.shared.convertHanja();
     }
@@ -1245,7 +1245,7 @@ struct KeyboardView {
 
   /** 笔画键发送它的字母，组字和候选都归引擎。空组合时的通配键不发送，见 StrokeLayout.sends。 */
   private tapStrokeKey(input: string): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character(input));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(input));
     if (!StrokeLayout.sends(input, KeyboardSession.shared.composing())) {
       return;
     }
@@ -1288,7 +1288,7 @@ struct KeyboardView {
       return;
     }
     // The key by its position, so Dubeolsik jamo and a shifted capital count on the same key as the plain letter.
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character(letter));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(letter));
     if (this.koreanFace()) {
       // The Engine reads the jamo from the letter's case, so Shift is sent as an upper-case letter rather than as helpcode.
       const shifted: boolean = this.caseMode !== LetterCaseMode.LOWERCASE;
@@ -1461,7 +1461,7 @@ struct KeyboardView {
 
   /** 角标提示按原样输入，与 123 层的字符键输入键面的方式相同：已有组合先按原样上屏（Android 的 `commitNineKeyLiteral`，`COMMIT_RAW`）。它算作对来源键的一次按键。 */
   private typeLetterHint(letter: string, hint: string): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character(letter));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(letter));
     KeyboardSession.shared.commitRaw();
     KeyboardSession.shared.insert(hint);
   }
@@ -2190,7 +2190,7 @@ struct KeyboardView {
     if (this.symbols) {
       return;
     }
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
     this.openSymbolSurface();
   }
 
@@ -2330,7 +2330,7 @@ struct KeyboardView {
   }
 
   private toggleSymbolLayer(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LAYER);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LAYER);
     const wasHandwriting: boolean = KeyboardScheme.usesHandwritingFace(
       this.scheme, this.english, this.symbols, this.localMode);
     this.symbols = !this.symbols;
@@ -2642,7 +2642,7 @@ struct KeyboardView {
 
   /** 三栏面板里 ⌫ 的这一下：笔画模式下先撤一笔，否则同键盘上的退格。 */
   private nineKeyPanelBackspace(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.BACKSPACE);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.BACKSPACE);
     if (NineKeyPanelPolicy.backspace(this.nineKeyPanelMode, this.nineKeyStrokes)
       === NineKeyPanelBackspace.POP_STROKE) {
       KeyboardSession.shared.setNineKeyFilter(this.nineKeySingleCharacter,
@@ -2818,7 +2818,7 @@ struct KeyboardView {
   }
 
   private activateReturn(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.ENTER);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.ENTER);
     const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
       this.japanese, this.editing.length > 0, this.candidates.length,
       KeyboardSession.shared.japaneseConversionActive(), this.koreanFace(), this.vietnameseFace(),
@@ -2842,7 +2842,7 @@ struct KeyboardView {
   }
 
   private activateSpace(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SPACE);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SPACE);
     if (this.koreanFace()) {
       // Space ends the open syllable and is still a space, so the keyboard types it after the commit. With the syllable's Hanja list open it chooses the highlighted Hanja instead, as Return does.
       if (this.koreanHanjaListOpen()) {
@@ -2960,7 +2960,7 @@ struct KeyboardView {
    * 符号层按键的行为。数字结束正在组的韩语音节，然后输入在它后面，标点路由做不到这一点，因为它只接受标点。越南语数字也是这样，除非它是组字中单词的 VNI 声调数字，那时它给单词加符号。藏文数字同样先上屏音节串再输入数字本身；藏文的拼写符号（`'` `+` `.` `-` `/`）走标点路由，由运行时按 spelling_symbols 交给引擎，其中 `+` 来自藏文方案下第三排替换 `=` 的键（KeyboardScheme.symbolRowKey）。注音的数字或标点如果是大千的注音键或声调键，由键盘自己输入，因为引擎会把它组进注音。
    */
   private tapSymbol(symbol: string): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character(symbol));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(symbol));
     const character: number = symbol.charCodeAt(0);
     if (this.koreanFace() && KoreanCompositionPolicy.typesAfterCommit(character)) {
       KeyboardSession.shared.commitThenType(character);
@@ -4044,7 +4044,7 @@ struct KeyboardView {
       if (this.toolbarTools.emoji) {
         this.toolbarButton(KeyboardIconPaths.TOOLBAR_EMOJI, SURFACE_EMOJI, KeyAccessibilityPolicy.emoji(),
           (): void => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_EMOJI);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_EMOJI);
             this.openEmojiSurface();
           });
       }
@@ -4581,11 +4581,11 @@ struct KeyboardView {
             width: '100%',
             action: () => {
               if (this.symbols) {
-                KeyboardSession.shared.recordKey(KeyIdPolicy.character('.'));
+                KeyboardSession.shared.softKeyPress(KeyIdPolicy.character('.'));
                 this.insertNumberPadLiteral('.');
                 return;
               }
-              KeyboardSession.shared.recordKey(KeyIdPolicy.character(NineKeyLayout.separator().input));
+              KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(NineKeyLayout.separator().input));
               KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
             }
           });
@@ -4615,7 +4615,7 @@ struct KeyboardView {
       special: true,
       width: '100%',
       action: () => {
-        KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+        KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
         KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
       }
     };
@@ -4630,7 +4630,7 @@ struct KeyboardView {
       special: true,
       width: '100%',
       action: () => {
-        KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+        KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
         this.insertNumberPadLiteral(symbol);
       }
     };
@@ -4656,18 +4656,18 @@ struct KeyboardView {
       return;
     }
     if (this.nineKeyShuangpinFaceActive()) {
-      KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
+      KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey('0'));
       KeyboardSession.shared.press('0'.charCodeAt(0), false);
       return;
     }
-    KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey('0'));
     KeyboardSession.shared.commitRaw();
     KeyboardSession.shared.insert('0');
   }
 
   /** 数字按字面上屏；常规键面借用网格时记普通数字键，原九键记 Nine。 */
   private typeNineKeyDigit(digit: string): void {
-    KeyboardSession.shared.recordKey(this.nineKey ? KeyIdPolicy.nineKey(digit) : KeyIdPolicy.character(digit));
+    KeyboardSession.shared.softKeyPress(this.nineKey ? KeyIdPolicy.nineKey(digit) : KeyIdPolicy.character(digit));
     this.insertNumberPadLiteral(digit);
   }
 
@@ -4705,7 +4705,7 @@ struct KeyboardView {
           width: 0,
           share: NineKeyLayout.SYMBOL_PANEL_WEIGHT,
           action: () => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
             this.openSymbolSurface();
           }
         });
@@ -4752,7 +4752,7 @@ struct KeyboardView {
         share: NineKeyLayout.LANGUAGE_WEIGHT,
         hitRegion: this.languageKeyHitRegion(),
         action: () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
@@ -4783,7 +4783,7 @@ struct KeyboardView {
             .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
             .responseRegion(this.railHitRegion(index, NineKeyLayout.digitPunctuation().length))
             .onClick(() => {
-              KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+              KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
               this.insertNumberPadLiteral(symbol);
             })
           }, (symbol: string) => symbol + this.faceKey())
@@ -4820,7 +4820,7 @@ struct KeyboardView {
             .width('100%')
             .responseRegion(this.railHitRegion(index, NineKeyLayout.punctuation().length))
             .onClick(() => {
-              KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+              KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
               KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
             })
           }, (symbol: string) => symbol + this.faceKey())
@@ -4860,7 +4860,7 @@ struct KeyboardView {
         // 字母页按标点路由处理句点；数字页原样写小数点。
         this.nineKeyControl('.', '句点', () => {
           // 小数点记 Period，侧栏的符号才记 SoftPunctuation。
-          KeyboardSession.shared.recordKey(KeyIdPolicy.character('.'));
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.character('.'));
           if (this.symbols) this.insertNumberPadLiteral('.');
           else KeyboardSession.shared.punctuation(0x2e);
         });
@@ -4894,16 +4894,16 @@ struct KeyboardView {
         ? () => this.typeNineKeyDigit(key.input)
         : shuangpin
         ? () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(input));
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(input));
           KeyboardSession.shared.press(input.charCodeAt(0), false);
         }
         : NineKeyLayout.showsQuickMarks(key)
         ? () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
           this.showNineKeyQuickMarks();
         }
         : () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
           KeyboardSession.shared.press(key.input.charCodeAt(0), false);
         }
     };
@@ -4943,7 +4943,7 @@ struct KeyboardView {
     .animation({ duration: KEY_PRESS_MS })
     .responseRegion(this.keyHitRegion())
     .onClick(() => {
-      KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
+      KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
       if (NineKeyLayout.showsQuickMarks(key)) {
         this.showNineKeyQuickMarks();
       } else {
@@ -4952,7 +4952,7 @@ struct KeyboardView {
     })
     .gesture(LongPressGesture().onAction(() => {
       // 长按仍算这格的一次按键，选项通过字面输入路径上屏。
-      KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
+      KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
       this.openKeyHold(NineKeyLayout.holdOptions(key));
     }))
   }
@@ -5078,12 +5078,12 @@ struct KeyboardView {
   }
 
   private tapEighteenKey(key: FourteenKey): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.eighteenKey(key.letters));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.eighteenKey(key.letters));
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
   }
 
   private tapEighteenKeySeparator(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
     if (KeyboardSession.shared.composing()) {
       KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
       return;
@@ -5112,7 +5112,7 @@ struct KeyboardView {
     .responseRegion(this.keyHitRegion())
     .onClick(() => this.tapEighteenKey(key))
     .gesture(LongPressGesture().onAction(() => {
-      KeyboardSession.shared.recordKey(KeyIdPolicy.eighteenKey(key.letters));
+      KeyboardSession.shared.softKeyPress(KeyIdPolicy.eighteenKey(key.letters));
       this.openKeyHold(EighteenKeyLayout.holdOptions(key));
     }))
   }
@@ -5130,7 +5130,7 @@ struct KeyboardView {
 
   /** 点一下 14 键：记这一键的键位，把这一组的首字母交给引擎。 */
   private tapFourteenKey(key: FourteenKey): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.fourteenKey(key.letters));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.fourteenKey(key.letters));
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
   }
 
@@ -5141,13 +5141,13 @@ struct KeyboardView {
 
   private tapLetterShift(): void {
     if (this.usesQuanpinSeparator()) {
-      KeyboardSession.shared.recordKey(KeyIdPolicy.character("'"));
+      KeyboardSession.shared.softKeyPress(KeyIdPolicy.character("'"));
       if (KeyboardSession.shared.composing()) {
         KeyboardSession.shared.press("'".charCodeAt(0), false);
       }
       return;
     }
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SHIFT);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SHIFT);
     this.letterCase.toggle(Date.now());
     this.caseMode = this.letterCase.mode();
   }
@@ -5155,7 +5155,7 @@ struct KeyboardView {
   /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板（Android `ImeLayoutRows.symbolKey`）。 */
   private tapFourteenKeySeparator(): void {
     // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、iOS 的 14 键相同。
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
     if (KeyboardSession.shared.composing()) {
       KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
       return;
@@ -5186,7 +5186,7 @@ struct KeyboardView {
     .onClick(() => this.tapFourteenKey(key))
     .gesture(LongPressGesture().onAction(() => {
       // 长按也是按了这一键一次，不管最后选哪个字母。
-      KeyboardSession.shared.recordKey(KeyIdPolicy.fourteenKey(key.letters));
+      KeyboardSession.shared.softKeyPress(KeyIdPolicy.fourteenKey(key.letters));
       this.openKeyHold(FourteenKeyLayout.holdOptions(key));
     }))
   }
@@ -5246,7 +5246,7 @@ struct KeyboardView {
   }
 
   private typeComma(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character(','));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
     // 大千的逗号键是 ㄝ，所以注音直接输入标点本身。
     if (this.zhuyinFace()) {
       this.typeZhuyinMark(',');
@@ -5256,7 +5256,7 @@ struct KeyboardView {
   }
 
   private typePeriod(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character('.'));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character('.'));
     // 大千的句号键是 ㄡ，所以注音与逗号一样直接输入标点本身。
     if (this.zhuyinFace()) {
       this.typeZhuyinMark('.');
@@ -5308,7 +5308,7 @@ struct KeyboardView {
           width: 0,
           share: LANGUAGE_SHARE,
           action: () => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
             this.openSymbolSurface();
           }
         });
@@ -5348,7 +5348,7 @@ struct KeyboardView {
         .height('100%')
         .gesture(LongPressGesture().onAction(() => {
           // 统计实际按下的逗号键，长按识别后不再触发普通点按。
-          KeyboardSession.shared.recordKey(KeyIdPolicy.character(','));
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
           KeyboardSession.shared.punctuation(0x2e);
         }))
       } else {
@@ -5373,7 +5373,7 @@ struct KeyboardView {
         share: LANGUAGE_SHARE,
         hitRegion: this.languageKeyHitRegion(),
         action: () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
@@ -5421,7 +5421,7 @@ struct KeyboardView {
           special: true,
           width: KeyboardMetrics.MODIFIER_WIDTH_VP,
           action: () => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
             this.openSymbolSurface();
           }
         });
@@ -5457,7 +5457,7 @@ struct KeyboardView {
         special: true,
         width: KeyboardMetrics.LANGUAGE_WIDTH_VP,
         action: () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
@@ -5688,7 +5688,7 @@ struct KeyboardView {
     this.spaceVoiceHeld = false;
     this.spaceVoiceHint = '';
     // 与 Android 一样，长按语音那一下仍按空格键计数。
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SPACE);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SPACE);
     if (!finish) {
       if (held) {
         this.cancelVoice();
@@ -7050,7 +7050,7 @@ struct KeyboardView {
           .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
           .animation({ duration: KEY_PRESS_MS })
           .onClick(() => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
             KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
           })
         }, (symbol: string) => symbol + this.faceKey())
@@ -7580,7 +7580,7 @@ struct KeyboardView {
           FLICK_THRESHOLD_VP);
         // One press of the cell per tap or flick, whichever direction it lands on; a direction with no label types nothing and counts nothing, as on iOS.
         if ($$.kana[direction].length > 0) {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.japaneseKana(keyIndex));
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.japaneseKana(keyIndex));
         }
         this.sendKana($$, direction);
         this.flickKeyIndex = -1;
@@ -8179,7 +8179,7 @@ struct KeyboardView {
       case FunctionPanelPolicy.VOICE:
         this.show(SURFACE_VOICE);
         if (!this.voiceBusy && this.voiceText.length === 0) {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_VOICE);
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_VOICE);
           this.startVoice();
         }
         break;
@@ -9907,7 +9907,7 @@ struct KeyboardView {
       this.tapSymbol(text);
       return;
     }
-    KeyboardSession.shared.recordKey(KeyIdPolicy.character(text));
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
     // 已有组合按原样上屏，与 Android 的 `commitNineKeyLiteral` 一致。
     KeyboardSession.shared.commitRaw();
     KeyboardSession.shared.insert(text);
@@ -9927,7 +9927,7 @@ struct KeyboardView {
 
   /** `#+=` 和 `123`，在两层之间切换。 */
   private toggleMoreSymbols(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LAYER);
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LAYER);
     this.moreSymbols = !this.moreSymbols;
   }
 
@@ -9996,7 +9996,7 @@ struct KeyboardView {
           width: 0,
           share: NumberSymbolLayout.EMOJI_WEIGHT,
           action: () => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
             this.openSymbolSurface();
           }
         });
@@ -10011,7 +10011,7 @@ struct KeyboardView {
           share: NumberSymbolLayout.EMOJI_WEIGHT,
           icon: KeyboardIconPaths.TOOLBAR_EMOJI,
           action: () => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_EMOJI);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_EMOJI);
             this.openEmojiSurface();
           }
         });
@@ -10091,7 +10091,7 @@ struct KeyboardView {
           .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
           .responseRegion(this.railHitRegion(index, NineKeyLayout.punctuation().length))
           .onClick(() => {
-            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
             KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
           })
         }, (symbol: string) => symbol + this.faceKey())
