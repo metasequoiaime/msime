@@ -43,3 +43,5 @@ macOS 的 `text-client` 使用真实 `MSIMEClientSession`、C ABI 和引擎，�
 ## Consequences
 
 特殊符号进入后保持一行原文，用户可继续编辑或明确确认，删除最后一个符号即可恢复中文解码。代价是含这些符号的文字不参与中文学习或在线拼音查询；已有拼音后输入 `$` 现在继续字面组字，空闲时仍输出人民币符号。`spelling_symbols` 在既有邮箱入口后追加四个符号，多一次小字符串扩容；两处精确分配预算同步增加一，辅助码注释仍不重复构造。首个大写快捷入口仅在没有正文且模式自身不接受该符号时退回普通字面输入，已有 Unicode、算式和符号模式内容继续走原路径。
+
+列进 `spelling_symbols` 的 `&` 让 Linux 宿主在 AZERTY 上把数字行 1 当成拼写，选不了词；两个 Linux 宿主改为按物理数字行判断，见 [Linux 的 AZERTY 数字行](2026-10-26-linux-azerty-number-row-literal-symbol.md)。

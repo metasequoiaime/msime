@@ -27,13 +27,21 @@ int main() {
   assert(local_mode_spelling(unicode, U'7'));
   assert(!local_mode_spelling(unicode, U'+'));
   // Shift and the number row pick a Unicode candidate even where the chord types the digit (AZERTY), and only then: a bare digit, a key off the row, a symbol or no list to pick from leaves the digit input.
-  using msime::linux_host::shifted_number_row_picks;
-  assert(shifted_number_row_picks(unicode, U'1', true, true, true));
-  assert(!shifted_number_row_picks(unicode, U'1', false, true, true));
-  assert(!shifted_number_row_picks(unicode, U'1', true, false, true));
-  assert(!shifted_number_row_picks(unicode, U'1', true, true, false));
-  assert(!shifted_number_row_picks(unicode, U'!', true, true, true));
-  assert(!shifted_number_row_picks(expression, U'%', true, true, true));
+  using msime::linux_host::number_row_picks;
+  assert(number_row_picks(unicode, U'1', true, true, true));
+  assert(!number_row_picks(unicode, U'1', false, true, true));
+  assert(!number_row_picks(unicode, U'1', true, false, true));
+  assert(!number_row_picks(unicode, U'1', true, true, false));
+  assert(!number_row_picks(unicode, U'!', true, true, true));
+  assert(!number_row_picks(expression, U'%', true, true, true));
+
+  // 全拼、双拼组字中把 # $ % & 当字面符号收下。AZERTY 不按 Shift 的数字行 1 打出 "&"，这个物理键仍选候选；美式布局 Shift+7 打出的 "&"、不在数字行上的键、没有候选可选时，"&" 仍是组字的输入。
+  const Json pinyin_literal = {{"scheme", 0}, {"local_mode", "none"}, {"editing_text", "nihao"}, {"spelling_symbols", "#$%&"}};
+  assert(msime::linux_host::engine_spelling(pinyin_literal, U'&'));
+  assert(number_row_picks(pinyin_literal, U'&', false, true, true));
+  assert(!number_row_picks(pinyin_literal, U'&', true, true, true));
+  assert(!number_row_picks(pinyin_literal, U'&', false, false, true));
+  assert(!number_row_picks(pinyin_literal, U'&', false, true, false));
 
   // Idle, the mode-entry keys are listed but left to the punctuation route, and digits stay candidate shortcuts.
   const Json idle = {{"local_mode", "none"}, {"spelling_symbols", "/@"}};
@@ -83,6 +91,9 @@ int main() {
   for (char32_t symbol : {U'\'', U'+', U'-', U'.', U'/'})
     assert(engine_spelling(tibetan_composing, symbol));
   assert(!engine_spelling(tibetan_composing, U','));
+  // 方案自己拼写的符号在数字行上也是输入：AZERTY 的数字行 4 打出撇号，藏文、粤拼拿它拼写，不选候选。拼写用数字的注音组字中，不按 Shift 的数字行是注音键。
+  assert(!number_row_picks(tibetan_composing, U'\'', false, true, true));
+  assert(!number_row_picks(zhuyin_composing, U'1', false, true, true));
   assert(!spelling_digits(tibetan_composing));
   assert(!spelling_space(tibetan_composing));
   // 笔画只用字母 h s p n z 和通配符 x 拼写，它们走字母路径：方案不列任何拼写符号，所以组字时数字行仍然选词，标点仍然是标点。

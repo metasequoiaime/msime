@@ -7577,7 +7577,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0) {
       const gunichar spelled = ibus_keyval_to_unicode(key);
       // IBus clients send evdev codes, where the number row is 2..11.
-      const bool picks = msime::linux_host::shifted_number_row_picks(
+      const bool picks = msime::linux_host::number_row_picks(
           s.view, spelled, (flags & IBUS_SHIFT_MASK) != 0, keycode >= 2 && keycode <= 11,
           s.number_row_selection && !s.view.value("nine_key", false) &&
               s.rendered_session == s.session && s.rendered_candidates.is_array() &&
