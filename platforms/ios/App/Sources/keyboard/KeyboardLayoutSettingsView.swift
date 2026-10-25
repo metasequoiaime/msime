@@ -229,8 +229,8 @@ struct KeyboardLayoutSettingsView: View {
 
   private var feedbackGroup: some View {
     DesignGroup(title: "按键反馈", footer: KeyboardFeedbackPreference.hapticsAvailable
-      ? "按键音受系统静音设置控制；振动效果取决于设备与系统支持。"
-      : "按键音受系统静音设置控制。") {
+      ? "按键音由系统播放：需要在系统设置里为水杉输入法打开“允许完全访问”，并跟随“声音与触感 › 键盘反馈 › 声音”和静音模式。振动效果取决于设备与系统支持。"
+      : "按键音由系统播放：需要在系统设置里为水杉输入法打开“允许完全访问”，并跟随“声音与触感 › 键盘反馈 › 声音”和静音模式。") {
       DesignToggleRow(title: "按键音", isOn: $soundEnabled.markingSettingsChange())
         .accessibilityIdentifier("keyboardSoundToggle")
       if KeyboardFeedbackPreference.hapticsAvailable {

@@ -58,7 +58,11 @@ export function MobileKeyboardFeedbackSection({
       <SettingsRowStack role="group" aria-label="按键反馈">
         <SwitchRow
           title="按键音"
-          description="按键音受系统静音设置控制"
+          description={
+            ios
+              ? "需要为键盘开启“允许完全访问”，并受系统键盘声音和静音设置控制"
+              : "按键音跟随媒体音量"
+          }
           disabled={busy}
           checked={value.soundEnabled}
           onChange={(checked) => onChange({ ...value, soundEnabled: checked })}

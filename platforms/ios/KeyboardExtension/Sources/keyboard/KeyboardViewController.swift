@@ -2359,7 +2359,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                    selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
         KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.soundEnabled,
                                        forKey: KeyboardFeedbackPreference.soundKey)
-        if KeyboardFeedbackPreference.soundEnabled { UIDevice.current.playInputClick() }
+        if KeyboardFeedbackPreference.soundEnabled {
+          // 系统只给开了完全访问的键盘播放按键音（`playInputClick`），没有权限时开关打开了也一声不响，要当场说明原因。
+          if self?.hasFullAccess == false { self?.showDiagnostic("按键音需要开启键盘的“允许完全访问”。") }
+          UIDevice.current.playInputClick()
+        }
         self?.updateShortcutButtons()
       },
     ]
