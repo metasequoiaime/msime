@@ -8118,8 +8118,12 @@ public final class MSIMEInputService extends InputMethodService {
         return InputViewValuePolicy.textOr(candidate, "translation", "");
     }
 
+    // 五笔 14 键的预编辑只是首选的编码，其余候选的已打部分按组码逐位对照（WubiCodeHintPolicy.typed）。
     private String wubiCodeHint(JSONObject candidate, JSONObject context, String typed) {
-        return WubiCodeHintPolicy.hint(candidate.optString("code", ""), typed, wubiCodeHint,
+        String code = candidate.optString("code", "");
+        String candidateTyped = context == null ? typed : WubiCodeHintPolicy.typed(code, typed,
+            InputViewValuePolicy.textOr(context, "key_grid", "none"), InputViewValuePolicy.editingText(context));
+        return WubiCodeHintPolicy.hint(code, candidateTyped, wubiCodeHint,
             context == null ? -1 : InputViewValuePolicy.scheme(context, -1),
             context == null ? "none" : InputViewValuePolicy.textOr(context, "local_mode", "none"),
             InputViewValuePolicy.booleanValue(context, "answered_by_pinyin_fallback", false));

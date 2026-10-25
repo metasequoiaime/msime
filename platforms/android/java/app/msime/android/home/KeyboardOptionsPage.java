@@ -48,7 +48,7 @@ import app.msime.android.policy.KeySoundPackPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
@@ -112,6 +112,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             String shuangpinLayout = InputViewValuePolicy.textOr(preferences, "touch_shuangpin_layout", "twenty_six_key");
             layout.nav("中文键盘", "保留当前双拼方案，只换键盘排法", shuangpinLayoutLabel(shuangpinLayout),
                 () -> pickShuangpinLayout(shuangpinLayout));
+        } else if (current == KeyboardScheme.WUBI) {
+            // 五笔的排法单独存在 `touch_wubi_layout` 里，与双拼的做法相同：换排法不换五笔方案，也不动 86/98（`wubi_profile`）。行名与 iOS、鸿蒙的「五笔键盘」一致。
+            String wubiLayout = InputViewValuePolicy.textOr(preferences, "touch_wubi_layout", "twenty_six_key");
+            layout.nav("五笔键盘", "保留当前五笔版本，只换键盘排法，86 和 98 五笔共用", wubiLayoutLabel(wubiLayout),
+                () -> pickWubiLayout(wubiLayout));
         } else {
             KeyboardScheme[] pair = layoutPair(current);
             boolean pairOffered = pair != null;
@@ -351,7 +356,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
     }
 
     /**
-     * 当前方案可选的几种排法，按 26 键、14 键、9 键排列：全拼是全拼 26 键、全拼 14 键和全拼 9 键（三选一，选中即启用并切换），注音是大千和注音 9 键，日语是日语 26 键和日语 9 键（14 键只给全拼）。双拼的排法另存在 `touch_shuangpin_layout`，由 `pickShuangpinLayout` 选；五笔、手写这类只有一种排法的方案没有这一组，返回 null：原来一律给全拼的那一对，小鹤双拼用户在这里点哪一项都会被改成全拼，注音 9 键用户点「26 键」会切到全拼而不是大千。
+     * 当前方案可选的几种排法，按 26 键、14 键、9 键排列：全拼是全拼 26 键、全拼 14 键和全拼 9 键（三选一，选中即启用并切换），注音是大千和注音 9 键，日语是日语 26 键和日语 9 键（14 键只给全拼）。双拼的排法另存在 `touch_shuangpin_layout`，由 `pickShuangpinLayout` 选；五笔的 26 / 14 键另存在 `touch_wubi_layout`，由 `pickWubiLayout` 选；手写这类只有一种排法的方案没有这一组，返回 null：原来一律给全拼的那一对，小鹤双拼用户在这里点哪一项都会被改成全拼，注音 9 键用户点「26 键」会切到全拼而不是大千。
      */
     @Nullable
     private static boolean offersOtherLanguage(AppEdition edition) {
@@ -394,6 +399,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (String option : java.util.List.of("twenty_six_key", "fourteen_key", "eighteen_key"))
             sheet.option(shuangpinLayoutLabel(option), option.equals(current),
                 () -> { if (!option.equals(current)) savePreference("touch_shuangpin_layout", option); });
+        sheet.show();
+    }
+
+    /** 「五笔键盘」的 26、14 键。 */
+    private static String wubiLayoutLabel(String layout) {
+        return "fourteen_key".equals(layout) ? "14 键" : "26 键";
+    }
+
+    private void pickWubiLayout(String current) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "五笔键盘", "保留当前五笔版本");
+        // 点已选中的那一项什么也不做，与 `pickLayout` 相同。
+        for (String option : java.util.List.of("twenty_six_key", "fourteen_key"))
+            sheet.option(wubiLayoutLabel(option), option.equals(current),
+                () -> { if (!option.equals(current)) savePreference("touch_wubi_layout", option); });
         sheet.show();
     }
 
