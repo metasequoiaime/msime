@@ -12,6 +12,7 @@ private final class HandwritingDownloadFailure: @unchecked Sendable {
 @MainActor
 final class HandwritingRecognizer {
   init() {
+    MLKitStatsOptOut.apply()
     // ML Kit creates its download session while checking model availability, before download().
     _ = HandwritingDownloadSession.configureSharedContainer(InputSchemePreference.appGroupIdentifier)
   }
