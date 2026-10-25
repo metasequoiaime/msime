@@ -14,9 +14,13 @@ Status: implemented
 - **拉丁名称最少 3 个字母，3 个字母的名称不能整段拆成拼音。** 表检查用 `LATIN_NAME_MINIMUM = 3`、`LATIN_SPELLING_FREE_LENGTH = 4` 和 `is_complete_pinyin_input` 落实：`phi`、`psi`、`rho`、`tau` 收；`pi`、`mu`、`nu`、`xi`、`chi`、`eta`（拆成 e'ta）仍不收。至少 4 个字母的名称不检查拼音，表里原有的 `beta`、`zeta` 照旧。英文名称一节加 `nabla` ∇、`aleph` ℵ。
 - **单音节白名单加入 6 个希腊字母读音**：缪 μ、纽 ν、柔 ρ、套 τ、斐 φ、凯 χ。单音节的位置规则不变：只在那个字出现在候选里时跟在它后面，最早排第 4 位，并且不脱离锚定词出现。所以打 `rou` 时排在前面的仍是「肉」「柔」这些字，ρ 跟在「柔」后面。
 - **数学名称加约 60 个**：等号、等于、加号，不大于、不小于，定义为，蕴含，当且仅当，包含于，超集、真超集、补集、差集，映射，梯度、哈密顿算子、拉普拉斯算子，环路积分、曲面积分，阶乘，四次方、四次方根，角分、角秒，直角、圆弧，不平行，垂直于、平行于，张量积、直和、卷积，不存在，比号，正负无穷，五个数集，阿列夫，普朗克常数及约化形式，自然常数，虚数单位，以及 13 个 Unicode 有专用码位的分数。
+- **两张表的源数据归 msime-dictionary。** 符号名称表是 `sources/symbols/symbol-names.tsv`，LaTeX 命令名表是 `sources/symbols/latex-symbols.tsv`，改符号只改词库仓。msime 用 `resources/symbol-tables.lock.json` 固定词库仓提交和逐文件大小与 SHA-256，`scripts/sync_symbol_tables.py` 把它们逐字节同步成仓库里的副本（`crates/engine/src/local/symbol_candidates.tsv`、`plugins/phrase_table/latex-symbols/symbols.tsv`），`scripts/test-symbol-tables.py` 离线核对副本等于锁，手改副本会失败。副本提交进仓库，编译不联网。
 - **符号模式读插件的 `symbols.tsv`。** `symbol_groups.rs` 用 `include_str!` 编入这张表，按短语表的编码规则合并：去掉 `\` 和花括号、转小写，只差大小写的放在同一个编码下，小写的在前（`rightarrow` 得 → ⇒，`mathbbr` 得 ℝ）。只剩一个字母的 `\S`、`\P` 不收，单个字母是分组码前缀。查询顺序是：混排表的拉丁名称 → LaTeX 命令名 → 分组码 → 其余名称。拉丁名称排在 LaTeX 前面，是因为 LaTeX 按排出的字形取码位（`\phi` 是 ϕ，`\epsilon` 是 ϵ），而正文里用的是 φ、ε。LaTeX 排在分组前面，是因为打出完整命令名就说明要那个符号，例如 `nu` 的 ν 应排在 `num` 组的 № 之前。只认完整命令名，不按前缀查；按前缀列出仍由插件的 K 模式负责。
 
 ## Alternatives considered
+
+- **照 OpenCC 在构建期拉取（`build.rs` 调 `fetch_*.py`，再 `include_str!` 缓存目录里的文件）。** 最强的理由是仓库里不留副本，数据只有一份。不采用的原因：引擎被 Linux 的 Nix、Debian、RPM 离线打包、源码包和 `engine-wasm` 一起编译，OpenCC 已经要在 `platforms/linux/nix/*.nix`、`debian/rules`、`msime.spec`、`make-source-tarballs.sh` 各备一份离线输入，引擎再拉一次就是同样的改动再来一遍，换来的只是少一份十几 KB 的副本。锁加 SHA-256 核对已经让副本无法悄悄漂移。
+- **继续放在 msime 仓库。** 最强的理由是改表和改规则（单音节白名单、拉丁名称长度）的测试在同一个仓库，一个 PR 就能改完。不采用的原因：词表是数据，组织的约定是数据归词库仓（OpenCC 已经迁过去，万象符号表也在 `sources/symbols/`）；放在客户端里，贡献符号名称的人要碰引擎代码仓。代价是改表要两个 PR：先在 msime 按新表跑规则测试，词库仓合入后再更新锁。
 
 - **符号模式另写一张 LaTeX 表。** 最强的理由是只放符号模式需要的条目，表更小，也不跨目录引用。不采用的原因：初稿就这样写了，结果和插件表大面积重复，而且把 `\varphi` 写成了 ϕ，和插件已经核对过的字形规则相反。两张表会各自漂移，而插件表已经有生成器和 CI 的 `--check` 守着。
 - **普通打字里也认 LaTeX 命令名。** 最强的理由是不用先进入符号模式。不采用的原因：`in`、`le`、`ne`、`to`、`pm`、`sum`、`int` 都是拼音、英文常用串或常见缩写，整段相等就在第 6 位插符号，会给大量日常输入添噪音。符号模式的入口本身就说明用户要的是符号。
@@ -27,6 +31,7 @@ Status: implemented
 
 - 打完整名称时候选多一两行。新增的中文名称都是专业术语（等于、加号这类之外），日常输入很少整段打出；「等于」和已有的「大于」一样，跟在词后面。
 - 首字母索引随名称增多：`jf` 现在同时命中积分和角分，两字母首字母仍然只跟在锚定词后面、最早排第 4 位。
-- 引擎从 `plugins/` 目录读数据，改插件表会同时改变符号模式；插件 README 和 `docs/plugins.md` 写明了这一点。插件表是 MIT 许可，编进 GPL-3.0-only 的引擎没有许可冲突。
+- 引擎从 `plugins/` 目录读 LaTeX 表的副本，改表会同时改变符号模式和官方短语表；插件 README 和 `docs/plugins.md` 写明了这一点。插件表是 MIT 许可，编进 GPL-3.0-only 的引擎没有许可冲突。
+- 改符号名称要先改词库仓、再更新锁和副本；词库仓合入 `main` 会自动发一个 `dict-v` 修订版，附件不变（这两份表不是 Release 附件）。
 - 九宫格只认中文名称的全拼，新增的单字读音和数学名称在九宫格里同样可用；拉丁名称和 LaTeX 命令名在九宫格里不可用。
 - 真词库探针 `crates/engine/examples/symbol_candidates_dictionary.rs` 需要已安装的资源目录，这次没有跑；新增名称在真词库里的锚定位置没有逐个核对。

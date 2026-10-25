@@ -29,7 +29,7 @@ K 模式的短语表（`kind = "phrase_table"`，纯数据，不带代码）：�
 
 ## 生成和核对
 
-`symbols.tsv` 是唯一的数据源，每行「命令名<TAB>U+码位」。`pack/plugin.toml` 由生成器写出，不要手改：
+`symbols.tsv` 每行「命令名<TAB>U+码位」，是 msime-dictionary `sources/symbols/latex-symbols.tsv` 的逐字节副本：加命令名、改码位都改词库仓那份，再更新 `resources/symbol-tables.lock.json` 并运行 `python3 scripts/sync_symbol_tables.py` 同步过来，`scripts/test-symbol-tables.py` 会拒绝在这里手改的副本。`pack/plugin.toml` 由生成器写出，不要手改：
 
 ```sh
 python3 plugins/phrase_table/tools/gen_latex_symbols.py          # 重新生成 pack/plugin.toml

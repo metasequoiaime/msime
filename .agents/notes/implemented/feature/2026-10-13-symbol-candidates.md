@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-- **数据编进引擎。** 本项目自写的 `crates/engine/src/local/symbol_candidates.tsv`（`名称<TAB>拼音<TAB>符号...`，约 300 行，按数学、单位、希腊字母、形状与记号、标点与括号、其他、数字序号分组）由 `crates/engine/src/local/symbol_candidates.rs` 用 `include_str!` 编入，第一次查询时在 `OnceLock` 里建三个索引：全拼（去掉 `'`）、两个音节以上非数字中文名称的首字母、拉丁名称。拼音列取 `msime-pinyin.db` 里那个词的键（圆周率是 `yuan'zhou'lv`），同一个拼音有几个名称时词库里有的写在前面。
+- **数据编进引擎。**（源数据后来迁到 msime-dictionary 的 `sources/symbols/symbol-names.tsv`，这里的文件是按锁同步的副本，见[补齐希腊字母与数学符号名称](2026-10-25-math-greek-symbol-names.md)。）本项目自写的 `crates/engine/src/local/symbol_candidates.tsv`（`名称<TAB>拼音<TAB>符号...`，约 300 行，按数学、单位、希腊字母、形状与记号、标点与括号、其他、数字序号分组）由 `crates/engine/src/local/symbol_candidates.rs` 用 `include_str!` 编入，第一次查询时在 `OnceLock` 里建三个索引：全拼（去掉 `'`）、两个音节以上非数字中文名称的首字母、拉丁名称。拼音列取 `msime-pinyin.db` 里那个词的键（圆周率是 `yuan'zhou'lv`），同一个拼音有几个名称时词库里有的写在前面。
 - **只认整段完全相等，不按前缀。** 26 键（`query_mixed_symbols`）：全拼认名称的全拼、两个音节以上非数字名称的首字母（`ssd` 摄氏度，只限全拼）和至少 4 个字母的拉丁名称（`gamma`）；双拼用 `normalize_input` 归一成全拼后比全拼，另按原样比拉丁名称。微软双拼的 `;` 是 `ing` 韵母键，在归一化前保留（`p;mi` 读作 `pingmi`），只在方案实际使用分号键时接受；全拼和其他双拼方案仍拒绝分号。九宫格（`query_symbol_readings`）只认读法与名称全拼完全相等，并且要过 `splits_into_syllables_at` 的边界检查。输入不到 `MIXED_EXPRESSIVE_MINIMUM_INPUT`（2）键不查。单音节名称只收派、度及一至十，依据分别为 W#40、W#759 和 #9088，由表检查钉死。
 - **来源复用 `CandidateSource::Emoji`（6）。** 于是不学习、不调频、不进个人上下文（`learn_candidate`、`record_personal_context`）、选中即整段上屏结束组字（`commit_selection`，所以部分选词后选符号不会造出「大于≥」），不能置顶、固定或删除（`is_editable_source`），重排器不碰它（`CATALOG_SOURCES`），有云候选、AI 候选时按 emoji 的座位坐（`normalize_online_slots`），不请求释义，Windows 选中即结束组字。`CandidateSource::Emoji` 的文档注释写明它也用于符号行。
 - **位置**（`crates/engine/src/ime/queries.rs` 的 `place_symbol_rows`，26 键和九宫格的 `insert_expressive_rows` 共用）：

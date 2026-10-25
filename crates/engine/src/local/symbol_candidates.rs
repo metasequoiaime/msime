@@ -1,6 +1,6 @@
 //! 打拼音出符号：全拼、双拼（26 键和九宫格）整段组字正好拼出某个符号的名称时，混排给出对应的符号，`zhengfu` 得 ±、`pingfangmi` 得 ㎡、`gamma` 得 γ Γ。
 //!
-//! 数据是本项目自写的 `symbol_candidates.tsv`，编进引擎，不读磁盘；格式和写法规则见文件头。第一次查询时解析一次，建三个索引：全拼（去掉 `'`）、两个音节以上非数字名称的首字母、拉丁名称。
+//! 数据是本项目自写的 `symbol_candidates.tsv`，编进引擎，不读磁盘；格式和写法规则见文件头。它是 msime-dictionary `sources/symbols/symbol-names.tsv` 的逐字节副本，由 `scripts/sync_symbol_tables.py` 按 `resources/symbol-tables.lock.json` 同步，改名称要改词库仓，不在这里手改（`scripts/test-symbol-tables.py` 核对）。第一次查询时解析一次，建三个索引：全拼（去掉 `'`）、两个音节以上非数字名称的首字母、拉丁名称。
 //!
 //! 只认完全相等，不按前缀：表是封闭的小集合，前缀命中几乎都是噪音（`zheng` 能命中正负、正比……），打完整名称只多几个字母。行的位置由混排决定（`queries::place_symbol_rows`）：跟在名称那个词后面，永远不占首位。行的来源是 `CandidateSource::Emoji`，所以选中时整段上屏、结束组字，不学习、不调频、不进个人上下文，也不能置顶、固定或删除。
 

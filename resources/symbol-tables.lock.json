@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "repository": "https://github.com/metasequoiaime/msime-dictionary",
+  "commit": "ce47caba3b5f82fbe1436756bd0513dafee2d1f1",
+  "files": [
+    {
+      "path": "sources/symbols/symbol-names.tsv",
+      "copy": "crates/engine/src/local/symbol_candidates.tsv",
+      "size": 10881,
+      "sha256": "32c4690a04fe6904e5b687e195e164a6aa4caf7eeaf4d465d82ba65ce87bb38d"
+    },
+    {
+      "path": "sources/symbols/latex-symbols.tsv",
+      "copy": "plugins/phrase_table/latex-symbols/symbols.tsv",
+      "size": 7284,
+      "sha256": "6a7a520a60b390e72411c8d191ccbf7af23b6f4df752febfd84ed0d006ffa688"
+    }
+  ],
+  "generator": "scripts/sync_symbol_tables.py"
+}

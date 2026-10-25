@@ -3,7 +3,7 @@
 //! 两条查法共用一张编进引擎的表，都不读磁盘：
 //!
 //! - 分组码表是本项目自定的 `symbol_groups.tsv`（`编码<TAB>中文组名<TAB>符号...`），分组码与码位来自 rime-wanxiang 的 `wanxiang_symbols.yaml`（CC BY 4.0，署名与改动说明在 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`），中文组名与排序由本项目自定。
-//! - LaTeX 命令名读官方短语表「LaTeX 符号」的数据源 `plugins/phrase_table/latex-symbols/symbols.tsv`（本项目自写，MIT），编进引擎，六个平台不用启用插件也能用：`sum` 得 ∑、`leq` 得 ≤、`pi` 得 π Π、`mathbbr` 得 ℝ。命令名去掉反斜杠和花括号、转成小写，只差大小写的合成一行、小写的在前（`rightarrow` 得 → ⇒），与那个短语表的编码规则相同；`\S`、`\P` 这种只剩一个字母的不收，单个字母是分组码前缀。只在这里查，不进普通打字的混排，`pi`、`in`、`le` 这些短命令名在混排里会和拼音、英文撞上。
+//! - LaTeX 命令名读官方短语表「LaTeX 符号」的数据源 `plugins/phrase_table/latex-symbols/symbols.tsv`（本项目自写，MIT；是 msime-dictionary `sources/symbols/latex-symbols.tsv` 的同步副本，见 `scripts/sync_symbol_tables.py`），编进引擎，六个平台不用启用插件也能用：`sum` 得 ∑、`leq` 得 ≤、`pi` 得 π Π、`mathbbr` 得 ℝ。命令名去掉反斜杠和花括号、转成小写，只差大小写的合成一行、小写的在前（`rightarrow` 得 → ⇒），与那个短语表的编码规则相同；`\S`、`\P` 这种只剩一个字母的不收，单个字母是分组码前缀。只在这里查，不进普通打字的混排，`pi`、`in`、`le` 这些短命令名在混排里会和拼音、英文撞上。
 //! - 符号名复用混排那半边（`symbol_candidates`）的 `symbol_candidates.tsv`：`alpha` 得 α、`infinity` 得 ∞。
 //!
 //! 打出的整串是混排表里的拉丁名称（`phi`、`epsilon`）时，正文用的希腊字母（φ、ε）排在最前；接着是整串 LaTeX 命令名的符号（`\phi` 排出来是 ϕ），打出完整命令名就是要那个符号，所以它排在分组之前（`nu` 的 ν 排在以 `nu` 开头的 `num` 组之前）。分组码先认整串（`xl` 只出希腊字母小写），整串没有时按前缀给整组（`x` 出所有以 `x` 开头的组），组内按表的顺序；同一个符号只出一次。符号名在分组码之后给，同样只认整串。都不中时由会话补上原样上屏的兜底行。
