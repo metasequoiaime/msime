@@ -44,6 +44,8 @@ public final class LocalBackupPolicySmoke {
             "a restored backup does not start an input log");
         check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.developer.mcp_input_events"),
             "MCP log scopes stay on the device");
+        check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.backup_export_tree"),
+            "document tree grants cannot travel inside a backup");
         check(!LocalBackupPolicy.backsUpLocalSetting(null), "no key");
 
         Map<String, Object> settings = new LinkedHashMap<>();

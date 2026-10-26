@@ -88,11 +88,12 @@ public final class LocalBackupPolicy {
     }
 
     /**
-     * Android 本地设置里哪些键进备份、从备份恢复。语音数据贡献（{@code AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO}）是用户在本机看过说明、点了确认才开的上传授权，开发者选项（`platform.android.developer.*`：输入日志、调试信息、日志级别和 MCP 可访问的日志）是排查一次问题时临时打开的开关；从备份恢复它们会绕过确认，在另一台设备上悄悄开始上传语音或记录输入日志。剪贴板导出目录也是本机文档授权，不能在其他设备复用。所以这些设置既不导出，也不从（旧版或别人改过的）备份里恢复；其余的本地设置照常带走。
+     * Android 本地设置里哪些键进备份、从备份恢复。语音数据贡献（{@code AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO}）是用户在本机看过说明、点了确认才开的上传授权，开发者选项（`platform.android.developer.*`：输入日志、调试信息、日志级别和 MCP 可访问的日志）是排查一次问题时临时打开的开关；从备份恢复它们会绕过确认，在另一台设备上悄悄开始上传语音或记录输入日志。剪贴板和备份导出目录都是本机文档授权，不能在其他设备复用。所以这些设置既不导出，也不从（旧版或别人改过的）备份里恢复；其余的本地设置照常带走。
      */
     public static boolean backsUpLocalSetting(String key) {
         return key != null && !key.equals(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO)
             && !key.equals(AndroidLocalSettings.CLIPBOARD_EXPORT_TREE)
+            && !key.equals(AndroidLocalSettings.BACKUP_EXPORT_TREE)
             && !key.startsWith(DEVELOPER_PREFIX);
     }
 

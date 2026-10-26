@@ -110,6 +110,8 @@ public final class AndroidLocalSettings {
     public static final String DEVELOPER_INPUT_LOG = "platform.android.developer.input_log";
     /** 剪贴板导出目录；空值代表 Download，仅保存在本机。 */
     public static final String CLIPBOARD_EXPORT_TREE = "platform.android.clipboard_export_tree";
+    /** 本地备份导出目录；空值表示每次用文件选择器，不随备份和账号同步。 */
+    public static final String BACKUP_EXPORT_TREE = "platform.android.backup_export_tree";
     /** 系统文件选择器授权的诊断包目录，仅保存在本机。 */
     public static final String DIAGNOSTICS_EXPORT_TREE = "platform.android.developer.diagnostics_export_tree";
     public static final String MCP_RETENTION = "platform.android.developer.mcp_retention";
@@ -235,6 +237,8 @@ public final class AndroidLocalSettings {
         choice(DEVELOPER_LOG_LEVEL, "warn", false, "error", "warn", "info", "debug");
         bool(DEVELOPER_INPUT_LOG, false, false);
         text(CLIPBOARD_EXPORT_TREE, "", false,
+            value -> value.length() <= 8192 && (value.isEmpty() || value.startsWith("content://")) ? value : null);
+        text(BACKUP_EXPORT_TREE, "", false,
             value -> value.length() <= 8192 && (value.isEmpty() || value.startsWith("content://")) ? value : null);
         text(DIAGNOSTICS_EXPORT_TREE, "", false,
             value -> value.length() <= 8192 && (value.isEmpty() || value.startsWith("content://")) ? value : null);

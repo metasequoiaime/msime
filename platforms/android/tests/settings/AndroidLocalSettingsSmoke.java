@@ -113,7 +113,8 @@ public final class AndroidLocalSettingsSmoke {
     }
 
     private static void diagnosticDirectorySetting() {
-        for (String key : new String[] {AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE, AndroidLocalSettings.CLIPBOARD_EXPORT_TREE}) {
+        for (String key : new String[] {AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE,
+                AndroidLocalSettings.CLIPBOARD_EXPORT_TREE, AndroidLocalSettings.BACKUP_EXPORT_TREE}) {
         AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(key);
         check("".equals(AndroidLocalSettings.defaults().text(key)), "export directory has no default grant");
         check(!spec.synced && !LocalBackupPolicy.backsUpLocalSetting(key), "directory stays on this device");
