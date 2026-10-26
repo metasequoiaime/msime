@@ -76,6 +76,10 @@ public final class PluginCatalogPolicySmoke {
         check(PluginCatalogPolicy.rowDescription(keys).equals("内置")
             && PluginCatalogPolicy.rowDescription(new Pack("wordbook", "w", "w", "1.0", "MIT", "甲", "", false, ""))
                 .equals("1.0 · 作者 甲"), "row descriptions");
+        check(PluginCatalogPolicy.publishNameValid(" 我的短语 ") && !PluginCatalogPolicy.publishNameValid("　")
+            && !PluginCatalogPolicy.publishNameValid("字".repeat(33)) && PluginCatalogPolicy.publishNameValid("字".repeat(32))
+            && PluginCatalogPolicy.publishDescriptionValid("") && !PluginCatalogPolicy.publishDescriptionValid("x".repeat(281)),
+            "publish fields");
         System.out.println("PluginCatalogPolicySmoke ok");
     }
 

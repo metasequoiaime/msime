@@ -42,7 +42,7 @@ public final class VocabularyReviewText {
 
     /** 选择器和词书行里的写法：「CET-4（3849 词）」。 */
     public static String wordbookLabel(VocabularyReviewModel.Wordbook book) {
-        return book.name() + "（" + book.total() + " 词）";
+        return book.name() + "（" + book.total() + " 词）" + (book.pack() ? " · 插件" : "");
     }
 
     /** 导入的词表名：文件名去掉扩展名和首尾空白，最多 {@link #MAX_IMPORT_NAME_CHARS} 个字符；什么也不剩时用「导入的词表」。 */

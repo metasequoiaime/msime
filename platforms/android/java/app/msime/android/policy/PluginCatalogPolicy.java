@@ -313,6 +313,23 @@ public final class PluginCatalogPolicy {
         return "community_unauthorized".equals(code);
     }
 
+    /** 发布时名称的上限（码位），与共享页 `communityPublishFields` 和服务端一致。 */
+    public static final int MAX_PUBLISH_NAME = 32;
+    /** 发布时说明的上限（码位）。 */
+    public static final int MAX_PUBLISH_DESCRIPTION = 280;
+
+    /** 发布的名称去掉首尾空白后是 1 到 32 个字。 */
+    public static boolean publishNameValid(String name) {
+        String trimmed = PluginEditorPolicy.trim(name);
+        return !trimmed.isEmpty() && trimmed.codePointCount(0, trimmed.length()) <= MAX_PUBLISH_NAME;
+    }
+
+    /** 发布的说明去掉首尾空白后不超过 280 个字，可以为空。 */
+    public static boolean publishDescriptionValid(String description) {
+        String trimmed = PluginEditorPolicy.trim(description);
+        return trimmed.codePointCount(0, trimmed.length()) <= MAX_PUBLISH_DESCRIPTION;
+    }
+
     /** 包的大小，以 MB 保留一位小数，与共享页 `candidateSkinMegabytes` 相同。 */
     public static String megabytes(long bytes) {
         return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));

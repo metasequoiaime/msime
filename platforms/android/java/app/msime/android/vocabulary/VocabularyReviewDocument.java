@@ -58,7 +58,8 @@ public final class VocabularyReviewDocument {
                     id,
                     optionalString(book, "name", id),
                     count(book, "total"),
-                    optionalBoolean(book, "builtin", false)));
+                    optionalBoolean(book, "builtin", false),
+                    optionalBoolean(book, "pack", false)));
             }
         }
 

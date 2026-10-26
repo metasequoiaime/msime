@@ -25,16 +25,22 @@ public final class AccountStore {
     private static final Object IDENTITY_LOCK = new Object();
     private static long registered;
 
-    /** Rust 账号入口的一次失败：错误码（account_unauthorized 等），以及服务端给的 Retry-After 秒数（没有时为 0）。 */
+    /** Rust 账号入口的一次失败：错误码（account_unauthorized 等），服务端给的 Retry-After 秒数（没有时为 0），以及失败回答里的 `detail`（社区插件的包规则失败带它，说明违反了哪一条；没有时为空串）。 */
     public static final class Failure extends Exception {
         private static final long serialVersionUID = 1L;
         public final String code;
         public final long retryAfterSeconds;
+        public final String detail;
 
         public Failure(String code, long retryAfterSeconds) {
+            this(code, retryAfterSeconds, "");
+        }
+
+        public Failure(String code, long retryAfterSeconds, String detail) {
             super(code);
             this.code = code == null || code.isEmpty() ? "account_unavailable" : code;
             this.retryAfterSeconds = BoundsPolicy.nonNegative(retryAfterSeconds);
+            this.detail = detail == null ? "" : detail;
         }
     }
 
@@ -125,8 +131,9 @@ public final class AccountStore {
         }
         if (!JsonPolicy.strictTrue(root.opt("ok"))) {
             Object code = root.opt("error");
+            Object detail = root.opt("detail");
             throw new Failure(code instanceof String text ? text : "",
-                NumberPolicy.strictLong(root.opt("retry_after_seconds"), 0));
+                NumberPolicy.strictLong(root.opt("retry_after_seconds"), 0), detail instanceof String rule ? rule : "");
         }
         Object value = root.opt("value");
         return value == null ? JSONObject.NULL : value;
