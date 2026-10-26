@@ -2179,9 +2179,9 @@ struct TranslationTask {
   // 这是翻译查询 gloss_query（整页离线释义）的一次查询：只查离线词典，不连 provider，回答交给 Rust 时每条标 "gloss": true。
   bool gloss = false;
   // 「仅当前高亮」时主查询的缓存键（translation_answer_key）；整条查询做完且有回答时按它记下，高亮移回来时复用。
-  std::string answer_key;
+  std::string answer_key = {};
   // gloss_query 查完之后接着发的主查询。
-  std::shared_ptr<TranslationTask> then;
+  std::shared_ptr<TranslationTask> then = {};
 };
 // prefer_online_glosses over the JSON translation lists the host API exchanges.
 Json prefer_online_translations(const Json &glosses, const Json &online) {
