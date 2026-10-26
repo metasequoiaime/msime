@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind};
 use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{Connection, OpenFlags};
@@ -22,10 +23,19 @@ pub const MAX_CONTENT_ID_LENGTH: usize = 128;
 /// Tables the lattice reads through `RuntimePaths::dictionary`. They are built from one generation's vocabulary, so they live beside it, and a resource set without them simply leaves the decoder without them (RP:56-59).
 const GENERATION_COPIES: [&str; 2] = [assets::BIGRAM_TABLE, assets::TRIGRAM_TABLE];
 
+/// 暂存目录名的后缀，见 [`prepare_runtime_paths_for`]。
+const STAGE_SUFFIX: &str = ".incoming";
+
+/// 清理时先把被丢下的暂存目录改名成这个后缀认领，再删。
+const CLAIMED_STAGE_SUFFIX: &str = ".removing";
+
+/// 暂存目录多久没有任何写入才算被丢下。真在准备的进程一直在写：复制约 200 MB 的词库、回放日志、建索引，最慢的设备上两次写入之间也只隔几十秒，一次完整准备在几分钟以内；一小时留出几十倍余量。代价是被杀留下的半截目录要等下一次在一小时后的准备才被删，期间只占空间，不再挡住准备。
+const ABANDONED_STAGE_AGE: Duration = Duration::from_secs(60 * 60);
+
 /// `msime-wubi.db` 里单独发布、准备代次时并回工作主词库的五笔码表。
 const SPLIT_WUBI_TABLES: [&str; 2] = ["wubi86", "wubi98"];
 
-/// Validate the content id (1..=128 of `[0-9A-Za-z_-]`) and the disjoint absolute roots, create `user_data` and `cache`, then either re-replay an existing ready generation (copying n-gram tables it lacks) or stage `<id>.incoming`, replay, write `.ready` and rename it into place. A failed staging removes only its own directory.
+/// 校验代次 id（1 到 128 个 `[0-9A-Za-z_-]`）和三个互不重叠的绝对路径根，建好 `user_data` 和 `cache`，清掉被丢下的暂存目录，然后要么对已就绪的代次重新回放日志（补上它缺的 n-gram 表），要么在这次尝试独有的 `<id>.<随机串>.incoming` 里暂存、回放、写 `.ready` 再改名就位。暂存失败只删自己的目录；同一个代次被别的进程抢先发布时用那一份。
 pub fn prepare_runtime_paths(
     resources: &Path,
     user_data: &Path,
@@ -80,75 +90,166 @@ pub fn prepare_runtime_paths_for(
         );
     }
 
+    let parent = user_data.join("dictionaries");
+    sweep_abandoned_stages(&parent, SystemTime::now());
+
     let marker = result.dictionaries.join(assets::GENERATION_READY);
-    let generation_ready = match fs::symlink_metadata(&marker) {
-        Ok(metadata) if metadata.file_type().is_file() => true,
-        Ok(_) => {
-            // A directory, device or symlink at the marker path is not a
-            // completed generation. Do not follow it or try to replace the
-            // existing generation directory during staging.
+    if generation_ready(&marker)? {
+        return open_ready_generation(result, resources, main_dictionary);
+    }
+
+    fs::create_dir_all(&parent)?;
+    // 每次尝试在 `<id>.<随机串>.incoming` 里暂存，目录由 `tempdir_in` 独占新建（同名已存在就换一个名字），两次准备绝不共用一个暂存目录，这是 RP:155-157 独占新建要保证的；名字每次不同，进程在中途被杀留下的暂存目录也就挡不住下一次准备，由 [`sweep_abandoned_stages`] 收拾。出错时 `TempDir` 被丢弃，只删这次自己的目录（RP:174-179）。
+    let stage = tempfile::Builder::new()
+        .prefix(&format!("{content_id}."))
+        .suffix(STAGE_SUFFIX)
+        .tempdir_in(&parent)?;
+    let staged = (|| -> Result<()> {
+        for name in generation_dictionaries(main_dictionary) {
+            copy_database(&resources.join(name), &stage.path().join(name))?;
+        }
+        if main_dictionary {
+            merge_split_wubi(resources, &stage.path().join(assets::MAIN_DICTIONARY))?;
+        }
+        stage_generation_copies(resources, stage.path(), true)?;
+        replay_into(&result, stage.path(), main_dictionary)?;
+        index_reverse_lookup(stage.path(), main_dictionary);
+        write_private_file(
+            &stage.path().join(assets::GENERATION_READY),
+            format!("{content_id}\n").as_bytes(),
+        )
+        .map_err(|_| EngineError::failed(diagnostics::RUNTIME_FINALIZE_FAILED))?;
+        // 只把整套做完的目录改名成代次，读的一方要么看不到代次，要么看到带 `.ready` 的完整代次。代次已经存在且非空时改名一定失败（Unix 报 `ENOTEMPTY`/`EEXIST`，Windows 报 `ERROR_DIR_NOT_EMPTY` 或拒绝访问），不会顶掉别人发布的代次。
+        fs::rename(stage.path(), &result.dictionaries)?;
+        Ok(())
+    })();
+    match staged {
+        Ok(()) => {
+            // 目录已经改名成代次，不能再让 `TempDir` 按原路径去删。
+            let _ = stage.keep();
+            Ok(result)
+        }
+        Err(error) => {
+            drop(stage);
+            // 另一个进程同时在准备同一个代次并抢先发布了它（这次的改名因此失败），或者这次停顿太久、暂存目录被当作丢下的清掉了：用已经就绪的那一份，和一开始就看到它一样再回放一遍日志。
+            if generation_ready(&marker).unwrap_or(false) {
+                return open_ready_generation(result, resources, main_dictionary);
+            }
+            Err(error)
+        }
+    }
+}
+
+/// 代次目录里是不是一个普通文件的 `.ready`。目录、设备或符号链接不算完成的代次，也不跟随、不去替换它所在的代次。
+fn generation_ready(marker: &Path) -> Result<bool> {
+    match fs::symlink_metadata(marker) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(true),
+        Ok(_) => Err(EngineError::failed(
+            diagnostics::INCOMPLETE_RUNTIME_GENERATION,
+        )),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// 打开已经就绪的代次：检查词库副本都在，补上五笔表、反查索引和后来才随资源发布的 n-gram 表，再把当前日志回放一遍。
+fn open_ready_generation(
+    result: RuntimePaths,
+    resources: &Path,
+    main_dictionary: bool,
+) -> Result<RuntimePaths> {
+    for name in generation_dictionaries(main_dictionary) {
+        if !is_real_file(&result.dictionary(name)) {
             return Err(EngineError::failed(
                 diagnostics::INCOMPLETE_RUNTIME_GENERATION,
             ));
         }
-        Err(error) if error.kind() == ErrorKind::NotFound => false,
-        Err(error) => return Err(error.into()),
-    };
-    if generation_ready {
-        for name in generation_dictionaries(main_dictionary) {
-            if !is_real_file(&result.dictionary(name)) {
-                return Err(EngineError::failed(
-                    diagnostics::INCOMPLETE_RUNTIME_GENERATION,
-                ));
-            }
-        }
-        // 拆分五笔码表之后准备的代次也要有五笔表；表已在时这一步只读不写。没有工作主词库的代次没有地方放五笔表。
-        if main_dictionary {
-            merge_split_wubi(resources, &result.dictionary(assets::MAIN_DICTIONARY))?;
-        }
-        // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
-        replay_into(&result, &result.dictionaries, main_dictionary)?;
-        // 旧版本准备的代次没有反查索引，重新打开时补上；已有索引时只读一次 schema。
-        index_reverse_lookup(&result.dictionaries, main_dictionary);
-        stage_generation_copies(resources, &result.dictionaries, false)?;
-        return Ok(result);
     }
-
-    let parent = user_data.join("dictionaries");
-    let stage = parent.join(format!("{content_id}.incoming"));
-    fs::create_dir_all(&parent)?;
-    // Exclusive creation also keeps two preparations of the same id from overlapping (RP:155-157).
-    match fs::create_dir(&stage) {
-        Ok(()) => {}
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-            return Err(EngineError::failed(diagnostics::RUNTIME_STAGING_EXISTS));
-        }
-        Err(error) => return Err(error.into()),
+    // 拆分五笔码表之后准备的代次也要有五笔表；表已在时这一步只读不写。没有工作主词库的代次没有地方放五笔表。
+    if main_dictionary {
+        merge_split_wubi(resources, &result.dictionary(assets::MAIN_DICTIONARY))?;
     }
-    let staged = (|| -> Result<()> {
-        for name in generation_dictionaries(main_dictionary) {
-            copy_database(&resources.join(name), &stage.join(name))?;
-        }
-        if main_dictionary {
-            merge_split_wubi(resources, &stage.join(assets::MAIN_DICTIONARY))?;
-        }
-        stage_generation_copies(resources, &stage, true)?;
-        replay_into(&result, &stage, main_dictionary)?;
-        index_reverse_lookup(&stage, main_dictionary);
-        write_private_file(
-            &stage.join(assets::GENERATION_READY),
-            format!("{content_id}\n").as_bytes(),
-        )
-        .map_err(|_| EngineError::failed(diagnostics::RUNTIME_FINALIZE_FAILED))?;
-        fs::rename(&stage, &result.dictionaries)?;
-        Ok(())
-    })();
-    if let Err(error) = staged {
-        // The staging directory is this call's own; what the caller needs is the error that stopped it, not whether the cleanup also failed (RP:174-179).
-        let _ = fs::remove_dir_all(&stage);
-        return Err(error);
-    }
+    // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
+    replay_into(&result, &result.dictionaries, main_dictionary)?;
+    // 旧版本准备的代次没有反查索引，重新打开时补上；已有索引时只读一次 schema。
+    index_reverse_lookup(&result.dictionaries, main_dictionary);
+    stage_generation_copies(resources, &result.dictionaries, false)?;
     Ok(result)
+}
+
+/// 清掉 `dictionaries` 下被丢下的暂存目录：准备途中被杀的进程留下的 `<id>.<随机串>.incoming`、旧版本固定名字的 `<id>.incoming`，以及上一次清理没删完的 `.removing`。每次准备都先做一遍，出什么错都不影响准备本身。
+///
+/// 暂存目录本身和里面每一项最近一次修改都早于 [`ABANDONED_STAGE_AGE`] 才算被丢下。不是自己的暂存目录无从判断主人是否还活着：引擎不能用文件锁（只有 client-base 知道 Android 上怎么锁，引擎不依赖它），进程号在 Linux 的不同 PID 命名空间之间、iOS 沙盒的 App 与扩展之间都不可靠，只剩“多久没写”这一条。被丢下的目录先改名成 `.removing` 认领再删：万一主人只是停顿太久（iOS 把 App 挂起在准备中途），它之后的写入和改名找不到原路径，只会让那次准备失败，不会把删到一半的目录发布成代次。
+fn sweep_abandoned_stages(parent: &Path, now: SystemTime) {
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let path = entry.path();
+        if is_stage_name(name, CLAIMED_STAGE_SUFFIX) {
+            // 已经认领的目录不会再被谁发布，不必等它变旧。
+            if is_real_directory(&path) {
+                let _ = fs::remove_dir_all(&path);
+            }
+            continue;
+        }
+        if !is_stage_name(name, STAGE_SUFFIX) || !abandoned(&path, now) {
+            continue;
+        }
+        let mut claimed = name[..name.len() - STAGE_SUFFIX.len()].to_owned();
+        claimed.push_str(CLAIMED_STAGE_SUFFIX);
+        let claimed = parent.join(claimed);
+        // Windows 上目录里还有打开的文件时改名失败，跳过即可。
+        if fs::rename(&path, &claimed).is_ok() {
+            let _ = fs::remove_dir_all(&claimed);
+        }
+    }
+}
+
+/// `<id><suffix>` 或 `<id>.<字母数字><suffix>`，`<id>` 是合法的代次 id。
+fn is_stage_name(name: &str, suffix: &str) -> bool {
+    let Some(stem) = name.strip_suffix(suffix) else {
+        return false;
+    };
+    let (content_id, attempt) = match stem.split_once('.') {
+        Some((content_id, attempt)) => (content_id, Some(attempt)),
+        None => (stem, None),
+    };
+    valid_content_id(content_id)
+        && attempt.is_none_or(|attempt| {
+            !attempt.is_empty() && attempt.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        })
+}
+
+/// 暂存目录（不是符号链接）和里面每一项的修改时间都早于 `now - ABANDONED_STAGE_AGE`。读不到时间、时间在将来、或者读的同时有项目消失，都当作还有人在写。
+fn abandoned(stage: &Path, now: SystemTime) -> bool {
+    let Some(cutoff) = now.checked_sub(ABANDONED_STAGE_AGE) else {
+        return false;
+    };
+    let untouched = |path: &Path| {
+        fs::symlink_metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .is_ok_and(|modified| modified < cutoff)
+    };
+    if !is_real_directory(stage) || !untouched(stage) {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(stage) else {
+        return false;
+    };
+    entries
+        .into_iter()
+        .all(|entry| entry.is_ok_and(|entry| untouched(&entry.path())))
+}
+
+fn is_real_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
 }
 
 fn valid_content_id(content_id: &str) -> bool {
@@ -526,6 +627,18 @@ mod tests {
         resources
     }
 
+    /// `user/dictionaries` 下还剩的暂存目录。
+    fn stages(user: &Path) -> Vec<String> {
+        fs::read_dir(user.join("dictionaries"))
+            .map(|entries| {
+                entries
+                    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                    .filter(|name| name.ends_with(STAGE_SUFFIX))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn learn(journal: &Path, word: &str, updated_at: i64) {
         sql(journal, OPERATIONS_DDL);
         sql(
@@ -719,7 +832,7 @@ mod tests {
             fs::read_to_string(paths.dictionary(assets::GENERATION_READY)).unwrap(),
             "v1\n"
         );
-        assert!(!user.join("dictionaries/v1.incoming").exists());
+        assert!(stages(&user).is_empty());
         assert_eq!(
             weight(
                 &paths.dictionary(assets::MAIN_DICTIONARY),
@@ -788,13 +901,13 @@ mod tests {
             before_failure
         );
         assert!(!user.join("dictionaries/v3").exists());
-        assert!(!user.join("dictionaries/v3.incoming").exists());
+        assert!(stages(&user).is_empty());
         // A ready generation refuses the same journal as well.
         assert!(prepare_runtime_paths(&resources, &user, &cache, "v2").is_err());
     }
 
     #[test]
-    fn staging_failures_clean_up_and_leftovers_are_refused() {
+    fn staging_failures_clean_up_and_incomplete_generations_are_refused() {
         let root = tempfile::tempdir().unwrap();
         let resources = resources(root.path());
         let user = root.path().join("user");
@@ -810,13 +923,8 @@ mod tests {
                 missing.join(assets::MAIN_DICTIONARY).display()
             )
         );
-        assert!(!user.join("dictionaries/v1.incoming").exists());
+        assert_eq!(fs::read_dir(user.join("dictionaries")).unwrap().count(), 0);
         assert!(!missing.join(assets::MAIN_DICTIONARY).exists());
-
-        fs::create_dir_all(user.join("dictionaries/v1.incoming")).unwrap();
-        let error = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap_err();
-        assert_eq!(error.to_string(), diagnostics::RUNTIME_STAGING_EXISTS);
-        assert!(user.join("dictionaries/v1.incoming").is_dir());
 
         let incomplete = user.join("dictionaries/v2");
         fs::create_dir_all(&incomplete).unwrap();
@@ -826,6 +934,201 @@ mod tests {
             error.to_string(),
             diagnostics::INCOMPLETE_RUNTIME_GENERATION
         );
+    }
+
+    /// 进程在准备途中被杀（iOS 键盘扩展超出内存上限、Android 与 HarmonyOS 退到后台被系统回收）会留下复制到一半的暂存目录。下一次准备照常成功，不再每次都报暂存目录已存在；刚留下的暂存目录分不清是不是另一个进程正在写的，原样留着。
+    #[test]
+    fn a_stage_left_by_a_killed_preparation_does_not_block_the_next_one() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let parent = user.join("dictionaries");
+        // 旧版本用的固定暂存名，和现在每次尝试各自的暂存名。
+        let leftovers = ["v1.incoming", "v1.k3Xq9z.incoming"];
+        for leftover in leftovers {
+            fs::create_dir_all(parent.join(leftover)).unwrap();
+            fs::write(
+                parent.join(leftover).join(assets::MAIN_DICTIONARY),
+                b"SQLite format 3\0partial",
+            )
+            .unwrap();
+        }
+        learn(&user.join(assets::USER_JOURNAL), "伱", 1);
+
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(paths.dictionaries, parent.join("v1"));
+        assert_eq!(
+            fs::read_to_string(paths.dictionary(assets::GENERATION_READY)).unwrap(),
+            "v1\n"
+        );
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT weight FROM tbl_1_n WHERE value='伱'"
+            ),
+            Some(50)
+        );
+        for leftover in leftovers {
+            assert_eq!(
+                fs::read(parent.join(leftover).join(assets::MAIN_DICTIONARY)).unwrap(),
+                b"SQLite format 3\0partial",
+                "{leftover}"
+            );
+        }
+        assert_eq!(
+            prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap(),
+            paths
+        );
+    }
+
+    /// 同一个代次被几方同时准备（iOS 的 App 与键盘扩展、Windows 的 TIP 与 Server、IBus 与 Fcitx5）：每一方都拿到同一个可用的代次，谁也不报错，输掉的一方不留下暂存目录，也不动赢的一方发布的代次。
+    #[test]
+    fn concurrent_preparations_of_one_generation_all_succeed() {
+        const PREPARERS: usize = 8;
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        fs::write(resources.join(assets::BIGRAM_TABLE), "bigram").unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        fs::create_dir_all(&user).unwrap();
+        learn(&user.join(assets::USER_JOURNAL), "伱", 1);
+
+        let barrier = std::sync::Barrier::new(PREPARERS);
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let preparers: Vec<_> = (0..PREPARERS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        prepare_runtime_paths(&resources, &user, &cache, "v1")
+                            .map_err(|error| error.to_string())
+                    })
+                })
+                .collect();
+            preparers
+                .into_iter()
+                .map(|preparer| preparer.join().unwrap())
+                .collect()
+        });
+        let generation = user.join("dictionaries/v1");
+        for result in &results {
+            assert_eq!(result.as_ref().unwrap().dictionaries, generation);
+        }
+        assert_eq!(
+            fs::read_to_string(generation.join(assets::GENERATION_READY)).unwrap(),
+            "v1\n"
+        );
+        assert_eq!(
+            weight(
+                &generation.join(assets::MAIN_DICTIONARY),
+                "SELECT weight FROM tbl_1_n WHERE value='伱'"
+            ),
+            Some(50)
+        );
+        assert_eq!(
+            fs::read(generation.join(assets::BIGRAM_TABLE)).unwrap(),
+            b"bigram"
+        );
+        let entries: Vec<_> = fs::read_dir(user.join("dictionaries"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, ["v1"]);
+    }
+
+    /// 清理只删一小时没被写过的暂存目录和已经认领的 `.removing`；代次、名字对不上的目录、普通文件和符号链接都不动。
+    #[test]
+    fn only_stages_untouched_for_an_hour_are_swept() {
+        let root = tempfile::tempdir().unwrap();
+        let parent = root.path().join("dictionaries");
+        let directories = [
+            "v1.incoming",
+            "v1.k3Xq9z.incoming",
+            "v2.Ab12cd.removing",
+            "v1",
+            "a b.incoming",
+            "v1.k3.x.incoming",
+            "v1..incoming",
+            "v1.incoming.bak",
+        ];
+        for name in directories {
+            fs::create_dir_all(parent.join(name)).unwrap();
+            fs::write(parent.join(name).join(assets::MAIN_DICTIONARY), b"partial").unwrap();
+        }
+        fs::write(parent.join("v3.incoming"), b"not a directory").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("keep"), b"keep").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), parent.join("v4.incoming")).unwrap();
+        let names = || {
+            let mut names: Vec<_> = fs::read_dir(&parent)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let mut untouched: Vec<String> = [
+            "a b.incoming",
+            "v1",
+            "v1..incoming",
+            "v1.incoming.bak",
+            "v1.k3.x.incoming",
+            "v3.incoming",
+        ]
+        .map(String::from)
+        .to_vec();
+        if cfg!(unix) {
+            untouched.push("v4.incoming".into());
+        }
+        untouched.sort();
+
+        // 刚写过的暂存目录可能还有人在写，留着；认领过的不会再被发布，直接删。
+        sweep_abandoned_stages(&parent, SystemTime::now());
+        let mut fresh = untouched.clone();
+        fresh.extend(["v1.incoming".into(), "v1.k3Xq9z.incoming".into()]);
+        fresh.sort();
+        assert_eq!(names(), fresh);
+
+        sweep_abandoned_stages(
+            &parent,
+            SystemTime::now() + ABANDONED_STAGE_AGE + Duration::from_secs(60),
+        );
+        assert_eq!(names(), untouched);
+        assert_eq!(fs::read(outside.path().join("keep")).unwrap(), b"keep");
+    }
+
+    /// 一小时前被丢下的暂存目录在下一次准备时删掉，哪怕那次准备走的是已就绪代次的路径。
+    #[cfg(unix)]
+    #[test]
+    fn preparation_sweeps_stages_abandoned_an_hour_ago() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let parent = user.join("dictionaries");
+        let abandoned = parent.join("v1.k3Xq9z.incoming");
+        fs::create_dir_all(&abandoned).unwrap();
+        let partial = abandoned.join(assets::MAIN_DICTIONARY);
+        fs::write(&partial, b"partial").unwrap();
+        let long_ago = SystemTime::now() - ABANDONED_STAGE_AGE - Duration::from_secs(60);
+        let backdate = |path: &Path| {
+            fs::File::open(path)
+                .unwrap()
+                .set_modified(long_ago)
+                .unwrap()
+        };
+        // 目录本身一小时没变、里面的文件却刚写过（正在复制的大词库就是这样），仍算有人在写。
+        backdate(&abandoned);
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(fs::read(&partial).unwrap(), b"partial");
+
+        backdate(&partial);
+        backdate(&abandoned);
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert!(!abandoned.exists());
+        assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
     }
 
     #[cfg(unix)]
@@ -1281,7 +1584,7 @@ mod tests {
                 missing.join(assets::ENGLISH_DICTIONARY).display()
             )
         );
-        assert!(!user.join("dictionaries/v1.incoming").exists());
+        assert!(stages(&user).is_empty());
         assert!(!user.join("dictionaries/v1").exists());
     }
 
