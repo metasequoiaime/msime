@@ -128,7 +128,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 英文大小写状态继续对齐 Apple：中文态空组合点按 Shift 会先完成组合并进入英文的单次大写；单次 Shift 输入一个字母后自动回到小写，350 ms 内连续点按两次进入 Caps Lock，再次点按关闭。编辑器自动 Shift 与手动单次 Shift 使用同一三态状态机，但不会覆盖 Caps Lock；按钮以 `⇧` / `⇪`、选中态和“关闭 / 下一字母 / 自动开启 / 开启”的无障碍状态区分。切换符号层保留当前大小写，硬件 Shift 和本地模式触发使用每次事件自己的修饰状态，不污染软键盘状态；英文模式禁用中文本地输入工具。
 
-中文全拼或双拼已有组合时，软键盘 Shift 保持中文会话并把后续字母以大写辅码交给 Engine，用于缩小候选；组合开始前仍按 Apple 行为切换到英文。五笔、日语、本地输入模式和空组合不启用辅码，Shift 的一次性状态在辅码输入后复位。
+中文全拼或双拼已有组合时，软键盘 Shift 保持中文会话并把后续字母以大写辅码交给 Engine，用于缩小候选；组合开始前仍按 Apple 行为切换到英文。五笔、日语、本地输入模式和空组合不启用辅码，Shift 的一次性状态在辅码输入后复位。全拼 26 键组字时这个位置默认换成「分词」键（送 `'` 断开音节，见 `.agents/notes/implemented/feature/2026-10-15-quanpin-touch-separator.md`），设置「键盘 › 组字时保留 Shift」（共享偏好 `touch_quanpin_shift`，默认关，账号同步键 `platform.android.quanpin_shift`）打开后保留 ⇧、点一下臂辅码；九键、14 键和 18 键的分词键不受它影响。
 
 移动端智能标点消费共享 `smart_punctuation`、`chinese_punctuation` 和 `punctuation_lock`：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。Android 每次只从 `InputConnection` 读取光标前最多两个 UTF-16 单元并向共享策略传一个 Unicode 标量，不保存或记录编辑器文字；缺失或异常上下文安全回退到 Engine 标点。
 

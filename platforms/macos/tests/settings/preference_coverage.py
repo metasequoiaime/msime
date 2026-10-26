@@ -63,6 +63,7 @@ NOT_APPLICABLE = {
     "touch_text_edit_button_order": "仅 Android 原生文本编辑面板读取七个侧边动作的排序；macOS 不提供此面板，共享设置页也不显示排序入口",
     "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",
     "touch_shuangpin_key_hints": "the touch keyboard's 26-key shuangpin letter keys",
+    "touch_quanpin_shift": "仅 Android 和 iOS 的触屏全拼 26 键读它（组字时 ⇧ 保留还是换成「分词」）；macOS 使用物理键盘，Shift 组合键的辅助码语义由引擎处理，屏幕键盘不存在这个问题",
     "touch_spelling_position": "where the touch keyboard puts the spelling; macOS composes inline and its candidate window follows `candidate_preedit_style`",
     "touch_toolbar": "the touch keyboard's row above the keys",
     "harmony_toolbar": "the HarmonyOS phone keyboard's toolbar tools and display mode; the page offers them only where the host reports `touch_toolbar_tools`",
