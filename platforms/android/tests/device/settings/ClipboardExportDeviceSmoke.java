@@ -152,8 +152,15 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         shell("ime set app.msime.android/.MSIMEInputService");
         shell("am start -W -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(node -> "msime-test-plain".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
-        tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
-        tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
+        stage = "real keyboard panel clipboard capture";
+        waitFor(() -> clipboardContains(LONG), "synthetic clipboard history entry");
+        stage = "real keyboard panel clipboard entry";
+        // 输入法进程刚起来时偏好在后台线程读，读到「剪贴板历史」开着之前工具栏的「剪贴板」是灰的，点了没有反应（CI 的 API 35 上曾在输入法进程刚冷启动、主线程还在卡顿时停在这一步等满 15 秒）。等它可用再点。
+        tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+            && node.isEnabled());
+        stage = "real keyboard panel export control";
+        tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+            && node.isEnabled());
         // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。
         DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
@@ -582,6 +589,20 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             SystemClock.sleep(100);
         }
         throw new AssertionError(message);
+    }
+
+    private boolean clipboardContains(String expected) {
+        try {
+            Object loaded = store.getClass().getMethod("load").invoke(store);
+            if (!(loaded instanceof Iterable<?> entries)) return false;
+            for (Object entry : entries) {
+                Object text = entry.getClass().getMethod("text").invoke(entry);
+                if (expected.equals(text)) return true;
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // 输入法正在写共享剪贴板文件时，下一轮读取即可；超时会把阶段写进失败信息。
+        }
+        return false;
     }
 
     private static Predicate<AccessibilityNodeInfo> text(String value) {

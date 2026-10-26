@@ -75,12 +75,24 @@ final class ClipboardPhraseNoticeDeviceCheck {
             for (String text : new String[] {SOURCE, SECOND, "SyntheticNotice\tInvalid"})
                 records.put(new JSONObject().put("text", text).put("timestampMs", 1700000000000L)
                     .put("pinned", true));
-            publish(history, records.toString());
             clipboard.clearPrimaryClip();
             t.restartIme();
             openEditor();
-            t.tap(t.described("剪贴板"));
-            Rect before = bounds(t.awaitStableBounds(card(SOURCE)));
+            // 合成记录要等输入法用上实时偏好之后再写：上一个套件结束时恢复的偏好里剪贴板历史是关的，输入法实时读到「关」就清空历史（ClipboardHistoryRetentionPolicy，#5602）。慢的模拟器上这次清空可能落在这里写完记录之后，面板打开时只剩「本机已存 0 条」（运行 40212793727）。面板顶行的「本机已存 N 条」只在实时偏好开着历史时才画，看到它之后不会再有旧的清空，这时写入记录，再关开一次面板让它重新读。
+            t.tap(t.clipboardEntry());
+            t.await(node -> DeviceSmoke.equalsText("app.msime.android", node.getPackageName())
+                && node.getContentDescription() != null && node.getContentDescription().toString().startsWith("本机已存 "));
+            publish(history, records.toString());
+            t.tap(t.clipboardEntry());
+            t.await(t.key("n"));
+            t.tap(t.clipboardEntry());
+            Rect before;
+            try {
+                before = bounds(t.awaitStableBounds(card(SOURCE)));
+            } catch (AssertionError missing) {
+                // IME 的节点文字列表只到键区开头，面板开没开、列的是什么都看不出来；失败时把输入法各窗口的节点都写进断言，CI 上才能定位。
+                throw new AssertionError("Clipboard panel did not list " + SOURCE + "; nodes: " + productNodes(), missing);
+            }
             baseline = t.automation.takeScreenshot();
             if (baseline == null) throw new AssertionError("Synthetic baseline screenshot unavailable");
             t.stage = "successful phrase feedback uses independent window";
@@ -134,7 +146,7 @@ final class ClipboardPhraseNoticeDeviceCheck {
             t.stage = "reopened keyboard has no stale notice and accepts input";
             openEditor();
             awaitNoNotice(1000);
-            t.tap(t.described("剪贴板"));
+            t.tap(t.clipboardEntry());
             add(SOURCE);
             notice("已经有这条常用语了。");
             t.tap(t.described("返回键盘"));
@@ -331,6 +343,30 @@ final class ClipboardPhraseNoticeDeviceCheck {
             if (total == 0 || same < total * 0.95)
                 throw new AssertionError("Notice changed pixels between phone top and keyboard");
         }
+    }
+
+    /** 输入法各窗口里带文字或描述的节点，标出是否可见；只用于失败说明，内容都是合成记录和键盘控件。 */
+    private String productNodes() {
+        StringBuilder out = new StringBuilder();
+        for (var window : t.automation.getWindows()) {
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root == null || !DeviceSmoke.equalsText("app.msime.android", root.getPackageName())) continue;
+            out.append("[window ").append(window.getType()).append(']');
+            java.util.ArrayDeque<AccessibilityNodeInfo> pending = new java.util.ArrayDeque<>();
+            pending.add(root);
+            while (!pending.isEmpty() && out.length() < 6000) {
+                AccessibilityNodeInfo node = pending.removeFirst();
+                if (node.getText() != null || node.getContentDescription() != null) {
+                    out.append(' ').append(node.getText()).append('|').append(node.getContentDescription())
+                        .append(node.isVisibleToUser() ? "" : "|hidden").append(';');
+                }
+                for (int index = 0; index < node.getChildCount(); index++) {
+                    AccessibilityNodeInfo child = node.getChild(index);
+                    if (child != null) pending.add(child);
+                }
+            }
+        }
+        return out.toString();
     }
 
     private Predicate<AccessibilityNodeInfo> card(String text) {

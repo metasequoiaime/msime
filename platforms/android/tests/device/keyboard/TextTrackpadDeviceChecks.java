@@ -405,12 +405,11 @@ final class TextTrackpadDeviceChecks {
 
     private void taps(int count) {
         Rect rect = pad();
-        // Binder 注入自身可耗时数百毫秒；用事件时间表达快速连点，不能把 IPC 等待算入双击间隔。
-        long reset = SystemClock.uptimeMillis() - (count + 1) * 40;
-        touch(reset, reset, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY());
-        touch(reset, reset + 1, MotionEvent.ACTION_CANCEL, rect.centerX(), rect.centerY());
+        // Binder 注入自身可耗时数百毫秒；把整组事件排到当前时刻之后，用事件时间表达快速连点。
+        // 旧写法把事件时间放在当前时刻之前，慢的 API 35 模拟器会在三击事件送达前丢掉过期的第三下。
+        long first = SystemClock.uptimeMillis() + 100;
         for (int at = 0; at < count; at++) {
-            long down = reset + (at + 1) * 40;
+            long down = first + at * 40;
             touch(down, down, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY());
             touch(down, down + 10, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY());
         }

@@ -61,12 +61,14 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
             stage = "recent suffix width";
             openPanel();
             tap(describedPrefix("符号分类 常用"));
+            stage = "recent suffix character locations";
             assertCharacters(reveal(symbol("@protonmail.com")), "@protonmail.com");
             stage = "first recent panel after input method restart";
             restartIme();
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             openPanel();
+            stage = "restarted recent suffix character locations";
             assertCharacters(reveal(symbol("@protonmail.com")), "@protonmail.com");
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
@@ -164,21 +166,36 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
 
     @SuppressWarnings("deprecation")
     private void assertCharacters(AccessibilityNodeInfo node, String expected) {
-        Bundle arguments = new Bundle();
-        arguments.putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX, 0);
-        arguments.putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_LENGTH, expected.length());
-        if (!node.refreshWithExtraData(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY, arguments))
-            throw new AssertionError("Character locations unavailable");
-        android.os.Parcelable[] characters = node.getExtras().getParcelableArray(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY);
-        if (characters == null || characters.length != expected.length()) throw new AssertionError("Character locations missing");
-        Rect key = new Rect();
-        node.getBoundsInScreen(key);
-        float previousRight = key.left;
-        for (android.os.Parcelable character : characters) {
-            if (!(character instanceof RectF bounds) || bounds.width() <= 0 || bounds.height() <= 0
-                    || bounds.left < previousRight - 1.5f || bounds.right > key.right + 1.5f)
-                throw new AssertionError("Suffix contains clipped or collapsed characters");
-            previousRight = bounds.right;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        String failure = "Character locations unavailable";
+        while (SystemClock.uptimeMillis() < deadline) {
+            Bundle arguments = new Bundle();
+            arguments.putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX, 0);
+            arguments.putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_LENGTH, expected.length());
+            if (node.refreshWithExtraData(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY, arguments)) {
+                android.os.Parcelable[] characters = node.getExtras().getParcelableArray(
+                    AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY);
+                if (characters == null || characters.length != expected.length()) {
+                    failure = "Character locations missing";
+                } else {
+                    Rect key = new Rect();
+                    node.getBoundsInScreen(key);
+                    float previousRight = key.left;
+                    boolean valid = true;
+                    for (android.os.Parcelable character : characters) {
+                        if (!(character instanceof RectF bounds) || bounds.width() <= 0 || bounds.height() <= 0
+                                || bounds.left < previousRight - 1.5f || bounds.right > key.right + 1.5f) {
+                            valid = false;
+                            break;
+                        }
+                        previousRight = bounds.right;
+                    }
+                    if (valid) return;
+                    failure = "Suffix contains clipped or collapsed characters";
+                }
+            }
+            SystemClock.sleep(100);
         }
+        throw new AssertionError(failure);
     }
 }

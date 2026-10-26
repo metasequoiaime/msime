@@ -339,15 +339,32 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("选择或取消后选项未关闭");
     }
 
+    /**
+     * 一次快速滑动。三个事件一起排进输入队列，不逐个等窗口事务：逐个同步注入再各睡 40 ms 时，CI 上慢的模拟器从按下到抬起实际会超过长按时长，关掉滑动时那一下就成了长按、弹出字母选项（运行 40205049019 的「disabled down swipe keeps the letter」）。
+     */
     private void simpleSwipe(String letter, String direction) throws Exception {
         Rect keyBounds = bounds(awaitStableBounds(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT))));
         long started = SystemClock.uptimeMillis();
         float dy = 20 * getTargetContext().getResources().getDisplayMetrics().density;
-        inject(started, MotionEvent.ACTION_DOWN, keyBounds.centerX(), keyBounds.centerY());
-        inject(started, MotionEvent.ACTION_MOVE, keyBounds.centerX(),
-            keyBounds.centerY() + ("up".equals(direction) ? -dy : dy));
-        inject(started, MotionEvent.ACTION_UP, keyBounds.centerX(),
-            keyBounds.centerY() + ("up".equals(direction) ? -dy : dy));
+        float endY = keyBounds.centerY() + ("up".equals(direction) ? -dy : dy);
+        MotionEvent[] events = {
+            MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, keyBounds.centerX(), keyBounds.centerY(), 0),
+            MotionEvent.obtain(started, started + 20, MotionEvent.ACTION_MOVE, keyBounds.centerX(), endY, 0),
+            MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_UP, keyBounds.centerX(), endY, 0)};
+        injectQuickly(events);
+    }
+
+    /** 把一次手势的全部事件一起排进输入队列再等界面空闲，理由见 {@link #simpleSwipe}。 */
+    private void injectQuickly(MotionEvent... events) throws java.util.concurrent.TimeoutException {
+        try {
+            for (MotionEvent event : events) {
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                if (!automation.injectInputEvent(event, false)) throw new AssertionError("触摸事件未送达");
+            }
+        } finally {
+            for (MotionEvent event : events) event.recycle();
+        }
+        automation.waitForIdle(300, 3000);
     }
 
     private void inject(long started, int action, float x, float y) {
@@ -520,15 +537,9 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         float startY = bounds.centerY();
         float endY = startY - SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
         long started = SystemClock.uptimeMillis();
-        MotionEvent down = MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, x, startY, 0);
-        MotionEvent move = MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_MOVE, x, endY, 0);
-        MotionEvent up = MotionEvent.obtain(started, started + 80, MotionEvent.ACTION_UP, x, endY, 0);
-        try {
-            for (MotionEvent event : new MotionEvent[] {down, move, up}) {
-                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-                automation.injectInputEvent(event, true);
-            }
-        } finally { down.recycle(); move.recycle(); up.recycle(); }
+        injectQuickly(MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, x, startY, 0),
+            MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_MOVE, x, endY, 0),
+            MotionEvent.obtain(started, started + 80, MotionEvent.ACTION_UP, x, endY, 0));
         await(described("输入 " + value.toUpperCase(java.util.Locale.ROOT)));
     }
 
@@ -630,21 +641,10 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         float distance = SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
         float endY = startY + ("up".equals(direction) ? -distance : distance);
         long downTime = SystemClock.uptimeMillis();
-        MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, startY, 0);
-        MotionEvent move = MotionEvent.obtain(downTime, downTime + 40, MotionEvent.ACTION_MOVE, x, endY, 0);
-        MotionEvent up = MotionEvent.obtain(downTime, downTime + 80,
-            cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, x, endY, 0);
-        try {
-            for (MotionEvent event : new MotionEvent[] {down, move, up}) {
-                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-                if (!automation.injectInputEvent(event, true))
-                    throw new AssertionError("Swipe injection failed");
-            }
-        } finally {
-            down.recycle();
-            move.recycle();
-            up.recycle();
-        }
+        injectQuickly(MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, startY, 0),
+            MotionEvent.obtain(downTime, downTime + 40, MotionEvent.ACTION_MOVE, x, endY, 0),
+            MotionEvent.obtain(downTime, downTime + 80,
+                cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, x, endY, 0));
         SystemClock.sleep(150);
     }
 }

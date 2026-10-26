@@ -301,7 +301,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         previewClosed();
         tap(field("msime-test-plain"));
         await(key("n"));
-        tap(described("剪贴板"));
+        tap(clipboardEntry());
         AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
             && node.getText().toString().startsWith(replacement));
         if (!card.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
@@ -328,7 +328,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             + (multiline ? " --ez msime_test_multiline true" : ""));
         tap(field("msime-test-plain"));
         await(key("n"));
-        tap(described("剪贴板"));
+        tap(clipboardEntry());
     }
 
     private void floatingPreview(File history, String text) throws Exception {
@@ -420,7 +420,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
         await(key("n"));
         previewClosed();
-        tap(described("剪贴板"));
+        tap(clipboardEntry());
         stage = "changing input field removes floating preview";
         openFloatingPreview();
         if (!editorProbe("focus", "msime-test-password").getBoolean("accepted"))
