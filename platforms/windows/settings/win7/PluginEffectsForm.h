@@ -10,7 +10,7 @@ class PluginEffectsForm {
 public:
   enum Id {
     key_enabled = 2400, mode, key_volume, commit_enabled, achievements_enabled,
-    effect_style, combo_counter, combo_tier, music_enabled, music_volume, selected_packs, intensity,
+    effect_style, combo_counter, combo_tier, music_enabled, music_volume, selected_packs,
   };
   struct Command { bool handled = false; std::vector<Change> changes; };
   using Row = std::function<HWND(const wchar_t*, const wchar_t*, DWORD, int, int, int)>;
@@ -29,10 +29,10 @@ public:
     for (const auto* title : {L"按键音效", L"按键旋律"}) SendMessageW(get(mode), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title));
     choice(key_volume, L"音效音量（按键、旋律、上屏和成就音效共用）");
     choice(music_volume, L"背景音乐音量");
-    choice(intensity, L"打字效果强度");
+    // 没有「打字效果强度」：Windows 固定强度为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），不读 plugins.effect_intensity，新版设置页同样不列这一项。
     for (int value = 0; value <= 100; ++value) {
       const auto title = std::to_wstring(value) + L"%";
-      for (const auto id : {key_volume, music_volume, intensity}) SendMessageW(get(id), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title.c_str()));
+      for (const auto id : {key_volume, music_volume}) SendMessageW(get(id), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title.c_str()));
     }
     check(commit_enabled, L"上屏音"); check(achievements_enabled, L"成就音效（需要打开打字统计）");
     choice(effect_style, L"打字效果样式（选择特效包后由特效包决定）");
@@ -54,7 +54,6 @@ public:
     SendMessageW(get(mode), CB_SETCURSEL, value.key_sound_mode == L"melody" ? 1 : 0, 0);
     SendMessageW(get(key_volume), CB_SETCURSEL, static_cast<int>(value.key_sound_volume), 0);
     SendMessageW(get(music_volume), CB_SETCURSEL, static_cast<int>(value.music_volume), 0);
-    SendMessageW(get(intensity), CB_SETCURSEL, static_cast<int>(value.effect_intensity), 0);
     for (size_t index = 0; index < plugin_preferences::model::effect_style_options.size(); ++index)
       if (plugin_preferences::model::effect_style_options[index].value == value.effect_style) SendMessageW(get(effect_style), CB_SETCURSEL, index, 0);
     update();
@@ -85,9 +84,8 @@ public:
       if (id == mode && index >= 0 && index < 2) next.key_sound_mode = index == 1 ? L"melody" : L"keys";
       else if (id == effect_style && index >= 0 && static_cast<size_t>(index) < plugin_preferences::model::effect_style_options.size())
         next.effect_style = plugin_preferences::model::effect_style_options[static_cast<size_t>(index)].value;
-      else if ((id == key_volume || id == music_volume || id == intensity) && index >= 0 && index <= 100) {
-        if (id == key_volume) next.key_sound_volume = static_cast<double>(index);
-        else if (id == intensity) next.effect_intensity = static_cast<double>(index); else next.music_volume = static_cast<double>(index);
+      else if ((id == key_volume || id == music_volume) && index >= 0 && index <= 100) {
+        if (id == key_volume) next.key_sound_volume = static_cast<double>(index); else next.music_volume = static_cast<double>(index);
       } else return result;
     } else return result;
     result.changes = plugin_preferences::changes(*preferences_, next); return result;
@@ -101,14 +99,13 @@ private:
     const auto& value = *preferences_;
     std::wstring label = L"音效包：" + value.key_sound_pack + L"\r\n旋律包：" + value.melody_pack +
         L"\r\n音乐包：" + value.music_pack + L"\r\n特效包：" + value.effect_pack;
-    if (!value.effect_pack.empty()) label += L"\r\n特效包已接管打字效果样式与强度。";
+    if (!value.effect_pack.empty()) label += L"\r\n特效包已接管打字效果样式。";
     else if (!listed_) label += L"\r\n尚未读取插件目录，背景音乐暂不可用。";
     else if (plugin_preferences::model::music_pack_to_select(packages_, listed_).empty()) label += L"\r\n没有可用的背景音乐插件，背景音乐暂不可用。";
     if (!statistics_.value_or(false)) label += L"\r\n打字统计未开启，成就音效暂不可用。";
     SetWindowTextW(get(selected_packs), label.c_str());
     EnableWindow(get(mode), enabled && value.key_sound_enabled);
     EnableWindow(get(effect_style), enabled && value.effect_pack.empty());
-    EnableWindow(get(intensity), enabled && value.effect_pack.empty());
     EnableWindow(get(combo_tier), enabled && value.combo_counter);
     EnableWindow(get(achievements_enabled), enabled && !plugin_preferences::model::achievements_blocked(statistics_, value.achievements_enabled));
     const auto music = value.music_pack.empty() ? plugin_preferences::model::music_pack_to_select(packages_, listed_) : value.music_pack;

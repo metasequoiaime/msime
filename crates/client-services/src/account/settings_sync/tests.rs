@@ -145,6 +145,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_height_adjustment",
             "platform.android.keyboard_layout",
             "platform.android.number_keypad_order",
+            "platform.android.quanpin_shift",
             "platform.android.shuangpin_key_hints",
             "platform.android.sound_enabled",
             "platform.android.theme",

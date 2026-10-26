@@ -109,7 +109,7 @@ final class ImeTextEditPanel {
         });
         TextTrackpadView currentTrackpad = trackpad;
         movement.addView(currentTrackpad, new FrameLayout.LayoutParams(1, 1));
-        // 触控板替代中央第二、三行；上排行首尾、两侧七键和底部首尾、换行保持可用。
+        // 触控板替代中央第二、三行；上排行首尾、两侧八键和底部首尾、换行保持可用。
         movement.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             int width = right - left, height = bottom - top, margin = s.pixels(3);
@@ -295,6 +295,9 @@ final class ImeTextEditPanel {
         s.selectionEcho.invalidate();
         if (action == TextEditPanelModel.Action.SELECT) {
             selecting = !selecting;
+        } else if (action == TextEditPanelModel.Action.SELECT_LINE) {
+            selectLine(target);
+            selecting = false;
         } else if (action == TextEditPanelModel.Action.NUMBER_PAD) {
             selecting = false;
             s.showNumberKeyboardFromTextEdit();
@@ -318,6 +321,25 @@ final class ImeTextEditPanel {
             if (TextEditPanelModel.endsSelecting(action)) selecting = false;
         }
         renderState();
+    }
+
+    private void selectLine(InputConnection target) {
+        try {
+            android.view.inputmethod.ExtractedTextRequest request =
+                new android.view.inputmethod.ExtractedTextRequest();
+            android.view.inputmethod.ExtractedText extracted = target.getExtractedText(request, 0);
+            if (extracted == null || extracted.text == null || extracted.startOffset != 0
+                    || extracted.partialStartOffset != -1) {
+                s.notice("当前输入框不支持选择行");
+                return;
+            }
+            TextEditLineSelection.Range range = TextEditLineSelection.range(
+                extracted.text, extracted.selectionStart, extracted.selectionEnd);
+            if (range == null || !target.setSelection(range.start(), range.end()))
+                s.notice("当前输入框不支持选择行");
+        } catch (RuntimeException ignored) {
+            s.notice("当前输入框不支持选择行");
+        }
     }
 
     boolean canSwipeCopyAll() {

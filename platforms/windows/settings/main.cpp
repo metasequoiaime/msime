@@ -1611,7 +1611,8 @@ std::optional<std::vector<msime::settings::plugins::Mention>> plugin_mentions(Re
       if (item.ValueType() != JsonValueType::Object)
         return std::nullopt;
       const auto entry = item.GetObject();
-      mentions.push_back({named_string(entry, L"text"), named_string(entry, L"key")});
+      mentions.push_back({named_string(entry, L"text"), named_string(entry, L"key"),
+                          named_string(entry, L"phone")});
     }
     return mentions;
   } catch (...) {
@@ -19076,6 +19077,7 @@ private:
             JsonObject item;
             item.SetNamedValue(L"text", JsonValue::CreateStringValue(hstring(entry.text)));
             item.SetNamedValue(L"key", JsonValue::CreateStringValue(hstring(entry.key)));
+            item.SetNamedValue(L"phone", JsonValue::CreateStringValue(hstring(entry.phone)));
             entries.Append(item);
           }
           auto action = plugin_action(L"save_mentions");

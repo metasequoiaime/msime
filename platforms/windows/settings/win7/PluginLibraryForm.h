@@ -31,7 +31,7 @@ public:
     SendMessageW(get(search), EM_SETLIMITTEXT, 1024, 0);
     add(filter, WC_COMBOBOXW, L"插件类型", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, 320);
     SendMessageW(get(filter), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"全部类型"));
-    for (const auto kind : plugin_preferences::model::kind_order) {
+    for (const auto kind : plugin_preferences::model::library_kind_order) {
       const auto label = plugin_preferences::model::kind_label(kind);
       SendMessageW(get(filter), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
     }
@@ -137,7 +137,7 @@ private:
     const auto category = SendMessageW(get(filter), CB_GETCURSEL, 0, 0);
     for (size_t index = 0; index < packages_.size(); ++index) {
       const auto& pack = packages_[index];
-      if (category > 0 && static_cast<size_t>(category) <= plugin_preferences::model::kind_order.size() && pack.kind != plugin_preferences::model::kind_order[static_cast<size_t>(category) - 1]) continue;
+      if (category > 0 && static_cast<size_t>(category) <= plugin_preferences::model::library_kind_order.size() && pack.kind != plugin_preferences::model::library_kind_order[static_cast<size_t>(category) - 1]) continue;
       if (!query.empty() && (pack.name + L" " + pack.description + L" " + pack.id).find(query) == std::wstring::npos) continue;
       const auto label = plugin_preferences::model::pack_kind_label(pack) + L" · " + plugin_preferences::model::pack_label(pack);
       SendMessageW(get(packages_list), LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));

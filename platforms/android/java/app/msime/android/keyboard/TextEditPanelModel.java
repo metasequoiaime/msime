@@ -3,16 +3,16 @@ package app.msime.android;
 import android.view.KeyEvent;
 import java.util.List;
 
-/** 文本编辑面板的固定十字、行与文档边界、七个可排序侧边键；只把动作适配为 Android 编辑器事件。 */
+/** 文本编辑面板的固定十字、行与文档边界、八个可排序侧边键；只把动作适配为 Android 编辑器事件。 */
 public final class TextEditPanelModel {
-    public static final int ROWS = 4;
+    public static final int ROWS = 5;
     /** 横向以半格计数，底部两个文档边界键各占一点五格。 */
     public static final int COLUMNS = 10;
     public static final String ORDER_PREFERENCE = "touch_text_edit_button_order";
 
     /** 键的动作，IME 按它接线。 */
     public enum Action {
-        LEFT, UP, SELECT, DOWN, RIGHT, SELECT_ALL, COPY, CUT, PASTE, DOCUMENT_START, DOCUMENT_END, DELETE,
+        LEFT, UP, SELECT, DOWN, RIGHT, SELECT_LINE, SELECT_ALL, COPY, CUT, PASTE, DOCUMENT_START, DOCUMENT_END, DELETE,
         NUMBER_PAD, SPACE, RETURN, LINE_START, LINE_END
     }
 
@@ -44,6 +44,7 @@ public final class TextEditPanelModel {
         new Key(Action.PASTE, "粘贴", "粘贴", 0, 0, 1, 2, false),
         new Key(Action.DOCUMENT_START, "⇤", "移到开头", 3, 2, 1, 3, false),
         new Key(Action.DOCUMENT_END, "⇥", "移到结尾", 3, 5, 1, 3, false),
+        new Key(Action.SELECT_LINE, "选择行", "选择当前行", 4, 0, 1, 2, false),
         new Key(Action.DELETE, "⌫", "退格", 0, 0, 1, 2, true),
         new Key(Action.NUMBER_PAD, "123", "打开数字键盘", 0, 0, 1, 2, false),
         new Key(Action.SPACE, "空格", "插入空格", 0, 0, 1, 2, false),
@@ -57,8 +58,12 @@ public final class TextEditPanelModel {
         for (Key key : KEYS) {
             int slot = order.indexOf(key.action());
             if (slot < 0) result.add(key);
-            else result.add(new Key(key.action(), key.label(), key.description(),
-                slot < 4 ? slot : slot - 4, slot < 4 ? 0 : 8, 1, 2, key.repeats()));
+            else {
+                int row = slot < 4 ? slot : slot == 7 ? 4 : slot - 4;
+                int column = slot < 4 || slot == 7 ? 0 : 8;
+                result.add(new Key(key.action(), key.label(), key.description(),
+                    row, column, 1, 2, key.repeats()));
+            }
         }
         result.sort(java.util.Comparator.comparingInt(Key::row).thenComparingInt(Key::column));
         return List.copyOf(result);

@@ -12,7 +12,7 @@ Android、iOS 与 HarmonyOS 的中文全拼 26 键字母页在原 Shift 位置�
 
 条件限于全拼、中文、26 键字母页、非本地模式，并排除密码等无中文会话的直输状态。双拼、其他中文方案、独立语言、英文、数字符号页与物理键盘保持原大小写语义。切为英文时在原控件恢复 Shift 图标、描述和统计，不销毁键行；沿用 [Android 就地改键面](../../implemented/bug-fix/2026-10-11-android-shift-relabel-in-place.md) 的命中稳定约束。
 
-[组合中保留 Shift 大写](../../implemented/bug-fix/2026-10-11-shifted-uppercase-composition.md) 和 [Shift 快捷模式总开关](../../implemented/feature/2026-10-11-shift-letter-entry-switch.md) 的 Engine 决定仍成立；本次仅替换特定触屏位置，不改大写接收与系统物理键盘事件。
+[组合中保留 Shift 大写](../../implemented/bug-fix/2026-10-11-shifted-uppercase-composition.md) 和 [Shift 快捷模式总开关](../../implemented/feature/2026-10-11-shift-letter-entry-switch.md) 的 Engine 决定仍成立；本次仅替换特定触屏位置，不改大写接收与系统物理键盘事件。需要保留触屏 Shift 臂辅助码的用户走共享偏好 `touch_quanpin_shift`（[触屏全拼保留 Shift 的共享偏好](../../implemented/feature/2026-10-26-touch-quanpin-shift-preference.md)）。
 
 ## Alternatives considered
 

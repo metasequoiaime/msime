@@ -287,7 +287,7 @@ export function usePluginsSection({
   const saveMentions = async () => {
     if (mentionIssue) return;
     await runPluginAction(async (isCurrent) => {
-      const trimmed = mentions.map((entry) => ({ text: entry.text.trim(), key: entry.key }));
+      const trimmed = mentions.map((entry) => ({ ...entry, text: entry.text.trim() }));
       await client!.saveMentions(trimmed);
       if (!isCurrent()) return;
       setMentions(trimmed);

@@ -9,6 +9,7 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.LayoutInflater;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -17,11 +18,13 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -98,7 +101,18 @@ public final class SkinsPage extends ReloadingDetailPage {
     @Override protected void onContentReady() {
         communityContent = new FrameLayout(requireContext());
         communityContent.setId(R.id.skin_community_content);
-        ((FrameLayout) requireView()).addView(communityContent, LayoutPolicy.frameMatchParentParams());
+        FrameLayout root = (FrameLayout) requireView();
+        root.addView(communityContent, LayoutPolicy.frameMatchParentParams());
+        ViewCompat.setOnApplyWindowInsetsListener(root, (target, insets) -> {
+            if (navigation != null) {
+                ViewPolicy.setVisible(navigation,
+                    WindowInsetsPolicy.shouldShowFixedPageNavigation(
+                        insets.isVisible(WindowInsetsCompat.Type.ime())));
+                positionCommunityContent();
+            }
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(root);
         positionCommunityContent();
         ViewPolicy.setVisible(communityContent, section == 2);
         if (section == 2) renderSection();
@@ -107,8 +121,10 @@ public final class SkinsPage extends ReloadingDetailPage {
     private void positionCommunityContent() {
         if (communityContent == null || navigation == null) return;
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) communityContent.getLayoutParams();
-        params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT)
-            + (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48));
+        int navigationHeight = navigation.getVisibility() == View.VISIBLE
+            ? (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48))
+            : 0;
+        params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT) + navigationHeight;
         communityContent.setLayoutParams(params);
     }
 
@@ -284,7 +300,7 @@ public final class SkinsPage extends ReloadingDetailPage {
         });
         if (card.design() != null) {
             cell.setContentDescription("皮肤 " + card.title() + "，点击使用");
-            LinearLayout root = (LinearLayout) cell.getChildAt(0);
+            LinearLayout root = (LinearLayout) ((ViewGroup) cell).getChildAt(0);
             LinearLayout actions = LayoutPolicy.row(context);
             ViewPolicy.setPaddingDp(context, actions, 0, 6, 0, 0);
             MaterialButton export = new MaterialButton(context, null,
@@ -292,13 +308,8 @@ public final class SkinsPage extends ReloadingDetailPage {
             export.setText("导出");
             export.setContentDescription("导出皮肤 " + card.title());
             ViewPolicy.bindClick(export, () -> {
-                try {
-                    pendingExport = CustomSkinLibrary.exportDesigns(
-                        List.of(new CustomSkinLibrary.Item(card.id(), card.title(), card.design())), Long.MAX_VALUE);
-                } catch (java.io.IOException error) {
-                    MsToast.show(requireContext(), "读取皮肤失败，请重试");
-                    return;
-                }
+                pendingExport = CustomSkinLibrary.exportDesigns(
+                    List.of(new CustomSkinLibrary.Item(card.id(), card.title(), card.design())), Long.MAX_VALUE);
                 createDocument.launch(card.title() + ".json");
             });
             actions.addView(export, LayoutPolicy.weightedWrapParams(1));
@@ -322,7 +333,7 @@ public final class SkinsPage extends ReloadingDetailPage {
                 if (output == null) return "写入文件失败，请重新选择位置。";
                 output.write(TextPolicy.utf8Bytes(json + "\n"));
                 return "已导出";
-            } catch (java.io.IOException | SecurityException error) {
+        } catch (java.io.IOException | RuntimeException error) {
                 return "写入文件失败，请重新选择位置。";
             }
         }, message -> MsToast.show(requireContext(), message));
@@ -349,7 +360,7 @@ public final class SkinsPage extends ReloadingDetailPage {
             if (bytes == null) return null;
             return CustomSkinLibrary.importDesigns(Paths.get(directory),
                 TextPolicy.utf8(bytes));
-        } catch (java.io.IOException | SecurityException | RuntimeException error) {
+        } catch (java.io.IOException | RuntimeException error) {
             return null;
         }
     }
