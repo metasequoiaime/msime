@@ -77,7 +77,7 @@ foreach ($line in $lines) {
 if ($imports.Count -eq 0) {
     # API 桥有完整转发表，但旧系统不必提供未被引用的新接口；只沿实际入边解析所需导出。
     $fileName = [IO.Path]::GetFileName($LiteralPath)
-    if ($fileName -notmatch '^api-ms-win-(crt|core)-[a-z]+-l[0-9]+-[0-9]+-[0-9]+\.dll$' -or
+    if ($fileName -notmatch '^api-ms-win-(crt|core)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll$' -or
         $DependencyDirectory -eq '' -or -not [IO.Path]::IsPathRooted($DependencyDirectory)) {
         throw "PE has no recognizable imports: $LiteralPath"
     }
