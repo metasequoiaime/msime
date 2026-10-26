@@ -75,7 +75,7 @@ impl CantoneseScheme {
                     false
                 }
             }
-            SchemeKey::Semicolon if self.shuangpin && !self.input.is_empty() => {
+            SchemeKey::Semicolon if self.shuangpin && self.accepts_semicolon() => {
                 self.input.push(';');
                 true
             }
@@ -119,6 +119,19 @@ impl CantoneseScheme {
         self.shuangpin
     }
 
+    /// 当前组字是否应把 `;` 交给粤拼双拼作为第二键。
+    pub fn accepts_semicolon(&self) -> bool {
+        if self.shuangpin {
+            return self
+                .input
+                .rsplit('\'')
+                .next()
+                .is_some_and(|chunk| !chunk.is_empty() && chunk.len() % 2 == 1);
+        }
+        self.input.len() == 1
+            && !shuangpin::decode(&self.inventory, [self.input.as_bytes()[0], b';']).is_empty()
+    }
+
     /// Replaces the composition with a host edit: letters are lowercased, `'` and the spaces `editing_text` shows at syllable boundaries are both boundaries, anything else is dropped, and boundaries are normalized as typing would leave them. Reading a space as a boundary keeps the syllables the user saw when an edit changes the letters around them (`ngo oi` edited to `ngo i` stays two syllables rather than becoming `ngoi`).
     pub fn set_raw_input(&mut self, raw: &str) {
         self.input.clear();
@@ -127,6 +140,9 @@ impl CantoneseScheme {
         for character in raw.chars() {
             if character.is_ascii_alphabetic() {
                 self.input.push(character.to_ascii_lowercase());
+                self.maybe_enable_shuangpin();
+            } else if character == ';' {
+                self.handle_key(SchemeKey::Semicolon);
             } else if character == '\'' || character == ' ' {
                 self.handle_key(SchemeKey::Apostrophe);
             }
@@ -151,15 +167,19 @@ impl CantoneseScheme {
     pub fn editing_text(&self) -> String {
         if self.shuangpin {
             let mut text = String::with_capacity(self.input.len() + self.input.len() / 2);
-            for (index, character) in self.input.chars().enumerate() {
-                if index > 0
-                    && index % 2 == 0
-                    && character != '\''
-                    && self.input.as_bytes()[index - 1] != b'\''
-                {
-                    text.push(' ');
+            for (chunk_index, chunk) in self.input.split('\'').enumerate() {
+                if chunk_index > 0 {
+                    text.push('\'');
+                    if !chunk.is_empty() {
+                        text.push(' ');
+                    }
                 }
-                text.push(character);
+                for (index, character) in chunk.chars().enumerate() {
+                    if index > 0 && index % 2 == 0 {
+                        text.push(' ');
+                    }
+                    text.push(character);
+                }
             }
             return text;
         }
@@ -172,15 +192,19 @@ impl CantoneseScheme {
     fn editing_text_into(&self, reading: &Segmentation, text: &mut String) {
         if self.shuangpin {
             text.clear();
-            for (index, character) in self.input.chars().enumerate() {
-                if index > 0
-                    && index % 2 == 0
-                    && character != '\''
-                    && self.input.as_bytes()[index - 1] != b'\''
-                {
-                    text.push(' ');
+            for (chunk_index, chunk) in self.input.split('\'').enumerate() {
+                if chunk_index > 0 {
+                    text.push('\'');
+                    if !chunk.is_empty() {
+                        text.push(' ');
+                    }
                 }
-                text.push(character);
+                for (index, character) in chunk.chars().enumerate() {
+                    if index > 0 && index % 2 == 0 {
+                        text.push(' ');
+                    }
+                    text.push(character);
+                }
             }
             return;
         }
@@ -282,7 +306,7 @@ impl CantoneseScheme {
                 let mut rows = Vec::new();
                 temporary.candidates_into_jyutping(dictionary, buffer, &mut rows)?;
                 for mut row in rows {
-                    row.end = row.syllables * 2;
+                    row.end = self.shuangpin_code_end(row.syllables);
                     expanded.push(row);
                 }
             }
@@ -291,6 +315,26 @@ impl CantoneseScheme {
             return Ok(());
         }
         self.candidates_into_jyutping(dictionary, buffer, candidates)
+    }
+
+    fn shuangpin_code_end(&self, syllables: usize) -> usize {
+        if syllables == 0 {
+            return 0;
+        }
+        let mut count = 0;
+        let mut position = 0;
+        while position < self.input.len() {
+            if self.input.as_bytes()[position] == b'\'' {
+                position += 1;
+                continue;
+            }
+            position += 2;
+            count += 1;
+            if count == syllables {
+                return position;
+            }
+        }
+        self.input.len()
     }
 
     fn shuangpin_expansions(&self) -> Option<Vec<String>> {
@@ -747,6 +791,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("你好", 4), ("妳好", 4), ("你", 2), ("妳", 2)]
         );
+    }
+
+    #[test]
+    fn apostrophe_boundaries_reset_pairing_and_candidate_span() {
+        let fixture = fixture();
+        let scheme = typed("nz'hb");
+        assert!(scheme.is_shuangpin());
+        assert_eq!(scheme.editing_text(), "nz' hb");
+        let candidates = scheme.candidates(&fixture.dictionary).unwrap();
+        assert_eq!(candidates[0].text, "你好");
+        assert_eq!(candidates[0].end, 5);
+    }
+
+    #[test]
+    fn host_edits_rebuild_the_double_pinyin_state() {
+        let mut scheme = CantoneseScheme::new(Arc::new(inventory()));
+        scheme.set_raw_input("nz'hb");
+        assert!(scheme.is_shuangpin());
+        assert_eq!(scheme.editing_text(), "nz' hb");
     }
 
     #[test]
