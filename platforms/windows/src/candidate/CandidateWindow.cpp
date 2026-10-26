@@ -1125,9 +1125,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   input.skin = skin_metrics(value);
   input.number_width = number_label_width(value.candidates.size(), input.skin);
   input.line_height = candidate_line_height(value);
-  if (horizontal_)
-    input.reserved_secondary_height =
-        reserved_secondary_height(input.reserved_secondary_lines);
+  // 横排每行都按它预留，竖排只给「仅当前高亮」的高亮行留（CandidateItemWidths::translation_reserved）。
+  input.reserved_secondary_height =
+      reserved_secondary_height(input.reserved_secondary_lines);
   // 拼音里画插入点时，光标两边的字各让开一点（candidate_preedit_caret），宽度先留出来。
   if (show_preedit_)
     input.preedit_width =
@@ -1244,7 +1244,7 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
                      width(candidate_annotation_run(candidate), font_size_),
                      width(candidate_secondary_text(candidate),
                            metrics.translation_font),
-                     candidate_secondary_lines(candidate)});
+                     candidate_secondary_lines(candidate), candidate.translation_reserved});
   }
   return items;
 }
@@ -1908,7 +1908,8 @@ void CandidateWindow::paint() {
   const float gutter = static_cast<float>(metrics.number_and_bar);
   const size_t count = value->candidates.size();
   // Laid out at the width actually drawn, which the work area may have narrowed below what card_bounds asked for.
-  const size_t reserved_lines = horizontal_ ? reserved_secondary_lines(*value) : 0;
+  // 横排每行都留，竖排只给标了 translation_reserved 的高亮行留，和 card_bounds 量尺寸时一样。
+  const size_t reserved_lines = reserved_secondary_lines(*value);
   const auto items = measure_items(*value);
   const auto wrapped = wrap_measure(*value);
   const double minimum_row = candidate_reserved_row_height(
