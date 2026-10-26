@@ -1656,9 +1656,23 @@ async fn load_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<PreferencesSnapshot, CommandError> {
     let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || store.load().map_err(CommandError::from))
+    tauri::async_runtime::spawn_blocking(move || {
+        let snapshot = store.load().map_err(CommandError::from)?;
+        #[cfg(target_os = "macos")]
+        if should_request_caps_lock_hid_access(&snapshot.preferences) {
+            platform::macos::request_caps_lock_hid_access();
+        }
+        Ok(snapshot)
+    })
         .await
         .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[cfg(target_os = "macos")]
+fn should_request_caps_lock_hid_access(
+    preferences: &msime_client_core::preferences::Preferences,
+) -> bool {
+    preferences.keybindings.switch_language_caps_lock
 }
 
 /// 真实桌面设置宿主的 OOBE 快照；启用状态只在系统查询成功时提供。
