@@ -8031,3 +8031,42 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
     let error = serde_json::from_value::<Preferences>(unknown).unwrap_err();
     assert!(error.to_string().contains("unknown variant `return`"));
 }
+#[test]
+fn android_keyboard_skin_slots_round_trip_without_changing_legacy_theme() {
+    let mut preferences = Preferences::default();
+    preferences.global_theme = crate::theme::GlobalTheme::Night;
+    preferences.android_keyboard_skin_light = Some("theme:paper".into());
+    preferences.android_keyboard_skin_dark = Some("design:synthetic-night".into());
+    preferences.validate().unwrap();
+    let decoded: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert_eq!(
+        decoded.android_keyboard_skin_light.as_deref(),
+        Some("theme:paper")
+    );
+    assert_eq!(
+        decoded.android_keyboard_skin_dark.as_deref(),
+        Some("design:synthetic-night")
+    );
+    assert_eq!(decoded.global_theme, crate::theme::GlobalTheme::Night);
+
+    let mut legacy = serde_json::to_value(&preferences).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("android_keyboard_skin_light");
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("android_keyboard_skin_dark");
+    let decoded: Preferences = serde_json::from_value(legacy).unwrap();
+    assert_eq!(decoded.android_keyboard_skin_light, None);
+    assert_eq!(decoded.android_keyboard_skin_dark, None);
+
+    preferences.android_keyboard_skin_dark = Some("design:invalid\nvalue".into());
+    assert!(preferences.validate().is_err());
+    preferences.android_keyboard_skin_dark = Some("theme:native".into());
+    assert!(preferences.validate().is_err());
+    preferences.android_keyboard_skin_dark = Some(format!("design:{}", "x".repeat(129)));
+    assert!(preferences.validate().is_err());
+}

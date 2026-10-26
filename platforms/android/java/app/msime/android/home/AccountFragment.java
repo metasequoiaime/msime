@@ -217,7 +217,8 @@ public final class AccountFragment extends HomeTabFragment {
         Local state = local;
         Remote online = remote;
         GroupCard group = GroupCard.add(groups, "我的内容").withDividers(56);
-        row(group, R.drawable.ic_ms_palette, "我的皮肤", null, skinName(state == null ? null : state.preferences()),
+        row(group, R.drawable.ic_ms_palette, "我的皮肤", null, skinName(state == null ? null : state.preferences(),
+                AppMode.dark(requireContext())),
             () -> SettingsNavigator.open(context, PageId.SKINS, null));
         row(group, R.drawable.ic_ms_menu_book, "我的词库", null, null,
             () -> SettingsNavigator.open(context, PageId.LEXICON, null));
@@ -234,10 +235,16 @@ public final class AccountFragment extends HomeTabFragment {
         }
     }
 
-    /** 当前全局主题在共享目录里的名字；读不到时不显示。 */
-    @Nullable private static String skinName(@Nullable JSONObject preferences) {
+    /** 当前键盘明暗对应的皮肤名；设计库引用由皮肤页显示具体名字。 */
+    @Nullable private static String skinName(@Nullable JSONObject preferences, boolean systemDark) {
         if (preferences == null) return null;
-        String id = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
+        boolean dark = app.msime.android.KeyboardSkin.resolveDark(
+            preferences.optString("screen_keyboard_theme", "follow"),
+            preferences.optString("theme", "system"), systemDark);
+        String modeChoice = preferences.optString(app.msime.android.KeyboardSkinModeChoice.key(dark), "");
+        if (modeChoice.startsWith("design:")) return "我的皮肤";
+        String id = modeChoice.startsWith("theme:") ? modeChoice.substring("theme:".length())
+            : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONArray themes = HostStore.themeCatalog();
         for (int index = 0; index < themes.length(); index++) {
             JSONObject entry = themes.optJSONObject(index);

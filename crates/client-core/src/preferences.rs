@@ -503,6 +503,17 @@ fn is_system_theme(theme: &crate::theme::GlobalTheme) -> bool {
     *theme == crate::theme::GlobalTheme::System
 }
 
+/// Android 键盘模式槽位只存短引用，不复制设计与照片；设计 id 只作为库查找键使用。
+pub fn valid_android_keyboard_skin_choice(value: &str) -> bool {
+    if let Some(id) = value.strip_prefix("theme:") {
+        return crate::theme::GlobalTheme::from_id(id)
+            .is_some_and(|theme| theme != crate::theme::GlobalTheme::Native);
+    }
+    value
+        .strip_prefix("design:")
+        .is_some_and(|id| !id.is_empty() && id.len() <= 128 && !id.chars().any(char::is_control))
+}
+
 impl CustomTheme {
     /// The same checks `Preferences::validate` applies to `custom_theme`, for hosts that receive a custom theme outside a preferences document.
     pub fn validate(&self) -> Result<(), PreferencesError> {
@@ -1333,6 +1344,12 @@ pub struct Preferences {
     /// The one theme that colours the candidate window, toolbar, menus and touch keyboard on every host. `theme` above stays the light/dark mode the `system` theme and the settings window follow.
     #[serde(default)]
     pub global_theme: crate::theme::GlobalTheme,
+    /// Android 键盘浅色皮肤选择：`theme:<id>` 或 `design:<本机设计库 id>`；缺省时沿用 `global_theme`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub android_keyboard_skin_light: Option<String>,
+    /// Android 键盘深色皮肤选择；格式同浅色槽位，缺省时沿用 `global_theme`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub android_keyboard_skin_dark: Option<String>,
     #[serde(default)]
     pub custom_theme: CustomTheme,
     #[serde(default)]
@@ -3531,6 +3548,8 @@ impl Default for Preferences {
             menu_theme: SettingsTheme::default(),
             // 新装在所有平台都跟随系统。触屏键盘的跟随系统皮肤按应用主题当前季节取色，键盘与应用界面是同一套颜色；原先触屏默认的薄荷晨光是固定配色，秋冬季节和应用主题对不上。
             global_theme: crate::theme::GlobalTheme::default(),
+            android_keyboard_skin_light: None,
+            android_keyboard_skin_dark: None,
             custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
@@ -4474,6 +4493,16 @@ impl Preferences {
             return Err(PreferencesError::InvalidTouchQuickSymbols);
         }
         self.custom_theme.validate()?;
+        if [
+            &self.android_keyboard_skin_light,
+            &self.android_keyboard_skin_dark,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| !valid_android_keyboard_skin_choice(value))
+        {
+            return Err(PreferencesError::InvalidAndroidKeyboardSkinChoice);
+        }
         if self.touch_keyboard_schemes.enabled.is_empty()
             || self
                 .touch_keyboard_schemes
@@ -4645,6 +4674,8 @@ pub enum PreferencesError {
     InvalidNineKeyShuangpinCustomProfile,
     #[error("custom theme keyboard design is invalid")]
     InvalidTouchKeyboardSkinDesign,
+    #[error("Android 键盘皮肤选择不是有效主题或设计库 id")]
+    InvalidAndroidKeyboardSkinChoice,
     #[error("custom theme base must be system or a built-in theme")]
     InvalidCustomThemeBase,
     #[error("candidate font size must be between 12 and 32")]

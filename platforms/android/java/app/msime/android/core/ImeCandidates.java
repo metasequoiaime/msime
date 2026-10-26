@@ -36,24 +36,16 @@ final class ImeCandidates {
 
     /** 每次外观变化只解析一次；候选包生效时，候选按钮与候选面板使用同一套配色。 */
     private void ensureStyleCache() {
-        String key = s.skin.key() + ":" + s.candidateAppearance.key();
+        String key = s.candidateAppearance.key();
         if (key.equals(styleCacheKey)) return;
         styleCacheKey = key;
-        selectedBackground = android.graphics.Color.parseColor(s.skin.candidateSelectedBackground());
-        selectedText = android.graphics.Color.parseColor(s.skin.candidateSelectedForeground());
-        keyBackground = android.graphics.Color.parseColor(s.skin.keyBackground());
-        keyForeground = android.graphics.Color.parseColor(s.skin.keyForeground());
-        accentSoft = android.graphics.Color.parseColor(s.skin.accentSoft());
-        accentText = android.graphics.Color.parseColor(s.skin.accentText());
-        if (s.candidateAppearance.externalSkin()) {
-            selectedBackground = s.candidateAppearance.chip();
-            selectedText = s.candidateAppearance.chipText();
-            keyBackground = s.candidateAppearance.canvas() == null
-                ? s.candidateAppearance.surface() : android.graphics.Color.TRANSPARENT;
-            keyForeground = s.candidateAppearance.text();
-            accentSoft = selectedBackground;
-            accentText = selectedText;
-        }
+        selectedBackground = s.candidateAppearance.chip();
+        selectedText = s.candidateAppearance.chipText();
+        keyBackground = s.candidateAppearance.canvas() == null
+            ? s.candidateAppearance.surface() : android.graphics.Color.TRANSPARENT;
+        keyForeground = s.candidateAppearance.text();
+        accentSoft = selectedBackground;
+        accentText = selectedText;
         candidateTypeface = s.imeStyler.candidateTypeface();
         candidateLayout = s.candidateAppearance.layout();
     }
@@ -121,7 +113,7 @@ final class ImeCandidates {
     private final java.util.Set<Button> expandedCells =
         java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
-    /** 展开网格的单元：44 dp 高、圆角 8，平时 kb.key 底，当前高亮的那个 accentSoft 底 + 强调色字。 */
+    /** 展开网格的单元：44 dp 高、圆角 8，底色和选中色都取候选栏配色。 */
     private void styleExpandedCell(Button button) {
         android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(
             new int[][] {

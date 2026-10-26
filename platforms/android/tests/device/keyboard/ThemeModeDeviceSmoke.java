@@ -4,9 +4,12 @@ import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
+import app.msime.android.KeyboardSkinModeChoice;
+import app.msime.android.CustomSkinLibrary;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.function.Predicate;
 import org.json.JSONObject;
 
@@ -17,6 +20,19 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        JSONObject missingDesign = new JSONObject().put("global_theme", "paper")
+            .put("android_keyboard_skin_dark", "design:missing-synthetic");
+        if (!"paper".equals(KeyboardSkinModeChoice.selected(missingDesign, true, List.of()).theme()))
+            throw new AssertionError("missing design must use the legacy theme");
+        JSONObject design = new JSONObject().put("background", 0x223344);
+        JSONObject paired = new JSONObject().put("global_theme", "system")
+            .put("android_keyboard_skin_light", "theme:paper")
+            .put("android_keyboard_skin_dark", "design:synthetic-night");
+        List<CustomSkinLibrary.Item> library = List.of(
+            new CustomSkinLibrary.Item("synthetic-night", "合成深色", design));
+        if (!"paper".equals(KeyboardSkinModeChoice.selected(paired, false, library).theme())
+                || KeyboardSkinModeChoice.selected(paired, true, library).design() != design)
+            throw new AssertionError("light and dark choices must remain independent");
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(
             new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
@@ -32,6 +48,8 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             .put("screen_keyboard_theme", "follow").put("candidate_theme", "follow")
             .put("emoji_theme", "follow").put("handwriting_theme", "follow")
             .put("candidate_english_gloss", false);
+        synthetic.remove("android_keyboard_skin_light");
+        synthetic.remove("android_keyboard_skin_dark");
         try {
             publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 1)
                 .put("preferences", synthetic).toString().getBytes(StandardCharsets.UTF_8));
@@ -99,6 +117,30 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 5)
                 .put("preferences", synthetic).toString().getBytes(StandardCharsets.UTF_8));
             awaitColour(described("表情面板"), lightEmoji);
+            stage = "independent keyboard skin choices keep candidate theme";
+            restartIme();
+            tap(field("msime-test-plain"));
+            synthetic.put("theme", "system").put("emoji_theme", "follow")
+                .put("android_keyboard_skin_light", "theme:paper")
+                .put("android_keyboard_skin_dark", "theme:night");
+            publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 6)
+                .put("preferences", synthetic).toString().getBytes(StandardCharsets.UTF_8));
+            awaitColourChange(key("n"), lightLetter);
+            int paperLetter = dominantColour(bounds(key("n")));
+            tap(key("n"));
+            tap(key("i"));
+            awaitColour(describedPrefix("候选 1："), lightCandidate);
+            shellDiscard("cmd uimode night yes");
+            awaitColourChange(key("n"), paperLetter);
+            shellDiscard("cmd uimode night no");
+            stage = "light keyboard slot restores paper after system mode change";
+            awaitColour(key("n"), paperLetter);
+            stage = "missing mode slots preserve the legacy theme";
+            synthetic.remove("android_keyboard_skin_light");
+            synthetic.remove("android_keyboard_skin_dark");
+            publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 7)
+                .put("preferences", synthetic).toString().getBytes(StandardCharsets.UTF_8));
+            awaitColour(key("n"), lightLetter);
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             shellDiscard("cmd uimode night no");

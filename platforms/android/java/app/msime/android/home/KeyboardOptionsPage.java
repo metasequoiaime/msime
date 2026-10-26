@@ -87,7 +87,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             JSONObject preferences = KeyboardSheets.preferences(context);
             if (preferences == null) return null;
             return new State(preferences, AndroidLocalSettings.load(context), KeyboardFeedbackStore.load(context),
-                HostStore.keyboardSkin(preferences, dark, HostStore.seed(context)), ClipboardExport.directoryName(context),
+                HostStore.keyboardSkin(context, preferences, dark, HostStore.seed(context)), ClipboardExport.directoryName(context),
                 HostStore.textTrackpadOptions(), KeySoundPacks.load(context));
         }, this::render);
     }

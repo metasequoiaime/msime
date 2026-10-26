@@ -147,6 +147,8 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.key_sound_pack",
             "platform.android.keyboard_height_adjustment",
             "platform.android.keyboard_layout",
+            "platform.android.keyboard_skin_dark",
+            "platform.android.keyboard_skin_light",
             "platform.android.number_keypad_order",
             "platform.android.quanpin_shift",
             "platform.android.shuangpin_key_hints",
@@ -1265,4 +1267,55 @@ fn settings_sync_punctuation_styles_round_trip() {
     .unwrap();
     assert_eq!(applied.preferences.quote_style, QuoteStyle::Curly);
     assert!(applied.skipped.is_empty());
+}
+#[test]
+fn android_keyboard_skin_mode_slots_sync_without_overwriting_global_theme() {
+    let mut local = Preferences::default();
+    local.global_theme = GlobalTheme::Night;
+    local.android_keyboard_skin_light = Some("theme:paper".into());
+    local.android_keyboard_skin_dark = Some("design:synthetic-night".into());
+    let exported = export_android_settings(&local, None).unwrap();
+    assert_eq!(
+        exported.get("platform.android.keyboard_skin_light"),
+        Some(&AccountPreferenceValue::String("theme:paper".into()))
+    );
+    assert_eq!(
+        exported.get("platform.android.keyboard_skin_dark"),
+        Some(&AccountPreferenceValue::String(
+            "design:synthetic-night".into()
+        ))
+    );
+
+    let cleared = BTreeMap::from([(
+        "platform.android.keyboard_skin_dark".to_owned(),
+        AccountPreferenceValue::String(String::new()),
+    )]);
+    let applied = apply(&local, cleared.clone(), &full_schema());
+    assert_eq!(
+        applied.preferences.android_keyboard_skin_light.as_deref(),
+        Some("theme:paper")
+    );
+    assert_eq!(applied.preferences.android_keyboard_skin_dark, None);
+    assert_eq!(applied.preferences.global_theme, GlobalTheme::Night);
+
+    let mut old_schema = full_schema();
+    old_schema
+        .fields
+        .remove("platform.android.keyboard_skin_dark");
+    let applied = apply(&local, cleared, &old_schema);
+    assert_eq!(
+        applied.preferences.android_keyboard_skin_dark.as_deref(),
+        Some("design:synthetic-night")
+    );
+
+    let invalid = BTreeMap::from([(
+        "platform.android.keyboard_skin_dark".to_owned(),
+        AccountPreferenceValue::String("theme:native".into()),
+    )]);
+    let applied = apply(&local, invalid, &full_schema());
+    assert_eq!(applied.skipped, vec!["platform.android.keyboard_skin_dark"]);
+    assert_eq!(
+        applied.preferences.android_keyboard_skin_dark.as_deref(),
+        Some("design:synthetic-night")
+    );
 }
