@@ -106,7 +106,11 @@ test("脚本插件卡片列出申请的能力，作者待审时显示审核中",
 });
 
 test("脚本插件详情用授权页的白话列出能力，标出改写上屏，并说明安装后不会运行", () => {
-  render(<CommunityPluginDetail {...detailProps(item({ permissions: ["read_commit", "rewrite_commit", "persist_data"] }))} />);
+  render(
+    <CommunityPluginDetail
+      {...detailProps(item({ permissions: ["read_commit", "rewrite_commit", "persist_data"] }))}
+    />,
+  );
   const section = screen.getByRole("region", { name: "脚本插件申请的能力" });
   expect(within(section).getByText(/安装后不会运行，要在脚本插件页授权/)).toBeTruthy();
   expect(within(section).getByText("读取输入的文字")).toBeTruthy();
@@ -127,12 +131,10 @@ test("作者待审的脚本插件详情说明先审后发，装好后提示去�
 });
 
 test("运行脚本的宿主发布时列出自己导入的脚本插件，官方脚本包不列", async () => {
-  const localPlugins = vi.fn(
-    async (): Promise<PluginCatalogResult> => ({
-      packages: [pack("script", "uuid", true), pack("script", "pangu"), pack("sound", "rain")],
-      issues: [],
-    }),
-  );
+  const localPlugins = vi.fn(async (): Promise<PluginCatalogResult> => ({
+    packages: [pack("script", "uuid", true), pack("script", "pangu"), pack("sound", "rain")],
+    issues: [],
+  }));
   const client = {
     packPreview: vi.fn(async () => ({
       suggestedName: "合成",
@@ -145,7 +147,12 @@ test("运行脚本的宿主发布时列出自己导入的脚本插件，官方�
     publish: vi.fn(),
   };
   const scripts = renderHook(() =>
-    useCommunityPluginPublication({ client, localPlugins, onPublished: vi.fn(), scriptPlugins: true }),
+    useCommunityPluginPublication({
+      client,
+      localPlugins,
+      onPublished: vi.fn(),
+      scriptPlugins: true,
+    }),
   );
   await waitFor(() => expect(scripts.result.current.optionsLoading).toBe(false));
   expect(scripts.result.current.options.map((option) => option.key)).toEqual([

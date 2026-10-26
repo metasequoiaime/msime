@@ -21,7 +21,9 @@ test("plugin publish dialogs reuse the shared dialog actions", () => {
   )[0];
 
   expect(dialog).toContain("CommunityDialogActions");
-  expect(dialog).toContain("useCommunityPluginPublication({ client, localPlugins, onPublished })");
+  expect(dialog).toContain(
+    "useCommunityPluginPublication({ client, localPlugins, onPublished, scriptPlugins })",
+  );
   expect(dialog).not.toContain("./community-plugins");
   expect(page).toContain('from "./community-plugin-publish-dialog"');
   expect(page).toContain("<CommunityPluginPublishDialog");

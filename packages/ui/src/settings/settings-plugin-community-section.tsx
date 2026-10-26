@@ -6,7 +6,8 @@ import type { PluginPackage } from "./plugin-types";
 import type { SettingsShellView } from "./use-settings-shell-state";
 
 export interface SettingsPluginCommunitySectionProps {
-  model: Pick<SettingsPageModel, "client" | "page" | "openAccountLogin" | "host">;
+  model: Pick<SettingsPageModel, "client" | "page" | "openAccountLogin"> &
+    Partial<Pick<SettingsPageModel, "host">>;
   views: Pick<ReturnType<typeof useSettingsCommunityViews>, "pluginCommunityShown">;
   pluginView: SettingsShellView;
   onPluginViewChange: (view: SettingsShellView) => void;
