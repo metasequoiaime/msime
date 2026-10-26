@@ -936,35 +936,91 @@ pub fn probe(config: &RelayConfig) -> Result<(), RelayError> {
     probe_with(&http, &SystemEnvironment)
 }
 
-pub(crate) fn probe_with(http: &dyn DavHttp, env: &dyn Environment) -> Result<(), RelayError> {
-    let dav = Dav::new(http, env);
-    dav.mkcol(ROOT).map_err(unsupported)?;
-    let dir = format!("{ROOT}probe-{}/", random_hex::<8>()?);
-    if !dav.mkcol(&dir).map_err(unsupported)? {
-        return Err(RelayError::Unsupported);
+/// [`probe`]，通过之后再删掉 `directory` 里的日志缓存（[`WEBDAV_STATE_FILE`]）：用户在设置里重新确认了这个网盘，防回退从网盘现在的样子重新开始。用户自己清理过网盘上的文件夹、本机因此报 `webdav_rollback` 时，这是恢复的办法。
+pub fn probe_and_trust(
+    config: &RelayConfig,
+    directory: Option<&std::path::Path>,
+) -> Result<(), RelayError> {
+    if directory.is_some_and(|directory| !directory.is_absolute()) {
+        return Err(RelayError::Invalid);
     }
-    let result = probe_inside(&dav, &dir);
-    let _ = dav.delete(&dir);
-    result
+    let http = HttpDav::new(config)?;
+    trust_after(probe_with(&http, &SystemEnvironment), directory)
 }
 
-fn unsupported(error: RelayError) -> RelayError {
-    match error {
-        RelayError::Unavailable => RelayError::Unsupported,
+/// 测试连接通过了才删缓存；没通过时本机记得的位置原样留着。
+fn trust_after(
+    probed: Result<(), RelayError>,
+    directory: Option<&std::path::Path>,
+) -> Result<(), RelayError> {
+    probed?;
+    let Some(directory) = directory else {
+        return Ok(());
+    };
+    if !directory.exists() {
+        return Ok(());
+    }
+    let _lock = lock_directory(directory)?;
+    match std::fs::remove_file(directory.join(WEBDAV_STATE_FILE)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(RelayError::Storage),
+    }
+}
+
+pub(crate) fn probe_with(http: &dyn DavHttp, env: &dyn Environment) -> Result<(), RelayError> {
+    let recording = Recording {
+        inner: http,
+        unreachable: std::sync::atomic::AtomicBool::new(false),
+    };
+    let dav = Dav::new(&recording, env);
+    let result = (|| {
+        dav.mkcol(ROOT)?;
+        let dir = format!("{ROOT}probe-{}/", random_hex::<8>()?);
+        if !dav.mkcol(&dir)? {
+            return Err(RelayError::Unsupported);
+        }
+        let result = probe_inside(&dav, &dir);
+        let _ = dav.delete(&dir);
+        result
+    })();
+    // 网盘答了、但答得不对（例如 MKCOL 答 403、MOVE 答 500）是网盘不合格；根本没连上才是连不上。
+    result.map_err(|error| match error {
+        RelayError::Unavailable
+            if !recording
+                .unreachable
+                .load(std::sync::atomic::Ordering::SeqCst) =>
+        {
+            RelayError::Unsupported
+        }
         error => error,
+    })
+}
+
+/// 记下有没有请求根本没发出去或没拿到响应，好把「连不上」和「网盘答得不对」分开。
+struct Recording<'a> {
+    inner: &'a dyn DavHttp,
+    unreachable: std::sync::atomic::AtomicBool,
+}
+
+impl DavHttp for Recording<'_> {
+    fn send(&self, request: &DavRequest<'_>) -> Result<DavResponse, RelayError> {
+        let response = self.inner.send(request);
+        if response.is_err() {
+            self.unreachable
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        response
     }
 }
 
 fn probe_inside(dav: &Dav<'_>, dir: &str) -> Result<(), RelayError> {
     let target = format!("{dir}once.json");
-    if !dav.create_in(dir, &target, b"first").map_err(unsupported)? {
+    if !dav.create_in(dir, &target, b"first")? {
         return Err(RelayError::Unsupported);
     }
     // 同名再创建一次必须失败，目标还是第一次的内容（坚果云不理会 `If-None-Match`，就是在这里露馅的那种网盘）。
-    if dav
-        .create_in(dir, &target, b"second")
-        .map_err(unsupported)?
-    {
+    if dav.create_in(dir, &target, b"second")? {
         return Err(RelayError::Unsupported);
     }
     if dav.get(&target, MAX_SMALL_BYTES)?.as_deref() != Some(b"first".as_slice()) {
@@ -989,7 +1045,7 @@ fn probe_inside(dav: &Dav<'_>, dir: &str) -> Result<(), RelayError> {
     });
     let mut winners = Vec::new();
     for (index, outcome) in outcomes.into_iter().enumerate() {
-        if outcome.map_err(unsupported)? {
+        if outcome? {
             winners.push(index);
         }
     }

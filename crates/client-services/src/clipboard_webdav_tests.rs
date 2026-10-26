@@ -26,6 +26,10 @@ struct Faults {
     rate_limited: u32,
     retry_after: Option<u64>,
     unauthorized: bool,
+    /// MKCOL 答 403（例如只读的共享文件夹）。
+    forbid_mkcol: bool,
+    /// 连不上：请求根本没有响应。
+    unreachable: bool,
 }
 
 #[derive(Default)]
@@ -146,6 +150,9 @@ impl DavHttp for FakeDav {
     fn send(&self, request: &DavRequest<'_>) -> Result<DavResponse, RelayError> {
         self.clock.advance(1000);
         let mut disk = self.disk.lock().unwrap();
+        if disk.faults.unreachable {
+            return Err(RelayError::Unavailable);
+        }
         let response = self.answer(&mut disk, request);
         let (response, disk) = match response {
             Answer::Now(response) => (response, disk),
@@ -182,6 +189,9 @@ impl FakeDav {
     fn answer(&self, disk: &mut Disk, request: &DavRequest<'_>) -> Answer {
         if disk.faults.unauthorized {
             return Answer::Now(respond(401));
+        }
+        if disk.faults.forbid_mkcol && request.method == "MKCOL" {
+            return Answer::Now(respond(403));
         }
         if disk.faults.rate_limited > 0 {
             disk.faults.rate_limited -= 1;
@@ -1061,6 +1071,17 @@ fn the_probe_refuses_drives_without_exclusive_create() {
     let missing = FakeDav::new(&clock);
     missing.with(|disk| disk.dirs.clear());
     assert_eq!(probe_with(&missing, &clock), Err(RelayError::Unsupported));
+    // 网盘答了、但不让建目录：不合格。
+    let forbidden = FakeDav::new(&clock);
+    forbidden.with(|disk| disk.faults.forbid_mkcol = true);
+    assert_eq!(probe_with(&forbidden, &clock), Err(RelayError::Unsupported));
+    // 根本连不上：报连不上，不说网盘不合格。
+    let unreachable = FakeDav::new(&clock);
+    unreachable.with(|disk| disk.faults.unreachable = true);
+    assert_eq!(
+        probe_with(&unreachable, &clock),
+        Err(RelayError::Unavailable)
+    );
     // 账号或密码不对。
     let refused = FakeDav::new(&clock);
     refused.with(|disk| disk.faults.unauthorized = true);
@@ -1094,6 +1115,33 @@ fn listings_from_different_servers_are_read_by_local_name() {
     assert_eq!(
         tmp_name(&format!("1790000000-{}.json", "a".repeat(32))),
         Some(1_790_000_000)
+    );
+}
+
+#[test]
+fn trusting_the_drive_again_drops_only_the_local_log_cache() {
+    let root = tempfile::tempdir().unwrap();
+    let drive = FakeDav::new(&Clock::new());
+    relay(&drive, root.path(), true)
+        .send("GET", "/v1/users/me/clipboard", None)
+        .unwrap();
+    std::fs::write(root.path().join("keep-me"), b"x").unwrap();
+    // 测试连接没通过：本机记得的位置原样留着。
+    assert_eq!(
+        trust_after(Err(RelayError::Unsupported), Some(root.path())),
+        Err(RelayError::Unsupported)
+    );
+    assert!(root.path().join(WEBDAV_STATE_FILE).exists());
+    // 通过了：只删日志缓存，目录里的其他文件不动；再来一次也没事。
+    trust_after(Ok(()), Some(root.path())).unwrap();
+    assert!(!root.path().join(WEBDAV_STATE_FILE).exists());
+    assert!(root.path().join("keep-me").exists());
+    trust_after(Ok(()), Some(root.path())).unwrap();
+    trust_after(Ok(()), None).unwrap();
+    // 相对路径在联网之前就拒绝。
+    assert_eq!(
+        probe_and_trust(&config(), Some(Path::new("relative"))),
+        Err(RelayError::Invalid)
     );
 }
 
