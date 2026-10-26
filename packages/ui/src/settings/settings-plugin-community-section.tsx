@@ -2,13 +2,17 @@ import { CommunityPluginsPage } from "../community/community-plugins";
 import * as communityStyle from "../community/community-style";
 import type { SettingsPageModel } from "./use-settings-page-model";
 import type { useSettingsCommunityViews } from "./use-settings-community-views";
+import type { PluginPackage } from "./plugin-types";
 import type { SettingsShellView } from "./use-settings-shell-state";
 
 export interface SettingsPluginCommunitySectionProps {
-  model: Pick<SettingsPageModel, "client" | "page" | "openAccountLogin">;
+  model: Pick<SettingsPageModel, "client" | "page" | "openAccountLogin"> &
+    Partial<Pick<SettingsPageModel, "host">>;
   views: Pick<ReturnType<typeof useSettingsCommunityViews>, "pluginCommunityShown">;
   pluginView: SettingsShellView;
   onPluginViewChange: (view: SettingsShellView) => void;
+  /** 装好脚本插件后切回「我的插件」并打开它的授权页。 */
+  onOpenPlugin?: (installed: PluginPackage) => void;
 }
 
 /** 插件来源受外壳控制，社区图库继续位于偏好表单之外。 */
@@ -17,8 +21,11 @@ export function SettingsPluginCommunitySection({
   views,
   pluginView,
   onPluginViewChange,
+  onOpenPlugin,
 }: SettingsPluginCommunitySectionProps) {
-  const { client, page, openAccountLogin } = model;
+  const { client, page, openAccountLogin, host } = model;
+  // 和「我的插件」显示脚本插件分组用同一个条件：宿主声明运行脚本插件，并且接了授权命令。
+  const scriptPlugins = host?.script_plugins === true && Boolean(client.plugins?.scriptGrants);
   const { pluginCommunityShown } = views;
   return (
     <>
@@ -47,6 +54,8 @@ export function SettingsPluginCommunitySection({
           <CommunityPluginsPage
             client={client.communityPlugins}
             localPlugins={client.plugins?.catalog}
+            scriptPlugins={scriptPlugins}
+            onOpenScript={scriptPlugins ? onOpenPlugin : undefined}
             onLogin={openAccountLogin}
           />
         </div>

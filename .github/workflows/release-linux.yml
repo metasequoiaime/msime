@@ -245,27 +245,56 @@ jobs:
           name: msime-linux-sources-${{ steps.version.outputs.value }}
           path: target/distro-sources/
           if-no-files-found: error
+  # Arch 官方镜像提供 x86_64；沿用已经验证过的 RPM 重新打包，发布页直接附带可安装的 msime-bin。
+  arch-bin:
+    needs: [source, rpm]
+    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-linux-rpm-x86_64-${{ steps.version.outputs.value }}
+          path: target/arch-rpm
+      - name: Build Arch binary package
+        run: |
+          rpm=$(find target/arch-rpm -maxdepth 1 -type f -name 'msime-linux-*.x86_64.rpm' -print -quit)
+          [[ -n "$rpm" ]]
+          bash platforms/linux/packaging/arch/build-bin-release.sh "${{ steps.version.outputs.value }}" "$rpm" target/arch-package
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: msime-linux-arch-${{ steps.version.outputs.value }}
+          path: target/arch-package/*.pkg.tar.zst
+          if-no-files-found: error
   publish:
-    needs: [source, deb, rpm, distro-sources, legacy]
-    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布。
-    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') }}
+    needs: [source, deb, rpm, distro-sources, legacy, arch-bin]
+    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布；Arch 包仅在有 packaging 脚本且 publish 时运行。
+    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') && (needs.arch-bin.result == 'success' || needs.arch-bin.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm/legacy-deb-ARCH-VERSION 与 msime-linux-sources-VERSION。安装包进版本发布页，源码包进 linux-sources。
+      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm/legacy-deb-ARCH-VERSION、x86_64 Arch 包与 msime-linux-sources-VERSION。安装包进版本发布页，源码包进 linux-sources。
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-linux-*-${{ needs.deb.outputs.version }}
           path: dist
           merge-multiple: true
-      # 先在本地备齐版本发布页的全部内容，任何一处不对（缺一个安装包、指引链接到不存在的文件）都在上传任何东西之前失败。版本发布页只放给用户下载的安装包：每个版本两个架构的 .deb、.rpm 与 .tar.gz，勾选了 legacy 时再加两个 legacy .deb，以及只列这些安装包的 SHA256SUMS。每次构建各写了一份 SHA256SUMS，合并 artifact 时只留下一份，这里按要发布的安装包重新算。源码包（.tar.xz 与 msime-VERSION-SHA256SUMS）进 linux-sources，见下一步。
+      # 先在本地备齐版本发布页的全部内容，任何一处不对（缺一个安装包、指引链接到不存在的文件）都在上传任何东西之前失败。版本发布页放 .deb、.rpm、.tar.gz 与 x86_64 Arch 包，以及只列这些安装包的 SHA256SUMS。每次构建各写了一份 SHA256SUMS，合并 artifact 时只留下一份，这里按要发布的安装包重新算。源码包（.tar.xz 与 msime-VERSION-SHA256SUMS）进 linux-sources，见下一步。
       - name: Prepare the release page
         id: page
         env: {VERSION: "${{ needs.deb.outputs.version }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
-          (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz > SHA256SUMS)
+          (cd "$dist" && shopt -s nullglob && files=( *.deb *.rpm *.tar.gz *.pkg.tar.zst ) && (( ${#files[@]} > 0 )) && rm -f SHA256SUMS && sha256sum -- "${files[@]}" > SHA256SUMS)
           tag="linux-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || PRERELEASE=true
           # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
@@ -290,7 +319,11 @@ jobs:
         # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", TAG: "${{ steps.page.outputs.tag }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ steps.page.outputs.prerelease }}"}
         # 重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装包放在一起的源码包。
-        run: bash scripts/publish-release.sh "$TAG" "$(git rev-parse HEAD)" "Linux ${RELEASE}" release-notes.md dist/*.deb dist/*.rpm dist/*.tar.gz dist/SHA256SUMS
+        run: |
+          shopt -s nullglob
+          assets=(dist/*.deb dist/*.rpm dist/*.tar.gz dist/*.pkg.tar.zst)
+          [[ ${#assets[@]} -gt 0 ]]
+          bash scripts/publish-release.sh "$TAG" "$(git rev-parse HEAD)" "Linux ${RELEASE}" release-notes.md "${assets[@]}" dist/SHA256SUMS
   # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页（.rpm 与 SHA256SUMS）和 linux-sources（源码包与 msime-VERSION-SHA256SUMS）上的地址取文件，校验值也以那里的为准。
   package-definitions:
     needs: [source, deb, publish]

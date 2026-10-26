@@ -1,6 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
-#import <IOKit/hid/IOHIDLib.h>
+#import <IOKit/hidsystem/IOHIDLib.h>
 #import <objc/runtime.h>
 
 static char MSIMESettingsGlassControllerKey;

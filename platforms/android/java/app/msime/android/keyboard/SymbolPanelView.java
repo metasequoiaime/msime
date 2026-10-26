@@ -65,6 +65,10 @@ public final class SymbolPanelView extends LinearLayout {
     };
     private int measuredGridWidth;
     private final ScrollView gridScroll = new CategorySwipeScrollView(getContext());
+    private final LinearLayout radicalBody;
+    private final ScrollView radicalRailScroll;
+    private final LinearLayout radicalRail;
+    private final List<TextView> radicalHeaders = new java.util.ArrayList<>();
     private final HorizontalScrollView categoryScroll = new HorizontalScrollView(getContext()) {
         @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
             super.onSizeChanged(width, height, oldWidth, oldHeight);
@@ -82,6 +86,7 @@ public final class SymbolPanelView extends LinearLayout {
     private boolean catalogComplete;
     private boolean catalogLoading;
     private long catalogGeneration;
+    private int selectedRadicalStroke = -1;
 
     /** 每次打开都显示「常用」，没有使用记录时显示空态提示。 */
     public void resetForPresentation(List<String> recents) {
@@ -160,10 +165,21 @@ public final class SymbolPanelView extends LinearLayout {
         gridScroll.setVerticalScrollBarEnabled(true);
         gridScroll.setContentDescription("符号网格；每行五个");
         gridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
-            if (scrollY > oldY && !view.canScrollVertically(1)) loadNextCatalogPage();
+            if (showingRadicals()) syncRadicalStroke();
+            else if (scrollY > oldY && !view.canScrollVertically(1)) loadNextCatalogPage();
         });
         gridScroll.addView(grid, LayoutPolicy.scrollMatchWidthWrapParams());
-        addView(gridScroll, LayoutPolicy.weightedWidthParams(1));
+        radicalRail = LayoutPolicy.column(context);
+        radicalRailScroll = new CategorySwipeScrollView(context);
+        radicalRailScroll.setVerticalScrollBarEnabled(false);
+        radicalRailScroll.setContentDescription("偏旁笔画分类");
+        radicalRailScroll.addView(radicalRail, LayoutPolicy.matchWidthWrapParams());
+        radicalBody = LayoutPolicy.row(context);
+        radicalBody.addView(radicalRailScroll,
+            LayoutPolicy.linearParamsPx(DimensionPolicy.pixels(context, 58), -1));
+        radicalBody.addView(gridScroll, LayoutPolicy.weightedMatchParentParams(1));
+        addView(radicalBody, LayoutPolicy.weightedWidthParams(1));
+        radicalRailScroll.setVisibility(View.GONE);
 
         LinearLayout bottom = LayoutPolicy.row(context);
         categoryScroll.setHorizontalScrollBarEnabled(false);
@@ -176,6 +192,7 @@ public final class SymbolPanelView extends LinearLayout {
         addView(bottom, LayoutPolicy.matchWidthHeightPx(DimensionPolicy.pixels(getContext(), 48)));
 
         rebuildCategoryButtons();
+        rebuildRadicalRail();
         select(SymbolPanelModel.initialCategory(recents, categoryOrder));
     }
 
@@ -199,6 +216,22 @@ public final class SymbolPanelView extends LinearLayout {
             categoryButtons.add(button);
             button.setMinWidth(DimensionPolicy.pixels(getContext(), 56));
             categories.addView(button, footerKeyParams(LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    private void rebuildRadicalRail() {
+        radicalRail.removeAllViews();
+        for (int index = 0; index < RadicalPanelModel.STROKES.size(); index++) {
+            final int stroke = index;
+            String label = RadicalPanelModel.STROKES.get(index) + "画";
+            Button button = buttons.create(label, "偏旁笔画 " + label,
+                () -> selectRadicalStroke(stroke), true);
+            ViewPolicy.setCenteredKeyTextSizeSp(button, 13);
+            KeyboardTypographyPolicy.normalizeKeyCap(button);
+            ViewPolicy.clearPadding(button);
+            if (button instanceof KeyboardPressButton key) key.setKeyboardRole(KeyboardKeyRole.PLAIN);
+            listener.restyle(button);
+            radicalRail.addView(button, footerKeyParams(LayoutParams.MATCH_PARENT));
         }
     }
 
@@ -243,10 +276,20 @@ public final class SymbolPanelView extends LinearLayout {
         catalogComplete = false;
         catalogLoading = false;
         SymbolPanelModel.Category current = values.get(category);
+        radicalHeaders.clear();
         grid.removeAllViews();
+        grid.setPadding(0, 0, 0, 0);
         grid.setColumnCount(current.columns());
         gridScroll.setContentDescription(current.kaomoji() ? "颜文字网格；每行两个" : "符号网格；长条目加宽");
-        if (current.fromCatalog()) {
+        boolean radicals = "radicals".equals(current.id());
+        radicalRailScroll.setVisibility(radicals ? View.VISIBLE : View.GONE);
+        if (radicals) {
+            gridScroll.setContentDescription("偏旁部首网格；按笔画连续滚动");
+            rebuildRadicalGrid(current);
+            selectedRadicalStroke = -1;
+            highlightRadicalStroke(0);
+            radicalRailScroll.scrollTo(0, 0);
+        } else if (current.fromCatalog()) {
             showHint("正在加载…", current.columns());
             loadNextCatalogPage();
         } else if (current.symbols().isEmpty()) {
@@ -256,6 +299,75 @@ public final class SymbolPanelView extends LinearLayout {
         }
         gridScroll.scrollTo(0, 0);
         categoryScroll.post(this::revealSelectedCategory);
+    }
+
+    private void selectRadicalStroke(int stroke) {
+        if (!showingRadicals() || stroke < 0 || stroke >= radicalHeaders.size()) return;
+        highlightRadicalStroke(stroke);
+        // 等本轮测量完成再定位，首次进入和屏幕变宽都不能使用上一轮的分组坐标。
+        long generation = catalogGeneration;
+        Runnable locate = () -> {
+            if (generation != catalogGeneration) return;
+            gridScroll.scrollTo(0, radicalHeaders.get(stroke).getTop());
+        };
+        if (radicalHeaders.get(stroke).getHeight() == 0) gridScroll.post(locate);
+        else locate.run();
+    }
+
+    private boolean showingRadicals() {
+        return "radicals".equals(orderedCategories().get(selected).id());
+    }
+
+    /** 全部分组放在同一条纵向滚动流中，点击笔画只定位，不替换内容。 */
+    private void rebuildRadicalGrid(SymbolPanelModel.Category category) {
+        int row = 0;
+        for (String stroke : RadicalPanelModel.STROKES) {
+            TextView header = ViewPolicy.centeredText(getContext(), stroke + "画", 13);
+            header.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            header.setPadding(DimensionPolicy.pixels(getContext(), 8), 0, 0, 0);
+            header.setContentDescription("偏旁分组 " + stroke + "画");
+            header.setAccessibilityHeading(true);
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams(GridLayout.spec(row++),
+                GridLayout.spec(0, category.columns(), GridLayout.FILL, 1f));
+            params.width = 0;
+            params.height = DimensionPolicy.pixels(getContext(), 30);
+            grid.addView(header, params);
+            listener.restyle(header);
+            radicalHeaders.add(header);
+            List<String> symbols = RadicalPanelModel.symbols(stroke);
+            appendRows(category, symbols, 0, row);
+            row += (symbols.size() + category.columns() - 1) / category.columns();
+        }
+    }
+
+    private void syncRadicalStroke() {
+        int stroke = 0;
+        for (int index = 1; index < radicalHeaders.size(); index++) {
+            TextView header = radicalHeaders.get(index);
+            if (header.getHeight() == 0 || header.getTop() > gridScroll.getScrollY()) break;
+            stroke = index;
+        }
+        highlightRadicalStroke(stroke);
+    }
+
+    private void highlightRadicalStroke(int stroke) {
+        if (stroke == selectedRadicalStroke) return;
+        selectedRadicalStroke = stroke;
+        for (int index = 0; index < radicalRail.getChildCount(); index++) {
+            View button = radicalRail.getChildAt(index);
+            ViewPolicy.setSelected(button, index == stroke);
+            listener.restyle(button);
+            button.setContentDescription("偏旁笔画 " + RadicalPanelModel.STROKES.get(index) + "画"
+                + (index == stroke ? "，已选中" : ""));
+        }
+        radicalRailScroll.post(() -> {
+            View button = radicalRail.getChildAt(stroke);
+            if (button == null || stroke != selectedRadicalStroke) return;
+            int top = radicalRailScroll.getScrollY();
+            if (button.getTop() < top) radicalRailScroll.scrollTo(0, button.getTop());
+            else if (button.getBottom() > top + radicalRailScroll.getHeight())
+                radicalRailScroll.scrollTo(0, button.getBottom() - radicalRailScroll.getHeight());
+        });
     }
 
     private void revealSelectedCategory() {
@@ -281,6 +393,21 @@ public final class SymbolPanelView extends LinearLayout {
             touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         }
 
+        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            if (this == gridScroll && showingRadicals()) {
+                // 在测量子网格前补齐末组留白，不能在布局后改尺寸并依赖下一帧修正。
+                String last = RadicalPanelModel.STROKES.get(RadicalPanelModel.STROKES.size() - 1);
+                int rows = (RadicalPanelModel.symbols(last).size() + SymbolPanelModel.COLUMNS - 1)
+                    / SymbolPanelModel.COLUMNS;
+                GridLayout.LayoutParams cell = gridCellParams(0, 0, 1);
+                int lastHeight = DimensionPolicy.pixels(getContext(), 30)
+                    + rows * (cell.height + cell.topMargin + cell.bottomMargin);
+                int padding = Math.max(0, MeasureSpec.getSize(heightMeasureSpec) - lastHeight);
+                if (grid.getPaddingBottom() != padding) grid.setPadding(0, 0, 0, padding);
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
+
         @Override public boolean dispatchTouchEvent(MotionEvent event) {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 downX = event.getX();
@@ -295,8 +422,8 @@ public final class SymbolPanelView extends LinearLayout {
                 if (dx > touchSlop && dx > dy * 1.5f) axis = 1;
                 else if (dy > touchSlop) axis = 2;
             }
-            if (axis == 1) {
-                // 子键禁止拦截后仍需撤掉横划中的点击，同时让更外层继续留在本面板。
+            if (axis != 0) {
+                // 方向确定后让滚动容器接管子键，纵划也不能被外层键盘手势截走。
                 super.requestDisallowInterceptTouchEvent(false);
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
             }
@@ -338,8 +465,12 @@ public final class SymbolPanelView extends LinearLayout {
 
     /** 把 `symbols` 里从 `from` 起的条目接在网格后面；`from` 必须是整行的开头。 */
     private void appendRows(SymbolPanelModel.Category category, List<String> symbols, int from) {
+        appendRows(category, symbols, from, 0);
+    }
+
+    private void appendRows(SymbolPanelModel.Category category, List<String> symbols, int from, int firstRow) {
         int columns = category.columns();
-        int rowIndex = from / columns, columnIndex = 0;
+        int rowIndex = firstRow + from / columns, columnIndex = 0;
         float columnWidth = grid.getMeasuredWidth() / (float) columns;
         for (int index = from; index < symbols.size(); index++) {
             String symbol = symbols.get(index);

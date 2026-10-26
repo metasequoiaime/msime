@@ -94,6 +94,10 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         findButton(panel, "中文").performClick();
         layout(panel, 1000);
         ScrollView scroll = (ScrollView) findDescription(panel, "符号网格；长条目加宽");
+        scroll.scrollTo(0, 100);
+        swipe(scroll, 0.8f, 0.3f, 0.2f, 0.3f, MotionEvent.ACTION_UP);
+        if (!findButton(panel, "偏旁").isSelected()) throw new AssertionError("横划没有进入相邻的偏旁分类");
+        checkRadicals(panel, insertions);
         swipe(scroll, 0.8f, 0.3f, 0.2f, 0.3f, MotionEvent.ACTION_UP);
         if (!findButton(panel, "英文").isSelected()) throw new AssertionError("Left swipe did not change category: "
             + scroll.getWidth() + "x" + scroll.getHeight() + ", child " + scroll.getChildAt(0).getWidth()
@@ -101,6 +105,9 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         layout(panel, 1000);
         swipe(scroll, 0.2f, 0.3f, 0.8f, 0.3f, MotionEvent.ACTION_CANCEL);
         if (!findButton(panel, "英文").isSelected()) throw new AssertionError("Cancelled swipe changed category");
+        swipe(scroll, 0.2f, 0.3f, 0.8f, 0.3f, MotionEvent.ACTION_UP);
+        if (!findButton(panel, "偏旁").isSelected()) throw new AssertionError("反向横划没有返回偏旁分类");
+        layout(panel, 1000);
         swipe(scroll, 0.2f, 0.3f, 0.8f, 0.3f, MotionEvent.ACTION_UP);
         if (!findButton(panel, "中文").isSelected()) throw new AssertionError("Right swipe did not change category");
         layout(panel, 1000);
@@ -111,6 +118,53 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         type.getMethod("resetForPresentation", List.class).invoke(panel, List.of());
         layout(panel, 1000);
         assertEmptyCommon(panel);
+    }
+
+    /** 真正测量安装产品的分组网格，覆盖连续滚动、末组定位及窄屏尺寸。 */
+    private static void checkRadicals(View panel, int[] insertions) {
+        ScrollView scroll = (ScrollView) findDescription(panel, "偏旁部首网格；按笔画连续滚动");
+        ScrollView rail = (ScrollView) findDescription(panel, "偏旁笔画分类");
+        ViewGroup grid = (ViewGroup) scroll.getChildAt(0);
+        layout(panel, 1000);
+        if (!findButton(panel, "1画").isSelected())
+            throw new AssertionError("从已滚动的一级分类进入偏旁时没有默认选中一画");
+        for (int width : new int[] {1000, 720, 1000}) {
+            layout(panel, width);
+            Rect gridBounds = bounds((ViewGroup) panel, scroll);
+            Rect railBounds = bounds((ViewGroup) panel, rail);
+            if (gridBounds.height() <= 0 || railBounds.height() != gridBounds.height()
+                    || railBounds.right > gridBounds.left || gridBounds.right > width
+                    || gridBounds.width() < width / 2)
+                throw new AssertionError("偏旁栏与网格尺寸错误：" + railBounds + " / " + gridBounds);
+            int count = 0;
+            for (int index = 0; index < grid.getChildCount(); index++) {
+                View child = grid.getChildAt(index);
+                if (!(child instanceof Button)) continue;
+                count++;
+                if (child.getWidth() <= 0 || child.getHeight() <= 0)
+                    throw new AssertionError("偏旁按键被压成零尺寸");
+            }
+            if (count != 301) throw new AssertionError("偏旁没有在同一网格中连续排列");
+            View second = findDescription(panel, "偏旁分组 2画");
+            scroll.scrollTo(0, second.getTop());
+            if (!findButton(panel, "2画").isSelected())
+                throw new AssertionError("滚动到二画没有同步笔画高亮");
+            findButton(panel, "17画").performClick();
+            View last = findDescription(panel, "偏旁分组 17画");
+            if (!findButton(panel, "17画").isSelected() || scroll.getScrollY() != last.getTop())
+                throw new AssertionError("点击末组没有定位到对应分组：scroll=" + scroll.getScrollY()
+                    + ", header=" + last.getTop() + ", content=" + grid.getHeight()
+                    + ", viewport=" + scroll.getHeight() + ", padding=" + grid.getPaddingBottom()
+                    + ", selected=" + findButton(panel, "17画").isSelected());
+            findButton(panel, "1画").performClick();
+            if (scroll.getScrollY() != 0 || !findButton(panel, "1画").isSelected())
+                throw new AssertionError("点击一画没有回到开头");
+            swipe(scroll, 0.5f, 0.8f, 0.5f, 0.2f, MotionEvent.ACTION_UP);
+            if (scroll.getScrollY() <= 0 || !findButton(panel, "偏旁").isSelected())
+                throw new AssertionError("偏旁纵划没有滚动或错误地切换一级分类");
+            if (insertions[0] != 6) throw new AssertionError("滚动或点击笔画时误上屏");
+        }
+        findButton(panel, "1画").performClick();
     }
 
     private static void assertEmptyCommon(View panel) {

@@ -10,16 +10,16 @@
 
 ```text
 script-plugin-template/
-  Cargo.toml            独立的 crate（自带 [workspace]，不属于仓库的工作区），编译成 cdylib
+  Cargo.toml            独立的 crate（自带 [workspace]，不属于仓库的工作区），编译成 cdylib，唯一的依赖是 SDK
   .cargo/config.toml    默认目标 wasm32-unknown-unknown，栈缩到 64 KiB
   src/lib.rs            插件本身
-  sdk/msime_script.rs   ABI v1 的 Rust 绑定：单文件，只用 core
-  sdk/msime_script.h    同一份 ABI 的 C 头文件
   pack/plugin.toml      清单；编译出的 pangu.wasm 放到它旁边，这个文件夹就是插件包
   fixture.jsonl         给 msime-pack run 的事件
 ```
 
-仓库不提交编译出来的 `.wasm`，`.gitignore` 已经排除了它和 `target/`。
+ABI v1 的 Rust 绑定是 SDK crate [msime-script-sdk](../../crates/script-sdk/)（`no_std`、没有依赖），模板在仓库里用路径引用它；同一份 ABI 的 C 头文件是那里的 `msime_script.h`。仓库不提交编译出来的 `.wasm`，`.gitignore` 已经排除了它和 `target/`。
+
+在仓库外面从零开始写插件，不必复制这个模板：`msime-pack new` 生成一个依赖 crates.io 上 SDK 的独立 crate，步骤见 [docs/plugins.md](../plugins.md#脚本插件kind--script)。
 
 ## 编译
 
@@ -29,7 +29,7 @@ script-plugin-template/
 rustup target add wasm32-unknown-unknown --toolchain 1.97.1
 ```
 
-把模板复制到仓库外面单独开发时，给自己用的工具链加上同一个目标即可。然后：
+把模板复制到仓库外面单独开发时，给自己用的工具链加上同一个目标，并把 `Cargo.toml` 里 SDK 的路径依赖换成 `msime-script-sdk = "0.1"`。然后：
 
 ```sh
 cd docs/script-plugin-template
@@ -41,7 +41,7 @@ cp target/wasm32-unknown-unknown/release/pangu_spacing.wasm pack/pangu.wasm
 - 不需要 `wasm-bindgen`，也不能用 WASI：模块只能导入 `msime` 下的函数。
 - 只有真正调用到的绑定函数才会成为 import。这个例子用到 `event_scalar`、`commit_text`、`rewrite_commit` 和 `log`，所以清单申请 `read_commit` 和 `rewrite_commit`；申请了没用到、或者用到了没申请，校验都会拒绝。
 
-用 C 写的话，`sdk/msime_script.h` 的开头有编译命令（clang 自带 wasm32 后端，链接要 `wasm-ld`）。
+用 C 写的话，[crates/script-sdk/msime_script.h](../../crates/script-sdk/msime_script.h) 的开头有编译命令（clang 自带 wasm32 后端，链接要 `wasm-ld`）。
 
 ## 校验和运行
 

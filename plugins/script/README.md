@@ -1,6 +1,6 @@
 # 脚本插件合集
 
-这里是一组拿来就能用的桌面脚本插件（`kind = "script"`）：每个插件是一个用 Rust 写的 `no_std` crate，编译成 core wasm 模块，由输入法进程里的沙箱解释器运行。它们按 [docs/plugins.md 的「脚本插件」一节](../../docs/plugins.md#脚本插件kind--script)的规则写成，用的是 [docs/script-plugin-template](../../docs/script-plugin-template/) 里的 SDK。
+这里是一组拿来就能用的桌面脚本插件（`kind = "script"`）：每个插件是一个用 Rust 写的 `no_std` crate，编译成 core wasm 模块，由输入法进程里的沙箱解释器运行。它们按 [docs/plugins.md 的「脚本插件」一节](../../docs/plugins.md#脚本插件kind--script)的规则写成，用的是 SDK crate [msime-script-sdk](../../crates/script-sdk/)。
 
 - 只在桌面运行：macOS、Windows 和 Linux 的输入法进程。iOS、Android 和鸿蒙不认这个类型。
 - 导入后默认停用，要在设置的「插件 → 脚本插件（实验）」里打开，并在授权对话框里逐项勾选能力才会运行。
@@ -37,7 +37,7 @@ scripts/test-script-plugins.sh --update <id>  # 把运行结果写回 <id>/expec
 - 构建产物都在仓库根的 `target/script-plugins/` 下：`cargo/` 是 cargo 的产物目录，`<id>/` 是可以导入的插件包文件夹，`<id>-<version>.zip` 是同样内容的压缩包（条目排序、时间固定、不压缩，同样的源码得到逐字节相同的压缩包）。
 - `test-script-plugins.sh` 先编出 `target/debug/msime-pack`，然后对每个插件：`msime-pack validate` 校验文件夹和压缩包；用 `fixture.jsonl` 跑 `msime-pack run --grant all`，输出去掉 `fuel`、`init_fuel` 后必须和 `expected.jsonl` 逐行相同，每一行的 fuel 不能超过钩子单次上限的一半（`candidates` 62 500，`before_commit` 和 `command` 50 000）；再不授予任何能力跑一遍，每个事件都不能有动作；插件目录里有 `check_output.py` 时再用它按插件自己的规则核对输出（uuid 按 RFC 9562 从夹具的随机数独立算一遍）。官方包的 id 是保留的，`validate` 和 `run` 对它们加 `--builtin`。最后跑 `scripts/test-script-plugin-data.py`，确认生成的数据文件没有漂移；`common-chars.bin` 要用锁定的 Unihan zip 重新生成，缓存里没有 zip 时这一项打印 skip，设 `MSIME_FETCH=1` 才下载。
 - 没有 wasm 目标时测试脚本打印 `skip` 并以 0 退出；CI 设 `MSIME_REQUIRE_SCRIPT_PLUGINS=1`，缺目标就失败，生成数据的检查打印 skip 也算失败。CI 同时设 `MSIME_FETCH=1` 并缓存 Unihan zip，所以 `common-chars.bin` 在 CI 上每次都核对。
-- CI：`.github/workflows/ci-platforms.yml` 的「Script plugins」作业在 `plugins/`、模板与 SDK、`crates/script-runtime`、`crates/pack-tool`、这几个脚本、`resources/licenses/Unicode-License-V3.txt` 或 `resources/character-glosses.lock.json` 改动时运行 `test-script-plugins.sh`。
+- CI：`.github/workflows/ci-platforms.yml` 的「Script plugins」作业在 `plugins/`、模板、SDK（`crates/script-sdk`）、`crates/script-runtime`、`crates/pack-tool`、这几个脚本、`resources/licenses/Unicode-License-V3.txt` 或 `resources/character-glosses.lock.json` 改动时运行 `test-script-plugins.sh`。
 
 ## 导入
 
@@ -52,8 +52,8 @@ plugins/script/
   shared/               多个插件共用的 Rust 源码，用 #[path] 引入
   tools/                生成器（gen_*.py）和构建、测试用的辅助脚本
   <id>/
-    Cargo.toml          [package] name 就是 id；自带空的 [workspace]；crate-type = ["cdylib"]；不写 profile
-    src/lib.rs          #![no_std]，用 #[path = "../../../../docs/script-plugin-template/sdk/msime_script.rs"] 引入 SDK
+    Cargo.toml          [package] name 就是 id；自带空的 [workspace]；crate-type = ["cdylib"]；唯一的依赖是 SDK 的路径依赖；不写 profile
+    src/lib.rs          #![no_std]，use msime_script_sdk::{...}
     data/               只有这个插件用的生成数据（提交进仓库），生成器同样放在 tools/gen_*.py
     pack/               插件包里除模块以外的全部文件：plugin.toml、LICENSE.txt、需要时的 NOTICE.txt 和第三方许可证
     fixture.jsonl       给 msime-pack run 的事件
@@ -63,7 +63,7 @@ plugins/script/
 ```
 
 - 目录名、`Cargo.toml` 的包名和 `plugin.toml` 的 `id` 必须相同；清单的 `module` 写 `<id>.wasm`，构建时把编出的模块改成这个名字放进包里。源码树里不放 `.wasm`，`.gitignore` 排除了它、`target/` 和 `Cargo.lock`。
-- 插件 crate 没有任何依赖；不要加。
+- 插件 crate 只依赖 SDK：`msime-script-sdk = { path = "../../../crates/script-sdk" }`，和发布到 crates.io 的是同一份源码。不要加别的依赖。例外是官方包 uuid：它仍用 `#[path]` 把 SDK 的源文件直接编进来，因为换成 crate 依赖会改变 LTO 合并后模块里 import 和函数的排列，内容哈希一变所有用户都要重新授权（`plugins/script/uuid/src/lib.rs` 开头的注释）；等它的哈希本来就要变时再改成依赖。
 - `memory_pages` 写模块实际需要的最小页数（构建脚本会打印，例如 `memory 2/2 pages`）：64 KiB 的栈占第一页，静态数据从第二页开始。
 - 包里最多 16 个文件，说明文件（`.txt`、`.md`）每个不超过 64 KiB，文件名只用 ASCII 字母、数字、`_`、`-` 和 `.`。
 - 带第三方数据的插件把许可证原文放进 `pack/`：`Unicode-License-V3.txt` 复制自 `resources/licenses/Unicode-License-V3.txt`，`OpenCC-LICENSE.txt` 复制自 `resources/licenses/OpenCC-Apache-2.0.txt`，组装时逐字节核对。`NOTICE.txt` 写明数据来源、版本和生成器。

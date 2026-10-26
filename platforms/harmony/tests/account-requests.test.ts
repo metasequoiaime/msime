@@ -205,14 +205,26 @@ async function main(): Promise<void> {
       ).request,
     );
     check(!("state_root" in list), "listing needs no state root");
-    for (const operation of [
-      "finish_trial",
-      "store_reply",
-      "candidate_skin_install",
-      "plugin_install",
-    ]) {
+    for (const operation of ["finish_trial", "store_reply", "candidate_skin_install"]) {
       const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
       check(replyError(plan.refusal, "") === "community_invalid", `${operation} is not forwarded`);
+    }
+  });
+
+  await group("community plugins: the gallery's operations pass, pack work gets the state root", () => {
+    for (const operation of ["plugin_pack_preview", "plugin_publish", "plugin_install"]) {
+      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation, id: "x" }));
+      check(
+        plan.refusal.length === 0 && parsed(plan.request).state_root === DIRECTORY,
+        `${operation} reads or writes the plugins root`,
+      );
+    }
+    for (const operation of ["plugin_list", "plugin_detail", "plugin_rate", "plugin_delete"]) {
+      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
+      check(
+        plan.refusal.length === 0 && !("state_root" in parsed(plan.request)),
+        `${operation} is forwarded without the state root`,
+      );
     }
   });
 

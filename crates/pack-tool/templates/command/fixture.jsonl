@@ -1,0 +1,3 @@
+{"event":"command","trigger":"{{trigger}}"}
+{"event":"command","trigger":"{{trigger}}","random":"fe040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}
+{"event":"command","trigger":"{{trigger}}","argument":"hello"}

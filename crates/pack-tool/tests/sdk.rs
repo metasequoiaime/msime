@@ -1,4 +1,4 @@
-//! 作者 SDK（`docs/script-plugin-template/sdk/` 下的 C 头文件和 Rust 绑定）与运行时的 ABI 逐项一致：版本、返回码、钩子、字段编号（含 `command_text` 的字段）、枚举取值、日志级别和 import 白名单。SDK 是给作者复制走的独立文件，不能直接引用运行时的常量，所以靠这里守着。
+//! 作者 SDK（`crates/script-sdk` 的 Rust 绑定 `src/lib.rs` 和 C 头文件 `msime_script.h`）与运行时的 ABI 逐项一致：版本、返回码、钩子、字段编号（含 `command_text` 的字段）、枚举取值、日志级别和 import 白名单。SDK 发布到 crates.io、没有任何依赖，不能直接引用运行时的常量，所以靠这里守着。
 
 #![cfg(any(
     target_os = "macos",
@@ -16,10 +16,11 @@ use msime_script_runtime::abi::{
 };
 use msime_script_runtime::Hook;
 
+/// SDK crate 里的文件，路径相对 `crates/script-sdk`。
 fn sdk(name: &str) -> String {
     fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/script-plugin-template/sdk")
+            .join("../script-sdk")
             .join(name),
     )
     .unwrap()
@@ -214,7 +215,7 @@ fn the_sdk_constants_are_the_runtime_abi() {
         .collect();
     // 两边都不多不少：SDK 里有 ABI 没有的常量，同样是漂移。
     assert_eq!(c_constants(&sdk("msime_script.h")), c);
-    assert_eq!(rust_constants(&sdk("msime_script.rs")), rust);
+    assert_eq!(rust_constants(&sdk("src/lib.rs")), rust);
 }
 
 #[test]
@@ -228,7 +229,7 @@ fn the_sdk_declares_exactly_the_import_whitelist() {
         .collect();
     assert_eq!(declared, whitelist);
 
-    let binding = sdk("msime_script.rs");
+    let binding = sdk("src/lib.rs");
     let start = binding.find("unsafe extern \"C\" {").unwrap();
     let block = &binding[start..start + binding[start..].find("\n    }").unwrap()];
     let declared: Vec<&str> = block

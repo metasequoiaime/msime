@@ -1,9 +1,10 @@
 import type { PluginKind, PluginPackage } from "../settings/plugin-types";
 import type { CommunityModeration, CommunityReportReason } from "./community-report-model";
 
-/** 包可以按哪些类型分享：所有类型都可以，效果包也在内。与 `client-services::plugins::community::PUBLISHABLE_KINDS` 保持一致。 */
+/** 包可以按哪些类型分享：八种数据类插件各平台都能分享，桌面宿主另有脚本插件。与 `client-services::plugins::community::PUBLISHABLE_KINDS` 保持一致。 */
 export type CommunityPluginKind = PluginKind;
 
+/** 各平台都能分享的数据类插件。 */
 export const communityPluginKinds: readonly CommunityPluginKind[] = [
   "sound",
   "music",
@@ -14,6 +15,16 @@ export const communityPluginKinds: readonly CommunityPluginKind[] = [
   "wordbook",
   "symbol_set",
 ];
+
+/** 这个宿主能分享的类型：运行脚本插件的桌面宿主（`HostCapabilities.script_plugins`）多一种 `script`。 */
+export function communityPluginKindsFor(scriptPlugins: boolean): readonly CommunityPluginKind[] {
+  return scriptPlugins ? [...communityPluginKinds, "script"] : communityPluginKinds;
+}
+
+/** 脚本插件在社区里先审后发：作者自己的脚本插件审核通过前是 `pending`，显示「审核中」，别人看不到它。数据类插件发布即公开，`pending` 当作已通过，不显示任何状态。 */
+export function communityPluginUnderReview(plugin: CommunityPlugin): boolean {
+  return plugin.kind === "script" && plugin.owned && plugin.moderation === "pending";
+}
 
 /** 一条发布，对应 `client-services::plugins::community::CommunityPlugin`。 */
 export type CommunityPlugin = {
@@ -34,8 +45,10 @@ export type CommunityPlugin = {
   owned: boolean;
   my_rating: number;
   created_at: string;
-  /** 只在自己的插件包中发送；`removed` 显示「已下架」。 */
+  /** 只在自己的插件包中发送；`removed` 显示「已下架」，脚本插件的 `pending` 显示「审核中」（见 `communityPluginUnderReview`）。 */
   moderation?: CommunityModeration | null;
+  /** 脚本插件清单申请的能力名，按清单顺序；数据类插件没有。可能有本客户端还不认识的名字。 */
+  permissions?: string[];
 };
 
 export type CommunityPluginPage = {

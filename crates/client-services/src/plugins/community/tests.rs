@@ -398,6 +398,7 @@ fn item() -> CommunityPlugin {
         my_rating: 0,
         created_at: "2026-09-01T00:00:00Z".into(),
         moderation: None,
+        permissions: Vec::new(),
     }
 }
 
@@ -1027,5 +1028,76 @@ fn the_own_list_asks_for_the_moderation_state_and_reads_it() {
     assert_eq!(
         client.community_plugins(0, "", None, true, None),
         Err(AccountError::Unauthorized)
+    );
+}
+
+#[test]
+fn only_script_items_carry_well_formed_permissions() {
+    let mut data = item();
+    assert!(validate_item(&data).is_ok());
+    data.permissions = vec!["read_commit".into()];
+    assert_eq!(validate_item(&data), Err(AccountError::Unavailable));
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+))]
+#[test]
+fn script_items_list_their_capabilities_and_an_old_server_refusal_is_named() {
+    let mut script = item();
+    script.kind = PluginKind::Script;
+    script.plugin_id = "pangu".into();
+    script.permissions = vec!["read_commit".into(), "rewrite_commit".into()];
+    assert!(validate_item(&script).is_ok());
+    // 服务端可能先认识本客户端还不认识的能力，形状合法就照样列出。
+    script.permissions.push("insert_candidates".into());
+    assert!(validate_item(&script).is_ok());
+    for bad in [
+        vec!["Read_commit".to_string()],
+        vec!["read_commit".into(), "read_commit".into()],
+        vec![String::new()],
+        vec!["a".repeat(MAX_PERMISSION_NAME_BYTES + 1)],
+        (0..=MAX_LISTED_PERMISSIONS)
+            .map(|i| format!("cap_{}", "x".repeat(i)))
+            .collect(),
+    ] {
+        script.permissions = bad;
+        assert_eq!(validate_item(&script), Err(AccountError::Unavailable));
+    }
+
+    // 线上的脚本条目带 permissions，严格解析也读得出来；数据条目和旧服务端不带，读成空表。
+    let mut wire = serde_json::to_value(item()).unwrap();
+    wire["kind"] = "script".into();
+    wire["plugin_id"] = "pangu".into();
+    wire["id"] = Uuid::from_u128(9).hyphenated().to_string().into();
+    wire["permissions"] = serde_json::json!(["read_commit"]);
+    let page = validate_page(
+        decode_page(CommunityPluginPageWire {
+            plugins: vec![wire, serde_json::to_value(item()).unwrap()],
+            has_more: false,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(page.plugins[0].permissions, vec!["read_commit".to_string()]);
+    assert!(page.plugins[1].permissions.is_empty());
+    assert!(!serde_json::to_string(&page.plugins[1])
+        .unwrap()
+        .contains("permissions"));
+
+    // 还不认识 script 的旧服务端以 400 拒绝发布，说成服务端还不接受脚本插件；数据类插件照旧。
+    assert_eq!(
+        publish_failure(PluginKind::Script, AccountError::Invalid).code,
+        SCRIPT_UNSUPPORTED
+    );
+    assert_eq!(
+        publish_failure(PluginKind::Script, AccountError::RateLimited).code,
+        "community_rate_limited"
+    );
+    assert_eq!(
+        publish_failure(PluginKind::CommandTable, AccountError::Invalid).code,
+        "community_invalid"
     );
 }

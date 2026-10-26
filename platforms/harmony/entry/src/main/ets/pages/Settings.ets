@@ -1215,6 +1215,11 @@ class SettingsBridge {
         KeyboardLog.error(`community skin request failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
       });
+    } else if (kind === 'community_plugin') {
+      this.communityPlugin(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community plugin request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
     } else if (kind === 'custom_skin_library') {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
@@ -1931,6 +1936,16 @@ class SettingsBridge {
       this.refreshPreferencesIfChanged();
     }
     return reply;
+  }
+
+  /**
+   * 社区插件图库：plugin_* 操作原样交给 Rust（`msime_client_community`），打包预检、发布和安装由 `communityRequest` 带上状态目录。鸿蒙的 Rust 没有脚本插件这个类型，这里只会经手数据类插件。
+   */
+  async communityPlugin(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    return await this.accountBridge.community(actionDocument);
   }
 
   private finishSkinTrial(action: CommunitySkinAction): string {
