@@ -2168,8 +2168,11 @@ struct SettingsWindow::State {
       if (completed->credential_request->value("operation", std::string{}) == "candidate_skin_preview")
         community_form.preview(std::move(completed->community_preview));
       const auto operation = completed->credential_request->value("operation", std::string{});
-      if (operation.substr(0, 7) == "plugin_" || (operation == "report" && completed->credential_request->value("kind", std::string{}) == "plugins"))
+      if (operation.substr(0, 7) == "plugin_" || (operation == "report" && completed->credential_request->value("kind", std::string{}) == "plugins")) {
         community_plugins_form.completed(*completed->credential_request, *completed->community_response);
+        // 社区装好的脚本插件不会运行，要授权：切到插件页，在脚本插件授权区选中它。
+        if (auto script = community_plugins_form.installed_script(); !script.empty()) { plugin_scripts_form.select(std::move(script)); pending_page = 15; }
+      }
       else if (operation.substr(0, 9) == "resource_" || (operation == "report" &&
           (completed->credential_request->value("kind", std::string{}) == "dictionaries" || completed->credential_request->value("kind", std::string{}) == "replies")))
         community_resources_form.completed(*completed->credential_request, *completed->community_response);
@@ -2179,6 +2182,7 @@ struct SettingsWindow::State {
     if (completed->clipboard_response) clipboard_form.completed(*completed->clipboard_response);
     if (completed->cloud_clipboard_response && completed->credential_request)
       cloud_clipboard_form.completed(*completed->credential_request, *completed->cloud_clipboard_response);
+    HWND revealed_script = nullptr;
     if (completed->plugins_response && plugins_created && completed->credential_request) {
       const auto& value = *completed->plugins_response;
       const auto operation = completed->credential_request->value("operation", std::string{});
@@ -2191,6 +2195,7 @@ struct SettingsWindow::State {
         if (!theme_data::value(value.at("response"))) plugin_library_form.failure();
         plugin_effects_form.catalog(plugin_library_form.packages(), plugin_library_form.loaded());
         plugin_scripts_form.completed(value.at("catalog"), value.at("grants"), value.at("response"));
+        revealed_script = plugin_scripts_form.revealed();
       }
       if (value.contains("statistics_enabled")) {
         const auto& enabled = value.at("statistics_enabled");
@@ -2210,6 +2215,7 @@ struct SettingsWindow::State {
     appearance_form.game_profile(completed->game_profile_enabled);
     enable(snapshot.has_value());
     layout_body();
+    if (revealed_script && surface == Surface::plugins) { reveal(revealed_script); SetFocus(revealed_script); }
     const wchar_t* message = L"读取设置失败，请重新读取后重试。";
     switch (result->outcome) {
     case Outcome::loaded: message = L"设置已就绪。"; break;
