@@ -2146,6 +2146,7 @@ const MAX_MOBILE_CLIPBOARD_REQUEST_BYTES: usize = 524_288;
 #[serde(deny_unknown_fields)]
 struct MobileClipboardRequest {
     directory: String,
+    preferences_directory: Option<String>,
     action: MobileClipboardAction,
 }
 
@@ -2192,7 +2193,7 @@ enum MobileClipboardAction {
     Clear,
 }
 
-/// Structured mobile clipboard history operations. The directory is the trusted App Group root; shared data lives below MSIME. This intentionally does not read or change the desktop automatic-capture preference: mobile access is host-permission gated.
+/// 移动端结构化剪贴板历史：`directory/MSIME` 存历史；可选的 `preferences_directory` 单独指定容量偏好所在目录，省略时沿用 `directory`。移动端访问由宿主权限控制，不读取或改变桌面自动记录开关。
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
 #[no_mangle]
@@ -2212,10 +2213,18 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
         if !root.is_absolute() || request.directory.len() > 16384 {
             return Err("invalid mobile clipboard directory".into());
         }
+        let preferences_directory = request
+            .preferences_directory
+            .as_deref()
+            .unwrap_or(&request.directory);
+        let preferences_root = std::path::Path::new(preferences_directory);
+        if !preferences_root.is_absolute() || preferences_directory.len() > 16384 {
+            return Err("invalid mobile clipboard preferences directory".into());
+        }
         let path = root.join("MSIME").join("clipboard_history.json");
         let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open_with_limit(
             path,
-            clipboard_history_limit(root),
+            clipboard_history_limit(preferences_root),
         );
         match request.action {
             MobileClipboardAction::Categories => {

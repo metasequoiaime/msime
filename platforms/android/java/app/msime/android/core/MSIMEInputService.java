@@ -6020,8 +6020,7 @@ public final class MSIMEInputService extends InputMethodService {
             ? ClipboardModePolicy.Mode.MAIN : ClipboardModePolicy.Mode.VISITOR;
         clipboardMode = next;
         ClipboardModeStore.save(this, next);
-        clipboardHistory = new ClipboardHistoryStore(
-            ClipboardModePolicy.directory(getFilesDir(), next));
+        clipboardHistory = ClipboardHistoryStore.forMode(this, next);
         closeClipboardHistory();
         if (button != null) {
             button.setKind(next == ClipboardModePolicy.Mode.VISITOR
@@ -9116,9 +9115,8 @@ public final class MSIMEInputService extends InputMethodService {
         refreshLocalSettings();
         File files = getFilesDir();
         clipboardMode = ClipboardModeStore.load(this);
-        // The shared store keeps its file under this directory, which is the same one the settings
-        // page hands the shared entry; both sides therefore read one history.
-        clipboardHistory = new ClipboardHistoryStore(ClipboardModePolicy.directory(files, clipboardMode));
+        // 主模式和访客模式各用自己的历史目录；容量从设置页保存偏好的共享状态目录读取。
+        clipboardHistory = ClipboardHistoryStore.forMode(this, clipboardMode);
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());

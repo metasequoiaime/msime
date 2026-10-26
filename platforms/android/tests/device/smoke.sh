@@ -370,6 +370,7 @@ for entry in \
     "QuickDeletePreviewDeviceSmoke|Quick delete held preview acceptance failed" \
     "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
+    "ClipboardCapacityDeviceSmoke|Clipboard capacity acceptance failed" \
     "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
     "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \
