@@ -1,6 +1,5 @@
 //! 代次准备（core-session.md §12、data-formats.md §3、`runtime_paths.cpp:116-182`）：`user_data/dictionaries/<content id>` 里是经 backup API 复制的 `msime-pinyin.db` 与 `msime-english.db`（资源单独发布的 `msime-wubi.db` 五笔码表并回前者），回放过用户日志，旁边还有 n-gram 表。不读 `msime-pinyin.db` 的方案集合（见 `SchemeSet::reads_main_dictionary`）准备的代次只有 `msime-english.db`。
 
-use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind};
 use std::path::{Component, Path, PathBuf};
@@ -509,12 +508,15 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
     })
 }
 
-/// Copy the optional n-gram tables the resource set carries. Also run for an already prepared generation with `replace_existing` false, so a table a later build starts shipping arrives without a new generation while the one a session may have mapped stays untouched (RP:76-90).
+/// 把资源带的可选 n-gram 表复制进代次。已就绪的代次也会以 `replace_existing` 为假调用它：后来的版本才开始发布的表不用换代次就能补上，会话可能已经映射着的那张保持不动（RP:76-90）。
+///
+/// 每张表先写进这次尝试独有的 `<表名>.<随机串>.incoming`（独占新建，重名就换一个），落盘后再改名就位：会话可能映射着旧文件，映射下面的表写到一半就是崩溃而不是查不到（RP:62-63）。以前用固定的 `<表名>.incoming`，两个进程同时补同一张表时，一方会删掉另一方正在写的文件，再把对方写到一半的副本改名就位。几方同时补同一张表时，后改名的一方在 Unix 上以同样的字节替换前一方的文件（映射着前一份的会话不受影响）；Windows 上目标被映射时改名失败，这时目标已经是完整的表，丢掉自己的副本即可。
 pub(super) fn stage_generation_copies(
     resources: &Path,
     generation: &Path,
     replace_existing: bool,
 ) -> Result<()> {
+    sweep_abandoned_copies(generation, SystemTime::now());
     for name in GENERATION_COPIES {
         let source = resources.join(name);
         if !is_real_file(&source) {
@@ -524,19 +526,68 @@ pub(super) fn stage_generation_copies(
         if !replace_existing && is_real_file(&target) {
             continue;
         }
-        // Rename into place rather than writing the target: a session may have the previous file mapped, and a half-written table under an mmap is a crash rather than a miss (RP:62-63).
-        let mut incoming = OsString::from(name);
-        incoming.push(".incoming");
-        let incoming = generation.join(incoming);
-        match fs::remove_file(&incoming) {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
+        let mut input = crate::paths::open_file_no_follow(&source)?;
+        // 出错时丢弃 `TempPath` 会删掉这次自己的临时文件。写入句柄在块结束时关闭，Windows 不能改名打开着的文件。
+        let incoming = {
+            let (mut output, incoming) = tempfile::Builder::new()
+                .prefix(&format!("{name}."))
+                .suffix(STAGE_SUFFIX)
+                .make_in(generation, create_private_file)?
+                .into_parts();
+            io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+            incoming
+        };
+        match fs::rename(&incoming, &target) {
+            Ok(()) => {
+                // 文件已经改名就位，不能再让 `TempPath` 按原路径去删。
+                let _ = incoming.keep();
+            }
+            Err(_) if !replace_existing && is_real_file(&target) => {}
             Err(error) => return Err(error.into()),
         }
-        copy_private_file(&source, &incoming)?;
-        fs::rename(&incoming, &target)?;
     }
     Ok(())
+}
+
+/// 删掉代次目录里一小时没被写过的 n-gram 临时副本：准备途中被杀的进程留下的 `<表名>.<随机串>.incoming`，以及旧版本固定名字的 `<表名>.incoming`。判据与 [`sweep_abandoned_stages`] 相同；文件按路径删除，主人若其实还活着，之后的改名找不到原路径，只会让那次准备失败，已就位的表不受影响。出什么错都不影响准备本身。
+fn sweep_abandoned_copies(generation: &Path, now: SystemTime) {
+    let Some(cutoff) = now.checked_sub(ABANDONED_STAGE_AGE) else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(generation) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_str().is_some_and(is_copy_name) {
+            continue;
+        }
+        let path = entry.path();
+        let stale = fs::symlink_metadata(&path).is_ok_and(|metadata| {
+            metadata.file_type().is_file()
+                && metadata.modified().is_ok_and(|modified| modified < cutoff)
+        });
+        if stale {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+/// `<表名>.incoming` 或 `<表名>.<字母数字>.incoming`，表名是 [`GENERATION_COPIES`] 之一。
+fn is_copy_name(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(STAGE_SUFFIX) else {
+        return false;
+    };
+    GENERATION_COPIES.iter().any(|copy| {
+        stem == *copy
+            || stem
+                .strip_prefix(copy)
+                .and_then(|rest| rest.strip_prefix('.'))
+                .is_some_and(|attempt| {
+                    !attempt.is_empty() && attempt.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                })
+    })
 }
 
 fn is_real_file(path: &Path) -> bool {
@@ -637,6 +688,17 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// 目录下名字以 `.incoming` 结尾的项。
+    fn incoming_entries(directory: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(STAGE_SUFFIX))
+            .collect();
+        names.sort();
+        names
     }
 
     fn learn(journal: &Path, word: &str, updated_at: i64) {
@@ -1098,10 +1160,10 @@ mod tests {
         assert_eq!(fs::read(outside.path().join("keep")).unwrap(), b"keep");
     }
 
-    /// 一小时前被丢下的暂存目录在下一次准备时删掉，哪怕那次准备走的是已就绪代次的路径。
+    /// 一小时前被丢下的暂存目录和 n-gram 临时副本在下一次准备时删掉，哪怕那次准备走的是已就绪代次的路径。
     #[cfg(unix)]
     #[test]
-    fn preparation_sweeps_stages_abandoned_an_hour_ago() {
+    fn preparation_sweeps_stages_and_table_copies_abandoned_an_hour_ago() {
         let root = tempfile::tempdir().unwrap();
         let resources = resources(root.path());
         let user = root.path().join("user");
@@ -1124,10 +1186,18 @@ mod tests {
         prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
         assert_eq!(fs::read(&partial).unwrap(), b"partial");
 
+        // 代次里补 n-gram 表留下的临时副本同理：刚写过的留着，一小时没写过的删掉。
+        let copy = parent.join("v1").join("msime-trigram.bin.k3Xq9z.incoming");
+        fs::write(&copy, b"partial").unwrap();
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert!(copy.is_file());
+
         backdate(&partial);
         backdate(&abandoned);
+        backdate(&copy);
         prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
         assert!(!abandoned.exists());
+        assert!(!copy.exists());
         assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
     }
 
@@ -1271,12 +1341,109 @@ mod tests {
             fs::read(paths.dictionary(assets::BIGRAM_TABLE)).unwrap(),
             b"first"
         );
-        assert!(!paths.dictionary("msime-trigram.bin.incoming").exists());
+        assert!(incoming_entries(&paths.dictionaries).is_empty());
         let fresh = prepare_runtime_paths(&resources, &user, &cache, "v2").unwrap();
         assert_eq!(
             fs::read(fresh.dictionary(assets::BIGRAM_TABLE)).unwrap(),
             b"second"
         );
+    }
+
+    /// 补 n-gram 表时被杀留下的临时副本（旧版本的固定名字和现在的名字）不挡住下一次补表，刚写过的原样留着；一小时没被写过的在之后的清理里删掉，代次里别的文件不动。
+    #[test]
+    fn table_copies_left_by_a_killed_preparation_do_not_block_and_are_swept_later() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let generation = prepare_runtime_paths(&resources, &user, &cache, "v1")
+            .unwrap()
+            .dictionaries;
+        let leftovers = [
+            "msime-trigram.bin.incoming",
+            "msime-trigram.bin.k3Xq9z.incoming",
+        ];
+        for leftover in leftovers {
+            fs::write(generation.join(leftover), b"partial").unwrap();
+        }
+        let unrelated = [
+            "other.incoming",
+            "msime-trigram.bin.k3.x.incoming",
+            "msime-trigram.bin..incoming",
+            "msime-trigram.bin.incoming.bak",
+        ];
+        for name in unrelated {
+            fs::write(generation.join(name), b"keep").unwrap();
+        }
+        fs::create_dir(generation.join("msime-bigram.bin.Ab12cd.incoming")).unwrap();
+        fs::write(resources.join(assets::TRIGRAM_TABLE), "third").unwrap();
+
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(
+            fs::read(generation.join(assets::TRIGRAM_TABLE)).unwrap(),
+            b"third"
+        );
+        for leftover in leftovers {
+            assert_eq!(fs::read(generation.join(leftover)).unwrap(), b"partial");
+        }
+
+        sweep_abandoned_copies(
+            &generation,
+            SystemTime::now() + ABANDONED_STAGE_AGE + Duration::from_secs(60),
+        );
+        for leftover in leftovers {
+            assert!(!generation.join(leftover).exists(), "{leftover}");
+        }
+        for name in unrelated {
+            assert_eq!(fs::read(generation.join(name)).unwrap(), b"keep", "{name}");
+        }
+        assert!(generation.join("msime-bigram.bin.Ab12cd.incoming").is_dir());
+        for name in [
+            assets::MAIN_DICTIONARY,
+            assets::ENGLISH_DICTIONARY,
+            assets::GENERATION_READY,
+            assets::TRIGRAM_TABLE,
+        ] {
+            assert!(generation.join(name).is_file(), "{name}");
+        }
+    }
+
+    /// 后来的版本开始随资源发布一张 n-gram 表，几个进程同时打开同一个已就绪的代次、同时补这张表：每一方都成功，就位的表与资源逐字节一致，谁也不会把别人写到一半的副本改名就位，也不留下临时文件。
+    #[test]
+    fn concurrent_preparations_add_a_newly_shipped_table_once() {
+        const PREPARERS: usize = 8;
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let generation = prepare_runtime_paths(&resources, &user, &cache, "v1")
+            .unwrap()
+            .dictionaries;
+        // 大到复制要花一点时间，几方的复制才会互相重叠。
+        let table: Vec<u8> = (0..8 * 1024 * 1024u32).map(|index| index as u8).collect();
+        fs::write(resources.join(assets::TRIGRAM_TABLE), &table).unwrap();
+
+        let barrier = std::sync::Barrier::new(PREPARERS);
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let preparers: Vec<_> = (0..PREPARERS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        prepare_runtime_paths(&resources, &user, &cache, "v1")
+                            .map_err(|error| error.to_string())
+                    })
+                })
+                .collect();
+            preparers
+                .into_iter()
+                .map(|preparer| preparer.join().unwrap())
+                .collect()
+        });
+        for result in &results {
+            assert_eq!(result.as_ref().unwrap().dictionaries, generation);
+        }
+        assert!(fs::read(generation.join(assets::TRIGRAM_TABLE)).unwrap() == table);
+        assert!(incoming_entries(&generation).is_empty());
     }
 
     /// 发布把五笔码表拆进 `msime-wubi.db` 后，准备代次要把它并回工作主词库：日志里的五笔行照常回放，不会让整个代次因为缺表被拒；索引与 rowid 原样保留；再次准备已就绪的代次时不重复导入。

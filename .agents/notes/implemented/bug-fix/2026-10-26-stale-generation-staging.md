@@ -1,4 +1,4 @@
-# Agent Note: 词库代次的暂存目录被中途杀掉的进程留下后不再挡住启动
+# Agent Note: 词库代次的暂存目录和 n-gram 临时副本被中途杀掉的进程留下后不再挡住启动
 
 Status: implemented
 
@@ -10,6 +10,8 @@ Status: implemented
 
 Android 早在 #4282 就碰到过同一个问题，在 `Bootstrap.clearInterruptedStaging` 里于首次准备前删掉 `*.incoming` 绕过；iOS、HarmonyOS、桌面宿主都没有这层绕过，而且这个问题本来属于引擎。
 
+同一个文件里还有一处同类的固定名字：`stage_generation_copies` 给已就绪的代次补后来才随资源发布的 n-gram 表时，先删掉固定的 `<表名>.incoming`，再独占新建它、复制、改名就位。两个进程同时补同一张表时，一方会删掉另一方正在写的文件，另一方随后的改名要么找不到文件（`No such file or directory`，准备失败），要么把对方写到一半的副本改名就位；后者会让映射这张表的会话读到半截数据。
+
 ## Decision
 
 引擎改为每次尝试一个暂存目录，发布靠改名，被丢下的暂存目录按“多久没写”清理：
@@ -18,6 +20,12 @@ Android 早在 #4282 就碰到过同一个问题，在 `Bootstrap.clearInterrupt
 - **整套做完才改名成 `<id>`。** `.ready` 在改名前写好并落盘，读的一方要么看不到 `<id>`，要么看到带 `.ready` 的完整代次。`<id>` 已经存在且非空时改名一定失败：Unix 的 `rename(2)` 报 `ENOTEMPTY`/`EEXIST`；Windows 上标准库先调 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`，目录目标拒绝访问，再用 `FileRenameInfoEx` 的 POSIX 语义重试，非空目录报 `ERROR_DIR_NOT_EMPTY`。所以输掉的一方顶不掉别人已发布的代次。
 - **这次暂存失败、而 `<id>` 已经就绪时，用就绪的那一份。** 失败的原因可能是并发准备的另一方抢先发布（改名失败），也可能是这次停顿太久、暂存目录被当成丢下的清掉了。两种情况都走与一开始就看到就绪代次相同的路径：检查副本、并五笔表、回放日志、补 n-gram 表。回放本来就是每次打开就绪代次都要做的，重复一次无害；若失败是回放本身出错，就绪路径会以同样的错误失败，不会把错误吞掉。
 - **每次准备（包括走就绪路径的）先清掉被丢下的暂存目录。** 对象是 `dictionaries` 下名字形如 `<id>.incoming`（旧版本的固定名字）或 `<id>.<字母数字>.incoming` 的真实目录，任意 id 都算：内容 id 换代后旧 id 的半截目录也要有人收。判据是目录本身和里面每一项的修改时间都早于一小时前；读不到时间、时间在将来、读的同时有项目消失，都当作还有人在写。被判为丢下的目录先改名成 `<同名>.removing` 认领，再 `remove_dir_all`；`.removing` 不等变旧，见到就删。清理出任何错都忽略，不影响准备本身。
+
+### 已就绪代次里补 n-gram 表
+
+`stage_generation_copies` 用同样的办法：每张表先写进这次独有的 `<表名>.<随机串>.incoming`（`tempfile::Builder::make_in` 配合原有的 `create_private_file`，仍是 `O_NOFOLLOW` 加独占新建，重名换名），`sync_all` 后关闭句柄、改名成 `<表名>`；出错时丢弃 `TempPath`，只删自己的临时文件。几方同时补同一张表时，Unix 上后改名的一方以同样的字节替换前一方的文件，已经映射前一份的会话持有旧 inode，不受影响（这正是 n-gram 映射本来依赖的约定）；Windows 上目标被映射或打开时改名失败，这时只要目标已是普通文件，就丢掉自己的副本、用已就位的那张。刚建的代次（`replace_existing` 为真）是这次独有的暂存目录，没有竞争，改名失败照常报错。
+
+每次调用先删掉代次目录里一小时没被写过的 `<表名>.incoming`（旧版本的固定名字）和 `<表名>.<字母数字>.incoming`，只认普通文件。文件按路径删除，不需要认领：主人若其实还活着，之后的改名找不到原路径，只会让那次准备失败，已就位的表不受影响。旧版本留下的固定名字新代码根本不用，升级后不会因为它出错，只在变旧后被清掉。
 
 ### 为什么是一小时
 
@@ -38,13 +46,23 @@ Android 早在 #4282 就碰到过同一个问题，在 `Bootstrap.clearInterrupt
 | iOS 的 App 与键盘扩展、Android 的主进程与 `:ime`、HarmonyOS 的 App 与输入法扩展同时第一次准备 | 各写各的暂存目录，先改名的发布，另一方改名失败、删掉自己的暂存目录、打开已发布的代次 |
 | Windows 的 Server 与设置程序，Linux 的 IBus 与 Fcitx5 | 同上；Windows 的改名语义见上文 |
 | 一方在就绪路径上回放，另一方刚发布 | 只有已就绪的代次被两方读写，SQLite 的锁和 5 秒忙等待负责 |
-| 新旧两个版本的进程交替运行（更新期间） | 旧版本仍用固定的 `<id>.incoming`，新版本按一小时规则清理它，不会删掉旧版本正在写的 |
+| 新旧两个版本的进程交替运行（更新期间） | 旧版本仍用固定的 `<id>.incoming` 和 `<表名>.incoming`，新版本按一小时规则清理它们，不会删掉旧版本正在写的 |
+| 几个进程同时给已就绪代次补同一张 n-gram 表 | 各写各的临时副本；Unix 上以相同字节先后替换，Windows 上改名失败的一方用已就位的表 |
 
 Android 应用不能建硬链接（SELinux）；这里只用同一目录内的 `mkdir`、`rename` 和删除，不用 `persist_noclobber` 之类可能退回硬链接的接口。
 
 ## 不再产生的错误
 
 `RUNTIME_STAGING_EXISTS` 没有任何路径会再产生，常量随之删除。唯一按这句文本匹配的是 Android 的 `PreparationFailureSmoke`，它只是借这句话测试去掉 `Bootstrap` 加的前缀，换成仍然存在的 `Incomplete runtime dictionary generation`。`Bootstrap.clearInterruptedStaging` 的 `endsWith(".incoming")` 同样匹配新名字，只改了注释。
+
+## 同类问题的排查
+
+在 `crates/engine`、`crates/host-api`、`crates/client-services`、`crates/client-core` 和 `crates/client-base` 里查了固定名字的暂存路径（`.incoming`、`.tmp`、`.staging`、`.partial`、`.new`、`with_extension`）以及独占新建、改名发布的调用点。词库与运行时准备路径上需要改的只有上面两处，其余的情况：
+
+- `user_dictionary/state.rs` 的 `stage_dictionary_state_for` 独占新建调用方给的目录；唯一调用方 host-api 的 `dictionary_snapshot` 每次在 `snapshot-<随机串>` 临时目录里建它，不会被旧的挡住。但进程被杀时 `snapshot-*` 留在云词库的暂存目录里，没有人清理，只占空间、不挡启动。
+- `user_dictionary/reset.rs` 的重置用带纳秒时间戳的 `.reset.`、`.backup.` 名字，不会被旧文件挡住；被杀时留下的临时文件同样没人清理。另外，若进程恰好在把原词库挪成 `.backup.` 之后、新词库改名就位之前被杀，代次里就缺这个词库，下一次准备报 `Incomplete runtime dictionary generation`，需要手动恢复。这不是固定名字的问题，这次没有改。
+- `host/options.rs` 的翻译 sidecar 用 `tempfile` 的随机名 `.custom-translations-*` 写好再 `persist`，不会被挡；被杀时留下的小文件没人清理。
+- client-core 的 `resources.rs` 安装资源时持有 `resources.lock`、每次一个随机暂存目录，并且已经有 `sweep_abandoned_stages`，没有这类问题。client-core 偏好与 host-api 云词库快照文件的临时名带随机串，并已有清理。host-api 的 `learned_translation` 独占新建遇到已存在当作成功。
 
 ## Alternatives considered
 
@@ -58,13 +76,14 @@ Android 应用不能建硬链接（SELinux）；这里只用同一目录内的 `
 
 - **收益**：进程在准备途中被杀不再让输入法永久起不来，任何平台都不需要用户手动删目录；两个进程同时第一次准备也不再有一方报错。
 - **代价**：被杀留下的半截目录最多多占一小时左右的空间（每个最多约 200 MB），反复在一小时内被杀会叠加几个；并发准备时两方都会完整复制一遍，输的一方白做一次。
-- **已知上限**：`<id>` 存在但没有 `.ready`（不是本流程能产生的状态）时的处理不变，仍然报错。就绪路径上 `stage_generation_copies` 为后来才发布的 n-gram 表用固定名字 `<name>.incoming` 复制，两个进程同时给同一个已就绪代次补同一张表时会互相删掉对方写到一半的文件，有可能把半截表改名就位；只在同一 content id 下资源新增 n-gram 表时触发，这次没有改，留作单独的问题。
+- **已知上限**：`<id>` 存在但没有 `.ready`（不是本流程能产生的状态）时的处理不变，仍然报错。上一节列出的几处遗留文件只占空间，这次没有改。
 
 ## Verification
 
 - 先写回归测试，在未改的 develop 代码上运行：`a_stage_left_by_a_killed_preparation_does_not_block_the_next_one`（留下旧固定名和新名字两个带半截词库的暂存目录，下一次准备必须成功，且这两个刚写过的目录原样保留）和 `concurrent_preparations_of_one_generation_all_succeed`（8 个线程用 `Barrier` 同时准备同一个 id，全部成功、拿到同一个代次、日志已回放、n-gram 表完整、最后只剩 `v1`），两者都以 `Runtime dictionary staging directory already exists` 失败。修复后通过。
 - 把“失败后改用已就绪代次”那一支临时短路掉，并发测试连续 10 次都失败，说明它确实走到了“改名输给另一方”的路径；恢复后连续 30 次通过。
 - `only_stages_untouched_for_an_hour_are_swept` 用注入的“现在”覆盖清理规则：刚写过的暂存目录保留，`.removing` 立即删，一小时后两种暂存名都删；代次目录、名字对不上的目录、普通文件和指向外部的符号链接都不动。`preparation_sweeps_stages_abandoned_an_hour_ago`（Unix）把修改时间改到一小时前：只有目录旧、里面文件新时不删，都旧了才在下一次（走就绪路径的）准备时删掉。
-- 在 Mac Studio 上：`cargo test -p msime-engine --locked --lib` 2676 项、`--tests` 的 golden 31 项全部通过；`cargo clippy -p msime-engine --locked --all-targets -- -D warnings` 无告警；`cargo fmt --check` 通过。
-- Android：把 `msime-engine` 的 lib 单测交叉编译成 `aarch64-linux-android`，在 Mac Studio 上的专用 AVD（API 28 的 `emulator-5566`、API 35 的 `emulator-5580`）里用 `adb shell` 跑 `user_dictionary::generation` 的 24 项，两台都全部通过，包括并发、遗留暂存目录和改修改时间的清理测试。做法与 `run-core-test.sh` 相同，只是加了过滤、用了单独的设备目录。`build-core-test.sh` 只编 client-base、client-core、client-providers 和 client-services，碰不到引擎，没有跑；装 APK 走真实首启准备的 `smoke.sh --core` 也没有跑，这次的改动没有在应用沙盒里的首启流程中验证过。
+- n-gram 表：`concurrent_preparations_add_a_newly_shipped_table_once`（代次就绪后资源新增一张 8 MB 的表，8 个线程同时准备同一个代次）在改动前的代码上连续 5 次都以 `No such file or directory (os error 2)` 失败；修复后全部成功、就位的表与资源逐字节一致、代次里没有残留的 `.incoming`，连续 20 次通过。`table_copies_left_by_a_killed_preparation_do_not_block_and_are_swept_later` 留下旧固定名和新名字两个半截副本：补表照常成功、刚写过的副本保留，注入一小时后的时间再清理时只删这两个，名字对不上的文件、同名目录和代次本身的文件不动；Unix 测试里改了修改时间的副本在下一次准备时被删。
+- 在 Mac Studio 上：`cargo test -p msime-engine --locked --lib` 2678 项、`--tests` 的 golden 31 项全部通过；`cargo clippy -p msime-engine --locked --all-targets -- -D warnings` 无告警；`cargo fmt --check` 通过。
+- Android：把 `msime-engine` 的 lib 单测交叉编译成 `aarch64-linux-android`，在 Mac Studio 上的专用 AVD（API 28 的 `emulator-5566`、API 35 的 `emulator-5580`）里用 `adb shell` 跑 `user_dictionary::generation` 的 26 项（包括 n-gram 的并发与清理测试），两台都全部通过，包括并发、遗留暂存目录和改修改时间的清理测试。做法与 `run-core-test.sh` 相同，只是加了过滤、用了单独的设备目录。`build-core-test.sh` 只编 client-base、client-core、client-providers 和 client-services，碰不到引擎，没有跑；装 APK 走真实首启准备的 `smoke.sh --core` 也没有跑，这次的改动没有在应用沙盒里的首启流程中验证过。
 - `bash scripts/verify-local.sh --quick` 通过，其中 `android host java` 一项编译并运行了改过的 `PreparationFailureSmoke`。
