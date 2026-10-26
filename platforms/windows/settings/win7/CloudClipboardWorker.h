@@ -27,8 +27,13 @@ inline Json run_cloud_clipboard(const Json& envelope, const std::string& prefere
   }
   const auto unchanged = [&] { return theme_data::value(read_source()) == source; };
   completion["source"] = source->at("source"); completion["revision"] = source->at("revision");
+  // 中继和 WebDAV 网盘都报 source relay，另带 backend；窗口绑定这三项，比较时不看来源回答里多出来的其他字段。
+  Json identity{{"source", source->at("source")}, {"revision", source->at("revision")}};
+  if (source->contains("backend") && source->at("backend").is_string()) {
+    completion["backend"] = source->at("backend"); identity["backend"] = source->at("backend");
+  }
   const auto operation = envelope.at("action").value("operation", std::string{});
-  if ((envelope.contains("binding") && envelope.at("binding") != *source) ||
+  if ((envelope.contains("binding") && envelope.at("binding") != identity) ||
       (!envelope.contains("binding") && operation != "list")) {
     completion["response"] = failure("clipboard_source_changed"); return completion;
   }

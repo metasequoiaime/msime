@@ -178,6 +178,8 @@ public:
       failed("cloud_clipboard_refresh_failed"); return;
     }
     binding_ = Json{{"source", completion.at("source")}, {"revision", completion.at("revision")}};
+    // 中继和网盘都报 source relay，绑定带上 backend，worker 才能认出换了后端。
+    if (completion.contains("backend")) (*binding_)["backend"] = completion.at("backend");
     remote_enabled_ = page->at("enabled").get<bool>();
     ready_ = page->at("e2e").at("status") == "ready" && status->at("status") == "ready" && remote_enabled_;
     status_ready_ = true; retention_ = page->at("retention_days").get<int>();
