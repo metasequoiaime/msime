@@ -703,6 +703,10 @@ static NSEvent *LayoutKey(unsigned short code, NSString *characters, NSEventModi
     return WithLayoutCharacters([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code], characters);
 }
 
+static NSEvent *LayoutRepeatKey(unsigned short code, NSString *characters, NSEventModifierFlags flags) {
+    return WithLayoutCharacters([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:YES keyCode:code], characters);
+}
+
 // 字母快捷键按当前键盘布局在这个键上打出的字母认键（#5552）。
 static void TestShortcutLetterFollowsKeyboardLayout(void) {
     for (unsigned short code = 0; code < 128; ++code) {
@@ -10196,6 +10200,10 @@ static void TestEnglishOnlineCandidatesThroughRealSession() {
                 assert(([session updatePreferencesSnapshot:@{@"format_version": @1, @"revision": @1, @"preferences": preferences} error:&error] && !error));
                 [controller applySharedToolbarPreferences:preferences];
                 assert([[controller valueForKey:@"managedEnglishComposition"] boolValue]);
+                assert([controller handleEvent:LayoutKey(7, @"x", 0) client:client]);
+                assert([client.document isEqualToString:@""] && [client.marked isEqualToString:@"x"]);
+                assert(![controller handleEvent:LayoutRepeatKey(7, @"x", 0) client:client]);
+                assert([client.document isEqualToString:@"x"] && client.marked.length == 0);
             } else if (entry == 1) {
                 [controller setDedicatedEnglishInputMode:YES];
             } else {

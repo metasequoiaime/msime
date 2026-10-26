@@ -7563,6 +7563,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         const NSEventModifierFlags shortcuts = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand;
         const BOOL shortcut = (event.modifierFlags & shortcuts) != 0;
         const unichar character = event.characters.length == 1 ? [event.characters characterAtIndex:0] : 0;
+        const BOOL asciiLetter = (character >= 'a' && character <= 'z') ||
+            (character >= 'A' && character <= 'Z');
+        // 重复字母按键是 macOS 长按变音符号菜单的起点。先把托管的原始字母上屏，
+        // 再把重复事件交回 Cocoa；单次按键和带竞争修饰键的快捷键仍由输入法处理。
+        if (event.isARepeat && !(event.modifierFlags & shortcuts) && asciiLetter) {
+            if (![self commitManagedEnglishRaw]) return YES;
+            return NO;
+        }
         const BOOL candidateDigit = _panel.isVisible && character >= '1' && character <= '9' &&
             (NSUInteger)(character - '1') < [_view[@"candidates"] count];
         const BOOL printableOther = !candidateDigit && character >= 0x20 && character < 0x7f &&
