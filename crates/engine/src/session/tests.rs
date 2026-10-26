@@ -12764,6 +12764,19 @@ fn set_punctuation_marks_applies_live_without_resetting_alternation() {
     assert_eq!(session.punctuation(b'[').commit.as_deref(), Some("【"));
 }
 
+#[test]
+fn idle_backspace_undoes_a_deleted_quote_but_not_an_older_one() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("“"));
+    assert!(!session.command(Command::Backspace).handled);
+    assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("“"));
+
+    assert_eq!(session.punctuation(b':').commit.as_deref(), Some("："));
+    assert!(!session.command(Command::Backspace).handled);
+    assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("”"));
+}
+
 /// #7616：已经透传给宿主的大写串不会中途进入快捷模式；未启用的 Shift 入口则在同一拼音组字里继续。
 #[test]
 fn only_the_first_letter_of_an_uppercase_run_opens_a_shortcut() {

@@ -31,6 +31,10 @@ int main(int argc, char **argv) {
     const std::string root = argc > 1 ? argv[1] : "platforms/windows/tsf";
     const std::string handler = read(root + "/Key/KeyHandler.cpp");
     expect(handler, "_TryStepOverPairedPunctuation(ec, pContext,", true, "a typed closing half steps over the auto-completed one");
+    expect(read(root + "/Key/KeyEventSink.cpp"), "host->command(MSIME_BACKSPACE, &raw, &error)", true,
+           "idle Backspace lets the Server undo a deleted quote");
+    expect(read(root + "/Composition/Composition.cpp"), "host->command(MSIME_CANCEL, &raw, &error)", true,
+           "stepping over a pair clears the quote undo window");
     expect(handler, "BalanceNestPairAfterAutoClose(", true, "the auto-close balances the nest-pair count");
     expect(handler, "SendPairedPunctuationAutoClosedToServerViaNamedPipe(wch)", true, "the auto-close also balances the count in the Server's Engine");
     expect(handler, "_PushPairedPunctuation(", true, "the auto-close records the pair");

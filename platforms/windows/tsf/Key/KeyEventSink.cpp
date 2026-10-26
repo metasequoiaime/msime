@@ -3334,6 +3334,16 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
         return KeyDownDispatchResult::Complete;
     }
 
+    // 空闲退格通常交还应用，不会进入组字处理器；仍通知 Server 撤销刚刚删除的交替引号状态。保持未处理，实际文本删除仍由应用完成。
+    if (code == VK_BACK && !*pIsEaten && !_IsComposing() && _pCompositionProcessorEngine != nullptr)
+    {
+        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string raw, error;
+            (void)host->command(MSIME_BACKSPACE, &raw, &error);
+        }
+    }
+
     const bool resetPending = _localSessionResetPending.load(std::memory_order_acquire);
     if (resetPending)
     {
