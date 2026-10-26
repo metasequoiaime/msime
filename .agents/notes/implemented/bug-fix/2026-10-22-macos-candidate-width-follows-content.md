@@ -10,6 +10,8 @@ Issue #9198 报告 macOS 0.54.2 beta 中，向后翻页后即使候选变短，�
 
 macOS 普通候选窗只按当前页候选和首行内容计算宽度，不再将历史最大宽度传入 `candidatePageGeometry:`。删除控制器中的横排宽度记忆及外观、皮肤变化时的重置分支。皮肤和装饰的最小宽度、屏幕边界、紧凑展开键以及竖排定位高度记忆保持不变。
 
+横排的最小宽度与显示数量后续由[横向数量模式](../feature/2026-10-25-macos-adaptive-candidate-count.md)部分取代；本篇“不保留历史最大宽度”的决定继续成立，竖排不变。
+
 这项决定取代[先前笔记](2026-10-20-macos-steady-candidate-width.md)中 macOS 的只增不减策略。旧笔记关于减少抖动的动机仍有参考价值，但不能以禁止窗口收窄实现。共享 `WidestCandidateWidth` 及 Linux 调用不变；[Linux 原生画布决定](../architecture/2026-10-21-linux-x11-native-candidate-default.md)不属于本次平台回归修复范围。
 
 检索到的两篇相关活跃笔记均保留：macOS 旧决定由本篇部分取代并互链；Linux 原生画布笔记仅共享工具函数，不改变其行为。

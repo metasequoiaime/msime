@@ -44,6 +44,9 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (std::optional<bool>)fixedThemeMode;
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
+@property(nonatomic, readonly) BOOL adaptiveCandidateCount;
+@property(nonatomic, readonly) CGFloat candidateMaxWidth;
+@property(nonatomic, readonly) NSUInteger candidateColumns;
 @property(nonatomic) BOOL candidateFollowCursor;
 /// Show the short non-activating Chinese/English mode badge near the caret.
 @property(nonatomic) BOOL inputModeHUD;

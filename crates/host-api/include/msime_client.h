@@ -942,6 +942,11 @@ char *msime_client_select_edge(uint64_t session, uint64_t generation, size_t ind
 /* On-demand {session,generation,preedit,candidates:[Candidate...]}. Unlike View,
  * candidates contains the complete cached Engine generation with global IDs. */
 char *msime_client_all_candidates(uint64_t session);
+/* 宿主按自己的排版显示了与固定分页不同的一组候选（macOS 横排按宽度自适应）时，报出这一代里这些候选的全局序号
+ * （来自 all_candidates 的 id.index，<=256 个）。二三候选键、五笔自定义选词键和翻译查询都按看得见的这一组；
+ * count 为 0 时清掉。只对 generation 这一代有效，组字推进后自动失效。
+ * Value {"applied": bool}：代次过期或序号越界时为 false，原有显示页不变。 */
+char *msime_client_set_display_page(uint64_t session, uint64_t generation, const size_t *indices, size_t count);
 /* Return read-only English completions for a bounded ASCII prefix. */
 char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
                                        size_t prefix_length, size_t limit);

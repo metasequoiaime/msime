@@ -1184,6 +1184,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id _sharedCandidatePadding;
     /// 共享文档的 `candidate_window_fit_content`：用户要求候选窗严格按文字宽度收紧；与皮肤 `fit_content` 是或关系。
     NSNumber *_sharedCandidateFitContent;
+    NSString *_sharedCandidateCountMode;
+    NSNumber *_sharedCandidateMaxWidth;
+    NSNumber *_sharedCandidateColumns;
     NSDictionary<NSString *, id> *_sharedCandidateGeometry;
     NSSlider *_candidateScaleSlider;
     NSTextField *_candidateScaleLabel;
@@ -3104,6 +3107,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (BOOL)candidateWindowFitContent {
     return [_sharedCandidateFitContent boolValue];
 }
+- (BOOL)adaptiveCandidateCount {
+    return !self.vertical && [_sharedCandidateCountMode isEqual:@"adaptive"];
+}
+- (CGFloat)candidateMaxWidth { return _sharedCandidateMaxWidth ? _sharedCandidateMaxWidth.doubleValue : 420; }
+- (NSUInteger)candidateColumns { return _sharedCandidateColumns ? _sharedCandidateColumns.unsignedIntegerValue : 6; }
 - (msime::mac::CandidateWindowStyle)candidateWindowStyle {
     msime::mac::CandidateWindowStyle style;
     style.scale = self.candidateScalePercent / 100.0;
@@ -3267,6 +3275,12 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     }
     id layout = preferences[@"candidate_layout"];
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
+    id countMode = preferences[@"candidate_count_mode"];
+    _sharedCandidateCountMode = [@[@"fixed", @"adaptive"] containsObject:countMode] ? countMode : nil;
+    id maxWidth = preferences[@"candidate_max_width"];
+    _sharedCandidateMaxWidth = ValidCandidateStyleInteger(maxWidth, 160, 1200) ? maxWidth : nil;
+    id columns = preferences[@"candidate_columns"];
+    _sharedCandidateColumns = ValidCandidateStyleInteger(columns, 1, 10) ? columns : nil;
     id followCursor = preferences[@"candidate_follow_cursor"];
     if (LocalModeBoolean(followCursor)) _sharedCandidateFollowCursor = followCursor;
     id inputModeHUD = preferences[@"input_mode_hud"];

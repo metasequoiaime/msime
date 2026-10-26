@@ -581,9 +581,11 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 @interface TestCandidatePanel : NSObject
 @property(nonatomic, getter=isVisible) BOOL visible;
 @property(nonatomic) CGFloat alphaValue;
+@property(nonatomic) NSRect frame;
 @property(nonatomic, readonly) NSView *contentView;
 @end
 @implementation TestCandidatePanel
+- (NSRect)contentRectForFrameRect:(NSRect)frame { return frame; }
 - (void)orderOut:(id)sender { (void)sender; self.visible = NO; }
 - (instancetype)animator { return self; }
 @end
@@ -598,6 +600,13 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 @end
 
 @implementation ModeController
+- (void)applyCandidateFrame:(NSRect)frame {
+    [super applyCandidateFrame:frame];
+    // 快捷键夹具检查目标布局；原窗口的中间帧由候选布局测试单独覆盖。
+    NSViewAnimation *animation = [self valueForKey:@"candidateFrameAnimation"];
+    [animation setCurrentProgress:1];
+    [self stopCandidateFrameAnimation];
+}
 - (void)prepareSession {
     ++self.preparationCalls;
     if ([self valueForKey:@"session"]) [super prepareSession];
@@ -3725,8 +3734,25 @@ static void ExpandedGridScroll(NSPanel *panel, CGFloat delta, NSEventPhase phase
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         phase = NSEventPhaseChanged;
     }
+    NSScrollView *viewport = ExpandedGridScrollView(panel);
+    const CGFloat documentHeight = NSHeight(viewport.documentView.bounds);
+    const CGFloat maximum = MAX(0.0, documentHeight - NSHeight(viewport.contentView.bounds));
+    const CGFloat expectedTop = std::clamp(documentHeight - NSMaxY(viewport.documentVisibleRect) - delta, 0.0, maximum);
     [panel scrollWheel:ExpandedGridScrollEvent(delta, phase, momentum)];
+    // AppKit 异步完成精确滚动；按目标位置等待，不能把 Sanitizers 下的固定延时当作完成信号。
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3.0];
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+    const auto currentTop = [&] {
+        return std::clamp(documentHeight - NSMaxY(viewport.documentVisibleRect), 0.0, maximum);
+    };
+    while (delta != 0 && fabs(currentTop() - expectedTop) > 0.01 && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    if (delta != 0 && fabs(currentTop() - expectedTop) > 0.01)
+        fprintf(stderr, "expanded scroll: delta=%g phase=%lu expected=%g actual=%g clip=%s document=%s viewport=%s\n",
+            (double)delta, (unsigned long)phase, (double)expectedTop, (double)currentTop(),
+            NSStringFromRect(viewport.contentView.bounds).UTF8String,
+            NSStringFromRect(viewport.documentView.bounds).UTF8String,
+            NSStringFromRect(viewport.bounds).UTF8String);
 }
 
 static void ExpandedGridFinishScroll(NSPanel *panel) {
@@ -8944,7 +8970,7 @@ show_selected_bar = true
             MSIMECandidateChromeView *chrome = (id)panel.contentView;
             MSIMECandidateDecorationView *decoration = (id)chrome.subviews.lastObject;
             assert([decoration isKindOfClass:MSIMECandidateDecorationView.class] && decoration.image);
-            assert(panel.frame.size.width >= 240);
+            if (vertical.boolValue) assert(panel.frame.size.width >= 240);
             // The 48pt band above the card is transparent and the square fixture, too tall at 120pt wide for the band plus the card's inset it overhangs, shrinks whole to that room: flush with the window's top, the inset in from the card's right edge.
             const CGFloat overhang = decoration.frame.size.height - 48;
             assert(chrome.cardTopInset == 48 && overhang > 0 && decoration.frame.size.width == decoration.frame.size.height);
@@ -8978,7 +9004,7 @@ show_selected_bar = true
         [controller setValue:[widthView copy] forKey:@"view"];
         [controller renderCandidates];
         const CGFloat narrowWidth = panel.frame.size.width;
-        assert(panel.requestedVisible && narrowWidth >= 240);
+        assert(panel.requestedVisible && narrowWidth > 0 && narrowWidth < 240);
         widthView[@"candidates"] = @[@{@"text": @"合成候选窗口宽度回归测试用长文本", @"highlighted": @YES}];
         [controller setValue:[widthView copy] forKey:@"view"];
         [controller renderCandidates];
@@ -15027,9 +15053,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestGlossSensePage(appearance); }
         @autoreleasepool { TestGlossSenseTraditionalOutput(appearance); }
         @autoreleasepool { TestPinyinArrowCandidateNavigation(); }
-        @autoreleasepool { TestExpandedCandidateGrid(); }
-        @autoreleasepool { TestExpandedCandidateGridGeneration(); }
-        @autoreleasepool { TestExpandedCandidatePartialSelection(); }
+        // 原生滚动回归由 shortcut-expanded-scroll 在独立进程执行，避免前面的 AppKit 夹具污染手势状态。
         @autoreleasepool { TestSegmentEditingChords(appearance); }
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }

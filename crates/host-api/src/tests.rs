@@ -4394,6 +4394,97 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 宿主按宽度排出的一行跨过固定页：报出显示页后，`;` 选的是这一行的第二个，翻译查询列的也是这一行。
+#[test]
+fn display_page_routes_second_third_shortcut_and_translation_query_through_the_abi() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    let dictionaries = path("dictionaries");
+    let mut fixture =
+        String::from("CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);");
+    for (index, word) in [
+        "测甲", "测乙", "测丙", "测丁", "测戊", "测己", "测庚", "测辛", "测壬", "测癸",
+    ]
+    .iter()
+    .enumerate()
+    {
+        fixture.push_str(&format!(
+            "INSERT INTO tbl_2_c VALUES('ce''shi','cs','{word}',{});",
+            1000 - index * 10
+        ));
+    }
+    fixture.push_str(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+         CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+         CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);",
+    );
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(&fixture)
+            .unwrap();
+    }
+    bundle_wubi_table(&resources);
+    let preferences = Preferences {
+        candidate_page_size: 3,
+        learning: false,
+        // 翻译查询只在释义或翻译开着时列候选；离线英文释义不出本机。
+        candidate_english_gloss: true,
+        second_third_candidate: msime_client_core::preferences::SecondThirdCandidatePreferences {
+            enabled: true,
+            ..Default::default()
+        },
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    for byte in *b"ceshi" {
+        read(msime_client_character(handle, byte, false));
+    }
+    let complete = read(msime_client_all_candidates(handle));
+    let generation = complete["value"]["generation"].as_u64().unwrap();
+    let candidates = complete["value"]["candidates"].as_array().unwrap();
+    let index = |text: &str| {
+        candidates
+            .iter()
+            .find(|candidate| candidate["text"] == text)
+            .unwrap_or_else(|| panic!("missing synthetic candidate {text}"))["id"]["index"]
+            .as_u64()
+            .unwrap() as usize
+    };
+    // 固定页每页 3 个；显示的一行是第二页末尾到第三页开头的 测丁 测戊 测己 测庚。
+    let shown = ["测丁", "测戊", "测己", "测庚"].map(index);
+    let set = |generation: u64, seats: &[usize]| {
+        read(unsafe {
+            msime_client_set_display_page(handle, generation, seats.as_ptr(), seats.len())
+        })
+    };
+    assert_eq!(set(generation + 1, &shown)["value"]["applied"], false);
+    assert_eq!(
+        set(generation, &[candidates.len()])["value"]["applied"],
+        false
+    );
+    assert_eq!(set(generation, &shown)["value"]["applied"], true);
+    let query = read(msime_client_translation_query(handle));
+    let texts: Vec<_> = query["value"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|candidate| candidate["text"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(texts, ["测丁", "测戊", "测己", "测庚"]);
+    let selected = read(msime_client_character(handle, b';', false));
+    assert_eq!(selected["value"]["commit"], "测戊");
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 #[test]
 fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
     let dir = tempfile::tempdir().unwrap();

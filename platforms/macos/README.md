@@ -6,6 +6,18 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 本目录提供可复现的 IMK bundle、Rust/C++ 构建和离屏/替身测试，安装与注册核查由 `scripts/install.sh` 和 `scripts/check_input_source.swift` 完成。
 
+## 横向候选数量模式
+
+设置的「候选窗口 → 布局」中，横向排列提供「候选词数量模式」：
+
+- **固定数量**（默认）：沿用 `candidate_page_size`，窗口按当前内容及必要的控件宽度收紧，不保留历史最大宽度，也不填充皮肤的横向最小宽度。
+- **自动适应**：`candidate_max_width` 默认 420pt（160–1200pt），一行按实际文字宽度尽可能容纳候选，超出的候选通过翻页或展开查看；分页按需测量到当前页为止，因此首行只显示 ‹ › 翻页箭头、不显示总页数；整份候选不足一行时收紧。整体缩放改变文字与留白，不放大这条最大宽度。
+- 自动适应时，「每页候选项数量」替换为「每行候选词列数」，保存到独立的 `candidate_columns`，默认 6（1–10）。展开按等宽列分配，长词向上取整占多列；网格同样按需排版，展开时立刻排 20 行，往下走或滚动时接着排，因此不显示「第几行 / 共几行」；滚动条按已排部分显示，追加行后滑块会变短。数字键选择当前行的前十项（第十项用 0）；`;` `'` 二三候选键和五笔自定义选词键同样按当前这一行，宿主经 `msime_client_set_display_page` 把这一行告诉 runtime，翻译查询也按这一行。
+
+纵向排列不显示数量模式，继续使用原有每页数量、宽度下限和布局。其他宿主不使用这三个新字段。滚动条留白仅在展开网格内保留，未展开的单行只为实际显示的按钮与内边距预留空间。只有展开/收起时，原候选窗口的尺寸和位置在 200ms 内变化，候选内容保持顶部对齐，不使用截图或覆盖窗口。普通输入更新、展开后的选行、滚动和重排不播放布局动画。输入状态和目标布局同步更新；系统启用「减弱动态效果」时不播放。
+
+原生回归验证：构建 `candidate-row-layout-test` 后运行 `ctest --test-dir target/macos-isolated -R '^candidate-adaptive-layout$' --output-on-failure`。
+
 ## 安装与输入源注册
 
 **`install.sh` 装的是 bundle，不准备词库，装完直接打字是打不出中文的。** 输入会话由 `InputController.mm` 的 `prepareSession` 用 `MSIMELoadRuntimeOptions()` 建起来，而 `RuntimeOptions.h` 的查找顺序是 bundle 内的 `Resources/runtime-options.json`、再退到 `~/Library/Application Support/app.msime.macos/runtime-options.json`。开发构建两处都没有——发布包里这一步由设置应用在首次启动时完成（内嵌 `EngineResources`，见《发布包》一节），构建产物里没有任何等价物。没有配置就没有会话，而没有会话的控制器把每个按键原样交给应用，看起来与用户自己切到英文一模一样。开发机上补齐这一步：

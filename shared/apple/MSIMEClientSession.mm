@@ -725,6 +725,16 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_all_candidates(_handle), error);
 }
+- (nullable NSDictionary *)setDisplayPageGeneration:(uint64_t)generation indices:(NSArray<NSNumber *> *)indices error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    if (indices.count > 256) { setError(error, @"显示页座位过多"); return nil; }
+    size_t seats[256];
+    for (NSUInteger slot = 0; slot < indices.count; ++slot) {
+        if (![indices[slot] isKindOfClass:NSNumber.class]) { setError(error, @"显示页座位格式错误"); return nil; }
+        seats[slot] = indices[slot].unsignedLongValue;
+    }
+    return decode(msime_client_set_display_page(_handle, generation, seats, indices.count), error);
+}
 - (nullable NSDictionary *)selectAnyCandidateGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_select_any_candidate(_handle, generation, index), error);

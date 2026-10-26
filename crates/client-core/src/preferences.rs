@@ -1442,6 +1442,13 @@ pub struct Preferences {
     #[serde(default)]
     pub single_character_only: bool,
     pub candidate_page_size: u8,
+    /// macOS 横排候选的数量模式；竖排和其他宿主保留原有分页。
+    #[serde(default)]
+    pub candidate_count_mode: CandidateCountMode,
+    #[serde(default = "default_candidate_max_width")]
+    pub candidate_max_width: u16,
+    #[serde(default = "default_candidate_columns")]
+    pub candidate_columns: u8,
     /// Linux IBus can release the number row to the application while a
     /// candidate list is visible. Other hosts preserve this preference even
     /// when their native candidate presenter does not expose the switch.
@@ -2220,6 +2227,22 @@ pub enum CandidateLayout {
     Horizontal,
     #[default]
     Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateCountMode {
+    #[default]
+    Fixed,
+    Adaptive,
+}
+
+fn default_candidate_max_width() -> u16 {
+    420
+}
+
+fn default_candidate_columns() -> u8 {
+    6
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -3376,6 +3399,9 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             candidate_window_fit_content: false,
+            candidate_count_mode: CandidateCountMode::default(),
+            candidate_max_width: default_candidate_max_width(),
+            candidate_columns: default_candidate_columns(),
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
             app_input_mode_rules: BTreeMap::new(),
@@ -4299,6 +4325,11 @@ impl Preferences {
         if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
+        if !(160..=1200).contains(&self.candidate_max_width)
+            || !(1..=10).contains(&self.candidate_columns)
+        {
+            return Err(PreferencesError::InvalidAdaptiveCandidateLayout);
+        }
         if !self.android_text_trackpad.validate() {
             return Err(PreferencesError::InvalidTextTrackpad);
         }
@@ -4467,6 +4498,8 @@ pub enum PreferencesError {
     InvalidNiuTrans,
     #[error("candidate page size must be between 1 and 10")]
     InvalidPageSize,
+    #[error("候选词框最大宽度须为 160–1200pt，每行候选词列数须为 1–10")]
+    InvalidAdaptiveCandidateLayout,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
     #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]

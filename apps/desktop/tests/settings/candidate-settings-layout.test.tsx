@@ -20,7 +20,10 @@ const initial: Snapshot = {
   },
 };
 
-async function renderAppearance(preferences: Snapshot["preferences"] = initial.preferences) {
+async function renderAppearance(
+  preferences: Snapshot["preferences"] = initial.preferences,
+  platform: "macos" | "linux" = "macos",
+) {
   const loaded = { ...initial, preferences };
   const save = vi.fn().mockImplementation(async (revision, saved) => ({
     ...loaded,
@@ -34,7 +37,7 @@ async function renderAppearance(preferences: Snapshot["preferences"] = initial.p
         load: async () => loaded,
         save,
         host: testHost({
-          platform: "macos",
+          platform,
           candidate_font_controls: true,
           candidate_page_number: true,
           candidate_follow_cursor: true,
@@ -99,6 +102,58 @@ test("顶部四标签按功能分组，只显示当前分区，共用预览位�
   }
   expect(save).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "皮肤、颜色与明暗" })).toBeNull();
+});
+
+test("横向数量模式按顺序显示，自动适应独立保存宽度与列数，纵向保持每页数量", async () => {
+  const save = await renderAppearance({ ...initial.preferences, candidate_layout: "horizontal" });
+  const panel = screen.getByRole("tabpanel", { name: "布局" });
+  expect(rowTitles(panel).slice(0, 3)).toEqual([
+    "候选项排列方式",
+    "候选词数量模式",
+    "每页候选项数量",
+  ]);
+  fireEvent.click(screen.getByRole("radio", { name: "自动适应" }));
+  expect(rowTitles(panel).slice(0, 4)).toEqual([
+    "候选项排列方式",
+    "候选词数量模式",
+    "候选词框最大宽度",
+    "每行候选词列数",
+  ]);
+  const width = screen.getByRole("slider", { name: "候选词框最大宽度" });
+  expect(width).toHaveProperty("value", "420");
+  expect(screen.getByRole("slider", { name: "每行候选词列数" })).toHaveProperty("value", "6");
+  fireEvent.change(width, { target: { value: "500" } });
+  fireEvent.change(screen.getByRole("slider", { name: "每行候选词列数" }), {
+    target: { value: "8" },
+  });
+  await saveSettingsNow();
+  expect(save.mock.calls.at(-1)?.[1]).toMatchObject({
+    candidate_count_mode: "adaptive",
+    candidate_max_width: 500,
+    candidate_columns: 8,
+    candidate_page_size: 5,
+  });
+  fireEvent.click(screen.getByRole("radio", { name: "纵向" }));
+  expect(screen.queryByRole("radio", { name: "自动适应" })).toBeNull();
+  expect(screen.queryByRole("slider", { name: "候选词框最大宽度" })).toBeNull();
+  expect(screen.getByRole("slider", { name: "每页候选项数量" })).toHaveProperty("value", "5");
+  fireEvent.click(screen.getByRole("radio", { name: "横向" }));
+  expect(screen.getByRole("slider", { name: "每行候选词列数" })).toHaveProperty("value", "8");
+  fireEvent.click(screen.getByRole("radio", { name: "固定数量" }));
+  expect(screen.getByRole("slider", { name: "每页候选项数量" })).toHaveProperty("value", "5");
+  expect(screen.queryByRole("slider", { name: "候选词框最大宽度" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "窗口样式" }));
+  expect(screen.queryByRole("switch", { name: "收紧窗口宽度" })).toBeNull();
+});
+
+test("其他宿主不显示 macOS 数量模式，也不使用保存的自动适应值", async () => {
+  await renderAppearance(
+    { ...initial.preferences, candidate_layout: "horizontal", candidate_count_mode: "adaptive" },
+    "linux",
+  );
+  expect(screen.queryByRole("radio", { name: "自动适应" })).toBeNull();
+  expect(screen.queryByRole("slider", { name: "候选词框最大宽度" })).toBeNull();
+  expect(screen.getByRole("slider", { name: "每页候选项数量" })).toHaveProperty("value", "5");
 });
 
 test("候选徽标只随 macOS 出现，改动写进同一草稿并保存", async () => {

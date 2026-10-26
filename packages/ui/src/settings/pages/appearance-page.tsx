@@ -26,6 +26,8 @@ import {
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { CandidateFontSettingsRows } from "../candidate-font-settings-rows";
 import { CandidateBadgeSettingsSection } from "../candidate-badge-settings-section";
+import { SegmentedRow } from "../segmented-row";
+import { SliderRow } from "../slider-row";
 
 /** 候选窗口按功能分区，共用预览；手机保留直列和折叠区。 */
 export function AppearanceSettingsPage() {
@@ -82,6 +84,8 @@ export function AppearanceSettingsPage() {
   // 桌面预览随当前样例伸缩；手机保留原有的最高排布占位。
   const layoutFixed = host?.fixed_candidate_layout !== undefined;
   const pageSizeFixed = host?.fixed_candidate_page_size !== undefined;
+  const horizontalCountMode = host?.platform === "macos" && draft.candidate_layout === "horizontal";
+  const adaptive = horizontalCountMode && draft.candidate_count_mode === "adaptive";
   const previewReserve =
     !mobilePlatform || (layoutFixed && pageSizeFixed)
       ? undefined
@@ -105,14 +109,54 @@ export function AppearanceSettingsPage() {
         fixed={layoutFixed}
         onChange={(candidate_layout) => appearanceActions.onPreferencesChange({ candidate_layout })}
       />
-      <CandidatePageSizeSection
-        value={draft.candidate_page_size}
-        fixed={pageSizeFixed}
-        max={host?.max_candidate_page_size}
-        onChange={(candidate_page_size) =>
-          appearanceActions.onPreferencesChange({ candidate_page_size })
-        }
-      />
+      {horizontalCountMode && (
+        <SegmentedRow
+          title="候选词数量模式"
+          value={draft.candidate_count_mode ?? "fixed"}
+          options={[
+            { value: "adaptive", label: "自动适应" },
+            { value: "fixed", label: "固定数量" },
+          ]}
+          onChange={(candidate_count_mode) =>
+            appearanceActions.onPreferencesChange({ candidate_count_mode })
+          }
+        />
+      )}
+      {adaptive ? (
+        <>
+          <SliderRow
+            title="候选词框最大宽度"
+            min={160}
+            max={1200}
+            step={10}
+            value={draft.candidate_max_width ?? 420}
+            displayValue={`${draft.candidate_max_width ?? 420}pt`}
+            onChange={(candidate_max_width) =>
+              appearanceActions.onPreferencesChange({ candidate_max_width })
+            }
+          />
+          <SliderRow
+            title="每行候选词列数"
+            ticks
+            min={1}
+            max={10}
+            value={draft.candidate_columns ?? 6}
+            displayValue={draft.candidate_columns ?? 6}
+            onChange={(candidate_columns) =>
+              appearanceActions.onPreferencesChange({ candidate_columns })
+            }
+          />
+        </>
+      ) : (
+        <CandidatePageSizeSection
+          value={draft.candidate_page_size}
+          fixed={pageSizeFixed}
+          max={host?.max_candidate_page_size}
+          onChange={(candidate_page_size) =>
+            appearanceActions.onPreferencesChange({ candidate_page_size })
+          }
+        />
+      )}
     </>
   );
   const fontControls = (
@@ -221,7 +265,7 @@ export function AppearanceSettingsPage() {
         showCornerRadius={showCandidateCornerRadius}
         showPadding={showCandidatePadding}
         showItemGeometry={showCandidateItemGeometry}
-        showFitContent={host?.platform === "macos"}
+        showFitContent={host?.platform === "macos" && draft.candidate_layout !== "horizontal"}
         onChange={appearanceActions.onPreferencesChange}
       />
       {/* 候选徽标只有 macOS 宿主消费；其它平台画出来会是个不起作用的开关。 */}

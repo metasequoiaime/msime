@@ -899,6 +899,38 @@ pub extern "C" fn msime_client_all_candidates(handle: u64) -> *mut c_char {
     })
 }
 
+/// 一页最多报这么多座位；按宽度排的一行再宽也到不了。
+const MAX_DISPLAY_PAGE_SEATS: usize = 256;
+
+/// 宿主按自己的排版显示了与固定分页不同的一组候选（macOS 横排按宽度自适应）时，报出这一代里这些候选的序号：
+/// 二三候选键、五笔自定义选词键和翻译查询都按看得见的这一组，空列表清掉。只对 `generation` 这一代有效，
+/// 组字推进后自动失效。值为 `{"applied": bool}`：代次过期或序号越界时为假，原有显示页不变。
+///
+/// # Safety
+/// `indices` must point to `count` readable `size_t` values unless `count` is zero. The buffer is not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_set_display_page(
+    handle: u64,
+    generation: u64,
+    indices: *const usize,
+    count: usize,
+) -> *mut c_char {
+    response(|| {
+        if count > MAX_DISPLAY_PAGE_SEATS || (count > 0 && indices.is_null()) {
+            return Err("invalid display page".into());
+        }
+        let seats = if count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: the caller guarantees `count` readable values behind a non-null pointer.
+            unsafe { std::slice::from_raw_parts(indices, count) }.to_vec()
+        };
+        with_session(handle, |session| {
+            Ok(json!({"applied": session.runtime.set_display_page(generation, seats)}))
+        })
+    })
+}
+
 /// Return bounded, lower-case English completions for the word immediately before the cursor.
 /// This query is read-only and does not touch the Engine session's composition state.
 ///

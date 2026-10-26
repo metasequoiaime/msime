@@ -13,6 +13,9 @@ export type CandidateFontPreferences = {
 
 /** 候选窗口样式；范围由 `client-core` 的 `Preferences::validate` 校验。 */
 export type CandidateWindowStylePreferences = {
+  candidate_count_mode?: "fixed" | "adaptive";
+  candidate_max_width?: number;
+  candidate_columns?: number;
   /** 整窗缩放百分比（50–200，缺省为 100），同时缩放字号与几何尺寸；核心不写入默认值。 */
   candidate_scale_percent?: number;
   /** 卡片填充、边框和皮肤背景的不透明度（50–100，缺省为 100），文字和焦点高亮保持不透明。 */

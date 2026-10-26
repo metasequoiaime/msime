@@ -35,6 +35,18 @@ int main() {
         expectString(prefs.fontFamily, @"Noto Sans SC", "候选主字体回退");
         expectUnsigned(prefs.preeditFontSize, 15, "预编辑字号回退");
         expectUnsigned(prefs.translationFontSize, 12, "译文字号回退");
+        expectUnsigned(prefs.adaptiveCandidateCount, NO, "数量模式缺省固定");
+        expectUnsigned(prefs.candidateMaxWidth, 420, "自适应最大宽度");
+        expectUnsigned(prefs.candidateColumns, 6, "自适应列数");
+        [prefs applySharedCandidatePreferences:@{@"candidate_layout": @"horizontal", @"candidate_count_mode": @"adaptive",
+            @"candidate_max_width": @500, @"candidate_columns": @8}];
+        expectUnsigned(prefs.adaptiveCandidateCount, YES, "横向自适应");
+        expectUnsigned(prefs.candidateMaxWidth, 500, "读取宽度");
+        expectUnsigned(prefs.candidateColumns, 8, "读取列数");
+        [prefs applySharedCandidatePreferences:@{@"candidate_layout": @"vertical", @"candidate_count_mode": @"adaptive"}];
+        expectUnsigned(prefs.adaptiveCandidateCount, NO, "纵向不启用自适应");
+        expectUnsigned(prefs.candidateMaxWidth, 420, "省略恢复宽度");
+        expectUnsigned(prefs.candidateColumns, 6, "省略恢复列数");
         for (NSNumber *size in @[@12, @21, @32]) {
             [prefs applySharedCandidatePreferences:@{@"candidate_translation_font_size": size}];
             expectUnsigned(prefs.translationFontSize, size.unsignedIntegerValue, "共享译文字号");

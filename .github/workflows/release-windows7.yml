@@ -121,7 +121,7 @@ jobs:
           $arch = '${{ matrix.architecture }}'
           $stage = Join-Path $PWD 'target/windows7-runtime-artifact'
           $core = Join-Path $stage "windows7-core/$arch"
-          $voice = Join-Path $stage "windows7-voice/$arch"
+          $voice = Join-Path $stage "windows7-voice/$arch/bin"
           New-Item -ItemType Directory -Force -Path $core, $voice | Out-Null
           Copy-Item -Path (Join-Path $PWD "target/windows7-core/$arch/*") -Destination $core -Recurse -Force
           Copy-Item -Path (Join-Path $PWD "target/windows7-voice/$arch/bin/*") -Destination $voice -Recurse -Force

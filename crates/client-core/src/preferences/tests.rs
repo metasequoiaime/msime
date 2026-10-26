@@ -5,6 +5,50 @@
 use super::*;
 
 #[test]
+fn adaptive_candidate_settings_defaults_round_trip_and_validate() {
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    for key in [
+        "candidate_count_mode",
+        "candidate_max_width",
+        "candidate_columns",
+    ] {
+        value.as_object_mut().unwrap().remove(key);
+    }
+    let mut preferences: Preferences = serde_json::from_value(value).unwrap();
+    assert_eq!(preferences.candidate_count_mode, CandidateCountMode::Fixed);
+    assert_eq!(preferences.candidate_max_width, 420);
+    assert_eq!(preferences.candidate_columns, 6);
+    preferences.candidate_count_mode = CandidateCountMode::Adaptive;
+    preferences.candidate_max_width = 600;
+    preferences.candidate_columns = 8;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert_eq!(restored, preferences);
+    for width in [159, 1201] {
+        preferences.candidate_max_width = width;
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidAdaptiveCandidateLayout)
+        ));
+    }
+    preferences.candidate_max_width = 400;
+    for columns in [0, 11] {
+        preferences.candidate_columns = columns;
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidAdaptiveCandidateLayout)
+        ));
+    }
+    for width in [160, 1200] {
+        for columns in [1, 10] {
+            preferences.candidate_max_width = width;
+            preferences.candidate_columns = columns;
+            preferences.validate().unwrap();
+        }
+    }
+}
+
+#[test]
 fn multilingual_input_defaults_off_and_legacy_documents_remain_compatible() {
     let defaults = Preferences::default();
     assert!(!defaults.multilingual_input.enabled);

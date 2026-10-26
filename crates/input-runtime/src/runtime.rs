@@ -87,6 +87,9 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) page_size: usize,
     pub(crate) highlighted: usize,
     pub(crate) translations: HashMap<String, String>,
+    /// 宿主实际显示的一组候选（按宽度自适应排版的宿主，一行未必等于固定的一页）：设置时那一代和各座位的序号。
+    /// 只对那一代有效；没设置或已过期时，选词快捷键和翻译查询仍按高亮所在的固定页。
+    pub(crate) display_page: Option<(u64, Vec<usize>)>,
     pub(crate) cached: EngineSnapshot,
     /// The Engine's own index for each seat of `cached`.
     ///
@@ -830,9 +833,17 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused || self.cached.prediction {
             return action;
         }
+        // 宿主显示页上的座位可能不在固定页里，普通选择只认固定页，所以按全部候选选择（同样核对代次与范围）。
+        let shown = self.display_page_current();
         self.wubi_candidate_shortcut(&action)
             .or_else(|| self.second_third_candidate_shortcut(&action))
-            .map(Action::Select)
+            .map(|id| {
+                if shown {
+                    Action::SelectAnyCandidate(id)
+                } else {
+                    Action::Select(id)
+                }
+            })
             .unwrap_or(action)
     }
 
@@ -852,9 +863,51 @@ impl<E: InputEngine> Runtime<E> {
             _ => return None,
         };
         let slot = self.wubi_candidate_selection.slot(value)?;
+        self.page_seat_candidate(slot)
+    }
+
+    /// 宿主报出这一代实际显示的候选座位：选词快捷键与翻译查询都按看得见的这一组，空列表清掉。
+    /// 代次不是当前这一代或有座位越界时不改动，返回假。
+    pub fn set_display_page(&mut self, generation: u64, indices: Vec<usize>) -> bool {
+        if generation != self.generation {
+            return false;
+        }
+        if indices.is_empty() {
+            self.display_page = None;
+            return true;
+        }
+        let visible = self.visible_len();
+        if indices.iter().any(|&index| index >= visible) {
+            return false;
+        }
+        self.display_page = Some((generation, indices));
+        true
+    }
+
+    /// 宿主报的显示页是不是这一代的。
+    fn display_page_current(&self) -> bool {
+        self.display_page
+            .as_ref()
+            .is_some_and(|(generation, _)| *generation == self.generation)
+    }
+
+    /// 当前这一页的座位：宿主报了这一代的显示页就用它，否则是高亮所在的固定页。
+    fn page_seats(&self) -> Vec<usize> {
+        if let Some((_, indices)) = self
+            .display_page
+            .as_ref()
+            .filter(|_| self.display_page_current())
+        {
+            return indices.clone();
+        }
         let start = (self.highlighted / self.page_size) * self.page_size;
-        let index = start + slot;
-        (slot < self.page_size && index < self.visible_len()).then_some(CandidateId {
+        (start..self.visible_len().min(start + self.page_size)).collect()
+    }
+
+    /// 当前页第 `slot` 个座位上的候选；这一页没有这么多座位时为空，键照原路处理。
+    fn page_seat_candidate(&self, slot: usize) -> Option<CandidateId> {
+        let index = *self.page_seats().get(slot)?;
+        (index < self.visible_len()).then_some(CandidateId {
             session: self.session,
             generation: self.generation,
             index,
@@ -894,13 +947,7 @@ impl<E: InputEngine> Runtime<E> {
         {
             return None;
         }
-        let start = (self.highlighted / self.page_size) * self.page_size;
-        let index = start + slot;
-        (slot < self.page_size && index < self.visible_len()).then_some(CandidateId {
-            session: self.session,
-            generation: self.generation,
-            index,
-        })
+        self.page_seat_candidate(slot)
     }
 
     /// 左右键的候选导航（`navigation.left_right`）：不带修饰键的左右键在宿主那里是编辑输入串的光标命令，这里按高亮决定这一次按键是编辑还是移动候选，移动候选与 ↑/↓ 落在同一段代码上（[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
@@ -1037,6 +1084,7 @@ impl<E: InputEngine> Runtime<E> {
             page_size: page_size.into(),
             highlighted: 0,
             translations: HashMap::new(),
+            display_page: None,
             // The initial snapshot is already in Engine order. Keep the mapping empty until a
             // presentation reorder actually needs it; engine_index falls back to the seat while
             // the list remains untouched.
@@ -1493,25 +1541,25 @@ impl<E: InputEngine> Runtime<E> {
 
     /// Copy only the state and candidate fields needed to plan translation requests. This avoids
     /// constructing display-only codes, annotations, IDs and highlight flags on every key.
+    /// 候选取看得见的那一页：宿主报了显示页就按它，否则按高亮所在的固定页。
     pub fn translation_candidates(&self) -> Option<TranslationCandidates> {
-        let start = (self.highlighted / self.page_size) * self.page_size;
-        let page_len = self.visible_len().saturating_sub(start).min(self.page_size);
-        let mut candidates = Vec::with_capacity(page_len);
+        let seats = self.page_seats();
+        let visible = self.visible_len();
+        let mut candidates = Vec::with_capacity(seats.len());
         candidates.extend(
-            self.cached
-                .candidates
-                .iter()
-                .enumerate()
-                .skip(start)
-                .take(page_len)
-                .map(|(index, text)| TranslationCandidate {
-                    text: text.clone(),
-                    source: self
-                        .cached
-                        .candidate_sources
-                        .get(index)
-                        .copied()
-                        .unwrap_or_default(),
+            seats
+                .into_iter()
+                .filter(|&index| index < visible)
+                .filter_map(|index| {
+                    Some(TranslationCandidate {
+                        text: self.cached.candidates.get(index)?.clone(),
+                        source: self
+                            .cached
+                            .candidate_sources
+                            .get(index)
+                            .copied()
+                            .unwrap_or_default(),
+                    })
                 }),
         );
         (!candidates.is_empty()).then_some(TranslationCandidates {

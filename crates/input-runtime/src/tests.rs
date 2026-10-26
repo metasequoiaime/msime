@@ -1353,6 +1353,71 @@ fn second_third_candidate_shortcuts_select_current_page_on_all_character_routes(
 }
 
 #[test]
+fn display_page_moves_shortcuts_and_translation_query_to_the_shown_row() {
+    // 宿主按宽度排出的一行跨过固定页（每页 3 个）：显示的是 4–7，`;` `'` 选这一行的第二、三个。
+    for (key, slot) in [(b';', 1), (b'\'', 2)] {
+        let mut runtime = second_third_runtime(10);
+        let generation = runtime.view().generation;
+        assert!(runtime.set_display_page(generation, vec![4, 5, 6, 7]));
+        let texts: Vec<_> = runtime
+            .translation_candidates()
+            .unwrap()
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .collect();
+        assert_eq!(texts, ["合成候选4", "合成候选5", "合成候选6", "合成候选7"]);
+        let transition = runtime.dispatch(Action::PunctuationAscii(key)).unwrap();
+        assert_eq!(transition.commit, Some(format!("合成候选{}", 4 + slot)));
+    }
+    // 显示的一行只有一个候选：没有第二、三个，键照原来的标点路径走，不选固定页里看不见的候选。
+    for key in *b";'" {
+        let mut runtime = second_third_runtime(10);
+        let generation = runtime.view().generation;
+        assert!(runtime.set_display_page(generation, vec![8]));
+        let transition = runtime.dispatch(Action::PunctuationAscii(key)).unwrap();
+        assert!(transition
+            .commit
+            .as_deref()
+            .is_some_and(|text| text.ends_with(char::from(key))));
+    }
+}
+
+#[test]
+fn display_page_only_holds_for_its_own_generation() {
+    let mut runtime = second_third_runtime(10);
+    let generation = runtime.view().generation;
+    // 过期的一代、越界的座位都不接受，原有显示页保持不变。
+    assert!(!runtime.set_display_page(generation + 1, vec![4, 5]));
+    assert!(!runtime.set_display_page(generation, vec![4, 10]));
+    assert!(runtime.display_page.is_none());
+    assert!(runtime.set_display_page(generation, vec![4, 5, 6]));
+    // 空列表清掉，回到固定页。
+    assert!(runtime.set_display_page(generation, Vec::new()));
+    assert_eq!(
+        runtime.translation_candidates().unwrap().candidates.len(),
+        3
+    );
+    // 组字推进到新的一代后，旧的显示页不再起作用。
+    assert!(runtime.set_display_page(generation, vec![4, 5, 6]));
+    runtime
+        .dispatch(Action::Character {
+            value: b'a',
+            shift: false,
+        })
+        .unwrap();
+    assert_ne!(runtime.view().generation, generation);
+    let texts: Vec<_> = runtime
+        .translation_candidates()
+        .unwrap()
+        .candidates
+        .into_iter()
+        .map(|candidate| candidate.text)
+        .collect();
+    assert_eq!(texts, ["合成候选0", "合成候选1", "合成候选2"]);
+}
+
+#[test]
 fn second_third_candidate_shortcuts_keep_original_route_when_disabled_or_target_is_missing() {
     for count in [0, 1, 2, 3, 4] {
         for key in *b";'" {

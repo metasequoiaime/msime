@@ -63,6 +63,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary *)selectEdgeGeneration:(uint64_t)generation index:(NSUInteger)index edge:(uint8_t)edge error:(NSError **)error;
 /// 当前这一代的完整候选（`msime_client_all_candidates`）：{session, generation, preedit, candidates:[Candidate...]}，candidates 带全局 ID，不只是当前页。
 - (nullable NSDictionary *)allCandidatesWithError:(NSError **)error;
+/// 宿主按宽度排出的一行与固定分页不同时，报出这一代里显示的候选序号（`msime_client_set_display_page`，来自 allCandidatesWithError: 的 id.index，最多 256 个）：二三候选键、五笔自定义选词键和翻译查询按这一行；空数组清掉。返回 {applied}。
+- (nullable NSDictionary *)setDisplayPageGeneration:(uint64_t)generation indices:(NSArray<NSNumber *> *)indices error:(NSError **)error;
 /// 选 allCandidatesWithError: 复制出来的任意一项（`msime_client_select_any_candidate`）；generation 必须是那次复制时的一代，过期时由 Engine 拒绝。
 - (nullable NSDictionary *)selectAnyCandidateGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary *)pinGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;

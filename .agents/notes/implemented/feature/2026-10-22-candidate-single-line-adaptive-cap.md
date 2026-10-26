@@ -10,6 +10,8 @@ Status: implemented
 
 不新增偏好字段。三个桌面宿主共用同一条逐页自适应规则，已经逐页产出这个开关两端中较好的那一个结果：
 
+macOS 横排后续由[横向数量模式](2026-10-25-macos-adaptive-candidate-count.md)部分取代：固定数量继续按自然宽度收紧，自动适应按用户最大宽度和列数排布。下述不增加配置的判定保留为当时对参考开关的取舍；Linux、Windows 不变。
+
 - 卡片默认以光标屏可见区域一半封顶：`kCandidateWidthCapRatio = 0.5`（`shared/candidate/CandidateChromeMetrics.h`）。
 - 横排页的全部候选行在单行里放得下屏宽减两侧边距（`kCandidateScreenMargin = 16`）时，上限放宽到该页自然宽度，整页保持一行：判定走 `SingleLineMinimumWidth`，行内各列由 `SingleLineColumns` 分配，放不下时才收窄释义行而不是起第二行。
 - 候选行本身超出屏宽时，上限退回半屏，`LayoutCandidatePage` 按自然列宽折行成多行（列宽超整行的单独收窄并在列内折行）。

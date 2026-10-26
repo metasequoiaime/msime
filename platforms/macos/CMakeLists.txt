@@ -1199,6 +1199,7 @@ target_compile_options(candidate-row-layout-test PRIVATE -fobjc-arc -Wall -Wextr
 add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
 add_test(NAME candidate-user-geometry COMMAND candidate-row-layout-test --user-geometry)
 add_test(NAME candidate-host-appearance COMMAND candidate-row-layout-test --host-appearance)
+add_test(NAME candidate-adaptive-layout COMMAND candidate-row-layout-test --adaptive)
 # 计时动效独立启动事件循环，不承接大排版矩阵的窗口与图层回调。
 add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --declared-motion)
 # 大皮肤矩阵各自运行，保留 CI 的单项时限和全部排版断言。
