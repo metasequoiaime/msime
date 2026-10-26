@@ -1837,7 +1837,7 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 同代次非空释义合并，空数组显式清理；旧代次回包不能更新展示。每条回答是（候选文字、释义、是否为不受范围限制的离线释义）。
     ///
-    /// 「仅当前高亮」生效时，不带 `gloss` 标记、且正是高亮那一行文字的回答是候选词翻译，进 [`Self::highlight_translations`]，只画在高亮的那一行；其余回答（翻译查询里 `gloss_query` 的离线释义）进 [`Self::translations`]，每一行都画。代次相同就说明高亮没动过：移动高亮会推进代次，所以这里的高亮就是宿主发查询时的高亮。
+    /// 「仅当前高亮」生效、且这一代的翻译查询为高亮行请求了候选词翻译（高亮在这一页的座位里）时，不带 `gloss` 标记的回答是候选词翻译，进 [`Self::highlight_translations`]，只画在高亮的那一行——没升级的宿主照旧把整页答回来，也只有高亮行画出来；带标记的回答（翻译查询里 `gloss_query` 的离线释义）进 [`Self::translations`]，每一行都画。高亮不在这一页时查询只剩那份不带服务的离线释义文档，宿主照普通查询处理、不加标记，这时的回答也都进 [`Self::translations`]。代次相同就说明高亮没动过：移动高亮会推进代次，所以这里的高亮就是宿主发查询时的高亮。
     pub fn apply_translation_answers(
         &mut self,
         generation: u64,
@@ -1848,14 +1848,13 @@ impl<E: InputEngine> Runtime<E> {
         }
         let mut translations: HashMap<String, String> = HashMap::new();
         let mut highlight_translations: HashMap<String, String> = HashMap::new();
-        let highlighted_text = self
-            .translation_scope_highlighted
-            .then(|| self.cached.candidates.get(self.highlighted))
-            .flatten();
+        let scoped = self.translation_scope_highlighted
+            && self.highlighted < self.visible_len()
+            && self.page_seats().contains(&self.highlighted);
         let mut any = false;
         for (text, translation, gloss) in answers {
             any = true;
-            if !gloss && highlighted_text == Some(&text) {
+            if scoped && !gloss {
                 highlight_translations.insert(text, translation);
             } else {
                 translations.insert(text, translation);

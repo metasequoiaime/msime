@@ -112,10 +112,10 @@ fn highlighted_scope_requests_and_draws_only_the_highlighted_candidate() {
     assert_eq!(translation(shown, 0), Some("local"), "{shown}");
     assert_eq!(translation(shown, 1), None, "{shown}");
 
-    // 高亮移到第二个：查询跟着换成它，第一行的译文收起，留行跟着走。
+    // 高亮移到第二个：查询跟着换成它，第一行的译文收起，留行跟着走；第二个的译文刚才已经随整页答回来了，直接画出。
     let moved = read(msime_client_command(handle, 102))["value"]["view"].clone();
     assert_eq!(translation(&moved, 0), None, "{moved}");
-    assert_eq!(translation(&moved, 1), None, "{moved}");
+    assert_eq!(translation(&moved, 1), Some("draft"), "{moved}");
     let mut expected = vec![false; rows];
     expected[1] = true;
     assert_eq!(reserved(&moved), expected, "{moved}");
@@ -135,11 +135,11 @@ fn highlighted_scope_requests_and_draws_only_the_highlighted_candidate() {
     let applied = apply(
         handle,
         second,
-        json!([{"text": "拟好", "translation": "draft"}]),
+        json!([{"text": "拟好", "translation": "draft, v."}]),
     );
     let shown = &applied["value"]["view"];
     assert_eq!(translation(shown, 0), None, "{shown}");
-    assert_eq!(translation(shown, 1), Some("draft"), "{shown}");
+    assert_eq!(translation(shown, 1), Some("draft, v."), "{shown}");
 
     // 移回第一个：同一次组字里已经收到的译文直接画出来，不用等新的回答。
     let back = read(msime_client_command(handle, 103))["value"]["view"].clone();
@@ -194,7 +194,7 @@ fn highlighted_scope_leaves_the_offline_gloss_on_every_row() {
     assert_eq!(query_texts(glosses), candidate_texts(&typed), "{glosses}");
     assert_eq!(glosses["generation"], query["generation"]);
     assert_eq!(glosses["english_gloss"], true);
-    assert_eq!(glosses["provider"], "off");
+    assert_eq!(glosses["provider"], "none");
     assert_eq!(glosses["translation_account"], false);
     for service in [
         "custom_translation",
@@ -291,5 +291,35 @@ fn changing_the_scope_drops_answers_for_the_old_one() {
     assert_eq!(stale["value"]["applied"], false, "{stale}");
     let query = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(query_texts(&query), ["本地"]);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn a_highlight_off_the_displayed_page_leaves_only_the_offline_gloss_query() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        candidate_english_gloss: true,
+        ..scoped_preferences(CandidateTranslationScope::Highlighted)
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    let typed = type_nihao(handle);
+    let generation = typed["generation"].as_u64().unwrap();
+    // 宿主按自己的排版只显示了第二个候选，高亮的第一个不在这一组里。
+    let seats = [1usize];
+    let shown =
+        read(unsafe { msime_client_set_display_page(handle, generation, seats.as_ptr(), 1) });
+    assert_eq!(shown["value"]["applied"], true, "{shown}");
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query_texts(&query), ["拟好"], "{query}");
+    assert_eq!(query["provider"], "none");
+    assert!(query["custom_translation"].is_null());
+    assert!(query.get("gloss_query").is_none());
+    // 宿主照普通查询处理这份文档、不加标记：回答是离线释义，照样画出来。
+    let applied = apply(
+        handle,
+        generation,
+        json!([{"text": "拟好", "translation": "gloss two"}]),
+    );
+    assert_eq!(translation(&applied["value"]["view"], 1), Some("gloss two"));
     read(msime_client_destroy(handle));
 }

@@ -291,7 +291,7 @@ fn selected_translation_services(
 /// Return the visible candidate texts that may receive asynchronous translations.
 /// The generation must be echoed to `msime_client_apply_translations`.
 ///
-/// 候选词翻译的范围是「仅当前高亮」（`candidate_translation_scope = "highlighted"`）时，`candidates` 只有高亮的那一个候选，在线、系统、账号、AI 翻译和只为候选词翻译查的离线词典都只为它工作；高亮不在这一页时没有这一份。「显示英文释义」开关的离线释义不受范围限制：它要查的时候，查询另带一份 `gloss_query`，是一份完整的查询文档，覆盖这一页全部候选（含高亮那个），但不带任何翻译服务（`provider` 为 `off`、各服务配置为空），宿主用处理普通查询的同一条路径算它，把它的每条回答标上 `"gloss": true`，和主查询的回答一起（或分开，但不要单独交一个空数组：空数组表示清掉全部释义）交给 `msime_client_apply_translations`，代次相同。高亮不在这一页、只剩离线释义要查时，返回的就是那一份不带服务的文档本身。范围是「全部」时查询和以前一样，没有 `gloss_query`。
+/// 候选词翻译的范围是「仅当前高亮」（`candidate_translation_scope = "highlighted"`）时，`candidates` 只有高亮的那一个候选，在线、系统、账号、AI 翻译和只为候选词翻译查的离线词典都只为它工作；高亮不在这一页时没有这一份。「显示英文释义」开关的离线释义不受范围限制：它要查的时候，查询另带一份 `gloss_query`，是一份完整的查询文档，覆盖这一页全部候选（含高亮那个），但不带任何翻译服务（`provider` 为 `none`、各服务配置为空），宿主用处理普通查询的同一条路径算它，把它的每条回答标上 `"gloss": true`，和主查询的回答一起（或分开，但不要单独交一个空数组：空数组表示清掉全部释义）交给 `msime_client_apply_translations`，代次相同。高亮不在这一页、只剩离线释义要查时，返回的就是那一份不带服务的文档本身。范围是「全部」时查询和以前一样，没有 `gloss_query`。
 #[no_mangle]
 pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
     response(|| {
@@ -421,7 +421,7 @@ struct TranslationDocument<'a> {
 }
 
 impl TranslationDocument<'_> {
-    /// 为 `candidates` 组一份查询文档；这些候选既不要候选词翻译、也不要离线释义时为 `None`。`translate` 是这些候选要不要候选词翻译：为假时不存英文翻译，离线词典只查离线释义开关要的。`with_services` 为假时文档不带任何翻译服务（`provider` 为 `off`、各服务配置为空、不问账号），宿主照常处理这份文档也不会联网，`gloss_query` 就是这样一份；为真时照旧按偏好带上所选的服务。
+    /// 为 `candidates` 组一份查询文档；这些候选既不要候选词翻译、也不要离线释义时为 `None`。`translate` 是这些候选要不要候选词翻译：为假时不存英文翻译，离线词典只查离线释义开关要的。`with_services` 为假时文档不带任何翻译服务（`provider` 为 `none`、各服务配置为空、不问账号），宿主照常处理这份文档也不会联网，`gloss_query` 就是这样一份；为真时照旧按偏好带上所选的服务。
     fn build(
         &self,
         candidates: &[msime_input_runtime::TranslationCandidate],
