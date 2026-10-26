@@ -4,17 +4,14 @@
 
 #![no_std]
 
-#[path = "../sdk/msime_script.rs"]
-mod msime_script;
-
-use msime_script::{commit, event, hook, log, rewrite};
+use msime_script_sdk::{commit, event, hook, log, rewrite};
 
 /// 改写结果不能超过 4096 字节，原文更长时不改。
 const MAX_TEXT: usize = 4096;
 
 #[no_mangle]
 pub extern "C" fn msime_abi() -> i32 {
-    msime_script::ABI_VERSION
+    msime_script_sdk::ABI_VERSION
 }
 
 #[no_mangle]

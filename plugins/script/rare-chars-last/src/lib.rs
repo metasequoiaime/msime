@@ -10,13 +10,10 @@
 
 #![no_std]
 
-#[path = "../../../../docs/script-plugin-template/sdk/msime_script.rs"]
-mod msime_script;
-
 mod rare;
 
 use core::ptr::addr_of_mut;
-use msime_script::{candidates, event, hook, local_mode, log, rerank, Error};
+use msime_script_sdk::{candidates, event, hook, local_mode, log, rerank, Error};
 
 /// 宿主交给插件的窗口最多 20 行（crates/script-runtime/src/limits.rs）。
 const MAX_ROWS: usize = 20;
@@ -53,7 +50,7 @@ mod source {
 
 #[no_mangle]
 pub extern "C" fn msime_abi() -> i32 {
-    msime_script::ABI_VERSION
+    msime_script_sdk::ABI_VERSION
 }
 
 #[no_mangle]

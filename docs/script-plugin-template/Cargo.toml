@@ -8,6 +8,10 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[dependencies]
+# 仓库里用路径引用 SDK。复制到仓库外面单独开发时改成 msime-script-sdk = "0.1"（或者直接用 msime-pack new 生成新插件）。
+msime-script-sdk = { path = "../../crates/script-sdk" }
+
 [profile.release]
 opt-level = "s"
 lto = true
