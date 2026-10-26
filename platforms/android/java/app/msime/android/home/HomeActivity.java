@@ -34,6 +34,7 @@ import app.msime.android.core.Telemetry;
 import app.msime.android.R;
 import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
@@ -67,6 +68,8 @@ public final class HomeActivity extends AppCompatActivity {
     };
 
     private BottomNavigationView tabs;
+    /** 当前窗口是否显示系统输入法；搜索框获得焦点时底部导航必须让出空间。 */
+    private boolean imeVisible;
     private OnBackPressedCallback back;
     /** 保存状态之后才到达的深链，等回到前台再执行。 */
     @Nullable private Intent pendingLink;
@@ -114,9 +117,11 @@ public final class HomeActivity extends AppCompatActivity {
         View intro = findViewById(R.id.home_intro);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.home_root), (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            imeVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime());
             ViewPolicy.setPadding(content, bars.left, bars.top, bars.right, 0);
             ViewPolicy.setPadding(tabs, bars.left, 0, bars.right, bars.bottom);
             ViewPolicy.setPadding(intro, 0, 0, 0, bars.bottom);
+            updateTabsVisibility();
             return windowInsets;
         });
         ViewPolicy.bindClick(intro, this::dismissIntro);
@@ -468,8 +473,8 @@ public final class HomeActivity extends AppCompatActivity {
     /** AI 对话压在栈顶时收起底部导航：它是二级页，返回走页面顶部；导航留着的话，键盘弹起时会夹在输入栏和键盘之间。弹出对话页后导航回来。 */
     private void updateTabsVisibility() {
         if (tabs == null) return;
-        ViewPolicy.setVisible(tabs,
-            !(SettingsNavigator.visibleIn(getSupportFragmentManager()) instanceof ChatFragment));
+        ViewPolicy.setVisible(tabs, WindowInsetsPolicy.shouldShowHomeTabs(imeVisible,
+            SettingsNavigator.visibleIn(getSupportFragmentManager()) instanceof ChatFragment));
     }
 
     /**

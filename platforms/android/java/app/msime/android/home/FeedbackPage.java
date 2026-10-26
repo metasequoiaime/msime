@@ -168,8 +168,10 @@ public final class FeedbackPage extends DetailPage {
         channels.button("Telegram 群组", "t.me/msimegroup", "打开", this::openTelegram);
         channels.button("GitHub Issues", "公开的问题单，适合附上复现步骤", "打开",
             () -> AboutPage.openLink(context, ISSUES));
-        channels.button("复制设备信息", "品牌、型号、系统与应用版本、存储空间等，贴进反馈里方便排查", "复制",
-            () -> DeviceInfo.copy(this));
+        channels.button("插入设备信息", "把品牌、型号、系统与应用版本、存储空间等插入描述", "插入",
+            () -> {
+                if (detail != null) DeviceInfo.insert(this, detail);
+            });
 
         renderThumbnails();
         refresh();

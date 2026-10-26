@@ -14,4 +14,9 @@ public final class WindowInsetsPolicy {
                                                  int base) {
         return BoundsPolicy.atLeast(systemBottom, imeBottom) + tabs + base;
     }
+
+    /** 输入法弹出时收起主页底部导航；对话页无论是否弹出输入法都不显示。 */
+    public static boolean shouldShowHomeTabs(boolean imeVisible, boolean chatVisible) {
+        return !imeVisible && !chatVisible;
+    }
 }
