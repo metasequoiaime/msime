@@ -1,6 +1,7 @@
 //! Cantonese input in toneless Jyutping, read against `msime-cantonese.db` (`language_dictionary`). Output is Traditional as stored, and nothing is learned.
 
 pub mod scheme;
+pub mod shuangpin;
 pub mod syllable;
 
 use std::path::Path;
