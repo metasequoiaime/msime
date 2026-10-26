@@ -293,13 +293,8 @@ public final class SkinsPage extends ReloadingDetailPage {
             export.setText("导出");
             export.setContentDescription("导出皮肤 " + card.title());
             ViewPolicy.bindClick(export, () -> {
-                try {
-                    pendingExport = CustomSkinLibrary.exportDesigns(
-                        List.of(new CustomSkinLibrary.Item(card.id(), card.title(), card.design())), Long.MAX_VALUE);
-                } catch (java.io.IOException error) {
-                    MsToast.show(requireContext(), "读取皮肤失败，请重试");
-                    return;
-                }
+                pendingExport = CustomSkinLibrary.exportDesigns(
+                    List.of(new CustomSkinLibrary.Item(card.id(), card.title(), card.design())), Long.MAX_VALUE);
                 createDocument.launch(card.title() + ".json");
             });
             actions.addView(export, LayoutPolicy.weightedWrapParams(1));
