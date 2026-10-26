@@ -199,13 +199,30 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
         return native_canvas_text_size(cr, layout.gloss_font, glosses[row], run_width).second + gloss_padding;
       return 0.0;
     };
-    double minimum_height = 0;
-    if (content.horizontal && reserved_lines > 0) {
+    // 一行候选加上 lines 行还没到的释义有多高：横排整张卡片的预留和竖排高亮行的预留用同一个量法。
+    const auto reserved_height = [&](int lines) {
       std::string placeholder = "X";
-      for (int at = 1; at < reserved_lines; ++at) placeholder += "\nX";
-      minimum_height = candidate_row + native_canvas_text_size(cr, layout.gloss_font, placeholder).second + gloss_padding;
-    }
+      for (int at = 1; at < lines; ++at) placeholder += "\nX";
+      return candidate_row + native_canvas_text_size(cr, layout.gloss_font, placeholder).second + gloss_padding;
+    };
+    double minimum_height = 0;
+    if (content.horizontal && reserved_lines > 0) minimum_height = reserved_height(reserved_lines);
     page.rows = shared::LayoutCandidatePage(widths, page.line_width, lm, content.horizontal, measure, minimum_height);
+    // 竖排「仅当前高亮」：高亮行（translation_reserved）一直留出与横排同样行数的释义高度，回答没到也留，正文仍从行顶开始；它下面的行跟着下移。
+    if (!content.horizontal) {
+      double shift = 0;
+      for (std::size_t row = 0; row < page.rows.size(); ++row) {
+        auto &placed = page.rows[row];
+        placed.y += shift;
+        const int lines = content.items[begin + row].reserved_gloss_lines;
+        if (lines <= 0) continue;
+        const double reserved = reserved_height(lines);
+        if (placed.height < reserved) {
+          shift += reserved - placed.height;
+          placed.height = reserved;
+        }
+      }
+    }
     for (auto &row : page.rows) {
       // 整数坐标让相邻的行贴齐，文字落在像素格上。
       const double left = std::round(row.x), right = std::round(row.x + row.width);

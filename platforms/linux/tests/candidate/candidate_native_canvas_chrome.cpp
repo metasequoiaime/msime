@@ -516,9 +516,56 @@ void selection_motion() {
 
 } // namespace
 
+// 「仅当前高亮」：竖排的高亮行（视图的 translation_reserved）一直留出与横排同样行数的释义高度，回答还没到也留；释义到了、高亮换了一行，卡片都一样高，下面的行跟着下移。
+void reserved_highlight_gloss() {
+  const auto target = image(1200, 900, 0);
+  auto *cr = cairo_create(target.get());
+  auto assets = theme_assets();
+  auto content = page(false);
+  content.preedit.clear();
+  const auto plain = host::measure_native_canvas(cr, *assets, content, 1600);
+  content.items[0].reserved_gloss_lines = 1;
+  const auto waiting = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(waiting.items[0].height > plain.items[0].height + 8);
+  assert(near(waiting.items[1].height, plain.items[1].height) && near(waiting.items[2].height, plain.items[2].height));
+  assert(near(waiting.items[1].y, waiting.items[0].y + waiting.items[0].height, 1));
+  assert(waiting.panel.height > plain.panel.height + 8);
+  // 正文仍从行顶开始，留出的高度在它下面。
+  assert(near(waiting.rows[0].textHeight, plain.rows[0].textHeight));
+  // 回答到了（放得下时和正文同一行）：高度不变。
+  content.items[0].translation = "hello";
+  const auto answered = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(near(answered.panel.height, waiting.panel.height) && near(answered.items[0].height, waiting.items[0].height));
+  // 高亮移到第二行：第一行的译文和预留跟着走，卡片高度不变，第三行仍在原处。
+  content.items[0].translation.clear();
+  content.items[0].reserved_gloss_lines = 0;
+  content.items[1].reserved_gloss_lines = 1;
+  content.selected = 1;
+  const auto moved = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(near(moved.panel.height, waiting.panel.height));
+  assert(near(moved.items[0].height, plain.items[0].height) && near(moved.items[1].height, waiting.items[0].height));
+  assert(near(moved.items[2].y, waiting.items[2].y));
+  // 点选仍按移下去的行框命中。
+  const auto &third = moved.items[2];
+  assert(host::native_canvas_hit(content, moved, third.x + third.width / 2, third.y + third.height / 2) == 2);
+  // 两种目标语言：留两行。
+  content.items[1].reserved_gloss_lines = 2;
+  const auto two = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(two.items[1].height > moved.items[1].height + 8);
+  // 横排条照旧由 reserved_gloss_lines（整张卡片）统一预留，高亮行的标记不让它更高。
+  content = page(true);
+  content.preedit.clear();
+  content.reserved_gloss_lines = 1;
+  const auto strip = host::measure_native_canvas(cr, *assets, content, 1600);
+  content.items[0].reserved_gloss_lines = 1;
+  assert(near(host::measure_native_canvas(cr, *assets, content, 1600).panel.height, strip.panel.height));
+  cairo_destroy(cr);
+}
+
 int main() {
   header_row();
   rows_and_glosses();
+  reserved_highlight_gloss();
   pointer_and_grid();
   caret_edit_suffix();
   scaled();
@@ -529,5 +576,5 @@ int main() {
   placement();
   motion();
   selection_motion();
-  std::cout << "原生画布的 macOS 结构：首行、行与释义、光标后编辑、悬停、网格、缩放、装饰带、背景图、投影、调色板、定位与动效通过\n";
+  std::cout << "原生画布的 macOS 结构：首行、行与释义、光标后编辑、高亮行预留释义、悬停、网格、缩放、装饰带、背景图、投影、调色板、定位与动效通过\n";
 }
