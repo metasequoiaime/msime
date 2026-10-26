@@ -457,11 +457,13 @@ final class ImeLayoutRows {
         addNineKey(actions, rewrite);
         java.util.List<String> punctuation = NineKeyLayout.punctuation();
         String last = punctuation.get(punctuation.size() - 1);
-        Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
+        NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        // 上滑可输入 0，在右上角沿用九键数字提示，点按和长按行为不变。
+        exclamation.setDigitText("0");
         s.imeLetterRows.bindSuperscriptShortcut(exclamation, last);
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
-        if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
     }
