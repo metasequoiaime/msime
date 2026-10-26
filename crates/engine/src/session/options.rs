@@ -67,6 +67,8 @@ pub struct SessionOptions {
     pub first_page_rows: usize,
     /// 只出单字：中文方案的候选去掉含汉字的词和整句、只留单个汉字（见 [`SchemeType::filters_to_single_characters`]），选一个字后剩下的拼写接着组字。
     pub single_character_only: bool,
+    /// 移动光标后编辑光标后的部分（默认关）：全拼、双拼的组字光标停在中间时，光标前的原文固定为它当前的最佳转换，候选是光标后那段原文的候选，首选前面接上固定的部分；选中一条只消耗它的音节，固定部分和已选部分一起留到组字结束。规则见 `session/caret_edit.rs`。
+    pub caret_edit_suffix: bool,
     pub fuzzy_pinyin: FuzzyPinyinOptions,
     pub frequency: FrequencyAdjustmentOptions,
     pub local_modes: LocalModeOptions,
@@ -135,6 +137,7 @@ impl SessionOptions {
             sentence_alternatives: false,
             first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
             single_character_only: false,
+            caret_edit_suffix: false,
             fuzzy_pinyin: FuzzyPinyinOptions::default(),
             frequency: FrequencyAdjustmentOptions::default(),
             local_modes: LocalModeOptions::default(),
@@ -200,4 +203,8 @@ pub struct SessionSnapshot {
     pub conversion: String,
     /// 整句改字的光标和光标处那一段，按 `conversion` 的字（Unicode 标量）计：光标在第 `.0` 个字之前，`.0..1` 是候选所替换的那一段；光标在句末时两者都等于字数。不在改字时为 `(0, 0)`。
     pub conversion_focus: (usize, usize),
+    /// 光标后编辑（`SessionOptions::caret_edit_suffix`）正在生效：候选是光标后那段的，首选前面接着 `caret_edit_prefix`。宿主据此显示模式提示。
+    pub caret_edit_suffix: bool,
+    /// 光标后编辑里首选前面固定的那段文字（已经交出去的部分加上光标前那段的最佳转换）。`candidates` 仍是光标后那段的行，首选显示为这段文字接上 `candidates[0].word`，宿主可以把这几个字画淡；选中首选时上屏的是光标前那段的转换接上这一行。模式不生效时为空。
+    pub caret_edit_prefix: String,
 }

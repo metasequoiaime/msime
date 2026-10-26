@@ -109,8 +109,9 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
-            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。五笔 14 键的组码不是用户打出的字母，不拿它去对快捷短语的码。
+            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。五笔 14 键的组码不是用户打出的字母，不拿它去对快捷短语的码。光标后编辑不混入快捷短语：选中短语会结束整段组字。
             if self.quick_phrase_candidates
+                && !self.caret_edit.active
                 && self.mixed_candidates_enabled
                 && self.local_mode_options.quick_phrase
                 && !self.wubi_grid_composing()
@@ -603,6 +604,7 @@ impl InputSession {
             || self.local_mode != LocalInputMode::None
             || self.dedicated_english
             || self.prefix_active
+            || self.caret_edit.active
             || self.has_active_helpcode()
         {
             return None;
@@ -645,6 +647,7 @@ impl InputSession {
             || self.local_mode != LocalInputMode::None
             || self.dedicated_english
             || self.prefix_active
+            || self.caret_edit.active
             || self.has_active_helpcode()
             || self.single_character_only
         {
@@ -705,6 +708,8 @@ impl InputSession {
         let japanese = japanese.map(|conversion| self.mixed_japanese_row(&decoded, conversion));
         // 拼音拆不开时完全匹配的英文可以占首位，但有两种情况不行：光标前缀解码时选英文会扔掉光标后的输入（`commit_selection` 整段结束组字）；辅助码激活时大写的辅助码被转成小写拼进了查英文的输入，那串字母不是用户要的英文词。
         let english_may_lead = !self.prefix_active && !self.has_active_helpcode();
+        // 光标后编辑里选中英文、emoji、颜文字、符号这些混排行会结束整段组字，扔掉光标前固定的那段或光标后剩下的拼写，所以一概不混入。
+        let mixed_enabled = self.mixed_candidates_enabled && !self.caret_edit.active;
         // 符号行要整段组字正好是符号的名称，条件和上面相同但语义不同：光标前缀解码时查的是光标前那段，辅助码激活时输入里混着辅助码字母，两种情况下整段都不是用户打的名称。
         let symbols_allowed = !self.prefix_active && !self.has_active_helpcode();
         let association_input = if self.prefix_active {
@@ -725,7 +730,7 @@ impl InputSession {
             symbols_allowed,
             japanese,
             self.engine.request().first_page_rows.get(),
-            self.mixed_candidates_enabled,
+            mixed_enabled,
         );
         self.insert_inline_date_time(&mut mixed);
         self.apply_candidate_positions(&mut mixed);
@@ -761,11 +766,14 @@ impl InputSession {
         if self.local_mode == LocalInputMode::None {
             keep_expressive_rows_off_the_lead(&mut mixed);
         }
-        // 放在最后：网址补全不参与固定位置，也不被挪开。
-        self.insert_url_scheme_completions(&mut mixed);
+        // 放在最后：网址补全不参与固定位置，也不被挪开。光标后编辑里选中网址补全会进入网址模式，同样不加。
+        if !self.caret_edit.active {
+            self.insert_url_scheme_completions(&mut mixed);
+        }
         // 联系人优先级高于固定位置和云候选；两行相邻，不能让云占位插进姓名与组合文本之间。
         // 光标前缀只解码局部，联系人选择却会结束整段组字，因此只在完整普通拼音组字中加入。
         if !self.prefix_active
+            && !self.caret_edit.active
             && !self.dedicated_english
             && self.local_mode == LocalInputMode::None
             && !self.has_active_helpcode()
@@ -791,6 +799,7 @@ impl InputSession {
         if !self.local_mode_options.date_time_inline
             || !self.mixed_candidates_enabled
             || self.prefix_active
+            || self.caret_edit.active
             || self.single_character_only
             || self.dedicated_english
             || self.local_mode != LocalInputMode::None

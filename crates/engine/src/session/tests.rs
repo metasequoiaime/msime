@@ -13524,3 +13524,5 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
     type_text(&mut session, "qq");
     assert!(words(&session).contains(&"腾讯".to_owned()));
 }
+
+mod caret_suffix;

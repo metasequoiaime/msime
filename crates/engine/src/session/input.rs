@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::candidates::clone_candidate_rows;
+use super::caret_edit::CaretEdit;
 use super::chain::CommitChain;
 use super::clock::Clock;
 use super::conversion::ConversionEdit;
@@ -125,6 +126,10 @@ pub(super) struct InputSession {
     pub prefix_active: bool,
     pub prefix_query_input: String,
     pub prefix_candidates: Vec<WordItem>,
+    /// 移动光标后编辑光标后的部分（`SessionOptions::caret_edit_suffix`）。
+    pub caret_edit_suffix: bool,
+    /// 光标后编辑的状态，见 `caret_edit.rs`。
+    pub caret_edit: CaretEdit,
     pub shuangpin_preedit_uses_raw: bool,
     pub single_character_only: bool,
     /// Writes phrases under complete quanpin keys whatever the active scheme is, so a shuangpin session never feeds a canonical key back through its profile; opened on first use.
@@ -237,6 +242,8 @@ impl InputSession {
             prefix_active: false,
             prefix_query_input: String::new(),
             prefix_candidates: Vec::new(),
+            caret_edit_suffix: options.caret_edit_suffix,
+            caret_edit: CaretEdit::default(),
             shuangpin_preedit_uses_raw: true,
             single_character_only: options.single_character_only,
             canonical_phrase_engine: None,
@@ -1625,6 +1632,7 @@ impl InputSession {
         self.prefix_candidates.clear();
         self.prefix_query_input.clear();
         self.prefix_active = false;
+        self.caret_edit = CaretEdit::default();
         self.phrase_progress = CreatingWordProgress::default();
         self.pending_sequence = None;
         self.pending_sequence_with_cases = None;
@@ -1671,6 +1679,8 @@ impl InputSession {
         }
         // The visible prefix list stays until the next refresh, but its query must run again against the invalidated provider caches.
         self.prefix_query_input.clear();
+        // 光标后编辑固定的那段同样要按新的词库重新转换。
+        self.caret_edit.prefix_input.clear();
     }
 
     pub fn clear_online_candidates(&mut self, source: CandidateSource) {
@@ -1692,7 +1702,16 @@ impl InputSession {
             return false;
         }
         self.refresh_prefix_candidates();
-        let grew = if self.prefix_active {
+        let grew = if self.prefix_active && self.caret_edit.active {
+            // 光标后编辑：屏幕上是光标后那段的候选，展开的也是它。
+            let start = self.caret_edit_suffix_start();
+            let end = self.raw_with_cases().len();
+            self.engine.expand_current_raw_range_initial_candidates(
+                &self.prefix_query_input,
+                start..end,
+                &mut self.prefix_candidates,
+            )
+        } else if self.prefix_active {
             self.engine.expand_current_raw_prefix_initial_candidates(
                 &self.prefix_query_input,
                 self.prefix_end(),
@@ -1908,6 +1927,7 @@ impl InputSession {
     pub(super) fn discard_abandoned_phrase_progress(&mut self) {
         if !self.has_composition() {
             self.phrase_progress = CreatingWordProgress::default();
+            self.caret_edit.held.clear();
             self.chain.same_composition = false;
         }
     }

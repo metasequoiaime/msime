@@ -1279,7 +1279,7 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 判断是否需要模型前向计算；提前退出的情况可留在会话线程处理。
     fn settled_model_would_score(&self) -> bool {
-        if !self.cached.conversion.is_empty() {
+        if !self.cached.conversion.is_empty() || self.cached.caret_edit_suffix {
             return false;
         }
         let snapshot = &self.cached;
@@ -1504,6 +1504,8 @@ impl<E: InputEngine> Runtime<E> {
             conversion: self.cached.conversion.clone(),
             conversion_focus_start: self.cached.conversion_focus_start,
             conversion_focus_end: self.cached.conversion_focus_end,
+            caret_edit_suffix: self.cached.caret_edit_suffix,
+            caret_edit_prefix: self.cached.caret_edit_prefix.clone(),
             page,
             page_size: self.page_size,
             page_count: visible.div_ceil(self.page_size),
@@ -1617,6 +1619,17 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    /// 视图里这一行的文字：光标后编辑的首选前面接上固定的那段（`EngineSnapshot::caret_edit_prefix`），其余照旧。runtime 在本模式里不重排，所以首位就是引擎的首行。
+    fn displayed_candidate_text(&self, index: usize, text: &str) -> String {
+        let text = self.multilingual_candidate(index, text);
+        if index == 0 && !self.cached.caret_edit_prefix.is_empty() {
+            let mut shown = self.cached.caret_edit_prefix.clone();
+            shown.push_str(&text);
+            return shown;
+        }
+        text
+    }
+
     fn candidate(&self, index: usize, text: &str) -> Candidate {
         // 不合格来源不能继承同名普通候选的释义；分段也只来自实际显示的这一份字符串。
         let translation = (!self.translations.is_empty()
@@ -1639,7 +1652,7 @@ impl<E: InputEngine> Runtime<E> {
                 generation: self.generation,
                 index,
             },
-            text: self.multilingual_candidate(index, text),
+            text: self.displayed_candidate_text(index, text),
             code: self
                 .cached
                 .candidate_codes
@@ -2005,7 +2018,15 @@ impl<E: InputEngine> Runtime<E> {
     ) -> Option<SelectionFact> {
         let text = self.cached.candidates.get(seat)?;
         let outcome = if result.has_commit {
-            let matches = if how == SelectionHow::Edge {
+            let matches = if self.cached.caret_edit_suffix {
+                // 光标后编辑：上屏是「光标前固定的那段 + 光标后那一行」（固定的那段已经暂存过时只有这一行），所以按结尾对。
+                let tail = if how == SelectionHow::Edge {
+                    edge.map_or("", |edge| edge.character(text))
+                } else {
+                    text.as_str()
+                };
+                !tail.is_empty() && result.commit.ends_with(tail)
+            } else if how == SelectionHow::Edge {
                 edge.is_some_and(|edge| {
                     let character = edge.character(text);
                     !character.is_empty() && result.commit.starts_with(character)
@@ -2544,8 +2565,8 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn rerank(&mut self) -> bool {
-        // 整句改字的候选是光标处一段的替换，按读音长短排好，不参与整句的重排。
-        if !self.cached.conversion.is_empty() {
+        // 整句改字的候选是光标处一段的替换，按读音长短排好，不参与整句的重排。光标后编辑的首选接着固定的那段，必须留在首位。
+        if !self.cached.conversion.is_empty() || self.cached.caret_edit_suffix {
             return false;
         }
         let promote = {
@@ -2735,6 +2756,8 @@ impl<E: InputEngine> Runtime<E> {
                     conversion: String::new(),
                     conversion_focus_start: 0,
                     conversion_focus_end: 0,
+                    caret_edit_suffix: false,
+                    caret_edit_prefix: String::new(),
                 };
                 // 失败占位快照已经没有候选，旧插件操作不能在下一次旁路刷新时复活。
                 self.transform_candidates();
@@ -2787,6 +2810,8 @@ impl<E: InputEngine> Runtime<E> {
             || cached.conversion != previous.conversion
             || cached.conversion_focus_start != previous.conversion_focus_start
             || cached.conversion_focus_end != previous.conversion_focus_end
+            || cached.caret_edit_suffix != previous.caret_edit_suffix
+            || cached.caret_edit_prefix != previous.caret_edit_prefix
         {
             self.bump_composition_epoch();
         }
