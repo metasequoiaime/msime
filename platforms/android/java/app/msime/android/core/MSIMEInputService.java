@@ -8858,6 +8858,35 @@ public final class MSIMEInputService extends InputMethodService {
         refreshAfterQuickDelete();
     }
 
+    /** 快速删除的可选全框模式：显式选中光标前后读到的整段文字后删除，并保留一次撤回。 */
+    void deleteAllInput() {
+        clearQuickDeleteUndo();
+        if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
+        if (hasEngineComposition()) discardComposition();
+        InputConnection target = connection;
+        if (target == null) return;
+        int cursor = quickDeleteCursor(target);
+        CharSequence before = InputConnectionGuard.textBeforeCursor(target, QuickDeleteUndo.MAX_UNITS);
+        CharSequence after = InputConnectionGuard.textAfterCursor(target, QuickDeleteUndo.MAX_UNITS);
+        if (cursor < 0 || before == null || after == null
+                || before.length() >= QuickDeleteUndo.MAX_UNITS
+                || after.length() >= QuickDeleteUndo.MAX_UNITS) return;
+        String deleted = before.toString() + after;
+        if (deleted.isEmpty() || deleted.length() > QuickDeleteUndo.MAX_UNITS) return;
+        int start = cursor - before.length();
+        int end = cursor + after.length();
+        if (!InputConnectionGuard.setSelection(target, start, end)
+                || !InputConnectionGuard.commitText(target, "", 1)) return;
+        selectionEcho.invalidate();
+        if (!EditorPolicy.password(editorInputType) && allowLearning && !incognitoEnabled
+                && deleted.length() <= QuickDeleteUndo.MAX_UNITS) {
+            quickDeleteUndo = new QuickDeleteUndo(target, start, deleted, "", "",
+                SystemClock.elapsedRealtime());
+            main.postDelayed(expireQuickDeleteUndo, QuickDeleteUndo.LIFETIME_MS);
+        }
+        refreshAfterQuickDelete();
+    }
+
     /** 只取绝对选区位置；编辑器不支持或仍有选区时不提供撤回。 */
     private int quickDeleteCursor(InputConnection target) {
         if (target == null) return -1;

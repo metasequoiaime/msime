@@ -74,6 +74,7 @@ public final class AndroidLocalSettingsSmoke {
         check(settings.integer(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH) == 3, "stroke width default");
         check(settings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), "offline fallback default");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
+        check("before".equals(settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)), "quick delete keeps the cursor-before default");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
         check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT) == 0, "height default");
         check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT), "height is not explicit by default");

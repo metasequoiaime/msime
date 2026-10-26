@@ -260,6 +260,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
             distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
         }
+        String quickDeleteScope = settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE);
+        GroupCard.Row[] quickDeleteRow = new GroupCard.Row[1];
+        quickDeleteRow[0] = gestures.nav("快速删除范围", "上滑退格松手时删除的范围；普通退格和左滑连续删除不受影响",
+            quickDeleteScopeLabel(quickDeleteScope), () -> pickQuickDeleteScope(quickDeleteScope, quickDeleteRow[0]));
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",
             settings.bool(AndroidLocalSettings.GLIDE_TYPING),
             checked -> saveLocalSetting(AndroidLocalSettings.GLIDE_TYPING, checked));
@@ -535,6 +539,22 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 });
         }
         sheet.show();
+    }
+
+    private void pickQuickDeleteScope(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "快速删除范围", null);
+        for (String value : new String[] {"before", "all"}) {
+            sheet.option(quickDeleteScopeLabel(value), value.equals(selected), () -> {
+                row.setValue(quickDeleteScopeLabel(value));
+                KeyboardSheets.saveLocal(this, AndroidLocalSettings.QUICK_DELETE_SCOPE, value,
+                    this::reload, this::reload);
+            });
+        }
+        sheet.show();
+    }
+
+    private static String quickDeleteScopeLabel(String value) {
+        return "all".equals(value) ? "整个输入框" : "光标前文字";
     }
 
     private void pickClipboardColumns(String selected) {

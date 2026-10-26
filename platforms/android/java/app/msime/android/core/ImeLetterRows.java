@@ -582,6 +582,8 @@ final class ImeLetterRows {
                     if (clear) {
                         s.imeKeyFeedback.playFeedback(button);
                         if (undo) s.undoQuickDelete();
+                        else if ("all".equals(s.localSettings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)))
+                            s.deleteAllInput();
                         else s.deleteAllBeforeCursor();
                     }
                     if (click) button.performClick();
