@@ -5,6 +5,7 @@ param(
     # 构建机从 shared/contracts/editions.json 生成的 Windows 标识 XML，避免复制产品标识。
     [Parameter(Mandatory=$true)][string]$IdentityFile,
     [ValidateSet('x64','x86')][string]$Architecture = 'x64',
+    [switch]$SkipSignatureCheck,
     [string]$TestRoot = 'C:\msime-win7-tests\install-smoke'
 )
 $ErrorActionPreference = 'Stop'
@@ -80,7 +81,9 @@ $rules = (Get-Acl -LiteralPath $dataDir).GetAccessRules($true,$true,[Security.Pr
 $modify = @($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and
     ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
 Check ($modify.Count -gt 0) 'Users can modify installed data directory'
-Check ((Get-AuthenticodeSignature -FilePath $app.ServerPath).Status -eq 'Valid') 'installed Server has a trusted test signature'
+if (-not $SkipSignatureCheck) {
+    Check ((Get-AuthenticodeSignature -FilePath $app.ServerPath).Status -eq 'Valid') 'installed Server has a trusted test signature'
+}
 $seeded = @{'preferences.json'='{"synthetic_install_test":true}'; 'user\synthetic.txt'='synthetic user data'; 'skins\synthetic\skin.json'='{"synthetic":true}'}
 foreach ($entry in $seeded.GetEnumerator()) {
     $path = Join-Path $dataDir $entry.Key

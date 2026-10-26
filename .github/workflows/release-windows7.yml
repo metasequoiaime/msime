@@ -9,6 +9,11 @@ on:
         default: full
         type: choice
         options: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+      publish:
+        description: '发布正式版到 GitHub Release（仅 full，必须从 main 触发）'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -296,7 +301,9 @@ jobs:
             $env:MSIME_REQUIRE_WORDBOOKS = '1'
             $env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES = '1'
             ./platforms/windows/installer/Prepare-PackageFiles.ps1 -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -NoticesDirectory "$PWD/target/windows7-notices" -DesktopResourcesDirectory $env:MSIME_DESKTOP_RESOURCES -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
-            ./platforms/windows/installer/Sign-PackageBinaries-Local.ps1 -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
+            if ('${{ inputs.publish }}' -ne 'true') {
+              ./platforms/windows/installer/Sign-PackageBinaries-Local.ps1 -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
+            }
             ./platforms/windows/installer/Compile-Installer.ps1 -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -SourceDirectory "$PWD/target/windows7-package/$env:EDITION/$arch" -OutputDirectory "$PWD/target/windows7-installer"
           }
           $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
@@ -304,7 +311,9 @@ jobs:
           foreach ($arch in @('x64', 'x86')) {
             $installer = Join-Path $PWD "target/windows7-installer/${base}_v${version}_win7_${arch}.exe"
             if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "安装包不存在：$installer" }
-            ./platforms/windows/installer/Sign-Installer-Local.ps1 -InstallerPath $installer
+            if ('${{ inputs.publish }}' -ne 'true') {
+              ./platforms/windows/installer/Sign-Installer-Local.ps1 -InstallerPath $installer
+            }
             $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
             [IO.File]::WriteAllText("$installer.sha256", "$hash  $([IO.Path]::GetFileName($installer))`n")
           }
@@ -324,7 +333,8 @@ jobs:
           $identityPath = Join-Path $env:RUNNER_TEMP 'windows7-identity.xml'
           $xml.Save($identityPath)
           $installer = "target/windows7-installer/${base}_v${version}_win7_x64.exe"
-          ./platforms/windows/installer/tests/windows7-install-smoke.ps1 -Installer $installer -IdentityFile $identityPath -Architecture x64
+          $skipSignature = '${{ inputs.publish }}' -eq 'true'
+          ./platforms/windows/installer/tests/windows7-install-smoke.ps1 -Installer $installer -IdentityFile $identityPath -Architecture x64 -SkipSignatureCheck:$skipSignature
 
       - name: 上传 Win7 安装包
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -335,3 +345,55 @@ jobs:
             target/windows7-installer/*.sha256
             target/windows7-notices/THIRD_PARTY_NOTICES.txt
           if-no-files-found: error
+
+  publish:
+    name: 发布 Win7 正式版
+    needs: package
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-windows7-full-${{ github.sha }}
+          path: dist
+
+      - name: 校验并发布 Win7 安装包
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo '正式版只能从 main 发布' >&2; exit 1; }
+          [[ '${{ inputs.edition }}' == full ]] || { echo '正式版只支持 full' >&2; exit 1; }
+          version="$(tr -d '\r\n' < platforms/windows/version-win7.txt)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Win7 版本号无效' >&2; exit 1; }
+          base="$(python3 platforms/windows/scripts/edition_windows.py field --edition full installer_base_name)"
+          for arch in x64 x86; do
+            installer="dist/${base}_v${version}_win7_${arch}.exe"
+            [[ -s "$installer" && -f "$installer.sha256" ]] || { echo "缺少安装包或摘要：$arch" >&2; exit 1; }
+          done
+          installers=(dist/*.exe)
+          [[ ${#installers[@]} -eq 2 ]] || { echo '安装包数量不是两个' >&2; exit 1; }
+          (cd dist && sha256sum -- *.exe > SHA256SUMS && sha256sum -c SHA256SUMS)
+          for installer in "${installers[@]}"; do
+            name="$(basename "$installer")"
+            [[ "$(cat "$installer.sha256")" == "$(grep -F "  $name" dist/SHA256SUMS)" ]] || { echo "$name 摘要不一致" >&2; exit 1; }
+          done
+          tag="windows7-v$version"
+          cat > release-notes.md <<EOF
+          # 水杉输入法 Windows 7 v$version
+
+          Windows 7 SP1 64 位系统下载 x64 安装包；32 位系统下载 x86 安装包。安装前可用 SHA256SUMS 核对文件。
+
+          此版本未使用受信任代码签名。Windows 若显示未知发布者，请确认下载地址和 SHA-256 摘要后再安装。
+          EOF
+          python3 scripts/release-build-marker.py "$version" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Windows 7 v$version" release-notes.md dist/*.exe dist/SHA256SUMS dist/*.exe.sha256
