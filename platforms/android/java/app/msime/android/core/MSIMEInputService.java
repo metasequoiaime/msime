@@ -1395,6 +1395,9 @@ public final class MSIMEInputService extends InputMethodService {
         } else {
             imeLetterRows.invalidateBackspaceScrub();
             selectionEcho.invalidate();
+            // 部分远程编辑器（例如桌面控制类应用）拒绝 surrounding-text 删除，但仍处理原始退格键。
+            // 连接已明确返回失败时才回退，避免普通编辑器重复删除。
+            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
         }
     }
 
