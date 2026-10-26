@@ -35,4 +35,4 @@ Status: implemented
 - 当前分支经 `build-apk.sh` 构建 Rust、JNI 与原生 Java 宿主，使用开发证书。API 28、35 的最终布局专项均报告 `MSIME_DEVICE_SMOKE_PASSED`，覆盖 1600×1000、2000×1600、2800×1800 后再缩回的窗口、字母/数字/符号实测宽度、底栏边界、双拼提示、既有组字与竖屏设置/外屏回退；测试退出恢复偏好与显示配置。
 - API 28、35 的键面像素专项均通过 44 种尺寸/字体组合：窄键仍无重叠，宽键在默认 46 dp 键高下主标签至少 18 sp，关闭提示恢复原字号。
 - API 35 起初使用旧 APK 遗留的运行时选项文件，专项复制这份旧默认值后显示共享运行时未就绪；清空专用 AVD 的合成应用数据、重新初始化后通过。这里的布局验收基于干净初始化，不将旧包升级路径记为已验收。
-- quick 首轮发现上游 `crates/mcp-server/src/plugins.rs` 对新增 `PluginError::Exists`、`NotEditable` 缺少穷尽分支；独立提交补齐错误映射后，Rust workspace 编译通过。`cargo fmt -p msime-mcp-server --check` 通过；全仓 fmt 仍报告未改动的桌面 `lib.rs`、共享 `preferences.rs` 两处既有格式差异，本次不批量格式化。
+- quick 首轮发现上游 `crates/mcp-server/src/plugins.rs` 对新增 `PluginError::Exists`、`NotEditable` 缺少穷尽分支；独立提交补齐错误映射后，Rust workspace 编译通过。随后合入的最新 `develop` 已包含等价修复，本 PR 的最终差异不再包含 MCP。`cargo fmt -p msime-mcp-server --check` 通过；全仓 fmt 仍报告未改动的桌面 `lib.rs`、共享 `preferences.rs` 两处既有格式差异，本次不批量格式化。
