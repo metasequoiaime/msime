@@ -106,8 +106,9 @@ public final class NineKeySidebarPairDeviceSmoke extends DeviceSmoke {
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
     }
 
+    /** 侧栏符号键的完整描述：「按键 」前缀加 #9798 的长按提示，前缀丢了就找不到键。 */
     private Predicate<AccessibilityNodeInfo> sidebar(String text) {
-        return described("按键 符号 " + text);
+        return described("按键 符号 " + text + "；长按快速修改符号栏");
     }
 
     private Predicate<AccessibilityNodeInfo> editorState(String editor, String text, int caret) {

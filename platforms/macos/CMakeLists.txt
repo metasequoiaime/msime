@@ -1394,8 +1394,10 @@ add_test(NAME voice-audio-muter COMMAND voice-audio-muter-test)
 add_executable(voice-cue-player-test tests/voice/VoiceCuePlayerTest.mm src/voice/VoiceCuePlayer.mm)
 target_compile_options(voice-cue-player-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_compile_definitions(voice-cue-player-test PRIVATE MSIME_VOICE_CUE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../windows/installer/assets/audios")
-target_link_libraries(voice-cue-player-test PRIVATE "-framework AppKit")
+target_link_libraries(voice-cue-player-test PRIVATE "-framework AppKit" "-framework AVFoundation" "-framework CoreAudio")
 add_test(NAME voice-cue-player COMMAND voice-cue-player-test)
+# 播放会卡在无人应答的麦克风授权框上时，测试跑完加载断言后以 77 退出，CTest 记为跳过而不是挂到超时。
+set_tests_properties(voice-cue-player PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(voice-input-level-test tests/voice/VoiceInputLevelTest.mm)
 target_compile_options(voice-input-level-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

@@ -46,6 +46,7 @@ git log --format='%h %s' <os>-v<上一版>..origin/develop -- platforms/<os> | g
 | --- | --- |
 | Android | 只有 `platforms/android/version.txt`。versionCode 由 `gradle-app/app/build.gradle.kts` 按 `major*1e6 + minor*1e3 + patch` 算，不用手改 |
 | Linux、Windows | 只有 `platforms/<os>/version.txt` |
+| Windows 7 | 只有 `platforms/windows/version-win7.txt`（独立版本线，不动现代 Windows 的 `version.txt`）。发布用 `release-windows7.yml`，只能从 main 发 full，tag 是 `windows7-vX.Y.Z` |
 | iOS | `version.txt`、`project.yml` 的 `MARKETING_VERSION`、`MSIMEClient.xcodeproj/project.pbxproj` |
 | macOS | 只有 `version.txt` 和 `build-number.txt`（新版本重置为 1）。`CFBundleShortVersionString`、`CFBundleVersion` 和关于页的兜底版本都由 CMake 从这两个文件生成，Sparkle 靠 `CFBundleVersion` 判断新旧，不要手写 |
 | HarmonyOS | `version.txt`、`AppScope/app.json5` 的 `versionName` **和** `versionCode`（同样按 `major*1e6 + minor*1e3 + patch`，0.2.0 是 2000），versionCode 不递增系统拒绝覆盖安装 |
