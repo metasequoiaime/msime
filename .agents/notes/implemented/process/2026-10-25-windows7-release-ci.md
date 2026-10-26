@@ -36,3 +36,4 @@ Win7 相关手动运行会获得可下载的 x64/x86 安装包和安装冒烟证
 - runtime job 在构建前恢复、成功后保存按架构隔离的编译缓存；缓存键变化时只退回同架构同 runner 的旧缓存，CMake 和 Cargo 会自行重建受影响部分。
 - 工作流的 Windows runner 执行结果由 GitHub Actions 负责；本机 macOS 不执行 Windows 原生构建。
 - 2026-10-26 的首次重跑已证明 artifact 目录修复有效；随后导入审计发现 Windows SDK 的 `api-ms-win-core-kernel32-legacy-l1-1-1.dll` 名称含多个连字符，原正则未识别该 API 转发模块。审计正则现允许 API-set 名称中的连字符，并用合成转发测试覆盖该形态。
+- 第二次重跑发现运行库缓存还原了带构建生成修改的 Sherpa 源码树，固定提交检查因此拒绝继续。缓存范围现只保留源码对应的构建目录和产物，不再缓存 ONNX Runtime 与 Sherpa 源码目录；源码每次从固定提交干净检出。
