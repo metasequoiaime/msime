@@ -33,6 +33,14 @@ inline bool pack_editable(Package const &pack) { return !pack.builtin && is_auth
 
 inline constexpr std::wstring_view default_license = L"CC0-1.0";
 inline constexpr std::wstring_view default_version = L"1.0.0";
+// 许可证输入框下面的说明。
+inline constexpr std::wstring_view license_note =
+    L"许可证决定别人能怎样使用这个插件。CC0-1.0 表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写 CC-BY-4.0。这里只能写 SPDX 许可证代码。";
+// 保存按钮上面的说明：编辑替换本机的这一份，新建装进本机。
+inline std::wstring_view save_note(bool editing) {
+  return editing ? L"保存后替换本机的这一份。从社区装来的插件改过之后就是你自己的副本，原作者那边不受影响。"
+                 : L"保存后装进本机，和导入的插件一样出现在「我的插件」里，也可以在「社区插件」里发布给别人。";
+}
 
 // 以下上限与 client-services 的清单校验一致。
 inline constexpr std::size_t max_name_bytes = 80;
@@ -130,22 +138,6 @@ inline std::vector<std::wstring> split_lines(std::wstring_view text) {
       return lines;
     start = end + 1;
   }
-}
-
-// 多行文本框读出的文字换成 `\n` 分行：WinUI 的 TextBox 把换行存成单独的 `\r`，共享页的规则按 `\r?\n` 切行，不先换一下整段会被当成一行。
-inline std::wstring normalized_line_breaks(std::wstring_view text) {
-  std::wstring result;
-  result.reserve(text.size());
-  for (std::size_t i = 0; i < text.size(); ++i) {
-    if (text[i] == L'\r') {
-      result.push_back(L'\n');
-      if (i + 1 < text.size() && text[i + 1] == L'\n')
-        ++i;
-    } else {
-      result.push_back(text[i]);
-    }
-  }
-  return result;
 }
 
 // ---- 草稿与交给宿主的包 ----

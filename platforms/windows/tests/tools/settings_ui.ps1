@@ -808,6 +808,72 @@ function Start-SettingsWindow([string]$route) {
     if ($script:process.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Settings window did not open in 60 seconds' }
     return [System.Windows.Automation.AutomationElement]::FromHandle($script:process.MainWindowHandle)
 }
+function Wait-PluginEditorElement([scriptblock]$find, [string]$what) {
+    # 编辑器的输入只就地更新提示和按钮，加减行、保存和读取会整页重画，之前取到的节点随之失效：每次重新查找，失效的当作还没出现。
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        try {
+            $element = & $find
+            if ($element) { return $element }
+        } catch [System.Windows.Automation.ElementNotAvailableException] {
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "$what did not appear"
+}
+function Assert-PluginEditor($window, [string]$prefix) {
+    # 「新建插件」先选类型，再填名字和一条短语：编码写成大写时保存按钮上方报编码的规则、不能保存，改好后「保存并安装」由宿主按导入的规则装进合成数据目录，打开这个包的详情，详情里有「编辑」；从详情再打开编辑器读回原内容，没有改动时返回不用确认，回到详情、再回到列表。
+    $invoke = { param($element) $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+    $value = { param($element) $element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern) }
+    & $invoke (Wait-PluginEditorElement { Find-ById $window 'plugin-create' } 'The 新建插件 button')
+    Wait-PluginEditorElement { Find-ById $window 'plugin-create-wordbook' } 'The editor kind picker' | Out-Null
+    foreach ($kind in @('phrase_table', 'command_table', 'symbol_set')) {
+        if (-not (Find-ById $window "plugin-create-$kind")) { throw "The editor kind picker is missing $kind" }
+    }
+    Save-Window $window "$prefix-plugin-editor-kinds.png"
+    & $invoke (Find-ById $window 'plugin-create-phrase_table')
+    $name = Wait-PluginEditorElement { Find-ById $window 'plugin-editor-name' } 'The phrase table form'
+    if (-not (Find-ByName $window '新建短语表')) { throw 'The editor does not title the new phrase table' }
+    if ((& $value (Find-ByName $window '许可证')).Current.Value -ne 'CC0-1.0' -or (& $value (Find-ByName $window '版本')).Current.Value -ne '1.0.0') { throw 'The editor does not default to CC0-1.0 and 1.0.0' }
+    (& $value $name).SetValue('合成短语')
+    (& $value (Find-ByName $window '第 1 条短语的编码')).SetValue('DH')
+    (& $value (Find-ByName $window '第 1 条短语的文字')).SetValue('合成电话')
+    Wait-PluginEditorElement {
+        $warning = Find-ById $window 'plugin-editor-warning'
+        if ($warning -and $warning.Current.Name -eq '第 1 条短语的编码只能是 1 到 32 个小写字母。') { $warning }
+    } 'The first problem above the save button' | Out-Null
+    if ((Find-ById $window 'plugin-editor-save').Current.IsEnabled) { throw 'An invalid draft can be saved' }
+    Save-Window $window "$prefix-plugin-editor-issue.png"
+    (& $value (Find-ByName $window '第 1 条短语的编码')).SetValue('dh')
+    $save = Wait-PluginEditorElement {
+        $button = Find-ById $window 'plugin-editor-save'
+        if ($button -and $button.Current.IsEnabled) { $button }
+    } 'An enabled 保存并安装'
+    & $invoke $save
+    $edit = Wait-PluginEditorElement { Find-ById $window 'plugin-edit' } 'The saved pack detail'
+    $manifests = @(Get-ChildItem -LiteralPath (Join-Path $state 'plugins\phrase_table') -Filter 'plugin.toml' -Recurse)
+    if ($manifests.Count -ne 1) { throw "Expected one saved phrase table, found $($manifests.Count)" }
+    $manifest = [IO.File]::ReadAllText($manifests[0].FullName, [Text.Encoding]::UTF8)
+    foreach ($text in @('合成短语', 'dh', '合成电话', 'CC0-1.0')) {
+        if (-not $manifest.Contains($text)) { throw "The saved plugin.toml is missing $text" }
+    }
+    if ($manifests[0].Directory.Name -notmatch '^my-[0-9a-f]{8}$') { throw "Unexpected generated id $($manifests[0].Directory.Name)" }
+    Start-Sleep -Milliseconds 350
+    Save-Window $window "$prefix-plugin-editor-saved.png"
+    & $invoke $edit
+    Wait-PluginEditorElement {
+        $field = Find-ById $window 'plugin-editor-name'
+        if ($field -and (& $value $field).Current.Value -eq '合成短语') { $field }
+    } 'The edited pack read back into the form' | Out-Null
+    if (-not (Find-ByName $window '编辑「合成短语」')) { throw 'The editor does not title the pack it edits' }
+    if ((& $value (Find-ByName $window '第 1 条短语的文字')).Current.Value -ne '合成电话') { throw 'The editor did not read back the phrase' }
+    if ((Find-ById $window 'plugin-editor-save').Current.IsEnabled) { throw 'An unchanged pack can be saved' }
+    & $invoke (Find-ByName $window '返回我的插件')
+    Wait-PluginEditorElement { Find-ById $window 'plugin-edit' } 'The detail after leaving the editor' | Out-Null
+    & $invoke (Wait-PluginEditorElement { Find-ByName $window '返回我的插件' } 'The way back from the detail')
+    Wait-PluginEditorElement { Find-ById $window 'plugin-create' } 'The plugin library after the detail' | Out-Null
+    Write-Host 'Plugin editor created, saved, read back and left a phrase table'
+}
 function Select-PageTab($window, [string]$id, [string]$expected) {
     # 页内标签照 macOS 的 useSettingsTabs：按钮 ID 是 <前缀>-<标签 id>，选中的那个 ItemStatus 是「已选择」；切换后整页重画，等这块内容里的一个名字出现，而不是固定延时。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -1069,14 +1135,18 @@ try {
                     }
                 }
                 if ($page -eq 'plugins') {
-                    # 「我的插件」照 macOS 的插件库：两张快捷卡片、搜索框和底部折叠的导入说明，导入按钮在「已安装」标题旁，不再有「导入插件」组的「从文件导入」一行。
-                    foreach ($name in @('声音与效果', '@ 名单', '搜索已安装插件', '导入文件夹', '插件导入说明')) {
+                    # 「我的插件」照 macOS 的插件库：两张快捷卡片、搜索框和底部折叠的导入说明，「新建插件」和导入按钮在「已安装」标题旁，不再有「导入插件」组的「从文件导入」一行。
+                    foreach ($name in @('声音与效果', '@ 名单', '新建插件', '搜索已安装插件', '导入文件夹', '插件导入说明')) {
                         if (-not (Find-ByName $content $name)) { throw "Plugin library is missing $name" }
                     }
                     if (Find-ByName $content '从文件导入') { throw 'Plugin page still has the old import row' }
                 }
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"
+                if ($page -eq 'plugins' -and $theme -eq 'light' -and $width -eq 1000) {
+                    # 插件编辑器只在第一轮走一遍：保存的包留在合成数据目录里，后几轮的插件库照常列出它。
+                    Assert-PluginEditor $window "$theme-$width"
+                }
                 if ($page -eq 'clip') {
                     # 「历史记录」标签：合成的两条记录在第一页，不足一页时没有翻页器；宽窗口直接排出四个操作，窄窗口收进「更多操作」，两种都不能挤掉正文或伸出正文列。
                     Select-PageTab $window 'clip-tab-history' '历史记录'

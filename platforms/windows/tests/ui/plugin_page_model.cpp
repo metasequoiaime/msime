@@ -607,7 +607,6 @@ int main() {
     const auto appended = append_rows(fresh.phrases, pasted.rows, blank_phrase);
     check(appended.size() == 2 && appended[0].key == L"dz", "pasted rows replace a lone blank row");
     check(append_rows(appended, pasted.rows, blank_phrase).size() == 4, "and are appended after real rows");
-    check(normalized_line_breaks(L"a\rb\r\nc\n") == L"a\nb\nc\n", "WinUI line breaks are read as \\n");
 
     // 保存之后的提醒。
     check(authored_save_note(L"phrase_table", false, true) ==
