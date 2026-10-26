@@ -21,4 +21,4 @@ Status: implemented
 
 ## Verification
 
-设置搜索回归在旧实现中因缺少规则页失败，新增页面后通过。`bash platforms/android/check-host.sh` 的 279 项 JVM 冒烟与 245 个设备用例源码编译通过；`bash scripts/verify-local.sh --quick`、笔记与差异校验通过。API 28 模拟器上，`FuzzyPinyinDeviceSmoke` 输出 `MSIME_DEVICE_SMOKE_PASSED`，覆盖禁用状态下逐项选择、其他规则保留、重开与首次启用不覆盖手动选择。装包和 `smoke.sh --core` 的前序用例通过；它在 `NumberPadDeviceSmoke` 的笔画键面检查停止，本次 APK 未暂存笔画语言词库，应用按既有规则回落到拼音 26 键；单独重跑同一用例仍得到该结果，不能把整套 core 记为通过。
+设置搜索回归在旧实现中因缺少规则页失败，新增页面后通过。`bash platforms/android/check-host.sh` 在同步 `develop` 后的 281 项 JVM 冒烟与 245 个设备用例源码编译通过；`bash scripts/verify-local.sh --quick`、笔记与差异校验通过。API 28 模拟器上，`FuzzyPinyinDeviceSmoke` 输出 `MSIME_DEVICE_SMOKE_PASSED`，覆盖禁用状态下逐项选择、其他规则保留、重开与首次启用不覆盖手动选择。装包和 `smoke.sh --core` 的前序用例通过；它在 `NumberPadDeviceSmoke` 的笔画键面检查停止，本次 APK 未暂存笔画语言词库，应用按既有规则回落到拼音 26 键；单独重跑同一用例仍得到该结果，不能把整套 core 记为通过。
