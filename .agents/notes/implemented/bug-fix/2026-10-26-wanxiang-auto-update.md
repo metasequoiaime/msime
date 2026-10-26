@@ -28,4 +28,6 @@ Status: implemented
 - `cargo check -p msime-client-providers`
 - `cargo check -p msime-host-api`
 - `cargo clippy -p msime-client-providers -p msime-host-api --lib --tests -- -D warnings`
-- 由于本机磁盘余量低于仓库规定的 50GB 门槛，未运行会创建其他平台构建树的 `scripts/verify-local.sh --quick`，也未做 Android 设备验收或实际万象大模型下载，不把宿主测试表述为设备验证。
+- 真实上游以 HTTP Range 读取 44 字节头部，响应为 206；总长为 `418078764` 字节、数组为 `104519680` 单元，魔数与数组边界符合本次规则。未完整下载实际大模型。
+- 手动触发的远端工作流 `40279309594` 在提交 `e52e4f415513da4233fd17a3a104c5ae85229587` 的 API 28 和 35 模拟器上跑完 client-base、client-core、client-providers、client-services 整套单测，两个测试步骤均成功；APK 构建也成功，装包与输入冒烟尚在运行。后续桌面提交只补充 Tauri 错误映射及其测试，未改设备验证涉及的共享 Rust 源码；该桌面提交的 Linux 设置应用检查成功。单测通过不代表整包冒烟完成。
+- 由于本机磁盘余量低于仓库规定的 50GB 门槛，未运行会创建其他平台构建树的 `scripts/verify-local.sh --quick`。全仓格式检查存在基线 `client-core/src/preferences.rs` 的差异，本次改动文件单独通过格式检查。
