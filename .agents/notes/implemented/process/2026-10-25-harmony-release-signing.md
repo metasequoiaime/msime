@@ -10,9 +10,9 @@ Status: implemented
 
 公开发布必须经过 `platforms/harmony/sign-release.py`。构建前验证华为应用市场类型的 release Profile、有效期、包名、发布证书与私钥的匹配、共享沙箱 ID 和剪贴板受限权限；缺任何一项都失败，不降级成未签名或 debug 签名。
 
-密钥库、密码、证书链和 Profile 放在仓库的 `HARMONY_RELEASE_*` secrets，仅发布步骤解码到临时目录，退出即删除。签名工具失败时不转发原始输出，以免凭据进入日志。签名任务继续在 GitHub 托管 runner 上运行。只构建的 nightly 不读取这些 secrets，保留未签名产物。
+密钥库、密码、证书链和 Profile 放在仓库的 `HARMONY_RELEASE_*` secrets，仅显式请求签名或发布的步骤解码到临时目录，退出即删除。签名工具失败时不转发原始输出，以免凭据进入日志。签名任务继续在 GitHub 托管 runner 上运行。只构建的 nightly 不读取这些 secrets，保留未签名产物。手动工作流可用 `sign=true, publish=false` 生成正式签名材料而不创建 GitHub release。额外指定 `source_release` 时，只下载匹配版本的已发布 HAP，用 `--signed-hap` 复验签名、Profile 和内容后直接复制，跳过产品编译与 HAP 重签；这样修复市场封装时仍与用户下载的发布 HAP 完全一致。
 
-HAP 使用 release 模式完整构建，签名前拒绝调试标记，并核对包名、两个版本字段、原生库和必需资源；签名后用华为工具验证、比对嵌入 Profile，并逐项核对原包内容没有被改变。华为打包工具将通过验证的 HAP 与同次构建的 `pack.info` 组成市场提交 APP，随后核对 APP 内的 HAP 与已签名包逐字节相同。
+HAP 使用 release 模式完整构建，签名前拒绝调试标记，并核对包名、两个版本字段、原生库和必需资源；签名后用华为工具验证、比对嵌入 Profile，并逐项核对原包内容没有被改变。华为打包工具将通过验证的 HAP 与同次构建的 `pack.info` 组成市场提交 APP，然后对 APP 外层独立签名和验签，比对其嵌入 Profile，最后核对 APP 内的 HAP 与已签名包逐字节相同。APP 打包本身不会生成外层签名；只有内层 HAP 签名时，AGC 返回非法软件包 `991`。本机对原 `0.2.1` APP 复验报 `No Hap Signing Block before ZIP Central Directory`，而内层 HAP 验签成功，因此最终 HAP 与最终 APP 都必须独立验签。
 
 GitHub 版本发布页只放已签名 HAP 和只列该 HAP 的 `SHA256SUMS`；应用市场提交 APP 放独立 workflow artifact。生成市场提交材料与完成应用市场审核是两个结果，不能把创建 GitHub release 报成市场上架成功。
 
@@ -28,6 +28,6 @@ APP 打包必须传 `--replace-pack-info false`：华为工具的默认行为会
 
 发布必须提前配置有效的四项 secrets，且 release Profile 带有 `group.1516753898738609107`；开发者需要在 AGC 更新 Profile，不能本地编辑授权字段。应用市场渠道的包由市场分发，GitHub 下载页不承诺绕过系统分发限制直接安装。
 
-合成证书与合成 HAP 的回归覆盖 debug 或错误渠道、过期、缺共享组或 ACL、设备限制、证书不匹配、版本错误、缺库和缺资源，以及失败日志不泄密。完整签名、市场接受和真机输入法验收仍要使用真正的发布材料验证，单元测试不能替代。
+合成证书与合成 HAP 的回归覆盖 debug 或错误渠道、过期、缺共享组或 ACL、设备限制、证书不匹配、版本错误、缺库和缺资源，以及失败日志不泄密。合成材料还对最终 APP 独立验签并比对 Profile；完整签名、市场接受和真机输入法验收仍要使用真正的发布材料验证，单元测试不能替代。
 
 检索审计：[共享沙箱](../architecture/2026-10-09-harmony-ime-shared-sandbox.md) 持有运行时数据交换与授权值，本篇不改变该决定；[六平台 nightly](2026-10-14-six-platform-nightly-builds.md) 的非 iOS nightly 不使用正式密钥规则保留。检索其余鸿蒙发布和证书记录无重复归属。
