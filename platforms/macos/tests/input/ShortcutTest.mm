@@ -4560,7 +4560,7 @@ static void TestAdaptiveCandidatePaginationKeepsCurrentPage() {
     session.generation = 11;
     session.total = 23;
     session.pageSize = 5;
-    session.prefix = @"候选词";
+    session.prefix = @"候选词候选词候选词候选词候选词候选词";
     session.editing = @"liangzhe";
     ShortcutClient *client = [ShortcutClient new];
     client.caret = NSMakeRect(200, 400, 1, 18);
