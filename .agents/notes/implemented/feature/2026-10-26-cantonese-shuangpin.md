@@ -26,5 +26,5 @@ issue #9799 提议为现有粤拼方案增加粤语双拼。报告附带的参�
 
 ## Verification
 
-- `cargo test -p msime-engine cantonese:: --lib`：36 项通过，覆盖规则编码、库存边界、双拼候选展开、候选覆盖范围和既有粤拼回归；另有会话层测试验证双拼候选与 `;` 韵母键路由。
+- `cargo test -p msime-engine cantonese:: --lib`：38 项通过，覆盖规则编码、库存边界、双拼候选展开、撇号边界、宿主重建和既有粤拼回归；另有会话层测试验证双拼候选与 `;` 韵母键路由。
 - 尚未接入各平台的独立方案选择项，也未完成 Android、iOS、macOS、Windows、Linux、HarmonyOS 的真实键盘验收；这些是后续接入工作的缺口。
