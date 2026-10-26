@@ -408,6 +408,7 @@ title = "UUID"                  # 1 到 8 个字符，显示在插件行旁
 | `rewrite_commit`      | 改写上屏文本里可改写的一段（标点、顶字的尾巴只读）               | `read_commit`；不能和 `read_composition` 同时 | `rewrite_commit`                                                                                 |
 | `rerank_candidates`   | 重排候选                                                         | `read_candidates`                            | `candidates_order`                                                                               |
 | `filter_candidates`   | 把候选降到末尾并隐藏                                             | `read_candidates`                            | `candidates_hide`                                                                                |
+| `insert_candidates`   | 往候选列表里加行（最多 3 行），见[往候选里加行](#往候选里加行)   | `read_candidates`                            | `candidates_insert`                                                                              |
 | `annotate_candidates` | 给候选加注释                                                     | `read_candidates`                            | `candidates_annotate`                                                                            |
 | `provide_commands`    | 在自己声明的 `/` 指令里读到触发词和后面的字母，给出候选行        |                                              | `command_text`、`command_row`                                                                    |
 
@@ -481,6 +482,15 @@ title = "UUID"                  # 1 到 8 个字符，显示在插件行旁
 - `command` 和 `before_commit` 一样每次在快照上运行，给出的行只取决于触发词、参数、随机数和模块本身：同时申请了读文本能力的插件在别的钩子里存下的内容，带不进任何一行。`command` 事件里只有本地模式这一个枚举字段，读不到上屏、组字和候选。
 - `command` 只投递给触发词的主人，别的插件收不到，也看不到插件行：`/` 指令是本地模式 `command`，别的插件在这里读文本一律是 `ABSENT`，`candidates` 也不运行。
 - `log` 在输入法里是空操作，不写任何日志；只有 `msime-pack run` 会打出来。插件可以往 `log` 里写读到的上屏或候选文本（模板和 plugins/script 的插件就靠它在 `msime-pack run` 里核对改写和注释的结果），所以输入法以后若要收集脚本日志，必须把它当作用户输入的文本处理，不能直接写进诊断日志。
+
+### 往候选里加行
+
+申请了 `insert_candidates` 的插件可以在 `candidates` 钩子里往普通候选列表里加行，例如表情联想、自定义缩写展开。
+
+- `candidates_insert(position, text, tlen, note, nlen)` 暂存一行，插在插件变换（重排、隐藏、注释）之后呈现顺序的 `position` 处，`position` 是 0 到窗口行数（`candidate_count()`），越界返回 `INVALID`；超出可见行数时插在可见行的末尾。成功返回这一行的序号。文本和注释的规则同 `command_row`（见[`/` 指令](#-指令)），不合规返回 `INVALID`，太长返回 `LIMIT`。每个插件每次最多 3 行，第 4 行返回 `LIMIT`；所有插件合计最多 6 行，按执行顺序截断，同文的只留第一行；后面的插件读不到前面插件插入的行。
+- 只在 `candidates` 里、本地模式是 `none` 时有效，别处（包括临时英文、emoji）返回 `DENIED`。暂存了词段、九键、宫格时不插。钩子正常返回才插入，失败时作废。
+- 插入的行来源是插件（`source` 14），带插件的注释，用户能从来源角标认出它。选中、按序号、按空格或打标点结束输入时原样上屏，全角模式下也不转全角；组字随之结束。它不进词库、不调词频、不计打字统计、不作为上文发给 AI 候选，页面上有插件的行时整页不查释义、不交给翻译服务。以词定字、置顶、删除和固定位置对它不起作用。输入法替失焦结束组字时上屏的是引擎的首行。
+- 固定了位置的词、云和 AI 候选不因插入挪位。在线候选回来、停顿后的重排这类不由按键触发的更新不运行插件，只按记下的位置和那里候选的身份重放插入，身份对不上时丢掉这一行；有插入的行时不做停顿后的重排。
 
 ### `/` 指令
 
