@@ -140,6 +140,8 @@ export type Preferences = PunctuationPreferences &
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
     /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
     touch_shuangpin_key_hints?: boolean;
+    /** 全拼 26 键组字时第三排左端保留 ⇧（点一下臂辅助码）而不换成「分词」；缺省为关。 */
+    touch_quanpin_shift?: boolean;
     /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */
     touch_spelling_position?: "editor" | "candidate_bar";
     touch_toolbar?: Partial<TouchToolbarPreferences>;

@@ -936,6 +936,8 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
   touch_shuangpin_key_hints?: boolean;
+  /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」；旧文档没有这个键，按关。 */
+  touch_quanpin_shift?: boolean;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1084,6 +1086,8 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
   readonly shuangpinKeyHints: boolean;
+  /** `touch_quanpin_shift`：打开时全拼 26 键组字保留 ⇧，点一下臂辅助码；缺省为关（分词）。 */
+  readonly quanpinShift: boolean;
   /** `harmony_toolbar`：手机工具栏上显示哪些工具，整行是否隐藏。 */
   readonly toolbarTools: ToolbarTools;
 }
@@ -1380,6 +1384,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     shuangpinKeyHints: false,
+    quanpinShift: false,
     toolbarTools: TouchToolbarPolicy.DEFAULT
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
@@ -1797,6 +1802,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
       shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true,
+      quanpinShift: preferences.touch_quanpin_shift === true,
       toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
