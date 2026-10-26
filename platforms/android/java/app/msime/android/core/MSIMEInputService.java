@@ -9305,7 +9305,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (commaSecondaryPeriod() || handwritingMarksShown()) {
                 imeKeyFeedback.playFeedback(quickPunctuationButton);
                 countKey(quickPunctuationButton);
-                type(uriPeriodPrimary() ? ',' : commaSecondaryPeriod() ? '.' : '?');
+                if (uriPeriodPrimary()) type(',');
+                else type(commaSecondaryPeriod() ? '.' : '?');
             } else showQuickPunctuationMenu();
             return true;
         });
