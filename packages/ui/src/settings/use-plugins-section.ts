@@ -11,6 +11,7 @@ import {
   schemeOpensTableModes,
 } from "./plugin-catalog-helpers";
 import type {
+  AuthoredPack,
   MentionEntry,
   PluginCatalogResult,
   PluginClient,
@@ -75,6 +76,10 @@ export function usePluginsSection({
   const [savedMentions, setSavedMentions] = useState<MentionEntry[]>([]);
   const [scriptGrants, setScriptGrants] = useState<ScriptGrantsResult | null>(null);
   const mentionsEditable = triggers && Boolean(client);
+  // 宿主提供编辑器的读写时，列表有「新建插件」，用户包的详情有「编辑」。
+  const authoring = Boolean(client?.loadAuthoredPack && client?.saveAuthoredPack);
+  // 刚在编辑器里保存的包：它的详情页顶上说明还差哪一步才能用上。
+  const [justSaved, setJustSaved] = useState<{ kind: PluginKind; id: string } | null>(null);
   // 只有运行脚本插件的桌面宿主有授权方法。
   const scriptsShown = scriptPlugins && Boolean(client?.scriptGrants);
   // 方案不支持 K、/ 和 @ 时，列表优先说明方案限制。
@@ -222,6 +227,21 @@ export function usePluginsSection({
     }, "删除失败，请重试。");
   };
 
+  // 编辑器里的保存：失败时抛出，由编辑器就地说明。成功后重读目录，打开这个包的详情。
+  const saveAuthored = async (pack: AuthoredPack, replace: boolean) => {
+    const generation = clientGeneration.current;
+    const saved = await client!.saveAuthoredPack!(pack, replace);
+    if (generation !== clientGeneration.current) return;
+    setNotice(`已保存${packKindLabel(saved)}「${saved.name}」。`);
+    await refresh();
+    if (generation !== clientGeneration.current) return;
+    setJustSaved({ kind: saved.kind, id: saved.id });
+    navigation.openView(
+      { kind: "pack", packKind: saved.kind, id: saved.id },
+      `pack/${saved.kind}/${saved.id}`,
+    );
+  };
+
   const scriptPacks = scriptsShown ? catalog.packages.filter((pack) => pack.kind === "script") : [];
   const runningScripts = runningScriptIds(scriptGrants, scriptPacks);
 
@@ -318,6 +338,10 @@ export function usePluginsSection({
       ? "有未保存的修改"
       : `${savedMentions.length} 条，只保存在本机${mentionModeGap}`,
     working,
+    authoring,
+    justSaved,
+    clearJustSaved: () => setJustSaved(null),
+    saveAuthored,
     scriptsShown,
     scriptPacks,
     scriptGrants,

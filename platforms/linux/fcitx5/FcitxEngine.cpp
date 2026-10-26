@@ -90,6 +90,7 @@
 #include "../src/core/HelpcodePack.h"
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
+#include "../src/core/CaretEditSuffix.h"
 #include "../src/core/ClientInputModeMemory.h"
 #include "../src/core/AppInputModeRules.h"
 #include "../src/core/JapaneseConversion.h"
@@ -4305,10 +4306,12 @@ struct FcitxCandidateDisplay {
   bool pending = false;
   std::optional<std::string> decoration_text;
   std::string decoration_badge;
+  // 光标后编辑里首选开头固定的那几个字占 word 和 body 开头多少字节，原生画布把它们画淡。classicui 的 fcitx::Text 只有下划线、高亮、粗体、斜体这些格式，没有颜色，斜体在这里又表示「次要、不上屏」（AI 占位行、训音），而这几个字是要上屏的，所以 classic 照常画。
+  std::size_t dim_prefix_bytes = 0;
 };
-// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到。
+// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
-                                     const std::string &hanjaGloss, uint32_t variant) {
+                                     const std::string &hanjaGloss, uint32_t variant, std::size_t dimScalars = 0) {
   FcitxCandidateDisplay display;
   // Engine 候选来源 12 是 AI 占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12) {
@@ -4322,6 +4325,8 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
                                        : candidate.at("text").get<std::string>();
   const auto source = msime::linux_host::strict_json_value(candidate, "source", uint64_t{});
   display.decoration_badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
+  // 按转换以后的文字算字节：word 和 body 都以它开头。
+  display.dim_prefix_bytes = msime::linux_host::utf8_scalar_prefix_bytes(*display.decoration_text, dimScalars);
   fcitx::Text row(*display.decoration_text +
       // 纠错标记只属于普通显示行；装饰词保留完成简繁转换的原文，选择仍沿用候选身份。
       (candidate.value("corrected", false) ? "*" : "") +
@@ -4362,8 +4367,8 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
 class FcitxCandidate : public fcitx::CandidateWord {
 public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
-                 bool annotations, const std::string &hanjaGloss, uint32_t variant = 0)
-      : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant)) {}
+                 bool annotations, const std::string &hanjaGloss, uint32_t variant = 0, std::size_t dimScalars = 0)
+      : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant, dimScalars)) {}
   const FcitxCandidateDisplay &display() const { return display_; }
 private:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, FcitxCandidateDisplay display)
@@ -4458,13 +4463,15 @@ public:
     setActionable(this);
 #endif
     const auto &candidates = state.view_.at("candidates");
+    const auto caretEdit = msime::linux_host::caret_edit_suffix(state.view_);
     words_.reserve(candidates.size());
     labels_.reserve(candidates.size());
     for (const auto &candidate : candidates) {
       if (candidate.value("highlighted", false)) cursor_ = words_.size();
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
-          msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_));
+          msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_,
+          msime::linux_host::caret_edit_dim_scalars(caretEdit, candidate)));
       // 序号与选它的数字键一致：第十个由 0 键选，标 0。macOS 的序号不带句点，按 0.8 倍字号画、与候选隔 1.5pt；classicui 序号与候选之间没有间距，留一个空格代替，字号由主题的 LabelTextSizeFactor 缩到 80%。
       labels_.emplace_back(msime::linux_host::candidate_index_label(words_.size() - 1) + " ");
     }
@@ -7961,7 +7968,7 @@ void FcitxState::refreshToolbar() {
   engine_->arrangeStatusArea(&ic_);
 }
 
-// The aux line below a candidate page: the page number, the local mode, the reading when the candidate preedit shows it, and the typing combo while there is one.
+// 候选页下方的辅助行：页码、本地模式、候选预编辑显示拼音时的拼音、光标后编辑生效时的「候选编辑：光标后」，最后是打字连击（有的时候）。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
 std::string FcitxState::candidateAux() const {
   const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
   const auto page_count =
@@ -7981,6 +7988,7 @@ std::string FcitxState::candidateAux() const {
       if (!displayed.empty()) aux += (aux.empty() ? "" : " · ") + displayed;
     }
   }
+  msime::linux_host::append_caret_edit_suffix_hint(aux, msime::linux_host::caret_edit_suffix(view_), " · ");
   const auto combo = msime::linux_host::typing_combo_label(typing_combo_);
   if (!combo.empty()) aux += (aux.empty() ? "" : " · ") + combo;
   return aux;
@@ -8339,12 +8347,13 @@ bool FcitxState::renderNativeCanvas() {
   content.wheel_paging = engine_->classicui_wheel_paging_;
   content.page_arrows = preferences_.value("show_candidate_page_number", true);
   if (chrome) {
-    // macOS 结构：页码进首行（「1 / 3」），拼音在首行左边；底部一行只剩本地模式和打字连击，macOS 候选窗没有这一行，Linux 留着它们。
+    // macOS 结构：页码进首行（「1 / 3」），拼音在首行左边；底部一行只剩本地模式和打字连击，macOS 候选窗没有这一行，Linux 留着它们。光标后编辑的提示画在这一行的右端（auxiliary_hint），本地模式和连击照旧从左边排。
     std::string footer;
     if (const char *label = host::candidate_local_mode_label(view_.value("local_mode", std::string("none")))) footer = label;
     const auto combo = host::typing_combo_label(typing_combo_);
     if (!combo.empty()) footer += (footer.empty() ? "" : " · ") + combo;
     content.auxiliary = std::move(footer);
+    if (host::caret_edit_suffix(view_).active) content.auxiliary_hint = std::string(host::kCaretEditSuffixHint);
     content.logo = engine_->native_canvas_logo_;
     const auto scale = host::read_fcitx_candidate_style(preferences_).scale;
     const auto preedit_size = preferences_.find("candidate_preedit_font_size");
@@ -8376,6 +8385,7 @@ bool FcitxState::renderNativeCanvas() {
         display.suffix, display.translation_runs, display.fixed};
     result.decoration_text = display.decoration_text;
     result.decoration_badge = display.decoration_badge;
+    result.dim_prefix_bytes = display.dim_prefix_bytes;
     if (chrome) {
       result.reading = display.reading;
       result.script_annotation = display.script_annotation;
@@ -8410,10 +8420,11 @@ bool FcitxState::renderNativeCanvas() {
     expanded_first_row_ = msime::candidate::ExpandedGridFirstRow(expanded_first_row_, cursor_row, rows, visible);
     const auto first = expanded_first_row_ * columns;
     const auto last = std::min(count, (expanded_first_row_ + visible) * columns);
+    const auto caretEdit = host::caret_edit_suffix(view_);
     for (auto at = first; at < last; ++at) {
       const auto &entry = expanded_[at];
       const auto display = candidateDisplay(entry, traditionalApplies(), showCandidateAnnotations(),
-          host::korean_hanja_gloss(view_, entry), traditional_variant_);
+          host::korean_hanja_gloss(view_, entry), traditional_variant_, host::caret_edit_dim_scalars(caretEdit, entry));
       content.items.push_back(make_item(display, at / columns == cursor_row ? host::candidate_index_label(at % columns) : std::string{}));
     }
     content.selected = static_cast<int>(expanded_cursor_ - first);

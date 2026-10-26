@@ -1200,6 +1200,8 @@ add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
 add_test(NAME candidate-user-geometry COMMAND candidate-row-layout-test --user-geometry)
 add_test(NAME candidate-host-appearance COMMAND candidate-row-layout-test --host-appearance)
 add_test(NAME candidate-adaptive-layout COMMAND candidate-row-layout-test --adaptive)
+# 光标后编辑：视图字段、首行右侧的提示和首选开头画淡。
+add_test(NAME candidate-caret-edit-suffix COMMAND candidate-row-layout-test --caret-edit-suffix)
 # 计时动效独立启动事件循环，不承接大排版矩阵的窗口与图层回调。
 add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --declared-motion)
 # 大皮肤矩阵各自运行，保留 CI 的单项时限和全部排版断言。

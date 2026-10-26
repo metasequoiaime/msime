@@ -8,11 +8,11 @@ Status: implemented
 
 ## Decision
 
-共享偏好新增 `touch_quanpin_shift`（`crates/client-core/src/preferences.rs` 的 `Preferences`），默认关：关着就是原有分词行为，老用户手感不变。打开后 Android 与 iOS 的全拼 26 键在组字中保留 ⇧，点一下臂辅助码（Shift+字母），不替换成分词键。九键、14 键、18 键和九键双拼自带的分词键不受它影响。双拼 26 键本来就不替换 Shift，也不受影响。
+共享偏好新增 `touch_quanpin_shift`（`crates/client-core/src/preferences.rs` 的 `Preferences`），默认关：关着就是原有分词行为，老用户手感不变。打开后 Android、iOS 与 HarmonyOS 的全拼 26 键在组字中保留 ⇧，点一下臂辅助码（Shift+字母），不替换成分词键。九键、14 键、18 键和九键双拼自带的分词键不受它影响。双拼 26 键本来就不替换 Shift，也不受影响。
 
-偏好只在组字分支处生效：Android 的 `usesQuanpinSeparator()`（`MSIMEInputService.java`）与 iOS 的 `usesQuanpinSeparator`（`KeyboardViewController.swift`）都先看它，其余条件（中文、26 键字母页、非本地模式、非密码框）不变。键面、读屏和点击随同一分支恢复 Shift 语义，[就地改键面](../../implemented/bug-fix/2026-10-11-android-shift-relabel-in-place.md) 的约束照旧。
+偏好只在组字分支处生效：Android 的 `usesQuanpinSeparator()`（`MSIMEInputService.java`）、iOS 的 `usesQuanpinSeparator`（`KeyboardViewController.swift`）与鸿蒙的 `KeyboardView.usesQuanpinSeparator()`（偏好经 `KeyboardScheme.usesQuanpinSeparator` 的 `shiftKept` 参数传入，键盘判定保持纯静态）都先看它，其余条件（中文、26 键字母页、非本地模式、非密码框）不变。键面、读屏和点击随同一分支恢复 Shift 语义，[就地改键面](../../implemented/bug-fix/2026-10-11-android-shift-relabel-in-place.md) 的约束照旧。鸿蒙的键面进了 `faceKey()`（`run.sh` 门禁钉住双拼提示的同一条），开关变化会重画字母键。
 
-偏好随账号同步：Android 走 `platform.android.quanpin_shift`，鸿蒙保留同构键 `platform.harmony.quanpin_shift`（宿主暂无设置入口，共享偏好原样同步）；iOS 键盘经 App Group 镜像 `keyboard.quanpin.shift` 读取，模式与 `touch_shuangpin_key_hints` 完全相同（`KeyboardLayoutPreference.swift`）。设置入口：Android 的「键盘 › 组字时保留 Shift」（`KeyboardOptionsPage.java`），iOS 的「键盘 › 布局 › 组字时保留 Shift」（`KeyboardLayoutSettingsView.swift`）。
+偏好随账号同步：Android 走 `platform.android.quanpin_shift`，鸿蒙走同构键 `platform.harmony.quanpin_shift`；iOS 键盘经 App Group 镜像 `keyboard.quanpin.shift` 读取，模式与 `touch_shuangpin_key_hints` 完全相同（`KeyboardLayoutPreference.swift`）。三端宿主都读这个偏好：Android 的「键盘 › 组字时保留 Shift」（`KeyboardOptionsPage.java`），iOS 的「键盘 › 布局 › 组字时保留 Shift」（`KeyboardLayoutSettingsView.swift`），鸿蒙走共享 React 设置页「屏幕键盘 › 布局 › 组字时保留 Shift」（`screen-keyboard-page.tsx` → `touch-keyboard-geometry-section.tsx`，键盘侧 `KeyboardSession.ets` 以 `=== true` 读文档、缺省关）。
 
 ## Alternatives considered
 

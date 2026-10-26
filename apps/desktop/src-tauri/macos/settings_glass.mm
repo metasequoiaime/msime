@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
+#import <IOKit/hid/IOHIDLib.h>
 #import <objc/runtime.h>
 
 static char MSIMESettingsGlassControllerKey;
@@ -100,4 +101,10 @@ extern "C" void msime_install_settings_glass(void *windowPointer, void *webviewP
             [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(refresh) name:name object:NSApp];
         [controller refresh];
     }
+}
+
+// 设置应用是前台 GUI 进程；输入法本体是后台进程，不能可靠地显示输入监控授权提示。
+extern "C" void msime_request_caps_lock_hid_access() {
+    if (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeUnknown)
+        IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
 }

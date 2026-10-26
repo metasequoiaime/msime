@@ -13903,6 +13903,7 @@ private:
           candidates, candidates_more_open_,
           focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输" ||
               focus_row_ == L"日文混输（实验）" || focus_row_ == L"只出单字" ||
+              focus_row_ == L"移动光标后编辑光标后的部分" ||
               focus_row_ == L"本地整句联想");
       // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
       bool_row(candidates_more, 0xE8EF, L"符号混输",
@@ -13921,6 +13922,10 @@ private:
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
                L"single_character_only", false);
+      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。共享页把它排在「快捷短语混输」旁边，Windows 没有那一行，排在「只出单字」后面。
+      bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
+               L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
+               L"caret_edit_suffix", false);
       bool_row(candidates_more, 0xE8C1, L"本地整句联想",
                L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
                L"sentence_association.word_lattice", true);

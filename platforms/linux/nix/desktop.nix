@@ -33,6 +33,7 @@ let
 
     # 设置页只由 apps/desktop 与 packages/ui 构成，测试用不到，改它们不必重编。pnpm 按
     # pnpm-workspace.yaml 核对锁文件，所以另一个 workspace 成员 apps/harmony 的清单也要在。
+    # packages/ui 的键盘皮肤从 resources 读预设，只取这一个文件。
     src = lib.fileset.toSource {
       inherit root;
       fileset = lib.fileset.unions [
@@ -47,6 +48,7 @@ let
           ]
         ))
         (root + "/packages/ui")
+        (root + "/resources/keyboard-skin-presets.json")
         (root + "/platforms/linux/collect-notices.py")
       ];
     };

@@ -1,6 +1,6 @@
 //! 水杉输入法桌面脚本插件 ABI v1 的 Rust 绑定：单文件，只用 `core`，可以直接放进 `#![no_std]` 的 crate（`#[path = "…/msime_script.rs"] mod msime_script;`）。
 //!
-//! 模块按能力域分组，和清单 `permissions` 一一对应：`event`、`log`、`random` 不需要能力；`composition` 要 `read_composition`；`commit` 要 `read_commit`；`candidates` 要 `read_candidates`；`rewrite`、`rerank`、`filter`、`annotate` 分别要 `rewrite_commit`、`rerank_candidates`、`filter_candidates`、`annotate_candidates`；`command` 要 `provide_commands`。只有真正调用到的函数才会成为模块的 import，校验要求导入了的函数都有对应的能力、申请了的能力都至少导入一个函数，所以用到哪一组就申请哪一项。
+//! 模块按能力域分组，和清单 `permissions` 一一对应：`event`、`log`、`random`、`settings`、`data` 不需要能力；`insert` 要 `insert_candidates`；`storage` 要 `persist_data`；`composition` 要 `read_composition`；`commit` 要 `read_commit`；`candidates` 要 `read_candidates`；`rewrite`、`rerank`、`filter`、`annotate` 分别要 `rewrite_commit`、`rerank_candidates`、`filter_candidates`、`annotate_candidates`；`command` 要 `provide_commands`。只有真正调用到的函数才会成为模块的 import，校验要求导入了的函数都有对应的能力、申请了的能力都至少导入一个函数，所以用到哪一组就申请哪一项。
 //!
 //! 插件自己要导出 `msime_abi`（返回 [`ABI_VERSION`]）和 `msime_on_event(kind: i32) -> i32`（`kind` 是 [`hook`] 里的编号，返回负数算这一次失败），可选导出 `msime_init`。完整说明见仓库的 docs/plugins.md「脚本插件」一节。编号只会追加，不会改值。
 
@@ -194,6 +194,20 @@ mod sys {
         pub fn command_text(field: i32, dst: *mut u8, cap: i32) -> i32;
         pub fn command_row(text: *const u8, text_len: i32, note: *const u8, note_len: i32) -> i32;
         pub fn random_fill(dst: *mut u8, len: i32) -> i32;
+        pub fn setting_count() -> i32;
+        pub fn setting_value(index: i32, dst: *mut u8, cap: i32) -> i32;
+        pub fn data_len(file: i32) -> i64;
+        pub fn data_read(file: i32, offset: i32, dst: *mut u8, cap: i32) -> i32;
+        pub fn candidates_insert(
+            position: i32,
+            text: *const u8,
+            text_len: i32,
+            note: *const u8,
+            note_len: i32,
+        ) -> i32;
+        pub fn storage_len() -> i32;
+        pub fn storage_read(offset: i32, dst: *mut u8, cap: i32) -> i32;
+        pub fn storage_write(src: *const u8, len: i32) -> i32;
     }
 }
 
@@ -215,10 +229,26 @@ pub mod event {
     pub const CONTINUES: i32 = 9;
     /// 0 或 1：引擎生成的文本，例如计算器、命令（`commit`）。
     pub const GENERATED: i32 = 10;
+    /// 本地日期 `yyyymmdd`。只在 `command` 里有。
+    pub const LOCAL_DATE: i32 = 11;
+    /// 当天第几分钟，0 到 1439。只在 `command` 里有。
+    pub const LOCAL_MINUTE: i32 = 12;
+    /// 星期几，1 到 7，周一为 1。只在 `command` 里有。
+    pub const WEEKDAY: i32 = 13;
+    /// 比 UTC 早多少分钟，可以为负，用 [`signed`] 读。只在 `command` 里有。
+    pub const UTC_OFFSET_MINUTES: i32 = 14;
 
     /// 字段的值；这个事件没有该字段时是 `Err(Error::Absent)`。
     pub fn scalar(field: i32) -> Result<u64, Error> {
         check(unsafe { sys::event_scalar(field) })
+    }
+
+    /// 可以为负的字段（`UTC_OFFSET_MINUTES`）：只有 -1 到 -4 是返回码，其余负数照原样交回。
+    pub fn signed(field: i32) -> Result<i64, Error> {
+        match unsafe { sys::event_scalar(field) } {
+            code @ -4..=-1 => Err(Error::of(code)),
+            value => Ok(value),
+        }
     }
 }
 
@@ -433,6 +463,84 @@ pub mod command {
         check(i64::from(unsafe {
             sys::command_row(text.as_ptr(), text_len, note.as_ptr(), note_len)
         }))
+    }
+}
+
+/// 不需要能力：清单 `[[script.settings]]` 里各项的当前值。所有钩子和 `msime_init` 里都可用。
+pub mod settings {
+    use super::{cap, check, sys, text as decoded, Error};
+
+    /// 项数。
+    pub fn count() -> Result<u64, Error> {
+        check(i64::from(unsafe { sys::setting_count() }))
+    }
+
+    /// 第 `index` 项的值：布尔是 `"0"`/`"1"`，数字是十进制，选项是它的 `value`，文本原样。越界是 `Err(Error::Invalid)`，放不下是 `Err(Error::Limit)`。
+    pub fn value(index: u32, buffer: &mut [u8]) -> Result<&str, Error> {
+        let code = unsafe { sys::setting_value(index as i32, buffer.as_mut_ptr(), cap(buffer)) };
+        decoded(code, buffer)
+    }
+}
+
+/// 不需要能力：清单 `[script].data` 里的随包只读数据，按偏移读原始字节。所有钩子和 `msime_init` 里都可用。
+pub mod data {
+    use super::{cap, check, raw, sys, Error};
+
+    /// 第 `file` 个文件的字节数。
+    pub fn len(file: u32) -> Result<u64, Error> {
+        check(unsafe { sys::data_len(file as i32) })
+    }
+
+    /// 从第 `offset` 字节起读到 `buffer`，交回读到的那一段（到文件末尾时比 `buffer` 短）。
+    pub fn read(file: u32, offset: u32, buffer: &mut [u8]) -> Result<&[u8], Error> {
+        let code =
+            unsafe { sys::data_read(file as i32, offset as i32, buffer.as_mut_ptr(), cap(buffer)) };
+        raw(code, buffer)
+    }
+}
+
+/// `insert_candidates`（依赖 `read_candidates`）：只在 `candidates` 里、本地模式 `none` 时有效，别处是 `Err(Error::Denied)`。
+pub mod insert {
+    use super::{check, sys, Error};
+
+    /// 在插件变换之后的呈现顺序的 `position`（0 到窗口行数）处插一行，返回序号。`text` 和 `note` 的规则同 [`super::command::row`]；每次最多 3 行。钩子正常返回之后才插入。
+    pub fn row(position: u32, text: &str, note: &str) -> Result<u64, Error> {
+        let text_len = i32::try_from(text.len()).map_err(|_| Error::Limit)?;
+        let note_len = i32::try_from(note.len()).map_err(|_| Error::Limit)?;
+        check(i64::from(unsafe {
+            sys::candidates_insert(
+                position as i32,
+                text.as_ptr(),
+                text_len,
+                note.as_ptr(),
+                note_len,
+            )
+        }))
+    }
+}
+
+/// `persist_data`（不能和 `rewrite_commit` 同时申请）：一块跨输入框保留的私有存储，最多 64 KiB。只在持久实例上的钩子里有效，`before_commit`、`command` 和 `msime_init` 里是 `Err(Error::Denied)`。
+pub mod storage {
+    use super::{cap, check, raw, sys, Error};
+
+    /// 字节数。
+    pub fn len() -> Result<u64, Error> {
+        check(i64::from(unsafe { sys::storage_len() }))
+    }
+
+    /// 从第 `offset` 字节起读到 `buffer`，交回读到的那一段。
+    pub fn read(offset: u32, buffer: &mut [u8]) -> Result<&[u8], Error> {
+        let code = unsafe { sys::storage_read(offset as i32, buffer.as_mut_ptr(), cap(buffer)) };
+        raw(code, buffer)
+    }
+
+    /// 用 `bytes` 整块替换存储；超过 64 KiB 是 `Err(Error::Limit)`。钩子正常返回之后才生效。
+    pub fn write(bytes: &[u8]) -> Result<(), Error> {
+        let len = i32::try_from(bytes.len()).map_err(|_| Error::Limit)?;
+        check(i64::from(unsafe {
+            sys::storage_write(bytes.as_ptr(), len)
+        }))
+        .map(drop)
     }
 }
 

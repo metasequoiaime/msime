@@ -21,6 +21,7 @@ let
 
   # 两个 Rust 包共用的源码：只放 Cargo 需要的部分，别的平台改动不触发重编。resources 与 shared 里被
   # include_str! 引用的是锁文件、语音模型目录和 shared/contracts，与 Rust 无关的大目录去掉。
+  # plugins 只取引擎符号模式 include_str! 的那一张 LaTeX 符号表，别的插件改动不触发重编。
   # apps/desktop/src-tauri 由各包按需要的范围自己加。
   cargoSources =
     let
@@ -30,6 +31,7 @@ let
       (root + "/Cargo.toml")
       (root + "/Cargo.lock")
       (root + "/crates")
+      (root + "/plugins/phrase_table/latex-symbols/symbols.tsv")
       (root + "/scripts/fetch_opencc.py")
       (root + "/scripts/download_retry.py")
       (root + "/resources/licenses/OpenCC-Apache-2.0.txt")

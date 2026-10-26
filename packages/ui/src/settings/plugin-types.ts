@@ -43,6 +43,35 @@ export type PluginSymbolGroup = {
 /** 短语表的一行：`client-services::plugins::phrase_table::PhraseRow`。 */
 export type PluginPhrase = { key: string; text: string };
 
+/** 设置页插件编辑器能写的四种类型：`client-services::plugins::authoring::AuthoredKind`。 */
+export type AuthoredKind = "phrase_table" | "command_table" | "symbol_set" | "wordbook";
+
+/** 编辑器里符号集的一组：`authoring::AuthoredGroup`。 */
+export type AuthoredGroup = {
+  tab: "symbols" | "kaomoji";
+  title: string;
+  keywords: string | null;
+  items: string[];
+};
+
+/** 编辑器里单词本的一个单词：`authoring::AuthoredWord`。 */
+export type AuthoredWord = { word: string; phonetic: string | null; gloss: string };
+
+/** 编辑器与宿主交换的一个包：`authoring::AuthoredPack`。`id` 为 null 表示新建、由宿主生成；内容字段只带与 `kind` 对应的那一个。 */
+export type AuthoredPack = {
+  kind: AuthoredKind;
+  id: string | null;
+  name: string;
+  version: string;
+  license: string;
+  author: string | null;
+  description: string | null;
+  phrases?: PluginPhrase[];
+  commands?: PluginCommand[];
+  groups?: AuthoredGroup[];
+  words?: AuthoredWord[];
+};
+
 /** `client-services::plugins::scan` 列出的一个包：清单的各字段，并把该种类的内容平铺进来。 */
 export type PluginPackage = {
   id: string;
@@ -144,6 +173,10 @@ export interface PluginClient {
   remove(kind: PluginKind, id: string): Promise<void>;
   loadMentions(): Promise<MentionEntry[]>;
   saveMentions(entries: MentionEntry[]): Promise<void>;
+  /** 设置页插件编辑器读出用户插件目录里的一个包；内置包、别的类型和没装的包以 `plugin_not_editable` 拒绝。宿主没有编辑器时为空，页面不显示新建和编辑。 */
+  loadAuthoredPack?(kind: AuthoredKind, id: string): Promise<AuthoredPack>;
+  /** 保存编辑器里的包，回答装好的包，与 `importPack` 的回答同形。`replace` 为假且同类型同 id 的包已经装着时以 `plugin_exists` 拒绝。 */
+  saveAuthoredPack?(pack: AuthoredPack, replace: boolean): Promise<PluginPackage>;
   /** 脚本插件的授权和执行顺序；只有运行脚本插件的桌面宿主有这三个方法。 */
   scriptGrants?(): Promise<ScriptGrantsResult>;
   /** 授予、调整或撤销一个脚本插件的授权。`hash` 是页面展示给用户的那个内容哈希，包在这之后被换过时以 `plugin_script_changed` 拒绝。 */

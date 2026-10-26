@@ -685,6 +685,8 @@ struct KeyboardView {
   private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
+  /** 共享偏好 `touch_quanpin_shift`：打开时全拼 26 键组字保留 ⇧，点一下臂辅助码。 */
+  @State quanpinShift: boolean = KeyboardSession.shared.preferences().quanpinShift;
   /** 共享偏好 `harmony_toolbar`：工具栏上画哪些工具，整行是否隐藏。 */
   @State @Watch('syncStripHeight') toolbarTools: ToolbarTools = KeyboardSession.shared.preferences().toolbarTools;
   /** 面板上一次按工具条显示与否定下的高度，`syncStripHeight` 只在它和现在不一样时改面板高度。 */
@@ -2960,6 +2962,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
+    this.quanpinShift = this.settings.quanpinShift;
     this.toolbarTools = this.settings.toolbarTools;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
@@ -3197,7 +3200,7 @@ struct KeyboardView {
     // because their two layers hold different characters.
     // 大小写不在这里：字母键的键面和读屏文字在绘制时按大小写现算（见 `KeyOptions.letter`），自动大写切换时键节点保持不变，正按着的键不会被重建。
     return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
-      + `${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
+      + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.skin.key()}`;
   }
 
@@ -5332,7 +5335,7 @@ struct KeyboardView {
   }
 
   private usesQuanpinSeparator(): boolean {
-    return KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
+    return !this.quanpinShift && KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
       this.english, this.symbols, this.localMode);
   }
 
@@ -6639,6 +6642,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
+    this.quanpinShift = this.settings.quanpinShift;
     this.resizeTouchPanel();
   }
 

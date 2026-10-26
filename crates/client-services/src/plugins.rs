@@ -8,6 +8,7 @@
 //!
 //! `mentions.json` beside the kind directories is the @ mode's name list, kept by `mentions`. It lives here rather than in the preferences document because that document is the one hosts copy and account sync reads from, and a contact list belongs to neither.
 
+pub mod authoring;
 pub mod command_table;
 pub mod community;
 pub mod effect_pack;
@@ -391,6 +392,12 @@ pub enum PluginError {
     /// The plugins root or a kind directory is a symbolic link or not a directory.
     #[error("plugin_storage")]
     Storage,
+    /// 设置页新建插件时，同类型、同 id 的包已经装着（`authoring::save` 不带 `replace`）。
+    #[error("plugin_exists")]
+    Exists,
+    /// 设置页编辑器打不开这个包：内置或官方包、编辑器不支持的类型，或用户插件目录里没有能载入的这个包。文字说明是哪一种。
+    #[error("plugin_not_editable: {0}")]
+    NotEditable(String),
     #[error("plugin_io: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -824,7 +831,7 @@ fn load_directory_with(directory: &Path, data_files: DataFiles) -> Result<Plugin
                 AudioLimits::NONE,
             )
         }
-        // 模块按数据文件登记，走同一份文件检查（存在、1 字节到 256 KiB、扩展名 `.wasm`）；内容等文件检查过之后再读。
+        // 模块和随包数据文件按数据文件登记，走同一份文件检查（存在、非空、不超过各自的上限、扩展名 `.wasm` 或 `.bin`）；内容等文件检查过之后再读。
         #[cfg(any(
             target_os = "macos",
             target_os = "windows",
@@ -833,10 +840,23 @@ fn load_directory_with(directory: &Path, data_files: DataFiles) -> Result<Plugin
         PluginKind::Script => {
             let pack = script_pack::parse(table, permissions)?;
             data.push(script_pack::module_file(&pack));
+            data.extend(script_pack::data_files(&pack));
             (PluginContent::Script(pack), Vec::new(), AudioLimits::NONE)
         }
     };
     check_files(directory, &files, &audio, limits, &data)?;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ))]
+    let content = match content {
+        PluginContent::Script(mut pack) => {
+            script_pack::check_data_total(&mut pack, &files)?;
+            PluginContent::Script(pack)
+        }
+        other => other,
+    };
     let content = match content {
         content if data_files == DataFiles::Unread => content,
         PluginContent::Helpcode(pack) => {
@@ -869,7 +889,10 @@ fn load_directory_with(directory: &Path, data_files: DataFiles) -> Result<Plugin
 }
 
 fn data_file_capacity(kind: PluginKind) -> usize {
-    if matches!(kind, PluginKind::Helpcode | PluginKind::Wordbook) || kind.is_script() {
+    if kind.is_script() {
+        // 模块加上最多 4 个随包数据文件。
+        5
+    } else if matches!(kind, PluginKind::Helpcode | PluginKind::Wordbook) {
         1
     } else {
         0

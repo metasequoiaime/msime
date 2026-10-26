@@ -607,6 +607,15 @@ bool CMetasequoiaIME::_TryStepOverPairedPunctuation(TfEditCookie ec, _In_ ITfCon
     }
 
     _pairedPunctuationStack.pop_back();
+    // 右半边是跨过宿主自动插入的闭合符，不是一次新的引号按键；清掉引擎的退格撤销窗口，避免随后删除闭合符时把更早的开引号再翻回去。
+    if (_pCompositionProcessorEngine != nullptr)
+    {
+        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string raw, error;
+            (void)host->command(MSIME_CANCEL, &raw, &error);
+        }
+    }
     _ResetSmartPunctuationHistory();
     _InvalidateSmartPunctuationShadow();
     _QueuePairedPunctuationCaretMove(1);

@@ -32,6 +32,8 @@ import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
 import { ActionButton } from "./action-button";
 import { PluginActionBlock } from "./plugin-action-block";
+import { SettingsManagerBlock } from "./settings-manager-block";
+import { SettingsManagerNote } from "./settings-manager-note";
 
 export interface PluginDetailViewProps {
   pack: PluginPackage;
@@ -66,6 +68,10 @@ export interface PluginDetailViewProps {
   /** 打开设置里的另一页；宿主没有页面导航时为空，链接不显示。 */
   onOpenPage?: (page: PluginSettingsPage) => void;
   onRemove: (pack: PluginPackage) => void;
+  /** 在设置页编辑器里打开这个包；只给能编辑的用户包（短语表、指令表、符号集、单词本），宿主没有编辑器时为空。 */
+  onEdit?: () => void;
+  /** 刚在编辑器里保存过时，顶上说明还差哪一步才能用上。 */
+  notice?: string;
   onBack: () => void;
 }
 
@@ -92,12 +98,21 @@ export function PluginDetailView({
   onLocalMode,
   onOpenPage,
   onRemove,
+  onEdit,
+  notice,
   onBack,
 }: PluginDetailViewProps) {
   const select = () => onChange(withPackSelected(preferences, pack));
   return (
     <>
       <PluginViewHeader title={pack.name} onBack={onBack} />
+      {notice && (
+        <GroupList>
+          <SettingsManagerBlock>
+            <SettingsManagerNote role="status">{notice}</SettingsManagerNote>
+          </SettingsManagerBlock>
+        </GroupList>
+      )}
       <PluginInfoGroup pack={pack} kindLabel={packKindLabel(pack)}>
         {pack.builtin && (
           <SummaryRow title="来源" breakAnywhere>
@@ -130,6 +145,18 @@ export function PluginDetailView({
           onOpenPage={onOpenPage}
         />
       </GroupList>
+      {onEdit && (
+        <GroupList>
+          <PluginActionBlock note="不用写代码，在设置页里修改名字、介绍和内容；保存后替换本机的这一份。">
+            <ActionButton
+              action={onEdit}
+              ariaLabel={`编辑${pack.name}`}
+              disabled={working}
+              label="编辑"
+            />
+          </PluginActionBlock>
+        </GroupList>
+      )}
       {!pack.builtin && (
         <GroupList>
           <PluginActionBlock note="删除后包里的文件会从本机移除；正在使用的话，设置会回到默认选择。">

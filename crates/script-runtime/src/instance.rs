@@ -1,6 +1,8 @@
 //! 每个会话、每个插件一个实例：实例化、按轮和按钩子的 fuel 配额、`before_commit` 和 `command` 的快照复位，以及观察类和修改类 import。
 //!
 //! import 只读写本次调用的上下文，从不回调宿主：宿主的会话正借给这次调用，回调只会撞上 `"reentrant host call"`。上下文在调用前按授权复制、调用后清空；没有授权的文本根本不复制进来，屏蔽和缺失对插件来说同样是 `ABSENT`。
+//!
+//! 和输入无关的资源（设置项的值、随包数据、持久存储的缓冲，见 [`Resources`]）在实例化时由宿主交进来，运行时不做任何文件 IO：读盘、核对哈希、写盘都是宿主的事。
 
 use crate::abi::{
     self, candidate_field, command_field, commit_field, composition_field, event_field, status,
@@ -8,6 +10,7 @@ use crate::abi::{
 };
 use crate::limits;
 use crate::module::ScriptModule;
+use std::sync::{Arc, Mutex, MutexGuard};
 use wasmi::{
     Caller, Engine, Error, Instance, Linker, Memory, Store, StoreLimits, StoreLimitsBuilder,
     TrapCode, TypedFunc, Val,
@@ -66,15 +69,166 @@ pub struct Candidates<'a> {
     pub highlighted: Option<u32>,
 }
 
-/// `command` 事件的内容：用户在 `/` 指令里打的触发词和后面的字母，以及宿主这一次给的随机数。只投递给这个触发词的主人。
+/// `command` 事件的内容：用户在 `/` 指令里打的触发词和后面的字母，以及宿主这一次给的随机数和本地时间。只投递给这个触发词的主人。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CommandEvent<'a> {
     /// 触发词，不超过 [`limits::MAX_COMMAND_TRIGGER_BYTES`] 字节。
     pub trigger: &'a str,
-    /// 触发词后面的字母，可以为空，不超过 [`limits::MAX_COMMAND_ARGUMENT_BYTES`] 字节。
+    /// 触发词后面的参数，可以为空，不超过 [`limits::MAX_COMMAND_ARGUMENT_BYTES`] 字节。
     pub argument: &'a str,
     /// 插件经 `random_fill` 按顺序取用。产品里取自操作系统的 CSPRNG。
     pub random: [u8; limits::RANDOM_BYTES_PER_EVENT],
+    /// 投递时的本地时间，到分钟，经 `event_scalar` 的四个时间字段读出。`None` 或不合规（[`LocalTime::is_valid`]）时四个字段都是 `ABSENT`。
+    pub local_time: Option<LocalTime>,
+}
+
+/// `command` 事件里的本地时间。只给到分钟、只在用户刚打完自己触发词的那一次给，量不出打字节奏和停顿；`command` 跑在快照上，时间也留不下来。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocalTime {
+    /// 十进制的 `yyyymmdd`。
+    pub date: u32,
+    /// 当天第几分钟，0 到 1439。
+    pub minute: u16,
+    /// 1 到 7，周一为 1。
+    pub weekday: u8,
+    /// 本地时间比 UTC 早多少分钟，可以为负。
+    pub utc_offset_minutes: i16,
+}
+
+impl LocalTime {
+    /// 各字段都在范围里：年 1 到 9999、月 1 到 12、日 1 到 31，分钟 0 到 1439，星期 1 到 7，偏移在 ±18 小时之内且不落在 -4 到 -1（那几个负数和返回码撞车，真实的时区偏移都是 15 分钟的整数倍）。
+    pub fn is_valid(&self) -> bool {
+        let year = self.date / 10_000;
+        let month = self.date / 100 % 100;
+        let day = self.date % 100;
+        (1..=9999).contains(&year)
+            && (1..=12).contains(&month)
+            && (1..=31).contains(&day)
+            && self.minute <= 1439
+            && (1..=7).contains(&self.weekday)
+            && (-1080..=1080).contains(&self.utc_offset_minutes)
+            && !(-4..=-1).contains(&self.utc_offset_minutes)
+    }
+}
+
+/// 一个插件在本进程里的持久存储缓冲（`persist_data`）。克隆共享同一份：宿主按插件 id 建一份（初值是盘上读回的内容），交给这个插件在各个会话里的实例，同一插件在同一进程里共用；写盘由宿主在失焦、会话结束和后台定时刷新时做（[`Storage::take_dirty`]），不在按键路径上。
+///
+/// `Debug` 只写长度：内容可能是用户打过的字。
+#[derive(Clone, Default)]
+pub struct Storage(Arc<Mutex<StorageState>>);
+
+#[derive(Default)]
+struct StorageState {
+    bytes: Vec<u8>,
+    /// 有还没写盘的改动。
+    dirty: bool,
+}
+
+impl std::fmt::Debug for Storage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = self.lock();
+        f.debug_struct("Storage")
+            .field("len", &state.bytes.len())
+            .field("dirty", &state.dirty)
+            .finish()
+    }
+}
+
+impl Storage {
+    /// 从盘上读回的初值，不算待写盘的改动。超过 [`limits::MAX_STORAGE_BYTES`] 的整块不要、当作空的：截断会交给插件一段它没写过的字节。
+    pub fn new(initial: Vec<u8>) -> Self {
+        let bytes = if initial.len() > limits::MAX_STORAGE_BYTES {
+            Vec::new()
+        } else {
+            initial
+        };
+        Self(Arc::new(Mutex::new(StorageState {
+            bytes,
+            dirty: false,
+        })))
+    }
+
+    fn lock(&self) -> MutexGuard<'_, StorageState> {
+        // 锁里只有内存拷贝，不会在持锁时 panic；真被毒化了，里面的字节仍是一份完整的写入。
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn len(&self) -> usize {
+        self.lock().bytes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// 当前内容的副本。
+    pub fn contents(&self) -> Vec<u8> {
+        self.lock().bytes.clone()
+    }
+
+    /// 有没有还没写盘的改动。
+    pub fn is_dirty(&self) -> bool {
+        self.lock().dirty
+    }
+
+    /// 取走要写盘的内容并记为已写：没有改动时为 `None`。写盘失败时调 [`Storage::mark_dirty`] 放回，下一次再写。
+    pub fn take_dirty(&self) -> Option<Vec<u8>> {
+        let mut state = self.lock();
+        if !state.dirty {
+            return None;
+        }
+        state.dirty = false;
+        Some(state.bytes.clone())
+    }
+
+    /// 记为有还没写盘的改动。
+    pub fn mark_dirty(&self) {
+        self.lock().dirty = true;
+    }
+
+    /// 清空并记为不必写盘：用户清除数据、撤销 `persist_data` 或卸载插件时，宿主删掉盘上的文件之后调用。
+    pub fn clear(&self) {
+        let mut state = self.lock();
+        state.bytes = Vec::new();
+        state.dirty = false;
+    }
+
+    /// 钩子正常返回之后采用插件暂存的整块写入。内容没变时不算改动，免得每次按键都写一次盘。
+    fn replace(&self, bytes: Vec<u8>) {
+        let mut state = self.lock();
+        if state.bytes != bytes {
+            state.bytes = bytes;
+            state.dirty = true;
+        }
+    }
+}
+
+/// 宿主在实例化时交给插件的、和用户输入无关的资源。克隆便宜（都是 `Arc`），宿主按插件建一份、每次实例化（包括同一轮里重建）交同一份。
+///
+/// `Debug` 只写个数和长度：设置项的文本值和存储都可能是用户写的。
+#[derive(Clone, Default)]
+pub struct Resources {
+    /// 清单 `[[script.settings]]` 每一项的当前值，按清单顺序，已经按 ABI 写成文本（布尔 `0`/`1`、数字十进制、选项的 `value`、文本原样）。经 `setting_value` 读出，不需要能力。
+    pub settings: Arc<[String]>,
+    /// 随包数据文件的字节，按清单 `[script].data` 的顺序，宿主已经核对过内容哈希。经 `data_read` 读出，不需要能力。宿主按内容哈希在进程里共享一份。
+    pub data: Arc<[Arc<[u8]>]>,
+    /// 授予了 `persist_data` 时这个插件在本进程里的存储缓冲；没交时存储类 import 返回 `ABSENT`。
+    pub storage: Option<Storage>,
+}
+
+impl std::fmt::Debug for Resources {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Resources")
+            .field("settings", &self.settings.len())
+            .field(
+                "data",
+                &self.data.iter().map(|file| file.len()).collect::<Vec<_>>(),
+            )
+            .field("storage", &self.storage)
+            .finish()
+    }
 }
 
 /// 投递给一个插件的一次事件。宿主按事件填它拥有的字段；每个插件按自己的授权各取一份。
@@ -198,6 +352,8 @@ pub struct Actions {
     pub annotations: Vec<(u32, String)>,
     /// `command_row`：（文本，插件注释），按暂存的顺序，最多 [`limits::MAX_COMMAND_ROWS`] 行。
     pub rows: Vec<(String, String)>,
+    /// `candidates_insert`：（插入位置，文本，插件注释），按暂存的顺序，最多 [`limits::MAX_INSERTED_ROWS_PER_PLUGIN`] 行。位置是插件变换之后的呈现顺序里的位置，0 到窗口行数。
+    pub inserts: Vec<(u32, String, String)>,
 }
 
 impl Actions {
@@ -207,6 +363,7 @@ impl Actions {
         self.hidden.clear();
         self.annotations.clear();
         self.rows.clear();
+        self.inserts.clear();
     }
 
     /// 什么动作都没有。
@@ -216,10 +373,11 @@ impl Actions {
             && self.hidden.is_empty()
             && self.annotations.is_empty()
             && self.rows.is_empty()
+            && self.inserts.is_empty()
     }
 }
 
-/// 调试输出：修改类 import（`rewrite_commit`、`candidates_*`、`command_row`）的一次调用和宿主交还给插件的返回码。产品里不设；`msime-pack run` 用它把每次改写、重排、隐藏和注释的结果列进输出。只是旁观：返回码由 import 本身决定，设不设它都一样。
+/// 调试输出：修改类 import（`rewrite_commit`、`candidates_*`、`command_row`、`storage_write`）的一次调用和宿主交还给插件的返回码。产品里不设；`msime-pack run` 用它把每次改写、重排、隐藏和注释的结果列进输出。只是旁观：返回码由 import 本身决定，设不设它都一样。
 pub type ActionSink = Box<dyn FnMut(&'static str, i32) + Send>;
 
 /// 实例化之前就接上的调试输出，`msime_init` 里的 `log` 也能看到。只有作者工具设它。
@@ -290,8 +448,12 @@ struct CallContext {
     /// `command` 事件的随机数和已经取走的字节数。没有 `command` 事件时为空。
     random: Vec<u8>,
     random_used: usize,
+    /// `command` 事件的本地时间，只在它合规时复制进来。
+    local_time: Option<LocalTime>,
     /// 修改类 import 暂存的动作，钩子正常返回后才交出去。
     actions: Actions,
+    /// `storage_write` 暂存的整块写入，钩子正常返回后才写进 [`Storage`]。
+    storage_pending: Option<Vec<u8>>,
 }
 
 impl CallContext {
@@ -368,9 +530,12 @@ impl CallContext {
         self.argument.load(words.map(|command| command.argument));
         self.random.clear();
         self.random_used = 0;
+        self.local_time = None;
         if let Some(command) = command {
             self.random.extend_from_slice(&command.random);
+            self.local_time = command.local_time.filter(LocalTime::is_valid);
         }
+        self.storage_pending = None;
     }
 
     /// 调用结束后清空，文本不在两次调用之间留在插件的上下文里。
@@ -400,7 +565,9 @@ impl CallContext {
         self.random.fill(0);
         self.random.clear();
         self.random_used = 0;
+        self.local_time = None;
         self.actions.clear();
+        self.storage_pending = None;
     }
 
     fn event_scalar(&self, field: i32) -> i64 {
@@ -420,6 +587,12 @@ impl CallContext {
             event_field::REWRITABLE => scalars.rewritable.map(i64::from),
             event_field::CONTINUES => scalars.continues.map(i64::from),
             event_field::GENERATED => scalars.generated.map(i64::from),
+            event_field::LOCAL_DATE => self.local_time.map(|time| i64::from(time.date)),
+            event_field::LOCAL_MINUTE => self.local_time.map(|time| i64::from(time.minute)),
+            event_field::WEEKDAY => self.local_time.map(|time| i64::from(time.weekday)),
+            event_field::UTC_OFFSET_MINUTES => self
+                .local_time
+                .map(|time| i64::from(time.utc_offset_minutes)),
             _ => return i64::from(status::INVALID),
         };
         value.unwrap_or(i64::from(status::ABSENT))
@@ -524,6 +697,8 @@ impl CallContext {
 pub(crate) struct HostState {
     limits: StoreLimits,
     grants: CapabilitySet,
+    /// 设置项、随包数据和存储缓冲。快照实例上不带存储缓冲。
+    resources: Resources,
     /// 实例化之后才有。
     memory: Option<Memory>,
     context: CallContext,
@@ -531,7 +706,11 @@ pub(crate) struct HostState {
     action_sink: Option<ActionSink>,
 }
 
-fn new_store(module: &ScriptModule, grants: CapabilitySet) -> Store<HostState> {
+fn new_store(
+    module: &ScriptModule,
+    grants: CapabilitySet,
+    resources: Resources,
+) -> Store<HostState> {
     let limits = StoreLimitsBuilder::new()
         .memory_size(module.reserved_memory_bytes())
         .memories(1)
@@ -545,6 +724,7 @@ fn new_store(module: &ScriptModule, grants: CapabilitySet) -> Store<HostState> {
         HostState {
             limits,
             grants,
+            resources,
             memory: None,
             context: CallContext::default(),
             log_sink: None,
@@ -689,9 +869,20 @@ impl ScriptInstance {
         init_fuel: u64,
         debug: DebugSinks,
     ) -> Result<Self, InitFailure> {
+        Self::with_resources(module, grants, init_fuel, Resources::default(), debug)
+    }
+
+    /// 同 [`ScriptInstance::with_debug`]，另外交进设置项的值、随包数据和存储缓冲（[`Resources`]）。设置项和数据在 `msime_init` 里就能读，存储不能：初始化之后取的快照要是含有存储的内容，快照钩子就能把它带进这一次的输出。
+    pub fn with_resources(
+        module: &ScriptModule,
+        grants: CapabilitySet,
+        init_fuel: u64,
+        resources: Resources,
+        debug: DebugSinks,
+    ) -> Result<Self, InitFailure> {
         let grants = grants.intersection(module.declaration.capabilities);
         let budget = init_fuel.min(limits::INIT_FUEL);
-        let mut store = new_store(module, grants);
+        let mut store = new_store(module, grants, resources);
         store.data_mut().log_sink = debug.log;
         store.data_mut().action_sink = debug.actions;
         let fail = |store: &Store<HostState>, failure| InitFailure {
@@ -903,7 +1094,12 @@ impl ScriptInstance {
             return (Err(Failure::Instantiate), 0);
         };
         let grants = self.store.data().grants;
-        let mut store = new_store(&self.module, grants);
+        // 快照实例不带存储缓冲：存储类 import 在快照钩子里本来就是 `DENIED`，这里再断一道。
+        let resources = Resources {
+            storage: None,
+            ..self.store.data().resources.clone()
+        };
+        let mut store = new_store(&self.module, grants, resources);
         // 实例化不跑任何 wasm 代码（start 函数已被拒绝），这里的 fuel 只为满足 wasmi 的计量，不算插件的。
         if store.set_fuel(limits::INIT_FUEL).is_err() {
             return (Err(Failure::Instantiate), 0);
@@ -942,11 +1138,17 @@ fn run(
     let state = store.data_mut();
     state.context.load(state.grants, event);
     let result = on_event.call(&mut *store, event.hook.code());
-    let context = &mut store.data_mut().context;
+    let state = store.data_mut();
     if matches!(result, Ok(status) if status >= 0) {
-        std::mem::swap(&mut context.actions, actions);
+        std::mem::swap(&mut state.context.actions, actions);
+        if let (Some(bytes), Some(storage)) = (
+            state.context.storage_pending.take(),
+            state.resources.storage.as_ref(),
+        ) {
+            storage.replace(bytes);
+        }
     }
-    context.clear();
+    state.context.clear();
     let fuel = allowed - store.get_fuel().unwrap_or(0).min(allowed);
     let result = match result {
         Ok(status) if status >= 0 => Ok(status),
@@ -982,6 +1184,14 @@ pub(crate) fn linker(engine: &Engine) -> Linker<HostState> {
     define(linker.func_wrap(module, "command_text", command_text));
     define(linker.func_wrap(module, "command_row", command_row));
     define(linker.func_wrap(module, "random_fill", random_fill));
+    define(linker.func_wrap(module, "setting_count", setting_count));
+    define(linker.func_wrap(module, "setting_value", setting_value));
+    define(linker.func_wrap(module, "data_len", data_len));
+    define(linker.func_wrap(module, "data_read", data_read));
+    define(linker.func_wrap(module, "candidates_insert", candidates_insert));
+    define(linker.func_wrap(module, "storage_len", storage_len));
+    define(linker.func_wrap(module, "storage_read", storage_read));
+    define(linker.func_wrap(module, "storage_write", storage_write));
     linker
 }
 
@@ -1451,4 +1661,241 @@ fn command_row(
 ) -> Result<i32, Error> {
     let result = try_command_row(&mut caller, text, text_len, note, note_len);
     observed(&mut caller, "command_row", result)
+}
+
+/// 设置项的项数。不需要能力，所有钩子和 `msime_init` 里都可用。
+fn setting_count(mut caller: Caller<'_, HostState>) -> Result<i32, Error> {
+    charge(&mut caller, 0)?;
+    Ok(caller.data().resources.settings.len() as i32)
+}
+
+/// 第 `index` 项设置的当前值：越界 `INVALID`，放不下 `LIMIT`，目标区间越界 trap。不需要能力，不受本地模式屏蔽：值是用户为这个插件写的，读它不暴露任何输入。
+fn setting_value(
+    mut caller: Caller<'_, HostState>,
+    index: i32,
+    dst: i32,
+    cap: i32,
+) -> Result<i32, Error> {
+    charge(&mut caller, 0)?;
+    let select = |state: &HostState| {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| state.resources.settings.get(index))
+            .map(|value| value.len())
+    };
+    let Some(len) = select(caller.data()) else {
+        return Ok(status::INVALID);
+    };
+    let (memory, start, cap) = checked_range(&caller, dst, cap)?;
+    if len > cap {
+        return Ok(status::LIMIT);
+    }
+    charge_exact(&mut caller, len as u64 / limits::IMPORT_BYTES_PER_FUEL)?;
+    let (data, state) = memory.data_and_store_mut(&mut caller);
+    let value = &state.resources.settings[index as usize];
+    data[start..start + len].copy_from_slice(value.as_bytes());
+    Ok(len as i32)
+}
+
+/// 第 `file` 个随包数据文件的字节数，越界 `INVALID`。不需要能力。
+fn data_len(mut caller: Caller<'_, HostState>, file: i32) -> Result<i64, Error> {
+    charge(&mut caller, 0)?;
+    Ok(usize::try_from(file)
+        .ok()
+        .and_then(|file| caller.data().resources.data.get(file))
+        .map_or(i64::from(status::INVALID), |bytes| bytes.len() as i64))
+}
+
+/// 从第 `file` 个随包数据文件的 `offset` 处起，把 `min(cap, len - offset)` 字节复制到 `[dst, dst + cap)`，返回复制的字节数。`file` 越界、`offset` 为负或超过文件长度 `INVALID`；整个目标区间都要在线性内存里，否则 trap。按复制的字节数计 fuel。不需要能力。
+fn data_read(
+    mut caller: Caller<'_, HostState>,
+    file: i32,
+    offset: i32,
+    dst: i32,
+    cap: i32,
+) -> Result<i32, Error> {
+    charge(&mut caller, 0)?;
+    let Some(bytes) = usize::try_from(file)
+        .ok()
+        .and_then(|file| caller.data().resources.data.get(file))
+        .cloned()
+    else {
+        return Ok(status::INVALID);
+    };
+    let Some(offset) = usize::try_from(offset)
+        .ok()
+        .filter(|offset| *offset <= bytes.len())
+    else {
+        return Ok(status::INVALID);
+    };
+    let (memory, start, cap) = checked_range(&caller, dst, cap)?;
+    let count = cap.min(bytes.len() - offset);
+    charge_exact(&mut caller, count as u64 / limits::IMPORT_BYTES_PER_FUEL)?;
+    memory.data_mut(&mut caller)[start..start + count]
+        .copy_from_slice(&bytes[offset..offset + count]);
+    Ok(count as i32)
+}
+
+fn try_candidates_insert(
+    caller: &mut Caller<'_, HostState>,
+    position: i32,
+    text: i32,
+    text_len: i32,
+    note: i32,
+    note_len: i32,
+) -> Result<i32, Error> {
+    charge(caller, 0)?;
+    // 只在本地模式 `none` 里：别的模式（临时英文、emoji 这些白名单里的也算）下插进来的行会混进那个模式自己的候选。
+    if !modification_allowed(caller, Capability::InsertCandidates, Hook::Candidates)
+        || caller.data().context.scalars.local_mode != Some(0)
+    {
+        return Ok(status::DENIED);
+    }
+    let context = &caller.data().context;
+    if !context.candidates_present {
+        return Ok(status::ABSENT);
+    }
+    let Some(position) = u32::try_from(position)
+        .ok()
+        .filter(|position| (*position as usize) <= context.row_count)
+    else {
+        return Ok(status::INVALID);
+    };
+    let (memory, text_start, text_len) = checked_range(caller, text, text_len)?;
+    let (_, note_start, note_len) = checked_range(caller, note, note_len)?;
+    let inserted = caller.data().context.actions.inserts.len();
+    // 每个 UTF-16 码元最多 3 个 UTF-8 字节，更长的不用解码就知道放不下。
+    if inserted >= limits::MAX_INSERTED_ROWS_PER_PLUGIN
+        || text_len > limits::MAX_COMMAND_ROW_UTF16 * 3
+        || note_len > limits::MAX_ANNOTATION_UTF16 * 3
+    {
+        return Ok(status::LIMIT);
+    }
+    charge_exact(
+        caller,
+        (text_len + note_len) as u64 / limits::IMPORT_BYTES_PER_FUEL,
+    )?;
+    let (data, state) = memory.data_and_store_mut(&mut *caller);
+    let (Ok(row), Ok(annotation)) = (
+        std::str::from_utf8(&data[text_start..text_start + text_len]),
+        std::str::from_utf8(&data[note_start..note_start + note_len]),
+    ) else {
+        return Ok(status::INVALID);
+    };
+    if !abi::valid_command_row_text(row) || abi::has_forbidden_plugin_char(annotation) {
+        return Ok(status::INVALID);
+    }
+    if row.encode_utf16().count() > limits::MAX_COMMAND_ROW_UTF16
+        || annotation.encode_utf16().count() > limits::MAX_ANNOTATION_UTF16
+    {
+        return Ok(status::LIMIT);
+    }
+    state
+        .context
+        .actions
+        .inserts
+        .push((position, row.to_owned(), annotation.to_owned()));
+    Ok(inserted as i32)
+}
+
+fn candidates_insert(
+    mut caller: Caller<'_, HostState>,
+    position: i32,
+    text: i32,
+    text_len: i32,
+    note: i32,
+    note_len: i32,
+) -> Result<i32, Error> {
+    let result = try_candidates_insert(&mut caller, position, text, text_len, note, note_len);
+    observed(&mut caller, "candidates_insert", result)
+}
+
+/// 存储类 import 的前置检查：授予了 `persist_data`，并且在持久实例上的钩子里。`msime_init`（不在钩子里）和快照钩子都不行：快照钩子的输出只能取决于这一次的输入，这一条不随存储改变。不满足时 `DENIED`；满足但宿主没交存储缓冲时 `ABSENT`。
+fn storage_gate(caller: &Caller<'_, HostState>) -> Result<(), i32> {
+    let state = caller.data();
+    let in_persistent_hook = state
+        .context
+        .hook
+        .is_some_and(|hook| !hook.runs_on_snapshot());
+    if !state.grants.contains(Capability::PersistData) || !in_persistent_hook {
+        return Err(status::DENIED);
+    }
+    if state.resources.storage.is_none() {
+        return Err(status::ABSENT);
+    }
+    Ok(())
+}
+
+/// 存储当前的长度：同一个钩子里暂存过写入的，是暂存的那一份。
+fn storage_current_len(state: &HostState) -> usize {
+    match (&state.context.storage_pending, &state.resources.storage) {
+        (Some(pending), _) => pending.len(),
+        (None, Some(storage)) => storage.len(),
+        (None, None) => 0,
+    }
+}
+
+fn storage_len(mut caller: Caller<'_, HostState>) -> Result<i32, Error> {
+    charge(&mut caller, 0)?;
+    if let Err(code) = storage_gate(&caller) {
+        return Ok(code);
+    }
+    Ok(storage_current_len(caller.data()) as i32)
+}
+
+/// 从存储的 `offset` 处复制，规则同 [`data_read`]。
+fn storage_read(
+    mut caller: Caller<'_, HostState>,
+    offset: i32,
+    dst: i32,
+    cap: i32,
+) -> Result<i32, Error> {
+    charge(&mut caller, 0)?;
+    if let Err(code) = storage_gate(&caller) {
+        return Ok(code);
+    }
+    let len = storage_current_len(caller.data());
+    let Some(offset) = usize::try_from(offset).ok().filter(|offset| *offset <= len) else {
+        return Ok(status::INVALID);
+    };
+    let (memory, start, cap) = checked_range(&caller, dst, cap)?;
+    let count = cap.min(len - offset);
+    charge_exact(&mut caller, count as u64 / limits::IMPORT_BYTES_PER_FUEL)?;
+    let (data, state) = memory.data_and_store_mut(&mut caller);
+    let target = &mut data[start..start + count];
+    match (&state.context.storage_pending, &state.resources.storage) {
+        (Some(pending), _) => target.copy_from_slice(&pending[offset..offset + count]),
+        (None, Some(storage)) => {
+            let stored = storage.lock();
+            // 别的会话可能在这期间写过，长度变了就按 `ABSENT` 交回，不复制半份。
+            if stored.bytes.len() != len {
+                return Ok(status::ABSENT);
+            }
+            target.copy_from_slice(&stored.bytes[offset..offset + count]);
+        }
+        (None, None) => return Ok(status::ABSENT),
+    }
+    Ok(count as i32)
+}
+
+fn try_storage_write(caller: &mut Caller<'_, HostState>, src: i32, len: i32) -> Result<i32, Error> {
+    charge(caller, 0)?;
+    if let Err(code) = storage_gate(caller) {
+        return Ok(code);
+    }
+    let (memory, start, len) = checked_range(caller, src, len)?;
+    if len > limits::MAX_STORAGE_BYTES {
+        return Ok(status::LIMIT);
+    }
+    charge_exact(caller, len as u64 / limits::IMPORT_BYTES_PER_FUEL)?;
+    let (data, state) = memory.data_and_store_mut(&mut *caller);
+    let pending = state.context.storage_pending.get_or_insert_with(Vec::new);
+    pending.clear();
+    pending.extend_from_slice(&data[start..start + len]);
+    Ok(0)
+}
+
+fn storage_write(mut caller: Caller<'_, HostState>, src: i32, len: i32) -> Result<i32, Error> {
+    let result = try_storage_write(&mut caller, src, len);
+    observed(&mut caller, "storage_write", result)
 }

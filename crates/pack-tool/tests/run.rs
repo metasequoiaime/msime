@@ -13,9 +13,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use msime_pack_tool::run::{parse_fixture, run_module, GrantSpec};
+use std::sync::Arc;
+
+use msime_pack_tool::run::{parse_fixture, run_module, run_module_with, GrantSpec};
 use msime_pack_tool::{run, EXIT_INVALID, EXIT_OK, EXIT_USAGE};
-use msime_script_runtime::{compile_text, Capability, CapabilitySet, Declaration, Hook};
+use msime_script_runtime::{
+    compile_text, Capability, CapabilitySet, Declaration, Hook, Resources, Storage,
+};
 
 /// 改写类插件：`before_commit` 读 body、记下来、请求改写；每个事件记下这个实例见过几个事件（个位数）。`msime_init` 记一行 `init`。
 const REWRITER: &str = r#"(module
@@ -433,8 +437,24 @@ fn fixture_mistakes_name_the_line() {
             "第 1 行：trigger 必须是 2 到 16 个小写字母",
         ),
         (
-            "{\"event\":\"command\",\"trigger\":\"uuid\",\"argument\":\"a1\"}",
-            "第 1 行：argument 只能是至多 64 个小写字母",
+            "{\"event\":\"command\",\"trigger\":\"uuid\",\"argument\":\"aB\"}",
+            "第 1 行：argument 只能是至多 64 个小写字母、数字或 .+-*/%()=,",
+        ),
+        (
+            "{\"event\":\"command\",\"trigger\":\"uuid\",\"argument\":\"1 2\"}",
+            "第 1 行：argument 只能是至多 64 个小写字母、数字或 .+-*/%()=,",
+        ),
+        (
+            "{\"event\":\"command\",\"trigger\":\"uuid\",\"time\":{\"date\":20261026,\"minute\":1440,\"weekday\":1,\"utc_offset\":0}}",
+            "第 1 行：time 不是有效的本地时间",
+        ),
+        (
+            "{\"event\":\"command\",\"trigger\":\"uuid\",\"time\":{\"date\":20261026,\"minute\":1,\"weekday\":1}}",
+            "第 1 行：不是有效的事件：missing field `utc_offset`",
+        ),
+        (
+            "{\"event\":\"candidates\",\"time\":{\"date\":20261026,\"minute\":1,\"weekday\":1,\"utc_offset\":0}}",
+            "第 1 行：candidates 事件没有 time 字段",
         ),
         (
             "{\"event\":\"command\",\"trigger\":\"uuid\",\"random\":\"00\"}",
@@ -920,4 +940,334 @@ fn official_ids_need_the_builtin_flag_everywhere() {
         &events,
     ]);
     assert_eq!(status, EXIT_USAGE);
+}
+
+// ---- 第二批能力：设置项、随包数据、加候选、指令时间和持久存储 ----
+
+/// `candidates` 在位置 1 插一行 🙂，再往存储末尾追加一个 `x`；`command` 把第 0 项设置、第 0 个数据文件和星期几写进日志。
+const SECOND_BATCH: &str = r#"(module
+  (import "msime" "candidate_count" (func $count (result i32)))
+  (import "msime" "candidates_insert" (func $insert (param i32 i32 i32 i32 i32) (result i32)))
+  (import "msime" "storage_read" (func $storage_read (param i32 i32 i32) (result i32)))
+  (import "msime" "storage_write" (func $storage_write (param i32 i32) (result i32)))
+  (import "msime" "setting_value" (func $setting (param i32 i32 i32) (result i32)))
+  (import "msime" "data_read" (func $data (param i32 i32 i32 i32) (result i32)))
+  (import "msime" "event_scalar" (func $scalar (param i32) (result i64)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "\f0\9f\99\82")
+  (func (export "msime_abi") (result i32) (i32.const 1))
+  (func (export "msime_on_event") (param $kind i32) (result i32) (local $n i32)
+    (if (i32.eq (local.get $kind) (i32.const 17))
+      (then
+        (drop (call $insert (i32.const 1) (i32.const 0) (i32.const 4) (i32.const 0) (i32.const 0)))
+        (local.set $n (call $storage_read (i32.const 0) (i32.const 256) (i32.const 64)))
+        (i32.store8 (i32.add (i32.const 256) (local.get $n)) (i32.const 120))
+        (drop (call $storage_write (i32.const 256) (i32.add (local.get $n) (i32.const 1))))))
+    (if (i32.eq (local.get $kind) (i32.const 18))
+      (then
+        (local.set $n (call $setting (i32.const 0) (i32.const 512) (i32.const 64)))
+        (call $log (i32.const 0) (i32.const 512) (local.get $n))
+        (local.set $n (call $data (i32.const 0) (i32.const 0) (i32.const 600) (i32.const 64)))
+        (call $log (i32.const 0) (i32.const 600) (local.get $n))
+        (i32.store8 (i32.const 700) (i32.add (i32.const 48) (i32.wrap_i64 (call $scalar (i32.const 13)))))
+        (call $log (i32.const 0) (i32.const 700) (i32.const 1))))
+    (i32.const 0)))"#;
+
+fn lines(out: &str) -> Vec<serde_json::Value> {
+    out.lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn inserted_rows_storage_writes_settings_data_and_time_show_in_the_output() {
+    let declared = declaration(
+        &[
+            Capability::ReadCandidates,
+            Capability::InsertCandidates,
+            Capability::PersistData,
+        ],
+        &[
+            Hook::FocusIn,
+            Hook::FocusOut,
+            Hook::Candidates,
+            Hook::Command,
+        ],
+    );
+    let module = compile_text(SECOND_BATCH, declared).expect("module compiles");
+    let fixture = r#"{"event":"focus_in","key":true}
+{"event":"candidates","candidates":[{"text":"你"},{"text":"呢"}]}
+{"event":"focus_out"}
+{"event":"focus_in","key":true}
+{"event":"candidates","key":true,"candidates":[{"text":"你"}]}
+{"event":"command","key":true,"trigger":"uuid","time":{"date":20261026,"minute":870,"weekday":1,"utc_offset":480}}
+{"event":"candidates","key":true,"local_mode":"temporary_english","candidates":[{"text":"a"}]}
+{"event":"command","key":true,"trigger":"uuid"}
+"#;
+    let steps = parse_fixture(fixture).unwrap();
+    let storage = Storage::new(b"ab".to_vec());
+    let resources = Resources {
+        settings: vec!["42".to_owned()].into(),
+        data: vec![Arc::<[u8]>::from(&b"words"[..])].into(),
+        storage: Some(storage.clone()),
+    };
+    let mut out = Vec::new();
+    let status = run_module_with(&module, declared.capabilities, resources, &steps, &mut out);
+    let out = String::from_utf8(out).unwrap();
+    assert_eq!(status, EXIT_OK, "{out}");
+    let lines = lines(&out);
+    // 插的行和存储的改动；存储跨聚焦保留，每次投递之后取走改动，只在改了的那一行出现。
+    assert_eq!(lines[1]["inserts"], serde_json::json!([[1, "🙂", ""]]));
+    assert_eq!(
+        lines[1]["storage"],
+        serde_json::json!({"len": 3, "text": "abx"})
+    );
+    assert!(lines[2].get("storage").is_none() && lines[2].get("inserts").is_none());
+    assert_eq!(
+        lines[4]["storage"],
+        serde_json::json!({"len": 4, "text": "abxx"})
+    );
+    // `command` 读到设置值、数据文件和星期几；不写 `time` 时星期几是 ABSENT（'0' - 2）。
+    assert_eq!(
+        lines[5]["log"],
+        serde_json::json!([
+            {"level": "debug", "text": "42"},
+            {"level": "debug", "text": "words"},
+            {"level": "debug", "text": "1"},
+        ])
+    );
+    assert_eq!(
+        lines[7]["log"][2],
+        serde_json::json!({"level": "debug", "text": "."})
+    );
+    // 临时英文里不能插行，存储照写。
+    assert_eq!(
+        lines[6]["actions"],
+        serde_json::json!([
+            {"import": "candidates_insert", "result": "denied"},
+            {"import": "storage_write", "result": "ok"},
+        ])
+    );
+    assert_eq!(lines[6]["inserts"], serde_json::json!([]));
+    assert_eq!(storage.contents(), b"abxxx");
+}
+
+/// 按字节手写的模块：从 `msime` 按顺序导入 `imports`，`msime_on_event` 的函数体是 `body`（不含局部变量声明和 `end`）。
+fn binary_with(imports: &[(&str, &[u8], &[u8])], body: &[u8]) -> Vec<u8> {
+    fn leb(mut value: usize, out: &mut Vec<u8>) {
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value == 0 {
+                out.push(byte);
+                return;
+            }
+            out.push(byte | 0x80);
+        }
+    }
+    fn section(id: u8, content: &[u8], out: &mut Vec<u8>) {
+        out.push(id);
+        leb(content.len(), out);
+        out.extend_from_slice(content);
+    }
+    fn name(text: &str, out: &mut Vec<u8>) {
+        leb(text.len(), out);
+        out.extend_from_slice(text.as_bytes());
+    }
+    let mut out = b"\0asm\x01\0\0\0".to_vec();
+    let mut types = Vec::new();
+    leb(imports.len() + 2, &mut types);
+    for (params, results) in imports
+        .iter()
+        .map(|(_, params, results)| (*params, *results))
+        .chain([(&[][..], &[0x7f][..]), (&[0x7f][..], &[0x7f][..])])
+    {
+        types.push(0x60);
+        leb(params.len(), &mut types);
+        types.extend_from_slice(params);
+        leb(results.len(), &mut types);
+        types.extend_from_slice(results);
+    }
+    section(1, &types, &mut out);
+    let mut content = Vec::new();
+    leb(imports.len(), &mut content);
+    for (index, (import, _, _)) in imports.iter().enumerate() {
+        name("msime", &mut content);
+        name(import, &mut content);
+        content.push(0x00);
+        leb(index, &mut content);
+    }
+    section(2, &content, &mut out);
+    let mut functions = vec![2];
+    leb(imports.len(), &mut functions);
+    leb(imports.len() + 1, &mut functions);
+    section(3, &functions, &mut out);
+    section(5, &[1, 0x00, 1], &mut out);
+    let mut exports = vec![3];
+    name("memory", &mut exports);
+    exports.extend_from_slice(&[0x02, 0]);
+    name("msime_abi", &mut exports);
+    exports.push(0x00);
+    leb(imports.len(), &mut exports);
+    name("msime_on_event", &mut exports);
+    exports.push(0x00);
+    leb(imports.len() + 1, &mut exports);
+    section(7, &exports, &mut out);
+    let mut code = vec![2, 4, 0x00, 0x41, 0x01, 0x0b];
+    leb(body.len() + 2, &mut code);
+    code.push(0x00);
+    code.extend_from_slice(body);
+    code.push(0x0b);
+    section(10, &code, &mut out);
+    out
+}
+
+const I32: u8 = 0x7f;
+const COMMAND_ROW: (&str, &[u8], &[u8]) = ("command_row", &[I32, I32, I32, I32], &[I32]);
+const DATA_READ: (&str, &[u8], &[u8]) = ("data_read", &[I32, I32, I32, I32], &[I32]);
+const SETTING_VALUE: (&str, &[u8], &[u8]) = ("setting_value", &[I32, I32, I32], &[I32]);
+const LOG: (&str, &[u8], &[u8]) = ("log", &[I32, I32, I32], &[]);
+const STORAGE_LEN: (&str, &[u8], &[u8]) = ("storage_len", &[], &[I32]);
+
+/// `log(0, 0, data_read(0, 0, 0, 64))`，`log(0, 100, setting_value(0, 100, 64))`，返回 0。导入顺序是 command_row、data_read、setting_value、log。
+const LOG_DATA_AND_SETTING: [u8; 36] = [
+    0x41, 0x00, 0x41, 0x00, // log 的级别和指针
+    0x41, 0x00, 0x41, 0x00, 0x41, 0x00, 0x41, 0xc0, 0x00, 0x10,
+    0x01, // data_read(0, 0, 0, 64)
+    0x10, 0x03, // log
+    0x41, 0x00, 0x41, 0xe4, 0x00, // log 的级别和指针 100
+    0x41, 0x00, 0x41, 0xe4, 0x00, 0x41, 0xc0, 0x00, 0x10, 0x02, // setting_value(0, 100, 64)
+    0x10, 0x03, // log
+    0x41, 0x00, // 0
+];
+
+fn second_batch_manifest(permissions: &str) -> String {
+    format!(
+        "schema_version = 2\nkind = 'script'\nid = 'calc'\nname = '计算'\nversion = '1.0.0'\nlicense = 'MIT'\npermissions = [{permissions}]\n[script]\nabi = 1\nmodule = 'main.wasm'\nhooks = ['command']\nmemory_pages = 1\ndata = ['words.bin']\n[[script.commands]]\ntrigger = 'calc'\ntitle = '计算'\narguments = 'extended'\n[[script.commands]]\ntrigger = 'uuid'\ntitle = 'UUID'\n[[script.settings]]\nkey = 'digits'\ntitle = '位数'\ntype = 'number'\nmin = 0\nmax = 9\ndefault = 2\n"
+    )
+}
+
+#[test]
+fn settings_storage_data_and_extended_arguments_go_through_the_command_line() {
+    let files = tempfile::tempdir().unwrap();
+    let pack = files.path().join("calc");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(
+        pack.join("plugin.toml"),
+        second_batch_manifest("'provide_commands'"),
+    )
+    .unwrap();
+    fs::write(
+        pack.join("main.wasm"),
+        binary_with(
+            &[COMMAND_ROW, DATA_READ, SETTING_VALUE, LOG],
+            &LOG_DATA_AND_SETTING,
+        ),
+    )
+    .unwrap();
+    fs::write(pack.join("words.bin"), b"words").unwrap();
+    let (status, out, _) = invoke(&[Path::new("validate"), &pack]);
+    assert_eq!((status, out.as_str()), (EXIT_OK, "ok calc script 1.0.0\n"));
+
+    let events = files.path().join("events.jsonl");
+    fs::write(
+        &events,
+        "{\"event\":\"command\",\"key\":true,\"trigger\":\"calc\",\"argument\":\"1+2*(3)\",\"time\":{\"date\":20261026,\"minute\":870,\"weekday\":1,\"utc_offset\":480}}\n",
+    )
+    .unwrap();
+    let settings = files.path().join("settings.json");
+    fs::write(&settings, "{\"digits\": 5}").unwrap();
+    let run = |extra: &[&Path], events: &Path| {
+        let mut args = vec![
+            Path::new("run"),
+            pack.as_path(),
+            Path::new("--events"),
+            events,
+            Path::new("--grant"),
+            Path::new("all"),
+        ];
+        args.extend_from_slice(extra);
+        invoke(&args)
+    };
+    // 默认值和 `--settings` 给的值；数据文件就是包里的那个。
+    let (status, out, err) = run(&[], &events);
+    assert_eq!((status, err.as_str()), (EXIT_OK, ""), "{out}");
+    assert_eq!(
+        lines(&out)[0]["log"],
+        serde_json::json!([{"level": "debug", "text": "words"}, {"level": "debug", "text": "2"}])
+    );
+    let (status, out, err) = run(&[Path::new("--settings"), &settings], &events);
+    assert_eq!((status, err.as_str()), (EXIT_OK, ""), "{out}");
+    assert_eq!(
+        lines(&out)[0]["log"][1],
+        serde_json::json!({"level": "debug", "text": "5"})
+    );
+
+    // 只接受字母的指令：参数里有数字是夹具写错。
+    let letters = files.path().join("letters.jsonl");
+    fs::write(
+        &letters,
+        "{\"event\":\"command\",\"key\":true,\"trigger\":\"uuid\",\"argument\":\"v4\"}\n",
+    )
+    .unwrap();
+    let (status, out, err) = run(&[], &letters);
+    assert_eq!((status, out.as_str()), (EXIT_USAGE, ""));
+    assert!(
+        err.contains("第 1 个事件的参数 v4 里有指令 uuid 不接受的字符"),
+        "{err}"
+    );
+
+    // 设置写错：清单里没有的键、值不合规、不是对象。
+    for (text, expected) in [
+        ("{\"width\": 1}", "清单里没有设置项 width"),
+        ("{\"digits\": 10}", "设置项 digits 的值 10 不合规"),
+        ("{\"digits\": \"5\"}", "设置项 digits 的值 \"5\" 不合规"),
+        ("[1]", "设置必须是一个 JSON 对象"),
+        ("{", "设置不是有效的 JSON"),
+    ] {
+        fs::write(&settings, text).unwrap();
+        let (status, out, err) = run(&[Path::new("--settings"), &settings], &events);
+        assert_eq!((status, out.as_str()), (EXIT_USAGE, ""), "{text}");
+        assert!(err.contains(expected), "{text}: {err}");
+    }
+
+    // 没申请 `persist_data` 不能给存储的初值。
+    let initial = files.path().join("storage.bin");
+    fs::write(&initial, b"memo").unwrap();
+    let (status, _, err) = run(&[Path::new("--storage"), &initial], &events);
+    assert_eq!(status, EXIT_USAGE);
+    assert!(err.contains("清单没有申请 persist_data"), "{err}");
+    // 申请了：初值能给，超过 64 KiB 不行。
+    fs::write(
+        pack.join("plugin.toml"),
+        second_batch_manifest("'provide_commands', 'persist_data'"),
+    )
+    .unwrap();
+    fs::write(
+        pack.join("main.wasm"),
+        binary_with(
+            &[COMMAND_ROW, DATA_READ, SETTING_VALUE, LOG, STORAGE_LEN],
+            &LOG_DATA_AND_SETTING,
+        ),
+    )
+    .unwrap();
+    let (status, out, err) = run(&[Path::new("--storage"), &initial], &events);
+    assert_eq!((status, err.as_str()), (EXIT_OK, ""), "{out}");
+    fs::write(&initial, vec![0u8; 64 * 1024 + 1]).unwrap();
+    let (status, _, err) = run(&[Path::new("--storage"), &initial], &events);
+    assert_eq!(status, EXIT_USAGE);
+    assert!(err.contains("存储的初值超过 65536 字节"), "{err}");
+    // 各只能写一次。
+    let (status, _, err) = run(
+        &[
+            Path::new("--settings"),
+            &settings,
+            Path::new("--settings"),
+            &settings,
+        ],
+        &events,
+    );
+    assert_eq!(status, EXIT_USAGE);
+    assert!(err.starts_with("usage: msime-pack validate"), "{err}");
 }

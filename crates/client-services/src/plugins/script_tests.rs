@@ -1218,10 +1218,12 @@ fn a_script_pack_declares_its_slash_commands() {
             script_pack::ScriptCommand {
                 trigger: "uuid".into(),
                 title: "UUID".into(),
+                arguments: script_pack::CommandArguments::Letters,
             },
             script_pack::ScriptCommand {
                 trigger: "guid".into(),
                 title: "GUID".into(),
+                arguments: script_pack::CommandArguments::Letters,
             },
         ]
     );
@@ -1679,4 +1681,515 @@ fn an_official_script_pack_is_granted_before_the_plugin_root_exists() {
     assert!(root.is_dir());
     assert!(script_grants::document_path(&root).is_file());
     assert_eq!(script_grants::read(&root), grants);
+}
+
+// ---- 第二批能力：设置项、随包数据、扩展参数、加候选和持久存储的清单规则 ----
+
+const CANDIDATE_COUNT: Import = ("candidate_count", &[], &[I32]);
+const CANDIDATES_INSERT: Import = ("candidates_insert", &[I32, I32, I32, I32, I32], &[I32]);
+const STORAGE_LEN: Import = ("storage_len", &[], &[I32]);
+const SETTING_COUNT: Import = ("setting_count", &[], &[I32]);
+const DATA_READ: Import = ("data_read", &[I32, I32, I32, I32], &[I32]);
+
+/// 只读上屏、不需要能力地读设置和数据的包，`script` 里追加 `[script]` 的其余键（`settings`、`data`）。
+fn resourceful(id: &str, extra: &str) -> (String, Vec<u8>) {
+    (
+        manifest(id, "'read_commit'", &format!("{SCRIPT}{extra}")),
+        module(&[COMMIT_SCALAR, SETTING_COUNT, DATA_READ]),
+    )
+}
+
+const ALL_SETTINGS: &str = "
+[[script.settings]]
+key = 'hide'
+title = '隐藏生僻字'
+description = '打开后不显示通用规范汉字表以外的字'
+type = 'bool'
+default = true
+
+[[script.settings]]
+key = 'level'
+title = '字表'
+type = 'choice'
+options = [{ value = 'level_1', title = '一级字' }, { value = 'level_2', title = '二级字' }]
+default = 'level_2'
+
+[[script.settings]]
+key = 'threshold'
+title = '阈值'
+type = 'number'
+min = -5
+max = 100
+default = 7
+
+[[script.settings]]
+key = 'suffix'
+title = '后缀'
+type = 'text'
+max_length = 4
+default = ''
+";
+
+#[test]
+fn settings_are_parsed_with_their_types_and_defaults() {
+    let files = tempdir().unwrap();
+    let (script, wasm) = resourceful("rare", ALL_SETTINGS);
+    let directory = write_pack(files.path(), "rare", &script, &wasm);
+    let summary = validate(&directory).unwrap();
+    let pack = script_content(&summary);
+    let keys: Vec<&str> = pack
+        .settings
+        .iter()
+        .map(|setting| setting.key.as_str())
+        .collect();
+    assert_eq!(keys, ["hide", "level", "threshold", "suffix"]);
+    assert_eq!(
+        pack.settings[2].kind,
+        script_pack::SettingKind::Number {
+            min: -5,
+            max: 100,
+            default: 7
+        }
+    );
+    let json = serde_json::to_value(&summary).unwrap();
+    assert_eq!(
+        json["settings"][0],
+        serde_json::json!({"key": "hide", "title": "隐藏生僻字", "description": "打开后不显示通用规范汉字表以外的字", "type": "bool", "default": true})
+    );
+    assert_eq!(
+        json["settings"][1],
+        serde_json::json!({"key": "level", "title": "字表", "type": "choice", "options": [{"value": "level_1", "title": "一级字"}, {"value": "level_2", "title": "二级字"}], "default": "level_2"})
+    );
+    assert_eq!(
+        json["settings"][3],
+        serde_json::json!({"key": "suffix", "title": "后缀", "type": "text", "max_length": 4, "default": ""})
+    );
+    // 设置项不改变内容哈希的算法：清单字节本来就计入，值不计入。
+    assert_eq!(
+        pack.content_hash,
+        script_pack::content_hash(script.as_bytes(), &wasm)
+    );
+
+    // 交给插件的值：没存是默认值；存了合规的值用它；类型不对、超出范围、不是选项的回到默认值；清单里没有的键不交。
+    let defaults = script_pack::setting_values(&pack.settings, &serde_json::Map::new());
+    assert_eq!(defaults, ["1", "level_2", "7", ""]);
+    let stored = serde_json::json!({
+        "hide": false, "level": "level_1", "threshold": -5, "suffix": "😀ab", "removed": 1
+    });
+    assert_eq!(
+        script_pack::setting_values(&pack.settings, stored.as_object().unwrap()),
+        ["0", "level_1", "-5", "😀ab"]
+    );
+    let wrong = serde_json::json!({
+        "hide": "yes", "level": "level_3", "threshold": 101, "suffix": "12345"
+    });
+    assert_eq!(
+        script_pack::setting_values(&pack.settings, wrong.as_object().unwrap()),
+        defaults
+    );
+    let more_wrong = serde_json::json!({"threshold": 7.5, "suffix": "a\u{200b}"});
+    assert_eq!(
+        script_pack::setting_values(&pack.settings, more_wrong.as_object().unwrap()),
+        defaults
+    );
+    // 没有设置项的旧包：摘要里没有 `settings`。
+    let (reader, wasm) = reader("pangu");
+    let directory = write_pack(files.path(), "pangu", &reader, &wasm);
+    let json = serde_json::to_value(validate(&directory).unwrap()).unwrap();
+    assert!(
+        json.get("settings").is_none()
+            && json.get("data").is_none()
+            && json.get("data_bytes").is_none()
+    );
+}
+
+fn setting(body: &str) -> String {
+    format!("[[script.settings]]\nkey = 'k'\ntitle = '标题'\n{body}\n")
+}
+
+#[test]
+fn settings_that_could_not_work_are_refused_with_the_reason() {
+    let files = tempdir().unwrap();
+    let many: String = (0..=limits::MAX_SETTINGS)
+        .map(|index| format!("[[script.settings]]\nkey = 'k{index}'\ntitle = 'T'\ntype = 'bool'\ndefault = true\n"))
+        .collect();
+    let cases: Vec<(String, &str)> = vec![
+        (many, "script.settings 要有 1 到 16 项"),
+        ("settings = []\n".into(), "script.settings 要有 1 到 16 项"),
+        ("settings = 1\n".into(), "script.settings 必须是表的数组"),
+        (format!("{}{}", setting("type = 'bool'\ndefault = true"), setting("type = 'bool'\ndefault = false")), "设置项 k 重复了"),
+        (setting("type = 'bool'\ndefault = true").replace("key = 'k'", "key = 'K'"), "key 必须是 1 到 32 个小写字母"),
+        (setting("type = 'bool'\ndefault = true").replace("key = 'k'", &format!("key = '{}'", "k".repeat(33))), "key 必须是 1 到 32 个小写字母"),
+        (setting("type = 'date'\ndefault = 1"), "type 只能是 bool、choice、number 或 text"),
+        (setting("default = true"), "设置项 k 需要字符串 type"),
+        (setting("type = 'bool'\ndefault = true\nmin = 1"), "设置项 k 里有未知的键 min"),
+        (setting("type = 'bool'"), "设置项 k 需要 default"),
+        (setting("type = 'bool'\ndefault = 1"), "default 必须是 true 或 false"),
+        (setting("type = 'bool'\ndefault = true").replace("title = '标题'", &format!("title = '{}'", "字".repeat(25))), "标题必须是 1 到 24 个字符"),
+        (setting("type = 'bool'\ndefault = true").replace("title = '标题'", "title = ' 标题'"), "标题必须是 1 到 24 个字符"),
+        (setting(&format!("type = 'bool'\ndefault = true\ndescription = '{}'", "字".repeat(121))), "description 必须是不超过 120 个字符"),
+        (setting("type = 'choice'\noptions = [{ value = 'a', title = 'A' }]\ndefault = 'a'"), "options 要有 2 到 16 个选项"),
+        (setting("type = 'choice'\noptions = [{ value = 'a', title = 'A' }, { value = 'a', title = 'B' }]\ndefault = 'a'"), "选项 a 重复了"),
+        (setting("type = 'choice'\noptions = [{ value = 'A', title = 'A' }, { value = 'b', title = 'B' }]\ndefault = 'b'"), "选项 A 必须是 1 到 32 个小写字母"),
+        (setting("type = 'choice'\noptions = [{ value = 'a', title = 'A', note = 'x' }, { value = 'b', title = 'B' }]\ndefault = 'b'"), "设置项 k 的选项 里有未知的键 note"),
+        (setting("type = 'choice'\noptions = [{ value = 'a', title = 'A' }, { value = 'b', title = 'B' }]\ndefault = 'c'"), "default 必须是其中一个选项的 value"),
+        (setting("type = 'number'\nmin = 0\nmax = 10\ndefault = 11"), "min <= default <= max"),
+        (setting("type = 'number'\nmin = 5\nmax = 1\ndefault = 3"), "min <= default <= max"),
+        (setting("type = 'number'\nmin = 0\nmax = 3000000000\ndefault = 1"), "max 必须是 i32 范围内的整数"),
+        (setting("type = 'number'\nmin = 0.5\nmax = 3\ndefault = 1"), "min 必须是 i32 范围内的整数"),
+        (setting("type = 'text'\nmax_length = 0\ndefault = ''"), "max_length 必须是 1 到 256 之间的整数"),
+        (setting("type = 'text'\nmax_length = 257\ndefault = ''"), "max_length 必须是 1 到 256 之间的整数"),
+        (setting("type = 'text'\nmax_length = 2\ndefault = 'abc'"), "default 必须是不超过 max_length 个 UTF-16 码元"),
+        (setting("type = 'text'\nmax_length = 4\ndefault = \"a\\u200Bb\""), "default 必须是不超过 max_length 个 UTF-16 码元"),
+    ];
+    for (extra, expected) in cases {
+        let (script, wasm) = resourceful("rare", &extra);
+        let directory = write_pack(files.path(), "rare", &script, &wasm);
+        let reason = refusal(&directory);
+        assert!(reason.contains(expected), "{extra}: {reason}");
+    }
+}
+
+/// 在包目录里写数据文件。
+fn write_data(directory: &Path, files: &[(&str, &[u8])]) {
+    for (name, bytes) in files {
+        fs::write(directory.join(name), bytes).unwrap();
+    }
+}
+
+#[test]
+fn data_files_are_checked_counted_and_hashed_in_order() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let (script, wasm) = resourceful("words", "data = ['words.bin', 'index.bin']\n");
+    let directory = write_pack(files.path(), "words", &script, &wasm);
+    write_data(&directory, &[("words.bin", b"words"), ("index.bin", b"x")]);
+    let summary = validate(&directory).unwrap();
+    let pack = script_content(&summary);
+    assert_eq!(pack.data, ["words.bin", "index.bin"]);
+    assert_eq!(pack.data_bytes, 6);
+    let hash = script_pack::content_hash_with_data(
+        script.as_bytes(),
+        &wasm,
+        &[b"words".to_vec(), b"x".to_vec()],
+    );
+    assert_eq!(pack.content_hash, hash);
+    assert_ne!(hash, script_pack::content_hash(script.as_bytes(), &wasm));
+    let json = serde_json::to_value(&summary).unwrap();
+    assert_eq!(json["data"], serde_json::json!(["words.bin", "index.bin"]));
+    assert_eq!(json["data_bytes"], 6);
+    // 换一个字节、换顺序都换哈希。
+    write_data(&directory, &[("words.bin", b"wordz")]);
+    assert_ne!(
+        script_content(&validate(&directory).unwrap()).content_hash,
+        hash
+    );
+    write_data(&directory, &[("words.bin", b"words")]);
+    assert_eq!(
+        script_content(&validate(&directory).unwrap()).content_hash,
+        hash
+    );
+    // 输入法进程和 `msime-pack run` 拿到的字节就是哈希的那一份，按清单顺序。
+    let root = state.path().join("plugins");
+    import(&directory, &root).unwrap();
+    let loaded = script_pack::load(&root, None, "words").unwrap();
+    assert_eq!(loaded.pack.content_hash, hash);
+    assert_eq!(loaded.data, [b"words".to_vec(), b"x".to_vec()]);
+    let source = load_script_source(&directory, ReservedIds::Refuse).unwrap();
+    assert_eq!(source.data, loaded.data);
+    assert_eq!(loaded.resident_bytes(), 6);
+}
+
+#[test]
+fn data_files_that_could_not_work_are_refused_with_the_reason() {
+    let files = tempdir().unwrap();
+    let four_mib = vec![1u8; limits::MAX_DATA_FILE_BYTES];
+    /// 清单 `[script]` 追加的键、要写进包里的数据文件、期望的拒绝原因。
+    type Case<'a> = (&'a str, Vec<(&'a str, Vec<u8>)>, &'a str);
+    let cases: Vec<Case> = vec![
+        ("data = ['a.bin']\n", vec![], "缺少数据文件 a.bin"),
+        (
+            "data = ['a.bin']\n",
+            vec![("a.bin", Vec::new())],
+            "a.bin 为空或太大",
+        ),
+        (
+            "data = ['a.bin']\n",
+            vec![("a.bin", vec![1; limits::MAX_DATA_FILE_BYTES + 1])],
+            "a.bin 为空或太大",
+        ),
+        (
+            "data = ['a.dat']\n",
+            vec![("a.dat", vec![1])],
+            "a.dat 的扩展名必须是 .bin",
+        ),
+        (
+            "data = ['a.txt']\n",
+            vec![("a.txt", vec![1])],
+            "a.txt 的扩展名必须是 .bin",
+        ),
+        ("data = []\n", vec![], "script.data 要有 1 到 4 个文件"),
+        (
+            "data = ['a.bin', 'b.bin', 'c.bin', 'd.bin', 'e.bin']\n",
+            vec![],
+            "script.data 要有 1 到 4 个文件",
+        ),
+        ("data = 'a.bin'\n", vec![], "script.data 必须是数组"),
+        ("data = [1]\n", vec![], "每一项都必须是字符串"),
+        (
+            "data = ['a.bin', 'a.bin']\n",
+            vec![("a.bin", vec![1])],
+            "script.data 里的 a.bin 重复了",
+        ),
+        (
+            "data = ['main.wasm']\n",
+            vec![],
+            "script.data 里的 main.wasm 重复了",
+        ),
+        (
+            "data = ['../a.bin']\n",
+            vec![],
+            "script.data 的文件名 ../a.bin 无效",
+        ),
+        ("data = ['plugin.toml']\n", vec![], "plugin.toml"),
+        (
+            "data = ['a.bin', 'b.bin', 'c.bin']\n",
+            vec![
+                ("a.bin", four_mib.clone()),
+                ("b.bin", four_mib.clone()),
+                ("c.bin", vec![1]),
+            ],
+            "script.data 的文件加起来太大",
+        ),
+        // 没在清单里点名的 .bin 文件不是说明文件。
+        (
+            "",
+            vec![("stray.bin", vec![1])],
+            "stray.bin 没有在 plugin.toml 里用到",
+        ),
+    ];
+    for (extra, data, expected) in cases {
+        let (script, wasm) = resourceful("words", extra);
+        let directory = write_pack(files.path(), "words", &script, &wasm);
+        for (name, bytes) in &data {
+            fs::write(directory.join(name), bytes).unwrap();
+        }
+        let reason = refusal(&directory);
+        assert!(reason.contains(expected), "{extra}: {reason}");
+        fs::remove_dir_all(&directory).unwrap();
+    }
+    // 正好 8 MiB 放得下。
+    let (script, wasm) = resourceful("words", "data = ['a.bin', 'b.bin']\n");
+    let directory = write_pack(files.path(), "words", &script, &wasm);
+    write_data(&directory, &[("a.bin", &four_mib), ("b.bin", &four_mib)]);
+    assert_eq!(
+        script_content(&validate(&directory).unwrap()).data_bytes,
+        limits::MAX_DATA_TOTAL_BYTES as u64
+    );
+}
+
+/// 加数据文件之前的哈希逐字节不变：没有数据文件时什么都不追加。期望值是按设计里的公式另外算的，不是拿实现自己算出来再抄回来的。官方 uuid 包锁定在 `plugins/official-packs.json` 的哈希由 `scripts/build-official-plugins.sh` 对着真实构建核对。
+#[test]
+fn the_content_hash_only_grows_when_there_are_data_files() {
+    let (manifest, wasm) = (b"plugin.toml".as_slice(), b"\0asm".as_slice());
+    let pinned = "ba9c21779708ddf65236992f490b9b1c29273b9a32a4940825c153143d2bf711";
+    assert_eq!(script_pack::content_hash(manifest, wasm), pinned);
+    assert_eq!(
+        script_pack::content_hash_with_data(manifest, wasm, &[]),
+        pinned
+    );
+    assert_eq!(
+        script_pack::content_hash_with_data(manifest, wasm, &[b"words".to_vec(), b"x".to_vec()]),
+        "3a0400ad22e5ff9d90028e9f1099f86ba161535dc47d1ea5395cecbd13336ee0"
+    );
+    // 空的一段也带长度：和没有数据文件不同。
+    assert_eq!(
+        script_pack::content_hash_with_data(manifest, wasm, &[Vec::new()]),
+        "fd321b94d696fad6578bf1f3cd600e89777d40239c6a44f04b7138748cd740b5"
+    );
+    // 旧测试里那个包的哈希照旧。
+    let (script, wasm) = reader("pangu");
+    assert_eq!(
+        script_pack::content_hash_with_data(script.as_bytes(), &wasm, &[]),
+        "b49377d0055743c345a30b9fed4890f404557d8def290cb7430563755c6f3315"
+    );
+}
+
+#[test]
+fn commands_may_take_extended_arguments() {
+    let files = tempdir().unwrap();
+    let script = commander(&format!(
+        "{}arguments = 'extended'\n{}arguments = 'letters'\n",
+        command("calc", "计算"),
+        command("uuid", "UUID")
+    ));
+    let directory = write_pack(files.path(), "calc", &script, &module(&[COMMAND_ROW]));
+    let summary = validate(&directory).unwrap();
+    let pack = script_content(&summary);
+    assert_eq!(
+        pack.commands
+            .iter()
+            .map(|command| command.arguments)
+            .collect::<Vec<_>>(),
+        [
+            script_pack::CommandArguments::Extended,
+            script_pack::CommandArguments::Letters
+        ]
+    );
+    assert_eq!(
+        serde_json::to_value(&summary).unwrap()["commands"],
+        serde_json::json!([
+            {"trigger": "calc", "title": "计算", "arguments": "extended"},
+            {"trigger": "uuid", "title": "UUID"},
+        ])
+    );
+    for value in ["'numbers'", "1", "true"] {
+        let script = commander(&format!("{}arguments = {value}\n", command("calc", "计算")));
+        let directory = write_pack(files.path(), "calc", &script, &module(&[COMMAND_ROW]));
+        let reason = refusal(&directory);
+        assert!(reason.contains("arguments 只能是"), "{value}: {reason}");
+    }
+}
+
+#[test]
+fn insert_candidates_and_persist_data_follow_the_permission_rules() {
+    let files = tempdir().unwrap();
+    let cases: &[(&str, &[Import], Option<&str>)] = &[
+        (
+            "'insert_candidates'",
+            &[CANDIDATES_INSERT],
+            Some("申请 insert_candidates 必须同时申请 read_candidates"),
+        ),
+        (
+            "'read_candidates', 'insert_candidates'",
+            &[CANDIDATE_COUNT, CANDIDATES_INSERT],
+            None,
+        ),
+        (
+            "'read_commit', 'rewrite_commit', 'persist_data'",
+            &[COMMIT_TEXT, REWRITE_COMMIT, STORAGE_LEN],
+            Some("persist_data 不能和 rewrite_commit 同时申请"),
+        ),
+        (
+            "'read_commit', 'persist_data'",
+            &[COMMIT_TEXT, STORAGE_LEN],
+            None,
+        ),
+        // 申请了却没导入属于它的函数。
+        (
+            "'read_commit', 'persist_data'",
+            &[COMMIT_TEXT],
+            Some("persist_data"),
+        ),
+    ];
+    for (permissions, imports, expected) in cases {
+        let directory = write_pack(
+            files.path(),
+            "memo",
+            &manifest(
+                "memo",
+                permissions,
+                "abi = 1\nmodule = 'main.wasm'\nhooks = ['commit', 'candidates']\n",
+            ),
+            &module(imports),
+        );
+        match expected {
+            None => {
+                let summary = validate(&directory).unwrap();
+                assert!(script_content(&summary).permissions.iter().count() >= 2);
+            }
+            Some(expected) => {
+                let reason = refusal(&directory);
+                assert!(reason.contains(expected), "{permissions}: {reason}");
+            }
+        }
+    }
+    // 授权页传来的新能力名认得；同时勾选 `persist_data` 和 `rewrite_commit` 写不进授权。
+    assert_eq!(
+        script_grants::capabilities(&["insert_candidates".into(), "persist_data".into()]).unwrap(),
+        CapabilitySet::EMPTY
+            .with(Capability::InsertCandidates)
+            .with(Capability::PersistData)
+    );
+}
+
+#[test]
+fn a_grant_cannot_combine_persist_data_with_rewrite_commit() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let script = manifest(
+        "memo",
+        "'read_commit', 'persist_data'",
+        "abi = 1\nmodule = 'main.wasm'\nhooks = ['commit']\n",
+    );
+    let hash = import_pack(
+        files.path(),
+        &root,
+        "memo",
+        &script,
+        &module(&[COMMIT_TEXT, STORAGE_LEN]),
+    );
+    let persist = CapabilitySet::EMPTY
+        .with(Capability::ReadCommit)
+        .with(Capability::PersistData);
+    let grants = script_grants::set(&root, None, "memo", &hash, true, persist).unwrap();
+    assert_eq!(grants.plugins[0].granted, persist);
+    // 授权文件按名字存：新能力名能读回来。
+    assert_eq!(script_grants::read(&root).plugins[0].granted, persist);
+    assert!(matches!(
+        script_grants::set(
+            &root,
+            None,
+            "memo",
+            &hash,
+            true,
+            persist.with(Capability::RewriteCommit)
+        ),
+        Err(ScriptGrantError::Invalid(_))
+    ));
+}
+
+/// 数据文件按 1 倍记进进程内存总账：64 页的小模块不带数据时 8 个都放得下，每个带 8 MiB 数据时第 5 个就放不下。
+#[test]
+fn admission_counts_data_files_once() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let four_mib = vec![3u8; limits::MAX_DATA_FILE_BYTES];
+    let pages = format!("memory_pages = {}\n", limits::MAX_MEMORY_PAGES);
+    let (_, wasm) = resourceful("x", "");
+    let per_plugin = limits::script_memory_bytes(wasm.len(), limits::MAX_MEMORY_PAGES)
+        + limits::MAX_DATA_TOTAL_BYTES;
+    let fitting = limits::PROCESS_MEMORY_BYTES / per_plugin;
+    assert!(fitting < limits::MAX_ENABLED_SCRIPTS);
+    assert!(
+        limits::PROCESS_MEMORY_BYTES
+            / limits::script_memory_bytes(wasm.len(), limits::MAX_MEMORY_PAGES)
+            >= limits::MAX_ENABLED_SCRIPTS
+    );
+    let mut hashes = Vec::new();
+    for index in 0..=fitting {
+        let id = format!("data{index}");
+        let (script, wasm) = resourceful(&id, &format!("{pages}data = ['a.bin', 'b.bin']\n"));
+        let directory = write_pack(files.path(), &id, &script, &wasm);
+        write_data(&directory, &[("a.bin", &four_mib), ("b.bin", &four_mib)]);
+        let summary = import(&directory, &root).unwrap();
+        hashes.push((id, script_content(&summary).content_hash.clone()));
+        fs::remove_dir_all(&directory).unwrap();
+    }
+    let (last, rest) = hashes.split_last().unwrap();
+    for (id, hash) in rest {
+        script_grants::set(&root, None, id, hash, true, read_commit()).unwrap();
+    }
+    assert!(matches!(
+        script_grants::set(&root, None, &last.0, &last.1, true, read_commit()),
+        Err(ScriptGrantError::Memory)
+    ));
+    // 存储缓冲按一整块 64 KiB 记。
+    assert_eq!(
+        limits::resident_bytes(10, true),
+        10 + limits::MAX_STORAGE_BYTES
+    );
+    assert_eq!(limits::resident_bytes(10, false), 10);
 }

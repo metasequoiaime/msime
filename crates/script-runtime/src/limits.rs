@@ -21,7 +21,7 @@ pub const OBSERVE_FUEL: u64 = 25_000;
 
 /// import 每次调用先扣的 fuel。
 pub const IMPORT_CALL_FUEL: u64 = 100;
-/// import 每复制这么多字节再扣 1。
+/// import 每复制这么多字节再扣 1。读写数据文件和存储也按它计。
 pub const IMPORT_BYTES_PER_FUEL: u64 = 4;
 
 /// 单个钩子一次最多能用多少 fuel。
@@ -72,6 +72,22 @@ pub const RANDOM_BYTES_PER_EVENT: usize = 64;
 pub const MAX_COMMAND_ARGUMENT_BYTES: usize = 64;
 /// `command` 事件的触发词最多几个字节，同清单的触发词规则（2 到 16 个小写字母）。
 pub const MAX_COMMAND_TRIGGER_BYTES: usize = 16;
+/// 一个插件每次 `candidates` 最多用 `candidates_insert` 插几行。
+pub const MAX_INSERTED_ROWS_PER_PLUGIN: usize = 3;
+/// 所有插件合计每次最多插几行，宿主按执行顺序截断。
+pub const MAX_INSERTED_ROWS: usize = 6;
+
+/// 清单 `[[script.settings]]` 最多几项。
+pub const MAX_SETTINGS: usize = 16;
+/// 清单 `[script].data` 最多几个文件。
+pub const MAX_DATA_FILES: usize = 4;
+/// 单个数据文件的上限，和单词本包的单文件上限一致。
+pub const MAX_DATA_FILE_BYTES: usize = 4 * 1024 * 1024;
+/// 一个包的数据文件合计的上限。
+pub const MAX_DATA_TOTAL_BYTES: usize = 8 * 1024 * 1024;
+/// `persist_data` 的存储上限。
+pub const MAX_STORAGE_BYTES: usize = 64 * 1024;
+
 /// 改写后的 body 最多几个 UTF-8 字节。
 pub const MAX_REWRITE_BYTES: usize = 4096;
 /// 改写后的 body 最多是原文 UTF-16 码元数的几倍。
@@ -110,9 +126,27 @@ pub fn script_memory_bytes(module_bytes: usize, memory_pages: u32) -> usize {
 
 /// 一组脚本（每项是模块字节数和 `memory_pages`）合计放不放得进总账。
 pub fn fits_memory_budget(scripts: impl IntoIterator<Item = (usize, u32)>) -> bool {
+    fits_memory_budget_with_resident(
+        scripts
+            .into_iter()
+            .map(|(module_bytes, memory_pages)| (module_bytes, memory_pages, 0)),
+    )
+}
+
+/// 和模块无关、原样常驻内存的字节：随包数据文件按 1 倍记（不走模块的 [`TRANSLATED_BYTES_PER_MODULE_BYTE`] 倍，数据不会被翻译），申请了 `persist_data` 的再加一整块 [`MAX_STORAGE_BYTES`] 的存储缓冲。
+pub fn resident_bytes(data_bytes: usize, persists: bool) -> usize {
+    data_bytes.saturating_add(if persists { MAX_STORAGE_BYTES } else { 0 })
+}
+
+/// 同 [`fits_memory_budget`]，每项另带 [`resident_bytes`]。
+pub fn fits_memory_budget_with_resident(
+    scripts: impl IntoIterator<Item = (usize, u32, usize)>,
+) -> bool {
     scripts
         .into_iter()
-        .map(|(module_bytes, memory_pages)| script_memory_bytes(module_bytes, memory_pages))
+        .map(|(module_bytes, memory_pages, resident)| {
+            script_memory_bytes(module_bytes, memory_pages).saturating_add(resident)
+        })
         .fold(0, usize::saturating_add)
         <= PROCESS_MEMORY_BYTES
 }

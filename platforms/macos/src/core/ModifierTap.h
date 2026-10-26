@@ -56,6 +56,15 @@ public:
         const bool toggle = armed_ && sameModifier && flags == 0 &&
             previous == required && enabled && !anyKeyHeld() && std::isfinite(time) &&
             time >= pressedAt_ && time - pressedAt_ < 0.5;
+        // 上一轮 Shift 组合取消了 tap，但它的松开通知可能丢失；若两侧实际都已松开，
+        // 当前这次按下应作为新一轮轻点重新布防，避免后续每次单按都继承旧状态。
+        const unsigned short otherModifier = event.keyCode == 56 ? 60 : 56;
+        if (!armed_ && shift && enabled && sameModifier && flags == required &&
+            !held_(otherModifier) && !anyKeyHeld() && std::isfinite(time)) {
+            armed_ = true;
+            armedModifier_ = required;
+            pressedAt_ = time;
+        }
         // Both sides of the same modifier form one tap, timed from the first
         // press and completed only when the last side is released.
         if (armed_ && sameModifier && flags == required && enabled) return false;

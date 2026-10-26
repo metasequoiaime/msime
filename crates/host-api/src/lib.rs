@@ -353,6 +353,17 @@ fn chaizi_enabled(preferences: &msime_client_core::preferences::LocalModePrefere
     preferences.chaizi.unwrap_or(TOUCH_KEYBOARD_HOST)
 }
 
+/// 「移动光标后编辑光标后的部分」只在三个桌面宿主上交给 Engine：偏好随同步到达手机时，触屏宿主没有设置入口、也不画模式提示，所以那里一律按关。
+const CARET_EDIT_SUFFIX_HOST: bool = cfg!(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+));
+
+fn caret_edit_suffix_applies(preferences: &Preferences) -> bool {
+    CARET_EDIT_SUFFIX_HOST && preferences.caret_edit_suffix
+}
+
 fn multilingual_languages_for(
     preferences: &Preferences,
     edition: &Edition,
@@ -788,6 +799,7 @@ impl HostSession {
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.single_character_only = preferences.single_character_only;
+        options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
         options.next_word_prediction =
             preferences.next_word_prediction && cfg!(target_os = "android");
@@ -2141,6 +2153,7 @@ impl HostOptions {
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             single_character_only: self.preferences.single_character_only,
+            caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
             learn_english_on_enter: self.preferences.enter_learns_english_word,
             next_word_prediction: self.preferences.next_word_prediction

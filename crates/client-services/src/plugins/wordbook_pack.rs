@@ -90,7 +90,7 @@ pub(crate) fn read(directory: &Path, file: &str) -> Result<WordbookPack, String>
     })
 }
 
-fn read_entries(directory: &Path, file: &str) -> Result<Vec<WordbookEntry>, String> {
+pub(crate) fn read_entries(directory: &Path, file: &str) -> Result<Vec<WordbookEntry>, String> {
     let bytes =
         read_file(directory, file, MAX_FILE_BYTES).map_err(|_| format!("{file} 无法读取或太大"))?;
     parse_words(&bytes, file)

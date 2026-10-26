@@ -189,8 +189,10 @@ impl InputSession {
         if self.dedicated_english || self.local_mode == LocalInputMode::TemporaryEnglish {
             return self.english_online_query();
         }
+        // 光标后编辑：云端和 AI 只能回答整段原文，回答不了「固定的前半段 + 光标后那段」，本模式里不发查询。
         if self.online_requests.exhausted
             || self.local_mode != LocalInputMode::None
+            || self.caret_edit.active
             || !self.has_composition()
         {
             return None;
@@ -374,9 +376,11 @@ impl InputSession {
                     ai_eligible: true,
                 });
         }
+        // 进入光标后编辑之前发出的查询，回包也不接：它回答的是整段原文。
         if self.dedicated_english
             || self.online_requests.exhausted
             || self.local_mode != LocalInputMode::None
+            || self.caret_edit.active
             || !self.has_composition()
         {
             return None;

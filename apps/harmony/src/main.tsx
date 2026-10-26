@@ -75,6 +75,7 @@ import {
   type LocalVoiceModelList,
   type LocalVoiceModelProgress,
   type MentionEntry,
+  type AuthoredPack,
   type PluginCatalogResult,
   type PluginClient,
   type PluginPackage,
@@ -173,7 +174,7 @@ interface NativeBridge {
   /** Starts the picker and answers at once; the panel's own rescan is what shows the result. */
   importSkinFolder(): string;
   /**
-   * The 插件 page's pack store and @ name list: `{operation:"catalog"|"remove"|"load_mentions"|"save_mentions",...}`, answered by `msime_client_plugins` as `{ok,value}` or `{ok:false,error,detail?}`. An import waits for the system picker, so it goes through `startRequest` as `plugin_import` instead.
+   * The 插件 page's pack store, plugin editor and @ name list: `{operation:"catalog"|"remove"|"load_mentions"|"save_mentions"|"authoring_load"|"authoring_save",...}`, answered by `msime_client_plugins` as `{ok,value}` or `{ok:false,error,detail?}`. An import waits for the system picker, so it goes through `startRequest` as `plugin_import` instead.
    */
   plugins(action: string): string;
   // 下面这些方法随 HarmonyOS 改版加入。旧版 HAP 没有注册它们，所以每个都先用 `typeof` 检查再用，缺哪个，页面就不画它支撑的那块界面，而不是去调用不存在的东西。它们声明为普通成员，这样桥接一致性检查（`scripts/test-harmony-bridge-parity.py`）仍能看到它们，并要求宿主把每一个都注册上。
@@ -996,6 +997,11 @@ function pluginClient(native: NativeBridge): PluginClient {
     remove: async (kind, id) => {
       call<null>({ operation: "remove", kind, id });
     },
+    // 设置页插件编辑器：清单在 client-services 生成，按导入同样的规则校验和安装。
+    loadAuthoredPack: async (kind, id) =>
+      call<AuthoredPack>({ operation: "authoring_load", kind, id }),
+    saveAuthoredPack: async (pack, replace) =>
+      call<PluginPackage>({ operation: "authoring_save", pack, replace }),
     loadMentions: async () => call<MentionEntry[]>({ operation: "load_mentions" }),
     saveMentions: async (entries) => {
       call<null>({ operation: "save_mentions", entries });
