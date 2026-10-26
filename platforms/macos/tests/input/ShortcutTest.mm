@@ -4552,7 +4552,7 @@ static void TestAdaptiveCandidatePaginationKeepsCurrentPage() {
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     prefs.vertical = NO;
     prefs.pageSize = 5;
-    [prefs applySharedCandidatePreferences:@{@"candidate_count_mode": @"adaptive"}];
+    [prefs applySharedCandidatePreferences:@{@"candidate_count_mode": @"adaptive", @"candidate_max_width": @180}];
     assert(prefs.adaptiveCandidateCount);
 
     ModeController *controller = [ModeController alloc];
@@ -4560,7 +4560,7 @@ static void TestAdaptiveCandidatePaginationKeepsCurrentPage() {
     session.generation = 11;
     session.total = 23;
     session.pageSize = 5;
-    session.prefix = @"词";
+    session.prefix = @"候选词";
     session.editing = @"liangzhe";
     ShortcutClient *client = [ShortcutClient new];
     client.caret = NSMakeRect(200, 400, 1, 18);
