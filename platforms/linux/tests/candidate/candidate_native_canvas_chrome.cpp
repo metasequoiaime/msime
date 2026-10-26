@@ -209,6 +209,9 @@ void caret_edit_suffix() {
   content.auxiliary.clear();
   content.auxiliary_hint.clear();
   content.selected = 1;
+  // CI 不保证安装中文字体；颜色像素断言使用基础字体的实心字形，UTF-8 范围由 caret_edit_suffix.cpp 验证。
+  content.font = "Sans 30px";
+  content.items[0].text = "MMMM";
   auto dim_palette = kPalette;
   dim_palette["number"] = "#00FF00";
   const auto ink = [&](std::size_t dim_bytes) {
@@ -219,7 +222,7 @@ void caret_edit_suffix() {
     return std::make_pair(layout, colors(target.get(), layout.items[0]));
   };
   auto [undimmed_layout, undimmed] = ink(0);
-  auto [dimmed_layout, dimmed] = ink(std::string("你").size());
+  auto [dimmed_layout, dimmed] = ink(2);
   assert(dimmed[0x00ff00] > undimmed[0x00ff00] && dimmed[0xffffff] < undimmed[0xffffff] && dimmed[0xffffff] > 0);
   // 只改颜色：行的大小不变。
   assert(near(dimmed_layout.items[0].width, undimmed_layout.items[0].width) &&

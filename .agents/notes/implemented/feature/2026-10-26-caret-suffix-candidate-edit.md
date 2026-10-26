@@ -90,6 +90,6 @@ Status: implemented
 
 宿主层：macOS 新增 ctest `candidate-caret-edit-suffix`，连同 6 项既有候选布局测试在 Mac Studio 上通过（含像素比对）；Linux 新增 `linux-caret-edit-suffix`，原生画布的两项测试扩展后用 clang 在 macOS 上编译运行通过；Windows 新增 `windows-caret-edit-presentation`，与扩展后的 `candidate_card_size`、`candidate_accessibility` 用 clang 在 macOS 上编译运行通过；Win7 设置测试加了开关的读写断言。
 
-Linux 原生画布的前缀颜色测试使用绿色作为序号色，正文仍为白色：白字抗锯齿本来就会产生灰像素，缺字回退字形甚至会使变淡后的纯灰像素比变淡前少，不能用纯灰数量增加证明前缀变色。中文候选和 UTF-8 前缀范围保留，分别核对前缀变色、后缀仍白、整行变色与几何不变；在只有拉丁字体的 Fontconfig 环境里也运行同一套画布测试。
+Linux 原生画布的前缀颜色测试使用绿色作为序号色，正文仍为白色：白字抗锯齿本来就会产生灰像素，缺字回退字形甚至会使变淡后的纯灰像素比变淡前少，不能用纯灰数量增加证明前缀变色。像素测试使用基础字体可显示的 `MMMM`，与 canvas 包的既有颜色测试一致，不要求 CI 安装中文字体；分别核对前缀变色、后缀仍白、整行变色与几何不变。中文、扩展 B 字符的 Unicode 标量与 UTF-8 字节范围由 `tests/core/caret_edit_suffix.cpp` 验证；提示布局仍使用中文文本。在只有拉丁字体的 Fontconfig 环境里也运行同一套画布测试。
 
 没有验证的：Mac Studio 上没有 MinGW、Wine，OrbStack 没有运行，系统盘也几乎写满，所以 Windows 的 `CandidateWindow.cpp`、WinUI 与 Win7 设置工程、Linux 的 `ClientEngine.cpp` 和 `FcitxEngine.cpp` 只能由 PR 上的 Windows 和 Linux CI 第一次编译；没有在任何系统的真实输入框里装机验收（按要求不安装、不切换 macOS 输入法），提示在真实桌面上的观感、窄卡片上的截断和高亮行上的淡色都未看过。
