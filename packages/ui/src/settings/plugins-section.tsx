@@ -36,6 +36,9 @@ export type {
   ScriptGrant,
   ScriptGrantsResult,
   ScriptHealth,
+  ScriptPluginState,
+  ScriptSetting,
+  ScriptSettingValue,
 } from "./plugin-types";
 export {
   SCRIPT_CAPABILITIES,
@@ -234,6 +237,8 @@ export function PluginsSection({
               onLocalMode={onLocalMode}
               onOpenPage={onOpenPage}
               nameOf={(id) => scriptPacks.find((candidate) => candidate.id === id)?.name ?? id}
+              client={client}
+              confirm={confirm}
               onGrant={(granted) => grantScript(pack, granted)}
               onRevoke={() => void revokeScript(pack)}
               onMove={(offset) => void moveScript(pack.id, offset)}

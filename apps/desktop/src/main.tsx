@@ -75,6 +75,7 @@ import {
   type PluginClient,
   type PluginPackage,
   type ScriptGrantsResult,
+  type ScriptPluginState,
   type ScelText,
   type WubiCodeLookup,
   UNBATCHED_DICTIONARY_FILE_BYTES,
@@ -213,6 +214,11 @@ const plugins: PluginClient = {
   setScriptGrant: (id, hash, enabled, granted) =>
     invoke<ScriptGrantsResult>("set_script_grant", { id, hash, enabled, granted }),
   reorderScripts: (ids) => invoke<ScriptGrantsResult>("reorder_scripts", { ids }),
+  // 插件详情页的设置值和持久存储：校验和写入都在 client-services 的 `script_settings`、`script_storage`。
+  scriptPluginState: (id) => invoke<ScriptPluginState>("script_plugin_state", { id }),
+  setScriptSettings: (id, values) =>
+    invoke<ScriptPluginState>("set_script_settings", { id, values }),
+  clearScriptData: (id) => invoke<ScriptPluginState>("clear_script_data", { id }),
 };
 const typingStatistics: TypingStatisticsClient = {
   load: () => invoke("load_typing_statistics"),

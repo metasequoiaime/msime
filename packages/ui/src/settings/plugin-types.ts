@@ -21,12 +21,34 @@ export type ScriptCapability =
   | "rerank_candidates"
   | "annotate_candidates"
   | "filter_candidates"
-  | "provide_commands";
+  | "provide_commands"
+  | "insert_candidates"
+  | "persist_data";
 
 export type PluginCommand = { trigger: string; title: string; template: string };
 
-/** 脚本插件在 `/` 指令里声明的一条指令：`client-services::plugins::script_pack::ScriptCommand`。和指令表的一条不同，它没有模板，候选由插件给出。 */
-export type ScriptCommand = { trigger: string; title: string };
+/** 脚本插件在 `/` 指令里声明的一条指令：`client-services::plugins::script_pack::ScriptCommand`。和指令表的一条不同，它没有模板，候选由插件给出。`arguments` 为 `extended` 时触发词后面另外收数字和运算符号；只收字母（默认）时不序列化。 */
+export type ScriptCommand = { trigger: string; title: string; arguments?: "letters" | "extended" };
+
+/** 脚本插件清单 `[[script.settings]]` 的一项：`script_pack::ScriptSetting`，`type` 之外的字段按类型平铺。 */
+export type ScriptSetting = { key: string; title: string; description?: string } & (
+  | { type: "bool"; default: boolean }
+  | { type: "choice"; options: { value: string; title: string }[]; default: string }
+  /** 整数，`min <= default <= max`。 */
+  | { type: "number"; min: number; max: number; default: number }
+  /** `max_length` 是 UTF-16 码元数，和 JS 字符串的 `length` 一致。 */
+  | { type: "text"; max_length: number; default: string }
+);
+
+/** 一项设置的值：布尔、选项的 `value`、整数或文本。 */
+export type ScriptSettingValue = boolean | string | number;
+
+/** 插件详情页读到的一个脚本插件的状态：`script_settings::ScriptPluginStateView`。`values` 覆盖清单里的每一项，文件里不合规的值回到默认值；`storage_bytes` 是 `persist_data` 存储现在的字节数。 */
+export type ScriptPluginState = {
+  id: string;
+  values: Record<string, ScriptSettingValue>;
+  storage_bytes: number;
+};
 
 /** 辅助码表的一条：`client-services::plugins::helpcode_pack::HelpcodeEntry`。 */
 export type PluginHelpcodeEntry = { character: string; code: string };
@@ -114,6 +136,11 @@ export type PluginPackage = {
   permissions?: ScriptCapability[];
   memory_pages?: number;
   content_hash?: string;
+  /** 脚本插件清单 `[[script.settings]]`，按清单顺序；没有时不出现。 */
+  settings?: ScriptSetting[];
+  /** 脚本插件随包的只读数据文件名（`[script].data`）和合计字节数；没有时不出现。 */
+  data?: string[];
+  data_bytes?: number;
 };
 
 /** `script-grants.json` 的一条：client-services 的 `script_grants::ScriptGrantView`。 */
@@ -188,4 +215,13 @@ export interface PluginClient {
   ): Promise<ScriptGrantsResult>;
   /** 调整执行顺序：`ids` 按给出的顺序排在最前。 */
   reorderScripts?(ids: string[]): Promise<ScriptGrantsResult>;
+  /** 插件详情页：一个脚本插件每项设置现在的值和持久存储的字节数。和下面两项一样，只有运行脚本插件的桌面宿主有。 */
+  scriptPluginState?(id: string): Promise<ScriptPluginState>;
+  /** 整份替换一个脚本插件的设置值，没写的项回到默认值；不合规时以 `plugin_script_setting_invalid` 拒绝，`detail` 说明是哪一项。改设置不作废授权。 */
+  setScriptSettings?(
+    id: string,
+    values: Record<string, ScriptSettingValue>,
+  ): Promise<ScriptPluginState>;
+  /** 「清除数据」：删掉一个脚本插件的持久存储，回答清除之后的状态。 */
+  clearScriptData?(id: string): Promise<ScriptPluginState>;
 }

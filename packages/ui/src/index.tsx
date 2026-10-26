@@ -764,6 +764,9 @@ export {
   type ScriptGrantDialogProps,
   type ScriptGrantsResult,
   type ScriptHealth,
+  type ScriptPluginState,
+  type ScriptSetting,
+  type ScriptSettingValue,
 } from "./settings/plugins-section";
 export {
   DEFAULT_MELODY_PACK,
