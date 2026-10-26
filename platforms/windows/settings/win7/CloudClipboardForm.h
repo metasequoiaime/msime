@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../CloudClipboardRoute.h"
 #include "ControlText.h"
 #include "PreferencesStore.h"
 #include "SettingsWindow.h"
@@ -13,7 +14,7 @@
 
 namespace msime::settings::win7 {
 
-// 只持有窗口展示与动作；来源校验、网络、加密和密钥保存仍由 worker 与共享服务处理。
+// 只持有窗口展示与动作；来源校验、网络、加密和密钥保存仍由 worker 与共享服务处理。WebDAV 网盘是水杉账号、自建中继之外的第三种来源：它的「测试连接」和保存都发 {webdav_probe: 草稿, save} 请求，worker 先测试，通过了才写 changes。
 class CloudClipboardForm {
 public:
   struct Command {
@@ -41,6 +42,20 @@ public:
     SendMessageW(get(cloud_clipboard_relay_token), EM_SETLIMITTEXT, 4096, 0);
     add(cloud_clipboard_relay_save, L"BUTTON", L"保存中继配置", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(cloud_clipboard_relay_clear, L"BUTTON", L"清除中继配置…", WS_TABSTOP | BS_PUSHBUTTON, 32);
+    // 不用中继也可以把云剪贴板放在自己的 WebDAV 网盘上；保存它会清掉中继配置，反过来也一样。
+    add(-1, L"STATIC", (L"WebDAV 网盘服务器地址（例如 " + std::wstring(webdav_url_placeholder) + L"）").c_str(), SS_LEFT, 44);
+    add(cloud_clipboard_webdav_url, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
+    add(-1, L"STATIC", L"网盘账号（坚果云是登录邮箱）", SS_LEFT);
+    add(cloud_clipboard_webdav_username, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
+    add(-1, L"STATIC", L"应用密码（不是登录密码；留空沿用已保存的应用密码）", SS_LEFT, 42);
+    add(cloud_clipboard_webdav_password, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_PASSWORD);
+    SendMessageW(get(cloud_clipboard_webdav_url), EM_SETLIMITTEXT, 4096, 0);
+    SendMessageW(get(cloud_clipboard_webdav_username), EM_SETLIMITTEXT, 1024, 0);
+    SendMessageW(get(cloud_clipboard_webdav_password), EM_SETLIMITTEXT, 1024, 0);
+    add(-1, L"STATIC", std::wstring(webdav_explanation).c_str(), SS_LEFT, 100);
+    add(cloud_clipboard_webdav_test, L"BUTTON", L"测试连接", WS_TABSTOP | BS_PUSHBUTTON, 32);
+    add(cloud_clipboard_webdav_save, L"BUTTON", L"测试并保存 WebDAV 配置", WS_TABSTOP | BS_PUSHBUTTON, 32);
+    add(cloud_clipboard_webdav_clear, L"BUTTON", L"清除 WebDAV 配置…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(cloud_clipboard_refresh, L"BUTTON", L"刷新云剪贴板与设备", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(cloud_clipboard_status, L"STATIC", L"点击刷新读取云端状态。", SS_LEFT, 106);
     add(cloud_clipboard_enabled, L"BUTTON", L"开启云剪贴板", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY);
@@ -76,13 +91,23 @@ public:
   void refresh(const Snapshot& snapshot) {
     const auto& preferences = snapshot.preferences();
     const auto config = preferences.value("cloud_clipboard_relay", Json::object());
+    const auto webdav = preferences.value("cloud_clipboard_webdav", Json::object());
+    // 只在存着的配置变了时重填输入框，保存失败时用户填的内容保留；两个密码框从不回填。
     if (!config_loaded_ || config != config_) {
-      config_ = config; config_loaded_ = true;
+      config_ = config;
       SetWindowTextW(get(cloud_clipboard_relay_url), control_text::wide(config.value("url", std::string{})).c_str());
       SetWindowTextW(get(cloud_clipboard_relay_token), L"");
     }
+    if (!config_loaded_ || webdav != webdav_) {
+      webdav_ = webdav;
+      SetWindowTextW(get(cloud_clipboard_webdav_url), control_text::wide(webdav.value("url", std::string{})).c_str());
+      SetWindowTextW(get(cloud_clipboard_webdav_username), control_text::wide(webdav.value("username", std::string{})).c_str());
+      SetWindowTextW(get(cloud_clipboard_webdav_password), L"");
+    }
+    config_loaded_ = true;
     if (binding_ && binding_->at("revision") != snapshot.revision()) invalidate();
-    SetWindowTextW(get(cloud_clipboard_source), config.empty() ? L"当前来源：水杉账号" : L"当前来源：自建中继（请求失败不会改走水杉账号）");
+    SetWindowTextW(get(cloud_clipboard_source), !config.empty() ? L"当前来源：自建中继（请求失败不会改走水杉账号）" :
+        !webdav.empty() ? L"当前来源：WebDAV 网盘（请求失败不会改走水杉账号）" : L"当前来源：水杉账号");
   }
   void enable(bool enabled) { enabled_ = enabled; update(); }
   void copy_result(bool success) {
@@ -126,7 +151,28 @@ public:
       const Json config{{"url", id == cloud_clipboard_relay_clear ? "" : *url}, {"token", id == cloud_clipboard_relay_clear ? "" : token->empty() ? config_.value("token", std::string{}) : *token}};
       if (config != config_ && !(config_.empty() && config.at("url") == "" && config.at("token") == "")) {
         command.changes.push_back({{"cloud_clipboard_relay"}, config});
+        // 中继和网盘只能二选一：改用中继时同时清掉网盘配置，交给共享偏好库一起校验。
+        if (id == cloud_clipboard_relay_save && !webdav_.empty()) command.changes.push_back({{"cloud_clipboard_webdav"}, empty_webdav()});
         if (id == cloud_clipboard_relay_clear) command.confirmation = L"清除中继配置？之后手动刷新将使用水杉账号。中继里的内容与设备密钥不会被删除。";
+      }
+    } else if (id == cloud_clipboard_webdav_test || id == cloud_clipboard_webdav_save) {
+      const auto url = control_text::read(get(cloud_clipboard_webdav_url), 4096), username = control_text::read(get(cloud_clipboard_webdav_username), 1024),
+          password = control_text::read(get(cloud_clipboard_webdav_password), 1024);
+      if (!url || !username || !password) { SetWindowTextW(get(cloud_clipboard_notice), L"地址、账号或应用密码无法读取。"); return command; }
+      // 地址和凭据的规则只在 Rust 里：不合规时测试连接答 relay_not_configured，不在这里另判一遍。
+      const Json draft{{"url", *url}, {"username", *username}, {"password", password->empty() ? webdav_.value("password", std::string{}) : *password}};
+      const bool save = id == cloud_clipboard_webdav_save;
+      command.request = Json{{"webdav_probe", draft}, {"save", save}};
+      // 和已存的一样时只重新测试：通过后 Rust 清掉本机的日志缓存，网盘记录被回退后靠这一步重新开始。
+      if (save && draft != webdav_) {
+        command.changes.push_back({{"cloud_clipboard_webdav"}, draft});
+        if (!config_.empty()) command.changes.push_back({{"cloud_clipboard_relay"}, Json{{"url", ""}, {"token", ""}}});
+      }
+      SetWindowTextW(get(cloud_clipboard_notice), save ? L"正在测试连接，通过后保存…" : L"正在测试连接…");
+    } else if (id == cloud_clipboard_webdav_clear) {
+      if (!webdav_.empty()) {
+        command.changes.push_back({{"cloud_clipboard_webdav"}, empty_webdav()});
+        command.confirmation = L"清除 WebDAV 配置？之后手动刷新将使用水杉账号。网盘里的内容与设备密钥不会被删除。";
       }
     } else if (id == cloud_clipboard_refresh || id == cloud_clipboard_find) command.request = refresh_request();
     else if (id == cloud_clipboard_enabled) {
@@ -161,6 +207,7 @@ public:
   }
 
   void completed(const Json& request, const Json& completion) {
+    if (request.contains("webdav_probe")) { probed(request, completion); return; }
     invalidate();
     const auto response = completion.find("response");
     if (!completion.is_object() || response == completion.end()) { failed("invalid_cloud_clipboard"); return; }
@@ -246,10 +293,29 @@ private:
         device.at("current").get<bool>() != (device.at("device_id") == status.at("device_id"))) return false;
     return true;
   }
+  static Json empty_webdav() { return Json{{"url", ""}, {"username", ""}, {"password", ""}}; }
+  // 「测试连接」或「测试并保存」的结果：worker 只在测试通过时才写配置，completion 里的 saved 说明写成了没有。
+  void probed(const Json& request, const Json& completion) {
+    const auto response = completion.find("probe");
+    std::wstring message;
+    if (response == completion.end()) message = webdav_error_message(L"");
+    else if (theme_data::value(*response)) {
+      if (!request.value("save", false)) message = webdav_probe_passed;
+      else message = completion.value("saved", false) ? L"连接正常，已保存 WebDAV 配置。" : L"连接正常，但配置没有保存，请重新读取设置后重试。";
+    } else {
+      const auto code = response->is_object() && response->contains("error") && response->at("error").is_string() ? response->at("error").get<std::string>() : std::string{};
+      message = webdav_error_message(control_text::wide(code));
+    }
+    SetWindowTextW(get(cloud_clipboard_notice), message.c_str());
+    update();
+  }
   void failed(const std::string& code) {
     const wchar_t* message = L"读取或操作失败，请刷新后重试。";
+    const std::wstring webdav_message(webdav_error_message(control_text::wide(code)));
     if (code == "clipboard_source_changed") message = L"配置已更改，当前结果已清除。请刷新确认操作状态。";
     else if (code == "account_unauthorized" || code == "unauthorized") message = L"请先在账号页登录，再刷新云剪贴板。";
+    else if (code == "relay_unauthorized" && !webdav_.empty()) message = L"网盘拒绝了这个账号或应用密码，请检查 WebDAV 配置；未改走水杉账号。";
+    else if (code == "webdav_rollback" || code == "webdav_rate_limited") message = webdav_message.c_str();
     else if (code == "relay_unauthorized") message = L"中继拒绝了令牌，请检查中继配置；未改走水杉账号。";
     else if (code == "clipboard_device_pending") message = L"本机等待已有设备批准，请刷新查看核对码。";
     else if (code == "clipboard_sync_disabled") message = L"云剪贴板已关闭，请刷新后开启。";
@@ -304,7 +370,7 @@ private:
   static inline constexpr std::array<int, 4> retentions{0,1,7,30};
   std::map<int, HWND> controls_;
   std::vector<Json> items_, devices_;
-  Json config_ = Json::object();
+  Json config_ = Json::object(), webdav_ = Json::object();
   std::optional<Json> binding_;
   bool enabled_ = false, ready_ = false, status_ready_ = false, remote_enabled_ = false, config_loaded_ = false;
   int retention_ = 0;

@@ -4,6 +4,7 @@ import app.msime.android.LayoutPolicy;
 
 
 import app.msime.android.core.InputViewValuePolicy;
+import app.msime.android.clipboard.CloudClipboardRelayPolicy;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -1305,7 +1306,7 @@ final class ImePanels {
     private record CloudOwner(boolean relay, String id, long generation) {}
 
     /**
-     * 「云端」这一刻归谁。偏好里配置了自建中继时是中继，绑定由地址和令牌算出（{@link CloudClipboardRelay#binding}），不需要登录；否则是水杉账号的登录绑定，读不到时为 null。
+     * 「云端」这一刻归谁。偏好里配置了自建中继或 WebDAV 网盘时是中继或网盘，绑定由地址和令牌（网盘是地址和账号）算出（{@link CloudClipboardRelay#binding}），不需要登录；否则是水杉账号的登录绑定，读不到时为 null。
      *
      * <p>只看内存里的偏好快照，不读文件，主线程上可以调用。快照最多晚一秒（偏好每秒重读一次），所以后台线程真正发请求之前还会再问一次共享层（{@link CloudClipboardRelay#selected}），两边不一致就按失败处理，绝不改走账号。
      */
@@ -1423,7 +1424,8 @@ final class ImePanels {
         }
         if (!CloudClipboardPanelPolicy.canUpload(cloudAllowed, s.cloudClipboardStatus, text)) {
             s.notice(CloudClipboardPanelPolicy.explains(s.cloudClipboardStatus)
-                    ? CloudClipboardPanelPolicy.message(s.cloudClipboardStatus, 0)
+                    ? CloudClipboardPanelPolicy.message(s.cloudClipboardStatus, 0,
+                        CloudClipboardRelayPolicy.webdav(accountId))
                     : "这条记录无法发到云剪贴板");
             return;
         }
@@ -1458,7 +1460,7 @@ final class ImePanels {
                     }
                     s.notice(result == null ? "已发到云剪贴板"
                         : CloudClipboardPanelPolicy.explains(result)
-                            ? CloudClipboardPanelPolicy.message(result, 0)
+                            ? CloudClipboardPanelPolicy.message(result, 0, CloudClipboardRelayPolicy.webdav(accountId))
                             : "未能发到云剪贴板，请稍后重试");
                     // Re-read rather than splice the entry in: the service deduplicates and orders the list.
                     refreshCloudClipboard();
@@ -2471,7 +2473,8 @@ final class ImePanels {
     }
 
     void renderCloudClipboard(java.util.List<TextView> notes) {
-        String message = CloudClipboardPanelPolicy.message(s.cloudClipboardStatus, s.cloudClipboardItems.size());
+        String message = CloudClipboardPanelPolicy.message(s.cloudClipboardStatus, s.cloudClipboardItems.size(),
+            CloudClipboardRelayPolicy.webdav(s.cloudClipboardAccountId));
         if (!CloudClipboardPanelPolicy.showsItems(s.cloudClipboardStatus) || s.cloudClipboardItems.isEmpty()) {
             notes.add(clipboardNote(message));
             return;

@@ -4166,7 +4166,7 @@ private:
       helpcode_packs_stale_ = true;
     // 与共享页一样，每次进入「剪贴板」页都重读历史，并重新查一次能否发到云剪贴板。
     if (id == "clip" && id != current_page_) {
-      cloud_relay_draft_.reset();
+      reset_cloud_clipboard_draft();
       clip_stale_ = true;
       reset_cloud_clipboard();
     }
@@ -16936,22 +16936,54 @@ private:
   // 账号和中继共用设备批准状态，但中继令牌失效不应提示登录水杉账号。
   using CloudClipboardState = nav::CloudClipboardState;
 
+  // 偏好里存着的中继和 WebDAV 网盘配置，两者最多配置一个（由共享 Rust 偏好库保证）。
+  struct CloudClipboardConfiguration {
+    std::wstring relay_url;
+    std::wstring relay_token;
+    std::wstring webdav_url;
+    std::wstring webdav_username;
+    std::wstring webdav_password;
+    bool operator==(CloudClipboardConfiguration const &other) const {
+      return relay_url == other.relay_url && relay_token == other.relay_token &&
+             webdav_url == other.webdav_url && webdav_username == other.webdav_username &&
+             webdav_password == other.webdav_password;
+    }
+  };
+
+  // 「云剪贴板同步方式」的草稿：选中的方式（account、relay 或 webdav）和各自的输入，点保存之前都不写盘。应用密码框不回填已存的密码：留空表示沿用已存的那个，「显示」也就看不到它。
   struct CloudClipboardRelayDraft {
-    bool relay = false;
+    std::wstring source = L"account";
     std::wstring url;
     std::wstring token;
+    std::wstring webdav_url;
+    std::wstring webdav_username;
+    std::wstring webdav_password;
+    bool reveal_password = false;
   };
 
   void synchronize_cloud_clipboard_configuration() {
-    const std::pair<std::wstring, std::wstring> configuration{
+    const CloudClipboardConfiguration configuration{
         document_.String(L"cloud_clipboard_relay.url", L""),
-        document_.String(L"cloud_clipboard_relay.token", L"")};
+        document_.String(L"cloud_clipboard_relay.token", L""),
+        document_.String(L"cloud_clipboard_webdav.url", L""),
+        document_.String(L"cloud_clipboard_webdav.username", L""),
+        document_.String(L"cloud_clipboard_webdav.password", L"")};
     if (configuration == cloud_configuration_)
       return;
     cloud_configuration_ = configuration;
-    cloud_relay_draft_.reset();
+    reset_cloud_clipboard_draft();
     reset_cloud_clipboard();
   }
+
+  // 丢掉草稿和「测试连接」的结果；还在跑的测试回来时按 cloud_probe_generation_ 作废，不会把旧草稿写进已经换过来源的偏好。
+  void reset_cloud_clipboard_draft() {
+    cloud_relay_draft_.reset();
+    ++cloud_probe_generation_;
+    cloud_probe_busy_ = false;
+    cloud_probe_message_.clear();
+  }
+
+  bool cloud_clipboard_webdav_saved() const { return !cloud_configuration_.webdav_url.empty(); }
 
   void redraw_clip() {
     if (!closed_ && current_page_ == "clip")
@@ -17212,8 +17244,11 @@ private:
       if (response.ok) {
         cloud_notice_ = L"已发到云剪贴板";
       } else if (const auto failure = nav::cloud_clipboard_failure(response_error(response));
-                 failure != CloudClipboardState::unavailable) {
-        // 未登录、本机待批准和云剪贴板已关闭都要先由用户处理，在那之前不再允许发送。
+                 failure == CloudClipboardState::webdav_rate_limited) {
+        // 网盘限流过一会儿自己会好，与服务暂不可用一样只说明这一次，不停用发送。
+        cloud_notice_ = nav::webdav_error_message(L"webdav_rate_limited");
+      } else if (failure != CloudClipboardState::unavailable) {
+        // 未登录、本机待批准、云剪贴板已关闭和网盘记录被回退都要先由用户处理，在那之前不再允许发送。
         cloud_state_ = failure;
         cloud_notice_.clear();
       } else {
@@ -17232,7 +17267,12 @@ private:
     case CloudClipboardState::signed_out:
       return L"登录水杉账号后可在设备间同步剪贴板";
     case CloudClipboardState::relay_unauthorized:
-      return L"中继拒绝了令牌，请检查中继地址和令牌";
+      return cloud_clipboard_webdav_saved() ? std::wstring(nav::webdav_error_message(L"relay_unauthorized"))
+                                            : L"中继拒绝了令牌，请检查中继地址和令牌";
+    case CloudClipboardState::webdav_rollback:
+      return std::wstring(nav::webdav_error_message(L"webdav_rollback"));
+    case CloudClipboardState::webdav_rate_limited:
+      return std::wstring(nav::webdav_error_message(L"webdav_rate_limited"));
     case CloudClipboardState::pending:
       return L"本设备还没有获准使用云剪贴板：请打开云剪贴板查看本设备的核对码，再到一台已在使用云剪贴板的设备上点「允许」";
     case CloudClipboardState::disabled:
@@ -17540,47 +17580,137 @@ private:
     return row;
   }
 
+  // 草稿里选中的方式能不能保存：只看必填项是否为空，地址和凭据的规则交给共享 Rust 偏好库和「测试连接」，这里不重复。
+  bool cloud_draft_complete() const {
+    if (!cloud_relay_draft_)
+      return false;
+    const auto &draft = *cloud_relay_draft_;
+    if (draft.source == L"relay")
+      return !draft.url.empty() && !draft.token.empty();
+    if (draft.source == L"webdav")
+      return !draft.webdav_url.empty() && !draft.webdav_username.empty() &&
+             (!draft.webdav_password.empty() || !cloud_configuration_.webdav_password.empty());
+    return true;
+  }
+
+  // WebDAV 的「测试连接」：在工作线程上用草稿跑 msime_client_cloud_clipboard_webdav_probe，带上中继密钥串所在的账号目录，通过时 Rust 顺带清掉那里的日志缓存。`save` 为真时通过后才写偏好（地址、账号、应用密码成对写入并删掉中继配置，仍由共享 Rust 偏好库校验），不通过就只说明原因、不保存。
+  void probe_cloud_clipboard_webdav(bool save) {
+    if (!cloud_relay_draft_ || cloud_probe_busy_ || cloud_relay_draft_->source != L"webdav")
+      return;
+    auto draft = *cloud_relay_draft_;
+    // 应用密码框留空表示沿用已存的那一个。
+    if (draft.webdav_password.empty())
+      draft.webdav_password = cloud_configuration_.webdav_password;
+    JsonObject request;
+    request.SetNamedValue(L"url", JsonValue::CreateStringValue(hstring(draft.webdav_url)));
+    request.SetNamedValue(L"username", JsonValue::CreateStringValue(hstring(draft.webdav_username)));
+    request.SetNamedValue(L"password", JsonValue::CreateStringValue(hstring(draft.webdav_password)));
+    if (const auto directory = account_directory(); !directory.empty())
+      request.SetNamedValue(L"directory", JsonValue::CreateStringValue(hstring(directory.wstring())));
+    const auto generation = ++cloud_probe_generation_;
+    cloud_probe_busy_ = true;
+    cloud_probe_message_ = save ? L"正在测试连接，通过后保存…" : L"正在测试连接…";
+    run_host(
+        [body = utf8(request.Stringify())] {
+          return take_response(msime_client_cloud_clipboard_webdav_probe(
+              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+        },
+        [this, generation, save, draft](Response const &response) {
+          // 草稿在测试期间作废了（离开页面、偏好被别处改了来源）：结果不再属于眼前的设置。
+          if (generation != cloud_probe_generation_)
+            return;
+          cloud_probe_busy_ = false;
+          if (!response.ok) {
+            cloud_probe_message_ = nav::webdav_error_message(response_error(response));
+            redraw_clip();
+            return;
+          }
+          cloud_probe_message_ = nav::webdav_probe_passed;
+          if (!save) {
+            // 测试通过时 Rust 已清掉本机的日志缓存；已经在用网盘时重新查一次，网盘记录被回退后不用离开页面就能再发送。
+            if (cloud_clipboard_webdav_saved())
+              reset_cloud_clipboard();
+            redraw_clip();
+            return;
+          }
+          flush_pending();
+          document_.SetString(L"cloud_clipboard_webdav.url", draft.webdav_url);
+          document_.SetString(L"cloud_clipboard_webdav.username", draft.webdav_username);
+          document_.SetString(L"cloud_clipboard_webdav.password", draft.webdav_password);
+          document_.Remove(L"cloud_clipboard_relay");
+          if (commit()) {
+            reset_cloud_clipboard_draft();
+            reset_cloud_clipboard();
+            show_notice(L"已保存云剪贴板同步方式", InfoBarSeverity::Success);
+          } else {
+            // commit 已经重读设置并在页面顶部说明；草稿还在时留着输入，测试结果不再代表要保存的内容。
+            cloud_probe_message_.clear();
+          }
+          redraw_clip();
+        });
+    redraw_clip();
+  }
+
+  // 「云剪贴板」组里的同步方式：水杉账号、自建中继或 WebDAV 网盘。草稿留在窗口里，点「保存同步方式」才写偏好；中继直接交给共享 Rust 偏好库校验，WebDAV 先「测试连接」，通过后才写。保存一种方式时删掉另一种的配置，改回水杉账号时两者都删。
   void build_cloud_clipboard_relay_settings(StackPanel const &group) {
     if (!cloud_relay_draft_) {
-      cloud_relay_draft_ = CloudClipboardRelayDraft{
-          !cloud_configuration_.first.empty(), cloud_configuration_.first, cloud_configuration_.second};
+      CloudClipboardRelayDraft draft;
+      draft.source = !cloud_configuration_.relay_url.empty() ? L"relay"
+                     : cloud_clipboard_webdav_saved()        ? L"webdav"
+                                                             : L"account";
+      draft.url = cloud_configuration_.relay_url;
+      draft.token = cloud_configuration_.relay_token;
+      draft.webdav_url = cloud_configuration_.webdav_url;
+      draft.webdav_username = cloud_configuration_.webdav_username;
+      cloud_relay_draft_ = std::move(draft);
     }
+    const bool busy = cloud_probe_busy_;
     auto source = select_control(
-        L"云剪贴板同步方式", {{L"account", L"水杉账号"}, {L"relay", L"自建中继"}},
-        cloud_relay_draft_->relay ? L"relay" : L"account",
+        L"云剪贴板同步方式",
+        {{L"account", L"水杉账号"}, {L"relay", L"自建中继"}, {L"webdav", L"WebDAV"}},
+        cloud_relay_draft_->source,
         [this](std::wstring const &value) {
-          cloud_relay_draft_->relay = value == L"relay";
+          if (!cloud_relay_draft_ || cloud_probe_busy_)
+            return;
+          cloud_relay_draft_->source = value;
+          cloud_probe_message_.clear();
           queue_refresh();
-        });
+        },
+        !busy);
     A11y::SetAutomationId(source, L"cloud-clipboard-source");
     add_row(group, 0xE753, L"云剪贴板同步方式",
-            L"选择自建中继后只连接该中继，不会在失败时切回水杉账号。", source);
+            L"选择自建中继或 WebDAV 后只连接它，不会在失败时切回水杉账号。", source);
 
     Button save;
     save.Content(box_value(L"保存同步方式"));
-    save.IsEnabled(loaded_ && (!cloud_relay_draft_->relay ||
-                              (!cloud_relay_draft_->url.empty() && !cloud_relay_draft_->token.empty())));
+    save.IsEnabled(loaded_ && !busy && cloud_draft_complete());
     A11y::SetName(save, L"保存云剪贴板同步方式");
     A11y::SetAutomationId(save, L"cloud-clipboard-save-source");
     save.Click([this](Inspectable const &, RoutedEventArgs const &) {
-      if (!cloud_relay_draft_)
+      if (!cloud_relay_draft_ || cloud_probe_busy_)
         return;
       const auto draft = *cloud_relay_draft_;
+      if (draft.source == L"webdav") {
+        probe_cloud_clipboard_webdav(true);
+        return;
+      }
       flush_pending();
-      if (draft.relay) {
+      if (draft.source == L"relay") {
         document_.SetString(L"cloud_clipboard_relay.url", draft.url);
         document_.SetString(L"cloud_clipboard_relay.token", draft.token);
       } else {
         document_.Remove(L"cloud_clipboard_relay");
       }
+      // 中继和网盘只能二选一，改回水杉账号时两者都不留。
+      document_.Remove(L"cloud_clipboard_webdav");
       // 地址和令牌成对交给共享 Rust 偏好库校验；编辑中的值不写盘。
       if (commit()) {
-        cloud_relay_draft_.reset();
+        reset_cloud_clipboard_draft();
         reset_cloud_clipboard();
         show_notice(L"已保存云剪贴板同步方式", InfoBarSeverity::Success);
       }
     });
-    if (cloud_relay_draft_->relay) {
+    if (cloud_relay_draft_->source == L"relay") {
       TextBox url;
       url.Width(240);
       url.Text(hstring(cloud_relay_draft_->url));
@@ -17594,7 +17724,7 @@ private:
         if (cloud_relay_draft_) {
           cloud_relay_draft_->url = sender.as<TextBox>().Text().c_str();
           if (auto button = weak_save.get())
-            button.IsEnabled(loaded_ && !cloud_relay_draft_->url.empty() && !cloud_relay_draft_->token.empty());
+            button.IsEnabled(loaded_ && cloud_draft_complete());
         }
       });
       add_row(group, 0xE774, L"中继地址", L"使用 HTTPS 地址；仅本机回环地址允许 HTTP。", url);
@@ -17609,12 +17739,132 @@ private:
         if (cloud_relay_draft_) {
           cloud_relay_draft_->token = sender.as<PasswordBox>().Password().c_str();
           if (auto button = weak_save.get())
-            button.IsEnabled(loaded_ && !cloud_relay_draft_->url.empty() && !cloud_relay_draft_->token.empty());
+            button.IsEnabled(loaded_ && cloud_draft_complete());
         }
       });
       add_row(group, 0xE72E, L"中继令牌", L"16–256 个可打印 ASCII 字符，不含空格。", token);
     }
-    add_row(group, 0xE74E, L"保存同步方式", L"地址和令牌只保存在本机，不随设置导出或账号同步。", save);
+    if (cloud_relay_draft_->source == L"webdav")
+      build_cloud_clipboard_webdav_fields(group, save, busy);
+    add_row(group, 0xE74E, L"保存同步方式",
+            L"地址、令牌、账号和应用密码只保存在本机，不随设置导出或账号同步。", save);
+    if (cloud_clipboard_webdav_saved()) {
+      auto status = group_note(L"云剪贴板现在经 WebDAV 网盘 " + cloud_configuration_.webdav_url +
+                               L" 同步。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。");
+      A11y::SetAutomationId(status, L"cloud-clipboard-webdav-status");
+      group.Children().Append(status);
+    }
+  }
+
+  // WebDAV 的三项输入、说明、「测试连接」和上一次测试的结果。输入改动只进草稿，并让上一次的测试结果失效；测试期间输入框和按钮都不可用，保存的正是测试过的那一份。
+  void build_cloud_clipboard_webdav_fields(StackPanel const &group, Button const &save, bool busy) {
+    Button test;
+    test.Content(box_value(L"测试连接"));
+    test.IsEnabled(loaded_ && !busy && cloud_draft_complete());
+    A11y::SetName(test, L"测试 WebDAV 连接");
+    A11y::SetAutomationId(test, L"cloud-clipboard-webdav-test");
+    test.Click([this](Inspectable const &, RoutedEventArgs const &) { probe_cloud_clipboard_webdav(false); });
+    // 上一次测试的结果，排在组里「测试连接」那一行下面；没有结果时收起。
+    auto result = group_note(cloud_probe_message_);
+    A11y::SetAutomationId(result, L"cloud-clipboard-webdav-result");
+    A11y::SetLiveSetting(result, Automation::Peers::AutomationLiveSetting::Polite);
+    result.Visibility(cloud_probe_message_.empty() ? Visibility::Collapsed : Visibility::Visible);
+    // 改了任何一项：按钮跟着必填项是否齐全变，旧的测试结果不再说明眼前这份草稿，收起它。
+    const auto edited = [this, weak_save = make_weak(save), weak_test = make_weak(test),
+                         weak_result = make_weak(result)] {
+      const bool complete = loaded_ && cloud_draft_complete();
+      if (auto button = weak_save.get())
+        button.IsEnabled(complete);
+      if (auto button = weak_test.get())
+        button.IsEnabled(complete);
+      cloud_probe_message_.clear();
+      if (auto note = weak_result.get())
+        note.Visibility(Visibility::Collapsed);
+    };
+
+    TextBox url;
+    url.Width(240);
+    url.Text(hstring(cloud_relay_draft_->webdav_url));
+    url.PlaceholderText(hstring(nav::webdav_url_placeholder));
+    url.IsSpellCheckEnabled(false);
+    url.IsTextPredictionEnabled(false);
+    url.IsEnabled(loaded_ && !busy);
+    A11y::SetName(url, L"服务器地址");
+    A11y::SetAutomationId(url, L"cloud-clipboard-webdav-url");
+    url.TextChanged([this, edited](Inspectable const &sender, TextChangedEventArgs const &) {
+      if (!cloud_relay_draft_)
+        return;
+      cloud_relay_draft_->webdav_url = sender.as<TextBox>().Text().c_str();
+      edited();
+    });
+    add_row(group, 0xE774, L"服务器地址",
+            L"网盘里存放云剪贴板的文件夹。使用 HTTPS 地址，证书要由公网信任的机构签发；仅本机回环地址允许 HTTP。", url);
+
+    TextBox username;
+    username.Width(240);
+    username.Text(hstring(cloud_relay_draft_->webdav_username));
+    username.IsSpellCheckEnabled(false);
+    username.IsTextPredictionEnabled(false);
+    username.IsEnabled(loaded_ && !busy);
+    A11y::SetName(username, L"账号");
+    A11y::SetAutomationId(username, L"cloud-clipboard-webdav-username");
+    username.TextChanged([this, edited](Inspectable const &sender, TextChangedEventArgs const &) {
+      if (!cloud_relay_draft_)
+        return;
+      cloud_relay_draft_->webdav_username = sender.as<TextBox>().Text().c_str();
+      edited();
+    });
+    add_row(group, 0xE77B, L"账号", L"网盘的登录账号，坚果云是登录邮箱。", username);
+
+    StackPanel secret;
+    secret.Orientation(Orientation::Horizontal);
+    secret.Spacing(8);
+    PasswordBox password;
+    password.Width(180);
+    password.Password(hstring(cloud_relay_draft_->webdav_password));
+    if (!cloud_configuration_.webdav_password.empty())
+      password.PlaceholderText(L"留空以保留已保存的应用密码");
+    password.PasswordRevealMode(cloud_relay_draft_->reveal_password ? PasswordRevealMode::Visible
+                                                                     : PasswordRevealMode::Hidden);
+    password.IsEnabled(loaded_ && !busy);
+    A11y::SetName(password, L"应用密码");
+    A11y::SetAutomationId(password, L"cloud-clipboard-webdav-password");
+    password.PasswordChanged([this, edited](Inspectable const &sender, RoutedEventArgs const &) {
+      if (!cloud_relay_draft_)
+        return;
+      cloud_relay_draft_->webdav_password = sender.as<PasswordBox>().Password().c_str();
+      edited();
+    });
+    secret.Children().Append(password);
+    // 「显示」只切换框里这份草稿的明暗，已存的应用密码从不回填，所以看不到它。
+    const std::wstring reveal_action = cloud_relay_draft_->reveal_password ? L"隐藏" : L"显示";
+    Button reveal;
+    reveal.Content(box_value(hstring(reveal_action)));
+    reveal.Height(32);
+    reveal.IsEnabled(loaded_ && !busy);
+    A11y::SetName(reveal, hstring(reveal_action + L"应用密码"));
+    A11y::SetAutomationId(reveal, L"cloud-clipboard-webdav-reveal");
+    ToolTipService::SetToolTip(reveal, box_value(hstring(reveal_action)));
+    reveal.Click([this, weak_password = make_weak(password)](Inspectable const &sender, RoutedEventArgs const &) {
+      if (!cloud_relay_draft_)
+        return;
+      const bool revealed = !cloud_relay_draft_->reveal_password;
+      cloud_relay_draft_->reveal_password = revealed;
+      if (auto field = weak_password.get())
+        field.PasswordRevealMode(revealed ? PasswordRevealMode::Visible : PasswordRevealMode::Hidden);
+      const std::wstring action = revealed ? L"隐藏" : L"显示";
+      auto button = sender.as<Button>();
+      button.Content(box_value(hstring(action)));
+      A11y::SetName(button, hstring(action + L"应用密码"));
+      ToolTipService::SetToolTip(button, box_value(hstring(action)));
+    });
+    secret.Children().Append(reveal);
+    add_row(group, 0xE72E, L"应用密码",
+            L"在网盘的安全设置里为第三方应用生成的密码，不是登录密码。", secret);
+
+    group.Children().Append(group_note(nav::webdav_explanation));
+    add_row(group, 0xE703, L"测试连接", L"保存时也会先测试一次，不通过不保存。", test);
+    group.Children().Append(result);
   }
 
   // ---- 打字统计 ----
@@ -26071,8 +26321,12 @@ private:
   bool cloud_sending_ = false;
   std::wstring cloud_notice_;
   uint64_t cloud_generation_ = 0;
-  std::pair<std::wstring, std::wstring> cloud_configuration_;
+  CloudClipboardConfiguration cloud_configuration_;
   std::optional<CloudClipboardRelayDraft> cloud_relay_draft_;
+  // WebDAV「测试连接」：是否正在跑和上一次的结果说明。cloud_probe_generation_ 在草稿作废时递增，作废还没回来的测试。
+  bool cloud_probe_busy_ = false;
+  std::wstring cloud_probe_message_;
+  uint64_t cloud_probe_generation_ = 0;
 
   // 「打字统计」页：读到的状态、出错说明、选中的日子和标签，跨页面重建保留，每次进入页面时重置（共享页的组件状态）。stats_generation_ 在进入页面时递增，作废上一次留下的请求；stats_request_ 是在途请求的序号，0 表示没有；两个时间点是共享页轮询用的 requestStartedAt 和 lastRequestAt。
   std::optional<StatisticsStatus> stats_;

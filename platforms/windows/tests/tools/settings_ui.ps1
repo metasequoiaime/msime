@@ -960,6 +960,113 @@ function Assert-CloudClipboardRelaySettings($window) {
     if ($relay) { throw 'Switching to account retained relay credentials' }
     Write-Host 'Cloud clipboard relay masking, draft, Rust validation, atomic save, reload and account switch passed'
 }
+function Assert-CloudClipboardWebDavSettings($window) {
+    # WebDAV 只用合成凭据和本机拒绝连接的 9 号端口：测试连接答 relay_unavailable，不发出真实请求。
+    $unavailable = '连不上网盘，请检查地址和网络；证书须由公网信任的机构签发'
+    $webdavUrl = 'http://127.0.0.1:9/dav'
+    $path = Join-Path $state 'preferences.json'
+    function Read-CloudPreference([string]$key) {
+        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $property = $saved.preferences.PSObject.Properties[$key]
+        if ($property) { return $property.Value }
+        return $null
+    }
+    function Show-CloudGroup($window) {
+        $scroll = (Find-ById $window 'settings-content').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+        if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 100) }
+    }
+    function Wait-WebDavResult($window, [string]$expected) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            Start-Sleep -Milliseconds 200
+            $result = Find-ById $window 'cloud-clipboard-webdav-result'
+            $name = if ($result) { $result.Current.Name } else { '' }
+        } while ($name -ne $expected -and [DateTime]::UtcNow -lt $deadline)
+        if ($name -ne $expected) { throw "WebDAV probe result was '$name', expected '$expected'" }
+    }
+    # 关掉窗口，把合成的网盘配置直接写进偏好文件，再重新打开「剪贴板」页，模拟已经测试通过并保存过的状态。
+    function Restart-WithSavedWebDav {
+        $script:process.CloseMainWindow() | Out-Null
+        if (-not $script:process.WaitForExit(10000) -or $script:process.ExitCode -ne 0) { throw 'Settings window failed to close before seeding WebDAV' }
+        $document = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $document.preferences | Add-Member -NotePropertyName cloud_clipboard_webdav -NotePropertyValue ([pscustomobject]@{url = $webdavUrl; username = 'synthetic@example.test'; password = 'synthetic-app-password'}) -Force
+        $document.revision = [uint64]$document.revision + 1
+        [IO.File]::WriteAllText($path, ($document | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
+        $reopened = Start-SettingsWindow 'settings:input'
+        # 只把窗口交回去：其余调用的输出都丢掉，免得混进返回值。
+        Open-Page $reopened 'clip' | Out-Null
+        Select-PageTab $reopened 'clip-tab-clipboard' '历史记录上限' | Out-Null
+        Show-CloudGroup $reopened | Out-Null
+        return $reopened
+    }
+
+    $beforeEdit = [IO.File]::ReadAllText($path)
+    Show-CloudGroup $window
+    Select-ComboChoice $window 'cloud-clipboard-source' 'WebDAV'
+    $url = Wait-RelayControl $window 'cloud-clipboard-webdav-url'
+    $username = Wait-RelayControl $window 'cloud-clipboard-webdav-username'
+    $password = Wait-RelayControl $window 'cloud-clipboard-webdav-password'
+    if (-not $password.Current.IsPassword) { throw 'WebDAV app password is not masked' }
+    Wait-RelayControl $window 'cloud-clipboard-webdav-reveal' | Out-Null
+    $url.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($webdavUrl)
+    $username.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic@example.test')
+    $password.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-app-password')
+    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'WebDAV draft was persisted before saving' }
+    (Wait-RelayControl $window 'cloud-clipboard-webdav-test').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-WebDavResult $window $unavailable
+    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'WebDAV connection test wrote preferences' }
+    # 保存先跑测试连接，不通过就不写盘，输入留在草稿里。先改一下应用密码，让上一次的结果收起，看到的失败说明才是这次保存跑出来的。
+    (Wait-RelayControl $window 'cloud-clipboard-webdav-password').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-app-password-b')
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ((Find-ById $window 'cloud-clipboard-webdav-result') -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+    if (Find-ById $window 'cloud-clipboard-webdav-result') { throw 'Editing the WebDAV draft did not clear the previous probe result' }
+    (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-WebDavResult $window $unavailable
+    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'WebDAV failing connection test did not block saving' }
+    if ((Find-ById $window 'cloud-clipboard-webdav-url').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $webdavUrl) { throw 'Failed WebDAV save lost the draft' }
+
+    # 已保存的网盘：选项、状态说明和输入框按偏好回填，应用密码框留空也能保存（沿用已存的密码）。之后改存中继，网盘配置要一起删掉。
+    $window = Restart-WithSavedWebDav
+    $combo = Find-ById $window 'cloud-clipboard-source'
+    $selection = @($combo.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection())
+    if ($selection.Count -ne 1 -or $selection[0].Current.Name -ne 'WebDAV') { throw 'Saved WebDAV source is not selected' }
+    $status = Find-ById $window 'cloud-clipboard-webdav-status'
+    if (-not $status -or -not $status.Current.Name.Contains($webdavUrl)) { throw 'Saved WebDAV source status is missing' }
+    if ((Wait-RelayControl $window 'cloud-clipboard-webdav-url').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $webdavUrl) { throw 'Reload lost the WebDAV address' }
+    if ((Wait-RelayControl $window 'cloud-clipboard-webdav-username').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne 'synthetic@example.test') { throw 'Reload lost the WebDAV account' }
+    Wait-RelayControl $window 'cloud-clipboard-save-source' | Out-Null
+    Select-ComboChoice $window 'cloud-clipboard-source' '自建中继'
+    $relayUrl = Wait-RelayControl $window 'cloud-clipboard-relay-url'
+    $relayToken = Wait-RelayControl $window 'cloud-clipboard-relay-token'
+    $relayUrl.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('http://127.0.0.1:9/msime')
+    $relayToken.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-relay-token')
+    (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $relay = Read-CloudPreference 'cloud_clipboard_relay'
+        $webdav = Read-CloudPreference 'cloud_clipboard_webdav'
+    } while ((-not $relay -or $webdav) -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $relay -or $relay.url -ne 'http://127.0.0.1:9/msime') { throw 'Relay was not saved over WebDAV' }
+    if ($webdav) { throw 'Saving a relay retained the WebDAV credentials' }
+
+    # 再存一次网盘配置（替掉中继，模拟测试通过后的保存结果），改回水杉账号时中继和网盘都不留。
+    $document = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+    $document.preferences.PSObject.Properties.Remove('cloud_clipboard_relay')
+    [IO.File]::WriteAllText($path, ($document | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
+    $window = Restart-WithSavedWebDav
+    Select-ComboChoice $window 'cloud-clipboard-source' '水杉账号'
+    (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $relay = Read-CloudPreference 'cloud_clipboard_relay'
+        $webdav = Read-CloudPreference 'cloud_clipboard_webdav'
+    } while (($relay -or $webdav) -and [DateTime]::UtcNow -lt $deadline)
+    if ($relay -or $webdav) { throw 'Switching to account retained relay or WebDAV credentials' }
+    if (Find-ById $window 'cloud-clipboard-webdav-status') { throw 'Account source still shows the WebDAV status' }
+    Write-Host 'Cloud clipboard WebDAV masking, draft, failing probe blocking save, reload, relay replacement and account switch passed'
+}
 function Save-Window($element, [string]$file) {
     $bounds = $element.Current.BoundingRectangle
     if ($bounds.Width -lt 600 -or $bounds.Height -lt 400) { throw 'Settings window bounds are invalid' }
@@ -1647,6 +1754,7 @@ try {
         Save-Window $window "$theme-clipboard-pinned.png"
         Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
         Assert-CloudClipboardRelaySettings $window
+        Assert-CloudClipboardWebDavSettings $window
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
         if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
