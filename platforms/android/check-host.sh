@@ -88,6 +88,14 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
+# 候选条按钮的最小宽度只有触控下限（CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP，CandidateAppearanceSmoke 覆盖它的值）；皮肤的 itemMinWidth 是桌面候选窗的格宽，`base = "microsoft"` 出厂 3.5em，套到候选条上一个字宽的候选也撑成一大格。样式在 ImeCandidates 里，JVM 冒烟碰不到，这里钉住接线。
+style_body=$(sed -n '/^    void styleCandidateButton(Button button) {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
+if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
+  || rg -q 'itemMinWidth' <<< "$style_body"; then
+  echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
+  exit 1
+fi
 # Hangul composition is Engine state. Android labels the Dubeolsik keys and sends their ASCII letters; a syllable table here would be a second automaton that can drift from the Engine's.
 if ! rg -q '4 korean' "$repo_root/crates/host-api/include/msime_client.h" \
   || ! rg -q 'KOREAN_SCHEME = 4;' \

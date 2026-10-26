@@ -5205,6 +5205,14 @@ group("符号、emoji 这类永远没有释义的候选不预留释义列", () =
   check(!CandidateChipWidth.reservesColumn(false, 0, ""), "不预期释义时谁都不留");
 });
 
+group("触屏候选胶囊不取皮肤的最小格宽，只有 30vp 触控下限", () => {
+  // `base = "microsoft"` 的皮肤出厂 item_min_width = 3.5em；触屏胶囊的下限不看它，只由触控下限和预留的释义列决定。
+  check(CandidateChipWidth.touchMinimum(0, 11) === 30, "不预留释义列时只有 30vp");
+  check(CandidateChipWidth.touchMinimum(100, 11) === 122, "预留释义列时是一列加两侧内边距");
+  check(CandidateChipWidth.touchMinimum(4, 11) === 30, "列很窄时不低于触控下限");
+  check(CandidateChipWidth.touchMinimum(-5, 11) === 30, "没有可见列时按不预留算");
+});
+
 group("a chip is as wide as its column, whether or not the gloss has arrived", () => {
   // MSIME-Apple's AChipKeepsItsWidthWhateverTheGlossTurnsOutToBe. The networked glosses come back
   // over a few hundred milliseconds; a width that follows them widens one chip at a time and pushes

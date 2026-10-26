@@ -7396,23 +7396,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 复用构造释义行时已经算好的内容宽度，避免再次转换富文本并测量首行。
+  ///
+  /// 皮肤的 `item_min_width` 不用在这里：它是桌面候选窗的格宽（`base = "microsoft"` 出厂 3.5em），套到手机和 iPad 的候选条上，候选字号 24 时每个词块至少 84pt，「的」「㎥」这样一个字宽的候选也撑成一大格，一屏只剩三个多候选。词块只按内容取宽，下限是 `candidateChipMinimumSize` 的触控宽度，与 Android、鸿蒙的触屏候选条一致。
   private func pinCandidateWidth(of button: KeyboardKeyButton, contentWidth: CGFloat?) {
-    let minimumWidth = candidatePalette?.layout?.itemMinWidth?.dip(fontSize: Self.candidateChipFontSize * candidateFontScale) ?? 0
-    if let minimum = button.constraints.first(where: { $0.identifier == "candidateSkinMinimumWidth" }) {
-      minimum.constant = minimumWidth
-    } else {
-      let minimum = button.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth)
-      minimum.identifier = "candidateSkinMinimumWidth"
-      minimum.priority = .init(999)
-      minimum.isActive = true
-    }
     let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
     guard let contentWidth else {
       if existing?.isActive == true { existing?.isActive = false }
       return
     }
     let insets = button.configuration?.contentInsets ?? .zero
-    let width = max(minimumWidth, ceil(contentWidth + insets.leading + insets.trailing))
+    let width = ceil(contentWidth + insets.leading + insets.trailing)
     if let existing {
       guard !existing.isActive || abs(existing.constant - width) > 0.5 else { return }
       existing.constant = width

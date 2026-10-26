@@ -92,9 +92,8 @@ final class ImeCandidates {
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {selectedText, keyForeground}));
         applyCandidateTypeface(button);
-        int minimum = candidateLayout == null || !Double.isFinite(candidateLayout.itemMinWidth) ? 30
-            : (int) Math.ceil(candidateLayout.itemMinWidth);
-        ViewPolicy.setMinimumWidth(button, s.pixels(Math.max(0, minimum)));
+        // 候选条只有触控下限，不取皮肤的 itemMinWidth（见 CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP）。
+        ViewPolicy.setMinimumWidth(button, s.pixels(CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP));
         ViewPolicy.clearMinimumHeight(button);
         int horizontal = candidateLayout == null || !Double.isFinite(candidateLayout.itemPaddingRight)
             ? 11 : (int) Math.ceil(candidateLayout.itemPaddingRight);

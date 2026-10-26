@@ -4382,13 +4382,11 @@ struct KeyboardView {
       ? CandidateChipWidth.column(this.chipLaneWidth(), 0, CHIP_PADDING_VP) : 0;
   }
 
-  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。永远没有注释的来源（emoji、符号等，见 `CandidateChipWidth.reservesColumn`）不留这一列。 */
+  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。永远没有注释的来源（emoji、符号等，见 `CandidateChipWidth.reservesColumn`）不留这一列。皮肤的 `itemMinWidth` 只给 2in1 候选窗，触屏不用（`CandidateChipWidth.touchMinimum`）。 */
   private chipMinWidth(candidate: CandidateEntry): number {
     const column: number = CandidateChipWidth.reservesColumn(KeyboardSession.shared.glossesExpected(),
       candidate.source, candidate.hunEum) ? this.chipGlossColumn() : 0;
-    const minimum: number = Math.max(CHIP_MIN_WIDTH_VP,
-      CandidateLayoutPolicy.dip(this.settings.candidateSkinLayout?.horizontal.itemMinWidth, this.chipFontSize(), 0));
-    return column > 0 ? Math.max(minimum, Math.ceil(column + CHIP_PADDING_VP * 2)) : minimum;
+    return CandidateChipWidth.touchMinimum(column, CHIP_PADDING_VP);
   }
 
   /** 注释最多能画多宽：它的列宽，或上方的词更宽时取词宽。 */

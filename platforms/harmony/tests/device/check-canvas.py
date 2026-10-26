@@ -138,8 +138,9 @@ def main():
             editor = next(node for node in nodes if node.get('id') == 'canvasProbeEditor')
             editor_bounds = [int(value) for value in re.findall(r'\d+', editor['bounds'])]
             density = (editor_bounds[3] - editor_bounds[1]) / 200
-            if bounds[0][2] - bounds[0][0] < 72 * density - 2:
-                raise AssertionError('共享候选最小宽度没有进入触屏组件')
+            # 皮肤写了 item_min_width = 72，那是桌面候选窗的格宽；触屏胶囊按内容取宽（「你好」约 60vp），不能被撑到 72。
+            if bounds[0][2] - bounds[0][0] >= 72 * density - 2:
+                raise AssertionError('皮肤的桌面最小格宽撑宽了触屏候选胶囊')
             if bounds[1][0] - bounds[0][2] < 6 * density - 2:
                 raise AssertionError('共享候选间距没有进入触屏组件')
             observed = set()

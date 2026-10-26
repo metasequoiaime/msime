@@ -44,11 +44,13 @@ if ! grep -qF 'KeyboardScheme.handwritingReturn(before' <<< "$toggle_body" \
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
-# 候选胶囊的释义列按候选取舍（`CandidateChipWidth.reservesColumn`，规则由 keyboard-logic.test.ts 覆盖）；视图是 ArkTS，这里钉住接线：手机胶囊的最小宽度按候选算，不能退回整页一律留一栏。
+# 候选胶囊的释义列按候选取舍（`CandidateChipWidth.reservesColumn`），最小宽度只有触控下限（`CandidateChipWidth.touchMinimum`），规则由 keyboard-logic.test.ts 覆盖；视图是 ArkTS，这里钉住接线：手机胶囊的最小宽度按候选算，不能退回整页一律留一栏，也不能再取皮肤桌面格宽 `itemMinWidth`。
 min_width_body=$(sed -n '/^  private chipMinWidth(candidate: CandidateEntry): number {$/,/^  }$/p' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
-if ! grep -qF 'CandidateChipWidth.reservesColumn(' <<< "$min_width_body"; then
-  echo "KeyboardView.chipMinWidth must ask CandidateChipWidth.reservesColumn so symbol and emoji chips do not reserve a gloss column" >&2
+if ! grep -qF 'CandidateChipWidth.reservesColumn(' <<< "$min_width_body" \
+  || ! grep -qF 'CandidateChipWidth.touchMinimum(' <<< "$min_width_body" \
+  || grep -qF 'itemMinWidth' <<< "$min_width_body"; then
+  echo "KeyboardView.chipMinWidth must ask CandidateChipWidth.reservesColumn and touchMinimum, and must not use the skin's desktop itemMinWidth" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"
