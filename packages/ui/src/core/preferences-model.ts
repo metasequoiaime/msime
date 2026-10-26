@@ -125,7 +125,7 @@ export type Preferences = PunctuationPreferences &
     touch_voice_shortcut?: boolean;
     /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
     touch_number_keypad_order?: "phone" | "calculator";
-    /** Android 文本编辑面板的七个侧边键；其他宿主保留该顺序。 */
+    /** Android 文本编辑面板的八个侧边键；其他宿主保留该顺序。 */
     touch_text_edit_button_order?: (
       | "copy"
       | "paste"
@@ -134,6 +134,7 @@ export type Preferences = PunctuationPreferences &
       | "space"
       | "number_pad"
       | "delete"
+      | "select_line"
     )[];
     /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
