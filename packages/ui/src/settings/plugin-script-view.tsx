@@ -10,10 +10,16 @@ import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
 import { ActionButton } from "./action-button";
 import { ScriptGrantDialog } from "./script-grant-dialog";
+import { pluginErrorMessage } from "./plugin-catalog-helpers";
+import { ScriptSettingsForm } from "./plugin-script-settings";
+import { useScriptPluginState, type ScriptPluginStateClient } from "./use-script-plugin-state";
+import type { ConfirmRequest } from "../core/confirm";
 import {
   SCRIPT_BUILTIN_NOTE,
   SCRIPT_COMMAND_MODE_NOTE,
+  capabilityDescription,
   capabilityLabels,
+  formatKilobytes,
   healthLabels,
   hookLabels,
   scriptCommands,
@@ -24,6 +30,7 @@ import {
   scriptStaleLabel,
   shortHash,
   sortCapabilities,
+  storedDataDeletionNote,
   type ScriptGrantState,
 } from "./plugin-script-model";
 import type {
@@ -39,11 +46,12 @@ export {
   SCRIPT_CAPABILITIES,
   CAPABILITY_REQUIRES,
   EXCLUSIVE_CAPABILITIES,
+  CAPABILITY_GROUPS,
   capabilityLabels,
   hookLabels,
   healthLabels,
   shortHash,
-  exclusivePartner,
+  exclusivePartners,
   toggleCapability,
   type ScriptGrantState,
   scriptGrantState,
@@ -72,6 +80,10 @@ export interface ScriptPluginDetailViewProps {
   onOpenPage?: (page: PluginSettingsPage) => void;
   /** 冲突说明里把另一个插件的 id 换成名字。 */
   nameOf?: (id: string) => string;
+  /** 读写设置值和持久存储；宿主没有这几项时不显示设置表单和已存数据。 */
+  client?: ScriptPluginStateClient;
+  /** 停用会删数据、清除数据之前的确认。 */
+  confirm: (request: ConfirmRequest) => Promise<boolean>;
   /** 写入授权并启用；失败时抛出，由授权对话框说明原因。 */
   onGrant: (granted: ScriptCapability[]) => Promise<void>;
   /** 停用并撤销全部授权。 */
@@ -82,7 +94,7 @@ export interface ScriptPluginDetailViewProps {
   onBack: () => void;
 }
 
-/** 一个脚本插件：它在什么时候运行、申请了什么、授予了什么、输入法有没有停用它、排第几个执行，以及启用（经授权对话框）、调整授权和删除。 */
+/** 一个脚本插件：它在什么时候运行、申请了什么、授予了什么、输入法有没有停用它、排第几个执行、清单声明的设置项、自带和存下的数据，以及启用（经授权对话框）、调整授权、清除数据和删除。 */
 export function ScriptPluginDetailView({
   pack,
   grants,
@@ -93,6 +105,8 @@ export function ScriptPluginDetailView({
   onLocalMode,
   onOpenPage,
   nameOf,
+  client,
+  confirm,
   onGrant,
   onRevoke,
   onMove,
@@ -112,6 +126,51 @@ export function ScriptPluginDetailView({
   const granted = active ? sortCapabilities(grant?.granted ?? []) : [];
   const position = running.indexOf(pack.id);
   const risk = scriptResidualRisk(platform);
+  const {
+    state: pluginState,
+    loadError,
+    canSave,
+    canClear,
+    saveSettings,
+    clearData,
+  } = useScriptPluginState(client, pack.id, pack.content_hash, grants?.revision);
+  const settings = pack.settings ?? [];
+  const dataBytes = pack.data_bytes ?? 0;
+  const storageBytes = pluginState?.storage_bytes ?? 0;
+  // 授权文件里记着 `persist_data`（不论内容哈希对不对得上：更新之后数据保留到重新授权），或者存储里有数据。
+  const persisting = Boolean(grant?.granted.includes("persist_data")) || storageBytes > 0;
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState("");
+  const revoke = async () => {
+    if (persisting) {
+      const confirmed = await confirm({
+        title: "停用脚本插件",
+        message: `停用会撤销「${pack.name}」的全部授权，${storedDataDeletionNote(storageBytes)}`,
+        confirmLabel: "停用并删除数据",
+        danger: true,
+      });
+      if (!confirmed) return;
+    }
+    onRevoke();
+  };
+  const clear = async () => {
+    const confirmed = await confirm({
+      title: "清除数据",
+      message: `清除「${pack.name}」存下的数据？${storedDataDeletionNote(storageBytes)}`,
+      confirmLabel: "清除",
+      danger: true,
+    });
+    if (!confirmed) return;
+    setClearing(true);
+    setClearError("");
+    try {
+      await clearData();
+    } catch (error) {
+      setClearError(pluginErrorMessage(error, "数据没有清除，请重试。"));
+    } finally {
+      setClearing(false);
+    }
+  };
   const stateText: Record<ScriptGrantState, string> = {
     ungranted: "还没有授权，不会运行。",
     stale: `${scriptStaleLabel(pack)}：插件的内容和授权时不同，之前的授权已经作废，不会运行。`,
@@ -159,7 +218,7 @@ export function ScriptPluginDetailView({
             <SummaryRow
               key={capability}
               title={capabilityLabels[capability].title}
-              description={capabilityLabels[capability].description}
+              description={capabilityDescription(capability, pack)}
             >
               {granted.includes(capability) ? "已授予" : "未授予"}
             </SummaryRow>
@@ -207,7 +266,7 @@ export function ScriptPluginDetailView({
           disabled={working}
           onChange={(checked) => {
             if (checked) openDialog();
-            else onRevoke();
+            else void revoke();
           }}
         />
         {state === "enabled" && requested.length > 0 && (
@@ -242,6 +301,59 @@ export function ScriptPluginDetailView({
           </SettingsManagerBlock>
         </GroupList>
       )}
+      {settings.length > 0 &&
+        canSave &&
+        (pluginState ? (
+          <ScriptSettingsForm
+            key={`${pack.id}:${pack.content_hash ?? ""}`}
+            settings={settings}
+            values={pluginState.values}
+            disabled={working}
+            onSave={saveSettings}
+          />
+        ) : (
+          loadError && (
+            <GroupList title="设置">
+              <SettingsGroupNote className="text-danger">{loadError}</SettingsGroupNote>
+            </GroupList>
+          )
+        ))}
+      {(dataBytes > 0 || persisting) && (
+        <GroupList title="数据">
+          {dataBytes > 0 && (
+            <SummaryRow title="自带数据" description="插件包里随附的只读数据，插件读它不需要授权。">
+              {formatKilobytes(dataBytes)}
+            </SummaryRow>
+          )}
+          {persisting && (
+            <>
+              <SummaryRow
+                title="已存数据"
+                description="插件长期保存在这台电脑上的数据，最多 64 KB。撤销「长期保存数据」或删除插件时一起删除。"
+              >
+                {formatKilobytes(storageBytes)}
+              </SummaryRow>
+              {canClear && (
+                <SettingsManagerBlock>
+                  {clearError && (
+                    <SettingsManagerNote className="text-danger" role="alert">
+                      {clearError}
+                    </SettingsManagerNote>
+                  )}
+                  <SettingsManagerActions>
+                    <ActionButton
+                      action={clear}
+                      disabled={working || clearing || storageBytes === 0}
+                      ariaBusy={clearing}
+                      label="清除数据"
+                    />
+                  </SettingsManagerActions>
+                </SettingsManagerBlock>
+              )}
+            </>
+          )}
+        </GroupList>
+      )}
       <GroupList title="安全">
         <SettingsGroupNote>
           脚本插件在输入法里的沙箱中运行，只能做你授予的事，读不到文件和网络，也不会在密码框里运行。
@@ -270,6 +382,8 @@ export function ScriptPluginDetailView({
         <ScriptGrantDialog
           pack={pack}
           initial={granted}
+          saved={grant}
+          storageBytes={storageBytes}
           stale={state === "stale"}
           platform={platform}
           commandStatus={state === "enabled" ? commandStatus : undefined}

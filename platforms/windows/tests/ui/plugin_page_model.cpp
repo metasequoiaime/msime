@@ -153,7 +153,7 @@ int main() {
   // 出错说明。
   check(error_message(L"plugin_invalid", L"缺少 id", L"x") == L"插件不符合要求（缺少 id）。" &&
             error_message(L"plugin_invalid", L"", L"x") == L"插件不符合要求。" &&
-            error_message(L"storage", L"", L"导入失败，请重试。") == L"导入失败，请重试。",
+            error_message(L"mention_invalid_code", L"", L"导入失败，请重试。") == L"导入失败，请重试。",
         "error messages");
   auto imported = pack(L"sound", L"tune", L"sequence");
   check(imported_notice(imported) == L"已导入音效包·旋律「名tune」1.0.0。", "import notice");
@@ -228,16 +228,136 @@ int main() {
   check((sort_capabilities({L"filter_candidates", L"x", L"read_composition", L"read_composition"}) ==
          Caps{L"read_composition", L"filter_candidates"}),
         "capabilities sort in the runtime's order");
-  // provide_commands 是第 8 项：排在最后，没有依赖、不和任何一项互斥，页面认得它，不会把它当成不认识的能力丢掉。
-  check(script_capabilities.size() == 8 && script_capabilities.back() == L"provide_commands",
-        "provide_commands is the eighth capability");
+  // provide_commands 是第 8 项：没有依赖、不和任何一项互斥，页面认得它，不会把它当成不认识的能力丢掉。
+  check(script_capabilities.size() == 10 && script_capabilities[7] == L"provide_commands" &&
+            script_capabilities[8] == L"insert_candidates" && script_capabilities.back() == L"persist_data",
+        "the ten capabilities in the runtime's order");
   check((sort_capabilities({L"provide_commands", L"read_commit"}) == Caps{L"read_commit", L"provide_commands"}),
-        "provide_commands sorts last");
-  check(capability_requires(L"provide_commands").empty() && exclusive_partner(L"provide_commands").empty(),
+        "provide_commands sorts after reading");
+  check(capability_requires(L"provide_commands").empty() && exclusive_partners(L"provide_commands").empty(),
         "provide_commands needs nothing and excludes nothing");
   check((toggle_capability({L"read_commit"}, L"provide_commands", true, all) ==
          Caps{L"read_commit", L"provide_commands"}),
         "checking provide_commands keeps the rest");
+
+  // 第二批能力：添加候选依赖读取候选词，长期保存数据和改写上屏互斥；改写上屏因此有两个互斥项。
+  check(capability_requires(L"insert_candidates") == L"read_candidates" &&
+            capability_requires(L"persist_data").empty(),
+        "insert_candidates needs read_candidates");
+  check((exclusive_partners(L"rewrite_commit") == std::vector<std::wstring_view>{L"read_composition", L"persist_data"}) &&
+            (exclusive_partners(L"persist_data") == std::vector<std::wstring_view>{L"rewrite_commit"}) &&
+            (exclusive_partners(L"read_composition") == std::vector<std::wstring_view>{L"rewrite_commit"}),
+        "two exclusive pairs");
+  check((toggle_capability({}, L"insert_candidates", true, all) == Caps{L"read_candidates", L"insert_candidates"}),
+        "checking insert_candidates checks read_candidates");
+  check((toggle_capability({L"read_candidates", L"insert_candidates"}, L"read_candidates", false, all).empty()),
+        "unchecking read_candidates unchecks insert_candidates");
+  check((toggle_capability({L"persist_data"}, L"rewrite_commit", true, all) == Caps{L"read_commit", L"rewrite_commit"}),
+        "rewriting the commit drops persist_data");
+  check((toggle_capability({L"read_commit", L"rewrite_commit"}, L"persist_data", true, all) ==
+         Caps{L"read_commit", L"persist_data"}),
+        "persist_data drops rewriting the commit and keeps what it needed");
+  {
+    // 回归：之前 `sort_capabilities` 不认识这两项，悄悄丢掉，对话框里根本没有它们。
+    const auto items = grant_items({L"read_commit", L"read_candidates", L"insert_candidates", L"persist_data"}, {}, false);
+    check(items.size() == 4 && items[2].capability == L"insert_candidates" && items[2].title == L"添加候选" &&
+              items[2].group == L"改文字" && !items[2].warning &&
+              items[2].description.find(L"需要同时授予「读取候选词」。") != std::wstring::npos,
+          "the dialog lists insert_candidates under 改文字");
+    check(items[3].capability == L"persist_data" && items[3].title == L"长期保存数据" && items[3].group == L"记住数据" &&
+              items[3].warning && !items[3].checked && items[3].description == persist_data_warning,
+          "persist_data is alone in its group, unticked and a warning");
+    check(items[0].group == L"读文字" && items[1].group == L"读文字", "reading capabilities group together");
+    const auto blocked = grant_items({L"read_commit", L"rewrite_commit", L"persist_data"}, {L"read_commit", L"rewrite_commit"}, false);
+    check(blocked[2].disabled && blocked[2].description.find(L"不能和「修改输入的文字」同时授予。") != std::wstring::npos,
+          "persist_data is blocked while rewriting is granted");
+    auto groups = capability_groups();
+    check(groups.size() == 3 && groups[2].title == L"记住数据" && groups[2].capabilities.size() == 1 &&
+              groups[1].capabilities.size() == 6,
+          "three groups");
+    const auto extended = capability_description(L"provide_commands", true);
+    check(extended.find(L"之后打的字母以及数字和运算符号会交给这个插件") != std::wstring::npos &&
+              extended.find(L"只取决于这些字符和随机数") != std::wstring::npos &&
+              capability_description(L"provide_commands", false) == capability_label(L"provide_commands").description &&
+              grant_items({L"provide_commands"}, {}, false, true)[0].description == extended,
+          "extended commands add digits and operators");
+    Package bare;
+    check(grant_dialog_no_permissions(bare) ==
+              L"这个插件没有申请任何权限：它只能知道发生了什么事件，读不到也改不了任何文字。",
+          "no permissions");
+    bare.data_bytes = 10;
+    bare.settings.push_back({});
+    check(grant_dialog_no_permissions(bare) ==
+              L"这个插件没有申请任何权限：它只能知道发生了什么事件、读自己包里的数据、读你在设置项里填的值，读不到也改不了任何文字。",
+          "no permissions with data and settings");
+  }
+
+  // 删数据的规则、大小和确认句。
+  {
+    ScriptGrant saved{L"memo", L"h", true, {L"persist_data"}};
+    check(!grant_deletes_stored_data(nullptr, {}, 0) && grant_deletes_stored_data(nullptr, {}, 10) &&
+              grant_deletes_stored_data(&saved, {}, 0) && !grant_deletes_stored_data(&saved, {L"persist_data"}, 10),
+          "the deletion rule follows the saved grant and what is on disk");
+    check(format_kilobytes(0) == L"0 KB" && format_kilobytes(1) == L"1 KB" && format_kilobytes(5000) == L"5 KB" &&
+              format_kilobytes(2048) == L"2 KB",
+          "kilobytes round up");
+    check(stored_data_deletion_note(3000) == L"插件已存的数据（3 KB）会被删除，不能恢复。" &&
+              stored_data_deletion_note(0) == L"插件存下的数据会被删除，不能恢复。",
+          "deletion notes");
+    check(grant_dialog_deletion(3000) == L"这次授权不包括「长期保存数据」，插件已存的数据（3 KB）会被删除，不能恢复。",
+          "the dialog's second confirmation");
+    check(script_persisting(&saved, 0) && script_persisting(nullptr, 1) && !script_persisting(nullptr, 0), "persisting");
+  }
+
+  // 设置项：默认值、类型不对时回到默认值、页面先查的问题、宿主拒绝时落到哪一项。
+  {
+    ScriptSetting number;
+    number.key = L"threshold";
+    number.type = L"number";
+    number.min = 0;
+    number.max = 9;
+    number.number_default = 3;
+    ScriptSetting text;
+    text.key = L"suffix";
+    text.type = L"text";
+    text.max_length = 4;
+    ScriptSetting choice;
+    choice.key = L"level";
+    choice.type = L"choice";
+    choice.text_default = L"level_2";
+    choice.options = {{L"level_1", L"一级字"}, {L"level_2", L"二级字"}};
+    std::map<std::wstring, ScriptSettingValue> values{{L"threshold", std::wstring(L"7")}, {L"suffix", std::wstring(L"ab")}};
+    check(std::get<std::int64_t>(setting_value(number, values)) == 3 &&
+              std::get<std::wstring>(setting_value(text, values)) == L"ab" &&
+              std::get<std::wstring>(setting_value(choice, values)) == L"level_2",
+          "a value of the wrong type falls back to the default");
+    check(setting_issue(number, std::int64_t{7}).empty() &&
+              setting_issue(number, std::int64_t{12}) == L"请填 0 到 9 之间的整数。" &&
+              setting_issue(number, std::wstring(L"x")) == L"请填 0 到 9 之间的整数。" &&
+              setting_issue(text, std::wstring(L"abcd")).empty() &&
+              setting_issue(text, std::wstring(L"abcde")) == L"最多 4 个字符。",
+          "issues the page finds itself");
+    check(parse_setting_number(L" -12 ") == std::optional<std::int64_t>{-12} && !parse_setting_number(L"1.5") &&
+              !parse_setting_number(L"-") && !parse_setting_number(L"") && !parse_setting_number(L"99999999999999999999"),
+          "parsing numbers");
+    check(std::get<std::wstring>(draft_setting_value(number, {{L"threshold", std::int64_t{7}}})) == L"7" &&
+              std::get<std::int64_t>(parsed_setting_value(number, std::wstring(L"8"))) == 8 &&
+              std::holds_alternative<std::wstring>(parsed_setting_value(number, std::wstring(L"8x"))) &&
+              std::get<std::wstring>(parsed_setting_value(text, std::wstring(L"8"))) == L"8",
+          "number drafts keep the typed text");
+    check(setting_error_key(L"设置项 suffix 的值不合规") == L"suffix" &&
+              setting_error_key(L"清单里没有设置项 width") == L"width" && setting_error_key(L"设置过的脚本插件太多").empty(),
+          "the setting a refusal names");
+    check(setting_value_text(choice, std::wstring(L"level_1")) == L"一级字" && setting_value_text(number, true) == L"开" &&
+              setting_value_text(text, std::wstring()) == L"（空）",
+          "value text");
+    check(error_message(L"plugin_script_setting_invalid", L"设置项 suffix 的值不合规", L"x") ==
+                  L"设置没有保存：值不符合插件的要求（设置项 suffix 的值不合规）。" &&
+              error_message(L"plugin_script_settings_format", L"", L"x") ==
+                  L"设置文件是更新版本的水杉输入法写的，这个版本不能修改它。" &&
+              error_message(L"storage", L"", L"x") == L"插件的数据读写失败，请检查数据目录的权限。",
+          "settings error messages");
+  }
 
   // 对话框：依赖和互斥的说明，互斥的那一项勾着时禁用；新版本不再申请的一项不算勾着。
   auto items = grant_items({L"rewrite_commit", L"read_commit", L"read_composition"},

@@ -12,8 +12,8 @@ use msime_client_services::plugins::{
     MANIFEST_FILE,
 };
 use msime_input_runtime::{
-    CandidateOps, CandidateTransform, CommandOutcome, CommandProvider, PluginCommand, TransformRow,
-    View, MAX_TRANSFORM_ROWS,
+    CandidateOps, CandidateTransform, CommandOutcome, CommandProvider, InsertedRow, PluginCommand,
+    TransformRow, View, MAX_ANNOTATION_UTF16, MAX_INSERTED_ROWS, MAX_TRANSFORM_ROWS,
 };
 use msime_script_runtime::{
     abi, limits, Actions, CandidateRow, Candidates, Capability, CapabilitySet, CommandEvent,
@@ -29,6 +29,9 @@ use std::time::Instant;
 
 // runtime 交来的窗口整个交给插件，两边的行数上限必须一致。
 const _: () = assert!(MAX_TRANSFORM_ROWS == limits::MAX_CANDIDATE_ROWS);
+// 插入的行：runtime 按合计上限截断，注释格的上限两边相同。
+const _: () = assert!(MAX_INSERTED_ROWS == limits::MAX_INSERTED_ROWS);
+const _: () = assert!(MAX_ANNOTATION_UTF16 == limits::MAX_ANNOTATION_UTF16);
 
 #[cfg(test)]
 thread_local! {
@@ -479,7 +482,7 @@ impl ScriptSet {
         self.deliver_all(&delivered, |_| {});
     }
 
-    /// 候选变换（`candidates` 钩子）：窗口是 runtime 内置排序之后、任何插件变换之前的前 20 行。每个插件都看这同一份窗口，正常返回的插件把暂存的操作依次放进 `out`，失败的插件这一次的操作全部作废。本地模式不在白名单里时一个插件都不运行。
+    /// 候选变换（`candidates` 钩子）：窗口是 runtime 内置排序之后、任何插件变换之前的前 20 行。每个插件都看这同一份窗口，正常返回的插件把暂存的操作（重排、隐藏、注释和 `candidates_insert` 插的行）依次放进 `out`，失败的插件这一次的操作全部作废。本地模式不在白名单里时一个插件都不运行；插行只在本地模式 `none` 里有效，由解释器的 `candidates_insert` 判断，runtime 再按合计上限截断。
     pub(crate) fn candidates(
         &mut self,
         window: &[TransformRow<'_>],
@@ -515,6 +518,7 @@ impl ScriptSet {
             if actions.order.is_empty()
                 && actions.hidden.is_empty()
                 && actions.annotations.is_empty()
+                && actions.inserts.is_empty()
             {
                 return;
             }
@@ -522,6 +526,15 @@ impl ScriptSet {
                 order: actions.order.clone(),
                 hidden: actions.hidden.clone(),
                 annotations: actions.annotations.clone(),
+                inserts: actions
+                    .inserts
+                    .iter()
+                    .map(|(position, text, note)| InsertedRow {
+                        position: *position,
+                        text: text.clone(),
+                        note: note.clone(),
+                    })
+                    .collect(),
             });
         });
     }

@@ -92,6 +92,12 @@ export function pluginErrorMessage(error: unknown, fallback: string): string {
       return `授权不符合要求${reason}。`;
     case "plugin_script_missing":
       return `找不到这个脚本插件${reason}。`;
+    case "plugin_script_setting_invalid":
+      return `设置没有保存：值不符合插件的要求${reason}。`;
+    case "plugin_script_settings_format":
+      return "设置文件是更新版本的水杉输入法写的，这个版本不能修改它。";
+    case "storage":
+      return "插件的数据读写失败，请检查数据目录的权限。";
     case "mention_invalid":
       return `名单有误${reason}。`;
     case "mention_format":

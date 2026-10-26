@@ -545,6 +545,12 @@ private:
       (*plugins_response_)["grants"] = plugin_data::call(directory_, options, {{"operation", "script_grants"}});
       if (operation == "catalog") (*plugins_response_)["mentions"] = plugin_data::call(directory_, options, PluginMentionsForm::load_request());
       (*plugins_response_)["catalog"] = operation == "catalog" ? response : plugin_data::call(directory_, options, PluginLibraryForm::catalog_request());
+      // 每个脚本插件的设置值和存储大小（详情里的设置项、已存数据和「清除数据」）。
+      Json states = Json::object();
+      if (const auto listed = plugin_data::packages((*plugins_response_)["catalog"]))
+        for (const auto& pack : *listed)
+          if (pack.kind == L"script") states[control_text::utf8(pack.id).value()] = plugin_data::call(directory_, options, {{"operation", "script_plugin_state"}, {"id", control_text::utf8(pack.id).value()}});
+      (*plugins_response_)["script_states"] = std::move(states);
       const auto statistics = theme_data::call(msime_client_typing_statistics,
           {{"directory", directory_.u8string()}, {"status", true}, {"action", {{"operation", "load"}}}});
       const auto status = statistics_data::parse(statistics);
@@ -2214,7 +2220,7 @@ struct SettingsWindow::State {
         if (!editor && !theme_data::value(value.at("response"))) plugin_library_form.failure();
         plugin_effects_form.catalog(plugin_library_form.packages(), plugin_library_form.loaded());
         plugin_editor_form.catalog(plugin_library_form.packages());
-        plugin_scripts_form.completed(value.at("catalog"), value.at("grants"), editor ? value.at("catalog") : value.at("response"));
+        plugin_scripts_form.completed(value.at("catalog"), value.at("grants"), editor ? value.at("catalog") : value.at("response"), value.value("script_states", Json::object()), operation);
         revealed_script = plugin_scripts_form.revealed();
       }
       if (value.contains("statistics_enabled")) {

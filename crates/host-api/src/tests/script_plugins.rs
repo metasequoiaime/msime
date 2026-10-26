@@ -3345,6 +3345,71 @@ fn official_packs_from_the_build_type_a_uuid_and_latex_symbols() {
     assert_eq!(picked["value"]["commit_context"]["local_mode"], "command");
 }
 
+// ---- 插件往普通候选里加行（`insert_candidates`）----
+
+/// `candidates`：在第 1 位插一行 🙂（注释「表情」），写出 `candidates_insert` 的返回码。
+fn inserter() -> String {
+    format!(
+        r#"(module
+  (import "msime" "candidate_count" (func $count (result i32)))
+  (import "msime" "candidates_insert" (func $insert (param i32 i32 i32 i32 i32) (result i32)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  {HEADER}
+  (data (i32.const 0) "\f0\9f\99\82")
+  (data (i32.const 8) "\e8\a1\a8\e6\83\85")
+  (func (export "msime_on_event") (param $kind i32) (result i32)
+    (call $log
+      (call $insert (i32.const 1) (i32.const 0) (i32.const 4) (i32.const 8) (i32.const 6))
+      (i32.const 0) (i32.const 0))
+    (i32.const 0)))"#
+    )
+}
+
+#[test]
+fn an_inserted_row_shows_with_its_note_and_commits_verbatim_outside_the_statistics() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[Script::new("emoji", inserter(), &[Hook::Candidates])
+            .reading(Capability::ReadCandidates, true)
+            .reading(Capability::InsertCandidates, true)],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    let view = compose_nihao(fixture.handle);
+    // 每次派发都插在第 1 位（返回第 0 行）。
+    assert!(take_log().iter().all(|(level, _)| *level == 0));
+    let rows = view_texts(&view);
+    assert_eq!(rows[1], "🙂", "{view}");
+    assert_eq!(view["candidates"][1]["source"], 14);
+    assert_eq!(view["candidates"][1]["script_annotation"], "表情");
+    assert_eq!(view["candidates"][1]["annotation"], "");
+    // 选中它：原样上屏，组字结束，作为插件行交给宿主（不计打字统计）。
+    let generation = view["generation"].as_u64().unwrap();
+    msime_client_key(fixture.handle, 0);
+    let picked = read(msime_client_select(fixture.handle, generation, 1));
+    assert_eq!(picked["value"]["commit"], "🙂", "{picked}");
+    assert_eq!(
+        picked["value"]["commit_context"]["typing_statistics"],
+        false
+    );
+    assert_eq!(picked["value"]["view"]["preedit"], "");
+
+    // 没有授予 insert_candidates：同一个插件插不进去，列表和以前一样。
+    let fixture = self::fixture();
+    install(
+        &fixture,
+        &[Script::new("emoji", inserter(), &[Hook::Candidates])
+            .reading(Capability::ReadCandidates, true)
+            .reading(Capability::InsertCandidates, false)],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    let view = compose_nihao(fixture.handle);
+    assert!(take_log().iter().all(|(level, _)| *level == status::DENIED));
+    assert!(!view_texts(&view).contains(&"🙂".to_owned()));
+}
+
 // ---- 第二批能力在输入法进程里：设置值、随包数据、指令时间与扩展参数、持久存储 ----
 
 /// 在插件目录里写一个脚本包的清单（`[script]` 末尾追加 `extra`）和一个占位模块：输入法从清单取设置项和权限，模块已经直接放进了进程缓存。
