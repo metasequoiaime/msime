@@ -770,7 +770,11 @@ pub(crate) const IMPORTS: [ImportSpec; 26] = [
         Some(Capability::InsertCandidates),
         (&[Ty::I32, Ty::I32, Ty::I32, Ty::I32, Ty::I32], &[Ty::I32]),
     ),
-    spec("storage_len", Some(Capability::PersistData), (&[], &[Ty::I32])),
+    spec(
+        "storage_len",
+        Some(Capability::PersistData),
+        (&[], &[Ty::I32]),
+    ),
     spec("storage_read", Some(Capability::PersistData), TEXT_COPY),
     spec(
         "storage_write",

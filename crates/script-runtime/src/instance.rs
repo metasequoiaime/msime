@@ -150,7 +150,9 @@ impl Storage {
 
     fn lock(&self) -> MutexGuard<'_, StorageState> {
         // 锁里只有内存拷贝，不会在持锁时 panic；真被毒化了，里面的字节仍是一份完整的写入。
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn len(&self) -> usize {
