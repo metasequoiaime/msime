@@ -10029,11 +10029,52 @@ group(
       KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS +
       KeyboardGeometry.heightAdjustment(adjustment) +
       KeyboardMetrics.touchRowGapsVp(KeyboardGeometry.rowSpacing(rowSpacingTenths));
-    // KeyboardView 的磁贴网格：每行至少 52vp，上方留白 10、页点 14、下方留白 4。
+    // KeyboardView 的磁贴网格：满尺寸行高 52vp，上方留白 10、页点 14、下方留白 4，网格的行能占的是键区去掉这 28vp。
     const row: number = 52;
     const chrome: number = 10 + 14 + 4;
-    const same = (grid: PickerGrid, rows: number, rowsGap: number): boolean =>
-      grid.rows === rows && grid.rowsGap === rowsGap;
+    const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
+    const same = (grid: PickerGrid, rows: number, scale: number): boolean =>
+      grid.rows === rows &&
+      near(grid.scale, scale) &&
+      near(grid.rowHeight, row * scale) &&
+      near(grid.rowsGap, (rows === 3 ? 12 : 16) * scale);
+    const used = (grid: PickerGrid): number => grid.rows * grid.rowHeight + (grid.rows - 1) * grid.rowsGap;
+    check(
+      FunctionPanelPolicy.THREE_ROW_GAP_VP === 12 &&
+        FunctionPanelPolicy.TWO_ROW_GAP_VP === 16 &&
+        FunctionPanelPolicy.MIN_TILE_VP === 44,
+      "the picker grid uses the same constants as Android and iOS: gaps 12 and 16, tiles at least 44vp",
+    );
+    // 三端共用的测试向量。
+    check(same(FunctionPanelPolicy.pickerGrid(false, 200, row), 3, 1), "200vp holds three full-size rows");
+    check(same(FunctionPanelPolicy.pickerGrid(false, 180, row), 3, 1), "180vp is exactly three full-size rows");
+    check(same(FunctionPanelPolicy.pickerGrid(false, 162, row), 3, 0.9), "162vp scales three rows to 0.9");
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 152.4, row), 3, 152.4 / 180),
+      "152.4vp still keeps three rows, the tiles just above 44vp",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 152, row), 2, 1),
+      "152vp would put three rows under 44vp, so it shows two full-size rows",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 100, row), 2, 44 / 52),
+      "two rows never shrink the tiles below 44vp",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(true, 200, row), 2, 1),
+      "phone landscape stays two full-size rows however tall the grid is",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(true, 110, row), 2, 110 / 120),
+      "phone landscape scales its two rows to fit",
+    );
+    const small: PickerGrid = FunctionPanelPolicy.pickerGrid(false, 60, 40);
+    check(
+      small.rows === 2 && small.scale === 1 && small.rowHeight === 40 && small.rowsGap === 16,
+      "a full-size row under 44vp is never scaled",
+    );
+    // 鸿蒙真实的键区。
     const minimum: number = keyArea(
       KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
       KeyboardGeometry.MIN_ROW_SPACING_TENTHS,
@@ -10048,28 +10089,51 @@ group(
       "the key area spans 176–254vp, 197 by default",
     );
     check(
-      same(FunctionPanelPolicy.pickerGrid(false, tallest, row, chrome), 3, 12),
-      "a tall key area shows three rows 12vp apart, as on iOS",
+      same(FunctionPanelPolicy.pickerGrid(false, tallest - chrome, row), 3, 1),
+      "the tallest key area shows three full-size rows 12vp apart, as on iOS",
     );
-    const portrait: PickerGrid = FunctionPanelPolicy.pickerGrid(false, standard, row, chrome);
-    check(same(portrait, 3, 6), "the default key area narrows the gap to keep three rows");
+    const portrait: PickerGrid = FunctionPanelPolicy.pickerGrid(false, standard - chrome, row);
     check(
-      3 * row + 2 * portrait.rowsGap + chrome <= standard,
-      "three rows fit the default key area",
+      same(portrait, 3, (197 - 28) / 180) && portrait.rowHeight >= 44,
+      "the default key area keeps three rows and scales the tiles to about 0.94",
     );
+    check(near(used(portrait), standard - chrome), "three scaled rows fill the default key area exactly");
+    const short: PickerGrid = FunctionPanelPolicy.pickerGrid(false, minimum - chrome, row);
     check(
-      same(FunctionPanelPolicy.pickerGrid(true, tallest, row, chrome), 2, 16),
-      "phone landscape stays two rows 16vp apart however tall the keys are",
+      same(short, 2, 1),
+      "the minimum key area would put three rows under 44vp, so it shows two full-size rows",
     );
-    // 最矮的键区连行距 0 也放不下三行，退回两行；两行放得下。
-    check(3 * row + chrome > minimum, "three rows overflow the minimum key area");
-    const short: PickerGrid = FunctionPanelPolicy.pickerGrid(false, minimum, row, chrome);
-    check(same(short, 2, 16), "the minimum key area falls back to two rows");
-    check(2 * row + short.rowsGap + chrome <= minimum, "two rows fit the minimum key area");
+    check(used(short) + chrome <= minimum, "two rows fit the minimum key area");
     check(
-      same(FunctionPanelPolicy.pickerGrid(false, 3 * row + chrome + 7, row, chrome), 2, 16),
-      "a gap under 4vp drops to two rows instead",
+      same(FunctionPanelPolicy.pickerGrid(true, minimum - chrome, row), 2, 1),
+      "phone landscape fits two full-size rows in the minimum key area",
     );
+    // 网格从不超出面板：键区的每一种高度、竖屏横屏都放得下。
+    let fits: boolean = true;
+    for (
+      let adjustment = KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP;
+      adjustment <= KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP;
+      adjustment++
+    ) {
+      for (
+        let spacing = KeyboardGeometry.MIN_ROW_SPACING_TENTHS;
+        spacing <= KeyboardGeometry.MAX_ROW_SPACING_TENTHS;
+        spacing += 10
+      ) {
+        for (const landscape of [false, true]) {
+          const grid: PickerGrid = FunctionPanelPolicy.pickerGrid(
+            landscape,
+            keyArea(adjustment, spacing) - chrome,
+            row,
+          );
+          fits =
+            fits &&
+            used(grid) <= keyArea(adjustment, spacing) - chrome + 1e-9 &&
+            grid.rowHeight >= 44 - 1e-9;
+        }
+      }
+    }
+    check(fits, "every key area fits the grid without tiles under 44vp");
     check(
       KeyboardFormFactorPolicy.phoneLandscape(800, 360),
       "a phone on its side is phone landscape",
