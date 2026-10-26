@@ -36,7 +36,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 输入页：语言与方案、中文（字符集、中英文之间加空格、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、离线英文释义、目标语言）。
+ * 输入页：语言与方案、中文（字符集、中英文之间加空格、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、翻译范围、离线英文释义、目标语言）。
  *
  * <p>语言与方案列表是键盘自己的方案列表 `touch_keyboard_schemes.enabled` 按方案族分组后的样子：全拼、双拼、五笔、注音、笔画、手写和粤拼各自成行，其他语言按语言成行。在一行的面板里选一个方案，经 {@link SchemePreferences#withScheme} 同时写 `scheme` 那几个键和 `touch_keyboard_schemes.selected`（并在缺失时加进 `enabled`）；「移除」把这一行的方案全部移出 `enabled`，键盘正用着它时先切回剩下的第一个方案；「添加方案」把这一行的第一个方案加进 `enabled`，不切换。英语没有自己的触屏方案（中英切换键一直在），所以不出现在列表里。
  *
@@ -363,9 +363,14 @@ public final class TypingPage extends ReloadingDetailPage {
 
         GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
         InputFeatureToggle translations = InputFeatureToggle.CANDIDATE_TRANSLATIONS;
+        boolean translationsOn = preferences.optBoolean(translations.key(), translations.enabledByDefault());
         translation.toggle("候选词翻译", "为候选词附上译文；联网翻译用哪个服务在下面的「翻译服务」里选",
-            preferences.optBoolean(translations.key(), translations.enabledByDefault()),
-            checked -> savePreferences(values -> values.put(translations.key(), checked)));
+            translationsOn, checked -> savePreferences(values -> values.put(translations.key(), checked)));
+        // 「翻译范围」紧跟在「候选词翻译」下面，与共享设置页相同；候选词翻译关着时置灰，存的值不动。
+        CandidateTranslationPolicy.Scope scope =
+            CandidateTranslationPolicy.Scope.from(preferences.opt(CandidateTranslationPolicy.Scope.KEY));
+        translation.nav(CandidateTranslationPolicy.Scope.TITLE, CandidateTranslationPolicy.Scope.DESCRIPTION,
+            scope.title(), translationsOn ? () -> pickTranslationScope(scope) : null);
         translation.nav("翻译服务", "离线释义查不到的词用它补上译文", null,
             () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
@@ -830,6 +835,16 @@ public final class TypingPage extends ReloadingDetailPage {
 
     private void saveHelpcode(String family, boolean shuangpin, String member, Object value) {
         savePreferences(values -> helpcodeObject(values, family, shuangpin).put(member, value));
+    }
+
+    private void pickTranslationScope(CandidateTranslationPolicy.Scope selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), CandidateTranslationPolicy.Scope.TITLE,
+            CandidateTranslationPolicy.Scope.DESCRIPTION);
+        for (CandidateTranslationPolicy.Scope scope : CandidateTranslationPolicy.Scope.values()) {
+            sheet.option(scope.title(), scope == selected,
+                () -> savePreferences(values -> values.put(CandidateTranslationPolicy.Scope.KEY, scope.id())));
+        }
+        sheet.show();
     }
 
     private void pickTargetLanguage(String selected, boolean glossOn, State state) {

@@ -1376,6 +1376,55 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     appearance.vertical = NO;
 }
 
+// 候选词翻译范围「仅当前高亮」：竖排时视图给高亮行标出 translation_reserved，这一行一直留出译文的高度（两种目标语言时两行，与横排的预留行数相同），回答没到、高亮移动、回答到了，窗口都一样高。
+static void TestVerticalReservedGlossRow(MSIMEInputController *controller, NSWindow *panel, MSIMEAppearancePreferences *appearance)
+{
+    appearance.vertical = YES;
+    appearance.candidateTranslations = YES;
+    // 竖排的译文画在候选同一行，默认字号下两行译文还没有候选行高；放大译文字号，让两行译文比候选行高。
+    [appearance applySharedCandidatePreferences:@{@"candidate_translation_font_size": @22}];
+    [controller setValue:@[@"en", @"fr"] forKey:@"glossTargetLanguages"];
+    NSArray<NSString *> *words = @[@"测试", @"侧室", @"策士"];
+    NSDictionary *(^page)(NSUInteger, BOOL, NSString *) = ^NSDictionary *(NSUInteger highlighted, BOOL reserved, NSString *translation) {
+        NSMutableArray *candidates = [NSMutableArray array];
+        for (NSUInteger index = 0; index < words.count; ++index) {
+            NSMutableDictionary *candidate = [@{@"text": words[index], @"highlighted": @(index == highlighted)} mutableCopy];
+            if (index == highlighted && reserved) candidate[@"translation_reserved"] = @YES;
+            if (index == highlighted && translation) candidate[@"translation"] = translation;
+            [candidates addObject:candidate];
+        }
+        return @{@"focused": @YES, @"editing_text": @"ceshi", @"page": @0, @"page_count": @1, @"candidates": candidates};
+    };
+    CGFloat (^cardHeight)(NSDictionary *) = ^CGFloat(NSDictionary *view) {
+        [controller setValue:view forKey:@"view"];
+        [controller renderCandidates];
+        return NSHeight(panel.frame);
+    };
+    // 两行译文比候选行高：不留的话，回答一到这一行就变高。
+    const CGFloat plain = cardHeight(page(0, NO, nil));
+    const CGFloat plainRow = NSHeight(CandidateButton(panel.contentView, 0).frame);
+    const CGFloat glossed = cardHeight(page(0, NO, @"test\u2028essai"));
+    const CGFloat glossedRow = NSHeight(CandidateButton(panel.contentView, 0).frame);
+    assert(!CandidateButton(panel.contentView, 0).itemLayout.translation.below);
+    assert(glossed > plain + 0.5 && glossedRow > plainRow + 0.5);
+    // 留出的那一行和回答到了以后一样高，其他行不变。
+    for (NSUInteger highlighted = 0; highlighted < words.count; ++highlighted) {
+        assert(fabs(cardHeight(page(highlighted, YES, nil)) - glossed) < 0.5);
+        for (NSUInteger index = 0; index < words.count; ++index) {
+            const CGFloat height = NSHeight(CandidateButton(panel.contentView, (NSInteger)index).frame);
+            assert(fabs(height - (index == highlighted ? glossedRow : plainRow)) < 0.5);
+        }
+        assert(fabs(cardHeight(page(highlighted, YES, @"test\u2028essai")) - glossed) < 0.5);
+    }
+    // 只有一种目标语言时只留一行，和一行译文到了以后一样高。
+    [controller setValue:@[@"en"] forKey:@"glossTargetLanguages"];
+    const CGFloat oneLine = cardHeight(page(1, NO, @"test"));
+    assert(fabs(cardHeight(page(1, YES, nil)) - oneLine) < 0.5 && oneLine < glossed - 0.5);
+    [controller setValue:nil forKey:@"glossTargetLanguages"];
+    [appearance applySharedCandidatePreferences:@{@"candidate_translation_font_size": NSNull.null}];
+    appearance.vertical = NO;
+}
+
 // 前景按它的不透明度叠到不透明的底色上后，和底色的 WCAG 对比度。
 static double CandidateContrast(NSColor *foreground, NSColor *fill)
 {
@@ -3650,6 +3699,7 @@ int main(int argc, char **argv)
         assert([controller renderExpandedCandidates]);
         assert([CandidateButton(panel.contentView, -3).identifier isEqual:@"candidate-collapse"]);
         TestPronunciationLine(controller, panel, appearance);
+        TestVerticalReservedGlossRow(controller, panel, appearance);
         @autoreleasepool { TestSelectedGlossColour(client); }
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }

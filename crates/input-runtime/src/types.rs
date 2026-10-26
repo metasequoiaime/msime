@@ -34,6 +34,9 @@ pub struct Candidate {
     /// Engine fixed-position slot, or zero when dynamically ranked.
     pub fixed_position: u8,
     pub highlighted: bool,
+    /// 「仅当前高亮」的候选词翻译生效时，高亮这一行要留出译文的位置，回答还没到也留：竖排的宿主据此给这一行留一行译文高（两种目标语言时留两行，和横排的预留行数一样），移动高亮时窗口高度不跳。为假时不出现在 JSON 里，旧宿主可忽略。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub translation_reserved: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation: Option<String>,
     /// 与 `translation` 同源的 UTF-8 字节范围；空时省略，旧宿主可忽略。
@@ -62,6 +65,8 @@ pub struct TranslationCandidates {
     pub generation: u64,
     pub scheme: u8,
     pub local_mode: String,
+    /// `candidates` 里高亮那一行的位置；高亮不在这一组座位里时为 `None`。
+    pub highlighted: Option<usize>,
     pub candidates: Vec<TranslationCandidate>,
 }
 

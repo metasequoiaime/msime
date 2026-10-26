@@ -511,6 +511,9 @@ pub unsafe extern "C" fn msime_client_apply_translations(
         struct Translation {
             text: String,
             translation: String,
+            /// 来自翻译查询 `gloss_query` 的离线释义，不受「仅当前高亮」限制；缺省为假。
+            #[serde(default)]
+            gloss: bool,
         }
         let bytes = unsafe { std::slice::from_raw_parts(translations, length) };
         let values: Vec<Translation> =
@@ -524,9 +527,11 @@ pub unsafe extern "C" fn msime_client_apply_translations(
         }
         with_session(handle, |session| {
             let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
-            let applied = session.runtime.apply_translations(
+            let applied = session.runtime.apply_translation_answers(
                 generation,
-                values.into_iter().map(|item| (item.text, item.translation)),
+                values
+                    .into_iter()
+                    .map(|item| (item.text, item.translation, item.gloss)),
             );
             let view = session.runtime.view();
             session.lifecycle_view(pending, &view);

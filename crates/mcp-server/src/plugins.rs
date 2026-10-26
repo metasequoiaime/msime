@@ -572,9 +572,8 @@ fn refused(error: PluginError) -> String {
         PluginError::UnsupportedSource => "the path must be a pack folder or a .zip file".into(),
         PluginError::Reserved => "this id belongs to a pack that ships with the input method; choose another id".into(),
         PluginError::Storage => "the plugins folder in the input method's state directory is a symbolic link or not a folder".into(),
-        // 设置页编辑器的两种失败；这里的工具不走编辑器，照样给出能读懂的说法。
-        PluginError::Exists => "a pack of this kind with this id is already installed".into(),
-        PluginError::NotEditable(reason) => format!("the pack cannot be edited: {reason}"),
+        PluginError::Exists => "a plugin with this id already exists; choose another id or replace it explicitly".into(),
+        PluginError::NotEditable(reason) => format!("this plugin cannot be edited in settings: {reason}"),
         PluginError::Io(_) => "the pack could not be read or written".into(),
     }
 }

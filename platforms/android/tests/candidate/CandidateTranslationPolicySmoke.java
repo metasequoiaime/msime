@@ -180,23 +180,83 @@ public final class CandidateTranslationPolicySmoke {
         check(!account(true, true, false, false, true),
             "usable Tencent credentials win over the account");
         CandidateTranslationRoute none = CandidateTranslationRoute.NONE;
+        // 翻译范围（candidate_translation_scope）：缺键、不认识的值、不是字符串都按「仅当前高亮」读，与共享 Rust 的 CandidateTranslationScope 一致；只认小写的两个值。
+        CandidateTranslationPolicy.Scope highlighted = CandidateTranslationPolicy.Scope.HIGHLIGHTED;
+        CandidateTranslationPolicy.Scope all = CandidateTranslationPolicy.Scope.ALL;
+        check(CandidateTranslationPolicy.Scope.KEY.equals("candidate_translation_scope")
+                && highlighted.id().equals("highlighted") && all.id().equals("all"),
+            "the scope is the shared candidate_translation_scope with its two values");
+        check(CandidateTranslationPolicy.Scope.from(null) == highlighted
+                && CandidateTranslationPolicy.Scope.from("highlighted") == highlighted
+                && CandidateTranslationPolicy.Scope.from("all") == all,
+            "a missing scope reads as highlighted and both values parse");
+        check(CandidateTranslationPolicy.Scope.from("ALL") == highlighted
+                && CandidateTranslationPolicy.Scope.from("every") == highlighted
+                && CandidateTranslationPolicy.Scope.from(Boolean.TRUE) == highlighted,
+            "an unknown or non-string scope reads as highlighted");
+        // 设置界面的文案与共享 React 设置页（candidate-translation-options-section.tsx）相同。
+        check(CandidateTranslationPolicy.Scope.TITLE.equals("翻译范围")
+                && highlighted.title().equals("仅当前高亮") && all.title().equals("全部")
+                && CandidateTranslationPolicy.Scope.DESCRIPTION.equals(
+                    "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响"),
+            "the scope row says what the shared settings page says");
+        check(CandidateTranslationPolicy.scopeLimited(true, highlighted)
+                && !CandidateTranslationPolicy.scopeLimited(false, highlighted)
+                && !CandidateTranslationPolicy.scopeLimited(true, all),
+            "the scope only limits requests while candidate translation is on and set to highlighted");
+        check(CandidateTranslationPolicy.requestsTranslation(true, true)
+                && !CandidateTranslationPolicy.requestsTranslation(true, false),
+            "a limited scope asks the translation services only about the highlighted candidate");
+        check(CandidateTranslationPolicy.requestsTranslation(false, true)
+                && CandidateTranslationPolicy.requestsTranslation(false, false),
+            "the all scope asks about every candidate on the page");
+        // 交给共享层的每条回答：只来自离线释义的标 gloss（每行都画），用到在线译文的不标（「仅当前高亮」时只画在高亮行）。
+        CandidateTranslationPolicy.Answer offlineAnswer = CandidateTranslationPolicy.answer("你好",
+            List.of("en"), Map.of("en", "hello"), Map.of());
+        check(offlineAnswer != null && offlineAnswer.text().equals("你好")
+                && offlineAnswer.translation().equals("hello") && offlineAnswer.gloss(),
+            "an offline-only answer is marked as a gloss");
+        CandidateTranslationPolicy.Answer onlineAnswer = CandidateTranslationPolicy.answer("你好",
+            List.of("en"), Map.of(), Map.of("en", "hi"));
+        check(onlineAnswer != null && onlineAnswer.translation().equals("hi") && !onlineAnswer.gloss(),
+            "an answer carrying an online translation is not a gloss");
+        CandidateTranslationPolicy.Answer bothAnswer = CandidateTranslationPolicy.answer("你好",
+            List.of("en"), Map.of("en", "hello"), Map.of("en", "hi"));
+        check(bothAnswer != null && bothAnswer.translation().equals("hello") && bothAnswer.gloss(),
+            "the offline gloss still wins over the online translation, so the answer stays a gloss");
+        CandidateTranslationPolicy.Answer mixedAnswer = CandidateTranslationPolicy.answer("你好",
+            List.of("en", "ja"), Map.of("en", "hello"), Map.of("ja", "やあ"));
+        check(mixedAnswer != null && mixedAnswer.translation().equals("hello\nやあ") && !mixedAnswer.gloss(),
+            "an online row filling a gap makes the answer a translation");
+        check(CandidateTranslationPolicy.answer("你好", List.of("en"), Map.of(), Map.of()) == null
+                && CandidateTranslationPolicy.answer("", List.of("en"), Map.of("en", "hello"), Map.of()) == null,
+            "nothing to say or no candidate text gives no answer");
+        check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                true, true, List.of("en"), List.of("en"), none, none, highlighted, all),
+            "changing the translation scope clears the displayed rows");
         check(CandidateTranslationPolicy.displayInvalidated(true, false, true, true,
-                true, true, List.of("en"), List.of("en"), none, none),
+                true, true, List.of("en"), List.of("en"), none, none,
+                highlighted, highlighted),
             "turning off offline glosses clears the displayed rows");
         check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
-                true, true, List.of("en"), List.of("ja"), none, none),
+                true, true, List.of("en"), List.of("ja"), none, none,
+                highlighted, highlighted),
             "changing translation targets clears the displayed rows");
         check(!CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
-                true, true, List.of("en"), List.of("en"), none, none),
+                true, true, List.of("en"), List.of("en"), none, none,
+                highlighted, highlighted),
             "unrelated preference refresh keeps the displayed rows");
         check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
-                false, false, List.of("en"), List.of("en"), none, customRoute("key")),
+                false, false, List.of("en"), List.of("en"), none, customRoute("key"),
+                highlighted, highlighted),
             "choosing a translation service clears the displayed rows");
         check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
-                false, false, List.of("en"), List.of("en"), customRoute("old"), customRoute("new")),
+                false, false, List.of("en"), List.of("en"), customRoute("old"), customRoute("new"),
+                highlighted, highlighted),
             "changing a service credential clears the displayed rows");
         check(!CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
-                false, false, List.of("en"), List.of("en"), customRoute("key"), customRoute("key")),
+                false, false, List.of("en"), List.of("en"), customRoute("key"), customRoute("key"),
+                highlighted, highlighted),
             "rereading the same service keeps the displayed rows");
         check(CandidateTranslationPolicy.acceptsBinding("7:account-a", "7:account-a"),
             "a translation response remains valid for the same account binding");

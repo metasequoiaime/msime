@@ -37,18 +37,20 @@ enum CandidateGlossModel {
     return data
   }
 
+  /// 读离线释义 worker 的回答，整理成交给 `applyTranslations` 的数组。每条都标 `"gloss": true`：这些是离线释义，不是候选词翻译，候选词翻译的范围是「仅当前高亮」时共享运行时照样把它们画在每一行；不标的回答会被当作候选词翻译，只画在高亮行。
   static func decode(_ value: [String: Any]) throws -> (generation: UInt64, translations: Data) {
     guard let generationValue = value["generation"] as? NSNumber,
           let generation = integerValue(generationValue, maximum: UInt64.max),
           let entries = value["translations"] as? [[String: Any]], entries.count <= 4096 else {
       throw Failure.invalidResponse
     }
-    for entry in entries {
+    let answers = try entries.map { entry -> [String: Any] in
       guard let text = entry["text"] as? String,
             let translation = entry["translation"] as? String,
             isBounded(text), isBounded(translation) else { throw Failure.invalidResponse }
+      return ["text": text, "translation": translation, "gloss": true]
     }
-    let translations = try JSONSerialization.data(withJSONObject: entries)
+    let translations = try JSONSerialization.data(withJSONObject: answers)
     guard translations.count <= maxResponseBytes else { throw Failure.oversized }
     return (generation, translations)
   }

@@ -25,6 +25,7 @@ final class InputHabitPreferenceTests: XCTestCase {
     XCTAssertEqual(settings.frequencyMode, .promote)
     XCTAssertEqual(settings.primaryLanguage, 0, "English")
     XCTAssertEqual(settings.secondaryLanguage, -1)
+    XCTAssertEqual(settings.translationScope, .highlighted, "新装默认只翻译当前高亮的候选")
   }
 
   func testUpdateWritesTheDocumentAndMirrorsTheAppGroup() throws {
@@ -97,6 +98,48 @@ final class InputHabitPreferenceTests: XCTestCase {
     after = before
     after.secondaryLanguage = before.secondaryLanguage == -1 ? 1 : -1
     XCTAssertTrue(InputHabitPreference.translationDisplaySettingsChanged(before, after))
+
+    // 换范围就换了要请求哪些候选。
+    after = before
+    after.translationScope = before.translationScope == .all ? .highlighted : .all
+    XCTAssertTrue(InputHabitPreference.translationDisplaySettingsChanged(before, after))
+  }
+
+  /// 「翻译范围」与共享 Rust 的读法一致：缺键（旧版本写的文档）和不认识的值都按「仅当前高亮」读，不沿用镜像里的值；写回时总是写进文档。
+  func testTranslationScopeReadsHighlightedUnlessTheDocumentSaysAll() throws {
+    var fallback = InputHabitPreference.mirrored
+    fallback.translationScope = .all
+    XCTAssertEqual(InputHabitPreference.settings(in: [:], fallback: fallback).translationScope, .highlighted)
+    XCTAssertEqual(InputHabitPreference.settings(in: ["candidate_translation_scope": "page"], fallback: fallback)
+      .translationScope, .highlighted)
+    XCTAssertEqual(InputHabitPreference.settings(in: ["candidate_translation_scope": 1], fallback: fallback)
+      .translationScope, .highlighted)
+    XCTAssertEqual(InputHabitPreference.settings(in: ["candidate_translation_scope": "all"]).translationScope, .all)
+    XCTAssertEqual(InputHabitPreference.settings(in: nil, fallback: fallback).translationScope, .all,
+                   "读不到文档时才用镜像")
+
+    var document: [String: Any] = [:]
+    var settings = InputHabitPreference.mirrored
+    settings.translationScope = .highlighted
+    InputHabitPreference.write(settings, into: &document)
+    XCTAssertEqual(document["candidate_translation_scope"] as? String, "highlighted")
+    settings.translationScope = .all
+    InputHabitPreference.write(settings, into: &document)
+    XCTAssertEqual(document["candidate_translation_scope"] as? String, "all")
+  }
+
+  func testTranslationScopeUpdateWritesTheDocumentAndMirrorsTheAppGroup() throws {
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    let saved = try XCTUnwrap(InputHabitPreference.update(stateRoot: state) { $0.translationScope = .all })
+    XCTAssertEqual(saved.translationScope, .all)
+    var document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["candidate_translation_scope"] as? String, "all")
+    XCTAssertEqual(CandidateTranslationPreference.translationScope, .all)
+
+    XCTAssertNotNil(InputHabitPreference.update(stateRoot: state) { $0.translationScope = .highlighted })
+    document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["candidate_translation_scope"] as? String, "highlighted")
+    XCTAssertEqual(CandidateTranslationPreference.translationScope, .highlighted)
   }
 
   func testFractionalAndBooleanCountsKeepTheFallback() {

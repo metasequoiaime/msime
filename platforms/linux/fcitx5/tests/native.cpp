@@ -570,6 +570,39 @@ void translationPreferenceChangesIncludeAccount() {
   after["candidate_pronunciation"] = true;
   require(FcitxState::translationPreferencesChanged(before, after),
           "pronunciation changes invalidate translation requests");
+  after = before;
+  after["candidate_translation_scope"] = "all";
+  require(FcitxState::translationPreferencesChanged(before, after),
+          "改翻译范围要作废进行中的翻译请求和记下的回答");
+}
+// 「仅当前高亮」的高亮行（视图的 translation_reserved）：原生画布拿到要留的释义行数，classicui 在回答到之前用不上屏的全角空格行占住译文的位置；别的行、已有译文的行和不预留时都不加。
+void reservedTranslationRow() {
+  const auto word = [](Json candidate, int reserved) {
+    candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
+    return FcitxCandidate(nullptr, candidate, false, false, std::string(), 0, 0, reserved);
+  };
+  const auto shown = [](const FcitxCandidate &candidate) -> const fcitx::Text & {
+    return static_cast<const fcitx::CandidateWord &>(candidate).text();
+  };
+  const auto waiting = word(Json{{"text", "你"}, {"translation_reserved", true}}, 1);
+  require(waiting.display().reserved_gloss_lines == 1 && waiting.display().translation.empty(),
+          "高亮行把要留的释义行数交给原生画布");
+  require(shown(waiting).toString() == "你\n\u3000" && shown(waiting).splitByLine().size() == 2 &&
+              shown(waiting).formatAt(shown(waiting).size() - 1) ==
+                  fcitx::TextFormatFlags(fcitx::TextFormatFlag::DontCommit),
+          "classicui 用一行不上屏的占位留住还没到的译文");
+  require(waiting.text() == "你", "占位不进上屏文字");
+  require(shown(word(Json{{"text", "你"}, {"translation_reserved", true}}, 2)).splitByLine().size() == 3,
+          "两种目标语言留两行");
+  const auto answered = word(Json{{"text", "你"}, {"translation", "you"}, {"translation_reserved", true}}, 1);
+  require(shown(answered).toString() == "你\nyou" && answered.display().reserved_gloss_lines == 1,
+          "译文到了就不再加占位");
+  const auto other = word(Json{{"text", "拟"}}, 1);
+  require(shown(other).toString() == "拟" && other.display().reserved_gloss_lines == 0,
+          "非高亮行不留");
+  const auto off = word(Json{{"text", "你"}, {"translation_reserved", true}}, 0);
+  require(shown(off).toString() == "你" && off.display().reserved_gloss_lines == 0,
+          "没有译文服务和离线释义时不留");
 }
 
 void emojiGroupResultFencing() {
@@ -1381,10 +1414,14 @@ int main(int argc, char **argv) {
       scriptAnnotationRow();
       caretEditSuffixRow();
       translationPreferenceChangesIncludeAccount();
+      reservedTranslationRow();
       const auto sentence = FcitxState::sentenceTranslationQuery(
-          Json{{"generation", 17}, {"candidates", Json::array()}}, "合成候选", "fr");
+          Json{{"generation", 17}, {"candidates", Json::array()},
+               {"gloss_query", Json{{"generation", 17}, {"provider", "none"}, {"candidates", Json::array()}}}},
+          "合成候选", "fr");
       require(sentence.at("sentence") == true && sentence.at("target_language") == "fr",
               "manual sentence translation keeps the requested mode and language");
+      require(!sentence.contains("gloss_query"), "整句翻译不把整页离线释义的查询发给 provider");
       auto providerTexts = Json::array();
       for (const auto &candidate : sentence.at("candidates"))
         providerTexts.push_back(candidate.at("text"));

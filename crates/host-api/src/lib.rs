@@ -1224,6 +1224,11 @@ impl HostSession {
         self.runtime
             .set_cloud_candidates_enabled(requested_preferences.cloud_candidates)
             .map_err(|e| e.to_string())?;
+        // 候选词翻译的范围只改查询和画法，跟着最新请求的偏好走；换范围时的旧释义已经在上面随释义偏好的变化清掉。
+        self.runtime
+            .set_translation_scope_highlighted(translation_scope_highlighted(
+                &requested_preferences,
+            ));
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_backspace_reverts_selection(requested_preferences.backspace_reverts_selection);
@@ -3467,9 +3472,17 @@ const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(
     test
 ));
 
+/// 候选词翻译开着且范围是「仅当前高亮」：翻译查询只为高亮的候选请求候选词翻译，运行时只把它画在高亮行。
+pub(crate) fn translation_scope_highlighted(preferences: &Preferences) -> bool {
+    preferences.candidate_translations
+        && preferences.candidate_translation_scope
+            == msime_client_core::preferences::CandidateTranslationScope::Highlighted
+}
+
 /// `translation_query` 使用的偏好字段；这些变化都要撤销旧代次的释义回包。
 fn translation_query_preferences_changed(previous: &Preferences, next: &Preferences) -> bool {
     previous.candidate_translations != next.candidate_translations
+        || previous.candidate_translation_scope != next.candidate_translation_scope
         || previous.candidate_english_gloss != next.candidate_english_gloss
         || previous.candidate_pronunciation != next.candidate_pronunciation
         || previous.translation_target_language != next.translation_target_language

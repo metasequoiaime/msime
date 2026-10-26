@@ -111,6 +111,46 @@ impl<'de> Deserialize<'de> for UpdateChannel {
     }
 }
 
+/// 候选词翻译（在线、系统、账号和 AI 翻译服务，以及只为候选词翻译查的离线词典）画在哪些候选下面。「显示英文释义」开关的离线释义不受它限制，照旧每个候选都有。
+///
+/// 新装和缺这个键的旧文档都是「仅当前高亮」：维护者认为每个候选都带一行译文太乱，而且只问高亮的那一个也省翻译接口的调用。读文档时不认识的值同样按「仅当前高亮」读。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateTranslationScope {
+    /// 只翻译当前高亮的候选：没移动过高亮时是第一个，用方向键、Tab 或鼠标悬停移动高亮后跟着高亮走。
+    #[default]
+    Highlighted,
+    /// 当前页每个候选都翻译，这个选项出现以前的行为。
+    All,
+}
+
+impl CandidateTranslationScope {
+    /// 文档和宿主请求里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Highlighted => "highlighted",
+            Self::All => "all",
+        }
+    }
+
+    /// 严格解析：只认 `highlighted`、`all`，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "highlighted" => Some(Self::Highlighted),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CandidateTranslationScope {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串按默认的「仅当前高亮」；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -186,7 +226,9 @@ pub enum TextEditButton {
 /// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
-    vec![Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine]
+    vec![
+        Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine,
+    ]
 }
 
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
@@ -1652,6 +1694,9 @@ pub struct Preferences {
     /// 新装默认关闭候选翻译；旧文档缺字段时仍沿用原有开启行为，显式保存的选择不变。
     #[serde(default = "enabled_by_default")]
     pub candidate_translations: bool,
+    /// 候选词翻译的范围，见 [`CandidateTranslationScope`]。新装和缺字段的旧文档都是「仅当前高亮」。
+    #[serde(default)]
+    pub candidate_translation_scope: CandidateTranslationScope,
     /// Show bounded offline English glosses from the packaged Engine dictionary.
     #[serde(default)]
     pub candidate_english_gloss: bool,
@@ -3549,6 +3594,7 @@ impl Default for Preferences {
             cloud_candidate_provider: Default::default(),
             network: crate::network::NetworkPreferences::default(),
             candidate_translations: false,
+            candidate_translation_scope: CandidateTranslationScope::Highlighted,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
             // 候选释义与角标的显示默认值对齐 Windows v0.11.1 的出厂配置。

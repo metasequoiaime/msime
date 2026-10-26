@@ -134,6 +134,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     runtime
         .set_cloud_candidates_enabled(applied.cloud_candidates)
         .map_err(|e| e.to_string())?;
+    runtime.set_translation_scope_highlighted(crate::translation_scope_highlighted(&applied));
     runtime.set_phrase_preedit(phrase_preedit);
     runtime.set_backspace_reverts_selection(applied.backspace_reverts_selection);
     runtime.set_escape_keeps_selected_word(applied.escape_keeps_selected_word);
