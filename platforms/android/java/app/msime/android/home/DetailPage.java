@@ -237,7 +237,7 @@ public abstract class DetailPage extends HomeTabFragment {
             navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom)
                 -> updateNavigationInset(target));
             if (hideFixedNavigationWhenIme()) {
-                WindowInsetsPolicy.bindFixedPageNavigation(view, navigation,
+                FixedNavigationInsetsPolicy.bind(view, navigation,
                     () -> updateNavigationInset(navigation));
             }
         }

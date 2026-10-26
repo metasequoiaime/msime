@@ -1,8 +1,5 @@
 package app.msime.android;
 
-import android.view.View;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 /** Android 窗口遮挡区域共用的内容避让策略。 */
 public final class WindowInsetsPolicy {
@@ -22,17 +19,6 @@ public final class WindowInsetsPolicy {
     /** 输入法弹出时隐藏详情页自己的分类导航，避免它浮在输入法窗口上方。 */
     public static boolean shouldShowFixedPageNavigation(boolean imeVisible) {
         return !imeVisible;
-    }
-
-    /** 给需要固定分类导航的详情页绑定输入法显隐与导航占位同步。 */
-    public static void bindFixedPageNavigation(View root, View navigation, Runnable reposition) {
-        ViewCompat.setOnApplyWindowInsetsListener(root, (target, insets) -> {
-            navigation.setVisibility(shouldShowFixedPageNavigation(
-                insets.isVisible(WindowInsetsCompat.Type.ime())) ? View.VISIBLE : View.GONE);
-            reposition.run();
-            return insets;
-        });
-        ViewCompat.requestApplyInsets(root);
     }
 
     /** 输入法弹出时收起主页底部导航；对话页无论是否弹出输入法都不显示。 */
