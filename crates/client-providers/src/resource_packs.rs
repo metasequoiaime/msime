@@ -502,6 +502,50 @@ impl ResourcePack {
         installed == pinned
     }
 
+    /// 语法模型保留安装时的快照：锁文件更新后，只要快照自洽且文件仍是完整字节，就继续离线使用。
+    /// 其他资源包仍必须严格匹配当前锁文件，避免把未审计的词库或运行库当成可执行资源。
+    fn grammar_snapshot_matches(self, directory: &Path, manifest: &Value) -> bool {
+        let grammar = matches!(
+            self,
+            Self::GrammarWanxiang
+                | Self::GrammarBaguwen
+                | Self::GrammarBaguwenCompact
+                | Self::GrammarBaishuang
+        );
+        if !grammar || manifest.get("pack").and_then(Value::as_str) != Some(self.id()) {
+            return false;
+        }
+        let Some(source_commit) = manifest.get("source_commit").and_then(Value::as_str) else {
+            return false;
+        };
+        let Ok(artifacts) = serde_json::from_value::<Vec<crate::resources::Artifact>>(
+            manifest.get("artifacts").cloned().unwrap_or(Value::Null),
+        ) else {
+            return false;
+        };
+        let mut names = artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect::<Vec<_>>();
+        let mut expected = self
+            .set()
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        expected.sort_unstable();
+        names == expected
+            && verify_artifacts(
+                directory,
+                &ResourceSet {
+                    source_commit: source_commit.to_owned(),
+                    artifacts,
+                },
+            )
+            .is_ok()
+    }
+
     /// 下载总字节数。从归档取出的资源包下载的是整个归档。
     pub fn size(self) -> u64 {
         self.import_artifacts()
@@ -683,7 +727,7 @@ pub fn installed_file(state_root: &Path, pack: ResourcePack, name: &str) -> Opti
     }
     let directory = published_directory(state_root, pack)?;
     let manifest = local_models::installed_manifest(&root(state_root), pack.id())?;
-    if !pack.manifest_matches(&manifest) {
+    if !pack.manifest_matches(&manifest) && !pack.grammar_snapshot_matches(&directory, &manifest) {
         return None;
     }
     let path = directory.join(name);
@@ -1826,6 +1870,46 @@ mod tests {
 
         fs::write(&file, b"bytes").unwrap();
         assert_eq!(state_of(), PackState::Installed);
+    }
+
+    /// 语法模型保存的本地快照即使不再等于当前锁文件，也应能继续离线读取；状态仍提示有更新。
+    #[test]
+    fn grammar_model_snapshot_remains_usable_after_lock_update() {
+        let state = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::GrammarBaguwenCompact;
+        let directory = root(state.path()).join(pack.id());
+        fs::create_dir_all(&directory).unwrap();
+        let bytes = b"synthetic grammar model";
+        let name = pack.set().artifacts[0].name.clone();
+        fs::write(directory.join(&name), bytes).unwrap();
+        let manifest = serde_json::json!({
+            "pack": pack.id(),
+            "source_commit": "a".repeat(40),
+            "artifacts": [{
+                "name": name,
+                "url": "https://example.invalid/model.gram",
+                "sha256": hex::encode(Sha256::digest(bytes)),
+                "size": bytes.len()
+            }]
+        });
+        fs::write(
+            directory.join(MANIFEST_FILE),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            installed_file(state.path(), pack, &pack.set().artifacts[0].name),
+            Some(directory.join(&pack.set().artifacts[0].name))
+        );
+        assert_eq!(
+            list(state.path())
+                .into_iter()
+                .find(|status| status.id == pack.id())
+                .unwrap()
+                .state,
+            PackState::Outdated
+        );
     }
 
     /// 同一组字节换了下载地址和来源提交（词库发布新的 dict-v 时没变的文件就是这样）仍算已安装；任何一个文件的字节变了才算过期。
