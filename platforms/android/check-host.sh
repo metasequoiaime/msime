@@ -722,6 +722,15 @@ if ! rg -q 'forgetCurrentClip\(\);' <<< "$search_body" \
   echo "Android clipboard search must open the app's CLIPBOARD_SEARCH page from the panel header after forgetting the current clip, never a query field in the input method (#5973)" >&2
   exit 1
 fi
+# 搜索框固定在剪贴板历史页顶部；结果列表滚动时不得把查询框一起卷走（#9958）。
+clipboard_search_page="$repo_root/platforms/android/java/app/msime/android/home/ClipboardSearchPage.java"
+if ! rg -q 'protected View fixedNavigation\(\)' "$clipboard_search_page" \
+  || ! rg -q 'searchNavigation = new SearchPill' "$clipboard_search_page" \
+  || ! rg -q 'searchNavigation' "$clipboard_search_page" \
+  || rg -q 'target\.addView\(search' "$clipboard_search_page"; then
+  echo "Android clipboard search must keep its search field fixed above the scrolling results (#9958)" >&2
+  exit 1
+fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
 share_body=$(rg -A 24 'void shareClipboardText\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)

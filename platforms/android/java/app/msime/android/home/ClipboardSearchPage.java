@@ -64,6 +64,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     private boolean busy;
     @Nullable private GroupCard results;
     @Nullable private ImageView topButton;
+    @Nullable private SearchPill searchNavigation;
     private boolean authorized;
     @Nullable private BiometricPrompt authentication;
     private final AuthenticationPauseTracker pause = new AuthenticationPauseTracker();
@@ -73,6 +74,26 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         String text = "";
         /** 第一次显示时把焦点给查询框并拉起键盘；重建后不再拉。 */
         boolean focused;
+    }
+
+    /** 搜索框固定在详情页滚动区之外，历史结果滚动时仍可直接修改查询。 */
+    @Override @Nullable protected View fixedNavigation() {
+        Context context = requireContext();
+        FrameLayout navigation = new FrameLayout(context);
+        navigation.setMinimumHeight(DimensionPolicy.pixels(context, 56));
+        ViewPolicy.setBackgroundColor(navigation, ThemeColorPolicy.page(context));
+        ViewPolicy.setSymmetricPaddingDp(context, navigation, 16, 4);
+        searchNavigation = new SearchPill(context);
+        searchNavigation.setHint("搜索剪贴板历史");
+        searchNavigation.field().setContentDescription("搜索剪贴板历史");
+        searchNavigation.field().setText(query == null ? "" : query.text);
+        searchNavigation.field().setSelection(searchNavigation.field().length());
+        searchNavigation.setOnQueryChange(text -> {
+            if (query != null) query.text = text;
+            renderResults();
+        });
+        navigation.addView(searchNavigation, LayoutPolicy.matchWidthWrapParams());
+        return navigation;
     }
 
     @Override public void onCreate(@Nullable Bundle saved) {
@@ -91,17 +112,6 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         headerActions().addView(clipboardExport.button());
         LinearLayout target = contentColumn();
         if (target == null) return;
-        Context context = target.getContext();
-        SearchPill search = new SearchPill(context);
-        search.setHint("搜索剪贴板历史");
-        search.field().setContentDescription("搜索剪贴板历史");
-        search.field().setText(query.text);
-        search.field().setSelection(search.field().length());
-        search.setOnQueryChange(text -> {
-            query.text = text;
-            renderResults();
-        });
-        target.addView(search, LayoutPolicy.matchWidthWrapParams());
 
         results = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
         FrameLayout root = (FrameLayout) requireView();
@@ -122,10 +132,15 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         if (!query.focused) {
             query.focused = true;
             // 打开这一页就是要搜，不用再点一下搜索框。
-            search.field().requestFocus();
-            WindowCompat.getInsetsController(requireActivity().getWindow(), search.field())
+            if (searchNavigation != null) searchNavigation.field().requestFocus();
+            if (searchNavigation != null) WindowCompat.getInsetsController(requireActivity().getWindow(), searchNavigation.field())
                 .show(WindowInsetsCompat.Type.ime());
         }
+    }
+
+    @Override public void onDestroyView() {
+        searchNavigation = null;
+        super.onDestroyView();
     }
 
     @Override protected boolean shouldReloadOnContentReady() { return false; }
