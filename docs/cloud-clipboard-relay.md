@@ -1,6 +1,6 @@
 # 云剪贴板的自建中继
 
-云剪贴板可以不经过水杉账号和 `api.msime.app`，改走用户自己部署的中继。中继实现的是 [端到端加密协议](cloud-clipboard-e2e.md) 里同一组接口，只保存密文：文字照旧在设备上加密，新设备照旧要在已有设备上核对后点「允许」，中继拿不到剪贴板密钥。这份文档只写中继和官方服务不同的地方，接口的请求和响应以端到端加密协议为准。设计取舍见 [决策笔记](../.agents/notes/implemented/feature/2026-10-12-cloud-clipboard-relay.md)。
+云剪贴板可以不经过水杉账号和 `api.msime.app`，改走用户自己部署的中继。中继实现的是 [端到端加密协议](cloud-clipboard-e2e.md) 里同一组接口，只保存密文：文字照旧在设备上加密，新设备照旧要在已有设备上核对后点「允许」，中继拿不到剪贴板密钥。这份文档只写中继和官方服务不同的地方，接口的请求和响应以端到端加密协议为准。设计取舍见 [决策笔记](../.agents/notes/implemented/feature/2026-10-12-cloud-clipboard-relay.md)。没有服务器、但有 WebDAV 网盘的用户可以改用 [WebDAV 后端](cloud-clipboard-webdav.md)，客户端在本机扮演中继、把同一组接口的语义写成网盘上的事件日志。
 
 ## 客户端怎么配置
 
@@ -61,7 +61,7 @@ Windows 原生设置页、macOS 与 Linux 共享设置页「剪贴板」的「�
 
 ## 参考实现
 
-`crates/clipboard-relay`（包名 `msime-clipboard-relay`）是一个单文件 SQLite 存储、只说 HTTP/1 的参考中继。协议以文档为准，官方服务（msime-cloud）是另一份独立实现，两边各自用测试锁住同一份文档；这个 crate 的 `tests/flow.rs` 用真正的客户端驱动连它跑完整流程。
+`crates/clipboard-relay`（包名 `msime-clipboard-relay`）是一个单文件 SQLite 存储、只说 HTTP/1 的参考中继。请求的解析和不依赖状态的校验在 `crates/client-core/src/cloud/clipboard_log.rs`，与 WebDAV 后端共用。协议以文档为准，官方服务（msime-cloud）是另一份独立实现，两边各自用测试锁住同一份文档；这个 crate 的 `tests/flow.rs` 用真正的客户端驱动连它跑完整流程。
 
 ```sh
 cargo build --release -p msime-clipboard-relay
