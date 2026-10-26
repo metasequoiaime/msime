@@ -5,7 +5,9 @@ import {
   CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED,
   CLOUD_CLIPBOARD_RELAY_UNSUPPORTED,
   CLOUD_CLIPBOARD_SIGNED_OUT,
+  CLOUD_CLIPBOARD_WEBDAV_NOTE,
   SettingsPage,
+  cloudClipboardWebDavProbeMessage,
   cloudClipboardAvailabilityNote,
   cloudClipboardErrorMessage,
   cloudClipboardFailure,
@@ -14,7 +16,11 @@ import {
 import {
   cloudClipboardRelayTokenIssue,
   cloudClipboardRelayUrlIssue,
+  cloudClipboardWebDavPasswordIssue,
+  cloudClipboardWebDavUrlIssue,
+  cloudClipboardWebDavUsernameIssue,
   withCloudClipboardRelay,
+  withCloudClipboardWebDav,
 } from "../../../../packages/ui/src/settings/cloud-clipboard-relay";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 
@@ -296,4 +302,196 @@ test("saving a relay on the clipboard page checks the cloud clipboard again over
     ),
   );
   expect(screen.queryByText(CLOUD_CLIPBOARD_SIGNED_OUT)).toBeNull();
+});
+
+const WEBDAV = {
+  url: "https://dav.example.test/dav/msime",
+  username: "synthetic@example.test",
+  password: "synthetic-app-password",
+};
+
+test("webdav accounts and app passwords follow the Rust rules", () => {
+  // 与 crates/client-core/src/preferences/tests.rs 的 cloud_clipboard_webdav_is_all_or_nothing_and_exclusive_with_the_relay 对应。
+  expect(cloudClipboardWebDavUrlIssue("https://dav.example.test/dav/msime")).toBe("");
+  expect(cloudClipboardWebDavUrlIssue("http://127.0.0.1:8080/dav")).toBe("");
+  expect(cloudClipboardWebDavUrlIssue("http://dav.example.test/dav")).toContain(
+    "WebDAV 服务器必须使用 HTTPS",
+  );
+  expect(cloudClipboardWebDavUrlIssue("https://user:secret@dav.example.test/dav")).toContain(
+    "账号和应用密码请填在下面",
+  );
+  expect(cloudClipboardWebDavUrlIssue("")).toBe("请填写服务器地址。");
+  expect(cloudClipboardWebDavUsernameIssue("synthetic@example.test")).toBe("");
+  for (const username of ["", "has:colon", "bad\u0007", "u".repeat(257)]) {
+    expect(cloudClipboardWebDavUsernameIssue(username), username).not.toBe("");
+  }
+  expect(cloudClipboardWebDavPasswordIssue("synthetic-app-password")).toBe("");
+  expect(cloudClipboardWebDavPasswordIssue("with space and 中文")).toBe("");
+  for (const password of ["", "bad\n", "p".repeat(257)]) {
+    expect(cloudClipboardWebDavPasswordIssue(password), password).not.toBe("");
+  }
+});
+
+test("a relay and a webdav drive replace each other and the account removes both", () => {
+  const relay = withCloudClipboardRelay(base, { url: "https://relay.example.test", token: TOKEN });
+  const drive = withCloudClipboardWebDav(relay, WEBDAV);
+  expect("cloud_clipboard_relay" in drive).toBe(false);
+  expect(drive.cloud_clipboard_webdav).toEqual(WEBDAV);
+  const back = withCloudClipboardRelay(drive, { url: "https://relay.example.test", token: TOKEN });
+  expect("cloud_clipboard_webdav" in back).toBe(false);
+  expect(withCloudClipboardRelay(drive, undefined)).toEqual(base);
+  expect(withCloudClipboardWebDav(drive, undefined)).toEqual(base);
+});
+
+test("the clipboard page saves a webdav drive only after the connection test passes", async () => {
+  const save = vi.fn(async (revision: number, preferences: Preferences) =>
+    snapshot(preferences, revision + 1),
+  );
+  const probeCloudClipboardWebDav = vi
+    .fn()
+    .mockRejectedValueOnce({ code: "webdav_unsupported" })
+    .mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        load: vi.fn().mockResolvedValue(
+          snapshot({
+            ...base,
+            cloud_clipboard_relay: { url: "https://relay.example.test/msime", token: TOKEN },
+          }),
+        ),
+        save,
+        cloudClipboardRelay: true,
+        probeCloudClipboardWebDav,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(await screen.findByRole("radio", { name: "WebDAV" }));
+  expect(screen.getByText(CLOUD_CLIPBOARD_WEBDAV_NOTE)).toBeDefined();
+  const saveButton = screen.getByRole("button", { name: "保存 WebDAV 设置" }) as HTMLButtonElement;
+  const probeButton = screen.getByRole("button", { name: "测试连接" }) as HTMLButtonElement;
+  expect(saveButton.disabled).toBe(true);
+  expect(probeButton.disabled).toBe(true);
+  fireEvent.change(screen.getByRole("textbox", { name: "服务器地址" }), {
+    target: { value: "http://dav.example.test/dav" },
+  });
+  expect(screen.getByText(/WebDAV 服务器必须使用 HTTPS/)).toBeDefined();
+  fireEvent.change(screen.getByRole("textbox", { name: "服务器地址" }), {
+    target: { value: ` ${WEBDAV.url} ` },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "账号" }), {
+    target: { value: WEBDAV.username },
+  });
+  // 应用密码遮罩输入。
+  const password = screen.getByLabelText("应用密码") as HTMLInputElement;
+  expect(password.type).toBe("password");
+  fireEvent.change(password, { target: { value: WEBDAV.password } });
+  await waitFor(() => expect(saveButton.disabled).toBe(false));
+  // 填写本身不写进设置。
+  saveSettingsNow();
+  expect(save).not.toHaveBeenCalled();
+
+  // 网盘没通过测试连接：不保存，说明原因。
+  fireEvent.click(saveButton);
+  expect(await screen.findByText(/这个网盘不支持云剪贴板需要的文件操作/)).toBeDefined();
+  saveSettingsNow();
+  expect(save).not.toHaveBeenCalled();
+  expect(probeCloudClipboardWebDav).toHaveBeenCalledWith(WEBDAV);
+
+  // 只测试连接：通过，仍不保存。
+  fireEvent.click(probeButton);
+  expect(await screen.findByText("连接正常，可以保存。")).toBeDefined();
+  saveSettingsNow();
+  expect(save).not.toHaveBeenCalled();
+
+  // 通过后保存：写进网盘、去掉中继。
+  fireEvent.click(saveButton);
+  await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledTimes(3));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0][1].cloud_clipboard_webdav).toEqual(WEBDAV);
+  expect("cloud_clipboard_relay" in save.mock.calls[0][1]).toBe(false);
+  expect(
+    await screen.findByText(
+      /云剪贴板现在经 WebDAV 网盘 https:\/\/dav\.example\.test\/dav\/msime 同步/,
+    ),
+  ).toBeDefined();
+
+  fireEvent.click(screen.getByRole("radio", { name: "水杉账号" }));
+  fireEvent.click(screen.getByRole("button", { name: "改回水杉账号" }));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect("cloud_clipboard_webdav" in save.mock.calls[1][1]).toBe(false);
+  expect("cloud_clipboard_relay" in save.mock.calls[1][1]).toBe(false);
+});
+
+test("a saved app password is never echoed and is kept when only the folder changes", async () => {
+  const save = vi.fn(async (revision: number, preferences: Preferences) =>
+    snapshot(preferences, revision + 1),
+  );
+  const probeCloudClipboardWebDav = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot({ ...base, cloud_clipboard_webdav: WEBDAV })),
+        save,
+        cloudClipboardRelay: true,
+        probeCloudClipboardWebDav,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const password = screen.getByLabelText("应用密码") as HTMLInputElement;
+  expect(password.value).toBe("");
+  expect(document.body.textContent).not.toContain(WEBDAV.password);
+  const address = screen.getByRole("textbox", { name: "服务器地址" }) as HTMLInputElement;
+  await waitFor(() => {
+    expect(address.matches(":disabled")).toBe(false);
+    expect(address.value).toBe(WEBDAV.url);
+  });
+  fireEvent.change(address, { target: { value: "https://dav.example.test/dav/other" } });
+  const saveButton = screen.getByRole("button", { name: "保存 WebDAV 设置" }) as HTMLButtonElement;
+  await waitFor(() => expect(saveButton.matches(":disabled")).toBe(false));
+  fireEvent.click(saveButton);
+  await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledTimes(1));
+  expect(probeCloudClipboardWebDav.mock.calls[0][0].password).toBe(WEBDAV.password);
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0][1].cloud_clipboard_webdav).toEqual({
+    ...WEBDAV,
+    url: "https://dav.example.test/dav/other",
+  });
+});
+
+test("hosts without the connection test do not offer webdav", async () => {
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot(base)),
+        save: vi.fn(),
+        cloudClipboardRelay: true,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(await screen.findByRole("radio", { name: "自建中继" })).toBeDefined();
+  expect(screen.queryByRole("radio", { name: "WebDAV" })).toBeNull();
+});
+
+test("the drive's own failures have their own words and are not read as signed out", () => {
+  for (const code of ["webdav_rate_limited", "webdav_rollback", "webdav_unsupported"]) {
+    expect(cloudClipboardFailure({ code })).toBe("unavailable");
+    expect(cloudClipboardErrorMessage({ code }, "失败")).not.toBe("失败");
+  }
+  expect(cloudClipboardErrorMessage({ code: "webdav_rollback" }, "失败")).toContain(
+    "重新测试连接并保存",
+  );
+  expect(cloudClipboardWebDavProbeMessage({ code: "relay_unauthorized" })).toBe(
+    "网盘拒绝了这个账号或应用密码。",
+  );
+  expect(cloudClipboardWebDavProbeMessage({ code: "relay_unavailable" })).toContain("连不上网盘");
 });

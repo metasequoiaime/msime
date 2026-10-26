@@ -649,6 +649,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return (mode != "none" || !editing.isEmpty) && symbols.contains(symbol)
   }
 
+  /// 现在按 `/` 能不能打开 / 指令：没有组字、不在本地模式里，并且 Engine 把 `/` 列在 `spelling_symbols` 里（`local_modes.command` 开着、中文标点、方案能打开它时才列）。键盘的「本地输入 → 指令」点下去之前问一次，不在按键路径上调用。
+  func slashOpensCommandMode() -> Bool {
+    guard let current = try? view() else { return false }
+    let mode = current["local_mode"] as? String ?? "none"
+    let editing = current["editing_text"] as? String ?? ""
+    let symbols = current["spelling_symbols"] as? String ?? ""
+    return mode == "none" && editing.isEmpty && symbols.contains("/")
+  }
+
   /// Reload the canonical PreferencesStore written by the Tauri settings host.
   /// Disk and lock work stays off the keyboard thread; the accepted snapshot is
   /// applied on the session's owning (main) thread before the callback returns.

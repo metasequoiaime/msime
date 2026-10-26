@@ -78,6 +78,8 @@ public final class SymbolPanelView extends LinearLayout {
     private final List<Button> categoryButtons =
         new java.util.ArrayList<>(SymbolPanelModel.categories(List.of()).size());
     private List<SymbolCategoryOrderPolicy.Item> categoryOrder = SymbolCategoryOrderPolicy.DEFAULT_ORDER;
+    /** 符号集插件的分类（{@link SymbolPanelModel#pluginCategories}），每次打开面板后在后台读一次插件目录换上。 */
+    private List<SymbolPanelModel.Category> pluginCategories = List.of();
     private List<String> recents = List.of();
     private int selected;
     /** 当前显示的目录分类读到哪了；换分类或重新打开时 `catalogGeneration` 加一，之前发出去的读页结果作废。 */
@@ -98,7 +100,29 @@ public final class SymbolPanelView extends LinearLayout {
             List<SymbolCategoryOrderPolicy.Item> order) {
         this.recents = SymbolPanelModel.normalizeRecents(recents);
         setCategoryOrder(order);
-        select(SymbolPanelModel.initialCategory(this.recents, categoryOrder));
+        select(SymbolPanelModel.initialCategory(this.recents, categoryOrder, pluginCategories));
+    }
+
+    /**
+     * 换上符号集插件的分类：面板打开后读完插件目录时调用。没变时什么也不做；变了就重建分类栏，正在看的分类按 id 留在原处（颜文字插件组插在前面也不会把用户换到别的分类），它被卸载了时回到「常用」。
+     */
+    public void setPluginCategories(List<SymbolPanelModel.Category> categories) {
+        List<SymbolPanelModel.Category> next = categories == null ? List.of() : List.copyOf(categories);
+        if (pluginCategories.equals(next)) return;
+        List<SymbolPanelModel.Category> before = orderedCategories();
+        String selectedId = selected >= 0 && selected < before.size() ? before.get(selected).id() : null;
+        pluginCategories = next;
+        rebuildCategoryButtons();
+        List<SymbolPanelModel.Category> after = orderedCategories();
+        for (int index = 0; index < after.size(); index++) {
+            if (after.get(index).id().equals(selectedId)) {
+                selected = index;
+                markSelectedCategory(after);
+                categoryScroll.post(this::revealSelectedCategory);
+                return;
+            }
+        }
+        select(SymbolPanelModel.initialCategory(recents, categoryOrder, pluginCategories));
     }
 
     /** 设置页保存后无需重启输入法，下一次打开面板即可看到新顺序。 */
@@ -197,7 +221,7 @@ public final class SymbolPanelView extends LinearLayout {
     }
 
     private List<SymbolPanelModel.Category> orderedCategories() {
-        return SymbolPanelModel.categories(recents, categoryOrder);
+        return SymbolPanelModel.categories(recents, categoryOrder, pluginCategories);
     }
 
     private void rebuildCategoryButtons() {
@@ -263,13 +287,7 @@ public final class SymbolPanelView extends LinearLayout {
         List<SymbolPanelModel.Category> values = orderedCategories();
         if (category < 0 || category >= values.size()) return;
         selected = category;
-        for (int index = 0; index < categoryButtons.size(); index++) {
-            Button button = categoryButtons.get(index);
-            ViewPolicy.setSelected(button, index == selected);
-            listener.restyle(button);
-            button.setContentDescription("符号分类 " + values.get(index).title()
-                + (index == selected ? "，已选中" : ""));
-        }
+        markSelectedCategory(values);
         catalogGeneration++;
         catalogItems = List.of();
         catalogNextOffset = 0;
@@ -299,6 +317,17 @@ public final class SymbolPanelView extends LinearLayout {
         }
         gridScroll.scrollTo(0, 0);
         categoryScroll.post(this::revealSelectedCategory);
+    }
+
+    /** 分类栏的选中态和读屏说明跟上 `selected`。 */
+    private void markSelectedCategory(List<SymbolPanelModel.Category> values) {
+        for (int index = 0; index < categoryButtons.size() && index < values.size(); index++) {
+            Button button = categoryButtons.get(index);
+            ViewPolicy.setSelected(button, index == selected);
+            listener.restyle(button);
+            button.setContentDescription("符号分类 " + values.get(index).title()
+                + (index == selected ? "，已选中" : ""));
+        }
     }
 
     private void selectRadicalStroke(int stroke) {

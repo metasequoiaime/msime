@@ -641,14 +641,22 @@ export {
   cloudClipboardRelayTokenIssue,
   cloudClipboardRelayUrlIssue,
   withCloudClipboardRelay,
+  withCloudClipboardWebDav,
+  cloudClipboardWebDavUrlIssue,
+  cloudClipboardWebDavUsernameIssue,
+  cloudClipboardWebDavPasswordIssue,
   type CloudClipboardRelayPreferences,
+  type CloudClipboardWebDavPreferences,
 } from "./settings/cloud-clipboard-relay";
 export {
   CloudClipboardRelaySection,
+  CLOUD_CLIPBOARD_WEBDAV_NOTE,
   type CloudClipboardRelaySectionProps,
 } from "./settings/cloud-clipboard-relay-section";
 export {
   useCloudClipboardRelay,
+  cloudClipboardWebDavProbeMessage,
+  type CloudClipboardWebDavProbeState,
   type UseCloudClipboardRelayOptions,
   type CloudClipboardRelayState,
   type CloudClipboardSyncMode,

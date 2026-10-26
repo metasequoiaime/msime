@@ -305,9 +305,9 @@ final class ImeLayoutRows {
         NineKeySymbolRail rail = new NineKeySymbolRail(s, visibleRows);
         rail.setContentDescription("符号栏，可上下滑动");
         for (String symbol : symbols) {
-            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
+            // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
+            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol + "；长按快速修改符号栏",
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
-            key.setContentDescription("符号 " + symbol + "；长按快速修改符号栏");
             key.setOnLongClickListener(ignored -> {
                 Bundle args = new Bundle();
                 args.putString("edit_sidebar_key", digits

@@ -58,7 +58,7 @@ Windows 原生设置页、macOS 与 Linux 共享设置页「剪贴板」的「�
 - Windows 原生 WinUI 设置窗口的「剪贴板」页提供同步方式、地址和遮罩令牌，点击「保存同步方式」后由共享 Rust 一起校验和保存；切回账号会删除中继配置。「发到云剪贴板」在后台查询所选来源，中继请求失败或来源读取失败不走账号；`relay_unauthorized` 显示令牌错误。中继密钥串与 Tauri 云剪贴板面板共用账号目录。配置变化后旧请求结果失效。
 - macOS 输入法进程经 Apple 的 Rust 函数表（`shared/backend/rust/MSIMERustClient.h`）接入同样两个 C 入口：输入法菜单启动的 Tauri 面板、未登录时退回的原生云剪贴板窗口（`MacClipboardModel`）和表情面板剪贴板历史的「发到云剪贴板」都先问 `msime_client_cloud_clipboard_source`，选了中继就只走 `msime_client_relay_cloud_clipboard`，不要求登录水杉账号；偏好和中继密钥串都在输入法状态目录（`~/Library/Application Support/app.msime.macos`）。选路失败（偏好读不了、中继配置不合规）退回登录窗口，不拿账号路径顶上。
 - [WebDAV 网盘](cloud-clipboard-webdav.md) 经同样两个 C 入口接入：`msime_client_cloud_clipboard_source` 对它也答 `relay`，另带 `backend: "webdav"`，中继入口按偏好自己分派。
-- 设置页的中继字段目前在 Windows、Linux、macOS 和 Android 显示。iOS 和 HarmonyOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。
+- 设置页的中继字段目前在 Windows、Linux、macOS 和 Android 显示，WebDAV 网盘的字段在同样这几处（见 [WebDAV 后端](cloud-clipboard-webdav.md) 的「设置界面」）。iOS 和 HarmonyOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。
 
 ## 参考实现
 

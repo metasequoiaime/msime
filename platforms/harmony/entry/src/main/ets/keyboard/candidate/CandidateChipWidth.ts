@@ -58,6 +58,17 @@ export class CandidateChipWidth {
     return glossesExpected && (!TranslationPolicy.sourceGetsNoGloss(source) || hunEum.length > 0);
   }
 
+  /** 触屏候选胶囊的触控下限，与 iOS 的 30pt、Android 的 30dp 相同。 */
+  static readonly TOUCH_MIN_WIDTH_VP: number = 30;
+
+  /**
+   * 触屏候选条（手机、平板键盘，不含 2in1 候选窗）胶囊的最小宽度：只有触控下限，预留释义列时再加上这一列。皮肤的 `item_min_width` 是桌面候选窗的格宽，这里不用：`base = "microsoft"` 的皮肤出厂是 3.5em，候选字号 24 时每个胶囊至少 84vp，「的」「㎥」这样一个字宽的候选也撑成一大格，一屏只剩三个多候选。
+   */
+  static touchMinimum(column: number, padding: number): number {
+    const minimum: number = CandidateChipWidth.TOUCH_MIN_WIDTH_VP;
+    return column > 0 ? Math.max(minimum, Math.ceil(column + Math.max(0, padding) * 2)) : minimum;
+  }
+
   /** The whole chip, padding included, rounded up to the whole units the layout works in. */
   static chip(
     wordWidth: number,

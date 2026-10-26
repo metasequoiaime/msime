@@ -197,6 +197,80 @@ enum KeyboardEmojiCatalog {
     }
   }
 
+  // MARK: - 符号集插件
+
+  /// 符号集插件的一组，`msime_client_emoji_catalog_request` 在 `list_plugin_symbol_groups` 下回传，字段与接口相同。
+  struct PluginSymbolGroup: Equatable, Sendable {
+    let pack: String
+    let packName: String
+    /// `symbols` 或 `kaomoji`。
+    let tab: String
+    let title: String
+    /// 空串表示插件没有给关键词。
+    let keywords: String
+    let items: [String]
+
+    /// 搜索时这一组里 `query` 匹配的条目：条目本身含有它，或者组的关键词含有它（不分大小写），与鸿蒙的 `EmojiPanelKeyPolicy.matches` 相同。
+    func matches(_ query: String) -> [String] {
+      guard !query.isEmpty else { return [] }
+      if keywords.lowercased().contains(query.lowercased()) { return items }
+      return items.filter { $0.contains(query) }
+    }
+  }
+
+  /// 单组最多接收的条目数，与插件清单的上限一致。
+  static let maximumPluginGroupItems = 512
+
+  /// 符号集插件的各组：插件目录（`<共享状态目录>/plugins`）里装着的全部符号集，包按名称、组按清单顺序。读不出来时为空，面板只显示内置内容。
+  static func pluginSymbolGroups(resources: String, plugins: String) -> [PluginSymbolGroup] {
+    guard NSString(string: plugins).isAbsolutePath,
+          let request = try? JSONSerialization.data(withJSONObject: [
+            "list_plugin_symbol_groups": true, "plugins": plugins, "limit": 1,
+          ]),
+          let value = try? MetasequoiaInputSessionBridge.emojiCatalog(request: request, resources: resources) else { return [] }
+    return decodePluginSymbolGroups(value)
+  }
+
+  /// 校验回传的组；坏组跳过而不是整份作废，与鸿蒙的 `PluginSymbolGroupPolicy.parse` 相同。
+  static func decodePluginSymbolGroups(_ value: [String: Any]) -> [PluginSymbolGroup] {
+    guard let rows = value["plugin_symbol_groups"] as? [[String: Any]] else { return [] }
+    return rows.compactMap { row in
+      guard let pack = row["pack"] as? String, validName(pack),
+            let packName = row["pack_name"] as? String, validName(packName),
+            let title = row["title"] as? String, validName(title),
+            let tab = row["tab"] as? String, tab == "symbols" || tab == "kaomoji",
+            let items = row["items"] as? [Any] else { return nil }
+      let kept = items.compactMap { $0 as? String }.filter { validText($0, kaomoji: true) && !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        .prefix(maximumPluginGroupItems)
+      guard !kept.isEmpty else { return nil }
+      let keywords = (row["keywords"] as? String).flatMap { validAnnotation($0) ? $0 : nil } ?? ""
+      return PluginSymbolGroup(pack: pack, packName: packName, tab: tab, title: title, keywords: keywords, items: Array(kept))
+    }
+  }
+
+  /// 符号面板的插件分类：每个插件一个分类，以插件名为标题，内容是它全部 `symbols` 组按清单顺序首尾相接，排在内置分类之后；不与内置目录去重，与桌面的 `append_plugin_symbol_groups`、鸿蒙的 `symbolTabs` 相同。
+  static func pluginSymbolCategories(_ groups: [PluginSymbolGroup]) -> [(title: String, symbols: [String])] {
+    var order: [String] = []
+    var categories: [String: (title: String, symbols: [String])] = [:]
+    for group in groups where group.tab == "symbols" {
+      if categories[group.pack] == nil {
+        order.append(group.pack)
+        categories[group.pack] = (group.packName, [])
+      }
+      categories[group.pack]?.symbols += group.items
+    }
+    return order.compactMap { categories[$0] }
+  }
+
+  /// 颜文字的插件组：`kaomoji` 组按回传顺序逐组排在颜文字的 All 之后。
+  static func pluginKaomojiGroups(_ groups: [PluginSymbolGroup]) -> [PluginSymbolGroup] {
+    groups.filter { $0.tab == "kaomoji" }
+  }
+
+  private static func validName(_ value: String) -> Bool {
+    !value.isEmpty && value.utf16.count <= 256 && !value.trimmingCharacters(in: .whitespaces).isEmpty
+  }
+
   static func validRecent(_ value: String) -> Bool {
     validText(value)
   }

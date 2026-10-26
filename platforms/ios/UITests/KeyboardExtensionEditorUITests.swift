@@ -193,6 +193,76 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         + "\(globe.exists) keys=[\(buttons)]")
   }
 
+  /// 插件页做的指令表和符号集在系统键盘里起作用：「更多 → 本地输入」列出「指令」，选它进 / 模式，插件指令出现在候选里并上屏；符号面板的最后一个分类是插件，表情面板的最后一页是插件的颜文字组。每一步留截图给评审看。
+  func testPluginCommandAndSymbolSetReachTheSystemKeyboard() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    PluginsUITestFlow.openPluginsPage(app)
+    let suffix = Int.random(in: 100...999)
+    PluginsUITestFlow.create(in: app, kind: "command_table", name: "合成指令\(suffix)", fields: [
+      ("第 1 条指令的字母", "zqm"), ("第 1 条指令的标题", "签名"), ("第 1 条指令要插入的文字", "合成签名"),
+    ])
+    let enable = app.switches["pluginTableEnabled"]
+    XCTAssertTrue(enable.waitForExistence(timeout: 15))
+    PluginsUITestFlow.flip(enable, in: app)
+    XCTAssertEqual(enable.value as? String, "1")
+    let openMode = app.buttons["pluginEnableCommandMode"]
+    if openMode.waitForExistence(timeout: 3) { PluginsUITestFlow.reveal(openMode, in: app).tap() }
+    keepScreenshot("插件-指令表详情", in: app)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    PluginsUITestFlow.create(in: app, kind: "symbol_set", name: "合成符号\(suffix)", fields: [("第 1 组的标题", "箭头")],
+                             textViews: [("第 1 组的符号", "⇐\n⇒")])
+    XCTAssertTrue(app.staticTexts["pluginSavedNote"].waitForExistence(timeout: 15))
+    keepScreenshot("插件-符号集详情", in: app)
+
+    let field = try focusedTryoutKeyboard(app)
+    let more = app.buttons["moreShortcut"]
+    XCTAssertTrue(more.waitForExistence(timeout: 5))
+    more.tap()
+    // 更多菜单是分页的网格，一页放不下时往左翻。
+    func card(_ title: String) -> XCUIElement {
+      let card = app.descendants(matching: .any)["moreCard-\(title)"].firstMatch
+      let grid = app.descendants(matching: .any)["keyboardMorePicker"].firstMatch
+      for _ in 0..<4 where !card.waitForExistence(timeout: 2) { grid.swipeLeft() }
+      return card
+    }
+    let localInput = card("本地输入")
+    XCTAssertTrue(localInput.exists)
+    localInput.tap()
+    let command = card("指令")
+    XCTAssertTrue(command.exists, "/ 指令打开后本地输入里有「指令」")
+    keepScreenshot("键盘-本地输入里的指令", in: app)
+    command.tap()
+    func key(_ letter: String) -> XCUIElement {
+      app.buttons.matching(NSPredicate(format: "label IN %@", ["字母 \(letter.uppercased())", "字母 \(letter.lowercased())"])).firstMatch
+    }
+    for letter in "zqm" { key(String(letter)).tap() }
+    let candidate = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "合成签名")).firstMatch
+    XCTAssertTrue(candidate.waitForExistence(timeout: 5), "插件指令出现在候选里")
+    keepScreenshot("键盘-指令表的候选", in: app)
+    candidate.tap()
+    XCTAssertTrue((field.value as? String ?? "").hasSuffix("合成签名"))
+
+    let toggle = app.buttons["layoutToggleButton"]
+    XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+    toggle.press(forDuration: 1.0)
+    let panel = app.descendants(matching: .any)["keyboardSymbolPanel"].firstMatch
+    XCTAssertTrue(panel.waitForExistence(timeout: 5), "长按 123 打开符号面板")
+    // 插件分类排在内置分类之后，以插件名为标题；前几次运行留下的同类插件按名字排在一起。
+    let categories = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "symbolCategory_"))
+    let ours = categories.matching(NSPredicate(format: "label == %@", "合成符号\(suffix)")).firstMatch
+    XCTAssertTrue(ours.exists, "符号面板里有这个插件的分类")
+    let builtIn = categories.matching(NSPredicate(format: "label == %@", "网络")).firstMatch
+    XCTAssertGreaterThan(Int(ours.identifier.dropFirst("symbolCategory_".count)) ?? 0,
+                         Int(builtIn.identifier.dropFirst("symbolCategory_".count)) ?? .max, "插件分类排在内置分类之后")
+    for _ in 0..<10 where !ours.isHittable { app.scrollViews["symbolCategories"].swipeUp() }
+    ours.tap()
+    XCTAssertTrue(app.buttons["symbolKey_⇐"].waitForExistence(timeout: 5))
+    keepScreenshot("键盘-符号面板里的插件分类", in: app)
+    app.buttons["closeSymbolPanel"].tap()
+  }
+
   /// 关闭语音长按后，经系统空格手势检查独立编辑器里的光标与松手行为。
   func testHoldingSpaceWithoutVoiceMovesCaretInSystemEditor() throws {
     let app = XCUIApplication()

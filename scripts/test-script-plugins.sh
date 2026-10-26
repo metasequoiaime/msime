@@ -8,7 +8,8 @@
 # 2. 用插件目录里的 fixture.jsonl 跑 msime-pack run --grant all，退出码必须为 0（没有任何失败）；输出去掉 fuel、init_fuel 后和 expected.jsonl 逐行相同，每行的 fuel 不超过钩子单次上限的一半。
 # 3. 不授予任何能力再跑一遍，每个事件都不能有动作。
 # 4. 插件目录里有 check_output.py 时，再用它按插件自己的规则核对第 2 步的输出（uuid 按 RFC 9562 从夹具的随机数独立算一遍）。
-# 核对在 plugins/script/tools/check_run.py。--update 把第 2 步的结果写回 expected.jsonl（写完逐行看过再提交）。
+# 5. 插件目录里每个 cases/<name>/ 是另一次运行：设置项的值（settings.json，交给 --settings）、存储的初值（storage.bin，交给 --storage）和事件（fixture.jsonl，没有时用插件的），按第 2、3 步核对那里的 expected.jsonl。
+# 核对在 plugins/script/tools/check_run.py。--update 把第 2、5 步的结果写回各自的 expected.jsonl（写完逐行看过再提交）。
 #
 # plugins/official-packs.json 登记的官方脚本插件（随桌面安装包分发）用的是保留 id，validate 和 run 对它们加 --builtin，其余插件不加：保留 id 出现在别的插件上照样报 plugin_reserved。
 #
@@ -120,6 +121,27 @@ for id in ${ids[@]+"${ids[@]}"}; do
   if [ -f "$dir/check_output.py" ] && ! python3 "$dir/check_output.py" "$dir/fixture.jsonl" "$scratch/$id.granted.jsonl"; then
     fail "$id: check_output.py 的核对没有通过"
   fi
+
+  # 另外的运行：cases/<name>/ 里的 settings.json、storage.bin 交给 --settings、--storage，事件取那里的 fixture.jsonl，没有时用插件的；输出同样和那里的 expected.jsonl 逐行核对、按 fuel 上限断言、再不授权跑一遍。
+  for case_dir in "$dir"/cases/*/; do
+    [ -d "$case_dir" ] || continue
+    case_dir="${case_dir%/}"
+    name="$id.${case_dir##*/}"
+    events="$case_dir/fixture.jsonl"
+    [ -f "$events" ] || events="$dir/fixture.jsonl"
+    inputs=()
+    [ -f "$case_dir/settings.json" ] && inputs+=(--settings "$case_dir/settings.json")
+    [ -f "$case_dir/storage.bin" ] && inputs+=(--storage "$case_dir/storage.bin")
+    if ! "$pack_tool" run "$folder" --events "$events" --grant all ${inputs[@]+"${inputs[@]}"} ${builtin[@]+"${builtin[@]}"} >"$scratch/$name.granted.jsonl"; then
+      fail "$name: msime-pack run --grant all 报告了失败（输出在 $scratch/$name.granted.jsonl）"
+    fi
+    if ! "$pack_tool" run "$folder" --events "$events" ${inputs[@]+"${inputs[@]}"} ${builtin[@]+"${builtin[@]}"} >"$scratch/$name.ungranted.jsonl"; then
+      fail "$name: 不授权的 msime-pack run 报告了失败（输出在 $scratch/$name.ungranted.jsonl）"
+    fi
+    if ! python3 plugins/script/tools/check_run.py "$case_dir" "$scratch/$name.granted.jsonl" "$scratch/$name.ungranted.jsonl" ${update[@]+"${update[@]}"}; then
+      fail "$name: 输出和 $case_dir/expected.jsonl 不一致或超出 fuel 上限"
+    fi
+  done
 done
 
 echo "== generated data"

@@ -101,6 +101,7 @@ struct CandidateSkinLayout: Equatable {
   let itemGap: Length?
   let itemExtraHeight: Length?
   let itemPaddingRight: Length?
+  /// 桌面候选窗的格宽；照常读出，但候选条不用它（见 `KeyboardViewController.pinCandidateWidth`）。
   let itemMinWidth: Length?
   let selectedBarWidth: Length?
   let selectedBarHeightEm: CGFloat?

@@ -24,6 +24,7 @@ Status: implemented
 - **偏好 `cloud_clipboard_webdav {url, username, password}`，与中继二选一，宿主看来仍是中继**：地址规则沿用中继的（https、http 只放行回环、不跟随重定向、webpki-roots），应用密码进凭据清单，账号在诊断快照里也换掉，整组进 `LOCAL_SECTIONS`、不进账号设置同步和 MCP，没配置时不写。`msime_client_cloud_clipboard_source` 对网盘仍答 `source: "relay"`，只多一个 `backend`：已有的宿主（Swift、Fcitx5、WinUI、Win7、Android）都把不认识的来源当成错误，加新来源值会让还没更新的宿主在用户配置了网盘时直接报错；而中继的两个 C 入口在 Rust 里按配置分派，这些宿主不用改就能走网盘。密钥串空间不含应用密码，`sha256("webdav\0" ‖ 地址 ‖ "\0" ‖ 账号)` 的前 16 字节，换应用密码（移除设备后应该换）不用重新批准；Android 的绑定照同样规则。
 - **Android 只多一个 JNI 入口**：端到端加密的操作照旧由 Java 跑驱动、AndroidKeyStore 保存密钥串，`msime_client_relay_cloud_clipboard_exchange` 多收 `backend: "webdav"` 和一个目录，Rust 在那个目录（就是中继密钥串所在的 `noBackupFilesDir/cloud-clipboard-relay`）里放日志缓存；直连动作经 `msime_client_relay_cloud_clipboard` 用同一个目录，两条路看到的是同一份缓存和同一把锁。缓存里只有密文和公开数据。
 - **「测试连接」通过时可以重新信任网盘**：带上本机目录时，通过后删掉日志缓存。用户自己清理过网盘文件夹而本机报 `webdav_rollback` 时，重新测试并保存就是恢复的办法；这一步只有用户在设置里主动做，攻击者触发不了。
+- **设置界面在四处，做法一致**：共享设置页（macOS、Linux）、Windows WinUI、Windows 7 的云剪贴板面板、Android「我的 → 云剪贴板」。「WebDAV」与「水杉账号」「自建中继」并列；应用密码遮罩、不回显、留空沿用；「测试连接」只测不存，「保存」先测、通过才写，失败时草稿留着。地址和凭据的规则各端只为当场提示照抄一份（共享页的 `cloud-clipboard-relay.ts`、Android 的 `CloudClipboardRelayPolicy`），最终都由 Rust 偏好校验；Windows 原生端不在 C++ 里重复规则，交给 Rust 和测试连接。
 - **测试用真的 WebDAV 服务端**：`tests/webdav_flow.rs` 用 `dav-server`（维护者同意的测试依赖）的内存文件系统跑与 `flow.rs` 相同的完整流程。它放在参考中继的 crate 里，因为那里已经有 axum 和 tokio 能把 `dav-server` 跑起来；放进 `client-services` 就要给它另加 HTTP 服务端依赖，维护者只批了 `dav-server` 一个。`dav-server` 的 MOVE 先查目标再改名，并发时不保证只有一个成功，测试外层用一把锁让请求逐个处理；不可靠网盘的行为由 `clipboard_webdav_tests.rs` 里可注入故障的假网盘覆盖。
 
 ## Alternatives considered
@@ -38,7 +39,7 @@ Status: implemented
 
 - **收益**：有 WebDAV 网盘的用户不用登录水杉账号、不用部署服务就能跨设备用云剪贴板，网盘只见到密文；参考中继和 WebDAV 后端共用同一份请求校验，日志核心逐条对照中继的单元测试。
 - **代价**：每个设备都要重放日志、维护一份本机缓存；一次上传至少三个请求（中继是一个），坚果云免费账号的配额要和其他应用分；没有实时推送。网盘看得到每次写入的时间和次数，比中继多一点元数据；删掉的密文可能留在回收站。知道应用密码的人仍能往后追加事件（与中继令牌泄露同级），只能靠文档提醒移除设备后换应用密码。新安装没有本机缓存，第一次读时没有防回退可言。
-- **已知缺口**：各平台的设置界面在后续改动里接入。iOS 和 HarmonyOS 的原生宿主还没接中继，同样也不会有 WebDAV。
+- **已知缺口**：iOS 和 HarmonyOS 的原生宿主还没接中继，同样也没有 WebDAV。Windows 7 版的设置窗口已经不显示云剪贴板页，WebDAV 的配置只在它的云剪贴板面板里。
 
 ## Verification
 
@@ -46,4 +47,5 @@ Status: implemented
 - `cargo test -p msime-client-core --lib cloud::clipboard_log`：16 项，含从 `store.rs` 移植的五项、重放得出同一状态、并发建钥只留一个、坏事件占序号不改状态、接不上链头被拒、封口后快照逐字节相同、快照逐字段校验、保留期过滤与封口删除、不改变状态的写入不写事件、压缩条件、关闭开关推进密钥代数。
 - `cargo test -p msime-client-services --lib clipboard_webdav`：20 项，在可注入故障的假网盘上跑完整流程，并证明：缓存落后的设备 MOVE 被 412 拒绝后接在后面写；三台设备并发上传各 4 条全部落地且不重复（连跑六次稳定）；MOVE 先查后写的网盘让两台设备都「写成」同一序号，下一次读写报 `webdav_rollback`；新文件晚几次才列得出时只多几次重试，一直列不出来时有限次后放弃（`relay_unavailable`），不写坏日志；改写历史、删掉整个文件夹、换上代数更小的快照都报 `webdav_rollback`，删掉本机缓存后恢复；限流按 1、1 秒和 1、2、4 秒退避，`Retry-After: 3600` 直接报 `webdav_rate_limited`；401 是 `relay_unauthorized`；不合规的请求不碰网盘；缓存过期前不重读，一次写入只有 PUT 和 MOVE；缓存仅本人可读写、绑定地址和账号，换应用密码不换空间；测试连接放过好网盘且不留文件，拦下不理会 `Overwrite: F`、MOVE 不原子、文件夹不存在的网盘；多状态响应按本地名解析坚果云和 sabre/dav 两种写法；请求路径跑不出用户选的文件夹。
 - `cargo test -p msime-clipboard-relay`：中继原有的单元测试和 `flow.rs` 在改用共享校验后照常通过；`tests/webdav_flow.rs` 对着 `dav-server` 跑完整流程、测试连接通过、错误的应用密码被拒、只借 `RelayTransport::with_directory` 的宿主（Android 的做法）与 `RelayClipboard` 设备互相批准和互传。
-- 没有验证的：真实的坚果云和 Nextcloud 上的端到端流程（要在设置页接入之后手工走一遍，步骤写在合并说明里）；高并发下网盘 MOVE 的原子性（测试连接证明不了）。
+- 设置界面：共享页 `apps/desktop/tests/settings/cloud-clipboard-relay.test.tsx` 覆盖地址、账号、应用密码的规则（与 Rust 用例对应）、中继和网盘互相替换、测试连接不通过不保存、只测不存、通过后写网盘并去掉中继、已存的应用密码不回显且只改地址时沿用、没有测试连接的宿主不显示 WebDAV、网盘错误码的说法；全量 vitest、`tsc --noEmit`、lint 和格式检查通过。Android `CloudClipboardRelayPolicySmoke` 加了与 Rust 对应的地址、账号、密码用例和网盘的错误说法，Mac Studio 上 `check-host.sh`、Gradle 编译全部宿主 Java（含 `home/`）和 `lintFullRelease` 通过。Windows 的 `tests/ui/cloud_clipboard_route.cpp` 在 macOS 上用 clang 编译运行通过；`windows7_cloud_clipboard_panel.cpp`（测试连接不通过不写、通过后写网盘去中继、应用密码留空沿用、清除网盘回到账号）和 `settings_ui.ps1` 的 WebDAV 断言只能在 Windows CI 上跑。
+- 没有验证的：真实的坚果云和 Nextcloud 上的端到端流程（手工步骤写在合并说明里）；Windows 原生界面的实际运行（本机没有 Windows）；Android 的界面没有在模拟器或真机上看过；高并发下网盘 MOVE 的原子性（测试连接证明不了）。

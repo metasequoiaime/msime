@@ -14,6 +14,8 @@ public final class CandidateAppearanceSmoke {
         check(CandidateAppearance.fontSize(32) == 32);
         check(CandidateAppearance.fontSize(11) == 16);
         check(CandidateAppearance.fontSize(33) == 16);
+        // 候选条按钮只有 30dp 的触控下限，与 iOS、鸿蒙相同；皮肤的 itemMinWidth 是桌面候选窗的格宽，不用于候选条。
+        check(CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP == 30);
 
         // The touch strip takes the keyboard palette: its background, the key text, the secondary
         // colour for numbers and translations, and the accent for the selected candidate's text,

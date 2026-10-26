@@ -10,7 +10,7 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
  *
  * <p>条目端到端加密，读取和上传都经共享驱动在本机解密、加密（{@link CloudClipboardE2e}）。这台设备还没被已有设备允许时（{@link Status#PENDING}），键盘只显示一句提示，不列条目，也不上传。
  *
- * <p>偏好里配置了自建中继时，「云端」读写的是中继（{@link CloudClipboardRelay}），不需要登录水杉账号；中继拒绝令牌或配置不全是 {@link Status#RELAY_REJECTED}，不是 {@link Status#SIGNED_OUT}，不能提示用户去登录。
+ * <p>偏好里配置了自建中继或 WebDAV 网盘时，「云端」读写的是中继或网盘（{@link CloudClipboardRelay}），不需要登录水杉账号；中继拒绝令牌、网盘拒绝账号或应用密码、配置不全都是 {@link Status#RELAY_REJECTED}，不是 {@link Status#SIGNED_OUT}，不能提示用户去登录。
  */
 public final class CloudClipboardPanelPolicy {
     /** The two halves of the panel: this device's history and the account's cloud list. */
@@ -26,6 +26,8 @@ public final class CloudClipboardPanelPolicy {
     public static final String DISABLED_MESSAGE = "云剪贴板未开启";
     public static final String PENDING_MESSAGE = "这台设备等待允许，请在已同步的设备上打开云剪贴板设置允许";
     public static final String RELAY_REJECTED_MESSAGE = "中继拒绝了令牌或设置不完整，请到「我的 → 云剪贴板」检查";
+    /** 走 WebDAV 网盘时同一个状态的说法：账号或应用密码被拒、设置不完整、网盘上的记录被回退或网盘不合格，都要到设置里重新测试连接。 */
+    public static final String WEBDAV_REJECTED_MESSAGE = "WebDAV 网盘的设置需要检查，请到「我的 → 云剪贴板」重新测试连接";
     public static final String VISITOR_MESSAGE = "此功能开发中";
     /** 驱动的错误码：云剪贴板关着，或本机还在等批准。 */
     private static final String CODE_DISABLED = "clipboard_sync_disabled";
@@ -195,7 +197,13 @@ public final class CloudClipboardPanelPolicy {
 
     /** The status line drawn above the cloud list. */
     public static String message(Status status, int itemCount) {
+        return message(status, itemCount, false);
+    }
+
+    /** 同上；`webdav` 为真时「云端」走的是 WebDAV 网盘（{@link CloudClipboardRelayPolicy#webdav}），被拒时说网盘，不说中继和令牌。 */
+    public static String message(Status status, int itemCount, boolean webdav) {
         if (status == null) throw new IllegalArgumentException("No cloud clipboard status");
+        if (webdav && status == Status.RELAY_REJECTED) return WEBDAV_REJECTED_MESSAGE;
         return switch (status) {
             case LOADING -> "正在读取云剪贴板…";
             case SIGNED_OUT -> SIGNED_OUT_MESSAGE;

@@ -70,7 +70,7 @@ final class SkinDeleteDeviceCheck {
 
             test.stage = "delete active saved skin and refresh list";
             openDelete("合成晨雾");
-            test.tap(text("删除").and(AccessibilityNodeInfo::isClickable));
+            test.tap(confirmButton());
             await(() -> rows(library).length() == 1, "Saved skin was not removed");
             await(() -> !visible(card("合成晨雾")), "Removed skin remained in the list");
             test.await(card("合成夜航"));
@@ -82,7 +82,7 @@ final class SkinDeleteDeviceCheck {
 
             test.stage = "delete last skin and ignore repeated removal";
             openDelete("合成夜航");
-            test.tap(text("删除").and(AccessibilityNodeInfo::isClickable));
+            test.tap(confirmButton());
             await(() -> rows(library).length() == 0, "Last saved skin was not removed");
             await(() -> !visible(card("合成夜航")), "Last skin remained in the list");
             byte[] emptyLibrary = Files.readAllBytes(library.toPath());
@@ -102,9 +102,18 @@ final class SkinDeleteDeviceCheck {
         }
     }
 
-    private void openDelete(String name) {
-        check(test.await(card(name)).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK), "Skin long press failed");
+    // 「我的」皮肤卡片下面有显式的「删除」按钮（读屏文字「删除皮肤 名字」），点它打开确认框；不再靠长按卡片。
+    private void openDelete(String name) throws java.util.concurrent.TimeoutException {
+        test.await(card(name));
+        test.tap(node -> equals("app.msime.android", node.getPackageName())
+            && equals("删除皮肤 " + name, node.getContentDescription()) && node.isClickable());
         test.await(text("删除「" + name + "」？"));
+    }
+
+    // 确认框里的「删除」：和卡片上的删除按钮同字，按读屏文字区分，卡片上的那个带着「删除皮肤 名字」。
+    private static Predicate<AccessibilityNodeInfo> confirmButton() {
+        return text("删除").and(AccessibilityNodeInfo::isClickable).and(node -> node.getContentDescription() == null
+            || !node.getContentDescription().toString().startsWith("删除皮肤"));
     }
 
     private boolean visible(Predicate<AccessibilityNodeInfo> match) {
@@ -117,7 +126,7 @@ final class SkinDeleteDeviceCheck {
 
     private static Predicate<AccessibilityNodeInfo> card(String name) {
         return node -> equals("app.msime.android", node.getPackageName())
-            && equals("皮肤 " + name + "，点击使用，长按删除", node.getContentDescription());
+            && equals("皮肤 " + name + "，点击使用", node.getContentDescription());
     }
 
     private static Predicate<AccessibilityNodeInfo> text(String value) {

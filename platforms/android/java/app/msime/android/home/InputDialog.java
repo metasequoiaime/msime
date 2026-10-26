@@ -42,6 +42,14 @@ public final class InputDialog {
     private final List<EditText> inputs = new ArrayList<>(2);
     private final TextView primary;
     private boolean trimValues = true;
+    /** 输入框下方的一行：左边是状态说明，右边是附加动作（例如「测试连接」）；用到时才建。 */
+    @Nullable private LinearLayout extras;
+    @Nullable private TextView status;
+    @Nullable private TextView extraAction;
+    /** 确认按钮按下后不自动关闭，由调用方在异步动作成功后 {@link #dismiss}。 */
+    private boolean keepOpen;
+    /** 异步动作进行中：输入框、确认按钮和附加动作都不响应。 */
+    private boolean busy;
     private Predicate<List<String>> valid = values -> {
         for (String value : values) if (value.isEmpty()) return false;
         return true;
@@ -138,7 +146,8 @@ public final class InputDialog {
         });
         LinearLayout.LayoutParams params = LayoutPolicy.matchWidthHeightDp(context, 40);
         params.topMargin = DimensionPolicy.pixels(context, 8);
-        fields.addView(input, params);
+        // 输入框排在前面，状态与附加动作那一行（若已建）始终在最后。
+        fields.addView(input, inputs.size(), params);
         // 前面的输入框回车跳到下一个，最后一个回车就是提交。
         for (EditText earlier : inputs) earlier.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
@@ -153,6 +162,49 @@ public final class InputDialog {
         this.action = action;
         return this;
     }
+
+    /** 确认按钮按下后不关闭对话框：动作要联网核对（例如先测试连接再保存）时用，成功后由调用方 {@link #dismiss}，失败时对话框和填好的内容都留着。 */
+    public InputDialog keepOpenOnPrimary() {
+        keepOpen = true;
+        return this;
+    }
+
+    /** 在输入框下方右侧加一个不关闭对话框的附加动作（例如「测试连接」）；可提交条件与确认按钮相同。 */
+    public InputDialog addAction(CharSequence label, Consumer<List<String>> action) {
+        TextView button = ViewPolicy.textButton(context, label, Ui.TEXT_ROW_SUBTITLE, 500, ThemeColorPolicy.accent(context),
+            ViewPolicy.ripple(context), 32);
+        ViewPolicy.setHorizontalPaddingDp(context, button, 8);
+        ViewPolicy.bindClick(button, () -> {
+            List<String> values = values();
+            if (busy || !valid.test(values)) return;
+            action.accept(values);
+        });
+        extras().addView(button, LayoutPolicy.wrapParams());
+        extraAction = button;
+        refresh();
+        return this;
+    }
+
+    /** 输入框下方的一句状态说明（例如测试连接的结果）；`error` 时用警示色；null 或空串时收起。 */
+    public void showStatus(@Nullable CharSequence text, boolean error) {
+        TextView label = status;
+        if (label == null) {
+            label = ViewPolicy.styledLabel(context, "", Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.subText(context));
+            extras().addView(label, 0, LayoutPolicy.weightedWrapParams(1f));
+            status = label;
+        }
+        ViewPolicy.setTextColor(label, error ? ThemeColorPolicy.danger(context) : ThemeColorPolicy.subText(context));
+        ViewPolicy.setTextAndVisibility(label, text);
+    }
+
+    /** 异步动作进行中时置为 true：输入框、确认按钮和附加动作都暂不响应，「取消」仍可用。 */
+    public void setBusy(boolean busy) {
+        this.busy = busy;
+        for (EditText input : inputs) ViewPolicy.setEnabled(input, !busy);
+        refresh();
+    }
+
+    public boolean isShowing() { return dialog.isShowing(); }
 
     /** 替换「所有输入框都非空」这条默认的可提交条件。 */
     public InputDialog setValidator(Predicate<List<String>> valid) {
@@ -189,15 +241,29 @@ public final class InputDialog {
     }
 
     private void refresh() {
-        boolean ok = valid.test(values());
+        boolean ok = !busy && valid.test(values());
         ViewPolicy.setEnabledWithAlpha(primary, ok, 0.38f);
+        if (extraAction != null) ViewPolicy.setEnabledWithAlpha(extraAction, ok, 0.38f);
     }
 
     private void submit() {
         List<String> values = values();
-        if (!valid.test(values)) return;
-        dialog.dismiss();
+        if (busy || !valid.test(values)) return;
+        if (!keepOpen) dialog.dismiss();
         if (action != null) action.accept(values);
+    }
+
+    private LinearLayout extras() {
+        LinearLayout row = extras;
+        if (row == null) {
+            row = LayoutPolicy.row(context);
+            ViewPolicy.setCenteredVertically(row);
+            LinearLayout.LayoutParams params = LayoutPolicy.matchWidthWrapParams();
+            params.topMargin = DimensionPolicy.pixels(context, 8);
+            fields.addView(row, params);
+            extras = row;
+        }
+        return row;
     }
 
     private TextView button(CharSequence label, int weight, int color) {

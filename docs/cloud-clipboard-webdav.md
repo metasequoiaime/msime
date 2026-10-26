@@ -18,6 +18,19 @@
 - 保存之前先「测试连接」（见下文），不通过不保存。
 - 本机密钥串仍是中继那份 `cloud-clipboard-relay-keystore`，只是它绑定的空间换成 `sha256("webdav\0" ‖ 基地址 ‖ "\0" ‖ 账号)` 的前 16 字节：换了地址或账号就生成新的设备身份，要重新批准；换应用密码不换，不用重新批准。
 
+## 设置界面
+
+「云剪贴板同步方式」里多出「WebDAV」，与「水杉账号」「自建中继」并列：
+
+| 宿主 | 位置 |
+| --- | --- |
+| macOS、Linux | 共享设置页「剪贴板」→「设置」→「云剪贴板同步方式」（`packages/ui/src/settings/cloud-clipboard-relay-section.tsx`，「测试连接」经 Tauri 命令 `cloud_clipboard_webdav_probe`） |
+| Windows | 原生 WinUI 设置窗口「剪贴板」页；Windows 7 版的设置窗口不再显示云剪贴板页，配置在云剪贴板面板的表单里（单独一组「WebDAV」，「测试并保存」） |
+| Android | 「我的 → 云剪贴板」页顶部的卡片和对话框 |
+| iOS、HarmonyOS | 没有：原生宿主还没接中继 |
+
+各处做法相同：填「服务器地址」（网盘里的一个文件夹）、「账号」和「应用密码」（遮罩输入；已经保存过时留空表示沿用，已存的密码不回显）；「测试连接」只测不存；「保存」先测，通过才写 `cloud_clipboard_webdav` 并删掉 `cloud_clipboard_relay`，不通过时说明原因、草稿留着。保存中继时删掉网盘配置，改回水杉账号时两者都删。WebDAV 那一组下面有一段说明：内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。
+
 ## 宿主怎么接入
 
 - `msime_client_cloud_clipboard_source` 对网盘也答 `{"source":"relay"}`，另带 `"backend":"webdav"`（中继是 `"relay"`）。已有的宿主把不认识的来源当作错误，所以不加新的来源值；`msime_client_relay_cloud_clipboard` 按偏好里的配置自己分派，Tauri 桌面端的设置页和云剪贴板面板、Windows 原生设置窗口、macOS 输入法进程、Linux Fcitx5 键盘栏这些已经接上中继的入口不用改就能走网盘。宿主只在给用户说明「现在经哪里同步」时看 `backend`。

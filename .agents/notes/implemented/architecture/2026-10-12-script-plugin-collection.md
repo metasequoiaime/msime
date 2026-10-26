@@ -45,11 +45,31 @@ pangu-spacing 是第一个按这些规则写的插件。第一版（一个循环
 
 rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都挂 `candidates`，每次最多看 20 行，按上面的 fuel 计法各自定了工作量上限，并在夹具里放了塞满工作量的最坏情况（峰值 38 672、38 561、35 441、34 558，都在 62 500 以内）。
 
-- **生僻字判定不调用共用的 `classify`。** `shared/common_chars.rs` 的 `classify` 每个多字节字符都进一次通用解码，再走区段判断和二分查找，实测每个常用汉字约 200–290 fuel、每个 ASCII 字节约 35，20 行的窗口最坏 11 万到 12.5 万，超过 `candidates` 的单次上限。两个插件各自绕开它：hide-rare-chars 的 `src/scan.rs` 按 UTF-8 首字节跳过，只在汉字上调用 `is_han`、`is_common`、`is_kana`（每字约 250、每 ASCII 字节约 17）；rare-chars-last 的 `src/rare.rs` 在编译时把 `common-chars.bin` 展开成 U+3000..U+9FFF 每字 2 位（7 KiB）和辅助平面按 256 字分组（约 2.5 KiB）的查表（每字约 64、每 ASCII 字节约 15，每换一种字符另加约 200），格式变化由编译期断言拦住。`classify` 留作判定规则的参照实现，rare-chars-last 的查表在宿主上和它逐个比对过。两种扫描各留在自己的插件里，不合进 `shared/`：它们在模块大小和 fuel 之间取的点不同（hide-rare-chars 不展开数据，模块约 7 KiB，每个汉字约 250；rare-chars-last 多 9.5 KiB 的查表，每个汉字约 64），合成一份就要让其中一个插件放弃自己那一头。判定一致靠 `classify` 这份参照和两个插件的夹具守着。
+- **生僻字判定不调用共用的 `classify`。** `shared/common_chars.rs` 的 `classify` 每个多字节字符都进一次通用解码，再走区段判断和二分查找，实测每个常用汉字约 200–290 fuel、每个 ASCII 字节约 35，20 行的窗口最坏 11 万到 12.5 万，超过 `candidates` 的单次上限。两个插件各自绕开它：hide-rare-chars 的扫描（原来在它的 `src/scan.rs`，2026-10-26 挪到 `shared/rare_scan.rs`，和 rare-chars-threshold 共用，hide-rare-chars 编出的模块和内容哈希不变）按 UTF-8 首字节跳过，只在汉字上调用 `is_han`、`is_common`、`is_kana`（每字约 250、每 ASCII 字节约 17）；rare-chars-last 的 `src/rare.rs` 在编译时把 `common-chars.bin` 展开成 U+3000..U+9FFF 每字 2 位（7 KiB）和辅助平面按 256 字分组（约 2.5 KiB）的查表（每字约 64、每 ASCII 字节约 15，每换一种字符另加约 200），格式变化由编译期断言拦住。`classify` 留作判定规则的参照实现，rare-chars-last 的查表在宿主上和它逐个比对过。这两种扫描不合成一份：它们在模块大小和 fuel 之间取的点不同（hide-rare-chars 不展开数据，模块约 7 KiB，每个汉字约 250；rare-chars-last 多 9.5 KiB 的查表，每个汉字约 64），合成一份就要让其中一个插件放弃自己那一头。判定一致靠 `classify` 这份参照和两个插件的夹具守着。
 - **工作量上限。** rare-chars-last 一次最多读 768 字节、扫 80 段、每行 256 字节；hide-rare-chars 最多读 640 字节、细看 100 个 U+3000 以上的字（辅助平面字按 3 个算）、每行 256 字节。超出的行不判定、按不生僻处理，日志写明。traditional-glyph 把每一步按实测成本记到 34 000 的预算上，用完后剩下的行不注释，日志末尾加 `(budget)`。每个字的单价按字节数分档，同一档里取最贵的路径（“”…— 这类通用标点要多查一张格式字符表，比全角标点贵约 130），超过 128 字节、读不进来的行也扣一行的开销；起初按常见路径定价，20 行通用标点就要约 48 000、混进超长行约 52 000，同一个按键里第三次投递会被本轮配额截断。unicode-codepoint 只注单个字符和 2–4 个码位的 emoji 序列，最长的注释正好 32 个 UTF-16 码元。
 - **traditional-glyph 的数据只取 2–4 字词组里逐字转换会转错的那些。** 完整的 OpenCC 词组表约 1 MB，放不进 256 KiB 的模块。`tools/gen_s2t_table.py` 只读仓库里 vendored 的 OpenCC，产物 `traditional-glyph/data/s2t.bin` 124 385 字节（单字 4 012 条、词组 7 559 条），模块 127 KiB、3 页内存，是合集里最大的。和 OpenCC 完整算法相比，2–4 字词组 46 535 条里有 3 条不同（都含辅助平面字），5 字以上的 3 257 条里有 175 条不同，插件的 README 写明这些限制。
 
 `resources/licenses/Unicode-License-V3.txt` 由 `.gitattributes` 固定为 LF，保证 Windows 检出后仍满足既有原始字节校验；相关门禁范围见[Windows 本地门禁保留可运行的检查](../testing/2026-10-14-windows-local-gate-portability.md)。
+
+### 第二批能力的参考样板
+
+[脚本插件第二批能力](2026-10-26-script-plugin-capabilities-v2.md)落地后，交付顺序的最后一步是每项能力一个能照抄的示例。合集加了四个插件，都不是官方包（`plugins/official-packs.json` 不变）：
+
+- **calc**（`/calc`，`arguments = "extended"`）：调度场算法求值，按 64 位分子分母的分数精确计算，除不尽时四舍五入到 10 位小数；写错、除以 0、溢出时不给行（候选行选中就上屏，给不了「错误提示」行），原因写日志。结果一行、「算式=结果」一行（超过 64 个码元时不给），整数部分 5 位以上时加千分位一行。
+- **now**（`/now`）：读 `command` 的四个时间字段，给出五种写法；字段 `ABSENT` 时不给行。
+- **rare-chars-threshold**（设置项）：和 hide-rare-chars 同一套判定，多一个选项（只隐藏单字 / 含生僻字就隐藏）和一个数字（保留前几行）。另起一个插件而不是给 hide-rare-chars 加设置：加设置会改它的清单和模块，已装的用户要重新授权；扫描挪进 `shared/rare_scan.rs` 共用，挪之前和之后 hide-rare-chars 的内容哈希都是 `28eadc17…`。设置在 `msime_init` 里读一次。
+- **emoji-memory**（`persist_data`、`insert_candidates`，加 `read_candidates`、`read_commit`）：在 `candidate_selected` 里记下「窗口第 0 行的编码 → 选中的 emoji」和次数，只认上一窗里来源为 emoji 的行或自己插的行；在 `candidates` 里、本地模式 `none` 时把这个编码下次数最多的两个、窗口里还没有的插在第 1 行。含零宽连接符和标签字符的 emoji 不记，因为插入的行不能含格式字符。存储是定长的文本（一行表头，每条 64 字节：5 位次数、24 字节编码、32 字节 emoji），最多 32 条，满了替换次数最少的。README 第一节写明存了什么、存在哪、没有加密、授权页单独提醒、怎么清除。
+
+随包数据文件没有示例：这四个插件都用不上，只为演示硬造一个数据文件，示例本身就成了误导。
+
+**测试多一种运行。** 设置值和存储初值是整次运行的输入（`msime-pack run --settings`、`--storage`），夹具里写不了。`scripts/test-script-plugins.sh` 在插件目录里找 `cases/<name>/`：`settings.json` 交给 `--settings`、`storage.bin` 交给 `--storage`，事件取那里的 `fixture.jsonl`（没有时用插件的），授权和不授权各跑一遍，按同样的规则核对那里的 `expected.jsonl`。`check_run.py` 不授权时另外断言没有插入（`inserts`）和存储改动（`storage`）。三个新插件带 `check_output.py`：now 用 Python 的 `datetime` 独立算五行，calc 用 `fractions` 和 `ast` 换一种做法重算每个算式（报溢出时要求真有超过 10^9 的中间值），rare-chars-threshold 核对默认设置时第 2 行起的输出和 hide-rare-chars 的 `expected.jsonl` 逐行相同。夹具里每个事件写 `key: true`：不写时整份夹具共用一轮的 fuel 配额，calc 第 7 个事件就被本轮配额截断。
+
+**fuel 上又学到的几条**，补在上面「fuel 的计法」之后：
+
+- `opt-level = "s"` 下 LLVM 不一定内联很小的访问函数（取一条记录、读 8 字节），每次调用都按被调函数的整个函数体扣一次。热循环里用到的小函数标 `#[inline(always)]`；反过来，分支多的函数里只在少数情况走到的路径（分数的通分约分、128 位除法、带溢出检查的乘法）拆成 `#[inline(never)]`，整数快路径不为它们付钱。calc 里 32 个 `1` 相加从约 64 600 降到约 35 400（每一步约 1 700 降到约 1 000）。
+- 64 位的 `checked_mul` 在 wasm 里要走 128 位乘法（编译器内置库的一个长函数）。逐位读数时改成先和 `(i64::MAX - 位) / 10` 比较；两个乘数都在 32 位以内时直接乘。
+- 在栈上开大数组要先清零，每次调用都付这笔 fuel；calc 的两个栈、emoji-memory 的整块状态放在全 0 的静态变量里，落在零初始化段，也不占模块的字节。
+- 存储的读入和查找不能逐字节解析。emoji-memory 第一版读入时逐条核对、给每条算摘要，64 条读一次就两万到四万；定长记录让读入只看每条最后一个字节，查找先把编码和 emoji 的前 8 字节当一个 64 位整数比（一条不对齐的 `i64.load`），对上了才比整个字段、才读次数，窗口里的 emoji 另记一个 64 位的位图。不按次数排序：排序要挪记录，最坏一次挪 2 KiB，在 `candidate_selected` 的上限里放不下。记录上限从 64 降到 32，是为了满了以后找次数最少的那条时不超过观察类钩子上限的一半。
 
 ## Alternatives considered
 
@@ -67,11 +87,16 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - **插件代码用 GPL-3.0-only，和仓库一致。** 最强的理由是整个仓库一个许可证，README 不用写例外，也没有哪一份代码的归属要单独说明。不用：SDK 经 `#[path]` 编进每个插件，模板合入时就声明了 MIT；合集若用 GPL，复制合集代码或照它写插件的作者就得跟着用 GPL，和模板给作者的承诺相反。合集插件也不随输入法分发，单独成包，MIT 和包里 Unicode-3.0、Apache-2.0 的数据合在一起只是三份宽松许可证。
 - **生成数据不提交，构建时现场生成。** 最强的理由是仓库里没有二进制文件。不用：Unihan zip 有 8.5 MB，要联网下载；提交 4 KiB 的产物以后，CI 和贡献者都不需要网络，`--check` 只在有缓存时比对。
 
+- **给 hide-rare-chars 加设置项，不另起插件。** 最强的理由是合集里少一个几乎重复的插件，用户也不用在两个之间选。不用：授权绑定在内容哈希上，加设置会改清单和模块，所有已经装了它的用户都要重新授权；默认值虽然能保持行为不变，但「只想要固定行为」的用户会多看到两项设置。代价是两个插件二选一，靠 rare-chars-threshold 的 `check_output.py` 守着默认行为不分开。
+- **让夹具的每个事件自带设置值或存储内容。** 最强的理由是一份夹具就能覆盖所有设置组合，不用 `cases/`。不用：设置值和存储是实例的输入，输入法在聚焦重建实例时才换，夹具里逐事件改它们要改 `msime-pack run` 的格式和语义（实例什么时候重建、存储被谁覆盖），超出这次的范围；`cases/` 只是在测试脚本里多跑几次同一个工具。
+- **emoji-memory 用二进制记录，或者按次数排好序存。** 二进制最强的理由是更紧凑、读入不用核对文本。不用：定长文本一样能一条 `i64.load` 比较，而用户打开文件就能看懂存了什么，这对一个存输入相关数据的插件是实打实的好处。排好序最强的理由是插入时取前两条就行。不用：每次加次数都可能要挪记录，最坏一次挪 2 KiB，`candidate_selected` 的上限放不下；查找时顺手比较次数就够了。
+- **随包数据文件也做一个示例**（例如单位换算表、emoji 关键词表）。最强的理由是每项能力都有样板，作者照抄就行。不用：这几个插件里没有一个真需要几百 KiB 的数据，硬造一个只为演示的数据文件会让示例本身成为错误的示范；docs/plugins.md 的「随包数据文件」一节已经写清了接口。
+
 ## Consequences
 
 - 收益：插件和它依赖的 SDK、`msime-pack`、运行时在同一个 PR 里一起测；新插件只要建一个目录、写 `fixture.jsonl`，构建和测试脚本自动发现它，不用改共享文件（插件表和第三方说明除外）。每个插件的行为由日志逐行核对，最坏情况的 fuel 有断言卡住。
 - 代价：仓库里多了一类非平台代码，CI 多一个作业（改动时编一次 `msime-pack`，约几分钟）；运行时普通单测额外占用执行时间，其中对抗性模块膨胀上界检查较慢，沿用现有 30 分钟时限。本地完整验证也增加该 crate 的测试与全目标 Clippy。本地 `verify-local.sh --quick` 不跑插件测试，只改插件时要手动跑 `scripts/test-script-plugins.sh`。
-- 代价：生僻字判定在 `shared/common_chars.rs`、hide-rare-chars 的 `scan.rs` 和 rare-chars-last 的 `rare.rs` 里有三种扫描写法，改常用字集的格式或「生僻」的定义要三处一起改；rare-chars-last 的编译期断言能拦住格式变化，定义变化只能靠夹具。
+- 代价：生僻字判定在 `shared/common_chars.rs`、`shared/rare_scan.rs`（hide-rare-chars 和 rare-chars-threshold 共用）和 rare-chars-last 的 `rare.rs` 里有三种扫描写法，改常用字集的格式或「生僻」的定义要三处一起改；rare-chars-last 的编译期断言能拦住格式变化，定义变化只能靠夹具。
 - 代价：插件为测试写日志，每个事件多花一百多 fuel；`expected.jsonl` 不记录 fuel，fuel 的漂移只在越过上限一半时才被发现。
 - 插件代码和它编进的 SDK 用 MIT，沿用模板（模板的 `Cargo.toml` 和清单在合入 develop 时就声明 MIT）；仓库其余部分仍是 GPL-3.0-only。README 的「许可证」一节和 docs/third-party.md 的「本项目」一节写明这个例外的范围（`docs/script-plugin-template/` 和 `plugins/script/`），全文在这两个目录各自的 `LICENSE`。包里带 Unihan 数据的写 Unicode-3.0，带 OpenCC 数据的写 Apache-2.0，第三方说明在 docs/third-party.md 的「脚本插件合集」一节。
 - 模板 README 加了一句：模板的写法在长 body 上会耗尽 fuel，实际使用装 `plugins/script/pangu-spacing`。模板本身没有改，`msime-pack` 的测试仍然解析它的夹具。
@@ -90,6 +115,7 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - `actionlint` 对 `ci-platforms.yml` 无报错；`shellcheck` 对两个脚本无报错。
 - 评审之后的修正：`scripts/test-script-plugins.sh` 全部通过，hide-rare-chars 27 个事件（峰值 38 561）、pangu-spacing 23 个（43 816）、rare-chars-last 29 个（38 672）、traditional-glyph 38 个（35 441）、unicode-codepoint 17 个（34 558）。四个候选窗口插件各用几千个随机窗口（多种来源；汉字、繁体字、通用标点、泰文、注音、拉丁和阿拉伯字母、emoji、辅助平面字混排；超长行）压测，没有失败，traditional-glyph 最多约 33 900，其余三个的最贵窗口已收进夹具。挪走 Unihan 缓存后 `MSIME_FETCH=1` 重新下载、`--check` 通过；设 `MSIME_REQUIRE_SCRIPT_PLUGINS=1` 而不下载时以 1 退出。删掉一个包的 `OpenCC-LICENSE.txt`、去掉 `Unicode-3.0`、改动照录的 NOTICE 或 `LICENSE.txt` 时组装都会失败。
 - 合入后的第二轮评审（#7456 之后）：pangu-spacing 见到 ASCII 的 `/`、`\`、`?`、`=` 整段不改，夹具加了不带协议头的网址、Windows 路径和查询串三条，都是 `skip: address`；traditional-glyph 原样写出的四字节字符也计两个 UTF-16 码元，20 个 emoji 加「发」的行不再交给宿主后被拒。`scripts/test-script-plugins.sh` 全部通过：pangu-spacing 26 个事件、traditional-glyph 39 个，其余三个和峰值 fuel 不变。
+- 第二批能力的参考样板（2026-10-26）：在 Mac Studio 上带 `MSIME_REQUIRE_SCRIPT_PLUGINS=1 MSIME_FETCH=1` 跑 `scripts/test-script-plugins.sh`，七个插件全部通过，峰值 fuel：calc 45 895（52 个事件）、emoji-memory 7 934（32 个），它的 `cases/corrupt` 5 642、`cases/full` 36 831（`candidate_selected` 10 944）、now 8 741、rare-chars-threshold 默认 40 684，`cases/keep-three` 40 274、`cases/single` 32 489，hide-rare-chars 40 623、rare-chars-last 39 566、uuid 9 407；三个 `check_output.py` 通过，`common-chars.bin` 和生成器一致。扫描挪进 `shared/rare_scan.rs` 前后 `msime-pack hash` 给 hide-rare-chars 的都是 `28eadc17d496f1da…`。四个新插件在 `wasm32-unknown-unknown` 上 `cargo clippy --release -- -D warnings` 无报错，`shellcheck scripts/test-script-plugins.sh` 无报错。
 
 相关：[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 定义 fuel 配额；[脚本插件的作者工具](../feature/2026-10-12-script-plugin-author-tools.md) 定义 `msime-pack run`、SDK 和模板；[脚本插件修改上屏和候选](2026-10-12-script-plugins-modify-commit-and-candidates.md) 定义重排、隐藏、注释的合成规则。
 

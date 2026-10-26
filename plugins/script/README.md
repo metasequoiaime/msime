@@ -7,18 +7,28 @@
 - 官方包（`plugins/official-packs.json` 登记的，现在是 uuid）随 macOS、Windows、Linux 的桌面安装包分发，在插件页标「（内置）」、不能删除，同样默认停用、要授权才运行；其余插件从源码构建后自己导入。官方包的内容哈希锁在那个文件里，`scripts/build-official-plugins.sh` 构建时核对，见下面「官方包」一节。
 - 授权文件 `<数据目录>/plugins/script-grants.json` 在用户可写的目录下，不签名：同一用户下的其他程序能伪造一条授权，让脚本在输入法里运行。只装你信得过的脚本包；这里的包都从本仓库的源码构建，构建和测试脚本也在仓库里。
 - 不能发布到社区库，只能本地导入（官方包随安装包分发）。
-- 插件没有设置项、没有持久存储，也不能联网、读写文件或看时间；它只能经授权的函数读当前这一次的上屏文本或候选窗口，在宿主允许的范围内改写、重排、隐藏或注释。
+- 插件不能联网，也不能读写文件。它只能经授权的函数读当前这一次的上屏文本或候选窗口，在宿主允许的范围内改写、重排、隐藏、注释或加行，或者在自己的 `/` 指令里出行；`/` 指令里能读到本地时间（到分钟），清单可以声明设置项让用户填，申请了 `persist_data` 的插件有一块 64 KiB 的私有存储。每一项能力怎么用，下面的插件各有一个能照抄的样板：
+  - 设置项（`[[script.settings]]`）：rare-chars-threshold；
+  - `/` 指令的扩展参数（`arguments = "extended"`）：calc；
+  - `/` 指令里的本地时间：now；
+  - 持久存储（`persist_data`）和往候选里加行（`insert_candidates`）：emoji-memory；
+  - `/` 指令和随机数：uuid。
+  - 随包数据文件（`[script].data`）没有样板：这里的插件都用不上，只为演示硬造一个数据文件没有意义，作者照 docs/plugins.md 的「随包数据文件」一节起步。
 
 ## 插件
 
 | id | 名称 | 钩子 | 能力 | 许可证 | 模块 | 内存 |
 | --- | --- | --- | --- | --- | --- | --- |
+| [calc](calc/)（参考样板） | 计算 | `command` | `provide_commands` | MIT | 10.3 KiB | 2 页 |
+| [emoji-memory](emoji-memory/)（参考样板） | 常用表情 | `candidates`、`candidate_selected` | `read_candidates`、`read_commit`、`insert_candidates`、`persist_data` | MIT | 7.6 KiB | 2 页 |
 | [hide-rare-chars](hide-rare-chars/) | 隐藏生僻字 | `candidates` | `read_candidates`、`filter_candidates` | MIT AND Unicode-3.0 AND Apache-2.0 | 6.9 KiB | 2 页 |
+| [now](now/)（参考样板） | 现在 | `command` | `provide_commands` | MIT | 4.1 KiB | 2 页 |
 | [rare-chars-last](rare-chars-last/) | 生僻字靠后 | `candidates` | `read_candidates`、`rerank_candidates` | MIT AND Unicode-3.0 AND Apache-2.0 | 12.4 KiB | 2 页 |
+| [rare-chars-threshold](rare-chars-threshold/)（参考样板） | 隐藏生僻字（可调） | `candidates` | `read_candidates`、`filter_candidates` | MIT AND Unicode-3.0 AND Apache-2.0 | 8.5 KiB | 2 页 |
 | [uuid](uuid/)（官方，参考样板） | UUID | `command` | `provide_commands` | MIT | 3.2 KiB | 2 页 |
 <!-- 插件表：每个插件一行，插在这条注释之上，按 id 字母序排列。模块大小和内存页数取 scripts/build-script-plugins.sh 打印的值。 -->
 
-几个插件一起启用时，执行顺序在「脚本插件（实验）」里调整，合成规则见 docs/plugins.md：重排是排在后面的插件优先，隐藏取并集，同一行的注释后面的覆盖前面的。落到这两个插件上：rare-chars-last 和 hide-rare-chars 二选一，两个都开时被隐藏的行不再显示，靠后白做。
+几个插件一起启用时，执行顺序在「脚本插件（实验）」里调整，合成规则见 docs/plugins.md：重排是排在后面的插件优先，隐藏取并集，同一行的注释后面的覆盖前面的。落到生僻字类插件上：rare-chars-last、hide-rare-chars 和 rare-chars-threshold 三选一，hide-rare-chars 和 rare-chars-threshold 是同一套判定（后者多两项设置），重排类和隐藏类都开时被隐藏的行不再显示，靠后白做。emoji-memory 插入的行排在所有插件的重排、隐藏、注释之后，和它们互不影响。
 
 ## 构建和测试
 
@@ -35,7 +45,7 @@ scripts/test-script-plugins.sh --update <id>  # 把运行结果写回 <id>/expec
 ```
 
 - 构建产物都在仓库根的 `target/script-plugins/` 下：`cargo/` 是 cargo 的产物目录，`<id>/` 是可以导入的插件包文件夹，`<id>-<version>.zip` 是同样内容的压缩包（条目排序、时间固定、不压缩，同样的源码得到逐字节相同的压缩包）。
-- `test-script-plugins.sh` 先编出 `target/debug/msime-pack`，然后对每个插件：`msime-pack validate` 校验文件夹和压缩包；用 `fixture.jsonl` 跑 `msime-pack run --grant all`，输出去掉 `fuel`、`init_fuel` 后必须和 `expected.jsonl` 逐行相同，每一行的 fuel 不能超过钩子单次上限的一半（`candidates` 62 500，`before_commit` 和 `command` 50 000）；再不授予任何能力跑一遍，每个事件都不能有动作；插件目录里有 `check_output.py` 时再用它按插件自己的规则核对输出（uuid 按 RFC 9562 从夹具的随机数独立算一遍）。官方包的 id 是保留的，`validate` 和 `run` 对它们加 `--builtin`。最后跑 `scripts/test-script-plugin-data.py`，确认生成的数据文件没有漂移；`common-chars.bin` 要用锁定的 Unihan zip 重新生成，缓存里没有 zip 时这一项打印 skip，设 `MSIME_FETCH=1` 才下载。
+- `test-script-plugins.sh` 先编出 `target/debug/msime-pack`，然后对每个插件：`msime-pack validate` 校验文件夹和压缩包；用 `fixture.jsonl` 跑 `msime-pack run --grant all`，输出去掉 `fuel`、`init_fuel` 后必须和 `expected.jsonl` 逐行相同，每一行的 fuel 不能超过钩子单次上限的一半（`candidates` 62 500，`before_commit` 和 `command` 50 000）；再不授予任何能力跑一遍，每个事件都不能有动作；插件目录里有 `check_output.py` 时再用它按插件自己的规则核对输出（uuid 按 RFC 9562 从夹具的随机数独立算一遍，now 用 Python 的 `datetime`，calc 用 `fractions` 和 `ast` 重新算，rare-chars-threshold 核对默认设置和 hide-rare-chars 逐行相同）；插件目录里的每个 `cases/<name>/` 是另一次运行，`settings.json` 交给 `--settings`、`storage.bin` 交给 `--storage`，事件取那里的 `fixture.jsonl`（没有时用插件的），同样和那里的 `expected.jsonl` 核对、按 fuel 上限断言、再不授权跑一遍（不授权时也不能有插入和存储改动）。官方包的 id 是保留的，`validate` 和 `run` 对它们加 `--builtin`。最后跑 `scripts/test-script-plugin-data.py`，确认生成的数据文件没有漂移；`common-chars.bin` 要用锁定的 Unihan zip 重新生成，缓存里没有 zip 时这一项打印 skip，设 `MSIME_FETCH=1` 才下载。
 - 没有 wasm 目标时测试脚本打印 `skip` 并以 0 退出；CI 设 `MSIME_REQUIRE_SCRIPT_PLUGINS=1`，缺目标就失败，生成数据的检查打印 skip 也算失败。CI 同时设 `MSIME_FETCH=1` 并缓存 Unihan zip，所以 `common-chars.bin` 在 CI 上每次都核对。
 - CI：`.github/workflows/ci-platforms.yml` 的「Script plugins」作业在 `plugins/`、模板、SDK（`crates/script-sdk`）、`crates/script-runtime`、`crates/pack-tool`、这几个脚本、`resources/licenses/Unicode-License-V3.txt` 或 `resources/character-glosses.lock.json` 改动时运行 `test-script-plugins.sh`。
 
@@ -59,6 +69,7 @@ plugins/script/
     fixture.jsonl       给 msime-pack run 的事件
     expected.jsonl      去掉 fuel 之后的期望输出
     check_output.py     可选：按插件自己的规则核对 msime-pack run 的输出
+    cases/<name>/       可选：另一次运行，settings.json（设置项的值）、storage.bin（存储的初值）、fixture.jsonl（没有时用插件的）和 expected.jsonl
     README.md           行为、边界情况、最坏情况的 fuel
 ```
 
@@ -85,7 +96,7 @@ scripts/build-official-plugins.sh --check  # 只核对，不动 target/plugin-pa
 
 ## 共用的数据
 
-- `data/common-chars.bin`：常用字集，给生僻字类插件用。《通用规范汉字表》8105 字（Unihan 17.0.0 的 `kTGH`）并上它们的繁体形（Unihan `kTraditionalVariant` 和 OpenCC `STCharacters.txt`），共 11 049 字，4 KiB。由 `tools/gen_common_chars.py` 生成，来源说明在同目录的 `common-chars-NOTICE.txt`。读法在 `shared/common_chars.rs`：`is_rare`、`is_kana` 和按字节扫描一行的 `classify`。`classify` 是判定规则的参照实现，按 fuel 的计法太贵（每个常用汉字约 200–290、每个 ASCII 字节约 35），扫满一个 20 行的窗口会耗尽 `candidates` 的 fuel：hide-rare-chars 只调用 `is_han`、`is_common`、`is_kana`，自己在 `src/scan.rs` 里按字节跳过；rare-chars-last 在 `src/rare.rs` 里把数据文件在编译时展开成查表，判定和 `classify` 逐字相同。
+- `data/common-chars.bin`：常用字集，给生僻字类插件用。《通用规范汉字表》8105 字（Unihan 17.0.0 的 `kTGH`）并上它们的繁体形（Unihan `kTraditionalVariant` 和 OpenCC `STCharacters.txt`），共 11 049 字，4 KiB。由 `tools/gen_common_chars.py` 生成，来源说明在同目录的 `common-chars-NOTICE.txt`。读法在 `shared/common_chars.rs`：`is_rare`、`is_kana` 和按字节扫描一行的 `classify`。`classify` 是判定规则的参照实现，按 fuel 的计法太贵（每个常用汉字约 200–290、每个 ASCII 字节约 35），扫满一个 20 行的窗口会耗尽 `candidates` 的 fuel：hide-rare-chars 和 rare-chars-threshold 只调用 `is_han`、`is_common`、`is_kana`，在共用的 `shared/rare_scan.rs` 里按字节跳过；rare-chars-last 在 `src/rare.rs` 里把数据文件在编译时展开成查表，判定和 `classify` 逐字相同。
 - 重新生成：`python3 plugins/script/tools/gen_common_chars.py`（第一次会把锁定的 Unihan zip 下载到 `target/script-plugins/cache/` 并校验 sha256）。`--check` 只比较不写入；缓存里没有 zip 时打印 skip。
 
 ## 写插件时的 fuel

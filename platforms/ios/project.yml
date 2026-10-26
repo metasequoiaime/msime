@@ -372,6 +372,10 @@ targets:
       # 辅助码页导入码表的选择规则和导入、删除流程（#7176），HelpcodeChoicePolicyTests 与 HelpcodeSettingsTests 直接测它们。
       - path: App/Sources/settings/HelpcodeChoicePolicy.swift
       - path: App/Sources/settings/HelpcodeSettingsView.swift
+      # 插件页的目录、标记、偏好写法和编辑器规则，以及社区插件的翻页，PluginCatalogTests 与 PluginEditorModelTests 直接测它们。
+      - path: App/Sources/plugins/PluginCatalog.swift
+      - path: App/Sources/plugins/PluginEditorModel.swift
+      - path: App/Services/CommunityPluginAPI.swift
       - path: App/Sources/app/IOSRustAccount.swift
       - path: App/Sources/app/ViewRequestGeneration.swift
       - path: App/Sources/app/ViewRequestTask.swift

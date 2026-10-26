@@ -1,4 +1,5 @@
 #include "../../panels/win7/CloudClipboardWindow.h"
+#include "../../settings/CloudClipboardRoute.h"
 #include "../../settings/win7/PreferencesStore.h"
 #include "../../settings/win7/ControlText.h"
 #include "../../settings/win7/ThemeData.h"
@@ -56,6 +57,12 @@ int main() {
   CloudClipboardWindow::Services services;
   services.account = [&](const std::string& bytes) { return backend(bytes, false); };
   services.relay = [&](const std::string& bytes) { return backend(bytes, true); };
+  // WebDAV「测试连接」：real_probe 时转给真实 C ABI，否则答 probe_answer；记下每次收到的草稿。
+  unsigned probes = 0; bool real_probe = false; Json probe_answer, probe_request;
+  services.webdav_probe = [&](const std::string& bytes) {
+    assert(GetCurrentThreadId() != ui_thread); ++probes; probe_request = Json::parse(bytes);
+    return real_probe ? theme_data::call(msime_client_cloud_clipboard_webdav_probe, probe_request).dump() : probe_answer.dump();
+  };
   std::wstring received;
   CloudClipboardWindow window([&](std::wstring_view text) { ++inserts; received = text; return insert_ok; }, [&](HWND, std::wstring_view text) { ++copies; received = text; return true; }, services,
       [&](const std::string& bytes) { assert(GetCurrentThreadId() != ui_thread); assert(Json::parse(bytes).at("action").at("operation") == "status"); ++migrations; return success(Json::object()); },
@@ -87,6 +94,51 @@ int main() {
   failed = false; click(cloud_clipboard_refresh); select(); during = true; click(cloud_clipboard_panel_insert); assert(inserts == 2 && migrations == migrated);
   click(cloud_clipboard_refresh); malformed = true; click(cloud_clipboard_refresh); select(); assert(!IsWindowEnabled(control(cloud_clipboard_panel_insert)));
   malformed = false; state = "pending"; click(cloud_clipboard_refresh); assert(!IsWindowEnabled(control(cloud_clipboard_add)) && !IsWindowEnabled(control(cloud_clipboard_panel_insert)));
+  // WebDAV 网盘：应用密码遮罩；草稿不写盘；测试连接不通过就不保存；通过后写网盘并删掉中继；存中继时删掉网盘；清除网盘回到水杉账号。
+  const auto read = [&](int target) { return control_text::read(control(target), 8192).value_or(""); };
+  const auto message = [](std::wstring_view text) { return control_text::utf8(text).value_or(""); };
+  const auto preferences = [&] { return store.load().snapshot->preferences(); };
+  const auto set = [&](int target, const wchar_t* value) { assert(SetWindowTextW(control(target), value)); };
+  assert(GetWindowLongPtrW(control(cloud_clipboard_webdav_password), GWL_STYLE) & ES_PASSWORD);
+  state = "ready";
+  set(cloud_clipboard_webdav_url, L"http://127.0.0.1:9/dav"); set(cloud_clipboard_webdav_username, L"synthetic@example.test");
+  set(cloud_clipboard_webdav_password, L"synthetic-app-password");
+  auto revision = store.load().snapshot->revision();
+  assert(probes == 0 && preferences().contains("cloud_clipboard_relay") && !preferences().contains("cloud_clipboard_webdav"));
+  // 真实 C ABI：本机 9 号端口拒绝连接，答 relay_unavailable，保存被拦下，什么都不写。
+  real_probe = true; click(cloud_clipboard_webdav_save);
+  assert(probes == 1 && store.load().snapshot->revision() == revision && !preferences().contains("cloud_clipboard_webdav"));
+  assert(read(cloud_clipboard_notice) == message(msime::settings::webdav_error_message(L"relay_unavailable")));
+  assert(probe_request.at("url") == "http://127.0.0.1:9/dav" && probe_request.at("username") == "synthetic@example.test" && probe_request.at("password") == "synthetic-app-password");
+  assert(!probe_request.contains("directory") || std::filesystem::path(probe_request.at("directory").get<std::string>()).filename() == "account");
+  real_probe = false; probe_answer = Json{{"ok", false}, {"error", "webdav_unsupported"}};
+  click(cloud_clipboard_webdav_save);
+  assert(probes == 2 && store.load().snapshot->revision() == revision && read(cloud_clipboard_notice) == message(msime::settings::webdav_error_message(L"webdav_unsupported")));
+  assert(read(cloud_clipboard_webdav_url) == "http://127.0.0.1:9/dav" && read(cloud_clipboard_webdav_password) == "synthetic-app-password");
+  // 只测试不保存，通过了也不写盘。
+  probe_answer = Json{{"ok", true}, {"value", Json::object()}};
+  click(cloud_clipboard_webdav_test);
+  assert(probes == 3 && store.load().snapshot->revision() == revision && read(cloud_clipboard_notice) == message(msime::settings::webdav_probe_passed));
+  click(cloud_clipboard_webdav_save);
+  assert(probes == 4 && !preferences().contains("cloud_clipboard_relay"));
+  assert(preferences().at("cloud_clipboard_webdav") == (Json{{"url", "http://127.0.0.1:9/dav"}, {"username", "synthetic@example.test"}, {"password", "synthetic-app-password"}}));
+  assert(read(cloud_clipboard_source) == message(L"当前来源：WebDAV 网盘（请求失败不会改走水杉账号）") && read(cloud_clipboard_webdav_password).empty());
+  // 应用密码框留空：沿用已存的应用密码去测试和保存。
+  set(cloud_clipboard_webdav_username, L"synthetic-b@example.test"); click(cloud_clipboard_webdav_save);
+  assert(probes == 5 && probe_request.at("password") == "synthetic-app-password");
+  assert(preferences().at("cloud_clipboard_webdav").at("username") == "synthetic-b@example.test" && preferences().at("cloud_clipboard_webdav").at("password") == "synthetic-app-password");
+  // 改存中继：网盘配置一起删掉，不经过测试连接。
+  set(cloud_clipboard_relay_url, L"https://clipboard.example.invalid"); set(cloud_clipboard_relay_token, L"synthetic-token-a");
+  click(cloud_clipboard_relay_save);
+  assert(probes == 5 && preferences().at("cloud_clipboard_relay").at("token") == "synthetic-token-a" && !preferences().contains("cloud_clipboard_webdav"));
+  // 再存回网盘（网盘配置被清掉后输入框也跟着清空了），然后清除网盘配置：确认后中继和网盘都不留，来源回到水杉账号。
+  assert(read(cloud_clipboard_webdav_url).empty() && read(cloud_clipboard_webdav_username).empty());
+  set(cloud_clipboard_webdav_url, L"http://127.0.0.1:9/dav"); set(cloud_clipboard_webdav_username, L"synthetic@example.test");
+  set(cloud_clipboard_webdav_password, L"synthetic-app-password"); click(cloud_clipboard_webdav_save);
+  assert(probes == 6 && preferences().contains("cloud_clipboard_webdav") && !preferences().contains("cloud_clipboard_relay"));
+  const auto webdav_confirms = confirms; allowed = true; click(cloud_clipboard_webdav_clear);
+  assert(confirms == webdav_confirms + 1 && probes == 6 && !preferences().contains("cloud_clipboard_webdav") && !preferences().contains("cloud_clipboard_relay"));
+  assert(read(cloud_clipboard_source) == message(L"当前来源：水杉账号"));
   DestroyWindow(host);
-  std::puts("Windows 7 cloud clipboard panel: shared source checks, literal copy/insert, confirmations, relay failure isolation, changed-source refusal and invalid-state protection passed");
+  std::puts("Windows 7 cloud clipboard panel: shared source checks, literal copy/insert, confirmations, relay failure isolation, changed-source refusal, invalid-state protection and WebDAV probe-gated saving passed");
 }

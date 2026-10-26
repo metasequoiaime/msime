@@ -10,7 +10,7 @@ import java.util.Arrays;
 /**
  * 云剪贴板改走自建中继（`docs/cloud-clipboard-relay.md`）时 Android 宿主这一侧的纯逻辑：设置页的地址和令牌规则、共享层答的路线、键盘用来认出「中继换过了」的绑定，以及给人看的错误说法。不依赖 Android 和 org.json，JVM 冒烟直接测它。
  *
- * <p>地址和令牌的规则与 `crates/client-core/src/preferences.rs` 的 `valid_relay_url`、`valid_relay_token` 以及共享设置页的 `packages/ui/src/settings/cloud-clipboard-relay.ts` 相同。保存偏好时 Rust 还会再校验一遍，不合规的值整份偏好都存不进去；这里只为了在输入框里当场说明哪里不行。
+ * <p>地址和令牌的规则与 `crates/client-core/src/preferences.rs` 的 `valid_relay_url`、`valid_relay_token` 以及共享设置页的 `packages/ui/src/settings/cloud-clipboard-relay.ts` 相同；WebDAV 网盘（`docs/cloud-clipboard-webdav.md`）的文件夹地址沿用中继地址的规则，账号和应用密码与 `valid_webdav_username`、`valid_webdav_password` 相同。保存偏好时 Rust 还会再校验一遍，不合规的值整份偏好都存不进去；这里只为了在输入框里当场说明哪里不行。
  */
 public final class CloudClipboardRelayPolicy {
     /** 偏好里的键：`{url, token}`，没配置时不写进文档。 */
@@ -41,6 +41,10 @@ public final class CloudClipboardRelayPolicy {
     public static final String CODE_FULL = "clipboard_full";
 
     private static final String FULL_URL = "请填写以 https:// 开头的完整中继地址。";
+    private static final String FULL_WEBDAV_URL = "请填写以 https:// 开头的完整服务器地址。";
+    private static final String WEBDAV_BINDING_PREFIX = "webdav:";
+    /** WebDAV 账号和应用密码各自的上限，与 Rust 的 `MAX_WEBDAV_CREDENTIAL_BYTES` 相同。 */
+    public static final int MAX_WEBDAV_CREDENTIAL_BYTES = 256;
     private static final String[] LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "[::1]"};
     /** 绑定取 SHA-256 的前 16 字节，与 Rust 给令牌空间编号的长度相同；它在本机内存里比较，落盘只在 AndroidKeyStore 加密的中继密钥串里（标明那份属于哪个中继），不发出去。 */
     private static final int BINDING_BYTES = 16;
@@ -74,14 +78,25 @@ public final class CloudClipboardRelayPolicy {
 
     /** 中继地址的问题，没有问题时为 null：https（http 只放行本机回环地址）、有主机名、可以带路径前缀，不带查询串、片段和用户信息，不超过 2048 字节。 */
     public static String urlProblem(String url) {
-        if (url == null || url.isEmpty()) return "请填写中继地址。";
-        if (TextPolicy.utf8Length(url) > MAX_URL_BYTES) return "中继地址过长。";
+        return urlProblem(url, false);
+    }
+
+    /** WebDAV 网盘文件夹地址的问题，没有问题时为 null：规则与中继地址相同（Rust 的 `CloudClipboardWebDavPreferences` 也用 `valid_relay_url`），只是说法换成「服务器地址」，与共享设置页的 `cloudClipboardWebDavUrlIssue` 相同。 */
+    public static String webdavUrlProblem(String url) {
+        return urlProblem(url, true);
+    }
+
+    private static String urlProblem(String url, boolean webdav) {
+        String name = webdav ? "服务器地址" : "中继地址";
+        String full = webdav ? FULL_WEBDAV_URL : FULL_URL;
+        if (url == null || url.isEmpty()) return "请填写" + name + "。";
+        if (TextPolicy.utf8Length(url) > MAX_URL_BYTES) return name + "过长。";
         for (int index = 0; index < url.length(); index++) {
             char c = url.charAt(index);
-            if (c < 0x20 || c == 0x7f) return "中继地址不能包含控制字符。";
+            if (c < 0x20 || c == 0x7f) return name + "不能包含控制字符。";
         }
         int separator = url.indexOf("://");
-        if (separator <= 0) return FULL_URL;
+        if (separator <= 0) return full;
         String scheme = TextPolicy.lowercase(url.substring(0, separator));
         String rest = url.substring(separator + 3);
         int end = rest.length();
@@ -90,17 +105,18 @@ public final class CloudClipboardRelayPolicy {
             if (at >= 0 && at < end) end = at;
         }
         String authority = rest.substring(0, end);
-        if (authority.isEmpty()) return FULL_URL;
-        if (authority.indexOf('@') >= 0) return "中继地址不能包含用户名或密码，令牌请填在下面。";
-        if (url.indexOf('?') >= 0 || url.indexOf('#') >= 0) return "中继地址不能带查询串或片段。";
+        if (authority.isEmpty()) return full;
+        if (authority.indexOf('@') >= 0) return webdav
+            ? "服务器地址不能包含用户名或密码，账号和应用密码请填在下面。" : "中继地址不能包含用户名或密码，令牌请填在下面。";
+        if (url.indexOf('?') >= 0 || url.indexOf('#') >= 0) return name + "不能带查询串或片段。";
         String host = host(authority);
-        if (host == null) return FULL_URL;
+        if (host == null) return full;
         if ("https".equals(scheme)) return null;
         if ("http".equals(scheme)) {
             return Arrays.asList(LOOPBACK_HOSTS).contains(TextPolicy.lowercase(host))
-                ? null : "中继必须使用 HTTPS；HTTP 只支持本机回环地址（127.0.0.1、localhost）。";
+                ? null : (webdav ? "WebDAV 服务器" : "中继") + "必须使用 HTTPS；HTTP 只支持本机回环地址（127.0.0.1、localhost）。";
         }
-        return FULL_URL;
+        return full;
     }
 
     /** 中继令牌的问题，没有问题时为 null：16 到 256 个可打印 ASCII 字符，不含空格。 */
@@ -113,6 +129,36 @@ public final class CloudClipboardRelayPolicy {
         if (token.length() < MIN_TOKEN_CHARS || token.length() > MAX_TOKEN_CHARS)
             return "中继令牌应为 " + MIN_TOKEN_CHARS + " 到 " + MAX_TOKEN_CHARS + " 个字符。";
         return null;
+    }
+
+    /** WebDAV 账号的问题，没有问题时为 null：与 Rust 的 `valid_webdav_username` 相同，1 到 256 字节，不含控制字符，也不含冒号（HTTP Basic 鉴权用冒号分隔账号和密码）。 */
+    public static String usernameProblem(String username) {
+        if (username == null || username.isEmpty()) return "请填写网盘账号。";
+        if (TextPolicy.utf8Length(username) > MAX_WEBDAV_CREDENTIAL_BYTES) return "网盘账号过长。";
+        if (hasControl(username)) return "网盘账号不能包含控制字符。";
+        if (username.indexOf(':') >= 0) return "网盘账号不能包含冒号。";
+        return null;
+    }
+
+    /** WebDAV 应用密码的问题，没有问题时为 null：与 Rust 的 `valid_webdav_password` 相同，1 到 256 字节，不含控制字符。 */
+    public static String passwordProblem(String password) {
+        if (password == null || password.isEmpty()) return "请填写应用密码。";
+        if (TextPolicy.utf8Length(password) > MAX_WEBDAV_CREDENTIAL_BYTES) return "应用密码过长。";
+        if (hasControl(password)) return "应用密码不能包含控制字符。";
+        return null;
+    }
+
+    /** 与 Rust 的 `char::is_control` 相同：Unicode 的 Cc 类，即 U+0000–U+001F 和 U+007F–U+009F，都在基本平面里，按 char 逐个看就够了。 */
+    private static boolean hasControl(String text) {
+        for (int index = 0; index < text.length(); index++) {
+            if (Character.isISOControl(text.charAt(index))) return true;
+        }
+        return false;
+    }
+
+    /** 绑定是不是 WebDAV 网盘的（{@link #webdavBinding}）；键盘面板据此把「中继」的说法换成「网盘」。 */
+    public static boolean webdav(String binding) {
+        return binding != null && binding.startsWith(WEBDAV_BINDING_PREFIX);
     }
 
     /** 偏好里是否配置了中继，与 Rust 的 `CloudClipboardRelayPreferences::is_configured` 相同：只看地址。 */
@@ -160,12 +206,29 @@ public final class CloudClipboardRelayPolicy {
         digest.update(url.getBytes(StandardCharsets.UTF_8));
         digest.update((byte) 0);
         digest.update(TextPolicy.emptyIfNull(username).getBytes(StandardCharsets.UTF_8));
-        return "webdav:" + DigestPolicy.hex(Arrays.copyOf(digest.digest(), BINDING_BYTES));
+        return WEBDAV_BINDING_PREFIX + DigestPolicy.hex(Arrays.copyOf(digest.digest(), BINDING_BYTES));
     }
 
     /** 经中继失败时给人看的一句话；不是中继特有的错误码时为 null，由调用方用自己的说法。 */
     public static String failureMessage(String code) {
+        return failureMessage(code, false);
+    }
+
+    /**
+     * 同上；`webdav` 为真时走的是 WebDAV 网盘（含设置页的「测试连接」）：同样的码说成网盘、账号和应用密码，不提中继和令牌。
+     */
+    public static String failureMessage(String code, boolean webdav) {
         if (code == null) return null;
+        if (webdav) {
+            switch (code) {
+                case CODE_UNAUTHORIZED: return "网盘拒绝了这个账号或应用密码";
+                case CODE_UNAVAILABLE: return "连不上网盘，请检查地址和网络；证书须由公网信任的机构签发";
+                case CODE_STORAGE: return "这台设备上的云剪贴板密钥或缓存读写失败，请稍后再试";
+                case CODE_NOT_CONFIGURED: return "地址、账号或应用密码不完整";
+                case CODE_CHANGED: return "网盘设置已改变，请重新打开页面";
+                default: break;
+            }
+        }
         return switch (code) {
             case CODE_UNAUTHORIZED -> "中继拒绝了这个令牌，请检查云剪贴板设置里的中继令牌";
             case CODE_UNAVAILABLE -> "连不上中继，请检查中继地址和网络；证书须由公网信任的机构签发";

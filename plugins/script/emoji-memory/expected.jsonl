@@ -1,0 +1,32 @@
+{"seq": 1, "event": "focus_in", "status": "not_subscribed", "actions": [], "log": []}
+{"seq": 2, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "xiao: no insert"}], "inserts": []}
+{"seq": 3, "event": "candidate_selected", "status": "ok", "actions": [{"import": "storage_write", "result": "ok"}], "log": [{"level": "debug", "text": "learn xiao 😄 1"}], "storage": {"len": 79, "text": "emoji-memory 1\n00001 xiao                     😄                            \n"}}
+{"seq": 4, "event": "focus_out", "status": "not_subscribed", "actions": [], "log": []}
+{"seq": 5, "event": "focus_in", "status": "not_subscribed", "actions": [], "log": []}
+{"seq": 6, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "xiao: insert 😄"}], "inserts": [[1, "😄", "常用"]]}
+{"seq": 7, "event": "candidate_selected", "status": "ok", "actions": [{"import": "storage_write", "result": "ok"}], "log": [{"level": "debug", "text": "learn xiao 😄 2"}], "storage": {"len": 79, "text": "emoji-memory 1\n00002 xiao                     😄                            \n"}}
+{"seq": 8, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "xiao: insert 😄"}], "inserts": [[1, "😄", "常用"]]}
+{"seq": 9, "event": "candidate_selected", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: not an emoji row"}]}
+{"seq": 10, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "xiao: no insert"}], "inserts": []}
+{"seq": 11, "event": "candidate_selected", "status": "ok", "actions": [{"import": "storage_write", "result": "ok"}], "log": [{"level": "debug", "text": "learn xiao 😂 1"}], "storage": {"len": 143, "text": "emoji-memory 1\n00002 xiao                     😄                            \n00001 xiao                     😂                            \n"}}
+{"seq": 12, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}, {"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "xiao: insert 😄,😂"}], "inserts": [[1, "😄", "常用"], [1, "😂", "常用"]]}
+{"seq": 13, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "xiao: insert 😂"}], "inserts": [[1, "😂", "常用"]]}
+{"seq": 14, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}, {"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "xiao: insert 😄,😂"}], "inserts": [[1, "😄", "常用"], [1, "😂", "常用"]]}
+{"seq": 15, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "nihao: none"}], "inserts": []}
+{"seq": 16, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "xiao: no insert"}], "inserts": []}
+{"seq": 17, "event": "candidate_selected", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: not committed"}]}
+{"seq": 18, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "xiao: no insert"}], "inserts": []}
+{"seq": 19, "event": "candidate_selected", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: mode"}]}
+{"seq": 20, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: absent"}], "inserts": []}
+{"seq": 21, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: no code"}], "inserts": []}
+{"seq": 22, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: no code"}], "inserts": []}
+{"seq": 23, "event": "candidate_selected", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: no window"}]}
+{"seq": 24, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}, {"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "xiao: insert 😄,😂"}], "inserts": [[1, "😄", "常用"], [1, "😂", "常用"]]}
+{"seq": 25, "event": "candidate_selected", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: not an emoji row"}]}
+{"seq": 26, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "jiating: no insert"}], "inserts": []}
+{"seq": 27, "event": "candidate_selected", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: not an emoji row"}]}
+{"seq": 28, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "jiating: no insert"}], "inserts": []}
+{"seq": 29, "event": "candidate_selected", "status": "ok", "actions": [{"import": "storage_write", "result": "ok"}], "log": [{"level": "debug", "text": "learn jiating 👍🏽 1"}], "storage": {"len": 207, "text": "emoji-memory 1\n00002 xiao                     😄                            \n00001 xiao                     😂                            \n00001 jiating                  👍🏽                        \n"}}
+{"seq": 30, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "jiating: insert 👍🏽"}], "inserts": [[1, "👍🏽", "常用"]]}
+{"seq": 31, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: empty"}], "inserts": []}
+{"seq": 32, "event": "focus_out", "status": "not_subscribed", "actions": [], "log": []}
