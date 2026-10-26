@@ -204,26 +204,29 @@ void caret_edit_suffix() {
   // 提示用次要色（没有皮肤色时是序号色，灰），画在它自己的框里。
   assert(colors(target.get(), both.auxiliary_hint)[0x808080] > 10);
 
-  // 画淡：第一行不选中，正文白色、序号灰色；画淡开头一个字以后这一行里灰色的像素变多，白色的变少。
+  // 画淡：用绿色区分序号色与白字抗锯齿产生的灰像素，避免缺字回退字体改变灰像素数。
+  // 第一行不选中；画淡开头一个字后，序号色像素变多，白色变少，后一个字仍保持白色。
   content.auxiliary.clear();
   content.auxiliary_hint.clear();
   content.selected = 1;
+  auto dim_palette = kPalette;
+  dim_palette["number"] = "#00FF00";
   const auto ink = [&](std::size_t dim_bytes) {
     content.items[0].dim_prefix_bytes = dim_bytes;
     const auto layout = host::measure_native_canvas(cr, *assets, content, 1600);
     cairo_save(cr); cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR); cairo_paint(cr); cairo_restore(cr);
-    host::paint_native_canvas(cr, *assets, content, layout, kPalette);
+    host::paint_native_canvas(cr, *assets, content, layout, dim_palette);
     return std::make_pair(layout, colors(target.get(), layout.items[0]));
   };
   auto [undimmed_layout, undimmed] = ink(0);
   auto [dimmed_layout, dimmed] = ink(std::string("你").size());
-  assert(dimmed[0x808080] > undimmed[0x808080] && dimmed[0xffffff] < undimmed[0xffffff] && dimmed[0xffffff] > 0);
+  assert(dimmed[0x00ff00] > undimmed[0x00ff00] && dimmed[0xffffff] < undimmed[0xffffff] && dimmed[0xffffff] > 0);
   // 只改颜色：行的大小不变。
   assert(near(dimmed_layout.items[0].width, undimmed_layout.items[0].width) &&
          near(dimmed_layout.items[0].height, undimmed_layout.items[0].height));
   // 整行都画淡时正文里不剩白色；越界的字节数按整段算。
   auto [whole_layout, whole] = ink(100);
-  assert(whole[0xffffff] == 0 && whole[0x808080] > dimmed[0x808080]);
+  assert(whole[0xffffff] == 0 && whole[0x00ff00] > dimmed[0x00ff00]);
   cairo_destroy(cr);
 }
 
