@@ -124,6 +124,8 @@ public final class AboutPage extends DetailPage {
         if (ManagementUi.available()) {
             links.nav("在管理界面中查看", "更新日志、致谢与更多信息", null, this::openTauriAbout);
         }
+        links.nav("开发者选项", "日志、诊断包和开发者访问", null,
+            () -> SettingsNavigator.open(context, PageId.DEVELOPER, null));
 
         TextView footer = ViewPolicy.styledLabel(context, "© 2026 Metasequoia · 输入内容默认只在本机处理",
             13, 400, ThemeColorPolicy.subText(context));

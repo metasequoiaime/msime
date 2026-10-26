@@ -105,6 +105,8 @@ public final class AndroidLocalSettings {
     /** 底部留白目标高度（dp），独立于按键高度，只在本机保存。 */
     public static final String BOTTOM_PADDING_HEIGHT = "platform.android.bottom_padding_height";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
+    /** 调试日志总开关；关闭后不显示调试信息，也不记录输入日志。 */
+    public static final String DEVELOPER_LOGGING_ENABLED = "platform.android.developer.logging_enabled";
     public static final String DEVELOPER_LOG_LEVEL = "platform.android.developer.log_level";
     /** 「记录输入日志」：只记时间和事件种类，不记按键内容、文本和候选。 */
     public static final String DEVELOPER_INPUT_LOG = "platform.android.developer.input_log";
@@ -232,7 +234,8 @@ public final class AndroidLocalSettings {
         integer(BOTTOM_PADDING_HEIGHT, KeyboardBottomBarPolicy.DEFAULT_PADDING_DP, false,
             KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, 1);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
-        choice(DEVELOPER_LOG_LEVEL, "warn", false, "error", "warn", "info", "debug");
+        bool(DEVELOPER_LOGGING_ENABLED, true, false);
+        choice(DEVELOPER_LOG_LEVEL, "debug", false, "error", "warn", "info", "debug");
         bool(DEVELOPER_INPUT_LOG, false, false);
         text(CLIPBOARD_EXPORT_TREE, "", false,
             value -> value.length() <= 8192 && (value.isEmpty() || value.startsWith("content://")) ? value : null);
