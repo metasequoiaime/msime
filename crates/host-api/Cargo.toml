@@ -24,7 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
-time.workspace = true
+time = { workspace = true, features = ["local-offset"] }
 libc.workspace = true
 
 # Desktop hosts only; the mobile hosts do this natively. OpenHarmony reports target_os = "linux" and has no ALSA to link.

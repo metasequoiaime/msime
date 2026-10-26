@@ -319,9 +319,9 @@ const SKIN_TOP_PADDING_VP: number = 4;
 const SKIN_ROWS_GAP_VP: number = 2;
 const SKIN_MIN_COLUMNS_GAP_VP: number = 6;
 const PANEL_DOTS_ROOM_VP: number = 14;
-// 功能面板和方案选择的磁贴网格：上方 10vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`），行数和行距见 `FunctionPanelPolicy.pickerGrid`；面板比这高时各行平分多出来的高度，而不是在底下空着一块。
+// 功能面板和方案选择的磁贴网格：上方 10vp，满尺寸行高 52vp（设计稿和 Android 的 `FunctionPanelView`）；行数、行距和磁贴缩放见 `FunctionPanelPolicy.pickerGrid`，放不下满尺寸时磁贴整体等比缩小；面板比网格高时各行平分多出来的高度，而不是在底下空着一块。
 const TILE_TOP_PADDING_VP: number = 10;
-const TILE_MIN_ROW_VP: number = 52;
+const TILE_ROW_VP: number = 52;
 const PANEL_BOTTOM_PADDING_VP: number = 4;
 const PANEL_SIDE_PADDING_VP: number = 4;
 const PANEL_COLUMNS: number = 4;
@@ -3237,7 +3237,8 @@ struct KeyboardView {
           : Math.max(0, 9 - (this.candidateNumberSize() > 0
             ? CandidateWidthPolicy.textWidthVp(`${index + 1}`, this.candidateNumberSize()) : -CandidateWidthPolicy.ORDINAL_GAP_VP)))
       : TextPolicy.characters(candidate.text).length * this.settings.candidateFontSize;
-    if (!KeyboardSession.shared.glossesExpected()) {
+    if (!CandidateChipWidth.reservesColumn(KeyboardSession.shared.glossesExpected(), candidate.source,
+      candidate.hunEum)) {
       return CandidateLayoutPolicy.chipWidth(this.candidateGeometry(), this.settings.candidateFontSize, word, padding);
     }
     const column: number = CandidateChipWidth.column(this.availableWidth, 0, padding);
@@ -4381,9 +4382,10 @@ struct KeyboardView {
       ? CandidateChipWidth.column(this.chipLaneWidth(), 0, CHIP_PADDING_VP) : 0;
   }
 
-  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。 */
-  private chipMinWidth(): number {
-    const column: number = this.chipGlossColumn();
+  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。永远没有注释的来源（emoji、符号等，见 `CandidateChipWidth.reservesColumn`）不留这一列。 */
+  private chipMinWidth(candidate: CandidateEntry): number {
+    const column: number = CandidateChipWidth.reservesColumn(KeyboardSession.shared.glossesExpected(),
+      candidate.source, candidate.hunEum) ? this.chipGlossColumn() : 0;
     const minimum: number = Math.max(CHIP_MIN_WIDTH_VP,
       CandidateLayoutPolicy.dip(this.settings.candidateSkinLayout?.horizontal.itemMinWidth, this.chipFontSize(), 0));
     return column > 0 ? Math.max(minimum, Math.ceil(column + CHIP_PADDING_VP * 2)) : minimum;
@@ -4452,7 +4454,7 @@ struct KeyboardView {
           .constraintSize({ maxWidth: this.chipGlossMaxWidth(candidate) })
       }
     }
-    .constraintSize({ minWidth: this.chipMinWidth() })
+    .constraintSize({ minWidth: this.chipMinWidth(candidate) })
     .height(CHIP_HEIGHT_VP)
     .padding({ left: CHIP_PADDING_VP, right: CandidateLayoutPolicy.dip(
       this.settings.candidateSkinLayout?.horizontal.itemPaddingRight, this.chipFontSize(), CHIP_PADDING_VP) })
@@ -7510,10 +7512,10 @@ struct KeyboardView {
     }
   }
 
-  /** 功能面板和方案选择的行数和行距（`FunctionPanelPolicy.pickerGrid`）；是否放得下按有圆点算。 */
+  /** 功能面板和方案选择的行数、行距和磁贴缩放（`FunctionPanelPolicy.pickerGrid`），按面板去掉上方留白、圆点和下方留白后的高度排；是否放得下按有圆点算。 */
   private tileGrid(): PickerGrid {
-    return FunctionPanelPolicy.pickerGrid(this.phoneLandscape, this.surfaceHeight(), TILE_MIN_ROW_VP,
-      TILE_TOP_PADDING_VP + PANEL_DOTS_ROOM_VP + PANEL_BOTTOM_PADDING_VP);
+    return FunctionPanelPolicy.pickerGrid(this.phoneLandscape,
+      this.surfaceHeight() - TILE_TOP_PADDING_VP - PANEL_DOTS_ROOM_VP - PANEL_BOTTOM_PADDING_VP, TILE_ROW_VP);
   }
 
   private tilePageSize(): number {
@@ -7521,11 +7523,11 @@ struct KeyboardView {
   }
 
   /** 皮肤选择器的行高：两行预览，多于一页时再加圆点，在按键让出的高度内。 */
-  /** 功能面板和方案选择每行的高度：各行填满面板去掉上下留白、行距和圆点后的高度，至少 `TILE_MIN_ROW_VP`。磁贴在行内居中。 */
+  /** 功能面板和方案选择每行的高度：各行填满面板去掉上下留白、行距和圆点后的高度，至少为 `pickerGrid` 给的缩放后行高。磁贴在行内居中。 */
   private tileRowHeight(count: number): number {
     const grid: PickerGrid = this.tileGrid();
     const dots: number = count > this.tilePageSize() ? PANEL_DOTS_ROOM_VP : 0;
-    return Math.max(TILE_MIN_ROW_VP, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP
+    return Math.max(grid.rowHeight, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP
       - (grid.rows - 1) * grid.rowsGap - dots - PANEL_BOTTOM_PADDING_VP) / grid.rows));
   }
 
@@ -7609,6 +7611,7 @@ struct KeyboardView {
       PanelTile({
         label: '添加语言',
         iconPath: KeyboardIconPaths.PLUS,
+        contentScale: this.tileGrid().scale,
         foreground: this.skin.keyForeground,
         accent: this.skin.toggleForeground,
         ringColor: this.skin.background,
@@ -7626,6 +7629,7 @@ struct KeyboardView {
         label: ENGLISH_TITLES[entry.kind === PICKER_ENGLISH_9 ? 1 : 0],
         glyph: 'EN',
         subscript: entry.kind === PICKER_ENGLISH_9 ? '9' : '26',
+        contentScale: this.tileGrid().scale,
         on: this.isCurrentEnglish(entry.kind === PICKER_ENGLISH_9),
         foreground: this.skin.keyForeground,
         accent: this.skin.toggleForeground,
@@ -7648,6 +7652,7 @@ struct KeyboardView {
       label: KeyboardScheme.title(candidate, this.wubiProfile),
       glyph: candidate.glyph,
       subscript: KeyboardScheme.badge(candidate, this.wubiProfile),
+      contentScale: this.tileGrid().scale,
       on: this.isCurrentScheme(candidate),
       disabled: !this.schemeAvailable(candidate),
       foreground: this.skin.keyForeground,
@@ -8459,6 +8464,7 @@ struct KeyboardView {
       label: FunctionPanelPolicy.label(item, this.feedback.strength),
       glyph: item.glyph ?? '',
       iconPath: item.icon ?? '',
+      contentScale: this.tileGrid().scale,
       on: this.functionTileOn(item.id),
       disabled: !this.functionTileEnabled(item.id),
       foreground: this.skin.keyForeground,

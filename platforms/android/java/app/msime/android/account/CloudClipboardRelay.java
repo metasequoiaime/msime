@@ -27,9 +27,8 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
     private final String keystoreDirectory;
     private final String deviceName;
     private final String binding;
-    /** 打开时偏好里的中继地址和令牌，这一页的每个请求都发往它。令牌是凭据，不写日志。 */
-    private final String url;
-    private final String token;
+    /** 打开时偏好里的中继（或 WebDAV 网盘），这一页的每个请求都发往它。令牌、账号和应用密码是凭据，不写日志。 */
+    private final Relay relay;
     private final CloudClipboardE2e.Local local;
 
     private CloudClipboardRelay(String preferencesDirectory, String keystoreDirectory, String deviceName,
@@ -38,14 +37,13 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
         this.keystoreDirectory = keystoreDirectory;
         this.deviceName = deviceName;
         this.binding = relay.binding();
-        this.url = relay.url();
-        this.token = relay.token();
+        this.relay = relay;
         this.local = new CloudClipboardE2e.Local(CloudClipboardNativeDriver.INSTANCE,
             CloudClipboardKeystore.forRelay(Paths.get(keystoreDirectory), binding, sealer), deviceName);
     }
 
-    /** 偏好里的一份中继配置和它的绑定。 */
-    private record Relay(String url, String token, String binding) {}
+    /** 偏好里的一份中继配置和它的绑定。`webdav` 为真时是 WebDAV 网盘（`docs/cloud-clipboard-webdav.md`）：`token` 为空，用 `username` 和 `password`；否则是 HTTP 中继，后两项为空。 */
+    private record Relay(boolean webdav, String url, String token, String username, String password, String binding) {}
 
     /**
      * 按偏好里现在的中继打开：记下这一刻的地址、令牌和绑定（{@link CloudClipboardRelayPolicy#binding}），之后据此认出地址或令牌换过。没有配置中继时抛出 `relay_not_configured`，偏好读不了时抛出 `storage`。读文件，要在工作线程上调用。
@@ -104,9 +102,16 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
         return route == CloudClipboardRelayPolicy.Route.RELAY;
     }
 
-    /** 偏好文档（`preferences` 对象）里中继的绑定；没配置或文档为 null 时为空串。不读文件，主线程上可以用。 */
+    /** 偏好文档（`preferences` 对象）里中继或 WebDAV 网盘的绑定；都没配置或文档为 null 时为空串。网盘优先，与共享层选路相同（两者同时配置的文档共享层不认，`selected` 会报错）。不读文件，主线程上可以用。 */
     public static String binding(JSONObject preferences) {
-        JSONObject relay = preferences == null ? null : preferences.optJSONObject(CloudClipboardRelayPolicy.PREFERENCE);
+        if (preferences == null) return "";
+        JSONObject webdav = preferences.optJSONObject(CloudClipboardRelayPolicy.WEBDAV_PREFERENCE);
+        if (webdav != null) {
+            String binding = CloudClipboardRelayPolicy.webdavBinding(JsonPolicy.strictStringOrEmpty(webdav.opt("url")),
+                JsonPolicy.strictStringOrEmpty(webdav.opt("username")));
+            if (!binding.isEmpty()) return binding;
+        }
+        JSONObject relay = preferences.optJSONObject(CloudClipboardRelayPolicy.PREFERENCE);
         if (relay == null) return "";
         return CloudClipboardRelayPolicy.binding(JsonPolicy.strictStringOrEmpty(relay.opt("url")),
             JsonPolicy.strictStringOrEmpty(relay.opt("token")));
@@ -126,9 +131,15 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
         if (preferences == null) throw failure("storage");
         String binding = binding(preferences);
         if (binding.isEmpty()) return null;
+        if (binding.startsWith("webdav:")) {
+            JSONObject webdav = preferences.optJSONObject(CloudClipboardRelayPolicy.WEBDAV_PREFERENCE);
+            return new Relay(true, JsonPolicy.strictStringOrEmpty(webdav.opt("url")), "",
+                JsonPolicy.strictStringOrEmpty(webdav.opt("username")),
+                JsonPolicy.strictStringOrEmpty(webdav.opt("password")), binding);
+        }
         JSONObject relay = preferences.optJSONObject(CloudClipboardRelayPolicy.PREFERENCE);
-        return new Relay(JsonPolicy.strictStringOrEmpty(relay.opt("url")),
-            JsonPolicy.strictStringOrEmpty(relay.opt("token")), binding);
+        return new Relay(false, JsonPolicy.strictStringOrEmpty(relay.opt("url")),
+            JsonPolicy.strictStringOrEmpty(relay.opt("token")), "", "", binding);
     }
 
     /**
@@ -149,15 +160,24 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
         }
     }
 
-    /** 把驱动的一个请求发给打开时的那个中继，状态码和正文原样交回驱动。请求里有令牌，不写日志。 */
+    /**
+     * 把驱动的一个请求发给打开时的那个中继，状态码和正文原样交回驱动。请求里有令牌或应用密码，不写日志。
+     *
+     * <p>WebDAV 网盘没有服务端，由 Rust 在本机扮演中继，读写网盘上的事件日志来回答；它在 {@link #keystoreDirectory} 里放日志的本机缓存（只有密文和公开数据，与 `msime_client_relay_cloud_clipboard` 那条路共用）和锁文件，所以把这个目录一起传过去。
+     */
     private CloudClipboardE2e.Reply exchange(String method, String path, String body) throws CloudApi.Failure {
         JSONObject value;
         try {
-            JSONObject request = new JSONObject()
-                .put("url", url)
-                .put("token", token)
-                .put("method", method)
-                .put("path", path);
+            JSONObject request = new JSONObject().put("url", relay.url());
+            if (relay.webdav()) {
+                request.put("backend", "webdav")
+                    .put("username", relay.username())
+                    .put("password", relay.password())
+                    .put("directory", keystoreDirectory);
+            } else {
+                request.put("token", relay.token());
+            }
+            request.put("method", method).put("path", path);
             if (body != null) request.put("body", body);
             value = value(NativeClient.relayCloudClipboardExchange(request.toString()));
         } catch (JSONException | IllegalArgumentException malformed) {
@@ -193,7 +213,7 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
         direct("clear", null, null);
     }
 
-    /** 偏好里的中继还是打开时那一个；换了地址或令牌、改回了水杉账号都抛出 `relay_changed`。 */
+    /** 偏好里的中继还是打开时那一个；换了地址或令牌（网盘是地址或账号）、改回了水杉账号都抛出 `relay_changed`。 */
     @Override public void requireCurrent() throws CloudApi.Failure {
         if (!binding.equals(currentBinding(preferencesDirectory))) throw failure(CloudClipboardRelayPolicy.CODE_CHANGED);
     }

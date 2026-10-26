@@ -1947,7 +1947,7 @@ public final class MSIMEInputService extends InputMethodService {
         renderLayoutSettingsState();
         render();
         if (ViewPolicy.isVisible(skinScroll)) imePanels.renderSkinPicker();
-        // 输入方式和功能面板的行数随横竖屏和窗口变（pickerGrid），转屏后按新配置重排，横屏不会留着竖屏的三行。render 没有会话视图时会提前返回，所以这里自己重排功能面板。
+        // 输入方式和功能面板的行数随横竖屏变（pickerPhoneLandscape），转屏后按新配置重排，横屏不会留着竖屏的三行；行高和行距由网格按新的面板高度重新量。render 没有会话视图时会提前返回，所以这里自己重排功能面板。
         if (ViewPolicy.isVisible(schemeScroll)) imePanels.renderSchemePicker();
         if (ViewPolicy.isVisible(moreToolsScroll)) imeFunctionPanel.renderMoreTools();
     }
@@ -4685,13 +4685,11 @@ public final class MSIMEInputService extends InputMethodService {
             view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
     }
 
-    /** 输入方式和功能面板此刻每页的行数和行距（{@link PagedTileGrid#pickerGrid}）：手机横屏两行，其余在当前键盘高度和行距下放得下就三行。 */
-    PagedTileGrid.PickerGrid pickerGrid(float rowHeightDp, float chromeDp) {
+    /** 输入方式和功能面板此刻是不是手机横屏（{@link PagedTileGrid#pickerGrid}）：手机横屏两行，其余三行；行高、行距和放不下三行时退成两行，由网格按面板量到的高度定。 */
+    boolean pickerPhoneLandscape() {
         Configuration configuration = getResources().getConfiguration();
-        boolean phoneLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        return configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             && !KeyboardFormFactorPolicy.expanded(configuration.smallestScreenWidthDp);
-        return PagedTileGrid.pickerGrid(phoneLandscape, KeyboardHeightPolicy.keyAreaHeightDp(
-            touchKeyboardHeightAdjustment, configuration.screenHeightDp, touchRowSpacingTenths), rowHeightDp, chromeDp);
     }
 
     int displayedTouchLayout(JSONObject value) {

@@ -280,7 +280,7 @@ public final class NativeClient {
     }
 
     /**
-     * 向中继发端到端加密驱动给出的一个请求：请求是 `{url, token, method, path, body}`，`url` 和 `token` 是这次操作开始时从偏好里读到的那一份；返回 `{"ok":true,"value":{"status":…,"body":"…"}}`，状态码和正文原样交回驱动。Rust 只负责校验地址和令牌、把请求限定在中继基地址下的云剪贴板接口、带上令牌、限制响应大小，不读偏好、不读写任何密钥串。请求里有令牌，不要写日志。错误码见 `crates/host-api/include/msime_client.h`。
+     * 向中继发端到端加密驱动给出的一个请求：请求是 `{url, token, method, path, body}`（WebDAV 网盘是 `{backend:"webdav", url, username, password, directory, method, path, body}`），`url` 和 `token` 是这次操作开始时从偏好里读到的那一份；返回 `{"ok":true,"value":{"status":…,"body":"…"}}`，状态码和正文原样交回驱动。Rust 只负责校验地址和令牌、把请求限定在中继基地址下的云剪贴板接口、带上令牌、限制响应大小，不读偏好、不读写任何密钥串。请求里有令牌，不要写日志。错误码见 `crates/host-api/include/msime_client.h`。
      *
      * <p>阻塞在网络上（最多 30 秒），只在工作线程上调用。
      */
@@ -289,6 +289,18 @@ public final class NativeClient {
         if (payload.length > CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT)
             throw new IllegalArgumentException("Cloud clipboard relay request is too large");
         return TextPolicy.utf8(cloudClipboardRelayExchangeRaw(payload));
+    }
+
+    /**
+     * WebDAV 设置的「测试连接」：请求是 `{url, username, password, directory?}`（设置页里还没保存的草稿；`directory` 是中继密钥串的目录，通过后删掉那里的日志缓存），通过时返回 `{"ok":true,"value":{}}`。不合格是 `webdav_unsupported`，账号或密码不对是 `relay_unauthorized`。格式见 `crates/host-api/include/msime_client.h`。请求里有应用密码，不要写日志。
+     *
+     * <p>阻塞在网络上（大约二十个请求，每个最多 30 秒），只在工作线程上调用。
+     */
+    public static String cloudClipboardWebDavProbe(String request) {
+        byte[] payload = utf8(request);
+        if (payload.length > CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Cloud clipboard WebDAV probe request is too large");
+        return TextPolicy.utf8(cloudClipboardWebDavProbeRaw(payload));
     }
 
     /**
@@ -1015,6 +1027,7 @@ public final class NativeClient {
     private static native byte[] cloudClipboardSourceRaw(byte[] directory);
     private static native byte[] cloudClipboardRelayRaw(byte[] request);
     private static native byte[] cloudClipboardRelayExchangeRaw(byte[] request);
+    private static native byte[] cloudClipboardWebDavProbeRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);

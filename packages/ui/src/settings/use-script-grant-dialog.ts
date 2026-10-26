@@ -1,16 +1,26 @@
 import { useState } from "react";
 import { pluginErrorMessage } from "./plugin-catalog-helpers";
-import { sortCapabilities, toggleCapability } from "./plugin-script-model";
-import type { PluginPackage, ScriptCapability } from "./plugin-types";
+import { grantDeletesStoredData, sortCapabilities, toggleCapability } from "./plugin-script-model";
+import type { PluginPackage, ScriptCapability, ScriptGrant } from "./plugin-types";
 
 interface ScriptGrantDialogOptions {
   pack: PluginPackage;
   initial: readonly ScriptCapability[];
+  /** 授权文件里这个插件现在的那一条，不论内容哈希对不对得上；用来判断这次写入会不会删掉存下的数据。 */
+  saved?: Pick<ScriptGrant, "granted">;
+  /** 持久存储现在的字节数。 */
+  storageBytes: number;
   onConfirm: (granted: ScriptCapability[]) => Promise<void>;
 }
 
-/** 保留授权编辑，只按当前清单投影勾选和提交的能力；写入失败后允许修改并重试。 */
-export function useScriptGrantDialog({ pack, initial, onConfirm }: ScriptGrantDialogOptions) {
+/** 保留授权编辑，只按当前清单投影勾选和提交的能力；写入失败后允许修改并重试。这次写入会删掉插件存下的数据时，第一次确认只把删除说清楚，再确认一次才写。 */
+export function useScriptGrantDialog({
+  pack,
+  initial,
+  saved,
+  storageBytes,
+  onConfirm,
+}: ScriptGrantDialogOptions) {
   const requested = sortCapabilities(pack.permissions ?? []);
   const [granted, setGranted] = useState<ScriptCapability[]>(() =>
     sortCapabilities(initial.filter((item) => requested.includes(item))),
@@ -19,7 +29,15 @@ export function useScriptGrantDialog({ pack, initial, onConfirm }: ScriptGrantDi
   const selected = granted.filter((item) => requested.includes(item));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // 用户已经看过「会删除数据」的说明。改了勾选就要重新确认。
+  const [deletionShown, setDeletionShown] = useState(false);
+  const deletesData = grantDeletesStoredData(saved, selected, storageBytes);
+  const confirmingDeletion = deletesData && deletionShown;
   const confirm = async () => {
+    if (deletesData && !deletionShown) {
+      setDeletionShown(true);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -29,8 +47,10 @@ export function useScriptGrantDialog({ pack, initial, onConfirm }: ScriptGrantDi
       setBusy(false);
     }
   };
-  const setCapability = (capability: ScriptCapability, checked: boolean) =>
+  const setCapability = (capability: ScriptCapability, checked: boolean) => {
+    setDeletionShown(false);
     setGranted((current) => toggleCapability(current, capability, checked, requested));
+  };
 
-  return { requested, selected, busy, error, setCapability, confirm };
+  return { requested, selected, busy, error, confirmingDeletion, setCapability, confirm };
 }

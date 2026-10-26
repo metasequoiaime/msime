@@ -72,6 +72,7 @@ final class ImeLetterRows {
     private View eighteenRowTrailingIndent;
     /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
     private boolean builtSplit;
+    private int builtSplitWidthDp;
     /** 当前键行有没有画数字行；与 {@link MSIMEInputService#numberRowDrawn} 不一致时要重建（{@link #numberRowStale}）。 */
     private boolean builtNumberRow;
     private boolean builtSymbolExtraRow;
@@ -352,7 +353,8 @@ final class ImeLetterRows {
 
     /** 键行是否需要按分离式键盘的新状态重建：旋转、开关变化或换到另一种布局之后。 */
     boolean splitStale() {
-        return s.keyRows != null && builtSplit != s.splitKeyboardDrawn();
+        return s.keyRows != null && (builtSplit != s.splitKeyboardDrawn()
+            || builtSplit && builtSplitWidthDp != splitWidthDp());
     }
 
     /** 键行是否需要按「数字行」的新状态重建：设置页改了开关、或旋转让窗口高度跨过了 {@link KeyboardLayout#NUMBER_ROW_MIN_WINDOW_HEIGHT_DP} 之后。 */
@@ -376,6 +378,11 @@ final class ImeLetterRows {
         return gap;
     }
 
+    /** 使用当前应用窗口宽度，旋转和多窗口缩放后重新计算，不能沿用上次的键行份额。 */
+    int splitWidthDp() {
+        return s.getResources().getConfiguration().screenWidthDp;
+    }
+
     /** 一个子视图在分离计算里的份额：按渲染后的最终可见状态计，隐藏的记 0；微软双拼的 `;` 键在建行时还没被渲染校正，按 {@link #microsoftTenKeys} 计。 */
     private float splitWeight(View child) {
         if (child == s.microsoftFinalKey) return microsoftTenKeys() ? 1f : 0f;
@@ -395,7 +402,7 @@ final class ImeLetterRows {
         return total;
     }
 
-    /** 在键边界上把一行分成左右两半，中间插入占整行 25% 的空隙（断点规则见 {@link SplitKeyboardPolicy#cutIndex}）。 */
+    /** 在键边界上把一行分成左右两半，中间插入随窗口宽度扩展的空隙（断点规则见 {@link SplitKeyboardPolicy#cutIndex}）。 */
     void splitRow(LinearLayout row) {
         splitRow(row, 0f);
     }
@@ -404,7 +411,7 @@ final class ImeLetterRows {
     private void splitRow(LinearLayout row, float duplicateWeight) {
         float[] weights = splitWeights(row);
         row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), LayoutPolicy.weightedMatchParentParams(
-            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight)));
+            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp())));
     }
 
     /**
@@ -423,7 +430,7 @@ final class ImeLetterRows {
         float right = weights[spaceIndex] - left;
         space.setLayoutParams(LayoutPolicy.weightedMatchParentParams(left));
         row.addView(splitGap(), spaceIndex + 1,
-            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total)));
+            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp())));
         Button second = s.imeBottomRow.splitSpaceButton();
         if (second.getParent() instanceof android.view.ViewGroup parent) parent.removeView(second);
         ViewPolicy.show(second);
@@ -698,6 +705,7 @@ final class ImeLetterRows {
         builtNumberRow = false;
         builtSymbolExtraRow = s.symbolExtraRowDrawn();
         boolean split = s.splitKeyboardDrawn();
+        builtSplitWidthDp = splitWidthDp();
         if (split != builtSplit) {
             builtSplit = split;
             // 分离式键盘铺满宽度，其余情况回到大屏的限宽外框；单手模式在分离时让位，换回来时恢复。

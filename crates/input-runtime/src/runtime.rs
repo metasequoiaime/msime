@@ -1282,6 +1282,8 @@ impl<E: InputEngine> Runtime<E> {
             || self.settled_reranker.is_none()
             || self.is_idle()
             || self.generation.checked_add(1).is_none()
+            // 落定重排按座位挪行，插件插入的行没有引擎下标，会被当成引擎的候选挪走；有插入的行时不做。
+            || self.has_inserted_rows()
     }
 
     /// 判断是否需要模型前向计算；提前退出的情况可留在会话线程处理。
@@ -2077,6 +2079,7 @@ impl<E: InputEngine> Runtime<E> {
         // one of the presentation reorderings below actually moves a candidate.
         self.engine_order.clear();
         self.cached = snapshot;
+        self.forget_inserted_rows();
     }
 
     /// The Engine's index for the candidate sitting at `seat` of the cached list. A seat past the end is passed through unchanged, so the Engine keeps answering for an empty page exactly as it did.
@@ -2354,12 +2357,14 @@ impl<E: InputEngine> Runtime<E> {
             script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode)
                 && !self.commits_mixed_japanese()
                 && !self.commits_multilingual(),
-            typing_statistics: local_mode_counts_as_typing(&self.cached.local_mode),
+            // 插件给的行（`/` 指令行、插入普通候选的行）不是用户打的字，不计打字统计。
+            typing_statistics: local_mode_counts_as_typing(&self.cached.local_mode)
+                && !self.commits_plugin_row(),
             plugin_row: self.commits_plugin_row(),
         }
     }
 
-    /// 这次上屏的是脚本插件在 `/` 指令里给的行（`CandidateSource::Plugin`）：它不进 AI 上文，宿主也不把它转成全角。
+    /// 这次上屏的是脚本插件给的行（`CandidateSource::Plugin`，`/` 指令里的行或插进普通候选的行）：它不进 AI 上文、不计打字统计，宿主也不把它转成全角。
     fn commits_plugin_row(&self) -> bool {
         const PLUGIN: u8 = msime_engine::CandidateSource::Plugin as u8;
         self.facts.selection.is_some_and(|selection| {
@@ -2367,10 +2372,42 @@ impl<E: InputEngine> Runtime<E> {
         })
     }
 
-    /// 高亮的是插件指令行。
+    /// 高亮的是插件指令行（插进普通候选的行不算，见 [`Self::commit_inserted`]）。
     fn highlights_plugin_row(&self) -> bool {
         const PLUGIN: u8 = msime_engine::CandidateSource::Plugin as u8;
         self.cached.candidate_sources.get(self.highlighted) == Some(&PLUGIN)
+            && !self.is_inserted(self.highlighted)
+    }
+
+    /// 上屏插件插进普通候选的那一行：丢掉组字（不经过引擎选词，所以不进词库、不调词频），文本原样上屏。
+    fn commit_inserted(&mut self, seat: usize) -> Result<EngineResult, RuntimeError> {
+        let text = self
+            .cached
+            .candidates
+            .get(seat)
+            .cloned()
+            .unwrap_or_default();
+        let mut result = self.discard_composition()?;
+        result.handled = true;
+        result.has_commit = !text.is_empty();
+        result.commit = text;
+        Ok(result)
+    }
+
+    /// 选中 `seat` 上的候选：插入的行由 runtime 上屏，其余交给引擎。
+    fn select_seat(&mut self, seat: usize) -> Result<EngineResult, RuntimeError> {
+        if self.is_inserted(seat) {
+            return self.commit_inserted(seat);
+        }
+        self.engine.select(self.engine_index(seat))
+    }
+
+    /// 从 `seat` 上的候选结束组字：插入的行由 runtime 上屏，其余交给引擎。
+    fn finish_seat(&mut self, seat: usize) -> Result<EngineResult, RuntimeError> {
+        if self.is_inserted(seat) {
+            return self.commit_inserted(seat);
+        }
+        self.engine.finish(self.engine_index(seat))
     }
 
     /// 这次上屏的是日文混输行（`CandidateSource::MixedJapanese`），前面也没有暂存的中文词段：上屏的整段都是日文，不做简繁转换。前面暂存着中文词段时，暂存段和日文一起上屏，宿主只能整段转或整段不转，这时照旧转换，中文不被漏掉。
@@ -2839,6 +2876,7 @@ impl<E: InputEngine> Runtime<E> {
         let snapshot = match self.engine.snapshot() {
             Ok(snapshot) => snapshot,
             Err(error) => {
+                self.forget_inserted_rows();
                 self.cached = EngineSnapshot {
                     prediction: false,
                     scheme: 255,
@@ -2887,6 +2925,7 @@ impl<E: InputEngine> Runtime<E> {
             }
         };
         let previous = std::mem::replace(&mut self.cached, snapshot);
+        self.forget_inserted_rows();
         self.order_presentation();
         // 派发类调用里的 refresh 重新运行插件，其余只重放；隐藏的行数和插件注释的变化也算候选视图的变化。
         let plugin_marks_changed = self.transform_candidates();
@@ -3036,7 +3075,7 @@ impl<E: InputEngine> Runtime<E> {
         }
         // Finish through Engine with the host highlight BEFORE asking it to translate.
         // Calling Engine punctuation on an active composition would choose candidate zero.
-        let mut finished = self.engine.finish(self.engine_index(self.highlighted))?;
+        let mut finished = self.finish_seat(self.highlighted)?;
         self.record_selection(
             SelectionHow::PunctuationFinish,
             self.highlighted,
@@ -3116,7 +3155,7 @@ impl<E: InputEngine> Runtime<E> {
             self.facts.raw = raw.has_commit;
             raw
         } else {
-            let finished = self.engine.finish(self.engine_index(self.highlighted))?;
+            let finished = self.finish_seat(self.highlighted)?;
             self.record_selection(
                 SelectionHow::PunctuationFinish,
                 self.highlighted,
@@ -3384,15 +3423,22 @@ impl<E: InputEngine> Runtime<E> {
                 raw_route = true;
                 self.engine.command(Command::CommitRaw)
             }
+            // 失焦时插件插进普通候选的行也不替用户上屏：结束在引擎的首行上，和没有插件时一样。
+            Action::FinishOnFocusLoss if self.is_inserted(self.highlighted) => {
+                let seat = self.first_engine_seat();
+                pick = Some((SelectionHow::Finish, seat));
+                self.engine.finish(self.engine_index(seat))
+            }
             Action::Finish | Action::FinishOnFocusLoss => {
                 pick = Some((SelectionHow::Finish, self.highlighted));
-                self.engine.finish(self.engine_index(self.highlighted))
+                self.finish_seat(self.highlighted)
             }
             // The key that tops the code is never lost: what the Engine commits for it goes out after the word, and a key it lets go (a capital that opens no mode, Shift+K with the K mode off) goes out as the literal letter, as `literal_mark` sends a mark behind a held phrase, since the host has already been told the key was handled.
             Action::Character { value, shift } if wubi_top_commit => {
-                pick = Some((SelectionHow::WubiTop, 0));
+                let first = self.first_engine_seat();
+                pick = Some((SelectionHow::WubiTop, first));
                 self.engine
-                    .select(self.engine_index(0))
+                    .select(self.engine_index(first))
                     .and_then(|mut committed| {
                         let next = self.engine.character(value, shift)?;
                         let tail = if next.has_commit {
@@ -3413,24 +3459,29 @@ impl<E: InputEngine> Runtime<E> {
             }
             // 五笔 14 键四码之后的一键：先顶首选上屏，这一键再开始下一组编码，与 26 键的第五码相同。
             Action::GridKey(letter) if wubi_top_commit => {
-                pick = Some((SelectionHow::WubiTop, 0));
+                let first = self.first_engine_seat();
+                pick = Some((SelectionHow::WubiTop, first));
                 self.engine
-                    .select(self.engine_index(0))
+                    .select(self.engine_index(first))
                     .and_then(|picked| Ok(join_after_pick(picked, self.engine.grid_key(letter)?)))
             }
             Action::Character { value, shift } if grid_limit_pick => {
-                pick = Some((SelectionHow::GridLimit, 0));
-                self.engine.select(self.engine_index(0)).and_then(|picked| {
-                    Ok(join_after_pick(
-                        picked,
-                        self.engine.character(value, shift)?,
-                    ))
-                })
+                let first = self.first_engine_seat();
+                pick = Some((SelectionHow::GridLimit, first));
+                self.engine
+                    .select(self.engine_index(first))
+                    .and_then(|picked| {
+                        Ok(join_after_pick(
+                            picked,
+                            self.engine.character(value, shift)?,
+                        ))
+                    })
             }
             Action::GridKey(letter) if grid_limit_pick => {
-                pick = Some((SelectionHow::GridLimit, 0));
+                let first = self.first_engine_seat();
+                pick = Some((SelectionHow::GridLimit, first));
                 self.engine
-                    .select(self.engine_index(0))
+                    .select(self.engine_index(first))
                     .and_then(|picked| Ok(join_after_pick(picked, self.engine.grid_key(letter)?)))
             }
             // 暂存词段后的模式入口按标点结束；Tab 属于剩余拼写的辅助码，仍走字符接口。
@@ -3460,7 +3511,7 @@ impl<E: InputEngine> Runtime<E> {
                         && len > 0
                     {
                         pick = Some((SelectionHow::SpaceOverList, self.highlighted));
-                        return self.engine.select(self.engine_index(self.highlighted));
+                        return self.select_seat(self.highlighted);
                     }
                     // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first. A result that already committed (a Korean syllable the digit ended) is final: selecting now would replace that commit and lose the text. A digit the scheme spells with (a Zhuyin tone or phonetic key) is never a pick, even one the Engine let go: Zhuyin leaves 1-9 to selection only while its list is open, when they are not spelling symbols, so `0` there stays ㄢ.
                     let Some(slot) = candidate_digit_slot(value, self.page_size) else {
@@ -3483,13 +3534,19 @@ impl<E: InputEngine> Runtime<E> {
                     }
                     selected_by_digit = true;
                     pick = Some((SelectionHow::Digit, page_start + slot));
-                    self.engine.select(self.engine_index(page_start + slot))
+                    self.select_seat(page_start + slot)
                 })
             }
             // 进入整句改字时改的是用户高亮着的那一句，它可能被重排过，不在引擎的首位。
-            Action::Command(Command::ConversionLeft) if self.cached.conversion.is_empty() => self
-                .engine
-                .conversion_left_from(self.engine_index(self.highlighted)),
+            // 高亮在插件插入的行上时从引擎的首行进入。
+            Action::Command(Command::ConversionLeft) if self.cached.conversion.is_empty() => {
+                let seat = if self.is_inserted(self.highlighted) {
+                    self.first_engine_seat()
+                } else {
+                    self.highlighted
+                };
+                self.engine.conversion_left_from(self.engine_index(seat))
+            }
             // 14 键的组码不是可上屏的字母，两种原样提交都与 `Finish` 一样从宿主高亮行结束组字；它们在这里都不涉及英文原文学词。
             Action::Command(Command::CommitRaw | Command::CommitRawWithoutLearning)
                 if self.cached.grid_composing
@@ -3500,7 +3557,7 @@ impl<E: InputEngine> Runtime<E> {
                     && len > 0 =>
             {
                 pick = Some((SelectionHow::GridRaw, self.highlighted));
-                self.engine.finish(self.engine_index(self.highlighted))
+                self.finish_seat(self.highlighted)
             }
             Action::Command(Command::CommitCandidate) => {
                 // 命令由引擎选择原始首行，展示可能已经重排；不能把它记成高亮行。
@@ -3524,11 +3581,21 @@ impl<E: InputEngine> Runtime<E> {
             Action::SegmentMoveRight => self.engine.segment_command(SegmentCommand::MoveRight),
             Action::Select(id) => {
                 pick = Some((SelectionHow::Select, id.index));
-                self.engine.select(self.engine_index(id.index))
+                self.select_seat(id.index)
             }
             Action::SelectAnyCandidate(id) => {
                 pick = Some((SelectionHow::AnyCandidate, id.index));
-                self.engine.select(self.engine_index(id.index))
+                self.select_seat(id.index)
+            }
+            // 插件插入的行不是词库里的词：以词定字、置顶、删除、固定位置对它什么都不做。
+            Action::SelectEdge(id, _)
+            | Action::PinCandidate(id)
+            | Action::RemoveCandidate(id)
+            | Action::FixCandidatePosition(id, _)
+            | Action::ClearCandidatePosition(id)
+                if self.is_inserted(id.index) =>
+            {
+                Ok(empty_result(true))
             }
             Action::SelectEdge(id, edge) => {
                 pick = Some((SelectionHow::Edge, id.index));
@@ -3562,7 +3629,7 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::SelectHighlighted if len > 0 && !self.cached.prediction => {
                 pick = Some((SelectionHow::Highlighted, self.highlighted));
-                self.engine.select(self.engine_index(self.highlighted))
+                self.select_seat(self.highlighted)
             }
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),
@@ -3606,9 +3673,10 @@ impl<E: InputEngine> Runtime<E> {
         // their native composition boundary. A held phrase is still being assembled and must stay
         // open, matching the reference's creating-word guard.
         if self.wubi_should_auto_commit(character_action) {
-            result = self.engine.select(self.engine_index(0))?;
+            let first = self.first_engine_seat();
+            result = self.engine.select(self.engine_index(first))?;
             // 这次的结果整个换成了自动上屏，之前记下的事实随之作废。
-            self.record_selection(SelectionHow::WubiAuto, 0, &result, None);
+            self.record_selection(SelectionHow::WubiAuto, first, &result, None);
             self.facts.tail_chars = 0;
             if let Err(error) = self.refresh() {
                 result.diagnostic = format!("Candidate refresh failed: {error}");

@@ -210,16 +210,16 @@ int main() {
           "manifest order is kept");
     check(lines[0].caution && lines[0].title == L"修改输入的文字" && !lines[1].caution,
           "rewrite_commit is flagged");
-    // 第二批能力在授权页还没有说法（和共享页一致），按未知能力列出，persist_data 照样标注意。
-    check(lines[2].caution && lines[2].title == L"未知能力 persist_data" && lines[2].description.empty(),
-          "persist_data is flagged before the grant page knows it");
-    check(lines[3].title == L"未知能力 insert_candidates" && !lines[3].caution, "insert_candidates");
+    // 第二批能力授权页认得（和共享页一致），用授权页的说法列出，persist_data 标注意。
+    check(lines[2].caution && lines[2].title == L"长期保存数据" && lines[2].description == msime::settings::plugins::persist_data_warning,
+          "persist_data is flagged");
+    check(lines[3].title == L"添加候选" && !lines[3].caution, "insert_candidates");
     check(lines[4].title == L"未知能力 future_power" && lines[4].description.empty() &&
               !lines[4].caution,
           "unknown capability shown with its raw name");
-    check(lines[0].supported && lines[1].supported && !lines[2].supported && !lines[3].supported &&
+    check(lines[0].supported && lines[1].supported && lines[2].supported && lines[3].supported &&
               !lines[4].supported,
-          "second batch capabilities are not supported by this runtime yet");
+          "second batch capabilities are supported");
     check(capabilities_unsupported(lines) && !capabilities_unsupported(capability_lines({L"read_commit"})),
           "install would fail");
     check(capability_text(lines[1]) == L"读取输入的文字 —— 能看到你选中的候选和最终输入到应用里的文字。",
@@ -227,7 +227,7 @@ int main() {
     check(starts_with(capability_text(lines[0]), L"注意：修改输入的文字 —— "), "caution line");
     check(capability_text(lines[4]) == L"未知能力 future_power", "unknown line");
     check(capability_summary(lines) ==
-              L"注意 · 申请：修改输入的文字、读取输入的文字、未知能力 persist_data、未知能力 insert_candidates、未知能力 future_power",
+              L"注意 · 申请：修改输入的文字、读取输入的文字、长期保存数据、添加候选、未知能力 future_power",
           "summary with caution");
     check(capability_summary(capability_lines({L"read_candidates"})) == L"申请：读取候选词",
           "summary without caution");

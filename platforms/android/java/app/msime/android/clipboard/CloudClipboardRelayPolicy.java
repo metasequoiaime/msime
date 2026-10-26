@@ -15,6 +15,8 @@ import java.util.Arrays;
 public final class CloudClipboardRelayPolicy {
     /** 偏好里的键：`{url, token}`，没配置时不写进文档。 */
     public static final String PREFERENCE = "cloud_clipboard_relay";
+    /** WebDAV 网盘（`docs/cloud-clipboard-webdav.md`）在偏好里的键：`{url, username, password}`，与中继只能二选一，没配置时不写进文档。共享层把它也报成 `relay` 来源，客户端在本机扮演中继。 */
+    public static final String WEBDAV_PREFERENCE = "cloud_clipboard_webdav";
     public static final int MAX_URL_BYTES = 2048;
     public static final int MIN_TOKEN_CHARS = 16;
     public static final int MAX_TOKEN_CHARS = 256;
@@ -27,6 +29,12 @@ public final class CloudClipboardRelayPolicy {
     public static final String CODE_STORAGE = "relay_storage";
     /** 偏好里没有中继，或者地址、令牌不合规。 */
     public static final String CODE_NOT_CONFIGURED = "relay_not_configured";
+    /** 网盘一直限流（坚果云免费账号每 30 分钟 600 次请求，与其他应用共用）。 */
+    public static final String CODE_RATE_LIMITED = "webdav_rate_limited";
+    /** 网盘上的日志比本机读到过的旧，或者被改写过。 */
+    public static final String CODE_ROLLBACK = "webdav_rollback";
+    /** 网盘没通过「测试连接」。 */
+    public static final String CODE_UNSUPPORTED = "webdav_unsupported";
     /** 宿主自己的码：这一页或这次读取开始之后，偏好里的中继地址或令牌换过了。 */
     public static final String CODE_CHANGED = "relay_changed";
     /** 中继上 50 条都已置顶，新的一条放不下。 */
@@ -138,6 +146,23 @@ public final class CloudClipboardRelayPolicy {
         return "relay:" + DigestPolicy.hex(Arrays.copyOf(digest.digest(), BINDING_BYTES));
     }
 
+    /**
+     * 偏好里 WebDAV 网盘的绑定：没配置时为空串，否则是 `webdav:` 加上地址和账号摘要的十六进制。不含应用密码：换应用密码（移除设备之后应该换）不换设备身份，不用重新批准；与 Rust 那条路给密钥串选空间的规则相同（`RelayConfig::space`）。
+     */
+    public static String webdavBinding(String url, String username) {
+        if (!configured(url)) return "";
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+        digest.update(url.getBytes(StandardCharsets.UTF_8));
+        digest.update((byte) 0);
+        digest.update(TextPolicy.emptyIfNull(username).getBytes(StandardCharsets.UTF_8));
+        return "webdav:" + DigestPolicy.hex(Arrays.copyOf(digest.digest(), BINDING_BYTES));
+    }
+
     /** 经中继失败时给人看的一句话；不是中继特有的错误码时为 null，由调用方用自己的说法。 */
     public static String failureMessage(String code) {
         if (code == null) return null;
@@ -148,6 +173,9 @@ public final class CloudClipboardRelayPolicy {
             case CODE_NOT_CONFIGURED -> "中继设置不完整，请重新填写中继地址和令牌";
             case CODE_CHANGED -> "中继设置已改变，请重新打开页面";
             case CODE_FULL -> "云剪贴板已满 50 条且都已置顶，请先取消置顶或删除一些";
+            case CODE_RATE_LIMITED -> "网盘暂时限制了请求次数（坚果云免费账号每 30 分钟 600 次，与其他应用共用），请稍后再试";
+            case CODE_ROLLBACK -> "网盘上的云剪贴板记录比这台设备读到过的旧，或者被改动过，已停止同步。若是你自己清理过网盘文件夹，请在「我的 → 云剪贴板」重新测试连接并保存";
+            case CODE_UNSUPPORTED -> "这个网盘不支持云剪贴板需要的文件操作，请换一个 WebDAV 服务";
             default -> null;
         };
     }

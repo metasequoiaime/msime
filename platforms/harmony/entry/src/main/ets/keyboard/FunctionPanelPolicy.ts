@@ -1,5 +1,5 @@
 /**
- * 工具栏 logo 键打开的功能面板：有哪些格子、顺序如何、叫什么。视图按四列分页，手机竖屏和平板三行、手机横屏两行（`pickerGrid`）。
+ * 工具栏 logo 键打开的功能面板：有哪些格子、顺序如何、叫什么。视图按四列分页，手机竖屏和平板三行（键区太矮时退成两行）、手机横屏两行，磁贴按可用高度等比缩放（`pickerGrid`）。
  *
  * 顺序是设计稿的十四个格子（`全平台 UI.dc.html` 的功能面板），后接鸿蒙键盘自己的额外项，先例是 `platforms/android/java/app/msime/android/keyboard/FunctionPanelModel.java` 的做法。这里只说明有什么、叫什么；开关是否打开、点按做什么归视图管，按 `id` 对应。
  */
@@ -7,9 +7,15 @@ import { HapticStrength, KeyboardFeedback } from "./KeyboardFeedback";
 import { KeyboardIconPaths } from "./KeyboardIconPaths";
 import { KeyAccessibilityPolicy } from "./input/KeyAccessibilityPolicy";
 
-/** 输入方式和功能面板一页的行数和行距（vp），见 `FunctionPanelPolicy.pickerGrid`。 */
+/** 输入方式和功能面板一页的排法，见 `FunctionPanelPolicy.pickerGrid`。 */
 export interface PickerGrid {
+  /** 每页几行。 */
   readonly rows: number;
+  /** 磁贴整体缩放的比例，不超过 1：磁贴里的图标、字形、字号和间距都乘以它。 */
+  readonly scale: number;
+  /** 缩放后的行高（vp），即满尺寸行高乘以 `scale`；面板比这高时视图让各行平分多出来的高度。 */
+  readonly rowHeight: number;
+  /** 缩放后的行距（vp）。 */
   readonly rowsGap: number;
 }
 
@@ -158,22 +164,36 @@ export class FunctionPanelPolicy {
     ),
   ];
 
+  /** 三行一页时满尺寸的行距（vp）。 */
+  static readonly THREE_ROW_GAP_VP: number = 12;
+  /** 两行一页时满尺寸的行距（vp）。 */
+  static readonly TWO_ROW_GAP_VP: number = 16;
+  /** 缩放后磁贴高度的下限（vp），即触摸目标的最小尺寸；三行要缩到比它还矮时改为两行。 */
+  static readonly MIN_TILE_VP: number = 44;
+
   /**
-   * 输入方式和功能面板每页几行、行距多少，与 iOS `KeyboardPagedGridView.pickerRows` / `pickerRowGap`、Android `PagedTileGrid.pickerGrid` 同一条规则：手机横屏两行、行距 16，其余三行、行距 12。鸿蒙的键区默认只有 197vp（四行 44vp 加三份 7vp 行距），最矮 176vp，三行 52vp 的磁贴连同留白和页点在行距 12 下放不进去：先把行距收小，收到 4 还放不下就退回两行，不裁掉磁贴。
+   * 输入方式和功能面板每页几行、磁贴缩放多少，与 Android `PagedTileGrid.pickerGrid` 和 iOS `KeyboardPagedGridView.pickerLayout` 是同一条规则、同一组常数：按网格实际能占的高度排，永远不超出面板；放不下满尺寸时整体等比缩小磁贴，只有三行要缩到磁贴矮于 44vp 时才退成两行。手机横屏只排两行。
    *
-   * `keyAreaVp` 是面板占的键区高度，`rowHeightVp` 是磁贴的最小行高，`chromeVp` 是网格以外的高度（上方留白、页点和下方留白）。
+   * 三行的满尺寸高度是三个行高加两份 12vp 行距，两行是两个行高加一份 16vp 行距；比例取可用高度与满尺寸之比，最大为 1。两行的比例不低于 44 与行高之比，行高本身不到 44 时不缩小。鸿蒙的键区默认 197vp（四行 44vp 加三份 7vp 行距），最矮 176vp（高度调整 -12、行距 4），去掉上方留白、页点和下方留白 28vp 后，默认高度下三行磁贴缩到约 0.94，最矮时三行会矮于 44vp，退成满尺寸的两行。
+   *
+   * `gridVp` 是网格的行能占的高度（面板高度去掉上方留白、页点和下方留白），`rowHeightVp` 是满尺寸的行高。
    */
-  static pickerGrid(
-    phoneLandscape: boolean,
-    keyAreaVp: number,
-    rowHeightVp: number,
-    chromeVp: number,
-  ): PickerGrid {
-    if (phoneLandscape) {
-      return { rows: 2, rowsGap: 16 };
+  static pickerGrid(phoneLandscape: boolean, gridVp: number, rowHeightVp: number): PickerGrid {
+    if (!phoneLandscape) {
+      const full3: number = 3 * rowHeightVp + 2 * FunctionPanelPolicy.THREE_ROW_GAP_VP;
+      const scale3: number = Math.min(1, gridVp / full3);
+      if (rowHeightVp * scale3 >= FunctionPanelPolicy.MIN_TILE_VP - 1e-6) {
+        return FunctionPanelPolicy.scaledGrid(3, scale3, rowHeightVp, FunctionPanelPolicy.THREE_ROW_GAP_VP);
+      }
     }
-    const gap: number = Math.min(12, Math.floor((keyAreaVp - chromeVp - 3 * rowHeightVp) / 2));
-    return gap >= 4 ? { rows: 3, rowsGap: gap } : { rows: 2, rowsGap: 16 };
+    const full2: number = 2 * rowHeightVp + FunctionPanelPolicy.TWO_ROW_GAP_VP;
+    const minScale: number = Math.min(1, FunctionPanelPolicy.MIN_TILE_VP / rowHeightVp);
+    const scale2: number = Math.max(minScale, Math.min(1, gridVp / full2));
+    return FunctionPanelPolicy.scaledGrid(2, scale2, rowHeightVp, FunctionPanelPolicy.TWO_ROW_GAP_VP);
+  }
+
+  private static scaledGrid(rows: number, scale: number, rowHeightVp: number, gapVp: number): PickerGrid {
+    return { rows: rows, scale: scale, rowHeight: rowHeightVp * scale, rowsGap: gapVp * scale };
   }
 
   /** 所有格子，按页面顺序。 */

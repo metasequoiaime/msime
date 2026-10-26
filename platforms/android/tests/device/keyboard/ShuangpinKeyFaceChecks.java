@@ -27,8 +27,9 @@ final class ShuangpinKeyFaceChecks {
                     config.fontScale = fontScale;
                     Context context = new ContextThemeWrapper(test.getTargetContext().createConfigurationContext(config),
                         android.R.style.Theme_Material_Light_NoActionBar);
-                    for (int height : new int[] {40, 52, 84, 29}) {
-                        if (height >= 40) checkFace(context, "ShuangpinHintButton", "W", "uang iang", "2", 28, height);
+                    for (int height : new int[] {40, 46, 52, 84, 29}) {
+                        if (height >= 40) for (int width : new int[] {28, 62, 72})
+                            checkFace(context, "ShuangpinHintButton", "W", "uang iang", "2", width, height);
                         checkFace(context, "NineKeyDigitButton", "9", "w x y z", "", 62, height);
                         checkFace(context, "NineKeyDigitButton", "2", "零 b p m f", "", 62, height);
                     }
@@ -73,6 +74,9 @@ final class ShuangpinKeyFaceChecks {
             check(main.bottom < bottom.top, "主标签和底部提示重叠");
             check(corner.isEmpty() || !top.isEmpty() && !Rect.intersects(main, top), "主标签和角标重叠");
             check(key.getLayout().getLineCount() == 1, "主标签折行");
+            if (type.equals("ShuangpinHintButton") && widthDp >= 62 && heightDp >= 46)
+                check(key.getTextSize() >= 18 * density * scale - 1,
+                    "平板宽键仍把主字母压成小字：" + key.getTextSize() / density / scale);
             check(key.getLayout().getHeight() <= height - key.getCompoundPaddingTop() - key.getCompoundPaddingBottom(),
                 "主标签超出可用高度");
             // 就地开关提示要恢复原字号和居中位置，不能每开一次就再缩小一轮。

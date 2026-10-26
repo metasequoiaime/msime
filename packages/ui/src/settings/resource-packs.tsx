@@ -40,6 +40,12 @@ export type ResourcePackStatus = {
   schemes: string[];
 };
 
+export type GrammarModelUpdate = {
+  pack: ResourcePackId;
+  source_commit: string;
+  size: number;
+};
+
 /** 宿主的资源包下载服务，三个桌面宿主提供。列表里只有本机需要下载的资源包（例如 Windows 上 Ink 有中文识别器时不列手写模型），没列出的就不必下载。镜像沿用已保存的 `voice_input.asr_model_mirror`。 */
 export type ResourcePackClient = {
   list(): Promise<ResourcePackStatus[]>;
@@ -50,6 +56,8 @@ export type ResourcePackClient = {
   /** 删除已安装的资源包，返回是否有目录被删。语法模型删除前宿主会先释放引擎的共享内存映射。 */
   remove(id: ResourcePackId): Promise<boolean>;
   onProgress(listener: (progress: LocalVoiceModelProgress) => void): Promise<() => void>;
+  /** 主动检查官方语法模型目录；失败由调用方显示，不能影响离线使用。 */
+  checkGrammarUpdates?(): Promise<GrammarModelUpdate[]>;
 };
 
 export const resourcePackTitles: Record<ResourcePackId, string> = {
@@ -119,6 +127,8 @@ export type ResourcePacks = {
   cancel(id: ResourcePackId): void;
   /** 删除已安装的资源包并刷新状态；没有宿主下载服务时不可用。 */
   remove(id: ResourcePackId): void;
+  /** 主动检查官方语法模型目录；不提供时不显示检查入口。 */
+  checkGrammarUpdates?: () => Promise<GrammarModelUpdate[]>;
   /** 下载失败时就地设置下载镜像用；不提供时失败行只有原因和重试。 */
   mirror?: ResourcePackMirror;
 };
@@ -293,7 +303,17 @@ export function useResourcePacks(
     })();
   };
 
-  return { statuses, progress, errors, ensure, install, cancel, remove, mirror };
+  return {
+    statuses,
+    progress,
+    errors,
+    ensure,
+    install,
+    cancel,
+    remove,
+    mirror,
+    checkGrammarUpdates: client?.checkGrammarUpdates,
+  };
 }
 
 /** 资源包未安装时的一行：说明大小并提供下载；下载中显示进度和取消；失败时显示原因和重试，并提供设置下载镜像的入口。已安装或宿主不提供下载服务时不渲染。 */

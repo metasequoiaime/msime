@@ -11,6 +11,7 @@
 #import "../candidate/CandidateWindowLevel.h"
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
+#import "InputControllerActivity.h"
 #import "../core/UpdateController.h"
 #include "../../../common/DictionaryQuiesceLease.h"
 #import "../core/ScreenKeyboardPanel.h"
@@ -2500,6 +2501,16 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     _armedGlossColumn = 0;
     _view = [self glossSenseView];
     [self renderCandidates];
+}
+
+// 见 InputControllerActivity.h。普通英文的托管组字也写在 editing_text 里；语音从开始录到识别结果交回期间，三种请求总有一个不为空，录音时语音服务本身也是 active。
+- (BOOL)hasUnfinishedInput {
+    return [_view[@"editing_text"] length] > 0 || _liveVoiceToken || _doubaoVoiceRequest || _httpVoiceRequest || _voiceService.active;
+}
+
+BOOL MSIMEInputControllerHasUnfinishedInput(void) {
+    MSIMEInputController *focused = MSIMEFocusedController;
+    return focused != nil && [focused hasUnfinishedInput];
 }
 
 // Dropping the page without putting anything back, for the paths that are about to replace the view

@@ -265,6 +265,20 @@ impl ScriptSetting {
         }
     }
 
+    /// 设置页显示的值，类型同清单：`value` 合规时是它，否则是默认值。
+    pub fn value(&self, value: Option<&serde_json::Value>) -> serde_json::Value {
+        if let Some(value) = value.filter(|value| self.accepts(value)) {
+            return value.clone();
+        }
+        match &self.kind {
+            SettingKind::Bool { default } => serde_json::Value::Bool(*default),
+            SettingKind::Choice { default, .. } | SettingKind::Text { default, .. } => {
+                serde_json::Value::String(default.clone())
+            }
+            SettingKind::Number { default, .. } => serde_json::Value::from(*default),
+        }
+    }
+
     /// 插件经 `setting_value` 读到的文本：`value` 合规时是它，否则（没存、清单改了类型、超出范围）是默认值。布尔是 `0`/`1`，数字是十进制，选项是 `value`，文本原样。
     pub fn abi_text(&self, value: Option<&serde_json::Value>) -> String {
         let value = value.filter(|value| self.accepts(value));
@@ -891,6 +905,20 @@ impl LoadedScript {
 }
 
 /// 读出脚本包 `id`：官方 id 从内置目录 `builtin_packs` 读，其他 id 从 `root` 下已安装的包读。清单和文件照常检查，模块读出来但不在这里编译。宿主的后台编译线程用它，编译一次就够，不必先校验一遍再编译一遍。
+/// 只读清单、只查文件存在和大小的已安装脚本包（不读模块和数据文件，不算内容哈希）：设置页和输入法要设置项、权限时用。官方脚本插件从 `builtin_packs` 读。
+pub fn declared(root: &Path, builtin_packs: Option<&Path>, id: &str) -> Result<ScriptPack, String> {
+    let summary = super::load_package_unread(
+        root,
+        BuiltinDirs::packs(builtin_packs),
+        PluginKind::Script,
+        id,
+    )?;
+    match summary.content {
+        PluginContent::Script(pack) => Ok(pack),
+        _ => Err("plugin.toml 里的 kind 与所在目录不一致".into()),
+    }
+}
+
 pub fn load(root: &Path, builtin_packs: Option<&Path>, id: &str) -> Result<LoadedScript, String> {
     let (parent, builtin) = pack_parent(
         root,

@@ -668,12 +668,34 @@ final class ImePanels {
         grid.post(() -> grid.setPage(initialPage, false));
     }
 
+    /**
+     * 按面板高度排行的分页网格（{@link PagedTileGrid#setPickerFit}）加下方页点：输入方式面板用。网格拿去页点以外的全部高度，所以永远放得进面板；打开时停在第 {@code revealIndex} 个条目所在的页，行数要量过高度才知道，页码也就等到排版时才算。
+     */
+    private void addFittedGrid(LinearLayout parent, PagedTileGrid grid, int revealIndex) {
+        parent.addView(grid, LayoutPolicy.weightedWidthParams(1));
+        KeyboardPagerDots dots = new KeyboardPagerDots(s);
+        dots.setTag(PAGER_DOTS_TAG);
+        // 页点占满一行、自己居中画，页数随行数变时不必重新量宽度；只有一页时占着位置不画。
+        LinearLayout.LayoutParams dotParams = LayoutPolicy.matchWidthHeightPx(s.pixels(PAGER_DOTS_HEIGHT_DP));
+        dotParams.topMargin = s.pixels(PAGER_DOTS_MARGIN_DP);
+        dotParams.bottomMargin = s.pixels(PAGER_DOTS_MARGIN_DP);
+        parent.addView(dots, dotParams);
+        PagedTileGrid.OnPageChangeListener sync = (page, count) -> {
+            dots.setCount(count);
+            dots.setActive(page, true);
+            if (count > 1) ViewPolicy.show(dots);
+            else ViewPolicy.setInvisible(dots);
+        };
+        sync.onPageChanged(grid.page(), grid.pageCount());
+        grid.setOnPageChangeListener(sync);
+        grid.revealOnLayout(revealIndex);
+    }
+
     private static final String PAGER_DOTS_TAG = "msime-pager-dots";
     /** {@link #addPagedGrid} 里页点那一格的高度和上下边距。 */
     private static final int PAGER_DOTS_HEIGHT_DP = 10;
     private static final int PAGER_DOTS_MARGIN_DP = 6;
-    /** 输入方式卡片的行高和面板的上下内边距，面板选行数时算进网格以外的高度。 */
-    private static final int SCHEME_ROW_HEIGHT_DP = 56;
+    /** 输入方式面板的上下内边距。 */
     private static final int SCHEME_PANEL_PADDING_TOP_DP = 14;
     private static final int SCHEME_PANEL_PADDING_BOTTOM_DP = 6;
 
@@ -1153,15 +1175,14 @@ final class ImePanels {
         if (s.schemePanel == null) return;
         s.schemePanel.removeAllViews();
         LayoutPolicy.setPaddingDp(s.schemePanel, s, 8, SCHEME_PANEL_PADDING_TOP_DP, 8, SCHEME_PANEL_PADDING_BOTTOM_DP);
-        // 4 列分页网格，手机竖屏和平板三行、手机横屏两行（MSIMEInputService.pickerGrid）：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
+        // 4 列分页网格，手机竖屏和平板三行、手机横屏两行（MSIMEInputService.pickerPhoneLandscape），网格按面板量到的高度定行高和行距，放不下原尺寸时卡片整体缩小（PagedTileGrid.pickerGrid）：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
         java.util.List<KeyboardScheme> schemes = s.visibleSchemes;
         final int englishIndex = BoundsPolicy.bounded(2, 0, schemes.size());
         int cardCount = schemes.size() + 2;
-        PagedTileGrid.PickerGrid layout = s.pickerGrid(SCHEME_ROW_HEIGHT_DP, SCHEME_PANEL_PADDING_TOP_DP
-            + SCHEME_PANEL_PADDING_BOTTOM_DP + PAGER_DOTS_HEIGHT_DP + 2 * PAGER_DOTS_MARGIN_DP);
         PagedTileGrid grid = new PagedTileGrid(s);
-        grid.setGrid(4, layout.rows());
-        grid.setSpacing(SCHEME_ROW_HEIGHT_DP, layout.rowGap(), 4, 4);
+        grid.setGrid(4, 3);
+        grid.setSpacing(KeyboardSchemeCard.HEIGHT_DP, PagedTileGrid.PICKER_THREE_ROW_GAP_DP, 4, 4);
+        grid.setPickerFit(KeyboardSchemeCard.HEIGHT_DP, s.pickerPhoneLandscape());
         grid.setContentDescription("输入方案卡片区域");
         java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>(cardCount);
         java.util.List<Boolean> cardSelection = new java.util.ArrayList<>(cardCount);
@@ -1203,7 +1224,7 @@ final class ImePanels {
             cardSelection.add(selected);
             grid.addView(card);
         }
-        addPagedGrid(s.schemePanel, grid, PagedTileGrid.pageOf(selectedIndex, PagedTileGrid.perPage(4, layout.rows())));
+        addFittedGrid(s.schemePanel, grid, selectedIndex);
         s.imeStyler.applySkin();
         // 必须在换肤遍历之后：那一趟会把每个 TextView 重新刷成 keyForeground。
         int accent = Color.parseColor(s.skin.accent());

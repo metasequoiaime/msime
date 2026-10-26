@@ -78,6 +78,27 @@ public final class CloudClipboardRelayPolicySmoke {
         check(!binding.equals(CloudClipboardRelayPolicy.binding("https://relay.example.test/msime",
             "synthetic-relay-token-0002")), "another token gives another binding");
         check(CloudClipboardRelayPolicy.binding("", TOKEN).isEmpty(), "no address means no binding");
+        // WebDAV 网盘的绑定只看地址和账号，不含应用密码：换应用密码不换设备身份。
+        String dav = CloudClipboardRelayPolicy.webdavBinding("https://dav.example.test/dav", "synthetic@example.test");
+        check(dav.startsWith("webdav:") && dav.length() == "webdav:".length() + 32,
+            "a webdav binding is webdav: and 16 bytes of hex");
+        check(!dav.contains("synthetic@example.test"), "the account itself never appears in the binding");
+        check(!dav.equals(CloudClipboardRelayPolicy.webdavBinding("https://dav.example.test/dav", "other@example.test")),
+            "another account gives another binding");
+        check(!dav.equals(CloudClipboardRelayPolicy.webdavBinding("https://dav.example.test/other", "synthetic@example.test")),
+            "another folder gives another binding");
+        check(!dav.equals(CloudClipboardRelayPolicy.binding("https://dav.example.test/dav", "synthetic@example.test")),
+            "a drive never shares a binding with a relay at the same address");
+        check(CloudClipboardRelayPolicy.webdavBinding("", "synthetic@example.test").isEmpty(), "no folder means no binding");
+        for (String code : new String[] {CloudClipboardRelayPolicy.CODE_RATE_LIMITED, CloudClipboardRelayPolicy.CODE_ROLLBACK,
+                CloudClipboardRelayPolicy.CODE_UNSUPPORTED}) {
+            check(CloudClipboardRelayPolicy.failureMessage(code) != null, "the drive's own failures are explained: " + code);
+        }
+        check(CloudClipboardPanelPolicy.failed(0, CloudClipboardRelayPolicy.CODE_RATE_LIMITED) == Status.FAILED,
+            "a rate-limited drive is retryable, not a sign-out");
+        check(CloudClipboardPanelPolicy.failed(0, CloudClipboardRelayPolicy.CODE_ROLLBACK) == Status.RELAY_REJECTED,
+            "a rolled-back drive log sends the user to the settings, retrying does not help");
+
         // 账号编号是 UUID，中继的绑定以 relay: 开头，两者不会撞上。
         check(!CloudClipboardPanelPolicy.acceptsBinding(binding, 0, "account-a", 0),
             "a relay binding never accepts an account's rows");

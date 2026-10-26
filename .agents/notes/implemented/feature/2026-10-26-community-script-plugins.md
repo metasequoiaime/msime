@@ -24,7 +24,7 @@ Status: implemented
 
 服务端（msime-cloud，另一个 PR）：
 
-- `pluginKinds` 加入 `script`，清单校验镜像 `script_pack.rs`：`schema_version = 2`、能力白名单与依赖互斥规则、`[script]` 的键与取值、指令规则、模块以 wasm 文件头开头且不超过 256 KiB。第二批能力提案（[脚本插件第二批能力](https://github.com/metasequoiaime/msime/blob/feat/script-capabilities-v2/.agents/notes/proposed/architecture/2026-10-26-script-plugin-capabilities-v2.md)）里的 `insert_candidates`、`persist_data`、`[[script.settings]]`、`[script].data` 和 `[[script.commands]].arguments` 提前接受，客户端实现它们时不用再等一次服务端发版。
+- `pluginKinds` 加入 `script`，清单校验镜像 `script_pack.rs`：`schema_version = 2`、能力白名单与依赖互斥规则、`[script]` 的键与取值、指令规则、模块以 wasm 文件头开头且不超过 256 KiB。第二批能力提案（[脚本插件第二批能力](https://github.com/metasequoiaime/msime/blob/feat/script-capabilities-v2/.agents/notes/implemented/architecture/2026-10-26-script-plugin-capabilities-v2.md)）里的 `insert_candidates`、`persist_data`、`[[script.settings]]`、`[script].data` 和 `[[script.commands]].arguments` 提前接受，客户端实现它们时不用再等一次服务端发版。
 - 先审后发落在可见性条件上：作者以外的人在列表、搜索、详情、下载、评分、收藏和举报里都把 `pending` 的脚本包当作不存在。审核列表带类型、申请的能力和要重点看的能力。
 
 ### 服务端与客户端的分工

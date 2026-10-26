@@ -32,3 +32,7 @@ Status: implemented
 2026-10-21 的重叠修复在 API 28 专用模拟器验证：新增 `ShuangpinKeyFaceChecks` 用安装产品的真实按钮、Android 排版器和合成彩色标签扫描像素边界，覆盖系统字体 1 倍和 2 倍、26 键 28dp 窄键和 40/52/84dp 键高，以及九键 29/40/52/84dp 键高；同时检查主标签单行、提示关闭恢复字号。旧包在 26 键 28×40dp、普通字体下报主标签与角标重叠，修复包全部通过。九键和开启提示的 26 键实际截图确认主标签与提示分离；`NineKeyShuangpinDeviceSmoke`、`MicrosoftShuangpinDeviceSmoke` 和普通全拼的 `NineKeyPanelDeviceSmoke` 实际输入验收通过。微软双拼回归明确开启 `touch_shuangpin_key_hints` 并等待提示出现，避免模拟器原配置关闭提示时漏验。
 
 本轮 `check-host.sh` 通过 252 项 JVM 冒烟并编译 199 个设备源文件，Gradle `assembleFullRelease lintFullRelease` 成功。模拟器验证包重新编译当前 Java 和资源，复用原安装包的原生库与词库；没有重新构建 Rust/原生库，没有在真机重复本轮验收。
+
+## 平板宽键的主标签
+
+[平板分离键区与宽键排版](../bug-fix/2026-10-26-android-tablet-split-width.md)按实际字形宽度判断主标签和角标能否横向错开；宽键不再为角标保留整行高度，窄键继续使用本篇的上下分区，像素边界不重叠的要求保持不变。

@@ -33,7 +33,8 @@ def main() -> int:
         "pre-arrival row decision": "CandidateGlossLayoutPolicy.rows" in session
         and "glossRows(): number" in session,
         "word-sized unglossed chips": re.search(
-            r"if\s*\(!KeyboardSession\.shared\.glossesExpected\(\)\)\s*\{\s*"
+            r"if\s*\(!CandidateChipWidth\.reservesColumn\(KeyboardSession\.shared\.glossesExpected\(\),\s*"
+            r"candidate\.source,\s*candidate\.hunEum\)\)\s*\{\s*"
             r"return CandidateLayoutPolicy\.chipWidth\(this\.candidateGeometry\(\),\s*"
             r"this\.settings\.candidateFontSize,\s*word,\s*padding\);",
             view,

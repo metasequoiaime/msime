@@ -10,14 +10,14 @@ use msime_client_services::clipboard_relay::RelayConfig;
 use serde_json::Value;
 use std::sync::Arc;
 
-/// 共享偏好里配置的自建中继（`docs/cloud-clipboard-relay.md`）；没有配置时为 `None`。偏好读不了时是 `storage`，配置不合规时是 `relay_not_configured`。不联网。
+/// 共享偏好里配置的自建中继（`docs/cloud-clipboard-relay.md`）或 WebDAV 网盘（`docs/cloud-clipboard-webdav.md`，客户端在本机扮演中继）；没有配置时为 `None`。偏好读不了时是 `storage`，配置不合规时是 `relay_not_configured`。不联网。
 pub(crate) fn configured_relay(
     store: &PreferencesStore,
 ) -> Result<Option<RelayConfig>, crate::CommandError> {
     let snapshot = store
         .load()
         .map_err(|_| crate::CommandError { code: "storage" })?;
-    RelayConfig::from_preferences(&snapshot.preferences.cloud_clipboard_relay)
+    RelayConfig::selected(&snapshot.preferences)
         .map_err(|error| crate::CommandError { code: error.code() })
 }
 
@@ -500,6 +500,28 @@ mod tests {
         assert_eq!(
             configured_relay(&store).unwrap().unwrap().url(),
             "https://relay.example.test/msime"
+        );
+    }
+
+    /// WebDAV 网盘与中继走同一条路（客户端在本机扮演中继）；只经账号答的外壳同样拒绝它。
+    #[test]
+    fn a_webdav_drive_takes_the_relay_route_and_is_refused_by_account_only_shells() {
+        use super::{configured_relay, require_no_relay};
+        use msime_client_core::preferences::PreferencesStore;
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut preferences = store.load().unwrap().preferences;
+        preferences.cloud_clipboard_webdav.url = "https://dav.example.test/dav/".into();
+        preferences.cloud_clipboard_webdav.username = "synthetic@example.test".into();
+        preferences.cloud_clipboard_webdav.password = "synthetic-app-password".into();
+        store.save(0, preferences).unwrap();
+        let config = configured_relay(&store).unwrap().unwrap();
+        assert_eq!(config.backend(), "webdav");
+        assert_eq!(config.url(), "https://dav.example.test/dav");
+        assert_eq!(
+            require_no_relay(&store).map_err(|error| error.code),
+            Err("relay_unsupported")
         );
     }
 }

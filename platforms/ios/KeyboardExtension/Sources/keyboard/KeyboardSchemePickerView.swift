@@ -1,6 +1,6 @@
 import UIKit
 
-/// 键盘里的输入方式选择面板（输入方式）：列出可用的方案，英文排在第三位，排成横向分页、带页码圆点的方框字形网格，手机竖屏每页 4 × 3、横屏 4 × 2，iPad 键盘每页 6 × 3（`KeyboardPagedGridView.pickerRows`），布局与功能面板相同。
+/// 键盘里的输入方式选择面板（输入方式）：列出可用的方案，英文排在第三位，排成横向分页、带页码圆点的方框字形网格，手机竖屏每页 4 × 3、横屏 4 × 2，iPad 键盘每页 6 × 3（`KeyboardPagedGridView.pickerRows`），布局与功能面板相同，面板矮时同样按真实高度缩小格子（`KeyboardPagedGridView.pickerLayout`）。
 ///
 /// 在键盘里它以 `showsHeader: false` 在工具栏下方打开：没有「返回」和「键盘设置」按钮，背景透明，透出键盘自己的背景。带标题栏时保留全屏覆盖的形式，两个按钮放在皮肤背景上。传入 `onAddLanguage` 时末尾多一个「添加语言」格子。
 final class KeyboardSchemePickerView: UIView {
@@ -22,10 +22,10 @@ final class KeyboardSchemePickerView: UIView {
        onAddLanguage: (() -> Void)? = nil,
        onClose: @escaping () -> Void) {
     let tablet = formFactor == .tablet
-    let rows = KeyboardPagedGridView.pickerRows(formFactor: formFactor, landscape: landscape)
+    // 首选行数按横竖屏定，实际行数和格子缩放由网格按面板的真实高度决定（`KeyboardPagedGridView.pickerLayout`）。
     grid = KeyboardPagedGridView(
-      columns: tablet ? 6 : 4, rows: rows, rowHeight: KeyboardSchemeTileView.height,
-      rowGap: KeyboardPagedGridView.pickerRowGap(rows: rows), columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
+      columns: tablet ? 6 : 4, pickerRows: KeyboardPagedGridView.pickerRows(formFactor: formFactor, landscape: landscape),
+      rowHeight: KeyboardSchemeTileView.height, columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSchemePicker"
     accessibilityLabel = "输入方式"
@@ -134,6 +134,8 @@ final class KeyboardSchemePickerView: UIView {
 ///
 /// 方案格子显示一个 26pt 的方框（圆角 5，边线 1.8pt），框内是 14pt 粗体的字形，字形有两个字符或更多时用 10.5pt；另有一个 8.5pt heavy 字重的数字角标，以键盘背景为底压在方框右下角（相对图标区右 -3、下 -1）。「添加语言」格子改为显示一个 26pt 的加号。全部用按键前景色；当前输入方式用强调色，标签为半粗体，并用与功能面板里已打开格子相同的 13pt 勾选角标（右 -5、下 -4）代替数字角标。
 ///
+/// 以上尺寸都是 52pt 格子的满尺寸。面板比满尺寸矮时网格缩小行高（`KeyboardPagedGridView.pickerLayout`），格子按自己的高度与 52pt 之比把整个键面（方框、字号、角标、加号、间距）等比缩小；触摸区域仍是整个格子，无障碍信息不变。
+///
 /// 它是不带 configuration 的 UIButton，所以键盘的皮肤处理（`applyKeyboardSkin`）会把带 configuration 的按钮重画成键帽，却不会动它。
 final class KeyboardSchemeTileView: UIButton {
   enum Face {
@@ -165,6 +167,10 @@ final class KeyboardSchemeTileView: UIButton {
 
   private let face: Face
   private let skin: KeyboardTheme
+  /// 字形的满尺寸字号：一个字符 14pt，两个字符或更多 10.5pt。
+  private let glyphFontBase: CGFloat
+  /// 键面相对满尺寸的缩放，`layoutSubviews` 按格子高度算出，不大于 1。
+  private var scale: CGFloat = 1
   private let glyphBoxLayer = CAShapeLayer()
   private let addLayer = CAShapeLayer()
   private let badgeLayer = CAShapeLayer()
@@ -178,6 +184,11 @@ final class KeyboardSchemeTileView: UIButton {
   init(title: String, face: Face, selected: Bool, identifier: String, skin: KeyboardTheme, action: @escaping () -> Void) {
     self.face = face
     self.skin = skin
+    if case .glyph(let glyph, _) = face, glyph.count > 1 {
+      glyphFontBase = Self.wideGlyphFontSize
+    } else {
+      glyphFontBase = Self.glyphFontSize
+    }
     super.init(frame: .zero)
     for shape in [glyphBoxLayer, addLayer, badgeCheckLayer] {
       shape.fillColor = nil
@@ -187,7 +198,6 @@ final class KeyboardSchemeTileView: UIButton {
     for shape in [glyphBoxLayer, addLayer, badgeLayer] { layer.addSublayer(shape) }
     badgeLayer.addSublayer(badgeCheckLayer)
     glyphLabel.textAlignment = .center
-    numberLabel.font = .systemFont(ofSize: Self.numberFontSize, weight: .heavy)
     numberLabel.textAlignment = .center
     nameLabel.text = title
     nameLabel.textAlignment = .center
@@ -195,11 +205,9 @@ final class KeyboardSchemeTileView: UIButton {
     nameLabel.lineBreakMode = .byTruncatingTail
     nameLabel.adjustsFontSizeToFitWidth = true
     nameLabel.minimumScaleFactor = 0.75
-    nameLabel.font = .systemFont(ofSize: Self.labelFontSize, weight: selected ? .semibold : .regular)
     switch face {
     case .glyph(let glyph, let badge):
       glyphLabel.text = glyph
-      glyphLabel.font = .systemFont(ofSize: glyph.count > 1 ? Self.wideGlyphFontSize : Self.glyphFontSize, weight: .bold)
       numberLabel.text = badge
       // 当前输入方式的格子在数字角标的位置显示勾选标记，与 Android 的网格格子一致。
       numberPlate.isHidden = selected || badge.isEmpty
@@ -218,6 +226,7 @@ final class KeyboardSchemeTileView: UIButton {
       addSubview(child)
     }
     isSelected = selected
+    applyFonts()
     accessibilityIdentifier = identifier
     accessibilityLabel = title
     accessibilityValue = selected ? "已选中" : ""
@@ -241,46 +250,68 @@ final class KeyboardSchemeTileView: UIButton {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    let font = nameLabel.font ?? .systemFont(ofSize: Self.labelFontSize)
+    let fitted = bounds.height > 0 ? min(1, bounds.height / Self.height) : 1
+    if fitted != scale {
+      scale = fitted
+      applyFonts()
+    }
+    let s = scale
+    let iconArea = Self.iconArea * s
+    let glyphSide = Self.glyphSide * s
+    let labelGap = Self.labelGap * s
+    let addSide = Self.addSide * s
+    let badgeSide = Self.badgeSide * s
+    let badgeCheckSide = Self.badgeCheckSide * s
+    let numberPlateHeight = Self.numberFontSize * s
+    let font = nameLabel.font ?? .systemFont(ofSize: Self.labelFontSize * s)
     let labelHeight = ceil(font.lineHeight)
-    let top = max(0, ((bounds.height - Self.iconArea - Self.labelGap - labelHeight) / 2).rounded(.down))
-    let area = CGRect(x: (bounds.midX - Self.iconArea / 2).rounded(), y: top, width: Self.iconArea, height: Self.iconArea)
-    nameLabel.frame = CGRect(x: 0, y: area.maxY + Self.labelGap, width: bounds.width, height: labelHeight)
-    let glyphBox = CGRect(x: area.midX - Self.glyphSide / 2, y: area.midY - Self.glyphSide / 2, width: Self.glyphSide, height: Self.glyphSide)
+    let top = max(0, ((bounds.height - iconArea - labelGap - labelHeight) / 2).rounded(.down))
+    let area = CGRect(x: (bounds.midX - iconArea / 2).rounded(), y: top, width: iconArea, height: iconArea)
+    nameLabel.frame = CGRect(x: 0, y: area.maxY + labelGap, width: bounds.width, height: labelHeight)
+    let glyphBox = CGRect(x: area.midX - glyphSide / 2, y: area.midY - glyphSide / 2, width: glyphSide, height: glyphSide)
     glyphLabel.frame = glyphBox
     // 底板是设计稿里 8.5pt 的行盒，数字两侧各留 1pt；标签按自身的自然行高在底板上居中。
-    let numberFont = numberLabel.font ?? .systemFont(ofSize: Self.numberFontSize, weight: .heavy)
-    let numberWidth = ceil(((numberLabel.text ?? "") as NSString).size(withAttributes: [.font: numberFont]).width) + 2
+    let numberFont = numberLabel.font ?? .systemFont(ofSize: numberPlateHeight, weight: .heavy)
+    let numberWidth = ceil(((numberLabel.text ?? "") as NSString).size(withAttributes: [.font: numberFont]).width) + 2 * s
     let plate = CGRect(
-      x: area.maxX - Self.numberRight - numberWidth, y: area.maxY - Self.numberBottom - Self.numberFontSize,
-      width: numberWidth, height: Self.numberFontSize)
+      x: area.maxX - Self.numberRight * s - numberWidth, y: area.maxY - Self.numberBottom * s - numberPlateHeight,
+      width: numberWidth, height: numberPlateHeight)
     numberPlate.frame = plate
     let numberHeight = ceil(numberFont.lineHeight)
     numberLabel.frame = CGRect(x: plate.minX, y: plate.midY - numberHeight / 2, width: plate.width, height: numberHeight)
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     // 边线画在 26pt 方框之内，与设计稿按 border-box 计算尺寸的画法一致。
-    let inset = Self.glyphBorder / 2
-    glyphBoxLayer.lineWidth = Self.glyphBorder
-    glyphBoxLayer.path = UIBezierPath(roundedRect: glyphBox.insetBy(dx: inset, dy: inset), cornerRadius: Self.glyphRadius - inset).cgPath
-    let addRect = CGRect(x: area.midX - Self.addSide / 2, y: area.midY - Self.addSide / 2, width: Self.addSide, height: Self.addSide)
+    let border = Self.glyphBorder * s
+    let inset = border / 2
+    glyphBoxLayer.lineWidth = border
+    glyphBoxLayer.path = UIBezierPath(roundedRect: glyphBox.insetBy(dx: inset, dy: inset), cornerRadius: Self.glyphRadius * s - inset).cgPath
+    let addRect = CGRect(x: area.midX - addSide / 2, y: area.midY - addSide / 2, width: addSide, height: addSide)
     addLayer.path = KeyboardIcon.plus.path(in: addRect).cgPath
-    addLayer.lineWidth = Self.addStroke * Self.addSide / KeyboardIcon.viewBox
+    addLayer.lineWidth = Self.addStroke * addSide / KeyboardIcon.viewBox
     badgeLayer.frame = CGRect(
-      x: area.maxX - Self.badgeRight - Self.badgeSide, y: area.maxY - Self.badgeBottom - Self.badgeSide,
-      width: Self.badgeSide, height: Self.badgeSide)
+      x: area.maxX - Self.badgeRight * s - badgeSide, y: area.maxY - Self.badgeBottom * s - badgeSide,
+      width: badgeSide, height: badgeSide)
     // 外环是一条 2pt 的描边，骑在比 13pt 圆盘大一圈 1pt 的圆上，所以强调色保留完整的 13pt，外环像设计稿的 box-shadow 一样落在它外侧。
-    badgeLayer.lineWidth = Self.badgeRing
+    let ring = Self.badgeRing * s
+    badgeLayer.lineWidth = ring
     badgeLayer.path = UIBezierPath(
-      arcCenter: CGPoint(x: Self.badgeSide / 2, y: Self.badgeSide / 2), radius: Self.badgeSide / 2 + Self.badgeRing / 2,
+      arcCenter: CGPoint(x: badgeSide / 2, y: badgeSide / 2), radius: badgeSide / 2 + ring / 2,
       startAngle: 0, endAngle: .pi * 2, clockwise: true
     ).cgPath
-    let checkOrigin = (Self.badgeSide - Self.badgeCheckSide) / 2
+    let checkOrigin = (badgeSide - badgeCheckSide) / 2
     badgeCheckLayer.frame = badgeLayer.bounds
     badgeCheckLayer.path = KeyboardIcon.check.path(
-      in: CGRect(x: checkOrigin, y: checkOrigin, width: Self.badgeCheckSide, height: Self.badgeCheckSide)).cgPath
-    badgeCheckLayer.lineWidth = KeyboardIcon.check.lineWidth * Self.badgeCheckSide / KeyboardIcon.viewBox
+      in: CGRect(x: checkOrigin, y: checkOrigin, width: badgeCheckSide, height: badgeCheckSide)).cgPath
+    badgeCheckLayer.lineWidth = KeyboardIcon.check.lineWidth * badgeCheckSide / KeyboardIcon.viewBox
     CATransaction.commit()
+  }
+
+  /// 按当前缩放设字形、数字角标和名称的字号；当前输入方式的名称为半粗体。
+  private func applyFonts() {
+    glyphLabel.font = .systemFont(ofSize: glyphFontBase * scale, weight: .bold)
+    numberLabel.font = .systemFont(ofSize: Self.numberFontSize * scale, weight: .heavy)
+    nameLabel.font = .systemFont(ofSize: Self.labelFontSize * scale, weight: isSelected ? .semibold : .regular)
   }
 
   /// 按当前 traits 解析皮肤颜色：layer 用的是 CGColor，不会自己跟随深浅色切换。

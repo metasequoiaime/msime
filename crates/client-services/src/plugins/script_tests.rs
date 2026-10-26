@@ -2226,3 +2226,223 @@ fn admission_counts_data_files_once() {
     );
     assert_eq!(limits::resident_bytes(10, false), 10);
 }
+
+// ---- 设置值文件和持久存储文件 ----
+
+use super::{script_settings, script_storage};
+
+/// 申请 `read_commit` 和 `persist_data`、带一项数字设置的包，导入到 `root`，返回内容哈希。
+fn import_memo(files: &Path, root: &Path, id: &str) -> String {
+    let script = manifest(
+        id,
+        "'read_commit', 'persist_data'",
+        &format!("{SCRIPT}[[script.settings]]\nkey = 'level'\ntitle = '等级'\ntype = 'number'\nmin = 0\nmax = 9\ndefault = 3\n"),
+    );
+    import_pack(
+        files,
+        root,
+        id,
+        &script,
+        &module(&[COMMIT_TEXT, STORAGE_LEN, SETTING_COUNT]),
+    )
+}
+
+fn persist() -> CapabilitySet {
+    read_commit().with(Capability::PersistData)
+}
+
+fn set_values(
+    root: &Path,
+    id: &str,
+    values: serde_json::Value,
+) -> Result<script_settings::ScriptPluginStateView, ScriptGrantError> {
+    script_settings::set(root, None, id, values.as_object().unwrap().clone())
+}
+
+#[test]
+fn settings_are_written_per_plugin_checked_against_the_manifest_and_leave_grants_alone() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let hash = import_memo(files.path(), &root, "memo");
+    let grants = script_grants::set(&root, None, "memo", &hash, true, persist()).unwrap();
+
+    let view = script_settings::state(&root, None, "memo").unwrap();
+    assert_eq!(
+        serde_json::to_value(&view).unwrap(),
+        serde_json::json!({"id": "memo", "values": {"level": 3}, "storage_bytes": 0})
+    );
+    let view = set_values(&root, "memo", serde_json::json!({"level": 7})).unwrap();
+    assert_eq!(view.values["level"], 7);
+    let read = script_settings::read(&root);
+    assert_eq!(read.values("memo").unwrap()["level"], 7);
+    assert_eq!(read.storage_epoch("memo"), 0);
+    let first = read.revision;
+    // 改设置不动授权文件。
+    assert_eq!(script_grants::read(&root), grants);
+    // 整份替换：空表回到默认值，revision 往前走。
+    set_values(&root, "memo", serde_json::json!({})).unwrap();
+    let read = script_settings::read(&root);
+    assert!(read.values("memo").unwrap().is_empty());
+    assert!(read.revision > first);
+
+    for (values, expected) in [
+        (serde_json::json!({"width": 1}), "清单里没有设置项 width"),
+        (serde_json::json!({"level": 10}), "设置项 level 的值不合规"),
+        (serde_json::json!({"level": 2.5}), "设置项 level 的值不合规"),
+    ] {
+        match set_values(&root, "memo", values) {
+            Err(ScriptGrantError::SettingInvalid(reason)) => assert_eq!(reason, expected),
+            other => panic!("not refused: {other:?}"),
+        }
+    }
+    assert!(matches!(
+        set_values(&root, "absent", serde_json::json!({})),
+        Err(ScriptGrantError::Missing(_))
+    ));
+    // 更新的版本写的文件：读出来是空的，写入拒绝覆盖。
+    fs::write(
+        script_settings::document_path(&root),
+        r#"{"format_version":2,"plugins":{"memo":{"values":{"level":1}}}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        script_settings::read(&root),
+        script_settings::ScriptSettings::default()
+    );
+    assert!(matches!(
+        set_values(&root, "memo", serde_json::json!({"level": 1})),
+        Err(ScriptGrantError::SettingsFormat)
+    ));
+    // 不合规的条目只跳过它自己。
+    fs::write(
+        script_settings::document_path(&root),
+        r#"{"format_version":1,"revision":4,"plugins":{"../x":{"values":{}},"memo":{"values":{"level":5},"storage_epoch":2},"bad":{"values":3}}}"#,
+    )
+    .unwrap();
+    let read = script_settings::read(&root);
+    assert_eq!(read.plugins.len(), 1);
+    assert_eq!(read.storage_epoch("memo"), 2);
+}
+
+#[test]
+fn storage_is_written_only_while_granted_and_at_the_epoch_it_was_read() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let hash = import_memo(files.path(), &root, "memo");
+    let path = script_storage::path(&root, "memo");
+    // 没有授权：写不进去。
+    assert_eq!(
+        script_storage::write(&root, "memo", 0, b"abc").unwrap(),
+        script_storage::Written::Refused
+    );
+    script_grants::set(&root, None, "memo", &hash, true, persist()).unwrap();
+    assert_eq!(
+        script_storage::write(&root, "memo", 0, b"abc").unwrap(),
+        script_storage::Written::Saved
+    );
+    assert_eq!(script_storage::read(&root, "memo"), b"abc");
+    assert_eq!(script_storage::used_bytes(&root, "memo"), 3);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    // 超过上限、代次不对：不写。
+    let too_big = vec![1; limits::MAX_STORAGE_BYTES + 1];
+    assert_eq!(
+        script_storage::write(&root, "memo", 0, &too_big).unwrap(),
+        script_storage::Written::Refused
+    );
+    assert_eq!(
+        script_storage::write(&root, "memo", 1, b"stale").unwrap(),
+        script_storage::Written::Refused
+    );
+    assert_eq!(script_storage::read(&root, "memo"), b"abc");
+    // 写空内容删掉文件。
+    assert_eq!(
+        script_storage::write(&root, "memo", 0, b"").unwrap(),
+        script_storage::Written::Saved
+    );
+    assert!(!path.exists());
+    // 盘上的文件超过上限：读出来是空的，已用按 0 算。
+    fs::write(&path, vec![1; limits::MAX_STORAGE_BYTES + 1]).unwrap();
+    assert!(script_storage::read(&root, "memo").is_empty());
+    assert_eq!(script_storage::used_bytes(&root, "memo"), 0);
+    fs::remove_file(&path).unwrap();
+
+    // 清除数据：删文件、代次加 1，旧代次的写入被拒，设置值留着。
+    script_storage::write(&root, "memo", 0, b"abc").unwrap();
+    set_values(&root, "memo", serde_json::json!({"level": 4})).unwrap();
+    assert_eq!(script_storage::clear(&root, "memo").unwrap(), 1);
+    assert!(!path.exists());
+    assert_eq!(
+        script_storage::write(&root, "memo", 0, b"old").unwrap(),
+        script_storage::Written::Refused
+    );
+    assert_eq!(
+        script_storage::write(&root, "memo", 1, b"new").unwrap(),
+        script_storage::Written::Saved
+    );
+    let settings = script_settings::read(&root);
+    assert_eq!(settings.storage_epoch("memo"), 1);
+    assert_eq!(settings.values("memo").unwrap()["level"], 4);
+}
+
+#[test]
+fn revoking_persist_data_or_removing_the_plugin_deletes_its_storage() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let hash = import_memo(files.path(), &root, "memo");
+    let path = script_storage::path(&root, "memo");
+    script_grants::set(&root, None, "memo", &hash, true, persist()).unwrap();
+    script_storage::write(&root, "memo", 0, b"abc").unwrap();
+    // 调整别的能力、停用而不撤销：数据留着。
+    script_grants::set(&root, None, "memo", &hash, false, persist()).unwrap();
+    assert!(path.exists());
+    // 撤销 persist_data：文件删掉、代次加 1，旧缓冲写不回去；之后重新授予也写不回旧代次。
+    script_grants::set(&root, None, "memo", &hash, true, read_commit()).unwrap();
+    assert!(!path.exists());
+    assert_eq!(script_settings::read(&root).storage_epoch("memo"), 1);
+    script_grants::set(&root, None, "memo", &hash, true, persist()).unwrap();
+    assert_eq!(
+        script_storage::write(&root, "memo", 0, b"old").unwrap(),
+        script_storage::Written::Refused
+    );
+    // `persist_data` 和 `rewrite_commit` 不能同时授予。
+    assert!(matches!(
+        script_grants::set(
+            &root,
+            None,
+            "memo",
+            &hash,
+            true,
+            persist().with(Capability::RewriteCommit)
+        ),
+        Err(ScriptGrantError::Invalid(_))
+    ));
+
+    // 卸载：存储和设置值都清掉，代次留着并加 1，同 id 重新导入后旧进程手上的缓冲写不回去。
+    script_storage::write(&root, "memo", 1, b"abc").unwrap();
+    set_values(&root, "memo", serde_json::json!({"level": 6})).unwrap();
+    remove(&root, PluginKind::Script, "memo").unwrap();
+    assert!(!path.exists());
+    let settings = script_settings::read(&root);
+    assert!(settings.values("memo").unwrap().is_empty());
+    assert_eq!(settings.storage_epoch("memo"), 2);
+    let hash = import_memo(files.path(), &root, "memo");
+    script_grants::set(&root, None, "memo", &hash, true, persist()).unwrap();
+    assert_eq!(
+        script_storage::write(&root, "memo", 1, b"stale").unwrap(),
+        script_storage::Written::Refused
+    );
+    assert_eq!(
+        script_storage::write(&root, "memo", 2, b"fresh").unwrap(),
+        script_storage::Written::Saved
+    );
+}

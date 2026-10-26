@@ -2,16 +2,25 @@ import UIKit
 
 /// 横向分页的图块网格，下方带页码圆点，键盘的分页面板共用（功能面板以及沿用它布局的各个选择面板）。
 ///
-/// 图块按行填满每一页，每页 `columns × rows` 个；行高固定为 `rowHeight`，行间隔 `rowGap`，等宽的列之间隔 `columnGap`，每页左右各留 `sidePadding`。页面贴着滚动区顶部，显示圆点时圆点在其下方 8pt、位于视图底部，与设计稿的 flex 纵向布局一致。
+/// 图块按行填满每一页，每页 `columns × rows` 个；行高为 `rowHeight`，行间隔 `rowGap`，等宽的列之间隔 `columnGap`，每页左右各留 `sidePadding`。页面贴着滚动区顶部，显示圆点时圆点在其下方 8pt、位于视图底部，与设计稿的 flex 纵向布局一致。
+///
+/// 选择面板（功能面板、输入方式）用 `init(columns:pickerRows:rowHeight:columnGap:sidePadding:)` 建网格：行数、行高和行间隔不固定，每次布局按滚动区的真实高度由 `pickerLayout` 重新决定，网格永远不超出滚动区；皮肤面板等其余网格保持初始化时的固定行数和行高。
 ///
 /// 页面和滚动内容手动布局而不用 Auto Layout，这样设置内容尺寸的同一轮里就能重新套用页偏移：替换图块后仍停在用户原来那一页，而不是被 UIScrollView 把偏移夹回第一页。
 final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
   static let dotsGap: CGFloat = 8
 
   let columns: Int
-  let rows: Int
-  private let rowHeight: CGFloat
-  private let rowGap: CGFloat
+  /// 每页的行数；选择面板的网格在布局时按 `pickerLayout` 改它。
+  private(set) var rows: Int
+  private var rowHeight: CGFloat
+  private var rowGap: CGFloat
+  /// 初始化时给的行高，即格子的满尺寸行高；选择面板缩小时 `rowHeight` 是它乘以缩放。
+  private let fullRowHeight: CGFloat
+  /// 选择面板的首选行数（`pickerRows`）；nil 表示行数、行高和行间隔固定不变。
+  private var preferredPickerRows: Int?
+  /// 每一行的高度约束，缩放变化而行数不变时就地改它们的常量，不必重新分页。
+  private var rowHeightConstraints: [NSLayoutConstraint] = []
   private let columnGap: CGFloat
   private let sidePadding: CGFloat
   private let showsDots: Bool
@@ -32,6 +41,7 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
     self.columns = max(1, columns)
     self.rows = max(1, rows)
     self.rowHeight = rowHeight
+    self.fullRowHeight = rowHeight
     self.rowGap = rowGap
     self.columnGap = columnGap
     self.sidePadding = sidePadding
@@ -56,17 +66,58 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
     dots.setCount(1)
   }
 
+  /// 选择面板（功能面板、输入方式）的网格：`pickerRows` 是首选行数（见 `pickerRows(formFactor:landscape:)`），`rowHeight` 是格子的满尺寸行高。实际的行数、行高和行间隔在每次布局时按滚动区的真实高度由 `pickerLayout` 决定。
+  convenience init(columns: Int, pickerRows: Int, rowHeight: CGFloat, columnGap: CGFloat, sidePadding: CGFloat) {
+    self.init(
+      columns: columns, rows: pickerRows, rowHeight: rowHeight, rowGap: KeyboardPagedGridView.pickerRowGap(rows: pickerRows),
+      columnGap: columnGap, sidePadding: sidePadding)
+    preferredPickerRows = max(1, pickerRows)
+  }
+
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   var tilesPerPage: Int { columns * rows }
 
-  /// 输入方式和功能面板每页的行数：手机竖屏和 iPad 三行；手机横屏的按键区只有约 165pt（34pt 的按键四排），放不下三行，仍是两行。
+  /// 输入方式和功能面板每页的首选行数：手机竖屏和 iPad 三行；手机横屏的按键区只有约 165pt（34pt 的按键四排），首选两行。实际排几行、缩放多少由 `pickerLayout` 按真实高度决定。
   static func pickerRows(formFactor: KeyboardFormFactor, landscape: Bool) -> Int {
     formFactor == .phone && landscape ? 2 : 3
   }
 
-  /// 面板的行间隔：三行时 12pt，手机竖屏在最矮的键盘（按键区约 210pt）里也放得下三行 52pt 的格子、页码圆点和上下边距；两行仍是 16pt。
+  /// 面板满尺寸时的行间隔：三行 12pt，两行 16pt。格子缩小时行间隔按同一比例缩小（`pickerLayout`）。
   static func pickerRowGap(rows: Int) -> CGFloat { rows >= 3 ? 12 : 16 }
+
+  /// 选择面板格子的最小高度（pt），与 44pt 的触控目标下限一致：三行缩到比它还矮时改排两行。
+  static let pickerMinTileHeight: CGFloat = 44
+
+  /// 选择面板按真实高度排布的结果：行数、相对满尺寸的缩放，以及缩放后的行高和行间隔。
+  struct PickerLayout: Equatable {
+    let rows: Int
+    let scale: CGFloat
+    /// 满尺寸行高乘以 `scale`。
+    let rowHeight: CGFloat
+    /// `pickerRowGap(rows:)` 乘以 `scale`。
+    let rowGap: CGFloat
+  }
+
+  /// 选择面板的排布规则，与 Android `PagedTileGrid.pickerGrid`、HarmonyOS `FunctionPanelPolicy.pickerGrid` 是同一条规则、同一组常量（行间隔 12 / 16，最小格子 44）。`height` 是格子各行能占的高度（滚动区的真实高度，不含页码圆点），`rowHeight` 是格子的满尺寸行高。
+  ///
+  /// 首选三行时先按三行算：满尺寸高度为 3 行加 2 个 12pt 间隔，缩放取 `min(1, height / 满尺寸)`，缩放后的行高不低于 `pickerMinTileHeight` 就排三行。否则排两行：满尺寸为 2 行加一个 16pt 间隔，缩放同样取 `min(1, height / 满尺寸)`，但不低于 `pickerMinTileHeight / rowHeight`（行高本来就不超过 44 时不缩）。高度够时缩放为 1，与原来的排法完全一样：满尺寸的行贴着顶部、用原来的行间隔。
+  static func pickerLayout(preferredRows: Int, height: CGFloat, rowHeight: CGFloat) -> PickerLayout {
+    // 浮点误差容差：正好缩到 44pt 的三行仍算放得下。
+    let epsilon: CGFloat = 0.0001
+    let available = max(0, height)
+    if preferredRows >= 3 {
+      let full = 3 * rowHeight + 2 * pickerRowGap(rows: 3)
+      let scale = min(1, available / full)
+      if rowHeight * scale >= pickerMinTileHeight - epsilon {
+        return PickerLayout(rows: 3, scale: scale, rowHeight: rowHeight * scale, rowGap: pickerRowGap(rows: 3) * scale)
+      }
+    }
+    let full = 2 * rowHeight + pickerRowGap(rows: 2)
+    let floor = rowHeight > pickerMinTileHeight ? pickerMinTileHeight / rowHeight : 1
+    let scale = max(floor, min(1, available / full))
+    return PickerLayout(rows: 2, scale: scale, rowHeight: rowHeight * scale, rowGap: pickerRowGap(rows: 2) * scale)
+  }
 
   /// 至少一页，没有图块时也是。
   var pageCount: Int { max(1, (tiles.count + tilesPerPage - 1) / tilesPerPage) }
@@ -80,17 +131,40 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
 
   /// 把 `tiles` 按顺序逐页排好。已显示的视图只移动、不重建。传 `preservingPage` 时停在当前页（页数变少时停在最后一页），否则回到第一页。
   func setTiles(_ tiles: [UIView], preservingPage: Bool) {
-    pages.forEach { $0.removeFromSuperview() }
     self.tiles = tiles
+    rebuildPages(showing: preservingPage ? currentPage : 0)
+  }
+
+  /// 按当前的行数、行高和行间隔重新分页，停在 `page`（页数变少时停在最后一页），页码圆点跟着换数量。
+  private func rebuildPages(showing page: Int) {
+    pages.forEach { $0.removeFromSuperview() }
+    rowHeightConstraints = []
     pages = stride(from: 0, to: max(tiles.count, 1), by: tilesPerPage).map { start in
       makePage(Array(tiles[min(start, tiles.count)..<min(start + tilesPerPage, tiles.count)]))
     }
     pages.forEach { scrollView.addSubview($0) }
-    let target = preservingPage ? min(currentPage, pageCount - 1) : 0
+    let target = min(max(page, 0), pageCount - 1)
     dots.setCount(pageCount)
     dots.setActive(target, animated: false)
     setPage(target)
     setNeedsLayout()
+  }
+
+  /// 换成 `layout` 的行数、行高和行间隔。行数变了就重新分页，停在含有原来那一页第一个图块的页上；只有缩放变了时就地改行高约束和行间隔，图块不挪窝，正按着的图块也不会被打断。
+  private func applyPickerLayout(_ layout: PickerLayout) {
+    if layout.rows != rows {
+      let firstTile = currentPage * tilesPerPage
+      rows = layout.rows
+      rowHeight = layout.rowHeight
+      rowGap = layout.rowGap
+      rebuildPages(showing: firstTile / tilesPerPage)
+      return
+    }
+    guard layout.rowHeight != rowHeight || layout.rowGap != rowGap else { return }
+    rowHeight = layout.rowHeight
+    rowGap = layout.rowGap
+    pages.forEach { $0.spacing = rowGap }
+    rowHeightConstraints.forEach { $0.constant = rowHeight }
   }
 
   /// 显示 `page`（限制在已有页数范围内），`animated` 时滑过去。
@@ -120,6 +194,10 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
     let width = bounds.width
     let dotsBlock = showsDots ? Self.dotsGap + KeyboardPagerDotsView.dotSide : 0
     let scrollHeight = max(0, bounds.height - dotsBlock)
+    // 选择面板按滚动区的真实高度排布，格子各行永远放得进滚动区，不会上下拖动，也不会被不均匀地压扁。
+    if let preferred = preferredPickerRows, scrollHeight > 0 {
+      applyPickerLayout(Self.pickerLayout(preferredRows: preferred, height: scrollHeight, rowHeight: fullRowHeight))
+    }
     isApplyingLayout = true
     scrollView.frame = CGRect(x: 0, y: 0, width: width, height: scrollHeight)
     if showsDots {
@@ -185,7 +263,7 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
     onPageChange?(page)
   }
 
-  /// 一页：`rows` 行固定高度、每行 `columns` 个等宽格子，最后一个图块之后用空格子补齐。
+  /// 一页：`rows` 行高为 `rowHeight`、每行 `columns` 个等宽格子，最后一个图块之后用空格子补齐。
   private func makePage(_ pageTiles: [UIView]) -> UIStackView {
     let grid = UIStackView()
     grid.axis = .vertical
@@ -203,9 +281,10 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
         line.addArrangedSubview(index < pageTiles.count ? pageTiles[index] : UIView())
       }
       let height = line.heightAnchor.constraint(equalToConstant: rowHeight)
-      // 优先级低于 required，键盘被压得比网格还矮时压缩行高，而不是打印约束冲突。
+      // 优先级低于 required，键盘被压得比网格还矮时压缩行高，而不是打印约束冲突。选择面板的行高已按真实高度缩放，只有两行缩到最小格子仍放不下时才会走到这里。
       height.priority = .required - 1
       height.isActive = true
+      rowHeightConstraints.append(height)
       grid.addArrangedSubview(line)
     }
     return grid

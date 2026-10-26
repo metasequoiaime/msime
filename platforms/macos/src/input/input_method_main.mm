@@ -3,6 +3,7 @@
 #import "InputModeIdentifiers.h"
 #import "InputModeStatusItem.h"
 #import "InputSourceRegistration.h"
+#import "InputControllerActivity.h"
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
 #import "../settings/RuntimeOptionsRefresh.h"
@@ -170,7 +171,16 @@ int main(int argc, const char *argv[]) {
                     channel = preferences[@"update_channel"];
                 }
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    (void)[MSIMEUpdateController sharedControllerWithUpdateChannelPreference:channel];
+                    MSIMEUpdateController *updates = [MSIMEUpdateController sharedControllerWithUpdateChannelPreference:channel];
+                    // 切换输入源和离开电脑时都先看用户手上有没有没完成的东西，有就这次不装（UpdateController.h）。
+                    updates.unfinishedWork = ^BOOL {
+                        return MSIMEInputControllerHasUnfinishedInput() || MSIMEUpdateWindowsHoldUserWork(NSApp.windows);
+                    };
+                    // 从不切走水杉的用户，在熄屏、切走登录会话或半小时没有任何输入时装后台下好的更新（UpdateController.h）。闲置时长取整个登录会话的输入，不只是打给水杉的按键。
+                    [updates installDownloadedUpdateWhenAwayWithWorkspaceCenter:NSWorkspace.sharedWorkspace.notificationCenter
+                                                                      idleClock:^CFTimeInterval {
+                                                                          return CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType);
+                                                                      }];
                 });
             });
         }

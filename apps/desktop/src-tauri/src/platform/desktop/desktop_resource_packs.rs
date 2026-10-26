@@ -219,6 +219,10 @@ async fn install_pack<R: tauri::Runtime>(
     pack: ResourcePack,
 ) -> Result<PathBuf, HostActionError> {
     let root = state_root(&store);
+    let channel = store
+        .load()
+        .map(|snapshot| snapshot.preferences.update_channel)
+        .unwrap_or_default();
     let mirror = saved_model_mirror(store).await?;
     run_install(
         app,
@@ -227,7 +231,14 @@ async fn install_pack<R: tauri::Runtime>(
         RESOURCE_PACK_PROGRESS_EVENT,
         pack.id().to_owned(),
         move |progress, cancel| {
-            resource_packs::install(&root, pack, &[mirror.as_str()], progress, cancel)
+            resource_packs::install_for_channel(
+                &root,
+                pack,
+                channel,
+                &[mirror.as_str()],
+                progress,
+                cancel,
+            )
         },
     )
     .await
@@ -255,6 +266,27 @@ pub(crate) async fn resource_packs<R: tauri::Runtime>(
     .map_err(|_| HostActionError {
         code: "unavailable",
     })
+}
+
+/// 主动读取官方语法模型目录；只返回可选更新，不下载或替换本地模型。
+#[tauri::command]
+pub(crate) async fn resource_pack_check_grammar_updates(
+    store: tauri::State<'_, Arc<PreferencesStore>>,
+) -> Result<Vec<resource_packs::GrammarModelUpdate>, HostActionError> {
+    let root = state_root(store.inner());
+    let channel = store
+        .load()
+        .map(|snapshot| snapshot.preferences.update_channel)
+        .unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || {
+        resource_packs::check_grammar_updates(&root, channel).map_err(|_| HostActionError {
+            code: "grammar_model_catalog_unavailable",
+        })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
 }
 
 /// 下载并安装一个资源包，返回安装目录。镜像沿用已保存的 `voice_input.asr_model_mirror`。

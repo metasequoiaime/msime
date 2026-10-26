@@ -58,3 +58,7 @@ Android 的字母层只有 `KeyboardLayout` 的三行字母，`ImeLetterRows.reb
 ## 上下文自动开启
 
 [密码与 SSH 工具自动数字行](../../implemented/feature/2026-10-21-issue-8972-automatic-number-row.md) 补充临时开启状态，与手动开关取或；本篇的键面、高度和数字输入规则继续适用。
+
+## 平板宽窗口的中缝
+
+[平板分离键区限宽](../bug-fix/2026-10-26-android-tablet-split-width.md)取代本篇固定 25% 中缝的宽屏计算：窗口超过 960 dp 后，原始键区合计最多 720 dp，多出的宽度归中缝。重复键仍从中缝借宽，数字行的开关和高度规则不变。

@@ -2,66 +2,23 @@
 //!
 //! 每个请求在一个 SQLite 事务里完成，所以并发换钥只有一个成功、去重和五十条上限不会被并发上传打破，进程中途被杀也不会留下一半的状态。
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine as _};
+//! 请求的解析和不依赖状态的校验（路由、正文形状、公钥与编号一致、封装和密文的格式）与客户端的 WebDAV 后端共用 `msime_client_core::cloud::clipboard_log` 里的那一份，两边答出的错误码因此一致；这里只做依赖状态的部分。
+
+use msime_client_core::cloud::clipboard_log::{parse_request, RelayRequest, WrapEntry};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Mutex;
 
-const API: &str = "/v1/users/me/clipboard";
-/// 每个空间最多登记的设备数，也是一次换钥最多带的封装数。
-pub const MAX_DEVICES: usize = 20;
-/// 每个空间最多保留的条目数。
-pub const MAX_ITEMS: usize = 50;
-/// 条目密文的最大字符数（含 `v1.` 前缀）。
-pub const MAX_CIPHERTEXT_CHARS: usize = 16384;
-/// 上传一条的请求体上限，与官方服务端相同。
-const MAX_UPLOAD_BYTES: usize = 32768;
-/// 密文解码后的最小字节数：24 字节 nonce、16 字节 tag 和至少 1 字节明文。
-const MIN_CIPHERTEXT_BYTES: usize = 24 + 16 + 1;
-/// 封装解码后的字节数：32 字节临时公钥、24 字节 nonce、32 字节密钥和 16 字节 tag。
-const WRAP_BYTES: usize = 32 + 24 + 32 + 16;
-const MAX_DEVICE_NAME_CHARS: usize = 64;
-const RETENTION_DAYS: [i64; 4] = [0, 1, 7, 30];
+pub use msime_client_core::cloud::clipboard_log::{
+    Response, MAX_CIPHERTEXT_CHARS, MAX_DEVICES, MAX_ITEMS,
+};
 
 /// 交给 [`RelayStore::handle`] 的请求。`path` 是去掉基地址之后的路径，可以带查询串。
 pub struct Request<'a> {
     pub method: &'a str,
     pub path: &'a str,
     pub body: &'a [u8],
-}
-
-/// 状态码和 JSON 正文（204 没有正文）。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Response {
-    pub status: u16,
-    pub body: Option<String>,
-}
-
-impl Response {
-    fn json(status: u16, value: Value) -> Self {
-        Self {
-            status,
-            body: Some(value.to_string()),
-        }
-    }
-
-    fn no_content() -> Self {
-        Self {
-            status: 204,
-            body: None,
-        }
-    }
-
-    pub(crate) fn error(status: u16, code: &str) -> Self {
-        Self::json(
-            status,
-            json!({ "error": { "code": code, "message": code.replace('_', " ") } }),
-        )
-    }
 }
 
 /// 一次请求里出错的两种情况：按协议回答的错误，和数据库本身的失败。
@@ -146,14 +103,10 @@ impl RelayStore {
 
     /// 回答 `space` 里的一个请求。`space` 由调用方从令牌算出，这里不再核对凭据。
     pub fn handle(&self, space: &str, request: &Request<'_>) -> Response {
-        let (path, query) = request.path.split_once('?').unwrap_or((request.path, ""));
-        let Some(rest) = path.strip_prefix(API) else {
-            return Response::error(404, "not_found");
+        let parsed = match parse_request(request.method, request.path, request.body) {
+            Ok(parsed) => parsed,
+            Err(response) => return response,
         };
-        let segments: Vec<&str> = rest.split('/').skip(1).collect();
-        if !rest.is_empty() && !rest.starts_with('/') {
-            return Response::error(404, "not_found");
-        }
         let mut connection = match self.connection.lock() {
             Ok(connection) => connection,
             Err(poisoned) => poisoned.into_inner(),
@@ -168,7 +121,7 @@ impl RelayStore {
                 transaction: &transaction,
                 id: space,
             };
-            let response = route(&space, request.method, &segments, query, request.body)?;
+            let response = route(&space, parsed)?;
             if (200..300).contains(&response.status) {
                 transaction.commit()?;
             }
@@ -181,63 +134,38 @@ impl RelayStore {
     }
 }
 
-fn route(space: &Space<'_>, method: &str, segments: &[&str], query: &str, body: &[u8]) -> Outcome {
-    match (method, segments) {
-        ("GET", []) => space.list(),
-        ("POST", []) => space.add(body),
-        ("DELETE", []) => space.clear(),
-        ("GET", ["keys"]) => space.keys(query),
-        ("POST", ["keys"]) => space.rotate(body),
-        ("PUT", ["keys", key_id, "wraps", device_id]) => space.approve(key_id, device_id, body),
-        ("PUT", ["devices", device_id]) => space.register(device_id, body),
-        ("DELETE", ["devices", device_id]) => space.reject(device_id),
-        ("PUT", ["settings"]) => space.set_enabled(body),
-        ("PUT", ["retention"]) => space.set_retention(body),
-        ("DELETE", [id]) => space.delete(id),
-        ("PUT", [id, "pin"]) => space.pin(id, body),
-        _ => Err(reply(404, "not_found")),
+fn route(space: &Space<'_>, request: RelayRequest) -> Outcome {
+    match request {
+        RelayRequest::List => space.list(),
+        RelayRequest::Add {
+            ciphertext,
+            key_id,
+            dedup,
+        } => space.add(&ciphertext, &key_id, &dedup),
+        RelayRequest::Clear => space.clear(),
+        RelayRequest::Keys { device_id } => space.keys(&device_id),
+        RelayRequest::Rotate {
+            previous_key_id,
+            key_id,
+            wraps,
+            revoke,
+        } => space.rotate(previous_key_id, &key_id, &wraps, &revoke),
+        RelayRequest::Approve {
+            key_id,
+            device_id,
+            wrap,
+        } => space.approve(&key_id, &device_id, &wrap),
+        RelayRequest::Register {
+            device_id,
+            public_key,
+            name,
+        } => space.register(&device_id, &public_key, &name),
+        RelayRequest::Reject { device_id } => space.reject(&device_id),
+        RelayRequest::SetEnabled { enabled } => space.set_enabled(enabled),
+        RelayRequest::SetRetention { days } => space.set_retention(days),
+        RelayRequest::Delete { id } => space.delete(&id),
+        RelayRequest::Pin { id, pinned } => space.pin(&id, pinned),
     }
-}
-
-fn is_lower_hex(value: &str, length: usize) -> bool {
-    value.len() == length
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-/// 不带填充的 base64url，按规范写法严格解码：字符集之外的字符、填充和多余的尾部位都不接受，每个值只有一种写法。
-fn decode_b64(value: &str) -> Option<Vec<u8>> {
-    B64.decode(value).ok()
-}
-
-fn valid_device(device_id: &str, public_key: &str) -> bool {
-    is_lower_hex(device_id, 32)
-        && decode_b64(public_key).is_some_and(|key| {
-            key.len() == 32 && hex::encode(&Sha256::digest(&key)[..16]) == device_id
-        })
-}
-
-fn valid_device_name(name: &str) -> bool {
-    name.chars().count() <= MAX_DEVICE_NAME_CHARS && !name.chars().any(char::is_control)
-}
-
-fn valid_wrap(wrap: &str) -> bool {
-    wrap.strip_prefix("v1.")
-        .and_then(decode_b64)
-        .is_some_and(|bytes| bytes.len() == WRAP_BYTES)
-}
-
-fn valid_ciphertext(ciphertext: &str) -> bool {
-    ciphertext.len() <= MAX_CIPHERTEXT_CHARS
-        && ciphertext
-            .strip_prefix("v1.")
-            .and_then(decode_b64)
-            .is_some_and(|bytes| bytes.len() >= MIN_CIPHERTEXT_BYTES)
-}
-
-fn parse<T: DeserializeOwned>(body: &[u8]) -> Result<T, Failure> {
-    serde_json::from_slice(body).map_err(|_| reply(400, "invalid_json"))
 }
 
 fn now() -> (String, i64) {
@@ -317,14 +245,7 @@ impl Space<'_> {
         }))
     }
 
-    fn keys(&self, query: &str) -> Outcome {
-        let device_id = query
-            .split('&')
-            .find_map(|pair| pair.strip_prefix("device_id="))
-            .unwrap_or_default();
-        if !is_lower_hex(device_id, 32) {
-            return Err(reply(400, "invalid_device_id"));
-        }
+    fn keys(&self, device_id: &str) -> Outcome {
         let state = self.state()?;
         let wrap: Option<String> = match &state.key_id {
             Some(key_id) => self
@@ -366,21 +287,10 @@ impl Space<'_> {
         ))
     }
 
-    fn register(&self, device_id: &str, body: &[u8]) -> Outcome {
-        #[derive(Deserialize)]
-        struct Body {
-            #[serde(default)]
-            public_key: String,
-            #[serde(default)]
-            name: String,
-        }
-        let body: Body = parse(body)?;
-        if !valid_device(device_id, &body.public_key) || !valid_device_name(&body.name) {
-            return Err(reply(400, "invalid_clipboard_device"));
-        }
+    fn register(&self, device_id: &str, public_key: &str, name: &str) -> Outcome {
         let renamed = self.transaction.execute(
             "UPDATE devices SET name=?3 WHERE space=?1 AND device_id=?2",
-            params![self.id, device_id, body.name],
+            params![self.id, device_id, name],
         )?;
         if renamed == 1 {
             return Ok(Response::no_content());
@@ -415,7 +325,7 @@ impl Space<'_> {
         )?;
         self.transaction.execute(
             "INSERT INTO devices(space, device_id, public_key, name, created_at, ordinal) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![self.id, device_id, body.public_key, body.name, now().0, ordinal],
+            params![self.id, device_id, public_key, name, now().0, ordinal],
         )?;
         Ok(Response::no_content())
     }
@@ -435,51 +345,27 @@ impl Space<'_> {
         Ok(Response::no_content())
     }
 
-    fn rotate(&self, body: &[u8]) -> Outcome {
-        #[derive(Deserialize)]
-        struct Wrap {
-            device_id: String,
-            wrap: String,
-        }
-        #[derive(Deserialize)]
-        struct Body {
-            #[serde(default)]
-            previous_key_id: Option<String>,
-            key_id: String,
-            wraps: Vec<Wrap>,
-            #[serde(default)]
-            revoke: Vec<String>,
-        }
-        let body: Body =
-            serde_json::from_slice(body).map_err(|_| reply(400, "invalid_clipboard_key"))?;
-        let mut seen = std::collections::HashSet::new();
-        let well_formed = is_lower_hex(&body.key_id, 32)
-            && (1..=MAX_DEVICES).contains(&body.wraps.len())
-            && body.revoke.len() <= MAX_DEVICES
-            && body.revoke.iter().all(|id| is_lower_hex(id, 32))
-            && body.wraps.iter().all(|wrap| {
-                is_lower_hex(&wrap.device_id, 32)
-                    && valid_wrap(&wrap.wrap)
-                    && !body.revoke.contains(&wrap.device_id)
-                    && seen.insert(wrap.device_id.as_str())
-            });
-        if !well_formed {
-            return Err(reply(400, "invalid_clipboard_key"));
-        }
+    fn rotate(
+        &self,
+        previous_key_id: Option<String>,
+        key_id: &str,
+        wraps: &[WrapEntry],
+        revoke: &[String],
+    ) -> Outcome {
         let state = self.state()?;
         if !state.enabled {
             return Err(reply(403, "clipboard_sync_disabled"));
         }
-        if state.key_id != body.previous_key_id {
+        if state.key_id != previous_key_id {
             return Err(reply(409, "clipboard_key_conflict"));
         }
-        for device_id in &body.revoke {
+        for device_id in revoke {
             self.transaction.execute(
                 "DELETE FROM devices WHERE space=?1 AND device_id=?2",
                 params![self.id, device_id],
             )?;
         }
-        for wrap in &body.wraps {
+        for wrap in wraps {
             if !self.device_exists(&wrap.device_id)? {
                 return Err(reply(400, "invalid_clipboard_key"));
             }
@@ -490,27 +376,18 @@ impl Space<'_> {
             .execute("DELETE FROM wraps WHERE space=?1", params![self.id])?;
         self.transaction.execute(
             "UPDATE spaces SET key_id=?2 WHERE space=?1",
-            params![self.id, body.key_id],
+            params![self.id, key_id],
         )?;
-        for wrap in &body.wraps {
+        for wrap in wraps {
             self.transaction.execute(
                 "INSERT INTO wraps(space, device_id, key_id, wrap) VALUES(?1, ?2, ?3, ?4)",
-                params![self.id, wrap.device_id, body.key_id, wrap.wrap],
+                params![self.id, wrap.device_id, key_id, wrap.wrap],
             )?;
         }
         Ok(Response::no_content())
     }
 
-    fn approve(&self, key_id: &str, device_id: &str, body: &[u8]) -> Outcome {
-        #[derive(Deserialize)]
-        struct Body {
-            #[serde(default)]
-            wrap: String,
-        }
-        let body: Body = parse(body)?;
-        if !valid_wrap(&body.wrap) {
-            return Err(reply(400, "invalid_clipboard_key"));
-        }
+    fn approve(&self, key_id: &str, device_id: &str, wrap: &str) -> Outcome {
         if self.state()?.key_id.as_deref() != Some(key_id) {
             return Err(reply(409, "clipboard_key_conflict"));
         }
@@ -520,7 +397,7 @@ impl Space<'_> {
         self.transaction.execute(
             "INSERT INTO wraps(space, device_id, key_id, wrap) VALUES(?1, ?2, ?3, ?4)
              ON CONFLICT(space, device_id) DO UPDATE SET key_id=excluded.key_id, wrap=excluded.wrap",
-            params![self.id, device_id, key_id, body.wrap],
+            params![self.id, device_id, key_id, wrap],
         )?;
         Ok(Response::no_content())
     }
@@ -552,46 +429,25 @@ impl Space<'_> {
         ))
     }
 
-    fn add(&self, body: &[u8]) -> Outcome {
-        #[derive(Deserialize)]
-        struct Body {
-            #[serde(default)]
-            text: String,
-            #[serde(default)]
-            ciphertext: String,
-            #[serde(default)]
-            key_id: String,
-            #[serde(default)]
-            dedup: String,
-        }
-        if body.len() > MAX_UPLOAD_BYTES {
-            return Err(reply(413, "request_too_large"));
-        }
-        let body: Body = parse(body)?;
-        if !body.text.is_empty() {
-            return Err(reply(400, "clipboard_e2e_required"));
-        }
-        if !valid_ciphertext(&body.ciphertext) || !is_lower_hex(&body.dedup, 64) {
-            return Err(reply(400, "invalid_clipboard_ciphertext"));
-        }
+    fn add(&self, ciphertext: &str, key_id: &str, dedup: &str) -> Outcome {
         let state = self.state()?;
         if !state.enabled {
             return Err(reply(403, "clipboard_sync_disabled"));
         }
-        if state.key_id.as_deref() != Some(body.key_id.as_str()) {
+        if state.key_id.as_deref() != Some(key_id) {
             return Err(reply(409, "clipboard_key_conflict"));
         }
         self.prune(state.retention_days)?;
         // 不属于当前密钥的条目不会再出现在列表里，趁这次写入删掉，免得占用五十条的名额。
         self.transaction.execute(
             "DELETE FROM items WHERE space=?1 AND key_id<>?2",
-            params![self.id, body.key_id],
+            params![self.id, key_id],
         )?;
         // 五十条都已置顶时，新的一条会在下面裁剪时被立刻删掉：明确答 409，而不是挤掉置顶的条目或答 500。去重标签落在一条置顶条目上时只是更新它，照常接受。
         let (pinned, pinned_duplicate): (i64, bool) = self.transaction.query_row(
             "SELECT (SELECT COUNT(*) FROM items WHERE space=?1 AND pinned<>0),
                     EXISTS(SELECT 1 FROM items WHERE space=?1 AND dedup=?2 AND pinned<>0)",
-            params![self.id, body.dedup],
+            params![self.id, dedup],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         if pinned >= MAX_ITEMS as i64 && !pinned_duplicate {
@@ -608,7 +464,7 @@ impl Space<'_> {
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(space, dedup) DO UPDATE SET ciphertext=excluded.ciphertext, key_id=excluded.key_id,
                  sequence=excluded.sequence, updated_at=excluded.updated_at, updated_unix=excluded.updated_unix",
-            params![self.id, random_id()?, body.ciphertext, body.key_id, body.dedup, sequence, updated_at, updated_unix],
+            params![self.id, random_id()?, ciphertext, key_id, dedup, sequence, updated_at, updated_unix],
         )?;
         self.transaction.execute(
             "DELETE FROM items WHERE space=?1 AND id NOT IN (
@@ -617,7 +473,7 @@ impl Space<'_> {
         )?;
         let item = self.transaction.query_row(
             "SELECT id, ciphertext, key_id, updated_at, pinned FROM items WHERE space=?1 AND dedup=?2",
-            params![self.id, body.dedup],
+            params![self.id, dedup],
             Self::item_json,
         )?;
         Ok(Response::json(200, item))
@@ -640,18 +496,7 @@ impl Space<'_> {
         Ok(Response::no_content())
     }
 
-    fn pin(&self, id: &str, body: &[u8]) -> Outcome {
-        #[derive(Deserialize)]
-        struct Body {
-            pinned: Option<bool>,
-        }
-        let body: Body = parse(body)?;
-        let Some(pinned) = body.pinned else {
-            return Err(reply(400, "pinned_required"));
-        };
-        if !is_lower_hex(id, 64) {
-            return Err(reply(404, "not_found"));
-        }
+    fn pin(&self, id: &str, pinned: bool) -> Outcome {
         let changed = self.transaction.execute(
             "UPDATE items SET pinned=?3 WHERE space=?1 AND id=?2",
             params![self.id, id, pinned],
@@ -662,15 +507,7 @@ impl Space<'_> {
         Ok(Response::no_content())
     }
 
-    fn set_retention(&self, body: &[u8]) -> Outcome {
-        #[derive(Deserialize)]
-        struct Body {
-            days: Option<i64>,
-        }
-        let body: Body = parse(body)?;
-        let Some(days) = body.days.filter(|days| RETENTION_DAYS.contains(days)) else {
-            return Err(reply(400, "invalid_retention"));
-        };
+    fn set_retention(&self, days: i64) -> Outcome {
         self.transaction.execute(
             "UPDATE spaces SET retention_days=?2 WHERE space=?1",
             params![self.id, days],
@@ -679,15 +516,7 @@ impl Space<'_> {
     }
 
     /// 关闭时连同条目、密钥、封装和全部设备登记一起删除，再次打开时由第一台设备重新建钥。
-    fn set_enabled(&self, body: &[u8]) -> Outcome {
-        #[derive(Deserialize)]
-        struct Body {
-            enabled: Option<bool>,
-        }
-        let body: Body = parse(body)?;
-        let Some(enabled) = body.enabled else {
-            return Err(reply(400, "enabled_required"));
-        };
+    fn set_enabled(&self, enabled: bool) -> Outcome {
         self.transaction.execute(
             "UPDATE spaces SET enabled=?2 WHERE space=?1",
             params![self.id, enabled],
@@ -711,6 +540,12 @@ impl Space<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine as _};
+    use msime_client_core::is_lower_hex;
+    use sha2::{Digest, Sha256};
+
+    const API: &str = "/v1/users/me/clipboard";
+    const WRAP_BYTES: usize = 32 + 24 + 32 + 16;
 
     const SPACE: &str = "synthetic-space";
 

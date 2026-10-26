@@ -1,3 +1,4 @@
+#include "../../settings/PluginEditorModel.h"
 #include "../../settings/PluginPageModel.h"
 #include <cstdio>
 #include <string>
@@ -152,7 +153,7 @@ int main() {
   // 出错说明。
   check(error_message(L"plugin_invalid", L"缺少 id", L"x") == L"插件不符合要求（缺少 id）。" &&
             error_message(L"plugin_invalid", L"", L"x") == L"插件不符合要求。" &&
-            error_message(L"storage", L"", L"导入失败，请重试。") == L"导入失败，请重试。",
+            error_message(L"mention_invalid_code", L"", L"导入失败，请重试。") == L"导入失败，请重试。",
         "error messages");
   auto imported = pack(L"sound", L"tune", L"sequence");
   check(imported_notice(imported) == L"已导入音效包·旋律「名tune」1.0.0。", "import notice");
@@ -227,16 +228,136 @@ int main() {
   check((sort_capabilities({L"filter_candidates", L"x", L"read_composition", L"read_composition"}) ==
          Caps{L"read_composition", L"filter_candidates"}),
         "capabilities sort in the runtime's order");
-  // provide_commands 是第 8 项：排在最后，没有依赖、不和任何一项互斥，页面认得它，不会把它当成不认识的能力丢掉。
-  check(script_capabilities.size() == 8 && script_capabilities.back() == L"provide_commands",
-        "provide_commands is the eighth capability");
+  // provide_commands 是第 8 项：没有依赖、不和任何一项互斥，页面认得它，不会把它当成不认识的能力丢掉。
+  check(script_capabilities.size() == 10 && script_capabilities[7] == L"provide_commands" &&
+            script_capabilities[8] == L"insert_candidates" && script_capabilities.back() == L"persist_data",
+        "the ten capabilities in the runtime's order");
   check((sort_capabilities({L"provide_commands", L"read_commit"}) == Caps{L"read_commit", L"provide_commands"}),
-        "provide_commands sorts last");
-  check(capability_requires(L"provide_commands").empty() && exclusive_partner(L"provide_commands").empty(),
+        "provide_commands sorts after reading");
+  check(capability_requires(L"provide_commands").empty() && exclusive_partners(L"provide_commands").empty(),
         "provide_commands needs nothing and excludes nothing");
   check((toggle_capability({L"read_commit"}, L"provide_commands", true, all) ==
          Caps{L"read_commit", L"provide_commands"}),
         "checking provide_commands keeps the rest");
+
+  // 第二批能力：添加候选依赖读取候选词，长期保存数据和改写上屏互斥；改写上屏因此有两个互斥项。
+  check(capability_requires(L"insert_candidates") == L"read_candidates" &&
+            capability_requires(L"persist_data").empty(),
+        "insert_candidates needs read_candidates");
+  check((exclusive_partners(L"rewrite_commit") == std::vector<std::wstring_view>{L"read_composition", L"persist_data"}) &&
+            (exclusive_partners(L"persist_data") == std::vector<std::wstring_view>{L"rewrite_commit"}) &&
+            (exclusive_partners(L"read_composition") == std::vector<std::wstring_view>{L"rewrite_commit"}),
+        "two exclusive pairs");
+  check((toggle_capability({}, L"insert_candidates", true, all) == Caps{L"read_candidates", L"insert_candidates"}),
+        "checking insert_candidates checks read_candidates");
+  check((toggle_capability({L"read_candidates", L"insert_candidates"}, L"read_candidates", false, all).empty()),
+        "unchecking read_candidates unchecks insert_candidates");
+  check((toggle_capability({L"persist_data"}, L"rewrite_commit", true, all) == Caps{L"read_commit", L"rewrite_commit"}),
+        "rewriting the commit drops persist_data");
+  check((toggle_capability({L"read_commit", L"rewrite_commit"}, L"persist_data", true, all) ==
+         Caps{L"read_commit", L"persist_data"}),
+        "persist_data drops rewriting the commit and keeps what it needed");
+  {
+    // 回归：之前 `sort_capabilities` 不认识这两项，悄悄丢掉，对话框里根本没有它们。
+    const auto items = grant_items({L"read_commit", L"read_candidates", L"insert_candidates", L"persist_data"}, {}, false);
+    check(items.size() == 4 && items[2].capability == L"insert_candidates" && items[2].title == L"添加候选" &&
+              items[2].group == L"改文字" && !items[2].warning &&
+              items[2].description.find(L"需要同时授予「读取候选词」。") != std::wstring::npos,
+          "the dialog lists insert_candidates under 改文字");
+    check(items[3].capability == L"persist_data" && items[3].title == L"长期保存数据" && items[3].group == L"记住数据" &&
+              items[3].warning && !items[3].checked && items[3].description == persist_data_warning,
+          "persist_data is alone in its group, unticked and a warning");
+    check(items[0].group == L"读文字" && items[1].group == L"读文字", "reading capabilities group together");
+    const auto blocked = grant_items({L"read_commit", L"rewrite_commit", L"persist_data"}, {L"read_commit", L"rewrite_commit"}, false);
+    check(blocked[2].disabled && blocked[2].description.find(L"不能和「修改输入的文字」同时授予。") != std::wstring::npos,
+          "persist_data is blocked while rewriting is granted");
+    auto groups = capability_groups();
+    check(groups.size() == 3 && groups[2].title == L"记住数据" && groups[2].capabilities.size() == 1 &&
+              groups[1].capabilities.size() == 6,
+          "three groups");
+    const auto extended = capability_description(L"provide_commands", true);
+    check(extended.find(L"之后打的字母以及数字和运算符号会交给这个插件") != std::wstring::npos &&
+              extended.find(L"只取决于这些字符和随机数") != std::wstring::npos &&
+              capability_description(L"provide_commands", false) == capability_label(L"provide_commands").description &&
+              grant_items({L"provide_commands"}, {}, false, true)[0].description == extended,
+          "extended commands add digits and operators");
+    Package bare;
+    check(grant_dialog_no_permissions(bare) ==
+              L"这个插件没有申请任何权限：它只能知道发生了什么事件，读不到也改不了任何文字。",
+          "no permissions");
+    bare.data_bytes = 10;
+    bare.settings.push_back({});
+    check(grant_dialog_no_permissions(bare) ==
+              L"这个插件没有申请任何权限：它只能知道发生了什么事件、读自己包里的数据、读你在设置项里填的值，读不到也改不了任何文字。",
+          "no permissions with data and settings");
+  }
+
+  // 删数据的规则、大小和确认句。
+  {
+    ScriptGrant saved{L"memo", L"h", true, {L"persist_data"}};
+    check(!grant_deletes_stored_data(nullptr, {}, 0) && grant_deletes_stored_data(nullptr, {}, 10) &&
+              grant_deletes_stored_data(&saved, {}, 0) && !grant_deletes_stored_data(&saved, {L"persist_data"}, 10),
+          "the deletion rule follows the saved grant and what is on disk");
+    check(format_kilobytes(0) == L"0 KB" && format_kilobytes(1) == L"1 KB" && format_kilobytes(5000) == L"5 KB" &&
+              format_kilobytes(2048) == L"2 KB",
+          "kilobytes round up");
+    check(stored_data_deletion_note(3000) == L"插件已存的数据（3 KB）会被删除，不能恢复。" &&
+              stored_data_deletion_note(0) == L"插件存下的数据会被删除，不能恢复。",
+          "deletion notes");
+    check(grant_dialog_deletion(3000) == L"这次授权不包括「长期保存数据」，插件已存的数据（3 KB）会被删除，不能恢复。",
+          "the dialog's second confirmation");
+    check(script_persisting(&saved, 0) && script_persisting(nullptr, 1) && !script_persisting(nullptr, 0), "persisting");
+  }
+
+  // 设置项：默认值、类型不对时回到默认值、页面先查的问题、宿主拒绝时落到哪一项。
+  {
+    ScriptSetting number;
+    number.key = L"threshold";
+    number.type = L"number";
+    number.min = 0;
+    number.max = 9;
+    number.number_default = 3;
+    ScriptSetting text;
+    text.key = L"suffix";
+    text.type = L"text";
+    text.max_length = 4;
+    ScriptSetting choice;
+    choice.key = L"level";
+    choice.type = L"choice";
+    choice.text_default = L"level_2";
+    choice.options = {{L"level_1", L"一级字"}, {L"level_2", L"二级字"}};
+    std::map<std::wstring, ScriptSettingValue> values{{L"threshold", std::wstring(L"7")}, {L"suffix", std::wstring(L"ab")}};
+    check(std::get<std::int64_t>(setting_value(number, values)) == 3 &&
+              std::get<std::wstring>(setting_value(text, values)) == L"ab" &&
+              std::get<std::wstring>(setting_value(choice, values)) == L"level_2",
+          "a value of the wrong type falls back to the default");
+    check(setting_issue(number, std::int64_t{7}).empty() &&
+              setting_issue(number, std::int64_t{12}) == L"请填 0 到 9 之间的整数。" &&
+              setting_issue(number, std::wstring(L"x")) == L"请填 0 到 9 之间的整数。" &&
+              setting_issue(text, std::wstring(L"abcd")).empty() &&
+              setting_issue(text, std::wstring(L"abcde")) == L"最多 4 个字符。",
+          "issues the page finds itself");
+    check(parse_setting_number(L" -12 ") == std::optional<std::int64_t>{-12} && !parse_setting_number(L"1.5") &&
+              !parse_setting_number(L"-") && !parse_setting_number(L"") && !parse_setting_number(L"99999999999999999999"),
+          "parsing numbers");
+    check(std::get<std::wstring>(draft_setting_value(number, {{L"threshold", std::int64_t{7}}})) == L"7" &&
+              std::get<std::int64_t>(parsed_setting_value(number, std::wstring(L"8"))) == 8 &&
+              std::holds_alternative<std::wstring>(parsed_setting_value(number, std::wstring(L"8x"))) &&
+              std::get<std::wstring>(parsed_setting_value(text, std::wstring(L"8"))) == L"8",
+          "number drafts keep the typed text");
+    check(setting_error_key(L"设置项 suffix 的值不合规") == L"suffix" &&
+              setting_error_key(L"清单里没有设置项 width") == L"width" && setting_error_key(L"设置过的脚本插件太多").empty(),
+          "the setting a refusal names");
+    check(setting_value_text(choice, std::wstring(L"level_1")) == L"一级字" && setting_value_text(number, true) == L"开" &&
+              setting_value_text(text, std::wstring()) == L"（空）",
+          "value text");
+    check(error_message(L"plugin_script_setting_invalid", L"设置项 suffix 的值不合规", L"x") ==
+                  L"设置没有保存：值不符合插件的要求（设置项 suffix 的值不合规）。" &&
+              error_message(L"plugin_script_settings_format", L"", L"x") ==
+                  L"设置文件是更新版本的水杉输入法写的，这个版本不能修改它。" &&
+              error_message(L"storage", L"", L"x") == L"插件的数据读写失败，请检查数据目录的权限。",
+          "settings error messages");
+  }
 
   // 对话框：依赖和互斥的说明，互斥的那一项勾着时禁用；新版本不再申请的一项不算勾着。
   auto items = grant_items({L"rewrite_commit", L"read_commit", L"read_composition"},
@@ -465,6 +586,190 @@ int main() {
     check(library_section_title(L"script") == L"脚本插件（实验）" && library_section_title(L"music") == L"音乐包",
           "section titles");
     check(command_table_note().find(L"最多启用 16 个。") != std::wstring::npos, "command table note");
+  }
+
+  // 插件编辑器（`plugin-editor-model.ts` 和 `plugin-editor.test.tsx` 的模型用例）。
+  {
+    check(authored_kinds.size() == 4 && authored_kinds[0].kind == L"phrase_table" && authored_kinds[3].title == L"单词本",
+          "the four editable kinds in the create order");
+    check(is_authored_kind(L"symbol_set") && !is_authored_kind(L"sound") && !is_authored_kind(L"script"),
+          "only text packs are editable");
+    auto mine = pack(L"phrase_table", L"my-1a2b3c4d");
+    auto official = pack(L"phrase_table", L"latex-symbols");
+    official.builtin = true;
+    check(pack_editable(mine) && !pack_editable(official) && !pack_editable(pack(L"music", L"m")),
+          "the edit button is for user text packs");
+    check(error_message(L"plugin_exists", L"", L"x") == L"本机已经有一个同样 id 的插件，没有覆盖它。" &&
+              error_message(L"plugin_not_editable", L"内置插件", L"x") == L"这个插件不能在设置页编辑（内置插件）。",
+          "editor failure codes");
+
+    const auto fresh = empty_draft(L"phrase_table");
+    check(fresh.license == L"CC0-1.0" && fresh.version == L"1.0.0" && !fresh.id && fresh.phrases.size() == 1 &&
+              fresh.commands.empty(),
+          "a new draft has the default license and version and one blank row");
+    check(draft_issue(fresh) == std::optional<std::wstring>(L"请给插件起个名字。"), "a name comes first");
+
+    // 单词本的名字和单词按词书的上限，空行不保存。
+    auto words = empty_draft(L"wordbook");
+    words.name = std::wstring(65, L'x');
+    words.words = {{L"apple", L" ", L"苹果"}, {L"", L"", L""}};
+    check(draft_issue(words) == std::optional<std::wstring>(L"单词本的名字不能超过 64 个字。"), "wordbook name limit");
+    words.name = L"合成";
+    check(!draft_issue(words), "a valid wordbook");
+    const auto saved_words = pack_from_draft(words);
+    check(saved_words.words.size() == 1 && saved_words.words[0].word == L"apple" && !saved_words.words[0].phonetic &&
+              saved_words.words[0].gloss == L"苹果" && saved_words.phrases.empty(),
+          "blank rows and blank phonetics are dropped");
+    auto tagged = words;
+    tagged.words = {{L"#tag", L"", L"x"}};
+    check(draft_issue(tagged) == std::optional<std::wstring>(L"第 1 个单词不能以 # 开头。"), "a word cannot start with #");
+    tagged.words = {{L"a", L"", L"x"}, {L"a", L"", L"y"}};
+    check(draft_issue(tagged) == std::optional<std::wstring>(L"「a」出现了不止一次。"), "duplicate words");
+
+    auto phrases = empty_draft(L"phrase_table");
+    phrases.name = L"合成";
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"至少要有一条短语。"), "a phrase table needs a phrase");
+    phrases.phrases = {{L"DH", L"电话"}};
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"第 1 条短语的编码只能是 1 到 32 个小写字母。"),
+          "phrase keys are lowercase letters");
+    phrases.phrases = {{L"dh", L"电话"}, {L"", L""}, {L"dh", L" 电话 "}};
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"第 3 条短语和前面的一条重复了。"),
+          "duplicates compare trimmed, row numbers count blank rows");
+    phrases.phrases = {{L"dh", L"电话"}};
+    phrases.license = L"随便用";
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"许可证只能写 SPDX 许可证代码，例如 CC0-1.0、CC-BY-4.0。"),
+          "licenses are SPDX codes");
+    phrases.license = L"CC-BY-4.0";
+    phrases.author = L"甲\n";
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"作者太长了。"), "control characters in the author");
+    phrases.author.clear();
+    phrases.phrases = {{L"dh", std::wstring(200, L'x')}};
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"第 1 条短语的文字太长了。"), "phrase text limit");
+    phrases.phrases = {{L"dh", L"a\tb"}};
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"第 1 条短语的文字里不能有换行或制表符。"),
+          "phrase text cannot hold a tab");
+    phrases.name = std::wstring(27, L'中');
+    check(draft_issue(phrases) == std::optional<std::wstring>(L"名字太长了。"), "names are limited in UTF-8 bytes");
+
+    auto commands = empty_draft(L"command_table");
+    commands.name = L"合成";
+    commands.commands = {{L"x", L"x", L"{clipboard}"}};
+    check(draft_issue(commands) == std::optional<std::wstring>(L"第 1 条指令的花括号里只能写 {date}、{time} 或 {weekday}。"),
+          "unknown placeholders");
+    commands.commands = {{L"sig", L"签名", L"{date:%m月%d日} {weekday} {time}"}, {L"sig", L"x", L"y"}};
+    check(draft_issue(commands) == std::optional<std::wstring>(L"指令 /sig 重复了。"), "duplicate triggers");
+    commands.commands.pop_back();
+    check(!draft_issue(commands), "known placeholders, with formats");
+    check(!template_placeholders_known(L"{date") && !template_placeholders_known(L"}") &&
+              !template_placeholders_known(L"{{date}}") && !template_placeholders_known(L"{dates}") &&
+              template_placeholders_known(L"无占位符"),
+          "braces pair up without nesting");
+
+    auto symbols = empty_draft(L"symbol_set");
+    symbols.name = L"合成";
+    symbols.groups = {{L"symbols", L"同名", L"", L"→"}, {L"symbols", L"同名", L"", L"←"}};
+    check(draft_issue(symbols) == std::optional<std::wstring>(L"第 2 组的标题和同一页的另一组重复了。"),
+          "group titles are unique per tab");
+    symbols.groups[1].tab = L"kaomoji";
+    check(!draft_issue(symbols), "the same title on another tab");
+    symbols.groups = {{L"kaomoji", L"开心", L"", L"(^_^)\n\n  ( ﾟ∀ﾟ)  \n"}, {L"symbols", L"箭头", L"jiantou", L"→\n→"}};
+    check(draft_issue(symbols) == std::optional<std::wstring>(L"第 2 组里「→」重复了。"), "duplicate symbols");
+    symbols.groups[1].items = L"→\n←";
+    const auto saved_symbols = pack_from_draft(symbols);
+    check(saved_symbols.groups.size() == 2 && saved_symbols.groups[0].tab == L"kaomoji" &&
+              (saved_symbols.groups[0].items == std::vector<std::wstring>{L"(^_^)", L"( ﾟ∀ﾟ)"}) &&
+              !saved_symbols.groups[0].keywords && saved_symbols.groups[1].keywords == std::optional<std::wstring>(L"jiantou"),
+          "symbols are one per line, trimmed, blank lines skipped");
+
+    // 读出的包变成草稿，再整理回去不变。
+    AuthoredPack loaded;
+    loaded.kind = L"symbol_set";
+    loaded.id = L"my-1a2b3c4d";
+    loaded.name = L"合成";
+    loaded.version = L"2.0.0";
+    loaded.license = L"CC-BY-4.0";
+    loaded.author = L"甲";
+    loaded.groups = {{L"symbols", L"箭头", std::nullopt, {L"→", L"←"}}};
+    const auto draft = draft_from_pack(loaded);
+    check(draft.id == loaded.id && draft.author == L"甲" && draft.description.empty() && draft.groups.size() == 1 &&
+              draft.groups[0].items == L"→\n←" && draft.groups[0].keywords.empty(),
+          "a loaded pack becomes a draft");
+    const auto again = pack_from_draft(draft);
+    check(again.id == loaded.id && again.author == loaded.author && !again.description &&
+              again.groups[0].items == loaded.groups[0].items,
+          "and saves back unchanged");
+    auto changed = draft;
+    check(changed == draft, "an untouched draft is not dirty");
+    changed.groups[0].items += L"\n↑";
+    check(changed != draft, "an edited draft is dirty");
+
+    // 批量粘贴。
+    const auto pasted = parse_phrase_lines(L"dz  合成 地址 \n\n dh 电话");
+    check(!pasted.issue && pasted.rows.size() == 2 && pasted.rows[0].key == L"dz" && pasted.rows[0].text == L"合成 地址" &&
+              pasted.rows[1].key == L"dh" && pasted.rows[1].text == L"电话",
+          "phrase lines: key, then the rest of the line");
+    check(parse_phrase_lines(L"dh 电话\r\nnospace").issue ==
+              std::optional<std::wstring>(L"第 2 行要写成「编码 文字」，中间用空格隔开。"),
+          "a phrase line without a space");
+    const auto blank_text_row = parse_phrase_lines(L"dz   ");
+    check(!blank_text_row.issue && blank_text_row.rows.size() == 1 && draft_issue([&] {
+            auto value = empty_draft(L"phrase_table");
+            value.name = L"合成";
+            value.phrases = blank_text_row.rows;
+            return value;
+          }()) == std::optional<std::wstring>(L"第 1 条短语还没有填写文字。"),
+          "only spaces after the key read as a phrase without text, as the regular expression does");
+    const auto pasted_words = parse_word_lines(L"# 合成词表\napple\t/ˈæp.əl/\tn. 苹果\nbanana\tn. 香蕉\n");
+    check(!pasted_words.issue && pasted_words.rows.size() == 2 && pasted_words.rows[0].phonetic == L"/ˈæp.əl/" &&
+              pasted_words.rows[1].phonetic.empty() && pasted_words.rows[1].gloss == L"n. 香蕉",
+          "word lines: two or three tab separated columns, # lines skipped");
+    check(parse_word_lines(L"a\tb\tc\td").issue->find(L"第 1 行") != std::wstring::npos, "four columns are refused");
+    const auto appended = append_rows(fresh.phrases, pasted.rows, blank_phrase);
+    check(appended.size() == 2 && appended[0].key == L"dz", "pasted rows replace a lone blank row");
+    check(append_rows(appended, pasted.rows, blank_phrase).size() == 4, "and are appended after real rows");
+
+    // 保存之后的提醒。
+    check(authored_save_note(L"phrase_table", false, true) ==
+              L"已保存。打开下面的「启用」后，按 Shift+K 再输入编码就能用到这些短语。" &&
+              authored_save_note(L"phrase_table", true, true) == L"已保存，修改已经生效。" &&
+              authored_save_note(L"command_table", true, false) ==
+                  L"已保存。/ 指令现在关着，在「输入 → 快捷模式」打开后才能用。" &&
+              authored_save_note(L"wordbook", false, false) == L"已保存，这本书出现在背单词的词书里。",
+          "what is still missing after a save");
+    auto saved = pack(L"phrase_table", L"my-1a2b3c4d");
+    saved.name = L"我的短语";
+    check(saved_notice(saved) == L"已保存短语表「我的短语」。", "saved notice");
+
+    // Win7 设置的整段文本：写出去再读回来是同一份内容。
+    check(phrase_text({{L"dz", L"合成 地址"}, {L"", L""}, {L"dh", L"电话"}}) == L"dz 合成 地址\r\ndh 电话",
+          "phrases as text");
+    check(command_text({{L"sig", L"签名", L"{date} 张三"}}) == L"sig\t签名\t{date} 张三", "commands as text");
+    check(word_text({{L"apple", L"", L"苹果"}, {L"pear", L"/peə/", L"梨"}}) == L"apple\t苹果\r\npear\t/peə/\t梨",
+          "words as text");
+    const auto groups_text = group_text(symbols.groups);
+    check(groups_text == L"[颜文字] 开心\r\n(^_^)\r\n( ﾟ∀ﾟ)\r\n[符号] 箭头\tjiantou\r\n→\r\n←", "groups as text");
+    auto reread = empty_draft(L"symbol_set");
+    reread.name = L"合成";
+    check(!read_authored_content(reread, groups_text) && pack_from_draft(reread).groups.size() == 2 &&
+              pack_from_draft(reread).groups[1].items == std::vector<std::wstring>({L"→", L"←"}) &&
+              pack_from_draft(reread).groups[1].keywords == std::optional<std::wstring>(L"jiantou") &&
+              reread.groups[0].tab == L"kaomoji",
+          "groups read back from text");
+    check(parse_group_lines(L"→\n[符号] 箭头").issue ==
+              std::optional<std::wstring>(L"第 1 行之前还没有组标题，先写一行「[符号] 标题」或「[颜文字] 标题」。"),
+          "symbols before a header");
+    auto reread_commands = empty_draft(L"command_table");
+    check(read_authored_content(reread_commands, L"sig\t签名") ==
+              std::optional<std::wstring>(L"第 1 行要写成「指令、标题、要插入的文字」三列，列之间用 Tab 隔开。") &&
+              reread_commands.commands.size() == 1 && blank_command(reread_commands.commands[0]),
+          "an unreadable text leaves the draft alone");
+    check(!read_authored_content(reread_commands, L"sig\t签名\t{date} 张三\r\n") && reread_commands.commands.size() == 1 &&
+              reread_commands.commands[0].template_text == L"{date} 张三",
+          "commands read back from text");
+    check(authored_text_format(L"symbol_set").find(L"[符号]") != std::wstring::npos && authored_text_format(L"x").empty(),
+          "each kind says how to write it");
+    check(utf8_length(L"aé中") == 6 && code_points(L"\U0001F642a") == 2 && utf8_length(L"\U0001F642") == 4,
+          "UTF-8 bytes and code points");
   }
 
   // 成就音效：统计关着时不能打开，已经打开的可以关掉；不知道统计开没开时按打开处理。

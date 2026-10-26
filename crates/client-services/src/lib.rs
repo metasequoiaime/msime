@@ -16,6 +16,8 @@ use msime_client_core::{cloud, edition, endpoint, helpcode, host_surface, prefer
 pub mod account;
 /// 自建云剪贴板中继的客户端：自己联网，所以不在只做 sans-IO 的 `cloud` 下面。
 pub mod clipboard_relay;
+/// 云剪贴板的 WebDAV 后端：在本机扮演中继，读写用户网盘上的事件日志。
+pub mod clipboard_webdav;
 pub mod common_phrases;
 pub mod community;
 pub mod diagnostics;

@@ -108,15 +108,20 @@ test("脚本插件卡片列出申请的能力，作者待审时显示审核中",
 test("脚本插件详情用授权页的白话列出能力，标出改写上屏，并说明安装后不会运行", () => {
   render(
     <CommunityPluginDetail
-      {...detailProps(item({ permissions: ["read_commit", "rewrite_commit", "persist_data"] }))}
+      {...detailProps(
+        item({
+          permissions: ["read_commit", "rewrite_commit", "persist_data", "future_capability"],
+        }),
+      )}
     />,
   );
   const section = screen.getByRole("region", { name: "脚本插件申请的能力" });
   expect(within(section).getByText(/安装后不会运行，要在脚本插件页授权/)).toBeTruthy();
   expect(within(section).getByText("读取输入的文字")).toBeTruthy();
   expect(within(section).getByText("注意：修改输入的文字")).toBeTruthy();
+  expect(within(section).getByText("注意：长期保存数据")).toBeTruthy();
   // 这个版本还不认识的能力原样列出，并提示装不上。
-  expect(within(section).getByText("注意：未知能力 persist_data")).toBeTruthy();
+  expect(within(section).getByText("未知能力 future_capability")).toBeTruthy();
   expect(within(section).getByText(/还不认识的能力，安装会失败/)).toBeTruthy();
 });
 

@@ -27,6 +27,8 @@ import android.widget.TextView;
  * <p>新设计的网格瓷砖样式走 {@link #paintTile}：没有卡片底色，未选中的字形、角标和标题用 kbFg，选中的用 accent、标题加粗，对勾挪到字形右下角（替换角标的位置）。旧的 {@link #paint} 保留，调用方切换前行为不变。
  */
 public final class KeyboardSchemeCard extends FrameLayout {
+    /** 卡片原尺寸的高度（dp），也是输入方式面板网格原尺寸的行高；面板矮时网格给的高度更小，内容整体缩小（{@link #onMeasure}）。 */
+    public static final float HEIGHT_DP = 56f;
     private static final float CARD_RADIUS_DP = 13f;
     private static final float GLYPH_SIZE_DP = 27f;
     private static final float GLYPH_RADIUS_DP = 4f;
@@ -42,6 +44,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
     private final TextView badge;
     private final TextView title;
     private final View check;
+    private final LinearLayout column;
     private final FrameLayout.LayoutParams checkCornerParams;
     private final FrameLayout.LayoutParams checkBadgeParams;
     private boolean selected;
@@ -96,7 +99,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         checkBadgeParams.topMargin = top + glyphSize + DimensionPolicy.pixels(getContext(), OVERHANG_BOTTOM_DP) - checkSize;
         cluster.addView(check, checkParams);
 
-        LinearLayout column = LayoutPolicy.column(context);
+        column = LayoutPolicy.column(context);
         ViewPolicy.setCenteredHorizontally(column);
 
         LinearLayout.LayoutParams clusterParams = LayoutPolicy.linearParamsPx(
@@ -114,12 +117,34 @@ public final class KeyboardSchemeCard extends FrameLayout {
         column.addView(title, titleParams);
 
         FrameLayout.LayoutParams columnParams = LayoutPolicy.frameMatchWidthWrapParams();
-        columnParams.gravity = Gravity.CENTER_VERTICAL;
+        // 横向也居中：缩小时内容按放大后的宽度量，比卡片宽，居中后再绕中心缩小才落回卡片里。
+        columnParams.gravity = Gravity.CENTER;
         addView(column, columnParams);
 
         for (View child : new View[] {glyph, badge, title, check, cluster, column}) {
             ViewPolicy.hideFromAccessibility(child);
         }
+    }
+
+    /**
+     * 输入方式面板按面板高度缩小卡片时（{@code PagedTileGrid.pickerGrid}），网格给的高度比 {@link #HEIGHT_DP} 小：字形、角标、对勾和标题先按原尺寸量好，再整体按同一比例缩小居中，点按区域和无障碍节点仍是整张卡片。
+     */
+    @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        float full = DimensionPolicy.floatPixels(getContext(), HEIGHT_DP);
+        int height = MeasureSpec.getSize(heightMeasureSpec);
+        float scale = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY && full > 0
+            ? Math.min(1f, height / full) : 1f;
+        if (scale <= 0f) scale = 1f;
+        column.setScaleX(scale);
+        column.setScaleY(scale);
+        if (scale >= 1f) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            return;
+        }
+        int width = MeasureSpec.getSize(widthMeasureSpec);
+        column.measure(MeasureSpec.makeMeasureSpec(Math.round(width / scale), MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+        setMeasuredDimension(width, height);
     }
 
     private static TextView centeredLabel(Context context, CharSequence text, float sizeSp,

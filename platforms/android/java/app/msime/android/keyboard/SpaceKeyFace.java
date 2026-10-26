@@ -109,6 +109,10 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         float gap = DimensionPolicy.floatPixels(getContext(), GAP_DP);
         float available = getWidth() - mic - gap - DimensionPolicy.floatPixels(getContext(), 8);
         String text = overlay ? transientLabel : schemeLabel;
+        // 分离后的窄空格优先显示方案名，避免截成无法辨别方案的「双拼 ·」。
+        int separator = text.lastIndexOf(" · ");
+        if (!overlay && separator >= 0 && label.measureText(text) > available)
+            text = text.substring(separator + 3);
         while (!text.isEmpty() && label.measureText(text) > available && text.length() > 1) {
             text = text.substring(0, text.length() - 1);
         }
