@@ -579,7 +579,7 @@ void translationPreferenceChangesIncludeAccount() {
 void reservedTranslationRow() {
   const auto word = [](Json candidate, int reserved) {
     candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
-    return FcitxCandidate(nullptr, candidate, false, false, std::string(), 0, reserved);
+    return FcitxCandidate(nullptr, candidate, false, false, std::string(), 0, 0, reserved);
   };
   const auto shown = [](const FcitxCandidate &candidate) -> const fcitx::Text & {
     return static_cast<const fcitx::CandidateWord &>(candidate).text();
