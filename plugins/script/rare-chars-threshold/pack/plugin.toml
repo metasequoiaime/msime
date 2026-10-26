@@ -1,0 +1,31 @@
+schema_version = 2
+kind = "script"
+id = "rare-chars-threshold"
+name = "隐藏生僻字（可调）"
+version = "1.0.0"
+license = "MIT AND Unicode-3.0 AND Apache-2.0"
+description = "和「隐藏生僻字」同一套判定，多两项设置：只隐藏单个生僻字还是含生僻字的都隐藏，以及窗口最前面保留几行不动。也是插件设置项（[[script.settings]]、setting_value）的参考样板。"
+permissions = ["read_candidates", "filter_candidates"]
+
+[script]
+abi = 1
+module = "rare-chars-threshold.wasm"
+hooks = ["candidates"]
+memory_pages = 2
+
+[[script.settings]]
+key = "scope"
+title = "隐藏范围"
+description = "只隐藏单字：「囧」这样单独一个生僻字的候选才隐藏，含生僻字的词照常显示。含生僻字就隐藏：和「隐藏生僻字」插件相同。"
+type = "choice"
+options = [{ value = "single", title = "只隐藏单字" }, { value = "any", title = "含生僻字就隐藏" }]
+default = "any"
+
+[[script.settings]]
+key = "keep_rows"
+title = "保留前几行"
+description = "候选窗口最前面的这几行即使含生僻字也照常显示。数字越大越保守，1 表示只保留首行。"
+type = "number"
+min = 1
+max = 9
+default = 1

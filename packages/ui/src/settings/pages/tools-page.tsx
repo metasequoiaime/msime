@@ -5,10 +5,10 @@ import { GroupList } from "../../core/platform-controls";
 import { OpenPanelRow } from "../open-panel-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { CloudClipboardRelaySection } from "../cloud-clipboard-relay-section";
-import { withCloudClipboardRelay } from "../cloud-clipboard-relay";
+import { withCloudClipboardRelay, withCloudClipboardWebDav } from "../cloud-clipboard-relay";
 import { clipboardHistoryLimit } from "../clipboard-history-preferences";
 
-/** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云剪贴板，宿主支持时还有云剪贴板的同步方式（水杉账号或自建中继）。云词库在「词库」页。 */
+/** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云剪贴板，宿主支持时还有云剪贴板的同步方式（水杉账号、自建中继或 WebDAV 网盘）。云词库在「词库」页。 */
 export function ToolsSettingsPage() {
   const {
     client,
@@ -27,9 +27,14 @@ export function ToolsSettingsPage() {
     introTabs,
     selectIntroTab,
   } = useSettingsForm();
-  // 已保存的中继配置决定云剪贴板走哪条路；在本页保存或改回账号后，历史记录一组要按新的路重新查可用状态。
+  // 已保存的中继或 WebDAV 配置决定云剪贴板走哪条路；在本页保存或改回账号后，历史记录一组要按新的路重新查可用状态。
   const savedRelay = snapshot?.preferences.cloud_clipboard_relay;
-  const cloudRoute = savedRelay?.url ? `relay\n${savedRelay.url}\n${savedRelay.token}` : "account";
+  const savedWebDav = snapshot?.preferences.cloud_clipboard_webdav;
+  const cloudRoute = savedWebDav?.url
+    ? `webdav\n${savedWebDav.url}\n${savedWebDav.username}\n${savedWebDav.password}`
+    : savedRelay?.url
+      ? `relay\n${savedRelay.url}\n${savedRelay.token}`
+      : "account";
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "tools"} ariaLabel="剪贴板">
       <ClipboardHistorySection
@@ -67,9 +72,14 @@ export function ToolsSettingsPage() {
         {client.cloudClipboardRelay && (
           <CloudClipboardRelaySection
             relay={draft.cloud_clipboard_relay}
+            webdav={draft.cloud_clipboard_webdav}
+            probeWebDav={client.probeCloudClipboardWebDav}
             disabled={busy}
             onChange={(relay) =>
               setDraft((current) => (current ? withCloudClipboardRelay(current, relay) : current))
+            }
+            onWebDavChange={(webdav) =>
+              setDraft((current) => (current ? withCloudClipboardWebDav(current, webdav) : current))
             }
           />
         )}

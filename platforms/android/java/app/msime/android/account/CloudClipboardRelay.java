@@ -102,6 +102,24 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
         return route == CloudClipboardRelayPolicy.Route.RELAY;
     }
 
+    /**
+     * WebDAV 设置的「测试连接」：用设置页里还没保存的草稿在那个文件夹里试一遍网盘行为（`msime_client_cloud_clipboard_webdav_probe`）。带上本机中继密钥串的目录（{@link #keystoreDirectory}），通过时 Rust 顺带删掉那里的日志缓存，防回退从网盘现在的样子重新开始。不通过时以共享层的错误码抛出（`relay_not_configured`、`webdav_unsupported`、`relay_unauthorized`、`relay_unavailable`、`webdav_rate_limited` 等），说法见 {@link CloudClipboardRelayPolicy#failureMessage(String, boolean)}。请求里有应用密码，不写日志。大约二十个请求，阻塞在网络上，要在工作线程上调用。
+     */
+    public static void probeWebDav(Context context, String url, String username, String password) throws CloudApi.Failure {
+        String request;
+        try {
+            request = new JSONObject().put("url", url).put("username", username).put("password", password)
+                .put("directory", keystoreDirectory(context)).toString();
+        } catch (JSONException impossible) {
+            throw failure("invalid_cloud_clipboard");
+        }
+        try {
+            value(NativeClient.cloudClipboardWebDavProbe(request));
+        } catch (IllegalArgumentException tooLarge) {
+            throw failure(CloudClipboardRelayPolicy.CODE_NOT_CONFIGURED);
+        }
+    }
+
     /** 偏好文档（`preferences` 对象）里中继或 WebDAV 网盘的绑定；都没配置或文档为 null 时为空串。网盘优先，与共享层选路相同（两者同时配置的文档共享层不认，`selected` 会报错）。不读文件，主线程上可以用。 */
     public static String binding(JSONObject preferences) {
         if (preferences == null) return "";

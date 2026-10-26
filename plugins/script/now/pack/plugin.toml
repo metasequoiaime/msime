@@ -1,0 +1,18 @@
+schema_version = 2
+kind = "script"
+id = "now"
+name = "现在"
+version = "1.0.0"
+license = "MIT"
+description = "指令里的本地时间（LOCAL_DATE、LOCAL_MINUTE、WEEKDAY、UTC_OFFSET_MINUTES）的参考样板：在 / 指令里打 /now，给出当前日期和时间的五种写法，含带时区偏移的 ISO 8601。"
+permissions = ["provide_commands"]
+
+[script]
+abi = 1
+module = "now.wasm"
+hooks = ["command"]
+memory_pages = 2
+
+[[script.commands]]
+trigger = "now"
+title = "现在"

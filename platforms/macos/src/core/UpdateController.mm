@@ -69,13 +69,7 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 
 @end
 
-// The input method is LSBackgroundOnly and lives as long as the login session, so Sparkle's defaults do
-// not fit it. Its relaunch would start the bundle as a standalone launch, which opens the preferences
-// window (input_method_main.mm). Its install-on-quit rarely comes, and if the delegate leaves the
-// background-downloaded update to Sparkle, after SUScheduledImpatientCheckInterval Sparkle presents it in
-// a window that takes focus from whatever the user is typing into. So the driver keeps the install
-// handler and runs it when the user switches to another input source (installDownloadedUpdate); Sparkle
-// still installs on quit if that comes first.
+// 输入法是 LSBackgroundOnly，进程与登录会话同寿，Sparkle 的默认做法不适合它：它的重启会把 bundle 当成独立启动拉起，打开的是设置窗口（input_method_main.mm）；退出时安装很少等得到；委托若把后台下好的更新交还给 Sparkle，过了 SUScheduledImpatientCheckInterval 它会弹窗，抢走用户正在打字的应用的焦点。所以驱动留着安装闭包，在用户切到别的输入源或离开电脑时运行（installDownloadedUpdate，见控制器的 installDownloadedUpdateWhenAwayWithWorkspaceCenter:idleClock:）；退出先来的话 Sparkle 照常在退出时装。
 @interface MetasequoiaSparkleUpdateDriver : NSObject <MetasequoiaUpdateDriver, SPUUpdaterDelegate>
 @property(nonatomic, readonly) SPUStandardUpdaterController *updaterController;
 @property(nonatomic, copy, nullable) void (^pendingInstall)(void);
@@ -141,7 +135,10 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 
 - (void)installDownloadedUpdate
 {
+    // 安装闭包只交出一次：切换输入源、熄屏、切走会话和闲置定时器可能在进程退出之前接连触发，不让 Sparkle 重复开始同一次安装。
     void (^install)(void) = self.pendingInstall;
+    self.pendingInstall = nil;
+    self.pendingInstallChannel = nil;
     if (install != nil) install();
 }
 
@@ -167,6 +164,10 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 @property(nonatomic) id<MetasequoiaUpdateDriver> driver;
 @property(nonatomic, copy) MetasequoiaUpdateActivationHandler activationHandler;
 @property(nonatomic, readwrite, copy, nullable) NSString *updateChannel;
+@property(nonatomic, copy, nullable) MetasequoiaUpdateIdleClock idleClock;
+@property(nonatomic, nullable) NSNotificationCenter *awayCenter;
+@property(nonatomic, copy, nullable) NSArray<id<NSObject>> *awayObservers;
+@property(nonatomic, nullable) NSTimer *awayTimer;
 @end
 
 // sharedControllerWithUpdateChannelPreference: 在创建共享控制器之前写下的通道，只在主线程读写。
@@ -267,7 +268,46 @@ static NSString *MetasequoiaLaunchUpdateChannel = nil;
 
 - (void)installDownloadedUpdateIfReady
 {
-    if ([self.driver respondsToSelector:@selector(installDownloadedUpdate)]) [self.driver installDownloadedUpdate];
+    if (![self.driver respondsToSelector:@selector(installDownloadedUpdate)]) return;
+    if (self.unfinishedWork != nil && self.unfinishedWork()) return;
+    [self.driver installDownloadedUpdate];
+}
+
+- (void)installDownloadedUpdateWhenAwayWithWorkspaceCenter:(NSNotificationCenter *)center
+                                                 idleClock:(MetasequoiaUpdateIdleClock)idleClock
+{
+    if (self.idleClock != nil) return;
+    self.idleClock = idleClock;
+    self.awayCenter = center;
+    __weak MetasequoiaUpdateController *weakSelf = self;
+    void (^away)(NSNotification *) = ^(NSNotification *notification) {
+      (void)notification;
+      [weakSelf installDownloadedUpdateIfReady];
+    };
+    // 熄屏时用户显然不在打字；锁屏之后显示器很快也会睡，同样走到这里。快速切换用户时本会话的输入法用不着了。
+    self.awayObservers = @[
+        [center addObserverForName:NSWorkspaceScreensDidSleepNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:away],
+        [center addObserverForName:NSWorkspaceSessionDidResignActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:away],
+    ];
+    // 显示器设成永不睡眠的机器只能靠闲置时长判断。没有待装的更新时驱动什么也不做，定时器允许一分钟误差，系统可以把唤醒和别的事合并。
+    self.awayTimer = [NSTimer scheduledTimerWithTimeInterval:MSIMEUpdateAwayPollSeconds
+                                                     repeats:YES
+                                                       block:^(NSTimer *timer) {
+                                                         (void)timer;
+                                                         [weakSelf installDownloadedUpdateIfIdle];
+                                                       }];
+    self.awayTimer.tolerance = 60;
+}
+
+- (void)installDownloadedUpdateIfIdle
+{
+    if (self.idleClock != nil && self.idleClock() >= MSIMEUpdateAwayIdleSeconds) [self installDownloadedUpdateIfReady];
+}
+
+- (void)dealloc
+{
+    [_awayTimer invalidate];
+    for (id<NSObject> observer in _awayObservers) [_awayCenter removeObserver:observer];
 }
 
 - (void)applyUpdateChannelPreference:(id)preference

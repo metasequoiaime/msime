@@ -42,6 +42,7 @@ import type { PluginClient } from "../settings/plugin-types";
 import type { CustomHelpcodeSchema } from "../settings/helpcode-preferences";
 import type { ClipboardHistoryClient } from "../settings/clipboard-history-model";
 import type { CloudClipboardRequest } from "../settings/cloud-clipboard-send";
+import type { CloudClipboardWebDavPreferences } from "../settings/cloud-clipboard-relay-preferences";
 import type { MobileKeyboardFeedbackClient } from "../settings/mobile-keyboard-feedback";
 import type { CommunitySkinClient } from "../community/community-skin-model";
 import type { CommunityResourceClient } from "../community/community-resource-model";
@@ -169,6 +170,8 @@ export interface SettingsClient {
   cloudClipboardRequest?: CloudClipboardRequest;
   /** 这个宿主的云剪贴板会按偏好 `cloud_clipboard_relay` 改走自建中继；有它时「剪贴板」页显示同步方式和中继的地址、令牌。 */
   cloudClipboardRelay?: boolean;
+  /** WebDAV 设置的「测试连接」（Tauri 命令 `cloud_clipboard_webdav_probe`，见 `docs/cloud-clipboard-webdav.md`）：用还没保存的草稿试一遍网盘，通过时 resolve，失败时以带 `code` 的错误 reject。和 `cloudClipboardRelay` 一起提供时，同步方式里多出「WebDAV」。 */
+  probeCloudClipboardWebDav?: (draft: CloudClipboardWebDavPreferences) => Promise<void>;
   openCloudDictionary?: () => Promise<void>;
   /** 桌面设置页内嵌的云词库客户端；提供时词库页显示「云词库」顶部标签。 */
   cloudDictionary?: CloudDictionaryPanelClient;

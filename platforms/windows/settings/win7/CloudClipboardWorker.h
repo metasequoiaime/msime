@@ -7,7 +7,7 @@
 
 namespace msime::settings::win7 {
 
-// 一个操作内坚持同一来源与修订。配置变化或中继失败都不能转发到另一个来源。
+// 一个操作内坚持同一来源与修订。配置变化或中继、网盘失败都不能转发到另一个来源。
 inline Json run_cloud_clipboard(const Json& envelope, const std::string& preferences_directory,
     const std::string& account_directory, const std::function<Json()>& migrate_account,
     const SettingsWindow::CloudClipboardServices& services) {
@@ -63,5 +63,13 @@ inline Json run_cloud_clipboard(const Json& envelope, const std::string& prefere
     completion.erase("list"); completion.erase("devices");
   }
   return completion;
+}
+
+// WebDAV 的「测试连接」：request 是 {url, username, password}，用的是窗口里还没保存的草稿；account_directory 是中继密钥串所在的账号目录，通过时 Rust 顺带清掉那里的日志缓存，找不到时不带。阻塞网络，只在工作线程上调用。
+inline Json probe_cloud_clipboard_webdav(Json request, const std::string& account_directory,
+    const SettingsWindow::CloudClipboardServices& services) {
+  if (!account_directory.empty()) request["directory"] = account_directory;
+  return services.webdav_probe ? Json::parse(services.webdav_probe(request.dump()), nullptr, false) :
+      theme_data::call(msime_client_cloud_clipboard_webdav_probe, request);
 }
 } // namespace msime::settings::win7

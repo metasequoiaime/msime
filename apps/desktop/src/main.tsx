@@ -78,6 +78,7 @@ import {
   type ScriptPluginState,
   type ScelText,
   type WubiCodeLookup,
+  type CloudClipboardWebDavPreferences,
   UNBATCHED_DICTIONARY_FILE_BYTES,
   StatusMessage,
 } from "@msime/ui";
@@ -837,7 +838,17 @@ function DesktopSettings() {
               : {}),
             // 云剪贴板可以改走自建中继：macOS 与 Linux 的设置页和云剪贴板面板都在这个 Tauri 进程里，按偏好选路（`cloud_clipboard_request`）；macOS 输入法菜单启动的面板、原生云剪贴板窗口和表情面板的「发到云剪贴板」也按同一个 C 入口选路。Windows 的设置窗口是原生 WinUI，那一组在它自己的设置页里。
             ...(host.platform === "macos" || host.platform === "linux"
-              ? { cloudClipboardRelay: true }
+              ? {
+                  cloudClipboardRelay: true,
+                  // WebDAV 网盘也经同一条中继路走，保存前的「测试连接」由 Rust 跑（`cloud_clipboard_webdav_probe`）。
+                  probeCloudClipboardWebDav: async (draft: CloudClipboardWebDavPreferences) => {
+                    await invoke("cloud_clipboard_webdav_probe", {
+                      url: draft.url,
+                      username: draft.username,
+                      password: draft.password,
+                    });
+                  },
+                }
               : {}),
             ...(host.platform === "linux"
               ? {

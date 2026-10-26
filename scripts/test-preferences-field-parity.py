@@ -37,8 +37,6 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_quanpin_shift",
         # 上屏后联想先在 Android 原生键盘验收，其他宿主保留字段，尚无共享设置入口。
         "next_word_prediction",
-        # WebDAV 云剪贴板先由宿主选路与 C ABI 接入，设置页在后续改动中提供配置入口。
-        "cloud_clipboard_webdav",
 
     },
     "KeybindingPreferences": set(),

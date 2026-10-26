@@ -30,9 +30,22 @@ public:
 private:
   Completion execute(Job job) {
     const auto context = panel_context(); shared::PreferencesStore store(context.directory.u8string());
-    auto preferences = job.changes.empty() ? store.load() : snapshot_ ? store.save(*snapshot_, job.changes) : shared::Result{};
+    // WebDAV「测试连接」与设置窗口相同：先测试，通过了才写配置；不通过时丢掉要写的配置，只读回当前设置。
+    std::optional<Json> probe;
+    if (job.request && job.request->contains("webdav_probe")) {
+      const auto response = shared::probe_cloud_clipboard_webdav(job.request->at("webdav_probe"), panel_account_directory().u8string(), services_);
+      if (!shared::theme_data::value(response)) job.changes.clear();
+      probe = Json{{"probe", response}};
+    }
+    const bool write = !job.changes.empty();
+    auto preferences = !write ? store.load() : snapshot_ ? store.save(*snapshot_, job.changes) : shared::Result{};
     if (!preferences.snapshot) preferences.snapshot = store.load().snapshot;
     snapshot_ = preferences.snapshot;
+    if (probe) {
+      // 配置和已存的相同时没有要写的，测试通过就算保存过了。
+      (*probe)["saved"] = shared::theme_data::value(probe->at("probe")).has_value() && (!write || preferences.outcome == shared::Outcome::saved);
+      return Completion{std::move(preferences), std::move(probe), std::move(job)};
+    }
     Completion result{std::move(preferences), std::nullopt, std::move(job)};
     if (!result.preferences.snapshot || !result.job.request) return result;
     if (result.job.transfer == "record") {

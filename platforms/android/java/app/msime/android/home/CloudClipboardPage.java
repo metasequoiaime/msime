@@ -27,6 +27,7 @@ import app.msime.android.clipboard.CloudClipboardRelayPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 import app.msime.android.CloudClipboardTimePolicy;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -38,7 +39,9 @@ import org.json.JSONObject;
  *
  * <p>只有真实账号有云剪贴板；没有登录时整页只显示一句说明。
  *
- * <p>最上面一张卡是「云剪贴板同步方式」：水杉账号，或者用户自建的中继（`docs/cloud-clipboard-relay.md`）。选了中继就只走中继（{@link CloudClipboardRelay}），不需要登录，下面的开关、列表和设备都是中继上的；中继出错也不退回水杉账号。地址和令牌在对话框里填好、校验通过后点「保存」才写进共享偏好（`cloud_clipboard_relay`），规则与共享设置页相同（{@link CloudClipboardRelayPolicy}）；令牌框打开时是空的，不回显已存的令牌。
+ * <p>最上面一张卡是「云剪贴板同步方式」：水杉账号、用户自建的中继（`docs/cloud-clipboard-relay.md`），或者用户自己的 WebDAV 网盘（`docs/cloud-clipboard-webdav.md`）。选了中继或网盘就只走它（{@link CloudClipboardRelay}；共享层把网盘也报成 `relay` 来源，下面的开关、列表和设备沿用中继那条路），不需要登录；出错也不退回水杉账号。地址和令牌在对话框里填好、校验通过后点「保存」才写进共享偏好（`cloud_clipboard_relay`），规则与共享设置页相同（{@link CloudClipboardRelayPolicy}）；令牌框打开时是空的，不回显已存的令牌。
+ *
+ * <p>WebDAV 网盘填服务器地址（网盘里的一个文件夹）、账号和应用密码，「测试连接」和「保存」都先在工作线程上跑共享层的测试连接（{@link CloudClipboardRelay#probeWebDav}），通过了「保存」才写进 `cloud_clipboard_webdav`；没通过时对话框和填好的内容都留着，原因写在输入框下面。中继和网盘只能二选一：保存其中一个就删掉另一个，改回水杉账号两个都删。应用密码框同样不回显，已经保存过时留空表示保留原来的。
  */
 public final class CloudClipboardPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -48,12 +51,19 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private static final String DESCRIPTION = "在你登录的设备之间同步，端到端加密，水杉云只保存密文，关闭即删除";
     private static final String KEY_CHANGE = "云端现有的记录会全部删除，其他设备都要在这台设备上重新允许后才能继续同步。";
     private static final String RELAY_DESCRIPTION = "在你的设备之间经自建中继同步，端到端加密，中继只保存密文，关闭即删除";
+    private static final String WEBDAV_DESCRIPTION = "在你的设备之间经 WebDAV 网盘同步，端到端加密，网盘只保存密文，关闭即删除";
+    /** WebDAV 网盘的说明，与共享设置页的同一段相同；填写框和设置好之后的卡片脚注里都写。 */
+    private static final String WEBDAV_NOTE = "内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。";
     private static final List<String> RETENTION_LABELS = List.of("1 天", "7 天", "30 天", "一直");
     private record Loaded(CloudClipboardApi api, CloudClipboardApi.Overview overview) {}
-    /** 偏好里的中继：`url` 为空表示走水杉账号；令牌只记有没有，不留在页面上。 */
-    private record Relay(String url, boolean tokenSaved) {
-        boolean configured() { return CloudClipboardRelayPolicy.configured(url); }
+    /** 云剪贴板的同步方式。 */
+    private enum Mode { ACCOUNT, RELAY, WEBDAV }
+    /** 偏好里的同步方式：`url` 是中继或网盘的地址，`username` 只有网盘有；令牌和应用密码只记有没有（`secretSaved`），不留在页面上。 */
+    private record Relay(Mode mode, String url, String username, boolean secretSaved) {
+        boolean configured() { return mode != Mode.ACCOUNT; }
     }
+    /** 一次「测试连接」的结果：`code` 为 null 表示通过；`password` 是实际测试用的应用密码（留空保持不变时是已存的那个），通过后「保存」原样写进偏好。 */
+    private record Probe(@Nullable String code, String password) {}
 
     @Nullable private CloudClipboardApi.Overview overview;
     @Nullable private CloudClipboardApi loadedApi;
@@ -115,7 +125,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
                 overview = outcome.value().overview();
             } else {
                 MsToast.show(requireContext(), outcome.error() instanceof CloudApi.Failure failure
-                    ? failureMessage(failure, "云剪贴板没有读出来，请稍后再试") : "云剪贴板没有读出来，请稍后再试");
+                    ? failureMessage(failure, "云剪贴板没有读出来，请稍后再试", viaWebDav()) : "云剪贴板没有读出来，请稍后再试");
             }
             render();
         });
@@ -136,7 +146,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             busy = false;
             if (outcome.error() != null) {
                 MsToast.show(requireContext(), outcome.error() instanceof CloudApi.Failure failure
-                    ? failureMessage(failure, "没有完成，请稍后再试") : "没有完成，请稍后再试");
+                    ? failureMessage(failure, "没有完成，请稍后再试", viaWebDav()) : "没有完成，请稍后再试");
                 overview = null;
                 loadedApi = null;
                 render();
@@ -148,10 +158,10 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     }
 
     /**
-     * 失败时给人看的一句话；驱动、账号服务或中继的错误码在 {@link CloudApi.Failure#code} 里。先看错误码再看是不是没连上：驱动和中继报的错 `status` 也是 0（例如本机还在等待允许），只按 `status` 会都说成连不上服务器。
+     * 失败时给人看的一句话；驱动、账号服务或中继的错误码在 {@link CloudApi.Failure#code} 里。先看错误码再看是不是没连上：驱动和中继报的错 `status` 也是 0（例如本机还在等待允许），只按 `status` 会都说成连不上服务器。`webdav` 为真时走的是 WebDAV 网盘，中继的码说成网盘、账号和应用密码。
      */
-    static String failureMessage(CloudApi.Failure failure, String fallback) {
-        String relayMessage = CloudClipboardRelayPolicy.failureMessage(failure.code);
+    static String failureMessage(CloudApi.Failure failure, String fallback, boolean webdav) {
+        String relayMessage = CloudClipboardRelayPolicy.failureMessage(failure.code, webdav);
         if (relayMessage != null) return relayMessage;
         return switch (failure.code) {
             case "clipboard_key_conflict" -> "另一台设备刚刚改了云剪贴板，请稍后再试";
@@ -174,14 +184,15 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         if (signedOut) {
             GroupCard card = GroupCard.add(target, null);
             card.note("登录水杉账号后，复制的文字可以在你的设备之间同步。" + DESCRIPTION
-                + "。不想登录的话，可以在上面把同步方式改成自建中继。");
+                + "。不想登录的话，可以在上面把同步方式改成自建中继或 WebDAV 网盘。");
             return;
         }
 
         CloudClipboardApi.Overview current = overview;
         CloudClipboardApi.Page page = current == null ? null : current.page();
         GroupCard settings = GroupCard.add(sectionColumn(target, "设置"), null).withDividers(Ui.ROW_PADDING_H);
-        GroupCard.Row toggle = settings.toggle("云剪贴板", viaRelay() ? RELAY_DESCRIPTION : DESCRIPTION,
+        GroupCard.Row toggle = settings.toggle("云剪贴板",
+            viaWebDav() ? WEBDAV_DESCRIPTION : viaRelay() ? RELAY_DESCRIPTION : DESCRIPTION,
             page != null && page.enabled(), this::setEnabled);
         toggle.setEnabled(page != null);
 
@@ -216,38 +227,60 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         renderDevices(target, devices);
     }
 
-    /** 「云剪贴板同步方式」：水杉账号或自建中继；选了中继时列出地址和令牌，点了都打开同一个填写框。 */
+    /** 「云剪贴板同步方式」：水杉账号、自建中继或 WebDAV 网盘；选了中继或网盘时列出地址和凭据，点了都打开同一个填写框。 */
     private void renderSyncMode(LinearLayout target) {
         Relay current = relay;
         if (current == null) return;
         GroupCard card = GroupCard.add(sectionColumn(target, "设置"), null).withDividers(Ui.ROW_PADDING_H);
-        card.nav("同步方式", "自建中继不需要登录水杉账号：内容仍在本机加密，中继只保存密文，新设备照样要在已有设备上核对后允许",
-            current.configured() ? "自建中继" : "水杉账号", () -> pickSyncMode(current));
-        if (!current.configured()) return;
-        card.nav("中继地址", null, shorten(current.url()), () -> editRelay(current));
-        card.nav("中继令牌", null, current.tokenSaved() ? "已填写" : "未填写", () -> editRelay(current));
-        card.footer("云剪贴板现在只经这个中继同步，中继出错时也不会改用水杉账号。换了地址或令牌后，这台设备要在中继上重新登记，并在其他设备上重新允许。");
+        card.nav("同步方式", "自建中继和 WebDAV 网盘都不需要登录水杉账号：内容仍在本机加密，中继或网盘只保存密文，新设备照样要在已有设备上核对后允许",
+            modeLabel(current.mode()), () -> pickSyncMode(current));
+        switch (current.mode()) {
+            case RELAY -> {
+                card.nav("中继地址", null, shorten(current.url()), () -> editRelay(current));
+                card.nav("中继令牌", null, current.secretSaved() ? "已填写" : "未填写", () -> editRelay(current));
+                card.footer("云剪贴板现在只经这个中继同步，中继出错时也不会改用水杉账号。换了地址或令牌后，这台设备要在中继上重新登记，并在其他设备上重新允许。");
+            }
+            case WEBDAV -> {
+                card.nav("服务器地址", null, shorten(current.url()), () -> editWebDav(current));
+                card.nav("账号", null, shorten(current.username()), () -> editWebDav(current));
+                card.nav("应用密码", null, current.secretSaved() ? "已填写" : "未填写", () -> editWebDav(current));
+                card.footer("云剪贴板现在经 WebDAV 网盘 " + current.url() + " 同步，网盘出错时也不会改用水杉账号。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。\n" + WEBDAV_NOTE);
+            }
+            case ACCOUNT -> { }
+        }
+    }
+
+    private static String modeLabel(Mode mode) {
+        return switch (mode) {
+            case ACCOUNT -> "水杉账号";
+            case RELAY -> "自建中继";
+            case WEBDAV -> "WebDAV";
+        };
     }
 
     private void pickSyncMode(Relay current) {
         OptionSheet sheet = new OptionSheet(requireContext(), "云剪贴板同步方式", null);
-        sheet.option("水杉账号", !current.configured(), () -> {
-            if (current.configured()) confirmAccount();
+        sheet.option("水杉账号", current.mode() == Mode.ACCOUNT, () -> {
+            if (current.configured()) confirmAccount(current);
         });
-        sheet.option("自建中继", current.configured(), () -> {
-            if (!current.configured()) editRelay(current);
+        sheet.option("自建中继", current.mode() == Mode.RELAY, () -> {
+            if (current.mode() != Mode.RELAY) editRelay(current);
+        });
+        sheet.option("WebDAV", current.mode() == Mode.WEBDAV, () -> {
+            if (current.mode() != Mode.WEBDAV) editWebDav(current);
         });
         sheet.show();
     }
 
     /**
-     * 填写中继地址和令牌。两项都按共享规则当场检查，不合规时在输入框下说明原因并禁用「保存」。已经配置过中继时令牌框可以留空，表示保留已存的令牌。
+     * 填写中继地址和令牌。两项都按共享规则当场检查，不合规时在输入框下说明原因并禁用「保存」。已经配置过中继时令牌框可以留空，表示保留已存的令牌。保存时删掉 WebDAV 网盘，两者只能二选一。
      */
     private void editRelay(Relay current) {
-        boolean keepToken = current.configured() && current.tokenSaved();
+        boolean editing = current.mode() == Mode.RELAY;
+        boolean keepToken = editing && current.secretSaved();
         InputDialog dialog = new InputDialog(requireContext(), "自建中继",
             "例如 https://relay.example.com/msime。必须是 HTTPS，证书要由公网信任的机构签发（自签证书和私有 CA 连不上）；HTTP 只用于本机测试（127.0.0.1）。令牌由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板；它只存在本机，不随设置导出或账号同步。");
-        EditText url = dialog.addField("中继地址", current.url(),
+        EditText url = dialog.addField("中继地址", editing ? current.url() : "",
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         EditText token = dialog.addField(keepToken ? "中继令牌（留空保持不变）" : "中继令牌", "",
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
@@ -269,6 +302,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             if (CloudClipboardRelayPolicy.urlProblem(address) != null
                     || CloudClipboardRelayPolicy.tokenProblem(secret) != null)
                 throw new JSONException("cloud clipboard relay is not valid");
+            preferences.remove(CloudClipboardRelayPolicy.WEBDAV_PREFERENCE);
             preferences.put(CloudClipboardRelayPolicy.PREFERENCE,
                 new JSONObject().put("url", address).put("token", secret));
         }, () -> {
@@ -278,39 +312,157 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         dialog.show();
     }
 
-    /** 改回水杉账号：清掉偏好里的中继地址和令牌，中继上的内容和本机的中继密钥串都不动。 */
-    private void confirmAccount() {
+    /**
+     * 填写 WebDAV 网盘的服务器地址、账号和应用密码。三项按共享规则当场检查，不合规时在输入框下说明原因并禁用「测试连接」和「保存」。已经配置过网盘时应用密码框可以留空，表示保留已存的应用密码。「测试连接」只测不存；「保存」先测，通过了才写进偏好，没通过时对话框留着，原因写在输入框下面。
+     */
+    private void editWebDav(Relay current) {
+        boolean editing = current.mode() == Mode.WEBDAV;
+        boolean keepPassword = editing && current.secretSaved();
+        InputDialog dialog = new InputDialog(requireContext(), "WebDAV 网盘",
+            "服务器地址是网盘里存放云剪贴板的文件夹，例如坚果云的 https://dav.jianguoyun.com/dav/msime；应用密码是网盘为第三方应用生成的密码，不是登录密码。\n" + WEBDAV_NOTE);
+        EditText url = dialog.addField("服务器地址", editing ? current.url() : "",
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        EditText account = dialog.addField("账号", editing ? current.username() : "",
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        EditText password = dialog.addField(keepPassword ? "应用密码（留空保持不变）" : "应用密码", "",
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // 上一次测试连接的结果是对哪一份草稿说的；改了任何一项就收起那句结果，免得「连接正常」留在改过的内容下面。
+        AtomicReference<List<String>> tested = new AtomicReference<>();
+        dialog.setValidator(values -> {
+            String urlProblem = CloudClipboardRelayPolicy.webdavUrlProblem(values.get(0));
+            String accountProblem = CloudClipboardRelayPolicy.usernameProblem(values.get(1));
+            String passwordProblem = keepPassword && values.get(2).isEmpty()
+                ? null : CloudClipboardRelayPolicy.passwordProblem(values.get(2));
+            url.setError(values.get(0).isEmpty() ? null : urlProblem);
+            account.setError(values.get(1).isEmpty() ? null : accountProblem);
+            password.setError(values.get(2).isEmpty() ? null : passwordProblem);
+            if (tested.get() != null && !tested.get().equals(values)) {
+                tested.set(null);
+                dialog.showStatus(null, false);
+            }
+            return urlProblem == null && accountProblem == null && passwordProblem == null;
+        });
+        dialog.keepOpenOnPrimary();
+        dialog.addAction("测试连接", values -> probeWebDav(dialog, tested, values, keepPassword, false));
+        dialog.setPrimary("保存", values -> probeWebDav(dialog, tested, values, keepPassword, true));
+        dialog.show();
+    }
+
+    /** 在工作线程上跑一次测试连接；`save` 时通过了就接着保存，否则只把结果写在对话框里。 */
+    private void probeWebDav(InputDialog dialog, AtomicReference<List<String>> tested, List<String> values,
+            boolean keepPassword, boolean save) {
+        String address = values.get(0);
+        String account = values.get(1);
+        String typed = values.get(2);
+        dialog.setBusy(true);
+        dialog.showStatus("正在测试连接……", false);
+        HostTask.runNetwork(this, context -> {
+            String password = typed.isEmpty() && keepPassword ? savedWebDavPassword(context) : typed;
+            try {
+                CloudClipboardRelay.probeWebDav(context, address, account, password);
+                return new Probe(null, password);
+            } catch (CloudApi.Failure failure) {
+                return new Probe(failure.code, "");
+            }
+        }, probe -> {
+            if (!dialog.isShowing()) return;
+            tested.set(values);
+            if (probe == null || probe.code() != null) {
+                dialog.setBusy(false);
+                String message = probe == null ? null : CloudClipboardRelayPolicy.failureMessage(probe.code(), true);
+                dialog.showStatus(message == null ? "测试没能完成，请稍后重试" : message, true);
+                return;
+            }
+            if (!save) {
+                dialog.setBusy(false);
+                dialog.showStatus("连接正常，可以保存", false);
+                return;
+            }
+            dialog.showStatus("连接正常，正在保存……", false);
+            saveWebDav(dialog, address, account, probe.password());
+        });
+    }
+
+    /** 测试通过后写进偏好：写入 `cloud_clipboard_webdav`、删掉中继。写失败时对话框留着，可以再点「保存」。 */
+    private void saveWebDav(InputDialog dialog, String address, String account, String password) {
+        KeyboardSheets.save(this, preferences -> {
+            if (CloudClipboardRelayPolicy.webdavUrlProblem(address) != null
+                    || CloudClipboardRelayPolicy.usernameProblem(account) != null
+                    || CloudClipboardRelayPolicy.passwordProblem(password) != null)
+                throw new JSONException("cloud clipboard webdav is not valid");
+            preferences.remove(CloudClipboardRelayPolicy.PREFERENCE);
+            preferences.put(CloudClipboardRelayPolicy.WEBDAV_PREFERENCE, new JSONObject()
+                .put("url", address).put("username", account).put("password", password));
+        }, () -> {
+            dialog.dismiss();
+            MsToast.show(requireContext(), "已保存，云剪贴板改走 WebDAV 网盘");
+            reload();
+        }, () -> {
+            dialog.setBusy(false);
+            dialog.showStatus("保存失败，请重试", true);
+        });
+    }
+
+    /** 偏好里已存的 WebDAV 应用密码；没有或读不了时为空串（测试连接随即报设置不完整）。读文件，在工作线程上调用。 */
+    private static String savedWebDavPassword(Context context) {
+        JSONObject preferences = KeyboardSheets.preferences(context);
+        JSONObject saved = preferences == null ? null
+            : preferences.optJSONObject(CloudClipboardRelayPolicy.WEBDAV_PREFERENCE);
+        return saved == null ? "" : JsonPolicy.strictStringOrEmpty(saved.opt("password"));
+    }
+
+    /** 改回水杉账号：清掉偏好里的中继和 WebDAV 网盘，中继或网盘上的内容和本机的中继密钥串都不动。 */
+    private void confirmAccount(Relay current) {
+        String cleared = current.mode() == Mode.WEBDAV
+            ? "会清除本机保存的网盘地址、账号和应用密码，网盘上的内容不受影响。"
+            : "会清除本机保存的中继地址和令牌，中继上的内容不受影响。";
         new MaterialAlertDialogBuilder(requireContext())
             .setTitle("改回水杉账号？")
-            .setMessage("会清除本机保存的中继地址和令牌，中继上的内容不受影响。之后云剪贴板经水杉账号同步，要登录才能用。")
+            .setMessage(cleared + "之后云剪贴板经水杉账号同步，要登录才能用。")
             .setNegativeButton("取消", null)
-            .setPositiveButton("改回", (dialog, which) -> KeyboardSheets.save(this,
-                preferences -> preferences.remove(CloudClipboardRelayPolicy.PREFERENCE), () -> {
+            .setPositiveButton("改回", (dialog, which) -> KeyboardSheets.save(this, preferences -> {
+                    preferences.remove(CloudClipboardRelayPolicy.PREFERENCE);
+                    preferences.remove(CloudClipboardRelayPolicy.WEBDAV_PREFERENCE);
+                }, () -> {
                     MsToast.show(requireContext(), "已改回水杉账号");
                     reload();
                 }, this::reload))
             .show();
     }
 
-    /** 偏好里的中继；偏好读不了时为 null。读文件，在工作线程上调用。 */
+    /** 偏好里的同步方式；偏好读不了时为 null。网盘优先，与 {@link CloudClipboardRelay#binding} 相同（两者同时配置的文档共享层不认）。读文件，在工作线程上调用。 */
     @Nullable private static Relay readRelay(Context context) {
         JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
+        JSONObject webdav = preferences.optJSONObject(CloudClipboardRelayPolicy.WEBDAV_PREFERENCE);
+        if (webdav != null) {
+            String url = JsonPolicy.strictStringOrEmpty(webdav.opt("url"));
+            if (CloudClipboardRelayPolicy.configured(url))
+                return new Relay(Mode.WEBDAV, url, JsonPolicy.strictStringOrEmpty(webdav.opt("username")),
+                    !JsonPolicy.strictStringOrEmpty(webdav.opt("password")).isEmpty());
+        }
         JSONObject saved = preferences.optJSONObject(CloudClipboardRelayPolicy.PREFERENCE);
-        if (saved == null) return new Relay("", false);
-        return new Relay(JsonPolicy.strictStringOrEmpty(saved.opt("url")),
+        if (saved == null) return new Relay(Mode.ACCOUNT, "", "", false);
+        String url = JsonPolicy.strictStringOrEmpty(saved.opt("url"));
+        return new Relay(CloudClipboardRelayPolicy.configured(url) ? Mode.RELAY : Mode.ACCOUNT, url, "",
             !JsonPolicy.strictStringOrEmpty(saved.opt("token")).isEmpty());
     }
 
-    /** 下面的开关、列表和设备是不是中继上的；同步方式还没读到时按水杉账号的说法。 */
+    /** 下面的开关、列表和设备是不是中继（或 WebDAV 网盘）上的；同步方式还没读到时按水杉账号的说法。 */
     private boolean viaRelay() {
         Relay current = relay;
         return current != null && current.configured();
     }
 
+    /** 走的是不是 WebDAV 网盘：说法里的「中继」换成「网盘」。 */
+    private boolean viaWebDav() {
+        Relay current = relay;
+        return current != null && current.mode() == Mode.WEBDAV;
+    }
+
     /** 存内容的那一方，写进说明和确认框。 */
     private String store() {
-        return viaRelay() ? "中继" : "水杉云";
+        return viaWebDav() ? "网盘" : viaRelay() ? "中继" : "水杉云";
     }
 
     private static String shorten(String value) {
@@ -537,7 +689,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         if (api == null) return;
         MessageDialog.confirm(requireContext(), "允许「" + DeviceNamePolicy.display(device.name()) + "」？",
             "核对两台设备上的核对码一致再允许：\n\n" + device.code()
-                + "\n\n允许后，那台设备可以读取和上传" + (viaRelay() ? "这个中继令牌下" : "这个账号") + "的云剪贴板。",
+                + "\n\n允许后，那台设备可以读取和上传" + (viaWebDav() ? "这个网盘文件夹里" : viaRelay() ? "这个中继令牌下" : "这个账号") + "的云剪贴板。",
             "允许", () -> mutate(() -> api.approve(device.deviceId()), "已允许"));
     }
 

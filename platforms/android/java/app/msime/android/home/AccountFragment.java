@@ -119,7 +119,7 @@ public final class AccountFragment extends HomeTabFragment {
             int clipboard;
             try {
                 if (CloudClipboardRelay.selected(CloudClipboardRelay.preferencesDirectory(context))) {
-                    // 云剪贴板改走了自建中继：这里是账号页，不为了一个条数去连中继，更不能去问水杉账号（那会把这台设备登记到账号的云剪贴板上）。
+                    // 云剪贴板改走了自建中继或 WebDAV 网盘：这里是账号页，不为了一个条数去连中继或网盘，更不能去问水杉账号（那会把这台设备登记到账号的云剪贴板上）。
                     clipboard = -1;
                 } else {
                     BackendAccount.ClipboardPage page = new BackendAccount(context).clipboard("", sessionId,

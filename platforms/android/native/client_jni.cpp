@@ -919,7 +919,8 @@ constexpr jsize kPathLimit = 16384;
 constexpr jsize kDictionaryRequestLimit = 2248576;
 constexpr jsize kHansTextLimit = 64 * 1024;
 constexpr jsize kImportRequestLimit = 1200000;
-constexpr jsize kPluginsRequestLimit = 2 * 1024 * 1024;
+// 与 msime_client_plugins 的 8 MiB 一致：插件编辑器保存一本单词本时整份词表都在请求里。
+constexpr jsize kPluginsRequestLimit = 8 * 1024 * 1024;
 constexpr jsize kCommunityLibraryLimit = 4000000;
 constexpr jsize kSkinTrialLimit = 16384;
 constexpr jsize kCommunitySkinInstallLimit = 9000000;

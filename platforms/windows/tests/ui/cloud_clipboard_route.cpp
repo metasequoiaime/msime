@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <string>
+#include <string_view>
 
 namespace {
 struct Response {
@@ -44,4 +45,23 @@ int main() {
   assert(cloud_clipboard_failure(L"clipboard_device_pending") == CloudClipboardState::pending);
   assert(cloud_clipboard_failure(L"clipboard_sync_disabled") == CloudClipboardState::disabled);
   assert(cloud_clipboard_failure(L"relay_unavailable") == CloudClipboardState::unavailable);
+  // WebDAV 网盘的回退和限流不能当成未登录水杉账号，也不能混进笼统的「服务不可用」。
+  assert(cloud_clipboard_failure(L"webdav_rollback") == CloudClipboardState::webdav_rollback);
+  assert(cloud_clipboard_failure(L"webdav_rate_limited") == CloudClipboardState::webdav_rate_limited);
+  assert(webdav_error_message(L"relay_not_configured") == L"地址、账号或应用密码不完整");
+  assert(webdav_error_message(L"webdav_unsupported").find(L"独占创建、列目录") != std::wstring_view::npos);
+  assert(webdav_error_message(L"relay_unauthorized") == L"网盘拒绝了这个账号或应用密码");
+  assert(webdav_error_message(L"relay_unavailable").find(L"证书须由公网信任的机构签发") != std::wstring_view::npos);
+  assert(webdav_error_message(L"webdav_rate_limited").find(L"每 30 分钟 600 次") != std::wstring_view::npos);
+  assert(webdav_error_message(L"webdav_rollback").find(L"请重新测试连接并保存") != std::wstring_view::npos);
+  // 不认识的码只给通用说明，不冒充成上面任何一种原因。
+  for (const auto code : {L"invalid_cloud_clipboard", L"account_storage", L""}) {
+    const auto message = webdav_error_message(code);
+    assert(message == L"测试连接失败，请稍后重试");
+    for (const auto known : {L"relay_not_configured", L"webdav_unsupported", L"relay_unauthorized",
+                             L"relay_unavailable", L"webdav_rate_limited", L"webdav_rollback"})
+      assert(message != webdav_error_message(known));
+  }
+  assert(webdav_explanation.find(L"网盘只保存密文") != std::wstring_view::npos);
+  assert(webdav_url_placeholder == L"https://dav.jianguoyun.com/dav/msime");
 }

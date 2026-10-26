@@ -98,6 +98,8 @@ enum ControlId {
   cloud_clipboard_text, cloud_clipboard_add, cloud_clipboard_devices, cloud_clipboard_device_detail,
   cloud_clipboard_approve, cloud_clipboard_reject, cloud_clipboard_remove,
   cloud_clipboard_reset, cloud_clipboard_notice, cloud_clipboard_metadata,
+  cloud_clipboard_webdav_url, cloud_clipboard_webdav_username, cloud_clipboard_webdav_password,
+  cloud_clipboard_webdav_test, cloud_clipboard_webdav_save, cloud_clipboard_webdav_clear,
   dictionary_kind = 2200, dictionary_user_only, dictionary_query, dictionary_search,
   dictionary_page, dictionary_previous, dictionary_next, dictionary_entries,
   dictionary_entry_source, dictionary_key, dictionary_value, dictionary_weight,
@@ -123,6 +125,8 @@ public:
   struct CloudClipboardServices {
     CommunityTransport account;
     CommunityTransport relay;
+    // WebDAV「测试连接」；为空时调用 msime_client_cloud_clipboard_webdav_probe。
+    CommunityTransport webdav_probe;
   };
   explicit SettingsWindow(FilePicker file_picker = {}, Confirmation confirmation = {}, FolderPicker folder_picker = {},
       CommunityTransport community_transport = {}, CommunityTransport statistics_upload_transport = {}, CommunityTransport account_transport = {}, ClipboardServices clipboard = {}, CloudClipboardServices cloud_clipboard = {}, CommunityTransport dictionary_transport = {}, CommunityTransport update_transport = {}, CommunityTransport voice_transport = {}, SurfaceLauncher surface_launcher = {}, McpPage::Services mcp_services = {});

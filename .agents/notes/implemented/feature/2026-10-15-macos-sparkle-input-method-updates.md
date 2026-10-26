@@ -43,6 +43,7 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
 
 - `input_method_main.mm` 在带 feed 时启动时就创建更新控制器，Sparkle 才会按计划在后台检查。
 - 输入法是 `LSBackgroundOnly`，Sparkle 的提醒窗口会从正在打字的应用那里抢走焦点。`SUAutomaticallyUpdate` 让更新静默下载；`UpdateController.mm` 的 `updater:willInstallUpdateOnQuit:immediateInstallationBlock:` 返回 `YES` 接管安装，若返回 `NO`，过了 `SUScheduledImpatientCheckInterval` Sparkle 会自己弹窗。安装在用户切到别的输入源时进行（`switchedAway` → `installDownloadedUpdateIfReady`），这一刻没有人在用水杉打字；应用退出时 Sparkle 也会装。
+- 2026-10-26 起，用户离开电脑时也装（`installDownloadedUpdateWhenAwayWithWorkspaceCenter:idleClock:`）：`NSWorkspaceScreensDidSleepNotification`（熄屏，锁屏后显示器睡下也算）和 `NSWorkspaceSessionDidResignActiveNotification`（快速切换用户）立即装；另外每 5 分钟用 `CGEventSourceSecondsSinceLastEventType` 看一次整个登录会话的闲置时长，满 30 分钟就装。原来只用水杉、从不切到别的输入源的用户，更新一直拖到注销。没有待装的更新时这些触发什么也不做；换到更窄通道时被丢掉的安装闭包同样不会被它们装上。熄屏不一定锁屏、闲置时焦点也还在输入框里，IMK 不会先提交组字，所以包括切换输入源在内的每条安装路径都先问 `unfinishedWork`：获得焦点的控制器还有没上屏的 `editing_text` 或正在录、正在识别的语音（`MSIMEInputControllerHasUnfinishedInput`），或者本进程开着可以成为 key window 的窗口（词库编辑、AI 设置、反馈、Sparkle 的手动检查界面，`MSIMEUpdateWindowsHoldUserWork`），这次就不装，等下一次触发。这条也补上了切换输入源原有的缺口：开着词库编辑窗口切到 ABC，窗口会随进程一起消失。安装闭包只交出一次，几条触发在进程退出前接连到来时不重复开始同一次安装。
 - `updaterShouldRelaunchApplication:` 返回 `NO`：直接启动输入法 bundle 是「独立设置窗口」那条启动路径。系统在下次需要输入法时从新 bundle 拉起它。
 - 菜单与悬浮工具栏的「检查更新…」在带 feed 时直接交给 Sparkle，显示它自己的界面；没有 feed 时仍先打开设置应用的「关于」页。
 
@@ -53,6 +54,8 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
 - **`CFBundleVersion` 写成 `<短版本号>.<构建号>`，如 `0.54.0.1`** — 最强的理由是可读，Sparkle 的标准比较器也能正确逐段比较。否定：设置应用按 `u64` 解析构建号，读不出时会把已装的输入法当成可以覆盖；四段也超出 Apple 对 `CFBundleVersion` 的格式要求。
 - **让 Sparkle 在后台检查到更新时照常弹出提醒** — 最强的理由是这是 Sparkle 的默认体验，用户马上知道有新版本。否定：提醒窗口出自输入法进程，会抢走用户正在打字的应用的焦点。
 - **为这次接入新生成一对密钥** — 最强的理由是私钥在本机钥匙串里有可见的副本，能当场验证配对，不用等发版。否定：0.48 版已经带着旧公钥发出去，换钥匙就等于宣布那批安装永远收不到 Sparkle 更新，而且同一个产品会有两把更新钥匙要保管。这次确实先生成过一对（钥匙串账户 `msime-sparkle`），发现旧 secret 后已删除，没有用于任何发布。
+- **离开时安装只看熄屏，不看闲置时长**（2026-10-26）— 最强的理由是熄屏是确定的「人不在」信号，不用定时器，也不会在用户盯着屏幕读东西时装。否定：显示器设成永不睡眠、又不锁屏的机器上永远等不到，正是这条要补的那批用户的一部分；闲置阈值取 30 分钟、而且取整个会话的输入（鼠标也算），读东西时移动鼠标就不会被当成离开。
+- **闲置只算打给水杉的按键**（2026-10-26）— 最强的理由是它直接衡量「没在用水杉打字」，不依赖系统范围的输入时间。否定：要在八千多行的 `InputController.mm` 里加进程级的按键时间，而且用户拿鼠标操作了半小时、马上要打字时它也会判成闲置；会话范围的闲置更接近「人不在电脑前」。
 - **把 appcast 放在官网（msime-web）** — 最强的理由是官网地址稳定，也便于将来做国内镜像。没有采用：那个仓库不在这里，发布流程没法原子地同时更新它；GitHub 的固定 tag 地址同样稳定，由同一个 workflow 维护。
 
 ## Consequences
@@ -63,7 +66,7 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
   - secret 与公钥是否配对，第一次带 secret 打包时才知道：不配对时打包在编译之前失败，不会发出收不到更新的包。
   - 0.48 那批旧安装的 feed 指向 MSIME-Apple 的 `releases/latest`，仓库合并之后那里不是 macOS 的 appcast，它们暂时收不到这条路径的更新。
   - 设置应用不随 Sparkle 更新，会落后于输入法，直到用户装下一个 DMG；设置页上的新功能要等那时才出现。
-  - 静默更新只在用户切换输入源或输入法进程正常退出时安装。从不切换输入源、也不注销的用户，要等手动「检查更新…」或下一次注销。如果这类用户多，可以考虑在输入法长时间闲置时安装。
+  - 静默更新在用户切换输入源、熄屏、切走登录会话、整个会话闲置满 30 分钟或输入法进程正常退出时安装，前四种在用户还有没完成的输入或开着的窗口时推后。闲置安装时水杉可能仍是当前输入源，用户回来后的第一下输入要等系统从新 bundle 拉起输入法。离开前留着没上屏的组字的用户，要等组字结束之后的下一次触发；一直不结束的话退回到注销时安装。
   - 更新包从 GitHub 下载，国内可能很慢；dl.msime.app 的放行名单与 Sparkle 是否经它下载，见[macOS 版本发布页只放 DMG](../process/2026-10-20-macos-release-page-only-dmgs.md)。
   - 每个版本多一个十几 MB 的 zip（现在放在 `macos-appcast`，不在版本发布页上）。
   - 第一个带 feed 的版本发出之后，要再发一个版本才能在真实环境里验证一次完整的升级。
@@ -71,7 +74,7 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
 ## Verification
 
 - `python3 scripts/test-macos-editions.py`：六个版本改写后的 `SUFeedURL` 各自指向 `appcast-<版本 id>.xml`，其余 Sparkle 键保留；改写代码撤回时日文、越南文和藏文版仍指向 `appcast-full.xml`，检查失败。
-- `ctest -R update-controller`：后台安装转发给驱动且不激活进程，没有后台安装能力的驱动不受影响。
+- `ctest -R update-controller`：后台安装转发给驱动且不激活进程，没有后台安装能力的驱动不受影响。离开时安装：闲置差一秒不装、满 30 分钟装，熄屏和切走会话各装一次、亮屏不装，重复开始监视不重复注册，还没开始监视时不装；有没完成的东西时四条路径都不装、结束后照常装，不能后台安装的驱动不去问；开着的窗口只算可以成为 key window 的可见窗口，无标题栏面板和收起的窗口不算。把阈值比较改成 `>`、把切走会话换成亮屏通知、去掉重复注册的守卫、去掉 `unfinishedWork` 检查、窗口判断去掉 `canBecomeKeyWindow` 或可见条件，六种改法各自让测试失败。状态栏图标的窗口（`NSStatusBarWindow`）在本机实测 `canBecomeKeyWindow` 为 NO，菜单栏的「中」不会把安装一直拦着。
 - 以 `-DMSIME_SPARKLE_APPCAST_BASE_URL` 配置的本地构建，0.53.0 构建 1 的 `CFBundleVersion` 是 `53000001`，Info.plist 带全部 Sparkle 键；不带该变量时一个都没有。
 - `package-release.sh` 的公钥核对：32 字节种子推出的公钥与 `generate_keys` 打印的一致，96 字节旧格式取出的公钥正确，其他长度报错。
 - `generate_appcast` 产出的 appcast 带 `sparkle-signatures`，`sign_update --verify` 对 feed 和 zip 都通过，改动一个字节的 zip 被拒。

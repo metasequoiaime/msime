@@ -578,6 +578,17 @@ private:
       }
       return {Outcome::loaded, snapshot_};
     }
+    if (job.action == Job::Action::cloud_clipboard && job.credential && job.credential->contains("webdav_probe")) {
+      // WebDAV「测试连接」：先测试，通过了才写窗口给的配置（网盘配置和清空的中继配置），不通过就只读回当前设置。
+      const auto probe = probe_cloud_clipboard_webdav(job.credential->at("webdav_probe"), account_directory().u8string(), cloud_clipboard_services_);
+      const bool passed = theme_data::value(probe).has_value(), write = passed && !job.changes.empty();
+      result = !write ? store_->load() : snapshot_ ? store_->save(*snapshot_, job.changes) : Result{};
+      if (!result.snapshot) result.snapshot = store_->load().snapshot;
+      snapshot_ = result.snapshot;
+      // 配置和已存的相同时没有要写的，测试通过就算保存过了。
+      cloud_clipboard_response_ = Json{{"probe", probe}, {"saved", passed && (!write || result.outcome == Outcome::saved)}};
+      return result;
+    }
     if (job.action == Job::Action::cloud_clipboard && job.credential) {
       const auto account = account_directory();
       if (account.empty()) cloud_clipboard_response_ = Json{{"response", {{"ok", false}, {"error", "account_storage"}}}};
@@ -1008,6 +1019,7 @@ struct SettingsWindow::State {
   bool busy = true;
   bool saving_cloud = false;
   bool saving_clipboard_relay = false;
+  bool saving_clipboard_webdav = false;
   bool saving_wubi_keys = false;
   bool failed = false;
   bool com_initialized = false;
@@ -1842,7 +1854,9 @@ struct SettingsWindow::State {
     if (busy) return;
     account_form.google_waiting(job.action == Job::Action::account && job.credential &&
         job.credential->value("operation", std::string{}) == "google_login");
-    saving_clipboard_relay = job.changes.size() == 1 && job.changes.front().path == std::vector<std::string>{"cloud_clipboard_relay"};
+    saving_clipboard_relay = !job.changes.empty() && job.changes.front().path == std::vector<std::string>{"cloud_clipboard_relay"};
+    const bool probing_webdav = job.action == Job::Action::cloud_clipboard && job.credential && job.credential->contains("webdav_probe");
+    saving_clipboard_webdav = probing_webdav && !job.changes.empty();
     saving_cloud = job.changes.size() == 1 &&
         job.changes.front().path == std::vector<std::string>{"cloud_candidate_provider"};
     saving_wubi_keys = job.changes.size() == 1 &&
@@ -1864,7 +1878,7 @@ struct SettingsWindow::State {
     case Job::Action::plugins: message = L"正在处理插件操作…"; break;
     case Job::Action::vocabulary: message = L"正在处理词书与复习进度…"; break;
     case Job::Action::dictionary: message = L"正在处理词库操作…"; break;
-    case Job::Action::cloud_clipboard: message = L"正在更新云剪贴板…"; break;
+    case Job::Action::cloud_clipboard: message = probing_webdav ? L"正在测试 WebDAV 连接…" : L"正在更新云剪贴板…"; break;
     case Job::Action::clipboard: message = L"正在更新剪贴板历史…"; break;
     case Job::Action::wubi_lookup: message = L"正在查询编码…"; break;
     case Job::Action::helpcode_sources: message = L"正在读取辅助码方案…"; break;
@@ -2253,6 +2267,8 @@ struct SettingsWindow::State {
     }
     if (saving_clipboard_relay && result->outcome == Outcome::storage)
       message = L"中继配置未保存，请检查地址与令牌；未保存的输入已保留。";
+    if (saving_clipboard_webdav && result->outcome == Outcome::storage)
+      message = L"WebDAV 配置未保存，请检查地址、账号与应用密码；未保存的输入已保留。";
     if (saving_cloud && result->outcome == Outcome::storage)
       message = L"保存云候选服务失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时；未保存的内容已保留。";
     if (saving_wubi_keys && result->outcome == Outcome::storage)

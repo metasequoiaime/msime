@@ -57,4 +57,4 @@ Windows 不用共享页，编辑器在原生设置里各画一遍，读写同样
 
 收益是普通用户能在几分钟内做出一个可以发布的插件，而规则仍只有 client-services 一份：清单校验改了，编辑器自动跟着改。`import_inner` 变成 `install_staged` 的一个调用方，导入行为不变。
 
-代价是 `PluginError` 多了 `Exists` 和 `NotEditable` 两个变体、页面多了两个失败码；页面上的预检是规则的一份镜像，与 client-services 不一致时以宿主的拒绝为准，只是提示晚一步。生成的清单不保留原文件的注释和键顺序，编辑一个手写的包后 `plugin.toml` 会变成生成的样子；单词本的词表文件名变成 `words.tsv`。移动端（Android、iOS）没有插件页，也就没有编辑器。Windows 的两个原生设置各有一份界面，规则的移植在 `PluginEditorModel.h`，与共享页不一致时同样以宿主的拒绝为准；Win7 的多行文本写法只在 Win7 设置里用。
+代价是 `PluginError` 多了 `Exists` 和 `NotEditable` 两个变体、页面多了两个失败码；页面上的预检是规则的一份镜像，与 client-services 不一致时以宿主的拒绝为准，只是提示晚一步。生成的清单不保留原文件的注释和键顺序，编辑一个手写的包后 `plugin.toml` 会变成生成的样子；单词本的词表文件名变成 `words.tsv`。iOS 没有插件页，也就没有编辑器；Android 的插件页有编辑器，规则移植在 `PluginEditorPolicy.java`，见[Android 插件页](2026-10-26-android-plugins-page.md)。Windows 的两个原生设置各有一份界面，规则的移植在 `PluginEditorModel.h`，与共享页不一致时同样以宿主的拒绝为准；Win7 的多行文本写法只在 Win7 设置里用。

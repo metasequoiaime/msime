@@ -1,0 +1,4 @@
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "xiao"}, {"text": "笑", "code": "xiao"}, {"text": "校", "code": "xiao"}, {"text": "效", "code": "xiao"}]}
+{"event": "candidates", "key": true, "candidates": [{"text": "😄", "code": "xiao", "source": 6}, {"text": "😆", "code": "xiao", "source": 6}, {"text": "😂", "code": "xiao", "source": 6}, {"text": "😹", "code": "xiao", "source": 6}], "local_mode": "emoji"}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 2, "selected": "😂", "local_mode": "emoji"}
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "xiao"}, {"text": "笑", "code": "xiao"}, {"text": "校", "code": "xiao"}, {"text": "效", "code": "xiao"}]}

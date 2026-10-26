@@ -1,0 +1,32 @@
+{"event": "focus_in"}
+{"event": "candidates", "key": true, "candidates": [{"text": "😄", "code": "xiao", "source": 6}, {"text": "😆", "code": "xiao", "source": 6}, {"text": "😂", "code": "xiao", "source": 6}, {"text": "😹", "code": "xiao", "source": 6}], "local_mode": "emoji"}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 0, "selected": "😄", "local_mode": "emoji"}
+{"event": "focus_out"}
+{"event": "focus_in"}
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "xiao"}, {"text": "笑", "code": "xiao"}, {"text": "校", "code": "xiao"}, {"text": "效", "code": "xiao"}]}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 1, "selected": "😄"}
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "xiao"}, {"text": "笑", "code": "xiao"}, {"text": "校", "code": "xiao"}, {"text": "效", "code": "xiao"}]}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 0, "selected": "小"}
+{"event": "candidates", "key": true, "candidates": [{"text": "😄", "code": "xiao", "source": 6}, {"text": "😆", "code": "xiao", "source": 6}, {"text": "😂", "code": "xiao", "source": 6}, {"text": "😹", "code": "xiao", "source": 6}], "local_mode": "emoji"}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 2, "selected": "😂", "local_mode": "emoji"}
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "xiao"}, {"text": "笑", "code": "xiao"}, {"text": "校", "code": "xiao"}, {"text": "效", "code": "xiao"}]}
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "xiao"}, {"text": "😄", "code": "xiao", "source": 6}, {"text": "笑", "code": "xiao"}]}
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "Xi'ao"}, {"text": "笑", "code": "xiao"}]}
+{"event": "candidates", "key": true, "candidates": [{"text": "你好", "code": "ni'hao"}, {"text": "拟好", "code": "ni'hao"}]}
+{"event": "candidates", "key": true, "candidates": [{"text": "😄", "code": "xiao", "source": 6}, {"text": "😆", "code": "xiao", "source": 6}, {"text": "😂", "code": "xiao", "source": 6}, {"text": "😹", "code": "xiao", "source": 6}], "local_mode": "emoji"}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "held", "seat": 1, "selected": "😆", "local_mode": "emoji"}
+{"event": "candidates", "key": true, "candidates": [{"text": "xiao", "code": "xiao", "source": 4}, {"text": "😹", "code": "xiao", "source": 6}], "local_mode": "temporary_english"}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 1, "selected": "😹", "local_mode": "temporary_english"}
+{"event": "candidates", "key": true, "candidates": [{"text": "xiao.com", "code": "xiao"}], "local_mode": "url"}
+{"event": "candidates", "key": true, "candidates": [{"text": "长", "code": "abcdefghijklmnopqrstuvwxyz"}]}
+{"event": "candidates", "key": true, "candidates": [{"text": "一", "code": "yi1"}]}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 0, "selected": "😄"}
+{"event": "candidates", "key": true, "candidates": [{"text": "小", "code": "xiao"}, {"text": "笑", "code": "xiao"}, {"text": "校", "code": "xiao"}, {"text": "效", "code": "xiao"}]}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 5, "selected": "😹"}
+{"event": "candidates", "key": true, "candidates": [{"text": "👨‍👩‍👧‍👦", "code": "jiating", "source": 6}, {"text": "👍🏽", "code": "jiating", "source": 6}, {"text": "家庭", "code": "jiating"}], "local_mode": "emoji"}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 0, "selected": "👨‍👩‍👧‍👦", "local_mode": "emoji"}
+{"event": "candidates", "key": true, "candidates": [{"text": "👨‍👩‍👧‍👦", "code": "jiating", "source": 6}, {"text": "👍🏽", "code": "jiating", "source": 6}, {"text": "家庭", "code": "jiating"}], "local_mode": "emoji"}
+{"event": "candidate_selected", "key": true, "how": "digit", "outcome": "committed", "seat": 1, "selected": "👍🏽", "local_mode": "emoji"}
+{"event": "candidates", "key": true, "candidates": [{"text": "家庭", "code": "jiating"}, {"text": "加厅", "code": "jiating"}]}
+{"event": "candidates", "key": true, "candidates": []}
+{"event": "focus_out"}
