@@ -9,6 +9,7 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.LayoutInflater;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -284,7 +285,7 @@ public final class SkinsPage extends ReloadingDetailPage {
         });
         if (card.design() != null) {
             cell.setContentDescription("皮肤 " + card.title() + "，点击使用");
-            LinearLayout root = (LinearLayout) cell.getChildAt(0);
+            LinearLayout root = (LinearLayout) ((ViewGroup) cell).getChildAt(0);
             LinearLayout actions = LayoutPolicy.row(context);
             ViewPolicy.setPaddingDp(context, actions, 0, 6, 0, 0);
             MaterialButton export = new MaterialButton(context, null,
@@ -322,7 +323,7 @@ public final class SkinsPage extends ReloadingDetailPage {
                 if (output == null) return "写入文件失败，请重新选择位置。";
                 output.write(TextPolicy.utf8Bytes(json + "\n"));
                 return "已导出";
-            } catch (java.io.IOException | SecurityException error) {
+        } catch (java.io.IOException | RuntimeException error) {
                 return "写入文件失败，请重新选择位置。";
             }
         }, message -> MsToast.show(requireContext(), message));
@@ -349,7 +350,7 @@ public final class SkinsPage extends ReloadingDetailPage {
             if (bytes == null) return null;
             return CustomSkinLibrary.importDesigns(Paths.get(directory),
                 TextPolicy.utf8(bytes));
-        } catch (java.io.IOException | SecurityException | RuntimeException error) {
+        } catch (java.io.IOException | RuntimeException error) {
             return null;
         }
     }
