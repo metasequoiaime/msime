@@ -238,6 +238,13 @@ impl ImeSession {
         self.scheme.scheme_type()
     }
 
+    /// 当前粤拼组字是否已由首个双拼码切换到粤语双拼解释。
+    pub fn cantonese_shuangpin_active(&self) -> bool {
+        self.scheme
+            .as_cantonese()
+            .is_some_and(crate::cantonese::CantoneseScheme::is_shuangpin)
+    }
+
     /// 会话允许运行的方案。
     pub fn enabled_schemes(&self) -> SchemeSet {
         self.registry.enabled()

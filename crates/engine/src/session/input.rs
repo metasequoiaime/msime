@@ -1369,7 +1369,11 @@ impl InputSession {
         // `'` is a Jyutping syllable boundary only inside a composition; idle it is punctuation.
         if self.cantonese_rules_apply() {
             return if self.has_composition() {
-                cantonese::SPELLING_SYMBOLS_COMPOSING.to_owned()
+                if self.engine.cantonese_shuangpin_active() {
+                    "';".to_owned()
+                } else {
+                    cantonese::SPELLING_SYMBOLS_COMPOSING.to_owned()
+                }
             } else {
                 String::new()
             };
