@@ -176,6 +176,53 @@ jobs:
           { echo; cat changes.md; } >> release-notes.md
           # 重跑同一版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk dist/SHA256SUMS dist/*.apk.sha256
+  pgyer:
+    needs: [source, release, device, publish]
+    if: inputs.publish
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-android-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          path: dist
+      - name: Locate Android package
+        id: package
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(dist/*.apk)
+          [[ ${#apks[@]} -eq 1 ]] || { echo "expected one APK, found ${#apks[@]}" >&2; exit 1; }
+          echo "path=${apks[0]}" >> "$GITHUB_OUTPUT"
+      - name: Check Pgyer credentials
+        id: pgyer-secret
+        env:
+          PGYER_API_KEY: "${{ secrets.PGYER_API_KEY }}"
+        run: |
+          if [[ -n "$PGYER_API_KEY" ]]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip Pgyer upload when the repository secret is absent
+        if: steps.pgyer-secret.outputs.configured != 'true'
+        run: echo '::notice::PGYER_API_KEY is not configured; skipping Pgyer upload'
+      - name: Upload Android package to Pgyer
+        if: steps.pgyer-secret.outputs.configured == 'true'
+        id: pgyer
+        uses: PGYER/pgyer-upload-app-action@2cc249560d09c8b804607524fd1ebf0c84315879 # v2.0.0
+        with:
+          _api_key: "${{ secrets.PGYER_API_KEY }}"
+          appFilePath: "${{ steps.package.outputs.path }}"
+          buildUpdateDescription: "Android ${{ needs.release.outputs.version }} (${{ matrix.edition }})"
+      - name: Record Pgyer download page
+        if: steps.pgyer.outcome == 'success'
+        run: |
+          echo "${{ matrix.edition }}: ${{ steps.pgyer.outputs.appBuildURL }}" >> "$GITHUB_STEP_SUMMARY"
   # 把正式版的 AAB 传到 Google Play（只有 full 上架）。排在 GitHub 发布之后：发布页是权威的版本，它没发出去就不往 Play 传。条件与 release job 里打 AAB 的条件相同（发布的、不带后缀的正式版），另加选了轨道。
   play:
     needs: [source, release, publish]

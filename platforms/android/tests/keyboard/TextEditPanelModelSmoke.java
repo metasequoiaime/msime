@@ -2,14 +2,15 @@ import android.view.KeyEvent;
 import app.msime.android.TextEditPanelModel;
 import app.msime.android.TextEditPanelModel.Action;
 import app.msime.android.TextEditPanelModel.Key;
+import app.msime.android.TextEditLineSelection;
 import java.util.EnumSet;
 import java.util.List;
 
 public final class TextEditPanelModelSmoke {
     public static void main(String[] args) {
         List<Action> order = List.of(Action.COPY, Action.PASTE, Action.SELECT_ALL, Action.CUT,
-            Action.SPACE, Action.NUMBER_PAD, Action.DELETE);
-        check(TextEditPanelModel.keys(order).size() == 17, "行首和行尾必须加入固定网格");
+            Action.SPACE, Action.NUMBER_PAD, Action.DELETE, Action.SELECT_LINE);
+        check(TextEditPanelModel.keys(order).size() == 18, "行首、行尾和选择行必须加入固定网格");
         Action lineStart = Action.valueOf("LINE_START"), lineEnd = Action.valueOf("LINE_END");
         checkGrid(order);
         java.util.ArrayList<Action> reversed = new java.util.ArrayList<>(order);
@@ -21,7 +22,8 @@ public final class TextEditPanelModelSmoke {
             && grid[1][4] == Action.SELECT && grid[1][6] == Action.RIGHT && grid[2][4] == Action.DOWN,
             "arrows form a cross around selection");
         check(grid[3][2] == Action.DOCUMENT_START && grid[3][5] == Action.DOCUMENT_END
-            && grid[3][8] == Action.RETURN, "document edges and return keep fixed bottom positions");
+            && grid[3][8] == Action.RETURN && grid[4][0] == Action.SELECT_LINE,
+            "document edges, select line and return keep fixed positions");
 
         // 方向键和删除连发，其余不连发。
         for (Key key : TextEditPanelModel.keys(order)) {
@@ -62,7 +64,8 @@ public final class TextEditPanelModelSmoke {
             && TextEditPanelModel.contextMenuAction(Action.CUT) == android.R.id.cut
             && TextEditPanelModel.contextMenuAction(Action.PASTE) == android.R.id.paste, "clipboard menu ids");
         check(TextEditPanelModel.contextMenuAction(Action.LEFT) == 0
-            && TextEditPanelModel.contextMenuAction(Action.SELECT) == 0, "other keys are not menu actions");
+            && TextEditPanelModel.contextMenuAction(Action.SELECT) == 0
+            && TextEditPanelModel.contextMenuAction(Action.SELECT_LINE) == 0, "other keys are not menu actions");
 
         check(TextEditPanelModel.key(Action.NUMBER_PAD).label().equals("123")
             && TextEditPanelModel.key(Action.SPACE).label().equals("空格")
@@ -76,7 +79,15 @@ public final class TextEditPanelModelSmoke {
         check(TextEditPanelModel.endsSelecting(Action.CUT) && TextEditPanelModel.endsSelecting(Action.PASTE)
             && TextEditPanelModel.endsSelecting(Action.DELETE), "cut, paste and delete end selecting");
         check(!TextEditPanelModel.endsSelecting(Action.COPY) && !TextEditPanelModel.endsSelecting(Action.LEFT)
-            && !TextEditPanelModel.endsSelecting(Action.SELECT_ALL), "copy and moves keep selecting");
+            && !TextEditPanelModel.endsSelecting(Action.SELECT_ALL)
+            && !TextEditPanelModel.endsSelecting(Action.SELECT_LINE), "copy and moves keep selecting");
+
+        TextEditLineSelection.Range line = TextEditLineSelection.range("甲乙\n丙丁\n戊", 3, 3);
+        check(line.start() == 3 && line.end() == 5, "caret selects the current line");
+        line = TextEditLineSelection.range("甲乙\n丙丁\n戊", 2, 2);
+        check(line.start() == 0 && line.end() == 2, "newline selects the preceding line");
+        line = TextEditLineSelection.range("甲乙\n丙丁\n戊", 6, 6);
+        check(line.start() == 6 && line.end() == 7, "last line is bounded");
         System.out.println("Android text edit panel: fixed cross layout, reordered side actions, key events and clipboard actions passed");
     }
 
@@ -89,7 +100,8 @@ public final class TextEditPanelModelSmoke {
             for (int row = key.row(); row < key.row() + key.rowSpan(); row++) {
                 for (int column = key.column(); column < key.column() + key.columnSpan(); column++) {
                     check(row < grid.length && column < grid[row].length, "inside grid");
-                    check(grid[row][column] == null, "no overlapping keys");
+                    check(grid[row][column] == null, "no overlapping keys: " + key.action()
+                        + " at " + row + "," + column + " with " + grid[row][column]);
                     grid[row][column] = key.action();
                 }
             }
@@ -101,10 +113,11 @@ public final class TextEditPanelModelSmoke {
     private static void checkGrid(List<Action> order) {
         Action[][] grid = grid(order);
         for (int index = 0; index < order.size(); index++)
-            check(grid[index < 4 ? index : index - 4][index < 4 ? 0 : 8] == order.get(index),
+            check(grid[index < 4 ? index : index == 7 ? 4 : index - 4][index < 4 || index == 7 ? 0 : 8] == order.get(index),
                 "side action follows saved order");
         for (int row = 0; row < grid.length; row++) for (int column = 0; column < grid[row].length; column++) {
-            boolean blank = row == 2 && (column == 2 || column == 3 || column == 6 || column == 7);
+            boolean blank = (row == 2 && (column == 2 || column == 3 || column == 6 || column == 7))
+                || (row == 4 && column >= 2);
             check((grid[row][column] == null) == blank, "下排两个角落仍留白");
         }
     }

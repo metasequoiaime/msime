@@ -240,17 +240,31 @@ class ReleaseSigning(unittest.TestCase):
             output = directory / "release"
             with mock.patch.dict(os.environ, environment):
                 SIGNING.sign(argparse.Namespace(input=compressed, output_dir=output, version="0.2.1",
-                                                tool_dir=TOOL_DIR, check_only=False))
+                                                tool_dir=TOOL_DIR, check_only=False, signed_hap=False))
             signed = output / "msime-harmony-0.2.1.hap"
             # 独立复验最终文件，防止脚本内部验签后又改写发布产物。
             self.tool_command(["java", "-jar", str(TOOL_DIR / "hap-sign-tool.jar"), "verify-app", "-inFile", str(signed),
                                "-outCertChain", str(directory / "verified.cer"), "-outProfile", str(directory / "verified.p7b")])
             self.assertEqual((directory / "verified.p7b").read_bytes(), (directory / "profile.p7b").read_bytes())
+            self.tool_command(["java", "-jar", str(TOOL_DIR / "hap-sign-tool.jar"), "verify-app",
+                               "-inFile", str(output / "msime-harmony-0.2.1.app"),
+                               "-outCertChain", str(directory / "app-verified.cer"),
+                               "-outProfile", str(directory / "app-verified.p7b")])
+            self.assertEqual((directory / "app-verified.p7b").read_bytes(), (directory / "profile.p7b").read_bytes())
             with zipfile.ZipFile(signed) as package:
                 self.assertEqual(package.getinfo("resources/resfile/synthetic-large.txt").compress_type, zipfile.ZIP_DEFLATED)
                 self.assertEqual(package.getinfo("libs/arm64-v8a/libmsime_host_api.so").compress_type, zipfile.ZIP_STORED)
             with zipfile.ZipFile(output / "msime-harmony-0.2.1.app") as package:
                 self.assertEqual(package.read("entry-default.hap"), signed.read_bytes())
+            repacked = directory / "repacked"
+            with mock.patch.dict(os.environ, environment):
+                SIGNING.sign(argparse.Namespace(input=signed, output_dir=repacked, version="0.2.1",
+                                                tool_dir=TOOL_DIR, check_only=False, signed_hap=True))
+            self.assertEqual((repacked / signed.name).read_bytes(), signed.read_bytes())
+            self.tool_command(["java", "-jar", str(TOOL_DIR / "hap-sign-tool.jar"), "verify-app",
+                               "-inFile", str(repacked / "msime-harmony-0.2.1.app"),
+                               "-outCertChain", str(directory / "repacked.cer"),
+                               "-outProfile", str(directory / "repacked.p7b")])
             with self.assertRaisesRegex(ValueError, "必须在签名前"):
                 COMPRESSION.compress_resources(signed, directory / "invalid.hap")
             self.assertFalse((directory / "invalid.hap").exists())

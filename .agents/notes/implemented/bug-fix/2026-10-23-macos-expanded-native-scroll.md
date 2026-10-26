@@ -28,6 +28,8 @@ Canvas 内容边距适配同时调整展开视口及文档宽度。视口已经�
 
 ## Verification
 
+三项展开网格回归只由 `shortcut-expanded-scroll` 的独立进程执行，不在 `shortcut` 大测试中重复。发布 PR #9794 原始 Sanitizers 运行中，大测试在首个精确滚动偏移断言失败、独立入口通过；移除重复执行后，运行 `40256801869` 的大测试通过，但独立入口在同一断言失败。因此进程隔离只消除重复覆盖，不能作为根因或完整修复。独立入口仍执行 `TestExpandedCandidateGrid`、`TestExpandedCandidateGridGeneration` 和 `TestExpandedCandidatePartialSelection`，保留全部断言。合成事件助手按滚动前的位置与 delta 计算合法目标，等待 AppKit 异步到达该位置，最长 3 秒；超时打印 delta、阶段和 viewport/clip/document 几何，后续原断言仍会失败，不重发事件、不放宽像素误差。
+
 `shortcut-expanded-scroll` 使用正确映射 CoreGraphics 手势阶段的像素事件，等待 AppKit 异步滚动完成，再核对方向、两点跨行连续性、非等高行、结束事件、短末页及键盘和普通滚轮接管。行内滚动必须保留同一外框、滚动视图和按钮，不增加光标位置查询；跨行保留重叠按钮。二百条合成候选的按钮数量小于候选总数，原生裁剪视口定位后重画也保留手动滚动位置。
 
 普通滚轮回归额外覆盖：精确滚动到底后的无效向下事件与再次重画、末行折行特别高时的向下接管、逐行到达真实底部及反向离开底部；全过程核对固定窗口高度与重画后的像素位置。
