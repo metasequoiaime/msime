@@ -52,6 +52,24 @@ final class CandidateGlossModelTests: XCTestCase {
     XCTAssertThrowsError(try CandidateGlossModel.decode(value))
   }
 
+  /// 离线释义 worker 的回答交给 `applyTranslations` 时每条都标 `"gloss": true`：候选词翻译的范围是「仅当前高亮」时，共享运行时据此把它们当作不受范围限制的离线释义，每一行都画，而不是只画在高亮行。
+  func testDecodedOfflineGlossesAreMarkedAsGlosses() throws {
+    let decoded = try CandidateGlossModel.decode([
+      "generation": 7,
+      "translations": [
+        ["text": "你好", "translation": "hello"],
+        ["text": "泥嚎", "translation": "mud howl"],
+      ],
+    ])
+    XCTAssertEqual(decoded.generation, 7)
+    let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: decoded.translations) as? [[String: Any]])
+    XCTAssertEqual(entries.map { $0["text"] as? String }, ["你好", "泥嚎"])
+    XCTAssertEqual(entries.map { $0["translation"] as? String }, ["hello", "mud howl"])
+    XCTAssertEqual(entries.map { $0["gloss"] as? Bool }, [true, true])
+    let empty = try CandidateGlossModel.decode(["generation": 7, "translations": [[String: Any]]()])
+    XCTAssertEqual(empty.translations, Data("[]".utf8), "空回答仍是空数组，键盘照旧不交给会话")
+  }
+
   func testDecodeRejectsNegativeGeneration() {
     let value: [String: Any] = [
       "generation": -1,

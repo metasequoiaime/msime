@@ -20,6 +20,20 @@ final class CandidatePanelSnapshotTests: XCTestCase {
     XCTAssertEqual(snapshot.entries.map(\.translation), ["", "grandfather"])
   }
 
+  /// 展开面板按高亮决定哪个候选画候选词翻译（「仅当前高亮」），所以要读出每行的 `highlighted`，缺省为假。
+  func testDecodeReadsWhichEntryIsHighlighted() throws {
+    let snapshot = try CandidatePanelSnapshot.decode([
+      "generation": 7,
+      "preedit": "nihao",
+      "candidates": [
+        ["id": ["generation": 7, "index": 0], "text": "你好", "highlighted": true],
+        ["id": ["generation": 7, "index": 1], "text": "泥嚎", "highlighted": false],
+        ["id": ["generation": 7, "index": 2], "text": "拟好"],
+      ],
+    ])
+    XCTAssertEqual(snapshot.entries.map(\.highlighted), [true, false, false])
+  }
+
   func testDecodeRetainsEveryCandidateBeyondTheGlossRequestLimit() throws {
     for count in [4097, 10000] {
       let rows: [[String: Any]] = (0..<count).map { index in

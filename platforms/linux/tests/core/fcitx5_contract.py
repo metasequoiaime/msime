@@ -610,7 +610,9 @@ assert "nextCloudClipboard" in source
 assert "++cloud_clipboard_generation_" in source
 assert "cloud_clipboard_enabled_ = true;" in source
 assert 'result.value("_socket", std::string{}) == translation_socket_' in source
-assert '{"_socket", socket}' in source
+# 结果按开始时配置的 socket 核对，不按这一段实际连不连它：只查离线词典的那一段（gloss_query、候选词翻译关着时的英文释义）也要能交回来。
+assert '{"_socket", fence}' in source
+assert "const auto fence = translation_socket_;" in source
 assert "FcitxSentenceTranslationAction" in source
 assert "msime-translate-sentence" in source
 assert "void translateSentence()" in source
@@ -932,5 +934,45 @@ assert ibus_row.index(
     "value += traditional_display(state(engine), view, std::move(tail));"
 ) < ibus_row.index("candidate_script_annotation(candidate)")
 assert "*row_number_color,\n                                 script_start, script_end);" in ibus_row
+
+# 候选词翻译「仅当前高亮」：两个宿主都把共享查询拆成主查询（只有高亮那一个候选）和 gloss_query（整页离线释义），gloss_query 走同一条路径但不连 provider，回答标 "gloss": true；离线词典查询和交给 provider 的文字都取自查询自己的候选，不再换成视图的整页、也不再按视图下标对来源；问过的高亮候选移回来时直接用记下的回答（CandidateTranslationScope.h）。
+fcitx_start = body(source, "  void startTranslation(const Json &query, bool offline,", "\n  }\n")
+assert 'view_.at("candidates")' not in fcitx_start and 'view_.value("candidates"' not in fcitx_start
+assert "translation_lookup_candidates(query.at(\"candidates\"))" in fcitx_start
+assert "translation_candidate_reaches_provider(candidate)" in fcitx_start
+assert "!glossStage &&" in fcitx_start and "translation_query_reaches_service(query)" in fcitx_start
+fcitx_refresh = body(source, "  void refreshTranslations() {", "\n  }\n")
+assert "split_translation_query(query)" in fcitx_refresh
+assert "mark_gloss_answers(translations)" in fcitx_refresh
+assert "startTranslation(parts.gloss, translationOffline(parts.gloss), Json::array(), false, encodedQuery, true);" in fcitx_refresh
+assert "translation_answers_.store(" in fcitx_refresh
+fcitx_primary = body(source, "  void startPrimaryTranslation(const Json &primary, const std::string &identity) {", "\n  }\n")
+assert "translation_answers_.find(" in fcitx_primary and "translationScopeHighlighted()" in fcitx_primary
+assert '"candidate_translation_scope"' in body(source, "  static bool translationPreferencesChanged(", "\n  }\n")
+assert "translation_answers_.clear();" in body(source, "  void invalidateTranslationRequests() {", "\n  }\n")
+assert 'query.erase("gloss_query");' in body(source, "  static Json sentenceTranslationQuery(", "\n  }\n")
+ibus_task = body(ibus_source, "std::optional<TranslationTask> translation_task(IBusEngine *engine, Json query, bool gloss) {", "\n}\n")
+assert "s.view" not in ibus_task
+assert "translation_lookup_candidates(query.at(\"candidates\"))" in ibus_task
+assert "translation_provider_texts(query.at(\"candidates\"))" in ibus_task
+assert "!gloss && s.candidate_translations" in ibus_task and "translation_query_reaches_service(query)" in ibus_task
+ibus_dispatch = body(ibus_source, "void translation_dispatch(IBusEngine *engine) {", "\n}\n")
+assert "split_translation_query(std::move(query))" in ibus_dispatch
+assert "s.translation_answers.find(primary->answer_key)" in ibus_dispatch
+assert "gloss->then = std::make_shared<TranslationTask>(std::move(*primary));" in ibus_dispatch
+ibus_complete = body(ibus_source, "void translation_complete(GObject *source, GAsyncResult *result, gpointer) {", "\n}\n")
+assert "mark_gloss_answers(translations)" in ibus_complete
+assert "s.translation_answers.store(request->answer_key, translations);" in ibus_complete
+assert "if (request->then) start_translation_task(engine, TranslationTask(*request->then));" in ibus_complete
+assert 'query.erase("gloss_query");' in body(ibus_source, "void translate_sentence(IBusEngine *engine) {", "\n}\n")
+assert "next_translation_scope_highlighted != translation_scope_highlighted" in ibus_source
+assert "translation_answers.clear();" in ibus_source
+# 绘制侧：视图的 translation_reserved 交给 candidateDisplay，原生画布按 reserved_gloss_lines 给高亮行留释义高度，classicui 用不上屏的占位行留住它。
+fcitx_display = body(source, "FcitxCandidateDisplay candidateDisplay(const Json &candidate,", "\n}\n")
+assert 'candidate.value("translation_reserved", false)' in fcitx_display
+assert "fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit}" in fcitx_display
+assert "const int reservedGlossLines = state.translationReservedLines();" in source
+assert "result.reserved_gloss_lines = display.reserved_gloss_lines" in source
+assert "content.reserved_gloss_lines = translationReservedLines()" in source
 
 print("Fcitx5 addon metadata passed")

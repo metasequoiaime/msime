@@ -27,7 +27,10 @@ import { ResourcePackRow, resourcePackStatus, useResourcePacks } from "../resour
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
-import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
+import {
+  CandidateTranslationOptionsSection,
+  candidateTranslationScope,
+} from "../candidate-translation-options-section";
 import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
 import { ShuangpinCustomEditor, NineKeyShuangpinEditor } from "../shuangpin-custom-editor";
 import type { ShuangpinCustomProfileClient } from "../shuangpin-custom-profile";
@@ -336,6 +339,10 @@ export function InputSettingsPage() {
               accountTranslation={false}
               onEnabledChange={(candidate_translations) =>
                 onPreferencesChange({ candidate_translations })
+              }
+              scope={candidateTranslationScope(draft.candidate_translation_scope)}
+              onScopeChange={(candidate_translation_scope) =>
+                onPreferencesChange({ candidate_translation_scope })
               }
               onTargetLanguageChange={(translation_target_language) =>
                 onPreferencesChange({ translation_target_language })

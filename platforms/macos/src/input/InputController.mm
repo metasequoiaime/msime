@@ -819,6 +819,22 @@ static NSArray<NSDictionary *> *MSIMEOnlineGlossCandidates(NSDictionary *query) 
     return [candidates copy];
 }
 
+// 翻译查询列出的候选文字。候选词翻译范围是「仅当前高亮」时共享查询的 candidates 只有高亮的那一个，翻译服务、系统翻译、账号释义和只为候选词翻译查的离线词典都只为它工作，所以按视图组请求时只留这些文字。查询没列 candidates（替身会话）时为 nil，不限制。
+static NSSet<NSString *> *MSIMEQueryCandidateTexts(NSDictionary *query) {
+    id raw = [query isKindOfClass:NSDictionary.class] ? query[@"candidates"] : nil;
+    if (![raw isKindOfClass:NSArray.class]) return nil;
+    NSMutableSet<NSString *> *texts = [NSMutableSet set];
+    for (NSDictionary *candidate in (NSArray *)raw)
+        if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"text"] isKindOfClass:NSString.class]) [texts addObject:candidate[@"text"]];
+    return texts;
+}
+
+// 「仅当前高亮」时查询另带的 gloss_query：覆盖整页、不带任何服务的离线释义查询（msime_client_translation_query），和主查询同一代次。它只走离线词典，回答每条标 "gloss": true。
+static NSDictionary *MSIMEGlossQuery(NSDictionary *query) {
+    id gloss = [query isKindOfClass:NSDictionary.class] ? query[@"gloss_query"] : nil;
+    return [gloss isKindOfClass:NSDictionary.class] && [gloss[@"generation"] isEqual:query[@"generation"]] ? gloss : nil;
+}
+
 static NSArray<NSString *> *MSIMETranslationTargetsFromPreferences(NSDictionary *preferences, NSString *fallback) {
     NSArray *supported = @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"];
     NSString *primary = [preferences[@"translation_target_language"] isKindOfClass:NSString.class]
@@ -3086,9 +3102,12 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     NSDictionary *gloss = [self currentGlossRequest];
     // Resolve the local dictionary first; never transmit an already-resolved key.
     if (gloss && (![_glossRequest isEqual:gloss] || !_glossResults)) return nil;
+    // 只问查询列出的候选：「仅当前高亮」时就是高亮的那一个。
+    NSSet<NSString *> *requested = MSIMEQueryCandidateTexts(query);
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"]) {
         if (![candidate[@"text"] isKindOfClass:NSString.class] || ![candidate[@"source"] isKindOfClass:NSNumber.class]) continue;
+        if (requested && ![requested containsObject:candidate[@"text"]]) continue;
         [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
     }
     if (!candidates.count) return nil;
@@ -3138,6 +3157,34 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     }
     return results;
 }
+// gloss_query 的回答：不带服务的那份查询照普通查询处理时只有离线词典答得上（英文词典连同学到的释义、其他语言的离线词典），和上面的合并方式相同；系统翻译、账号和自己的服务都不参与。每条标 gloss，会话把它画在每一行。
+- (NSArray<NSDictionary *> *)pageGlossResults:(NSDictionary *)glossQuery english:(NSArray<NSDictionary *> *)english
+                                  targetGloss:(NSDictionary *)targetGloss {
+    if (!MSIMEStrictBoolean(glossQuery[@"english_gloss"])) english = nil;
+    NSArray *languages = [glossQuery[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? glossQuery[@"offline_gloss_languages"] : @[];
+    if (!languages.count) targetGloss = nil;
+    NSArray *targets = MSIMETranslationTargets(glossQuery);
+    NSArray *candidates = [glossQuery[@"candidates"] isKindOfClass:NSArray.class] ? glossQuery[@"candidates"] : @[];
+    NSMutableArray *results = [NSMutableArray array];
+    for (NSDictionary *candidate in candidates) {
+        NSString *text = [candidate isKindOfClass:NSDictionary.class] ? candidate[@"text"] : nil;
+        if (![text isKindOfClass:NSString.class]) continue;
+        NSMutableDictionary<NSString *, NSString *> *values = [NSMutableDictionary dictionary];
+        for (NSDictionary *entry in english)
+            if ([entry[@"text"] isEqual:text] && [entry[@"translation"] isKindOfClass:NSString.class] && [entry[@"translation"] length]) {
+                values[@"en"] = entry[@"translation"];
+                break;
+            }
+        for (NSString *language in languages) {
+            NSString *value = targetGloss[text][language];
+            if ([value isKindOfClass:NSString.class] && value.length) values[language] = value;
+        }
+        // 只有英文词典时照旧原样交英文释义，有其他语言的词典时按目标语言的顺序逐行合并，和主查询那一份一样。
+        NSString *translation = targetGloss ? MSIMEJoinedTranslations(values, targets) : values[@"en"];
+        if (translation.length) [results addObject:@{@"text":text, @"translation":translation, @"gloss":@YES}];
+    }
+    return results;
+}
 // Returns whether the session took the results and the services were synchronized behind them.
 - (BOOL)applyCandidateTranslationResults {
     const BOOL ownSnapshot = !_serviceSnapshotActive;
@@ -3171,6 +3218,17 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
             }
         }
     }
+    // 上面这些是候选词翻译，只交查询列出的候选（「仅当前高亮」时离线词典为 gloss_query 查了整页）。gloss_query 的离线释义整页都有，每条标 gloss：会话把它画在每一行，高亮行还没有候选词翻译时也画它。
+    NSDictionary *query = [self serviceSnapshotQuery];
+    NSSet<NSString *> *requested = MSIMEQueryCandidateTexts(query);
+    if (requested)
+        [results filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *entry, NSDictionary *bindings) {
+            (void)bindings;
+            return [requested containsObject:entry[@"text"]];
+        }]];
+    NSDictionary *glossQuery = MSIMEGlossQuery(query);
+    if (glossQuery)
+        [results addObjectsFromArray:[self pageGlossResults:glossQuery english:glossCurrent ? _glossResults : nil targetGloss:targetGloss]];
     NSDictionary *view = [self serviceSnapshotView];
     if (!view) {
         if (ownSnapshot) [self invalidateServiceSnapshots];
@@ -3740,9 +3798,14 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     // Windows suppresses candidate translations in Japanese, including a temporary Japanese composition whose view retains its original scheme. Korean Hanja rows are glossed like Chinese ones: the gloss request also looks a Traditional Hanja up under its Simplified characters.
     if (!MSIMEViewShowsGlosses(view)) return nil;
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    // 查询列出的候选（「仅当前高亮」时只有高亮的那一个），加上 gloss_query 要英文离线释义的整页：一次读完，高亮在这一页里移动时请求不变，不用再读。
+    NSMutableSet<NSString *> *requested = [MSIMEQueryCandidateTexts(query) mutableCopy];
+    NSDictionary *glossQuery = MSIMEGlossQuery(query);
+    if (requested && MSIMEStrictBoolean(glossQuery[@"english_gloss"])) [requested unionSet:MSIMEQueryCandidateTexts(glossQuery) ?: [NSSet set]];
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"])
-        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
+        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class] &&
+            (!requested || [requested containsObject:candidate[@"text"]]))
             [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
     return candidates.count ? @{@"target_languages":targets, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""} : nil;
@@ -3866,7 +3929,15 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     NSDictionary *query = [self serviceSnapshotQuery];
     NSArray *targets = MSIMETranslationTargets(query);
     if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
-    NSArray *installed = [query[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? query[@"offline_gloss_languages"] : @[];
+    // 查询列出的候选，加上 gloss_query 要这些词典释义的整页（见 currentGlossRequest）。
+    NSMutableArray *installed = [([query[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? query[@"offline_gloss_languages"] : @[]) mutableCopy];
+    NSMutableSet<NSString *> *requested = [MSIMEQueryCandidateTexts(query) mutableCopy];
+    NSDictionary *glossQuery = MSIMEGlossQuery(query);
+    NSArray *glossInstalled = [glossQuery[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? glossQuery[@"offline_gloss_languages"] : @[];
+    if (glossInstalled.count) {
+        [installed addObjectsFromArray:glossInstalled];
+        if (requested) [requested unionSet:MSIMEQueryCandidateTexts(glossQuery) ?: [NSSet set]];
+    }
     NSMutableArray<NSString *> *languages = [NSMutableArray array];
     for (NSString *target in targets)
         if (![target isEqual:@"en"] && [installed containsObject:target]) [languages addObject:target];
@@ -3876,7 +3947,8 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"])
-        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
+        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class] &&
+            (!requested || [requested containsObject:candidate[@"text"]]))
             [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
     return candidates.count ? @{@"target_languages":targets, @"offline_languages":[languages copy],
         @"candidates":[candidates copy]} : nil;
@@ -7033,6 +7105,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 // A Korean Hanja list always keeps a line for the 훈음, which every Hanja row draws on its gloss line whatever the translation switches say, with the translation lines, when they are on, under it.
 - (CGFloat)reservedGlossHeightForFont:(NSFont *)glossFont {
     if (_appearance.vertical) return 0;
+    return [self glossHeightReservedForFont:glossFont];
+}
+
+// 预留的释义行：横排每一行都留，竖排只给视图标了 translation_reserved 的那一行留（候选词翻译范围是「仅当前高亮」时的高亮行），行数相同。
+- (CGFloat)glossHeightReservedForFont:(NSFont *)glossFont {
     const NSUInteger readingLines = MSIMEKoreanHanjaListOpen(_view) ? 1 : 0;
     const BOOL translations = (_appearance.candidateTranslations || _appearance.candidateEnglishGloss) &&
         !(_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss);
@@ -8712,6 +8789,22 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         for (auto &row : geometry.rows) row.height = tallest;
     } else {
         geometry.rows = msime::candidate::LayoutCandidatePage(items, geometry.lineWidth, metrics, !vertical, measure, minimumHeight);
+    }
+    // 竖排的译文画在候选同一行。候选词翻译范围是「仅当前高亮」时只有高亮行有译文，视图给这一行标了 translation_reserved：它一直按译文到了以后的行高留着（行数和横排的预留相同），回答还没到、高亮换了一行，窗口都不变高变矮。
+    if (vertical && reservesGloss && geometry.rows.size() == candidates.count) {
+        const CGFloat glossHeight = [self glossHeightReservedForFont:glossFont];
+        const CGFloat reservedHeight = glossHeight > 0
+            ? MAX(metrics.candidateRow, MAX(metrics.translationLine, glossHeight)) + 2.0 * MAX(0.0, metrics.paddingVertical) : 0;
+        double shift = 0;
+        for (NSUInteger row = 0; row < candidates.count; ++row) {
+            auto &layoutRow = geometry.rows[row];
+            layoutRow.y += shift;
+            NSDictionary *candidate = candidates[row];
+            if (![candidate isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(candidate[@"translation_reserved"]) ||
+                layoutRow.height >= reservedHeight) continue;
+            shift += reservedHeight - layoutRow.height;
+            layoutRow.height = reservedHeight;
+        }
     }
     for (auto &row : geometry.rows) {
         // Whole points keep neighbouring buttons touching and their text on the pixel grid.

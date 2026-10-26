@@ -67,6 +67,8 @@ final class CandidateTranslationStore {
   private(set) var scope: String
   private var cache: [String: String] = [:]
   private var signature: String?
+  /// 上一次 `refresh` 要的词；`dropsStale` 时据此判断高亮是不是换了候选。
+  private var requested: [String] = []
   private var debounce: Timer?
   /// Requests belong to the visible candidate strip; cancel them when the keyboard leaves it.
   private var tasks: [UUID: Task<Void, Never>] = [:]
@@ -100,10 +102,20 @@ final class CandidateTranslationStore {
     sources.indices.contains(index) && !sourceGetsNoGloss(sources[index])
   }
   func gloss(word: String, code: String) -> String? { cache["\(code)|\(word)"] }
+  /// 交给 `refresh` 的那几个候选：「仅当前高亮」生效（`scoped`）时只有视图里高亮的那一个（`highlighted` 与 `words` 对齐），高亮不在这一页时一个也没有；不生效时整页。来源跟着各自的候选走。
+  static func requestPage(words: [String], sources: [Int], highlighted: [Bool],
+                          scoped: Bool) -> (words: [String], sources: [Int]) {
+    guard scoped else { return (words, sources) }
+    guard let index = words.indices.first(where: { highlighted.indices.contains($0) && highlighted[$0] }) else {
+      return ([], [])
+    }
+    return ([words[index]], [sources.indices.contains(index) ? sources[index] : 0])
+  }
   func refresh(words: [String], codes: [String]) {
     refresh(words: words, sources: Array(repeating: 0, count: words.count), codes: codes)
   }
-  func refresh(words: [String], sources: [Int], codes: [String]) {
+  /// `dropsStale` 用于「仅当前高亮」：要的词变了（高亮换了候选）就取消还在路上的旧请求，已经到了的译文留在缓存里，高亮移回来直接用。范围是「全部」时不取消，换页时上一页的回答照旧收进缓存。
+  func refresh(words: [String], sources: [Int], codes: [String], dropsStale: Bool = false) {
     debounce?.invalidate(); debounce = nil
     let wanted: [String] = words.indices.compactMap { index -> String? in
       let word = words[index]
@@ -111,6 +123,8 @@ final class CandidateTranslationStore {
             Self.translatable(word) else { return nil }
       return word
     }
+    if dropsStale, wanted != requested { cancel() }
+    requested = wanted
     guard !wanted.isEmpty, !codes.isEmpty else { return }
     let timer = Timer(timeInterval: Self.quietInterval, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated { self?.send(words: wanted, codes: codes) }
@@ -122,6 +136,7 @@ final class CandidateTranslationStore {
     for task in tasks.values { task.cancel() }
     tasks.removeAll()
     signature = nil
+    requested = []
   }
 
   /// Release candidate glosses when the keyboard extension is under memory pressure. The visible
