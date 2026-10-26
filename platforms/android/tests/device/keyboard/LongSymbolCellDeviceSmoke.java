@@ -146,14 +146,15 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("偏旁笔画栏与网格尺寸错误");
         stage = "radical initial one-stroke selection";
         await(described("偏旁笔画 1画，已选中"));
-        AccessibilityNodeInfo radicalGrid = await(described("偏旁部首网格；按笔画连续滚动"));
-        if (!radicalGrid.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
-            throw new AssertionError("偏旁网格不接受纵向滚动");
+        captureRadicals("first");
+        // 首组可能高于一次短划的距离，连续划动跨过分组后再核对联动。
+        for (int swipe = 0; swipe < 3; swipe++) {
+            swipeRadicals(grid);
+        }
+        captureRadicals("scrolled");
         stage = "radical scroll changes the selected stroke";
-        awaitAny(node -> equalsText("偏旁笔画 2画，已选中", node.getContentDescription())
-            || equalsText("偏旁笔画 3画，已选中", node.getContentDescription())
-            || equalsText("偏旁笔画 4画，已选中", node.getContentDescription())
-            || equalsText("偏旁笔画 5画，已选中", node.getContentDescription()));
+        await(describedPrefix("偏旁笔画 ").and(node -> node.getContentDescription().toString().endsWith("画，已选中")
+            && !equalsText("偏旁笔画 1画，已选中", node.getContentDescription())));
         await(described("符号分类 偏旁，已选中"));
         assertEmptyEditor();
         stage = "radical last stroke and commit";
@@ -170,6 +171,38 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
         tap(describedPrefix("偏旁笔画 1画"));
         await(described("偏旁笔画 1画，已选中"));
         await(symbol("一"));
+    }
+
+    /** 和表情面板设备用例一样，经系统输入分发注入完整触摸轨迹。 */
+    private void swipeRadicals(Rect grid) {
+        long downTime = SystemClock.uptimeMillis();
+        for (int step = 0; step <= 12; step++) {
+            int action = step == 0 ? android.view.MotionEvent.ACTION_DOWN
+                : step == 12 ? android.view.MotionEvent.ACTION_UP : android.view.MotionEvent.ACTION_MOVE;
+            float y = grid.top + grid.height() * (.8f - .6f * step / 12);
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(
+                downTime, downTime + step * 20, action, grid.centerX(), y, 0);
+            event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+            try {
+                if (!automation.injectInputEvent(event, true)) throw new AssertionError("偏旁触摸轨迹未送达");
+            } finally {
+                event.recycle();
+            }
+        }
+        SystemClock.sleep(300);
+    }
+
+    /** 只保存专用合成编辑器的验收画面，方便检查实际皮肤和笔画栏。 */
+    private void captureRadicals(String position) throws java.io.IOException {
+        android.graphics.Bitmap image = automation.takeScreenshot();
+        if (image == null) throw new AssertionError("没有取得偏旁验收画面");
+        try (var output = new java.io.FileOutputStream(new File(getTargetContext().getExternalFilesDir(null),
+                "radicals-api" + android.os.Build.VERSION.SDK_INT + "-" + position + ".png"))) {
+            if (!image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
+                throw new AssertionError("偏旁验收画面写入失败");
+        } finally {
+            image.recycle();
+        }
     }
 
     private Rect bounds(Predicate<AccessibilityNodeInfo> match) {

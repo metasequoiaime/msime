@@ -12,6 +12,8 @@ Status: implemented
 
 右侧在同一个五列网格中连续排列 15 个笔画标题和全部偏旁。点击笔画只定位到标题，不删除或重建当前网格；纵向滚动按内容区顶部的分组更新左侧高亮，并让选中笔画保持可见。末组底部补足定位所需的留白，17 画也能滚到顶部。右侧网格和左侧笔画栏都保留横向切换一级分类的方向识别，划动不能误上屏。既有符号提交、长按和常用记录规则不变。
 
+方向确定后由滚动容器接管子键，纵划保留给滚动、横划保留给切类。系统键盘验收沿用表情面板的完整触摸轨迹注入：首组可能高于一次短划距离，连续跨组后再断言笔画高亮变化，同时检查编辑器保持空白。
+
 ## Historical audit
 
 - [偏旁分类初版](../feature/2026-10-26-android-radicals.md)部分取代：保留 301 项数据、15 个分组、稳定分类 ID 和平台范围；本篇取代其中点击笔画后重建右侧网格的交互决定。
@@ -30,4 +32,6 @@ Status: implemented
 ## Verification
 
 - 修复前 APK 在 Android 35 的 `SymbolPanelLayoutDeviceSmoke` 失败，网格高度为零。
-- 修复后设备验证结果随本次改动补充。
+- Android API 28、35 安装重建的原生 APK，`SymbolPanelLayoutDeviceSmoke` 和 `LongSymbolCellDeviceSmoke` 均通过。覆盖首次布局、720/1000 像素宽度、301 个可测量按键、连续分组、末组定位、系统触摸纵划联动与横划切类，以及合成字符「龠」的上屏和删除；保存专用合成编辑器截图核对实际皮肤与笔画栏。
+- `assembleFullRelease`、`lintFullRelease`、`check-host.sh` 和 `scripts/verify-local.sh --quick` 通过；笔记目录、格式与归档三条检查及 `git diff --check` 通过。
+- 构建在远端外置卷进行。只重建本次修改的 Java 宿主和设备测试，复用固定来源提交 `a2a42ad4f3` 的未改动 JNI/Rust 产物与词库资产；不宣称本次重编完整原生核心或完成实体手机验收。

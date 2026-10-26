@@ -422,8 +422,8 @@ public final class SymbolPanelView extends LinearLayout {
                 if (dx > touchSlop && dx > dy * 1.5f) axis = 1;
                 else if (dy > touchSlop) axis = 2;
             }
-            if (axis == 1) {
-                // 子键禁止拦截后仍需撤掉横划中的点击，同时让更外层继续留在本面板。
+            if (axis != 0) {
+                // 方向确定后让滚动容器接管子键，纵划也不能被外层键盘手势截走。
                 super.requestDisallowInterceptTouchEvent(false);
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
             }
