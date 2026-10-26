@@ -8663,6 +8663,7 @@ test.each(["macos", "windows", "linux"] as const)(
         }}
       />,
     );
+    await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
     fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
     expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
