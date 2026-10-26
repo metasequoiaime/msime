@@ -448,6 +448,8 @@ public final class MSIMEInputService extends InputMethodService {
     String oneHandedMode = "off";
     /** 本地设置的分离主开关；实际画不画还要看窗口大小、方向和布局，见 {@link #splitKeyboardDrawn}。 */
     boolean splitKeyboardEnabled;
+    int splitKeyboardThresholdDp;
+    int splitKeyboardGapPercent;
     boolean splitKeyboardPortrait;
     /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
@@ -2546,6 +2548,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
+        splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
+        splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
         numberRowEnabled = localSettings.bool(AndroidLocalSettings.NUMBER_ROW);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
@@ -4656,13 +4660,15 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；每次按当前窗口配置重算。 */
+    int splitKeyboardGapPercent() { return splitKeyboardGapPercent; }
+
     boolean splitKeyboardDrawn() {
         // 浮动键盘是一块窄面板，不分成两半。
         if (floatingDrawn() || imeLetterRows.numberPadDrawn()) return false;
         Configuration configuration = getResources().getConfiguration();
         return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view),
-            splitKeyboardPortrait);
+            splitKeyboardPortrait, splitKeyboardThresholdDp);
     }
 
     /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */

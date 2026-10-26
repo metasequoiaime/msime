@@ -199,6 +199,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false),
                 checked -> savePreference(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, checked))
                 .setEnabled(settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD));
+            boolean splitEnabled = settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
+            layout.slider("分离启用宽度", SplitKeyboardPolicy.MIN_THRESHOLD_DP, SplitKeyboardPolicy.MAX_THRESHOLD_DP,
+                SplitKeyboardPolicy.THRESHOLD_STEP_DP, settings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD),
+                value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD, value))
+                .setEnabled(splitEnabled);
+            layout.slider("分离中间空隙", SplitKeyboardPolicy.MIN_GAP_PERCENT, SplitKeyboardPolicy.MAX_GAP_PERCENT,
+                SplitKeyboardPolicy.GAP_PERCENT_STEP, settings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP),
+                value -> value + "%", value -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_GAP, value))
+                .setEnabled(splitEnabled);
         }
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),

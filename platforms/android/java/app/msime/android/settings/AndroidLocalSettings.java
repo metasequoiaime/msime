@@ -39,6 +39,10 @@ public final class AndroidLocalSettings {
     public static final String ONE_HANDED = "platform.android.one_handed";
     /** 平板横屏时把 26 键一族和韩文键盘分成左右两半（{@link SplitKeyboardPolicy}），默认关。 */
     public static final String SPLIT_KEYBOARD = "platform.android.split_keyboard";
+    /** 分离式键盘开始启用的最小屏幕宽度（dp），默认 600。 */
+    public static final String SPLIT_KEYBOARD_THRESHOLD = "platform.android.split_keyboard_threshold";
+    /** 分离式键盘左右两半之间的空隙比例（百分比），默认 25。 */
+    public static final String SPLIT_KEYBOARD_GAP = "platform.android.split_keyboard_gap";
     public static final String KEY_POPUP = "platform.android.key_popup";
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
@@ -180,6 +184,10 @@ public final class AndroidLocalSettings {
         choice(APP_THEME, "siji", true, "siji", "chunya", "xiayin", "qiushan", "dongxue");
         choice(ONE_HANDED, "off", true, "off", "left", "right");
         bool(SPLIT_KEYBOARD, false, true);
+        integer(SPLIT_KEYBOARD_THRESHOLD, SplitKeyboardPolicy.DEFAULT_THRESHOLD_DP, false,
+            SplitKeyboardPolicy.MIN_THRESHOLD_DP, SplitKeyboardPolicy.MAX_THRESHOLD_DP, SplitKeyboardPolicy.THRESHOLD_STEP_DP);
+        integer(SPLIT_KEYBOARD_GAP, SplitKeyboardPolicy.DEFAULT_GAP_PERCENT, false,
+            SplitKeyboardPolicy.MIN_GAP_PERCENT, SplitKeyboardPolicy.MAX_GAP_PERCENT, SplitKeyboardPolicy.GAP_PERCENT_STEP);
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
         choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.UP, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);

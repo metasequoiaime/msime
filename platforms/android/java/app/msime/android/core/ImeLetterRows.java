@@ -411,7 +411,7 @@ final class ImeLetterRows {
     private void splitRow(LinearLayout row, float duplicateWeight) {
         float[] weights = splitWeights(row);
         row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), LayoutPolicy.weightedMatchParentParams(
-            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp())));
+            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp(), s.splitKeyboardGapPercent())));
     }
 
     /**
@@ -430,7 +430,7 @@ final class ImeLetterRows {
         float right = weights[spaceIndex] - left;
         space.setLayoutParams(LayoutPolicy.weightedMatchParentParams(left));
         row.addView(splitGap(), spaceIndex + 1,
-            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp())));
+            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp(), s.splitKeyboardGapPercent())));
         Button second = s.imeBottomRow.splitSpaceButton();
         if (second.getParent() instanceof android.view.ViewGroup parent) parent.removeView(second);
         ViewPolicy.show(second);
