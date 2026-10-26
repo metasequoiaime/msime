@@ -98,8 +98,14 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
         stage = "real horizontal grid swipe";
         shellDiscard("input swipe " + (grid.left + grid.width() * 4 / 5) + " " + grid.centerY()
             + " " + (grid.left + grid.width() / 5) + " " + grid.centerY() + " 250");
+        await(described("符号分类 偏旁，已选中"));
+        checkRadicalNavigation();
+        grid = bounds(described("偏旁部首网格；按笔画连续滚动"));
+        shellDiscard("input swipe " + (grid.left + grid.width() * 4 / 5) + " " + grid.centerY()
+            + " " + (grid.left + grid.width() / 5) + " " + grid.centerY() + " 250");
         await(described("符号分类 英文，已选中"));
         assertEmptyEditor();
+        grid = bounds(described("符号网格；长条目加宽"));
         stage = "real vertical grid swipe";
         shellDiscard("input swipe " + grid.centerX() + " " + (grid.top + grid.height() * 4 / 5)
             + " " + grid.centerX() + " " + (grid.top + grid.height() / 5) + " 250");
@@ -130,6 +136,40 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
         await(field("msime-test-plain").and(node -> equalsText("1", node.getText())));
         tap(described("删除").and(this::inSymbolPanel));
         assertEmptyEditor();
+    }
+
+    private void checkRadicalNavigation() throws Exception {
+        stage = "radical continuous scroll and linked stroke rail";
+        Rect grid = bounds(described("偏旁部首网格；按笔画连续滚动"));
+        Rect rail = bounds(described("偏旁笔画分类"));
+        if (grid.height() <= 0 || rail.right > grid.left || rail.height() != grid.height())
+            throw new AssertionError("偏旁笔画栏与网格尺寸错误");
+        stage = "radical initial one-stroke selection";
+        await(described("偏旁笔画 1画，已选中"));
+        AccessibilityNodeInfo radicalGrid = await(described("偏旁部首网格；按笔画连续滚动"));
+        if (!radicalGrid.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
+            throw new AssertionError("偏旁网格不接受纵向滚动");
+        stage = "radical scroll changes the selected stroke";
+        awaitAny(node -> equalsText("偏旁笔画 2画，已选中", node.getContentDescription())
+            || equalsText("偏旁笔画 3画，已选中", node.getContentDescription())
+            || equalsText("偏旁笔画 4画，已选中", node.getContentDescription())
+            || equalsText("偏旁笔画 5画，已选中", node.getContentDescription()));
+        await(described("符号分类 偏旁，已选中"));
+        assertEmptyEditor();
+        stage = "radical last stroke and commit";
+        reveal(describedPrefix("偏旁笔画 17画"));
+        tap(describedPrefix("偏旁笔画 17画"));
+        await(described("偏旁笔画 17画，已选中"));
+        tap(symbol("龠"));
+        await(field("msime-test-plain").and(node -> equalsText("龠", node.getText())));
+        await(described("符号面板"));
+        tap(described("删除").and(this::inSymbolPanel));
+        assertEmptyEditor();
+        stage = "radical first stroke and primary category swipe";
+        reveal(describedPrefix("偏旁笔画 1画"));
+        tap(describedPrefix("偏旁笔画 1画"));
+        await(described("偏旁笔画 1画，已选中"));
+        await(symbol("一"));
     }
 
     private Rect bounds(Predicate<AccessibilityNodeInfo> match) {
