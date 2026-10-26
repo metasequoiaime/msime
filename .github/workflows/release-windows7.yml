@@ -365,6 +365,14 @@ jobs:
           name: msime-windows7-full-${{ github.sha }}
           path: dist
 
+      - name: 整理安装包 artifact 目录
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find dist -type f \( -name '*.exe' -o -name '*.exe.sha256' \) -print)
+          [[ ${#files[@]} -eq 4 ]] || { echo "安装包 artifact 文件数量错误：${#files[@]}" >&2; exit 1; }
+          for file in "${files[@]}"; do cp -- "$file" "dist/$(basename -- "$file")"; done
+
       - name: 校验并发布 Win7 安装包
         shell: bash
         env:
