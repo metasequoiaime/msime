@@ -174,15 +174,23 @@ fn android_ocr_module_set() -> &'static ResourceSet {
     })
 }
 
-/// 加载可执行资源前重新校验完整字节，不信任可被替换的安装状态清单。
+/// 使用资源包前重新校验完整字节；语法模型按安装快照和 `.gram` 格式校验，其他资源按当前锁文件校验。
 /// 只读、不补文件、不修权限，必须在工作线程调用。
 pub fn verify_installed(state_root: &Path, pack: ResourcePack) -> Result<PathBuf, LocalModelError> {
     if !pack.pinned() {
         return Err(LocalModelError::UnknownModel);
     }
     let directory = published_directory(state_root, pack).ok_or(LocalModelError::InvalidRoot)?;
-    if pack == ResourcePack::GrammarWanxiang {
-        if !valid_gram_file(&directory.join(WANXIANG_GRAMMAR_FILE)) {
+    if pack.is_grammar_model() {
+        let manifest = local_models::installed_manifest(&root(state_root), pack.id())
+            .ok_or(LocalModelError::InvalidRoot)?;
+        if !pack.grammar_snapshot_matches(&directory, &manifest)
+            || !pack
+                .set()
+                .artifacts
+                .iter()
+                .all(|artifact| valid_gram_file(&directory.join(&artifact.name)))
+        {
             return Err(LocalModelError::InvalidRoot);
         }
     } else {
@@ -572,15 +580,20 @@ impl ResourcePack {
 
     /// 语法模型保留安装时的快照：锁文件更新后，只要快照自洽且文件仍是完整字节，就继续离线使用。
     /// 其他资源包仍必须严格匹配当前锁文件，避免把未审计的词库或运行库当成可执行资源。
-    fn grammar_snapshot_matches(self, directory: &Path, manifest: &Value) -> bool {
-        let grammar = matches!(
+    fn is_grammar_model(self) -> bool {
+        matches!(
             self,
             Self::GrammarWanxiang
                 | Self::GrammarBaguwen
                 | Self::GrammarBaguwenCompact
                 | Self::GrammarBaishuang
-        );
-        if !grammar || manifest.get("pack").and_then(Value::as_str) != Some(self.id()) {
+        )
+    }
+
+    fn grammar_snapshot_matches(self, directory: &Path, manifest: &Value) -> bool {
+        if !self.is_grammar_model()
+            || manifest.get("pack").and_then(Value::as_str) != Some(self.id())
+        {
             return false;
         }
         let Some(source_commit) = manifest.get("source_commit").and_then(Value::as_str) else {
@@ -2208,16 +2221,18 @@ mod tests {
         let pack = ResourcePack::GrammarBaguwenCompact;
         let directory = root(state.path()).join(pack.id());
         fs::create_dir_all(&directory).unwrap();
-        let bytes = b"synthetic grammar model";
+        let mut bytes = vec![0u8; GRAMMAR_HEADER_BYTES + 4];
+        bytes[..GRAMMAR_MAGIC.len()].copy_from_slice(GRAMMAR_MAGIC);
+        bytes[36..40].copy_from_slice(&1u32.to_le_bytes());
         let name = pack.set().artifacts[0].name.clone();
-        fs::write(directory.join(&name), bytes).unwrap();
+        fs::write(directory.join(&name), &bytes).unwrap();
         let manifest = serde_json::json!({
             "pack": pack.id(),
             "source_commit": "a".repeat(40),
             "artifacts": [{
                 "name": name,
                 "url": "https://example.invalid/model.gram",
-                "sha256": hex::encode(Sha256::digest(bytes)),
+                "sha256": hex::encode(Sha256::digest(&bytes)),
                 "size": bytes.len()
             }]
         });
@@ -2231,6 +2246,7 @@ mod tests {
             installed_file(state.path(), pack, &pack.set().artifacts[0].name),
             Some(directory.join(&pack.set().artifacts[0].name))
         );
+        assert_eq!(verify_installed(state.path(), pack).unwrap(), directory);
         assert_eq!(
             list(state.path())
                 .into_iter()
@@ -2239,6 +2255,25 @@ mod tests {
                 .state,
             PackState::Outdated
         );
+        bytes[20] = 1;
+        fs::write(directory.join(&pack.set().artifacts[0].name), &bytes).unwrap();
+        assert!(matches!(
+            verify_installed(state.path(), pack),
+            Err(LocalModelError::InvalidRoot)
+        ));
+        bytes[0] = b'X';
+        fs::write(directory.join(&pack.set().artifacts[0].name), &bytes).unwrap();
+        let mut manifest = manifest;
+        manifest["artifacts"][0]["sha256"] = hex::encode(Sha256::digest(&bytes)).into();
+        fs::write(
+            directory.join(MANIFEST_FILE),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            verify_installed(state.path(), pack),
+            Err(LocalModelError::InvalidRoot)
+        ));
     }
 
     /// 同一组字节换了下载地址和来源提交（词库发布新的 dict-v 时没变的文件就是这样）仍算已安装；任何一个文件的字节变了才算过期。

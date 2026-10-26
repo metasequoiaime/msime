@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-语法模型的 `msime-model.json` 作为安装时快照保存。读取语法模型时，当前锁文件仍用于新下载和更新提示；如果本地快照的资源包 ID、文件名集合、长度、SHA-256 和实际文件字节自洽，就继续离线使用，即使它与当前锁文件不同。资源包列表仍显示 `Outdated`，让用户知道有可选更新。其他资源包继续严格匹配当前锁文件，避免扩大未审计文件的信任范围。
+语法模型的 `msime-model.json` 作为安装时快照保存。读取语法模型时，当前锁文件仍用于新下载和更新提示；如果本地快照的资源包 ID、文件名集合、长度、SHA-256 和实际文件字节自洽，就继续离线使用，即使它与当前锁文件不同。原生宿主调用的 `verify_installed` 与 `installed_file` 共用这条快照规则，并额外核对 `.gram` 格式。资源包列表仍显示 `Outdated`，让用户知道有可选更新。其他资源包继续严格匹配当前锁文件，避免扩大未审计文件的信任范围。
 
 ## Alternatives considered
 
@@ -23,4 +23,5 @@ Status: implemented
 ## Verification
 
 - 新增合成快照测试，验证锁文件变化后旧语法模型仍能由 `installed_file` 找到，同时列表状态为 `Outdated`。
-- `cargo test -p msime-client-providers --lib resource_packs::tests:: -- --quiet` 通过，30 个资源包测试全部通过。
+- 同一测试验证原生宿主校验入口接受完整的旧快照，拒绝被篡改的文件及摘要虽自洽但格式无效的 `.gram`。
+- `cargo test -p msime-client-providers --lib resource_packs::tests::` 通过，33 个资源包测试全部通过。
