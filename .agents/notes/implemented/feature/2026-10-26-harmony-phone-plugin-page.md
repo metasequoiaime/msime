@@ -51,5 +51,6 @@ Status: implemented
 - `apps/desktop/tests/settings/harmony-phone-plugins.test.tsx`：手机只列六类、末尾说明三个用不到的包、没有「声音与效果」；只有「导入 .zip」并以 `archive` 调用；没有能力的手机不显示插件页；2in1 照旧列全部类型和「导入文件夹」；手机上设为按键音效只写包并打开按键音；短语表和指令表的触屏提醒、「打开 / 指令」写入 `local_modes.command`；详情推一条历史记录、系统返回回到列表；社区筛选和列表只有这六类。
 - `platforms/harmony/tests/run.sh`：形态能力（三项每种形态为真、`touchPluginPacks` 只在手机和平板）、`LocalInputMode.touchModes` 与 `entersWithShift`。
 - 共享设置与社区的 vitest 全部通过，桌面和鸿蒙的类型检查、lint 通过。
+- 编译机上 `ohpm install`、`hvigorw assembleHap --no-daemon` 成功（原生库和语音 HAR 借另一份检出暂存的），改动的 `.ets` 没有 ArkTS 告警。
 - 手机布局用无头浏览器按 390 px 宽截了列表、音效包详情、新建、编辑和社区页。
-- 没有覆盖：没有鸿蒙设备或模拟器，ArkTS 改动只经编译机打包检查；手机上的 .zip 选择器、键盘读到镜像的符号集和短语表、「指令」格子进入 / 模式都没有在设备上验证。
+- 没有覆盖：没有鸿蒙设备或模拟器；手机上的 .zip 选择器、键盘读到镜像的符号集和短语表、「指令」格子进入 / 模式都没有在设备上验证。
