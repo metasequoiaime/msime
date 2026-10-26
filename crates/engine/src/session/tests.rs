@@ -9632,6 +9632,21 @@ fn cantonese_without_its_dictionary_is_unavailable() {
 }
 
 #[test]
+fn cantonese_double_pinyin_uses_the_existing_dictionary_and_spelling_symbols() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.clone();
+    });
+    type_text(&mut session, "nzhb");
+    assert_eq!(session.snapshot().editing_text, "nz hb");
+    assert!(session.snapshot().spelling_symbols.contains(';'));
+    assert_eq!(words(&session)[0], "你好");
+    assert!(session.select(0).commit.is_some());
+}
+
+#[test]
 fn cantonese_rows_are_never_learned_or_edited() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let cantonese = cantonese_dictionary(fixture.path());

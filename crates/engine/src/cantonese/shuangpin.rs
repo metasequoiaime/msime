@@ -53,7 +53,7 @@ pub fn encode(syllable: &str) -> Option<[u8; 2]> {
         b"iu" => b'q',
         b"yun" | b"yut" | b"uk" => b'r',
         b"on" | b"ong" | b"ok" | b"ot" => b's',
-        b"it" => b't',
+        b"it" | b"ek" => b't',
         b"u" => b'u',
         b"yu" | b"ui" => b'v',
         b"oe" => b'w',
@@ -96,6 +96,7 @@ mod tests {
             ("gwong", "is"),
             ("gwaan", "ij"),
             ("oi", "oo"),
+            ("sek", "st"),
             ("m", "om"),
             ("ng", "ov"),
         ] {

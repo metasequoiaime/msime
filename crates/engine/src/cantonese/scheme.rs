@@ -90,7 +90,13 @@ impl CantoneseScheme {
                 }
             }
             SchemeKey::Semicolon => false,
-            SchemeKey::Backspace => self.input.pop().is_some(),
+            SchemeKey::Backspace => {
+                let removed = self.input.pop().is_some();
+                if self.input.len() < 2 {
+                    self.shuangpin = false;
+                }
+                removed
+            }
             SchemeKey::Letter(_) | SchemeKey::Minus | SchemeKey::Symbol(_) | SchemeKey::Requery => {
                 false
             }
@@ -164,6 +170,20 @@ impl CantoneseScheme {
     }
 
     fn editing_text_into(&self, reading: &Segmentation, text: &mut String) {
+        if self.shuangpin {
+            text.clear();
+            for (index, character) in self.input.chars().enumerate() {
+                if index > 0
+                    && index % 2 == 0
+                    && character != '\''
+                    && self.input.as_bytes()[index - 1] != b'\''
+                {
+                    text.push(' ');
+                }
+                text.push(character);
+            }
+            return;
+        }
         let prefix_capacity = reading
             .syllables
             .iter()
