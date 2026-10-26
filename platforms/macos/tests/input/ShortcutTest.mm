@@ -6386,6 +6386,21 @@ static void TestModifierTapSurvivesALostRelease() {
     gHeldKeys.clear();
 }
 
+static void TestShiftTapRecoversAfterLostReleaseFollowingShiftedKey() {
+    MSIMEModifierTap tap;
+    gHeldKeys.clear();
+    tap.setKeyHeldProbe(&SyntheticKeyHeld);
+    // Shift 组合输入会取消本轮 tap；随后 Shift 的 flagsChanged 松开事件丢失。
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0), true, true));
+    gHeldKeys.insert(0);
+    assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, NSEventModifierFlagShift, 1.1), true, true));
+    gHeldKeys.erase(0);
+    assert(!tap.observe(TapEvent(NSEventTypeKeyUp, 0, NSEventModifierFlagShift, 1.2), true, true));
+    // 修复前代码把这次新的 Shift 按下当作上一轮仍在按住，因而不会再次布防。
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 2.0), true, true));
+    assert(tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, 0, 2.1), true, true));
+}
+
 static void TestShiftChordRecoversWithoutFlagsChanged() {
     for (const auto type : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {
         MSIMEModifierTap tap;
@@ -15020,6 +15035,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
+        @autoreleasepool { TestShiftTapRecoversAfterLostReleaseFollowingShiftedKey(); }
         // Caps Lock 的完整真实运行循环由 caps-lock 独立进程覆盖，避免其他窗口留下的通知和计时器污染。
         @autoreleasepool { TestPunctuationAfterCompositionKeepsRawInput(appearance); }
         @autoreleasepool { TestStaleClientDeactivation(); }
