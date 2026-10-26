@@ -86,7 +86,12 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) focused: bool,
     pub(crate) page_size: usize,
     pub(crate) highlighted: usize,
+    /// 画在候选下面的释义，按候选文字记。「仅当前高亮」生效时这里只放不受范围限制的离线释义（宿主标了 `gloss` 的回答，以及不是高亮那一行的回答），候选词翻译放在 [`Self::highlight_translations`]。
     pub(crate) translations: HashMap<String, String>,
+    /// 「仅当前高亮」生效时，高亮那一行收到的候选词翻译，按候选文字记，只画在高亮的那一行。高亮移开时保留，同一次组字里移回来不用再等回答；组字变化时和 [`Self::translations`] 一起清掉。
+    pub(crate) highlight_translations: HashMap<String, String>,
+    /// 候选词翻译开着且范围是「仅当前高亮」，由 host-api 按偏好设置，见 [`Self::set_translation_scope_highlighted`]。
+    pub(crate) translation_scope_highlighted: bool,
     /// 宿主实际显示的一组候选（按宽度自适应排版的宿主，一行未必等于固定的一页）：设置时那一代和各座位的序号。
     /// 只对那一代有效；没设置或已过期时，选词快捷键和翻译查询仍按高亮所在的固定页。
     pub(crate) display_page: Option<(u64, Vec<usize>)>,
@@ -1084,6 +1089,8 @@ impl<E: InputEngine> Runtime<E> {
             page_size: page_size.into(),
             highlighted: 0,
             translations: HashMap::new(),
+            highlight_translations: HashMap::new(),
+            translation_scope_highlighted: false,
             display_page: None,
             // The initial snapshot is already in Engine order. Keep the mapping empty until a
             // presentation reorder actually needs it; engine_index falls back to the seat while
@@ -1455,6 +1462,11 @@ impl<E: InputEngine> Runtime<E> {
         // 只认可见前缀：被插件隐藏的行在列表末尾，不进视图也不进分页。
         let visible = self.visible_len();
         let page_len = visible.saturating_sub(start).min(self.page_size);
+        // 「仅当前高亮」时译文只跟着高亮走：高亮行一直留出译文那一行（回答还没到时也留），竖排窗口移动高亮时才不会一会儿矮一行、一会儿高一行。
+        let reserve_translation = self.translation_scope_highlighted
+            && page_len > 0
+            && !self.cached.prediction
+            && self.page_requests_translations();
         let mut candidates = Vec::with_capacity(page_len);
         candidates.extend(
             self.cached
@@ -1463,7 +1475,7 @@ impl<E: InputEngine> Runtime<E> {
                 .enumerate()
                 .skip(start)
                 .take(page_len)
-                .map(|(index, text)| self.candidate(index, text)),
+                .map(|(index, text)| self.candidate_row(index, text, reserve_translation)),
         );
         View {
             prediction: self.cached.prediction,
@@ -1548,26 +1560,29 @@ impl<E: InputEngine> Runtime<E> {
         let seats = self.page_seats();
         let visible = self.visible_len();
         let mut candidates = Vec::with_capacity(seats.len());
-        candidates.extend(
-            seats
-                .into_iter()
-                .filter(|&index| index < visible)
-                .filter_map(|index| {
-                    Some(TranslationCandidate {
-                        text: self.cached.candidates.get(index)?.clone(),
-                        source: self
-                            .cached
-                            .candidate_sources
-                            .get(index)
-                            .copied()
-                            .unwrap_or_default(),
-                    })
-                }),
-        );
+        let mut highlighted = None;
+        for index in seats.into_iter().filter(|&index| index < visible) {
+            let Some(text) = self.cached.candidates.get(index) else {
+                continue;
+            };
+            if index == self.highlighted {
+                highlighted = Some(candidates.len());
+            }
+            candidates.push(TranslationCandidate {
+                text: text.clone(),
+                source: self
+                    .cached
+                    .candidate_sources
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default(),
+            });
+        }
         (!candidates.is_empty()).then_some(TranslationCandidates {
             generation: self.generation,
             scheme: self.cached.scheme,
             local_mode: self.cached.local_mode.clone(),
+            highlighted,
             candidates,
         })
     }
@@ -1631,8 +1646,16 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn candidate(&self, index: usize, text: &str) -> Candidate {
+        self.candidate_row(index, text, false)
+    }
+
+    /// `reserve_translation` 为真时，高亮那一行标出 [`Candidate::translation_reserved`]，见 [`Self::view`]。
+    fn candidate_row(&self, index: usize, text: &str, reserve_translation: bool) -> Candidate {
+        let highlighted = index == self.highlighted;
         // 不合格来源不能继承同名普通候选的释义；分段也只来自实际显示的这一份字符串。
-        let translation = (!self.translations.is_empty()
+        // 「仅当前高亮」时候选词翻译只画在高亮行，其他行只画不受范围限制的离线释义。
+        let translation = ((!self.translations.is_empty()
+            || !self.highlight_translations.is_empty())
             && !msime_client_core::translation::source_gets_no_gloss(
                 self.cached
                     .candidate_sources
@@ -1640,7 +1663,13 @@ impl<E: InputEngine> Runtime<E> {
                     .copied()
                     .unwrap_or_default(),
             ))
-        .then(|| self.translations.get(text).cloned())
+        .then(|| {
+            highlighted
+                .then(|| self.highlight_translations.get(text))
+                .flatten()
+                .or_else(|| self.translations.get(text))
+                .cloned()
+        })
         .flatten();
         let translation_runs = translation
             .as_deref()
@@ -1683,7 +1712,8 @@ impl<E: InputEngine> Runtime<E> {
                 .get(index)
                 .copied()
                 .unwrap_or_default(),
-            highlighted: index == self.highlighted,
+            highlighted,
+            translation_reserved: reserve_translation && highlighted,
             translation,
             translation_runs,
             #[cfg(any(
@@ -1783,42 +1813,89 @@ impl<E: InputEngine> Runtime<E> {
     /// 释义请求的配置变化时，清掉旧释义并推进候选代次，使旧异步回包不能落在新配置下。
     pub fn invalidate_translations(&mut self) -> Result<(), RuntimeError> {
         self.advance()?;
-        if !self.translations.is_empty() {
+        if !self.translations.is_empty() || !self.highlight_translations.is_empty() {
             self.translations.clear();
+            self.highlight_translations.clear();
             self.bump_candidates_epoch();
         }
         Ok(())
     }
 
-    /// 同代次非空释义合并，空数组显式清理；旧代次回包不能更新展示。
+    /// 同代次非空释义合并，空数组显式清理；旧代次回包不能更新展示。回答都按候选词翻译处理（不带 `gloss` 标记），见 [`Self::apply_translation_answers`]。
     pub fn apply_translations(
         &mut self,
         generation: u64,
         translations: impl IntoIterator<Item = (String, String)>,
     ) -> bool {
+        self.apply_translation_answers(
+            generation,
+            translations
+                .into_iter()
+                .map(|(text, translation)| (text, translation, false)),
+        )
+    }
+
+    /// 同代次非空释义合并，空数组显式清理；旧代次回包不能更新展示。每条回答是（候选文字、释义、是否为不受范围限制的离线释义）。
+    ///
+    /// 「仅当前高亮」生效、且这一代的翻译查询为高亮行请求了候选词翻译（高亮在这一页的座位里）时，不带 `gloss` 标记的回答是候选词翻译，进 [`Self::highlight_translations`]，只画在高亮的那一行——没升级的宿主照旧把整页答回来，也只有高亮行画出来；带标记的回答（翻译查询里 `gloss_query` 的离线释义）进 [`Self::translations`]，每一行都画。高亮不在这一页时查询只剩那份不带服务的离线释义文档，宿主照普通查询处理、不加标记，这时的回答也都进 [`Self::translations`]。代次相同就说明高亮没动过：移动高亮会推进代次，所以这里的高亮就是宿主发查询时的高亮。
+    pub fn apply_translation_answers(
+        &mut self,
+        generation: u64,
+        answers: impl IntoIterator<Item = (String, String, bool)>,
+    ) -> bool {
         if generation != self.generation {
             return false;
         }
-        let mut translations: HashMap<String, String> = translations.into_iter().collect();
+        let scoped = self.translation_scope_highlighted && self.highlight_on_page_seats();
+        let mut highlight_translations: HashMap<String, String> = HashMap::new();
+        // 范围不生效时整批进同一张表，按回包长度一次建好，与这个选项出现以前的分配相同。
+        let translations: HashMap<String, String> = if scoped {
+            let mut translations = HashMap::new();
+            for (text, translation, gloss) in answers {
+                if gloss {
+                    translations.insert(text, translation);
+                } else {
+                    highlight_translations.insert(text, translation);
+                }
+            }
+            translations
+        } else {
+            answers
+                .into_iter()
+                .map(|(text, translation, _)| (text, translation))
+                .collect()
+        };
+        let any = !translations.is_empty() || !highlight_translations.is_empty();
         // The answer to a `/fy` request arrives through the same host path as candidate glosses, so a host forwarding `translation_query` needs nothing else: it becomes the row that commits the translation, not a gloss under the English.
         if let Some(query) = self.command_translation() {
-            if let Some(translation) = translations.get(&query.text) {
+            if let Some(translation) = translations
+                .get(&query.text)
+                .or_else(|| highlight_translations.get(&query.text))
+            {
+                let translation = translation.clone();
                 return self
-                    .apply_command_translation(&query, translation)
+                    .apply_command_translation(&query, &translation)
                     .unwrap_or(false);
             }
         }
         // 释义画在候选行下面，有变化就是候选视图的变化。
         let mut changed = false;
-        if translations.is_empty() {
-            changed = !self.translations.is_empty();
+        if !any {
+            changed = !self.translations.is_empty() || !self.highlight_translations.is_empty();
             self.translations.clear();
+            self.highlight_translations.clear();
         } else {
-            retain_candidate_translations(&mut translations, &self.cached.candidates);
-            for (text, translation) in translations {
-                if self.translations.get(&text) != Some(&translation) {
-                    self.translations.insert(text, translation);
-                    changed = true;
+            for (incoming, stored) in [
+                (translations, &mut self.translations),
+                (highlight_translations, &mut self.highlight_translations),
+            ] {
+                let mut incoming = incoming;
+                retain_candidate_translations(&mut incoming, &self.cached.candidates);
+                for (text, translation) in incoming {
+                    if stored.get(&text) != Some(&translation) {
+                        stored.insert(text, translation);
+                        changed = true;
+                    }
                 }
             }
         }
@@ -1826,6 +1903,42 @@ impl<E: InputEngine> Runtime<E> {
             self.bump_candidates_epoch();
         }
         true
+    }
+
+    /// 候选词翻译开着且范围是「仅当前高亮」时为真，由 host-api 跟着最新请求的偏好设置。只改画法：释义查询的范围由 host-api 的 `msime_client_translation_query` 按同一份偏好决定。切换时的旧释义由 [`Self::invalidate_translations`] 清理（host-api 在释义相关的偏好变化时调用它）。
+    pub fn set_translation_scope_highlighted(&mut self, highlighted: bool) {
+        if self.translation_scope_highlighted != highlighted {
+            self.translation_scope_highlighted = highlighted;
+            self.bump_candidates_epoch();
+        }
+    }
+
+    /// 高亮那一行在不在当前这一页的座位里（不建座位表）：宿主报了这一代的显示页就查它，否则固定页就是高亮所在的那一页。
+    fn highlight_on_page_seats(&self) -> bool {
+        if self.highlighted >= self.visible_len() {
+            return false;
+        }
+        match self
+            .display_page
+            .as_ref()
+            .filter(|_| self.display_page_current())
+        {
+            Some((_, indices)) => indices.contains(&self.highlighted),
+            None => true,
+        }
+    }
+
+    /// 当前这一页会不会请求释义：方案显示释义，不是临时日文或网址模式，这一页也没有脚本插件的行（插件的文字不能交给释义服务）。翻译查询和「仅当前高亮」为高亮行留的那一行用同一条判断。
+    pub fn page_requests_translations(&self) -> bool {
+        scheme_type(self.cached.scheme).is_some_and(SchemeType::shows_glosses)
+            && !matches!(
+                self.cached.local_mode.as_str(),
+                "temporary_japanese" | "url"
+            )
+            && !self.page_seats().into_iter().any(|index| {
+                self.cached.candidate_sources.get(index)
+                    == Some(&(msime_engine::CandidateSource::Plugin as u8))
+            })
     }
 
     /// Presentation-only resize; a live composition keeps its numeric key map.
@@ -2662,10 +2775,14 @@ impl<E: InputEngine> Runtime<E> {
     pub(crate) fn refresh_online_candidates(&mut self) -> Result<(), RuntimeError> {
         // 在线结果不改变组字，只保留前后都存在的词条释义；代次校验照旧。
         let mut translations = std::mem::take(&mut self.translations);
+        let mut highlight_translations = std::mem::take(&mut self.highlight_translations);
         retain_candidate_translations(&mut translations, &self.cached.candidates);
+        retain_candidate_translations(&mut highlight_translations, &self.cached.candidates);
         self.refresh()?;
         retain_candidate_translations(&mut translations, &self.cached.candidates);
+        retain_candidate_translations(&mut highlight_translations, &self.cached.candidates);
         self.translations = translations;
+        self.highlight_translations = highlight_translations;
         Ok(())
     }
 
@@ -2711,8 +2828,10 @@ impl<E: InputEngine> Runtime<E> {
         // 派发类调用里先问插件指令，行在取快照之前写进引擎：同一次派发，代次不变。
         self.run_command_provider();
         self.snapshot_valid = false;
-        let had_translations = !self.translations.is_empty();
+        let had_translations =
+            !self.translations.is_empty() || !self.highlight_translations.is_empty();
         self.translations.clear();
+        self.highlight_translations.clear();
         self.engine_order.clear();
         let previous_highlight = self.highlighted;
         self.highlighted = 0;

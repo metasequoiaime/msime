@@ -1043,15 +1043,20 @@ int main() {
   saved = store.load();
   auto gloss_seed = store.save(*saved.snapshot, {{{"candidate_english_gloss"}, false},
       {{"candidate_translations"}, false}, {{"candidate_pronunciation"}, true},
+      {{"candidate_translation_scope"}, "highlighted"},
       {{"translation_target_language"}, "en"}, {{"translation_secondary_language"}, nullptr}});
   assert(gloss_seed.outcome == Outcome::saved);
   SendMessageW(host, WM_COMMAND, MAKEWPARAM(reload_settings, BN_CLICKED), 0);
   pump_until([&] { return IsWindowEnabled(language) != FALSE; });
   assert(!IsWindowEnabled(GetDlgItem(body, gloss_target)));
   assert(!IsWindowEnabled(GetDlgItem(body, gloss_pronunciation)));
+  // 翻译范围只管候选词翻译：候选词翻译关着时置灰，只开英文释义也不可选；当前值是「仅当前高亮」。
+  assert(!IsWindowEnabled(GetDlgItem(body, gloss_scope)));
+  assert(SendMessageW(GetDlgItem(body, gloss_scope), CB_GETCURSEL, 0, 0) == 0);
   click(gloss_english);
   assert(IsWindowEnabled(GetDlgItem(body, gloss_target)));
   assert(IsWindowEnabled(GetDlgItem(body, gloss_pronunciation)));
+  assert(!IsWindowEnabled(GetDlgItem(body, gloss_scope)));
   select_value(gloss_target, 2);
   select_value(gloss_secondary, 7);
   saved = store.load();
@@ -1063,6 +1068,10 @@ int main() {
   assert(store.load().snapshot->preferences().at("translation_secondary_language") == "ko");
   click(gloss_translations);
   assert(IsWindowEnabled(GetDlgItem(body, gloss_secondary)));
+  // 打开候选词翻译后翻译范围可选，选「全部」写 all。
+  assert(IsWindowEnabled(GetDlgItem(body, gloss_scope)));
+  select_value(gloss_scope, 1);
+  assert(store.load().snapshot->preferences().at("candidate_translation_scope") == "all");
   click(gloss_pronunciation);
   select_value(gloss_secondary, 0);
   saved = store.load();
@@ -1089,10 +1098,16 @@ int main() {
   assert(SendMessageW(GetDlgItem(body, translation_provider_control), CB_GETCURSEL, 0, 0) == 0);
   select_tab(L"候选释义");
   click(gloss_translations);
+  // 关掉候选词翻译：翻译范围置灰，已存的值不动。
+  assert(!IsWindowEnabled(GetDlgItem(body, gloss_scope)));
+  assert(store.load().snapshot->preferences().at("candidate_translation_scope") == "all");
   select_tab(L"翻译服务");
   assert(!IsWindowEnabled(GetDlgItem(body, translation_provider_control)));
   select_tab(L"候选释义");
   click(gloss_translations);
+  assert(SendMessageW(GetDlgItem(body, gloss_scope), CB_GETCURSEL, 0, 0) == 1);
+  select_value(gloss_scope, 0);
+  assert(store.load().snapshot->preferences().at("candidate_translation_scope") == "highlighted");
   select_tab(L"翻译服务");
   const auto before_provider = store.load().snapshot->revision();
   select_value(translation_provider_control, 1);

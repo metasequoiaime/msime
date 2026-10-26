@@ -53,6 +53,7 @@
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/WubiProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
+#include "../src/candidates/CandidateTranslationScope.h"
 #include "../src/candidates/PairedPunctuation.h"
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/GlobalTheme.h"
@@ -1755,7 +1756,7 @@ public:
     online_dispatched_queries_[source].clear();
   }
   static bool translationPreferencesChanged(const Json &before, const Json &after) {
-    for (const auto *key : {"candidate_translations", "candidate_english_gloss",
+    for (const auto *key : {"candidate_translations", "candidate_translation_scope", "candidate_english_gloss",
                             "candidate_pronunciation",
                             "translation_target_language", "translation_secondary_language",
                             "translation_account", "custom_translation", "niutrans",
@@ -1768,6 +1769,7 @@ public:
     ++translation_epoch_;
     translation_query_.clear();
     translation_pending_.clear();
+    translation_answers_.clear();
     translation_manual_sentence_ = false;
     translation_session_ = 0;
     // Translation workers are detached and their results are fenced by the
@@ -2299,46 +2301,41 @@ public:
       result.push_back({{"text", text}, {"translation", translation}});
     return result;
   }
+  // 算一份查询文档：整句翻译、/fy、候选词翻译的主查询，或「仅当前高亮」时的 gloss_query（整页离线释义）。identity 是它所属的那份共享查询，refreshTranslations 拿它比对过期和去重，空时就是 query 本身；glossStage 为真时这份是 gloss_query：走同一条路径，但不连 provider，回答交给 Rust 时标 "gloss": true。
   void startTranslation(const Json &query, bool offline, Json local = Json::array(),
-                        bool manual_sentence = false) {
-    const auto encoded = query.dump();
+                        bool manual_sentence = false, std::string identity = {}, bool glossStage = false) {
+    const auto encoded = identity.empty() ? query.dump() : std::move(identity);
     translation_query_ = encoded;
     translation_manual_sentence_ = manual_sentence;
     translation_session_ = session_;
     translation_job_epoch_ = translation_epoch_;
-    auto candidates = Json::array();
-    for (const auto &candidate : view_.at("candidates"))
-      candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
+    // 离线词典查询里的候选取自这份查询：「仅当前高亮」时主查询只有高亮那一个候选，不能换成视图的整页。
     const bool dictionary = offlineDictionary(query);
     auto glossRequest = Json{{"generation", msime::linux_host::strict_json_required_integer<uint64_t>(query.at("generation"))},
                              {"user_data", query.value("user_data", Json())},
-                             {"candidates", candidates}};
+                             {"candidates", msime::linux_host::translation_lookup_candidates(query.at("candidates"))}};
     if (dictionary) glossRequest["target_language"] = query.at("target_language");
     const auto gloss = glossRequest.dump();
+    // 只认文字的 provider 协议丢掉来源之前，按每个候选自己带的来源剔除只展示原文的行（CandidateTranslationScope.h）；查询只有高亮那一个候选时不能再按视图的下标去对。
     std::vector<bool> providerAllowed;
     providerAllowed.reserve(query.at("candidates").size());
     const bool bypassSourceGate = manual_sentence || commandTranslation(query);
-    const auto &viewCandidates = view_.value("candidates", Json::array());
-    for (size_t candidateIndex = 0; candidateIndex < query.at("candidates").size();
-         ++candidateIndex) {
-      bool allowed = true;
-      if (!bypassSourceGate && viewCandidates.is_array() &&
-          candidateIndex < viewCandidates.size()) {
-        const auto &viewCandidate = viewCandidates.at(candidateIndex);
-        if (viewCandidate.is_object() && viewCandidate.contains("source") &&
-            viewCandidate.at("source").is_number_unsigned()) {
-          allowed = msime::linux_host::candidate_translation_source_allowed(
-              viewCandidate.at("source").get<std::uint64_t>());
-        }
-      }
-      providerAllowed.push_back(allowed);
-    }
-    const auto socket = (manual_sentence || commandTranslation(query) ||
-                         preferences_.value("candidate_translations", true))
+    for (const auto &candidate : query.at("candidates"))
+      providerAllowed.push_back(bypassSourceGate ||
+                                msime::linux_host::translation_candidate_reaches_provider(candidate));
+    // gloss_query 和只剩离线释义的那份文档不点名服务，不连 provider：非高亮候选到不了它。
+    const auto socket = !glossStage &&
+                        (manual_sentence || commandTranslation(query) ||
+                         (preferences_.value("candidate_translations", true) &&
+                          msime::linux_host::translation_query_reaches_service(query)))
                             ? translation_socket_ : std::string{};
+    // 结果按开始时配置的 socket 核对，不按这一段实际连不连它：只查离线词典的那一段也要能交回来。
+    const auto fence = translation_socket_;
     translation_job_ = detachedJob(
-        [query, encoded, gloss, offline, local, socket, dictionary, providerAllowed,
+        [query, encoded, gloss, offline, local, socket, fence, dictionary, providerAllowed, glossStage,
          resources = resources_] () mutable {
+          // 这一段的回答能不能记下来（主查询做完了，要问 provider 时它也答上了）：refreshTranslations 只记这样的，失败的下一次照常重试。
+          bool answered = offline && socket.empty();
           if (offline) {
             try {
               local = preferOnline(response(msime_client_candidate_gloss_request(
@@ -2360,12 +2357,15 @@ public:
               ++candidateIndex;
             }
             transport["candidates"] = std::move(missing);
-            if (!transport.at("candidates").empty()) {
+            answered = transport.at("candidates").empty();
+            if (!answered) {
               const auto request = transport.dump();
               try {
                 auto result = response(msime_client_translation_provider_request(
                     reinterpret_cast<const uint8_t *>(request.data()), request.size(),
                     reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+                answered = result.is_object() && result.contains("translations") &&
+                           result.at("translations").is_array() && !result.at("translations").empty();
                 if (result.is_object() && dictionary) {
                   local = preferOnline(local, result.value("translations", Json::array()));
                 } else if (result.is_object()) {
@@ -2389,7 +2389,8 @@ public:
           }
           return Json{{"query", encoded}, {"translations", local},
                       {"continue_online", offline && !socket.empty()},
-                      {"_socket", socket}};
+                      {"gloss", glossStage}, {"answered", answered && !glossStage},
+                      {"_socket", fence}};
         });
   }
   static Json sentenceTranslationQuery(Json query, const std::string &text,
@@ -2399,6 +2400,8 @@ public:
     // startTranslation reads each candidate's text before sending the provider
     // its string-only wire format. Keep the Host API candidate shape here.
     query["candidates"] = Json::array({Json{{"text", text}}});
+    // 整句翻译只发这一句；「仅当前高亮」时查询带着的整页离线释义不跟着发给 provider。
+    query.erase("gloss_query");
     return query;
   }
   void translateSentence() {
@@ -2448,16 +2451,29 @@ public:
             result.value("_socket", std::string{}) == translation_socket_) {
           const auto translations = result.value("translations", Json::array());
           if (!translations.empty()) {
-            const auto encoded = translations.dump();
+            // gloss_query 的回答是整页的离线释义，标上 "gloss": true，「仅当前高亮」时 Rust 照旧画在每一行。
+            const auto encoded = (result.value("gloss", false)
+                                      ? msime::linux_host::mark_gloss_answers(translations)
+                                      : translations).dump();
             view_ = response(msime_client_apply_translations(
                 session_, msime::linux_host::strict_json_required_integer<uint64_t>(query.at("generation")), reinterpret_cast<const uint8_t *>(encoded.data()),
                 encoded.size())).at("view");
           }
           render();
+          const auto primary = msime::linux_host::split_translation_query(query).main;
           if (result.value("continue_online", false)) {
-            startTranslation(query, false, result.at("translations"));
+            startTranslation(primary, false, result.at("translations"), false, encodedQuery);
             return;
           }
+          // gloss_query 查完，接着发主查询。
+          if (result.value("gloss", false)) {
+            startPrimaryTranslation(primary, encodedQuery);
+            return;
+          }
+          // 主查询做完：「仅当前高亮」时记下回答，高亮移回来时复用。
+          if (result.value("answered", false) && !translation_manual_sentence_ && !commandTranslation(primary) &&
+              translationScopeHighlighted())
+            translation_answers_.store(msime::linux_host::translation_answer_key(primary), translations);
           if (translation_manual_sentence_)
             translation_query_ = encodedQuery;
           translation_manual_sentence_ = false;
@@ -2471,9 +2487,53 @@ public:
         return;
       }
       if (std::chrono::steady_clock::now() < translation_due_) return;
-      startTranslation(query, !commandTranslation(query) &&
-                                  (query.value("english_gloss", false) || offlineDictionary(query)));
+      // 「仅当前高亮」：有 gloss_query 时先查整页离线释义（只读本机词典，很快），查完再发只有高亮那一个候选的主查询（CandidateTranslationScope.h）；范围是「全部」时没有 gloss_query，主查询就是整份查询。
+      const auto parts = msime::linux_host::split_translation_query(query);
+      if (parts.gloss.is_object())
+        startTranslation(parts.gloss, translationOffline(parts.gloss), Json::array(), false, encodedQuery, true);
+      else
+        startPrimaryTranslation(parts.main, encodedQuery);
     } catch (...) { /* Never expose candidate text or provider credentials in errors. */ }
+  }
+  // 要不要先查离线词典：英文离线释义开着，或目标语言装了离线词典；/fy 从不查。
+  bool translationOffline(const Json &query) const {
+    return !commandTranslation(query) && (query.value("english_gloss", false) || offlineDictionary(query));
+  }
+  // 为还没到的释义预留几行：开了译文且有译文服务、开了离线英文释义时按配置的目标语言一到两行（macOS 的 reservedGlossHeightForFont），否则不留。原生画布横排整张卡片的预留和「仅当前高亮」时高亮行（视图的 translation_reserved）的预留都用它。
+  int translationReservedLines() const {
+    const bool glosses = preferences_.value("candidate_english_gloss", false) ||
+        (preferences_.value("candidate_translations", true) && !translation_socket_.empty());
+    if (!glosses) return 0;
+    const auto language = [this](const char *key, const char *fallback) {
+      const auto at = preferences_.find(key);
+      return at != preferences_.end() && at->is_string() ? at->get<std::string>() : std::string(fallback);
+    };
+    return static_cast<int>(msime::linux_host::translation_reserved_lines(
+        language("translation_target_language", "en"), language("translation_secondary_language", "")));
+  }
+  // 候选词翻译开着且范围是「仅当前高亮」（CandidateTranslationScope.h）。
+  bool translationScopeHighlighted() const {
+    return msime::linux_host::translation_scope_highlighted(
+        preferences_.value("candidate_translations", true), preferences_);
+  }
+  // 发候选词翻译的主查询。「仅当前高亮」时高亮移回一个问过的候选：代次推进了，查询的其余部分不变，记下的回答直接交给 Rust，不再问 provider。
+  void startPrimaryTranslation(const Json &primary, const std::string &identity) {
+    if (!primary.is_object()) {
+      translation_query_ = identity;
+      return;
+    }
+    if (!commandTranslation(primary) && translationScopeHighlighted()) {
+      if (const auto *answers = translation_answers_.find(msime::linux_host::translation_answer_key(primary))) {
+        const auto encoded = answers->dump();
+        view_ = response(msime_client_apply_translations(
+            session_, msime::linux_host::strict_json_required_integer<uint64_t>(primary.at("generation")),
+            reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+        translation_query_ = identity;
+        render();
+        return;
+      }
+    }
+    startTranslation(primary, translationOffline(primary), Json::array(), false, identity);
   }
   // /fy asks the selected service alone, in the query's own target language, and answers with a row rather than a gloss (CandidateTranslationPolicy.h): no offline dictionary, no other service, no gloss cache.
   bool commandTranslation(const Json &query) const {
@@ -4157,6 +4217,8 @@ public:
   std::chrono::steady_clock::time_point online_due_{};
   std::chrono::steady_clock::time_point ai_due_{};
   std::string translation_query_, translation_pending_, translation_socket_;
+  // 「仅当前高亮」时主查询的回答，高亮移开再移回来时直接交给 Rust（CandidateTranslationScope.h）。
+  msime::linux_host::TranslationAnswerCache translation_answers_;
   bool translation_manual_sentence_ = false;
   std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;
@@ -4308,10 +4370,13 @@ struct FcitxCandidateDisplay {
   std::string decoration_badge;
   // 光标后编辑里首选开头固定的那几个字占 word 和 body 开头多少字节，原生画布把它们画淡。classicui 的 fcitx::Text 只有下划线、高亮、粗体、斜体这些格式，没有颜色，斜体在这里又表示「次要、不上屏」（AI 占位行、训音），而这几个字是要上屏的，所以 classic 照常画。
   std::size_t dim_prefix_bytes = 0;
+  // 「仅当前高亮」时高亮这一行（视图的 translation_reserved）一直留出的释义行数，回答还没到也留，移动高亮时候选窗高度不跳；其他行为 0。
+  int reserved_gloss_lines = 0;
 };
-// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。
+// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。`reservedGlossLines` 是候选窗为还没到的释义预留的行数（FcitxState::translationReservedLines），只给视图标了 translation_reserved 的那一行。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
-                                     const std::string &hanjaGloss, uint32_t variant, std::size_t dimScalars = 0) {
+                                     const std::string &hanjaGloss, uint32_t variant, std::size_t dimScalars = 0,
+                                     int reservedGlossLines = 0) {
   FcitxCandidateDisplay display;
   // Engine 候选来源 12 是 AI 占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12) {
@@ -4352,6 +4417,15 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
     // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。
     if (!display.translation.empty()) row.append("\n" + display.translation);
   }
+  if (reservedGlossLines > 0 && candidate.value("translation_reserved", false)) {
+    display.reserved_gloss_lines = reservedGlossLines;
+    // classicui 按有没有译文变高、没有统一预留：回答还没到时用不上屏的全角空格行占住译文的位置。
+    if (display.translation.empty()) {
+      std::string placeholder;
+      for (int line = 0; line < reservedGlossLines; ++line) placeholder += "\n\u3000";
+      row.append(placeholder, fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit});
+    }
+  }
   // 脚本插件的注释排在整行最后，单独一段：不受辅助码设置影响，不做繁体转换（那是插件自己写的文字），只供显示，所以和训音一样标 DontCommit。
   const auto scriptAnnotation = msime::linux_host::candidate_script_annotation(candidate);
   if (!scriptAnnotation.empty()) {
@@ -4367,8 +4441,10 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
 class FcitxCandidate : public fcitx::CandidateWord {
 public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
-                 bool annotations, const std::string &hanjaGloss, uint32_t variant = 0, std::size_t dimScalars = 0)
-      : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant, dimScalars)) {}
+                 bool annotations, const std::string &hanjaGloss, uint32_t variant = 0, std::size_t dimScalars = 0,
+                 int reservedGlossLines = 0)
+      : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant, dimScalars,
+                                                            reservedGlossLines)) {}
   const FcitxCandidateDisplay &display() const { return display_; }
 private:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, FcitxCandidateDisplay display)
@@ -4464,6 +4540,7 @@ public:
 #endif
     const auto &candidates = state.view_.at("candidates");
     const auto caretEdit = msime::linux_host::caret_edit_suffix(state.view_);
+    const int reservedGlossLines = state.translationReservedLines();
     words_.reserve(candidates.size());
     labels_.reserve(candidates.size());
     for (const auto &candidate : candidates) {
@@ -4471,7 +4548,7 @@ public:
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
           msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_,
-          msime::linux_host::caret_edit_dim_scalars(caretEdit, candidate)));
+          msime::linux_host::caret_edit_dim_scalars(caretEdit, candidate), reservedGlossLines));
       // 序号与选它的数字键一致：第十个由 0 键选，标 0。macOS 的序号不带句点，按 0.8 倍字号画、与候选隔 1.5pt；classicui 序号与候选之间没有间距，留一个空格代替，字号由主题的 LabelTextSizeFactor 缩到 80%。
       labels_.emplace_back(msime::linux_host::candidate_index_label(words_.size() - 1) + " ");
     }
@@ -8359,17 +8436,8 @@ bool FcitxState::renderNativeCanvas() {
     const auto preedit_size = preferences_.find("candidate_preedit_font_size");
     content.preedit_size = (preedit_size != preferences_.end() && preedit_size->is_number_integer() &&
                             *preedit_size >= 12 && *preedit_size <= 32 ? preedit_size->get<int>() : 15) * scale;
-    // 横排为还没到的释义预留高度：开了译文且有译文服务、开了离线英文释义时按配置的目标语言预留一到两行（macOS 的 reservedGlossHeightForFont），韩文汉字列表再加训音一行。
-    const bool glosses = preferences_.value("candidate_english_gloss", false) ||
-        (preferences_.value("candidate_translations", true) && !translation_socket_.empty());
-    const auto language = [this](const char *key, const char *fallback) {
-      const auto at = preferences_.find(key);
-      return at != preferences_.end() && at->is_string() ? at->get<std::string>() : std::string(fallback);
-    };
-    const auto translation_lines = glosses
-        ? host::translation_reserved_lines(language("translation_target_language", "en"), language("translation_secondary_language", ""))
-        : 0;
-    content.reserved_gloss_lines = static_cast<int>(translation_lines) + (host::korean_hanja_list_open(view_) ? 1 : 0);
+    // 横排为还没到的释义预留高度（translationReservedLines），韩文汉字列表再加训音一行。
+    content.reserved_gloss_lines = translationReservedLines() + (host::korean_hanja_list_open(view_) ? 1 : 0);
     content.selection_context = view_.value("editing_text", std::string{}) + "\n" +
         std::to_string(host::strict_json_value(view_, "page", size_t{}));
   } else {
@@ -8386,6 +8454,9 @@ bool FcitxState::renderNativeCanvas() {
     result.decoration_text = display.decoration_text;
     result.decoration_badge = display.decoration_badge;
     result.dim_prefix_bytes = display.dim_prefix_bytes;
+    // 「仅当前高亮」的高亮行一直留出释义的行数；chrome 的释义行先画训音，有训音时多留一行。
+    if (display.reserved_gloss_lines > 0)
+      result.reserved_gloss_lines = display.reserved_gloss_lines + (chrome && !display.reading.empty() ? 1 : 0);
     if (chrome) {
       result.reading = display.reading;
       result.script_annotation = display.script_annotation;

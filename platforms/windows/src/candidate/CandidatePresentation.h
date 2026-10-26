@@ -48,6 +48,8 @@ struct PresentationCandidate {
   bool pending = false;
   // 授权的脚本插件给这一行加的注释（view 候选的 script_annotation，没有插件注释时为空）。和引擎的 annotation 分开放、分开画：单独占释义那一段的最后一行，斜体，从不替换引擎的注释，见 candidate_secondary_run。
   std::string script_annotation{};
+  // view 候选的 translation_reserved：候选词翻译范围是「仅当前高亮」、这一页会请求释义时，高亮的那一行为真（为假时 JSON 里没有这个键）。竖排候选窗据此给这一行一直留出释义行，见 CandidateItemWidths::translation_reserved。
+  bool translation_reserved = false;
 };
 // Whether this view's candidates are a Korean Hanja list: the Korean scheme under its own rules, outside the dedicated English mode and every local mode, where the Engine lists candidates only after MSIME_CONVERT_HANJA. ReplyComposer::korean_hanja reads the same three fields.
 inline bool korean_hanja_view(const nlohmann::json &view) {
@@ -457,6 +459,7 @@ candidate_presentation_from_view(const FocusLease &lease,
     if (output.translation_page)
       item.actions_available = false;
     item.script_annotation = candidate.value("script_annotation", std::string{});
+    item.translation_reserved = candidate.value("translation_reserved", false);
     if (hanja)
       move_korean_hanja_gloss(item);
     if (item.session != output.session ||
@@ -542,6 +545,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
     if (output.translation_page)
       item.actions_available = false;
     item.script_annotation = candidate.value("script_annotation", std::string{});
+    item.translation_reserved = candidate.value("translation_reserved", false);
     if (hanja)
       move_korean_hanja_gloss(item);
     if (item.session != output.session ||

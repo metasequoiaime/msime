@@ -290,6 +290,8 @@ fn selected_translation_services(
 
 /// Return the visible candidate texts that may receive asynchronous translations.
 /// The generation must be echoed to `msime_client_apply_translations`.
+///
+/// 候选词翻译的范围是「仅当前高亮」（`candidate_translation_scope = "highlighted"`）时，`candidates` 只有高亮的那一个候选，在线、系统、账号、AI 翻译和只为候选词翻译查的离线词典都只为它工作；高亮不在这一页时没有这一份。「显示英文释义」开关的离线释义不受范围限制：它要查的时候，查询另带一份 `gloss_query`，是一份完整的查询文档，覆盖这一页全部候选（含高亮那个），但不带任何翻译服务（`provider` 为 `none`、各服务配置为空），宿主用处理普通查询的同一条路径算它，把它的每条回答标上 `"gloss": true`，和主查询的回答一起（或分开，但不要单独交一个空数组：空数组表示清掉全部释义）交给 `msime_client_apply_translations`，代次相同。高亮不在这一页、只剩离线释义要查时，返回的就是那一份不带服务的文档本身。范围是「全部」时查询和以前一样，没有 `gloss_query`。
 #[no_mangle]
 pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
     response(|| {
@@ -317,29 +319,6 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                         msime_client_core::preferences::TranslationTargetLanguage::En
                     )
                 });
-            let persist_english_translation = preferences.candidate_translations
-                && matches!(
-                    preferences.translation_target_language,
-                    msime_client_core::preferences::TranslationTargetLanguage::En
-                );
-            // Non-English targets with an offline dictionary installed beside the resources or in the downloaded offline-glosses pack, in preference order. The same switches as macOS's English fallback reach them: the offline gloss switch, or candidate translation, whose online answer replaces the offline one when it arrives. Never read from the user directory, so no user path is needed for them.
-            let resources = std::path::Path::new(&session.options.resources);
-            let mut from_pack = false;
-            let offline_gloss_languages = if preferences.candidate_translations
-                || preferences.candidate_english_gloss
-            {
-                let mut languages = Vec::with_capacity(target_languages.len());
-                languages.extend(target_languages.iter().filter_map(|language| {
-                    let language = serde_json::to_value(language).ok()?;
-                    let code = language.as_str()?;
-                    crate::offline_glosses_file(resources, session.state_root.as_deref(), code)?;
-                    from_pack |= crate::offline_glosses_beside(resources, code).is_none();
-                    Some(code.to_owned())
-                }));
-                languages
-            } else {
-                Vec::new()
-            };
             // `/fy` asks the selected service whatever the gloss switches say: it is the user's explicit request, a single English text translated into Chinese that comes back as a row which commits it. Nothing else rides it, so no offline dictionary is consulted and nothing is persisted.
             if let Some(command) = session.runtime.command_translation() {
                 // The hosted account only glosses Chinese candidates, so `/fy` needs a service of the user's own.
@@ -371,110 +350,197 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     "user_data": Value::Null,
                 }));
             }
-            if !preferences.candidate_translations
-                && !english_gloss
-                && offline_gloss_languages.is_empty()
-            {
+            // 离线词典随包或在下载的离线释义包里时才查；不受候选词翻译开关影响时，要查的语言只看离线释义开关。
+            let offline_languages_requested =
+                preferences.candidate_translations || preferences.candidate_english_gloss;
+            if !offline_languages_requested && !english_gloss {
                 return Ok(Value::Null);
             }
             let Some(candidates_view) = session.runtime.translation_candidates() else {
                 return Ok(Value::Null);
             };
             // 只有显示释义的方案才请求释义：Windows 不为日文候选请求释义，而韩文的汉字候选和中文一样带释义：훈음 由宿主自己画出，与这里的回答无关，翻译或释义画在它下面一行。按引擎当前的本地模式判断，临时日文组字同样不请求。网址模式也不请求：网址可能带着私密路径和参数，不能发给翻译服务。
-            if !SchemeType::from_u8(candidates_view.scheme).is_some_and(SchemeType::shows_glosses)
-                || matches!(
-                    candidates_view.local_mode.as_str(),
-                    "temporary_japanese" | "url"
-                )
-            {
-                return Ok(Value::Null);
-            }
             // 当前页有脚本插件的行（来源 14）时整页都不请求：插件的文字不能交给释义服务、用户的翻译服务，也不查离线释义，免得它经释义写回学到的词库。回答和页面按下标对齐，所以不逐行剔除；这时页上只有插件行，至多还有一行原样的兜底行，整页不请求没有损失。
-            if candidates_view
-                .candidates
-                .iter()
-                .any(|candidate| candidate.source == msime_engine::CandidateSource::Plugin as u8)
-            {
+            // 这两条判断归 `Runtime::page_requests_translations`，「仅当前高亮」给高亮行留译文那一行也用它。
+            if !session.runtime.page_requests_translations() {
                 return Ok(Value::Null);
             }
-            // Whether the online gloss endpoint may be asked about each candidate,
-            // answered once here so every host applies the same rule. Only Chinese
-            // candidates qualify: a gloss model has nothing to say about "cun",
-            // "123", "OpenAI", a punctuation candidate or an emoji, and asking
-            // spends the account's bounded quota to put noise under candidates
-            // that should carry no gloss - a pinyin buffer candidate also hands
-            // the user's raw keystrokes to a remote service.
-            //
-            // The gloss path only. A user's own translator detects the direction
-            // per candidate, so English candidates still reach it, and the offline
-            // dictionary answers for every candidate because it never leaves the
-            // machine.
-            //
-            // Emoji and kaomoji sources never qualify, whatever their text: many kaomoji carry Han characters ("(*Φ皿Φ*)") and would otherwise queue behind real words on the serial on-device model and spend account quota, as Windows' BuildTranslationQuery already refuses.
-            //
-            // 日文混输行（来源 13）同样不请求：私、開始 这样的汉字是日文，当中文请求释义会在日文下面写出中文意思，还花掉额度。
-            let mut candidates = Vec::with_capacity(candidates_view.candidates.len());
-            candidates.extend(candidates_view.candidates.iter().map(|candidate| {
-                json!({
-                    "text": candidate.text,
-                    "source": candidate.source,
-                    "online_gloss":
-                        !msime_client_core::translation::source_gets_no_gloss(
-                            candidate.source,
-                        ) && msime_client_core::translation::is_cloud_translatable_chinese(
-                            &candidate.text,
-                        ),
-                })
-            }));
-            let services = selected_translation_services(
+            let document = TranslationDocument {
                 preferences,
-                preferences.candidate_translations,
-                session.ai_credential.as_ref(),
-            )?;
-            let mut query = json!({
-                "generation": candidates_view.generation,
-                "target_language": serde_json::to_value(preferences.translation_target_language)
-                    .map_err(|e| e.to_string())?,
-                "target_languages": target_languages
-                    .iter()
-                    .map(|language| serde_json::to_value(language).map_err(|e| e.to_string()))
-                    .collect::<Result<Vec<_>, _>>()?,
-                "candidates": candidates,
-                "provider": services.provider,
-                "translation_account": services.translation_account,
-                "custom_translation": services.custom_translation,
-                "tencent_tmt": services.tencent_tmt,
-                "niutrans": services.niutrans,
-                "ai_assistant": services.ai_assistant,
-                "english_gloss": english_gloss,
-                // 资源目录在要查离线释义（英文或其他语言）时带上，打开读音时也带上：读音表 pronunciations/en-phonetic.db 装在资源目录旁边，在线翻译出来的英文释义也要靠读音表标音标。
-                // 用户目录在要查英文释义时带上，要把成功的英文翻译存下来时也带上：宿主的后台工作线程把它们写进用户目录。
-                "resources": (english_gloss
-                    || !offline_gloss_languages.is_empty()
-                    || preferences.candidate_pronunciation)
-                    .then(|| session.options.resources.clone()),
-                "user_data": (english_gloss || persist_english_translation)
-                    .then(|| session.options.user_data.clone()),
-            });
-            // Omitted rather than empty, so a host with no offline dictionary installed sees the query it always did.
-            if !offline_gloss_languages.is_empty() {
-                query["offline_gloss_languages"] = json!(offline_gloss_languages);
+                target_languages: &target_languages,
+                english_gloss,
+                resources: &session.options.resources,
+                user_data: &session.options.user_data,
+                state_root: session.state_root.as_deref(),
+                ai_credential: session.ai_credential.as_ref(),
+                generation: candidates_view.generation,
+            };
+            if !crate::translation_scope_highlighted(preferences) {
+                return Ok(document
+                    .build(
+                        &candidates_view.candidates,
+                        preferences.candidate_translations,
+                        true,
+                    )?
+                    .unwrap_or(Value::Null));
             }
-            // Likewise present only when on: the host then pronounces the gloss lines it draws, English through msime_client_pronunciation_request.
-            if preferences.candidate_pronunciation {
-                query["candidate_pronunciation"] = json!(true);
-            }
-            // Only when a dictionary comes from the downloaded pack: the host passes it back to msime_client_candidate_gloss_request, which looks there after the resources.
-            if from_pack {
-                if let Some(state_root) =
-                    session.state_root.as_deref().and_then(|path| path.to_str())
-                {
-                    query["state_root"] = json!(state_root);
+            // 「仅当前高亮」：候选词翻译只问高亮的那一个，离线释义开关要的释义另成一份不带服务的 `gloss_query`，覆盖整页。
+            let highlighted = candidates_view
+                .highlighted
+                .and_then(|position| candidates_view.candidates.get(position))
+                .map(std::slice::from_ref)
+                .unwrap_or_default();
+            let scoped = if highlighted.is_empty() {
+                None
+            } else {
+                document.build(highlighted, true, true)?
+            };
+            let glosses = document.build(&candidates_view.candidates, false, false)?;
+            Ok(match (scoped, glosses) {
+                (Some(mut scoped), Some(glosses)) => {
+                    scoped["gloss_query"] = glosses;
+                    scoped
                 }
-            }
-            Ok(query)
+                (Some(query), None) | (None, Some(query)) => query,
+                (None, None) => Value::Null,
+            })
         })
     })
+}
+
+/// 组一份翻译查询文档需要的会话状态，见 [`msime_client_translation_query`]。
+struct TranslationDocument<'a> {
+    preferences: &'a msime_client_core::preferences::Preferences,
+    target_languages: &'a [msime_client_core::preferences::TranslationTargetLanguage],
+    english_gloss: bool,
+    resources: &'a str,
+    user_data: &'a str,
+    state_root: Option<&'a std::path::Path>,
+    ai_credential: Option<&'a SessionAiCredential>,
+    generation: u64,
+}
+
+impl TranslationDocument<'_> {
+    /// 为 `candidates` 组一份查询文档；这些候选既不要候选词翻译、也不要离线释义时为 `None`。`translate` 是这些候选要不要候选词翻译：为假时不存英文翻译，离线词典只查离线释义开关要的。`with_services` 为假时文档不带任何翻译服务（`provider` 为 `none`、各服务配置为空、不问账号），宿主照常处理这份文档也不会联网，`gloss_query` 就是这样一份；为真时照旧按偏好带上所选的服务。
+    fn build(
+        &self,
+        candidates: &[msime_input_runtime::TranslationCandidate],
+        translate: bool,
+        with_services: bool,
+    ) -> Result<Option<Value>, String> {
+        let preferences = self.preferences;
+        let english_gloss = self.english_gloss;
+        let persist_english_translation = translate
+            && matches!(
+                preferences.translation_target_language,
+                msime_client_core::preferences::TranslationTargetLanguage::En
+            );
+        // Non-English targets with an offline dictionary installed beside the resources or in the downloaded offline-glosses pack, in preference order. The same switches as macOS's English fallback reach them: the offline gloss switch, or candidate translation, whose online answer replaces the offline one when it arrives. Never read from the user directory, so no user path is needed for them.
+        let resources = std::path::Path::new(self.resources);
+        let mut from_pack = false;
+        let offline_gloss_languages = if translate || preferences.candidate_english_gloss {
+            let mut languages = Vec::with_capacity(self.target_languages.len());
+            languages.extend(self.target_languages.iter().filter_map(|language| {
+                let language = serde_json::to_value(language).ok()?;
+                let code = language.as_str()?;
+                crate::offline_glosses_file(resources, self.state_root, code)?;
+                from_pack |= crate::offline_glosses_beside(resources, code).is_none();
+                Some(code.to_owned())
+            }));
+            languages
+        } else {
+            Vec::new()
+        };
+        if candidates.is_empty()
+            || (!translate && !english_gloss && offline_gloss_languages.is_empty())
+        {
+            return Ok(None);
+        }
+        // Whether the online gloss endpoint may be asked about each candidate,
+        // answered once here so every host applies the same rule. Only Chinese
+        // candidates qualify: a gloss model has nothing to say about "cun",
+        // "123", "OpenAI", a punctuation candidate or an emoji, and asking
+        // spends the account's bounded quota to put noise under candidates
+        // that should carry no gloss - a pinyin buffer candidate also hands
+        // the user's raw keystrokes to a remote service.
+        //
+        // The gloss path only. A user's own translator detects the direction
+        // per candidate, so English candidates still reach it, and the offline
+        // dictionary answers for every candidate because it never leaves the
+        // machine.
+        //
+        // Emoji and kaomoji sources never qualify, whatever their text: many kaomoji carry Han characters ("(*Φ皿Φ*)") and would otherwise queue behind real words on the serial on-device model and spend account quota, as Windows' BuildTranslationQuery already refuses.
+        //
+        // 日文混输行（来源 13）同样不请求：私、開始 这样的汉字是日文，当中文请求释义会在日文下面写出中文意思，还花掉额度。
+        let mut rows = Vec::with_capacity(candidates.len());
+        rows.extend(candidates.iter().map(|candidate| {
+            json!({
+                "text": candidate.text,
+                "source": candidate.source,
+                "online_gloss": with_services
+                    && !msime_client_core::translation::source_gets_no_gloss(candidate.source)
+                    && msime_client_core::translation::is_cloud_translatable_chinese(
+                        &candidate.text,
+                    ),
+            })
+        }));
+        let services = if with_services {
+            selected_translation_services(
+                preferences,
+                preferences.candidate_translations,
+                self.ai_credential,
+            )?
+        } else {
+            TranslationServices {
+                provider: TranslationService::Off,
+                translation_account: false,
+                custom_translation: None,
+                tencent_tmt: None,
+                niutrans: None,
+                ai_assistant: None,
+            }
+        };
+        let mut query = json!({
+            "generation": self.generation,
+            "target_language": serde_json::to_value(preferences.translation_target_language)
+                .map_err(|e| e.to_string())?,
+            "target_languages": self.target_languages
+                .iter()
+                .map(|language| serde_json::to_value(language).map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>, _>>()?,
+            "candidates": rows,
+            "provider": services.provider,
+            "translation_account": services.translation_account,
+            "custom_translation": services.custom_translation,
+            "tencent_tmt": services.tencent_tmt,
+            "niutrans": services.niutrans,
+            "ai_assistant": services.ai_assistant,
+            "english_gloss": english_gloss,
+            // 资源目录在要查离线释义（英文或其他语言）时带上，打开读音时也带上：读音表 pronunciations/en-phonetic.db 装在资源目录旁边，在线翻译出来的英文释义也要靠读音表标音标。
+            // 用户目录在要查英文释义时带上，要把成功的英文翻译存下来时也带上：宿主的后台工作线程把它们写进用户目录。
+            "resources": (english_gloss
+                || !offline_gloss_languages.is_empty()
+                || preferences.candidate_pronunciation)
+                .then(|| self.resources.to_owned()),
+            "user_data": (english_gloss || persist_english_translation)
+                .then(|| self.user_data.to_owned()),
+        });
+        // Omitted rather than empty, so a host with no offline dictionary installed sees the query it always did.
+        if !offline_gloss_languages.is_empty() {
+            query["offline_gloss_languages"] = json!(offline_gloss_languages);
+        }
+        // Likewise present only when on: the host then pronounces the gloss lines it draws, English through msime_client_pronunciation_request.
+        if preferences.candidate_pronunciation {
+            query["candidate_pronunciation"] = json!(true);
+        }
+        // Only when a dictionary comes from the downloaded pack: the host passes it back to msime_client_candidate_gloss_request, which looks there after the resources.
+        if from_pack {
+            if let Some(state_root) = self.state_root.and_then(|path| path.to_str()) {
+                query["state_root"] = json!(state_root);
+            }
+        }
+        Ok(Some(query))
+    }
 }
 
 /// Build the default HTTPS cloud URL for a copied eligible query. The host
