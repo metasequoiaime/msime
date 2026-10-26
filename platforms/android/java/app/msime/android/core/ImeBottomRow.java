@@ -533,12 +533,15 @@ final class ImeBottomRow {
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
+        // 英文 26 键在空格左边多一个句点，中英切换时底行要重排。
+        boolean english = s.dedicatedEnglish;
         String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
+            + ":" + english
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
             : KeyboardActionRow.designEntries(numberPad ? KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT : layout,
-                globe, swapLanguageNumber, numberPad);
+                globe, swapLanguageNumber, numberPad, english);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());

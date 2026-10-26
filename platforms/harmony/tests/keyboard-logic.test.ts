@@ -3477,6 +3477,34 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
   );
 });
 
+group("英文九键字母层：句点紧挨空格左边、逗号紧挨空格右边，其余键宽度不变", () => {
+  const chinese: NineKeyAction[] = NineKeyLayout.actionRow(false);
+  const english: NineKeyAction[] = NineKeyLayout.actionRow(false, true);
+  check(
+    actionKinds(english) ===
+      [
+        NineKeyActionKind.SYMBOL_PANEL,
+        NineKeyActionKind.LAYER_TOGGLE,
+        NineKeyActionKind.PERIOD,
+        NineKeyActionKind.SPACE,
+        NineKeyActionKind.COMMA,
+        NineKeyActionKind.LANGUAGE,
+        NineKeyActionKind.RETURN,
+      ].join(" "),
+    `英文九键：${actionKinds(english)}`,
+  );
+  check(
+    english.map((action: NineKeyAction) => action.weight).join(" ") === "1.05 1.25 1 2.2 1 1.05 1.6",
+    `句点、逗号各 1 份，从空格让出：${english.map((action: NineKeyAction) => action.weight).join(" ")}`,
+  );
+  check(Math.abs(actionWeight(english) - actionWeight(chinese)) < 1e-9, "整行份额不变，其余键与中文九键同宽");
+  check(
+    actionKinds(NineKeyLayout.actionRow(true, true)) === actionKinds(NineKeyLayout.actionRow(true)),
+    "英文九键的数字层不变",
+  );
+  check(NineKeyLayout.sideMarks().join(" ") === ", . ?", "左列仍是 , . ?，句点保留在左列");
+});
+
 group("26 键底行保留逗号并长按句号；14 键和大千注音保留独立句号", () => {
   const leads = (
     scheme: string,
@@ -3498,6 +3526,18 @@ group("26 键底行保留逗号并长按句号；14 键和大千注音保留独�
   check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行使用逗号长按句号");
   check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
   check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行使用逗号长按句号");
+  // 英文 26 键在空格左边另放句点：123 | 符 | . | 空格 | , | 中 | 回车；中文和非 26 键底行不加。
+  for (const scheme of ["quanpin", "shuangpin", "wubi", "zhuyin"]) {
+    check(
+      KeyboardScheme.designRowHasEnglishPeriod(true, leads(scheme, true, false, false)),
+      `${scheme} 切到英文，空格左边有句点`,
+    );
+    check(
+      !KeyboardScheme.designRowHasEnglishPeriod(false, leads(scheme, false, false, false)),
+      `${scheme} 中文 26 键不加句点`,
+    );
+  }
+  check(!KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)), "英文符号行不加句点");
   check(
     KeyboardScheme.designRowUsesCommaSecondaryPeriod(
       SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),

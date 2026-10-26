@@ -125,6 +125,8 @@ public final class KeyboardActionRow {
     public static final float DESIGN_GLOBE_WEIGHT = 1f;
     public static final float DESIGN_PUNCTUATION_WEIGHT = 1f;
     public static final float DESIGN_SPACE_WEIGHT = 4f;
+    /** 英文 26 键底行在空格左边多一个句点（{@link #DESIGN_PUNCTUATION_WEIGHT}），这一份从空格里让出，其余键与中文 26 键同宽；iOS `englishPhoneSpaceWeight`、HarmonyOS `ENGLISH_SPACE_SHARE` 相同。 */
+    public static final float DESIGN_ENGLISH_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT - DESIGN_PUNCTUATION_WEIGHT;
     public static final float DESIGN_RETURN_WEIGHT = 1.9f;
     /** 新设计第三行 ⇧ 与 ⌫ 的宽度份额。 */
     public static final float DESIGN_LETTER_EDGE_WEIGHT = 1.4f;
@@ -143,7 +145,7 @@ public final class KeyboardActionRow {
     /**
      * 新设计的底行：123 |（地球）| ， | 空格 | 。 | 中/英 | 回车。中/英放在回车左边，右手拇指够得着；注音 9 键的逗号句号在网格最后一行，日文假名网格不带底行。这一行留给 14 键（第三行左端已经有 符）和大千注音；手写另有一行（{@code handwritingEntries}）。
      *
-     * <p>26 键一族（标准 26 键，含全拼、双拼、五笔、英文等，以及韩文键面）是 123 |（地球）| 符 | 空格 | ， | 中/英 | 回车。符 打开符号面板，逗号长按输入句号，中英文模式相同。123 / #+= 层自带底行，有自己的符号入口。
+     * <p>26 键一族（标准 26 键，含全拼、双拼、五笔、英文等，以及韩文键面）是 123 |（地球）| 符 | 空格 | ， | 中/英 | 回车。符 打开符号面板，逗号长按输入句号。英文模式在空格左边另放句点：123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车（{@link #designEntries(int, boolean, boolean, boolean, boolean)}）。123 / #+= 层自带底行，有自己的符号入口。
      *
      * <p>拼音九键和笔画键盘的字母层是 符 | 123 |（地球）| 空格 | 中/英 | 回车。拼音九键数字层由四参数重载排布，0 接替空格、空格移到右列；笔画键盘的数字键面是自带底行的 123 层。
      *
@@ -151,6 +153,15 @@ public final class KeyboardActionRow {
      * @param globe 宿主是否可以切换到下一个输入法（`shouldOfferSwitchingToNextInputMethod()`）
      */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe) {
+        return baseEntries(touchLayout, globe, false);
+    }
+
+    /**
+     * 同 {@link #designEntries(int, boolean)}，英文模式下 26 键一族的字母层在空格左边加独立句点、右边仍是逗号：123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车。句点占 {@link #DESIGN_PUNCTUATION_WEIGHT}，空格让到 {@link #DESIGN_ENGLISH_SPACE_WEIGHT}，其余键宽度不变。九键、14 键、手写等其他底行不受影响。
+     *
+     * @param english 宿主处在英文模式（{@code dedicatedEnglish}）
+     */
+    private static List<DesignEntry> baseEntries(int touchLayout, boolean globe, boolean english) {
         // 日语九键和注音九键的四行键块自带 123、中/英、空格、换行（注音九键的这几个是挪过去的底栏键），不再要底栏。
         if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT
                 || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) return List.of();
@@ -163,11 +174,13 @@ public final class KeyboardActionRow {
         if (symbolPanelRow) entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
         if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
+        boolean englishPeriod = english && commaSecondary;
         if (commaSecondary)
             entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
         else if (!symbolPanelRow)
             entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
-        entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
+        if (englishPeriod) entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.SPACE, englishPeriod ? DESIGN_ENGLISH_SPACE_WEIGHT : DESIGN_SPACE_WEIGHT));
         if (commaSecondary)
             entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
         else if (!symbolPanelRow)
@@ -213,7 +226,13 @@ public final class KeyboardActionRow {
     /** 九键数字层保留符号和层键的位置，0 位于原空格处；常驻空格键移到右列，手势保持。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
             boolean swapLanguageNumber, boolean digits) {
-        List<DesignEntry> entries = designEntries(touchLayout, globe);
+        return designEntries(touchLayout, globe, swapLanguageNumber, digits, false);
+    }
+
+    /** 同上，英文模式下 26 键字母层在空格左边加句点：123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车（{@link #baseEntries}）。 */
+    public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
+            boolean swapLanguageNumber, boolean digits, boolean english) {
+        List<DesignEntry> entries = baseEntries(touchLayout, globe, english && !digits);
         if (digits && touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT) {
             List<DesignEntry> numeric = new ArrayList<>(entries);
             for (int index = 0; index < numeric.size(); index++) {
