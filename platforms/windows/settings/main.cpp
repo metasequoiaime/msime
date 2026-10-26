@@ -21048,7 +21048,7 @@ private:
       const bool phrase = draft.kind == L"phrase_table";
       auto body = plugin_editor_block(add_group(page, L"批量添加"));
       TextBox bulk;
-      bulk.Header(box_value(phrase ? L"每行一条短语" : L"每行一个单词"));
+      bulk.Header(box_value(hstring(phrase ? L"每行一条短语" : L"每行一个单词")));
       bulk.AcceptsReturn(true);
       bulk.TextWrapping(TextWrapping::Wrap);
       bulk.MinHeight(96);
@@ -21087,7 +21087,7 @@ private:
     A11y::SetAutomationId(plugin_editor_warning_, L"plugin-editor-warning");
     footer.Children().Append(plugin_editor_warning_);
     Button save;
-    save.Content(box_value(editing ? L"保存修改" : L"保存并安装"));
+    save.Content(box_value(hstring(editing ? L"保存修改" : L"保存并安装")));
     save.Height(32);
     save.Padding(Thickness{16, 0, 16, 0});
     make_primary(save);
