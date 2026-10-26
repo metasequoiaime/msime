@@ -1,20 +1,24 @@
 //! 每个会话的脚本集合：按授权顺序的插件、各自延迟创建的实例、轮次和初始化预算，把一个生命周期事件变成脚本看到的 `Event`，两个修改类钩子（`candidates`、`before_commit`），以及只投递给触发词主人的 `command`。
+//!
+//! 每个插件交给实例的资源（`Resources`）在这里备好：设置值按 `script-settings.json` 和清单算（`script_pack::setting_values`），随包数据随模块一起从进程缓存拿，授予了 `persist_data` 的插件拿进程里共用的那份存储缓冲。授权文件、设置文件和包清单的戳变了才重算；值的变化在下一次聚焦重建实例时生效（实例在每次聚焦时整个丢弃）。
 
 use super::process::{self, Health, Lookup, Reservation, Trip};
 use super::{CallTexts, RewriteRequest};
 use crate::key_sound::{stamp, PackStamp};
 use crate::lifecycle::{Context, InputClass, LifecycleEvent, LocalModeClass};
-use msime_client_services::plugins::script_pack::ScriptCommand;
+use msime_client_services::plugins::script_pack::{self, ScriptCommand};
 use msime_client_services::plugins::{
-    pack_directory, script_commands, script_grants, BuiltinDirs, PluginKind, MANIFEST_FILE,
+    pack_directory, script_commands, script_grants, script_settings, BuiltinDirs, PluginKind,
+    MANIFEST_FILE,
 };
 use msime_input_runtime::{
     CandidateOps, CandidateTransform, CommandOutcome, CommandProvider, PluginCommand, TransformRow,
     View, MAX_TRANSFORM_ROWS,
 };
 use msime_script_runtime::{
-    abi, limits, Actions, CandidateRow, Candidates, CapabilitySet, CommandEvent, CommitTexts,
-    Composition, Event, Failure, Hook, InitFailure, Outcome, ScriptInstance, ScriptModule,
+    abi, limits, Actions, CandidateRow, Candidates, Capability, CapabilitySet, CommandEvent,
+    CommitTexts, Composition, DebugSinks, Event, Failure, Hook, InitFailure, LocalTime, Outcome,
+    Resources, ScriptInstance, ScriptModule,
 };
 use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -32,6 +36,8 @@ thread_local! {
     pub(crate) static TEST_SCRIPT_LOG: std::cell::RefCell<Vec<(i32, String)>> = const { std::cell::RefCell::new(Vec::new()) };
     /// 设为 true 时下一次投递在宿主一侧 panic，测试 panic 总开关。
     pub(crate) static TEST_PANIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// 设了就用它当 `command` 事件的本地时间，不读时钟。
+    pub(crate) static TEST_LOCAL_TIME: std::cell::Cell<Option<Option<LocalTime>>> = const { std::cell::Cell::new(None) };
 }
 
 /// 授权里启用的一个插件。
@@ -52,6 +58,8 @@ struct Entry {
     turn: Option<(u64, u64, u64, u64)>,
     /// 它在 `/` 指令里声明的指令（清单原样）：用户授予了 `provide_commands`、清单也申请了它时才有，否则为空。读授权时、以及授权没变而清单的戳变了时从清单取（`script_commands::granted_commands_of`），不等模块编译好。
     commands: Vec<ScriptCommand>,
+    /// 交给实例的设置值、数据文件和存储缓冲。设置值和存储在读授权、设置文件或清单的戳变了时重算（[`plugin_resources`]）；数据文件在从进程缓存拿到模块时放进来。
+    resources: Resources,
 }
 
 /// 一个活着的实例和它在内存总账里占的那份。
@@ -72,6 +80,8 @@ pub(crate) struct ScriptSet {
     /// 授权读过没有。第一次需要投递时、以及每次聚焦时按戳重读。
     loaded: bool,
     grants: PackStamp,
+    /// `script-settings.json` 的戳：变了就重算各插件的设置值和存储（存储代次可能变了）。
+    settings: PackStamp,
     plan: Vec<Entry>,
     /// 轮次：每个不带 PASSTHROUGH 的 `msime_client_key` 加一，fuel 按轮给。
     turn: u64,
@@ -136,12 +146,15 @@ impl ScriptSet {
         }
     }
 
-    /// 失焦（`focus_out` 送达之后）和 destroy：丢弃全部实例，有插件停用或恢复过时把健康文件交给后台线程写出。之后报告的属性属于下一个字段。
+    /// 失焦（`focus_out` 送达之后）和 destroy：丢弃全部实例，有插件停用或恢复过时把健康文件交给后台线程写出，有改动的存储缓冲交给后台线程写盘。之后报告的属性属于下一个字段。
     pub(crate) fn release(&mut self) {
         self.traits_since_key = false;
         self.drop_instances();
-        if let (Some(root), Some(file)) = (self.root.as_deref(), self.health_file.as_deref()) {
-            process::flush_health(root, file);
+        if let Some(root) = self.root.as_deref() {
+            if let Some(file) = self.health_file.as_deref() {
+                process::flush_health(root, file);
+            }
+            process::flush_storage(root);
         }
     }
 
@@ -161,6 +174,7 @@ impl ScriptSet {
         let builtin_packs = self.builtin_packs.clone();
         let builtin_packs = builtin_packs.as_deref();
         let grants_stamp = stamp(Some(script_grants::document_path(&root)));
+        let settings_stamp = stamp(Some(script_settings::document_path(&root)));
         // 官方插件的清单在内置目录里。
         let manifest = |id: &str| {
             stamp(
@@ -174,27 +188,45 @@ impl ScriptSet {
             )
         };
         if self.loaded && grants_stamp == self.grants {
+            let settings_changed = settings_stamp != self.settings;
+            let settings = settings_changed.then(|| script_settings::read(&root));
+            self.settings = settings_stamp;
+            let mut stored: Option<script_settings::ScriptSettings> = settings;
             for entry in &mut self.plan {
                 let current = manifest(&entry.id);
-                if current == entry.manifest {
-                    continue;
+                let manifest_changed = current != entry.manifest;
+                if manifest_changed {
+                    entry.manifest = current;
+                    entry.commands = script_commands::granted_commands_of(
+                        &root,
+                        builtin_packs,
+                        &entry.id,
+                        entry.granted,
+                    );
+                    if entry.module.is_none() {
+                        process::request(&root, builtin_packs, &entry.id, &entry.hash);
+                    }
                 }
-                entry.manifest = current;
-                entry.commands = script_commands::granted_commands_of(
-                    &root,
-                    builtin_packs,
-                    &entry.id,
-                    entry.granted,
-                );
-                if entry.module.is_none() {
-                    process::request(&root, builtin_packs, &entry.id, &entry.hash);
+                if manifest_changed || settings_changed {
+                    let settings = stored.get_or_insert_with(|| script_settings::read(&root));
+                    let data = entry.resources.data.clone();
+                    entry.resources =
+                        plugin_resources(&root, builtin_packs, &entry.id, entry.granted, settings);
+                    entry.resources.data = data;
                 }
             }
             return;
         }
         let grants = script_grants::read(&root);
+        let settings = script_settings::read(&root);
         process::adopt_health(&root, self.health_file.as_deref());
         process::observe_revision(&root, grants.revision_epoch, grants.revision);
+        let previous: Vec<String> = self
+            .plan
+            .iter()
+            .filter(|entry| entry.resources.storage.is_some())
+            .map(|entry| entry.id.clone())
+            .collect();
         self.plan = grants
             .enabled()
             .map(|grant| Entry {
@@ -213,14 +245,32 @@ impl ScriptSet {
                     &grant.id,
                     grant.granted,
                 ),
+                resources: plugin_resources(
+                    &root,
+                    builtin_packs,
+                    &grant.id,
+                    grant.granted,
+                    &settings,
+                ),
             })
             .collect();
+        // 不再用存储的插件（不再启用、撤销了 `persist_data`、卸载了）：有改动的先写盘（撤销了的在后台线程的锁里被拒），然后从进程里拿掉。
+        for id in previous {
+            if !self
+                .plan
+                .iter()
+                .any(|entry| entry.id == id && entry.resources.storage.is_some())
+            {
+                process::retire_storage(&root, &id);
+            }
+        }
         for entry in &self.plan {
             process::request(&root, builtin_packs, &entry.id, &entry.hash);
         }
         let hashes: Vec<&str> = self.plan.iter().map(|entry| entry.hash.as_str()).collect();
         process::retain(&root, &hashes);
         self.grants = grants_stamp;
+        self.settings = settings_stamp;
         self.loaded = true;
     }
 
@@ -238,11 +288,12 @@ impl ScriptSet {
             .map(|command| PluginCommand {
                 trigger: command.trigger.clone(),
                 title: command.title.clone(),
+                extended: command.arguments.is_extended(),
             })
             .collect()
     }
 
-    /// `/` 指令（`command` 钩子）：引擎问到触发词 `trigger` 时，只投递给计划里第一个声明它的插件，别的插件一律不投递。运行条件同其余钩子（普通字段、属性已确认、进程开关开着）；事件只带本地模式（`command`）、触发词、参数和这一次的 64 字节随机数，在快照上运行，同一轮里用自己的一份配额。
+    /// `/` 指令（`command` 钩子）：引擎问到触发词 `trigger` 时，只投递给计划里第一个声明它的插件，别的插件一律不投递。运行条件同其余钩子（普通字段、属性已确认、进程开关开着）；事件只带本地模式（`command`）、触发词、参数、这一次的 64 字节随机数和到分钟的本地时间，在快照上运行，同一轮里用自己的一份配额。参数必须是这条指令收的字符（清单里没有写 `arguments = "extended"` 的只收小写字母），引擎本来就只交来这样的参数，这里是第二道。
     ///
     /// 插件运行了（正常返回、trap、fuel 耗尽、返回负数）是 `Ran`：正常返回时行放进 `out`，其余情况这一次没有行，引擎照样缓存成空表，同一份预编辑串不再问，免得一个出错的插件在每次派发里重跑、很快熔断。没有运行（运行条件不满足、没有主人、模块还在编译、已经熔断、推迟实例化、本轮配额用完、取不到随机数）是 `NotRun`，引擎不写缓存，下一次派发再问。
     pub(crate) fn command(
@@ -255,14 +306,20 @@ impl ScriptSet {
         if !self.prepare(context) {
             return CommandOutcome::NotRun;
         }
-        let Some(owner) = self.plan.iter().position(|entry| {
+        let Some((owner, declared)) = self.plan.iter().enumerate().find_map(|(index, entry)| {
             entry
                 .commands
                 .iter()
-                .any(|command| command.trigger == trigger)
+                .find(|command| command.trigger == trigger)
+                .map(|command| (index, command))
         }) else {
             return CommandOutcome::NotRun;
         };
+        if argument.len() > limits::MAX_COMMAND_ARGUMENT_BYTES
+            || !abi::valid_command_argument(argument, declared.arguments.is_extended())
+        {
+            return CommandOutcome::NotRun;
+        }
         let mut random = [0; limits::RANDOM_BYTES_PER_EVENT];
         if !script_commands::random_bytes(&mut random) {
             return CommandOutcome::NotRun;
@@ -273,8 +330,7 @@ impl ScriptSet {
             trigger,
             argument,
             random,
-            // 本地时间由宿主接入第二批能力时填上；在那之前 `command` 里的四个时间字段是 `ABSENT`。
-            local_time: None,
+            local_time: local_time(),
         });
         let turn = self.turn;
         let entry = &mut self.plan[owner];
@@ -611,7 +667,10 @@ fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<
     }
     if entry.module.is_none() {
         match process::lookup(&entry.hash) {
-            Lookup::Ready(module) => entry.module = Some(module),
+            Lookup::Ready(module, data) => {
+                entry.module = Some(module);
+                entry.resources.data = data;
+            }
             Lookup::Waiting => return Outcome::NotSubscribed,
             Lookup::Invalid(reason) => {
                 entry.health.disable(Trip::Invalid, reason);
@@ -645,7 +704,13 @@ fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<
         let Some(reservation) = process::reserve(module.reserved_memory_bytes()) else {
             return Outcome::NotSubscribed;
         };
-        match ScriptInstance::new(module, entry.granted, budget) {
+        match ScriptInstance::with_resources(
+            module,
+            entry.granted,
+            budget,
+            entry.resources.clone(),
+            DebugSinks::default(),
+        ) {
             Ok(mut instance) => {
                 *init_left = budget.saturating_sub(instance.init_fuel());
                 if let Some((last, left, before_commit_left, command_left)) =
@@ -717,6 +782,45 @@ fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<
         }
     }
     outcome
+}
+
+/// 交给插件 `id` 的实例的设置值和存储缓冲（数据文件由调用方放进来）。设置值按已安装包的清单和 `settings` 算，清单载入不了时没有设置项（模块也编译不出来，不会运行）。授予了 `persist_data`、清单也申请了它时拿进程里共用的存储缓冲，按设置文件里的存储代次。
+fn plugin_resources(
+    root: &Path,
+    builtin_packs: Option<&Path>,
+    id: &str,
+    granted: CapabilitySet,
+    settings: &script_settings::ScriptSettings,
+) -> Resources {
+    let Ok(pack) = script_pack::declared(root, builtin_packs, id) else {
+        return Resources::default();
+    };
+    let empty = serde_json::Map::new();
+    let values = script_pack::setting_values(&pack.settings, settings.values(id).unwrap_or(&empty));
+    let persists = granted
+        .intersection(pack.permissions)
+        .contains(Capability::PersistData);
+    Resources {
+        settings: values.into(),
+        data: Arc::from(Vec::new()),
+        storage: persists.then(|| process::storage(root, id, settings.storage_epoch(id))),
+    }
+}
+
+/// `command` 事件的本地时间，到分钟。系统时钟或时区读不出来时为 `None`，插件读到的四个时间字段是 `ABSENT`。
+fn local_time() -> Option<LocalTime> {
+    #[cfg(test)]
+    if let Some(time) = TEST_LOCAL_TIME.with(std::cell::Cell::get) {
+        return time;
+    }
+    let now = time::OffsetDateTime::now_local().ok()?;
+    let year = u32::try_from(now.year()).ok()?;
+    Some(LocalTime {
+        date: year * 10_000 + u32::from(u8::from(now.month())) * 100 + u32::from(now.day()),
+        minute: u16::from(now.hour()) * 60 + u16::from(now.minute()),
+        weekday: now.weekday().number_from_monday(),
+        utc_offset_minutes: now.offset().whole_minutes(),
+    })
 }
 
 /// 生命周期事件对应的钩子；不投递给脚本的事件为 `None`。

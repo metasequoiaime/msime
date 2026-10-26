@@ -5993,6 +5993,12 @@ pub fn run() {
             desktop_plugins::set_script_grant,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_plugins::reorder_scripts,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_plugins::script_plugin_state,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_plugins::set_script_settings,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_plugins::clear_script_data,
             vocabulary::load_vocabulary_review,
             vocabulary::answer_vocabulary_card,
             vocabulary::set_vocabulary_settings,

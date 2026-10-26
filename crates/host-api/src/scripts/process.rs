@@ -1,6 +1,7 @@
-//! 进程级的部分：模块缓存和后台编译线程、内存总账、熔断与健康文件、panic 总开关。
+//! 进程级的部分：模块缓存和后台编译线程、内存总账、持久存储缓冲与写盘、熔断与健康文件、panic 总开关。
 //!
-//! - **模块缓存**按内容哈希存放编译好的 `ScriptModule`（内部是 `Arc`，可以跨线程共享）。会话线程只登记请求、查结果；读包、核对哈希、校验和 Eager 编译都在后台编译线程上做，不在按键和 focus 路径上。还没编译好的插件这一次跳过，不算失败。
+//! - **模块缓存**按内容哈希存放编译好的 `ScriptModule`（内部是 `Arc`，可以跨线程共享）和随包数据文件的字节（`Arc`，多个会话共享一份）。会话线程只登记请求、查结果；读包（模块和数据文件出自同一次读取，内容哈希覆盖两者）、核对哈希、校验和 Eager 编译都在后台编译线程上做，不在按键和 focus 路径上。还没编译好的插件这一次跳过，不算失败。
+//! - **持久存储**（`persist_data`）：每个 (插件根目录, id) 在进程里一份 `Storage` 缓冲，各会话共用。初值在会话重读授权或设置时从磁盘读入（和读授权文件同一条路径，不在按键路径上）；存储代次（`script_settings` 的 `storage_epoch`）变了就丢掉手上的缓冲重读。写盘只在后台线程上做：失焦和会话结束时交过去（`flush_storage`），后台线程每 [`FLUSH_INTERVAL`] 没有别的活时也把有改动的缓冲写一次；写之前在插件目录的锁里核对授权和代次（`script_storage::write`），被拒就清掉缓冲，写失败就记回待写下次再试。
 //! - **熔断**按 (插件根目录, id, 哈希) 计，不按会话：IBus 改一个设置就重建会话，按会话熔断会让坏插件在每个新会话里重来一次。初始化失败、ABI 不符或模块不合规立即停用；否则最近 50 次投递里失败 3 次、或最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权文件的 `revision` 比以前看到过的都大（`observe_revision`）、写入方在上界回绕到时间戳，或进程重启。
 //! - **健康文件** `<user_data>/script-health.json` 只记被停用的插件和停用的类别（`invalid`、`init`、`failed`、`slow`），在失焦和 destroy 时交给后台线程写出，只有停用或恢复之后才重写；进程重启也是恢复，本进程第一次读授权时文件在就重写一次（`adopt_health`）。不记失败次数，也不按原因细分：哪种 trap、失败几次都由脚本自己选，按次数或原因写出去，同一用户下的进程每次失焦后对比文件，就是一条能反复使用、按位传文本的通道；只记停用，熔断之后要等新的授权代次或进程重启才能再触发，剩下的是设计接受的一次性约 1 bit。具体的原因码只在停用时进一次诊断。
 //! - **panic 总开关**：投递里任何一处 panic 都关掉本进程的全部脚本，直到进程重启；那次调用照常返回上屏结果。
@@ -8,13 +9,13 @@
 //! import 从不回调宿主，所以这里的锁都不会在脚本代码运行时被重入；锁的顺序固定为先 `REGISTRY` 后单个 `Health`，从不反过来。
 
 use msime_client_core::file_lock;
-use msime_client_services::plugins::script_pack;
-use msime_script_runtime::{limits, Failure, ScriptModule};
+use msime_client_services::plugins::{script_pack, script_storage};
+use msime_script_runtime::{limits, Failure, ScriptModule, Storage};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -29,6 +30,8 @@ const SLOW_LIMIT: u32 = 3;
 /// 一次投递超过这么久算慢。远低于 Windows TIP 等 Server 回复的 50 ms。
 #[cfg_attr(test, allow(dead_code))]
 const SLOW_AFTER: Duration = Duration::from_millis(4);
+/// 后台线程没有别的活时，每隔这么久把有改动的存储缓冲写一次盘。进程被杀时最多丢这么久的写入。
+const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 /// 健康文件名，放在 `user_data` 下；授权页按同一个名字读它。
 pub(super) const HEALTH_FILE: &str = msime_client_services::plugins::script_grants::HEALTH_FILE;
 
@@ -104,10 +107,13 @@ pub(super) fn slow(started: Instant) -> bool {
 
 // ---- 模块缓存与后台编译线程 ----
 
+/// 一个包的随包数据文件，按清单 `[script].data` 的顺序，和模块出自同一次读取。
+pub(super) type DataFiles = Arc<[Arc<[u8]>]>;
+
 enum Slot {
     /// 已登记，后台线程还没编译完。
     Pending,
-    Ready(ScriptModule),
+    Ready(ScriptModule, DataFiles),
     /// 包读不出，或者已安装的包和授权的哈希对不上（授权之后包被换过）。不是插件的失败，包的戳变了再试。
     Retry,
     /// 模块不符合 ABI v1。内容按哈希寻址，同样的字节永远不合规，不再重试。
@@ -118,15 +124,15 @@ struct Cached {
     /// 哪个插件根目录登记的，淘汰时按它分开。
     root: PathBuf,
     slot: Slot,
-    /// 计进内存总账的模块开销：翻译结果的上界、固定开销和它的 Engine 留着的一份值栈（`limits::module_memory_bytes`）。模块有自己的 Engine，条目淘汰、最后一个克隆释放时这些内存真的还回去。
-    bytecode: usize,
+    /// 计进内存总账的开销：模块翻译结果的上界、固定开销和它的 Engine 留着的一份值栈（`limits::module_memory_bytes`），加上数据文件的字节（按 1 倍记，`limits::resident_bytes`）。模块有自己的 Engine，条目淘汰、最后一个克隆释放时这些内存真的还回去。
+    charge: usize,
 }
 
 static CACHE: LazyLock<Mutex<HashMap<String, Cached>>> = LazyLock::new(Default::default);
 
 /// 会话查缓存的结果。
 pub(super) enum Lookup {
-    Ready(ScriptModule),
+    Ready(ScriptModule, DataFiles),
     /// 还在编译，或者要等包变了再试：这一次跳过，不算失败。
     Waiting,
     /// 模块不合规，原因是封闭的错误码。
@@ -135,7 +141,7 @@ pub(super) enum Lookup {
 
 pub(super) fn lookup(hash: &str) -> Lookup {
     match lock(&CACHE).get(hash).map(|cached| &cached.slot) {
-        Some(Slot::Ready(module)) => Lookup::Ready(module.clone()),
+        Some(Slot::Ready(module, data)) => Lookup::Ready(module.clone(), data.clone()),
         Some(Slot::Invalid(reason)) => Lookup::Invalid(reason),
         Some(Slot::Pending | Slot::Retry) | None => Lookup::Waiting,
     }
@@ -157,7 +163,7 @@ pub(super) fn request(root: &Path, builtin_packs: Option<&Path>, id: &str, hash:
                     Cached {
                         root: root.to_owned(),
                         slot: Slot::Pending,
-                        bytecode: 0,
+                        charge: 0,
                     },
                 );
             }
@@ -180,13 +186,13 @@ pub(super) fn request(root: &Path, builtin_packs: Option<&Path>, id: &str, hash:
 /// 淘汰 `root` 登记的、授权里已经不再启用的模块，免得反复更新的包让旧版本一直占着总账。还在编译的不动：编译完发现条目已经不在就丢掉结果。会话手上已有的克隆照样能用到它下一次重读授权。
 pub(super) fn retain(root: &Path, hashes: &[&str]) {
     lock(&CACHE).retain(|hash, cached| {
-        let live_clone = matches!(&cached.slot, Slot::Ready(module) if module.is_shared());
+        let live_clone = matches!(&cached.slot, Slot::Ready(module, _) if module.is_shared());
         let keep = cached.root != root
             || matches!(cached.slot, Slot::Pending)
             || hashes.contains(&hash.as_str())
             || live_clone;
         if !keep {
-            BYTECODE_BYTES.fetch_sub(cached.bytecode, Ordering::AcqRel);
+            CACHE_BYTES.fetch_sub(cached.charge, Ordering::AcqRel);
         }
         keep
     });
@@ -199,8 +205,26 @@ pub(crate) fn insert_ready(root: &Path, hash: &str, module: ScriptModule) {
         hash.to_owned(),
         Cached {
             root: root.to_owned(),
-            slot: Slot::Ready(module),
-            bytecode: 0,
+            slot: Slot::Ready(module, Arc::from(Vec::new())),
+            charge: 0,
+        },
+    );
+}
+
+/// 测试直接放进一个编译好的模块和它的数据文件。
+#[cfg(test)]
+pub(crate) fn insert_ready_with_data(
+    root: &Path,
+    hash: &str,
+    module: ScriptModule,
+    data: DataFiles,
+) {
+    lock(&CACHE).insert(
+        hash.to_owned(),
+        Cached {
+            root: root.to_owned(),
+            slot: Slot::Ready(module, data),
+            charge: 0,
         },
     );
 }
@@ -216,6 +240,16 @@ enum Job {
         path: PathBuf,
         bytes: Vec<u8>,
     },
+    WriteStorage(PendingWrite),
+}
+
+/// 交给后台线程的一次存储写盘：缓冲本身也带上，被拒时清掉、写失败时记回待写。
+struct PendingWrite {
+    root: PathBuf,
+    id: String,
+    epoch: u64,
+    storage: Storage,
+    bytes: Vec<u8>,
 }
 
 /// 交给后台线程。线程在第一次需要时才起：从不运行脚本的进程（设置应用、MCP、Windows TIP）不起任何线程。
@@ -225,20 +259,35 @@ fn send(job: Job) -> bool {
         let (sender, receiver) = mpsc::channel::<Job>();
         let spawned = std::thread::Builder::new()
             .name("msime-script-compile".into())
-            .spawn(move || {
-                for job in receiver {
-                    let compiling = match &job {
-                        Job::Compile { hash, .. } => Some(hash.clone()),
-                        Job::WriteHealth { .. } => None,
-                    };
-                    // 编译器或文件读写里的 panic 不能带走这个线程，否则之后的模块永远停在 Pending。按设计 §4.5，捕获到 panic 就关掉本进程的全部脚本；那个模块记为不合规，不再停在 Pending，也不再重试。
-                    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(job)));
-                    if ran.is_err() {
-                        if let Some(hash) = compiling {
-                            settle(&hash, Slot::Invalid("compile_panicked"), 0);
+            .spawn(move || loop {
+                // 没有别的活时定时把存储缓冲写盘，见模块说明。
+                let job = match receiver.recv_timeout(FLUSH_INTERVAL) {
+                    Ok(job) => job,
+                    Err(RecvTimeoutError::Timeout) => {
+                        if std::panic::catch_unwind(|| {
+                            for write in dirty_storage(None) {
+                                write_storage(write);
+                            }
+                        })
+                        .is_err()
+                        {
+                            panic_caught();
                         }
-                        panic_caught();
+                        continue;
                     }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                };
+                let compiling = match &job {
+                    Job::Compile { hash, .. } => Some(hash.clone()),
+                    Job::WriteHealth { .. } | Job::WriteStorage(_) => None,
+                };
+                // 编译器或文件读写里的 panic 不能带走这个线程，否则之后的模块永远停在 Pending。按设计 §4.5，捕获到 panic 就关掉本进程的全部脚本；那个模块记为不合规，不再停在 Pending，也不再重试。
+                let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(job)));
+                if ran.is_err() {
+                    if let Some(hash) = compiling {
+                        settle(&hash, Slot::Invalid("compile_panicked"), 0);
+                    }
+                    panic_caught();
                 }
             });
         match spawned {
@@ -267,29 +316,35 @@ fn run(job: Job) {
                 crate::diagnostics::report("script health not written", &error.to_string());
             }
         }
+        Job::WriteStorage(write) => write_storage(write),
     }
 }
 
-/// 读出包（官方插件从内置目录读）、核对哈希、按 ABI v1 校验并 Eager 编译，结果放回缓存。
+/// 读出包（官方插件从内置目录读）、核对哈希、按 ABI v1 校验并 Eager 编译，结果连同数据文件放回缓存。内容哈希覆盖清单、模块和数据文件，三者出自同一次读取。
 fn compile(root: &Path, builtin_packs: Option<&Path>, id: &str, hash: &str) {
     #[cfg(test)]
     if id == TEST_COMPILE_PANIC_ID {
         panic!("injected compile panic");
     }
-    let (slot, bytecode) = match script_pack::load(root, builtin_packs, id) {
+    let (slot, charge) = match script_pack::load(root, builtin_packs, id) {
         Err(_) => (Slot::Retry, 0),
         Ok(loaded) if loaded.pack.content_hash != hash => (Slot::Retry, 0),
         Ok(loaded) => {
             match msime_script_runtime::compile(&loaded.wasm, loaded.pack.declaration()) {
-                Ok(module) => (
-                    Slot::Ready(module),
-                    limits::module_memory_bytes(loaded.wasm.len()),
-                ),
+                Ok(module) => {
+                    let data_bytes: usize = loaded.data.iter().map(Vec::len).sum();
+                    let data: DataFiles = loaded.data.into_iter().map(Arc::from).collect();
+                    (
+                        Slot::Ready(module, data),
+                        limits::module_memory_bytes(loaded.wasm.len())
+                            .saturating_add(limits::resident_bytes(data_bytes, false)),
+                    )
+                }
                 Err(error) => (Slot::Invalid(error.reason()), 0),
             }
         }
     };
-    settle(hash, slot, bytecode);
+    settle(hash, slot, charge);
 }
 
 /// 测试里编译这个 id 时在后台线程上 panic。
@@ -297,22 +352,134 @@ fn compile(root: &Path, builtin_packs: Option<&Path>, id: &str, hash: &str) {
 pub(crate) const TEST_COMPILE_PANIC_ID: &str = "panicking-compile";
 
 /// 把编译结果放回缓存。
-fn settle(hash: &str, slot: Slot, bytecode: usize) {
+fn settle(hash: &str, slot: Slot, charge: usize) {
     let mut cache = lock(&CACHE);
     // 编译期间条目被淘汰了：结果没人要。
     if let Some(cached) = cache.get_mut(hash) {
         if matches!(cached.slot, Slot::Pending) {
             cached.slot = slot;
-            cached.bytecode = bytecode;
-            BYTECODE_BYTES.fetch_add(bytecode, Ordering::AcqRel);
+            cached.charge = charge;
+            CACHE_BYTES.fetch_add(charge, Ordering::AcqRel);
+        }
+    }
+}
+
+// ---- 持久存储 ----
+
+/// 一个插件在本进程里的存储缓冲，和它从磁盘读进来时的存储代次。
+struct StorageEntry {
+    storage: Storage,
+    epoch: u64,
+}
+
+static STORAGE: LazyLock<Mutex<HashMap<(PathBuf, String), StorageEntry>>> =
+    LazyLock::new(Default::default);
+
+/// 插件 `id` 在本进程里的存储缓冲，各会话共用一份。还没有、或者设置文件里的存储代次已经不是缓冲读进来时的那个（用户清过数据）时，从磁盘读入新的一份；被换掉的旧缓冲先清掉，别的会话手上的克隆再写进去也不会写盘（写盘前按代次核对）。每份缓冲按一整块 `limits::MAX_STORAGE_BYTES` 记进内存总账。
+pub(super) fn storage(root: &Path, id: &str, epoch: u64) -> Storage {
+    let key = (root.to_owned(), id.to_owned());
+    if let Some(entry) = lock(&STORAGE).get(&key) {
+        if entry.epoch == epoch {
+            return entry.storage.clone();
+        }
+    }
+    // 不在持锁时碰文件系统。
+    let fresh = Storage::new(script_storage::read(root, id));
+    let mut registry = lock(&STORAGE);
+    match registry.get_mut(&key) {
+        Some(entry) if entry.epoch == epoch => entry.storage.clone(),
+        Some(entry) => {
+            entry.storage.clear();
+            *entry = StorageEntry {
+                storage: fresh.clone(),
+                epoch,
+            };
+            fresh
+        }
+        None => {
+            STORAGE_BYTES.fetch_add(limits::resident_bytes(0, true), Ordering::AcqRel);
+            registry.insert(
+                key,
+                StorageEntry {
+                    storage: fresh.clone(),
+                    epoch,
+                },
+            );
+            fresh
+        }
+    }
+}
+
+/// 插件 `id` 不再在这个进程里用存储了（不再启用、撤销了 `persist_data`、卸载了）：有改动的先交给后台线程写盘（那里在锁里核对授权，撤销了的写不进去、缓冲被清掉），然后从进程里拿掉，还回内存总账。
+pub(super) fn retire_storage(root: &Path, id: &str) {
+    let Some(entry) = lock(&STORAGE).remove(&(root.to_owned(), id.to_owned())) else {
+        return;
+    };
+    STORAGE_BYTES.fetch_sub(limits::resident_bytes(0, true), Ordering::AcqRel);
+    if let Some(bytes) = entry.storage.take_dirty() {
+        submit(PendingWrite {
+            root: root.to_owned(),
+            id: id.to_owned(),
+            epoch: entry.epoch,
+            storage: entry.storage,
+            bytes,
+        });
+    }
+}
+
+/// 失焦和会话结束时：`root` 下有改动的存储缓冲交给后台线程写盘。
+pub(super) fn flush_storage(root: &Path) {
+    for write in dirty_storage(Some(root)) {
+        submit(write);
+    }
+}
+
+/// 有改动的缓冲（`root` 为 `None` 时是所有根目录的），取走改动、记为已写。
+fn dirty_storage(root: Option<&Path>) -> Vec<PendingWrite> {
+    lock(&STORAGE)
+        .iter()
+        .filter(|((entry_root, _), _)| root.is_none_or(|root| entry_root == root))
+        .filter_map(|((entry_root, id), entry)| {
+            Some(PendingWrite {
+                bytes: entry.storage.take_dirty()?,
+                root: entry_root.clone(),
+                id: id.clone(),
+                epoch: entry.epoch,
+                storage: entry.storage.clone(),
+            })
+        })
+        .collect()
+}
+
+fn submit(write: PendingWrite) {
+    let storage = write.storage.clone();
+    if !send(Job::WriteStorage(write)) {
+        // 后台线程起不来：记回待写，下一次再交。
+        storage.mark_dirty();
+    }
+}
+
+/// 在后台线程上写一次盘。被拒（撤销、清过、卸载）时清掉缓冲；写失败时记回待写，下一次刷新再试。
+fn write_storage(write: PendingWrite) {
+    match script_storage::write(&write.root, &write.id, write.epoch, &write.bytes) {
+        Ok(script_storage::Written::Saved) => {}
+        Ok(script_storage::Written::Refused) => write.storage.clear(),
+        Err(error) => {
+            write.storage.mark_dirty();
+            crate::diagnostics::report(
+                "script storage not written",
+                &format!("{} {error}", write.id),
+            );
         }
     }
 }
 
 // ---- 内存总账 ----
 
-/// 缓存里各模块开销的合计（`limits::module_memory_bytes`）。
-static BYTECODE_BYTES: AtomicUsize = AtomicUsize::new(0);
+/// 缓存里各条目开销的合计：模块（`limits::module_memory_bytes`）和数据文件。
+static CACHE_BYTES: AtomicUsize = AtomicUsize::new(0);
+/// 进程里存储缓冲的合计，每份按一整块 `limits::MAX_STORAGE_BYTES` 记。
+static STORAGE_BYTES: AtomicUsize = AtomicUsize::new(0);
 /// 活着的实例一次预留的线性内存合计。
 static LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
 
@@ -325,13 +492,14 @@ impl Drop for Reservation {
     }
 }
 
-/// 给一个新实例记账：线性内存预留和全部模块开销（翻译结果、固定开销、各自的值栈）合计不超过 `limits::PROCESS_MEMORY_BYTES`。授权时已经按单个会话做过准入检查，这里是多个会话同时有实例时的兜底；放不下时这一次不实例化，不算失败。
+/// 给一个新实例记账：线性内存预留、全部模块开销（翻译结果、固定开销、各自的值栈）、数据文件和存储缓冲合计不超过 `limits::PROCESS_MEMORY_BYTES`。授权时已经按单个会话做过准入检查（`script_grants` 的 `admit`，同样按 1 倍记数据和存储），这里是多个会话同时有实例时的兜底；放不下时这一次不实例化，不算失败。
 pub(super) fn reserve(bytes: usize) -> Option<Reservation> {
     LIVE_BYTES
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |live| {
             let total = live
                 .saturating_add(bytes)
-                .saturating_add(BYTECODE_BYTES.load(Ordering::Acquire));
+                .saturating_add(CACHE_BYTES.load(Ordering::Acquire))
+                .saturating_add(STORAGE_BYTES.load(Ordering::Acquire));
             (total <= limits::PROCESS_MEMORY_BYTES).then_some(live + bytes)
         })
         .ok()
@@ -596,27 +764,27 @@ mod tests {
         )
         .expect("test module compiles");
         let charged = 123usize;
-        let before = BYTECODE_BYTES.fetch_add(charged, Ordering::AcqRel);
+        let before = CACHE_BYTES.fetch_add(charged, Ordering::AcqRel);
         lock(&CACHE).insert(
             hash.clone(),
             Cached {
                 root: root.clone(),
-                slot: Slot::Ready(module),
-                bytecode: charged,
+                slot: Slot::Ready(module, Arc::from(Vec::new())),
+                charge: charged,
             },
         );
 
         let live_clone = match lookup(&hash) {
-            Lookup::Ready(module) => module,
+            Lookup::Ready(module, _) => module,
             _ => panic!("cache entry was not ready"),
         };
         retain(&root, &[]);
-        assert_eq!(BYTECODE_BYTES.load(Ordering::Acquire), before + charged);
-        assert!(matches!(lookup(&hash), Lookup::Ready(_)));
+        assert_eq!(CACHE_BYTES.load(Ordering::Acquire), before + charged);
+        assert!(matches!(lookup(&hash), Lookup::Ready(..)));
 
         drop(live_clone);
         retain(&root, &[]);
-        assert_eq!(BYTECODE_BYTES.load(Ordering::Acquire), before);
+        assert_eq!(CACHE_BYTES.load(Ordering::Acquire), before);
         assert!(matches!(lookup(&hash), Lookup::Waiting));
     }
 }

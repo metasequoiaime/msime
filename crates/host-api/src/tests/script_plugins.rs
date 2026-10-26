@@ -11,7 +11,7 @@ use crate::scripts::{
     insert_ready, TEST_COMPILE_PANIC_ID, TEST_PANIC, TEST_PANICKED, TEST_SCRIPT_LOG, TEST_SLOW,
     TEST_SWITCH,
 };
-use msime_client_services::plugins::{import, script_grants, MANIFEST_FILE};
+use msime_client_services::plugins::{import, script_grants, script_settings, MANIFEST_FILE};
 use msime_input_runtime::{CandidateOps, TransformRow};
 use msime_script_runtime::abi::{commit_field, event_field};
 use msime_script_runtime::{
@@ -3061,6 +3061,7 @@ fn the_grant_page_and_the_engine_resolve_plugin_commands_alike() {
             .map(|command| PluginCommand {
                 trigger: command.trigger,
                 title: command.title,
+                extended: false,
             })
             .collect();
         let table: Vec<CommandTableEntry> = user
@@ -3077,6 +3078,7 @@ fn the_grant_page_and_the_engine_resolve_plugin_commands_alike() {
             .map(|command| PluginCommand {
                 trigger: command.trigger.clone(),
                 title: command.title.clone(),
+                extended: false,
             })
             .collect();
         assert_eq!(
@@ -3341,4 +3343,401 @@ fn official_packs_from_the_build_type_a_uuid_and_latex_symbols() {
     assert_eq!(&text[14..15], "4");
     assert!(matches!(&text[19..20], "8" | "9" | "a" | "b"));
     assert_eq!(picked["value"]["commit_context"]["local_mode"], "command");
+}
+
+// ---- 第二批能力在输入法进程里：设置值、随包数据、指令时间与扩展参数、持久存储 ----
+
+/// 在插件目录里写一个脚本包的清单（`[script]` 末尾追加 `extra`）和一个占位模块：输入法从清单取设置项和权限，模块已经直接放进了进程缓存。
+fn write_script_pack(
+    fixture: &Fixture,
+    id: &str,
+    capabilities: CapabilitySet,
+    hooks: &[Hook],
+    extra: &str,
+) {
+    let directory = fixture.plugins.join("script").join(id);
+    std::fs::create_dir_all(&directory).unwrap();
+    let quoted = |names: Vec<&str>| {
+        names
+            .iter()
+            .map(|name| format!("'{name}'"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let manifest = format!(
+        "schema_version = 2\nkind = 'script'\nid = '{id}'\nname = '测试'\nversion = '1.0.0'\nlicense = 'MIT'\npermissions = [{permissions}]\n[script]\nabi = 1\nmodule = 'main.wasm'\nhooks = [{hooks}]\nmemory_pages = 1\n{extra}",
+        permissions = quoted(capabilities.iter().map(Capability::as_str).collect()),
+        hooks = quoted(hooks.iter().map(|hook| hook.as_str()).collect()),
+    );
+    std::fs::write(directory.join(MANIFEST_FILE), manifest).unwrap();
+    std::fs::write(directory.join("main.wasm"), b"\0asm\x01\0\0\0").unwrap();
+}
+
+/// 每个事件调一次 `import(参数, 0, 64)` 读进 [0..)：读到了就 `log(事件类型, 文本)`，返回码为负就 `log(返回码, "")`。`call` 是导入声明和调用，`$read` 是它的名字。
+fn resource_reader(import: &str, call: &str) -> String {
+    format!(
+        r#"(module
+  {import}
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  {HEADER}
+  (func (export "msime_on_event") (param $kind i32) (result i32) (local $n i32)
+    (local.set $n {call})
+    (if (i32.lt_s (local.get $n) (i32.const 0))
+      (then (call $log (local.get $n) (i32.const 0) (i32.const 0)))
+      (else (call $log (local.get $kind) (i32.const 0) (local.get $n))))
+    (i32.const 0)))"#
+    )
+}
+
+fn setting_reader() -> String {
+    resource_reader(
+        r#"(import "msime" "setting_value" (func $read (param i32 i32 i32) (result i32)))"#,
+        "(call $read (i32.const 0) (i32.const 0) (i32.const 64))",
+    )
+}
+
+fn data_reader() -> String {
+    resource_reader(
+        r#"(import "msime" "data_read" (func $read (param i32 i32 i32 i32) (result i32)))"#,
+        "(call $read (i32.const 0) (i32.const 2) (i32.const 0) (i32.const 64))",
+    )
+}
+
+/// 每次上屏先 `log` 存储现在的内容（返回码为负时 `log(返回码, "")`），再在末尾加一个 `x` 写回去。
+fn memo() -> String {
+    format!(
+        r#"(module
+  (import "msime" "storage_read" (func $read (param i32 i32 i32) (result i32)))
+  (import "msime" "storage_write" (func $write (param i32 i32) (result i32)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  {HEADER}
+  (func (export "msime_on_event") (param $kind i32) (result i32) (local $n i32)
+    (local.set $n (call $read (i32.const 0) (i32.const 0) (i32.const 64)))
+    (if (i32.lt_s (local.get $n) (i32.const 0))
+      (then (call $log (local.get $n) (i32.const 0) (i32.const 0)) (return (i32.const 0))))
+    (call $log (local.get $kind) (i32.const 0) (local.get $n))
+    (i32.store8 (local.get $n) (i32.const 120))
+    (drop (call $write (i32.const 0) (i32.add (local.get $n) (i32.const 1))))
+    (i32.const 0)))"#
+    )
+}
+
+/// 等后台线程做完之前交过去的活（写健康文件、写存储），不失焦。
+fn barrier(fixture: &Fixture) {
+    let barrier = fixture.user_data.join("barrier.json");
+    let _ = std::fs::remove_file(&barrier);
+    crate::scripts::health_barrier(&barrier);
+    wait_for(|| barrier.exists().then_some(()));
+}
+
+fn commit_log(text: &str) -> (i32, String) {
+    (Hook::Commit.code(), text.to_owned())
+}
+
+const LEVEL: &str = "[[script.settings]]\nkey = 'level'\ntitle = '等级'\ntype = 'number'\nmin = 0\nmax = 9\ndefault = 3\n";
+
+#[test]
+fn settings_reach_the_plugin_and_a_change_takes_effect_at_the_next_focus() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[Script::new("tuner", setting_reader(), &[Hook::Commit])],
+        1,
+    );
+    write_script_pack(
+        &fixture,
+        "tuner",
+        CapabilitySet::EMPTY,
+        &[Hook::Commit],
+        LEVEL,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("3")]);
+
+    // 设置页写入新值：授权不变，下一次聚焦用新值重建。
+    let grants = std::fs::read(script_grants::document_path(&fixture.plugins)).unwrap();
+    let set = plugins_request(
+        &fixture,
+        true,
+        json!({"operation": "set_script_settings", "id": "tuner", "values": {"level": 7}}),
+    );
+    assert_eq!(
+        set,
+        json!({"ok": true, "value": {"id": "tuner", "values": {"level": 7}, "storage_bytes": 0}})
+    );
+    assert_eq!(
+        std::fs::read(script_grants::document_path(&fixture.plugins)).unwrap(),
+        grants
+    );
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("3")]);
+    read(msime_client_focus(fixture.handle, true));
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("7")]);
+    let state = plugins_request(
+        &fixture,
+        true,
+        json!({"operation": "script_plugin_state", "id": "tuner"}),
+    );
+    assert_eq!(state["value"]["values"], json!({"level": 7}));
+
+    // 文件里的值对清单不合规（手改的、清单改了范围）：交给插件的是默认值，设置页看到的也是。
+    std::fs::write(
+        script_settings::document_path(&fixture.plugins),
+        r#"{"format_version":1,"revision":9,"plugins":{"tuner":{"values":{"level":12}}}}"#,
+    )
+    .unwrap();
+    read(msime_client_focus(fixture.handle, true));
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("3")]);
+    let state = plugins_request(
+        &fixture,
+        true,
+        json!({"operation": "script_plugin_state", "id": "tuner"}),
+    );
+    assert_eq!(state["value"]["values"], json!({"level": 3}));
+
+    // 不合规的写入整个拒绝。
+    for (values, detail) in [
+        (json!({"width": 1}), "清单里没有设置项 width"),
+        (json!({"level": 10}), "设置项 level 的值不合规"),
+        (json!({"level": "7"}), "设置项 level 的值不合规"),
+    ] {
+        let refused = plugins_request(
+            &fixture,
+            true,
+            json!({"operation": "set_script_settings", "id": "tuner", "values": values}),
+        );
+        assert_eq!(
+            refused,
+            json!({"ok": false, "error": "plugin_script_setting_invalid", "detail": detail})
+        );
+    }
+    let missing = plugins_request(
+        &fixture,
+        true,
+        json!({"operation": "script_plugin_state", "id": "nothing"}),
+    );
+    assert_eq!(missing["error"], "plugin_script_missing", "{missing}");
+}
+
+#[test]
+fn data_files_come_from_the_process_cache_with_the_module() {
+    let fixture = fixture();
+    let hashes = install(
+        &fixture,
+        &[Script::new("reader", data_reader(), &[Hook::Commit])],
+        1,
+    );
+    write_script_pack(
+        &fixture,
+        "reader",
+        CapabilitySet::EMPTY,
+        &[Hook::Commit],
+        "",
+    );
+    let module = compile_text(
+        &data_reader(),
+        Declaration {
+            capabilities: CapabilitySet::EMPTY,
+            hooks: HookSet::EMPTY.with(Hook::Commit),
+            memory_pages: 1,
+        },
+    )
+    .unwrap();
+    crate::scripts::insert_ready_with_data(
+        &fixture.plugins,
+        &hashes[0],
+        module,
+        vec![std::sync::Arc::<[u8]>::from(&b"hello"[..])].into(),
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("llo")]);
+}
+
+/// 写出 `event_scalar(field)` 的个位数字；返回码为负时 `log(返回码, "")`。
+fn scalar_digit(field: i32) -> String {
+    format!(
+        r#"(module
+  (import "msime" "event_scalar" (func $scalar (param i32) (result i64)))
+  (import "msime" "command_row" (func $row (param i32 i32 i32 i32) (result i32)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  {HEADER}
+  (data (i32.const 8) "row")
+  (func (export "msime_on_event") (param $kind i32) (result i32) (local $v i64)
+    (local.set $v (call $scalar (i32.const {field})))
+    (drop (call $row (i32.const 8) (i32.const 3) (i32.const 0) (i32.const 0)))
+    (if (i64.lt_s (local.get $v) (i64.const 0))
+      (then (call $log (i32.wrap_i64 (local.get $v)) (i32.const 0) (i32.const 0)) (return (i32.const 0))))
+    (i32.store8 (i32.const 0) (i32.add (i32.const 48) (i32.wrap_i64 (i64.rem_u (local.get $v) (i64.const 10)))))
+    (call $log (local.get $kind) (i32.const 0) (i32.const 1))
+    (i32.const 0)))"#
+    )
+}
+
+#[test]
+fn a_command_gets_the_local_time_to_the_minute() {
+    let fixture = fixture_with(command_preferences());
+    install(
+        &fixture,
+        &[Script::new(
+            "clock",
+            scalar_digit(event_field::WEEKDAY),
+            &[Hook::Command],
+        )
+        .commanding(&[("zhou", "周")], true)],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    crate::scripts::TEST_LOCAL_TIME.with(|time| {
+        time.set(Some(Some(msime_script_runtime::LocalTime {
+            date: 20261028,
+            minute: 9 * 60 + 5,
+            weekday: 3,
+            utc_offset_minutes: -300,
+        })))
+    });
+    slash(fixture.handle, b"/zhou");
+    assert_eq!(take_log(), [(Hook::Command.code(), "3".to_owned())]);
+    // 时钟读不出来：四个字段都是 ABSENT。
+    cancel(fixture.handle);
+    crate::scripts::TEST_LOCAL_TIME.with(|time| time.set(Some(None)));
+    slash(fixture.handle, b"/zhou");
+    assert_eq!(take_log(), [(status::ABSENT, String::new())]);
+    crate::scripts::TEST_LOCAL_TIME.with(|time| time.set(None));
+}
+
+#[test]
+fn an_extended_command_takes_digits_and_operators_as_its_argument() {
+    let fixture = fixture_with(command_preferences());
+    install(
+        &fixture,
+        &[
+            Script::new("calc", commander("n"), &[Hook::Command])
+                .commanding(&[("calc", "计算")], true),
+            Script::new("generator", commander("u"), &[Hook::Command])
+                .commanding(&[("uuid", "UUID")], true),
+        ],
+        1,
+    );
+    write_script_pack(
+        &fixture,
+        "calc",
+        CapabilitySet::EMPTY.with(Capability::ProvideCommands),
+        &[Hook::Command],
+        "[[script.commands]]\ntrigger = 'calc'\ntitle = '计算'\narguments = 'extended'\n",
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    let view = slash(fixture.handle, b"/calc12+3*(4)");
+    assert_eq!(view["preedit"], "/calc12+3*(4)", "{view}");
+    assert_eq!(plugin_rows(&view)[0].0, "calc-12+3*(4)");
+    assert!(view["spelling_symbols"].as_str().unwrap().contains('1'));
+    take_log();
+
+    // 只收字母的指令和以前一样：数字不在 `spelling_symbols` 里（宿主照旧拿它选候选），交给引擎时也不是参数，引擎上屏打出的原文、把数字交还宿主。
+    cancel(fixture.handle);
+    let view = slash(fixture.handle, b"/uuid");
+    assert_eq!(view["spelling_symbols"], "");
+    msime_client_key(fixture.handle, 0);
+    let typed = read(msime_client_character(fixture.handle, b'1', false));
+    assert_eq!(typed["value"]["commit"], "/uuid", "{typed}");
+    assert_eq!(typed["value"]["handled"], false);
+}
+
+#[test]
+fn storage_is_written_on_focus_loss_and_cleared_or_revoked_from_the_settings_page() {
+    let fixture = fixture();
+    let persist = CapabilitySet::EMPTY.with(Capability::PersistData);
+    install(
+        &fixture,
+        &[Script::new("memo", memo(), &[Hook::Commit]).reading(Capability::PersistData, true)],
+        1,
+    );
+    write_script_pack(&fixture, "memo", persist, &[Hook::Commit], "");
+    let file = fixture.plugins.join("script-data").join("memo.bin");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, b"ab").unwrap();
+    opt_in(&fixture, TRAIT_KNOWN);
+    commit_nihao(fixture.handle);
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("ab"), commit_log("abx")]);
+    // 按键路径上不写盘；失焦交给后台线程写。
+    assert_eq!(std::fs::read(&file).unwrap(), b"ab");
+    flush(&fixture);
+    assert_eq!(std::fs::read(&file).unwrap(), b"abxx");
+    let state = plugins_request(
+        &fixture,
+        true,
+        json!({"operation": "script_plugin_state", "id": "memo"}),
+    );
+    assert_eq!(
+        state["value"],
+        json!({"id": "memo", "values": {}, "storage_bytes": 4})
+    );
+
+    // 清除数据：文件删掉，下一次聚焦拿到的是空的存储。
+    let cleared = plugins_request(
+        &fixture,
+        true,
+        json!({"operation": "clear_script_data", "id": "memo"}),
+    );
+    assert_eq!(cleared["value"]["storage_bytes"], 0, "{cleared}");
+    assert!(!file.exists());
+    read(msime_client_focus(fixture.handle, true));
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("")]);
+
+    // 还没写盘的改动在清除之后作废：清除前攒下的「x」交给后台线程时，代次对不上，写不回去。
+    plugins_request(
+        &fixture,
+        true,
+        json!({"operation": "clear_script_data", "id": "memo"}),
+    );
+    flush(&fixture);
+    assert!(!file.exists());
+
+    // 撤销 persist_data（这里直接改授权文件，模拟另一个进程）：手上的缓冲写不进去，插件读存储被拒。
+    read(msime_client_focus(fixture.handle, true));
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [commit_log("")]);
+    let hash = unique_hash(&fixture, "memo");
+    write_grants(
+        &fixture,
+        2,
+        vec![json!({"id": "memo", "hash": hash, "enabled": true, "granted": []})],
+    );
+    read(msime_client_focus(fixture.handle, true));
+    barrier(&fixture);
+    assert!(!file.exists());
+    commit_nihao(fixture.handle);
+    assert_eq!(take_log(), [(status::DENIED, String::new())]);
+    flush(&fixture);
+    assert!(!file.exists());
+}
+
+/// 引擎和解释器各有一份扩展参数的字符集，必须相同。
+#[test]
+fn the_engine_and_the_runtime_agree_on_the_extended_argument_symbols() {
+    assert_eq!(
+        msime_engine::EXTENDED_ARGUMENT_SYMBOLS,
+        msime_script_runtime::abi::EXTENDED_ARGUMENT_SYMBOLS
+    );
+    for byte in 0..=u8::MAX {
+        let text = [byte];
+        let Ok(text) = std::str::from_utf8(&text) else {
+            continue;
+        };
+        assert_eq!(
+            msime_engine::valid_plugin_argument(text, true),
+            msime_script_runtime::abi::valid_command_argument(text, true),
+            "{byte}"
+        );
+        assert_eq!(
+            msime_engine::valid_plugin_argument(text, false),
+            msime_script_runtime::abi::valid_command_argument(text, false),
+            "{byte}"
+        );
+    }
 }
