@@ -24,6 +24,14 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private int idleIconColor;
     private int activeIconColor;
     private boolean flipped;
+    private int sizePercent = 100;
+
+    public void setSizePercent(int percent) {
+        int valid = ToolbarSizePolicy.percent(percent);
+        if (sizePercent == valid) return;
+        sizePercent = valid;
+        invalidate();
+    }
 
     public KeyboardShortcutButton(Context context, KeyboardShortcutIconPolicy.Icon icon) {
         super(context);
@@ -138,7 +146,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         float centerY = getPaddingTop() + height / 2f;
         if (isSelected() && Color.alpha(activeFill) > 0) {
             float side = BoundsPolicy.atMost(shorter,
-                DimensionPolicy.floatPixels(getContext(), ACTIVE_SIDE_DP));
+                DimensionPolicy.floatPixels(getContext(), ACTIVE_SIDE_DP * sizePercent / 100f));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);
             fill.setColor(activeFill);
@@ -164,7 +172,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         float iconDp = icon == KeyboardShortcutIconPolicy.Icon.DISMISS
             ? DISMISS_ICON_DP : MATERIAL_ICON_DP;
         float size = BoundsPolicy.atMost(shorter,
-            DimensionPolicy.floatPixels(getContext(), iconDp));
+            DimensionPolicy.floatPixels(getContext(), iconDp * sizePercent / 100f));
         int saved = canvas.save();
         if (flipped) canvas.rotate(180f, centerX, centerY);
         KeyboardIconPaths.draw(canvas, glyph, path, centerX - size / 2f, centerY - size / 2f,

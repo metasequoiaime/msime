@@ -34,6 +34,7 @@ final class ImeToolbar {
     private java.util.List<ToolbarOrderPolicy.Item> appliedOrder;
     /** 「最近复制」那一行自己的剪贴板入口和收起键，和工具栏上的同一套配色。 */
     private Button recentClipHistoryButton;
+    private Button recentClipDismissButton;
     private Button recentClipCollapseButton;
     private String styleCacheKey;
     private int iconColor;
@@ -88,6 +89,53 @@ final class ImeToolbar {
             if (retired.getParent() instanceof LinearLayout parent) parent.removeView(retired);
             ViewPolicy.hide(retired);
         }
+    }
+
+    /** 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。 */
+    void applyShortcutSize(int percent, boolean custom) {
+        if (shortcutButtons == null) return;
+        int height = s.pixels(ToolbarSizePolicy.buttonHeightDp(percent));
+        int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
+        int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
+        for (Button button : new Button[] {s.moreButton, s.dismissShortcutButton}) {
+            if (button == null) continue;
+            resizeButton(button, edgeWidth, height);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
+            if (button instanceof KeyboardBrandButton brand) brand.setSizePercent(percent);
+        }
+        for (Button button : shortcutButtons) {
+            resizeButton(button, middleWidth, height);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
+        }
+        Button result = s.imeCalculator.chip();
+        if (result != null && result.getLayoutParams() != null
+                && result.getLayoutParams().height != height) {
+            result.getLayoutParams().height = height;
+            result.requestLayout();
+        }
+        if (s.recentClipRow != null) {
+            int verticalPadding = custom ? 0 : s.pixels(4);
+            if (s.recentClipRow.getPaddingTop() != verticalPadding)
+                s.recentClipRow.setPadding(s.pixels(2), verticalPadding, s.pixels(2), verticalPadding);
+            for (Button button : new Button[] {recentClipHistoryButton, recentClipDismissButton,
+                    recentClipCollapseButton}) {
+                if (button == null || button.getLayoutParams() == null) continue;
+                if (button.getLayoutParams().width != edgeWidth) {
+                    button.getLayoutParams().width = edgeWidth;
+                    button.requestLayout();
+                }
+                if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
+            }
+        }
+    }
+
+    private static void resizeButton(Button button, int width, int height) {
+        if (button.getLayoutParams() == null) return;
+        if (button.getLayoutParams().width == width && button.getLayoutParams().height == height) return;
+        button.getLayoutParams().width = width;
+        button.getLayoutParams().height = height;
+        button.setMinimumWidth(width);
+        button.requestLayout();
     }
 
     /** 长按由框架消费，不再触发该按钮原来的短按动作。 */
@@ -352,6 +400,7 @@ final class ImeToolbar {
         dismiss.setContentDescription("不再显示这条复制的内容");
         bindToolbarAction(dismiss, s::dismissRecentClip);
         row.addView(dismiss, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        recentClipDismissButton = dismiss;
         // 文本编辑面板也显示最近复制；收起键与普通工具栏一样先返回键盘。
         Button collapse = s.shortcutButton(row, "收起", KeyboardShortcutIconPolicy.Icon.DISMISS,
             () -> {

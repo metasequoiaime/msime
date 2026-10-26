@@ -501,6 +501,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 文本编辑面板（方向键、选择、全选、复制、剪切、粘贴），见 {@link ImeTextEditPanel}。 */
     LinearLayout textEditPanel;
     LinearLayout shortcutToolbar;
+    View candidateHeightSpacer;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
     final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
@@ -4101,14 +4102,33 @@ public final class MSIMEInputService extends InputMethodService {
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
         int readingRow = readingRowHeight();
         if (candidateHeader != null) ViewPolicy.setFixedHeight(candidateHeader, readingRow);
-        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了读音行那一截，工具栏只取候选行的高度，总高不变。
+        // 未单独设置工具栏尺寸时继续跟随读音行与候选行。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白。
         boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
-        if (shortcutToolbar != null)
-            ViewPolicy.setFixedHeight(shortcutToolbar, (idleHeader ? 0 : readingRow) + pixels(line));
-        if (inlineAutofill != null) inlineAutofill.setHeight((idleHeader ? 0 : readingRow) + pixels(line));
+        int composingHeight = readingRow + pixels(line);
+        boolean customSize = localSettings != null && localSettings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        int sizePercent = customSize ? localSettings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
+        int targetIdleHeight = customSize
+            ? pixels(ToolbarSizePolicy.heightDp(sizePercent))
+            : composingHeight;
+        int idleHeight = customSize && idleHeader
+            ? Math.max(targetIdleHeight, readingRow + pixels(ToolbarSizePolicy.buttonHeightDp(sizePercent)))
+            : targetIdleHeight;
+        int idleRowHeight = idleHeight - (idleHeader ? readingRow : 0);
+        if (shortcutToolbar != null) ViewPolicy.setFixedHeight(shortcutToolbar, idleRowHeight);
+        if (inlineAutofill != null) inlineAutofill.setHeight(idleRowHeight);
         // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
-        if (recentClipRow != null)
-            ViewPolicy.setFixedHeight(recentClipRow, (idleHeader ? 0 : readingRow) + pixels(line));
+        if (recentClipRow != null) ViewPolicy.setFixedHeight(recentClipRow, idleRowHeight);
+        if (candidateHeightSpacer != null) {
+            boolean idleRowVisible = ViewPolicy.isVisible(shortcutToolbar)
+                || ViewPolicy.isVisible(recentClipRow)
+                || inlineAutofill != null && inlineAutofill.visible();
+            int spacer = customSize && idleRowVisible
+                ? ToolbarSizePolicy.idleSpacerPx(idleHeight, composingHeight)
+                : customSize && ViewPolicy.isVisible(candidateLine)
+                    ? ToolbarSizePolicy.composingSpacerPx(idleHeight, composingHeight) : 0;
+            ViewPolicy.setFixedHeight(candidateHeightSpacer, spacer);
+        }
+        imeToolbar.applyShortcutSize(sizePercent, customSize);
     }
 
     private int readingRowHeight() {
@@ -9163,6 +9183,8 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(imeLetterRows.keyPreviewLayer, LayoutPolicy.frameMatchParentParams());
         candidateCanvasRegion = new CandidateCanvasColumn(this);
         LinearLayout candidateRegion = candidateCanvasRegion;
+        candidateHeightSpacer = new View(this);
+        candidateRegion.addView(candidateHeightSpacer, LayoutPolicy.matchWidthHeightPx(0));
         imeToolbar.buildCandidateHeader(candidateRegion);
         imeCompositionEditor.install(candidateRegion);
         diagnosticView = ViewPolicy.textLabel(this, "", 12);
