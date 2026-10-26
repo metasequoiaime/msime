@@ -4,6 +4,27 @@
 
 这份文档的「存储布局」一节是契约：任何实现（各平台的客户端、以后的工具）都按它读写网盘上的文件。
 
+## 客户端怎么配置
+
+偏好文档里的 `cloud_clipboard_webdav`：
+
+```json
+{"cloud_clipboard_webdav": {"url": "https://dav.jianguoyun.com/dav/msime", "username": "<网盘账号>", "password": "<应用密码>"}}
+```
+
+- 三项要么都空（不用网盘），要么都合规；没配置时这个键不写进文档，旧版本照样能读。与 `cloud_clipboard_relay` 只能二选一，两者同时配置的偏好存不进去。配置了网盘就只走网盘，失败时不退回水杉账号。
+- `url` 是用户选的文件夹，规则与 [中继地址](cloud-clipboard-relay.md) 相同：`https://`（`http://` 只接受本机回环地址），不带查询串、片段和用户信息，不跟随重定向；TLS 用 rustls 和内置的 webpki-roots，不认自签证书和私有 CA。
+- `username` 是网盘账号（坚果云是登录邮箱），1 到 256 字节，不含控制字符和冒号；`password` 是应用密码（坚果云、Nextcloud 都要求第三方应用用应用密码而不是登录密码），1 到 256 字节，不含控制字符。应用密码列在凭据清单里，账号在诊断快照里也换成 `<redacted>`；整组不随设置文件导出、不进账号设置同步，MCP 的偏好白名单也不包括它。
+- 保存之前先「测试连接」（见下文），不通过不保存。
+- 本机密钥串仍是中继那份 `cloud-clipboard-relay-keystore`，只是它绑定的空间换成 `sha256("webdav\0" ‖ 基地址 ‖ "\0" ‖ 账号)` 的前 16 字节：换了地址或账号就生成新的设备身份，要重新批准；换应用密码不换，不用重新批准。
+
+## 宿主怎么接入
+
+- `msime_client_cloud_clipboard_source` 对网盘也答 `{"source":"relay"}`，另带 `"backend":"webdav"`（中继是 `"relay"`）。已有的宿主把不认识的来源当作错误，所以不加新的来源值；`msime_client_relay_cloud_clipboard` 按偏好里的配置自己分派，Tauri 桌面端的设置页和云剪贴板面板、Windows 原生设置窗口、macOS 输入法进程、Linux Fcitx5 键盘栏这些已经接上中继的入口不用改就能走网盘。宿主只在给用户说明「现在经哪里同步」时看 `backend`。
+- 自己跑驱动、自己保存密钥串的宿主（Android）经 `msime_client_relay_cloud_clipboard_exchange` 发请求，网盘时传 `{"backend":"webdav", url, username, password, directory, method, path, body}`；`directory` 放日志的本机缓存和锁文件，要与 `msime_client_relay_cloud_clipboard` 用的那个目录相同（Android 是 `noBackupFilesDir/cloud-clipboard-relay`，里面只有密文和公开数据）。Android 的绑定（键盘用来认出「换过了」）是 `webdav:` 加地址和账号的摘要，同样不含应用密码。
+- 「测试连接」是 `msime_client_cloud_clipboard_webdav_probe`（Tauri 桌面端是命令 `cloud_clipboard_webdav_probe`，Android 是 `NativeClient.cloudClipboardWebDavProbe`），带设置页里还没保存的草稿；给了本机密钥串的目录时，通过后删掉那里的日志缓存。格式见 `crates/host-api/include/msime_client.h`。
+- Android 和 iOS 的 Tauri 外壳只经水杉账号答，配置了网盘时与配置了中继一样拒绝（`relay_unsupported`）。iOS 和 HarmonyOS 的原生宿主还没有接中继，也就没有网盘。
+
 ## 实现在哪里
 
 - `crates/client-core/src/cloud/clipboard_log.rs`：不碰网络的日志核心。事件格式、按序号重放得出状态（与参考中继的 `RelayStore::handle` 一一对应，单元测试照着中继的测试逐条移植）、请求到「要写的事件和写成后的响应」的映射、封口和快照。请求的解析和不依赖状态的校验也在这里，参考中继直接用它，两边的错误码不会漂移。
@@ -109,7 +130,7 @@
 - 从快照重新开始时，epoch、序号和密钥代数（换钥和关闭开关各算一次）都不许比本机记得的小，序号相同时链头也要相同；
 - 本机读到过事件，而网盘上的 `msime-clipboard/v1/` 不见了时，不会从头再建一份。
 
-不满足时报 `webdav_rollback`。如果是用户自己清理了网盘上的文件夹，删掉本机的 `cloud-clipboard-webdav-state` 就会从网盘现在的样子重新开始。这只防「改写本机已经读过的历史」：知道应用密码的人仍然可以往后追加事件，比如用一把它自己生成的密钥换钥、封装给所有设备的公钥，这与自建中继的令牌泄露、官方服务端被攻破时的风险相同（见 [端到端加密](cloud-clipboard-e2e.md) 的威胁模型）。所以移除一台设备之后要在网盘上换一个应用密码，并且最好给水杉输入法单独开一个应用密码。没有本机缓存的新安装没有这层保护。
+不满足时报 `webdav_rollback`。如果是用户自己清理了网盘上的文件夹，在设置里重新「测试连接」并保存（它在通过后删掉本机的 `cloud-clipboard-webdav-state`），就会从网盘现在的样子重新开始。这只防「改写本机已经读过的历史」：知道应用密码的人仍然可以往后追加事件，比如用一把它自己生成的密钥换钥、封装给所有设备的公钥，这与自建中继的令牌泄露、官方服务端被攻破时的风险相同（见 [端到端加密](cloud-clipboard-e2e.md) 的威胁模型）。所以移除一台设备之后要在网盘上换一个应用密码，并且最好给水杉输入法单独开一个应用密码。没有本机缓存的新安装没有这层保护。
 
 ## 请求量和限制
 

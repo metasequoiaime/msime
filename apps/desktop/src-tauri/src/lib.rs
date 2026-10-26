@@ -2518,6 +2518,26 @@ async fn cloud_clipboard_request(
     platform::cloud_clipboard::cloud_clipboard_request(&account.session, action).await
 }
 
+/// WebDAV 设置的「测试连接」（`docs/cloud-clipboard-webdav.md`）：用设置页里还没保存的地址、账号和应用密码，在网盘上试一遍云剪贴板日志要用的行为，通过答 `{}`；通过后删掉本机的日志缓存，防回退从网盘现在的样子重新开始。不合格是 `webdav_unsupported`，账号或密码不对是 `relay_unauthorized`。会联网，大约二十个请求。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn cloud_clipboard_webdav_probe(
+    account: tauri::State<'_, desktop_account::AccountState>,
+    url: String,
+    username: String,
+    password: String,
+) -> Result<Value, CommandError> {
+    let directory = account.directory.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        msime_host_api::cloud_clipboard::webdav_probe(&url, &username, &password, Some(&directory))
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "unavailable",
+    })?
+    .map_err(|code| CommandError { code })
+}
+
 #[cfg(any(target_os = "ios", target_os = "android"))]
 #[tauri::command]
 async fn cloud_clipboard_request(
@@ -6104,6 +6124,8 @@ pub fn run() {
             dictionary_request,
             dictionary_scel_text,
             cloud_clipboard_request,
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            cloud_clipboard_webdav_probe,
             cloud_clipboard_can_send_text,
             cloud_dictionary_request,
             load_emoji_catalog,

@@ -57,6 +57,7 @@ Windows 原生设置页、macOS 与 Linux 共享设置页「剪贴板」的「�
 - Android 原生宿主经 JNI 接上：「我的 → 云剪贴板」页、键盘剪贴板面板的「云端」（列表、插入、「发到云剪贴板」）都先问 `msime_client_cloud_clipboard_source`，选了中继就只走中继。端到端加密的操作由宿主自己跑驱动（`msime_client_cloud_clipboard_e2e`，与它的水杉账号路径同一个循环），密钥串用 AndroidKeyStore 加密保存，每个请求经 `msime_client_relay_cloud_clipboard_exchange` 由 Rust 发给中继（只发一个请求，不读写密钥串）；开关、置顶、保留、删除和清空经 `msime_client_relay_cloud_clipboard` 直接请求。键盘按偏好快照里的地址和令牌认出中继换过，换过之后旧的条目不再插入、上传不发出。配置了中继时账号页「云剪贴板」那一行不显示条数，也不去问水杉账号。Android 和 iOS 的 Tauri 外壳（Android 的是 `build-client-apk.sh` 的开发合包，不是发布包）只能经水杉账号答云剪贴板，配置了中继时共享设置页的「发到云剪贴板」和共享云剪贴板面板一律拒绝（`relay_unsupported`），不改走账号。
 - Windows 原生 WinUI 设置窗口的「剪贴板」页提供同步方式、地址和遮罩令牌，点击「保存同步方式」后由共享 Rust 一起校验和保存；切回账号会删除中继配置。「发到云剪贴板」在后台查询所选来源，中继请求失败或来源读取失败不走账号；`relay_unauthorized` 显示令牌错误。中继密钥串与 Tauri 云剪贴板面板共用账号目录。配置变化后旧请求结果失效。
 - macOS 输入法进程经 Apple 的 Rust 函数表（`shared/backend/rust/MSIMERustClient.h`）接入同样两个 C 入口：输入法菜单启动的 Tauri 面板、未登录时退回的原生云剪贴板窗口（`MacClipboardModel`）和表情面板剪贴板历史的「发到云剪贴板」都先问 `msime_client_cloud_clipboard_source`，选了中继就只走 `msime_client_relay_cloud_clipboard`，不要求登录水杉账号；偏好和中继密钥串都在输入法状态目录（`~/Library/Application Support/app.msime.macos`）。选路失败（偏好读不了、中继配置不合规）退回登录窗口，不拿账号路径顶上。
+- [WebDAV 网盘](cloud-clipboard-webdav.md) 经同样两个 C 入口接入：`msime_client_cloud_clipboard_source` 对它也答 `relay`，另带 `backend: "webdav"`，中继入口按偏好自己分派。
 - 设置页的中继字段目前在 Windows、Linux、macOS 和 Android 显示。iOS 和 HarmonyOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。
 
 ## 参考实现

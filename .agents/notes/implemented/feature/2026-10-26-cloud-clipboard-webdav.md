@@ -21,6 +21,9 @@ Status: implemented
 - **封口与确定的快照**：攒了 64 个以上的事件、有条目过了保留期、或者刚清空、换钥、关闭开关时，一个 `seal` 事件抢下一个序号关闭当前 epoch，下一个 epoch 的 `snapshot.json` 是封口那一刻的状态，字节由日志唯一决定，谁写成都一样，封口的设备中断时下一台补上。旧 epoch 在 120 秒宽限期后删除，删除失败不再试。删掉的密文可能还在网盘的回收站里，文档写明。
 - **不轮询，两秒内的缓存直接用**：面板本来就在打开和刷新时拉取，读取就是一个 `PROPFIND` 加上新事件的 `GET`；驱动一个操作连着的几个读请求共用一次同步。坚果云的配额（600 次每 30 分钟，与其他应用共用）是硬约束，后台轮询会很快耗光它。429、503 按 `Retry-After` 退避（缺省 1、2、4 秒，最多三次），要等超过 8 秒就直接报 `webdav_rate_limited`，不让输入法挂着。
 - **保存前「测试连接」**：建探测子目录、独占创建两次（第二次必须失败）、刚写的马上列得出、四路并发抢同一个名字恰好一个成功，然后删掉探测目录。探测目录建在 `msime-clipboard/` 下面而不是直接在基地址下，因为用户把基地址选在坚果云根目录时，根目录下的文件夹删不掉。它只证明语义，证明不了任何负载下都原子。
+- **偏好 `cloud_clipboard_webdav {url, username, password}`，与中继二选一，宿主看来仍是中继**：地址规则沿用中继的（https、http 只放行回环、不跟随重定向、webpki-roots），应用密码进凭据清单，账号在诊断快照里也换掉，整组进 `LOCAL_SECTIONS`、不进账号设置同步和 MCP，没配置时不写。`msime_client_cloud_clipboard_source` 对网盘仍答 `source: "relay"`，只多一个 `backend`：已有的宿主（Swift、Fcitx5、WinUI、Win7、Android）都把不认识的来源当成错误，加新来源值会让还没更新的宿主在用户配置了网盘时直接报错；而中继的两个 C 入口在 Rust 里按配置分派，这些宿主不用改就能走网盘。密钥串空间不含应用密码，`sha256("webdav\0" ‖ 地址 ‖ "\0" ‖ 账号)` 的前 16 字节，换应用密码（移除设备后应该换）不用重新批准；Android 的绑定照同样规则。
+- **Android 只多一个 JNI 入口**：端到端加密的操作照旧由 Java 跑驱动、AndroidKeyStore 保存密钥串，`msime_client_relay_cloud_clipboard_exchange` 多收 `backend: "webdav"` 和一个目录，Rust 在那个目录（就是中继密钥串所在的 `noBackupFilesDir/cloud-clipboard-relay`）里放日志缓存；直连动作经 `msime_client_relay_cloud_clipboard` 用同一个目录，两条路看到的是同一份缓存和同一把锁。缓存里只有密文和公开数据。
+- **「测试连接」通过时可以重新信任网盘**：带上本机目录时，通过后删掉日志缓存。用户自己清理过网盘文件夹而本机报 `webdav_rollback` 时，重新测试并保存就是恢复的办法；这一步只有用户在设置里主动做，攻击者触发不了。
 - **测试用真的 WebDAV 服务端**：`tests/webdav_flow.rs` 用 `dav-server`（维护者同意的测试依赖）的内存文件系统跑与 `flow.rs` 相同的完整流程。它放在参考中继的 crate 里，因为那里已经有 axum 和 tokio 能把 `dav-server` 跑起来；放进 `client-services` 就要给它另加 HTTP 服务端依赖，维护者只批了 `dav-server` 一个。`dav-server` 的 MOVE 先查目标再改名，并发时不保证只有一个成功，测试外层用一把锁让请求逐个处理；不可靠网盘的行为由 `clipboard_webdav_tests.rs` 里可注入故障的假网盘覆盖。
 
 ## Alternatives considered
@@ -35,7 +38,7 @@ Status: implemented
 
 - **收益**：有 WebDAV 网盘的用户不用登录水杉账号、不用部署服务就能跨设备用云剪贴板，网盘只见到密文；参考中继和 WebDAV 后端共用同一份请求校验，日志核心逐条对照中继的单元测试。
 - **代价**：每个设备都要重放日志、维护一份本机缓存；一次上传至少三个请求（中继是一个），坚果云免费账号的配额要和其他应用分；没有实时推送。网盘看得到每次写入的时间和次数，比中继多一点元数据；删掉的密文可能留在回收站。知道应用密码的人仍能往后追加事件（与中继令牌泄露同级），只能靠文档提醒移除设备后换应用密码。新安装没有本机缓存，第一次读时没有防回退可言。
-- **已知缺口**：这一步只有 Rust 客户端：偏好 `cloud_clipboard_webdav`、宿主选路和 C ABI、Android 的 exchange、各平台设置页在后续改动里接入。iOS 和 HarmonyOS 的原生宿主还没接中继，同样也不会有 WebDAV。
+- **已知缺口**：各平台的设置界面在后续改动里接入。iOS 和 HarmonyOS 的原生宿主还没接中继，同样也不会有 WebDAV。
 
 ## Verification
 

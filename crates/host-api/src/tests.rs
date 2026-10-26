@@ -1398,6 +1398,159 @@ fn relay_exchange_checks_the_relay_and_the_request_before_the_network() {
 }
 
 #[test]
+fn a_webdav_drive_is_a_relay_source_with_its_own_backend() {
+    let preferences = tempfile::tempdir().unwrap();
+    let keystore = tempfile::tempdir().unwrap();
+    let preferences_path = preferences.path().to_str().unwrap().to_owned();
+    let keystore_path = keystore.path().to_str().unwrap().to_owned();
+    let source = || {
+        let bytes = preferences_path.as_bytes();
+        read(unsafe { msime_client_cloud_clipboard_source(bytes.as_ptr(), bytes.len()) })
+    };
+    let call = |action: serde_json::Value| {
+        let body = serde_json::to_vec(&json!({
+            "preferences_directory": preferences_path,
+            "directory": keystore_path,
+            "device_name": "合成设备",
+            "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_relay_cloud_clipboard(body.as_ptr(), body.len()) })
+    };
+    assert!(source()["value"].get("backend").is_none());
+
+    let store = PreferencesStore::new(preferences.path());
+    let mut configured = store.load().unwrap().preferences;
+    // 端口 9 上没有服务：真发出去的请求答 relay_unavailable。
+    configured.cloud_clipboard_webdav.url = "http://127.0.0.1:9/dav".into();
+    configured.cloud_clipboard_webdav.username = "synthetic@example.test".into();
+    configured.cloud_clipboard_webdav.password = "synthetic-app-password".into();
+    store.save(0, configured.clone()).unwrap();
+    // 网盘也报 `relay`：已有的宿主不认识新的来源值，会当成错误；`backend` 只用来给用户说明。
+    assert_eq!(source()["value"]["source"], "relay");
+    assert_eq!(source()["value"]["backend"], "webdav");
+    assert_eq!(
+        call(json!({ "operation": "clear" }))["error"],
+        "relay_unavailable"
+    );
+    assert_eq!(
+        call(json!({ "operation": "set_retention", "days": 3 }))["error"],
+        "invalid_cloud_clipboard"
+    );
+    // 中继和网盘不能同时配置，保存时就被拒绝。
+    let mut both = configured.clone();
+    both.cloud_clipboard_relay.url = "http://127.0.0.1:9".into();
+    both.cloud_clipboard_relay.token = "synthetic-relay-token".into();
+    let revision = store.load().unwrap().revision;
+    assert!(store.save(revision, both).is_err());
+
+    let mut relay = configured;
+    relay.cloud_clipboard_webdav = Default::default();
+    relay.cloud_clipboard_relay.url = "http://127.0.0.1:9".into();
+    relay.cloud_clipboard_relay.token = "synthetic-relay-token".into();
+    store.save(revision, relay).unwrap();
+    assert_eq!(source()["value"]["backend"], "relay");
+}
+
+#[test]
+fn the_webdav_exchange_takes_only_its_own_fields_and_a_cache_directory() {
+    let cache = tempfile::tempdir().unwrap();
+    let cache_path = cache.path().to_str().unwrap().to_owned();
+    let call = |body: serde_json::Value| {
+        let body = serde_json::to_vec(&body).unwrap();
+        read(unsafe { msime_client_relay_cloud_clipboard_exchange(body.as_ptr(), body.len()) })
+    };
+    let request = || {
+        json!({
+            "backend": "webdav",
+            "url": "http://127.0.0.1:9/dav",
+            "username": "synthetic@example.test",
+            "password": "synthetic-app-password",
+            "directory": cache_path,
+            "method": "GET",
+            "path": "/v1/users/me/clipboard",
+        })
+    };
+    assert_eq!(call(request())["error"], "relay_unavailable");
+    // 不合规的请求在本机答，不碰网盘。
+    let mut local = request();
+    local["path"] = json!("/v1/users/me/clipboard/keys?device_id=nope");
+    let answer = call(local);
+    assert_eq!(answer["value"]["status"], 400);
+    let without = |field: &str| {
+        let mut body = request();
+        body.as_object_mut().unwrap().remove(field);
+        body
+    };
+    let with = |field: &str, value: serde_json::Value| {
+        let mut body = request();
+        body[field] = value;
+        body
+    };
+    for body in [
+        without("directory"),
+        without("username"),
+        without("password"),
+        with("directory", json!("relative")),
+        with("token", json!("synthetic-relay-token")),
+        with("backend", json!("ftp")),
+        with("path", json!("/v1/users/me/profile")),
+    ] {
+        assert_eq!(
+            call(body.clone())["error"],
+            "invalid_cloud_clipboard",
+            "{body}"
+        );
+    }
+    assert_eq!(
+        call(with("url", json!("http://dav.example.test/dav")))["error"],
+        "relay_not_configured"
+    );
+    assert_eq!(
+        call(with("username", json!("has:colon")))["error"],
+        "relay_not_configured"
+    );
+    // 中继的请求不收网盘的字段。
+    assert_eq!(
+        call(json!({
+            "url": "http://127.0.0.1:9", "token": "synthetic-relay-token", "username": "x",
+            "method": "GET", "path": "/v1/users/me/clipboard",
+        }))["error"],
+        "invalid_cloud_clipboard"
+    );
+}
+
+#[test]
+fn the_webdav_probe_checks_the_draft_before_the_network() {
+    let call = |body: serde_json::Value| {
+        let body = serde_json::to_vec(&body).unwrap();
+        read(unsafe { msime_client_cloud_clipboard_webdav_probe(body.as_ptr(), body.len()) })
+    };
+    let draft = json!({
+        "url": "http://127.0.0.1:9/dav",
+        "username": "synthetic@example.test",
+        "password": "synthetic-app-password",
+    });
+    assert_eq!(call(draft.clone())["error"], "relay_unavailable");
+    let mut relative = draft.clone();
+    relative["directory"] = json!("relative");
+    assert_eq!(call(relative)["error"], "invalid_cloud_clipboard");
+    let mut extra = draft.clone();
+    extra["token"] = json!("x");
+    assert_eq!(call(extra)["error"], "invalid_cloud_clipboard");
+    let mut remote_http = draft.clone();
+    remote_http["url"] = json!("http://dav.example.test/dav");
+    assert_eq!(call(remote_http)["error"], "relay_not_configured");
+    let mut empty = draft;
+    empty["password"] = json!("");
+    assert_eq!(call(empty)["error"], "relay_not_configured");
+    assert_eq!(
+        read(unsafe { msime_client_cloud_clipboard_webdav_probe(std::ptr::null(), 0) })["error"],
+        "invalid_cloud_clipboard"
+    );
+}
+
+#[test]
 fn mixed_input_changes_defer_until_composition_ends() {
     use msime_client_core::preferences::MixedInputPreferences;
     let dir = tempfile::tempdir().unwrap();

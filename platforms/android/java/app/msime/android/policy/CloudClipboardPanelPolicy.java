@@ -82,8 +82,11 @@ public final class CloudClipboardPanelPolicy {
     public static Status failed(int httpStatus, String code) {
         if (CODE_DISABLED.equals(code)) return Status.DISABLED;
         if (CODE_PENDING.equals(code)) return Status.PENDING;
+        // WebDAV 网盘的日志被回退、网盘不合格也要用户到设置里处理，重试没用。
         if (CloudClipboardRelayPolicy.CODE_UNAUTHORIZED.equals(code)
-                || CloudClipboardRelayPolicy.CODE_NOT_CONFIGURED.equals(code)) return Status.RELAY_REJECTED;
+                || CloudClipboardRelayPolicy.CODE_NOT_CONFIGURED.equals(code)
+                || CloudClipboardRelayPolicy.CODE_ROLLBACK.equals(code)
+                || CloudClipboardRelayPolicy.CODE_UNSUPPORTED.equals(code)) return Status.RELAY_REJECTED;
         return failed(httpStatus);
     }
 
