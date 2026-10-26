@@ -30,6 +30,10 @@ time = { workspace = true, features = ["formatting"] }
 # 端到端测试用真正的客户端驱动连这个中继。
 msime-client-services = { path = "../client-services" }
 tempfile.workspace = true
+# `tests/webdav_flow.rs` 让客户端的 WebDAV 后端对着一个真实的 WebDAV 服务端跑完整流程；只用内存文件系统。维护者同意作为测试依赖引入。放在这里而不是客户端的 crate，是因为这里已经有 axum 和 tokio 能把它跑起来。
+dav-server = { version = "0.11", default-features = false, features = ["memfs"] }
+# 让 `dav-server` 一次只处理一个请求（它的 MOVE 是先查后改）。
+tokio = { workspace = true, features = ["sync"] }
 
 [lints]
 workspace = true
