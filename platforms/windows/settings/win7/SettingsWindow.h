@@ -44,6 +44,7 @@ enum ControlId {
   scheme_wubi_third, scheme_wubi_save, scheme_vietnamese_method, scheme_vietnamese_tone,
   scheme_wubi_lookup_text, scheme_wubi_lookup, scheme_wubi_result,
   gloss_english = 1100, gloss_translations, gloss_pronunciation, gloss_target, gloss_secondary,
+  gloss_scope,
   translation_provider_control = 1200, translation_tencent_first = 1210,
   translation_niutrans_first = 1230, translation_custom_first = 1250,
   appearance_layout = 1300, appearance_page_size, appearance_logo, appearance_follow,
