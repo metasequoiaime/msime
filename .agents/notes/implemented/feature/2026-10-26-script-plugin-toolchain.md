@@ -63,5 +63,7 @@ Status: implemented
 - 手动：Studio 上 `msime-pack new demo-dice`、`build`、`pack`；`RUSTUP_TOOLCHAIN=stable`（没有 wasm 目标）时 `build` 停在 `rustup target add` 提示、退出 1；`-o pack/x.zip` 被拒绝。
 - uuid：改动前后 `bash scripts/build-script-plugins.sh` 编出的 `uuid.wasm` sha256 都是 `57287707ced024ed713aed604b4e7737f51e231ec003529d4f07706adedc54b8`；换成 crate 依赖的那一版是 `23241a0b…`（3279 字节），据此保留 `#[path]`。
 - `actionlint`（`SHELLCHECK_OPTS=--severity=warning`）检查 `release-pack-tool.yml` 和改过的 `ci-platforms.yml`，无输出。
+- `bash scripts/test-script-plugins.sh`：三个插件和 `expected.jsonl` 一致（uuid 另按 RFC 9562 核对），生成数据那一步因 Studio 没有缓存 Unihan zip 打印 skip；`bash scripts/build-official-plugins.sh --check` 通过，uuid 的内容哈希等于锁定值。
+- `bash scripts/verify-local.sh --quick`：Rust 工作区、android 目标、wasm 目标的检查、actionlint 和契约检查通过；`android host java` 和 `macos build` 两项因 Studio 系统盘写满（`No space left on device`）失败，与这次改动无关，没有在别的机器上重跑；Windows、HarmonyOS 和 Linux 容器检查在 Studio 上跳过。
 
 相关：[作者工具](2026-10-12-script-plugin-author-tools.md) 是 `run`、SDK 和模板的出处；[脚本插件合集](../architecture/2026-10-12-script-plugin-collection.md) 的「没有任何依赖」被这里改为「只依赖 SDK」；[官方插件包随桌面安装包分发](../architecture/2026-10-13-official-plugin-packs-in-desktop-installers.md) 是 uuid 哈希锁的出处。
