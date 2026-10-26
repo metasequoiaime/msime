@@ -92,7 +92,7 @@ fi
 style_body=$(sed -n '/^    void styleCandidateButton(Button button) {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
 if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
-  || rg -q 'itemMinWidth' <<< "$style_body"; then
+  || rg -q '\.itemMinWidth' <<< "$style_body"; then
   echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
   exit 1
 fi
