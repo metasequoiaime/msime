@@ -87,7 +87,7 @@ pub const COMMAND_TRIGGER_BYTES: std::ops::RangeInclusive<usize> = 2..=16;
 /// 插件指令标题的字符数。同引擎的 `local::command::PLUGIN_TITLE_CHARS`。
 pub const COMMAND_TITLE_CHARS: std::ops::RangeInclusive<usize> = 1..=8;
 /// 内置 `/` 指令的触发词：日期、时间、星期、农历和翻译。client-services 不能依赖引擎（`docs/ARCHITECTURE.md`），这里复制了引擎 `local::command::builtin_triggers` 的全集，host-api 的一致性测试守着两边相同。
-pub const BUILTIN_COMMAND_TRIGGERS: [&str; 15] = [
+pub const BUILTIN_COMMAND_TRIGGERS: [&str; 21] = [
     "rq",
     "riqi",
     "date",
@@ -100,12 +100,29 @@ pub const BUILTIN_COMMAND_TRIGGERS: [&str; 15] = [
     "nl",
     "nongli",
     "yinli",
+    "jidu",
+    "tianshu",
+    "daojishi",
+    "zhou",
+    "shengxiao",
+    "shu",
     "translate",
     "fanyi",
     "fy",
 ];
 /// 内置 `/` 指令的标题，同引擎的 `local::command::builtin_titles`，同样由一致性测试守着。
-pub const BUILTIN_COMMAND_TITLES: [&str; 5] = ["日期", "时间", "星期", "农历", "翻译"];
+pub const BUILTIN_COMMAND_TITLES: [&str; 10] = [
+    "日期",
+    "时间",
+    "星期",
+    "农历",
+    "季度",
+    "天数",
+    "倒计时",
+    "周",
+    "生肖",
+    "翻译",
+];
 /// 模块文件的字节上限，即运行时的 `limits::MAX_MODULE_BYTES`。
 pub const MAX_MODULE_BYTES: u64 = limits::MAX_MODULE_BYTES as u64;
 /// 模块文件的扩展名。

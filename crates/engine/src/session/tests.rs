@@ -8408,12 +8408,16 @@ fn slash_opens_the_command_list_and_letters_filter_it() {
             "2026年8月9日",
             "14:30",
             "星期日",
-            "丙午年六月二十七日"
+            "丙午年六月二十七日",
+            "2026年第3季度",
+            "已过220天/剩145天",
+            "已过31周/剩22周",
+            "马年"
         ]
     );
     assert_eq!(
         snapshot.candidate_annotations,
-        ["签名", "日期", "时间", "星期", "农历"]
+        ["签名", "日期", "时间", "星期", "农历", "季度", "天数", "周", "生肖"]
     );
 
     type_text(&mut session, "si");
@@ -8544,7 +8548,16 @@ fn at_lists_the_mention_list_and_letters_filter_it() {
     session.set_command_table(&[]);
     assert_eq!(
         words(&session),
-        ["2026年8月9日", "14:30", "星期日", "丙午年六月二十七日"]
+        [
+            "2026年8月9日",
+            "14:30",
+            "星期日",
+            "丙午年六月二十七日",
+            "2026年第3季度",
+            "已过220天/剩145天",
+            "已过31周/剩22周",
+            "马年"
+        ]
     );
 }
 
