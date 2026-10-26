@@ -540,9 +540,9 @@ svg .life{stroke:#cbd5e1;stroke-width:1.2;stroke-dasharray:4 4}
 <text x="746" y="496" class="lbl" text-anchor="start">读写（持锁、原子替换）</text>
 <rect x="800" y="515" width="300" height="118" rx="12" class="tool"/>
 <text x="814" y="539" class="t">crates/pack-tool：msime-pack</text>
-<text x="814" y="560" class="s">validate · hash · run</text>
+<text x="814" y="560" class="s">validate · hash · run · new · build · pack</text>
 <text x="814" y="578" class="s">和输入法同一份校验与执行代码</text>
-<text x="814" y="596" class="s">作者在本地按事件夹具试跑脚本</text>
+<text x="814" y="596" class="s">作者在仓库外生成、编译、试跑、打包</text>
 <line x1="1040" y1="515" x2="1040" y2="472" class="ag" marker-end="url(#a1)"/>
 <text x="1046" y="498" class="lbl" text-anchor="start">复用</text>
 </svg></div>
@@ -661,8 +661,9 @@ svg .life{stroke:#cbd5e1;stroke-width:1.2;stroke-dasharray:4 4}
 <tr><td><code>crates/host-api/src/plugin_tables.rs</code> · <code>key_sound</code></td><td>数据包读进 EngineOptions；音效与音乐</td></tr>
 <tr><td><code>crates/input-runtime/src/transform.rs</code></td><td>CandidateTransform、CommandProvider 两个注入点</td></tr>
 <tr><td><code>crates/script-runtime/src/</code> abi · module · instance · limits</td><td>ABI v1 契约、编译与校验、实例与 import、各项上限</td></tr>
-<tr><td><code>crates/pack-tool</code></td><td>msime-pack validate / hash / run</td></tr>
-<tr><td><code>plugins/official-packs.json</code> · <code>plugins/script</code> · <code>docs/script-plugin-template</code></td><td>官方包哈希锁、可用脚本插件源码、作者模板与 SDK</td></tr>
+<tr><td><code>crates/pack-tool</code></td><td>msime-pack validate / hash / run / new / build / pack</td></tr>
+<tr><td><code>crates/script-sdk</code></td><td>脚本插件的 Rust SDK msime-script-sdk（no_std、无依赖）和 C 头文件</td></tr>
+<tr><td><code>plugins/official-packs.json</code> · <code>plugins/script</code> · <code>docs/script-plugin-template</code></td><td>官方包哈希锁、可用脚本插件源码、作者模板</td></tr>
 </table>
 </div>
 </details>

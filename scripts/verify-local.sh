@@ -230,7 +230,7 @@ scope_classify() {
     platforms/macos/*) echo macos; echo named ;;
     platforms/ios/* | resources/* | scripts/* | tools/*) echo named ;;
     # 没有 --quick 阶段从这些路径构建：常驻的契约检查、Rust workspace 检查和 agent-notes 阶段覆盖它们。脚本插件（plugins/）不属于任何平台，由 CI 的 Script plugins 作业和 scripts/test-script-plugins.sh 测试。
-    docs/* | crates/dict-builder/* | crates/pack-tool/* | crates/mcp-server/* | plugins/* | \
+    docs/* | crates/dict-builder/* | crates/pack-tool/* | crates/script-sdk/* | crates/mcp-server/* | plugins/* | \
       .agents/* | *.md | LICENSE | .editorconfig) ;;
     *) echo all ;;
   esac
@@ -1081,7 +1081,7 @@ note "clippy: first-party crates"
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
 for crate in msime-path-trust msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-host-macos \
-             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform msime-script-runtime msime-pack-tool msime-dict-builder msime-clipboard-relay; do
+             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform msime-script-runtime msime-script-sdk msime-pack-tool msime-dict-builder msime-clipboard-relay; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'
 done

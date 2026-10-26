@@ -346,7 +346,20 @@ items = ["→", "←", "⇒"]
 
 ## 脚本插件（`kind = "script"`）
 
-脚本插件是唯一带可执行内容的类型：包里有一个 core wasm 模块，在桌面输入法进程里由沙箱解释器运行，按用户逐项授予的能力读组字、上屏文本和候选，或者在自己声明的 `/` 指令里给出候选（见[`/` 指令](#-指令)）。它还是实验功能。想直接开始：复制 [script-plugin-template](script-plugin-template/)，那是一个用 Rust 写的完整例子（中英文之间加空格），附带 C 头文件和 Rust 绑定。拿来就能用的插件在仓库的 [plugins/script](../plugins/script/)：生僻字靠后、隐藏生僻字，从源码构建成插件包后导入；以及 UUID（`/uuid`），它是插件指令的参考样板，随桌面安装包分发（见[内置插件](#内置插件)）。构建、测试和每个插件的行为见那里的 README。
+脚本插件是唯一带可执行内容的类型：包里有一个 core wasm 模块，在桌面输入法进程里由沙箱解释器运行，按用户逐项授予的能力读组字、上屏文本和候选，或者在自己声明的 `/` 指令里给出候选（见[`/` 指令](#-指令)）。它还是实验功能。想直接开始：照下面[从零写一个插件](#从零写一个插件)用 `msime-pack new` 生成一个，不需要这个仓库。用 Rust 写，SDK 是 crates.io 上的 [msime-script-sdk](../crates/script-sdk/)（`no_std`、没有依赖），同一份 ABI 的 C 头文件是那里的 `msime_script.h`；[script-plugin-template](script-plugin-template/) 是一个更完整的例子（中英文之间加空格）。拿来就能用的插件在仓库的 [plugins/script](../plugins/script/)：生僻字靠后、隐藏生僻字，从源码构建成插件包后导入；以及 UUID（`/uuid`），它是插件指令的参考样板，随桌面安装包分发（见[内置插件](#内置插件)）。构建、测试和每个插件的行为见那里的 README。
+
+### 从零写一个插件
+
+在仓库外面写脚本插件只要 Rust 和 `msime-pack`：
+
+1. 装 Rust（[rustup.rs](https://rustup.rs)），加上 wasm 目标：`rustup target add wasm32-unknown-unknown`。
+2. 装 `msime-pack`：从[发布页](https://github.com/metasequoiaime/msime/releases)的 `pack-tool-v*` 发布下载对应平台的压缩包（macOS universal、Windows x64、Linux x64），解压后把 `msime-pack` 放进 `PATH`；或者 `cargo install --locked --git https://github.com/metasequoiaime/msime msime-pack-tool`（要克隆整个仓库）。
+3. 生成插件：`msime-pack new my-dice`。`--hook` 选例子：`command`（默认，`/` 指令，触发词取 id 里的小写字母）、`candidates`（给候选里的单字加注释）、`before_commit`（上屏前把 `...` 换成 `……`）；`--dir` 指定目录，默认是当前目录下的 `<id>`。生成的 crate 依赖 `msime-script-sdk`，清单只申请这个例子用到的能力，`pack/LICENSE.txt` 是占位文字，发布前换成许可证全文。
+4. 改 `src/lib.rs`。用到哪一组 SDK 函数，就在 `pack/plugin.toml` 的 `permissions` 里申请哪一项能力（见[能力](#能力)），钩子写进 `hooks`。
+5. 编译：在插件目录里运行 `msime-pack build`。它运行 `cargo build --release --target wasm32-unknown-unknown`，把模块复制成 `pack/<id>.wasm`，打印模块大小和实际需要的内存页数（例如 `memory 2/2 pages`，不一致时提示该把 `memory_pages` 改成多少），最后按导入的规则校验 `pack/`。
+6. 试运行：`msime-pack run pack --events fixture.jsonl --grant all`，每个事件输出一行 JSON，格式见[用 msime-pack run 试运行](#用-msime-pack-run-试运行)。
+7. 打包：`msime-pack pack`，在插件目录里生成 `<id>-<version>.zip`（条目排序、时间固定、不压缩，同样的文件得到逐字节相同的压缩包）并校验它；`-o` 指定输出。
+8. 导入：在设置的「插件 → 我的插件」里导入 `pack/` 文件夹或压缩包，在「脚本插件（实验）」里打开它、勾选能力。改了代码重新 `build` 之后要重新导入、重新授权：授权绑定在包的内容哈希上。
 
 ### 在哪里运行
 
@@ -448,7 +461,7 @@ title = "UUID"                  # 1 到 8 个字符，显示在插件行旁
 - 可以用 MVP 加上 mutable-global、sign-ext、sat-float-to-int、multi-value、bulk-memory、reference-types；不能用 threads、memory64、multi-memory、exceptions、tail-call、extended-const、GC、SIMD。
 - 函数返回非负数表示成功（复制的字节数、字段值），负数是 `DENIED`（-1，没有授予所属能力）、`ABSENT`（-2，事件里没有这个字段，或者被隐私规则屏蔽，两者故意不可区分）、`INVALID`（-3，字段编号或参数不对）、`LIMIT`（-4，缓冲区放不下，什么都没复制）。
 - 文本都是 UTF-8。取文本的函数依次检查能力（`DENIED`）、字段（`INVALID` 或 `ABSENT`）、整个目标缓冲区是否都在线性内存里（越界直接 trap）、放不放得下（`LIMIT`）。前两步返回时不看目标缓冲区，所以坏指针不一定 trap；复制之前一定已经检查过范围。
-- 编号的完整列表在 [sdk/msime_script.h](script-plugin-template/sdk/msime_script.h) 和 [sdk/msime_script.rs](script-plugin-template/sdk/msime_script.rs)，两份都和输入法里的定义逐项核对过。编号只会追加，不会改值。
+- 编号的完整列表在 SDK crate 的 [msime_script.h](../crates/script-sdk/msime_script.h) 和 [src/lib.rs](../crates/script-sdk/src/lib.rs)，两份都和输入法里的定义逐项核对过。编号只会追加，不会改值。
 
 ### 限制
 
