@@ -440,6 +440,42 @@ static NSString *MSIMECandidateStatusText(NSString *schemeTitle, NSDictionary *v
     return [parts componentsJoinedByString:@" · "];
 }
 
+// 光标后编辑（偏好 `caret_edit_suffix`）生效时画在候选窗首行右侧的提示，只是标明状态，不能点。
+static NSString *const MSIMECaretEditSuffixHint = @"候选编辑：光标后";
+
+// 视图的 `caret_edit_suffix`：只在光标后编辑生效时出现，缺省和不是布尔值时按没有生效处理。
+static BOOL MSIMECaretEditSuffixActive(NSDictionary *view) {
+    return [view isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(view[@"caret_edit_suffix"]);
+}
+
+// 视图的 `caret_edit_prefix`：光标后编辑里首选开头固定的那段。模式没生效、缺省或不是字符串时为空串。
+static NSString *MSIMECaretEditPrefix(NSDictionary *view) {
+    if (!MSIMECaretEditSuffixActive(view)) return @"";
+    id prefix = view[@"caret_edit_prefix"];
+    return [prefix isKindOfClass:NSString.class] ? prefix : @"";
+}
+
+// `offset` 处这个 Unicode 标量占几个 UTF-16 码元：完整的代理对是 2，其余（含落单的代理项）是 1。
+static NSUInteger MSIMEScalarUTF16Width(NSString *text, NSUInteger offset) {
+    return offset + 1 < text.length && CFStringIsSurrogateHighCharacter([text characterAtIndex:offset]) &&
+        CFStringIsSurrogateLowCharacter([text characterAtIndex:offset + 1]) ? 2 : 1;
+}
+
+// 候选格画出来的文字 `text` 开头要画淡的 UTF-16 长度。只有首选（`id.index` 为 0，runtime 已经把固定那段接在它的 `text` 前面）画淡；视图按 Unicode 标量数说固定那段多长，这里在 `text` 上数同样多个标量再换成 UTF-16 长度，不切开代理对，也不超出 `text`。别的格、模式没生效或固定那段为空时为 0。
+static NSUInteger MSIMECaretEditDimmedLength(NSDictionary *view, NSDictionary *candidate, NSString *text) {
+    NSString *prefix = MSIMECaretEditPrefix(view);
+    if (!prefix.length || ![candidate isKindOfClass:NSDictionary.class] || ![text isKindOfClass:NSString.class]) return 0;
+    NSDictionary *identifier = candidate[@"id"];
+    NSUInteger index = 0;
+    if (![identifier isKindOfClass:NSDictionary.class] || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index) || index != 0)
+        return 0;
+    NSUInteger scalars = 0;
+    for (NSUInteger offset = 0; offset < prefix.length; ++scalars) offset += MSIMEScalarUTF16Width(prefix, offset);
+    NSUInteger length = 0;
+    for (NSUInteger counted = 0; counted < scalars && length < text.length; ++counted) length += MSIMEScalarUTF16Width(text, length);
+    return length;
+}
+
 // 这一页里第一条云候选（来源 2），没有时取 AI 候选（来源 3），首行右侧预览它；AI 占位行和空文本不算。两种都没有时为 nil。
 static NSDictionary *MSIMECandidateOnlinePreview(NSArray *candidates) {
     NSDictionary *ai = nil;
@@ -9098,6 +9134,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     button.translation = slot < geometry.translations.count ? geometry.translations[slot] : CandidateTranslation(candidate);
     button.glossReading = geometry.readings[slot];
     button.scriptAnnotation = scriptAnnotation;
+    button.dimmedPrefixLength = MSIMECaretEditDimmedLength(_view, candidate, geometry.texts[slot]);
     button.pronunciation = [self pronunciationForCandidate:candidate];
     button.armedGlossColumn = _armedGlossColumn;
     button.translationFont = glossFont;
@@ -9819,7 +9856,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         (expandable && !skinExpand && !compactExpand ? arrowWidth : 0);
     const auto preeditMargin = MSIMECandidatePreeditMargins(skin, preedit.length > 0, scale);
     const CGFloat bodyRowGap = MSIMECandidateBodyRowGap(skin, preedit.length > 0, scale);
-    const CGFloat headerContentHeight = MAX(preeditHeight, pageControls || logo || (expandable && !skinExpand && !compactExpand) ? headerRow : 0);
+    // 光标后编辑生效时首行右侧有它的提示，没有别的首行内容时也要留出首行。
+    const BOOL caretEditActive = MSIMECaretEditSuffixActive(_view);
+    const CGFloat headerContentHeight = MAX(preeditHeight, pageControls || logo || (expandable && !skinExpand && !compactExpand) || caretEditActive ? headerRow : 0);
     const CGFloat headerHeight = headerContentHeight + preeditMargin.top + preeditMargin.bottom;
     const CGFloat numberScale = skin.layout && skin.layout->numberScale.has_value()
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
@@ -9833,6 +9872,12 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat statusGap = 8 * scale;
     const CGFloat statusTextWidth = statusText.length ? ceil([statusText sizeWithAttributes:@{NSFontAttributeName: statusFont}].width) : 0;
     const CGFloat statusBlock = statusTextWidth > 0 ? 2 * statusGap + scale + statusTextWidth : 0;
+    // 「候选编辑：光标后」和翻页的「1 / 3」同一字号，放在翻页控件左边；它算进卡片的最小宽度，模式生效期间总能画全。
+    NSString *caretEditHint = caretEditActive ? MSIMECaretEditSuffixHint : @"";
+    const NSSize caretEditHintSize = caretEditHint.length ? [caretEditHint sizeWithAttributes:@{NSFontAttributeName: statusFont}] : NSZeroSize;
+    const CGFloat caretEditHintWidth = ceil(caretEditHintSize.width);
+    const CGFloat caretEditHintBlock = caretEditHintWidth > 0 ? caretEditHintWidth + indicatorGap : 0;
+    BOOL caretEditHintShown = caretEditHintWidth > 0;
     NSDictionary *onlinePreview = preedit.length ? MSIMECandidateOnlinePreview(candidates) : nil;
     NSString *previewText = onlinePreview ? MSIMEChineseOutputString(onlinePreview[@"text"],
         _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) : @"";
@@ -9845,7 +9890,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat ornamentWidth = preedit.length ? 18 * scale : 0;
     const CGFloat ornamentGap = 8 * scale;
     // 这三样只占卡片已有的宽度，不计入最小宽度：云候选是异步到的，算进去的话回答一到卡片就突然变宽，中英切换也会让卡片跟着伸缩。
-    const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
+    const CGFloat headerWidth = preedit.length || pageControls || logo || caretEditActive
+        ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth + caretEditHintBlock : 0;
     if (compactExpand) rowVisible.size.width = MAX(0.0, rowVisible.size.width - arrowWidth);
     MSIMECandidatePageGeometry pageGeometry;
     if (adaptive) {
@@ -9856,11 +9902,11 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             minimumWidth:0 reservesGloss:YES pagerWidth:listPager.column + toggle.column()
             expandedColumns:columns.size() sharedColumns:&columns];
         const CGFloat cap = adaptiveWidth - (compactExpand ? arrowWidth : 0);
-        pageGeometry.width = paging ? cap : MIN(cap, pageGeometry.width);
+        pageGeometry.width = paging ? cap : MIN(cap, MAX(pageGeometry.width, caretEditHintBlock > 0 ? 2 * inset + logoWidth + caretEditHintBlock : 0));
     } else {
         pageGeometry = [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
                              paging:pageControls visible:rowVisible
-                       preeditWidth:vertical ? headerWidth : (pageControlsWidth + logoWidth > 0 ? 2 * inset + pageControlsWidth + logoWidth : 0)
+                       preeditWidth:vertical ? headerWidth : (pageControlsWidth + logoWidth + caretEditHintBlock > 0 ? 2 * inset + pageControlsWidth + logoWidth + caretEditHintBlock : 0)
                        minimumWidth:MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra)
                        reservesGloss:YES pagerWidth:listPager.column + toggle.column()];
     }
@@ -9872,7 +9918,10 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     CGFloat headerArrowWidth = arrowWidth;
     BOOL headerLogo = logo != nil;
     if (adaptive && headerButtons) {
-        const CGFloat room = MAX(0.0, width - 2 * inset - (pageIndicatorShown ? pageIndicatorWidth + indicatorGap : 0));
+        CGFloat room = MAX(0.0, width - 2 * inset - (pageIndicatorShown ? pageIndicatorWidth + indicatorGap : 0));
+        // 光标后编辑的提示也占首行右侧：放下它之后每个键窄过原宽的一半就不画提示，翻页键要留得住。
+        if (caretEditHintShown && room - caretEditHintBlock < headerButtons * arrowWidth / 2) caretEditHintShown = NO;
+        if (caretEditHintShown) room -= caretEditHintBlock;
         const CGFloat logoRoom = logoWidth + 2 * scale;
         if (headerLogo && headerButtons * arrowWidth > room - logoRoom) headerLogo = NO;
         headerArrowWidth = MIN(arrowWidth, floor((room - (headerLogo ? logoRoom : 0)) / headerButtons));
@@ -10054,10 +10103,25 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         [content.candidateContentView addSubview:[self expandedCandidatesToggleButton:NO
             frame:NSMakeRect(width - inset - expandWidth, buttonBottom, expandWidth, buttonHeight) scale:scale]];
     }
+    if (caretEditHintShown) {
+        // 只标明状态，不接收点击；颜色和「1 / 3」一样取次要色，在 refreshCandidateSkinOnce 里跟着皮肤和明暗换。
+        NSTextField *hint = [NSTextField labelWithString:caretEditHint];
+        hint.identifier = @"candidate-caret-edit-hint";
+        hint.accessibilityLabel = caretEditHint;
+        hint.font = statusFont;
+        hint.alignment = NSTextAlignmentRight;
+        hint.lineBreakMode = NSLineBreakByClipping;
+        const CGFloat hintHeight = ceil(caretEditHintSize.height);
+        const CGFloat hintRight = width - inset - (headerControlsWidth ? headerControlsWidth + indicatorGap : 0);
+        hint.frame = NSMakeRect(hintRight - caretEditHintWidth, headerBottom + preeditMargin.bottom + floor((headerContentHeight - hintHeight) / 2),
+                                caretEditHintWidth, hintHeight);
+        [content.candidateContentView addSubview:hint];
+    }
     if (preedit.length) {
         const CGFloat rowBottom = headerBottom + preeditMargin.bottom;
         const CGFloat left = inset + headerLogoWidth + preeditMargin.left;
-        const CGFloat right = width - inset - preeditMargin.right - (headerControlsWidth ? headerControlsWidth + indicatorGap : 0);
+        const CGFloat right = width - inset - preeditMargin.right - (headerControlsWidth ? headerControlsWidth + indicatorGap : 0) -
+            (caretEditHintShown ? caretEditHintBlock : 0);
         const CGFloat preeditNatural = preeditWidth - preeditMargin.left - preeditMargin.right;
         // 卡片宽度由候选行定，放不下整行时先让出装饰，再让出状态，预览按剩下的宽度截断，太窄就不画；拼音总能拿到余下的全部宽度，光标照旧在框里滚动。
         CGFloat ornament = ornamentWidth, statusRoom = statusBlock, preview = previewNatural;
@@ -10266,7 +10330,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         }]];
     // The top row's page controls take the theme's colours too: labelColor would follow the system appearance, not a theme that fixes its own mode. The design draws 「1 / 3」 and ‹ › in the secondary colour (dc.html L1324); an arrow with no page behind it fades further.
     for (NSView *child in content.candidateContentView.subviews) {
-        if ([child.identifier isEqual:@"candidate-page-indicator"] && [child isKindOfClass:NSTextField.class])
+        if (([child.identifier isEqual:@"candidate-page-indicator"] || [child.identifier isEqual:@"candidate-caret-edit-hint"]) &&
+            [child isKindOfClass:NSTextField.class])
             ((NSTextField *)child).textColor = SkinColor(tokens.number);
         // 首行的输入状态和两条细线用次要色，细线再淡一些；装饰和云候选预览用强调色。
         if ([child.identifier isEqual:@"candidate-status"] && [child isKindOfClass:NSTextField.class])
