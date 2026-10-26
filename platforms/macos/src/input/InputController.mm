@@ -329,6 +329,16 @@ static BOOL MSIMECandidateIsAIPlaceholder(NSDictionary *candidate) {
     return source == 12 || source == 15;
 }
 
+// 云候选与 AI 的异步占位行只表示请求状态，不能占用候选序号、翻页或展开网格的位置。保留候选自身的 id，点击可见候选时仍按 Engine 身份映射。
+static NSArray<NSDictionary *> *MSIMEVisibleCandidates(NSArray *candidates) {
+    if (![candidates isKindOfClass:NSArray.class]) return @[];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray arrayWithCapacity:candidates.count];
+    for (NSDictionary *candidate in candidates)
+        if ([candidate isKindOfClass:NSDictionary.class] && !MSIMECandidateIsAIPlaceholder(candidate))
+            [visible addObject:candidate];
+    return visible;
+}
+
 static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, NSDictionary *view,
                                                           NSDictionary *hostOptions, BOOL englishMode) {
     NSDictionary *effectiveContext = [context isKindOfClass:NSDictionary.class] ? context : view;
@@ -2626,7 +2636,7 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
         ![snapshot[@"session"] isEqual:_view[@"session"]] || ![snapshot[@"generation"] isEqual:_view[@"generation"]]) return nil;
     NSMutableArray<NSDictionary *> *valid = [NSMutableArray array];
     for (id entry in (NSArray *)snapshot[@"candidates"])
-        if ([entry isKindOfClass:NSDictionary.class] && MSIMECurrentCandidateIdentity(entry[@"id"], _view)) [valid addObject:entry];
+        if ([entry isKindOfClass:NSDictionary.class] && !MSIMECandidateIsAIPlaceholder(entry) && MSIMECurrentCandidateIdentity(entry[@"id"], _view)) [valid addObject:entry];
     const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
     NSString *code = MSIMECandidatePinCode(_view);
     NSMutableArray<NSDictionary *> *ordered = [NSMutableArray arrayWithCapacity:valid.count];
@@ -9301,7 +9311,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                            skin:(const msime::mac::ResolvedSkin &)skin font:(NSFont *)font {
     NSString *word = @"";
     if (skin.decorationCandidate) {
-        NSArray *page = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+        NSArray *page = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
         int highlight = -1;
         for (NSUInteger index = 0; index < page.count; ++index)
             if ([page[index] isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(page[index][@"highlighted"])) {
@@ -9841,7 +9851,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // 普通候选页结束上一轮展开布局，不能把旧字号或皮肤的视口带到下一次展开。
     _expandedViewportHeight = 0;
     if (_appearance.englishMode && !_managedEnglishComposition) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
-    NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+    NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
         _armedGlossColumn = 0;
         _renderedCandidateView = nil;
@@ -9995,7 +10005,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     // 首行在拼音之后接一段输入状态（竖线隔开），右侧在翻页控件之前放云候选预览和一枝小装饰；三样都只在显示拼音时出现。
-    NSString *statusText = preedit.length ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
+    const BOOL statusVisible = _appearance.showsCandidateStatus && preedit.length;
+    NSString *statusText = statusVisible ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
                                                                      _appearance.traditionalOutput, _appearance.runtimeFullWidthInput) : @"";
     NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
     const CGFloat statusGap = 8 * scale;
@@ -10016,7 +10027,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // 预览最多占这么宽，再长的整句截断。
     const CGFloat previewNatural = previewText.length
         ? MIN(220 * scale, previewIconSide + 4 * scale + ceil([previewText sizeWithAttributes:@{NSFontAttributeName: previewFont}].width) + 4 * scale) : 0;
-    const CGFloat ornamentWidth = preedit.length ? 18 * scale : 0;
+    const CGFloat ornamentWidth = statusVisible ? 18 * scale : 0;
     const CGFloat ornamentGap = 8 * scale;
     // 这三样只占卡片已有的宽度，不计入最小宽度：云候选是异步到的，算进去的话回答一到卡片就突然变宽，中英切换也会让卡片跟着伸缩。
     const CGFloat headerWidth = preedit.length || pageControls || logo || caretEditActive

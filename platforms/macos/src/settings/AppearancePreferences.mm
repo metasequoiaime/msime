@@ -79,6 +79,7 @@ static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCu
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
 static NSString *const InputModeStatusItemKey = @"MSIMEClientInputModeStatusItem";
 static NSString *const AppLogoKey = @"MSIMEClientAppLogo";
+static NSString *const CandidateStatusKey = @"MSIMEClientCandidateStatus";
 static NSString *const CandidatePageNumberKey = @"MSIMEClientCandidatePageNumber";
 static NSString *const ExpandCandidatesKey = @"MSIMEClientExpandCandidates";
 static NSString *const CandidateExpandButtonKey = @"MSIMEClientCandidateExpandButton";
@@ -451,6 +452,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         AppInputModeRulesKey : @"sharedAppInputModeRules",
         VimModeAppsKey : @"sharedVimModeApps",
         AppLogoKey : @"sharedShowsAppLogo",
+        CandidateStatusKey : @"sharedShowsCandidateStatus",
         CandidatePageNumberKey : @"sharedShowsCandidatePageNumber",
         ExpandCandidatesKey : @"sharedExpandCandidates",
         CandidateExpandButtonKey : @"sharedShowsCandidateExpandButton",
@@ -611,6 +613,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             InputModeHUDKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeHUD); },
             InputModeStatusItemKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeStatusItem); },
             AppLogoKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsAppLogo); },
+            CandidateStatusKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidateStatus); },
             CandidatePageNumberKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidatePageNumber); },
             ExpandCandidatesKey : ^id(MSIMEAppearancePreferences *p) { return @(p.expandCandidates); },
             CandidateExpandButtonKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidateExpandButton); },
@@ -1145,6 +1148,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedCandidateFollowCursor;
     NSNumber *_sharedInputModeHUD;
     NSNumber *_sharedInputModeStatusItem;
+    NSNumber *_sharedShowsCandidateStatus;
     NSNumber *_sharedShowsAppLogo;
     NSNumber *_sharedShowsCandidatePageNumber;
     NSNumber *_sharedExpandCandidates;
@@ -1156,6 +1160,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_inputModeHUDToggle;
     NSSwitch *_inputModeStatusItemToggle;
     NSSwitch *_appLogoToggle;
+    NSSwitch *_candidateStatusToggle;
     NSSwitch *_candidatePageNumberToggle;
     NSSwitch *_expandCandidatesToggle;
     NSSwitch *_candidateExpandButtonToggle;
@@ -1457,6 +1462,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"input_mode_status_item"] = @(self.inputModeStatusItem);
     merged[@"show_app_logo"] = @(self.showsAppLogo);
+    if ([_defaults objectForKey:CandidateStatusKey] != nil) merged[@"show_candidate_status"] = @(self.showsCandidateStatus);
     merged[@"show_candidate_page_number"] = @(self.showsCandidatePageNumber);
     merged[@"expand_candidates"] = @(self.expandCandidates);
     merged[@"show_candidate_expand_button"] = @(self.showsCandidateExpandButton);
@@ -1885,6 +1891,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setInputModeStatusItem:(BOOL)value {
     _sharedInputModeStatusItem = nil;
     [_defaults setBool:value forKey:InputModeStatusItemKey];
+    [self preferencesChanged];
+}
+- (BOOL)showsCandidateStatus {
+    if (_sharedShowsCandidateStatus) return _sharedShowsCandidateStatus.boolValue;
+    return [_defaults objectForKey:CandidateStatusKey] == nil ? YES : [_defaults boolForKey:CandidateStatusKey];
+}
+- (void)setShowsCandidateStatus:(BOOL)value {
+    _sharedShowsCandidateStatus = nil;
+    [_defaults setBool:value forKey:CandidateStatusKey];
     [self preferencesChanged];
 }
 - (BOOL)showsAppLogo {
@@ -3289,6 +3304,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if (LocalModeBoolean(inputModeStatusItem)) _sharedInputModeStatusItem = inputModeStatusItem;
     id appLogo = preferences[@"show_app_logo"];
     if (LocalModeBoolean(appLogo)) _sharedShowsAppLogo = appLogo;
+    id candidateStatus = preferences[@"show_candidate_status"];
+    if (LocalModeBoolean(candidateStatus)) _sharedShowsCandidateStatus = candidateStatus;
     id pageNumber = preferences[@"show_candidate_page_number"];
     if (LocalModeBoolean(pageNumber)) _sharedShowsCandidatePageNumber = pageNumber;
     id expandCandidates = preferences[@"expand_candidates"];
@@ -3546,6 +3563,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _inputModeHUDToggle.state = self.inputModeHUD ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeStatusItemToggle.state = self.inputModeStatusItem ? NSControlStateValueOn : NSControlStateValueOff;
     _appLogoToggle.state = self.showsAppLogo ? NSControlStateValueOn : NSControlStateValueOff;
+    _candidateStatusToggle.state = self.showsCandidateStatus ? NSControlStateValueOn : NSControlStateValueOff;
     _candidatePageNumberToggle.state = self.showsCandidatePageNumber ? NSControlStateValueOn : NSControlStateValueOff;
     _expandCandidatesToggle.state = self.expandCandidates ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateExpandButtonToggle.state = self.showsCandidateExpandButton ? NSControlStateValueOn : NSControlStateValueOff;
@@ -3835,6 +3853,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _inputModeHUDToggle = MSIMESettingSwitch(self, @selector(inputModeHUDChanged:), @"切换中英文时显示提示");
     _inputModeStatusItemToggle = MSIMESettingSwitch(self, @selector(inputModeStatusItemChanged:), @"菜单栏显示中/英状态");
     _appLogoToggle = MSIMESettingSwitch(self, @selector(appLogoChanged:), @"显示水杉 logo");
+    _candidateStatusToggle = MSIMESettingSwitch(self, @selector(candidateStatusChanged:), @"显示候选状态和装饰");
     _candidatePageNumberToggle = MSIMESettingSwitch(self, @selector(candidatePageNumberChanged:), @"显示页码和翻页按钮");
     _expandCandidatesToggle = MSIMESettingSwitch(self, @selector(expandCandidatesChanged:), @"展开候选");
     _candidateExpandButtonToggle = MSIMESettingSwitch(self, @selector(candidateExpandButtonChanged:), @"显示展开键");
@@ -4414,6 +4433,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     windowStyleCard.accessibilityLabel = @"候选窗口样式卡片";
     NSBox *preeditCard = MSIMECardWithViews(@[
         [self settingRow:@"候选窗预编辑" control:_candidatePreeditButton],
+        [self settingRow:@"候选状态和装饰" detail:@"显示候选窗首行的方案、中文/英文和简繁状态，以及右侧水杉枝叶装饰。" control:_candidateStatusToggle],
     ], 0.0);
     preeditCard.accessibilityLabel = @"候选预编辑卡片";
     _candidateSettingsTabs = [NSSegmentedControl segmentedControlWithLabels:@[@"布局", @"字体大小", @"窗口样式", @"预编辑"]
@@ -4428,7 +4448,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         @[[self sectionHeader:@"窗口样式" keys:@[CandidateOpacityKey, CandidateCornerRadiusKey, CandidatePaddingKey]], windowStyleCard,
           [self sectionHeader:@"配色" keys:@[ThemeKey, CandidateThemeKey, TextColorKey,
             AccentColorKey, SelectedColorKey, HoverColorKey, SurfaceColorKey]], colorCard],
-        @[[self sectionHeader:@"预编辑" keys:@[CandidatePreeditKey]], preeditCard],
+        @[[self sectionHeader:@"预编辑" keys:@[CandidatePreeditKey, CandidateStatusKey]], preeditCard],
     ];
     // 预览控件共用同一份实例，切换标签不改偏好或丢失示例文字、明暗与展示状态。
     NSMutableArray<NSView *> *candidateContent = [NSMutableArray arrayWithObjects:_candidateSettingsTabs,
@@ -5984,6 +6004,7 @@ static NSString *CandidateColorHex(NSColor *color) {
 - (void)inputModeHUDChanged:(NSSwitch *)sender { self.inputModeHUD = sender.state == NSControlStateValueOn; }
 - (void)inputModeStatusItemChanged:(NSSwitch *)sender { self.inputModeStatusItem = sender.state == NSControlStateValueOn; }
 - (void)appLogoChanged:(NSSwitch *)sender { self.showsAppLogo = sender.state == NSControlStateValueOn; }
+- (void)candidateStatusChanged:(NSSwitch *)sender { self.showsCandidateStatus = sender.state == NSControlStateValueOn; }
 - (void)candidatePageNumberChanged:(NSSwitch *)sender { self.showsCandidatePageNumber = sender.state == NSControlStateValueOn; }
 - (void)expandCandidatesChanged:(NSSwitch *)sender { self.expandCandidates = sender.state == NSControlStateValueOn; }
 - (void)candidateExpandButtonChanged:(NSSwitch *)sender { self.showsCandidateExpandButton = sender.state == NSControlStateValueOn; }
