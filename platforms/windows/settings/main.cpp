@@ -1560,6 +1560,32 @@ msime::settings::plugins::Package plugin_package(JsonObject const &object) {
   pack.hooks = named_strings(object, L"hooks");
   pack.permissions = named_strings(object, L"permissions");
   pack.content_hash = named_string(object, L"content_hash");
+  // 脚本插件第二批的字段：收数字和运算符号的指令、清单里的设置项、随包数据。没有时都不出现。
+  for (auto const &item : named_objects(object, L"commands"))
+    if (named_string(item, L"arguments") == L"extended")
+      pack.extended_commands.push_back(named_string(item, L"trigger"));
+  for (auto const &item : named_objects(object, L"settings")) {
+    msime::settings::plugins::ScriptSetting setting;
+    setting.key = named_string(item, L"key");
+    setting.title = named_string(item, L"title");
+    setting.description = named_string(item, L"description");
+    setting.type = named_string(item, L"type");
+    const auto fallback = item.GetNamedValue(L"default", JsonValue::CreateNullValue());
+    if (fallback.ValueType() == JsonValueType::Boolean)
+      setting.bool_default = fallback.GetBoolean();
+    else if (fallback.ValueType() == JsonValueType::Number)
+      setting.number_default = static_cast<std::int64_t>(std::llround(fallback.GetNumber()));
+    else if (fallback.ValueType() == JsonValueType::String)
+      setting.text_default = std::wstring(fallback.GetString().c_str());
+    setting.min = static_cast<std::int64_t>(std::llround(named_number(item, L"min").value_or(0)));
+    setting.max = static_cast<std::int64_t>(std::llround(named_number(item, L"max").value_or(0)));
+    setting.max_length = static_cast<std::size_t>(named_number(item, L"max_length").value_or(0));
+    for (auto const &option : named_objects(item, L"options"))
+      setting.options.push_back({named_string(option, L"value"), named_string(option, L"title")});
+    pack.settings.push_back(std::move(setting));
+  }
+  pack.data = named_strings(object, L"data");
+  pack.data_bytes = named_number(object, L"data_bytes").value_or(0);
   return pack;
 }
 
@@ -1602,6 +1628,41 @@ std::optional<msime::settings::plugins::ScriptGrants> plugin_script_grants(Respo
     return grants;
   } catch (...) {
     return std::nullopt;
+  }
+}
+
+// script_plugin_state、set_script_settings 和 clear_script_data 的回答（client-services 的 ScriptPluginStateView）；读不懂时为空。值按 JSON 类型换成布尔、整数或文字。
+std::optional<msime::settings::plugins::ScriptPluginState> plugin_script_state(Response const &response) {
+  if (!response.ok)
+    return std::nullopt;
+  try {
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+    msime::settings::plugins::ScriptPluginState state;
+    state.storage_bytes = named_number(value, L"storage_bytes").value_or(0);
+    const auto values = value.GetNamedValue(L"values", JsonValue::CreateNullValue());
+    if (values.ValueType() == JsonValueType::Object)
+      for (auto const &entry : values.GetObject()) {
+        const std::wstring key(entry.Key().c_str());
+        const auto item = entry.Value();
+        if (item.ValueType() == JsonValueType::Boolean)
+          state.values[key] = item.GetBoolean();
+        else if (item.ValueType() == JsonValueType::Number)
+          state.values[key] = static_cast<std::int64_t>(std::llround(item.GetNumber()));
+        else if (item.ValueType() == JsonValueType::String)
+          state.values[key] = std::wstring(item.GetString().c_str());
+      }
+    return state;
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+// 失败回答里的 detail（client-services 报告的规则）；没有时为空。
+std::wstring response_detail(Response const &response) {
+  try {
+    return named_string(JsonObject::Parse(text(response.text)), L"detail");
+  } catch (...) {
+    return {};
   }
 }
 
@@ -18947,6 +19008,9 @@ private:
     std::vector<Box> boxes;
     std::function<void()> refresh;
     weak_ref<ContentDialog> dialog;
+    // 这次授权会删掉插件存下的数据时，第一次按「授权并启用」只把删除说清楚（`deletion` 那行红字），再按一次才写；改了勾选要重新确认。
+    bool deletion_shown = false;
+    weak_ref<TextBlock> deletion;
   };
 
   void redraw_plugins() {
@@ -19139,6 +19203,8 @@ private:
                  plugin_scripts_ = std::move(*grants);
                else
                  show_notice(plugin_failure(response, L"无法读取脚本插件的授权，请重试。"));
+               // 授权重读过（进页面、导入、删除之后）：详情的设置和已存数据也跟着重读，输入法在这期间可能写过存储。
+               plugin_script_state_stale_ = true;
                if (then)
                  then();
                else
@@ -21231,6 +21297,8 @@ private:
             return;
           if (auto grants = plugin_script_grants(response)) {
             plugin_scripts_ = std::move(*grants);
+            // 撤销 `persist_data` 会删掉存储：详情重画时重读设置和数据。
+            plugin_script_state_stale_ = true;
             done(response);
             return;
           }
@@ -21242,11 +21310,20 @@ private:
         });
   }
 
-  // 详情的启用开关关掉：停用并撤销全部授权（set(enabled = false, granted = [])），输入法在下一次聚焦时停止运行它。
-  void revoke_script(pg::Package const &pack) {
+  // 详情的启用开关关掉：停用并撤销全部授权（set(enabled = false, granted = [])），输入法在下一次聚焦时停止运行它。插件存着数据时这会把数据一起删掉，先确认（共享页详情的 `revoke`）；不确认时开关回到「开」。
+  fire_and_forget revoke_script(pg::Package pack) {
+    auto strong = get_strong();
+    const auto storage = script_storage_bytes(pack);
+    if (pg::script_persisting(pg::script_grant(plugin_grants(), pack.id), storage) &&
+        !co_await confirm(L"停用脚本插件", pg::script_revoke_confirmation(pack, storage),
+                          std::wstring(pg::script_revoke_confirm))) {
+      plugin_pending_focus_ = L"script-switch";
+      redraw_plugins();
+      co_return;
+    }
     if (!begin_plugin_action()) {
       redraw_plugins();
-      return;
+      co_return;
     }
     const auto generation = plugins_generation_;
     write_script_grant(pack, false, {}, [this, generation](Response const &response) {
@@ -21368,19 +21445,29 @@ private:
     }
     const auto requested = pg::sort_capabilities(pack->permissions);
     if (requested.empty()) {
-      form.Children().Append(make_text(pg::grant_dialog_no_permissions, 14, palette_.sub));
+      form.Children().Append(make_text(pg::grant_dialog_no_permissions(*pack), 14, palette_.sub));
     } else {
+      // 按读文字、改文字、记住数据分组（共享页的 `CAPABILITY_GROUPS`），每组一个标题；「长期保存数据」的说明是红字。
       StackPanel list;
-      list.Spacing(6);
+      list.Spacing(10);
       A11y::SetName(list, hstring(pg::grant_dialog_legend));
-      auto legend = make_text(pg::grant_dialog_legend, 14, palette_.text);
-      legend.FontWeight(Windows::UI::Text::FontWeight{600});
-      list.Children().Append(legend);
-      for (auto const &item : pg::grant_items(requested, state.granted, state.busy)) {
+      StackPanel group{nullptr};
+      std::wstring group_title;
+      for (auto const &item : pg::grant_items(requested, state.granted, state.busy, pg::has_extended_command(*pack))) {
+        if (!group || item.group != group_title) {
+          group_title = item.group;
+          group = StackPanel{};
+          group.Spacing(6);
+          A11y::SetName(group, hstring(group_title));
+          auto legend = make_text(group_title, 14, palette_.text);
+          legend.FontWeight(Windows::UI::Text::FontWeight{600});
+          group.Children().Append(legend);
+          list.Children().Append(group);
+        }
         StackPanel texts;
         texts.Spacing(1);
         texts.Children().Append(make_text(item.title, 14, palette_.text));
-        auto description = make_text(item.description, 12, palette_.sub);
+        auto description = make_text(item.description, 12, item.warning ? danger_color() : palette_.sub);
         texts.Children().Append(description);
         CheckBox box;
         box.Content(texts);
@@ -21393,18 +21480,40 @@ private:
           toggle_script_capability(capability, checked && checked.Value());
         });
         state.boxes.push_back({item.capability, make_weak(box), make_weak(description)});
-        list.Children().Append(box);
+        group.Children().Append(box);
       }
       form.Children().Append(list);
+      if (!pack->settings.empty())
+        form.Children().Append(make_text(pg::grant_dialog_settings_note, 14, palette_.sub));
     }
     form.Children().Append(account_message(std::wstring(pg::script_residual_risk), InfoBarSeverity::Warning));
+    // 第二次确认之前的红字：这次授权不包括「长期保存数据」，存下的数据会被删掉。
+    const bool confirming = state.deletion_shown && script_grant_deletes_data(*pack, state.granted);
+    auto deletion = make_text(pg::grant_dialog_deletion(script_storage_bytes(*pack)), 14, danger_color());
+    deletion.TextWrapping(TextWrapping::Wrap);
+    deletion.Visibility(confirming ? Visibility::Visible : Visibility::Collapsed);
+    A11y::SetLiveSetting(deletion, Automation::Peers::AutomationLiveSetting::Assertive);
+    state.deletion = make_weak(deletion);
+    form.Children().Append(deletion);
     if (!state.error.empty()) {
       auto error = account_message(state.error, InfoBarSeverity::Error);
       A11y::SetLiveSetting(error, Automation::Peers::AutomationLiveSetting::Assertive);
       form.Children().Append(error);
     }
-    dialog.PrimaryButtonText(hstring(pg::grant_dialog_confirm));
+    dialog.PrimaryButtonText(hstring(confirming ? pg::grant_dialog_confirm_deletion : pg::grant_dialog_confirm));
     dialog.IsPrimaryButtonEnabled(!state.busy);
+  }
+
+  // 一个脚本插件持久存储现在的字节数：详情页读到的是这个插件的状态时取它，否则按 0 算。
+  double script_storage_bytes(pg::Package const &pack) const {
+    return plugin_script_state_ && plugin_script_state_id_ == pack.id ? plugin_script_state_->storage_bytes : 0;
+  }
+
+  // 把对话框现在勾着的这份授权写下去，会不会删掉插件存下的数据（`grantDeletesStoredData`）。
+  bool script_grant_deletes_data(pg::Package const &pack, std::vector<std::wstring> const &granted) const {
+    return pg::grant_deletes_stored_data(pg::script_grant(plugin_grants(), pack.id),
+                                         pg::selected_capabilities(granted, pack.permissions),
+                                         script_storage_bytes(pack));
   }
 
   // 勾选或取消一项（共享页的 toggleCapability）：依赖的一起勾上、依赖它的一起取消、互斥的那一项禁用并写明原因。复选框就地更新，焦点留在刚点的那一项上。
@@ -21414,7 +21523,16 @@ private:
     if (!pack || state.busy)
       return;
     state.granted = pg::toggle_capability(state.granted, capability, checked, pack->permissions);
-    for (auto const &item : pg::grant_items(pg::sort_capabilities(pack->permissions), state.granted, state.busy))
+    // 改了勾选，删除数据要重新确认。
+    if (state.deletion_shown) {
+      state.deletion_shown = false;
+      if (auto deletion = state.deletion.get())
+        deletion.Visibility(Visibility::Collapsed);
+      if (auto shown = state.dialog.get())
+        shown.PrimaryButtonText(hstring(pg::grant_dialog_confirm));
+    }
+    for (auto const &item : pg::grant_items(pg::sort_capabilities(pack->permissions), state.granted, state.busy,
+                                            pg::has_extended_command(*pack)))
       for (auto const &entry : state.boxes) {
         if (entry.capability != item.capability)
           continue;
@@ -21434,6 +21552,13 @@ private:
     const auto *pack = plugin_script_pack(state.id);
     if (state.busy || !pack)
       return;
+    // 这次授权会删掉存下的数据：第一次只把删除说清楚，再按一次才写（共享页的 `useScriptGrantDialog`）。
+    if (script_grant_deletes_data(*pack, state.granted) && !state.deletion_shown) {
+      state.deletion_shown = true;
+      if (state.refresh)
+        state.refresh();
+      return;
+    }
     state.busy = true;
     state.error.clear();
     const auto generation = state.generation;
@@ -21456,8 +21581,259 @@ private:
       state.refresh();
   }
 
-  // 一个脚本插件（共享页的 ScriptPluginDetailView）：它在什么时候运行、申请了什么、授予了什么、输入法有没有停用它、排第几个执行，以及启用（经授权对话框）、调整授权和删除。
+  // 读一个脚本插件的设置值和存储大小（共享页的 `useScriptPluginState`）：换了插件或内容之后先丢掉旧的状态和草稿，授权写过之后（`plugin_script_state_stale_`）保留草稿重读一次；读到后重画详情。
+  void load_script_state(pg::Package const &pack) {
+    const auto key = pack.id + L"\n" + pack.content_hash;
+    if (key != plugin_script_state_key_) {
+      plugin_script_state_key_ = key;
+      plugin_script_state_id_ = pack.id;
+      plugin_script_state_.reset();
+      plugin_script_state_error_.clear();
+      plugin_script_draft_.clear();
+      plugin_script_failure_key_.clear();
+      plugin_script_failure_.clear();
+      plugin_script_saving_ = false;
+      plugin_script_saved_ = false;
+      plugin_script_state_stale_ = true;
+    }
+    if (!plugin_script_state_stale_ || indexing_)
+      return;
+    plugin_script_state_stale_ = false;
+    const auto generation = plugins_generation_;
+    run_host(
+        [id = pack.id] {
+          auto action = plugin_action(L"script_plugin_state");
+          action.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
+          return plugins_call(action, false, true);
+        },
+        [this, generation, key](Response const &response) {
+          if (key != plugin_script_state_key_)
+            return;
+          // 页面在读的时候重新载入过：这次的回答不算数，下一次画详情时再读。
+          if (generation != plugins_generation_) {
+            plugin_script_state_stale_ = true;
+            return;
+          }
+          if (auto state = plugin_script_state(response)) {
+            plugin_script_state_ = std::move(*state);
+            plugin_script_state_error_.clear();
+          } else {
+            plugin_script_state_error_ = plugin_failure(response, L"无法读取插件的设置和数据，请重试。");
+          }
+          redraw_plugins();
+        });
+  }
+
+  // 设置表单里改了一项（共享页 `ScriptSettingsForm` 的 `change`）：只改草稿，就地更新各项下面的问题和「保存设置」能不能按，不重画页面，焦点留在输入框里。
+  void change_script_setting(std::wstring const &key, pg::ScriptSettingValue value) {
+    plugin_script_draft_[key] = std::move(value);
+    plugin_script_failure_.clear();
+    plugin_script_failure_key_.clear();
+    plugin_script_saved_ = false;
+    update_script_settings_feedback();
+  }
+
+  // 草稿和读到的值不同、页面又查不出问题时「保存设置」才能按；每项下面写着页面查出的问题，或者宿主拒绝时说的那一项。
+  void update_script_settings_feedback() {
+    const auto *pack = plugin_script_pack(plugin_script_state_id_);
+    if (!pack || !plugin_script_state_)
+      return;
+    bool dirty = false, blocked = false;
+    for (auto const &setting : pack->settings) {
+      const auto found = plugin_script_draft_.find(setting.key);
+      const auto raw = found == plugin_script_draft_.end() ? pg::draft_setting_value(setting, plugin_script_state_->values)
+                                                           : found->second;
+      const auto value = pg::parsed_setting_value(setting, raw);
+      auto issue = pg::setting_issue(setting, value);
+      blocked = blocked || !issue.empty();
+      dirty = dirty || value != pg::setting_value(setting, plugin_script_state_->values);
+      if (issue.empty() && plugin_script_failure_key_ == setting.key)
+        issue = plugin_script_failure_;
+      const auto text = plugin_script_issue_texts_.find(setting.key);
+      if (text == plugin_script_issue_texts_.end())
+        continue;
+      if (auto block = text->second.get()) {
+        block.Text(hstring(issue));
+        block.Visibility(issue.empty() ? Visibility::Collapsed : Visibility::Visible);
+      }
+    }
+    if (plugin_script_save_)
+      plugin_script_save_.IsEnabled(!plugins_busy_ && !plugin_script_saving_ && dirty && !blocked);
+    if (auto status = plugin_script_status_.get()) {
+      const auto message = !plugin_script_failure_.empty() && plugin_script_failure_key_.empty()
+                               ? plugin_script_failure_
+                               : (plugin_script_saved_ && !dirty ? std::wstring(L"已保存。") : std::wstring());
+      status.Text(hstring(message));
+      status.Foreground(brush(plugin_script_failure_.empty() ? palette_.sub : danger_color()));
+      status.Visibility(message.empty() ? Visibility::Collapsed : Visibility::Visible);
+    }
+  }
+
+  // 「保存设置」：整份交给 set_script_settings。宿主拒绝某一项（`plugin_script_setting_invalid`，detail 说出是哪一项）时原因写在那一项下面，否则写在按钮旁边。
+  void save_script_settings() {
+    const auto *pack = plugin_script_pack(plugin_script_state_id_);
+    if (!pack || !plugin_script_state_ || plugin_script_saving_ || plugins_busy_)
+      return;
+    std::vector<std::pair<std::wstring, pg::ScriptSettingValue>> values;
+    for (auto const &setting : pack->settings) {
+      const auto found = plugin_script_draft_.find(setting.key);
+      const auto raw = found == plugin_script_draft_.end() ? pg::draft_setting_value(setting, plugin_script_state_->values)
+                                                           : found->second;
+      values.emplace_back(setting.key, pg::parsed_setting_value(setting, raw));
+    }
+    plugin_script_saving_ = true;
+    plugin_script_failure_key_.clear();
+    plugin_script_failure_.clear();
+    update_script_settings_feedback();
+    const auto key = plugin_script_state_key_;
+    run_host(
+        [id = pack->id, values = std::move(values)] {
+          JsonObject object;
+          for (auto const &[name, value] : values) {
+            if (auto const *flag = std::get_if<bool>(&value))
+              object.SetNamedValue(hstring(name), JsonValue::CreateBooleanValue(*flag));
+            else if (auto const *number = std::get_if<std::int64_t>(&value))
+              object.SetNamedValue(hstring(name), JsonValue::CreateNumberValue(static_cast<double>(*number)));
+            else
+              object.SetNamedValue(hstring(name), JsonValue::CreateStringValue(hstring(std::get<std::wstring>(value))));
+          }
+          auto action = plugin_action(L"set_script_settings");
+          action.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
+          action.SetNamedValue(L"values", object);
+          return plugins_call(action, false, true);
+        },
+        [this, key](Response const &response) {
+          if (key != plugin_script_state_key_)
+            return;
+          plugin_script_saving_ = false;
+          if (auto state = plugin_script_state(response)) {
+            plugin_script_state_ = std::move(*state);
+            plugin_script_draft_.clear();
+            plugin_script_saved_ = true;
+          } else {
+            plugin_script_failure_key_ = response_error(response) == L"plugin_script_setting_invalid"
+                                             ? pg::setting_error_key(response_detail(response))
+                                             : std::wstring();
+            plugin_script_failure_ = plugin_failure(response, L"设置没有保存，请重试。");
+          }
+          plugin_pending_focus_ = L"script-settings-save";
+          redraw_plugins();
+        });
+  }
+
+  // 「清除数据」：先确认，再经 clear_script_data 删掉这个插件的持久存储。
+  fire_and_forget clear_script_data(pg::Package pack) {
+    auto strong = get_strong();
+    if (plugins_busy_)
+      co_return;
+    if (!co_await confirm(L"清除数据", pg::script_clear_confirmation(pack, script_storage_bytes(pack)), L"清除"))
+      co_return;
+    if (!begin_plugin_action())
+      co_return;
+    const auto generation = plugins_generation_;
+    const auto key = plugin_script_state_key_;
+    run_host(
+        [id = pack.id] {
+          auto action = plugin_action(L"clear_script_data");
+          action.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
+          return plugins_call(action, false, true);
+        },
+        [this, generation, key](Response const &response) {
+          if (generation != plugins_generation_)
+            return;
+          if (auto state = plugin_script_state(response)) {
+            if (key == plugin_script_state_key_)
+              plugin_script_state_ = std::move(*state);
+          } else {
+            show_notice(plugin_failure(response, L"数据没有清除，请重试。"));
+          }
+          plugin_pending_focus_ = L"script-clear";
+          end_plugin_action(generation);
+        });
+    redraw_plugins();
+  }
+
+  // 详情里的「设置」一组（共享页的 `ScriptSettingsForm`）：清单 `[[script.settings]]` 每项一行，开关、下拉框、整数和文本框，改完按「保存设置」整份写入。
+  void build_script_settings(StackPanel const &page, pg::Package const &pack) {
+    plugin_script_issue_texts_.clear();
+    plugin_script_save_ = nullptr;
+    plugin_script_status_ = {};
+    if (!plugin_script_state_) {
+      if (!plugin_script_state_error_.empty()) {
+        auto group = add_group(page, L"设置");
+        auto error = group_note(plugin_script_state_error_);
+        error.Foreground(brush(danger_color()));
+        group.Children().Append(error);
+      }
+      return;
+    }
+    auto group = add_group(page, L"设置");
+    group.Children().Append(group_note(pg::script_settings_note));
+    const bool enabled = !plugins_busy_ && !plugin_script_saving_;
+    auto const &values = plugin_script_state_->values;
+    for (auto const &setting : pack.settings) {
+      if (!plugin_script_draft_.count(setting.key))
+        plugin_script_draft_[setting.key] = pg::draft_setting_value(setting, values);
+      const auto raw = plugin_script_draft_[setting.key];
+      auto issue = make_text(L"", 12, danger_color());
+      issue.TextWrapping(TextWrapping::Wrap);
+      issue.Visibility(Visibility::Collapsed);
+      A11y::SetLiveSetting(issue, Automation::Peers::AutomationLiveSetting::Assertive);
+      plugin_script_issue_texts_[setting.key] = make_weak(issue);
+      FrameworkElement control{nullptr};
+      if (setting.type == L"bool") {
+        auto const *flag = std::get_if<bool>(&raw);
+        control = toggle_control(setting.title, flag && *flag,
+                                 [this, key = setting.key](bool on) { change_script_setting(key, on); }, enabled, false);
+      } else if (setting.type == L"choice") {
+        std::vector<Option> options;
+        for (auto const &option : setting.options)
+          options.push_back({option.value, option.title});
+        auto const *current = std::get_if<std::wstring>(&raw);
+        control = select_control(
+            setting.title, std::move(options), current ? *current : std::wstring(),
+            [this, key = setting.key](std::wstring const &value) { change_script_setting(key, value); }, enabled, false);
+      } else {
+        TextBox input;
+        input.Width(setting.type == L"number" ? 120 : 240);
+        auto const *current = std::get_if<std::wstring>(&raw);
+        input.Text(hstring(current ? *current : std::wstring()));
+        if (setting.type == L"text")
+          input.MaxLength(static_cast<int32_t>(setting.max_length));
+        input.IsEnabled(enabled);
+        A11y::SetName(input, hstring(setting.title));
+        if (setting.type == L"number")
+          A11y::SetHelpText(input, hstring(L"整数，" + std::to_wstring(setting.min) + L" 到 " + std::to_wstring(setting.max)));
+        input.TextChanged([this, key = setting.key](Inspectable const &sender, TextChangedEventArgs const &) {
+          change_script_setting(key, std::wstring(sender.as<TextBox>().Text().c_str()));
+        });
+        control = input;
+      }
+      add_row(group, setting.type == L"bool" ? 0xE7E8 : 0xE713, setting.title, setting.description, control, issue);
+    }
+    auto status = make_text(L"", 13, palette_.sub);
+    status.TextWrapping(TextWrapping::Wrap);
+    status.Visibility(Visibility::Collapsed);
+    A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
+    plugin_script_status_ = make_weak(status);
+    auto save = button_control(L"保存设置", [this] { save_script_settings(); }, false);
+    plugin_script_save_ = save.as<Button>();
+    StackPanel actions;
+    actions.Spacing(10);
+    actions.Padding(Thickness{25, 14, 25, 14});
+    actions.Children().Append(status);
+    actions.Children().Append(save);
+    group.Children().Append(actions);
+    update_script_settings_feedback();
+    if (!indexing_ && plugin_pending_focus_ == L"script-settings-save") {
+      plugin_pending_focus_.clear();
+      focus_target_ = save;
+    }
+  }
+
+  // 一个脚本插件（共享页的 ScriptPluginDetailView）：它在什么时候运行、申请了什么、授予了什么、输入法有没有停用它、排第几个执行、清单声明的设置项、自带和存下的数据，以及启用（经授权对话框）、调整授权、清除数据和删除。
   void build_script_detail(StackPanel const &page, pg::Package const &pack) {
+    load_script_state(pack);
     plugin_view_header(page, pack.name);
     const auto *grants = plugin_grants();
     const auto *grant = pg::script_grant(grants, pack.id);
@@ -21495,7 +21871,8 @@ private:
           group_note(L"没有申请任何权限：只能知道发生了什么事件，读不到也改不了文字。"));
     for (auto const &capability : requested) {
       const auto label = pg::capability_label(capability);
-      plugin_summary_row(permissions, 0xE72E, label.title, label.description,
+      plugin_summary_row(permissions, 0xE72E, label.title,
+                         pg::capability_description(capability, pg::has_extended_command(pack)),
                          pg::contains(granted, capability) ? L"已授予" : L"未授予");
     }
 
@@ -21548,6 +21925,27 @@ private:
         plugin_pending_focus_ = can_up ? L"script-up" : L"script-switch";
     }
 
+    if (!pack.settings.empty())
+      build_script_settings(page, pack);
+
+    // 「数据」：随包的只读数据，以及授予过 `persist_data`（或存储里有数据）时已存的大小和「清除数据」。
+    FrameworkElement clear{nullptr};
+    const auto storage = script_storage_bytes(pack);
+    const bool persisting = pg::script_persisting(grant, storage);
+    if (pack.data_bytes > 0 || persisting) {
+      auto data = add_group(page, L"数据");
+      if (pack.data_bytes > 0)
+        plugin_summary_row(data, 0xE8B7, L"自带数据", std::wstring(pg::script_bundled_data_note),
+                           pg::format_kilobytes(pack.data_bytes));
+      if (persisting) {
+        plugin_summary_row(data, 0xE74E, L"已存数据", std::wstring(pg::script_stored_data_note),
+                           pg::format_kilobytes(storage));
+        clear = button_control(L"清除数据", [this, pack] { clear_script_data(pack); },
+                               !plugins_busy_ && storage > 0);
+        plugin_action_block(data, L"", {clear});
+      }
+    }
+
     auto safety = add_group(page, L"安全");
     safety.Children().Append(group_note(
         L"脚本插件在输入法里的沙箱中运行，只能做你授予的事，读不到文件和网络，也不会在密码框里运行。"));
@@ -21571,6 +21969,8 @@ private:
         chosen = up;
       else if (target == L"script-down")
         chosen = down;
+      else if (target == L"script-clear" && storage > 0)
+        chosen = clear;
       if (!chosen)
         chosen = control;
       focus_target_ = chosen;
@@ -25642,6 +26042,20 @@ private:
   // 脚本插件的授权和输入法记下的停用（`script_grants` 的回答），还没读到时为空，跨页面重建保留。plugin_grant_ 是开着的授权对话框。
   std::optional<pg::ScriptGrants> plugin_scripts_;
   ScriptGrantDialog plugin_grant_;
+  // 脚本插件详情读到的设置值和存储大小（`script_plugin_state`）和它属于哪个包（id 加内容哈希）；授权写过之后 stale 为真，详情重画时重读。draft 是设置表单的草稿（数字项存原文），failure 是保存被拒的原因和它落到的那一项（为空时写在按钮旁边）。issue_texts、save、status 是这一次画出来的表单控件，改草稿时就地更新。
+  std::optional<pg::ScriptPluginState> plugin_script_state_;
+  std::wstring plugin_script_state_key_;
+  std::wstring plugin_script_state_id_;
+  std::wstring plugin_script_state_error_;
+  bool plugin_script_state_stale_ = true;
+  std::map<std::wstring, pg::ScriptSettingValue> plugin_script_draft_;
+  std::wstring plugin_script_failure_key_;
+  std::wstring plugin_script_failure_;
+  bool plugin_script_saving_ = false;
+  bool plugin_script_saved_ = false;
+  std::map<std::wstring, weak_ref<TextBlock>> plugin_script_issue_texts_;
+  Button plugin_script_save_{nullptr};
+  weak_ref<TextBlock> plugin_script_status_;
   // 插件库的类型筛选和搜索框里的文字（macOS 的 `libraryFilter`），打开详情再回来、离开页面再回来都保留；搜索结果落到插件页时清掉。底部「插件导入说明」是否展开，跨页面重建保留。
   std::wstring plugin_library_kind_{pg::library_all};
   std::wstring plugin_library_query_;

@@ -4,11 +4,15 @@
 #include <charconv>
 #include <cstddef>
 #include <cwchar>
+#include <cmath>
+#include <cstdint>
 #include <cwctype>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 // 「插件」页「我的插件」的规则和文案，照共享设置在 Windows 上的样子逐条移植：`plugin-preferences.ts`（选用和删除后的偏好）、`plugin-catalog-helpers.ts`（类型名、标记、缺失的选择、出错说明）、`plugin-library-view.tsx`（macOS 的插件库）的卡片说明、搜索与类型筛选、`plugin-sound-effects-view.tsx` 的包名、`plugin-detail-view.tsx` 的按钮与说明，`plugin-mentions-view.tsx` 的名单校验，以及 `plugin-script-model.ts` 的脚本展示规则、`script-grant-dialog.tsx` 与 `plugin-script-view.tsx` 的脚本插件授权页。Windows 宿主的能力（`host_surface.rs`）全部为真：播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集；特效不是只闪光的那种（那是 HarmonyOS）。只有辅助码随版本：调用方传入。不依赖 Windows 和 WinRT 头文件，方便单独测试。
@@ -61,6 +65,30 @@ struct SymbolGroup {
   std::vector<std::wstring> items;
 };
 
+// 脚本插件清单 `[[script.settings]]` 里 `type = "choice"` 的一个选项（`SettingOption`）。
+struct ScriptSettingOption {
+  std::wstring value, title;
+};
+
+// 脚本插件清单 `[[script.settings]]` 的一项（`script_pack::ScriptSetting`，共享页的 `ScriptSetting`）。`type` 是 `bool`、`choice`、`number` 或 `text`，用不到的字段保持默认值：布尔的默认值在 `bool_default`，选项和文本的在 `text_default`，整数的在 `number_default`，`max_length` 是 UTF-16 码元数。
+struct ScriptSetting {
+  std::wstring key, title, description, type;
+  bool bool_default = false;
+  std::wstring text_default;
+  std::int64_t number_default = 0, min = 0, max = 0;
+  std::size_t max_length = 0;
+  std::vector<ScriptSettingOption> options;
+};
+
+// 一项设置的值（`ScriptSettingValue`）：布尔、整数，或者选项的 `value`、文本。
+using ScriptSettingValue = std::variant<bool, std::int64_t, std::wstring>;
+
+// 插件详情页读到的一个脚本插件的状态（`script_settings::ScriptPluginStateView`）：`values` 覆盖清单里的每一项，`storage_bytes` 是 `persist_data` 存储现在的字节数。
+struct ScriptPluginState {
+  std::map<std::wstring, ScriptSettingValue> values;
+  double storage_bytes = 0;
+};
+
 // `client-services::plugins::scan` 列出的一个包：清单的字段，加上它那一类的内容（`PluginPackage`）。没有的数字是 nullopt，没有的文字是空串。
 struct Package {
   std::wstring id, name, version, license, author, description;
@@ -87,6 +115,13 @@ struct Package {
   std::vector<std::wstring> hooks;
   std::vector<std::wstring> permissions;
   std::wstring content_hash;
+  // 脚本插件 `commands` 里写了 `arguments = "extended"` 的触发词（另外收数字和运算符号）。
+  std::vector<std::wstring> extended_commands;
+  // 清单 `[[script.settings]]`，按清单顺序。
+  std::vector<ScriptSetting> settings;
+  // 随包的只读数据文件名（`[script].data`）和合计字节数。
+  std::vector<std::wstring> data;
+  double data_bytes = 0;
 };
 
 // 插件目录下不能载入的文件夹和原因（`PluginIssue`）。
@@ -706,6 +741,12 @@ inline std::wstring error_message(std::wstring_view code, std::wstring const &de
     return L"授权不符合要求" + reason + L"。";
   if (code == L"plugin_script_missing")
     return L"找不到这个脚本插件" + reason + L"。";
+  if (code == L"plugin_script_setting_invalid")
+    return L"设置没有保存：值不符合插件的要求" + reason + L"。";
+  if (code == L"plugin_script_settings_format")
+    return L"设置文件是更新版本的水杉输入法写的，这个版本不能修改它。";
+  if (code == L"storage")
+    return L"插件的数据读写失败，请检查数据目录的权限。";
   if (code == L"mention_invalid")
     return L"名单有误" + reason + L"。";
   if (code == L"mention_format")
@@ -725,9 +766,10 @@ inline std::wstring imported_notice(Package const &pack) {
 // 「脚本插件（实验）」分组、详情和授权对话框，照 `plugin-script-model.ts`、`script-grant-dialog.tsx`、`plugin-script-view.tsx` 和 `plugin-library-view.tsx` 的「脚本插件（实验）」节移植。规则（依赖、互斥、哈希绑定、准入）的权威在 client-services 的 `script_grants`，这里只是让页面先按同样的规则勾选和说明，宿主还会再查一遍。
 
 // 脚本插件的能力，按 `msime_script_runtime::Capability::ALL` 的顺序（`SCRIPT_CAPABILITIES`）。
-inline constexpr std::array<std::wstring_view, 8> script_capabilities{
+inline constexpr std::array<std::wstring_view, 10> script_capabilities{
     L"read_composition",  L"read_commit",         L"read_candidates",   L"rewrite_commit",
-    L"rerank_candidates", L"annotate_candidates", L"filter_candidates", L"provide_commands"};
+    L"rerank_candidates", L"annotate_candidates", L"filter_candidates", L"provide_commands",
+    L"insert_candidates", L"persist_data"};
 
 // 输入法同时运行的脚本插件个数上限（`limits::MAX_ENABLED_SCRIPTS`）。
 inline constexpr std::size_t max_enabled_scripts = 8;
@@ -737,19 +779,55 @@ inline std::wstring_view capability_requires(std::wstring_view capability) {
   if (capability == L"rewrite_commit")
     return L"read_commit";
   if (capability == L"rerank_candidates" || capability == L"annotate_candidates" ||
-      capability == L"filter_candidates")
+      capability == L"filter_candidates" || capability == L"insert_candidates")
     return L"read_candidates";
   return {};
 }
 
-// 和这一项互斥的那一项（`exclusivePartner`）：改写上屏的插件读不到组字过程，免得它把放弃的组字夹带进后面的上屏。不互斥时为空。
-inline std::wstring_view exclusive_partner(std::wstring_view capability) {
-  if (capability == L"rewrite_commit")
-    return L"read_composition";
-  if (capability == L"read_composition")
-    return L"rewrite_commit";
+// 不能同时授予的各对（`EXCLUSIVE_CAPABILITIES`，即 `CapabilitySet::check_rules`）：改写上屏的插件读不到组字过程，也不能长期保存数据，免得它把放弃的组字或以前在别的应用里打过的字夹带进这一次上屏。
+inline constexpr std::array<std::array<std::wstring_view, 2>, 2> exclusive_capabilities{{
+    {L"rewrite_commit", L"read_composition"},
+    {L"persist_data", L"rewrite_commit"},
+}};
+
+// 和这一项互斥的各项，按 `script_capabilities` 排序（`exclusivePartners`）；不互斥时为空。
+inline std::vector<std::wstring_view> exclusive_partners(std::wstring_view capability) {
+  std::vector<std::wstring_view> partners;
+  for (auto const item : script_capabilities)
+    for (auto const &pair : exclusive_capabilities)
+      if ((pair[0] == capability && pair[1] == item) || (pair[1] == capability && pair[0] == item))
+        partners.push_back(item);
+  return partners;
+}
+
+// 授权对话框的分组（`CAPABILITY_GROUPS`），按 `script_capabilities` 的顺序取各组的能力。「长期保存数据」单独一组：它让插件把读到的文字带出这个输入框。
+struct CapabilityGroup {
+  std::wstring_view title;
+  std::vector<std::wstring_view> capabilities;
+};
+
+inline std::vector<CapabilityGroup> capability_groups() {
+  return {
+      {L"读文字", {L"read_composition", L"read_commit", L"read_candidates"}},
+      {L"改文字",
+       {L"rewrite_commit", L"rerank_candidates", L"annotate_candidates", L"filter_candidates",
+        L"provide_commands", L"insert_candidates"}},
+      {L"记住数据", {L"persist_data"}},
+  };
+}
+
+// 这一项所在分组的标题；不认识的能力为空。
+inline std::wstring_view capability_group(std::wstring_view capability) {
+  for (auto const &group : capability_groups())
+    for (auto const item : group.capabilities)
+      if (item == capability)
+        return group.title;
   return {};
 }
+
+// 「长期保存数据」的红字说明（`PERSIST_DATA_WARNING`，设计笔记原文）。
+inline constexpr std::wstring_view persist_data_warning =
+    L"插件能把读到的文字长期记在这台电脑上，包括你在不同应用里打过的字。这份数据存在你的用户目录里，没有加密，同一用户下的其他程序能读到它。卸载插件或撤销这一项时删除。只给你信得过的插件。";
 
 // 一项能力的白话说明（`capabilityLabels`）：标题说能做什么，说明说这意味着插件能看到或改动什么。不认识的能力原样作标题。
 struct CapabilityLabel {
@@ -771,6 +849,11 @@ inline CapabilityLabel capability_label(std::wstring_view capability) {
     return {L"给候选加注释", L"能在候选旁边显示一小段说明。"};
   if (capability == L"filter_candidates")
     return {L"隐藏候选", L"能把某些候选移到末尾并隐藏起来。"};
+  if (capability == L"insert_candidates")
+    return {L"添加候选",
+            L"能往候选窗口里加入它给出的词，每次最多 3 个，例如表情联想、缩写展开。这些候选标着插件来源，选中时原样输入，不进入词库、不计入打字统计。"};
+  if (capability == L"persist_data")
+    return {L"长期保存数据", std::wstring(persist_data_warning)};
   // 和共享页的 `capabilityLabels`、`docs/plugins.md` 一字不差。
   if (capability == L"provide_commands")
     return {L"提供 / 指令",
@@ -863,11 +946,11 @@ inline std::vector<std::wstring> toggle_capability(std::vector<std::wstring> con
   const auto required = capability_requires(capability);
   if (!required.empty() && contains(requested, required))
     next.insert(std::wstring(required));
-  if (const auto partner = exclusive_partner(capability); !partner.empty())
+  for (auto const partner : exclusive_partners(capability))
     remove_with_dependents(partner);
   // 勾上依赖项之后，它的互斥项也要让开（例如勾选「修改输入的文字」带上「读取输入的文字」）。
   if (!required.empty())
-    if (const auto partner = exclusive_partner(required); !partner.empty())
+    for (auto const partner : exclusive_partners(required))
       remove_with_dependents(partner);
   return sorted();
 }
@@ -1093,12 +1176,31 @@ inline std::optional<std::vector<std::wstring>> moved_order(std::vector<std::wst
   return running;
 }
 
-// 授权对话框里的一个复选框（`ScriptGrantDialog` 的 items）：说明后面接着依赖和互斥的提示；互斥的那一项勾着时禁用。
+// 授权对话框里的一个复选框（`ScriptGrantDialog` 的 items）：说明后面接着依赖和互斥的提示；互斥的那一项勾着时禁用。`group` 是它所在分组的标题，`warning` 为真时说明是红字警告（「长期保存数据」）。
 struct GrantItem {
   std::wstring capability, title, description;
   bool checked = false;
   bool disabled = false;
+  std::wstring group;
+  bool warning = false;
 };
+
+// 插件有没有声明收数字和运算符号的 `/` 指令（`hasExtendedCommand`）。
+inline bool has_extended_command(Package const &pack) { return !pack.extended_commands.empty(); }
+
+// 这一项在授权页上的说明（`capabilityDescription`）。声明了 `extended` 指令的插件，「提供 / 指令」的说明加上「以及数字和运算符号」。
+inline std::wstring capability_description(std::wstring_view capability, bool extended) {
+  auto description = capability_label(capability).description;
+  if (capability != L"provide_commands" || !extended)
+    return description;
+  const auto replace = [&description](std::wstring_view from, std::wstring_view to) {
+    if (const auto at = description.find(from); at != std::wstring::npos)
+      description.replace(at, from.size(), to);
+  };
+  replace(L"之后打的字母会交给", L"之后打的字母以及数字和运算符号会交给");
+  replace(L"只取决于这些字母和随机数", L"只取决于这些字符和随机数");
+  return description;
+}
 
 // 对话框现在列着、勾着的那几项。包在对话框打开之后被换过（`plugin_script_changed`，页面重读后换成新版本）时，`granted` 里可能还留着新版本不再申请的一项：它不显示，不能算作勾着去禁用互斥的另一项，也不能被交出去、被宿主以「清单没有申请」拒绝。
 inline std::vector<std::wstring> selected_capabilities(std::vector<std::wstring> const &granted,
@@ -1110,23 +1212,33 @@ inline std::vector<std::wstring> selected_capabilities(std::vector<std::wstring>
   return selected;
 }
 
+// `extended` 为真时「提供 / 指令」用加上数字和运算符号的说明（`has_extended_command`）。
 inline std::vector<GrantItem> grant_items(std::vector<std::wstring> const &requested,
-                                          std::vector<std::wstring> const &granted, bool busy) {
+                                          std::vector<std::wstring> const &granted, bool busy,
+                                          bool extended = false) {
   const auto selected = selected_capabilities(granted, requested);
   std::vector<GrantItem> items;
   for (auto const &capability : sort_capabilities(requested)) {
-    const auto partner = exclusive_partner(capability);
-    const bool blocked = !partner.empty() && contains(selected, partner);
+    std::wstring_view blocked_by;
+    for (auto const partner : exclusive_partners(capability))
+      if (blocked_by.empty() && contains(selected, partner))
+        blocked_by = partner;
     const auto required = capability_requires(capability);
     std::wstring notes;
     if (!required.empty())
       notes += L"需要同时授予「" + capability_label(required).title + L"」。";
-    if (blocked)
-      notes += L"不能和「" + capability_label(partner).title + L"」同时授予。";
-    const auto label = capability_label(capability);
-    items.push_back({capability, label.title,
-                     notes.empty() ? label.description : label.description + L" " + notes,
-                     contains(selected, capability), busy || blocked});
+    if (!blocked_by.empty())
+      notes += L"不能和「" + capability_label(blocked_by).title + L"」同时授予。";
+    const auto description = capability_description(capability, extended);
+    GrantItem item;
+    item.capability = capability;
+    item.title = capability_label(capability).title;
+    item.description = notes.empty() ? description : description + L" " + notes;
+    item.checked = contains(selected, capability);
+    item.disabled = busy || !blocked_by.empty();
+    item.group = std::wstring(capability_group(capability));
+    item.warning = capability == L"persist_data";
+    items.push_back(std::move(item));
   }
   return items;
 }
@@ -1146,11 +1258,23 @@ inline std::wstring grant_dialog_stale(Package const &pack) {
 }
 inline constexpr std::wstring_view grant_dialog_intro =
     L"脚本插件是第三方代码，会在输入法里运行。只勾选你愿意让它做的事；没有勾选的，它一律做不到。在密码框和隐私输入框里它不会运行。";
-inline constexpr std::wstring_view grant_dialog_no_permissions =
-    L"这个插件没有申请任何权限：它只能知道发生了什么事件，读不到也改不了任何文字。";
+// 没有申请任何权限时的一句：随包数据和设置项都不需要授权，有的话一起说。
+inline std::wstring grant_dialog_no_permissions(Package const &pack) {
+  std::vector<std::wstring> parts{L"知道发生了什么事件"};
+  if (pack.data_bytes > 0)
+    parts.emplace_back(L"读自己包里的数据");
+  if (!pack.settings.empty())
+    parts.emplace_back(L"读你在设置项里填的值");
+  return L"这个插件没有申请任何权限：它只能" + joined(parts, L"、") + L"，读不到也改不了任何文字。";
+}
+// 申请了权限、又声明了设置项时，对话框里多说的一句。
+inline constexpr std::wstring_view grant_dialog_settings_note =
+    L"插件能读到你在详情页设置项里填的值，这不需要授权。";
 inline constexpr std::wstring_view grant_dialog_legend = L"允许这个插件";
 inline constexpr std::wstring_view grant_dialog_confirm = L"授权并启用";
 inline constexpr std::wstring_view grant_dialog_failed = L"授权没有写入，请重试。";
+// 这次授权会删掉存下的数据时，第二次确认的按钮（第一次只把删除说清楚）。
+inline constexpr std::wstring_view grant_dialog_confirm_deletion = L"删除数据并授权";
 
 // ---- @ 名单 ----
 
@@ -1372,6 +1496,173 @@ inline std::wstring library_empty_message(std::wstring const &query) {
 inline std::wstring command_table_note() {
   return L"在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 " +
          std::to_wstring(max_command_tables) + L" 个。";
+}
+
+// ---- 脚本插件的设置项和数据 ----
+
+// 共享页 `plugin-script-model.ts` 的设置项、数据大小和删除规则（`grantDeletesStoredData`、`formatKilobytes`、`storedDataDeletionNote`、`settingValue`、`settingIssue`、`settingErrorKey`）。
+
+// 写下 `next` 这份授权会不会删掉插件存下的数据：宿主在写下的授权里没有「长期保存数据」、而之前授予过它或者存储里有数据时删除（包括更新之后重新授权没有再勾它）。`saved` 是授权文件里现在的那一条，不论内容哈希对不对得上。
+inline bool grant_deletes_stored_data(ScriptGrant const *saved, std::vector<std::wstring> const &next,
+                                      double storage_bytes) {
+  if (contains(next, L"persist_data"))
+    return false;
+  return (saved && contains(saved->granted, L"persist_data")) || storage_bytes > 0;
+}
+
+// 详情页和对话框要不要把这个插件当作存着数据：授权文件里记着 `persist_data`（不论内容哈希对不对得上：更新之后数据保留到重新授权），或者存储里有数据。
+inline bool script_persisting(ScriptGrant const *saved, double storage_bytes) {
+  return (saved && contains(saved->granted, L"persist_data")) || storage_bytes > 0;
+}
+
+// 数据大小，按 KB 向上取整：不满 1 KB 但不是空的也写 1 KB，免得有数据却显示 0。
+inline std::wstring format_kilobytes(double bytes) {
+  const auto kilobytes = bytes > 0 ? std::max(1.0, std::ceil(bytes / 1024)) : 0.0;
+  return js_number(kilobytes) + L" KB";
+}
+
+// 删掉存储之前的确认句。
+inline std::wstring stored_data_deletion_note(double storage_bytes) {
+  return storage_bytes > 0 ? L"插件已存的数据（" + format_kilobytes(storage_bytes) + L"）会被删除，不能恢复。"
+                           : std::wstring(L"插件存下的数据会被删除，不能恢复。");
+}
+
+// 对话框第二次确认之前的红字：这次授权不包括「长期保存数据」。
+inline std::wstring grant_dialog_deletion(double storage_bytes) {
+  return L"这次授权不包括「" + capability_label(L"persist_data").title + L"」，" +
+         stored_data_deletion_note(storage_bytes);
+}
+
+// 详情页启用开关关掉、而插件存着数据时的确认。
+inline std::wstring script_revoke_confirmation(Package const &pack, double storage_bytes) {
+  return L"停用会撤销「" + pack.name + L"」的全部授权，" + stored_data_deletion_note(storage_bytes);
+}
+inline constexpr std::wstring_view script_revoke_confirm = L"停用并删除数据";
+
+// 「清除数据」的确认。
+inline std::wstring script_clear_confirmation(Package const &pack, double storage_bytes) {
+  return L"清除「" + pack.name + L"」存下的数据？" + stored_data_deletion_note(storage_bytes);
+}
+
+// 详情页「数据」一组里两行的说明。
+inline constexpr std::wstring_view script_bundled_data_note = L"插件包里随附的只读数据，插件读它不需要授权。";
+inline constexpr std::wstring_view script_stored_data_note =
+    L"插件长期保存在这台电脑上的数据，最多 64 KB。撤销「长期保存数据」或删除插件时一起删除。";
+
+// 详情页设置表单的说明（`SCRIPT_SETTINGS_NOTE`）：读设置不需要能力。
+inline constexpr std::wstring_view script_settings_note =
+    L"插件能读到你在这里填的值，不需要授权。改了之后不用重新授权，输入法在下一次切换输入框时用上新值。";
+
+// 一项设置的默认值。
+inline ScriptSettingValue setting_default(ScriptSetting const &setting) {
+  if (setting.type == L"bool")
+    return setting.bool_default;
+  if (setting.type == L"number")
+    return setting.number_default;
+  return setting.text_default;
+}
+
+// 页面上一项设置的值（`settingValue`）：宿主读到的值类型不对时回到默认值，和宿主的 `ScriptSetting::value` 一致。
+inline ScriptSettingValue setting_value(ScriptSetting const &setting,
+                                        std::map<std::wstring, ScriptSettingValue> const &values) {
+  const auto found = values.find(setting.key);
+  if (found != values.end()) {
+    auto const &value = found->second;
+    if (setting.type == L"bool" && std::holds_alternative<bool>(value))
+      return value;
+    if (setting.type == L"number" && std::holds_alternative<std::int64_t>(value))
+      return value;
+    if ((setting.type == L"choice" || setting.type == L"text") && std::holds_alternative<std::wstring>(value))
+      return value;
+  }
+  return setting_default(setting);
+}
+
+// 数字输入框里的原文换成整数（共享页 `parsed` 的规则：去掉首尾空白后是可选的负号加十进制数字）；不是整数或超出 64 位时为空。
+inline std::optional<std::int64_t> parse_setting_number(std::wstring_view raw) {
+  const auto trimmed = js_trim(raw);
+  std::string ascii;
+  for (std::size_t index = 0; index < trimmed.size(); ++index) {
+    const wchar_t c = trimmed[index];
+    if (!(c >= L'0' && c <= L'9') && !(c == L'-' && index == 0))
+      return std::nullopt;
+    ascii.push_back(static_cast<char>(c));
+  }
+  if (ascii.empty() || ascii == "-")
+    return std::nullopt;
+  std::int64_t value = 0;
+  const auto [end, error] = std::from_chars(ascii.data(), ascii.data() + ascii.size(), value);
+  if (error != std::errc{} || end != ascii.data() + ascii.size())
+    return std::nullopt;
+  return value;
+}
+
+// 设置表单草稿里一项的初值：数字项存成输入框里的原文，保存时再换成整数，免得打到一半的「-」被吞掉（共享页的 `draftFrom`）。
+inline ScriptSettingValue draft_setting_value(ScriptSetting const &setting,
+                                              std::map<std::wstring, ScriptSettingValue> const &values) {
+  const auto value = setting_value(setting, values);
+  if (const auto *number = std::get_if<std::int64_t>(&value))
+    return std::to_wstring(*number);
+  return value;
+}
+
+// 交给宿主的值（共享页的 `parsed`）：数字项的原文是整数时换成整数，否则原样交给 `setting_issue` 报错。
+inline ScriptSettingValue parsed_setting_value(ScriptSetting const &setting, ScriptSettingValue const &raw) {
+  if (setting.type != L"number")
+    return raw;
+  if (const auto *text = std::get_if<std::wstring>(&raw))
+    if (const auto number = parse_setting_number(*text))
+      return *number;
+  return raw;
+}
+
+// 页面先查得出的问题（`settingIssue`）：数字不是范围内的整数、文本超出长度；没有问题时为空。数字项的原文不是整数时调用方交来原文（类型不对），同样报范围。不可见字符这类规则只在宿主查，宿主拒绝时由 `setting_error_key` 落到对应的那一项上。
+inline std::wstring setting_issue(ScriptSetting const &setting, ScriptSettingValue const &value) {
+  if (setting.type == L"number") {
+    const auto *number = std::get_if<std::int64_t>(&value);
+    if (!number || *number < setting.min || *number > setting.max)
+      return L"请填 " + std::to_wstring(setting.min) + L" 到 " + std::to_wstring(setting.max) + L" 之间的整数。";
+  }
+  if (setting.type == L"text")
+    if (const auto *text = std::get_if<std::wstring>(&value); text && utf16_length(*text) > setting.max_length)
+      return L"最多 " + std::to_wstring(setting.max_length) + L" 个字符。";
+  return {};
+}
+
+// `plugin_script_setting_invalid` 的 `detail`（「设置项 level 的值不合规」「清单里没有设置项 width」）说的是哪一项（`settingErrorKey`）；说不出时为空。
+inline std::wstring setting_error_key(std::wstring_view detail) {
+  constexpr std::wstring_view marker = L"设置项 ";
+  const auto at = detail.find(marker);
+  if (at == std::wstring_view::npos)
+    return {};
+  std::wstring key;
+  for (auto index = at + marker.size(); index < detail.size(); ++index) {
+    const wchar_t c = detail[index];
+    if (!((c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c == L'_'))
+      break;
+    key.push_back(c);
+  }
+  return key;
+}
+
+// 选项设置里一个 `value` 的标题；找不到时原样显示。
+inline std::wstring setting_option_title(ScriptSetting const &setting, std::wstring_view value) {
+  for (auto const &option : setting.options)
+    if (option.value == value)
+      return option.title;
+  return std::wstring(value);
+}
+
+// 一项设置现在的值，白话：开关写「开」「关」，选项写标题，数字和文本原样（空文本写「（空）」）。只给不能放下真控件的地方（Win7 的列表）用。
+inline std::wstring setting_value_text(ScriptSetting const &setting, ScriptSettingValue const &value) {
+  if (const auto *flag = std::get_if<bool>(&value))
+    return *flag ? L"开" : L"关";
+  if (const auto *number = std::get_if<std::int64_t>(&value))
+    return std::to_wstring(*number);
+  auto const &text = std::get<std::wstring>(value);
+  if (setting.type == L"choice")
+    return setting_option_title(setting, text);
+  return text.empty() ? std::wstring(L"（空）") : text;
 }
 
 } // namespace msime::settings::plugins
