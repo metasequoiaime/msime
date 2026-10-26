@@ -307,11 +307,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         if (!initialSidebarOpened && initialSidebarKey != null) {
             initialSidebarOpened = true;
             boolean digits = AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS.equals(initialSidebarKey);
-            java.util.List<String> current = NineKeySidebarPolicy.sidebarSymbols(digits,
+            java.util.List<String> sidebarCurrent = NineKeySidebarPolicy.sidebarSymbols(digits,
                 settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS),
                 settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
             editSidebarSymbols(digits ? "九键数字键盘左侧符号" : "九键左侧符号",
-                initialSidebarKey, current);
+                initialSidebarKey, sidebarCurrent);
         }
 
     }
