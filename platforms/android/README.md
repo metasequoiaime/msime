@@ -260,6 +260,8 @@ Android 14 起可以拿手写笔直接在应用的输入框上写字（#7080，�
 
 候选翻译只显示一种语言，即主目标语言 `translation_target_language`（与 iOS、鸿蒙相同）：第二种语言会让每个候选下多一行、候选栏太高，所以键盘不读共享偏好里的 `translation_secondary_language`（它留给桌面端），只请求、只查离线词典、只预留主语言这一行（`CandidateTranslationPolicy.targets`，`check-host.sh` 守住）。候选 chip 的行数按当前候选实际渲染出的释义文本决定：没有释义或只有一行释义时保持单行；只有 annotation 实际包含换行时才保留第二行。韩语汉字候选例外：训音和其后的释义各自单独成行，行数为 1 加次要文本的行数。
 
+候选词翻译的范围（`candidate_translation_scope`，「设置 → 输入 → 翻译」里紧跟「候选词翻译」开关的「翻译范围」，开关关着时置灰）缺键时是「仅当前高亮」。键盘不调 `msime_client_translation_query`，范围由它自己守：水杉账号、用户自己的服务和复用的 AI 助手两条取译文的路径只把视图里 `highlighted` 的那个候选交给 `CandidateTranslationStore`，高亮移动推进代次后还在路上的旧请求被丢弃，问过的词直接从缓存取；交给 `apply_translations` 的离线释义每条都带 `"gloss": true`，照旧整页都有，候选词翻译由共享层只画在高亮行。候选条本来就按释义行数统一预留高度，移动高亮时不会变高。规则在 `CandidateTranslationPolicy`（`Scope`、`requestsTranslation`、`answer`），`CandidateTranslationPolicySmoke` 和 `CandidateTranslationStoreSmoke` 覆盖，`check-host.sh` 守住接线。
+
 普通触屏候选 chip 不把 1、2、3 等序号画进候选文字；序号只通过无障碍描述提供，并继续作为硬件数字行选择的槽位。这样长按、点击和数字行选择共享同一候选身份，同时保持 Apple 触屏候选的纯文字外观。
 
 以下只适用于不发布的 Tauri 合包（`build-client-apk.sh`），发布的 APK 不含共享设置页，原生设置 App 目前也没有候选字体这一项：Tauri/React 共享设置页现在按 Android 原生能力展示候选字体、字号、颜色和边框/悬停控件；Android 不枚举桌面系统字体，字体框允许用户输入完整字体名，保存后由输入法进程消费。这样设置页不会把 Android 未实现的桌面字体目录能力伪装成可用功能。

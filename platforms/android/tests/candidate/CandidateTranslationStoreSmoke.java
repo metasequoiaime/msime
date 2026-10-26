@@ -272,6 +272,55 @@ public final class CandidateTranslationStoreSmoke {
             cancelled.countDown();
             staleWorker.shutdownNow();
         }
+        // 「仅当前高亮」：键盘每次只把高亮的那一个候选交给 refresh，移动高亮推进代次后再交新的那一个。还在路上的旧请求要被丢掉，不能写进缓存；问过的词移回来时直接用缓存，不再请求。
+        CountDownLatch highlightResponses = new CountDownLatch(2);
+        FakeScheduler highlightScheduler = new FakeScheduler() {
+            @Override public void post(Runnable action) {
+                super.post(action);
+                highlightResponses.countDown();
+            }
+        };
+        ExecutorService highlightWorker = Executors.newSingleThreadExecutor();
+        List<List<String>> highlightRequests = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        CountDownLatch firstHighlightCall = new CountDownLatch(1);
+        CountDownLatch releaseFirstHighlight = new CountDownLatch(1);
+        AtomicInteger highlightArrivals = new AtomicInteger();
+        CandidateTranslationStore highlightStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                highlightRequests.add(List.copyOf(texts));
+                if (highlightRequests.size() == 1) {
+                    firstHighlightCall.countDown();
+                    releaseFirstHighlight.await(2, TimeUnit.SECONDS);
+                }
+                return texts.stream().map(text -> text + " translation").toList();
+            }, highlightWorker, highlightScheduler, generation -> highlightArrivals.incrementAndGet());
+        try {
+            highlightStore.refresh(List.of("你好"), List.of("en"), 1);
+            highlightScheduler.runDelayed();
+            check(firstHighlightCall.await(2, TimeUnit.SECONDS), "the first highlighted request started");
+            // 高亮移到第二个候选：旧请求还没回来就换成新的那一个。
+            highlightStore.refresh(List.of("世界"), List.of("en"), 2);
+            releaseFirstHighlight.countDown();
+            highlightScheduler.runDelayed();
+            check(highlightResponses.await(2, TimeUnit.SECONDS), "both highlighted requests answered");
+            highlightScheduler.runPosted();
+            check(highlightStore.gloss("你好", "en") == null,
+                "the answer for the candidate the highlight left is discarded");
+            check("世界 translation".equals(highlightStore.gloss("世界", "en")),
+                "the newly highlighted candidate is translated");
+            check(highlightRequests.equals(List.of(List.of("你好"), List.of("世界"))),
+                "each request carries only the highlighted candidate");
+            int requestsBefore = highlightRequests.size();
+            int arrivalsBefore = highlightArrivals.get();
+            // 高亮移走再移回「世界」：缓存里有，不再请求。
+            highlightStore.refresh(List.of("世界"), List.of("en"), 4);
+            highlightScheduler.runDelayed();
+            check(highlightRequests.size() == requestsBefore && highlightArrivals.get() == arrivalsBefore,
+                "moving the highlight back reuses the cached translation without a request");
+        } finally {
+            releaseFirstHighlight.countDown();
+            highlightWorker.shutdownNow();
+        }
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 

@@ -853,8 +853,39 @@ void expanded_identity() {
   assert(!host::native_canvas_snapshot_current(snapshot, 7, 11));
 }
 
+// 「仅当前高亮」：canvas 包按有没有释义变高，没有统一预留，所以竖排横排都按高亮行的标记（视图的 translation_reserved）给它一直留出释义的行数；释义到了、高亮换了一行，卡片都一样高。
+void reserved_highlight_gloss() {
+  const auto target = image(1000, 600, 0);
+  auto *cr = cairo_create(target.get());
+  host::NativeCanvasAssets assets;
+  for (const bool horizontal : {false, true}) {
+    host::NativeCanvasContent content;
+    content.font = "Sans 16px";
+    content.horizontal = horizontal;
+    content.items = {{"1. ", "alpha"}, {"2. ", "beta"}, {"3. ", "gamma"}};
+    const auto plain = host::measure_native_canvas(cr, assets, content);
+    content.items[0].reserved_gloss_lines = 1;
+    const auto waiting = host::measure_native_canvas(cr, assets, content);
+    assert(waiting.items[0].height > plain.items[0].height + 4);
+    assert(waiting.height > plain.height + 4);
+    if (!horizontal) assert(std::abs(waiting.items[1].height - plain.items[1].height) < 0.5);
+    content.items[0].translation = "gloss";
+    const auto answered = host::measure_native_canvas(cr, assets, content);
+    assert(std::abs(answered.height - waiting.height) < 0.5);
+    content.items[0].translation.clear();
+    content.items[0].reserved_gloss_lines = 0;
+    content.items[1].reserved_gloss_lines = 1;
+    content.selected = 1;
+    const auto moved = host::measure_native_canvas(cr, assets, content);
+    assert(std::abs(moved.height - waiting.height) < 0.5);
+    content.items[1].reserved_gloss_lines = 2;
+    assert(host::measure_native_canvas(cr, assets, content).height > moved.height + 4);
+  }
+  cairo_destroy(cr);
+}
 int main() {
   decoration_overlay();
+  reserved_highlight_gloss();
   chrome_decoration_overlay();
   expanded_panel();
   expanded_identity();

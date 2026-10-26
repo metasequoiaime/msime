@@ -362,6 +362,7 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--page-number" ||
                                   std::string(argv[2]) == "--ctrl-space" ||
                                   std::string(argv[2]) == "--empty-translation" ||
+                                  std::string(argv[2]) == "--translation-scope" ||
                                   std::string(argv[2]) == "--caps-lock" ||
                                   std::string(argv[2]) == "--app-rules" ||
                                   std::string(argv[2]) == "--japanese-toggle" ||
@@ -713,6 +714,54 @@ int main(int argc, char **argv) {
       require(has_gloss(), "IBus 异步空回包不能清掉当前候选释义");
       invoke("PropertyActivate", g_variant_new("(su)", "CandidateTranslations", PROP_STATE_UNCHECKED));
       require(!has_gloss(), "主动关闭翻译仍应清理当前候选释义");
+      finish();
+      return 0;
+    }
+    // 候选词翻译「仅当前高亮」（偏好缺键时就是它）：只为高亮的候选问 provider，译文只画在高亮行；高亮移到别的候选后单独为它问一次，移回问过的候选时直接画记下的译文，不再问 provider。
+    if (argc == 3 && std::string(argv[2]) == "--translation-scope") {
+      const auto socket = (root / "translation-scope.sock").string();
+      TranslationProviderFixture provider(socket);
+      auto translated = options;
+      translated.erase("preferences_directory");
+      translated["translation_provider_socket"] = socket;
+      // 法语目标：随包的离线词典只有英文，译文只能来自合成服务；不开离线英文释义，没有 gloss_query。
+      translated["preferences"]["translation_target_language"] = "fr";
+      translated["preferences"]["candidate_translations"] = true;
+      translated["preferences"]["candidate_english_gloss"] = false;
+      translated["preferences"]["cloud_candidates"] = false;
+      translated["preferences"]["ai_assistant"]["enabled"] = false;
+      translated["preferences"].erase("candidate_translation_scope");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      msime_ibus_configure(translated.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto glossed = [&](size_t row) {
+        return row < seen.candidates.size() &&
+               seen.candidates[row].find("synthetic gloss") != std::string::npos;
+      };
+      require(wait_until([&] { return glossed(0); }), "高亮的第一个候选没有显示合成译文");
+      require(seen.candidates.size() > 1 && !glossed(1), "非高亮的候选也画了译文");
+      auto asked = provider.translation_requests();
+      require(asked.size() == 1 && asked.front().size() == 1, "第一次请求不是只问高亮的那一个候选");
+      const auto first = asked.front().front();
+      require(key(IBUS_Down) && wait_until([&] { return seen.cursor == 1; }), "Down 没有把高亮移到第二个候选");
+      require(wait_until([&] { return glossed(1) && !glossed(0); }), "高亮移走后译文没有跟着走");
+      asked = provider.translation_requests();
+      require(asked.size() == 2 && asked.back().size() == 1 && asked.back().front() != first,
+              "高亮移到第二个候选后没有只为它单独请求一次");
+      require(key(IBUS_Up) && wait_until([&] { return seen.cursor == 0 && glossed(0) && !glossed(1); }),
+              "移回第一个候选时没有直接画出记下的译文");
+      // 等过 500 ms 的停顿：移回问过的候选不再问 provider。
+      const auto settled = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+      while (g_get_monotonic_time() < settled) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(provider.translation_requests().size() == 2 && glossed(0) && !glossed(1),
+              "移回问过的候选又问了一次 provider");
       finish();
       return 0;
     }
@@ -1999,6 +2048,8 @@ int main(int argc, char **argv) {
       translated["preferences"]["translation_target_language"] = "fr";
       translated["preferences"]["candidate_page_size"] = 9;
       translated["preferences"]["candidate_translations"] = false;
+      // 这一段核对整页的离线命中与在线补查（其他行的未命中去问 provider），是「全部」范围的行为；「仅当前高亮」见 --translation-scope。
+      translated["preferences"]["candidate_translation_scope"] = "all";
       msime_ibus_configure(translated.dump());
       engine = create_engine();
       seen = Observation{};

@@ -5089,6 +5089,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
     }
+    // 缺键按「仅当前高亮」，与会话读到的范围一致（`InputHabitPreference.settings`）。
+    CandidateTranslationPreference.translationScope = CandidateTranslationScope(
+      sharedValue: preferences[InputHabitPreference.translationScopeKey])
     // 五笔版本由会话直接从文档读取；这里只更新方案名和方案卡片角标读的 App Group 镜像。
     WubiProfilePreference.mirror(preferences)
     if let traditional = preferences["traditional_chinese_output"] as? Bool,
@@ -5267,7 +5270,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           let entry = snapshot.entries[index]
           return candidateMenuElements(
             generation: snapshot.generation, globalIndex: entry.index, candidate: entry.text,
-            offlineGloss: entry.translation, source: entry.source, fixedPosition: entry.fixedPosition)
+            offlineGloss: entry.translation, source: entry.source, highlighted: entry.highlighted,
+            fixedPosition: entry.fixedPosition)
         },
         onSelect: { [weak self] index in
           guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return }
@@ -5323,7 +5327,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func candidatePanelAnnotations(_ snapshot: CandidatePanelSnapshot) -> [KeyboardCandidateAnnotation] {
     snapshot.entries.map {
       candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
-                               source: $0.source, typed: snapshot.preedit)
+                               source: $0.source, highlighted: $0.highlighted, typed: snapshot.preedit)
     }
   }
 
@@ -6981,6 +6985,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let word = visibleCandidates[index]
     var languages = [CandidateTranslationPreference.primary]
     if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
+    let translated = drawsCandidateTranslation(at: index)
+    // 「仅当前高亮」时其他候选没有候选词翻译，那一行照旧留着（占位或离线释义），候选条高度和词块排版不变。
     return languages
       .filter {
         Self.canFillGloss($0, fullAccess: hasFullAccess, onlineRoute: translationRoute != .none,
@@ -6988,33 +6994,46 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       .map {
         gloss(word: word, language: $0,
-              offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
+              offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "",
+              translated: translated)
           ?? Self.pendingGlossPlaceholder
       }
   }
 
+  /// 候选条第 `index` 个候选画不画宿主缓存里的候选词翻译：「仅当前高亮」生效时只有视图里高亮的那一个画。英文离线释义来自视图的 `translation`，范围已由会话按同一规则给好。
+  private func drawsCandidateTranslation(at index: Int) -> Bool {
+    CandidateTranslationPreference.drawsTranslation(
+      at: index, highlighted: visibleCandidateHighlighted, scoped: CandidateTranslationPreference.scopedToHighlight)
+  }
+
   static let pendingGlossPlaceholder = " "
 
-  private func glosses(word: String, offline: String, source: Int) -> [String] {
+  /// 展开面板和它的长按菜单里一个候选的释义行。`highlighted` 是这个候选是不是会话当前高亮的那一个：「仅当前高亮」生效时只有它带候选词翻译。
+  private func glosses(word: String, offline: String, source: Int, highlighted: Bool) -> [String] {
     guard !CandidateTranslationStore.sourceGetsNoGloss(source) else { return [] }
+    let translated = !CandidateTranslationPreference.scopedToHighlight || highlighted
     var lines: [String] = []
-    if let value = gloss(word: word, language: CandidateTranslationPreference.primary, offline: offline) { lines.append(value) }
+    if let value = gloss(word: word, language: CandidateTranslationPreference.primary, offline: offline,
+                         translated: translated) { lines.append(value) }
     if let secondary = CandidateTranslationPreference.secondary,
-       let value = gloss(word: word, language: secondary, offline: "") { lines.append(value) }
+       let value = gloss(word: word, language: secondary, offline: "", translated: translated) { lines.append(value) }
     return lines
   }
 
   private func gloss(word: String, language: CandidateTranslationLanguage, at index: Int) -> String? {
     guard CandidateTranslationStore.allowsGloss(sources: visibleCandidateSources, at: index) else { return nil }
     return gloss(word: word, language: language,
-                 offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
+                 offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "",
+                 translated: drawsCandidateTranslation(at: index))
   }
 
-  private func gloss(word: String, language: CandidateTranslationLanguage, offline: String) -> String? {
+  /// `translated` 为假时不取宿主缓存里的候选词翻译（在线、账号、AI 翻译），只画离线释义：「仅当前高亮」时不是高亮的候选就是这样。
+  private func gloss(word: String, language: CandidateTranslationLanguage, offline: String, translated: Bool) -> String? {
     if !CandidateTranslationPreference.needsNetwork(language), glossesCandidates,
        !offline.isEmpty, offline != word { return offline }
     let target = !glossesCandidates ? nil : candidateTargetGlosses[language.code]?[word]
-    let online = CandidateTranslationPreference.onlineEnabled ? translations.gloss(word: word, code: language.code) : nil
+    let online = translated && CandidateTranslationPreference.onlineEnabled
+      ? translations.gloss(word: word, code: language.code) : nil
     return Self.preferredGloss(offline: target, online: online, route: translationRoute)
   }
 
@@ -7027,9 +7046,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidatePanelAnnotation(code: String, gloss: String, word: String, engine: String,
-                                        source: Int, typed: String) -> KeyboardCandidateAnnotation {
+                                        source: Int, highlighted: Bool, typed: String) -> KeyboardCandidateAnnotation {
     let (hint, hintDescription) = codeHint(code: code, engine: engine, typed: typed)
-    let lines = glosses(word: word, offline: gloss, source: source)
+    let lines = glosses(word: word, offline: gloss, source: source, highlighted: highlighted)
     let text = ([hint] + lines).filter { !$0.isEmpty }.joined(separator: "\n")
     guard !text.isEmpty else { return .none }
     let description = ([hintDescription, lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))"])
@@ -7099,8 +7118,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           !visibleCandidates.isEmpty, visibleEmailSuffixes.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
-    let words = Array(visibleCandidates.prefix(candidatePageSize))
-    translations.refresh(words: words, sources: visibleCandidateSources, codes: codes)
+    // 「仅当前高亮」：在线、账号、AI 翻译只为视图里高亮的那一个候选请求；高亮换了候选就取消旧请求，缓存留着。离线释义（英文和已装的其他语言）不经这里，照旧整页查。
+    let scoped = CandidateTranslationPreference.scopedToHighlight
+    let page = CandidateTranslationStore.requestPage(
+      words: Array(visibleCandidates.prefix(candidatePageSize)), sources: visibleCandidateSources,
+      highlighted: visibleCandidateHighlighted, scoped: scoped)
+    translations.refresh(words: page.words, sources: page.sources, codes: codes, dropsStale: scoped)
   }
 
   private func wubiCodeHint(code: String, typed: String) -> String {
@@ -7244,11 +7267,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidateGlossQueue.async { [weak self] in
         guard let response = try? MetasequoiaInputSessionBridge.candidateGlosses(request: request, resources: resources),
               let decoded = try? CandidateGlossModel.decode(response), decoded.generation == generation,
-              let entries = try? JSONSerialization.jsonObject(with: decoded.translations) as? [[String: String]]
+              let entries = try? JSONSerialization.jsonObject(with: decoded.translations) as? [[String: Any]]
         else { return }
+        // 每条还带着 `gloss: true`（交给会话时用），这里只取文字和释义。
         var glosses: [String: String] = [:]
         for entry in entries {
-          if let text = entry["text"], let translation = entry["translation"] { glosses[text] = translation }
+          if let text = entry["text"] as? String, let translation = entry["translation"] as? String {
+            glosses[text] = translation
+          }
         }
         DispatchQueue.main.async { [weak self] in
           guard let self, self.candidateGlossEpoch == targetEpoch, CandidateGlossPreference.enabled,
@@ -7608,10 +7634,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidateMenuElements(
-    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String, source: Int, fixedPosition: Int
+    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String, source: Int, highlighted: Bool,
+    fixedPosition: Int
   ) -> [UIMenuElement] {
     guard isChineseMode, inputScheme.writesChinese, !isInLocalMode else { return [] }
-    let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss, source: source)) { [weak self] in
+    let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss, source: source,
+                                            highlighted: highlighted)) { [weak self] in
       guard let self else { return false }
       guard let snapshot = try? session.allCandidates(),
             let current = try? CandidatePanelSnapshot.decode(snapshot),

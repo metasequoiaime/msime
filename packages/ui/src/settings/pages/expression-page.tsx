@@ -3,6 +3,7 @@ import { createSettingsDraftActions } from "../settings-draft-actions";
 import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { CandidatePronunciationSection } from "../candidate-pronunciation-section";
+import { candidateTranslationScope } from "../candidate-translation-options-section";
 import { EnglishSuggestionsSection } from "../english-suggestions-section";
 import { PhonePunctuationSection, PunctuationSection } from "../punctuation-section";
 import { SentenceAssociationLevelRow } from "../sentence-association-section";
@@ -97,6 +98,7 @@ export function ExpressionSettingsPage() {
     visibleTranslationLanguages,
     visibleSecondaryLanguages,
     onDeviceMissingLanguages,
+    candidateTranslationScope: candidateTranslationScope(draft.candidate_translation_scope),
     candidateTranslationShowPos: draft.candidate_translation_show_pos ?? true,
     candidateTranslationSingleSense: draft.candidate_translation_single_sense ?? false,
     openSettings: client.onDeviceTranslation?.openSettings,

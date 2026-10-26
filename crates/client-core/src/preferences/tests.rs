@@ -1263,6 +1263,58 @@ fn candidate_translation_display_defaults_follow_windows_factory_config() {
 }
 
 #[test]
+fn candidate_translation_scope_defaults_to_highlighted_for_new_and_legacy_documents() {
+    use crate::preferences::CandidateTranslationScope;
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.candidate_translation_scope,
+        CandidateTranslationScope::Highlighted
+    );
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(written["candidate_translation_scope"], "highlighted");
+
+    // 没有这个键的旧文档（候选词翻译开着的老用户）同样读成「仅当前高亮」。
+    let mut legacy = written.clone();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("candidate_translation_scope");
+    legacy["candidate_translations"] = serde_json::json!(true);
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_translations);
+    assert_eq!(
+        parsed.candidate_translation_scope,
+        CandidateTranslationScope::Highlighted
+    );
+
+    // 显式选的「全部」原样往返；不认识的值按默认读，不让整份偏好读不出来。
+    for (raw, expected) in [
+        ("all", CandidateTranslationScope::All),
+        ("highlighted", CandidateTranslationScope::Highlighted),
+        ("every_page", CandidateTranslationScope::Highlighted),
+    ] {
+        let mut document = written.clone();
+        document["candidate_translation_scope"] = serde_json::json!(raw);
+        let parsed = serde_json::from_value::<Preferences>(document).unwrap();
+        assert_eq!(parsed.candidate_translation_scope, expected, "{raw}");
+    }
+    let all = Preferences {
+        candidate_translation_scope: CandidateTranslationScope::All,
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&all).unwrap()).unwrap();
+    assert_eq!(
+        round_tripped.candidate_translation_scope,
+        CandidateTranslationScope::All
+    );
+    // 类型不对照样报错，和其他字段一致。
+    let mut wrong = written;
+    wrong["candidate_translation_scope"] = serde_json::json!(1);
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+}
+
+#[test]
 fn candidate_badge_defaults_follow_windows_factory_config() {
     let defaults = Preferences::default();
     assert!(defaults.candidate_fixed_badge);

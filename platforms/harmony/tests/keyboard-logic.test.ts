@@ -4908,6 +4908,34 @@ group("a horizontal candidate window is as wide as its whole page", () => {
   );
 });
 
+group("「仅当前高亮」时移动高亮不改变 2in1 候选窗的宽度", () => {
+  // 译文只画在高亮行：高亮从带长译文的一行移走，按内容量出的宽度会变窄，移回来又变宽。这一页有为高亮行留译文的候选（translation_reserved）时，同一页里窗口不比已经用过的窄。
+  const row = (text: string) => ({ text, badge: "", hint: "", annotation: "" });
+  const page = CandidateWidthPolicy.pageKey([row("你好"), row("拟好")], 0);
+  check(
+    CandidateWidthPolicy.steadyWidthVp(300, true, true, 420) === 420,
+    "同一页上高亮移走，窗口保持已用过的宽度",
+  );
+  check(
+    CandidateWidthPolicy.steadyWidthVp(460, true, true, 420) === 460,
+    "更长的译文照常把窗口撑宽",
+  );
+  check(
+    CandidateWidthPolicy.steadyWidthVp(300, true, false, 420) === 300,
+    "换了一页按新内容量宽度",
+  );
+  check(
+    CandidateWidthPolicy.steadyWidthVp(300, false, true, 420) === 300,
+    "范围是「全部」或这一页不请求释义时宽度照旧跟着内容",
+  );
+  check(
+    page === CandidateWidthPolicy.pageKey([row("你好"), row("拟好")], 0) &&
+      page !== CandidateWidthPolicy.pageKey([row("你好"), row("拟好")], 1) &&
+      page !== CandidateWidthPolicy.pageKey([row("你好"), row("泥壕")], 0),
+    "页号或候选变了就是另一页",
+  );
+});
+
 group("a 2in1 candidate window shows which page it is on", () => {
   // Harmony design hm2: "current / total" at 13px after the composition, then clickable arrows.
   check(

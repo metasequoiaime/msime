@@ -20,6 +20,64 @@ public final class CandidateTranslationPolicy {
 
     private CandidateTranslationPolicy() {}
 
+    /**
+     * 候选词翻译的范围，即共享偏好 `candidate_translation_scope`（`crates/client-core` 的 `CandidateTranslationScope`）。范围只管候选词翻译（水杉账号、用户自己的服务和复用的 AI 助手）；「候选英文释义」的离线释义不受它限制，照旧整页都有。
+     */
+    public enum Scope {
+        /** 只翻译当前高亮的候选，高亮移动时译文跟着走。新装和缺键的旧文档都是它。 */
+        HIGHLIGHTED("highlighted", "仅当前高亮"),
+        /** 当前页每个候选都翻译，这个选项出现以前的行为。 */
+        ALL("all", "全部");
+
+        public static final String KEY = "candidate_translation_scope";
+        /** 设置界面的行标题和说明，与共享 React 设置页（`candidate-translation-options-section.tsx`）相同。 */
+        public static final String TITLE = "翻译范围";
+        public static final String DESCRIPTION = "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响";
+
+        private final String id;
+        private final String title;
+
+        Scope(String id, String title) {
+            this.id = id;
+            this.title = title;
+        }
+
+        /** 偏好文档里的写法。 */
+        public String id() { return id; }
+
+        /** 设置界面里的选项名。 */
+        public String title() { return title; }
+
+        /** 偏好里读到的值：只认 `"all"`，缺键、不认识的值和不是字符串的值都按「仅当前高亮」读，与共享层的宽松反序列化一致。参数是 {@code Object}，JVM 冒烟加载不了 org.json。 */
+        public static Scope from(Object value) {
+            return ALL.id.equals(value) ? ALL : HIGHLIGHTED;
+        }
+    }
+
+    /** 范围是否在生效：候选词翻译开着且范围是「仅当前高亮」，与共享层的 `translation_scope_highlighted` 相同。 */
+    public static boolean scopeLimited(boolean candidateTranslations, Scope scope) {
+        return candidateTranslations && scope == Scope.HIGHLIGHTED;
+    }
+
+    /** 这个候选要不要交给候选词翻译的服务（账号、用户自己的服务、AI）：范围生效时只有视图里 `highlighted` 的那一个要，否则整页都要。 */
+    public static boolean requestsTranslation(boolean scopeLimited, boolean highlighted) {
+        return !scopeLimited || highlighted;
+    }
+
+    /**
+     * 交给 `msime_client_apply_translations` 的一条回答。{@code gloss} 为真表示这条只来自离线释义（`"gloss": true`），共享层在「仅当前高亮」时也每一行都画；为假的是候选词翻译，范围生效时共享层只画在高亮行。
+     */
+    public record Answer(String text, String translation, boolean gloss) {}
+
+    /** 一个候选的回答：各行照 {@link #mergeGlosses} 合并（离线优先），没有一行用到在线译文时标成离线释义。候选文字为空或没有可显示的内容时为 null。 */
+    public static Answer answer(String text, List<String> targets, Map<String, String> offline,
+            Map<String, String> online) {
+        if (text == null || text.isEmpty()) return null;
+        String translation = mergeGlosses(targets, offline, online);
+        if (translation.isEmpty()) return null;
+        return new Answer(text, translation, translation.equals(mergeGlosses(targets, offline, null)));
+    }
+
     /** 唯一的目标语言就是主目标语言，不认识时退回英语。 */
     public static List<String> targets(String primary) {
         String first = TextPolicy.lowercaseTrimmed(primary);
@@ -165,17 +223,19 @@ public final class CandidateTranslationPolicy {
         return requested != null && !requested.isEmpty() && requested.equals(current);
     }
 
-    /** 偏好变化后当前候选行中的译文必须先清空，再等待新配置的回答。换了翻译服务或凭据（路由变了）也算。 */
+    /** 偏好变化后当前候选行中的译文必须先清空，再等待新配置的回答。换了翻译服务或凭据（路由变了）、换了翻译范围也算：共享层换范围时同样撤销旧释义。 */
     public static boolean displayInvalidated(boolean previousEnglishGloss,
             boolean nextEnglishGloss, boolean previousTranslations,
             boolean nextTranslations, boolean previousAccount, boolean nextAccount,
             List<String> previousTargets, List<String> nextTargets,
-            CandidateTranslationRoute previousRoute, CandidateTranslationRoute nextRoute) {
+            CandidateTranslationRoute previousRoute, CandidateTranslationRoute nextRoute,
+            Scope previousScope, Scope nextScope) {
         return previousEnglishGloss != nextEnglishGloss
             || previousTranslations != nextTranslations
             || previousAccount != nextAccount
             || !java.util.Objects.equals(previousTargets, nextTargets)
-            || !java.util.Objects.equals(previousRoute, nextRoute);
+            || !java.util.Objects.equals(previousRoute, nextRoute)
+            || previousScope != nextScope;
     }
 
     /** Count rows that can actually be filled by the enabled offline/online paths. The offline switch covers English and every target in {@code offlineTargets}. */

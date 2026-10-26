@@ -327,6 +327,9 @@ if(BUILD_TESTING)
     add_test(NAME ibus-empty-translation
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --empty-translation)
     set_tests_properties(ibus-empty-translation PROPERTIES TIMEOUT 60)
+    add_test(NAME ibus-translation-scope
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --translation-scope)
+    set_tests_properties(ibus-translation-scope PROPERTIES TIMEOUT 60)
     add_test(NAME ibus-caps-lock-tap
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --caps-lock)
     set_tests_properties(ibus-caps-lock-tap PROPERTIES TIMEOUT 60)
@@ -450,6 +453,7 @@ if(BUILD_TESTING)
   add_executable(linux-candidate-translation-policy-test tests/candidate/candidate_translation_policy.cpp)
   target_compile_options(linux-candidate-translation-policy-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-candidate-translation-policy-test PRIVATE src)
+  target_link_libraries(linux-candidate-translation-policy-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-candidate-translation-policy COMMAND linux-candidate-translation-policy-test)
   add_executable(linux-candidate-row-text-test tests/candidate/candidate_row_text.cpp)
   target_compile_options(linux-candidate-row-text-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)

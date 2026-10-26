@@ -19551,6 +19551,7 @@ mod plugin_authoring;
     all(target_os = "linux", not(target_env = "ohos"))
 ))]
 mod script_plugins;
+mod translation_scope;
 
 fn punctuation_commit(handle: u64, key: u8) -> String {
     read(msime_client_punctuation(handle, key))["value"]["commit"]
