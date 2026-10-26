@@ -559,7 +559,7 @@ BODY = r"""
 </div>
 
 <h3 class="sub-h">插件实例的一生</h3>
-<p class="intro">上面是事件的生命周期，这里是插件自己的：从装好、你授权，到在每个输入框里出生又被丢弃。实例活不过一个输入框，所以插件没法把一个应用里看到的东西带到另一个应用。</p>
+<p class="intro">上面是事件的生命周期，这里是插件自己的：从装好、你授权，到在每个输入框里出生又被丢弃。实例活不过一个输入框，所以插件没法把一个应用里看到的东西带到另一个应用。唯一的例外是你单独授予的「记住数据」（<code>persist_data</code>）：插件有一块最多 64 KiB 的私有存储能跨输入框保留，授权页用红字说明它可能记下你在不同应用里打过的字；撤销这一项、清除数据或卸载插件时删除。</p>
 <div class="card svgwrap">@@INSTANCE@@</div>
 </section>
 
@@ -568,7 +568,7 @@ BODY = r"""
 <h2>为什么脚本插件没法偷看你打的字</h2>
 <p class="intro">脚本插件能做的事情很强，所以每一层都上了锁。下面六条是代码里硬性规定的，不是靠插件作者自觉。</p>
 <div class="safe">
-<div class="card sf"><div class="ic" style="background:#fff7ed">@@LOCK@@</div><b>关在沙箱里</b><p>插件只能调用输入法给的几个固定函数，没有读写文件、联网、启动程序的能力。</p></div>
+<div class="card sf"><div class="ic" style="background:#fff7ed">@@LOCK@@</div><b>关在沙箱里</b><p>插件只能调用输入法给的几个固定函数，不能联网、启动程序或读写任意文件；除了你单独授权的那块私有存储，它碰不到磁盘。</p></div>
 <div class="card sf"><div class="ic" style="background:#eef2ff">@@EYE@@</div><b>只看你允许的</b><p>每项权限单独勾选。没给权限的文字根本不会交给插件，它连「有没有被藏起来」都分辨不出。</p></div>
 <div class="card sf"><div class="ic" style="background:#f0fdfa">@@KEY@@</div><b>密码框里不运行</b><p>密码框、标为隐私的输入框、以管理员身份运行的窗口里，插件完全不启动。插件也拿不到时钟和按键本身，推不出你的打字节奏。</p></div>
 <div class="card sf"><div class="ic" style="background:#f5f3ff">@@RESET@@</div><b>换个输入框就清空</b><p>每次切换输入框，插件的状态全部清空，没法把一个应用里看到的内容带到另一个应用。</p></div>
@@ -602,15 +602,17 @@ BODY = r"""
 <h3>能力与 import 函数</h3>
 <table>
 <tr><th>能力</th><th>能读或能做</th><th>依赖 / 限制</th><th>import</th></tr>
-<tr><td>（不需要）</td><td>事件枚举字段、写日志、command 的随机数</td><td></td><td><code>event_scalar</code> <code>log</code> <code>random_fill</code></td></tr>
+<tr><td>（不需要）</td><td>事件枚举字段、写日志、command 的随机数和到分钟的本地时间、自己的设置项、随包数据</td><td></td><td><code>event_scalar</code> <code>log</code> <code>random_fill</code> <code>setting_*</code> <code>data_*</code></td></tr>
 <tr><td><code>read_composition</code></td><td>预编辑串、读音、这次打的字符、光标</td><td>与 rewrite_commit 互斥</td><td><code>composition_text</code> <code>composition_scalar</code></td></tr>
 <tr><td><code>read_commit</code></td><td>选中的候选、上屏文本、可改写段、座位</td><td></td><td><code>commit_text</code> <code>commit_scalar</code></td></tr>
 <tr><td><code>read_candidates</code></td><td>候选窗口前 20 行、页码、高亮</td><td></td><td><code>candidate_*</code></td></tr>
-<tr><td><code>rewrite_commit</code></td><td>改写上屏的 body</td><td>需 read_commit；只在 before_commit 有效</td><td><code>rewrite_commit</code></td></tr>
+<tr><td><code>rewrite_commit</code></td><td>改写上屏的 body</td><td>需 read_commit；只在 before_commit 有效；与 persist_data 互斥</td><td><code>rewrite_commit</code></td></tr>
 <tr><td><code>rerank_candidates</code></td><td>重排候选</td><td>需 read_candidates；只在 candidates 有效</td><td><code>candidates_order</code></td></tr>
 <tr><td><code>filter_candidates</code></td><td>降到末尾并隐藏</td><td>同上</td><td><code>candidates_hide</code></td></tr>
 <tr><td><code>annotate_candidates</code></td><td>加注释（另外显示，不替换原注释）</td><td>同上</td><td><code>candidates_annotate</code></td></tr>
+<tr><td><code>insert_candidates</code></td><td>往普通候选里加行（原样上屏，不进词库）</td><td>需 read_candidates；只在 candidates、本地模式 none 有效</td><td><code>candidates_insert</code></td></tr>
 <tr><td><code>provide_commands</code></td><td>在自己声明的 / 指令里给出候选行</td><td>需声明 command 钩子和 [[script.commands]]</td><td><code>command_text</code> <code>command_row</code></td></tr>
+<tr><td><code>persist_data</code></td><td>一块跨输入框保留的私有存储，最多 64 KiB（单独授权，默认不勾）</td><td>与 rewrite_commit 互斥；快照钩子和 msime_init 里不可用</td><td><code>storage_len</code> <code>storage_read</code> <code>storage_write</code></td></tr>
 </table>
 <h3>配额</h3>
 <table>

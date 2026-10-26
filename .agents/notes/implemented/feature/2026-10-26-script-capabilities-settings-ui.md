@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-[脚本插件第二批能力](../../proposed/architecture/2026-10-26-script-plugin-capabilities-v2.md)的运行时和宿主已经能处理 `insert_candidates`、`persist_data`、清单设置项、随包数据和 `extended` 指令，设置页的 FFI（`script_plugin_state`、`set_script_settings`、`clear_script_data`）也有了，但共享设置页和 Windows 原生设置页都还停在第一批能力上：
+[脚本插件第二批能力](../../implemented/architecture/2026-10-26-script-plugin-capabilities-v2.md)的运行时和宿主已经能处理 `insert_candidates`、`persist_data`、清单设置项、随包数据和 `extended` 指令，设置页的 FFI（`script_plugin_state`、`set_script_settings`、`clear_script_data`）也有了，但共享设置页和 Windows 原生设置页都还停在第一批能力上：
 
 - 能力列表只有 8 项。共享页的 `sortCapabilities` 只保留认识的能力，申请了新能力的包在授权对话框和详情页里悄悄少了这两项，用户勾不到也看不见；Windows 的 `sort_capabilities` 同样丢掉它们。社区页把它们列成「未知能力」并说安装会失败。
 - 互斥规则只有一对。`persist_data` 和 `rewrite_commit` 不能同时授予，页面不知道，勾上之后要等宿主以 `plugin_script_grant_invalid` 拒绝。
