@@ -2697,7 +2697,7 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
     })
 }
 
-/// 向宿主给出的中继发端到端加密驱动给出的一个请求，答 `{status, body}`。不读偏好、不读写密钥串，会联网，格式见头文件。
+/// 向宿主给出的中继（HTTP 中继，或者 `backend` 为 `webdav` 时的 WebDAV 网盘）发端到端加密驱动给出的一个请求，答 `{status, body}`。不读偏好、不读写密钥串，会联网，格式见头文件。
 /// # Safety
 /// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
 #[no_mangle]
@@ -2713,8 +2713,19 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard_exchange(
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct ExchangeRequest {
+            /// `relay`（缺省）或 `webdav`。
+            #[serde(default)]
+            backend: Option<String>,
             url: String,
-            token: String,
+            #[serde(default)]
+            token: Option<String>,
+            #[serde(default)]
+            username: Option<String>,
+            #[serde(default)]
+            password: Option<String>,
+            /// WebDAV 后端放日志缓存和锁文件的目录（绝对路径）。
+            #[serde(default)]
+            directory: Option<String>,
             method: String,
             path: String,
             #[serde(default)]
@@ -2723,12 +2734,43 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard_exchange(
         // SAFETY: 由文档写明的调用方约定保证。
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: ExchangeRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
-        // 地址和令牌按偏好里的同一套规则校验：不是 HTTPS（或本机回环的 HTTP）就不发。
-        let config =
-            msime_client_services::clipboard_relay::RelayConfig::new(&request.url, &request.token)
-                .map_err(|error| error.code().to_owned())?;
+        use msime_client_services::clipboard_relay::RelayConfig;
+        // 地址和凭据按偏好里的同一套规则校验：不是 HTTPS（或本机回环的 HTTP）就不发。每种后端只收它自己的字段。
+        let (config, directory) = match request.backend.as_deref().unwrap_or("relay") {
+            "relay" => {
+                let (Some(token), None, None, None) = (
+                    &request.token,
+                    &request.username,
+                    &request.password,
+                    &request.directory,
+                ) else {
+                    return Err(INVALID.into());
+                };
+                let config = RelayConfig::new(&request.url, token)
+                    .map_err(|error| error.code().to_owned())?;
+                (config, None)
+            }
+            "webdav" => {
+                let (None, Some(username), Some(password), Some(directory)) = (
+                    &request.token,
+                    &request.username,
+                    &request.password,
+                    &request.directory,
+                ) else {
+                    return Err(INVALID.into());
+                };
+                if directory.len() > 16384 || !std::path::Path::new(directory).is_absolute() {
+                    return Err(INVALID.into());
+                }
+                let config = RelayConfig::webdav(&request.url, username, password)
+                    .map_err(|error| error.code().to_owned())?;
+                (config, Some(std::path::PathBuf::from(directory)))
+            }
+            _ => return Err(INVALID.into()),
+        };
         crate::cloud_clipboard::relay_exchange(
             config,
+            directory.as_deref(),
             &request.method,
             &request.path,
             request.body.as_deref(),
@@ -2737,7 +2779,47 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard_exchange(
     })
 }
 
-/// 云剪贴板该走哪条路：偏好里配置了中继时是 `relay`，否则是 `account`。不联网。
+/// WebDAV 设置的「测试连接」，格式见头文件。会联网。
+/// # Safety
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_cloud_clipboard_webdav_probe(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        const INVALID: &str = "invalid_cloud_clipboard";
+        if request.is_null() || length > MAX_DESKTOP_CLIPBOARD_REQUEST_BYTES {
+            return Err(INVALID.into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ProbeRequest {
+            url: String,
+            username: String,
+            password: String,
+            #[serde(default)]
+            directory: Option<String>,
+        }
+        // SAFETY: 由文档写明的调用方约定保证。
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: ProbeRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
+        if request.directory.as_deref().is_some_and(|directory| {
+            directory.len() > 16384 || !std::path::Path::new(directory).is_absolute()
+        }) {
+            return Err(INVALID.into());
+        }
+        crate::cloud_clipboard::webdav_probe(
+            &request.url,
+            &request.username,
+            &request.password,
+            request.directory.as_deref().map(std::path::Path::new),
+        )
+        .map_err(str::to_owned)
+    })
+}
+
+/// 云剪贴板该走哪条路：偏好里配置了中继或 WebDAV 网盘时是 `relay`（`backend` 说明是哪一种），否则是 `account`。不联网。
 /// # Safety
 /// `directory` 必须指向 `length` 个可读字节，空指针会被拒绝。
 #[no_mangle]
@@ -2761,8 +2843,12 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_source(
             None,
         )
         .map_err(str::to_owned)?;
-        let source = if config.is_some() { "relay" } else { "account" };
-        Ok(json!({ "source": source, "revision": revision }))
+        Ok(match config {
+            Some(config) => {
+                json!({ "source": "relay", "backend": config.backend(), "revision": revision })
+            }
+            None => json!({ "source": "account", "revision": revision }),
+        })
     })
 }
 

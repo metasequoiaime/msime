@@ -7400,6 +7400,94 @@ fn cloud_clipboard_relay_is_both_or_nothing_and_left_out_until_configured() {
     assert!(back.cloud_clipboard_relay.is_configured());
 }
 
+/// WebDAV 网盘的三项要么都空，要么都合规；与中继只能二选一；没配置时不写进文档。
+#[test]
+fn cloud_clipboard_webdav_is_all_or_nothing_and_exclusive_with_the_relay() {
+    let defaults = Preferences::default();
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("cloud_clipboard_webdav").is_none());
+    assert!(!defaults.cloud_clipboard_webdav.is_configured());
+
+    let configured = |url: &str, username: &str, password: &str| {
+        let mut preferences = Preferences::default();
+        preferences.cloud_clipboard_webdav.url = url.into();
+        preferences.cloud_clipboard_webdav.username = username.into();
+        preferences.cloud_clipboard_webdav.password = password.into();
+        preferences
+    };
+    let user = "synthetic@example.test";
+    let password = "synthetic-app-password";
+    let long = "u".repeat(257);
+    for (url, username, password, valid) in [
+        ("https://dav.example.test/dav/msime", user, password, true),
+        ("https://dav.example.test/dav/", user, password, true),
+        ("http://127.0.0.1:8080/dav", user, password, true),
+        ("http://dav.example.test/dav", user, password, false),
+        (
+            "https://user:secret@dav.example.test/dav",
+            user,
+            password,
+            false,
+        ),
+        ("https://dav.example.test/dav?x=1", user, password, false),
+        ("https://dav.example.test/dav", "", password, false),
+        ("https://dav.example.test/dav", "has:colon", password, false),
+        ("https://dav.example.test/dav", "bad\u{7}", password, false),
+        ("https://dav.example.test/dav", user, "", false),
+        ("https://dav.example.test/dav", user, "bad\n", false),
+        (
+            "https://dav.example.test/dav",
+            long.as_str(),
+            password,
+            false,
+        ),
+        ("", user, password, false),
+    ] {
+        let preferences = configured(url, username, password);
+        assert_eq!(
+            preferences.validate().is_ok(),
+            valid,
+            "{url} {username}: {:?}",
+            preferences.validate()
+        );
+        if !valid {
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCloudClipboardWebDav)
+            ));
+        }
+    }
+
+    // 配置了中继就不能再配置网盘。
+    let mut both = configured("https://dav.example.test/dav", user, password);
+    both.cloud_clipboard_relay.url = "https://relay.example.test".into();
+    both.cloud_clipboard_relay.token = "synthetic-relay-token".into();
+    assert!(matches!(
+        both.validate(),
+        Err(PreferencesError::InvalidCloudClipboardWebDav)
+    ));
+
+    let preferences = configured("https://dav.example.test/dav", user, password);
+    let text = serde_json::to_string(&preferences).unwrap();
+    let back: Preferences = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        back.cloud_clipboard_webdav,
+        preferences.cloud_clipboard_webdav
+    );
+
+    // 诊断快照里账号和密码都换掉，地址只留协议、主机和路径。
+    let mut preferences = preferences;
+    preferences.cloud_clipboard_webdav.url = "https://dav.example.test/dav?token=secret".into();
+    let redacted = preferences.redacted_for_diagnostics();
+    assert_eq!(redacted["cloud_clipboard_webdav"]["username"], REDACTED);
+    assert_eq!(redacted["cloud_clipboard_webdav"]["password"], REDACTED);
+    assert_eq!(
+        redacted["cloud_clipboard_webdav"]["url"],
+        "https://dav.example.test/dav"
+    );
+    assert!(!redacted.to_string().contains("synthetic"));
+}
+
 // 引号样式与方头括号样式缺省是弯引号、实心，等于缺省时不写进文档；三种引号样式和两种括号样式都能保存读回，不认识的取值让整份文档解析失败。
 #[test]
 fn punctuation_styles_default_omitted_roundtrip_and_reject_unknown_values() {

@@ -17,7 +17,7 @@ use crate::account::{
 };
 use crate::clipboard_webdav::VirtualRelay;
 use crate::cloud::clipboard_e2e::{self, DriverError, HttpResponse, Operation};
-use crate::preferences::{parse_relay_url, CloudClipboardRelayPreferences};
+use crate::preferences::{parse_relay_url, CloudClipboardRelayPreferences, Preferences};
 /// 中继地址、令牌和 WebDAV 凭据的校验定义在 `preferences`（偏好校验要用，放在这里会让 `preferences` 依赖本模块），从这里导回。
 pub use crate::preferences::{
     valid_relay_token, valid_relay_url, valid_webdav_password, valid_webdav_username,
@@ -168,6 +168,18 @@ impl RelayConfig {
                 password: password.to_owned(),
             },
         })
+    }
+
+    /// 偏好里选中的那一个：配置了 WebDAV 网盘时是它，否则是中继，都没有时为 `None`。两者同时配置（偏好校验不会放进来，手改的文档才会）或者配置不合规时是 [`RelayError::NotConfigured`]，不退回任何一个。
+    pub fn selected(preferences: &Preferences) -> Result<Option<Self>, RelayError> {
+        let webdav = &preferences.cloud_clipboard_webdav;
+        if webdav.is_configured() {
+            if preferences.cloud_clipboard_relay.is_configured() {
+                return Err(RelayError::NotConfigured);
+            }
+            return Self::webdav(&webdav.url, &webdav.username, &webdav.password).map(Some);
+        }
+        Self::from_preferences(&preferences.cloud_clipboard_relay)
     }
 
     /// `relay` 或 `webdav`，宿主据此显示是哪一种。

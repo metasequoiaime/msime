@@ -1679,6 +1679,12 @@ pub struct Preferences {
         skip_serializing_if = "CloudClipboardRelayPreferences::is_default"
     )]
     pub cloud_clipboard_relay: CloudClipboardRelayPreferences,
+    /// 云剪贴板存到用户的 WebDAV 网盘（`docs/cloud-clipboard-webdav.md`）：地址为空表示不用。与 [`Self::cloud_clipboard_relay`] 只能二选一；配置了就只走网盘，不再碰账号。应用密码和中继令牌一样明文存在这份文档里、列在 [`Preferences::credential_slots`]，账号在诊断快照里也换成 [`REDACTED`]；整组不进设置文件导出和账号设置同步，没配置时不写进文档。
+    #[serde(
+        default,
+        skip_serializing_if = "CloudClipboardWebDavPreferences::is_default"
+    )]
+    pub cloud_clipboard_webdav: CloudClipboardWebDavPreferences,
     /// 向所选云候选服务发送当前组字。新装默认关闭；旧文档缺开关时沿用开启行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
@@ -2909,6 +2915,36 @@ impl CloudClipboardRelayPreferences {
     }
 }
 
+/// 存放云剪贴板的 WebDAV 网盘：用户选的文件夹地址、网盘账号和应用密码，三项要么都空（不用），要么都合规。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CloudClipboardWebDavPreferences {
+    /// 文件夹地址，例如 `https://dav.jianguoyun.com/dav/msime`；规则与中继地址相同（[`valid_relay_url`]）。
+    pub url: String,
+    /// 网盘账号；规则见 [`valid_webdav_username`]。
+    pub username: String,
+    /// 应用密码（坚果云、Nextcloud 都要求第三方应用用它，而不是登录密码）；规则见 [`valid_webdav_password`]。
+    pub password: String,
+}
+
+impl CloudClipboardWebDavPreferences {
+    fn is_default(&self) -> bool {
+        self.url.is_empty() && self.username.is_empty() && self.password.is_empty()
+    }
+
+    /// 是否配置了网盘。配置了就只走网盘。
+    pub fn is_configured(&self) -> bool {
+        !self.url.is_empty()
+    }
+
+    fn validate(&self) -> bool {
+        self.is_default()
+            || (valid_relay_url(&self.url)
+                && valid_webdav_username(&self.username)
+                && valid_webdav_password(&self.password))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NavigationPreferences {
     pub minus_equal: bool,
@@ -3606,6 +3642,7 @@ impl Default for Preferences {
             clipboard_history: false,
             clipboard_history_limit: default_clipboard_history_limit(),
             cloud_clipboard_relay: CloudClipboardRelayPreferences::default(),
+            cloud_clipboard_webdav: CloudClipboardWebDavPreferences::default(),
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
             cloud_candidate_provider: Default::default(),
@@ -4165,6 +4202,7 @@ impl Preferences {
 
         // 中继的地址和令牌成对保留，理由与上面的服务地址相同。
         next.cloud_clipboard_relay = self.cloud_clipboard_relay.clone();
+        next.cloud_clipboard_webdav = self.cloud_clipboard_webdav.clone();
         next.cloud_candidate_provider = self.cloud_candidate_provider.clone();
         // 代理是为了让这台机器连得上服务：恢复默认设置把服务凭据留下了，代理地址跟着留下，否则所有出口会一起断。
         next.network = self.network.clone();
@@ -4175,7 +4213,7 @@ impl Preferences {
     }
 
     /// 偏好里的全部服务凭据（token、密钥、应用 id），按文档里的路径列出。恢复默认设置时原样保留的、导出诊断包时换成 [`REDACTED`] 的，都是这一份清单；`preferences/tests.rs` 用字段名兜底，新加的凭据字段不进清单测试就失败。
-    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 13] {
+    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 14] {
         [
             (
                 "voice_input.asr_app_key",
@@ -4229,6 +4267,10 @@ impl Preferences {
                 "cloud_clipboard_relay.token",
                 CredentialSlot::Text(&mut self.cloud_clipboard_relay.token),
             ),
+            (
+                "cloud_clipboard_webdav.password",
+                CredentialSlot::Text(&mut self.cloud_clipboard_webdav.password),
+            ),
         ]
     }
 
@@ -4257,6 +4299,15 @@ impl Preferences {
         }
         // 自定义地址、请求头和模板都可能含不以敏感词命名的令牌，整组不进入诊断。
         value["cloud_candidate_provider"] = REDACTED.into();
+        // 网盘账号常是登录邮箱，不是凭据也不进诊断。
+        if let Some(webdav) = value
+            .get_mut("cloud_clipboard_webdav")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            if webdav.contains_key("username") {
+                webdav.insert("username".to_owned(), REDACTED.into());
+            }
+        }
         redact_sensitive_keys(&mut value);
         for pointer in DIAGNOSTIC_ENDPOINTS {
             if let Some(slot) = value.pointer_mut(pointer) {
@@ -4388,6 +4439,12 @@ impl Preferences {
         }
         if !self.cloud_clipboard_relay.validate() {
             return Err(PreferencesError::InvalidCloudClipboardRelay);
+        }
+        if !self.cloud_clipboard_webdav.validate()
+            || (self.cloud_clipboard_webdav.is_configured()
+                && self.cloud_clipboard_relay.is_configured())
+        {
+            return Err(PreferencesError::InvalidCloudClipboardWebDav);
         }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
@@ -4648,6 +4705,10 @@ pub enum PreferencesError {
         "cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters"
     )]
     InvalidCloudClipboardRelay,
+    #[error(
+        "cloud clipboard webdav needs an https address (http only for loopback) without query, fragment or credentials, an account without a colon and an app password, and cannot be set together with a relay"
+    )]
+    InvalidCloudClipboardWebDav,
     #[error(
         "云候选配置无效：请检查地址、方法、请求头、JSON 模板、响应路径和超时（100–10000 毫秒）"
     )]
@@ -5423,12 +5484,13 @@ pub fn is_sensitive_key(name: &str) -> bool {
 }
 
 /// 用户可以自填的服务地址。地址本身不是凭据，但有的服务把密钥放在查询串或 `user:password@` 里，诊断快照只留协议、主机、端口和路径。
-const DIAGNOSTIC_ENDPOINTS: [&str; 5] = [
+const DIAGNOSTIC_ENDPOINTS: [&str; 6] = [
     "/voice_input/asr_endpoint",
     "/voice_input/polish_endpoint",
     "/ai_assistant/endpoint",
     "/custom_translation/endpoint",
     "/cloud_clipboard_relay/url",
+    "/cloud_clipboard_webdav/url",
 ];
 
 /// 去掉地址里的用户信息、查询串和片段；解析不了的地址整个换成 [`REDACTED`]，因为看不出密钥藏在哪。
