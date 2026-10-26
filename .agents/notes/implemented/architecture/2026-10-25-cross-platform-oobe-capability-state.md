@@ -59,6 +59,8 @@ iOS 老用户的旧完成标记会迁移到 `hasSeenOnboarding`，不会再次�
 
 ## Related decisions
 
+- [Windows 设置窗口复用现有实例](../bug-fix/2026-10-26-windows-settings-single-instance.md) 约束首次准备、托盘和开始菜单的重复启动只激活同一设置窗口。
+
 - [Linux 设置提示打开能改那份输入法列表的界面](../bug-fix/2026-10-25-linux-setup-gnome-input-sources-entry.md) 记录了 GNOME 输入源入口、提示按钮的取舍和首次配置结果卡片的溢出修复。
 - [iOS 与鸿蒙宿主采用全平台设计稿](../feature/2026-10-07-ios-harmony-all-platform-design.md) 记录了 iOS 无法检测系统键盘和完全访问的既有平台边界。
 - [iOS 系统键盘验收显式准备状态](../testing/2026-10-20-ios-system-keyboard-acceptance-state.md) 记录了真实系统键盘验收为何必须显式准备环境。

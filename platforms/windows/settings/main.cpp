@@ -9,6 +9,8 @@
 #include <wincodec.h>
 #include "../common/StateDirectory.h"
 #include "../common/UpdateRecordDirectory.h"
+#include "../common/SurfaceRouteArgument.h"
+#include "SettingsInstance.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -80,6 +82,7 @@
 #include "msimeui/AnimatedImage.h"
 
 #include <winrt/base.h>
+#include <microsoft.ui.xaml.window.h>
 
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Input.h>
@@ -287,26 +290,8 @@ bool edition_offers_scheme(std::wstring_view scheme) {
 
 // 保留启动请求的类别，窗口解析承载页时也恢复旧路由对应的顶部标签。
 std::string route_page() {
-  int argc = 0;
-  auto *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  std::optional<std::string> page;
-  if (argv) {
-    for (int i = 1; i < argc; ++i) {
-      constexpr std::wstring_view prefix = L"--route=settings";
-      const std::wstring_view argument(argv[i]);
-      if (argument == prefix) {
-        page = std::string();
-        break;
-      }
-      if (argument.starts_with(prefix) && argument.size() > prefix.size() &&
-          argument[prefix.size()] == L':') {
-        page = utf8(hstring(argument.substr(prefix.size() + 1)));
-        break;
-      }
-    }
-    LocalFree(argv);
-  }
-  return page.value_or(std::string());
+  const auto route = msime::windows::requested_surface_route("settings");
+  return route && route->starts_with("settings:") ? route->substr(9) : std::string();
 }
 
 // The runtime options file the Server hands this window, or the one the Server reads at startup when started from the Start menu. None before the input method is set up.
@@ -3433,6 +3418,26 @@ struct MainWindow : WindowT<MainWindow> {
       // 等待中的 Google 登录也随窗口结束，回环端口不再等一个没人看的浏览器。
       cancel_account_google();
     });
+  }
+
+  // 第二次启动只恢复已有窗口；带页面的请求沿用首启的类别和页内标签。
+  bool open_route(std::string_view route) {
+    if (closed_) return false;
+    if (route == "settings") return true;
+    if (!route.starts_with("settings:")) return false;
+    const std::string page(route.substr(9));
+    navigate(std::string(nav::offered_page_for_route(page, MSIME_EDITION_HANDWRITING != 0)));
+    if (page == "mcp") page_tabs_["ai"] = L"connection";
+    if (page == "handwriting" && MSIME_EDITION_HANDWRITING != 0)
+      page_tabs_["osk"] = L"handwriting";
+    if (page == "vocabulary") {
+      page_tabs_["lexicon"] = L"manage";
+      vocabulary_view_ = true;
+    }
+    if (page == "feedback" || page == "help") page_tabs_["about"] = L"feedback";
+    about_help_open_ = page == "help";
+    render_page(false);
+    return true;
   }
 
 private:
@@ -26252,9 +26257,18 @@ private:
 
 // Without a XAML compiler the application supplies the metadata provider itself; the WinUI controls' own provider answers for every type this window uses.
 struct App : ApplicationT<App, Markup::IXamlMetadataProvider> {
+  explicit App(msime::settings::SettingsInstance &instance) : instance_(instance) {}
   void OnLaunched(LaunchActivatedEventArgs const &) {
     Resources().MergedDictionaries().Append(XamlControlsResources());
-    window_ = make<MainWindow>(route_page());
+    auto main = make_self<MainWindow>(route_page());
+    window_ = main.as<Window>();
+    HWND handle = nullptr;
+    check_hresult(window_.as<::IWindowNative>()->get_WindowHandle(&handle));
+    if (!instance_.listen(handle, [weak = main->get_weak()](std::string_view route) {
+          const auto window = weak.get();
+          return window && window->open_route(route);
+        }))
+      throw std::runtime_error("Settings activation unavailable");
     window_.Activate();
   }
 
@@ -26271,6 +26285,7 @@ struct App : ApplicationT<App, Markup::IXamlMetadataProvider> {
   }
 
 private:
+  msime::settings::SettingsInstance &instance_;
   XamlTypeInfo::XamlControlsXamlMetaDataProvider provider_;
   Window window_{nullptr};
 };
@@ -26280,7 +26295,13 @@ private:
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
   const int gameProfileResult = msime::windows::game_profile::run_if_requested(command);
   if (gameProfileResult >= 0) return gameProfileResult;
+  const auto route = msime::windows::requested_surface_route("settings");
+  if (!route) return 2;
+  msime::settings::SettingsInstance instance;
+  const auto activation = instance.start(*route);
+  if (activation != msime::settings::SettingsInstance::Start::primary)
+    return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   init_apartment(apartment_type::single_threaded);
-  Application::Start([](auto &&) { make<App>(); });
+  Application::Start([&instance](auto &&) { make<App>(instance); });
   return 0;
 }
