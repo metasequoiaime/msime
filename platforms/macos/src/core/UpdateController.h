@@ -67,6 +67,17 @@ static const CFTimeInterval MSIMEUpdateAwayIdleSeconds = 30 * 60;
 // 多久看一次闲置时长。只决定用户离开之后多快装上，不影响是否装。
 static const NSTimeInterval MSIMEUpdateAwayPollSeconds = 5 * 60;
 
+// 装更新时输入法进程会退出，用户手上还有没完成的东西时不能装：没上屏的组字、正在录的语音、本进程开着的窗口。返回 YES 时这次不装，等下一次触发。
+typedef BOOL (^MetasequoiaUpdateUnfinishedWork)(void);
+
+// 本进程里有没有用户开着的窗口（词库编辑、AI 设置、反馈、Sparkle 自己的更新界面等）：可以成为 key window、可见或最小化在程序坞里的窗口。候选窗、悬浮工具栏、菜单栏图标这些面板不能成为 key window，不算。
+static inline BOOL MSIMEUpdateWindowsHoldUserWork(NSArray<NSWindow *> *windows)
+{
+    for (NSWindow *window in windows)
+        if ((window.visible || window.miniaturized) && window.canBecomeKeyWindow) return YES;
+    return NO;
+}
+
 typedef NSModalResponse (^MetasequoiaUpdateReleaseConfirmation)(NSURL *releaseURL);
 typedef BOOL (^MetasequoiaUpdateReleaseOpener)(NSURL *releaseURL);
 typedef void (^MetasequoiaUpdateReleaseFailure)(void);
@@ -89,9 +100,10 @@ typedef void (^MetasequoiaUpdateReleaseFailure)(void);
 @property(nonatomic, readonly) BOOL canCheckForUpdates;
 @property(nonatomic, readonly) BOOL automaticallyChecksForUpdates;
 - (void)checkForUpdates:(nullable id)sender;
-// Hands a background-downloaded update to the driver for installation. Never activates the process or
-// shows anything: it is called when the user has just switched to another input source.
+// 把后台下好的更新交给驱动安装。不激活进程、不显示任何东西：调用它的时候用户刚切到别的输入源，或者离开了电脑。unfinishedWork 返回 YES 时这次不装。
 - (void)installDownloadedUpdateIfReady;
+// 见 MetasequoiaUpdateUnfinishedWork。为 nil 时不拦。只在主线程设置。
+@property(nonatomic, copy, nullable) MetasequoiaUpdateUnfinishedWork unfinishedWork;
 // 只用水杉、从不切到别的输入源的用户等不到上面那一刻，更新要拖到注销。这里在用户离开电脑时也装：屏幕睡眠（包括锁屏后熄屏）、登录会话被切走时立即装，另外每 MSIMEUpdateAwayPollSeconds 看一次 idleClock，闲置达到 MSIMEUpdateAwayIdleSeconds 就装。center 是 NSWorkspace 的通知中心。只在主线程调用，重复调用不再注册。
 - (void)installDownloadedUpdateWhenAwayWithWorkspaceCenter:(NSNotificationCenter *)center
                                                  idleClock:(MetasequoiaUpdateIdleClock)idleClock;

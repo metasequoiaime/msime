@@ -121,6 +121,52 @@ int main()
         assert(installing.installs == 5);
         [installingController installDownloadedUpdateIfIdle];
         assert(installing.installs == 6);
+        // 用户手上有没完成的东西（组字、语音、开着的窗口）时，切换输入源、熄屏、切走会话、闲置都不装，结束后的下一次触发照常装；仍不激活进程。
+        __block BOOL unfinished = YES;
+        __block NSUInteger unfinishedQueries = 0;
+        installingController.unfinishedWork = ^BOOL {
+          ++unfinishedQueries;
+          return unfinished;
+        };
+        idle = MSIMEUpdateAwayIdleSeconds;
+        [installingController installDownloadedUpdateIfReady];
+        [workspace postNotificationName:NSWorkspaceScreensDidSleepNotification object:nil];
+        [workspace postNotificationName:NSWorkspaceSessionDidResignActiveNotification object:nil];
+        [installingController installDownloadedUpdateIfIdle];
+        assert(installing.installs == 6 && unfinishedQueries == 4);
+        unfinished = NO;
+        [installingController installDownloadedUpdateIfIdle];
+        assert(installing.installs == 7 && activations == 1);
+        // 不能后台安装的驱动不问用户手上的事，什么也不做。
+        __block NSUInteger releaseQueries = 0;
+        controller.unfinishedWork = ^BOOL {
+          ++releaseQueries;
+          return NO;
+        };
+        [controller installDownloadedUpdateIfReady];
+        assert(releaseQueries == 0 && driver.checks == 1);
+        controller.unfinishedWork = nil;
+
+        // 开着的窗口：可以成为 key window 的可见或最小化窗口才算。没有标题栏的面板（候选窗、工具栏、菜单栏图标的形状）开着也不算，标准窗口收起来之后也不算。
+        NSWindow *editor = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 200, 120)
+                                                       styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                                                         backing:NSBackingStoreBuffered
+                                                           defer:NO];
+        editor.releasedWhenClosed = NO;
+        NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 200, 40)
+                                                    styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                                                      backing:NSBackingStoreBuffered
+                                                        defer:NO];
+        assert(!MSIMEUpdateWindowsHoldUserWork(@[]));
+        assert(!MSIMEUpdateWindowsHoldUserWork(@[ editor, panel ]));
+        [panel orderFrontRegardless];
+        assert(panel.visible && !MSIMEUpdateWindowsHoldUserWork(@[ editor, panel ]));
+        [editor orderFrontRegardless];
+        assert(editor.visible && MSIMEUpdateWindowsHoldUserWork(@[ panel, editor ]));
+        [editor orderOut:nil];
+        [panel orderOut:nil];
+        assert(!MSIMEUpdateWindowsHoldUserWork(@[ editor, panel ]));
+
         // 不能后台安装的驱动（官网下载页）监视着也没有东西可装。
         NSNotificationCenter *otherWorkspace = [NSNotificationCenter new];
         [controller installDownloadedUpdateWhenAwayWithWorkspaceCenter:otherWorkspace

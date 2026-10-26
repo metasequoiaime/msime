@@ -135,7 +135,10 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 
 - (void)installDownloadedUpdate
 {
+    // 安装闭包只交出一次：切换输入源、熄屏、切走会话和闲置定时器可能在进程退出之前接连触发，不让 Sparkle 重复开始同一次安装。
     void (^install)(void) = self.pendingInstall;
+    self.pendingInstall = nil;
+    self.pendingInstallChannel = nil;
     if (install != nil) install();
 }
 
@@ -265,7 +268,9 @@ static NSString *MetasequoiaLaunchUpdateChannel = nil;
 
 - (void)installDownloadedUpdateIfReady
 {
-    if ([self.driver respondsToSelector:@selector(installDownloadedUpdate)]) [self.driver installDownloadedUpdate];
+    if (![self.driver respondsToSelector:@selector(installDownloadedUpdate)]) return;
+    if (self.unfinishedWork != nil && self.unfinishedWork()) return;
+    [self.driver installDownloadedUpdate];
 }
 
 - (void)installDownloadedUpdateWhenAwayWithWorkspaceCenter:(NSNotificationCenter *)center
