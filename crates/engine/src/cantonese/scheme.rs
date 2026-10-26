@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::shuangpin;
 use super::syllable::{self, Inventory, Segmentation};
 use crate::error::Result;
 use crate::language_dictionary::{LanguageDictionary, LanguageEntry};
@@ -32,6 +33,8 @@ pub struct CantoneseScheme {
     /// Lowercase letters and single `'` boundaries, never starting with one.
     input: String,
     inventory: Arc<Inventory>,
+    /// 首个完整双拼码被识别后保持该输入段按粤语双拼解释；普通粤拼仍优先保留。
+    shuangpin: bool,
 }
 
 /// 会话查询复用的字典行和跨度键；不属于方案的组字状态。
@@ -47,11 +50,13 @@ impl CantoneseScheme {
         Self {
             input: String::new(),
             inventory,
+            shuangpin: false,
         }
     }
 
     pub fn reset(&mut self) {
         self.input.clear();
+        self.shuangpin = false;
     }
 
     /// Lowercase letters append and Backspace removes the last key. `'` appends only between letters: a boundary before the first syllable or right after another boundary marks nothing. Uppercase letters are not part of Jyutping and are ignored, like every other key.
@@ -59,6 +64,7 @@ impl CantoneseScheme {
         match key {
             SchemeKey::Letter(letter) if letter.is_ascii_lowercase() => {
                 self.input.push(char::from(letter));
+                self.maybe_enable_shuangpin();
                 true
             }
             SchemeKey::Apostrophe => {
@@ -69,18 +75,48 @@ impl CantoneseScheme {
                     false
                 }
             }
+            SchemeKey::Semicolon if self.shuangpin && !self.input.is_empty() => {
+                self.input.push(';');
+                true
+            }
+            SchemeKey::Semicolon if self.input.len() == 1 => {
+                let code = [self.input.as_bytes()[0], b';'];
+                if !shuangpin::decode(&self.inventory, code).is_empty() {
+                    self.input.push(';');
+                    self.shuangpin = true;
+                    true
+                } else {
+                    false
+                }
+            }
+            SchemeKey::Semicolon => false,
             SchemeKey::Backspace => self.input.pop().is_some(),
-            SchemeKey::Letter(_)
-            | SchemeKey::Semicolon
-            | SchemeKey::Minus
-            | SchemeKey::Symbol(_)
-            | SchemeKey::Requery => false,
+            SchemeKey::Letter(_) | SchemeKey::Minus | SchemeKey::Symbol(_) | SchemeKey::Requery => {
+                false
+            }
         }
+    }
+
+    fn maybe_enable_shuangpin(&mut self) {
+        if self.shuangpin || self.input.len() != 2 || self.input.contains('\'') {
+            return;
+        }
+        let code = [self.input.as_bytes()[0], self.input.as_bytes()[1]];
+        if !self.inventory.contains(&self.input)
+            && !shuangpin::decode(&self.inventory, code).is_empty()
+        {
+            self.shuangpin = true;
+        }
+    }
+
+    pub fn is_shuangpin(&self) -> bool {
+        self.shuangpin
     }
 
     /// Replaces the composition with a host edit: letters are lowercased, `'` and the spaces `editing_text` shows at syllable boundaries are both boundaries, anything else is dropped, and boundaries are normalized as typing would leave them. Reading a space as a boundary keeps the syllables the user saw when an edit changes the letters around them (`ngo oi` edited to `ngo i` stays two syllables rather than becoming `ngoi`).
     pub fn set_raw_input(&mut self, raw: &str) {
         self.input.clear();
+        self.shuangpin = false;
         self.input.reserve(raw.len());
         for character in raw.chars() {
             if character.is_ascii_alphabetic() {
@@ -107,6 +143,20 @@ impl CantoneseScheme {
 
     /// The typed letters with a space at each syllable boundary (`nei hou`). Letters no syllable reads follow after a space as typed, and a trailing `'` stays visible so the key shows an effect.
     pub fn editing_text(&self) -> String {
+        if self.shuangpin {
+            let mut text = String::with_capacity(self.input.len() + self.input.len() / 2);
+            for (index, character) in self.input.chars().enumerate() {
+                if index > 0
+                    && index % 2 == 0
+                    && character != '\''
+                    && self.input.as_bytes()[index - 1] != b'\''
+                {
+                    text.push(' ');
+                }
+                text.push(character);
+            }
+            return text;
+        }
         let reading = self.segmentation();
         let mut text = String::new();
         self.editing_text_into(&reading, &mut text);
@@ -197,6 +247,74 @@ impl CantoneseScheme {
 
     /// 将候选写入已有缓冲，并复用字典行和候选行中的字符串容量。
     pub(crate) fn candidates_into(
+        &self,
+        dictionary: &LanguageDictionary,
+        buffer: &mut CantoneseQueryBuffer,
+        candidates: &mut Vec<CantoneseCandidate>,
+    ) -> Result<()> {
+        if let Some(expanded_inputs) = self.shuangpin_expansions() {
+            candidates.clear();
+            let mut expanded = Vec::new();
+            let mut temporary = self.clone();
+            temporary.shuangpin = false;
+            for input in expanded_inputs {
+                temporary.input = input;
+                let mut rows = Vec::new();
+                temporary.candidates_into_jyutping(dictionary, buffer, &mut rows)?;
+                for mut row in rows {
+                    row.end = row.syllables * 2;
+                    expanded.push(row);
+                }
+            }
+            deduplicate_candidates(&mut expanded);
+            candidates.extend(expanded);
+            return Ok(());
+        }
+        self.candidates_into_jyutping(dictionary, buffer, candidates)
+    }
+
+    fn shuangpin_expansions(&self) -> Option<Vec<String>> {
+        if !self.shuangpin || self.input.is_empty() {
+            return None;
+        }
+        let chunks = self.input.split('\'').collect::<Vec<_>>();
+        if chunks
+            .iter()
+            .any(|chunk| chunk.is_empty() || chunk.len() % 2 != 0)
+        {
+            return None;
+        }
+        let mut values = vec![String::new()];
+        for (chunk_index, chunk) in chunks.iter().enumerate() {
+            for offset in (0..chunk.len()).step_by(2) {
+                let code = [chunk.as_bytes()[offset], chunk.as_bytes()[offset + 1]];
+                let syllables = shuangpin::decode(&self.inventory, code);
+                if syllables.is_empty() {
+                    return None;
+                }
+                let mut combined = Vec::new();
+                for prefix in &values {
+                    for syllable in &syllables {
+                        if combined.len() >= 64 {
+                            break;
+                        }
+                        let mut value = prefix.clone();
+                        value.push_str(syllable);
+                        combined.push(value);
+                    }
+                }
+                values = combined;
+            }
+            if chunk_index + 1 < chunks.len() {
+                for value in &mut values {
+                    value.push('\'');
+                }
+            }
+        }
+        Some(values)
+    }
+
+    fn candidates_into_jyutping(
         &self,
         dictionary: &LanguageDictionary,
         buffer: &mut CantoneseQueryBuffer,
@@ -591,6 +709,23 @@ mod tests {
         assert_eq!(
             listed(&scheme, &fixture.dictionary),
             ["廣東話/3", "光/3", "廣東/2", "光/1", "廣/1"]
+        );
+    }
+
+    #[test]
+    fn two_key_codes_expand_against_the_existing_cantonese_inventory() {
+        let fixture = fixture();
+        let scheme = typed("nzhb");
+        assert!(scheme.is_shuangpin());
+        assert_eq!(scheme.input(), "nzhb");
+        assert_eq!(scheme.editing_text(), "nz hb");
+        let candidates = scheme.candidates(&fixture.dictionary).unwrap();
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| (candidate.text.as_str(), candidate.end))
+                .collect::<Vec<_>>(),
+            [("你好", 4), ("妳好", 4), ("你", 2), ("妳", 2)]
         );
     }
 
