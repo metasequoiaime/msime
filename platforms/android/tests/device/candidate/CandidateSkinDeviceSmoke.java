@@ -74,6 +74,13 @@ public final class CandidateSkinDeviceSmoke extends DeviceSmoke {
             stage = "manifest update repaints without a preference revision";
             writeSkin(dark, DARK, "night", "horizontal", "#461357");
             awaitCandidateColour(0xff461357);
+            stage = "desktop item_min_width does not widen touch candidates";
+            // microsoft 基底的皮肤把桌面候选窗的格宽写成 6em；候选条只有 30dp 触控下限，按内容取宽，不能被撑到 6 倍字号。
+            writeWideMicrosoft(dark, DARK);
+            awaitCandidateColour(0xff13465a);
+            float density = getTargetContext().getResources().getDisplayMetrics().density;
+            check(bounds(describedPrefix("候选 1：")).width() < 5 * 16 * density,
+                "desktop item_min_width widened a touch candidate");
             stage = "canvas texture reaches the live candidate strip";
             writeCanvas(dark, DARK);
             awaitCandidateColour(0xff314159);
@@ -190,6 +197,15 @@ public final class CandidateSkinDeviceSmoke extends DeviceSmoke {
             + "']\n[candidate_window]\nmin_width_dip = 10\n"
             + "decoration = { top_inset_dip = 0, width_dip = 0 }\n[candidate." + mode
             + "]\nselected = '" + selected + "'\ntext = '#123456'\nsurface = '#E9E1D2'\n";
+        Files.write(path.resolve("skin.toml"), manifest.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void writeWideMicrosoft(Path path, String id) throws Exception {
+        String manifest = "schema_version = 1\nid = '" + id
+            + "'\nname = 'Synthetic wide desktop cells'\nversion = '1.0'\nbase = 'microsoft'\n"
+            + "[supports]\nlayouts = ['horizontal']\nthemes = ['dark']\n[candidate_window]\n"
+            + "[candidate_window.horizontal]\nitem_min_width = '6em'\n"
+            + "[candidate.dark]\nselected = '#13465A'\ntext = '#FFFFFF'\n";
         Files.write(path.resolve("skin.toml"), manifest.getBytes(StandardCharsets.UTF_8));
     }
 
