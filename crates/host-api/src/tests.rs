@@ -20858,6 +20858,43 @@ fn contacts_load_and_refresh_when_mention_mode_is_disabled() {
 }
 
 #[test]
+fn large_imported_contact_list_keeps_derived_name_candidates_available() {
+    let dir = tempfile::tempdir().unwrap();
+    let dictionaries = dir.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_2_n VALUES('ni''hao','nh','拟好',100);",
+        )
+        .unwrap();
+    let mut entries = vec![msime_client_services::plugins::mentions::MentionEntry {
+        text: "拟好".into(),
+        key: String::new(),
+        phone: "202-555-0101".into(),
+    }];
+    entries.extend((0..999).map(
+        |index| msime_client_services::plugins::mentions::MentionEntry {
+            text: format!("拟{}", char::from_u32(0x4e00 + index).unwrap()),
+            key: String::new(),
+            phone: "202-555-0102".into(),
+        },
+    ));
+    msime_client_services::plugins::mentions::MentionStore::new(dir.path().join("state/plugins"))
+        .save(&entries)
+        .unwrap();
+
+    let handle = plugin_host(dir.path(), chinese_preferences());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        &local_mode_candidates(handle, b"nihao")[..2],
+        ["拟好", "拟好 202-555-0101"]
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn english_online_host_builds_explicit_requests_and_revokes_them_immediately() {
     use msime_client_core::cloud::candidates::{
         CloudCandidatePreferences, CloudCandidateSource, CloudHttpMethod,

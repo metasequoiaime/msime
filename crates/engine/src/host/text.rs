@@ -17,6 +17,14 @@ pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
     )
 }
 
+/// 一批联系人姓名共用词库连接与整词查询，顺序与输入一致。
+pub fn hanzi_to_pinyin_batch(options: &EngineOptions, texts: &[&str]) -> Vec<String> {
+    crate::dictionary::hanzi::hanzi_to_pinyin_batch(
+        &runtime_paths(options).dictionary(assets::MAIN_DICTIONARY),
+        texts,
+    )
+}
+
 /// 五笔查码：`text` 里每个不同汉字（以及整段作为一个词）在 86 和 98 码表里的编码，读会话所用的同一份五笔码表（`wubi_database` 选出的文件，含用户加的五笔词）。
 pub fn wubi_code_lookup(options: &EngineOptions, text: &str) -> WubiCodeLookup {
     let database = crate::ime::registry::wubi_database(&runtime_paths(options));
