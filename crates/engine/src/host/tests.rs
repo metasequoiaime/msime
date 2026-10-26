@@ -37,6 +37,7 @@ fn options(root: &Path) -> EngineOptions {
         wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
+        strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".into(),
@@ -2045,6 +2046,7 @@ fn session_options_map_every_host_field() {
     value.fuzzy_pinyin_rules = u32::MAX;
     value.wubi_mixed_pinyin = true;
     value.helpcode = true;
+    value.strict_quanpin_helpcode = true;
     value.helpcode_schema = "xiaohe".into();
     value.chinese_punctuation = false;
     value.paired_punctuation = false;
@@ -2087,6 +2089,7 @@ fn session_options_map_every_host_field() {
     assert_eq!(mapped.fuzzy_pinyin.rules, crate::fuzzy_rule::ALL);
     assert!(mapped.wubi.mixed_pinyin);
     assert!(mapped.helpcode);
+    assert!(mapped.strict_quanpin_helpcode);
     assert_eq!(mapped.helpcode_schema, "xiaohe");
     assert!(!mapped.chinese_punctuation);
     assert!(!mapped.paired_punctuation);

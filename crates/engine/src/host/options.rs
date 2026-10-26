@@ -81,6 +81,8 @@ pub struct EngineOptions {
     /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
     pub helpcode: bool,
+    /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
+    pub strict_quanpin_helpcode: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
     /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
@@ -236,6 +238,7 @@ pub fn prepare_options_for(
         wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         helpcode: true,
+        strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".to_owned(),
@@ -379,6 +382,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         enumeration_comma_slash: options.enumeration_comma_slash,
     };
     session.helpcode = options.helpcode;
+    session.strict_quanpin_helpcode = options.strict_quanpin_helpcode;
     session.helpcode_trigger_key = options.helpcode_trigger_key;
     session.shuangpin_helpcode_modes = options.shuangpin_helpcode_modes;
     session.helpcode_schema = options.helpcode_schema.clone();
