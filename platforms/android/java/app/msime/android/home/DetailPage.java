@@ -18,8 +18,6 @@ import java.util.List;
 import java.util.Map;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
@@ -239,14 +237,8 @@ public abstract class DetailPage extends HomeTabFragment {
             navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom)
                 -> updateNavigationInset(target));
             if (hideFixedNavigationWhenIme()) {
-                ViewCompat.setOnApplyWindowInsetsListener(view, (target, insets) -> {
-                    ViewPolicy.setVisible(navigation,
-                        WindowInsetsPolicy.shouldShowFixedPageNavigation(
-                            insets.isVisible(WindowInsetsCompat.Type.ime())));
-                    updateNavigationInset(navigation);
-                    return insets;
-                });
-                ViewCompat.requestApplyInsets(view);
+                WindowInsetsPolicy.bindFixedPageNavigation(view, navigation,
+                    () -> updateNavigationInset(navigation));
             }
         }
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
