@@ -54,10 +54,14 @@ import org.json.JSONObject;
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
+    @Nullable private String initialSidebarKey;
+    private boolean initialSidebarOpened;
 
     @Override public void onCreate(@Nullable android.os.Bundle saved) {
         super.onCreate(saved);
         clipboardExport.restore(saved);
+        android.os.Bundle args = getArguments();
+        initialSidebarKey = args == null ? null : args.getString("edit_sidebar_key");
     }
 
     @Override public void onSaveInstanceState(android.os.Bundle saved) {
@@ -299,6 +303,16 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
         clipboard.nav("历史记录上限", "达到上限后，最旧的未固定记录会被新记录替换",
             historyLimit + " 条", () -> pickClipboardLimit(historyLimit), true);
+
+        if (!initialSidebarOpened && initialSidebarKey != null) {
+            initialSidebarOpened = true;
+            boolean digits = AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS.equals(initialSidebarKey);
+            java.util.List<String> current = NineKeySidebarPolicy.sidebarSymbols(digits,
+                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS),
+                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
+            editSidebarSymbols(digits ? "九键数字键盘左侧符号" : "九键左侧符号",
+                initialSidebarKey, current);
+        }
 
     }
 
