@@ -658,7 +658,7 @@ public final class TypingPage extends ReloadingDetailPage {
     }
 
     private static String cloudSourceLabel(String source) {
-        return "custom".equals(source) ? "自定义接口" : "Google 输入工具";
+        return "custom".equals(source) ? "自定义接口" : "Google";
     }
 
     private static String cloudRecipient(JSONObject provider) {
@@ -678,7 +678,7 @@ public final class TypingPage extends ReloadingDetailPage {
         return switch (format) {
             case "google" -> "Google 格式";
             case "json_path" -> "JSON 路径";
-            default -> "标准候选数组";
+            default -> "标准数组";
         };
     }
 
