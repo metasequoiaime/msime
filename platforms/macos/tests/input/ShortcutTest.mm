@@ -290,10 +290,6 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.requestedPageSize = size;
     return nil;
 }
-- (NSDictionary *)setDisplayPageGeneration:(uint64_t)generation indices:(NSArray<NSNumber *> *)indices error:(NSError **)error {
-    (void)generation; (void)indices; (void)error;
-    return @{@"applied": @YES};
-}
 - (NSDictionary *)typeASCII:(uint8_t)ascii shift:(BOOL)shift error:(NSError **)error {
     (void)error;
     ++self.asciiCalls;
