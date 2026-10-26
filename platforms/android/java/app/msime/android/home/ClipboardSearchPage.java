@@ -112,6 +112,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         headerActions().addView(clipboardExport.button());
         LinearLayout target = contentColumn();
         if (target == null) return;
+        Context context = target.getContext();
 
         results = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
         FrameLayout root = (FrameLayout) requireView();
