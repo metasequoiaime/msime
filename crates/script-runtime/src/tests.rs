@@ -1394,6 +1394,7 @@ fn candidate_imports_stage_order_hide_and_annotations() {
             hidden: vec![1],
             annotations: vec![(2, "常用".to_owned())],
             rows: Vec::new(),
+            inserts: Vec::new(),
         }
     );
 }
@@ -1793,6 +1794,7 @@ fn command_event(
         trigger,
         argument,
         random,
+        local_time: None,
     });
     event
 }
@@ -1826,10 +1828,9 @@ fn the_new_capability_and_hook_have_their_names_and_numbers() {
     assert_eq!(Capability::ProvideCommands.requires(), None);
     assert!(Capability::ProvideCommands.reads_text());
     assert!(provides().check_rules().is_ok());
-    // `CapabilitySet` 是 u8：编译期断言守着第 9 项，这里核对现在正好 8 项、各占一位。
-    assert_eq!(Capability::ALL.len(), 8);
+    // 各占一位；能力的总数由第二批能力的测试核对。
     let all: CapabilitySet = Capability::ALL.into_iter().collect();
-    assert_eq!(all.iter().count(), 8);
+    assert_eq!(all.iter().count(), Capability::ALL.len());
     assert_eq!(Hook::parse("command"), Some(Hook::Command));
     assert_eq!(Hook::Command.as_str(), "command");
     assert_eq!(Hook::Command.code(), 18);
@@ -1839,9 +1840,8 @@ fn the_new_capability_and_hook_have_their_names_and_numbers() {
     assert_eq!(limits::hook_fuel(Hook::Command), limits::COMMAND_FUEL);
     // 两个指令类 import 属于 `provide_commands`，`random_fill` 不需要能力。
     let imports: Vec<_> = abi::imports().collect();
-    assert_eq!(imports.len(), 18);
     assert_eq!(
-        &imports[15..],
+        &imports[15..18],
         [
             ("command_text", Some(Capability::ProvideCommands)),
             ("command_row", Some(Capability::ProvideCommands)),
