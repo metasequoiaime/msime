@@ -19,6 +19,8 @@ struct CandidateItemWidths {
   double text = 0.0, annotation = 0.0, translation = 0.0;
   // Lines the translation run holds before any wrapping, `translation` being the widest of them. More than one (a Korean Hanja's 훈음 with its translation under it) always puts the run under the text, at the height of all its lines.
   size_t translation_lines = 1;
+  // view 候选的 translation_reserved：候选词翻译范围是「仅当前高亮」时高亮的那一行。竖排给这一行一直留出 CandidateCardInput::reserved_secondary_lines 行释义高（candidate_reserved_row_height），回答还没到也留，译文总画在候选文字下面，填进留出来的高度，所以移动高亮、译文到达时卡片都不变高。横排每行本来就统一预留，不看它；一行也不留（reserved_secondary_lines 为 0）时同样不起作用，见 candidate_row_holds_translation。
+  bool translation_reserved = false;
 };
 enum class CandidateRun { text, annotation, translation };
 // Height of candidate `index`'s run once wrapped to `width` DIPs. The text run is the candidate text with its badge, at the candidate size. The window answers with DirectWrite; without one the layout estimates from the single-line width.
@@ -44,9 +46,11 @@ struct CandidateCardInput {
   double line_height = 0.0;
   // 页码（「1 / 3」）按 CandidateCardMetrics::pager_font 量出的宽度，为 0 时不画翻页。翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。
   double page_width = 0.0;
+  // 首行右侧提示（光标后编辑的「候选编辑：光标后」，candidate_header_hint）按 CandidateCardMetrics::pager_font 量出的宽度，为 0 时不画也不占位。有它时首行一定在，拼音、logo 和翻页都不画时也照样画。
+  double hint_width = 0.0;
   // 共享偏好 `show_app_logo`：首行左端画不画水杉 logo。不画时拼音顶到左边，拼音隐藏又没有翻页时首行不占高度，和 macOS 一致。
   bool logo_visible = true;
-  // 横排时每行候选预留的释义行数，见 candidate_reserved_row_height：释义几秒后才到，先留出高度，卡片就不会在用户打字时突然变高。竖排不预留。
+  // 横排时每行候选预留的释义行数，见 candidate_reserved_row_height：释义几秒后才到，先留出高度，卡片就不会在用户打字时突然变高。竖排只给标了 translation_reserved 的那一行留（候选词翻译范围是「仅当前高亮」时的高亮行），见 CandidateItemWidths::translation_reserved。
   size_t reserved_secondary_lines = 0;
   // 这几行释义用释义字体量出来的高度：窗口拿同一个 DirectWrite 格式量 reserved_secondary_lines 行占位文字，和释义到达后多行释义的测量（CandidateWrapMeasure）同一条路，预留的和画出来的才一样高。0 时按 translation_line 估算。
   double reserved_secondary_height = 0.0;
@@ -140,6 +144,7 @@ inline CandidateHeaderBand candidate_header_band(const CandidateCardMetrics &met
 }
 // logo_visible 和 pager_visible 只决定首行：两者都没有、拼音也隐藏时首行高度为 0。pager_visible 是这一页有没有翻页可画（`show_candidate_page_number` 关掉时没有）；皮肤打开 `page_arrows` 时翻页改画在列表里，首行就不再为它留高度。
 // line_height 是候选字体一行的实测高度（CandidateCardInput::line_height），缺省版式的行高是它加上下各 6 DIP，和 macOS 的 MSIMECandidateRowPadding 一样；0 时按 1.35 倍字号估算。
+// header_hint 是首行右侧有没有提示要画（CandidateCardInput::hint_width 大于 0）：有时首行和有 logo 时一样不矮于 header_row。
 inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    double preedit_font_size,
                                                    bool preedit_visible,
@@ -147,7 +152,8 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    bool pager_visible = true,
                                                    const CandidateSkinMetrics &skin = {},
                                                    double number_width = 0.0,
-                                                   double line_height = 0.0) {
+                                                   double line_height = 0.0,
+                                                   bool header_hint = false) {
   if (!std::isfinite(font_size) || font_size < 12.0 || font_size > 32.0 ||
       !std::isfinite(preedit_font_size) || preedit_font_size < 12.0 ||
       preedit_font_size > 32.0)
@@ -224,8 +230,9 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
   metrics.logo_visible = logo_visible;
   metrics.preedit_row = (std::max)(
       preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0,
-      logo_visible || (pager_visible && !list_arrows && !expand_panel) ? metrics.header_row
-                                                                       : 0.0);
+      logo_visible || header_hint || (pager_visible && !list_arrows && !expand_panel)
+          ? metrics.header_row
+          : 0.0);
   if (preedit_visible) {
     metrics.preedit_margin = skin.preedit_margin;
     metrics.preedit_row += metrics.preedit_margin.top + metrics.preedit_margin.bottom;
@@ -362,6 +369,30 @@ candidate_pager_layout(double width, double indicator_width,
                       top, layout.previous.left - metrics.pager_gap, bottom};
   layout.left = layout.indicator.left;
   return layout;
+}
+// 首行右侧提示（candidate_header_hint）在卡片里的位置：和翻页同一段高度，右对齐到首行翻页左边再让开 pager_gap；首行没有翻页（关掉了页码，或皮肤把箭头画进列表）时右对齐到行的右缘，和翻页的右缘一样。没有提示或首行不占高度时为空。
+inline std::optional<CandidateRowBounds>
+candidate_header_hint_bounds(double width, double hint_width,
+                             const std::optional<CandidatePagerLayout> &pager,
+                             const CandidateCardMetrics &metrics) {
+  if (!(hint_width > 0.0) || !std::isfinite(hint_width) || metrics.preedit_row <= 0.0 ||
+      !std::isfinite(width) || width <= 0.0)
+    return std::nullopt;
+  const auto band = candidate_header_band(metrics);
+  const double right =
+      pager && !pager->in_list ? pager->left - metrics.pager_gap : width - metrics.pad_x / 2.0;
+  return CandidateRowBounds{right - hint_width, band.top, right, band.bottom};
+}
+// 拼音在首行里画到哪里为止（卡片坐标）：首行右侧提示左边再让开 pager_gap，没有提示时是首行翻页左边再让开 pager_gap，两者都没有时到右边距再减去皮肤给拼音行的右外边距。候选窗画拼音和读屏报拼音的位置都按它算。
+inline double candidate_preedit_right(double width,
+                                      const std::optional<CandidatePagerLayout> &pager,
+                                      const std::optional<CandidateRowBounds> &hint,
+                                      const CandidateCardMetrics &metrics) {
+  if (hint)
+    return hint->left - metrics.pager_gap;
+  if (pager && !pager->in_list)
+    return pager->left - metrics.pager_gap;
+  return width - metrics.pad_x / 2.0 - metrics.preedit_margin.right;
 }
 // The brand mark's square in the preedit row, in card coordinates: at the row's left padding and centred in the row.
 inline CandidateRowBounds candidate_logo_bounds(const CandidateCardMetrics &metrics) {
@@ -503,7 +534,8 @@ candidate_item_layout(const CandidateItemWidths &item, double content_width,
   }
   if (item.translation > 0.0) {
     const double width = (std::min)(item.translation, content_width);
-    if (!horizontal && !layout.annotation.below && item.translation_lines <= 1 &&
+    if (!horizontal && !item.translation_reserved && !layout.annotation.below &&
+        item.translation_lines <= 1 &&
         line_end + metrics.translation_gap + width <= content_width + fits)
       layout.translation = {line_end + metrics.translation_gap, 0.0, width,
                             metrics.candidate_row, false};
@@ -515,6 +547,7 @@ candidate_item_layout(const CandidateItemWidths &item, double content_width,
   return layout;
 }
 // Width a candidate's row asks for with nothing wrapped: its selection number and bar plus the content. A vertical row keeps a one-line translation on the text's line; a horizontal one, and a translation of several lines, stack it under the text, so the wider of the two lines decides. Zero for a hidden candidate, whose three runs all measured zero.
+// 竖排里留着释义行的那一行（translation_reserved，调用方已按 candidate_row_holds_translation 判过）同样把译文放在下面。
 inline double candidate_item_natural_width(const CandidateItemWidths &item,
                                            const CandidateCardMetrics &metrics,
                                            bool horizontal) {
@@ -524,7 +557,7 @@ inline double candidate_item_natural_width(const CandidateItemWidths &item,
       item.text +
       (item.annotation > 0.0 ? metrics.annotation_gap + item.annotation : 0.0);
   const double content =
-      horizontal || item.translation_lines > 1
+      horizontal || item.translation_lines > 1 || item.translation_reserved
           ? (std::max)(line, item.translation)
           : line + (item.translation > 0.0
                         ? metrics.translation_gap + item.translation
@@ -585,6 +618,12 @@ candidate_single_line_columns(const std::vector<CandidateItemWidths> &items,
     natural[index] = firm[index] + (natural[index] - firm[index]) * keep;
   return natural;
 }
+// 这一行在竖排里是否一直留出释义行（CandidateItemWidths::translation_reserved）：只在竖排、view 标了这一行、而且确实有要留的高度（reserved_row 是 candidate_reserved_row_height，预留 0 行时为 0）时成立。不成立时这一行和别的行一样排。
+inline bool candidate_row_holds_translation(const CandidateItemWidths &item, bool horizontal,
+                                            double reserved_row) {
+  return !horizontal && item.translation_reserved && std::isfinite(reserved_row) &&
+         reserved_row > 0.0;
+}
 // 横排候选在释义到达前就留出的行高：一行候选文字加 `lines` 行释义，和 macOS 的 reservedGlossHeightForFont 一样。lines 为 0 时不预留。释义到达后，一行的释义按 translation_line 算高，多行的总是用 DirectWrite 量（candidate_item_layout 的 run_height，不矮于 translation_line 乘行数）；所以多行时用 `measured`（窗口用同一种测量量出的 lines 行占位文字的高度），规则与 run_height 相同，预留的和到达后的一样高。measured 为 0 或不是有限值时按 translation_line 估算。
 inline double candidate_reserved_row_height(const CandidateCardMetrics &metrics,
                                             size_t lines, double measured = 0.0) {
@@ -600,7 +639,7 @@ struct CandidateRowLayout {
   CandidateItemLayout item;
 };
 // Rows for a whole page at the card width actually drawn. A vertical list stacks rows of their own heights. A horizontal list keeps every candidate on one line: candidate_single_line_columns narrows the translations to fit, and only when the candidate lines themselves do not fit does it fall back to the shipped presenter's CandidateList::Measure, where each column is its candidate's natural width and one that would pass the card's inner edge starts a new line (a candidate wider than a whole line is narrowed to it, and its text and runs wrap inside that). Every column on a line takes the line's tallest height, so the selection fills evenly. Sizing, painting and hit testing all read this one result.
-// minimum_row_height 只作用于横排：每一行候选至少这么高（candidate_reserved_row_height）。
+// minimum_row_height 是 candidate_reserved_row_height：横排每一行候选至少这么高；竖排只作用于留着释义行的那一行（candidate_row_holds_translation）。
 inline std::vector<CandidateRowLayout>
 candidate_page_layout(const std::vector<CandidateItemWidths> &items,
                       double width, const CandidateCardMetrics &metrics,
@@ -671,11 +710,17 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
       measure = [&wrapped, index](CandidateRun run, double run_width) {
         return wrapped(index, run, run_width);
       };
+    auto widths = items[index];
+    widths.translation_reserved =
+        candidate_row_holds_translation(widths, horizontal, minimum_row_height);
     auto item = candidate_item_layout(
-        items[index],
+        widths,
         bounds.right - bounds.left - metrics.number_and_bar - metrics.item_padding_right,
         metrics, horizontal, measure);
     if (!horizontal) {
+      // 「仅当前高亮」的高亮行：译文还没到也留出释义行，到了正好填进去。
+      if (widths.translation_reserved)
+        item.height = (std::max)(item.height, minimum_row_height);
       bounds.top = top;
       bounds.bottom = top + item.height;
       top = bounds.bottom + metrics.item_gap;
@@ -710,7 +755,7 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     return std::isfinite(value) && value >= 0.0;
   };
   if (input.items.size() > 9 || !measured(input.preedit_width) ||
-      !measured(input.page_width) || !measured(input.max_width) ||
+      !measured(input.page_width) || !measured(input.hint_width) || !measured(input.max_width) ||
       !measured(input.max_height))
     throw std::invalid_argument("Invalid candidate card measurement");
   for (const auto &item : input.items)
@@ -720,7 +765,8 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
   const auto shape = candidate_card_metrics(
       input.font_size, input.preedit_font_size, input.preedit_visible,
       input.logo_visible, input.page_width > 0.0, input.skin,
-      std::isfinite(input.number_width) ? input.number_width : 0.0, input.line_height);
+      std::isfinite(input.number_width) ? input.number_width : 0.0, input.line_height,
+      input.hint_width > 0.0);
   // 皮肤把翻页画在列表里时，横排在候选右侧加一窄列，竖排在最后一行下方加一矮行；卷轴展开的按钮也是候选右侧的一窄列。
   const double arrow_column = candidate_list_arrow_column(shape);
   const double arrow_row = shape.list_arrows ? shape.list_arrows->row : 0.0;
@@ -738,7 +784,7 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
 
   double width = 0.0;
   double height = pad_y + slack_y;
-  // 首行：显示时的 logo、显示时的拼音，以及翻页。三者都没有时首行高度为 0。
+  // 首行：显示时的 logo、显示时的拼音、首行右侧的提示，以及翻页。都没有时首行高度为 0。
   {
     const double pager = shape.list_arrows || shape.expand_panel
                              ? 0.0
@@ -749,17 +795,24 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
                                              shape.preedit_margin.left +
                                              shape.preedit_margin.right
                                        : 0.0) +
-                                  (pager > 0.0 ? shape.pager_gap + pager : 0.0));
+                                  (pager > 0.0 ? shape.pager_gap + pager : 0.0) +
+                                  (input.hint_width > 0.0 ? shape.pager_gap + input.hint_width
+                                                          : 0.0));
     height += preedit_row;
   }
   auto visible = [](const CandidateItemWidths &item) {
     return item.text > 0.0 || item.annotation > 0.0 || item.translation > 0.0;
   };
+  // 释义行的预留高度：横排每一行都留，竖排只给留着释义行的那一行（candidate_row_holds_translation）。
+  const double reserved = candidate_reserved_row_height(shape, input.reserved_secondary_lines,
+                                                        input.reserved_secondary_height);
   // A horizontal card asks for every column side by side, the same columns candidate_page_layout places.
   double row_width_sum = 0.0, row_width_max = 0.0;
-  for (const auto &item : input.items) {
+  for (auto item : input.items) {
     if (!visible(item))
       continue;
+    item.translation_reserved =
+        candidate_row_holds_translation(item, input.horizontal, reserved);
     const double row =
         candidate_item_natural_width(item, shape, input.horizontal);
     row_width_sum += row + shape.column_gap;
@@ -785,11 +838,6 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
                        pad_x + slack_x + arrow_column));
   width = clamp(width, width_cap);
   // Heights come from the width the card will actually get: a capped card wraps the runs that no longer fit, and grows by exactly what the painter will draw.
-  const double reserved =
-      input.horizontal
-          ? candidate_reserved_row_height(shape, input.reserved_secondary_lines,
-                                          input.reserved_secondary_height)
-          : 0.0;
   const auto rows = candidate_page_layout(input.items, width, shape,
                                           input.horizontal, input.wrapped, reserved);
   // A horizontal page ends at its last line's bottom, however many lines the capped width broke it into.
@@ -807,7 +855,9 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     stacked = true;
   }
   // 空列表也留一行，卡片不会塌掉；横排时留的是预留了释义的行高。
-  height += (std::max)(rows_height, (std::max)(candidate_row, reserved)) + arrow_row;
+  height += (std::max)(rows_height,
+                       (std::max)(candidate_row, input.horizontal ? reserved : 0.0)) +
+            arrow_row;
   return {width, clamp(height, input.max_height)};
 }
 // 列表占的矩形（卡片坐标）：左右是行的左右缘（横排时右缘让开翻页箭头那一列），上下是首行的顶和最后一行的底。没有看得见的行时为空。

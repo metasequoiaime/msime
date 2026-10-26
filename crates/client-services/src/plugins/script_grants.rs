@@ -393,9 +393,15 @@ fn admit(
                 .filter(|other| other.pack.content_hash == grant.hash)
         })
         .collect();
-    let footprint =
-        |script: &script_pack::LoadedScript| (script.wasm.len(), script.pack.memory_pages);
-    if !limits::fits_memory_budget(
+    // 数据文件和存储缓冲按 1 倍记（`limits::resident_bytes`），模块按翻译膨胀的上界记。
+    let footprint = |script: &script_pack::LoadedScript| {
+        (
+            script.wasm.len(),
+            script.pack.memory_pages,
+            script.resident_bytes(),
+        )
+    };
+    if !limits::fits_memory_budget_with_resident(
         others
             .iter()
             .map(footprint)

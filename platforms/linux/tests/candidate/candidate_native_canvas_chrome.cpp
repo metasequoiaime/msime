@@ -163,6 +163,76 @@ void rows_and_glosses() {
   cairo_destroy(cr);
 }
 
+// 光标后编辑：提示画在底部一行的右端，只有提示时这一行也出现，和本地模式、连击同在时它们从左边排、互不重叠；首选开头固定的那几个字用序号色画淡，没有提示和画淡时什么都不变。
+void caret_edit_suffix() {
+  const auto target = image(1600, 1000, 0);
+  auto *cr = cairo_create(target.get());
+  auto assets = theme_assets();
+  auto content = page(false);
+  // 没有拼音、只有一页：首行不出现，卡片只有两个短候选那么宽，比提示窄。
+  content.preedit.clear();
+  content.page_count = 1;
+  content.next = false;
+  const auto plain = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(plain.auxiliary_hint.width == 0 && plain.auxiliary.width == 0);
+  content.auxiliary_hint = "候选编辑：光标后";
+  const auto hinted = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(hinted.auxiliary_hint.width > 0 && hinted.auxiliary.width == 0);
+  assert(hinted.panel.height > plain.panel.height);
+  // 提示算进卡片的最小宽度：候选再短，提示也能整段画在内边距以内。
+  assert(hinted.panel.width >= plain.panel.width && hinted.auxiliary_hint.x >= hinted.panel.x + 4 + hinted.text_left - 1);
+  assert(hinted.auxiliary_hint.y >= hinted.items.back().y + hinted.items.back().height);
+  // 贴右边距：提示的右缘就是行内文字的右缘（卡片右缘减内边距和右边距）。
+  assert(near(hinted.auxiliary_hint.x + hinted.auxiliary_hint.width,
+              hinted.panel.x + hinted.panel.width - 4 - hinted.text_right, 1));
+  content.auxiliary = "连击 ×12";
+  const auto both = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(both.auxiliary.width > 0 && both.auxiliary_hint.width > 0);
+  assert(both.auxiliary.x + both.auxiliary.width <= both.auxiliary_hint.x);
+  assert(near(both.auxiliary.y, both.auxiliary_hint.y) && near(both.panel.height, hinted.panel.height, 1));
+  // 提示比卡片的最小宽度还宽时卡片跟着变宽，连击仍排在它左边，两段都画全、不重叠（不同系统的字体宽度不同，这里用一段加长的提示让它在哪里都比卡片宽）。
+  {
+    auto wide = content;
+    wide.auxiliary_hint = "候选编辑：光标后候选编辑：光标后候选编辑：光标后";
+    const auto widened = host::measure_native_canvas(cr, *assets, wide, 1600);
+    assert(widened.panel.width > both.panel.width);
+    assert(widened.auxiliary.x + widened.auxiliary.width <= widened.auxiliary_hint.x);
+    assert(widened.auxiliary.width >= std::ceil(host::native_canvas_text_size(cr, widened.gloss_font, wide.auxiliary).first));
+    assert(widened.auxiliary_hint.width >= std::ceil(host::native_canvas_text_size(cr, widened.gloss_font, wide.auxiliary_hint).first));
+  }
+  host::paint_native_canvas(cr, *assets, content, both, kPalette);
+  // 提示用次要色（没有皮肤色时是序号色，灰），画在它自己的框里。
+  assert(colors(target.get(), both.auxiliary_hint)[0x808080] > 10);
+
+  // 画淡：用绿色区分序号色与白字抗锯齿产生的灰像素，避免缺字回退字体改变灰像素数。
+  // 第一行不选中；画淡前两个字符后，序号色像素变多，白色变少，后两个字符仍保持白色。
+  content.auxiliary.clear();
+  content.auxiliary_hint.clear();
+  content.selected = 1;
+  // CI 不保证安装中文字体；颜色像素断言使用基础字体的实心字形，UTF-8 范围由 caret_edit_suffix.cpp 验证。
+  content.font = "Sans 30px";
+  content.items[0].text = "MMMM";
+  auto dim_palette = kPalette;
+  dim_palette["number"] = "#00FF00";
+  const auto ink = [&](std::size_t dim_bytes) {
+    content.items[0].dim_prefix_bytes = dim_bytes;
+    const auto layout = host::measure_native_canvas(cr, *assets, content, 1600);
+    cairo_save(cr); cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR); cairo_paint(cr); cairo_restore(cr);
+    host::paint_native_canvas(cr, *assets, content, layout, dim_palette);
+    return std::make_pair(layout, colors(target.get(), layout.items[0]));
+  };
+  auto [undimmed_layout, undimmed] = ink(0);
+  auto [dimmed_layout, dimmed] = ink(2);
+  assert(dimmed[0x00ff00] > undimmed[0x00ff00] && dimmed[0xffffff] < undimmed[0xffffff] && dimmed[0xffffff] > 0);
+  // 只改颜色：行的大小不变。
+  assert(near(dimmed_layout.items[0].width, undimmed_layout.items[0].width) &&
+         near(dimmed_layout.items[0].height, undimmed_layout.items[0].height));
+  // 整行都画淡时正文里不剩白色；越界的字节数按整段算。
+  auto [whole_layout, whole] = ink(100);
+  assert(whole[0xffffff] == 0 && whole[0x00ff00] > dimmed[0x00ff00]);
+  cairo_destroy(cr);
+}
+
 // 悬停和按下：悬停填悬停色、不改变键盘选中；按下画选中色。展开键在首行最右，网格首行是「行 / 总行数」和收起键。
 void pointer_and_grid() {
   const auto target = image(1600, 1000, 0);
@@ -446,10 +516,58 @@ void selection_motion() {
 
 } // namespace
 
+// 「仅当前高亮」：竖排的高亮行（视图的 translation_reserved）一直留出与横排同样行数的释义高度，回答还没到也留；释义到了、高亮换了一行，卡片都一样高，下面的行跟着下移。
+void reserved_highlight_gloss() {
+  const auto target = image(1200, 900, 0);
+  auto *cr = cairo_create(target.get());
+  auto assets = theme_assets();
+  auto content = page(false);
+  content.preedit.clear();
+  const auto plain = host::measure_native_canvas(cr, *assets, content, 1600);
+  content.items[0].reserved_gloss_lines = 1;
+  const auto waiting = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(waiting.items[0].height > plain.items[0].height + 8);
+  assert(near(waiting.items[1].height, plain.items[1].height) && near(waiting.items[2].height, plain.items[2].height));
+  assert(near(waiting.items[1].y, waiting.items[0].y + waiting.items[0].height, 1));
+  assert(waiting.panel.height > plain.panel.height + 8);
+  // 正文仍从行顶开始，留出的高度在它下面。
+  assert(near(waiting.rows[0].textHeight, plain.rows[0].textHeight));
+  // 回答到了（放得下时和正文同一行）：高度不变。
+  content.items[0].translation = "hello";
+  const auto answered = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(near(answered.panel.height, waiting.panel.height) && near(answered.items[0].height, waiting.items[0].height));
+  // 高亮移到第二行：第一行的译文和预留跟着走，卡片高度不变，第三行仍在原处。
+  content.items[0].translation.clear();
+  content.items[0].reserved_gloss_lines = 0;
+  content.items[1].reserved_gloss_lines = 1;
+  content.selected = 1;
+  const auto moved = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(near(moved.panel.height, waiting.panel.height));
+  assert(near(moved.items[0].height, plain.items[0].height) && near(moved.items[1].height, waiting.items[0].height));
+  assert(near(moved.items[2].y, waiting.items[2].y));
+  // 点选仍按移下去的行框命中。
+  const auto &third = moved.items[2];
+  assert(host::native_canvas_hit(content, moved, third.x + third.width / 2, third.y + third.height / 2) == 2);
+  // 两种目标语言：留两行。
+  content.items[1].reserved_gloss_lines = 2;
+  const auto two = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(two.items[1].height > moved.items[1].height + 8);
+  // 横排条照旧由 reserved_gloss_lines（整张卡片）统一预留，高亮行的标记不让它更高。
+  content = page(true);
+  content.preedit.clear();
+  content.reserved_gloss_lines = 1;
+  const auto strip = host::measure_native_canvas(cr, *assets, content, 1600);
+  content.items[0].reserved_gloss_lines = 1;
+  assert(near(host::measure_native_canvas(cr, *assets, content, 1600).panel.height, strip.panel.height));
+  cairo_destroy(cr);
+}
+
 int main() {
   header_row();
   rows_and_glosses();
+  reserved_highlight_gloss();
   pointer_and_grid();
+  caret_edit_suffix();
   scaled();
   band();
   background();
@@ -458,5 +576,5 @@ int main() {
   placement();
   motion();
   selection_motion();
-  std::cout << "原生画布的 macOS 结构：首行、行与释义、悬停、网格、缩放、装饰带、背景图、投影、调色板、定位与动效通过\n";
+  std::cout << "原生画布的 macOS 结构：首行、行与释义、光标后编辑、高亮行预留释义、悬停、网格、缩放、装饰带、背景图、投影、调色板、定位与动效通过\n";
 }

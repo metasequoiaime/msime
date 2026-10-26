@@ -122,6 +122,10 @@ pub struct EngineSnapshot {
     pub conversion_focus_start: usize,
     /// 光标处那一段（候选所替换的字）的结尾，同样按标量计；光标在句末时等于 `conversion_focus_start`。
     pub conversion_focus_end: usize,
+    /// 光标后编辑正在生效（`SessionSnapshot::caret_edit_suffix`）：宿主显示模式提示，runtime 不重排候选。
+    pub caret_edit_suffix: bool,
+    /// 首选前面固定的那段文字（`SessionSnapshot::caret_edit_prefix`），首选显示为它接上 `candidates[0]`；模式不生效时为空。
+    pub caret_edit_prefix: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -306,6 +310,8 @@ impl Session {
             conversion: value.conversion,
             conversion_focus_start: value.conversion_focus.0,
             conversion_focus_end: value.conversion_focus.1,
+            caret_edit_suffix: value.caret_edit_suffix,
+            caret_edit_prefix: value.caret_edit_prefix,
         };
         let mut annotations = value.candidate_annotations.into_iter();
         for (index, candidate) in value.candidates.into_iter().enumerate() {

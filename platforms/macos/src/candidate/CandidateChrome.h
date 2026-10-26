@@ -196,6 +196,8 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 @property(nonatomic, copy) NSString *glossReading;
 // 脚本插件给这一行加的注释，已经过 MSIMECandidateScriptAnnotationRun 收拾；画在释义行的最后一行，斜体，从不上屏，也不替换引擎的 annotation。没有时为空。
 @property(nonatomic, copy) NSString *scriptAnnotation;
+// 候选文字开头画成次要色（释义色）的 UTF-16 长度：光标后编辑里首选开头固定的那段（视图的 `caret_edit_prefix`）。0 时整段照常画。
+@property(nonatomic) NSUInteger dimmedPrefixLength;
 // Geometry from the panel's page layout; frames, drawing and hit testing all come from it. Without one the button lays itself out in its bounds.
 @property(nonatomic) msime::candidate::CandidateItemLayout itemLayout;
 @property(nonatomic) BOOL hasItemLayout;
@@ -386,16 +388,25 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
     // The number sits on the text's first line.
     CGFloat textTop = layout.contentTop + (layout.textHeight - wordSize.height) / 2;
     CGFloat firstLine = wordSize.height;
+    // 开头固定的那段换成释义色，量高和折行仍按整段同一字体的属性，画淡不改变版面。
+    NSColor *dimmedColor = self.translationColor ?: [titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
+    const NSUInteger dimmed = MIN(self.dimmedPrefixLength, word.length);
+    void (^drawWord)(NSRect, NSDictionary *) = ^(NSRect rect, NSDictionary *attributes) {
+        if (dimmed == 0) { [word drawInRect:rect withAttributes:attributes]; return; }
+        NSMutableAttributedString *run = [[NSMutableAttributedString alloc] initWithString:word attributes:attributes];
+        [run addAttribute:NSForegroundColorAttributeName value:dimmedColor range:NSMakeRange(0, dimmed)];
+        [run drawInRect:rect];
+    };
     if (layout.textWrapped)
     {
         const CGFloat drawn = MSIMECandidateWrappedHeight(word, self.font, layout.textWidth);
         textTop = layout.contentTop + MAX(0.0, (layout.textHeight - drawn) / 2);
         firstLine = MSIMECandidateTextHeight(@"", self.font);
-        [word drawInRect:box(contentLeft, textTop, layout.textWidth, drawn) withAttributes:MSIMECandidateRunAttributes(self.font, titleColor, YES)];
+        drawWord(box(contentLeft, textTop, layout.textWidth, drawn), MSIMECandidateRunAttributes(self.font, titleColor, YES));
     }
     else
     {
-        [word drawInRect:box(contentLeft, textTop, MAX(layout.textWidth, ceil(wordSize.width)) + 1.0, wordSize.height) withAttributes:titleAttributes];
+        drawWord(box(contentLeft, textTop, MAX(layout.textWidth, ceil(wordSize.width)) + 1.0, wordSize.height), titleAttributes);
     }
     if (!self.hidesNumber) [number drawInRect:box(textLeft, textTop + (firstLine - numberSize.height) / 2, ceil(numberSize.width) + 1.0, numberSize.height)
         withAttributes:numberAttributes];

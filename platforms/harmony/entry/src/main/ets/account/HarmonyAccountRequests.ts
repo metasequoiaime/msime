@@ -133,9 +133,23 @@ export const PAGE_COMMUNITY_OPERATIONS: readonly string[] = [
   "resource_save",
   "resource_rate",
   "resource_unpublish",
+  "plugin_list",
+  "plugin_detail",
+  "plugin_pack_preview",
+  "plugin_publish",
+  "plugin_install",
+  "plugin_rate",
+  "plugin_delete",
 ];
 
-/** 页面的社区动作，拼成 `msime_client_community` 的请求。`keyboard_skin_install` 要把皮肤写进皮肤库和试用，所以带上状态目录。 */
+/** 要读写插件目录（`<state_root>/plugins`）的社区插件操作：打包预检、发布和安装。 */
+const PLUGIN_ROOT_OPERATIONS: readonly string[] = [
+  "plugin_pack_preview",
+  "plugin_publish",
+  "plugin_install",
+];
+
+/** 页面的社区动作，拼成 `msime_client_community` 的请求。`keyboard_skin_install` 要把皮肤写进皮肤库和试用，插件的打包预检、发布和安装要读写插件目录，所以带上状态目录。 */
 export function communityRequest(
   directory: string,
   stateRoot: string,
@@ -148,7 +162,9 @@ export function communityRequest(
     return refused(operation, "community_invalid");
   }
   const request: JsonObject = { directory, action };
-  if (operation === "keyboard_skin_install") request.state_root = stateRoot;
+  if (operation === "keyboard_skin_install" || PLUGIN_ROOT_OPERATIONS.includes(operation)) {
+    request.state_root = stateRoot;
+  }
   return planned(operation, request);
 }
 

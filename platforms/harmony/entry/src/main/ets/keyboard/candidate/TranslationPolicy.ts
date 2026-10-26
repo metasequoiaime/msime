@@ -52,6 +52,8 @@ export interface TranslationQuery {
   user_data?: string;
   /** Non-English targets with an offline dictionary installed beside the resources; omitted when there are none. */
   offline_gloss_languages?: string[];
+  /** 候选词翻译范围是「仅当前高亮」、离线释义开关又要查释义时才有：一份覆盖这一页全部候选、不带任何翻译服务的查询文档，代次与外层相同。宿主用处理普通查询的同一条路径算它（不会联网），每条回答标上 `gloss: true` 交给 `applyTranslations`。 */
+  gloss_query?: TranslationQuery | null;
 }
 
 export interface TranslationPlanItem {
@@ -64,6 +66,8 @@ export interface TranslationPlanItem {
 export interface TranslationEntry {
   text: string;
   translation: string;
+  /** 来自 `gloss_query` 的离线释义：共享运行时把它画在每一行，不受「仅当前高亮」限制；缺省表示候选词翻译。 */
+  gloss?: boolean;
 }
 
 /** Shared bounds and provider precedence for Harmony candidate translations. */
@@ -103,6 +107,19 @@ export class TranslationPolicy {
         (language: string): boolean => language === primary,
       );
     }
+    // gloss_query 的离线释义画在同一个候选栏里，同样只留主目标语言。
+    if (query.gloss_query !== undefined && query.gloss_query !== null) {
+      TranslationPolicy.keepPrimaryOnly(query.gloss_query);
+    }
+  }
+
+  /** `gloss_query` 的回答：每条标上 `gloss: true`，共享运行时据此把它们画在每一行，不受「仅当前高亮」限制。返回副本，不改 `entries`。 */
+  static glossAnswers(entries: TranslationEntry[]): TranslationEntry[] {
+    return entries.map((entry: TranslationEntry): TranslationEntry => ({
+      text: entry.text,
+      translation: entry.translation,
+      gloss: true,
+    }));
   }
 
   /** The targets answered from an installed offline dictionary, in target order. English keeps its own gloss path. */
@@ -168,6 +185,11 @@ export class TranslationPolicy {
       ai_endpoint: ai?.endpoint ?? "",
       ai_model: ai?.model ?? "",
       ai_credential: TranslationPolicy.credentialFingerprint(ai?.token ?? ""),
+      // 「仅当前高亮」时整页的离线释义在 gloss_query 里，它变了也要重新算。
+      gloss_query:
+        query.gloss_query !== undefined && query.gloss_query !== null
+          ? TranslationPolicy.signature(query.gloss_query)
+          : "",
     });
   }
 

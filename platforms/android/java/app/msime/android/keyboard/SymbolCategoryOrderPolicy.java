@@ -11,6 +11,7 @@ public final class SymbolCategoryOrderPolicy {
     public enum Item {
         RECENTS("recents", "常用"),
         CHINESE("chinese", "中文"),
+        RADICALS("radicals", "偏旁"),
         ENGLISH("english", "英文"),
         NUMBERS("numbers", "数字"),
         NETWORK("network", "网络"),

@@ -76,6 +76,10 @@ export function pluginErrorMessage(error: unknown, fallback: string): string {
       return "这个 id 属于内置插件，不能覆盖或删除。";
     case "plugin_storage":
       return "插件目录不可用，请检查数据目录的权限。";
+    case "plugin_exists":
+      return "本机已经有一个同样 id 的插件，没有覆盖它。";
+    case "plugin_not_editable":
+      return `这个插件不能在设置页编辑${reason}。`;
     case "plugin_script_memory":
       return "启用后会超出输入法留给脚本插件的内存（64 MiB），先停用别的脚本插件再试。";
     case "plugin_script_limit":

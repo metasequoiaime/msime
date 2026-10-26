@@ -53,6 +53,14 @@ pub mod event_field {
     pub const CONTINUES: i32 = 9;
     /// 0 或 1：引擎生成的文本（计算器、命令），`commit`。
     pub const GENERATED: i32 = 10;
+    /// 本地日期，十进制写成 `yyyymmdd`（例如 20261026）。只在 `command` 里有，别的钩子里是 `ABSENT`。
+    pub const LOCAL_DATE: i32 = 11;
+    /// 本地时间是当天第几分钟，0 到 1439。只在 `command` 里有。
+    pub const LOCAL_MINUTE: i32 = 12;
+    /// 星期几，1 到 7，周一为 1。只在 `command` 里有。
+    pub const WEEKDAY: i32 = 13;
+    /// 本地时间比 UTC 早多少分钟（东八区是 480），可以为负。只在 `command` 里有。负数里 -1 到 -4 是返回码，宿主交来的偏移落在这几个值上时四个时间字段一律按 `ABSENT` 处理（真实的时区偏移都是 15 分钟的整数倍，不会落在这里）。
+    pub const UTC_OFFSET_MINUTES: i32 = 14;
 }
 
 /// `composition_text(field, dst, cap)` 与 `composition_scalar(field)` 的字段，需要 `read_composition`。
@@ -99,7 +107,7 @@ pub mod candidate_field {
 pub mod command_field {
     /// 用户打的触发词，即清单 `[[script.commands]]` 里的某个 `trigger`。
     pub const TRIGGER: i32 = 0;
-    /// 触发词后面用户打的字母，可以为空（`/uuid`），只含小写 ASCII 字母，最多 [`crate::limits::MAX_COMMAND_ARGUMENT_BYTES`] 字节。
+    /// 触发词后面用户打的参数，可以为空（`/uuid`），最多 [`crate::limits::MAX_COMMAND_ARGUMENT_BYTES`] 字节。默认只含小写 ASCII 字母；清单里声明了 `arguments = "extended"` 的指令另外可以有数字和 [`super::EXTENDED_ARGUMENT_SYMBOLS`]（[`super::valid_command_argument`]）。
     pub const ARGUMENT: i32 = 1;
 }
 
@@ -222,13 +230,17 @@ pub enum Capability {
     FilterCandidates = 6,
     /// 在自己声明的 `/` 指令里给出候选：读用户在触发词后面打的字母，交回最多 [`crate::limits::MAX_COMMAND_ROWS`] 行。没有依赖。
     ProvideCommands = 7,
+    /// 往普通候选里加行：只在 `candidates` 里、本地模式 `none` 时可用，每个插件每次最多 [`crate::limits::MAX_INSERTED_ROWS_PER_PLUGIN`] 行。依赖 `read_candidates`。
+    InsertCandidates = 8,
+    /// 一块跨输入框保留的私有存储，最多 [`crate::limits::MAX_STORAGE_BYTES`] 字节，只在持久实例上的钩子里可用。不能和 `rewrite_commit` 同时授予。
+    PersistData = 9,
 }
 
-// `CapabilitySet` 是 u8，按判别值取位：第 9 项能力（判别值 8）的 `1 << 8` 在 debug 构建里 panic、在 release 构建里取模撞到第 1 项上。加第 9 项之前先把 `CapabilitySet` 扩宽，授权文件存的是能力名，扩宽不影响格式。
-const _: () = assert!(Capability::ALL.len() <= u8::BITS as usize);
+// `CapabilitySet` 是 u16，按判别值取位：第 17 项能力（判别值 16）的 `1 << 16` 在 debug 构建里 panic、在 release 构建里取模撞到第 1 项上。加第 17 项之前先把 `CapabilitySet` 扩宽，授权文件存的是能力名，扩宽不影响格式。
+const _: () = assert!(Capability::ALL.len() <= u16::BITS as usize);
 
 impl Capability {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::ReadComposition,
         Self::ReadCommit,
         Self::ReadCandidates,
@@ -237,6 +249,8 @@ impl Capability {
         Self::AnnotateCandidates,
         Self::FilterCandidates,
         Self::ProvideCommands,
+        Self::InsertCandidates,
+        Self::PersistData,
     ];
 
     /// 清单和授权文件里的名字。
@@ -250,6 +264,8 @@ impl Capability {
             Self::AnnotateCandidates => "annotate_candidates",
             Self::FilterCandidates => "filter_candidates",
             Self::ProvideCommands => "provide_commands",
+            Self::InsertCandidates => "insert_candidates",
+            Self::PersistData => "persist_data",
         }
     }
 
@@ -263,17 +279,19 @@ impl Capability {
     pub fn requires(self) -> Option<Self> {
         match self {
             Self::RewriteCommit => Some(Self::ReadCommit),
-            Self::RerankCandidates | Self::AnnotateCandidates | Self::FilterCandidates => {
-                Some(Self::ReadCandidates)
-            }
+            Self::RerankCandidates
+            | Self::AnnotateCandidates
+            | Self::FilterCandidates
+            | Self::InsertCandidates => Some(Self::ReadCandidates),
             Self::ReadComposition
             | Self::ReadCommit
             | Self::ReadCandidates
-            | Self::ProvideCommands => None,
+            | Self::ProvideCommands
+            | Self::PersistData => None,
         }
     }
 
-    /// 能读到文本的能力。授予了其中任何一项，实例在每次 focus 和 destroy 时都整个丢弃。`provide_commands` 读的是用户在它的触发词后面打的字母，也算。
+    /// 能读到文本的能力。授予了其中任何一项，实例在每次 focus 和 destroy 时都整个丢弃。`provide_commands` 读的是用户在它的触发词后面打的字母，也算。`persist_data` 本身读不到输入，不算：它的存储跨输入框保留，但实例里的其余状态照样按这条丢弃。
     pub fn reads_text(self) -> bool {
         matches!(
             self,
@@ -281,14 +299,14 @@ impl Capability {
         )
     }
 
-    fn bit(self) -> u8 {
+    fn bit(self) -> u16 {
         1 << self as u8
     }
 }
 
 /// 一组能力，按位存放。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct CapabilitySet(u8);
+pub struct CapabilitySet(u16);
 
 impl CapabilitySet {
     pub const EMPTY: Self = Self(0);
@@ -326,7 +344,9 @@ impl CapabilitySet {
         self.iter().any(Capability::reads_text)
     }
 
-    /// 依赖和互斥规则。清单校验和授权写入用同一条：缺依赖、`rewrite_commit` 与 `read_composition` 同时出现都拒绝。重复项由解析清单的一方拒绝，集合本身表达不了重复。
+    /// 依赖和互斥规则。清单校验和授权写入用同一条：缺依赖、`rewrite_commit` 与 `read_composition` 同时出现、`persist_data` 与 `rewrite_commit` 同时出现都拒绝。重复项由解析清单的一方拒绝，集合本身表达不了重复。
+    ///
+    /// `persist_data` 和 `rewrite_commit` 互斥的理由同 `read_composition`：存下的内容可能是以前在别的应用里打过的字，能改写上屏的插件就能把它夹带进这一次上屏。
     pub fn check_rules(self) -> Result<(), CapabilityRuleError> {
         for capability in self.iter() {
             if let Some(required) = capability.requires() {
@@ -342,6 +362,12 @@ impl CapabilitySet {
             return Err(CapabilityRuleError::Exclusive {
                 first: Capability::RewriteCommit,
                 second: Capability::ReadComposition,
+            });
+        }
+        if self.contains(Capability::PersistData) && self.contains(Capability::RewriteCommit) {
+            return Err(CapabilityRuleError::Exclusive {
+                first: Capability::PersistData,
+                second: Capability::RewriteCommit,
             });
         }
         Ok(())
@@ -534,8 +560,35 @@ pub fn local_mode_allows_text(local_mode: u8) -> bool {
 /// - `command_row(text, tlen, note, nlen) -> i32`：只在 `command` 里、授予了 `provide_commands` 时可用，否则 `DENIED`。暂存一行候选：`[text, text + tlen)` 是行的文本，用户选中时原样上屏；`[note, note + nlen)` 是插件注释，画在插件注释格里，可以为空。两个区间越界直接 trap。已经暂存了 [`crate::limits::MAX_COMMAND_ROWS`] 行、文本超过 [`crate::limits::MAX_COMMAND_ROW_UTF16`] 个 UTF-16 码元或注释超过 [`crate::limits::MAX_ANNOTATION_UTF16`] 个返回 `LIMIT`；不是 UTF-8、文本为空、首尾是空白、含 [`is_forbidden_plugin_char`] 拦下的字符或者含 `://`、`www.`、`mailto:`（不让插件行成为链接），注释含拦下的字符，返回 `INVALID`。成功返回这一行的行号（从 0 起）。行按暂存的顺序排；同文的行由引擎去掉后一行。
 /// - `random_fill(dst, len) -> i32`：不需要能力。每次 `command` 事件宿主给 [`crate::limits::RANDOM_BYTES_PER_EVENT`] 字节随机数，插件按调用顺序取：把接下来的 `len` 个字节写进 `[dst, dst + len)`，返回 `len`；剩下的不够 `len` 个返回 `LIMIT`，什么都不写。别的钩子里没有随机数，`len` 不为 0 时一律 `LIMIT`。区间越界直接 trap。产品里随机数取自操作系统的 CSPRNG，`msime-pack run` 取自夹具的 `random` 字段。
 ///
-/// 多个插件的候选操作都针对同一份原始窗口、按候选身份（文本加来源）记下，再按授权顺序合成：重排后面的插件优先，隐藏取并集，注释后面的覆盖前面的。`command` 只投递给触发词的主人，它的行不和别的插件合成。
+/// - `candidates_insert(position, text, tlen, note, nlen) -> i32`：只在 `candidates` 里、授予了 `insert_candidates`、本地模式是 `none`（0）时可用，否则 `DENIED`。暂存一行要插进候选列表的文本：`position` 是插件变换之后的呈现顺序里的位置，0 到窗口行数（含），越界 `INVALID`；文本和注释的规则同 `command_row`（[`valid_command_row_text`]、[`crate::limits::MAX_COMMAND_ROW_UTF16`]、[`crate::limits::MAX_ANNOTATION_UTF16`]），两个区间越界 trap。每个插件每次 `candidates` 最多 [`crate::limits::MAX_INSERTED_ROWS_PER_PLUGIN`] 行，再多返回 `LIMIT`。成功返回这一行的序号（从 0 起）。插入的行原样上屏，不进词库、不计打字统计、不作为 AI 上文、不查释义或翻译，由宿主照插件指令行的规则处理；所有插件合计最多 [`crate::limits::MAX_INSERTED_ROWS`] 行，由宿主按执行顺序截断。
+/// - `storage_write(src, len) -> i32`：只在授予了 `persist_data`、持久实例上的钩子里可用（快照钩子 `before_commit`、`command` 和 `msime_init` 里一律 `DENIED`）。用 `[src, src + len)` 整块替换插件的存储，`len` 超过 [`crate::limits::MAX_STORAGE_BYTES`] 返回 `LIMIT`，区间越界 trap，宿主没有交来存储缓冲时 `ABSENT`。和别的修改类 import 一样先暂存，钩子正常返回才写进本进程共用的缓冲（同一个钩子里之后的 `storage_read`、`storage_len` 读到的是暂存的这一份）；失败时作废。缓冲由宿主在失焦、会话结束和后台定时刷新时写盘，不在按键路径上做文件 IO。
+///
+/// 多个插件的候选操作都针对同一份原始窗口、按候选身份（文本加来源）记下，再按授权顺序合成：重排后面的插件优先，隐藏取并集，注释后面的覆盖前面的；之后再按执行顺序插入各插件暂存的行，后面的插件读不到前面插件插入的行。`command` 只投递给触发词的主人，它的行不和别的插件合成。
 pub mod modification {}
+
+/// 不需要能力、和用户输入无关的读取：设置项、随包数据。
+///
+/// - `setting_count() -> i32`：清单 `[[script.settings]]` 的项数。
+/// - `setting_value(index, dst, cap) -> i32`：按清单顺序第 `index` 项的当前值（布尔是 `0`/`1`，数字是十进制文本，选项是它的 `value`，文本原样），越界 `INVALID`，放不下 `LIMIT`。值在实例化时定下，用户改了设置由宿主在下一次聚焦重建实例；快照钩子里读到的就是快照时的值。
+/// - `data_len(file) -> i64`：第 `file` 个随包数据文件（清单 `[script].data` 的顺序）的字节数，越界 `INVALID`。
+/// - `data_read(file, offset, dst, cap) -> i32`：从第 `offset` 字节起复制 `min(cap, len - offset)` 字节到 `[dst, dst + cap)`，返回复制的字节数；`file` 越界、`offset` 为负或超过文件长度 `INVALID`，区间越界 trap。
+///
+/// 这四个在所有钩子里都可用，`msime_init` 里也可用（它们不随事件变化，在初始化时预先算好的东西进快照也带不进任何输入），不受本地模式的屏蔽。按 [`crate::limits::IMPORT_CALL_FUEL`] 加复制字节数的四分之一计 fuel。
+///
+/// `persist_data` 的三个读取：`storage_len() -> i32` 是存储的字节数，`storage_read(offset, dst, cap) -> i32` 的复制规则同 `data_read`；授权和钩子的门控同 `storage_write`。
+pub mod resources {}
+
+/// `[[script.commands]]` 声明了 `arguments = "extended"` 的指令在触发词后面额外接受的运算符号；数字另算。
+pub const EXTENDED_ARGUMENT_SYMBOLS: &str = ".+-*/%()=,";
+
+/// 指令参数是否合规：`letters` 只有小写 ASCII 字母，`extended` 另外可以有数字和 [`EXTENDED_ARGUMENT_SYMBOLS`]。长度另查（[`crate::limits::MAX_COMMAND_ARGUMENT_BYTES`]）。
+pub fn valid_command_argument(argument: &str, extended: bool) -> bool {
+    argument.bytes().all(|byte| {
+        byte.is_ascii_lowercase()
+            || (extended
+                && (byte.is_ascii_digit() || EXTENDED_ARGUMENT_SYMBOLS.as_bytes().contains(&byte)))
+    })
+}
 
 /// `command_row` 的文本里不许出现的片段：插件行不能成为可点的链接或伪装成网址。按 ASCII 不分大小写比较。
 pub const COMMAND_ROW_FORBIDDEN_FRAGMENTS: [&str; 3] = ["://", "www.", "mailto:"];
@@ -614,7 +667,7 @@ pub(crate) enum Ty {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ImportSpec {
     pub name: &'static str,
-    /// `None` 表示不需要能力（`event_scalar`、`log`、`random_fill`）。
+    /// `None` 表示不需要能力（`event_scalar`、`log`、`random_fill`、设置项和随包数据的四个）。
     pub capability: Option<Capability>,
     pub params: &'static [Ty],
     pub results: &'static [Ty],
@@ -637,7 +690,7 @@ const fn spec(
 }
 
 /// `msime` 命名空间的全部 import。表里有的才能导入。修改类 import 的约定见 [`modification`]。
-pub(crate) const IMPORTS: [ImportSpec; 18] = [
+pub(crate) const IMPORTS: [ImportSpec; 26] = [
     spec("event_scalar", None, I32_TO_I64),
     spec("log", None, (&[Ty::I32, Ty::I32, Ty::I32], &[])),
     spec(
@@ -704,6 +757,30 @@ pub(crate) const IMPORTS: [ImportSpec; 18] = [
         (&[Ty::I32, Ty::I32, Ty::I32, Ty::I32], &[Ty::I32]),
     ),
     spec("random_fill", None, (&[Ty::I32, Ty::I32], &[Ty::I32])),
+    spec("setting_count", None, (&[], &[Ty::I32])),
+    spec("setting_value", None, TEXT_COPY),
+    spec("data_len", None, I32_TO_I64),
+    spec(
+        "data_read",
+        None,
+        (&[Ty::I32, Ty::I32, Ty::I32, Ty::I32], &[Ty::I32]),
+    ),
+    spec(
+        "candidates_insert",
+        Some(Capability::InsertCandidates),
+        (&[Ty::I32, Ty::I32, Ty::I32, Ty::I32, Ty::I32], &[Ty::I32]),
+    ),
+    spec(
+        "storage_len",
+        Some(Capability::PersistData),
+        (&[], &[Ty::I32]),
+    ),
+    spec("storage_read", Some(Capability::PersistData), TEXT_COPY),
+    spec(
+        "storage_write",
+        Some(Capability::PersistData),
+        (&[Ty::I32, Ty::I32], &[Ty::I32]),
+    ),
 ];
 
 /// 白名单里全部 import 的名字和所属能力（`None` 表示不需要能力），按 ABI 的顺序。作者文档和 SDK 的一致性测试按它核对。

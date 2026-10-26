@@ -142,6 +142,7 @@ fn main() {
             .compile("msime_settings_glass");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=WebKit");
+        println!("cargo:rustc-link-lib=framework=IOKit");
     }
     bake_release_date();
     tauri_build::build()

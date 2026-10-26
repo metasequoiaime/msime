@@ -69,6 +69,11 @@
 #define MSIME_EVENT_REWRITABLE 8
 #define MSIME_EVENT_CONTINUES 9
 #define MSIME_EVENT_GENERATED 10
+/* 只在 command 里有：本地日期 yyyymmdd、当天第几分钟（0 到 1439）、星期几（1 到 7，周一为 1）、比 UTC 早多少分钟（可以为负；-1 到 -4 是返回码，不会作为偏移交出）。别的钩子里返回 MSIME_ABSENT。 */
+#define MSIME_EVENT_LOCAL_DATE 11
+#define MSIME_EVENT_LOCAL_MINUTE 12
+#define MSIME_EVENT_WEEKDAY 13
+#define MSIME_EVENT_UTC_OFFSET_MINUTES 14
 
 /* MSIME_EVENT_ORIGIN：上屏文本从哪来（commit、before_commit）。 */
 #define MSIME_ORIGIN_SELECTION 0
@@ -231,5 +236,29 @@ MSIME_IMPORT(command_row) int32_t msime_command_row(const char *text, int32_t te
 
 /* 每次 command 事件有 64 字节随机数，按调用顺序取：把接下来的 len 个字节写进 dst，返回 len；剩下的不够时返回 MSIME_LIMIT，什么都不写。别的钩子里没有随机数。 */
 MSIME_IMPORT(random_fill) int32_t msime_random_fill(uint8_t *dst, int32_t len);
+
+/* ---- 不需要能力：设置项和随包数据。所有钩子和 msime_init 里都可用，不受本地模式屏蔽 ---- */
+
+/* 清单 [[script.settings]] 的项数。 */
+MSIME_IMPORT(setting_count) int32_t msime_setting_count(void);
+/* 按清单顺序第 index 项的当前值：布尔是 0/1，数字是十进制文本，选项是它的 value，文本原样。越界返回 MSIME_INVALID，放不下返回 MSIME_LIMIT。 */
+MSIME_IMPORT(setting_value) int32_t msime_setting_value(int32_t index, char *dst, int32_t cap);
+/* 清单 [script].data 第 file 个文件的字节数，越界返回 MSIME_INVALID。 */
+MSIME_IMPORT(data_len) int64_t msime_data_len(int32_t file);
+/* 从第 offset 字节起复制 min(cap, 长度 - offset) 字节，返回复制的字节数；file 越界、offset 为负或超过长度返回 MSIME_INVALID。 */
+MSIME_IMPORT(data_read) int32_t msime_data_read(int32_t file, int32_t offset, uint8_t *dst, int32_t cap);
+
+/* ---- insert_candidates（依赖 read_candidates）：往候选里加行，只在 candidates 里、本地模式 none 时有效，别处返回 MSIME_DENIED ---- */
+
+/* 在插件变换之后的呈现顺序的 position（0 到窗口行数）处插一行：text 和 note 的规则同 msime_command_row。每次最多 3 行，第 4 行或太长返回 MSIME_LIMIT，不合规或 position 越界返回 MSIME_INVALID；成功返回序号。钩子正常返回之后才插入。 */
+MSIME_IMPORT(candidates_insert) int32_t msime_candidates_insert(int32_t position, const char *text, int32_t text_len, const char *note, int32_t note_len);
+
+/* ---- persist_data（不能和 rewrite_commit 同时申请）：一块跨输入框保留的私有存储，最多 64 KiB。只在持久实例上的钩子里有效，before_commit、command 和 msime_init 里返回 MSIME_DENIED ---- */
+
+MSIME_IMPORT(storage_len) int32_t msime_storage_len(void);
+/* 复制规则同 msime_data_read。 */
+MSIME_IMPORT(storage_read) int32_t msime_storage_read(int32_t offset, uint8_t *dst, int32_t cap);
+/* 整块替换存储；len 超过 65536 返回 MSIME_LIMIT。钩子正常返回之后才生效，同一个钩子里之后的读取读到的是这一份。 */
+MSIME_IMPORT(storage_write) int32_t msime_storage_write(const uint8_t *src, int32_t len);
 
 #endif /* MSIME_SCRIPT_H */

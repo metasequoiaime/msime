@@ -173,6 +173,8 @@ interface Candidate {
   annotation: string;
   /** Optional translation attached by the shared Engine for this generation. */
   translation?: string | null;
+  /** 「仅当前高亮」生效、这一页会请求释义时，高亮那一行为真；为假时 JSON 里没有这个键。2in1 候选窗据此在同一页里保持宽度，见 `CandidateWidthPolicy.steadyWidthVp`。 */
+  translation_reserved?: boolean;
 }
 
 /** A candidate as the view draws it: the text, and whatever is printed beside it. */
@@ -936,6 +938,8 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
   touch_shuangpin_key_hints?: boolean;
+  /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」；旧文档没有这个键，按关。 */
+  touch_quanpin_shift?: boolean;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1084,6 +1088,8 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
   readonly shuangpinKeyHints: boolean;
+  /** `touch_quanpin_shift`：打开时全拼 26 键组字保留 ⇧，点一下臂辅助码；缺省为关（分词）。 */
+  readonly quanpinShift: boolean;
   /** `harmony_toolbar`：手机工具栏上显示哪些工具，整行是否隐藏。 */
   readonly toolbarTools: ToolbarTools;
 }
@@ -1380,6 +1386,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     shuangpinKeyHints: false,
+    quanpinShift: false,
     toolbarTools: TouchToolbarPolicy.DEFAULT
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
@@ -1797,6 +1804,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
       shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true,
+      quanpinShift: preferences.touch_quanpin_shift === true,
       toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
@@ -4476,6 +4484,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   private translationEpoch: number = 0;
   private readonly translationRequests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   private translationSignature: string = '';
+  /** 2in1 候选窗上一次量宽度时的那一页和量出的宽度，「仅当前高亮」时同一页里不让窗口变窄。 */
+  private candidateWidthPage: string = '';
+  private candidateWidthFloorVp: number = 0;
   private readonly translationCache: Map<string, string> = new Map<string, string>();
   private readonly translationNegativeCache: Map<string, number> = new Map<string, number>();
   private editing: string = '';
@@ -4596,7 +4607,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       });
     }
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count));
+      this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count,
+        KeyboardSession.translationReserved(view)));
     }
     if (this.onCandidateCount !== undefined) {
       this.onCandidateCount(entries.length);
@@ -4664,7 +4676,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks)
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count));
+      this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count,
+        KeyboardSession.translationReserved(view)));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(entries.length);
   }
@@ -4684,8 +4697,14 @@ export class KeyboardSession implements HardwareKeyTarget {
       SchemeCompositionPolicy.drawsNineKeyReading(rulesScheme, view.editing_text, view.nine_key_reading ?? ''));
   }
 
-  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. A 2in1 window that shows the composition line also makes room on it for the brand mark and the page indicator. */
-  private candidateWidthVp(entries: CandidateEntry[], editing: string, page: number, pageCount: number): number {
+  /** 视图里有没有候选标了 `translation_reserved`，即「仅当前高亮」对这一页生效。 */
+  private static translationReserved(view: EngineView): boolean {
+    return view.candidates.some((candidate: Candidate): boolean => candidate.translation_reserved === true);
+  }
+
+  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. A 2in1 window that shows the composition line also makes room on it for the brand mark and the page indicator. `reserved` 为真（「仅当前高亮」对这一页生效）时，同一页里移动高亮不让窗口变窄，见 `CandidateWidthPolicy.steadyWidthVp`。 */
+  private candidateWidthVp(entries: CandidateEntry[], editing: string, page: number, pageCount: number,
+    reserved: boolean): number {
     const settings: KeyboardPreferences = this.preferences();
     if (!KeyboardFormFactor.isDesktop()) {
       return CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
@@ -4720,8 +4739,15 @@ export class KeyboardSession implements HardwareKeyTarget {
         CandidateWidthPolicy.MAX_WIDTH_VP, CandidateLogoPolicy.slotWidthVp(
           CandidateLogoPolicy.visible(KeyboardFormFactor.isDesktop(), settings.candidateShowPreedit)))
       : base;
-    return Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, Math.max(settings.candidateMinWidthVp, width + layoutExtra)
+    const measured: number = Math.min(CandidateWidthPolicy.MAX_WIDTH_VP,
+      Math.max(settings.candidateMinWidthVp, width + layoutExtra)
       + CandidateCanvasPolicy.extraWidth(settings.candidateCanvas));
+    const pageKey: string = CandidateWidthPolicy.pageKey(entries, page);
+    const steady: number = CandidateWidthPolicy.steadyWidthVp(measured, reserved,
+      pageKey === this.candidateWidthPage, this.candidateWidthFloorVp);
+    this.candidateWidthPage = pageKey;
+    this.candidateWidthFloorVp = steady;
+    return steady;
   }
 
   private publishTranslationPage(): void {
@@ -4751,7 +4777,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view?.punctuation_marks)
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing, 0, 1));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing, 0, 1, false));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(translations.length);
   }
@@ -4967,15 +4993,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     const requestSignature: string = signature;
     // 本地词典先显示，不等待网络防抖或服务返回；在线阶段复用本次查词结果。
     const english: TranslationEntry[] = [];
-    if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
-      this.appendOfflineGloss(query, english);
-    }
     const offline: Map<string, TranslationEntry[]> = this.offlineTargetGlosses(query);
-    const local: TranslationEntry[] = english.slice();
-    for (const target of TranslationPolicy.targets(query)) {
-      for (const entry of offline.get(target) ?? []) {
-        TranslationPolicy.append(local, entry.text, entry.translation);
-      }
+    const local: TranslationEntry[] = this.localTranslations(query, english, offline);
+    // 「仅当前高亮」时 query 只问高亮的候选，整页的离线释义在 gloss_query 里：走同一条离线路径（它不带服务，不联网），回答标 gloss 后和主查询的回答一起交给运行时。
+    const glossQuery: TranslationQuery | null = query.gloss_query ?? null;
+    if (glossQuery !== null) {
+      const glossEnglish: TranslationEntry[] = [];
+      const glosses: TranslationEntry[] = this.localTranslations(glossQuery, glossEnglish,
+        this.offlineTargetGlosses(glossQuery));
+      for (const entry of TranslationPolicy.glossAnswers(glosses)) local.push(entry);
     }
     this.applyTranslationEntries(handle, query.generation, local);
     if (!this.translationCurrent(handle, epoch) || TranslationPolicy.provider(query).length === 0) return;
@@ -4983,6 +5009,21 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.translationTimer = -1;
       void this.fetchTranslations(handle, query, epoch, requestSignature, english, offline);
     }, TranslationPolicy.QUIET_INTERVAL_MS);
+  }
+
+  /** 一份查询的本地结果：离线英文释义收进 `english`，再按目标语言顺序并上 `offline` 里其他语言的离线词典结果。不联网，`english` 和 `offline` 留给在线阶段复用。 */
+  private localTranslations(query: TranslationQuery, english: TranslationEntry[],
+    offline: Map<string, TranslationEntry[]>): TranslationEntry[] {
+    if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
+      this.appendOfflineGloss(query, english);
+    }
+    const local: TranslationEntry[] = english.slice();
+    for (const target of TranslationPolicy.targets(query)) {
+      for (const entry of offline.get(target) ?? []) {
+        TranslationPolicy.append(local, entry.text, entry.translation);
+      }
+    }
+    return local;
   }
 
   /** 本地和在线结果共用代次校验与重绘入口，空结果不清空已经显示的释义。 */

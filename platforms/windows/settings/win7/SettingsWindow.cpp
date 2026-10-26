@@ -143,7 +143,7 @@ struct CandidateCheck {
   const wchar_t* description;
   bool fallback;
 };
-constexpr std::array<CandidateCheck, 10> candidate_checks{{
+constexpr std::array<CandidateCheck, 11> candidate_checks{{
     {cloud_candidates, "", "cloud_candidates", L"云候选", L"仅将当前正在组的拼写发送给所选云候选服务，不发送已上屏内容、词库或历史。", false},
     {mixed_enabled, "mixed_input", "enabled", L"候选混输", L"关闭后保留各项设置，再开启时恢复。", true},
     {mixed_english, "mixed_input", "english", L"中英混输", L"中文输入时在候选项中补充英文单词。", true},
@@ -153,6 +153,7 @@ constexpr std::array<CandidateCheck, 10> candidate_checks{{
     {mixed_japanese, "mixed_input", "japanese", L"日文混输（实验）", L"全拼、双拼里完整输入日文罗马字时补充日文候选；词典不在时不生效。", false},
     {learn_candidates, "", "learning", L"学习选词习惯", L"根据选词调整候选顺序。", true},
     {single_character_only, "", "single_character_only", L"只出单字", L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字。", false},
+    {caret_edit_suffix, "", "caret_edit_suffix", L"移动光标后编辑光标后的部分", L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句。", false},
     {word_lattice, "sentence_association", "word_lattice", L"本地整句联想", L"把词库组合出的整句加入候选；关闭后仍保留单词候选。", true},
 }};
 
@@ -1929,7 +1930,9 @@ struct SettingsWindow::State {
       if (!preferences.contains(group) || !preferences.at(group).is_object()) return false;
     for (const auto& field : candidate_checks) {
       const auto& group = candidate_group(preferences, field);
-      const bool optional = field.id == mixed_enabled || field.id == mixed_symbols || field.id == mixed_japanese;
+      // `caret_edit_suffix` 关着时共享序列化不写它，缺键读作关。
+      const bool optional = field.id == mixed_enabled || field.id == mixed_symbols || field.id == mixed_japanese ||
+          field.id == caret_edit_suffix;
       if (!group.contains(field.field)) {
         if (optional) continue;
         return false;
@@ -2165,8 +2168,11 @@ struct SettingsWindow::State {
       if (completed->credential_request->value("operation", std::string{}) == "candidate_skin_preview")
         community_form.preview(std::move(completed->community_preview));
       const auto operation = completed->credential_request->value("operation", std::string{});
-      if (operation.substr(0, 7) == "plugin_" || (operation == "report" && completed->credential_request->value("kind", std::string{}) == "plugins"))
+      if (operation.substr(0, 7) == "plugin_" || (operation == "report" && completed->credential_request->value("kind", std::string{}) == "plugins")) {
         community_plugins_form.completed(*completed->credential_request, *completed->community_response);
+        // 社区装好的脚本插件不会运行，要授权：切到插件页，在脚本插件授权区选中它。
+        if (auto script = community_plugins_form.installed_script(); !script.empty()) { plugin_scripts_form.select(std::move(script)); pending_page = 15; }
+      }
       else if (operation.substr(0, 9) == "resource_" || (operation == "report" &&
           (completed->credential_request->value("kind", std::string{}) == "dictionaries" || completed->credential_request->value("kind", std::string{}) == "replies")))
         community_resources_form.completed(*completed->credential_request, *completed->community_response);
@@ -2176,6 +2182,7 @@ struct SettingsWindow::State {
     if (completed->clipboard_response) clipboard_form.completed(*completed->clipboard_response);
     if (completed->cloud_clipboard_response && completed->credential_request)
       cloud_clipboard_form.completed(*completed->credential_request, *completed->cloud_clipboard_response);
+    HWND revealed_script = nullptr;
     if (completed->plugins_response && plugins_created && completed->credential_request) {
       const auto& value = *completed->plugins_response;
       const auto operation = completed->credential_request->value("operation", std::string{});
@@ -2188,6 +2195,7 @@ struct SettingsWindow::State {
         if (!theme_data::value(value.at("response"))) plugin_library_form.failure();
         plugin_effects_form.catalog(plugin_library_form.packages(), plugin_library_form.loaded());
         plugin_scripts_form.completed(value.at("catalog"), value.at("grants"), value.at("response"));
+        revealed_script = plugin_scripts_form.revealed();
       }
       if (value.contains("statistics_enabled")) {
         const auto& enabled = value.at("statistics_enabled");
@@ -2207,6 +2215,7 @@ struct SettingsWindow::State {
     appearance_form.game_profile(completed->game_profile_enabled);
     enable(snapshot.has_value());
     layout_body();
+    if (revealed_script && surface == Surface::plugins) { reveal(revealed_script); SetFocus(revealed_script); }
     const wchar_t* message = L"读取设置失败，请重新读取后重试。";
     switch (result->outcome) {
     case Outcome::loaded: message = L"设置已就绪。"; break;

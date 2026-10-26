@@ -370,6 +370,50 @@ fn backspace_selection_preference_keeps_legacy_default_and_persists_disabled() {
     );
 }
 
+/// 「移动光标后编辑光标后的部分」默认关：关着时不写进文档，缺这个键的旧文档读作关，打开后存下来、读回来仍是开。
+#[test]
+fn caret_edit_suffix_defaults_off_and_persists_when_enabled() {
+    let defaults = Preferences::default();
+    assert!(!defaults.caret_edit_suffix);
+    let legacy = serde_json::to_value(&defaults).unwrap();
+    assert!(legacy.get("caret_edit_suffix").is_none());
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .caret_edit_suffix
+    );
+    let mut malformed = legacy;
+    malformed["caret_edit_suffix"] = "true".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let enabled = Preferences {
+        caret_edit_suffix: true,
+        ..defaults
+    };
+    let saved = store.save(0, enabled).unwrap();
+    assert!(saved.preferences.caret_edit_suffix);
+    assert!(store.load().unwrap().preferences.caret_edit_suffix);
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["caret_edit_suffix"],
+        true
+    );
+    let restored = store
+        .save(
+            saved.revision,
+            Preferences {
+                caret_edit_suffix: false,
+                ..saved.preferences
+            },
+        )
+        .unwrap();
+    assert!(serde_json::to_value(&restored.preferences)
+        .unwrap()
+        .get("caret_edit_suffix")
+        .is_none());
+}
+
 #[cfg(unix)]
 #[test]
 fn stale_sweep_does_not_follow_a_replaced_directory() {
@@ -1216,6 +1260,58 @@ fn candidate_translation_display_defaults_follow_windows_factory_config() {
         serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
     assert!(!round_tripped.candidate_translation_show_pos);
     assert!(round_tripped.candidate_translation_single_sense);
+}
+
+#[test]
+fn candidate_translation_scope_defaults_to_highlighted_for_new_and_legacy_documents() {
+    use crate::preferences::CandidateTranslationScope;
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.candidate_translation_scope,
+        CandidateTranslationScope::Highlighted
+    );
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(written["candidate_translation_scope"], "highlighted");
+
+    // 没有这个键的旧文档（候选词翻译开着的老用户）同样读成「仅当前高亮」。
+    let mut legacy = written.clone();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("candidate_translation_scope");
+    legacy["candidate_translations"] = serde_json::json!(true);
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_translations);
+    assert_eq!(
+        parsed.candidate_translation_scope,
+        CandidateTranslationScope::Highlighted
+    );
+
+    // 显式选的「全部」原样往返；不认识的值按默认读，不让整份偏好读不出来。
+    for (raw, expected) in [
+        ("all", CandidateTranslationScope::All),
+        ("highlighted", CandidateTranslationScope::Highlighted),
+        ("every_page", CandidateTranslationScope::Highlighted),
+    ] {
+        let mut document = written.clone();
+        document["candidate_translation_scope"] = serde_json::json!(raw);
+        let parsed = serde_json::from_value::<Preferences>(document).unwrap();
+        assert_eq!(parsed.candidate_translation_scope, expected, "{raw}");
+    }
+    let all = Preferences {
+        candidate_translation_scope: CandidateTranslationScope::All,
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&all).unwrap()).unwrap();
+    assert_eq!(
+        round_tripped.candidate_translation_scope,
+        CandidateTranslationScope::All
+    );
+    // 类型不对照样报错，和其他字段一致。
+    let mut wrong = written;
+    wrong["candidate_translation_scope"] = serde_json::json!(1);
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
 }
 
 #[test]
@@ -2247,11 +2343,17 @@ fn mixed_symbols_defaults_on() {
     assert!(!mixed.symbols);
 }
 
-/// 辅助码开关（Windows v0.11.1 出厂关、门禁 pin 出厂开）本仓出厂值为开，缺键读作开；差异已记录。文档里写明的值原样生效。
+/// 全拼辅助码默认开、双拼默认关；已有对象缺开关时仍读作开，写明的值原样生效。
 #[test]
-fn helpcode_enabled_defaults_on() {
+fn helpcode_enabled_defaults_by_family() {
     assert!(HelpcodePreferences::default().enabled);
-    assert!(default_quanpin_helpcode().enabled && default_shuangpin_helpcode().enabled);
+    let preferences = Preferences::default();
+    assert!(preferences.quanpin_helpcode.enabled);
+    assert!(!preferences.shuangpin_helpcode.enabled);
+    let mut value = serde_json::to_value(&preferences).unwrap();
+    value.as_object_mut().unwrap().remove("shuangpin_helpcode");
+    let missing: Preferences = serde_json::from_value(value).unwrap();
+    assert!(!missing.shuangpin_helpcode.enabled);
     let mut value = serde_json::to_value(default_shuangpin_helpcode()).unwrap();
     value.as_object_mut().unwrap().remove("enabled");
     let helpcode: HelpcodePreferences = serde_json::from_value(value).unwrap();
@@ -7823,7 +7925,7 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
     let store = PreferencesStore::new(directory.path());
     for order in [
         vec![],
-        vec![TextEditButton::Copy; 7],
+        vec![TextEditButton::Copy; 8],
         default_text_edit_button_order()[..6].to_vec(),
     ] {
         let preferences = Preferences {
@@ -7837,7 +7939,7 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
         assert_eq!(store.load().unwrap().revision, 0);
     }
     let mut unknown = serde_json::to_value(Preferences::default()).unwrap();
-    unknown["touch_text_edit_button_order"][6] = serde_json::json!("return");
+    unknown["touch_text_edit_button_order"][7] = serde_json::json!("return");
     let error = serde_json::from_value::<Preferences>(unknown).unwrap_err();
     assert!(error.to_string().contains("unknown variant `return`"));
 }

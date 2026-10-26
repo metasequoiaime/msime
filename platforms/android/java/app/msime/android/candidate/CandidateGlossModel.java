@@ -52,7 +52,7 @@ public final class CandidateGlossModel {
         return request;
     }
 
-    /** Validate the native envelope before returning an apply_translations payload. */
+    /** Validate the native envelope before returning an apply_translations payload. 这里每条都是离线释义，标上 `"gloss": true`：候选词翻译的范围是「仅当前高亮」时，共享层把不带标记的回答当作候选词翻译、只画在高亮行，离线释义要每行都画就得带这个标记。 */
     public static Result decode(String response) throws JSONException {
         if (response == null
                 || TextPolicy.utf8Length(response) > MAX_RESPONSE_BYTES)
@@ -74,7 +74,8 @@ public final class CandidateGlossModel {
             if (!CandidateGlossPolicy.validEntry(text)
                     || !CandidateGlossPolicy.validEntry(translation))
                 throw new IllegalArgumentException("Invalid candidate gloss entry");
-            copied.put(new JSONObject().put("text", text).put("translation", translation));
+            copied.put(new JSONObject().put("text", text).put("translation", translation)
+                .put("gloss", true));
         }
         String payload = copied.toString();
         if (TextPolicy.utf8Length(payload) > MAX_RESPONSE_BYTES)

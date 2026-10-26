@@ -1,17 +1,24 @@
+import { useEffect, useRef } from "react";
 import type { InputScheme } from "../core/input-scheme";
 import type { ConfirmRequest } from "../core/confirm";
 import * as settings from "./settings-style";
 import type { PluginPreferences } from "./plugin-preferences";
-import type { PluginClient, PluginSettingsPage } from "./plugin-types";
+import type { AuthoredKind, PluginClient, PluginKind, PluginSettingsPage } from "./plugin-types";
 import { PluginListView } from "./plugin-list-view";
 import { scriptResidualRisk } from "./plugin-script-model";
 import { ScriptPluginDetailView } from "./plugin-script-view";
 import { MissingPluginView, PluginDetailView } from "./plugin-detail-view";
 import { PluginSoundEffectsView } from "./plugin-sound-effects-view";
 import { PluginMentionsView } from "./plugin-mentions-view";
+import { PluginEditorView } from "./plugin-editor-view";
+import { authoredSaveNote, isAuthoredKind } from "./plugin-editor-model";
 import { usePluginsSection } from "./use-plugins-section";
 
 export type {
+  AuthoredGroup,
+  AuthoredKind,
+  AuthoredPack,
+  AuthoredWord,
   MentionEntry,
   PluginCatalogResult,
   PluginClient,
@@ -43,6 +50,15 @@ export {
 export { ScriptGrantDialog, type ScriptGrantDialogProps } from "./script-grant-dialog";
 export { kindLabels, pluginErrorMessage } from "./plugin-catalog-helpers";
 export { MAX_MENTIONS, mentionListIssue } from "./plugin-mentions-view";
+export {
+  AUTHORED_KINDS,
+  draftIssue,
+  emptyDraft,
+  packFromDraft,
+  parsePhraseLines,
+  parseWordLines,
+  type AuthoringDraft,
+} from "./plugin-editor-model";
 
 export interface PluginsSectionProps {
   /** Absent on a host with no pack store; the sound switches still work with the built-in packs. */
@@ -84,6 +100,8 @@ export interface PluginsSectionProps {
   symbolSetPacks?: boolean;
   /** 宿主运行脚本插件（`HostCapabilities.script_plugins`）：显示「脚本插件（实验）」分组和授权页。 */
   scriptPlugins?: boolean;
+  /** 打开某个包的详情（社区装好脚本插件后跳到它的授权页）；`serial` 变了才再打开一次。 */
+  openRequest?: { kind: PluginKind; id: string; serial: number } | null;
   /** 宿主平台（`HostCapabilities.platform`），授权页按它说明这个平台上同一用户下的程序能伪造授权。 */
   platform?: string;
   /** 在背单词里选中一本书并打开背单词；没有背单词的宿主为空。 */
@@ -119,6 +137,7 @@ export function PluginsSection({
   wordbookPacks = false,
   symbolSetPacks = false,
   scriptPlugins = false,
+  openRequest = null,
   platform,
   onOpenWordbook,
   onOpenPage,
@@ -144,6 +163,10 @@ export function PluginsSection({
     mentionIssue,
     mentionsDescription,
     working,
+    authoring,
+    justSaved,
+    clearJustSaved,
+    saveAuthored,
     scriptsShown,
     scriptPacks,
     scriptGrants,
@@ -182,6 +205,17 @@ export function PluginsSection({
     confirm,
   });
 
+  // 社区装好脚本插件后切回这里：每个请求只打开一次，页面可见时才打开，目录读完之前详情先回落到列表。
+  const handledOpen = useRef(0);
+  useEffect(() => {
+    if (!active || !openRequest || openRequest.serial === handledOpen.current) return;
+    handledOpen.current = openRequest.serial;
+    openView(
+      { kind: "pack", packKind: openRequest.kind, id: openRequest.id },
+      `pack/${openRequest.kind}/${openRequest.id}`,
+    );
+  }, [active, openRequest, openView]);
+
   const content = (() => {
     if (view.kind === "pack") {
       const pack = catalog.packages.find(
@@ -209,6 +243,22 @@ export function PluginsSection({
           );
         }
       } else if (pack) {
+        const editable = authoring && !pack.builtin && isAuthoredKind(pack.kind);
+        const saved = justSaved?.kind === pack.kind && justSaved.id === pack.id;
+        const notice = saved
+          ? authoredSaveNote(
+              pack.kind,
+              (pack.kind === "phrase_table"
+                ? preferences.phrase_tables
+                : preferences.command_tables
+              ).includes(pack.id),
+              pack.kind === "phrase_table" ? quickPhraseMode : commandMode,
+            )
+          : undefined;
+        const back = () => {
+          clearJustSaved();
+          backToList();
+        };
         return (
           <PluginDetailView
             pack={pack}
@@ -232,10 +282,42 @@ export function PluginsSection({
             onLocalMode={onLocalMode}
             onOpenPage={onOpenPage}
             onRemove={(target) => void removePack(target)}
-            onBack={backToList}
+            onEdit={
+              editable
+                ? () => {
+                    clearJustSaved();
+                    openView(
+                      { kind: "edit", packKind: pack.kind as AuthoredKind, id: pack.id },
+                      `pack/${pack.kind}/${pack.id}`,
+                    );
+                  }
+                : undefined
+            }
+            notice={notice}
+            onBack={back}
           />
         );
       }
+    }
+    if ((view.kind === "create" || view.kind === "edit") && authoring && client) {
+      const target = view.kind === "edit" ? { kind: view.packKind, id: view.id } : null;
+      return (
+        <PluginEditorView
+          key={target ? `edit/${target.kind}/${target.id}` : "create"}
+          target={target}
+          load={(kind, id) => client.loadAuthoredPack!(kind, id)}
+          onSave={saveAuthored}
+          confirm={confirm}
+          onBack={() =>
+            target
+              ? openView(
+                  { kind: "pack", packKind: target.kind, id: target.id },
+                  `pack/${target.kind}/${target.id}`,
+                )
+              : backToList()
+          }
+        />
+      );
     }
     if (view.kind === "missing") {
       const entry = missing.find((item) => item.kind === view.packKind && item.id === view.id);
@@ -310,6 +392,7 @@ export function PluginsSection({
         working={working}
         notice={notice}
         onImport={(source) => void importPack(source)}
+        onCreate={authoring ? () => openView({ kind: "create" }, "create") : undefined}
         onOpen={(target) => openView({ kind: target }, target)}
         onOpenPack={(packKind, id) =>
           openView({ kind: "pack", packKind, id }, `pack/${packKind}/${id}`)

@@ -1376,6 +1376,55 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     appearance.vertical = NO;
 }
 
+// 候选词翻译范围「仅当前高亮」：竖排时视图给高亮行标出 translation_reserved，这一行一直留出译文的高度（两种目标语言时两行，与横排的预留行数相同），回答没到、高亮移动、回答到了，窗口都一样高。
+static void TestVerticalReservedGlossRow(MSIMEInputController *controller, NSWindow *panel, MSIMEAppearancePreferences *appearance)
+{
+    appearance.vertical = YES;
+    appearance.candidateTranslations = YES;
+    // 竖排的译文画在候选同一行，默认字号下两行译文还没有候选行高；放大译文字号，让两行译文比候选行高。
+    [appearance applySharedCandidatePreferences:@{@"candidate_translation_font_size": @22}];
+    [controller setValue:@[@"en", @"fr"] forKey:@"glossTargetLanguages"];
+    NSArray<NSString *> *words = @[@"测试", @"侧室", @"策士"];
+    NSDictionary *(^page)(NSUInteger, BOOL, NSString *) = ^NSDictionary *(NSUInteger highlighted, BOOL reserved, NSString *translation) {
+        NSMutableArray *candidates = [NSMutableArray array];
+        for (NSUInteger index = 0; index < words.count; ++index) {
+            NSMutableDictionary *candidate = [@{@"text": words[index], @"highlighted": @(index == highlighted)} mutableCopy];
+            if (index == highlighted && reserved) candidate[@"translation_reserved"] = @YES;
+            if (index == highlighted && translation) candidate[@"translation"] = translation;
+            [candidates addObject:candidate];
+        }
+        return @{@"focused": @YES, @"editing_text": @"ceshi", @"page": @0, @"page_count": @1, @"candidates": candidates};
+    };
+    CGFloat (^cardHeight)(NSDictionary *) = ^CGFloat(NSDictionary *view) {
+        [controller setValue:view forKey:@"view"];
+        [controller renderCandidates];
+        return NSHeight(panel.frame);
+    };
+    // 两行译文比候选行高：不留的话，回答一到这一行就变高。
+    const CGFloat plain = cardHeight(page(0, NO, nil));
+    const CGFloat plainRow = NSHeight(CandidateButton(panel.contentView, 0).frame);
+    const CGFloat glossed = cardHeight(page(0, NO, @"test\u2028essai"));
+    const CGFloat glossedRow = NSHeight(CandidateButton(panel.contentView, 0).frame);
+    assert(!CandidateButton(panel.contentView, 0).itemLayout.translation.below);
+    assert(glossed > plain + 0.5 && glossedRow > plainRow + 0.5);
+    // 留出的那一行和回答到了以后一样高，其他行不变。
+    for (NSUInteger highlighted = 0; highlighted < words.count; ++highlighted) {
+        assert(fabs(cardHeight(page(highlighted, YES, nil)) - glossed) < 0.5);
+        for (NSUInteger index = 0; index < words.count; ++index) {
+            const CGFloat height = NSHeight(CandidateButton(panel.contentView, (NSInteger)index).frame);
+            assert(fabs(height - (index == highlighted ? glossedRow : plainRow)) < 0.5);
+        }
+        assert(fabs(cardHeight(page(highlighted, YES, @"test\u2028essai")) - glossed) < 0.5);
+    }
+    // 只有一种目标语言时只留一行，和一行译文到了以后一样高。
+    [controller setValue:@[@"en"] forKey:@"glossTargetLanguages"];
+    const CGFloat oneLine = cardHeight(page(1, NO, @"test"));
+    assert(fabs(cardHeight(page(1, YES, nil)) - oneLine) < 0.5 && oneLine < glossed - 0.5);
+    [controller setValue:nil forKey:@"glossTargetLanguages"];
+    [appearance applySharedCandidatePreferences:@{@"candidate_translation_font_size": NSNull.null}];
+    appearance.vertical = NO;
+}
+
 // 前景按它的不透明度叠到不透明的底色上后，和底色的 WCAG 对比度。
 static double CandidateContrast(NSColor *foreground, NSColor *fill)
 {
@@ -2966,6 +3015,170 @@ static void TestFactoryPager(RowLayoutClient *client)
     std::filesystem::remove_all(root);
 }
 
+// 首行里按 identifier 找一个子视图，没有时为 nil。
+static NSView *HeaderChild(NSView *content, NSString *identifier)
+{
+    for (NSView *child in MSIMECandidateControlsView(content).subviews)
+        if ([child.identifier isEqual:identifier]) return child;
+    return nil;
+}
+
+// 按钮画一遍取位图，比较画淡与否时两次用同一尺寸。
+static NSBitmapImageRep *RenderedButton(MSIMECandidateButton *button)
+{
+    NSBitmapImageRep *bitmap = [button bitmapImageRepForCachingDisplayInRect:button.bounds];
+    [button cacheDisplayInRect:button.bounds toBitmapImageRep:bitmap];
+    return bitmap;
+}
+
+// 光标后编辑（`caret_edit_suffix` / `caret_edit_prefix`）：视图字段的读法、首行右侧的提示只在生效时出现、首选开头固定的那段画淡。
+static void TestCaretEditSuffix(RowLayoutClient *client)
+{
+    // 字段缺省是没生效、空串；只认真布尔值，前缀在模式没生效时不算数。
+    assert(!MSIMECaretEditSuffixActive(@{}) && !MSIMECaretEditSuffixActive(nil));
+    assert(!MSIMECaretEditSuffixActive(@{@"caret_edit_suffix": @1}) && !MSIMECaretEditSuffixActive(@{@"caret_edit_suffix": @NO}));
+    assert(MSIMECaretEditSuffixActive(@{@"caret_edit_suffix": @YES}));
+    assert([MSIMECaretEditPrefix(@{}) isEqual:@""] && [MSIMECaretEditPrefix(@{@"caret_edit_suffix": @YES}) isEqual:@""]);
+    assert([MSIMECaretEditPrefix(@{@"caret_edit_prefix": @"我好现"}) isEqual:@""]);
+    assert([MSIMECaretEditPrefix(@{@"caret_edit_suffix": @YES, @"caret_edit_prefix": @3}) isEqual:@""]);
+    assert([MSIMECaretEditPrefix(@{@"caret_edit_suffix": @YES, @"caret_edit_prefix": @"我好现"}) isEqual:@"我好现"]);
+
+    // 画淡长度：只有 `id.index` 为 0 的首选，按标量数在画出来的文字上换算成 UTF-16 长度。
+    NSDictionary *active = @{@"caret_edit_suffix": @YES, @"caret_edit_prefix": @"我好现"};
+    NSDictionary *first = @{@"text": @"我好现吃火锅", @"id": @{@"session": @1, @"generation": @1, @"index": @0}};
+    NSDictionary *second = @{@"text": @"吃火锅", @"id": @{@"session": @1, @"generation": @1, @"index": @1}};
+    assert(MSIMECaretEditDimmedLength(active, first, @"我好现吃火锅") == 3);
+    assert(MSIMECaretEditDimmedLength(active, second, @"吃火锅") == 0);
+    assert(MSIMECaretEditDimmedLength(@{@"caret_edit_prefix": @"我好现"}, first, @"我好现吃火锅") == 0);
+    assert(MSIMECaretEditDimmedLength(@{@"caret_edit_suffix": @YES}, first, @"我好现吃火锅") == 0);
+    assert(MSIMECaretEditDimmedLength(active, @{@"text": @"我好现吃火锅"}, @"我好现吃火锅") == 0);
+    assert(MSIMECaretEditDimmedLength(active, @{@"text": @"我", @"id": @{@"index": @"0"}}, @"我") == 0);
+    // 画出来的是繁体时数的仍是同样多个字；文字比固定那段短时不越界。
+    assert(MSIMECaretEditDimmedLength(@{@"caret_edit_suffix": @YES, @"caret_edit_prefix": @"这里"}, first, @"這裡好") == 2);
+    assert(MSIMECaretEditDimmedLength(active, first, @"我好") == 2);
+    // 增补平面的字是一个标量、两个 UTF-16 码元，不切开代理对。
+    NSDictionary *astral = @{@"caret_edit_suffix": @YES, @"caret_edit_prefix": @"𠮷野"};
+    assert(@"𠮷野".length == 3);
+    assert(MSIMECaretEditDimmedLength(astral, first, @"𠮷野家") == 3);
+    assert(MSIMECaretEditDimmedLength(@{@"caret_edit_suffix": @YES, @"caret_edit_prefix": @"a𠮷"}, first, @"b𠮷c") == 3);
+
+    NSString *suite = [@"app.msime.test.caret-edit." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.themeMode = @"light";
+    appearance.showsCandidatePreedit = YES;
+    appearance.showsCandidatePageNumber = YES;
+    appearance.showsCandidateExpandButton = NO;
+    appearance.candidateTranslations = NO;
+    MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+    RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    NSArray *candidates = @[
+        @{@"text": @"我好现吃火锅", @"highlighted": @YES, @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @0}},
+        @{@"text": @"吃火锅", @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @1}},
+        @{@"text": @"吃", @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @2}}];
+    NSDictionary *plain = @{@"focused": @YES, @"session": @1, @"generation": @2, @"editing_text": @"wohaoxianchihuoguo",
+                            @"caret_position": @9, @"page": @0, @"page_count": @3, @"candidates": candidates};
+    NSMutableDictionary *editing = [plain mutableCopy];
+    editing[@"caret_edit_suffix"] = @YES;
+    editing[@"caret_edit_prefix"] = @"我好现";
+    for (BOOL vertical : {NO, YES}) for (BOOL logo : {NO, YES}) for (NSNumber *pages : @[@1, @3]) {
+        appearance.vertical = vertical;
+        appearance.showsAppLogo = logo;
+        NSMutableDictionary *off = [plain mutableCopy], *on = [editing mutableCopy];
+        off[@"page_count"] = pages;
+        on[@"page_count"] = pages;
+        // 没有生效：没有提示，首选整段照常画。
+        [controller setValue:[off copy] forKey:@"view"];
+        [controller renderCandidates];
+        assert(!HeaderChild(panel.contentView, @"candidate-caret-edit-hint"));
+        for (NSInteger tag = 0; tag < 3; ++tag) assert(CandidateButton(panel.contentView, tag).dimmedPrefixLength == 0);
+        const CGFloat offWidth = NSWidth(panel.frame);
+
+        // 生效：首行右侧有提示，在翻页控件左边、拼音右边，整段在卡片里；首选开头三个字画淡，别的格不变。
+        [controller setValue:[on copy] forKey:@"view"];
+        [controller renderCandidates];
+        NSTextField *hint = (NSTextField *)HeaderChild(panel.contentView, @"candidate-caret-edit-hint");
+        assert([hint isKindOfClass:NSTextField.class] && [hint.stringValue isEqual:@"候选编辑：光标后"]);
+        assert([hint.accessibilityLabel isEqual:@"候选编辑：光标后"]);
+        const CGFloat cardWidth = NSWidth(MSIMECandidateControlsView(panel.contentView).bounds);
+        assert(NSMinX(hint.frame) >= 0 && NSMaxX(hint.frame) <= cardWidth + 0.5 && NSWidth(hint.frame) > 0);
+        assert(ceil([hint.stringValue sizeWithAttributes:@{NSFontAttributeName: hint.font}].width) <= NSWidth(hint.frame) + 0.5);
+        NSView *preedit = HeaderChild(panel.contentView, @"candidate-preedit");
+        assert(preedit && NSMaxX(preedit.frame) <= NSMinX(hint.frame) + 0.5);
+        if (NSView *mark = HeaderChild(panel.contentView, @"candidate-logo")) assert(NSMaxX(mark.frame) <= NSMinX(hint.frame) + 0.5);
+        if (pages.unsignedIntegerValue > 1) {
+            NSView *indicator = HeaderChild(panel.contentView, @"candidate-page-indicator");
+            MSIMECandidateButton *previous = CandidateButton(panel.contentView, -1);
+            assert(indicator && previous && NSMaxX(hint.frame) <= NSMinX(indicator.frame) + 0.5 && NSMaxX(hint.frame) <= NSMinX(previous.frame));
+            // 颜色是次要色，和「1 / 3」一样。
+            assert(hint.textColor && [hint.textColor isEqual:((NSTextField *)indicator).textColor]);
+        }
+        MSIMECandidateButton *head = CandidateButton(panel.contentView, 0);
+        assert(head.dimmedPrefixLength == 3 && CandidateButton(panel.contentView, 1).dimmedPrefixLength == 0 &&
+               CandidateButton(panel.contentView, 2).dimmedPrefixLength == 0);
+        // 提示在首行，不压在候选行上。
+        assert(NSMinY(hint.frame) >= NSMaxY(head.frame) - 0.5);
+        assert(NSWidth(panel.frame) >= offWidth - 0.5);
+    }
+
+    // 不显示拼音、logo 和翻页时首行原本不占高度，生效时为提示留出首行。
+    appearance.vertical = NO;
+    appearance.showsAppLogo = NO;
+    appearance.showsCandidatePreedit = NO;
+    NSMutableDictionary *bare = [editing mutableCopy];
+    bare[@"page_count"] = @1;
+    NSMutableDictionary *bareOff = [plain mutableCopy];
+    bareOff[@"page_count"] = @1;
+    [controller setValue:[bareOff copy] forKey:@"view"];
+    [controller renderCandidates];
+    assert(!HeaderChild(panel.contentView, @"candidate-caret-edit-hint"));
+    const CGFloat bareHeight = NSHeight(panel.frame);
+    [controller setValue:[bare copy] forKey:@"view"];
+    [controller renderCandidates];
+    NSView *bareHint = HeaderChild(panel.contentView, @"candidate-caret-edit-hint");
+    assert(bareHint && NSHeight(panel.frame) > bareHeight);
+    assert(NSMinY(bareHint.frame) >= NSMaxY(CandidateButton(panel.contentView, 0).frame) - 0.5);
+
+    // 画淡确实落在固定那段上：同一格去掉画淡再画一遍，只有开头那几个字的像素变了，后面的字一模一样。高亮放到第二格，首选用普通文字色和次要色比较。
+    NSMutableDictionary *unhighlighted = [bare mutableCopy];
+    unhighlighted[@"candidates"] = @[
+        @{@"text": @"我好现吃火锅", @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @0}},
+        @{@"text": @"吃火锅", @"highlighted": @YES, @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @1}}];
+    [controller setValue:[unhighlighted copy] forKey:@"view"];
+    [controller renderCandidates];
+    MSIMECandidateButton *head = CandidateButton(panel.contentView, 0);
+    assert(head.dimmedPrefixLength == 3 && !head.candidateHighlighted);
+    NSBitmapImageRep *dimmed = RenderedButton(head);
+    head.dimmedPrefixLength = 0;
+    NSBitmapImageRep *full = RenderedButton(head);
+    assert(dimmed.pixelsWide == full.pixelsWide && dimmed.pixelsHigh == full.pixelsHigh && dimmed.pixelsWide > 0);
+    const CGFloat pixelsPerPoint = dimmed.pixelsWide / NSWidth(head.bounds);
+    const CGFloat boundary = head.contentLeft + [@"我好现" sizeWithAttributes:@{NSFontAttributeName: head.font}].width;
+    BOOL prefixChanged = NO, suffixChanged = NO;
+    for (NSInteger y = 0; y < dimmed.pixelsHigh; ++y)
+        for (NSInteger x = 0; x < dimmed.pixelsWide; ++x) {
+            if (x > (boundary - 1) * pixelsPerPoint && x < (boundary + 1) * pixelsPerPoint) continue;
+            NSColor *a = [dimmed colorAtX:x y:y], *b = [full colorAtX:x y:y];
+            if ([a isEqual:b]) continue;
+            if (x < boundary * pixelsPerPoint) prefixChanged = YES;
+            else suffixChanged = YES;
+        }
+    assert(prefixChanged && !suffixChanged);
+
+    // 增补平面的字：首选开头的「𠮷」是两个 UTF-16 码元，画淡长度跟着是 2。
+    NSMutableDictionary *astralView = [bare mutableCopy];
+    astralView[@"caret_edit_prefix"] = @"𠮷";
+    astralView[@"candidates"] = @[@{@"text": @"𠮷野家", @"highlighted": @YES, @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @0}}];
+    [controller setValue:[astralView copy] forKey:@"view"];
+    [controller renderCandidates];
+    assert(CandidateButton(panel.contentView, 0).dimmedPrefixLength == 2);
+    appearance.showsCandidatePreedit = YES;
+}
+
 int main(int argc, char **argv)
 {
     @autoreleasepool
@@ -3030,6 +3243,13 @@ int main(int argc, char **argv)
             NSRect screen = NSScreen.mainScreen.visibleFrame;
             client.caret = NSMakeRect(NSMinX(screen) + 100, NSMidY(screen), 1, 20);
             @autoreleasepool { TestFactoryPager(client); }
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--caret-edit-suffix") {
+            RowLayoutClient *client = [RowLayoutClient new];
+            const NSRect screen = NSScreen.mainScreen.visibleFrame;
+            client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
+            @autoreleasepool { TestCaretEditSuffix(client); }
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--glass-host-visual") { TestHostAppearance(YES); return 0; }
@@ -3479,6 +3699,7 @@ int main(int argc, char **argv)
         assert([controller renderExpandedCandidates]);
         assert([CandidateButton(panel.contentView, -3).identifier isEqual:@"candidate-collapse"]);
         TestPronunciationLine(controller, panel, appearance);
+        TestVerticalReservedGlossRow(controller, panel, appearance);
         @autoreleasepool { TestSelectedGlossColour(client); }
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }

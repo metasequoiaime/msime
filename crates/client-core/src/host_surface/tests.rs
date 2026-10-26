@@ -319,6 +319,21 @@ fn capabilities_describe_each_host() {
     }
     assert!(macos.caps_lock_punctuation && macos.quick_phrase_candidates);
     assert!(linux.caps_lock_punctuation && linux.quick_phrase_candidates);
+    // 「移动光标后编辑光标后的部分」只在三个桌面宿主上提供，触屏宿主不列出它。
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Macos,
+    ] {
+        assert!(HostCapabilities::for_platform(platform).caret_edit_suffix);
+    }
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).caret_edit_suffix);
+    }
     // 「单按 Caps Lock 切换中英文」和「Shift+字母进入快捷模式」总开关只在三个桌面宿主上提供。
     for platform in [
         HostPlatform::Windows,
@@ -927,7 +942,7 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Macos), (true, true, true));
     assert_eq!(flags(HostPlatform::Linux), (true, true, true));
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
-    assert_eq!(flags(HostPlatform::Android), (false, false, false));
+    assert_eq!(flags(HostPlatform::Android), (true, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
 }
 

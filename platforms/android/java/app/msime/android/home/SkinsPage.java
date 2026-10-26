@@ -6,19 +6,25 @@ import app.msime.android.LayoutPolicy;
 import app.msime.android.DimensionPolicy;
 
 import android.content.Context;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.LayoutInflater;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -29,6 +35,11 @@ import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import app.msime.android.HttpBodyPolicy;
+import app.msime.android.TextPolicy;
+import com.google.android.material.button.MaterialButton;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * 皮肤页：标题下固定的「内置 / 我的 / 社区」分类，分类内容使用两列预览卡，AI 设计入口放在「我的」。社区 Tab 直接承载完整列表，提供搜索、分类筛选、详情和举报。
@@ -49,6 +60,12 @@ public final class SkinsPage extends ReloadingDetailPage {
     @Nullable private Model model;
     @Nullable private FrameLayout navigation;
     @Nullable private FrameLayout communityContent;
+    @Nullable private String pendingExport;
+
+    private final ActivityResultLauncher<String> createDocument =
+        registerForActivityResult(new ActivityResultContracts.CreateDocument("application/json"), this::onExportPicked);
+    private final ActivityResultLauncher<String[]> openDocument =
+        registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::onImportPicked);
 
     @Override public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
@@ -84,7 +101,18 @@ public final class SkinsPage extends ReloadingDetailPage {
     @Override protected void onContentReady() {
         communityContent = new FrameLayout(requireContext());
         communityContent.setId(R.id.skin_community_content);
-        ((FrameLayout) requireView()).addView(communityContent, LayoutPolicy.frameMatchParentParams());
+        FrameLayout root = (FrameLayout) requireView();
+        root.addView(communityContent, LayoutPolicy.frameMatchParentParams());
+        ViewCompat.setOnApplyWindowInsetsListener(root, (target, insets) -> {
+            if (navigation != null) {
+                ViewPolicy.setVisible(navigation,
+                    WindowInsetsPolicy.shouldShowFixedPageNavigation(
+                        insets.isVisible(WindowInsetsCompat.Type.ime())));
+                positionCommunityContent();
+            }
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(root);
         positionCommunityContent();
         ViewPolicy.setVisible(communityContent, section == 2);
         if (section == 2) renderSection();
@@ -93,8 +121,10 @@ public final class SkinsPage extends ReloadingDetailPage {
     private void positionCommunityContent() {
         if (communityContent == null || navigation == null) return;
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) communityContent.getLayoutParams();
-        params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT)
-            + (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48));
+        int navigationHeight = navigation.getVisibility() == View.VISIBLE
+            ? (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48))
+            : 0;
+        params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT) + navigationHeight;
         communityContent.setLayoutParams(params);
     }
 
@@ -208,7 +238,19 @@ public final class SkinsPage extends ReloadingDetailPage {
             if (!AiSkinPage.hidden(context)) cards.add(aiCard(context));
             for (Card card : model.designs()) cards.add(card(context, card));
             if (cards.isEmpty()) GroupCard.add(target, null).note("还没有保存的皮肤。可到社区获取喜欢的皮肤。");
-            else grid(target, cards);
+            else {
+                LinearLayout actions = LayoutPolicy.row(context);
+                ViewPolicy.setPaddingDp(context, actions, 10, 4, 10, 0);
+                MaterialButton importButton = new MaterialButton(context, null,
+                    androidx.appcompat.R.attr.borderlessButtonStyle);
+                importButton.setText("导入皮肤");
+                importButton.setContentDescription("导入皮肤");
+                ViewPolicy.bindClick(importButton, () -> openDocument.launch(
+                    new String[] {"application/json", "text/plain", "application/octet-stream"}));
+                actions.addView(importButton, LayoutPolicy.wrapParams());
+                target.addView(actions, LayoutPolicy.matchWidthWrapParams());
+                grid(target, cards);
+            }
         }
     }
 
@@ -257,13 +299,70 @@ public final class SkinsPage extends ReloadingDetailPage {
             if (!card.selected()) select(card);
         });
         if (card.design() != null) {
-            cell.setContentDescription("皮肤 " + card.title() + "，点击使用，长按删除");
-            cell.setOnLongClickListener(ignored -> {
-                confirmDelete(card);
-                return true;
+            cell.setContentDescription("皮肤 " + card.title() + "，点击使用");
+            LinearLayout root = (LinearLayout) ((ViewGroup) cell).getChildAt(0);
+            LinearLayout actions = LayoutPolicy.row(context);
+            ViewPolicy.setPaddingDp(context, actions, 0, 6, 0, 0);
+            MaterialButton export = new MaterialButton(context, null,
+                androidx.appcompat.R.attr.borderlessButtonStyle);
+            export.setText("导出");
+            export.setContentDescription("导出皮肤 " + card.title());
+            ViewPolicy.bindClick(export, () -> {
+                pendingExport = CustomSkinLibrary.exportDesigns(
+                    List.of(new CustomSkinLibrary.Item(card.id(), card.title(), card.design())), Long.MAX_VALUE);
+                createDocument.launch(card.title() + ".json");
             });
+            actions.addView(export, LayoutPolicy.weightedWrapParams(1));
+            MaterialButton remove = new MaterialButton(context, null,
+                androidx.appcompat.R.attr.borderlessButtonStyle);
+            remove.setText("删除");
+            remove.setContentDescription("删除皮肤 " + card.title());
+            ViewPolicy.bindClick(remove, () -> confirmDelete(card));
+            actions.addView(remove, LayoutPolicy.weightedWrapParams(1));
+            root.addView(actions, LayoutPolicy.matchWidthWrapParams());
         }
         return cell;
+    }
+
+    private void onExportPicked(@Nullable Uri uri) {
+        String json = pendingExport;
+        pendingExport = null;
+        if (uri == null || json == null || getView() == null) return;
+        HostTask.run(this, context -> {
+            try (OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
+                if (output == null) return "写入文件失败，请重新选择位置。";
+                output.write(TextPolicy.utf8Bytes(json + "\n"));
+                return "已导出";
+        } catch (java.io.IOException | RuntimeException error) {
+                return "写入文件失败，请重新选择位置。";
+            }
+        }, message -> MsToast.show(requireContext(), message));
+    }
+
+    private void onImportPicked(@Nullable Uri uri) {
+        if (uri == null || getView() == null) return;
+        HostTask.run(this, context -> readImport(context, uri), count -> {
+            if (count == null || count <= 0) {
+                MsToast.show(requireContext(), "读不出皮肤文件，请选择水杉输入法导出的 JSON");
+                return;
+            }
+            MsToast.show(requireContext(), "已导入 " + count + " 款皮肤");
+            reload();
+        });
+    }
+
+    @Nullable private static Integer readImport(Context context, Uri uri) {
+        String directory = HostStore.directory(context);
+        if (directory.isEmpty()) return null;
+        try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+            if (input == null) return null;
+            byte[] bytes = HttpBodyPolicy.readBounded(input, 9_000_000);
+            if (bytes == null) return null;
+            return CustomSkinLibrary.importDesigns(Paths.get(directory),
+                TextPolicy.utf8(bytes));
+        } catch (java.io.IOException | RuntimeException error) {
+            return null;
+        }
     }
 
     /** AI 入口与皮肤卡同尺寸，尚未生成设计时用说明替代键盘预览。 */

@@ -15,6 +15,8 @@ path = "src/main.rs"
 msime-client-core = { path = "../client-core" }
 msime-client-services = { path = "../client-services" }
 msime-host-api = { path = "../host-api" }
+# 读代理给的本机文件时拒绝路径上的符号链接，规则与皮肤图片和插件导入相同。
+msime-path-trust = { path = "../path-trust" }
 # client: the command line calls the server in process, as an MCP client would.
 rmcp = { version = "3.4.1", default-features = false, features = ["server", "client", "macros", "transport-io"] }
 serde.workspace = true

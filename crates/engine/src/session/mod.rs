@@ -3,6 +3,7 @@
 //! The setters the product only sets at construction (`switch_scheme`, `set_helpcode_schema`, `set_helpcode_enabled`, `set_wubi_mixed_pinyin`, `set_personal_context_enabled`) and `candidate_key` stay public because the golden scenarios drive them. Learning undo (`set_learning_undo_enabled`, `forget_recent_commits`) is dropped.
 
 mod candidates;
+mod caret_edit;
 mod chain;
 mod clock;
 mod commit;
@@ -651,6 +652,12 @@ impl Session {
         for item in &mut candidates {
             input.apply_english_word_case(item.source, &mut item.word);
         }
+        // 光标后编辑：候选仍是光标后那段的行，首选显示时前面接上固定的那段（由 runtime 在视图里接上），这样重排、释义和选择核对都按行本身的文字进行。
+        let caret_edit_suffix = input.caret_edit.active && input.conversion.is_none();
+        let caret_edit_prefix = input
+            .caret_edit_prefix()
+            .filter(|_| caret_edit_suffix && !candidates.is_empty())
+            .unwrap_or_default();
         // 宿主显示全拼分词；参考回放的底层快照仍保留原文。
         let segmented_preedit = (segmented_quanpin && input.scheme() == SchemeType::Quanpin)
             || (!self.shuangpin_preedit_uses_raw && input.scheme() == SchemeType::Shuangpin);
@@ -716,6 +723,8 @@ impl Session {
                 .conversion
                 .as_ref()
                 .map_or((0, 0), |edit| edit.focus_span()),
+            caret_edit_suffix,
+            caret_edit_prefix,
             candidates,
         }
     }

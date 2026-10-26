@@ -415,6 +415,8 @@ struct InputSettingsView: View {
     let languages = CandidateTranslationPreference.languages
     let primary = CandidateTranslationPreference.language(at: habits.primaryLanguage)
     let glossOn = habits.glossEnabled
+    // 范围只在候选词翻译开着时有意义；关着时置灰，已存的值不动。
+    let scopeOn = glossOn && habits.onlineTranslations
     return DesignGroup(title: "翻译", footer: footer(.translation)) {
       // 键盘只在有释义时才显示翻译，所以离线英文释义打开之前，翻译各行不可用。
       DesignToggleRow(title: "候选词翻译",
@@ -422,6 +424,15 @@ struct InputSettingsView: View {
                       isOn: habit(\.onlineTranslations))
         .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
         .accessibilityIdentifier("candidateTranslationOnline")
+      DesignDivider()
+      // 文案与共享设置页（`candidate-translation-options-section.tsx`）一致，放在「候选词翻译」正下方。
+      DesignSelectRow(title: "翻译范围",
+                      subtitle: "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响",
+                      options: [DesignOption(title: "仅当前高亮", value: CandidateTranslationScope.highlighted),
+                                DesignOption(title: "全部", value: CandidateTranslationScope.all)],
+                      selection: habit(\.translationScope), sheetTitle: "翻译范围",
+                      identifier: "candidateTranslationScopePicker")
+        .disabled(!scopeOn).opacity(scopeOn ? 1 : 0.5)
       DesignDivider()
       DesignToggleRow(title: "离线英文释义", subtitle: "用随键盘打包的离线词库，不联网", isOn: habit(\.glossEnabled))
         .accessibilityIdentifier("candidateGlossToggle")

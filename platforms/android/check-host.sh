@@ -334,6 +334,14 @@ if rg -n 'Authorization|DeepL-Auth-Key|Bearer|X-TC-' "$user_translation_client" 
   echo "Android user translation requests must take every header from the shared descriptor" >&2
   exit 1
 fi
+# 候选词翻译的范围（`candidate_translation_scope`）：键盘不调 msime_client_translation_query，范围要自己守。账号和用户服务两条取译文的路径、以及交给共享层的合并载荷，都经 CandidateTranslationPolicy.requestsTranslation 决定一个候选要不要在线译文（范围生效时只有高亮那一个）；两条偏好路径都读范围；离线释义的回答（CandidateGlossModel.decode 和合并载荷）都带 gloss 标记，否则共享层在「仅当前高亮」时只把它们画在高亮行。规则本身由 CandidateTranslationPolicySmoke 覆盖。
+if [ "$(rg -c 'CandidateTranslationPolicy\.requestsTranslation\(' "$account_service")" != 3 ] \
+  || [ "$(rg -c '= translationScopeFrom\(preferences\);' "$account_service")" != 2 ] \
+  || ! rg -qF '.put("gloss", answer.gloss())' "$account_service" \
+  || ! rg -qF '.put("gloss", true)' "$repo_root/platforms/android/java/app/msime/android/candidate/CandidateGlossModel.java"; then
+  echo "Android must request candidate translations only for the highlighted candidate under the highlighted scope and mark offline glosses" >&2
+  exit 1
+fi
 # Turning 匿名使用统计 off has to stop reporting and clear the queue at once (the toggle promises it), not on the next start: the host process keeps Telemetry's own flag, so the privacy page must hand the saved value to Telemetry.setEnabled.
 if ! rg -q 'toggle == InputFeatureToggle\.USAGE_REPORTING\) Telemetry\.setEnabled\(' \
     "$repo_root/platforms/android/java/app/msime/android/home/PrivacyPage.java"; then

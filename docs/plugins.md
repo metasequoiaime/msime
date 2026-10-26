@@ -2,13 +2,14 @@
 
 插件是只含数据的文件夹：一份 `plugin.toml` 清单，加上清单用到的音频或数据文件和可选的说明文字。这份指南里的插件不能带任何可执行内容，也不能申请权限；输入法按固定规则校验每个包，不符合规则的包整包拒绝，不会只装一半。
 
-例外是 macOS、Linux 和 Windows 上实验中的脚本插件（`script`）：它带一个 WebAssembly 模块、在清单里申请能力，导入后不运行，要在设置的「插件 → 脚本插件（实验）」里逐项授权才启用，也不能发布到社区。这份指南不覆盖它。
+例外是 macOS、Linux 和 Windows 上实验中的脚本插件（`script`）：它带一个 WebAssembly 模块、在清单里申请能力，导入后不运行，要在设置的「插件 → 脚本插件（实验）」里逐项授权才启用；发布到社区要先经管理员审核。它的规则单独写在后面的[脚本插件](#脚本插件kind--script)一节，下面几节的「不能带可执行内容、不能申请权限」只对数据类插件成立。
 
-这份指南覆盖八种类型：音效包（`sound`）、音乐包（`music`）、指令表（`command_table`）、特效包（`effect`）、短语表（`phrase_table`）、辅助码表（`helpcode`）、单词本（`wordbook`）和符号集（`symbol_set`）。下面的限制都取自 `crates/client-services/src/plugins/` 里的代码，两者不一致时以代码为准。`crates/client-services/tests/fixtures/plugin-packs/` 里有每种新类型能通过和会被拒绝的示例包，社区后端用同一批包校验。
+数据类插件有八种：音效包（`sound`）、音乐包（`music`）、指令表（`command_table`）、特效包（`effect`）、短语表（`phrase_table`）、辅助码表（`helpcode`）、单词本（`wordbook`）和符号集（`symbol_set`）。下面的限制都取自 `crates/client-services/src/plugins/` 里的代码，两者不一致时以代码为准。`crates/client-services/tests/fixtures/plugin-packs/` 里有每种新类型能通过和会被拒绝的示例包，社区后端用同一批包校验。
 
 - 想先看懂插件系统怎么工作：[plugin-architecture.html](plugin-architecture.html) 是一页原理图，讲两种插件、生命周期事件和安全模型，底部有给开发者的模块分层和调用时序。GitHub 上只显示它的源码，下载后用浏览器打开；它由 `scripts/generate_plugin_architecture.py` 生成，改图请改脚本。
+- 不想写文件：短语表、指令表、符号集和单词本可以直接在设置的「插件」页里点「新建插件」做出来，不用碰 `plugin.toml`，见[在设置页新建和编辑](#在设置页新建和编辑)。
 - 想直接开始：复制 [plugin-template](plugin-template/)，这是一个能通过校验的最小按键音效包。
-- 想分享自己的包：在 Windows、macOS 或 Linux 上登录账号，打开设置里的「插件 → 社区插件」，点「发布我的插件」，选一个自己导入的包即可。八种类型都能发布，特效包也一样；内置包不能发布。压缩后的包不超过 8 MB，每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。别人发布的包也在这一页浏览、安装和评分。
+- 想分享自己的包：在 Windows、macOS 或 Linux 上登录账号，打开设置里的「插件 → 社区插件」，点「发布我的插件」，选一个自己导入的包即可。八种数据类插件都能发布，特效包也一样，发布后立即出现在社区里；脚本插件也能发布，但要先经管理员审核，通过前只有你自己在「我的作品」里看得到（显示「审核中」）。内置包不能发布。压缩后的包不超过 8 MB，每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。别人发布的包也在这一页浏览、安装和评分；鸿蒙 2in1 上的社区插件页只有数据类插件。
 
 ## 平台支持
 
@@ -16,9 +17,9 @@
 
 | 平台                  | 「插件」页 | 说明                                                                                                                                                                                                             |
 | --------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows、macOS、Linux | 有         | 八种类型都能导入；个别类型在某个平台上的差异写在对应小节里，例如 Linux 不绘制特效。                                                                                                                              |
-| 鸿蒙电脑（2in1）      | 有         | 设置应用和键盘扩展目前各用一个独立的沙箱，键盘读不到设置应用导入的包，也读不到插件页里的选择和开关，所以导入的插件暂时在键盘里不起作用。单词本例外：背单词在设置应用里运行，读的就是设置应用导入的包，照常可用。 |
-| 鸿蒙手机和平板        | 没有       | 没有导入入口，键盘不读插件包。                                                                                                                                                                                   |
+| Windows、macOS、Linux | 有         | 八种类型都能导入；短语表、指令表、符号集和单词本还能在这一页直接新建和编辑。个别类型在某个平台上的差异写在对应小节里，例如 Linux 不绘制特效。                                                                                                                              |
+| 鸿蒙电脑（2in1）      | 有         | 八种类型都能导入，四种文本类插件也能新建和编辑，与桌面相同。设置应用和键盘扩展各有一个沙箱，设置应用把插件目录（连同 `@` 名单）镜像到两者共享的目录，键盘每次获得焦点时导入，所以插件页里的导入、选择和开关在键盘下一次获得焦点时生效。这要靠正式签名里的共享沙箱授权；不带这项授权的开发构建两边各用各的目录，键盘读不到设置应用导入的包。插件页里有社区插件，只列数据类插件。 |
+| 鸿蒙手机和平板        | 没有       | 辅助码表可以在「输入 › 辅助码」里直接导入单个 `.txt`，与鸿蒙电脑相同；其他类型没有导入入口。按键音只能用内置音效包。                                                                                              |
 | Android               | 没有       | 辅助码表可以在「输入 › 辅助码方案」里直接导入单个 `.txt`，导入后在同一个列表里选用，键盘读的就是这里导入的码表。其他类型没有导入入口。按键音只能用内置的 `keys` 模式音效包，在「AI 设计皮肤」的「按键音效」里随皮肤一起选；上屏音、成就音效、按键旋律、背景音乐、特效包和 `/`、`@` 模式都没有。 |
 | iOS                   | 没有       | 辅助码表可以在「输入 › 辅助码 › 更多辅助码设置」里直接导入单个 `.txt`，导入后在「辅助码方案」里选用，键盘读的就是这里导入的码表。其他类型没有导入入口，按键音是系统按键音。                                     |
 
@@ -286,7 +287,7 @@ Android 和 iOS 没有「插件」页，但可以直接导入一个 `.txt` 码�
 - 包的 id 是 `custom-` 加小写的文件名主干，文件名含中文、空格等时用文件名的哈希。同名文件再次导入时替换原来的码表，正在用它的方案会跟着用新表。
 - 导入成功后自动选中到发起导入的方案（双拼或全拼），提示里写明已切换。Android 在列表末尾的「管理已导入的码表」里删除，iOS 在「更多辅助码设置」的「已导入的码表」里左滑删除；删掉正在用的码表时，这个方案退回内置方案。
 
-鸿蒙暂时还没有这个入口：设置应用和键盘各用一个沙箱，键盘读不到设置导入的码表。
+鸿蒙（手机、平板和电脑）在「输入 › 辅助码」里有同样的「导入辅助码表」，规则相同；导入的码表经共享沙箱交给键盘，见[平台支持](#平台支持)。
 
 ## 单词本（`kind = "wordbook"`）
 
@@ -341,20 +342,35 @@ items = ["→", "←", "⇒"]
 
 - 每组只有这四个键。
 - 不需要选用：安装后就出现在符号面板里，卸载后消失。`symbols` 组以插件名作为一个分类，排在内置符号之后；`kaomoji` 组排在颜文字的「All」之后。不与内置符号去重。
-- 目前显示插件符号集的是 Windows 和 Linux 的符号面板、macOS 的表情与符号面板，以及鸿蒙电脑的键盘选择器（鸿蒙的键盘目前读不到设置应用导入的包，见[平台支持](#平台支持)）；不支持的设备会在插件详情里说明。
+- 目前显示插件符号集的是 Windows 和 Linux 的符号面板、macOS 的表情与符号面板，以及鸿蒙电脑的键盘选择器（键盘经共享沙箱读到设置应用导入的包，见[平台支持](#平台支持)）；不支持的设备会在插件详情里说明。
 
 ## 脚本插件（`kind = "script"`）
 
-脚本插件是唯一带可执行内容的类型：包里有一个 core wasm 模块，在桌面输入法进程里由沙箱解释器运行，按用户逐项授予的能力读组字、上屏文本和候选，或者在自己声明的 `/` 指令里给出候选（见[`/` 指令](#-指令)）。它还是实验功能。想直接开始：复制 [script-plugin-template](script-plugin-template/)，那是一个用 Rust 写的完整例子（中英文之间加空格），附带 C 头文件和 Rust 绑定。拿来就能用的插件在仓库的 [plugins/script](../plugins/script/)：生僻字靠后、隐藏生僻字，从源码构建成插件包后导入；以及 UUID（`/uuid`），它是插件指令的参考样板，随桌面安装包分发（见[内置插件](#内置插件)）。构建、测试和每个插件的行为见那里的 README。
+脚本插件是唯一带可执行内容的类型：包里有一个 core wasm 模块，在桌面输入法进程里由沙箱解释器运行，按用户逐项授予的能力读组字、上屏文本和候选，或者在自己声明的 `/` 指令里给出候选（见[`/` 指令](#-指令)）。它还是实验功能。想直接开始：照下面[从零写一个插件](#从零写一个插件)用 `msime-pack new` 生成一个，不需要这个仓库。用 Rust 写，SDK 是 crates.io 上的 [msime-script-sdk](../crates/script-sdk/)（`no_std`、没有依赖），同一份 ABI 的 C 头文件是那里的 `msime_script.h`；[script-plugin-template](script-plugin-template/) 是一个更完整的例子（中英文之间加空格）。拿来就能用的插件在仓库的 [plugins/script](../plugins/script/)：生僻字靠后、隐藏生僻字，从源码构建成插件包后导入；以及 UUID（`/uuid`），它是插件指令的参考样板，随桌面安装包分发（见[内置插件](#内置插件)）。构建、测试和每个插件的行为见那里的 README。
+
+### 从零写一个插件
+
+在仓库外面写脚本插件只要 Rust 和 `msime-pack`：
+
+1. 装 Rust（[rustup.rs](https://rustup.rs)），加上 wasm 目标：`rustup target add wasm32-unknown-unknown`。
+2. 装 `msime-pack`：从[发布页](https://github.com/metasequoiaime/msime/releases)的 `pack-tool-v*` 发布下载对应平台的压缩包（macOS universal、Windows x64、Linux x64），解压后把 `msime-pack` 放进 `PATH`；或者 `cargo install --locked --git https://github.com/metasequoiaime/msime msime-pack-tool`（要克隆整个仓库）。
+3. 生成插件：`msime-pack new my-dice`。`--hook` 选例子：`command`（默认，`/` 指令，触发词取 id 里的小写字母）、`candidates`（给候选里的单字加注释）、`before_commit`（上屏前把 `...` 换成 `……`）；`--dir` 指定目录，默认是当前目录下的 `<id>`。生成的 crate 依赖 `msime-script-sdk`，清单只申请这个例子用到的能力，`pack/LICENSE.txt` 是占位文字，发布前换成许可证全文。
+4. 改 `src/lib.rs`。用到哪一组 SDK 函数，就在 `pack/plugin.toml` 的 `permissions` 里申请哪一项能力（见[能力](#能力)），钩子写进 `hooks`。
+5. 编译：在插件目录里运行 `msime-pack build`。它运行 `cargo build --release --target wasm32-unknown-unknown`，把模块复制成 `pack/<id>.wasm`，打印模块大小和实际需要的内存页数（例如 `memory 2/2 pages`，不一致时提示该把 `memory_pages` 改成多少），最后按导入的规则校验 `pack/`。
+6. 试运行：`msime-pack run pack --events fixture.jsonl --grant all`，每个事件输出一行 JSON，格式见[用 msime-pack run 试运行](#用-msime-pack-run-试运行)。
+7. 打包：`msime-pack pack`，在插件目录里生成 `<id>-<version>.zip`（条目排序、时间固定、不压缩，同样的文件得到逐字节相同的压缩包）并校验它；`-o` 指定输出。
+8. 导入：在设置的「插件 → 我的插件」里导入 `pack/` 文件夹或压缩包，在「脚本插件（实验）」里打开它、勾选能力。改了代码重新 `build` 之后要重新导入、重新授权：授权绑定在包的内容哈希上。
 
 ### 在哪里运行
 
 - 只在桌面：macOS 的输入法进程、Windows 的 `MetasequoiaImeServer`、Linux 的 IBus 引擎进程和 Fcitx5 addon。Windows 上被注入各个应用的 TSF 模块里从不运行脚本。iOS、Android 和鸿蒙（包括鸿蒙电脑）不认这个类型，导入时报「不支持这个 schema_version」。
 - macOS、Linux 和 Windows 的发布构建都运行脚本。Windows 上以管理员身份运行的窗口里从不运行脚本。
 - 授权文件 `<数据目录>/plugins/script-grants.json` 在用户可写的目录下，不签名：同一用户下的其他程序能伪造一条授权，让脚本在输入法里运行。授权页上写明了这一点；只装你信得过的脚本包。
-- 输入法要接入生命周期事件之后才会把事件交给脚本，各平台陆续接入。
+- 四个桌面宿主（macOS 输入法进程、Windows Server、IBus 引擎、Fcitx5 addon）的每个会话都接入了生命周期事件，脚本在这四处都能收到事件；设置应用和 MCP 不接入，从不运行脚本。
 - 在设置的「插件 → 我的插件」里导入（macOS、Linux 和 Windows；Windows 是它自己的设置窗口里的同一页）。导入后插件默认停用：在「脚本插件（实验）」里打开它，在授权对话框里逐项勾选清单申请的能力才会运行，几个脚本插件的执行顺序也在那里调整。授权绑定在包的内容哈希上，清单或模块改了一个字节，授权就作废，页面显示「已更新，需要重新授权」。
-- 不能发布到社区库：「发布我的插件」不列出脚本包，社区后端也只收 `schema_version = 1` 的包。只能本地导入。
+- 可以发布到社区库，但先审后发：「发布我的插件」列出你自己导入的脚本包（官方的 `uuid` 不列），发布后要经管理员审核，通过前只有你自己看得到，其他人在列表、搜索和详情里都找不到它。审核时管理员会看到它申请的能力，`rewrite_commit`（改写上屏）和 `persist_data`（长期保存数据）会被重点审查。新版本要重新发布、重新审核，审核期间旧的已通过版本照常可以下载。
+- 社区里的脚本包在详情页用授权页的同一套说法列出它申请的能力，并写明「安装后不会运行，要在脚本插件页授权」。安装和本地导入一样不授予任何能力，装好后设置页直接打开它的授权页，由你决定勾选哪些能力。
+- 社区后端不能运行 wasm 校验器，只检查清单、能力组合和文件大小这类不执行代码就能检查的规则；模块本身由输入法在发布前和每次安装时用同一份校验器检查，所以服务端放进来的包，本机仍可能拒绝安装。只在 macOS、Windows 和 Linux 上能发布和安装脚本包；鸿蒙和移动端的社区里看不到它们。
 
 ### 清单
 
@@ -447,7 +463,7 @@ title = "UUID"                  # 1 到 8 个字符，显示在插件行旁
 - 可以用 MVP 加上 mutable-global、sign-ext、sat-float-to-int、multi-value、bulk-memory、reference-types；不能用 threads、memory64、multi-memory、exceptions、tail-call、extended-const、GC、SIMD。
 - 函数返回非负数表示成功（复制的字节数、字段值），负数是 `DENIED`（-1，没有授予所属能力）、`ABSENT`（-2，事件里没有这个字段，或者被隐私规则屏蔽，两者故意不可区分）、`INVALID`（-3，字段编号或参数不对）、`LIMIT`（-4，缓冲区放不下，什么都没复制）。
 - 文本都是 UTF-8。取文本的函数依次检查能力（`DENIED`）、字段（`INVALID` 或 `ABSENT`）、整个目标缓冲区是否都在线性内存里（越界直接 trap）、放不放得下（`LIMIT`）。前两步返回时不看目标缓冲区，所以坏指针不一定 trap；复制之前一定已经检查过范围。
-- 编号的完整列表在 [sdk/msime_script.h](script-plugin-template/sdk/msime_script.h) 和 [sdk/msime_script.rs](script-plugin-template/sdk/msime_script.rs)，两份都和输入法里的定义逐项核对过。编号只会追加，不会改值。
+- 编号的完整列表在 SDK crate 的 [msime_script.h](../crates/script-sdk/msime_script.h) 和 [src/lib.rs](../crates/script-sdk/src/lib.rs)，两份都和输入法里的定义逐项核对过。编号只会追加，不会改值。
 
 ### 限制
 
@@ -514,7 +530,10 @@ target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
 
 - `<pack>` 是包的文件夹或 `.zip`，先按 `validate` 的规则检查，不合规时在标准错误上输出和 `validate` 一样的错误行。
 - `--grant all` 授予清单申请的全部能力；`--grant read_commit,rewrite_commit` 逐项授予，规则同授权页（必须是清单申请过的、满足依赖和互斥）；不写时什么都不授予，和刚导入的包一样。
-- 退出码：没有任何失败为 0；有任何失败（包括初始化失败）或包不合规为 1；命令行、`--grant` 或夹具写错为 2。
+- `--settings settings.json` 给清单 `[[script.settings]]` 的值：一个 JSON 对象，键是设置项的 `key`，布尔写 `true`/`false`，选项写它的 `value`，数字写整数，文本写字符串；没写的项用默认值。写了清单里没有的键、或者值不合规，是命令行错误。
+- `--storage file` 给 `persist_data` 存储的初值（原样的字节，不超过 64 KiB），只有申请了 `persist_data` 的包能用；不写时存储是空的。存储在整次运行里跨聚焦保留。
+- 包里的随包数据文件（`[script].data`）原样交给插件，和内容哈希出自同一次读取。
+- 退出码：没有任何失败为 0；有任何失败（包括初始化失败）或包不合规为 1；命令行、`--grant`、`--settings`、`--storage` 或夹具写错为 2。
 
 夹具一行一个 JSON 对象，空行跳过：
 
@@ -541,7 +560,7 @@ target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
   | `composition_end`、`candidates_hidden`   | **`reason`**                                                          |
   | `composition_start`、`composition_update` | `preedit`、`reading`（不写是空串）、`caret`（不写时插件读到 `ABSENT`） |
   | `candidates_shown`、`candidates`         | `candidates`（每行 `text`，可选 `code`、`annotation`、`source`）、`page`（不写是 0）、`highlighted` |
-  | `command`                                | **`trigger`**（清单里声明过的）、`argument`（小写字母，不写是空串）、`random`（128 位十六进制，不写是全 0）；`local_mode` 只能是 `command` |
+  | `command`                                | **`trigger`**（清单里声明过的）、`argument`（小写字母；那条指令写了 `arguments = "extended"` 时另外可以有数字和 `. + - * / % ( ) = ,`；不写是空串）、`random`（128 位十六进制，不写是全 0）、`time`（`{"date":20261026,"minute":870,"weekday":1,"utc_offset":480}`，不写时插件读到的四个时间字段是 `ABSENT`）；`local_mode` 只能是 `command` |
 
 - 枚举字段写名字：`origin` 是 `selection`、`raw`、`held_flush`、`scheme_text`、`focus_loss`；`how`、`outcome`、`reason`、`input_class`、`retraction` 的名字同 SDK 里的常量名（小写），例如 `how` 的 `digit`、`reason` 的 `commit`。
 - 上屏文本是 `body` 接上 `tail`，`body` 是可改写的那一段。`before_commit` 不写 `rewritable` 时，来源是 `selection`、`raw` 或 `held_flush` 并且本地模式是 `none` 才算可改写；输入法还会看选法、输入框和宿主，夹具里需要时显式写。
@@ -557,6 +576,8 @@ target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
 - `actions` 是这次调用修改类函数的记录和输入法给的结果（`ok`、`denied`、`absent`、`invalid`、`limit`）；失败或被本轮配额截断时这些动作在输入法里全部丢弃。
 - `log` 是插件经 `log` 写的每一行，`msime_init` 里写的跟在实例化的那个事件上。
 - `command` 行多一个 `rows`：插件给出的每一行 `[文本, 注释]`，没有正常返回时为空。
+- 申请了 `insert_candidates` 的插件，`candidates` 行多一个 `inserts`：插件经 `candidates_insert` 插的每一行 `[位置, 文本, 注释]`，没有正常返回时为空。
+- 这次投递改了 `persist_data` 的存储时多一个 `storage`：改过之后的字节数 `len`，内容是 UTF-8 时写 `text`，否则写 `hex`。每个事件之后像输入法刷盘那样取走改动，没改的行没有这个字段。
 - `status`：`ok`；`not_subscribed`（清单没声明这个钩子）；本次钩子自己的 fuel 上限耗尽，或者被本轮配额截断时已经用掉本钩子上限的一半或更多，是失败原因 `out_of_fuel`，其他失败原因有 `stack_overflow`、`memory_limit`、`memory_out_of_bounds`、`unreachable`、`trap`、`negative_return`；本轮共享 fuel 配额先用完时是 `turn_exhausted`（调用之前就已用完，或者被截断时这一次用掉的不到本钩子上限的一半），它不算失败，若执行被截断导致实例不可用，下一次事件是 `suspended`；初始化失败 `init:<原因>`（如 `init:init_failed`、`init:abi_mismatch`），之后的事件是 `disabled`；实例因失败丢弃之后（见[失败](#失败)）、下一次 `focus_in` 之前是 `suspended`；初始化预算被本轮用完时是 `deferred`。
 
 实例的生命周期按输入法的规则：第一次需要投递时才实例化，`focus_in` 之前和 `focus_out` 之后丢弃实例，同一轮里重建的实例接着用这一轮剩下的配额。和输入法不同的地方：
@@ -602,7 +623,7 @@ target/debug/msime-pack validate path/to/my-keys path/to/other-pack.zip
 
 ## 导入
 
-在设置的「插件」页点「导入文件夹」选择包的文件夹，或点「导入 .zip」选择压缩包。只有 Windows、macOS、Linux 和鸿蒙电脑有「插件」页，见[平台支持](#平台支持)。Android 和 iOS 只能导入辅助码表，见[在手机上导入单个码表](#在手机上导入单个码表)。
+在设置的「插件」页点「导入文件夹」选择包的文件夹，或点「导入 .zip」选择压缩包。短语表、指令表、符号集和单词本也可以不导入，直接在这一页新建，见[在设置页新建和编辑](#在设置页新建和编辑)。只有 Windows、macOS、Linux 和鸿蒙电脑有「插件」页，见[平台支持](#平台支持)。Android 和 iOS 只能导入辅助码表，见[在手机上导入单个码表](#在手机上导入单个码表)。
 
 压缩包的要求：
 
@@ -618,3 +639,14 @@ target/debug/msime-pack validate path/to/my-keys path/to/other-pack.zip
 - 选「设为当前音效包」或「设为按键旋律」会同时打开「声音与效果」里的「按键音」，并把「发声方式」相应地设为按键音效或按键旋律；选「设为当前音乐包」会同时打开「背景音乐」。之后关掉开关、调音量都在同一页的「声音与效果」里。
 - 指令表还要在「输入 → 快捷模式」里打开「指令(/ 模式)」，见上面「指令表」一节。
 - 删除一个正在使用的包后，设置会回到默认选择。
+
+## 在设置页新建和编辑
+
+短语表、指令表、符号集和单词本不用写文件：在「插件」页点「新建插件」，选一种类型，填名字、作者、许可证（默认 `CC0-1.0`，表示放弃全部权利，任何人都能随意使用；想要求署名可以写 `CC-BY-4.0`）、版本（默认 `1.0.0`）和内容，点「保存并安装」。短语表和单词本还能批量粘贴：短语一行一条「编码 文字」，单词从表格复制过来即可（单词、释义两列，或单词、音标、释义三列，用 Tab 隔开）。
+
+- 表单按上面各节的规则先查一遍，第一处问题直接写在保存按钮上方；保存时再按导入完全相同的规则校验，生成的 `plugin.toml`（单词本另有 `words.tsv`）和从文件夹导入的包装在同一个地方，没有第二套规则。
+- 新建的包 id 由输入法生成，形如 `my-1a2b3c4d`。
+- 保存后会打开这个包的详情：短语表和指令表仍要打开「启用」，K 模式或 `/` 指令关着时也要在「输入 → 快捷模式」里打开；符号集和单词本装上就能用。
+- 自己导入的、社区装来的和在这里做的短语表、指令表、符号集、单词本，详情里都有「编辑」，保存后整包替换本机的这一份；原包里的 `.txt`、`.md` 说明文件（例如许可证全文）会带进新包。社区装来的包改过之后就是你自己的副本，原作者那边不受影响。内置的包不能编辑。
+- 做好的包和导入的包一样，可以在「社区插件 → 发布我的插件」里发布。
+- Android、iOS 和鸿蒙手机、平板没有「插件」页，也就没有这个编辑器。

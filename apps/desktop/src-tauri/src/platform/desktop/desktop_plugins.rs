@@ -4,6 +4,7 @@
 
 use crate::DictionaryHostOptions;
 use msime_client_core::preferences::PreferencesStore;
+use msime_client_services::plugins::authoring::{self, AuthoredPack};
 use msime_client_services::plugins::mentions::{MentionEntry, MentionStore};
 use msime_client_services::plugins::script_grants::{self, ScriptGrantsView};
 use msime_client_services::plugins::{
@@ -189,6 +190,28 @@ pub async fn remove_plugin_pack(
 ) -> Result<(), PluginFailure> {
     let root = state.0.clone();
     blocking(move || plugins::remove_named(&root, &kind, &id)).await
+}
+
+/// 设置页编辑器读出用户插件目录里的一个短语表、指令表、符号集或单词本。内置包、别的类型和没装的包是 `plugin_not_editable`。
+#[tauri::command]
+pub async fn load_authored_plugin_pack(
+    state: State<'_, PluginsState>,
+    kind: String,
+    id: String,
+) -> Result<AuthoredPack, PluginFailure> {
+    let root = state.0.clone();
+    blocking(move || Ok(authoring::load(&root, &kind, &id)?)).await
+}
+
+/// 设置页编辑器保存一个包：生成清单和词表，按导入同样的规则校验后安装，回答与 `import_plugin_pack` 相同的包摘要。同 id 的包已经装着时，`replace` 为假是 `plugin_exists`。
+#[tauri::command]
+pub async fn save_authored_plugin_pack(
+    state: State<'_, PluginsState>,
+    pack: AuthoredPack,
+    replace: bool,
+) -> Result<PluginSummary, PluginFailure> {
+    let root = state.0.clone();
+    blocking(move || Ok(authoring::save(&root, &pack, replace)?)).await
 }
 
 /// 宿主选项里的 `user_data`：输入法写健康文件的目录。
@@ -385,6 +408,34 @@ mod tests {
         assert_eq!(
             import_pack_at(&source.path().join("missing.txt"), &root).unwrap_err(),
             PluginFailure::code("plugin_unsupported_source")
+        );
+    }
+
+    #[test]
+    fn authored_packs_install_under_the_state_directory_the_page_lists() {
+        let state = tempfile::tempdir().unwrap();
+        let root = PluginsState::new(state.path()).0;
+        let pack: AuthoredPack = serde_json::from_value(serde_json::json!({
+            "kind": "phrase_table", "id": null, "name": "合成短语", "version": "1.0.0",
+            "license": "CC0-1.0", "author": null, "description": null,
+            "phrases": [{"key": "dh", "text": "合成电话"}],
+        }))
+        .unwrap();
+        let saved = authoring::save(&root, &pack, false).unwrap();
+        let catalog = plugins::scan(&root, BuiltinDirs::default());
+        assert_eq!(catalog.packages, std::slice::from_ref(&saved));
+        assert_eq!(
+            authoring::save(
+                &root,
+                &AuthoredPack {
+                    id: Some(saved.id.clone()),
+                    ..pack
+                },
+                false
+            )
+            .map_err(PluginFailure::from)
+            .unwrap_err(),
+            PluginFailure::code("plugin_exists")
         );
     }
 

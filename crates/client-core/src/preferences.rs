@@ -111,6 +111,46 @@ impl<'de> Deserialize<'de> for UpdateChannel {
     }
 }
 
+/// 候选词翻译（在线、系统、账号和 AI 翻译服务，以及只为候选词翻译查的离线词典）画在哪些候选下面。「显示英文释义」开关的离线释义不受它限制，照旧每个候选都有。
+///
+/// 新装和缺这个键的旧文档都是「仅当前高亮」：维护者认为每个候选都带一行译文太乱，而且只问高亮的那一个也省翻译接口的调用。读文档时不认识的值同样按「仅当前高亮」读。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateTranslationScope {
+    /// 只翻译当前高亮的候选：没移动过高亮时是第一个，用方向键、Tab 或鼠标悬停移动高亮后跟着高亮走。
+    #[default]
+    Highlighted,
+    /// 当前页每个候选都翻译，这个选项出现以前的行为。
+    All,
+}
+
+impl CandidateTranslationScope {
+    /// 文档和宿主请求里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Highlighted => "highlighted",
+            Self::All => "all",
+        }
+    }
+
+    /// 严格解析：只认 `highlighted`、`all`，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "highlighted" => Some(Self::Highlighted),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CandidateTranslationScope {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串按默认的「仅当前高亮」；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -180,12 +220,15 @@ pub enum TextEditButton {
     Space,
     NumberPad,
     Delete,
+    SelectLine,
 }
 
-/// 从左列上到下，再到右列前三格；换行固定在右下角。
+/// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
-    vec![Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete]
+    vec![
+        Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine,
+    ]
 }
 
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
@@ -1399,6 +1442,9 @@ pub struct Preferences {
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
+    /// 全拼 26 键组字时第三排左端的 ⇧ 默认画「分词」（送 `'` 断音节）；打开后保留 Shift，点一下臂辅助码（Shift+字母）。九键、14 键和 18 键有自己的分词键，不受它影响。默认关，即原有分词行为。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_quanpin_shift: bool,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -1441,6 +1487,9 @@ pub struct Preferences {
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
+    /// 移动光标后编辑光标后的部分（桌面宿主）：全拼、双拼的组字光标停在中间时，光标前的原文固定为当前的最佳转换，候选改为光标后那段的候选，首选是整句。默认关；关着时不写进文档，没有这个键的旧文档和旧版本都读作关。手机宿主不读它（host-api 只在桌面交给 Engine）。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub caret_edit_suffix: bool,
     pub candidate_page_size: u8,
     /// macOS 横排候选的数量模式；竖排和其他宿主保留原有分页。
     #[serde(default)]
@@ -1645,6 +1694,9 @@ pub struct Preferences {
     /// 新装默认关闭候选翻译；旧文档缺字段时仍沿用原有开启行为，显式保存的选择不变。
     #[serde(default = "enabled_by_default")]
     pub candidate_translations: bool,
+    /// 候选词翻译的范围，见 [`CandidateTranslationScope`]。新装和缺字段的旧文档都是「仅当前高亮」。
+    #[serde(default)]
+    pub candidate_translation_scope: CandidateTranslationScope,
     /// Show bounded offline English glosses from the packaged Engine dictionary.
     #[serde(default)]
     pub candidate_english_gloss: bool,
@@ -3463,6 +3515,7 @@ impl Default for Preferences {
             touch_shuangpin_key_hints: false,
             touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
+            touch_quanpin_shift: false,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -3476,6 +3529,7 @@ impl Default for Preferences {
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),
             single_character_only: false,
+            caret_edit_suffix: false,
             candidate_page_size: 6,
             number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),
@@ -3540,6 +3594,7 @@ impl Default for Preferences {
             cloud_candidate_provider: Default::default(),
             network: crate::network::NetworkPreferences::default(),
             candidate_translations: false,
+            candidate_translation_scope: CandidateTranslationScope::Highlighted,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
             // 候选释义与角标的显示默认值对齐 Windows v0.11.1 的出厂配置。
@@ -3803,7 +3858,7 @@ pub struct HelpcodePreferences {
     /// Linux 的辅助码前导键；空串保留 Shift 加字母。
     #[serde(default)]
     pub trigger_key: String,
-    /// Windows `shuangpin_helpcode`/`quanpin_helpcode` 出厂关、门禁 pin 出厂开，本仓沿用开；缺这个键的旧文档读作开。
+    /// 已有辅助码对象缺这个键时仍读作开；新建偏好的全拼默认开、双拼默认关，保留用户已有设置。
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,
@@ -3950,7 +4005,7 @@ pub fn valid_model_mirror(mirror: &str) -> bool {
 
 fn default_shuangpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
-        enabled: true,
+        enabled: false,
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,

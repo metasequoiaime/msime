@@ -86,6 +86,7 @@ try {
     Check-Forward '          1    0          _Exit (forwarded to ucrtbase._Exit)' $false 2
     Check-Forward '          1    0          _Exit (forwarded to ucrtbase._Exit)' $false 1 'unknown.dll'
     Check-Forward '          1    0          _Exit (forwarded to kernel32._Exit)' $true 1 'api-ms-win-core-file-l1-1-0.dll'
+    Check-Forward '          1    0          _Exit (forwarded to kernel32._Exit)' $true 1 'api-ms-win-core-kernel32-legacy-l1-1-1.dll'
     Check-Forward '          1    0          _Exit (forwarded to kernelbase._Exit)' $false 1 'api-ms-win-core-file-l1-1-0.dll'
     Check-Forward '          1    0          _Exit (forwarded to kernel32.missing)' $false 1 'api-ms-win-core-file-l1-1-0.dll'
     Remove-Item -LiteralPath $runtime

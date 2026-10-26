@@ -128,7 +128,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 英文大小写状态继续对齐 Apple：中文态空组合点按 Shift 会先完成组合并进入英文的单次大写；单次 Shift 输入一个字母后自动回到小写，350 ms 内连续点按两次进入 Caps Lock，再次点按关闭。编辑器自动 Shift 与手动单次 Shift 使用同一三态状态机，但不会覆盖 Caps Lock；按钮以 `⇧` / `⇪`、选中态和“关闭 / 下一字母 / 自动开启 / 开启”的无障碍状态区分。切换符号层保留当前大小写，硬件 Shift 和本地模式触发使用每次事件自己的修饰状态，不污染软键盘状态；英文模式禁用中文本地输入工具。
 
-中文全拼或双拼已有组合时，软键盘 Shift 保持中文会话并把后续字母以大写辅码交给 Engine，用于缩小候选；组合开始前仍按 Apple 行为切换到英文。五笔、日语、本地输入模式和空组合不启用辅码，Shift 的一次性状态在辅码输入后复位。
+中文全拼或双拼已有组合时，软键盘 Shift 保持中文会话并把后续字母以大写辅码交给 Engine，用于缩小候选；组合开始前仍按 Apple 行为切换到英文。五笔、日语、本地输入模式和空组合不启用辅码，Shift 的一次性状态在辅码输入后复位。全拼 26 键组字时这个位置默认换成「分词」键（送 `'` 断开音节，见 `.agents/notes/implemented/feature/2026-10-15-quanpin-touch-separator.md`），设置「键盘 › 组字时保留 Shift」（共享偏好 `touch_quanpin_shift`，默认关，账号同步键 `platform.android.quanpin_shift`）打开后保留 ⇧、点一下臂辅码；九键、14 键和 18 键的分词键不受它影响。
 
 移动端智能标点消费共享 `smart_punctuation`、`chinese_punctuation` 和 `punctuation_lock`：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。Android 每次只从 `InputConnection` 读取光标前最多两个 UTF-16 单元并向共享策略传一个 Unicode 标量，不保存或记录编辑器文字；缺失或异常上下文安全回退到 Engine 标点。
 
@@ -259,6 +259,8 @@ Android 14 起可以拿手写笔直接在应用的输入框上写字（#7080，�
 候选词本身始终保持单行完整显示：候选按钮关闭 Android TextView 的自动省略与折行，横向候选条由外层滚动承载超长词，展开面板由候选布局负责换行候选格而不是在格内拆词。释义仍是候选的附加显示数据，不改变候选文字或选择索引。
 
 候选翻译只显示一种语言，即主目标语言 `translation_target_language`（与 iOS、鸿蒙相同）：第二种语言会让每个候选下多一行、候选栏太高，所以键盘不读共享偏好里的 `translation_secondary_language`（它留给桌面端），只请求、只查离线词典、只预留主语言这一行（`CandidateTranslationPolicy.targets`，`check-host.sh` 守住）。候选 chip 的行数按当前候选实际渲染出的释义文本决定：没有释义或只有一行释义时保持单行；只有 annotation 实际包含换行时才保留第二行。韩语汉字候选例外：训音和其后的释义各自单独成行，行数为 1 加次要文本的行数。
+
+候选词翻译的范围（`candidate_translation_scope`，「设置 → 输入 → 翻译」里紧跟「候选词翻译」开关的「翻译范围」，开关关着时置灰）缺键时是「仅当前高亮」。键盘不调 `msime_client_translation_query`，范围由它自己守：水杉账号、用户自己的服务和复用的 AI 助手两条取译文的路径只把视图里 `highlighted` 的那个候选交给 `CandidateTranslationStore`，高亮移动推进代次后还在路上的旧请求被丢弃，问过的词直接从缓存取；交给 `apply_translations` 的离线释义每条都带 `"gloss": true`，照旧整页都有，候选词翻译由共享层只画在高亮行。候选条本来就按释义行数统一预留高度，移动高亮时不会变高。规则在 `CandidateTranslationPolicy`（`Scope`、`requestsTranslation`、`answer`），`CandidateTranslationPolicySmoke` 和 `CandidateTranslationStoreSmoke` 覆盖，`check-host.sh` 守住接线。
 
 普通触屏候选 chip 不把 1、2、3 等序号画进候选文字；序号只通过无障碍描述提供，并继续作为硬件数字行选择的槽位。这样长按、点击和数字行选择共享同一候选身份，同时保持 Apple 触屏候选的纯文字外观。
 

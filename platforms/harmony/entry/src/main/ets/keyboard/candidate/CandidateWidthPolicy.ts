@@ -132,6 +132,21 @@ export class CandidateWidthPolicy {
     );
   }
 
+  /** 「仅当前高亮」时候选词翻译只画在高亮行，高亮在同一页上移动，译文从一行换到另一行，按内容量出的窗口宽度会一缩一放。`reserved` 为真（视图里有候选标了 `translation_reserved`）且还是同一页时，宽度不比这一页已经用过的 `previousVp` 窄；更长的译文照常撑宽。 */
+  static steadyWidthVp(
+    widthVp: number,
+    reserved: boolean,
+    samePage: boolean,
+    previousVp: number,
+  ): number {
+    return reserved && samePage ? Math.max(widthVp, previousVp) : widthVp;
+  }
+
+  /** 认出「同一页」用的键：页号和这一页每个候选的文字。高亮移动不改变它，翻页或候选变了就是另一页。 */
+  static pageKey(entries: CandidateWidthEntry[], page: number): string {
+    return `${page}\n${entries.map((entry: CandidateWidthEntry): string => entry.text).join("\n")}`;
+  }
+
   private static clampWidth(contentWidth: number, minWidthVp: number, maxWidthVp: number): number {
     const boundedMinimum: number = Math.max(
       CandidateWidthPolicy.MIN_WIDTH_VP,

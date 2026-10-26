@@ -33,8 +33,12 @@ public:
     return top;
   }
   void enable(bool enabled) { enabled_ = enabled; update(); }
+  // 下一次读到目录时选中这个脚本插件（刚从社区装好的那个），读到后 revealed 交出下拉框一次，设置窗口把它滚进视野并给它焦点。
+  void select(std::wstring id) { wanted_ = std::move(id); }
+  HWND revealed() { return std::exchange(revealed_, false) ? get(scripts) : nullptr; }
   void completed(const Json& catalog, const Json& grants, const Json& response) {
     std::wstring previous; if (const auto* pack = selected()) previous = pack->id;
+    if (!wanted_.empty()) { previous = std::exchange(wanted_, {}); revealed_ = true; }
     const auto packages = plugin_data::packages(catalog); grants_ = plugin_data::grants(grants);
     packages_ = packages.value_or(std::vector<Model>{});
     indices_.clear(); SendMessageW(get(scripts), CB_RESETCONTENT, 0, 0);
@@ -140,6 +144,7 @@ private:
   std::vector<size_t> indices_;
   std::optional<plugin_preferences::model::ScriptGrants> grants_;
   std::vector<std::wstring> granted_;
-  bool enabled_ = false;
+  std::wstring wanted_;
+  bool enabled_ = false, revealed_ = false;
 };
 } // namespace msime::settings::win7

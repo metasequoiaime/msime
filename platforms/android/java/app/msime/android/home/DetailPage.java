@@ -22,6 +22,7 @@ import androidx.core.widget.NestedScrollView;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 
 /**
  * 详情页基类：顶栏的返回按钮、28sp 的大标题（滚过 28dp 后收成顶栏里 22sp 的栏标题）、`NestedScrollView` 里一列内容，以及底部导航栏与键盘的避让。
@@ -150,6 +151,9 @@ public abstract class DetailPage extends HomeTabFragment {
     /** 往内容列里加这一页的设置。视图每次重建都会再调一次，所以这里不要保留跨视图的状态。 */
     protected abstract void buildContent(LinearLayout column, Bundle args);
 
+    /** 页面需要根据详情滚动位置更新浮动控件时接收滚动通知。 */
+    protected void onScrollChanged(int scrollY) {}
+
     /** 需要常驻分类导航的详情页在标题下提供一个控件，其余页面沿用滚动标题。 */
     @Nullable protected View fixedNavigation() {
         if (sectionTitles().isEmpty()) return null;
@@ -178,6 +182,9 @@ public abstract class DetailPage extends HomeTabFragment {
             ViewGroup.LayoutParams.MATCH_PARENT, DimensionPolicy.pixels(requireContext(), 40)));
         return navigation;
     }
+
+    /** 输入法弹出时是否隐藏页面自己的固定分类导航。 */
+    protected boolean hideFixedNavigationWhenIme() { return false; }
 
     /** 页面标题；默认取 {@link PageId} 里登记的标题，需要按参数决定标题的页面（例如词库详情）覆盖它。 */
     protected CharSequence title() {
@@ -229,10 +236,17 @@ public abstract class DetailPage extends HomeTabFragment {
             ((FrameLayout) view).addView(navigation, navParams);
             navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom)
                 -> updateNavigationInset(target));
+            if (hideFixedNavigationWhenIme()) {
+                FixedNavigationInsetsPolicy.bind(view, navigation,
+                    () -> updateNavigationInset(navigation));
+            }
         }
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
         scroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
-            (ignored, x, y, oldX, oldY) -> setCollapsed(y > threshold, true));
+            (ignored, x, y, oldX, oldY) -> {
+                setCollapsed(y > threshold, true);
+                onScrollChanged(y);
+            });
 
         // home_content 已经让开了状态栏和左右的刘海，这里只管底部：内容要能滚到底部导航栏（80dp 加手势区）之上，键盘弹出时再让到键盘之上。
         PageInsetsPolicy.bind(scroll);

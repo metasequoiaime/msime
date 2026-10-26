@@ -41,3 +41,7 @@ Status: implemented
 ## Editable range
 
 [本地模式入口标记](2026-10-17-local-caret-entry-marker.md)补齐同一直接 Rust 光标接口的引擎下界：带标记模式不能把光标设在入口之前。runtime 仍按本篇规则提前推进代次，候选身份协议不变。
+
+## 光标后编辑
+
+[移动光标后编辑光标后的部分](../feature/2026-10-26-caret-suffix-candidate-edit.md)在开关打开时换掉光标停在组字中间时的候选（光标前固定、候选是光标后那段的）；本篇移动光标前推进代次的规则对它同样成立。

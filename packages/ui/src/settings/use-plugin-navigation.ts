@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { PluginKind } from "./plugin-types";
+import type { AuthoredKind, PluginKind } from "./plugin-types";
 
 /** 「我的插件」的视图只保存类型和 id，由入口从最新目录查找，包消失时回退到列表。 */
 export type PluginView =
@@ -7,7 +7,11 @@ export type PluginView =
   | { kind: "pack"; packKind: PluginKind; id: string }
   | { kind: "missing"; packKind: PluginKind; id: string }
   | { kind: "sound-effects" }
-  | { kind: "mentions" };
+  | { kind: "mentions" }
+  /** 设置页插件编辑器：新建时先选类型。 */
+  | { kind: "create" }
+  /** 编辑一个已安装的用户插件包。 */
+  | { kind: "edit"; packKind: AuthoredKind; id: string };
 
 const listView: PluginView = { kind: "list" };
 

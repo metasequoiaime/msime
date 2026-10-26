@@ -440,6 +440,42 @@ static NSString *MSIMECandidateStatusText(NSString *schemeTitle, NSDictionary *v
     return [parts componentsJoinedByString:@" · "];
 }
 
+// 光标后编辑（偏好 `caret_edit_suffix`）生效时画在候选窗首行右侧的提示，只是标明状态，不能点。
+static NSString *const MSIMECaretEditSuffixHint = @"候选编辑：光标后";
+
+// 视图的 `caret_edit_suffix`：只在光标后编辑生效时出现，缺省和不是布尔值时按没有生效处理。
+static BOOL MSIMECaretEditSuffixActive(NSDictionary *view) {
+    return [view isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(view[@"caret_edit_suffix"]);
+}
+
+// 视图的 `caret_edit_prefix`：光标后编辑里首选开头固定的那段。模式没生效、缺省或不是字符串时为空串。
+static NSString *MSIMECaretEditPrefix(NSDictionary *view) {
+    if (!MSIMECaretEditSuffixActive(view)) return @"";
+    id prefix = view[@"caret_edit_prefix"];
+    return [prefix isKindOfClass:NSString.class] ? prefix : @"";
+}
+
+// `offset` 处这个 Unicode 标量占几个 UTF-16 码元：完整的代理对是 2，其余（含落单的代理项）是 1。
+static NSUInteger MSIMEScalarUTF16Width(NSString *text, NSUInteger offset) {
+    return offset + 1 < text.length && CFStringIsSurrogateHighCharacter([text characterAtIndex:offset]) &&
+        CFStringIsSurrogateLowCharacter([text characterAtIndex:offset + 1]) ? 2 : 1;
+}
+
+// 候选格画出来的文字 `text` 开头要画淡的 UTF-16 长度。只有首选（`id.index` 为 0，runtime 已经把固定那段接在它的 `text` 前面）画淡；视图按 Unicode 标量数说固定那段多长，这里在 `text` 上数同样多个标量再换成 UTF-16 长度，不切开代理对，也不超出 `text`。别的格、模式没生效或固定那段为空时为 0。
+static NSUInteger MSIMECaretEditDimmedLength(NSDictionary *view, NSDictionary *candidate, NSString *text) {
+    NSString *prefix = MSIMECaretEditPrefix(view);
+    if (!prefix.length || ![candidate isKindOfClass:NSDictionary.class] || ![text isKindOfClass:NSString.class]) return 0;
+    NSDictionary *identifier = candidate[@"id"];
+    NSUInteger index = 0;
+    if (![identifier isKindOfClass:NSDictionary.class] || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index) || index != 0)
+        return 0;
+    NSUInteger scalars = 0;
+    for (NSUInteger offset = 0; offset < prefix.length; ++scalars) offset += MSIMEScalarUTF16Width(prefix, offset);
+    NSUInteger length = 0;
+    for (NSUInteger counted = 0; counted < scalars && length < text.length; ++counted) length += MSIMEScalarUTF16Width(text, length);
+    return length;
+}
+
 // 这一页里第一条云候选（来源 2），没有时取 AI 候选（来源 3），首行右侧预览它；AI 占位行和空文本不算。两种都没有时为 nil。
 static NSDictionary *MSIMECandidateOnlinePreview(NSArray *candidates) {
     NSDictionary *ai = nil;
@@ -781,6 +817,22 @@ static NSArray<NSDictionary *> *MSIMEOnlineGlossCandidates(NSDictionary *query) 
         [candidates addObject:candidate];
     }
     return [candidates copy];
+}
+
+// 翻译查询列出的候选文字。候选词翻译范围是「仅当前高亮」时共享查询的 candidates 只有高亮的那一个，翻译服务、系统翻译、账号释义和只为候选词翻译查的离线词典都只为它工作，所以按视图组请求时只留这些文字。查询没列 candidates（替身会话）时为 nil，不限制。
+static NSSet<NSString *> *MSIMEQueryCandidateTexts(NSDictionary *query) {
+    id raw = [query isKindOfClass:NSDictionary.class] ? query[@"candidates"] : nil;
+    if (![raw isKindOfClass:NSArray.class]) return nil;
+    NSMutableSet<NSString *> *texts = [NSMutableSet set];
+    for (NSDictionary *candidate in (NSArray *)raw)
+        if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"text"] isKindOfClass:NSString.class]) [texts addObject:candidate[@"text"]];
+    return texts;
+}
+
+// 「仅当前高亮」时查询另带的 gloss_query：覆盖整页、不带任何服务的离线释义查询（msime_client_translation_query），和主查询同一代次。它只走离线词典，回答每条标 "gloss": true。
+static NSDictionary *MSIMEGlossQuery(NSDictionary *query) {
+    id gloss = [query isKindOfClass:NSDictionary.class] ? query[@"gloss_query"] : nil;
+    return [gloss isKindOfClass:NSDictionary.class] && [gloss[@"generation"] isEqual:query[@"generation"]] ? gloss : nil;
 }
 
 static NSArray<NSString *> *MSIMETranslationTargetsFromPreferences(NSDictionary *preferences, NSString *fallback) {
@@ -3050,9 +3102,12 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     NSDictionary *gloss = [self currentGlossRequest];
     // Resolve the local dictionary first; never transmit an already-resolved key.
     if (gloss && (![_glossRequest isEqual:gloss] || !_glossResults)) return nil;
+    // 只问查询列出的候选：「仅当前高亮」时就是高亮的那一个。
+    NSSet<NSString *> *requested = MSIMEQueryCandidateTexts(query);
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"]) {
         if (![candidate[@"text"] isKindOfClass:NSString.class] || ![candidate[@"source"] isKindOfClass:NSNumber.class]) continue;
+        if (requested && ![requested containsObject:candidate[@"text"]]) continue;
         [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
     }
     if (!candidates.count) return nil;
@@ -3102,6 +3157,34 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     }
     return results;
 }
+// gloss_query 的回答：不带服务的那份查询照普通查询处理时只有离线词典答得上（英文词典连同学到的释义、其他语言的离线词典），和上面的合并方式相同；系统翻译、账号和自己的服务都不参与。每条标 gloss，会话把它画在每一行。
+- (NSArray<NSDictionary *> *)pageGlossResults:(NSDictionary *)glossQuery english:(NSArray<NSDictionary *> *)english
+                                  targetGloss:(NSDictionary *)targetGloss {
+    if (!MSIMEStrictBoolean(glossQuery[@"english_gloss"])) english = nil;
+    NSArray *languages = [glossQuery[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? glossQuery[@"offline_gloss_languages"] : @[];
+    if (!languages.count) targetGloss = nil;
+    NSArray *targets = MSIMETranslationTargets(glossQuery);
+    NSArray *candidates = [glossQuery[@"candidates"] isKindOfClass:NSArray.class] ? glossQuery[@"candidates"] : @[];
+    NSMutableArray *results = [NSMutableArray array];
+    for (NSDictionary *candidate in candidates) {
+        NSString *text = [candidate isKindOfClass:NSDictionary.class] ? candidate[@"text"] : nil;
+        if (![text isKindOfClass:NSString.class]) continue;
+        NSMutableDictionary<NSString *, NSString *> *values = [NSMutableDictionary dictionary];
+        for (NSDictionary *entry in english)
+            if ([entry[@"text"] isEqual:text] && [entry[@"translation"] isKindOfClass:NSString.class] && [entry[@"translation"] length]) {
+                values[@"en"] = entry[@"translation"];
+                break;
+            }
+        for (NSString *language in languages) {
+            NSString *value = targetGloss[text][language];
+            if ([value isKindOfClass:NSString.class] && value.length) values[language] = value;
+        }
+        // 只有英文词典时照旧原样交英文释义，有其他语言的词典时按目标语言的顺序逐行合并，和主查询那一份一样。
+        NSString *translation = targetGloss ? MSIMEJoinedTranslations(values, targets) : values[@"en"];
+        if (translation.length) [results addObject:@{@"text":text, @"translation":translation, @"gloss":@YES}];
+    }
+    return results;
+}
 // Returns whether the session took the results and the services were synchronized behind them.
 - (BOOL)applyCandidateTranslationResults {
     const BOOL ownSnapshot = !_serviceSnapshotActive;
@@ -3135,6 +3218,17 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
             }
         }
     }
+    // 上面这些是候选词翻译，只交查询列出的候选（「仅当前高亮」时离线词典为 gloss_query 查了整页）。gloss_query 的离线释义整页都有，每条标 gloss：会话把它画在每一行，高亮行还没有候选词翻译时也画它。
+    NSDictionary *query = [self serviceSnapshotQuery];
+    NSSet<NSString *> *requested = MSIMEQueryCandidateTexts(query);
+    if (requested)
+        [results filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *entry, NSDictionary *bindings) {
+            (void)bindings;
+            return [requested containsObject:entry[@"text"]];
+        }]];
+    NSDictionary *glossQuery = MSIMEGlossQuery(query);
+    if (glossQuery)
+        [results addObjectsFromArray:[self pageGlossResults:glossQuery english:glossCurrent ? _glossResults : nil targetGloss:targetGloss]];
     NSDictionary *view = [self serviceSnapshotView];
     if (!view) {
         if (ownSnapshot) [self invalidateServiceSnapshots];
@@ -3704,9 +3798,14 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     // Windows suppresses candidate translations in Japanese, including a temporary Japanese composition whose view retains its original scheme. Korean Hanja rows are glossed like Chinese ones: the gloss request also looks a Traditional Hanja up under its Simplified characters.
     if (!MSIMEViewShowsGlosses(view)) return nil;
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    // 查询列出的候选（「仅当前高亮」时只有高亮的那一个），加上 gloss_query 要英文离线释义的整页：一次读完，高亮在这一页里移动时请求不变，不用再读。
+    NSMutableSet<NSString *> *requested = [MSIMEQueryCandidateTexts(query) mutableCopy];
+    NSDictionary *glossQuery = MSIMEGlossQuery(query);
+    if (requested && MSIMEStrictBoolean(glossQuery[@"english_gloss"])) [requested unionSet:MSIMEQueryCandidateTexts(glossQuery) ?: [NSSet set]];
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"])
-        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
+        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class] &&
+            (!requested || [requested containsObject:candidate[@"text"]]))
             [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
     return candidates.count ? @{@"target_languages":targets, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""} : nil;
@@ -3830,7 +3929,15 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     NSDictionary *query = [self serviceSnapshotQuery];
     NSArray *targets = MSIMETranslationTargets(query);
     if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
-    NSArray *installed = [query[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? query[@"offline_gloss_languages"] : @[];
+    // 查询列出的候选，加上 gloss_query 要这些词典释义的整页（见 currentGlossRequest）。
+    NSMutableArray *installed = [([query[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? query[@"offline_gloss_languages"] : @[]) mutableCopy];
+    NSMutableSet<NSString *> *requested = [MSIMEQueryCandidateTexts(query) mutableCopy];
+    NSDictionary *glossQuery = MSIMEGlossQuery(query);
+    NSArray *glossInstalled = [glossQuery[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? glossQuery[@"offline_gloss_languages"] : @[];
+    if (glossInstalled.count) {
+        [installed addObjectsFromArray:glossInstalled];
+        if (requested) [requested unionSet:MSIMEQueryCandidateTexts(glossQuery) ?: [NSSet set]];
+    }
     NSMutableArray<NSString *> *languages = [NSMutableArray array];
     for (NSString *target in targets)
         if (![target isEqual:@"en"] && [installed containsObject:target]) [languages addObject:target];
@@ -3840,7 +3947,8 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"])
-        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
+        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class] &&
+            (!requested || [requested containsObject:candidate[@"text"]]))
             [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
     return candidates.count ? @{@"target_languages":targets, @"offline_languages":[languages copy],
         @"candidates":[candidates copy]} : nil;
@@ -6997,6 +7105,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 // A Korean Hanja list always keeps a line for the 훈음, which every Hanja row draws on its gloss line whatever the translation switches say, with the translation lines, when they are on, under it.
 - (CGFloat)reservedGlossHeightForFont:(NSFont *)glossFont {
     if (_appearance.vertical) return 0;
+    return [self glossHeightReservedForFont:glossFont];
+}
+
+// 预留的释义行：横排每一行都留，竖排只给视图标了 translation_reserved 的那一行留（候选词翻译范围是「仅当前高亮」时的高亮行），行数相同。
+- (CGFloat)glossHeightReservedForFont:(NSFont *)glossFont {
     const NSUInteger readingLines = MSIMEKoreanHanjaListOpen(_view) ? 1 : 0;
     const BOOL translations = (_appearance.candidateTranslations || _appearance.candidateEnglishGloss) &&
         !(_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss);
@@ -7563,6 +7676,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         const NSEventModifierFlags shortcuts = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand;
         const BOOL shortcut = (event.modifierFlags & shortcuts) != 0;
         const unichar character = event.characters.length == 1 ? [event.characters characterAtIndex:0] : 0;
+        const BOOL asciiLetter = (character >= 'a' && character <= 'z') ||
+            (character >= 'A' && character <= 'Z');
+        // 重复字母按键是 macOS 长按变音符号菜单的起点。先把托管的原始字母上屏，
+        // 再把重复事件交回 Cocoa；单次按键和带竞争修饰键的快捷键仍由输入法处理。
+        if (event.isARepeat && !(event.modifierFlags & shortcuts) && asciiLetter) {
+            if (![self commitManagedEnglishRaw]) return YES;
+            return NO;
+        }
         const BOOL candidateDigit = _panel.isVisible && character >= '1' && character <= '9' &&
             (NSUInteger)(character - '1') < [_view[@"candidates"] count];
         const BOOL printableOther = !candidateDigit && character >= 0x20 && character < 0x7f &&
@@ -8669,6 +8790,22 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     } else {
         geometry.rows = msime::candidate::LayoutCandidatePage(items, geometry.lineWidth, metrics, !vertical, measure, minimumHeight);
     }
+    // 竖排的译文画在候选同一行。候选词翻译范围是「仅当前高亮」时只有高亮行有译文，视图给这一行标了 translation_reserved：它一直按译文到了以后的行高留着（行数和横排的预留相同），回答还没到、高亮换了一行，窗口都不变高变矮。
+    if (vertical && reservesGloss && geometry.rows.size() == candidates.count) {
+        const CGFloat glossHeight = [self glossHeightReservedForFont:glossFont];
+        const CGFloat reservedHeight = glossHeight > 0
+            ? MAX(metrics.candidateRow, MAX(metrics.translationLine, glossHeight)) + 2.0 * MAX(0.0, metrics.paddingVertical) : 0;
+        double shift = 0;
+        for (NSUInteger row = 0; row < candidates.count; ++row) {
+            auto &layoutRow = geometry.rows[row];
+            layoutRow.y += shift;
+            NSDictionary *candidate = candidates[row];
+            if (![candidate isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(candidate[@"translation_reserved"]) ||
+                layoutRow.height >= reservedHeight) continue;
+            shift += reservedHeight - layoutRow.height;
+            layoutRow.height = reservedHeight;
+        }
+    }
     for (auto &row : geometry.rows) {
         // Whole points keep neighbouring buttons touching and their text on the pixel grid.
         const double left = round(row.x), right = round(row.x + row.width);
@@ -9098,6 +9235,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     button.translation = slot < geometry.translations.count ? geometry.translations[slot] : CandidateTranslation(candidate);
     button.glossReading = geometry.readings[slot];
     button.scriptAnnotation = scriptAnnotation;
+    button.dimmedPrefixLength = MSIMECaretEditDimmedLength(_view, candidate, geometry.texts[slot]);
     button.pronunciation = [self pronunciationForCandidate:candidate];
     button.armedGlossColumn = _armedGlossColumn;
     button.translationFont = glossFont;
@@ -9639,6 +9777,24 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return YES;
 }
 
+// 从当前视图恢复完整候选快照里的高亮索引；完整快照没有高亮标记时仍以视图身份为准。
+static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, NSDictionary *view) {
+    NSUInteger highlightedIndex = NSNotFound;
+    NSArray *viewCandidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : nil;
+    for (NSDictionary *candidate in viewCandidates) {
+        if (!MSIMEStrictBoolean(candidate[@"highlighted"])) continue;
+        if (!MSIMEStrictUnsignedIntegerValue(candidate[@"id"][@"index"], &highlightedIndex)) highlightedIndex = NSNotFound;
+        break;
+    }
+    if (highlightedIndex != NSNotFound) {
+        for (NSUInteger index = 0; index < entries.count; ++index)
+            if ([entries[index][@"id"][@"index"] isEqual:@(highlightedIndex)]) return index;
+    }
+    for (NSUInteger index = 0; index < entries.count; ++index)
+        if (MSIMEStrictBoolean(entries[index][@"highlighted"])) return index;
+    return 0;
+}
+
 - (void)renderCandidates {
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
@@ -9767,8 +9923,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             return;
         }
         _adaptiveCandidates = entries;
-        for (NSUInteger index = 0; index < entries.count; ++index)
-            if (MSIMEStrictBoolean(entries[index][@"highlighted"])) { adaptiveHighlight = index; break; }
+        adaptiveHighlight = MSIMEAdaptiveHighlightIndex(entries, _view);
         paginate(0);
     } else {
         _adaptiveCandidates = nil;
@@ -9819,7 +9974,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         (expandable && !skinExpand && !compactExpand ? arrowWidth : 0);
     const auto preeditMargin = MSIMECandidatePreeditMargins(skin, preedit.length > 0, scale);
     const CGFloat bodyRowGap = MSIMECandidateBodyRowGap(skin, preedit.length > 0, scale);
-    const CGFloat headerContentHeight = MAX(preeditHeight, pageControls || logo || (expandable && !skinExpand && !compactExpand) ? headerRow : 0);
+    // 光标后编辑生效时首行右侧有它的提示，没有别的首行内容时也要留出首行。
+    const BOOL caretEditActive = MSIMECaretEditSuffixActive(_view);
+    const CGFloat headerContentHeight = MAX(preeditHeight, pageControls || logo || (expandable && !skinExpand && !compactExpand) || caretEditActive ? headerRow : 0);
     const CGFloat headerHeight = headerContentHeight + preeditMargin.top + preeditMargin.bottom;
     const CGFloat numberScale = skin.layout && skin.layout->numberScale.has_value()
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
@@ -9833,6 +9990,12 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat statusGap = 8 * scale;
     const CGFloat statusTextWidth = statusText.length ? ceil([statusText sizeWithAttributes:@{NSFontAttributeName: statusFont}].width) : 0;
     const CGFloat statusBlock = statusTextWidth > 0 ? 2 * statusGap + scale + statusTextWidth : 0;
+    // 「候选编辑：光标后」和翻页的「1 / 3」同一字号，放在翻页控件左边；它算进卡片的最小宽度，模式生效期间总能画全。
+    NSString *caretEditHint = caretEditActive ? MSIMECaretEditSuffixHint : @"";
+    const NSSize caretEditHintSize = caretEditHint.length ? [caretEditHint sizeWithAttributes:@{NSFontAttributeName: statusFont}] : NSZeroSize;
+    const CGFloat caretEditHintWidth = ceil(caretEditHintSize.width);
+    const CGFloat caretEditHintBlock = caretEditHintWidth > 0 ? caretEditHintWidth + indicatorGap : 0;
+    BOOL caretEditHintShown = caretEditHintWidth > 0;
     NSDictionary *onlinePreview = preedit.length ? MSIMECandidateOnlinePreview(candidates) : nil;
     NSString *previewText = onlinePreview ? MSIMEChineseOutputString(onlinePreview[@"text"],
         _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) : @"";
@@ -9845,7 +10008,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat ornamentWidth = preedit.length ? 18 * scale : 0;
     const CGFloat ornamentGap = 8 * scale;
     // 这三样只占卡片已有的宽度，不计入最小宽度：云候选是异步到的，算进去的话回答一到卡片就突然变宽，中英切换也会让卡片跟着伸缩。
-    const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
+    const CGFloat headerWidth = preedit.length || pageControls || logo || caretEditActive
+        ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth + caretEditHintBlock : 0;
     if (compactExpand) rowVisible.size.width = MAX(0.0, rowVisible.size.width - arrowWidth);
     MSIMECandidatePageGeometry pageGeometry;
     if (adaptive) {
@@ -9856,11 +10020,11 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             minimumWidth:0 reservesGloss:YES pagerWidth:listPager.column + toggle.column()
             expandedColumns:columns.size() sharedColumns:&columns];
         const CGFloat cap = adaptiveWidth - (compactExpand ? arrowWidth : 0);
-        pageGeometry.width = paging ? cap : MIN(cap, pageGeometry.width);
+        pageGeometry.width = paging ? cap : MIN(cap, MAX(pageGeometry.width, caretEditHintBlock > 0 ? 2 * inset + logoWidth + caretEditHintBlock : 0));
     } else {
         pageGeometry = [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
                              paging:pageControls visible:rowVisible
-                       preeditWidth:vertical ? headerWidth : (pageControlsWidth + logoWidth > 0 ? 2 * inset + pageControlsWidth + logoWidth : 0)
+                       preeditWidth:vertical ? headerWidth : (pageControlsWidth + logoWidth + caretEditHintBlock > 0 ? 2 * inset + pageControlsWidth + logoWidth + caretEditHintBlock : 0)
                        minimumWidth:MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra)
                        reservesGloss:YES pagerWidth:listPager.column + toggle.column()];
     }
@@ -9872,7 +10036,10 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     CGFloat headerArrowWidth = arrowWidth;
     BOOL headerLogo = logo != nil;
     if (adaptive && headerButtons) {
-        const CGFloat room = MAX(0.0, width - 2 * inset - (pageIndicatorShown ? pageIndicatorWidth + indicatorGap : 0));
+        CGFloat room = MAX(0.0, width - 2 * inset - (pageIndicatorShown ? pageIndicatorWidth + indicatorGap : 0));
+        // 光标后编辑的提示也占首行右侧：放下它之后每个键窄过原宽的一半就不画提示，翻页键要留得住。
+        if (caretEditHintShown && room - caretEditHintBlock < headerButtons * arrowWidth / 2) caretEditHintShown = NO;
+        if (caretEditHintShown) room -= caretEditHintBlock;
         const CGFloat logoRoom = logoWidth + 2 * scale;
         if (headerLogo && headerButtons * arrowWidth > room - logoRoom) headerLogo = NO;
         headerArrowWidth = MIN(arrowWidth, floor((room - (headerLogo ? logoRoom : 0)) / headerButtons));
@@ -10054,10 +10221,25 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         [content.candidateContentView addSubview:[self expandedCandidatesToggleButton:NO
             frame:NSMakeRect(width - inset - expandWidth, buttonBottom, expandWidth, buttonHeight) scale:scale]];
     }
+    if (caretEditHintShown) {
+        // 只标明状态，不接收点击；颜色和「1 / 3」一样取次要色，在 refreshCandidateSkinOnce 里跟着皮肤和明暗换。
+        NSTextField *hint = [NSTextField labelWithString:caretEditHint];
+        hint.identifier = @"candidate-caret-edit-hint";
+        hint.accessibilityLabel = caretEditHint;
+        hint.font = statusFont;
+        hint.alignment = NSTextAlignmentRight;
+        hint.lineBreakMode = NSLineBreakByClipping;
+        const CGFloat hintHeight = ceil(caretEditHintSize.height);
+        const CGFloat hintRight = width - inset - (headerControlsWidth ? headerControlsWidth + indicatorGap : 0);
+        hint.frame = NSMakeRect(hintRight - caretEditHintWidth, headerBottom + preeditMargin.bottom + floor((headerContentHeight - hintHeight) / 2),
+                                caretEditHintWidth, hintHeight);
+        [content.candidateContentView addSubview:hint];
+    }
     if (preedit.length) {
         const CGFloat rowBottom = headerBottom + preeditMargin.bottom;
         const CGFloat left = inset + headerLogoWidth + preeditMargin.left;
-        const CGFloat right = width - inset - preeditMargin.right - (headerControlsWidth ? headerControlsWidth + indicatorGap : 0);
+        const CGFloat right = width - inset - preeditMargin.right - (headerControlsWidth ? headerControlsWidth + indicatorGap : 0) -
+            (caretEditHintShown ? caretEditHintBlock : 0);
         const CGFloat preeditNatural = preeditWidth - preeditMargin.left - preeditMargin.right;
         // 卡片宽度由候选行定，放不下整行时先让出装饰，再让出状态，预览按剩下的宽度截断，太窄就不画；拼音总能拿到余下的全部宽度，光标照旧在框里滚动。
         CGFloat ornament = ornamentWidth, statusRoom = statusBlock, preview = previewNatural;
@@ -10266,7 +10448,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         }]];
     // The top row's page controls take the theme's colours too: labelColor would follow the system appearance, not a theme that fixes its own mode. The design draws 「1 / 3」 and ‹ › in the secondary colour (dc.html L1324); an arrow with no page behind it fades further.
     for (NSView *child in content.candidateContentView.subviews) {
-        if ([child.identifier isEqual:@"candidate-page-indicator"] && [child isKindOfClass:NSTextField.class])
+        if (([child.identifier isEqual:@"candidate-page-indicator"] || [child.identifier isEqual:@"candidate-caret-edit-hint"]) &&
+            [child isKindOfClass:NSTextField.class])
             ((NSTextField *)child).textColor = SkinColor(tokens.number);
         // 首行的输入状态和两条细线用次要色，细线再淡一些；装饰和云候选预览用强调色。
         if ([child.identifier isEqual:@"candidate-status"] && [child isKindOfClass:NSTextField.class])

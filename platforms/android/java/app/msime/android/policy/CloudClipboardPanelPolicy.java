@@ -17,7 +17,7 @@ public final class CloudClipboardPanelPolicy {
     public enum Tab { LOCAL, CLOUD }
 
     /** Where the cloud half stands after the latest fetch for the current field. */
-    public enum Status { LOADING, SIGNED_OUT, DISABLED, PENDING, RELAY_REJECTED, FAILED, EMPTY, READY }
+    public enum Status { LOADING, SIGNED_OUT, DISABLED, PENDING, RELAY_REJECTED, FAILED, EMPTY, READY, VISITOR }
 
     public static final String TAB_LOCAL = "本机";
     public static final String TAB_CLOUD = "云端";
@@ -26,6 +26,7 @@ public final class CloudClipboardPanelPolicy {
     public static final String DISABLED_MESSAGE = "云剪贴板未开启";
     public static final String PENDING_MESSAGE = "这台设备等待允许，请在已同步的设备上打开云剪贴板设置允许";
     public static final String RELAY_REJECTED_MESSAGE = "中继拒绝了令牌或设置不完整，请到「我的 → 云剪贴板」检查";
+    public static final String VISITOR_MESSAGE = "此功能开发中";
     /** 驱动的错误码：云剪贴板关着，或本机还在等批准。 */
     private static final String CODE_DISABLED = "clipboard_sync_disabled";
     private static final String CODE_PENDING = "clipboard_device_pending";
@@ -201,6 +202,7 @@ public final class CloudClipboardPanelPolicy {
             case FAILED -> "云剪贴板读取失败，请刷新重试";
             case EMPTY -> "云剪贴板还没有内容 · 本机记录可通过管理发到云剪贴板";
             case READY -> itemCount + " 条 · 点按插入";
+            case VISITOR -> VISITOR_MESSAGE;
         };
     }
 }

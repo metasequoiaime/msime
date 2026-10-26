@@ -64,8 +64,172 @@ private final class FlakyTranslationService: CandidateTranslationService, @unche
   }
 }
 
+/// 记下每次请求的词，以及有多少次请求在回答之前被取消。
+private final class CancellableTranslationService: CandidateTranslationService, @unchecked Sendable {
+  private let lock = NSLock()
+  private var words: [[String]] = []
+  private var cancelledCount = 0
+
+  var calls: [[String]] {
+    lock.lock(); defer { lock.unlock() }
+    return words
+  }
+
+  var cancelled: Int {
+    lock.lock(); defer { lock.unlock() }
+    return cancelledCount
+  }
+
+  func translate(words: [String], target: String) async throws -> [String] {
+    lock.lock()
+    self.words.append(words)
+    lock.unlock()
+    do {
+      try await Task.sleep(nanoseconds: 5_000_000_000)
+    } catch {
+      lock.lock()
+      cancelledCount += 1
+      lock.unlock()
+      throw error
+    }
+    return words.map { _ in "late" }
+  }
+}
+
 @MainActor
 final class CandidateTranslationTests: XCTestCase {
+  /// 「仅当前高亮」生效时，候选词翻译只为视图里高亮的那一个候选请求；高亮不在这一页时一个也不请求；范围是「全部」时整页照旧。
+  func testScopedRequestAsksOnlyTheHighlightedCandidate() {
+    let words = ["你好", "泥嚎", "拟好"]
+    let sources = [0, 1, 0]
+    let scoped = CandidateTranslationStore.requestPage(
+      words: words, sources: sources, highlighted: [false, true, false], scoped: true)
+    XCTAssertEqual(scoped.words, ["泥嚎"])
+    XCTAssertEqual(scoped.sources, [1], "来源跟着那个候选走，不能错位成第一个候选的来源")
+
+    let away = CandidateTranslationStore.requestPage(
+      words: words, sources: sources, highlighted: [false, false, false], scoped: true)
+    XCTAssertTrue(away.words.isEmpty, "高亮不在这一页时不请求")
+    XCTAssertTrue(CandidateTranslationStore.requestPage(
+      words: words, sources: sources, highlighted: [], scoped: true).words.isEmpty)
+
+    let all = CandidateTranslationStore.requestPage(
+      words: words, sources: sources, highlighted: [false, true, false], scoped: false)
+    XCTAssertEqual(all.words, words)
+    XCTAssertEqual(all.sources, sources)
+  }
+
+  /// 范围生效的条件和共享 Rust 的 `translation_scope_highlighted` 相同：候选词翻译开着、范围是「仅当前高亮」。
+  func testTheScopeAppliesOnlyWhileCandidateTranslationIsOn() {
+    let previousOnline = CandidateTranslationPreference.onlineEnabled
+    let previousScope = CandidateTranslationPreference.translationScope
+    defer {
+      CandidateTranslationPreference.onlineEnabled = previousOnline
+      CandidateTranslationPreference.translationScope = previousScope
+    }
+    CandidateTranslationPreference.onlineEnabled = true
+    CandidateTranslationPreference.translationScope = .highlighted
+    XCTAssertTrue(CandidateTranslationPreference.scopedToHighlight)
+    CandidateTranslationPreference.translationScope = .all
+    XCTAssertFalse(CandidateTranslationPreference.scopedToHighlight)
+    CandidateTranslationPreference.translationScope = .highlighted
+    CandidateTranslationPreference.onlineEnabled = false
+    XCTAssertFalse(CandidateTranslationPreference.scopedToHighlight)
+  }
+
+  /// 绘制侧：范围生效时宿主缓存里的候选词翻译只画在高亮的那一行，其他行只画离线释义。
+  func testCandidateTranslationIsDrawnOnlyOnTheHighlightedRow() {
+    let highlighted = [true, false]
+    XCTAssertTrue(CandidateTranslationPreference.drawsTranslation(at: 0, highlighted: highlighted, scoped: true))
+    XCTAssertFalse(CandidateTranslationPreference.drawsTranslation(at: 1, highlighted: highlighted, scoped: true))
+    XCTAssertFalse(CandidateTranslationPreference.drawsTranslation(at: 2, highlighted: highlighted, scoped: true))
+    XCTAssertTrue(CandidateTranslationPreference.drawsTranslation(at: 1, highlighted: highlighted, scoped: false))
+  }
+
+  /// 高亮换到别的候选时，还在路上的旧请求被取消；已经到了的译文留在缓存里，高亮移回来直接用，不再请求。
+  func testMovingTheHighlightCancelsTheOldRequestAndKeepsTheCache() async throws {
+    let blocking = CancellableTranslationService()
+    let store = CandidateTranslationStore(service: blocking)
+    store.refresh(words: ["你好"], sources: [0], codes: ["EN"], dropsStale: true)
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(blocking.calls, [["你好"]])
+    store.refresh(words: ["中国"], sources: [0], codes: ["EN"], dropsStale: true)
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(blocking.cancelled, 1, "旧高亮的请求应被取消")
+    XCTAssertEqual(blocking.calls, [["你好"], ["中国"]])
+    // 同一个高亮反复刷新（每次按键都会刷新）不取消它自己的请求。
+    store.refresh(words: ["中国"], sources: [0], codes: ["EN"], dropsStale: true)
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(blocking.cancelled, 1)
+    store.cancel()
+
+    let service = StubTranslationService(answers: ["EN": ["你好": "hello", "中国": "China"]])
+    let cached = CandidateTranslationStore(service: service)
+    var arrived = expectation(description: "first highlight")
+    cached.onArrival = { arrived.fulfill() }
+    cached.refresh(words: ["你好"], sources: [0], codes: ["EN"], dropsStale: true)
+    await fulfillment(of: [arrived], timeout: 5)
+    arrived = expectation(description: "second highlight")
+    cached.refresh(words: ["中国"], sources: [0], codes: ["EN"], dropsStale: true)
+    await fulfillment(of: [arrived], timeout: 5)
+    cached.refresh(words: ["你好"], sources: [0], codes: ["EN"], dropsStale: true)
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(service.calls.map(\.words), [["你好"], ["中国"]], "移回来的高亮用缓存，不再请求")
+    XCTAssertEqual(cached.gloss(word: "你好", code: "EN"), "hello")
+  }
+
+  /// 「仅当前高亮」生效时，离线英文释义照旧画在每个候选下面：键盘把离线释义 worker 的回答标成 `gloss` 交给会话，会话只把不带标记的回答当作候选词翻译、只画在高亮行。
+  func testOfflineGlossesStayOnEveryRowWhileTranslationIsScopedToTheHighlight() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-translation-scope-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["candidate_english_gloss"] = true
+      $0["candidate_translations"] = true
+      $0["candidate_translation_scope"] = "highlighted"
+    })
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.cancel()
+    var typed = bridge.currentSnapshot()
+    for letter in "nihao" { typed = bridge.handleCharacter(String(letter)) }
+    XCTAssertEqual(typed.candidateHighlighted.first, true, "触屏键盘的高亮是第一个候选")
+
+    // 和键盘请求离线释义时一样，按 `allCandidates` 的代次和文字组回答。
+    let all = try bridge.allCandidates()
+    let generation = try XCTUnwrap(all["generation"] as? NSNumber)
+    let texts = try XCTUnwrap(all["candidates"] as? [[String: Any]]).compactMap { $0["text"] as? String }
+      .filter(CandidateTranslationStore.translatable)
+    XCTAssertGreaterThanOrEqual(texts.count, 2)
+    let decoded = try CandidateGlossModel.decode([
+      "generation": generation,
+      "translations": [
+        ["text": texts[0], "translation": "first gloss"],
+        ["text": texts[1], "translation": "second gloss"],
+      ],
+    ])
+    let applied = try bridge.applyTranslations(generation: decoded.generation, translations: decoded.translations)
+    XCTAssertEqual(applied["applied"] as? Bool, true)
+    let shown = try bridge.snapshot(from: applied)
+    let glosses = Dictionary(zip(shown.candidates, shown.candidateGlosses), uniquingKeysWith: { first, _ in first })
+    XCTAssertEqual(glosses[texts[0]], "first gloss")
+    XCTAssertEqual(glosses[texts[1]], "second gloss", "不是高亮的候选也要画离线释义")
+    _ = bridge.cancel()
+  }
+
+  /// 范围是「全部」时行为不变：换一页不取消上一页还在路上的请求。
+  func testWithoutTheScopeANewPageDoesNotCancelTheOldRequest() async throws {
+    let blocking = CancellableTranslationService()
+    let store = CandidateTranslationStore(service: blocking)
+    store.refresh(words: ["你好"], sources: [0], codes: ["EN"])
+    try await Task.sleep(nanoseconds: 900_000_000)
+    store.refresh(words: ["中国"], sources: [0], codes: ["EN"])
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(blocking.cancelled, 0)
+    XCTAssertEqual(blocking.calls, [["你好"], ["中国"]])
+    store.cancel()
+  }
+
   func testOfflineGlossBridgeRejectsFractionalSourceAndGeneration() {
     XCTAssertThrowsError(try CandidateGlossModel.request(
       generation: 1,

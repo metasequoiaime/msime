@@ -7,6 +7,7 @@ import app.msime.android.core.InputViewValuePolicy;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -306,6 +307,15 @@ final class ImeLayoutRows {
         for (String symbol : symbols) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+            key.setContentDescription("符号 " + symbol + "；长按快速修改符号栏");
+            key.setOnLongClickListener(ignored -> {
+                Bundle args = new Bundle();
+                args.putString("edit_sidebar_key", digits
+                    ? AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS
+                    : AndroidLocalSettings.NINE_KEY_SYMBOLS);
+                s.openHostPage("KEYBOARD_OPTIONS", args);
+                return true;
+            });
             // 「……」这类两个字宽的符号在窄栏里不折行。
             ViewPolicy.setSingleLine(key);
             if (capped)

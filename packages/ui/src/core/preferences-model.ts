@@ -1,4 +1,5 @@
 import type { CloudCandidateProviderPreferences } from "../settings/cloud-candidates-section";
+import type { CandidateTranslationScope } from "../settings/candidate-translation-options-section";
 import type { InputScheme, ChineseScheme } from "./input-scheme";
 import type { PreeditPreferences } from "../settings/preedit-preferences";
 import type {
@@ -67,6 +68,8 @@ export type Preferences = PunctuationPreferences &
     /** 云候选、翻译、AI、语音、账号、更新检查和下载共用的代理设置；本机与局域网目标一律直连。 */
     network?: NetworkProxyPreferences;
     candidate_translations?: boolean;
+    /** 候选词翻译画在哪些候选下面：`highlighted` 只翻译当前高亮的候选（缺省，新装和旧文档都是它），`all` 翻译当前页每个候选。「显示英文释义」的离线释义不受它限制。见 `crates/client-core/src/preferences.rs` 的 `CandidateTranslationScope`。 */
+    candidate_translation_scope?: CandidateTranslationScope;
     candidate_english_gloss?: boolean;
     candidate_pronunciation?: boolean;
     /** 候选译文中显示 n.、v. 等词性标记；缺省为开启（对齐 Windows v0.11.1 出厂配置）。 */
@@ -125,7 +128,7 @@ export type Preferences = PunctuationPreferences &
     touch_voice_shortcut?: boolean;
     /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
     touch_number_keypad_order?: "phone" | "calculator";
-    /** Android 文本编辑面板的七个侧边键；其他宿主保留该顺序。 */
+    /** Android 文本编辑面板的八个侧边键；其他宿主保留该顺序。 */
     touch_text_edit_button_order?: (
       | "copy"
       | "paste"
@@ -134,11 +137,14 @@ export type Preferences = PunctuationPreferences &
       | "space"
       | "number_pad"
       | "delete"
+      | "select_line"
     )[];
     /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
     /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
     touch_shuangpin_key_hints?: boolean;
+    /** 全拼 26 键组字时第三排左端保留 ⇧（点一下臂辅助码）而不换成「分词」；缺省为关。 */
+    touch_quanpin_shift?: boolean;
     /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */
     touch_spelling_position?: "editor" | "candidate_bar";
     touch_toolbar?: Partial<TouchToolbarPreferences>;
@@ -167,6 +173,8 @@ export type Preferences = PunctuationPreferences &
     korean?: KoreanPreferences;
     /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
     single_character_only?: boolean;
+    /** 移动光标后编辑光标后的部分（桌面宿主）：缺省为关，关着时 Rust 端不写这个键。 */
+    caret_edit_suffix?: boolean;
     candidate_page_size: number;
     number_row_selection?: boolean;
     candidate_follow_cursor?: boolean;

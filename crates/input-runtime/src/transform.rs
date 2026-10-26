@@ -409,6 +409,7 @@ mod desktop {
                 && snapshot.candidate_corrected.len() == count
                 && snapshot.candidate_answers_key.len() == count
                 && snapshot.conversion.is_empty()
+                && !snapshot.caret_edit_suffix
                 && !snapshot.candidate_list_open
         }
 

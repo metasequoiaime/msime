@@ -13,6 +13,7 @@ import {
 } from "./plugin-catalog-helpers";
 import { scriptMarker } from "./plugin-script-model";
 import type { PluginListViewProps } from "./plugin-list-view";
+import { CREATE_DESCRIPTION } from "./plugin-editor-model";
 import type { PluginKind, PluginPackage } from "./plugin-types";
 import * as style from "./plugin-library-style";
 
@@ -106,6 +107,7 @@ export function PluginLibraryView({
   working,
   notice,
   onImport,
+  onCreate,
   onOpen,
   onOpenPack,
   onOpenMissing,
@@ -176,6 +178,14 @@ export function PluginLibraryView({
           </h2>
           {hasClient && (
             <SettingsManagerActions>
+              {onCreate && (
+                <ActionButton
+                  action={onCreate}
+                  className="primary"
+                  disabled={working}
+                  label="新建插件"
+                />
+              )}
               <ActionButton
                 action={() => onImport("folder")}
                 disabled={working}
@@ -324,6 +334,7 @@ export function PluginLibraryView({
       {hasClient && (
         <details className={style.footer}>
           <summary>插件导入说明</summary>
+          {onCreate && <p>{CREATE_DESCRIPTION}。</p>}
           <p>
             {scripts
               ? "数据插件只含音频、指令模板等数据；脚本插件（实验）带可执行代码，导入后要经授权才会运行。每个包须声明许可证"

@@ -200,7 +200,7 @@ def architecture():
         o.append(f'<text x="{x}" y="{y + 16}" class="s">{E(note)}</text>')
     o.append(arrow(740, 470, 740, 513, m, "ag"))
     o.append(label(746, 496, "读写（持锁、原子替换）"))
-    o.append(box(800, 515, 300, 118, "tool", "crates/pack-tool：msime-pack", ["validate · hash · run", "和输入法同一份校验与执行代码", "作者在本地按事件夹具试跑脚本"]))
+    o.append(box(800, 515, 300, 118, "tool", "crates/pack-tool：msime-pack", ["validate · hash · run · new · build · pack", "和输入法同一份校验与执行代码", "作者在仓库外生成、编译、试跑、打包"]))
     o.append(arrow(1040, 515, 1040, 472, m, "ag"))
     o.append(label(1046, 498, "复用"))
     o.append("</svg>")
@@ -634,8 +634,9 @@ BODY = r"""
 <tr><td><code>crates/host-api/src/plugin_tables.rs</code> · <code>key_sound</code></td><td>数据包读进 EngineOptions；音效与音乐</td></tr>
 <tr><td><code>crates/input-runtime/src/transform.rs</code></td><td>CandidateTransform、CommandProvider 两个注入点</td></tr>
 <tr><td><code>crates/script-runtime/src/</code> abi · module · instance · limits</td><td>ABI v1 契约、编译与校验、实例与 import、各项上限</td></tr>
-<tr><td><code>crates/pack-tool</code></td><td>msime-pack validate / hash / run</td></tr>
-<tr><td><code>plugins/official-packs.json</code> · <code>plugins/script</code> · <code>docs/script-plugin-template</code></td><td>官方包哈希锁、可用脚本插件源码、作者模板与 SDK</td></tr>
+<tr><td><code>crates/pack-tool</code></td><td>msime-pack validate / hash / run / new / build / pack</td></tr>
+<tr><td><code>crates/script-sdk</code></td><td>脚本插件的 Rust SDK msime-script-sdk（no_std、无依赖）和 C 头文件</td></tr>
+<tr><td><code>plugins/official-packs.json</code> · <code>plugins/script</code> · <code>docs/script-plugin-template</code></td><td>官方包哈希锁、可用脚本插件源码、作者模板</td></tr>
 </table>
 </div>
 </details>

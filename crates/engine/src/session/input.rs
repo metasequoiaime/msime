@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::candidates::clone_candidate_rows;
+use super::caret_edit::CaretEdit;
 use super::chain::CommitChain;
 use super::clock::Clock;
 use super::conversion::ConversionEdit;
@@ -125,6 +126,10 @@ pub(super) struct InputSession {
     pub prefix_active: bool,
     pub prefix_query_input: String,
     pub prefix_candidates: Vec<WordItem>,
+    /// 移动光标后编辑光标后的部分（`SessionOptions::caret_edit_suffix`）。
+    pub caret_edit_suffix: bool,
+    /// 光标后编辑的状态，见 `caret_edit.rs`。
+    pub caret_edit: CaretEdit,
     pub shuangpin_preedit_uses_raw: bool,
     pub single_character_only: bool,
     /// Writes phrases under complete quanpin keys whatever the active scheme is, so a shuangpin session never feeds a canonical key back through its profile; opened on first use.
@@ -237,6 +242,8 @@ impl InputSession {
             prefix_active: false,
             prefix_query_input: String::new(),
             prefix_candidates: Vec::new(),
+            caret_edit_suffix: options.caret_edit_suffix,
+            caret_edit: CaretEdit::default(),
             shuangpin_preedit_uses_raw: true,
             single_character_only: options.single_character_only,
             canonical_phrase_engine: None,
@@ -320,6 +327,8 @@ impl InputSession {
 
     /// input_session.cpp:88-245: caret insertion, dedicated English, local modes and their Shift entries, the acceptance gate, then the scheme. Handled iff the preedit changed.
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        // 任何实际字符输入都会使“退格撤销最近引号”失效；否则引号后输入一段拼音再退格，可能误撤销更早的引号。
+        self.punctuation.clear_quote_undo();
         self.exit_date_time_menu();
         let result = self
             .helpcode_character(value)
@@ -406,6 +415,9 @@ impl InputSession {
             && scheme == SchemeType::Shuangpin
             && self.profile.uses_semicolon_key()
             && helpcode_marker.is_none();
+        let cantonese_final = value == b';'
+            && scheme == SchemeType::Cantonese
+            && self.engine.cantonese_shuangpin_accepts_semicolon();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
         // 已启用的快捷入口在上面处理；被关闭或资源不可用的入口按普通大写字母继续。
         let starts_pinyin_with_shift =
@@ -417,6 +429,7 @@ impl InputSession {
             && !composing_pinyin_uppercase
             && value != b'\''
             && !microsoft_final
+            && !cantonese_final
             && !japanese_long_vowel
             && helpcode_marker.is_none()
         {
@@ -443,7 +456,7 @@ impl InputSession {
         } else if let Some(marker) = helpcode_marker {
             // 触发键在输入串里一律记成标记字符（反引号或 '|'），与用户敲的键无关。
             SchemeKey::Symbol(marker)
-        } else if microsoft_final {
+        } else if microsoft_final || cantonese_final {
             SchemeKey::Semicolon
         } else if japanese_long_vowel {
             SchemeKey::Minus
@@ -934,6 +947,10 @@ impl InputSession {
         }
         self.end_uppercase_run();
         if !self.has_composition() {
+            match command {
+                Command::Backspace => self.punctuation.undo_last_quote(),
+                _ => self.punctuation.clear_quote_undo(),
+            }
             // With nothing composed every command is left to the host, which edits the text, moves the caret or inserts a newline, so the chain no longer ends where the host's text does.
             self.chain.reset();
             return KeyResult::unhandled();
@@ -1202,6 +1219,12 @@ impl InputSession {
         {
             return self.handle_character(value, false);
         }
+        if self.cantonese_rules_apply()
+            && value == b';'
+            && self.engine.cantonese_shuangpin_accepts_semicolon()
+        {
+            return self.handle_character(value, false);
+        }
         // A scheme without Chinese punctuation (Korean) writes half-width ASCII punctuation whatever the Chinese punctuation switches say. With a syllable open the mark follows it in one commit; with nothing open the host inserts the key itself.
         // 专用英文模式同样写半角英文标点：英文模式不往宿主漏中文标点，字符键那条路早就如此（`handle_character` 吞掉非字母键）。只有「固定标点」锁成「始终使用中文标点」（lock 1）时才照中文标点开关走；默认的「跟随中英文状态」（lock 0）在英文模式下就是英文标点。以前这里把专用英文排除在外，于是英文模式下按 `.` 上屏的是「。」。
         let ascii_marks = if self.dedicated_english {
@@ -1369,7 +1392,13 @@ impl InputSession {
         // `'` is a Jyutping syllable boundary only inside a composition; idle it is punctuation.
         if self.cantonese_rules_apply() {
             return if self.has_composition() {
-                cantonese::SPELLING_SYMBOLS_COMPOSING.to_owned()
+                if self.engine.cantonese_shuangpin_active()
+                    || self.engine.cantonese_shuangpin_accepts_semicolon()
+                {
+                    "';".to_owned()
+                } else {
+                    cantonese::SPELLING_SYMBOLS_COMPOSING.to_owned()
+                }
             } else {
                 String::new()
             };
@@ -1625,6 +1654,7 @@ impl InputSession {
         self.prefix_candidates.clear();
         self.prefix_query_input.clear();
         self.prefix_active = false;
+        self.caret_edit = CaretEdit::default();
         self.phrase_progress = CreatingWordProgress::default();
         self.pending_sequence = None;
         self.pending_sequence_with_cases = None;
@@ -1671,6 +1701,8 @@ impl InputSession {
         }
         // The visible prefix list stays until the next refresh, but its query must run again against the invalidated provider caches.
         self.prefix_query_input.clear();
+        // 光标后编辑固定的那段同样要按新的词库重新转换。
+        self.caret_edit.prefix_input.clear();
     }
 
     pub fn clear_online_candidates(&mut self, source: CandidateSource) {
@@ -1692,7 +1724,16 @@ impl InputSession {
             return false;
         }
         self.refresh_prefix_candidates();
-        let grew = if self.prefix_active {
+        let grew = if self.prefix_active && self.caret_edit.active {
+            // 光标后编辑：屏幕上是光标后那段的候选，展开的也是它。
+            let start = self.caret_edit_suffix_start();
+            let end = self.raw_with_cases().len();
+            self.engine.expand_current_raw_range_initial_candidates(
+                &self.prefix_query_input,
+                start..end,
+                &mut self.prefix_candidates,
+            )
+        } else if self.prefix_active {
             self.engine.expand_current_raw_prefix_initial_candidates(
                 &self.prefix_query_input,
                 self.prefix_end(),
@@ -1908,6 +1949,7 @@ impl InputSession {
     pub(super) fn discard_abandoned_phrase_progress(&mut self) {
         if !self.has_composition() {
             self.phrase_progress = CreatingWordProgress::default();
+            self.caret_edit.held.clear();
             self.chain.same_composition = false;
         }
     }

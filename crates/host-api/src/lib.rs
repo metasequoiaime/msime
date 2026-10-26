@@ -353,6 +353,17 @@ fn chaizi_enabled(preferences: &msime_client_core::preferences::LocalModePrefere
     preferences.chaizi.unwrap_or(TOUCH_KEYBOARD_HOST)
 }
 
+/// 「移动光标后编辑光标后的部分」只在三个桌面宿主上交给 Engine：偏好随同步到达手机时，触屏宿主没有设置入口、也不画模式提示，所以那里一律按关。
+const CARET_EDIT_SUFFIX_HOST: bool = cfg!(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+));
+
+fn caret_edit_suffix_applies(preferences: &Preferences) -> bool {
+    CARET_EDIT_SUFFIX_HOST && preferences.caret_edit_suffix
+}
+
 fn multilingual_languages_for(
     preferences: &Preferences,
     edition: &Edition,
@@ -788,6 +799,7 @@ impl HostSession {
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.single_character_only = preferences.single_character_only;
+        options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
         options.next_word_prediction =
             preferences.next_word_prediction && cfg!(target_os = "android");
@@ -1212,6 +1224,11 @@ impl HostSession {
         self.runtime
             .set_cloud_candidates_enabled(requested_preferences.cloud_candidates)
             .map_err(|e| e.to_string())?;
+        // 候选词翻译的范围只改查询和画法，跟着最新请求的偏好走；换范围时的旧释义已经在上面随释义偏好的变化清掉。
+        self.runtime
+            .set_translation_scope_highlighted(translation_scope_highlighted(
+                &requested_preferences,
+            ));
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_backspace_reverts_selection(requested_preferences.backspace_reverts_selection);
@@ -2141,6 +2158,7 @@ impl HostOptions {
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             single_character_only: self.preferences.single_character_only,
+            caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
             learn_english_on_enter: self.preferences.enter_learns_english_word,
             next_word_prediction: self.preferences.next_word_prediction
@@ -3454,9 +3472,17 @@ const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(
     test
 ));
 
+/// 候选词翻译开着且范围是「仅当前高亮」：翻译查询只为高亮的候选请求候选词翻译，运行时只把它画在高亮行。
+pub(crate) fn translation_scope_highlighted(preferences: &Preferences) -> bool {
+    preferences.candidate_translations
+        && preferences.candidate_translation_scope
+            == msime_client_core::preferences::CandidateTranslationScope::Highlighted
+}
+
 /// `translation_query` 使用的偏好字段；这些变化都要撤销旧代次的释义回包。
 fn translation_query_preferences_changed(previous: &Preferences, next: &Preferences) -> bool {
     previous.candidate_translations != next.candidate_translations
+        || previous.candidate_translation_scope != next.candidate_translation_scope
         || previous.candidate_english_gloss != next.candidate_english_gloss
         || previous.candidate_pronunciation != next.candidate_pronunciation
         || previous.translation_target_language != next.translation_target_language

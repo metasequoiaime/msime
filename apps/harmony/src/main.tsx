@@ -49,6 +49,10 @@ import {
   type CommunityResourceApplication,
   type CommunityResourceClient,
   type CommunityResourcePage,
+  type CommunityPlugin,
+  type CommunityPluginClient,
+  type CommunityPluginPackPreview,
+  type CommunityPluginPage,
   type CommunitySkinClient,
   type AccountPreferenceSchema,
   type SettingsSyncClient,
@@ -75,6 +79,7 @@ import {
   type LocalVoiceModelList,
   type LocalVoiceModelProgress,
   type MentionEntry,
+  type AuthoredPack,
   type PluginCatalogResult,
   type PluginClient,
   type PluginPackage,
@@ -173,7 +178,7 @@ interface NativeBridge {
   /** Starts the picker and answers at once; the panel's own rescan is what shows the result. */
   importSkinFolder(): string;
   /**
-   * The 插件 page's pack store and @ name list: `{operation:"catalog"|"remove"|"load_mentions"|"save_mentions",...}`, answered by `msime_client_plugins` as `{ok,value}` or `{ok:false,error,detail?}`. An import waits for the system picker, so it goes through `startRequest` as `plugin_import` instead.
+   * The 插件 page's pack store, plugin editor and @ name list: `{operation:"catalog"|"remove"|"load_mentions"|"save_mentions"|"authoring_load"|"authoring_save",...}`, answered by `msime_client_plugins` as `{ok,value}` or `{ok:false,error,detail?}`. An import waits for the system picker, so it goes through `startRequest` as `plugin_import` instead.
    */
   plugins(action: string): string;
   // 下面这些方法随 HarmonyOS 改版加入。旧版 HAP 没有注册它们，所以每个都先用 `typeof` 检查再用，缺哪个，页面就不画它支撑的那块界面，而不是去调用不存在的东西。它们声明为普通成员，这样桥接一致性检查（`scripts/test-harmony-bridge-parity.py`）仍能看到它们，并要求宿主把每一个都注册上。
@@ -910,6 +915,49 @@ function communityResourceClient(native: NativeBridge): CommunityResourceClient 
 }
 
 /**
+ * 社区插件图库：浏览、评分、举报、发布自己的插件和安装，都交给 Rust 的 `msime_client_community`（plugin_* 操作，和 Windows 原生设置窗口同一套）。
+ *
+ * 这里只有数据类插件：鸿蒙的 client-services 没有 `script` 这个类型，向服务端声明的类型里也没有它，所以列表里永远不会出现脚本插件，宿主也不声明 `script_plugins`。发布和安装要搬运最多 8 MiB 的包，服务端给这两步 90 秒，页面的等待时间相应放长。
+ */
+function communityPluginClient(native: NativeBridge): CommunityPluginClient {
+  const request = <T,>(action: Record<string, unknown>, timeoutMs?: number): Promise<T> =>
+    bridgeRequest(native, "community_plugin", JSON.stringify(action), timeoutMs).then(unwrap<T>);
+  const transfer = 120000;
+  return {
+    list: (offset, search, kind, mine) =>
+      request<CommunityPluginPage>({
+        operation: "plugin_list",
+        offset,
+        search,
+        ...(kind ? { kind } : {}),
+        mine: mine ?? false,
+      }),
+    detail: (id) => request<CommunityPlugin>({ operation: "plugin_detail", id }),
+    packPreview: (kind, pluginId) =>
+      request<CommunityPluginPackPreview>({
+        operation: "plugin_pack_preview",
+        kind,
+        plugin_id: pluginId,
+      }),
+    publish: (kind, pluginId, id, name, description) =>
+      request<CommunityPlugin>(
+        { operation: "plugin_publish", kind, plugin_id: pluginId, id, name, description },
+        transfer,
+      ),
+    install: (id, kind, pluginId) =>
+      request<PluginPackage>(
+        { operation: "plugin_install", id, kind, plugin_id: pluginId },
+        transfer,
+      ),
+    rate: (id, stars) => request<{ stars: number }>({ operation: "plugin_rate", id, stars }),
+    delete: (id) => request<{ deleted: boolean }>({ operation: "plugin_delete", id }),
+    report: async (id, reason, detail) => {
+      await request({ operation: "report", kind: "plugins", id, reason, detail });
+    },
+  };
+}
+
+/**
  * AI skin generation, which is the one request that reports before it answers.
  *
  * Three pictures take minutes, so a run that said nothing until it finished would be
@@ -996,6 +1044,11 @@ function pluginClient(native: NativeBridge): PluginClient {
     remove: async (kind, id) => {
       call<null>({ operation: "remove", kind, id });
     },
+    // 设置页插件编辑器：清单在 client-services 生成，按导入同样的规则校验和安装。
+    loadAuthoredPack: async (kind, id) =>
+      call<AuthoredPack>({ operation: "authoring_load", kind, id }),
+    saveAuthoredPack: async (pack, replace) =>
+      call<PluginPackage>({ operation: "authoring_save", pack, replace }),
     loadMentions: async () => call<MentionEntry[]>({ operation: "load_mentions" }),
     saveMentions: async (entries) => {
       call<null>({ operation: "save_mentions", entries });
@@ -1593,6 +1646,7 @@ function makeClient(
     feedback,
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
+    communityPlugins: communityPluginClient(native),
     aiSkins: aiSkinClient(native),
     localVoiceModels: localVoiceModelClient(native),
     // The page is offered only on a 2in1, the form factor that plays packs and routes the / and @ modes; a phone hides it whatever the host supplies.

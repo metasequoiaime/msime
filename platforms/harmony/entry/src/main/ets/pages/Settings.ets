@@ -1215,6 +1215,11 @@ class SettingsBridge {
         KeyboardLog.error(`community skin request failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
       });
+    } else if (kind === 'community_plugin') {
+      this.communityPlugin(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community plugin request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
     } else if (kind === 'custom_skin_library') {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
@@ -1592,7 +1597,7 @@ class SettingsBridge {
   }
 
   /**
-   * The 插件 page's pack store and @ name list: `catalog`, `remove`, `load_mentions` and `save_mentions`, answered by `msime_client_plugins` with the same rules and failure codes the desktop shell answers with. The page never names a path: the state root and the bundle's built-in sound packs are filled in here, and an import, which has to wait for the system picker, arrives through `startRequest` as `plugin_import` instead.
+   * The 插件 page's pack store, plugin editor and @ name list: `catalog`, `remove`, `load_mentions`, `save_mentions`, `authoring_load` and `authoring_save`, answered by `msime_client_plugins` with the same rules and failure codes the desktop shell answers with. The page never names a path: the state root and the bundle's built-in sound packs are filled in here, and an import, which has to wait for the system picker, arrives through `startRequest` as `plugin_import` instead.
    */
   plugins(actionDocument: string): string {
     this.schedulePublish();
@@ -1606,7 +1611,8 @@ class SettingsBridge {
     } catch {
       return refused;
     }
-    if (!['catalog', 'remove', 'load_mentions', 'save_mentions'].includes(action.operation)) {
+    if (!['catalog', 'remove', 'load_mentions', 'save_mentions', 'authoring_load', 'authoring_save']
+      .includes(action.operation)) {
       return refused;
     }
     return client.plugins(`{"state_root":${JSON.stringify(this.stateDirectory)},`
@@ -1930,6 +1936,16 @@ class SettingsBridge {
       this.refreshPreferencesIfChanged();
     }
     return reply;
+  }
+
+  /**
+   * 社区插件图库：plugin_* 操作原样交给 Rust（`msime_client_community`），打包预检、发布和安装由 `communityRequest` 带上状态目录。鸿蒙的 Rust 没有脚本插件这个类型，这里只会经手数据类插件。
+   */
+  async communityPlugin(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    return await this.accountBridge.community(actionDocument);
   }
 
   private finishSkinTrial(action: CommunitySkinAction): string {

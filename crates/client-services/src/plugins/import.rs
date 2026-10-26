@@ -82,6 +82,30 @@ pub(super) fn import_inner(
     allow_scripts: bool,
 ) -> Result<PluginSummary, PluginError> {
     let archive = is_archive(source)?;
+    install_staged(
+        root,
+        allow_scripts,
+        Existing::Replace,
+        |staging, staging_directory| stage(source, archive, staging, staging_directory),
+    )
+}
+
+/// 已经装着同类型、同 id 的包时怎么办。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Existing {
+    /// 整包替换，导入一向如此。
+    Replace,
+    /// 拒绝（`plugin_exists`）：设置页新建插件时不能悄悄覆盖已有的包。
+    Refuse,
+}
+
+/// 导入和设置页编辑器共用的安装流程：拿插件根目录的写锁、清扫残留、建暂存目录，由 `fill` 往暂存目录里放文件（`fill` 在锁里运行，可以按插件根目录现在的样子决定写什么），再按 `scan` 的规则检查暂存的包，最后整包换进 `<root>/<kind>/<id>`。
+pub(super) fn install_staged(
+    root: &Path,
+    allow_scripts: bool,
+    existing: Existing,
+    fill: impl FnOnce(&Path, Option<&File>) -> Result<(), PluginError>,
+) -> Result<PluginSummary, PluginError> {
     if !crate::storage::create_directory_and_check(root).map_err(|_| PluginError::Storage)? {
         return Err(PluginError::Storage);
     }
@@ -93,7 +117,7 @@ pub(super) fn import_inner(
     let staging_directory = Some(staging.open_directory()?);
     #[cfg(not(unix))]
     let staging_directory: Option<File> = None;
-    stage(source, archive, &staging.path, staging_directory.as_ref())?;
+    fill(&staging.path, staging_directory.as_ref())?;
     let mut summary = check_staged(&staging.path, ReservedIds::Refuse)?;
     let kind = summary.kind();
     if !allow_scripts && kind.is_script() {
@@ -104,6 +128,11 @@ pub(super) fn import_inner(
         return Err(PluginError::Storage);
     }
     let target = directory.join(&summary.id);
+    if existing == Existing::Refuse
+        && fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_dir())
+    {
+        return Err(PluginError::Exists);
+    }
     // A stray file or link where the pack goes is not a pack anyone could have chosen; it is replaced like one.
     if fs::symlink_metadata(&target).is_ok_and(|metadata| !metadata.is_dir()) {
         crate::storage::remove_private_file(&target)?;
@@ -191,10 +220,18 @@ pub fn load_script_source(
         .take()
         .ok_or_else(|| PluginError::Invalid(format!("{} 无法读取或太大", pack.module)))?
         .0;
+    let data = pack
+        .data_contents
+        .take()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|bytes| bytes.0)
+        .collect();
     Ok(super::script_pack::LoadedScript {
         id: summary.id,
         pack,
         wasm,
+        data,
     })
 }
 
@@ -529,7 +566,7 @@ fn plain_component_capacity(path: &Path) -> usize {
 }
 
 /// Write one file of the pack into staging, refusing a name the pack may not use or a second file of the same name, and stopping at the declared size even if the reader has more: a zip's recorded size is the archive's claim, not a bound.
-fn write_member(
+pub(super) fn write_member(
     staging: &Path,
     name: &str,
     input: impl Read,
