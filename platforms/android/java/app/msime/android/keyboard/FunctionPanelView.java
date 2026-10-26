@@ -13,7 +13,6 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.text.TextPaint;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -22,9 +21,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 功能菜单：横向分页的条目，下方页点。每页四列，行数见 {@link #setPickerGrid}：手机竖屏和平板三行，手机横屏两行。
+ * 功能菜单：横向分页的条目，下方页点。每页四列，行数见 {@link #setPhoneLandscape}：手机竖屏和平板三行，手机横屏两行；网格按面板量到的高度排（{@link PagedTileGrid#setPickerFit}），放不下原尺寸时磁贴整体缩小，不让面板竖向滚动。
  *
- * <p>条目没有底色：30 dp 图标区与常规字重标签，间距 7 dp，条目高 52 dp。字形条目画方框。开启状态用强调色和图标右下角的勾标表达。
+ * <p>条目没有底色：30 dp 图标区与常规字重标签，间距 7 dp，条目高 52 dp。字形条目画方框。开启状态用强调色和图标右下角的勾标表达。条目比 52 dp 矮时（{@link PagedTileGrid#pickerGrid} 缩小了磁贴），图标区、图标、字形框、文字、间距和勾标按同一比例缩小，点按区域仍是整个格子。
  *
  * <p>这个视图**不设置 alpha**：不可用状态的视觉由调用方经 SVC 的 `applyToolCardState` 处理，这里只把状态写进 stateDescription（已开启 / 已关闭 / 不可用）和 `isSelected()`。颜色全部由调用方从皮肤传入。
  */
@@ -78,7 +77,6 @@ public final class FunctionPanelView extends LinearLayout {
     private int foreground = Color.BLACK;
     private int accent = Color.BLUE;
     private int panelBackground = Color.WHITE;
-    private PagedTileGrid.PickerGrid layout = new PagedTileGrid.PickerGrid(FunctionPanelModel.ROWS, 12f);
 
     public FunctionPanelView(Context context) {
         super(context);
@@ -86,14 +84,19 @@ public final class FunctionPanelView extends LinearLayout {
         setContentDescription("更多工具");
         LayoutPolicy.setPaddingDp(this, context, 0, PADDING_TOP_DP, 0, PADDING_BOTTOM_DP);
         grid = new PagedTileGrid(context);
-        grid.setGrid(FunctionPanelModel.COLUMNS, layout.rows());
-        grid.setSpacing(ITEM_HEIGHT_DP, layout.rowGap(), 4f, 4f);
+        grid.setGrid(FunctionPanelModel.COLUMNS, FunctionPanelModel.ROWS);
+        grid.setSpacing(ITEM_HEIGHT_DP, PagedTileGrid.PICKER_THREE_ROW_GAP_DP, 4f, 4f);
+        grid.setPickerFit(ITEM_HEIGHT_DP, false);
         dots = new KeyboardPagerDots(context);
-        grid.setOnPageChangeListener((page, count) -> dots.setActive(page, true));
+        // 网格按量到的高度换行数时页数会变，页点的个数跟着改。
+        grid.setOnPageChangeListener((page, count) -> {
+            dots.setCount(count);
+            dots.setActive(page, true);
+        });
         LinearLayout.LayoutParams gridParams = LayoutPolicy.weightedWidthParams(1f);
         addView(grid, gridParams);
-        LinearLayout.LayoutParams dotParams = LayoutPolicy.wrapParams();
-        dotParams.gravity = Gravity.CENTER_HORIZONTAL;
+        // 页点占满一行、自己居中画：页数随行数变时只需重画，不必重新量宽度。
+        LinearLayout.LayoutParams dotParams = LayoutPolicy.matchWidthWrapParams();
         dotParams.topMargin = DimensionPolicy.pixels(context, DOTS_TOP_MARGIN_DP);
         addView(dots, dotParams);
     }
@@ -107,15 +110,9 @@ public final class FunctionPanelView extends LinearLayout {
         for (Tile tile : tiles) tile.invalidate();
     }
 
-    /** 每页的行数和行距（{@link PagedTileGrid#pickerGrid}）；变了才重排，停在的页超出新页数时退到最后一页，页点跟着重算。 */
-    public void setPickerGrid(PagedTileGrid.PickerGrid value) {
-        if (value.equals(layout)) return;
-        layout = value;
-        grid.setGrid(FunctionPanelModel.COLUMNS, layout.rows());
-        grid.setSpacing(ITEM_HEIGHT_DP, layout.rowGap(), 4f, 4f);
-        grid.setPage(grid.page(), false);
-        dots.setCount(grid.pageCount());
-        dots.setActive(grid.page(), false);
+    /** 手机横屏两行，其余三行（{@link PagedTileGrid#pickerGrid}）；行高、行距和是否退成两行由网格按量到的高度定，变了时停在的页超出新页数就退到最后一页，页点跟着重算。 */
+    public void setPhoneLandscape(boolean phoneLandscape) {
+        grid.setPickerFit(ITEM_HEIGHT_DP, phoneLandscape);
     }
 
     /** 换掉全部条目；状态都重置为 {@link State#NONE}。 */
@@ -233,8 +230,19 @@ public final class FunctionPanelView extends LinearLayout {
             if (changed) invalidate();
         }
 
-        private void configureLabelPaint() {
-            ViewPolicy.setTextSize(textPaint, KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP));
+        /** 条目比原尺寸矮时的缩放比例：网格按面板高度缩小磁贴（{@link PagedTileGrid#pickerGrid}），条目里的各个尺寸乘同一个比例。 */
+        private float scale() {
+            float full = DimensionPolicy.floatPixels(getContext(), ITEM_HEIGHT_DP);
+            return getHeight() <= 0 || full <= 0 ? 1f : BoundsPolicy.bounded(getHeight() / full, 0f, 1f);
+        }
+
+        /** 缩放后的 dp 换成像素。 */
+        private float scaled(float dp, float scale) {
+            return DimensionPolicy.floatPixels(getContext(), dp) * scale;
+        }
+
+        private void configureLabelPaint(float scale) {
+            ViewPolicy.setTextSize(textPaint, KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP) * scale);
             ViewPolicy.setTypeface(textPaint, Typeface.DEFAULT);
         }
 
@@ -243,28 +251,30 @@ public final class FunctionPanelView extends LinearLayout {
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = ColorPolicy.withAlpha(color,
                 Color.alpha(color) * PRESSED_ALPHA / 255);
-            configureLabelPaint();
+            float scale = scale();
+            configureLabelPaint(scale);
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
-            float area = DimensionPolicy.floatPixels(getContext(), ICON_AREA_DP);
-            float total = area + DimensionPolicy.floatPixels(getContext(), LABEL_GAP_DP) + labelHeight;
+            float area = scaled(ICON_AREA_DP, scale);
+            float labelGap = scaled(LABEL_GAP_DP, scale);
+            float total = area + labelGap + labelHeight;
             float top = BoundsPolicy.nonNegative((getHeight() - total) / 2f);
             float centerX = getWidth() / 2f;
             float iconCenterY = top + area / 2f;
             float iconRight;
             float iconBottom;
             if (entry.glyph != null) {
-                float box = DimensionPolicy.floatPixels(getContext(), GLYPH_BOX_DP);
+                float box = scaled(GLYPH_BOX_DP, scale);
                 rect.set(centerX - box / 2f, iconCenterY - box / 2f, centerX + box / 2f,
                     iconCenterY + box / 2f);
                 boxPaint.setColor(color);
-                boxPaint.setStrokeWidth(DimensionPolicy.floatPixels(getContext(), GLYPH_STROKE_DP));
-                float inset = DimensionPolicy.floatPixels(getContext(), GLYPH_STROKE_DP) / 2f;
-                rect.inset(inset, inset);
-                float radius = DimensionPolicy.floatPixels(getContext(), GLYPH_RADIUS_DP);
+                float stroke = scaled(GLYPH_STROKE_DP, scale);
+                boxPaint.setStrokeWidth(stroke);
+                rect.inset(stroke / 2f, stroke / 2f);
+                float radius = scaled(GLYPH_RADIUS_DP, scale);
                 canvas.drawRoundRect(rect, radius, radius, boxPaint);
                 Paint glyph = textPaint;
-                ViewPolicy.setTextSize(glyph, KeyboardTypographyPolicy.keySp(getContext(), GLYPH_SP));
+                ViewPolicy.setTextSize(glyph, KeyboardTypographyPolicy.keySp(getContext(), GLYPH_SP) * scale);
                 ViewPolicy.setTypeface(glyph, Typeface.DEFAULT_BOLD);
                 glyph.setColor(color);
                 Paint.FontMetrics metrics = glyph.getFontMetrics();
@@ -272,9 +282,9 @@ public final class FunctionPanelView extends LinearLayout {
                     iconCenterY - (metrics.ascent + metrics.descent) / 2f, glyph);
                 iconRight = centerX + box / 2f;
                 iconBottom = iconCenterY + box / 2f;
-                configureLabelPaint();
+                configureLabelPaint(scale);
             } else {
-                float size = DimensionPolicy.floatPixels(getContext(), ICON_DP);
+                float size = scaled(ICON_DP, scale);
                 if (entry.icon != null) {
                     KeyboardIconPaths.draw(canvas, iconPaint, entry.icon, centerX - size / 2f,
                         iconCenterY - size / 2f, size, color);
@@ -282,24 +292,22 @@ public final class FunctionPanelView extends LinearLayout {
                 iconRight = centerX + size / 2f;
                 iconBottom = iconCenterY + size / 2f;
             }
-            if (on) drawBadge(canvas, iconRight, iconBottom);
+            if (on) drawBadge(canvas, iconRight, iconBottom, scale);
             textPaint.setColor(color);
-            float baseline = top + area
-                + DimensionPolicy.floatPixels(getContext(), LABEL_GAP_DP) - label.ascent;
+            float baseline = top + area + labelGap - label.ascent;
             canvas.drawText(fit(entry.label, getWidth()), centerX, baseline, textPaint);
         }
 
-        private void drawBadge(Canvas canvas, float iconRight, float iconBottom) {
-            float badge = DimensionPolicy.floatPixels(getContext(), BADGE_DP);
+        private void drawBadge(Canvas canvas, float iconRight, float iconBottom, float scale) {
+            float badge = scaled(BADGE_DP, scale);
             float cx = iconRight;
             float cy = iconBottom;
             badgePaint.setStyle(Paint.Style.FILL);
             badgePaint.setColor(panel.panelBackground);
-            canvas.drawCircle(cx, cy, badge / 2f
-                + DimensionPolicy.floatPixels(getContext(), BADGE_RING_DP), badgePaint);
+            canvas.drawCircle(cx, cy, badge / 2f + scaled(BADGE_RING_DP, scale), badgePaint);
             badgePaint.setColor(panel.accent);
             canvas.drawCircle(cx, cy, badge / 2f, badgePaint);
-            float check = DimensionPolicy.floatPixels(getContext(), BADGE_CHECK_DP);
+            float check = scaled(BADGE_CHECK_DP, scale);
             KeyboardIconPaths.draw(canvas, iconPaint, KeyboardIconPaths.Icon.CHECK,
                 cx - check / 2f, cy - check / 2f, check, panel.panelBackground);
         }
