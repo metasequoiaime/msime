@@ -15,6 +15,12 @@ public final class CandidatePronunciationModel {
     public static String request(long generation, JSONArray candidates, boolean englishTarget,
             boolean glossVisible)
             throws JSONException {
+        return request(generation, candidates, englishTarget, glossVisible, java.util.List.of());
+    }
+
+    /** 引擎候选和英文直输建议共用一批音标查询，重复词只查一次。 */
+    public static String request(long generation, JSONArray candidates, boolean englishTarget,
+            boolean glossVisible, java.util.List<String> englishSuggestions) throws JSONException {
         if (generation < 0 || candidates == null || candidates.length() > 4096)
             throw new IllegalArgumentException("Invalid pronunciation candidates");
         JSONArray items = new JSONArray();
@@ -27,6 +33,10 @@ public final class CandidatePronunciationModel {
                 ? InputViewValuePolicy.textOr(candidate, "translation", "") : "";
             String text = CandidatePronunciationPolicy.lookupText(
                 InputViewValuePolicy.textOr(candidate, "text", ""), translation, englishTarget);
+            if (!text.isEmpty() && TextPolicy.utf8Length(text) <= 4096) texts.add(text);
+        }
+        for (String suggestion : englishSuggestions) {
+            String text = CandidatePronunciationPolicy.lookupText(suggestion, "", true);
             if (!text.isEmpty() && TextPolicy.utf8Length(text) <= 4096) texts.add(text);
         }
         for (String text : texts) items.put(new JSONObject().put("text", text).put("language", "en"));

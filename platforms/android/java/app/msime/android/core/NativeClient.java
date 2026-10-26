@@ -169,7 +169,15 @@ public final class NativeClient {
         return TextPolicy.utf8(result);
     }
     /** 从同级的固定离线音标表读取读音，只在工作线程调用。 */
-    public static String candidatePronunciations(String request, String resources) {
+    public static String candidatePronunciations(String request, String resources,
+            String supplementaryResources) {
+        if (supplementaryResources != null && !supplementaryResources.isEmpty()) {
+            try {
+                request = new JSONObject(request).put("supplementary_resources", supplementaryResources).toString();
+            } catch (JSONException error) {
+                throw new IllegalArgumentException("Invalid pronunciation request", error);
+            }
+        }
         byte[] requestBytes = request.getBytes(StandardCharsets.UTF_8);
         byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
         if (requestBytes.length > GLOSS_REQUEST_LIMIT || resourcesBytes.length > GLOSS_RESOURCES_LIMIT)

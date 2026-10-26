@@ -94,15 +94,6 @@ else
 fi
 while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$assets/dictionary/"; done <<< "$artifacts"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} ${edition_flags[@]+"${edition_flags[@]}"} "$assets/dictionary" >/dev/null
-# 音标表来自 resources/pronunciations.lock.json 的固定 ECDICT 产物；缺文件的本地包保留无音标状态，发布流程必须先取到它。
-pronunciations_source=${MSIME_PRONUNCIATIONS:-$repo_root/target/pronunciations}
-if [ -f "$pronunciations_source/en-phonetic.db" ] && [ -f "$pronunciations_source/pronunciations-NOTICE.txt" ]; then
-  mkdir -p "$assets/pronunciations"
-  cp "$pronunciations_source/en-phonetic.db" "$pronunciations_source/pronunciations-NOTICE.txt" "$assets/pronunciations/"
-elif [ "${MSIME_REQUIRE_PRONUNCIATIONS:-0}" = 1 ]; then
-  echo "locked pronunciation table and NOTICE required" >&2
-  exit 1
-fi
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 # 手势图像的许可和来源随两条 APK 打包路径分发。

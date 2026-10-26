@@ -59,11 +59,6 @@ if [ "$edition" != full ]; then
 fi
 while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$assets/dictionary/"; done <<< "$artifacts"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${edition_flags[@]+"${edition_flags[@]}"} "$assets/dictionary" >/dev/null
-pronunciations_source=${MSIME_PRONUNCIATIONS:-$repo_root/target/pronunciations}
-if [ -f "$pronunciations_source/en-phonetic.db" ] && [ -f "$pronunciations_source/pronunciations-NOTICE.txt" ]; then
-  mkdir -p "$assets/pronunciations"
-  cp "$pronunciations_source/en-phonetic.db" "$pronunciations_source/pronunciations-NOTICE.txt" "$assets/pronunciations/"
-fi
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 # 手势图像的许可和来源随两条 APK 打包路径分发。

@@ -21,6 +21,10 @@ public final class CandidatePronunciationPolicySmoke {
                 && !CandidatePronunciationPolicy.visible(true, false)
                 && CandidatePronunciationPolicy.visible(true, true),
             "开关和资源同时可用才显示");
+        check("\u00A0".equals(CandidatePronunciationPolicy.suggestionAnnotation(true, ""))
+                && "/həˈləʊ/".equals(CandidatePronunciationPolicy.suggestionAnnotation(true, "/həˈləʊ/"))
+                && CandidatePronunciationPolicy.suggestionAnnotation(false, "/həˈləʊ/").isEmpty(),
+            "英文直输建议查音标前占位、得到音标后显示、关闭后恢复单行");
     }
 
     private static void check(boolean ok, String message) {

@@ -31,4 +31,9 @@ public final class CandidatePronunciationPolicy {
         return reading == null || reading.isEmpty() ? base
             : base.isEmpty() ? reading : base + "\n" + reading;
     }
+
+    /** 英文直输建议查询中保留第二行，开关关闭时恢复单行。 */
+    public static String suggestionAnnotation(boolean visible, String reading) {
+        return !visible ? "" : reading == null || reading.isEmpty() ? "\u00A0" : reading;
+    }
 }

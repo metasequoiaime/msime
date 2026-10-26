@@ -17127,10 +17127,10 @@ fn pronunciation_request_reads_the_table_beside_resources() {
 }
 
 #[test]
-fn pronunciation_request_falls_back_to_explicit_bundled_table() {
+fn pronunciation_request_uses_installed_android_resource_pack() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("state/generation");
-    let supplementary = root.path().join("bundle/Contents/Resources");
+    let supplementary = root.path().join("state/resource-packs");
     std::fs::create_dir_all(&resources).unwrap();
     let install = |directory: &std::path::Path, reading: &str| {
         std::fs::create_dir_all(directory).unwrap();
@@ -17167,7 +17167,7 @@ fn pronunciation_request_falls_back_to_explicit_bundled_table() {
     let result = call(request.clone());
     assert_eq!(
         result["ok"], true,
-        "包内音标表必须能作为旧资源目录的显式回退：{result}"
+        "Android 安装的音标包必须能经显式补充目录读取：{result}"
     );
     assert_eq!(
         result["value"],
