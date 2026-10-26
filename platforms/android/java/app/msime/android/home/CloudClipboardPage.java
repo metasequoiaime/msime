@@ -319,8 +319,8 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         boolean editing = current.mode() == Mode.WEBDAV;
         boolean keepPassword = editing && current.secretSaved();
         InputDialog dialog = new InputDialog(requireContext(), "WebDAV 网盘",
-            "服务器地址是网盘里存放云剪贴板的文件夹，例如坚果云的 https://dav.jianguoyun.com/dav/msime，必须是 HTTPS，证书要由公网信任的机构签发。账号是网盘的登录账号（坚果云是登录邮箱）；应用密码在网盘的安全设置里为第三方应用生成，不是登录密码，只存在本机，不随设置导出或账号同步。\n" + WEBDAV_NOTE);
-        EditText url = dialog.addField("https://dav.jianguoyun.com/dav/msime", editing ? current.url() : "",
+            "服务器地址是网盘里存放云剪贴板的文件夹，例如坚果云的 https://dav.jianguoyun.com/dav/msime；应用密码是网盘为第三方应用生成的密码，不是登录密码。\n" + WEBDAV_NOTE);
+        EditText url = dialog.addField("服务器地址", editing ? current.url() : "",
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         EditText account = dialog.addField("账号", editing ? current.username() : "",
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
