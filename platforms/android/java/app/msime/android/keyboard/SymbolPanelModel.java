@@ -134,10 +134,10 @@ public final class SymbolPanelModel {
             && TextPolicy.codePointLength(symbol) > SHORT_SYMBOL_CODE_POINTS;
     }
 
-    /** 固定分类里的长条目至少跨两列，再按实际字宽增加跨度；目录分页保持等宽格。 */
+    /** 非颜文字分类里的长条目至少跨两列，再按实际字宽增加跨度；目录分页也按实际字宽排版。 */
     public static int cellColumnSpan(Category category, String symbol, float textWidth,
             float columnWidth, float cellInset) {
-        if (category.fromCatalog() || !singleLineCell(category, symbol)) return 1;
+        if (category.kaomoji() || !singleLineCell(category, symbol)) return 1;
         int measured = columnWidth > 0 ? (int) Math.ceil((textWidth + cellInset) / columnWidth) : 2;
         return Math.min(category.columns(), Math.max(2, measured));
     }

@@ -98,8 +98,10 @@ public final class SymbolPanelModelSmoke {
             "single symbols keep their compact cells");
         check(SymbolPanelModel.cellColumnSpan(SymbolPanelModel.categories(List.of()).get(0), "@gmail.com", 80, 60, 12) == 2,
             "recents use the same wider suffix rule");
+        check(SymbolPanelModel.cellColumnSpan(SymbolPanelModel.categories(List.of()).get(7), "(long symbol)", 80, 60, 12) == 2,
+            "catalog symbols use the measured width");
         check(SymbolPanelModel.cellColumnSpan(SymbolPanelModel.categories(List.of()).get(6), "(long face)", 112, 60, 12) == 1,
-            "catalog pagination and kaomoji keep the existing layout");
+            "kaomoji keep their two-column layout");
 
     }
 
