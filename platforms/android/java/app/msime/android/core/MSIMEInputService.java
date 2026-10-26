@@ -4764,7 +4764,8 @@ public final class MSIMEInputService extends InputMethodService {
     java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
-            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"),
+            uriPeriodPrimary());
     }
 
     private boolean quickPunctuationVisible() {
@@ -4783,6 +4784,11 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean commaSecondaryPeriod() {
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
             && KeyboardActionRow.usesCommaSecondaryPeriod(imeLetterRows.drawnTouchLayout());
+    }
+
+    private boolean uriPeriodPrimary() {
+        return QuickPunctuationPolicy.uriPeriodPrimary(dedicatedEnglish, editorInputType,
+            commaSecondaryPeriod());
     }
 
     /** 手写底行在场：逗号长按输入问号、句号长按输入叹号，接替原来书写区左列的 ？ ！。 */
@@ -4815,12 +4821,13 @@ public final class MSIMEInputService extends InputMethodService {
         CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
         boolean question = handwritingMarksShown();
         if (quickPunctuationButton instanceof KeyHintButton hintButton) {
-            hintButton.setCornerHint(commaSecondaryPeriod()
+            hintButton.setCornerHint(uriPeriodPrimary() ? "," : commaSecondaryPeriod()
                 ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks())
                 : question ? ChineseSymbolFaces.face("?", sendsChinesePunctuation(), punctuationMarks()) : "");
         }
         quickPunctuationButton.setContentDescription("常用标点：" + face
-            + (commaSecondaryPeriod() ? "；长按输入句号" : question ? "；长按输入问号" : "；长按选择常用标点"));
+            + (uriPeriodPrimary() ? "；长按输入逗号" : commaSecondaryPeriod() ? "；长按输入句号"
+                : question ? "；长按输入问号" : "；长按选择常用标点"));
     }
 
     private void updateSymbolKeyFaces() {
@@ -9298,7 +9305,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (commaSecondaryPeriod() || handwritingMarksShown()) {
                 imeKeyFeedback.playFeedback(quickPunctuationButton);
                 countKey(quickPunctuationButton);
-                type(commaSecondaryPeriod() ? '.' : '?');
+                type(uriPeriodPrimary() ? ',' : commaSecondaryPeriod() ? '.' : '?');
             } else showQuickPunctuationMenu();
             return true;
         });
