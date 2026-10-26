@@ -125,9 +125,9 @@ pub unsafe extern "C" fn msime_client_resource_packs(
 
 /// 下载、校验并发布一个资源包。阻塞到结束：只能在工作线程上调用。
 ///
-/// Request `{"state_root": "<absolute dir>", "pack": "<id>", "sources": ["https://mirror/", ...]}`; `sources` is optional, the user's mirror prefixes in the order to try (empty strings are skipped). After them come the project's own mirrors and finally the URL in the compiled lock; every byte is checked against the lock's size and SHA-256 whichever source served it, and an unfinished file is resumed with an HTTP Range request on the next call. Response value `{"path": "<state_root>/resource-packs/<id>"}`.
+/// Request `{"state_root": "<absolute dir>", "pack": "<id>", "sources": ["https://mirror/", ...]}`; `sources` is optional, the user's mirror prefixes in the order to try (empty strings are skipped). Fixed resources are checked against the compiled lock's size and SHA-256 whichever source served them, and an unfinished file is resumed with an HTTP Range request on the next call. The replaceable Wanxiang LTS model instead checks the response length and `.gram` format, then records the actual digest in its manifest. Response value `{"path": "<state_root>/resource-packs/<id>"}`.
 ///
-/// With `"files": ["<absolute path>", ...]` (at most 16) the pack is installed from those local files instead of the network (`resource_packs::import`): files are matched by size and SHA-256, never by name, `sources` is ignored, the download phase is reported as "import", a missing file fails with "local_model_import_missing: <name>" and an unreadable one with "local_model_import_unreadable: <detail>".
+/// With `"files": ["<absolute path>", ...]` (at most 16) the pack is installed from those local files instead of the network (`resource_packs::import`): fixed resources are matched by size and SHA-256, while Wanxiang LTS is matched by `.gram` format and records its actual digest; `sources` is ignored, the download phase is reported as "import", a missing file fails with "local_model_import_missing: <name>" and an unreadable one with "local_model_import_unreadable: <detail>".
 ///
 /// `progress` 可为 null，在调用线程上收到 `(context, phase, done, total)`，阶段为
 /// "download"、"import"、"verify"、"done"，阶段字符串只在回调期间有效。
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn msime_client_resource_packs(
 /// 回调可重入 `msime_client_resource_pack_cancel`，取消后返回 "local_model_cancelled"。
 /// 每个资源包同时只允许一个安装或收编，否则返回 "resource_pack_busy"。
 /// 其他错误为 "resource_pack_unknown"、"invalid resource pack request"、"invalid state root"
-/// 或 "local_model_*"（network、http_status、size_mismatch、checksum_mismatch、unsafe_archive、
+/// 或 "local_model_*"（network、http_status、size_mismatch、checksum_mismatch、format_mismatch、unsafe_archive、
 /// missing_file、io、invalid_mirror、invalid_root）。
 ///
 /// # Safety
