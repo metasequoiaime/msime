@@ -5,6 +5,7 @@
 #include "CandidateHttpPolicy.h"
 #include "JapaneseReader.h"
 #include "TranslationDisplay.h"
+#include "TranslationGlossQuery.h"
 
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
@@ -667,7 +668,10 @@ CandidateReadings candidate_readings(const std::string &query_bytes,
             value.contains("translation") && value.at("translation").is_string())
           glossed.emplace(value.at("text").get<std::string>(),
                           value.at("translation").get<std::string>());
-    for (const auto &candidate : query->at("candidates")) {
+    // 「仅当前高亮」时主查询只有高亮的候选，整页在 gloss_query 里（translation_page_candidates）；gloss_query 没经过 query_document 的校验，文字不是字符串的条目跳过。释义按文字取第一条：主查询的回答排在离线释义前面（merge_gloss_answers），和共享层给高亮行画的那条一致。
+    for (const auto &candidate : translation_page_candidates(*query)) {
+      if (!candidate.is_object() || !candidate.contains("text") || !candidate.at("text").is_string())
+        continue;
       const auto text = candidate.at("text").get<std::string>();
       const auto found = glossed.find(text);
       page.emplace_back(text, found == glossed.end() ? std::string{} : found->second);
@@ -854,6 +858,25 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       if (cancelled() || nlohmann::json::parse(translations).empty())
         return std::nullopt;
       return TranslationWorker::Result{lease, generation, translations};
+    }
+
+    // 候选词翻译范围是「仅当前高亮」：主查询只有高亮的那一个候选，整页的离线释义在 gloss_query 里（见 TranslationGlossQuery.h）。两份都走这同一个函数，所以服务、缓存、取消、多种目标语言和离线词典的规则都和普通查询相同；gloss_query 不带服务，不会联网。主查询先算，高亮快速移动时被新请求取代的那一次在这里就停下；它的服务回答照旧按条进 translation_cache_，移回来时不用再问。两份的回答拼成一个数组交回，离线释义每条标上 gloss。要在多种目标语言的拆分之前拿掉 gloss_query，否则它会被复制进每种语言的子查询、再被算一遍。
+    if (query.contains("gloss_query")) {
+      auto primary = query;
+      if (auto gloss = msime::windows::take_gloss_query(primary)) {
+        const auto scoped = translate(lease, primary.dump(), cancelled);
+        if (cancelled())
+          return std::nullopt;
+        const auto offline = translate(lease, gloss->dump(), cancelled);
+        if (cancelled())
+          return std::nullopt;
+        auto merged = msime::windows::merge_gloss_answers(
+            scoped ? std::optional<std::string>(scoped->translations) : std::nullopt,
+            offline ? std::optional<std::string>(offline->translations) : std::nullopt);
+        if (!merged)
+          return std::nullopt;
+        return TranslationWorker::Result{lease, generation, std::move(*merged)};
+      }
     }
 
     // 宿主只有一个候选释义字段，而偏好可以要两种目标语言。每种语言单独翻译，再按偏好顺序每种语言一行拼起来（join_translation_lines，行间是 U+2028），和 macOS 一样第 N 行始终是第 N 种目标语言，某种语言没有释义时留空行。递归调用只带一种目标语言，所以每一行走的服务、缓存、取消和持久化路径都和单语言时完全相同。
