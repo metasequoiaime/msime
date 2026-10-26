@@ -380,6 +380,14 @@ public final class TypingPage extends ReloadingDetailPage {
         translation.toggle("离线英文释义", "给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典",
             glossOn, checked -> savePreferences(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); }));
+        InputFeatureToggle pronunciation = InputFeatureToggle.CANDIDATE_PRONUNCIATION;
+        boolean pronunciationOn = preferences.optBoolean(pronunciation.key(), pronunciation.enabledByDefault());
+        java.io.File phonetics = new java.io.File(requireContext().getFilesDir(),
+            "bootstrap/pronunciations/en-phonetic.db");
+        String pronunciationDescription = phonetics.isFile()
+            ? pronunciation.description() : "离线音标资源缺失，当前无法显示音标；请更新或重新安装应用";
+        translation.toggle(pronunciation.title(), pronunciationDescription, pronunciationOn,
+            checked -> savePreferences(values -> values.put(pronunciation.key(), checked)));
         translation.nav("翻译目标语言", null, labelOf(List.of(TARGET_LANGUAGES), targetLanguage),
             () -> pickTargetLanguage(targetLanguage, glossOn, state));
         if (glossOn && needsGlosses(targetLanguage, state)) {

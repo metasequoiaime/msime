@@ -168,6 +168,17 @@ public final class NativeClient {
             throw new IllegalStateException("Candidate gloss response is too large");
         return TextPolicy.utf8(result);
     }
+    /** 从同级的固定离线音标表读取读音，只在工作线程调用。 */
+    public static String candidatePronunciations(String request, String resources) {
+        byte[] requestBytes = request.getBytes(StandardCharsets.UTF_8);
+        byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
+        if (requestBytes.length > GLOSS_REQUEST_LIMIT || resourcesBytes.length > GLOSS_RESOURCES_LIMIT)
+            throw new IllegalArgumentException("Candidate pronunciation request is too large");
+        byte[] result = candidatePronunciationsRaw(requestBytes, resourcesBytes);
+        if (!HttpBodyPolicy.isWithinLimit(result, GLOSS_RESPONSE_LIMIT))
+            throw new IllegalStateException("Candidate pronunciation response is too large");
+        return TextPolicy.utf8(result);
+    }
     /**
      * 同 {@link #candidateGlosses(String, String)}，另把 {@code stateRoot}（{@code filesDir/bootstrap/state}）写进请求的 {@code state_root}：资源目录旁没有离线释义时，非英语的释义改从下载的 offline-glosses 资源包里读。{@code stateRoot} 为 null 时与原方法相同。Call on a worker.
      */
@@ -1019,6 +1030,7 @@ public final class NativeClient {
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
+    private static native byte[] candidatePronunciationsRaw(byte[] request, byte[] resources);
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
     private static native byte[] polishPromptRaw(byte[] id, byte[] custom1, byte[] custom2,
         byte[] custom3);

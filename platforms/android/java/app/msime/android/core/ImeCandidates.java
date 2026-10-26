@@ -243,11 +243,13 @@ final class ImeCandidates {
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
             : InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "");
-        String annotation = s.candidateAnnotation(candidate, typed);
+        String annotation = s.candidatePronunciationAnnotation(s.candidateAnnotation(candidate, typed), candidate);
         button.setText(s.candidateLabel("", text, annotation, highlighted));
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
+        if (s.candidatePronunciationVisible())
+            button.setEllipsize(android.text.TextUtils.TruncateAt.END);
         KeyboardTypographyPolicy.setKeyTextSize(button, 17);
         ViewPolicy.setSelected(button, highlighted);
         // AI 占位行画淡，云占位行由 ImeCandidateGrid 直接隐藏，免得内部标记进入手机候选面板（#6888）。
@@ -265,7 +267,8 @@ final class ImeCandidates {
             : CandidateGlossPolicy.strictOr(id.opt("index"), -1);
         button.setContentDescription(index < 0 ? "候选" : AiPendingCandidatePolicy.description(source,
             "候选 " + (index + 1) + "：", ContactCandidatePolicy.description(source, text),
-            s.candidateAccessibilitySuffix(candidate, typed)));
+            s.candidateAccessibilitySuffix(candidate, typed)
+                + s.candidatePronunciationAccessibilitySuffix(candidate)));
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {

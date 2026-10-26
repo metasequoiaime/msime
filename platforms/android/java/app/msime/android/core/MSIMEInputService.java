@@ -235,6 +235,15 @@ public final class MSIMEInputService extends InputMethodService {
     // Bumped whenever the field or the open panel changes; a cloud answer started under an older value is dropped rather than drawn into a field it was not fetched for.
     long cloudClipboardGeneration;
     private boolean candidateEnglishGloss;
+    private boolean candidatePronunciationEnabled;
+    private boolean candidatePronunciationAvailable;
+    private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
+    private String candidatePronunciationRequest = "";
+    private long candidatePronunciationEpoch;
+    private JSONObject candidatePronunciationSourceView;
+    private JSONObject candidatePronunciationSourcePanel;
+    private long candidatePronunciationSourceSession;
+    private String candidatePronunciationPreferences = "";
     private boolean candidateTranslationsEnabled;
     // Gates only the account network path (fetch, apply, reserved rows); candidateTranslationsEnabled stays the display gate for translations a candidate already carries.
     private boolean candidateTranslationAccount;
@@ -2142,6 +2151,9 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesDirectory = "";
         emojiResources = "";
         candidateGlossResources = "";
+        candidatePronunciationEnabled = false;
+        candidatePronunciationAvailable = false;
+        invalidateCandidatePronunciations();
         candidateGlossStateRoot = "";
         candidateEnglishGloss = false;
         candidateTranslationsEnabled = false;
@@ -2335,6 +2347,9 @@ public final class MSIMEInputService extends InputMethodService {
             if (new File(resources).isAbsolute()) {
                 emojiResources = resources;
                 candidateGlossResources = resources;
+                File parent = new File(resources).getParentFile();
+                candidatePronunciationAvailable = parent != null && new File(parent,
+                    "pronunciations/en-phonetic.db").isFile();
             }
             String stateRoot = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             candidateGlossStateRoot = new File(stateRoot).isAbsolute() ? stateRoot : "";
@@ -2645,6 +2660,10 @@ public final class MSIMEInputService extends InputMethodService {
             && preferences.optBoolean("candidate_english_gloss", true);
         if (candidateEnglishGloss != next) invalidateCandidateGlosses();
         candidateEnglishGloss = next;
+        boolean pronunciation = preferences != null
+            && preferences.optBoolean("candidate_pronunciation", false);
+        if (candidatePronunciationEnabled != pronunciation) invalidateCandidatePronunciations();
+        candidatePronunciationEnabled = pronunciation;
     }
 
     private void applyEnglishSuggestionsPreference(JSONObject preferences) {
@@ -2771,6 +2790,89 @@ public final class MSIMEInputService extends InputMethodService {
         candidateOfflineGlosses = null;
     }
 
+    private void invalidateCandidatePronunciations() {
+        candidatePronunciationEpoch++;
+        candidatePronunciationRequest = "";
+        candidatePronunciations = java.util.Map.of();
+        candidatePronunciationSourceView = null;
+        candidatePronunciationSourcePanel = null;
+    }
+
+    boolean candidatePronunciationVisible() {
+        return CandidatePronunciationPolicy.visible(candidatePronunciationEnabled,
+            candidatePronunciationAvailable);
+    }
+
+    String candidatePronunciationAnnotation(String annotation, JSONObject candidate) {
+        if (!candidatePronunciationVisible()) return annotation;
+        String translation = candidateEnglishGloss || candidateTranslationsEnabled
+            ? candidateTranslation(candidate) : "";
+        String text = CandidatePronunciationPolicy.lookupText(
+            InputViewValuePolicy.textOr(candidate, "text", ""), translation,
+            candidateTranslationTargets.contains("en"));
+        String reading = candidatePronunciations.getOrDefault(text, "");
+        // 保持候选字的基线稳定：音标尚未到达或这个词查不到时，同样占两行次要文字。
+        String first = annotation.isEmpty() ? "\u00A0" : annotation;
+        return CandidatePronunciationPolicy.withReading(first,
+            reading.isEmpty() ? "\u00A0" : reading);
+    }
+
+    String candidatePronunciationAccessibilitySuffix(JSONObject candidate) {
+        if (!candidatePronunciationVisible()) return "";
+        String text = CandidatePronunciationPolicy.lookupText(
+            InputViewValuePolicy.textOr(candidate, "text", ""),
+            candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
+            candidateTranslationTargets.contains("en"));
+        String reading = candidatePronunciations.getOrDefault(text, "");
+        return reading.isEmpty() ? "" : "，音标：" + reading;
+    }
+
+    private void scheduleCandidatePronunciations() {
+        if (!candidatePronunciationVisible() || session == 0 || view == null
+                || candidateGlossResources.isEmpty()) return;
+        boolean englishTarget = candidateTranslationTargets.contains("en");
+        boolean glossVisible = candidateEnglishGloss || candidateTranslationsEnabled;
+        String preferencesKey = englishTarget + ":" + glossVisible;
+        if (candidatePronunciationSourceView == view
+                && candidatePronunciationSourcePanel == candidatePanelSnapshot
+                && candidatePronunciationSourceSession == session
+                && preferencesKey.equals(candidatePronunciationPreferences)) return;
+        try {
+            JSONObject snapshot = currentCandidateSnapshot();
+            long generation = strictCandidateLong(snapshot, "generation");
+            String request = CandidatePronunciationModel.request(generation,
+                snapshot.getJSONArray("candidates"), englishTarget, glossVisible);
+            candidatePronunciationSourceView = view;
+            candidatePronunciationSourcePanel = candidatePanelSnapshot;
+            candidatePronunciationSourceSession = session;
+            candidatePronunciationPreferences = preferencesKey;
+            String signature = session + ":" + request;
+            if (signature.equals(candidatePronunciationRequest)) return;
+            candidatePronunciationRequest = signature;
+            final long requestedSession = session;
+            final long requestedEpoch = candidatePronunciationEpoch;
+            final String resources = candidateGlossResources;
+            candidateGlossWorker.execute(() -> {
+                try {
+                    java.util.Map<String, String> readings = CandidatePronunciationModel.decode(
+                        NativeClient.candidatePronunciations(request, resources), generation);
+                    main.post(() -> {
+                        if (!candidatePronunciationVisible() || session != requestedSession
+                                || candidatePronunciationEpoch != requestedEpoch || view == null
+                                || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation
+                                || !signature.equals(candidatePronunciationRequest)) return;
+                        candidatePronunciations = readings;
+                        render();
+                    });
+                } catch (JSONException | RuntimeException | LinkageError ignored) {
+                    // 音标只是显示信息，离线表失败时不影响输入，也不记录输入内容。
+                }
+            });
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 输入线程不能因离线音标查询失败而中断。
+        }
+    }
+
     /** The non-English targets with an installed offline dictionary, rechecked whenever the targets, resources or gloss preferences change. */
     private java.util.List<String> candidateOfflineTargets() {
         String key = candidateGlossResources + "\n" + candidateGlossStateRoot + "\n" + candidateTranslationTargets;
@@ -2887,6 +2989,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
+        boolean previousCandidatePronunciation = candidatePronunciationEnabled;
         String previousSpellingPosition = spellingPosition;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
         boolean previousCandidateTranslationAccount = candidateTranslationAccount;
@@ -2921,6 +3024,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
+                || previousCandidatePronunciation != candidatePronunciationEnabled
                 || !previousSpellingPosition.equals(spellingPosition)
                 || previousCandidateTranslations != candidateTranslationsEnabled
                 || previousCandidateTranslationAccount != candidateTranslationAccount
@@ -2993,6 +3097,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
+        boolean nextCandidatePronunciation = preferences.optBoolean("candidate_pronunciation", false);
         String nextSpellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
@@ -3081,6 +3186,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidateEnglishGloss != nextCandidateGloss || candidateTranslationScope != nextTranslationScope)
             invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
+        if (candidatePronunciationEnabled != nextCandidatePronunciation) invalidateCandidatePronunciations();
+        candidatePronunciationEnabled = nextCandidatePronunciation;
         if (englishSuggestionsEnabled != nextEnglishSuggestions) clearEnglishSuggestions();
         englishSuggestionsEnabled = nextEnglishSuggestions;
         if (candidateTranslationsEnabled != nextCandidateTranslations
@@ -4083,10 +4190,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private int candidateGlossLineCount() {
-        return CandidateTranslationPolicy.glossLines(
+        int lines = CandidateTranslationPolicy.glossLines(
             candidateTranslationTargets, candidateEnglishGloss,
             candidateTranslationAccount || candidateTranslationRoute.userService(),
             candidateOfflineTargets());
+        return candidatePronunciationVisible() ? Math.max(2, lines) : lines;
     }
 
     void updateCandidateViewportHeight() {
@@ -8423,7 +8531,7 @@ public final class MSIMEInputService extends InputMethodService {
             candidateDecorationWords.add(new CandidateCanvasAssets.Word(text, badge, highlighted));
         }
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
-        String annotation = candidateAnnotation(candidate, typed);
+        String annotation = candidatePronunciationAnnotation(candidateAnnotation(candidate, typed), candidate);
         // 开着释义时每个候选都占两行：还没有释义（或这个候选没有）的那行用不换行空格占住。否则带释义的 chip 是两行、不带的是一行，居中后候选字一高一低，释义异步到达或候选一换，候选字就上下跳。
         if (annotation.isEmpty() && candidateGlossLineCount() > 0) annotation = "\u00A0";
         // Touch candidates follow Apple's chip surface: the word itself is shown without a
@@ -8436,6 +8544,8 @@ public final class MSIMEInputService extends InputMethodService {
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
+        button.setMaxWidth(candidatePronunciationVisible() ? pixels(240) : Integer.MAX_VALUE);
+        if (candidatePronunciationVisible()) button.setEllipsize(android.text.TextUtils.TruncateAt.END);
         KeyboardTypographyPolicy.setKeyTextSize(button, candidateFontSize);
         ViewPolicy.setSelected(button, highlighted);
         // AI 占位行画淡一些，和真候选区分开；云占位行在候选条循环中直接隐藏。按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
@@ -8444,7 +8554,7 @@ public final class MSIMEInputService extends InputMethodService {
         // Avoid creating its candidate drawables before that pass.
         String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：",
             ContactCandidatePolicy.description(source, text),
-            candidateAccessibilitySuffix(candidate, typed));
+            candidateAccessibilitySuffix(candidate, typed) + candidatePronunciationAccessibilitySuffix(candidate));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null && candidateManagementEnabled()
                 && AiPendingCandidatePolicy.offersMenu(source)
@@ -10281,6 +10391,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 完整列表展开可能换代，先同步再绘制，避免候选文字与选词身份来自两代。
         if (candidatePanelOpen && imeNineKeyPanel.eligible()) imeNineKeyPanel.refreshSnapshot();
         scheduleCandidateGlosses();
+        scheduleCandidatePronunciations();
         // 候选栏跟随光标要先知道这个输入框报不报告光标位置。
         synchronizeCursorUpdates();
         // 浮动开关、外接键盘的候选条模式或候选栏跟随光标变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。

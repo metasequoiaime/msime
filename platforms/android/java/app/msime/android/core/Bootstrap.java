@@ -26,6 +26,7 @@ public final class Bootstrap {
              FileLock lock = channel.lock()) {
             if (!lock.isValid()) throw new IllegalStateException("Bootstrap lock unavailable");
             installOfflineGlosses(context, new File(root, "bootstrap/offline-glosses"));
+            installPronunciations(context, new File(root, "bootstrap/pronunciations"));
             installHelpcodes(context, new File(root, "bootstrap/resources/helpcodes"));
             // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
             installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
@@ -141,6 +142,34 @@ public final class Bootstrap {
         } catch (Exception error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Offline gloss extraction failed", error);
+        }
+    }
+
+    /** 音标表放在词典资源的同级目录；缺少 APK 资源或解包失败时保留空目录，查询返回空读音。 */
+    private static void installPronunciations(Context context, File destination) {
+        try {
+            String stamp = Long.toString(context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
+            File marker = new File(destination, ".package");
+            if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS)
+                    && stamp.equals(readMarker(marker.toPath()))) return;
+            File staging = new File(destination.getParentFile(), "pronunciations.staging");
+            ensureSafeDirectory(destination.getParentFile().toPath());
+            deleteTree(staging);
+            ensureSafeDirectory(staging.toPath());
+            String[] names = context.getAssets().list("pronunciations");
+            for (String name : names == null ? new String[0] : names) {
+                requireAssetName(name);
+                try (InputStream input = context.getAssets().open("pronunciations/" + name)) {
+                    copyAsset(input, new File(staging, name).toPath());
+                }
+            }
+            writeAtomically(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            deleteTree(destination);
+            Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (Exception error) {
+            android.util.Log.w("MSIMEBootstrap", "Pronunciation extraction failed: "
+                + error.getClass().getSimpleName());
         }
     }
 
