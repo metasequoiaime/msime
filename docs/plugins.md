@@ -514,7 +514,10 @@ target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
 
 - `<pack>` 是包的文件夹或 `.zip`，先按 `validate` 的规则检查，不合规时在标准错误上输出和 `validate` 一样的错误行。
 - `--grant all` 授予清单申请的全部能力；`--grant read_commit,rewrite_commit` 逐项授予，规则同授权页（必须是清单申请过的、满足依赖和互斥）；不写时什么都不授予，和刚导入的包一样。
-- 退出码：没有任何失败为 0；有任何失败（包括初始化失败）或包不合规为 1；命令行、`--grant` 或夹具写错为 2。
+- `--settings settings.json` 给清单 `[[script.settings]]` 的值：一个 JSON 对象，键是设置项的 `key`，布尔写 `true`/`false`，选项写它的 `value`，数字写整数，文本写字符串；没写的项用默认值。写了清单里没有的键、或者值不合规，是命令行错误。
+- `--storage file` 给 `persist_data` 存储的初值（原样的字节，不超过 64 KiB），只有申请了 `persist_data` 的包能用；不写时存储是空的。存储在整次运行里跨聚焦保留。
+- 包里的随包数据文件（`[script].data`）原样交给插件，和内容哈希出自同一次读取。
+- 退出码：没有任何失败为 0；有任何失败（包括初始化失败）或包不合规为 1；命令行、`--grant`、`--settings`、`--storage` 或夹具写错为 2。
 
 夹具一行一个 JSON 对象，空行跳过：
 
@@ -541,7 +544,7 @@ target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
   | `composition_end`、`candidates_hidden`   | **`reason`**                                                          |
   | `composition_start`、`composition_update` | `preedit`、`reading`（不写是空串）、`caret`（不写时插件读到 `ABSENT`） |
   | `candidates_shown`、`candidates`         | `candidates`（每行 `text`，可选 `code`、`annotation`、`source`）、`page`（不写是 0）、`highlighted` |
-  | `command`                                | **`trigger`**（清单里声明过的）、`argument`（小写字母，不写是空串）、`random`（128 位十六进制，不写是全 0）；`local_mode` 只能是 `command` |
+  | `command`                                | **`trigger`**（清单里声明过的）、`argument`（小写字母；那条指令写了 `arguments = "extended"` 时另外可以有数字和 `. + - * / % ( ) = ,`；不写是空串）、`random`（128 位十六进制，不写是全 0）、`time`（`{"date":20261026,"minute":870,"weekday":1,"utc_offset":480}`，不写时插件读到的四个时间字段是 `ABSENT`）；`local_mode` 只能是 `command` |
 
 - 枚举字段写名字：`origin` 是 `selection`、`raw`、`held_flush`、`scheme_text`、`focus_loss`；`how`、`outcome`、`reason`、`input_class`、`retraction` 的名字同 SDK 里的常量名（小写），例如 `how` 的 `digit`、`reason` 的 `commit`。
 - 上屏文本是 `body` 接上 `tail`，`body` 是可改写的那一段。`before_commit` 不写 `rewritable` 时，来源是 `selection`、`raw` 或 `held_flush` 并且本地模式是 `none` 才算可改写；输入法还会看选法、输入框和宿主，夹具里需要时显式写。
@@ -557,6 +560,8 @@ target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
 - `actions` 是这次调用修改类函数的记录和输入法给的结果（`ok`、`denied`、`absent`、`invalid`、`limit`）；失败或被本轮配额截断时这些动作在输入法里全部丢弃。
 - `log` 是插件经 `log` 写的每一行，`msime_init` 里写的跟在实例化的那个事件上。
 - `command` 行多一个 `rows`：插件给出的每一行 `[文本, 注释]`，没有正常返回时为空。
+- 申请了 `insert_candidates` 的插件，`candidates` 行多一个 `inserts`：插件经 `candidates_insert` 插的每一行 `[位置, 文本, 注释]`，没有正常返回时为空。
+- 这次投递改了 `persist_data` 的存储时多一个 `storage`：改过之后的字节数 `len`，内容是 UTF-8 时写 `text`，否则写 `hex`。每个事件之后像输入法刷盘那样取走改动，没改的行没有这个字段。
 - `status`：`ok`；`not_subscribed`（清单没声明这个钩子）；本次钩子自己的 fuel 上限耗尽，或者被本轮配额截断时已经用掉本钩子上限的一半或更多，是失败原因 `out_of_fuel`，其他失败原因有 `stack_overflow`、`memory_limit`、`memory_out_of_bounds`、`unreachable`、`trap`、`negative_return`；本轮共享 fuel 配额先用完时是 `turn_exhausted`（调用之前就已用完，或者被截断时这一次用掉的不到本钩子上限的一半），它不算失败，若执行被截断导致实例不可用，下一次事件是 `suspended`；初始化失败 `init:<原因>`（如 `init:init_failed`、`init:abi_mismatch`），之后的事件是 `disabled`；实例因失败丢弃之后（见[失败](#失败)）、下一次 `focus_in` 之前是 `suspended`；初始化预算被本轮用完时是 `deferred`。
 
 实例的生命周期按输入法的规则：第一次需要投递时才实例化，`focus_in` 之前和 `focus_out` 之后丢弃实例，同一轮里重建的实例接着用这一轮剩下的配额。和输入法不同的地方：
