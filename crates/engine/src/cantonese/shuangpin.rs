@@ -82,7 +82,8 @@ pub fn decode(inventory: &Inventory, code: [u8; 2]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::encode;
+    use super::{decode, encode};
+    use crate::cantonese::Inventory;
 
     #[test]
     fn encodes_examples_without_copying_a_dictionary() {
@@ -114,7 +115,7 @@ mod tests {
     #[test]
     fn reverse_lookup_is_bounded_by_the_loaded_inventory() {
         let inventory = Inventory::new(["ngo", "ngoi", "nei", "gaa", "gai"]);
-        assert_eq!(decode(&inventory, *b"vo"), vec!["ngo"]);
+        assert_eq!(decode(&inventory, *b"vo"), vec!["ngo", "ngoi"]);
         assert_eq!(decode(&inventory, *b"nz"), vec!["nei"]);
         assert_eq!(decode(&inventory, *b"ga"), vec!["gaa"]);
         assert!(decode(&inventory, *b"zz").is_empty());
