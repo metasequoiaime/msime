@@ -3944,7 +3944,8 @@ void resync_punctuation_for_mode(IBusEngine *engine) {
   if (s.punctuation_lock != "follow")
     return;
   s.punctuation_override.reset();
-  s.chinese_punctuation = s.input_enabled && s.preferences.value("chinese_punctuation", true);
+  s.chinese_punctuation = s.input_enabled &&
+                          s.configured.at("preferences").value("chinese_punctuation", true);
   if (s.session && s.session_chinese_punctuation != s.chinese_punctuation) {
     s.view = response(
         msime_client_set_chinese_punctuation(s.session, s.chinese_punctuation));
