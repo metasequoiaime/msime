@@ -14,6 +14,7 @@
 
 #[path = "../../shared/common_chars.rs"]
 mod common_chars;
+#[path = "../../shared/rare_scan.rs"]
 mod scan;
 
 use core::ptr::addr_of_mut;

@@ -710,6 +710,16 @@ export class KeyboardScheme {
   }
 
   /**
+   * 英文 26 键字母层的底行在空格左边另放独立句点：123 | 符 | . | 空格 | , | 中 | 回车，与 iOS、Android 一致；中文 26 键仍只有逗号、长按输入句号。
+   *
+   * @param english 当前是英文模式
+   * @param commaSecondaryPeriod 底行是 26 键字母层那一行（`designRowUsesCommaSecondaryPeriod`）
+   */
+  static designRowHasEnglishPeriod(english: boolean, commaSecondaryPeriod: boolean): boolean {
+    return english && commaSecondaryPeriod;
+  }
+
+  /**
    * 触屏 26 键字母层使用 123 | 符 | 空格 | ， | 中/英 | 回车，长按逗号输入句号；14 键和大千注音保留独立逗号句号。只用于设计底行，九键、笔画、手写和假名网格沿用各自底行。
    *
    * @param rulesScheme 按键实际交给的方案（`SchemeCompositionPolicy.selectedRulesScheme`），英文和本地模式下不是注音

@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Bundle;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -33,12 +34,24 @@ import org.json.JSONObject;
  *
  * <p>进度放在共享状态目录（与打字统计同一个：偏好目录，还没有配置时是 `bootstrap/state`），与 Tauri 合包的背单词页是同一份。内置词书由 Bootstrap 解到 `files/bootstrap/wordbooks`，所以资源根传 `files/bootstrap`：共享层在它下面的 `wordbooks/` 里找书，不向上找；这个目录不随词库在线更新变动。
  *
+ * <p>请求带上插件目录（`plugins`，偏好目录下的 `plugins/`，键盘读的那一份）：单词本插件按 `pack-<插件 id>` 列在内置书之后、导入的书之前，在插件页卸载，这里不提供删除。插件详情的「去背单词」经 {@link #openBook} 打开这一页并选中那本书。
+ *
  * <p>同一时间只有一个请求在途：连按两次「认识」时，第二次会按第一次已经替换掉的状态排期。
  */
 public final class VocabularyReviewPage extends ReloadingDetailPage {
     /** 一次请求的结果：成功时 {@link #model} 非空，失败时 {@link #failure} 是要展示的一句话。 */
     private record Outcome(@Nullable VocabularyReviewModel model, String failure) {
         static Outcome failed(String failure) { return new Outcome(null, failure); }
+    }
+
+    /** 打开时要选中的书（插件详情的「去背单词」）。键名带连字符，外部深链的参数键（`HostDeepLink.isAllowedArgKey`）伪造不了它，所以别的应用不能借深链改掉用户选的书。 */
+    private static final String ARG_SELECT_BOOK = "select-book";
+
+    /** 打开背单词并选中 `book`（例如单词本插件的 `pack-<id>`）。 */
+    static void openBook(Context context, String book) {
+        Bundle args = new Bundle();
+        args.putString(ARG_SELECT_BOOK, book);
+        SettingsNavigator.open(context, PageId.VOCABULARY_REVIEW, args);
     }
 
     /** 导入只认文本：CSV、TSV 和 TXT。有的文件管理器把 .csv 报成 Excel 的类型，一并列上。 */
@@ -85,6 +98,23 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
             MsToast.show(requireContext(), outcome.failure());
         }
         render();
+        selectRequestedBook();
+    }
+
+    /** 第一次读到状态后选中参数里要的那本书，只做一次；书不在列表里（插件已卸载）时什么也不做。 */
+    private void selectRequestedBook() {
+        Bundle args = getArguments();
+        String book = args == null ? null : args.getString(ARG_SELECT_BOOK);
+        VocabularyReviewModel current = model;
+        if (book == null || current == null || inFlight > 0) return;
+        args.remove(ARG_SELECT_BOOK);
+        if (book.equals(current.selected())) return;
+        for (VocabularyReviewModel.Wordbook wordbook : current.wordbooks()) {
+            if (wordbook.id().equals(book)) {
+                setSettings(book, current.newPerDay());
+                return;
+            }
+        }
     }
 
     @Nullable private static JSONObject operation(String name) {
@@ -101,15 +131,19 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
         return answer(NativeClient.vocabularyReview(request));
     }
 
-    /** 共享入口的请求：状态目录、内置词书的资源根、本机的今天和动作。 */
+    /** 共享入口的请求：状态目录、内置词书的资源根、插件目录、本机的今天和动作。 */
     @Nullable private static String request(Context context, JSONObject action) {
         File files = context.getFilesDir();
         String directory = HostStore.sharedStateDirectory(context);
         if (files == null || directory.isEmpty()) return null;
+        String preferences = HostStore.directory(context);
         try {
-            return new JSONObject()
+            JSONObject request = new JSONObject()
                 .put("directory", directory)
-                .put("resources", new File(files, "bootstrap").getAbsolutePath())
+                .put("resources", new File(files, "bootstrap").getAbsolutePath());
+            // 单词本插件在键盘读的插件目录里；还没完成首次设置时没有它，只列内置和导入的书。
+            if (!preferences.isEmpty()) request.put("plugins", new File(preferences, "plugins").getAbsolutePath());
+            return request
                 // 本机的日历和时区只有这个进程知道，共享层从不自己推算哪天是今天。
                 .put("day", LocalDate.now().toString())
                 .put("action", action)
@@ -155,7 +189,10 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
             current.wordbooks().isEmpty() ? null : this::chooseWordbook);
         books.slider("每日新词", 0, 200, 5, current.newPerDay(), String::valueOf, this::setNewPerDay);
         books.nav("导入词表（CSV / TXT）", null, null, this::pickImport);
-        if (selected != null && !selected.builtin()) {
+        if (selected != null && selected.pack()) {
+            books.note("这本书来自插件，在「插件」页卸载；卸载后复习进度仍会保留。");
+        }
+        if (selected != null && !selected.builtin() && !selected.pack()) {
             books.button("删除这个词表", "连同它的复习进度一起删除", "删除", () -> confirmRemove(selected));
         }
         books.footer("每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。");
@@ -264,7 +301,7 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
     private void chooseWordbook() {
         VocabularyReviewModel current = model;
         if (current == null) return;
-        OptionSheet sheet = new OptionSheet(requireContext(), "词书", "内置词书和你导入的词表");
+        OptionSheet sheet = new OptionSheet(requireContext(), "词书", "内置词书、单词本插件和你导入的词表");
         sheet.option("未选择", current.selected().isEmpty(), () -> setSettings("", current.newPerDay()));
         for (VocabularyReviewModel.Wordbook book : current.wordbooks()) {
             sheet.option(VocabularyReviewText.wordbookLabel(book), book.id().equals(current.selected()),

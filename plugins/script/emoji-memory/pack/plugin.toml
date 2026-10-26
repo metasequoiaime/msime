@@ -1,0 +1,14 @@
+schema_version = 2
+kind = "script"
+id = "emoji-memory"
+name = "常用表情"
+version = "1.0.0"
+license = "MIT"
+description = "记住你在某个编码下选过的 emoji，下次打同样的编码时插到候选第二位。它把「编码、emoji、次数」长期存在这台电脑上（最多 32 条），授权页会单独提醒。也是持久存储（persist_data）和往候选里加行（insert_candidates）的参考样板。"
+permissions = ["read_candidates", "read_commit", "insert_candidates", "persist_data"]
+
+[script]
+abi = 1
+module = "emoji-memory.wasm"
+hooks = ["candidate_selected", "candidates"]
+memory_pages = 2

@@ -317,6 +317,58 @@ final class ImePanels {
         s.imeStyler.applySkinBackground(s.symbolPanel);
         ViewPolicy.show(s.symbolPanel);
         s.symbolPanel.requestFocus();
+        loadPluginSymbolGroups();
+    }
+
+    /**
+     * 在表情目录的工作线程上读一次插件目录里的符号集（`msime_client_emoji_catalog_request` 的 `list_plugin_symbol_groups`，插件目录是偏好目录下的 `plugins/`，设置里的插件页装的就是这一份），读完换进符号面板（{@link SymbolPanelView#setPluginCategories}）。每次打开面板都读：几个 `plugin.toml` 的量，装上或卸载的包下一次打开就跟上。读不出来时面板只有内置分类，不写日志里不该有的东西（插件目录里的内容是用户自己的）。
+     */
+    private void loadPluginSymbolGroups() {
+        String directory = s.preferencesDirectory;
+        if (directory.isEmpty()) return;
+        // 接口要求 resources 是绝对路径，列插件组时并不读它；内置目录还没准备好时随便给一个应用自己的绝对目录。
+        String resources = s.emojiResources.isEmpty() ? s.getFilesDir().getAbsolutePath() : s.emojiResources;
+        String query;
+        try {
+            query = new JSONObject().put("category", SymbolPanelModel.SYMBOLS_CATALOG).put("limit", 1)
+                .put("list_plugin_symbol_groups", true)
+                .put("plugins", new java.io.File(directory, "plugins").getAbsolutePath()).toString();
+        } catch (JSONException error) {
+            return;
+        }
+        s.emojiWorker.execute(() -> {
+            List<SymbolPanelModel.Category> categories;
+            try {
+                categories = SymbolPanelModel.pluginCategories(decodePluginSymbolGroups(NativeClient.emojiCatalog(query, resources)));
+            } catch (JSONException | RuntimeException | LinkageError error) {
+                categories = List.of();
+            }
+            List<SymbolPanelModel.Category> loaded = categories;
+            s.main.post(() -> {
+                if (s.symbolPanel != null) s.symbolPanel.setPluginCategories(loaded);
+            });
+        });
+    }
+
+    private static List<SymbolPanelModel.PluginGroup> decodePluginSymbolGroups(String response) throws JSONException {
+        JSONObject envelope = new JSONObject(response);
+        if (!Boolean.TRUE.equals(envelope.opt("ok"))) return List.of();
+        JSONArray groups = envelope.getJSONObject("value").optJSONArray("plugin_symbol_groups");
+        if (groups == null) return List.of();
+        List<SymbolPanelModel.PluginGroup> values = new ArrayList<>(groups.length());
+        for (int index = 0; index < groups.length(); index++) {
+            JSONObject group = groups.optJSONObject(index);
+            if (group == null) continue;
+            JSONArray items = group.optJSONArray("items");
+            List<String> texts = new ArrayList<>(items == null ? 0 : Math.min(items.length(), SymbolPanelModel.MAX_PLUGIN_GROUP_ITEMS));
+            for (int item = 0; items != null && item < items.length() && texts.size() < SymbolPanelModel.MAX_PLUGIN_GROUP_ITEMS; item++) {
+                if (items.opt(item) instanceof String text) texts.add(text);
+            }
+            values.add(new SymbolPanelModel.PluginGroup(JsonPolicy.strictStringOrEmpty(group.opt("pack")),
+                JsonPolicy.strictStringOrEmpty(group.opt("pack_name")), JsonPolicy.strictStringOrEmpty(group.opt("tab")),
+                JsonPolicy.strictStringOrEmpty(group.opt("title")), texts));
+        }
+        return values;
     }
 
     void showReplyKeyboard() {

@@ -1,0 +1,19 @@
+schema_version = 2
+kind = "script"
+id = "calc"
+name = "计算"
+version = "1.0.0"
+license = "MIT"
+description = "指令扩展参数（arguments = \"extended\"）的参考样板：在 / 指令里打 /calc 加算式，例如 /calc12*(3+4)，给出结果和「算式=结果」。按分数精确计算，除不尽时保留 10 位小数。"
+permissions = ["provide_commands"]
+
+[script]
+abi = 1
+module = "calc.wasm"
+hooks = ["command"]
+memory_pages = 2
+
+[[script.commands]]
+trigger = "calc"
+title = "计算"
+arguments = "extended"

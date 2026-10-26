@@ -1,0 +1,4 @@
+{"seq": 1, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "reset: unreadable storage"}, {"level": "debug", "text": "xiao: none"}], "inserts": []}
+{"seq": 2, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "xiao: no insert"}], "inserts": []}
+{"seq": 3, "event": "candidate_selected", "status": "ok", "actions": [{"import": "storage_write", "result": "ok"}], "log": [{"level": "debug", "text": "learn xiao 😂 1"}], "storage": {"len": 79, "text": "emoji-memory 1\n00001 xiao                     😂                            \n"}}
+{"seq": 4, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_insert", "result": "ok"}], "log": [{"level": "debug", "text": "xiao: insert 😂"}], "inserts": [[1, "😂", "常用"]]}

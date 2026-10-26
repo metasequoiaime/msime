@@ -41,7 +41,7 @@ import org.json.JSONObject;
 /**
  * 设置 tab：键盘有没有设置好、现在是什么样、一个试用入口，以及各组设置的入口。
  *
- * <p>按设计的 Android 设置首页排。状态卡回答决定键盘能不能用的两件事——系统里启用了没有、是不是默认输入法——并把补上缺的那一步的操作放在旁边；卡里还有系统输入法设置的链接和整宽的「试用键盘」。下面的分组按 P11：[皮肤, 键盘] [输入, 表达, 词库] [语音输入, 手写输入] [开发者选项]，每行的副标题是当前值，点开经 {@link SettingsNavigator#open} 压入详情页。搜索胶囊同时找 {@link PageId} 的标题与关键词和本页各行。
+ * <p>按设计的 Android 设置首页排。状态卡回答决定键盘能不能用的两件事——系统里启用了没有、是不是默认输入法——并把补上缺的那一步的操作放在旁边；卡里还有系统输入法设置的链接和整宽的「试用键盘」。下面的分组按 P11：[皮肤, 键盘] [输入, 表达, 词库, 常用语] [AI 润色与回复, 插件] [语音输入, 手写输入] [开发者选项]，每行的副标题是当前值，点开经 {@link SettingsNavigator#open} 压入详情页。搜索胶囊同时找 {@link PageId} 的标题与关键词和本页各行。
  */
 public final class KeyboardFragment extends HomeTabFragment {
 
@@ -227,6 +227,8 @@ public final class KeyboardFragment extends HomeTabFragment {
         row(typing, PageId.PHRASES, R.drawable.ic_ms_chat);
         HomeNavGroup ai = HomeNavGroup.add(rows);
         row(ai, PageId.AI_SETTINGS, R.drawable.ic_ms_star);
+        // 插件和 AI 一样是「工具」：共享设置页把它们放在同一组（`settings-page-registry.ts` 的「工具」）。
+        row(ai, PageId.PLUGINS, R.drawable.ic_ms_extension);
         HomeNavGroup other = HomeNavGroup.add(rows);
         row(other, PageId.VOICE, R.drawable.ic_ms_mic);
         row(other, PageId.HANDWRITING, R.drawable.ic_ms_edit);

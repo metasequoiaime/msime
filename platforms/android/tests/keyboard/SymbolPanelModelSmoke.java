@@ -1,3 +1,4 @@
+import app.msime.android.SymbolCategoryOrderPolicy;
 import app.msime.android.SymbolPanelModel;
 
 import java.util.ArrayList;
@@ -172,6 +173,41 @@ public final class SymbolPanelModelSmoke {
             "undrawable single symbols leave 常用, multi-glyph entries stay: " + recentsShown);
         check(!judged.contains("http://") && !judged.contains("❤️‍🔥") && judged.contains("❤️"),
             "only single code points (with an optional variation selector) are judged: " + judged);
+        pluginCategories();
+    }
+
+    /** 符号集插件：符号组按插件合成一个分类排在最后，颜文字组逐组紧跟在「颜文字」之后，坏组跳过。 */
+    private static void pluginCategories() {
+        List<SymbolPanelModel.PluginGroup> groups = List.of(
+            new SymbolPanelModel.PluginGroup("arrows", "我的箭头", "symbols", "箭头", List.of("→", "←")),
+            new SymbolPanelModel.PluginGroup("faces", "表情", "kaomoji", "开心", List.of("(^_^)", "")),
+            new SymbolPanelModel.PluginGroup("arrows", "我的箭头", "symbols", "斜箭头", List.of("↗", "x".repeat(65))),
+            new SymbolPanelModel.PluginGroup("bad", "坏", "emoji", "未知的页", List.of("x")),
+            new SymbolPanelModel.PluginGroup("empty", "空", "symbols", "空组", List.of(" ")),
+            new SymbolPanelModel.PluginGroup("faces", "表情", "kaomoji", "难过", List.of("(T_T)")));
+        List<SymbolPanelModel.Category> plugins = SymbolPanelModel.pluginCategories(groups);
+        check(plugins.size() == 3, "one symbols category per pack, one kaomoji category per group: " + plugins.size());
+        SymbolPanelModel.Category arrows = plugins.get(0);
+        check(arrows.title().equals("我的箭头") && arrows.symbols().equals(List.of("→", "←", "↗"))
+            && !arrows.kaomoji() && arrows.plugin() && arrows.remembers() && !arrows.fromCatalog()
+            && arrows.columns() == SymbolPanelModel.COLUMNS, "a pack's symbols groups are one category, overlong items dropped");
+        check(plugins.get(1).title().equals("开心") && plugins.get(1).kaomoji() && !plugins.get(1).remembers()
+            && plugins.get(1).columns() == SymbolPanelModel.KAOMOJI_COLUMNS && plugins.get(1).symbols().equals(List.of("(^_^)")),
+            "a kaomoji group is laid out like kaomoji and not remembered");
+        check(!plugins.get(1).id().equals(plugins.get(2).id()), "two kaomoji groups of one pack have distinct ids");
+
+        List<SymbolPanelModel.Category> all = SymbolPanelModel.categories(List.of(), SymbolCategoryOrderPolicy.DEFAULT_ORDER, plugins);
+        List<String> ids = new java.util.ArrayList<>();
+        for (SymbolPanelModel.Category category : all) ids.add(category.id());
+        int kaomoji = ids.indexOf("kaomoji");
+        check(ids.get(kaomoji + 1).equals(plugins.get(1).id()) && ids.get(kaomoji + 2).equals(plugins.get(2).id()),
+            "kaomoji groups follow 颜文字: " + ids);
+        check(ids.get(ids.size() - 1).equals(arrows.id()), "symbols packs come after the built-in categories: " + ids);
+        check(SymbolPanelModel.categories(List.of(), SymbolCategoryOrderPolicy.DEFAULT_ORDER, List.of())
+            .equals(SymbolPanelModel.categories(List.of(), SymbolCategoryOrderPolicy.DEFAULT_ORDER)), "no plugins, no change");
+        check(SymbolPanelModel.initialCategory(List.of(), SymbolCategoryOrderPolicy.DEFAULT_ORDER, plugins)
+            == SymbolPanelModel.initialCategory(List.of(), SymbolCategoryOrderPolicy.DEFAULT_ORDER), "常用 stays the first page");
+        check(SymbolPanelModel.pluginCategories(null).isEmpty(), "no answer, no plugin categories");
     }
 
     private static void check(boolean condition, String message) {

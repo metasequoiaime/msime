@@ -1,0 +1,52 @@
+{"seq": 1, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["7", "结果"], ["1+2*3=7", "算式"]]}
+{"seq": 2, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["84", "结果"], ["12*(3+4)=84", "算式"]]}
+{"seq": 3, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["0.3", "结果"], ["0.1+0.2=0.3", "算式"]]}
+{"seq": 4, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["0.3333333333", "约等于"], ["1/3≈0.3333333333", "算式"]]}
+{"seq": 5, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["0.6666666667", "约等于"], ["2/3≈0.6666666667", "算式"]]}
+{"seq": 6, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["1", "结果"], ["1/3*3=1", "算式"]]}
+{"seq": 7, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["-1", "结果"], ["-7%3=-1", "算式"]]}
+{"seq": 8, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["1.5", "结果"], ["7.5%2=1.5", "算式"]]}
+{"seq": 9, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["1", "结果"], ["7%-3=1", "算式"]]}
+{"seq": 10, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["2.5", "结果"], ["10/4=2.5", "算式"]]}
+{"seq": 11, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 3 rows"}], "rows": [["3000000", "结果"], ["1,000,000*3=3000000", "算式"], ["3,000,000", "千分位"]]}
+{"seq": 12, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row"}], "rows": [["1000", "结果"]]}
+{"seq": 13, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row"}], "rows": [["1234.5", "结果"]]}
+{"seq": 14, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 3 rows"}], "rows": [["123456789000", "结果"], ["123456789*1000=123456789000", "算式"], ["123,456,789,000", "千分位"]]}
+{"seq": 15, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["10", "结果"], ["-(2+3)*-2=10", "算式"]]}
+{"seq": 16, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["3", "结果"], ["1+2=3", "算式"]]}
+{"seq": 17, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["-4", "结果"], ["1-2-3=-4", "算式"]]}
+{"seq": 18, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["2", "结果"], ["100/10/5=2", "算式"]]}
+{"seq": 19, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["2", "结果"], ["2*3%4=2", "算式"]]}
+{"seq": 20, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["5.5", "结果"], [".5+5.=5.5", "算式"]]}
+{"seq": 21, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["0.1428571429", "约等于"], ["1/7≈0.1428571429", "算式"]]}
+{"seq": 22, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["-0.3333333333", "约等于"], ["-1/3≈-0.3333333333", "算式"]]}
+{"seq": 23, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row"}], "rows": [["0", "约等于"]]}
+{"seq": 24, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row"}], "rows": [["1", "约等于"]]}
+{"seq": 25, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row"}], "rows": [["0", "约等于"]]}
+{"seq": 26, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["9223372036854775807", "结果"], ["9,223,372,036,854,775,807", "千分位"]]}
+{"seq": 27, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["-9223372036854775807", "结果"], ["-9,223,372,036,854,775,807", "千分位"]]}
+{"seq": 28, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: empty"}], "rows": []}
+{"seq": 29, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: empty"}], "rows": []}
+{"seq": 30, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 31, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 32, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 33, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 34, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 35, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 36, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 37, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 38, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 39, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 40, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 41, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: divide by zero"}], "rows": []}
+{"seq": 42, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: divide by zero"}], "rows": []}
+{"seq": 43, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: divide by zero"}], "rows": []}
+{"seq": 44, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: overflow"}], "rows": []}
+{"seq": 45, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: overflow"}], "rows": []}
+{"seq": 46, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row, equation too long"}], "rows": [["0.961646517", "约等于"]]}
+{"seq": 47, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}, {"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 2 rows"}], "rows": [["0.1249999989", "约等于"], ["0.123456789012345678/0.987654321098765432≈0.1249999989", "算式"]]}
+{"seq": 48, "event": "command", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: syntax"}], "rows": []}
+{"seq": 49, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row, equation too long"}], "rows": [["3", "结果"]]}
+{"seq": 50, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row"}], "rows": [["-1", "结果"]]}
+{"seq": 51, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row, equation too long"}], "rows": [["26.8142857143", "约等于"]]}
+{"seq": 52, "event": "command", "status": "ok", "actions": [{"import": "command_row", "result": "ok"}], "log": [{"level": "debug", "text": "calc: 1 row, equation too long"}], "rows": [["4.5949729864", "约等于"]]}

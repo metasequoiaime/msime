@@ -430,6 +430,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// iPad 26 键底行，以空格键的 6.4 为基准（`TabletLetterLayout`）：123 1.5、中 1.2、地球键 1、123 1.5、⌄ 1.2。
   private var tabletActionWidths: [NSLayoutConstraint] = []
   private var phoneExpandedSpaceWidths: [NSLayoutConstraint] = []
+  /// 英文 26 键底行：空格左边多一个句点，空格以 `englishPhoneSpaceWeight` 为基准，其余键与中文 26 键同宽；隐藏 中/英 时用 expanded 那一组。
+  private var phoneEnglishActionWidths: [NSLayoutConstraint] = []
+  private var phoneEnglishExpandedSpaceWidths: [NSLayoutConstraint] = []
   /// 手写底行的弹性权重（`handwritingSpaceWeight` 等）；隐藏 中/英 时改用 expanded 那一组，把它的份额交给空格。
   private var handwritingActionWidths: [NSLayoutConstraint] = []
   private var handwritingExpandedSpaceWidths: [NSLayoutConstraint] = []
@@ -3269,7 +3272,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let splitSpaceWidth = splitSpace.widthAnchor.constraint(equalTo: space.widthAnchor)
     splitSpaceWidth.priority = .init(999)
     splitSpaceWidth.isActive = true
-    // 14 键和手写等底行的独立句号，26 键字母层隐藏。
+    // 14 键和手写等底行的独立句号；26 键字母层只在英文时显示，排在空格左边（`arrangeActionRow`）。
     let period = makeKey(title: "。", accessibilityLabel: "符号 。") { [weak self] in
       self?.countKeyPress(TypingKeyID.character("."))
       self?.handleSymbol(".")
@@ -3443,6 +3446,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true), (delete, 1, true),
       (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ])
+    let englishSpace = Self.englishPhoneSpaceWeight
+    let englishEntries: [(UIView, CGFloat, Bool)] = [
+      (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true),
+      (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
+    ]
+    phoneEnglishActionWidths = expandedWidths(spaceWeight: englishSpace, entries: englishEntries)
+      + [weight(language, 1.05, space: englishSpace)]
+    phoneEnglishExpandedSpaceWidths = expandedWidths(spaceWeight: englishSpace + 1.05, entries: englishEntries)
     let handwritingSpace = Self.handwritingSpaceWeight
     let handwritingEntries: [(UIView, CGFloat, Bool)] = [
       (layoutToggle, Self.handwritingLayerWeight, false), (globe, 1, true),
@@ -3473,6 +3484,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
+  /// 英文 26 键底行在空格左边多放一个句点（份额 1），这一份从空格里让出，123、符、逗号、中/英、回车保持中文 26 键的宽度。与 Android `KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT`、HarmonyOS `ENGLISH_SPACE_SHARE` 相同。
+  static let englishPhoneSpaceWeight: CGFloat = phoneSpaceWeight - 1
   /// 手写底行 123 |（地球键 1）| ， | 空格 | 。 | 中 | 重写 | ⌫ | 回车 的弹性权重，三个移动端相同（Android `KeyboardActionRow.HANDWRITING_*_WEIGHT`、HarmonyOS `HANDWRITING_*_SHARE`，`scripts/test-mobile-handwriting-pad-parity.py` 比对）。空格从 4 让到 2.4、回车从 1.9 让到 1.6（与九键底行的回车相同），腾出「重写」和 ⌫ 的位置：320pt 宽时 ， 。 约 25pt，与 26 键字母键相当，空格仍放得下麦克风和「手写」。
   static let handwritingLayerWeight: CGFloat = 1.25
   static let handwritingPunctuationWeight: CGFloat = 1
@@ -5450,12 +5463,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     (trigger: "M", title: "颜文字", key: "kaomoji"),
     (trigger: "R", title: "临时日语", key: "temporary_japanese"),
     (trigger: "C", title: "拆字", key: "chaizi"),
+    // 「/ 指令」不是 Shift 加字母：中文标点下没有输入时按 / 打开，`openLocalInputMode` 把它当标点交给会话。指令表插件在这里起作用。
+    (trigger: "/", title: "指令", key: "command"),
   ]
+
+  /// 默认关闭的模式，与 client-core 的 `LocalModePreferences` 相同：文档里没写时 / 指令是关的，其余是开的。
+  static let localInputModesOffByDefault: Set<String> = ["command"]
 
   /// The modes the settings app leaves on. The Engine refuses to open a mode turned off there, so offering one would be a menu entry that does nothing.
   private var enabledLocalInputModes: [(trigger: String, title: String, key: String)] {
-    let stored = session.sharedPreferences?["local_modes"] as? [String: Any] ?? [:]
-    return Self.localInputModes.filter { stored[$0.key] as? Bool ?? true }
+    Self.enabledLocalInputModes(in: session.sharedPreferences)
+  }
+
+  /// 文档里开着的本地输入模式，按菜单顺序。不是 private：测试会固定它。
+  static func enabledLocalInputModes(in preferences: [String: Any]?) -> [(trigger: String, title: String, key: String)] {
+    let stored = preferences?["local_modes"] as? [String: Any] ?? [:]
+    return localInputModes.filter { stored[$0.key] as? Bool ?? !localInputModesOffByDefault.contains($0.key) }
   }
 
   private func updatePreeditButton() {
@@ -5540,9 +5563,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   func openLocalInputMode(_ trigger: String) {
     playInputClick()
+    // / 指令要中文标点、没有输入；英文标点下按 / 只会写出一个斜杠，所以先问会话 `/` 此刻能不能打开它。
+    if trigger == "/" && !session.slashOpensCommandMode() {
+      showDiagnostic("切到中文标点后才能打开指令（/ 模式）")
+      renderCandidateStrip()
+      return
+    }
     localModeTrigger = trigger
     showsSymbols = false
-    render(session.openLocalMode(trigger))
+    render(trigger == "/" ? session.handlePunctuation("/") : session.openLocalMode(trigger))
   }
 
   private func chineseOutput(_ text: String, source: Int? = nil) -> String {
@@ -5866,6 +5895,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown, numberPad: numberPad)
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
         + tabletActionWidths + phoneExpandedSpaceWidths + nineKeyExpandedSpaceWidths
+        + phoneEnglishActionWidths + phoneEnglishExpandedSpaceWidths
         + handwritingActionWidths + handwritingExpandedSpaceWidths
         + tabletExpandedSpaceWidths + tabletSplitExpandedSpaceWidths
         + numberPadActionWidths + numberPadExpandedZeroWidths
@@ -5904,7 +5934,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // 手机 26 键独立逗号，长按输入句号；14 键和手写保留两个标点键。
       quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden && style == .standard
-      periodKey.isHidden = style != .phone || showsSymbols || phoneLetterSymbols
+      // 英文 26 键在空格左边放独立句点、右边是逗号（中文 26 键仍只有逗号，长按输入句号）。
+      let englishPeriod = phoneLetterSymbols && !isChineseMode
+      periodKey.isHidden = style != .phone || showsSymbols || (phoneLetterSymbols && !englishPeriod)
       let punctuation = quickPunctuationSymbols
       if phoneRow && !usesCustomQuickPunctuation {
         // 手机底行按当前标点模式更新键面。
@@ -5962,6 +5994,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       case .phone:
         NSLayoutConstraint.activate(handwritingRow
           ? (hidesLanguage ? handwritingExpandedSpaceWidths : handwritingActionWidths)
+          : englishPeriod ? (hidesLanguage ? phoneEnglishExpandedSpaceWidths : phoneEnglishActionWidths)
           : (hidesLanguage ? phoneExpandedSpaceWidths : phoneActionWidths))
       case .nineKey:
         if numberPad {
@@ -6053,7 +6086,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 屏幕上当前界面画哪种底行。
   private enum ActionRowStyle {
-    /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；14 键和手写保留独立逗号句号。中/英 紧挨回车左边。
+    /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；英文 26 键在空格左边多一个句点（123 | 符 | . | space | , | 中 | return）；14 键和手写保留独立逗号句号。中/英 紧挨回车左边。
     case phone
     /// 九键外框：符 | 123 | space | 中 | return；数字层为 九键 | 0 | 空格 | 中 | return，符固定在左侧栏。
     case nineKey
@@ -6079,7 +6112,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch style {
     case .phone:
       order = commaSecondary
-        ? [toggle, globe, symbols, space, gap, splitSpace, comma, language, enter, delete, period, emoji, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
+        ? [toggle, globe, symbols, period, space, gap, splitSpace, comma, language, enter, delete, emoji, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
         : [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, rewrite, handwritingDelete, enter, emoji, zero, tabletLayer, dismiss]
     case .nineKey:
       order = numberPad
@@ -8110,10 +8143,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       },
       onClose: { [weak self] in self?.closeKeyboardPicker() },
       onABC: { [weak self] in self?.closeKeyboardPicker() },
-      onSticker: { [weak self] sticker in self?.copySticker(sticker) })
+      onSticker: { [weak self] sticker in self?.copySticker(sticker) },
+      pluginKaomoji: pluginsDirectory.map { KeyboardEmojiCatalog.pluginSymbolGroups(resources: resources, plugins: $0) } ?? [])
     applyEmojiPickerAppearance(picker)
     emojiPicker = picker
     installPanel(picker)
+  }
+
+  /// 插件目录：会话的状态目录（App Group 里与设置 App 共用的那一个）下的 `plugins`，符号集插件从这里读。会话没准备好时为 nil。
+  private var pluginsDirectory: String? {
+    session.stateDirectory.map { ($0 as NSString).appendingPathComponent("plugins") }
   }
 
   /// 键盘扩展没有把图片插进输入框的接口，表情包转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
@@ -8172,7 +8211,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     render(session.finishComposition())
     // Without staged resources the phone categories still work; only the Engine catalog's categories are missing.
-    let catalog = session.candidateGlossResources().flatMap { $0.isEmpty ? nil : KeyboardSymbolPanelView.Catalog.engine(resources: $0) }
+    let plugins = pluginsDirectory
+    let catalog = session.candidateGlossResources().flatMap {
+      $0.isEmpty ? nil : KeyboardSymbolPanelView.Catalog.engine(resources: $0, plugins: plugins)
+    }
     let panel = KeyboardSymbolPanelView(catalog: catalog, recents: KeyboardSymbolRecents.stored, onInsert: { [weak self] symbol in
       self?.countKeyPress(TypingKeyID.character(symbol))
       self?.playInputClick()

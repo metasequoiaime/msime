@@ -28,6 +28,9 @@ public final class VocabularyReviewTextSmoke {
         check(VocabularyReviewText.wordbookLabel(new Wordbook("cet4", "CET-4", 3849, true))
                 .equals("CET-4（3849 词）"),
             "a book is listed with its word count");
+        check(VocabularyReviewText.wordbookLabel(new Wordbook("pack-cet4", "我的四级", 12, false, true))
+                .equals("我的四级（12 词） · 插件"),
+            "a wordbook plugin says where it came from, as the shared page does");
 
         check(VocabularyReviewText.importName("考研核心词.csv").equals("考研核心词"),
             "the extension is dropped from the imported name");

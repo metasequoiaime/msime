@@ -31,6 +31,31 @@ final class VocabularyReviewTests: XCTestCase {
 
   private let list = "alpha,/a/,adj. 甲\nbeta,adj. 乙\ngamma,adj. 丙\n"
 
+  /// 单词本插件装在共享状态目录的 `plugins/` 里（插件页和键盘读的是同一份），背单词把它列在导入的词表之前、标成插件；选它就能复习，在背单词里删不掉。
+  func testWordbookPluginsAreListedFromTheSharedPluginsFolder() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let pack: [String: Any] = [
+      "kind": "wordbook", "id": NSNull(), "name": "合成词书", "version": "1.0.0", "license": "CC0-1.0",
+      "author": NSNull(), "description": NSNull(), "words": [["word": "delta", "phonetic": NSNull(), "gloss": "丁"]],
+    ]
+    guard case .success(let value) = MetasequoiaInputSessionBridge.plugins(
+      ["operation": "authoring_save", "pack": pack, "replace": false], stateRoot: directory),
+      let id = (value as? [String: Any])?["id"] as? String else { return XCTFail("authoring_save 失败") }
+
+    let store = VocabularyReviewStore(directory: directory, resources: nil)
+    let imported = try store.importWordbook(name: "合成词表", text: list)
+    let book = try XCTUnwrap(imported.wordbooks.first { $0.id == "pack-\(id)" }, "\(imported.wordbooks)")
+    XCTAssertTrue(book.pack)
+    XCTAssertFalse(book.builtin)
+    XCTAssertEqual(book.total, 1)
+    XCTAssertEqual(imported.wordbooks.map(\.pack), [true, false], "插件词书排在导入的词表之前")
+    let chosen = try store.setSettings(wordbook: book.id, newPerDay: imported.newPerDay, sessionLimit: imported.sessionLimit)
+    XCTAssertEqual(chosen.wordbook, book.id)
+    XCTAssertThrowsError(try store.removeWordbook(book.id), "插件词书在插件页卸载")
+  }
+
   func testImportSelectsTheBookItCreatedAndDealsItsCards() throws {
     let store = temporaryStore()
     XCTAssertTrue(try store.load().wordbooks.isEmpty)

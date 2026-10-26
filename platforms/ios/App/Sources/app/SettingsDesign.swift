@@ -10,14 +10,14 @@ struct GreenSwitchToggleStyle: ToggleStyle {
 
 /// The settings pages the 设置 tab opens, in the order and grouping of the mobile design. Phone and iPad read the same list, so a page added here shows up on both.
 enum SettingsPage: String, CaseIterable, Identifiable {
-  case skin, candidate, toolbar, input, ai, phrases, dictionary, layout, voice, handwriting, developer
+  case skin, candidate, toolbar, input, ai, phrases, dictionary, plugins, layout, voice, handwriting, developer
 
   var id: Self { self }
 
   /// 根页面的各分组，对应 Android 的 `KeyboardFragment.buildRows`。移动端设计稿去掉了 键盘，但它仍留在根页面，因为布局、高度、反馈、候选栏 和 键盘工具栏 都在那里；后两个页面从 键盘 和搜索进入，不从根页面进入。
   static let groups: [[SettingsPage]] = [
     [.skin, .layout],
-    [.input, .ai, .dictionary],
+    [.input, .ai, .dictionary, .plugins],
     [.voice, .handwriting],
     [.developer],
   ]
@@ -31,6 +31,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: return "表达"
     case .phrases: return "常用语"
     case .dictionary: return "词库"
+    case .plugins: return "插件"
     case .layout: return "键盘"
     case .voice: return "语音输入"
     case .handwriting: return "手写输入"
@@ -47,6 +48,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: return "character.bubble.fill"
     case .phrases: return "text.bubble.fill"
     case .dictionary: return "book.closed.fill"
+    case .plugins: return "puzzlepiece.extension.fill"
     case .layout: return "keyboard.fill"
     case .voice: return "mic.fill"
     case .handwriting: return "pencil"
@@ -64,6 +66,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: return ["标点", "联想", "英文", "空格"]
     case .phrases: return ["短语", "快捷回复"]
     case .dictionary: return ["词库", "自造词", "学习"]
+    case .plugins: return ["短语表", "指令表", "符号集", "单词本", "音效包", "辅助码表", "社区插件"]
     case .layout: return ["键盘", "高度", "间距", "按键音", "振动", "AI", "润色", "回复模板", "端点", "模型", "提示词"]
     case .voice: return ["语音", "识别"]
     case .handwriting: return ["手写"]
@@ -81,6 +84,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: return "expressionSettingsLink"
     case .phrases: return "commonPhrasesSettingsLink"
     case .dictionary: return "dictionarySettingsLink"
+    case .plugins: return "pluginsSettingsLink"
     case .layout: return "keyboardLayoutLink"
     case .voice: return "voiceSettingsLink"
     case .handwriting: return "handwritingSettingsLink"
@@ -97,6 +101,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: ExpressionSettingsView()
     case .phrases: CommonPhrasesSettingsView()
     case .dictionary: DictionarySettingsView()
+    case .plugins: PluginsSettingsView()
     case .layout: KeyboardLayoutSettingsView()
     case .voice: VoiceSettingsView()
     case .handwriting: HandwritingSettingsView()
