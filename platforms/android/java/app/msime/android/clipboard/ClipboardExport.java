@@ -48,8 +48,9 @@ public final class ClipboardExport {
                 try { ExportDirectory.inspect(context, selected); }
                 catch (IOException | RuntimeException unavailable) { return "导出文件夹不可用，请重新选择"; }
             }
-            String filename = LocalBackupPolicy.baseName(context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
-                AppVersionPolicy.versionName(context, "0"), LocalDateTime.now()) + ".txt";
+            String filename = LocalBackupPolicy.clipboardFileName(
+                context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
+                AppVersionPolicy.versionName(context, "0"), LocalDateTime.now());
             temporary = new File(context.getCacheDir(), filename);
             Files.write(temporary.toPath(), snapshot.text().getBytes(StandardCharsets.UTF_8));
             // 构建快照期间隐私设置可能已改变，公开文件前再检查一次。

@@ -76,6 +76,12 @@ public final class LocalBackupPolicy {
         return baseName(appName, versionName, now) + ".zip";
     }
 
+    /** 剪贴板历史文本的文件名明确标示内容，仍使用相同的应用名、版本号和分钟时间。 */
+    public static String clipboardFileName(String appName, String versionName, LocalDateTime now) {
+        return safeNamePart(appName, "msime") + "-剪贴板备份-"
+            + safeNamePart(versionName, "0") + "-" + STAMP.format(now) + ".txt";
+    }
+
     static String safeNamePart(String value, String fallback) {
         if (value == null || value.isBlank()) return fallback;
         StringBuilder name = new StringBuilder(value.length());
