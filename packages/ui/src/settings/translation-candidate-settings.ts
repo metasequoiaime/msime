@@ -1,5 +1,6 @@
 import type { Preferences } from "../core/preferences-model";
 import type { CandidateTranslationSettingsSectionProps } from "./candidate-translation-settings-section";
+import type { CandidateTranslationScope } from "./candidate-translation-options-section";
 import type {
   TranslationLanguage,
   TranslationLanguageOption,
@@ -14,6 +15,8 @@ import {
 export interface CandidateTranslationSettingsOptions {
   grouped?: boolean;
   candidateTranslations: boolean;
+  /** 「翻译范围」，缺省按「仅当前高亮」。每个承载共享设置页的宿主都按它请求和绘制候选词翻译。 */
+  candidateTranslationScope?: CandidateTranslationScope;
   translationTargetLanguage: TranslationLanguage;
   translationSecondaryLanguage: TranslationSecondaryLanguage | null | undefined;
   candidateGlossLanguagesEnabled: boolean;
@@ -45,6 +48,7 @@ export interface CandidateTranslationSettingsOptions {
 export function createCandidateTranslationSettings({
   grouped = false,
   candidateTranslations,
+  candidateTranslationScope = "highlighted",
   translationTargetLanguage,
   translationSecondaryLanguage,
   candidateGlossLanguagesEnabled,
@@ -69,6 +73,9 @@ export function createCandidateTranslationSettings({
   return {
     grouped,
     enabled: candidateTranslations,
+    scope: candidateTranslationScope,
+    onScopeChange: (candidate_translation_scope) =>
+      onPreferencesChange({ candidate_translation_scope }),
     targetLanguage: translationTargetLanguage,
     secondaryLanguage: translationSecondaryLanguage ?? "",
     candidateGlossLanguagesEnabled,

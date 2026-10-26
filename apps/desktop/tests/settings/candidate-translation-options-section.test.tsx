@@ -126,3 +126,64 @@ test("the default layout folds only the second language and draws beforeMore aft
     controls.indexOf(screen.getByRole("combobox", { name: "候选词翻译目标语言" })) + 1,
   );
 });
+
+test("offers the translation scope and disables it while translation is off", () => {
+  const onScopeChange = vi.fn();
+  const props = {
+    targetLanguage: "en",
+    secondaryLanguage: null,
+    candidateGlossLanguagesEnabled: true,
+    visibleLanguages: languages,
+    visibleSecondaryLanguages: secondaryLanguages,
+    showSecondaryLanguage: false,
+    showAccountTranslation: false,
+    accountTranslation: false,
+    onEnabledChange: vi.fn(),
+    onTargetLanguageChange: vi.fn(),
+    onSecondaryLanguageChange: vi.fn(),
+    onAccountTranslationChange: vi.fn(),
+    onScopeChange,
+  } as const;
+  const { rerender } = render(<CandidateTranslationOptionsSection enabled {...props} />);
+  const scope = screen.getByRole("combobox", { name: "候选词翻译范围" }) as HTMLSelectElement;
+  // 不传 scope 时按「仅当前高亮」。
+  expect(scope.value).toBe("highlighted");
+  expect(Array.from(scope.options).map((option) => [option.value, option.textContent])).toEqual([
+    ["highlighted", "仅当前高亮"],
+    ["all", "全部"],
+  ]);
+  expect(scope.disabled).toBe(false);
+  fireEvent.change(scope, { target: { value: "all" } });
+  expect(onScopeChange).toHaveBeenCalledWith("all");
+
+  rerender(<CandidateTranslationOptionsSection enabled={false} scope="all" {...props} />);
+  const disabled = screen.getByRole("combobox", { name: "候选词翻译范围" }) as HTMLSelectElement;
+  expect(disabled.value).toBe("all");
+  expect(disabled.disabled).toBe(true);
+
+  // 手机布局同样有这一行，紧跟在开关后面。
+  rerender(<CandidateTranslationOptionsSection enabled layout="phone" {...props} />);
+  const rows = screen.getAllByRole("combobox").map((row) => row.getAttribute("aria-label"));
+  expect(rows[0]).toBe("候选词翻译范围");
+});
+
+test("leaves the scope row out when the host does not bind it", () => {
+  render(
+    <CandidateTranslationOptionsSection
+      enabled
+      targetLanguage="en"
+      secondaryLanguage={null}
+      candidateGlossLanguagesEnabled
+      visibleLanguages={languages}
+      visibleSecondaryLanguages={secondaryLanguages}
+      showSecondaryLanguage={false}
+      showAccountTranslation={false}
+      accountTranslation={false}
+      onEnabledChange={vi.fn()}
+      onTargetLanguageChange={vi.fn()}
+      onSecondaryLanguageChange={vi.fn()}
+      onAccountTranslationChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("combobox", { name: "候选词翻译范围" })).toBeNull();
+});
