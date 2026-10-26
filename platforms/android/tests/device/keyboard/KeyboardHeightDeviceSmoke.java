@@ -226,11 +226,12 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     /**
      * 功能面板和输入方式面板在每一档键盘高度下都放进面板里：外层 ScrollView 没有可滚动的余量，竖着拖动面板磁贴不动，磁贴不矮于 44 dp。用户在 90% 高度下录到功能面板能上下拖动几个像素：行数和行距原先按预测的键区高度挑，比面板实际的高度高出几个像素，三行网格溢出后由 ScrollView 变成了竖向滚动。
      *
-     * <p>高度直接写进本地设置再重启输入法，换算与高度条拖到这一档时相同（{@link app.msime.android.KeyboardHeightPolicy#heightPercentToAdjustment}）。传入 {@code panel-shots} 时每一档各截一张图，供人工比对。
+     * <p>高度直接写进本地设置再重启输入法，换算与高度条拖到这一档时相同（{@link app.msime.android.KeyboardHeightPolicy#heightPercentToAdjustment}）。每一档都查完再一起报告，每档的磁贴高度和拖动位移写进 logcat（`MSIMEPanelFit`）；传入 {@code panel-shots} 时每一档各截一张图，供人工比对。
      */
     private void checkPanelsFit(File localSettings) throws Exception {
         float density = getTargetContext().getResources().getDisplayMetrics().density;
         int minimumTile = (int) Math.floor(PANEL_MIN_TILE_DP * density) - 1;
+        java.util.List<String> problems = new java.util.ArrayList<>();
         try {
             for (int percent : PANEL_FIT_PERCENTS) {
                 stage = "function panel fits at " + percent + "%";
@@ -243,17 +244,18 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                 tap(key("更多").and(AccessibilityNodeInfo::isEnabled));
                 await(toolPanel());
                 showTool("全角");
-                assertPanelFits(toolPanel(), tool("全角"), percent, minimumTile, "function");
+                checkPanelFits(toolPanel(), tool("全角"), percent, minimumTile, "function", problems);
                 tap(key("更多").and(AccessibilityNodeInfo::isEnabled));
                 await(key("n"));
 
                 stage = "input-scheme picker fits at " + percent + "%";
                 tap(schemeButton());
-                assertPanelFits(described("输入方案卡片区域"), describedPrefix("输入方案卡片 "), percent, minimumTile,
-                    "scheme");
+                checkPanelFits(described("输入方案卡片区域"), describedPrefix("输入方案卡片 "), percent, minimumTile,
+                    "scheme", problems);
                 tap(schemeButton());
                 await(key("n"));
             }
+            if (!problems.isEmpty()) throw new AssertionError(String.join("; ", problems));
         } finally {
             publish(localSettings, new JSONObject().put("version", 1).put("settings", new JSONObject()).toString()
                 .getBytes(StandardCharsets.UTF_8));
@@ -262,15 +264,15 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    /** 面板停稳后：外层 ScrollView 不可滚动，竖拖一下第一张磁贴不移位，每张看得见的磁贴不矮于下限。 */
-    private void assertPanelFits(java.util.function.Predicate<AccessibilityNodeInfo> panelMatch,
-            java.util.function.Predicate<AccessibilityNodeInfo> tileMatch, int percent, int minimumTile, String name)
-            throws Exception {
+    /** 面板停稳后：外层 ScrollView 不可滚动，竖拖一下第一张磁贴不移位，磁贴不矮于下限；不满足的记进 {@code problems}，回到面板顶部后接着查下一档。 */
+    private void checkPanelFits(java.util.function.Predicate<AccessibilityNodeInfo> panelMatch,
+            java.util.function.Predicate<AccessibilityNodeInfo> tileMatch, int percent, int minimumTile, String name,
+            java.util.List<String> problems) throws Exception {
         AccessibilityNodeInfo tile = awaitStableBounds(tileMatch);
         AccessibilityNodeInfo panel = await(panelMatch);
         for (AccessibilityNodeInfo node = panel.getParent(); node != null; node = node.getParent()) {
             if (equalsText("android.widget.ScrollView", node.getClassName()) && node.isScrollable())
-                throw new AssertionError("The " + name + " panel scrolls vertically at " + percent + "%");
+                problems.add(name + " panel scrolls vertically at " + percent + "%");
         }
         Rect before = new Rect();
         tile.getBoundsInScreen(before);
@@ -278,8 +280,8 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         panel.getBoundsInScreen(panelBounds);
         if (panelShotPrefix != null)
             shellDiscard("screencap -p " + panelShotPrefix + "-" + name + "-" + percent + ".png");
-        // 竖着拖，横向不动：分页网格只接手横拖，竖拖若能移动磁贴，就只能是外层 ScrollView 在滚。
-        int x = before.centerX();
+        // 贴着网格左边、在 4 dp 的侧边距里竖着拖：起点不落在磁贴上，免得松手点中卡片；分页网格只接手横拖，竖拖若能移动磁贴，就只能是外层 ScrollView 在滚。
+        int x = panelBounds.left + Math.round(2 * getTargetContext().getResources().getDisplayMetrics().density);
         int from = panelBounds.top + panelBounds.height() * 3 / 4;
         int to = panelBounds.top + panelBounds.height() / 4;
         shellDiscard("input swipe " + x + " " + from + " " + x + " " + to + " 300");
@@ -287,12 +289,18 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo moved = awaitStableBounds(tileMatch);
         Rect after = new Rect();
         moved.getBoundsInScreen(after);
-        if (after.top != before.top)
-            throw new AssertionError("Dragging the " + name + " panel at " + percent + "% moved its tiles from "
-                + before.toShortString() + " to " + after.toShortString());
+        android.util.Log.i("MSIMEPanelFit", name + " " + percent + "%: panel " + panelBounds.toShortString() + " tile "
+            + before.toShortString() + " height " + before.height() + " px, drag moved " + (before.top - after.top) + " px");
+        if (after.top != before.top) {
+            problems.add("dragging the " + name + " panel at " + percent + "% moved its tiles by "
+                + (before.top - after.top) + " px");
+            // 拖回去，下一档从面板顶部开始。
+            shellDiscard("input swipe " + x + " " + to + " " + x + " " + from + " 300");
+            SystemClock.sleep(600);
+        }
         if (before.height() < minimumTile)
-            throw new AssertionError("The " + name + " panel tiles are " + before.height() + " px tall at " + percent
-                + "%, below the " + PANEL_MIN_TILE_DP + " dp minimum");
+            problems.add(name + " panel tiles are " + before.height() + " px tall at " + percent + "%, below "
+                + PANEL_MIN_TILE_DP + " dp");
     }
 
     /** 工具栏的输入方式键：描述是「输入方案」或带当前方案名的「输入方案：全拼」，不能按前缀匹配，否则会点到面板里的「输入方案卡片 …」。 */
