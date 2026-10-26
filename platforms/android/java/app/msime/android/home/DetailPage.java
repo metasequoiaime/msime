@@ -18,10 +18,13 @@ import java.util.List;
 import java.util.Map;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 
 /**
  * 详情页基类：顶栏的返回按钮、28sp 的大标题（滚过 28dp 后收成顶栏里 22sp 的栏标题）、`NestedScrollView` 里一列内容，以及底部导航栏与键盘的避让。
@@ -182,6 +185,9 @@ public abstract class DetailPage extends HomeTabFragment {
         return navigation;
     }
 
+    /** 输入法弹出时是否隐藏页面自己的固定分类导航。 */
+    protected boolean hideFixedNavigationWhenIme() { return false; }
+
     /** 页面标题；默认取 {@link PageId} 里登记的标题，需要按参数决定标题的页面（例如词库详情）覆盖它。 */
     protected CharSequence title() {
         PageId page = PageId.forClassName(getClass().getName());
@@ -232,6 +238,16 @@ public abstract class DetailPage extends HomeTabFragment {
             ((FrameLayout) view).addView(navigation, navParams);
             navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom)
                 -> updateNavigationInset(target));
+            if (hideFixedNavigationWhenIme()) {
+                ViewCompat.setOnApplyWindowInsetsListener(view, (target, insets) -> {
+                    ViewPolicy.setVisible(navigation,
+                        WindowInsetsPolicy.shouldShowFixedPageNavigation(
+                            insets.isVisible(WindowInsetsCompat.Type.ime())));
+                    updateNavigationInset(navigation);
+                    return insets;
+                });
+                ViewCompat.requestApplyInsets(view);
+            }
         }
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
         scroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)

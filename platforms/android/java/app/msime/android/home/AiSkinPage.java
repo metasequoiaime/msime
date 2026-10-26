@@ -65,6 +65,8 @@ public final class AiSkinPage extends ColumnDetailPage {
         return java.util.List.of("设计", "音效", "动画");
     }
 
+    @Override protected boolean hideFixedNavigationWhenIme() { return true; }
+
     private static final String STORE = "msime_ai_skin";
     private static final String UNAVAILABLE_UNTIL = "unavailable_until";
     private static final long HIDE_MILLIS = 24L * 60 * 60 * 1000;
