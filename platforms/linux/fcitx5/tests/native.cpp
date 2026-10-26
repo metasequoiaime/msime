@@ -157,6 +157,30 @@ void koreanHanjaGlossRow() {
   }
 }
 // 脚本插件的注释（`script_annotation`）在行尾单独一段，括在六角括号里、标 DontCommit：辅助码设置关着也画，不替换引擎注释，也不进训音；选中用的文本不变，占位行和不合规的文本不画。和上面两个一样不需要资源 fixture。
+// 光标后编辑：首选开头固定的那几个字交给原生画布画淡（dim_prefix_bytes，按转换后的文字计字节）；classicui 的 fcitx::Text 没有颜色格式，那一行照常是一段不带格式的文字。别的行和没有生效时都不画淡。
+void caretEditSuffixRow() {
+  namespace host = msime::linux_host;
+  const auto mode = host::caret_edit_suffix(Json{{"caret_edit_suffix", true}, {"caret_edit_prefix", "我好现"}});
+  const auto row = [&](const char *text, size_t index, bool traditional = false) {
+    const Json candidate{{"text", text}, {"id", Json{{"session", 1}, {"generation", 1}, {"index", index}}}};
+    return FcitxCandidate(nullptr, candidate, traditional, false, std::string(), 0,
+                          host::caret_edit_dim_scalars(mode, candidate));
+  };
+  const auto first = row("我好现吃火锅", 0);
+  require(first.display().dim_prefix_bytes == std::string("我好现").size(),
+          "the fixed part of the first candidate is dimmed on the native canvas");
+  const auto &classic = static_cast<const fcitx::CandidateWord &>(first).text();
+  require(classic.toString() == "我好现吃火锅" && classic.size() == 1 &&
+              classic.formatAt(0) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::NoFlag),
+          "classicui draws the first candidate as one plain segment");
+  require(first.text() == "我好现吃火锅", "the selected text stays the Engine's");
+  require(row("我好现吃火锅", 0, true).display().dim_prefix_bytes == 9,
+          "the dimmed range is counted on the traditional-converted text");
+  require(row("吃火锅", 1).display().dim_prefix_bytes == 0, "other rows are not dimmed");
+  const Json plain{{"text", "我好现吃火锅"}, {"id", Json{{"session", 1}, {"generation", 1}, {"index", 0}}}};
+  require(FcitxCandidate(nullptr, plain, false, false, std::string()).display().dim_prefix_bytes == 0,
+          "nothing is dimmed while the mode is off");
+}
 void scriptAnnotationRow() {
   const auto word = [](Json candidate, bool annotations, const std::string &gloss = std::string()) {
     candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
@@ -1355,6 +1379,7 @@ int main(int argc, char **argv) {
       autocorrectMarker();
       koreanHanjaGlossRow();
       scriptAnnotationRow();
+      caretEditSuffixRow();
       translationPreferenceChangesIncludeAccount();
       const auto sentence = FcitxState::sentenceTranslationQuery(
           Json{{"generation", 17}, {"candidates", Json::array()}}, "合成候选", "fr");

@@ -163,6 +163,55 @@ void rows_and_glosses() {
   cairo_destroy(cr);
 }
 
+// 光标后编辑：提示画在底部一行的右端，只有提示时这一行也出现，和本地模式、连击同在时它们从左边排、互不重叠；首选开头固定的那几个字用序号色画淡，没有提示和画淡时什么都不变。
+void caret_edit_suffix() {
+  const auto target = image(1600, 1000, 0);
+  auto *cr = cairo_create(target.get());
+  auto assets = theme_assets();
+  auto content = page(false);
+  content.preedit.clear();
+  const auto plain = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(plain.auxiliary_hint.width == 0 && plain.auxiliary.width == 0);
+  content.auxiliary_hint = "候选编辑：光标后";
+  const auto hinted = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(hinted.auxiliary_hint.width > 0 && hinted.auxiliary.width == 0);
+  assert(hinted.panel.height > plain.panel.height);
+  assert(hinted.auxiliary_hint.y >= hinted.items.back().y + hinted.items.back().height);
+  // 贴右边距：提示的右缘就是行内文字的右缘（卡片右缘减内边距和右边距）。
+  assert(near(hinted.auxiliary_hint.x + hinted.auxiliary_hint.width,
+              hinted.panel.x + hinted.panel.width - 4 - hinted.text_right, 1));
+  content.auxiliary = "连击 ×12";
+  const auto both = host::measure_native_canvas(cr, *assets, content, 1600);
+  assert(both.auxiliary.width > 0 && both.auxiliary_hint.width > 0);
+  assert(both.auxiliary.x + both.auxiliary.width <= both.auxiliary_hint.x);
+  assert(near(both.auxiliary.y, both.auxiliary_hint.y) && near(both.panel.height, hinted.panel.height, 1));
+  host::paint_native_canvas(cr, *assets, content, both, kPalette);
+  // 提示用次要色（没有皮肤色时是序号色，灰），画在它自己的框里。
+  assert(colors(target.get(), both.auxiliary_hint)[0x808080] > 10);
+
+  // 画淡：第一行不选中，正文白色、序号灰色；画淡开头一个字以后这一行里灰色的像素变多，白色的变少。
+  content.auxiliary.clear();
+  content.auxiliary_hint.clear();
+  content.selected = 1;
+  const auto ink = [&](std::size_t dim_bytes) {
+    content.items[0].dim_prefix_bytes = dim_bytes;
+    const auto layout = host::measure_native_canvas(cr, *assets, content, 1600);
+    cairo_save(cr); cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR); cairo_paint(cr); cairo_restore(cr);
+    host::paint_native_canvas(cr, *assets, content, layout, kPalette);
+    return std::make_pair(layout, colors(target.get(), layout.items[0]));
+  };
+  auto [undimmed_layout, undimmed] = ink(0);
+  auto [dimmed_layout, dimmed] = ink(std::string("你").size());
+  assert(dimmed[0x808080] > undimmed[0x808080] && dimmed[0xffffff] < undimmed[0xffffff] && dimmed[0xffffff] > 0);
+  // 只改颜色：行的大小不变。
+  assert(near(dimmed_layout.items[0].width, undimmed_layout.items[0].width) &&
+         near(dimmed_layout.items[0].height, undimmed_layout.items[0].height));
+  // 整行都画淡时正文里不剩白色；越界的字节数按整段算。
+  auto [whole_layout, whole] = ink(100);
+  assert(whole[0xffffff] == 0 && whole[0x808080] > dimmed[0x808080]);
+  cairo_destroy(cr);
+}
+
 // 悬停和按下：悬停填悬停色、不改变键盘选中；按下画选中色。展开键在首行最右，网格首行是「行 / 总行数」和收起键。
 void pointer_and_grid() {
   const auto target = image(1600, 1000, 0);
@@ -450,6 +499,7 @@ int main() {
   header_row();
   rows_and_glosses();
   pointer_and_grid();
+  caret_edit_suffix();
   scaled();
   band();
   background();
@@ -458,5 +508,5 @@ int main() {
   placement();
   motion();
   selection_motion();
-  std::cout << "原生画布的 macOS 结构：首行、行与释义、悬停、网格、缩放、装饰带、背景图、投影、调色板、定位与动效通过\n";
+  std::cout << "原生画布的 macOS 结构：首行、行与释义、光标后编辑、悬停、网格、缩放、装饰带、背景图、投影、调色板、定位与动效通过\n";
 }

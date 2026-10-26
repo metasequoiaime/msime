@@ -15,6 +15,7 @@
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
+#include "CaretEditSuffix.h"
 #include "JapaneseConversion.h"
 #include "KoreanHanja.h"
 #include "InputSchemes.h"
@@ -3994,7 +3995,7 @@ void underline_preedit(IBusText *text, guint length) {
                              IBUS_ATTR_UNDERLINE_SINGLE, 0,
                              static_cast<gint>(length));
 }
-// The aux line above a candidate page: the page number, the reading when the candidate preedit shows it, the local mode, and the typing combo while there is one.
+// 候选页上方的辅助行：页码、候选预编辑显示拼音时的拼音、本地模式、光标后编辑生效时的「候选编辑：光标后」，最后是打字连击（有的时候）。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
 std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
   auto paging = msime::linux_host::candidate_page_indicator(view.at("page").get<size_t>(),
                                                             view.at("page_count").get<size_t>());
@@ -4014,6 +4015,7 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
     if (!paging.empty()) paging += "  · ";
     paging += label;
   }
+  msime::linux_host::append_caret_edit_suffix_hint(paging, msime::linux_host::caret_edit_suffix(view), "  · ");
   const auto combo = msime::linux_host::typing_combo_label(state(engine).typing_combo);
   if (!combo.empty()) {
     if (!paging.empty()) paging += "  · ";
@@ -4241,9 +4243,12 @@ void render(IBusEngine *engine, const Json &view) {
   auto table = ibus_lookup_table_new(static_cast<guint>(candidates.size()), 0,
                                      TRUE, FALSE);
   ibus_lookup_table_set_orientation(table, state(engine).candidate_orientation);
+  const auto caret_edit = msime::linux_host::caret_edit_suffix(view);
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
+    // 光标后编辑里首选开头固定的那几个字画淡（下面的 dim_end）。字数取自原文的前缀，简繁转换之后再按这一行显示出来的字数截一次，区间不会越出这一行。
+    const auto dim_scalars = msime::linux_host::caret_edit_dim_scalars(caret_edit, candidate);
     if (candidate.value("corrected", false))
       value += "*";
     // The gloss is kept apart until the row is converted, so its character range is known for a skin's translation colour.
@@ -4292,6 +4297,8 @@ void render(IBusEngine *engine, const Json &view) {
     // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
     if (source != 18)
       value = traditional_display(state(engine), view, std::move(value));
+    const auto dim_end = static_cast<guint>(std::min<size_t>(
+        dim_scalars, static_cast<size_t>(g_utf8_strlen(value.c_str(), -1))));
     const auto gloss_start = static_cast<guint>(g_utf8_strlen(value.c_str(), -1));
     if (!gloss.empty())
       value += traditional_display(state(engine), view, std::move(gloss));
@@ -4338,6 +4345,10 @@ void render(IBusEngine *engine, const Json &view) {
     if (script_end > script_start && row_number_color)
       ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND, *row_number_color,
                                  script_start, script_end);
+    // 光标后编辑：首选开头固定的那几个字用这一行序号的颜色（次要色）画，皮肤没给时用灰色，和 AI 占位行同一种画淡的办法；追加在行颜色之后所以盖过它。GNOME Shell 等不认 IBus 颜色属性的面板照常画成一种颜色。
+    if (dim_end > 0)
+      ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
+                                 row_number_color.value_or(0x8a8a8a), 0, dim_end);
     const auto row_background =
         highlighted && state(engine).candidate_selected_color
             ? state(engine).candidate_selected_color
