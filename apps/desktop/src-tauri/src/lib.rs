@@ -5980,6 +5980,10 @@ pub fn run() {
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_plugins::remove_plugin_pack,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_plugins::load_authored_plugin_pack,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_plugins::save_authored_plugin_pack,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_plugins::load_plugin_mentions,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_plugins::save_plugin_mentions,
