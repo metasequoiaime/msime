@@ -70,7 +70,7 @@ Status: proposed
 
 1. 运行时和清单：`CapabilitySet` 扩宽，五组 import、能力、字段、清单键，`msime-pack validate`/`run` 跟上（`run` 的夹具能给设置值、数据文件、时间和存储的初值），SDK 的 Rust 绑定和 C 头文件跟上，`crates/pack-tool/tests/sdk.rs` 的核对跟上。
 2. 宿主侧：设置文件与数据文件的读取和缓存、存储缓冲与刷盘、加候选的合成与重放、`/` 扩展参数（引擎）、时间字段。
-3. 设置界面：共享页和 Windows 原生页的授权对话框、详情页设置表单、数据大小与清除按钮。
+3. 设置界面：共享页和 Windows 原生页的授权对话框、详情页设置表单、数据大小与清除按钮。落地时定下的分组、删除确认和表单保存方式见 [脚本插件第二批能力的设置界面](../../implemented/feature/2026-10-26-script-capabilities-settings-ui.md)。
 4. 文档与示例插件：每项能力一个最小示例，放进 `plugins/script/`。
 
 ## 运行时和清单里定下的细节
