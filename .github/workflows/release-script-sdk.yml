@@ -1,0 +1,61 @@
+name: Release msime-script-sdk
+
+# 把脚本插件的 Rust SDK（crates/script-sdk，crates.io 上的 msime-script-sdk）发到 crates.io。版本号取 crates/script-sdk/Cargo.toml：先经普通 PR 改好版本号合进 develop，再在 develop 或 main 上手动运行。不勾 publish 时只做 cargo publish --dry-run（打包并在打包后的源码上编译一遍），勾了才上传，上传后建 script-sdk-vX.Y.Z release 记下源码提交。
+#
+# crates.io 上发出去的版本不能替换，只能 yank：这个版本已经在 crates.io 上时直接失败，要修正就改版本号再发。令牌是组织级 secret CARGO_REGISTRY_TOKEN，只在上传那一步交给 cargo，dry-run 用不到它。release 从不标为 latest，仓库的「最新发布」留给应用；tag 以 script-sdk-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本。
+on:
+  workflow_dispatch:
+    inputs:
+      publish: {description: "Upload to crates.io and create the script-sdk-vX.Y.Z release (otherwise only cargo publish --dry-run)", required: false, default: false, type: boolean}
+permissions: {contents: read}
+concurrency: {group: release-script-sdk, cancel-in-progress: false}
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions: {contents: write}
+    steps:
+      - name: Refuse other branches
+        env: {BRANCH: "${{ github.ref_name }}"}
+        run: |
+          case "$BRANCH" in develop|main) ;; *) echo "msime-script-sdk is published from develop or main only, not '$BRANCH'" >&2; exit 1 ;; esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - id: version
+        name: Read the version and check crates.io
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 --manifest-path crates/script-sdk/Cargo.toml | jq -r '.packages[] | select(.name == "msime-script-sdk") | .version')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected version '$version'" >&2; exit 1; }
+          # crates.io 要求带联系方式的 User-Agent。404 表示这个 crate 还没有任何版本。
+          status=$(curl -sS -o "$RUNNER_TEMP/crate.json" -w '%{http_code}' -A "msime release-script-sdk (https://github.com/${GITHUB_REPOSITORY})" "https://crates.io/api/v1/crates/msime-script-sdk/$version")
+          if [[ "$status" == 200 ]]; then echo "msime-script-sdk $version is already on crates.io; published versions are never replaced, bump the version in crates/script-sdk/Cargo.toml" >&2; exit 1; fi
+          [[ "$status" == 404 ]] || { echo "crates.io answered $status for msime-script-sdk $version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Dry run
+        run: cargo publish -p msime-script-sdk --locked --dry-run
+      - name: Upload to crates.io
+        if: ${{ inputs.publish }}
+        env: {CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}"}
+        run: |
+          set -euo pipefail
+          [[ -n "$CARGO_REGISTRY_TOKEN" ]] || { echo "the CARGO_REGISTRY_TOKEN secret is not available to this repository" >&2; exit 1; }
+          cargo publish -p msime-script-sdk --locked
+      - name: Create the release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          GH_REPO: "${{ github.repository }}"
+          VERSION: "${{ steps.version.outputs.version }}"
+          SHA: "${{ github.sha }}"
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "msime-script-sdk $VERSION 已发到 crates.io：https://crates.io/crates/msime-script-sdk/$VERSION"
+            echo
+            echo "水杉输入法桌面脚本插件的 Rust SDK（no_std、零依赖、MIT），附 C 头文件 msime_script.h。用法见 [docs/plugins.md 的「从零写一个插件」](https://github.com/metasequoiaime/msime/blob/$SHA/docs/plugins.md)。源码是提交 $SHA。"
+          } > "$notes"
+          gh release create "script-sdk-v$VERSION" --target "$SHA" --title "msime-script-sdk $VERSION" --notes-file "$notes" --latest=false
