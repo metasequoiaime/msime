@@ -28,6 +28,7 @@ public class KeyHintButton extends KeyboardPressButton {
     private String cornerHint = "";
     private int cornerHintColor = Color.GRAY;
     private float unhintedTextSize;
+    private int hintWidth;
 
     @SuppressWarnings("this-escape")
     public KeyHintButton(Context context) {
@@ -66,6 +67,17 @@ public class KeyHintButton extends KeyboardPressButton {
 
     /** 提示占据独立区域；主标签按剩余宽高缩放，不能因底部提示把字母推到右上角符号上。 */
     private void updateHintInsets() {
+        updateHintInsets(getWidth());
+    }
+
+    @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int width = MeasureSpec.getSize(widthMeasureSpec);
+        if (!hintText.isEmpty() && hintWidth != width) updateHintInsets(width);
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    private void updateHintInsets(int width) {
+        hintWidth = width;
         if (hintText.isEmpty()) {
             setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE);
             if (unhintedTextSize > 0) setTextSize(TypedValue.COMPLEX_UNIT_PX, unhintedTextSize);
@@ -82,8 +94,15 @@ public class KeyHintButton extends KeyboardPressButton {
         if (!cornerHint.isEmpty()) {
             ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), CORNER_HINT_SP));
             Paint.FontMetrics corner = cornerPaint.getFontMetrics();
-            topInset = (int) Math.ceil(DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP)
-                + corner.descent - corner.ascent) + DimensionPolicy.pixels(getContext(), 2);
+            // 宽键帽的中央字母与右上角标能横向错开，无需把整行顶部都让给角标。
+            Paint main = new Paint(getPaint());
+            main.setTextSize(unhintedTextSize);
+            float mainWidth = main.measureText(getText().toString());
+            float cornerWidth = cornerPaint.measureText(cornerHint)
+                + DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP + 2);
+            if (width <= 0 || mainWidth + 2 * cornerWidth > width)
+                topInset = (int) Math.ceil(DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP)
+                    + corner.descent - corner.ascent) + DimensionPolicy.pixels(getContext(), 2);
         }
         ViewPolicy.setPadding(this, getPaddingLeft(), topInset, getPaddingRight(), bottomInset);
         setMaxLines(1);
