@@ -19,7 +19,7 @@ import org.json.JSONObject;
 /** 在原生输入法内离线管理世界时钟，验证真实编辑器上屏和重启持久化。 */
 public final class WorldClockDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "offline world clock, city persistence, live updates, multiple insertion formats and long-press deletion";
+        return "offline world clock, country search, city persistence, live updates, multiple insertion formats and long-press deletion";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -45,7 +45,7 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
             addCity("亚洲", "日本", "Asia/Tokyo");
             awaitAny(described("东京时钟"));
             checkpoint("add New York offline through real city controls");
-            addCity("美洲", "美国", "America/New_York");
+            addCityBySearch("美洲", "美国", "America/New_York");
             awaitAny(described("纽约时钟"));
             if (read(cities).getJSONArray("cities").length() != 2) throw new AssertionError("City selection was not saved");
             checkpoint("world clock pixels");
@@ -199,6 +199,20 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
     private void addCity(String region, String country, String zone) throws Exception {
         tap(node -> equalsText("添加城市", node.getText()));
         tap(node -> equalsText(region, node.getText()));
+        tap(node -> equalsText(country, node.getText()));
+        tap(node -> node.getText() != null && node.getText().toString().contains(" · " + zone));
+        awaitAny(described("系统时间时钟"));
+    }
+
+    private void addCityBySearch(String region, String country, String zone) throws Exception {
+        tap(node -> equalsText("添加城市", node.getText()));
+        tap(node -> equalsText(region, node.getText()));
+        AccessibilityNodeInfo search = await(described("按国家名称搜索"));
+        android.os.Bundle text = new android.os.Bundle();
+        text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, country);
+        if (!search.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text))
+            throw new AssertionError("Country search input refused text");
+        tap(node -> equalsText("搜索", node.getText()));
         tap(node -> equalsText(country, node.getText()));
         tap(node -> node.getText() != null && node.getText().toString().contains(" · " + zone));
         awaitAny(described("系统时间时钟"));

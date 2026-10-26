@@ -3,6 +3,7 @@ package app.msime.android;
 import android.graphics.Color;
 import android.icu.text.TimeZoneNames;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
@@ -343,18 +344,35 @@ final class ImeWorldClock {
     }
 
     private void countries(String region) {
+        renderCountries(region, "");
+    }
+
+    private void renderCountries(String region, String query) {
         build();
+        s.moreToolsPanel.addView(text(regionName(region) + " · 选择国家或地区", 14));
+        LinearLayout search = LayoutPolicy.row(s);
+        EditText input = new EditText(s);
+        input.setHint("输入国家名称");
+        input.setContentDescription("按国家名称搜索");
+        input.setSingleLine(true);
+        input.setText(query);
+        input.setTextColor(Color.parseColor(s.skin.keyForeground()));
+        input.setHintTextColor(Color.parseColor(s.skin.hint()));
+        search.addView(input, LayoutPolicy.weightedMatchParentParams(1));
+        s.button(search, "搜索", () -> renderCountries(region, input.getText().toString().trim()));
+        s.moreToolsPanel.addView(search, LayoutPolicy.matchWidthWrapParams());
         Map<String, String> countries = new LinkedHashMap<>();
         for (int i = 0; i < catalog.length(); i++) {
             JSONObject city = catalog.optJSONObject(i);
             if (city == null || !city.optString("zone").startsWith(region + "/")) continue;
             String country = city.optString("country");
-            countries.put(country, new Locale("", country).getDisplayCountry(Locale.SIMPLIFIED_CHINESE));
+            String label = new Locale("", country).getDisplayCountry(Locale.SIMPLIFIED_CHINESE);
+            if (query.isEmpty() || label.contains(query)) countries.put(country, label);
         }
         List<Map.Entry<String, String>> entries = new ArrayList<>(countries.entrySet());
         Collator collator = Collator.getInstance(Locale.SIMPLIFIED_CHINESE);
         entries.sort((a, b) -> collator.compare(a.getValue(), b.getValue()));
-        s.moreToolsPanel.addView(text(regionName(region) + " · 选择国家或地区", 14));
+        if (entries.isEmpty()) s.moreToolsPanel.addView(text("没有匹配的国家或地区", 14));
         for (Map.Entry<String, String> entry : entries) row(entry.getValue(), () -> cities(region, entry.getKey()));
     }
 
