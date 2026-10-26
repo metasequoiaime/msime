@@ -139,12 +139,15 @@ def sign(args: argparse.Namespace) -> None:
         tool = ["java", "-jar", str(args.tool_dir / "hap-sign-tool.jar")]
         signed = directory / "entry-default.hap"
         password = os.environ["HARMONY_RELEASE_KEYSTORE_PASSWORD"]
-        run(tool + ["sign-app", "-mode", "localSign", "-keyAlias", alias,
-                    "-keystoreFile", str(directory / "release.p12"), "-keystorePwd", password,
-                    "-keyPwd", os.environ.get("HARMONY_RELEASE_KEY_PASSWORD", password),
-                    "-profileFile", str(profile_path), "-appCertFile", str(certificate),
-                    "-inFile", str(args.input), "-outFile", str(signed),
-                    "-signAlg", "SHA256withECDSA", "-compatibleVersion", "21"], stage="签名 HAP")
+        if args.signed_hap:
+            shutil.copyfile(args.input, signed)
+        else:
+            run(tool + ["sign-app", "-mode", "localSign", "-keyAlias", alias,
+                        "-keystoreFile", str(directory / "release.p12"), "-keystorePwd", password,
+                        "-keyPwd", os.environ.get("HARMONY_RELEASE_KEY_PASSWORD", password),
+                        "-profileFile", str(profile_path), "-appCertFile", str(certificate),
+                        "-inFile", str(args.input), "-outFile", str(signed),
+                        "-signAlg", "SHA256withECDSA", "-compatibleVersion", "21"], stage="签名 HAP")
         extracted_profile = directory / "verified.p7b"
         run(tool + ["verify-app", "-inFile", str(signed), "-outCertChain", str(directory / "verified.cer"),
                     "-outProfile", str(extracted_profile)], stage="验证 HAP 签名")
@@ -159,11 +162,25 @@ def sign(args: argparse.Namespace) -> None:
             if ".pages.info" not in result.namelist():
                 raise ValueError("签名包缺少代码完整性签名")
         (directory / "pack.info").write_bytes(pack_info)
+        unsigned_app = directory / "market-unsigned.app"
         market_app = directory / f"msime-harmony-{args.version}.app"
         run(["java", "-jar", str(args.tool_dir / "app_packing_tool.jar"), "--mode", "app",
              "--hap-path", str(signed), "--pack-info-path", str(directory / "pack.info"),
-             "--out-path", str(market_app), "--replace-pack-info", "false", "--force", "true"],
+             "--out-path", str(unsigned_app), "--replace-pack-info", "false", "--force", "true"],
             stage="打包应用市场 APP")
+        # APP 外层也必须签名；内层 HAP 验签通过不代表市场提交包已签名。
+        run(tool + ["sign-app", "-mode", "localSign", "-keyAlias", alias,
+                    "-keystoreFile", str(directory / "release.p12"), "-keystorePwd", password,
+                    "-keyPwd", os.environ.get("HARMONY_RELEASE_KEY_PASSWORD", password),
+                    "-profileFile", str(profile_path), "-appCertFile", str(certificate),
+                    "-inFile", str(unsigned_app), "-outFile", str(market_app),
+                    "-signAlg", "SHA256withECDSA"], stage="签名应用市场 APP")
+        app_profile = directory / "app-verified.p7b"
+        run(tool + ["verify-app", "-inFile", str(market_app),
+                    "-outCertChain", str(directory / "app-verified.cer"),
+                    "-outProfile", str(app_profile)], stage="验证应用市场 APP 签名")
+        if app_profile.read_bytes() != profile_path.read_bytes():
+            raise ValueError("应用市场 APP 中的 Profile 与提交的 Profile 不一致")
         with zipfile.ZipFile(market_app) as archive:
             haps = [name for name in archive.namelist() if name.endswith(".hap")]
             if len(haps) != 1 or archive.read(haps[0]) != signed.read_bytes():
@@ -183,6 +200,7 @@ def sign(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-only", action="store_true")
+    parser.add_argument("--signed-hap", action="store_true", help="复验已有正式 HAP 并生成市场包，保留 HAP 字节")
     parser.add_argument("--input", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--tool-dir", type=Path)
