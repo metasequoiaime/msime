@@ -161,7 +161,7 @@ def check_workflows() -> None:
         definitions = DEFINITIONS_WORKFLOW.read_text(encoding="utf-8")
         check(re.search(r"(?m)^on:\n  workflow_dispatch:", definitions) is not None and "\n  release:" not in definitions and "\n  push:" not in definitions, "package-definitions-windows.yml must only run when dispatched by hand, after the signed installer is on the release")
         check('render.py --tag "windows-v$env:VERSION"' in definitions, "package-definitions-windows.yml no longer renders from the published release with --tag")
-        check("runs-on: windows-" in definitions, "package-definitions-windows.yml must run on Windows, where Get-AuthenticodeSignature checks the signature")
+        check(re.search(r"(?m)^    runs-on: (?:windows-\d{4}|depot-windows-\d{4}(?:-\d+)?)$", definitions) is not None, "package-definitions-windows.yml must run on a Windows runner, where Get-AuthenticodeSignature checks the signature")
         check("--skip" not in definitions and "--no-" not in definitions, "package-definitions-windows.yml passes a flag that weakens render.py's checks")
 
 

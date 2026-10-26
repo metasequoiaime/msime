@@ -18,6 +18,8 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 规格按负载选：一两分钟的检查用 `depot-ubuntu-24.04`，编 wasm 插件用 `-4`，编 Rust、前端或打 vendor 包用 `-8`，Windows 用 `depot-windows-2025-8`，macOS 构建用 `depot-macos-15`。新标签要同时加进 `.github/actionlint.yaml`。
 
+Windows 包定义的离线契约检查同样接受 `depot-windows-*` 和 GitHub 托管的 `windows-*` runner 标签；两者都在 Windows 上执行 `Get-AuthenticodeSignature`。若工作流改到非 Windows runner，契约仍需失败。
+
 组织里的其他仓库照同一规则改，各自一个 PR。
 
 ## Alternatives considered
@@ -31,4 +33,4 @@ GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、
 
 ## Verification
 
-`actionlint` 通过。PR 上会触发的检查（quality、contracts、ci-docs 等）由本 PR 的 CI 在 Depot 上实际跑一遍；`Windows native settings`、发版工作流和定时任务里挪过去的 job 要到下一次被触发时才实际跑到，`pull_request_target` 的几个要等下一个 PR。
+`actionlint` 通过。PR 上会触发的检查（quality、contracts、ci-docs 等）由本 PR 的 CI 在 Depot 上实际跑一遍；`Windows native settings`、发版工作流和定时任务里挪过去的 job 要到下一次被触发时才实际跑到，`pull_request_target` 的几个要等下一个 PR。Windows 包定义契约检查在迁移后首次运行时发现旧的 `windows-*` 标签断言不认 `depot-windows-*`；补齐后用 `python3 scripts/test-windows-package-managers.py` 验证。
