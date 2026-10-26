@@ -205,7 +205,7 @@ void caret_edit_suffix() {
   assert(colors(target.get(), both.auxiliary_hint)[0x808080] > 10);
 
   // 画淡：用绿色区分序号色与白字抗锯齿产生的灰像素，避免缺字回退字体改变灰像素数。
-  // 第一行不选中；画淡开头一个字后，序号色像素变多，白色变少，后一个字仍保持白色。
+  // 第一行不选中；画淡前两个字符后，序号色像素变多，白色变少，后两个字符仍保持白色。
   content.auxiliary.clear();
   content.auxiliary_hint.clear();
   content.selected = 1;
