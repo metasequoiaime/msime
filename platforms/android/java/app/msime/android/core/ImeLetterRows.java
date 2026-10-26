@@ -447,6 +447,7 @@ final class ImeLetterRows {
     private BackspaceSwipePolicy.Phase backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
     private boolean backspaceUndo;
     private boolean backspaceUndoHeld;
+    private boolean backspaceTouchedComposition;
     private BackspaceScrub backspaceScrub;
     private float backspaceDownX;
     private float backspaceDownY;
@@ -474,6 +475,7 @@ final class ImeLetterRows {
                     s.backspaceRepeatButton = button;
                     s.backspaceRepeated = false;
                     s.backspaceClearedComposition = false;
+                    backspaceTouchedComposition = s.hasEngineComposition();
                     backspaceUndo = s.canUndoQuickDelete();
                     backspaceDownX = event.getX();
                     backspaceDownY = event.getY();
@@ -500,10 +502,13 @@ final class ImeLetterRows {
                             }
                             // 连删无论重复几次都算一次按压，按下时已经计数。
                             s.backspaceRepeated = true;
-                            if (s.hasEngineComposition()) {
-                                s.imeKeyFeedback.playFeedback(button);
-                                // 长按删除整个音节，汉字列表打开时也一样。
-                                s.discardComposition();
+                            if (backspaceTouchedComposition || s.hasEngineComposition()) {
+                                if (s.hasEngineComposition()) {
+                                    backspaceTouchedComposition = true;
+                                    s.imeKeyFeedback.playFeedback(button);
+                                    // 长按删除整个音节，汉字列表打开时也一样。
+                                    s.discardComposition();
+                                }
                                 s.backspaceClearedComposition = true;
                                 s.main.removeCallbacks(this);
                                 s.backspaceRepeatTask = null;
@@ -573,16 +578,20 @@ final class ImeLetterRows {
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
-                    boolean clear = s.backspaceRepeatButton == button
-                        && BackspaceSwipePolicy.clearsOnRelease(backspaceSwipePhase);
+                    BackspaceSwipePolicy.ClearTarget target = s.backspaceRepeatButton == button
+                        ? BackspaceSwipePolicy.clearTarget(backspaceSwipePhase,
+                            backspaceTouchedComposition, s.hasEngineComposition())
+                        : BackspaceSwipePolicy.ClearTarget.NONE;
                     boolean undo = backspaceUndo;
                     boolean click = undo && !backspaceUndoHeld && button.isPressed();
                     cancelBackspaceRepeat();
                     button.setPressed(false);
-                    if (clear) {
+                    if (target != BackspaceSwipePolicy.ClearTarget.NONE) {
                         s.imeKeyFeedback.playFeedback(button);
                         if (undo) s.undoQuickDelete();
-                        else s.deleteAllBeforeCursor();
+                        else if (target == BackspaceSwipePolicy.ClearTarget.COMPOSITION) {
+                            if (s.hasEngineComposition()) s.discardComposition();
+                        } else s.deleteAllBeforeCursor();
                     }
                     if (click) button.performClick();
                     return true;
@@ -635,6 +644,7 @@ final class ImeLetterRows {
         backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
         backspaceUndo = false;
         backspaceUndoHeld = false;
+        backspaceTouchedComposition = false;
         backspaceScrub = null;
         backspaceHorizontal = false;
         if (s.quickDeleteOverlay != null) s.quickDeleteOverlay.hide();

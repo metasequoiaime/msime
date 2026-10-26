@@ -21,6 +21,7 @@ Status: implemented
 - 手指离开键（左右或往上）时只停掉连删任务，不再像原来那样整个结束对这次按压的跟踪，否则先轻轻滑出键、再往上滑就弹不出框。
 - 框是 `QuickDeleteOverlay`：和日语九键 flick 浮层一样加在 `PanelSurface` 上、铺满整块键区、不接触摸、读屏不念，按键底色加细边，待命时换成强调色，进入待命时振动一次。浮框宽度取两个键宽与 160 dp 的较大者（原为 120 dp），窄窗口限制在左右各 4 dp 的安全边界内；上滑与撤回共用宽度约束。
 - 松手清空走 `MSIMEInputService.deleteAllBeforeCursor`：先清手写墨迹、丢掉组字，删掉选中的文字（`commitText("")`），再用 `BackspaceSwipePolicy.clearBeforeCursor` 分段删除——每轮 `getTextBeforeCursor(4096)`，按读到的长度 `deleteSurroundingText`，读到空、编辑器拒绝或满 256 轮时停下。光标后的文字不动。
+- 组字中上滑的边界由[组字删除修复](../bug-fix/2026-10-26-android-quick-delete-composition-boundary.md)收窄：一次按压碰过组字就只取消本次拼音，上述全文清空只适用于未碰过组字的按压。
 
 ## Alternatives considered
 
