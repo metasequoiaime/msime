@@ -55,7 +55,7 @@ import java.util.concurrent.Future;
  */
 public final class AboutPage extends DetailPage {
     @Override protected java.util.List<String> sectionTitles() {
-        return java.util.List.of("应用", "设备", "链接");
+        return java.util.List.of("应用", "权限", "设备", "链接");
     }
 
     private static final String SITE = "https://msime.app/";
@@ -100,6 +100,14 @@ public final class AboutPage extends DetailPage {
                 this::setAutoUpdate);
             channelRow = updates.nav("更新通道", null, UpdateJobService.channel(context).title(), this::chooseChannel);
         }
+
+        GroupCard permissions = GroupCard.add(sectionColumn(column, "权限"), "权限说明");
+        permissions.note("录音：用于语音输入和本地语音识别；关闭后不能使用语音功能。\n\n"
+            + "相机：用于拍照识字；关闭后不能使用拍照识字。\n\n"
+            + "联系人：只在你点击导入联系人时读取电话本；关闭后不能导入联系人，已导入的名单不受影响。\n\n"
+            + "网络：用于连接社区、下载皮肤和词库、使用在线 AI 与同步服务；关闭后这些联网功能不可用，离线输入不受影响。\n\n"
+            + "通知：用于提醒下载完成和应用更新；关闭后不会收到这些通知。\n\n"
+            + "震动：用于按键反馈；关闭后键盘仍可输入，只是不震动。权限均可在系统设置中重新开启或撤回。");
 
         GroupCard device = GroupCard.add(sectionColumn(column, "设备"), "设备信息").withDividers(Ui.ROW_PADDING_H);
         TextView reading = device.note("正在读取…");
