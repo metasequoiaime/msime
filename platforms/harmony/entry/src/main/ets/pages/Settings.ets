@@ -1592,7 +1592,7 @@ class SettingsBridge {
   }
 
   /**
-   * The 插件 page's pack store and @ name list: `catalog`, `remove`, `load_mentions` and `save_mentions`, answered by `msime_client_plugins` with the same rules and failure codes the desktop shell answers with. The page never names a path: the state root and the bundle's built-in sound packs are filled in here, and an import, which has to wait for the system picker, arrives through `startRequest` as `plugin_import` instead.
+   * The 插件 page's pack store, plugin editor and @ name list: `catalog`, `remove`, `load_mentions`, `save_mentions`, `authoring_load` and `authoring_save`, answered by `msime_client_plugins` with the same rules and failure codes the desktop shell answers with. The page never names a path: the state root and the bundle's built-in sound packs are filled in here, and an import, which has to wait for the system picker, arrives through `startRequest` as `plugin_import` instead.
    */
   plugins(actionDocument: string): string {
     this.schedulePublish();
@@ -1606,7 +1606,8 @@ class SettingsBridge {
     } catch {
       return refused;
     }
-    if (!['catalog', 'remove', 'load_mentions', 'save_mentions'].includes(action.operation)) {
+    if (!['catalog', 'remove', 'load_mentions', 'save_mentions', 'authoring_load', 'authoring_save']
+      .includes(action.operation)) {
       return refused;
     }
     return client.plugins(`{"state_root":${JSON.stringify(this.stateDirectory)},`

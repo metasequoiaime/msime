@@ -70,6 +70,7 @@ import {
   type MentionEntry,
   type ResourcePackClient,
   type ResourcePackStatus,
+  type AuthoredPack,
   type PluginCatalogResult,
   type PluginClient,
   type PluginPackage,
@@ -201,6 +202,10 @@ const plugins: PluginClient = {
   catalog: () => invoke<PluginCatalogResult>("plugin_catalog"),
   importPack: (source) => invoke<PluginPackage | null>("import_plugin_pack", { source }),
   remove: (kind, id) => invoke<void>("remove_plugin_pack", { kind, id }),
+  // 设置页插件编辑器：生成清单、校验和安装都在 client-services，页面只交换结构化的包。
+  loadAuthoredPack: (kind, id) => invoke<AuthoredPack>("load_authored_plugin_pack", { kind, id }),
+  saveAuthoredPack: (pack, replace) =>
+    invoke<PluginPackage>("save_authored_plugin_pack", { pack, replace }),
   loadMentions: () => invoke<MentionEntry[]>("load_plugin_mentions"),
   saveMentions: (entries) => invoke<void>("save_plugin_mentions", { entries }),
   // 脚本插件的授权：设置应用经 client-services 的 `script_grants` 写入。页面只在宿主声明了 `script_plugins` 时调用。

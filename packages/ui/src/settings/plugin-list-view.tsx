@@ -26,6 +26,7 @@ import { ActionButton } from "./action-button";
 import { scriptMarker } from "./plugin-script-model";
 import { PluginNavRow } from "./plugin-nav-row";
 import { PluginLibraryView, type PluginLibraryFilter } from "./plugin-library-view";
+import { CREATE_DESCRIPTION } from "./plugin-editor-model";
 
 /** 「脚本插件（实验）」分组要的东西：宿主运行脚本插件时才有。 */
 export type PluginListScripts = {
@@ -61,6 +62,8 @@ export interface PluginListViewProps {
   working: boolean;
   notice: string;
   onImport: (source: "folder" | "archive") => void;
+  /** 打开设置页插件编辑器新建一个包；宿主没有编辑器时为空，不显示「新建插件」。 */
+  onCreate?: () => void;
   onOpen: (target: "sound-effects" | "mentions") => void;
   onOpenPack: (kind: PluginKind, id: string) => void;
   onOpenMissing: (kind: PluginKind, id: string) => void;
@@ -90,6 +93,7 @@ function GroupedPluginListView({
   working,
   notice,
   onImport,
+  onCreate,
   onOpen,
   onOpenPack,
   onOpenMissing,
@@ -215,6 +219,19 @@ function GroupedPluginListView({
           </GroupList>
         )}
       </div>
+      {hasClient && onCreate && (
+        <GroupList title="制作插件">
+          <div className={controls.row}>
+            <span className={controls.rowText}>
+              <span className={controls.rowTitle}>自己制作</span>
+              <span className={controls.rowDescription}>{CREATE_DESCRIPTION}</span>
+            </span>
+            <SettingsManagerActions as="span" className="shrink-0">
+              <ActionButton action={onCreate} disabled={working} label="新建插件" />
+            </SettingsManagerActions>
+          </div>
+        </GroupList>
+      )}
       {hasClient && (
         <GroupList title="导入插件">
           <div className={controls.row}>
