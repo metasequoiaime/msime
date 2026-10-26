@@ -30,7 +30,7 @@ const MAX_NAME_CHARS: usize = 32;
 /// 社区列表简介的字符数上限，与 client-services 的 `valid_description` 相同。
 const MAX_DESCRIPTION_CHARS: usize = 280;
 
-const SIGN_IN: &str = "no one is signed in: ask the user to sign in to their account in the 水杉输入法 settings app and then try again. This server never signs in or handles passwords itself";
+pub(crate) const SIGN_IN: &str = "no one is signed in: ask the user to sign in to their account in the 水杉输入法 settings app and then try again. This server never signs in or handles passwords itself";
 
 /// 谁能看到社区库里的一款皮肤。
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]

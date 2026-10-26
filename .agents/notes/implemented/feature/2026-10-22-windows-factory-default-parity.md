@@ -26,12 +26,17 @@ C 档对照复核（`/Users/admin/worktrees/_refs/parity-tier-c-review.md`）发
 | `local_modes.kaomoji` | `utility.kaomoji_mode` | 关 | 开 | 开 | pin 与 v0.11.1 不一致 |
 | `local_modes.chaizi` | `utility.radical_mode`（pin 叫 `unicode_mode`） | 开 | 开 | 触屏开 / 桌面缺键读关 | 参考 Shift+U 拆字，本仓在 Shift+C；桌面读关是怕大写 C 被截，属有意差异 |
 | `mixed_input.symbols` | `general.symbol_mixed_input` | 关 | 无此键 | 开 | post-pin 键 |
-| `quanpin_helpcode.enabled` / `shuangpin_helpcode.enabled` | `helpcode.{quanpin,shuangpin}_helpcode` | 关 | 开 | 开 | pin 与 v0.11.1 不一致 |
+| `quanpin_helpcode.enabled` | `helpcode.quanpin_helpcode` | 关 | 开 | 开 | pin 与 v0.11.1 不一致 |
+| `shuangpin_helpcode.enabled` | `helpcode.shuangpin_helpcode` | 关 | 开 | 关 | 2026-10-26 用户单独授权默认关闭，边界见下节 |
 | `local_modes.date_time_inline` | `utility.date_time_candidates` | 关 | 无此键 | 开 | 拆分后仍沿用改动前的有效行为 |
 
 ### 判为单独立项的项
 
 `network.proxy_*` 自定义代理只覆盖共享 Rust 栈（reqwest 客户端），不覆盖 macOS 原生 HTTP（`TranslationCache.mm` 的 NSURLSession、C++ 侧 native transport）。把自定义代理接进原生传输要动每个原生网络栈并逐平台验证，超出本批范围，单独立项见 `../../proposed/feature/2026-10-22-custom-proxy-native-http.md`。
+
+### 单独授权的双拼辅助码默认值
+
+2026-10-26 用户明确要求双拼辅助码默认关闭。`default_shuangpin_helpcode` 对新安装和整个 `shuangpin_helpcode` 对象缺失的偏好返回 `enabled: false`；全拼默认值、辅助码方案、显示与触发方式均不变。已有对象内写明的开关继续生效，对象存在但缺 `enabled` 时仍沿用旧的开启语义，不迁移或覆盖用户设置。此项是单独授权，不改变「平台能力对齐不顺带翻转默认值」的约定。
 
 ## Alternatives considered
 
@@ -43,5 +48,5 @@ C 档对照复核（`/Users/admin/worktrees/_refs/parity-tier-c-review.md`）发
 
 - 行内日期时间混入可以独立关闭；`candidate_window_fit_content` 用户可达；Windows 模板把 post-pin 键写全。除此之外行为与改动前完全一致：所有既有默认、序列化省略规则和 `chaizi` 的宿主形态语义不变。
 - Engine 默认值（`LocalModeOptions::default()`、`prepare_options`）保持「参考本地模式全开」的夹具语义：`date_time_inline` 在引擎层默认开。
-- 测试按「缺键读现行默认 + 写明值不覆盖」保留（`emoji_and_kaomoji_modes_default_on_and_keep_written_values`、`expression_mode_defaults_off`、`date_time_inline_defaults_on_and_is_written_only_when_off`、`left_right_navigation_defaults_on`、`mixed_symbols_defaults_on`、`helpcode_enabled_defaults_on`、`candidate_window_fit_content_defaults_off`），引擎层 `inline_date_time_is_a_separate_switch_from_the_mode` 钉住 T 模式与行内混入的分闸，九键同样走该开关。
+- 测试按「缺键读现行默认 + 写明值不覆盖」保留（`emoji_and_kaomoji_modes_default_on_and_keep_written_values`、`expression_mode_defaults_off`、`date_time_inline_defaults_on_and_is_written_only_when_off`、`left_right_navigation_defaults_on`、`mixed_symbols_defaults_on`、`helpcode_enabled_defaults_by_family`、`candidate_window_fit_content_defaults_off`），引擎层 `inline_date_time_is_a_separate_switch_from_the_mode` 钉住 T 模式与行内混入的分闸，九键同样走该开关。
 - `sentence_source_badge` 在 C 档清单里被错写为「已判定不做」，清单行更正为「proposed 待拍板」（`_refs/parity-gaps.md`），仓库里的 proposed 笔记维持。

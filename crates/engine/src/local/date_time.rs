@@ -147,7 +147,7 @@ pub(crate) enum InlineDateTime {
 }
 
 /// 拼音组字正好是这些全拼或简拼时，候选里接着锚定词给出当前的日期、时间、星期或农历：(关键词, 锚定词, 种类)。只认锚定词出现在候选里的情况，所以词库里没有这个词、或者它被别的读法挤出列表时什么都不加。
-const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 18] = [
+const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 19] = [
     ("riqi", "日期", InlineDateTime::Date),
     ("rq", "日期", InlineDateTime::Date),
     ("shijian", "时间", InlineDateTime::Time),
@@ -227,6 +227,14 @@ const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 18] = [
         InlineDateTime::RelativeYear {
             label: "来年",
             years: 1,
+        },
+    ),
+    (
+        "hounian",
+        "后年",
+        InlineDateTime::RelativeYear {
+            label: "后年",
+            years: 2,
         },
     ),
 ];

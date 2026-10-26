@@ -424,6 +424,7 @@ export function InputSettingsPage() {
         temporaryJapanese={temporaryJapanese}
         showMultilingualInput={host?.edition?.input_schemes.includes("quanpin") ?? true}
         quickPhraseCandidates={host?.quick_phrase_candidates ?? false}
+        caretEditSuffix={host?.caret_edit_suffix ?? false}
         paging={
           !harmonyPhone && (
             <NavigationSection

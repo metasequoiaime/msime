@@ -175,10 +175,10 @@ pub unsafe extern "C" fn msime_client_music_pack(request: *const u8, length: usi
     })
 }
 
-/// Largest `msime_client_plugins` request: a full name list at its document bound, with room for JSON escaping and the two paths.
-const MAX_PLUGINS_REQUEST_BYTES: usize = 2 * 1024 * 1024;
+/// `msime_client_plugins` 请求的上限：设置页编辑器保存一本单词本时最大，词表文件本身可到 4 MiB（`wordbook_pack::MAX_FILE_BYTES`），JSON 的键名和转义再翻一倍；名单在它的文档上限时也远在这之内。
+const MAX_PLUGINS_REQUEST_BYTES: usize = 8 * 1024 * 1024;
 
-/// 插件页的包仓库和 @ 名单，给桌面外壳以外的设置宿主：Windows 的原生设置应用、鸿蒙的插件页，以及 Android、iOS 设置里导入辅助码表。所有规则和失败码都来自 client-services，与桌面外壳回答设置页的相同。
+/// 插件页的包仓库、设置页插件编辑器和 @ 名单，给桌面外壳以外的设置宿主：Windows 的原生设置应用、鸿蒙的插件页，以及 Android、iOS 设置里导入辅助码表。所有规则和失败码都来自 client-services，与桌面外壳回答设置页的相同。
 ///
 /// 脚本插件只给有授权页的宿主：请求带 `script_page: true` 时目录列出脚本包、导入接受脚本包（`import_from_settings`），桌面上还能读写授权（`script_grants`、`set_script_grant`、`reorder_scripts`，回答和桌面外壳的同名命令一样是 `ScriptGrantsView`，其中插件 `/` 指令的状态按 `state_root` 里偏好启用的指令表算）。不带它时（Android、HarmonyOS 和各处的辅助码表导入）照旧：目录经 `without_scripts`，导入走 `import_without_script_page`。
 /// # Safety
@@ -217,6 +217,16 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
         LoadMentions,
         SaveMentions {
             entries: Vec<MentionEntry>,
+        },
+        /// 设置页编辑器读出用户插件目录里的一个包。
+        AuthoringLoad {
+            kind: String,
+            id: String,
+        },
+        /// 设置页编辑器保存一个包，走导入同一条暂存、校验和替换的路径。
+        AuthoringSave {
+            pack: plugins::authoring::AuthoredPack,
+            replace: bool,
         },
         /// 脚本插件的授权、执行顺序和输入法记下的停用。
         #[cfg(any(
@@ -316,6 +326,12 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
             PluginAction::Remove { kind, id } => {
                 plugins::remove_named(&root, &kind, &id)?;
                 Ok(Value::Null)
+            }
+            PluginAction::AuthoringLoad { kind, id } => {
+                serde_json::to_value(plugins::authoring::load(&root, &kind, &id)?)
+            }
+            PluginAction::AuthoringSave { pack, replace } => {
+                serde_json::to_value(plugins::authoring::save(&root, &pack, replace)?)
             }
             PluginAction::LoadMentions => serde_json::to_value(MentionStore::new(root).load()?),
             PluginAction::SaveMentions { entries } => {

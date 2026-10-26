@@ -3,17 +3,19 @@
 //! 读包、校验和编译走的是导入和输入法进程用的同一份代码（`plugins::load_script_source`、`msime_script_runtime::compile`），执行走的是同一个 `ScriptInstance`：按授权和本地模式复制文本、授权与清单取交集、`before_commit` 和 `command` 在快照上运行、每轮和每个钩子的 fuel 配额、修改类 import 的返回码，全都不是这里重写的。这里只做输入法进程里 `scripts::ScriptSet` 对一个插件做的那几件事：第一次需要投递时实例化（受本轮初始化预算约束），每次聚焦在任何事件之前、失焦在 `focus_out` 之后丢弃实例，trap 之后这次聚焦里不再重建，本轮配额用完时跳过、运行到一半被截断时同样不再重建，这一次用掉的不到本钩子上限的一半时不算失败（达到一半时 runtime 报 fuel 耗尽，和其余失败一样），同一轮里重建的实例接着用这一轮剩下的三份配额，初始化失败之后停用。
 //!
 //! 和输入法进程不同的地方（夹具表达不了，或者故意更严）：字段永远是普通字段（属性已确认、不是 SECURE、PRIVATE 或 ELEVATED）；不做按次数和按墙钟的熔断，每次失败都报告；进程内存总账不检查，一个插件总放得下。
+//!
+//! 第二批能力的资源和输入法进程交给实例的是同一种 `Resources`：设置项的值按清单默认值、`--settings` 给的 JSON 覆盖（和 `script-settings.json` 同一条取值规则，只是写错了当作命令行错误报出来，不像输入法那样悄悄回到默认值）；随包数据就是包里的文件，和内容哈希出自同一次读取；申请了 `persist_data` 时有一块存储缓冲，初值来自 `--storage` 给的文件，整次运行跨聚焦保留，每个事件之后像输入法刷盘那样取走改动并打印在 `storage` 字段里；`command` 事件的本地时间来自夹具的 `time` 字段。
 
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use msime_client_services::plugins::{self, script_pack, ReservedIds};
-use msime_script_runtime::abi::{scalar_values as values, status};
+use msime_script_runtime::abi::{self, scalar_values as values, status};
 use msime_script_runtime::{
     limits, CandidateRow, Candidates, Capability, CapabilitySet, CommandEvent, CommitTexts,
-    Composition, DebugSinks, Event, Failure, Hook, InitFailure, Outcome, Scalars, ScriptInstance,
-    ScriptModule,
+    Composition, DebugSinks, Event, Failure, Hook, InitFailure, LocalTime, Outcome, Resources,
+    Scalars, ScriptInstance, ScriptModule, Storage,
 };
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +105,22 @@ struct Line {
     argument: Option<String>,
     /// `command`：这一次的 64 字节随机数，128 位十六进制；不写是全 0。
     random: Option<String>,
+    /// `command`：投递时的本地时间；不写时插件读到的四个时间字段是 `ABSENT`。
+    time: Option<TimeFixture>,
+}
+
+/// 夹具里的本地时间，字段同 `event_scalar` 的四个时间字段。
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TimeFixture {
+    /// `yyyymmdd`。
+    date: u32,
+    /// 当天第几分钟，0 到 1439。
+    minute: u16,
+    /// 1 到 7，周一为 1。
+    weekday: u8,
+    /// 比 UTC 早多少分钟。
+    utc_offset: i16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,14 +150,31 @@ pub struct Step {
     /// 完整的上屏文本和其中可改写的那一段。
     commit: Option<(String, String)>,
     candidates: Option<(Vec<Row>, Option<u32>, Option<u32>)>,
-    /// `command` 的触发词、参数和随机数。
-    command: Option<(String, String, [u8; limits::RANDOM_BYTES_PER_EVENT])>,
+    /// `command` 的触发词、参数、随机数和本地时间。
+    command: Option<CommandStep>,
+}
+
+#[derive(Debug)]
+struct CommandStep {
+    trigger: String,
+    argument: String,
+    random: [u8; limits::RANDOM_BYTES_PER_EVENT],
+    time: Option<LocalTime>,
 }
 
 impl Step {
     /// `command` 事件的触发词。
     pub fn trigger(&self) -> Option<&str> {
-        self.command.as_ref().map(|(trigger, ..)| trigger.as_str())
+        self.command
+            .as_ref()
+            .map(|command| command.trigger.as_str())
+    }
+
+    /// `command` 事件的参数。
+    pub fn argument(&self) -> Option<&str> {
+        self.command
+            .as_ref()
+            .map(|command| command.argument.as_str())
     }
 
     /// 借用这一步的文本构造投递给插件的事件。`rows` 是调用方准备的候选行。
@@ -168,14 +203,12 @@ impl Step {
                 page: *page,
                 highlighted: *highlighted,
             });
-        event.command = self
-            .command
-            .as_ref()
-            .map(|(trigger, argument, random)| CommandEvent {
-                trigger,
-                argument,
-                random: *random,
-            });
+        event.command = self.command.as_ref().map(|command| CommandEvent {
+            trigger: &command.trigger,
+            argument: &command.argument,
+            random: command.random,
+            local_time: command.time,
+        });
         event
     }
 
@@ -214,7 +247,7 @@ fn fields(hook: Hook) -> (&'static [&'static str], &'static [&'static str]) {
         Hook::CompositionEnd | Hook::CandidatesHidden => (&["reason"], &["reason"]),
         Hook::CompositionStart | Hook::CompositionUpdate => (&["preedit", "reading", "caret"], &[]),
         Hook::CandidatesShown | Hook::Candidates => (&["candidates", "page", "highlighted"], &[]),
-        Hook::Command => (&["trigger", "argument", "random"], &["trigger"]),
+        Hook::Command => (&["trigger", "argument", "random", "time"], &["trigger"]),
     }
 }
 
@@ -283,6 +316,7 @@ fn parse_line(text: &str) -> Result<Step, String> {
         ("trigger", line.trigger.is_some()),
         ("argument", line.argument.is_some()),
         ("random", line.random.is_some()),
+        ("time", line.time.is_some()),
     ];
     let (allowed, required) = fields(hook);
     for (field, is_present) in present {
@@ -310,7 +344,7 @@ fn parse_line(text: &str) -> Result<Step, String> {
     } else {
         local_mode.unwrap_or(0)
     };
-    // 输入法只投递清单里的触发词（2 到 16 个小写字母）和只含小写字母的参数，夹具不测产品里到不了的情形。
+    // 输入法只投递清单里的触发词（2 到 16 个小写字母），参数只含小写字母，`arguments = "extended"` 的指令另外可以有数字和运算符号；夹具不测产品里到不了的情形。参数和指令的对应在 [`command`] 里按清单核对。
     let command = match &line.trigger {
         Some(trigger) => {
             let argument = line.argument.clone().unwrap_or_default();
@@ -323,18 +357,29 @@ fn parse_line(text: &str) -> Result<Step, String> {
                 ));
             }
             if argument.len() > limits::MAX_COMMAND_ARGUMENT_BYTES
-                || !argument.bytes().all(|byte| byte.is_ascii_lowercase())
+                || !abi::valid_command_argument(&argument, true)
             {
                 return Err(format!(
-                    "argument 只能是至多 {} 个小写字母",
-                    limits::MAX_COMMAND_ARGUMENT_BYTES
+                    "argument 只能是至多 {} 个小写字母、数字或 {}",
+                    limits::MAX_COMMAND_ARGUMENT_BYTES,
+                    abi::EXTENDED_ARGUMENT_SYMBOLS
                 ));
             }
-            Some((
-                trigger.clone(),
+            let time = line.time.as_ref().map(|time| LocalTime {
+                date: time.date,
+                minute: time.minute,
+                weekday: time.weekday,
+                utc_offset_minutes: time.utc_offset,
+            });
+            if time.is_some_and(|time| !time.is_valid()) {
+                return Err("time 不是有效的本地时间：date 是 yyyymmdd，minute 0 到 1439，weekday 1 到 7，utc_offset 在 ±1080 之内且不是 -1 到 -4".into());
+            }
+            Some(CommandStep {
+                trigger: trigger.clone(),
                 argument,
-                random_bytes(line.random.as_deref())?,
-            ))
+                random: random_bytes(line.random.as_deref())?,
+                time,
+            })
         }
         None => None,
     };
@@ -418,6 +463,43 @@ struct LogLine {
 /// `command` 这一次交回的一行：文本和插件注释。
 type CommandRow = (String, String);
 
+/// `candidates` 这一次插的一行：位置、文本和插件注释。
+type InsertedRow = (u32, String, String);
+
+/// 一次投递改了存储：新的字节数和内容，是 UTF-8 时写 `text`，否则写 `hex`。
+#[derive(Serialize)]
+struct StorageReport {
+    len: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hex: Option<String>,
+}
+
+impl StorageReport {
+    fn of(bytes: Vec<u8>) -> Self {
+        let len = bytes.len();
+        match String::from_utf8(bytes) {
+            Ok(text) => Self {
+                len,
+                text: Some(text),
+                hex: None,
+            },
+            Err(error) => Self {
+                len,
+                text: None,
+                hex: Some(
+                    error
+                        .as_bytes()
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect(),
+                ),
+            },
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct ActionLine {
     import: &'static str,
@@ -439,6 +521,12 @@ struct Report {
     /// 只有 `command` 行有：插件交回的行，每行是 `[文本, 注释]`。没有正常返回时为空。
     #[serde(skip_serializing_if = "Option::is_none")]
     rows: Option<Vec<CommandRow>>,
+    /// 只有 `candidates` 行有：插件经 `candidates_insert` 插的行，每行是 `[位置, 文本, 注释]`。没有正常返回时为空。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inserts: Option<Vec<InsertedRow>>,
+    /// 这次投递改了存储时才有：改过之后的内容。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage: Option<StorageReport>,
 }
 
 fn level_name(level: i32) -> String {
@@ -466,6 +554,8 @@ fn status_name(code: i32) -> String {
 struct Session<'m> {
     module: &'m ScriptModule,
     grants: CapabilitySet,
+    /// 设置项、数据和存储缓冲，每次实例化交同一份。
+    resources: Resources,
     instance: Option<ScriptInstance>,
     /// 这次聚焦里 trap 过（包括运行到一半被本轮配额截断）：到下一次聚焦之前不再重建。
     trapped: bool,
@@ -479,13 +569,16 @@ struct Session<'m> {
     actions: Arc<Mutex<Vec<ActionLine>>>,
     /// 最近一次 `command` 正常返回时交回的行。
     rows: Vec<CommandRow>,
+    /// 最近一次 `candidates` 正常返回时插的行。
+    inserts: Vec<InsertedRow>,
 }
 
 impl<'m> Session<'m> {
-    fn new(module: &'m ScriptModule, grants: CapabilitySet) -> Self {
+    fn new(module: &'m ScriptModule, grants: CapabilitySet, resources: Resources) -> Self {
         Self {
             module,
             grants,
+            resources,
             instance: None,
             trapped: false,
             disabled: false,
@@ -495,6 +588,7 @@ impl<'m> Session<'m> {
             logs: Arc::default(),
             actions: Arc::default(),
             rows: Vec::new(),
+            inserts: Vec::new(),
         }
     }
 
@@ -567,7 +661,13 @@ impl<'m> Session<'m> {
             if budget == 0 {
                 return ("deferred".into(), 0, None, false);
             }
-            match ScriptInstance::with_debug(self.module, self.grants, budget, self.sinks()) {
+            match ScriptInstance::with_resources(
+                self.module,
+                self.grants,
+                budget,
+                self.resources.clone(),
+                self.sinks(),
+            ) {
                 Ok(mut instance) => {
                     self.init_left = budget.saturating_sub(instance.init_fuel());
                     init_fuel = Some(instance.init_fuel());
@@ -606,6 +706,7 @@ impl<'m> Session<'m> {
             Outcome::NotSubscribed => ("not_subscribed".into(), 0, init_fuel, false),
             Outcome::Delivered { fuel, .. } => {
                 self.rows.clone_from(&instance.actions().rows);
+                self.inserts.clone_from(&instance.actions().inserts);
                 ("ok".into(), fuel, init_fuel, false)
             }
             // 本轮配额用完不算失败；运行到一半被截断的实例丢弃，这次聚焦里不再重建。被截断时已经用掉本钩子上限一半的是 `Failed`，走下面的分支。
@@ -650,7 +751,19 @@ pub fn run_module(
     steps: &[Step],
     out: &mut impl Write,
 ) -> i32 {
-    let mut session = Session::new(module, grants);
+    run_module_with(module, grants, Resources::default(), steps, out)
+}
+
+/// 同 [`run_module`]，另外交进设置项的值、随包数据和存储缓冲。
+pub fn run_module_with(
+    module: &ScriptModule,
+    grants: CapabilitySet,
+    resources: Resources,
+    steps: &[Step],
+    out: &mut impl Write,
+) -> i32 {
+    let storage = resources.storage.clone();
+    let mut session = Session::new(module, grants, resources);
     let mut status = EXIT_OK;
     for (index, step) in steps.iter().enumerate() {
         let (outcome, fuel, init_fuel, failed) = session.step(step);
@@ -659,6 +772,9 @@ pub fn run_module(
         }
         let (actions, log) = session.drain();
         let rows = std::mem::take(&mut session.rows);
+        let inserts = std::mem::take(&mut session.inserts);
+        // 像输入法刷盘那样，每个事件之后取走这次投递的改动。
+        let changed = storage.as_ref().and_then(Storage::take_dirty);
         let report = Report {
             seq: index + 1,
             event: step.hook.as_str(),
@@ -668,6 +784,13 @@ pub fn run_module(
             actions,
             log,
             rows: (step.hook == Hook::Command).then_some(rows),
+            inserts: (step.hook == Hook::Candidates
+                && module
+                    .declaration()
+                    .capabilities
+                    .contains(Capability::InsertCandidates))
+            .then_some(inserts),
+            storage: changed.map(StorageReport::of),
         };
         let line = serde_json::to_string(&report).unwrap_or_default();
         if writeln!(out, "{line}").is_err() {
@@ -677,11 +800,51 @@ pub fn run_module(
     status
 }
 
-/// `msime-pack run <pack> --events <fixture> [--grant ...] [--builtin]` 的实现。`reserved` 是 `--builtin` 给的保留 id 处理方式。
+/// `run` 的可选输入：`--settings` 和 `--storage` 给的文件。
+#[derive(Clone, Debug, Default)]
+pub struct Inputs<'a> {
+    /// JSON 对象，键是清单里设置项的 `key`，值的类型同 `script-settings.json`。
+    pub settings: Option<&'a Path>,
+    /// 存储的初值，原样的字节，不超过 64 KiB。只有申请了 `persist_data` 的包能用。
+    pub storage: Option<&'a Path>,
+}
+
+/// 按 `--settings` 的 JSON 算出交给插件的设置值。没写 `--settings` 时全部是默认值；写了清单里没有的键、或者值对那一项不合规，是命令行错误。
+fn settings_values(
+    settings: &[script_pack::ScriptSetting],
+    file: Option<&Path>,
+) -> Result<Vec<String>, String> {
+    let Some(file) = file else {
+        return Ok(script_pack::setting_values(settings, &Default::default()));
+    };
+    let text = std::fs::read_to_string(file)
+        .map_err(|error| format!("{}: 读不出设置：{error}", file.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("{}: 设置不是有效的 JSON：{error}", file.display()))?;
+    let serde_json::Value::Object(stored) = value else {
+        return Err(format!("{}: 设置必须是一个 JSON 对象", file.display()));
+    };
+    for (key, value) in &stored {
+        let setting = settings
+            .iter()
+            .find(|setting| setting.key == *key)
+            .ok_or_else(|| format!("{}: 清单里没有设置项 {key}", file.display()))?;
+        if !setting.accepts(value) {
+            return Err(format!(
+                "{}: 设置项 {key} 的值 {value} 不合规",
+                file.display()
+            ));
+        }
+    }
+    Ok(script_pack::setting_values(settings, &stored))
+}
+
+/// `msime-pack run <pack> --events <fixture> [--grant ...] [--settings ...] [--storage ...] [--builtin]` 的实现。`reserved` 是 `--builtin` 给的保留 id 处理方式。
 pub fn command(
     pack: &Path,
     fixture: &Path,
     grant: &GrantSpec,
+    inputs: &Inputs<'_>,
     reserved: ReservedIds,
     out: &mut impl Write,
     err: &mut impl Write,
@@ -726,15 +889,15 @@ pub fn command(
             return EXIT_USAGE;
         }
     };
-    // 输入法只把清单里声明过的触发词投递给这个插件。
+    // 输入法只把清单里声明过的触发词投递给这个插件，参数只含那条指令接受的字符。
     for (index, step) in steps.iter().enumerate() {
         if let Some(trigger) = step.trigger() {
-            if !loaded
+            let Some(declared) = loaded
                 .pack
                 .commands
                 .iter()
-                .any(|command| command.trigger == trigger)
-            {
+                .find(|command| command.trigger == trigger)
+            else {
                 let _ = writeln!(
                     err,
                     "error {}: 第 {} 个事件的触发词 {trigger} 不在清单的 commands 里",
@@ -742,8 +905,64 @@ pub fn command(
                     index + 1
                 );
                 return EXIT_USAGE;
+            };
+            let argument = step.argument().unwrap_or_default();
+            if !abi::valid_command_argument(argument, declared.arguments.is_extended()) {
+                let _ = writeln!(
+                    err,
+                    "error {}: 第 {} 个事件的参数 {argument} 里有指令 {trigger} 不接受的字符（清单里没有写 arguments = \"extended\" 的指令只接受小写字母）",
+                    fixture.display(),
+                    index + 1
+                );
+                return EXIT_USAGE;
             }
         }
     }
-    run_module(&module, grants, &steps, out)
+    let settings = match settings_values(&loaded.pack.settings, inputs.settings) {
+        Ok(settings) => settings,
+        Err(message) => {
+            let _ = writeln!(err, "error {message}");
+            return EXIT_USAGE;
+        }
+    };
+    let persists = loaded.pack.permissions.contains(Capability::PersistData);
+    let storage = match (inputs.storage, persists) {
+        (None, false) => None,
+        (None, true) => Some(Storage::default()),
+        (Some(file), false) => {
+            let _ = writeln!(
+                err,
+                "error {}: 清单没有申请 persist_data，不能给存储的初值",
+                file.display()
+            );
+            return EXIT_USAGE;
+        }
+        (Some(file), true) => match std::fs::read(file) {
+            Ok(bytes) if bytes.len() <= limits::MAX_STORAGE_BYTES => Some(Storage::new(bytes)),
+            Ok(_) => {
+                let _ = writeln!(
+                    err,
+                    "error {}: 存储的初值超过 {} 字节",
+                    file.display(),
+                    limits::MAX_STORAGE_BYTES
+                );
+                return EXIT_USAGE;
+            }
+            Err(error) => {
+                let _ = writeln!(err, "error {}: 读不出存储的初值：{error}", file.display());
+                return EXIT_USAGE;
+            }
+        },
+    };
+    let resources = Resources {
+        settings: settings.into(),
+        data: loaded
+            .data
+            .into_iter()
+            .map(Arc::<[u8]>::from)
+            .collect::<Vec<_>>()
+            .into(),
+        storage,
+    };
+    run_module_with(&module, grants, resources, &steps, out)
 }

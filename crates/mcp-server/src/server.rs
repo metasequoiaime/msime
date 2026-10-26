@@ -1,6 +1,6 @@
 //! The tools, and the limits around the ones that write.
 //!
-//! 每个工具都重新读运行时选项，所以设置页搬走数据目录或改了词库之后，服务器不用重启就能跟上。输入的内容和凭据都不经这里离开输入法：社区工具只发送用户要求发布的那款皮肤，用的是设置应用保存的账号会话，会话里的令牌从不出现在结果里；除快捷短语外的词库内容，只有用户以 --allow-dictionary-read 启动服务器时才读。诊断日志总是可读：里面只有事件名、耗时和错误码，由用户自己打开，Windows TIP 记下的按键在返回前清空；stderr 上的审计行只写工具名和结果，从不写写入了什么。
+//! 每个工具都重新读运行时选项，所以设置页搬走数据目录或改了词库之后，服务器不用重启就能跟上。输入的内容和凭据都不经这里离开输入法：社区工具只发送用户要求发布的那款皮肤或插件包，用的是设置应用保存的账号会话，会话里的令牌从不出现在结果里；除快捷短语外的词库内容，只有用户以 --allow-dictionary-read 启动服务器时才读。诊断日志总是可读：里面只有事件名、耗时和错误码，由用户自己打开，Windows TIP 记下的按键在返回前清空；stderr 上的审计行只写工具名和结果，从不写写入了什么。
 
 use crate::community::{
     self, CommunitySkinList, CommunitySkinRequest, DeletedCommunitySkin, PublishRequest,
@@ -8,6 +8,14 @@ use crate::community::{
 };
 use crate::config::Config;
 use crate::diagnostics::{self, LogRequest, LogView, SwitchRequest, SwitchView};
+use crate::plugin_community::{
+    self, CommunityPluginList, CommunityPluginRequest, DeletedCommunityPlugin,
+    PublishPluginRequest, PublishedPlugin,
+};
+use crate::plugins::{
+    self, BuiltinPaths, CreatePluginRequest, DeletedPlugin, InstallPluginRequest, InstalledPlugin,
+    PluginFiles, PluginList, PluginRequest,
+};
 use crate::preferences::{self, PreferencesChange, PreferencesView};
 use crate::prompts::WRITE_PROMPTS;
 use crate::skins::{
@@ -45,12 +53,17 @@ const WRITE_LOCK: &str = "mcp-write.lock";
 /// 写锁只保存一个毫秒时间戳，拒绝异常膨胀的内容以免无界分配内存。
 const WRITE_LOCK_READ_LIMIT: u64 = 128;
 
-const WRITE_TOOLS: [&str; 7] = [
+const WRITE_TOOLS: [&str; 12] = [
     "create_candidate_skin",
+    "create_plugin",
     "delete_candidate_skin",
+    "delete_community_plugin",
     "delete_community_skin",
+    "delete_plugin",
     "edit_quick_phrases",
+    "install_plugin_folder",
     "publish_candidate_skin",
+    "publish_plugin",
     "set_community_skin_visibility",
     "update_preferences",
 ];
@@ -59,7 +72,7 @@ const DICTIONARY_READ_TOOLS: [&str; 2] = ["list_dictionary_words", "lookup_candi
 /// Offered with --allow-write and --allow-dictionary-read together: an edit or import also tells whether a word is there.
 const DICTIONARY_WRITE_TOOLS: [&str; 2] = ["edit_dictionary_words", "import_dictionary_words"];
 
-const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync. With --allow-write, publish_candidate_skin uploads an installed skin to the skin community, public or private, using the account the user signed in to in the 水杉输入法 settings app; this server never signs in to the account itself, so if no one is signed in, ask the user to sign in there. Before publishing publicly, confirm with the user that everyone may see the skin and that they have the right to share its images. list_community_skins lists the account's community skins, set_community_skin_visibility makes one private again and delete_community_skin removes one. Extended resources require explicit server support. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
+const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync. With --allow-write, publish_candidate_skin uploads an installed skin to the skin community, public or private, using the account the user signed in to in the 水杉输入法 settings app; this server never signs in to the account itself, so if no one is signed in, ask the user to sign in there. Before publishing publicly, confirm with the user that everyone may see the skin and that they have the right to share its images. list_community_skins lists the account's community skins, set_community_skin_visibility makes one private again and delete_community_skin removes one. It also lists the user's plugin packs (list_plugins, get_plugin) and, with --allow-write, makes them. The kinds are sound and music packs, command tables (/ commands, such as one that types today's date), typing effects, phrase tables (K-mode phrases, such as an email signature), helpcode tables, word books, symbol sets (such as a group of arrows) and, on desktop, experimental script plugins. For an ordinary request like these, write the plugin.toml yourself by the rules in create_plugin's description, install it with create_plugin, and tell the user in plain words how to turn it on, as its result says: phrase tables and command tables need 启用 in 设置 → 插件 → 我的插件, and K mode or / mode on in 设置 → 输入 → 快捷模式. install_plugin_folder imports a pack folder or .zip, such as a script plugin built with msime-pack, which runs only after the user turns it on and grants it in 设置 → 插件 → 脚本插件（实验）. delete_plugin removes a pack, and publish_plugin shares a data pack with the plugin community, always publicly, once the user agrees. Extended resources require explicit server support. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
 
 #[derive(Clone)]
 pub struct MsimeServer {
@@ -551,6 +564,232 @@ impl MsimeServer {
     }
 
     #[tool(
+        name = "list_plugins",
+        description = "List the plugin packs of the input method, the user's own and those that ship with it: kind, id, name, version, licence, author, description, whether it is built in or one of the official packs, a short summary of what it holds and whether the preferences use it now. Also folders under the plugins folder that are not a loadable pack, with the reason, and the current selection: the key sound, melody, music and effect packs, the enabled command and phrase tables, the helpcode tables for quanpin and shuangpin, and whether / mode and K mode are on. The kinds are sound (key sounds or a key melody), music (background music), command_table (/ commands), effect (typing effect parameters), phrase_table (K-mode phrases), helpcode (a helpcode table), wordbook (a book for 背单词), symbol_set (groups for the symbol panel) and, on desktop, script (an experimental sandboxed WebAssembly plugin).",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_plugins(&self) -> Result<Json<PluginList>, String> {
+        let config = self.config.clone();
+        blocking(move || {
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let preferences = plugins::preferences(&state_dir, config.edition(&document)?)?;
+            Ok(Json(plugins::list(
+                &state_dir,
+                &BuiltinPaths::from_options(&document),
+                &preferences,
+            )))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "get_plugin",
+        description = "Read one pack so it can be changed: its whole plugin.toml, the absolute path of its folder, and every other file in it with its size and absolute path. To change a pack, edit the manifest and call create_plugin with replace: true, passing each unchanged file by the path given here in files: every file is read before the pack is replaced. Packs that ship with the input method can be read too, as a model for one of the user's own under another id. Refused for a pack that is not installed and for a folder list_plugins reports as an issue.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_plugin(
+        &self,
+        Parameters(request): Parameters<PluginRequest>,
+    ) -> Result<Json<PluginFiles>, String> {
+        let config = self.config.clone();
+        blocking(move || {
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            plugins::get(&state_dir, &BuiltinPaths::from_options(&document), &request).map(Json)
+        })
+        .await
+    }
+
+    #[tool(
+        name = "create_plugin",
+        description = "Install a data plugin pack from a plugin.toml and its files, by exactly the rules the settings page's import uses, so the settings app accepts what this accepts. A pack is plugin.toml, the audio or data files it names and optional .txt or .md notices (at most 64 KiB each), at most 16 files and nothing else; file names are ASCII letters, digits, `_`, `-` and `.`, starting with a letter or digit, at most 64 bytes. Every manifest has schema_version = 1; kind; id (1-64 bytes of lowercase ASCII letters, digits, `.`, `-` and `_`, starting with a letter or digit; the installed folder is named after it); name (at most 80 bytes); version (at most 32 bytes); license (an SPDX expression such as CC0-1.0, CC-BY-4.0 or MIT); optional author (at most 120 bytes) and description (at most 500 bytes); permissions only [] or left out. Any other key, at the top or inside a kind's table, refuses the pack. Ids reserved for packs that ship with the input method: sound default, twinkle, msime-typewriter, msime-bubble, msime-8bit, msime-woodblock, msime-pentatonic, msime-canon and msime-ode-to-joy, music msime-music-lofi and msime-music-ambient, phrase_table latex-symbols. The kinds: phrase_table (K mode: Shift+K, then a key) has 1-2000 [[phrases]] rows of key (1-32 lowercase ASCII letters) and text (1-199 UTF-16 units, not blank, no control characters, newline or tab); a key may have several texts, a key and text pair appears once; no files. command_table (/ mode) has 1-256 [[commands]] rows of trigger (1-32 lowercase ASCII letters, unique in the pack), title (at most 48 bytes) and template (at most 199 UTF-16 units, no control characters): literal text and the placeholders {date} or {date:FORMAT} (strftime, default %Y-%m-%d), {time} or {time:FORMAT} (default %H:%M) and {weekday}; a lone { or } is refused; no files. symbol_set (the symbol panel) has 1-32 [[groups]] of tab (symbols or kaomoji), title (at most 48 bytes, unique within a tab), optional keywords (at most 256 bytes, for search) and items (1-512 strings of 1-64 UTF-16 units, unique in the group), at most 2048 items in all; no files. effect has [effect] style (flash, sparks or power_mode) and optional intensity (0-100), colors (1-4 '#RRGGBB' strings), duration_ms (60-1500) and particles (0-64); no files. helpcode has [helpcode] table naming a .txt file of lines 字=码 (exactly one non-ASCII character, `=` without spaces, a code of 1-2 lowercase ASCII letters, each character once), # comments and empty lines, UTF-8, at most 1 MiB. wordbook has [wordbook] file naming a .tsv file of word<TAB>meaning or word<TAB>phonetic<TAB>meaning lines (word 1-64 characters, phonetic at most 64 and may be empty, meaning 1-256, no control characters, each word once, 1-20000 words), UTF-8, at most 4 MiB; a word book's id is only lowercase letters, digits and `-`, not starting or ending with `-`, at most 59 characters, and its name at most 64 characters. sound has mode = 'keys' (the default) with [sounds] default (required) and optional space, enter, backspace, commit and achievement, or mode = 'sequence' with [sequence] sample, semitones (1-128 integers from -24 to 24) and optional advance (key or commit); samples are RIFF/WAVE .wav files, at most 8 distinct, each at most 512 KiB and 1.5 seconds, 4 MiB together. music has [music] tracks, 1-8 distinct .wav or .ogg files, each at most 16 MiB and 15 minutes, 64 MiB together. Data files, audio and notices come in files (the name in the pack to the absolute path of a file on this computer, which the server only reads: it refuses a path with a symbolic link anywhere on the way or that is not a regular file, and a file over 16 MiB before reading it) or texts (the name to its UTF-8 text, at most 1 MiB each, for a helpcode table, a word book or a notice), each name in only one of the two. A script plugin (kind = \"script\") is refused here: build its folder with msime-pack and import it with install_plugin_folder. Refused when a pack of the same kind and id is installed, unless replace is true; a refusal says which rule failed, in Chinese. The result says what the user has to do for the pack to take effect, for example turning on 启用 for a phrase or command table in 设置 → 插件 → 我的插件 and K mode or / mode in 设置 → 输入 → 快捷模式; tell the user in plain words. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn create_plugin(
+        &self,
+        Parameters(request): Parameters<CreatePluginRequest>,
+    ) -> Result<Json<InstalledPlugin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let preferences = plugins::preferences(&state_dir, config.edition(&document)?)?;
+            plugins::create(&state_dir, &preferences, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: create_plugin {}",
+            match &result {
+                Ok(installed) if installed.0.replaced => "replaced",
+                Ok(_) => "installed",
+                Err(_) => "refused",
+            }
+        );
+        result
+    }
+
+    #[tool(
+        name = "install_plugin_folder",
+        description = "Import a pack that already exists on this computer, a folder or a .zip holding its files at the top level or inside one folder, by the rules of the settings page's import. This is how a script plugin built with msime-pack is installed, and how a data pack the user downloaded or made elsewhere is installed. path is an absolute path with no symbolic link on the way; the server only reads it. Refused when a pack of the same kind and id is installed, unless replace is true. A script plugin does not run after this: tell the user plainly that it stays off until they turn it on and grant the capabilities it asks for in 设置 → 插件 → 脚本插件（实验）. This server never grants capabilities. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn install_plugin_folder(
+        &self,
+        Parameters(request): Parameters<InstallPluginRequest>,
+    ) -> Result<Json<InstalledPlugin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let preferences = plugins::preferences(&state_dir, config.edition(&document)?)?;
+            plugins::install_folder(&state_dir, &preferences, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: install_plugin_folder {}",
+            match &result {
+                Ok(installed) if installed.0.replaced => "replaced",
+                Ok(_) => "installed",
+                Err(_) => "refused",
+            }
+        );
+        result
+    }
+
+    #[tool(
+        name = "delete_plugin",
+        description = "Delete a pack the user installed: its folder under the plugins folder, with everything in it. Refused for packs that ship with the input method (the built-in sound and music packs and the official packs) and for a pack that is not installed. A deleted script plugin's grant is removed with it. When the preferences still select or enable the pack, the result says where; the input method then falls back to the default there, as after the settings page removes a pack in use. Confirm with the user first. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_plugin(
+        &self,
+        Parameters(request): Parameters<PluginRequest>,
+    ) -> Result<Json<DeletedPlugin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let preferences = plugins::preferences(&state_dir, config.edition(&document)?)?;
+            plugins::delete(&state_dir, &preferences, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: delete_plugin {}",
+            if result.is_ok() { "deleted" } else { "refused" }
+        );
+        result
+    }
+
+    #[tool(
+        name = "publish_plugin",
+        description = "Publish an installed data pack the user made (not one that ships with the input method, not a script plugin) to the 水杉输入法 plugin community, using the account the user signed in to in the 水杉输入法 settings app. This server never signs in or handles passwords: when no one is signed in it says so, and you ask the user to sign in there and try again. Publishing is always public: everyone can see, download and rate the pack. Before publishing, ask the user in plain words to confirm that everyone may see it, that they made its audio and text or have the right to share them, and that others may download and use it under the licence in its manifest; a pack downloaded from the community is not theirs to publish. name (1-32 characters) and description (at most 280) are the listing's title and text, by default the manifest's name and description. The pack is checked on this computer by the rules of the settings app's publish dialog before anything is sent; zipped it may be at most 8 MB. An account publishes at most 20 packs, 32 MB together, and at most 10 times an hour; list_community_plugins shows what it has published. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn publish_plugin(
+        &self,
+        Parameters(request): Parameters<PublishPluginRequest>,
+    ) -> Result<Json<PublishedPlugin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let community = plugin_community::community(&state_dir, config.edition(&document)?)?;
+            plugin_community::publish(&state_dir, &community, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: publish_plugin {}",
+            if result.is_ok() {
+                "published"
+            } else {
+                "refused"
+            }
+        );
+        result
+    }
+
+    #[tool(
+        name = "list_community_plugins",
+        description = "List the plugin packs the signed-in account published to the community, removed ones included: community id, kind, plugin id, title, version, downloads and when it was published. Uses the account the user signed in to in the 水杉输入法 settings app; this server never signs in itself, so when no one is signed in, ask the user to sign in there.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn list_community_plugins(&self) -> Result<Json<CommunityPluginList>, String> {
+        let config = self.config.clone();
+        blocking(move || {
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let community = plugin_community::community(&state_dir, config.edition(&document)?)?;
+            plugin_community::list(&community).map(Json)
+        })
+        .await
+    }
+
+    #[tool(
+        name = "delete_community_plugin",
+        description = "Delete a pack the signed-in account published from the plugin community for good, with its downloads and ratings; copies other people installed stay on their computers, and the pack installed here is left alone. Takes the community id list_community_plugins or publish_plugin gave. Confirm with the user first. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn delete_community_plugin(
+        &self,
+        Parameters(request): Parameters<CommunityPluginRequest>,
+    ) -> Result<Json<DeletedCommunityPlugin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let community = plugin_community::community(&state_dir, config.edition(&document)?)?;
+            plugin_community::delete(&community, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: delete_community_plugin {}",
+            if result.is_ok() { "deleted" } else { "refused" }
+        );
+        result
+    }
+
+    #[tool(
         name = "get_typing_statistics",
         description = "Read aggregate typing statistics: characters per day, per category and per input scheme, time spent typing and typing speed, the distribution over the hours of the day, and how often each candidate position is chosen. Counts only; no text is ever recorded.",
         annotations(read_only_hint = true, open_world_hint = false)
@@ -919,10 +1158,13 @@ mod tests {
             names(&server(false)),
             [
                 "get_candidate_skin",
+                "get_plugin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
+                "list_community_plugins",
                 "list_community_skins",
+                "list_plugins",
                 "list_quick_phrases",
                 "read_diagnostic_log",
                 "set_diagnostic_log"
@@ -932,16 +1174,24 @@ mod tests {
             names(&server(true)),
             [
                 "create_candidate_skin",
+                "create_plugin",
                 "delete_candidate_skin",
+                "delete_community_plugin",
                 "delete_community_skin",
+                "delete_plugin",
                 "edit_quick_phrases",
                 "get_candidate_skin",
+                "get_plugin",
                 "get_preferences",
                 "get_typing_statistics",
+                "install_plugin_folder",
                 "list_candidate_skins",
+                "list_community_plugins",
                 "list_community_skins",
+                "list_plugins",
                 "list_quick_phrases",
                 "publish_candidate_skin",
+                "publish_plugin",
                 "read_diagnostic_log",
                 "set_community_skin_visibility",
                 "set_diagnostic_log",
@@ -952,11 +1202,14 @@ mod tests {
             names(&server_with(false, true)),
             [
                 "get_candidate_skin",
+                "get_plugin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
+                "list_community_plugins",
                 "list_community_skins",
                 "list_dictionary_words",
+                "list_plugins",
                 "list_quick_phrases",
                 "lookup_candidates",
                 "read_diagnostic_log",
@@ -967,20 +1220,28 @@ mod tests {
             names(&server_with(true, true)),
             [
                 "create_candidate_skin",
+                "create_plugin",
                 "delete_candidate_skin",
+                "delete_community_plugin",
                 "delete_community_skin",
+                "delete_plugin",
                 "edit_dictionary_words",
                 "edit_quick_phrases",
                 "get_candidate_skin",
+                "get_plugin",
                 "get_preferences",
                 "get_typing_statistics",
                 "import_dictionary_words",
+                "install_plugin_folder",
                 "list_candidate_skins",
+                "list_community_plugins",
                 "list_community_skins",
                 "list_dictionary_words",
+                "list_plugins",
                 "list_quick_phrases",
                 "lookup_candidates",
                 "publish_candidate_skin",
+                "publish_plugin",
                 "read_diagnostic_log",
                 "set_community_skin_visibility",
                 "set_diagnostic_log",
@@ -1123,6 +1384,60 @@ mod tests {
         // 服务器说明仍然声明它不登录。
         assert!(INSTRUCTIONS.contains("this server never signs in to the account itself"));
         assert!(INSTRUCTIONS.contains("confirm with the user"));
+    }
+
+    #[test]
+    fn plugin_tools_explain_enabling_grants_and_publishing() {
+        let description = |name: &str| {
+            server(true)
+                .tool_router
+                .list_all()
+                .into_iter()
+                .find(|tool| tool.name == name)
+                .and_then(|tool| tool.description)
+                .unwrap()
+                .to_string()
+        };
+        let create = description("create_plugin");
+        for word in [
+            "by exactly the rules the settings page's import uses",
+            "[[phrases]]",
+            "[[commands]]",
+            "{weekday}",
+            "[[groups]]",
+            "[helpcode] table",
+            "[wordbook] file",
+            "RIFF/WAVE .wav files",
+            "refuses a path with a symbolic link anywhere on the way",
+            "A script plugin (kind = \"script\") is refused here",
+            "设置 → 输入 → 快捷模式",
+        ] {
+            assert!(create.contains(word), "{word}");
+        }
+        let install = description("install_plugin_folder");
+        assert!(install.contains("设置 → 插件 → 脚本插件（实验）"));
+        assert!(install.contains("This server never grants capabilities"));
+        let publish = description("publish_plugin");
+        for word in [
+            "This server never signs in or handles passwords",
+            "Publishing is always public",
+            "ask the user in plain words to confirm",
+            "Only offered when the user started the server with --allow-write",
+        ] {
+            assert!(publish.contains(word), "{word}");
+        }
+        assert!(description("delete_plugin").contains("Confirm with the user first"));
+        assert!(description("delete_community_plugin").contains("Confirm with the user first"));
+        assert!(description("list_community_plugins").contains("this server never signs in"));
+        // 服务器说明告诉代理自己写清单、装好之后怎么打开。
+        for word in [
+            "write the plugin.toml yourself by the rules in create_plugin's description",
+            "设置 → 插件 → 我的插件",
+            "K mode or / mode on in 设置 → 输入 → 快捷模式",
+            "脚本插件（实验）",
+        ] {
+            assert!(INSTRUCTIONS.contains(word), "{word}");
+        }
     }
 
     #[test]

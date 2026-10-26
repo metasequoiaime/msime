@@ -26,6 +26,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
   @State private var tabOpensCandidates = true
   @State private var shuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
+  @State private var quanpinShift = KeyboardLayoutPreference.quanpinShift
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
   @State private var saveFailed = false
@@ -205,6 +206,9 @@ struct KeyboardLayoutSettingsView: View {
         .accessibilityIdentifier("appShuangpinKeyHintsToggle")
         DesignDivider()
       }
+      DesignToggleRow(title: "组字时保留 Shift", subtitle: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认关闭，组字时这一键是「分词」，用来断开音节",
+                      isOn: Binding(get: { quanpinShift }, set: { saveQuanpinShift($0) }))
+        .accessibilityIdentifier("appQuanpinShiftToggle")
       DesignToggleRow(title: "隐藏中/英键", subtitle: "加宽底行空格键；中英文仍可在工具栏的输入方式中切换",
                       isOn: Binding(get: { hideLanguageKey }, set: { enabled in
                         hideLanguageKey = enabled
@@ -534,6 +538,13 @@ struct KeyboardLayoutSettingsView: View {
       : enabled
   }
 
+  private func saveQuanpinShift(_ enabled: Bool) {
+    saveFailed = !KeyboardLayoutPreference.saveQuanpinShift(enabled)
+    quanpinShift = saveFailed
+      ? KeyboardLayoutPreference.sharedQuanpinShift(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+      : enabled
+  }
+
   private func saveTab(_ enabled: Bool) {
     saveFailed = !KeyboardLayoutPreference.saveTabShowsMoreCandidates(enabled)
     tabOpensCandidates = saveFailed
@@ -577,6 +588,8 @@ struct KeyboardLayoutSettingsView: View {
     height = KeyboardLayoutPreference.heightAdjustment
     shuangpinKeyHints = KeyboardLayoutPreference.sharedShuangpinKeyHints(in: preferences)
     KeyboardLayoutPreference.shuangpinKeyHints = shuangpinKeyHints
+    quanpinShift = KeyboardLayoutPreference.sharedQuanpinShift(in: preferences)
+    KeyboardLayoutPreference.quanpinShift = quanpinShift
   }
 }
 

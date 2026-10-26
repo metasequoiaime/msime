@@ -35,6 +35,8 @@ impl From<PluginError> for PluginFailure {
             PluginError::Archive(reason) => Self::with_detail("plugin_archive", reason),
             PluginError::Reserved => Self::code("plugin_reserved"),
             PluginError::Storage => Self::code("plugin_storage"),
+            PluginError::Exists => Self::code("plugin_exists"),
+            PluginError::NotEditable(reason) => Self::with_detail("plugin_not_editable", reason),
             PluginError::Io(_) => Self::code("storage"),
         }
     }

@@ -196,6 +196,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyGridKeys: [NineKeyGridKey] = []
   /// 26 键双拼画不画键位提示（共享偏好 `touch_shuangpin_key_hints`），键盘出现时从共享文档同步，绘制键面时不再读 App Group。
   private var shuangpinKeyHintsEnabled = KeyboardLayoutPreference.shuangpinKeyHints
+
+  /// 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」（共享偏好 `touch_quanpin_shift`），键盘出现时从共享文档同步。
+  private var quanpinShiftEnabled = KeyboardLayoutPreference.quanpinShift
   private enum MoreToolsPage { case root, localInput }
   private var moreToolsPage: MoreToolsPage = .root
   private let dismissShortcut = KeyboardToolbarButton(icon: .collapse, accessibilityLabel: "收起键盘")
@@ -4079,9 +4082,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateAutomaticCapitalization()
   }
 
-  /// 仅替换中文全拼字母页，密码框、本地模式和其他方案保留大小写。
+  /// 仅替换中文全拼字母页，密码框、本地模式和其他方案保留大小写。共享偏好 `touch_quanpin_shift` 打开后 ⇧ 保留，用来臂辅助码。
   private var usesQuanpinSeparator: Bool {
-    inputScheme == .quanpin && isChineseMode && !showsSymbols && !isInLocalMode
+    !quanpinShiftEnabled && inputScheme == .quanpin && isChineseMode && !showsSymbols && !isInLocalMode
       && !isCredentialField && !session.initializationFailed
   }
 
@@ -5126,6 +5129,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardLayoutPreference.shuangpinKeyHints = KeyboardLayoutPreference.sharedShuangpinKeyHints(in: preferences)
     if shuangpinKeyHintsEnabled != KeyboardLayoutPreference.shuangpinKeyHints {
       shuangpinKeyHintsEnabled = KeyboardLayoutPreference.shuangpinKeyHints
+      updateLetterCaseControls()
+    }
+    // 分词键的键面和点击都按它分支（usesQuanpinSeparator），变了立刻重画。
+    KeyboardLayoutPreference.quanpinShift = KeyboardLayoutPreference.sharedQuanpinShift(in: preferences)
+    if quanpinShiftEnabled != KeyboardLayoutPreference.quanpinShift {
+      quanpinShiftEnabled = KeyboardLayoutPreference.quanpinShift
       updateLetterCaseControls()
     }
 

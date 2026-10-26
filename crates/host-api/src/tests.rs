@@ -329,6 +329,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
+        caret_edit_suffix: false,
         learning: false,
         learn_english_on_enter: true,
         next_word_prediction: false,
@@ -1618,6 +1619,98 @@ fn single_character_only_reaches_engine_after_composition() {
     SESSIONS.with(|sessions| {
         assert!(!sessions.borrow()[&handle].options.single_character_only);
     });
+    read(msime_client_destroy(handle));
+}
+
+fn caret_edit_host(root: &std::path::Path, preferences: Preferences) -> u64 {
+    let path = |name| {
+        let path = root.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    let dictionaries = path("dictionaries");
+    let fixture = "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_w VALUES('wo','w','我',1000);
+                   CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_h VALUES('hao','h','好',1000),('huo','h','火',300);
+                   CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_x VALUES('xian','x','现',1000);
+                   CREATE TABLE tbl_1_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_c VALUES('chi','c','吃',1000);
+                   CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_2_c VALUES('chi''huo','ch','吃货',500);
+                   CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_g VALUES('guo','g','锅',1000);
+                   CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_2_h VALUES('huo''guo','hg','火锅',5000);
+                   CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);";
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(fixture)
+            .unwrap();
+    }
+    bundle_wubi_table(&resources);
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true);
+    created["value"]["session"].as_u64().unwrap()
+}
+
+/// 打完 `wohaoxianchihuoguo`，左移 9 次停在 `wohaoxian|chihuoguo`，返回此时的视图。
+fn caret_edit_view(handle: u64) -> Value {
+    for byte in b"wohaoxianchihuoguo" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let mut view = Value::Null;
+    for _ in 0..9 {
+        view = read(msime_client_command(handle, 4))["value"]["view"].clone();
+    }
+    view
+}
+
+/// 「移动光标后编辑光标后的部分」是 Engine 偏好：桌面宿主上和「只出单字」一样等组字结束才重建 Engine。视图在模式生效时带上 `caret_edit_suffix` 和 `caret_edit_prefix`，首选是固定的那段接上整句；关掉时两项都不出现。
+#[test]
+fn caret_edit_suffix_reaches_the_engine_after_composition_and_the_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    let handle = caret_edit_host(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    let off = caret_edit_view(handle);
+    assert!(off.get("caret_edit_suffix").is_none(), "{off}");
+    assert!(off.get("caret_edit_prefix").is_none(), "{off}");
+    assert_eq!(off["candidates"][0]["text"], "我好现");
+
+    // 组字中打开：先记下，组字结束后才生效。
+    preferences.caret_edit_suffix = true;
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&handle].options.caret_edit_suffix);
+    });
+    read(msime_client_command(handle, 3));
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert!(session.options.caret_edit_suffix);
+        assert!(session.applied.caret_edit_suffix);
+    });
+    let on = caret_edit_view(handle);
+    assert_eq!(on["caret_edit_suffix"], true, "{on}");
+    assert_eq!(on["caret_edit_prefix"], "我好现");
+    assert_eq!(on["candidates"][0]["text"], "我好现吃火锅");
+    assert_eq!(on["caret_position"], 9);
+
+    // 组字中关掉：这一段组字照旧按光标后编辑走完，下一段才回到光标前缀解码。
+    preferences.caret_edit_suffix = false;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], true);
+    let committed = read(msime_client_command(handle, 1));
+    assert_eq!(committed["value"]["commit"], "我好现吃火锅");
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&handle].options.caret_edit_suffix);
+    });
+    let again = caret_edit_view(handle);
+    assert!(again.get("caret_edit_suffix").is_none(), "{again}");
+    assert_eq!(again["candidates"][0]["text"], "我好现");
     read(msime_client_destroy(handle));
 }
 
@@ -4486,12 +4579,12 @@ fn display_page_routes_second_third_shortcut_and_translation_query_through_the_a
 }
 
 #[test]
-fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
+fn helpcode_defaults_follow_preferences_for_each_pinyin_scheme() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());
     SESSIONS.with(|sessions| {
         let session = &sessions.borrow()[&handle];
-        // 出厂开（v0.11.1 出厂关、pin 出厂开，本仓沿用开，差异已记录）；方案名与注释开关各自保持出厂值。
+        // 全拼默认开；方案名与注释开关各自保持出厂值。
         assert!(session.options.helpcode);
         assert_eq!(session.options.helpcode_schema, "ziranma");
         assert!(!session.options.show_helpcode);
@@ -4504,7 +4597,7 @@ fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
     assert_eq!(update(handle, 1, &shuangpin)["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         let session = &sessions.borrow()[&handle];
-        assert!(session.options.helpcode);
+        assert!(!session.options.helpcode);
         assert_eq!(session.options.helpcode_schema, "lantian");
         assert!(session.options.show_helpcode);
     });
@@ -4617,6 +4710,7 @@ fn shuangpin_manual_tab_roundtrips_through_host_character() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
     preferences.scheme = InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
     preferences.shuangpin_helpcode.modes.manual_tab = true;
     let handle = test_host_preferences(dir.path(), preferences.clone());
     read(msime_client_focus(handle, true));
@@ -4662,6 +4756,7 @@ fn shuangpin_manual_tab_survives_held_phrase_prefix() {
     }
     let mut preferences = chinese_preferences();
     preferences.scheme = InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
     preferences.shuangpin_helpcode.modes.manual_tab = true;
     let options = json!({"api_version":1, "resources": resources, "dictionaries":dictionaries,
         "user_data":path("user"), "cache":path("cache"), "preferences":preferences,
@@ -16746,6 +16841,7 @@ fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
 
     let mut preferences = chinese_preferences();
     preferences.scheme = msime_client_core::preferences::InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
     preferences.plugins.helpcode_pack_shuangpin = id.clone();
     let handle = plugin_host(dir.path(), preferences);
     assert_eq!(session_helpcode(handle).as_deref(), Some("zz"));
@@ -19448,6 +19544,7 @@ fn voice_capture_device_export_lists_wasapi_endpoints_on_windows_only() {
 mod fuzzy_single;
 mod initial_learning;
 mod lifecycle_traces;
+mod plugin_authoring;
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",

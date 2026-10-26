@@ -292,7 +292,44 @@ struct CandidatePresentation {
   bool caret_anchor_known = false;
   int caret_anchor_x = 0;
   int caret_anchor_y = 0;
+  // 光标后编辑（view 的 caret_edit_suffix，偏好 `caret_edit_suffix`）正在生效：候选是组字光标后那段的，首选是整句。候选窗在首行右侧、翻页之前画 candidate_caret_edit_hint，见 candidate_presentation_caret_edit。
+  bool caret_edit_suffix = false;
+  // 光标后编辑里首选（index 为 0 的那一行）开头固定的那段文字（view 的 caret_edit_prefix），已按输出模式换成和候选文字一样的写法。候选窗把首选开头的这几个字画淡，见 candidate_caret_edit_dim。没有生效时为空。
+  std::string caret_edit_prefix{};
 };
+// 光标后编辑生效时首行右侧的提示：只是一行字，不能点。
+inline constexpr const char *candidate_caret_edit_hint = "候选编辑：光标后";
+// 这一页首行右侧要画的提示：光标后编辑生效时是 candidate_caret_edit_hint，其余时候为空，候选窗的样子和没有这项功能时完全一样。
+inline std::string candidate_header_hint(const CandidatePresentation &value) {
+  return value.caret_edit_suffix ? std::string(candidate_caret_edit_hint) : std::string{};
+}
+// 一行候选开头要画淡的那一段（UTF-8 字节数）：只有光标后编辑里的首选（Engine 下标为 0 的那一行），而且它的文字确实以 caret_edit_prefix 开头时才有，其余为 0。按字节比对开头，和按 Unicode 标量数去数是同一段字；对不上（比如繁体换算改了字数）时宁可不画淡，也不把淡色画到别的字上。
+inline size_t candidate_caret_edit_dim(const CandidatePresentation &value,
+                                       const PresentationCandidate &candidate) {
+  const auto &prefix = value.caret_edit_prefix;
+  if (!value.caret_edit_suffix || prefix.empty() || candidate.index != 0 ||
+      candidate.text.compare(0, prefix.size(), prefix) != 0)
+    return 0;
+  return prefix.size();
+}
+// 把 view 的光标后编辑两项抄进 output：caret_edit_suffix 不在时就是没有生效。固定那段按首选的来源和输出模式换成候选文字的写法（candidate_output），候选窗才能按字节比对它。Ctrl+Enter 释义页上的义项不是光标后那段的候选，不带这两项。
+inline void candidate_presentation_caret_edit(CandidatePresentation &output,
+                                              const nlohmann::json &view,
+                                              bool traditional_output) {
+  output.caret_edit_suffix = !output.translation_page && view.value("caret_edit_suffix", false);
+  output.caret_edit_prefix.clear();
+  if (!output.caret_edit_suffix)
+    return;
+  auto prefix = view.value("caret_edit_prefix", std::string{});
+  if (prefix.empty() || prefix.size() > 4096)
+    return;
+  for (const auto &candidate : view.at("candidates"))
+    if (candidate.at("id").at("index").get<size_t>() == 0) {
+      output.caret_edit_prefix =
+          candidate_output(prefix, traditional_output, candidate.value("source", uint8_t{}));
+      return;
+    }
+}
 // 高亮候选确实有第 column 列释义时才算预选，否则为 0：释义刷新、云候选插入后高亮候选可能已经没有那一列，ReplyComposer 上屏时按同一条规则判断。
 inline int candidate_armed_gloss_column(const std::vector<PresentationCandidate> &candidates,
                                         int column) {
@@ -435,6 +472,7 @@ candidate_presentation_from_view(const FocusLease &lease,
   if (!output.candidates.empty() && highlighted != 1)
     throw std::invalid_argument("Invalid candidate highlight");
   candidate_presentation_page(output, view);
+  candidate_presentation_caret_edit(output, view, traditional_output);
   output.pointer_input = !scheme::KeyboardOnlyCandidateList(
       static_cast<int>(view.value("scheme", 0u)));
   output.shows_glosses = candidate_view_shows_glosses(view);
@@ -519,6 +557,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   if (!output.candidates.empty() && highlighted != 1)
     throw std::invalid_argument("Invalid candidate highlight");
   candidate_presentation_page(output, view);
+  candidate_presentation_caret_edit(output, view, reply.traditional_output);
   output.pointer_input = !scheme::KeyboardOnlyCandidateList(
       static_cast<int>(view.value("scheme", 0u)));
   output.shows_glosses = candidate_view_shows_glosses(view);

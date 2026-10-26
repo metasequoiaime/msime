@@ -1034,6 +1034,26 @@ test("a phrase or command table says when the scheme cannot open its mode", asyn
   }
 });
 
+test("saving the @ list keeps the phone numbers a mobile host imported", async () => {
+  const client = fakeClient({
+    loadMentions: vi.fn(async (): Promise<MentionEntry[]> => [
+      { text: "张三", key: "zhang'san", phone: "13800138000" },
+    ]),
+  });
+  renderSection({ client });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain("1 条"),
+  );
+  openMentions();
+  fireEvent.change(await screen.findByDisplayValue("张三"), { target: { value: " 张三丰 " } });
+  fireEvent.click(screen.getByRole("button", { name: "保存名单" }));
+  await waitFor(() =>
+    expect(client.saveMentions).toHaveBeenCalledWith([
+      { text: "张三丰", key: "zhang'san", phone: "13800138000" },
+    ]),
+  );
+});
+
 test("edits the local @ list and refuses a malformed reading before saving", async () => {
   const client = fakeClient();
   renderSection({ client });

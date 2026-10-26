@@ -86,6 +86,8 @@ pub struct PunctuationPolicy {
     next_corner_single_is_opening: bool,
     next_corner_double_is_opening: bool,
     book_title_nesting: u32,
+    /// 最近一次交替引号的按键；空闲退格若正好删掉这枚引号，可以把交替状态撤回。
+    last_alternating_quote: Option<u8>,
 }
 
 impl Default for PunctuationPolicy {
@@ -98,6 +100,7 @@ impl Default for PunctuationPolicy {
             next_corner_single_is_opening: true,
             next_corner_double_is_opening: true,
             book_title_nesting: 0,
+            last_alternating_quote: None,
         }
     }
 }
@@ -107,6 +110,7 @@ impl PunctuationPolicy {
     pub fn translate(&mut self, key: u8) -> Option<&'static str> {
         if self.marks.brackets == BracketMarks::Hollow {
             if let Some(&(_, output)) = HOLLOW_BRACKETS.iter().find(|(input, _)| *input == key) {
+                self.last_alternating_quote = None;
                 return Some(output);
             }
         }
@@ -116,31 +120,42 @@ impl PunctuationPolicy {
                 b'\\' => self.marks.enumeration_comma_backslash,
                 _ => self.marks.enumeration_comma_slash,
             };
+            self.last_alternating_quote = None;
             return enabled.then_some(output);
         }
         if let Some(&(_, output)) = SIMPLE.iter().find(|(input, _)| *input == key) {
+            self.last_alternating_quote = None;
             return Some(output);
         }
         let corner = self.marks.quotes == QuoteMarks::Corner;
+        if !matches!(key, b'"' | b'\'') {
+            self.last_alternating_quote = None;
+        }
         // Without host pairing this alternation is the only way to type a closing quote, and a host that does pair rewrites the closing quote itself, so it runs either way (punctuation_policy.cpp:12).
         // 交替状态按键保存，和出哪一组字无关：换样式不重置它。
         match key {
-            b'"' => Some(alternate(
-                &mut self.next_double_quote_is_opening,
-                if corner {
-                    CORNER_DOUBLE_QUOTE
-                } else {
-                    DOUBLE_QUOTE
-                },
-            )),
-            b'\'' => Some(alternate(
-                &mut self.next_single_quote_is_opening,
-                if corner {
-                    CORNER_SINGLE_QUOTE
-                } else {
-                    SINGLE_QUOTE
-                },
-            )),
+            b'"' => {
+                self.last_alternating_quote = Some(key);
+                Some(alternate(
+                    &mut self.next_double_quote_is_opening,
+                    if corner {
+                        CORNER_DOUBLE_QUOTE
+                    } else {
+                        DOUBLE_QUOTE
+                    },
+                ))
+            }
+            b'\'' => {
+                self.last_alternating_quote = Some(key);
+                Some(alternate(
+                    &mut self.next_single_quote_is_opening,
+                    if corner {
+                        CORNER_SINGLE_QUOTE
+                    } else {
+                        SINGLE_QUOTE
+                    },
+                ))
+            }
             // `{` `}` 的直角引号不吃样式：它们就是 cornerQuotes 里同一组字，交替状态与 `'` `"` 分开保存。
             b'{' => Some(alternate(
                 &mut self.next_corner_single_is_opening,
@@ -171,6 +186,23 @@ impl PunctuationPolicy {
                 })
             }
             _ => None,
+        }
+    }
+
+    /// 记住一次非标点输入或编辑动作，使退格不会撤销更早的引号。
+    pub fn clear_quote_undo(&mut self) {
+        self.last_alternating_quote = None;
+    }
+
+    /// 撤销最近一次交替引号。宿主只在空闲退格确实删掉刚才的标点时调用。
+    pub fn undo_last_quote(&mut self) {
+        let Some(key) = self.last_alternating_quote.take() else {
+            return;
+        };
+        match key {
+            b'"' => self.next_double_quote_is_opening = !self.next_double_quote_is_opening,
+            b'\'' => self.next_single_quote_is_opening = !self.next_single_quote_is_opening,
+            _ => {}
         }
     }
 
@@ -415,6 +447,19 @@ mod tests {
             translate_all(&mut policy, "\"'\"'"),
             ["“", "‘", "”", "’"].map(Some)
         );
+    }
+
+    #[test]
+    fn deleting_the_last_quote_restores_its_direction() {
+        let mut policy = PunctuationPolicy::default();
+        assert_eq!(policy.translate(b'"'), Some("“"));
+        policy.undo_last_quote();
+        assert_eq!(policy.translate(b'"'), Some("“"));
+
+        // 其他标点会结束撤销窗口；这是正常的引号交替，删除后面的字符不能重新打开它。
+        assert_eq!(policy.translate(b':'), Some("："));
+        policy.undo_last_quote();
+        assert_eq!(policy.translate(b'"'), Some("”"));
     }
 
     /// qp_paired_punctuation_disabled: alternation and nesting run with pairing off, and toggling pairing resets neither.

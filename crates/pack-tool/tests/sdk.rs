@@ -75,6 +75,10 @@ fn expected() -> Vec<(String, String, i64)> {
             ("REWRITABLE", event_field::REWRITABLE.into()),
             ("CONTINUES", event_field::CONTINUES.into()),
             ("GENERATED", event_field::GENERATED.into()),
+            ("LOCAL_DATE", event_field::LOCAL_DATE.into()),
+            ("LOCAL_MINUTE", event_field::LOCAL_MINUTE.into()),
+            ("WEEKDAY", event_field::WEEKDAY.into()),
+            ("UTC_OFFSET_MINUTES", event_field::UTC_OFFSET_MINUTES.into()),
         ],
     );
     group(

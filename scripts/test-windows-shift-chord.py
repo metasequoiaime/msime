@@ -32,7 +32,7 @@ using GUID = int;
 using HHOOK = void *;
 constexpr UINT VK_BACK = 8, VK_SHIFT = 16, VK_CONTROL = 17, VK_MENU = 18,
   VK_CAPITAL = 20, VK_LWIN = 91, VK_RWIN = 92, VK_LSHIFT = 160,
-  VK_RSHIFT = 161, VK_LCONTROL = 162, VK_RCONTROL = 163,
+  VK_RSHIFT = 161, VK_LCONTROL = 162, VK_RCONTROL = 163, VK_OEM_2 = 191,
   VK_LMENU = 164, VK_RMENU = 165, WM_BareShiftRelease = 1;
 constexpr int HC_ACTION = 0;
 constexpr auto kModifierHotkeyToggleLimit = std::chrono::milliseconds(500);
@@ -108,7 +108,8 @@ int main() {
   require(release(ime) && posted == 1, "a bare Shift must keep both TSF and hook routes available");
   require(!ime._MatchModifierReleaseHotkey(VK_SHIFT, &action), "a duplicate TSF release must not toggle twice");
 
-  for (UINT key : {'T', '9', '0'}) {
+  // 问号是最容易触发误切换的真实组合：Shift+主键盘斜杠。
+  for (UINT key : {UINT('T'), UINT('9'), UINT('0'), VK_OEM_2}) {
     reset(ime); press(ime);
     // 应用没有把组合键的普通按下交给 TSF，但线程键盘钩子仍观察到真实按键。
     physical[key] = true; hook(key, false);

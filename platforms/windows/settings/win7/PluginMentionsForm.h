@@ -46,7 +46,7 @@ public:
           (item.contains("key") && !item.at("key").is_string()) || (item.contains("phone") && !item.at("phone").is_string())) {
         ready_ = false; SetWindowTextW(get(notice), L"名单格式无效，原文件保持不变。"); update(); return;
       }
-      parsed.push_back({control_text::wide(item.at("text").get<std::string>()), control_text::wide(item.value("key", std::string{}))});
+      parsed.push_back({control_text::wide(item.at("text").get<std::string>()), control_text::wide(item.value("key", std::string{})), std::wstring{}});
       phones.push_back(item.value("phone", std::string{}));
     }
     mentions_ = std::move(parsed); phones_ = std::move(phones); dirty_ = false; ready_ = true;
@@ -67,7 +67,7 @@ public:
       const auto name = control_text::read(get(text), 199), pinyin = control_text::read(get(key), 64), number = control_text::read(get(phone), 64);
       if (!name || !pinyin || !number) { SetWindowTextW(get(notice), L"条目无法读取，请检查长度。"); return result; }
       auto next = mentions_; auto phones = phones_;
-      const plugin_preferences::model::Mention mention{control_text::wide(*name), control_text::wide(*pinyin)};
+      const plugin_preferences::model::Mention mention{control_text::wide(*name), control_text::wide(*pinyin), std::wstring{}};
       if (index) { next[*index] = mention; phones[*index] = *number; }
       else { next.push_back(mention); phones.push_back(*number); }
       if (const auto issue = plugin_preferences::model::mention_list_issue(next)) { SetWindowTextW(get(notice), issue->c_str()); return result; }

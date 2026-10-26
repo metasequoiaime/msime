@@ -413,6 +413,10 @@ impl InputSession {
     /// Decode only the complete units before the caret; cached by prefix.
     pub(super) fn refresh_prefix_candidates(&mut self) {
         self.prefix_active = false;
+        // 光标后编辑开着且生效时，候选是光标后那段的，不做光标前缀解码。
+        if self.refresh_caret_edit() {
+            return;
+        }
         if self.caret.is_none() || self.dedicated_english || self.local_mode != LocalInputMode::None
         {
             self.prefix_candidates.clear();

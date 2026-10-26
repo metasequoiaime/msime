@@ -6,7 +6,7 @@
 //!
 //! 同一次调用内的顺序是：`input` → `selection_retracted` → `candidate_selected` → `before_commit` → `commit` → `composition_end` 或 `composition_start` → `composition_update` → `candidates_shown` 或 `candidates_hidden`，focus 的 `focus_in`/`focus_out` 排在最后，destroy 的 `session_end` 也排在最后。
 //!
-//! 消费者有两类：内置的音效、特效和音乐（`FEEDBACK` 位），以及脚本插件（`crate::scripts`，只在桌面开发构建里、进程开关打开时才有事件可收）。旁路调用的视图事件只给内置消费者。
+//! 消费者有两类：内置的音效、特效和音乐（`FEEDBACK` 位），以及脚本插件（`crate::scripts`，只在桌面、进程开关打开时才有事件可收；开发构建和 release 构建一样）。旁路调用的视图事件只给内置消费者。
 
 use crate::key_sound::{self, KeyClass, SessionSound};
 use crate::scripts::{CallTexts, RewriteRequest, ScriptSet};

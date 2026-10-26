@@ -98,12 +98,13 @@ export interface CandidateScaleRowProps {
 }
 
 /** 「整体大小」滑块；自绘候选窗和 Linux 的 Fcitx5 主题连同窗口一起缩放，IBus 面板只缩放候选字号（见 `candidatePanelLimitNotes.ibus_panel`）。 */
-export function CandidateScaleRow({ preferences, onChange }: CandidateScaleRowProps) {
+export function CandidateScaleRow({ preferences, platform, onChange }: CandidateScaleRowProps) {
   const scale = candidateScalePercent(preferences.candidate_scale_percent);
+  const android = platform === "android";
   return (
     <SliderRow
-      title="整体大小"
-      description={`${scale}%，字号与窗口尺寸一起缩放`}
+      title={android ? "候选栏大小" : "整体大小"}
+      description={`${scale}%，${android ? "字号与候选栏高度一起缩放" : "字号与窗口尺寸一起缩放"}`}
       {...candidateScaleSlider}
       value={scale}
       valueText={`${scale}%`}

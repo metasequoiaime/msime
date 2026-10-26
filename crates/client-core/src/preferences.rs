@@ -1400,6 +1400,9 @@ pub struct Preferences {
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
+    /// 全拼 26 键组字时第三排左端的 ⇧ 默认画「分词」（送 `'` 断音节）；打开后保留 Shift，点一下臂辅助码（Shift+字母）。九键、14 键和 18 键有自己的分词键，不受它影响。默认关，即原有分词行为。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_quanpin_shift: bool,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -1442,6 +1445,9 @@ pub struct Preferences {
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
+    /// 移动光标后编辑光标后的部分（桌面宿主）：全拼、双拼的组字光标停在中间时，光标前的原文固定为当前的最佳转换，候选改为光标后那段的候选，首选是整句。默认关；关着时不写进文档，没有这个键的旧文档和旧版本都读作关。手机宿主不读它（host-api 只在桌面交给 Engine）。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub caret_edit_suffix: bool,
     pub candidate_page_size: u8,
     /// macOS 横排候选的数量模式；竖排和其他宿主保留原有分页。
     #[serde(default)]
@@ -3464,6 +3470,7 @@ impl Default for Preferences {
             touch_shuangpin_key_hints: false,
             touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
+            touch_quanpin_shift: false,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -3477,6 +3484,7 @@ impl Default for Preferences {
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),
             single_character_only: false,
+            caret_edit_suffix: false,
             candidate_page_size: 6,
             number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),
@@ -3804,7 +3812,7 @@ pub struct HelpcodePreferences {
     /// Linux 的辅助码前导键；空串保留 Shift 加字母。
     #[serde(default)]
     pub trigger_key: String,
-    /// Windows `shuangpin_helpcode`/`quanpin_helpcode` 出厂关、门禁 pin 出厂开，本仓沿用开；缺这个键的旧文档读作开。
+    /// 已有辅助码对象缺这个键时仍读作开；新建偏好的全拼默认开、双拼默认关，保留用户已有设置。
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,
@@ -3951,7 +3959,7 @@ pub fn valid_model_mirror(mirror: &str) -> bool {
 
 fn default_shuangpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
-        enabled: true,
+        enabled: false,
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,

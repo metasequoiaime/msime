@@ -1222,7 +1222,7 @@ final class ImePanels {
     }
 
     void showClipboardHistory() {
-        boolean cloudAllowed = cloudClipboardAllowed();
+        boolean cloudAllowed = cloudClipboardTabAvailable();
         if (!CloudClipboardPanelPolicy.panelAvailable(s.clipboardHistoryEnabled, cloudAllowed)
                 || s.clipboardSurface == null) return;
         // Clipboard entries are independent editor text. Finish the active composition when the
@@ -1262,8 +1262,13 @@ final class ImePanels {
             && s.imePrivacyGate.pushesCloudClipboard();
     }
 
+    /** 访客模式仍显示云端分段，但只画「此功能开发中」，绝不触网。 */
+    private boolean cloudClipboardTabAvailable() {
+        return cloudClipboardAllowed() || s.clipboardMode == ClipboardModePolicy.Mode.VISITOR;
+    }
+
     void selectClipboardTab(CloudClipboardPanelPolicy.Tab tab) {
-        if (tab == CloudClipboardPanelPolicy.Tab.CLOUD && !cloudClipboardAllowed()) return;
+        if (tab == CloudClipboardPanelPolicy.Tab.CLOUD && !cloudClipboardTabAvailable()) return;
         s.clipboardTab = tab;
         clipboardClearPending = false;
         clipboardActionText = null;
@@ -1299,6 +1304,12 @@ final class ImePanels {
      * <p>配置了中继就只读中继；面板打开后中继设置变了（换了地址或令牌、改回了账号），这次读取按失败处理，下次刷新时按新的设置来。
      */
     void refreshCloudClipboard() {
+        if (s.clipboardMode == ClipboardModePolicy.Mode.VISITOR) {
+            s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.VISITOR;
+            s.cloudClipboardItems = java.util.List.of();
+            if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
+            return;
+        }
         if (!cloudClipboardAllowed()) return;
         CloudOwner owner = cloudClipboardOwner();
         String accountId = owner == null ? "" : owner.id();
@@ -1581,7 +1592,7 @@ final class ImePanels {
         clipboardSwipedCell = null;
         LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
-        boolean cloudAllowed = cloudClipboardAllowed();
+        boolean cloudAllowed = cloudClipboardTabAvailable();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         boolean cloud = s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD;
         if (!cloud && clipboardSegments != null) {

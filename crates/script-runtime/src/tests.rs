@@ -1394,6 +1394,7 @@ fn candidate_imports_stage_order_hide_and_annotations() {
             hidden: vec![1],
             annotations: vec![(2, "常用".to_owned())],
             rows: Vec::new(),
+            inserts: Vec::new(),
         }
     );
 }
@@ -1793,6 +1794,7 @@ fn command_event(
         trigger,
         argument,
         random,
+        local_time: None,
     });
     event
 }
@@ -1826,10 +1828,9 @@ fn the_new_capability_and_hook_have_their_names_and_numbers() {
     assert_eq!(Capability::ProvideCommands.requires(), None);
     assert!(Capability::ProvideCommands.reads_text());
     assert!(provides().check_rules().is_ok());
-    // `CapabilitySet` 是 u8：编译期断言守着第 9 项，这里核对现在正好 8 项、各占一位。
-    assert_eq!(Capability::ALL.len(), 8);
+    // 各占一位；能力的总数由第二批能力的测试核对。
     let all: CapabilitySet = Capability::ALL.into_iter().collect();
-    assert_eq!(all.iter().count(), 8);
+    assert_eq!(all.iter().count(), Capability::ALL.len());
     assert_eq!(Hook::parse("command"), Some(Hook::Command));
     assert_eq!(Hook::Command.as_str(), "command");
     assert_eq!(Hook::Command.code(), 18);
@@ -1839,9 +1840,8 @@ fn the_new_capability_and_hook_have_their_names_and_numbers() {
     assert_eq!(limits::hook_fuel(Hook::Command), limits::COMMAND_FUEL);
     // 两个指令类 import 属于 `provide_commands`，`random_fill` 不需要能力。
     let imports: Vec<_> = abi::imports().collect();
-    assert_eq!(imports.len(), 18);
     assert_eq!(
-        &imports[15..],
+        &imports[15..18],
         [
             ("command_text", Some(Capability::ProvideCommands)),
             ("command_row", Some(Capability::ProvideCommands)),
@@ -2939,4 +2939,941 @@ fn a_hook_running_out_of_fuel_fits_a_small_native_stack() {
             "{hook:?}"
         );
     }
+}
+
+// ---- 第二批能力：设置项、随包数据、加候选、指令时间、持久存储 ----
+
+const V2_IMPORTS: &str = r#"(import "msime" "event_scalar" (func $scalar (param i32) (result i64)))
+    (import "msime" "candidate_count" (func $count (result i32)))
+    (import "msime" "commit_text" (func $commit_text (param i32 i32 i32) (result i32)))
+    (import "msime" "setting_count" (func $setting_count (result i32)))
+    (import "msime" "setting_value" (func $setting_value (param i32 i32 i32) (result i32)))
+    (import "msime" "data_len" (func $data_len (param i32) (result i64)))
+    (import "msime" "data_read" (func $data_read (param i32 i32 i32 i32) (result i32)))
+    (import "msime" "candidates_insert" (func $insert (param i32 i32 i32 i32 i32) (result i32)))
+    (import "msime" "storage_len" (func $storage_len (result i32)))
+    (import "msime" "storage_read" (func $storage_read (param i32 i32 i32) (result i32)))
+    (import "msime" "storage_write" (func $storage_write (param i32 i32) (result i32)))"#;
+
+const V2_CAPS: [Capability; 4] = [
+    Capability::ReadCommit,
+    Capability::ReadCandidates,
+    Capability::InsertCandidates,
+    Capability::PersistData,
+];
+
+/// 第二批 import 的探测模块：申请 [`V2_CAPS`]，声明全部钩子。`extra` 是额外的定义（数据段、`msime_init`），`body` 是 `msime_on_event` 的函数体。
+fn v2(extra: &str, body: &str, grants: &[Capability], resources: Resources) -> ScriptInstance {
+    let wat = module_wat(V2_IMPORTS, extra, body);
+    let module = compile_wat(&wat, declaration(&V2_CAPS, &Hook::ALL)).expect("v2 module compiles");
+    ScriptInstance::with_resources(
+        &module,
+        grants.iter().copied().collect(),
+        limits::INIT_FUEL,
+        resources,
+        DebugSinks::default(),
+    )
+    .expect("v2 module instantiates")
+}
+
+fn resources(settings: &[&str], data: &[&[u8]], storage: Option<&Storage>) -> Resources {
+    Resources {
+        settings: settings
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>()
+            .into(),
+        data: data
+            .iter()
+            .map(|bytes| Arc::<[u8]>::from(*bytes))
+            .collect::<Vec<_>>()
+            .into(),
+        storage: storage.cloned(),
+    }
+}
+
+fn fuel_of(outcome: Outcome) -> u64 {
+    match outcome {
+        Outcome::Delivered { fuel, .. } => fuel,
+        other => panic!("expected a delivery, got {other:?}"),
+    }
+}
+
+/// 一次 `commit`，本地模式是 `local_mode`。
+fn commit_in_mode(local_mode: u8) -> Event<'static> {
+    let mut event = commit_event("秘密");
+    event.scalars.local_mode = Some(local_mode);
+    event
+}
+
+#[test]
+fn the_second_batch_capabilities_have_their_names_bits_and_rules() {
+    assert_eq!(Capability::ALL.len(), 10);
+    for (capability, name, requires) in [
+        (
+            Capability::InsertCandidates,
+            "insert_candidates",
+            Some(Capability::ReadCandidates),
+        ),
+        (Capability::PersistData, "persist_data", None),
+    ] {
+        assert_eq!(Capability::parse(name), Some(capability));
+        assert_eq!(capability.as_str(), name);
+        assert_eq!(capability.requires(), requires);
+        assert!(!capability.reads_text());
+    }
+    // 第 9、10 项各占自己的一位，不和前 8 项撞车。
+    for capability in Capability::ALL {
+        let single = CapabilitySet::EMPTY.with(capability);
+        assert_eq!(single.iter().collect::<Vec<_>>(), vec![capability]);
+    }
+    let set = |capabilities: &[Capability]| capabilities.iter().copied().collect::<CapabilitySet>();
+    assert_eq!(
+        set(&[Capability::InsertCandidates]).check_rules(),
+        Err(CapabilityRuleError::MissingDependency {
+            capability: Capability::InsertCandidates,
+            requires: Capability::ReadCandidates,
+        })
+    );
+    assert_eq!(
+        set(&[
+            Capability::ReadCommit,
+            Capability::RewriteCommit,
+            Capability::PersistData
+        ])
+        .check_rules(),
+        Err(CapabilityRuleError::Exclusive {
+            first: Capability::PersistData,
+            second: Capability::RewriteCommit,
+        })
+    );
+    // 存储可以和读文本、加候选、加注释同时申请：存下的内容可能出现在候选和注释里，这是授权页要写明的风险。
+    assert!(set(&[
+        Capability::ReadComposition,
+        Capability::ReadCommit,
+        Capability::ReadCandidates,
+        Capability::InsertCandidates,
+        Capability::AnnotateCandidates,
+        Capability::PersistData,
+    ])
+    .check_rules()
+    .is_ok());
+    let imports: Vec<_> = abi::imports().collect();
+    assert_eq!(
+        &imports[18..],
+        [
+            ("setting_count", None),
+            ("setting_value", None),
+            ("data_len", None),
+            ("data_read", None),
+            ("candidates_insert", Some(Capability::InsertCandidates)),
+            ("storage_len", Some(Capability::PersistData)),
+            ("storage_read", Some(Capability::PersistData)),
+            ("storage_write", Some(Capability::PersistData)),
+        ]
+    );
+    assert_eq!(
+        (
+            event_field::LOCAL_DATE,
+            event_field::LOCAL_MINUTE,
+            event_field::WEEKDAY,
+            event_field::UTC_OFFSET_MINUTES
+        ),
+        (11, 12, 13, 14)
+    );
+}
+
+#[test]
+fn the_new_imports_follow_the_static_least_privilege_rules() {
+    let insert_only = module_wat(
+        r#"(import "msime" "candidates_insert" (func (param i32 i32 i32 i32 i32) (result i32)))"#,
+        "",
+        "i32.const 0",
+    );
+    assert_eq!(
+        compile_wat(&insert_only, declaration(&[], &[Hook::Candidates])).unwrap_err(),
+        ModuleError::ImportWithoutCapability {
+            import: "candidates_insert",
+            capability: Capability::InsertCandidates,
+        }
+    );
+    let storage_only = module_wat(
+        r#"(import "msime" "storage_write" (func (param i32 i32) (result i32)))"#,
+        "",
+        "i32.const 0",
+    );
+    assert_eq!(
+        compile_wat(&storage_only, declaration(&[], &[Hook::Input])).unwrap_err(),
+        ModuleError::ImportWithoutCapability {
+            import: "storage_write",
+            capability: Capability::PersistData,
+        }
+    );
+    assert!(compile_wat(
+        &storage_only,
+        declaration(&[Capability::PersistData], &[Hook::Input])
+    )
+    .is_ok());
+    // 设置项和数据不需要能力；只导入它们却申请了 `persist_data` 是多申请。
+    let resources_only = module_wat(
+        r#"(import "msime" "setting_value" (func (param i32 i32 i32) (result i32)))
+           (import "msime" "data_read" (func (param i32 i32 i32 i32) (result i32)))"#,
+        "",
+        "i32.const 0",
+    );
+    assert!(compile_wat(&resources_only, declaration(&[], &[Hook::Input])).is_ok());
+    assert_eq!(
+        compile_wat(
+            &resources_only,
+            declaration(&[Capability::PersistData], &[Hook::Input])
+        )
+        .unwrap_err(),
+        ModuleError::UnusedCapability(Capability::PersistData)
+    );
+    // `persist_data` 和 `rewrite_commit` 同时申请：看模块之前就拒绝。
+    assert_eq!(
+        compile_wat(
+            &storage_only,
+            declaration(
+                &[
+                    Capability::ReadCommit,
+                    Capability::RewriteCommit,
+                    Capability::PersistData
+                ],
+                &[Hook::BeforeCommit]
+            )
+        )
+        .unwrap_err(),
+        ModuleError::Capabilities(CapabilityRuleError::Exclusive {
+            first: Capability::PersistData,
+            second: Capability::RewriteCommit,
+        })
+    );
+}
+
+#[test]
+fn settings_are_read_by_index_in_every_hook_init_included() {
+    let settings = resources(&["1", "42", "中文"], &[], None);
+    let run = |body: &str, event: &Event<'_>| {
+        status_of(v2("", body, &[], settings.clone()).deliver(1, event))
+    };
+    assert_eq!(run("(call $setting_count)", &input_event()), 3);
+    // 第 1 项：2 字节，首字节 '4'。
+    let value = "(i32.add (i32.mul (call $setting_value (i32.const 1) (i32.const 256) (i32.const 64)) (i32.const 1000))
+        (i32.load8_u (i32.const 256)))";
+    let expected = 2 * 1000 + i32::from(b'4');
+    // 不需要能力、不随钩子和本地模式变化：快照钩子、`command`、屏蔽文本的模式里照样读得到。
+    for event in [
+        input_event(),
+        before_commit_event("abc", "abc"),
+        command_event("uuid", "", [0; 64]),
+        candidates_event(Hook::Candidates, 7),
+        commit_in_mode(7),
+    ] {
+        assert_eq!(run(value, &event), expected, "{:?}", event.hook);
+    }
+    // 越界 INVALID（坏指针也不 trap），放不下 LIMIT，目标越界 trap。
+    for index in [3, -1] {
+        assert_eq!(
+            run(
+                &format!(
+                    "(i32.sub (i32.const 0) (call $setting_value (i32.const {index}) (i32.const -8) (i32.const 64)))"
+                ),
+                &input_event()
+            ),
+            -status::INVALID
+        );
+    }
+    assert_eq!(
+        run(
+            "(i32.sub (i32.const 0) (call $setting_value (i32.const 2) (i32.const 256) (i32.const 5)))",
+            &input_event()
+        ),
+        -status::LIMIT
+    );
+    assert_eq!(
+        failure(
+            v2(
+                "",
+                "(call $setting_value (i32.const 0) (i32.const -8) (i32.const 64))",
+                &[],
+                settings.clone()
+            )
+            .deliver(1, &input_event())
+        ),
+        Failure::MemoryOutOfBounds
+    );
+    // `msime_init` 里读到的值进快照，`command` 和持久实例都看得到。
+    let init = r#"(func (export "msime_init") (result i32)
+        (drop (call $setting_value (i32.const 2) (i32.const 512) (i32.const 64)))
+        (i32.const 0))"#;
+    let mut script = v2(init, "(i32.load8_u (i32.const 512))", &[], settings.clone());
+    assert_eq!(status_of(script.deliver(1, &input_event())), 0xE4);
+    assert_eq!(
+        status_of(script.deliver(2, &command_event("uuid", "", [0; 64]))),
+        0xE4
+    );
+    // 没有设置项：0 项，读第 0 项是 INVALID。
+    assert_eq!(
+        status_of(
+            v2("", "(call $setting_count)", &[], Resources::default()).deliver(1, &input_event())
+        ),
+        0
+    );
+}
+
+#[test]
+fn data_files_are_read_by_window_in_every_hook_init_included() {
+    let data = resources(&[], &[b"hello world", b""], None);
+    let run = |body: &str, event: &Event<'_>| {
+        status_of(v2("", body, &[], data.clone()).deliver(1, event))
+    };
+    let len = |file: i32| {
+        run(
+            &format!(
+                "(i32.wrap_i64 (i64.add (call $data_len (i32.const {file})) (i64.const 100)))"
+            ),
+            &input_event(),
+        ) - 100
+    };
+    assert_eq!(
+        (len(0), len(1), len(2), len(-1)),
+        (11, 0, status::INVALID, status::INVALID)
+    );
+    let read = |file: i32, offset: i32, dst: i32, cap: i32| {
+        run(
+            &format!(
+                "(i32.add (i32.mul (i32.add (call $data_read (i32.const {file}) (i32.const {offset}) (i32.const {dst}) (i32.const {cap})) (i32.const 10)) (i32.const 1000))
+                    (i32.load8_u (i32.const 256)))"
+            ),
+            &input_event(),
+        )
+    };
+    // 复制 min(cap, len - offset)：从 6 起是 "world"，cap 3 只复制 3 个，正好到末尾是 0 个。
+    assert_eq!(read(0, 6, 256, 64), 15 * 1000 + i32::from(b'w'));
+    assert_eq!(read(0, 0, 256, 3), 13 * 1000 + i32::from(b'h'));
+    assert_eq!(read(0, 11, 256, 64), 10 * 1000);
+    assert_eq!(read(1, 0, 256, 64), 10 * 1000);
+    // 偏移越界、为负，文件越界：INVALID，坏指针也不 trap。
+    for (file, offset) in [(0, 12), (0, -1), (2, 0), (-1, 0)] {
+        assert_eq!(read(file, offset, -8, 64), (status::INVALID + 10) * 1000);
+    }
+    assert_eq!(
+        failure(
+            v2(
+                "",
+                "(call $data_read (i32.const 0) (i32.const 0) (i32.const -8) (i32.const 64))",
+                &[],
+                data.clone()
+            )
+            .deliver(1, &input_event())
+        ),
+        Failure::MemoryOutOfBounds
+    );
+    // 不随钩子和本地模式变化，`msime_init` 里也读得到。
+    let first = "(drop (call $data_read (i32.const 0) (i32.const 4) (i32.const 256) (i32.const 1))) (i32.load8_u (i32.const 256))";
+    for event in [
+        before_commit_event("abc", "abc"),
+        command_event("uuid", "", [0; 64]),
+        commit_in_mode(7),
+    ] {
+        assert_eq!(run(first, &event), i32::from(b'o'), "{:?}", event.hook);
+    }
+    let init = r#"(func (export "msime_init") (result i32)
+        (drop (call $data_read (i32.const 0) (i32.const 0) (i32.const 512) (i32.const 64)))
+        (i32.const 0))"#;
+    let mut script = v2(init, "(i32.load8_u (i32.const 516))", &[], data.clone());
+    assert_eq!(
+        status_of(script.deliver(1, &command_event("uuid", "", [0; 64]))),
+        i32::from(b'o')
+    );
+}
+
+#[test]
+fn resource_reads_and_storage_cost_fuel_per_byte() {
+    let storage = Storage::new(vec![1; 4000]);
+    let shared = resources(&[&"x".repeat(400)], &[&[7; 4000]], Some(&storage));
+    let fuel = |body: String| {
+        fuel_of(
+            v2(
+                &format!(r#"(data (i32.const 0) "{}")"#, "a".repeat(64)),
+                &format!("(drop {body}) (i32.const 0)"),
+                &V2_CAPS,
+                shared.clone(),
+            )
+            .deliver(1, &candidates_event(Hook::Candidates, 0)),
+        )
+    };
+    // 每 4 字节 1 fuel，其余指令完全一样。
+    let data = |cap: i32| {
+        fuel(format!(
+            "(call $data_read (i32.const 0) (i32.const 0) (i32.const 256) (i32.const {cap}))"
+        ))
+    };
+    assert_eq!(data(4000) - data(0), 1000);
+    let storage_read = |cap: i32| {
+        fuel(format!(
+            "(call $storage_read (i32.const 0) (i32.const 256) (i32.const {cap}))"
+        ))
+    };
+    assert_eq!(storage_read(4000) - storage_read(0), 1000);
+    let storage_write = |len: i32| {
+        fuel(format!(
+            "(call $storage_write (i32.const 256) (i32.const {len}))"
+        ))
+    };
+    assert_eq!(storage_write(4000) - storage_write(0), 1000);
+    // 设置项放不下时只扣调用的 100，复制了 400 字节再扣 100。
+    let setting = |cap: i32| {
+        fuel(format!(
+            "(call $setting_value (i32.const 0) (i32.const 256) (i32.const {cap}))"
+        ))
+    };
+    assert_eq!(setting(400) - setting(0), 100);
+    let insert = |len: i32| {
+        fuel(format!("(call $insert (i32.const 0) (i32.const 0) (i32.const {len}) (i32.const 0) (i32.const 0))"))
+    };
+    assert_eq!(insert(64) - insert(4), 15);
+    // 每次调用至少 100。
+    let one = fuel("(call $data_len (i32.const 0))".to_owned());
+    let two =
+        fuel("(i64.add (call $data_len (i32.const 0)) (call $data_len (i32.const 0)))".to_owned());
+    assert!(two - one >= limits::IMPORT_CALL_FUEL);
+}
+
+fn time_probe(field: i32, event: &Event<'_>) -> i64 {
+    let mut script = v2(
+        "",
+        &format!("(i32.wrap_i64 (i64.add (call $scalar (i32.const {field})) (i64.const 100000)))"),
+        &[],
+        Resources::default(),
+    );
+    i64::from(status_of(script.deliver(1, event))) - 100_000
+}
+
+fn timed_command(time: Option<LocalTime>) -> Event<'static> {
+    let mut event = command_event("uuid", "", [0; 64]);
+    if let Some(command) = event.command.as_mut() {
+        command.local_time = time;
+    }
+    event
+}
+
+const TIME_FIELDS: [i32; 4] = [
+    event_field::LOCAL_DATE,
+    event_field::LOCAL_MINUTE,
+    event_field::WEEKDAY,
+    event_field::UTC_OFFSET_MINUTES,
+];
+
+#[test]
+fn local_time_is_only_in_command_and_only_when_it_is_valid() {
+    let time = LocalTime {
+        date: 20261026,
+        minute: 870,
+        weekday: 1,
+        utc_offset_minutes: 540,
+    };
+    let read = |event: &Event<'_>| TIME_FIELDS.map(|field| time_probe(field, event));
+    assert_eq!(read(&timed_command(Some(time))), [20261026, 870, 1, 540]);
+    let absent = [i64::from(status::ABSENT); 4];
+    assert_eq!(read(&timed_command(None)), absent);
+    // 西半球的负偏移照常交出。
+    let west = LocalTime {
+        utc_offset_minutes: -300,
+        ..time
+    };
+    assert_eq!(read(&timed_command(Some(west)))[3], -300);
+    // 不合规的时间四个字段一起 ABSENT，包括和返回码撞车的 -1 到 -4。
+    for bad in [
+        LocalTime {
+            minute: 1440,
+            ..time
+        },
+        LocalTime { weekday: 0, ..time },
+        LocalTime { weekday: 8, ..time },
+        LocalTime {
+            date: 20261301,
+            ..time
+        },
+        LocalTime {
+            date: 20261000,
+            ..time
+        },
+        LocalTime { date: 1026, ..time },
+        LocalTime {
+            utc_offset_minutes: -3,
+            ..time
+        },
+        LocalTime {
+            utc_offset_minutes: 1081,
+            ..time
+        },
+    ] {
+        assert_eq!(read(&timed_command(Some(bad))), absent, "{bad:?}");
+    }
+    // 别的钩子里没有时间，宿主误带了 `CommandEvent` 也一样。
+    let mut smuggled = input_event();
+    smuggled.command = timed_command(Some(time)).command;
+    assert_eq!(read(&smuggled), absent);
+    assert_eq!(read(&candidates_event(Hook::Candidates, 0)), absent);
+}
+
+/// 插一行：文本在 [0, `text_len`)，注释在 [512, 512 + `note_len`)。返回 `candidates_insert` 的返回码加 10 和暂存的行。
+fn insert_status(
+    text: &str,
+    text_len: usize,
+    note: &str,
+    note_len: usize,
+    position: i32,
+) -> (i32, Vec<(u32, String, String)>) {
+    let mut script = v2(
+        &format!(r#"(data (i32.const 0) "{text}") (data (i32.const 512) "{note}")"#),
+        &format!(
+            "(i32.add (call $insert (i32.const {position}) (i32.const 0) (i32.const {text_len}) (i32.const 512) (i32.const {note_len})) (i32.const 10))"
+        ),
+        &V2_CAPS,
+        Resources::default(),
+    );
+    let status = status_of(script.deliver(1, &candidates_event(Hook::Candidates, 0)));
+    (status, script.actions().inserts.clone())
+}
+
+fn insert_text(text: &str) -> i32 {
+    insert_status(&wat_bytes(text), text.len(), "", 0, 0).0
+}
+
+#[test]
+fn candidates_insert_stages_rows_checked_like_command_rows() {
+    let emoji = "🙂";
+    assert_eq!(
+        insert_status(
+            &wat_bytes(emoji),
+            emoji.len(),
+            &wat_bytes("表情"),
+            "表情".len(),
+            1
+        ),
+        (10, vec![(1, emoji.to_owned(), "表情".to_owned())])
+    );
+    // 位置 0 到窗口行数（3）都行，4 和负数 INVALID。
+    for position in [0, 3] {
+        assert_eq!(insert_status("x", 1, "", 0, position).0, 10);
+    }
+    for position in [4, -1] {
+        assert_eq!(insert_status("x", 1, "", 0, position), (7, Vec::new()));
+    }
+    // 文本规则同 `command_row`。
+    for text in [
+        "",
+        " a",
+        "a ",
+        "a\nb",
+        "a\u{200b}b",
+        "a\u{34f}b",
+        "https://x",
+        "WWW.x",
+        "mailto:y",
+    ] {
+        assert_eq!(insert_text(text), 7, "{text:?}");
+    }
+    assert_eq!(insert_status("\\ff", 1, "", 0, 0).0, 7);
+    assert_eq!(insert_text(&"a".repeat(64)), 10);
+    assert_eq!(insert_text(&"a".repeat(65)), 6);
+    assert_eq!(insert_text(&"😀".repeat(33)), 6);
+    assert_eq!(insert_status("x", 1, &"a".repeat(32), 32, 0).0, 10);
+    assert_eq!(insert_status("x", 1, &"a".repeat(33), 33, 0).0, 6);
+    assert_eq!(insert_status("x", 1, &wat_bytes("a\u{202e}b"), 5, 0).0, 7);
+    // 每次最多 3 行：依次返回 0、1、2，第 4 行 LIMIT。
+    let mut calls = String::from("(local $sum i32)");
+    for _ in 0..4 {
+        calls.push_str(
+            "(local.set $sum (i32.add (local.get $sum) (call $insert (i32.const 0) (i32.const 0) (i32.const 1) (i32.const 0) (i32.const 0))))",
+        );
+    }
+    calls.push_str("(i32.add (local.get $sum) (i32.const 10))");
+    let mut script = v2(
+        r#"(data (i32.const 0) "x")"#,
+        &calls,
+        &V2_CAPS,
+        Resources::default(),
+    );
+    assert_eq!(
+        status_of(script.deliver(1, &candidates_event(Hook::Candidates, 0))),
+        3 + status::LIMIT + 10
+    );
+    assert_eq!(
+        script.actions().inserts.len(),
+        limits::MAX_INSERTED_ROWS_PER_PLUGIN
+    );
+}
+
+#[test]
+fn candidates_insert_needs_the_grant_the_candidates_hook_and_mode_none() {
+    // 坏指针：门控没过时不看区间，过了就 trap。
+    let body = "(i32.add (call $insert (i32.const 0) (i32.const -8) (i32.const 100) (i32.const 0) (i32.const 0)) (i32.const 10))";
+    let run = |grants: &[Capability], event: &Event<'_>| {
+        v2("", body, grants, Resources::default()).deliver(1, event)
+    };
+    let all = V2_CAPS;
+    let without = [
+        Capability::ReadCommit,
+        Capability::ReadCandidates,
+        Capability::PersistData,
+    ];
+    let denied = 10 + status::DENIED;
+    assert_eq!(
+        status_of(run(&without, &candidates_event(Hook::Candidates, 0))),
+        denied
+    );
+    assert_eq!(
+        status_of(run(&all, &candidates_event(Hook::CandidatesShown, 0))),
+        denied
+    );
+    assert_eq!(status_of(run(&all, &input_event())), denied);
+    // 只在本地模式 `none`：白名单里的临时英文、emoji 也不行，屏蔽文本的模式更不行。
+    for mode in [1, 4, 7, 8] {
+        assert_eq!(
+            status_of(run(&all, &candidates_event(Hook::Candidates, mode))),
+            denied,
+            "{mode}"
+        );
+    }
+    let mut no_mode = candidates_event(Hook::Candidates, 0);
+    no_mode.scalars.local_mode = None;
+    assert_eq!(status_of(run(&all, &no_mode)), denied);
+    // 宿主没交候选：ABSENT。
+    let mut empty = Event::new(Hook::Candidates);
+    empty.scalars.local_mode = Some(0);
+    assert_eq!(status_of(run(&all, &empty)), 10 + status::ABSENT);
+    assert_eq!(
+        failure(run(&all, &candidates_event(Hook::Candidates, 0))),
+        Failure::MemoryOutOfBounds
+    );
+}
+
+#[test]
+fn a_failed_candidates_hook_hands_over_no_inserted_rows() {
+    let insert = "(drop (call $insert (i32.const 0) (i32.const 0) (i32.const 1) (i32.const 0) (i32.const 0)))";
+    for (tail, expected) in [
+        ("(i32.const -1)", Failure::NegativeReturn),
+        ("unreachable", Failure::Unreachable),
+        ("(loop $spin (br $spin)) (i32.const 0)", Failure::OutOfFuel),
+    ] {
+        let mut script = v2(
+            r#"(data (i32.const 0) "x")"#,
+            &format!("{insert} {tail}"),
+            &V2_CAPS,
+            Resources::default(),
+        );
+        assert_eq!(
+            failure(script.deliver(1, &candidates_event(Hook::Candidates, 0))),
+            expected
+        );
+        assert!(script.actions().inserts.is_empty());
+    }
+}
+
+#[test]
+fn storage_is_read_and_replaced_in_persistent_hooks() {
+    let storage = Storage::new(b"abc".to_vec());
+    let shared = resources(&[], &[], Some(&storage));
+    let run = |body: &str, event: &Event<'_>| {
+        status_of(
+            v2(
+                r#"(data (i32.const 0) "hello")"#,
+                body,
+                &V2_CAPS,
+                shared.clone(),
+            )
+            .deliver(1, event),
+        )
+    };
+    assert_eq!(run("(call $storage_len)", &input_event()), 3);
+    assert_eq!(
+        run(
+            "(i32.add (i32.mul (call $storage_read (i32.const 1) (i32.const 256) (i32.const 64)) (i32.const 1000)) (i32.load8_u (i32.const 256)))",
+            &commit_event("x")
+        ),
+        2 * 1000 + i32::from(b'b')
+    );
+    // 偏移越界 INVALID，坏指针不 trap。
+    assert_eq!(
+        run("(i32.sub (i32.const 0) (call $storage_read (i32.const 4) (i32.const -8) (i32.const 64)))", &input_event()),
+        -status::INVALID
+    );
+    assert!(!storage.is_dirty());
+    // 写进暂存：同一个钩子里读到的是新的一份，正常返回之后才写进缓冲。
+    let write = "(drop (call $storage_write (i32.const 0) (i32.const 5)))
+        (i32.add (i32.mul (call $storage_len) (i32.const 1000))
+            (i32.add (call $storage_read (i32.const 4) (i32.const 256) (i32.const 64)) (i32.load8_u (i32.const 256))))";
+    assert_eq!(
+        run(write, &candidates_event(Hook::Candidates, 0)),
+        5 * 1000 + 1 + i32::from(b'o')
+    );
+    assert_eq!(storage.contents(), b"hello");
+    assert!(storage.is_dirty());
+    assert_eq!(storage.take_dirty(), Some(b"hello".to_vec()));
+    assert_eq!(storage.take_dirty(), None);
+    // 写入同样的内容不算改动，不必写盘。
+    run(write, &input_event());
+    assert!(!storage.is_dirty());
+    // 空写清空存储。
+    run(
+        "(call $storage_write (i32.const 0) (i32.const 0))",
+        &input_event(),
+    );
+    assert!(storage.is_empty() && storage.is_dirty());
+}
+
+#[test]
+fn one_plugins_instances_share_its_storage() {
+    let storage = Storage::default();
+    let shared = resources(&[], &[], Some(&storage));
+    let mut writer = v2(
+        r#"(data (i32.const 0) "abcd")"#,
+        "(call $storage_write (i32.const 0) (i32.const 4))",
+        &V2_CAPS,
+        shared.clone(),
+    );
+    let mut reader = v2("", "(call $storage_len)", &V2_CAPS, shared);
+    assert_eq!(status_of(reader.deliver(1, &input_event())), 0);
+    assert_eq!(status_of(writer.deliver(1, &input_event())), 0);
+    assert_eq!(status_of(reader.deliver(2, &input_event())), 4);
+}
+
+#[test]
+fn storage_is_denied_in_snapshot_hooks_init_and_without_the_grant() {
+    let storage = Storage::new(b"abc".to_vec());
+    let shared = resources(&[], &[], Some(&storage));
+    // 坏指针：门控没过时不看区间。
+    let probe = "(i32.add
+        (i32.mul (i32.add (call $storage_len) (i32.const 10)) (i32.const 10000))
+        (i32.add
+            (i32.mul (i32.add (call $storage_read (i32.const 0) (i32.const -8) (i32.const 64)) (i32.const 10)) (i32.const 100))
+            (i32.add (call $storage_write (i32.const -8) (i32.const 64)) (i32.const 10))))";
+    let denied = (status::DENIED + 10) * 10101;
+    for event in [
+        before_commit_event("abc", "abc"),
+        command_event("uuid", "", [0; 64]),
+    ] {
+        let mut script = v2("", probe, &V2_CAPS, shared.clone());
+        assert_eq!(
+            status_of(script.deliver(1, &event)),
+            denied,
+            "{:?}",
+            event.hook
+        );
+    }
+    // 没授予 `persist_data`。
+    let mut ungranted = v2("", probe, &[Capability::ReadCandidates], shared.clone());
+    assert_eq!(status_of(ungranted.deliver(1, &input_event())), denied);
+    // 授予了、宿主没交缓冲：ABSENT。
+    let mut unsupplied = v2("", probe, &V2_CAPS, Resources::default());
+    assert_eq!(
+        status_of(unsupplied.deliver(1, &input_event())),
+        (status::ABSENT + 10) * 10101
+    );
+    // `msime_init` 里也不行：初始化之后取的快照不能含有存储的内容。
+    let init = r#"(func (export "msime_init") (result i32)
+        (i32.store (i32.const 600) (call $storage_len))
+        (i32.store (i32.const 604) (call $storage_read (i32.const 0) (i32.const 700) (i32.const 64)))
+        (i32.const 0))"#;
+    let mut script = v2(
+        init,
+        "(i32.sub (i32.const 0) (i32.add (i32.load (i32.const 600)) (i32.load (i32.const 604))))",
+        &V2_CAPS,
+        shared.clone(),
+    );
+    assert_eq!(
+        status_of(script.deliver(1, &input_event())),
+        -2 * status::DENIED
+    );
+    assert_eq!(storage.contents(), b"abc");
+    assert!(!storage.is_dirty());
+}
+
+#[test]
+fn what_the_persistent_instance_read_from_storage_does_not_reach_snapshot_hooks() {
+    let storage = Storage::new(b"secret".to_vec());
+    let body = format!(
+        "(if (i32.eq (local.get $kind) (i32.const {input}))
+            (then (drop (call $storage_read (i32.const 0) (i32.const 700) (i32.const 64)))))
+         (i32.load8_u (i32.const 700))",
+        input = Hook::Input.code()
+    );
+    let mut script = v2("", &body, &V2_CAPS, resources(&[], &[], Some(&storage)));
+    assert_eq!(
+        status_of(script.deliver(1, &input_event())),
+        i32::from(b's')
+    );
+    assert_eq!(
+        status_of(script.deliver(2, &command_event("uuid", "", [0; 64]))),
+        0
+    );
+    assert_eq!(
+        status_of(script.deliver(3, &before_commit_event("abc", "abc"))),
+        0
+    );
+}
+
+#[test]
+fn storage_writes_are_capped_at_64_kib() {
+    let storage = Storage::default();
+    let shared = resources(&[], &[], Some(&storage));
+    let write = |len: usize| {
+        v2(
+            "",
+            &format!(
+                "(i32.add (call $storage_write (i32.const 0) (i32.const {len})) (i32.const 10))"
+            ),
+            &V2_CAPS,
+            shared.clone(),
+        )
+        .deliver(1, &input_event())
+    };
+    assert_eq!(status_of(write(limits::MAX_STORAGE_BYTES)), 10);
+    assert_eq!(storage.len(), limits::MAX_STORAGE_BYTES);
+    storage.clear();
+    assert_eq!(
+        status_of(write(limits::MAX_STORAGE_BYTES + 1)),
+        10 + status::LIMIT
+    );
+    assert!(storage.is_empty() && !storage.is_dirty());
+    assert_eq!(
+        failure(
+            v2(
+                "",
+                "(call $storage_write (i32.const -8) (i32.const 64))",
+                &V2_CAPS,
+                shared.clone()
+            )
+            .deliver(1, &input_event())
+        ),
+        Failure::MemoryOutOfBounds
+    );
+    assert!(storage.is_empty() && !storage.is_dirty());
+    // 盘上读回的初值超过上限：整块不要。
+    assert!(Storage::new(vec![1; limits::MAX_STORAGE_BYTES + 1]).is_empty());
+    assert_eq!(
+        Storage::new(vec![1; limits::MAX_STORAGE_BYTES]).len(),
+        limits::MAX_STORAGE_BYTES
+    );
+}
+
+#[test]
+fn a_failed_hook_does_not_write_storage() {
+    let write = r#"(drop (call $storage_write (i32.const 0) (i32.const 3)))"#;
+    for (tail, expected) in [
+        ("(i32.const -1)", Failure::NegativeReturn),
+        ("unreachable", Failure::Unreachable),
+        ("(loop $spin (br $spin)) (i32.const 0)", Failure::OutOfFuel),
+    ] {
+        let storage = Storage::new(b"old".to_vec());
+        let mut script = v2(
+            r#"(data (i32.const 0) "new")"#,
+            &format!("{write} {tail}"),
+            &V2_CAPS,
+            resources(&[], &[], Some(&storage)),
+        );
+        assert_eq!(failure(script.deliver(1, &input_event())), expected);
+        assert_eq!(storage.contents(), b"old", "{tail}");
+        assert!(!storage.is_dirty());
+    }
+    // 被本轮配额截断（不算失败）同样作废。
+    let storage = Storage::new(b"old".to_vec());
+    let mut script = v2(
+        r#"(data (i32.const 0) "new")"#,
+        &format!("{write} (loop $spin (br $spin)) (i32.const 0)"),
+        &V2_CAPS,
+        resources(&[], &[], Some(&storage)),
+    );
+    script.resume_turn(1, 100, limits::BEFORE_COMMIT_FUEL, limits::COMMAND_FUEL);
+    assert!(matches!(
+        script.deliver(1, &input_event()),
+        Outcome::TurnExhausted { .. }
+    ));
+    assert_eq!(storage.contents(), b"old");
+}
+
+#[test]
+fn local_mode_masks_text_but_not_settings_data_or_storage() {
+    let storage = Storage::new(b"abc".to_vec());
+    let body = format!(
+        "(i32.add
+            (i32.mul (i32.add (call $commit_text (i32.const {commit}) (i32.const 256) (i32.const 64)) (i32.const 10)) (i32.const 10000))
+            (i32.add
+                (i32.mul (i32.add (call $storage_len) (i32.const 10)) (i32.const 100))
+                (i32.add (i32.add (call $setting_count) (i32.wrap_i64 (call $data_len (i32.const 0)))) (i32.const 10))))",
+        commit = commit_field::COMMIT
+    );
+    let shared = resources(&["1"], &[b"xy"], Some(&storage));
+    let run =
+        |event: &Event<'_>| status_of(v2("", &body, &V2_CAPS, shared.clone()).deliver(1, event));
+    assert_eq!(
+        run(&commit_in_mode(0)),
+        ("秘密".len() as i32 + 10) * 10000 + 13 * 100 + 13
+    );
+    for mode in [7, 8, 13, 255] {
+        assert_eq!(
+            run(&commit_in_mode(mode)),
+            (status::ABSENT + 10) * 10000 + 13 * 100 + 13,
+            "{mode}"
+        );
+    }
+}
+
+#[test]
+fn debug_sinks_observe_inserts_and_storage_writes() {
+    let actions = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&actions);
+    let wat = module_wat(
+        V2_IMPORTS,
+        r#"(data (i32.const 0) "x")"#,
+        "(drop (call $insert (i32.const 0) (i32.const 0) (i32.const 1) (i32.const 0) (i32.const 0)))
+         (drop (call $storage_write (i32.const 0) (i32.const 1)))
+         (i32.const 0)",
+    );
+    let module = compile_wat(&wat, declaration(&V2_CAPS, &Hook::ALL)).unwrap();
+    let mut script = ScriptInstance::with_resources(
+        &module,
+        V2_CAPS.into_iter().collect(),
+        limits::INIT_FUEL,
+        resources(&[], &[], Some(&Storage::default())),
+        DebugSinks {
+            log: None,
+            actions: Some(Box::new(move |import, status| {
+                sink.lock().unwrap().push((import, status));
+            })),
+        },
+    )
+    .unwrap();
+    status_of(script.deliver(1, &candidates_event(Hook::Candidates, 0)));
+    status_of(script.deliver(2, &input_event()));
+    assert_eq!(
+        *actions.lock().unwrap(),
+        vec![
+            ("candidates_insert", 0),
+            ("storage_write", 0),
+            ("candidates_insert", status::DENIED),
+            ("storage_write", 0),
+        ]
+    );
+}
+
+#[test]
+fn storage_debug_output_and_clearing_do_not_show_its_contents() {
+    let storage = Storage::new(b"secret".to_vec());
+    let printed = format!(
+        "{storage:?} {:?}",
+        resources(&["hunter2"], &[b"data"], Some(&storage))
+    );
+    assert!(printed.contains("len: 6"), "{printed}");
+    assert!(
+        !printed.contains("secret") && !printed.contains("115") && !printed.contains("hunter2"),
+        "{printed}"
+    );
+    storage.mark_dirty();
+    storage.clear();
+    assert!(storage.is_empty() && !storage.is_dirty());
 }

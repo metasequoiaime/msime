@@ -963,6 +963,71 @@ int main() {
     require(near(rows.front().bounds.top, 4.0));
   }
 
+  // 光标后编辑的首行提示（「候选编辑：光标后」）：有它时首行一定在，宽度算进首行，位置在首行翻页之前，没有翻页时贴着行的右缘；拼音画到它之前为止。没有提示时一切和以前一样。
+  {
+    // 拼音隐藏、logo 关掉、没有翻页时首行本来为 0 高；有提示时首行回来，和有 logo 时一样高。
+    require(near(candidate_card_metrics(16.0, 16.0, false, false, false, {}, 0.0, 0.0, true).preedit_row,
+                 26.0));
+    require(near(candidate_card_metrics(16.0, 16.0, false, false, false, {}, 0.0, 0.0, false).preedit_row,
+                 0.0));
+    // 拼音显示时首行本来就比 header_row 高，提示不改变它。
+    require(near(candidate_card_metrics(16.0, 16.0, true, true, true, {}, 0.0, 0.0, true).preedit_row,
+                 candidate_card_metrics(16.0, 16.0, true, true, true).preedit_row));
+
+    CandidateCardInput paged;
+    paged.preedit_width = 120.0;
+    paged.page_width = 30.0;
+    paged.items = {{40.0}};
+    const auto without = candidate_card_size(paged);
+    paged.hint_width = 90.0;
+    const auto with = candidate_card_size(paged);
+    require(near(with.width - without.width, 4.0 + 90.0) && near(with.height, without.height));
+    const auto metrics = candidate_card_metrics(16.0, 16.0, true, true, true, {}, 0.0, 0.0, true);
+    const auto pager = candidate_pager_layout(with.width, 30.0, metrics);
+    const auto hint = candidate_header_hint_bounds(with.width, 90.0, pager, metrics);
+    require(pager && hint);
+    require(near(hint->right, pager->left - metrics.pager_gap) &&
+            near(hint->left, hint->right - 90.0));
+    require(near(hint->top, pager->indicator.top) && near(hint->bottom, pager->indicator.bottom));
+    // 量出来的宽度让拼音、提示和翻页各占各的，拼音不压在提示下面。
+    require(near(candidate_preedit_right(with.width, pager, hint, metrics),
+                 hint->left - metrics.pager_gap));
+    require(candidate_preedit_left(metrics) + 120.0 <=
+            candidate_preedit_right(with.width, pager, hint, metrics) + 0.001);
+    // 没有提示时拼音照旧画到翻页之前，和以前的算法一样。
+    require(near(candidate_preedit_right(with.width, pager, std::nullopt, metrics),
+                 pager->left - metrics.pager_gap));
+    require(near(candidate_preedit_right(200.0, std::nullopt, std::nullopt, metrics),
+                 200.0 - metrics.pad_x / 2.0 - metrics.preedit_margin.right));
+
+    // 关掉页码（或皮肤把箭头画进列表）时首行没有翻页，提示右对齐到行的右缘。
+    const auto alone = candidate_header_hint_bounds(200.0, 90.0, std::nullopt, metrics);
+    require(alone && near(alone->right, 200.0 - metrics.pad_x / 2.0));
+    CandidatePagerLayout listed;
+    listed.in_list = true;
+    listed.left = 10.0;
+    const auto beside_list = candidate_header_hint_bounds(200.0, 90.0, listed, metrics);
+    require(beside_list && near(beside_list->right, 200.0 - metrics.pad_x / 2.0));
+    // 首行只有提示：拼音、logo、翻页都没有，卡片照样给首行留出高度和提示的宽度。
+    CandidateCardInput bare;
+    bare.preedit_visible = false;
+    bare.logo_visible = false;
+    bare.items = {{40.0}};
+    const auto bare_without = candidate_card_size(bare);
+    require(near(bare_without.height, 4.0 + 4.0 + row16));
+    bare.hint_width = 200.0;
+    const auto bare_with = candidate_card_size(bare);
+    require(near(bare_with.height, 4.0 + 4.0 + 26.0 + row16));
+    require(near(bare_with.width, 4.0 + 200.0 + 8.0));
+    // 没有提示、宽度不能用或首行不占高度时不画。
+    require(!candidate_header_hint_bounds(200.0, 0.0, pager, metrics));
+    require(!candidate_header_hint_bounds(200.0, 90.0, std::nullopt,
+                                          candidate_card_metrics(16.0, 16.0, false, false, false)));
+    require(!candidate_header_hint_bounds(0.0, 90.0, std::nullopt, metrics));
+    paged.hint_width = std::numeric_limits<double>::quiet_NaN();
+    require(rejected(paged));
+  }
+
   // 横排候选在释义到达前就预留释义行：每行至少一行候选加 N 行释义高，释义到了也不再变高；竖排不预留。
   {
     const auto shape = candidate_card_metrics(16.0, 16.0, true);

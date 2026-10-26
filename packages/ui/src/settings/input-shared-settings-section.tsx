@@ -13,6 +13,7 @@ import { MultilingualInputSection } from "./multilingual-input-section";
 import { MixedInputMoreRows, MixedInputSection } from "./mixed-input-section";
 import type { MixedInputPreferences } from "./mixed-input-preferences";
 import { SingleCharacterOnlySection } from "./single-character-only-section";
+import { CaretEditSuffixSection } from "./caret-edit-suffix-section";
 import { SwitchRow } from "./switch-row";
 import { TraditionalChineseOutputSection } from "./traditional-chinese-output-section";
 import { WordCharacterSection } from "./word-character-section";
@@ -49,6 +50,8 @@ export interface InputSharedSettingsSectionProps {
   showMultilingualInput?: boolean;
   /** 宿主能把快捷短语混进普通候选（`HostCapabilities.quick_phrase_candidates`），决定是否列出快捷短语混输与调频开关。缺省为 false。 */
   quickPhraseCandidates?: boolean;
+  /** 宿主提供「移动光标后编辑光标后的部分」（`HostCapabilities.caret_edit_suffix`，桌面宿主），决定是否在「更多选项」开头、快捷短语混输之前列出它。缺省为 false。 */
+  caretEditSuffix?: boolean;
   /** 放在「候选与联想」组的「学习选词习惯」之前。 */
   beforeLearning?: ReactNode;
   /** 「候选与联想」组里学习开关之后的行。 */
@@ -93,6 +96,7 @@ export function InputSharedSettingsSection({
   temporaryJapanese = true,
   showMultilingualInput = false,
   quickPhraseCandidates = false,
+  caretEditSuffix = false,
   beforeLearning,
   afterLearning,
   candidatesMore,
@@ -149,6 +153,12 @@ export function InputSharedSettingsSection({
   // 少有人改的候选行收进组末的「更多选项」；整体折叠时这里不再套第二层，混输各行和只出单字仍在学习开关之前。
   const candidatesMoreRows = (
     <>
+      {caretEditSuffix && (
+        <CaretEditSuffixSection
+          value={preferences.caret_edit_suffix}
+          onChange={(caret_edit_suffix) => onPreferencesChange({ caret_edit_suffix })}
+        />
+      )}
       {mixedInput && onMixedInputChange && (
         <MixedInputMoreRows
           preferences={mixedInput}

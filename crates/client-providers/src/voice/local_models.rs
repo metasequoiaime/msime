@@ -223,6 +223,8 @@ pub enum LocalModelError {
     SizeMismatch(String),
     #[error("local_model_checksum_mismatch: {0}")]
     ChecksumMismatch(String),
+    #[error("local_model_format_mismatch: {0}")]
+    FormatMismatch(String),
     #[error("local_model_unsafe_archive: {0}")]
     UnsafeArchive(String),
     #[error("local_model_missing_file: {0}")]
@@ -632,7 +634,7 @@ pub(crate) fn remove_installed(
     Ok(true)
 }
 
-fn check_root(root: &Path) -> Result<(), LocalModelError> {
+pub(crate) fn check_root(root: &Path) -> Result<(), LocalModelError> {
     if !root.is_absolute() || root.to_str().is_none() {
         return Err(LocalModelError::InvalidRoot);
     }
@@ -1075,6 +1077,141 @@ impl Fetcher for HttpFetcher {
             offset: 0,
         })
     }
+}
+
+/// 可变上游文件下载的结果：先把当前响应完整落到临时文件，取得这一次的长度和摘要，
+/// 再交给固定资源安装器以原子方式发布。它不复用固定摘要的断点文件，避免上游原地重传
+/// 时把旧版本的半截文件续到新版本上。
+pub(crate) struct DynamicDownload {
+    pub(crate) path: tempfile::TempPath,
+    pub(crate) artifact: crate::resources::Artifact,
+}
+
+/// 下载一个长度和内容会随上游替换、但格式有独立校验器的文件。
+///
+/// URL 仍然固定在审过的目录里；每次下载只接受 HTTPS、响应声明的完整长度和调用方的
+/// 格式校验。镜像失败或拿到坏文件时继续尝试下一个来源，成功后返回本次实际摘要，供
+/// `resource_packs` 写入安装清单。
+pub(crate) fn download_dynamic_file(
+    root: &Path,
+    name: &str,
+    url: &str,
+    mirrors: &[&str],
+    validator: fn(&Path) -> bool,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<DynamicDownload, LocalModelError> {
+    check_install(root, name, mirrors)?;
+    if !url.starts_with("https://") {
+        return Err(LocalModelError::Network(
+            "only https downloads are allowed".into(),
+        ));
+    }
+    let client = HttpFetcher::new()?;
+    download_dynamic_file_with(
+        &client, root, name, url, mirrors, validator, progress, cancel,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_dynamic_file_with(
+    client: &HttpFetcher,
+    root: &Path,
+    name: &str,
+    url: &str,
+    mirrors: &[&str],
+    validator: fn(&Path) -> bool,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<DynamicDownload, LocalModelError> {
+    let mut sources = Vec::with_capacity(mirrors.len() + 1);
+    sources.extend(
+        mirrors
+            .iter()
+            .filter(|mirror| !mirror.is_empty())
+            .map(|mirror| mirrored(mirror, url)),
+    );
+    sources.push(url.to_owned());
+
+    let mut failure = None;
+    for source in sources {
+        check_cancel(cancel)?;
+        let mut response = match client.client.get(&source).send() {
+            Ok(response) => response,
+            Err(error) => {
+                failure = Some(LocalModelError::Network(error.without_url().to_string()));
+                continue;
+            }
+        };
+        let status = response.status();
+        if status != reqwest::StatusCode::OK {
+            failure = Some(LocalModelError::HttpStatus(status.as_u16()));
+            continue;
+        }
+        let Some(expected) = response.content_length() else {
+            failure = Some(LocalModelError::SizeMismatch(name.to_owned()));
+            continue;
+        };
+        let mut temporary = tempfile::NamedTempFile::new_in(root)?;
+        let mut hasher = Sha256::new();
+        let mut received = 0u64;
+        let mut buffer = vec![0u8; CHUNK];
+        let mut last = 0u64;
+        let mut failed = None;
+        loop {
+            check_cancel(cancel)?;
+            let read = match response.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    failed = Some(LocalModelError::Network(error.to_string()));
+                    break;
+                }
+            };
+            received = received.saturating_add(read as u64);
+            if received > expected {
+                failed = Some(LocalModelError::SizeMismatch(name.to_owned()));
+                break;
+            }
+            temporary.as_file_mut().write_all(&buffer[..read])?;
+            hasher.update(&buffer[..read]);
+            if received == expected
+                || received.saturating_sub(last) >= (expected / 200).max(CHUNK as u64)
+            {
+                last = received;
+                progress(InstallProgress {
+                    stage: "download",
+                    downloaded: received,
+                    total: expected,
+                });
+            }
+        }
+        if let Some(error) = failed {
+            failure = Some(error);
+            continue;
+        }
+        if received != expected {
+            failure = Some(LocalModelError::SizeMismatch(name.to_owned()));
+            continue;
+        }
+        temporary.as_file().sync_all()?;
+        if !validator(temporary.path()) {
+            failure = Some(LocalModelError::FormatMismatch(name.to_owned()));
+            continue;
+        }
+        let digest = hex::encode(hasher.finalize());
+        return Ok(DynamicDownload {
+            path: temporary.into_temp_path(),
+            artifact: crate::resources::Artifact {
+                name: name.to_owned(),
+                url: url.to_owned(),
+                sha256: digest,
+                size: expected,
+            },
+        });
+    }
+    Err(failure.unwrap_or_else(|| LocalModelError::MissingFile(name.to_owned())))
 }
 
 /// `bytes <start>-<end>/<total>` -> start.

@@ -5248,6 +5248,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
+        caret_edit_suffix: false,
         learning: false,
         learn_english_on_enter: true,
         next_word_prediction: false,
@@ -7273,6 +7274,8 @@ struct WubiMixedEngine {
     scheme: u8,
     answered_by_pinyin_fallback: bool,
     reading: String,
+    /// 快照报告光标后编辑正在生效（`EngineSnapshot::caret_edit_suffix`）。
+    caret_edit_suffix: bool,
 }
 
 impl WubiMixedEngine {
@@ -7320,6 +7323,7 @@ impl InputEngine for WubiMixedEngine {
             caret_position: self.reading.len(),
             segment_raw_boundaries: Vec::new(),
             candidates: words,
+            caret_edit_suffix: self.caret_edit_suffix && count > 0,
             ..EngineSnapshot::default()
         })
     }
@@ -7370,6 +7374,7 @@ fn typed_dyn_favouring(
             scheme,
             answered_by_pinyin_fallback,
             reading: String::new(),
+            caret_edit_suffix: false,
         },
         5,
     )
@@ -10284,6 +10289,7 @@ fn the_reranker_leaves_mixed_japanese_rows_alone() {
     }
 }
 
+mod caret_edit;
 mod facts;
 
 /// View 报告宿主设下的标点样式，缺省是弯引号、实心括号；换样式不动组字和候选。

@@ -105,7 +105,7 @@ FULL_WINDOWS = {
     },
     "inno_app_id": "{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}",
     "app_name": "水杉输入法",
-    "text_service_description": "水杉输入法",
+    "text_service_description": "水杉输入法.新",
     "install_dir": "metasequoiaime-full",
     "registry_key": "Software\\Metasequoia\\MetasequoiaIME-Full",
     "state_directory": "MSIME-Client",
@@ -168,6 +168,10 @@ def check_generated_locks(errors: list[str], table: dict) -> None:
     # full 的锁就是原文件；拆成组件再合起来必须逐字节还原它，否则拆分丢了条目或改了字段。
     if generator.union_of_components(table, desktop) != desktop_text:
         errors.append(f"the union of resource_components does not reproduce {DESKTOP_LOCK.relative_to(ROOT)} byte for byte")
+    # 提交进仓库的 msime_edition.h 和 editions.iss 也是生成的：TSF、Server、设置窗口和安装器的版本标识全从它们取。改了版本表却没重新生成，构建会静悄悄沿用旧值——改掉键盘列表显示名那次就这么装出了一个名字没变的包，而当时没有任何门禁拦住它。
+    windows_generator = load_windows_generator()
+    for problem in windows_generator.drift(windows_generator.generated_files(table)):
+        errors.append(f"{problem}; run python3 platforms/windows/scripts/edition_windows.py gen")
 
 
 def camel_to_snake(name: str) -> str:

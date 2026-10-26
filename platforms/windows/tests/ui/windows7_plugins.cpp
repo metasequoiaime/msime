@@ -89,6 +89,8 @@ int main() {
   select(PluginEffectsForm::key_volume, 73);
   assert(prefs().at("plugins").at("key_sound").at("volume") == 73);
   assert(store.save(*store.load().snapshot, {{{"plugins", "unknown", "enabled"}, true}}).outcome == Outcome::invalid_change);
+  // 类型筛选是「全部类型」加插件库的 9 类，最后一类是脚本插件。
+  assert(SendMessageW(control(PluginLibraryForm::filter), CB_GETCOUNT, 0, 0) == 10);
   const auto before_import = revision(); cancel = true; click(PluginLibraryForm::import_folder); assert(picks == 1);
   cancel = false;
   manifest("synthetic-effect", "effect", "[effect]\nstyle = 'flash'\n");
@@ -98,9 +100,7 @@ int main() {
   select(PluginLibraryForm::packages_list, 0, LBN_SELCHANGE);
   click(PluginLibraryForm::use_pack); assert(prefs().at("plugins").at("effect_pack") == "synthetic-effect");
   assert(control_text::read(control(PluginEffectsForm::selected_packs))->find("特效包已接管") != std::string::npos);
-  assert(!IsWindowEnabled(control(PluginEffectsForm::intensity)));
   click(PluginLibraryForm::stop_pack); assert(prefs().at("plugins").value("effect_pack", std::string{}).empty());
-  select(PluginEffectsForm::intensity, 64); assert(prefs().at("plugins").at("effect_intensity") == 64);
   click(PluginLibraryForm::use_pack);
   const auto selected_revision = revision(); click(PluginLibraryForm::remove_pack);
   assert(confirms == 1 && revision() == selected_revision && std::filesystem::exists(temporary.path / L"plugins/effect/synthetic-effect"));

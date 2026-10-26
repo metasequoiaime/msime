@@ -1190,10 +1190,25 @@ fn any_product_bundle_beside(target: &Path) -> bool {
 
 /// 用户和系统目录均未安装时才显示首次安装窗口；这里只读检查，不请求授权。
 pub(crate) fn first_install_pending(resource_directory: &Path) -> bool {
-    is_packaged_resource_directory(resource_directory)
-        && validate_bundle(&resource_directory.join(input_source_bundle_name())).is_ok()
-        && installed_bundle_path()
-            .is_ok_and(|target| !target.exists() && !any_product_bundle_beside(&target))
+    installed_bundle_path()
+        .map(|target| first_install_pending_for(resource_directory, &target))
+        .unwrap_or(false)
+}
+
+/// 首次安装窗口也覆盖安装目录里残留的损坏 bundle。启动检查会把这种目录判成需要安装，不能因为路径存在就把用户送进没有「立即安装」按钮的设置页。
+fn first_install_pending_for(resource_directory: &Path, target: &Path) -> bool {
+    if !is_packaged_resource_directory(resource_directory)
+        || validate_bundle(&resource_directory.join(input_source_bundle_name())).is_err()
+    {
+        return false;
+    }
+    match fs::symlink_metadata(target) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            validate_bundle(target).is_err() && !any_product_bundle_beside(target)
+        }
+        _ => false,
+    }
 }
 
 /// Whether `resource_directory` is the `Contents/Resources` of an `.app` bundle. A development run's resource directory is the cargo output directory, where tauri-build has copied the development input method with its framework symlinks flattened.
@@ -1982,6 +1997,24 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.refresh, Refresh::Install);
         assert!(target.exists());
+    }
+
+    #[test]
+    fn first_install_window_is_pending_for_a_corrupt_existing_bundle() {
+        let root = tempdir().unwrap();
+        let resource_directory = root.path().join("MSIME.app/Contents/Resources");
+        fs::create_dir_all(&resource_directory).unwrap();
+        let source_fixture = fixture(root.path(), input_source_bundle_id(), b"bundled");
+        let source = resource_directory.join(input_source_bundle_name());
+        fs::rename(source_fixture, &source).unwrap();
+        let target = root
+            .path()
+            .join("Library/Input Methods")
+            .join(input_source_bundle_name());
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("Contents"), b"incomplete").unwrap();
+
+        assert!(first_install_pending_for(&resource_directory, &target));
     }
 
     #[test]

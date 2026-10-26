@@ -238,6 +238,20 @@ impl ImeSession {
         self.scheme.scheme_type()
     }
 
+    /// 当前粤拼组字是否已由首个双拼码切换到粤语双拼解释。
+    pub fn cantonese_shuangpin_active(&self) -> bool {
+        self.scheme
+            .as_cantonese()
+            .is_some_and(crate::cantonese::CantoneseScheme::is_shuangpin)
+    }
+
+    /// 当前粤拼组字是否接受 `;` 作为双拼韵母键。
+    pub fn cantonese_shuangpin_accepts_semicolon(&self) -> bool {
+        self.scheme
+            .as_cantonese()
+            .is_some_and(crate::cantonese::CantoneseScheme::accepts_semicolon)
+    }
+
     /// 会话允许运行的方案。
     pub fn enabled_schemes(&self) -> SchemeSet {
         self.registry.enabled()
@@ -674,6 +688,25 @@ impl ImeSession {
         )
     }
 
+    /// 与 [`Self::query_raw_candidates`] 相同，另外交回查询用的请求：调用方要按这份请求判断某一行是否覆盖了整段 `raw`（光标后编辑固定光标前那段时用）。
+    pub fn query_raw_candidates_with_request(
+        &mut self,
+        raw: &str,
+        raw_with_cases: &str,
+    ) -> (Vec<WordItem>, QueryRequest) {
+        self.with_raw_request(
+            |session, request| session.build_raw_request(raw, raw_with_cases, request),
+            |session, request| {
+                let candidates = if request.valid {
+                    session.decode(request).candidates
+                } else {
+                    Vec::new()
+                };
+                (candidates, request.clone())
+            },
+        )
+    }
+
     /// 扩展当前请求的光标前缀，直接借用请求里的带大小写原文，避免调用方先复制前缀。
     pub fn expand_current_raw_prefix_initial_candidates(
         &mut self,
@@ -681,12 +714,22 @@ impl ImeSession {
         prefix_end: usize,
         candidates: &mut Vec<WordItem>,
     ) -> bool {
+        self.expand_current_raw_range_initial_candidates(raw, 0..prefix_end, candidates)
+    }
+
+    /// 扩展当前请求原文里 `range` 那一段（光标前缀，或光标后编辑的光标后那段）的首字母候选。
+    pub fn expand_current_raw_range_initial_candidates(
+        &mut self,
+        raw: &str,
+        range: std::ops::Range<usize>,
+        candidates: &mut Vec<WordItem>,
+    ) -> bool {
         let raw_with_cases = if self.state.request.raw_input_with_cases.is_empty() {
             &self.state.request.raw_input
         } else {
             &self.state.request.raw_input_with_cases
         };
-        if raw_with_cases.get(..prefix_end).is_none() {
+        if raw_with_cases.get(range.clone()).is_none() {
             return false;
         }
         self.with_raw_request(
@@ -696,7 +739,7 @@ impl ImeSession {
                 } else {
                     &session.state.request.raw_input_with_cases
                 };
-                let raw_with_cases = &raw_with_cases[..prefix_end];
+                let raw_with_cases = &raw_with_cases[range];
                 session.build_raw_request(raw, raw_with_cases, request);
             },
             |session, request| {

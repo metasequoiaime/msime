@@ -153,6 +153,8 @@ export interface HostCapabilities {
   shift_letter_entry_switch?: boolean;
   /** 宿主把快捷短语编码追加到普通候选（macOS 和 Linux）。 */
   quick_phrase_candidates?: boolean;
+  /** 宿主提供「移动光标后编辑光标后的部分」（`caret_edit_suffix`，三个桌面宿主）。缺省（早于这一项的宿主）按不提供处理。 */
+  caret_edit_suffix?: boolean;
   /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
   japanese_toggle_shortcut?: boolean;
   /** 宿主把「切换中英文」那一组快捷键接进了中日英循环（目前只有 macOS）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */

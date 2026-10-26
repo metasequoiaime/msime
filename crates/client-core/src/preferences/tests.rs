@@ -370,6 +370,50 @@ fn backspace_selection_preference_keeps_legacy_default_and_persists_disabled() {
     );
 }
 
+/// 「移动光标后编辑光标后的部分」默认关：关着时不写进文档，缺这个键的旧文档读作关，打开后存下来、读回来仍是开。
+#[test]
+fn caret_edit_suffix_defaults_off_and_persists_when_enabled() {
+    let defaults = Preferences::default();
+    assert!(!defaults.caret_edit_suffix);
+    let legacy = serde_json::to_value(&defaults).unwrap();
+    assert!(legacy.get("caret_edit_suffix").is_none());
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .caret_edit_suffix
+    );
+    let mut malformed = legacy;
+    malformed["caret_edit_suffix"] = "true".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let enabled = Preferences {
+        caret_edit_suffix: true,
+        ..defaults
+    };
+    let saved = store.save(0, enabled).unwrap();
+    assert!(saved.preferences.caret_edit_suffix);
+    assert!(store.load().unwrap().preferences.caret_edit_suffix);
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["caret_edit_suffix"],
+        true
+    );
+    let restored = store
+        .save(
+            saved.revision,
+            Preferences {
+                caret_edit_suffix: false,
+                ..saved.preferences
+            },
+        )
+        .unwrap();
+    assert!(serde_json::to_value(&restored.preferences)
+        .unwrap()
+        .get("caret_edit_suffix")
+        .is_none());
+}
+
 #[cfg(unix)]
 #[test]
 fn stale_sweep_does_not_follow_a_replaced_directory() {
@@ -2247,11 +2291,17 @@ fn mixed_symbols_defaults_on() {
     assert!(!mixed.symbols);
 }
 
-/// 辅助码开关（Windows v0.11.1 出厂关、门禁 pin 出厂开）本仓出厂值为开，缺键读作开；差异已记录。文档里写明的值原样生效。
+/// 全拼辅助码默认开、双拼默认关；已有对象缺开关时仍读作开，写明的值原样生效。
 #[test]
-fn helpcode_enabled_defaults_on() {
+fn helpcode_enabled_defaults_by_family() {
     assert!(HelpcodePreferences::default().enabled);
-    assert!(default_quanpin_helpcode().enabled && default_shuangpin_helpcode().enabled);
+    let preferences = Preferences::default();
+    assert!(preferences.quanpin_helpcode.enabled);
+    assert!(!preferences.shuangpin_helpcode.enabled);
+    let mut value = serde_json::to_value(&preferences).unwrap();
+    value.as_object_mut().unwrap().remove("shuangpin_helpcode");
+    let missing: Preferences = serde_json::from_value(value).unwrap();
+    assert!(!missing.shuangpin_helpcode.enabled);
     let mut value = serde_json::to_value(default_shuangpin_helpcode()).unwrap();
     value.as_object_mut().unwrap().remove("enabled");
     let helpcode: HelpcodePreferences = serde_json::from_value(value).unwrap();
