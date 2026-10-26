@@ -6,6 +6,7 @@
 
 pub mod candidates;
 pub mod clipboard_e2e;
+pub mod clipboard_log;
 pub mod dictionary;
 pub mod snapshot_queue;
 pub mod snapshot_validation;

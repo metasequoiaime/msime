@@ -12,12 +12,13 @@ name = "msime-clipboard-relay"
 path = "src/main.rs"
 
 [dependencies]
+# 请求的解析和不依赖状态的校验与客户端的 WebDAV 后端共用 `cloud::clipboard_log` 那一份。
+msime-client-core = { path = "../client-core" }
 # 只用来当 HTTP 服务器：路由和接口逻辑都在不碰网络的 `store` 里，这里只要 tokio 上的 HTTP/1。维护者在 #6787 同意为参考中继引入它。
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 # 一个文件存放全部空间、设备、封装和条目；bundled 让二进制不依赖系统的 SQLite。
 rusqlite = { workspace = true, features = ["bundled"] }
-serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 hex = "0.4"
@@ -27,7 +28,6 @@ time = { workspace = true, features = ["formatting"] }
 
 [dev-dependencies]
 # 端到端测试用真正的客户端驱动连这个中继。
-msime-client-core = { path = "../client-core" }
 msime-client-services = { path = "../client-services" }
 tempfile.workspace = true
 
