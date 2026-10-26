@@ -36,6 +36,18 @@ pub mod script_grants;
     all(target_os = "linux", not(target_env = "ohos"))
 ))]
 pub mod script_pack;
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+))]
+pub mod script_settings;
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+))]
+pub mod script_storage;
 pub mod sound_pack;
 pub mod symbol_set;
 pub mod wordbook_pack;
@@ -1173,6 +1185,8 @@ pub fn remove(root: &Path, kind: PluginKind, id: &str) -> Result<(), PluginError
     ))]
     if kind.is_script() && !official {
         script_grants::removing(root, &_writes, id)?;
+        // 卸载删掉持久存储和设置值；存储代次保留并加 1，见 `script_settings`。
+        script_storage::clear_locked(root, &_writes, id, false)?;
     }
     let target = directory.join(id);
     let metadata = match fs::symlink_metadata(&target) {
