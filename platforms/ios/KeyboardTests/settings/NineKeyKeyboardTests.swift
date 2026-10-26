@@ -3524,11 +3524,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       let transformer = try XCTUnwrap(try button(id, in: controller).configuration?.titleTextAttributesTransformer, id)
       XCTAssertEqual(transformer.callAsFunction(AttributeContainer()).uiKit.font?.pointSize, 15, id)
     }
-    // 英文下底行位置相同，逗号保留，句号通过长按输入。
+    // 英文下空格左边多一个句点、右边仍是逗号；逗号照旧长按输入句号，其余键宽度不变。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
-                   ["layoutToggleButton"] + globe + ["symbolPanelKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"])
+                   ["layoutToggleButton"] + globe + ["symbolPanelKey", "bottomPeriodKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"])
 
     let comma = try XCTUnwrap(try button("quickPunctuationKey", in: controller) as? KeyboardKeyButton)
     XCTAssertNil(comma.menu)
@@ -3546,6 +3546,71 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden)
     XCTAssertFalse(try button("symbolLayerDeleteKey", in: controller).isHidden)
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
+  }
+
+  /// 九键切到英文画的是 26 键；英文底行是 123 | 符 | . | 空格 | , | 中 | 回车，句点在空格左边、逗号在空格右边。其余键与中文 26 键同宽，多出来的句点从空格里让出；九键中文底行不变。附上 320pt 和 393pt 的中文九键与英文渲染图。
+  func testEnglishBottomRowPutsPeriodLeftAndCommaRightOfSpace() throws {
+    let previous = InputSchemePreference.scheme
+    let hiddenLanguage = KeyboardLayoutPreference.hideLanguageKey
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.hideLanguageKey = hiddenLanguage
+    }
+    KeyboardLayoutPreference.hideLanguageKey = false
+    InputSchemePreference.scheme = .nineKey
+    for width: CGFloat in [320, 393] {
+      let controller = KeyboardViewController()
+      let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight))
+      window.overrideUserInterfaceStyle = .light
+      window.rootViewController = controller
+      controller.loadViewIfNeeded()
+      window.frame.size.height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      window.isHidden = false
+      defer { window.isHidden = true }
+      controller.viewWillAppear(false)
+      controller.overrideUserInterfaceStyle = .light
+      window.layoutIfNeeded()
+      func attach(_ name: String) {
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+          SystemKeyboardTokens.background.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).setFill()
+          context.fill(controller.view.bounds)
+          controller.view.layer.render(in: context.cgContext)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "\(name)-\(Int(width))pt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+      }
+      let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
+      let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
+      func visible() -> [String] { row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier) }
+      attach("九键中文")
+      // 中文九键底行不变：符 | 123 | 空格 | 中 | 回车，左列仍是 ，。？。
+      XCTAssertEqual(visible(), ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      window.layoutIfNeeded()
+      attach("九键切英文")
+      XCTAssertEqual(visible(), ["layoutToggleButton"] + globe
+        + ["symbolPanelKey", "bottomPeriodKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"],
+        "英文底行的句点紧挨空格左边、逗号紧挨空格右边（\(Int(width))pt）")
+      XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, ".")
+      XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",")
+      // 句点与逗号同宽，123、符、中、回车保持中文 26 键的份额，空格让出一份。
+      let unit = try button("layoutToggleButton", in: controller).bounds.width / 1.25
+      XCTAssertEqual(try button("bottomPeriodKey", in: controller).bounds.width, unit, accuracy: 0.5)
+      XCTAssertEqual(try button("quickPunctuationKey", in: controller).bounds.width, unit, accuracy: 0.5)
+      XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+      XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+      XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
+      XCTAssertEqual(try button("spaceKey", in: controller).bounds.width,
+                     unit * (KeyboardViewController.phoneSpaceWeight - 1), accuracy: 0.5)
+      // 切回中文：句点键收起，26 键中文底行与九键底行恢复原样。
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      window.layoutIfNeeded()
+      XCTAssertTrue(try button("bottomPeriodKey", in: controller).isHidden)
+      XCTAssertEqual(visible(), ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
+      controller.viewDidDisappear(false)
+    }
   }
 
   /// 长按逗号沿用标点路由结束组字，数字层不遗留长按回调。
