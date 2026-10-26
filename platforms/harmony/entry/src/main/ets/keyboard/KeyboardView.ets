@@ -477,6 +477,8 @@ struct KeyboardView {
   @State @Watch('syncStripHeight') editing: string = '';
   /** 按住空格说话时空格键上的提示：「松开结束」或「松开取消」；不在按住说话时为空串。 */
   @State spaceVoiceHint: string = '';
+  /** 「本地输入」这一层列出的模式，每次打开时按设置重读（`LocalInputMode.touchModes`）。 */
+  @State localInputModes: LocalInputModeDefinition[] = LocalInputMode.MODES;
   @State editingCaret: number = 0;
   /** The candidate page on screen, from zero, and how many there are, for the 2in1 page indicator. */
   @State candidatePage: number = 0;
@@ -1914,10 +1916,10 @@ struct KeyboardView {
   }
 
   /**
-   * 已安装的符号集插件组。插件只能在 2in1 的插件页安装，`symbol_set_packs` 能力也只在 2in1 声明，所以手机面板不去读。
+   * 已安装的符号集插件组。手机、平板和 2in1 的设置页都有插件页，`symbol_set_packs` 每种形态都声明，所以每种形态的面板都读。
    */
   private pluginSymbolGroups(): PluginSymbolGroup[] {
-    return KeyboardFormFactor.isDesktop() ? KeyboardSession.shared.pluginSymbolGroups() : [];
+    return KeyboardSession.shared.pluginSymbolGroups();
   }
 
   private collectEmojiCatalog(category: string, group: string, parent: string): EmojiItem[] {
@@ -8431,6 +8433,7 @@ struct KeyboardView {
         break;
       case FunctionPanelPolicy.LOCAL_INPUT:
         // 进入下一层，而不是在键盘自己的按键行上放八种模式，这是 iOS 最终采用的布局。
+        this.localInputModes = LocalInputMode.touchModes(KeyboardSession.shared.offersCommandMode());
         this.show(SURFACE_MODES);
         break;
       case FunctionPanelPolicy.VOICE:
@@ -8513,11 +8516,12 @@ struct KeyboardView {
         Scroll() {
           Column() {
             Grid() {
-              ForEach(LocalInputMode.MODES, (mode: LocalInputModeDefinition) => {
+              ForEach(this.localInputModes, (mode: LocalInputModeDefinition) => {
                 GridItem() {
                   this.toolCard(mode.title, mode.trigger, null, false, true, () => {
-                    // The trigger is a capital the Engine reads as the way into that mode.
-                    KeyboardSession.shared.press(mode.trigger.charCodeAt(0), true);
+                    // 字母触发词是 Engine 认作进入那个模式的大写字母；「指令」的 / 按普通标点键送。
+                    KeyboardSession.shared.press(mode.trigger.charCodeAt(0),
+                      LocalInputMode.entersWithShift(mode));
                     this.show(SURFACE_NONE);
                   });
                 }
