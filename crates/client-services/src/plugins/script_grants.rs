@@ -109,6 +109,12 @@ pub enum ScriptGrantError {
     /// 授权文件是更新的版本写的，这一版不认识，不覆盖它。
     #[error("plugin_script_grants_format")]
     Format,
+    /// 设置页传来的设置值不合规（清单里没有这一项、类型不对、超出范围）；文本说明原因。
+    #[error("plugin_script_setting_invalid: {0}")]
+    SettingInvalid(String),
+    /// 设置文件是更新的版本写的，这一版不认识，不覆盖它。
+    #[error("plugin_script_settings_format")]
+    SettingsFormat,
     /// 插件目录是符号链接或不是目录。
     #[error("plugin_storage")]
     Storage,
@@ -204,6 +210,14 @@ pub fn set(
     });
     if enabled {
         admit(root, builtin_packs, &grants, &installed)?;
+    }
+    // 写下的授权不含 `persist_data`：这次撤销了它（或者更新之后重新授权时没有再给），存储文件删掉、存储代次加 1，输入法手上的缓冲写不回去。
+    let had_storage = grants
+        .get(id)
+        .is_some_and(|grant| grant.granted.contains(Capability::PersistData))
+        || super::script_storage::exists(root, id);
+    if !granted.contains(Capability::PersistData) && had_storage {
+        super::script_storage::clear_locked(root, &writes, id, true)?;
     }
     let entry = ScriptGrant {
         id: id.to_owned(),

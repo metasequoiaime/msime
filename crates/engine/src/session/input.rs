@@ -570,7 +570,8 @@ impl InputSession {
                 self.local_preedit.len() < GENERATED_MODE_INPUT_LIMIT
                     && (value.is_ascii_lowercase()
                         || (value == b'\''
-                            && self.command_takes_word_separator(self.local_preedit.len())))
+                            && self.command_takes_word_separator(self.local_preedit.len()))
+                        || self.command_takes_argument_symbol(value, self.local_preedit.len()))
             }
             LocalInputMode::Url => {
                 // 网址不收的符号（`"` `<` `|` 等）和空格结束网址：交还 runtime，由它先上屏网址再处理这个键。
@@ -1325,6 +1326,22 @@ impl InputSession {
                 .is_some_and(crate::local::command::takes_word_separator)
     }
 
+    /// `/` 模式里光标 `caret` 之前已经完整打出了一条 `extended` 插件指令的触发词，`value` 是数字或运算符号：它是参数的一部分。只看光标之前，光标挪回触发词里时数字照旧不收。
+    pub(super) fn command_takes_argument_symbol(&self, value: u8, caret: usize) -> bool {
+        self.local_mode == LocalInputMode::Command
+            && crate::local::command::extended_argument_symbol(value)
+            && self.command_argument_symbols_at(caret)
+    }
+
+    /// 光标 `caret` 之前完整打出了一条 `extended` 插件指令的触发词。
+    fn command_argument_symbols_at(&self, caret: usize) -> bool {
+        self.local_mode == LocalInputMode::Command
+            && self
+                .local_preedit
+                .get(1..caret)
+                .is_some_and(|code| self.queries.extended_plugin_trigger_typed(code))
+    }
+
     /// A mark typed on a bare `/` or `@` ends the mode instead of choosing a row: both keys commit as the punctuation they are with the mode off, so `/` `,` still types /， rather than the first command followed by ，.
     fn commit_bare_prefix(&mut self, value: u8) -> KeyResult {
         let prefix = self.local_preedit.as_bytes()[0];
@@ -1376,6 +1393,12 @@ impl InputSession {
                 .filter(|&key| self.chaizi_takes_symbol(key, caret))
                 .map(char::from)
                 .collect();
+        }
+        // `extended` 的插件指令打完触发词之后，数字和运算符号是参数：列出来，宿主才把数字当输入、不当选词键（和计算模式一样）。
+        if self.command_argument_symbols_at(self.caret_position()) {
+            let mut symbols = String::from("0123456789");
+            symbols.push_str(crate::local::command::EXTENDED_ARGUMENT_SYMBOLS);
+            return symbols;
         }
         if self.local_mode != LocalInputMode::None {
             return self.local_mode.spelling_symbols().to_owned();

@@ -23,6 +23,7 @@
 #include "VocabularyForm.h"
 #include "VocabularyData.h"
 #include "PluginEffectsForm.h"
+#include "PluginEditorForm.h"
 #include "PluginLibraryForm.h"
 #include "PluginScriptsForm.h"
 #include "PluginMentionsForm.h"
@@ -539,7 +540,8 @@ private:
       } else {
         result = store_->load(); snapshot_ = result.snapshot;
       }
-      if (operation == "load_mentions" || operation == "save_mentions") return result;
+      // 读名单和编辑器读出一个包都不改插件目录，不用重读目录和授权。
+      if (operation == "load_mentions" || operation == "save_mentions" || operation == "authoring_load") return result;
       (*plugins_response_)["grants"] = plugin_data::call(directory_, options, {{"operation", "script_grants"}});
       if (operation == "catalog") (*plugins_response_)["mentions"] = plugin_data::call(directory_, options, PluginMentionsForm::load_request());
       (*plugins_response_)["catalog"] = operation == "catalog" ? response : plugin_data::call(directory_, options, PluginLibraryForm::catalog_request());
@@ -1024,6 +1026,7 @@ struct SettingsWindow::State {
   VocabularyForm vocabulary_form;
   PluginEffectsForm plugin_effects_form;
   PluginLibraryForm plugin_library_form;
+  PluginEditorForm plugin_editor_form;
   PluginScriptsForm plugin_scripts_form;
   PluginMentionsForm plugin_mentions_form;
   bool plugin_mentions_initialized = false;
@@ -1303,12 +1306,14 @@ struct SettingsWindow::State {
     };
     plugins_height = plugin_effects_form.create(row);
     plugins_height = plugin_library_form.create(row, plugins_height + 24);
+    plugins_height = plugin_editor_form.create(row, plugins_height + 24);
     plugins_height = plugin_scripts_form.create(row, plugins_height + 24);
     plugins_height = plugin_mentions_form.create(row, plugins_height + 24);
     plugins_created = true;
     refresh_plugins();
     plugin_effects_form.enable(snapshot.has_value() && !busy);
     plugin_library_form.enable(snapshot.has_value() && !busy);
+    plugin_editor_form.enable(snapshot.has_value() && !busy);
     plugin_scripts_form.enable(snapshot.has_value() && !busy);
     plugin_mentions_form.enable(snapshot.has_value() && !busy);
   }
@@ -1694,7 +1699,7 @@ struct SettingsWindow::State {
     if (community_resources_created) community_resources_form.enable(enabled);
     if (keyboard_created) keyboard_form.enable(enabled);
     if (voice_created) { voice_form.enable(enabled); voice_models_form.enable(enabled); }
-    if (plugins_created) { plugin_effects_form.enable(enabled); plugin_library_form.enable(enabled); plugin_scripts_form.enable(enabled); plugin_mentions_form.enable(enabled); }
+    if (plugins_created) { plugin_effects_form.enable(enabled); plugin_library_form.enable(enabled); plugin_editor_form.enable(enabled); plugin_scripts_form.enable(enabled); plugin_mentions_form.enable(enabled); }
     dictionary_updates_form.enable(enabled && !updates_busy);
     theme_form.enable(enabled);
     community_form.enable(enabled);
@@ -2187,14 +2192,29 @@ struct SettingsWindow::State {
       const auto& value = *completed->plugins_response;
       const auto operation = completed->credential_request->value("operation", std::string{});
       if (operation == "load_mentions" || operation == "save_mentions") plugin_mentions_form.completed(value.at("response"), operation);
+      if (operation == "authoring_load" || operation == "authoring_save") {
+        PluginEditorForm::Usage usage{plugin_effects_form.preferences(), true, false};
+        if (snapshot) {
+          const auto document = snapshot->preferences();
+          if (document.contains("local_modes") && document.at("local_modes").is_object()) {
+            const auto& modes = document.at("local_modes");
+            if (modes.contains("quick_phrase") && modes.at("quick_phrase").is_boolean()) usage.quick_phrase = modes.at("quick_phrase").get<bool>();
+            if (modes.contains("command") && modes.at("command").is_boolean()) usage.command = modes.at("command").get<bool>();
+          }
+        }
+        plugin_editor_form.completed(value.at("response"), operation, usage);
+      }
       if (value.contains("mentions") && !plugin_mentions_initialized) {
         plugin_mentions_initialized = true; plugin_mentions_form.completed(value.at("mentions"), "load_mentions");
       }
       if (value.contains("catalog")) {
+        // 编辑器保存失败时由编辑器自己说明，插件库和脚本插件只看重读的目录。
+        const bool editor = operation == "authoring_save";
         plugin_library_form.completed(value.at("catalog"));
-        if (!theme_data::value(value.at("response"))) plugin_library_form.failure();
+        if (!editor && !theme_data::value(value.at("response"))) plugin_library_form.failure();
         plugin_effects_form.catalog(plugin_library_form.packages(), plugin_library_form.loaded());
-        plugin_scripts_form.completed(value.at("catalog"), value.at("grants"), value.at("response"));
+        plugin_editor_form.catalog(plugin_library_form.packages());
+        plugin_scripts_form.completed(value.at("catalog"), value.at("grants"), editor ? value.at("catalog") : value.at("response"));
         revealed_script = plugin_scripts_form.revealed();
       }
       if (value.contains("statistics_enabled")) {
@@ -2629,6 +2649,17 @@ struct SettingsWindow::State {
       if (!plugin_effects_change.changes.empty()) {
         Job job; job.reload = false; job.changes = std::move(plugin_effects_change.changes); submit(std::move(job));
       }
+      return;
+    }
+    auto editor_change = plugin_editor_form.command(command);
+    if (editor_change.handled) {
+      if (!editor_change.confirmation.empty()) {
+        const bool allowed = confirmation ? confirmation(window, L"插件", editor_change.confirmation.c_str()) :
+            MessageBoxW(window, editor_change.confirmation.c_str(), L"插件", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES;
+        if (!allowed) return;
+      }
+      if (editor_change.after) editor_change.after();
+      if (editor_change.request) { Job job; job.reload = false; job.action = Job::Action::plugins; job.credential = std::move(editor_change.request); submit(std::move(job)); }
       return;
     }
     auto plugin_change = plugin_library_form.command(command);

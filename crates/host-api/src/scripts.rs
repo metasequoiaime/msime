@@ -38,10 +38,10 @@ pub(crate) use set::ScriptSet;
 ))]
 pub(crate) use {
     process::{
-        health_barrier, health_snapshot, insert_ready, TEST_COMPILE_PANIC_ID, TEST_PANICKED,
-        TEST_SLOW, TEST_SWITCH,
+        health_barrier, health_snapshot, insert_ready, insert_ready_with_data,
+        TEST_COMPILE_PANIC_ID, TEST_PANICKED, TEST_SLOW, TEST_SWITCH,
     },
-    set::{TEST_PANIC, TEST_SCRIPT_LOG},
+    set::{TEST_LOCAL_TIME, TEST_PANIC, TEST_SCRIPT_LOG},
 };
 
 /// 会话选择加入生命周期时把脚本集合挂到 runtime 上，作为它的候选变换和插件指令的提供者。移动端什么都不做。

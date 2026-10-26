@@ -7,6 +7,8 @@ use msime_client_core::preferences::PreferencesStore;
 use msime_client_services::plugins::authoring::{self, AuthoredPack};
 use msime_client_services::plugins::mentions::{MentionEntry, MentionStore};
 use msime_client_services::plugins::script_grants::{self, ScriptGrantsView};
+use msime_client_services::plugins::script_settings::{self, ScriptPluginStateView};
+use msime_client_services::plugins::script_storage;
 use msime_client_services::plugins::{
     self, script_commands, BuiltinDirs, PluginCatalog, PluginFailure, PluginSummary,
 };
@@ -329,6 +331,59 @@ pub async fn reorder_scripts(
             &options,
             &store,
         ))
+    })
+    .await
+}
+
+/// 插件详情页：一个脚本插件清单里每一项设置现在的值和持久存储占的字节数。官方脚本插件的清单从内置插件包目录读。
+#[tauri::command]
+pub async fn script_plugin_state(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    options: State<'_, DictionaryHostOptions>,
+    id: String,
+) -> Result<ScriptPluginStateView, PluginFailure> {
+    let root = state.0.clone();
+    let options = options.inner().clone();
+    blocking(move || {
+        let packs = builtin_plugin_packs(&app, &options);
+        Ok(script_settings::state(&root, packs.as_deref(), &id)?)
+    })
+    .await
+}
+
+/// 整份替换一个脚本插件的设置值，没写的项用默认值；清单里没有的项、类型不对或超出范围的值返回 `plugin_script_setting_invalid`。改设置不作废授权。
+#[tauri::command]
+pub async fn set_script_settings(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    options: State<'_, DictionaryHostOptions>,
+    id: String,
+    values: serde_json::Map<String, serde_json::Value>,
+) -> Result<ScriptPluginStateView, PluginFailure> {
+    let root = state.0.clone();
+    let options = options.inner().clone();
+    blocking(move || {
+        let packs = builtin_plugin_packs(&app, &options);
+        Ok(script_settings::set(&root, packs.as_deref(), &id, values)?)
+    })
+    .await
+}
+
+/// 「清除数据」：删掉一个脚本插件的持久存储（`persist_data`），返回清除之后这个插件的状态。
+#[tauri::command]
+pub async fn clear_script_data(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    options: State<'_, DictionaryHostOptions>,
+    id: String,
+) -> Result<ScriptPluginStateView, PluginFailure> {
+    let root = state.0.clone();
+    let options = options.inner().clone();
+    blocking(move || {
+        let packs = builtin_plugin_packs(&app, &options);
+        script_storage::clear(&root, &id)?;
+        Ok(script_settings::state(&root, packs.as_deref(), &id)?)
     })
     .await
 }

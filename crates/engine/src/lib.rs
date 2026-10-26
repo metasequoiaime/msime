@@ -86,6 +86,7 @@ pub use user_dictionary::state::{
 };
 pub use wubi::code::phrase_code as wubi_phrase_code;
 
+pub use local::command::{valid_plugin_argument, EXTENDED_ARGUMENT_SYMBOLS};
 pub use local::date_time::LocalDateTime;
 pub use local::url;
 

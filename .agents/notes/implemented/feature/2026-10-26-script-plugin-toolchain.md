@@ -33,6 +33,8 @@ Status: implemented
 
 **`.github/workflows/release-pack-tool.yml`，只能手动触发。** 构建 macOS（arm64 和 x86_64 两份 lipo 成 universal）、Windows x64、Linux x64（`x86_64-unknown-linux-musl` 静态链接，不挑发行版的 glibc），每个平台先跑一次 `msime-pack validate docs/plugin-template` 冒烟，再组装成带 GPL 许可证和工具 README 的压缩包加 `SHA256SUMS`；`publish` 为真时发布为 `pack-tool-vX.Y.Z`。版本号不写时取已有 `pack-tool-v` 的最大版本加一个补丁号（第一次是 0.1.0），按 AGENTS.md「发版」的约定 main 不加后缀、develop 加 `-beta`、其他分支加 `-alpha`，带后缀的一律 prerelease；永远 `--latest=false`，tag 已存在时失败，不替换。`update_check.rs` 只认 `<平台>-v` 前缀，这个 tag 不会被当成任何平台的版本。macOS 的二进制没有 Developer ID 签名和公证，发布说明写明用浏览器下载的要先 `xattr -d com.apple.quarantine`。
 
+构建 job 直接 checkout 触发工作流的 `github.sha`，不把上游 job 的输出当作特权 checkout 引用，避免 CodeQL 报告不可信提交造成缓存污染。
+
 **assemble.py 不改。** 仓库里插件的许可证义务检查（`EMBEDDED_DATA`）、三名一致和许可证副本核对留在它那里；它自己写 zip，不调用 `msime-pack pack`。
 
 **作者文档。** docs/plugins.md「脚本插件」开头的「想直接开始」指向新的「从零写一个插件」一节：装 Rust 和 wasm 目标、取得 `msime-pack`（发布页或 `cargo install --git`）、`new`、改代码和权限、`build`、`run`、`pack`、导入并授权。ABI 编号的出处链接改到 SDK crate。pack-tool 的 README 补了安装方式和三个子命令。
@@ -62,7 +64,7 @@ Status: implemented
 - `rbuild cargo clippy -p msime-pack-tool --all-targets --locked -- -D warnings`、`cargo clippy -p msime-script-sdk --all-targets -- -D warnings`、`cargo clippy -p msime-script-sdk --target wasm32-unknown-unknown -- -D warnings`、`cargo fmt --check`，模板的 `lib.rs` 另外过 `rustfmt --check`。
 - 手动：Studio 上 `msime-pack new demo-dice`、`build`、`pack`；`RUSTUP_TOOLCHAIN=stable`（没有 wasm 目标）时 `build` 停在 `rustup target add` 提示、退出 1；`-o pack/x.zip` 被拒绝。
 - uuid：改动前后 `bash scripts/build-script-plugins.sh` 编出的 `uuid.wasm` sha256 都是 `57287707ced024ed713aed604b4e7737f51e231ec003529d4f07706adedc54b8`；换成 crate 依赖的那一版是 `23241a0b…`（3279 字节），据此保留 `#[path]`。
-- `actionlint`（`SHELLCHECK_OPTS=--severity=warning`）检查 `release-pack-tool.yml` 和改过的 `ci-platforms.yml`，无输出。
+- `actionlint`（`SHELLCHECK_OPTS=--severity=warning`）检查 `release-pack-tool.yml` 和改过的 `ci-platforms.yml`，无输出；CodeQL 对原先使用 job 输出 checkout 的高危缓存污染告警在改为 `github.sha` 后消除。
 - `bash scripts/test-script-plugins.sh`：三个插件和 `expected.jsonl` 一致（uuid 另按 RFC 9562 核对），生成数据那一步因 Studio 没有缓存 Unihan zip 打印 skip；`bash scripts/build-official-plugins.sh --check` 通过，uuid 的内容哈希等于锁定值。
 - `bash scripts/verify-local.sh --quick`：Rust 工作区、android 目标、wasm 目标的检查、actionlint 和契约检查通过；`android host java` 和 `macos build` 两项因 Studio 系统盘写满（`No space left on device`）失败，与这次改动无关，没有在别的机器上重跑；Windows、HarmonyOS 和 Linux 容器检查在 Studio 上跳过。
 

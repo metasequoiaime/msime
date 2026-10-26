@@ -743,7 +743,7 @@ Win7 使用独立版本源 `platforms/windows/version-win7.txt`；现代 Windows
   -TargetVersion (Get-Content platforms/windows/version-win7.txt -TotalCount 1).Trim()
 ```
 
-构建目录固定为 `target/windows7-<edition>/<arch>`；`runtime` 只保留实际 PE 依赖闭包、摘要与产品声明。x64 安装包带 x64 Server、原生设置与面板、x64 和 x86 TIP；x86 包只用于 32 位系统。两者不含 WinUI、Tauri、WebView2 或 Arm64 产物，不改变普通 Windows 构建和默认值。完整资源、第三方声明、插件及词书仍由现有暂存规则负责；正式分发继续完成许可收集和受信任签名，本机测试证书只用于内部验收。未指定 `-Windows7Architecture` 时原安装流程保持。与现代构建相同，受信任签名并安装到安全目录的构建可显式传 `Build-Windows7Client.ps1 -ServerUiAccess`，保留跨完整性级别能力；未签名开发构建默认关闭，不能把两种权限能力视为相同。
+构建目录固定为 `target/windows7-<edition>/<arch>`；`runtime` 只保留实际 PE 依赖闭包、摘要与产品声明。x64 安装包带 x64 Server、原生设置与面板、x64 和 x86 TIP；x86 包只用于 32 位系统。两者不含 WinUI、Tauri、WebView2 或 Arm64 产物，不改变普通 Windows 构建和默认值。完整资源、第三方声明、插件及词书仍由现有暂存规则负责；正式分发完成许可收集与摘要校验，不以代码签名为前提，本机测试证书只用于内部验收。未指定 `-Windows7Architecture` 时原安装流程保持。与现代构建相同，受信任签名并安装到安全目录的构建可显式传 `Build-Windows7Client.ps1 -ServerUiAccess`，保留跨完整性级别能力；未签名发布构建默认关闭，不能把两种权限能力视为相同。
 
 真实 TLS 传输测试可在受控网络运行 `tests/tools/windows7_websocket_server.py --bind <测试地址> --certificate <合成证书.pem> --key <合成私钥.pem>`，再执行 `windows7-websocket-runtime.exe wss://<测试地址>:18778 <合成CA.pem>`。服务只处理固定合成帧，测试覆盖信任拒绝、重定向拒绝、二进制分片／ping、并发收发、取消和大小上限；不能代替真实语音账号或麦克风验收。测试服务默认只绑定本机。
 
@@ -753,4 +753,4 @@ Win7 使用独立版本源 `platforms/windows/version-win7.txt`；现代 Windows
 
 Win7 验收基线为 Windows 7 SP1 x64，已安装 KB4474419、KB4490628、KB2921916，使用受信任测试签名和开启 UIAccess 的最终安装包。安装、升级保留合成数据、嵌套迁移、双架构 COM／TSF、看门狗、ACL 和显式卸载均通过；最终安装路径中的设置系统对话框打开／取消、x64 与 x86 系统记事本的真实拼音按键、可见候选与“你好”提交通过，Server 持续运行，英文出厂默认值保持。
 
-独立 Win7 SP1 x86 已通过完整安装、升级保留合成数据、嵌套迁移、卸载和重启后系统记事本真实输入；直通实体 USB 双向音频设备的同源 Server 录音、播放渲染、提示音，以及安装核心的 16 kHz 单声道采集均通过，未保存麦克风内容或作人工音质评价。生产服务使用隔离合成账号验证匿名注册、服务与社区目录、AI、AI 翻译，以及真实云词库新增、完整备份和恢复；原生 ASR 与润色针对合成语音或合成句子获得非空结果。部分在线测试经显式代理访问 HTTPS，不代表直连、普通账号交互登录或全部模型均通过。现代 Windows 的同源完整包回归和各项证据见[产品构建记录](../../.agents/notes/implemented/feature/2026-10-24-windows7-product-build.md)。本任务未发布正式 Release，分发时仍需正式受信任代码签名。
+独立 Win7 SP1 x86 已通过完整安装、升级保留合成数据、嵌套迁移、卸载和重启后系统记事本真实输入；直通实体 USB 双向音频设备的同源 Server 录音、播放渲染、提示音，以及安装核心的 16 kHz 单声道采集均通过，未保存麦克风内容或作人工音质评价。生产服务使用隔离合成账号验证匿名注册、服务与社区目录、AI、AI 翻译，以及真实云词库新增、完整备份和恢复；原生 ASR 与润色针对合成语音或合成句子获得非空结果。部分在线测试经显式代理访问 HTTPS，不代表直连、普通账号交互登录或全部模型均通过。现代 Windows 的同源完整包回归和各项证据见[产品构建记录](../../.agents/notes/implemented/feature/2026-10-24-windows7-product-build.md)。正式版由 `release-windows7.yml` 在 `main` 手动触发并开启 `publish`，发布页提供两个安装包、各自摘要和 `SHA256SUMS`；未签名包不提供 `UIAccess`，需按发布页核对摘要。

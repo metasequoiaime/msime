@@ -121,6 +121,37 @@ final class PortraitSplitDeviceChecks {
             resize("2000x1600", true, true);
             focusEditor();
             expectSplit(true);
+            test.stage = "tablet number row and bounded split key widths";
+            localValues.put("platform.android.number_row", true);
+            test.publish(local, localDocument.toString().getBytes(StandardCharsets.UTF_8));
+            for (String tabletSize : new String[] {"1600x1000", "2000x1600", "2800x1800", "2000x1600"}) {
+                test.stage = "responsive landscape split " + tabletSize;
+                resize(tabletSize, true, true);
+                focusEditor();
+                expectSplit(true);
+                expectTabletKeyWidth("q");
+                expectTabletKeyWidth("5");
+                expectTabletBottomRow();
+                if ("2800x1800".equals(tabletSize))
+                    test.shellDiscard("screencap -p /data/local/tmp/msime-tablet-split.png");
+                test.tap(test.key("123"));
+                test.tap(test.key("#+="));
+                expectGap("#", "%", "[", "=", true);
+                expectTabletKeyWidth("#");
+                test.tap(test.described("切换到字母键盘"));
+                expectSplit(true);
+            }
+            test.stage = "tablet double-pinyin hints";
+            snapshot.put("scheme", "shuangpin").put("shuangpin_profile", "xiaohe")
+                .put("touch_shuangpin_key_hints", true)
+                .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put("xiaohe"))
+                    .put("selected", "xiaohe"));
+            setPortrait(false);
+            test.await(node -> node.getContentDescription() != null
+                && node.getContentDescription().toString().contains("；双拼提示"));
+            expectSplit(true);
+            expectTabletKeyWidth("q");
+            test.shellDiscard("screencap -p /data/local/tmp/msime-tablet-shuangpin.png");
         } finally {
             restore(preferences, saved);
             restore(local, savedLocal);
@@ -174,6 +205,35 @@ final class PortraitSplitDeviceChecks {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError(split ? "Large portrait keyboard did not split" : "Full keyboard retained a split gap");
+    }
+
+    /** 量真实键帽而不是配置值；旧的固定 25% 中缝在宽平板上会超过 72 dp。 */
+    private void expectTabletKeyWidth(String label) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        float measured = 0;
+        do {
+            test.dropStaleNodes();
+            Rect key = bounds(test.await(test.key(label)));
+            float density = test.getTargetContext().getResources().getDisplayMetrics().density;
+            measured = key.width() / density;
+            if (measured >= 55f && measured <= 74f) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Tablet key " + label + " width " + measured + " dp exceeds thumb reach");
+    }
+
+    /** 底行必须随字母行一起限宽；不同数量的键距只允许小幅边缘偏差。 */
+    private void expectTabletBottomRow() {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            test.dropStaleNodes();
+            Rect space = bounds(test.await(test.key("空格")));
+            Rect inner = bounds(test.await(test.key("t")));
+            float density = test.getTargetContext().getResources().getDisplayMetrics().density;
+            if (Math.abs(space.right - inner.right) <= 24 * density) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Bottom row retained the previous window's split gap");
     }
 
     private void expectText(String value) {

@@ -49,6 +49,7 @@ fn uuid_commands() -> Vec<PluginCommand> {
     vec![PluginCommand {
         trigger: "uuid".into(),
         title: "UUID".into(),
+        extended: false,
     }]
 }
 
@@ -348,6 +349,7 @@ fn the_title_beside_a_plugin_row_is_the_one_the_engine_kept() {
     let command = |trigger: &str, title: &str| PluginCommand {
         trigger: trigger.into(),
         title: title.into(),
+        extended: false,
     };
     let directory = tempfile::tempdir().unwrap();
     let (mut runtime, _script) = plugin_runtime(directory.path(), rows(&[("甲", "")]));
