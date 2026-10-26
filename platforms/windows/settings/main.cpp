@@ -1479,6 +1479,9 @@ JsonObject plugin_action(wchar_t const *operation) {
 // 数据目录下 plugins 里已安装的插件，与 Tauri 的 plugin_catalog 是同一份 msime_client_plugins catalog。辅助码表插件都是装上的包，所以不传内置声音包的目录。读目录，只在 UI 线程之外调用。
 Response plugin_catalog_call() { return plugins_call(plugin_action(L"catalog"), false); }
 
+// 带 script_page 的同一份目录：脚本插件只在这份目录里列出，官方插件包（官方 uuid 脚本插件等，builtin 为真）也在。社区发布对话框列本机可发布的包、社区安装脚本插件前查同 id 的已装包时用它。读目录，只在 UI 线程之外调用。
+Response plugin_script_catalog_call() { return plugins_call(plugin_action(L"catalog"), false, true); }
+
 // 失败的插件请求在页面上的那句话：error 是 client-services 的失败码，detail 是它报告的规则（共享页的 pluginErrorMessage）。
 std::wstring plugin_failure(Response const &response, std::wstring const &fallback) {
   std::wstring code, detail;
@@ -2475,6 +2478,8 @@ struct CommunityPluginItem {
   bool owned = false;
   int64_t my_rating = 0;
   std::wstring moderation;
+  // 脚本插件清单申请的能力名，按清单顺序，可能有本客户端还不认识的名字；数据类插件和旧服务端没有。
+  std::vector<std::wstring> permissions;
 };
 
 void parse_community_item(JsonObject const &object, CommunitySkinItem &skin) {
@@ -2522,6 +2527,7 @@ void parse_community_item(JsonObject const &object, CommunityPluginItem &plugin)
   plugin.owned = owned.ValueType() == JsonValueType::Boolean && owned.GetBoolean();
   plugin.my_rating = named_count(object, L"my_rating");
   plugin.moderation = named_string(object, L"moderation");
+  plugin.permissions = named_strings(object, L"permissions");
 }
 
 // 社区里的一个词库或回复模板（client-services 的 CommunityResource，共享页的 CommunityResource）。词库带词条，回复模板带提示词。
@@ -9744,15 +9750,19 @@ private:
     struct Outcome {
       bool exists = false;
       Response response;
+      // 装好脚本插件之后重读的目录（与「我的插件」读的同一份），第一次绘制授权详情时就找得到它。
+      std::optional<pg::Catalog> catalog;
     };
     const auto owner = gallery.owner;
     run_worker<Outcome>(
         [target, replace] {
           Outcome outcome;
+          // 脚本插件只在带 script_page 的目录里列出；那份目录还列出官方插件包，官方包不会被社区安装替换，不算同 id。
+          const bool script = target.kind == L"script";
           if (!replace) {
-            if (const auto catalog = plugin_catalog(plugin_catalog_call()))
+            if (const auto catalog = plugin_catalog(script ? plugin_script_catalog_call() : plugin_catalog_call()))
               for (auto const &pack : catalog->packages)
-                if (pack.kind == target.kind && pack.id == target.plugin_id) {
+                if (!pack.builtin && pack.kind == target.kind && pack.id == target.plugin_id) {
                   outcome.exists = true;
                   return outcome;
                 }
@@ -9762,9 +9772,11 @@ private:
           action.SetNamedValue(L"kind", JsonValue::CreateStringValue(hstring(target.kind)));
           action.SetNamedValue(L"plugin_id", JsonValue::CreateStringValue(hstring(target.plugin_id)));
           outcome.response = community_call(action);
+          if (script && outcome.response.ok)
+            outcome.catalog = plugin_catalog(plugins_call(plugin_action(L"catalog"), true, true));
           return outcome;
         },
-        [this, owner](Outcome &outcome) {
+        [this, owner, target](Outcome &outcome) {
           if (outcome.response.ok)
             plugins_stale_ = true;
           if (owner != plugin_gallery_.owner)
@@ -9781,7 +9793,20 @@ private:
           plugin_gallery_.confirm_replace = false;
           plugin_gallery_.installed = true;
           gallery_end<CommunityPluginItem>();
+          if (target.kind == L"script")
+            reveal_installed_script(target.plugin_id, std::move(outcome.catalog));
         });
+  }
+
+  // 社区装好的脚本插件和本机导入的一样不会运行，也没有任何授权：切到「我的插件」，打开它的详情（共享页的 onOpenScript），焦点落在「启用」开关上，授权从那里开始。目录已在工作线程上重读，先换上，第一次绘制就找得到它；没读到时照常重读，找不到就停在列表上。
+  void reveal_installed_script(std::wstring const &id, std::optional<pg::Catalog> catalog) {
+    if (catalog) {
+      plugin_catalog_ = std::move(*catalog);
+      plugin_catalog_state_ = PluginCatalogState::loaded;
+    }
+    set_plugin_view(false);
+    open_plugin_view(PluginView::pack, L"script", id, L"pack/script/" + id);
+    plugin_pending_focus_ = L"script-switch";
   }
 
   // ---- 预览图 ----
@@ -10468,7 +10493,7 @@ private:
     community_search<CommunityPluginItem>(page, L"搜索插件");
     community_heading<CommunityPluginItem>(
         page, L"社区插件",
-        L"音效、音乐、指令表、特效、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用",
+        L"音效、音乐、指令表、特效、短语表、辅助码表、单词本、符号集与脚本插件，安装后在「我的插件」中选用；脚本插件经管理员审核后才会出现，安装后要授权才会运行",
         L"插件范围", L"全部插件", L"发布我的插件", [this] { open_plugin_publish(); });
     std::vector<std::pair<std::optional<std::wstring>, std::wstring>> kinds{{std::nullopt, L"全部"}};
     for (auto const kind : cm::plugin_kinds)
@@ -10493,12 +10518,20 @@ private:
       auto title = card_line(plugin.name, 14, palette_.text);
       title.FontWeight(Windows::UI::Text::FontWeight{600});
       body.Children().Append(title);
-      body.Children().Append(card_line(cm::card_author(pg::kind_label(plugin.kind), plugin.author,
-                                                       plugin.owned, false,
-                                                       plugin.moderation == L"removed"),
-                                       12, palette_.sub));
+      body.Children().Append(card_line(
+          cm::plugin_card_author(plugin.kind, plugin.author, plugin.owned, plugin.moderation), 12,
+          palette_.sub));
+      // 脚本插件多一行申请的能力：说明让出一行，卡片高度不变；有要注意的能力时整行用危险色。
+      const bool script = plugin.kind == L"script";
       if (!plugin.description.empty())
-        body.Children().Append(card_line(plugin.description, 12, palette_.sub, 2));
+        body.Children().Append(card_line(plugin.description, 12, palette_.sub, script ? 1 : 2));
+      if (script) {
+        const auto lines = cm::capability_lines(plugin.permissions);
+        const bool caution = std::any_of(lines.begin(), lines.end(),
+                                         [](cm::CapabilityLine const &line) { return line.caution; });
+        body.Children().Append(
+            card_line(cm::capability_summary(lines), 12, caution ? danger_color() : palette_.sub));
+      }
       body.Children().Append(card_metrics(plugin.downloads, plugin.rating_count, plugin.rating_average));
       grid.Children().Append(community_card(L"查看插件 " + plugin.name, body, width, height,
                                             [this, plugin] { gallery_open(plugin); }));
@@ -10511,17 +10544,26 @@ private:
     auto &gallery = plugin_gallery_;
     auto const selected = *gallery.selected;
     auto body = community_detail_frame<CommunityPluginItem>(page);
+    const bool script = selected.kind == L"script";
+    const bool reviewing = cm::plugin_pending_review(selected.kind, selected.owned, selected.moderation);
     community_detail_header(body, selected.name,
                             cm::join_dot({pg::kind_label(selected.kind), selected.author,
                                           selected.version.empty() ? L"" : L"v" + selected.version}),
-                            selected.owned, selected.moderation, L"我的作品", selected.description);
+                            selected.owned, selected.moderation,
+                            reviewing ? L"我的作品 · " + std::wstring(cm::pending_review_label) : L"我的作品",
+                            selected.description);
     body.Children().Append(make_text(
         cm::join_dot({selected.plugin_id, selected.license.empty() ? L"" : L"授权 " + selected.license,
                       cm::megabytes(selected.size)}),
         13, palette_.sub));
     community_detail_status<CommunityPluginItem>(body, L"正在读取插件详情…");
+    if (reviewing)
+      community_notice(body, std::wstring(cm::script_review_notice));
+    if (script)
+      community_script_capabilities(body, selected.permissions);
     if (gallery.installed)
-      community_notice(body, L"已安装到插件目录，可在「我的插件」中选用。");
+      community_notice(body, script ? std::wstring(cm::script_installed_notice)
+                                    : std::wstring(L"已安装到插件目录，可在「我的插件」中选用。"));
     else
       body.Children().Append(community_install_button<CommunityPluginItem>(
           [this] { install_community_plugin(false); }));
@@ -10542,6 +10584,29 @@ private:
         L"已下架这个插件；其他用户将无法再下载。已安装的插件会保留。");
     if (!selected.owned)
       community_report<CommunityPluginItem>(body);
+  }
+
+  // 社区脚本插件申请的能力（共享页的 CommunityPluginCapabilities）：先说安装后不会运行，再按清单顺序逐项用授权页的白话列出；改写输入的文字和长期保存数据两项标「注意」并用危险色，本客户端还不认识的能力另说安装会失败。
+  void community_script_capabilities(StackPanel const &body, std::vector<std::wstring> const &permissions) {
+    StackPanel panel;
+    panel.Spacing(6);
+    panel.Children().Append(make_text(
+        std::wstring(cm::script_install_note) + L"。" + std::wstring(cm::script_grant_note), 13, palette_.text));
+    const auto lines = cm::capability_lines(permissions);
+    if (lines.empty())
+      panel.Children().Append(make_text(cm::script_no_capabilities, 13, palette_.sub));
+    for (auto const &line : lines) {
+      auto title = make_text(line.caution ? L"注意：" + line.title : line.title, 13,
+                             line.caution ? danger_color() : palette_.text);
+      title.FontWeight(Windows::UI::Text::FontWeight{600});
+      panel.Children().Append(title);
+      if (!line.description.empty())
+        panel.Children().Append(make_text(line.description, 12, palette_.sub));
+    }
+    if (cm::capabilities_unsupported(lines))
+      panel.Children().Append(make_text(cm::script_unknown_capabilities, 13, danger_color()));
+    A11y::SetName(panel, L"脚本插件申请的能力");
+    body.Children().Append(panel);
   }
 
   // ---- 发布 ----
@@ -11316,7 +11381,8 @@ private:
       });
     };
     build_plugin_publish(form, dialog);
-    run_host(plugin_catalog_call, [this, generation](Response const &response) {
+    // 内置包和官方插件包（builtin 为真）不能发布。
+    run_host(plugin_script_catalog_call, [this, generation](Response const &response) {
       auto &state = plugin_publish_;
       if (generation != state.generation)
         return;
@@ -11324,7 +11390,8 @@ private:
       if (auto catalog = plugin_catalog(response)) {
         state.options.clear();
         for (auto const &pack : catalog->packages) {
-          if (pack.builtin)
+          if (pack.builtin || std::find(cm::plugin_kinds.begin(), cm::plugin_kinds.end(), pack.kind) ==
+                                  cm::plugin_kinds.end())
             continue;
           state.options.push_back({pack.kind + L"/" + pack.id, pack.kind, pg::pack_kind_label(pack),
                                    pack.id, pack.name});
@@ -11401,7 +11468,11 @@ private:
   void update_plugin_publish_button(ContentDialog const &dialog) {
     auto const &state = plugin_publish_;
     if (state.pack_error.empty()) {
-      dialog.PrimaryButtonText(state.busy ? L"正在发布…" : L"公开发布");
+      // 脚本插件先审后发，主按钮写「提交审核」，同共享页。
+      const auto *chosen = chosen_plugin();
+      dialog.PrimaryButtonText(state.busy ? L"正在发布…"
+                               : chosen && chosen->kind == L"script" ? L"提交审核"
+                                                                     : L"公开发布");
       dialog.IsPrimaryButtonEnabled(!state.busy && plugin_publish_ready());
     } else {
       dialog.PrimaryButtonText(L"");
@@ -11460,7 +11531,7 @@ private:
       form.Children().Append(make_text(L"正在读取本地插件…", 13, palette_.sub));
     if (!state.options_loading && state.options.empty())
       form.Children().Append(make_text(
-          L"还没有可发布的插件。内置插件不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本或符号集。",
+          L"还没有可发布的插件。内置插件不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本、符号集或脚本插件。",
           13, palette_.sub));
     if (!state.options.empty()) {
       std::vector<Option> options;
@@ -11481,6 +11552,10 @@ private:
       combo.MinWidth(320);
       form.Children().Append(combo);
     }
+    const auto *chosen = chosen_plugin();
+    const bool script = chosen && chosen->kind == L"script";
+    if (script)
+      form.Children().Append(make_text(cm::script_review_notice, 13, palette_.text));
     if (state.pack_loading)
       form.Children().Append(make_text(L"正在检查插件…", 13, palette_.sub));
     if (!state.pack_error.empty())
@@ -11494,7 +11569,9 @@ private:
       publication_fields(
           form, state.name, state.description, state.agreed, state.publication_id, state.busy,
           L"名称", L"发布插件名称", L"说明", L"发布插件说明",
-          L"我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用", L"确认拥有发布内容权利",
+          script ? L"我拥有插件中代码与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+                 : L"我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用",
+          L"确认拥有发布内容权利",
           [this] {
             if (plugin_publish_.update_button)
               plugin_publish_.update_button();

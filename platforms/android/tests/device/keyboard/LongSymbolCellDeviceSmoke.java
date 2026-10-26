@@ -98,8 +98,14 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
         stage = "real horizontal grid swipe";
         shellDiscard("input swipe " + (grid.left + grid.width() * 4 / 5) + " " + grid.centerY()
             + " " + (grid.left + grid.width() / 5) + " " + grid.centerY() + " 250");
+        await(described("符号分类 偏旁，已选中"));
+        checkRadicalNavigation();
+        grid = bounds(described("偏旁部首网格；按笔画连续滚动"));
+        shellDiscard("input swipe " + (grid.left + grid.width() * 4 / 5) + " " + grid.centerY()
+            + " " + (grid.left + grid.width() / 5) + " " + grid.centerY() + " 250");
         await(described("符号分类 英文，已选中"));
         assertEmptyEditor();
+        grid = bounds(described("符号网格；长条目加宽"));
         stage = "real vertical grid swipe";
         shellDiscard("input swipe " + grid.centerX() + " " + (grid.top + grid.height() * 4 / 5)
             + " " + grid.centerX() + " " + (grid.top + grid.height() / 5) + " 250");
@@ -130,6 +136,73 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
         await(field("msime-test-plain").and(node -> equalsText("1", node.getText())));
         tap(described("删除").and(this::inSymbolPanel));
         assertEmptyEditor();
+    }
+
+    private void checkRadicalNavigation() throws Exception {
+        stage = "radical continuous scroll and linked stroke rail";
+        Rect grid = bounds(described("偏旁部首网格；按笔画连续滚动"));
+        Rect rail = bounds(described("偏旁笔画分类"));
+        if (grid.height() <= 0 || rail.right > grid.left || rail.height() != grid.height())
+            throw new AssertionError("偏旁笔画栏与网格尺寸错误");
+        stage = "radical initial one-stroke selection";
+        await(described("偏旁笔画 1画，已选中"));
+        captureRadicals("first");
+        // 首组可能高于一次短划的距离，连续划动跨过分组后再核对联动。
+        for (int swipe = 0; swipe < 3; swipe++) {
+            swipeRadicals(grid);
+        }
+        captureRadicals("scrolled");
+        stage = "radical scroll changes the selected stroke";
+        await(describedPrefix("偏旁笔画 ").and(node -> node.getContentDescription().toString().endsWith("画，已选中")
+            && !equalsText("偏旁笔画 1画，已选中", node.getContentDescription())));
+        await(described("符号分类 偏旁，已选中"));
+        assertEmptyEditor();
+        stage = "radical last stroke and commit";
+        reveal(describedPrefix("偏旁笔画 17画"));
+        tap(describedPrefix("偏旁笔画 17画"));
+        await(described("偏旁笔画 17画，已选中"));
+        tap(symbol("龠"));
+        await(field("msime-test-plain").and(node -> equalsText("龠", node.getText())));
+        await(described("符号面板"));
+        tap(described("删除").and(this::inSymbolPanel));
+        assertEmptyEditor();
+        stage = "radical first stroke and primary category swipe";
+        reveal(describedPrefix("偏旁笔画 1画"));
+        tap(describedPrefix("偏旁笔画 1画"));
+        await(described("偏旁笔画 1画，已选中"));
+        await(symbol("一"));
+    }
+
+    /** 和表情面板设备用例一样，经系统输入分发注入完整触摸轨迹。 */
+    private void swipeRadicals(Rect grid) {
+        long downTime = SystemClock.uptimeMillis();
+        for (int step = 0; step <= 12; step++) {
+            int action = step == 0 ? android.view.MotionEvent.ACTION_DOWN
+                : step == 12 ? android.view.MotionEvent.ACTION_UP : android.view.MotionEvent.ACTION_MOVE;
+            float y = grid.top + grid.height() * (.8f - .6f * step / 12);
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(
+                downTime, downTime + step * 20, action, grid.centerX(), y, 0);
+            event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+            try {
+                if (!automation.injectInputEvent(event, true)) throw new AssertionError("偏旁触摸轨迹未送达");
+            } finally {
+                event.recycle();
+            }
+        }
+        SystemClock.sleep(300);
+    }
+
+    /** 只保存专用合成编辑器的验收画面，方便检查实际皮肤和笔画栏。 */
+    private void captureRadicals(String position) throws java.io.IOException {
+        android.graphics.Bitmap image = automation.takeScreenshot();
+        if (image == null) throw new AssertionError("没有取得偏旁验收画面");
+        try (var output = new java.io.FileOutputStream(new File(getTargetContext().getExternalFilesDir(null),
+                "radicals-api" + android.os.Build.VERSION.SDK_INT + "-" + position + ".png"))) {
+            if (!image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
+                throw new AssertionError("偏旁验收画面写入失败");
+        } finally {
+            image.recycle();
+        }
     }
 
     private Rect bounds(Predicate<AccessibilityNodeInfo> match) {

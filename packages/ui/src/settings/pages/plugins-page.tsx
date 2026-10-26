@@ -5,9 +5,17 @@ import { pluginPreferences } from "../plugin-preferences";
 import { defaultLocalModes } from "../local-mode-preferences";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import type { PluginOpenRequest } from "../use-settings-shell-state";
 
 /** The 插件 page of the settings form (route id `plugins`): the installed packs, each opening its own detail, with 声音与效果 and the @ name list as entries above them. `hidden` is set while the page shows the community gallery in its place. */
-export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
+export function PluginsSettingsPage({
+  hidden = false,
+  openRequest = null,
+}: {
+  hidden?: boolean;
+  /** 社区装好脚本插件后要打开的包，见 `PluginOpenRequest`。 */
+  openRequest?: PluginOpenRequest | null;
+}) {
   const {
     client,
     draft,
@@ -85,6 +93,7 @@ export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
         wordbookPacks={showWordbookPacks}
         symbolSetPacks={showSymbolSetPacks}
         scriptPlugins={showScriptPlugins}
+        openRequest={openRequest}
         platform={host?.platform}
         onOpenWordbook={openWordbook}
         onOpenPage={selectPage}

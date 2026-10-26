@@ -2382,6 +2382,135 @@ fn serve(
     (url, server)
 }
 
+/// 单次回环响应，用于覆盖可变资源的完整响应、截断与缺失长度。
+fn serve_dynamic_response(
+    status: &'static str,
+    length: Option<usize>,
+    body: &'static [u8],
+) -> (String, std::thread::JoinHandle<String>) {
+    use std::io::BufRead;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/file", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut request = String::new();
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            request.push_str(&line);
+        }
+        let length = length
+            .map(|size| format!("Content-Length: {size}\r\n"))
+            .unwrap_or_default();
+        write!(
+            stream,
+            "HTTP/1.1 {status}\r\n{length}Connection: close\r\n\r\n"
+        )
+        .unwrap();
+        let _ = stream.write_all(body);
+        request
+    });
+    (url, server)
+}
+
+fn synthetic_dynamic_format(path: &Path) -> bool {
+    fs::read(path).unwrap().starts_with(b"synthetic")
+}
+
+#[test]
+fn dynamic_download_uses_current_response_and_falls_back_after_bad_format() {
+    const BODY: &[u8] = b"synthetic current revision";
+    let root = tempfile::tempdir().unwrap();
+    let fetcher = HttpFetcher::build(false).unwrap();
+    let (bad, bad_server) = serve_dynamic_response("200 OK", Some(3), b"bad");
+    let (url, server) = serve_dynamic_response("200 OK", Some(BODY.len()), BODY);
+    let downloaded = download_dynamic_file_with(
+        &fetcher,
+        root.path(),
+        "synthetic.gram",
+        &url,
+        &[&bad],
+        synthetic_dynamic_format,
+        &mut |_| {},
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert_eq!(downloaded.artifact.size, BODY.len() as u64);
+    assert_eq!(
+        downloaded.artifact.sha256,
+        hex::encode(Sha256::digest(BODY))
+    );
+    assert_eq!(fs::read(&downloaded.path).unwrap(), BODY);
+    assert!(!bad_server
+        .join()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("\r\nrange:"));
+    assert!(!server
+        .join()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("\r\nrange:"));
+    let path = downloaded.path.to_path_buf();
+    drop(downloaded);
+    assert!(!path.exists());
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn dynamic_download_rejects_incomplete_responses_and_removes_temporary_files() {
+    const BODY: &[u8] = b"synthetic current revision";
+    let fetcher = HttpFetcher::build(false).unwrap();
+    for (status, length, body) in [
+        ("200 OK", None, BODY),
+        ("200 OK", Some(BODY.len() + 10), BODY),
+        ("206 Partial Content", Some(BODY.len()), BODY),
+        ("200 OK", Some(3), b"bad".as_slice()),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let (url, server) = serve_dynamic_response(status, length, body);
+        assert!(download_dynamic_file_with(
+            &fetcher,
+            root.path(),
+            "synthetic.gram",
+            &url,
+            &[],
+            synthetic_dynamic_format,
+            &mut |_| {},
+            &AtomicBool::new(false),
+        )
+        .is_err());
+        server.join().unwrap();
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn dynamic_download_cancellation_removes_the_partial_response() {
+    const BODY: &[u8] = b"synthetic current revision";
+    let root = tempfile::tempdir().unwrap();
+    let fetcher = HttpFetcher::build(false).unwrap();
+    let (url, server) = serve_dynamic_response("200 OK", Some(BODY.len()), BODY);
+    let cancel = AtomicBool::new(false);
+    let result = download_dynamic_file_with(
+        &fetcher,
+        root.path(),
+        "synthetic.gram",
+        &url,
+        &[],
+        synthetic_dynamic_format,
+        &mut |_| cancel.store(true, Ordering::Relaxed),
+        &cancel,
+    );
+    assert!(matches!(result, Err(LocalModelError::Cancelled)));
+    server.join().unwrap();
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
 #[test]
 fn the_http_fetcher_resumes_with_a_range_request() {
     const BODY: &[u8] = b"0123456789abcdef";

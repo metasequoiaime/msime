@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -228,6 +229,8 @@ inline std::wstring plugin_message(std::wstring_view code, std::wstring const &d
     return L"下载的插件已损坏，请重试。";
   if (code == L"plugin_community_mismatch")
     return L"下载的插件与作品信息不符，已停止安装。";
+  if (code == L"plugin_community_script_unsupported")
+    return L"服务器暂时还不接受脚本插件，可能尚未更新，请稍后再试。数据类插件不受影响。";
   if (code == L"storage")
     return L"无法读写插件目录，请检查数据目录的权限。";
   if (code == L"community_invalid")
@@ -310,10 +313,10 @@ inline std::wstring category_label(std::wstring_view category) {
   return {};
 }
 
-// communityPluginKinds：社区插件的类型筛选，与 client-services 的 PUBLISHABLE_KINDS 一致。
-inline constexpr std::array<std::wstring_view, 8> plugin_kinds{
+// communityPluginKinds：社区插件的类型筛选，与 client-services 在桌面上的 PUBLISHABLE_KINDS 一致：八种数据类插件之后是脚本插件。
+inline constexpr std::array<std::wstring_view, 9> plugin_kinds{
     L"sound", L"music", L"command_table", L"effect",
-    L"phrase_table", L"helpcode", L"wordbook", L"symbol_set"};
+    L"phrase_table", L"helpcode", L"wordbook", L"symbol_set", L"script"};
 
 // 发布对话框里本机的一项：名字和 id 相同时只写 id，否则写「名字（id）」。
 inline std::wstring local_option_label(std::wstring_view name, std::wstring_view id) {
@@ -384,6 +387,93 @@ inline std::wstring plugin_empty_notice(bool has_more, bool filtered, bool mine,
     return L"没有匹配的插件。";
   return publishable ? L"社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
                      : L"社区里还没有插件。";
+}
+
+// ---- 社区脚本插件 ----
+
+// 脚本插件先审后发：管理员通过之前只有作者自己看得到。数据类插件发布即公开，不受影响。发布对话框选中脚本插件时显示这一句。
+inline constexpr std::wstring_view script_review_notice =
+    L"脚本插件要经过管理员审核，通过后才会出现在社区里；审核前只有你自己看得到。";
+// 社区装上的脚本插件和本机导入的一样默认不运行，也不带任何授权；详情上写明这一点。
+inline constexpr std::wstring_view script_install_note = L"安装后不会运行，要在脚本插件页授权";
+inline constexpr std::wstring_view script_grant_note = L"授权时你可以只勾选其中一部分能力，也可以随时撤销。";
+inline constexpr std::wstring_view script_installed_notice =
+    L"已安装，但还不会运行：要在「我的插件 → 脚本插件（实验）」里启用并授权。";
+inline constexpr std::wstring_view script_no_capabilities =
+    L"这个插件不申请任何能力：它只能知道发生了什么事件，看不到也改不了你打的字。";
+// 清单里有本客户端运行时不认识的能力时，本机的包校验会拒绝它（client-services 的 `parse_permissions`），装不上。
+inline constexpr std::wstring_view script_unknown_capabilities =
+    L"这个插件申请了这个版本的输入法还不认识的能力，安装会失败，请先更新输入法。";
+inline constexpr std::wstring_view pending_review_label = L"审核中";
+
+// 自己的脚本插件还在待审时标「审核中」。数据类插件发布即公开，服务端给的 pending 当作已通过，什么也不标；被下架的照旧由 card_author 标「已下架」。
+inline bool plugin_pending_review(std::wstring_view kind, bool owned, std::wstring_view moderation) {
+  return owned && kind == L"script" && moderation == L"pending";
+}
+
+// 插件卡片和详情的作者一行：类型名接 card_author，自己待审的脚本插件后面再接「审核中」。
+inline std::wstring plugin_card_author(std::wstring_view kind, std::wstring_view author, bool owned,
+                                       std::wstring_view moderation) {
+  auto line = card_author(plugins::kind_label(kind), author, owned, false, moderation == L"removed");
+  if (plugin_pending_review(kind, owned, moderation))
+    line += L" · " + std::wstring(pending_review_label);
+  return line;
+}
+
+// 安装前要多看一眼的能力：改写输入到应用里的文字，以及把读到的文字长期存在本机。
+inline bool capability_caution(std::wstring_view capability) {
+  return capability == L"rewrite_commit" || capability == L"persist_data";
+}
+
+// 社区脚本插件申请的一项能力，用授权页的白话（plugins::capability_label）说；连白话都没有的能力写成「未知能力 名字」、没有说明。`supported` 是本客户端的运行时认识它（在 `plugins::script_capabilities` 里）。
+struct CapabilityLine {
+  std::wstring capability, title, description;
+  bool caution = false;
+  bool supported = false;
+};
+
+// 条目的 permissions 按清单顺序逐条列出，不按本客户端认识的能力表过滤或排序：服务端可能先放行本客户端还不认识的能力，用户照样要看到它们。
+inline std::vector<CapabilityLine> capability_lines(std::vector<std::wstring> const &permissions) {
+  std::vector<CapabilityLine> lines;
+  lines.reserve(permissions.size());
+  for (auto const &capability : permissions) {
+    auto label = plugins::capability_label(capability);
+    if (label.title == capability)
+      label.title = L"未知能力 " + capability;
+    const bool supported = std::find(plugins::script_capabilities.begin(), plugins::script_capabilities.end(),
+                                     capability) != plugins::script_capabilities.end();
+    lines.push_back({capability, std::move(label.title), std::move(label.description),
+                     capability_caution(capability), supported});
+  }
+  return lines;
+}
+
+// 有没有本客户端运行时不认识的能力（有的话安装会失败，见 script_unknown_capabilities）。
+inline bool capabilities_unsupported(std::vector<CapabilityLine> const &lines) {
+  return std::any_of(lines.begin(), lines.end(), [](CapabilityLine const &line) { return !line.supported; });
+}
+
+// 一项能力写成一行文字（Windows 7 的详情框）：要注意的前面加「注意：」，有说明时接在「 —— 」后面。
+inline std::wstring capability_text(CapabilityLine const &line) {
+  auto text = line.caution ? L"注意：" + line.title : line.title;
+  if (!line.description.empty())
+    text += L" —— " + line.description;
+  return text;
+}
+
+// 卡片上放不下逐条说明，只列标题，用「、」隔开；有要注意的能力时前面加「注意 · 」，没有申请任何能力时照实说。
+inline std::wstring capability_summary(std::vector<CapabilityLine> const &lines) {
+  std::wstring titles;
+  bool caution = false;
+  for (auto const &line : lines) {
+    if (!titles.empty())
+      titles += L"、";
+    titles += line.title;
+    caution = caution || line.caution;
+  }
+  if (titles.empty())
+    return L"申请：不申请任何能力";
+  return (caution ? L"注意 · 申请：" : L"申请：") + titles;
 }
 
 // ---- 词库与回复模板 ----

@@ -132,7 +132,7 @@ fn valid_model_id(id: &str) -> Result<(), HostActionError> {
     Ok(())
 }
 
-/// The stable code the settings page shows a message for. The detail some variants carry (a URL, an HTTP status, a file name) is not passed to the page.
+/// 设置页使用的稳定错误码；URL、HTTP 状态和文件名等错误细节不传给页面。
 pub(crate) fn local_model_error_code(error: &LocalModelError) -> &'static str {
     match error {
         LocalModelError::UnknownModel => "local_model_unknown",
@@ -142,9 +142,9 @@ pub(crate) fn local_model_error_code(error: &LocalModelError) -> &'static str {
         LocalModelError::InstallRunning => "local_model_install_running",
         LocalModelError::Network(_) => "local_model_network",
         LocalModelError::HttpStatus(_) => "local_model_http_status",
-        LocalModelError::SizeMismatch(_) | LocalModelError::ChecksumMismatch(_) => {
-            "local_model_checksum_mismatch"
-        }
+        LocalModelError::SizeMismatch(_)
+        | LocalModelError::ChecksumMismatch(_)
+        | LocalModelError::FormatMismatch(_) => "local_model_checksum_mismatch",
         LocalModelError::UnsafeArchive(_) | LocalModelError::MissingFile(_) => {
             "local_model_invalid_archive"
         }

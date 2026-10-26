@@ -705,10 +705,13 @@ impl HostCapabilities {
             candidate_border_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // 桌面宿主的编号色固定跟随主题和皮肤（选了文字颜色时由文字颜色推出），宿主不读用户选的编号色；只有 Android 和 iOS 照旧读。
             candidate_number_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
-            // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的 Fcitx5 经典界面主题同样按它缩放圆角、内边距、行边距、阴影、翻页按钮和 logo，IBus 面板只能缩放唯一的 Pango 字体描述。鸿蒙只随字号调整，iOS 和 Android 绘制键盘候选条，所以两者都不提供此控件。
+            // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的 Fcitx5 经典界面主题同样按它缩放圆角、内边距、行边距、阴影、翻页按钮和 logo。Android 候选条按它缩放字号和候选行高度；鸿蒙只随字号调整，iOS 仍不提供此控件。
             candidate_window_scale: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Linux
+                    | HostPlatform::Android
             ),
             // Linux 的 Fcitx5 经典界面主题把不透明度写进卡片图片的 alpha（需要合成器，KWin 下还会模糊卡片后面的内容）；IBus 面板做不到，运行中的 IBus 宿主经 `candidate_panel_limit` 让设置页说明这一点。
             candidate_window_opacity: matches!(

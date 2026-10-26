@@ -19,7 +19,9 @@ bushang                     1 / 23
 
 候选窗**不收**这一行：`candidate_presentation` 的两个构造循环遇到不可见来源直接跳过，于是布局、编号、测宽、分页全都自然连续，界面上不再出现那朵云。每行仍携带自己的引擎 `index`，点击、置顶、删除这些按候选身份走的操作不受影响。
 
-数字键**只数看得见的行**：`ServerSession` 原本按 `digit - '1'` 取 `candidates[slot]`，改为跳过不可见来源后再数到第 `slot` 个。显示与选择都在 Server 进程内按同一条规则，**never** 各算各的——这正是[上屏的词以 Server 的回复为准](2026-10-22-windows-host-candidate-identity-by-text.md)那次缺陷的成因。
+按位置选词的**每个**入口都**只数看得见的行**，而不是按原始下标取 `candidates[slot]`：数字键（`ServerSession`）和二三候选键 `;` `'`（`ReplyComposer::configured_key`，键位规则见[二三候选的 TIP 槽位](2026-10-10-second-third-candidate-tip-slot.md)）都把 `slot` 交给 `common/CandidateSources.h` 的 `visible_page_candidate`，由它跳过不可见来源后数到第 `slot` 个。显示与选择都在 Server 进程内按同一条规则，**never** 各算各的——这正是[上屏的词以 Server 的回复为准](2026-10-22-windows-host-candidate-identity-by-text.md)那次缺陷的成因。
+
+这条规则**必须**只有一份实现。两个入口原来各写一遍同样的循环，于是只有数字键那一半被改到：`ReplyComposer` 的注释写着「和数字键一样」，代码却仍是 `page.at(*slot)`，云占位在第 2 格时 `;` 选中的正是那个选不中的席位——与修复前按 2 的现象相同，只是换了个键。改一个入口时**never** 只搜自己改的那个符号，要搜这一页还有谁按位置取候选。
 
 可见性判定落在 `common/CandidateSources.h` 的 `candidate_source_is_visible`，与移动端 `CandidatePresentationPolicy.isVisible` 同义：只排除云占位席位；AI 占位行（12）照旧显示，仍画成次要色。
 
@@ -34,11 +36,14 @@ bushang                     1 / 23
 
 - **收益**：第 2 个数字键恢复可用，所有编号与看到的行一一对应；界面上不再有一个永远选不中的格子。
 - **代价**：云请求进行中时，这一页看得见的候选比引擎的 `page_size` 少一个（席位仍占引擎的位置，只是不显示）。这是移动端早就接受的同一笔代价。
+- **同是按位置取候选但不受影响**：韩文汉字列表的选择（`ReplyComposer` 里 `KoreanHanjaKeyKind::Select`）仍按原始下标取，韩文输入不产生云席位；`candidate_ui_action_matches` 和 UI-less 的回复编码按候选身份或整页遍历，不按位置。再扫这一页的位置映射时，这三处可以排除。
 - **未覆盖**：macOS、Linux 和 Web 仍把这行画出来——它们同样缺少隐藏与重映射。本篇只改 Windows，那三个宿主各有自己的候选渲染与选择路径，应各自跟进。
 - **重访信号**：共享内核若改为不再产出 `CloudPending`，或移动端的 `CandidatePresentationPolicy` 调整了可见性规则，这里要跟着对齐。
 
 ## Verification
 
 Windows 11、Windows App SDK 1.7.250606001，装机后在记事本逐格对照候选窗截图：候选窗不再出现「☁」，`bushang` 的五格依次为 补上 / 不伤 / 不上 / 部尚 / 布商；按 2、3、4、5 分别上屏 补上、不伤、部尚、布商（各次列表因选词学习而变，均与当次截图逐格一致），空格上屏高亮首选。修复前按 2 什么都不发生，按 3 上屏的是第 4 格。
+
+二三候选键那一半（`visible_page_candidate`）由 `windows-second-third-candidate` 回归测试钉住，并做了变异检验：去掉循环里的跳过，测试报 `The hidden cloud seat ate the second position` 并以 1 退出；装回后打印 `second and third candidate keys: ok` 并以 0 退出。该测试目标用 ctest 直接跑会在 30 秒超时，原因是运行时 DLL 不在 `PATH` 上（缺 DLL 的模态框挡住进程），把构建输出的 `bin` 加进 `PATH` 后通过——与本修复无关。装机确认装上的 Server 与 TSF DLL 和签名包逐字节相同，因此机器上跑的是这份改动；**未覆盖**：没有在真实编辑器里按 `;` 做「修复前必现、修复后不现」的对照——云占位席位要靠云端回包才会出现，无法在夹具里凭空造出那一页，所以这一条的证据强度低于数字键那次。
 
 该次 VS 2022 验证中，`experiments/tsf-edit-control` 与几个候选测试目标有 17 个既有编译错误（min/max 宏一类），暂存改动重编确认数量一致，与本修复无关。受控 TSF 编辑器的宏冲突和未使用参数警告在后续 [Win7 DPI 适配](../feature/2026-10-23-windows-optional-dpi-and-composition.md) 中修复，并在保留 `/W4 /WX` 的 MSVC x64 构建下通过；该结果不代表当时其余候选测试目标的错误全部修复。

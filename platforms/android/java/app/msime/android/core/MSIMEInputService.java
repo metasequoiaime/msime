@@ -290,6 +290,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateHorizontal = true;
     int candidateFontSize = 16;
     int candidatePreeditFontSize = 16;
+    int candidateScalePercent = 100;
     /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
     private String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
     CandidateAppearance.Palette candidateAppearance =
@@ -2422,14 +2423,17 @@ public final class MSIMEInputService extends InputMethodService {
             candidateHorizontal = true;
             candidateFontSize = 16;
             candidatePreeditFontSize = 16;
+            candidateScalePercent = 100;
             return;
         }
         // 共享的 `candidate_layout` 是桌面候选窗的横排/竖排，默认竖排；触屏候选条只有一行高，竖排时每个候选占满整行往下排，一屏只露出第一个。和 iOS 一样，触屏键盘始终横排，更多候选在展开面板里看。
         candidateHorizontal = true;
-        candidateFontSize = CandidateAppearance.fontSize(
-            NumberPolicy.strictInt(preferences, "candidate_font_size", 16));
-        candidatePreeditFontSize = CandidateAppearance.fontSize(
-            NumberPolicy.strictInt(preferences, "candidate_preedit_font_size", candidateFontSize));
+        candidateScalePercent = CandidateScalePolicy.percent(
+            NumberPolicy.strictInt(preferences, "candidate_scale_percent", 100));
+        candidateFontSize = CandidateScalePolicy.dimension(CandidateAppearance.fontSize(
+            NumberPolicy.strictInt(preferences, "candidate_font_size", 16)), candidateScalePercent);
+        candidatePreeditFontSize = CandidateScalePolicy.dimension(CandidateAppearance.fontSize(
+            NumberPolicy.strictInt(preferences, "candidate_preedit_font_size", candidateFontSize)), candidateScalePercent);
     }
 
     private void applyTouchGeometry(JSONObject preferences) {
@@ -2838,6 +2842,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String candidateAppearanceKey() {
         return (candidateHorizontal ? "horizontal" : "vertical") + ":"
             + candidateFontSize + ":" + candidatePreeditFontSize + ":"
+            + candidateScalePercent + ":"
             + candidateAppearance.key();
     }
 
@@ -2937,6 +2942,10 @@ public final class MSIMEInputService extends InputMethodService {
             NumberPolicy.strictInt(preferences, "candidate_font_size", 16));
         int nextPreeditFontSize = CandidateAppearance.fontSize(
             NumberPolicy.strictInt(preferences, "candidate_preedit_font_size", nextFontSize));
+        int nextScalePercent = CandidateScalePolicy.percent(
+            NumberPolicy.strictInt(preferences, "candidate_scale_percent", 100));
+        nextFontSize = CandidateScalePolicy.dimension(nextFontSize, nextScalePercent);
+        nextPreeditFontSize = CandidateScalePolicy.dimension(nextPreeditFontSize, nextScalePercent);
         int nextKeySpacing = KeyboardSpacingPolicy.keySpacing(
             NumberPolicy.strictInt(preferences, "touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardSpacingPolicy.rowSpacing(
@@ -3021,6 +3030,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateHorizontal = nextHorizontal;
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
+        candidateScalePercent = nextScalePercent;
         spellingPosition = nextSpellingPosition;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
@@ -4046,7 +4056,9 @@ public final class MSIMEInputService extends InputMethodService {
         // 42 dp 的候选行容下候选字、一行释义和选中 chip 的留白；第二行起每行再加高一些。
         int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
         int extraRows = BoundsPolicy.nonNegative(reserved - 1);
-        int line = ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP;
+        int line = CandidateScalePolicy.dimension(
+            ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP,
+            candidateScalePercent);
         ViewPolicy.setFixedHeight(candidateLine, pixels(line));
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
         int readingRow = readingRowHeight();
@@ -5689,6 +5701,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static final String[] SKIN_HINT_KEYS = {"global_theme", "custom_theme", "theme",
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
+        "candidate_scale_percent",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
         "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};

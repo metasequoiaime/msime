@@ -942,7 +942,7 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Macos), (true, true, true));
     assert_eq!(flags(HostPlatform::Linux), (true, true, true));
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
-    assert_eq!(flags(HostPlatform::Android), (false, false, false));
+    assert_eq!(flags(HostPlatform::Android), (true, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
 }
 

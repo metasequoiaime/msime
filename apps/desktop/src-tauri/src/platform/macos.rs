@@ -139,3 +139,12 @@ pub(crate) fn install_settings_glass(window: &tauri::WebviewWindow) -> tauri::Re
         unsafe { msime_install_settings_glass(webview.ns_window(), webview.inner()) };
     })
 }
+
+/// 由前台设置应用发起输入监控授权请求；输入法本体是后台进程，不能可靠地显示系统提示。
+#[allow(unsafe_code)]
+pub(crate) fn request_caps_lock_hid_access() {
+    unsafe extern "C" {
+        fn msime_request_caps_lock_hid_access();
+    }
+    unsafe { msime_request_caps_lock_hid_access() };
+}

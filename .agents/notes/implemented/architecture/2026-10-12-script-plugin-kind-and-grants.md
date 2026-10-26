@@ -28,7 +28,7 @@ Status: implemented
 
 **威胁模型与发布构建。** 授权文件和插件目录都在用户可写的宿主状态根下，同一用户下任何没有特权的进程都能放进一个 script 包、再手写一条带正确哈希的授权。在加固落地之前，发布构建里 `msime_client_scripts_enable` 恒返回 false（见 [脚本插件在输入法进程里](2026-10-12-script-plugins-in-the-input-method-process.md)），这个文件只在开发构建里起作用。授权不签名：设计原本要在 macOS 上用钥匙串密钥给条目签 MAC，实现之后又去掉了，用户决定授权不使用钥匙串；读取方容忍未知字段，早期开发构建写过的 `mac` 字段照常忽略。三个桌面平台的残余风险相同，macOS 和 Linux 写在授权页上，发布构建打开开关见 [授权页](2026-10-12-script-grants-settings-page-without-keychain.md)。输入法进程在聚焦时按带 inode 的戳重读它，后台编译线程用 `script_pack::load` 读包并核对哈希。
 
-**设置页在第 5 阶段之前看不到脚本插件。** `PluginCatalog::without_scripts()` 去掉脚本包和脚本文件夹的问题行。授权页落地之后只有 host-api 的 `msime_client_plugins` 不带 `script_page` 的目录命令（Android、HarmonyOS 用）还经过它，桌面外壳的 `plugin_catalog` 和 Windows 原生设置应用（带 `script_page`）列出脚本插件，`host_surface.script_plugins` 在三个桌面平台为真，见 [授权页](2026-10-12-script-grants-settings-page-without-keychain.md) 和 [Windows 授权页](2026-10-12-windows-script-grants-page.md)。导入命令不拦脚本包，开发构建里自测时还要靠它（或手工拷进 `script/<id>/`）装包，再手写授权。`PUBLISHABLE_KINDS` 和 `KINDS_DECLARATION` 不变，`script` 不能发布到社区。
+**设置页在第 5 阶段之前看不到脚本插件。** `PluginCatalog::without_scripts()` 去掉脚本包和脚本文件夹的问题行。授权页落地之后只有 host-api 的 `msime_client_plugins` 不带 `script_page` 的目录命令（Android、HarmonyOS 用）还经过它，桌面外壳的 `plugin_catalog` 和 Windows 原生设置应用（带 `script_page`）列出脚本插件，`host_surface.script_plugins` 在三个桌面平台为真，见 [授权页](2026-10-12-script-grants-settings-page-without-keychain.md) 和 [Windows 授权页](2026-10-12-windows-script-grants-page.md)。导入命令不拦脚本包，开发构建里自测时还要靠它（或手工拷进 `script/<id>/`）装包，再手写授权。当时 `PUBLISHABLE_KINDS` 和 `KINDS_DECLARATION` 不变，`script` 不能发布到社区；2026-10-26 起桌面上可以发布，先审后发，见 [脚本插件可以发布到社区](../feature/2026-10-26-community-script-plugins.md)。
 
 ## Testing
 

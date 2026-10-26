@@ -1,0 +1,21 @@
+[package]
+name = "msime-script-sdk"
+version = "0.1.0"
+edition = "2021"
+# `unsafe extern "C"` 块要 1.82。
+rust-version = "1.82"
+# 插件要把 SDK 编进模块，所以它和插件代码一样用 MIT，不随仓库的 GPL-3.0-only（README 的「许可证」一节）。字段不从工作区继承：工作区的 license 是 GPL。
+license = "MIT"
+description = "Rust bindings for the 水杉输入法 (Metasequoia IME) desktop script plugin ABI v1: no_std, no dependencies, for plugins compiled to wasm32-unknown-unknown."
+repository = "https://github.com/metasequoiaime/msime"
+homepage = "https://github.com/metasequoiaime/msime/blob/develop/docs/plugins.md"
+readme = "README.md"
+keywords = ["ime", "input-method", "plugin", "wasm", "no-std"]
+categories = ["no-std", "wasm", "api-bindings"]
+# 发布到 crates.io 的包只带这几样：源码、C 头文件、说明和许可证。
+include = ["src/**/*.rs", "msime_script.h", "README.md", "LICENSE", "Cargo.toml"]
+
+[lib]
+# 只有声明：宿主函数要到 wasm 模块被输入法实例化时才有。在宿主平台上链接测试二进制会找不到这些符号，所以不建单测和文档测试；常量和 import 列表由 crates/pack-tool/tests/sdk.rs 对照运行时检查。
+test = false
+doctest = false

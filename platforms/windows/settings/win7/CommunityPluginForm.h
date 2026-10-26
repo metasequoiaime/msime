@@ -12,7 +12,7 @@ class CommunityPluginForm {
 public:
   enum Id { open = 3000, search, filter, mine, reload, list, more, detail_text, detail, install, local,
     login, stars, rate, unpublish, report_reason, report_detail, report, installed, pack_check,
-    publish_name, publish_description, publish_agree, publish, notice };
+    publish_name, publish_description, publish_agree, publish, notice, review };
   struct Command { bool handled = false, local = false, login = false; std::optional<Json> request; std::wstring confirmation, message; };
   int create(const std::function<HWND(const wchar_t*, const wchar_t*, DWORD, int, int, int)>& row) {
     int top = 0;
@@ -38,7 +38,7 @@ public:
     note(L"举报所选作品"); combo(report_reason); for (const auto reason : community::report_reasons) SendMessageW(get(report_reason), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(reason.data()));
     SendMessageW(get(report_reason), CB_SETCURSEL, 0, 0);
     add(report_detail, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_MULTILINE | WS_VSCROLL, 90); button(report, L"提交举报…");
-    note(L"发布我的本地插件"); note(community::plugin_publish_warning.data(), 112); combo(installed);
+    note(L"发布我的本地插件"); note(community::plugin_publish_warning.data(), 112); combo(installed); add(review, L"STATIC", L"", SS_LEFT, 56);
     button(pack_check, L"检查本地包（不上传）"); note(L"作品名称"); add(publish_name, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
     note(L"作品说明"); add(publish_description, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_MULTILINE | WS_VSCROLL, 90);
     add(publish_agree, L"BUTTON", L"我拥有发布所需的权利，并同意将所选插件公开分享", WS_TABSTOP | BS_AUTOCHECKBOX, 52);
@@ -63,7 +63,7 @@ public:
     const int id = LOWORD(event), notification = HIWORD(event); if (!controls_.count(id)) return {};
     Command result; result.handled = true; if (!enabled_ || !IsWindowEnabled(get(id))) return result;
     if (id == list && notification == LBN_SELCHANGE) { const auto index = SendMessageW(get(list), LB_GETCURSEL, 0, 0); if (index >= 0 && static_cast<size_t>(index) < items_.size()) select(items_[static_cast<size_t>(index)]); return result; }
-    if (id == installed && notification == CBN_SELCHANGE) { reset_publication(); return result; }
+    if (id == installed && notification == CBN_SELCHANGE) { reset_publication(); update_review(); return result; }
     if (notification != BN_CLICKED) return result;
     if (id == local) result.local = true;
     else if (id == login) result.login = true;
@@ -85,12 +85,16 @@ public:
         }
         action["id"] = publication_id_; action["name"] = control_text::utf8(fields.name).value(); action["description"] = control_text::utf8(fields.description).value();
         result.confirmation = L"公开发布本地插件「" + control_text::wide(package->at("id").get<std::string>()) + L"」，作品名「" + fields.name + L"」？其他用户可以下载包内全部文件。";
+        if (package->at("kind") == "script") result.confirmation += L"\r\n\r\n" + std::wstring(community::script_review_notice);
       }
       result.request = std::move(action);
     } else if (!selected_.is_null()) {
       const auto id_value = selected_.at("id");
       if (id == detail) result.request = Json{{"operation", "plugin_detail"}, {"id", id_value}};
-      if (id == install) { result.request = Json{{"operation", "plugin_install"}, {"id", id_value}, {"kind", selected_.at("kind")}, {"plugin_id", selected_.at("plugin_id")}}; result.confirmation = L"安装所选插件？同名本地包可能被替换，现有偏好不自动改变。"; }
+      if (id == install) {
+        result.request = Json{{"operation", "plugin_install"}, {"id", id_value}, {"kind", selected_.at("kind")}, {"plugin_id", selected_.at("plugin_id")}}; result.confirmation = L"安装所选插件？同名本地包可能被替换，现有偏好不自动改变。";
+        if (selected_.at("kind") == "script") result.confirmation += L"\r\n脚本插件" + std::wstring(community::script_install_note) + L"。";
+      }
       if (id == rate && !selected_.value("owned", false)) { const auto score = SendMessageW(get(stars), CB_GETCURSEL, 0, 0); if (score >= 0 && score < 5) result.request = Json{{"operation", "plugin_rate"}, {"id", id_value}, {"stars", score + 1}}; }
       if (id == unpublish && selected_.value("owned", false)) { result.request = Json{{"operation", "plugin_delete"}, {"id", id_value}}; result.confirmation = L"下架我的插件作品？本机已安装的包保留。"; }
       if (id == report) {
@@ -100,6 +104,8 @@ public:
     }
     return result;
   }
+  // 刚从社区装好的脚本插件的 id，取一次就清空：设置窗口据此切到插件页、在脚本插件授权区选中它。数据类插件不记。
+  std::wstring installed_script() { return std::exchange(installed_script_, {}); }
   void completed(const Json& request, const Json& response) {
     try { complete(request, response); }
     catch (const std::exception&) { clear_list(); SetWindowTextW(get(notice), L"社区返回内容无法读取，请刷新重试。"); enable(enabled_); }
@@ -120,7 +126,9 @@ private:
       for (const auto& item : value->at("plugins")) {
         if (!valid_item(item)) continue;
         if (std::any_of(items_.begin(), items_.end(), [&](const Json& previous) { return previous.at("id") == item.at("id"); })) continue;
-        items_.push_back(item); const auto title = control_text::wide(item.at("name").get<std::string>()) + L" · " + plugin_preferences::model::kind_label(control_text::wide(item.at("kind").get<std::string>()));
+        items_.push_back(item); const auto kind = control_text::wide(item.at("kind").get<std::string>());
+        auto title = control_text::wide(item.at("name").get<std::string>()) + L" · " + plugin_preferences::model::kind_label(kind);
+        if (community::plugin_pending_review(kind, item.value("owned", false), control_text::wide(item.value("moderation", std::string{})))) title += L" · " + std::wstring(community::pending_review_label);
         SendMessageW(get(list), LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title.c_str()));
       }
       if (selected_.is_null() && !items_.empty()) { SendMessageW(get(list), LB_SETCURSEL, 0, 0); select(items_.front()); }
@@ -133,7 +141,10 @@ private:
         if (control_text::read(get(publish_name)).value_or("").empty()) SetWindowTextW(get(publish_name), control_text::wide(value->value("suggestedName", std::string{})).c_str());
         if (control_text::read(get(publish_description)).value_or("").empty()) SetWindowTextW(get(publish_description), control_text::wide(value->value("suggestedDescription", std::string{})).c_str());
       }
-    } else if (operation == "plugin_install") notice_text = L"插件已安装，请到本地插件页选用。";
+    } else if (operation == "plugin_install") {
+      notice_text = L"插件已安装，请到本地插件页选用。";
+      if (request.value("kind", std::string{}) == "script") { notice_text = community::script_installed_notice; installed_script_ = control_text::wide(request.value("plugin_id", std::string{})); }
+    }
     else if (operation == "plugin_publish") notice_text = L"插件已发布，可刷新「我的作品」查看。";
     else if (operation == "plugin_delete") { clear_list(); notice_text = L"作品已下架，本地插件包保留。"; }
     else if (operation == "report") { SetWindowTextW(get(report_detail), L""); notice_text = community::reported_notice; }
@@ -150,7 +161,10 @@ private:
       if (chosen < 0 || (old && *old == local_.back())) chosen = static_cast<int>(local_.size() - 1);
     }
     SendMessageW(get(installed), CB_SETCURSEL, chosen, 0); if (old != local_package()) reset_publication();
+    update_review();
   }
+  // 选中的本地包是脚本插件时说明先审后发，数据类插件不说。
+  void update_review() { const auto package = local_package(); SetWindowTextW(get(review), package && package->at("kind") == "script" ? community::script_review_notice.data() : L""); }
   std::optional<Json> local_package() const { const auto index = SendMessageW(get(installed), CB_GETCURSEL, 0, 0); return index >= 0 && static_cast<size_t>(index) < local_.size() ? std::make_optional(local_[static_cast<size_t>(index)]) : std::nullopt; }
   void reset_publication() { publication_id_ = new_publication_id(); SetWindowTextW(get(publish_name), L""); SetWindowTextW(get(publish_description), L""); SendMessageW(get(publish_agree), BM_SETCHECK, BST_UNCHECKED, 0); }
   static std::string new_publication_id() { GUID guid{}; wchar_t value[40]{}; if (FAILED(CoCreateGuid(&guid)) || StringFromGUID2(guid, value, 40) != 39) return {}; return control_text::utf8(std::wstring_view(value + 1, 36)).value_or(""); }
@@ -160,18 +174,33 @@ private:
     if (item.contains("owned") && !item.at("owned").is_boolean()) return false;
     const auto kind = control_text::wide(item.at("kind").get<std::string>()); return std::find(community::plugin_kinds.begin(), community::plugin_kinds.end(), kind) != community::plugin_kinds.end();
   }
+  // 条目的 permissions：只有脚本插件带，形状已由 client-services 校验；这里只取字符串，不按本客户端认识的能力过滤。
+  static std::vector<std::wstring> permissions(const Json& item) {
+    std::vector<std::wstring> names; const auto found = item.find("permissions");
+    if (found != item.end() && found->is_array()) for (const auto& name : *found) if (name.is_string()) names.push_back(control_text::wide(name.get<std::string>()));
+    return names;
+  }
   HWND get(int id) const { const auto found = controls_.find(id); return found == controls_.end() ? nullptr : found->second; }
   void clear_list() { items_.clear(); selected_ = Json(); offset_ = 0; has_more_ = false; SendMessageW(get(list), LB_RESETCONTENT, 0, 0); SetWindowTextW(get(detail_text), L""); }
   void select(const Json& item) {
     selected_ = item;
     std::wstring description = control_text::wide(item.at("name").get<std::string>()) + L"\r\n" + control_text::wide(item.value("description", std::string{}));
-    description += L"\r\n" + community::card_author(plugin_preferences::model::kind_label(control_text::wide(item.at("kind").get<std::string>())), control_text::wide(item.value("author", std::string{})), item.value("owned", false), false, item.value("moderation", std::string{}) == "removed");
+    const auto kind = control_text::wide(item.at("kind").get<std::string>());
+    description += L"\r\n" + community::plugin_card_author(kind, control_text::wide(item.value("author", std::string{})), item.value("owned", false), control_text::wide(item.value("moderation", std::string{})));
     description += L"\r\n版本：" + control_text::wide(item.value("version", std::string{})) + L"\r\n许可：" + control_text::wide(item.value("license", std::string{}));
     description += L"\r\n" + community::rating_metrics(item.value("downloads", 0.0), L"下载", item.value("rating_count", 0.0), item.value("rating_average", 0.0));
+    if (kind == L"script") {
+      // 脚本插件安装前就用授权页的白话列出它申请的能力，要注意的那几项标「注意」；装上后不会运行，要到授权区授权。
+      const auto lines = community::capability_lines(permissions(item));
+      description += L"\r\n\r\n" + std::wstring(community::script_install_note) + L"。" + std::wstring(community::script_grant_note) + L"\r\n申请的能力：";
+      if (lines.empty()) description += L"\r\n" + std::wstring(community::script_no_capabilities);
+      for (const auto& line : lines) description += L"\r\n· " + community::capability_text(line);
+      if (community::capabilities_unsupported(lines)) description += L"\r\n" + std::wstring(community::script_unknown_capabilities);
+    }
     SetWindowTextW(get(detail_text), description.c_str()); enable(enabled_);
   }
   std::map<int, HWND> controls_; std::vector<Json> items_, local_; Json selected_;
-  std::string search_, kind_, publication_id_; size_t offset_ = 0;
+  std::string search_, kind_, publication_id_; std::wstring installed_script_; size_t offset_ = 0;
   bool enabled_ = false, mine_ = false, has_more_ = false, sign_in_ = false;
 };
 } // namespace msime::settings::win7

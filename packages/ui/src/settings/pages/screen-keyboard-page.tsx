@@ -319,6 +319,8 @@ export function ScreenKeyboardSettingsPage() {
                 ? (draft.touch_shuangpin_key_hints ?? false)
                 : undefined
             }
+            // 全拼 26 键组字保留 ⇧ 的开关：触屏宿主都提供（Android、iOS 原生设置页已有同一行），缺省为关。
+            quanpinShift={mobilePlatform ? (draft.touch_quanpin_shift ?? false) : undefined}
             tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
             onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
               onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -334,6 +336,9 @@ export function ScreenKeyboardSettingsPage() {
             }
             onShuangpinKeyHintsChange={(touch_shuangpin_key_hints) =>
               onPreferencesChange({ touch_shuangpin_key_hints })
+            }
+            onQuanpinShiftChange={(touch_quanpin_shift) =>
+              onPreferencesChange({ touch_quanpin_shift })
             }
             onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
             onHarmonyToolbarChange={(harmony_toolbar) => onPreferencesChange({ harmony_toolbar })}

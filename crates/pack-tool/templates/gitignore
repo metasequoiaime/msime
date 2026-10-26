@@ -1,0 +1,4 @@
+/target/
+# 模块和压缩包都是 msime-pack build、msime-pack pack 生成的。
+/pack/*.wasm
+/*.zip

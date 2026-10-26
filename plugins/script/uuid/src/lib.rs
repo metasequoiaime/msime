@@ -8,7 +8,9 @@
 
 #![no_std]
 
-#[path = "../../../../docs/script-plugin-template/sdk/msime_script.rs"]
+// 官方包：内容哈希锁在 plugins/official-packs.json，授权绑定在它上面。把 SDK 换成 crate 依赖会改变 LTO 合并的顺序，模块里 import 和函数的排列跟着变，哈希一变所有用户都要重新授权，所以这里仍用 `#[path]` 直接编进 SDK crate 的同一份源码，编出的字节和改成 crate 之前相同。下一次哈希本来就要变（升级编译器、改清单或源码）时，改成和别的插件一样依赖 msime-script-sdk。作为私有模块，SDK 里没用到的公开项会报 dead_code，crate 根的 `#![no_std]` 会报 unused_attributes。
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../../crates/script-sdk/src/lib.rs"]
 mod msime_script;
 
 use msime_script::{command, hook, log, random, Error};

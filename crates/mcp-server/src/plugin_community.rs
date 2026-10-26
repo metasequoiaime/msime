@@ -144,8 +144,9 @@ pub fn publish<A: AccountApi + CommunityPluginApi>(
 ) -> Result<PublishedPlugin, String> {
     let kind = parse_kind(&request.kind)?;
     let id = request.id.as_str();
-    if !PUBLISHABLE_KINDS.contains(&kind) {
-        return Err("a script plugin cannot be published to the community; only data packs (sound, music, command_table, effect, phrase_table, helpcode, wordbook, symbol_set) can".into());
+    // 桌面上 `PUBLISHABLE_KINDS` 含脚本插件，但这里仍然拒绝它：发布可执行代码要经设置页的发布对话框，用户在那里看到脚本插件先审后发、装上后要逐项授权的说明。
+    if kind.is_script() || !PUBLISHABLE_KINDS.contains(&kind) {
+        return Err("a script plugin cannot be published to the community from here; only data packs (sound, music, command_table, effect, phrase_table, helpcode, wordbook, symbol_set) can. Ask the user to publish a script plugin themselves in 设置 → 插件 → 社区插件 → 发布我的插件, where they see that script plugins are reviewed before they appear".into());
     }
     if plugins::is_builtin(kind, id) {
         return Err(format!(

@@ -3267,11 +3267,14 @@ dependencies = [
 name = "msime-pack-tool"
 version = "0.1.0"
 dependencies = [
+ "msime-client-base",
  "msime-client-services",
  "msime-script-runtime",
  "serde",
  "serde_json",
  "tempfile",
+ "toml 1.1.6+spec-1.1.0",
+ "zip",
 ]
 
 [[package]]
@@ -3288,6 +3291,10 @@ version = "0.1.0"
 dependencies = [
  "wasmi",
 ]
+
+[[package]]
+name = "msime-script-sdk"
+version = "0.1.0"
 
 [[package]]
 name = "msime-tauri-mobile-platform"

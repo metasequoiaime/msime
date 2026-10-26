@@ -20,6 +20,8 @@ export interface UseCommunityPluginGalleryOptions {
   localPlugins?: () => Promise<PluginCatalogResult>;
   /** 当前图库的安装完成后通知调用方刷新本机目录。 */
   onInstalled?: (installed: PluginPackage) => void;
+  /** 装好一个脚本插件后打开它在「我的插件」里的授权页：脚本插件装好后不会运行，要用户启用并授权。没有时详情页只提示去哪里授权。 */
+  onOpenScript?: (installed: PluginPackage) => void;
 }
 
 /** 插件图库的请求、筛选、安装确认与发布刷新；页面只负责展示。 */
@@ -27,6 +29,7 @@ export function useCommunityPluginGallery({
   client,
   localPlugins,
   onInstalled,
+  onOpenScript,
 }: UseCommunityPluginGalleryOptions) {
   // 图库按偏移量和搜索词分页；类型保存在 ref 中，让「加载更多」沿用首屏的类型。
   const kindFilter = useRef<CommunityPluginKind | null>(null);
@@ -117,14 +120,19 @@ export function useCommunityPluginGallery({
         setConfirmReplace(false);
         setInstalled(true);
         onInstalled?.(pack);
+        if (pack.kind === "script") onOpenScript?.(pack);
       },
       { clearNotice: true },
     );
   };
 
-  const publishDone = async () => {
+  const publishDone = async (published?: CommunityPlugin) => {
     setPublishOpen(false);
-    setActionNotice("已发布到社区。");
+    setActionNotice(
+      published?.kind === "script"
+        ? "已提交审核。脚本插件要经过管理员审核，通过后才会出现在社区里；审核前只有你自己在「我的作品」里看得到。"
+        : "已发布到社区。",
+    );
     await requestList(activeSearch, false);
   };
 

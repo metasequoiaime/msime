@@ -327,6 +327,8 @@ impl InputSession {
 
     /// input_session.cpp:88-245: caret insertion, dedicated English, local modes and their Shift entries, the acceptance gate, then the scheme. Handled iff the preedit changed.
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        // 任何实际字符输入都会使“退格撤销最近引号”失效；否则引号后输入一段拼音再退格，可能误撤销更早的引号。
+        self.punctuation.clear_quote_undo();
         self.exit_date_time_menu();
         let result = self
             .helpcode_character(value)
@@ -946,6 +948,10 @@ impl InputSession {
         }
         self.end_uppercase_run();
         if !self.has_composition() {
+            match command {
+                Command::Backspace => self.punctuation.undo_last_quote(),
+                _ => self.punctuation.clear_quote_undo(),
+            }
             // With nothing composed every command is left to the host, which edits the text, moves the caret or inserts a newline, so the chain no longer ends where the host's text does.
             self.chain.reset();
             return KeyResult::unhandled();

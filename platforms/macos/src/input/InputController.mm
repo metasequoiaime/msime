@@ -7599,6 +7599,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         const NSEventModifierFlags shortcuts = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand;
         const BOOL shortcut = (event.modifierFlags & shortcuts) != 0;
         const unichar character = event.characters.length == 1 ? [event.characters characterAtIndex:0] : 0;
+        const BOOL asciiLetter = (character >= 'a' && character <= 'z') ||
+            (character >= 'A' && character <= 'Z');
+        // 重复字母按键是 macOS 长按变音符号菜单的起点。先把托管的原始字母上屏，
+        // 再把重复事件交回 Cocoa；单次按键和带竞争修饰键的快捷键仍由输入法处理。
+        if (event.isARepeat && !(event.modifierFlags & shortcuts) && asciiLetter) {
+            if (![self commitManagedEnglishRaw]) return YES;
+            return NO;
+        }
         const BOOL candidateDigit = _panel.isVisible && character >= '1' && character <= '9' &&
             (NSUInteger)(character - '1') < [_view[@"candidates"] count];
         const BOOL printableOther = !candidateDigit && character >= 0x20 && character < 0x7f &&
@@ -9676,6 +9684,24 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return YES;
 }
 
+// 从当前视图恢复完整候选快照里的高亮索引；完整快照没有高亮标记时仍以视图身份为准。
+static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, NSDictionary *view) {
+    NSUInteger highlightedIndex = NSNotFound;
+    NSArray *viewCandidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : nil;
+    for (NSDictionary *candidate in viewCandidates) {
+        if (!MSIMEStrictBoolean(candidate[@"highlighted"])) continue;
+        if (!MSIMEStrictUnsignedIntegerValue(candidate[@"id"][@"index"], &highlightedIndex)) highlightedIndex = NSNotFound;
+        break;
+    }
+    if (highlightedIndex != NSNotFound) {
+        for (NSUInteger index = 0; index < entries.count; ++index)
+            if ([entries[index][@"id"][@"index"] isEqual:@(highlightedIndex)]) return index;
+    }
+    for (NSUInteger index = 0; index < entries.count; ++index)
+        if (MSIMEStrictBoolean(entries[index][@"highlighted"])) return index;
+    return 0;
+}
+
 - (void)renderCandidates {
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
@@ -9804,8 +9830,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             return;
         }
         _adaptiveCandidates = entries;
-        for (NSUInteger index = 0; index < entries.count; ++index)
-            if (MSIMEStrictBoolean(entries[index][@"highlighted"])) { adaptiveHighlight = index; break; }
+        adaptiveHighlight = MSIMEAdaptiveHighlightIndex(entries, _view);
         paginate(0);
     } else {
         _adaptiveCandidates = nil;

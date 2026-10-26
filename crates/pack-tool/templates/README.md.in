@@ -1,0 +1,30 @@
+# {{id}}
+
+水杉输入法的桌面脚本插件（`kind = "script"`），由 `msime-pack new --hook {{hook}}` 生成。{{summary}}规则、能力和限制见 msime 仓库 docs/plugins.md 的「脚本插件」一节：https://github.com/metasequoiaime/msime/blob/develop/docs/plugins.md
+
+## 文件
+
+```text
+Cargo.toml            独立的 crate，编译成 cdylib，唯一的依赖是 SDK msime-script-sdk
+.cargo/config.toml    默认目标 wasm32-unknown-unknown，栈缩到 64 KiB
+src/lib.rs            插件本身
+pack/plugin.toml      清单；编出的模块放到它旁边，这个文件夹就是插件包
+pack/LICENSE.txt      许可证全文，现在是占位文字，发布前换掉
+fixture.jsonl         给 msime-pack run 的事件
+```
+
+## 编译、试运行、打包
+
+需要 Rust 和 `wasm32-unknown-unknown` 目标：
+
+```sh
+rustup target add wasm32-unknown-unknown
+msime-pack build                                        # 编译，复制成 pack/{{module}}，按输入法的规则校验
+msime-pack run pack --events fixture.jsonl --grant all  # 按夹具里的事件运行，每个事件一行 JSON
+msime-pack pack                                         # 打成确定的 {{id}}-<version>.zip 并校验
+```
+
+然后在输入法设置的「插件 → 我的插件」里导入 `pack/` 文件夹或压缩包，在「脚本插件（实验）」里打开它、勾选清单申请的能力。清单或模块改了一个字节，授权就作废，要重新授权。
+
+- 只有真正调用到的 SDK 函数才会成为模块的 import。用到哪一组函数就在清单的 `permissions` 里申请哪一项能力；申请了没用到、或者用到了没申请，校验都会拒绝。
+- `memory_pages` 写模块实际需要的页数，`msime-pack build` 会打印它，例如 `memory 2/2 pages`。

@@ -18,6 +18,8 @@ Status: implemented
 
 许可：万象 LTS = CC-BY-4.0（可用）；八股文 = LGPL（按资源包附带来源声明）；白霜 = GPL-3.0 且构建链许可未声明，本轮排除，进资源包前须重新评估。读取端按 BSD-3 的 librime-octagram 与 darts-clone 布局实现；本 PR 同时接入偏好、锁定 SHA-256 的按需下载与桌面设置，模型不随安装包分发。
 
+万象 LTS 原地替换后的下载身份由[万象 LTS 原地替换不再阻断资源更新](../bug-fix/2026-10-26-wanxiang-auto-update.md)接管；其他模型继续使用固定摘要，引擎读取与许可边界保持本篇规则。
+
 ## Alternatives considered
 
 - `Hyp` 内联 33 字节尾窗（每个假设固定 40 字节增量）：会让冻结参考实现与现行实现的内存断言全部失真，改为激活时沿 `prev` 链回溯几跳取尾窗，未激活零成本。

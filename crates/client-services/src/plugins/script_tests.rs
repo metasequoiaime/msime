@@ -543,9 +543,42 @@ fn load_hands_over_the_module_it_hashed_and_scan_lists_scripts_that_pages_leave_
     assert!(listed.packages.is_empty());
     assert!(listed.issues.is_empty());
 
-    // 脚本插件不能发布到社区。
-    assert!(!community::PUBLISHABLE_KINDS.contains(&PluginKind::Script));
-    assert!(community::pack(&root, PluginKind::Script, "pangu").is_err());
+    // 桌面上脚本插件可以发布到社区：打包用的是和安装同一份校验器。
+    assert!(community::PUBLISHABLE_KINDS.contains(&PluginKind::Script));
+    let packed = community::pack(&root, PluginKind::Script, "pangu").unwrap();
+    assert_eq!(packed.kind, PluginKind::Script);
+    assert_eq!(packed.plugin_id, "pangu");
+}
+
+#[test]
+fn a_community_script_pack_installs_without_any_grant() {
+    let files = tempdir().unwrap();
+    let author = tempdir().unwrap();
+    let reader_state = tempdir().unwrap();
+    let author_root = author.path().join("plugins");
+    let root = reader_state.path().join("plugins");
+    let (script, wasm) = reader("pangu");
+    let hash = import_pack(files.path(), &author_root, "pangu", &script, &wasm);
+    let packed = community::pack(&author_root, PluginKind::Script, "pangu").unwrap();
+
+    // 官方脚本包不能发布，和其他类型的内置包一样。
+    assert!(community::pack(&author_root, PluginKind::Script, "uuid").is_err());
+
+    use base64::Engine as _;
+    let download = community::CommunityPluginDownload {
+        id: uuid::Uuid::from_u128(7),
+        kind: PluginKind::Script,
+        plugin_id: "pangu".into(),
+        version: packed.version.clone(),
+        size: packed.archive.len() as u64,
+        sha256: packed.sha256.clone(),
+        archive: base64::engine::general_purpose::STANDARD.encode(&packed.archive),
+    };
+    let installed = community::install(&root, &download, PluginKind::Script, "pangu").unwrap();
+    assert_eq!(installed.kind(), PluginKind::Script);
+    assert_eq!(script_content(&installed).content_hash, hash);
+    // 安装不授予任何能力：授权文件没有这一项，要在脚本插件页里启用并勾选。
+    assert_eq!(script_grants::read(&root), ScriptGrants::default());
 }
 
 #[test]

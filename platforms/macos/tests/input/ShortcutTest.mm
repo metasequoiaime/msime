@@ -290,6 +290,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.requestedPageSize = size;
     return nil;
 }
+- (NSDictionary *)setDisplayPageGeneration:(uint64_t)generation indices:(NSArray<NSNumber *> *)indices error:(NSError **)error {
+    (void)generation; (void)indices; (void)error;
+    return @{@"applied": @YES};
+}
 - (NSDictionary *)typeASCII:(uint8_t)ascii shift:(BOOL)shift error:(NSError **)error {
     (void)error;
     ++self.asciiCalls;
@@ -701,6 +705,10 @@ static void TestVimModeEscapeRouting(void) {
 // 非美式键盘布局上的按键：`code` 是物理位置，`characters` 是当前布局在这个键上打出的字符。
 static NSEvent *LayoutKey(unsigned short code, NSString *characters, NSEventModifierFlags flags) {
     return WithLayoutCharacters([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code], characters);
+}
+
+static NSEvent *LayoutRepeatKey(unsigned short code, NSString *characters, NSEventModifierFlags flags) {
+    return WithLayoutCharacters([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:YES keyCode:code], characters);
 }
 
 // 字母快捷键按当前键盘布局在这个键上打出的字母认键（#5552）。
@@ -4541,6 +4549,41 @@ static void TestExpandedCandidatePartialSelection() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 横排候选数量自适应重画时，完整候选快照可能没有当前页的高亮标记；宿主仍应以当前 view 的高亮候选保留页码。
+static void TestAdaptiveCandidatePaginationKeepsCurrentPage() {
+    NSString *suite = [@"msime.adaptive-pagination." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.vertical = NO;
+    prefs.pageSize = 5;
+    [prefs applySharedCandidatePreferences:@{@"candidate_count_mode": @"adaptive", @"candidate_max_width": @180}];
+    assert(prefs.adaptiveCandidateCount);
+
+    ModeController *controller = [ModeController alloc];
+    ExpandedGridSession *session = [ExpandedGridSession new];
+    session.generation = 11;
+    session.total = 23;
+    session.pageSize = 5;
+    session.prefix = @"候选词候选词候选词候选词候选词候选词";
+    session.editing = @"liangzhe";
+    ShortcutClient *client = [ShortcutClient new];
+    client.caret = NSMakeRect(200, 400, 1, 18);
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+
+    session.highlighted = 5;
+    [controller setValue:[session gridView] forKey:@"view"];
+    [controller renderCandidates];
+    assert(panel.isVisible);
+    NSDictionary *snapshot = [session allCandidatesWithError:nil];
+    assert(MSIMEAdaptiveHighlightIndex(snapshot[@"candidates"], [session gridView]) == 5);
+
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -6384,6 +6427,21 @@ static void TestModifierTapSurvivesALostRelease() {
     assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 3.1), true, true));
     assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, 0, 3.2), true, true));
     gHeldKeys.clear();
+}
+
+static void TestShiftTapRecoversAfterLostReleaseFollowingShiftedKey() {
+    MSIMEModifierTap tap;
+    gHeldKeys.clear();
+    tap.setKeyHeldProbe(&SyntheticKeyHeld);
+    // Shift 组合输入会取消本轮 tap；随后 Shift 的 flagsChanged 松开事件丢失。
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0), true, true));
+    gHeldKeys.insert(0);
+    assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, NSEventModifierFlagShift, 1.1), true, true));
+    gHeldKeys.erase(0);
+    assert(!tap.observe(TapEvent(NSEventTypeKeyUp, 0, NSEventModifierFlagShift, 1.2), true, true));
+    // 修复前代码把这次新的 Shift 按下当作上一轮仍在按住，因而不会再次布防。
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 2.0), true, true));
+    assert(tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, 0, 2.1), true, true));
 }
 
 static void TestShiftChordRecoversWithoutFlagsChanged() {
@@ -10196,6 +10254,10 @@ static void TestEnglishOnlineCandidatesThroughRealSession() {
                 assert(([session updatePreferencesSnapshot:@{@"format_version": @1, @"revision": @1, @"preferences": preferences} error:&error] && !error));
                 [controller applySharedToolbarPreferences:preferences];
                 assert([[controller valueForKey:@"managedEnglishComposition"] boolValue]);
+                assert([controller handleEvent:LayoutKey(7, @"x", 0) client:client]);
+                assert([client.document isEqualToString:@""] && [client.marked isEqualToString:@"x"]);
+                assert(![controller handleEvent:LayoutRepeatKey(7, @"x", 0) client:client]);
+                assert([client.document isEqualToString:@"x"] && client.marked.length == 0);
             } else if (entry == 1) {
                 [controller setDedicatedEnglishInputMode:YES];
             } else {
@@ -13014,6 +13076,7 @@ int main(int argc, char **argv) {
             TestExpandedCandidateGrid();
             TestExpandedCandidateGridGeneration();
             TestExpandedCandidatePartialSelection();
+            TestAdaptiveCandidatePaginationKeepsCurrentPage();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--session-recovery") {
@@ -15020,6 +15083,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
+        @autoreleasepool { TestShiftTapRecoversAfterLostReleaseFollowingShiftedKey(); }
         // Caps Lock 的完整真实运行循环由 caps-lock 独立进程覆盖，避免其他窗口留下的通知和计时器污染。
         @autoreleasepool { TestPunctuationAfterCompositionKeepsRawInput(appearance); }
         @autoreleasepool { TestStaleClientDeactivation(); }

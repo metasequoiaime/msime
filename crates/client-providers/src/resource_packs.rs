@@ -1,6 +1,6 @@
 //! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
 //!
-//! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
+//! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。固定资源的文件名、URL、长度和 SHA-256 来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；会原地替换的万象 LTS 使用响应长度和 `.gram` 格式校验，语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
 //!
 //! 锁文件还没有固定内容的资源包（[`ResourcePack::pinned`] 为假，包括 macOS 语音运行库和 Android OCR 模块在第一次发布之前）不存在：[`ResourcePack::from_id`] 认不出它，[`list`] 不列出它，安装、导入和收编都报 `local_model_unknown`。
 
@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 /// 资源包根目录相对 state_root 的名字。
@@ -24,6 +24,10 @@ const LANGUAGE_LOCK: &str = include_str!("../../../resources/language-dictionari
 const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-model.lock.json");
 const SETTLED_MODEL_LOCK: &str = include_str!("../../../resources/settled-model.lock.json");
 const GRAMMAR_MODELS_LOCK: &str = include_str!("../../../resources/grammar-models.lock.json");
+const WANXIANG_GRAMMAR_FILE: &str = "wanxiang-lts-zh-hans.gram";
+const GRAMMAR_HEADER_BYTES: usize = 44;
+const GRAMMAR_MAX_UNITS: usize = 400_000_000;
+const GRAMMAR_MAGIC: &[u8] = b"Rime::Grammar/";
 
 /// `grammar-models.lock.json` 的形态：每个语法模型一条，各自带自己的上游提交和文件。
 /// 四个模型来自三个仓库（万象、八股文、白霜/墨奇），所以不能共用一条 `source_commit`。
@@ -37,6 +41,49 @@ struct GrammarModelLock {
     id: String,
     source_commit: String,
     artifacts: Vec<crate::resources::Artifact>,
+}
+
+/// 万象 LTS 会在同一个 release 地址原地重传，不能用锁文件里的摘要判断它是否可用。
+/// 这里复用引擎读取端的头部边界规则，在完整下载后确认文件仍是可读的 `.gram` 镜像。
+fn valid_gram_file(path: &Path) -> bool {
+    let Ok(mut file) = crate::storage::open_private_file_in(path) else {
+        return false;
+    };
+    let Ok(metadata) = file.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() < GRAMMAR_HEADER_BYTES as u64 {
+        return false;
+    }
+    let mut header = [0u8; GRAMMAR_HEADER_BYTES];
+    if file.read_exact(&mut header).is_err() || &header[..GRAMMAR_MAGIC.len()] != GRAMMAR_MAGIC {
+        return false;
+    }
+    let units = u32::from_le_bytes(
+        header[36..40]
+            .try_into()
+            .expect("grammar unit count is four bytes"),
+    ) as usize;
+    let offset = i32::from_le_bytes(
+        header[40..44]
+            .try_into()
+            .expect("grammar offset is four bytes"),
+    );
+    if offset < 0 || units > GRAMMAR_MAX_UNITS {
+        return false;
+    }
+    let array_at = 40usize.saturating_add(offset as usize);
+    array_at <= metadata.len() as usize
+        && units <= (metadata.len() as usize - array_at) / std::mem::size_of::<u32>()
+}
+
+fn dynamic_grammar_manifest(pack: ResourcePack, artifact: &crate::resources::Artifact) -> Value {
+    serde_json::json!({
+        "pack": pack.id(),
+        "source_commit": pack.set().source_commit,
+        "integrity": "gram-format-v1",
+        "artifacts": [artifact],
+    })
 }
 const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
 /// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
@@ -134,7 +181,13 @@ pub fn verify_installed(state_root: &Path, pack: ResourcePack) -> Result<PathBuf
         return Err(LocalModelError::UnknownModel);
     }
     let directory = published_directory(state_root, pack).ok_or(LocalModelError::InvalidRoot)?;
-    verify_artifacts(&directory, pack.set())?;
+    if pack == ResourcePack::GrammarWanxiang {
+        if !valid_gram_file(&directory.join(WANXIANG_GRAMMAR_FILE)) {
+            return Err(LocalModelError::InvalidRoot);
+        }
+    } else {
+        verify_artifacts(&directory, pack.set())?;
+    }
     Ok(directory)
 }
 
@@ -452,7 +505,7 @@ impl ResourcePack {
         }
     }
 
-    /// 安装时写入的 `msime-model.json` 内容。判断已安装的版本是否还能用只看其中每个文件的名字、SHA-256 和长度，见 [`ResourcePack::manifest_matches`]。
+    /// 安装时写入的 `msime-model.json` 内容。固定资源判断已安装的版本只看其中每个文件的名字、SHA-256 和长度；万象 LTS 记录本次响应的摘要和长度，摘要用于识别实际字节而不是信任上游固定值。
     pub fn manifest(self) -> Value {
         let set = self.set();
         serde_json::json!({
@@ -468,6 +521,21 @@ impl ResourcePack {
     fn manifest_matches(self, manifest: &Value) -> bool {
         if manifest.get("pack").and_then(Value::as_str) != Some(self.id()) {
             return false;
+        }
+        if self == ResourcePack::GrammarWanxiang {
+            let Some(artifacts) = manifest.get("artifacts").and_then(Value::as_array) else {
+                return false;
+            };
+            return artifacts.len() == 1
+                && artifacts[0].get("name").and_then(Value::as_str) == Some(WANXIANG_GRAMMAR_FILE)
+                && artifacts[0]
+                    .get("sha256")
+                    .and_then(Value::as_str)
+                    .is_some_and(|sha| crate::is_lower_hex(sha, 64))
+                && artifacts[0]
+                    .get("size")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|size| size >= GRAMMAR_HEADER_BYTES as u64);
         }
         let Some(installed) = manifest.get("artifacts").and_then(Value::as_array) else {
             return false;
@@ -502,7 +570,7 @@ impl ResourcePack {
         installed == pinned
     }
 
-    /// 下载总字节数。从归档取出的资源包下载的是整个归档。
+    /// 下载总字节数。从归档取出的资源包下载的是整个归档；万象 LTS 的长度仅为估算，实际以本次响应为准。
     pub fn size(self) -> u64 {
         self.import_artifacts()
             .iter()
@@ -687,15 +755,21 @@ pub fn installed_file(state_root: &Path, pack: ResourcePack, name: &str) -> Opti
         return None;
     }
     let path = directory.join(name);
-    fs::symlink_metadata(&path)
-        .ok()?
-        .file_type()
-        .is_file()
-        .then_some(path)
+    if !fs::symlink_metadata(&path).ok()?.file_type().is_file() {
+        return None;
+    }
+    if pack == ResourcePack::GrammarWanxiang && !valid_gram_file(&path) {
+        return None;
+    }
+    Some(path)
 }
 
 /// 资源包锁钉住的每个文件在已发布目录里都是普通文件，不是符号链接。
 fn artifacts_are_regular_files(directory: &Path, pack: ResourcePack) -> bool {
+    if pack == ResourcePack::GrammarWanxiang {
+        let path = directory.join(WANXIANG_GRAMMAR_FILE);
+        return valid_gram_file(&path);
+    }
     pack.set().artifacts.iter().all(|artifact| {
         fs::symlink_metadata(directory.join(&artifact.name))
             .is_ok_and(|metadata| metadata.file_type().is_file())
@@ -787,7 +861,7 @@ pub fn download_prefixes<'a>(mirrors: &[&'a str]) -> Vec<&'a str> {
 
 /// 下载、校验并发布一个资源包到 `<state_root>/resource-packs/<id>`，替换旧安装。阻塞调用，不要放在 UI 线程；`cancel` 在每个数据块之间轮询。
 ///
-/// 每个文件按 [`download_prefixes`] 的顺序换源下载，没下完的部分下次用 HTTP Range 接着下（见 [`local_models::install_files`]）。
+/// 每个固定文件按 [`download_prefixes`] 的顺序换源下载，没下完的部分下次用 HTTP Range 接着下（见 [`local_models::install_files`]）。万象 LTS 每次下载整份当前响应，不复用旧摘要的断点文件。
 pub fn install(
     state_root: &Path,
     pack: ResourcePack,
@@ -799,7 +873,58 @@ pub fn install(
     if !pack.pinned() || pack == ResourcePack::AndroidOcrModule {
         return Err(LocalModelError::UnknownModel);
     }
-    if let Some(archive) = pack.archive() {
+    if pack == ResourcePack::GrammarWanxiang {
+        if !mirrors
+            .iter()
+            .all(|mirror| crate::preferences::valid_model_mirror(mirror))
+        {
+            return Err(LocalModelError::InvalidMirror);
+        }
+        if !resource_root_is_safe(state_root) {
+            return Err(LocalModelError::InvalidRoot);
+        }
+        local_models::check_root(&root(state_root))?;
+        crate::storage::create_directory_and_check(&root(state_root))
+            .map_err(LocalModelError::from)?;
+        let dynamic = local_models::download_dynamic_file(
+            &root(state_root),
+            WANXIANG_GRAMMAR_FILE,
+            &pack.set().artifacts[0].url,
+            &download_prefixes(mirrors),
+            valid_gram_file,
+            progress,
+            cancel,
+        )?;
+        let artifact = dynamic.artifact.clone();
+        let manifest = dynamic_grammar_manifest(pack, &artifact);
+        let fetcher = local_models::LocalFileFetcher::matching_sources(
+            [local_models::ImportSource::artifact(&artifact)],
+            &[dynamic.path.to_path_buf()],
+            cancel,
+        )?;
+        progress(InstallProgress {
+            stage: "verify",
+            downloaded: artifact.size,
+            total: artifact.size,
+        });
+        let result = local_models::install_files_with(
+            &root(state_root),
+            pack.id(),
+            std::slice::from_ref(&artifact),
+            &manifest,
+            &[],
+            &fetcher,
+            &mut |_| {},
+            cancel,
+        );
+        return result.inspect(|_| {
+            progress(InstallProgress {
+                stage: "done",
+                downloaded: artifact.size,
+                total: artifact.size,
+            });
+        });
+    } else if let Some(archive) = pack.archive() {
         return local_models::install_archive_members(
             &root(state_root),
             pack.id(),
@@ -825,7 +950,7 @@ pub fn install(
 
 /// 用用户自己下载好的文件安装一个资源包，不联网，替换旧安装。阻塞调用，不要放在 UI 线程。
 ///
-/// 与模型的 [`local_models::import`] 相同：`files` 是宿主文件选择器给出的绝对路径，顺序和文件名都不看，[`ResourcePack::import_artifacts`] 里的每个文件先按长度找，长度相同的不止一个时再按 SHA-256 挑；找到后走与下载完全相同的校验、（有归档时）取成员、暂存和整体发布，所以文件不对时什么也不会装上。进度里的下载阶段报成 `import`；缺文件报 [`LocalModelError::MissingImportFile`]，读不出来报 [`LocalModelError::UnreadableImportFile`]。
+/// 与模型的 [`local_models::import`] 相同：固定资源按锁文件长度和 SHA-256 选择；万象 LTS 按 `.gram` 格式选择并在安装时记录实际摘要。找到后走与下载完全相同的暂存和整体发布，所以文件不对时什么也不会装上。进度里的下载阶段报成 `import`；缺文件报 [`LocalModelError::MissingImportFile`]，读不出来报 [`LocalModelError::UnreadableImportFile`]。
 pub fn import(
     state_root: &Path,
     pack: ResourcePack,
@@ -835,6 +960,60 @@ pub fn import(
 ) -> Result<PathBuf, LocalModelError> {
     if !pack.pinned() {
         return Err(LocalModelError::UnknownModel);
+    }
+    if pack == ResourcePack::GrammarWanxiang {
+        let source = files
+            .iter()
+            .find(|path| valid_gram_file(path))
+            .ok_or_else(|| LocalModelError::MissingImportFile(WANXIANG_GRAMMAR_FILE.to_owned()))?;
+        let mut input = crate::storage::open_private_file_in(source)?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 8192];
+        let mut size = 0u64;
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(LocalModelError::Cancelled);
+            }
+            let read = input.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            size += read as u64;
+            hash.update(&buffer[..read]);
+        }
+        let artifact = crate::resources::Artifact {
+            name: WANXIANG_GRAMMAR_FILE.to_owned(),
+            url: pack.set().artifacts[0].url.clone(),
+            sha256: hex::encode(hash.finalize()),
+            size,
+        };
+        let manifest = dynamic_grammar_manifest(pack, &artifact);
+        let fetcher = local_models::LocalFileFetcher::matching_sources(
+            [local_models::ImportSource::artifact(&artifact)],
+            std::slice::from_ref(source),
+            cancel,
+        )?;
+        let mut report = |event: InstallProgress| {
+            progress(InstallProgress {
+                stage: if event.stage == "download" {
+                    "import"
+                } else {
+                    event.stage
+                },
+                ..event
+            })
+        };
+        let result = local_models::install_files_with(
+            &root(state_root),
+            pack.id(),
+            std::slice::from_ref(&artifact),
+            &manifest,
+            &[],
+            &fetcher,
+            &mut report,
+            cancel,
+        );
+        return local_models::imported(result);
     }
     let artifacts = pack.import_artifacts();
     let fetcher = local_models::LocalFileFetcher::matching_sources(
@@ -901,6 +1080,41 @@ pub fn adopt(
         if installed && artifacts_are_regular_files(&directory, pack) {
             return Ok(directory);
         }
+    }
+    if pack == ResourcePack::GrammarWanxiang {
+        local_models::check_root(source_dir)?;
+        let source = source_dir.join(WANXIANG_GRAMMAR_FILE);
+        if !valid_gram_file(&source) {
+            return Err(LocalModelError::MissingFile(
+                WANXIANG_GRAMMAR_FILE.to_owned(),
+            ));
+        }
+        let mut input = crate::storage::open_private_file_in(&source)?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 8192];
+        let mut size = 0u64;
+        loop {
+            let read = input.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            size += read as u64;
+            hash.update(&buffer[..read]);
+        }
+        let artifact = crate::resources::Artifact {
+            name: WANXIANG_GRAMMAR_FILE.to_owned(),
+            url: pack.set().artifacts[0].url.clone(),
+            sha256: hex::encode(hash.finalize()),
+            size,
+        };
+        let manifest = dynamic_grammar_manifest(pack, &artifact);
+        return local_models::adopt_files(
+            &root(state_root),
+            pack.id(),
+            std::slice::from_ref(&artifact),
+            &manifest,
+            source_dir,
+        );
     }
     let manifest = pack.manifest();
     debug_assert!(pack.manifest_matches(&manifest));
@@ -1074,6 +1288,121 @@ mod tests {
         assert!(verify_artifacts(dir.path(), &set).is_err());
         fs::write(&path, b"short").unwrap();
         assert!(verify_artifacts(dir.path(), &set).is_err());
+    }
+
+    #[test]
+    fn wanxiang_format_validation_accepts_a_bounded_gram_and_rejects_bad_headers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(WANXIANG_GRAMMAR_FILE);
+        let mut bytes = vec![0u8; GRAMMAR_HEADER_BYTES + 4];
+        bytes[..GRAMMAR_MAGIC.len()].copy_from_slice(GRAMMAR_MAGIC);
+        bytes[36..40].copy_from_slice(&1u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&0i32.to_le_bytes());
+        fs::write(&path, &bytes).unwrap();
+        assert!(valid_gram_file(&path));
+
+        bytes[0] = b'X';
+        fs::write(&path, &bytes).unwrap();
+        assert!(!valid_gram_file(&path));
+
+        bytes[..GRAMMAR_MAGIC.len()].copy_from_slice(GRAMMAR_MAGIC);
+        bytes[36..40].copy_from_slice(&(GRAMMAR_MAX_UNITS as u32 + 1).to_le_bytes());
+        fs::write(&path, &bytes).unwrap();
+        assert!(!valid_gram_file(&path));
+    }
+
+    #[test]
+    fn wanxiang_status_uses_format_instead_of_the_old_lock_digest() {
+        let state = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::GrammarWanxiang;
+        let directory = root(state.path()).join(pack.id());
+        fs::create_dir_all(&directory).unwrap();
+        let mut bytes = vec![0u8; GRAMMAR_HEADER_BYTES + 4];
+        bytes[..GRAMMAR_MAGIC.len()].copy_from_slice(GRAMMAR_MAGIC);
+        bytes[36..40].copy_from_slice(&1u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&0i32.to_le_bytes());
+        let file = directory.join(WANXIANG_GRAMMAR_FILE);
+        fs::write(&file, &bytes).unwrap();
+        let artifact = crate::resources::Artifact {
+            name: WANXIANG_GRAMMAR_FILE.to_owned(),
+            url: pack.set().artifacts[0].url.clone(),
+            sha256: hex::encode(Sha256::digest(&bytes)),
+            size: bytes.len() as u64,
+        };
+        fs::write(
+            directory.join(MANIFEST_FILE),
+            serde_json::to_vec(&dynamic_grammar_manifest(pack, &artifact)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            list(state.path())
+                .into_iter()
+                .find(|status| status.id == pack.id())
+                .unwrap()
+                .state,
+            PackState::Installed
+        );
+        bytes[0] = b'X';
+        fs::write(&file, bytes).unwrap();
+        assert_eq!(
+            list(state.path())
+                .into_iter()
+                .find(|status| status.id == pack.id())
+                .unwrap()
+                .state,
+            PackState::Outdated
+        );
+        assert_eq!(
+            installed_file(state.path(), pack, WANXIANG_GRAMMAR_FILE),
+            None
+        );
+    }
+
+    #[test]
+    fn wanxiang_import_updates_changed_bytes_and_preserves_install_on_failure() {
+        let state = tempfile::tempdir().unwrap();
+        let picked = tempfile::tempdir().unwrap();
+        let source = picked.path().join("synthetic.gram");
+        let pack = ResourcePack::GrammarWanxiang;
+        let cancel = AtomicBool::new(false);
+        let mut bytes = vec![0u8; GRAMMAR_HEADER_BYTES + 4];
+        bytes[..GRAMMAR_MAGIC.len()].copy_from_slice(GRAMMAR_MAGIC);
+        bytes[36..40].copy_from_slice(&1u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&0i32.to_le_bytes());
+        for revision in [1, 2] {
+            bytes[20] = revision;
+            fs::write(&source, &bytes).unwrap();
+            let installed = import(
+                state.path(),
+                pack,
+                std::slice::from_ref(&source),
+                &mut |_| {},
+                &cancel,
+            )
+            .unwrap();
+            assert_eq!(
+                fs::read(installed.join(WANXIANG_GRAMMAR_FILE)).unwrap(),
+                bytes
+            );
+            let manifest =
+                local_models::installed_manifest(&root(state.path()), pack.id()).unwrap();
+            assert_eq!(manifest["artifacts"][0]["size"], bytes.len());
+            assert_eq!(
+                manifest["artifacts"][0]["sha256"],
+                hex::encode(Sha256::digest(&bytes))
+            );
+        }
+        fs::write(&source, b"synthetic invalid response").unwrap();
+        assert!(import(state.path(), pack, &[source], &mut |_| {}, &cancel,).is_err());
+        let installed = verify_installed(state.path(), pack).unwrap();
+        assert_eq!(
+            fs::read(installed.join(WANXIANG_GRAMMAR_FILE)).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            adopt(state.path(), pack, &picked.path().join("missing")).unwrap(),
+            installed
+        );
     }
 
     #[cfg(unix)]
