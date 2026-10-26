@@ -2557,6 +2557,7 @@ fn attach_plugin_rows(handle: u64, rows: &[&str]) {
             .set_plugin_commands(&[msime_input_runtime::PluginCommand {
                 trigger: "uuid".into(),
                 title: "UUID".into(),
+                extended: false,
             }])
             .unwrap();
         session

@@ -1422,6 +1422,8 @@ pub struct PluginCommand {
     pub trigger: String,
     /// 1..=8 个字符，由 runtime 画在插件注释格里，不进引擎的注释。
     pub title: String,
+    /// 清单里写了 `arguments = "extended"`：完整打出触发词之后，参数除了小写字母还收数字和 [`crate::local::command::EXTENDED_ARGUMENT_SYMBOLS`]，这时宿主把数字当输入、不当选词键（见 `InputSession::spelling_symbols`）。
+    pub extended: bool,
 }
 
 /// 宿主提供的一条 K 模式短语（来自已启用的短语表插件）。宿主已经校验过；Engine 仍然跳过它用不了的行，而不是照单全收。

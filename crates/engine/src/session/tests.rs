@@ -8978,6 +8978,7 @@ fn plugin_command(trigger: &str, title: &str) -> crate::types::PluginCommand {
     crate::types::PluginCommand {
         trigger: trigger.to_owned(),
         title: title.to_owned(),
+        extended: false,
     }
 }
 
@@ -9010,6 +9011,57 @@ fn open_uuid(session: &mut Session) -> crate::types::PluginCommandQuery {
     session
         .plugin_command_query()
         .expect("a plugin command query")
+}
+
+/// `arguments = "extended"` 的指令：完整打出触发词之后数字和运算符号是参数，引擎收下并列进 `spelling_symbols`（宿主照它把数字当输入、不当选词键）；触发词没打完、或者是只收字母的指令时，什么都和以前一样。
+#[test]
+fn extended_plugin_commands_take_digits_and_operators_after_the_trigger() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = plugin_session(&fixture, |options| {
+        options.plugin_commands.push(crate::types::PluginCommand {
+            extended: true,
+            ..plugin_command("calc", "计算")
+        });
+    });
+    assert!(session.character(b'/', false).handled);
+    type_text(&mut session, "cal");
+    assert_eq!(session.snapshot().spelling_symbols, "");
+    type_text(&mut session, "c");
+    let symbols = session.snapshot().spelling_symbols;
+    assert_eq!(symbols, "0123456789.+-*/%()=,");
+    for byte in b"12+3*(4)/5%=6,7.8-9" {
+        assert!(
+            session.character(*byte, false).handled,
+            "{}",
+            char::from(*byte)
+        );
+    }
+    let query = session
+        .plugin_command_query()
+        .expect("a plugin command query");
+    assert_eq!(query.preedit, "/calc12+3*(4)/5%=6,7.8-9");
+    assert_eq!(
+        (query.trigger.as_str(), query.argument.as_str()),
+        ("calc", "12+3*(4)/5%=6,7.8-9")
+    );
+    // 光标挪回触发词里：数字不再列出、也不收。
+    for _ in 0.."12+3*(4)/5%=6,7.8-9".len() + 1 {
+        session.command(Command::MoveLeft);
+    }
+    assert_eq!(session.snapshot().spelling_symbols, "");
+    // 光标在触发词里时数字不是参数：引擎上屏打出的原文，把数字交还宿主（和以前一样）。
+    let typed = session.character(b'1', false);
+    assert!(!typed.handled);
+    assert_eq!(typed.commit.as_deref(), Some("/calc12+3*(4)/5%=6,7.8-9"));
+
+    // 只收字母的指令：数字照旧交还宿主。
+    session.command(Command::Cancel);
+    session.character(b'/', false);
+    type_text(&mut session, "uuid");
+    assert_eq!(session.snapshot().spelling_symbols, "");
+    let typed = session.character(b'4', false);
+    assert!(!typed.handled);
+    assert_eq!(typed.commit.as_deref(), Some("/uuid"));
 }
 
 #[test]

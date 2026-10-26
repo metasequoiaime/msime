@@ -114,6 +114,11 @@ impl CandidateQueries {
         plugin_command_source(code, &self.plugin_commands)
     }
 
+    /// `code`（`/` 之后的输入）已经完整打出了一条生效的 `extended` 插件指令的触发词。
+    pub fn extended_plugin_trigger_typed(&self, code: &str) -> bool {
+        crate::local::command::extended_trigger_typed(code, &self.plugin_commands)
+    }
+
     /// 保留 K 模式能用的宿主短语行，丢弃其余。
     pub fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) {
         self.quick_phrase_table = usable_quick_phrase_table(table);

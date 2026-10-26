@@ -239,6 +239,28 @@ pub fn builtin_titles() -> impl Iterator<Item = &'static str> {
     BUILTINS.iter().map(|(_, title)| *title)
 }
 
+/// `arguments = "extended"` 的插件指令在触发词后面另外收的运算符号；数字另算。和 script-runtime 的 `abi::EXTENDED_ARGUMENT_SYMBOLS` 是同一份，由 host-api 的一致性测试守着（引擎不依赖解释器）。
+pub const EXTENDED_ARGUMENT_SYMBOLS: &str = ".+-*/%()=,";
+
+/// 插件指令的参数合不合规：小写字母；`extended` 时另外可以有数字和 [`EXTENDED_ARGUMENT_SYMBOLS`]。
+pub fn valid_plugin_argument(argument: &str, extended: bool) -> bool {
+    argument
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase() || (extended && extended_argument_symbol(byte)))
+}
+
+/// 数字或 [`EXTENDED_ARGUMENT_SYMBOLS`] 里的一个：只有 `extended` 的指令在参数里收它们。
+pub fn extended_argument_symbol(byte: u8) -> bool {
+    byte.is_ascii_digit() || EXTENDED_ARGUMENT_SYMBOLS.as_bytes().contains(&byte)
+}
+
+/// `/` 之后的输入 `code` 已经完整打出了某条 `extended` 插件指令的触发词：之后的数字和运算符号是参数。`plugin` 必须先经过 [`usable_plugin_commands`]。
+pub fn extended_trigger_typed(code: &str, plugin: &[PluginCommand]) -> bool {
+    plugin
+        .iter()
+        .any(|command| command.extended && code.starts_with(command.trigger.as_str()))
+}
+
 /// 两个触发词相等或一个是另一个的前缀：用户打着其中一个时，分不清是在打哪一个。
 fn triggers_overlap(left: &str, right: &str) -> bool {
     left.starts_with(right) || right.starts_with(left)
@@ -279,7 +301,7 @@ pub fn usable_plugin_commands(
     usable
 }
 
-/// `/` 之后的输入以某个插件触发词开头、剩下的全是小写字母时，返回（触发词，参数），参数可以为空（`/uuid`）。`plugin` 必须先经过 [`usable_plugin_commands`]，所以至多一个匹配，不需要最长匹配。
+/// `/` 之后的输入以某个插件触发词开头、剩下的是这条指令收的参数（小写字母；`extended` 的另外有数字和运算符号，见 [`valid_plugin_argument`]）时，返回（触发词，参数），参数可以为空（`/uuid`）。`plugin` 必须先经过 [`usable_plugin_commands`]，所以至多一个匹配，不需要最长匹配。
 pub fn plugin_command_source<'a, 'b>(
     code: &'b str,
     plugin: &'a [PluginCommand],
@@ -288,9 +310,7 @@ pub fn plugin_command_source<'a, 'b>(
         .iter()
         .find(|command| code.starts_with(command.trigger.as_str()))?;
     let argument = &code[command.trigger.len()..];
-    argument
-        .bytes()
-        .all(|byte| byte.is_ascii_lowercase())
+    valid_plugin_argument(argument, command.extended)
         .then_some((command.trigger.as_str(), argument))
 }
 
@@ -635,6 +655,40 @@ mod tests {
         PluginCommand {
             trigger: trigger.to_owned(),
             title: title.to_owned(),
+            extended: false,
+        }
+    }
+
+    #[test]
+    fn only_extended_commands_take_digits_and_operators_after_the_whole_trigger() {
+        let commands = [
+            PluginCommand {
+                extended: true,
+                ..plugin("calc", "计算")
+            },
+            plugin("uuid", "UUID"),
+        ];
+        assert_eq!(
+            plugin_command_source("calc1+2*(3)", &commands),
+            Some(("calc", "1+2*(3)"))
+        );
+        assert_eq!(
+            plugin_command_source("calcab", &commands),
+            Some(("calc", "ab"))
+        );
+        assert_eq!(plugin_command_source("calc", &commands), Some(("calc", "")));
+        assert_eq!(plugin_command_source("uuid4", &commands), None);
+        assert_eq!(plugin_command_source("calc1 2", &commands), None);
+        assert_eq!(plugin_command_source("calcA", &commands), None);
+        assert!(extended_trigger_typed("calc", &commands));
+        assert!(extended_trigger_typed("calc12", &commands));
+        assert!(!extended_trigger_typed("cal", &commands));
+        assert!(!extended_trigger_typed("uuid", &commands));
+        for byte in b"0123456789.+-*/%()=," {
+            assert!(extended_argument_symbol(*byte), "{}", char::from(*byte));
+        }
+        for byte in b"a'; _#" {
+            assert!(!extended_argument_symbol(*byte), "{}", char::from(*byte));
         }
     }
 
