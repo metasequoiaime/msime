@@ -2,6 +2,7 @@
 //!
 //! - **什么时候运行脚本。** 只在派发类调用（[`Runtime::dispatch`]）的 refresh 和展开之后调用 [`CandidateTransform`]。旁路调用（`apply_online_*`、`resolve/clear_online_candidates`、`rerank_settled`、`all_candidates`、`apply_translations` 和设置类调用）不运行任何脚本代码，只按候选身份重放本组字内最近一次记下的操作，免得把打字停顿和网络时序透露给脚本。
 //! - **插件看到什么。** 永远是内置排序之后、任何插件变换之前的窗口：前 [`MAX_TRANSFORM_ROWS`] 行，引擎原始的注释。多个插件的操作都针对这份原始窗口，按候选身份记下，再按授权顺序合成：重排是后面的插件优先，隐藏取并集，注释后面的覆盖前面的。
+//! - **插入的行**（`insert_candidates`）在重排、隐藏、注释合成之后按执行顺序插进可见行里，位置是插件变换之后的呈现顺序里的位置，所有插件合计最多 [`MAX_INSERTED_ROWS`] 行，同文的只留第一行；锁定的座位不因插入挪位。插入的行来源是 `Plugin`，在列表里没有引擎下标：选中、空格、数字、点选、标点结束时 runtime 自己把它原样上屏并丢掉组字（不经过引擎，所以不进词库、不调词频），不计打字统计、不作为 AI 上文；以词定字、置顶、删除、固定位置对它什么都不做；输入法替失焦结束组字时上屏的是引擎的首行，不是插入的行。只在本地模式 `none`、没有暂存的词段、不是九键或宫格时插入。旁路调用按记下的位置和那里（插在末尾时是最后一行）候选的身份重放，身份对不上的那一行丢弃，不猜位置。有插入的行时不做落定重排：落定重排按座位挪行，会把插入的行当成引擎的候选。
 //! - **重排**同步移动全部平行数组和 `engine_order`，选中的永远是显示的那一行。**过滤不删行**：被隐藏的行降到列表末尾，视图、分页、高亮和选择 ID 只认可见前缀；`engine_order` 仍覆盖引擎的全部候选，座位映射不会错位。
 //! - **不能动的行。** 引擎下标 0 的行不可隐藏：引擎有自己按首位取词的路径（失焦上屏、14 键原样上屏等），它取的永远是这一行，所以它必须可见，也因此至少留一行可见。锁定的座位既不移动也不隐藏：固定了位置的词、云和 AI（含占位）行、五笔四码唯一时的 0 号座位（第四键自动上屏的就是它）。
 //! - **跳过**：平行数组长度不一致、整句改字中、方案的候选列表打开着（韩文汉字）。本地模式的白名单是插件一侧的规则，由宿主的实现判断。
@@ -22,8 +23,8 @@ pub(crate) use desktop::PluginState;
     all(target_os = "linux", not(target_env = "ohos"))
 ))]
 pub use desktop::{
-    CandidateOps, CandidateTransform, CommandOutcome, CommandProvider, TransformRow,
-    MAX_ANNOTATION_UTF16, MAX_TRANSFORM_ROWS,
+    CandidateOps, CandidateTransform, CommandOutcome, CommandProvider, InsertedRow, TransformRow,
+    MAX_ANNOTATION_UTF16, MAX_INSERTED_ROWS, MAX_TRANSFORM_ROWS,
 };
 
 #[cfg(any(
@@ -42,6 +43,15 @@ mod desktop {
 
     /// 插件注释格最多几个 UTF-16 码元，和 script-runtime 的 `limits::MAX_ANNOTATION_UTF16` 同值。插件指令行的「标题 注释」按它截断。
     pub const MAX_ANNOTATION_UTF16: usize = 32;
+
+    /// 所有插件合计每次最多插几行，和 script-runtime 的 `limits::MAX_INSERTED_ROWS` 同值。
+    pub const MAX_INSERTED_ROWS: usize = 6;
+
+    /// 插入的行最多几个 UTF-16 码元，和插件指令行同一个上限（script-runtime 的 `limits::MAX_COMMAND_ROW_UTF16`）。
+    const MAX_INSERTED_ROW_UTF16: usize = 64;
+
+    /// 插入的行在 `engine_order` 里的下标：它不是引擎的候选。
+    pub(crate) const INSERTED: usize = usize::MAX;
 
     const CLOUD: u8 = 2;
     const CLOUD_PENDING: u8 = 15;
@@ -67,6 +77,28 @@ mod desktop {
         pub hidden: Vec<u32>,
         /// 行号和注释。注释显示在 `Candidate::script_annotation`，空串表示不加。
         pub annotations: Vec<(u32, String)>,
+        /// 要插进列表的行，按暂存的顺序。
+        pub inserts: Vec<InsertedRow>,
+    }
+
+    /// 一个插件要插进候选列表的一行。宿主已经按 `command_row` 的规则校验过文本和注释；runtime 仍然丢掉它用不了的（空白、含控制字符、太长）。
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct InsertedRow {
+        /// 插件变换之后的呈现顺序里的位置，0 到窗口行数；超出可见行数时插在可见行的末尾。
+        pub position: u32,
+        pub text: String,
+        /// 显示在插件注释格，空串表示不加。
+        pub note: String,
+    }
+
+    /// 记下的一次插入：插到哪里、插什么，以及插入时那个位置上候选的身份（插在末尾时是最后一行，`after` 为真）。旁路调用按它重放。
+    #[derive(Clone, Debug)]
+    struct RecordedInsert {
+        position: usize,
+        text: String,
+        note: String,
+        anchor: Identity,
+        after: bool,
     }
 
     /// 宿主实现的候选变换：按授权顺序运行每个插件，把成功的插件各自的操作依次放进 `out`。失败的插件不放，它这次的操作全部作废。
@@ -265,6 +297,12 @@ mod desktop {
         occurrence_buffers: OccurrenceBuffers,
         /// 降到末尾、不显示的行数。
         hidden_rows: usize,
+        /// 这一次派发里插件交回的插入，按执行顺序，等排列之后再定锚点。
+        pending_inserts: Vec<InsertedRow>,
+        /// 本组字内最近一次派发记下的插入，按执行顺序。
+        inserts: Vec<RecordedInsert>,
+        /// 当前列表里插入的行：（座位，在 `inserts` 里的下标），座位升序。
+        inserted: Vec<(usize, usize)>,
         /// 宿主暂停了候选变换：不运行、不重放。插件指令同样不调用。
         suspended: bool,
         /// 插件指令的提供者，见 [`CommandProvider`]。
@@ -282,11 +320,39 @@ mod desktop {
             self.order.clear();
             self.hidden.clear();
             self.annotations.clear();
+            self.inserts.clear();
         }
 
         fn has_recorded(&self) -> bool {
-            !self.order.is_empty() || !self.hidden.is_empty() || !self.annotations.is_empty()
+            !self.order.is_empty()
+                || !self.hidden.is_empty()
+                || !self.annotations.is_empty()
+                || !self.inserts.is_empty()
         }
+
+        fn inserted_index(&self, seat: usize) -> Option<usize> {
+            self.inserted
+                .binary_search_by_key(&seat, |(inserted, _)| *inserted)
+                .ok()
+                .map(|position| self.inserted[position].1)
+        }
+    }
+
+    /// 插入的行能不能用：不空白、首尾不是空白、不含控制字符、不超过 [`MAX_INSERTED_ROW_UTF16`] 个码元；注释不含控制字符、不超过 [`MAX_ANNOTATION_UTF16`] 个码元。宿主已经校验得更严，这里只是下限。
+    fn usable_insert(row: &InsertedRow) -> bool {
+        !row.text.trim().is_empty()
+            && row.text.trim() == row.text
+            && !row.text.chars().any(char::is_control)
+            && row.text.encode_utf16().count() <= MAX_INSERTED_ROW_UTF16
+            && !row.note.chars().any(char::is_control)
+            && row.note.encode_utf16().count() <= MAX_ANNOTATION_UTF16
+    }
+
+    /// 排好之后的列表里的一个位置：原来的座位，或者 `inserts` 里的第几行。
+    #[derive(Clone, Copy)]
+    enum Slot {
+        Seat(usize),
+        Insert(usize),
     }
 
     impl<E: InputEngine> Runtime<E> {
@@ -415,8 +481,11 @@ mod desktop {
 
         /// 内置排序之后调用：派发类调用里运行插件、记下它们的操作，其余调用只重放记下的操作。返回隐藏的行数或注释是否变了（重排由调用方比较数组得知）。
         pub(crate) fn transform_candidates(&mut self) -> bool {
+            // 列表里还留着上一次插入的行（落定整理在原列表上重新排列时）：先拿掉，排完再按记下的插入放回。
+            let inserted_before = self.remove_inserted_rows();
             let hidden_before = self.plugins.hidden_rows;
             let ready = self.transform_ready();
+            let live = self.plugins.live;
             let mut annotations_changed = false;
             // 暂停时和没有候选时一样把记下的操作清掉：恢复之后的旁路调用不能把暂停之前的操作重放到新列表上。
             if self.cached.candidates.is_empty() || self.plugins.suspended {
@@ -443,12 +512,13 @@ mod desktop {
                 self.plugins.occurrences.clear();
             }
             self.arrange_candidates(ready);
+            let inserted_changed = self.insert_rows(ready, live) || inserted_before;
             // 高亮只能落在可见前缀里：派发里的展开会重新运行插件，插件这次可以多藏几行，而翻页填满当前页时高亮原地不动；落进被隐藏的末尾时，空格、结束组字和标点按高亮交给引擎的就是一行被隐藏的候选。
             let visible = self.visible_len();
             if self.highlighted >= visible {
                 self.highlighted = visible.saturating_sub(1);
             }
-            annotations_changed || self.plugins.hidden_rows != hidden_before
+            annotations_changed || self.plugins.hidden_rows != hidden_before || inserted_changed
         }
 
         /// 把窗口交给插件，按身份记下合成后的操作。
@@ -471,6 +541,10 @@ mod desktop {
             self.plugins.ops.clear();
             transform.transform(window, &snapshot.local_mode, &mut self.plugins.ops);
             let plugins = &mut self.plugins;
+            plugins.pending_inserts.clear();
+            for ops in &mut plugins.ops {
+                plugins.pending_inserts.append(&mut ops.inserts);
+            }
             // 没有操作时不建立全列表元数据；插件仍收到原来的窗口并照常运行。
             if !plugins.ops.iter().any(|ops| {
                 !ops.order.is_empty() || !ops.hidden.is_empty() || !ops.annotations.is_empty()
@@ -627,8 +701,264 @@ mod desktop {
             self.plugins.arrangement = buffers;
         }
 
-        /// `seat` 上可见的行的插件注释；没有、为空或者列表现在不做变换时为 `None`。插件指令行（来源 14）的注释是「标题 注释」，不经过候选变换。
+        /// 这一次能不能插行：列表能变换，本地模式 `none`，没有暂存的词段，不是九键、宫格或联想。
+        fn inserts_allowed(&self) -> bool {
+            self.cached.local_mode == "none"
+                && self.phrase_prefix.is_empty()
+                && !self.cached.nine_key
+                && self.cached.key_grid.is_none()
+                && !self.cached.prediction
+        }
+
+        /// 排列之后把插入的行放进可见行里。派发类调用里用插件这一次交回的插入并记下锚点；旁路调用按记下的插入重放，锚点对不上的丢弃。返回列表里有没有插入的行。
+        fn insert_rows(&mut self, ready: bool, live: bool) -> bool {
+            let pending = std::mem::take(&mut self.plugins.pending_inserts);
+            if !ready || !self.inserts_allowed() {
+                self.plugins.inserts.clear();
+                return false;
+            }
+            let count = self.cached.candidates.len();
+            let visible = self.visible_len();
+            if visible == 0 {
+                self.plugins.inserts.clear();
+                return false;
+            }
+            if live && pending.is_empty() && self.plugins.inserts.is_empty() {
+                return false;
+            }
+            if !live && self.plugins.inserts.is_empty() {
+                return false;
+            }
+            if self.plugins.occurrences.len() != count {
+                Identity::fill_occurrences(
+                    &self.cached,
+                    &self.engine_order,
+                    &mut self.plugins.occurrence_buffers,
+                    &mut self.plugins.occurrences,
+                );
+            }
+            let anchor_of = |runtime: &Self, position: usize| {
+                let (seat, after) = if position < visible {
+                    (position, false)
+                } else {
+                    (visible - 1, true)
+                };
+                (
+                    Identity::at(&runtime.cached, seat, runtime.plugins.occurrences[seat]),
+                    after,
+                )
+            };
+            if live {
+                self.plugins.inserts.clear();
+                for row in pending {
+                    if self.plugins.inserts.len() == MAX_INSERTED_ROWS {
+                        break;
+                    }
+                    if !usable_insert(&row)
+                        || self
+                            .plugins
+                            .inserts
+                            .iter()
+                            .any(|recorded| recorded.text == row.text)
+                    {
+                        continue;
+                    }
+                    let position = (row.position as usize).min(visible);
+                    let (anchor, after) = anchor_of(self, position);
+                    self.plugins.inserts.push(RecordedInsert {
+                        position,
+                        text: row.text,
+                        note: row.note,
+                        anchor,
+                        after,
+                    });
+                }
+            }
+            // 锚点对得上的才插：位置钳到现在的可见行数，那里（或末尾的最后一行）的候选还得是记下的那一个。
+            let mut accepted: Vec<usize> = Vec::new();
+            for (index, recorded) in self.plugins.inserts.iter().enumerate() {
+                let position = recorded.position.min(visible);
+                let after = position == visible;
+                let seat = if after { visible - 1 } else { position };
+                if after == recorded.after
+                    && recorded
+                        .anchor
+                        .matches(&self.cached, seat, self.plugins.occurrences[seat])
+                {
+                    accepted.push(index);
+                }
+            }
+            if accepted.is_empty() {
+                return false;
+            }
+            self.splice_inserts(&accepted, visible);
+            true
+        }
+
+        /// 把 `accepted`（`inserts` 的下标，执行顺序）插进前 `visible` 行，锁定的座位留在原位，被隐藏的行仍在末尾。
+        fn splice_inserts(&mut self, accepted: &[usize], visible: usize) {
+            let count = self.cached.candidates.len();
+            let snapshot = &self.cached;
+            let locked = |seat: usize| {
+                snapshot.candidate_positions[seat] > 0
+                    || matches!(
+                        snapshot.candidate_sources[seat],
+                        CLOUD | CLOUD_PENDING | AI | AI_PENDING
+                    )
+                    || (seat == 0 && snapshot.wubi_unique_four_code)
+            };
+            let inserts = &self.plugins.inserts;
+            let at = |position: usize| {
+                accepted
+                    .iter()
+                    .copied()
+                    .filter(move |index| inserts[*index].position.min(visible) == position)
+            };
+            let mut merged: Vec<Slot> = Vec::with_capacity(visible + accepted.len());
+            for seat in 0..visible {
+                merged.extend(at(seat).map(Slot::Insert));
+                merged.push(Slot::Seat(seat));
+            }
+            merged.extend(at(visible).map(Slot::Insert));
+            let mut free = merged
+                .iter()
+                .copied()
+                .filter(|slot| !matches!(slot, Slot::Seat(seat) if locked(*seat)));
+            let total = visible + accepted.len();
+            let mut order: Vec<Slot> = Vec::with_capacity(count + accepted.len());
+            for slot in 0..total {
+                if slot < visible && locked(slot) {
+                    order.push(Slot::Seat(slot));
+                } else if let Some(next) = free.next() {
+                    order.push(next);
+                }
+            }
+            debug_assert_eq!(order.len(), total);
+            if order.len() != total {
+                return;
+            }
+            order.extend((visible..count).map(Slot::Seat));
+            msime_engine::ordering::ensure_engine_order(&mut self.engine_order, count);
+            let snapshot = &mut self.cached;
+            let evidence = snapshot.candidate_static_evidence.len() == count;
+            let pick = |slot: &Slot| match *slot {
+                Slot::Seat(seat) => Some(seat),
+                Slot::Insert(_) => None,
+            };
+            macro_rules! rebuild {
+                ($field:expr, $inserted:expr) => {{
+                    let old = std::mem::take(&mut $field);
+                    let mut old: Vec<Option<_>> = old.into_iter().map(Some).collect();
+                    $field = order
+                        .iter()
+                        .map(|slot| match pick(slot) {
+                            Some(seat) => old[seat].take().expect("each seat placed once"),
+                            None => ($inserted)(slot),
+                        })
+                        .collect();
+                }};
+            }
+            let inserts = &self.plugins.inserts;
+            let text = |slot: &Slot| match *slot {
+                Slot::Insert(index) => inserts[index].text.clone(),
+                Slot::Seat(_) => String::new(),
+            };
+            rebuild!(snapshot.candidates, text);
+            rebuild!(snapshot.candidate_codes, |_: &Slot| String::new());
+            rebuild!(snapshot.candidate_annotations, |_: &Slot| String::new());
+            rebuild!(snapshot.candidate_sources, |_: &Slot| PLUGIN);
+            rebuild!(snapshot.candidate_positions, |_: &Slot| 0);
+            rebuild!(snapshot.candidate_corrected, |_: &Slot| false);
+            rebuild!(snapshot.candidate_answers_key, |_: &Slot| false);
+            if evidence {
+                rebuild!(snapshot.candidate_static_evidence, |_: &Slot| {
+                    Default::default()
+                });
+            }
+            rebuild!(self.engine_order, |_: &Slot| INSERTED);
+            rebuild!(self.plugins.occurrences, |_: &Slot| 0);
+            self.plugins.inserted = order
+                .iter()
+                .enumerate()
+                .filter_map(|(seat, slot)| match *slot {
+                    Slot::Insert(index) => Some((seat, index)),
+                    Slot::Seat(_) => None,
+                })
+                .collect();
+        }
+
+        /// 拿掉列表里插入的行，返回之前有没有。高亮跟着它所在的候选。
+        pub(crate) fn remove_inserted_rows(&mut self) -> bool {
+            if self.plugins.inserted.is_empty() {
+                return false;
+            }
+            let inserted = std::mem::take(&mut self.plugins.inserted);
+            let count = self.cached.candidates.len();
+            let keep: Vec<bool> = (0..count)
+                .map(|seat| {
+                    inserted
+                        .binary_search_by_key(&seat, |(inserted, _)| *inserted)
+                        .is_err()
+                })
+                .collect();
+            let removed_before_highlight = inserted
+                .iter()
+                .filter(|(seat, _)| *seat < self.highlighted)
+                .count();
+            fn retain_seats<T>(values: &mut Vec<T>, keep: &[bool]) {
+                if values.len() != keep.len() {
+                    return;
+                }
+                let mut seat = 0;
+                values.retain(|_| {
+                    let kept = keep[seat];
+                    seat += 1;
+                    kept
+                });
+            }
+            let snapshot = &mut self.cached;
+            retain_seats(&mut snapshot.candidates, &keep);
+            retain_seats(&mut snapshot.candidate_codes, &keep);
+            retain_seats(&mut snapshot.candidate_annotations, &keep);
+            retain_seats(&mut snapshot.candidate_sources, &keep);
+            retain_seats(&mut snapshot.candidate_positions, &keep);
+            retain_seats(&mut snapshot.candidate_corrected, &keep);
+            retain_seats(&mut snapshot.candidate_answers_key, &keep);
+            retain_seats(&mut snapshot.candidate_static_evidence, &keep);
+            retain_seats(&mut self.engine_order, &keep);
+            retain_seats(&mut self.plugins.occurrences, &keep);
+            self.highlighted = self.highlighted.saturating_sub(removed_before_highlight);
+            true
+        }
+
+        /// 列表整个换成了引擎的新快照：里面没有插入的行，记下的座位作废（记下的插入留着，供重放）。
+        pub(crate) fn forget_inserted_rows(&mut self) {
+            self.plugins.inserted.clear();
+        }
+
+        /// `seat` 上是插件插入的行。
+        pub(crate) fn is_inserted(&self, seat: usize) -> bool {
+            self.plugins.inserted_index(seat).is_some()
+        }
+
+        /// 列表里有没有插入的行。
+        pub(crate) fn has_inserted_rows(&self) -> bool {
+            !self.plugins.inserted.is_empty()
+        }
+
+        /// 引擎的第一个候选现在的座位：插入的行不算。
+        pub(crate) fn first_engine_seat(&self) -> usize {
+            (0..self.cached.candidates.len())
+                .find(|seat| !self.is_inserted(*seat))
+                .unwrap_or(0)
+        }
+
+        /// `seat` 上可见的行的插件注释；没有、为空或者列表现在不做变换时为 `None`。插件指令行（来源 14）的注释是「标题 注释」，不经过候选变换；插入的行的注释是插件给的那一个。
         pub(crate) fn script_annotation(&self, seat: usize) -> Option<String> {
+            if let Some(index) = self.plugins.inserted_index(seat) {
+                return Some(self.plugins.inserts[index].note.clone())
+                    .filter(|note| !note.is_empty());
+            }
             if self.cached.candidate_sources.get(seat) == Some(&PLUGIN) {
                 if seat >= self.visible_len() {
                     return None;
@@ -735,5 +1065,19 @@ mod inert {
         }
 
         pub(crate) fn run_command_provider(&mut self) {}
+
+        pub(crate) fn forget_inserted_rows(&mut self) {}
+
+        pub(crate) fn is_inserted(&self, _seat: usize) -> bool {
+            false
+        }
+
+        pub(crate) fn has_inserted_rows(&self) -> bool {
+            false
+        }
+
+        pub(crate) fn first_engine_seat(&self) -> usize {
+            0
+        }
     }
 }
