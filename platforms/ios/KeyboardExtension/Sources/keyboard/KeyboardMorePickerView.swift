@@ -1,6 +1,6 @@
 import UIKit
 
-/// 键盘的功能面板（更多工具），从工具栏的品牌键打开：工具排成横向分页的网格，下面带页码圆点，手机竖屏每页 4 × 3、横屏 4 × 2，iPad 键盘每页 6 × 3（`KeyboardPagedGridView.pickerRows`）。
+/// 键盘的功能面板（更多工具），从工具栏的品牌键打开：工具排成横向分页的网格，下面带页码圆点，手机竖屏每页 4 × 3、横屏 4 × 2，iPad 键盘每页 6 × 3（`KeyboardPagedGridView.pickerRows`）；面板比满尺寸矮时格子按同一比例缩小，缩到最小格子还放不下三行才改排两行（`KeyboardPagedGridView.pickerLayout`）。
 ///
 /// 面板没有标题栏，也没有「返回」按钮；上方的工具栏一直可见，由它关闭面板。每次切换开关或换皮肤后都会调用 `update(tools:)`，它就地重新设置已有格子的样式（列表变了时挪动格子），让面板停在用户所在的那一页：在第 2 页切换「按键音」不会跳回第 1 页。
 final class KeyboardMorePickerView: UIView {
@@ -13,10 +13,10 @@ final class KeyboardMorePickerView: UIView {
 
   init(tools: [KeyboardTool], formFactor: KeyboardFormFactor, landscape: Bool = false) {
     let tablet = formFactor == .tablet
-    let rows = KeyboardPagedGridView.pickerRows(formFactor: formFactor, landscape: landscape)
+    // 首选行数按横竖屏定，实际行数和格子缩放由网格按面板的真实高度决定（`KeyboardPagedGridView.pickerLayout`）。
     grid = KeyboardPagedGridView(
-      columns: tablet ? 6 : 4, rows: rows, rowHeight: KeyboardFunctionTileView.height,
-      rowGap: KeyboardPagedGridView.pickerRowGap(rows: rows), columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
+      columns: tablet ? 6 : 4, pickerRows: KeyboardPagedGridView.pickerRows(formFactor: formFactor, landscape: landscape),
+      rowHeight: KeyboardFunctionTileView.height, columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardMorePicker"
     accessibilityLabel = "更多工具"

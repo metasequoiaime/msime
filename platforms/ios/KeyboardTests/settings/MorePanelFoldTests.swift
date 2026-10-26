@@ -94,24 +94,143 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(KeyboardFunctionTileView.height, 52)
   }
 
-  /// 三行的面板在最矮的手机竖屏键盘里也放得下：键盘高度调到最低（-12pt）、行距调到最小（4pt）时，三行格子和页码圆点都在面板里，不被裁掉。
-  func testThreeRowsFitTheShortestPortraitKeyArea() {
+  /// 三端共用的选择面板排布规则（Android `PagedTileGrid.pickerGrid`、HarmonyOS `FunctionPanelPolicy.pickerGrid` 用同一组向量）：高度够时满尺寸，不够时等比缩小，三行缩到 44pt 以下才改排两行，两行最多缩到 44pt。
+  func testPickerLayoutFollowsTheSharedRule() {
+    func check(_ preferred: Int, _ height: CGFloat, rows: Int, scale: CGFloat, line: UInt = #line) {
+      let layout = KeyboardPagedGridView.pickerLayout(preferredRows: preferred, height: height, rowHeight: 52)
+      XCTAssertEqual(layout.rows, rows, "preferred \(preferred), H \(height)", line: line)
+      XCTAssertEqual(layout.scale, scale, accuracy: 0.0001, "preferred \(preferred), H \(height)", line: line)
+      XCTAssertEqual(layout.rowHeight, 52 * scale, accuracy: 0.0001, line: line)
+      XCTAssertEqual(layout.rowGap, KeyboardPagedGridView.pickerRowGap(rows: rows) * scale, accuracy: 0.0001, line: line)
+    }
+    check(3, 200, rows: 3, scale: 1)
+    check(3, 180, rows: 3, scale: 1)
+    check(3, 162, rows: 3, scale: 0.9)
+    check(3, 152.4, rows: 3, scale: 152.4 / 180)
+    check(3, 152, rows: 2, scale: 1)
+    check(3, 100, rows: 2, scale: 44 / 52)
+    check(2, 200, rows: 2, scale: 1)
+    check(2, 110, rows: 2, scale: 110 / 120)
+    // 正好缩到 44pt 的三行仍排三行。
+    check(3, 180 * 44 / 52, rows: 3, scale: 44 / 52)
+    XCTAssertEqual(KeyboardPagedGridView.pickerMinTileHeight, 44)
+    XCTAssertEqual(KeyboardPagedGridView.pickerRowGap(rows: 3), 12)
+    XCTAssertEqual(KeyboardPagedGridView.pickerRowGap(rows: 2), 16)
+    // 行高本来就不超过 44pt 时两行不缩，也不放大。
+    let small = KeyboardPagedGridView.pickerLayout(preferredRows: 2, height: 50, rowHeight: 40)
+    XCTAssertEqual(small.rows, 2)
+    XCTAssertEqual(small.scale, 1)
+  }
+
+  /// 面板装在键区里（`installPanel`：顶栏底边到键盘根视图底边，26 键竖屏再减去 10pt 的补偿留白），高度是顶栏下的间隔加按键区再加高度调整。两种选择面板都按这个真实高度排布：格子各行放得进滚动区、不能上下拖动，所有格子一样高，页码圆点不出面板。
+  ///
+  /// 最矮的手机竖屏是 26 键、行距 4pt、高度调到 -12pt：4 + 220 - 12 - 10 = 202pt，减去上下边距 14pt 和圆点 14pt 后格子只有 174pt，比三行满尺寸的 180pt 矮，于是三行等比缩到约 50.3pt；九键同样设置下是 212pt，放得下满尺寸。手机横屏最矮是 140pt，两行缩到 112 / 120。
+  func testPickerPanelsFitTheRealKeyAreaHeight() throws {
     let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
-    let form = KeyboardFormFactor.phone
-    let available = KeyboardHeightPercent.keyBlockHeight(keyHeight: form.keyHeight(landscape: false, handwriting: false), rows: 4, rowSpacing: 4)
-      + KeyboardHeightPercent.adjustmentRange.lowerBound + form.topRowGap + form.padding.bottom
-    for build in [{ KeyboardMorePickerView(tools: tools, formFactor: form) as UIView },
-                  { KeyboardSchemePickerView(selected: .quanpin, showsHeader: false, formFactor: form, onSelect: { _ in }, onClose: {}) as UIView }] {
-      let panel = build()
-      panel.frame = CGRect(x: 0, y: 0, width: 375, height: available)
-      panel.layoutIfNeeded()
-      let grid = descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first
-      XCTAssertEqual(grid?.rows, 3)
-      let dots = descendants(panel).compactMap { $0 as? KeyboardPagerDotsView }.first
-      for view in [grid as UIView?, dots as UIView?].compactMap({ $0 }) {
-        XCTAssertLessThanOrEqual(view.convert(view.bounds, to: panel).maxY, available + 0.5, "\(type(of: panel)) in \(available)pt")
+    func panelHeight(_ form: KeyboardFormFactor, landscape: Bool, letterKeys: Bool, rowSpacing: CGFloat, adjustment: CGFloat) -> CGFloat {
+      form.topRowGap
+        + KeyboardHeightPercent.keyBlockHeight(keyHeight: form.keyHeight(landscape: landscape, handwriting: false), rows: 4, rowSpacing: rowSpacing)
+        + adjustment - (form == .phone && letterKeys && !landscape ? KeyboardFormFactor.phoneLetterVerticalPadding : 0)
+    }
+    let shortest = KeyboardHeightPercent.adjustmentRange.lowerBound
+    let cases: [(form: KeyboardFormFactor, landscape: Bool, width: CGFloat, height: CGFloat, rows: Int, scaled: Bool)] = [
+      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 4, adjustment: shortest), 3, true),
+      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: false, rowSpacing: 4, adjustment: shortest), 3, false),
+      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 7, adjustment: 0), 3, false),
+      (.phone, true, 812, panelHeight(.phone, landscape: true, letterKeys: true, rowSpacing: 4, adjustment: shortest), 2, true),
+      (.phone, true, 812, panelHeight(.phone, landscape: true, letterKeys: true, rowSpacing: 7, adjustment: 0), 2, false),
+      (.tablet, false, 820, panelHeight(.tablet, landscape: false, letterKeys: true, rowSpacing: 4, adjustment: shortest), 3, false),
+      // 比任何真实键盘都矮：三行要缩到 44pt 以下，改排满尺寸的两行。
+      (.phone, false, 375, 150, 2, false),
+    ]
+    XCTAssertEqual(cases[0].height, 202)
+    XCTAssertEqual(cases[3].height, 140)
+    for item in cases {
+      for build in [{ KeyboardMorePickerView(tools: tools, formFactor: item.form, landscape: item.landscape) as UIView },
+                    { KeyboardSchemePickerView(selected: .quanpin, showsHeader: false, formFactor: item.form, landscape: item.landscape,
+                                               onSelect: { _ in }, onClose: {}) as UIView }] {
+        let panel = build()
+        let label = "\(type(of: panel)) \(item.form) landscape \(item.landscape) in \(item.height)pt"
+        panel.frame = CGRect(x: 0, y: 0, width: item.width, height: item.height)
+        panel.layoutIfNeeded()
+        let grid = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first)
+        let scroll = try XCTUnwrap(descendants(grid).compactMap { $0 as? UIScrollView }.first)
+        XCTAssertEqual(grid.rows, item.rows, label)
+        let layout = KeyboardPagedGridView.pickerLayout(
+          preferredRows: KeyboardPagedGridView.pickerRows(formFactor: item.form, landscape: item.landscape),
+          height: scroll.bounds.height, rowHeight: 52)
+        XCTAssertEqual(layout.scale < 1, item.scaled, label)
+        XCTAssertLessThanOrEqual(scroll.contentSize.height, scroll.bounds.height + 0.5, "no vertical scrolling: \(label)")
+        let tiles = descendants(grid).filter { $0 is KeyboardFunctionTileView || $0 is KeyboardSchemeTileView }
+        XCTAssertFalse(tiles.isEmpty, label)
+        for tile in tiles {
+          XCTAssertEqual(tile.bounds.height, layout.rowHeight, accuracy: 0.5, label)
+          let frame = tile.convert(tile.bounds, to: scroll)
+          XCTAssertGreaterThanOrEqual(frame.minY, -0.5, label)
+          XCTAssertLessThanOrEqual(frame.maxY, scroll.bounds.height + 0.5, label)
+          // 键面跟着格子缩小，文字不出格子。
+          for text in descendants(tile).compactMap({ $0 as? UILabel }) where text.text?.isEmpty == false && !text.isHidden {
+            XCTAssertLessThanOrEqual(text.frame.maxY, tile.bounds.height + 1, label)
+          }
+        }
+        let dots = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagerDotsView }.first)
+        XCTAssertLessThanOrEqual(dots.convert(dots.bounds, to: panel).maxY, item.height + 0.5, label)
+        XCTAssertEqual(dots.count, grid.pageCount, label)
       }
-      XCTAssertGreaterThanOrEqual(grid?.bounds.height ?? 0, grid?.gridHeight ?? .infinity, "\(type(of: panel)) shows all three rows")
+    }
+  }
+
+  /// 缩小的图块整个键面按同一比例缩小：字号跟着格子高度缩放，触摸区域仍是整个格子，无障碍信息不变。
+  func testFunctionTileScalesItsFaceWithTheCell() throws {
+    let tool = KeyboardTool(id: "fullwidth", title: "全角", face: .glyph("全"), isToggle: true, selected: true) {}
+    let tile = KeyboardFunctionTileView(tool: tool, skin: KeyboardTheme.current)
+    tile.frame = CGRect(x: 0, y: 0, width: 80, height: 52)
+    tile.layoutIfNeeded()
+    let title = try XCTUnwrap(tile.subviews.compactMap { $0 as? UILabel }.first { $0.text == "全角" })
+    XCTAssertEqual(title.font.pointSize, 12.5, accuracy: 0.01)
+    let label = tile.accessibilityLabel, value = tile.accessibilityValue, traits = tile.accessibilityTraits
+    tile.frame = CGRect(x: 0, y: 0, width: 80, height: 44)
+    tile.layoutIfNeeded()
+    XCTAssertEqual(title.font.pointSize, 12.5 * 44 / 52, accuracy: 0.01)
+    XCTAssertLessThanOrEqual(title.frame.maxY, 45)
+    XCTAssertEqual(tile.accessibilityLabel, label)
+    XCTAssertEqual(tile.accessibilityValue, value)
+    XCTAssertEqual(tile.accessibilityTraits, traits)
+    XCTAssertTrue(tile.point(inside: CGPoint(x: 2, y: 42), with: nil), "the whole cell stays the touch target")
+  }
+
+  /// 高度变化让行数改变时网格重新分页，停在含有原来那一页第一个图块的页上，页码圆点跟着换数量。
+  func testPickerGridRepagesWhenTheRowCountChanges() throws {
+    let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
+    let panel = KeyboardMorePickerView(tools: tools, formFactor: .phone)
+    panel.frame = CGRect(x: 0, y: 0, width: 375, height: 230)
+    panel.layoutIfNeeded()
+    let grid = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first)
+    let dots = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagerDotsView }.first)
+    XCTAssertEqual(grid.rows, 3)
+    XCTAssertEqual(panel.pageCount, 2)
+    grid.scrollToPage(1, animated: false)
+
+    // 第 2 页从第 13 个图块开始；两行每页 8 个时它在第 2 页。
+    panel.frame.size.height = 150
+    panel.layoutIfNeeded()
+    XCTAssertEqual(grid.rows, 2)
+    XCTAssertEqual(panel.pageCount, 3)
+    XCTAssertEqual(dots.count, 3)
+    XCTAssertEqual(panel.currentPage, 1)
+    let scroll = try XCTUnwrap(descendants(grid).compactMap { $0 as? UIScrollView }.first)
+    XCTAssertEqual(scroll.contentOffset.x, scroll.bounds.width, accuracy: 0.5)
+
+    // 两行的第 3 页从第 17 个图块开始；回到三行时它在第 2 页。
+    grid.scrollToPage(2, animated: false)
+    panel.frame.size.height = 230
+    panel.layoutIfNeeded()
+    XCTAssertEqual(grid.rows, 3)
+    XCTAssertEqual(panel.pageCount, 2)
+    XCTAssertEqual(dots.count, 2)
+    XCTAssertEqual(panel.currentPage, 1)
+    for tile in descendants(grid).compactMap({ $0 as? KeyboardFunctionTileView }) {
+      XCTAssertEqual(tile.bounds.height, KeyboardFunctionTileView.height, accuracy: 0.5)
     }
   }
 

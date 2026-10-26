@@ -8523,7 +8523,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 输入方式和功能面板按打开时的横竖屏定行数（`KeyboardPagedGridView.pickerRows`）：手机竖屏三行的面板转到横屏放不下，所以转屏后行数不再相同时关掉面板，再打开就按新方向排。
+  /// 输入方式和功能面板按打开时的横竖屏定首选行数（`KeyboardPagedGridView.pickerRows`）。网格按真实高度缩放、转屏后也不会溢出，但横屏打开的两行面板转回竖屏仍只排两行，所以转屏后首选行数不再相同时关掉面板，再打开就按新方向排。
   private func closePickerBuiltForOtherOrientation() {
     guard morePicker != nil || schemePicker != nil else { return }
     let rows = { KeyboardPagedGridView.pickerRows(formFactor: self.formFactor, landscape: $0) }

@@ -5,6 +5,8 @@ import UIKit
 /// 这里刻意用普通的 UIControl。键盘的皮肤处理（`applyKeyboardSkin`）会把每个 configuration 带填充的 UIButton 重绘成键帽，KeyboardKeyButton 又是按按键样式绘制的，所以用这两者搭出来的图块都会变成实心色块。
 ///
 /// 字形键面是一个 26pt 圆角框（圆角 5，1.8pt 当前色描边），框里是 14pt 粗体字；图标键面是 24pt 的 `KeyboardIcon` 线条图标。工具开启时当前色是皮肤强调色，否则是按键前景色。开启的工具还会把文字改为半粗体，并在图标区右下角（right -5，bottom -4）加一个 13pt 的强调色对勾角标，外圈是键盘背景色。
+///
+/// 以上尺寸都是 52pt 格子的满尺寸。面板比满尺寸矮时网格缩小行高（`KeyboardPagedGridView.pickerLayout`），图块按自己的高度与 52pt 之比把整个键面（图标、字形框、字号、间距、角标）等比缩小；触摸区域仍是整个格子，无障碍信息不变。
 final class KeyboardFunctionTileView: UIControl {
   static let height: CGFloat = 52
   private static let iconArea: CGFloat = 30
@@ -31,6 +33,8 @@ final class KeyboardFunctionTileView: UIControl {
   private let badgeLayer = CAShapeLayer()
   private let badgeCheckLayer = CAShapeLayer()
   private let titleLabel = UILabel()
+  /// 键面相对满尺寸的缩放，`layoutSubviews` 按格子高度算出，不大于 1。
+  private var scale: CGFloat = 1
   private lazy var longPressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
 
   init(tool: KeyboardTool, skin: KeyboardTheme) {
@@ -46,7 +50,6 @@ final class KeyboardFunctionTileView: UIControl {
     }
     for layer in [iconLayer, glyphBoxLayer, badgeLayer] { self.layer.addSublayer(layer) }
     badgeLayer.addSublayer(badgeCheckLayer)
-    glyphLabel.font = .systemFont(ofSize: Self.glyphFontSize, weight: .bold)
     glyphLabel.textAlignment = .center
     titleLabel.textAlignment = .center
     titleLabel.numberOfLines = 1
@@ -72,7 +75,7 @@ final class KeyboardFunctionTileView: UIControl {
     self.tool = tool
     self.skin = skin
     titleLabel.text = tool.title
-    titleLabel.font = .systemFont(ofSize: Self.labelFontSize, weight: tool.selected ? .semibold : .regular)
+    applyFonts()
     switch tool.face {
     case .glyph(let glyph):
       glyphLabel.text = glyph
@@ -120,42 +123,61 @@ final class KeyboardFunctionTileView: UIControl {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    let font = titleLabel.font ?? .systemFont(ofSize: Self.labelFontSize)
+    let fitted = bounds.height > 0 ? min(1, bounds.height / Self.height) : 1
+    if fitted != scale {
+      scale = fitted
+      applyFonts()
+    }
+    let s = scale
+    let iconArea = Self.iconArea * s
+    let iconSide = Self.iconSide * s
+    let glyphSide = Self.glyphSide * s
+    let labelGap = Self.labelGap * s
+    let badgeSide = Self.badgeSide * s
+    let badgeCheckSide = Self.badgeCheckSide * s
+    let font = titleLabel.font ?? .systemFont(ofSize: Self.labelFontSize * s)
     let labelHeight = ceil(font.lineHeight)
-    let total = Self.iconArea + Self.labelGap + labelHeight
+    let total = iconArea + labelGap + labelHeight
     let top = max(0, ((bounds.height - total) / 2).rounded(.down))
-    let area = CGRect(x: bounds.midX - Self.iconArea / 2, y: top, width: Self.iconArea, height: Self.iconArea)
-    titleLabel.frame = CGRect(x: 0, y: area.maxY + Self.labelGap, width: bounds.width, height: labelHeight)
-    let glyphBox = CGRect(x: area.midX - Self.glyphSide / 2, y: area.midY - Self.glyphSide / 2, width: Self.glyphSide, height: Self.glyphSide)
+    let area = CGRect(x: bounds.midX - iconArea / 2, y: top, width: iconArea, height: iconArea)
+    titleLabel.frame = CGRect(x: 0, y: area.maxY + labelGap, width: bounds.width, height: labelHeight)
+    let glyphBox = CGRect(x: area.midX - glyphSide / 2, y: area.midY - glyphSide / 2, width: glyphSide, height: glyphSide)
     glyphLabel.frame = glyphBox
     let badge = CGRect(
-      x: area.maxX - Self.badgeRight - Self.badgeSide, y: area.maxY - Self.badgeBottom - Self.badgeSide,
-      width: Self.badgeSide, height: Self.badgeSide)
+      x: area.maxX - Self.badgeRight * s - badgeSide, y: area.maxY - Self.badgeBottom * s - badgeSide,
+      width: badgeSide, height: badgeSide)
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     // 描边画在 26pt 框的内侧，与设计稿 border-box 的尺寸算法一致。
-    let inset = Self.glyphBorder / 2
-    glyphBoxLayer.lineWidth = Self.glyphBorder
-    glyphBoxLayer.path = UIBezierPath(roundedRect: glyphBox.insetBy(dx: inset, dy: inset), cornerRadius: Self.glyphRadius - inset).cgPath
+    let border = Self.glyphBorder * s
+    let inset = border / 2
+    glyphBoxLayer.lineWidth = border
+    glyphBoxLayer.path = UIBezierPath(roundedRect: glyphBox.insetBy(dx: inset, dy: inset), cornerRadius: Self.glyphRadius * s - inset).cgPath
     if case .icon(let icon) = tool.face {
-      let iconRect = CGRect(x: area.midX - Self.iconSide / 2, y: area.midY - Self.iconSide / 2, width: Self.iconSide, height: Self.iconSide)
+      let iconRect = CGRect(x: area.midX - iconSide / 2, y: area.midY - iconSide / 2, width: iconSide, height: iconSide)
       iconLayer.path = icon.path(in: iconRect).cgPath
-      iconLayer.lineWidth = icon.isFilled ? 0 : icon.lineWidth * Self.iconSide / KeyboardIcon.viewBox
+      iconLayer.lineWidth = icon.isFilled ? 0 : icon.lineWidth * iconSide / KeyboardIcon.viewBox
     }
     badgeLayer.frame = badge
     // 外圈是一条 2pt 描边，骑在半径比 13pt 圆盘大 1pt 的圆上，这样强调色保持完整的 13pt，外圈落在它外面，与设计稿的 box-shadow 一样。
-    let ringRadius = Self.badgeSide / 2 + Self.badgeRing / 2
-    badgeLayer.lineWidth = Self.badgeRing
+    let ring = Self.badgeRing * s
+    badgeLayer.lineWidth = ring
     badgeLayer.path = UIBezierPath(
-      arcCenter: CGPoint(x: Self.badgeSide / 2, y: Self.badgeSide / 2), radius: ringRadius,
+      arcCenter: CGPoint(x: badgeSide / 2, y: badgeSide / 2), radius: badgeSide / 2 + ring / 2,
       startAngle: 0, endAngle: .pi * 2, clockwise: true
     ).cgPath
-    let checkOrigin = (Self.badgeSide - Self.badgeCheckSide) / 2
-    let checkRect = CGRect(x: checkOrigin, y: checkOrigin, width: Self.badgeCheckSide, height: Self.badgeCheckSide)
+    let checkOrigin = (badgeSide - badgeCheckSide) / 2
+    let checkRect = CGRect(x: checkOrigin, y: checkOrigin, width: badgeCheckSide, height: badgeCheckSide)
     badgeCheckLayer.frame = badgeLayer.bounds
     badgeCheckLayer.path = KeyboardIcon.check.path(in: checkRect).cgPath
-    badgeCheckLayer.lineWidth = KeyboardIcon.check.lineWidth * Self.badgeCheckSide / KeyboardIcon.viewBox
+    badgeCheckLayer.lineWidth = KeyboardIcon.check.lineWidth * badgeCheckSide / KeyboardIcon.viewBox
     CATransaction.commit()
+  }
+
+  /// 按当前缩放设字形和文字的字号；开启的工具文字为半粗体。
+  private func applyFonts() {
+    glyphLabel.font = .systemFont(ofSize: Self.glyphFontSize * scale, weight: .bold)
+    titleLabel.font = .systemFont(ofSize: Self.labelFontSize * scale, weight: tool.selected ? .semibold : .regular)
   }
 
   /// 按当前 trait 解析皮肤颜色：图层用的是 CGColor，不会自己跟随浅色和深色模式。
