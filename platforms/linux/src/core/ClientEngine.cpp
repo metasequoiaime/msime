@@ -3936,7 +3936,7 @@ void clear(IBusEngine *engine) {
   s.rendered_session = 0;
   publish_candidate_properties(engine);
 }
-// Windows re-resolves the punctuation state on every Chinese/English switch: under the "follow" lock it tracks the mode (Chinese punctuation in Chinese mode, ASCII in English), and a pinned lock keeps its value. The switch supersedes a Ctrl+. choice, so the session override is dropped and the saved preference is the authority again on the next focus or refresh; the preference file itself is not written. Call after open(), because opening a session re-derives chinese_punctuation from the preferences.
+// 中英模式切换时，「跟随」让英文模式用英文标点，中文模式恢复已保存的起始标点；固定锁定值保持不变。切换会取消 Ctrl+. 的临时选择，但不改偏好文件。要在 open() 之后调用，因为新会话从偏好重建标点状态。
 void resync_punctuation_for_mode(IBusEngine *engine) {
   auto &s = state(engine);
   s.english_punctuation = {};
@@ -3944,7 +3944,7 @@ void resync_punctuation_for_mode(IBusEngine *engine) {
   if (s.punctuation_lock != "follow")
     return;
   s.punctuation_override.reset();
-  s.chinese_punctuation = s.input_enabled;
+  s.chinese_punctuation = s.input_enabled && s.preferences.value("chinese_punctuation", true);
   if (s.session && s.session_chinese_punctuation != s.chinese_punctuation) {
     s.view = response(
         msime_client_set_chinese_punctuation(s.session, s.chinese_punctuation));
