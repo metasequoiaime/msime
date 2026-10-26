@@ -8,6 +8,8 @@ mod cli;
 mod community;
 mod config;
 mod diagnostics;
+mod plugin_community;
+mod plugins;
 mod preferences;
 mod prompts;
 mod runtime_options;

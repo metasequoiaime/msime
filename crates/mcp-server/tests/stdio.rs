@@ -137,10 +137,13 @@ async fn read_only_by_default() {
         tool_names(&client).await,
         [
             "get_candidate_skin",
+            "get_plugin",
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
+            "list_community_plugins",
             "list_community_skins",
+            "list_plugins",
             "list_quick_phrases",
             "read_diagnostic_log",
             "set_diagnostic_log"
@@ -164,7 +167,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert_eq!(tool_names(&client).await.len(), 15);
+    assert_eq!(tool_names(&client).await.len(), 23);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
     let outcome = ok(
@@ -301,7 +304,7 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
     client.cancel().await.unwrap();
 
     let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
-    assert_eq!(tool_names(&client).await.len(), 19);
+    assert_eq!(tool_names(&client).await.len(), 27);
 
     let outcome = ok(
         &client,
@@ -644,10 +647,13 @@ fn the_command_line_runs_the_same_tools() {
         names,
         [
             "get_candidate_skin",
+            "get_plugin",
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
+            "list_community_plugins",
             "list_community_skins",
+            "list_plugins",
             "list_quick_phrases",
             "read_diagnostic_log",
             "set_diagnostic_log"
@@ -1362,4 +1368,61 @@ fn every_candidates_failure_has_its_own_exit_code() {
 
     let (code, _, error) = run_cli(&options, &["candidates", "nihao"], None);
     assert_eq!(code, 0, "{error}");
+}
+
+/// 代理照用户的话写一张 K 模式短语表：装上、在列表里看到、照结果告诉用户怎么打开、读回、删掉。结构化结果要符合工具声明的输出 schema。
+#[tokio::test]
+async fn an_agent_makes_a_phrase_table_plugin() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let (client, _child) = start(&options, &["--allow-write"]).await;
+    let manifest = "schema_version = 1\nkind = \"phrase_table\"\nid = \"signature\"\nname = \"邮件签名\"\nversion = \"1.0.0\"\nlicense = \"CC0-1.0\"\n[[phrases]]\nkey = \"qm\"\ntext = \"合成签名 someone@example.com\"\n";
+
+    let installed = ok(&client, "create_plugin", json!({ "manifest": manifest })).await;
+    assert_eq!(installed["kind"], "phrase_table");
+    assert_eq!(installed["id"], "signature");
+    assert_eq!(installed["replaced"], false);
+    assert!(installed["next_step"].as_str().unwrap().contains("启用"));
+    assert!(directory
+        .path()
+        .join("plugins/phrase_table/signature/plugin.toml")
+        .is_file());
+
+    let listed = ok(&client, "list_plugins", json!({})).await;
+    let plugins = listed["plugins"].as_array().unwrap();
+    assert_eq!(plugins.len(), 1, "{listed}");
+    assert_eq!(plugins[0]["summary"], "1 K-mode phrases under keys qm");
+    assert_eq!(plugins[0]["active"], false);
+    assert_eq!(listed["selection"]["phrase_tables"], json!([]));
+
+    let files = ok(
+        &client,
+        "get_plugin",
+        json!({ "kind": "phrase_table", "id": "signature" }),
+    )
+    .await;
+    assert_eq!(files["manifest"], manifest);
+    assert_eq!(files["files"], json!([]));
+
+    // 已经装着时不给 replace 就拒绝，并说怎么替换。
+    after_write_interval().await;
+    let error = refused(&client, "create_plugin", json!({ "manifest": manifest })).await;
+    assert!(error.contains("replace: true"), "{error}");
+
+    after_write_interval().await;
+    let deleted = ok(
+        &client,
+        "delete_plugin",
+        json!({ "kind": "phrase_table", "id": "signature" }),
+    )
+    .await;
+    assert_eq!(
+        deleted,
+        json!({ "kind": "phrase_table", "id": "signature", "still_selected_in": [] })
+    );
+    assert!(!directory
+        .path()
+        .join("plugins/phrase_table/signature")
+        .exists());
+    client.cancel().await.unwrap();
 }

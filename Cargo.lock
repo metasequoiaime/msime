@@ -3253,6 +3253,7 @@ dependencies = [
  "msime-client-services",
  "msime-host-api",
  "msime-host-windows",
+ "msime-path-trust",
  "rmcp",
  "rusqlite",
  "serde",
