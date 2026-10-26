@@ -108,8 +108,7 @@ int main() {
   require(release(ime) && posted == 1, "a bare Shift must keep both TSF and hook routes available");
   require(!ime._MatchModifierReleaseHotkey(VK_SHIFT, &action), "a duplicate TSF release must not toggle twice");
 
-  // 问号是最容易触发误切换的真实组合：Shift+主键盘斜杠。
-  for (UINT key : {UINT('T'), UINT('9'), UINT('0'), VK_OEM_2}) {
+  for (UINT key : {UINT('T'), UINT('9'), UINT('0')}) {
     reset(ime); press(ime);
     // 应用没有把组合键的普通按下交给 TSF，但线程键盘钩子仍观察到真实按键。
     physical[key] = true; hook(key, false);
@@ -117,6 +116,13 @@ int main() {
     require(!release(ime) && posted == 0,
             "#9445: a chord observed by the hook must cancel the TSF Shift toggle");
   }
+
+  // #9862 的准确复现：中文输入快速按主键盘 Shift+?，松开 Shift 后不能切到英文。
+  reset(ime); press(ime);
+  physical[VK_OEM_2] = true; hook(VK_OEM_2, false);
+  physical[VK_OEM_2] = false; hook(VK_OEM_2, true);
+  require(!release(ime) && posted == 0,
+          "#9862: Shift+? must not toggle the input language");
 
   reset(ime); press(ime);
   physical[static_cast<unsigned>('T')] = true; hook('T', false);
