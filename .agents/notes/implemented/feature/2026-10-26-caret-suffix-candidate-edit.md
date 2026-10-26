@@ -52,7 +52,10 @@ Status: implemented
 
 - 偏好在 `crates/client-core` 的 `Preferences::caret_edit_suffix`，关着时不写进文档，缺键读作关。host-api 只在三个桌面宿主上交给 Engine（`CARET_EDIT_SUFFIX_HOST`），偏好随文档到了手机也按关；Engine 偏好照例等组字空闲时重建，组字中途开关不改变这一段组字。
 - 共享 React 设置页（macOS、Linux）在「候选与联想 → 更多选项」开头、「快捷短语混输」之前列出它，按能力 `HostCapabilities::caret_edit_suffix`（三个桌面平台）显示；HarmonyOS 不列出。Windows 原生设置（WinUI 和 Win7 设置窗口）放在同一组的「更多选项」里「只出单字」之后，Windows 没有快捷短语混输那一行。手机设置不加。
-- 候选窗只在模式生效时在右侧显示「候选编辑：光标后」，不能点：macOS 在首行右侧、翻页控件左边；Windows Server 候选窗在首行右侧；Linux 的 IBus 和 Fcitx5 按各自的辅助文字显示，原生画布在右侧。能分段画候选的宿主把首选开头固定的那几个字画成次要色。
+- 候选窗只在模式生效时显示「候选编辑：光标后」，不能点，模式没生效时各宿主的画法和以前相同：
+  - macOS（`InputController.mm` 的 `renderCandidates`）：首行右侧、翻页控件左边，与「1 / 3」同字号同次要色，算进卡片的最小宽度；自适应横排里放下它会把翻页键挤到一半以下时不画。首选开头固定的那几个字用释义色画（`MSIMECandidateButton::dimmedPrefixLength`），按 Unicode 标量数换成 UTF-16 长度，不切开代理对。
+  - Windows Server 候选窗（`CandidatePresentation.h`、`CandidateWindow.cpp`）：首行右侧、翻页之前，页码字号和次要色，拼音在它左边截断；读屏树多一个文字元素。首选用 `IDWriteTextLayout` 把固定的那段画成编号色；繁体输出时前缀按同样的写法换算，对不上就不画淡。
+  - Linux（`platforms/linux/src/core/CaretEditSuffix.h`）：IBus 把提示接在候选上方的辅助文字里，首选开头加前景色属性；Fcitx5 经典界面接在 `auxDown` 里，`fcitx::Text` 没有颜色格式，首选照常画；Fcitx5 原生画布在页脚右侧画提示，首选开头用编号色。两个宿主都把提示排在打字连击数之前。
 
 ## Historical note audit
 
@@ -83,4 +86,8 @@ Status: implemented
 
 ## Verification
 
-引擎测试 `crates/engine/src/session/tests/caret_suffix.rs`（13 项）、runtime 测试 `crates/input-runtime/src/tests/caret_edit.rs`（5 项）、host-api 测试 `caret_edit_suffix_reaches_the_engine_after_composition_and_the_view`、client-core 的偏好与能力测试、共享设置页的 `caret-edit-suffix-section.test.tsx`。把 `caret_edit_allowed` 临时改成恒假（等于没有这个功能）时，引擎 12 项、runtime 4 项和 host-api 那一项失败，只剩断言「关着与开头末尾不变」的那一项和 runtime 的重排保护测试通过；恢复后全部通过。`cargo test -p msime-engine --locked` 全量（含 golden 31 项）通过，说明关着时的行为没有变化。测试词库全部是合成值。
+引擎测试 `crates/engine/src/session/tests/caret_suffix.rs`（13 项）、runtime 测试 `crates/input-runtime/src/tests/caret_edit.rs`（5 项）、host-api 测试 `caret_edit_suffix_reaches_the_engine_after_composition_and_the_view`、client-core 的偏好与能力测试、共享设置页的 `caret-edit-suffix-section.test.tsx`。把 `caret_edit_allowed` 临时改成恒假（等于没有这个功能）时，引擎 12 项、runtime 4 项和 host-api 那一项失败，只剩断言「关着与开头末尾不变」的那一项和 runtime 的重排保护测试通过；恢复后全部通过。`cargo test -p msime-engine --locked` 全量（2660 项和 golden 31 项）通过，说明关着时的行为没有变化；`cargo test -p msime-input-runtime -p msime-host-api -p msime-client-core --locked` 全部通过（host-api 的一项 Unix socket 测试只在临时目录路径过长时失败，换短路径后通过），这四个 crate 的 Clippy `-D warnings`、`cargo check --workspace --exclude msime-desktop --all-targets`、共享设置页 vitest 和 `tsc --noEmit`、`scripts/run-checks.sh`、`pnpm run verify-notes` 通过。测试词库全部是合成值。
+
+宿主层：macOS 新增 ctest `candidate-caret-edit-suffix`，连同 6 项既有候选布局测试在 Mac Studio 上通过（含像素比对）；Linux 新增 `linux-caret-edit-suffix`，原生画布的两项测试扩展后用 clang 在 macOS 上编译运行通过；Windows 新增 `windows-caret-edit-presentation`，与扩展后的 `candidate_card_size`、`candidate_accessibility` 用 clang 在 macOS 上编译运行通过；Win7 设置测试加了开关的读写断言。
+
+没有验证的：Mac Studio 上没有 MinGW、Wine，OrbStack 没有运行，系统盘也几乎写满，所以 Windows 的 `CandidateWindow.cpp`、WinUI 与 Win7 设置工程、Linux 的 `ClientEngine.cpp` 和 `FcitxEngine.cpp` 只能由 PR 上的 Windows 和 Linux CI 第一次编译；没有在任何系统的真实输入框里装机验收（按要求不安装、不切换 macOS 输入法），提示在真实桌面上的观感、窄卡片上的截断和高亮行上的淡色都未看过。
