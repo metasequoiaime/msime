@@ -5,11 +5,26 @@ on:
       version: {description: Semantic version (defaults to platforms/harmony/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a harmony-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      sign: {description: Generate signed artifacts without publishing a GitHub release, required: false, default: false, type: boolean}
+      source_release: {description: Repackage a released signed HAP for AppGallery without rebuilding (requires signing and publish=false), required: false, default: '', type: string}
+      appgallery:
+        description: 华为测试专区（自动签名；public-test 会提交公开测试审核）
+        required: false
+        default: none
+        type: choice
+        options: [none, upload, public-test]
+      test_version_id: {description: 继续已有的公开测试草稿（留空则新建）, required: false, default: '', type: string}
+      test_package_id: {description: 复用已上传的软件包 ID（留空则上传本次 APP）, required: false, default: '', type: string}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build, required: false, default: false, type: boolean}
+      sign: {description: Generate signed artifacts, required: false, default: false, type: boolean}
+      source_release: {description: Repackage a released signed HAP for AppGallery without rebuilding (requires signing and publish=false), required: false, default: '', type: string}
+      appgallery: {description: 华为测试专区模式（none/upload/public-test）, required: false, default: none, type: string}
+      test_version_id: {description: 已有公开测试草稿 ID, required: false, default: '', type: string}
+      test_package_id: {description: 已上传的软件包 ID, required: false, default: '', type: string}
 permissions: {contents: write}
 concurrency: {group: release-harmony, cancel-in-progress: false}
 jobs:
@@ -27,16 +42,51 @@ jobs:
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
       # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ inputs.version }}", SOURCE_RELEASE: "${{ inputs.source_release }}", SIGN: "${{ inputs.sign }}", PUBLISH: "${{ inputs.publish }}", APPGALLERY: "${{ inputs.appgallery }}", TEST_VERSION_ID: "${{ inputs.test_version_id }}", TEST_PACKAGE_ID: "${{ inputs.test_package_id }}"}
         run: |
-          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '版本号须为 X.Y.Z' >&2; exit 1; }
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          case "$APPGALLERY" in none|upload|public-test) ;; *) echo '华为上传模式无效' >&2; exit 1 ;; esac
+          if [[ -n "$TEST_VERSION_ID" ]]; then
+            [[ "$APPGALLERY" == public-test ]] || { echo '测试草稿 ID 仅用于 public-test' >&2; exit 1; }
+          fi
+          if [[ -n "$TEST_PACKAGE_ID" ]]; then
+            [[ "$APPGALLERY" != none && "$PUBLISH" == false && -z "$SOURCE_RELEASE" ]] || {
+              echo '恢复包 ID 需要选择华为上传、publish=false 并清空 source_release' >&2; exit 1;
+            }
+          fi
+          if [[ -n "$SOURCE_RELEASE" ]]; then
+            [[ "$SOURCE_RELEASE" == "harmony-v$version" || "$SOURCE_RELEASE" == "harmony-v$version-beta" || "$SOURCE_RELEASE" == "harmony-v$version-alpha" ]] || {
+              echo 'source_release 必须匹配当前版本' >&2; exit 1;
+            }
+            [[ ( "$SIGN" == true || "$APPGALLERY" != none ) && "$PUBLISH" == false ]] || {
+              echo '重新封装需要签名并设置 publish=false' >&2; exit 1;
+            }
+          fi
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+      - name: Check AppGallery credentials and test configuration
+        if: ${{ inputs.appgallery != 'none' }}
+        env:
+          HARMONY_AGC_APP_ID: ${{ vars.HARMONY_AGC_APP_ID }}
+          HARMONY_AGC_SERVICE_ACCOUNT_JSON: ${{ secrets.HARMONY_AGC_SERVICE_ACCOUNT_JSON }}
+          HARMONY_AGC_CLIENT_ID: ${{ secrets.HARMONY_AGC_CLIENT_ID }}
+          HARMONY_AGC_CLIENT_SECRET: ${{ secrets.HARMONY_AGC_CLIENT_SECRET }}
+          HARMONY_AGC_TEST_CONFIG_JSON: ${{ secrets.HARMONY_AGC_TEST_CONFIG_JSON }}
+          MODE: ${{ inputs.appgallery }}
+          VERSION: ${{ steps.version.outputs.value }}
+          TEST_VERSION_ID: ${{ inputs.test_version_id }}
+          TEST_PACKAGE_ID: ${{ inputs.test_package_id }}
+        run: |
+          python3 scripts/test-harmony-appgallery.py
+          python3 platforms/harmony/appgallery-release.py --check-only --mode "$MODE" --version "$VERSION" \
+            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
       - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
-        if: ${{ inputs.publish }}
+        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
         with: {distribution: temurin, java-version: '21'}
       # 发布必须在耗时构建前确认正式证书与共享沙箱授权，缺凭据时不降级为未签名包。
       - name: Check HarmonyOS release signing credentials
-        if: ${{ inputs.publish }}
+        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
         env:
           HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
@@ -45,20 +95,25 @@ jobs:
         run: python3 platforms/harmony/sign-release.py --check-only
       # The settings page is built from packages/ui for every HAP rather than committed (see platforms/harmony/stage-settings.sh), with the Node the rest of the repository pins.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         with:
           node-version-file: .nvmrc
       - name: Build the HarmonyOS settings page
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         run: |
           corepack enable
           pnpm install --frozen-lockfile --ignore-scripts
           bash platforms/harmony/stage-settings.sh
       # The HAP carries the engine resources only if stage-resources.sh put them in resfile/ (without them the keyboard logs "no packaged resources at /engine"). It takes the directory install_resources verified and unpacked, and stages target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences); a release must carry all three, so it fails rather than staging fewer.
       - name: Fetch the locked language dictionaries
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         run: python3 scripts/fetch_language_dictionaries.py
       # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，stage-resources.sh 放进 resfile/wordbooks；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的 HAP 打不出来。
       - name: Build the bundled wordbooks
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         run: python3 scripts/fetch_wordbooks.py
       - name: Stage the HarmonyOS engine resources
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1", MSIME_REQUIRE_WORDBOOKS: "1"}
         run: |
           set -euo pipefail
@@ -67,6 +122,7 @@ jobs:
           bash platforms/harmony/stage-resources.sh "$resource_dir"
       # SDK 目录必须整份解压：hvigor 在 runtimeOS 为 HarmonyOS 时会逐个检查 SDK 组件，少了 previewer 或 hms/native 就报 `SDK component missing`，构建一开始就失败。只跳过 SDK 之外的 codelinter。压缩包解完即删。
       - name: Install the HarmonyOS command-line tools
+        if: ${{ !inputs.test_package_id }}
         env: {GH_TOKEN: "${{ secrets.HARMONY_TOOLCHAIN_TOKEN }}"}
         run: |
           set -euo pipefail
@@ -86,14 +142,17 @@ jobs:
           rustup target add aarch64-unknown-linux-ohos
           df -h "$RUNNER_TEMP" | tail -1
       - name: Verify HarmonyOS signing tools with synthetic credentials
-        if: ${{ inputs.publish }}
+        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
         run: python3 scripts/test-harmony-release-signing.py
       - name: Build HarmonyOS native host
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         run: bash platforms/harmony/build-native.sh arm64-v8a
       - name: Stage the sherpa-onnx HAR
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         run: bash platforms/harmony/stage-voice-runtime.sh
       # ohpm install 在 entry/oh_modules 建出 libmsimeclient.so 的类型链接，少了它 ArkTS 解析不到 NAPI 模块（见 platforms/harmony/README.md）。
       - name: Build HarmonyOS HAP
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         working-directory: platforms/harmony
         run: |
           set -euo pipefail
@@ -102,6 +161,7 @@ jobs:
       # 只取指定 product 的本次产物，资源压缩必须在签名前完成，签名后重写 ZIP 会丢失 HAP 签名块。
       - id: hap
         name: Locate the packaged HAP
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           set -euo pipefail
@@ -110,20 +170,37 @@ jobs:
           hap="$RUNNER_TEMP/msime-harmony-${VERSION}-unsigned.hap"
           python3 scripts/compress_harmony_hap.py "$built" "$hap"
           echo "path=$hap" >> "$GITHUB_OUTPUT"
+      - id: source
+        name: Download the released signed HAP
+        if: ${{ inputs.source_release }}
+        env: {GH_TOKEN: "${{ github.token }}", SOURCE_RELEASE: "${{ inputs.source_release }}", VERSION: "${{ steps.version.outputs.value }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/released-hap"
+          gh release download "$SOURCE_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern "msime-harmony-${VERSION}.hap" --dir "$RUNNER_TEMP/released-hap"
+          echo "path=$RUNNER_TEMP/released-hap/msime-harmony-${VERSION}.hap" >> "$GITHUB_OUTPUT"
       - id: signing
         name: Sign and verify HarmonyOS release packages
-        if: ${{ inputs.publish }}
+        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
         env:
           HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
           HARMONY_RELEASE_CERTIFICATE_BASE64: ${{ secrets.HARMONY_RELEASE_CERTIFICATE_BASE64 }}
           HARMONY_RELEASE_PROFILE_BASE64: ${{ secrets.HARMONY_RELEASE_PROFILE_BASE64 }}
           UNSIGNED_HAP: ${{ steps.hap.outputs.path }}
+          SIGNED_HAP: ${{ steps.source.outputs.path }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/harmony-release"
-          python3 platforms/harmony/sign-release.py --input "$UNSIGNED_HAP" --output-dir "$output" \
+          options=()
+          if [[ -n "$SIGNED_HAP" ]]; then
+            options+=(--signed-hap)
+            input="$SIGNED_HAP"
+          else
+            input="$UNSIGNED_HAP"
+          fi
+          python3 platforms/harmony/sign-release.py --input "$input" --output-dir "$output" "${options[@]}" \
             --version "$VERSION" --tool-dir "$DEVECO_SDK_HOME/default/openharmony/toolchains/lib"
           {
             echo "hap=$output/msime-harmony-${VERSION}.hap"
@@ -131,6 +208,7 @@ jobs:
             echo "sums=$output/SHA256SUMS"
           } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.test_package_id }}
         with:
           name: msime-harmony-${{ steps.version.outputs.value }}
           path: |
@@ -139,11 +217,29 @@ jobs:
           if-no-files-found: error
       # APP 是应用市场上传材料，放 workflow artifact，不混在用户下载的 HAP 附件里。
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ inputs.publish }}
+        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
         with:
           name: appgallery-msime-harmony-${{ steps.version.outputs.value }}
           path: ${{ steps.signing.outputs.app }}
           if-no-files-found: error
+      # 先保存可下载的 APP，再调用华为；平台拒绝资料时仍可取回包和恢复 ID。
+      - name: Upload to AppGallery and optionally submit public test
+        id: appgallery
+        if: ${{ inputs.appgallery != 'none' }}
+        env:
+          HARMONY_AGC_APP_ID: ${{ vars.HARMONY_AGC_APP_ID }}
+          HARMONY_AGC_SERVICE_ACCOUNT_JSON: ${{ secrets.HARMONY_AGC_SERVICE_ACCOUNT_JSON }}
+          HARMONY_AGC_CLIENT_ID: ${{ secrets.HARMONY_AGC_CLIENT_ID }}
+          HARMONY_AGC_CLIENT_SECRET: ${{ secrets.HARMONY_AGC_CLIENT_SECRET }}
+          HARMONY_AGC_TEST_CONFIG_JSON: ${{ secrets.HARMONY_AGC_TEST_CONFIG_JSON }}
+          APP: ${{ steps.signing.outputs.app }}
+          MODE: ${{ inputs.appgallery }}
+          VERSION: ${{ steps.version.outputs.value }}
+          TEST_VERSION_ID: ${{ inputs.test_version_id }}
+          TEST_PACKAGE_ID: ${{ inputs.test_package_id }}
+        run: |
+          python3 platforms/harmony/appgallery-release.py --input "$APP" --mode "$MODE" --version "$VERSION" \
+            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
       # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent HarmonyOS release
         if: ${{ inputs.publish }}

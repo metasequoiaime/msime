@@ -299,6 +299,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean touchVoiceShortcutEnabled;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
     private boolean shuangpinKeyHintsEnabled = false;
+
+    /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」，来自共享偏好 `touch_quanpin_shift`，缺省为关。 */
+    private boolean quanpinShiftEnabled = false;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
@@ -2437,6 +2440,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
+        quanpinShiftEnabled = quanpinShiftFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -2451,6 +2455,11 @@ public final class MSIMEInputService extends InputMethodService {
     /** 没有偏好或旧文档里没有这个键时按关，与 client-core 的默认值一致。 */
     private static boolean shuangpinKeyHintsFrom(JSONObject preferences) {
         return preferences != null && preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, false);
+    }
+
+    /** 没有偏好或旧文档里没有这个键时按关（分词），与 client-core 的默认值一致。 */
+    private static boolean quanpinShiftFrom(JSONObject preferences) {
+        return preferences != null && preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, false);
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {
@@ -2831,7 +2840,7 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + shuangpinKeyHintsEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled;
+            + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled;
     }
 
     private void reloadPreferences(String response) {
@@ -2932,6 +2941,7 @@ public final class MSIMEInputService extends InputMethodService {
         int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
+        boolean nextQuanpinShift = quanpinShiftFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3014,6 +3024,8 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = nextVoiceShortcut;
         // 键面提示在 render() 的 updateShuangpinKeyHints 里按它重画；它进了 touchGeometryKey，变了就会触发 render()。
         shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
+        // 分词键的键面和点击都按它分支（usesQuanpinSeparator），变了立刻重画。
+        quanpinShiftEnabled = nextQuanpinShift;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
@@ -4609,9 +4621,9 @@ public final class MSIMEInputService extends InputMethodService {
             getResources().getConfiguration().screenHeightDp);
     }
 
-    /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。 */
+    /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。用户在共享偏好 `touch_quanpin_shift` 打开「保留 Shift」后也不替换。 */
     boolean usesQuanpinSeparator() {
-        return KeyboardLayout.usesQuanpinSeparator(selectedScheme == KeyboardScheme.QUANPIN,
+        return !quanpinShiftEnabled && KeyboardLayout.usesQuanpinSeparator(selectedScheme == KeyboardScheme.QUANPIN,
             session != 0 && view != null && !dedicatedEnglish && !EditorPolicy.password(editorInputType),
             keyboardLayer, displayedTouchLayout(view),
             view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
@@ -5672,7 +5684,7 @@ public final class MSIMEInputService extends InputMethodService {
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-        "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY,
+        "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";

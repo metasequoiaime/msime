@@ -175,6 +175,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "keyboard_height_adjustment",
             "keyboard_layout",
             "number_keypad_order",
+            "quanpin_shift",
             "shuangpin_key_hints",
             "sound_enabled",
             "theme",
