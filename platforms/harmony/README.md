@@ -595,6 +595,39 @@ Profile 必须允许包名 `app.msime.hmos`、共享沙箱 `group.15167538987386
 
 应用市场类型的签名材料用于市场分发。生成 APP 包、创建 GitHub release 与通过华为市场审核各是独立步骤；创建 GitHub release 不代表应用已在市场上架。
 
+`Release HarmonyOS` 的 `appgallery` 选项控制华为测试专区自动化；`publish` 仍单独控制 GitHub release：
+
+| `appgallery` | 行为 |
+| --- | --- |
+| `none`（默认） | 保持原来的构建、签名与 GitHub 发布行为，不读取华为 API 凭据 |
+| `upload` | 自动生成正式签名 APP，上传到华为测试专区，等待 HarmonyOS 包解析通过 |
+| `public-test` | 上传并解析成功后，新建或更新公开测试草稿、绑定包、提交审核 |
+
+首次配置一次即可：
+
+- 仓库变量 `HARMONY_AGC_APP_ID`：AGC 中该应用的 App ID。
+- 推荐仓库 secret `HARMONY_AGC_SERVICE_ACCOUNT_JSON`：在华为「开发者管理 → ID、证书和Profile → 凭证 → 开发者级凭证 → 服务账号凭证」创建 APP 管理员角色，生成公私钥后下载的完整 JSON。脚本用 OpenSSL 生成 PS256 JWT，直接调用 Connect API；私钥只临时落盘，退出删除。
+- 兼容已有 API Client：仓库 secrets `HARMONY_AGC_CLIENT_ID`、`HARMONY_AGC_CLIENT_SECRET`，需要开发者级 Connect API 凭据，APP 管理员或更高角色。服务账号 JSON 优先。应用内 SDK 的 client secret 不能替代这些凭据；华为建议新建凭据使用服务账号。
+- 可选 secret `HARMONY_AGC_TEST_CONFIG_JSON`：测试版本更新参数的 JSON 对象，可覆盖 `languages`、`deviceTypes`、`distCountryList`、`extInfo`、`openTestInfo`、`packagePermissionIntroVideoList`、`versionVocReq`。它可能包含联系人或资质，不能提交进仓库。未设置的资料由华为继承最近测试或全网版本；首次提交前需要在 AGC 填妥真实资质、素材、隐私政策等资料。
+
+公开测试默认从运行时刻的次日开始，持续 28 天、安装上限 10000、生成分享链接、不发送通知。可通过 `openTestInfo` 覆盖；开始时间必须在未来，持续不超过 30 天。脚本不修改公开测试不支持变更的 `groupInfos`。`test_version_id` 留空则创建公开测试，填写已有公开测试草稿 ID 则继续该草稿；不要填写邀请测试或在架版本 ID。
+
+例如从已发布 HAP 生成市场 APP 并提交公开测试，无须重编输入法：
+
+```sh
+gh workflow run release-harmony.yml --ref develop \
+  -f version=0.2.1 -f publish=false -f source_release=harmony-v0.2.1-beta \
+  -f appgallery=public-test
+```
+
+新版本只需选择 `appgallery=public-test`，即可在同次构建中签名、上传、等待解析、提交审核。CI 在耗时构建前检查华为鉴权和本地配置；API 拒绝资料、权限不足、包解析失败或超时都使任务失败。不会自动重试创建或提交请求，避免重复草稿。上传后的包 ID、创建后的测试版本 ID 会立即写入 Actions 日志与步骤摘要，后续失败也保留；日志不包含 token、OBS 签名地址或原始资料。
+
+如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
+
+提交成功的摘要为 `review_status=submitted`，表示等待华为审核；审核通过和分享链接生效仍由平台处理。日常 nightly 的 `workflow_call` 默认 `appgallery=none`，不会自动提交测试或读取市场凭据。可离线运行 `python3 scripts/test-harmony-appgallery.py` 验证上传与提交状态机；测试只用合成数据，不访问华为。
+
+接口依据：[上传地址](https://developer.huawei.com/consumer/cn/doc/app/agc-help-upload-api-upload-url-0000002236201294)、[HarmonyOS 包解析状态](https://developer.huawei.com/consumer/cn/doc/app/agc-help-publish-api-query-compile-status-0000002236041434)、[更新测试版本](https://developer.huawei.com/consumer/cn/doc/app/agc-help-test-api-modify-test-version-0000002271160657)、[提交测试版本](https://developer.huawei.com/consumer/cn/doc/app/agc-help-test-api-submit-test-version-0000002236201334)。
+
 ## 模拟器验证（2026-09-20）
 
 首次在 HarmonyOS 模拟器上跑起来，记录可复现路径与结果。当时的 bundleName 是 `app.msime.client`，下文日志与验证记录里的包名照原样保留；之后改成过 `app.msime.harmony`，但 AppGallery Connect 不接受包名里含保留字 `harmony`，所以现在的 bundleName 是 `app.msime.hmos`，命令已按它改写。镜像为 DevEco 自带的 HarmonyOS 6.0.1(21) phone，与项目 `compileSdkVersion` 一致：

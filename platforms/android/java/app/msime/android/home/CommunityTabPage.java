@@ -6,6 +6,8 @@ import android.view.View;
 import android.widget.FrameLayout;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.FragmentManager;
 import app.msime.android.CommunityRequest;
 import app.msime.android.DimensionPolicy;
@@ -14,6 +16,7 @@ import app.msime.android.LayoutPolicy;
 import app.msime.android.R;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import java.util.List;
 
 /**
@@ -86,6 +89,16 @@ public final class CommunityTabPage extends ColumnDetailPage {
             root.addView(container, LayoutPolicy.frameMatchParentParams());
             containers[index] = container;
         }
+        ViewCompat.setOnApplyWindowInsetsListener(root, (target, insets) -> {
+            if (navigation != null) {
+                ViewPolicy.setVisible(navigation,
+                    WindowInsetsPolicy.shouldShowFixedPageNavigation(
+                        insets.isVisible(WindowInsetsCompat.Type.ime())));
+                positionContainers();
+            }
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(root);
         positionContainers();
         showSection();
     }
@@ -113,8 +126,10 @@ public final class CommunityTabPage extends ColumnDetailPage {
 
     private void positionContainers() {
         if (containers == null || navigation == null) return;
-        int top = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT)
-            + (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48));
+        int navigationHeight = navigation.getVisibility() == View.VISIBLE
+            ? (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48))
+            : 0;
+        int top = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT) + navigationHeight;
         for (FrameLayout container : containers) {
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) container.getLayoutParams();
             if (params.topMargin == top) continue;

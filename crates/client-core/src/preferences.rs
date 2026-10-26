@@ -180,12 +180,13 @@ pub enum TextEditButton {
     Space,
     NumberPad,
     Delete,
+    SelectLine,
 }
 
-/// 从左列上到下，再到右列前三格；换行固定在右下角。
+/// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
-    vec![Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete]
+    vec![Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine]
 }
 
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。

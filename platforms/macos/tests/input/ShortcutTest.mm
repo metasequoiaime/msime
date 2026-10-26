@@ -3734,8 +3734,25 @@ static void ExpandedGridScroll(NSPanel *panel, CGFloat delta, NSEventPhase phase
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         phase = NSEventPhaseChanged;
     }
+    NSScrollView *viewport = ExpandedGridScrollView(panel);
+    const CGFloat documentHeight = NSHeight(viewport.documentView.bounds);
+    const CGFloat maximum = MAX(0.0, documentHeight - NSHeight(viewport.contentView.bounds));
+    const CGFloat expectedTop = std::clamp(documentHeight - NSMaxY(viewport.documentVisibleRect) - delta, 0.0, maximum);
     [panel scrollWheel:ExpandedGridScrollEvent(delta, phase, momentum)];
+    // AppKit 异步完成精确滚动；按目标位置等待，不能把 Sanitizers 下的固定延时当作完成信号。
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3.0];
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+    const auto currentTop = [&] {
+        return std::clamp(documentHeight - NSMaxY(viewport.documentVisibleRect), 0.0, maximum);
+    };
+    while (delta != 0 && fabs(currentTop() - expectedTop) > 0.01 && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    if (delta != 0 && fabs(currentTop() - expectedTop) > 0.01)
+        fprintf(stderr, "expanded scroll: delta=%g phase=%lu expected=%g actual=%g clip=%s document=%s viewport=%s\n",
+            (double)delta, (unsigned long)phase, (double)expectedTop, (double)currentTop(),
+            NSStringFromRect(viewport.contentView.bounds).UTF8String,
+            NSStringFromRect(viewport.documentView.bounds).UTF8String,
+            NSStringFromRect(viewport.bounds).UTF8String);
 }
 
 static void ExpandedGridFinishScroll(NSPanel *panel) {
@@ -15036,9 +15053,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestGlossSensePage(appearance); }
         @autoreleasepool { TestGlossSenseTraditionalOutput(appearance); }
         @autoreleasepool { TestPinyinArrowCandidateNavigation(); }
-        @autoreleasepool { TestExpandedCandidateGrid(); }
-        @autoreleasepool { TestExpandedCandidateGridGeneration(); }
-        @autoreleasepool { TestExpandedCandidatePartialSelection(); }
+        // 原生滚动回归由 shortcut-expanded-scroll 在独立进程执行，避免前面的 AppKit 夹具污染手势状态。
         @autoreleasepool { TestSegmentEditingChords(appearance); }
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }

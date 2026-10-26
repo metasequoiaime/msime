@@ -7823,7 +7823,7 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
     let store = PreferencesStore::new(directory.path());
     for order in [
         vec![],
-        vec![TextEditButton::Copy; 7],
+        vec![TextEditButton::Copy; 8],
         default_text_edit_button_order()[..6].to_vec(),
     ] {
         let preferences = Preferences {
@@ -7837,7 +7837,7 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
         assert_eq!(store.load().unwrap().revision, 0);
     }
     let mut unknown = serde_json::to_value(Preferences::default()).unwrap();
-    unknown["touch_text_edit_button_order"][6] = serde_json::json!("return");
+    unknown["touch_text_edit_button_order"][7] = serde_json::json!("return");
     let error = serde_json::from_value::<Preferences>(unknown).unwrap_err();
     assert!(error.to_string().contains("unknown variant `return`"));
 }
