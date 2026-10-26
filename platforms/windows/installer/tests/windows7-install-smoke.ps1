@@ -76,7 +76,7 @@ if ($task) {
     [xml]$xml = $task.Xml
     Check ($xml.Task.Actions.Exec.Command.Trim('"') -eq (Join-Path $program 'server\MetasequoiaImeWatchdog.exe')) 'watchdog task preserves full executable path'
 }
-$rules = ([IO.Directory]::GetAccessControl($dataDir)).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
+$rules = (Get-Acl -LiteralPath $dataDir).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
 $modify = @($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and
     ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
 Check ($modify.Count -gt 0) 'Users can modify installed data directory'
