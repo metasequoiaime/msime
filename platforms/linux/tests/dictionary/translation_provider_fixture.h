@@ -26,6 +26,11 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     return online_ai_contexts_;
   }
+  // 每次翻译请求问到的候选文字，按到达顺序。
+  std::vector<std::vector<std::string>> translation_requests() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return translation_requests_;
+  }
   explicit TranslationProviderFixture(const std::string &path) : path_(path) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
@@ -53,6 +58,7 @@ private:
   std::thread worker_;
   std::mutex mutex_;
   std::vector<std::string> online_ai_contexts_;
+  std::vector<std::vector<std::string>> translation_requests_;
   void run() {
     while (!stopped_) {
       pollfd ready{listener_, POLLIN, 0};
@@ -81,6 +87,12 @@ private:
         if (value["query"].value("target_language", "") == "en")
           for (const auto &text : value["query"]["candidates"])
             if (text == "你好") ++english_greeting_requests;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          auto &texts = translation_requests_.emplace_back();
+          for (const auto &text : value["query"]["candidates"])
+            texts.push_back(text.is_string() ? text.get<std::string>() : std::string{});
+        }
         ++requests;
         while (hold_responses && !stopped_)
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
