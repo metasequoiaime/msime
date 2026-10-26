@@ -4574,7 +4574,8 @@ static void TestAdaptiveCandidatePaginationKeepsCurrentPage() {
     [controller setValue:[session gridView] forKey:@"view"];
     [controller renderCandidates];
     assert(panel.isVisible);
-    assert([[controller valueForKey:@"adaptivePage"] unsignedIntegerValue] == 1);
+    NSDictionary *snapshot = [session allCandidatesWithError:nil];
+    assert(MSIMEAdaptiveHighlightIndex(snapshot[@"candidates"], [session gridView]) == 5);
 
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }

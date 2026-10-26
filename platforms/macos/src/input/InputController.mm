@@ -9639,6 +9639,24 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return YES;
 }
 
+// 从当前视图恢复完整候选快照里的高亮索引；完整快照没有高亮标记时仍以视图身份为准。
+static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, NSDictionary *view) {
+    NSUInteger highlightedIndex = NSNotFound;
+    NSArray *viewCandidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : nil;
+    for (NSDictionary *candidate in viewCandidates) {
+        if (!MSIMEStrictBoolean(candidate[@"highlighted"])) continue;
+        if (!MSIMEStrictUnsignedIntegerValue(candidate[@"id"][@"index"], &highlightedIndex)) highlightedIndex = NSNotFound;
+        break;
+    }
+    if (highlightedIndex != NSNotFound) {
+        for (NSUInteger index = 0; index < entries.count; ++index)
+            if ([entries[index][@"id"][@"index"] isEqual:@(highlightedIndex)]) return index;
+    }
+    for (NSUInteger index = 0; index < entries.count; ++index)
+        if (MSIMEStrictBoolean(entries[index][@"highlighted"])) return index;
+    return 0;
+}
+
 - (void)renderCandidates {
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
@@ -9767,31 +9785,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             return;
         }
         _adaptiveCandidates = entries;
-        // `all_candidates` is a complete-list snapshot, and some providers do not carry the
-        // current page's highlighted flag through that path. Use the refreshed view's candidate
-        // identity first so a redraw after paging keeps the same row; the snapshot flag remains
-        // the fallback for older providers that do not expose the highlighted row in `view`.
-        NSUInteger highlightedIndex = NSNotFound;
-        NSArray *viewCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : nil;
-        for (NSDictionary *candidate in viewCandidates) {
-            if (!MSIMEStrictBoolean(candidate[@"highlighted"])) continue;
-            if (!MSIMEStrictUnsignedIntegerValue(candidate[@"id"][@"index"], &highlightedIndex)) highlightedIndex = NSNotFound;
-            break;
-        }
-        BOOL matchedViewHighlight = NO;
-        if (highlightedIndex != NSNotFound) {
-            for (NSUInteger index = 0; index < entries.count; ++index) {
-                if ([entries[index][@"id"][@"index"] isEqual:@(highlightedIndex)]) {
-                    adaptiveHighlight = index;
-                    matchedViewHighlight = YES;
-                    break;
-                }
-            }
-        }
-        if (!matchedViewHighlight) {
-            for (NSUInteger index = 0; index < entries.count; ++index)
-                if (MSIMEStrictBoolean(entries[index][@"highlighted"])) { adaptiveHighlight = index; break; }
-        }
+        adaptiveHighlight = MSIMEAdaptiveHighlightIndex(entries, _view);
         paginate(0);
     } else {
         _adaptiveCandidates = nil;
