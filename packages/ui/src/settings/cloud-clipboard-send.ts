@@ -13,10 +13,10 @@ export const CLOUD_CLIPBOARD_DISABLED = "云剪贴板未开启";
 export const CLOUD_CLIPBOARD_UNAVAILABLE = "云剪贴板服务暂不可用，请稍后重试";
 /** 自建中继以 401 拒绝了令牌。中继没有登录这回事，要用户在设置里换一个令牌。 */
 export const CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED =
-  "自建中继拒绝了令牌，请在设置的「剪贴板」页检查中继令牌";
+  "自建中继拒绝了令牌（或 WebDAV 网盘拒绝了账号、应用密码），请在设置的「剪贴板」页检查";
 /** 用户在原生设置里改用了自建中继，而这个页面只能经水杉账号收发（iOS、Android 的 Tauri 工程）。宿主因此拒绝，内容不会发往水杉账号。 */
 export const CLOUD_CLIPBOARD_RELAY_UNSUPPORTED =
-  "云剪贴板已改用自建中继，这个页面还不能经中继收发，内容不会发到水杉账号";
+  "云剪贴板已改用自建中继或 WebDAV 网盘，这个页面还不能经它们收发，内容不会发到水杉账号";
 export const CLOUD_CLIPBOARD_PENDING =
   "本设备还没有获准使用云剪贴板：请打开云剪贴板查看本设备的核对码，再到一台已在使用云剪贴板的设备上点「允许」";
 
@@ -72,13 +72,19 @@ export function cloudClipboardErrorMessage(error: unknown, fallback: string): st
     case "relay_unsupported":
       return CLOUD_CLIPBOARD_RELAY_UNSUPPORTED;
     case "relay_not_configured":
-      return "自建中继的地址或令牌无效，请在设置的「剪贴板」页重新填写";
+      return "自建中继或 WebDAV 网盘的设置无效，请在设置的「剪贴板」页重新填写";
     case "relay_unavailable":
-      return "连不上自建中继，请确认中继在运行、地址正确，稍后重试";
+      return "连不上自建中继或 WebDAV 网盘，请确认地址正确、网络可用，稍后重试";
+    case "webdav_rate_limited":
+      return "WebDAV 网盘暂时限制了请求次数（坚果云免费账号每 30 分钟 600 次，与其他应用共用），请稍后再试";
+    case "webdav_rollback":
+      return "网盘上的云剪贴板记录比这台设备读到过的旧，或者被改动过，已停止同步。若是你自己清理过网盘文件夹，请在设置的「剪贴板」页重新测试连接并保存";
+    case "webdav_unsupported":
+      return "这个网盘不支持云剪贴板需要的文件操作，请在设置的「剪贴板」页换一个 WebDAV 服务";
     case "clipboard_full":
       return "云剪贴板的 50 条都已置顶，取消置顶或删除几条后再发送";
     case "relay_storage":
-      return "无法读写本机保存的中继密钥，请检查数据目录的权限";
+      return "无法读写本机保存的中继密钥或网盘缓存，请检查数据目录的权限";
   }
   return fallback;
 }

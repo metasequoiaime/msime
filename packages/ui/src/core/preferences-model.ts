@@ -19,7 +19,10 @@ import type {
   ShuangpinCustomProfile,
 } from "../settings/shuangpin-custom-profile";
 import type { AppInputModeRule } from "../settings/app-input-mode-rules";
-import type { CloudClipboardRelayPreferences } from "../settings/cloud-clipboard-relay-preferences";
+import type {
+  CloudClipboardRelayPreferences,
+  CloudClipboardWebDavPreferences,
+} from "../settings/cloud-clipboard-relay-preferences";
 import type { VoiceInputPreferences } from "../settings/voice-input-preferences";
 import type { NetworkProxyPreferences } from "../settings/network-proxy-preferences";
 import type { TouchKeyboardSchemePreferences } from "../settings/touch-keyboard-scheme-helpers";
@@ -63,6 +66,8 @@ export type Preferences = PunctuationPreferences &
     clipboard_history_limit?: number;
     /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/preferences.rs` 的 `CloudClipboardRelayPreferences`。 */
     cloud_clipboard_relay?: CloudClipboardRelayPreferences;
+    /** 存放云剪贴板的 WebDAV 网盘；缺省或地址为空表示不用。三项要么都空，要么都合规，与 `cloud_clipboard_relay` 只能二选一，见 `crates/client-core/src/preferences.rs` 的 `CloudClipboardWebDavPreferences`。 */
+    cloud_clipboard_webdav?: CloudClipboardWebDavPreferences;
     cloud_candidates?: boolean;
     cloud_candidate_provider?: CloudCandidateProviderPreferences;
     /** 云候选、翻译、AI、语音、账号、更新检查和下载共用的代理设置；本机与局域网目标一律直连。 */
