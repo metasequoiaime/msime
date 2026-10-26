@@ -34,6 +34,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
+import app.msime.android.QuanpinSeparatorPolicy;
 import app.msime.android.SchemePreferences;
 import app.msime.android.ShuangpinKeyHintPolicy;
 import app.msime.android.SplitKeyboardPolicy;
