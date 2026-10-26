@@ -167,6 +167,8 @@ export type Preferences = PunctuationPreferences &
     korean?: KoreanPreferences;
     /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
     single_character_only?: boolean;
+    /** 移动光标后编辑光标后的部分（桌面宿主）：缺省为关，关着时 Rust 端不写这个键。 */
+    caret_edit_suffix?: boolean;
     candidate_page_size: number;
     number_row_selection?: boolean;
     candidate_follow_cursor?: boolean;
