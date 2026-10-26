@@ -5193,6 +5193,18 @@ group("offers all fixed candidate slots and checks the active one", () => {
   );
 });
 
+group("符号、emoji 这类永远没有释义的候选不预留释义列", () => {
+  // 打「立方米」时符号混输的「㎥」「m³」是 emoji 来源（6），共享层和宿主都不给它们释义；留一栏只会在一个字宽的符号后面空出三分之一个候选栏。
+  for (const source of [6, 7, 13, 14, 18]) {
+    check(!CandidateChipWidth.reservesColumn(true, source, ""), `来源 ${source} 不留释义列`);
+  }
+  for (const source of [0, 1, 2, 3, 4, 5, 8, 9]) {
+    check(CandidateChipWidth.reservesColumn(true, source, ""), `来源 ${source} 照旧留释义列`);
+  }
+  check(CandidateChipWidth.reservesColumn(true, 6, "물 수"), "有 훈음 的行不看来源");
+  check(!CandidateChipWidth.reservesColumn(false, 0, ""), "不预期释义时谁都不留");
+});
+
 group("a chip is as wide as its column, whether or not the gloss has arrived", () => {
   // MSIME-Apple's AChipKeepsItsWidthWhateverTheGlossTurnsOutToBe. The networked glosses come back
   // over a few hundred milliseconds; a width that follows them widens one chip at a time and pushes

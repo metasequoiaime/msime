@@ -3237,7 +3237,8 @@ struct KeyboardView {
           : Math.max(0, 9 - (this.candidateNumberSize() > 0
             ? CandidateWidthPolicy.textWidthVp(`${index + 1}`, this.candidateNumberSize()) : -CandidateWidthPolicy.ORDINAL_GAP_VP)))
       : TextPolicy.characters(candidate.text).length * this.settings.candidateFontSize;
-    if (!KeyboardSession.shared.glossesExpected()) {
+    if (!CandidateChipWidth.reservesColumn(KeyboardSession.shared.glossesExpected(), candidate.source,
+      candidate.hunEum)) {
       return CandidateLayoutPolicy.chipWidth(this.candidateGeometry(), this.settings.candidateFontSize, word, padding);
     }
     const column: number = CandidateChipWidth.column(this.availableWidth, 0, padding);
@@ -4381,9 +4382,10 @@ struct KeyboardView {
       ? CandidateChipWidth.column(this.chipLaneWidth(), 0, CHIP_PADDING_VP) : 0;
   }
 
-  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。 */
-  private chipMinWidth(): number {
-    const column: number = this.chipGlossColumn();
+  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。永远没有注释的来源（emoji、符号等，见 `CandidateChipWidth.reservesColumn`）不留这一列。 */
+  private chipMinWidth(candidate: CandidateEntry): number {
+    const column: number = CandidateChipWidth.reservesColumn(KeyboardSession.shared.glossesExpected(),
+      candidate.source, candidate.hunEum) ? this.chipGlossColumn() : 0;
     const minimum: number = Math.max(CHIP_MIN_WIDTH_VP,
       CandidateLayoutPolicy.dip(this.settings.candidateSkinLayout?.horizontal.itemMinWidth, this.chipFontSize(), 0));
     return column > 0 ? Math.max(minimum, Math.ceil(column + CHIP_PADDING_VP * 2)) : minimum;
@@ -4452,7 +4454,7 @@ struct KeyboardView {
           .constraintSize({ maxWidth: this.chipGlossMaxWidth(candidate) })
       }
     }
-    .constraintSize({ minWidth: this.chipMinWidth() })
+    .constraintSize({ minWidth: this.chipMinWidth(candidate) })
     .height(CHIP_HEIGHT_VP)
     .padding({ left: CHIP_PADDING_VP, right: CandidateLayoutPolicy.dip(
       this.settings.candidateSkinLayout?.horizontal.itemPaddingRight, this.chipFontSize(), CHIP_PADDING_VP) })
