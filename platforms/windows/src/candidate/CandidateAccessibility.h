@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace msime::windows {
-// 候选窗交给读屏的元素，名称与 macOS 候选窗的 accessibilityLabel 一致（InputController.mm）：每行「序号  候选」、页码「第 N 页，共 M 页」、翻页箭头「上一页候选」「下一页候选」、预编辑「候选窗预编辑」、logo 是产品名。皮肤的卷轴展开另有展开按钮「展开候选」「收起候选」和网格里看得见的候选（只有候选文字，没有序号）。
+// 候选窗交给读屏的元素，名称与 macOS 候选窗的 accessibilityLabel 一致（InputController.mm）：每行「序号  候选」、页码「第 N 页，共 M 页」、翻页箭头「上一页候选」「下一页候选」、预编辑「候选窗预编辑」、logo 是产品名。皮肤的卷轴展开另有展开按钮「展开候选」「收起候选」和网格里看得见的候选（只有候选文字，没有序号）。光标后编辑生效时首行右侧的提示是一段文字，名称就是画出来的那串字。
 
 // 元素 id：候选行是序号（1 到 9），其余是固定的编号，换页、换快照都不变。
 inline constexpr int candidate_accessible_logo = 100;
@@ -17,6 +17,7 @@ inline constexpr int candidate_accessible_page = 102;
 inline constexpr int candidate_accessible_previous = 103;
 inline constexpr int candidate_accessible_next = 104;
 inline constexpr int candidate_accessible_expand = 105;
+inline constexpr int candidate_accessible_hint = 106;
 // 卷轴展开网格里第 k 个候选的 id 是它加 k。
 inline constexpr int candidate_accessible_expanded_first = 1000;
 inline constexpr const char *candidate_accessible_name = "候选窗";
@@ -51,7 +52,7 @@ struct CandidateAccessibleExpand {
   std::vector<Cell> cells;
 };
 
-// 按刚画好的页算出元素树。`clickable` 和 `pageable` 是窗口有没有点选、翻页的回调；`pointer_input` 为 false 的列表（只能用键盘选）和鼠标一样不能执行。`product` 是这个版本的产品名（UTF-8）。
+// 按刚画好的页算出元素树。`clickable` 和 `pageable` 是窗口有没有点选、翻页的回调；`pointer_input` 为 false 的列表（只能用键盘选）和鼠标一样不能执行。`product` 是这个版本的产品名（UTF-8）。`hint` 是首行右侧提示画在哪里（candidate_header_hint_bounds），没有画时为空。
 inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &value,
                                                 const std::vector<CandidateRowLayout> &rows,
                                                 const std::optional<CandidatePagerLayout> &pager,
@@ -60,7 +61,8 @@ inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &val
                                                 const CandidateAccessibleFrame &frame,
                                                 bool clickable, bool pageable,
                                                 const std::string &product,
-                                                const CandidateAccessibleExpand *expand = nullptr) {
+                                                const CandidateAccessibleExpand *expand = nullptr,
+                                                const std::optional<CandidateRowBounds> &hint = std::nullopt) {
   AccessibleTree tree{AccessibleContainer::List, candidate_accessible_name, {}};
   const auto client = [&frame](const CandidateRowBounds &box) {
     return AccessibleBounds{(frame.card_left + box.left) * frame.scale,
@@ -85,14 +87,21 @@ inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &val
     preedit.automation_id = "candidate-preedit";
     preedit.name = "候选窗预编辑";
     preedit.value = value.preedit;
-    // 皮肤把翻页画在列表里时首行没有翻页，拼音一直到右边距（再减去皮肤给拼音行的右外边距），与 paint 画的一样。
-    const double right = pager && !pager->in_list
-                             ? pager->left - metrics.pager_gap
-                             : frame.card_width - metrics.pad_x / 2.0 -
-                                   metrics.preedit_margin.right;
+    // 拼音画到提示或首行翻页之前；皮肤把翻页画在列表里、又没有提示时一直到右边距（再减去皮肤给拼音行的右外边距），与 paint 画的一样。
+    const double right = candidate_preedit_right(frame.card_width, pager, hint, metrics);
     const auto band = candidate_header_band(metrics);
     preedit.bounds = client({candidate_preedit_left(metrics), band.top, right, band.bottom});
     tree.elements.push_back(std::move(preedit));
+  }
+  // 提示只在画出来时报，和画出来的一样只是文字，不能执行；文字取自这一页的投影（candidate_header_hint），提示没有画时为空。
+  if (const auto text = candidate_header_hint(value); hint && !text.empty()) {
+    AccessibleElement element;
+    element.id = candidate_accessible_hint;
+    element.role = AccessibleRole::Text;
+    element.automation_id = "candidate-header-hint";
+    element.name = text;
+    element.bounds = client(*hint);
+    tree.elements.push_back(std::move(element));
   }
   if (pager && value.page < value.page_count) {
     // 列表里的箭头不带页码，没有画出来的东西就不报给读屏。

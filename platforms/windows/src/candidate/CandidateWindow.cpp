@@ -1142,6 +1142,10 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                           font_family_,
                                           static_cast<float>(CandidateCardMetrics{}.pager_font),
                                           font_fallback_.Get());
+  // 首行右侧的提示（光标后编辑的「候选编辑：光标后」）和页码同一个字号；没有提示时宽度为 0，卡片和以前一样大。
+  input.hint_width = measured_width(device_, wide(candidate_header_hint(value)), font_family_,
+                                    static_cast<float>(CandidateCardMetrics{}.pager_font),
+                                    font_fallback_.Get());
   input.items = measure_items(value);
   input.wrapped = wrap_measure(value);
   // canvas：内容内边距让面板比这张卡片四边各大出 canvas_offset_，最小宽度按整块面板比。没有 canvas 时为 0。
@@ -1151,7 +1155,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                 canvas_, candidate_canvas_base_padding(candidate_card_metrics(
                              font_size_, preedit_font_size_, show_preedit_, show_app_logo_,
                              input.page_width > 0.0, input.skin, input.number_width,
-                             input.line_height)))
+                             input.line_height, input.hint_width > 0.0)))
           : CandidateCanvasEdges{};
   input.canvas_extra_width = canvas_offset_.left + canvas_offset_.right;
   // 卷轴展开：展开着时卡片按网格变宽变高；后续候选还没到时沿用上一帧的高度。
@@ -1484,9 +1488,15 @@ void CandidateWindow::paint() {
   const auto skin = skin_metrics(*value);
   const auto label =
       skin.expand_panel ? std::wstring{} : pager_label(*value, show_page_number_);
+  // 首行右侧的提示，和 card_bounds 量的是同一串字、同一个字号，有它时首行一定在；没有时宽度为 0，这一帧和没有这项功能时一样画。
+  const auto hint_label = wide(candidate_header_hint(*value));
+  const double hint_width =
+      measured_width(device_, hint_label, font_family_,
+                     static_cast<float>(CandidateCardMetrics{}.pager_font), font_fallback_.Get());
   const auto metrics = candidate_card_metrics(
       font_size_, preedit_font_size_, show_preedit_, show_app_logo_, !label.empty(), skin,
-      number_label_width(value->candidates.size(), skin), candidate_line_height(*value));
+      number_label_width(value->candidates.size(), skin), candidate_line_height(*value),
+      hint_width > 0.0);
   // 卡片按窗口客户区排，和 card_bounds 定的窗口尺寸一致。渲染目标比窗口大（合成交换链按 64 像素分档、只增不减），按它的 GetSize() 排会把卡片右边和下边画到窗口外面裁掉。
   const auto size = device_.GetClientSize();
   const auto frame = candidate_shadow_frame(
@@ -1803,15 +1813,21 @@ void CandidateWindow::paint() {
                       format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
                       box(pager->next), brush(palette_.number));
   }
-  // 拼音占首行里 logo 之后、翻页之前的那一段，再按皮肤的 preedit_margin_dip 往里收。
+  // 光标后编辑的提示：首行右侧、翻页之前，和页码一样是次要色、页码字号，右对齐，不能点。
+  const auto hint = candidate_header_hint_bounds(frame.card_width, hint_width, pager, metrics);
+  if (hint)
+    compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, hint_label.c_str(),
+                                      static_cast<UINT32>(hint_label.size()),
+                                      format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_TRAILING),
+                                      box(*hint), brush(palette_.number),
+                                      D2D1_DRAW_TEXT_OPTIONS_CLIP);
+  // 拼音占首行里 logo 之后、提示和翻页之前的那一段，再按皮肤的 preedit_margin_dip 往里收。
   const auto band = candidate_header_band(metrics);
   const D2D1_RECT_F preedit_rect{
       static_cast<float>(frame.card_left + candidate_preedit_left(metrics)),
       static_cast<float>(frame.card_top + band.top),
       static_cast<float>(frame.card_left +
-                         (pager ? pager->left - metrics.pager_gap
-                                : frame.card_width - metrics.pad_x / 2.0 -
-                                      metrics.preedit_margin.right)),
+                         candidate_preedit_right(frame.card_width, pager, hint, metrics)),
       static_cast<float>(frame.card_top) + static_cast<float>(band.bottom)};
   // The combo count, right-aligned at the end of the preedit row before the pager. Drawn only where it fits beside the reading, so it never covers what the user is typing.
   if (!effect_badge_elsewhere_ && typing_effect_shows_combo(effect_.combo, effect_elapsed)) {
@@ -2028,13 +2044,33 @@ void CandidateWindow::paint() {
                       rect.left + gutter, rect.top + first_line},
           brush(number_color));
     const auto text = wide(candidate_primary_text(value->candidates[i]));
+    const D2D1_RECT_F text_rect{rect.left + gutter, rect.top, rect.right,
+                                rect.top + static_cast<float>(item.text_height)};
+    auto *text_format = format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING, item.text_wrapped, true);
+    // 光标后编辑里首选开头固定的那几个字（candidate_caret_edit_dim）用序号的次要色画，后面光标后那段照常；整行的文字、宽度和折行都不变，读屏和悬停提示仍是全文。给这一段设颜色要 IDWriteTextLayout，建不出来时整行照常画。
+    const size_t dim_bytes = candidate_caret_edit_dim(*value, value->candidates[i]);
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> dimmed;
+    if (dim_bytes > 0 && !value->candidates[i].pending) {
+      const auto dim_length =
+          static_cast<UINT32>(wide(value->candidates[i].text.substr(0, dim_bytes)).size());
+      if (auto *factory = device_.GetDWriteFactory();
+          !(factory &&
+            SUCCEEDED(compat::CreateTextLayoutWithWindows7Emoji(
+                factory, text.c_str(), static_cast<UINT32>(text.size()), text_format,
+                (std::max)(text_rect.right - text_rect.left, 0.0f),
+                (std::max)(text_rect.bottom - text_rect.top, 0.0f), dimmed.GetAddressOf())) &&
+            dimmed && SUCCEEDED(dimmed->SetDrawingEffect(brush(number_color),
+                                                         DWRITE_TEXT_RANGE{0, dim_length}))))
+        dimmed.Reset();
+    }
     // Text wider than its column was laid out wrapped (wrapped_height() at this same width), and the row already grew by that height, so it wraps here inside the row that hit testing uses. Text that fits keeps the single-line format, so rounding cannot wrap what was laid out as one line. Still clipped to the row as a guard: without it anything the layout did not account for would paint past the card edge onto the transparent shadow margin.
-    compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
-        text.c_str(), static_cast<UINT32>(text.size()),
-        format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING, item.text_wrapped, true),
-        D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
-                    rect.top + static_cast<float>(item.text_height)},
-        brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    if (dimmed)
+      target->DrawTextLayout(D2D1_POINT_2F{text_rect.left, text_rect.top}, dimmed.Get(),
+                             brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    else
+      compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
+          text.c_str(), static_cast<UINT32>(text.size()), text_format, text_rect,
+          brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     // The annotation takes the candidate text's colour, as macOS draws it with titleAttributes: the fixed-position colour on an unselected fixed row, the selected text colour on the selected row. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
     const auto annotation_color =
         candidate_row_text_color(palette_, text_color, selected,
@@ -2282,7 +2318,7 @@ void CandidateWindow::paint() {
         CandidateAccessibleFrame{frame.card_left, frame.card_top, frame.card_width,
                                  layout_scale(painted_dpi_)},
         static_cast<bool>(click_), static_cast<bool>(page_), MSIME_EDITION_DISPLAY_NAME_UTF8,
-        accessible_expand ? &*accessible_expand : nullptr));
+        accessible_expand ? &*accessible_expand : nullptr, hint));
   }
   if (rendered_)
     rendered_(*painted_);

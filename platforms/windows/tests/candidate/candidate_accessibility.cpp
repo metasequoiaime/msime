@@ -214,6 +214,35 @@ int main() {
                                                          frame, true, true, "水杉输入法", &expand);
     require(!element(keyboard_tree, candidate_accessible_expand).invokable &&
             !element(keyboard_tree, candidate_accessible_expanded_first).invokable);
+    // 光标后编辑：首行右侧的提示画出来时报成一段文字，排在预编辑之后、页码之前，名字就是画的那串字，不能执行；拼音到提示之前为止。首选那一行仍读全文，画淡的固定那段不影响读屏。
+    value.pointer_input = true;
+    value.caret_edit_suffix = true;
+    value.caret_edit_prefix = "你";
+    const auto hint = candidate_header_hint_bounds(240.0, 90.0, pager, metrics);
+    require(hint);
+    const auto hinted = candidate_accessible_tree(value, rows, pager, metrics, true, frame, true,
+                                                  true, "水杉输入法", nullptr, hint);
+    require(hinted.elements.size() == 8);
+    require(hinted.elements[1].id == candidate_accessible_preedit &&
+            hinted.elements[2].id == candidate_accessible_hint &&
+            hinted.elements[3].id == candidate_accessible_page);
+    const auto &hint_element = element(hinted, candidate_accessible_hint);
+    require(hint_element.role == AccessibleRole::Text && hint_element.name == "候选编辑：光标后" &&
+            hint_element.automation_id == "candidate-header-hint" && !hint_element.invokable &&
+            !hint_element.selected);
+    require(hint_element.bounds.left == (8.0 + hint->left) * 1.5 &&
+            hint_element.bounds.right == (8.0 + pager->left - metrics.pager_gap) * 1.5);
+    require(element(hinted, candidate_accessible_preedit).bounds.right ==
+            (8.0 + hint->left - metrics.pager_gap) * 1.5);
+    require(element(hinted, 1).name == "1  你好");
+    // 提示没有画（首行不占高度）时不报；模式没有生效时即使给了位置也不报，元素树和以前一样。
+    require(!accessible_element(candidate_accessible_tree(value, rows, pager, metrics, true, frame,
+                                                          true, true, "水杉输入法"),
+                                candidate_accessible_hint));
+    value.caret_edit_suffix = false;
+    const auto plain = candidate_accessible_tree(value, rows, pager, metrics, true, frame, true,
+                                                 true, "水杉输入法", nullptr, hint);
+    require(!accessible_element(plain, candidate_accessible_hint) && plain.elements.size() == 7);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;
