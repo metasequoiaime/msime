@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "wanxiang",
+      "channel": "stable",
+      "source_commit": "c78463a521aee2681db6cd6424a75a9b413237a3",
+      "artifact": {
+        "name": "wanxiang-lts-zh-hans.gram",
+        "url": "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram",
+        "sha256": "e34500ab44626dc039a0641792ecba98ab63307646eb3d29186be56608ffe094",
+        "size": 418078764
+      },
+      "format": "gram-v1"
+    },
+    {
+      "id": "baguwen",
+      "channel": "stable",
+      "source_commit": "8ceef1b42eb77e86501382a52e85c309c0f2f04c",
+      "artifact": {
+        "name": "zh-hans-t-essay-bgw.gram",
+        "url": "https://github.com/lotem/rime-octagram-data/releases/download/20260712/zh-hans-t-essay-bgw.gram",
+        "sha256": "b91e4be2d9fee62bfda0aa0d87df94ef95c8d7ffd7302365b90a3e888dc60773",
+        "size": 206396460
+      },
+      "format": "gram-v1"
+    },
+    {
+      "id": "baguwen-compact",
+      "channel": "stable",
+      "source_commit": "8ceef1b42eb77e86501382a52e85c309c0f2f04c",
+      "artifact": {
+        "name": "zh-hans-t-essay-bgw-compact.gram",
+        "url": "https://github.com/lotem/rime-octagram-data/releases/download/20260712/zh-hans-t-essay-bgw-compact.gram",
+        "sha256": "d3cb2438c1fdcd6a855dd6ca8f5c1060a29273c6b64c2c2c69af67cd71b6aa7e",
+        "size": 40925228
+      },
+      "format": "gram-v1"
+    }
+  ]
+}

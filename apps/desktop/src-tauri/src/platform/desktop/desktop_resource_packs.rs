@@ -257,6 +257,27 @@ pub(crate) async fn resource_packs<R: tauri::Runtime>(
     })
 }
 
+/// 主动读取官方语法模型目录；只返回可选更新，不下载或替换本地模型。
+#[tauri::command]
+pub(crate) async fn resource_pack_check_grammar_updates(
+    store: tauri::State<'_, Arc<PreferencesStore>>,
+) -> Result<Vec<resource_packs::GrammarModelUpdate>, HostActionError> {
+    let root = state_root(store.inner());
+    let channel = store
+        .load()
+        .map(|snapshot| snapshot.preferences.update_channel)
+        .unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || {
+        resource_packs::check_grammar_updates(&root, channel).map_err(|_| HostActionError {
+            code: "grammar_model_catalog_unavailable",
+        })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
 /// 下载并安装一个资源包，返回安装目录。镜像沿用已保存的 `voice_input.asr_model_mirror`。
 #[tauri::command]
 pub(crate) async fn resource_pack_install<R: tauri::Runtime>(

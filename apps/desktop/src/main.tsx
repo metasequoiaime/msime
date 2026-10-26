@@ -278,6 +278,7 @@ const resourcePacks: ResourcePackClient = {
     progress: "resource-pack-progress",
   }),
   remove: (id) => invoke<boolean>("resource_pack_remove", { id }),
+  checkGrammarUpdates: () => invoke("resource_pack_check_grammar_updates"),
 };
 const macosInstallClient: MacosInstallClient = {
   install: (scope) => invoke("run_first_input_source_install", { scope }),

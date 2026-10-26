@@ -15,6 +15,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
+use std::time::Duration;
 
 /// 资源包根目录相对 state_root 的名字。
 pub const DIRECTORY: &str = "resource-packs";
@@ -28,6 +29,144 @@ const WANXIANG_GRAMMAR_FILE: &str = "wanxiang-lts-zh-hans.gram";
 const GRAMMAR_HEADER_BYTES: usize = 44;
 const GRAMMAR_MAX_UNITS: usize = 400_000_000;
 const GRAMMAR_MAGIC: &[u8] = b"Rime::Grammar/";
+const GRAMMAR_CATALOG_URL: &str =
+    "https://raw.githubusercontent.com/metasequoiaime/msime/develop/resources/grammar-models.catalog.json";
+const GRAMMAR_CATALOG_LIMIT: u64 = 1024 * 1024;
+#[cfg(test)]
+const EMBEDDED_GRAMMAR_CATALOG: &str =
+    include_str!("../../../resources/grammar-models.catalog.json");
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct GrammarCatalog {
+    version: u32,
+    models: Vec<GrammarCatalogModel>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct GrammarCatalogModel {
+    id: String,
+    channel: String,
+    source_commit: String,
+    artifact: crate::resources::Artifact,
+    format: String,
+}
+
+/// 一次主动检查得到的可选更新。网络结果只供设置宿主展示，输入宿主不调用此函数。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct GrammarModelUpdate {
+    pub pack: &'static str,
+    pub source_commit: String,
+    pub size: u64,
+}
+
+fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelError> {
+    if catalog.version != 1 || catalog.models.is_empty() || catalog.models.len() > 4 {
+        return Err(LocalModelError::Network("invalid grammar catalog".into()));
+    }
+    let mut ids = HashSet::new();
+    for model in &catalog.models {
+        let Some(pack) = ResourcePack::from_id(&format!("grammar-model-{}", model.id)) else {
+            return Err(LocalModelError::Network("invalid grammar catalog".into()));
+        };
+        if !matches!(
+            pack,
+            ResourcePack::GrammarWanxiang
+                | ResourcePack::GrammarBaguwen
+                | ResourcePack::GrammarBaguwenCompact
+        ) {
+            return Err(LocalModelError::Network("invalid grammar catalog".into()));
+        }
+        if !ids.insert(model.id.as_str())
+            || !matches!(model.channel.as_str(), "stable" | "beta" | "nightly")
+            || model.format != "gram-v1"
+            || !crate::is_lower_hex(&model.source_commit, 40)
+            || !model.artifact.url.starts_with("https://")
+            || !crate::is_lower_hex(&model.artifact.sha256, 64)
+            || model.artifact.size < GRAMMAR_HEADER_BYTES as u64
+            || model.artifact.size > 2 * 1024 * 1024 * 1024
+            || model.artifact.name != pack.set().artifacts[0].name
+        {
+            return Err(LocalModelError::Network("invalid grammar catalog".into()));
+        }
+    }
+    Ok(())
+}
+
+fn fetch_grammar_catalog() -> Result<GrammarCatalog, LocalModelError> {
+    let client = crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .user_agent(concat!("msime/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| LocalModelError::Network(error.to_string()))?;
+    let response = client
+        .get(GRAMMAR_CATALOG_URL)
+        .send()
+        .map_err(|error| LocalModelError::Network(error.without_url().to_string()))?
+        .error_for_status()
+        .map_err(|error| LocalModelError::Network(error.to_string()))?;
+    if response
+        .content_length()
+        .is_some_and(|size| size > GRAMMAR_CATALOG_LIMIT)
+    {
+        return Err(LocalModelError::Network("grammar catalog too large".into()));
+    }
+    let mut bytes = Vec::new();
+    response
+        .take(GRAMMAR_CATALOG_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| LocalModelError::Network(error.to_string()))?;
+    if bytes.len() as u64 > GRAMMAR_CATALOG_LIMIT {
+        return Err(LocalModelError::Network("grammar catalog too large".into()));
+    }
+    let catalog: GrammarCatalog = serde_json::from_slice(&bytes)
+        .map_err(|_| LocalModelError::Network("invalid grammar catalog".into()))?;
+    validate_grammar_catalog(&catalog)?;
+    Ok(catalog)
+}
+
+/// 联网获取当前模型目录并比较已安装模型的本地快照；不下载、不替换任何文件。
+pub fn check_grammar_updates(
+    state_root: &Path,
+    channel: msime_client_core::preferences::UpdateChannel,
+) -> Result<Vec<GrammarModelUpdate>, LocalModelError> {
+    let catalog = fetch_grammar_catalog()?;
+    let mut updates = Vec::new();
+    for model in catalog.models {
+        if model.channel != channel.as_str()
+            && !(channel == msime_client_core::preferences::UpdateChannel::Nightly
+                && model.channel == "beta")
+        {
+            continue;
+        }
+        let pack_id = format!("grammar-model-{}", model.id);
+        let Some(pack) = ResourcePack::from_id(&pack_id) else {
+            continue;
+        };
+        let current =
+            local_models::installed_manifest(&root(state_root), pack.id()).and_then(|manifest| {
+                manifest
+                    .get("artifacts")?
+                    .as_array()?
+                    .first()?
+                    .get("sha256")?
+                    .as_str()
+                    .map(str::to_owned)
+            });
+        if current.as_deref() != Some(model.artifact.sha256.as_str()) {
+            updates.push(GrammarModelUpdate {
+                pack: pack.id(),
+                source_commit: model.source_commit,
+                size: model.artifact.size,
+            });
+        }
+    }
+    Ok(updates)
+}
 
 /// `grammar-models.lock.json` 的形态：每个语法模型一条，各自带自己的上游提交和文件。
 /// 四个模型来自三个仓库（万象、八股文、白霜/墨奇），所以不能共用一条 `source_commit`。
@@ -930,7 +1069,7 @@ pub fn install(
     if !pack.pinned() || pack == ResourcePack::AndroidOcrModule {
         return Err(LocalModelError::UnknownModel);
     }
-    if pack == ResourcePack::GrammarWanxiang {
+    if pack.is_grammar_model() {
         if !mirrors
             .iter()
             .all(|mirror| crate::preferences::valid_model_mirror(mirror))
@@ -943,15 +1082,32 @@ pub fn install(
         local_models::check_root(&root(state_root))?;
         crate::storage::create_directory_and_check(&root(state_root))
             .map_err(LocalModelError::from)?;
+        let catalog = fetch_grammar_catalog()?;
+        let model_id = match pack {
+            ResourcePack::GrammarWanxiang => "wanxiang",
+            ResourcePack::GrammarBaguwen => "baguwen",
+            ResourcePack::GrammarBaguwenCompact => "baguwen-compact",
+            _ => unreachable!(),
+        };
+        let model = catalog
+            .models
+            .into_iter()
+            .find(|model| model.id == model_id && model.channel == "stable")
+            .ok_or_else(|| LocalModelError::Network("grammar model unavailable".into()))?;
         let dynamic = local_models::download_dynamic_file(
             &root(state_root),
-            WANXIANG_GRAMMAR_FILE,
-            &pack.set().artifacts[0].url,
+            &model.artifact.name,
+            &model.artifact.url,
             &download_prefixes(mirrors),
             valid_gram_file,
             progress,
             cancel,
         )?;
+        if dynamic.artifact.sha256 != model.artifact.sha256
+            || dynamic.artifact.size != model.artifact.size
+        {
+            return Err(LocalModelError::ChecksumMismatch(model.artifact.name));
+        }
         let artifact = dynamic.artifact.clone();
         let manifest = dynamic_grammar_manifest(pack, &artifact);
         let fetcher = local_models::LocalFileFetcher::matching_sources(
@@ -1187,6 +1343,13 @@ pub fn adopt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_grammar_catalog_is_strict_and_matches_pinned_models() {
+        let catalog: GrammarCatalog = serde_json::from_str(EMBEDDED_GRAMMAR_CATALOG).unwrap();
+        validate_grammar_catalog(&catalog).unwrap();
+        assert_eq!(catalog.models.len(), 3);
+    }
 
     /// 伪造一个已发布的资源包目录：所有文件加上当前的 `msime-model.json`。
     fn publish_fake(state_root: &Path, pack: ResourcePack) -> PathBuf {
