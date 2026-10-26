@@ -32,3 +32,9 @@ HarmonyOS 不同：九键切英文保留九宫格（输入方式面板里也有�
 - 代价：英文 26 键的空格窄了四分之一（4 → 3 份），英文九键的空格从 4.2 份让到 2.2 份；HarmonyOS 英文九键的句点和逗号在左列与底行各有一个。
 - 打字统计的键位热力图仍按中文方案的底行画，不单独画英文底行；英文句点的按键记作 `Period`。
 - 测试：iOS `NineKeyKeyboardTests.testEnglishBottomRowPutsPeriodLeftAndCommaRightOfSpace`（320pt、393pt，含渲染图）和 `testPhoneBottomRowFollowsTheDesignsWeights`；Android `KeyboardActionRowSmoke`；HarmonyOS `keyboard-logic.test.ts` 的「英文九键字母层」与「26 键底行」两组。
+
+## Verification
+
+- iOS：iOS 27 模拟器（iPhone 17 Pro Max）上 `MSIMEKeyboardTests` 整套 965 项、7 跳过；其中旧断言「英文逗号与中文同宽」因多出一道键距差 0.6pt，改为按同一份额比较后两项回归通过。渲染图对照：改前英文底行是 123 | 符 | 空格 | , | 英 | 回车，改后 320pt 与 393pt 都是 123 | 符 | . | 空格 | , | 英 | 回车，中文九键不变。
+- Android：`check-host.sh` 279 项 JVM 冒烟通过；API 35 专用模拟器、360dp 宽，改前改后装包对照：九键切英文后底行出现 `.`，依次点 `.` 和 `,` 输入框得到 `.,`，切回中文九键左列 `， 。 ？`、底行 符 | 123 | 空格 | 中 | 回车不变。
+- HarmonyOS：`tests/run.sh` 的 node 逻辑测试全部通过（含新增两组），`hvigorw assembleHap` 编译 ArkTS 通过；没有设备，未做装机验收。
