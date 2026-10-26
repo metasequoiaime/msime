@@ -21,7 +21,7 @@ jobs:
     if: >-
       ${{ !endsWith(github.actor, '[bot]')
       && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association || github.event.pull_request.author_association) }}
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       # actions/first-interaction 不能用：v3.1.0 只要「作者没开过 issue」或「仓库里没有更早的 PR」任一成立就发欢迎语，而且不区分当前是 issue 还是 PR，PR 那一项也没按作者过滤。于是只提 PR、从不开 issue 的贡献者每个 PR 都会收到「感谢你的第一个 PR」（2026-10-06 yangkx1024 的 #3574 到 #3852 五个 PR 全都收到了）。这里改为按作者列出本仓库的 issue 和 PR，只数与当前事件同类、编号更小的那些。
