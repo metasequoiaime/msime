@@ -5479,6 +5479,9 @@ private:
     ++update_generation_;
     update_checking_ = false;
     update_outcome_.reset();
+    grammar_updates_checking_ = false;
+    grammar_updates_available_.clear();
+    grammar_updates_notice_.clear();
     show_update_outcome();
     load_pending_update();
   }
@@ -13763,6 +13766,19 @@ private:
     const auto pack = grammar_pack_for_model(model);
     if (!pack.empty())
       sentence_pack_row(group, pack, L"模型文件");
+    StackPanel actions;
+    actions.Orientation(Orientation::Horizontal);
+    actions.Spacing(8);
+    auto check = button_control(grammar_updates_checking_ ? L"检查中…" : L"检查更新",
+                                [this] { check_grammar_model_updates(); },
+                                !grammar_updates_checking_);
+    A11y::SetAutomationId(check, L"sentence-grammar-model-check-updates");
+    actions.Children().Append(check);
+    add_row(group, 0xE8C1, L"模型更新",
+            grammar_updates_notice_.empty()
+                ? L"只在点击后读取官方模型目录，不会自动替换当前可用模型。"
+                : grammar_updates_notice_,
+            actions);
   }
 
   void sentence_pack_row(StackPanel const &group, std::wstring const &pack,
@@ -13790,6 +13806,10 @@ private:
       A11y::SetAutomationId(download, L"sentence-model-download-" + pack);
       actions.Children().Append(download);
     }
+    if (status == L"installed" && grammar_updates_available_.count(pack) > 0 &&
+        !installing && !removing)
+      actions.Children().Append(
+          button_control(L"下载更新", [this, pack] { install_sentence_pack(pack); }, loaded_));
     if (status == L"installed" && !installing && !removing)
       actions.Children().Append(button_control(L"删除", [this, pack] { remove_sentence_pack(pack); },
                                                 loaded_));
@@ -13844,6 +13864,53 @@ private:
         });
   }
 
+  void check_grammar_model_updates() {
+    const auto root = state_directory();
+    if (root.empty() || !root.is_absolute() || grammar_updates_checking_)
+      return;
+    grammar_updates_checking_ = true;
+    grammar_updates_notice_.clear();
+    redraw_input();
+    const auto channel = current_update_channel();
+    JsonObject request;
+    request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
+    request.SetNamedValue(
+        L"channel",
+        JsonValue::CreateStringValue(hstring(channel)));
+    run_host(
+        [body = utf8(request.Stringify())] {
+          return take_response(msime_client_resource_pack_check_grammar_updates(
+              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+        },
+        [this, channel](Response const &response) {
+          if (channel != current_update_channel())
+            return;
+          grammar_updates_checking_ = false;
+          grammar_updates_available_.clear();
+          if (!response.ok) {
+            grammar_updates_notice_ = L"无法读取官方模型目录，请稍后重试。";
+          } else {
+            try {
+              const auto updates =
+                  JsonObject::Parse(text(response.text)).GetNamedArray(L"value");
+              for (auto const &item : updates) {
+                if (item.ValueType() == JsonValueType::Object)
+                  grammar_updates_available_.insert(named_string(item.GetObject(), L"pack"));
+              }
+              const auto selected = grammar_pack_for_model(
+                  document_.String(L"sentence_association.grammar_model", L"none"));
+              grammar_updates_notice_ =
+                  grammar_updates_available_.count(selected) == 0
+                      ? L"当前已是最新模型。"
+                      : L"发现可选模型更新；下载前仍会校验完整性。";
+            } catch (...) {
+              grammar_updates_notice_ = L"模型目录返回内容无法读取，请稍后重试。";
+            }
+          }
+          redraw_input();
+        });
+  }
+
   void redraw_input() {
     if (!closed_ && current_page_ == "input")
       render_page(true);
@@ -13860,6 +13927,10 @@ private:
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     request.SetNamedValue(L"pack", JsonValue::CreateStringValue(hstring(id)));
+    request.SetNamedValue(
+        L"channel",
+        JsonValue::CreateStringValue(
+            hstring(current_update_channel())));
     const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
     if (!mirror.empty()) {
       JsonArray sources;
@@ -13876,6 +13947,8 @@ private:
           sentence_pack_installing_.erase(id);
           if (!response.ok)
             show_notice(L"模型下载失败，请检查网络或稍后重试。", InfoBarSeverity::Error);
+          else
+            grammar_updates_available_.erase(id);
           refresh_sentence_packs();
           redraw_input();
         });
@@ -24801,6 +24874,9 @@ private:
   std::vector<std::pair<std::wstring, std::wstring>> sentence_pack_statuses_;
   std::set<std::wstring> sentence_pack_installing_;
   std::set<std::wstring> sentence_pack_removing_;
+  std::set<std::wstring> grammar_updates_available_;
+  bool grammar_updates_checking_ = false;
+  std::wstring grammar_updates_notice_;
   // 「输入 › 候选与联想」云候选服务的草稿（共享页 CloudCandidatesSection 的组件状态）和它出自的那份文档配置（序列化后的文字）；文档里的配置变了草稿作废。
   std::optional<JsonObject> cloud_provider_draft_;
   std::wstring cloud_provider_base_;

@@ -219,6 +219,10 @@ async fn install_pack<R: tauri::Runtime>(
     pack: ResourcePack,
 ) -> Result<PathBuf, HostActionError> {
     let root = state_root(&store);
+    let channel = store
+        .load()
+        .map(|snapshot| snapshot.preferences.update_channel)
+        .unwrap_or_default();
     let mirror = saved_model_mirror(store).await?;
     run_install(
         app,
@@ -227,7 +231,14 @@ async fn install_pack<R: tauri::Runtime>(
         RESOURCE_PACK_PROGRESS_EVENT,
         pack.id().to_owned(),
         move |progress, cancel| {
-            resource_packs::install(&root, pack, &[mirror.as_str()], progress, cancel)
+            resource_packs::install_for_channel(
+                &root,
+                pack,
+                channel,
+                &[mirror.as_str()],
+                progress,
+                cancel,
+            )
         },
     )
     .await

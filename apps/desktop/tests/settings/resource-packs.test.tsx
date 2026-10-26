@@ -797,3 +797,31 @@ test("语法模型卸载失败保留已安装状态并显示错误，允许重�
   await waitFor(() => expect(packs.client.remove).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByText("操作失败，请重试。")).toBeNull());
 });
+
+test("语法模型只在用户检查后提示更新，下载仍需再次点击", async () => {
+  const id: ResourcePackId = "grammar-model-baguwen-compact";
+  const packs = fakePacks({ [id]: "installed" }, [id]);
+  const checkGrammarUpdates = vi.fn(async () => [
+    { pack: id, source_commit: "b".repeat(40), size: sizes[id] },
+  ]);
+  renderSettings(
+    "windows",
+    Object.assign(packs.client, { checkGrammarUpdates }),
+    {
+      ...initial,
+      preferences: {
+        ...initial.preferences,
+        sentence_association: { grammar_model: "baguwen_compact" },
+      },
+    },
+  );
+  await settingsFormReady();
+  selectSettingsTab("候选与联想");
+  expect(checkGrammarUpdates).not.toHaveBeenCalled();
+  expect(packs.client.install).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "检查语法模型·八股文（紧凑）更新" }));
+  await waitFor(() => expect(checkGrammarUpdates).toHaveBeenCalledTimes(1));
+  expect(packs.client.install).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole("button", { name: "下载语法模型·八股文（紧凑）更新" }));
+  await waitFor(() => expect(packs.client.install).toHaveBeenCalledWith(id));
+});

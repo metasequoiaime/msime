@@ -667,7 +667,7 @@ char *msime_client_voice_model_setting_check(const uint8_t *request, size_t leng
  * 错误为 "invalid resource pack request"、"invalid state root"、"invalid source"、"resource_pack_unknown"、"resource_pack_busy"（本进程正在安装或收编该包）或 "local_model_*"。
  * resource_packs: {state_root} -> [{id, state:"missing"|"installed"|"outdated", size, schemes:[...], import_files:[{name,url,size}]}]，每包一项；size 为下载字节数，import_files 为离线安装所需文件（voice-runtime 使用归档），url 为上游下载地址。
  * resource_pack_install: {state_root, pack, sources?:["https://mirror/", ...], files?:[absolute path]} -> {path}。
- * sources 是依次尝试的镜像前缀（最多 8 个，跳过空项），之后尝试项目镜像和编译锁中的 URL；始终按锁中的大小和 SHA-256 校验，未完成文件在下次调用时用 HTTP Range 续传。
+ * sources 是依次尝试的镜像前缀（最多 8 个，跳过空项），之后尝试项目镜像和来源 URL；固定资源按锁中的大小和 SHA-256 校验，语法模型按官方在线目录的大小和 SHA-256 校验。固定资源未完成文件在下次调用时用 HTTP Range 续传。channel 可选 stable、beta、nightly，语法模型优先选同通道条目，缺失时回退。
  * files（最多 16 个绝对路径）表示改从本地安装，按大小和 SHA-256 匹配而非文件名，忽略 sources，下载阶段改报 "import"；缺文件返回 "local_model_import_missing: <name>"，不可读返回 "local_model_import_unreadable: <detail>"。
  * progress 可为空，在调用线程收到 (context, phase "download"|"import"|"verify"|"done", done, total)，阶段字符串仅在回调期间有效。
  * 首次进度在任务登记后、任何文件或网络 I/O 前发送（done=0，total=资源包大小），回调可重入 resource_pack_cancel；取消后返回 "local_model_cancelled"。
@@ -677,6 +677,8 @@ char *msime_client_voice_model_setting_check(const uint8_t *request, size_t leng
 typedef void (*msime_client_resource_pack_progress_callback)(void *context, const char *phase,
                                                              uint64_t done, uint64_t total);
 char *msime_client_resource_packs(const uint8_t *request, size_t length);
+/* 主动检查语法模型目录，不下载：{state_root,channel?} -> [{pack,source_commit,size}]。 */
+char *msime_client_resource_pack_check_grammar_updates(const uint8_t *request, size_t length);
 char *msime_client_resource_pack_install(const uint8_t *request, size_t length,
                                          msime_client_resource_pack_progress_callback progress,
                                          void *context);

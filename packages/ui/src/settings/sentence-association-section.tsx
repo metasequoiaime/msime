@@ -121,7 +121,7 @@ function GrammarModelRow({
   onChange: (value: SentenceAssociationPreferences) => void;
 }) {
   const [checking, setChecking] = useState(false);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updatePack, setUpdatePack] = useState<ResourcePackId>();
   const [checkError, setCheckError] = useState<string>();
   const model = value?.grammar_model ?? "none";
   const pack = model === "none" ? undefined : (grammarModelPack[model] as ResourcePackId);
@@ -132,7 +132,7 @@ function GrammarModelRow({
     setCheckError(undefined);
     try {
       const updates = await resourcePacks.checkGrammarUpdates();
-      setUpdateAvailable(pack ? updates.some((update) => update.pack === pack) : false);
+      setUpdatePack(pack && updates.some((update) => update.pack === pack) ? pack : undefined);
     } catch {
       setCheckError("无法读取官方模型目录，请稍后重试。");
     } finally {
@@ -160,13 +160,26 @@ function GrammarModelRow({
           title="模型更新"
           description={
             checkError ??
-            (updateAvailable
-              ? "发现可选更新；点击下载会校验后替换模型，当前模型仍可离线使用。"
+            (updatePack === pack
+              ? "发现可选更新；当前模型仍可离线使用。"
               : "不会自动联网；点击后才检查官方模型目录。")
           }
           action={checkUpdates}
           label={checking ? "检查中…" : "检查更新"}
           ariaLabel={"检查" + resourcePackTitles[pack] + "更新"}
+        />
+      )}
+      {pack && updatePack === pack && status?.state === "installed" && resourcePacks && (
+        <ActionRow
+          title="下载模型更新"
+          description={
+            resourcePacks.errors[pack] ??
+            "下载并完整校验后替换当前模型；下载失败保留旧模型。"
+          }
+          action={() => resourcePacks.install(pack)}
+          label={resourcePacks.progress[pack] ? "下载中…" : "下载更新"}
+          disabled={Boolean(resourcePacks.progress[pack])}
+          ariaLabel={"下载" + resourcePackTitles[pack] + "更新"}
         />
       )}
       {pack && status?.state === "installed" && resourcePacks && (

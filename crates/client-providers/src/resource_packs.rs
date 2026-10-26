@@ -62,7 +62,7 @@ pub struct GrammarModelUpdate {
 }
 
 fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelError> {
-    if catalog.version != 1 || catalog.models.is_empty() || catalog.models.len() > 4 {
+    if catalog.version != 1 || catalog.models.is_empty() || catalog.models.len() > 9 {
         return Err(LocalModelError::Network("invalid grammar catalog".into()));
     }
     let mut ids = HashSet::new();
@@ -78,7 +78,7 @@ fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelEr
         ) {
             return Err(LocalModelError::Network("invalid grammar catalog".into()));
         }
-        if !ids.insert(model.id.as_str())
+        if !ids.insert((model.id.as_str(), model.channel.as_str()))
             || !matches!(model.channel.as_str(), "stable" | "beta" | "nightly")
             || model.format != "gram-v1"
             || !crate::is_lower_hex(&model.source_commit, 40)
@@ -92,6 +92,42 @@ fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelEr
         }
     }
     Ok(())
+}
+
+fn grammar_channel_rank(
+    requested: msime_client_core::preferences::UpdateChannel,
+    channel: &str,
+) -> Option<u8> {
+    match (requested, channel) {
+        (_, "stable") => Some(1),
+        (
+            msime_client_core::preferences::UpdateChannel::Beta
+            | msime_client_core::preferences::UpdateChannel::Nightly,
+            "beta",
+        ) => Some(2),
+        (msime_client_core::preferences::UpdateChannel::Nightly, "nightly") => Some(3),
+        _ => None,
+    }
+}
+
+fn select_grammar_models(
+    catalog: &GrammarCatalog,
+    channel: msime_client_core::preferences::UpdateChannel,
+) -> Vec<&GrammarCatalogModel> {
+    let mut selected: Vec<&GrammarCatalogModel> = Vec::new();
+    for model in &catalog.models {
+        let Some(rank) = grammar_channel_rank(channel, &model.channel) else {
+            continue;
+        };
+        if let Some(slot) = selected.iter_mut().find(|entry| entry.id == model.id) {
+            if grammar_channel_rank(channel, &slot.channel).unwrap_or(0) < rank {
+                *slot = model;
+            }
+        } else {
+            selected.push(model);
+        }
+    }
+    selected
 }
 
 fn fetch_grammar_catalog() -> Result<GrammarCatalog, LocalModelError> {
@@ -136,13 +172,7 @@ pub fn check_grammar_updates(
 ) -> Result<Vec<GrammarModelUpdate>, LocalModelError> {
     let catalog = fetch_grammar_catalog()?;
     let mut updates = Vec::new();
-    for model in catalog.models {
-        if model.channel != channel.as_str()
-            && !(channel == msime_client_core::preferences::UpdateChannel::Nightly
-                && model.channel == "beta")
-        {
-            continue;
-        }
+    for model in select_grammar_models(&catalog, channel) {
         let pack_id = format!("grammar-model-{}", model.id);
         let Some(pack) = ResourcePack::from_id(&pack_id) else {
             continue;
@@ -160,7 +190,7 @@ pub fn check_grammar_updates(
         if current.as_deref() != Some(model.artifact.sha256.as_str()) {
             updates.push(GrammarModelUpdate {
                 pack: pack.id(),
-                source_commit: model.source_commit,
+                source_commit: model.source_commit.clone(),
                 size: model.artifact.size,
             });
         }
@@ -1065,6 +1095,25 @@ pub fn install(
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
+    install_for_channel(
+        state_root,
+        pack,
+        msime_client_core::preferences::UpdateChannel::Stable,
+        mirrors,
+        progress,
+        cancel,
+    )
+}
+
+/// 按设置宿主选择的发布通道安装语法模型；其他资源包不受通道影响。
+pub fn install_for_channel(
+    state_root: &Path,
+    pack: ResourcePack,
+    channel: msime_client_core::preferences::UpdateChannel,
+    mirrors: &[&str],
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
     // OCR 是用户手动导入的可执行模块，不提供自动下载入口。
     if !pack.pinned() || pack == ResourcePack::AndroidOcrModule {
         return Err(LocalModelError::UnknownModel);
@@ -1089,10 +1138,9 @@ pub fn install(
             ResourcePack::GrammarBaguwenCompact => "baguwen-compact",
             _ => unreachable!(),
         };
-        let model = catalog
-            .models
+        let model = select_grammar_models(&catalog, channel)
             .into_iter()
-            .find(|model| model.id == model_id && model.channel == "stable")
+            .find(|model| model.id == model_id)
             .ok_or_else(|| LocalModelError::Network("grammar model unavailable".into()))?;
         let dynamic = local_models::download_dynamic_file(
             &root(state_root),
@@ -1106,10 +1154,13 @@ pub fn install(
         if dynamic.artifact.sha256 != model.artifact.sha256
             || dynamic.artifact.size != model.artifact.size
         {
-            return Err(LocalModelError::ChecksumMismatch(model.artifact.name));
+            return Err(LocalModelError::ChecksumMismatch(
+                model.artifact.name.clone(),
+            ));
         }
         let artifact = dynamic.artifact.clone();
-        let manifest = dynamic_grammar_manifest(pack, &artifact);
+        let mut manifest = dynamic_grammar_manifest(pack, &artifact);
+        manifest["source_commit"] = model.source_commit.clone().into();
         let fetcher = local_models::LocalFileFetcher::matching_sources(
             [local_models::ImportSource::artifact(&artifact)],
             &[dynamic.path.to_path_buf()],
@@ -1349,6 +1400,36 @@ mod tests {
         let catalog: GrammarCatalog = serde_json::from_str(EMBEDDED_GRAMMAR_CATALOG).unwrap();
         validate_grammar_catalog(&catalog).unwrap();
         assert_eq!(catalog.models.len(), 3);
+        assert_eq!(
+            select_grammar_models(
+                &catalog,
+                msime_client_core::preferences::UpdateChannel::Beta
+            )
+            .len(),
+            3
+        );
+        let mut channels = catalog;
+        let mut beta = channels.models[0].clone();
+        beta.channel = "beta".into();
+        beta.source_commit = "b".repeat(40);
+        channels.models.push(beta);
+        validate_grammar_catalog(&channels).unwrap();
+        let selected = select_grammar_models(
+            &channels,
+            msime_client_core::preferences::UpdateChannel::Beta,
+        );
+        assert_eq!(selected.len(), 3);
+        assert_eq!(selected[0].source_commit, "b".repeat(40));
+
+        let mut invalid = channels.clone();
+        invalid.models[0].artifact.name = "../other.gram".into();
+        assert!(validate_grammar_catalog(&invalid).is_err());
+        let mut invalid = channels.clone();
+        invalid.models[0].artifact.url = "http://example.invalid/model.gram".into();
+        assert!(validate_grammar_catalog(&invalid).is_err());
+        let mut invalid = channels;
+        invalid.models.push(invalid.models[0].clone());
+        assert!(validate_grammar_catalog(&invalid).is_err());
     }
 
     /// 伪造一个已发布的资源包目录：所有文件加上当前的 `msime-model.json`。

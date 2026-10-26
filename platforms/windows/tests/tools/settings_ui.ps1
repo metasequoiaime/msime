@@ -747,6 +747,8 @@ function Assert-SentenceModelSettings($window, [string]$theme) {
             Start-Sleep -Milliseconds 250
             $combo = Find-ById $window 'sentence-grammar-model'
             if (-not $combo -or $combo.Current.IsOffscreen) { throw 'Grammar model selector is not visible' }
+            $check = Find-ById $window 'sentence-grammar-model-check-updates'
+            if (-not $check) { throw 'Grammar model update check is missing' }
             $combo.SetFocus()
             $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
             $deadline = [DateTime]::UtcNow.AddSeconds(10)

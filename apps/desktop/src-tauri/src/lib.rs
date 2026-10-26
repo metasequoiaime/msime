@@ -6075,6 +6075,7 @@ pub fn run() {
             voice::local_models::voice_local_model_remove,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_packs,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_check_grammar_updates,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_install,

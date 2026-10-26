@@ -123,6 +123,36 @@ pub unsafe extern "C" fn msime_client_resource_packs(
     })
 }
 
+/// 主动检查语法模型目录，不下载、不修改本地资源。请求为 JSON 对象
+/// state_root 和可选 channel（stable、beta 或 nightly），响应值为
+/// [{"pack","source_commit","size"}]。输入宿主不调用此接口。
+///
+/// # Safety
+/// request 必须指向 length 个可读字节；拒绝空指针。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_resource_pack_check_grammar_updates(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        #[derive(Deserialize)]
+        struct CheckRequest {
+            state_root: String,
+            channel: Option<String>,
+        }
+        let request: CheckRequest = resource_pack_request(request, length)?;
+        let state_root = absolute_directory(&request.state_root, "invalid state root")?;
+        let channel = request.channel.as_deref().unwrap_or("stable");
+        let channel = msime_client_core::preferences::UpdateChannel::parse(channel)
+            .ok_or_else(|| "invalid resource pack request".to_owned())?;
+        serde_json::to_value(
+            resource_packs::check_grammar_updates(state_root, channel)
+                .map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())
+    })
+}
+
 /// 下载、校验并发布一个资源包。阻塞到结束：只能在工作线程上调用。
 ///
 /// 请求为 `{"state_root": "<absolute dir>", "pack": "<id>", "sources": ["https://mirror/", ...]}`。
@@ -159,6 +189,7 @@ pub unsafe extern "C" fn msime_client_resource_pack_install(
         struct InstallRequest {
             state_root: String,
             pack: String,
+            channel: Option<String>,
             #[serde(default)]
             sources: Vec<String>,
             #[serde(default)]
@@ -167,6 +198,10 @@ pub unsafe extern "C" fn msime_client_resource_pack_install(
         let request: InstallRequest = resource_pack_request(request, length)?;
         let state_root = absolute_directory(&request.state_root, "invalid state root")?;
         let pack = known_resource_pack(&request.pack)?;
+        let channel = msime_client_core::preferences::UpdateChannel::parse(
+            request.channel.as_deref().unwrap_or("stable"),
+        )
+        .ok_or_else(|| "invalid resource pack request".to_owned())?;
         if request.sources.len() > MAX_SOURCES {
             return Err("invalid resource pack request".into());
         }
@@ -216,7 +251,14 @@ pub unsafe extern "C" fn msime_client_resource_pack_install(
             Some(files) => {
                 resource_packs::import(state_root, pack, files, &mut report, &task.cancel)
             }
-            None => resource_packs::install(state_root, pack, &sources, &mut report, &task.cancel),
+            None => resource_packs::install_for_channel(
+                state_root,
+                pack,
+                channel,
+                &sources,
+                &mut report,
+                &task.cancel,
+            ),
         }
         .map_err(|error| error.to_string())?;
         Ok(json!({ "path": path.to_string_lossy() }))
@@ -426,6 +468,21 @@ mod tests {
             read(unsafe { msime_client_resource_packs(std::ptr::null(), 4) })["ok"],
             false
         );
+    }
+
+    #[test]
+    fn grammar_update_check_rejects_invalid_requests_before_network() {
+        let state = tempfile::tempdir().unwrap();
+        for request in [
+            json!({"state_root": "relative", "channel": "stable"}),
+            json!({"state_root": state.path(), "channel": "unknown"}),
+            json!({}),
+        ] {
+            assert_eq!(
+                call(msime_client_resource_pack_check_grammar_updates, &request)["ok"],
+                false
+            );
+        }
     }
 
     #[test]
