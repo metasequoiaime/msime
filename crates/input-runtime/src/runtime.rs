@@ -1846,20 +1846,26 @@ impl<E: InputEngine> Runtime<E> {
         if generation != self.generation {
             return false;
         }
-        let mut translations: HashMap<String, String> = HashMap::new();
+        let scoped = self.translation_scope_highlighted && self.highlight_on_page_seats();
         let mut highlight_translations: HashMap<String, String> = HashMap::new();
-        let scoped = self.translation_scope_highlighted
-            && self.highlighted < self.visible_len()
-            && self.page_seats().contains(&self.highlighted);
-        let mut any = false;
-        for (text, translation, gloss) in answers {
-            any = true;
-            if scoped && !gloss {
-                highlight_translations.insert(text, translation);
-            } else {
-                translations.insert(text, translation);
+        // 范围不生效时整批进同一张表，按回包长度一次建好，与这个选项出现以前的分配相同。
+        let translations: HashMap<String, String> = if scoped {
+            let mut translations = HashMap::new();
+            for (text, translation, gloss) in answers {
+                if gloss {
+                    translations.insert(text, translation);
+                } else {
+                    highlight_translations.insert(text, translation);
+                }
             }
-        }
+            translations
+        } else {
+            answers
+                .into_iter()
+                .map(|(text, translation, _)| (text, translation))
+                .collect()
+        };
+        let any = !translations.is_empty() || !highlight_translations.is_empty();
         // The answer to a `/fy` request arrives through the same host path as candidate glosses, so a host forwarding `translation_query` needs nothing else: it becomes the row that commits the translation, not a gloss under the English.
         if let Some(query) = self.command_translation() {
             if let Some(translation) = translations
@@ -1904,6 +1910,21 @@ impl<E: InputEngine> Runtime<E> {
         if self.translation_scope_highlighted != highlighted {
             self.translation_scope_highlighted = highlighted;
             self.bump_candidates_epoch();
+        }
+    }
+
+    /// 高亮那一行在不在当前这一页的座位里（不建座位表）：宿主报了这一代的显示页就查它，否则固定页就是高亮所在的那一页。
+    fn highlight_on_page_seats(&self) -> bool {
+        if self.highlighted >= self.visible_len() {
+            return false;
+        }
+        match self
+            .display_page
+            .as_ref()
+            .filter(|_| self.display_page_current())
+        {
+            Some((_, indices)) => indices.contains(&self.highlighted),
+            None => true,
         }
     }
 

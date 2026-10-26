@@ -281,7 +281,7 @@ fn changing_the_scope_drops_answers_for_the_old_one() {
     let shown = &changed["value"]["view"];
     assert_eq!(translation(shown, 0), None, "{shown}");
     assert_eq!(translation(shown, 1), None, "{shown}");
-    assert_eq!(reserved(shown)[0], true, "{shown}");
+    assert!(reserved(shown)[0], "{shown}");
     // 旧范围下发出的查询的回答不能再落下来。
     let stale = apply(
         handle,
