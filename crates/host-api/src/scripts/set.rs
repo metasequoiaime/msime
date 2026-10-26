@@ -273,6 +273,8 @@ impl ScriptSet {
             trigger,
             argument,
             random,
+            // 本地时间由宿主接入第二批能力时填上；在那之前 `command` 里的四个时间字段是 `ABSENT`。
+            local_time: None,
         });
         let turn = self.turn;
         let entry = &mut self.plan[owner];

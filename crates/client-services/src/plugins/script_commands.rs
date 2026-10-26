@@ -181,6 +181,7 @@ mod tests {
             .map(|(trigger, title)| ScriptCommand {
                 trigger: (*trigger).to_owned(),
                 title: (*title).to_owned(),
+                arguments: Default::default(),
             })
             .collect()
     }

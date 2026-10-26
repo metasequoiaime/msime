@@ -3050,6 +3050,7 @@ fn the_grant_page_and_the_engine_resolve_plugin_commands_alike() {
                 commands.push(ScriptCommand {
                     trigger: trigger(),
                     title: "T".into(),
+                    arguments: Default::default(),
                 });
             }
             plugins.push((format!("p{index}"), commands));

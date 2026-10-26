@@ -175,6 +175,7 @@ impl Step {
                 trigger,
                 argument,
                 random: *random,
+                local_time: None,
             });
         event
     }

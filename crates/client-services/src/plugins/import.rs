@@ -191,10 +191,18 @@ pub fn load_script_source(
         .take()
         .ok_or_else(|| PluginError::Invalid(format!("{} 无法读取或太大", pack.module)))?
         .0;
+    let data = pack
+        .data_contents
+        .take()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|bytes| bytes.0)
+        .collect();
     Ok(super::script_pack::LoadedScript {
         id: summary.id,
         pack,
         wasm,
+        data,
     })
 }
 
