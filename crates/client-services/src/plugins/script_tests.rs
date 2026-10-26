@@ -1904,7 +1904,9 @@ fn data_files_are_checked_counted_and_hashed_in_order() {
 fn data_files_that_could_not_work_are_refused_with_the_reason() {
     let files = tempdir().unwrap();
     let four_mib = vec![1u8; limits::MAX_DATA_FILE_BYTES];
-    let cases: Vec<(&str, Vec<(&str, Vec<u8>)>, &str)> = vec![
+    /// 清单 `[script]` 追加的键、要写进包里的数据文件、期望的拒绝原因。
+    type Case<'a> = (&'a str, Vec<(&'a str, Vec<u8>)>, &'a str);
+    let cases: Vec<Case> = vec![
         ("data = ['a.bin']\n", vec![], "缺少数据文件 a.bin"),
         (
             "data = ['a.bin']\n",
