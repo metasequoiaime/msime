@@ -15,6 +15,11 @@ public final class WindowInsetsPolicy {
         return BoundsPolicy.atLeast(systemBottom, imeBottom) + tabs + base;
     }
 
+    /** 输入法弹出时隐藏详情页自己的分类导航，避免它浮在输入法窗口上方。 */
+    public static boolean shouldShowFixedPageNavigation(boolean imeVisible) {
+        return !imeVisible;
+    }
+
     /** 输入法弹出时收起主页底部导航；对话页无论是否弹出输入法都不显示。 */
     public static boolean shouldShowHomeTabs(boolean imeVisible, boolean chatVisible) {
         return !imeVisible && !chatVisible;
