@@ -20,7 +20,7 @@ Status: implemented
 
 ## Verification
 
-`scripts/test-windows-shift-chord.py` 提取并执行生产钩子、布防和松开匹配方法。未修改源码失败于钩子已经观察组合键、TSF 松开仍触发切换；修复后覆盖普通组合键未交给 TSF、重复 Shift 通知、实体仍按住时的松开回调、先按普通键再按 Shift、无钩子回退、钩子尚未观察按下的 TSF 入口、左右 Shift 重叠、单按一次切换、超时和开关关闭；Ctrl 原有切换也通过。
+`scripts/test-windows-shift-chord.py` 提取并执行生产钩子、布防和松开匹配方法。未修改源码失败于钩子已经观察组合键、TSF 松开仍触发切换；修复后覆盖普通组合键未交给 TSF、重复 Shift 通知、实体仍按住时的松开回调、先按普通键再按 Shift、无钩子回退、钩子尚未观察按下的 TSF 入口、左右 Shift 重叠、单按一次切换、超时和开关关闭；普通字母、数字和主键盘斜杠（`Shift+?`）都验证为组合键，Ctrl 原有切换也通过。
 
 `scripts/test-windows-shift-chord-observation.py` 另行提取同一组生产方法，覆盖普通键、Ctrl/Alt/Win 只交付 TSF 及随后重复 Shift 通知；合入原实现时 33 项中有 9 项失败，补齐反向取消后 33 项全部通过。两套回归均保留。
 

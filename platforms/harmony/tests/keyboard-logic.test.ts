@@ -17297,4 +17297,13 @@ group("quote and bracket styles change only the faces and pairs of their own key
     );
   }
   check(KeyIdPolicy.character("'") === "Quote", "分词统计属于 Quote");
+  // `touch_quanpin_shift` 打开后 ⇧ 保留，点一下臂辅助码；缺省（无参）仍按分词。
+  check(
+    !KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, true, false, false, "none", true),
+    "保留 Shift 时不显示分词",
+  );
+  check(
+    KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, true, false, false, "none", false),
+    "开关关闭时仍显示分词",
+  );
 }

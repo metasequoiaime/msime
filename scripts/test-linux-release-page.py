@@ -379,13 +379,14 @@ class DefinitionsPointAtLinuxSourcesTest(unittest.TestCase):
         publish = [line for line in workflow.splitlines() if "scripts/publish-release.sh" in line and "bash " in line]
         self.assertEqual(len(publish), 1, publish)
         self.assertNotIn(".tar.xz", publish[0])
-        self.assertTrue(publish[0].endswith(" release-notes.md dist/*.deb dist/*.rpm dist/*.tar.gz dist/SHA256SUMS"), publish[0])
+        self.assertIn("assets=(dist/*.deb dist/*.rpm dist/*.tar.gz dist/*.pkg.tar.zst)", workflow)
         # 发布页的全部内容在上传源码包之前备齐，源码包在版本发布页之前上线。
         steps = [workflow.index(f"- name: {name}") for name in ("Prepare the release page", "Upload the distro source tarballs to linux-sources", "Publish independent Linux release")]
         self.assertEqual(steps, sorted(steps))
         sums = [line for line in workflow.splitlines() if "> SHA256SUMS" in line]
         self.assertEqual(len(sums), 1, sums)
         self.assertNotIn(".tar.xz", sums[0])
+        self.assertIn("*.pkg.tar.zst", sums[0])
         self.assertIn("packaging/publish-sources.sh dist", workflow)
         self.assertIn("edition_linux.py download-guide", workflow)
 

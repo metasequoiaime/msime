@@ -1,0 +1,3 @@
+{"event":"before_commit","key":true,"origin":"selection","body":"等一下..."}
+{"event":"before_commit","key":true,"origin":"selection","body":"没有句点","tail":"。"}
+{"event":"before_commit","key":true,"origin":"raw","local_mode":"url","body":"example.com/..."}

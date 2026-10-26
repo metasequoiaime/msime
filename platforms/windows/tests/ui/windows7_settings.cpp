@@ -137,6 +137,9 @@ int main() {
   assert(store.load().snapshot->preferences().at("ai_assistant").at("tokens") == tokens);
   auto invalid = store.save(*restored.snapshot, {{{"keybindings", "synthetic_unknown_key"}, true}});
   assert(invalid.outcome == Outcome::invalid_change);
+  // 共享序列化省略的 `caret_edit_suffix` 只能补布尔值。
+  assert(!restored.snapshot->preferences().contains("caret_edit_suffix"));
+  assert(store.save(*restored.snapshot, {{{"caret_edit_suffix"}, "invalid"}}).outcome == Outcome::invalid_change);
   auto rejected = store.save(*restored.snapshot, {{{"keybindings", "switch_language_caps_lock"}, "invalid"}});
   assert(rejected.outcome == Outcome::storage);
   assert(store.load().snapshot->revision() == restored.snapshot->revision());
@@ -649,6 +652,18 @@ int main() {
   assert(store.load().snapshot->preferences().at("mixed_input").value("symbols", true) != old_symbols);
   click(mixed_symbols);
   assert(store.load().snapshot->preferences().at("mixed_input").value("symbols", true) == old_symbols);
+  // 「移动光标后编辑光标后的部分」缺省为关，关着时共享序列化不写这个键；打开写 true，再关掉键又消失。
+  assert(GetDlgItem(body, caret_edit_suffix));
+  assert(caption(GetDlgItem(body, caret_edit_suffix)) == L"移动光标后编辑光标后的部分");
+  assert(!store.load().snapshot->preferences().contains("caret_edit_suffix"));
+  assert(SendMessageW(GetDlgItem(body, caret_edit_suffix), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  assert(IsWindowEnabled(GetDlgItem(body, caret_edit_suffix)));
+  click(caret_edit_suffix);
+  assert(store.load().snapshot->preferences().at("caret_edit_suffix") == true);
+  assert(SendMessageW(GetDlgItem(body, caret_edit_suffix), BM_GETCHECK, 0, 0) == BST_CHECKED);
+  click(caret_edit_suffix);
+  assert(!store.load().snapshot->preferences().contains("caret_edit_suffix"));
+  assert(SendMessageW(GetDlgItem(body, caret_edit_suffix), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   // 选择来源和编辑文本只改草稿；失败后无关偏好保存也不能把草稿抹掉。
   saved = store.load();
   const auto before_draft = saved.snapshot->revision();

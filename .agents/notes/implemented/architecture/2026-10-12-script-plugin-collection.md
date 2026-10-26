@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-**位置：本仓库的 `plugins/script/`。** 每个插件一个目录 `plugins/script/<id>/`，是独立的 `no_std` crate（自带空的 `[workspace]`，不属于仓库的 Cargo 工作区，没有任何依赖），用 `#[path]` 引入 `docs/script-plugin-template/sdk/msime_script.rs`。目录名、包名和清单 `id` 相同，清单的 `module` 是 `<id>.wasm`。源码树里不放 `.wasm`，`plugins/script/.gitignore` 排除 `target/`、`Cargo.lock` 和 `*.wasm`。
+**位置：本仓库的 `plugins/script/`。** 每个插件一个目录 `plugins/script/<id>/`，是独立的 `no_std` crate（自带空的 `[workspace]`，不属于仓库的 Cargo 工作区，没有任何依赖），用 `#[path]` 引入 `docs/script-plugin-template/sdk/msime_script.rs`。目录名、包名和清单 `id` 相同，清单的 `module` 是 `<id>.wasm`。源码树里不放 `.wasm`，`plugins/script/.gitignore` 排除 `target/`、`Cargo.lock` 和 `*.wasm`。2026-10-26 起 SDK 是 crate `crates/script-sdk`（`msime-script-sdk`），插件改为只依赖它的路径依赖，「没有任何依赖」这一条由[仓库外写脚本插件的工具链](../feature/2026-10-26-script-plugin-toolchain.md)取代；官方包 uuid 为了内容哈希不变，仍用 `#[path]` 引入 `crates/script-sdk/src/lib.rs`。
 
 **共用的构建设置在 `plugins/script/.cargo/config.toml`。** cargo 从当前目录向上找配置文件，所以在插件目录里运行 cargo 时，目标 `wasm32-unknown-unknown`、`-zstack-size=65536`、release 配置（`opt-level = "s"`、LTO、`panic = "abort"`、strip）和产物目录 `target/script-plugins/cargo` 对所有插件一起生效，插件的 `Cargo.toml` 不写 profile。产物目录用配置写死在仓库根的 `target/` 下，不在插件目录里留 `target/`，也不新起别的产物目录（AGENTS.md 的产物目录规则）。工具链跟随 `rust-toolchain.toml`，脚本从它读出版本号再 `cargo +<版本>`。
 

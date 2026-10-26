@@ -259,6 +259,14 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   const double header_width = has_preedit || page_controls || logo
       ? 2 * inset + logo_width + preedit_width + (has_preedit && controls_width > 0 ? indicator_gap : 0) + controls_width
       : 0;
+  // 光标后编辑的提示算进卡片的最小宽度，模式生效期间总能画全；和本地模式、连击同在一行时它们也算进去，左右两段才不会叠在一起。没有提示时底部一行和以前一样不参与宽度。
+  const double footer_hint_width = content.auxiliary_hint.empty()
+      ? 0 : std::ceil(native_canvas_text_size(cr, layout.gloss_font, content.auxiliary_hint).first);
+  const double footer_width = footer_hint_width > 0
+      ? 2 * inset + layout.text_left + layout.text_right + footer_hint_width +
+            (content.auxiliary.empty() ? 0 : std::ceil(native_canvas_text_size(cr, layout.gloss_font, content.auxiliary).first) + 8 * s)
+      : 0;
+  const double top_width = std::max(header_width, footer_width);
   const double row_visible = std::max(0.0, visible - (compact_expand ? arrow_width : 0));
   // 记住的宽度含首行右端的展开键；这一页把展开键放在行尾时先扣掉。
   const double minimum = std::max(assets.min_width, content.minimum_width - (compact_expand ? arrow_width : 0));
@@ -266,7 +274,7 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   std::vector<NativeCanvasChromePage> pages;
   double width = 0;
   if (grid) {
-    width = header_width;
+    width = top_width;
     for (std::size_t begin = 0; begin < content.items.size(); begin += content.grid_columns) {
       const auto end = std::min(content.items.size(), begin + content.grid_columns);
       pages.push_back(page_geometry(begin, end, false, 0, assets.min_width, 0, visible));
@@ -274,16 +282,19 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
     }
     width = std::ceil(width);
   } else {
-    pages.push_back(page_geometry(0, content.items.size(), page_controls, header_width,
+    pages.push_back(page_geometry(0, content.items.size(), page_controls, top_width,
                                   content.horizontal ? minimum : assets.min_width, content.reserved_gloss_lines, row_visible));
     width = pages.back().width + (compact_expand ? arrow_width : 0);
   }
   double rows_height = 0;
   for (const auto &page : pages) rows_height += page.rows_height;
 
-  // 底部一行：本地模式和打字连击，macOS 候选窗没有这一行，Linux 用它保留原来辅助行里的信息。
-  const bool footer = !content.auxiliary.empty();
-  const double footer_height = footer ? native_canvas_line_height(cr, layout.gloss_font, content.auxiliary) + gloss_padding : 0;
+  // 底部一行：本地模式和打字连击，macOS 候选窗没有这一行，Linux 用它保留原来辅助行里的信息；光标后编辑的提示（auxiliary_hint）靠右画在同一行，只有提示时这一行也要出现。
+  const bool footer = !content.auxiliary.empty() || !content.auxiliary_hint.empty();
+  const double footer_height = footer ? std::max(
+      content.auxiliary.empty() ? 0.0 : native_canvas_line_height(cr, layout.gloss_font, content.auxiliary),
+      content.auxiliary_hint.empty() ? 0.0 : native_canvas_line_height(cr, layout.gloss_font, content.auxiliary_hint)) +
+      gloss_padding : 0;
   const double band = assets.band.image && assets.band.top > 0 && !menu ? assets.band.top : 0;
   const double card_height = rows_height + 2 * inset + header_height + footer_height;
   layout.panel = {0, band, width, card_height};
@@ -334,9 +345,18 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
     top += page.rows_height;
   }
   if (footer) {
-    layout.auxiliary = {inset + text_left, rows_top + rows_height + std::floor(gloss_padding / 2),
-        std::max(1.0, width - 2 * inset - text_left - text_right), footer_height - gloss_padding};
-    layout.auxiliary_width = layout.auxiliary.width;
+    const double left = inset + text_left, available = std::max(1.0, width - 2 * inset - text_left - text_right);
+    const double top = rows_top + rows_height + std::floor(gloss_padding / 2), height = footer_height - gloss_padding;
+    // 提示贴右边距，放不下时最多占满整行；左边的本地模式和连击让出提示的宽度再隔 8pt。
+    double hint_width = 0;
+    if (!content.auxiliary_hint.empty()) {
+      hint_width = std::min(available, std::ceil(native_canvas_text_size(cr, layout.gloss_font, content.auxiliary_hint).first));
+      layout.auxiliary_hint = {left + available - hint_width, top, hint_width, height};
+    }
+    if (!content.auxiliary.empty()) {
+      layout.auxiliary = {left, top, std::max(1.0, available - (hint_width > 0 ? hint_width + 8 * s : 0)), height};
+      layout.auxiliary_width = layout.auxiliary.width;
+    }
   }
   // 顶带装饰：画在卡片顶边上方的透明带里，有待机动效时四周留出余量。
   if (band > 0) {
@@ -362,7 +382,7 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
       }
       // 最小字号后的完整文字及字形外伸计入窗口；所有命中矩形与绘制一起平移。
       const auto shift = [&](NativeCanvasRect &box) { box.x -= left; box.y -= top; };
-      for (auto *box : {&layout.panel, &layout.preedit, &layout.auxiliary, &layout.previous, &layout.next,
+      for (auto *box : {&layout.panel, &layout.preedit, &layout.auxiliary, &layout.auxiliary_hint, &layout.previous, &layout.next,
           &layout.page_divider, &layout.expand, &layout.logo, &layout.indicator, &layout.band, &layout.rows_area,
           &layout.overlay->box, &layout.overlay->ink}) shift(*box);
       for (auto &box : layout.items) shift(box);
@@ -725,6 +745,19 @@ inline void paint_native_canvas_chrome(cairo_t *cr, const NativeCanvasAssets &as
     const auto number_color = highlighted ? selected_number : number;
     const double content_left = box.x + layout.content_lefts[at];
     auto *word = native_canvas_text_layout(cr, metrics.font, item.text, row.textWrapped ? row.textWidth : -1);
+    // 光标后编辑：首选开头固定的那几个字用这一行序号的颜色画淡（选中行取选中序号色），只改颜色，排版和测量不变。
+    if (const auto dim_end = std::min(item.dim_prefix_bytes, item.text.size()); dim_end > 0 && !item.pending) {
+      const auto &dim = number_color;
+      auto *attributes = pango_attr_list_new();
+      for (auto *attribute : {pango_attr_foreground_new(((dim.rgb >> 16) & 255) * 257, ((dim.rgb >> 8) & 255) * 257,
+               (dim.rgb & 255) * 257), pango_attr_foreground_alpha_new(static_cast<guint16>(dim.alpha * 257))}) {
+        attribute->start_index = 0;
+        attribute->end_index = static_cast<guint>(dim_end);
+        pango_attr_list_insert(attributes, attribute);
+      }
+      pango_layout_set_attributes(word, attributes);
+      pango_attr_list_unref(attributes);
+    }
     int word_width = 0, word_height = 0;
     pango_layout_get_pixel_size(word, &word_width, &word_height);
     const double text_top = box.y + std::max(0.0, (row.textHeight - word_height) / 2);
@@ -774,6 +807,13 @@ inline void paint_native_canvas_chrome(cairo_t *cr, const NativeCanvasAssets &as
     native_canvas_set_color(cr, optional_color("secondary").value_or(number));
     auto *line = native_canvas_text_layout(cr, layout.gloss_font, content.auxiliary, layout.auxiliary_width);
     cairo_move_to(cr, layout.auxiliary.x, layout.auxiliary.y);
+    pango_cairo_show_layout(cr, line);
+    g_object_unref(line);
+  }
+  if (!content.auxiliary_hint.empty() && layout.auxiliary_hint.width > 0) {
+    native_canvas_set_color(cr, optional_color("secondary").value_or(number));
+    auto *line = native_canvas_text_layout(cr, layout.gloss_font, content.auxiliary_hint, layout.auxiliary_hint.width);
+    cairo_move_to(cr, layout.auxiliary_hint.x, layout.auxiliary_hint.y);
     pango_cairo_show_layout(cr, line);
     g_object_unref(line);
   }

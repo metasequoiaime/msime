@@ -31,11 +31,13 @@ export function CommunityPluginPublishDialog({
   onClose,
   onPublished,
   onLogin,
+  scriptPlugins = false,
 }: CommunityPluginPublishDialogProps) {
   const {
     options,
     optionsLoading,
     selection,
+    chosenKind,
     pack,
     packError,
     packLoading,
@@ -51,7 +53,8 @@ export function CommunityPluginPublishDialog({
     onDescriptionChange,
     onAgreedChange,
     submit,
-  } = useCommunityPluginPublication({ client, localPlugins, onPublished });
+  } = useCommunityPluginPublication({ client, localPlugins, onPublished, scriptPlugins });
+  const script = chosenKind === "script";
 
   return (
     <CommunityDialogFrame
@@ -68,7 +71,9 @@ export function CommunityPluginPublishDialog({
       {optionsLoading && <StatusMessage role="status">正在读取本地插件…</StatusMessage>}
       {!optionsLoading && options.length === 0 && (
         <CommunityNotice>
-          还没有可发布的插件。内置插件不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本或符号集。
+          {scriptPlugins
+            ? "还没有可发布的插件。内置插件不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本、符号集或脚本插件。"
+            : "还没有可发布的插件。内置插件不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本或符号集。"}
         </CommunityNotice>
       )}
       {options.length > 0 && (
@@ -113,13 +118,22 @@ export function CommunityPluginPublishDialog({
             nameAriaLabel="发布插件名称"
             descriptionLabel="说明"
             descriptionAriaLabel="发布插件说明"
-            agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+            agreementText={
+              script
+                ? "我拥有插件中代码与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+                : "我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+            }
             agreementClassName={style.agreementBox}
             onNameChange={onNameChange}
             onDescriptionChange={onDescriptionChange}
             onAgreedChange={onAgreedChange}
           />
           <CommunityPublicationWarning>{publishWarning}</CommunityPublicationWarning>
+          {script && (
+            <CommunityPublicationWarning>
+              脚本插件要经过管理员审核，通过后才会出现在社区里；审核前只有你自己在「我的作品」里看得到。其他用户安装后也不会自动运行，要在脚本插件页逐项授权。
+            </CommunityPublicationWarning>
+          )}
         </>
       )}
       <CommunityDialogActions busy={busy} onClose={onClose}>
@@ -128,7 +142,7 @@ export function CommunityPluginPublishDialog({
             action={() => submit()}
             className="primary"
             disabled={busy || !ready}
-            label={busy ? "正在发布…" : "公开发布"}
+            label={busy ? "正在发布…" : script ? "提交审核" : "公开发布"}
           />
         )}
       </CommunityDialogActions>

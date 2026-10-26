@@ -287,7 +287,10 @@ pub(super) fn build_quanpin_autocorrect_display<'a>(request: &'a QueryRequest) -
 impl InputSession {
     /// 直接辅助码行的 `pinyin` 包含音节内辅助码，长度超过规范读音的两键编码。
     fn direct_shuangpin_consumed(&self, selected: &WordItem) -> Option<usize> {
-        let request = self.engine.request();
+        Self::direct_shuangpin_consumed_in(self.engine.request(), selected)
+    }
+
+    fn direct_shuangpin_consumed_in(request: &QueryRequest, selected: &WordItem) -> Option<usize> {
         let consumed = selected.pinyin.len();
         (request.enable_shuangpin_helpcode
             && selected.corrected_from.is_empty()
@@ -318,9 +321,17 @@ impl InputSession {
         {
             return true;
         }
-        let request = self.engine.request();
+        self.selection_completes_request(self.engine.request(), selected)
+    }
+
+    /// 全拼或双拼的这一行是否用完了 `request` 的全部拼写。光标后编辑拿光标前那段的临时请求问同一个问题，所以请求由调用方给。
+    pub(super) fn selection_completes_request(
+        &self,
+        request: &QueryRequest,
+        selected: &WordItem,
+    ) -> bool {
         if self.is_shuangpin() {
-            if let Some(consumed) = self.direct_shuangpin_consumed(selected) {
+            if let Some(consumed) = Self::direct_shuangpin_consumed_in(request, selected) {
                 return consumed >= request.raw_input.len();
             }
             let base = resolve_shuangpin_composition_base(request, self.shuangpin_profile());

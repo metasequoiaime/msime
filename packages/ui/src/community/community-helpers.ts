@@ -184,6 +184,8 @@ export function communityPluginMessage(error: unknown, publishing = false): stri
       return "下载的插件已损坏，请重试。";
     case "plugin_community_mismatch":
       return "下载的插件与作品信息不符，已停止安装。";
+    case "plugin_community_script_unsupported":
+      return "服务器暂时还不接受脚本插件，可能尚未更新，请稍后再试。数据类插件不受影响。";
     case "storage":
       return "无法读写插件目录，请检查数据目录的权限。";
   }

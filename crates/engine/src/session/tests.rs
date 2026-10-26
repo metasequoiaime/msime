@@ -12764,6 +12764,19 @@ fn set_punctuation_marks_applies_live_without_resetting_alternation() {
     assert_eq!(session.punctuation(b'[').commit.as_deref(), Some("【"));
 }
 
+#[test]
+fn idle_backspace_undoes_a_deleted_quote_but_not_an_older_one() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("“"));
+    assert!(!session.command(Command::Backspace).handled);
+    assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("“"));
+
+    assert_eq!(session.punctuation(b':').commit.as_deref(), Some("："));
+    assert!(!session.command(Command::Backspace).handled);
+    assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("”"));
+}
+
 /// #7616：已经透传给宿主的大写串不会中途进入快捷模式；未启用的 Shift 入口则在同一拼音组字里继续。
 #[test]
 fn only_the_first_letter_of_an_uppercase_run_opens_a_shortcut() {
@@ -13267,7 +13280,7 @@ fn relative_date_keywords_reach_quanpin_and_nine_key_and_commit() {
         CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
         INSERT INTO tbl_2_m VALUES('ming''tian','mt','明天',500),('ming''nian','mn','明年',500);\
         CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
-        INSERT INTO tbl_2_h VALUES('hou''tian','ht','后天',500);\
+        INSERT INTO tbl_2_h VALUES('hou''tian','ht','后天',500),('hou''nian','hn','后年',500);\
         CREATE TABLE tbl_2_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
         INSERT INTO tbl_2_l VALUES('lai''nian','ln','来年',500);\
         CREATE TABLE tbl_2_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
@@ -13284,6 +13297,7 @@ fn relative_date_keywords_reach_quanpin_and_nine_key_and_commit() {
         ("qunian", "去年", "去年(2025年)"),
         ("jinnian", "今年", "今年(2026年)"),
         ("lainian", "来年", "来年(2027年)"),
+        ("hounian", "后年", "后年(2028年)"),
     ];
     for nine_key in [false, true] {
         let mut session = fixture.session_with(|options| options.learning = true);
@@ -13552,3 +13566,5 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
     type_text(&mut session, "qq");
     assert!(words(&session).contains(&"腾讯".to_owned()));
 }
+
+mod caret_suffix;

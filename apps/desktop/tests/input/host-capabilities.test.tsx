@@ -60,7 +60,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_border_color: touchStrip,
     candidate_number_color: touchStrip,
     surface_themes_follow: !touchStrip,
-    candidate_window_scale: false,
+    candidate_window_scale: platform === "android",
     candidate_window_opacity: false,
     candidate_corner_radius: false,
     candidate_padding: false,

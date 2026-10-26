@@ -2638,7 +2638,17 @@ fn preferences_recovery_serializes_the_fields_the_settings_page_reads() {
     assert!(untouched["backupPath"].is_null());
 }
 
-/// A re-check from the settings page reads the input source list and the system-wide input method directory again and reports the rest of the start-time result unchanged, without running the install a second time.
+/// Caps Lock 快捷键关闭时不请求输入监控权限，开启时请求。
+#[cfg(target_os = "macos")]
+#[test]
+fn caps_lock_hid_permission_request_follows_the_shortcut_preference() {
+    let mut preferences = msime_client_core::preferences::Preferences::default();
+    assert!(!super::should_request_caps_lock_hid_access(&preferences));
+    preferences.keybindings.switch_language_caps_lock = true;
+    assert!(super::should_request_caps_lock_hid_access(&preferences));
+}
+
+/// 设置页重新检查时读取输入源列表和系统输入法目录，并保持启动时结果不变，不会再次执行安装。
 #[cfg(target_os = "macos")]
 #[test]
 fn input_source_status_rereads_only_what_the_user_can_change() {

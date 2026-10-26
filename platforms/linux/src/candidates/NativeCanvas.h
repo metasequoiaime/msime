@@ -254,6 +254,8 @@ struct NativeCanvasItem {
   // 只有真实引擎候选携带装饰词；来源标注不混入原文。
   std::optional<std::string> decoration_text = {};
   std::string decoration_badge = {};
+  // 光标后编辑里首选开头固定的那几个字：text 开头这么多字节用这一行序号的颜色（次要色）画淡，两种画法都认。0 表示不画淡。
+  std::size_t dim_prefix_bytes = 0;
 };
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
@@ -280,6 +282,8 @@ struct NativeCanvasContent {
   std::function<void(bool)> expand;
   // 以下只有 chrome 用。拼音的字号（已乘缩放的 candidate_preedit_font_size，0 跟随候选字号）；首行打头的 logo；当前页和总页数（「1 / 3」）。
   double preedit_size = 0;
+  // 底部一行右端的提示（光标后编辑的「候选编辑：光标后」），和左边的 auxiliary 同一行、同一种颜色，不能点。canvas 包没有底部一行，提示在 auxiliary 里跟着辅助行走。
+  std::string auxiliary_hint;
   NativeCanvasImage logo = {};
   int page_index = 0, page_count = 0;
   // 横排为还没到的释义预留几行（macOS 的 reservedGlossHeightForFont），释义到达时卡片不在用户眼前变高。
@@ -472,9 +476,9 @@ struct NativeCanvasLayout {
   std::vector<double> grid_text_widths;
   double scroll_offset = 0, max_scroll = 0, scroll_step = 0;
   double grid_label_width = 0;
-  // 以下只有 chrome 布局填写（NativeCanvasChrome.h）。
+  // 以下只有 chrome 布局填写（NativeCanvasChrome.h）。auxiliary_hint 是底部一行右端那段提示的位置。
   bool chrome = false;
-  NativeCanvasRect logo, indicator, band;
+  NativeCanvasRect logo, indicator, band, auxiliary_hint;
   std::string indicator_text;
   bool page_controls = false;
   std::string gloss_font, preedit_font, indicator_font, symbol_font;
@@ -579,7 +583,8 @@ inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMet
   const std::string gap = item.translation.empty() ? "" : inline_translation ? " " : "\n";
   const auto value = item.text + gap + item.translation + item.suffix;
   auto *line = native_canvas_text_layout(cr, metrics.font, value, max_width);
-  if (item.translation.empty()) return line;
+  const auto dim_end = std::min(item.dim_prefix_bytes, item.text.size());
+  if (item.translation.empty() && dim_end == 0) return line;
   const auto start = item.text.size() + gap.size(), end = start + item.translation.size();
   auto *attributes = pango_attr_list_new();
   const auto insert = [&](PangoAttribute *attribute, std::size_t from, std::size_t to) {
@@ -587,12 +592,28 @@ inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMet
     attribute->end_index = static_cast<guint>(to);
     pango_attr_list_change(attributes, attribute);
   };
+  const auto color = [&](const char *key) { return theme_color(colors.value(key, nlohmann::json{})); };
+  const auto paint = [&](ThemeColor color, std::size_t from, std::size_t to) {
+    insert(pango_attr_foreground_new(((color.rgb >> 16) & 255) * 257,
+        ((color.rgb >> 8) & 255) * 257, (color.rgb & 255) * 257), from, to);
+    insert(pango_attr_foreground_alpha_new(color.alpha * 257), from, to);
+  };
+  // 光标后编辑：首选开头固定的那几个字用这一行序号的颜色画淡，与序号的取色一致（选中行取选中序号色，主题没给时是 #555555）。只改颜色不改字形，测量时（colors 为空）同样带着这段属性，宽度不变。
+  if (dim_end > 0) {
+    auto dim = highlighted ? color("selected_number") : std::optional<ThemeColor>{};
+    if (!dim) dim = color("number");
+    paint(dim.value_or(ThemeColor{0x555555, 255}), 0, dim_end);
+  }
+  if (item.translation.empty()) {
+    pango_layout_set_attributes(line, attributes);
+    pango_attr_list_unref(attributes);
+    return line;
+  }
   insert(pango_attr_size_new_absolute(static_cast<int>(std::round(metrics.font_size * 0.78 * PANGO_SCALE))), start, end);
   if (inline_translation) {
     PangoRectangle ink{}, logical{0, 0, static_cast<int>(std::round(metrics.font_size * 0.65 * PANGO_SCALE)), 0};
     insert(pango_attr_shape_new(&ink, &logical), item.text.size(), start);
   }
-  const auto color = [&](const char *key) { return theme_color(colors.value(key, nlohmann::json{})); };
   const auto visible = [](const std::optional<ThemeColor> &color) { return color && color->alpha > 0; };
   auto base = color(highlighted ? "selected_text" : "text");
   if (!base) base = color("text");
@@ -603,11 +624,6 @@ inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMet
     translation = base;
     translation->alpha = static_cast<std::uint8_t>(std::round(translation->alpha * 0.62));
   }
-  const auto paint = [&](ThemeColor color, std::size_t from, std::size_t to) {
-    insert(pango_attr_foreground_new(((color.rgb >> 16) & 255) * 257,
-        ((color.rgb >> 8) & 255) * 257, (color.rgb & 255) * 257), from, to);
-    insert(pango_attr_foreground_alpha_new(color.alpha * 257), from, to);
-  };
   paint(*translation, start, end);
   if (item.translation_runs.is_array()) for (const auto &run : item.translation_runs) {
     if (!run.is_object() || !run.contains("start") || !run.contains("length") ||

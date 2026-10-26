@@ -189,6 +189,54 @@ int main() {
     check(groups[0].text == L"地址\tdz\t1\n邮箱\tyx\t2", "standard lines");
   }
 
+  // 社区脚本插件：类型筛选、先审后发的标记、能力说明和服务端还不接受脚本插件时的那一句。
+  check(plugin_kinds.back() == L"script" && plugin_kinds[4] == L"phrase_table",
+        "script is the last kind and the data kinds keep their positions");
+  check(plugin_pending_review(L"script", true, L"pending"), "own pending script");
+  check(!plugin_pending_review(L"phrase_table", true, L"pending"), "pending data pack counts as approved");
+  check(!plugin_pending_review(L"script", false, L"pending"), "only the owner sees the review state");
+  check(!plugin_pending_review(L"script", true, L"approved"), "approved script");
+  check(plugin_card_author(L"script", L"小鹿", true, L"pending") == L"脚本插件 · 我的作品 · 审核中",
+        "pending badge on the author line");
+  check(plugin_card_author(L"sound", L"小鹿", true, L"pending") == L"音效包 · 我的作品",
+        "no badge for a pending data pack");
+  check(plugin_card_author(L"script", L"小鹿", true, L"removed") == L"脚本插件 · 我的作品 · 已下架",
+        "removed script");
+  {
+    const auto lines = capability_lines({L"rewrite_commit", L"read_commit", L"persist_data",
+                                         L"insert_candidates", L"future_power"});
+    check(lines.size() == 5 && lines[0].capability == L"rewrite_commit" &&
+              lines[1].capability == L"read_commit",
+          "manifest order is kept");
+    check(lines[0].caution && lines[0].title == L"修改输入的文字" && !lines[1].caution,
+          "rewrite_commit is flagged");
+    // 第二批能力在授权页还没有说法（和共享页一致），按未知能力列出，persist_data 照样标注意。
+    check(lines[2].caution && lines[2].title == L"未知能力 persist_data" && lines[2].description.empty(),
+          "persist_data is flagged before the grant page knows it");
+    check(lines[3].title == L"未知能力 insert_candidates" && !lines[3].caution, "insert_candidates");
+    check(lines[4].title == L"未知能力 future_power" && lines[4].description.empty() &&
+              !lines[4].caution,
+          "unknown capability shown with its raw name");
+    check(lines[0].supported && lines[1].supported && !lines[2].supported && !lines[3].supported &&
+              !lines[4].supported,
+          "second batch capabilities are not supported by this runtime yet");
+    check(capabilities_unsupported(lines) && !capabilities_unsupported(capability_lines({L"read_commit"})),
+          "install would fail");
+    check(capability_text(lines[1]) == L"读取输入的文字 —— 能看到你选中的候选和最终输入到应用里的文字。",
+          "plain line");
+    check(starts_with(capability_text(lines[0]), L"注意：修改输入的文字 —— "), "caution line");
+    check(capability_text(lines[4]) == L"未知能力 future_power", "unknown line");
+    check(capability_summary(lines) ==
+              L"注意 · 申请：修改输入的文字、读取输入的文字、未知能力 persist_data、未知能力 insert_candidates、未知能力 future_power",
+          "summary with caution");
+    check(capability_summary(capability_lines({L"read_candidates"})) == L"申请：读取候选词",
+          "summary without caution");
+    check(capability_summary({}) == L"申请：不申请任何能力", "no capabilities");
+  }
+  check(plugin_message(L"plugin_community_script_unsupported", L"", true) ==
+            L"服务器暂时还不接受脚本插件，可能尚未更新，请稍后再试。数据类插件不受影响。",
+        "script unsupported");
+
   if (failures)
     return 1;
   std::puts("community page model: ok");

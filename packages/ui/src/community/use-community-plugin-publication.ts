@@ -7,7 +7,7 @@ import { packKindLabel } from "../settings/plugin-catalog-helpers";
 import { communityNeedsSignIn, communityPluginMessage } from "./community-helpers";
 import { communityPublishFields } from "./community-publish-validation";
 import {
-  communityPluginKinds,
+  communityPluginKindsFor,
   type CommunityPluginKind,
   type CommunityPlugin,
   type CommunityPluginPackPreview,
@@ -19,6 +19,8 @@ export interface CommunityPluginPublicationOptions {
   client: Pick<CommunityPluginClient, "packPreview" | "publish">;
   localPlugins: () => Promise<PluginCatalogResult>;
   onPublished: (plugin: CommunityPlugin) => void | Promise<void>;
+  /** 宿主运行脚本插件：自己导入的脚本插件也列出来（官方脚本插件和其他内置包一样不能发布）。 */
+  scriptPlugins?: boolean;
 }
 
 /** `label` 是类型显示名：本机的包知道自己是不是旋律音效包，所以用 `packKindLabel`；社区列表的条目不带 `mode`，只能用 `kindLabels`。 */
@@ -39,7 +41,9 @@ export function useCommunityPluginPublication({
   client,
   localPlugins,
   onPublished,
+  scriptPlugins = false,
 }: CommunityPluginPublicationOptions) {
+  const publishable = communityPluginKindsFor(scriptPlugins);
   const [options, setOptions] = useState<LocalPluginOption[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [selection, setSelection] = useState("");
@@ -77,8 +81,8 @@ export function useCommunityPluginPublication({
         const loaded: LocalPluginOption[] = [];
         for (const item of catalog.packages) {
           if (item.builtin) continue;
-          // 桌面的目录里有脚本插件，它们不能发布到社区（`PUBLISHABLE_KINDS` 里没有 script）。
-          if (!communityPluginKinds.includes(item.kind)) continue;
+          // 不运行脚本插件的宿主不列脚本插件（这些宿主的目录里本来也没有）。
+          if (!publishable.includes(item.kind)) continue;
           loaded.push({
             key: optionKey(item.kind, item.id),
             kind: item.kind,
@@ -98,7 +102,7 @@ export function useCommunityPluginPublication({
       .finally(() => {
         if (generation === clientGeneration.current) setOptionsLoading(false);
       });
-  }, [client, localPlugins, clientGeneration]);
+  }, [client, localPlugins, clientGeneration, scriptPlugins]);
 
   const chosen = useMemo(
     () => options.find((item) => item.key === selection) ?? null,
@@ -164,6 +168,7 @@ export function useCommunityPluginPublication({
     options,
     optionsLoading,
     selection,
+    chosenKind: chosen?.kind ?? null,
     pack,
     packError,
     packLoading,

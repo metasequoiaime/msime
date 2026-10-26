@@ -270,7 +270,7 @@ test.each([
   ["linux", { scale: true, opacity: true, radius: true, padding: true }],
   ["harmony", { scale: false, opacity: true, radius: true, padding: false }],
   ["ios", { scale: false, opacity: false, radius: false, padding: false }],
-  ["android", { scale: false, opacity: false, radius: false, padding: false }],
+  ["android", { scale: true, opacity: false, radius: false, padding: false }],
 ] as const)("%s gates the window style rows on its capabilities", (platform, expected) => {
   const host = testHost({
     platform,

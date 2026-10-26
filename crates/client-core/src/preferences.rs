@@ -186,7 +186,9 @@ pub enum TextEditButton {
 /// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
-    vec![Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine]
+    vec![
+        Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine,
+    ]
 }
 
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
@@ -1445,6 +1447,9 @@ pub struct Preferences {
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
+    /// 移动光标后编辑光标后的部分（桌面宿主）：全拼、双拼的组字光标停在中间时，光标前的原文固定为当前的最佳转换，候选改为光标后那段的候选，首选是整句。默认关；关着时不写进文档，没有这个键的旧文档和旧版本都读作关。手机宿主不读它（host-api 只在桌面交给 Engine）。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub caret_edit_suffix: bool,
     pub candidate_page_size: u8,
     /// macOS 横排候选的数量模式；竖排和其他宿主保留原有分页。
     #[serde(default)]
@@ -3481,6 +3486,7 @@ impl Default for Preferences {
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),
             single_character_only: false,
+            caret_edit_suffix: false,
             candidate_page_size: 6,
             number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),

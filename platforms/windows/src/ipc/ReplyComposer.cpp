@@ -1,5 +1,6 @@
 #include "ReplyComposer.h"
 #include "CandidateContinuation.h"
+#include "CandidateSources.h"
 #include "CandidateTranslationPolicy.h"
 #include "TranslationDisplay.h"
 #include "GlossColumnPolicy.h"
@@ -1140,11 +1141,10 @@ std::optional<PendingReply> ReplyComposer::second_third_candidate(
       engine_input);
   if (!slot)
     return std::nullopt;
-  // 和数字键一样：超出当前页的位置什么也不选，键照样吃掉，因为 TIP 已经把它当作选词。
-  const auto &page = current.at("candidates");
+  // 和数字键一样：位置数的是看得见的行（`visible_page_candidate`，隐藏的占位席位不占位置），超出当前页的位置什么也不选，键照样吃掉，因为 TIP 已经把它当作选词。
   nlohmann::json transition;
-  if (*slot < page.size()) {
-    const auto &id = page.at(*slot).at("id");
+  if (const auto *picked = visible_page_candidate(current.at("candidates"), *slot)) {
+    const auto &id = picked->at("id");
     transition = session.select(epoch, id.at("generation").get<uint64_t>(),
                                 id.at("index").get<size_t>());
   } else {

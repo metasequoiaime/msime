@@ -1,0 +1,159 @@
+name: Release msime-pack
+
+# 构建脚本插件的作者工具 msime-pack（crates/pack-tool）：macOS universal（arm64 和 x86_64 两份合成一个）、Windows x64、Linux x64（musl 静态链接，不挑发行版的 glibc 版本），只有 publish 为 true 时才发布为 pack-tool-vX.Y.Z release。作者照 docs/plugins.md「从零写一个插件」下载它，不用克隆仓库。
+#
+# 按触发分支加后缀，同各平台的 Release 工作流（AGENTS.md「发版」）：main 不加，develop 加 -beta，其他分支加 -alpha；带后缀的一律是 prerelease。tag 以 pack-tool-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本；也从不标为 latest，仓库的「最新发布」留给应用。发出去的 release 不替换：同一个 tag 已经存在时失败，要修正就发一个新版本号。
+#
+# macOS 的二进制只有链接器给的 ad-hoc 签名，没有 Developer ID 签名和公证：用浏览器下载的要先去掉隔离属性（xattr -d com.apple.quarantine msime-pack），发布说明里写着。
+on:
+  workflow_dispatch:
+    inputs:
+      version: {description: "Semantic version of the msime-pack release (pack-tool-vX.Y.Z); empty takes the highest existing pack-tool-v release plus one patch, or 0.1.0 for the first", required: false, default: "", type: string}
+      publish: {description: "Publish the build as a pack-tool-v release (otherwise it is only uploaded as a workflow artifact)", required: false, default: false, type: boolean}
+permissions: {contents: read}
+concurrency: {group: release-pack-tool, cancel-in-progress: false}
+jobs:
+  # 先定下提交和版本号：三个平台的构建和发布用同一个提交，分支在运行期间前进也不受影响。
+  version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      - id: resolve
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          set -euo pipefail
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Every existing pack-tool-v tag on the remote (suffixed prereleases are not counted for the automatic bump).
+          tags=$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'pack-tool-v*' | sed 's|.*refs/tags/pack-tool-v||')
+          if [[ -z "$REQUESTED" ]]; then
+            latest=$(printf '%s\n' "$tags" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true)
+            if [[ -z "$latest" ]]; then REQUESTED=0.1.0; else IFS=. read -r major minor patch <<< "$latest"; REQUESTED="${major}.${minor}.$((patch + 1))"; fi
+            echo "No version given; using $REQUESTED (highest existing: ${latest:-none})"
+          fi
+          [[ "$REQUESTED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z, got '$REQUESTED'" >&2; exit 1; }
+          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac
+          release="${REQUESTED}${suffix}"
+          if printf '%s\n' "$tags" | grep -qxF "$release"; then echo "pack-tool-v$release already exists; releases are never replaced" >&2; exit 1; fi
+          { echo "release=$release"; if [[ -n "$suffix" ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi; } >> "$GITHUB_OUTPUT"
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      release: ${{ steps.resolve.outputs.release }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {runner: macos-15, target: aarch64-apple-darwin, binary: msime-pack}
+          - {runner: macos-15, target: x86_64-apple-darwin, binary: msime-pack}
+          - {runner: windows-2025, target: x86_64-pc-windows-msvc, binary: msime-pack.exe}
+          - {runner: ubuntu-24.04, target: x86_64-unknown-linux-musl, binary: msime-pack}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.version.outputs.sha }}", persist-credentials: false}
+      # rustls 底下的 ring 有 C 代码，musl 目标用 musl-gcc 编译。
+      - name: Install musl-gcc
+        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build msime-pack
+        shell: bash
+        env: {TARGET: "${{ matrix.target }}"}
+        run: |
+          set -euo pipefail
+          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上这次的目标。
+          rustup toolchain install
+          rustup target add "$TARGET"
+          cargo build --locked --release -p msime-pack-tool --bin msime-pack --target "$TARGET"
+      # 编出来的东西至少能跑起来：交叉编译的 x86_64 macOS 在 arm64 runner 上经 Rosetta 运行。
+      - name: Smoke test
+        shell: bash
+        env: {TARGET: "${{ matrix.target }}", BINARY: "${{ matrix.binary }}"}
+        run: |
+          set -euo pipefail
+          "target/$TARGET/release/$BINARY" validate docs/plugin-template
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: msime-pack-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          if-no-files-found: error
+
+  # 三个平台的压缩包和 SHA256SUMS 在一台 macOS 上组装：合成 universal 要 lipo。
+  package:
+    needs: [version, build]
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.version.outputs.sha }}", persist-credentials: false}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {path: built, pattern: msime-pack-*}
+      - name: Assemble the archives
+        env: {RELEASE: "${{ needs.version.outputs.release }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # 每个压缩包带二进制、GPL-3.0 许可证全文（msime-pack 随仓库是 GPL-3.0-only）和工具的说明。
+          stage() {
+            local name="$1"
+            rm -rf "stage/$name"
+            mkdir -p "stage/$name"
+            cp LICENSE "stage/$name/LICENSE"
+            cp crates/pack-tool/README.md "stage/$name/README.md"
+          }
+          name="msime-pack-${RELEASE}-macos-universal"
+          stage "$name"
+          lipo -create built/msime-pack-aarch64-apple-darwin/msime-pack built/msime-pack-x86_64-apple-darwin/msime-pack -output "stage/$name/msime-pack"
+          chmod 0755 "stage/$name/msime-pack"
+          lipo -info "stage/$name/msime-pack"
+          tar -C stage -czf "dist/$name.tar.gz" "$name"
+          name="msime-pack-${RELEASE}-linux-x64"
+          stage "$name"
+          install -m 0755 built/msime-pack-x86_64-unknown-linux-musl/msime-pack "stage/$name/msime-pack"
+          tar -C stage -czf "dist/$name.tar.gz" "$name"
+          name="msime-pack-${RELEASE}-windows-x64"
+          stage "$name"
+          cp built/msime-pack-x86_64-pc-windows-msvc/msime-pack.exe "stage/$name/msime-pack.exe"
+          (cd stage && zip -qr "../dist/$name.zip" "$name")
+          (cd dist && shasum -a 256 -- *.tar.gz *.zip > SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: msime-pack-release
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    if: ${{ inputs.publish }}
+    needs: [version, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {contents: write}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {name: msime-pack-release, path: dist}
+      - name: Create the release
+        env:
+          GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}"
+          GH_REPO: "${{ github.repository }}"
+          RELEASE: "${{ needs.version.outputs.release }}"
+          PRERELEASE: "${{ needs.version.outputs.prerelease }}"
+          SHA: "${{ needs.version.outputs.sha }}"
+        run: |
+          set -euo pipefail
+          tag="pack-tool-v$RELEASE"
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "msime-pack：水杉输入法桌面脚本插件的作者工具，生成插件 crate（new）、编译并校验（build）、按事件夹具试运行（run）、打成确定的压缩包（pack），校验规则和输入法导入时相同。用法见 [docs/plugins.md 的「从零写一个插件」](https://github.com/metasequoiaime/msime/blob/$SHA/docs/plugins.md)。"
+            echo
+            echo "- macOS universal、Windows x64、Linux x64（静态链接）各一个压缩包，校验值在 SHA256SUMS。"
+            echo "- macOS 的二进制没有 Developer ID 签名和公证：用浏览器下载的先运行 \`xattr -d com.apple.quarantine msime-pack\`。"
+            echo "- 源码是提交 $SHA，许可证 GPL-3.0-only（压缩包里的 LICENSE）。"
+          } > "$notes"
+          flags=(--latest=false)
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+          gh release create "$tag" dist/* --target "$SHA" --title "msime-pack $RELEASE" --notes-file "$notes" "${flags[@]}"

@@ -15,7 +15,7 @@ use crate::types::{
 use crate::user_dictionary::journal::is_user_inserted;
 
 /// 提交只会读取这些候选字段；纠错来源用于计算原始按键的消费长度。
-fn clone_selected_candidate(item: &WordItem, copy_sentence_words: bool) -> WordItem {
+pub(super) fn clone_selected_candidate(item: &WordItem, copy_sentence_words: bool) -> WordItem {
     WordItem {
         pinyin: item.pinyin.clone(),
         canonical_pinyin: item.canonical_pinyin.clone(),
@@ -81,9 +81,13 @@ impl InputSession {
         let Some(candidate) = self.candidates().get(index) else {
             return KeyResult::unhandled();
         };
-        let character = edge.character(&candidate.word).to_owned();
+        let mut character = edge.character(&candidate.word).to_owned();
         if character.is_empty() {
             return KeyResult::unhandled();
+        }
+        // 光标后编辑：光标前固定的那段照样交出去，取字只取光标后那一行的字。
+        if self.caret_edit.active {
+            character = self.caret_edit_edge_text(&character);
         }
         // One character of a candidate is not what the composition spelled, so nothing is learned and the rest is dropped.
         self.reset_composition();
@@ -168,8 +172,19 @@ impl InputSession {
         result
     }
 
-    /// input_session.cpp:828-956.
+    /// 选中第 `index` 条并上屏或推进组字。光标后编辑生效时先交给它（`commit_caret_edit`）。
     pub(super) fn commit(&mut self, index: usize) -> KeyResult {
+        if self.caret_edit.active && self.conversion.is_none() && self.date_time_menu_page.is_none()
+        {
+            if let Some(result) = self.commit_caret_edit(index) {
+                return result;
+            }
+        }
+        self.commit_plain(index)
+    }
+
+    /// input_session.cpp:828-956.
+    fn commit_plain(&mut self, index: usize) -> KeyResult {
         // 「📅日期」入口不上屏：候选窗换成这一组的全部格式，组字原样留着（`EnterDateTimeCandidatePage`）。
         if let Some(keyword) = self.date_time_menu_keyword_at(index) {
             self.enter_date_time_menu(&keyword);
@@ -411,7 +426,7 @@ impl InputSession {
     }
 
     /// `record_personal_context`, with its diagnostic kept only when nothing earlier failed.
-    fn record_context_into(
+    pub(super) fn record_context_into(
         &mut self,
         diagnostic: &mut Option<String>,
         selected: Option<&WordItem>,

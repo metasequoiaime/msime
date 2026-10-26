@@ -37,6 +37,8 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   swipeSymbolsDirection?: SwipeSymbolsDirection;
   /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
   shuangpinKeyHints?: boolean;
+  /** 宿主的触屏全拼 26 键组字会保留 ⇧ 臂辅助码（`touch_quanpin_shift`）时给出这个开关；没有时不画这一行。 */
+  quanpinShift?: boolean;
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
@@ -48,6 +50,7 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
+  onQuanpinShiftChange?: (enabled: boolean) => void;
   /** 「恢复默认」：参数是这一页实际给出、会被恢复的几项，如「高度、间距和工具栏按钮」，确认框照它措辞。 */
   onReset: (subjects: string) => void;
   /** HarmonyOS 手机：「布局」组开头的行。给出时按手机的排法：「布局」只放键盘的选择，「尺寸」把预览、三个滑块和「恢复默认」放进同一张卡片，各行不带长说明。 */
@@ -79,6 +82,7 @@ export function TouchKeyboardGeometrySection({
   swipeSymbols,
   swipeSymbolsDirection = "up",
   shuangpinKeyHints,
+  quanpinShift,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -92,6 +96,7 @@ export function TouchKeyboardGeometrySection({
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
   onShuangpinKeyHintsChange,
+  onQuanpinShiftChange,
   onReset,
   layoutRows,
   preview,
@@ -111,6 +116,18 @@ export function TouchKeyboardGeometrySection({
       onChange={(enabled) => onShuangpinKeyHintsChange?.(enabled)}
     />
   );
+  const quanpinShiftRow = quanpinShift !== undefined && (
+    <SwitchRow
+      title="组字时保留 Shift"
+      description={
+        phone
+          ? undefined
+          : "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认关闭，组字时这一键是「分词」，用来断开音节。"
+      }
+      checked={quanpinShift}
+      onChange={(enabled) => onQuanpinShiftChange?.(enabled)}
+    />
+  );
   // 只列这一页上看得到的几项：工具栏按钮只在触屏宿主的「工具栏」组里出现，以前桌面上也写着它。
   const resetSubjects = touchKeyboardResetSubjects({
     height: showHeight,
@@ -128,6 +145,7 @@ export function TouchKeyboardGeometrySection({
           <GroupList title="布局">
             {layoutRows}
             {shuangpinKeyHintsRow}
+            {quanpinShiftRow}
           </GroupList>
           {/* 预览和它调的三个滑块在同一张卡片里；「恢复默认」是卡片末尾的一行文字按钮，它也照旧重置工具栏按钮。 */}
           <GroupList title="尺寸">
@@ -234,9 +252,11 @@ export function TouchKeyboardGeometrySection({
       />
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||
-        (shuangpinKeyHints !== undefined && !phone)) && (
+        (shuangpinKeyHints !== undefined && !phone) ||
+        (quanpinShift !== undefined && !phone)) && (
         <GroupList title="布局">
           {!phone && shuangpinKeyHintsRow}
+          {!phone && quanpinShiftRow}
           {tabletFullKeys !== undefined && (
             <SwitchRow
               title="数字行与 Tab 键"
