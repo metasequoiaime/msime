@@ -14,7 +14,10 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
-        Context context = getTargetContext();
+        runCapacity(getTargetContext(), this);
+    }
+
+    static void runCapacity(Context context, DeviceSmoke owner) throws Exception {
         ClassLoader loader = context.getClassLoader();
         Class<?> host = loader.loadClass("app.msime.android.home.HostStore");
         Method loadPreferences = host.getMethod("loadPreferences", Context.class);
@@ -28,11 +31,11 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
         byte[] mainBackup = Files.exists(main.toPath()) ? Files.readAllBytes(main.toPath()) : null;
         byte[] visitorBackup = Files.exists(visitor.toPath()) ? Files.readAllBytes(visitor.toPath()) : null;
         try {
-            stage = "save one hundred entry limit";
+            owner.stage = "save one hundred entry limit";
             if (putPreference.invoke(null, context, "clipboard_history_limit", 100) == null)
                 throw new AssertionError("Clipboard capacity could not be saved");
-            verifyMode(context, "MAIN");
-            verifyMode(context, "VISITOR");
+            verifyMode(context, owner, "MAIN");
+            verifyMode(context, owner, "VISITOR");
         } finally {
             try {
                 if (putPreference.invoke(null, context, "clipboard_history_limit", originalLimit) == null)
@@ -47,7 +50,7 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    private void verifyMode(Context context, String modeName) throws Exception {
+    private static void verifyMode(Context context, DeviceSmoke owner, String modeName) throws Exception {
         ClassLoader loader = context.getClassLoader();
         Class<?> modeClass = loader.loadClass("app.msime.android.ClipboardModePolicy$Mode");
         Object mode = null;
@@ -61,7 +64,7 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
         Method add = store.getMethod("add", String.class);
         Method load = store.getMethod("load");
         Method limit = store.getMethod("limit");
-        stage = "capture sixty entries in " + mode;
+        owner.stage = "capture sixty entries in " + mode;
         Object history = forMode.invoke(null, context, mode);
         clear.invoke(history);
         for (int index = 0; index < 60; index++) {
@@ -69,7 +72,7 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
                 "Synthetic clipboard %s %03d", mode, index));
             if (rejected != null) throw new AssertionError("Synthetic clipboard entry was rejected");
         }
-        stage = "reopen sixty entries in " + mode;
+        owner.stage = "reopen sixty entries in " + mode;
         Object reopened = forMode.invoke(null, context, mode);
         int retained = ((List<?>) load.invoke(reopened)).size();
         if (retained != 60 || ((Integer) limit.invoke(reopened)) != 100)
