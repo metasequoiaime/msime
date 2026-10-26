@@ -254,3 +254,28 @@ jobs:
           python3 scripts/generate-release-notes.py --platform harmony --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
           test -s "$HAP" && test -s "$SUMS"
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "HarmonyOS ${RELEASE}" release-notes.md "$HAP" "$SUMS"
+      - name: Check Pgyer credentials
+        id: pgyer-secret
+        env:
+          PGYER_API_KEY: "${{ secrets.PGYER_API_KEY }}"
+        run: |
+          if [[ -n "$PGYER_API_KEY" ]]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip Pgyer upload when the repository secret is absent
+        if: steps.pgyer-secret.outputs.configured != 'true'
+        run: echo '::notice::PGYER_API_KEY is not configured; skipping Pgyer upload'
+      - name: Upload HarmonyOS package to Pgyer
+        if: inputs.publish && steps.pgyer-secret.outputs.configured == 'true'
+        id: pgyer
+        uses: PGYER/pgyer-upload-app-action@2cc249560d09c8b804607524fd1ebf0c84315879 # v2.0.0
+        with:
+          _api_key: "${{ secrets.PGYER_API_KEY }}"
+          appFilePath: "${{ steps.signing.outputs.hap }}"
+          buildUpdateDescription: "HarmonyOS ${{ steps.version.outputs.value }}"
+      - name: Record Pgyer download page
+        if: steps.pgyer.outcome == 'success'
+        run: |
+          echo "${{ steps.pgyer.outputs.appBuildURL }}" >> "$GITHUB_STEP_SUMMARY"
