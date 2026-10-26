@@ -13,6 +13,8 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import androidx.annotation.Nullable;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -29,6 +31,7 @@ import app.msime.android.ClipboardHistoryRetentionPolicy;
 import app.msime.android.ClipboardHistoryStore;
 import app.msime.android.ClipboardSearchPolicy;
 import app.msime.android.ClipboardOperationAuthenticationPolicy;
+import app.msime.android.ScrollTopButtonPolicy;
 import app.msime.android.SystemAuthenticators;
 import app.msime.android.AuthenticationPauseTracker;
 import app.msime.android.DeviceDataApi;
@@ -59,6 +62,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     /** 删除、或编辑前在共享存储里找那一条还没回来时不再接受操作，免得同一条被删两次、删完又被编辑或连开两个编辑页。 */
     private boolean busy;
     @Nullable private GroupCard results;
+    @Nullable private ImageView topButton;
     private boolean authorized;
     @Nullable private BiometricPrompt authentication;
     private final AuthenticationPauseTracker pause = new AuthenticationPauseTracker();
@@ -99,6 +103,17 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         target.addView(search, LayoutPolicy.matchWidthWrapParams());
 
         results = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
+        FrameLayout root = (FrameLayout) requireView();
+        topButton = ImageViewPolicy.iconButton(context, R.drawable.ic_ms_arrow_upward,
+            ThemeColorPolicy.accent(context), "返回顶部", 48,
+            () -> scrollView().smoothScrollTo(0, 0));
+        FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(
+            DimensionPolicy.pixels(context, 48), DimensionPolicy.pixels(context, 48));
+        topParams.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+        topParams.setMargins(0, 0, DimensionPolicy.pixels(context, 16),
+            DimensionPolicy.pixels(context, Ui.TAB_BAR_HEIGHT + Ui.PAGE_PADDING_BOTTOM));
+        root.addView(topButton, topParams);
+        ViewPolicy.setVisible(topButton, false);
         // 读取放在 onBecameVisible：每次显示都会调到它，这里再读一次就重复了。
         renderResults();
         requestAuthentication();
@@ -142,9 +157,14 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         authorized = false;
         pause.reset();
         results = null;
+        topButton = null;
         clipboardExport.destroyed();
         // 视图没了，删除的回调就不会再交回来；不清掉的话这一页之后的操作全被挡住。
         busy = false;
+    }
+
+    @Override protected void onScrollChanged(int scrollY) {
+        if (topButton != null) ViewPolicy.setVisible(topButton, ScrollTopButtonPolicy.visible(scrollY));
     }
 
     /** 第一次显示、从编辑页回来、应用回到前台时都重读：键盘可能刚记下新复制的内容，编辑页可能刚改了一条。 */

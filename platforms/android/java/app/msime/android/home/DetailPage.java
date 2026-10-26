@@ -150,6 +150,9 @@ public abstract class DetailPage extends HomeTabFragment {
     /** 往内容列里加这一页的设置。视图每次重建都会再调一次，所以这里不要保留跨视图的状态。 */
     protected abstract void buildContent(LinearLayout column, Bundle args);
 
+    /** 页面需要根据详情滚动位置更新浮动控件时接收滚动通知。 */
+    protected void onScrollChanged(int scrollY) {}
+
     /** 需要常驻分类导航的详情页在标题下提供一个控件，其余页面沿用滚动标题。 */
     @Nullable protected View fixedNavigation() {
         if (sectionTitles().isEmpty()) return null;
@@ -232,7 +235,10 @@ public abstract class DetailPage extends HomeTabFragment {
         }
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
         scroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
-            (ignored, x, y, oldX, oldY) -> setCollapsed(y > threshold, true));
+            (ignored, x, y, oldX, oldY) -> {
+                setCollapsed(y > threshold, true);
+                onScrollChanged(y);
+            });
 
         // home_content 已经让开了状态栏和左右的刘海，这里只管底部：内容要能滚到底部导航栏（80dp 加手势区）之上，键盘弹出时再让到键盘之上。
         PageInsetsPolicy.bind(scroll);
