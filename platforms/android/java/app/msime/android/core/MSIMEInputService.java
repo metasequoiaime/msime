@@ -7781,6 +7781,17 @@ public final class MSIMEInputService extends InputMethodService {
         authenticateClipboard("导出", this::exportClipboardHistoryAfterAuthentication);
     }
 
+    /** 输入法面板多选导出；只接收面板当前选中的文字，不把未选记录带出。 */
+    void exportClipboardItems(java.util.List<String> texts) {
+        if (texts == null || texts.isEmpty()) return;
+        if (texts.size() > app.msime.android.ClipboardSelectionPolicy.MAX_SELECTIONS) {
+            notice("最多只能选择 " + app.msime.android.ClipboardSelectionPolicy.MAX_SELECTIONS + " 项");
+            return;
+        }
+        java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        authenticateClipboard("导出", () -> exportClipboardItemsAfterAuthentication(snapshot));
+    }
+
     private void exportClipboardHistoryAfterAuthentication() {
         if (clipboardExportBusy) return;
         clipboardExportBusy = true;
@@ -7788,6 +7799,25 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesWorker.execute(() -> {
             String message;
             try { message = app.msime.android.ClipboardExport.export(application); }
+            catch (RuntimeException | LinkageError failed) { message = "剪贴板导出失败，请重试"; }
+            String result = message;
+            main.post(() -> {
+                clipboardExportBusy = false;
+                if (app.msime.android.ClipboardExport.NEEDS_DIRECTORY.equals(result)) {
+                    openHostPage(ClipboardSearchPolicy.SEARCH_PAGE);
+                    notice("首次导出请在历史页点击「导出」，选择并授权文件夹");
+                } else notice(result);
+            });
+        });
+    }
+
+    private void exportClipboardItemsAfterAuthentication(java.util.List<String> texts) {
+        if (clipboardExportBusy) return;
+        clipboardExportBusy = true;
+        Context application = getApplicationContext();
+        preferencesWorker.execute(() -> {
+            String message;
+            try { message = app.msime.android.ClipboardExport.export(application, texts); }
             catch (RuntimeException | LinkageError failed) { message = "剪贴板导出失败，请重试"; }
             String result = message;
             main.post(() -> {

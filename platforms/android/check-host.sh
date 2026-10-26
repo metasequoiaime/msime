@@ -747,6 +747,18 @@ if ! rg -A 30 'void renderClipboardSegmentation\(\)' \
   echo "Android clipboard segmentation must scroll its word pieces separately from the pinned action bar (#5645)" >&2
   exit 1
 fi
+# 多选剪贴板最多保留 20 项，并同时提供选中项导出和删除；导出走同一份认证与文件目录流程（#9957）。
+if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'clipboardAction\(header, "导出"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'exportClipboardItems' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'exportSelectedText' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
+  echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
+  exit 1
+fi
 # 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。
 if ! rg -A 20 'void addRecentClipRow\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
