@@ -5973,21 +5973,32 @@ public final class MSIMEInputService extends InputMethodService {
         LocalInputMode[] allModes = LocalInputMode.values();
         java.util.List<LocalInputMode> modes = new java.util.ArrayList<>(allModes.length);
         for (LocalInputMode mode : allModes) {
-            if (mode != LocalInputMode.TEMPORARY_JAPANESE || edition.temporaryJapanese()) modes.add(mode);
+            if (mode == LocalInputMode.TEMPORARY_JAPANESE && !edition.temporaryJapanese()) continue;
+            if (mode.command() && !commandLettersTypable()) continue;
+            modes.add(mode);
         }
         return modes;
     }
 
-    /** 本地模式可用：偏好打开着，临时日语还要日文词典已在本机（随包或下载的资源包）。没有词典时 host-api 本来就把它关掉，菜单里置灰，免得点了没反应；去设置 → 输入下载。 */
+    /**
+     * 「指令」只给 26 键：`/` 模式里键盘仍是原来的键面，九键、14 键、18 键的键发的是数字或分组码，Engine 在 `/` 模式里不收，按第一个键就结束模式、把 `/` 原样上屏（API 35 模拟器上实测），指令字母打不出来。26 键直接发字母，与实体键盘相同。
+     */
+    private boolean commandLettersTypable() {
+        return displayedTouchLayout(view) == STANDARD_TOUCH_LAYOUT;
+    }
+
+    /** 本地模式可用：偏好打开着，临时日语还要日文词典已在本机（随包或下载的资源包）。没有词典时 host-api 本来就把它关掉，菜单里置灰，免得点了没反应；去设置 → 输入下载。`/` 指令出厂关着（在插件页指令表的详情里打开），Engine 还只在中文标点下把 `/` 当作入口，英文标点下按了只会打出一个 `/`，所以那时也置灰。 */
     boolean localModeEnabled(LocalInputMode mode) {
         if (mode == LocalInputMode.TEMPORARY_JAPANESE && !resourcePacks.contains(KeyboardScheme.JAPANESE_PACK)) return false;
-        return localModes.optBoolean(mode.preferenceKey(), true);
+        if (mode.command() && !chinesePunctuation) return false;
+        return localModes.optBoolean(mode.preferenceKey(), mode.enabledByDefault());
     }
 
     void openLocalInputMode(LocalInputMode mode) {
         if (session == 0 || !supportsLocalTools() || !localModeEnabled(mode)) return;
         imeKeyFeedback.playFeedback(moreButton);
-        character(mode.trigger().charAt(0), true);
+        // Shift+字母进入的模式按大写字母送；`/` 是标点，照没按 Shift 的样子送，与实体键盘上直接按 / 相同。
+        character(mode.trigger().charAt(0), !mode.command());
     }
 
     void closeClipboardHistory() {

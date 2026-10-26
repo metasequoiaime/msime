@@ -27,24 +27,31 @@ public final class SymbolPanelModel {
     public static final int KAOMOJI_COLUMNS = 2;
     private static final int MAX_KAOMOJI_CODE_POINTS = 96;
 
-    /** 一个分类：写死在这里的（`catalog` 为空，`symbols` 就是全部内容），或者打开时从 Engine 目录分页读的（`symbols` 为空）。 */
+    /** 一个分类：写死在这里的（`catalog` 为空，`symbols` 就是全部内容），打开时从 Engine 目录分页读的（`symbols` 为空），或者符号集插件的（`symbols` 是插件的条目，`pluginKaomoji` 为真时按颜文字排）。 */
     public static final class Category {
         private final String title;
         private final String id;
         private final List<String> symbols;
         private final String catalog;
         private final String parent;
+        private final boolean pluginKaomoji;
 
         private Category(String id, String title, List<String> symbols) {
             this(id, title, symbols, "", "");
         }
 
         private Category(String id, String title, List<String> symbols, String catalog, String parent) {
+            this(id, title, symbols, catalog, parent, false);
+        }
+
+        private Category(String id, String title, List<String> symbols, String catalog, String parent,
+                boolean pluginKaomoji) {
             this.id = id;
             this.title = title;
             this.symbols = List.copyOf(symbols);
             this.catalog = catalog;
             this.parent = parent;
+            this.pluginKaomoji = pluginKaomoji;
         }
 
         public String id() { return id; }
@@ -55,10 +62,103 @@ public final class SymbolPanelModel {
         /** 符号目录的上级分类（`symbol_catalog.parent_category`），颜文字和写死的分类为空。 */
         public String parent() { return parent; }
         public boolean fromCatalog() { return !catalog.isEmpty(); }
-        public boolean kaomoji() { return KAOMOJI_CATALOG.equals(catalog); }
+        /** 颜文字：目录里的颜文字，或符号集插件放在颜文字页的一组。 */
+        public boolean kaomoji() { return KAOMOJI_CATALOG.equals(catalog) || pluginKaomoji; }
+        /** 符号集插件的分类（{@link #pluginCategories}）。 */
+        public boolean plugin() { return id.startsWith(PLUGIN_SYMBOLS_PREFIX) || id.startsWith(PLUGIN_KAOMOJI_PREFIX); }
         public int columns() { return kaomoji() ? KAOMOJI_COLUMNS : COLUMNS; }
         /** 点过的是否记进「常用」：颜文字太长，放进每行五格的「常用」里只剩半截，不记。 */
         public boolean remembers() { return !kaomoji(); }
+
+        @Override public boolean equals(Object other) {
+            return other instanceof Category that && id.equals(that.id) && title.equals(that.title)
+                && symbols.equals(that.symbols) && catalog.equals(that.catalog) && parent.equals(that.parent)
+                && pluginKaomoji == that.pluginKaomoji;
+        }
+
+        @Override public int hashCode() {
+            return java.util.Objects.hash(id, title, symbols, catalog, parent, pluginKaomoji);
+        }
+    }
+
+    /** 符号集插件分类的 id 前缀：符号页每个插件一个分类，颜文字每组一个分类。不会和内置分类撞名，也不进「符号分类顺序」。 */
+    public static final String PLUGIN_SYMBOLS_PREFIX = "plugin-symbols:";
+    public static final String PLUGIN_KAOMOJI_PREFIX = "plugin-kaomoji:";
+    /** 一组最多接收的条目数，与插件清单的上限（`symbol_set` 的每组 512 项）一致。 */
+    public static final int MAX_PLUGIN_GROUP_ITEMS = 512;
+    /** 一个条目的 UTF-16 长度上限，与插件清单的上限一致。 */
+    public static final int MAX_PLUGIN_ITEM_UNITS = 64;
+    /** 插件名和组标题的 UTF-16 长度上限：清单限制组标题 48 字节、插件名 80 字节，这里留足余量，只挡明显坏掉的回答。 */
+    private static final int MAX_PLUGIN_NAME_UNITS = 128;
+
+    /**
+     * `msime_client_emoji_catalog_request` 在 `list_plugin_symbol_groups` 下回传的一组（字段名与接口一致）：哪个包、包名、放在哪一页（`symbols` 或 `kaomoji`）、组标题和条目。关键词只给搜索用，这个面板没有搜索，不读。
+     */
+    public record PluginGroup(String pack, String packName, String tab, String title, List<String> items) {}
+
+    /**
+     * 符号集插件的分类，与鸿蒙 2in1 面板（`PluginSymbolGroupPolicy`）和 Tauri 面板（`append_plugin_symbol_groups`）同样的排法：`symbols` 组以插件名为分类，每个插件一个，内容是它全部 `symbols` 组按清单顺序首尾相接；`kaomoji` 组逐组成为一个分类，标题是组标题，按颜文字排。坏组跳过而不是整份作废：空名字、未知的页、没有可用条目的组都不出现，超长的条目去掉，一组最多 {@link #MAX_PLUGIN_GROUP_ITEMS} 项。不跨插件、也不与内置分类去重。
+     */
+    public static List<Category> pluginCategories(List<PluginGroup> groups) {
+        List<String> packs = new ArrayList<>();
+        List<String> packNames = new ArrayList<>();
+        List<List<String>> packItems = new ArrayList<>();
+        List<Category> kaomoji = new ArrayList<>();
+        if (groups == null) return List.of();
+        for (int index = 0; index < groups.size(); index++) {
+            PluginGroup group = groups.get(index);
+            if (group == null || !usableName(group.pack()) || !usableName(group.packName()) || !usableName(group.title())
+                    || group.items() == null) continue;
+            List<String> items = new ArrayList<>();
+            for (String item : group.items()) {
+                if (items.size() == MAX_PLUGIN_GROUP_ITEMS) break;
+                if (item != null && !item.isEmpty() && !item.trim().isEmpty() && item.length() <= MAX_PLUGIN_ITEM_UNITS
+                        && item.indexOf('\u0000') < 0) items.add(item);
+            }
+            if (items.isEmpty()) continue;
+            if (SYMBOLS_CATALOG.equals(group.tab())) {
+                int pack = packs.indexOf(group.pack());
+                if (pack < 0) {
+                    packs.add(group.pack());
+                    packNames.add(group.packName());
+                    packItems.add(new ArrayList<>());
+                    pack = packs.size() - 1;
+                }
+                packItems.get(pack).addAll(items);
+            } else if (KAOMOJI_CATALOG.equals(group.tab())) {
+                kaomoji.add(new Category(PLUGIN_KAOMOJI_PREFIX + group.pack() + ":" + index, group.title(), items, "", "",
+                    true));
+            }
+        }
+        List<Category> values = new ArrayList<>(packs.size() + kaomoji.size());
+        for (int pack = 0; pack < packs.size(); pack++) {
+            values.add(new Category(PLUGIN_SYMBOLS_PREFIX + packs.get(pack), packNames.get(pack), packItems.get(pack)));
+        }
+        values.addAll(kaomoji);
+        return List.copyOf(values);
+    }
+
+    private static boolean usableName(String value) {
+        return value != null && !value.isEmpty() && value.length() <= MAX_PLUGIN_NAME_UNITS && !value.trim().isEmpty();
+    }
+
+    /**
+     * 按本机分类顺序排好的内置分类，再插进符号集插件的分类：颜文字插件组紧跟在「颜文字」之后（鸿蒙 2in1 和桌面面板把它们排在颜文字的「All」之后，这个面板的「颜文字」就是 All），符号插件排在最后，也就是内置符号之后。插件分类不进「符号分类顺序」，用户调整顺序时它们跟着「颜文字」和末尾走。
+     */
+    public static List<Category> categories(List<String> recents, List<SymbolCategoryOrderPolicy.Item> order,
+            List<Category> plugins) {
+        List<Category> values = new ArrayList<>(categories(recents, order));
+        if (plugins == null || plugins.isEmpty()) return List.copyOf(values);
+        int kaomoji = -1;
+        for (int index = 0; index < values.size(); index++) if ("kaomoji".equals(values.get(index).id())) kaomoji = index;
+        int insert = kaomoji < 0 ? values.size() : kaomoji + 1;
+        List<Category> symbols = new ArrayList<>();
+        for (Category category : plugins) {
+            if (category.kaomoji()) values.add(insert++, category);
+            else symbols.add(category);
+        }
+        values.addAll(symbols);
+        return List.copyOf(values);
     }
 
     // 「常用」只显示用户在面板里实际点过的符号，固定标点和全角符号留在「中文」最前面。
@@ -183,7 +283,13 @@ public final class SymbolPanelModel {
     /** 「常用」移动后仍按稳定 ID 找到它，而不是假设它位于索引 0。 */
     public static int initialCategory(List<String> recents,
             List<SymbolCategoryOrderPolicy.Item> order) {
-        List<Category> values = categories(recents, order);
+        return initialCategory(recents, order, List.of());
+    }
+
+    /** 同上，算上符号集插件的分类：插到「常用」之前的颜文字插件组会挪动它的下标。 */
+    public static int initialCategory(List<String> recents,
+            List<SymbolCategoryOrderPolicy.Item> order, List<Category> plugins) {
+        List<Category> values = categories(recents, order, plugins);
         for (int index = 0; index < values.size(); index++)
             if ("recents".equals(values.get(index).id())) return index;
         return 0;

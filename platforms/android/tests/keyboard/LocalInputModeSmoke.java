@@ -4,7 +4,7 @@ public final class LocalInputModeSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
-        check(LocalInputMode.values().length == 9);
+        check(LocalInputMode.values().length == 10);
         check(LocalInputMode.values()[0] == LocalInputMode.UNICODE);
         check(LocalInputMode.values()[1] == LocalInputMode.DATE_TIME);
         check(LocalInputMode.values()[2] == LocalInputMode.SUPER_JIANPIN);
@@ -30,6 +30,13 @@ public final class LocalInputModeSmoke {
         check(LocalInputMode.CHAIZI.trigger().equals("C"));
         check(LocalInputMode.CHAIZI.title().equals("拆字"));
         check(LocalInputMode.CHAIZI.preferenceKey().equals("chaizi"));
+        // `/` 指令追加在末尾：出厂关着，入口是标点而不是 Shift+字母。
+        check(LocalInputMode.values()[9] == LocalInputMode.COMMAND);
+        check(LocalInputMode.COMMAND.trigger().equals("/"));
+        check(LocalInputMode.COMMAND.title().equals("指令"));
+        check(LocalInputMode.COMMAND.preferenceKey().equals("command"));
+        check(!LocalInputMode.COMMAND.enabledByDefault() && LocalInputMode.QUICK_PHRASE.enabledByDefault());
+        check(LocalInputMode.COMMAND.command() && !LocalInputMode.CHAIZI.command());
         System.out.println("Android local input modes: Apple triggers and preference keys passed");
     }
 }
