@@ -3535,7 +3535,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNotNil(comma.onCornerHint)
     XCTAssertEqual(comma.cornerHint, ".")
     XCTAssertFalse(comma.swipesCornerHint)
-    XCTAssertEqual(comma.bounds.width, unit, accuracy: 0.5)
+    // 句点多占一道键距，各键按同一份额略窄；逗号仍与 123 保持 1 : 1.25。
+    let englishUnit = try button("layoutToggleButton", in: controller).bounds.width / 1.25
+    XCTAssertEqual(comma.bounds.width, englishUnit, accuracy: 0.5)
+    XCTAssertEqual(englishUnit, unit, accuracy: 1)
 
     // 123 层自带底行：ABC | emoji | space | return，⌫ 上移到该层第三行。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
