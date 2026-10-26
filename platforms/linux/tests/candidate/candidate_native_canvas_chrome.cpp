@@ -169,13 +169,18 @@ void caret_edit_suffix() {
   auto *cr = cairo_create(target.get());
   auto assets = theme_assets();
   auto content = page(false);
+  // 没有拼音、只有一页：首行不出现，卡片只有两个短候选那么宽，比提示窄。
   content.preedit.clear();
+  content.page_count = 1;
+  content.next = false;
   const auto plain = host::measure_native_canvas(cr, *assets, content, 1600);
   assert(plain.auxiliary_hint.width == 0 && plain.auxiliary.width == 0);
   content.auxiliary_hint = "候选编辑：光标后";
   const auto hinted = host::measure_native_canvas(cr, *assets, content, 1600);
   assert(hinted.auxiliary_hint.width > 0 && hinted.auxiliary.width == 0);
   assert(hinted.panel.height > plain.panel.height);
+  // 提示算进卡片的最小宽度：候选再短，提示也能整段画在内边距以内。
+  assert(hinted.panel.width >= plain.panel.width && hinted.auxiliary_hint.x >= hinted.panel.x + 4 + hinted.text_left - 1);
   assert(hinted.auxiliary_hint.y >= hinted.items.back().y + hinted.items.back().height);
   // 贴右边距：提示的右缘就是行内文字的右缘（卡片右缘减内边距和右边距）。
   assert(near(hinted.auxiliary_hint.x + hinted.auxiliary_hint.width,
@@ -185,6 +190,16 @@ void caret_edit_suffix() {
   assert(both.auxiliary.width > 0 && both.auxiliary_hint.width > 0);
   assert(both.auxiliary.x + both.auxiliary.width <= both.auxiliary_hint.x);
   assert(near(both.auxiliary.y, both.auxiliary_hint.y) && near(both.panel.height, hinted.panel.height, 1));
+  // 提示比卡片的最小宽度还宽时卡片跟着变宽，连击仍排在它左边，两段都画全、不重叠（不同系统的字体宽度不同，这里用一段加长的提示让它在哪里都比卡片宽）。
+  {
+    auto wide = content;
+    wide.auxiliary_hint = "候选编辑：光标后候选编辑：光标后候选编辑：光标后";
+    const auto widened = host::measure_native_canvas(cr, *assets, wide, 1600);
+    assert(widened.panel.width > both.panel.width);
+    assert(widened.auxiliary.x + widened.auxiliary.width <= widened.auxiliary_hint.x);
+    assert(widened.auxiliary.width >= std::ceil(host::native_canvas_text_size(cr, widened.gloss_font, wide.auxiliary).first));
+    assert(widened.auxiliary_hint.width >= std::ceil(host::native_canvas_text_size(cr, widened.gloss_font, wide.auxiliary_hint).first));
+  }
   host::paint_native_canvas(cr, *assets, content, both, kPalette);
   // 提示用次要色（没有皮肤色时是序号色，灰），画在它自己的框里。
   assert(colors(target.get(), both.auxiliary_hint)[0x808080] > 10);

@@ -259,6 +259,14 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   const double header_width = has_preedit || page_controls || logo
       ? 2 * inset + logo_width + preedit_width + (has_preedit && controls_width > 0 ? indicator_gap : 0) + controls_width
       : 0;
+  // 光标后编辑的提示算进卡片的最小宽度，模式生效期间总能画全；和本地模式、连击同在一行时它们也算进去，左右两段才不会叠在一起。没有提示时底部一行和以前一样不参与宽度。
+  const double footer_hint_width = content.auxiliary_hint.empty()
+      ? 0 : std::ceil(native_canvas_text_size(cr, layout.gloss_font, content.auxiliary_hint).first);
+  const double footer_width = footer_hint_width > 0
+      ? 2 * inset + layout.text_left + layout.text_right + footer_hint_width +
+            (content.auxiliary.empty() ? 0 : std::ceil(native_canvas_text_size(cr, layout.gloss_font, content.auxiliary).first) + 8 * s)
+      : 0;
+  const double top_width = std::max(header_width, footer_width);
   const double row_visible = std::max(0.0, visible - (compact_expand ? arrow_width : 0));
   // 记住的宽度含首行右端的展开键；这一页把展开键放在行尾时先扣掉。
   const double minimum = std::max(assets.min_width, content.minimum_width - (compact_expand ? arrow_width : 0));
@@ -266,7 +274,7 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   std::vector<NativeCanvasChromePage> pages;
   double width = 0;
   if (grid) {
-    width = header_width;
+    width = top_width;
     for (std::size_t begin = 0; begin < content.items.size(); begin += content.grid_columns) {
       const auto end = std::min(content.items.size(), begin + content.grid_columns);
       pages.push_back(page_geometry(begin, end, false, 0, assets.min_width, 0, visible));
@@ -274,7 +282,7 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
     }
     width = std::ceil(width);
   } else {
-    pages.push_back(page_geometry(0, content.items.size(), page_controls, header_width,
+    pages.push_back(page_geometry(0, content.items.size(), page_controls, top_width,
                                   content.horizontal ? minimum : assets.min_width, content.reserved_gloss_lines, row_visible));
     width = pages.back().width + (compact_expand ? arrow_width : 0);
   }

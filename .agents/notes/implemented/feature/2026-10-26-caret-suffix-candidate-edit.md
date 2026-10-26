@@ -55,7 +55,7 @@ Status: implemented
 - 候选窗只在模式生效时显示「候选编辑：光标后」，不能点，模式没生效时各宿主的画法和以前相同：
   - macOS（`InputController.mm` 的 `renderCandidates`）：首行右侧、翻页控件左边，与「1 / 3」同字号同次要色，算进卡片的最小宽度；自适应横排里放下它会把翻页键挤到一半以下时不画。首选开头固定的那几个字用释义色画（`MSIMECandidateButton::dimmedPrefixLength`），按 Unicode 标量数换成 UTF-16 长度，不切开代理对。
   - Windows Server 候选窗（`CandidatePresentation.h`、`CandidateWindow.cpp`）：首行右侧、翻页之前，页码字号和次要色，拼音在它左边截断；读屏树多一个文字元素。首选用 `IDWriteTextLayout` 把固定的那段画成编号色；繁体输出时前缀按同样的写法换算，对不上就不画淡。
-  - Linux（`platforms/linux/src/core/CaretEditSuffix.h`）：IBus 把提示接在候选上方的辅助文字里，首选开头加前景色属性；Fcitx5 经典界面接在 `auxDown` 里，`fcitx::Text` 没有颜色格式，首选照常画；Fcitx5 原生画布在页脚右侧画提示，首选开头用编号色。两个宿主都把提示排在打字连击数之前。
+  - Linux（`platforms/linux/src/core/CaretEditSuffix.h`）：IBus 把提示接在候选上方的辅助文字里，首选开头加前景色属性；Fcitx5 经典界面接在 `auxDown` 里，`fcitx::Text` 没有颜色格式，首选照常画；Fcitx5 原生画布在页脚右侧画提示，提示（和同一行的本地模式、连击）算进卡片的最小宽度，首选开头用编号色。两个宿主都把提示排在打字连击数之前。
 
 ## Historical note audit
 
