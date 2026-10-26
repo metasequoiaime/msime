@@ -10,6 +10,8 @@ Status: implemented
 
 万象 LTS 使用与 `msime-windows` 相同方向的远端可变资源处理：下载地址仍来自审过的锁文件，但每次从 HTTPS 响应取得完整长度，下载到独立临时文件，不复用旧摘要的断点文件，随后校验 `.gram` 头部、偏移和双数组边界。成功后计算本次实际 SHA-256 和长度，写入资源包清单，再沿用现有暂存目录和原子发布流程。已安装的万象只按清单形态和 `.gram` 格式判断有效，损坏文件会显示为过期并可重新安装；导入和收编也记录实际摘要。其他资源包继续按锁文件固定 SHA-256 和长度校验。
 
+参考来源是 `msime-windows` 远端默认分支 `develop` 的提交 `94aed00012b895dd2fe734b087c5f7c404d9b658`，文件为 `server/src/settings/collocation_model.cpp`。本次处理完整下载、格式校验和安全发布；参考实现的 HEAD 远端身份探测与更新提示不在本次范围内。原有[语法模型读取端](../feature/2026-10-21-octagram-grammar-model.md)的引擎契约与其他模型锁仍保留，本篇只接管万象的可变下载身份。检索命中的候选来源标记、辅助码、符号表笔记与本次下载身份无关。
+
 ## Alternatives considered
 
 - **每次上游替换后继续刷新锁文件。** 最强理由是改动小且能保留所有固定校验；但它只能追赶一次替换，无法满足 LTS 地址持续原地更新的发布方式，因此保留为历史临时方案。
@@ -22,7 +24,8 @@ Status: implemented
 
 ## Verification
 
-- `cargo test -p msime-client-providers wanxiang_format_validation --lib`
-- `cargo test -p msime-client-providers resource_packs::tests --lib`（30 项通过）
+- `cargo test -p msime-client-providers --lib`（271 项通过，2 项联网验收按原有标记忽略）；包含新版本导入、损坏响应保留旧安装、坏镜像回退、截断及缺失响应长度、意外 206、取消与临时文件回收。
 - `cargo check -p msime-client-providers`
-- 由于本机磁盘余量低于仓库规定的 50GB 门槛，未启动完整构建或设备验收。
+- `cargo check -p msime-host-api`
+- `cargo clippy -p msime-client-providers -p msime-host-api --lib --tests -- -D warnings`
+- 由于本机磁盘余量低于仓库规定的 50GB 门槛，未运行会创建其他平台构建树的 `scripts/verify-local.sh --quick`，也未做 Android 设备验收或实际万象大模型下载，不把宿主测试表述为设备验证。

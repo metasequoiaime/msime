@@ -1083,7 +1083,7 @@ impl Fetcher for HttpFetcher {
 /// 再交给固定资源安装器以原子方式发布。它不复用固定摘要的断点文件，避免上游原地重传
 /// 时把旧版本的半截文件续到新版本上。
 pub(crate) struct DynamicDownload {
-    pub(crate) path: PathBuf,
+    pub(crate) path: tempfile::TempPath,
     pub(crate) artifact: crate::resources::Artifact,
 }
 
@@ -1101,16 +1101,29 @@ pub(crate) fn download_dynamic_file(
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<DynamicDownload, LocalModelError> {
-    check_root(root)?;
-    if single_component(name).is_none_or(|single| single != name) || name.starts_with('.') {
-        return Err(LocalModelError::UnknownModel);
-    }
+    check_install(root, name, mirrors)?;
     if !url.starts_with("https://") {
         return Err(LocalModelError::Network(
             "only https downloads are allowed".into(),
         ));
     }
     let client = HttpFetcher::new()?;
+    download_dynamic_file_with(
+        &client, root, name, url, mirrors, validator, progress, cancel,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_dynamic_file_with(
+    client: &HttpFetcher,
+    root: &Path,
+    name: &str,
+    url: &str,
+    mirrors: &[&str],
+    validator: fn(&Path) -> bool,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<DynamicDownload, LocalModelError> {
     let mut sources = Vec::with_capacity(mirrors.len() + 1);
     sources.extend(
         mirrors
@@ -1131,7 +1144,7 @@ pub(crate) fn download_dynamic_file(
             }
         };
         let status = response.status();
-        if !status.is_success() {
+        if status != reqwest::StatusCode::OK {
             failure = Some(LocalModelError::HttpStatus(status.as_u16()));
             continue;
         }
@@ -1188,11 +1201,8 @@ pub(crate) fn download_dynamic_file(
             continue;
         }
         let digest = hex::encode(hasher.finalize());
-        let (_, path) = temporary
-            .keep()
-            .map_err(|error| io::Error::other(error.error))?;
         return Ok(DynamicDownload {
-            path,
+            path: temporary.into_temp_path(),
             artifact: crate::resources::Artifact {
                 name: name.to_owned(),
                 url: url.to_owned(),

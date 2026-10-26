@@ -125,9 +125,16 @@ pub unsafe extern "C" fn msime_client_resource_packs(
 
 /// 下载、校验并发布一个资源包。阻塞到结束：只能在工作线程上调用。
 ///
-/// Request `{"state_root": "<absolute dir>", "pack": "<id>", "sources": ["https://mirror/", ...]}`; `sources` is optional, the user's mirror prefixes in the order to try (empty strings are skipped). Fixed resources are checked against the compiled lock's size and SHA-256 whichever source served them, and an unfinished file is resumed with an HTTP Range request on the next call. The replaceable Wanxiang LTS model instead checks the response length and `.gram` format, then records the actual digest in its manifest. Response value `{"path": "<state_root>/resource-packs/<id>"}`.
+/// 请求为 `{"state_root": "<absolute dir>", "pack": "<id>", "sources": ["https://mirror/", ...]}`。
+/// 可选的 `sources` 按用户镜像顺序尝试，跳过空串，其后依次为项目镜像和编译进来的来源地址。
+/// 固定资源按锁文件的长度和 SHA-256 校验，下载中断后使用 HTTP Range 续传；会原地替换的
+/// 万象 LTS 则检查响应长度和 `.gram` 格式，并在清单中记录实际摘要。响应值为
+/// `{"path": "<state_root>/resource-packs/<id>"}`。
 ///
-/// With `"files": ["<absolute path>", ...]` (at most 16) the pack is installed from those local files instead of the network (`resource_packs::import`): fixed resources are matched by size and SHA-256, while Wanxiang LTS is matched by `.gram` format and records its actual digest; `sources` is ignored, the download phase is reported as "import", a missing file fails with "local_model_import_missing: <name>" and an unreadable one with "local_model_import_unreadable: <detail>".
+/// 提供 `"files": ["<absolute path>", ...]`（最多 16 个）时，经 `resource_packs::import`
+/// 从本机导入并忽略 `sources`。固定资源按长度和 SHA-256 匹配，万象 LTS 按 `.gram` 格式
+/// 匹配并记录实际摘要；下载阶段报告为 `import`，缺失文件报 `local_model_import_missing: <name>`，
+/// 无法读取报 `local_model_import_unreadable: <detail>`。
 ///
 /// `progress` 可为 null，在调用线程上收到 `(context, phase, done, total)`，阶段为
 /// "download"、"import"、"verify"、"done"，阶段字符串只在回调期间有效。

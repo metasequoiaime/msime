@@ -46,15 +46,15 @@ struct GrammarModelLock {
 /// 万象 LTS 会在同一个 release 地址原地重传，不能用锁文件里的摘要判断它是否可用。
 /// 这里复用引擎读取端的头部边界规则，在完整下载后确认文件仍是可读的 `.gram` 镜像。
 fn valid_gram_file(path: &Path) -> bool {
-    let Ok(metadata) = fs::symlink_metadata(path) else {
-        return false;
-    };
-    if !metadata.file_type().is_file() || metadata.len() < GRAMMAR_HEADER_BYTES as u64 {
-        return false;
-    }
     let Ok(mut file) = crate::storage::open_private_file_in(path) else {
         return false;
     };
+    let Ok(metadata) = file.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() < GRAMMAR_HEADER_BYTES as u64 {
+        return false;
+    }
     let mut header = [0u8; GRAMMAR_HEADER_BYTES];
     if file.read_exact(&mut header).is_err() || &header[..GRAMMAR_MAGIC.len()] != GRAMMAR_MAGIC {
         return false;
@@ -570,7 +570,7 @@ impl ResourcePack {
         installed == pinned
     }
 
-    /// 下载总字节数。从归档取出的资源包下载的是整个归档。
+    /// 下载总字节数。从归档取出的资源包下载的是整个归档；万象 LTS 的长度仅为估算，实际以本次响应为准。
     pub fn size(self) -> u64 {
         self.import_artifacts()
             .iter()
@@ -883,6 +883,7 @@ pub fn install(
         if !resource_root_is_safe(state_root) {
             return Err(LocalModelError::InvalidRoot);
         }
+        local_models::check_root(&root(state_root))?;
         crate::storage::create_directory_and_check(&root(state_root))
             .map_err(LocalModelError::from)?;
         let dynamic = local_models::download_dynamic_file(
@@ -898,9 +899,14 @@ pub fn install(
         let manifest = dynamic_grammar_manifest(pack, &artifact);
         let fetcher = local_models::LocalFileFetcher::matching_sources(
             [local_models::ImportSource::artifact(&artifact)],
-            std::slice::from_ref(&dynamic.path),
+            &[dynamic.path.to_path_buf()],
             cancel,
         )?;
+        progress(InstallProgress {
+            stage: "verify",
+            downloaded: artifact.size,
+            total: artifact.size,
+        });
         let result = local_models::install_files_with(
             &root(state_root),
             pack.id(),
@@ -911,19 +917,12 @@ pub fn install(
             &mut |_| {},
             cancel,
         );
-        let _ = fs::remove_file(dynamic.path);
-        progress(InstallProgress {
-            stage: "verify",
-            downloaded: artifact.size,
-            total: artifact.size,
-        });
-        return result.map(|path| {
+        return result.inspect(|_| {
             progress(InstallProgress {
                 stage: "done",
                 downloaded: artifact.size,
                 total: artifact.size,
             });
-            path
         });
     } else if let Some(archive) = pack.archive() {
         return local_models::install_archive_members(
@@ -1075,6 +1074,13 @@ pub fn adopt(
     if !resource_root_is_safe(state_root) {
         return Err(LocalModelError::InvalidRoot);
     }
+    if let Some(directory) = published_directory(state_root, pack) {
+        let installed = local_models::installed_manifest(&root(state_root), pack.id())
+            .is_some_and(|manifest| pack.manifest_matches(&manifest));
+        if installed && artifacts_are_regular_files(&directory, pack) {
+            return Ok(directory);
+        }
+    }
     if pack == ResourcePack::GrammarWanxiang {
         local_models::check_root(source_dir)?;
         let source = source_dir.join(WANXIANG_GRAMMAR_FILE);
@@ -1109,13 +1115,6 @@ pub fn adopt(
             &manifest,
             source_dir,
         );
-    }
-    if let Some(directory) = published_directory(state_root, pack) {
-        let installed = local_models::installed_manifest(&root(state_root), pack.id())
-            .is_some_and(|manifest| pack.manifest_matches(&manifest));
-        if installed && artifacts_are_regular_files(&directory, pack) {
-            return Ok(directory);
-        }
     }
     let manifest = pack.manifest();
     debug_assert!(pack.manifest_matches(&manifest));
@@ -1356,6 +1355,53 @@ mod tests {
         assert_eq!(
             installed_file(state.path(), pack, WANXIANG_GRAMMAR_FILE),
             None
+        );
+    }
+
+    #[test]
+    fn wanxiang_import_updates_changed_bytes_and_preserves_install_on_failure() {
+        let state = tempfile::tempdir().unwrap();
+        let picked = tempfile::tempdir().unwrap();
+        let source = picked.path().join("synthetic.gram");
+        let pack = ResourcePack::GrammarWanxiang;
+        let cancel = AtomicBool::new(false);
+        let mut bytes = vec![0u8; GRAMMAR_HEADER_BYTES + 4];
+        bytes[..GRAMMAR_MAGIC.len()].copy_from_slice(GRAMMAR_MAGIC);
+        bytes[36..40].copy_from_slice(&1u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&0i32.to_le_bytes());
+        for revision in [1, 2] {
+            bytes[20] = revision;
+            fs::write(&source, &bytes).unwrap();
+            let installed = import(
+                state.path(),
+                pack,
+                std::slice::from_ref(&source),
+                &mut |_| {},
+                &cancel,
+            )
+            .unwrap();
+            assert_eq!(
+                fs::read(installed.join(WANXIANG_GRAMMAR_FILE)).unwrap(),
+                bytes
+            );
+            let manifest =
+                local_models::installed_manifest(&root(state.path()), pack.id()).unwrap();
+            assert_eq!(manifest["artifacts"][0]["size"], bytes.len());
+            assert_eq!(
+                manifest["artifacts"][0]["sha256"],
+                hex::encode(Sha256::digest(&bytes))
+            );
+        }
+        fs::write(&source, b"synthetic invalid response").unwrap();
+        assert!(import(state.path(), pack, &[source], &mut |_| {}, &cancel,).is_err());
+        let installed = verify_installed(state.path(), pack).unwrap();
+        assert_eq!(
+            fs::read(installed.join(WANXIANG_GRAMMAR_FILE)).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            adopt(state.path(), pack, &picked.path().join("missing")).unwrap(),
+            installed
         );
     }
 
