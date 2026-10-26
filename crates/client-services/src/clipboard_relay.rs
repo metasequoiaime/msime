@@ -7,16 +7,21 @@
 //! 本机的密钥串单独存一份（[`RELAY_KEYSTORE_FILE`]），与水杉账号的那份互不相干，退出账号也不删除它。文件里记着它属于哪个中继地址和哪个令牌空间，换了任何一个都当作没有密钥串，驱动会生成新的设备身份。
 //!
 //! 这份文件只靠文件权限保护。能把密钥串交给系统密钥库加密的宿主不用 [`RelayClipboard`]：Android 自己跑驱动、自己用 AndroidKeyStore 加密保存密钥串，只借 [`RelayTransport`] 发请求（经 `msime_client_relay_cloud_clipboard_exchange`），与它的水杉账号路径一样。
+//!
+//! 「中继」有两种后端：用户自己部署的 HTTP 中继，和用户的 WebDAV 网盘（[`crate::clipboard_webdav`]，见 `docs/cloud-clipboard-webdav.md`）。网盘上跑不了服务端逻辑，WebDAV 后端在本机当一个虚拟中继：驱动照旧发那 12 个接口的请求，由它读写网盘上的事件日志来回答。[`RelayConfig`] 和 [`RelayTransport`] 两种都能装，[`RelayClipboard`] 的其余部分不分后端。
 
 use crate::account::{
     AccountClipboardDevices, AccountClipboardItem, AccountClipboardPage, AccountError,
     AccountSessionFileLayout, FileAccountSessionStorage, CLIPBOARD_PATH,
     MAX_CLIPBOARD_RESPONSE_BYTES, MAX_ERROR_BODY_BYTES,
 };
+use crate::clipboard_webdav::VirtualRelay;
 use crate::cloud::clipboard_e2e::{self, DriverError, HttpResponse, Operation};
 use crate::preferences::{parse_relay_url, CloudClipboardRelayPreferences};
-/// 中继地址和令牌的校验定义在 `preferences`（偏好校验要用，放在这里会让 `preferences` 依赖本模块），从这里导回。
-pub use crate::preferences::{valid_relay_token, valid_relay_url};
+/// 中继地址、令牌和 WebDAV 凭据的校验定义在 `preferences`（偏好校验要用，放在这里会让 `preferences` 依赖本模块），从这里导回。
+pub use crate::preferences::{
+    valid_relay_token, valid_relay_url, valid_webdav_password, valid_webdav_username,
+};
 use reqwest::blocking::Client;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
@@ -58,6 +63,15 @@ pub enum RelayError {
     /// 本机的密钥串或锁文件读写失败。
     #[error("cloud clipboard relay keystore is unavailable")]
     Storage,
+    /// WebDAV 网盘一直答 429 或 503（坚果云免费账号每 30 分钟 600 次请求，与其他应用共用），退避重试之后仍然如此。
+    #[error("cloud clipboard webdav storage is rate limited")]
+    RateLimited,
+    /// 网盘上的日志比本机记得的旧，或者接不上本机读过的那一段：被人删改、回退过，或者网盘的独占创建不可靠。不接受，免得旧密钥借此复活。
+    #[error("cloud clipboard webdav log was rolled back or rewritten")]
+    Rollback,
+    /// 网盘没通过「测试连接」：建不了目录，或者独占创建、列目录的行为不对。
+    #[error("cloud clipboard webdav storage does not support what the log needs")]
+    Unsupported,
     /// 驱动或中继给出的结果，例如本机还在等待批准（`clipboard_device_pending`）。
     #[error("cloud clipboard relay operation failed: {}", .0.code)]
     Clipboard(DriverError),
@@ -72,6 +86,9 @@ impl RelayError {
             Self::Invalid => "invalid_cloud_clipboard",
             Self::Unavailable => "relay_unavailable",
             Self::Storage => "relay_storage",
+            Self::RateLimited => "webdav_rate_limited",
+            Self::Rollback => "webdav_rollback",
+            Self::Unsupported => "webdav_unsupported",
             Self::Clipboard(error) => crate::account::cloud_clipboard_error_code(&error.code)
                 .unwrap_or(match error.status {
                     400 => "invalid_cloud_clipboard",
@@ -89,40 +106,87 @@ impl RelayError {
     }
 }
 
-/// 一个校验过的中继配置：规范化的基地址（去掉末尾的 `/`）和令牌。
+/// 一个校验过的中继配置：规范化的基地址（去掉末尾的 `/`）和凭据。凭据是 HTTP 中继的令牌，或者 WebDAV 网盘的账号和应用密码。
 #[derive(Clone, PartialEq, Eq)]
 pub struct RelayConfig {
     base: Url,
     url: String,
-    token: String,
+    credential: Credential,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum Credential {
+    Token(String),
+    WebDav { username: String, password: String },
 }
 
 impl std::fmt::Debug for RelayConfig {
-    // 令牌是凭据，不进任何日志。
+    // 令牌、账号和密码都不进任何日志。
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("RelayConfig")
+            .field("backend", &self.backend())
             .field("url", &self.url)
             .finish_non_exhaustive()
     }
 }
 
+fn normalized_base(url: &str) -> Result<(Url, String), RelayError> {
+    let base = parse_relay_url(url).ok_or(RelayError::NotConfigured)?;
+    let url = format!(
+        "{}{}",
+        base.origin().ascii_serialization(),
+        base.path().trim_end_matches('/')
+    );
+    Ok((base, url))
+}
+
 impl RelayConfig {
     pub fn new(url: &str, token: &str) -> Result<Self, RelayError> {
-        let base = parse_relay_url(url).ok_or(RelayError::NotConfigured)?;
+        let (base, url) = normalized_base(url)?;
         if !valid_relay_token(token) {
             return Err(RelayError::NotConfigured);
         }
-        let url = format!(
-            "{}{}",
-            base.origin().ascii_serialization(),
-            base.path().trim_end_matches('/')
-        );
         Ok(Self {
             base,
             url,
-            token: token.to_owned(),
+            credential: Credential::Token(token.to_owned()),
         })
+    }
+
+    /// WebDAV 网盘：`url` 是用户选的文件夹（规则与中继地址相同：https，http 只放行本机回环），`username` 和 `password` 是网盘账号和应用密码（[`valid_webdav_username`]、[`valid_webdav_password`]）。
+    pub fn webdav(url: &str, username: &str, password: &str) -> Result<Self, RelayError> {
+        let (base, url) = normalized_base(url)?;
+        if !valid_webdav_username(username) || !valid_webdav_password(password) {
+            return Err(RelayError::NotConfigured);
+        }
+        Ok(Self {
+            base,
+            url,
+            credential: Credential::WebDav {
+                username: username.to_owned(),
+                password: password.to_owned(),
+            },
+        })
+    }
+
+    /// `relay` 或 `webdav`，宿主据此显示是哪一种。
+    pub fn backend(&self) -> &'static str {
+        match self.credential {
+            Credential::Token(_) => "relay",
+            Credential::WebDav { .. } => "webdav",
+        }
+    }
+
+    pub(crate) fn webdav_credentials(&self) -> Option<(&str, &str)> {
+        match &self.credential {
+            Credential::WebDav { username, password } => Some((username, password)),
+            Credential::Token(_) => None,
+        }
+    }
+
+    pub(crate) fn base(&self) -> &Url {
+        &self.base
     }
 
     /// 偏好里的中继；没有配置时为 `None`。
@@ -140,21 +204,25 @@ impl RelayConfig {
         &self.url
     }
 
-    /// 令牌对应的剪贴板空间编号：SHA-256(令牌) 的前 16 字节，小写十六进制。与中继自己算的空间编号无关，只用来认出本机的密钥串属于哪个空间。
-    fn space(&self) -> String {
-        hex::encode(&Sha256::digest(self.token.as_bytes())[..16])
+    /// 本机的密钥串属于哪个空间：中继是 SHA-256(令牌) 的前 16 字节；WebDAV 是 SHA-256(`"webdav\0"` ‖ 基地址 ‖ `"\0"` ‖ 账号) 的前 16 字节，不含应用密码，换应用密码不用重新批准。小写十六进制，只用来认出密钥串属于哪个空间。
+    pub(crate) fn space(&self) -> String {
+        let digest = match &self.credential {
+            Credential::Token(token) => Sha256::digest(token.as_bytes()),
+            Credential::WebDav { username, .. } => {
+                let mut hasher = Sha256::new();
+                hasher.update(b"webdav\0");
+                hasher.update(self.url.as_bytes());
+                hasher.update(b"\0");
+                hasher.update(username.as_bytes());
+                hasher.finalize()
+            }
+        };
+        hex::encode(&digest[..16])
     }
 
     /// 基地址拼上驱动给的路径。只接受云剪贴板接口下由驱动生成的那几种字符，拼完再确认协议、主机、端口和路径前缀都没变。
     fn request_url(&self, path: &str) -> Result<Url, RelayError> {
-        let in_scope = path == CLIPBOARD_PATH
-            || path
-                .strip_prefix(CLIPBOARD_PATH)
-                .is_some_and(|rest| rest.starts_with('/'));
-        let plain = path
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"/_-?=".contains(&byte));
-        if !in_scope || !plain || path.contains("//") {
+        if !valid_clipboard_path(path) {
             return Err(RelayError::Invalid);
         }
         let url = Url::parse(&format!("{}{path}", self.url)).map_err(|_| RelayError::Invalid)?;
@@ -173,6 +241,18 @@ impl RelayConfig {
     }
 }
 
+/// 驱动和直连接口发的路径：在云剪贴板接口之下，只有驱动会生成的那几种字符。两种后端都先过这一关，不合规的不发出去。
+pub(crate) fn valid_clipboard_path(path: &str) -> bool {
+    let in_scope = path == CLIPBOARD_PATH
+        || path
+            .strip_prefix(CLIPBOARD_PATH)
+            .is_some_and(|rest| rest.starts_with('/'));
+    let plain = path
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"/_-?=".contains(&byte));
+    in_scope && plain && !path.contains("//")
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredKeystore {
@@ -181,14 +261,24 @@ struct StoredKeystore {
     keystore: String,
 }
 
-/// 向一个中继发单个请求：只发往配置的基地址下云剪贴板的那组接口，带上令牌，不跟随重定向，响应有上限。[`RelayClipboard`] 的每个请求都经过它；自己跑端到端加密驱动、自己保存密钥串的宿主（Android 用 AndroidKeyStore 加密密钥串，见 `docs/cloud-clipboard-relay.md`）只借它发请求，不落盘。
+/// 向一个中继发单个请求：只发往配置的基地址下云剪贴板的那组接口，不跟随重定向，响应有上限。[`RelayClipboard`] 的每个请求都经过它；自己跑端到端加密驱动、自己保存密钥串的宿主（Android 用 AndroidKeyStore 加密密钥串，见 `docs/cloud-clipboard-relay.md`）只借它发请求，不落盘密钥串。
+///
+/// HTTP 中继把请求带上令牌原样发出去；WebDAV 后端（[`VirtualRelay`]）在本机读写网盘上的日志来回答同一组接口，要一个目录放日志的本机缓存（只有密文和公开数据），见 [`RelayTransport::with_directory`]。
 pub struct RelayTransport {
-    config: RelayConfig,
-    client: Client,
+    inner: Transport,
+}
+
+enum Transport {
+    Relay { config: RelayConfig, client: Client },
+    WebDav(VirtualRelay),
 }
 
 impl RelayTransport {
+    /// HTTP 中继的传输。WebDAV 后端要放本机缓存的目录，这里是 [`RelayError::Invalid`]，改用 [`Self::with_directory`]。
     pub fn new(config: RelayConfig) -> Result<Self, RelayError> {
+        if config.webdav_credentials().is_some() {
+            return Err(RelayError::Invalid);
+        }
         // 中继源站固定；系统代理模式也必须明确排除本机和明文目标。
         let client = crate::proxy::configure_blocking_for(Client::builder(), &config.base)
             .redirect(reqwest::redirect::Policy::none())
@@ -196,7 +286,47 @@ impl RelayTransport {
             .user_agent(format!("MSIME/{}", std::env::consts::OS))
             .build()
             .map_err(|_| RelayError::Unavailable)?;
-        Ok(Self { config, client })
+        Ok(Self {
+            inner: Transport::Relay { config, client },
+        })
+    }
+
+    /// 两种后端都能用的传输。`directory` 是绝对路径，WebDAV 后端在里面放日志的本机缓存（[`crate::clipboard_webdav::WEBDAV_STATE_FILE`]）和 `cloud-clipboard-relay.lock`，每个请求持有这把锁；同一台设备上的各个进程要传同一个目录。HTTP 中继不用它。
+    pub fn with_directory(
+        config: RelayConfig,
+        directory: impl Into<PathBuf>,
+    ) -> Result<Self, RelayError> {
+        if config.webdav_credentials().is_none() {
+            return Self::new(config);
+        }
+        let directory = directory.into();
+        if !directory.is_absolute() {
+            return Err(RelayError::Invalid);
+        }
+        Ok(Self {
+            inner: Transport::WebDav(VirtualRelay::new(config, directory, true)?),
+        })
+    }
+
+    /// 给 [`RelayClipboard`] 用：它自己在整个操作期间持有锁，WebDAV 后端的每个请求就不再各取一次。
+    fn for_clipboard(config: RelayConfig, directory: &std::path::Path) -> Result<Self, RelayError> {
+        if config.webdav_credentials().is_none() {
+            return Self::new(config);
+        }
+        Ok(Self {
+            inner: Transport::WebDav(VirtualRelay::new(config, directory.to_path_buf(), false)?),
+        })
+    }
+
+    pub fn config(&self) -> &RelayConfig {
+        match &self.inner {
+            Transport::Relay { config, .. } => config,
+            Transport::WebDav(relay) => relay.config(),
+        }
+    }
+
+    fn is_webdav(&self) -> bool {
+        matches!(self.inner, Transport::WebDav(_))
     }
 
     /// 发一个请求，状态码和正文原样交回，由端到端加密驱动或调用方解读；401 直接是 [`RelayError::Unauthorized`]，不交给驱动。`path` 必须在云剪贴板接口之下（`/v1/users/me/clipboard…`），否则是 [`RelayError::Invalid`]，不发出去。会联网。
@@ -206,50 +336,94 @@ impl RelayTransport {
         path: &str,
         body: Option<&str>,
     ) -> Result<HttpResponse, RelayError> {
-        let method = match method {
-            "GET" => Method::GET,
-            "PUT" => Method::PUT,
-            "POST" => Method::POST,
-            "DELETE" => Method::DELETE,
-            _ => return Err(RelayError::Invalid),
-        };
+        if !matches!(method, "GET" | "PUT" | "POST" | "DELETE") {
+            return Err(RelayError::Invalid);
+        }
         if body.is_some_and(|body| body.len() > MAX_REQUEST_BYTES) {
             return Err(RelayError::Invalid);
         }
-        let url = self.config.request_url(path)?;
-        let mut request = self
-            .client
-            .request(method, url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .bearer_auth(&self.config.token);
-        if let Some(body) = body {
-            request = request
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .body(body.to_owned());
+        match &self.inner {
+            Transport::Relay { config, client } => send_http(config, client, method, path, body),
+            Transport::WebDav(relay) => {
+                if !valid_clipboard_path(path) {
+                    return Err(RelayError::Invalid);
+                }
+                relay.send(method, path, body)
+            }
         }
-        let response = request.send().map_err(|_| RelayError::Unavailable)?;
-        let status = response.status().as_u16();
-        if status == 401 {
-            return Err(RelayError::Unauthorized);
+    }
+}
+
+fn send_http(
+    config: &RelayConfig,
+    client: &Client,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<HttpResponse, RelayError> {
+    let Credential::Token(token) = &config.credential else {
+        return Err(RelayError::Invalid);
+    };
+    let method = match method {
+        "GET" => Method::GET,
+        "PUT" => Method::PUT,
+        "POST" => Method::POST,
+        "DELETE" => Method::DELETE,
+        _ => return Err(RelayError::Invalid),
+    };
+    let url = config.request_url(path)?;
+    let mut request = client
+        .request(method, url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .bearer_auth(token);
+    if let Some(body) = body {
+        request = request
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body.to_owned());
+    }
+    let response = request.send().map_err(|_| RelayError::Unavailable)?;
+    let status = response.status().as_u16();
+    if status == 401 {
+        return Err(RelayError::Unauthorized);
+    }
+    if !response.status().is_success() {
+        // 错误正文只用来读 `error.code`，读不出时驱动按状态码处理。
+        let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .unwrap_or_default();
+        return Ok(HttpResponse { status, body });
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_CLIPBOARD_RESPONSE_BYTES as u64)
+    {
+        return Err(RelayError::Unavailable);
+    }
+    let bytes = crate::bounded_io::read_bounded(response, MAX_CLIPBOARD_RESPONSE_BYTES as u64)
+        .map_err(|_| RelayError::Unavailable)?;
+    let body = String::from_utf8(bytes).map_err(|_| RelayError::Unavailable)?;
+    Ok(HttpResponse { status, body })
+}
+
+/// 在 `directory` 里取本机的中继锁（`cloud-clipboard-relay.lock`），同一台设备上的几个进程据此串行。另一个进程一直不放时等 60 秒后是 [`RelayError::Unavailable`]。
+pub(crate) fn lock_directory(
+    directory: &std::path::Path,
+) -> Result<crate::file_lock::ScopedFileLock, RelayError> {
+    FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native)
+        .create_directory()
+        .map_err(|_| RelayError::Storage)?;
+    let file = crate::file_lock::open_private_lock_file(directory.join(RELAY_LOCK_FILE))
+        .map_err(|_| RelayError::Storage)?;
+    let deadline = Instant::now() + LOCK_TIMEOUT;
+    loop {
+        if crate::file_lock::try_exclusive(&file).map_err(|_| RelayError::Storage)? {
+            return Ok(crate::file_lock::ScopedFileLock::from_locked(file));
         }
-        if !response.status().is_success() {
-            // 错误正文只用来读 `error.code`，读不出时驱动按状态码处理。
-            let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES)
-                .ok()
-                .and_then(|bytes| String::from_utf8(bytes).ok())
-                .unwrap_or_default();
-            return Ok(HttpResponse { status, body });
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_CLIPBOARD_RESPONSE_BYTES as u64)
-        {
+        if Instant::now() >= deadline {
             return Err(RelayError::Unavailable);
         }
-        let bytes = crate::bounded_io::read_bounded(response, MAX_CLIPBOARD_RESPONSE_BYTES as u64)
-            .map_err(|_| RelayError::Unavailable)?;
-        let body = String::from_utf8(bytes).map_err(|_| RelayError::Unavailable)?;
-        Ok(HttpResponse { status, body })
+        std::thread::sleep(LOCK_POLL);
     }
 }
 
@@ -272,10 +446,26 @@ impl RelayClipboard {
             return Err(RelayError::Invalid);
         }
         Ok(Self {
-            transport: RelayTransport::new(config)?,
+            transport: RelayTransport::for_clipboard(config, &directory)?,
             directory,
             device_name: device_name.to_owned(),
         })
+    }
+
+    /// WebDAV 后端换成测试里的假网盘。
+    #[cfg(test)]
+    pub(crate) fn with_webdav(
+        relay: VirtualRelay,
+        directory: impl Into<PathBuf>,
+        device_name: &str,
+    ) -> Self {
+        Self {
+            transport: RelayTransport {
+                inner: Transport::WebDav(relay),
+            },
+            directory: directory.into(),
+            device_name: device_name.to_owned(),
+        }
     }
 
     /// 解密后的条目，`search` 在本机解密后匹配。本机还在等待批准时 `e2e.status` 为 `pending`、条目为空。
@@ -399,6 +589,12 @@ impl RelayClipboard {
 
     fn direct(&self, method: &str, path: &str, body: Option<Value>) -> Result<(), RelayError> {
         let body = body.map(|body| body.to_string());
+        // WebDAV 后端的直连请求也读写本机的日志缓存，与驱动操作一样持有锁；HTTP 中继不需要。
+        let _lock = if self.transport.is_webdav() {
+            Some(self.lock()?)
+        } else {
+            None
+        };
         let response = self.transport.send(method, path, body.as_deref())?;
         if (200..300).contains(&response.status) {
             Ok(())
@@ -412,21 +608,7 @@ impl RelayClipboard {
     }
 
     fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, RelayError> {
-        self.storage()
-            .create_directory()
-            .map_err(|_| RelayError::Storage)?;
-        let file = crate::file_lock::open_private_lock_file(self.directory.join(RELAY_LOCK_FILE))
-            .map_err(|_| RelayError::Storage)?;
-        let deadline = Instant::now() + LOCK_TIMEOUT;
-        loop {
-            if crate::file_lock::try_exclusive(&file).map_err(|_| RelayError::Storage)? {
-                return Ok(crate::file_lock::ScopedFileLock::from_locked(file));
-            }
-            if Instant::now() >= deadline {
-                return Err(RelayError::Unavailable);
-            }
-            std::thread::sleep(LOCK_POLL);
-        }
+        lock_directory(&self.directory)
     }
 
     /// 本机给这个中继、这个令牌空间保存的密钥串。文件属于别的中继或别的空间、或者解析不了时当作没有。
@@ -441,15 +623,18 @@ impl RelayClipboard {
         let Ok(stored) = serde_json::from_slice::<StoredKeystore>(&bytes) else {
             return Ok(None);
         };
-        Ok((stored.relay == self.transport.config.url
-            && stored.space == self.transport.config.space())
-        .then_some(stored.keystore))
+        let config = self.transport.config();
+        Ok(
+            (stored.relay == config.url && stored.space == config.space())
+                .then_some(stored.keystore),
+        )
     }
 
     fn save_keystore(&self, keystore: &str) -> Result<(), RelayError> {
+        let config = self.transport.config();
         let bytes = serde_json::to_vec(&StoredKeystore {
-            relay: self.transport.config.url.clone(),
-            space: self.transport.config.space(),
+            relay: config.url.clone(),
+            space: config.space(),
             keystore: keystore.to_owned(),
         })
         .map_err(|_| RelayError::Storage)?;
