@@ -5450,12 +5450,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     (trigger: "M", title: "颜文字", key: "kaomoji"),
     (trigger: "R", title: "临时日语", key: "temporary_japanese"),
     (trigger: "C", title: "拆字", key: "chaizi"),
+    // 「/ 指令」不是 Shift 加字母：中文标点下没有输入时按 / 打开，`openLocalInputMode` 把它当标点交给会话。指令表插件在这里起作用。
+    (trigger: "/", title: "指令", key: "command"),
   ]
+
+  /// 默认关闭的模式，与 client-core 的 `LocalModePreferences` 相同：文档里没写时 / 指令是关的，其余是开的。
+  static let localInputModesOffByDefault: Set<String> = ["command"]
 
   /// The modes the settings app leaves on. The Engine refuses to open a mode turned off there, so offering one would be a menu entry that does nothing.
   private var enabledLocalInputModes: [(trigger: String, title: String, key: String)] {
-    let stored = session.sharedPreferences?["local_modes"] as? [String: Any] ?? [:]
-    return Self.localInputModes.filter { stored[$0.key] as? Bool ?? true }
+    Self.enabledLocalInputModes(in: session.sharedPreferences)
+  }
+
+  /// 文档里开着的本地输入模式，按菜单顺序。不是 private：测试会固定它。
+  static func enabledLocalInputModes(in preferences: [String: Any]?) -> [(trigger: String, title: String, key: String)] {
+    let stored = preferences?["local_modes"] as? [String: Any] ?? [:]
+    return localInputModes.filter { stored[$0.key] as? Bool ?? !localInputModesOffByDefault.contains($0.key) }
   }
 
   private func updatePreeditButton() {
@@ -5540,9 +5550,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   func openLocalInputMode(_ trigger: String) {
     playInputClick()
+    // / 指令要中文标点、没有输入；英文标点下按 / 只会写出一个斜杠，所以先问会话 `/` 此刻能不能打开它。
+    if trigger == "/" && !session.slashOpensCommandMode() {
+      showDiagnostic("切到中文标点后才能打开指令（/ 模式）")
+      renderCandidateStrip()
+      return
+    }
     localModeTrigger = trigger
     showsSymbols = false
-    render(session.openLocalMode(trigger))
+    render(trigger == "/" ? session.handlePunctuation("/") : session.openLocalMode(trigger))
   }
 
   private func chineseOutput(_ text: String, source: Int? = nil) -> String {
@@ -8117,10 +8133,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       },
       onClose: { [weak self] in self?.closeKeyboardPicker() },
       onABC: { [weak self] in self?.closeKeyboardPicker() },
-      onSticker: { [weak self] sticker in self?.copySticker(sticker) })
+      onSticker: { [weak self] sticker in self?.copySticker(sticker) },
+      pluginKaomoji: pluginsDirectory.map { KeyboardEmojiCatalog.pluginSymbolGroups(resources: resources, plugins: $0) } ?? [])
     applyEmojiPickerAppearance(picker)
     emojiPicker = picker
     installPanel(picker)
+  }
+
+  /// 插件目录：会话的状态目录（App Group 里与设置 App 共用的那一个）下的 `plugins`，符号集插件从这里读。会话没准备好时为 nil。
+  private var pluginsDirectory: String? {
+    session.stateDirectory.map { ($0 as NSString).appendingPathComponent("plugins") }
   }
 
   /// 键盘扩展没有把图片插进输入框的接口，表情包转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
@@ -8179,7 +8201,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     render(session.finishComposition())
     // Without staged resources the phone categories still work; only the Engine catalog's categories are missing.
-    let catalog = session.candidateGlossResources().flatMap { $0.isEmpty ? nil : KeyboardSymbolPanelView.Catalog.engine(resources: $0) }
+    let plugins = pluginsDirectory
+    let catalog = session.candidateGlossResources().flatMap {
+      $0.isEmpty ? nil : KeyboardSymbolPanelView.Catalog.engine(resources: $0, plugins: plugins)
+    }
     let panel = KeyboardSymbolPanelView(catalog: catalog, recents: KeyboardSymbolRecents.stored, onInsert: { [weak self] symbol in
       self?.countKeyPress(TypingKeyID.character(symbol))
       self?.playInputClick()

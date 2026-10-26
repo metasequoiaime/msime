@@ -14,7 +14,14 @@ struct LocalModeSettingsView: View {
     ("temporary_english", "英文补全", "临时输入英文单词，不离开中文键盘"),
     ("temporary_japanese", "临时日语", "临时用罗马音输入日语"),
     ("chaizi", "拆字", "输入部件拼音找不会读的字，如 huohuohuo 得 焱"),
+    // 「/ 指令」：中文标点下没有输入时按 /，或在本地输入里选「指令」。与桌面的 `local_modes.command` 一样默认关闭；fy 翻译要宿主转交翻译请求，iOS 键盘不转交，所以说明里不列它。
+    ("command", "指令", "输入 / 再输入指令字母：rq 日期、sj 时间、xq 星期、nl 农历，以及「插件」页启用的指令表"),
   ]
+
+  /// 默认关闭的模式，与 client-core 的 `LocalModePreferences` 相同；其余默认打开。
+  private static let offByDefault: Set<String> = ["command"]
+
+  private static func defaultValue(_ key: String) -> Bool { !offByDefault.contains(key) }
 
   @State private var enabled: [String: Bool] = [:]
   @State private var saveFailed = false
@@ -44,12 +51,12 @@ struct LocalModeSettingsView: View {
   private func reload() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     let stored = preferences["local_modes"] as? [String: Any] ?? [:]
-    for (key, _, _) in Self.modes { enabled[key] = stored[key] as? Bool ?? true }
+    for (key, _, _) in Self.modes { enabled[key] = stored[key] as? Bool ?? Self.defaultValue(key) }
   }
 
   /// 每次只合并一个快捷模式；写入失败时读回已保存的值。
   private func stored(_ key: String) -> Binding<Bool> {
-    Binding(get: { enabled[key] ?? true }, set: { value in
+    Binding(get: { enabled[key] ?? Self.defaultValue(key) }, set: { value in
       enabled[key] = value
       saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
         var modes = $0["local_modes"] as? [String: Any] ?? [:]
