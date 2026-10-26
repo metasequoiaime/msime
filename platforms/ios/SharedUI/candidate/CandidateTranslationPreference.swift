@@ -5,10 +5,24 @@ struct CandidateTranslationLanguage: Equatable, Sendable {
   let code: String
 }
 
+/// 候选词翻译的范围，取值与共享 Rust 的 `CandidateTranslationScope`（共享文档键 `candidate_translation_scope`）相同。只管候选词翻译（在线、账号、AI 翻译服务）；「显示英文释义」的离线释义和离线释义开关打开的非英文离线词典不受它影响，照旧每个候选都有。
+enum CandidateTranslationScope: String, CaseIterable, Sendable {
+  /// 仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走。新装和缺键的老用户都是它。
+  case highlighted
+  /// 全部：翻译这一页的每个候选（旧行为）。
+  case all
+
+  /// 共享文档里的值：缺键或不认识的值按「仅当前高亮」读，与共享 Rust 的反序列化一致。
+  init(sharedValue: Any?) {
+    self = (sharedValue as? String).flatMap(Self.init(rawValue:)) ?? .highlighted
+  }
+}
+
 enum CandidateTranslationPreference {
   static let primaryKey = "candidate.translationLanguage"
   static let secondaryKey = "candidate.translationSecondaryLanguage"
   static let onlineKey = "candidate.translationOnline"
+  static let scopeKey = "candidate.translationScope"
   static var defaults: UserDefaults {
     InputSchemePreference.appGroupDefaults
   }
@@ -39,6 +53,17 @@ enum CandidateTranslationPreference {
   static var onlineEnabled: Bool {
     get { defaults.object(forKey: onlineKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: onlineKey) }
+  }
+  /// App Group 里的范围镜像；没写过时按「仅当前高亮」读。
+  static var translationScope: CandidateTranslationScope {
+    get { CandidateTranslationScope(sharedValue: defaults.string(forKey: scopeKey)) }
+    set { defaults.set(newValue.rawValue, forKey: scopeKey) }
+  }
+  /// 范围生效：候选词翻译开着且范围是「仅当前高亮」，与共享 Rust 的 `translation_scope_highlighted` 是同一条判断。这时候选词翻译只为视图里高亮的那一个候选请求、只画在那一行。
+  static var scopedToHighlight: Bool { onlineEnabled && translationScope == .highlighted }
+  /// 候选条第 `index` 个候选画不画宿主缓存里的候选词翻译：范围生效时只有视图里高亮的那一个画，其他候选只画离线释义；范围不生效时每个都画。
+  static func drawsTranslation(at index: Int, highlighted: [Bool], scoped: Bool) -> Bool {
+    !scoped || (highlighted.indices.contains(index) && highlighted[index])
   }
   static var primary: CandidateTranslationLanguage { language(at: primaryIndex) }
   /// 手机键盘只显示一种候选翻译：第二种语言会让每个候选下再多一行，候选栏太高，所以触屏键盘不取它，行高、翻译请求和离线释义都只按首选语言。共享文档里的 `translation_secondary_language`（`secondaryIndex`）照样同步、原样保留，桌面端仍用它。
