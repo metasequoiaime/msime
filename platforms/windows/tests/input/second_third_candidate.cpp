@@ -1,5 +1,6 @@
 // 二三候选：组字中 ';' 选第二个候选、'\'' 选第三个。TIP 和 Server 用同一条规则（common/SecondThirdCandidatePolicy.h）归类这两个键，这里先测规则本身，再在真实 Engine 会话上走 Server 的按键路由（ReplyComposer::configured_key）。
 #include "../../src/ipc/ReplyComposer.h"
+#include "../../common/CandidateSources.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
 #include "../core/TestHostOptions.h"
 #include <chrono>
@@ -195,6 +196,30 @@ void route_tests(const std::filesystem::path &root) {
     require(shuangpin.editing() != "n;;", "';' after a whole syllable was composed");
   }
 }
+
+// 位置数的是看得见的行。引擎这一页的第二格是云的占位席位（候选窗不画它），用户看到的第二行是它后面那一项，';' 要选到那一项、并且要带着它在引擎里的全局下标去选。数字键和二三候选键共用 visible_page_candidate，这里把那一份钉住；两边各写一遍循环时，只有数字键那一半被改过（#9273）。
+void visible_slot_tests() {
+  Json page = Json::array();
+  page.push_back({{"text", "补上"}, {"source", candidate_source_database},
+                  {"id", {{"generation", 1}, {"index", 0}}}});
+  page.push_back({{"text", "☁"}, {"source", candidate_source_cloud_pending},
+                  {"id", {{"generation", 1}, {"index", 1}}}});
+  page.push_back({{"text", "不伤"}, {"source", candidate_source_cloud_suggestion},
+                  {"id", {{"generation", 1}, {"index", 2}}}});
+
+  const auto *first = visible_page_candidate(page, 0);
+  require(first && first->at("text") == "补上", "The first visible row is not the first candidate");
+  const auto *second = visible_page_candidate(page, 1);
+  require(second && second->at("text") == "不伤", "The hidden cloud seat ate the second position");
+  require(second && second->at("id").at("index") == 2,
+          "The second visible row did not carry its global index");
+  require(!visible_page_candidate(page, 2), "A position past the visible rows picked something");
+
+  Json hidden_only = Json::array();
+  hidden_only.push_back({{"text", "☁"}, {"source", candidate_source_cloud_pending},
+                         {"id", {{"generation", 1}, {"index", 0}}}});
+  require(!visible_page_candidate(hidden_only, 0), "A page of only hidden seats picked something");
+}
 } // namespace
 
 int main() {
@@ -211,6 +236,7 @@ int main() {
   } cleanup{root};
   try {
     policy_tests();
+    visible_slot_tests();
     route_tests(root);
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';
