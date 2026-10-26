@@ -423,7 +423,7 @@ mod tests {
         .unwrap();
         let saved = authoring::save(&root, &pack, false).unwrap();
         let catalog = plugins::scan(&root, BuiltinDirs::default());
-        assert_eq!(catalog.packages, [saved.clone()]);
+        assert_eq!(catalog.packages, std::slice::from_ref(&saved));
         assert_eq!(
             authoring::save(
                 &root,
