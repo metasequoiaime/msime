@@ -50,6 +50,8 @@ const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     number_keypad_order: "platform.harmony.number_keypad_order",
     twenty_six_key_number_layout: "platform.harmony.twenty_six_key_number_layout",
     shuangpin_key_hints: "platform.harmony.shuangpin_key_hints",
+    // 鸿蒙键盘的全拼分词键暂无设置入口，共享偏好原样同步。
+    quanpin_shift: "platform.harmony.quanpin_shift",
     feedback: HARMONY_FEEDBACK_KEYS,
 };
 

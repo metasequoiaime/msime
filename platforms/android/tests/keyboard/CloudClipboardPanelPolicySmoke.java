@@ -103,6 +103,8 @@ public final class CloudClipboardPanelPolicySmoke {
         check(CloudClipboardPanelPolicy.message(Status.SIGNED_OUT, 0).equals("登录水杉账号后可在设备间同步剪贴板"), "the shared signed-out wording is used");
         check(CloudClipboardPanelPolicy.message(Status.DISABLED, 0).equals("云剪贴板未开启"), "the shared disabled wording is used");
         check(CloudClipboardPanelPolicy.message(Status.READY, 3).startsWith("3 条"), "the ready line counts entries");
+        check(CloudClipboardPanelPolicy.message(Status.VISITOR, 0).equals("此功能开发中"),
+            "visitor mode does not expose cloud contents");
         check(CloudClipboardPanelPolicy.TAB_CLOUD.equals("云端"), "the cloud half uses the shared label");
         check(CloudClipboardPanelPolicy.UPLOAD_ACTION.equals("发到云剪贴板"), "the upload action uses the shared label");
 

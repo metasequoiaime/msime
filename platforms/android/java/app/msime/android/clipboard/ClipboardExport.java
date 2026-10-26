@@ -40,7 +40,7 @@ public final class ClipboardExport {
         if (!preferences.optBoolean("clipboard_history", false)) return "剪贴板历史未开启，未导出";
         File temporary = null;
         try {
-            ClipboardHistoryStore.Export snapshot = new ClipboardHistoryStore(context.getFilesDir()).exportText();
+            ClipboardHistoryStore.Export snapshot = new ClipboardHistoryStore(ClipboardModeStore.directory(context)).exportText();
             if (snapshot.count() == 0) return "剪贴板历史为空，未导出";
             String selected = saved(context);
             if (selected.isEmpty() && Build.VERSION.SDK_INT < 29) return NEEDS_DIRECTORY;

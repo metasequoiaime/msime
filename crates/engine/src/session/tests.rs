@@ -9558,8 +9558,8 @@ fn cantonese_dictionary(directory: &Path) -> PathBuf {
         .expect("cantonese metadata");
     connection
         .execute_batch(
-            "INSERT INTO syllables VALUES ('nei'),('hou'),('ngo'),('ngoi'),('oi'),('i');\
-             INSERT INTO entries VALUES ('nei hou','你好',900),('nei hou','妳好',40),('nei','你',5000),('nei','妳',300),('hou','好',4000),('hou','號',500),('ngo','我',6000),('oi','愛',2500),('ngoi','外',1000);",
+            "INSERT INTO syllables VALUES ('nei'),('hou'),('ngo'),('ngoi'),('oi'),('i'),('ming');\
+             INSERT INTO entries VALUES ('nei hou','你好',900),('nei hou','妳好',40),('nei','你',5000),('nei','妳',300),('hou','好',4000),('hou','號',500),('ngo','我',6000),('oi','愛',2500),('ngoi','外',1000),('ming','名',1000);",
         )
         .expect("cantonese rows");
     path
@@ -9629,6 +9629,34 @@ fn cantonese_without_its_dictionary_is_unavailable() {
     session.switch_scheme(SchemeType::Cantonese).unwrap();
     assert_eq!(session.snapshot().scheme, SchemeType::Cantonese);
     assert!(session.snapshot().preedit.is_empty());
+}
+
+#[test]
+fn cantonese_double_pinyin_uses_the_existing_dictionary_and_spelling_symbols() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.clone();
+    });
+    type_text(&mut session, "nzhb");
+    assert_eq!(session.snapshot().editing_text, "nz hb");
+    assert!(session.snapshot().spelling_symbols.contains(';'));
+    assert_eq!(words(&session)[0], "你好");
+    assert!(session.select(0).commit.is_some());
+}
+
+#[test]
+fn cantonese_double_pinyin_routes_semicolon_as_a_final_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese;
+    });
+    type_text(&mut session, "m;");
+    assert_eq!(session.snapshot().editing_text, "m;");
+    assert_eq!(words(&session)[0], "名");
 }
 
 #[test]

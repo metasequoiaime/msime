@@ -8687,6 +8687,7 @@ test("a platform without a published release is a normal result", async () => {
       }}
     />,
   );
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("暂无可用发行版")).toBeDefined();

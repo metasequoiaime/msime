@@ -60,6 +60,11 @@ impl Inventory {
     pub fn is_prefix(&self, letters: &str) -> bool {
         self.prefixes.contains(letters)
     }
+
+    /// 返回已知的完整音节；调用方只读迭代，不取得库存所有权。
+    pub fn syllables(&self) -> impl Iterator<Item = &str> {
+        self.syllables.iter().map(String::as_str)
+    }
 }
 
 /// One syllable of a segmentation, as a byte range of the typed input.

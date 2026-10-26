@@ -318,7 +318,8 @@ jobs:
           $identity = (Get-Content shared/contracts/editions.json -Raw | ConvertFrom-Json).editions | Where-Object { $_.id -ceq $env:EDITION } | Select-Object -ExpandProperty platforms | Select-Object -ExpandProperty windows
           $xml = New-Object System.Xml.XmlDocument
           $root = $xml.CreateElement('windows')
-          foreach ($name in @('registry_key','install_dir','clsid','watchdog_task','host_dll','name_suffix','user_data_dir')) { $root.SetAttribute($name, [string]$identity.$name) }
+          foreach ($name in @('registry_key','install_dir','clsid','watchdog_task','host_dll','name_suffix')) { $root.SetAttribute($name, [string]$identity.$name) }
+          $root.SetAttribute('user_data_dir', [string]$identity.user_data_directory)
           [void]$xml.AppendChild($root)
           $identityPath = Join-Path $env:RUNNER_TEMP 'windows7-identity.xml'
           $xml.Save($identityPath)

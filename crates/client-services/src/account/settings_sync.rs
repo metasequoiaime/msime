@@ -35,6 +35,8 @@ const NUMBER_KEYPAD_ORDER: &str = "platform.android.number_keypad_order";
 const TWENTY_SIX_KEY_NUMBER_LAYOUT: &str = "platform.android.twenty_six_key_number_layout";
 /// 共享偏好 `touch_shuangpin_key_hints`；账号字段表收录它之前上传时会被滤掉。
 const SHUANGPIN_KEY_HINTS: &str = "platform.android.shuangpin_key_hints";
+/// 共享偏好 `touch_quanpin_shift`；账号字段表收录它之前上传时会被滤掉。
+const QUANPIN_SHIFT: &str = "platform.android.quanpin_shift";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -61,6 +63,7 @@ pub(super) struct TouchHostKeys {
     pub(super) number_keypad_order: &'static str,
     pub(super) twenty_six_key_number_layout: &'static str,
     pub(super) shuangpin_key_hints: &'static str,
+    pub(super) quanpin_shift: &'static str,
     /// 按键音、振动开关、振动强度，值来自宿主本地存储。
     pub(super) feedback: [&'static str; 3],
 }
@@ -82,6 +85,7 @@ const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     number_keypad_order: NUMBER_KEYPAD_ORDER,
     twenty_six_key_number_layout: TWENTY_SIX_KEY_NUMBER_LAYOUT,
     shuangpin_key_hints: SHUANGPIN_KEY_HINTS,
+    quanpin_shift: QUANPIN_SHIFT,
     feedback: ANDROID_FEEDBACK_KEYS,
 };
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
@@ -513,6 +517,11 @@ pub(super) fn insert_touch_settings(
         settings,
         keys.shuangpin_key_hints,
         preferences.touch_shuangpin_key_hints,
+    );
+    insert_bool(
+        settings,
+        keys.quanpin_shift,
+        preferences.touch_quanpin_shift,
     );
     if let Some(feedback) = feedback {
         insert_bool(settings, keys.feedback[0], feedback.sound_enabled);
@@ -1194,6 +1203,9 @@ pub(super) fn apply_touch_settings(
     })?;
     applier.set_bool(keys.shuangpin_key_hints, |preferences, value| {
         preferences.touch_shuangpin_key_hints = value
+    })?;
+    applier.set_bool(keys.quanpin_shift, |preferences, value| {
+        preferences.touch_quanpin_shift = value
     })?;
 
     extra(&mut applier)?;

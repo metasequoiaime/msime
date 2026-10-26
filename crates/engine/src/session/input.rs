@@ -406,6 +406,9 @@ impl InputSession {
             && scheme == SchemeType::Shuangpin
             && self.profile.uses_semicolon_key()
             && helpcode_marker.is_none();
+        let cantonese_final = value == b';'
+            && scheme == SchemeType::Cantonese
+            && self.engine.cantonese_shuangpin_accepts_semicolon();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
         // 已启用的快捷入口在上面处理；被关闭或资源不可用的入口按普通大写字母继续。
         let starts_pinyin_with_shift =
@@ -417,6 +420,7 @@ impl InputSession {
             && !composing_pinyin_uppercase
             && value != b'\''
             && !microsoft_final
+            && !cantonese_final
             && !japanese_long_vowel
             && helpcode_marker.is_none()
         {
@@ -443,7 +447,7 @@ impl InputSession {
         } else if let Some(marker) = helpcode_marker {
             // 触发键在输入串里一律记成标记字符（反引号或 '|'），与用户敲的键无关。
             SchemeKey::Symbol(marker)
-        } else if microsoft_final {
+        } else if microsoft_final || cantonese_final {
             SchemeKey::Semicolon
         } else if japanese_long_vowel {
             SchemeKey::Minus
@@ -1202,6 +1206,12 @@ impl InputSession {
         {
             return self.handle_character(value, false);
         }
+        if self.cantonese_rules_apply()
+            && value == b';'
+            && self.engine.cantonese_shuangpin_accepts_semicolon()
+        {
+            return self.handle_character(value, false);
+        }
         // A scheme without Chinese punctuation (Korean) writes half-width ASCII punctuation whatever the Chinese punctuation switches say. With a syllable open the mark follows it in one commit; with nothing open the host inserts the key itself.
         // 专用英文模式同样写半角英文标点：英文模式不往宿主漏中文标点，字符键那条路早就如此（`handle_character` 吞掉非字母键）。只有「固定标点」锁成「始终使用中文标点」（lock 1）时才照中文标点开关走；默认的「跟随中英文状态」（lock 0）在英文模式下就是英文标点。以前这里把专用英文排除在外，于是英文模式下按 `.` 上屏的是「。」。
         let ascii_marks = if self.dedicated_english {
@@ -1369,7 +1379,13 @@ impl InputSession {
         // `'` is a Jyutping syllable boundary only inside a composition; idle it is punctuation.
         if self.cantonese_rules_apply() {
             return if self.has_composition() {
-                cantonese::SPELLING_SYMBOLS_COMPOSING.to_owned()
+                if self.engine.cantonese_shuangpin_active()
+                    || self.engine.cantonese_shuangpin_accepts_semicolon()
+                {
+                    "';".to_owned()
+                } else {
+                    cantonese::SPELLING_SYMBOLS_COMPOSING.to_owned()
+                }
             } else {
                 String::new()
             };

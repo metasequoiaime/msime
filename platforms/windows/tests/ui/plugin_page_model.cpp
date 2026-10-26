@@ -158,21 +158,25 @@ int main() {
   check(imported_notice(imported) == L"已导入音效包·旋律「名tune」1.0.0。", "import notice");
 
   // 名单。
-  check(!mention_list_issue({{L"张三", L"zhang'san"}, {L"北京", L""}}), "a valid list");
-  check(mention_list_issue({{L"  ", L""}}) == L"第 1 行还没有填写名字或地点。", "an empty name");
-  check(mention_list_issue({{L"a\u0007", L""}}) == L"第 1 行含有控制字符。", "a control character");
-  check(mention_list_issue({{L"a", L"Zhang"}}) ==
+  check(!mention_list_issue({{L"张三", L"zhang'san", L""}, {L"北京", L"", L""}}), "a valid list");
+  check(mention_list_issue({{L"  ", L"", L""}}) == L"第 1 行还没有填写名字或地点。", "an empty name");
+  check(mention_list_issue({{L"a\u0007", L"", L""}}) == L"第 1 行含有控制字符。", "a control character");
+  check(mention_list_issue({{L"a", L"Zhang", L""}}) ==
             L"第 1 行的拼音只能是小写字母，音节之间用 ' 分隔，例如 zhang'san。",
         "an upper-case key");
   // One check per list: GCC's -Wdangling-pointer misreads several initializer-list temporaries joined by && as escaping the expression.
-  check(mention_list_issue({{L"a", L"zhang'"}}).has_value(), "a trailing separator");
-  check(mention_list_issue({{L"a", L"'zhang"}}).has_value(), "a leading separator");
-  check(mention_list_issue({{L"a", L"zh''ang"}}).has_value(), "a doubled separator");
-  check(mention_list_issue({{L"张三", L""}, {L"　张三 ", L""}}) == L"「张三」重复了。",
+  check(mention_list_issue({{L"a", L"zhang'", L""}}).has_value(), "a trailing separator");
+  check(mention_list_issue({{L"a", L"'zhang", L""}}).has_value(), "a leading separator");
+  check(mention_list_issue({{L"a", L"zh''ang", L""}}).has_value(), "a doubled separator");
+  check(mention_list_issue({{L"张三", L"", L""}, {L"　张三 ", L"", L""}}) == L"「张三」重复了。",
         "duplicates are compared trimmed");
-  check(mention_list_issue({{std::wstring(200, L'a'), L""}}) == L"第 1 行太长了。", "too long");
-  check(mention_list_issue(std::vector<Mention>(1001, {L"a", L""})) == L"名单最多 1000 条。", "too many");
-  check((trimmed_mentions({{L" 张三\t", L"zs"}}) == std::vector<Mention>{{L"张三", L"zs"}}), "trimmed");
+  check(mention_list_issue({{std::wstring(200, L'a'), L"", L""}}) == L"第 1 行太长了。", "too long");
+  check(mention_list_issue(std::vector<Mention>(1001, {L"a", L"", L""})) == L"名单最多 1000 条。", "too many");
+  check((trimmed_mentions({{L" 张三\t", L"zs", L""}}) == std::vector<Mention>{{L"张三", L"zs", L""}}), "trimmed");
+  check((trimmed_mentions({{L"李四 ", L"ls", L"13800138000"}}) ==
+         std::vector<Mention>{{L"李四", L"ls", L"13800138000"}}),
+        "trimmed keeps phone");
+  check(Mention{L"李四", L"ls", L"13800138000"} != Mention{L"李四", L"ls", L""}, "phone counts");
   check(mentions_description(false, 3, true, false) == L"3 条，只保存在本机；@ 模式未开" &&
             mentions_description(false, 0, false, true) == L"0 条，只保存在本机；当前方案打不开 @ 模式" &&
             mentions_description(true, 3, true, true) == L"有未保存的修改",

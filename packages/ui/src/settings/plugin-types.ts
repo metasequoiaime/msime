@@ -129,8 +129,8 @@ export type PluginIssue = { kind: PluginKind; folder: string; reason: string };
 
 export type PluginCatalogResult = { packages: PluginPackage[]; issues: PluginIssue[] };
 
-/** @ 模式名单中的一条：`client-services::plugins::mentions::MentionEntry`。 */
-export type MentionEntry = { text: string; key: string };
+/** @ 模式名单中的一条：`client-services::plugins::mentions::MentionEntry`。`phone` 是移动端导入的联系人手机号，这一页不显示也不编辑，保存时原样带回去；页面上新加的条目没有它。 */
+export type MentionEntry = { text: string; key: string; phone?: string };
 
 /**
  * The host side of the 插件 page. The host resolves every directory itself: the page reads the catalog, asks the host to show its own picker for an import, and names a pack to remove by kind and id, never by path.

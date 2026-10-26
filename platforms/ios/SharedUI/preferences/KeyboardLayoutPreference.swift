@@ -113,6 +113,30 @@ enum KeyboardLayoutPreference {
     return true
   }
 
+  /// 「组字时保留 Shift」：全拼 26 键组字时第三排左端的 ⇧ 默认换成「分词」（送 `'` 断音节）；打开后保留 Shift，点一下臂辅助码（Shift+字母）。共享文档里是 `touch_quanpin_shift`，缺省为关；键盘从 App Group 镜像读。九键、14 键和 18 键的分词键不受它影响。
+  static let quanpinShiftDocumentKey = "touch_quanpin_shift"
+  static let quanpinShiftKey = "keyboard.quanpin.shift"
+
+  /// 文档里缺这一项或不是布尔值时按关，与 client-core 的默认值一致。
+  static func sharedQuanpinShift(in preferences: [String: Any]?) -> Bool {
+    preferences?[quanpinShiftDocumentKey] as? Bool ?? false
+  }
+
+  static var quanpinShift: Bool {
+    get { defaults.object(forKey: quanpinShiftKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: quanpinShiftKey) }
+  }
+
+  /// 把「组字时保留 Shift」写进共享文档，只改这一项；文档接受了才更新 App Group 镜像。
+  @discardableResult
+  static func saveQuanpinShift(_ enabled: Bool, stateRoot: URL? = nil) -> Bool {
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
+      document[quanpinShiftDocumentKey] = enabled
+    }) else { return false }
+    quanpinShift = enabled
+    return true
+  }
+
   /// `resetToDefaults`, for the shared document as well.
   @discardableResult
   static func resetGeometry(stateRoot: URL? = nil) -> Bool {

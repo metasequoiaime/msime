@@ -56,16 +56,81 @@ final class ImeBottomRow {
         if (s.enterButton != null && !(s.enterButton instanceof KeyboardIconKey)) {
             Button original = s.enterButton;
             KeyboardIconKey key = forwardFace(original,
-                new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN), "Enter");
+                new KeyboardIconKey(s, s.clipboardMode == ClipboardModePolicy.Mode.VISITOR
+                    ? KeyboardIconKey.Kind.TRASH : KeyboardIconKey.Kind.RETURN), "Enter");
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
             KeyboardTypographyPolicy.setKeyTextSize(key, 15);
             ViewPolicy.setTypefaceStyle(key, android.graphics.Typeface.BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
+            bindReturnClipboardMode(key);
             s.bindReturnTranslationHold(key);
             s.enterButton = key;
         }
+    }
+
+    /** 回车键长按后向上滑动切换本机/访客剪贴板；无效手势仍保持原来的确认动作。 */
+    private void bindReturnClipboardMode(KeyboardIconKey button) {
+        final float[] start = new float[2];
+        final boolean[] moved = new boolean[1];
+        final boolean[] longClicked = new boolean[1];
+        final Runnable[] longPress = new Runnable[1];
+        button.setOnTouchListener((ignored, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    start[0] = event.getRawX();
+                    start[1] = event.getRawY();
+                    moved[0] = false;
+                    longClicked[0] = false;
+                    longPress[0] = () -> {
+                        longPress[0] = null;
+                        if (!moved[0]) {
+                            longClicked[0] = button.performLongClick();
+                            button.setPressed(false);
+                        }
+                    };
+                    s.main.postDelayed(longPress[0], ViewConfiguration.getLongPressTimeout());
+                    button.setPressed(true);
+                    return true;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    float dx = event.getRawX() - start[0];
+                    float dy = event.getRawY() - start[1];
+                    if (Math.hypot(dx, dy) > ViewConfiguration.get(s).getScaledTouchSlop()) {
+                        moved[0] = true;
+                        if (longPress[0] != null) s.main.removeCallbacks(longPress[0]);
+                        longPress[0] = null;
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP -> {
+                    if (longPress[0] != null) s.main.removeCallbacks(longPress[0]);
+                    longPress[0] = null;
+                    int[] location = new int[2];
+                    if (s.keyboardRoot != null) s.keyboardRoot.getLocationOnScreen(location);
+                    float rootX = event.getRawX() - location[0];
+                    float rootY = event.getRawY() - location[1];
+                    float startRootX = start[0] - location[0];
+                    float startRootY = start[1] - location[1];
+                    boolean toggle = ClipboardModePolicy.isValidSwipe(startRootX, startRootY,
+                        rootX, rootY, button.getWidth(), button.getHeight(),
+                        s.keyboardRoot == null ? 0 : s.keyboardRoot.getHeight());
+                    button.setPressed(false);
+                    if (longClicked[0]) return true;
+                    if (toggle) s.toggleClipboardMode(button);
+                    else button.performClick();
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL -> {
+                    if (longPress[0] != null) s.main.removeCallbacks(longPress[0]);
+                    longPress[0] = null;
+                    button.setPressed(false);
+                    return true;
+                }
+                default -> { return true; }
+            }
+        });
     }
 
     private <T extends Button> T forwardFace(Button original, T face, String keyId) {

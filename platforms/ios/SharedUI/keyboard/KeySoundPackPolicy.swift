@@ -54,7 +54,7 @@ enum KeySoundPackPolicy {
   struct Pack: Equatable, Identifiable {
     let id: String
     let name: String
-    /// 选中的包不在本机的目录里（例如从桌面同步来的旋律包或别处装的包）：列出来让用户看得见当前选择，键盘这时退回系统按键音。
+    /// 选中的包不在本机的目录里（例如旧版本选过、后来被删掉的包）：列出来让用户看得见当前选择，键盘这时退回系统按键音。
     var missing = false
   }
 

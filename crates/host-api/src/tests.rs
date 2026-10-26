@@ -4486,12 +4486,12 @@ fn display_page_routes_second_third_shortcut_and_translation_query_through_the_a
 }
 
 #[test]
-fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
+fn helpcode_defaults_follow_preferences_for_each_pinyin_scheme() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());
     SESSIONS.with(|sessions| {
         let session = &sessions.borrow()[&handle];
-        // 出厂开（v0.11.1 出厂关、pin 出厂开，本仓沿用开，差异已记录）；方案名与注释开关各自保持出厂值。
+        // 全拼默认开；方案名与注释开关各自保持出厂值。
         assert!(session.options.helpcode);
         assert_eq!(session.options.helpcode_schema, "ziranma");
         assert!(!session.options.show_helpcode);
@@ -4504,7 +4504,7 @@ fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
     assert_eq!(update(handle, 1, &shuangpin)["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         let session = &sessions.borrow()[&handle];
-        assert!(session.options.helpcode);
+        assert!(!session.options.helpcode);
         assert_eq!(session.options.helpcode_schema, "lantian");
         assert!(session.options.show_helpcode);
     });
@@ -4617,6 +4617,7 @@ fn shuangpin_manual_tab_roundtrips_through_host_character() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
     preferences.scheme = InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
     preferences.shuangpin_helpcode.modes.manual_tab = true;
     let handle = test_host_preferences(dir.path(), preferences.clone());
     read(msime_client_focus(handle, true));
@@ -4662,6 +4663,7 @@ fn shuangpin_manual_tab_survives_held_phrase_prefix() {
     }
     let mut preferences = chinese_preferences();
     preferences.scheme = InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
     preferences.shuangpin_helpcode.modes.manual_tab = true;
     let options = json!({"api_version":1, "resources": resources, "dictionaries":dictionaries,
         "user_data":path("user"), "cache":path("cache"), "preferences":preferences,
@@ -16746,6 +16748,7 @@ fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
 
     let mut preferences = chinese_preferences();
     preferences.scheme = msime_client_core::preferences::InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
     preferences.plugins.helpcode_pack_shuangpin = id.clone();
     let handle = plugin_host(dir.path(), preferences);
     assert_eq!(session_helpcode(handle).as_deref(), Some("zz"));

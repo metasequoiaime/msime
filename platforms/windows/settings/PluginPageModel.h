@@ -1150,10 +1150,12 @@ inline constexpr std::wstring_view grant_dialog_failed = L"授权没有写入，
 
 // ---- @ 名单 ----
 
-// `client-services::plugins::mentions::MentionEntry`。
+// `client-services::plugins::mentions::MentionEntry`。`phone` 是移动端导入的联系人手机号，这一页不显示也不编辑，但保存时要原样带回去，否则会被清掉。
 struct Mention {
-  std::wstring text, key;
-  bool operator==(Mention const &other) const { return text == other.text && key == other.key; }
+  std::wstring text, key, phone;
+  bool operator==(Mention const &other) const {
+    return text == other.text && key == other.key && phone == other.phone;
+  }
   bool operator!=(Mention const &other) const { return !(*this == other); }
 };
 
@@ -1243,7 +1245,7 @@ inline std::vector<Mention> trimmed_mentions(std::vector<Mention> const &entries
   std::vector<Mention> trimmed;
   trimmed.reserve(entries.size());
   for (auto const &entry : entries)
-    trimmed.push_back({js_trim(entry.text), entry.key});
+    trimmed.push_back({js_trim(entry.text), entry.key, entry.phone});
   return trimmed;
 }
 
