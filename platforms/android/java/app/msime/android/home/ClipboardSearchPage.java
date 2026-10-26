@@ -139,11 +139,6 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         }
     }
 
-    @Override public void onDestroyView() {
-        searchNavigation = null;
-        super.onDestroyView();
-    }
-
     @Override protected boolean shouldReloadOnContentReady() { return false; }
 
     @Override public void onPause() {
@@ -174,6 +169,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         authorized = false;
         pause.reset();
         results = null;
+        searchNavigation = null;
         topButton = null;
         clipboardExport.destroyed();
         // 视图没了，删除的回调就不会再交回来；不清掉的话这一页之后的操作全被挡住。
