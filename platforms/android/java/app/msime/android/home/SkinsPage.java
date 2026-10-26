@@ -18,11 +18,13 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -99,7 +101,18 @@ public final class SkinsPage extends ReloadingDetailPage {
     @Override protected void onContentReady() {
         communityContent = new FrameLayout(requireContext());
         communityContent.setId(R.id.skin_community_content);
-        ((FrameLayout) requireView()).addView(communityContent, LayoutPolicy.frameMatchParentParams());
+        FrameLayout root = (FrameLayout) requireView();
+        root.addView(communityContent, LayoutPolicy.frameMatchParentParams());
+        ViewCompat.setOnApplyWindowInsetsListener(root, (target, insets) -> {
+            if (navigation != null) {
+                ViewPolicy.setVisible(navigation,
+                    WindowInsetsPolicy.shouldShowFixedPageNavigation(
+                        insets.isVisible(WindowInsetsCompat.Type.ime())));
+                positionCommunityContent();
+            }
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(root);
         positionCommunityContent();
         ViewPolicy.setVisible(communityContent, section == 2);
         if (section == 2) renderSection();
@@ -108,8 +121,10 @@ public final class SkinsPage extends ReloadingDetailPage {
     private void positionCommunityContent() {
         if (communityContent == null || navigation == null) return;
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) communityContent.getLayoutParams();
-        params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT)
-            + (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48));
+        int navigationHeight = navigation.getVisibility() == View.VISIBLE
+            ? (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48))
+            : 0;
+        params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT) + navigationHeight;
         communityContent.setLayoutParams(params);
     }
 
