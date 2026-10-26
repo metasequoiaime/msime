@@ -572,6 +572,8 @@ fn refused(error: PluginError) -> String {
         PluginError::UnsupportedSource => "the path must be a pack folder or a .zip file".into(),
         PluginError::Reserved => "this id belongs to a pack that ships with the input method; choose another id".into(),
         PluginError::Storage => "the plugins folder in the input method's state directory is a symbolic link or not a folder".into(),
+        PluginError::Exists => "a plugin with this id already exists; choose another id or replace it explicitly".into(),
+        PluginError::NotEditable(reason) => format!("this plugin cannot be edited in settings: {reason}"),
         PluginError::Io(_) => "the pack could not be read or written".into(),
     }
 }

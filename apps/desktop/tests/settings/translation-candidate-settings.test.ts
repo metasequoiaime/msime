@@ -300,3 +300,41 @@ test("selecting AI-assisted translation writes translation_ai and reads it back"
   expect(hook.result.current.translationProvider).toBe("ai");
   expect(hook.result.current.aiTranslationReady).toBe(false);
 });
+
+test("binds the translation scope, defaulting to the highlighted candidate", () => {
+  const updates: Record<string, unknown>[] = [];
+  const options = {
+    candidateTranslations: true,
+    translationTargetLanguage: "en",
+    translationSecondaryLanguage: null,
+    candidateGlossLanguagesEnabled: true,
+    visibleTranslationLanguages: [["en", "英语"]],
+    visibleSecondaryLanguages: [["", "不显示第二种语言"]],
+    android: false,
+    ios: false,
+    macos: true,
+    harmony: false,
+    linux: false,
+    translationAccount: false,
+    onPreferencesChange: (patch: Record<string, unknown>) => updates.push(patch),
+    onDeviceMissingLanguages: [],
+    translationProvider: "none",
+    setTranslationProvider: () => undefined,
+  } as const;
+  // 旧文档没有这个键：按「仅当前高亮」显示。
+  expect(createCandidateTranslationSettings(options).scope).toBe("highlighted");
+  const settings = createCandidateTranslationSettings({
+    ...options,
+    candidateTranslationScope: "all",
+  });
+  expect(settings.scope).toBe("all");
+  settings.onScopeChange?.("highlighted");
+  expect(updates).toEqual([{ candidate_translation_scope: "highlighted" }]);
+  // 承载共享设置页的每个平台都画这一行。
+  for (const platform of ["macos", "linux", "harmony", "windows"] as const) {
+    expect(
+      createCandidateTranslationSettings({ ...options, macos: false, [platform]: true })
+        .onScopeChange,
+    ).toBeTypeOf("function");
+  }
+});

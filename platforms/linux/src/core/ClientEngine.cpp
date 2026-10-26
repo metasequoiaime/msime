@@ -61,6 +61,7 @@
 #include "../candidates/CandidateScriptAnnotation.h"
 #include "../candidates/CandidateRowText.h"
 #include "../candidates/CandidateTranslationPolicy.h"
+#include "../candidates/CandidateTranslationScope.h"
 #include "../candidates/PairedPunctuation.h"
 #include "../candidates/ShuangpinProfileNames.h"
 #include "../candidates/WubiProfileNames.h"
@@ -697,6 +698,10 @@ struct State {
   bool cloud_candidates = true;
   bool candidate_translations = true;
   bool candidate_english_gloss = false;
+  // 候选词翻译开着且范围是「仅当前高亮」（CandidateTranslationScope.h）。
+  bool translation_scope_highlighted = true;
+  // 「仅当前高亮」时主查询的回答：高亮移开再移回来时直接交给 Rust，不再问 provider。
+  msime::linux_host::TranslationAnswerCache translation_answers;
   bool translation_reset_pending = false;
   uint64_t sentence_translation_generation = 0;
   std::string translation_target_language = "en";
@@ -729,6 +734,7 @@ struct State {
     translation_loading = false;
     sentence_translation_generation = 0;
     translation_dispatched_query.clear();
+    translation_answers.clear();
     for (auto &query : online_dispatched_query) query.clear();
   }
   std::string surrounding_text;
@@ -1126,13 +1132,17 @@ struct State {
         preferences.value("candidate_translations", true));
     const bool next_candidate_english_gloss =
         preferences.value("candidate_english_gloss", false);
+    const bool next_translation_scope_highlighted =
+        msime::linux_host::translation_scope_highlighted(next_candidate_translations, preferences);
     if (next_candidate_translations != candidate_translations ||
-        next_candidate_english_gloss != candidate_english_gloss) {
+        next_candidate_english_gloss != candidate_english_gloss ||
+        next_translation_scope_highlighted != translation_scope_highlighted) {
       translation_reset_pending = true;
       invalidate_providers();
     }
     candidate_translations = next_candidate_translations;
     candidate_english_gloss = next_candidate_english_gloss;
+    translation_scope_highlighted = next_translation_scope_highlighted;
     const auto next_translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
     if (next_translation_target_language != translation_target_language) {
@@ -2166,6 +2176,12 @@ struct TranslationTask {
   Json local_translations = Json::array();
   // The offline glosses come from a non-English dictionary, which the user's own translator outranks: it is asked about every candidate and its answers replace the dictionary's (prefer_online_glosses).
   bool prefer_online = false;
+  // 这是翻译查询 gloss_query（整页离线释义）的一次查询：只查离线词典，不连 provider，回答交给 Rust 时每条标 "gloss": true。
+  bool gloss = false;
+  // 「仅当前高亮」时主查询的缓存键（translation_answer_key）；整条查询做完且有回答时按它记下，高亮移回来时复用。
+  std::string answer_key = {};
+  // gloss_query 查完之后接着发的主查询。
+  std::shared_ptr<TranslationTask> then = {};
 };
 // prefer_online_glosses over the JSON translation lists the host API exchanges.
 Json prefer_online_translations(const Json &glosses, const Json &online) {
@@ -2271,10 +2287,35 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
   });
   g_object_unref(task);
 }
+// 把一份翻译查询文档变成一次查询：目标语言是英语、或装了目标语言的离线词典时先查离线词典，候选词翻译开着、查询点名了服务时再把没查到的交给 provider。gloss 为真时这份是 gloss_query（整页离线释义）：走同一条路径，但不连 provider，回答标 "gloss": true。两样都用不上时没有这次查询。
+std::optional<TranslationTask> translation_task(IBusEngine *engine, Json query, bool gloss) {
+  auto &s = state(engine);
+  const bool online_translation = !gloss && s.candidate_translations &&
+      !s.translation_provider_socket.empty() &&
+      msime::linux_host::translation_query_reaches_service(query);
+  const auto &target = s.translation_target_language;
+  const auto installed = query.value("offline_gloss_languages", Json::array());
+  const bool dictionary = target != "en" && installed.is_array() &&
+      std::find(installed.begin(), installed.end(), target) != installed.end();
+  const bool offline_gloss = target == "en" || dictionary;
+  if (!offline_gloss && !online_translation) return std::nullopt;
+  query["target_language"] = target;
+  // 离线词典查询里的候选和 provider 收到的文字都取自这份查询：「仅当前高亮」时主查询只有高亮那一个候选，不能换成视图的整页。socket 协议只收候选文字（与 Host API 的 TranslationQuery 一致），丢掉来源之前先按每个候选自己的来源剔除只展示原文的行（CandidateTranslationScope.h）。
+  auto lookup = Json{{"generation", query.at("generation")},
+                     {"user_data", configured.value("user_data", std::string{})},
+                     {"candidates", msime::linux_host::translation_lookup_candidates(query.at("candidates"))}};
+  if (dictionary) lookup["target_language"] = target;
+  query["candidates"] = msime::linux_host::translation_provider_texts(query.at("candidates"));
+  TranslationTask task{s.session, s.provider_epoch, query.dump(),
+                       online_translation ? s.translation_provider_socket : std::string{},
+                       configured.value("resources", std::string{}), lookup.dump(), offline_gloss,
+                       Json::array(), dictionary};
+  task.gloss = gloss;
+  if (!gloss) task.answer_key = msime::linux_host::translation_answer_key(std::move(query));
+  return task;
+}
 void translation_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
-  const bool online_translation =
-      s.candidate_translations && !s.translation_provider_socket.empty();
   const auto local_mode = s.view.value("local_mode", std::string("none"));
   // Either switch can reach an offline gloss: English, or an installed non-English dictionary, which only the query below can name. The command mode may hold /fy, whose query is asked for whatever they say.
   if (!(s.candidate_english_gloss || s.candidate_translations || local_mode == "command") ||
@@ -2304,55 +2345,37 @@ void translation_dispatch(IBusEngine *engine) {
       return;
     }
     if (!(s.candidate_english_gloss || s.candidate_translations)) return;
-    const auto &target = s.translation_target_language;
-    const auto installed = query.value("offline_gloss_languages", Json::array());
-    const bool dictionary = target != "en" && installed.is_array() &&
-        std::find(installed.begin(), installed.end(), target) != installed.end();
-    const bool offline_gloss = target == "en" || dictionary;
-    if (!offline_gloss && !online_translation) return;
-    query["target_language"] = target;
-    // The shared query carries candidate objects; the socket protocol takes
-    // the candidate texts, matching TranslationQuery in the host API.
-    auto texts = Json::array();
-    const auto &viewCandidates = s.view.value("candidates", Json::array());
-    size_t candidateIndex = 0;
-    for (const auto &candidate : query.at("candidates")) {
-      // Preserve the source gate before the text-only provider protocol drops
-      // candidate metadata. Unknown or mismatched rows remain eligible so a
-      // malformed view cannot suppress an otherwise valid translation.
-      if (viewCandidates.is_array() && candidateIndex < viewCandidates.size()) {
-        const auto &viewCandidate = viewCandidates.at(candidateIndex);
-        if (viewCandidate.is_object() && viewCandidate.contains("source") &&
-            viewCandidate.at("source").is_number_unsigned() &&
-            !msime::linux_host::candidate_translation_source_allowed(
-                viewCandidate.at("source").get<std::uint64_t>())) {
-          ++candidateIndex;
-          continue;
-        }
-      }
-      texts.push_back(candidate.at("text"));
-      ++candidateIndex;
-    }
-    query["candidates"] = std::move(texts);
-    const auto encoded = query.dump();
+    // 「仅当前高亮」：主查询只有高亮那一个候选，带着所选的服务；gloss_query 是整页的离线释义，不带服务（CandidateTranslationScope.h）。范围是「全部」时没有 gloss_query，主查询就是原来的整份查询。
+    const auto generation = query.at("generation").get<uint64_t>();
+    auto parts = msime::linux_host::split_translation_query(std::move(query));
+    std::optional<TranslationTask> primary, gloss;
+    if (parts.main.is_object()) primary = translation_task(engine, std::move(parts.main), false);
+    if (parts.gloss.is_object()) gloss = translation_task(engine, std::move(parts.gloss), true);
+    if (!primary && !gloss) return;
+    const auto encoded = primary ? primary->query : gloss->query;
     // Applying a gloss redraws the same generation. Do not start another
     // provider request until the query or provider configuration changes.
     if (encoded == s.translation_dispatched_query) return;
     s.translation_dispatched_query = encoded;
-    auto candidates = Json::array();
-    for (const auto &candidate : s.view.at("candidates"))
-      candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
-    auto gloss_query = Json{{"generation", query.at("generation")},
-                            {"user_data", configured.value("user_data", std::string{})},
-                            {"candidates", candidates}};
-    if (dictionary) gloss_query["target_language"] = target;
-    const auto provider_socket =
-        s.candidate_translations ? s.translation_provider_socket : std::string{};
-    start_translation_task(engine, TranslationTask{
-        s.session, s.provider_epoch, encoded, provider_socket,
-        configured.value("resources", std::string{}), gloss_query.dump(),
-        offline_gloss,
-        Json::array(), dictionary});
+    if (primary && !s.translation_scope_highlighted) primary->answer_key.clear();
+    // 高亮移回一个问过的候选：代次推进了，查询的其余部分不变，记下的回答直接交给 Rust，不再问 provider。
+    if (primary && !primary->answer_key.empty()) {
+      if (const auto *answers = s.translation_answers.find(primary->answer_key)) {
+        const auto cached = answers->dump();
+        auto applied = response(msime_client_apply_translations(
+            s.session, generation, reinterpret_cast<const uint8_t *>(cached.data()), cached.size()));
+        s.view = applied.at("view");
+        render(engine, s.view);
+        primary.reset();
+      }
+    }
+    // 整页离线释义先查（只读本机词典，很快），查完再接着发主查询。
+    if (gloss) {
+      if (primary) gloss->then = std::make_shared<TranslationTask>(std::move(*primary));
+      start_translation_task(engine, std::move(*gloss));
+    } else if (primary) {
+      start_translation_task(engine, std::move(*primary));
+    }
   } catch (...) { s.translation_loading = false; }
 }
 
@@ -2379,6 +2402,8 @@ void translate_sentence(IBusEngine *engine) {
     query["sentence"] = true;
     query["target_language"] = s.translation_target_language;
     query["candidates"] = Json::array({text});
+    // 整句翻译只发这一句；「仅当前高亮」时查询带着的整页离线释义不跟着发给 provider。
+    query.erase("gloss_query");
     const auto encoded = query.dump();
     s.sentence_translation_generation = query.at("generation").get<uint64_t>();
     const auto source = selected->value("source", uint8_t{0});
@@ -2682,7 +2707,9 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
       s.translation_dispatched_query.clear();
     const auto generation = query.at("generation").get<uint64_t>();
     if (!translations.empty()) {
-      const auto encoded = translations.dump();
+      // gloss_query 的回答是整页的离线释义，标上 "gloss": true，「仅当前高亮」时 Rust 照旧画在每一行。
+      const auto encoded =
+          (request->gloss ? msime::linux_host::mark_gloss_answers(translations) : translations).dump();
       auto applied = response(msime_client_apply_translations(
           s.session, generation, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
       s.view = applied.at("view");
@@ -2704,8 +2731,14 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
         next.offline = false;
         next.local_translations = std::move(translations);
         start_translation_task(engine, std::move(next));
+        return;
       }
     }
+    // 这一份查完了。「仅当前高亮」时记下主查询的回答，高亮移回来时复用；provider 没答上来的不记，下一次照常重试。
+    if (!request->answer_key.empty() && (request->offline || provider_answered))
+      s.translation_answers.store(request->answer_key, translations);
+    // gloss_query 查完，接着发主查询。
+    if (request->then) start_translation_task(engine, TranslationTask(*request->then));
   } catch (...) {}
 }
 void online_complete(GObject *source, GAsyncResult *result, gpointer) {

@@ -14308,6 +14308,18 @@ private:
     const bool glosses = translations || document_.Boolean(L"candidate_english_gloss", false);
     bool_row(candidates, 0xE8C1, L"候选词翻译", L"为当前候选请求翻译结果并显示在候选行",
              L"candidate_translations", false, true);
+    // 翻译范围：共享页 CandidateTranslationOptionsSection 的 scopeRow，紧跟在「候选词翻译」开关下面。只管候选词翻译（翻译服务和为它查的离线词典），「显示英文释义」的离线释义照旧每个候选都有。候选词翻译关着时置灰（开关会重画这一页），已存的值不动。读到的值来自共享 Rust 规范化过的文档，缺键和不认识的值都已按「仅当前高亮」读好；这里的回退值只是与它一致。
+    add_row(candidates, 0xE8B3, L"翻译范围",
+            L"仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响",
+            select_control(L"候选词翻译范围",
+                           {{L"highlighted", L"仅当前高亮"}, {L"all", L"全部"}},
+                           document_.String(L"candidate_translation_scope", L"highlighted"),
+                           [this](std::wstring const &value) {
+                             change([&](PreferencesDocument &doc) {
+                               doc.SetString(L"candidate_translation_scope", value);
+                             }, false);
+                           },
+                           translations));
     select_row(candidates, 0xE774, L"目标语言", L"候选词翻译目标语言",
                L"translation_target_language",
                {{L"en", L"英语"}, {L"fr", L"法语"}, {L"ja", L"日语"}, {L"es", L"西班牙语"},

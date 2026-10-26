@@ -12,6 +12,8 @@ struct InputHabitSettings: Equatable {
   /// Positions in `CandidateTranslationPreference.languages`; the secondary one is -1 for none.
   var primaryLanguage: Int
   var secondaryLanguage: Int
+  /// 候选词翻译的范围（`candidate_translation_scope`），只在候选词翻译开着时有意义。
+  var translationScope: CandidateTranslationScope = .highlighted
 }
 
 /// The shared preference document is the source of truth for these settings: the keyboard copies the document into the App Group every time it reloads, so a value written only to the App Group is overwritten on the next keyboard appearance. The App therefore writes the document and then mirrors the result into the App Group, which the keyboard's fallback paths read until that reload.
@@ -22,6 +24,7 @@ enum InputHabitPreference {
   static let translationsKey = "candidate_translations"
   static let primaryLanguageKey = "translation_target_language"
   static let secondaryLanguageKey = "translation_secondary_language"
+  static let translationScopeKey = "candidate_translation_scope"
 
   /// The App Group copy, used when the document cannot be read and for any field it does not carry.
   static var mirrored: InputHabitSettings {
@@ -32,7 +35,8 @@ enum InputHabitPreference {
                        glossEnabled: CandidateGlossPreference.enabled,
                        onlineTranslations: CandidateTranslationPreference.onlineEnabled,
                        primaryLanguage: CandidateTranslationPreference.primaryIndex,
-                       secondaryLanguage: CandidateTranslationPreference.secondaryIndex)
+                       secondaryLanguage: CandidateTranslationPreference.secondaryIndex,
+                       translationScope: CandidateTranslationPreference.translationScope)
   }
 
   /// Read the settings the same way the keyboard mirrors them: a field that is missing or out of range keeps the fallback's value.
@@ -57,6 +61,8 @@ enum InputHabitPreference {
     } else if document.keys.contains(secondaryLanguageKey) {
       settings.secondaryLanguage = -1
     }
+    // 与其他字段不同，缺键不沿用镜像：共享 Rust 把缺键（旧版本写的文档）读作「仅当前高亮」，键盘要和会话按同一个范围请求。
+    settings.translationScope = CandidateTranslationScope(sharedValue: document[translationScopeKey])
     return settings
   }
 
@@ -71,6 +77,7 @@ enum InputHabitPreference {
     document[frequencyKey] = frequency
     document[glossKey] = settings.glossEnabled
     document[translationsKey] = settings.onlineTranslations
+    document[translationScopeKey] = settings.translationScope.rawValue
     // The document spells languages in lower case, the same as the Windows settings page.
     document[primaryLanguageKey] = CandidateTranslationPreference.language(at: settings.primaryLanguage).code.lowercased()
     if settings.secondaryLanguage >= 0 {
@@ -91,14 +98,16 @@ enum InputHabitPreference {
     CandidateTranslationPreference.onlineEnabled = settings.onlineTranslations
     CandidateTranslationPreference.primaryIndex = settings.primaryLanguage
     CandidateTranslationPreference.secondaryIndex = settings.secondaryLanguage
+    CandidateTranslationPreference.translationScope = settings.translationScope
   }
 
-  /// Whether a live reload changes the candidate translation requests or their language keys.
+  /// 一次实时重载是否改变了候选词翻译要请求的内容：开关、语言，或者范围（要请求哪些候选）。
   static func translationDisplaySettingsChanged(_ before: InputHabitSettings,
                                                  _ after: InputHabitSettings) -> Bool {
     before.onlineTranslations != after.onlineTranslations
       || before.primaryLanguage != after.primaryLanguage
       || before.secondaryLanguage != after.secondaryLanguage
+      || before.translationScope != after.translationScope
   }
 
   /// Apply `change` to the stored settings inside one document update, so a concurrent keyboard write to another field is not lost. Returns the saved settings, or nil when the document could not be written; the App Group is only touched after a successful write.

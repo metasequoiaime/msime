@@ -16,6 +16,14 @@ export type {
   TranslationSecondaryLanguageOption,
 } from "./translation-language-helpers";
 
+/** 候选词翻译的范围，取值与 `crates/client-core` 的 `CandidateTranslationScope` 相同。 */
+export type CandidateTranslationScope = "highlighted" | "all";
+
+/** 文档里没有这个键（旧版本写的）或值不认识时按「仅当前高亮」读，与共享 Rust 的反序列化一致。 */
+export function candidateTranslationScope(value: unknown): CandidateTranslationScope {
+  return value === "all" ? "all" : "highlighted";
+}
+
 export interface CandidateTranslationOptionsSectionProps {
   enabled: boolean;
   targetLanguage: TranslationLanguage;
@@ -30,6 +38,10 @@ export interface CandidateTranslationOptionsSectionProps {
   onTargetLanguageChange: (language: TranslationLanguage) => void;
   onSecondaryLanguageChange: (language: TranslationSecondaryLanguage) => void;
   onAccountTranslationChange: (enabled: boolean) => void;
+  /** 「翻译范围」：只翻译当前高亮的候选，还是当前页全部候选。缺省按「仅当前高亮」。 */
+  scope?: CandidateTranslationScope;
+  /** 不传时不画「翻译范围」这一行。 */
+  onScopeChange?: (scope: CandidateTranslationScope) => void;
   /** 候选释义里显示词性标记；只在宿主消费这个偏好时传入（当前只有 macOS）。 */
   showPos?: boolean;
   /** 候选释义只显示第一条；只在宿主消费这个偏好时传入（当前只有 macOS）。 */
@@ -57,6 +69,8 @@ export function CandidateTranslationOptionsSection({
   onTargetLanguageChange,
   onSecondaryLanguageChange,
   onAccountTranslationChange,
+  scope = "highlighted",
+  onScopeChange,
   showPos,
   singleSense,
   onShowPosChange,
@@ -77,6 +91,20 @@ export function CandidateTranslationOptionsSection({
       checked={enabled}
       onChange={onEnabledChange}
     />
+  );
+  // 范围只管候选词翻译（翻译服务和为它查的离线词典），「显示英文释义」的离线释义照旧每个候选都有。候选词翻译关着时置灰，已存的值不动。
+  const scopeRow = onScopeChange && (
+    <SelectRow
+      title="翻译范围"
+      description="仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响"
+      aria-label="候选词翻译范围"
+      disabled={!enabled}
+      value={scope}
+      onChange={(event) => onScopeChange(candidateTranslationScope(event.target.value))}
+    >
+      <option value="highlighted">仅当前高亮</option>
+      <option value="all">全部</option>
+    </SelectRow>
   );
   const targetRow = (
     <SelectRow
@@ -145,6 +173,7 @@ export function CandidateTranslationOptionsSection({
     return (
       <>
         {enabledRow}
+        {scopeRow}
         {targetRow}
         {glossDisplayRows}
         {beforeMore}
@@ -159,6 +188,7 @@ export function CandidateTranslationOptionsSection({
   return (
     <>
       {enabledRow}
+      {scopeRow}
       {targetRow}
       {glossDisplayRows}
       {beforeMore}

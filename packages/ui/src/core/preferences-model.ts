@@ -1,4 +1,5 @@
 import type { CloudCandidateProviderPreferences } from "../settings/cloud-candidates-section";
+import type { CandidateTranslationScope } from "../settings/candidate-translation-options-section";
 import type { InputScheme, ChineseScheme } from "./input-scheme";
 import type { PreeditPreferences } from "../settings/preedit-preferences";
 import type {
@@ -67,6 +68,8 @@ export type Preferences = PunctuationPreferences &
     /** 云候选、翻译、AI、语音、账号、更新检查和下载共用的代理设置；本机与局域网目标一律直连。 */
     network?: NetworkProxyPreferences;
     candidate_translations?: boolean;
+    /** 候选词翻译画在哪些候选下面：`highlighted` 只翻译当前高亮的候选（缺省，新装和旧文档都是它），`all` 翻译当前页每个候选。「显示英文释义」的离线释义不受它限制。见 `crates/client-core/src/preferences.rs` 的 `CandidateTranslationScope`。 */
+    candidate_translation_scope?: CandidateTranslationScope;
     candidate_english_gloss?: boolean;
     candidate_pronunciation?: boolean;
     /** 候选译文中显示 n.、v. 等词性标记；缺省为开启（对齐 Windows v0.11.1 出厂配置）。 */

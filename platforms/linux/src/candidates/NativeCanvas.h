@@ -256,6 +256,8 @@ struct NativeCanvasItem {
   std::string decoration_badge = {};
   // 光标后编辑里首选开头固定的那几个字：text 开头这么多字节用这一行序号的颜色（次要色）画淡，两种画法都认。0 表示不画淡。
   std::size_t dim_prefix_bytes = 0;
+  // 「仅当前高亮」的候选词翻译生效时，高亮这一行（视图的 translation_reserved）一直留出的释义行数，回答还没到也留，行数与横排为未到释义预留的相同；移动高亮时卡片高度不跳。chrome 的横排由 NativeCanvasContent::reserved_gloss_lines 统一预留，不看这个；chrome 的竖排和 canvas 包按有没有释义变高，都按它留。
+  int reserved_gloss_lines = 0;
 };
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
@@ -724,8 +726,18 @@ inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCa
     const auto size = native_canvas_item_size(cr, metrics, item, content.horizontal, text_width);
     // 单个不可拆字形或序号栏也放不下时，让窗口尺寸复核触发原有回退，不能悄悄裁字。
     item_width = std::max(item_width, size.first + fixed);
-    const double item_height = metrics.custom_height ? std::max(base_height, size.second) :
+    double item_height = metrics.custom_height ? std::max(base_height, size.second) :
         std::max({line, number_line, size.second}) + metrics.extra_height;
+    // 「仅当前高亮」的高亮行一直留出释义的行数：canvas 包按有没有释义变高、没有统一预留，竖排横排都按 reserved_gloss_lines 量一份释义放在正文下面时的高度，回答没到也留。
+    if (item.reserved_gloss_lines > 0) {
+      auto reserved = item;
+      reserved.translation = "X";
+      for (int extra = 1; extra < item.reserved_gloss_lines; ++extra) reserved.translation += "\nX";
+      reserved.translation_runs = nlohmann::json::array();
+      const auto placeholder = native_canvas_item_size(cr, metrics, reserved, true, text_width);
+      item_height = std::max(item_height, metrics.custom_height ? std::max(base_height, placeholder.second) :
+          std::max({line, number_line, placeholder.second}) + metrics.extra_height);
+    }
     if (content.horizontal && x > padding[3] && x + item_width > padding[3] + list_available + 0.001) {
       finish_row();
       y += row_height + metrics.gap;

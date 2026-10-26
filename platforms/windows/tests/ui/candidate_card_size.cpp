@@ -1079,6 +1079,96 @@ int main() {
     require(near(candidate_card_size(reserved).height, vertical_bare.height));
   }
 
+  // 候选词翻译范围是「仅当前高亮」时，竖排里 view 标了 translation_reserved 的那一行（高亮行）一直留出和横排同样行数的释义高，回答还没到也留；译文总画在这一行候选文字的下面，正好填进留出来的高度。别的行不留，离线释义照旧画在同一行。移动高亮、译文到达，卡片都不变高。
+  {
+    const auto shape = candidate_card_metrics(16.0, 16.0, true);
+    const double one = candidate_reserved_row_height(shape, 1);
+    CandidateItemWidths plain{40.0}, held{40.0};
+    held.translation_reserved = true;
+    CandidateCardInput vertical;
+    vertical.reserved_secondary_lines = 1;
+    vertical.items = {plain, plain, plain};
+    const auto bare = candidate_card_size(vertical);
+    // 高亮在第一行，译文还没到：多出一行释义高。
+    vertical.items = {held, plain, plain};
+    const auto waiting = candidate_card_size(vertical);
+    require(near(waiting.height - bare.height, one - shape.candidate_row));
+    // 高亮移到第二行：高度不变。
+    vertical.items = {plain, held, plain};
+    require(near(candidate_card_size(vertical).height, waiting.height));
+    // 译文到了，短到放得下同一行：仍画在候选文字下面，卡片不变高。
+    CandidateItemWidths arrived{40.0, 0.0, 30.0};
+    arrived.translation_reserved = true;
+    vertical.items = {plain, arrived, plain};
+    require(near(candidate_card_size(vertical).height, waiting.height));
+    {
+      const auto rows = candidate_page_layout(vertical.items, 400.0, shape, false, {}, one);
+      require(rows[1].item.translation.below);
+      require(near(rows[1].bounds.bottom - rows[1].bounds.top, one));
+      require(near(rows[0].bounds.bottom - rows[0].bounds.top, shape.candidate_row));
+      require(near(rows[2].bounds.top, rows[1].bounds.bottom + shape.item_gap));
+    }
+    // 别的行带着离线释义：照旧画在候选文字的同一行，不占高度；卡片仍不变高。
+    CandidateItemWidths glossed{40.0, 0.0, 30.0};
+    vertical.items = {glossed, arrived, glossed};
+    {
+      const auto rows = candidate_page_layout(vertical.items, 400.0, shape, false, {}, one);
+      require(!rows[0].item.translation.below && !rows[2].item.translation.below);
+      require(near(rows[0].bounds.bottom - rows[0].bounds.top, shape.candidate_row));
+    }
+    require(near(candidate_card_size(vertical).height, waiting.height));
+    // 译文画在下面，这一行的宽度按候选文字和译文里较宽的一个算，不再是两段并排的宽度。
+    {
+      CandidateItemWidths wide{40.0, 0.0, 120.0};
+      CandidateItemWidths wide_held = wide;
+      wide_held.translation_reserved = true;
+      vertical.items = {wide_held};
+      const auto stacked = candidate_card_size(vertical);
+      vertical.items = {wide};
+      const auto side_by_side = candidate_card_size(vertical);
+      require(near(side_by_side.width - stacked.width, 40.0 + shape.translation_gap));
+    }
+    // 两种目标语言：留两行，按窗口量出的两行占位高度留，两行译文到了也不变高。
+    {
+      const double measured = 2.0 * shape.translation_font * 1.33;
+      const double two = candidate_reserved_row_height(shape, 2, measured);
+      CandidateCardInput lines;
+      lines.reserved_secondary_lines = 2;
+      lines.reserved_secondary_height = measured;
+      lines.items = {held, plain};
+      const auto before = candidate_card_size(lines);
+      lines.items = {plain, plain};
+      require(near(before.height - candidate_card_size(lines).height, two - shape.candidate_row));
+      CandidateItemWidths both{40.0, 0.0, 30.0};
+      both.translation_lines = 2;
+      both.translation_reserved = true;
+      lines.items = {both, plain};
+      lines.wrapped = [&](size_t, CandidateRun run, double) {
+        return run == CandidateRun::translation ? measured : shape.candidate_row;
+      };
+      require(near(candidate_card_size(lines).height, before.height));
+    }
+    // 没有释义来源、一行也不留时（reserved_secondary_lines 为 0），这个标记不起作用：不留高度，译文照旧按竖排的规则排。
+    vertical.reserved_secondary_lines = 0;
+    vertical.items = {held, plain, plain};
+    require(near(candidate_card_size(vertical).height, bare.height));
+    {
+      const auto rows = candidate_page_layout({arrived}, 400.0, shape, false, {}, 0.0);
+      require(!rows[0].item.translation.below);
+    }
+    // 横排每行本来就统一预留，标记不改变横排。
+    {
+      CandidateCardInput horizontal;
+      horizontal.horizontal = true;
+      horizontal.reserved_secondary_lines = 1;
+      horizontal.items = {plain, plain};
+      const auto unmarked = candidate_card_size(horizontal);
+      horizontal.items = {held, plain};
+      const auto marked = candidate_card_size(horizontal);
+      require(near(marked.height, unmarked.height) && near(marked.width, unmarked.width));
+    }
+  }
+
   // 皮肤包的版式：一个键都没写时，解析出的版式和不传皮肤一模一样，卡片的尺寸、行和翻页逐位相同，现有皮肤和无皮肤的卡片画出来不变。
   {
     const auto empty_skin = candidate_skin_metrics(CandidateSkinLayout{}, false, 16.0);

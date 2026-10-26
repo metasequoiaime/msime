@@ -10064,16 +10064,30 @@ static void TestEmptyGlossDoesNotApplyAStaleServiceGeneration() {
 @property(nonatomic, copy) NSArray *delivered;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) BOOL offline;
+// 翻译查询里的 gloss_query（「仅当前高亮」时那份覆盖整页、不带服务的离线释义查询）；nil 时不带。
+@property(nonatomic, copy) NSDictionary *glossQuery;
 // Every generation an apply reached, when set.
 @property(nonatomic, strong) NSMutableArray<NSNumber *> *appliedGenerations;
 @end
 @implementation CustomTranslationSession
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
-    return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
+    if (!self.enabled) return nil;
+    // 和真实查询一样，没另外指定时查询的 candidates 就是这一页；online_gloss 为假，不问账号和系统翻译。
+    NSMutableArray *candidates = [NSMutableArray array];
+    if (self.queryCandidates) [candidates addObjectsFromArray:self.queryCandidates];
+    else for (NSDictionary *candidate in self.page) [candidates addObject:@{@"text":candidate[@"text"], @"online_gloss":@NO}];
+    NSMutableDictionary *query = [@{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
         @"target_languages":self.targetLanguages ?: @[], @"offline_gloss_languages":self.offlineGlossLanguages ?: @[],
         @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{},
-        @"candidates":self.queryCandidates ?: @[], @"translation_account":@(self.account)} : nil;
+        @"candidates":candidates, @"translation_account":@(self.account)} mutableCopy];
+    if (self.glossQuery) {
+        // 和主查询同一代次。
+        NSMutableDictionary *gloss = [self.glossQuery mutableCopy];
+        gloss[@"generation"] = @(self.generation);
+        query[@"gloss_query"] = gloss;
+    }
+    return query;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -12129,6 +12143,143 @@ static void TestGlossSurvivesHighlightMove() {
     [[MSIMETranslationCache sharedCache] clear];
 }
 
+// 候选词翻译范围「仅当前高亮」：主查询的 candidates 只有高亮的那个候选，翻译服务、系统翻译、账号释义和只为候选词翻译查的离线词典都只为它工作；gloss_query 覆盖整页、不带服务，只走离线词典，它的回答每条标 gloss。高亮移开时旧请求作废，移回来用缓存，不再请求。
+static void TestHighlightedTranslationScope() {
+    [[MSIMETranslationCache sharedCache] clear];
+    NSString *suite = [@"msime.translation-scope." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    controller.onDeviceFetches = [NSMutableArray array];
+    controller.accountFetches = [NSMutableArray array];
+    controller.holdDelay = YES;
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.appliedGenerations = [NSMutableArray array];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    void (^settle)(void) = ^{
+        [controller setValue:[session viewWithError:nil] forKey:@"view"];
+        [controller synchronizeCandidateServices];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
+        DrainMainQueue();
+    };
+    NSArray *(^texts)(NSArray *) = ^NSArray *(NSArray *candidates) { return [candidates valueForKey:@"text"] ?: @[]; };
+    NSArray *page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"你好", @"source":@0}];
+    NSArray *(^highlighted)(NSString *, BOOL) = ^NSArray *(NSString *text, BOOL online) {
+        return @[@{@"text":text, @"source":@0, @"online_gloss":@(online)}];
+    };
+    // 共享层给的 gloss_query：整页，provider 为 none，不问账号，没有服务配置，每个候选 online_gloss 为假。
+    NSDictionary *(^glossQuery)(NSArray *) = ^NSDictionary *(NSArray *offline) {
+        NSMutableArray *candidates = [NSMutableArray array];
+        for (NSDictionary *candidate in page) [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"], @"online_gloss":@NO}];
+        return @{@"target_language":@"en", @"target_languages":session.targetLanguages, @"candidates":candidates,
+            @"provider":@"none", @"translation_account":@NO, @"custom_translation":NSNull.null, @"tencent_tmt":NSNull.null,
+            @"niutrans":NSNull.null, @"ai_assistant":NSNull.null, @"english_gloss":@YES, @"offline_gloss_languages":offline};
+    };
+
+    // 自己的翻译服务加离线英文释义：服务只问高亮的「测试」，离线词典查整页，整页的离线释义标 gloss 交给会话。
+    session.enabled = YES; session.generation = 1; session.offline = YES;
+    session.targetLanguage = @"en"; session.targetLanguages = @[@"en"];
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://translation.invalid/api", @"api_key":@""};
+    [controller applySharedToolbarPreferences:@{@"custom_translation":session.custom}];
+    session.page = page;
+    session.queryCandidates = highlighted(@"测试", YES);
+    session.glossQuery = glossQuery(@[]);
+    settle();
+    assert(([texts([controller currentGlossRequest][@"candidates"]) isEqual:@[@"Hello", @"测试", @"你好"]]));
+    assert(([[controller currentCustomTranslationRequest][@"candidates"] isEqual:@[@{@"text":@"测试", @"source":@0}]]));
+    NSTimer *customTimer = [controller valueForKey:@"customTimer"];
+    assert(customTimer.valid);
+    [customTimer fire];
+    assert(controller.batches.count == 1);
+    ControlledTranslationBatch *first = controller.batches[0];
+    assert(first.started && [texts(first.items) isEqual:@[@"测试"]]);
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义", @"gloss":@YES}]]));
+    first.reply(@[@{@"text":@"测试", @"translation":@"test"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"test"},
+        @{@"text":@"Hello", @"translation":@"本地释义", @"gloss":@YES}]]));
+    // 交给会话的标记是 JSON 的 true，不是数字 1。
+    NSData *encoded = [NSJSONSerialization dataWithJSONObject:session.delivered options:0 error:nil];
+    assert([[[NSString alloc] initWithData:encoded encoding:NSUTF8StringEncoding] containsString:@"\"gloss\":true"]);
+
+    // 高亮移到「你好」：离线词典的请求不变、不再查一次；旧页的请求作废，回答迟到也不交付；新高亮另起一个请求。
+    NSDictionary *glossRequest = [controller valueForKey:@"glossRequest"];
+    session.generation = 2;
+    session.queryCandidates = highlighted(@"你好", YES);
+    settle();
+    assert([controller valueForKey:@"glossRequest"] == glossRequest);
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义", @"gloss":@YES}]]));
+    customTimer = [controller valueForKey:@"customTimer"];
+    assert(customTimer.valid);
+    // 高亮再次移开，计时器还没到点的请求一个都不发。
+    session.generation = 3;
+    session.queryCandidates = highlighted(@"Hello", NO);
+    settle();
+    assert(!customTimer.valid && controller.batches.count == 1);
+    session.generation = 4;
+    session.queryCandidates = highlighted(@"你好", YES);
+    settle();
+    [(NSTimer *)[controller valueForKey:@"customTimer"] fire];
+    assert(controller.batches.count == 2 && [texts(controller.batches[1].items) isEqual:@[@"你好"]]);
+    ControlledTranslationBatch *second = controller.batches[1];
+    // 移回「测试」：缓存里的译文直接交付，不发新请求；「你好」那份请求作废，迟到的回答只进缓存。
+    session.generation = 5;
+    session.queryCandidates = highlighted(@"测试", YES);
+    [session.appliedGenerations removeAllObjects];
+    settle();
+    assert(second.detached && controller.batches.count == 2 && ![controller valueForKey:@"customTimer"]);
+    assert([session.appliedGenerations containsObject:@5]);
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"test"},
+        @{@"text":@"Hello", @"translation":@"本地释义", @"gloss":@YES}]]));
+    second.reply(@[@{@"text":@"你好", @"translation":@"hi"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"test"},
+        @{@"text":@"Hello", @"translation":@"本地释义", @"gloss":@YES}]]));
+    [controller cancelCandidateTranslations];
+    [controller applySharedToolbarPreferences:@{@"custom_translation":@{@"enabled":@NO, @"endpoint":@"", @"api_key":@""}}];
+    session.custom = nil;
+
+    // 系统翻译和账号释义只为高亮的候选排队：gloss_query 的候选都不问在线释义。
+    session.generation = 6; session.offline = NO;
+    session.queryCandidates = highlighted(@"测试", YES);
+    settle();
+    assert(controller.onDeviceFetches.count == 1 && ([controller.onDeviceFetches[0] isEqual:@[@[@"测试"], @[@"en"]]]));
+    [controller cancelCandidateTranslations];
+    session.account = YES; session.generation = 7;
+    settle();
+    assert(([[controller currentAccountGlossRequest][@"candidates"] isEqual:highlighted(@"测试", YES)]));
+    NSTimer *accountTimer = [controller valueForKey:@"accountGlossTimer"];
+    assert(accountTimer.valid);
+    [accountTimer fire];
+    assert(controller.accountFetches.count == 1 && ([controller.accountFetches[0] isEqual:@[@[@"测试"], @"en", @"", @7]]));
+    [controller cancelCandidateTranslations];
+    session.account = NO;
+
+    // 其他语言的离线词典：gloss_query 带上它时整页都查，整页的回答标 gloss；高亮那一行另有一份不标记的，按候选词翻译画。
+    session.generation = 8; session.offline = YES;
+    session.targetLanguages = @[@"en", @"fr"]; session.offlineGlossLanguages = @[@"fr"];
+    session.queryCandidates = highlighted(@"测试", NO);
+    session.glossQuery = glossQuery(@[@"fr"]);
+    settle();
+    assert(([texts([controller currentTargetGlossRequest][@"candidates"]) isEqual:@[@"Hello", @"测试", @"你好"]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"\u2028essai"},
+        @{@"text":@"Hello", @"translation":@"本地释义", @"gloss":@YES}, @{@"text":@"测试", @"translation":@"\u2028essai", @"gloss":@YES}]]));
+
+    // 离线释义开关关着时没有 gloss_query：只为候选词翻译查的离线词典只查高亮的那一个。
+    [controller cancelCandidateTranslations];
+    session.generation = 9;
+    session.glossQuery = nil;
+    settle();
+    assert(([texts([controller currentGlossRequest][@"candidates"]) isEqual:@[@"测试"]]));
+    assert(([texts([controller currentTargetGlossRequest][@"candidates"]) isEqual:@[@"测试"]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"\u2028essai"}]]));
+    [controller cancelCandidateTranslations];
+    [[NSUserDefaults new] removePersistentDomainForName:suite];
+    [[MSIMETranslationCache sharedCache] clear];
+}
+
 @interface SettingsRouteWorkspace : NSWorkspace
 @property BOOL installed;
 @property(strong) NSWorkspaceOpenConfiguration *configuration;
@@ -13156,6 +13307,7 @@ int main(int argc, char **argv) {
             @autoreleasepool { TestEmptyGlossDoesNotApplyAStaleServiceGeneration(); }
             @autoreleasepool { TestGlossScheduling(); }
             @autoreleasepool { TestGlossSurvivesHighlightMove(); }
+            @autoreleasepool { TestHighlightedTranslationScope(); }
             @autoreleasepool { TestAccountGlossSkipsNonChineseCandidates(); }
             @autoreleasepool { TestAccountGlossRequiresExplicitChoice(); }
             @autoreleasepool { TestAccountGlossCacheIsSharedAcrossControllers(); }
@@ -13204,6 +13356,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestCloudCandidateConsent(); }
         @autoreleasepool { TestGlossScheduling(); }
         @autoreleasepool { TestGlossSurvivesHighlightMove(); }
+        @autoreleasepool { TestHighlightedTranslationScope(); }
         @autoreleasepool { TestAccountGlossSkipsNonChineseCandidates(); }
         @autoreleasepool { TestAccountGlossRequiresExplicitChoice(); }
         @autoreleasepool { TestAccountGlossCacheIsSharedAcrossControllers(); }

@@ -876,7 +876,9 @@ def accept_translation_below(preferences, publish, entry, control, daemon):
     assert before[4], "未看到候选正文像素"
     preferences["candidate_translations"] = True
     publish()
-    wait(lambda: (area := selected_area()) is not None and area[3] - area[1] > before[3] - before[1] + 10)
+    # 「仅当前高亮」时高亮行在译文到达之前就先用不上屏的占位行留出了高度，所以要等到正文下方真的画出译文字形。
+    wait(lambda: (area := selected_area()) is not None and area[3] - area[1] > before[3] - before[1] + 10 and
+         any(y - area[1] >= before[3] - before[1] for _, y in area[4]))
     after = selected_area()
     old_top = min(y for _, y in before[4]) - before[1]
     new_top = min(y for _, y in after[4]) - after[1]
