@@ -8,7 +8,8 @@ import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityReportSection } from "./community-report";
 import type { CommunityReportReason } from "./community-report-model";
 import { kindLabels } from "../settings/plugin-catalog-helpers";
-import type { CommunityPlugin } from "./community-plugin-model";
+import { communityPluginUnderReview, type CommunityPlugin } from "./community-plugin-model";
+import { CommunityPluginCapabilities } from "./community-plugin-capabilities";
 
 export interface CommunityPluginDetailProps {
   plugin: CommunityPlugin;
@@ -64,6 +65,7 @@ export function CommunityPluginDetail({
         title={plugin.name}
         noteParts={[kindLabels[plugin.kind], plugin.author, plugin.version && `v${plugin.version}`]}
         owned={plugin.owned}
+        ownedLabel={communityPluginUnderReview(plugin) ? "我的作品 · 审核中" : undefined}
         moderation={plugin.moderation}
         description={plugin.description}
         metrics={
@@ -85,10 +87,22 @@ export function CommunityPluginDetail({
         actionNotice={actionNotice}
         loadingText="正在读取插件详情…"
       />
+      {communityPluginUnderReview(plugin) && (
+        <CommunityActionNotice>
+          脚本插件要经过管理员审核，通过后才会出现在社区里；审核前只有你自己看得到。
+        </CommunityActionNotice>
+      )}
+      {plugin.kind === "script" && (
+        <CommunityPluginCapabilities permissions={plugin.permissions ?? []} />
+      )}
       <CommunityInstallActions
         installed={installed}
         installedContent={
-          <CommunityActionNotice>已安装到插件目录，可在「我的插件」中选用。</CommunityActionNotice>
+          <CommunityActionNotice>
+            {plugin.kind === "script"
+              ? "已安装，但还不会运行：要在「我的插件 → 脚本插件（实验）」里启用并授权。"
+              : "已安装到插件目录，可在「我的插件」中选用。"}
+          </CommunityActionNotice>
         }
         actionBusy={actionBusy}
         detailBusy={detailBusy}

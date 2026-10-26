@@ -49,6 +49,10 @@ import {
   type CommunityResourceApplication,
   type CommunityResourceClient,
   type CommunityResourcePage,
+  type CommunityPlugin,
+  type CommunityPluginClient,
+  type CommunityPluginPackPreview,
+  type CommunityPluginPage,
   type CommunitySkinClient,
   type AccountPreferenceSchema,
   type SettingsSyncClient,
@@ -911,6 +915,49 @@ function communityResourceClient(native: NativeBridge): CommunityResourceClient 
 }
 
 /**
+ * 社区插件图库：浏览、评分、举报、发布自己的插件和安装，都交给 Rust 的 `msime_client_community`（plugin_* 操作，和 Windows 原生设置窗口同一套）。
+ *
+ * 这里只有数据类插件：鸿蒙的 client-services 没有 `script` 这个类型，向服务端声明的类型里也没有它，所以列表里永远不会出现脚本插件，宿主也不声明 `script_plugins`。发布和安装要搬运最多 8 MiB 的包，服务端给这两步 90 秒，页面的等待时间相应放长。
+ */
+function communityPluginClient(native: NativeBridge): CommunityPluginClient {
+  const request = <T,>(action: Record<string, unknown>, timeoutMs?: number): Promise<T> =>
+    bridgeRequest(native, "community_plugin", JSON.stringify(action), timeoutMs).then(unwrap<T>);
+  const transfer = 120000;
+  return {
+    list: (offset, search, kind, mine) =>
+      request<CommunityPluginPage>({
+        operation: "plugin_list",
+        offset,
+        search,
+        ...(kind ? { kind } : {}),
+        mine: mine ?? false,
+      }),
+    detail: (id) => request<CommunityPlugin>({ operation: "plugin_detail", id }),
+    packPreview: (kind, pluginId) =>
+      request<CommunityPluginPackPreview>({
+        operation: "plugin_pack_preview",
+        kind,
+        plugin_id: pluginId,
+      }),
+    publish: (kind, pluginId, id, name, description) =>
+      request<CommunityPlugin>(
+        { operation: "plugin_publish", kind, plugin_id: pluginId, id, name, description },
+        transfer,
+      ),
+    install: (id, kind, pluginId) =>
+      request<PluginPackage>(
+        { operation: "plugin_install", id, kind, plugin_id: pluginId },
+        transfer,
+      ),
+    rate: (id, stars) => request<{ stars: number }>({ operation: "plugin_rate", id, stars }),
+    delete: (id) => request<{ deleted: boolean }>({ operation: "plugin_delete", id }),
+    report: async (id, reason, detail) => {
+      await request({ operation: "report", kind: "plugins", id, reason, detail });
+    },
+  };
+}
+
+/**
  * AI skin generation, which is the one request that reports before it answers.
  *
  * Three pictures take minutes, so a run that said nothing until it finished would be
@@ -1599,6 +1646,7 @@ function makeClient(
     feedback,
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
+    communityPlugins: communityPluginClient(native),
     aiSkins: aiSkinClient(native),
     localVoiceModels: localVoiceModelClient(native),
     // The page is offered only on a 2in1, the form factor that plays packs and routes the / and @ modes; a phone hides it whatever the host supplies.

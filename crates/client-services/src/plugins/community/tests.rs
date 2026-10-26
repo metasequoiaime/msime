@@ -1071,6 +1071,7 @@ fn script_items_list_their_capabilities_and_an_old_server_refusal_is_named() {
     let mut wire = serde_json::to_value(item()).unwrap();
     wire["kind"] = "script".into();
     wire["plugin_id"] = "pangu".into();
+    wire["id"] = Uuid::from_u128(9).hyphenated().to_string().into();
     wire["permissions"] = serde_json::json!(["read_commit"]);
     let page = validate_page(
         decode_page(CommunityPluginPageWire {

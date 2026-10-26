@@ -1707,6 +1707,8 @@ export {
 } from "./community/community-plugin-publish-dialog";
 export {
   communityPluginKinds,
+  communityPluginKindsFor,
+  communityPluginUnderReview,
   type CommunityPlugin,
   type CommunityPluginClient,
   type CommunityPluginKind,

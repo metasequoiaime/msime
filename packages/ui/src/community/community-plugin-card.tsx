@@ -2,7 +2,8 @@ import { kindLabels } from "../settings/plugin-catalog-helpers";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCard } from "./community-card";
-import type { CommunityPlugin } from "./community-plugin-model";
+import { communityPluginUnderReview, type CommunityPlugin } from "./community-plugin-model";
+import { scriptCapabilitySummary } from "./community-plugin-capabilities";
 import * as style from "./community-style";
 
 export interface CommunityPluginCardProps {
@@ -20,9 +21,15 @@ export function CommunityPluginCard({ plugin, open }: CommunityPluginCardProps) 
         author={plugin.author}
         owned={plugin.owned}
         removed={plugin.moderation === "removed"}
+        reviewing={communityPluginUnderReview(plugin)}
       />
       {plugin.description && (
         <span className={style.resourceDescription}>{plugin.description}</span>
+      )}
+      {plugin.kind === "script" && (
+        <span className={style.resourceDescription}>
+          申请：{scriptCapabilitySummary(plugin.permissions)}
+        </span>
       )}
       <CommunityCardMetrics
         downloads={plugin.downloads}
