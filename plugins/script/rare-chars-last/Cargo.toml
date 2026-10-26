@@ -8,5 +8,9 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+# 唯一的依赖。用路径引用仓库里的 SDK，和发布到 crates.io 的是同一份源码。
+[dependencies]
+msime-script-sdk = { path = "../../../crates/script-sdk" }
+
 # 独立的 crate，不属于仓库的 Cargo 工作区。目标、栈大小和 release 配置在 plugins/script/.cargo/config.toml 里，所有插件共用。
 [workspace]

@@ -61,6 +61,7 @@ fn item(id: Uuid, kind: PluginKind, plugin_id: &str, name: &str) -> CommunityPlu
         my_rating: 0,
         created_at: "2026-10-26T00:00:00Z".into(),
         moderation: None,
+        permissions: Vec::new(),
     }
 }
 
@@ -320,11 +321,17 @@ fn only_the_users_own_data_packs_are_published() {
         all(target_os = "linux", not(target_env = "ohos"))
     ))]
     {
-        let error = fixture.publish(request("script", "uuid")).unwrap_err();
-        assert!(
-            error.contains("script plugin cannot be published"),
-            "{error}"
-        );
+        // 社区接受脚本插件以后，这里仍然拒绝：官方的和用户自己导入的都一样，在打包和联网之前。
+        let before = fixture.api.calls();
+        for id in ["uuid", "pangu"] {
+            let error = fixture.publish(request("script", id)).unwrap_err();
+            assert!(
+                error.contains("script plugin cannot be published"),
+                "{id}: {error}"
+            );
+            assert!(error.contains("发布我的插件"), "{id}: {error}");
+        }
+        assert_eq!(fixture.api.calls(), before);
     }
     // 包不合分享规则时在本机拒绝，不联网。
     std::fs::write(

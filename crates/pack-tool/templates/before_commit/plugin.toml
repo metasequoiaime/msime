@@ -1,0 +1,14 @@
+schema_version = 2
+kind = "script"
+id = "{{id}}"
+name = "{{id}}"
+version = "0.1.0"
+license = "MIT"
+description = "上屏前把 ... 换成 ……"
+permissions = ["read_commit", "rewrite_commit"]
+
+[script]
+abi = 1
+module = "{{module}}"
+hooks = ["before_commit"]
+memory_pages = 2

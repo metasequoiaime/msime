@@ -95,6 +95,8 @@ function SettingsShell(props: SettingsPageProps) {
   const {
     pluginView,
     setPluginView,
+    pluginOpenRequest,
+    setPluginOpenRequest,
     skinView,
     setSkinView,
     navQuery,
@@ -406,6 +408,14 @@ function SettingsShell(props: SettingsPageProps) {
                 views={communityViews}
                 pluginView={pluginView}
                 onPluginViewChange={setPluginView}
+                onOpenPlugin={(installed) => {
+                  setPluginOpenRequest((previous) => ({
+                    kind: installed.kind,
+                    id: installed.id,
+                    serial: (previous?.serial ?? 0) + 1,
+                  }));
+                  setPluginView("mine");
+                }}
               />
               {draft && isSettingsFormPage(page) && (
                 <SettingsPreferencesForm
@@ -415,6 +425,7 @@ function SettingsShell(props: SettingsPageProps) {
                   // 社区图库和「制作皮肤」都画在表单之外，选中其一时表单里的皮肤页隐藏。
                   skinCommunityShown={skinCommunityShown || skinEditorShown}
                   pluginCommunityShown={pluginCommunityShown}
+                  pluginOpenRequest={pluginOpenRequest}
                   externalActions={externalActions}
                   onRestoreDefaults={onRestoreDefaults}
                   reloadSettings={reloadSettings}

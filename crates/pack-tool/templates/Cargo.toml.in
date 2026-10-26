@@ -1,0 +1,23 @@
+[package]
+name = "{{package}}"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# 水杉输入法脚本插件 ABI v1 的 Rust 绑定，no_std、没有依赖。要用本地的一份 SDK 源码（例如改 SDK 本身）时换成：msime-script-sdk = { path = "<msime 仓库>/crates/script-sdk" }
+msime-script-sdk = "{{sdk}}"
+
+# 体积优先：模块不能超过 256 KiB。panic 直接 trap，不带格式化代码。
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# 独立的 crate：生成在别的 Cargo 工作区里面时也不并进那个工作区。
+[workspace]

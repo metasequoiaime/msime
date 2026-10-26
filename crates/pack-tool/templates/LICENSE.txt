@@ -1,0 +1,3 @@
+这是 msime-pack new 生成的占位文件，发布或分享这个插件包之前换成许可证全文。
+
+插件包里的 LICENSE.txt 应当是 pack/plugin.toml 里 license 字段所写许可证的全文。生成的清单写的是 MIT：保留 MIT 就把这里换成 MIT 许可证的全文，写上年份和你的名字；换了别的许可证，同时改 license 字段和这个文件。

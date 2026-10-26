@@ -16,10 +16,11 @@ import { CommunityPageShell } from "./community-page-shell";
 import { CommunityPluginPublishDialog } from "./community-plugin-publish-dialog";
 import { CommunityPluginDetail } from "./community-plugin-detail";
 
-import { communityPluginKinds, type CommunityPluginClient } from "./community-plugin-model";
+import { communityPluginKindsFor, type CommunityPluginClient } from "./community-plugin-model";
 export {
   type CommunityPluginKind,
   communityPluginKinds,
+  communityPluginKindsFor,
   type CommunityPlugin,
   type CommunityPluginPage,
   type CommunityPluginPackPreview,
@@ -36,6 +37,8 @@ export function CommunityPluginsPage({
   client,
   localPlugins,
   onInstalled,
+  onOpenScript,
+  scriptPlugins = false,
   onLogin,
 }: {
   client: CommunityPluginClient;
@@ -43,6 +46,10 @@ export function CommunityPluginsPage({
   localPlugins?: () => Promise<PluginCatalogResult>;
   /** 安装完成后通知调用方重新读取本机插件目录。 */
   onInstalled?: (installed: PluginPackage) => void;
+  /** 装好脚本插件后打开它的授权页。 */
+  onOpenScript?: (installed: PluginPackage) => void;
+  /** 宿主运行脚本插件（`HostCapabilities.script_plugins`）：可以按「脚本插件」筛选、发布自己的脚本插件。 */
+  scriptPlugins?: boolean;
   onLogin?: () => void;
 }) {
   const {
@@ -77,7 +84,8 @@ export function CommunityPluginsPage({
     setConfirmReplace,
     install,
     publishDone,
-  } = useCommunityPluginGallery({ client, localPlugins, onInstalled });
+  } = useCommunityPluginGallery({ client, localPlugins, onInstalled, onOpenScript });
+  const kinds = communityPluginKindsFor(scriptPlugins);
 
   if (selected) {
     return (
@@ -114,7 +122,11 @@ export function CommunityPluginsPage({
         onSearchChange={setSearch}
         onSearchSubmit={() => void requestList(search, false)}
         title="社区插件"
-        note="音效、音乐、指令表、特效、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用"
+        note={
+          scriptPlugins
+            ? "音效、音乐、指令表、特效、短语表、辅助码表、单词本、符号集与脚本插件，安装后在「我的插件」中选用；脚本插件经管理员审核后才会出现，安装后要授权才会运行"
+            : "音效、音乐、指令表、特效、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用"
+        }
       >
         <CommunityScopeButtons
           ariaLabel="插件范围"
@@ -138,7 +150,7 @@ export function CommunityPluginsPage({
           ariaPressed={kind === null}
           label="全部"
         />
-        {communityPluginKinds.map((item) => (
+        {kinds.map((item) => (
           <ActionButton
             key={item}
             action={() => changeKind(item)}
@@ -190,6 +202,7 @@ export function CommunityPluginsPage({
         <CommunityPluginPublishDialog
           client={client}
           localPlugins={localPlugins}
+          scriptPlugins={scriptPlugins}
           onClose={() => setPublishOpen(false)}
           onPublished={publishDone}
           onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}

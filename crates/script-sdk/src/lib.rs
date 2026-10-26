@@ -1,10 +1,36 @@
-//! 水杉输入法桌面脚本插件 ABI v1 的 Rust 绑定：单文件，只用 `core`，可以直接放进 `#![no_std]` 的 crate（`#[path = "…/msime_script.rs"] mod msime_script;`）。
+//! 水杉输入法桌面脚本插件 ABI v1 的 Rust 绑定：`#![no_std]`，没有任何依赖，只用 `core`。插件 crate 依赖它（`msime-script-sdk = "0.1"`），编译到 `wasm32-unknown-unknown`。
 //!
 //! 模块按能力域分组，和清单 `permissions` 一一对应：`event`、`log`、`random`、`settings`、`data` 不需要能力；`insert` 要 `insert_candidates`；`storage` 要 `persist_data`；`composition` 要 `read_composition`；`commit` 要 `read_commit`；`candidates` 要 `read_candidates`；`rewrite`、`rerank`、`filter`、`annotate` 分别要 `rewrite_commit`、`rerank_candidates`、`filter_candidates`、`annotate_candidates`；`command` 要 `provide_commands`。只有真正调用到的函数才会成为模块的 import，校验要求导入了的函数都有对应的能力、申请了的能力都至少导入一个函数，所以用到哪一组就申请哪一项。
 //!
-//! 插件自己要导出 `msime_abi`（返回 [`ABI_VERSION`]）和 `msime_on_event(kind: i32) -> i32`（`kind` 是 [`hook`] 里的编号，返回负数算这一次失败），可选导出 `msime_init`。完整说明见仓库的 docs/plugins.md「脚本插件」一节。编号只会追加，不会改值。
+//! 插件自己要导出 `msime_abi`（返回 [`ABI_VERSION`]）和 `msime_on_event(kind: i32) -> i32`（`kind` 是 [`hook`] 里的编号，返回负数算这一次失败），可选导出 `msime_init`，还要自己写 `#[panic_handler]`。这几个导出就是 ABI 的全部入口，SDK 不替插件生成，最小的例子：
+//!
+//! ```ignore
+//! #![no_std]
+//!
+//! use msime_script_sdk::{hook, ABI_VERSION};
+//!
+//! #[no_mangle]
+//! pub extern "C" fn msime_abi() -> i32 {
+//!     ABI_VERSION
+//! }
+//!
+//! #[no_mangle]
+//! pub extern "C" fn msime_on_event(kind: i32) -> i32 {
+//!     if kind == hook::COMMAND {
+//!         // ...
+//!     }
+//!     0
+//! }
+//!
+//! #[panic_handler]
+//! fn panic(_: &core::panic::PanicInfo) -> ! {
+//!     core::arch::wasm32::unreachable()
+//! }
+//! ```
+//!
+//! 完整说明见 msime 仓库的 docs/plugins.md「脚本插件」一节。同一份 ABI 的 C 头文件是这个 crate 里的 `msime_script.h`。编号只会追加，不会改值。
 
-#![allow(dead_code)]
+#![no_std]
 
 /// `msime_abi()` 必须返回的版本号。
 pub const ABI_VERSION: i32 = 1;

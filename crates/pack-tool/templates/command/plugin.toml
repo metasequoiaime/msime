@@ -1,0 +1,19 @@
+schema_version = 2
+kind = "script"
+id = "{{id}}"
+name = "{{id}}"
+version = "0.1.0"
+license = "MIT"
+description = "在 / 指令里掷骰子，或者把后面的字母转成大写"
+permissions = ["provide_commands"]
+
+[script]
+abi = 1
+module = "{{module}}"
+hooks = ["command"]
+memory_pages = 2
+
+# 触发词是 2 到 16 个小写字母，不能和内置指令重名；标题 1 到 8 个字符，显示在插件行旁。
+[[script.commands]]
+trigger = "{{trigger}}"
+title = "{{title}}"
