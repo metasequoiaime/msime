@@ -3935,6 +3935,9 @@ pub struct HelpcodePreferences {
     pub schema: HelpcodeSchema,
     #[serde(default = "enabled_by_default")]
     pub show_in_candidate_window: bool,
+    /// 一码辅助码严格排除不匹配候选；默认关闭，保持已有的一码重排行为。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub strict_filter: bool,
     /// 双拼专属的辅助码触发方式，对应 Windows v0.11.1 `[helpcode]` 组里 `shuangpin_helpcode_direct` 起的十一枚键；`quanpin_helpcode` 不读这一段。等于默认值时不写进文档，旧文档缺这一段时按 [`ShuangpinHelpcodeModes::default`] 处理。
     #[serde(default, skip_serializing_if = "ShuangpinHelpcodeModes::is_default")]
     pub modes: ShuangpinHelpcodeModes,
@@ -3947,6 +3950,7 @@ impl Default for HelpcodePreferences {
             schema: HelpcodeSchema::default(),
             trigger_key: String::new(),
             show_in_candidate_window: true,
+            strict_filter: false,
             modes: ShuangpinHelpcodeModes::default(),
         }
     }
@@ -4027,6 +4031,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Ziranma,
         trigger_key: String::new(),
         show_in_candidate_window: false,
+        strict_filter: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }
@@ -4080,6 +4085,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,
+        strict_filter: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }

@@ -244,6 +244,19 @@ export function HelpcodeSettingsGroup({
     );
   };
 
+  const strictFilterRow = (key: HelpcodeKey, label: string) => {
+    const current = currentOf(key);
+    return (
+      <SwitchRow
+        title={`${label}一码严格筛选`}
+        description="关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选。两码本来就是严格筛选。"
+        disabled={!current.enabled}
+        checked={current.strict_filter}
+        onChange={(strict_filter) => onChange({ [key]: { ...current, strict_filter } })}
+      />
+    );
+  };
+
   /** 双拼专属的辅助码触发方式；三组与 Windows v0.11.1 相同，互斥在写入端归一。 */
   const modesRows = (key: HelpcodeKey, label: string) => {
     if (key !== "shuangpin_helpcode") {
@@ -364,6 +377,7 @@ export function HelpcodeSettingsGroup({
         {importNote}
         {triggerRow(activeFamily, activeLabel)}
         {displayRow(activeFamily, activeLabel)}
+        {strictFilterRow(activeFamily, activeLabel)}
         {modesRows(activeFamily, activeLabel)}
         <MoreOptions>
           {families
@@ -375,6 +389,7 @@ export function HelpcodeSettingsGroup({
                 {importRow(key, label)}
                 {triggerRow(key, label)}
                 {displayRow(key, label)}
+                {strictFilterRow(key, label)}
               </Fragment>
             ))}
         </MoreOptions>
@@ -397,6 +412,7 @@ export function HelpcodeSettingsGroup({
               {key !== activeFamily && schemaRow(key, label, `${label}辅助码方案`)}
               {triggerRow(key, label)}
               {displayRow(key, label)}
+              {strictFilterRow(key, label)}
               {modesRows(key, label)}
             </Fragment>
           ))}
@@ -417,6 +433,7 @@ export function HelpcodeSettingsGroup({
           {importRow(key, label)}
           {triggerRow(key, label)}
           {displayRow(key, label)}
+          {strictFilterRow(key, label)}
           {modesRows(key, label)}
         </Fragment>
       ))}

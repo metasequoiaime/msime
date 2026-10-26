@@ -4662,6 +4662,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 enabled: false,
                 schema,
                 show_in_candidate_window: true,
+                strict_filter: false,
                 modes: ShuangpinHelpcodeModes::default(),
             },
             ..Preferences::default()

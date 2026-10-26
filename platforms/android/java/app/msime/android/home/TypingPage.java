@@ -360,6 +360,10 @@ public final class TypingPage extends ReloadingDetailPage {
             aux.toggle(shuangpin ? "在候选栏中显示双拼辅助码" : "在候选栏中显示全拼辅助码",
                 "关掉后候选旁不再标注辅助码，Shift 筛选照常可用", shownInCandidates,
                 checked -> saveHelpcode(family, shuangpin, "show_in_candidate_window", checked));
+            boolean strictFilter = helpcode != null && helpcode.optBoolean("strict_filter", false);
+            aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选",
+                "关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选",
+                strictFilter, checked -> saveHelpcode(family, shuangpin, "strict_filter", checked));
         }
 
         GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
@@ -873,7 +877,8 @@ public final class TypingPage extends ReloadingDetailPage {
             helpcode = new JSONObject()
                 .put("enabled", true)
                 .put("schema", shuangpin ? "lantian" : "ziranma")
-                .put("show_in_candidate_window", shuangpin);
+                .put("show_in_candidate_window", shuangpin)
+                .put("strict_filter", false);
             values.put(family, helpcode);
         }
         return helpcode;

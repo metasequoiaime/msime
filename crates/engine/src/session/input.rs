@@ -168,6 +168,7 @@ impl InputSession {
         )?;
         engine.set_autocorrect_types(0);
         engine.set_quanpin_helpcode_enabled(true);
+        engine.set_strict_quanpin_helpcode(options.strict_quanpin_helpcode);
         engine.set_shuangpin_helpcode_enabled(true);
         engine.set_korean_layout(options.korean_layout);
         engine.set_vietnamese_options(

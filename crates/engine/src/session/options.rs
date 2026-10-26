@@ -50,6 +50,8 @@ pub struct SessionOptions {
     /// `autocorrect_type` bits; 0 keeps the user's spelling. Either of transposition and neighbor also enables missing and extra letters, and on inputs of three or more complete syllables offers a sentence that reads one syllable as a typo. Committing the raw letters while a correction is offered turns correction off for that exact input.
     pub autocorrect_types: u32,
     pub helpcode: bool,
+    /// 一码辅助码严格筛选，默认关闭以保持原有重排行为。
+    pub strict_quanpin_helpcode: bool,
     /// 双拼辅助码的触发方式（Windows `[helpcode]` 组的双拼专属键）；只在双拼方案下生效。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub chinese_punctuation: bool,
@@ -127,6 +129,7 @@ impl SessionOptions {
             helpcode_fallback_resources: None,
             autocorrect_types: 0,
             helpcode: true,
+            strict_quanpin_helpcode: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             chinese_punctuation: true,
             paired_punctuation: true,

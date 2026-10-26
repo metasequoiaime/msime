@@ -96,6 +96,7 @@ pub struct ImeSession {
     zhuyin_nine_key: bool,
     autocorrect_types: u32,
     quanpin_helpcode: bool,
+    strict_quanpin_helpcode: bool,
     shuangpin_helpcode: bool,
     shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes,
     fuzzy: FuzzyPinyinOptions,
@@ -172,6 +173,7 @@ impl ImeSession {
             zhuyin_nine_key: false,
             autocorrect_types: 0,
             quanpin_helpcode: false,
+            strict_quanpin_helpcode: false,
             shuangpin_helpcode: false,
             shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
             fuzzy: FuzzyPinyinOptions::default(),
@@ -836,6 +838,10 @@ impl ImeSession {
         self.quanpin_helpcode = enabled;
     }
 
+    pub fn set_strict_quanpin_helpcode(&mut self, enabled: bool) {
+        self.strict_quanpin_helpcode = enabled;
+    }
+
     pub fn set_shuangpin_helpcode_enabled(&mut self, enabled: bool) {
         self.shuangpin_helpcode = enabled;
         // 末尾大写触发归谁同时看总开关，方案层要重算。
@@ -1089,6 +1095,7 @@ impl ImeSession {
             request.end_helpcodes.clear();
         }
         request.enable_quanpin_helpcode = self.quanpin_helpcode;
+        request.strict_quanpin_helpcode = self.strict_quanpin_helpcode;
         request.sentence_alternatives = self.sentence_alternatives;
         request.enable_quanpin_autocorrect_transposition =
             self.autocorrect_types & autocorrect_type::TRANSPOSITION != 0;

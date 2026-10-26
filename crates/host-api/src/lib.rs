@@ -851,6 +851,7 @@ impl HostSession {
         // 先定下辅助码设置：插件表的戳要看当前方案的辅助码是否打开、选了哪个辅助码表包。
         let helpcode = helpcode_for_scheme(&preferences, scheme);
         options.helpcode = helpcode.enabled;
+        options.strict_quanpin_helpcode = helpcode.strict_filter;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
@@ -2232,6 +2233,7 @@ impl HostOptions {
             japanese_dictionary: path_text(japanese),
             wubi_dictionary: wubi,
             helpcode: helpcode.enabled,
+            strict_quanpin_helpcode: helpcode.strict_filter,
             show_helpcode: helpcode.show_in_candidate_window,
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
