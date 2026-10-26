@@ -95,6 +95,40 @@ int main()
         [installingController installDownloadedUpdateIfReady];
         assert(installing.installs == 1 && installing.checks == 0 && activations == 1);
 
+        // 从不切走水杉的用户：熄屏、登录会话被切走、闲置半小时都装，同样不激活进程。还没开始监视时闲置多久都不装；用自己的通知中心，测试不碰真实的 NSWorkspace。
+        __block CFTimeInterval idle = MSIMEUpdateAwayIdleSeconds;
+        [installingController installDownloadedUpdateIfIdle];
+        assert(installing.installs == 1);
+        NSNotificationCenter *workspace = [NSNotificationCenter new];
+        idle = MSIMEUpdateAwayIdleSeconds - 1;
+        [installingController installDownloadedUpdateWhenAwayWithWorkspaceCenter:workspace
+                                                                        idleClock:^CFTimeInterval { return idle; }];
+        [installingController installDownloadedUpdateIfIdle];
+        assert(installing.installs == 1);
+        idle = MSIMEUpdateAwayIdleSeconds;
+        [installingController installDownloadedUpdateIfIdle];
+        assert(installing.installs == 2);
+        [workspace postNotificationName:NSWorkspaceScreensDidSleepNotification object:nil];
+        assert(installing.installs == 3);
+        [workspace postNotificationName:NSWorkspaceSessionDidResignActiveNotification object:nil];
+        assert(installing.installs == 4);
+        [workspace postNotificationName:NSWorkspaceScreensDidWakeNotification object:nil];
+        assert(installing.installs == 4 && installing.checks == 0 && activations == 1);
+        // 再调用一次不重复注册：熄屏一次只装一次，闲置时钟仍是第一次给的那个。
+        [installingController installDownloadedUpdateWhenAwayWithWorkspaceCenter:workspace
+                                                                        idleClock:^CFTimeInterval { return 0; }];
+        [workspace postNotificationName:NSWorkspaceScreensDidSleepNotification object:nil];
+        assert(installing.installs == 5);
+        [installingController installDownloadedUpdateIfIdle];
+        assert(installing.installs == 6);
+        // 不能后台安装的驱动（官网下载页）监视着也没有东西可装。
+        NSNotificationCenter *otherWorkspace = [NSNotificationCenter new];
+        [controller installDownloadedUpdateWhenAwayWithWorkspaceCenter:otherWorkspace
+                                                             idleClock:^CFTimeInterval { return MSIMEUpdateAwayIdleSeconds; }];
+        [otherWorkspace postNotificationName:NSWorkspaceScreensDidSleepNotification object:nil];
+        [controller installDownloadedUpdateIfIdle];
+        assert(driver.checks == 1 && activations == 1);
+
         // 更新通道：偏好原值交给控制器，规范化之后只在变化时转给驱动。缺省（稳定版不写进文档）、不认识的值和类型不对的值都按稳定版。
         ChannelUpdateDriverFixture *channelDriver = [ChannelUpdateDriverFixture new];
         MSIMEUpdateController *channelController =

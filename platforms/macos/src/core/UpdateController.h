@@ -58,6 +58,15 @@ static inline BOOL MSIMEUpdateHostUsesSparkle(NSBundle *bundle)
                                    [bundle objectForInfoDictionaryKey:@"SUFeedURL"]) == MetasequoiaUpdateRouteSparkle;
 }
 
+// 系统范围最后一次键盘、鼠标或触控板输入距今的秒数（生产环境是 CGEventSourceSecondsSinceLastEventType），测试里换成固定值。
+typedef CFTimeInterval (^MetasequoiaUpdateIdleClock)(void);
+
+// 闲置多久算用户离开了电脑，可以装后台下好的更新。半小时没有任何输入，回来时多等的那一次输入法启动不会落在连续打字中间。
+static const CFTimeInterval MSIMEUpdateAwayIdleSeconds = 30 * 60;
+
+// 多久看一次闲置时长。只决定用户离开之后多快装上，不影响是否装。
+static const NSTimeInterval MSIMEUpdateAwayPollSeconds = 5 * 60;
+
 typedef NSModalResponse (^MetasequoiaUpdateReleaseConfirmation)(NSURL *releaseURL);
 typedef BOOL (^MetasequoiaUpdateReleaseOpener)(NSURL *releaseURL);
 typedef void (^MetasequoiaUpdateReleaseFailure)(void);
@@ -83,6 +92,11 @@ typedef void (^MetasequoiaUpdateReleaseFailure)(void);
 // Hands a background-downloaded update to the driver for installation. Never activates the process or
 // shows anything: it is called when the user has just switched to another input source.
 - (void)installDownloadedUpdateIfReady;
+// 只用水杉、从不切到别的输入源的用户等不到上面那一刻，更新要拖到注销。这里在用户离开电脑时也装：屏幕睡眠（包括锁屏后熄屏）、登录会话被切走时立即装，另外每 MSIMEUpdateAwayPollSeconds 看一次 idleClock，闲置达到 MSIMEUpdateAwayIdleSeconds 就装。center 是 NSWorkspace 的通知中心。只在主线程调用，重复调用不再注册。
+- (void)installDownloadedUpdateWhenAwayWithWorkspaceCenter:(NSNotificationCenter *)center
+                                                 idleClock:(MetasequoiaUpdateIdleClock)idleClock;
+// 定时器每次触发时做的事：闲置够久就交给 installDownloadedUpdateIfReady。还没调用上面的方法时什么也不做。
+- (void)installDownloadedUpdateIfIdle;
 // 偏好文档里 update_channel 的原值（缺省、未知值按稳定版，见 MSIMEUpdateChannelFromPreference）。和上次相同时什么也不做，不同时交给驱动。只在主线程调用。
 - (void)applyUpdateChannelPreference:(nullable id)preference;
 // 最近一次交给驱动的通道；还没有读到偏好时为 nil。

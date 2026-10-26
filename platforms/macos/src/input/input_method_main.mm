@@ -170,7 +170,12 @@ int main(int argc, const char *argv[]) {
                     channel = preferences[@"update_channel"];
                 }
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    (void)[MSIMEUpdateController sharedControllerWithUpdateChannelPreference:channel];
+                    MSIMEUpdateController *updates = [MSIMEUpdateController sharedControllerWithUpdateChannelPreference:channel];
+                    // 从不切走水杉的用户，在熄屏、切走登录会话或半小时没有任何输入时装后台下好的更新（UpdateController.h）。闲置时长取整个登录会话的输入，不只是打给水杉的按键。
+                    [updates installDownloadedUpdateWhenAwayWithWorkspaceCenter:NSWorkspace.sharedWorkspace.notificationCenter
+                                                                      idleClock:^CFTimeInterval {
+                                                                          return CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType);
+                                                                      }];
                 });
             });
         }
