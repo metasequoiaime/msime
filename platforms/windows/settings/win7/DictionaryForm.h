@@ -212,7 +212,7 @@ private:
   void failure(const Json& response) {
     const auto code = response.is_object() && response.contains("error") && response.at("error").is_string() ? response.at("error").get<std::string>() : "";
     const wchar_t* message = L"词库操作失败，请刷新后重试。";
-    if (code == "dictionary_busy") message = L"词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
+    if (code == "dictionary_busy") message = L"词库正被输入法占用，请结束当前输入后重试。";
     else if (code == "dictionary_invalid_entry") message = L"编码不合规或与词条不匹配，请检查完整拼音、五笔或短语编码。";
     else if (code == "dictionary_invalid_word") message = L"词条为空、过长、含控制字符，或权重不在 1–100000000 之间。";
     else if (code == "dictionary_bundled_readonly") message = L"内置词条只能调整权重或删除。";
