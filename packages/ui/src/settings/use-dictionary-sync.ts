@@ -20,6 +20,11 @@ export interface DictionaryLocalChanges {
   notify(): void;
 }
 
+/**
+ * 宿主自己往「我的词条」里写进了词、页面并不知道时派发在 `window` 上的事件：鸿蒙设置应用把键盘经共享沙箱发布的词写进自己的词库、或者排空了自己的个人词库队列之后（`platforms/harmony/README.md`「「我的词条」只有一份」）。词库同步收到它就和经设置改了词一样，以 `local_change` 记一次本机改动。
+ */
+export const HOST_USER_WORDS_CHANGED_EVENT = "msime-user-words-changed";
+
 export function createDictionaryLocalChanges(): DictionaryLocalChanges {
   const listeners = new Set<() => void>();
   return {
@@ -240,8 +245,16 @@ export function useDictionarySync({
       localQueued.current = true;
       void run(owner, "local_change").catch(() => undefined);
     });
+    // 宿主写进来的词走同一条通知：只在宿主提供了词库同步（鸿蒙要先有隐私政策的授权）并且配置了网盘时才听，连续几次同样只排一次。
+    const hostChanged = () => localChanges.notify();
+    if (typeof window !== "undefined") {
+      window.addEventListener(HOST_USER_WORDS_CHANGED_EVENT, hostChanged);
+    }
     return () => {
       stop();
+      if (typeof window !== "undefined") {
+        window.removeEventListener(HOST_USER_WORDS_CHANGED_EVENT, hostChanged);
+      }
       generation.current += 1;
       clearTimeout(timer.current);
     };

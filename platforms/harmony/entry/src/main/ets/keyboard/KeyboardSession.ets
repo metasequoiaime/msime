@@ -15,6 +15,10 @@ import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
+import { UserWordsMirror } from './UserWordsMirror';
+import {
+  KEYBOARD_MAX_CHANGES, KeyboardSyncOutcome, UserWordsMirrorPolicy, UserWordsReply
+} from './UserWordsMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
 import { readTypingStatisticsEnabled, writeKeyPresses } from './TypingStatisticsWriter';
@@ -1239,6 +1243,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
   private personalDictionarySettled: boolean = true;
   private personalDictionaryTimer: number = -1;
+  // 与设置应用交换「我的词条」（`UserWordsMirrorPolicy`）：建会话之前要不要 sync、上次做完时设置应用发布的标记，以及失去焦点时 publish 的节流。
+  private userWordsDue: boolean = true;
+  private userWordsMergedMark: string | null = null;
+  private userWordsFailures: number = 0;
+  private userWordsPublishing: boolean = false;
+  private userWordsPublishedJournal: string | null = null;
+  private userWordsPublishMs: number = 0;
   private snapshotOptions: Object | undefined = undefined;
   private snapshotQueueTimer: number = -1;
   // Key press counts for the key heatmap. Nothing is held while statistics are off, which is read from the store on every focus; until the editor's attribute has said what kind of field it is, a press could be a password's, so none is counted.
@@ -1982,7 +1993,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     // exclusive lock that a live session's shared lock would block, so this is the one moment in
     // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
     // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
-    this.personalDictionarySettled = this.drainPersonalDictionary(options);
+    const drained: boolean = this.drainPersonalDictionary(options);
+    // 同一个边界上和设置应用交换「我的词条」：设置应用发布的改动（设置页改的词、网盘同步来的词）写进本机词库，键盘自己学到的词记下来并发布。没做完的和排空一样，在空闲时的会话重建里接着做。
+    const mirrored: boolean = this.syncUserWords(options);
+    this.personalDictionarySettled = drained && mirrored;
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
       if (created.ok !== true) {
@@ -2031,6 +2045,52 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
       return false;
     }
+  }
+
+  /**
+   * 建会话之前与设置应用交换「我的词条」（`msime_client_user_words_mirror` 的 sync）。设置应用的发布从上次做完以后没变、上次也做完了时不做。完整体验模式下顺带发布键盘的；基础访问模式下键盘写不了共享目录，只收不发。返回这一次是否做完，没做完（忙、到了这次的上限）时由空闲时的会话重建接着做。
+   */
+  private syncUserWords(options: string): boolean {
+    const mirror: SharedStateMirror | null = this.sharedMirror;
+    if (mirror === null || this.stateDirectory.length === 0) return true;
+    const theirs: string = mirror.userWordsFile('settings');
+    const mark: string = UserWordsMirror.fileMark(theirs);
+    if (!UserWordsMirrorPolicy.keyboardSyncDue(this.userWordsDue, this.userWordsMergedMark, mark)) return true;
+    const publish: string | null = this.sharedFullMode() ? mirror.userWordsFile('keyboard') : null;
+    const reply: UserWordsReply = UserWordsMirror.run(UserWordsMirrorPolicy.request('sync', 'keyboard', options,
+      this.stateDirectory, theirs, publish, KEYBOARD_MAX_CHANGES));
+    const outcome: KeyboardSyncOutcome = UserWordsMirrorPolicy.keyboardOutcome(reply, this.userWordsFailures);
+    const settled: boolean = outcome.settled;
+    this.userWordsFailures = outcome.failures;
+    this.userWordsDue = !settled;
+    if (settled) this.userWordsMergedMark = mark;
+    if (reply.published) {
+      this.userWordsPublishedJournal = UserWordsMirror.journalMark(this.stateDirectory);
+      this.userWordsPublishMs = Date.now();
+    }
+    return settled;
+  }
+
+  /**
+   * 失去焦点时把这次编辑里学到、删掉的词发布给设置应用（publish：只记录，不写词库，会话开着也能做），在工作线程上。只在完整体验模式下、日志变了、距上次至少 30 秒时做。
+   */
+  private publishUserWords(): void {
+    const mirror: SharedStateMirror | null = this.sharedMirror;
+    if (mirror === null || this.stateDirectory.length === 0 || this.snapshotOptions === undefined) return;
+    const journal: string = UserWordsMirror.journalMark(this.stateDirectory);
+    const now: number = Date.now();
+    if (!UserWordsMirrorPolicy.keyboardPublishDue(this.sharedFullMode(), this.userWordsPublishing,
+      this.userWordsPublishedJournal, journal, this.userWordsPublishMs, now)) {
+      return;
+    }
+    this.userWordsPublishing = true;
+    this.userWordsPublishMs = now;
+    const request: string = UserWordsMirrorPolicy.request('publish', 'keyboard', JSON.stringify(this.snapshotOptions),
+      this.stateDirectory, null, mirror.userWordsFile('keyboard'), KEYBOARD_MAX_CHANGES);
+    UserWordsMirror.runAsync(request).then((reply: UserWordsReply): void => {
+      this.userWordsPublishing = false;
+      if (reply.ok) this.userWordsPublishedJournal = journal;
+    });
   }
 
   /** 把命名词库里还没送出的增删再送一批，返回这次送出的条数；失败按 0 算，下次排空时再试。 */
@@ -3451,6 +3511,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.start(resources, state, dark);
       if (this.handle !== 0) this.apply(client.focus(this.handle, true));
     }
+    // 设置应用的「我的词条」发布变了（设置页改了词、网盘同步写进了词）：写本机词库要等没有会话开着，排一次空闲时的会话重建，在那里的 `syncUserWords` 写进来。
+    if (UserWordsMirrorPolicy.keyboardSyncDue(this.userWordsDue, this.userWordsMergedMark,
+      UserWordsMirror.fileMark(this.sharedMirror.userWordsFile('settings')))) {
+      this.userWordsDue = true;
+      this.personalDictionarySettled = false;
+      this.schedulePersonalDictionaryDrain();
+    }
   }
 
   detach(): void {
@@ -3481,6 +3548,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.sharedMirror !== null && this.sharedFullMode()) {
       SharedStateSync.keyboardPublish(this.sharedMirror);
     }
+    // 这次编辑里学到、删掉的词也发布给设置应用，词库同步从那里送上网盘。
+    this.publishUserWords();
   }
 
   stop(): void {

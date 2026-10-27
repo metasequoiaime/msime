@@ -428,6 +428,10 @@ if [[ "$settings" == true ]]; then
     printf '%s\n' "$result"
     [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared settings acceptance failed" >&2; exit 1; }
   done
+  # 「我的词条」网盘同步的 JNI 入口和本机目录，借自建中继那一项的 instrumentation 跑（测试包的 instrumentation 已满 100 个）。
+  result=$("$adb" -s "$serial" shell am instrument -w -e dictionary-sync true app.msime.android.test/app.msime.android.test.CloudClipboardRelayDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Dictionary sync acceptance failed" >&2; exit 1; }
   result=$("$adb" -s "$serial" shell am instrument -w app.msime.android.test/app.msime.android.BackendAccountSessionDeviceSmoke)
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Account session binding acceptance failed" >&2; exit 1; }
