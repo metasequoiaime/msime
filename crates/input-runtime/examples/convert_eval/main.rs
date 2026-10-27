@@ -7,7 +7,7 @@
 //!
 //! Learning is off and each case gets a fresh session, so one case cannot bias the next.
 //!
-//! `--scheme shuangpin` 把同样的用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触和落点，像触屏宿主那样先注册几何（`Runtime::set_key_geometry`）、每键带上按下点（`Runtime::set_key_touch`）再派发，量双拼触点纠错的召回和对正确输入的影响；`--no-touch-points` 只送按到的键、不送落点，就是引擎收不到触点时的平面表。报告形状和跑法见 resources/eval/README.md「双拼与触屏误触」。
+//! `--scheme shuangpin` 把同样的用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触和落点，像触屏宿主那样先注册几何（`Runtime::set_key_geometry`）、每键带上按下点（`Runtime::set_key_touch`）再派发，量双拼触点纠错的召回和对正确输入的影响；`--no-touch-points` 只送按到的键、不送落点，就是引擎收不到触点时的平面表。`--learn-replay` 把 noisy 集按错的两键码对直接记进评测自己的日志（会话本身仍关着学习），再重跑一遍，量双拼纠错学习的作用。报告形状和跑法见 resources/eval/README.md「双拼与触屏误触」。
 
 #[path = "../eval_resources/mod.rs"]
 mod eval_resources;
@@ -45,6 +45,8 @@ struct ShuangpinEval {
     assert_top1_unchanged: bool,
     /// `--jobs`：同时跑几个方案。
     jobs: usize,
+    /// `--learn-replay <n>`：每组（σ、偏置）跑完之后，把这组 noisy 集里按错的每一对两键码在日志里记成接受过 n 次，再把各个触点模式重跑一遍，量双拼纠错学习的效果。
+    learn_replay: Option<i64>,
 }
 
 /// 一次按键：按到的键，和送给引擎的落点（没有时按 `msime_client_character` 派发）。
@@ -102,6 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tuning: Option<TouchTuning> = None;
     let mut assert_top1_unchanged = false;
     let mut jobs = 1usize;
+    let mut learn_replay: Option<i64> = None;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -179,6 +182,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--touch-tuning" => tuning = Some(parse_tuning(&take(&mut index)?)?),
             "--assert-top1-unchanged" => assert_top1_unchanged = true,
             "--jobs" => jobs = take(&mut index)?.parse()?,
+            "--learn-replay" => learn_replay = Some(take(&mut index)?.parse()?),
             other => return Err(format!("unknown option: {other}").into()),
         }
         index += 1;
@@ -212,6 +216,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if biases.is_empty() {
             biases.push(0.0);
         }
+        if let Some(times) = learn_replay {
+            if !(1..=1000).contains(&times) || !touches || !touch_points {
+                return Err("--learn-replay needs a count from 1 to 1000, a touch mode other than none and touch points".into());
+            }
+        }
         let layouts = geometry
             .iter()
             .map(|path| KeyLayout::load(path))
@@ -229,6 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tuning,
             assert_top1_unchanged,
             jobs,
+            learn_replay,
         })
     } else {
         if !profiles.is_empty()
@@ -241,6 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             || tuning.is_some()
             || assert_top1_unchanged
             || jobs != 1
+            || learn_replay.is_some()
         {
             return Err("--shuangpin-profile, --key-geometry and the --touch-* options need --scheme shuangpin".into());
         }
@@ -848,86 +859,24 @@ fn run_profile(
         }
     }
     for &mode in &eval.modes {
-        let settings: Vec<Option<(f64, f64)>> = if mode == TouchMode::None {
-            vec![None]
-        } else {
-            eval.sigmas
-                .iter()
-                .flat_map(|&sigma| eval.biases.iter().map(move |&bias| Some((sigma, bias))))
-                .collect()
-        };
-        for setting in settings {
+        for setting in touch_settings(eval, mode) {
+            let (report, skipped) = measure_setting(
+                &mut runtime,
+                &mut ranks,
+                noises,
+                (cases, &intended, &reference),
+                eval,
+                profile,
+                mode,
+                setting,
+                geometry_id,
+                Some(&mut result),
+            )?;
             let layout = match setting {
                 Some(_) => Some(touch_noise::layout_for(&eval.layouts, profile)?),
                 None => None,
             };
-            // noisy 和 realistic 按落点分布换键；clean 每键都按在本键上，只在要送落点时才抽落点，不送落点时它就是原样的按键。
-            let noise = match (layout, setting, mode) {
-                (Some(layout), Some((sigma, bias)), TouchMode::Noisy | TouchMode::Realistic) => {
-                    Some(&noises[&(layout, sigma.to_bits(), bias.to_bits())])
-                }
-                (Some(layout), Some((sigma, bias)), TouchMode::Clean) if eval.touch_points => {
-                    Some(&noises[&(layout, sigma.to_bits(), bias.to_bits())])
-                }
-                _ => None,
-            };
             let (sigma, bias) = setting.unzip();
-            let mut report = TouchReport::default();
-            let mut skipped = 0;
-            for (index, case) in cases.iter().enumerate() {
-                let Some(intended) = &intended[index] else {
-                    continue;
-                };
-                let typed: Option<Vec<TypedKey>> = match noise {
-                    Some(noise) => {
-                        let mut rng = touch_noise::case_rng(
-                            eval.seed,
-                            &[
-                                touch_noise::profile_label(profile),
-                                mode.label(),
-                                sigma.unwrap_or_default().to_bits(),
-                                bias.unwrap_or_default().to_bits(),
-                                index as u64,
-                            ],
-                        );
-                        noise
-                            .synthesize_touches(mode, intended, &mut rng)?
-                            .map(|touches| {
-                                touches
-                                    .into_iter()
-                                    .map(|(key, point)| (key, eval.touch_points.then_some(point)))
-                                    .collect()
-                            })
-                    }
-                    None => Some(intended.iter().map(|&key| (key, None)).collect()),
-                };
-                // σ 为 0 时没有一键会按错，这条用例不进 noisy 集。
-                let Some(typed) = typed else {
-                    skipped += 1;
-                    continue;
-                };
-                let errors = typed
-                    .iter()
-                    .zip(intended)
-                    .filter(|((typed, _), intended)| typed != *intended)
-                    .count();
-                let rank = gold_rank(
-                    &mut runtime,
-                    &mut ranks,
-                    (index, case),
-                    &typed,
-                    geometry_id,
-                    profile,
-                    result.dump.as_mut(),
-                )?;
-                report.observe(TouchObservation {
-                    syllables: case.syllables,
-                    errors,
-                    rank: rank.rank,
-                    reference: reference[index].rank,
-                });
-                result.observe_top1(mode, &reference[index], &rank);
-            }
             result.runs.push(render_touch_run(
                 profile,
                 layout.map(|layout| eval.layouts[layout].name.as_str()),
@@ -936,10 +885,253 @@ fn run_profile(
                 bias,
                 skipped,
                 &report,
+                None,
             ));
         }
     }
+    if let Some(times) = eval.learn_replay {
+        // 学习回放：每组（σ、偏置）单独记、单独量，量完清掉，组与组互不影响。
+        let journal = state.join("user").join(msime_engine::assets::USER_JOURNAL);
+        let layout = touch_noise::layout_for(&eval.layouts, profile)?;
+        for &sigma in &eval.sigmas {
+            for &bias in &eval.biases {
+                let noise = &noises[&(layout, sigma.to_bits(), bias.to_bits())];
+                let pairs = noisy_pairs(noise, &intended, eval, profile, sigma, bias)?;
+                write_learned_pairs(&journal, profile, &pairs, times)?;
+                // 学过之后同一串按键的名次变了，记忆表重新来。
+                let mut learned_ranks: Ranks = HashMap::new();
+                for &mode in eval.modes.iter().filter(|mode| **mode != TouchMode::None) {
+                    let (report, skipped) = measure_setting(
+                        &mut runtime,
+                        &mut learned_ranks,
+                        noises,
+                        (cases, &intended, &reference),
+                        eval,
+                        profile,
+                        mode,
+                        Some((sigma, bias)),
+                        geometry_id,
+                        None,
+                    )?;
+                    result.runs.push(render_touch_run(
+                        profile,
+                        Some(eval.layouts[layout].name.as_str()),
+                        mode,
+                        Some(sigma),
+                        Some(bias),
+                        skipped,
+                        &report,
+                        Some((times, pairs.len())),
+                    ));
+                }
+                write_learned_pairs(&journal, profile, &[], 0)?;
+            }
+        }
+    }
     Ok(result)
+}
+
+/// 一个触点模式要跑的各组（σ、偏置）；none 模式只有一组、不带落点。
+fn touch_settings(eval: &ShuangpinEval, mode: TouchMode) -> Vec<Option<(f64, f64)>> {
+    if mode == TouchMode::None {
+        vec![None]
+    } else {
+        eval.sigmas
+            .iter()
+            .flat_map(|&sigma| eval.biases.iter().map(move |&bias| Some((sigma, bias))))
+            .collect()
+    }
+}
+
+/// 第 `index` 条用例在这组配置下实际按到的键和落点；noisy 集里一键都没按错（σ 为 0）时为 `None`。随机流只由种子、方案、模式、σ、偏置和用例序号决定，学习回放取到的和正式那一遍逐键相同。
+#[allow(clippy::too_many_arguments)]
+fn touch_typed_keys(
+    noise: Option<&TouchNoise>,
+    eval: &ShuangpinEval,
+    profile: ShuangpinProfileKind,
+    mode: TouchMode,
+    (sigma, bias): (Option<f64>, Option<f64>),
+    index: usize,
+    intended: &[u8],
+) -> Result<Option<Vec<TypedKey>>, String> {
+    let Some(noise) = noise else {
+        return Ok(Some(intended.iter().map(|&key| (key, None)).collect()));
+    };
+    let mut rng = touch_noise::case_rng(
+        eval.seed,
+        &[
+            touch_noise::profile_label(profile),
+            mode.label(),
+            sigma.unwrap_or_default().to_bits(),
+            bias.unwrap_or_default().to_bits(),
+            index as u64,
+        ],
+    );
+    Ok(noise
+        .synthesize_touches(mode, intended, &mut rng)?
+        .map(|touches| {
+            touches
+                .into_iter()
+                .map(|(key, point)| (key, eval.touch_points.then_some(point)))
+                .collect()
+        }))
+}
+
+/// 用例、每条用例想按的键（编不出来的为 `None`）和不带触点原样打出的结果，三者按用例序号对齐。
+type CaseKeys<'a> = (&'a [Case], &'a [Option<Vec<u8>>], &'a [CandidateResult]);
+
+/// 一对两键码：按到的、想按的。
+type CodePair = ([u8; 2], [u8; 2]);
+
+/// 一个方案在一组配置下的结果和 noisy 集跳过的条数。`ranks` 是这一遍的记忆表。`record` 给了时（正式那一遍）把打出的表追加进它的 `dump`，并把 clean 集实际首选的变化计进它的 `clean_top1_changed`；学习回放不给，不碰这两项。
+#[allow(clippy::too_many_arguments)]
+fn measure_setting(
+    runtime: &mut Runtime<Session>,
+    ranks: &mut Ranks,
+    noises: &Noises,
+    (cases, intended, reference): CaseKeys<'_>,
+    eval: &ShuangpinEval,
+    profile: ShuangpinProfileKind,
+    mode: TouchMode,
+    setting: Option<(f64, f64)>,
+    geometry_id: u32,
+    mut record: Option<&mut ProfileRun>,
+) -> Result<(TouchReport, usize), Box<dyn std::error::Error>> {
+    let layout = match setting {
+        Some(_) => Some(touch_noise::layout_for(&eval.layouts, profile)?),
+        None => None,
+    };
+    // noisy 和 realistic 按落点分布换键；clean 每键都按在本键上，只在要送落点时才抽落点，不送落点时它就是原样的按键。
+    let noise = match (layout, setting, mode) {
+        (Some(layout), Some((sigma, bias)), TouchMode::Noisy | TouchMode::Realistic) => {
+            Some(&noises[&(layout, sigma.to_bits(), bias.to_bits())])
+        }
+        (Some(layout), Some((sigma, bias)), TouchMode::Clean) if eval.touch_points => {
+            Some(&noises[&(layout, sigma.to_bits(), bias.to_bits())])
+        }
+        _ => None,
+    };
+    let setting = setting.unzip();
+    let mut report = TouchReport::default();
+    let mut skipped = 0;
+    for (index, case) in cases.iter().enumerate() {
+        let Some(intended) = &intended[index] else {
+            continue;
+        };
+        // σ 为 0 时没有一键会按错，这条用例不进 noisy 集。
+        let Some(typed) = touch_typed_keys(noise, eval, profile, mode, setting, index, intended)?
+        else {
+            skipped += 1;
+            continue;
+        };
+        let errors = typed
+            .iter()
+            .zip(intended)
+            .filter(|((typed, _), intended)| typed != *intended)
+            .count();
+        let rank = gold_rank(
+            runtime,
+            ranks,
+            (index, case),
+            &typed,
+            geometry_id,
+            profile,
+            record.as_mut().and_then(|record| record.dump.as_mut()),
+        )?;
+        report.observe(TouchObservation {
+            syllables: case.syllables,
+            errors,
+            rank: rank.rank,
+            reference: reference[index].rank,
+        });
+        if let Some(record) = record.as_mut() {
+            record.observe_top1(mode, &reference[index], &rank);
+        }
+    }
+    Ok((report, skipped))
+}
+
+/// 这组配置的 noisy 集里按错的每一对两键码（去重，按出现的先后）：一个音节的两键里只错了一键，或两键对调，正是触点纠错会产出、用户选中纠错行时会记下的那种改动。两键都错的音节纠错改不回来，不记。
+fn noisy_pairs(
+    noise: &TouchNoise,
+    intended: &[Option<Vec<u8>>],
+    eval: &ShuangpinEval,
+    profile: ShuangpinProfileKind,
+    sigma: f64,
+    bias: f64,
+) -> Result<Vec<CodePair>, String> {
+    let mut pairs = Vec::new();
+    for (index, intended) in intended.iter().enumerate() {
+        let Some(intended) = intended else {
+            continue;
+        };
+        let Some(typed) = touch_typed_keys(
+            Some(noise),
+            eval,
+            profile,
+            TouchMode::Noisy,
+            (Some(sigma), Some(bias)),
+            index,
+            intended,
+        )?
+        else {
+            continue;
+        };
+        for (typed, aimed) in typed.chunks_exact(2).zip(intended.chunks_exact(2)) {
+            let typed = [typed[0].0, typed[1].0];
+            let aimed = [aimed[0], aimed[1]];
+            let changed = typed.iter().zip(&aimed).filter(|(a, b)| a != b).count();
+            let one_edit = changed == 1 || (changed == 2 && typed == [aimed[1], aimed[0]]);
+            if one_edit && !pairs.contains(&(typed, aimed)) {
+                pairs.push((typed, aimed));
+            }
+        }
+    }
+    Ok(pairs)
+}
+
+/// 把方案 `profile` 下的双拼纠错计数换成「`pairs` 里每一对都接受过 `times` 次」；`pairs` 为空时清空。直接写评测自己那份用户目录里的日志，等于用户在别处接受过这么多次同一对：接受路径本身（选中纠错行时记哪一对）由引擎的会话测试钉住，这里只量计数对排序的作用，不让选中整句顺带记下的整句词条和上下文混进来。建表语句与 `msime-engine` 的 `journal.rs` 相同，引擎还没建出日志时由这里建。写完把日志的修改时间往后挪，引擎的纠错档案按（修改时间、大小）判断要不要重读，同一秒里写两次可能看不出来。
+fn write_learned_pairs(
+    journal: &Path,
+    profile: ShuangpinProfileKind,
+    pairs: &[CodePair],
+    times: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    static STAMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let mut connection = rusqlite::Connection::open(journal)?;
+    connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS shuangpin_typo_counts(\
+profile TEXT NOT NULL,typed TEXT NOT NULL,intended TEXT NOT NULL,\
+accepted INTEGER NOT NULL DEFAULT 0 CHECK(accepted BETWEEN 0 AND 1000),\
+rejected INTEGER NOT NULL DEFAULT 0 CHECK(rejected BETWEEN 0 AND 1000),\
+updated_at INTEGER NOT NULL DEFAULT(unixepoch()),\
+PRIMARY KEY(profile,typed,intended));",
+    )?;
+    transaction.execute(
+        "DELETE FROM shuangpin_typo_counts WHERE profile=?1",
+        [profile.name()],
+    )?;
+    for (typed, intended) in pairs {
+        transaction.execute(
+            "INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted) VALUES(?1,?2,?3,?4)",
+            rusqlite::params![
+                profile.name(),
+                std::str::from_utf8(typed)?,
+                std::str::from_utf8(intended)?,
+                times
+            ],
+        )?;
+    }
+    transaction.commit()?;
+    drop(connection);
+    let shift = STAMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::fs::File::options()
+        .write(true)
+        .open(journal)?
+        .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(10 * shift))?;
+    Ok(())
 }
 
 #[derive(Clone, Default, Debug)]
@@ -1059,6 +1251,7 @@ fn touch_bucket(b: &TouchBucket) -> serde_json::Value {
 }
 
 /// 一组配置的结果，占四行：配置本身、总体、按音节档、按错键数档。整份报告有上百组，每组摊开成几十行会让基线的改动没法读。
+#[allow(clippy::too_many_arguments)]
 fn render_touch_run(
     profile: ShuangpinProfileKind,
     geometry: Option<&str>,
@@ -1067,8 +1260,13 @@ fn render_touch_run(
     bias: Option<f64>,
     skipped: usize,
     report: &TouchReport,
+    learned: Option<(i64, usize)>,
 ) -> String {
     let json = |value: serde_json::Value| value.to_string();
+    // 学习回放的行多两项：每一对记成接受过几次、记了多少对。正式那一遍没有这两项，报告与以前逐字节相同。
+    let learned = learned.map_or(String::new(), |(times, pairs)| {
+        format!(", \"learned\": {times}, \"learned_pairs\": {pairs}")
+    });
     let buckets = |map: &BTreeMap<&'static str, TouchBucket>| {
         json(serde_json::Value::Object(
             map.iter()
@@ -1077,7 +1275,7 @@ fn render_touch_run(
         ))
     };
     format!(
-        "    {{\"profile\": {}, \"geometry\": {}, \"mode\": {}, \"sigma\": {}, \"bias_y\": {}, \"skipped\": {},\n      \"overall\": {},\n      \"by_syllables\": {},\n      \"by_errors\": {}}}",
+        "    {{\"profile\": {}, \"geometry\": {}, \"mode\": {}, \"sigma\": {}, \"bias_y\": {}, \"skipped\": {}{learned},\n      \"overall\": {},\n      \"by_syllables\": {},\n      \"by_errors\": {}}}",
         json(profile.name().into()),
         json(geometry.into()),
         json(mode.name().into()),

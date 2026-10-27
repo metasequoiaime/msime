@@ -182,6 +182,20 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 **调参。** `--touch-tuning base=12,scale=8,...` 覆盖引擎的触点计价参数（`base`、`scale`、`sigma_x`、`sigma_y`、`bias_y`、`min`、`max`、`cut`、`show`，意思见 `msime_engine::touch::TouchTuning`），只覆盖给出的几项，报告头里多一行 `touch_tuning`。它经 `host::Session::set_touch_tuning` 设进引擎，只有 Rust 示例能设，宿主经 FFI 设不了。
 
+**学习回放。** `--learn-replay <n>` 量双拼纠错按两键码学习（[纠错学习笔记](../../.agents/notes/implemented/feature/2026-10-28-shuangpin-typo-learning.md)）的作用：正式那一遍跑完后，每组（σ、偏置）把这组 noisy 集里按错的每一对两键码（只错一键或两键对调的音节）在评测自己的日志里记成接受过 n 次，把各个触点模式重跑一遍，量完清掉再换下一组。重跑的行多 `learned`（n）和 `learned_pairs`（记了多少对）两项，正式那一遍的行和不加这个参数时逐字节相同。计数直接写进日志，等于用户在别处接受过这么多次同一对：选中纠错行时记哪一对由引擎的会话测试钉住，这里不经选词，免得选中整句顺带记下的整句词条和上下文混进来。偏置 b 不为 0 时落点整体往下偏，同一对两键码反复出现，就是「固定偏置的用户」。要求送落点、至少一个触点模式。
+
+```sh
+cargo run --release -p msime-input-runtime --example convert_eval -- \
+  --resources <已校验的词库目录> \
+  --set resources/eval/sentences-v1.tsv --set resources/eval/sentences-particles-v1.tsv \
+  --set resources/eval/sentences-v2.tsv \
+  --scheme shuangpin --shuangpin-profile xiaohe,microsoft --autocorrect \
+  --key-geometry resources/eval/key-geometry/android-portrait.json \
+  --key-geometry resources/eval/key-geometry/android-portrait-microsoft.json \
+  --touch-mode clean,noisy,realistic --touch-sigma 0.25 --touch-bias-y 0,0.1 \
+  --seed 20261027 --jobs 2 --learn-replay 3
+```
+
 `rerank_latency` 接受同样的 `--scheme shuangpin --shuangpin-profile <方案> --autocorrect`，再给 `--key-geometry` 和 `--touch-sigma` 时按 `realistic`（或 `--touch-mode` 指定的模式）合成误触和落点，像宿主一样每键带上按下点，量带着按错的键时每次按键的开销；`--no-touch-points` 只送按到的键。`--touch-arms` 把两臂换成都挂模型、一臂送落点一臂不送，配对量出触点计价本身每键多花多少；再加 `--no-touch-points` 两臂都不送（A/A），量的是同一台机器上配对增量本身的噪声。配对增量的 p95 在 A/A 下也不是 0（两次相同的按键各自抖动），所以触点的代价看「with touches 与 flat table 两臂 p95 之差」，并且同一条命令重复至少 5 轮、取中位数并报出各轮的范围，单轮的数字不作数。几何的挑法和 σ、偏置的校验与 `convert_eval` 相同。在这个方案里编不出来的用例不计时，noisy 下没有一键可能按错的用例也不计时（不退回想按的键），两者的条数都打在 stderr；一条不剩时以非零退出。
 
 ## 往整句集里加用例
