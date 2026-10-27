@@ -20,8 +20,10 @@ public final class LocalBackupPolicySmoke {
         LocalDateTime now = LocalDateTime.of(2026, 10, 8, 9, 5);
         equal(LocalBackupPolicy.baseName("水杉输入法", "0.2.2", now), "水杉输入法-0.2.2-20261008-0905",
             "shared export name carries the app name, version and export time");
-        equal(LocalBackupPolicy.clipboardFileName("水杉输入法", "0.2.2", now),
-            "水杉输入法-剪贴板备份-0.2.2-20261008-0905.txt", "clipboard export names its contents");
+        equal(LocalBackupPolicy.skinFileName("水杉拼音", "粉色皮肤", "0.6.0", now),
+            "水杉拼音-粉色皮肤-0.6.0-20261008-0905.json", "skin export identifies the design and version");
+        equal(LocalBackupPolicy.skinFileName("水杉拼音", "粉/色", "0.6.0", now),
+            "水杉拼音-粉_色-0.6.0-20261008-0905.json", "skin title is safe for document names");
         equal(LocalBackupPolicy.fileName("水杉输入法", "0.2.2", now), "水杉输入法-0.2.2-20261008-0905.zip",
             "file name carries the app name, the version and the export time");
         equal(LocalBackupPolicy.fileName("水杉 五笔", "1.0/beta", now), "水杉_五笔-1.0_beta-20261008-0905.zip",
@@ -46,6 +48,8 @@ public final class LocalBackupPolicySmoke {
             "a restored backup does not start an input log");
         check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.developer.mcp_input_events"),
             "MCP log scopes stay on the device");
+        check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.backup_export_tree"),
+            "document tree grants cannot travel inside a backup");
         check(!LocalBackupPolicy.backsUpLocalSetting(null), "no key");
 
         Map<String, Object> settings = new LinkedHashMap<>();
