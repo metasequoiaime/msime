@@ -13,7 +13,7 @@ struct KeyboardKeyLayoutSettingsView: View {
     ScrollView {
       VStack(spacing: 28) {
         if offering.twentySixKey {
-          choiceGroup(title: "26 键", footer: "作用于中文 26 键（全拼、双拼、五笔等），英文键盘不变。长空格把符号入口移到工具栏，逗号下滑或长按输入句号；表情键样式长按 123 打开符号。",
+          choiceGroup(title: "26 键", footer: TouchKeyLayoutOffering.twentySixKeyFooter,
                       options: TouchTwentySixKeyStyle.allCases, selected: style.twentySixKey, label: \.title,
                       identifier: { "keyLayout26_\($0.rawValue)" },
                       preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.twentySixKey($0, globe: false)) }) { next in
@@ -21,7 +21,7 @@ struct KeyboardKeyLayoutSettingsView: View {
           }
         }
         if offering.letterGrid {
-          choiceGroup(title: "14 键与 18 键", footer: nil,
+          choiceGroup(title: "14 键与 18 键", footer: TouchKeyLayoutOffering.letterGridFooter,
                       options: TouchFourteenKeyStyle.allCases, selected: style.fourteenKey, label: \.title,
                       identifier: { "keyLayout14_\($0.rawValue)" },
                       preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.letterGrid($0, globe: false)) }) { next in
@@ -29,7 +29,7 @@ struct KeyboardKeyLayoutSettingsView: View {
           }
         }
         if offering.nineKey {
-          choiceGroup(title: "9 键", footer: "右侧大回车把回车加高到两排，符 移到符号栏下方，右列的 ！ 并进符号栏，数字页也这样排；其他样式的左侧符号栏、右侧功能键和数字页不变。",
+          choiceGroup(title: "9 键", footer: TouchKeyLayoutOffering.nineKeyFooter,
                       options: TouchNineKeyStyle.allCases, selected: style.nineKey, label: \.title,
                       identifier: { "keyLayout9_\($0.rawValue)" },
                       preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.nineKey($0, globe: false), tallReturn: $0 == .tallReturn) }) { next in
@@ -38,7 +38,7 @@ struct KeyboardKeyLayoutSettingsView: View {
         }
         if offering.numberRow {
           DesignGroup(footer: saveFailed ? SettingsSaveFailure.message : nil) {
-            DesignToggleRow(title: "顶部数字行", subtitle: "在 26 键、14 键和 18 键的字母上方多一排 1 到 0，手机横屏时不显示",
+            DesignToggleRow(title: "顶部数字行", subtitle: TouchKeyLayoutOffering.numberRowSubtitle,
                             isOn: Binding(get: { style.numberRow }, set: { save(TouchKeyLayoutStyle.save(numberRow: $0)) }))
               .accessibilityIdentifier("keyLayoutNumberRowToggle")
           }

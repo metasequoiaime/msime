@@ -190,6 +190,11 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
     // 带地球键时 123 是整宽的 1.25 / 10.15，不是 1.25 / 9.15。
     XCTAssertEqual(share(TouchBottomRowLayout.nineKeyTallReturn(globe: true), .layer) ?? 0, 1.25 / 10.15, accuracy: 1e-9)
+    // 键盘扣键距时数的是拼音九键标准底行的键：符、123、空格、回车，加上显示着的地球键和中/英。
+    XCTAssertEqual(TouchBottomRowLayout.nineKeyStandardKeyCount(globe: false, language: true), 5)
+    XCTAssertEqual(TouchBottomRowLayout.nineKeyStandardKeyCount(globe: true, language: true), 6)
+    XCTAssertEqual(TouchBottomRowLayout.nineKeyStandardKeyCount(globe: false, language: false), 4)
+    XCTAssertEqual(TouchBottomRowLayout.nineKeyStandardKeyCount(globe: true, language: false), 5)
   }
 
   /// 手机的数字行是整整一排：五排键加四个排间距；26 键收紧的键帽省下的高度按五排平分到上下留白，字母键仍是 44pt。iPad 的第五排仍只看「数字行与 Tab 键」。
@@ -509,8 +514,8 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 右侧大回车的外框：符 与符号栏同列同宽，底行中间几格与九宫格（笔画是笔画键）左右对齐，123、中/英、0 与标准九键底行同宽，回车从右列第三格伸到底行；右列的 ！ 不画、不接触摸、不进无障碍。`digits` 为数字层：空格在 0 右边、与 中/英 同宽。
-  private func assertTallReturnFrame(_ controller: KeyboardViewController, digits: Bool, _ label: String,
+  /// 右侧大回车的外框：符 与符号栏同列同宽，底行中间几格与九宫格（笔画是笔画键）左右对齐，123、中/英、地球键与 `standard`（拼音九键标准底行上量到的键宽，见 `standardNineKeyWidths`）逐个等宽，0（数字层是空格）与标准底行的 符 等宽，回车从右列第三格伸到底行；右列的 ！ 不画、不接触摸、不进无障碍。`digits` 为数字层：空格在 0 右边、与 中/英 同宽。
+  private func assertTallReturnFrame(_ controller: KeyboardViewController, digits: Bool, standard: [String: CGFloat], _ label: String,
                                      file: StaticString = #filePath, line: UInt = #line) throws {
     func frame(_ view: UIView) -> CGRect { view.convert(view.bounds, to: controller.view) }
     let sidebar = try view("nineKeySidebar", in: controller)
@@ -556,23 +561,48 @@ final class KeyLayoutStyleTests: XCTestCase {
     let first = try XCTUnwrap(middleKeys.first), last = try XCTUnwrap(middleKeys.last)
     XCTAssertEqual(frame(first).minX, grid.minX, accuracy: 0.5, label, file: file, line: line)
     XCTAssertEqual(frame(last).maxX, grid.maxX, accuracy: 0.5, label, file: file, line: line)
-    // 123、中/英、0（数字层是空格）、地球键与同一地球键状态下的标准九键底行同宽：份额 × 整宽 / 标准底行总份额（带地球键时是 10.15），而符号栏正是整宽的 14%。
-    let standardTotal = TouchBottomRowLayout.nineKey(.standard, globe: controller.needsInputModeSwitchKey).reduce(0) { $0 + $1.weight }
-    let unit = sidebar.bounds.width / TouchBottomRowLayout.nineKeySideRatio / standardTotal
-    let fixed: [(String, CGFloat)] = [
-      ("layoutToggleButton", TouchBottomRowLayout.layerWeight), ("bottomLanguageKey", TouchBottomRowLayout.languageWeight),
-      ("inputModeSwitchButton", TouchBottomRowLayout.globeWeight),
-      (digits ? "spaceKey" : "nineKeyZero", TouchBottomRowLayout.zeroWeight),
+    // 123、中/英、地球键与标准底行上的同一个键等宽，0（数字层是空格）与标准底行的 符 等宽（都是 1.05 份）。标准底行先扣掉自己的键距再按份额分，不扣键距时这几个键会宽出几 pt。
+    let references: [(String, String)] = [
+      ("layoutToggleButton", "layoutToggleButton"), ("bottomLanguageKey", "bottomLanguageKey"),
+      ("inputModeSwitchButton", "inputModeSwitchButton"), (digits ? "spaceKey" : "nineKeyZero", "symbolPanelKey"),
     ]
-    for (identifier, weight) in fixed {
+    for (identifier, reference) in references {
       let key = try view(identifier, in: controller)
       guard shown(key) else { continue }
-      XCTAssertEqual(key.bounds.width, unit * weight, accuracy: 0.5, "\(label) \(identifier)", file: file, line: line)
+      let expected = try XCTUnwrap(standard[reference], "\(label) the standard row has no \(reference)", file: file, line: line)
+      // 容差是一个像素（3x 屏上 1/3pt）：两边都按像素取整，stack view 把舍入余量分给哪个键不一定相同。不扣键距时差出约 3pt，远在容差之外。
+      XCTAssertEqual(key.bounds.width, expected, accuracy: 0.34, "\(label) \(identifier)", file: file, line: line)
     }
     // 空格（数字层是 0）占剩下的，是中间最宽的一格。
     let fill = try view(digits ? "nineKeyZero" : "spaceKey", in: controller)
     XCTAssertTrue(shown(fill), label, file: file, line: line)
     XCTAssertEqual(middleKeys.map(\.bounds.width).max() ?? 0, fill.bounds.width, accuracy: 0.01, label, file: file, line: line)
+  }
+
+  /// 标准九键底行上量到的键宽：123、地球键、中/英 和 符，按无障碍标识记，没显示的键不记。右侧大回车的中列拿它们比，而不是照公式重算一遍。
+  private func standardNineKeyWidths(_ controller: KeyboardViewController, _ label: String,
+                                     file: StaticString = #filePath, line: UInt = #line) throws -> [String: CGFloat] {
+    XCTAssertTrue(shown(try button("returnKey", in: controller)), "\(label) draws the standard row", file: file, line: line)
+    XCTAssertFalse(shown(try button("tallReturnKey", in: controller)), label, file: file, line: line)
+    var widths: [String: CGFloat] = [:]
+    for identifier in ["layoutToggleButton", "inputModeSwitchButton", "bottomLanguageKey", "symbolPanelKey"] {
+      let key = try view(identifier, in: controller)
+      if shown(key) && key.bounds.width > 0.5 { widths[identifier] = key.bounds.width }
+    }
+    return widths
+  }
+
+  /// 同一个键盘当场换成 `style`：写进文档后重新出现，后台读回的文档在主队列上应用，等到 `ready` 成立后按请求的高度排好。
+  private func restyle(_ controller: KeyboardViewController, _ style: TouchKeyLayoutStyle, _ label: String,
+                       until ready: () throws -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+    XCTAssertTrue(write(style), label, file: file, line: line)
+    controller.viewWillAppear(false)
+    let deadline = Date().addingTimeInterval(15)
+    while try !ready() && Date() < deadline {
+      try await Task.sleep(for: .milliseconds(50))
+    }
+    try layoutAtRequestedHeight(controller)
+    XCTAssertTrue(try ready(), "\(label) the new style is drawn on the same keyboard", file: file, line: line)
   }
 
   private func view(_ identifier: String, in controller: KeyboardViewController) throws -> UIView {
@@ -622,12 +652,27 @@ final class KeyLayoutStyleTests: XCTestCase {
       XCTAssertEqual(groups(offering([scheme])), [false, false, false, false], scheme)
     }
     XCTAssertEqual(groups(offering(["japanese", "korean", "vietnamese", "tibetan", "stroke"])), [false, false, true, false])
+    // 键盘页的「按键布局」入口只在至少有一组时显示。
+    XCTAssertTrue(offering(["stroke"]).offersAnyGroup)
+    XCTAssertTrue(offering(["cantonese"]).offersAnyGroup)
+    XCTAssertFalse(offering(["zhuyin"]).offersAnyGroup)
+    XCTAssertFalse(offering(["japanese", "korean", "vietnamese", "tibetan"]).offersAnyGroup)
+    XCTAssertFalse(offering([]).offersAnyGroup)
     // 列进 26 键一组的入口正是键盘按 26 键样式画的那些：写中文或粤拼、不是九键 / 14 / 18 键 / 注音 / 笔画 / 手写。
     let twentySixKey = ChineseInputScheme.allCases.filter {
       ($0.writesChinese || $0.isCantonese) && !$0.isMandarinNineKey && !$0.isStroke && !$0.isZhuyin
         && ![.handwriting, .fourteenKey, .eighteenKey].contains($0)
     }
     XCTAssertEqual(Set(TouchKeyLayoutOffering.twentySixKeySchemes), Set(twentySixKey))
+  }
+
+  /// 设置页的入口副标题和几段说明三端逐字相同，Android 和鸿蒙的设置页用同样的文字。
+  func testSettingsTextsMatchTheOtherPlatforms() {
+    XCTAssertEqual(TouchKeyLayoutOffering.entrySubtitle, "各类键盘的底行样式和顶部数字行")
+    XCTAssertEqual(TouchKeyLayoutOffering.twentySixKeyFooter, "长空格：符号键移到工具栏；表情键：长按 123 打开符号。")
+    XCTAssertEqual(TouchKeyLayoutOffering.letterGridFooter, "表情键：长按 123 打开符号。")
+    XCTAssertEqual(TouchKeyLayoutOffering.nineKeyFooter, "右侧大回车：回车竖占两行，符号键在左下角。")
+    XCTAssertEqual(TouchKeyLayoutOffering.numberRowSubtitle, "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。")
   }
 
   /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行，长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。
@@ -742,7 +787,7 @@ final class KeyLayoutStyleTests: XCTestCase {
   }
 
   /// iPad 没开「数字行与 Tab 键」时与手机一样按「顶部数字行」画：26 键（iPad 自己的字母排法）、14 键和 18 键的字母层上方多一排 1 到 0，键盘高一排；开着时 26 键照旧是 iPad 的数字行和 Tab，14 键和 18 键仍按「顶部数字行」画。14 键和九键的样式在 iPad 上同样生效。
-  func testTabletDrawsTheNumberRowLikePhones() throws {
+  func testTabletDrawsTheNumberRowLikePhones() async throws {
     let storedFullKeys = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
     defer { KeyboardLayoutPreference.defaults.set(storedFullKeys, forKey: KeyboardLayoutPreference.tabletFullKeysKey) }
     let rowHeight = KeyboardHeightPercent.portraitKeyHeight(tablet: true) + CGFloat(KeyboardLayoutPreference.rowSpacing)
@@ -777,27 +822,38 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
     KeyboardLayoutPreference.tabletFullKeys = false
     select(.nineKey)
-    XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: .tallReturn, numberRow: true)))
+    XCTAssertTrue(write(TouchKeyLayoutStyle(numberRow: true)))
     let controller = tablet()
-    XCTAssertTrue(shown(try button("tallReturnKey", in: controller)), "the nine-key style applies on iPad")
+    let standard = try standardNineKeyWidths(controller, "iPad")
+    let tall = try button("tallReturnKey", in: controller)
+    try await restyle(controller, TouchKeyLayoutStyle(nineKey: .tallReturn, numberRow: true), "iPad") { self.shown(tall) }
+    XCTAssertTrue(shown(tall), "the nine-key style applies on iPad")
     XCTAssertFalse(shown(try view("numberRow", in: controller)), "nine-key has no number row")
-    try assertTallReturnFrame(controller, digits: false, "iPad")
+    try assertTallReturnFrame(controller, digits: false, standard: standard, "iPad")
     controller.viewDidDisappear(false)
   }
 
   // MARK: - 右侧大回车
 
   /// 九键「右侧大回车」的外框：符 在符号栏正下方、与符号栏同宽；123 到 中/英 这几格正好在九宫格下方、与它左右对齐，空格占剩下的宽度；右列是 ⌫ 和中间键，回车从第三格伸到底行、两倍高中间无缝，底行原来回车的位置留给它；右列的 ！ 让出位置，接到符号栏末尾。九键双拼和笔画用同一个外框，九键双拼的 0 照旧跟在空格后面；隐藏中/英时空格变宽。
-  func testTallReturnFrame() throws {
+  func testTallReturnFrame() async throws {
+    // 拼音九键标准底行上量到的键宽，按是否隐藏中/英记。九键双拼的标准底行多一个 0，右侧大回车仍按拼音九键那一行定宽，所以拿拼音九键量到的比。
+    var pinyinStandard: [Bool: [String: CGFloat]] = [:]
     for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
       select(scheme)
       if scheme == .stroke && InputSchemePreference.scheme != .stroke { continue }
       for hidesLanguage in [false, true] {
         KeyboardLayoutPreference.hideLanguageKey = hidesLanguage
-        XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: .tallReturn)))
-        let controller = keyboard()
         let label = "\(scheme.rawValue) hidesLanguage=\(hidesLanguage)"
-        try assertTallReturnFrame(controller, digits: false, label)
+        // 先按标准样式量底行，再让同一个键盘当场换成右侧大回车。
+        XCTAssertTrue(write(TouchKeyLayoutStyle()))
+        let controller = keyboard()
+        let measured = try standardNineKeyWidths(controller, label)
+        if scheme == .nineKey { pinyinStandard[hidesLanguage] = measured }
+        let standard = try XCTUnwrap(scheme == .nineKeyShuangpin ? pinyinStandard[hidesLanguage] : measured, label)
+        let tall = try button("tallReturnKey", in: controller)
+        try await restyle(controller, TouchKeyLayoutStyle(nineKey: .tallReturn), label) { self.shown(tall) }
+        try assertTallReturnFrame(controller, digits: false, standard: standard, label)
         XCTAssertEqual(visibleBottomRow(controller).map(\.slot), TouchBottomRowLayout.nineKeyTallReturn(
           globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: !hidesLanguage).map(\.slot), label)
         if scheme != .nineKeyShuangpin {
@@ -920,18 +976,68 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 右侧大回车中列的宽度约束按当时的键距扣键距，键距变了要重排底行。键盘里调完高度点「完成」、共享文档却没写成时，键盘按文档对齐 App Group，键距可能当场变了（这里从 6pt 变成文档里的 3pt），此后没有别的重排：123、地球键、中/英 仍按 6pt 扣键距，比标准底行窄约 1.6pt，直到下一次重排。用例让偏好文件不可改写来模拟写失败。
+  func testTallReturnFollowsTheKeySpacingTheFailedGeometryCommitFallsBackTo() async throws {
+    let groupKeySpacing = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.keySpacingKey)
+    let groupHeight = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.heightAdjustmentKey)
+    let documentKeySpacing = MetasequoiaInputSessionBridge.loadSharedPreferences()?["touch_key_spacing_tenths"]
+    addTeardownBlock {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_key_spacing_tenths"] = documentKeySpacing }
+      KeyboardLayoutPreference.defaults.set(groupKeySpacing, forKey: KeyboardLayoutPreference.keySpacingKey)
+      KeyboardLayoutPreference.defaults.set(groupHeight, forKey: KeyboardLayoutPreference.heightAdjustmentKey)
+    }
+    select(.nineKey)
+    // 先量 3pt 键距下标准九键底行的键宽，再让同一个键盘当场换成 6pt 键距的右侧大回车。
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(keySpacing: 3))
+    let controller = keyboard()
+    let standard = try standardNineKeyWidths(controller, "3pt")
+    let tall = try button("tallReturnKey", in: controller)
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(keySpacing: 6))
+    try await restyle(controller, TouchKeyLayoutStyle(nineKey: .tallReturn), "6pt") { self.shown(tall) }
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
+    let layer = try view("layoutToggleButton", in: controller)
+    let standardLayer = try XCTUnwrap(standard["layoutToggleButton"])
+    XCTAssertGreaterThan(abs(layer.bounds.width - standardLayer), 1, "at 6pt 123 is not as wide as at 3pt")
+
+    // 文档里的键距改成 3pt，App Group 和键盘仍是 6pt；偏好文件设成不可改写，「完成」写文档失败，键盘按文档对齐成 3pt。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_key_spacing_tenths"] = 30 })
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
+    let document = URL(fileURLWithPath: MetasequoiaInputSessionBridge.sharedStateDirectory)
+      .appendingPathComponent("preferences.json").path
+    XCTAssertEqual(chflags(document, UInt32(UF_IMMUTABLE)), 0, "the preferences file can be locked")
+    defer { chflags(document, 0) }
+    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-键盘高度" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightDone" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 3, "the failed commit falls back to the document's key spacing")
+    try layoutAtRequestedHeight(controller)
+    try assertTallReturnFrame(controller, digits: false, standard: standard, "after the failed commit")
+    controller.viewDidDisappear(false)
+  }
+
   /// 右侧大回车的数字层照同一外框：符 留在符号栏下方，123 的位置是回到字母层的键，0 占空格的位置、空格在它右边，回车仍两倍高；数字层符号栏里的 符 移到底行，运算符占满整条符号栏。从别的键面借来的数字九宫格不跟九键的样式。
-  func testTallReturnNumberLayer() throws {
+  func testTallReturnNumberLayer() async throws {
+    var pinyinStandard: [String: CGFloat] = [:]
     for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
       select(scheme)
       if scheme == .stroke && InputSchemePreference.scheme != .stroke { continue }
-      XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: .tallReturn)))
+      let label = scheme.rawValue
+      // 切换键、地球键、中/英 在数字层里也与字母层的标准底行等宽，切层时不横移；九键双拼同样拿拼音九键的标准底行比。
+      XCTAssertTrue(write(TouchKeyLayoutStyle()))
       let controller = keyboard()
+      let measured = try standardNineKeyWidths(controller, label)
+      if scheme == .nineKey { pinyinStandard = measured }
+      let standard = scheme == .nineKeyShuangpin ? pinyinStandard : measured
+      let tall = try button("tallReturnKey", in: controller)
+      try await restyle(controller, TouchKeyLayoutStyle(nineKey: .tallReturn), label) { self.shown(tall) }
       try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       try layoutAtRequestedHeight(controller)
-      let label = scheme.rawValue
       XCTAssertEqual(try button("nineKey7", in: controller).configuration?.title, "7", label)
-      try assertTallReturnFrame(controller, digits: true, label)
+      try assertTallReturnFrame(controller, digits: true, standard: standard, label)
       XCTAssertEqual(visibleBottomRow(controller).map(\.slot), TouchBottomRowLayout.nineKeyTallReturn(
         globe: controller.needsInputModeSwitchKey, digits: true).map(\.slot), label)
       XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, scheme == .stroke ? "笔" : "九键", label)
@@ -943,7 +1049,7 @@ final class KeyLayoutStyleTests: XCTestCase {
       // 回到字母层，外框照旧。
       try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       try layoutAtRequestedHeight(controller)
-      try assertTallReturnFrame(controller, digits: false, "\(label) letters again")
+      try assertTallReturnFrame(controller, digits: false, standard: standard, "\(label) letters again")
       controller.viewDidDisappear(false)
     }
     // 标准九键的数字层：符 在符号栏第三排。

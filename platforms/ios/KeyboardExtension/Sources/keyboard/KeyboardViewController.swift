@@ -457,8 +457,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 非标准样式底行的宽度约束，按 `TouchBottomRowLayout` 的一行缓存，换样式或换键面时整组停用再启用另一组。
   private var styledActionWidthCache: [[TouchBottomRowLayout.Key]: [NSLayoutConstraint]] = [:]
   private var activeStyledActionWidths: [NSLayoutConstraint] = []
-  /// 九键「右侧大回车」底行的宽度约束（`tallReturnActionWidths`），按行缓存。
-  private var tallReturnActionWidthCache: [[TouchBottomRowLayout.Key]: [NSLayoutConstraint]] = [:]
+  /// 九键「右侧大回车」底行的宽度约束（`tallReturnActionWidths`），按行和底行键距缓存：约束的常数里扣了键距，键距一变就是另一组。
+  private var tallReturnActionWidthCache: [TallReturnWidthsKey: [NSLayoutConstraint]] = [:]
+  private struct TallReturnWidthsKey: Hashable {
+    let row: [TouchBottomRowLayout.Key]
+    let spacing: CGFloat
+  }
   /// 九键「右侧大回车」的回车（`installTallReturnKey`）：叠在按键列上，从右列第三格伸到底行。
   private weak var tallReturnKey: UIButton?
   /// 「右侧大回车」在底行原来回车的位置留出的空格，与右列同宽，伸下来的回车盖在它上面。
@@ -6309,12 +6313,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 「右侧大回车」底行的宽度约束：符 与左侧符号栏同宽，回车那一格与右列同宽，中间的键按 `TouchBottomRowLayout.nineKeyTallReturn` 的份额以符号栏为基准（符号栏折成 `nineKeySideWeight(globe:)` 份，带地球键时整行是 10.15 份，与同一地球键状态下的标准九键底行一样）；空格（数字层是 0）不加约束，占九宫格剩下的宽度，于是中间几格正好与九宫格左右对齐。表里只有此刻显示的键（地球键、0、中/英 随宿主和设置进出这一行），所以这些约束都是 required：分离式键盘那个隐藏的第二个空格以 999 跟空格等宽，中间的键若也是 999，两者打平，空格和 中/英 的宽度就没有唯一解。按行缓存。
+  /// 「右侧大回车」底行的宽度约束：符 与左侧符号栏同宽，回车那一格与右列同宽；中间的 123、地球键、中/英（和九键双拼的 0、数字层的空格）与同一地球键和中/英状态下拼音九键标准底行的键绝对等宽。标准底行是 stack view 先从行宽里扣掉它的键距、剩下的按份额分，所以这里同样以整行宽度为基准：宽度 = (行宽 − 标准底行的键距总和) × 份额 / 标准底行总份额（带地球键时是 10.15 份，`nineKeyRowWeight(globe:)`），写成 行宽 × 份额占比 − 键距总和 × 份额占比。不扣键距时这些键比标准底行宽出键距总和乘份额占比，键距 6pt 时 123 宽约 3pt。空格（数字层是 0）不加约束，占九宫格剩下的宽度，于是中间几格正好与九宫格左右对齐。表里只有此刻显示的键（地球键、0、中/英 随宿主和设置进出这一行），所以这些约束都是 required：分离式键盘那个隐藏的第二个空格以 999 跟空格等宽，中间的键若也是 999，两者打平，空格和 中/英 的宽度就没有唯一解。按行和键距缓存。
   private func tallReturnActionWidths(_ row: [TouchBottomRowLayout.Key], digits: Bool) -> [NSLayoutConstraint] {
-    if let cached = tallReturnActionWidthCache[row] { return cached }
+    let cacheKey = TallReturnWidthsKey(row: row, spacing: actionRow.spacing)
+    if let cached = tallReturnActionWidthCache[cacheKey] { return cached }
     guard let sidebar = nineSidebarWidth?.firstItem as? UIView, let controls = nineControls else { return [] }
     let fill: TouchBottomRowLayout.Slot = digits ? .zero : .space
-    let sideWeight = TouchBottomRowLayout.nineKeySideWeight(globe: row.contains { $0.slot == .globe })
+    let globe = row.contains { $0.slot == .globe }
+    let standardWeight = TouchBottomRowLayout.nineKeyRowWeight(globe: globe)
+    let standardGaps = CGFloat(TouchBottomRowLayout.nineKeyStandardKeyCount(
+      globe: globe, language: row.contains { $0.slot == .language }) - 1) * actionRow.spacing
     let constraints = row.compactMap { key -> NSLayoutConstraint? in
       guard key.slot != fill, let view = actionRowKey(key.slot, tallReturn: true) else { return nil }
       let constraint: NSLayoutConstraint
@@ -6322,12 +6330,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       case .symbols: constraint = view.widthAnchor.constraint(equalTo: sidebar.widthAnchor)
       case .returnKey: constraint = view.widthAnchor.constraint(equalTo: controls.widthAnchor)
       default:
-        constraint = view.widthAnchor.constraint(
-          equalTo: sidebar.widthAnchor, multiplier: key.weight / sideWeight)
+        let share = key.weight / standardWeight
+        constraint = view.widthAnchor.constraint(equalTo: actionRow.widthAnchor, multiplier: share, constant: -standardGaps * share)
       }
       return constraint
     }
-    tallReturnActionWidthCache[row] = constraints
+    tallReturnActionWidthCache[cacheKey] = constraints
     return constraints
   }
 
@@ -8338,6 +8346,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardLayoutPreference.mirrorGeometry(document)
     sharedKeyboardHeightAdjustment = CGFloat(KeyboardLayoutPreference.heightAdjustment)
     applyLayoutPreferences()
+    // 文档里的键距可能与键盘刚才用的不同。applyLayoutPreferences 只改各行的 spacing，九键「右侧大回车」中列的宽度约束在常数里扣的是建约束时的键距，要重排底行才会换成新键距的那一组；几何是 layoutInputs 的一部分，键距变了这里就会重排，没变什么也不做。
+    updateKeyboardLayoutIfNeeded()
     updatePreferredKeyboardHeight()
   }
 

@@ -169,6 +169,19 @@ struct TouchKeyLayoutOffering: Equatable {
   let nineKey: Bool
   /// 顶部数字行只画在中文 26 键和 14/18 键上时才有意义，两样都没有就不列开关。
   var numberRow: Bool { twentySixKey || letterGrid }
+  /// 至少有一组可列：键盘页的「按键布局」入口只在这时显示，一组都没有的版本不留一个点进去是空页的入口。
+  var offersAnyGroup: Bool { twentySixKey || letterGrid || nineKey }
+
+  /// 键盘页「按键布局」入口的副标题。这一行和下面几段说明三端逐字相同（Android、鸿蒙的设置页用同样的文字）。
+  static let entrySubtitle = "各类键盘的底行样式和顶部数字行"
+  /// 26 键一组下面的说明。
+  static let twentySixKeyFooter = "长空格：符号键移到工具栏；表情键：长按 123 打开符号。"
+  /// 14 键与 18 键一组下面的说明。
+  static let letterGridFooter = "表情键：长按 123 打开符号。"
+  /// 9 键一组下面的说明。
+  static let nineKeyFooter = "右侧大回车：回车竖占两行，符号键在左下角。"
+  /// 「顶部数字行」开关的说明。
+  static let numberRowSubtitle = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。"
 
   init(offers: (ChineseInputScheme) -> Bool) {
     twentySixKey = Self.twentySixKeySchemes.contains(where: offers)
@@ -273,12 +286,17 @@ enum TouchBottomRowLayout {
     nineKeyFrameWeight + (globe ? globeWeight : 0)
   }
 
+  /// 同一地球键和中/英状态下拼音九键标准底行（符 | 123 |（🌐）| 空格 |（中/英）| 回车）显示几个键，不算九键双拼另加的 0。键盘画这一行时先从行宽里扣掉键数减一道键距，剩下的才按份额分；右侧大回车的中列要与它绝对等宽，就得扣同样多的键距（`KeyboardViewController.tallReturnActionWidths`）。
+  static func nineKeyStandardKeyCount(globe: Bool, language: Bool) -> Int {
+    nineKey(.standard, globe: globe, language: language).count
+  }
+
   /// 一个侧列折成同一地球键状态下标准底行的份额：`nineKeyRowWeight(globe:)` × 14%。
   static func nineKeySideWeight(globe: Bool) -> CGFloat {
     nineKeyRowWeight(globe: globe) * nineKeySideRatio
   }
 
-  /// 九键「右侧大回车」的底行，整行与九键外框同宽、总份额与同一地球键状态下的标准底行相同（带地球键时是 10.15 份）。第一格 符 在符号栏正下方、与符号栏同宽，最后一格回车与右列同宽（它在键盘上从右列第三行一直伸到底行，两倍高）；中间几格合起来正好是九宫格的宽度：123、地球键、中/英 与同一地球键状态下的标准九键底行同宽，空格占剩下的部分，地球键也从空格里让出。九键双拼字母层的 0 照旧跟在空格后面。
+  /// 九键「右侧大回车」的底行，整行与九键外框同宽、总份额与同一地球键状态下的标准底行相同（带地球键时是 10.15 份）。第一格 符 在符号栏正下方、与符号栏同宽，最后一格回车与右列同宽（它在键盘上从右列第三行一直伸到底行，两倍高）；中间几格合起来正好是九宫格的宽度：123、地球键、中/英 与同一地球键状态下的标准九键底行同宽，空格占剩下的部分，地球键也从空格里让出。这里的份额不含键距；键盘上的绝对宽度按标准底行的键距扣法算（`nineKeyStandardKeyCount`），于是与标准底行的键逐点等宽。九键双拼字母层的 0 照旧跟在空格后面。
   ///
   /// 数字层（`digits`）照同一框架：符 不动，123 的位置是回到字母层的切换键，空格的位置放 0、占剩下的部分；空格按 iOS 数字层原来的规则留在 0 的右边，与 中/英 同宽。
   static func nineKeyTallReturn(globe: Bool, zero: Bool = false, language: Bool = true, digits: Bool = false) -> [Key] {
