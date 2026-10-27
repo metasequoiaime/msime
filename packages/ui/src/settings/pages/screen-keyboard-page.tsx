@@ -24,6 +24,7 @@ import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { fullScreenColumn, fullScreenSurface } from "../../core/full-screen-style";
 import { SettingsPageHeader } from "../settings-page-header";
 import { TouchKeyLayoutSettings, touchKeyLayoutGroups } from "../touch-key-layout-settings";
+import { keyLayoutEntryDescription } from "../../keyboard/touch-key-layout-styles";
 import { SettingsSearchReveal } from "../settings-search-reveal";
 
 /** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，五笔有独立的 26/14 键，日语有 26/9 键。 */
@@ -311,7 +312,11 @@ export function ScreenKeyboardSettingsPage() {
                     }
                   />
                   {keyLayoutOffered && (
-                    <LinkRow title="按键布局" onClick={() => openKeyLayoutSubview(true)} />
+                    <LinkRow
+                      title="按键布局"
+                      description={keyLayoutEntryDescription}
+                      onClick={() => openKeyLayoutSubview(true)}
+                    />
                   )}
                 </>
               )

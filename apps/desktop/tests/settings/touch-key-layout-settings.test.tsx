@@ -93,6 +93,14 @@ async function openKeyLayout() {
   return screen.getByRole("dialog", { name: "按键布局" });
 }
 
+/** 读屏念的描述：`aria-describedby` 指向的各段文字按次序拼起来。 */
+const description = (node: HTMLElement | null) =>
+  (node?.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
+
 /** 选项的名字：标签里单选框旁边那段字，不含读屏跳过的底行示意图。 */
 const optionName = (radio: HTMLElement) => radio.parentElement?.textContent ?? "";
 
@@ -121,11 +129,23 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
     expect(checkedOption(dialog, group)).toBe("标准");
   const numberRow = within(dialog).getByRole("switch", { name: "顶部数字行" }) as HTMLInputElement;
   expect(numberRow.checked).toBe(false);
-  expect(within(dialog).getByText(/字母上方加一行 1 到 0/)).toBeTruthy();
+  // 说明与 Android、iOS 逐字相同：数字行开关一句，每组末尾一句，读屏把组末说明当作这组单选的描述。
+  expect(description(numberRow)).toBe("在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。");
+  const notes: Record<string, string> = {
+    "26 键": "长空格：符号键移到工具栏；表情键：长按 123 打开符号。",
+    "14 键与 18 键": "表情键：长按 123 打开符号。",
+    "9 键": "右侧大回车：回车竖占两行，符号键在左下角。",
+  };
+  for (const [group, note] of Object.entries(notes)) {
+    const radiogroup = within(dialog).getByRole("radiogroup", { name: group });
+    expect(description(radiogroup)).toBe(note);
+    expect(radiogroup.closest("section")?.querySelector("p")?.textContent).toBe(note);
+  }
   // 返回关上子页，回到键盘页。
   fireEvent.click(within(dialog).getByRole("button", { name: "返回" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
-  expect(entryRow()).toBeTruthy();
+  expect(entryRow()?.textContent).toContain("各类键盘的底行样式和顶部数字行");
+  expect(description(entryRow())).toBe("各类键盘的底行样式和顶部数字行");
 });
 
 test("settings search finds the sub page's rows under 按键布局 and opens the sub page", async () => {

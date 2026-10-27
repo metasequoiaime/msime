@@ -29,6 +29,15 @@ export const nineKeyStyleOptions: readonly { value: NineKeyStyle; label: string 
   { value: "tall_return", label: "右侧大回车" },
 ];
 
+/** 设置页「按键布局」各组下方的说明，三端逐字相同：样式名说不清的事（符号键去了哪、怎么打开符号）写在这里。 */
+export const twentySixKeyStyleNote = "长空格：符号键移到工具栏；表情键：长按 123 打开符号。";
+export const fourteenKeyStyleNote = "表情键：长按 123 打开符号。";
+export const nineKeyStyleNote = "右侧大回车：回车竖占两行，符号键在左下角。";
+/** 「顶部数字行」开关的说明，三端逐字相同。 */
+export const numberRowDescription = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";
+/** 屏幕键盘页「按键布局」入口行的副标题，三端逐字相同。 */
+export const keyLayoutEntryDescription = "各类键盘的底行样式和顶部数字行";
+
 const key = (label: string, weight: number, code: string): PreviewKey => ({ label, weight, code });
 
 const layer = key("123", 1.25, "SoftLayer");
