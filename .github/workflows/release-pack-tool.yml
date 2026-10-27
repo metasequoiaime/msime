@@ -15,7 +15,7 @@ concurrency: {group: release-pack-tool, cancel-in-progress: false}
 jobs:
   # 先定下提交和版本号：三个平台的构建和发布用同一个提交，分支在运行期间前进也不受影响。
   version:
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,10 +48,10 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - {runner: macos-15, target: aarch64-apple-darwin, binary: msime-pack}
-          - {runner: macos-15, target: x86_64-apple-darwin, binary: msime-pack}
-          - {runner: windows-2025, target: x86_64-pc-windows-msvc, binary: msime-pack.exe}
-          - {runner: ubuntu-24.04, target: x86_64-unknown-linux-musl, binary: msime-pack}
+          - {runner: depot-macos-15, target: aarch64-apple-darwin, binary: msime-pack}
+          - {runner: depot-macos-15, target: x86_64-apple-darwin, binary: msime-pack}
+          - {runner: depot-windows-2025-8, target: x86_64-pc-windows-msvc, binary: msime-pack.exe}
+          - {runner: depot-ubuntu-24.04, target: x86_64-unknown-linux-musl, binary: msime-pack}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -86,7 +86,7 @@ jobs:
   # 三个平台的压缩包和 SHA256SUMS 在一台 macOS 上组装：合成 universal 要 lipo。
   package:
     needs: [version, build]
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
