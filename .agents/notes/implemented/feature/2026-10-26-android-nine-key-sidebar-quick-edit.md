@@ -19,6 +19,8 @@ Status: implemented
 
 长按会收起输入法并打开设置页编辑器，点按输入行为不变。深链参数只控制首次打开的编辑器，返回设置页后仍可正常浏览键盘设置。需要在 Android 设备上确认长按手势、正确的字母/数字符号栏选择和保存后键盘重建。
 
+符号键的读屏描述是 `按键 符号 <符号>；长按快速修改符号栏`：长按提示经 `keyboardKey` 的描述参数传入，保留所有键共用的「按键 」前缀。最初的实现在 `keyboardKey` 之后另调 `setContentDescription` 写成 `符号 <符号>；…`，把前缀覆盖掉了，`NineKeySidebarPairDeviceSmoke` 按描述找不到侧栏键，API 35 设备验收在「prepare nine-key sidebar」失败（ci-platforms run 40356646105）。
+
 ## Verification
 
 待运行 Android host、quick 门禁、笔记校验和模拟器触摸验收。
