@@ -1,7 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// 云剪贴板页经 Rust 的 `msime_client_account_cloud_clipboard`（#8201 迁移计划 4c）：端到端加密、令牌和密钥串（与键盘共用的钥匙串项 `cloud-clipboard-keystore`）都在 Rust 里，键盘扩展仍用 Swift 的传输和同一份密钥串，所以两边是同一台设备。页面只按第一次读到的 user.id 绑定：C 上拿不到会话代次，同一个账号的令牌轮换和重新登录不作废页面，换号、退出作废。
+/// 云剪贴板页。最上面是「云剪贴板同步方式」（`CloudClipboardSyncModeSection`）：水杉账号、自建中继或 WebDAV 网盘，选了后两者就只走它，不需要登录。
+///
+/// 水杉账号经 Rust 的 `msime_client_account_cloud_clipboard`（#8201 迁移计划 4c）：端到端加密、令牌和密钥串（与键盘共用的钥匙串项 `cloud-clipboard-keystore`）都在 Rust 里，键盘扩展仍用 Swift 的传输和同一份密钥串，所以两边是同一台设备。中继和网盘经 `IOSCloudClipboardRelay`：驱动在 Swift 里跑，密钥串在 App Group 访问组的钥匙串项 `cloud-clipboard-relay-keystore` 里，键盘读写同一项。页面只按第一次读到的那一方绑定（账号的 user.id，或中继、网盘的绑定）：C 上拿不到会话代次，同一个账号的令牌轮换和重新登录不作废页面，换号、退出、换中继、改同步方式作废。
 struct CloudClipboardView: View {
   /// 默认是 App 启动时注册的那一份；测试和预览传别的。
   var rust: @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() }
@@ -24,6 +26,15 @@ struct CloudClipboardView: View {
   /// 账号下登记的设备，云剪贴板开着时与列表一起刷新。
   @State private var devices: BackendAccountClient.ClipboardDevices?
   @State private var deviceConfirmation: DeviceConfirmation?
+  /// 下面的开关、列表和设备在哪：经中继时是 `.relay` 或 `.webdav`，经水杉账号时为 nil。
+  @State private var relay: IOSCloudClipboardRelay.Backend?
+  /// 偏好里的同步方式；nil 是水杉账号。
+  @State private var syncConfiguration: IOSCloudClipboardRelay.Configuration?
+  /// 同步方式读到了没有；偏好读不了时不画那张卡。
+  @State private var syncModeRead = false
+  /// 走水杉账号而没有登录。
+  @State private var signedOut = false
+  @State private var showsLogin = false
 
   private enum DeviceConfirmation: Equatable {
     case reset
@@ -57,6 +68,9 @@ struct CloudClipboardView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
+        if syncModeRead {
+          CloudClipboardSyncModeSection(configuration: syncConfiguration, disabled: busy) { syncModeChanged() }
+        }
         if loaded {
           settingsCard
           if enabled {
@@ -68,6 +82,8 @@ struct CloudClipboardView: View {
             }
             deviceList
           }
+        } else if signedOut {
+          signedOutCard
         } else if !busy {
           DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
             Button { run { _ in nil } } label: {
@@ -110,7 +126,11 @@ struct CloudClipboardView: View {
     }
     .sheet(isPresented: $addsText) { addSheet }
     .task { run { _ in nil } }
-    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
+    // `.task` 可能先于下面的 onAppear 运行，那时页面还不算可见，`run` 什么也不做；所以出现时还没有内容就在这里再读一次（`run` 在已有请求时不重复发）。
+    .trackViewRequest(request: $request, pending: $pending, onAppear: {
+      readSyncMode()
+      if !loaded { run { _ in nil } }
+    }, onDisappear: {
       busy = false
       items = []; text = ""; devices = nil; e2eStatus = nil
     })
@@ -133,6 +153,23 @@ struct CloudClipboardView: View {
       }
       Button("取消", role: .cancel) { deviceConfirmation = nil }
     } message: { Text(confirmationMessage) }
+  }
+
+  /// 走水杉账号而没有登录：说明登录后能做什么，也可以在上面改用中继或网盘。
+  private var signedOutCard: some View {
+    DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
+      VStack(alignment: .leading, spacing: 10) {
+        Text("登录水杉账号后，复制的文字可以在你的设备之间同步，内容在本机加密，水杉云只保存密文。不想登录的话，可以在上面把同步方式改成自建中继或 WebDAV 网盘。")
+          .designSubtext()
+          .fixedSize(horizontal: false, vertical: true)
+        Button("登录水杉账号") { showsLogin = true }
+          .font(.system(size: 15))
+          .accessibilityIdentifier("cloudClipboardSignIn")
+      }
+      .padding(16)
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .sheet(isPresented: $showsLogin, onDismiss: { run { _ in nil } }) { AccountLoginSheet() }
   }
 
   /// 本机等待批准：显示核对码，说明去哪里批准；所有设备都用不了时可以重置。
@@ -256,6 +293,33 @@ struct CloudClipboardView: View {
     }
   }
 
+  /// 开关的说明，随内容存在哪里而变。
+  private var switchSubtitle: String {
+    switch relay {
+    case .relay: return "在你批准的设备之间经自建中继同步，内容在本机加密，中继只保存密文；关闭即删除中继上的内容和设备登记"
+    case .webdav: return "在你批准的设备之间经 WebDAV 网盘同步，内容在本机加密，网盘只保存密文；关闭即删除网盘上的内容和设备登记"
+    case nil: return "在你登录并批准的设备之间同步，内容在本机加密，水杉云只保存密文；关闭即删除云端内容和设备登记"
+    }
+  }
+
+  /// 读偏好里的同步方式；读不了时不画同步方式那张卡（内容那边会报同样的错）。读一个本机的小文件。
+  @MainActor private func readSyncMode() {
+    do {
+      syncConfiguration = try IOSCloudClipboardRelay.currentConfiguration()
+      syncModeRead = true
+    } catch {
+      syncModeRead = false
+    }
+  }
+
+  /// 同步方式保存或改回之后：页面不再属于原来那一方，从头读。
+  @MainActor private func syncModeChanged() {
+    readSyncMode()
+    accountID = nil
+    items = []; devices = nil; e2eStatus = nil; loaded = false; signedOut = false
+    run { _ in nil }
+  }
+
   /// 开关，以及服务端返回保留期限时的保留期选项。
   private var settingsCard: some View {
     DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
@@ -265,7 +329,7 @@ struct CloudClipboardView: View {
       )) {
         VStack(alignment: .leading, spacing: 2) {
           Text("云剪贴板").font(.system(size: 16)).foregroundStyle(.primary)
-          Text("在你登录并批准的设备之间同步，内容在本机加密，水杉云只保存密文；关闭即删除云端内容和设备登记")
+          Text(switchSubtitle)
             .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -467,10 +531,21 @@ struct CloudClipboardView: View {
       let page = result.page
       enabled = page.enabled; retention = page.retention_days; items = page.items; e2eStatus = page.e2e
       devices = result.devices
-      loaded = true
+      relay = result.relay
+      loaded = true; signedOut = false
     } catch is CancellationError {
       guard request.isCurrent(id) else { return }
       items = []; text = ""; loaded = false; devices = nil; e2eStatus = nil
+    }
+    catch is IOSCloudClipboard.SignedOut {
+      guard request.isCurrent(id) else { return }
+      items = []; text = ""; loaded = false; devices = nil; e2eStatus = nil; relay = nil; signedOut = true
+    }
+    catch let error as IOSCloudClipboardRelayFailure {
+      guard request.isCurrent(id) else { return }
+      // 本机等待批准时上传失败不清空页面，只提示去批准。
+      if error.code != "clipboard_device_pending" { items = []; loaded = false }
+      message = error.localizedDescription
     }
     catch let error as BackendRustClient.Failure {
       guard request.isCurrent(id) else { return }

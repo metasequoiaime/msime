@@ -319,6 +319,67 @@ final class BackendClipboardE2ETests: XCTestCase {
     XCTAssertFalse(result.isPending)
   }
 
+  /// 另一个进程先存下了它的设备身份：还没发出任何请求时改用存着的那份从头再来，服务端只见到一台设备；请求发出之后再冲突就失败，不再换身份。传输换成调用方给的 `send`，驱动循环与账号路径相同。
+  func testKeystoreConflictRestartsWithTheStoredIdentityBeforeAnyRequest() async throws {
+    final class ConflictingKeystore: BackendClipboardKeystoreStorage, @unchecked Sendable {
+      private let lock = NSLock()
+      private var value: String?
+      let other: String
+      init(other: String) { self.other = other }
+      var stored: String? { lock.lock(); defer { lock.unlock() }; return value }
+      func load() throws -> String? { nil }
+      func save(_ value: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        // 另一个进程在本进程读完之后、写之前存下了自己的身份。
+        if self.value == nil { self.value = other }
+        guard self.value == value || !value.hasPrefix("v1.mine") else { throw BackendClipboardKeystoreConflict(stored: self.value!) }
+        self.value = value
+      }
+      func clear() throws {}
+    }
+    final class Sent: @unchecked Sendable {
+      private let lock = NSLock()
+      private var paths: [String] = []
+      var all: [String] { lock.lock(); defer { lock.unlock() }; return paths }
+      func append(_ path: String) { lock.lock(); paths.append(path); lock.unlock() }
+    }
+    let page: [String: Any] = ["enabled": true, "items": [],
+                               "e2e": ["status": "pending", "code": "0421 9873 5530 1176", "pending_devices": 0, "undecryptable": 0]]
+    let keystore = ConflictingKeystore(other: "v1.theirs")
+    let driver = ScriptedClipboardDriver([
+      request("GET", "/v1/users/me/clipboard/keys?device_id=\(deviceID)", state: 1, keystore: "v1.mine"),
+      request("GET", "/v1/users/me/clipboard/keys?device_id=\(deviceID)", state: 2, keystore: "v1.theirs"),
+      ["done": page, "keystore": "v1.theirs"],
+    ])
+    let sent = Sent()
+    let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: keystore, deviceName: { "合成设备" })
+    let data = try await BackendAccountClient.clipboardE2E(.list(search: ""), e2e: e2e) { method, path, _ in
+      sent.append(method + " " + path)
+      return (200, Data(#"{"enabled":true,"devices":[]}"#.utf8))
+    }
+    XCTAssertTrue(try BackendAccountClient.clipboardPage(data).isPending)
+    XCTAssertEqual(sent.all.count, 1, "the conflicting identity never reaches the server")
+    XCTAssertEqual(keystore.stored, "v1.theirs")
+    let inputs = driver.inputs
+    XCTAssertTrue(inputs[0]["keystore"] is NSNull)
+    XCTAssertEqual(inputs[1]["keystore"] as? String, "v1.theirs", "the restart starts from the stored identity")
+    XCTAssertNotNil(inputs[1]["start"])
+
+    // 请求发出之后才冲突：不换身份，整个操作失败。
+    let late = ScriptedClipboardDriver([
+      request("GET", "/v1/users/me/clipboard/keys?device_id=\(deviceID)", state: 1, keystore: "v1.theirs"),
+      request("PUT", "/v1/users/me/clipboard/devices/\(deviceID)", state: 2, keystore: "v1.mine-late"),
+    ])
+    let lateE2E = BackendClipboardE2E(drive: { late.call($0) }, keystore: keystore, deviceName: { "合成设备" })
+    do {
+      _ = try await BackendAccountClient.clipboardE2E(.list(search: ""), e2e: lateE2E) { _, _, _ in (200, Data("{}".utf8)) }
+      XCTFail("a conflict after a request must fail")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.code, "clipboard_keystore_conflict")
+    }
+    XCTAssertEqual(keystore.stored, "v1.theirs")
+  }
+
   /// 第一次使用时没有密钥串，驱动收到 null。
   func testFirstUseStartsWithoutAKeystore() async throws {
     let keystore = MemoryClipboardKeystore()

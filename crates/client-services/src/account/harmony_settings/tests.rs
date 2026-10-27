@@ -151,11 +151,17 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
         values[HARMONY_FEEDBACK_KEYS[0]],
         AccountPreferenceValue::Boolean(true)
     );
-    // 鸿蒙和 Android 是两台设备，各有键盘：从不写别的平台的键，也不写只有 Android 才有的那些。
+    // 鸿蒙和 Android 是两台设备，各有键盘：从不写别的平台的键，也不写只有 Android 才有的那些。不带平台前缀的只有共享设置页在鸿蒙上能改的共享偏好。
+    const SHARED: [&str; 4] = [
+        "local_modes.symbol",
+        "local_modes.date_time_menu",
+        "second_third_candidate.enabled",
+        "second_third_candidate.keys",
+    ];
     assert!(
-        values
-            .keys()
-            .all(|key| key.starts_with("input.") || key.starts_with("platform.harmony.")),
+        values.keys().all(|key| key.starts_with("input.")
+            || key.starts_with("platform.harmony.")
+            || SHARED.contains(&key.as_str())),
         "{values:?}"
     );
     let platform: Vec<&str> = values
@@ -1072,4 +1078,99 @@ fn every_exported_key_round_trips() {
     assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
     assert_eq!(applied.preferences, local);
     assert_eq!(applied.feedback, Some(host));
+}
+
+/// 鸿蒙只导出共享设置页在它上面能改的两组新增共享偏好：符号模式、日期菜单和第二三候选；快捷短语混输、语法模型、AI 候选翻译、思考强度和桌面快捷键都不导出，应用时也不改本机。
+#[test]
+fn only_the_shared_settings_this_host_can_change_sync() {
+    let mut remote = Preferences::default();
+    remote.local_modes.symbol = !remote.local_modes.symbol;
+    remote.local_modes.date_time_menu = !remote.local_modes.date_time_menu;
+    remote.second_third_candidate.enabled = !remote.second_third_candidate.enabled;
+    remote.mixed_input.quick_phrase = !remote.mixed_input.quick_phrase;
+    remote.translation_ai = !remote.translation_ai;
+    remote.ai_assistant.thinking = "high".into();
+    let settings = exported(&remote);
+    assert_eq!(
+        settings["local_modes.symbol"],
+        AccountPreferenceValue::Boolean(remote.local_modes.symbol)
+    );
+    assert_eq!(
+        settings["local_modes.date_time_menu"],
+        AccountPreferenceValue::Boolean(remote.local_modes.date_time_menu)
+    );
+    assert_eq!(
+        settings["second_third_candidate.enabled"],
+        AccountPreferenceValue::Boolean(remote.second_third_candidate.enabled)
+    );
+    assert_eq!(
+        settings["second_third_candidate.keys"],
+        string("semicolon_quote")
+    );
+    for key in [
+        "mixed_input.quick_phrase",
+        "mixed_input.quick_phrase_frequency",
+        "sentence_association.grammar_model",
+        "translation.ai",
+        "ai_assistant.thinking",
+        "voice_input.polish_thinking",
+        "keybindings.toggle_english_candidates",
+        "keybindings.toggle_full_width",
+        "keybindings.toggle_punctuation",
+    ] {
+        assert!(!settings.contains_key(key), "{key}");
+    }
+
+    let local = Preferences::default();
+    let mut schema = full_schema();
+    for key in ["mixed_input.quick_phrase", "translation.ai"] {
+        schema.fields.insert(
+            key.into(),
+            AccountPreferenceField {
+                value_type: "boolean".into(),
+            },
+        );
+    }
+    let applied = apply(
+        &local,
+        &[
+            ("local_modes.symbol", settings["local_modes.symbol"].clone()),
+            (
+                "local_modes.date_time_menu",
+                settings["local_modes.date_time_menu"].clone(),
+            ),
+            (
+                "second_third_candidate.enabled",
+                settings["second_third_candidate.enabled"].clone(),
+            ),
+            ("second_third_candidate.keys", string("semicolon_quote")),
+            (
+                "mixed_input.quick_phrase",
+                AccountPreferenceValue::Boolean(remote.mixed_input.quick_phrase),
+            ),
+            (
+                "translation.ai",
+                AccountPreferenceValue::Boolean(remote.translation_ai),
+            ),
+        ],
+        &schema,
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(
+        applied.preferences.local_modes.symbol,
+        remote.local_modes.symbol
+    );
+    assert_eq!(
+        applied.preferences.local_modes.date_time_menu,
+        remote.local_modes.date_time_menu
+    );
+    assert_eq!(
+        applied.preferences.second_third_candidate,
+        remote.second_third_candidate
+    );
+    assert_eq!(
+        applied.preferences.mixed_input.quick_phrase,
+        local.mixed_input.quick_phrase
+    );
+    assert_eq!(applied.preferences.translation_ai, local.translation_ai);
 }
