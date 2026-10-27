@@ -1,9 +1,14 @@
 package app.msime.android.home;
 
 import android.content.Context;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.app.Activity;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.DocumentsContract;
 import android.widget.LinearLayout;
+import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
@@ -11,12 +16,15 @@ import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import app.msime.android.BackupExportAuthenticationPolicy;
+import app.msime.android.AndroidLocalSettings;
+import app.msime.android.ExportDirectory;
 import app.msime.android.SystemAuthenticators;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import app.msime.android.TimestampDisplayPolicy;
+import java.io.IOException;
 
 /**
- * 备份与恢复（#5659）：把设置、自定义皮肤、常用语、个人词库和输入记录导出成本机的一个 zip，换手机、重装或降级后再从它恢复。全程只在本机，不经过云端，也不需要登录；文件存到用户在系统文件选择器里选的位置（SAF），不申请存储权限。输入记录能看出打字习惯，文件又是明文的，所以页面和导出结果都提醒用户妥善保管。打包与恢复在 {@link LocalBackup}，包的格式在 {@code LocalBackupPolicy}。
+ * 备份与恢复（#5659）：把设置、自定义皮肤、常用语、个人词库和输入记录导出成本机的一个 zip，换手机、重装或降级后再从它恢复。全程只在本机，不经过云端，也不需要登录；文件存到用户在系统文件选择器里选的位置或持久授权的目录（SAF），不申请存储权限。输入记录能看出打字习惯，文件又是明文的，所以页面和导出结果都提醒用户妥善保管。打包与恢复在 {@link LocalBackup}，包的格式在 {@code LocalBackupPolicy}。
  *
  * <p>恢复前先整份校验（校验和、各条目的格式），再读出备份的说明让用户确认；损坏或不完整的文件不进入恢复。恢复是合并：设置按备份改写，皮肤、常用语、词和输入记录合并进来，本机已有的不会删除；设置、皮肤或常用语有一部分写不进去时整次撤销，本机保持恢复前的样子。
  */
@@ -28,11 +36,14 @@ public final class BackupPage extends DetailPage {
 
     private boolean busy;
     @Nullable private GroupCard.Row exportRow;
+    @Nullable private GroupCard.Row directoryRow;
     @Nullable private GroupCard.Row restoreRow;
     @Nullable private BiometricPrompt exportAuthentication;
 
     private final ActivityResultLauncher<String> createDocument =
         registerForActivityResult(new ActivityResultContracts.CreateDocument("application/zip"), this::onExportPicked);
+    private final ActivityResultLauncher<Intent> chooseDirectory =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), this::onDirectoryPicked);
     private final ActivityResultLauncher<String[]> openDocument =
         registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::onRestorePicked);
 
@@ -42,6 +53,7 @@ public final class BackupPage extends DetailPage {
         intro.note(LocalBackup.PRIVACY_NOTICE);
 
         GroupCard backup = GroupCard.add(sectionColumn(column, "备份"), "备份");
+        directoryRow = backup.button("备份保存位置", "未设置时每次导出都选择文件", "选择文件夹", this::pickDirectory);
         exportRow = backup.button("导出备份", "文件名带应用名和版本号，降级时容易找到对应的那份", "导出",
             this::startExport);
 
@@ -50,12 +62,14 @@ public final class BackupPage extends DetailPage {
             "选择文件", this::startRestore);
         restore.footer("恢复前会先检查文件是否完整，损坏的文件不会改动本机；设置、皮肤或常用语有一部分写不进去时，这次恢复会整个撤销。备份里没有账号、AI 与翻译服务的凭据、剪贴板历史和诊断日志，不带「上传语音以改进识别」的授权和开发者选项，也没有输入统计和命名词库的分组（词库里的词随个人词库一起恢复）；自定义皮肤只有设计参数，不含照片。恢复的词在键盘空闲时陆续写入词库；输入记录也在键盘空闲时合并，本机已经学到的保留本机，各种次数取两边较多的那个。输入记录不随云同步上传。");
         refresh();
+        refreshDirectory();
     }
 
     @Override public void onDestroyView() {
         if (exportAuthentication != null) exportAuthentication.cancelAuthentication();
         exportAuthentication = null;
         exportRow = null;
+        directoryRow = null;
         restoreRow = null;
         // HostTask drops results bound to the old view; do not carry its transient lock into a
         // rebuilt page when an export or restore finishes after teardown.
@@ -65,6 +79,7 @@ public final class BackupPage extends DetailPage {
 
     private void refresh() {
         if (exportRow != null) exportRow.setEnabled(!busy);
+        if (directoryRow != null) directoryRow.setEnabled(!busy);
         if (restoreRow != null) restoreRow.setEnabled(!busy);
     }
 
@@ -94,7 +109,9 @@ public final class BackupPage extends DetailPage {
                 @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
                     exportAuthentication = null;
                     if (getView() == null) return;
-                    createDocument.launch(LocalBackup.defaultName(requireContext()));
+                    String tree = ExportDirectory.saved(requireContext(), AndroidLocalSettings.BACKUP_EXPORT_TREE);
+                    if (tree.isEmpty()) createDocument.launch(LocalBackup.defaultName(requireContext()));
+                    else exportToDirectory(tree);
                 }
 
                 @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
@@ -123,6 +140,83 @@ public final class BackupPage extends DetailPage {
         HostTask.run(this, context -> LocalBackup.export(context, uri), message -> {
             setBusy(false);
             showResult("导出备份", message == null ? "没有导出成功，请稍后重试。" : message);
+        });
+    }
+
+    private void exportToDirectory(String tree) {
+        MsToast.show(requireContext(), "正在导出…");
+        HostTask.run(this, context -> LocalBackup.exportToDirectory(context, tree), message -> {
+            setBusy(false);
+            showResult("导出备份", message == null ? "没有导出成功，请检查备份保存位置后重试。" : message);
+        });
+    }
+
+    private void pickDirectory() {
+        if (busy) return;
+        OptionSheet sheet = new OptionSheet(requireContext(), "备份保存位置", null);
+        sheet.option("每次导出时选择文件", false, this::clearDirectory);
+        sheet.option("选择文件夹", false, this::launchDirectoryPicker);
+        sheet.show();
+    }
+
+    private void clearDirectory() {
+        setBusy(true);
+        HostTask.run(this, context -> {
+            try {
+                String previous = ExportDirectory.saved(context, AndroidLocalSettings.BACKUP_EXPORT_TREE);
+                AndroidLocalSettings.put(context, AndroidLocalSettings.BACKUP_EXPORT_TREE, "");
+                if (!previous.isEmpty()) ExportDirectory.releaseIfUnused(context, previous);
+                return Boolean.TRUE;
+            } catch (IOException | RuntimeException failed) { return null; }
+        }, done -> {
+            setBusy(false);
+            if (done == null) MsToast.show(requireContext(), "设置失败，请重试");
+            else if (directoryRow != null) directoryRow.setSubtitle("未设置时每次导出都选择文件");
+        });
+    }
+
+    private void launchDirectoryPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        String previous = ExportDirectory.saved(requireContext(), AndroidLocalSettings.BACKUP_EXPORT_TREE);
+        if (!previous.isEmpty()) intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(previous));
+        try { chooseDirectory.launch(intent); }
+        catch (ActivityNotFoundException unavailable) {
+            MsToast.show(requireContext(), "系统文件夹选择器不可用");
+        }
+    }
+
+    private void onDirectoryPicked(ActivityResult result) {
+        Intent data = result.getData();
+        if (result.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null
+                || getView() == null || busy) return;
+        Uri selected = data.getData();
+        int flags = data.getFlags();
+        setBusy(true);
+        HostTask.run(this, context -> {
+            try {
+                return ExportDirectory.remember(context, AndroidLocalSettings.BACKUP_EXPORT_TREE,
+                    selected, flags).name();
+            } catch (IOException | RuntimeException failed) { return null; }
+        }, name -> {
+            setBusy(false);
+            if (name == null) MsToast.show(requireContext(), "无法保存文件夹，请选择可读写的文件夹并允许长期访问");
+            else {
+                if (directoryRow != null) directoryRow.setSubtitle("已选择：" + name);
+                MsToast.show(requireContext(), "已设置备份保存位置");
+            }
+        });
+    }
+
+    private void refreshDirectory() {
+        HostTask.run(this, context -> {
+            String saved = ExportDirectory.saved(context, AndroidLocalSettings.BACKUP_EXPORT_TREE);
+            if (saved.isEmpty()) return "未设置时每次导出都选择文件";
+            try { return "已选择：" + ExportDirectory.inspect(context, saved).name(); }
+            catch (IOException | RuntimeException unavailable) { return "文件夹不可用，请重新选择"; }
+        }, subtitle -> {
+            if (directoryRow != null && subtitle != null) directoryRow.setSubtitle(subtitle);
         });
     }
 
