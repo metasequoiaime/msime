@@ -29,6 +29,7 @@ public final class TouchKeyStyleSmoke {
         numberRow();
         groups();
         migration();
+        backupRestoration();
         System.out.println("touch key layout styles: passed");
     }
 
@@ -330,6 +331,24 @@ public final class TouchKeyStyleSmoke {
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.LONG_SPACE_LAYOUT).synced
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced,
             "the legacy keys never travel through android_local");
+    }
+
+    /** 恢复旧备份使用备份里的显式值；新格式字段优先，缺失或无效旧键不改当前偏好。 */
+    private static void backupRestoration() {
+        String oldNumber = AndroidLocalSettings.NUMBER_ROW;
+        String oldSpace = AndroidLocalSettings.LONG_SPACE_LAYOUT;
+        String number = "platform.android.number_row";
+        String style = "platform.android.twenty_six_key_style";
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, false, oldSpace, true), Map.of())
+            .equals(Map.of(number, false, style, "long_space")), "旧备份的关闭与长空格覆盖当前选择");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, true, oldSpace, false), Map.of())
+            .equals(Map.of(number, true, style, "standard")), "旧备份的开启与标准底行都能恢复");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, false, oldSpace, true),
+            Map.of(number, true, style, "emoji")).isEmpty(), "备份同时含新旧格式时以新格式为准");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, "false"), Map.of()).isEmpty(),
+            "无效旧值与缺失键不制造默认值");
+        check(KeyLayoutStyleMigration.legacyKey(oldNumber) && KeyLayoutStyleMigration.legacyKey(oldSpace)
+            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除两个已转换旧键");
     }
 
     private static List<KeyboardActionRow.DesignEntry> row(int layout, boolean globe, TouchKeyStyle.Row style) {
