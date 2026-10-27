@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-Android 导出继续先检查实时隐私开关，并在文件公开前再检查一次；目录授权、文件名和写入流程沿用[原导出决定](2026-10-16-android-clipboard-export.md)。此平台读取共享存储返回的有序条目快照，再在 Android 宿主生成供人阅读的 TXT：文件头带官网和项目链接，逐条写置顶标记、本地时区的完整记录时间、来源字段和未经修改的正文。时间缺失时写“时间未知”。共享 `export_text` 仍供其他宿主使用，不改它的格式。
+Android 导出继续先检查实时隐私开关，并在文件公开前再检查一次；目录授权、文件名和写入流程沿用[原导出决定](2026-10-16-android-clipboard-export.md)。此平台读取共享存储返回的有序条目快照，再在 Android 宿主生成供人阅读的 TXT：文件头带官网和项目链接，逐条写置顶标记、本地时区的完整记录时间、来源字段和未经修改的正文。时间缺失时写“时间未知”。共享 `export_text` 仍供其他宿主使用，不改它的格式。 全量导出与面板多选导出都从同一份结构化条目快照筛选后进入 `ClipboardExportFormat`：`selectedTexts` 为 `null` 时保留全部，空选择导出为空，其余按共享历史顺序匹配原文；不使用缺少时间戳的预格式化 `Export(text, count)`，避免多选接线覆盖记录详情。
 
 Android 的公开 `ClipboardManager` 和 `ClipDescription` 不能给出可靠的复制来源包名。导出里的来源 App 和包名写“系统未提供”，绝不把粘贴目标的包名或剪贴板标签当作复制来源。待有可信来源并写入共享条目后，格式可以原位填充这两个字段。
 
@@ -24,4 +24,4 @@ Android 导出文件可直接用于回看记录时间和项目来源，正文与
 
 ## Verification
 
-`ClipboardExportFormatSmoke` 用合成 Unicode、换行、固定项和缺时间记录检查格式与顺序；设备导出用例核对新增字段。`platforms/android/check-host.sh` 检查 JVM 冒烟和设备测试源码。本机空闲磁盘低于 50 GiB 新构建门槛，尚未在 Android 模拟器上运行导出；合并前需要设备检查授权、导出文件与长文本保真。
+`ClipboardExportFormatSmoke` 用合成 Unicode、换行、固定项和缺时间记录检查格式与顺序，并覆盖全量、空选择、逆序选择、重复与失效选择以及筛选后元信息保持；设备导出用例核对新增字段。`platforms/android/check-host.sh` 检查 JVM 冒烟和设备测试源码。本机空闲磁盘低于 50 GiB 新构建门槛，尚未在 Android 模拟器上运行导出；合并前需要设备检查授权、导出文件与长文本保真。

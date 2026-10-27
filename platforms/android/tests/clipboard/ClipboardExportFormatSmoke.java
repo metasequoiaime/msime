@@ -23,5 +23,15 @@ public final class ClipboardExportFormatSmoke {
         check(export.contains("记录时间：时间未知"), "旧记录缺时间");
         check(ClipboardExportFormat.format(List.of(), ZoneId.of("UTC"))
             .contains("共 0 条"), "空历史");
+        ClipboardHistory.Item omitted = new ClipboardHistory.Item("未选择的合成记录", 1L, false);
+        List<ClipboardHistory.Item> history = List.of(older, omitted, newer);
+        List<ClipboardHistory.Item> selected = ClipboardExportFormat.select(history,
+            List.of(newer.text(), older.text(), older.text(), "已不存在的合成记录"));
+        check(selected.equals(List.of(older, newer)), "选择按历史顺序筛选，重复和失效选择不增加条目");
+        check(ClipboardExportFormat.select(history, null).equals(history), "未指定选择时导出全部");
+        check(ClipboardExportFormat.select(history, List.of()).isEmpty(), "空选择不导出历史");
+        check(history.size() == 3, "筛选不修改共享历史快照");
+        check(ClipboardExportFormat.format(selected, ZoneId.of("Asia/Shanghai")).equals(export),
+            "选中项仍使用完整时间、链接、原文与置顶标记格式");
     }
 }

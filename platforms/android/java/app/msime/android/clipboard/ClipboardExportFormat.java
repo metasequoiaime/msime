@@ -3,7 +3,10 @@ package app.msime.android;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 
 /** Android 导出文本的阅读格式；只读共享历史快照，不改原文或顺序。 */
@@ -12,6 +15,17 @@ public final class ClipboardExportFormat {
         DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE HH:mm", Locale.CHINA);
 
     private ClipboardExportFormat() { }
+
+    /** 按共享历史顺序保留选中记录；null 表示全部，空选择不导出。 */
+    public static List<ClipboardHistory.Item> select(List<ClipboardHistory.Item> entries, List<String> selectedTexts) {
+        if (selectedTexts == null) return List.copyOf(entries);
+        Set<String> selected = new HashSet<>(selectedTexts);
+        List<ClipboardHistory.Item> result = new ArrayList<>();
+        for (ClipboardHistory.Item item : entries) {
+            if (selected.contains(item.text())) result.add(item);
+        }
+        return List.copyOf(result);
+    }
 
     public static String format(List<ClipboardHistory.Item> entries, ZoneId zone) {
         StringBuilder result = new StringBuilder("水杉剪贴板历史，共 " + entries.size() + " 条\n");
