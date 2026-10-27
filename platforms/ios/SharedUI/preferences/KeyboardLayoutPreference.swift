@@ -310,9 +310,10 @@ enum KeyboardHeightPercent {
     max(1, CGFloat(rows) * keyHeight + CGFloat(max(rows - 1, 0)) * rowSpacing)
   }
 
-  /// 手机键盘或全宽 iPad 键盘的竖屏按键区，后者的数字行多出第五行。
-  static func portraitKeyBlockHeight(tablet: Bool, numberRow: Bool, rowSpacing: CGFloat) -> CGFloat {
-    keyBlockHeight(keyHeight: portraitKeyHeight(tablet: tablet), rows: tablet && numberRow ? 5 : 4, rowSpacing: rowSpacing)
+  /// 手机键盘或全宽 iPad 键盘的竖屏按键区，后者的数字行多出第五行。手机画「按键布局」的顶部数字行时（`phoneNumberRow`）同样多一排。
+  static func portraitKeyBlockHeight(tablet: Bool, numberRow: Bool, rowSpacing: CGFloat, phoneNumberRow: Bool = false) -> CGFloat {
+    keyBlockHeight(keyHeight: portraitKeyHeight(tablet: tablet), rows: (tablet ? numberRow : phoneNumberRow) ? 5 : 4,
+                   rowSpacing: rowSpacing)
   }
 
   /// 把以点为单位的存储调整量换算成它在 `keyBlock` 上画出的百分比。

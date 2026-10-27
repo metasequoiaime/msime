@@ -22,6 +22,8 @@ private struct AuthenticatedTypingStatisticsView: View {
   @State private var tab = Tab.overview
   /// 读者选过之后按键热力图所用的键盘布局；nil 表示跟随当前输入方案。
   @State private var nineKeyChoice: Bool?
+  /// 用户的「按键布局」：热力图照它画底行和数字行，与键盘上看到的一致。
+  @State private var keyStyle = TouchKeyLayoutStyle.mirrored
   @State private var showsDailyDetail = false
   @State private var showsAbout = false
   @State private var availability = TypingStatisticsStore.Availability.neverWritten
@@ -316,9 +318,9 @@ private struct AuthenticatedTypingStatisticsView: View {
         StatisticsLayoutSwitch(nineKey: Binding(get: { nineKey }, set: { nineKeyChoice = $0 }))
       }) {
         VStack(alignment: .leading, spacing: 10) {
-          StatisticsKeyboardHeatmap(heatmap: heatmap, nineKey: nineKey)
+          StatisticsKeyboardHeatmap(heatmap: heatmap, nineKey: nineKey, style: keyStyle)
             .statisticsCard(top: 10, horizontal: 4, bottom: 10)
-          let others = heatmap.others(nineKey: nineKey)
+          let others = heatmap.others(nineKey: nineKey, style: keyStyle)
           if !others.isEmpty {
             DisclosureGroup {
               VStack(spacing: 0) {
@@ -445,6 +447,8 @@ private struct AuthenticatedTypingStatisticsView: View {
   // MARK: - 加载
 
   private func reload() {
+    TouchKeyLayoutStyle.mirror(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    keyStyle = TouchKeyLayoutStyle.mirrored
     update { _ in }
     syncUpload()
   }

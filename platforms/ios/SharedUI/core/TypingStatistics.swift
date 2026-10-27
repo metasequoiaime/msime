@@ -506,18 +506,41 @@ struct TypingKeyHeatmap: Equatable {
 
   /// 手机竖屏默认中文全拼 26 键：字母键面大写，第三排左端为「分词」（记 `'`），右端为 ⌫；底行为 123 | 符 | 空格 | ， | 中 | 回车，逗号长按输入句号。iPhone 自带地球键时不画自己的地球键。
   ///
-  /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneActionWidths` 的权重，空格为 4。
-  static let keyboardRows: [[Cell]] = [
-    letters("QWERTYUIOP"),
-    letters("ASDFGHJKL"),
-    [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
-    [
-      Cell(TypingKeyID.layer, "123", width: 1.25), Cell(TypingKeyID.symbol, "符", width: 1.05),
-      Cell(TypingKeyID.space, "空格", width: 4), Cell(TypingKeyID.quickPunctuation, "，"),
-      Cell(TypingKeyID.language, "中", width: 1.05),
-      Cell(TypingKeyID.enter, "换行", width: 1.9),
-    ],
-  ]
+  /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneActionWidths` 的权重，空格为 4。用户选了别的「按键布局」时画 `letterRows(for:)`。
+  static let keyboardRows: [[Cell]] = letterRows(for: TouchKeyLayoutStyle())
+
+  /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`，打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
+  static func letterRows(for style: TouchKeyLayoutStyle) -> [[Cell]] {
+    let number = style.numberRow ? ["1234567890".map { Cell("Digit\($0)", String($0)) }] : []
+    return number + [
+      letters("QWERTYUIOP"),
+      letters("ASDFGHJKL"),
+      [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
+      bottomRow(TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)),
+    ]
+  }
+
+  /// 26 键热力图里第二排字母（要两侧缩进的那一排）的下标：数字行打开时往下挪一排。
+  static func middleLetterRow(for style: TouchKeyLayoutStyle) -> Int { style.numberRow ? 2 : 1 }
+
+  /// 底行表里的一格画成热力图上的哪个键：键盘按下它时记的 id 和印的字。
+  private static func bottomRow(_ keys: [TouchBottomRowLayout.Key]) -> [Cell] {
+    keys.compactMap { key in
+      let width = Double(key.weight)
+      switch key.slot {
+      case .symbols: return Cell(TypingKeyID.symbol, "符", width: width)
+      case .layer: return Cell(TypingKeyID.layer, "123", width: width)
+      case .emoji: return Cell(TypingKeyID.emoji, "表情", width: width)
+      case .comma: return Cell(TypingKeyID.quickPunctuation, "，", width: width)
+      case .space: return Cell(TypingKeyID.space, "空格", width: width)
+      case .period: return Cell(TypingKeyID.character(".") ?? "Period", "。", width: width)
+      case .zero: return Cell(TypingKeyID.nineKey(0) ?? "Nine0", "0", width: width)
+      case .language: return Cell(TypingKeyID.language, "中", width: width)
+      case .returnKey: return Cell(TypingKeyID.enter, "换行", width: width)
+      case .globe: return nil
+      }
+    }
+  }
   /// 26 键第二排每侧缩进本行宽度的比例，即 `KeyboardGeometry.letterInsetRatio`。
   static let keyboardMiddleRowInset = 0.05
 
@@ -536,26 +559,24 @@ struct TypingKeyHeatmap: Equatable {
   static let nineKeyControls: [Cell] = [
     Cell(TypingKeyID.backspace, "删除"), Cell(TypingKeyID.pinyinSeparator, "分词"), Cell(TypingKeyID.punctuation, "！"),
   ]
-  /// 九键底行（`nineKeyActionWidths`，空格为 4.2）：符 | 123 | 空格 | 中 | 回车。0 只出现在数字层，不画。
-  static let nineKeyBottomRow: [Cell] = [
-    Cell(TypingKeyID.symbol, "符", width: 1.05), Cell(TypingKeyID.layer, "123", width: 1.25),
-    Cell(TypingKeyID.space, "空格", width: 4.2), Cell(TypingKeyID.language, "中", width: 1.05),
-    Cell(TypingKeyID.enter, "换行", width: 1.6),
-  ]
+  /// 九键底行（`nineKeyActionWidths`，空格为 4.2）：符 | 123 | 空格 | 中 | 回车。0 只出现在数字层，不画。用户选了别的「按键布局」时画 `nineKeyBottomCells(for:)`。
+  static let nineKeyBottomRow: [Cell] = nineKeyBottomCells(for: .standard)
 
-  /// 一块键盘上画出的全部键。
-  static func cells(nineKey: Bool) -> [Cell] {
-    nineKey ? [nineKeySidebar] + nineKeyGrid.joined() + nineKeyControls + nineKeyBottomRow : Array(keyboardRows.joined())
+  /// 按九键的「按键布局」画的底行，照 `TouchBottomRowLayout.nineKey`。
+  static func nineKeyBottomCells(for style: TouchNineKeyStyle) -> [Cell] {
+    bottomRow(TouchBottomRowLayout.nineKey(style, globe: false))
+  }
+
+  /// 一块键盘上画出的全部键；`style` 是用户的「按键布局」，缺省为标准样式、没有数字行。
+  static func cells(nineKey: Bool, style: TouchKeyLayoutStyle = TouchKeyLayoutStyle()) -> [Cell] {
+    nineKey ? [nineKeySidebar] + nineKeyGrid.joined() + nineKeyControls + nineKeyBottomCells(for: style.nineKey)
+      : Array(letterRows(for: style).joined())
   }
 
   /// 同一块键盘上与 `cell` 记同一个 id 的其他键的键面。不为空时这几个键按同一个占比着色，但都不印占比：同一个数印在几个键上，看起来像是各自的次数。
-  static func sharedFaces(_ cell: Cell, nineKey: Bool) -> [String] {
-    cells(nineKey: nineKey).filter { $0.id == cell.id && $0 != cell }.map(\.face)
+  static func sharedFaces(_ cell: Cell, nineKey: Bool, style: TouchKeyLayoutStyle = TouchKeyLayoutStyle()) -> [String] {
+    cells(nineKey: nineKey, style: style).filter { $0.id == cell.id && $0 != cell }.map(\.face)
   }
-
-  /// 两块键盘各自画出的键。
-  private static let letterDrawn = Set(cells(nineKey: false).map(\.id))
-  private static let nineKeyDrawn = Set(cells(nineKey: true).map(\.id))
 
   /// 共用同一 id 的两套格子上，一个九键格各自承载的内容：拼音字母（1 是 @#，0 没有字母），以及 `TypingKeyID.japaneseKana` 放在这里的假名行首字，1 到 9 是あ到ら，0 是わ。
   static let nineKeyFaces: [String: (pinyin: String, kana: String)] = [
@@ -616,9 +637,9 @@ struct TypingKeyHeatmap: Equatable {
     return best
   }
 
-  /// 当前显示的那块键盘上没有位置的已按键，按次数从多到少排列。页面一次只画一块键盘，所以 26 键热力图下也列出九键侧栏标点和九键格子，九键热力图下列出字母；两块都没画的键（英文 Shift、， 和 。、数字层的 0 等）两边都列。
-  func others(nineKey: Bool) -> [Key] {
-    let drawn = nineKey ? Self.nineKeyDrawn : Self.letterDrawn
+  /// 当前显示的那块键盘上没有位置的已按键，按次数从多到少排列。页面一次只画一块键盘，所以 26 键热力图下也列出九键侧栏标点和九键格子，九键热力图下列出字母；两块都没画的键（英文 Shift、， 和 。、数字层的 0 等）两边都列。画在哪里跟着用户的「按键布局」：例如选了「逗号句号在空格两侧」，。就画在 26 键上，不再列出。
+  func others(nineKey: Bool, style: TouchKeyLayoutStyle = TouchKeyLayoutStyle()) -> [Key] {
+    let drawn = Set(Self.cells(nineKey: nineKey, style: style).map(\.id))
     return ranked.filter { !drawn.contains($0.id) }
   }
 
