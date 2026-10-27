@@ -127,20 +127,23 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(row(TouchBottomRowLayout.nineKey(.commaPeriod, globe: true, zero: true)),
                    ["symbols 1.05", "layer 1.25", "globe 1.00", "comma 1.00", "space 2.20", "period 1.00", "zero 1.05",
                     "language 1.05", "returnKey 1.60"])
-    // 右侧大回车：符 与回车各占一个侧列（整宽 9.15 份的 14%），中间几格合起来是九宫格宽，空格（数字层是 0）占剩下的；地球键和九键双拼的 0 都从空格里让出，隐藏中/英时它的份额给空格。
+    // 右侧大回车：符 与回车各占一个侧列（整宽的 14%：不带地球键时整宽 9.15 份，带地球键时与标准九键底行一样是 10.15 份），中间几格合起来是九宫格宽，空格（数字层是 0）占剩下的；地球键和九键双拼的 0 都从空格里让出，隐藏中/英时它的份额给空格。
     XCTAssertEqual(TouchBottomRowLayout.nineKeyFrameWeight, 9.15, accuracy: 1e-9)
-    XCTAssertEqual(TouchBottomRowLayout.nineKeySideWeight, 9.15 * 0.14, accuracy: 1e-9)
+    XCTAssertEqual(TouchBottomRowLayout.nineKeyRowWeight(globe: false), 9.15, accuracy: 1e-9)
+    XCTAssertEqual(TouchBottomRowLayout.nineKeyRowWeight(globe: true), 10.15, accuracy: 1e-9)
+    XCTAssertEqual(TouchBottomRowLayout.nineKeySideWeight(globe: false), 9.15 * 0.14, accuracy: 1e-9)
+    XCTAssertEqual(TouchBottomRowLayout.nineKeySideWeight(globe: true), 10.15 * 0.14, accuracy: 1e-9)
     XCTAssertEqual(row(TouchBottomRowLayout.nineKey(.tallReturn, globe: false)),
                    ["symbols 1.28", "layer 1.25", "space 4.29", "language 1.05", "returnKey 1.28"])
     XCTAssertEqual(TouchBottomRowLayout.nineKey(.tallReturn, globe: false), TouchBottomRowLayout.nineKeyTallReturn(globe: false))
     XCTAssertEqual(row(TouchBottomRowLayout.nineKeyTallReturn(globe: true, zero: true)),
-                   ["symbols 1.28", "layer 1.25", "globe 1.00", "space 2.24", "zero 1.05", "language 1.05", "returnKey 1.28"])
+                   ["symbols 1.42", "layer 1.25", "globe 1.00", "space 2.96", "zero 1.05", "language 1.05", "returnKey 1.42"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKeyTallReturn(globe: false, language: false)),
                    ["symbols 1.28", "layer 1.25", "space 5.34", "returnKey 1.28"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKeyTallReturn(globe: false, digits: true)),
                    ["symbols 1.28", "layer 1.25", "zero 3.24", "space 1.05", "language 1.05", "returnKey 1.28"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKeyTallReturn(globe: true, zero: true, language: false, digits: true)),
-                   ["symbols 1.28", "layer 1.25", "globe 1.00", "zero 3.29", "space 1.05", "returnKey 1.28"])
+                   ["symbols 1.42", "layer 1.25", "globe 1.00", "zero 4.01", "space 1.05", "returnKey 1.42"])
     func total(_ keys: [TouchBottomRowLayout.Key]) -> Double { keys.reduce(0) { $0 + Double($1.weight) } }
     for style in TouchTwentySixKeyStyle.allCases {
       XCTAssertEqual(total(TouchBottomRowLayout.twentySixKey(style, globe: false)),
@@ -151,9 +154,42 @@ final class KeyLayoutStyleTests: XCTestCase {
                      total(TouchBottomRowLayout.letterGrid(.standard, globe: false)), accuracy: 1e-9, style.rawValue)
     }
     for style in TouchNineKeyStyle.allCases {
-      XCTAssertEqual(total(TouchBottomRowLayout.nineKey(style, globe: false)),
-                     total(TouchBottomRowLayout.nineKey(.standard, globe: false)), accuracy: 1e-9, style.rawValue)
+      for globe in [false, true] {
+        XCTAssertEqual(total(TouchBottomRowLayout.nineKey(style, globe: globe)),
+                       total(TouchBottomRowLayout.nineKey(.standard, globe: globe)), accuracy: 1e-9, "\(style.rawValue) globe \(globe)")
+      }
     }
+  }
+
+  /// 右侧大回车中列的 123、地球键、中/英在整行里的宽度与同一地球键状态下的标准九键底行（拼音九键和笔画的那一行，不带九键双拼另加的 0）相同，字母层和数字层都是，九键双拼字母层的 0 与数字层的空格是 1.05 份。带地球键时标准底行是 10.15 份，所以这些键的绝对宽度比不带地球键时窄，不能按 9.15 份算。
+  func testTallReturnMiddleKeysKeepTheStandardNineKeyWidths() {
+    func share(_ keys: [TouchBottomRowLayout.Key], _ slot: Slot) -> Double? {
+      guard let key = keys.first(where: { $0.slot == slot }) else { return nil }
+      return Double(key.weight) / keys.reduce(0) { $0 + Double($1.weight) }
+    }
+    for globe in [false, true] {
+      for zero in [false, true] {
+        for language in [false, true] {
+          let standard = TouchBottomRowLayout.nineKey(.standard, globe: globe, language: language)
+          for digits in [false, true] {
+            let tall = TouchBottomRowLayout.nineKeyTallReturn(globe: globe, zero: zero, language: language, digits: digits)
+            let label = "globe \(globe) zero \(zero) language \(language) digits \(digits)"
+            for slot: Slot in [.layer, .globe, .language] {
+              XCTAssertEqual(share(tall, slot) ?? -1, share(standard, slot) ?? -1, accuracy: 1e-9, "\(label) \(slot.rawValue)")
+            }
+            let small: Slot? = digits ? .space : zero ? .zero : nil
+            if let small {
+              XCTAssertEqual(share(tall, small) ?? 0, 1.05 / (globe ? 10.15 : 9.15), accuracy: 1e-9, "\(label) \(small.rawValue)")
+            }
+            // 符 与回车各是整宽的 14%。
+            XCTAssertEqual(share(tall, .symbols) ?? 0, 0.14, accuracy: 1e-9, label)
+            XCTAssertEqual(share(tall, .returnKey) ?? 0, 0.14, accuracy: 1e-9, label)
+          }
+        }
+      }
+    }
+    // 带地球键时 123 是整宽的 1.25 / 10.15，不是 1.25 / 9.15。
+    XCTAssertEqual(share(TouchBottomRowLayout.nineKeyTallReturn(globe: true), .layer) ?? 0, 1.25 / 10.15, accuracy: 1e-9)
   }
 
   /// 手机的数字行是整整一排：五排键加四个排间距；26 键收紧的键帽省下的高度按五排平分到上下留白，字母键仍是 44pt。iPad 的第五排仍只看「数字行与 Tab 键」。
@@ -520,8 +556,9 @@ final class KeyLayoutStyleTests: XCTestCase {
     let first = try XCTUnwrap(middleKeys.first), last = try XCTUnwrap(middleKeys.last)
     XCTAssertEqual(frame(first).minX, grid.minX, accuracy: 0.5, label, file: file, line: line)
     XCTAssertEqual(frame(last).maxX, grid.maxX, accuracy: 0.5, label, file: file, line: line)
-    // 123、中/英、0（数字层是空格）、地球键与标准九键底行同宽：份额 × 整宽 / 9.15，而符号栏正是整宽的 14%。
-    let unit = sidebar.bounds.width / TouchBottomRowLayout.nineKeySideWeight
+    // 123、中/英、0（数字层是空格）、地球键与同一地球键状态下的标准九键底行同宽：份额 × 整宽 / 标准底行总份额（带地球键时是 10.15），而符号栏正是整宽的 14%。
+    let standardTotal = TouchBottomRowLayout.nineKey(.standard, globe: controller.needsInputModeSwitchKey).reduce(0) { $0 + $1.weight }
+    let unit = sidebar.bounds.width / TouchBottomRowLayout.nineKeySideRatio / standardTotal
     let fixed: [(String, CGFloat)] = [
       ("layoutToggleButton", TouchBottomRowLayout.layerWeight), ("bottomLanguageKey", TouchBottomRowLayout.languageWeight),
       ("inputModeSwitchButton", TouchBottomRowLayout.globeWeight),
@@ -566,6 +603,32 @@ final class KeyLayoutStyleTests: XCTestCase {
   }
 
   // MARK: - 与 Android、HarmonyOS 对齐
+
+  /// 设置页按版本列组，与 Android、鸿蒙同一规则：26 键一组只看中文 26 键（全拼、双拼、五笔、粤拼），日文罗马字、韩文、越南文和藏文的 26 键不算；14/18 键看全拼、双拼、五笔；9 键看全拼、双拼、笔画。既没有中文 26 键也没有 14/18 键时不列顶部数字行开关。
+  func testSettingsOfferingFollowsTheEditionsSchemes() {
+    func offering(_ engineSchemes: Set<String>) -> TouchKeyLayoutOffering {
+      TouchKeyLayoutOffering { engineSchemes.contains($0.engineScheme) }
+    }
+    func groups(_ offering: TouchKeyLayoutOffering) -> [Bool] {
+      [offering.twentySixKey, offering.letterGrid, offering.nineKey, offering.numberRow]
+    }
+    XCTAssertEqual(groups(offering(["quanpin"])), [true, true, true, true])
+    XCTAssertEqual(groups(offering(["shuangpin"])), [true, true, false, true])
+    XCTAssertEqual(groups(offering(["wubi"])), [true, true, false, true])
+    XCTAssertEqual(groups(offering(["cantonese"])), [true, false, false, true])
+    XCTAssertEqual(groups(offering(["stroke"])), [false, false, true, false])
+    XCTAssertEqual(groups(offering(["zhuyin"])), [false, false, false, false])
+    for scheme in ["japanese", "korean", "vietnamese", "tibetan"] {
+      XCTAssertEqual(groups(offering([scheme])), [false, false, false, false], scheme)
+    }
+    XCTAssertEqual(groups(offering(["japanese", "korean", "vietnamese", "tibetan", "stroke"])), [false, false, true, false])
+    // 列进 26 键一组的入口正是键盘按 26 键样式画的那些：写中文或粤拼、不是九键 / 14 / 18 键 / 注音 / 笔画 / 手写。
+    let twentySixKey = ChineseInputScheme.allCases.filter {
+      ($0.writesChinese || $0.isCantonese) && !$0.isMandarinNineKey && !$0.isStroke && !$0.isZhuyin
+        && ![.handwriting, .fourteenKey, .eighteenKey].contains($0)
+    }
+    XCTAssertEqual(Set(TouchKeyLayoutOffering.twentySixKeySchemes), Set(twentySixKey))
+  }
 
   /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行，长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。
   func testTwentySixKeyStylesApplyToChineseSchemesOnly() throws {
