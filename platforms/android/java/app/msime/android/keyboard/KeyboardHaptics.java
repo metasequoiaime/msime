@@ -43,7 +43,7 @@ public final class KeyboardHaptics {
     /** 只跑振动的后台线程；daemon，进程退出时不用收尾。 */
     private static final ExecutorService worker = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedDaemonFactory("msime-haptics"));
-    /** 已经交给 {@link #worker}、还没开始执行的那一下。 */
+    /** 已经交给 {@link #worker}、还没完成振动服务调用的那一下。 */
     private static final AtomicBoolean pending = new AtomicBoolean();
 
     private KeyboardHaptics() {}
@@ -71,12 +71,15 @@ public final class KeyboardHaptics {
         if (!pending.compareAndSet(false, true)) return;
         try {
             worker.execute(() -> {
-                pending.set(false);
-                if (!vibrator.hasVibrator()) {
-                    if (view != null) view.post(() -> systemTap(view));
-                    return;
+                try {
+                    if (!vibrator.hasVibrator()) {
+                        if (view != null) view.post(() -> systemTap(view));
+                        return;
+                    }
+                    vibrator.vibrate(effect(vibrator, plan));
+                } finally {
+                    pending.set(false);
                 }
-                vibrator.vibrate(effect(vibrator, plan));
             });
         } catch (RejectedExecutionException error) {
             pending.set(false);

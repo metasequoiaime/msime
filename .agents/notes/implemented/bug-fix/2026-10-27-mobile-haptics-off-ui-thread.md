@@ -19,7 +19,9 @@ Status: implemented
 - Android `KeyboardHaptics`：轻、中、强三档的 `Vibrator` 调用都放到单独的 daemon 线程 `msime-haptics` 上，`play` 交出去后立即返回，不等它。「跟随系统」仍在主线程上调用 `View.performHapticFeedback`，它必须在视图所在的线程上调。后台线程上发现没有振动器时，也经 `view.post` 回主线程交给系统。
 - HarmonyOS：振动请求包成 `taskpool.Task(startKeyVibration, …)`，以 `Priority.HIGH` 发出。打字统计写盘也在 TaskPool 里跑，要拿文件锁、整份重写，振动排在它后面就晚了。`KeyVibration.ets` 里只引入 `@ohos.vibrator`。效果支不支持仍在 UI 线程上查，每个效果只查一次（`supportsEffect`）。TaskPool 这条路失败过一次，就改回在 UI 线程上发（`vibrateHere`）：本机和 CI 都没有鸿蒙真机，无法确认每台设备的 worker 里都能用振动模块，退回原来的做法至少还能振。
 - 两端都不让振动排队：上一下还没交给振动服务时又按一下，这一下就不振了（Android 的 `pending`、鸿蒙的 `vibrationPending`）。振动服务慢的设备上，排起来的振动会在手指离开后才一串串地振，比少振一下更糟。
+- Android 的 `pending` 保持到整次服务调用结束，在 `finally` 中释放；只在 worker 开始时释放会允许慢调用期间又排入一次反馈。没有振动器的提前返回也释放槽位，后续按键仍可触发反馈。
 - iOS：`KeyboardViewController` 留着一个 App Group 的 `UserDefaults`（`feedbackDefaults`），按键时经 `KeyboardFeedbackPreference.hapticsEnabled(in:)` 和 `hapticStrength(in:)` 从这个实例读，不再每读一次就新建一个实例。值不缓存，App 里改了振动，下一下按键就生效。`impactOccurred` 仍在主线程上同步调用。
+
 
 ## Alternatives considered
 
@@ -38,5 +40,6 @@ Status: implemented
 ## Verification
 
 - Android：`bash platforms/android/check-host.sh`。
+- Android 慢服务回归：`python3 scripts/test-android-haptics-pending.py` 编译完整 `KeyboardHaptics` 和真实线程工厂，只替换 Android 系统边界。用 latch 卡住 `hasVibrator` 后连发 20 次，再通过 executor 屏障等待排队任务结束；旧代码实际调用两次，修复后仅一次，释放后新按键仍能触发。它验证后台调度，不代表设备振感或延迟验收。
 - HarmonyOS：`bash platforms/harmony/tests/run.sh`（钉住振动经 TaskPool 发出、不排队的接线），`hvigorw assembleHap` 编过 ArkTS。
 - iOS：键盘扩展在模拟器目标上编译通过。
