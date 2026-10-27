@@ -40,6 +40,8 @@ Status: implemented
 
 桌面宿主（macOS、Windows、Linux 与 `apps/desktop`）保留但不读这四项。macOS 的偏好覆盖门禁（`platforms/macos/tests/settings/preference_coverage.py`）为它们登记了不适用理由；React 设置页的字段对照（`scripts/test-preferences-field-parity.py`）把它们列进 `RUST_ONLY`，`packages/ui/src/core/preferences-model.ts` 带上了类型。Android、iOS 与鸿蒙的键面、设置入口和本机旧设置的迁移另行接入，接入时就地更新本篇。
 
+Android 把 `platform.android.long_space_layout = true` 迁成 `touch_twenty_six_key_style = long_space` 时，只迁中文 26 键的底行：英文 26 键回到标准底行，独立句点键回来，不再由逗号下滑接替（[长空格布局](2026-10-27-android-long-space-layout.md)里对英文键面的那项改动不随 `long_space` 保留）。要保留它需要另做决定，不能当成 `long_space` 的附带效果。
+
 ## Alternatives considered
 
 - 一个枚举覆盖全部键面（如 `touch_bottom_row_style`）：只有一个设置项，但多数取值只对部分键面有意义，宿主得各自定义「这个值在九键上画成什么」，三端很容易画出不一样的结果；按键面类型分开存，每个取值都有唯一的画法。
@@ -51,6 +53,7 @@ Status: implemented
 - 收益：三端可以用同一组取值画底行和数字行，选择随账号同步；默认文档不变，老用户和旧版本不受影响。
 - 代价：多了四个只对手机触屏有意义的共享字段，桌面宿主要在门禁里逐项说明不读的理由；Android 两个本机旧设置需要宿主做一次性迁移，迁移前两套值可能并存。
 - 服务端账号字段表需要收录八个新键（Android 与鸿蒙各四个）后，这几项才会真正上传。
+- 字段表收录这些键的那一刻，每台设备的同步基线里都没有它们。`merge_settings`（`crates/client-services/src/account/cloud_sync/policy.rs`）把「基线里没有的键」算作本机改过，所以之后第一次带着本机改动（`dirty`，任何一项设置变了都算）走上传或合并的设备，会用本机的值盖掉云端的值，默认值也一样。例子：手机 A 已把本机数字行 `true` 迁进 `touch_number_row` 并同步，云端是 `true`；同账号的手机 B 从没开过数字行，但改了别的设置后同步，上传 `false`；A 下一轮本机值与基线相同，跟着云端变成 `false`，A 上原有的数字行被关掉。没有本机改动的设备走下载，不会出现这种覆盖。这是合并规则对所有新进字段表的键的共同行为（`touch_quanpin_shift` 也一样），这次不改共享的合并规则：改成「基线里没有、云端已有就用云端」能挡住这个例子，但会吞掉设备在下载之后才做的真实修改，需要单独决定。顺序要求：(1) Android 宿主必须在第一次导出或应用同步之前完成 `number_row`、`long_space_layout` 两个本机旧键的迁移，迁移和导出同版发布，不能先发只导出不迁移的版本，否则会把默认值当成用户的选择传上去；(2) 服务端字段表要等带迁移的 Android 版本发布后再收录这八个键；(3) 收录之前先决定上面的合并规则要不要改。
 
 ## Verification
 

@@ -2,7 +2,7 @@
 
 Status: implemented
 
-「只在 Android 本机保存」的决定由[触屏按键布局样式](2026-10-27-touch-key-layout-styles.md)部分取代：长空格成为共享偏好 `touch_twenty_six_key_style` 的 `long_space`，随账号同步；本篇的键面、数字层与手势规则继续适用。
+「只在 Android 本机保存」的决定由[触屏按键布局样式](2026-10-27-touch-key-layout-styles.md)部分取代：长空格成为共享偏好 `touch_twenty_six_key_style` 的 `long_space`，随账号同步，只作用于中文 26 键；英文键面「独立句点由逗号下滑接替」不再随它变化（英文 26 键不受底行样式影响，保留标准底行和独立句点）。本篇其余的中文键面、数字层与手势规则继续适用。
 
 ## Problem
 
