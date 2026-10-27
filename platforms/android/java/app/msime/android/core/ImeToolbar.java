@@ -59,13 +59,15 @@ final class ImeToolbar {
             s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton};
         for (Button button : shortcutButtons) bindEditor(button);
         s.imeTextEditPanel.bindShortcut(s.textEditShortcutButton);
-        for (Button button : new Button[] {s.moreButton, dismissButton}) {
+        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, dismissButton}) {
             bindEditor(button);
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(44), s.pixels(44));
             params.setMarginStart(s.pixels(1));
             params.setMarginEnd(s.pixels(1));
-            s.shortcutToolbar.addView(button, button == s.moreButton ? 0 : s.shortcutToolbar.getChildCount(), params);
+            int position = button == s.moreButton ? 0
+                : button == s.symbolShortcutButton ? 1 : s.shortcutToolbar.getChildCount();
+            s.shortcutToolbar.addView(button, position, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
         // 数字键面的计算结果（#5688）放在中间滚动区最前面；没有结果时隐藏，不占宽度。
@@ -179,6 +181,9 @@ final class ImeToolbar {
         s.shortcutToolbar.addView(s.shortcutScroll, new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         s.scriptShortcutButton = s.button(s.shortcutBar, "简", s::toggleChineseOutput);
+        s.symbolShortcutButton = s.keyId(s.shortcutButton(s.shortcutBar, "符",
+            KeyboardShortcutIconPolicy.Icon.SYMBOL, s.imePanels::showSymbolPanel), "SoftSymbol");
+        s.symbolShortcutButton.setContentDescription("打开符号面板");
         s.scriptShortcutButton.setContentDescription("切换到繁体");
         s.emojiShortcutButton = s.shortcutButton(s.shortcutBar, "☺",
             KeyboardShortcutIconPolicy.Icon.EMOJI,
@@ -413,6 +418,12 @@ final class ImeToolbar {
                 shortcut.setActiveFill(activeBackgroundColor);
                 shortcut.setIconColors(iconColor, activeIconColor);
             }
+        }
+        if (shortcutButtons != null && s.toolbarHidden && s.longSpaceLayoutActive())
+            for (Button button : shortcutButtons) ViewPolicy.hide(button);
+        if (s.symbolShortcutButton instanceof KeyboardShortcutButton symbol) {
+            symbol.setActiveFill(activeBackgroundColor);
+            symbol.setIconColors(iconColor, activeIconColor);
         }
         if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss)
             dismiss.setIconColors(foregroundColor, foregroundColor);

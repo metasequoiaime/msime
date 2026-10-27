@@ -332,6 +332,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button layoutSettingsButton;
     Button scriptShortcutButton;
     Button emojiShortcutButton;
+    Button symbolShortcutButton;
     Button voiceShortcutButton;
     Button aiPolishShortcutButton;
     Button replyShortcutButton;
@@ -2491,8 +2492,9 @@ public final class MSIMEInputService extends InputMethodService {
         return !toolbarEmoji || toolbarHidden;
     }
 
-    /** 空闲时不画工具栏那一行：显示方式选了「隐藏」，或者工具按钮全关了。全关时这一行只剩两端的品牌键和收起键，按「隐藏」处理，整行不显示。 */
+    /** 空闲时没有工具按钮就隐藏整行；长空格模式始终给顶部符号入口留一行。 */
     boolean toolbarRowHidden() {
+        if (longSpaceLayoutActive()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo);
     }
@@ -4785,6 +4787,17 @@ public final class MSIMEInputService extends InputMethodService {
             && KeyboardActionRow.usesCommaSecondaryPeriod(imeLetterRows.drawnTouchLayout());
     }
 
+    /** 可选长空格布局只在带独立符号键的 26 键键面生效。 */
+    boolean longSpaceLayoutActive() {
+        return longSpaceLayoutActive(displayedTouchLayout(view));
+    }
+
+    boolean longSpaceLayoutActive(int layout) {
+        return localSettings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT)
+            && !directNumberPad() && !EditorPolicy.password(editorInputType)
+            && KeyboardActionRow.usesCommaSecondaryPeriod(layout);
+    }
+
     /** 手写底行在场：逗号长按输入问号、句号长按输入叹号，接替原来书写区左列的 ？ ！。 */
     boolean handwritingMarksShown() {
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
@@ -4806,6 +4819,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     void updateQuickPunctuation() {
         if (quickPunctuationButton == null) return;
+        imeBottomRow.updateCommaSwipe();
         java.util.List<QuickPunctuationPolicy.Entry> entries = quickPunctuationEntries();
         boolean visible = quickPunctuationVisible() && !entries.isEmpty();
         ViewPolicy.setVisible(quickPunctuationButton, visible);
@@ -10594,6 +10608,11 @@ public final class MSIMEInputService extends InputMethodService {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
             ViewPolicy.setEnabled(symbolPanelButton, session != 0 && connection != null);
             symbolPanelButton.setContentDescription("打开符号面板");
+        }
+        if (symbolShortcutButton != null) {
+            ViewPolicy.setVisible(symbolShortcutButton, longSpaceLayoutActive());
+            ViewPolicy.setEnabled(symbolShortcutButton, session != 0 && connection != null);
+            ViewPolicy.setSelected(symbolShortcutButton, ViewPolicy.isVisible(symbolPanel));
         }
         updateReturnKey();
         if (shiftButton != null) {

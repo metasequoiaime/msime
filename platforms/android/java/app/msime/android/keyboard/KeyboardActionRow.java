@@ -125,6 +125,8 @@ public final class KeyboardActionRow {
     public static final float DESIGN_GLOBE_WEIGHT = 1f;
     public static final float DESIGN_PUNCTUATION_WEIGHT = 1f;
     public static final float DESIGN_SPACE_WEIGHT = 4f;
+    /** 长空格模式把底行符号键的宽度交给空格键。 */
+    public static final float DESIGN_LONG_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT + DESIGN_SYMBOL_PANEL_WEIGHT;
     /** 英文 26 键底行在空格左边多一个句点（{@link #DESIGN_PUNCTUATION_WEIGHT}），这一份从空格里让出，其余键与中文 26 键同宽；iOS `englishPhoneSpaceWeight`、HarmonyOS `ENGLISH_SPACE_SHARE` 相同。 */
     public static final float DESIGN_ENGLISH_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT - DESIGN_PUNCTUATION_WEIGHT;
     public static final float DESIGN_RETURN_WEIGHT = 1.9f;
@@ -153,7 +155,7 @@ public final class KeyboardActionRow {
      * @param globe 宿主是否可以切换到下一个输入法（`shouldOfferSwitchingToNextInputMethod()`）
      */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe) {
-        return baseEntries(touchLayout, globe, false);
+        return baseEntries(touchLayout, globe, false, false);
     }
 
     /**
@@ -161,7 +163,8 @@ public final class KeyboardActionRow {
      *
      * @param english 宿主处在英文模式（{@code dedicatedEnglish}）
      */
-    private static List<DesignEntry> baseEntries(int touchLayout, boolean globe, boolean english) {
+    private static List<DesignEntry> baseEntries(int touchLayout, boolean globe, boolean english,
+            boolean longSpace) {
         // 日语九键和注音九键的四行键块自带 123、中/英、空格、换行（注音九键的这几个是挪过去的底栏键），不再要底栏。
         if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT
                 || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) return List.of();
@@ -171,6 +174,15 @@ public final class KeyboardActionRow {
             || touchLayout == KeyboardLayout.STROKE_LAYOUT;
         boolean commaSecondary = usesCommaSecondaryPeriod(touchLayout);
         List<DesignEntry> entries = new ArrayList<>(MAX_ROW_ENTRIES);
+        if (longSpace && commaSecondary) {
+            entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
+            if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
+            entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
+            entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_LONG_SPACE_WEIGHT));
+            entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
+            entries.add(new DesignEntry(DesignSlot.RETURN, DESIGN_RETURN_WEIGHT));
+            return List.copyOf(entries);
+        }
         if (symbolPanelRow) entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
         if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
@@ -232,7 +244,14 @@ public final class KeyboardActionRow {
     /** 同上，英文模式下 26 键字母层在空格左边加句点：123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车（{@link #baseEntries}）。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
             boolean swapLanguageNumber, boolean digits, boolean english) {
-        List<DesignEntry> entries = baseEntries(touchLayout, globe, english && !digits);
+        return designEntries(touchLayout, globe, swapLanguageNumber, digits, english, false);
+    }
+
+    /** 长空格模式只改 26 键字母底行；其他布局沿用原来的键位。 */
+    public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
+            boolean swapLanguageNumber, boolean digits, boolean english, boolean longSpace) {
+        List<DesignEntry> entries = baseEntries(touchLayout, globe, english && !digits,
+            longSpace && !digits);
         if (digits && touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT) {
             List<DesignEntry> numeric = new ArrayList<>(entries);
             for (int index = 0; index < numeric.size(); index++) {

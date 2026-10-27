@@ -51,7 +51,8 @@ final class ImeLetterRows {
                 && (s.directNumberPad() || EditorPolicy.password(s.editorInputType))) return true;
         boolean local = !"none".equals(InputViewValuePolicy.textOr(s.view, "local_mode", "none"));
         return KeyboardLayout.drawsNumberPad(s.keyboardLayer, layout,
-            KeyboardLayout.numberPadLanguage(InputViewValuePolicy.scheme(s.view, -1), s.dedicatedEnglish), local);
+            KeyboardLayout.numberPadLanguage(InputViewValuePolicy.scheme(s.view, -1), s.dedicatedEnglish),
+            local, s.longSpaceLayoutActive(layout));
     }
 
     /** 键行是否按另一种数字页状态建成：在借用的数字页上切中/英、退出本地模式等不改变触屏布局，也要换回原键面。 */
@@ -1184,9 +1185,10 @@ final class ImeLetterRows {
         builtLayerPunctuation = chinesePunctuation;
         builtLayerToolbarEmoji = !s.toolbarHidden && s.toolbarEmoji;
         java.util.List<java.util.List<KeyboardLayout.LayerKey>> rows = moreSymbols
-            ? KeyboardLayout.moreSymbolLayer(chinese, chinesePunctuation)
+            ? KeyboardLayout.moreSymbolLayer(chinese, chinesePunctuation,
+                s.longSpaceLayoutActive(drawnTouchLayout))
             : KeyboardLayout.numberLayer(chinese, chinesePunctuation, s.punctuationMarks().cornerQuotes(),
-                builtLayerToolbarEmoji);
+                builtLayerToolbarEmoji, s.longSpaceLayoutActive(drawnTouchLayout));
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = LayoutPolicy.row(s);
             // 最后一行是这一层自带的底行，和功能行一样挂底行角色：和一行键同高，分到四行均分后底行的那一份调整；前三行和字母键一样分摊其余部分，整层与字母层同高。底行原先挂的是 rowCount 为 1 的普通角色，整份调整量在三行之外又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底行被压成 0 高。
@@ -1260,6 +1262,11 @@ final class ImeLetterRows {
                     s.render();
                 });
                 s.keyId(key, "SoftSymbol");
+            }
+            case COMMA -> {
+                key = s.keyboardKey(text, layerKey.description(), () -> s.type(','));
+                s.keyId(key, "Comma");
+                s.imeBottomRow.bindCommaDownSwipe(key);
             }
             case DELETE -> {
                 key = s.deleteButton;

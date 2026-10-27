@@ -163,6 +163,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show());
         layout.nav("符号分类顺序", "调整符号面板底部分类的排列顺序",
             null, () -> new SymbolCategoryOrderSheet(this, settings, this::reload).show());
+        layout.toggle("长空格布局", "26 键底行把符号入口移到顶部工具栏，逗号移到空格左边；逗号下滑输入句号，数字和更多符号层沿用同一手势。隐藏工具栏时仍保留顶部符号入口",
+            settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT),
+            checked -> saveLocalSetting(AndroidLocalSettings.LONG_SPACE_LAYOUT, checked));
         // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。
         if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
@@ -347,18 +350,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         boolean anyButton = false;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
             anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
-        if (settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)) {
+        boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
+        boolean longSpace = settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT);
+        if (hidden && !longSpace) {
             TextView note = ViewPolicy.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
             plate.addView(note);
-        } else if (!anyButton) {
+        } else if (!anyButton && !longSpace) {
             // 键盘在工具按钮全关时不画这一行（MSIMEInputService.toolbarRowHidden），预览跟着说明。
             TextView note = ViewPolicy.styledLabel(context, "没有打开的工具按钮，工具栏不显示，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)));
-            for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
+            if (longSpace) addChip(context, plate, "符", icon);
+            if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
                 if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon);
-            }
         }
         strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, 44));
         strip.setContentDescription("工具栏预览");

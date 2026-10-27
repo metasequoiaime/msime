@@ -49,6 +49,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_PHRASE = "platform.android.toolbar_phrase";
     public static final String TOOLBAR_SCHEME = "platform.android.toolbar_scheme";
     public static final String TOOLBAR_HIDDEN = "platform.android.toolbar_hidden";
+    /** 26 键字母层与数字层的可选长空格底行，默认关闭，仅在本机保存。 */
+    public static final String LONG_SPACE_LAYOUT = "platform.android.long_space_layout";
     public static final String HANDWRITING_MODE = "platform.android.handwriting_mode";
     public static final String HANDWRITING_DELAY_MS = "platform.android.handwriting_delay_ms";
     public static final String HANDWRITING_SHOW_PINYIN = "platform.android.handwriting_show_pinyin";
@@ -189,6 +191,7 @@ public final class AndroidLocalSettings {
         bool(TOOLBAR_PHRASE, true, true);
         bool(TOOLBAR_SCHEME, true, true);
         bool(TOOLBAR_HIDDEN, false, true);
+        bool(LONG_SPACE_LAYOUT, false, false);
         choice(HANDWRITING_MODE, "overlap", true, "single", "overlap", "line");
         integer(HANDWRITING_DELAY_MS, 500, true, 200, 1500, 100);
         bool(HANDWRITING_SHOW_PINYIN, true, true);
