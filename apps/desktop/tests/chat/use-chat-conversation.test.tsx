@@ -87,6 +87,38 @@ test.each(["成功", "失败"])("旧客户端目录%s不能覆盖新目录或解
   expect(result.current.loadingModels).toBe(false);
 });
 
+test("更换客户端后等待新目录，不能用旧默认模型发送或丢掉草稿", async () => {
+  const nextCatalog = deferred<ChatModels>();
+  const oldHost = client();
+  const complete = vi.fn<ChatClient["complete"]>(async () => "当前回复");
+  const nextHost = client({ models: () => nextCatalog.promise, complete });
+  const { result, rerender } = renderHook(({ host }) => useChatConversation({ client: host }), {
+    initialProps: { host: oldHost },
+  });
+  await waitFor(() => expect(result.current.loadingModels).toBe(false));
+  act(() => result.current.setDraft("保留草稿"));
+  rerender({ host: nextHost });
+  expect(result.current.loadingModels).toBe(true);
+  act(() => result.current.send());
+  expect(complete).not.toHaveBeenCalled();
+  expect(result.current.catalog).toBeNull();
+  expect(result.current.selectedModel).toBe("");
+  expect(result.current.draft).toBe("保留草稿");
+  expect(result.current.messages).toEqual([]);
+
+  await act(async () =>
+    nextCatalog.resolve({ data: [{ id: "synthetic-next" }], defaultModel: "synthetic-next" }),
+  );
+  await act(async () => result.current.send());
+  expect(complete).toHaveBeenCalledWith(
+    [
+      { role: "system", content: CHAT_SYSTEM_PROMPT },
+      { role: "user", content: "保留草稿" },
+    ],
+    "synthetic-next",
+  );
+});
+
 test("重新激活会话只刷新目录，保留消息和草稿并采用新默认模型", async () => {
   const nextCatalog = deferred<ChatModels>();
   const models = vi.fn<ChatClient["models"]>();
@@ -145,9 +177,10 @@ test.each(
     if (operation === "更换客户端") {
       rerender({ host: nextHost });
       await waitFor(() => expect(result.current.loadingModels).toBe(false));
+      expect(result.current.sending).toBe(false);
+    } else {
+      act(() => result.current.cancel());
     }
-    // 保留现有交互：取消当前发送后，用户可继续发送。
-    act(() => result.current.cancel());
     act(() => result.current.setDraft("当前消息"));
     act(() => result.current.send());
     await act(async () => {

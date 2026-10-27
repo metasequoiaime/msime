@@ -13,9 +13,9 @@
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
-    BracketStyle, FrequencyMode, FrequencyPreferences, InputScheme, NumberKeypadOrder, Preferences,
-    QuoteStyle, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TraditionalVariant,
-    TwentySixKeyNumberLayout, WubiProfile,
+    BracketStyle, FrequencyMode, FrequencyPreferences, GrammarModel, InputScheme,
+    NumberKeypadOrder, Preferences, QuoteStyle, SecondThirdCandidateKeys, ShuangpinProfile,
+    ThemeMode, TouchKeyboardLayout, TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -642,13 +642,116 @@ pub(super) fn insert_input_settings(
     );
 }
 
-/// 桌面宿主（Windows、Linux）导出成账号文档的键值：只有各平台共有的 `input.*` 键。桌面专属的设置（候选窗口、快捷键、皮肤）在账号文档里只有 `platform.macos.*`，那是 macOS 原生偏好的映射，Windows 和 Linux 不写，免得改掉 macOS 的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
+/// 共用 [`export_desktop_settings`] 和 [`apply_desktop_settings`] 的两个桌面宿主。它们共用各平台的 `input.*` 键，但设置页能改的共享偏好不一样，只有本机能改、运行时也读的键才导出和应用：上传是合并进账号文档的，本机改不了的键上传的只是默认值，会盖掉别的设备上用户的选择；应用本机没有开关的键，用户既看不到也改不回来。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DesktopHost {
+    /// 原生设置窗口只提供语法模型；快捷短语混输、符号模式、日期菜单、第二三候选和 AI 候选翻译都没有开关。
+    Windows,
+    /// 共享设置页：快捷短语混输、语法模型、符号模式、日期菜单、第二三候选和 AI 候选翻译都能改，运行时都读。思考强度的两个选项页面上有，但 Linux 的服务提供程序固定不思考，不导出。
+    Linux,
+}
+
+impl DesktopHost {
+    /// client-services 在宿主本机编译：Windows 的 Server 与原生设置、Linux 的 IBus 与 Fcitx5 各自链接自己的一份。macOS 不走桌面导出（它上传 `platform.macos.*`），这里读作 Linux 不会被用到。
+    const CURRENT: Self = if cfg!(target_os = "windows") {
+        Self::Windows
+    } else {
+        Self::Linux
+    };
+}
+
+/// 桌面宿主（Windows、Linux）导出成账号文档的键值：各平台共有的 `input.*` 键，加上本机设置页能改的共享偏好（见 [`DesktopHost`]）。桌面专属的设置（候选窗口、快捷键、皮肤）在账号文档里只有 `platform.macos.*`，那是 macOS 原生偏好的映射，Windows 和 Linux 不写，免得改掉 macOS 的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
 pub fn export_desktop_settings(
+    preferences: &Preferences,
+) -> BTreeMap<String, AccountPreferenceValue> {
+    export_desktop_settings_for(DesktopHost::CURRENT, preferences)
+}
+
+pub(super) fn export_desktop_settings_for(
+    host: DesktopHost,
     preferences: &Preferences,
 ) -> BTreeMap<String, AccountPreferenceValue> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    insert_grammar_model(&mut settings, preferences);
+    if host == DesktopHost::Linux {
+        insert_quick_phrase_mixing(&mut settings, preferences);
+        insert_local_mode_extras(&mut settings, preferences);
+        insert_second_third_candidate(&mut settings, preferences);
+        insert_bool(&mut settings, "translation.ai", preferences.translation_ai);
+    }
     settings
+}
+
+/// 快捷短语混进普通候选和它的调频：只有声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）提供。
+fn insert_quick_phrase_mixing(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        "mixed_input.quick_phrase",
+        preferences.mixed_input.quick_phrase,
+    );
+    insert_bool(
+        settings,
+        "mixed_input.quick_phrase_frequency",
+        preferences.mixed_input.quick_phrase_frequency,
+    );
+}
+
+/// 语法模型的选择。模型是按需下载的资源包，收到另一台设备选的模型而本机没装时，运行时照常不用语法模型，设置页显示该模型待下载。
+fn insert_grammar_model(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_string(
+        settings,
+        "sentence_association.grammar_model",
+        match preferences.sentence_association.grammar_model {
+            GrammarModel::None => "none",
+            GrammarModel::Wanxiang => "wanxiang",
+            GrammarModel::BaguwenWord => "baguwen_word",
+            GrammarModel::BaguwenCompact => "baguwen_compact",
+            GrammarModel::Baishuang => "baishuang",
+        },
+    );
+}
+
+/// 符号模式（`S`）和日期时间候选里的「📅日期」入口：共享设置页的快捷模式列表（Linux、鸿蒙）提供，原生的 Windows、Android、iOS 设置没有。
+pub(super) fn insert_local_mode_extras(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        "local_modes.symbol",
+        preferences.local_modes.symbol,
+    );
+    insert_bool(
+        settings,
+        "local_modes.date_time_menu",
+        preferences.local_modes.date_time_menu,
+    );
+}
+
+/// 分号、单引号选第二、第三个候选：共享设置页（Linux、鸿蒙）提供，Windows 原生设置有意不放。键位目前只有一种，随开关一起导出。
+pub(super) fn insert_second_third_candidate(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        "second_third_candidate.enabled",
+        preferences.second_third_candidate.enabled,
+    );
+    insert_string(
+        settings,
+        "second_third_candidate.keys",
+        match preferences.second_third_candidate.keys {
+            SecondThirdCandidateKeys::SemicolonQuote => "semicolon_quote",
+        },
+    );
 }
 
 /// 设计改版新增、仍在共享偏好里的键：按键音包、工具栏按钮和语音识别语言。其余新增的 Android 设置在宿主的本地设置文件里，见 [`insert_android_local_settings`]。
@@ -1005,6 +1108,59 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     Ok(())
 }
 
+/// [`insert_grammar_model`] 的反方向。
+fn apply_grammar_model(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string(
+        "sentence_association.grammar_model",
+        |preferences, value| {
+            preferences.sentence_association.grammar_model = match value {
+                "none" => GrammarModel::None,
+                "wanxiang" => GrammarModel::Wanxiang,
+                "baguwen_word" => GrammarModel::BaguwenWord,
+                "baguwen_compact" => GrammarModel::BaguwenCompact,
+                "baishuang" => GrammarModel::Baishuang,
+                _ => return None,
+            };
+            Some(())
+        },
+    )
+}
+
+/// [`insert_quick_phrase_mixing`] 的反方向。
+fn apply_quick_phrase_mixing(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool("mixed_input.quick_phrase", |preferences, value| {
+        preferences.mixed_input.quick_phrase = value
+    })?;
+    applier.set_bool(
+        "mixed_input.quick_phrase_frequency",
+        |preferences, value| preferences.mixed_input.quick_phrase_frequency = value,
+    )
+}
+
+/// [`insert_local_mode_extras`] 的反方向。
+pub(super) fn apply_local_mode_extras(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool("local_modes.symbol", |preferences, value| {
+        preferences.local_modes.symbol = value
+    })?;
+    applier.set_bool("local_modes.date_time_menu", |preferences, value| {
+        preferences.local_modes.date_time_menu = value
+    })
+}
+
+/// [`insert_second_third_candidate`] 的反方向。不认识的键位跳过这一个键，开关照常应用。
+pub(super) fn apply_second_third_candidate(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool("second_third_candidate.enabled", |preferences, value| {
+        preferences.second_third_candidate.enabled = value
+    })?;
+    applier.set_string("second_third_candidate.keys", |preferences, value| {
+        preferences.second_third_candidate.keys = match value {
+            "semicolon_quote" => SecondThirdCandidateKeys::SemicolonQuote,
+            _ => return None,
+        };
+        Some(())
+    })
+}
+
 /// 应用到桌面宿主的结果。
 #[derive(Clone, Debug, PartialEq)]
 pub struct DesktopSettingsApplied {
@@ -1014,8 +1170,17 @@ pub struct DesktopSettingsApplied {
     pub skipped: Vec<String>,
 }
 
-/// 把云端文档里各平台共有的 `input.*` 键应用到桌面宿主的共享偏好，其余键（别的平台的设置）不动。调用方之前应当已经按版本过滤过文档（`edition::filter_downloaded_account_settings`）。
+/// 把云端文档里各平台共有的 `input.*` 键和本机设置页能改的共享偏好（见 [`DesktopHost`]）应用到桌面宿主的共享偏好，其余键（别的平台的设置）不动。调用方之前应当已经按版本过滤过文档（`edition::filter_downloaded_account_settings`）。
 pub fn apply_desktop_settings(
+    local: &Preferences,
+    cloud: &AccountPreferences,
+    schema: &AccountPreferenceSchema,
+) -> Result<DesktopSettingsApplied, AccountError> {
+    apply_desktop_settings_for(DesktopHost::CURRENT, local, cloud, schema)
+}
+
+pub(super) fn apply_desktop_settings_for(
+    host: DesktopHost,
     local: &Preferences,
     cloud: &AccountPreferences,
     schema: &AccountPreferenceSchema,
@@ -1029,6 +1194,16 @@ pub fn apply_desktop_settings(
         skipped: Vec::new(),
     };
     apply_input_settings(&mut applier)?;
+    apply_grammar_model(&mut applier)?;
+    if host == DesktopHost::Linux {
+        apply_quick_phrase_mixing(&mut applier)?;
+        apply_local_mode_extras(&mut applier)?;
+        apply_second_third_candidate(&mut applier)?;
+        // Windows 不应用：它的运行时读 `translation_ai`，原生设置却没有能关掉它的选项。
+        applier.set_bool("translation.ai", |preferences, value| {
+            preferences.translation_ai = value
+        })?;
+    }
     let Applier {
         preferences,
         mut skipped,

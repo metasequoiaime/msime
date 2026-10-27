@@ -228,26 +228,21 @@ struct AccountSettingsView: View {
       .buttonStyle(PressFillButtonStyle())
       .accessibilityIdentifier("accountPersonalDictionary")
       MeDivider()
+      // 没有登录也能进：云剪贴板可以改走自建中继或 WebDAV 网盘，同步方式就在那一页上。
+      NavigationLink {
+        CloudClipboardView()
+      } label: {
+        MeRow(symbol: "doc.on.clipboard.fill", title: "云剪贴板", value: signedIn ? clipboardValue : nil)
+      }
+      .buttonStyle(PressFillButtonStyle())
+      .accessibilityIdentifier("accountCloudClipboard")
       if signedIn {
-        NavigationLink {
-          CloudClipboardView()
-        } label: {
-          MeRow(symbol: "doc.on.clipboard.fill", title: "云剪贴板", value: clipboardValue)
-        }
-        .buttonStyle(PressFillButtonStyle())
-        .accessibilityIdentifier("accountCloudClipboard")
         MeDivider()
         NavigationLink { AccountPublishedContentView() } label: {
           MeRow(symbol: "tray.full.fill", title: "我的发布与收藏")
         }
         .buttonStyle(PressFillButtonStyle())
         .accessibilityIdentifier("accountPublishedContent")
-      } else {
-        Button { showsLogin = true } label: {
-          MeRow(symbol: "doc.on.clipboard.fill", title: "云剪贴板")
-        }
-        .buttonStyle(PressFillButtonStyle())
-        .accessibilityIdentifier("accountCloudClipboard")
       }
     }
   }
@@ -434,11 +429,15 @@ struct AccountSettingsView: View {
   }
 
   /// 「云剪贴板」行尾的条数；本机等待批准、或有其他设备等待本机批准时显示这件事。取不到时这一行不显示值，不为一个数字弹出提示。
+  ///
+  /// 云剪贴板改走了自建中继或 WebDAV 网盘时不显示：这里是账号页，不为一个数字去连中继或网盘，更不能去问水杉账号（那会把这台设备登记到账号的云剪贴板上）。请求带上偏好目录，Rust 在发出前再确认一次，这时已经改成中继就以 `clipboard_source_changed` 拒绝，不发账号请求。
   @MainActor private func loadClipboardCount(id: UUID) async {
     do {
       let deviceName = IOSCloudClipboardDriver.deviceName(UIDevice.current)
+      let preferences = URL(fileURLWithPath: IOSCloudClipboardRelay.preferencesDirectory, isDirectory: true)
       let page = try BackendRustAccount.decode(BackendAccountClient.ClipboardPage.self,
-        try await BackendRustAccount.current().cloudClipboard(["operation": "list", "search": ""], deviceName: deviceName))
+        try await BackendRustAccount.current().cloudClipboard(["operation": "list", "search": ""], deviceName: deviceName,
+                                                              preferencesDirectory: preferences))
       try request.checkCurrent(id)
       let waiting = page.e2e?.pending_devices ?? 0
       if !page.enabled { clipboardValue = "已关闭" }
