@@ -15,6 +15,7 @@ use crate::paths::RuntimePaths;
 use crate::types::SchemeSet;
 use crate::user_dictionary::journal::{open_database, quarantine_corrupt_journal};
 use crate::user_dictionary::replay::{replay, replay_english};
+use crate::user_dictionary::reset::restore_interrupted_reset;
 use crate::wubi::provider::ensure_reverse_indexes;
 
 pub const MAX_CONTENT_ID_LENGTH: usize = 128;
@@ -81,6 +82,8 @@ pub fn prepare_runtime_paths_for(
     fs::create_dir_all(cache)?;
     reject_redirected_directory(user_data)?;
     reject_redirected_directory(cache)?;
+    // 重置途中被杀时日志可能还挪在备份里，先放回来，否则下面会当作没有日志、从空日志开始。
+    restore_interrupted_reset(&result.user(assets::USER_JOURNAL));
     // 不是数据库的日志会在下面的回放中每次启动都失败，让宿主永远无法启动；先把它挪开，从空日志开始。宿主 API 会在进入这里之前上报挪动结果；这里覆盖其余调用方。
     if let Some(moved) = quarantine_corrupt_journal(&result.user(assets::USER_JOURNAL))? {
         eprintln!(
@@ -151,13 +154,15 @@ fn generation_ready(marker: &Path) -> Result<bool> {
     }
 }
 
-/// 打开已经就绪的代次：检查词库副本都在，补上五笔表、反查索引和后来才随资源发布的 n-gram 表，再把当前日志回放一遍。
+/// 打开已经就绪的代次：放回重置途中被杀时挪开的词库，检查词库副本都在，补上五笔表、反查索引和后来才随资源发布的 n-gram 表，再把当前日志回放一遍。
 fn open_ready_generation(
     result: RuntimePaths,
     resources: &Path,
     main_dictionary: bool,
 ) -> Result<RuntimePaths> {
     for name in generation_dictionaries(main_dictionary) {
+        // 重置途中被杀时词库可能还挪在备份里，见 `restore_interrupted_reset`。
+        restore_interrupted_reset(&result.dictionary(name));
         if !is_real_file(&result.dictionary(name)) {
             return Err(EngineError::failed(
                 diagnostics::INCOMPLETE_RUNTIME_GENERATION,
@@ -1042,6 +1047,101 @@ mod tests {
             prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap(),
             paths
         );
+    }
+
+    /// 重置学习数据在把工作主词库挪成 `.msime-pinyin.db.backup.<时间戳>` 之后、新副本改名就位之前被杀：下一次准备把时间戳最新的那份备份放回去、删掉同一时间戳没发布的新副本，学到的词仍在；更旧的备份、以及词库在时出现的备份都不动。
+    #[test]
+    fn a_dictionary_left_aside_by_a_killed_reset_is_put_back() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        fs::create_dir_all(&user).unwrap();
+        learn(&user.join(assets::USER_JOURNAL), "伱", 1);
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        let sibling = |name: &str| paths.dictionaries.join(name);
+        fs::rename(
+            &main,
+            sibling(".msime-pinyin.db.backup.1700000000000000000"),
+        )
+        .unwrap();
+        fs::write(
+            sibling(".msime-pinyin.db.reset.1700000000000000000"),
+            b"fresh copy",
+        )
+        .unwrap();
+        fs::write(sibling(".msime-pinyin.db.backup.999"), b"older").unwrap();
+
+        assert_eq!(
+            prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap(),
+            paths
+        );
+        assert_eq!(
+            weight(&main, "SELECT weight FROM tbl_1_n WHERE value='伱'"),
+            Some(50)
+        );
+        assert!(!sibling(".msime-pinyin.db.backup.1700000000000000000").exists());
+        assert!(!sibling(".msime-pinyin.db.reset.1700000000000000000").exists());
+        assert_eq!(
+            fs::read(sibling(".msime-pinyin.db.backup.999")).unwrap(),
+            b"older"
+        );
+
+        let restored = fs::read(&main).unwrap();
+        fs::write(
+            sibling(".msime-pinyin.db.backup.1800000000000000000"),
+            b"newer",
+        )
+        .unwrap();
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(fs::read(&main).unwrap(), restored);
+        assert_eq!(
+            fs::read(sibling(".msime-pinyin.db.backup.1800000000000000000")).unwrap(),
+            b"newer"
+        );
+    }
+
+    /// 重置在把日志挪成 `.msime_user.db.backup.<时间戳>` 之后被杀：日志放回去，学到的词不会因为下一次准备新建了空日志而丢掉。
+    #[test]
+    fn a_journal_left_aside_by_a_killed_reset_is_put_back() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        fs::create_dir_all(&user).unwrap();
+        let journal = user.join(assets::USER_JOURNAL);
+        learn(&journal, "伱", 1);
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        fs::rename(
+            &journal,
+            user.join(".msime_user.db.backup.1700000000000000000"),
+        )
+        .unwrap();
+        fs::write(
+            user.join(".msime_user.db.reset.1700000000000000000"),
+            b"empty journal",
+        )
+        .unwrap();
+
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v2").unwrap();
+        assert_eq!(
+            weight(&journal, "SELECT count(*) FROM user_dictionary_operations"),
+            Some(1)
+        );
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT weight FROM tbl_1_n WHERE value='伱'"
+            ),
+            Some(50)
+        );
+        assert!(!user
+            .join(".msime_user.db.backup.1700000000000000000")
+            .exists());
+        assert!(!user
+            .join(".msime_user.db.reset.1700000000000000000")
+            .exists());
     }
 
     /// 同一个代次被几方同时准备（iOS 的 App 与键盘扩展、Windows 的 TIP 与 Server、IBus 与 Fcitx5）：每一方都拿到同一个可用的代次，谁也不报错，输掉的一方不留下暂存目录，也不动赢的一方发布的代次。

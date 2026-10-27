@@ -60,7 +60,7 @@ Android 应用不能建硬链接（SELinux）；这里只用同一目录内的 `
 在 `crates/engine`、`crates/host-api`、`crates/client-services`、`crates/client-core` 和 `crates/client-base` 里查了固定名字的暂存路径（`.incoming`、`.tmp`、`.staging`、`.partial`、`.new`、`with_extension`）以及独占新建、改名发布的调用点。词库与运行时准备路径上需要改的只有上面两处，其余的情况：
 
 - `user_dictionary/state.rs` 的 `stage_dictionary_state_for` 独占新建调用方给的目录；唯一调用方 host-api 的 `dictionary_snapshot` 每次在 `snapshot-<随机串>` 临时目录里建它，不会被旧的挡住。但进程被杀时 `snapshot-*` 留在云词库的暂存目录里，没有人清理，只占空间、不挡启动。
-- `user_dictionary/reset.rs` 的重置用带纳秒时间戳的 `.reset.`、`.backup.` 名字，不会被旧文件挡住；被杀时留下的临时文件同样没人清理。另外，若进程恰好在把原词库挪成 `.backup.` 之后、新词库改名就位之前被杀，代次里就缺这个词库，下一次准备报 `Incomplete runtime dictionary generation`，需要手动恢复。这不是固定名字的问题，这次没有改。
+- `user_dictionary/reset.rs` 的重置用带纳秒时间戳的 `.reset.`、`.backup.` 名字，不会被旧文件挡住；被杀时留下的临时文件同样没人清理。另外，若进程恰好在把原词库挪成 `.backup.` 之后、新词库改名就位之前被杀，代次里就缺这个词库，下一次准备报 `Incomplete runtime dictionary generation`。这不是固定名字的问题，这次没有改，后来由[重置途中被杀时放回原文件](2026-10-27-interrupted-reset-restores-originals.md)修复。
 - `host/options.rs` 的翻译 sidecar 用 `tempfile` 的随机名 `.custom-translations-*` 写好再 `persist`，不会被挡；被杀时留下的小文件没人清理。
 - client-core 的 `resources.rs` 安装资源时持有 `resources.lock`、每次一个随机暂存目录，并且已经有 `sweep_abandoned_stages`，没有这类问题。client-core 偏好与 host-api 云词库快照文件的临时名带随机串，并已有清理。host-api 的 `learned_translation` 独占新建遇到已存在当作成功。
 

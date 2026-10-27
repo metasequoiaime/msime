@@ -170,6 +170,46 @@ fn restore(replacements: &[Replacement]) {
     }
 }
 
+/// 重置在把原文件挪成 `.<名字>.backup.<时间戳>` 之后、新副本改名就位之前被杀时，`target` 不在，原文件只剩在备份里：词库缺了代次就打不开（`Incomplete runtime dictionary generation`），日志缺了下一次准备会新建空日志、丢掉学到的词。这里把时间戳最新的那份备份改名放回 `target`，再删掉同一时间戳没来得及发布的 `.reset.` 新副本，被杀的重置就像没发生过，用户再点一次即可。准备代次时在打开词库和日志之前调用。
+///
+/// `target` 在（哪怕是符号链接）时什么也不做；放不回去也不报错，由调用方照常发现文件缺失。做重置的进程若其实还活着（iOS 把它挂起在两次改名之间），它之后发布新副本时在 Unix 上直接替换放回去的原文件，重置照常完成；在 Windows 上替换失败就按原有的回滚把其余文件换回原样，这一个已经是原文件。两种结局都是一套一致的文件。
+pub(crate) fn restore_interrupted_reset(target: &Path) {
+    match fs::symlink_metadata(target) {
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        _ => return,
+    }
+    let (Some(directory), Some(name)) = (
+        target.parent(),
+        target.file_name().and_then(|name| name.to_str()),
+    ) else {
+        return;
+    };
+    let prefix = format!(".{name}.backup.");
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    let newest = entries
+        .flatten()
+        .filter_map(|entry| {
+            let stamp = entry
+                .file_name()
+                .to_str()?
+                .strip_prefix(&prefix)?
+                .to_owned();
+            let order = stamp
+                .parse::<u128>()
+                .ok()
+                .filter(|_| stamp.bytes().all(|byte| byte.is_ascii_digit()))?;
+            is_real_file(&entry.path()).then_some((order, stamp, entry.path()))
+        })
+        .max_by_key(|(order, _, _)| *order);
+    if let Some((_, stamp, backup)) = newest {
+        if fs::rename(&backup, target).is_ok() {
+            remove_ignoring_errors(&affixed(target, ".reset.", &stamp));
+        }
+    }
+}
+
 /// `.<name><infix><stamp>` beside `target`, built on the native string so a profile directory such as `C:\Users\陆傲天` survives unchanged; everything added is ASCII.
 fn affixed(target: &Path, infix: &str, stamp: &str) -> PathBuf {
     let mut name = OsString::from(".");
