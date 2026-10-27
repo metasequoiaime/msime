@@ -20,6 +20,12 @@ jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 mkdir -p "$build_dir/assets/contracts/account-session-layouts"
 cp shared/contracts/account-session-layouts/cases.json "$build_dir/assets/contracts/account-session-layouts/cases.json"
 editor_manifest=platforms/android/tests/device/AndroidManifest.xml
+# 关于彩蛋专项复用已有入口，保持 API 35 的 instrumentation 数量限制。
+if [[ "${MSIME_ANDROID_ABOUT_EASTER_EGG:-0}" == 1 ]]; then
+  editor_manifest="$build_dir/about-easter-egg-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.AboutEasterEggDeviceSmoke/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+fi
 # 世界时钟专项复用一个产品宿主入口，避免超过 API 35 的 100 项 instrumentation 上限。
 if [[ "${MSIME_ANDROID_WORLD_CLOCK:-0}" == 1 ]]; then
   editor_manifest="$build_dir/world-clock-manifest.xml"
