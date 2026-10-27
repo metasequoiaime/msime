@@ -52,6 +52,15 @@ struct WorkerState {
     }
     Completion result{std::move(preferences), std::nullopt, false, std::move(job)};
     if (!result.job.request) return result;
+    const auto action = result.job.request->value("action", Json::object());
+    if (action.value("operation", std::string{}) == "probe" && action.value("trust_remote", false)) {
+      Json saved = action;
+      saved.erase("operation"); saved.erase("trust_remote");
+      if (!snapshot_ || snapshot_->preferences().value("dictionary_sync_webdav", Json::object()) != saved) {
+        result.response = Json{{"action", {{"ok", false}, {"error", "dictionary_sync_not_configured"}}}};
+        return result;
+      }
+    }
     if (!options.is_object()) result.unprepared = true;
     else result.response = shared::run_dictionary_sync(*result.job.request, options, directory, services_);
     return result;

@@ -149,7 +149,7 @@ public:
     else if (theme_data::value(*response)) {
       if (!request.value("save", false)) message = dictionary_sync::probe_passed;
       else message = completion.value("saved", false) ? std::wstring(dictionary_sync::saved) : L"连接正常，但配置没有保存，请重新打开面板后重试。";
-      // 测试通过时 Rust 已让本机的同步状态从网盘现在的样子重新开始，读到的状态作废。
+      // 测试通过后重新读取展示状态；普通探测不修改同步位置或待发改动。
       forget();
     } else message = dictionary_sync::error_message(error_code(*response), true);
     SetWindowTextW(get(notice), message.c_str());

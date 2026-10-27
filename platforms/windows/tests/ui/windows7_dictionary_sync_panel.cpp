@@ -92,8 +92,16 @@ int main() {
     }
     return success(status()).dump();
   };
-  unsigned confirms = 0; bool allowed = false;
-  DictionarySyncWindow window(services, [&](HWND, const wchar_t* title, const wchar_t* text) { assert(std::wstring_view(title) == L"词库同步" && text && *text); ++confirms; return allowed; });
+  unsigned confirms = 0; bool allowed = false; bool change_during_confirmation = false;
+  DictionarySyncWindow window(services, [&](HWND, const wchar_t* title, const wchar_t* text) { assert(std::wstring_view(title) == L"词库同步" && text && *text); ++confirms;
+    if (change_during_confirmation) {
+      change_during_confirmation = false;
+      const auto current = store.load().snapshot;
+      assert(current);
+      const auto changed = store.save(*current, {{{"dictionary_sync_webdav", "password"}, "synthetic-other-password"}});
+      assert(changed.outcome == Outcome::saved);
+    }
+    return allowed; });
   assert(window.create(GetModuleHandleW(nullptr))); const auto host = window.handle(), body = GetDlgItem(host, dictionary_sync_panel_body);
   const auto control = [&](int id) { const auto value = GetDlgItem(body, id); assert(value); return value; };
   const auto wait = [&] { pump([&] { return IsWindowEnabled(control(Form::test)) != FALSE; }); }; wait();
@@ -157,6 +165,10 @@ int main() {
   // 应用密码框留空：沿用已存的应用密码去测试和保存。
   set(Form::username, L"synthetic-b@example.test"); click(Form::save);
   assert(last_probe.at("password") == "synthetic-app-password" && preferences().at("dictionary_sync_webdav").at("username") == "synthetic-b@example.test");
+  // 确认期间另一窗口换了配置，旧恢复不得清掉当前待发改动。
+  operations.clear(); change_during_confirmation = true; click(Form::trust_remote);
+  assert(operations.empty());
+  assert(preferences().at("dictionary_sync_webdav").at("password") == "synthetic-other-password");
   // 停止同步：确认后网盘配置清掉，立即同步不可用。
   const auto before = confirms; click(Form::clear);
   assert(confirms == before + 1 && !preferences().contains("dictionary_sync_webdav") && !IsWindowEnabled(control(Form::sync_now)));
