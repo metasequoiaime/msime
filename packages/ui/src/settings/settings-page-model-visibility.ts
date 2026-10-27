@@ -8,6 +8,16 @@ export const mobileHiddenPageIds: readonly SettingsPageId[] = [
   "plugins",
 ];
 
+/** 宿主报告 `touch_plugin_packs` 时，触屏设置列表照样列出插件页。模块级常量，每次渲染拿到同一个数组。 */
+const touchPluginHiddenPageIds: readonly SettingsPageId[] = mobileHiddenPageIds.filter(
+  (id) => id !== "plugins",
+);
+
+/** 触屏设置列表不列出的页面：宿主有触屏插件页时不藏「插件」。 */
+export function mobileHiddenPages(touchPluginPacks: boolean): readonly SettingsPageId[] {
+  return touchPluginPacks ? touchPluginHiddenPageIds : mobileHiddenPageIds;
+}
+
 export interface SettingsPageModelVisibilityOptions {
   mobilePlatform: boolean;
   settingsPlatform: SettingsPlatform;

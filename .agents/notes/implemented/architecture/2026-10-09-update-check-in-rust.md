@@ -10,6 +10,8 @@ Windows 的原生 WinUI 设置窗口用 C++ 写，用不了这段 TypeScript，�
 
 Linux 的关于页还会异步读取后台检查缓存。缓存读取与手动检查互不等待：用户点「检查更新」以后，迟到的缓存仍能恢复旧下载入口，甚至与「已是最新版本」「暂无可用发行版」同时出现。
 
+初次加载偏好会把更新检查的通道从未指定切换为稳定版。DOM 已提交、按钮已启用，但归属代次和结果重置仍等待普通 effect 时，立即点击会先开始检查，再被初始化的代次递增判为旧请求或被结果重置清掉；公共执行器的迟到初始化也会清掉已经启动的忙碌状态与运行锁。
+
 ## Decision
 
 挑选规则和网络请求在 `crates/client-services/src/update_check.rs`，各宿主都调用它：
@@ -23,6 +25,7 @@ Linux 的关于页还会异步读取后台检查缓存。缓存读取与手动�
   - 鸿蒙：NAPI `updateCheck` → `Settings.ets` 的桥接请求 `update_check`（平台由 ArkTS 固定为 `harmony`）→ 页面的 `checkUpdate`。
 - 共享设置页通过可选的 `SettingsClient.checkUpdate(request)` 拿结果，自己不再联网；页面只保留展示：`fromHostUpdate` 再校验一次发布页地址、安装包名和摘要的形状，`describeInstallerTrust` 写未签名提示和校验命令，`mirrorDownloadUrl` 给国内镜像。宿主没有提供 `checkUpdate`（没有宿主的浏览器预览）时，「关于」页不显示检查更新按钮。
 - 后台缓存只在手动检查开始前预填页面。`useUpdateCheck` 在共享异步执行器接受手动检查时同步记下接管状态并清掉旧下载结果；后续缓存回调无论在检查进行中、成功后还是失败后到达，都不再写页面。平台、版本、版本 id、架构或检查实现变化时重置这个状态，允许为新的归属预填；单独替换缓存读取函数不撤销手动检查的优先级。手动请求的互斥、卸载与归属代次仍由原执行器负责。
+- 归属变化与交互状态的重置在布局阶段完成：`useAsyncGeneration` 在 `useLayoutEffect` 中递增及清理代次，`useAsyncActionRunner` 同阶段重置忙碌状态和运行锁，`useUpdateCheck` 同阶段清空前一个归属的结果及手动检查标记。DOM 首次可点击前已经完成初始化，之后的动作不会被迟到的初始化撤销；切换通道、版本、宿主或卸载仍使旧请求失效。后台记录回包同时核对启动时捕获的同一执行器代次，使缓存和手动检查遵循同一个同步归属边界；保留原有 `active` 清理和手动检查优先级。网络请求、后台记录读取与其他订阅保留普通 effect，不把外部工作搬进布局阶段。该时序遵循 [React 的 `useLayoutEffect` 提交与绘制约定](https://react.dev/reference/react/useLayoutEffect)。
 - 网页不再发出任何 HTTPS 请求，Tauri CSP 的 `connect-src` 只剩 `ipc:` 和 `http://ipc.localhost`。
 - 原生设置窗口的当前版本是编译期宏 `MSIME_WINDOWS_VERSION`：`Build-Client.ps1` 用 `/p:MsimeVersion=<TargetVersion>` 传入，开发构建由工程读 `platforms/windows/version.txt`，和 CMake 给 Server 的值相同。
 - `scripts/test-editions.py` 同时核对 `update_check.rs` 和 `update-manifest.ts` 推导 Windows 安装包名前缀的写法。
@@ -33,6 +36,9 @@ Linux 的关于页还会异步读取后台检查缓存。缓存读取与手动�
 - **只给 Windows 原生加 Rust 导出，共享 React 页面保留自己的 TypeScript 实现** — 改动面小，网页不用接新的宿主方法。但这样规则仍是两份（Rust 和 TypeScript），只是把重复从 C++ 换成了 Rust；用户选择了一次把所有用到这段逻辑的宿主都切过来。
 - **保留现状，只把「检查」做成在共享应用里静默检查、不显示窗口** — 不用动任何逻辑。但结果没有地方显示，用户还是得打开共享应用才能看到，问题没有解决。
 - **只在手动检查结束后拒绝缓存，或保留已有结果优先的写法** — 能在用户等待网络时尽早展示后台找到的版本。但缓存可能在手动检查清空结果之后、返回之前到达；当前的 `current ?? update` 只能保护非空的新版本，保护不了「已是最新」「没有发行版」和失败这些空结果。因此从手动检查被接受时就让缓存退出展示。
+
+- **只在测试点击前等待 `settingsReady()` 或增加查询超时** — 改动局部，既有测试也有这个就绪入口。但原生按钮已经启用时同样能启动随后被丢掉的检查；等待框架冲刷 effect 会隐藏真实的交互窗口，增加超时也无法恢复已失效的请求。
+- **只跳过初次结果清空** — 可以保留第一次点击刚写入的状态，但公共归属 effect 首次仍会递增代次，公共运行锁的 effect 仍会清掉新动作；初次加载引起的通道变化也不是组件初次挂载，不能只特判第一次。
 
 ## Consequences
 
@@ -46,6 +52,8 @@ Linux 的关于页还会异步读取后台检查缓存。缓存读取与手动�
   - Linux 的 Nix 包里为设置页 HTTPS 请求加的 `glib-networking`（`platforms/linux/nix/fcitx5.nix`）现在可能已经不需要了，这次没有改，需要在 Linux 上验证后再决定。
 
 ## Verification
+
+- 首次可点击回归通过受控偏好读取与 `MutationObserver`，在按钮首次提交到 DOM 后立即调用原生 `button.click()`，并确认它当时未被禁用。立即返回与延后返回在旧实现分别丢失新版本提示、丢失运行中状态；公共 runner 的独立回归也会在宿主操作尚未完成时失去互斥。修复后保留新版本结果及忙碌状态，原有通道／版本变化、宿主替换和卸载取消测试继续覆盖旧结果隔离。范围为 jsdom 交互与 hook 生命周期，没有声称完成原生设备验收。审查提出的「新归属提交后、旧缓存 effect 清理前回包」窗口未被受控实验命中：观察到新 DOM 时，旧 passive 清理已经先执行。缓存的代次核对属于布局迁移后的归属约束，不作为第二个已复现缺陷。
 
 - `update-check-pending.test.tsx` 在完整 Linux `SettingsPage` 上点击检查按钮，再分别在检查进行中、已是最新、没有发行版及失败后交回旧缓存；旧实现四项都恢复了旧版本下载块。对照用例确认手动检查之前仍预填缓存、开始后清掉旧下载入口。验证范围是 jsdom 的页面交互，没有在 Linux 原生宿主中制造 IPC 延迟。
 
