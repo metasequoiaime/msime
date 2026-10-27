@@ -316,7 +316,7 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 `smoke.sh --diagnostics` 同时执行 `diagnostics-export-directory.sh <serial>`：原生开发者页经系统选择器向合成文档提供方申请跨 UID 授权，强停产品后再次直接导出，核对取消、撤权、目录删除、已有非空文档保护和写入失败。脚本仅用于专用 AVD，开始时清理合成编辑器包的数据，保留产品数据，结束后恢复产品原来的本机设置；也可在安装原生宿主与 `editor-test.apk` 后单独运行。
 
-原生「皮肤 → 我的」删除回归复用 `SettingsDeviceSmoke`：安装原生宿主与 `editor-test.apk` 后可执行 `adb -s <serial> shell am instrument -e skin-delete true -w app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke`。它使用合成保存项验证长按确认、取消不写盘、删除后的列表刷新、清空保存库和当前设计保留，结束后恢复皮肤库与偏好。`smoke.sh` 的普通与 `--core` 路径都会运行；不带参数的 `SettingsDeviceSmoke` 仍用于 Tauri 合包的共享设置回归。
+原生「皮肤 → 我的」删除回归复用 `SettingsDeviceSmoke`：安装原生宿主与 `editor-test.apk` 后可执行 `adb -s <serial> shell am instrument -e skin-delete true -w app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke`。它使用合成保存项验证点卡片上的「删除」按钮打开确认、取消不写盘、删除后的列表刷新、清空保存库和当前设计保留，结束后恢复皮肤库与偏好。`smoke.sh` 的普通与 `--core` 路径都会运行；不带参数的 `SettingsDeviceSmoke` 仍用于 Tauri 合包的共享设置回归。
 
 剪贴板保存期间的重建回归用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/clipboard-edit-lifecycle.sh emulator-5580 app.msime.android`（API 28 换 `emulator-5566`，拼音版换 `app.msime.android.pinyin`）。它阻塞真实共享存储队列，分别重建 Fragment 视图和 Activity，检查草稿、忙碌状态、成功返回及保存失败后的重试；最后核对条目数、时间戳和固定状态并恢复历史、偏好、图标和引导状态。`smoke.sh` 的普通及 `--core` 路径都会运行这条回归。
 

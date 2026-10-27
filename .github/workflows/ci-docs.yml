@@ -44,7 +44,7 @@ jobs:
     strategy:
       matrix:
         architecture: [arm64, x86_64]
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Report the macOS check for a documentation-only change
@@ -53,7 +53,7 @@ jobs:
   ios:
     # Same name as ci-ios.yml's job, for the same reason.
     name: iOS Simulator
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Report the iOS check for a documentation-only change

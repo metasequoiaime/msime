@@ -8070,3 +8070,47 @@ fn android_keyboard_skin_slots_round_trip_without_changing_legacy_theme() {
     preferences.android_keyboard_skin_dark = Some(format!("design:{}", "x".repeat(129)));
     assert!(preferences.validate().is_err());
 }
+
+#[test]
+fn text_edit_button_order_saved_before_select_line_still_loads() {
+    // 选择行之前保存的文档只列七个动作，用户排过的顺序保留，缺的动作接在末尾。
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut document = serde_json::json!({
+        "format_version": 1, "revision": 3,
+        "preferences": serde_json::to_value(Preferences::default()).unwrap()
+    });
+    document["preferences"]["touch_text_edit_button_order"] = serde_json::json!([
+        "delete",
+        "copy",
+        "paste",
+        "select_all",
+        "cut",
+        "space",
+        "number_pad"
+    ]);
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+    use TextEditButton::*;
+    let snapshot = store.load().unwrap();
+    assert_eq!(snapshot.revision, 3);
+    assert_eq!(
+        snapshot.preferences.touch_text_edit_button_order,
+        vec![Delete, Copy, Paste, SelectAll, Cut, Space, NumberPad, SelectLine]
+    );
+    // 重复的动作补不成完整排列，仍按损坏的偏好拒绝。
+    document["preferences"]["touch_text_edit_button_order"] = serde_json::json!([
+        "copy",
+        "copy",
+        "paste",
+        "select_all",
+        "cut",
+        "space",
+        "number_pad",
+        "delete"
+    ]);
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(PreferencesError::InvalidTextEditButtonOrder)
+    ));
+}
