@@ -81,7 +81,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             tap(key("#+="));
             await(key("，").and(node -> node.isClickable()));
             tap(key("，"));
-            tap(described("切换到字母键盘"));
+            tap(described("返回原键盘"));
             await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
         } catch (Exception | AssertionError error) {
             shellDiscard("screencap -p /data/local/tmp/msime-preferences-failure.png");

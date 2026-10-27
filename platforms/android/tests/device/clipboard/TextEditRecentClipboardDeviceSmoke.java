@@ -99,8 +99,8 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
                 await(field("msime-test-plain").and(node -> equalsText(TEXT + " \n", node.getText())));
                 stage = "editor number shortcut";
                 click("打开数字键盘");
-                await(described("切换到字母键盘"));
-                click("切换到字母键盘");
+                await(described("返回原键盘"));
+                click("返回原键盘");
                 openPanel();
             }
             Rect before = bounds(awaitStableBounds(described("文本编辑面板")));

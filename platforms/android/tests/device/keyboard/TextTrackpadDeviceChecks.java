@@ -127,8 +127,8 @@ final class TextTrackpadDeviceChecks {
             shortcut("插入换行，长按打开符号");
             t.await(t.field("trackpad-editor").and(node -> DeviceSmoke.equalsText(TrackpadEditorActivity.TEXT + " \n", node.getText())));
             shortcut("打开数字键盘");
-            t.await(t.described("切换到字母键盘"));
-            t.tap(t.described("切换到字母键盘"));
+            t.await(t.described("返回原键盘"));
+            t.tap(t.described("返回原键盘"));
             open("edit");
             stage("trackpad mode persistence");
             t.tap(t.described("切换为方向键"));
