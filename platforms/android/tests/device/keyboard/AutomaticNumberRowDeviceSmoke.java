@@ -16,11 +16,14 @@ public class AutomaticNumberRowDeviceSmoke extends DeviceSmoke {
         return "password number row activates, retains across editors and resets after IME switching without changing preferences";
     }
 
+    /** 本机旧的「数字行」键：键盘建会话前会把它迁进共享偏好，测试开始前从本地设置里拿掉，免得上一次留下的值把手动数字行打开。 */
+    private static final String LEGACY_NUMBER_ROW = "platform.android.number_row";
+
     @Override protected void runChecks() throws Exception {
         File local = new File(getTargetContext().getFilesDir(), "bootstrap/state/android-settings.json");
         byte[] original = local.exists() ? Files.readAllBytes(local.toPath()) : null;
-        byte[] disabled = new JSONObject().put("version", 1).put("settings", new JSONObject()
-            .put("platform.android.number_row", false)).toString().getBytes(StandardCharsets.UTF_8);
+        File preferences = sharedPreferencesFile();
+        byte[] originalPreferences = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
         String otherIme = null;
         for (String candidate : shellOutput("ime list -s").split("\\s+")) {
             if (!candidate.isEmpty() && !candidate.startsWith("app.msime.android/")) {
@@ -32,7 +35,16 @@ public class AutomaticNumberRowDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("A second enabled IME is required");
         try {
             stage = "manual number row disabled";
-            publish(local, disabled);
+            if (original != null) {
+                JSONObject document = new JSONObject(new String(original, StandardCharsets.UTF_8));
+                JSONObject settings = document.optJSONObject("settings");
+                if (settings != null && settings.has(LEGACY_NUMBER_ROW)) {
+                    settings.remove(LEGACY_NUMBER_ROW);
+                    publish(local, document.toString().getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            // 手动数字行是共享偏好 touch_number_row。
+            putSharedPreference("touch_number_row", false);
             restartIme();
             openEditor();
             awaitStableBounds(key("q"));
@@ -73,12 +85,15 @@ public class AutomaticNumberRowDeviceSmoke extends DeviceSmoke {
             shellDiscard("ime set app.msime.android/.MSIMEInputService");
             awaitSelectedIme("app.msime.android/.MSIMEInputService");
             awaitStableBounds(key("1"));
-            if (!java.util.Arrays.equals(disabled, Files.readAllBytes(local.toPath())))
+            if (new JSONObject(new String(Files.readAllBytes(preferences.toPath()), StandardCharsets.UTF_8))
+                    .getJSONObject("preferences").optBoolean("touch_number_row", false))
                 throw new AssertionError("Automatic mode modified the saved preference");
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(local.toPath());
             else publish(local, original);
+            if (originalPreferences == null) Files.deleteIfExists(preferences.toPath());
+            else publish(preferences, originalPreferences);
             restartIme();
         }
     }

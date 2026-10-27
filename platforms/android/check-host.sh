@@ -977,6 +977,23 @@ if ! rg -q 's\.imeNineKeyQuickPunctuation\.show\(\)' <<< "$symbol_key_body" \
   echo "The Android nine-key 1 key must lay quick punctuation into the candidate strip until the next Engine transition, and 符 must open the symbol panel from the bottom row" >&2
   exit 1
 fi
+# 触屏按键布局样式与顶部数字行（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：排布和迁移规则由 TouchKeyStyleSmoke 覆盖，接线在 InputMethodService、云同步和设置页里，JVM 冒烟碰不到，这里钉住：本机旧的长空格和数字行两个键只有迁移读（AndroidLocalSettings 声明它们、KeyLayoutStyleMigration 读后删掉）；云同步导出前和键盘读实时偏好前先迁移；键盘从共享偏好读样式与数字行，变了经 touchGeometryKey 触发重画，底行签名带着样式；14 键与 18 键的字母块上方画顶部数字行。
+style_migration="$repo_root/platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java"
+legacy_readers=$(rg -l 'AndroidLocalSettings\.(NUMBER_ROW|LONG_SPACE_LAYOUT)\b' "$repo_root/platforms/android/java" | sed "s#^$repo_root/##" | LC_ALL=C sort | tr '\n' ' ')
+if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java " ]] \
+  || ! sed -n '/public static Round run(/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/account/RustCloudSync.java" \
+    | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(context, preferencesDirectory\);\n\s*JSONObject inputs' \
+  || ! sed -n '/private EngineStartOptions withLivePreferences(/,/^    }$/p' "$account_service" \
+    | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(this, directory\);\n\s*String response = candidateSkinResolver\.read\(directory\);' \
+  || ! rg -q 'removal\.put\(AndroidLocalSettings\.LONG_SPACE_LAYOUT, null\);' "$style_migration" \
+  || ! rg -q 'removal\.put\(AndroidLocalSettings\.NUMBER_ROW, null\);' "$style_migration" \
+  || ! rg -q '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled;' "$account_service" \
+  || ! rg -q 'preferences\.optBoolean\(TouchKeyStyle\.NUMBER_ROW_PREFERENCE, false\)' "$account_service" \
+  || ! rg -q '\+ ":" \+ english \+ ":" \+ style' "$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java" \
+  || ! sed -n '/private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows" | rg_q_stdin 'if \(builtNumberRow\) addNumberRow\(rows\.size\(\)\);'; then
+  echo "Android touch key layout styles must read the shared preferences, migrate the two legacy local keys before any settings export or live read, re-render when they change, and draw the number row on 14/18 keys" >&2
+  exit 1
+fi
 # 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。
 nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
 for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \

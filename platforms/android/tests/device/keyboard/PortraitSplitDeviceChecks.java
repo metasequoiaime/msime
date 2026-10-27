@@ -122,8 +122,9 @@ final class PortraitSplitDeviceChecks {
             focusEditor();
             expectSplit(true);
             test.stage = "tablet number row and bounded split key widths";
-            localValues.put("platform.android.number_row", true);
-            test.publish(local, localDocument.toString().getBytes(StandardCharsets.UTF_8));
+            // 顶部数字行是共享偏好 touch_number_row（本机旧键 platform.android.number_row 只用于迁移）。
+            snapshot.put("touch_number_row", true);
+            setPortrait(false);
             for (String tabletSize : new String[] {"1600x1000", "2000x1600", "2800x1800", "2000x1600"}) {
                 test.stage = "responsive landscape split " + tabletSize;
                 resize(tabletSize, true, true);
