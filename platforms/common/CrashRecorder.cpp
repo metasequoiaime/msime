@@ -22,6 +22,7 @@
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#include <sys/ucontext.h>
 #endif
 #if !defined(__linux__) && __has_include(<execinfo.h>)
 #include <execinfo.h>
@@ -495,22 +496,28 @@ void crash_signal(int number, siginfo_t *info, void *context) {
       }
       summary.text("\n");
       write_all(fd, summary.data, summary.size);
-#if defined(__linux__)
+#if defined(__linux__) || defined(__APPLE__)
       // 先保存故障指令，再尽力展开；损坏的栈即使展开失败，也保留直接故障位置。
       auto *machine = static_cast<ucontext_t *>(context);
       uintptr_t pc = 0;
       if (machine) {
-#if defined(__aarch64__)
+#if defined(__APPLE__) && defined(__aarch64__)
+        if (machine->uc_mcontext) pc = __darwin_arm_thread_state64_get_pc(machine->uc_mcontext->__ss);
+#elif defined(__APPLE__) && defined(__x86_64__)
+        if (machine->uc_mcontext) pc = machine->uc_mcontext->__ss.__rip;
+#elif defined(__linux__) && defined(__aarch64__)
         pc = machine->uc_mcontext.pc;
-#elif defined(__x86_64__)
+#elif defined(__linux__) && defined(__x86_64__)
         pc = machine->uc_mcontext.gregs[REG_RIP];
-#elif defined(__i386__)
+#elif defined(__linux__) && defined(__i386__)
         pc = machine->uc_mcontext.gregs[REG_EIP];
 #endif
       }
       static Buffer frame;
       frame.size = 0;
       if (pc) { posix_frame(frame, pc); write_all(fd, frame.data, frame.size); }
+#endif
+#if defined(__linux__)
       static UnwindFrames frames;
       frames.count = 0;
       _Unwind_Backtrace(collect_frame, &frames);
