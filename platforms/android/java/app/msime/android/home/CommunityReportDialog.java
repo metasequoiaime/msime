@@ -25,7 +25,17 @@ import com.google.android.material.textfield.TextInputLayout;
 final class CommunityReportDialog {
     private CommunityReportDialog() {}
 
+    /** 在工作线程上发出举报，返回要显示的失败说明；受理时是空字符串。 */
+    interface Reporter {
+        String report(Context context, String reason, String detail);
+    }
+
     static void show(Fragment fragment, CommunityCatalog.Item item) {
+        show(fragment, item.name(), (context, reason, detail) -> new CommunityCatalog(context).report(item, reason, detail));
+    }
+
+    /** 举报一个不经 {@link CommunityCatalog} 列出的作品（社区插件）：原因和说明的规则相同，发出举报的那一步由 `reporter` 决定。 */
+    static void show(Fragment fragment, String name, Reporter reporter) {
         Context context = fragment.requireContext();
         int padding = DimensionPolicy.pixels(context, 20);
         LinearLayout form = LayoutPolicy.column(context);
@@ -49,7 +59,7 @@ final class CommunityReportDialog {
         form.addView(detailField);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(context)
-            .setTitle("举报「" + item.name() + "」")
+            .setTitle("举报「" + name + "」")
             .setView(form)
             .setNegativeButton("取消", null)
             .setPositiveButton("提交", null)
@@ -67,7 +77,7 @@ final class CommunityReportDialog {
                     return;
                 }
                 dialog.dismiss();
-                HostTask.runNetwork(fragment, worker -> new CommunityCatalog(worker).report(item, reason, text),
+                HostTask.runNetwork(fragment, worker -> reporter.report(worker, reason, text),
                     failure -> {
                         if (fragment.getView() == null) return;
                         MsToast.show(fragment.requireContext(), failure == null || failure.isEmpty()

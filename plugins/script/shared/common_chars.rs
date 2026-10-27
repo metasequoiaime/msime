@@ -98,7 +98,7 @@ const KANA: u32 = 2;
 ///
 /// ASCII 字节在循环里直接跳过；多字节字符交给不内联的 [`scalar_flags`]，让循环体保持很小：wasmi 在每轮循环里按循环体词法上的全部指令扣 fuel，慢路径内联进来会让每个 ASCII 字节都付它的钱。
 ///
-/// 这是判定规则的参照实现，不适合在候选窗口里逐行调用：实测每个常用汉字约 200–290 fuel、每个 ASCII 字节约 35，扫满 20 行会超过 `candidates` 的单次上限。hide-rare-chars（`src/scan.rs`）和 rare-chars-last（`src/rare.rs`）各有按 fuel 写的扫描，判定和这里逐字相同。
+/// 这是判定规则的参照实现，不适合在候选窗口里逐行调用：实测每个常用汉字约 200–290 fuel、每个 ASCII 字节约 35，扫满 20 行会超过 `candidates` 的单次上限。hide-rare-chars 和 rare-chars-threshold（共用 `shared/rare_scan.rs`）、rare-chars-last（`src/rare.rs`）各有按 fuel 写的扫描，判定和这里逐字相同。
 pub fn classify(text: &[u8]) -> Row {
     let mut flags = 0;
     let mut i = 0;

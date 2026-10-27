@@ -1,0 +1,11 @@
+{"event": "command", "key": true, "trigger": "now", "time": {"date": 20261026, "minute": 845, "weekday": 1, "utc_offset": 480}}
+{"event": "command", "key": true, "trigger": "now", "argument": "", "time": {"date": 20270101, "minute": 0, "weekday": 5, "utc_offset": -210}}
+{"event": "command", "key": true, "trigger": "now", "time": {"date": 20261231, "minute": 1439, "weekday": 4, "utc_offset": 0}}
+{"event": "command", "key": true, "trigger": "now", "time": {"date": 20240229, "minute": 545, "weekday": 4, "utc_offset": 345}}
+{"event": "command", "key": true, "trigger": "now", "time": {"date": 20261025, "minute": 60, "weekday": 7, "utc_offset": 840}}
+{"event": "command", "key": true, "trigger": "now", "time": {"date": 20260704, "minute": 720, "weekday": 6, "utc_offset": -720}}
+{"event": "command", "key": true, "trigger": "now", "time": {"date": 10101, "minute": 1, "weekday": 1, "utc_offset": 0}}
+{"event": "command", "key": true, "trigger": "now", "time": {"date": 99991231, "minute": 1439, "weekday": 5, "utc_offset": -60}}
+{"event": "command", "key": true, "trigger": "now"}
+{"event": "command", "key": true, "trigger": "now", "argument": "x", "time": {"date": 20261026, "minute": 845, "weekday": 1, "utc_offset": 480}}
+{"event": "command", "key": true, "trigger": "now", "argument": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl", "time": {"date": 20261026, "minute": 845, "weekday": 1, "utc_offset": 480}}

@@ -14,7 +14,7 @@ permissions:
 jobs:
   cancel:
     name: Cancel queued runs of the closed pull request
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Cancel queued pull request runs

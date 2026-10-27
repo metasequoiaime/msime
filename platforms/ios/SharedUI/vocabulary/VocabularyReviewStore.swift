@@ -15,6 +15,8 @@ struct VocabularyWordbook: Equatable, Identifiable {
   var total: Int
   /// A bundled book cannot be deleted; an imported one can.
   var builtin: Bool
+  /// 单词本插件（`pack-<插件 id>`）：在「插件」页卸载，不能在这里删除。
+  var pack = false
 }
 
 struct VocabularyCard: Equatable {
@@ -119,6 +121,8 @@ struct VocabularyReviewStore {
     let request = try JSONSerialization.data(withJSONObject: [
       "directory": root.path,
       "resources": bundleRoot.path,
+      // 单词本插件装在共享状态目录的 `plugins/` 里，与「插件」页和键盘读的是同一份；传了它，插件词书列在内置书之后、导入的词表之前。
+      "plugins": root.appendingPathComponent("plugins", isDirectory: true).path,
       "day": Self.today(),
       "action": action,
     ])
@@ -159,7 +163,8 @@ struct VocabularyReviewStore {
           id: id,
           name: book["name"] as? String ?? id,
           total: SharedNumber.nonnegativeInt(book["total"]) ?? 0,
-          builtin: book["builtin"] as? Bool ?? false)
+          builtin: book["builtin"] as? Bool ?? false,
+          pack: book["pack"] as? Bool ?? false)
       }
     }
     if let settings = value["settings"] as? [String: Any] {

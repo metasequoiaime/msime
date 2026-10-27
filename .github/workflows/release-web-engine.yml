@@ -17,7 +17,7 @@ permissions: {contents: read}
 concurrency: {group: release-web-engine, cancel-in-progress: false}
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 90
     steps:
       # 发布只能从 main：npm 的 latest 会被 ^ 版本范围和不带版本号的 CDN 地址自动取走，从哪个分支发就决定了所有接入方拿到什么，所以必须是走过发版 PR 的 main（AGENTS.md「发版」）。只构建不发布时任何分支都可以。放在第一步，选错分支几秒内就失败，不用等构建跑完。

@@ -11,7 +11,7 @@ permissions: {contents: read}
 concurrency: {group: package-definitions-windows, cancel-in-progress: false}
 jobs:
   render:
-    runs-on: windows-2025
+    runs-on: depot-windows-2025-8
     timeout-minutes: 20
     env:
       PYTHONUTF8: '1'

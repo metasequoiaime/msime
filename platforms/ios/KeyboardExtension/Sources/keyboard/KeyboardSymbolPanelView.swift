@@ -17,11 +17,15 @@ final class KeyboardSymbolPanelView: UIView {
     let symbols: @Sendable (String) throws -> [String]
     /// The symbols matching the typed letters, or `nil` when the letters leave nothing to search for.
     var search: (@Sendable (String) throws -> [String]?)?
+    /// 符号集插件的各组；打开面板时读一次，装上或卸下插件后重开面板就是最新的。
+    var pluginGroups: () -> [KeyboardEmojiCatalog.PluginSymbolGroup] = { [] }
 
-    static func engine(resources: String) -> Catalog {
+    /// `plugins` 是插件目录（`<共享状态目录>/plugins`），没有时不读符号集插件。
+    static func engine(resources: String, plugins: String? = nil) -> Catalog {
       Catalog(parents: { try KeyboardEmojiCatalog.symbolParents(resources: resources) },
               symbols: { try KeyboardEmojiCatalog.loadSymbols(resources: resources, parent: $0) },
-              search: { try KeyboardEmojiCatalog.searchSymbols(resources: resources, query: $0) })
+              search: { try KeyboardEmojiCatalog.searchSymbols(resources: resources, query: $0) },
+              pluginGroups: { plugins.map { KeyboardEmojiCatalog.pluginSymbolGroups(resources: resources, plugins: $0) } ?? [] })
     }
   }
 
@@ -90,6 +94,8 @@ final class KeyboardSymbolPanelView: UIView {
   private let onDelete: () -> Void
   private let onClose: () -> Void
   private let catalog: Catalog?
+  /// 打开面板时读到的符号集插件 `symbols` 组，搜索接在内置结果后面。
+  private let pluginGroups: [KeyboardEmojiCatalog.PluginSymbolGroup]
   private let loadQueue = DispatchQueue(label: "app.msime.ios.symbol-catalog", qos: .userInitiated)
   private var loadGeneration: UInt64 = 0
   private var entries: [Entry]
@@ -122,7 +128,10 @@ final class KeyboardSymbolPanelView: UIView {
     // Listing the parents is one small grouped query; without a readable catalog the phone categories stand alone.
     let parents = (try? catalog?.parents()) ?? []
     let common = Category(title: Self.categories[0].title, symbols: Self.commonSymbols(recents: recents))
-    entries = [Entry.fixed(common)] + Self.categories.dropFirst().map(Entry.fixed) + parents.map { Entry.catalog(parent: $0) }
+    // 符号集插件的 `symbols` 组：每个插件一个分类，以插件名为标题，排在内置分类之后（`pluginSymbolCategories`）。
+    pluginGroups = (catalog?.pluginGroups() ?? []).filter { $0.tab == "symbols" }
+    let plugins = KeyboardEmojiCatalog.pluginSymbolCategories(pluginGroups).map { Entry.fixed(Category(title: $0.title, symbols: $0.symbols)) }
+    entries = [Entry.fixed(common)] + Self.categories.dropFirst().map(Entry.fixed) + parents.map { Entry.catalog(parent: $0) } + plugins
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSymbolPanel"
     backgroundColor = surface
@@ -340,8 +349,13 @@ final class KeyboardSymbolPanelView: UIView {
     }
     setStatus(nil)
     let generation = loadGeneration
+    // 插件条目接在内置结果后面，同一个符号只列一次。
+    let plugins = pluginGroups.flatMap { $0.matches(query) }
     loadQueue.async { [weak self] in
-      let result = Result { try search(query) ?? [] }
+      let result = Result { try search(query) ?? [] }.map { found in
+        var seen = Set(found)
+        return found + plugins.filter { seen.insert($0).inserted }
+      }
       DispatchQueue.main.async {
         guard let self, self.loadGeneration == generation, self.searchQuery == query else { return }
         switch result {

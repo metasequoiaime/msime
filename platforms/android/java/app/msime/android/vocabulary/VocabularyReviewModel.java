@@ -35,8 +35,12 @@ public final class VocabularyReviewModel {
         return parsed;
     }
 
-    /** One word list the session can draw from. */
-    public record Wordbook(String id, String name, int total, boolean builtin) {}
+    /** One word list the session can draw from. `pack` 为真时是单词本插件（`pack-<插件 id>`），在插件页卸载，这里不能删除。 */
+    public record Wordbook(String id, String name, int total, boolean builtin, boolean pack) {
+        public Wordbook(String id, String name, int total, boolean builtin) {
+            this(id, name, total, builtin, false);
+        }
+    }
 
     /** One card, already resolved from the wordbook by the shared layer. */
     public record Card(String word, String phonetic, String meaning) {}

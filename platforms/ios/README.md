@@ -154,6 +154,8 @@ iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选�
 
 通过 Google 登录使用锁定的 GoogleSignIn 10.0.0，经同一个 CocoaPods workspace 只链接进主 App（`Podfile` 里键盘扩展是独立的顶层 target，不嵌套在 App 下，所以不继承它）。流程与 Android 相同：经 Rust 的 `google_challenge` 拿 nonce，用 SDK 取得带这个 nonce 的 ID token，再交给 Rust 的 `google_token_login` 换成后端会话；拿到 token 后立即 `signOut()`，不在钥匙串里保留 Google 会话。`project.yml` 的 Info.plist 写着 iOS 类型 OAuth client 的 `GIDClientID`、倒序的回调 URL scheme，以及与 Android 共用的 web client `GIDServerClientID`，后者决定 ID token 的 audience。iOS client 建在 Google Cloud 里，仓库之外；bundle ID 变了要另建一个。不装 pod 的模拟器构建没有 GoogleSignIn，登录面板不显示 Google 按钮。设计取舍见 [iOS 通过 Google 登录](../../.agents/notes/implemented/feature/2026-10-08-ios-google-sign-in.md)。
 
+设置根页的「插件」（`App/Sources/plugins/`）照共享设置页的插件页画成原生页面，分「我的插件 / 社区插件」两段：只列在 iOS 上起作用的短语表、指令表、符号集、单词本、`keys` 模式的音效包和辅助码表，能导入 `.zip`（先复制进 App 的临时目录，再交给 `msime_client_plugins` 的 `import`）、新建和编辑四种文本类插件（`authoring_load` / `authoring_save`，检查规则移植在 `PluginEditorModel.swift`），社区插件经 `msime_client_community` 的 `plugin_*` 操作，带 App Group 的共享状态目录作 `state_root`。包装在 `<共享状态目录>/plugins`，键盘、背单词和设置 App 读同一份。键盘的「更多 → 本地输入」在 `local_modes.command` 打开时多一个「指令」，把 `/` 当标点交给会话进 / 模式；符号面板和表情面板的颜文字页经 `msime_client_emoji_catalog_request` 的 `list_plugin_symbol_groups` 列出符号集插件。决定和取舍见[决策笔记](../../.agents/notes/implemented/feature/2026-10-26-ios-plugins-page.md)。
+
 ## 按键延迟
 
 一次按键的成本由 `KeystrokeLatencyTests` 逐键计时，共享层那一侧由 `cargo run -p msime-host-api --example keystroke_latency <verified-resources>` 单独测。两者都报分布而不是均值：掉帧来自尾部，而均值会把它藏在同一个词里那些便宜的键后面。

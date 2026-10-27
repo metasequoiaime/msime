@@ -41,7 +41,7 @@ struct VocabularyReviewSettingsView: View {
         Picker("词书", selection: wordbookBinding) {
           Text("未选择").tag("")
           ForEach(status.wordbooks) { book in
-            Text("\(book.name)（\(book.total) 词）").tag(book.id)
+            Text(book.pack ? "\(book.name)（插件，\(book.total) 词）" : "\(book.name)（\(book.total) 词）").tag(book.id)
           }
         }
         .accessibilityIdentifier("vocabularyWordbookPicker")
@@ -52,7 +52,7 @@ struct VocabularyReviewSettingsView: View {
         .accessibilityIdentifier("vocabularyNewPerDayStepper")
         Button("导入词表（CSV / TXT）") { picking = true }
           .accessibilityIdentifier("vocabularyImportButton")
-        if let book = status.wordbooks.first(where: { $0.id == status.wordbook }), !book.builtin {
+        if let book = status.wordbooks.first(where: { $0.id == status.wordbook }), !book.builtin, !book.pack {
           Button("删除这个词表", role: .destructive) { act { try store.removeWordbook(book.id) } }
             .accessibilityIdentifier("vocabularyRemoveButton")
         }

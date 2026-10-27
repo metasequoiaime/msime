@@ -53,4 +53,5 @@ Status: implemented
 - 共享设置与社区的 vitest 全部通过，桌面和鸿蒙的类型检查、lint 通过。
 - 编译机上 `ohpm install`、`hvigorw assembleHap --no-daemon` 成功（原生库和语音 HAR 借另一份检出暂存的），改动的 `.ets` 没有 ArkTS 告警。
 - 手机布局用无头浏览器按 390 px 宽截了列表、音效包详情、新建、编辑和社区页。
+- 审查时合并 `develop`：插件指南同时保留 Android、iOS 已新增的原生插件页和本分支的鸿蒙触屏能力，解决六处平台支持说明冲突。合并后手机插件设置 8 项测试、鸿蒙共享设置构建及键盘逻辑/音效渲染回归通过。本轮 quick 的 workspace、Android、wasm/clippy 和 Android Java 均通过；公共 Windows runner 契约待 #9986，系统盘剩余 33 GiB 时在新建 Linux 构建树之前停止，未声称完整 quick 通过。
 - 没有覆盖：没有鸿蒙设备或模拟器；手机上的 .zip 选择器、键盘读到镜像的符号集和短语表、「指令」格子进入 / 模式都没有在设备上验证。

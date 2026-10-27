@@ -20,6 +20,8 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     case category(KeyboardEmojiCatalog.Category)
     /// 水杉娘表情包，排在最前。
     case stickers
+    /// 符号集插件的一组颜文字，排在颜文字的 All 之后。
+    case plugin(KeyboardEmojiCatalog.PluginSymbolGroup)
 
     var title: String {
       switch self {
@@ -27,6 +29,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       case .recentKaomoji: return "最近颜文字"
       case .category(let category): return category.title
       case .stickers: return KeyboardStickerCatalog.pack
+      case .plugin(let group): return group.title
       }
     }
   }
@@ -35,6 +38,8 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   /// 点一张表情包；没有它时面板不显示表情包分类。
   private let onSticker: ((KeyboardStickerCatalog.Sticker) -> Void)?
   private let stickers: [KeyboardStickerCatalog.Sticker]
+  /// 符号集插件的颜文字组，打开面板时读一次；搜索颜文字时接在内置结果后面。
+  private let pluginKaomoji: [KeyboardEmojiCatalog.PluginSymbolGroup]
   private let stickerQueue = DispatchQueue(label: "app.msime.ios.sticker-thumbnails", qos: .userInitiated)
   /// 解码好的格子缩略图；一屏只看得到十几张，留几屏的量就够，不把 66 张全留在键盘扩展有限的内存里。
   private let stickerThumbnails: NSCache<NSURL, UIImage> = {
@@ -105,8 +110,10 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     onABC: (() -> Void)? = nil,
     onCatalogChange: (() -> Void)? = nil,
     stickers: [KeyboardStickerCatalog.Sticker] = KeyboardStickerCatalog.bundled,
-    onSticker: ((KeyboardStickerCatalog.Sticker) -> Void)? = nil
+    onSticker: ((KeyboardStickerCatalog.Sticker) -> Void)? = nil,
+    pluginKaomoji: [KeyboardEmojiCatalog.PluginSymbolGroup] = []
   ) {
+    self.pluginKaomoji = KeyboardEmojiCatalog.pluginKaomojiGroups(pluginKaomoji)
     self.onInsert = onInsert
     self.onSticker = onSticker
     self.stickers = onSticker == nil ? [] : stickers
@@ -122,6 +129,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       + KeyboardEmojiCatalog.categories.map(Tab.category)
       + (KeyboardKaomojiRecents.stored.isEmpty ? [] : [.recentKaomoji])
       + [.category(KeyboardEmojiCatalog.kaomoji)]
+      + self.pluginKaomoji.map(Tab.plugin)
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardEmojiPicker"
     // 在按键区里透出键盘自己的背景，和被面板替换掉的按键底下一样。
@@ -398,6 +406,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     case .recentKaomoji: return (nil, "clock.arrow.circlepath")
     case .category(let category) where category.isKaomoji: return ("^_^", nil)
     case .stickers: return (nil, nil)
+    case .plugin(let group): return (String(group.title.prefix(2)), nil)
     case .category(let category):
       return (categoryGlyphs[category.group] ?? String(category.title.prefix(1)), nil)
     }
@@ -430,7 +439,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
 
   private var showsKaomoji: Bool {
     switch currentTab {
-    case .recentKaomoji: return true
+    case .recentKaomoji, .plugin: return true
     case .category(let category): return category.isKaomoji
     default: return false
     }
@@ -527,6 +536,10 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     case .stickers:
       complete = true
       reloadCatalog()
+    case .plugin(let group):
+      items = group.items.map { KeyboardEmojiCatalog.Item(text: $0, annotation: "", group: group.title) }
+      complete = true
+      reloadCatalog()
     }
   }
 
@@ -580,6 +593,15 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     items.append(contentsOf: page.items)
     nextOffset = page.nextOffset
     complete = page.complete
+    // 搜索颜文字时，插件组里匹配的条目在内置结果读完之后接上，同一个颜文字只列一次。
+    if complete, let query = searchQuery, searchesKaomoji {
+      var seen = Set(items.map(\.text))
+      for group in pluginKaomoji {
+        for text in group.matches(query) where seen.insert(text).inserted {
+          items.append(KeyboardEmojiCatalog.Item(text: text, annotation: "", group: group.title))
+        }
+      }
+    }
     reloadCatalog()
     // More pages load on scroll, so a page that does not fill the grid (a wide iPad keyboard) would otherwise never be followed.
     grid.layoutIfNeeded()
@@ -667,6 +689,8 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     searchQuery = ""
     if availableTabs.indices.contains(selectedTab), case .category(let category) = availableTabs[selectedTab] {
       searchesKaomoji = category.isKaomoji
+    } else if availableTabs.indices.contains(selectedTab), case .plugin = availableTabs[selectedTab] {
+      searchesKaomoji = true
     } else {
       searchesKaomoji = false
     }

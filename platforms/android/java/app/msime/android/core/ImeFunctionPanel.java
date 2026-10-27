@@ -282,7 +282,7 @@ final class ImeFunctionPanel {
             longPress);
     }
 
-    /** 本地输入沿用主菜单图标网格，三列三行，不再给每项铺一块重底色。 */
+    /** 本地输入沿用主菜单图标网格，不再给每项铺一块重底色。九项是三列三行；加上 `/` 指令的十项排成四列三行，面板高度不变，不用上下滚动。 */
     private void renderLocalInput() {
         List<FunctionPanelView.Entry> entries = new ArrayList<>();
         List<Boolean> enabled = new ArrayList<>();
@@ -297,6 +297,7 @@ final class ImeFunctionPanel {
                 case KAOMOJI -> "顔";
                 case TEMPORARY_JAPANESE -> "あ";
                 case CHAIZI -> "拆";
+                case COMMAND -> "/";
             };
             entries.add(FunctionPanelView.Entry.glyph(mode.title(), mode.title(), glyph, () -> {
                 s.closeMoreTools();
@@ -304,7 +305,8 @@ final class ImeFunctionPanel {
             }, null));
             enabled.add(s.supportsLocalTools() && s.localModeEnabled(mode));
         }
-        renderChooser("本地输入", entries, enabled, 3, 3);
+        int columns = entries.size() > 9 ? 4 : 3;
+        renderChooser("本地输入", entries, enabled, columns, (entries.size() + columns - 1) / columns);
     }
 
     /** AI 辅助只呈现回复与润色两个入口，图标和标签与主菜单一致。 */

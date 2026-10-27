@@ -293,6 +293,8 @@ const LAYER_SHARE: number = 1.25;
 const LANGUAGE_SHARE: number = 1.05;
 const PUNCTUATION_SHARE: number = 1;
 const SPACE_SHARE: number = 4;
+// 英文 26 键底行在空格左边多一个句点（份额 1），这一份从空格里让出，与 iOS `englishPhoneSpaceWeight`、Android `DESIGN_ENGLISH_SPACE_WEIGHT` 相同。
+const ENGLISH_SPACE_SHARE: number = SPACE_SHARE - PUNCTUATION_SHARE;
 const RETURN_SHARE: number = 1.9;
 const SPACE_LABEL_FONT_SIZE: number = 13;
 const SPACE_LABEL_GAP_VP: number = 4;
@@ -4384,13 +4386,11 @@ struct KeyboardView {
       ? CandidateChipWidth.column(this.chipLaneWidth(), 0, CHIP_PADDING_VP) : 0;
   }
 
-  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。永远没有注释的来源（emoji、符号等，见 `CandidateChipWidth.reservesColumn`）不留这一列。 */
+  /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。永远没有注释的来源（emoji、符号等，见 `CandidateChipWidth.reservesColumn`）不留这一列。皮肤的 `itemMinWidth` 只给 2in1 候选窗，触屏不用（`CandidateChipWidth.touchMinimum`）。 */
   private chipMinWidth(candidate: CandidateEntry): number {
     const column: number = CandidateChipWidth.reservesColumn(KeyboardSession.shared.glossesExpected(),
       candidate.source, candidate.hunEum) ? this.chipGlossColumn() : 0;
-    const minimum: number = Math.max(CHIP_MIN_WIDTH_VP,
-      CandidateLayoutPolicy.dip(this.settings.candidateSkinLayout?.horizontal.itemMinWidth, this.chipFontSize(), 0));
-    return column > 0 ? Math.max(minimum, Math.ceil(column + CHIP_PADDING_VP * 2)) : minimum;
+    return CandidateChipWidth.touchMinimum(column, CHIP_PADDING_VP);
   }
 
   /** 注释最多能画多宽：它的列宽，或上方的词更宽时取词宽。 */
@@ -4782,13 +4782,25 @@ struct KeyboardView {
     KeyboardSession.shared.punctuation(mark.input.charCodeAt(0));
   }
 
-  /** 触屏九键外框底行的这个键在当前层上是否出现：数字层没有 符，只有数字层有 0（`NineKeyLayout.actionRow`）。 */
+  /** 触屏九键外框的底行：英文九键的字母层在空格两侧多出句点和逗号（`NineKeyLayout.actionRow`）。 */
+  private nineKeyActions(): NineKeyAction[] {
+    return NineKeyLayout.actionRow(this.symbols, this.english);
+  }
+
+  /** 触屏九键外框底行的这个键在当前层上是否出现：数字层没有 符，只有数字层有 0，只有英文九键的字母层有句点和逗号（`NineKeyLayout.actionRow`）。 */
   private nineKeyActionShown(kind: NineKeyActionKind): boolean {
-    return NineKeyLayout.actionRow(this.symbols).some((item: NineKeyAction): boolean => item.kind === kind);
+    return this.nineKeyActions().some((item: NineKeyAction): boolean => item.kind === kind);
+  }
+
+  /** 触屏九键外框底行里这个键的份额；空格在英文九键上让出句点和逗号的两份。 */
+  private nineKeyActionWeight(kind: NineKeyActionKind): number {
+    const found: NineKeyAction | undefined =
+      this.nineKeyActions().find((item: NineKeyAction): boolean => item.kind === kind);
+    return found === undefined ? 0 : found.weight;
   }
 
   /**
-   * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；其他中文键面借用这个数字页时，该键按原键面印「拼音」、「14键」或「笔」（`NineKeyLayout.numberPadReturnTitle`），与 Android 和 iOS 相同。数字层的网格只有 1-9，所以那里 符 让给空格右边的 0。
+   * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。中文时标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；英文九键的字母层在空格左边加句点、右边加逗号，与三端英文 26 键底行一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；其他中文键面借用这个数字页时，该键按原键面印「拼音」、「14键」或「笔」（`NineKeyLayout.numberPadReturnTitle`），与 Android 和 iOS 相同。数字层的网格只有 1-9，所以那里 符 让给空格右边的 0。
    */
   @Builder
   nineKeyActionRow() {
@@ -4827,7 +4839,31 @@ struct KeyboardView {
       .layoutWeight(NineKeyLayout.LAYER_WEIGHT)
       .height('100%')
       .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
-      this.spaceKey(true, NineKeyLayout.SPACE_WEIGHT);
+      if (this.nineKeyActionShown(NineKeyActionKind.PERIOD)) {
+        // 英文九键：句点紧挨空格左边，与英文 26 键底行相同，经 Engine 的标点路由输入。
+        this.fixedKey({
+          face: this.chinesePunctuationFaces() ? '。' : '.',
+          label: KeyAccessibilityPolicy.period(),
+          size: TOUCH_LETTER_FONT_SIZE,
+          emphasized: false,
+          width: 0,
+          share: this.nineKeyActionWeight(NineKeyActionKind.PERIOD),
+          action: () => this.typePeriod()
+        });
+      }
+      this.spaceKey(true, this.nineKeyActionWeight(NineKeyActionKind.SPACE));
+      if (this.nineKeyActionShown(NineKeyActionKind.COMMA)) {
+        // 英文九键：逗号紧挨空格右边。
+        this.fixedKey({
+          face: this.chinesePunctuationFaces() ? '，' : ',',
+          label: '逗号',
+          size: TOUCH_LETTER_FONT_SIZE,
+          emphasized: false,
+          width: 0,
+          share: this.nineKeyActionWeight(NineKeyActionKind.COMMA),
+          action: () => this.typeComma()
+        });
+      }
       if (this.nineKeyActionShown(NineKeyActionKind.ZERO)) {
         this.fixedKey({
           face: '0',
@@ -5474,6 +5510,11 @@ struct KeyboardView {
     }
   }
 
+  /** 英文 26 键字母层在空格左边另放独立句点，空格右边仍是逗号。 */
+  private designEnglishPeriod(): boolean {
+    return KeyboardScheme.designRowHasEnglishPeriod(this.english, this.designCommaSecondaryPeriod());
+  }
+
   /** 26 键字母层使用独立逗号、长按句号，其余设计底行保留两个标点键。 */
   private designCommaSecondaryPeriod(): boolean {
     return KeyboardScheme.designRowUsesCommaSecondaryPeriod(
@@ -5482,7 +5523,7 @@ struct KeyboardView {
   }
 
   /**
-   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。26 键一族的字母层改为 123 1.25 | 符 1.05 | space 4 | ， 1 | 中 1.05 | return 1.9（`designCommaSecondaryPeriod`）；14 键、大千注音保留逗号句号。
+   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。26 键一族的字母层改为 123 1.25 | 符 1.05 | space 4 | ， 1 | 中 1.05 | return 1.9（`designCommaSecondaryPeriod`）；英文时空格左边再加句点 1，空格让到 3（`designEnglishPeriod`）；14 键、大千注音保留逗号句号。
    *
    * 功能键文字 15fp、字重 500。26 键逗号长按输入句号，其他布局保留长按常用标点列表。回车键始终使用操作色。
    */
@@ -5541,7 +5582,19 @@ struct KeyboardView {
           this.punctuation = true;
         }))
       }
-      this.spaceKey(true, SPACE_SHARE);
+      if (this.designEnglishPeriod()) {
+        // 英文 26 键：句点紧挨空格左边，逗号在空格右边。
+        this.fixedKey({
+          face: '.',
+          label: KeyAccessibilityPolicy.period(),
+          size: TOUCH_LETTER_FONT_SIZE,
+          emphasized: false,
+          width: 0,
+          share: PUNCTUATION_SHARE,
+          action: () => this.typePeriod()
+        });
+      }
+      this.spaceKey(true, this.designEnglishPeriod() ? ENGLISH_SPACE_SHARE : SPACE_SHARE);
       if (this.designCommaSecondaryPeriod()) {
         Column() {
           this.fixedKey({

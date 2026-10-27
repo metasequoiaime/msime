@@ -17,6 +17,11 @@ public final class CandidateAppearance {
         return "horizontal".equals(layout);
     }
 
+    /**
+     * 触屏候选条按钮的最小宽度（dp），与 iOS 的 30pt、鸿蒙的 30vp 相同。皮肤的 {@link Layout#itemMinWidth} 是桌面候选窗的格宽（`base = "microsoft"` 出厂 3.5em），套到候选条上时候选字号越大、每个按钮越宽，「的」「㎥」这样一个字宽的候选也撑成一大格，一屏只剩三个多候选；候选条按内容取宽，只保留这个触控下限。
+     */
+    public static final int STRIP_CHIP_MIN_WIDTH_DP = 30;
+
     public static int fontSize(int value) {
         return value >= 12 && value <= 32 ? value : 16;
     }
@@ -235,6 +240,7 @@ public final class CandidateAppearance {
 
     /** `ResolvedTheme.candidate_layout` 的有界 Android 读模型；旧解析结果为空时保留原生间距。 */
     public static final class Layout {
+        /** {@code itemMinWidth} 照常读出，候选条不用它（{@link #STRIP_CHIP_MIN_WIDTH_DP}）。 */
         public final double padding, itemGap, itemExtraHeight, numberInset, numberGap,
             itemPaddingRight, itemMinWidth, numberScale, selectedBarWidth,
             selectedBarHeightEm, itemRadius, borderWidth;
