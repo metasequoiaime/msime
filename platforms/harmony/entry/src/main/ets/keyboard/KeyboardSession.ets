@@ -15,6 +15,7 @@ import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
+import { IdleDictionaryRetryPolicy, PersonalDictionaryDrain } from './IdleDictionaryRetryPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
 import { readTypingStatisticsEnabled, writeKeyPresses } from './TypingStatisticsWriter';
@@ -1221,7 +1222,6 @@ enum InputCommand {
 }
 
 const JAPANESE_SCHEME: number = 3;
-const IDLE_DICTIONARY_RETRY_MS: number = 2000;
 
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
@@ -1238,8 +1238,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
   private personalDictionarySettled: boolean = true;
   private personalDictionaryTimer: number = -1;
+  // 个人词库排空连续没有进展的次数，以及上一次同步之后队列里剩的条数（不知道时为 -1），用来给重建会话的重试退避，见 `IdleDictionaryRetryPolicy`。
+  private personalDictionaryStalls: number = 0;
+  private personalDictionaryPending: number = -1;
   private snapshotOptions: Object | undefined = undefined;
   private snapshotQueueTimer: number = -1;
+  // 快照队列连续几轮查到待处理请求、为它重建了会话却仍没处理掉，重建后的下一次检查按它退避。
+  private snapshotQueueStalls: number = 0;
   // Key press counts for the key heatmap. Nothing is held while statistics are off, which is read from the store on every focus; until the editor's attribute has said what kind of field it is, a press could be a password's, so none is counted.
   private keyStatisticsEnabled: boolean = false;
   private keyStatisticsEditorKnown: boolean = false;
@@ -1981,7 +1986,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // exclusive lock that a live session's shared lock would block, so this is the one moment in
     // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
     // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
-    this.personalDictionarySettled = this.drainPersonalDictionary(options);
+    const drained: PersonalDictionaryDrain = this.drainPersonalDictionary(options);
+    this.personalDictionarySettled = drained === 'settled';
+    this.personalDictionaryStalls = drained === 'stalled' ? this.personalDictionaryStalls + 1 : 0;
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
       if (created.ok !== true) {
@@ -2015,20 +2022,24 @@ export class KeyboardSession implements HardwareKeyTarget {
    * a delay rather than the import; refusing to start the keyboard over it would turn a dictionary
    * problem into no keyboard at all.
    */
-  private drainPersonalDictionary(options: string): boolean {
+  private drainPersonalDictionary(options: string): PersonalDictionaryDrain {
     try {
       const reply: PersonalDictionarySyncResponse =
         JSON.parse(client.personalDictionarySync(options)) as PersonalDictionarySyncResponse;
       if (reply.ok !== true) {
         KeyboardLog.error(`personal dictionary queue not applied; it will be retried: ${reply.error}`);
-        return false;
+        return 'stalled';
       }
       // 命名词库的词分批交给个人词库队列（同时最多 128 条在途）。每处理完一批就送下一批，和 Android 键盘的 `flushSent` 一样，导入的大词库不用等用户回设置页刷新。
       const sent: number = this.flushDictionaryCollections(options);
-      return reply.value.pending_count === 0 && sent === 0;
+      const pending: number = reply.value.pending_count;
+      const drained: PersonalDictionaryDrain =
+        IdleDictionaryRetryPolicy.drain(pending, sent, this.personalDictionaryPending);
+      this.personalDictionaryPending = drained === 'settled' ? -1 : pending;
+      return drained;
     } catch (error) {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
-      return false;
+      return 'stalled';
     }
   }
 
@@ -2049,11 +2060,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Continue a large import in four-entry turns while the editor is idle.
+   * Continue a large import in bounded turns while the editor is idle.
    *
-   * The native queue deliberately limits one synchronization to four edits. Releasing the event
-   * loop between batches keeps a 128-entry import from monopolising the input method, while the
-   * composition/local-mode guards make the brief Engine-session rebuild invisible to typed text.
+   * One synchronization applies at most 128 queued edits. Releasing the event loop between batches keeps a large import from monopolising the input method, while the composition/local-mode guards make the brief Engine-session rebuild invisible to typed text.
+   *
+   * 有进展时两秒后接着排下一批；整批被拒或队列原地不动时按 `IdleDictionaryRetryPolicy` 退避到最多五分钟一次，一直失败也不会每两秒重建一次会话。
    */
   private schedulePersonalDictionaryDrain(): void {
     if (this.personalDictionarySettled || this.personalDictionaryTimer >= 0 || this.handle === 0) {
@@ -2066,12 +2077,16 @@ export class KeyboardSession implements HardwareKeyTarget {
         return;
       }
       this.restartIdleSession('personal dictionary queue');
-    }, IDLE_DICTIONARY_RETRY_MS);
+    }, IdleDictionaryRetryPolicy.delay(this.personalDictionaryStalls));
   }
 
-  /** Poll the cross-process snapshot queue just as the Apple worker timer does. */
+  /**
+   * Check the cross-process snapshot queue once after the keyboard is shown, and keep checking only while a request is waiting.
+   *
+   * 原来从会话建好起每两秒查一次，键盘收起后也不停；每次查询都要在主线程上扫一遍整个用户词库算哈希，再把 state.json 重写并 fsync。请求不是键盘自己排的，而键盘每次构建会话（`start`）都会先处理一次队列，所以这里只在键盘显示时（`attach`）查一次：没有待处理的请求就停下，等下一次显示；有请求就重建会话去处理，重建后仍没处理掉（例如属于账号的请求而键盘读不到会话）就按 `IdleDictionaryRetryPolicy` 退避，不再每两秒重建一次。键盘收起时（`detach`）取消。
+   */
   private scheduleDictionarySnapshotPoll(): void {
-    if (this.snapshotQueueTimer >= 0 || this.handle === 0) return;
+    if (this.snapshotQueueTimer >= 0 || this.handle === 0 || this.inputClient === undefined) return;
     this.snapshotQueueTimer = setTimeout((): void => {
       this.snapshotQueueTimer = -1;
       if (this.composing() || this.localMode !== 'none') {
@@ -2079,11 +2094,20 @@ export class KeyboardSession implements HardwareKeyTarget {
         return;
       }
       if (this.dictionarySnapshotNeedsWork()) {
+        this.snapshotQueueStalls++;
+        // 重建会话的 start() 会处理队列并按退避后的间隔再排一次检查。
         this.restartIdleSession('snapshot queue');
         return;
       }
-      this.scheduleDictionarySnapshotPoll();
-    }, IDLE_DICTIONARY_RETRY_MS);
+      this.snapshotQueueStalls = 0;
+    }, IdleDictionaryRetryPolicy.delay(this.snapshotQueueStalls));
+  }
+
+  private cancelDictionarySnapshotPoll(): void {
+    if (this.snapshotQueueTimer >= 0) {
+      clearTimeout(this.snapshotQueueTimer);
+      this.snapshotQueueTimer = -1;
+    }
   }
 
   /** Querying queue state takes no Engine maintenance lock and never acknowledges terminal state. */
@@ -3423,6 +3447,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
     }
+    // 键盘显示时查一次词库快照队列；上面的重建若已排过检查，这里不会重复排。
+    this.scheduleDictionarySnapshotPoll();
   }
 
   /** 设置应用和键盘共享沙箱的镜像，由扩展在拿到共享目录后交给会话；`fullMode` 每次调用时读当前的安全模式。 */
@@ -3463,6 +3489,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
+    // 键盘收起后不再查快照队列，下一次显示（attach）时再查。
+    this.cancelDictionarySnapshotPoll();
     if (this.handle !== 0) {
       // Runtime focus(false) cancels whatever remains. Finish first while the old editor client is
       // still attached, so changing fields cannot silently discard what the user just typed.
@@ -3498,10 +3526,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       clearTimeout(this.personalDictionaryTimer);
       this.personalDictionaryTimer = -1;
     }
-    if (this.snapshotQueueTimer >= 0) {
-      clearTimeout(this.snapshotQueueTimer);
-      this.snapshotQueueTimer = -1;
-    }
+    this.cancelDictionarySnapshotPoll();
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
@@ -3797,6 +3822,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (decision.queued) {
         result = client.personalDictionaryRequest(JSON.stringify(request));
         this.personalDictionarySettled = false;
+        // 用户刚排进新的词条：之前因失败退避的重试作废，按两秒重新开始。
+        this.personalDictionaryStalls = 0;
+        if (this.personalDictionaryTimer >= 0) {
+          clearTimeout(this.personalDictionaryTimer);
+          this.personalDictionaryTimer = -1;
+        }
         this.schedulePersonalDictionaryDrain();
       } else {
         result = client.dictionary(JSON.stringify(request));

@@ -282,6 +282,11 @@ import {
   supportedPhoto,
 } from "../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin";
 import { DictionaryMaintenancePolicy } from "../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy";
+import {
+  IDLE_DICTIONARY_RETRY_MAX_MS,
+  IDLE_DICTIONARY_RETRY_MS,
+  IdleDictionaryRetryPolicy,
+} from "../entry/src/main/ets/keyboard/IdleDictionaryRetryPolicy";
 import { KeyAccessibilityPolicy } from "../entry/src/main/ets/keyboard/input/KeyAccessibilityPolicy";
 import { OsVersionPolicy } from "../entry/src/main/ets/keyboard/input/OsVersionPolicy";
 import {
@@ -1784,6 +1789,35 @@ group("personal imports and cloud downloads are queued while the keyboard is ope
       `${operation} still goes to the Engine`,
     );
   }
+});
+
+console.log("IdleDictionaryRetryPolicy");
+
+group("词库队列卡住时重建会话的重试从两秒翻倍退避到五分钟", () => {
+  check(IdleDictionaryRetryPolicy.delay(0) === IDLE_DICTIONARY_RETRY_MS, "有进展时两秒后接着处理");
+  check(IdleDictionaryRetryPolicy.delay(1) === IDLE_DICTIONARY_RETRY_MS, "第一次失败仍按两秒重试，偶发的忙碌不多等");
+  check(IdleDictionaryRetryPolicy.delay(2) === 4000, "第二次连续失败等四秒");
+  check(IdleDictionaryRetryPolicy.delay(3) === 8000, "第三次等八秒");
+  check(IdleDictionaryRetryPolicy.delay(8) === 256000, "第八次等 256 秒");
+  check(IdleDictionaryRetryPolicy.delay(9) === IDLE_DICTIONARY_RETRY_MAX_MS, "再往后封顶五分钟");
+  check(IdleDictionaryRetryPolicy.delay(10000) === IDLE_DICTIONARY_RETRY_MAX_MS, "一直失败也不超过五分钟，不会溢出");
+  let previous = 0;
+  for (let stalls = 0; stalls < 64; stalls++) {
+    const delay = IdleDictionaryRetryPolicy.delay(stalls);
+    check(delay >= previous && delay >= IDLE_DICTIONARY_RETRY_MS, `退避不缩短（${stalls} 次）`);
+    previous = delay;
+  }
+});
+
+group("个人词库排空只有真有进展才算进展", () => {
+  check(IdleDictionaryRetryPolicy.drain(0, 0, 5) === "settled", "队列空了又没有送出新的一批就结束");
+  check(IdleDictionaryRetryPolicy.drain(0, 0, -1) === "settled", "第一次就空也结束");
+  check(IdleDictionaryRetryPolicy.drain(0, 3, 0) === "progress", "命名词库又送进一批要接着排空");
+  check(IdleDictionaryRetryPolicy.drain(200, 0, -1) === "progress", "第一次同步不知道上次剩多少，按有进展算");
+  check(IdleDictionaryRetryPolicy.drain(72, 0, 200) === "progress", "剩下的比上次少是进展");
+  check(IdleDictionaryRetryPolicy.drain(200, 128, 200) === "progress", "送出新的一批也是进展");
+  check(IdleDictionaryRetryPolicy.drain(200, 0, 200) === "stalled", "剩下的条数原地不动就是卡住了");
+  check(IdleDictionaryRetryPolicy.drain(201, 0, 200) === "stalled", "剩得更多又没有送出也是卡住");
 });
 
 group("polishing acts on what is in front of the caret, and only if it still is", () => {
