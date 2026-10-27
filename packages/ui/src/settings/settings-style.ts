@@ -199,6 +199,10 @@ export const managerBlock = "flex min-w-0 flex-col gap-3 [padding:var(--p-row-pa
 /** Prose at the head of a manager block, in the platform's secondary type. */
 export const managerNote = "m-0 leading-relaxed [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const managerActions = "flex flex-wrap gap-1.5 [&_.secondary]:mt-0 [&_.primary]:mt-0";
+/** 词库同步的核对码：等宽、加大，两台设备上要逐位对照。 */
+export const syncCode = "m-0 font-mono text-lg tracking-[0.08em] tabular-nums select-all";
+/** 设备行说明里的核对码，等宽显示。 */
+export const syncCodeInline = "font-mono tabular-nums select-all";
 export const importPreview =
   "flex max-h-70 flex-col gap-[7px] overflow-y-auto rounded-lg border border-edge bg-raised px-3 py-2.5 [&>span]:text-xs [&>span]:text-muted [&>div]:flex [&>div]:flex-col [&>div]:gap-0.5 [&>div]:border-t [&>div]:border-[var(--divider-color)] [&>div]:pt-[7px] [&>div_span]:wrap-anywhere [&_code]:text-[11px] [&_code]:text-muted";
 
