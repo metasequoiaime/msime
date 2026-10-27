@@ -1298,6 +1298,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     actionRow = makeActionRow()
     keyColumn.addArrangedSubview(actionRow)
     installTallReturnKey()
+    // 右侧大回车不在任何一行里，单独告诉键区让它分到相邻键距里靠它的那一半。
+    root.overlayKeys = [tallReturnKey].compactMap { $0 }
     // 中/英紧挨回车的底行（手机、九键），回车把键帽左边几 pt 让给中/英；别的排法里两者不相邻，不起作用。
     root.yieldingKey = enterButton
     root.yieldReceiver = bottomLanguageButton

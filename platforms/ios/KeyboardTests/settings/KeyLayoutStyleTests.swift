@@ -765,7 +765,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 右侧大回车与底行的回车是同一个键：键面跟着组字和输入框一起变，按下记 `Return`；中/英 与它不在同一行，回车不把左边让给中/英。
+  /// 右侧大回车与底行的回车是同一个键：键面跟着组字和输入框一起变，按下与底行的回车一样结束组字；符号栏末尾的 ！ 按下同样结束组字。中/英 与它不在同一行，回车不把左边让给中/英。
   func testTallReturnActsAsTheReturnKey() throws {
     select(.nineKey)
     XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: .tallReturn)))
@@ -778,12 +778,32 @@ final class KeyLayoutStyleTests: XCTestCase {
       XCTAssertEqual(tall.accessibilityLabel, enter.accessibilityLabel, label)
       XCTAssertEqual(tall.configuration?.background.backgroundColor, enter.configuration?.background.backgroundColor, label)
     }
+    func compose() throws {
+      try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+      try button("nineKey4", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertFalse((try button("preeditButton", in: controller).accessibilityValue ?? "").isEmpty, "typing opens a composition")
+    }
     sameFace("idle")
-    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
-    try button("nineKey4", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertFalse((try button("preeditButton", in: controller).accessibilityValue ?? "").isEmpty, "typing opens a composition")
+    let idleTitle = tall.configuration?.title
+    let idlePreedit = try button("preeditButton", in: controller).accessibilityValue
+    try compose()
     sameFace("composing")
     XCTAssertEqual(tall.configuration?.title, "确认")
+    // 按下右侧大回车：组字结束，键面回到空闲时的样子，与按底行的回车相同。
+    tall.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, idlePreedit, "the tall return ends the composition")
+    XCTAssertEqual(tall.configuration?.title, idleTitle)
+    sameFace("after return")
+    // 符号栏末尾的 ！ 是能按的标点键：组字时按下，组字随标点一起上屏。
+    let sidebarMark = try button("nineKeySidebarClosingMark", in: controller)
+    XCTAssertTrue(shown(sidebarMark))
+    XCTAssertEqual(sidebarMark.accessibilityLabel, "符号 ！")
+    try compose()
+    sidebarMark.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, idlePreedit, "the sidebar ！ ends the composition")
+    XCTAssertEqual(tall.configuration?.title, idleTitle)
     // 回车格左边几 pt 不让给 中/英：中/英 在底行，回车从上一排伸下来，两者之间留着回车自己的位置。
     let root = try XCTUnwrap(descendants(controller.view).first { $0 is KeyAreaStackView })
     let slot = try view("tallReturnSlot", in: controller)
@@ -793,9 +813,53 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 右侧大回车叠在按键列上、不在任何一行里，它与相邻键之间的键距照样两边各分一半：底行里它左边的 中/英（隐藏时是空格）、第三排里它左边的九宫格 9 键、右列里它上面的中间键。标准外框里回车和 ！ 各自分到这几段键距里靠自己的那一半，这里也一样。
+  func testTallReturnTakesItsHalfOfTheNeighbouringGaps() throws {
+    select(.nineKey)
+    for hidesLanguage in [false, true] {
+      KeyboardLayoutPreference.hideLanguageKey = hidesLanguage
+      XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: .tallReturn)))
+      let controller = keyboard()
+      let label = "hidesLanguage=\(hidesLanguage)"
+      let root = try XCTUnwrap(descendants(controller.view).first { $0 is KeyAreaStackView })
+      func frame(_ view: UIView) -> CGRect { view.convert(view.bounds, to: root) }
+      let tall = try button("tallReturnKey", in: controller)
+      let slot = frame(try view("tallReturnSlot", in: controller))
+      let tallFrame = frame(tall)
+      let left = try button(hidesLanguage ? "spaceKey" : "bottomLanguageKey", in: controller)
+      let middle = try button("nineKeyMiddleKey", in: controller)
+      let nine = try button("nineKey9", in: controller)
+      let closing = frame(try button("nineKeyClosingMark", in: controller))
+      // 底行：回车格左边紧挨着的一点归回车，靠 中/英 的一点归 中/英。
+      XCTAssertGreaterThan(slot.minX - frame(left).maxX, 2, label)
+      XCTAssertTrue(root.hitTest(CGPoint(x: slot.minX - 1, y: slot.midY), with: nil) === tall, label)
+      XCTAssertTrue(root.hitTest(CGPoint(x: frame(left).maxX + 1, y: slot.midY), with: nil) === left, label)
+      // 第三排：九宫格 9 键与回车之间的键距。
+      XCTAssertGreaterThan(tallFrame.minX - frame(nine).maxX, 2, label)
+      XCTAssertTrue(root.hitTest(CGPoint(x: tallFrame.minX - 1, y: closing.midY), with: nil) === tall, label)
+      XCTAssertTrue(root.hitTest(CGPoint(x: frame(nine).maxX + 1, y: closing.midY), with: nil) === nine, label)
+      // 右列：中间键与回车之间的行距。
+      XCTAssertGreaterThan(tallFrame.minY - frame(middle).maxY, 2, label)
+      XCTAssertTrue(root.hitTest(CGPoint(x: tallFrame.midX, y: tallFrame.minY - 1), with: nil) === tall, label)
+      XCTAssertTrue(root.hitTest(CGPoint(x: tallFrame.midX, y: frame(middle).maxY + 1), with: nil) === middle, label)
+      controller.viewDidDisappear(false)
+    }
+    KeyboardLayoutPreference.hideLanguageKey = false
+    // 标准外框：同样两处键距里靠右列第三格的一半归 ！。
+    XCTAssertTrue(write(TouchKeyLayoutStyle()))
+    let controller = keyboard()
+    let root = try XCTUnwrap(descendants(controller.view).first { $0 is KeyAreaStackView })
+    let closing = try button("nineKeyClosingMark", in: controller)
+    let frame = closing.convert(closing.bounds, to: root)
+    XCTAssertTrue(root.hitTest(CGPoint(x: frame.minX - 1, y: frame.midY), with: nil) === closing)
+    XCTAssertTrue(root.hitTest(CGPoint(x: frame.midX, y: frame.minY - 1), with: nil) === closing)
+    XCTAssertFalse(shown(try button("tallReturnKey", in: controller)))
+    controller.viewDidDisappear(false)
+  }
+
   /// 右侧大回车的数字层照同一外框：符 留在符号栏下方，123 的位置是回到字母层的键，0 占空格的位置、空格在它右边，回车仍两倍高；数字层符号栏里的 符 移到底行，运算符占满整条符号栏。从别的键面借来的数字九宫格不跟九键的样式。
   func testTallReturnNumberLayer() throws {
-    for scheme in [ChineseInputScheme.nineKey, .stroke] {
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
       select(scheme)
       if scheme == .stroke && InputSchemePreference.scheme != .stroke { continue }
       XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: .tallReturn)))
@@ -864,7 +928,8 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
     let expected = TypingKeyHeatmap.nineKeyBottomCells(for: .tallReturn)
     XCTAssertEqual(drawn.compactMap { $0.accessibilityIdentifier.flatMap { Self.recordedID[$0] } }, expected.dropLast().map(\.id))
-    XCTAssertEqual(Self.recordedID["tallReturnKey"], expected.last?.id)
+    // 最后一格画的是伸下来的回车，不在底行里，按 Return 计。
+    XCTAssertEqual(expected.last?.id, TypingKeyID.enter)
     controller.viewDidDisappear(false)
   }
 
@@ -986,7 +1051,6 @@ final class KeyLayoutStyleTests: XCTestCase {
     "symbolPanelKey": TypingKeyID.symbol, "layoutToggleButton": TypingKeyID.layer, "layerEmojiKey": TypingKeyID.emoji,
     "spaceKey": TypingKeyID.space, "bottomLanguageKey": TypingKeyID.language, "returnKey": TypingKeyID.enter,
     "quickPunctuationKey": TypingKeyID.quickPunctuation, "bottomPeriodKey": "Period", "nineKeyZero": "Nine0",
-    "tallReturnKey": TypingKeyID.enter,
   ]
 
   private func assertRow(_ row: UIStackView, draws cells: [TypingKeyHeatmap.Cell],
