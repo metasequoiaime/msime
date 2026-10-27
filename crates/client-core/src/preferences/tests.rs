@@ -8075,3 +8075,23 @@ fn text_edit_button_order_saved_before_select_line_still_loads() {
         Err(PreferencesError::InvalidTextEditButtonOrder)
     ));
 }
+
+#[test]
+fn candidate_status_defaults_on_and_can_be_disabled_without_changing_preedit() {
+    assert!(Preferences::default().show_candidate_status);
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("show_candidate_status");
+    let mut preferences: Preferences = serde_json::from_value(value).unwrap();
+    assert!(preferences.show_candidate_status);
+    preferences.show_candidate_status = false;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert!(!restored.show_candidate_status);
+    assert_eq!(
+        restored.candidate_preedit_style,
+        Preferences::default().candidate_preedit_style
+    );
+}

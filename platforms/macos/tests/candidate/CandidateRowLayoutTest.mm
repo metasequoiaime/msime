@@ -3575,7 +3575,25 @@ int main(int argc, char **argv)
         bitmap = [wideScripted bitmapImageRepForCachingDisplayInRect:wideScripted.bounds];
         [wideScripted cacheDisplayInRect:wideScripted.bounds toBitmapImageRep:bitmap];
 
-        // 读屏：高亮的那一行报告自己被选中，别的行和翻页按钮都不报告；每画一页就请求朗读高亮的那一行。AI 占位行（来源 12，共享内核已经不再产出）读成它的意思，不读省略号或破折号。
+        // 状态开关不改变拼音预编辑，关闭时状态文字和分隔线一起撤下。
+        const BOOL previousPreedit = appearance.showsCandidatePreedit;
+        appearance.showsCandidatePreedit = YES;
+        appearance.vertical = NO;
+        [controller setValue:@{@"focused": @YES, @"editing_text": @"ceshi", @"page": @0, @"page_count": @1,
+            @"candidates": @[@{@"text": @"合成候选用于验证状态开关保留拼音预编辑", @"highlighted": @YES}]} forKey:@"view"];
+        appearance.showsCandidateStatus = YES;
+        [controller renderCandidates];
+        assert(HeaderChild(panel.contentView, @"candidate-preedit"));
+        assert(HeaderChild(panel.contentView, @"candidate-status"));
+        appearance.showsCandidateStatus = NO;
+        [controller renderCandidates];
+        assert(HeaderChild(panel.contentView, @"candidate-preedit"));
+        assert(!HeaderChild(panel.contentView, @"candidate-status"));
+        assert(!HeaderChild(panel.contentView, @"candidate-status-divider"));
+        appearance.showsCandidateStatus = YES;
+        appearance.showsCandidatePreedit = previousPreedit;
+
+        // 读屏：高亮的那一行报告自己被选中，别的行和翻页按钮都不报告；每画一页就请求朗读高亮的那一行。云候选和 AI 占位行不创建按钮，也不参与读屏或编号。
         appearance.vertical = NO;
         NSDictionary *accessibleBase = @{@"focused": @YES, @"editing_text": @"ceshi", @"page": @0, @"page_count": @2};
         NSArray<NSDictionary *> *(^accessibleRows)(NSUInteger, NSString *) = ^NSArray<NSDictionary *> *(NSUInteger highlighted, NSString *placeholder) {
@@ -3593,20 +3611,36 @@ int main(int argc, char **argv)
             view[@"candidates"] = accessibleRows(highlighted, placeholder);
             [controller setValue:[view copy] forKey:@"view"];
             [controller renderCandidates];
-            for (NSInteger tag = 0; tag < 3; ++tag)
+            for (NSInteger tag = 0; tag < 2; ++tag)
                 assert(CandidateButton(panel.contentView, tag).isAccessibilitySelected == (tag == (NSInteger)highlighted));
             for (NSInteger tag : {-1, -2})
                 if (MSIMECandidateButton *arrow = CandidateButton(panel.contentView, tag)) assert(!arrow.isAccessibilitySelected);
         };
         renderAccessible(0, @"…");
         assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"1  测试"]);
-        assert([CandidateButton(panel.contentView, 2).accessibilityLabel isEqual:@"3  AI 候选等待中"]);
+        assert(CandidateButton(panel.contentView, 2) == nil);
         renderAccessible(1, @"…");
         assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"2  侧室"]);
         renderAccessible(2, @"…");
-        assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"3  AI 候选等待中"]);
+        assert([[controller valueForKey:@"announcedCandidate"] length] == 0);
         renderAccessible(2, @"—");
-        assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"3  AI 候选没有结果"]);
+        assert([[controller valueForKey:@"announcedCandidate"] length] == 0);
+        NSMutableDictionary *pendingView = [accessibleBase mutableCopy];
+        pendingView[@"candidates"] = @[
+            @{@"text": @"测试", @"highlighted": @YES},
+            @{@"text": @"☁", @"source": @15},
+            @{@"text": @"侧室", @"id": @{@"session": @1, @"generation": @7, @"index": @2}}
+        ];
+        [controller setValue:pendingView forKey:@"view"];
+        [controller renderCandidates];
+        assert([CandidateButton(panel.contentView, 1).title isEqual:@"2  侧室"]);
+        assert([CandidateButton(panel.contentView, 1).candidateID[@"index"] isEqual:@2]);
+        assert(CandidateButton(panel.contentView, 2) == nil);
+        pendingView[@"candidates"] = @[@{@"text": @"☁", @"source": @15}];
+        [controller setValue:pendingView forKey:@"view"];
+        [controller renderCandidates];
+        assert(!panel.isVisible);
+        renderAccessible(0, @"…");
         // 没有画皮肤包时原生控制器立即显示与隐藏：没有进场、选中装饰和退场。皮肤包写了动效时的行为由 candidate-panel 测试覆盖。
         assert(panel.alphaValue == 1.0);
         assert(panel.animationBehavior == NSWindowAnimationBehaviorNone);

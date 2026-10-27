@@ -1356,6 +1356,9 @@ pub struct Preferences {
     /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
+    /// macOS 候选窗首行的输入状态文字和枝叶装饰，独立于拼音预编辑开关。
+    #[serde(default = "enabled_by_default")]
+    pub show_candidate_status: bool,
     #[serde(default)]
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
@@ -3552,6 +3555,7 @@ impl Default for Preferences {
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             show_candidate_page_number: true,
+            show_candidate_status: true,
             tsf_preedit_style: PreeditStyle::default(),
             diagnostic_log: DiagnosticLogPreferences::default(),
             candidate_follow_cursor: true,

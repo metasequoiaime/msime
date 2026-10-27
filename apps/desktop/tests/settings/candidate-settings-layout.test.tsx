@@ -87,7 +87,7 @@ test("顶部四标签按功能分组，只显示当前分区，共用预览位�
       "固定候选徽标样式",
       "AI 联想候选徽标样式",
     ],
-    预编辑: ["预编辑字号", "候选窗口预编辑", "行内预编辑"],
+    预编辑: ["预编辑字号", "候选窗口预编辑", "行内预编辑", "显示候选状态和装饰"],
   };
   const content = document.getElementById("settings-content")!;
   for (const [name, titles] of Object.entries(rows)) {
@@ -292,4 +292,29 @@ test("手机候选栏也是一列，字号在主流程里", async () => {
   // 触屏键盘把拼写写进输入框、候选栏不画它，没有「候选栏预编辑」。
   expect(screen.queryByRole("combobox", { name: "候选栏预编辑" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "候选窗口预编辑" })).toBeNull();
+});
+
+test("macOS 状态开关单独保存而不修改拼音预编辑", async () => {
+  const save = await renderAppearance({
+    ...initial.preferences,
+    candidate_preedit_style: "pinyin",
+  });
+  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
+  const toggle = screen.getByRole("switch", { name: "显示候选状态和装饰" });
+  expect((toggle as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(toggle);
+  await saveSettingsNow();
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      candidate_preedit_style: "pinyin",
+      show_candidate_status: false,
+    }),
+  );
+});
+
+test("Linux 不显示 macOS 候选状态开关", async () => {
+  await renderAppearance(initial.preferences, "linux");
+  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
+  expect(screen.queryByRole("switch", { name: "显示候选状态和装饰" })).toBeNull();
 });
