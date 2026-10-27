@@ -301,6 +301,8 @@ final class KeyLayoutStyleTests: XCTestCase {
                    KeyboardHeightPercent.portraitKeyHeight(tablet: false) + CGFloat(KeyboardLayoutPreference.rowSpacing), accuracy: 0.01)
     for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .eighteenKey] {
       select(scheme)
+      // 14 键和 18 键的顶栏上面多一行读音（`separateReadingRow`），数字行照样只加一排。
+      let taller = KeyboardViewController.keyboardHeight(separateReadingRow: scheme != .quanpin, phoneNumberRow: true)
       let controller = keyboard()
       let row = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "numberRow" } as? UIStackView)
       XCTAssertTrue(shown(row), scheme.rawValue)
