@@ -480,6 +480,7 @@ jobs:
   windows-skin-gallery:
     needs: [changes, windows]
     name: Windows candidate skin gallery
+    # 留在 GitHub 托管的 runner：截图要从交互式桌面截，没确认过 Depot 的 Windows runner 有没有；这个 job 只跑一两分钟。
     runs-on: windows-2025
     timeout-minutes: 15
     steps:
@@ -527,6 +528,7 @@ jobs:
   windows-settings:
     needs: changes
     name: Windows native settings
+    # 留在 GitHub 托管的 runner：冒烟要把设置窗口撑到 1000×780，Depot 的 Windows 机型主屏只有 800×600，显卡也只报这一档分辨率。
     runs-on: windows-2025
     # 完整 WinUI、Win7 设置、手写及多版本门禁已实测耗时 39 分钟，保留冷构建余量。
     timeout-minutes: 60
@@ -534,6 +536,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # GitHub 的 Windows 镜像导出 VCPKG_INSTALLATION_ROOT；Depot 在同样的 C:\vcpkg 中提供它，但没有这个变量。
+      - name: Locate vcpkg
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            if (-not (Test-Path -LiteralPath 'C:\vcpkg\scripts\buildsystems\vcpkg.cmake' -PathType Leaf)) { throw 'vcpkg not found' }
+            "VCPKG_INSTALLATION_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          }
       - name: Build the settings host
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -637,7 +648,7 @@ jobs:
     needs: changes
     name: Windows release script tests
     # The release scripts are PowerShell run on Windows, and the cross-build container above has no pwsh, so their probe tests run on a Windows runner. None of them compiles anything.
-    runs-on: windows-2025
+    runs-on: depot-windows-2025-8
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
