@@ -506,12 +506,13 @@ function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
 function Wait-CandidatePageSizeSaved([int]$expected) {
     $path = Join-Path $state 'preferences.json'
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    $saved = $null
     do {
         $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($saved.preferences.candidate_page_size -eq $expected) { return }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw '候选数量未保存'
+    throw "候选数量未保存：期望 $expected，文件里是 $($saved.preferences.candidate_page_size)，revision=$($saved.revision)"
 }
 function Find-SliderThumb($slider) {
     # WinUI 默认模板把滑块柄放在 Raw view，只遍历当前滑块，不能扫描右侧标签。
@@ -585,6 +586,8 @@ function Assert-CandidatePageSize($window, [string]$screenshotPrefix) {
     foreach ($expected in @(3, 9, 4, 6)) {
         $slider = Show-CandidatePageSizeSlider $window
         if (-not $slider -or -not $slider.Current.IsEnabled) { throw '候选数量滑块不可用' }
+        $savedBefore = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        Write-Host "候选数量 $screenshotPrefix 操作前：滑块=$($slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).Current.Value)，文件=$($savedBefore.preferences.candidate_page_size)，revision=$($savedBefore.revision)，目标=$expected"
         $slider.SetFocus()
         $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
         $range.SetValue($expected)
