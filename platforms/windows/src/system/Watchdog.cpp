@@ -4,6 +4,7 @@
 #define NOMINMAX
 #include "WatchdogPolicy.h"
 #include "WatchdogProtocol.h"
+#include "../../common/AuxiliaryCrashCapture.h"
 #include <msctf.h>
 #include <shellapi.h>
 #include <string>
@@ -151,6 +152,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command_line, int) {
     HANDLE handle;
     ~MutexGuard() { CloseHandle(handle); }
   } guard{mutex};
+  msime::telemetry::CaptureOnly crash_capture([] {
+    return msime::windows::auxiliary_crash_host(
+        "watchdog", MSIME_WINDOWS_VERSION, msime::windows::resolve_state_directory());
+  });
   if (!wait_for_profile_enabled())
     return 0;
   const std::wstring directory = executable_directory();

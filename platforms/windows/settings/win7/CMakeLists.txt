@@ -36,6 +36,7 @@ if(MINGW)
   target_link_options(msime-client-settings-win7 PRIVATE -municode)
 endif()
 if(BUILD_TESTING)
+  include(../../../common/tests/capture_only.cmake)
   # 两个宿主共用的进程入口也纳入 Windows 原生设置门禁。
   add_executable(windows-settings-instance ../../tests/ui/settings_instance.cpp)
   target_compile_features(windows-settings-instance PRIVATE cxx_std_17)

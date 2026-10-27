@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -42,6 +43,20 @@ bool configured = false;
 // 本进程正在运行的会话 id（begin 返回的 session_id），由 host_lock 保护；没有会话时为空。结束会话和 terminate 路径的崩溃记录都按它找自己的会话：同一目录可能还有别的宿主进程（例如同一用户的另一个图形会话），标记文件只记着最后开始的那个。
 std::string session_id;
 std::string capture_header;
+std::atomic<std::terminate_handler> auxiliary_previous_terminate{nullptr};
+
+[[noreturn]] void auxiliary_terminate() noexcept {
+  try {
+    // Windows 的 CRT abort 不保证经过 SEH 过滤器，必须在交还原处理器前记录固定异常类型。
+    const auto summary = current_exception_summary();
+    crash::record(summary.c_str());
+  } catch (...) {
+  }
+  const auto previous = auxiliary_previous_terminate.load();
+  if (previous && previous != auxiliary_terminate)
+    previous();
+  std::abort();
+}
 
 // Calls one Host API function with a JSON request; the value on success, nothing on any failure. Reporting never takes the host down.
 std::optional<nlohmann::json> call(Request function, const nlohmann::json &request) {
@@ -186,6 +201,143 @@ void set_enabled(bool enabled) {
     session_id.clear();
     call(msime_client_telemetry_clear, nlohmann::json{{"directory", utf8(current.directory)}});
   }
+}
+
+struct CaptureOnly::State {
+  explicit State(ReadHost reader) : read_host(std::move(reader)) {}
+  ReadHost read_host;
+  std::mutex mutex;
+  std::condition_variable wake;
+  bool stop = false;
+  std::thread worker;
+  std::optional<Host> previous;
+  bool cleared = false;
+  std::terminate_handler previous_terminate = nullptr;
+  bool terminate_installed = false;
+
+  bool same_target(const Host &host) const {
+    return previous && previous->directory == host.directory &&
+           previous->preferences_directory == host.preferences_directory &&
+           previous->platform == host.platform && previous->version == host.version &&
+           previous->component == host.component;
+  }
+
+  void suspend() {
+    crash::disarm();
+    previous.reset();
+    cleared = false;
+  }
+
+  void refresh() noexcept {
+    try {
+      auto host = read_host();
+      if (!host || !host->directory.is_absolute() ||
+          !host->preferences_directory.is_absolute()) {
+        suspend();
+        return;
+      }
+      // 偏好读取会创建目录和锁。首次准备还未建立状态目录时，不能因此让独占创建失败。
+      std::error_code error;
+      if (!std::filesystem::is_directory(host->preferences_directory, error) || error) {
+        suspend();
+        return;
+      }
+      const auto directory = utf8(host->preferences_directory);
+      auto raw = msime::host_api::own_string(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+      const auto snapshot = raw ? nlohmann::json::parse(raw.get(), nullptr, false)
+                                : nlohmann::json();
+      if (!snapshot.is_object() || !snapshot.value("ok", false) ||
+          !snapshot.contains("value") || !snapshot["value"].is_object() ||
+          !snapshot["value"].contains("preferences") ||
+          !snapshot["value"]["preferences"].is_object()) {
+        suspend();
+        return;
+      }
+      const auto &preferences = snapshot["value"]["preferences"];
+      const auto consent = preferences.find("usage_reporting");
+      if (consent == preferences.end() || !consent->is_boolean()) {
+        suspend();
+        return;
+      }
+      host->capture_only = true;
+      host->enabled = consent->get<bool>();
+      if (!*host->enabled) {
+        crash::disarm();
+        if (!same_target(*host) || !cleared) {
+          const auto result = call(msime_client_telemetry_clear,
+                                   nlohmann::json{{"directory", utf8(host->directory)}});
+          cleared = result.has_value();
+        }
+        previous = std::move(host);
+        return;
+      }
+      if (same_target(*host) && crash::is_armed())
+        return;
+      suspend();
+      const auto value = call(msime_client_telemetry_begin, session_request(*host));
+      if (!value || !value->is_object() || !value->value("enabled", false))
+        return;
+      const auto path = value->find("crash_record_path");
+      const auto header = value->find("crash_record_header");
+      if (path == value->end() || !path->is_string() ||
+          header == value->end() || !header->is_string())
+        return;
+      crash::arm(path->get<std::string>(), header->get<std::string>());
+      if (crash::is_armed())
+        previous = std::move(host);
+    } catch (...) {
+      // 不可读、损坏或分配失败均解除采集，不能用默认同意追认未知状态。
+      suspend();
+    }
+  }
+
+  void run() {
+    std::unique_lock lock(mutex);
+    while (!wake.wait_for(lock, std::chrono::milliseconds(500), [this] { return stop; })) {
+      lock.unlock();
+      refresh();
+      lock.lock();
+    }
+  }
+};
+
+CaptureOnly::CaptureOnly(ReadHost read_host) noexcept {
+  try {
+    state_ = std::make_unique<State>(std::move(read_host));
+    // 在主线程安装备用栈；故障时只使用预备好的原生记录器。
+    crash::install_crash_handlers();
+    state_->previous_terminate = std::set_terminate(auxiliary_terminate);
+    auxiliary_previous_terminate = state_->previous_terminate;
+    state_->terminate_installed = true;
+    state_->refresh();
+    state_->worker = std::thread([state = state_.get()] {
+      try {
+        state->run();
+      } catch (...) {
+        // 无法继续观察同意时解除采集，不能留下永久启用的记录器。
+        crash::disarm();
+      }
+    });
+  } catch (...) {
+    crash::disarm();
+  }
+}
+
+CaptureOnly::~CaptureOnly() {
+  if (state_) {
+    {
+      std::lock_guard guard(state_->mutex);
+      state_->stop = true;
+    }
+    state_->wake.notify_all();
+    if (state_->worker.joinable())
+      state_->worker.join();
+  }
+  // 退出作用域也可能只是被上层捕获的异常；观察线程结束后不能留下不会再响应同意的记录器。
+  crash::remove_crash_handlers();
+  if (state_ && state_->terminate_installed && std::get_terminate() == auxiliary_terminate)
+    std::set_terminate(state_->previous_terminate);
 }
 
 std::string current_exception_summary() {

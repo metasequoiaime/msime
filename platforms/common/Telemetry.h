@@ -1,5 +1,7 @@
 #pragma once
 #include <filesystem>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -18,6 +20,22 @@ struct Host {
   // 组件名只含构建标识字符；独立进程只采集崩溃，不建立输入会话。
   std::string component = "input";
   bool capture_only = false;
+};
+
+// 自有辅助进程的独立采集器；本进程只能有一个，不与输入会话包装器同时使用。
+// 配置读取器在启动和每 500 ms 重新执行，可返回空值表示配置不可读。析构等待观察线程结束。
+// 只在已经存在的偏好目录读取同意，不为准备程序抢先创建其新状态目录；不联网、不创建输入会话。
+class CaptureOnly {
+public:
+  using ReadHost = std::function<std::optional<Host>()>;
+  explicit CaptureOnly(ReadHost read_host) noexcept;
+  ~CaptureOnly();
+  CaptureOnly(const CaptureOnly &) = delete;
+  CaptureOnly &operator=(const CaptureOnly &) = delete;
+
+private:
+  struct State;
+  std::unique_ptr<State> state_;
 };
 
 // %LOCALAPPDATA%\MSIME on Windows; $XDG_STATE_HOME/msime (or ~/.local/state/msime) elsewhere.
