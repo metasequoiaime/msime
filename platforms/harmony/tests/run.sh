@@ -36,8 +36,8 @@ if ! grep -qF 'this.shuangpinKeyHints' <<< "$face_key_body"; then
   echo "KeyboardView.faceKey must include the shuangpin key hint switch so a live change redraws the letter keys" >&2
   exit 1
 fi
-# 底行样式和数字行同理：设置页改了之后键盘开着也要按新排法重建键，所以这四个值都要在 faceKey() 里。
-for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow; do
+# 底行样式和数字行同理：设置页改了之后键盘开着也要按新排法重建键，所以这四个值都要在 faceKey() 里；密码框、数字框退回标准底行也换键，所以编辑框这一项也要在。
+for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow this.standardRowsField; do
   if ! grep -qF "$field" <<< "$face_key_body"; then
     echo "KeyboardView.faceKey must include $field so a live layout style change redraws the keys" >&2
     exit 1
@@ -70,6 +70,31 @@ if ! grep -qF 'KeyboardSession.shared.pressElseCommitThenType(' <<< "$digit_body
   || ! grep -qF 'if (this.apply(client.character(this.handle, ascii, false))) return;' <<< "$press_type_body" \
   || ! grep -qF 'this.commitThenType(ascii);' <<< "$press_type_body"; then
   echo "A number-row digit typed while composing must go through KeyboardSession.pressElseCommitThenType, which decides on the engine's handled flag and types the digit after the commit when the engine declines it" >&2
+  exit 1
+fi
+# 冷启动第一帧的高度（`TouchLayoutStylePolicy.firstPanel`，规则由 touch-layout-styles.test.ts 覆盖）：扩展能力要在挂上视图之前定下形状，视图出现时在任何带 @Watch 的状态被赋值之前从同一个形状出发核对，否则两边起点不同，记下的键面与实际不符时面板会停在错的高度。两边都是 ArkTS，这里钉住接线次序。
+ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
+decide_line=$(grep -nF 'KeyboardSession.shared.decideFirstTouchPanel(' "$ability" | head -n 1 | cut -d: -f1)
+mount_line=$(grep -nF "await panel.setUiContent('keyboard/KeyboardView');" "$ability" | head -n 1 | cut -d: -f1)
+if [[ -z "$decide_line" || -z "$mount_line" ]] || (( decide_line >= mount_line )) \
+  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows);' "$ability"; then
+  echo "KeyboardExtensionAbility must decide the first touch panel shape before mounting KeyboardView and size the panel from it" >&2
+  exit 1
+fi
+appear_body=$(sed -n '/^  aboutToAppear(): void {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+opened_line=$(grep -nF 'KeyboardSession.shared.firstTouchPanel();' <<< "$appear_body" | head -n 1 | cut -d: -f1)
+settings_line=$(grep -nF 'this.applySettings();' <<< "$appear_body" | head -n 1 | cut -d: -f1)
+if [[ -z "$opened_line" || -z "$settings_line" ]] || (( opened_line >= settings_line )); then
+  echo "KeyboardView.aboutToAppear must take its height baseline from KeyboardSession.firstTouchPanel before applySettings assigns any watched state" >&2
+  exit 1
+fi
+# 九键「右侧大回车」的回车在右列、不与中/英同行（`NineKeyLayout.languageBesideReturn` 由 touch-layout-styles.test.ts 覆盖）：九键底行只在中/英紧挨回车时让出键帽，底行里没有回车时不画回车。
+nine_row_body=$(sed -n '/^  nineKeyActionRow() {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+if ! grep -qF 'hitRegion: NineKeyLayout.languageBesideReturn(this.nineKeyActions()) ? this.languageKeyHitRegion() : undefined,' <<< "$nine_row_body" \
+  || ! grep -qF 'if (this.nineKeyActionShown(NineKeyActionKind.RETURN)) {' <<< "$nine_row_body"; then
+  echo "KeyboardView.nineKeyActionRow must yield the return key only when the language key sits beside it, and draw return only when the row has one" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

@@ -346,6 +346,54 @@ test("each 9-key style's heatmap bottom row is the HarmonyOS nine-key frame's ro
   }
 });
 
+test("the 9-key tall return heatmap draws the HarmonyOS frame: return spans two rows, 符 under the sidebar", () => {
+  const rows = phoneHeatmapLayoutRows("nine", styled({ nineKeyStyle: "tall_return" }));
+  expect(rows).toHaveLength(4);
+  // 网格前两行（含右列 ⌫ 和 分词）不变。
+  expect(rows.slice(0, 2)).toEqual(phoneHeatmapRows.nine.slice(0, 2));
+  // 第三行：左列「？！」仍记 SoftPunctuation，网格 PQRS TUV WXYZ，右列是跨两行的回车；！ 不再单独画在右列。
+  expect(rows[2].map((key) => [key.label, key.code, key.weight, key.rowSpan])).toEqual([
+    ["？！", "SoftPunctuation", NineKeyLayout.SIDE_SHARE, undefined],
+    ["PQRS", "Nine7", 2, undefined],
+    ["TUV", "Nine8", 2, undefined],
+    ["WXYZ", "Nine9", 2, undefined],
+    ["↵", "Enter", NineKeyLayout.SIDE_SHARE, 2],
+  ]);
+  // 底行：符 与左列同宽，123 | 空格 | 中 恰好是网格的宽度（键盘的 NineKeyLayout.actionRow），回车下伸的位置是占位。
+  const faces: Record<string, string> = {
+    layer_toggle: "SoftLayer",
+    space: "Space",
+    language: "SoftLanguage",
+  };
+  expect(rows[3].map((key) => [key.code, round(key.weight)])).toEqual([
+    ["SoftSymbol", NineKeyLayout.SIDE_SHARE],
+    ...NineKeyLayout.actionRow(false, false, "tall_return").map((action) => [
+      faces[action.kind],
+      round(action.weight),
+    ]),
+    [undefined, NineKeyLayout.SIDE_SHARE],
+  ]);
+  // 每一行的份额加起来相同，各列上下对齐。
+  const widths = rows.map((row) => round(row.reduce((sum, key) => sum + key.weight, 0)));
+  expect(new Set(widths)).toEqual(
+    new Set([round(NineKeyLayout.SIDE_SHARE * 2 + NineKeyLayout.GRID_SHARE)]),
+  );
+  // 统计 id 不变：回车、符、侧栏标点照常有计数，侧栏标点仍是几个键帽共用。
+  const counts = { Enter: 7, SoftSymbol: 2, SoftPunctuation: 3, Nine7: 9 };
+  expect(phoneHeatmapOthers(counts, "nine", styled({ nineKeyStyle: "tall_return" }))).toEqual([]);
+  expect(phoneHeatmapPeak(counts, "nine", styled({ nineKeyStyle: "tall_return" }))).toBe(9);
+  expect(phoneHeatmapSharedCodes("nine", styled({ nineKeyStyle: "tall_return" }))).toEqual(
+    new Set(["SoftPunctuation"]),
+  );
+  expect(phoneHeatmapLeader(counts, "nine", styled({ nineKeyStyle: "tall_return" }))?.label).toBe(
+    "PQRS",
+  );
+  // 26 键不受九键样式影响。
+  expect(phoneHeatmapLayoutRows("full", styled({ nineKeyStyle: "tall_return" }))).toEqual(
+    phoneHeatmapRows.full,
+  );
+});
+
 test("the number row is drawn over the 26-key heatmap only and counts Digit1 to Digit0", () => {
   const full = phoneHeatmapLayoutRows("full", styled({ numberRow: true }));
   expect(full).toHaveLength(5);
@@ -382,7 +430,7 @@ test("the number row is drawn over the 26-key heatmap only and counts Digit1 to 
 
 test("every key a styled phone heatmap draws is an id the HarmonyOS keyboard records", () => {
   for (const twentySixKeyStyle of ["standard", "comma_period", "long_space", "emoji"] as const)
-    for (const nineKeyStyle of ["standard", "comma_period", "emoji"] as const)
+    for (const nineKeyStyle of ["standard", "comma_period", "emoji", "tall_return"] as const)
       for (const layout of ["full", "nine"] as const)
         for (const key of phoneHeatmapLayoutRows(
           layout,

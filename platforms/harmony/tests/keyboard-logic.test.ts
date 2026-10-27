@@ -3503,10 +3503,14 @@ group("英文九键字母层：句点紧挨空格左边、逗号紧挨空格右�
     `英文九键：${actionKinds(english)}`,
   );
   check(
-    english.map((action: NineKeyAction) => action.weight).join(" ") === "1.05 1.25 1 2.2 1 1.05 1.6",
+    english.map((action: NineKeyAction) => action.weight).join(" ") ===
+      "1.05 1.25 1 2.2 1 1.05 1.6",
     `句点、逗号各 1 份，从空格让出：${english.map((action: NineKeyAction) => action.weight).join(" ")}`,
   );
-  check(Math.abs(actionWeight(english) - actionWeight(chinese)) < 1e-9, "整行份额不变，其余键与中文九键同宽");
+  check(
+    Math.abs(actionWeight(english) - actionWeight(chinese)) < 1e-9,
+    "整行份额不变，其余键与中文九键同宽",
+  );
   check(
     actionKinds(NineKeyLayout.actionRow(true, true)) === actionKinds(NineKeyLayout.actionRow(true)),
     "英文九键的数字层不变",
@@ -3546,7 +3550,10 @@ group("26 键底行保留逗号并长按句号；14 键和大千注音保留独�
       `${scheme} 中文 26 键不加句点`,
     );
   }
-  check(!KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)), "英文符号行不加句点");
+  check(
+    !KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)),
+    "英文符号行不加句点",
+  );
   check(
     KeyboardScheme.designRowUsesCommaSecondaryPeriod(
       SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
@@ -9241,8 +9248,16 @@ function traits(
   uri: boolean,
   email: boolean,
   noSuggestions: boolean,
+  digits: boolean = false,
 ): EditorTraits {
-  return { text: text, password: password, uri: uri, email: email, noSuggestions: noSuggestions };
+  return {
+    text: text,
+    password: password,
+    uri: uri,
+    email: email,
+    noSuggestions: noSuggestions,
+    digits: digits,
+  };
 }
 
 const PLAIN: EditorTraits = traits(true, false, false, false, false);
@@ -9250,7 +9265,7 @@ const PASSWORD: EditorTraits = traits(true, true, false, false, false);
 const URI: EditorTraits = traits(true, false, true, false, false);
 const EMAIL: EditorTraits = traits(true, false, false, true, false);
 const NO_SUGGESTIONS: EditorTraits = traits(true, false, false, false, true);
-const NUMERIC: EditorTraits = traits(false, false, false, false, false);
+const NUMERIC: EditorTraits = traits(false, false, false, false, false, true);
 
 group("a delayed editor callback never interrupts typing", () => {
   check(
@@ -9272,6 +9287,23 @@ group("a delayed editor callback never interrupts typing", () => {
   check(
     EditorPolicy.appliesDelayedLanguage(false, false, true, false),
     "the same field preference still applies in a fresh editor generation",
+  );
+});
+
+group("password and digit-only fields keep the standard touch bottom rows, as on Android", () => {
+  check(EditorPolicy.keepsStandardRows(PASSWORD), "a password field draws the standard rows");
+  check(EditorPolicy.keepsStandardRows(NUMERIC), "a number or phone field draws the standard rows");
+  check(
+    EditorPolicy.keepsStandardRows(traits(false, true, false, false, false, true)),
+    "a numeric password field too",
+  );
+  for (const plain of [PLAIN, URI, EMAIL, NO_SUGGESTIONS]) {
+    check(!EditorPolicy.keepsStandardRows(plain), "other fields keep the chosen styles");
+  }
+  // 日期框在 Android 上也不算只收数字（`numberInput` 只认数字和电话号码两类）。
+  check(
+    !EditorPolicy.keepsStandardRows(traits(false, false, false, false, false, false)),
+    "a non-text field that is not digit-only keeps the chosen styles",
   );
 });
 

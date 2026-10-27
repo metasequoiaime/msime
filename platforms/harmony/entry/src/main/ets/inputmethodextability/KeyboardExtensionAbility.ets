@@ -11,7 +11,8 @@ import display from '@ohos.display';
 import window from '@ohos.window';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
-import { TouchToolbarPolicy } from '../keyboard/TouchToolbarPolicy';
+import { TouchPanelShape } from '../keyboard/TouchLayoutStylePolicy';
+import { KeyboardFormFactorPolicy } from '../keyboard/KeyboardFormFactorPolicy';
 import { KeyboardGeometry } from '../keyboard/KeyboardGeometry';
 import { KeyboardFormFactor } from '../keyboard/KeyboardFormFactor';
 import { HardwareKeyRouter, HardwareKey, HardwareKeyAction, HardwareKeyDecision }
@@ -962,6 +963,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           return;
         }
         this.panel = panel;
+        if (!desktop) {
+          // 挂上视图之前定下手机面板第一帧的形状：键面要等视图画出来才知道，按视图上次记下的键面和现在的偏好定（`TouchLayoutStylePolicy.firstPanel`），第一帧就带上数字行和长空格样式一直画着的工具条，不再先矮一行、过一帧再长高。视图出现时（`aboutToAppear`）从同一个形状出发核对高度，所以要在 `setUiContent` 之前。
+          const shown: display.Display = display.getDefaultDisplaySync();
+          KeyboardSession.shared.decideFirstTouchPanel(KeyboardFormFactorPolicy.phoneLandscape(
+            shown.width / shown.densityPixels, shown.height / shown.densityPixels));
+        }
         await panel.setUiContent('keyboard/KeyboardView');
         if (this.tornDown) {
           if (this.panel === panel) {
@@ -975,16 +982,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         const screen: display.Display = display.getDefaultDisplaySync();
         // 面板尺寸与视图布局使用同一组数值，避免裁掉最底行。
         const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
+        const opened: TouchPanelShape = KeyboardSession.shared.firstTouchPanel();
         const heightVp: number = desktop
           ? (KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
             settings.candidateShowPreedit, settings.candidateDecorationTopVp,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
             settings.candidatePreeditFontSize, CandidateLayoutPolicy.gap(settings.candidateSkinLayout, true,
         settings.candidateFontSize)) + CandidateCanvasPolicy.extraHeight(settings.candidateCanvas, settings.candidateShowPreedit))
-          // 刚创建时还没有组字也没有面板，工具条画不画只看工具栏设置，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
+          // 刚创建时还没有组字也没有面板，工具条画不画看工具栏设置和上次的键面是不是长空格样式的中文 26 键，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
           : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-            settings.candidatePreeditFontSize, false, !TouchToolbarPolicy.rowHidden(settings.toolbarTools));
+            settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows);
         // 软键盘占满屏幕宽度，候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
         const widthPx: number = desktop
           ? Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels)

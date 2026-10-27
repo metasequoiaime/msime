@@ -25,7 +25,7 @@ import { AppThemeStore } from './skin/AppThemeStore';
 import { CommonPhraseStarters } from './CommonPhraseStarters';
 import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
-import { TouchLayoutStylePolicy } from './TouchLayoutStylePolicy';
+import { TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -795,6 +795,8 @@ interface CommonPhrasesReply {
 // ended the last sentence. A caret further than this from one is in the middle of a sentence by any
 // reading, and the call is made on every text change, so it stays bounded.
 const MAX_CAPITALIZATION_CONTEXT_CHARACTERS: number = 64;
+// `touch_panel_face.json` 只有两个布尔值，读的时候超过这个大小就当没记过。
+const TOUCH_PANEL_FACE_MAX_BYTES: number = 256;
 // setPreviewText's range for "whatever preview text is shown now, or the caret when there is none".
 const PREVIEW_REPLACE_CURRENT: inputMethodEngine.Range = { start: -1, end: -1 };
 
@@ -1348,8 +1350,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
   private enterKey: number = inputMethodEngine.ENTER_KEY_TYPE_UNSPECIFIED;
+  /** 扩展能力建手机面板时定下的形状（`decideFirstTouchPanel`），视图出现时从它出发核对高度。 */
+  private openedTouchPanel: TouchPanelShape | null = null;
+  /** 上次读到或写下的 `touch_panel_face.json` 内容，键面没变时不重写。 */
+  private touchPanelFaceWritten: string = '';
   private traits: EditorTraits = {
-    text: true, password: false, uri: false, email: false, noSuggestions: false
+    text: true, password: false, uri: false, email: false, noSuggestions: false, digits: false
   };
   /** What the attached editor asked for, already reconciled with the kind of field it is. */
   private capitalization: CapitalizationMode = CapitalizationMode.NONE;
@@ -2540,7 +2546,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       email: pattern === inputMethodEngine.PATTERN_EMAIL,
       // A one-time code is typed, not composed, and a user name is not a sentence.
       noSuggestions: pattern === inputMethodEngine.PATTERN_ONE_TIME_CODE
-        || pattern === inputMethodEngine.PATTERN_USER_NAME
+        || pattern === inputMethodEngine.PATTERN_USER_NAME,
+      // 只收数字的编辑框，即 Android `EditorPolicy.numberInput` 认的数字与电话号码两类。
+      digits: pattern === inputMethodEngine.PATTERN_NUMBER
+        || pattern === inputMethodEngine.PATTERN_PHONE
+        || pattern === inputMethodEngine.PATTERN_NUMBER_DECIMAL
     };
   }
 
@@ -3108,9 +3118,68 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /** 当前编辑框是不是密码框；属性还没到达时说的是上一个编辑框，到达后 `onEditorChanged` 会再通知一次。 */
-  editorIsPassword(): boolean {
-    return this.traits.password;
+  /** 当前编辑框只用标准底行（`EditorPolicy.keepsStandardRows`：密码框或只收数字）；属性还没到达时说的是上一个编辑框，到达后 `onEditorChanged` 会再通知一次。 */
+  editorKeepsStandardRows(): boolean {
+    return EditorPolicy.keepsStandardRows(this.traits);
+  }
+
+  /**
+   * 扩展能力建手机面板时调一次：按视图上次记下的键面（`touch_panel_face.json`）和现在的偏好定第一帧的工具条与多出的行（`TouchLayoutStylePolicy.firstPanel`），并留着给视图出现时从这个高度出发核对（`firstTouchPanel`）。
+   */
+  decideFirstTouchPanel(phoneLandscape: boolean): TouchPanelShape {
+    const settings: KeyboardPreferences = this.preferences();
+    this.openedTouchPanel = TouchLayoutStylePolicy.firstPanel(this.rememberedTouchPanelFace(), settings.numberRow,
+      settings.twentySixKeyStyle, TouchToolbarPolicy.rowHidden(settings.toolbarTools), phoneLandscape);
+    return this.openedTouchPanel;
+  }
+
+  /** 扩展能力建面板时用的形状；没有经过 `decideFirstTouchPanel` 时就是它没记过键面时的样子。 */
+  firstTouchPanel(): TouchPanelShape {
+    if (this.openedTouchPanel !== null) {
+      return this.openedTouchPanel;
+    }
+    const settings: KeyboardPreferences = this.preferences();
+    return TouchLayoutStylePolicy.firstPanel(null, settings.numberRow, settings.twentySixKeyStyle,
+      TouchToolbarPolicy.rowHidden(settings.toolbarTools), false);
+  }
+
+  /** 记下视图这一刻的键面，下次冷启动建面板时用；和上次写的一样时不写盘（视图每次重定高度都会调）。写不进去只记日志，下次照没记过建面板。 */
+  rememberTouchPanelFace(face: TouchPanelFace): void {
+    const text: string = TouchLayoutStylePolicy.touchPanelFaceText(face);
+    if (text === this.touchPanelFaceWritten || this.stateDirectory.length === 0) {
+      return;
+    }
+    this.touchPanelFaceWritten = text;
+    try {
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory)) {
+        return;
+      }
+      KeyboardSession.writePrivateText(this.touchPanelFaceFile(), text);
+    } catch (error) {
+      KeyboardLog.error(`touch panel face not persisted: ${describeError(error)}`);
+    }
+  }
+
+  private touchPanelFaceFile(): string {
+    return `${this.stateDirectory}/touch_panel_face.json`;
+  }
+
+  private rememberedTouchPanelFace(): TouchPanelFace | null {
+    if (this.stateDirectory.length === 0) {
+      return null;
+    }
+    try {
+      const text: string | null =
+        KeyboardSession.readPrivateText(this.touchPanelFaceFile(), TOUCH_PANEL_FACE_MAX_BYTES);
+      if (text === null) {
+        return null;
+      }
+      this.touchPanelFaceWritten = text;
+      return TouchLayoutStylePolicy.parseTouchPanelFace(text);
+    } catch (error) {
+      KeyboardLog.error(`touch panel face unavailable: ${describeError(error)}`);
+      return null;
+    }
   }
 
   /** Whether something is being spelled right now, which decides who a physical key belongs to. */

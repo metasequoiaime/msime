@@ -43,9 +43,10 @@ const DIGIT_ROWS: NineKey[][] = [
 // punctuation lock. iOS hard-codes the Chinese forms here because its grid only ever spells Chinese.
 const PUNCTUATION: string[] = [",", ".", "?", "!"];
 
-// 触屏网格把这四个标点拆开：, . ? 放在左列，网格三行旁各一个；! 放在右列底部、删除键和分隔符下方，和 Android 的侧栏一样。
+// 触屏网格把这四个标点拆开：, . ? 放在左列，网格三行旁各一个；! 放在右列底部、删除键和分隔符下方，和 Android 的侧栏一样。九键样式「右侧大回车」的右列下两行是回车，! 接在左列末尾（`TALL_RETURN_SIDE_MARKS`）。
 const SIDE_MARKS: string[] = [",", ".", "?"];
 const CLOSING_MARK: string = "!";
+const TALL_RETURN_SIDE_MARKS: string[] = [",", ".", "?", "!"];
 
 // 数字页就地提供四则运算，标点和更多符号保留在扩展页。
 const DIGIT_SIDEBAR: string[] = ["+", "-", "*", "/"];
@@ -106,6 +107,10 @@ export class NineKeyLayout {
     return NumberSymbolLayout.lettersKeyTitle(true);
   }
 
+  /** 触屏网格两侧的列（左侧标点栏、右侧功能列）和中间 3×3 网格占键盘宽度的份额：每列字母格 2 份，两侧各 1.15 份。「右侧大回车」的三列按同样的份额排，它的底行与这三列对齐。 */
+  static readonly SIDE_SHARE: number = 1.15;
+  static readonly GRID_SHARE: number = 6;
+
   static readonly SYMBOL_PANEL_WEIGHT: number = 1.05;
   static readonly LAYER_WEIGHT: number = 1.25;
   static readonly SPACE_WEIGHT: number = 4.2;
@@ -120,13 +125,42 @@ export class NineKeyLayout {
   static readonly EMOJI_WEIGHT: number = 1.05;
 
   /**
+   * 九键样式「右侧大回车」（`touch_nine_key_style` 为 `tall_return`）是否作用于这块键面：中文九键（拼音九键、九键双拼、笔画）的字母层和它们的数字层都画这个外框——左列是跨网格三行的标点栏，栏下方是与它同宽的 符；中间网格下方的底行恰好与网格同宽（`actionRow`）；右列自上而下是 ⌫、第二格，回车跨第三行和底行。英文九键与其他样式一样不受影响。
+   *
+   * @param english 英文模式下的九键
+   * @param style 九键样式（`TouchLayoutStylePolicy.fieldRowStyle` 之后的值）
+   */
+  static tallReturn(english: boolean, style: string): boolean {
+    return !english && style === "tall_return";
+  }
+
+  /**
+   * 中/英 是否紧挨在回车左边（同一行）：这时两键的触摸分界挪进回车键帽（`KeyboardGeometry.RETURN_YIELD_VP`）。「右侧大回车」的底行里没有回车，回车在右列，不让出键帽。
+   */
+  static languageBesideReturn(row: readonly NineKeyAction[]): boolean {
+    for (let index = 1; index < row.length; index++) {
+      if (row[index].kind === NineKeyActionKind.RETURN) {
+        return row[index - 1].kind === NineKeyActionKind.LANGUAGE;
+      }
+    }
+    return false;
+  }
+
+  /** 九键底行的逗号长按打开常用标点列表：只有中文九键「底栏带标点」的逗号，与 Android、iOS 九键外框上的逗号相同（九键上逗号没有句号可输入，句号就在空格另一边）；英文九键的逗号不接长按。 */
+  static commaOpensQuickPunctuation(digitLayer: boolean, english: boolean, style: string): boolean {
+    return !digitLayer && !english && style === "comma_period";
+  }
+
+  /**
    * 触屏九键外框的底行，与 iOS 的 `ActionRowStyle.nineKey`、Android 的 `KeyboardActionRow.designEntries` 一致：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英紧挨回车。标点在网格两侧的列里，所以没有逗号和句号；符 是九键上打开符号面板的键。
    *
    * 数字网格只有 1-9，这里补上 0：数字层去掉 符，0 排在空格右边，占 符 让出的同一份宽度。常规中文数字入口借用同一套网格和底行。
    *
    * 英文九键的字母层在空格左边放句点、右边放逗号（符 | 123 | . | space | , | 中 | return），与三端英文 26 键底行的句点、逗号位置一致；两键各占 1 份，从空格里让出，左列的 , . ? 不变。
    *
-   * 中文九键字母层按共享偏好 `touch_nine_key_style` 排：`comma_period` 是 符 | 123 | ， | 空格 | 。 | 中 | 回车，逗号句号各占从空格让出的 1 份；`emoji` 是 符 | 123 | 😀 | 空格 | 中 | 回车，😀 占从空格让出的 1.05 份。数字层和英文九键不受样式影响，左侧标点栏和右列不变。
+   * 中文九键字母层按共享偏好 `touch_nine_key_style` 排：`comma_period` 是 符 | 123 | ， | 空格 | 。 | 中 | 回车，逗号句号各占从空格让出的 1 份；`emoji` 是 符 | 123 | 😀 | 空格 | 中 | 回车，😀 占从空格让出的 1.05 份。数字层和英文九键不受这两种样式影响，左侧标点栏和右列不变。
+   *
+   * `tall_return`（`tallReturn`）的底行只是网格下方那一段，份额按网格的 `GRID_SHARE` 算、加起来正好是网格的宽度：字母层 123 1.25 | 空格 3.7 | 中 1.05；数字层 切换键 1.25 | 空格 2.65 | 0 1.05 | 中 1.05，0 放进空格的位置、空格留在 0 左边，与这里原有数字层「空格 | 0」的次序相同。符 和回车不在这一段里，由外框画在左列和右列。
    *
    * @param digitLayer 画的是数字层
    * @param english 英文模式下的九键（数字层不受影响）
@@ -140,6 +174,23 @@ export class NineKeyLayout {
     const row: NineKeyAction[] = [];
     const englishMarks: boolean = english && !digitLayer;
     const styled: boolean = !english && !digitLayer;
+    if (NineKeyLayout.tallReturn(english, style)) {
+      const ends: number = NineKeyLayout.LAYER_WEIGHT + NineKeyLayout.LANGUAGE_WEIGHT;
+      row.push(action(NineKeyActionKind.LAYER_TOGGLE, NineKeyLayout.LAYER_WEIGHT));
+      if (digitLayer) {
+        row.push(
+          action(
+            NineKeyActionKind.SPACE,
+            NineKeyLayout.GRID_SHARE - ends - NineKeyLayout.ZERO_WEIGHT,
+          ),
+        );
+        row.push(action(NineKeyActionKind.ZERO, NineKeyLayout.ZERO_WEIGHT));
+      } else {
+        row.push(action(NineKeyActionKind.SPACE, NineKeyLayout.GRID_SHARE - ends));
+      }
+      row.push(action(NineKeyActionKind.LANGUAGE, NineKeyLayout.LANGUAGE_WEIGHT));
+      return row;
+    }
     if (styled && style === "comma_period") {
       row.push(action(NineKeyActionKind.SYMBOL_PANEL, NineKeyLayout.SYMBOL_PANEL_WEIGHT));
       row.push(action(NineKeyActionKind.LAYER_TOGGLE, NineKeyLayout.LAYER_WEIGHT));
@@ -213,9 +264,9 @@ export class NineKeyLayout {
     return key.input === QUICK_MARKS_KEY.input;
   }
 
-  /** 触屏网格左列的标点。 */
-  static sideMarks(): string[] {
-    return SIDE_MARKS;
+  /** 触屏网格左列的标点；「右侧大回车」时末尾多一个右列让出来的 !。 */
+  static sideMarks(tallReturn: boolean = false): string[] {
+    return tallReturn ? TALL_RETURN_SIDE_MARKS : SIDE_MARKS;
   }
 
   /** 触屏网格右列底部的标点。 */
