@@ -125,6 +125,12 @@ export const cloudDictionary: (request: string) => Promise<string>;
 export const cloudDictionarySnapshot: (request: string) => Promise<string>;
 /** `msime_client_account_cloud_clipboard` 在工作线程上：`{directory, device_name?, action}`。 */
 export const accountCloudClipboard: (request: string) => Promise<string>;
+/** `msime_client_cloud_clipboard_source`：参数是偏好目录的绝对路径本身（不是 JSON），回答 `{ok,value:{source:"account"|"relay",backend?,revision}}`。只读偏好、不联网，同步调用。 */
+export const cloudClipboardSource: (directory: string) => string;
+/** `msime_client_relay_cloud_clipboard` 在工作线程上：`{preferences_directory, expected_revision?, directory, device_name?, create_identity?, action}`，经偏好里配置的自建中继或 WebDAV 网盘答一个动作。 */
+export const relayCloudClipboard: (request: string) => Promise<string>;
+/** `msime_client_cloud_clipboard_webdav_probe` 在工作线程上：`{url, username, password, directory?}`，WebDAV 设置的「测试连接」，大约二十个请求。 */
+export const cloudClipboardWebDavProbe: (request: string) => Promise<string>;
 /** `msime_client_account_harmony_settings_export` 在工作线程上：`{preferences_directory, feedback, schema, cloud?}`，不联网、不读会话。 */
 export const harmonySettingsExport: (request: string) => Promise<string>;
 /** `msime_client_account_harmony_settings_apply` 在工作线程上：`{preferences_directory, cloud, schema, feedback}`，按读到的修订号比较并交换写回偏好。 */

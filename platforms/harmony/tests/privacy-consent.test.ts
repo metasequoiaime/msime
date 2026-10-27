@@ -129,6 +129,11 @@ group("refusal blocks every networked bridge request", () => {
     ["cloud_dictionary", '{"operation":"list"}'],
     ["cloud_dictionary_snapshot", '{"operation":"upload"}'],
     ["cloud_clipboard", '{"operation":"list"}'],
+    ["cloud_clipboard", '{"operation":"devices"}'],
+    [
+      "cloud_clipboard_webdav_probe",
+      '{"url":"https://dav.example.test/dav","username":"synthetic","password":"synthetic"}',
+    ],
     ["settings_sync", '{"operation":"preferences_upload"}'],
     ["ai_skin", '{"operation":"generate"}'],
     ["community_resource", '{"operation":"list"}'],

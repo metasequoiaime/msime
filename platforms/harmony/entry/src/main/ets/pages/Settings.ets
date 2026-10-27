@@ -1275,6 +1275,8 @@ class SettingsBridge {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_clipboard') {
       this.cloudClipboard(payload).then(deliver).catch(failed);
+    } else if (kind === 'cloud_clipboard_webdav_probe') {
+      this.cloudClipboardWebDavProbe(payload).then(deliver).catch(failed);
     } else if (kind === 'settings_sync') {
       this.settingsSync(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_skin') {
@@ -2259,12 +2261,20 @@ class SettingsBridge {
     return client.accountName(request);
   }
 
-  /** 云剪贴板面板的动作，经 Rust 的端到端加密驱动。 */
+  /** 云剪贴板面板的动作，经 Rust 的端到端加密驱动；按偏好走水杉账号、自建中继或 WebDAV 网盘。 */
   cloudClipboard(action: string): Promise<string> {
     if (this.accountBridge === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
     return this.accountBridge.cloudClipboard(action);
+  }
+
+  /** 「剪贴板」页 WebDAV 设置的「测试连接」，草稿是 `{url, username, password}`。 */
+  cloudClipboardWebDavProbe(draft: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'relay_unavailable' }));
+    }
+    return this.accountBridge.cloudClipboardWebDavProbe(draft);
   }
 
   cloudDictionary(action: string): Promise<string> {

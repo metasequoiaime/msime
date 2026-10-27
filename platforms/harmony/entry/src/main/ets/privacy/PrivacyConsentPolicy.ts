@@ -81,6 +81,8 @@ const NETWORK_REQUESTS: string[] = [
   "cloud_dictionary",
   "cloud_dictionary_snapshot",
   "cloud_clipboard",
+  // WebDAV 设置的「测试连接」：用草稿里的地址和应用密码向网盘发大约二十个请求。
+  "cloud_clipboard_webdav_probe",
   "settings_sync",
   "ai_skin",
   "community_resource",
@@ -101,6 +103,7 @@ const LOCAL_OPERATIONS: Record<string, string[]> = {
   cloud_dictionary: [],
   cloud_dictionary_snapshot: [],
   cloud_clipboard: [],
+  cloud_clipboard_webdav_probe: [],
   settings_sync: [],
   ai_skin: ["cancel"],
   community_resource: ["store_reply", "remove_reply"],

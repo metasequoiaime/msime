@@ -1173,7 +1173,7 @@ function localVoiceModelClient(
 }
 
 /**
- * 云剪贴板面板的动作原样交给宿主，名字和字段与 Rust `msime_client_account_cloud_clipboard` 相同。列表、上传和 `devices`、`approve`、`reject`、`remove`、`reset` 在 Rust 里经端到端加密驱动，结果是驱动给的形状；错误以 `{code}` 抛出，码是驱动或账号入口给的（例如 `clipboard_device_pending`）。
+ * 云剪贴板面板的动作原样交给宿主，名字和字段与 Rust `msime_client_account_cloud_clipboard` 相同；宿主按偏好把它交给水杉账号，或者经 `msime_client_relay_cloud_clipboard` 交给自建中继、WebDAV 网盘，两条路接受同样的动作、答同样形状的结果。列表、上传和 `devices`、`approve`、`reject`、`remove`、`reset` 在 Rust 里经端到端加密驱动，结果是驱动给的形状；错误以 `{code}` 抛出，码是驱动或账号入口给的（例如 `clipboard_device_pending`）。
  */
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   type Response = Awaited<ReturnType<CloudClipboardPanelClient["request"]>>;
@@ -1762,6 +1762,25 @@ function makeClient(
     openCloudClipboard: networkAllowed ? async () => openCloudClipboard() : undefined,
     cloudClipboardRequest: networkAllowed
       ? cloudClipboardClient(native, () => undefined).request
+      : undefined,
+    // 云剪贴板可以改走自建中继或 WebDAV 网盘：设置页、云剪贴板面板和键盘每个请求都先问 Rust 该走哪条路（`msime_client_cloud_clipboard_source`），配置了就只走它。都要联网，没有隐私政策的授权时「剪贴板」页不显示同步方式。
+    cloudClipboardRelay: networkAllowed,
+    // 保存 WebDAV 之前的「测试连接」由 Rust 跑（`msime_client_cloud_clipboard_webdav_probe`），大约二十个请求，每个都有自己 30 秒的读超时。
+    probeCloudClipboardWebDav: networkAllowed
+      ? async (draft) => {
+          unwrap<Record<string, never>>(
+            await bridgeRequest(
+              native,
+              "cloud_clipboard_webdav_probe",
+              JSON.stringify({
+                url: draft.url,
+                username: draft.username,
+                password: draft.password,
+              }),
+              CLOUD_CLIPBOARD_TIMEOUT_MS,
+            ),
+          );
+        }
       : undefined,
     openCloudDictionary: networkAllowed ? async () => openCloudDictionary() : undefined,
   };

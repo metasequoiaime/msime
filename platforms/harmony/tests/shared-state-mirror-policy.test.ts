@@ -190,6 +190,62 @@ group("account sessions are only exchanged in full experience mode", () => {
   );
 });
 
+group("one cloud clipboard device identity per installation, made by the settings app", () => {
+  // 两个沙箱各用一份身份，同一台手机就会在空间里登记成两台、要批准两次；键盘只用设置应用这一份。
+  const relay = SETTINGS_ENTRIES.find((entry) => entry.name === "cloud-clipboard-relay-keystore");
+  const account = SETTINGS_ENTRIES.find((entry) => entry.name === "cloud-clipboard-keystore");
+  check(
+    relay !== undefined &&
+      relay.kind === "file" &&
+      relay.base === "state" &&
+      relay.path === "cloud-clipboard-relay-keystore",
+    "settings publishes the relay and WebDAV identity next to the account session",
+  );
+  check(
+    account !== undefined &&
+      account.base === "state" &&
+      account.path === "cloud-clipboard-keystore",
+    "settings publishes the account identity",
+  );
+  check(
+    !KEYBOARD_ENTRIES.some((entry) => entry.name.includes("keystore")),
+    "the keyboard never publishes an identity of its own",
+  );
+  const theirs = manifest("settings", [
+    ["cloud-clipboard-relay-keystore", "r1", 100],
+    ["cloud-clipboard-keystore", "k1", 100],
+  ]);
+  const basic = SharedStateMirrorPolicy.pending(theirs, null, null, SETTINGS_ENTRIES, false);
+  check(
+    basic.length === 1 && basic[0].name === "cloud-clipboard-relay-keystore",
+    "a basic-mode keyboard reads the relay identity; the account one follows the session",
+  );
+  check(
+    SharedStateMirrorPolicy.pending(theirs, null, null, SETTINGS_ENTRIES, true).length === 2,
+    "a full-mode keyboard takes both",
+  );
+  for (const name of ["cloud-clipboard-relay-keystore", "cloud-clipboard-keystore"]) {
+    check(
+      SharedStateMirrorPolicy.keepsLocalWhenAbsent(name),
+      `${name} is not deleted before settings has made one`,
+    );
+    check(SharedStateMirrorPolicy.importDecision(name) === "copy", `${name} is copied whole`);
+  }
+  const cache = SETTINGS_ENTRIES.find((entry) => entry.name === "cloud-clipboard-webdav-state");
+  check(
+    cache !== undefined && !cache.fullModeOnly && cache.path === "cloud-clipboard-webdav-state",
+    "the drive cache follows settings, so trusting the drive again reaches the keyboard",
+  );
+  for (const name of [
+    "key-feedback",
+    "account-session",
+    "privacy-consent",
+    "cloud-clipboard-webdav-state",
+  ]) {
+    check(!SharedStateMirrorPolicy.keepsLocalWhenAbsent(name), `${name} still follows a deletion`);
+  }
+});
+
 group("the keyboard publishes its anonymous identity in full experience mode", () => {
   const published = KEYBOARD_ENTRIES.find((entry) => entry.name === "anonymous-account");
   check(
