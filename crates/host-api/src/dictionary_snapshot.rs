@@ -53,6 +53,8 @@ struct Prepared {
     active_options: EngineOptions,
     options: EngineOptions,
     source_version: String,
+    /// 激活时把本机即将换下来的这一代学到的东西并进新的一代，见 [`carry_local_learning`]。
+    keep_local_learning: bool,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +66,9 @@ struct PrepareRequest {
     records: usize,
     #[serde(default)]
     activation_id: Option<String>,
+    /// 激活时保留本机学到的东西（[`carry_local_learning`]）；缺省为假，整份换成快照里的那份。
+    #[serde(default)]
+    keep_local_learning: bool,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +95,9 @@ enum SnapshotQueueAction {
         cloud_revision: i64,
         expected_local_version: String,
         file_sha256: String,
+        /// 见 `SnapshotRequest::keep_local_learning`；缺省为假。
+        #[serde(default)]
+        keep_local_learning: bool,
     },
     Cancel {
         directory: String,
@@ -490,16 +498,7 @@ pub(crate) fn export_local_snapshot(
     if destination.is_dir() {
         return Err("invalid snapshot destination");
     }
-    let now = time::OffsetDateTime::now_utc();
-    let updated_at = format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        now.year(),
-        u8::from(now.month()),
-        now.day(),
-        now.hour(),
-        now.minute(),
-        now.second()
-    );
+    let updated_at = snapshot_timestamp_now();
     let mut rows = Vec::new();
     let mut seen = HashSet::new();
     // Rows the cloud snapshot format cannot carry: a quick phrase may hold a line break or a tab, which `required_text` refuses. They are left out and counted so the host can tell the user, instead of the whole export failing.
@@ -640,6 +639,20 @@ pub(crate) fn export_local_snapshot(
         value["learning_error"] = json!(error);
     }
     Ok(value)
+}
+
+/// 快照记录的 `updated_at`：现在的 UTC 时间，精确到秒。
+fn snapshot_timestamp_now() -> String {
+    let now = time::OffsetDateTime::now_utc();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    )
 }
 
 /// 快照里一个词的 `id`：种类、编码和词用制表符连起来的 SHA-256 前 16 字节。
@@ -1225,6 +1238,7 @@ fn prepare(
         active_options: options,
         options: staged,
         source_version: current,
+        keep_local_learning: request.keep_local_learning,
     })
 }
 
@@ -1352,6 +1366,13 @@ where
     drop(replacement_session);
     // The same step `reset_learned_data` takes before it replaces files in place: write the queued personal context into the journal that is about to become the backup, then close every cached journal, personal-context and local-mode connection, so nothing in this process keeps reading or writing the files being moved out (Windows would also refuse to move them).
     msime_engine::close_cached_databases();
+    // 排着的整句联想此刻已经写进旧日志，在同一把锁里把旧的一代学到的东西并进新的一代，再换入：入队到激活之间学到的也带得过去，合并失败时旧的一代原样留着。
+    if prepared.keep_local_learning {
+        let carried = carry_local_learning(active, staged, prepared.directory.path());
+        // 合并在新的一代上开过连接，不论成败都先全部关掉：成功时 Windows 不让移动打开着的 SQLite 文件；失败时调用方要删掉暂存的新一代，同样删不掉打开着的文件。
+        msime_engine::close_cached_databases();
+        carried?;
+    }
     let suffix = format!(".msime-snapshot-old-{handle}");
     let pairs = [
         (&active.user_data, &staged.user_data),
@@ -1553,6 +1574,80 @@ where
     Ok(json!({"activated": true}))
 }
 
+/// 云同步的「下载」和「应用到本机」整份换上云端快照时，把即将换下来的这一代学到的东西并进新的一代（#10043）：学习调权、删除记录、固定位置和选词计数（与本地备份的输入记录相同，见 [`learning_records`]），以及输入习惯（整句联想、选词对、拼写纠错、自动纠错抑制和置顶，见 [`habits::export_learning_habits`]）。云端快照只有用户自己的词，云同步上传时 `include_learning` 为假，不并回来的话每一次下载都会清空本机学到的全部东西。
+///
+/// 调用方持有独占维护权，已经调过 `close_cached_databases`（排着的整句联想已经写进旧日志），新的一代还没换入。合并规则与本地备份恢复相同（`merge_dictionary_state`、`merge_learning_habits`）：新的一代里已有的保留新的一代，所以快照里的用户词以云端为准；选词计数和输入习惯的计数取大。中间文件写在这次准备的私有暂存目录 `scratch` 里，随它一起删掉。
+///
+/// 旧的一代里读不出来的那一类（日志有不是 UTF-8 的行等）不并，与加这一步之前一样整份换掉，不让一份坏日志挡住以后每一次下载。往新的一代里写失败（磁盘满、I/O 失败）时报错：激活不做，旧的一代原样留着，请求留在队列里下次再试。
+fn carry_local_learning(
+    active: &EngineOptions,
+    staged: &EngineOptions,
+    scratch: &Path,
+) -> Result<(), &'static str> {
+    const FAILED: &str = "snapshot learning merge failed";
+    const REVISION: i64 = 1;
+    if let Ok(learning) = learning_records(
+        active,
+        REVISION,
+        &snapshot_timestamp_now(),
+        MAX_SNAPSHOT_RECORDS - 1,
+    ) {
+        let records = learning.records();
+        if records > 0 {
+            // 与 [`queue_learning_merge`] 写的待合并文件同一个形状：header、输入记录（overlay 在 position 之前，position 在 selection 之前）、footer。
+            let mut body = Vec::new();
+            let mut push = |line: &Value| {
+                body.extend_from_slice(line.to_string().as_bytes());
+                body.push(b'\n');
+            };
+            push(&json!({
+                "type": "header",
+                "format": "msime-dictionary-snapshot",
+                "version": 1,
+                "revision": REVISION,
+            }));
+            for line in learning
+                .overlays
+                .iter()
+                .chain(&learning.positions)
+                .chain(&learning.selections)
+            {
+                push(line);
+            }
+            let checksum = hex::encode(Sha256::digest(&body));
+            body.extend_from_slice(
+                json!({"type": "footer", "records": 1 + records, "sha256": checksum})
+                    .to_string()
+                    .as_bytes(),
+            );
+            body.push(b'\n');
+            let metadata = inspect_snapshot_bytes(&body)?;
+            let path = scratch.join("outgoing-learning.ndjson");
+            msime_client_core::file_lock::replace_private_file(&path, &body)
+                .map_err(|_| "snapshot file unavailable")?;
+            msime_engine::host::merge_dictionary_state(
+                staged,
+                metadata.engine_records.max(1),
+                SnapshotFileRecords::open(&path)?,
+            )
+            .map_err(|_| FAILED)?;
+        }
+    }
+    let path = scratch.join("outgoing-habits.ndjson");
+    // 只有旧的一代的习惯表读不出来（`habits read rejected`）时跳过这一类；中间文件写不进去（磁盘满、I/O 失败）等其余错误都让激活失败，下次再试，不能当成「没有习惯」把它们丢掉。
+    let exported = match habits::export_learning_habits(active, &path) {
+        Ok(exported) => exported.get("habits").and_then(Value::as_u64).unwrap_or(0),
+        Err("habits read rejected") => 0,
+        Err(_) => return Err(FAILED),
+    };
+    if exported > 0 {
+        habits::merge_claimed_habits(staged, &path).map_err(|_| FAILED)?;
+    }
+    // 两份各自合法的记录合并后仍可能超过总量上限；换入前按后续版本读取的同一条路径验证整代，失败时保留旧代。
+    dictionary_state_revision(staged).map_err(|_| FAILED)?;
+    Ok(())
+}
+
 fn should_defer_activation_receipt(root_index: usize, file_name: &OsStr) -> bool {
     root_index == 0 && file_name == OsStr::new(ACTIVATION_RECEIPT_NAME)
 }
@@ -1736,6 +1831,29 @@ fn snapshot_queue_process(
     options: HostOptions,
     account_id: Option<String>,
 ) -> Result<Value, String> {
+    // 与准备宿主时相同：按文档记录的版本的锁校验资源、计算代次。
+    snapshot_queue_process_with(
+        queue,
+        staging_root,
+        options,
+        account_id,
+        |options| {
+            crate::dictionary_updates::specification_for_options(options)
+                .map_err(|_| "snapshot resources rejected".to_owned())
+        },
+        crate::ON_DEMAND_ARTIFACTS,
+    )
+}
+
+/// [`snapshot_queue_process`]，资源清单由 `specification` 给出（认领到请求、要准备新的一代时才调），按需下载的文件见 `on_demand`。
+fn snapshot_queue_process_with(
+    queue: &DictionarySnapshotQueue,
+    staging_root: String,
+    options: HostOptions,
+    account_id: Option<String>,
+    specification: impl FnOnce(&HostOptions) -> Result<ResourceSet, String>,
+    on_demand: &[&[&str]],
+) -> Result<Value, String> {
     let engine_options = validate_options(options.clone()).map_err(str::to_owned)?;
     let current = durable_local_version(&engine_options).map_err(str::to_owned)?;
     queue
@@ -1782,9 +1900,7 @@ fn snapshot_queue_process(
         .map_err(snapshot_queue_error)?
         .to_owned();
     let stream = SnapshotFileRecords::open(&path).map_err(str::to_owned)?;
-    // 与准备宿主时相同：按文档记录的版本的锁校验资源、计算代次。
-    let specification = crate::dictionary_updates::specification_for_options(&options)
-        .map_err(|_| "snapshot resources rejected".to_owned())?;
+    let specification = specification(&options)?;
     let prepared = prepare(
         PrepareRequest {
             options,
@@ -1792,9 +1908,10 @@ fn snapshot_queue_process(
             expected_version: raw_expected.clone(),
             records: metadata.engine_records,
             activation_id: Some(request.id.to_string()),
+            keep_local_learning: request.keep_local_learning,
         },
         &specification,
-        crate::ON_DEMAND_ARTIFACTS,
+        on_demand,
         stream,
     );
     let prepared = match prepared {
@@ -1849,6 +1966,7 @@ fn run_snapshot_queue(action: SnapshotQueueAction) -> Result<Value, String> {
             cloud_revision,
             expected_local_version,
             file_sha256,
+            keep_local_learning,
         } => {
             let queue = snapshot_queue(&directory)?;
             queue
@@ -1858,6 +1976,7 @@ fn run_snapshot_queue(action: SnapshotQueueAction) -> Result<Value, String> {
                     cloud_revision,
                     &expected_local_version,
                     &file_sha256,
+                    keep_local_learning,
                 )
                 .map_err(snapshot_queue_error)?;
             serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)

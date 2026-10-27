@@ -20122,6 +20122,135 @@ fn mobile_english_correction_request_preserves_raw_and_the_session() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+#[test]
+fn mobile_english_display_request_merges_correction_and_completions() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let path = resources.join("msime-english.db");
+    msime_engine::ensure_english_schema(&path).unwrap();
+    rusqlite::Connection::open(&path).unwrap().execute_batch(
+        "INSERT INTO english_words VALUES('the','the',23000000000),('tech','tech',93000000),('hello','hello',50000000),('help','help',40000000),('hero','hero',1000000),('monday','Monday',79000000),('language','language',5000000000);"
+    ).unwrap();
+    let handle = test_host(root.path());
+    let before = read(msime_client_view(handle))["value"].clone();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        let resources = resources.to_str().unwrap().as_bytes();
+        read(unsafe {
+            msime_client_english_completions_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    let display = |prefix: &str, limit: u8| {
+        call(json!({"prefix": prefix, "limit": limit, "correction": true, "completions": true}))
+    };
+    // 有纠错：只有原文与纠错。
+    assert_eq!(
+        display("teh", 5),
+        json!({"ok":true,"value":{"prefix":"teh","items":["teh","the"],"corrected":true}})
+    );
+    assert_eq!(
+        display("Teh", 5)["value"],
+        json!({"prefix":"Teh","items":["Teh","The"],"corrected":true})
+    );
+    assert_eq!(
+        display("languaage", 5)["value"],
+        json!({"prefix":"languaage","items":["languaage","language"],"corrected":true})
+    );
+    // 第二行放不下时没有纠错行，corrected 为假。
+    assert_eq!(
+        display("teh", 1)["value"],
+        json!({"prefix":"teh","items":["teh"],"corrected":false})
+    );
+    // 原文已是完整的词：精确命中、固定词形与受保护的缩写都只有原文。
+    for raw in [
+        "hello", "Hello", "HELLO", "the", "you're", "I", "pls", "omg", "Monday",
+    ] {
+        assert_eq!(
+            display(raw, 5)["value"],
+            json!({"prefix":raw,"items":[raw],"corrected":false}),
+            "{raw}"
+        );
+    }
+    // 其余情况原文后接前缀补全。
+    assert_eq!(
+        display("he", 5)["value"],
+        json!({"prefix":"he","items":["he","hello","help","hero"],"corrected":false})
+    );
+    assert_eq!(
+        display("he", 2)["value"],
+        json!({"prefix":"he","items":["he","hello"],"corrected":false})
+    );
+    assert_eq!(
+        display("He", 3)["value"],
+        json!({"prefix":"He","items":["He","Hello","Help"],"corrected":false})
+    );
+    assert_eq!(
+        display("mon", 5)["value"],
+        json!({"prefix":"mon","items":["mon","Monday"],"corrected":false})
+    );
+    assert_eq!(
+        display("xq", 5)["value"],
+        json!({"prefix":"xq","items":["xq"],"corrected":false})
+    );
+    // completions 只能与 correction 同用；其他校验不变。
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3,"completions":true})),
+        json!({"ok":false,"error":"invalid English completion request"})
+    );
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3,"correction":false,"completions":true}))["ok"],
+        false
+    );
+    for request in [
+        json!({"prefix":"","limit":3,"correction":true,"completions":true}),
+        json!({"prefix":"he!","limit":3,"correction":true,"completions":true}),
+        json!({"prefix":"he","limit":0,"correction":true,"completions":true}),
+        json!({"prefix":"he","limit":33,"correction":true,"completions":true}),
+        json!({"prefix":"he","limit":3,"correction":true,"completions":"yes"}),
+    ] {
+        assert_eq!(call(request.clone())["ok"], false, "{request}");
+    }
+    // 不带 completions 的两种请求形状与此前逐字节相同。
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3})),
+        json!({"ok":true,"value":{"prefix":"he","items":["hello","help","hero"]}})
+    );
+    assert_eq!(
+        call(json!({"prefix":"teh","limit":2,"correction":true})),
+        json!({"ok":true,"value":{"prefix":"teh","items":["teh","the"]}})
+    );
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3,"correction":true,"completions":false})),
+        json!({"ok":true,"value":{"prefix":"he","items":["he"]}})
+    );
+    // 缺词库时固定词形照常恢复，其余只有原文。
+    let missing = tempfile::tempdir().unwrap();
+    let missing = missing.path().to_str().unwrap().as_bytes();
+    let request =
+        serde_json::to_vec(&json!({"prefix":"i","limit":5,"correction":true,"completions":true}))
+            .unwrap();
+    assert_eq!(
+        read(unsafe {
+            msime_client_english_completions_request(
+                request.as_ptr(),
+                request.len(),
+                missing.as_ptr(),
+                missing.len(),
+            )
+        })["value"],
+        json!({"prefix":"i","items":["i","I"],"corrected":true})
+    );
+    assert_eq!(read(msime_client_view(handle))["value"], before);
+    assert!(!path.with_extension("db-journal").exists());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 /// 繁忙是整批重试条件：设置页尝试应用导入时，不能把仍在等待的词写成永久失败。
 #[test]
 fn personal_dictionary_sync_leaves_busy_imports_pending() {
