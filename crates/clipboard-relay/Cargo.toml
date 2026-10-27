@@ -29,6 +29,8 @@ time = { workspace = true, features = ["formatting"] }
 [dev-dependencies]
 # 端到端测试用真正的客户端驱动连这个中继。
 msime-client-services = { path = "../client-services" }
+# 连接探测回归经真实 Host API 动作分发，不能绕过会改本机状态的入口。
+msime-host-api = { path = "../host-api" }
 tempfile.workspace = true
 # `tests/webdav_flow.rs` 和 `tests/dictionary_webdav_flow.rs` 让客户端的云剪贴板和词库同步对着一个真实的 WebDAV 服务端跑完整流程；只用内存文件系统。维护者同意作为测试依赖引入。放在这里而不是客户端的 crate，是因为这里已经有 axum 和 tokio 能把它跑起来。
 dav-server = { version = "0.11", default-features = false, features = ["memfs"] }
