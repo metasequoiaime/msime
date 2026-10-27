@@ -1,4 +1,4 @@
-# Agent Note: Linux 崩溃记录写明别人发来的信号是谁发的
+# Agent Note: Linux 崩溃记录区分进程发送信号的来源
 
 Status: implemented
 
@@ -6,14 +6,14 @@ Status: implemented
 
 崩溃组 `a71ba81276ea76b9`（Linux，`SIGSEGV: segmentation fault`）近 7 天 13 次、13 台设备，首次出现在 2026-10-05，样本全是 aarch64 上的 IBus 宿主：ibus 的信号回调调 `msime_client_destroy`，在 `libmsime_host_api.so` 里走十几层后停在 libc 的 `__open64+0xdc`（libpthread）或 `__xstat64+0x14`。`__open64` 在 libpthread 里说明 glibc 早于 2.34，大多是麒麟、统信这类国产 ARM 发行版。
 
-逐项排查后，这不是宿主的内存错误：
+现有记录支持这是进程发送的信号，但发送者和上游诱因仍未确定：
 
 - 用 Debian 10 arm64 的 glibc 2.28 反汇编，两个崩溃位置都恰好是 `svc #0` 之后那条 `cmn x0, #0x1, lsl #12`，比较指令自己不会出错。信号是在 open、stat 系统调用返回时投递的。
 - 0.14.0 的处理函数在 `si_code > 0` 时会在摘要后写 `(code N)`（`SEGV_MAPERR` 是 1，内核 `force_sigsegv` 是 `SI_KERNEL`，128）。13 份报告都没有，所以 `si_code <= 0`：SIGSEGV 是某个进程用 `kill`、`tgkill` 或 `sigqueue` 发来的。
 - 仓库里没有任何产品代码向宿主发 SIGSEGV：启动器只转发 SIGTERM，设置应用和打包脚本都不发这个信号。
 - 栈不深，崩溃处理函数在 `sigaltstack` 上运行，排除了栈溢出。
 
-发信号的是系统里另一个进程，崩溃记录却只写了 `SIGSEGV: segmentation fault`，看不出是谁。发布的 `libmsime_host_api.so` 也去掉了符号表，五个样本还来自四个布局不同的构建，没法符号化。
+发送者可能是同进程的依赖库，也可能是外部进程；仓库内没有发送代码不能排除前一种情况。崩溃记录只写了 `SIGSEGV: segmentation fault`，看不出是谁。发布的 `libmsime_host_api.so` 也去掉了符号表，五个样本还来自四个布局不同的构建，没法符号化。
 
 ## Decision
 
@@ -23,13 +23,13 @@ POSIX 崩溃处理函数（`platforms/common/Telemetry.cpp`，Linux 的 IBus 宿
 
 ## Alternatives considered
 
-- **改销毁路径，不在 `msime_client_destroy` 里做文件 I/O**：如果是 I/O 本身有问题，这样能直接避开。否定：证据表明信号来自外部，I/O 只是信号到达时恰好在做的事；把落盘挪走会丢掉销毁时该写的学习记录，也不会让外部的 SIGSEGV 消失。
+- **改销毁路径，不在 `msime_client_destroy` 里做文件 I/O**：如果是 I/O 本身有问题，这样能直接避开。否定：现有记录不足以确定发送者，也没有证明文件 I/O 是诱因；把落盘挪走会丢掉销毁时该写的学习记录，先补齐来源记录，再追查宿主或依赖库的触发原因。
 - **把别人发来的信号归为「被系统结束」（摘要以 `Killed` 开头），不计入崩溃率**：和 iOS 对 SIGKILL 的处理一致。否定：发 SIGSEGV 的很可能是卡死看门狗一类，它要的就是一次崩溃转储，背后可能是宿主卡住。先查清是谁、为什么，再决定怎么归类。
 - **同时记录 pid 或发送者的命令行**：信息更多。否定：pid 事后没有意义；命令行可能带路径和参数，涉及用户数据。
 
 ## Consequences
 
-装了这个版本的 Linux 宿主再遇到这类 SIGSEGV 时，崩溃组标题会带上发送者，例如 `SIGSEGV: segmentation fault (sent by xxx)`，按发送者自成一组，可以据此去查是哪个系统组件、在什么条件下发的。代价是标题变了，同样的事件会进新的崩溃组。`raise()` 产生的崩溃（例如测试，或别的库用 `raise(SIGSEGV)`）也会写明是本进程发的。
+装了这个版本的 Linux 宿主再遇到这类 SIGSEGV 时，崩溃组标题会带上发送者，例如 `SIGSEGV: segmentation fault (sent by xxx)`，按发送者自成一组，可以据此区分同进程与外部来源，再查相应代码或组件在什么条件下发出信号。代价是标题变了，同样的事件会进新的崩溃组。`raise()` 产生的崩溃（例如测试，或别的库用 `raise(SIGSEGV)`）也会写明是本进程发的。
 
 ## Verification
 

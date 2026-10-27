@@ -347,7 +347,7 @@ bool sent_by_a_process(const siginfo_t *info) {
   return info->si_code == SI_USER || info->si_code == SI_QUEUE;
 }
 
-// Only async-signal-safe calls: open, read, write, close, getpid, sigaction, raise, and glibc's backtrace (preloaded by install_crash_handlers) and backtrace_symbols_fd, which does not allocate.
+// 使用信号处理路径可调用的 open、read、write、close、getpid、sigaction、raise；glibc 的 backtrace 由 install_crash_handlers 预加载，backtrace_symbols_fd 不分配内存。
 void crash_signal(int number, siginfo_t *info, void *context) {
   const int saved = errno;
   size_t index = 0;
@@ -363,7 +363,7 @@ void crash_signal(int number, siginfo_t *info, void *context) {
         summary.decimal(info->si_code);
         summary.text(")");
       } else if (sent_by_a_process(info)) {
-        // 别人发来的 SIGSEGV 不是本进程的内存错误，记下是谁发的：Linux 0.14.0 上 IBus 宿主销毁会话时收到的 SIGSEGV 都没有正的 si_code，栈停在 open、stat 系统调用刚返回处。进程名是系统里另一个进程的名字，不含用户数据；pid 不写，服务端分组本来也会掩去数字。
+        // 区分同进程 raise、tgkill 与外部发送的信号；来源信息本身不能排除宿主或依赖库的上游缺陷。只记录进程名，不写 pid，服务端分组会掩去数字。
         if (info->si_pid == getpid()) {
           summary.text(" (raised by this process)");
         } else {
