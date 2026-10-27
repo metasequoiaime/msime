@@ -40,7 +40,7 @@ enum TouchFourteenKeyStyle: String, CaseIterable, Hashable {
   }
 }
 
-/// 九键字母层的底行样式，拼音九键、九键双拼和笔画共用，共享文档里是 `touch_nine_key_style`（client-core `TouchNineKeyStyle`）。左侧符号栏、右侧功能列和数字层不变。
+/// 九键字母层的底行样式，拼音九键、九键双拼和笔画共用，共享文档里是 `touch_nine_key_style`（client-core `TouchNineKeyStyle`）。除右侧大回车外，左侧符号栏、右侧功能列和数字层不变。
 enum TouchNineKeyStyle: String, CaseIterable, Hashable {
   /// 符 | 123 | 空格 | 中/英 | 回车，即原来的底行。
   case standard
@@ -48,12 +48,15 @@ enum TouchNineKeyStyle: String, CaseIterable, Hashable {
   case commaPeriod = "comma_period"
   /// 符 | 123 | 😀 | 空格 | 中/英 | 回车。
   case emoji
+  /// 右侧大回车：符号栏下方是 符，九宫格下方是 123 |（🌐）| 空格 | 中/英，右列 ⌫、中间键之下的回车跨第三行和底行；右列原来的 ！ 接到符号栏末尾。数字层照同一框架画。排法见 `TouchBottomRowLayout.nineKeyTallReturn`。
+  case tallReturn = "tall_return"
 
   var title: String {
     switch self {
     case .standard: "标准"
     case .commaPeriod: "底栏带标点"
     case .emoji: "表情键"
+    case .tallReturn: "右侧大回车"
     }
   }
 }
@@ -214,8 +217,9 @@ enum TouchBottomRowLayout {
     return finish(keys, language: language, returnWeight: returnWeight)
   }
 
-  /// 九键字母层（拼音九键、九键双拼、笔画）。标准：符 | 123 | 空格 | 中/英 | 回车，九键双拼在空格后多一个 0；底栏带标点：， 和 。 各从空格让出 1 份；表情键：😀 从空格让出 1.05 份。数字层不用这张表。
+  /// 九键字母层（拼音九键、九键双拼、笔画）。标准：符 | 123 | 空格 | 中/英 | 回车，九键双拼在空格后多一个 0；底栏带标点：， 和 。 各从空格让出 1 份；表情键：😀 从空格让出 1.05 份；右侧大回车见 `nineKeyTallReturn`。除右侧大回车外数字层不用这张表。
   static func nineKey(_ style: TouchNineKeyStyle, globe: Bool, zero: Bool = false, language: Bool = true) -> [Key] {
+    if style == .tallReturn { return nineKeyTallReturn(globe: globe, zero: zero, language: language) }
     var keys = [Key(.symbols, symbolsWeight), Key(.layer, layerWeight)]
     if globe { keys.append(Key(.globe, globeWeight)) }
     switch style {
@@ -226,9 +230,38 @@ enum TouchBottomRowLayout {
                Key(.period, punctuationWeight)]
     case .emoji:
       keys += [Key(.emoji, symbolsWeight), Key(.space, nineKeySpaceWeight - symbolsWeight)]
+    case .tallReturn:
+      break
     }
     if zero { keys.append(Key(.zero, zeroWeight)) }
     return finish(keys, language: language, returnWeight: nineKeyReturnWeight)
+  }
+
+  /// 九键标准底行的总份额（符 1.05 + 123 1.25 + 空格 4.2 + 中/英 1.05 + 回车 1.6），即整个九键外框的宽度。
+  static let nineKeyFrameWeight: CGFloat = symbolsWeight + layerWeight + nineKeySpaceWeight + languageWeight + nineKeyReturnWeight
+  /// 九键外框左侧符号栏和右列各占的宽度：整宽的 14%（`KeyboardGeometry.sidebarRatio`）。
+  static let nineKeySideRatio: CGFloat = 0.14
+  /// 一个侧列折成底行份额：`nineKeyFrameWeight` × 14%。
+  static let nineKeySideWeight: CGFloat = nineKeyFrameWeight * nineKeySideRatio
+
+  /// 九键「右侧大回车」的底行，整行与九键外框同宽、总份额与标准底行相同。第一格 符 在符号栏正下方、与符号栏同宽，最后一格回车与右列同宽（它在键盘上从右列第三行一直伸到底行，两倍高）；中间几格合起来正好是九宫格的宽度：123、地球键、中/英 与标准九键底行同宽，空格占剩下的部分，地球键也从空格里让出。九键双拼字母层的 0 照旧跟在空格后面。
+  ///
+  /// 数字层（`digits`）照同一框架：符 不动，123 的位置是回到字母层的切换键，空格的位置放 0、占剩下的部分；空格按 iOS 数字层原来的规则留在 0 的右边，与 中/英 同宽。
+  static func nineKeyTallReturn(globe: Bool, zero: Bool = false, language: Bool = true, digits: Bool = false) -> [Key] {
+    var middle = [Key(.layer, layerWeight)]
+    if globe { middle.append(Key(.globe, globeWeight)) }
+    let fill: Slot = digits ? .zero : .space
+    middle.append(Key(fill, 0))
+    if digits {
+      middle.append(Key(.space, zeroWeight))
+    } else if zero {
+      middle.append(Key(.zero, zeroWeight))
+    }
+    if language { middle.append(Key(.language, languageWeight)) }
+    let gridWeight = nineKeyFrameWeight - 2 * nineKeySideWeight
+    let rest = gridWeight - middle.reduce(0) { $0 + $1.weight }
+    middle = middle.map { $0.slot == fill ? Key(fill, rest) : $0 }
+    return [Key(.symbols, nineKeySideWeight)] + middle + [Key(.returnKey, nineKeySideWeight)]
   }
 
   /// 补上中/英和回车；隐藏中/英时把它的份额并进空格。

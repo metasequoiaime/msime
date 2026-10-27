@@ -246,6 +246,8 @@ final class KeyboardKeyButton: UIButton {
   /// 滑动是否输入角标：「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）关掉时为假。长按不受它影响，与 Android 的 `bindLetterGestures` 一致。
   var swipesCornerHint = true
   var cornerHintSwipeDirection: KeyboardLayoutPreference.SwipeDirection = .up
+  /// 按住是否输入角标。为假时角标只靠滑动输入，按住留给按键自己的长按菜单（`menu`），例如 14 键「长空格」的逗号：下滑输入句号，长按仍打开常用标点。
+  var holdsCornerHint = true
 
   /// UIKit 默认的长按时长，与九键长按用的半秒相同；Android 等的是系统的长按超时。
   static let cornerHintHoldDelay: TimeInterval = 0.5
@@ -260,6 +262,7 @@ final class KeyboardKeyButton: UIButton {
     resetCornerHint()
     guard began, cornerHint != nil else { return began }
     cornerHintDownY = touch.location(in: nil).y
+    guard holdsCornerHint else { return began }
     cornerHintHold = Timer.scheduledTimer(withTimeInterval: Self.cornerHintHoldDelay, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         // 滑出按键的手指不再算按住，对应 Android 检查 `isPressed()`。

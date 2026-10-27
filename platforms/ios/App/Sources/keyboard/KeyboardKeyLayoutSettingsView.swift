@@ -14,7 +14,7 @@ struct KeyboardKeyLayoutSettingsView: View {
           choiceGroup(title: "26 键", footer: "作用于中文 26 键（全拼、双拼、五笔等），英文键盘不变。长空格把符号入口移到工具栏，逗号下滑或长按输入句号；表情键样式长按 123 打开符号。",
                       options: TouchTwentySixKeyStyle.allCases, selected: style.twentySixKey, label: \.title,
                       identifier: { "keyLayout26_\($0.rawValue)" },
-                      preview: { TouchBottomRowLayout.twentySixKey($0, globe: false) }) { next in
+                      preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.twentySixKey($0, globe: false)) }) { next in
             save(TouchKeyLayoutStyle.save(twentySixKey: next))
           }
         }
@@ -22,15 +22,15 @@ struct KeyboardKeyLayoutSettingsView: View {
           choiceGroup(title: "14 键与 18 键", footer: nil,
                       options: TouchFourteenKeyStyle.allCases, selected: style.fourteenKey, label: \.title,
                       identifier: { "keyLayout14_\($0.rawValue)" },
-                      preview: { TouchBottomRowLayout.letterGrid($0, globe: false) }) { next in
+                      preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.letterGrid($0, globe: false)) }) { next in
             save(TouchKeyLayoutStyle.save(fourteenKey: next))
           }
         }
         if Self.offersNineKey {
-          choiceGroup(title: "9 键", footer: "左侧符号栏、右侧功能键和数字页不变。",
+          choiceGroup(title: "9 键", footer: "右侧大回车把回车加高到两排，符 移到符号栏下方，右列的 ！ 并进符号栏，数字页也这样排；其他样式的左侧符号栏、右侧功能键和数字页不变。",
                       options: TouchNineKeyStyle.allCases, selected: style.nineKey, label: \.title,
                       identifier: { "keyLayout9_\($0.rawValue)" },
-                      preview: { TouchBottomRowLayout.nineKey($0, globe: false) }) { next in
+                      preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.nineKey($0, globe: false), tallReturn: $0 == .tallReturn) }) { next in
             save(TouchKeyLayoutStyle.save(nineKey: next))
           }
         }
@@ -70,7 +70,7 @@ struct KeyboardKeyLayoutSettingsView: View {
 
   private func choiceGroup<Value: Hashable>(
     title: String, footer: String?, options: [Value], selected: Value, label optionTitle: @escaping (Value) -> String,
-    identifier: @escaping (Value) -> String, preview: @escaping (Value) -> [TouchBottomRowLayout.Key],
+    identifier: @escaping (Value) -> String, preview: @escaping (Value) -> KeyLayoutRowPreview,
     onSelect: @escaping (Value) -> Void
   ) -> some View {
     DesignGroup(title: title, footer: footer) {
@@ -89,7 +89,7 @@ struct KeyboardKeyLayoutSettingsView: View {
                   .foregroundStyle(MetasequoiaTheme.accent).accessibilityHidden(true)
               }
             }
-            KeyLayoutRowPreview(keys: preview(option)).accessibilityHidden(true)
+            preview(option).accessibilityHidden(true)
           }
           .padding(.vertical, 10)
           .padding(.horizontal, 20)
@@ -117,30 +117,73 @@ struct KeyboardKeyLayoutSettingsView: View {
   }
 }
 
-/// 一种底行的缩略图：照键盘的宽度份额排出圆角键块，键上印这个键的字。
+/// 一种底行的缩略图：照键盘的宽度份额排出圆角键块，键上印这个键的字。九键「右侧大回车」（`tallReturn`）画两排：九宫格最下一排和底行，左列是符号栏和它下方的 符，右列是跨两排的回车。
 private struct KeyLayoutRowPreview: View {
   let keys: [TouchBottomRowLayout.Key]
+  var tallReturn = false
   private static let gap: CGFloat = 3
+  private static let rowHeight: CGFloat = 24
 
   var body: some View {
+    if tallReturn { tallReturnFrame } else { row }
+  }
+
+  private var row: some View {
     GeometryReader { geometry in
-      let total = keys.reduce(0) { $0 + $1.weight }
-      let unit = (geometry.size.width - Self.gap * CGFloat(max(keys.count - 1, 0))) / max(total, 1)
-      HStack(spacing: Self.gap) {
-        ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
-          RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(key.slot == .returnKey ? MetasequoiaTheme.accent.opacity(0.85) : MetasequoiaTheme.sub.opacity(0.16))
-            .overlay {
-              face(key.slot)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(key.slot == .returnKey ? Color.white : Color.primary)
-                .lineLimit(1).minimumScaleFactor(0.6)
-            }
-            .frame(width: unit * key.weight)
+      HStack(spacing: Self.gap) { blocks(keys, width: geometry.size.width) }
+    }
+    .frame(height: Self.rowHeight)
+  }
+
+  /// 第一格 符 和最后一格回车各占一个侧列宽，中间几格排在九宫格下方；九宫格最下一排是三个等宽的字母键。
+  private var tallReturnFrame: some View {
+    GeometryReader { geometry in
+      let side = geometry.size.width * TouchBottomRowLayout.nineKeySideRatio
+      let grid = geometry.size.width - side * 2 - Self.gap * 2
+      let cell = (grid - Self.gap * 2) / 3
+      HStack(alignment: .top, spacing: Self.gap) {
+        VStack(spacing: Self.gap) {
+          block(fill: MetasequoiaTheme.sub.opacity(0.08)) { Text("，。？！") }.frame(width: side, height: Self.rowHeight)
+          if let symbols = keys.first { block(symbols.slot).frame(width: side, height: Self.rowHeight) }
         }
+        VStack(spacing: Self.gap) {
+          HStack(spacing: Self.gap) {
+            ForEach(["PQRS", "TUV", "WXYZ"], id: \.self) { letters in
+              block(fill: MetasequoiaTheme.sub.opacity(0.16)) { Text(letters) }.frame(width: cell, height: Self.rowHeight)
+            }
+          }
+          HStack(spacing: Self.gap) { blocks(Array(keys.dropFirst().dropLast()), width: grid) }
+            .frame(width: grid, height: Self.rowHeight)
+        }
+        if let enter = keys.last { block(enter.slot).frame(width: side, height: Self.rowHeight * 2 + Self.gap) }
       }
     }
-    .frame(height: 24)
+    .frame(height: Self.rowHeight * 2 + Self.gap)
+  }
+
+  /// 一排键块，按份额分摊扣掉键缝之后的 `width`。
+  private func blocks(_ keys: [TouchBottomRowLayout.Key], width: CGFloat) -> some View {
+    let total = keys.reduce(0) { $0 + $1.weight }
+    let unit = (width - Self.gap * CGFloat(max(keys.count - 1, 0))) / max(total, 1)
+    return ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+      block(key.slot).frame(width: unit * key.weight)
+    }
+  }
+
+  private func block(_ slot: TouchBottomRowLayout.Slot) -> some View {
+    block(fill: slot == .returnKey ? MetasequoiaTheme.accent.opacity(0.85) : MetasequoiaTheme.sub.opacity(0.16),
+          ink: slot == .returnKey ? Color.white : Color.primary) { face(slot) }
+  }
+
+  private func block<Face: View>(fill: Color, ink: Color = .primary, @ViewBuilder face: () -> Face) -> some View {
+    RoundedRectangle(cornerRadius: 4, style: .continuous)
+      .fill(fill)
+      .overlay {
+        face()
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(ink)
+          .lineLimit(1).minimumScaleFactor(0.6)
+      }
   }
 
   @ViewBuilder
