@@ -240,7 +240,8 @@ final class ImeLetterRows {
                 s.imeLayoutRows.showLetterOptions(key, input);
             } else {
                 optionsShown[0] = false;
-                showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                showKeyPreview(key, LetterHintTable.face(input, s.dedicatedEnglish,
+                    s.sendsChinesePunctuation(), s.punctuationMarks()));
             }
         };
         key.setOnTouchListener((view, event) -> {
@@ -278,7 +279,8 @@ final class ImeLetterRows {
                             triggered[0] = true;
                             key.removeCallbacks(hold);
                             if (keyPreview != null && keyPreviewOwner == key)
-                                keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                                keyPreview.setLabel(LetterHintTable.face(input, s.dedicatedEnglish,
+                                    s.sendsChinesePunctuation(), s.punctuationMarks()));
                         } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
                                 && SwipeHintPolicy.swiped(opposite, downY[0], currentY)) {
                             triggered[0] = true;
@@ -856,7 +858,8 @@ final class ImeLetterRows {
                 s.shuangpinKeyInputs.add(input);
                 // 键面随中文标点切换，之后由 render() 里的 updateLetterCornerHints 就地更新。
                 hintButton.setCornerHint(standardLetters
-                    ? LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()) : null);
+                    ? LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
+                        s.punctuationMarks()) : null);
                 KeyboardTypographyPolicy.setKeyTextSize(hintButton, 22);
                 bindLetterGestures(hintButton, standardLetters ? input : null);
             } else {
