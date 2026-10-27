@@ -17332,6 +17332,17 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
   );
 });
 
+group("鸿蒙系统诊断必须处于持续同意的时间范围内", () => {
+  const report: CrashReport = { pid: 42, time: 2000, message: "SIGABRT", stack: "" };
+  check(TelemetryPolicy.diagnosticAllowed(report, 1000, 3000), "同意后发生的诊断允许补报");
+  check(!TelemetryPolicy.diagnosticAllowed(report, 2500, 3000), "重新开启统计不追认关闭期间的故障");
+  check(!TelemetryPolicy.diagnosticAllowed(report, null, 3000), "没有持久同意标记时不追认历史诊断");
+  check(!TelemetryPolicy.diagnosticAllowed(report, 1000, 1500), "未来诊断不能提前认领");
+  check(TelemetryPolicy.consentSince('{"since":1000}') === 1000, "同意时间可以稳定恢复");
+  check(TelemetryPolicy.consentSince('{"since":"1000"}') === null, "拒绝错误类型的同意时间");
+  check(TelemetryPolicy.consentSince('{"since":0}') === null, "拒绝无效同意时间");
+});
+
 group("鸿蒙卡死独立归属且不携带系统原文", () => {
   const report = TelemetryPolicy.freezeReport(
     JSON.stringify({

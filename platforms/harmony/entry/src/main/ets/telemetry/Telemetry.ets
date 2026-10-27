@@ -22,6 +22,7 @@ import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 const PLATFORM: string = 'harmony';
 const WATCHER_NAME: string = 'msime_crash_reports';
 const CRASH_DIRECTORY: string = 'telemetry-crashes';
+const CONSENT_FILE: string = 'harmony-reporting-consent.json';
 /** The keyboard's process id, remembered so the next start can tell its crash from the settings application's. */
 const KEYBOARD_PROCESS_FILE: string = 'harmony-keyboard-process.json';
 /**
@@ -74,6 +75,10 @@ interface RememberedProcess {
   pid: number;
 }
 
+interface ReportingConsent {
+  since: number;
+}
+
 function version(): string {
   try {
     return bundleManager.getBundleInfoForSelfSync(
@@ -114,7 +119,8 @@ export class HarmonyTelemetry {
         const parsed: BeginReply = JSON.parse(reply) as BeginReply;
         HarmonyTelemetry.enabled = parsed.ok === true && parsed.value?.enabled === true;
       } catch { HarmonyTelemetry.enabled = false; }
-      if (HarmonyTelemetry.enabled) HarmonyTelemetry.watchCrashes();
+      HarmonyTelemetry.refreshDiagnosticConsent();
+      HarmonyTelemetry.watchCrashes();
       HarmonyTelemetry.send(request);
     });
   }
@@ -140,7 +146,8 @@ export class HarmonyTelemetry {
       const parsed: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(request))) as BeginReply;
       HarmonyTelemetry.enabled = parsed.ok === true && parsed.value?.enabled === true;
     } catch { HarmonyTelemetry.enabled = false; }
-    if (HarmonyTelemetry.enabled) HarmonyTelemetry.watchCrashes();
+    HarmonyTelemetry.refreshDiagnosticConsent();
+    HarmonyTelemetry.watchCrashes();
     HarmonyTelemetry.beginTimer = setTimeout((): void => {
       HarmonyTelemetry.beginTimer = -1;
       HarmonyTelemetry.begin();
@@ -182,6 +189,8 @@ export class HarmonyTelemetry {
   /** The user just turned usage reporting off in settings: nothing queued is sent, now or later. */
   static reportingTurnedOff(stateDirectory: string): void {
     HarmonyTelemetry.enabled = false;
+    HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
+    HarmonyTelemetry.refreshDiagnosticConsent();
     const request: DirectoryRequest = { directory: HarmonyTelemetry.directoryFor(stateDirectory) };
     HarmonyTelemetry.logRefusal('clear', client.telemetryClear(JSON.stringify(request)));
   }
@@ -258,7 +267,20 @@ export class HarmonyTelemetry {
   }
 
   private static recordCrash(report: CrashReport): void {
-    if (!HarmonyTelemetry.enabled || !HarmonyPrivacyConsent.networkAllowed()) return;
+    if (!HarmonyPrivacyConsent.networkAllowed()) return;
+    // 另一个进程可能刚关闭统计；不能只信监听器安装时的内存开关。
+    const consentRequest: TelemetryRequest = HarmonyTelemetry.request(HarmonyTelemetry.preferences);
+    consentRequest.capture_only = true;
+    try {
+      const reply: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(consentRequest))) as BeginReply;
+      HarmonyTelemetry.enabled = reply.ok === true && reply.value?.enabled === true;
+    } catch { HarmonyTelemetry.enabled = false; }
+    if (!HarmonyTelemetry.enabled) {
+      HarmonyTelemetry.refreshDiagnosticConsent();
+      return;
+    }
+    HarmonyTelemetry.refreshDiagnosticConsent();
+    if (!TelemetryPolicy.diagnosticAllowed(report, HarmonyTelemetry.readConsentSince(), Date.now())) return;
     // 按系统报告的 pid 认领未结束的会话，不依赖两秒内是否已收到回调。
     const request: CrashRecordRequest = {
       directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack,
@@ -273,6 +295,43 @@ export class HarmonyTelemetry {
       return;
     }
     HarmonyTelemetry.writeStandalone(report);
+  }
+
+  private static refreshDiagnosticConsent(): void {
+    if (!HarmonyTelemetry.prepareTelemetryDirectory()) return;
+    const path: string = `${HarmonyTelemetry.directory}/${CONSENT_FILE}`;
+    try {
+      if (!HarmonyTelemetry.enabled) {
+        if (fs.accessSync(path)) fs.unlinkSync(path);
+      } else if (HarmonyTelemetry.readConsentSince() === null) {
+        const consent: ReportingConsent = { since: Date.now() };
+        HarmonyTelemetry.atomicWrite(path, JSON.stringify(consent), true);
+      }
+    } catch {
+      // 无法持久化同意时不补录系统历史诊断。
+    }
+  }
+
+  private static readConsentSince(): number | null {
+    if (!HarmonyTelemetry.safeTelemetryDirectory()) return null;
+    const path: string = `${HarmonyTelemetry.directory}/${CONSENT_FILE}`;
+    let handle: fs.File | null = null;
+    try {
+      const expected: fs.Stat = fs.lstatSync(path);
+      if (expected.isSymbolicLink() || !expected.isFile() || expected.size > 256) return null;
+      handle = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      const stat: fs.Stat = fs.statSync(handle.fd);
+      if (!stat.isFile() || stat.ino !== expected.ino || stat.size > 256) return null;
+      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
+      const count: number = fs.readSync(handle.fd, buffer);
+      if (count !== stat.size) return null;
+      return TelemetryPolicy.consentSince(util.TextDecoder.create('utf-8').decodeToString(
+        new Uint8Array(buffer, 0, count)));
+    } catch {
+      return null;
+    } finally {
+      if (handle !== null) NativeCleanup.close(handle);
+    }
   }
 
   private static writeStandalone(report: CrashReport): void {

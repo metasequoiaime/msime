@@ -63,6 +63,28 @@ function nativeFrame(value: unknown): string | null {
 }
 
 export class TelemetryPolicy {
+  /** 延迟诊断只认领本轮持续同意之后发生的事件，不能用今天的开关追认过去的故障。 */
+  static diagnosticAllowed(report: CrashReport, consentSince: number | null, now: number): boolean {
+    return (
+      consentSince !== null &&
+      Number.isSafeInteger(consentSince) &&
+      consentSince > 0 &&
+      report.time >= consentSince &&
+      report.time <= now
+    );
+  }
+
+  static consentSince(document: string): number | null {
+    try {
+      const value: unknown = JSON.parse(document);
+      if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+      const since: number | null = integer((value as Record<string, unknown>).since);
+      return since !== null && since > 0 ? since : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** 卡死只保留标准原因，不读取系统日志、页面历史或异常消息。 */
   static freezeReport(paramsJson: string): CrashReport | null {
     let parsed: unknown;

@@ -17,7 +17,7 @@ Status: implemented
 - Android 的 App 和 IME 分别准备独立捕获和输入会话，JNI 接入原生记录器。API 30 以上的系统退出报告只认领自身留下的同意标记，保留旧版本，ANR 和系统处置独立归属。Java 只写异常类型与栈，不写异常消息。
 - macOS 输入法使用共同记录器，异常、退出与会话仍由原生宿主管理。Tauri 设置与公共面板独立捕获，在偏好变化时重读同意并解除采集。
 - iOS App 与键盘共享 C 信号记录器，预计算构建头与路径成对发布，MetricKit 保留系统给出的原始版本；卡死独立归属。C 文件放在 `SharedUI/core`，由 XcodeGen 的共享源组加入每个使用方，避免跨源组路径合并。
-- HarmonyOS 的应用与键盘均监听 `APP_CRASH` 和 `APP_FREEZE`。只读取标准异常类型、原生帧、原始版本、进程号和时间；卡死不增加 `session_crash`，不读取 hilog、页面历史或外部日志。系统诊断的稳定文件身份同时作为共享层的 `diagnostic_id`，重送不产生随机新事件。
+- HarmonyOS 的应用与键盘均监听 `APP_CRASH` 和 `APP_FREEZE`。只读取标准异常类型、原生帧、原始版本、进程号和时间；卡死不增加 `session_crash`，不读取 hilog、页面历史或外部日志。系统诊断的稳定文件身份同时作为共享层的 `diagnostic_id`，重送不产生随机新事件。每次回调重新读取共享同意；持久化连续同意的起点，关闭时删除，缺标记或发生时间早于本轮同意的历史诊断不补录。
 
 ### 符号归属
 
@@ -38,9 +38,9 @@ Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需�
 
 ## Verification
 
-- 共享层遥测 48 项、Host API 遥测 4 项通过，相关 Rust 库 Clippy 通过。随后补充了损坏构建头拒绝错误归属的用例与原子写入；最终复跑结果随 PR 更新。
+- 共享层遥测最终 50 项通过，覆盖损坏构建头和原子写入；Host API 遥测前轮 4 项通过，最终复跑和相关 Rust 库 Clippy 仍在执行。
 - Windows runner 实际执行 x86、x64 异常子进程用例：访问违规落盘、关闭不记录、首份记录保留通过；ARM64 只完成 MSVC 编译。Win7 符号采集脚本通过 PowerShell 解析检查，尚未用完整同源安装产物验收。
-- Android API 28、35 实际运行原生故障子进程；Java 宿主门禁通过。完整 APK 的 JNI 接入、重启后补报和设备侧共享 crate 门禁仍待完成。
+- Android API 28、35 实际运行原生故障子进程；Java 宿主门禁通过。两个模拟器均跑过四个共享 crate 的全套设备测试：client-base 36、client-core 649、client-providers 274、client-services 1356 项通过；原有 ignored 与按设备限制跳过的 hard_link 用例不算通过。完整 APK 的 JNI 接入和重启后补报仍待完成。
 - macOS 原生记录器子进程及目录、退出回归用例通过；Linux 容器中的记录器经 ASan/UBSan 运行通过。ELF 合成模块的归档、源码行还原、错误 build id 和错误哈希拒绝用例通过。
 - HarmonyOS 逻辑测试和实际 ArkTS/HAP 构建通过。复用的原生二进制仅用于 ArkTS 编译与打包检查，不作为同源产品或设备验收。
 - iOS 工程重新生成；Swift、Xcode 构建与设备故障链路尚未验收。仓库最终 quick 门禁仍在运行，不能将上述分项通过写成全平台验收通过。
