@@ -61,6 +61,7 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
   func didReceive(_ payloads: [MXDiagnosticPayload]) {
     guard UsageReporting.isEnabled, let directory = UsageReporting.directory else { return }
     for payload in payloads {
+      guard UsageReporting.diagnosticAllowed(begin: payload.timeStampBegin, end: payload.timeStampEnd) else { continue }
       for hang in payload.hangDiagnostics ?? [] {
         // 卡死诊断不代表进程崩溃，也不能计入键盘的 session_crash。
         UsageReporting.recordDiagnosedCrash(.init(message: "Hang main thread", killed: true),

@@ -44,6 +44,10 @@ enum UsageReporting {
 
     var isEnabled: Bool { state.withLockIfAvailable { $0.enabled } ?? false }
 
+    func withCurrent<T>(_ use: (Bool) -> T) -> T {
+      state.withLock { use($0.enabled) }
+    }
+
     func update(_ enabled: Bool) {
       state.withLock {
         $0.enabled = enabled
@@ -63,8 +67,42 @@ enum UsageReporting {
 
   static let exceptionConsent = ExceptionConsent()
 
+  private static let diagnosticConsentKey = "msime.telemetry.diagnostic-consent-since"
+  private static var diagnosticDefaults: UserDefaults? {
+    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier)
+  }
+
+  /// 系统诊断可能隔天才到；缺少历史同意时从现在开始，不追认此前的记录。
+  static func refreshDiagnosticConsent(_ enabled: Bool, in defaults: UserDefaults, now: Date = Date()) {
+    if !enabled {
+      defaults.removeObject(forKey: diagnosticConsentKey)
+    } else if diagnosticConsentSince(in: defaults) == nil {
+      defaults.set(now.timeIntervalSince1970, forKey: diagnosticConsentKey)
+    }
+  }
+
+  static func diagnosticConsentSince(in defaults: UserDefaults) -> Date? {
+    guard let value = defaults.object(forKey: diagnosticConsentKey) as? NSNumber,
+          value.doubleValue.isFinite, value.doubleValue > 0 else { return nil }
+    return Date(timeIntervalSince1970: value.doubleValue)
+  }
+
+  /// MetricKit 只给诊断批次的时间范围；跨越同意起点的整批保守跳过。
+  static func diagnosticAllowed(begin: Date, end: Date, consentSince: Date?, now: Date = Date()) -> Bool {
+    guard let consentSince else { return false }
+    return begin >= consentSince && end >= begin && end <= now
+  }
+
+  static func diagnosticAllowed(begin: Date, end: Date) -> Bool {
+    diagnosticAllowed(begin: begin, end: end, consentSince: diagnosticDefaults.flatMap { diagnosticConsentSince(in: $0) })
+  }
+
   static var isEnabled: Bool {
-    exceptionConsent.refresh { isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) }
+    _ = exceptionConsent.refresh { isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) }
+    return exceptionConsent.withCurrent { enabled in
+      if let defaults = diagnosticDefaults { refreshDiagnosticConsent(enabled, in: defaults) }
+      return enabled
+    }
   }
 
   /// 保存上报开关并同步异常回调的内存权限；关闭时丢弃队列。偏好保存失败时返回 false。
@@ -72,6 +110,9 @@ enum UsageReporting {
   static func setEnabled(_ enabled: Bool) -> Bool {
     guard MetasequoiaInputSessionBridge.updateSharedPreferences({ $0[preferenceKey] = enabled }) else { return false }
     exceptionConsent.update(enabled)
+    exceptionConsent.withCurrent { current in
+      if let defaults = diagnosticDefaults { refreshDiagnosticConsent(current, in: defaults) }
+    }
     if enabled {
       arm(prepareApplicationCapture())
     } else {

@@ -2,6 +2,26 @@ import Foundation
 import XCTest
 
 final class UsageReportingTests: XCTestCase {
+  func testDelayedDiagnosticsRequireContinuousHistoricalConsent() throws {
+    let suite = "app.msime.synthetic.telemetry.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let first = Date(timeIntervalSince1970: 1000)
+    let later = Date(timeIntervalSince1970: 2000)
+    XCTAssertNil(UsageReporting.diagnosticConsentSince(in: defaults))
+    UsageReporting.refreshDiagnosticConsent(true, in: defaults, now: first)
+    UsageReporting.refreshDiagnosticConsent(true, in: defaults, now: later)
+    XCTAssertEqual(UsageReporting.diagnosticConsentSince(in: defaults), first)
+    XCTAssertTrue(UsageReporting.diagnosticAllowed(begin: first, end: later, consentSince: first, now: later))
+    XCTAssertFalse(UsageReporting.diagnosticAllowed(begin: first, end: later, consentSince: later, now: later))
+    XCTAssertFalse(UsageReporting.diagnosticAllowed(begin: first, end: later, consentSince: nil, now: later))
+    XCTAssertFalse(UsageReporting.diagnosticAllowed(begin: later, end: first, consentSince: first, now: later))
+    UsageReporting.refreshDiagnosticConsent(false, in: defaults, now: later)
+    XCTAssertNil(UsageReporting.diagnosticConsentSince(in: defaults))
+    UsageReporting.refreshDiagnosticConsent(true, in: defaults, now: later)
+    XCTAssertEqual(UsageReporting.diagnosticConsentSince(in: defaults), later)
+  }
+
   func testDiagnosticIdentityIsStableAndSeparatesHangsFromCrashes() {
     let data = Data("synthetic diagnostic".utf8)
     let id = UsageReporting.diagnosticID(kind: "crash", data: data)
