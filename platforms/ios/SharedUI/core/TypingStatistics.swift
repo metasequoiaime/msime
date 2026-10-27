@@ -562,14 +562,25 @@ struct TypingKeyHeatmap: Equatable {
   /// 九键底行（`nineKeyActionWidths`，空格为 4.2）：符 | 123 | 空格 | 中 | 回车。0 只出现在数字层，不画。用户选了别的「按键布局」时画 `nineKeyBottomCells(for:)`。
   static let nineKeyBottomRow: [Cell] = nineKeyBottomCells(for: .standard)
 
-  /// 按九键的「按键布局」画的底行，照 `TouchBottomRowLayout.nineKey`。
+  /// 按九键的「按键布局」画的底行，照 `TouchBottomRowLayout.nineKey`。「右侧大回车」的第一格 符 画在侧栏下方、最后一格回车画在右列、跨两排，中间几格画在九宫格下方。
   static func nineKeyBottomCells(for style: TouchNineKeyStyle) -> [Cell] {
     bottomRow(TouchBottomRowLayout.nineKey(style, globe: false))
   }
 
+  /// 九键的侧栏：「右侧大回车」把右列的 ！ 接到 ，。？ 后面，四个键都记 `SoftPunctuation`。
+  static func nineKeySidebar(for style: TouchNineKeyStyle) -> Cell {
+    style == .tallReturn ? Cell(TypingKeyID.punctuation, "，。？！") : nineKeySidebar
+  }
+
+  /// 九键右列在九宫格旁的几格：「右侧大回车」只剩 ⌫ 和分词，回车是底行表的最后一格。
+  static func nineKeyControls(for style: TouchNineKeyStyle) -> [Cell] {
+    style == .tallReturn ? Array(nineKeyControls.prefix(2)) : nineKeyControls
+  }
+
   /// 一块键盘上画出的全部键；`style` 是用户的「按键布局」，缺省为标准样式、没有数字行。
   static func cells(nineKey: Bool, style: TouchKeyLayoutStyle = TouchKeyLayoutStyle()) -> [Cell] {
-    nineKey ? [nineKeySidebar] + nineKeyGrid.joined() + nineKeyControls + nineKeyBottomCells(for: style.nineKey)
+    nineKey ? [nineKeySidebar(for: style.nineKey)] + nineKeyGrid.joined() + nineKeyControls(for: style.nineKey)
+      + nineKeyBottomCells(for: style.nineKey)
       : Array(letterRows(for: style).joined())
   }
 
