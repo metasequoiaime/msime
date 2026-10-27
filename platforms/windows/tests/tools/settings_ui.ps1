@@ -1257,7 +1257,7 @@ try {
                     Assert-PluginEditor $window "$theme-$width"
                 }
                 if ($page -eq 'clip') {
-                    # 「历史记录」标签：合成的两条记录在第一页，不足一页时没有翻页器；宽窗口直接排出四个操作，窄窗口收进「更多操作」，两种都不能挤掉正文或伸出正文列。
+                    # 「历史记录」标签：合成的两条记录在第一页，不足一页时没有翻页器；操作按行内可用宽度排开或收进「更多操作」，两种都不能挤掉正文或伸出正文列。
                     Select-PageTab $window 'clip-tab-history' '历史记录'
                     Assert-PageIntro $window 'clip' '查看、复制和管理已保存的剪贴板记录。'
                     # 行宽要等第一轮布局后才决定操作是排开还是收进菜单；再等一轮呈现再量。
@@ -1281,7 +1281,9 @@ try {
                     $textBounds = $preview.Current.BoundingRectangle
                     if ($textBounds.Width -lt 180 -or $textBounds.Right -gt $copy.Current.BoundingRectangle.Left) { throw 'Clipboard actions crowded out the text preview' }
                     if ($last.Current.BoundingRectangle.Right -gt $content.Current.BoundingRectangle.Right) { throw 'Clipboard actions overflow the content column' }
-                    if ($width -eq 1000 -and -not (Find-ById $window 'clipboard-entry-0-pin')) { throw 'Wide clipboard rows do not lay out their actions like macOS' }
+                    $pin = Find-ById $window 'clipboard-entry-0-pin'
+                    $more = Find-ById $window 'clipboard-entry-0-actions'
+                    if ([bool]$pin -eq [bool]$more) { throw 'Clipboard actions must be either inline or in the overflow menu' }
                     Save-Window $window "$theme-$width-clip-history.png"
                     Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
                 }

@@ -53,6 +53,6 @@ macOS 设置（共享设置 UI 的桌面分支）在「语音」「键盘与手�
 
 ## Verification
 
-- 本机没有 WinUI 3 / C++/WinRT 工具链，`main.cpp` 只能由 PR 的 `CI (platforms)`「Windows native settings」以 `/W4 /WX` 编译链接并运行 `tests/tools/settings_ui.ps1`：「键盘与手写」「剪贴板」两页按标签核对内容只出现在所在标签、页首引导跟着标签换，截下「手写」和「历史记录」标签；历史标签核对清空按钮在列表上方、两条记录时没有翻页器、1000 宽时四个操作直接排出、两种宽度下操作都不挤掉正文；固定操作在窄行走菜单、宽行直接点；从「键盘」标签搜索「打开手写识别板」确认先切到「手写」。
+- 本机没有 WinUI 3 / C++/WinRT 工具链，`main.cpp` 只能由 PR 的 `CI (platforms)`「Windows native settings」以 `/W4 /WX` 编译链接并运行 `tests/tools/settings_ui.ps1`：「键盘与手写」「剪贴板」两页按标签核对内容只出现在所在标签、页首引导跟着标签换，截下「手写」和「历史记录」标签；历史标签核对清空按钮在列表上方、两条记录时没有翻页器、两种宽度下操作都不挤掉正文，且「固定」只能在行内按钮或「更多操作」菜单二者之一出现；固定操作按实际布局走菜单或直接点按钮；从「键盘」标签搜索「打开手写识别板」确认先切到「手写」。2026-10-27 的 CI 发现窗口宽 1000 时内层内容列仍可能不够四个按钮和至少 180 DIP 正文，旧断言把外窗宽度当作行宽，误报失败；布局代码原本就按实际行宽切换，测试现按可见操作形态验收。
 - `tests/ui/history_pagination.cpp` 覆盖空列表、正好一页、45 条分 20／20／5、删掉末页最后一条退回、普通删除保留当前页、非整页起点和每页 0 条；本机用 clang++ 编译运行通过，并用 `x86_64-w64-mingw32-g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only` 检查。
 - `scripts/test-windows-settings-ui-pages.py`、`test-windows-settings-art.py` 通过。
