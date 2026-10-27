@@ -528,7 +528,8 @@ jobs:
   windows-settings:
     needs: changes
     name: Windows native settings
-    runs-on: depot-windows-2025-8
+    # 留在 GitHub 托管的 runner：冒烟要把设置窗口撑到 1000×780，Depot 的 Windows 机型主屏只有 800×600，显卡也只报这一档分辨率。
+    runs-on: windows-2025
     # 完整 WinUI、Win7 设置、手写及多版本门禁已实测耗时 39 分钟，保留冷构建余量。
     timeout-minutes: 60
     steps:
