@@ -6,6 +6,8 @@
  * 指纹只看内容：偏好按 `preferences` 本身（不含修订号），小文件按全文，目录按每个文件的路径、大小和修改时间。导入写回的内容与对方相同，指纹也相同，所以不会再被发布回去，两边不会来回打转。
  */
 
+import { PRIVACY_CONSENT_ENTRY, PRIVACY_CONSENT_FILE } from "../privacy/PrivacyConsentPolicy";
+
 export type MirrorPublisher = "settings" | "keyboard";
 
 /** `preferences` 经 `savePreferences` 写入，走存储的锁和修订号；`file` 是单个小文件；`directory` 是整棵目录。 */
@@ -127,6 +129,14 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
   },
   { name: "skins", kind: "directory", base: "state", path: "skins", fullModeOnly: false },
   { name: "plugins", kind: "directory", base: "state", path: "plugins", fullModeOnly: false },
+  // 隐私政策的授权只由设置应用决定、只往键盘一个方向镜像；基础访问模式下键盘也要读到它，没读到就不联网。
+  {
+    name: PRIVACY_CONSENT_ENTRY,
+    kind: "file",
+    base: "state",
+    path: PRIVACY_CONSENT_FILE,
+    fullModeOnly: false,
+  },
   {
     name: "community-library",
     kind: "file",

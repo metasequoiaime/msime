@@ -8,6 +8,7 @@ import { VoicePolishPromptCatalog } from './VoicePolishPromptCatalog';
 import { VoiceProviderCatalog } from './VoiceProviderCatalog';
 import { VoiceInputConfiguration, VoicePolishTokens } from './VoiceInputConfiguration';
 import { VoicePolishRequestPolicy } from './VoicePolishRequestPolicy';
+import { HarmonyPrivacyConsent } from '../../privacy/HarmonyPrivacyConsent';
 
 const MAX_ENDPOINT_BYTES: number = 2048;
 const MAX_MODEL_BYTES: number = 512;
@@ -39,6 +40,8 @@ export class HarmonyVoicePolisher {
 
   async polish(config: VoiceInputConfiguration, text: string): Promise<string | null> {
     if (!config.polish_enabled && !config.polish_text) return null;
+    // 润色把识别出的文字发给用户配置的服务，没有隐私政策的授权就不发，照原样上屏。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return null;
     const provider: string = (config.polish_provider ?? '').trim();
     const defaultEndpoint: string = VoiceProviderCatalog.polishEndpoint(provider);
     const defaultModel: string = VoiceProviderCatalog.polishModel(provider);

@@ -10,6 +10,8 @@ import { HarmonyPcmCapture } from './HarmonyPcmCapture';
 import { LocalAsrPolicy, PcmFrameSlicer, SpeechSentenceAccumulator } from './LocalAsrPolicy';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { VoiceSessionPolicy } from './VoiceSessionPolicy';
+import { HarmonyPrivacyConsent } from '../../privacy/HarmonyPrivacyConsent';
+import { PrivacyConsentPolicy } from '../../privacy/PrivacyConsentPolicy';
 
 export type VoiceResultHandler = (text: string, final: boolean) => void;
 export type VoiceErrorHandler = (message: string) => void;
@@ -47,6 +49,10 @@ export class HarmonyVoiceRecognizer {
       const doubaoMissing: string | null = DoubaoCredentialPolicy.missing(config);
       if (doubaoMissing !== null) throw new Error(doubaoMissing);
       const httpProvider: boolean = HttpAsrConfigurationPolicy.supported(config.asr_provider);
+      // 豆包和 HTTP 识别把录音发给云端服务，没有隐私政策的授权就不开始；系统识别和本地模型照常可用。
+      if ((doubaoProvider || httpProvider) && !HarmonyPrivacyConsent.networkAllowed()) {
+        throw new Error(PrivacyConsentPolicy.KEYBOARD_REFUSED);
+      }
       if (doubaoProvider && this.doubao.isActive()) throw new Error('豆包语音识别正在进行');
       if (httpProvider && this.httpAsr.isActive()) throw new Error('语音识别正在进行');
       const localProvider: boolean = config.asr_provider === 'local';
