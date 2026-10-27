@@ -644,9 +644,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let keySounds = KeyboardSoundPlayer()
   private var wantedKeySoundPack: String?
   private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
-  /// 按键振动的开关和档位。键盘出现、偏好重读之后和键盘菜单改了它们之后由 `synchronizeHaptics` 从 App Group 读一次，按键时只读这两个缓存：`KeyboardFeedbackPreference` 每读一次都新建一个 App Group 的 `UserDefaults`，原来开着振动时按下、松开一次键要读五六次，都压在触摸处理的主线程上。
-  private var hapticsEnabled = false
-  private var hapticStrength = KeyboardHapticStrength.medium
+  /// 按键振动的开关和档位都从这一个 App Group 实例读。`KeyboardFeedbackPreference.hapticsEnabled` 这类属性每读一次都新建一个 `UserDefaults`，原来开着振动时按下、松开一次键要建五六个，都压在触摸处理的主线程上。不把值缓存起来：App 的设置页里也有输入框，键盘开着时在那里改振动，下一下按键就要按新的来。
+  private let feedbackDefaults = KeyboardFeedbackPreference.defaults
+  private var hapticsEnabled: Bool { KeyboardFeedbackPreference.hapticsEnabled(in: feedbackDefaults) }
+  private var hapticStrength: KeyboardHapticStrength { KeyboardFeedbackPreference.hapticStrength(in: feedbackDefaults) }
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
   private var keyFeedback: UIImpactFeedbackGenerator {
@@ -908,7 +909,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     glideTypingEnabled = KeyboardLayoutPreference.glideTyping
     // 完全访问和按键音开关都可能在两次出现之间变了；包先按会话手上的文档开始加载，重读之后选择变了再换。
     synchronizeKeySoundPack()
-    synchronizeHaptics()
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
     // Reload it off-thread so a fuzzy-pinyin change is visible the next time
@@ -930,7 +930,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
       self.synchronizeKeySoundPack()
-      self.synchronizeHaptics()
       let translationRouteChanged = self.synchronizeTranslationRoute()
       if translationSettingsChanged || translationRouteChanged {
         self.translations.cancel()
@@ -2377,7 +2376,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                 isToggle: true, selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
         KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.hapticsEnabled,
                                        forKey: KeyboardFeedbackPreference.hapticsKey)
-        self?.synchronizeHaptics()
         if let self, hapticsEnabled {
           hapticStrength.impact(keyFeedback)
           prepareKeyFeedback()
@@ -2439,7 +2437,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let current = strengths.firstIndex(of: KeyboardFeedbackPreference.hapticStrength) ?? 0
         let next = strengths[(current + 1) % strengths.count]
         KeyboardFeedbackPreference.set(next.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
-        synchronizeHaptics()
         next.impact(keyFeedback)
         prepareKeyFeedback()
         updateShortcutButtons()
@@ -8586,12 +8583,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     wantedKeySoundPack = KeySoundPackPolicy.wantedPack(
       soundEnabled: KeyboardFeedbackPreference.soundEnabled, fullAccess: hasFullAccess, preferences: preferences)
     keySounds.want(wantedKeySoundPack)
-  }
-
-  /// 从 App Group 重读振动开关和档位，见 `hapticsEnabled`。
-  private func synchronizeHaptics() {
-    hapticsEnabled = KeyboardFeedbackPreference.hapticsEnabled
-    hapticStrength = KeyboardFeedbackPreference.hapticStrength
   }
 
   @objc private func prepareKeyFeedback() {

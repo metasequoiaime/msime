@@ -38,10 +38,14 @@ enum KeyboardFeedbackPreference {
   /// Only iPhones have the Taptic Engine keyboard feedback drives. Elsewhere the vibration controls are hidden, but the stored value is left alone: settings sync still carries it to the user's phone.
   static var hapticsAvailable: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
-  static var hapticsEnabled: Bool {
+  static var hapticsEnabled: Bool { hapticsEnabled(in: defaults) }
+  static var hapticStrength: KeyboardHapticStrength { hapticStrength(in: defaults) }
+
+  /// 从调用方手上的 `UserDefaults` 读：上面两个属性每读一次都新建一个 App Group 实例，按键路径上用这两个，拿键盘留着的那一个实例读。
+  static func hapticsEnabled(in defaults: UserDefaults) -> Bool {
     defaults.bool(forKey: hapticsKey)
   }
-  static var hapticStrength: KeyboardHapticStrength {
+  static func hapticStrength(in defaults: UserDefaults) -> KeyboardHapticStrength {
     KeyboardHapticStrength(rawValue: defaults.string(forKey: strengthKey) ?? "") ?? .medium
   }
 
