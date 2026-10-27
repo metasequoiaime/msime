@@ -54,11 +54,13 @@ const DIGIT_SIDEBAR: string[] = ["+", "-", "*", "/"];
 export enum NineKeyActionKind {
   SYMBOL_PANEL = "symbol_panel",
   LAYER_TOGGLE = "layer_toggle",
-  /** 英文九键字母层空格左边的句点。 */
+  /** 英文九键字母层空格左边的句点；九键样式「底栏带标点」时在空格右边。 */
   PERIOD = "period",
   SPACE = "space",
-  /** 英文九键字母层空格右边的逗号。 */
+  /** 英文九键字母层空格右边的逗号；九键样式「底栏带标点」时在空格左边。 */
   COMMA = "comma",
+  /** 九键样式「表情键」时紧挨 123 右边、打开表情面板的 😀。 */
+  EMOJI = "emoji",
   ZERO = "zero",
   LANGUAGE = "language",
   RETURN = "return",
@@ -114,6 +116,8 @@ export class NineKeyLayout {
   static readonly PUNCTUATION_WEIGHT: number = 1;
   /** 英文九键底行多出的句点和逗号从空格里让出（4.2 减去两份 1），其余键保持中文九键的宽度。 */
   static readonly ENGLISH_SPACE_WEIGHT: number = 2.2;
+  /** 九键样式「表情键」的 😀，与 符、中/英 同宽，从空格里让出。 */
+  static readonly EMOJI_WEIGHT: number = 1.05;
 
   /**
    * 触屏九键外框的底行，与 iOS 的 `ActionRowStyle.nineKey`、Android 的 `KeyboardActionRow.designEntries` 一致：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英紧挨回车。标点在网格两侧的列里，所以没有逗号和句号；符 是九键上打开符号面板的键。
@@ -122,12 +126,41 @@ export class NineKeyLayout {
    *
    * 英文九键的字母层在空格左边放句点、右边放逗号（符 | 123 | . | space | , | 中 | return），与三端英文 26 键底行的句点、逗号位置一致；两键各占 1 份，从空格里让出，左列的 , . ? 不变。
    *
+   * 中文九键字母层按共享偏好 `touch_nine_key_style` 排：`comma_period` 是 符 | 123 | ， | 空格 | 。 | 中 | 回车，逗号句号各占从空格让出的 1 份；`emoji` 是 符 | 123 | 😀 | 空格 | 中 | 回车，😀 占从空格让出的 1.05 份。数字层和英文九键不受样式影响，左侧标点栏和右列不变。
+   *
    * @param digitLayer 画的是数字层
    * @param english 英文模式下的九键（数字层不受影响）
+   * @param style 九键样式（`TouchLayoutStylePolicy.nineKeyStyle` 读出的值），缺省为 `standard`
    */
-  static actionRow(digitLayer: boolean, english: boolean = false): NineKeyAction[] {
+  static actionRow(
+    digitLayer: boolean,
+    english: boolean = false,
+    style: string = "standard",
+  ): NineKeyAction[] {
     const row: NineKeyAction[] = [];
     const englishMarks: boolean = english && !digitLayer;
+    const styled: boolean = !english && !digitLayer;
+    if (styled && style === "comma_period") {
+      row.push(action(NineKeyActionKind.SYMBOL_PANEL, NineKeyLayout.SYMBOL_PANEL_WEIGHT));
+      row.push(action(NineKeyActionKind.LAYER_TOGGLE, NineKeyLayout.LAYER_WEIGHT));
+      row.push(action(NineKeyActionKind.COMMA, NineKeyLayout.PUNCTUATION_WEIGHT));
+      row.push(action(NineKeyActionKind.SPACE, NineKeyLayout.ENGLISH_SPACE_WEIGHT));
+      row.push(action(NineKeyActionKind.PERIOD, NineKeyLayout.PUNCTUATION_WEIGHT));
+      row.push(action(NineKeyActionKind.LANGUAGE, NineKeyLayout.LANGUAGE_WEIGHT));
+      row.push(action(NineKeyActionKind.RETURN, NineKeyLayout.RETURN_WEIGHT));
+      return row;
+    }
+    if (styled && style === "emoji") {
+      row.push(action(NineKeyActionKind.SYMBOL_PANEL, NineKeyLayout.SYMBOL_PANEL_WEIGHT));
+      row.push(action(NineKeyActionKind.LAYER_TOGGLE, NineKeyLayout.LAYER_WEIGHT));
+      row.push(action(NineKeyActionKind.EMOJI, NineKeyLayout.EMOJI_WEIGHT));
+      row.push(
+        action(NineKeyActionKind.SPACE, NineKeyLayout.SPACE_WEIGHT - NineKeyLayout.EMOJI_WEIGHT),
+      );
+      row.push(action(NineKeyActionKind.LANGUAGE, NineKeyLayout.LANGUAGE_WEIGHT));
+      row.push(action(NineKeyActionKind.RETURN, NineKeyLayout.RETURN_WEIGHT));
+      return row;
+    }
     if (!digitLayer) {
       row.push(action(NineKeyActionKind.SYMBOL_PANEL, NineKeyLayout.SYMBOL_PANEL_WEIGHT));
     }
@@ -135,8 +168,12 @@ export class NineKeyLayout {
     if (englishMarks) {
       row.push(action(NineKeyActionKind.PERIOD, NineKeyLayout.PUNCTUATION_WEIGHT));
     }
-    row.push(action(NineKeyActionKind.SPACE,
-      englishMarks ? NineKeyLayout.ENGLISH_SPACE_WEIGHT : NineKeyLayout.SPACE_WEIGHT));
+    row.push(
+      action(
+        NineKeyActionKind.SPACE,
+        englishMarks ? NineKeyLayout.ENGLISH_SPACE_WEIGHT : NineKeyLayout.SPACE_WEIGHT,
+      ),
+    );
     if (englishMarks) {
       row.push(action(NineKeyActionKind.COMMA, NineKeyLayout.PUNCTUATION_WEIGHT));
     }
