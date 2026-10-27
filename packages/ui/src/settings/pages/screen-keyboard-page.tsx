@@ -19,6 +19,11 @@ import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections"
 import { useSettingsTabs } from "../use-settings-tabs";
 import { pluginPreferences } from "../plugin-preferences";
 import { useTouchKeySoundPacks } from "../use-touch-key-sound-packs";
+import { useEffect } from "react";
+import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
+import { fullScreenColumn, fullScreenSurface } from "../../core/full-screen-style";
+import { SettingsPageHeader } from "../settings-page-header";
+import { TouchKeyLayoutSettings, touchKeyLayoutGroups } from "../touch-key-layout-settings";
 
 /** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，五笔有独立的 26/14 键，日语有 26/9 键。 */
 type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "eighteen_key" | "nine_key";
@@ -161,6 +166,26 @@ export function ScreenKeyboardSettingsPage() {
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const harmonyPhone = harmonyPlatform && mobilePlatform;
+  // 「按键布局」子页：HarmonyOS 手机上和语音页的「服务配置」一样压一条历史记录，系统返回手势先关它；离开这页时随之关上。
+  const {
+    value: keyLayoutSubview,
+    open: openKeyLayoutSubview,
+    close: closeKeyLayout,
+    reset: resetKeyLayout,
+  } = useMobileSettingsSubview<boolean>({
+    mobile: harmonyPhone,
+    stateKey: "keyLayout",
+    decode: (state) => (state?.keyLayout === true ? true : null),
+    encode: () => ({ page: "screen-keyboard", keyLayout: true }),
+    isActiveState: (state) => state?.keyLayout === true,
+  });
+  useEffect(() => {
+    if (page !== "screen-keyboard") resetKeyLayout();
+  }, [page, resetKeyLayout]);
+  // 版本没有的键盘类型不列它的组；一组都没有时（只有日文、韩文这类方案的版本）也不画入口。
+  const keyLayoutGroups = touchKeyLayoutGroups(supportedInputSchemes(host));
+  const keyLayoutOffered =
+    harmonyPhone && (keyLayoutGroups.twentySix || keyLayoutGroups.fourteen || keyLayoutGroups.nine);
   // 只有触屏键盘按所选包发按键音的宿主（HarmonyOS 手机和平板）才读目录、给「音效」行；2in1 和其他宿主在插件页或原生设置里选包，这里不变。
   const keySoundPacks = useTouchKeySoundPacks(
     host?.touch_key_sound_packs ? client.plugins?.catalog : undefined,
@@ -261,6 +286,25 @@ export function ScreenKeyboardSettingsPage() {
     introTabs["screen-keyboard"],
     (tab) => selectIntroTab("screen-keyboard", tab),
   );
+  if (keyLayoutOffered && keyLayoutSubview === true)
+    return (
+      <SettingsPageFieldset
+        disabled={busy}
+        hidden={page !== "screen-keyboard"}
+        ariaLabel={handwritingOnScreenKeyboardPage ? screenKeyboardAndHandwritingTitle : "屏幕键盘"}
+      >
+        <div className={fullScreenSurface} role="dialog" aria-modal="true" aria-label="按键布局">
+          <section className={fullScreenColumn}>
+            <SettingsPageHeader title="按键布局" onBack={closeKeyLayout} level={2} />
+            <TouchKeyLayoutSettings
+              preferences={draft}
+              groups={keyLayoutGroups}
+              onChange={onPreferencesChange}
+            />
+          </section>
+        </div>
+      </SettingsPageFieldset>
+    );
   return (
     <SettingsPageFieldset
       disabled={busy}
@@ -275,18 +319,23 @@ export function ScreenKeyboardSettingsPage() {
           <TouchKeyboardGeometrySection
             layoutRows={
               harmonyPhone && (
-                <HarmonyChineseKeyboardRow
-                  selected={selectedTouchKeyboardScheme}
-                  shuangpinLayout={draft.touch_shuangpin_layout ?? "twenty_six_key"}
-                  wubiLayout={draft.touch_wubi_layout ?? "twenty_six_key"}
-                  onSelect={selectHomeScheme}
-                  onShuangpinLayoutChange={(touch_shuangpin_layout) =>
-                    onPreferencesChange({ touch_shuangpin_layout })
-                  }
-                  onWubiLayoutChange={(touch_wubi_layout) =>
-                    onPreferencesChange({ touch_wubi_layout })
-                  }
-                />
+                <>
+                  <HarmonyChineseKeyboardRow
+                    selected={selectedTouchKeyboardScheme}
+                    shuangpinLayout={draft.touch_shuangpin_layout ?? "twenty_six_key"}
+                    wubiLayout={draft.touch_wubi_layout ?? "twenty_six_key"}
+                    onSelect={selectHomeScheme}
+                    onShuangpinLayoutChange={(touch_shuangpin_layout) =>
+                      onPreferencesChange({ touch_shuangpin_layout })
+                    }
+                    onWubiLayoutChange={(touch_wubi_layout) =>
+                      onPreferencesChange({ touch_wubi_layout })
+                    }
+                  />
+                  {keyLayoutOffered && (
+                    <LinkRow title="按键布局" onClick={() => openKeyLayoutSubview(true)} />
+                  )}
+                </>
               )
             }
             preview={harmonyPhone && phonePreview}
