@@ -138,12 +138,30 @@ impl Schedule {
         (push || pull, push)
     }
 
+    /// 滚动窗口恢复到一轮自动同步所需额度的最早时间，手动请求也占同一个窗口。
+    fn automatic_ready_at(&self, now_ms: u64) -> u64 {
+        let mut active: Vec<u64> = self
+            .requests
+            .iter()
+            .copied()
+            .filter(|&at| at <= now_ms && at + WINDOW_MS > now_ms)
+            .collect();
+        let allowed = AUTOMATIC_REQUESTS - MIN_RUN_REQUESTS;
+        if active.len() <= allowed {
+            return now_ms;
+        }
+        active.sort_unstable();
+        // 不能只等最早的一条：必须过期到剩余请求数不超过 allowed 才能开始。
+        active[active.len() - allowed - 1] + WINDOW_MS
+    }
+
     /// 宿主下一次什么时候再调用（距现在的毫秒数）。
     fn next_check(&self, now_ms: u64, outbox: bool, deferred: bool) -> u64 {
         let mut due = (self.last_pull_ms + PULL_INTERVAL_MS).max(self.retry_at_ms);
         if let Some(push) = self.push_due(outbox) {
             due = due.min(push.max(self.retry_at_ms));
         }
+        due = due.max(self.automatic_ready_at(now_ms));
         if deferred {
             due = due.min(self.apply_retry_at_ms);
         }
@@ -459,6 +477,56 @@ mod tests {
             schedule.remaining(NOW + WINDOW_MS, false),
             AUTOMATIC_REQUESTS
         );
+    }
+
+    #[test]
+    fn quota_wake_waits_for_enough_requests_in_an_unordered_window() {
+        let now = NOW + 120_000;
+        for used in [38, 39, 40, MANUAL_REQUESTS] {
+            let mut schedule = Schedule {
+                requests: (0..used)
+                    .rev()
+                    .map(|index| NOW + index as u64 * 1_000)
+                    .collect(),
+                last_pull_ms: now,
+                last_change_ms: NOW,
+                ..Default::default()
+            };
+            // 已过期的请求不参与恢复时间，即使列表不是按时间排序。
+            schedule.requests.push(now - WINDOW_MS);
+            let released = used - (AUTOMATIC_REQUESTS - MIN_RUN_REQUESTS);
+            let ready = NOW + (released - 1) as u64 * 1_000 + WINDOW_MS;
+            assert_eq!(schedule.plan(Trigger::Periodic, now, true), (false, false));
+            assert_eq!(schedule.next_check(now, true, false), ready - now);
+            assert_eq!(
+                schedule.plan(Trigger::Periodic, ready - 1, true),
+                (false, false)
+            );
+            assert_eq!(schedule.plan(Trigger::Periodic, ready, true), (true, true));
+        }
+    }
+
+    #[test]
+    fn quota_wake_preserves_manual_sync_local_retries_and_error_backoff() {
+        let mut schedule = Schedule {
+            requests: vec![NOW; AUTOMATIC_REQUESTS],
+            last_pull_ms: NOW,
+            last_change_ms: NOW - PUSH_DEBOUNCE_MS,
+            apply_retry_at_ms: NOW + BUSY_RETRY_MS[0],
+            ..Default::default()
+        };
+        assert_eq!(schedule.plan(Trigger::Manual, NOW, true), (true, true));
+        assert_eq!(schedule.next_check(NOW, true, true), BUSY_RETRY_MS[0]);
+        // 恢复了足够额度仍要遵守原有网络错误退避。
+        schedule.retry_at_ms = NOW + WINDOW_MS + 60_000;
+        assert_eq!(schedule.next_check(NOW, true, false), WINDOW_MS + 60_000);
+        // 还有三个额度时不推迟原本到期的自动发送。
+        schedule
+            .requests
+            .truncate(AUTOMATIC_REQUESTS - MIN_RUN_REQUESTS);
+        schedule.retry_at_ms = 0;
+        assert_eq!(schedule.plan(Trigger::Periodic, NOW, true), (true, true));
+        assert_eq!(schedule.next_check(NOW, true, false), 1_000);
     }
 
     #[test]

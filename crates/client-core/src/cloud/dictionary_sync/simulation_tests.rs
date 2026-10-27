@@ -1408,6 +1408,57 @@ fn the_scheduler_keeps_automatic_syncs_inside_the_request_budget() {
 }
 
 #[test]
+fn an_exhausted_automatic_budget_sleeps_until_requests_expire() {
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    let drive = |device: &mut Device, trigger: Trigger| {
+        let mut connection = Connection {
+            share: share.clone(),
+        };
+        let mut parts = Parts {
+            remote: &mut connection,
+            local: &mut device.engine,
+            env: &mut device.env,
+            sink: &mut device.sink,
+        };
+        schedule::drive(
+            &mut device.state,
+            &mut parts,
+            &device.ring,
+            trigger,
+            Options::default(),
+        )
+    };
+    let first = drive(&mut a, Trigger::Opened);
+    assert!(first.network && first.result.is_ok());
+    // 密钥串等额外请求也占用同一额度；剩两个请求时自动同步不能启动。
+    let remaining = a.state.schedule.remaining(START_MS, false);
+    assert!(remaining >= 2);
+    schedule::record_requests(&mut a.state, remaining - 2, START_MS);
+    a.add(&pinyin("ma", "合成词"));
+    let changed = drive(&mut a, Trigger::LocalChange);
+    assert!(!changed.network && changed.result.is_ok());
+    assert_eq!(a.state.outbox_len(), 1);
+    a.advance(schedule::PUSH_DEBOUNCE_MS);
+    let requests = share.with(|disk| disk.requests);
+    let waiting = drive(&mut a, Trigger::Periodic);
+    assert!(!waiting.network && waiting.result.is_ok());
+    assert_eq!(share.with(|disk| disk.requests), requests);
+    assert_eq!(
+        waiting.next_check_ms,
+        schedule::WINDOW_MS - schedule::PUSH_DEBOUNCE_MS
+    );
+    a.advance(waiting.next_check_ms);
+    let resumed = drive(&mut a, Trigger::Periodic);
+    assert!(resumed.network && resumed.result.is_ok());
+    assert_eq!(a.state.outbox_len(), 0);
+    assert!(share
+        .published(&[K1])
+        .iter()
+        .any(|(_, key, live, _)| { *live && key == &pinyin("ma", "合成词") }));
+}
+
+#[test]
 fn a_large_first_upload_is_split_into_bounded_events() {
     let share = Share::new();
     let mut a = Device::new(0xa1, Some(K1));
