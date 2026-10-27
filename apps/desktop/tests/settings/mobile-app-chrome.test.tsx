@@ -669,7 +669,8 @@ test("AI chat keeps a secondary title and way back", async () => {
     models: vi.fn().mockResolvedValue({ data: [], defaultModel: "" }),
     complete: vi.fn(),
   };
-  renderSettings("harmony", {}, "ai", { chat });
+  // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`。
+  renderSettings("harmony", { ai_generation: true }, "ai", { chat });
   await settingsFormReady();
   fireEvent.click(await screen.findByRole("button", { name: /^AI 对话/ }));
   const title = await screen.findByRole("heading", { level: 1, name: "AI 对话" });

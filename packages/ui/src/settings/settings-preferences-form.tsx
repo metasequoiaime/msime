@@ -74,6 +74,7 @@ export function SettingsPreferencesForm({
     iosPlatform,
     androidPlatform,
     handwritingOnScreenKeyboardPage,
+    showAiGeneration,
   } = model;
   return (
     <SettingsFormFrame showReload={false} busy={busy}>
@@ -97,9 +98,12 @@ export function SettingsPreferencesForm({
         <SettingsSearchPage.Provider value="expression">
           <ExpressionSettingsPage />
         </SettingsSearchPage.Provider>
-        <SettingsSearchPage.Provider value="ai">
-          <AiSettingsPage />
-        </SettingsSearchPage.Provider>
+        {/* 不提供 AI 生成类功能的宿主（HarmonyOS）不挂「AI 辅助」页，搜索也搜不到它。 */}
+        {showAiGeneration && (
+          <SettingsSearchPage.Provider value="ai">
+            <AiSettingsPage />
+          </SettingsSearchPage.Provider>
+        )}
         <SettingsSearchPage.Provider value="shortcuts">
           <ShortcutSettingsPage />
         </SettingsSearchPage.Provider>

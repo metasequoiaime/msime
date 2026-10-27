@@ -1,4 +1,5 @@
 import { utf8Length } from "../Utf8";
+import { AiGenerationGate } from "../AiGenerationGate";
 import { TextPolicy } from "../TextPolicy";
 
 export interface TranslationCandidate {
@@ -153,7 +154,8 @@ export class TranslationPolicy {
     if (query.niutrans?.enabled === true) return "niutrans";
     if (query.custom_translation?.enabled === true) return "custom";
     if (query.tencent_tmt?.enabled === true) return "tencent";
-    if (query.ai_assistant?.enabled === true) return "ai";
+    // 「AI 辅助」翻译让大模型逐条生成释义；总闸 `AiGenerationGate` 关着时当作没有选在线服务，只出离线释义。
+    if (query.ai_assistant?.enabled === true && AiGenerationGate.enabled()) return "ai";
     return "";
   }
 

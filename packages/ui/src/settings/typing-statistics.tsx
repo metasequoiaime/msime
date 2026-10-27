@@ -146,6 +146,8 @@ type TypingStatisticsPageProps = {
   openSystemSettings?: () => Promise<void>;
   /** 鸿蒙统计摘要使用「概览 / 习惯 / 按键 / 成就」四个标签。 */
   look?: StatisticsLook;
+  /** 宿主提供 AI 生成类功能（`HostCapabilities.ai_generation`）。为 false 时（鸿蒙版拿到资质之前）分布里不列 AI 润色和高情商回复，说明文字也不提它们；缺省为提供。 */
+  aiGeneration?: boolean;
 };
 
 function TypingStatisticsContent({
@@ -154,6 +156,7 @@ function TypingStatisticsContent({
   platform,
   openSystemSettings,
   look,
+  aiGeneration = true,
 }: TypingStatisticsPageProps) {
   const { confirm, confirmation } = useConfirm();
   const { status, today, busy, error, summary, summaryFailed, update, openDataDirectory } =
@@ -196,7 +199,12 @@ function TypingStatisticsContent({
   const scopeTitle = selectedLabel ?? "累计输入";
   const keyScopeLabel = selectedLabel ?? "累计";
   const activity = activityMetrics(statistics, today.key);
-  const { characterSlices, sourceSlices, languageSlices } = statisticsDistributionSlices(breakdown);
+  const { characterSlices, sourceSlices, languageSlices } = statisticsDistributionSlices(
+    breakdown,
+    {
+      aiGeneration,
+    },
+  );
   const iosPlatform = platform === "ios";
   const availabilityMessage = availabilityNotice(statistics, status, iosPlatform);
   const resetStatistics = async () => {
@@ -441,7 +449,11 @@ function TypingStatisticsContent({
           slices={languageSlices}
           variant="donut"
           wide={!mobile}
-          footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。"
+          footer={
+            aiGeneration
+              ? "按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。"
+              : "按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。语音输入单独按来源统计。"
+          }
         />
       )}
       {contentTab === "scheme" && (

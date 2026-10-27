@@ -224,6 +224,10 @@ group("the dialog offers both choices and links the real privacy policy", () => 
   const copy = PrivacyConsentPolicy.COPY;
   check(copy.agree === "同意" && copy.refuse === "不同意", "the buttons read 同意 and 不同意");
   check(
+    ![copy.intro, ...copy.points, copy.refusalNote].join("").includes("AI"),
+    "the dialog does not introduce AI features while AiGenerationGate hides them on HarmonyOS",
+  );
+  check(
     PRIVACY_POLICY_URL === "https://msime.app/privacy/",
     "the policy link is the published page",
   );

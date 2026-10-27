@@ -79,6 +79,8 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### 语音润色（不填 Token 不发生）
 
+HarmonyOS 版目前不提供语音润色、AI 联想、AI 对话、高情商回复、AI 润色、AI 候选翻译和 AI 皮肤：这些功能在拿到 AI 生成类资质之前由 `HostCapabilities.ai_generation` 关闭，偏好里存着打开的值也不会发请求（见 `platforms/harmony/README.md`）。下面两节说的是其余五个平台。
+
 开启后把识别出的文本发给一个 Chat Completions 服务做整理。默认值按平台不同：Windows 与 macOS 跟随来源模板，默认服务是 DeepSeek（`https://api.deepseek.com/chat/completions`，模型 `deepseek-v4-flash`），`voice_input.polish_text` 默认开启；其余宿主默认服务是 SiliconFlow，`polish_text` 默认关闭。`voice_input.polish_enabled` 在所有宿主上默认 `false`。无论哪个平台，`polish_token` 默认都为空，宿主在 Token 为空时不发起润色请求，所以默认情况下不会发送任何文本。
 
 ### AI 联想（自带端点与密钥）

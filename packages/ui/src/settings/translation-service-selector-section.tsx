@@ -29,6 +29,8 @@ export interface TranslationServiceSelectorSectionProps {
   available: boolean;
   provider: TranslationProvider;
   showAccountProvider: boolean;
+  /** 列出「AI 辅助」（复用 AI 辅助页的大模型服务出释义）。不提供 AI 生成类功能的宿主（HarmonyOS）不列；缺省为列出。 */
+  showAiProvider?: boolean;
   /** 不选在线服务时宿主仍会出的释义（见 `TranslationOfflineFallback`）。有值时 `none` 不再叫「关闭」，因为候选词翻译打开时它并没有关掉释义：`system` 叫「离线翻译（不联网）」，`dictionary` 叫「不使用在线服务」，两者都说明释义从哪里来。 */
   offlineFallback?: TranslationOfflineFallback;
   onChange: (provider: TranslationProvider) => void;
@@ -53,6 +55,7 @@ const offlineFallbackCopy: Record<
 /** 翻译服务的选项。写成返回 Fragment 的普通函数而不是组件，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。 */
 function translationServiceOptions(
   showAccountProvider: boolean,
+  showAiProvider: boolean,
   offlineFallback: TranslationOfflineFallback | undefined,
 ) {
   return (
@@ -63,7 +66,7 @@ function translationServiceOptions(
       <option value="tencent">腾讯云机器翻译</option>
       <option value="niutrans">小牛翻译（NiuTrans）</option>
       <option value="custom">自定义（DeepLX 或 DeepL API）</option>
-      <option value="ai">AI 辅助</option>
+      {showAiProvider && <option value="ai">AI 辅助</option>}
       {showAccountProvider && (
         <option value="account">水杉账号（候选词发送到 api.msime.app）</option>
       )}
@@ -77,6 +80,7 @@ export function TranslationServiceSelectorSection({
   available,
   provider,
   showAccountProvider,
+  showAiProvider = true,
   offlineFallback,
   onChange,
 }: TranslationServiceSelectorSectionProps) {
@@ -98,7 +102,7 @@ export function TranslationServiceSelectorSection({
         value={provider}
         onChange={(event) => onChange(event.target.value as TranslationProvider)}
       >
-        {translationServiceOptions(showAccountProvider, offlineFallback)}
+        {translationServiceOptions(showAccountProvider, showAiProvider, offlineFallback)}
       </SelectRow>
     </SettingsRowStack>
   ) : (
@@ -111,7 +115,7 @@ export function TranslationServiceSelectorSection({
         value={provider}
         onChange={(value) => onChange(value as TranslationProvider)}
       >
-        {translationServiceOptions(showAccountProvider, offlineFallback)}
+        {translationServiceOptions(showAccountProvider, showAiProvider, offlineFallback)}
       </SelectSettingField>
     </div>
   );

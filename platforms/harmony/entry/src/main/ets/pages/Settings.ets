@@ -71,6 +71,7 @@ import { SharedStateSync } from '../keyboard/SharedStateSync';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { ConsentState, PrivacyConsentPolicy } from '../privacy/PrivacyConsentPolicy';
 import { PrivacyConsentDialog } from '../privacy/PrivacyConsentDialog';
+import { AiGenerationGate } from '../keyboard/AiGenerationGate';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -1029,6 +1030,8 @@ class SettingsBridge {
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    // AI 生成类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.ai_generation`），鸿蒙版拿到资质之前为关；`startRequest` 据此拒绝 AI 对话、AI 皮肤和探 AI 服务的请求。
+    AiGenerationGate.adopt(client.hostCapabilities(PLATFORM));
     const seen = this.readStateFile(ONBOARDING_SEEN_FILE, 64);
     this.onboardingDone = false;
     if (seen !== null) {
@@ -1261,7 +1264,10 @@ class SettingsBridge {
     const failed: (error: Object) => void = (error: Object): void => {
       deliver(JSON.stringify({ ok: false, error: describeError(error) }));
     };
-    if (kind === 'account') {
+    if (!AiGenerationGate.allowsSettingsRequest(kind, payload)) {
+      // 页面在总闸关着时本来就不画这些入口；这里再拦一道，旧页面或手写的请求也发不出去。
+      deliver(AiGenerationGate.refusal());
+    } else if (kind === 'account') {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary') {
       this.cloudDictionary(payload).then(deliver).catch(failed);

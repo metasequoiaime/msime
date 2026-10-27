@@ -10718,7 +10718,8 @@ test.each(["macos", "windows", "linux", "harmony"])(
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
-          host: testHost({ platform }),
+          // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`，测的是那时重新出现的 AI 页。
+          host: testHost({ platform, ai_generation: true }),
         }}
       />,
     );

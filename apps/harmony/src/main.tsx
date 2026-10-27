@@ -1479,6 +1479,8 @@ function makeClient(
   };
   // 只读一次：能力记录在应用运行期间不会变化，下面的反馈报告据此写明版本。
   const host = unwrap<HostCapabilities>(native.hostCapabilities());
+  // AI 生成类功能的总闸（`HostCapabilities.ai_generation`，鸿蒙版拿到资质之前为 false）：关着时不给页面 AI 对话、AI 皮肤和 AI 辅助的客户端，宿主的桥接也拒绝这些请求（`AiGenerationGate.ts`）。
+  const aiGeneration = host.ai_generation !== false;
   const setup = imeSetupClient(native);
   const oobe = oobeClient(native, setup);
   const chrome = hostChrome(native);
@@ -1666,8 +1668,8 @@ function makeClient(
     dictionaryCollections,
     typingStatistics,
     vocabularyReview,
-    // 拉模型列表、测试 AI 和凭据都要连用户配置的服务，没有授权时不给，配置本身照常可填。
-    aiAssistant: networkAllowed ? aiAssistant : undefined,
+    // 拉模型列表、测试 AI 和凭据都要连用户配置的服务，没有授权时不给，配置本身照常可填。AI 测试另受 AI 生成门控（`aiGeneration`），两道门都开才给。
+    aiAssistant: networkAllowed && aiGeneration ? aiAssistant : undefined,
     testApiCredential: networkAllowed ? testApiCredential : undefined,
     // Four surfaces the keyboard already honours. Each writes shared preferences and nothing else,
     // so opting in is all that was ever needed; without it the page saved nothing and the keyboard
@@ -1689,9 +1691,9 @@ function makeClient(
         ),
     },
     candidateEnglishGloss: true,
-    // 账号和对话都要联网，没有隐私政策的授权时不给，「我的」页不画登录入口。
+    // 账号和对话都要联网，没有隐私政策的授权时不给，「我的」页不画登录入口；对话另受 AI 生成门控，两道门都开才给。
     account: networkAllowed ? accountClient(native) : undefined,
-    chat: networkAllowed ? chatClient(native) : undefined,
+    chat: networkAllowed && aiGeneration ? chatClient(native) : undefined,
     // The Apple home surface, adapted rather than copied. Two of its five actions exist here and
     // three do not, and the page draws only what the host says it has.
     //
@@ -1722,12 +1724,12 @@ function makeClient(
     },
     appTheme: appThemeClient(native),
     chrome,
-    // 反馈、社区和 AI 皮肤都经水杉服务，没有授权时不给。
+    // 反馈、社区和 AI 皮肤都经水杉服务，没有授权时不给；AI 皮肤另受 AI 生成门控。
     feedback: networkAllowed ? feedback : undefined,
     communitySkins: networkAllowed ? communitySkinClient(native) : undefined,
     communityResources: networkAllowed ? communityResourceClient(native) : undefined,
     communityPlugins: networkAllowed ? communityPluginClient(native) : undefined,
-    aiSkins: networkAllowed ? aiSkinClient(native) : undefined,
+    aiSkins: networkAllowed && aiGeneration ? aiSkinClient(native) : undefined,
     localVoiceModels: localVoiceModelClient(native, networkAllowed),
     // 2in1 上是桌面形态的插件页；手机和平板上按 `touch_plugin_packs` 给触屏插件页，只列触屏键盘用得上的类型，导入只收 .zip（这两种形态的文件选择器选不了文件夹）。
     plugins: pluginClient(native),

@@ -44,6 +44,7 @@ function renderSettings({
   feedback,
   devices = false,
   voiceHotkeys,
+  aiGeneration,
 }: {
   page: string;
   preferences?: Record<string, unknown>;
@@ -53,6 +54,8 @@ function renderSettings({
   voiceHotkeys?: boolean;
   /** 宿主能列出录音设备，语音页显示「录音设备」分组。 */
   devices?: boolean;
+  /** 宿主报的 `ai_generation`；缺省按鸿蒙现在的值（关），语音页没有 AI 润色。 */
+  aiGeneration?: boolean;
 }) {
   const save = vi.fn().mockImplementation(async (_revision: number, next: unknown) => ({
     ...snapshot(),
@@ -74,6 +77,7 @@ function renderSettings({
           touch_toolbar_tools: mobile,
           voice_capture_devices: devices,
           ...(voiceHotkeys === undefined ? {} : { voice_hotkeys: voiceHotkeys }),
+          ...(aiGeneration === undefined ? {} : { ai_generation: aiGeneration }),
         }),
         ...(devices ? { listVoiceCaptureDevices: vi.fn().mockResolvedValue([]) } : {}),
         openSystemKeyboardSettings: vi.fn(),
@@ -398,6 +402,8 @@ test("automatic punctuation is Doubao's and is greyed out with the reason elsewh
 test("the polish scheme sheet keeps the custom slots and shows the stored one", async () => {
   const { save } = renderSettings({
     page: "voice",
+    // AI 润色只在 AI 生成类资质到位、总闸打开（`ai_generation`）时提供。
+    aiGeneration: true,
     preferences: {
       voice_input: {
         enabled: true,
@@ -423,6 +429,33 @@ test("the polish scheme sheet keeps the custom slots and shows the stored one", 
   await waitFor(() => expect(save).toHaveBeenCalled());
   expect(save.mock.calls.at(-1)?.[1].voice_input.polish_prompt_id).toBe("custom_3");
 });
+
+// 鸿蒙版拿到 AI 生成类资质之前（`ai_generation` 为 false）：存下的润色开关打开了，服务配置里也没有「文本润色」这一组，手机和 2in1 都一样。
+test.each([true, false])(
+  "HarmonyOS without AI generation has no AI polish group (phone: %s)",
+  async (mobile) => {
+    renderSettings({
+      page: "voice",
+      mobile,
+      preferences: {
+        voice_input: {
+          enabled: true,
+          language: "",
+          asr_provider: "doubao",
+          polish_enabled: true,
+          polish_text: true,
+        },
+      },
+    });
+    await settingsFormReady();
+    fireEvent.click(screen.getByRole("button", { name: /^服务配置/ }));
+    // 识别服务照常在，只是没有润色。
+    expect((await screen.findAllByText("识别服务")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("region", { name: "文本润色" })).toBeNull();
+    expect(screen.queryByText("启用润色")).toBeNull();
+    expect(screen.queryByText("润色方案")).toBeNull();
+  },
+);
 
 test("the 2-in-1 keeps the desktop voice page", async () => {
   renderSettings({
