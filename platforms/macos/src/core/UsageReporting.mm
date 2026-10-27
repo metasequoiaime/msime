@@ -13,6 +13,9 @@
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
+#include <atomic>
+#include <memory>
+#include <mutex>
 
 #if !__has_feature(objc_arc)
 #error "UsageReporting.mm must be compiled with -fobjc-arc"
@@ -43,8 +46,14 @@ dispatch_queue_t gQueue;
 dispatch_source_t gFlushTimer;
 NSUncaughtExceptionHandler *gPreviousExceptionHandler;
 
-NSString *gSessionId;
-NSString *gRecordHeader;
+struct Capture {
+    NSString *session;
+    NSString *header;
+};
+// 刷新队列可换入新的会话；退出和异常回调读取不可变快照，不并发改写字符串。
+std::shared_ptr<const Capture> gCapture;
+std::atomic<bool> gStopped{false};
+std::mutex gCaptureLifecycle;
 
 // 输入法进程几乎从不走 `NSApplicationWillTerminateNotification`：设置应用装好或更新输入法时用 `pkill` 结束旧进程（`macos_input_source.rs` 的 `stop_running_copies`），系统注销、关机时结束它也可能是 SIGTERM；默认处置下进程当场死掉，会话标记留在磁盘上，下次启动按「只有标记」处理，什么事件都不产生。所以把 SIGTERM 接到这个调度源上：先排进 `session`，再按 SIGTERM 原样退出。
 dispatch_source_t gTerminationSource;
@@ -64,35 +73,67 @@ NSDictionary *SessionRequest(void)
     return request;
 }
 
-void Flush(void)
-{
-    dispatch_async(gQueue, ^{
-        NSDictionary *result = CallHost(msime_client_telemetry_flush, SessionRequest());
-        if ([result isKindOfClass:NSDictionary.class] && [result[@"enabled"] isEqual:@NO]) msime::crash::disarm();
-    });
-}
-
 void UncaughtException(NSException *exception)
 {
-    if (msime::crash::is_armed() && gSessionId) {
+    const auto capture = std::atomic_load(&gCapture);
+    if (msime::crash::is_armed() && capture) {
         // 异常原因可能引用输入内容，只保存异常类型与抛出点的栈。
         NSString *summary = [NSString stringWithFormat:@"Uncaught %@", exception.name];
         NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"] ?: @"";
         (void)CallHost(msime_client_telemetry_record_crash,
                        @{@"directory": MSIMEUsageReportingDirectory(), @"message": summary, @"stack": stack,
-                         @"session": gSessionId, @"crash_record_header": gRecordHeader ?: @""});
+                         @"session": capture->session, @"crash_record_header": capture->header});
     }
     if (gPreviousExceptionHandler) gPreviousExceptionHandler(exception);
 }
 
 void InstallCrashHandlers(NSString *recordPath, NSString *header)
 {
-    gRecordHeader = [header copy];
     msime::crash::install_crash_handlers();
     msime::crash::arm(recordPath.UTF8String ?: "", header.UTF8String ?: "");
-    gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
-    NSSetUncaughtExceptionHandler(UncaughtException);
+    // 再次开启只恢复采集，不能把自己接成「前一个」处理程序而递归调用。
+    if (NSGetUncaughtExceptionHandler() != UncaughtException) {
+        gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
+        NSSetUncaughtExceptionHandler(UncaughtException);
+    }
 }
+
+void PrepareCapture(NSDictionary *started)
+{
+    if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
+    NSString *session = started[@"session_id"];
+    NSString *recordPath = started[@"crash_record_path"];
+    NSString *header = started[@"crash_record_header"];
+    if (![session isKindOfClass:NSString.class] || ![recordPath isKindOfClass:NSString.class] || ![header isKindOfClass:NSString.class]) return;
+    {
+        // begin 可以在退出前发起、退出后才回答；发布与 Stop 在同一把普通路径锁内线性化。
+        std::lock_guard<std::mutex> guard(gCaptureLifecycle);
+        if (!gStopped.load()) {
+            std::shared_ptr<const Capture> capture = std::make_shared<Capture>(Capture{[session copy], [header copy]});
+            std::atomic_store(&gCapture, std::move(capture));
+            InstallCrashHandlers(recordPath, header);
+            return;
+        }
+    }
+    // 退出后才拿到的会话只结束自己的标记，Host 调用不跨生命周期锁。
+    (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory(), @"session": session});
+}
+
+void FlushNow(void)
+{
+    if (gStopped.load()) return;
+    NSDictionary *result = CallHost(msime_client_telemetry_flush, SessionRequest());
+    if (![result isKindOfClass:NSDictionary.class]) return;
+    if ([result[@"enabled"] isEqual:@NO]) {
+        msime::crash::disarm();
+        std::atomic_store(&gCapture, std::shared_ptr<const Capture>{});
+    } else if ([result[@"enabled"] isEqual:@YES] && !msime::crash::is_armed()) {
+        // 关闭时共享层已清掉旧会话和记录位置，重新开启要取得新的采集位置。
+        PrepareCapture(CallHost(msime_client_telemetry_begin, SessionRequest()));
+    }
+}
+
+void Flush(void) { dispatch_async(gQueue, ^{ FlushNow(); }); }
 
 // 恢复默认处置后把 SIGTERM 发给整个进程，结束方式和退出状态与没有接管时一样，launchd 看到的仍是被 SIGTERM 结束。用 kill 而不是 raise：调度队列的工作线程可能屏蔽了 SIGTERM，发给进程才能落到没有屏蔽它的主线程上。
 void ExitBySigterm(void)
@@ -140,25 +181,19 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
         gQueue = dispatch_queue_create("app.msime.usage-reporting", DISPATCH_QUEUE_SERIAL);
         // host-api telemetry 存储会在接触队列、标记或崩溃文件前创建并校验目录。
         NSDictionary *started = CallHost(msime_client_telemetry_begin, SessionRequest());
-        if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
-        gSessionId = [started[@"session_id"] copy];
-        NSString *recordPath = started[@"crash_record_path"];
-        NSString *header = started[@"crash_record_header"];
-        if ([recordPath isKindOfClass:NSString.class] && [header isKindOfClass:NSString.class])
-            InstallCrashHandlers(recordPath, header);
+        PrepareCapture(started);
         InstallTerminationHandler();
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillTerminateNotification
                                                         object:nil
                                                          queue:nil
                                                     usingBlock:^(NSNotification *) { MSIMEUsageReportingStop(); }];
         Flush();
-        // The input method runs for days: flush every few hours so a new UTC day's active and anything a failed send left behind go out. With nothing queued and today's active already sent, a flush does no network I/O.
+        // 输入法可长驻数天，关闭时也保留刷新定时器，以便再次开启后恢复会话与采集。
         gFlushTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, gQueue);
         const uint64_t interval = 3ull * 60 * 60 * NSEC_PER_SEC;
         dispatch_source_set_timer(gFlushTimer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)interval), interval, 10ull * 60 * NSEC_PER_SEC);
         dispatch_source_set_event_handler(gFlushTimer, ^{
-            NSDictionary *result = CallHost(msime_client_telemetry_flush, SessionRequest());
-        if ([result isKindOfClass:NSDictionary.class] && [result[@"enabled"] isEqual:@NO]) msime::crash::disarm();
+            FlushNow();
         });
         dispatch_resume(gFlushTimer);
     });
@@ -167,6 +202,12 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
 void MSIMEUsageReportingStop(void)
 {
     if (!gQueue) return;
-    msime::crash::disarm();
-    if (gSessionId) (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory(), @"session": gSessionId});
+    std::shared_ptr<const Capture> capture;
+    {
+        std::lock_guard<std::mutex> guard(gCaptureLifecycle);
+        gStopped.store(true);
+        msime::crash::disarm();
+        capture = std::atomic_exchange(&gCapture, std::shared_ptr<const Capture>{});
+    }
+    if (capture) (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory(), @"session": capture->session});
 }
