@@ -89,6 +89,7 @@ pub struct ImeSession {
     vietnamese_method: VietnameseInputMethod,
     vietnamese_style: VietnameseToneStyle,
     korean_layout: crate::KoreanLayout,
+    force_cantonese_shuangpin: bool,
     wubi_options: WubiInputOptions,
     /// Mixed wubi only: a pinyin candidate was picked out of this composition, so the rest decodes as quanpin until the composition ends (product decision 2026-09-30, the intent of test_wubi_mixed_input_session.cpp:194-212). Cleared by `reset`, `switch_scheme`, turning mixed input off, and an emptied composition.
     pinyin_tail: bool,
@@ -167,6 +168,7 @@ impl ImeSession {
             vietnamese_method: VietnameseInputMethod::default(),
             vietnamese_style: VietnameseToneStyle::default(),
             korean_layout: crate::KoreanLayout::default(),
+            force_cantonese_shuangpin: false,
             wubi_options: WubiInputOptions::default(),
             pinyin_tail: false,
             zhuyin_nine_key: false,
@@ -187,6 +189,14 @@ impl ImeSession {
         };
         session.bind_wubi_scheme();
         Ok(session)
+    }
+
+    /// 选中的触屏入口决定粤拼如何解释同形两键码；新建或切回粤拼时沿用。
+    pub fn set_force_cantonese_shuangpin(&mut self, enabled: bool) {
+        self.force_cantonese_shuangpin = enabled;
+        if let Scheme::Cantonese(scheme) = &mut self.scheme {
+            scheme.set_force_shuangpin(enabled);
+        }
     }
 
     pub fn candidates(&self) -> &[WordItem] {
@@ -356,6 +366,9 @@ impl ImeSession {
             let nine_key = self.zhuyin_nine_key;
             if let Some(zhuyin) = self.scheme.as_zhuyin_mut() {
                 zhuyin.set_nine_key(nine_key);
+            }
+            if let Scheme::Cantonese(cantonese) = &mut self.scheme {
+                cantonese.set_force_shuangpin(self.force_cantonese_shuangpin);
             }
         }
         self.bind_wubi_scheme();
@@ -789,6 +802,9 @@ impl ImeSession {
             *request = QueryRequest::default();
             return;
         };
+        if let Scheme::Cantonese(cantonese) = &mut scratch {
+            cantonese.set_force_shuangpin(self.force_cantonese_shuangpin);
+        }
         if let Some(wubi) = scratch.as_wubi_mut() {
             wubi.set_mixed_pinyin_allowed(self.wubi_options.mixed_pinyin);
             wubi.set_extended_length_allowed(self.wubi_options.mixed_pinyin);

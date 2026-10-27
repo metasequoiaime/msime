@@ -9611,7 +9611,7 @@ fn cantonese_dictionary(directory: &Path) -> PathBuf {
     connection
         .execute_batch(
             "INSERT INTO syllables VALUES ('nei'),('hou'),('ngo'),('ngoi'),('oi'),('i'),('ming');\
-             INSERT INTO entries VALUES ('nei hou','你好',900),('nei hou','妳好',40),('nei','你',5000),('nei','妳',300),('hou','好',4000),('hou','號',500),('ngo','我',6000),('oi','愛',2500),('ngoi','外',1000),('ming','名',1000);",
+             INSERT INTO entries VALUES ('nei hou','你好',900),('nei hou','妳好',40),('nei','你',5000),('nei','妳',300),('hou','好',4000),('hou','號',500),('ngo','我',6000),('oi','愛',2500),('i','衣',1000),('ngoi','外',1000),('ming','名',1000);",
         )
         .expect("cantonese rows");
     path
@@ -9696,6 +9696,30 @@ fn cantonese_double_pinyin_uses_the_existing_dictionary_and_spelling_symbols() {
     assert!(session.snapshot().spelling_symbols.contains(';'));
     assert_eq!(words(&session)[0], "你好");
     assert!(session.select(0).commit.is_some());
+}
+
+#[test]
+fn selected_cantonese_shuangpin_survives_scheme_switches() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let mut plain = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.clone();
+    });
+    type_text(&mut plain, "oi");
+    assert_eq!(words(&plain)[0], "愛");
+
+    let mut selected = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese;
+        options.force_cantonese_shuangpin = true;
+    });
+    type_text(&mut selected, "oi");
+    assert_eq!(words(&selected)[0], "衣");
+    selected.switch_scheme(SchemeType::Quanpin).unwrap();
+    selected.switch_scheme(SchemeType::Cantonese).unwrap();
+    type_text(&mut selected, "oi");
+    assert_eq!(words(&selected)[0], "衣");
 }
 
 #[test]

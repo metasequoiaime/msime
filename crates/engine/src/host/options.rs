@@ -66,6 +66,8 @@ pub struct EngineOptions {
     /// `shuangpin_profile` 为 4 时的键位表（`SessionOptions::shuangpin_custom_profile`）。双拼在 `enabled_schemes` 里时缺表或表不合法，建会话失败（`INVALID_CUSTOM_SHUANGPIN_PROFILE`）；宿主应先用 `validate_shuangpin_custom_profile` 校验，不合法就不要传 4。
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
+    /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
+    pub force_cantonese_shuangpin: bool,
     pub learning: bool,
     /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。
     pub learn_english_on_enter: bool,
@@ -224,6 +226,7 @@ pub fn prepare_options_for(
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -340,6 +343,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.shuangpin_profile = shuangpin_profile;
     session.shuangpin_custom_profile = options.shuangpin_custom_profile.clone();
     session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
+    session.force_cantonese_shuangpin = options.force_cantonese_shuangpin;
     session.single_character_only = options.single_character_only;
     session.caret_edit_suffix = options.caret_edit_suffix;
     session.vietnamese_input_method = vietnamese_input_method;

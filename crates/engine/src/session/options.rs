@@ -34,6 +34,8 @@ pub struct SessionOptions {
     pub korean_layout: crate::KoreanLayout,
     /// Where `msime-cantonese.db` is; empty when the host has none. Read only when Cantonese is activated, which fails without it.
     pub cantonese_dictionary: PathBuf,
+    /// 独立粤语双拼入口强制按两键码解释，普通粤拼入口仍按现有规则自动识别。
+    pub force_cantonese_shuangpin: bool,
     /// Where `msime-zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
     pub zhuyin_dictionary: PathBuf,
     /// Where `msime-stroke.db` is; empty when the host has none. Read only when Stroke is activated, which fails without it.
@@ -118,6 +120,7 @@ impl SessionOptions {
             vietnamese_tone_style: VietnameseToneStyle::Modern,
             korean_layout: crate::KoreanLayout::Dubeolsik,
             cantonese_dictionary: PathBuf::new(),
+            force_cantonese_shuangpin: false,
             zhuyin_dictionary: PathBuf::new(),
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
