@@ -2,7 +2,7 @@ package app.msime.android;
 
 import java.util.Map;
 
-/** 26 键字母键右上角的「更多符号提示」：设计稿的 q1…p0 / a@ s# d¥ f% g& h* j( k) l" / z~ x… c、 v? b! n- m/。这张规范表与 iOS、HarmonyOS 的同名表一致；中文标点生效时，其中 Engine 会转写的 ASCII 标点（j k l v b）键面画中文形式（{@link #face}），下滑或长按交给 Engine 的标点路由上屏（{@link #routesThroughEngine}），其余键面和输出都是这个字符本身。 */
+/** 26 键字母键右上角的「更多符号提示」：英文键使用 q1…p0 / a@ s# d¥ f% g& h* j( k) l" / z~ x_ c` v? b! n- m/。这张规范表与 iOS、HarmonyOS 的同名表一致；中文标点生效时，其中 Engine 会转写的 ASCII 标点（j k l v b）键面画中文形式（{@link #face}），下滑或长按交给 Engine 的标点路由上屏（{@link #routesThroughEngine}），其余键面和输出都是这个字符本身。 */
 public final class LetterHintTable {
     private static final Map<String, String> HINTS = Map.ofEntries(
         Map.entry("q", "1"), Map.entry("w", "2"), Map.entry("e", "3"), Map.entry("r", "4"),
@@ -11,7 +11,7 @@ public final class LetterHintTable {
         Map.entry("a", "@"), Map.entry("s", "#"), Map.entry("d", "¥"), Map.entry("f", "%"),
         Map.entry("g", "&"), Map.entry("h", "*"), Map.entry("j", "("), Map.entry("k", ")"),
         Map.entry("l", "\""),
-        Map.entry("z", "~"), Map.entry("x", "…"), Map.entry("c", "、"), Map.entry("v", "?"),
+        Map.entry("z", "~"), Map.entry("x", "_"), Map.entry("c", "`"), Map.entry("v", "?"),
         Map.entry("b", "!"), Map.entry("n", "-"), Map.entry("m", "/"));
 
     private LetterHintTable() { }
@@ -43,16 +43,21 @@ public final class LetterHintTable {
     public static String face(String letter, boolean chinesePunctuation, ChineseSymbolFaces.Marks marks) {
         String hint = hint(letter);
         if (hint == null || !chinesePunctuation) return hint;
+        // X/C 的英文角标改为下划线和反引号后，中文键仍保留原先的省略号和顿号键面。
+        String normalized = TextPolicy.lowercase(letter);
+        if ("x".equals(normalized)) return "…";
+        if ("c".equals(normalized)) return "、";
         return ChineseSymbolFaces.face(hint, true, marks);
     }
 
     /**
-     * 中文标点生效时，这个提示字符是否交给 Engine 的标点路由上屏，而不是按字面上屏。只有 Engine 会转写成中文标点的单个 ASCII 字符（( ) " ? !）为真；数字、Engine 不收的 @ # % & * ~ - /，以及本来就不是 ASCII 的 ¥ … 、 都为假，仍按字面上屏。
+     * 中文标点生效时，这个提示字符是否交给 Engine 的标点路由上屏，而不是按字面上屏。只有 Engine 会转写成中文标点的单个 ASCII 字符（( ) " ? !）为真；数字、Engine 不收的 @ # % & * ~ - /，以及本来就不是 ASCII 的 ¥、_、` 都为假，仍按字面上屏。
      *
      * @param hint {@link #hint} 的结果
      */
     public static boolean routesThroughEngine(String hint) {
         if (hint == null || hint.length() != 1 || hint.charAt(0) >= 128) return false;
+        if ("_".equals(hint) || "`".equals(hint)) return false;
         return !ChineseSymbolFaces.face(hint, true).equals(hint);
     }
 
