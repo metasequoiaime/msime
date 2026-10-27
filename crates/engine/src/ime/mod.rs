@@ -29,7 +29,8 @@ use crate::shuangpin::ShuangpinScheme;
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
     autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, QueryRequest, SchemeKey,
-    SchemeSet, SchemeType, SentenceAssociationOptions, WordItem, WubiInputOptions,
+    SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem,
+    WubiInputOptions,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
@@ -1154,6 +1155,10 @@ impl ImeSession {
 
     /// An input the user committed raw while a correction was offered is answered as typed: both autocorrect switches off and a literal re-cut, because the correction aliases apply whatever the mask says (ime_session.cpp:285-297). Only consulted while some autocorrect type is on.
     fn apply_autocorrect_suppression(&self, request: &mut QueryRequest) {
+        if request.scheme == SchemeType::Shuangpin {
+            self.apply_shuangpin_autocorrect_suppression(request);
+            return;
+        }
         if request.scheme != SchemeType::Quanpin || self.autocorrect_types == 0 {
             return;
         }
@@ -1170,6 +1175,27 @@ impl ImeSession {
         request.enable_quanpin_autocorrect_transposition = false;
         request.enable_quanpin_autocorrect_neighbor = false;
         QuanpinScheme::apply_literal_segmentation(request);
+    }
+
+    /// 双拼：带触点的输入被用户按原样上屏、拒绝过触点纠错（`learn_rejected_correction`）之后，同一串输入按字面回答：两个纠错开关都关掉，触点也不再带，请求和没有触点、没开纠错时一样。只看带触点的请求，桌面和实体键盘的请求从不带触点，不受影响。自定义方案不学，也就没有可查的。
+    fn apply_shuangpin_autocorrect_suppression(&self, request: &mut QueryRequest) {
+        if self.autocorrect_types == 0
+            || request.key_touches.is_empty()
+            || self.profile.kind == ShuangpinProfileKind::Custom
+        {
+            return;
+        }
+        self.typo_profile.refresh_if_changed();
+        if !self
+            .typo_profile
+            .shuangpin_suppressed(self.profile.kind, &request.raw_input)
+        {
+            return;
+        }
+        request.enable_quanpin_autocorrect_transposition = false;
+        request.enable_quanpin_autocorrect_neighbor = false;
+        request.key_touches.clear();
+        request.key_geometry = None;
     }
 
     /// Query the request's provider and, for wubi with mixed pinyin, append the quanpin rows for the same letters (ime_session.cpp:333-368). The quanpin request gets the session switches and the autocorrect suppression, so a correction the user refused by committing raw stays refused when the same letters arrive through mixed Wubi. A pinyin tail skips the wubi table: those letters are the rest of a spelling, not a code.
