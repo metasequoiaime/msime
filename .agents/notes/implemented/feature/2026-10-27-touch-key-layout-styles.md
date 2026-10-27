@@ -202,3 +202,5 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 - 三端第二轮合并后，在合并树上跑过 `bash platforms/harmony/tests/run.sh`（0 失败）、`python3 scripts/test-preferences-field-parity.py`、`python3 scripts/test-mobile-return-yield-parity.py`（三端回车让位一致）与 `git diff --check origin/develop...HEAD`，都通过。各端的构建、模拟器结果和没验证的部分见「各端实现」。
 - 三端第三轮（右侧大回车数字层统一、中列宽度规则）合并后，在合并树上重跑上面四项与三个笔记校验脚本（`verify-agent-note-tree.ts`、`verify-agent-note-format.ts`、`verify-archived-agent-notes.ts`），都通过。
 - 三端第四轮（设置页入口按版本显示与说明三端统一、iOS 中列扣键距、鸿蒙笔画右列按两行对齐）合并后，在合并树上重跑 `bash platforms/harmony/tests/run.sh`、`python3 scripts/test-preferences-field-parity.py`、`python3 scripts/test-mobile-return-yield-parity.py`、`git diff --check origin/develop...HEAD` 与三个笔记校验脚本，都通过。
+
+- PR CI 的 Xcode 26.3 在热力图数字行的空数组分支把拼接推断为 `[Any]`；`letterRows(for:)` 为该局部值显式声明 `[[Cell]]`，不改变行内容或数字行开关。手写底行契约同步识别鸿蒙 `spaceKey` 的显式宽度参数 `0`，仍核对空格的位置与共享份额。

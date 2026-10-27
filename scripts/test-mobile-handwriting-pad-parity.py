@@ -42,7 +42,7 @@ IOS_KEYS = {
 HARMONY_KEYS = (
     ("LAYER", "action: () => this.toggleSymbolLayer()"),
     ("COMMA", "action: () => this.typeComma()"),
-    ("SPACE", "this.spaceKey(true, HANDWRITING_SPACE_SHARE)"),
+    ("SPACE", "this.spaceKey(true, HANDWRITING_SPACE_SHARE, 0)"),
     ("PERIOD", "action: () => this.typePeriod()"),
     ("LANGUAGE", "share: HANDWRITING_LANGUAGE_SHARE"),
     ("REWRITE", "share: HANDWRITING_REWRITE_SHARE"),

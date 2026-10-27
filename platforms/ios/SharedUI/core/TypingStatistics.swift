@@ -511,7 +511,7 @@ struct TypingKeyHeatmap: Equatable {
 
   /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`，打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
   static func letterRows(for style: TouchKeyLayoutStyle) -> [[Cell]] {
-    let number = style.numberRow ? ["1234567890".map { Cell("Digit\($0)", String($0)) }] : []
+    let number: [[Cell]] = style.numberRow ? ["1234567890".map { Cell("Digit\($0)", String($0)) }] : []
     return number + [
       letters("QWERTYUIOP"),
       letters("ASDFGHJKL"),
