@@ -147,7 +147,7 @@ jobs:
   # 随桌面安装包分发的官方插件包（plugins/official-packs.json），只在这里构建一次，打包作业下载同一份：scripts/build-official-plugins.sh 编出 wasm，并和锁定的内容哈希比对（授权绑定在它上面），所以装进安装包的就是评审过的那一份；锁以这台 ubuntu 的构建为准，和 CI 的 Script plugins 作业一致。打包的 runner 不用装 wasm 目标。
   official-plugins:
     needs: source
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -541,7 +541,7 @@ jobs:
   coexistence:
     needs: [source, release, package, sign-installers]
     if: ${{ !cancelled() && !failure() }}
-    runs-on: windows-2025
+    runs-on: depot-windows-2025-8
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

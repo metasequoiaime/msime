@@ -9,7 +9,8 @@ on:
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 concurrency:
-  group: pr-triage-${{ github.event.pull_request.number }}
+  # 编辑正文或标题不取消新提交的路径与大小检查；同类新事件仍取代旧执行。
+  group: pr-triage-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'head' }}
   cancel-in-progress: true
 
 permissions:
@@ -22,7 +23,7 @@ jobs:
     name: Path labels
     # The title-only "edited" event cannot change which files the pull request touches.
     if: github.event.action != 'edited'
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
@@ -32,7 +33,7 @@ jobs:
 
   title:
     name: Conventional title
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -97,7 +98,7 @@ jobs:
   size:
     name: Size label
     if: github.event.action != 'edited'
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

@@ -324,6 +324,8 @@ public final class TypingPage extends ReloadingDetailPage {
         JSONObject fuzzy = preferences.optJSONObject("fuzzy_pinyin");
         chinese.toggle("模糊音", "如 z/zh、an/ang 不分", fuzzy != null && fuzzy.optBoolean("enabled", false),
             checked -> savePreferences(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked)));
+        chinese.nav("模糊音规则", "逐项选择需要的声母和韵母", null,
+            () -> SettingsNavigator.open(context, PageId.FUZZY_PINYIN, null));
         InputFeatureToggle single = InputFeatureToggle.SINGLE_CHARACTER_ONLY;
         chinese.toggle(single.title(), single.description(),
             preferences.optBoolean(single.key(), single.enabledByDefault()),

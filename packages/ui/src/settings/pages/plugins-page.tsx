@@ -35,10 +35,22 @@ export function PluginsSettingsPage({
     showHelpcode,
     showWordbookPacks,
     showSymbolSetPacks,
+    showTouchPluginPacks,
     showScriptPlugins,
+    mobileKeyboardFeedback,
+    saveMobileKeyboardFeedback,
     host,
     selectPage,
   } = useSettingsForm();
+  // 触屏的插件页：「按键音」开关是宿主本机的按键反馈设置，详情里的「打开按键音」改的就是「键盘 → 按键反馈」那一行。
+  const touch = showTouchPluginPacks
+    ? {
+        keySoundEnabled: mobileKeyboardFeedback?.soundEnabled,
+        onEnableKeySound: mobileKeyboardFeedback
+          ? () => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, soundEnabled: true })
+          : undefined,
+      }
+    : undefined;
   const vocabulary = client.vocabularyReview;
   // 「去背单词」：先在背单词里选中这本书，再打开背单词页。
   const openWordbook = vocabulary
@@ -93,6 +105,7 @@ export function PluginsSettingsPage({
         wordbookPacks={showWordbookPacks}
         symbolSetPacks={showSymbolSetPacks}
         scriptPlugins={showScriptPlugins}
+        touch={touch}
         openRequest={openRequest}
         platform={host?.platform}
         onOpenWordbook={openWordbook}

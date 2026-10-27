@@ -48,8 +48,13 @@ if [ -n "$existing" ]; then
   exit 1
 fi
 
-platforms=(android harmony ios linux macos windows)
-read_version() { git show "$1:platforms/$2/version.txt" 2>/dev/null | tr -d '[:space:]' || true; }
+platforms=(android harmony ios linux macos windows windows7)
+# Win7 有自己的版本线，版本号在 platforms/windows/version-win7.txt（windows7-v 发布读它）。
+read_version() {
+  local file="platforms/$2/version.txt"
+  [ "$2" = windows7 ] && file=platforms/windows/version-win7.txt
+  git show "$1:$file" 2>/dev/null | tr -d '[:space:]' || true
+}
 
 version_rows=""
 version_changed=0
