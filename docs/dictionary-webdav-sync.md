@@ -27,15 +27,28 @@
 
 C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSON 请求，格式和错误码见 `crates/host-api/include/msime_client.h`。宿主要做的只有这几件：
 
-- **给一个目录**：放本机同步状态、词库密钥串和锁文件的绝对路径目录，同一台设备上的输入法、设置应用和面板要给同一个（否则会登记成几台设备）。里面有词条明文，放在应用私有、不备份的地方：桌面端可以是账号目录旁的 `dictionary-sync/`，Android 是 `noBackupFilesDir/dictionary-sync`，iOS 是 App 和键盘扩展共用的 App Group 容器里的 `dictionary-sync/`，HarmonyOS 是应用私有目录。
+- **给一个目录**：放本机同步状态、词库密钥串和锁文件的绝对路径目录，同一台设备上的输入法、设置应用和面板要给同一个（否则会登记成几台设备）。里面有词条明文，放在应用私有、不备份的地方：桌面端可以是账号目录旁的 `dictionary-sync/`，Android 是 `noBackupFilesDir/dictionary-sync`，iOS 是 App 和键盘扩展共用的 App Group 容器里的 `dictionary-sync/`，HarmonyOS 是应用私有目录。一个安装只有一个设备身份（词库密钥串），只由设置应用在第一次配置时生成：输入法、键盘扩展这类与设置应用共用目录的进程在请求里带 `create_identity: false`，本机还没有密钥串时答 `clipboard_identity_missing`，不生成、不登记、不联网（与云剪贴板入口的同名字段相同）。
 - **按时调用 `run`**：用户改词之后马上以 `local_change` 调一次（只记录、不联网）；打开设置应用或词库页时以 `opened` 调；之后按上一次结果里的 `next_check_ms` 以 `periodic` 再调；「立即同步」按钮是 `manual`。要不要联网、额度够不够都由 Rust 决定，宿主不用自己算防抖和退避。都在工作线程上调用。
 - **设置界面**：网盘地址、账号和应用密码（遮罩、留空沿用、测试连接通过才保存），本机的核对码和等待批准的设备（`devices`、`approve`、`reject`、`remove`，与云剪贴板的设备管理同一种形状，可以复用那套界面），状态（`status`：上次同步时间、待发送和待写入的数量、错误），被挡下的大批删除的两个选择，以及很少用到的「重置密钥」和「以本机为准重新开始」。
 
 写本机词库时 Rust 每批取一次 Engine 的独占维护权；Linux、macOS、Windows 在 `manual`、`opened` 和设备操作时会请输入法让出词库（50 毫秒间隔、2500 毫秒预算、租约 30 秒），自动同步和移动端不打扰输入会话，词库忙就留到下一次。所以在桌面端，别处的改动通常在打开设置或者没有输入会话占着词库的时候写进来。
 
+**输入法进程里的自动同步（macOS、Linux）。**
+
+打字时 Engine 自动造的词、候选栏里删掉的词、输入法自带词库窗口里改的词，不必等打开设置应用才发出去：macOS 的 IMK 进程、Linux 的 IBus 和 Fcitx5 宿主起来时调一次 `msime_client_dictionary_sync_start`，退出时调 `msime_client_dictionary_sync_stop`，由 Rust 的后台线程（`client-services::dictionary_webdav_scheduler`）替它们按上面的规则调 `run`，宿主自己不排定时器。请求是 `{options_path, directory}`：运行时配置文件 `runtime-options.json` 的路径，和与设置应用相同的目录（macOS 是 `~/Library/Application Support/<设置应用 bundle id>/dictionary-sync`，Linux 是共享状态目录，即 runtime options 的 `preferences_directory` 下的 `dictionary-sync`）。
+
+- **什么时候调**：起来时以 `periodic` 调一次，之后按每次结果的 `next_check_ms`（限在 1 秒到 30 分钟）以 `periodic` 再调。改词的信号是个人词库文件（Engine 日志库 `msime_user.db` 和它的 `-wal`）的大小和修改时间：每 5 秒看一次，变了之后等它安静一轮（一直在变时最多一分钟），再读一遍「我的词条」算指纹，和上一次同步开头核对过的那一份不一样才以 `local_change` 调（同步跑着的时候造的词因此也算）。打字学到的权重和选择次数也会改这个文件，指纹把它们挡在外面，所以一直在打字不会一直推迟发送的防抖。所有写入路径改的都是这个文件，不必在每个写入点挂钩；漏看的变化也会被下一次同步开头的核对记下来。
+- **什么时候什么也不做**：每一轮重读配置文件和偏好；没配置 `dictionary_sync_webdav`、配置读不出来，或者本机还没有设置应用生成的设备身份时不读词库、不联网，每 5 分钟再看一次。后台同步从不生成设备身份（固定是 `create_identity: false`），设置应用第一次配置之后，下一次询问就用上它的身份。
+- **不打扰输入**：不在输入线程上运行；写本机词库时不请输入法让出词库，输入会话占着词库时远端改动按 5 秒、30 秒、2 分钟、10 分钟后再试（不联网），通常在打开设置时才写进来；记录本机改动和发送不受影响。
+- **与设置应用同时同步**：两个进程用同一个目录、经同一把 `dictionary-sync.lock` 串行，状态不会被写坏，设备也只有一台；后台这一侧最多等 5 秒，设置应用正在跑一次长的同步时 30 秒后再来。额度、防抖和退避记在共享的同步状态里，两个进程加起来也不会超出一台设备的额度。
+- **停下**：不再开始新的一步，正在跑的那一次跑完为止（每一步都写盘，进程中途退出也不丢不重）。macOS 和 IBus 最多等两秒，Fcitx5 插件是 Fcitx5 加载的共享库，卸载之后插件的代码不能再运行，所以一直等到后台线程退出。
+
+`scripts/test-dictionary-sync-ime-hosts.py` 守着三个宿主的接线：各起一次、停一次，目录是 `dictionary-sync`，macOS 的独立设置窗口不起，输入法进程不直接调一次性的 `msime_client_dictionary_sync`，Fcitx5 一直等。
+
 | 宿主 | 状态 |
 | --- | --- |
-| Windows（含 Win7）、macOS、Linux、Android、HarmonyOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+| macOS、Linux | 输入法进程（IMK、IBus、Fcitx5）经 `msime_client_dictionary_sync_start` 起后台同步，见上文「输入法进程里的自动同步」；设置界面随各平台的 PR 接入 |
+| Windows（含 Win7）、Android、HarmonyOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
 | iOS | 设置 App「词库 → 词库同步」：网盘填写页（测试连接通过才保存）、状态与「立即同步」、核对码和设备批准、被挡下的大批删除、重置密钥、以本机为准重新开始和停止同步。App 回到前台时 `opened`，在前台时按 `next_check_ms` 以 `periodic` 再调，进后台就停；键盘扩展在应用了 App 排队的编辑或候选栏删除词条之后以 `local_change` 记录，只在有完全访问、App 已经用这个网盘同步过（目录里已有同步状态和密钥串）、状态文件不超过 2 MiB 时才调，否则留给 App。目录是 App Group 容器里的 `dictionary-sync/`（0700、首次解锁后的文件保护、不进备份），密钥串是 Rust 在里面写的文件，App 和键盘共用同一份和同一把锁 |
 
 ## 存储布局
@@ -234,8 +247,9 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 - `crates/client-core/src/cloud/dictionary_sync.rs` 及其子模块：不碰网络、不碰 Engine 的协议核心——时钟（`clock`）、词条身份（`entry`）、合并与墓碑回收（`replica`）、加密（`crypto`）、文件格式和日志位置（`log`）、一次同步的步骤与本机状态（`sync`）、调度与额度（`schedule`）。网盘、本机词库、时钟和写盘都经接口注入；`simulation_tests.rs` 用内存里的网盘和合成设备跑上面的全部规则。
 - `crates/client-services/src/dictionary_webdav.rs`：WebDAV 传输（核心的 `RemoteStore`，独占创建、限流退避和响应上限用云剪贴板的 `clipboard_webdav::Dav`）、词库密钥串（云剪贴板的 `RelayClipboard` 加一个给每个请求路径加 `msime-dictionary/keyring/` 前缀的传输，全部用法收在 `KeyRingAccess` 一处）、本机状态的写盘和锁、测试连接。
 - `crates/client-core/src/preferences.rs`：偏好 `dictionary_sync_webdav`。
-- `crates/host-api/src/dictionary_webdav.rs`：Engine 一侧的本机词库（一致的读、批量写、维护权和请求输入法让出词库的策略）和 `msime_client_dictionary_sync` 的动作分派。
-- 测试：`client-core` 的模拟测试；`crates/clipboard-relay/tests/dictionary_webdav_flow.rs` 对着真实的 WebDAV 服务端（`dav-server`）跑配对、互传、错误的应用密码、超大响应、同时抢序号、截尾和服务端暂时不可用；`host-api` 的单元测试对着真实的 Engine 词库跑读写、输入会话占着词库时的「忙」和 Engine 不收的词。
+- `crates/host-api/src/dictionary_webdav.rs`：Engine 一侧的本机词库（一致的读、批量写、维护权和请求输入法让出词库的策略）和 `msime_client_dictionary_sync` 的动作分派；输入法进程的后台同步的宿主一侧（`ImeHost`：重读配置、只用已有身份、个人词库文件的戳和「我的词条」的指纹）和 `msime_client_dictionary_sync_start`、`msime_client_dictionary_sync_stop`。
+- `crates/client-services/src/dictionary_webdav_scheduler.rs`：后台调度（什么时候以 `periodic`、`local_change` 调，没配置或没有身份时只是定时再问，叫停）。调度的规则不碰时钟和宿主，单测直接喂时间。
+- 测试：`client-core` 的模拟测试；`crates/clipboard-relay/tests/dictionary_webdav_flow.rs` 对着真实的 WebDAV 服务端（`dav-server`）跑配对、互传、错误的应用密码、超大响应、同时抢序号、截尾和服务端暂时不可用；`host-api` 的单元测试对着真实的 Engine 词库跑读写、输入会话占着词库时的「忙」和 Engine 不收的词。后台同步：`client-services` 的调度单测（起来先同步一次、按 `next_check_ms` 排下一次、文件安静一轮才读指纹、一直在写时最多等一分钟、只改权重不调 `local_change`、没配置或没有身份时既不看文件也不读词、叫停、宿主 panic 后照样继续）；`dictionary_webdav_flow.rs` 对着 `dav-server` 跑只用已有身份的输入法（设置应用配置之前一个请求也不发、不写出密钥串，之后用的是同一个身份、密钥串里只有一台设备）、输入法和设置应用同时从一个目录同步、真实的后台调度从等待设置应用到记下新造的词；`host-api` 的单测覆盖 `create_identity: false` 的每个动作、日志库的戳和指纹（改权重戳变指纹不变）、起停 C 入口。
 
 ### 检查点超过上限时
 

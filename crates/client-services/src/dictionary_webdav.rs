@@ -14,7 +14,9 @@
 use crate::account::{
     AccountClipboardDevices, AccountSessionFileLayout, FileAccountSessionStorage,
 };
-use crate::clipboard_relay::{RelayClipboard, RelayConfig, RelayError};
+use crate::clipboard_relay::{
+    RelayClipboard, RelayConfig, RelayError, IDENTITY_MISSING, RELAY_KEYSTORE_FILE,
+};
 use crate::clipboard_webdav::{
     Dav, DavHttp, DavRequest, DavResponse, Environment as DavEnvironment, HttpDav, VirtualRelay,
     WEBDAV_STATE_FILE,
@@ -227,6 +229,8 @@ struct KeyRingAccess {
     requests: Arc<AtomicUsize>,
     directory: PathBuf,
     config: RelayConfig,
+    /// 本机没有密钥串时可不可以生成新的设备身份（见 [`DictionarySync::existing_identity_only`]）。
+    create_identity: bool,
 }
 
 impl KeyRingAccess {
@@ -234,6 +238,7 @@ impl KeyRingAccess {
         config: &RelayConfig,
         directory: &Path,
         device_name: &str,
+        create_identity: bool,
     ) -> Result<Self, DictionarySyncError> {
         let requests = Arc::new(AtomicUsize::new(0));
         let http = Prefixed {
@@ -247,12 +252,27 @@ impl KeyRingAccess {
             Box::new(http),
             false,
         );
+        let clipboard = RelayClipboard::with_webdav(relay, directory, device_name);
         Ok(Self {
-            clipboard: RelayClipboard::with_webdav(relay, directory, device_name),
+            // 驱动在中继锁里再查一遍：批准、拒绝、移除这些不经下面 `status` 的操作也不会生成身份。
+            clipboard: if create_identity {
+                clipboard
+            } else {
+                clipboard.existing_identity_only()
+            },
             requests,
             directory: directory.to_path_buf(),
             config: config.clone(),
+            create_identity,
         })
+    }
+
+    /// 只用已有身份时，本机还没有密钥串就停在这里：不建网盘上的目录、不登记、不联网。
+    fn require_identity(&self) -> Result<(), DictionarySyncError> {
+        if !self.create_identity && self.keystore()?.is_none() {
+            return Err(identity_missing());
+        }
+        Ok(())
     }
 
     fn requests(&self) -> usize {
@@ -286,6 +306,7 @@ impl KeyRingAccess {
 
     /// 读密钥串的状态：本机还没登记就登记，网盘上还没有密钥就由本机生成（第一台设备）。
     fn status(&self) -> Result<AccountClipboardDevices, DictionarySyncError> {
+        self.require_identity()?;
         self.ensure_roots()?;
         self.clipboard
             .devices()
@@ -311,6 +332,7 @@ impl KeyRingAccess {
     }
 
     fn reset(&self) -> Result<AccountClipboardDevices, DictionarySyncError> {
+        self.require_identity()?;
         self.ensure_roots()?;
         self.clipboard
             .reset()
@@ -399,11 +421,20 @@ pub struct RunResult {
     pub view: SyncView,
 }
 
+/// 只用已有身份、本机还没有密钥串时的错误码（与云剪贴板的 `clipboard_identity_missing` 相同）。
+fn identity_missing() -> DictionarySyncError {
+    DictionarySyncError::KeyRing(IDENTITY_MISSING.to_owned())
+}
+
 /// 一个配置好的词库同步：网盘地址、账号和应用密码，加上本机放状态的目录。
 pub struct DictionarySync {
     config: RelayConfig,
     directory: PathBuf,
     device_name: String,
+    /// 本机没有密钥串时可不可以生成新的设备身份并登记。
+    create_identity: bool,
+    /// 等另一个进程跑完一次同步最多等多久。
+    lock_wait: Duration,
 }
 
 impl std::fmt::Debug for DictionarySync {
@@ -455,7 +486,21 @@ impl DictionarySync {
             config,
             directory,
             device_name: device_name.to_owned(),
+            create_identity: true,
+            lock_wait: LOCK_TIMEOUT,
         })
+    }
+
+    /// 只用本机已有的设备身份：目录里还没有给这个网盘地址和账号保存过的词库密钥串时，`run` 答 `clipboard_identity_missing`（结果的 `report` 是这个错误，`network` 为假），设备管理和重新开始也答这个错误码，不生成新身份、不登记、不联网，也不建本机目录。给与设置应用共用同一个目录、自己不该另登记一台设备的输入法进程用：一个安装只有一个设备身份，只由设置应用在第一次配置时生成。`status` 不受影响。
+    pub fn existing_identity_only(mut self) -> Self {
+        self.create_identity = false;
+        self
+    }
+
+    /// 另一个进程（例如设置应用）正在跑一次同步时最多等多久，过了答 `dictionary_sync_unavailable`。默认两分钟；后台调度不必久等，下一轮再来。
+    pub fn lock_wait(mut self, wait: Duration) -> Self {
+        self.lock_wait = wait;
+        self
     }
 
     fn storage(&self) -> FileAccountSessionStorage {
@@ -474,7 +519,7 @@ impl DictionarySync {
         storage.create_directory().map_err(|_| SyncError::Storage)?;
         let file = crate::file_lock::open_private_lock_file(self.directory.join(LOCK_FILE))
             .map_err(|_| SyncError::Storage)?;
-        let deadline = Instant::now() + LOCK_TIMEOUT;
+        let deadline = Instant::now() + self.lock_wait;
         loop {
             if crate::file_lock::try_exclusive(&file).map_err(|_| SyncError::Storage)? {
                 return Ok(crate::file_lock::ScopedFileLock::from_locked(file));
@@ -505,7 +550,22 @@ impl DictionarySync {
     }
 
     fn keyring(&self) -> Result<KeyRingAccess, DictionarySyncError> {
-        KeyRingAccess::new(&self.config, &self.directory, &self.device_name)
+        KeyRingAccess::new(
+            &self.config,
+            &self.directory,
+            &self.device_name,
+            self.create_identity,
+        )
+    }
+
+    /// 只用已有身份、本机还没有密钥串时这一次的结果：什么也没做，按定时再来。
+    fn without_identity(state: Option<&SyncState>) -> RunResult {
+        RunResult {
+            network: false,
+            report: Err(identity_missing()),
+            next_check_ms: core::schedule::PULL_INTERVAL_MS,
+            view: Self::view(state, None),
+        }
     }
 
     fn view(state: Option<&SyncState>, keystore: Option<&Keystore>) -> SyncView {
@@ -544,6 +604,10 @@ impl DictionarySync {
         trigger: Trigger,
         choice: Options,
     ) -> Result<RunResult, DictionarySyncError> {
+        // 目录里连密钥串文件都没有时不必取锁：取锁会先建出目录和锁文件。有文件时在锁里再按内容判断一次。
+        if !self.create_identity && !self.directory.join(RELAY_KEYSTORE_FILE).is_file() {
+            return Ok(Self::without_identity(None));
+        }
         let _lock = self.lock()?;
         self.run_locked(local, trigger, choice)
     }
@@ -558,6 +622,9 @@ impl DictionarySync {
         let mut stored = self.load_state()?;
         let keyring = self.keyring()?;
         let mut keystore = keyring.keystore()?;
+        if !self.create_identity && keystore.is_none() {
+            return Ok(Self::without_identity(stored.as_ref()));
+        }
         let decided = match stored.as_mut() {
             Some(state) => core::plan(state, trigger, now),
             // 还没用过网盘：除了「刚改了词」以外都先去登记，不然什么也做不了。

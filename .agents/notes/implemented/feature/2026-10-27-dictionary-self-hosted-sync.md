@@ -64,6 +64,17 @@ Status: implemented
 
 偏好是 `dictionary_sync_webdav {url, username, password}`，规则照 `cloud_clipboard_webdav`，两者各配各的：应用密码进凭据清单，账号在诊断里换成 `<redacted>`，整组进 `LOCAL_SECTIONS`，不进账号设置同步和 MCP。本机同步状态只记网盘地址和账号的摘要，不记凭据；测试证明网盘文件不含凭据和词条明文；本机状态含词条明文但不含凭据，调试输出也不打印凭据。
 
+### 输入法进程的后台同步（macOS、Linux）
+
+打字时 Engine 自动造的词、候选栏删的词和输入法自带词库窗口里改的词由输入法进程自己触发同步，不等设置应用打开。macOS 的 IMK 进程、Linux 的 IBus 和 Fcitx5 宿主起来时调一次 `msime_client_dictionary_sync_start {options_path, directory}`，退出时 `msime_client_dictionary_sync_stop`；调度是 `client-services::dictionary_webdav_scheduler` 的一个后台线程，宿主一侧是 `host-api` 的 `ImeHost`。目录与设置应用相同：macOS 是 Application Support 里设置应用 bundle id 那一层下的 `dictionary-sync`，Linux 是共享状态目录（runtime options 的 `preferences_directory`）下的 `dictionary-sync`。Windows Server、Android `:ime` 各自的 PR 在本平台的输入法一侧触发，行为与这里一致：只用已有身份、不请输入法让出词库、按 `next_check_ms` 排 `periodic`、词变了才 `local_change`；iOS 的键盘扩展同样只在密钥串已经存在时才调，见下文「iOS 宿主」。
+
+- **改词的信号是个人词库文件的戳加「我的词条」的指纹**。每 5 秒看一次日志库和 `-wal` 的大小与修改时间，变了之后等它安静一轮（一直在变时最多一分钟）再读一遍「我的词条」算指纹，指纹变了才调 `local_change`。日志库被打字学习（权重、选择次数、固定位置）频繁改写，不经指纹直接调 `local_change` 会让核心每次都把「最后一次改词」往后推、防抖一直到不了头，还每次重写一遍本机状态；指纹把这些挡在外面。所有写入路径改的是同一个文件，所以不必挂钩。比较的基线是每次同步开头核对本机改动时读到的那一份（`Watched` 记下的指纹，文件戳在同步之前取），所以核对之后、同步跑完之前才造的词照样触发；同步自己写进本机词库的词也会让指纹对不上，那一次 `local_change` 核对不出改动，不发操作。基线若在同步跑完之后再读，这段时间里造的词会被算进基线，要等下一次 `periodic` 才记下，真实网盘上的调度测试最早就是这样失败的。
+- **一个安装一个设备身份**：后台同步固定用 `DictionarySync::existing_identity_only`。本机还没有设置应用生成的词库密钥串时，`run` 在取锁之前就答 `clipboard_identity_missing`（不建目录、不记录本机改动、不联网），有文件时在锁里按内容再判断一次；设备管理和重新开始在建网盘目录之前、驱动在中继锁里各查一次。C 入口 `msime_client_dictionary_sync` 也收同名的 `create_identity: false`，形状与云剪贴板的相同，给其他平台的输入法一侧用。
+- **不配置就不做事**：每一轮重读配置文件和偏好，没配置网盘、配置读不出来或没有身份时不看文件、不读词库，每 5 分钟再问一次。
+- **不打扰输入**：不请输入法让出词库，输入会话占着词库时远端改动按核心的忙重试间隔再试，通常在打开设置时才写进来。
+- **与设置应用并发**：两个进程经同一把 `dictionary-sync.lock` 串行，额度、防抖和退避都在共享的同步状态里；后台这一侧只等锁 5 秒（`lock_wait`），等不到 30 秒后再来，免得陪着设置应用的一次长同步挂住宿主退出。
+- **停下**：不再开始新的一步，在跑的那一次跑完为止。macOS 和 IBus 等两秒（进程随后退出，每一步都写盘），Fcitx5 插件一直等到线程退出：它是 Fcitx5 加载的共享库，卸载之后插件的代码不能再运行，与它等 `fcitx_detached_jobs` 的规则相同。Fcitx5 加载时还没做首次配置的，第一个会话读到配置时再起。
+
 ### iOS 宿主
 
 - **入口和触发**：设置 App「词库 → 词库同步」（`DictionarySyncView.swift`），表单的做法照 iOS 云剪贴板的网盘填写页：应用密码遮罩、不回显、留空沿用，「测试连接」只测不存，「保存」先测、通过才写 `dictionary_sync_webdav`，不通过时填写页和草稿都留着。`DictionarySyncCenter` 在 App 回到前台时以 `opened` 调、在前台时按 `next_check_ms` 以 `periodic` 再调，进后台就停；iOS 不让 App 在后台常驻，App 关着的那段时间里别处的词等下次打开 App 时写进来。每个调用都在专用线程上，期间用 `beginBackgroundTask` 保持后台执行，挂起时不会还拿着 App Group 里的文件锁（0xdead10cc）。
@@ -86,13 +97,16 @@ Status: implemented
 - **直接同步数据库或 Rime `sync` 目录** — 可复用现成文件同步工具，但数据库版本、并发使用和删除传播无法因此获得一致契约，不作为首版路径。
 - **复用水杉账号云词库 API** — 已有认证和分页代码，但不能满足用户自选存储，也不能把个人词库自动改发到账号服务。
 - **首版同时支持 WebDAV、S3、OneDrive** — 覆盖面更大，但会同时扩散认证、发布、重试和错误语义；日志格式与传输无关，以后加 S3 只需另一个独占创建的实现。
+- **输入法进程在写入点发「我的词改了」的通知** — 最强的理由是不用轮询文件，改词的那一刻就知道。不用：输入法进程里改词的路径有好几条（Engine 在上屏时自动造词、候选栏删词、AppKit 和 Linux 的词库窗口、经 host-api 的词库请求），自动造词发生在 Engine 的会话里，宿主看不到；漏一条就要等下一次 `periodic`（最长 30 分钟）。文件的戳每 5 秒一次 `stat`，覆盖所有路径和所有进程。
+- **日志库每变一次就调 `local_change`** — 最强的理由是最简单，核对本来就会认出没有改动。不用：打字学习几乎每次上屏都写日志库，`local_change` 每次都推迟发送的防抖（最多推到十分钟）、重写一遍本机状态（十万个词约 10 MB），还占着同步锁；读一遍「我的词条」算指纹只是一次只读事务。
+- **各宿主自己用原生定时器调 `msime_client_dictionary_sync`** — 最强的理由是与遥测上传一样，宿主完全掌握线程和生命周期。不用：同样的调度（看文件、算指纹、按 `next_check_ms` 排下一次、没配置时只是定时再问）要在 Objective-C++、IBus 和 Fcitx5 的 C++ 里各写一份；放在 Rust 里一份，测试直接喂时间，三个宿主只剩起、停两个调用。
 
 ## Consequences
 
 - **收益**：有 WebDAV 网盘的用户不用水杉账号就能在设备之间同步「我的词条」，包括删除，离线交错、崩溃和重放后收敛到同一个结果；网盘只见到密文；协议和规则只在 Rust 里一份，六个宿主都经同一个 C 入口驱动。
 - **代价**：每台设备都要维护一份共享词库的本机副本（10 万个词约 10 MB）；每次核对读整个「我的词条」，开销随词条数线性增长；用两个功能的设备要分别批准两次；打字自动造的词也会被同步，用户若不希望，需要 Engine 先区分来源；桌面端的远端改动通常在打开设置或者输入会话不占着词库时才写进来。
 - **已知限制**：离线超过 90 天、又改过已在别处删除的词条，会让它复活；知道应用密码又持有密钥的人仍能往后追加事件，移除设备后要换应用密码；没有本机状态的新安装没有防回退可言；删掉的密文可能留在网盘回收站。
-- **还没做的**：iOS 以外五个平台的设置界面、待批准设备的提示和触发接线（各平台 PR）；真实的坚果云、Nextcloud 上的端到端验收；真实词库规模下核对和首次上传的耗时测量；Android、HarmonyOS 上 `directory` 的具体位置和跨进程共用的验证；iOS 键盘扩展在真机上调 `local_change` 的内存占用。
+- **还没做的**：iOS 以外五个平台的设置界面、待批准设备的提示和设置一侧的触发接线（各平台 PR；macOS 和 Linux 的输入法进程已经自己触发，见上文「输入法进程的后台同步」）；Windows、Android 输入法一侧的触发（各平台 PR）；真实的坚果云、Nextcloud 上的端到端验收；真实词库规模下核对和首次上传的耗时测量；Android、HarmonyOS 上 `directory` 的具体位置和跨进程共用的验证；iOS 键盘扩展在真机上调 `local_change` 的内存占用。
 
 ## Verification
 
@@ -107,3 +121,5 @@ Status: implemented
 - iOS 没有验证的：真机上的 App Group 容器和文件保护类别（模拟器构建不签名，目录落在 App 自己的 Application Support）；键盘扩展在系统键盘里实际调 `local_change` 的耗时和内存；真实的坚果云、Nextcloud。
 
 审查补充验证：新增真实 TCP 的 chunked 超限、正文截断、合法 chunked 与 401 状态用例，以及超大本机状态写入前拒绝并保留旧文件的回归；修复前 3 项实际失败，修复后 WebDAV 相关 33 项、词库 WebDAV 集成 9 项、云剪贴板 WebDAV 集成 3 项通过，库级严格 clippy 通过。词库 WebDAV 集成用例另覆盖删减本机新增词后恢复同步。完整 quick 门禁受开发机系统盘余量限制，未完成；Android 文件存储路径的设备验收仍待完成。
+
+输入法进程的后台同步（都在 macOS arm64 上跑）：`cargo test -p msime-client-services --lib dictionary_webdav` 22 项通过，覆盖调度规则（起来先同步一次、`next_check_ms` 限在 1 秒到 30 分钟、文件安静一轮才读指纹、一直在写时最多等一分钟、只改权重不调 `local_change`、没配置或没有身份时既不看文件也不读词、本机失败 30 秒后再来）、`Watched` 记下的是同步核对过的那一份，和后台线程（同步跑着时造的词照样触发 `local_change`、叫停马上叫醒等待中的线程、在跑的那一次跑完才退出、宿主 panic 后照样继续）。`cargo test -p msime-clipboard-relay --test dictionary_webdav_flow` 12 项通过，新增 3 项对着 `dav-server`：设置应用配置之前只用已有身份的输入法任何触发都不发一个请求、不写出密钥串和状态，之后用同一个身份、密钥串里只有一台设备；输入法和设置应用从一个目录同时同步、同时有人改词，另一台设备拿到全部的词；真实的后台调度从等设置应用到记下新造的词。`cargo test -p msime-host-api --lib dictionary_webdav` 7 项通过，新增 3 项覆盖 `create_identity: false` 的每个动作不联网（连不上的网盘地址分辨有没有联网）、日志库的戳和指纹（改权重戳变指纹不变）、起停 C 入口。`cargo clippy -p msime-client-services -p msime-clipboard-relay -p msime-host-api --lib --tests` 没有警告。`scripts/test-dictionary-sync-ime-hosts.py` 守着三个宿主的接线，`scripts/run-checks.sh` 全部通过或按规则跳过；`input_method_main.mm` 按 CMake 的 include 路径做过 `clang++ -fsyntax-only`。三个原生宿主的完整构建只经 CI，没有在真实的 IMK、IBus、Fcitx5 进程里对着网盘跑过。

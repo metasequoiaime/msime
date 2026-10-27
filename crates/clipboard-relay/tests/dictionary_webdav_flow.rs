@@ -12,12 +12,17 @@ use dav_server::{fakels::FakeLs, memfs::MemFs, DavHandler};
 use msime_client_core::cloud::dictionary_sync::{
     LocalChange, LocalDictionary, LocalError, LocalOutcome, Options, Trigger, WordKey, WordKind,
 };
-use msime_client_services::dictionary_webdav::{probe, DictionarySync, RunResult, STATE_FILE};
+use msime_client_services::dictionary_webdav::{
+    probe, DictionarySync, DictionarySyncError, RunResult, STATE_FILE,
+};
+use msime_client_services::dictionary_webdav_scheduler::{
+    fingerprint, Round, Scheduler, SchedulerHost, Timing, Watched, BACKGROUND_LOCK_WAIT,
+};
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 const USER: &str = "synthetic@example.test";
 const PASSWORD: &str = "synthetic-app-password";
@@ -29,9 +34,12 @@ struct Dav {
     authorization: String,
     /// 服务端暂时不可用：每个请求答 503，不带 `Retry-After`。
     down: Arc<AtomicBool>,
+    /// 收到过多少个请求（不含测试自己绕过鉴权发的）。
+    requests: Arc<AtomicUsize>,
 }
 
 async fn handle(State(dav): State<Dav>, request: Request) -> Response {
+    dav.requests.fetch_add(1, Ordering::SeqCst);
     if dav.down.load(Ordering::SeqCst) {
         return StatusCode::BAD_GATEWAY.into_response();
     }
@@ -92,6 +100,7 @@ fn start() -> Server {
             base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{PASSWORD}"))
         ),
         down: Arc::default(),
+        requests: Arc::default(),
     };
     let app_dav = dav.clone();
     runtime.spawn(async move {
@@ -108,6 +117,11 @@ fn start() -> Server {
 impl Server {
     fn url(&self) -> String {
         format!("http://{}/dav/", self.address)
+    }
+
+    /// 客户端发来过多少个请求。
+    fn requests(&self) -> usize {
+        self.dav.requests.load(Ordering::SeqCst)
     }
 
     /// 绕过鉴权直接对文件系统发一个请求，测试用来种文件、删文件、列目录。
@@ -579,4 +593,278 @@ fn oversized_local_changes_keep_state_readable_and_allow_recovery() {
         .unwrap();
     manual(&sync, &mut words).report.unwrap();
     assert_eq!(sync.status().unwrap().pending_upload, 0);
+}
+
+/// 一个安装里的「我的词条」：设置应用和输入法两个进程读写的是同一份 Engine 日志库。`writes` 是文件戳的替身，每写一次加一。
+#[derive(Clone, Default)]
+struct SharedWords(Arc<Mutex<(BTreeSet<WordKey>, u64)>>);
+
+impl SharedWords {
+    fn insert(&self, key: WordKey) {
+        let mut shared = self.0.lock().unwrap();
+        shared.0.insert(key);
+        shared.1 += 1;
+    }
+
+    fn snapshot(&self) -> BTreeSet<WordKey> {
+        self.0.lock().unwrap().0.clone()
+    }
+
+    fn writes(&self) -> u64 {
+        self.0.lock().unwrap().1
+    }
+}
+
+impl LocalDictionary for SharedWords {
+    fn words(&mut self) -> Result<BTreeSet<WordKey>, LocalError> {
+        Ok(self.snapshot())
+    }
+
+    fn apply(&mut self, changes: &[LocalChange]) -> Result<Vec<LocalOutcome>, LocalError> {
+        let mut shared = self.0.lock().unwrap();
+        for change in changes {
+            if change.add {
+                shared.0.insert(change.key.clone());
+            } else {
+                shared.0.remove(&change.key);
+            }
+        }
+        shared.1 += 1;
+        Ok(vec![LocalOutcome::Applied; changes.len()])
+    }
+}
+
+const IDENTITY_MISSING: &str = "clipboard_identity_missing";
+
+#[test]
+fn the_input_method_borrows_the_settings_apps_identity_and_never_registers_its_own() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let local = SharedWords::default();
+    local.insert(word("shui'shan", "水杉"));
+    let ime = device(&server, directory.path(), "MacBook").existing_identity_only();
+    // 设置应用还没配置过：输入法什么触发都不联网、不生成身份、不记录本机改动。
+    for trigger in [
+        Trigger::Periodic,
+        Trigger::LocalChange,
+        Trigger::Opened,
+        Trigger::Manual,
+    ] {
+        let run = ime
+            .run(&mut local.clone(), trigger, Options::default())
+            .unwrap();
+        assert!(!run.network, "{trigger:?}");
+        assert_eq!(run.report.unwrap_err().code(), IDENTITY_MISSING);
+    }
+    assert_eq!(ime.devices().unwrap_err().code(), IDENTITY_MISSING);
+    assert_eq!(
+        ime.reset(&mut local.clone()).unwrap_err().code(),
+        IDENTITY_MISSING
+    );
+    assert_eq!(server.requests(), 0, "the input method sent requests");
+    assert!(!directory
+        .path()
+        .join("cloud-clipboard-relay-keystore")
+        .exists());
+    assert!(!directory.path().join(STATE_FILE).exists());
+    assert_eq!(ime.status().unwrap().device_id, None);
+    // 设置应用第一次配置：生成身份、加入。之后输入法用的是同一个身份。
+    let settings = device(&server, directory.path(), "MacBook");
+    let run = settings
+        .run(&mut local.clone(), Trigger::Opened, Options::default())
+        .unwrap();
+    run.report.unwrap();
+    assert!(run.view.approved);
+    let id = run.view.device_id.unwrap();
+    local.insert(word("ni'hao", "你好"));
+    let run = ime
+        .run(&mut local.clone(), Trigger::Manual, Options::default())
+        .unwrap();
+    let report = run.report.unwrap();
+    assert_eq!(report.published_ops, 1, "{report:?}");
+    assert_eq!(run.view.device_id.as_deref(), Some(id.as_str()));
+    settle();
+    let devices = settings.devices().unwrap();
+    assert_eq!(devices.devices.len(), 1, "{devices:?}");
+    assert_eq!(devices.devices[0].device_id, id);
+}
+
+/// 一台已经配好的设备：设置应用生成身份并加入，返回它的同步。
+fn configured(server: &Server, directory: &Path, local: &SharedWords) -> DictionarySync {
+    let settings = device(server, directory, "MacBook");
+    settings
+        .run(&mut local.clone(), Trigger::Opened, Options::default())
+        .unwrap()
+        .report
+        .unwrap();
+    settings
+}
+
+#[test]
+fn the_input_method_and_the_settings_app_sync_concurrently_from_one_directory() {
+    let server = start();
+    let (directory, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let local = SharedWords::default();
+    local.insert(word("shui'shan", "水杉"));
+    let settings = configured(&server, directory.path(), &local);
+    // 两个进程同时同步，同时有人改词：整次同步在目录里的锁下串行，谁也不会读到对方写了一半的状态。输入法这边用 manual 只是为了让每一次都真的联网。
+    let racers: Vec<_> = ["sheding", "shurufa"]
+        .into_iter()
+        .map(|process| {
+            let (url, path, local) = (server.url(), directory.path().to_path_buf(), local.clone());
+            std::thread::spawn(move || {
+                let sync = DictionarySync::new(&url, USER, PASSWORD, &path, "MacBook").unwrap();
+                let ime = process == "shurufa";
+                let sync = if ime {
+                    sync.existing_identity_only()
+                } else {
+                    sync
+                };
+                for (round, letter) in ["a", "b"].into_iter().enumerate() {
+                    local.insert(word(&format!("{process}'{letter}"), "合成词"));
+                    let trigger = match (ime, round) {
+                        (true, 0) => Trigger::LocalChange,
+                        _ => Trigger::Manual,
+                    };
+                    sync.run(&mut local.clone(), trigger, Options::default())
+                        .unwrap()
+                        .report
+                        .unwrap();
+                }
+            })
+        })
+        .collect();
+    for racer in racers {
+        racer.join().unwrap();
+    }
+    let run = settings
+        .run(&mut local.clone(), Trigger::Manual, Options::default())
+        .unwrap();
+    run.report.unwrap();
+    assert_eq!(run.view.pending_upload, 0);
+    // 另一台设备加入后拿到两个进程记下的全部词，这台设备在密钥串里只有一条。
+    let mut pixel = Words::default();
+    let second = device(&server, other.path(), "Pixel");
+    manual(&second, &mut pixel);
+    settle();
+    let devices = settings.devices().unwrap();
+    assert_eq!(devices.devices.len(), 2, "{devices:?}");
+    let pending = devices
+        .devices
+        .iter()
+        .find(|device| !device.approved)
+        .unwrap();
+    settings.approve(&pending.device_id).unwrap();
+    settle();
+    manual(&second, &mut pixel).report.unwrap();
+    assert_eq!(pixel.0, local.snapshot());
+    assert_eq!(pixel.0.len(), 5);
+}
+
+/// 后台调度的宿主：同步是只用已有身份的那一份，本机词库是共享的那一份，每一次同步的结果都记下来。
+struct ImeHost {
+    sync: DictionarySync,
+    local: SharedWords,
+    log: Arc<Mutex<Vec<(Trigger, Option<String>)>>>,
+}
+
+impl SchedulerHost for ImeHost {
+    fn run(&mut self, trigger: Trigger) -> Option<Round> {
+        let mut local = self.local.clone();
+        let mut watched = Watched::new(&mut local);
+        let result = self.sync.run(&mut watched, trigger, Options::default());
+        let seen = watched.seen();
+        let error = match &result {
+            Ok(run) => run
+                .report
+                .as_ref()
+                .err()
+                .map(|error| error.code().to_owned()),
+            Err(error) => Some(error.code().to_owned()),
+        };
+        self.log.lock().unwrap().push((trigger, error));
+        Some(Round { result, seen })
+    }
+
+    fn fingerprint(&mut self) -> Option<u64> {
+        Some(fingerprint(&self.local.snapshot()))
+    }
+
+    fn stamp(&mut self) -> Option<u64> {
+        Some(self.local.writes())
+    }
+}
+
+fn wait_until(what: &str, condition: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !condition() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting until {what}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn the_background_scheduler_waits_for_the_settings_app_and_then_records_new_words() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let local = SharedWords::default();
+    local.insert(word("shui'shan", "水杉"));
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let host = ImeHost {
+        sync: device(&server, directory.path(), "MacBook")
+            .existing_identity_only()
+            .lock_wait(BACKGROUND_LOCK_WAIT),
+        local: local.clone(),
+        log: Arc::clone(&log),
+    };
+    let timing = Timing {
+        poll: std::time::Duration::from_millis(20),
+        max_delay: std::time::Duration::from_millis(200),
+        idle: std::time::Duration::from_millis(50),
+        retry: std::time::Duration::from_millis(50),
+    };
+    let scheduler = Scheduler::start_with(host, timing).unwrap();
+    // 还没有身份：只是定时再问，一个请求也不发，改词也不去读。
+    wait_until("it asked twice", || log.lock().unwrap().len() >= 2);
+    local.insert(word("zao'ci", "造词"));
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_eq!(server.requests(), 0);
+    assert!(log
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|(trigger, error)| *trigger == Trigger::Periodic
+            && error.as_deref() == Some(IDENTITY_MISSING)));
+    // 设置应用配好之后，下一次询问就用上它的身份，从那时的词开始看。
+    let settings = configured(&server, directory.path(), &local);
+    wait_until("the scheduler ran with the identity", || {
+        log.lock()
+            .unwrap()
+            .last()
+            .is_some_and(|(_, error)| error.is_none())
+    });
+    assert_eq!(settings.status().unwrap().pending_upload, 0);
+    // 打字时造了一个词：调一次 local_change，词记进待发送（发送要等防抖）。等同步整个跑完再看：核对一记下就写盘，那时同步还没返回。
+    local.insert(word("xin'ci", "新词"));
+    wait_until("local_change ran", || {
+        log.lock()
+            .unwrap()
+            .iter()
+            .any(|(trigger, error)| *trigger == Trigger::LocalChange && error.is_none())
+    });
+    assert!(scheduler.stop(None));
+    let runs = log.lock().unwrap().clone();
+    assert_eq!(
+        runs.iter()
+            .filter(|(trigger, _)| *trigger == Trigger::LocalChange)
+            .count(),
+        1,
+        "{runs:?}"
+    );
+    assert_eq!(settings.status().unwrap().pending_upload, 1);
+    let devices = settings.devices().unwrap();
+    assert_eq!(devices.devices.len(), 1, "{devices:?}");
 }

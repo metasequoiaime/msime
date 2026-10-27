@@ -9,6 +9,8 @@
 //! - 维护权：每批写之前取独占维护权，写完就放，从不跨网络请求持有。拿不到时：桌面端（Linux、macOS、Windows）在用户手动同步或打开设置时经 `QuiescedHosts` 请输入法让出词库（遇忙以 50 毫秒间隔在 2500 毫秒预算内重试，租约 30 秒，写完这一轮就撤）；自动同步和移动端不打扰输入会话，直接答「忙」，这一轮不写，按 5 秒、30 秒、2 分钟、10 分钟后再试。
 //!
 //! 整个调用会联网（`status` 除外），宿主放在工作线程上，输入线程从不等它。
+//!
+//! 输入法进程（macOS 的 IMK、Linux 的 IBus 和 Fcitx5）不自己调这个入口，而是经 `msime_client_dictionary_sync_start` 起一个后台调度（`msime_client_services::dictionary_webdav_scheduler`），宿主一侧是这里的 [`ImeHost`]：每一轮重读运行时配置文件和偏好，只用设置应用生成的设备身份，不请输入法让出词库。
 
 use crate::*;
 use msime_client_core::cloud::dictionary_sync::{
@@ -20,7 +22,12 @@ use msime_client_services::dictionary::access::DictionaryAccess;
 use msime_client_services::dictionary_webdav::{
     probe, DictionarySync, DictionarySyncError, RunResult, SyncView,
 };
+use msime_client_services::dictionary_webdav_scheduler::{
+    fingerprint, Round, Scheduler, SchedulerHost, Watched, BACKGROUND_LOCK_WAIT,
+};
 use std::collections::{BTreeSet, HashMap};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::time::Duration;
 
 /// 请求的上限：HostOptions 文档里有整份偏好（最多 1 MiB）。
 pub(crate) const MAX_REQUEST_BYTES: usize = 2 * 1024 * 1024;
@@ -273,6 +280,9 @@ struct SyncRequest {
     directory: String,
     #[serde(default)]
     device_name: Option<String>,
+    /// 为 `false` 时只用本机已有的设备身份（[`DictionarySync::existing_identity_only`]）。
+    #[serde(default)]
+    create_identity: Option<bool>,
     action: Value,
 }
 
@@ -383,6 +393,11 @@ pub(crate) fn request_json(bytes: &[u8]) -> Result<Value, String> {
     )
     .map_err(code)?
     .ok_or("dictionary_sync_not_configured")?;
+    let sync = if request.create_identity == Some(false) {
+        sync.existing_identity_only()
+    } else {
+        sync
+    };
     let engine = options.into_engine_options();
     // 用户在等着看结果的两种情况，桌面端可以请输入法让出词库。
     let interactive = matches!(
@@ -431,6 +446,153 @@ pub(crate) fn request_json(bytes: &[u8]) -> Result<Value, String> {
         Action::Restart => Ok(view_json(&sync.restart(&mut local).map_err(code)?)),
         Action::Probe { .. } => Err(INVALID.into()),
     }
+}
+
+// ---- 输入法进程里的后台同步 ----
+
+/// `msime_client_dictionary_sync_start` 的请求：运行时配置文件和放本机同步状态的目录，都是绝对路径。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StartRequest {
+    options_path: String,
+    directory: String,
+}
+
+/// 输入法进程一侧的后台同步：每一轮重读运行时配置文件和偏好（设置应用随时可能配好或改掉网盘，词库也可能换了代次），只用设置应用生成的设备身份，不请输入法让出词库，另一个进程在同步时最多等 [`BACKGROUND_LOCK_WAIT`]。
+pub(crate) struct ImeHost {
+    options_path: PathBuf,
+    directory: PathBuf,
+    /// 上一轮读到的 Engine 选项，看个人词库文件和读「我的词条」用它；没配置时为 `None`。
+    engine: Option<EngineOptions>,
+}
+
+impl ImeHost {
+    pub(crate) fn new(options_path: PathBuf, directory: PathBuf) -> Self {
+        Self {
+            options_path,
+            directory,
+            engine: None,
+        }
+    }
+
+    /// 读运行时配置文件。宿主自己也跟随符号链接读它，这里同样；不阻塞在一个 FIFO 上，大小有上限。
+    fn options(&self) -> Option<HostOptions> {
+        let mut open = std::fs::OpenOptions::new();
+        open.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open.custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC);
+        }
+        let file = open.open(&self.options_path).ok()?;
+        if !file.metadata().ok()?.is_file() {
+            return None;
+        }
+        let bytes = crate::bounded_file::read(file, HOST_OPTIONS_DOCUMENT_LIMIT as u64).ok()?;
+        let options = HostOptions::from_document(serde_json::from_slice(&bytes).ok()?)?;
+        (options.api_version == 1).then_some(options)
+    }
+
+    /// 这一轮的同步和 Engine 选项；没配置词库同步、配置读不出来时为 `None`。
+    fn prepare(&self) -> Option<(DictionarySync, EngineOptions)> {
+        let options = self.options()?;
+        let preferences_directory = options
+            .preferences_directory
+            .clone()
+            .filter(|path| Path::new(path).is_absolute())?;
+        let preferences = PreferencesStore::new(Path::new(&preferences_directory))
+            .load()
+            .ok()?
+            .preferences;
+        // 设备名与设置应用不给名字时用的相同：只用已有身份时不登记，名字只在驱动刷新本机登记时用到。
+        let sync = DictionarySync::from_preferences(
+            &preferences.dictionary_sync_webdav,
+            &self.directory,
+            &msime_client_services::account::cloud_clipboard_device_name(),
+        )
+        .ok()??
+        .existing_identity_only()
+        .lock_wait(BACKGROUND_LOCK_WAIT);
+        Some((sync, options.into_engine_options()))
+    }
+}
+
+impl SchedulerHost for ImeHost {
+    fn run(&mut self, trigger: Trigger) -> Option<Round> {
+        let Some((sync, engine)) = self.prepare() else {
+            self.engine = None;
+            return None;
+        };
+        // 自动同步不打扰输入会话：拿不到维护权就答「忙」，按核心的间隔再试。
+        let mut local = EngineDictionary::new(&engine, false);
+        let mut watched = Watched::new(&mut local);
+        let result = sync.run(&mut watched, trigger, Options::default());
+        let seen = watched.seen();
+        self.engine = Some(engine);
+        Some(Round { result, seen })
+    }
+
+    fn fingerprint(&mut self) -> Option<u64> {
+        let engine = self.engine.as_ref()?;
+        let words = EngineDictionary::new(engine, false).words().ok()?;
+        Some(fingerprint(&words))
+    }
+
+    fn stamp(&mut self) -> Option<u64> {
+        let engine = self.engine.as_ref()?;
+        let journal = Path::new(&engine.user_data).join(msime_engine::assets::USER_JOURNAL);
+        let mut hasher = DefaultHasher::new();
+        // 日志库开着 WAL：提交先写进 `-wal`，检查点才回到主文件，两个都看。文件还不存在也是一种状态，出现时戳就变了。
+        for path in [journal.clone(), journal.with_extension("db-wal")] {
+            match std::fs::metadata(&path) {
+                Ok(metadata) => {
+                    metadata.len().hash(&mut hasher);
+                    metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .hash(&mut hasher);
+                }
+                Err(_) => u64::MAX.hash(&mut hasher),
+            }
+        }
+        Some(hasher.finish())
+    }
+}
+
+/// 本进程里在跑的后台同步，最多一个。
+static BACKGROUND: Mutex<Option<Scheduler>> = Mutex::new(None);
+
+/// 起后台同步，见头文件的 `msime_client_dictionary_sync_start`。已经在跑时换成这一次的请求：旧的叫停、不等。
+pub(crate) fn start_json(bytes: &[u8]) -> Result<Value, String> {
+    let request: StartRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
+    let absolute =
+        |path: &str| path.len() <= MAX_PATH_BYTES && std::path::Path::new(path).is_absolute();
+    if !absolute(&request.options_path) || !absolute(&request.directory) {
+        return Err(INVALID.into());
+    }
+    let host = ImeHost::new(request.options_path.into(), request.directory.into());
+    let scheduler = Scheduler::start(host).map_err(|_| "dictionary_sync_unavailable")?;
+    let previous = BACKGROUND
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .replace(scheduler);
+    if let Some(previous) = previous {
+        previous.stop(Some(Duration::ZERO));
+    }
+    Ok(json!({}))
+}
+
+/// 叫停后台同步，最多等 `timeout_ms` 毫秒让它退出，`u32::MAX` 一直等。返回它是否已经退出；没有在跑的也算。
+pub(crate) fn stop(timeout_ms: u32) -> bool {
+    let scheduler = BACKGROUND
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    let Some(scheduler) = scheduler else {
+        return true;
+    };
+    scheduler.stop((timeout_ms != u32::MAX).then(|| Duration::from_millis(timeout_ms.into())))
 }
 
 #[cfg(test)]
