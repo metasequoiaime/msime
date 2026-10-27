@@ -413,7 +413,7 @@ public final class SkinsPage extends ReloadingDetailPage {
 
     private void confirmDelete(Card card) {
         MessageDialog.confirm(requireContext(), "删除「" + card.title() + "」？",
-            "这款皮肤会从本机的“我的”皮肤中移除，正在使用的皮肤会保留。", "删除",
+            "这款皮肤会从本机的“我的”皮肤中移除。使用它的浅色或深色键盘会改用原来的主题。", "删除",
             () -> HostTask.run(this, context -> delete(context, card), removed -> {
                 if (!Boolean.TRUE.equals(removed)) {
                     MsToast.show(requireContext(), "删除失败，请重试");
