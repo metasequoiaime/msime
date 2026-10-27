@@ -11,14 +11,19 @@ import vibrator from '@ohos.vibrator';
 export async function startKeyVibration(effectId: string, intensity: number, millis: number,
   followsSystem: boolean): Promise<void> {
   const attribute: vibrator.VibrateAttribute = { usage: followsSystem ? 'touch' : 'physicalFeedback' };
-  if (effectId.length === 0) {
-    const timed: vibrator.VibrateTime = { type: 'time', duration: millis };
-    await vibrator.startVibration(timed, attribute);
-    return;
+  // 失败照原样抛回调用方：`KeyboardSession.vibrate` 据此退回 UI 线程，worker 里不记日志，免得为此加载日志模块。
+  try {
+    if (effectId.length === 0) {
+      const timed: vibrator.VibrateTime = { type: 'time', duration: millis };
+      await vibrator.startVibration(timed, attribute);
+      return;
+    }
+    const preset: vibrator.VibratePreset = { type: 'preset', effectId: effectId, count: 1 };
+    if (intensity > 0) {
+      preset.intensity = intensity;
+    }
+    await vibrator.startVibration(preset, attribute);
+  } catch (error) {
+    throw error as Error;
   }
-  const preset: vibrator.VibratePreset = { type: 'preset', effectId: effectId, count: 1 };
-  if (intensity > 0) {
-    preset.intensity = intensity;
-  }
-  await vibrator.startVibration(preset, attribute);
 }

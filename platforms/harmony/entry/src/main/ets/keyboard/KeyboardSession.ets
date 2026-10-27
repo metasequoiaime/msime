@@ -5784,12 +5784,21 @@ export class KeyboardSession implements HardwareKeyTarget {
       return KeyboardSession.vibrateHere(plan);
     }
     const effectId: string = KeyboardSession.supportsEffect(plan.effectId) ? plan.effectId : '';
-    return taskpool.execute(startKeyVibration, effectId, plan.intensity, plan.fallbackMillis, plan.followsSystem)
-      .then((): void => {}, (error: Object): Promise<void> => {
-        KeyboardSession.vibratesOnWorker = false;
-        KeyboardLog.error(`vibration off the UI thread unavailable: ${describeError(error)}`);
-        return KeyboardSession.vibrateHere(plan);
-      });
+    let task: Promise<Object>;
+    try {
+      task = taskpool.execute(startKeyVibration, effectId, plan.intensity, plan.fallbackMillis, plan.followsSystem);
+    } catch (error) {
+      return KeyboardSession.workerVibrationFailed(plan, error as Object);
+    }
+    return task.then((): void => {}, (error: Object): Promise<void> => {
+      return KeyboardSession.workerVibrationFailed(plan, error);
+    });
+  }
+
+  private static workerVibrationFailed(plan: HapticPlan, error: Object): Promise<void> {
+    KeyboardSession.vibratesOnWorker = false;
+    KeyboardLog.error(`vibration off the UI thread unavailable: ${describeError(error)}`);
+    return KeyboardSession.vibrateHere(plan);
   }
 
   private static vibrateHere(plan: HapticPlan): Promise<void> {
