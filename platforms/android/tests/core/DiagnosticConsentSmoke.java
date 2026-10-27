@@ -20,6 +20,9 @@ public final class DiagnosticConsentSmoke {
         String capture = UUID.randomUUID().toString();
         String[] old = new String[1];
         DiagnosticConsent.locked(root.toFile(), consent -> {
+            check(!DiagnosticConsent.tryLocked(root.toFile(), nested -> {
+                throw new AssertionError("nested fatal callback executed");
+            }), "fatal path refuses a lock held by its own interrupted thread");
             check(consent.current() == null, "missing consent cannot claim history");
             DiagnosticConsent.State state = consent.observe(true, 1000);
             old[0] = state.summary(capture, "0.3.0", "keyboard");
@@ -66,6 +69,28 @@ public final class DiagnosticConsentSmoke {
         check(Files.size(outside) == 0, "linked target unchanged");
         Files.delete(ledger);
         Files.delete(outside);
+
+        java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread holder = new Thread(() -> {
+            try {
+                DiagnosticConsent.locked(root.toFile(), consent -> { held.countDown(); release.await(); });
+            } catch (Throwable error) { failure.set(error); }
+        });
+        holder.start();
+        try {
+            check(held.await(5, java.util.concurrent.TimeUnit.SECONDS), "lock holder ready");
+            long began = System.nanoTime();
+            check(!DiagnosticConsent.tryLocked(root.toFile(), consent -> {
+                throw new AssertionError("busy crash callback executed");
+            }), "fatal path must not wait for another thread");
+            check(System.nanoTime() - began < 500_000_000L, "fatal path has bounded lock acquisition");
+        } finally { release.countDown(); holder.join(5000); }
+        check(!holder.isAlive() && failure.get() == null, "normal lock holder finished");
+        check(DiagnosticConsent.tryLocked(root.toFile(), consent -> {
+            check(consent.current() == null, "free fatal path uses current consent");
+        }), "free fatal lock acquired");
     }
 
     public static void main(String[] args) throws Exception {

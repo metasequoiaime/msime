@@ -32,7 +32,7 @@ Status: proposed
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；x86/x64 故障子进程 | 外部应用中的 TSF；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障与部分符号还原 | 完整同源安装包及真实故障到后台和双架构符号 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、六个 Python 运行入口 | setup/provider-session 配置和启动脚本；部分发行版符号与后台链路 |
-| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开 | 真实 ANR；另一活跃进程的现场采集实时同意刷新；完整正式包和含按需资源的完整冒烟；后台精确符号化 |
+| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制 | 完整正式包和含按需资源的完整冒烟；后台精确符号化 |
 | iOS | App/键盘异常与 C 信号记录、MetricKit 同意认领、UUID 帧 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听与同意认领；逻辑和 HAP 构建 | 同源原生包、真实设备系统回调与后台精确符号化 |
 

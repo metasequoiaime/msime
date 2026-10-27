@@ -17,7 +17,7 @@ import java.util.UUID;
 /** 系统会在队列清空后继续保留退出摘要；独立保存持续同意身份，不能用当前开关追认旧摘要。 */
 final class DiagnosticConsent {
     private static final String NAME = "telemetry-diagnostic-consent";
-    private static final Object LOCK = new Object();
+    private static final java.util.concurrent.locks.ReentrantLock LOCK = new java.util.concurrent.locks.ReentrantLock();
     private final Path path;
 
     private DiagnosticConsent(Path path) { this.path = path; }
@@ -26,18 +26,35 @@ final class DiagnosticConsent {
 
     /** JVM 内串行后再取进程锁；回调内的认领和撤回清理不能交错。 */
     static void locked(File files, Action action) throws Exception {
-        synchronized (LOCK) {
+        access(files, action, false);
+    }
+
+    /** Java 致命异常不能等待另一个线程或进程的清理，锁忙时放弃本次记录。 */
+    static boolean tryLocked(File files, Action action) throws Exception {
+        return access(files, action, true);
+    }
+
+    private static boolean access(File files, Action action, boolean attempt) throws Exception {
+        if (attempt) {
+            if (LOCK.isHeldByCurrentThread()) return false;
+            if (!LOCK.tryLock()) return false;
+        } else LOCK.lock();
+        try {
             Path root = files.toPath();
             SafePaths.ensureDirectory(root);
             Path lockPath = root.resolve(NAME + ".lock");
             SafePaths.rejectSymlinkComponents(lockPath);
             try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE,
-                    StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
-                 FileLock lock = channel.lock()) {
-                if (!lock.isValid() || !SafePaths.isSingleLink(lockPath)) throw new IOException("diagnostic lock");
-                action.run(new DiagnosticConsent(root.resolve(NAME)));
+                    StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+                FileLock lock = attempt ? channel.tryLock() : channel.lock();
+                if (lock == null) return false;
+                try {
+                    if (!lock.isValid() || !SafePaths.isSingleLink(lockPath)) throw new IOException("diagnostic lock");
+                    action.run(new DiagnosticConsent(root.resolve(NAME)));
+                    return true;
+                } finally { lock.release(); }
             }
-        }
+        } finally { LOCK.unlock(); }
     }
 
     State observe(boolean enabled, long now) throws IOException {

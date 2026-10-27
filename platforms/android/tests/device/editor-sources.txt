@@ -3,6 +3,7 @@
 # 应用类挪进新的辅助类之后要把新类补进来；`check-host.sh` 会按这份清单编译一遍，漏了就在 PR 上失败。
 platforms/android/tests/device/core/EditorActivity.java
 platforms/android/tests/device/core/DiagnosticConsentDeviceSmoke.java
+platforms/android/tests/device/core/TelemetryWatchDeviceSmoke.java
 platforms/android/tests/core/DiagnosticConsentSmoke.java
 platforms/android/java/app/msime/android/core/DiagnosticConsent.java
 platforms/android/tests/device/autofill/InlineAutofillEditorActivity.java

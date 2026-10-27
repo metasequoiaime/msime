@@ -36,6 +36,15 @@ public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
                 synchronized (telemetry) {
                     // 仅夹具解除现场采集，保留真实系统摘要；其它进程不能抢先吞掉现场文件，让测试误把现场入队当成系统补录。
                     enabled.setBoolean(null, false);
+                    try {
+                        java.lang.reflect.Field active = telemetry.getDeclaredField("captureActive");
+                        active.setAccessible(true);
+                        active.setBoolean(null, false);
+                        java.lang.reflect.Field watch = telemetry.getDeclaredField("consentWatch");
+                        watch.setAccessible(true);
+                        Object task = watch.get(null);
+                        if (task instanceof java.util.concurrent.Future<?>) ((java.util.concurrent.Future<?>) task).cancel(false);
+                    } catch (NoSuchFieldException legacy) { /* 旧版对照没有观察器。 */ }
                     Class<?> nativeClient = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
                     nativeClient.getMethod("telemetryCrashDisarm").invoke(null);
                 }

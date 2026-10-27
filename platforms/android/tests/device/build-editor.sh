@@ -20,6 +20,12 @@ jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 mkdir -p "$build_dir/assets/contracts/account-session-layouts"
 cp shared/contracts/account-session-layouts/cases.json "$build_dir/assets/contracts/account-session-layouts/cases.json"
 editor_manifest=platforms/android/tests/device/AndroidManifest.xml
+# 活跃键盘进程专项只替换测试入口，产品清单和输入法生命周期不变。
+if [[ "${MSIME_ANDROID_TELEMETRY_WATCH:-0}" == 1 ]]; then
+  editor_manifest="$build_dir/telemetry-watch-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.TelemetryWatchDeviceSmoke/; /TelemetryWatchDeviceSmoke/s/ \/>/ android:targetProcesses="app.msime.android:ime" \/>/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+fi
 # 同意文件专项在产品 UID 下运行，复用一个入口以保持系统的 instrumentation 数量上限。
 if [[ "${MSIME_ANDROID_DIAGNOSTIC_CONSENT:-0}" == 1 ]]; then
   editor_manifest="$build_dir/diagnostic-consent-manifest.xml"
