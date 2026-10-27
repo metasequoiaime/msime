@@ -38,6 +38,8 @@ Status: proposed
 
 所有平台继续保留“栈展开尽力而为、备用栈仅安装线程、后加载模块快照要重新准备”的边界。下一步 TSF 方案需验证进程外 WER 适配：Microsoft 的 [注册接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werregisterruntimeexceptionmodule)要求安装时配置模块列表并导出三个回调；[异常回调](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nc-werapi-pfn_wer_runtime_exception_event)允许返回不认领，保持宿主默认处置；[注销接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werunregisterruntimeexceptionmodule)必须与生命周期配对。这是待验证的候选方案，尚无实现，不能把 API 可用性当成 TSF 已覆盖。
 
+[共享偏好的持续同意存储](../../implemented/bug-fix/2026-10-28-persisted-reporting-consent.md)已提供原子代次；iOS 采集、旧原生记录、MetricKit 和发送端仍未接入，表中持续授权缺口继续保留。
+
 ## Alternatives considered
 
 - **统一接第三方崩溃平台 SDK**：成熟的转储、符号化和设备采集覆盖最广，但会引入新的第三方网络与隐私边界，不能直接替换用户已经使用的自有后台。本次保留自有传输，复用平台已有诊断和原生捕获。

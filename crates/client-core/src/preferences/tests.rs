@@ -1410,6 +1410,231 @@ fn usage_reporting_defaults_on_and_survives_a_save() {
 }
 
 #[test]
+fn reporting_consent_is_initialized_once_and_survives_a_new_store() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let legacy = store.load().unwrap();
+    assert!(legacy.preferences.usage_reporting);
+    assert_eq!(legacy.preferences.usage_reporting_consent, None);
+    assert!(!directory.path().join("preferences.json").exists());
+
+    let consent = store.usage_reporting_consent().unwrap().unwrap();
+    let saved = store.load().unwrap();
+    assert_eq!(saved.revision, 1);
+    assert_eq!(saved.preferences.usage_reporting_consent, Some(consent));
+    assert!(consent.since_unix_ms > 0);
+    let path = directory.path().join("preferences.json");
+    let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let reopened = PreferencesStore::new(directory.path());
+    assert_eq!(reopened.usage_reporting_consent().unwrap(), Some(consent));
+    assert_eq!(reopened.load().unwrap(), saved);
+    assert_eq!(
+        std::fs::metadata(path).unwrap().modified().unwrap(),
+        written
+    );
+}
+
+#[test]
+fn reporting_consent_survives_unrelated_and_old_client_saves() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let consent = store.usage_reporting_consent().unwrap();
+    let current = store.load().unwrap();
+    let mut edited = current.preferences;
+    edited.candidate_page_size = 9;
+    edited.usage_reporting_consent = None;
+    let saved = store.save(current.revision, edited).unwrap();
+    assert_eq!(saved.preferences.usage_reporting_consent, consent);
+    let mut old_client = saved.preferences.clone();
+    old_client.usage_reporting_consent = None;
+    assert_eq!(store.save(saved.revision, old_client).unwrap(), saved);
+}
+
+#[test]
+fn reporting_consent_rotates_across_an_unobserved_disable_enable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let first = store.usage_reporting_consent().unwrap().unwrap();
+    let current = store.load().unwrap();
+    let mut edited = current.preferences;
+    edited.usage_reporting = false;
+    let disabled = store.save(current.revision, edited.clone()).unwrap();
+    assert_eq!(disabled.preferences.usage_reporting_consent, None);
+    assert_eq!(store.usage_reporting_consent().unwrap(), None);
+    assert_eq!(store.load().unwrap(), disabled);
+
+    // 模拟没有观察到关闭的另一个进程，并故意提交旧代次；存储不能复活它。
+    edited.usage_reporting = true;
+    edited.usage_reporting_consent = Some(first);
+    let enabled = store.save(disabled.revision, edited).unwrap();
+    let second = enabled.preferences.usage_reporting_consent.unwrap();
+    assert_ne!(second.epoch, first.epoch);
+    assert_eq!(store.usage_reporting_consent().unwrap(), Some(second));
+    assert!(matches!(
+        store.save(current.revision, enabled.preferences),
+        Err(PreferencesError::Conflict)
+    ));
+    assert_eq!(store.usage_reporting_consent().unwrap(), Some(second));
+}
+
+#[test]
+fn reporting_consent_cannot_be_supplied_by_a_client() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let forged = UsageReportingConsent {
+        epoch: uuid::uuid!("11111111-1111-4111-8111-111111111111"),
+        since_unix_ms: 1,
+    };
+    let preferences = Preferences {
+        usage_reporting_consent: Some(forged),
+        ..Preferences::default()
+    };
+    let saved = store.save(0, preferences).unwrap();
+    assert_eq!(saved.preferences.usage_reporting_consent, None);
+    let actual = store.usage_reporting_consent().unwrap().unwrap();
+    assert_ne!(actual.epoch, forged.epoch);
+    assert_ne!(actual.since_unix_ms, forged.since_unix_ms);
+    let current = store.load().unwrap();
+    let mut edited = current.preferences.clone();
+    edited.usage_reporting_consent = Some(forged);
+    assert_eq!(store.save(current.revision, edited).unwrap(), current);
+}
+
+#[test]
+fn reporting_consent_rejects_damaged_metadata_without_losing_settings() {
+    let invalid = [
+        serde_json::Value::Null,
+        serde_json::json!(true),
+        serde_json::json!("synthetic"),
+        serde_json::json!({}),
+        serde_json::json!({"epoch": "not-a-uuid", "since_unix_ms": 1}),
+        serde_json::json!({"epoch": "00000000-0000-0000-0000-000000000000", "since_unix_ms": 1}),
+        serde_json::json!({"epoch": "11111111-1111-4111-8111-111111111111", "since_unix_ms": 0}),
+        serde_json::json!({"epoch": "11111111-1111-4111-8111-111111111111", "since_unix_ms": -1}),
+        serde_json::json!({"epoch": "11111111-1111-4111-8111-111111111111", "since_unix_ms": "1"}),
+        serde_json::json!({"epoch": "11111111-1111-4111-8111-111111111111", "since_unix_ms": u64::MAX}),
+        serde_json::json!({"epoch": "11111111-1111-4111-8111-111111111111", "since_unix_ms": 1, "future": true}),
+    ];
+    for enabled in [false, true] {
+        for metadata in &invalid {
+            let directory = tempfile::tempdir().unwrap();
+            let store = PreferencesStore::new(directory.path());
+            let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+            document["revision"] = 10.into();
+            document["preferences"]["candidate_page_size"] = 9.into();
+            document["preferences"]["usage_reporting"] = enabled.into();
+            document["preferences"]["usage_reporting_consent"] = metadata.clone();
+            std::fs::write(
+                directory.path().join("preferences.json"),
+                serde_json::to_vec(&document).unwrap(),
+            )
+            .unwrap();
+            let loaded = store.load().unwrap();
+            assert_eq!(loaded.preferences.candidate_page_size, 9);
+            assert_eq!(loaded.preferences.usage_reporting, enabled);
+            assert_eq!(loaded.preferences.usage_reporting_consent, None);
+            assert_eq!(store.usage_reporting_consent().unwrap().is_some(), enabled);
+            let saved = store.load().unwrap();
+            assert_eq!(saved.revision, if enabled { 11 } else { 10 });
+            assert_eq!(saved.preferences.candidate_page_size, 9);
+        }
+    }
+}
+
+#[test]
+fn reporting_consent_does_not_replace_unreadable_preferences() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let path = directory.path().join("preferences.json");
+    let damaged = b"{synthetic-truncated";
+    std::fs::write(&path, damaged).unwrap();
+    assert!(store.usage_reporting_consent().is_err());
+    assert_eq!(std::fs::read(path).unwrap(), damaged);
+}
+
+#[test]
+fn reporting_consent_recovery_starts_a_new_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let first = store.usage_reporting_consent().unwrap().unwrap();
+    let mut document = serde_json::to_value(store.load().unwrap()).unwrap();
+    document["preferences"]["candidate_page_size"] = "synthetic-damaged".into();
+    std::fs::write(
+        directory.path().join("preferences.json"),
+        serde_json::to_vec(&document).unwrap(),
+    )
+    .unwrap();
+    let (recovered, _, _) = expect_recovered(store.recover().unwrap());
+    assert!(recovered.preferences.usage_reporting);
+    assert_eq!(recovered.preferences.usage_reporting_consent, None);
+    let second = store.usage_reporting_consent().unwrap().unwrap();
+    assert_ne!(second.epoch, first.epoch);
+}
+
+#[test]
+fn reporting_consent_restore_defaults_follows_the_actual_switch_transition() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let first = store.usage_reporting_consent().unwrap();
+    let current = store.load().unwrap();
+    let restored = store.restore_defaults(current.revision).unwrap();
+    assert_eq!(restored.preferences.usage_reporting_consent, first);
+    let mut disabled = restored.preferences;
+    disabled.usage_reporting = false;
+    let saved = store.save(restored.revision, disabled).unwrap();
+    let reopened = store.restore_defaults(saved.revision).unwrap();
+    assert!(reopened.preferences.usage_reporting);
+    assert_ne!(reopened.preferences.usage_reporting_consent, first);
+    assert!(reopened.preferences.usage_reporting_consent.is_some());
+}
+
+#[test]
+fn reporting_consent_initialization_keeps_unknown_preferences() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["revision"] = 3.into();
+    document["preferences"]["synthetic_future_setting"] = serde_json::json!({"enabled": true});
+    let path = directory.path().join("preferences.json");
+    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    assert!(store.usage_reporting_consent().unwrap().is_some());
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(saved["revision"], 4);
+    assert_eq!(
+        saved["preferences"]["synthetic_future_setting"],
+        document["preferences"]["synthetic_future_setting"]
+    );
+}
+
+#[test]
+fn reporting_consent_concurrent_initializers_share_one_epoch() {
+    let directory = tempfile::tempdir().unwrap();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let handles: Vec<_> = (0..8)
+        .map(|_| {
+            let path = directory.path().to_path_buf();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                PreferencesStore::new(path)
+                    .usage_reporting_consent()
+                    .unwrap()
+            })
+        })
+        .collect();
+    let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    assert!(results[0].is_some());
+    assert!(results.iter().all(|consent| *consent == results[0]));
+    assert_eq!(
+        PreferencesStore::new(directory.path())
+            .load()
+            .unwrap()
+            .revision,
+        1
+    );
+}
+
+#[test]
 fn update_channel_defaults_to_stable_and_reads_unknown_values_as_stable() {
     let defaults = Preferences::default();
     assert_eq!(defaults.update_channel, UpdateChannel::Stable);
@@ -8103,10 +8328,12 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
 }
 #[test]
 fn android_keyboard_skin_slots_round_trip_without_changing_legacy_theme() {
-    let mut preferences = Preferences::default();
-    preferences.global_theme = crate::theme::GlobalTheme::Night;
-    preferences.android_keyboard_skin_light = Some("theme:paper".into());
-    preferences.android_keyboard_skin_dark = Some("design:synthetic-night".into());
+    let mut preferences = Preferences {
+        global_theme: crate::theme::GlobalTheme::Night,
+        android_keyboard_skin_light: Some("theme:paper".into()),
+        android_keyboard_skin_dark: Some("design:synthetic-night".into()),
+        ..Preferences::default()
+    };
     preferences.validate().unwrap();
     let decoded: Preferences =
         serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();

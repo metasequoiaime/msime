@@ -94,13 +94,15 @@ macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行�
 - iOS 工程重新生成，实际 SDK Swift 类型检查与完整 Xcode build-for-testing 通过；iOS 27 模拟器实际执行 UsageReportingTests 16 项，全部通过（已核对 xcresult 数量）。App/键盘的真实致命故障、MetricKit 系统回调与后台收件仍未验收。上一轮两个 PowerShell 用例在整轮超时，单独复跑通过；随后合并源码的完整 quick（20261028-000813）退出 0，包含 191 项 Windows 可移植原生程序和契约、Rust/Android/wasm/macOS 编译。辅助进程接入后的完整 quick（20261028-003117）也退出 0，Windows 可移植原生程序 191 项、整套契约、Rust/Android/wasm/macOS 编译与 HarmonyOS HAP 构建均通过；Linux 完整宿主和 Windows 目标执行仍由新轮 CI 补验。最新源码的整套本机契约、Rust 格式、actionlint 与笔记校验通过；上轮环境包装器问题已修正，两个 PowerShell 超时用例单独复跑通过。构建机缺少 Docker、MinGW 和部分暂存依赖的阶段明确跳过；Linux 与 Windows GNU 的对应构建由已有 CI 补验。不能将这些分项通过写成全平台验收通过。
 
 - iOS 本轮活跃同意修复：实际 SDK 的 Xcode build-for-testing、24 项工程配置回归通过。Rust 模拟器库用当前分支的 `build-native.sh simulator` 重新构建（release 构建 4m54s、退出 0），重新链接当前 Swift 后，iOS 27.0 专用模拟器的 23 项 `UsageReportingTests` 全部通过（xcresult 为 23 passed、0 failed、0 skipped）。覆盖真实共享偏好损坏后停采、缺文档默认值不变、缺失或相对偏好目录不删除已有崩溃、独立活跃观察、短暂读失败恢复原身份、明确关闭后新身份、旧展示收尾不结束新会话、撤回期间慢准备不重新武装、补录先于发送，以及注入阻塞传输队列时正常收起。五个产品/工程/测试文件与构建机快照 SHA-256 一致。
-- iOS 使用同一已编译 SharedTests 模块（仅增加 `@testable import`）对产品 `CrashDiagnostics.swift` 做实际 SDK 类型检查通过；不是完整 App 链接或致命故障验收。异常写盘用例按有效合成头和指定 UUID 核对记录，按 JSON 内容比较规范化构建头，保持按进程号的 MetricKit 去重。初版夹具的空头、JSON 键顺序与 UUID 大小写断言失败均已修正，不记为通过轮。独立的 C `fork` 故障夹具显式排除于 iOS XCTest 源码，重新生成工程无多余变化。没有调用遥测网络发送；专用模拟器均已关闭并删除。完整 quick `20261028-064407` 因偏好目录缺失保护的源码修补主动停止、退出 143，不计为通过；最新源码的 `20261028-065343` 仍运行。
+- iOS 使用同一已编译 SharedTests 模块（仅增加 `@testable import`）对产品 `CrashDiagnostics.swift` 做实际 SDK 类型检查通过；不是完整 App 链接或致命故障验收。异常写盘用例按有效合成头和指定 UUID 核对记录，按 JSON 内容比较规范化构建头，保持按进程号的 MetricKit 去重。初版夹具的空头、JSON 键顺序与 UUID 大小写断言失败均已修正，不记为通过轮。独立的 C `fork` 故障夹具显式排除于 iOS XCTest 源码，重新生成工程无多余变化。没有调用遥测网络发送；专用模拟器均已关闭并删除。完整 quick `20261028-064407` 因偏好目录缺失保护的源码修补主动停止、退出 143，不计为通过；最新 iOS 产品源码的 `20261028-065343` 整轮退出 0（13m11s），末尾为 `quick check passed`，没有 `FAIL:`。Linux CTest 汇总 117 项、零失败，Windows 原生交叉编译与 pipe-only 因缺 MinGW 跳过，共享设置 bundle 因缺前端依赖跳过；不将这些跳过算成通过。
 
 - Linux 最终完整 quick（`20261028-061722`）已退出 0，日志末尾为 `quick check passed`，未检出 `FAIL:`。117 项 Linux 原生测试中 116 项实际通过、1 项环境跳过；full/wubi 安装后的八入口故障套件均通过。Windows 可移植程序 202 项、仓库契约、Rust/Android/wasm/Java、HAP、Linux 设置与原生、macOS 和 Apple bridge 阶段通过。Windows 原生/pipe-only 因缺 MinGW、共享设置 bundle 因缺前端依赖跳过；HAP 仍复用原生库，不升级为同源设备验收。这一快照的 Linux 六个构建/产品/测试文件与 `3cfc7df319` 一致，不包含随后本地新增的 iOS 活跃观察修补；iOS 当前源码的完整 quick 另行运行。
 
 ## Consequences
 
 Linux Python 运行入口新增安装包内的薄桥与 Host API 库依赖，源码树没有生成的安装身份时安静停用；安装门禁必须确认桥、Python 模块和生成路径齐全。Linux 原来仅依赖 JSON/X11 的剪贴板工具与本地语音 helper 因此新增 Host API 共享库依赖，安装 RPATH 随接入一并设置；每个独立工具也承担一条同意观察线程。新增入口让独立进程和原生故障进入既有队列，构建身份能指导选择精确符号。队列容量不再允许普通统计挤掉崩溃；全为崩溃时保留后续原文件。共享层异常写入完整落盘后原子发布，损坏的新格式身份不回退为当前版本。
+
+共享偏好已提供[原子保存持续同意代次的基础](../bug-fix/2026-10-28-persisted-reporting-consent.md)，与开关一同保存并拒绝外部指定身份；iOS 消费端尚未接入，不能把存储接口算成采集链路已经修复。
 
 限制：iOS 当前轮询只保证观察到关闭后丢弃身份，尚无与 Android 同等级的跨进程持久 epoch；另一进程在一次轮询间隔内关闭并重开、或者 App 挂起期间的整个撤回区间仍需补齐证明，不能据此声称完整持续同意链路。信号处理时的运行库展开是尽力而为，不能保证栈耗尽和堆破坏时仍有完整栈；备用栈目前只覆盖安装线程。运行中后加载的模块要重新准备后才在快照里。iOS C 模块帧与符号还原已有宿主合成用例，但真实 iOS App/键盘故障到设备 dSYM 的链路仍需验收。POSIX 文件锁是新写入器与新收集器之间的协作协议，不能改变仍在运行的旧版本收集器。系统延迟诊断缺少精确源码提交时标为未知，不猜测当前构建；旧无头独立记录无法恢复原版本。TSF 位于外部宿主进程，尚未加入仅认领本产品模块的捕获；看门狗与准备程序已接入独立采集，Linux 本地语音与原生 CLI 已接入，Linux Python 的八个运行入口已接入，启动脚本归属已逐项核对；新增 setup/provider-session 的源码和 full/wubi 禁网安装后故障回归已通过，部分发行版符号与后台链路仍待验收。以上设备、收件和覆盖缺口继续由全平台提案跟踪，不能据本篇声称百分之百采集或全平台闭环已完成。
 
