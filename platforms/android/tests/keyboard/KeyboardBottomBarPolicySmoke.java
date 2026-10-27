@@ -47,6 +47,9 @@ public final class KeyboardBottomBarPolicySmoke {
         check(KeyboardBottomBarPolicy.barBottomPx(0, 48, 72) == 24, "window above, taller gesture area");
         // 隐藏手势条：导航栏 0，手势区仍在。
         check(KeyboardBottomBarPolicy.barBottomPx(0, 0, 60) == 60, "hidden gesture handle");
+        // 部分厂商在 WindowMetrics 报告无导航栏时仍把整块底部区域放进 view inset；不能因此把底栏抬离屏幕留出一大片空白。
+        check(KeyboardBottomBarPolicy.barBottomPx(144, 0, 0) == 0,
+            "an oversized OEM inset with no reported system bar is ignored");
         check(KeyboardBottomBarPolicy.barBottomPx(-5, -5, -5) == 0, "negative values clamp to zero");
     }
 
