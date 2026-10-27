@@ -522,6 +522,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
             active_options: options.clone(),
             options,
             source_version: String::new(),
+            keep_local_learning: false,
         },
     );
     assert_eq!(
@@ -674,6 +675,7 @@ fn activation_case(
                 active_options: active_options.clone(),
                 options: staged_options.clone(),
                 source_version: expected.clone(),
+                keep_local_learning: false,
             },
         );
         assert!(activate(unusable_handle, &expected).is_err());
@@ -692,6 +694,7 @@ fn activation_case(
             active_options: active_options.clone(),
             options: staged_options,
             source_version: expected.clone(),
+            keep_local_learning: false,
         },
     );
     let session_access = if hold_session {
@@ -1006,6 +1009,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
             active_options: active_options.clone(),
             options: make(&staged),
             source_version: expected.clone(),
+            keep_local_learning: false,
         },
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -1060,6 +1064,7 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
             expected_version,
             records: 0,
             activation_id: None,
+            keep_local_learning: false,
         }
     };
     let rejected = |on_demand: &[&[&str]]| {
@@ -1853,4 +1858,161 @@ fn a_local_backup_request_is_not_cancelled_for_the_signed_in_account() {
         process_a_local_backup_request(Some("someone"))["request"]["status"],
         "conflict"
     );
+}
+
+/// 云同步「下载」（#10043 第 0 期）用的一台设备：随包词库里有拟好和妮好，本机学过拟好的调权、删过妮好，固定、置顶了拟好，整句联想记着拟好之后打你；用户自己的词是你好，删过自己的词泥好（[`LearningDevice::with_learning`]）。
+fn downloading_device() -> LearningDevice {
+    let device = LearningDevice::with_learning();
+    for name in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(device.root.path().join(name).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO tbl_2_n VALUES('ni''hao','nh','拟好',100),('ni''hao','nh','妮好',90);",
+            )
+            .unwrap();
+    }
+    device.sql(
+        "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('pinyin','ni''hao','妮好','delete',0,'',0);
+         INSERT INTO pinned_candidates(context_key,value,updated_at) VALUES('ni''hao','拟好',100);
+         INSERT INTO personal_bigram(previous,word,count) VALUES(char(1),'拟好',3),('拟好','你',2);",
+    );
+    device
+}
+
+/// 按云同步的路走一遍「下载」：云端快照来自另一台设备，有用户词你好和泥好，不带输入记录（云同步上传时 `include_learning` 为假）。像 `cloud_sync.rs` 的 `replace_dictionary` 那样按键盘发布的本机版本排进队列，再像键盘空闲时那样处理队列（`process`），断言请求已经激活。排队之后、激活之前本机又学到一条整句联想（它不在本机版本里，排队时的版本照样对得上）。
+fn download_into(device: &LearningDevice, keep_local_learning: bool) {
+    use sha2::Digest;
+    let cloud_device = LearningDevice::new();
+    for (request, word) in [("cloud-nihao", "你好"), ("cloud-nihao-2", "泥好")] {
+        msime_engine::host::dictionary_edit(
+            &cloud_device.options,
+            None,
+            Some(&msime_engine::host::DictionaryEntry {
+                kind: msime_engine::host::DictionaryKind::Pinyin,
+                key: "ni'hao".into(),
+                value: word.into(),
+                weight: 100,
+            }),
+            request,
+        )
+        .unwrap();
+    }
+    let cloud = cloud_device.export("cloud.ndjson", serde_json::json!({}));
+    let text = std::fs::read_to_string(&cloud).unwrap();
+    assert!(!text.contains("\"user_inserted\":false"), "{text}");
+    assert!(!text.contains("\"deleted\":true"), "{text}");
+
+    let specification = crate::tests::synthetic_desktop_lock(&device.root.path().join("resources"));
+    let options = || -> crate::HostOptions { serde_json::from_value(device.host.clone()).unwrap() };
+    let queue = super::snapshot_queue(device.root.path().join("queue").to_str().unwrap()).unwrap();
+    super::snapshot_queue_state(&queue, options(), false).unwrap();
+    let local_version = queue.read().unwrap().local_version.unwrap();
+    let sha256 = hex::encode(sha2::Sha256::digest(std::fs::read(&cloud).unwrap()));
+    queue
+        .enqueue(
+            &cloud,
+            "account",
+            7,
+            &local_version,
+            &sha256,
+            keep_local_learning,
+        )
+        .unwrap();
+    device.sql(
+        "INSERT INTO personal_trigram(earlier,previous,word,count) VALUES(char(1),'拟好','你',2);",
+    );
+
+    let staging = device.root.path().join("staging");
+    std::fs::create_dir(&staging).unwrap();
+    let state = super::snapshot_queue_process_with(
+        &queue,
+        staging.to_str().unwrap().into(),
+        options(),
+        Some("account".into()),
+        |_| Ok(specification),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(state["request"]["status"], "applied", "{state}");
+}
+
+/// 激活以后本机还在的输入记录和输入习惯，以及丢掉的那些的名字。
+fn lost_learning(device: &LearningDevice) -> Vec<&'static str> {
+    [
+        (
+            "内置词拟好学到的权重",
+            "SELECT count(*) FROM user_dictionary_operations WHERE value='拟好' AND operation='upsert' AND user_inserted=0 AND weight=200",
+        ),
+        (
+            "内置词妮好的删除记录",
+            "SELECT count(*) FROM user_dictionary_operations WHERE value='妮好' AND operation='delete'",
+        ),
+        (
+            "固定位置",
+            "SELECT count(*) FROM fixed_candidate_positions WHERE value='拟好' AND position=2",
+        ),
+        (
+            "选词计数",
+            "SELECT count(*) FROM candidate_selection_state WHERE value='你好' AND selection_count=7",
+        ),
+        (
+            "置顶",
+            "SELECT count(*) FROM pinned_candidates WHERE context_key='ni''hao' AND value='拟好'",
+        ),
+        (
+            "整句联想 bigram",
+            "SELECT count(*)=2 FROM personal_bigram WHERE (previous=char(1) AND word='拟好' AND count=3) OR (previous='拟好' AND word='你' AND count=2)",
+        ),
+        (
+            "排队之后学到的整句联想 trigram",
+            "SELECT count(*) FROM personal_trigram WHERE earlier=char(1) AND previous='拟好' AND word='你' AND count=2",
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, query)| device.number(query).unwrap_or(0) == 0)
+    .map(|(name, _)| name)
+    .collect()
+}
+
+/// 云同步「下载」和「应用到本机」排的请求带 `keep_local_learning`：整份换上云端快照以后，本机学到的东西都还在，新的一代的工作词库里也按学到的调权和删除改过；用户自己的词以云端为准，本机删过、云端又有的泥好回来了。
+#[test]
+fn a_cloud_download_activation_keeps_local_learning() {
+    let device = downloading_device();
+    download_into(&device, true);
+    let lost = lost_learning(&device);
+    assert!(lost.is_empty(), "整份激活丢掉了本机学到的：{lost:?}");
+    for word in ["你好", "泥好"] {
+        assert_eq!(
+            device.number(&format!("SELECT count(*) FROM user_dictionary_operations WHERE value='{word}' AND user_inserted=1 AND operation='upsert'")),
+            Some(1),
+            "{word}"
+        );
+    }
+    let dictionary = rusqlite::Connection::open(
+        device
+            .root
+            .path()
+            .join("dictionaries")
+            .join("msime-pinyin.db"),
+    );
+    let dictionary = dictionary.unwrap();
+    let weight = |word: &str| -> Option<i64> {
+        use rusqlite::OptionalExtension;
+        dictionary
+            .query_row("SELECT weight FROM tbl_2_n WHERE value=?1", [word], |row| {
+                row.get(0)
+            })
+            .optional()
+            .unwrap()
+    };
+    assert_eq!(weight("拟好"), Some(200));
+    assert_eq!(weight("妮好"), None);
+}
+
+/// 不带 `keep_local_learning` 的请求（本地备份恢复排的）照旧整份换成快照里的那份：备份自己带着输入记录。
+#[test]
+fn an_activation_without_keep_local_learning_replaces_the_learning() {
+    let device = downloading_device();
+    download_into(&device, false);
+    assert_eq!(lost_learning(&device).len(), 7);
 }

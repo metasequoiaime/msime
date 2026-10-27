@@ -40,6 +40,7 @@ fn request(
         expected_local_version: legacy_version(),
         file_sha256: FILE_SHA256.to_owned(),
         status,
+        keep_local_learning: false,
     }
 }
 

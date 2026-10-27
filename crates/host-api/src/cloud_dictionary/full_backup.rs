@@ -380,6 +380,8 @@ fn enqueue<A: AccountApi, S: AccountSessionStorage>(
             "cloud_revision": pending.cloud_revision,
             "expected_local_version": pending.local_version,
             "file_sha256": pending.file_sha256,
+            // 云端快照只有用户自己的词，激活时保留本机学到的东西（#10043）。
+            "keep_local_learning": true,
         });
         session
             .with_generation(pending.generation, Some(&pending.account_id), || {

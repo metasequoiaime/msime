@@ -2531,7 +2531,9 @@ fn a_legacy_android_snapshot_that_never_activated_is_merged_instead_of_uploaded(
     let file = fixture.state_directory.join("download.ndjson");
     std::fs::write(&file, "synthetic snapshot\n").unwrap();
     let sha256 = hex::encode(Sha256::digest(std::fs::read(&file).unwrap()));
-    let request = queue.enqueue(&file, USER, 4, &published, &sha256).unwrap();
+    let request = queue
+        .enqueue(&file, USER, 4, &published, &sha256, true)
+        .unwrap();
     {
         let lease = queue.acquire_worker_lease().unwrap();
         assert!(queue.claim(&lease, Some(USER)).unwrap().is_some());
@@ -3386,7 +3388,9 @@ fn a_downloaded_snapshot_is_reported_waiting_activated_or_lost() {
     let file = directory.path().join("download.ndjson");
     std::fs::write(&file, "synthetic snapshot\n").unwrap();
     let sha256 = hex::encode(Sha256::digest(std::fs::read(&file).unwrap()));
-    let first = queue.enqueue(&file, USER, 4, &published, &sha256).unwrap();
+    let first = queue
+        .enqueue(&file, USER, 4, &published, &sha256, true)
+        .unwrap();
     let first_id = first.to_string();
     assert_eq!(activation(Some(&first_id)), SnapshotActivation::Waiting);
     assert_eq!(local.dictionary(None).unwrap().pending, 0);
@@ -3407,7 +3411,9 @@ fn a_downloaded_snapshot_is_reported_waiting_activated_or_lost() {
     queue.take_state().unwrap();
     assert_eq!(activation(Some(&first_id)), SnapshotActivation::Lost);
     // 下一份激活成功：本机版本换成以它的 id 为代次的版本，之后键盘发布的新版本也沿用这个代次。
-    let second = queue.enqueue(&file, USER, 5, &typed, &sha256).unwrap();
+    let second = queue
+        .enqueue(&file, USER, 5, &typed, &sha256, true)
+        .unwrap();
     let second_id = second.to_string();
     let activated = local_version(Some(&second_id), &"2".repeat(64)).unwrap();
     {
@@ -3428,7 +3434,7 @@ fn a_downloaded_snapshot_is_reported_waiting_activated_or_lost() {
     assert_eq!(activation(Some(&first_id)), SnapshotActivation::Lost);
     // 退出登录取消了排着的快照：不再等它，记着的那份算没激活。
     let third = queue
-        .enqueue(&file, USER, 6, &typed_again, &sha256)
+        .enqueue(&file, USER, 6, &typed_again, &sha256, true)
         .unwrap();
     assert_eq!(activation(None), SnapshotActivation::Waiting);
     local.cancel_dictionary(USER).unwrap();

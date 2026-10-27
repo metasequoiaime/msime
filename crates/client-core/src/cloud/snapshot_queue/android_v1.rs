@@ -91,6 +91,7 @@ fn request(input: &mut Reader<'_>) -> Result<SnapshotRequest, SnapshotQueueError
         expected_local_version,
         file_sha256,
         status,
+        keep_local_learning: false,
     })
 }
 
