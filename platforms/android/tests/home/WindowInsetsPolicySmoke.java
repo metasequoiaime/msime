@@ -13,6 +13,8 @@ public final class WindowInsetsPolicySmoke {
         check(WindowInsetsPolicy.bottomContentInsetAboveIme(12, 80, 300, 24) == 404);
         check(!WindowInsetsPolicy.shouldShowFixedPageNavigation(true));
         check(WindowInsetsPolicy.shouldShowFixedPageNavigation(false));
+        check(!WindowInsetsPolicy.shouldShowFixedPageNavigation(false, 240));
+        check(WindowInsetsPolicy.shouldShowFixedPageNavigation(false, 0));
         check(!WindowInsetsPolicy.shouldShowHomeTabs(true, false));
         check(!WindowInsetsPolicy.shouldShowHomeTabs(true, true));
         check(WindowInsetsPolicy.shouldShowHomeTabs(false, false));
