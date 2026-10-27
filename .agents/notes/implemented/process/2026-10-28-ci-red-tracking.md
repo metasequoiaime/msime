@@ -17,7 +17,7 @@ Status: implemented
 
 ### 红灯跟踪 issue
 
-`.github/workflows/ci-red-tracker.yml` 以 `workflow_run`（`completed`）监听 `Nightly builds`、`Native Platform CI`、`Core CI`，只处理 develop 上 push、schedule、workflow_dispatch 触发的运行，pull_request 的运行一律不管。判定和文案在 `scripts/ci_issue_tracker.py red-build`：
+`.github/workflows/ci-red-tracker.yml` 以 `workflow_run`（`completed`）监听 `Nightly builds`、`Native Platform CI`、`Core CI`、`iOS CI`、`macOS CI`、`macOS package`，只处理 develop 上 push、schedule、workflow_dispatch 触发的运行，pull_request 的运行一律不管。判定和文案在 `scripts/ci_issue_tracker.py red-build`：
 
 - 每个 workflow 至多一张开着的跟踪单，标签 `ci-red`（不存在就 `gh label create --force` 建），指派 houko。哪张单属于哪个 workflow 靠正文里的 `<!-- ci-red-tracker workflow=<workflow 文件路径> -->` 认，不靠标题。nightly 和 develop 的推送 CI 各自一张，不会一张红单盖住另一个 workflow 的失败。
 - 失败或超时：没有开着的单就新开，标题「<workflow 名> 失败：<运行日期>」（UTC），正文有运行链接、提交号和提交标题、失败的 job 名及链接，以及从上一次成功以来第一次失败的运行和提交、连续失败的次数。已有单就追加一条评论。每次运行（含 attempt）带一个标记，同一事件重复送达不会重复评论。

@@ -6,7 +6,7 @@ name: CI red tracker
 
 on:
   workflow_run:
-    workflows: [Nightly builds, Native Platform CI, Core CI]
+    workflows: [Nightly builds, Native Platform CI, Core CI, iOS CI, macOS CI, macOS package]
     types: [completed]
     branches: [develop]
 
