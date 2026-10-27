@@ -1,11 +1,13 @@
-// App 与键盘用于使用情况报告的致命信号处理函数。它只做异步信号安全的事：打开 client-services 的 `msime_client_telemetry_begin` 返回的崩溃记录路径（`O_EXCL`，所以未捕获异常处理函数已经写下的记录会保留），写入一行摘要和各帧，再把信号交还给之前接管它的处理函数。`backtrace_symbols_fd` 写出 "index binary address symbol + offset" 时不分配内存，二进制只以文件名标出。
+// App 与键盘的致命信号记录器：先写摘要和系统上下文里的故障指令，再尽力展开，最后交还系统处置。O_EXCL 保留异常回调已写下的首份记录；展开器面对损坏栈仍可能失败，不能把它当作完全异步信号安全的路径。
 #include <execinfo.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
+#include <sys/ucontext.h>
 #include <unistd.h>
 
 static char msime_crash_paths[2][PATH_MAX];
@@ -30,7 +32,7 @@ static const char *msime_signal_name(int signal) {
 }
 
 static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
-  (void)info; (void)context;
+  (void)info;
   const bool owns = !atomic_flag_test_and_set(&msime_configuration);
   const char *path = owns ? atomic_load(&msime_crash_path) : NULL;
   if (path != NULL) {
@@ -42,6 +44,20 @@ static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
       (void)!write(fd, prefix, strlen(prefix));
       (void)!write(fd, name, strlen(name));
       (void)!write(fd, "\n", 1);
+      // 先写系统上下文里的故障指令，处理器自身的展开栈不能占据业务首帧。
+      const ucontext_t *machine = context;
+      uintptr_t pc = 0;
+      if (machine != NULL && machine->uc_mcontext != NULL) {
+#if defined(__aarch64__)
+        pc = __darwin_arm_thread_state64_get_pc(machine->uc_mcontext->__ss);
+#elif defined(__x86_64__)
+        pc = machine->uc_mcontext->__ss.__rip;
+#endif
+      }
+      if (pc != 0) {
+        void *fault = (void *)pc;
+        backtrace_symbols_fd(&fault, 1, fd);
+      }
       void *frames[64];
       int count = backtrace(frames, 64);
       backtrace_symbols_fd(frames, count, fd);

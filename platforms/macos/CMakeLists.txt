@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version; match the Cargo build")
 project(MSIMEClientMacOS LANGUAGES CXX OBJCXX)
+# 发布包保留源码行，归档后仅剥离安装副本；测试和普通开发构建不额外扩大调试产物。
+option(MSIME_RELEASE_CRASH_SYMBOLS "Keep source lines for release crash symbols" OFF)
+if(MSIME_RELEASE_CRASH_SYMBOLS)
+  add_compile_options("$<$<CONFIG:Release>:-gline-tables-only>")
+endif()
 enable_testing()
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/backend" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/cloud" "${CMAKE_CURRENT_SOURCE_DIR}/src/dictionary" "${CMAKE_CURRENT_SOURCE_DIR}/src/settings" "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
 add_executable(desktop-input-session-test tests/input/DesktopInputSessionTest.mm src/core/DesktopInputSession.mm)
@@ -198,6 +203,8 @@ endif()
 # 版本（edition）是 shared/contracts/editions.json 里的 id。full 用 Info.plist.in 和 resources/<语言>.lproj/InfoPlist.strings 原样构建，产物与引入版本之前相同；其他版本由 scripts/edition_bundle.py 在配置时从同样的模板生成该版本的 Info.plist 和 InfoPlist.strings（bundle id、模式、版本键），可执行文件也改成该版本的名字。原生代码在运行时从 Info.plist 读版本身份（src/core/EditionIdentity.h），所以除了这几个文件，各版本编出来的东西完全一样；发布包只编 full，再用同一个脚本把 bundle 改成各个版本（package-release.sh）。
 set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions.json")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME apple-crash-fault-frame
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-apple-crash-fault-frame.py")
 set(MSIME_EDITION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/edition_bundle.py")
 # Sparkle 只在发布包里打开：package-release.sh 拿得到签更新的私钥时传入 appcast 所在的目录，这里拼出本版本的 SUFeedURL（appcast-<版本 id>.xml，edition_bundle.py 把 full 的改成别的版本的；它始终是稳定版的 feed，用户在设置页选了测试版或每日构建时，UpdateController 由它推出同目录下的 appcast-<通道>-<版本 id>.xml，见 src/core/UpdateChannelFeed.h），写入 sparkle-public-key.txt 里的公钥，并打开每天一次的后台检查与静默更新。开发构建不带这些键：带了的话，本机编的输入法会被正式版覆盖。没有 feed 时 UpdateController 走官网下载页（MSIMEUpdateRouteForHost）。
 set(MSIME_SPARKLE_APPCAST_BASE_URL "" CACHE STRING "URL prefix of the appcast-<edition>.xml feeds; empty leaves Sparkle off")

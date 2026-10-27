@@ -203,7 +203,7 @@ pub enum Arguments {
     File(PathBuf),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub options: PathBuf,
     /// The explicit state directory, from `--state-dir` or `MSIME_CLIENT_STATE_DIR`. Absent means the document's `preferences_directory`, read on every call so a moved data directory is followed.

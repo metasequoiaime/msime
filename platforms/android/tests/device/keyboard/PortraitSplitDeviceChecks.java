@@ -105,7 +105,7 @@ final class PortraitSplitDeviceChecks {
             test.stage = "extended symbol row splits in portrait";
             test.tap(test.key("#+="));
             expectGap("#", "%", "[", "=", true);
-            test.tap(test.described("切换到字母键盘"));
+            test.tap(test.described("返回原键盘"));
             expectSplit(true);
 
             test.stage = "narrow cover window returns to a full keyboard";
@@ -138,7 +138,7 @@ final class PortraitSplitDeviceChecks {
                 test.tap(test.key("#+="));
                 expectGap("#", "%", "[", "=", true);
                 expectTabletKeyWidth("#");
-                test.tap(test.described("切换到字母键盘"));
+                test.tap(test.described("返回原键盘"));
                 expectSplit(true);
             }
             test.stage = "tablet double-pinyin hints";

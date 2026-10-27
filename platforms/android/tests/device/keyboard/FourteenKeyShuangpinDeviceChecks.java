@@ -96,7 +96,7 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.await(t.described(layoutKeyDescription));
             t.tap(t.key("123"));
             t.await(t.key("1").and(AccessibilityNodeInfo::isClickable));
-            t.tap(t.described("切换到字母键盘"));
+            t.tap(t.described("返回原键盘"));
             t.await(t.described(layoutKeyDescription));
             assertStored("xiaohe", layout);
 

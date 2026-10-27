@@ -17,7 +17,7 @@ Status: proposed
 
 ## Related notes
 
-独立原生采集、部分系统诊断与发布符号接入已在[宿主采集和符号身份](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)落地；该篇列出已执行的验证。TSF、自有辅助进程、同源设备故障到后台收件及部分发布符号验收仍未完成，本提案保持 `proposed`。
+独立原生采集、部分系统诊断与发布符号接入已在[宿主采集和符号身份](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)落地；该篇列出已执行的验证。MCP 辅助进程已接入；TSF、其余自有辅助进程、同源设备故障到后台收件及部分发布符号验收仍未完成，本提案保持 `proposed`。
 
 动手前检索了 `proposed`、`implemented` 与 `rejected` 中的 `telemetry`、崩溃捕获、会话与符号归档。以下是部分重叠，保留原决定并互链：[按会话 id 归属](../../implemented/bug-fix/2026-10-24-telemetry-session-ownership.md)、[iOS 系统诊断认领](../../implemented/bug-fix/2026-10-25-ios-crash-diagnostic-session-attribution.md)、[iOS App 抛出点的栈](../../implemented/bug-fix/2026-10-27-ios-app-uncaught-exception-stack.md)、[Windows 符号归档](../../implemented/process/2026-10-20-windows-release-page-symbols.md)。[遥测本地队列绑定目录句柄](../../implemented/bug-fix/2026-10-09-telemetry-cache-directory-handle.md)、[清理绑定目录句柄](../../implemented/bug-fix/2026-10-09-telemetry-crash-cleanup-directory-handle.md) 与[空扫描不分配](../../implemented/testing/2026-10-11-telemetry-empty-crash-lazy-buffer.md)是本次必须保持的约束，不改变其决定。未发现本篇完全吸收的旧提案。
 
@@ -39,3 +39,7 @@ Status: proposed
 ## Risks
 
 信号与异常处理器可能面对栈耗尽、堆损坏和加载器锁；捕获应写入有限的预备缓冲，先保存故障摘要，再尽力展开栈，并交还原来的系统处置。TSF 不得接管其他应用的无关崩溃。系统诊断可能延迟或缺失，不能承诺百分之百投递，也不能把没有报告当成没有故障。本机可用磁盘低于五十 GB，新增构建树放在 `rbuild` 的 Studio 镜像，设备验收只拉回所需产物。
+
+### macOS 符号发布仍需补验
+
+发布脚本已显式保留源码行、收齐 Swift 后端原始 dSYM，并按每个架构的 UUID 与实际行表拒绝空包，细节由上述宿主采集笔记持有。Clang/Swift/Rust 合成用例和实际 Release Swift 后端的双架构源码还原通过；完整同源发布包和实际设备故障到源码行的链路仍未验收，不能只凭 zip 存在宣称完成。

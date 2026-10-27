@@ -103,7 +103,7 @@ final class FourteenKeyWubiDeviceChecks {
             t.await(t.described("按键 Q W"));
             t.tap(t.key("123"));
             t.await(t.key("1").and(AccessibilityNodeInfo::isClickable));
-            t.tap(t.described("切换到字母键盘"));
+            t.tap(t.described("返回原键盘"));
             t.await(t.described("按键 Q W"));
             assertStored("wubi86", "fourteen_key");
 
