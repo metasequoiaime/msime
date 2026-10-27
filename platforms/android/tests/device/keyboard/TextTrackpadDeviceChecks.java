@@ -453,7 +453,16 @@ final class TextTrackpadDeviceChecks {
     private void selection(int start, int end) {
         if ("web".equals(kind)) {
             t.await(t.field("trackpad-status").and(node -> DeviceSmoke.equalsText("start=" + start + ";end=" + end, node.getText())));
-        } else t.await(t.field("trackpad-editor").and(node -> node.getTextSelectionStart() == start && node.getTextSelectionEnd() == end));
+        } else {
+            try {
+                t.await(t.field("trackpad-editor").and(node -> node.getTextSelectionStart() == start && node.getTextSelectionEnd() == end));
+            } catch (AssertionError error) {
+                // 超时信息只列输入法节点，看不出编辑器最后停在哪段选区；合成编辑器的偏移不含用户文字，附上它才能区分「没选」「只选了词」和别的结果。
+                AccessibilityNodeInfo editor = t.await(t.field("trackpad-editor"));
+                throw new AssertionError("Trackpad editor selection was " + editor.getTextSelectionStart() + "-"
+                    + editor.getTextSelectionEnd() + ", expected " + start + "-" + end + "; " + error.getMessage(), error);
+            }
+        }
     }
 
     private void setSelection(int start, int end) {
