@@ -218,6 +218,7 @@ pub mod cloud_dictionary;
 pub mod cloud_sync;
 pub mod community;
 pub mod credentials;
+pub mod dictionary_sync;
 pub mod google;
 #[cfg(not(target_os = "android"))]
 pub mod handwriting;
@@ -252,6 +253,7 @@ mod preference_schema_tests;
 pub use android_data::*;
 pub use candidates::*;
 pub use credentials::*;
+pub use dictionary_sync::*;
 pub use host::*;
 pub use input::*;
 pub use lifecycle::*;
