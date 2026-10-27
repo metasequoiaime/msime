@@ -568,15 +568,13 @@ impl DictionarySync {
             }
         }
         let Some(keystore) = keystore else {
-            return match keyring_error {
-                Some(error) => Err(error),
-                None => Ok(RunResult {
-                    network: false,
-                    report: Ok(Report::default()),
-                    next_check_ms: core::schedule::PULL_INTERVAL_MS,
-                    view: Self::view(None, None),
-                }),
-            };
+            // 还没有密钥串：要么这一次不该联网，要么去登记时失败了。下一次照定时再来。
+            return Ok(RunResult {
+                network: decided.network,
+                report: keyring_error.map_or(Ok(Report::default()), Err),
+                next_check_ms: core::schedule::PULL_INTERVAL_MS,
+                view: Self::view(None, None),
+            });
         };
         let device = keystore.device_id();
         // 设备身份变了（密钥串没了、重新生成）就是一台新设备：从头加入，本机的词都保留。
@@ -587,11 +585,17 @@ impl DictionarySync {
         core::record_requests(&mut state, keyring.requests(), now);
         let mut sink = self.sink();
         if let Some(error) = keyring_error {
+            // 读写密钥串失败（凭据不对、连不上、限流……）：照同样的规则退避，结果的形状与词库日志的失败相同。
             if let DictionarySyncError::Sync(sync) = &error {
                 core::record_failure(&mut state, *sync, now);
             }
             let _ = sink.save(&state);
-            return Err(error);
+            return Ok(RunResult {
+                network: true,
+                report: Err(error),
+                next_check_ms: core::schedule::RATE_LIMIT_BACKOFF_MS.min(60_000),
+                view: Self::view(Some(&state), Some(&keystore)),
+            });
         }
         let ring = KeyRing {
             current: DataKey::from_keystore(&keystore),
