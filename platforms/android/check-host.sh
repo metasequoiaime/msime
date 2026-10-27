@@ -1031,11 +1031,31 @@ for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
   fi
 done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
-  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn\);' "$layout_rows" \
+  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
   || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_page" \
   || ! rg -q 'if \(KeyboardActionRow\.drawsTallReturn\(touchLayout, style\)\) return tallReturnRows\(\);' \
     "$repo_root/platforms/android/java/app/msime/android/home/BottomRowPreview.java"; then
   echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the frame" >&2
+  exit 1
+fi
+# 右侧大回车外框的列宽按画着的键面取（KeyboardActionRow.tallReturnSideWeight / tallReturnGridWeight / tallReturnGridShare，TouchKeyStyleSmoke 钉住份额）：笔画的数字层经 rebuildNineKeyRows 借九键数字九宫格，键面仍是笔画，大回车分支必须按 displayedTouchLayout 取份额，不能写死九键的 3 / 14，否则切 123 时 符、123 和回车横移。
+nine_body=$(sed -n '/    void rebuildNineKeyRows() {$/,/^    }$/p' "$layout_rows")
+if ! rg_q_stdin 'int frameLayout = s\.displayedTouchLayout\(s\.view\);' <<< "$nine_body" \
+  || ! rg_q_stdin 'float tallSide = KeyboardActionRow\.tallReturnSideWeight\(frameLayout\);' <<< "$nine_body" \
+  || ! rg_q_stdin 'container\.addView\(tallReturnLeftColumn\(sidebar, more\), LayoutPolicy\.weightedMatchParentParams\(tallSide\)\);' <<< "$nine_body" \
+  || ! rg_q_stdin 'tallReturnMiddleColumn\(grid, KeyboardActionRow\.tallReturnGridShare\(frameLayout\), digits\)' <<< "$nine_body" \
+  || ! rg_q_stdin 'LayoutPolicy\.weightedMatchParentParams\(KeyboardActionRow\.tallReturnGridWeight\(frameLayout\)\)' <<< "$nine_body" \
+  || [[ $(rg -c 'container\.addView\(actions, LayoutPolicy\.weightedMatchParentParams\(tallSide\)\);' <<< "$nine_body") != 1 ]]; then
+  echo "Android rebuildNineKeyRows must size the tall-return frame by the displayed face, so stroke's number layer keeps the stroke frame" >&2
+  exit 1
+fi
+# 右侧大回车接到符号栏末尾的 ！ 接替拼音九键右列 ！ 的手势（右上角印 0、上滑输入 0、长按上下标 0），否则字母层没有直接输入 0 的地方；哪一格由 NineKeySidebarPolicy.appendedExclamationIndex 定（NineKeySidebarPolicySmoke 钉住），绑定在 symbolSidebar 里。笔画右列的 ！ 本来没有这个手势，笔画不带。
+sidebar_body=$(sed -n '/    private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows, boolean tallReturn,$/,/^    }$/p' "$layout_rows")
+if ! rg_q_stdin 'NineKeySidebarPolicy\.appendedExclamationIndex\(digits,' <<< "$sidebar_body" \
+  || ! rg_q_stdin 'exclamation\.setDigitText\(SuperscriptShortcutPolicy\.ZERO\);' <<< "$sidebar_body" \
+  || ! rg_q_stdin 's\.imeLetterRows\.bindSuperscriptShortcut\(exclamation, symbol\);' <<< "$sidebar_body" \
+  || ! rg -q 'FrameLayout sidebar = tallReturn \? symbolSidebar\(false, true, true, false\)' "$layout_rows"; then
+  echo "Android tall-return sidebar ！ must carry the right-column ！ zero gestures on nine-key and not on stroke" >&2
   exit 1
 fi
 # 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。

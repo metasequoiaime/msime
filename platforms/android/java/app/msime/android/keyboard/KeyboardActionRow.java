@@ -341,6 +341,25 @@ public final class KeyboardActionRow {
             || touchLayout == KeyboardLayout.STROKE_LAYOUT);
     }
 
+    /**
+     * 右侧大回车外框左列（符号栏和它下面的 符）与右列（⌫、重输、回车）各自的宽度份额，按当前画着的键面（`displayedTouchLayout`）取：笔画按笔画外框（{@link StrokeKeyboardLayout#SIDE_COLUMN_WEIGHT}），拼音九键和九键双拼按九键外框（{@link NineKeyLayout#SIDE_COLUMN_WEIGHT}）。笔画的数字层借的是九键数字九宫格，键面仍是笔画，所以字母层和数字层取同一组份额，切 123 / 返回时 符、切换键、中/英和回车不横移。
+     */
+    public static float tallReturnSideWeight(int touchLayout) {
+        return touchLayout == KeyboardLayout.STROKE_LAYOUT ? StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT
+            : NineKeyLayout.SIDE_COLUMN_WEIGHT;
+    }
+
+    /** 同上，中列（九宫格或笔画网格，连同它正下方那一行）的宽度份额。 */
+    public static float tallReturnGridWeight(int touchLayout) {
+        return touchLayout == KeyboardLayout.STROKE_LAYOUT ? StrokeKeyboardLayout.GRID_WEIGHT : NineKeyLayout.GRID_WEIGHT;
+    }
+
+    /** 中列占外框整行宽度的比例，即 {@link #tallReturnEntries} 的 {@code gridShare}：拼音九键 14/20，笔画 3/4.8。 */
+    public static float tallReturnGridShare(int touchLayout) {
+        float grid = tallReturnGridWeight(touchLayout);
+        return grid / (2 * tallReturnSideWeight(touchLayout) + grid);
+    }
+
     /** 右侧大回车外框里数字层的小数点：0 右边、从 0 里让出一份，与计算器的 0 . 相同；按字面上屏 `.`。 */
     public static final float TALL_RETURN_DECIMAL_WEIGHT = DESIGN_PUNCTUATION_WEIGHT;
 

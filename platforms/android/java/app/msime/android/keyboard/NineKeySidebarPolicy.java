@@ -98,6 +98,12 @@ public final class NineKeySidebarPolicy {
         return tallReturn && symbols.equals(DEFAULT_LETTER_SYMBOLS) ? TALL_RETURN_LETTER_SYMBOLS : symbols;
     }
 
+    /** 右侧大回车外框接到默认字母表末尾的那个 ！ 在表里的位置（{@link #letterSymbols(String, boolean)}）；数字键面、别的样式和自定义的表没有接，返回 -1。它接替拼音九键右列的 ！，带着那个键上滑输入 0、长按选上标 ⁰ 或下标 ₀ 的手势；自定义表里的 ！ 是普通符号，不带。 */
+    public static int appendedExclamationIndex(boolean digits, String letterStored, boolean tallReturn) {
+        return !digits && tallReturn && symbols(letterStored, DEFAULT_LETTER_SYMBOLS).equals(DEFAULT_LETTER_SYMBOLS)
+            ? TALL_RETURN_LETTER_SYMBOLS.size() - 1 : -1;
+    }
+
     /** 数字键面显示的符号。 */
     public static List<String> digitSymbols(String stored) {
         return symbols(stored, DEFAULT_DIGIT_SYMBOLS);

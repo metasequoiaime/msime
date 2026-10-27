@@ -186,6 +186,7 @@ public final class TouchKeyStyleSmoke {
             10.25f * 0.7f - 4.3f, PERIOD, 1f, LAYER, 1.25f));
         // 笔画外框 0.9 / 3 / 0.9：同一行按笔画网格的比例变窄，变的只有空格。
         expectTall(3f / 4.8f, false, false, false, entries(LAYER, 1.25f, SPACE, 9.25f * 0.625f - 2.3f, LANGUAGE, 1.05f));
+        frameColumns();
         for (float share : new float[] {nineShare, 3f / 4.8f}) {
             for (boolean globe : new boolean[] {false, true}) {
                 List<KeyboardActionRow.DesignEntry> standard = KeyboardActionRow.designEntries(nine, globe);
@@ -200,6 +201,41 @@ public final class TouchKeyStyleSmoke {
                     check(Math.abs(tallFraction - standardFraction) < 1e-5f, slot + " keeps its absolute width");
                 }
             }
+        }
+    }
+
+    /**
+     * 外框三列的宽度按画着的键面取：拼音九键 3 / 14 / 3，笔画 0.9 / 3 / 0.9。笔画的数字层借的是九键数字九宫格（`rebuildNineKeyRows`），键面仍是笔画，两层取同一组份额：符（左列）、123 / 返回、中/英和回车（右列）在整行里的位置与宽度不随切层变。原来数字层按九键份额画，符 和回车从 18.75% 缩到 15%，123 往左挪了 3.75%。
+     */
+    private static void frameColumns() {
+        int nine = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
+        int stroke = KeyboardLayout.STROKE_LAYOUT;
+        check(KeyboardActionRow.tallReturnSideWeight(nine) == NineKeyLayout.SIDE_COLUMN_WEIGHT
+            && KeyboardActionRow.tallReturnGridWeight(nine) == NineKeyLayout.GRID_WEIGHT, "pinyin nine-key keeps the 3 / 14 / 3 frame");
+        check(KeyboardActionRow.tallReturnSideWeight(stroke) == StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT
+            && KeyboardActionRow.tallReturnGridWeight(stroke) == StrokeKeyboardLayout.GRID_WEIGHT, "stroke keeps the 0.9 / 3 / 0.9 frame");
+        check(StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT == 0.9f && StrokeKeyboardLayout.GRID_WEIGHT == 3f, "stroke column weights");
+        check(Math.abs(KeyboardActionRow.tallReturnGridShare(nine) - 0.7f) < 1e-6f, "pinyin nine-key grid share 14/20");
+        check(Math.abs(KeyboardActionRow.tallReturnGridShare(stroke) - 0.625f) < 1e-6f, "stroke grid share 3/4.8");
+        for (int layout : new int[] {nine, stroke}) {
+            float side = KeyboardActionRow.tallReturnSideWeight(layout);
+            float row = 2 * side + KeyboardActionRow.tallReturnGridWeight(layout);
+            float share = KeyboardActionRow.tallReturnGridShare(layout);
+            for (boolean globe : new boolean[] {false, true}) {
+                for (boolean swap : new boolean[] {false, true}) {
+                    // 字母层和数字层的中列那一行：最左一键（123 或交换后的中/英）从左列右边开始，宽度一样；最右一键贴着右列。
+                    List<KeyboardActionRow.DesignEntry> letters = KeyboardActionRow.tallReturnEntries(share, globe, swap, false);
+                    List<KeyboardActionRow.DesignEntry> digits = KeyboardActionRow.tallReturnEntries(share, globe, swap, true);
+                    float lettersFirst = letters.get(0).weight() / total(letters) * share;
+                    float digitsFirst = digits.get(0).weight() / total(digits) * share;
+                    float lettersLast = letters.get(letters.size() - 1).weight() / total(letters) * share;
+                    float digitsLast = digits.get(digits.size() - 1).weight() / total(digits) * share;
+                    check(letters.get(0).slot() == digits.get(0).slot() && Math.abs(lettersFirst - digitsFirst) < 1e-6f
+                        && Math.abs(lettersLast - digitsLast) < 1e-6f, "the strip's outer keys do not move between layers on " + layout);
+                    check(Math.abs(total(letters) - total(digits)) < 1e-4f, "both layers' strips span the same grid on " + layout);
+                }
+            }
+            check(Math.abs(side / row - (layout == stroke ? 0.1875f : 0.15f)) < 1e-6f, "符 and the return column share on " + layout);
         }
     }
 

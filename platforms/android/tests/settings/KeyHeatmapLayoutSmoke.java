@@ -283,7 +283,7 @@ public final class KeyHeatmapLayoutSmoke {
             && letterRows.contains("String id = separator ? \"Quote\" : \"ShiftLeft\";"),
             "the 全拼 case key is still 分词 recording Quote, ⇧ recording ShiftLeft otherwise");
         check(layoutRows.contains("weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT)")
-            && layoutRows.contains(": grid,\n            LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));")
+            && layoutRows.contains("else container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));")
             && layoutRows.contains(": KeyPressIds.forNineKeyDigit(key.digit()));")
             && layoutRows.contains("Button rewrite = s.keyboardKey(\"重输\""),
             "the nine-key frame still uses the heatmap's column weights, Nine ids and the uncounted 重输");

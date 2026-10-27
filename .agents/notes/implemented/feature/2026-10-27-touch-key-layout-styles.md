@@ -42,6 +42,8 @@ Status: implemented
 
 Android 把 `platform.android.long_space_layout = true` 迁成 `touch_twenty_six_key_style = long_space` 时，只迁中文 26 键的底行：英文 26 键回到标准底行，独立句点键回来，不再由逗号下滑接替（[长空格布局](2026-10-27-android-long-space-layout.md)里对英文键面的那项改动不随 `long_space` 保留）。要保留它需要另做决定，不能当成 `long_space` 的附带效果。
 
+Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、长按选上标 ⁰ 或下标 ₀，是九键字母层直接输入 0 的地方（九宫格长按只给 1–9）。`tall_return` 去掉这个 ！ 时，接到符号栏默认表末尾的那个 ！ 带着同样的手势和右上角的 0，自定义表里的 ！ 不带；笔画右列的 ！ 本来没有这个手势（网格里有 0 键），笔画不带。iOS 与鸿蒙的 ！ 没有这组手势，不涉及。Android 笔画的数字层借的是九键数字九宫格，`tall_return` 下按笔画外框的列宽（0.9 / 3 / 0.9）画，和笔画字母层同一个外框，切 123 / 笔 时 符、切换键和回车不横移。
+
 ## Alternatives considered
 
 - 一个枚举覆盖全部键面（如 `touch_bottom_row_style`）：只有一个设置项，但多数取值只对部分键面有意义，宿主得各自定义「这个值在九键上画成什么」，三端很容易画出不一样的结果；按键面类型分开存，每个取值都有唯一的画法。

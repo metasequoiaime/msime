@@ -39,6 +39,15 @@ public final class NineKeySidebarPolicySmoke {
             "the digit table already ends its punctuation with ！ and does not change");
         check(NineKeySidebarPolicy.sidebarSymbols(false, null, null, true).equals(tall), "the letter layer reads the tall table");
         check(tall.size() <= NineKeySidebarPolicy.VISIBLE_ROWS, "the four symbols fit one screen");
+        // 接上去的 ！ 接替右列 ！ 上滑输入 0、长按上下标 0 的手势：只有它，数字键面、别的样式和自定义表里的 ！ 都不带。
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, null, true) == 3, "the appended ！ is the fourth entry");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false,
+            NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS), true) == 3, "the stored default table still appends ！");
+        check(tall.get(NineKeySidebarPolicy.appendedExclamationIndex(false, null, true)).equals("！"), "the index points at ！");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, null, false) == -1, "other styles append nothing");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(true, null, true) == -1, "the digit layer appends nothing");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, "， 。 ？ ！", true) == -1, "a custom ！ stays a plain symbol");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, "+ -", true) == -1, "a custom table appends nothing");
     }
 
     private static void defaults() {

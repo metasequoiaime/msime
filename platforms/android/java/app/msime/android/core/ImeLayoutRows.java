@@ -303,35 +303,51 @@ final class ImeLayoutRows {
      * 九键、14 键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped) {
-        return symbolSidebar(digits, capped, false);
+        return symbolSidebar(digits, capped, false, false);
     }
 
-    /** 同上；{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。 */
-    private FrameLayout symbolSidebar(boolean digits, boolean capped, boolean tallReturn) {
+    /**
+     * 同上；{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，上滑输入 0，长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
+     */
+    private FrameLayout symbolSidebar(boolean digits, boolean capped, boolean tallReturn, boolean zeroShortcut) {
         return symbolSidebar(digits, capped,
-            digits ? NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS : NineKeySidebarPolicy.VISIBLE_ROWS, tallReturn);
+            digits ? NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS : NineKeySidebarPolicy.VISIBLE_ROWS, tallReturn, zeroShortcut);
     }
 
     private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows) {
-        return symbolSidebar(digits, capped, visibleRows, false);
+        return symbolSidebar(digits, capped, visibleRows, false, false);
     }
 
-    private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows, boolean tallReturn) {
+    private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows, boolean tallReturn,
+            boolean zeroShortcut) {
         java.util.List<String> symbols = sidebarSymbols(digits, tallReturn);
+        int zeroIndex = zeroShortcut ? NineKeySidebarPolicy.appendedExclamationIndex(digits,
+            s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS), tallReturn) : -1;
         NineKeySymbolRail rail = new NineKeySymbolRail(s, visibleRows);
         rail.setContentDescription("符号栏，可上下滑动");
-        for (String symbol : symbols) {
-            // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
-            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol + "；长按快速修改符号栏",
-                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
-            key.setOnLongClickListener(ignored -> {
-                Bundle args = new Bundle();
-                args.putString("edit_sidebar_key", digits
-                    ? AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS
-                    : AndroidLocalSettings.NINE_KEY_SYMBOLS);
-                s.openHostPage("KEYBOARD_OPTIONS", args);
-                return true;
-            });
+        for (int index = 0; index < symbols.size(); index++) {
+            String symbol = symbols.get(index);
+            Button key;
+            if (index == zeroIndex) {
+                // 与标准外框右列的 ！ 同一种键：bindSuperscriptShortcut 接管长按，这一格不再长按修改符号栏。
+                NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(symbol, "符号 " + symbol,
+                    () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+                exclamation.setDigitText(SuperscriptShortcutPolicy.ZERO);
+                s.imeLetterRows.bindSuperscriptShortcut(exclamation, symbol);
+                key = exclamation;
+            } else {
+                // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
+                key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol + "；长按快速修改符号栏",
+                    () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+                key.setOnLongClickListener(ignored -> {
+                    Bundle args = new Bundle();
+                    args.putString("edit_sidebar_key", digits
+                        ? AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS
+                        : AndroidLocalSettings.NINE_KEY_SYMBOLS);
+                    s.openHostPage("KEYBOARD_OPTIONS", args);
+                    return true;
+                });
+            }
             // 「……」这类两个字宽的符号在窄栏里不折行。
             ViewPolicy.setSingleLine(key);
             if (capped)
@@ -391,8 +407,8 @@ final class ImeLayoutRows {
     }
 
     /** 笔画外框左右两列与中间笔画网格的宽度份额。 */
-    private static final float STROKE_SIDE_WEIGHT = 0.9f;
-    private static final float STROKE_GRID_WEIGHT = 3f;
+    private static final float STROKE_SIDE_WEIGHT = StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT;
+    private static final float STROKE_GRID_WEIGHT = StrokeKeyboardLayout.GRID_WEIGHT;
 
     /**
      * 右侧大回车外框底行的一格：一个带底行高度角色的容器（{@link MSIMEInputService.KeyboardHeightRole#bottomRow}），与标准外框下方的功能行同高。外框整块按「三行加底行」定高，上面的部分按权重分到剩下的高度，所以符号栏、九宫格和右列上两格与标准外框里的三行一样高。
@@ -502,8 +518,11 @@ final class ImeLayoutRows {
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         boolean borrowed = s.displayedTouchLayout(s.view) != MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT;
+        // 右侧大回车外框的列宽按画着的键面取：笔画的数字层借的是这块九宫格，沿用笔画外框的份额，和它的字母层是同一个外框，切层时 符、切换键和回车不横移。
+        int frameLayout = s.displayedTouchLayout(s.view);
+        float tallSide = KeyboardActionRow.tallReturnSideWeight(frameLayout);
         // 左列符号可滚动和自定义，数字层左列底部另有 #+= 入口；数字层右列是删除、小数点和带语音手势的空格，0 移到底行中间（借用数字页同样如此）。
-        FrameLayout sidebar = symbolSidebar(digits, true, tallReturn);
+        FrameLayout sidebar = symbolSidebar(digits, true, tallReturn, true);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
         if (tallReturn) {
             Button more = null;
@@ -511,8 +530,7 @@ final class ImeLayoutRows {
                 more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
                 KeyboardTypographyPolicy.setKeyTextSize(more, 14);
             }
-            container.addView(tallReturnLeftColumn(sidebar, more),
-                LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
+            container.addView(tallReturnLeftColumn(sidebar, more), LayoutPolicy.weightedMatchParentParams(tallSide));
         } else if (digits) {
             LinearLayout left = LayoutPolicy.column(s);
             left.addView(sidebar, LayoutPolicy.weightedWidthParams(1));
@@ -564,9 +582,9 @@ final class ImeLayoutRows {
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
-        container.addView(tallReturn ? tallReturnMiddleColumn(grid, NineKeyLayout.GRID_WEIGHT
-                / (2 * NineKeyLayout.SIDE_COLUMN_WEIGHT + NineKeyLayout.GRID_WEIGHT), digits) : grid,
-            LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
+        if (tallReturn) container.addView(tallReturnMiddleColumn(grid, KeyboardActionRow.tallReturnGridShare(frameLayout), digits),
+            LayoutPolicy.weightedMatchParentParams(KeyboardActionRow.tallReturnGridWeight(frameLayout)));
+        else container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
 
         LinearLayout actions = LayoutPolicy.column(s);
         Runnable deleteAction = borrowed ? s::deleteFromHandwriting : () -> {
@@ -584,7 +602,7 @@ final class ImeLayoutRows {
                 LayoutPolicy.weightedCrossAxisFillParams(false, 1));
             else addNineKey(actions, nineKeyRewriteKey());
             addTallReturnKey(actions);
-            container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
+            container.addView(actions, LayoutPolicy.weightedMatchParentParams(tallSide));
             hideActionRowForTallReturn();
             return;
         }
@@ -694,7 +712,7 @@ final class ImeLayoutRows {
 
         // 外框和拼音九键一样三行对齐：左列是和拼音九键同一张可滚动的符号表，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。右侧大回车没有右列的 ！，它接在符号表末尾，符号栏和拼音九键一样一屏最多五项，四个符号均分整栏。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        FrameLayout sidebar = tallReturn ? symbolSidebar(false, true, true) : symbolSidebar(false, true, 3);
+        FrameLayout sidebar = tallReturn ? symbolSidebar(false, true, true, false) : symbolSidebar(false, true, 3);
         container.addView(tallReturn ? tallReturnLeftColumn(sidebar, null) : sidebar,
             LayoutPolicy.weightedMatchParentParams(STROKE_SIDE_WEIGHT));
 
@@ -727,7 +745,7 @@ final class ImeLayoutRows {
         }
         grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
         container.addView(tallReturn ? tallReturnMiddleColumn(grid,
-                STROKE_GRID_WEIGHT / (2 * STROKE_SIDE_WEIGHT + STROKE_GRID_WEIGHT), false) : grid,
+                KeyboardActionRow.tallReturnGridShare(KeyboardLayout.STROKE_LAYOUT), false) : grid,
             LayoutPolicy.weightedMatchParentParams(STROKE_GRID_WEIGHT));
 
         LinearLayout actions = LayoutPolicy.column(s);
