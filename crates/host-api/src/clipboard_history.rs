@@ -57,9 +57,9 @@ pub fn capture_clipboard<E>(
     Ok(())
 }
 
-/// The Windows clipboard text as the history keeps it: the trailing line break a copied line carries is dropped. The read refuses a clipboard that carries the privacy markers password managers set (`ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory=0` and the rest), the same list the Server's capture skips, and answers `Ok(None)` for it.
+/// 读取供历史使用的 Windows 剪贴板文本，并移除末尾换行。与 Server 采集使用同一份隐私标记名单，命中时返回 `Ok(None)`。
 #[cfg(windows)]
-pub fn windows_clipboard_text() -> Result<Option<String>, ()> {
+pub fn windows_clipboard_text() -> Result<Option<String>, msime_host_windows::ClipboardReadError> {
     msime_host_windows::read_clipboard_text()
         .map(|text| text.map(|text| text.trim_end_matches(['\r', '\n']).to_owned()))
 }

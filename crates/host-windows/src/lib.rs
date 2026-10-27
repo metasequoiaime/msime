@@ -237,49 +237,64 @@ fn clipboard_privacy_markers() -> clipboard_privacy::ClipboardPrivacyMarkers {
     }
 }
 
+/// 剪贴板不可读取或内容无效；错误不携带剪贴板内容或系统诊断。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClipboardReadError;
+
+impl std::fmt::Display for ClipboardReadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("clipboard unavailable")
+    }
+}
+
+impl std::error::Error for ClipboardReadError {}
+
 /// 不起 shell，直接读当前的 Windows Unicode 剪贴板。
 ///
 /// 规范化和持久化归调用方。这里只接受有界、以 NUL 结尾的 UTF-16 内容，也从不把剪贴板内容写进日志或诊断。
 ///
 /// `Ok(None)` 表示剪贴板带着密码管理器等程序的隐私标记（判定见 `clipboard_privacy`），这次内容不可采集；Server 的 `ClipboardMonitor` 按同一份名单跳过。
-pub fn read_clipboard_text() -> Result<Option<String>, ()> {
+pub fn read_clipboard_text() -> Result<Option<String>, ClipboardReadError> {
     use windows_sys::Win32::System::DataExchange::{
         GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     };
     use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize};
-    // SAFETY: a null owner is documented for callers that do not own a window;
-    // all returned clipboard handles are checked before access.
+    // SAFETY: 无窗口调用方可传空 owner；所有返回的剪贴板句柄都在访问前判空。
     let opened = unsafe { OpenClipboard(std::ptr::null_mut()) } != 0;
     if !opened {
-        return Err(());
+        return Err(ClipboardReadError);
     }
     let _clipboard = ClipboardGuard;
     if clipboard_privacy_markers().excluded() {
         return Ok(None);
     }
-    // SAFETY: these calls operate on the clipboard opened above.
+    // SAFETY: 这些调用只访问上面已打开的剪贴板。
     if unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT) } == 0 {
-        return Err(());
+        return Err(ClipboardReadError);
     }
     let handle = unsafe { GetClipboardData(CF_UNICODETEXT) };
     if handle.is_null() {
-        return Err(());
+        return Err(ClipboardReadError);
     }
     let bytes = unsafe { GlobalSize(handle) };
     if bytes < 2 {
-        return Err(());
+        return Err(ClipboardReadError);
     }
     let units = (bytes / std::mem::size_of::<u16>()).min(MAX_CLIPBOARD_UNITS);
     let pointer = unsafe { GlobalLock(handle) } as *const u16;
     if pointer.is_null() {
-        return Err(());
+        return Err(ClipboardReadError);
     }
     let _lock = GlobalLockGuard(handle);
-    // SAFETY: GlobalSize bounds this slice and the lock guard keeps the memory
-    // pinned until after String::from_utf16 has copied it.
+    // SAFETY: GlobalSize 限定切片边界；锁守卫保持内存有效，直到 String::from_utf16 完成复制。
     let value = unsafe { std::slice::from_raw_parts(pointer, units) };
-    let end = value.iter().position(|unit| *unit == 0).ok_or(())?;
-    String::from_utf16(&value[..end]).map(Some).map_err(|_| ())
+    let end = value
+        .iter()
+        .position(|unit| *unit == 0)
+        .ok_or(ClipboardReadError)?;
+    String::from_utf16(&value[..end])
+        .map(Some)
+        .map_err(|_| ClipboardReadError)
 }
 
 /// Replace the Windows Unicode clipboard without relying on PowerShell.
