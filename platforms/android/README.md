@@ -40,7 +40,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 ### 大屏分离式键盘
 
-键盘设置「布局」里的「分离式键盘」（本地设置 `platform.android.split_keyboard`，布尔，默认关，随账号同步，在 `crates/client-services` 的 `ANDROID_LOCAL_SETTINGS` 里）打开后，大屏设备（同上，`smallestScreenWidthDp` ≥ 600）横屏时把键盘分成左右两半，中间空出约四分之一的宽度给双手握持。默认平板竖屏不分离；开启旁边的「竖屏也分离」（共享布尔偏好 `touch_keyboard_split_portrait`，默认关）后，大屏竖屏同样分离。折叠到窄外屏（最小宽度低于 600 dp）或关闭主开关后使用完整键盘，再展开恢复分离。手机横屏也不分离。规则集中在无 Android 依赖的 `SplitKeyboardPolicy`，`SplitKeyboardPolicySmoke` 逐条验证：
+键盘设置「布局」里的「分离式键盘」（本地设置 `platform.android.split_keyboard`，布尔，默认关，随账号同步，在 `crates/client-services` 的 `ANDROID_LOCAL_SETTINGS` 里）打开后，大屏设备横屏时把键盘分成左右两半，中间空出约四分之一的宽度给双手握持。设置页还提供本机的「分离启用宽度」（480–1000 dp，默认 600 dp）和「分离中间空隙」（10–40%，默认 25%）两个有界滑块；它们只改变分离策略，不改变已有默认值。默认平板竖屏不分离；开启旁边的「竖屏也分离」（共享布尔偏好 `touch_keyboard_split_portrait`，默认关）后，大屏竖屏同样分离。折叠到低于设置阈值的窄外屏或关闭主开关后使用完整键盘，再展开恢复分离。手机横屏也不分离。规则集中在无 Android 依赖的 `SplitKeyboardPolicy`，`SplitKeyboardPolicySmoke` 逐条验证：
 
 - 分离的布局：标准 26 键一族（全拼、各家双拼连同微软双拼的 `;` 键、五笔、英文、日文罗马字、粤拼、越南语、藏文）、韩文两套式，以及仍采用横排行的 123 / #+= 层；中文数字九宫格保持完整面板。九键、日文假名网格、手写、大千注音、笔画、注音 9 键和它们的符号页，以及符号、表情、剪贴板、功能面板都不分离；正在画的布局不分离时，键盘和平时一样是 720 dp 居中外框。
 - 分离式键盘画着的时候整套键盘表面不受 720 dp 上限约束，铺满可用宽度（`KeyboardFormFactorPolicy.surfaceWidthDp` 的第三个参数）。候选区、工具栏和盖在键区上的各个面板与键区共用这个外框，同样铺满；它们本身不分成两半。

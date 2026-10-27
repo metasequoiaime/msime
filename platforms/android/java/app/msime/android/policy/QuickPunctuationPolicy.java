@@ -14,6 +14,9 @@ public final class QuickPunctuationPolicy {
     private static final List<Entry> ASCII = List.of(
         new Entry(",", ','), new Entry(".", '.'), new Entry("?", '?'), new Entry("!", '!'),
         new Entry(":", ':'), new Entry(";", ';'), new Entry("@", '@'));
+    private static final List<Entry> URI_ASCII = List.of(
+        new Entry(".", '.'), new Entry(",", ','), new Entry("?", '?'), new Entry("!", '!'),
+        new Entry(":", ':'), new Entry(";", ';'), new Entry("@", '@'));
     private static final List<Entry> CHINESE = List.of(
         new Entry("，", ','), new Entry("。", '.'), new Entry("？", '?'), new Entry("！", '!'),
         new Entry("、", '\\'), new Entry("；", ';'), new Entry("：", ':'));
@@ -29,6 +32,17 @@ public final class QuickPunctuationPolicy {
 
     /** 返回每一项的显示字面和它发送给 Engine 的 ASCII 输入。韩语、越南语和藏文的标点是半角 ASCII。 */
     public static List<Entry> entries(boolean dedicatedEnglish, int scheme, String localMode) {
+        return entries(dedicatedEnglish, scheme, localMode, false);
+    }
+
+    /** 只在英文网址框且单标点底键可见时，把句号放到点按位置。 */
+    public static boolean uriPeriodPrimary(boolean dedicatedEnglish, int inputType, boolean commaSecondaryPeriod) {
+        return dedicatedEnglish && commaSecondaryPeriod && EditorPolicy.uri(inputType);
+    }
+
+    public static List<Entry> entries(boolean dedicatedEnglish, int scheme, String localMode,
+                                      boolean uriPeriodPrimary) {
+        if (uriPeriodPrimary) return URI_ASCII;
         if (dedicatedEnglish || !"none".equals(localMode)
                 || scheme == InputSchemeTraits.KOREAN
                 || scheme == InputSchemeTraits.VIETNAMESE

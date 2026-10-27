@@ -139,7 +139,9 @@ def main() -> int:
     clipboard_search = (HOME / "ClipboardSearchPage.java").read_text(encoding="utf-8")
     if (
         "@Override protected void onContentReady()" not in clipboard_search
-        or "SearchPill search = new SearchPill(context);" not in clipboard_search
+        or "@Override @Nullable protected View fixedNavigation()" not in clipboard_search
+        or "searchNavigation = new SearchPill(context);" not in clipboard_search
+        or "searchNavigation.setOnQueryChange" not in clipboard_search
         or "renderResults();" not in clipboard_search
         or "@Override protected boolean shouldReloadOnContentReady()" not in clipboard_search
         or "return false;" not in clipboard_search

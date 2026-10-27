@@ -1164,3 +1164,19 @@ fn http_paths_never_leave_the_chosen_folder() {
     }
     assert!(HttpDav::new(&RelayConfig::new(URL, "synthetic-relay-token").unwrap()).is_err());
 }
+
+#[test]
+fn root_address_with_trailing_slash_is_the_same_folder() {
+    // 设置里让坚果云用户填根地址 `https://dav.jianguoyun.com/dav/`：结尾的斜杠不能拼出 `//`，也不能换出另一个空间。
+    let root = RelayConfig::webdav(&format!("{URL}/"), USER, PASSWORD).unwrap();
+    assert_eq!(root.url(), URL);
+    assert_eq!(root.space(), config().space());
+    assert_eq!(
+        HttpDav::new(&root)
+            .unwrap()
+            .url("msime-clipboard/v1/format.json")
+            .unwrap()
+            .as_str(),
+        "https://dav.example.test/dav/msime-clipboard/v1/format.json"
+    );
+}

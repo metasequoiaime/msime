@@ -1691,6 +1691,28 @@ int main(int argc, char **argv) {
       invoke("FocusOut");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
+      // 已保存的默认英文标点在中文模式里也要生效，中英模式往返不能把它改回中文。
+      auto saved_english = follow;
+      saved_english["preferences"]["chinese_punctuation"] = false;
+      msime_ibus_configure(saved_english.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && !seen.punctuation_enabled,
+              "Saved English punctuation did not apply in Chinese mode");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  !seen.input_enabled && !seen.punctuation_enabled,
+              "Saved English punctuation changed when entering English mode");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  seen.input_enabled && !seen.punctuation_enabled,
+              "Returning to Chinese mode ignored saved English punctuation");
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
       // The "always English punctuation" lock keeps English mode ASCII whatever Ctrl+. says.
       auto english_lock = follow;
       english_lock["preferences"]["default_ime_mode"] = "english";

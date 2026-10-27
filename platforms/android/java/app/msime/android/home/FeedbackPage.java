@@ -26,6 +26,8 @@ import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
+import androidx.lifecycle.ViewModel;
+import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.AppEdition;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppVersionPolicy;
@@ -72,10 +74,15 @@ public final class FeedbackPage extends DetailPage {
     private static final String ISSUES = "https://github.com/metasequoiaime/msime/issues/new";
     private static final int MAX_EDGE = 1600;
 
-    private FeedbackApi.Type type = FeedbackApi.Type.BUG;
-    private boolean diagnostics;
-    private String draft = "";
-    private final List<byte[]> screenshots = new ArrayList<>(FeedbackApi.MAX_SCREENSHOTS);
+    /** 表单只留在当前进程内存里；切换底部标签会销毁 Fragment，旋转会重建 Activity。 */
+    public static final class Form extends ViewModel {
+        FeedbackApi.Type type = FeedbackApi.Type.BUG;
+        boolean diagnostics;
+        String draft = "";
+        final List<byte[]> screenshots = new ArrayList<>(FeedbackApi.MAX_SCREENSHOTS);
+    }
+
+    private Form form;
     private boolean sending;
     private boolean sent;
     @Nullable private Future<?> submitTask;
@@ -89,15 +96,20 @@ public final class FeedbackPage extends DetailPage {
     private final ActivityResultLauncher<String> picker =
         registerForActivityResult(new ActivityResultContracts.GetMultipleContents(), this::onPicked);
 
+    @Override public void onCreate(@Nullable Bundle state) {
+        super.onCreate(state);
+        form = new ViewModelProvider(requireActivity()).get(Form.class);
+    }
+
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         Context context = requireContext();
 
         // 类型和诊断开关是这张表单的一部分，和描述、提交放在同一个分类里，不用切分类再回来提交。
         GroupCard kind = GroupCard.add(sectionColumn(column, "反馈"), "类型");
         GroupCard.Row[] typeRow = new GroupCard.Row[1];
-        typeRow[0] = kind.nav("反馈类型", null, type.title(), () -> chooseType(typeRow[0]));
-        kind.toggle("附带诊断信息", "包含机型、系统版本、当前方案与键盘设置，不含输入内容", diagnostics,
-            checked -> diagnostics = checked);
+        typeRow[0] = kind.nav("反馈类型", null, form.type.title(), () -> chooseType(typeRow[0]));
+        kind.toggle("附带诊断信息", "包含机型、系统版本、当前方案与键盘设置，不含输入内容", form.diagnostics,
+            checked -> form.diagnostics = checked);
 
         GroupCard description = GroupCard.add(sectionColumn(column, "反馈"), "描述");
         LinearLayout card = description.card();
@@ -110,7 +122,7 @@ public final class FeedbackPage extends DetailPage {
         ViewPolicy.clearBackground(input);
         input.setHintTextColor(ThemeColorPolicy.subText(context));
         ViewPolicy.setSymmetricPaddingDp(requireContext(), input, 16, 14);
-        input.setText(draft);
+        input.setText(form.draft);
         input.setContentDescription("描述");
         card.addView(input, LayoutPolicy.matchWidthWrapParams());
         detail = input;
@@ -158,7 +170,7 @@ public final class FeedbackPage extends DetailPage {
         submit = button;
 
         ViewPolicy.afterTextChanged(input, text -> {
-            draft = text.toString();
+            form.draft = text.toString();
             if (sent) sent = false;
             refresh();
         });
@@ -182,6 +194,12 @@ public final class FeedbackPage extends DetailPage {
             submitTask.cancel(true);
             submitTask = null;
         }
+        if (sent) {
+            form.type = FeedbackApi.Type.BUG;
+            form.diagnostics = false;
+            form.draft = "";
+            form.screenshots.clear();
+        }
         // The submission result is fenced to this view; reset its transient state so a rebuilt
         // page does not keep the submit button disabled after the old callback is dropped.
         sending = false;
@@ -196,8 +214,8 @@ public final class FeedbackPage extends DetailPage {
     private void chooseType(GroupCard.Row row) {
         OptionSheet sheet = new OptionSheet(requireContext(), "反馈类型", null);
         for (FeedbackApi.Type value : FeedbackApi.Type.values()) {
-            sheet.option(value.title(), value == type, () -> {
-                type = value;
+            sheet.option(value.title(), value == form.type, () -> {
+                form.type = value;
                 row.setValue(value.title());
             });
         }
@@ -208,11 +226,11 @@ public final class FeedbackPage extends DetailPage {
     private void refresh() {
         Context context = getContext();
         if (context == null || counter == null || submit == null) return;
-        int length = TextPolicy.codePointLength(draft);
+        int length = TextPolicy.codePointLength(form.draft);
         counter.setText(length + " / " + FeedbackApi.MAX_TEXT);
         ViewPolicy.setTextColor(counter,
             length > FeedbackApi.MAX_TEXT ? ThemeColorPolicy.danger(context) : ThemeColorPolicy.subText(context));
-        boolean ready = !sending && !sent && FeedbackApi.validText(draft);
+        boolean ready = !sending && !sent && FeedbackApi.validText(form.draft);
         submit.setText(sent ? "已提交" : sending ? "正在提交…" : "提交");
         ViewPolicy.setEnabled(submit, ready);
         ViewPolicy.setTextColor(submit, ready ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.subText(context));
@@ -220,7 +238,7 @@ public final class FeedbackPage extends DetailPage {
             : ThemeColorPolicy.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         ViewPolicy.setBackground(submit, ViewPolicy.ripple(context, fill, DimensionPolicy.pixels(requireContext(), Ui.GROUP_RADIUS)));
         if (addShot != null) ViewPolicy.setEnabledWithAlpha(addShot,
-            screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending, 0.38f);
+            form.screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending, 0.38f);
     }
 
     private void renderThumbnails() {
@@ -228,9 +246,9 @@ public final class FeedbackPage extends DetailPage {
         if (strip == null) return;
         Context context = strip.getContext();
         strip.removeAllViews();
-        ViewPolicy.setVisible((View) strip.getParent(), !screenshots.isEmpty());
-        for (int index = 0; index < screenshots.size(); index++) {
-            byte[] bytes = screenshots.get(index);
+        ViewPolicy.setVisible((View) strip.getParent(), !form.screenshots.isEmpty());
+        for (int index = 0; index < form.screenshots.size(); index++) {
+            byte[] bytes = form.screenshots.get(index);
             int position = index;
             FrameLayout frame = new FrameLayout(context);
             ImageView image = new ImageView(context);
@@ -251,7 +269,7 @@ public final class FeedbackPage extends DetailPage {
             remove.setContentDescription("移除截图 " + (index + 1));
             ViewPolicy.bindClick(remove, () -> {
                 if (sending) return;
-                screenshots.remove(position);
+                form.screenshots.remove(position);
                 renderThumbnails();
                 refresh();
             });
@@ -266,7 +284,7 @@ public final class FeedbackPage extends DetailPage {
 
     private void onPicked(List<Uri> uris) {
         if (uris == null || uris.isEmpty() || getView() == null) return;
-        int room = FeedbackApi.MAX_SCREENSHOTS - screenshots.size();
+        int room = FeedbackApi.MAX_SCREENSHOTS - form.screenshots.size();
         if (room <= 0) return;
         List<Uri> chosen = uris.size() > room ? uris.subList(0, room) : uris;
         ContentResolver resolver = requireContext().getContentResolver();
@@ -284,7 +302,7 @@ public final class FeedbackPage extends DetailPage {
             if (encoded == null || encoded.size() < copy.size()) MsToast.show(requireContext(), "有图片读不出来，没有附上");
             if (encoded != null) {
                 for (byte[] bytes : encoded) {
-                    if (screenshots.size() < FeedbackApi.MAX_SCREENSHOTS) screenshots.add(bytes);
+                    if (form.screenshots.size() < FeedbackApi.MAX_SCREENSHOTS) form.screenshots.add(bytes);
                 }
             }
             renderThumbnails();
@@ -318,14 +336,14 @@ public final class FeedbackPage extends DetailPage {
     }
 
     private void submit() {
-        if (sending || sent || !FeedbackApi.validText(draft)) return;
+        if (sending || sent || !FeedbackApi.validText(form.draft)) return;
         Context application = requireContext().getApplicationContext();
         sending = true;
         refresh();
-        FeedbackApi.Type kind = type;
-        String text = draft;
-        boolean withDiagnostics = diagnostics;
-        List<byte[]> shots = new ArrayList<>(screenshots);
+        FeedbackApi.Type kind = form.type;
+        String text = form.draft;
+        boolean withDiagnostics = form.diagnostics;
+        List<byte[]> shots = new ArrayList<>(form.screenshots);
         submitTask = NetworkTask.run(this, () -> {
             List<File> files = new ArrayList<>(shots.size());
             try {
@@ -344,7 +362,7 @@ public final class FeedbackPage extends DetailPage {
                 return;
             }
             sent = true;
-            screenshots.clear();
+            form.screenshots.clear();
             renderThumbnails();
             refresh();
             MsToast.show(requireContext(), "已提交，感谢反馈");
