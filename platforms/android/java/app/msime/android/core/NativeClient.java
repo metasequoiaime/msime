@@ -322,6 +322,21 @@ public final class NativeClient {
         return TextPolicy.utf8(cloudClipboardWebDavProbeRaw(payload));
     }
 
+    /** 共享 `msime_client_dictionary_sync` 的请求上限：HostOptions 文档里带着整份偏好。 */
+    public static final int DICTIONARY_SYNC_REQUEST_LIMIT = 2 * 1024 * 1024;
+
+    /**
+     * 「我的词条」经 WebDAV 网盘同步（`docs/dictionary-webdav-sync.md`）：请求是 `{options, directory, device_name, action}`，`options` 是 runtime-options.json 那份 HostOptions，`directory` 是两个进程共用的 `noBackupFilesDir/dictionary-sync`，`action` 与返回的 `{"ok":true,"value":…}` 见 `crates/host-api/include/msime_client.h`。网盘的地址、账号和应用密码由 Rust 从偏好的 `dictionary_sync_webdav` 读；「测试连接」（`probe`）的请求里带着设置页草稿里的应用密码，不要写日志。
+     *
+     * <p>除 `status` 外都会阻塞在网络上（每个请求最多 30 秒，整次同步持有本机的同步锁，另一个进程正在同步时最多再等两分钟），只在工作线程上调用，不要在主线程或输入线程上调用。封装见 {@link DictionaryWebDavSync}。
+     */
+    public static String dictionarySync(String request) {
+        byte[] payload = utf8(request);
+        if (payload.length > DICTIONARY_SYNC_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Dictionary sync request is too large");
+        return TextPolicy.utf8(dictionarySyncRaw(payload));
+    }
+
     /**
      * Decode a Doubao streaming response frame with the shared implementation.
      *
@@ -1057,6 +1072,7 @@ public final class NativeClient {
     private static native byte[] cloudClipboardRelayRaw(byte[] request);
     private static native byte[] cloudClipboardRelayExchangeRaw(byte[] request);
     private static native byte[] cloudClipboardWebDavProbeRaw(byte[] request);
+    private static native byte[] dictionarySyncRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);

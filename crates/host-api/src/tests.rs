@@ -19221,6 +19221,10 @@ fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
     let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
     assert_eq!(synced["ok"], true, "{synced}");
     assert_eq!(synced["value"]["pending_count"], 0);
+    assert_eq!(
+        synced["value"]["applied_count"], 1,
+        "已存在项不计作写入：{synced}"
+    );
     let state = store.read().unwrap();
     assert_eq!(
         state.already_present,
@@ -19273,6 +19277,86 @@ fn common_phrases_and_collections_forward_to_client_core() {
         json!({"options": empty_host_options(directory.path()), "action": {"operation": "delete", "id": "builtin:pinyin"}}),
     );
     assert_eq!(locked["error"], "builtin_locked");
+}
+
+/// 单个个人编辑在一批内清空队列时，宿主仍能知道这一轮改过词库。
+#[test]
+fn personal_edits_report_written_count_even_when_the_queue_finishes_in_one_batch() {
+    use msime_client_services::dictionary::personal::{
+        PersonalDictionaryStore, PersonalWord, PersonalWordKind,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "ni'hao".into(),
+        value: "你好".into(),
+        weight: 100,
+    };
+    let synchronize = || {
+        call_android_data(
+            msime_client_dictionary_collections,
+            json!({"options": options, "action": {"operation": "synchronize", "budget_millis": 100}}),
+        )
+    };
+    let empty = synchronize();
+    assert_eq!(empty["ok"], true, "{empty}");
+    assert_eq!(empty["value"]["pending_count"], 0);
+    store
+        .enqueue(None, Some(word.clone()), "synthetic-add".into())
+        .unwrap();
+    let added = synchronize();
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["pending_count"], 0);
+    assert_eq!(added["value"]["sent"], 0);
+    assert_eq!(added["value"]["applied_count"], 1, "{added}");
+    store
+        .enqueue(Some(word), None, "synthetic-delete".into())
+        .unwrap();
+    let deleted = synchronize();
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    assert_eq!(deleted["value"]["pending_count"], 0);
+    assert_eq!(deleted["value"]["applied_count"], 1, "{deleted}");
+    assert_eq!(synchronize()["value"]["applied_count"], 0);
+}
+
+/// 个人队列和集合待发项跨过多个批次时，响应保留前批的写入与发送数量。
+#[test]
+fn collection_synchronization_accumulates_written_and_sent_counts_across_batches() {
+    use msime_client_services::dictionary::{
+        collections::DictionaryCollectionsStore,
+        personal::{PersonalDictionaryStore, PersonalWord, PersonalWordKind},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options =
+        HostOptions::from_document(host_options_with_main_dictionary(directory.path())).unwrap();
+    let personal = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = |index: u32| PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "ni'hao".into(),
+        value: format!("{}词", char::from_u32(0x4e00 + index).unwrap()),
+        weight: 100,
+    };
+    personal
+        .enqueue(None, Some(word(129)), "synthetic-first-batch".into())
+        .unwrap();
+    let collections = DictionaryCollectionsStore::new(directory.path(), personal);
+    let queued = collections
+        .queue_words((0..129).map(word).collect())
+        .unwrap();
+    assert_eq!(queued.queued, Some(129));
+    // 保存集合时已补满个人队列的剩余 127 个位置，本次同步只需再送最后两个词。
+    assert_eq!(queued.outbox_pending, 2);
+    let synchronized = crate::dictionary::synchronize_collections_with_budget(
+        &options,
+        std::time::Duration::from_secs(60),
+    )
+    .unwrap();
+    assert_eq!(synchronized["pending_count"], 0, "{synchronized}");
+    assert_eq!(synchronized["failed_count"], 0, "{synchronized}");
+    assert_eq!(synchronized["applied_count"], 130, "{synchronized}");
+    assert_eq!(synchronized["sent"], 2, "{synchronized}");
 }
 
 #[test]

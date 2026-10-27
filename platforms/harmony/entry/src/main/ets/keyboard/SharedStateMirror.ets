@@ -23,6 +23,7 @@ import {
   PublishPlan,
   SharedStateMirrorPolicy,
 } from './SharedStateMirrorPolicy';
+import { UserWordsMirrorPolicy } from './UserWordsMirrorPolicy';
 
 /** AppGallery Connect 为「输入法应用内数据共享」签发的 data-group-id，签名 Profile 的 `data-group-ids` 和键盘扩展在 `module.json5` 里声明的 `dataGroupIds` 必须与它一致。 */
 export const DATA_GROUP_ID: string = 'group.1516753898738609107';
@@ -147,6 +148,11 @@ export class SharedStateMirror {
   /** 对方发布的某个条目在共享目录里的绝对路径，不管它此刻在不在。会话镜像把它交给 Rust 的 `session_adopt` 去读。 */
   publishedFile(publisher: MirrorPublisher, entry: MirrorEntry): string {
     return this.publishedPath(publisher, entry);
+  }
+
+  /** 「我的词条」某一方的发布文件，不管它此刻在不在。它不走上面的清单和指纹：两边的 Rust 直接读写它，见 `UserWordsMirrorPolicy`。 */
+  userWordsFile(publisher: MirrorPublisher): string {
+    return UserWordsMirrorPolicy.publication(this.groupRoot, publisher);
   }
 
   localPath(entry: MirrorEntry): string {

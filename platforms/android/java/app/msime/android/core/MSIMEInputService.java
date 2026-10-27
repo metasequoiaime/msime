@@ -144,6 +144,8 @@ public final class MSIMEInputService extends InputMethodService {
     ImeTranslationSenses imeTranslationSenses;
     ImeStylusHandwriting imeStylusHandwriting;
     ImeStickers imeStickers;
+    /** 「我的词条」经 WebDAV 网盘同步在键盘进程里的触发（改词后记录、按 Rust 给的间隔定时），见 {@link ImeDictionarySync}。 */
+    private ImeDictionarySync imeDictionarySync;
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -1784,6 +1786,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (clipboard != null) clipboard.addPrimaryClipChangedListener(clipboardWatcher);
         // 键盘进程上次没走到 onDestroy 就被回收时，发出去的图片副本还留在缓存里。
         clearClipboardImages();
+        imeDictionarySync = new ImeDictionarySync(this, main);
+        imeDictionarySync.start();
     }
 
     @android.annotation.TargetApi(30)
@@ -1869,6 +1873,8 @@ public final class MSIMEInputService extends InputMethodService {
         stop(true);
         schedulePersonalDictionarySynchronization(false);
         scheduleDictionarySnapshotProcessing();
+        // 输入会话刚结束，Rust 这时拿得到词库维护权：还有没写进本机的网盘改动就趁现在写。
+        if (imeDictionarySync != null) imeDictionarySync.idle();
         connection = null;
         resetCaretAnchor();
         main.removeCallbacks(caretWindowSync);
@@ -2038,6 +2044,7 @@ public final class MSIMEInputService extends InputMethodService {
         cancelPersonalDictionarySynchronization();
         stop(false);
         schedulePersonalDictionarySynchronization(true);
+        if (imeDictionarySync != null) imeDictionarySync.stop();
         preferencesWorker.shutdown();
         // Queued before the shutdown, so the worker still writes it.
         flushKeyPresses();
@@ -2430,6 +2437,9 @@ public final class MSIMEInputService extends InputMethodService {
                         DictionaryCollectionsStore.synchronizeIdle(options);
                     if (!synchronizedWords.ok()) return;
                     DictionaryImportSynchronization.Batch batch = synchronizedWords.value();
+                    // 设置页排队的改词写入后立即记录，不依赖两次事后的队列长度；一批内清空也必须通知。
+                    if (batch.applied() > 0 || batch.sent() > 0)
+                        imeDictionarySync.localChange();
                     // 每 100 毫秒软预算回到主线程确认空闲；失败词挡住待发项且没有进展时停止，避免空转。
                     if (batch.pending() > 0 && (batch.sent() > 0 || batch.failed() == 0))
                         main.post(() -> {
@@ -8199,6 +8209,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (!apply(NativeClient.removeCandidate(session, strictCandidateLong(id, "generation"),
                                                     strictCandidateLong(id, "index")))) {
                 imeDebugOverlay.showDiagnostic("当前候选不支持此操作");
+            } else {
+                imeDictionarySync.localChange();
             }
             return true;
         } catch (JSONException | LinkageError error) {
@@ -8277,10 +8289,14 @@ public final class MSIMEInputService extends InputMethodService {
             };
             if (!apply(result)) {
                 imeDebugOverlay.showDiagnostic("当前候选不支持此操作");
-            } else if (keyboardRoot != null) {
-                // 候选操作结果属于可见状态，由已有的 polite live region 播报。
-                imeDebugOverlay.showMessage(action.announcement());
-                render();
+            } else {
+                // 删掉的可能是「我的词条」里的词，网盘同步记下它；只记录、不联网。
+                if (action == CandidateManagementAction.REMOVE) imeDictionarySync.localChange();
+                if (keyboardRoot != null) {
+                    // 候选操作结果属于可见状态，由已有的 polite live region 播报。
+                    imeDebugOverlay.showMessage(action.announcement());
+                    render();
+                }
             }
         } catch (JSONException | LinkageError error) { fail(error); }
     }

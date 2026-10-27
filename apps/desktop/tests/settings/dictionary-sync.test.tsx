@@ -25,6 +25,7 @@ import {
 } from "@msime/ui";
 import { dictionarySyncDelay } from "../../../../packages/ui/src/settings/dictionary-sync";
 import {
+  HOST_USER_WORDS_CHANGED_EVENT,
   createDictionaryLocalChanges,
   useDictionarySync,
   withDictionaryChangeNotices,
@@ -435,6 +436,43 @@ test("words changed through settings are recorded as a local change", async () =
     localChanges.notify();
   });
   await waitFor(() => expect(operations(host.request)).toEqual(["run:opened", "run:local_change"]));
+});
+
+test("words the host wrote itself are recorded as a local change only while sync is offered", async () => {
+  const localChanges = createDictionaryLocalChanges();
+  const host = syncHost();
+  const { rerender, unmount } = renderHook(
+    ({ saved }) => useDictionarySync({ client: { dictionarySync: host }, saved, localChanges }),
+    { initialProps: { saved: WEBDAV as typeof WEBDAV | undefined } },
+  );
+  await waitFor(() => expect(operations(host.request)).toEqual(["run:opened"]));
+  // 鸿蒙设置应用把键盘的词写进了自己的词库：连着派发几次也只排一次。
+  act(() => {
+    window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+    window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+  });
+  await waitFor(() => expect(operations(host.request)).toEqual(["run:opened", "run:local_change"]));
+  // 停用网盘以后不再听。
+  rerender({ saved: undefined });
+  act(() => {
+    window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+  });
+  unmount();
+  window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(operations(host.request)).toEqual(["run:opened", "run:local_change"]);
+
+  // 宿主不提供词库同步（鸿蒙没有隐私政策的授权时就是这样）：事件不会让页面发出任何请求。
+  const unconsented = vi.fn();
+  renderHook(() =>
+    useDictionarySync({ client: { dictionarySync: undefined }, saved: WEBDAV, localChanges }),
+  );
+  const listener = localChanges.subscribe(unconsented);
+  act(() => {
+    window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+  });
+  listener();
+  expect(unconsented).not.toHaveBeenCalled();
 });
 
 test("changing the saved connection releases a previous manual action's busy state", async () => {

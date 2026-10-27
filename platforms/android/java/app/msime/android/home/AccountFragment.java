@@ -222,6 +222,8 @@ public final class AccountFragment extends HomeTabFragment {
             () -> SettingsNavigator.open(context, PageId.SKINS, null));
         row(group, R.drawable.ic_ms_menu_book, "我的词库", null, null,
             () -> SettingsNavigator.open(context, PageId.LEXICON, null));
+        row(group, R.drawable.ic_ms_sync, "词库同步", "「我的词条」经自己的 WebDAV 网盘同步", null,
+            () -> SettingsNavigator.open(context, PageId.DICTIONARY_SYNC, null));
         row(group, R.drawable.ic_ms_star, "常用语", null, null,
             () -> SettingsNavigator.open(context, PageId.PHRASES, null));
         row(group, R.drawable.ic_ms_download, "备份与恢复", "导出到本机文件，换手机时恢复", null,
