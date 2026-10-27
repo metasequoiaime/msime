@@ -219,6 +219,12 @@ target_compile_definitions(msime-linux-auxiliary-telemetry PRIVATE
   MSIME_SYSTEM_OPTIONS="${CMAKE_INSTALL_FULL_SYSCONFDIR}/${MSIME_CLIENT_DIRECTORY}/runtime-options.json")
 target_link_libraries(msime-linux-auxiliary-telemetry PUBLIC
   nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads ${CMAKE_DL_LIBS})
+set_target_properties(msime-linux-auxiliary-telemetry PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_library(msime-python-crash SHARED src/core/PythonCrashCapture.cpp)
+target_compile_options(msime-python-crash PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-python-crash PRIVATE msime-linux-auxiliary-telemetry)
+set_target_properties(msime-python-crash PROPERTIES INSTALL_RPATH "$ORIGIN")
+install(TARGETS msime-python-crash LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 add_executable(msime-linux-ibus src/entrypoints/ibus_main.cpp src/system/SystemTheme.cpp)
 target_sources(msime-linux-ibus PRIVATE ../common/Telemetry.cpp ../common/CrashRecorder.cpp)
 target_include_directories(msime-linux-ibus PRIVATE ../common)
@@ -521,6 +527,14 @@ if(BUILD_TESTING)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/auxiliary_crash_capture.py"
       ${auxiliary_crash_arguments})
   set_tests_properties(linux-auxiliary-crash-capture PROPERTIES TIMEOUT 120)
+  add_test(NAME linux-python-crash-capture
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/python_crash_capture.py"
+      --controller $<TARGET_FILE:common-capture-only-test> --bridge $<TARGET_FILE:msime-python-crash>
+      --paths "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" --scripts "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
+      --host-library "${MSIME_HOST_LIBRARY}"
+      --version "${MSIME_LINUX_VERSION}" --client-directory "${MSIME_CLIENT_DIRECTORY}"
+      --telemetry-directory "${MSIME_EDITION_FCITX5_ADDON}")
+  set_tests_properties(linux-python-crash-capture PROPERTIES TIMEOUT 120)
   if(TARGET msime-linux-clipboard-watch-x11 AND MSIME_XVFB_RUN)
     add_test(NAME linux-x11-auxiliary-crash-capture
       COMMAND "${MSIME_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
@@ -759,7 +773,7 @@ foreach(MSIME_PROVIDER online voice)
   install(FILES "${MSIME_UNIT_SOURCE}" DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}"
           RENAME ${MSIME_EDITION_PACKAGE}-${MSIME_PROVIDER}.socket)
 endforeach()
-install(FILES scripts/msime_voice_doubao.py scripts/msime_voice_local.py scripts/msime_voice_polish_prompts.py scripts/msime_voice_provider_catalog.py scripts/msime_provider_runtime.py scripts/host_api.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES scripts/msime_voice_doubao.py scripts/msime_voice_local.py scripts/msime_voice_polish_prompts.py scripts/msime_voice_provider_catalog.py scripts/msime_provider_runtime.py scripts/msime_crash_capture.py scripts/host_api.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # The helper and the sherpa-onnx runtime share the host library's private directory: the helper finds the runtime in its own directory, and libsherpa-onnx-c-api.so finds libonnxruntime.so through its $ORIGIN RPATH.
 install(TARGETS msime-voice-local RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 set(MSIME_VOICE_RUNTIME_DIR "" CACHE PATH "sherpa-onnx runtime for on-device recognition, as unpacked by scripts/fetch_voice_runtime.py --platform linux-<arch>")
@@ -789,6 +803,8 @@ file(RELATIVE_PATH MSIME_VOICE_LOCAL_HELPER_RELATIVE "${CMAKE_INSTALL_FULL_BINDI
 get_filename_component(MSIME_HOST_LIBRARY_NAME "${MSIME_HOST_LIBRARY}" NAME)
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
      "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/${MSIME_HOST_LIBRARY_NAME}")
+file(RELATIVE_PATH MSIME_PYTHON_CRASH_LIBRARY_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
+     "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}msime-python-crash${CMAKE_SHARED_LIBRARY_SUFFIX}")
 configure_file(data/msime_voice_paths.py.in msime_voice_paths.py @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md

@@ -17,9 +17,9 @@ Status: proposed
 
 ## Related notes
 
-独立原生采集、部分系统诊断与发布符号接入已在[宿主采集和符号身份](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)落地；该篇列出已执行的验证。MCP、Windows 看门狗、Windows/Linux 准备程序、Linux 原生 CLI 与 macOS/Linux 本地语音 helper 已接入；TSF、Linux Python provider/monitor 等其余自有辅助进程、同源设备故障到后台收件及部分发布符号验收仍未完成，本提案保持 `proposed`。
+独立原生采集、部分系统诊断与发布符号接入已在[宿主采集和符号身份](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)落地；该篇列出已执行的验证。MCP、Windows 看门狗、Windows/Linux 准备程序、Linux 原生 CLI 与 macOS/Linux 本地语音 helper 已接入；TSF、Linux setup/provider-session 等其余自有配置和启动脚本、同源设备故障到后台收件及部分发布符号验收仍未完成，本提案保持 `proposed`。
 
-逐入口核对后，Linux 的 `src/providers/*_request.cpp`、`src/voice/voice_request.cpp`、三个 `src/clipboard/*.cpp` 独立工具及本地语音 helper 已接入独立采集，真实二进制的故障/关闭/补报用例由本轮验证。`shared/voice/LocalAsrHelper.cpp` 的 macOS 平台适配也已接入并完成真实 helper 子进程故障测试；安装的 Python 在线/语音 provider 与剪贴板 monitor 等脚本仍缺独立入口；共享库已链接或由输入法启动不等于已经采集，后续继续按进程验收。
+逐入口核对后，Linux 的 `src/providers/*_request.cpp`、`src/voice/voice_request.cpp`、三个 `src/clipboard/*.cpp` 独立工具及本地语音 helper 已接入独立采集，真实二进制的故障/关闭/补报用例由本轮验证。`shared/voice/LocalAsrHelper.cpp` 的 macOS 平台适配也已接入并完成真实 helper 子进程故障测试；安装的 Python 在线/语音 provider、两个 HTTP 工作进程与剪贴板 monitor/事件六个入口已接入同一原生桥，并有真实子进程故障回归；setup/provider-session 等配置和启动脚本仍需核对；共享库已链接或由输入法启动不等于已经采集，后续继续按进程验收。
 
 动手前检索了 `proposed`、`implemented` 与 `rejected` 中的 `telemetry`、崩溃捕获、会话与符号归档。以下是部分重叠，保留原决定并互链：[按会话 id 归属](../../implemented/bug-fix/2026-10-24-telemetry-session-ownership.md)、[iOS 系统诊断认领](../../implemented/bug-fix/2026-10-25-ios-crash-diagnostic-session-attribution.md)、[iOS App 抛出点的栈](../../implemented/bug-fix/2026-10-27-ios-app-uncaught-exception-stack.md)、[Windows 符号归档](../../implemented/process/2026-10-20-windows-release-page-symbols.md)。[遥测本地队列绑定目录句柄](../../implemented/bug-fix/2026-10-09-telemetry-cache-directory-handle.md)、[清理绑定目录句柄](../../implemented/bug-fix/2026-10-09-telemetry-crash-cleanup-directory-handle.md) 与[空扫描不分配](../../implemented/testing/2026-10-11-telemetry-empty-crash-lazy-buffer.md)是本次必须保持的约束，不改变其决定。未发现本篇完全吸收的旧提案。
 
@@ -31,8 +31,8 @@ Status: proposed
 | --- | --- | --- |
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；x86/x64 故障子进程 | 外部应用中的 TSF；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障与部分符号还原 | 完整同源安装包及真实故障到后台和双架构符号 |
-| Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序 | Python provider/monitor；部分发行版符号与后台链路 |
-| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出；API 28/35 专项故障/补报 | ANR/系统退出真实回调；完整正式包和含按需资源的完整冒烟；后台精确符号化 |
+| Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、六个 Python 运行入口 | setup/provider-session 配置和启动脚本；部分发行版符号与后台链路 |
+| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出；API 28/35 专项故障/补报 | ANR/系统退出真实回调及跨重启撤回/重开过滤；完整正式包和含按需资源的完整冒烟；后台精确符号化 |
 | iOS | App/键盘异常与 C 信号记录、MetricKit 同意认领、UUID 帧 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听与同意认领；逻辑和 HAP 构建 | 同源原生包、真实设备系统回调与后台精确符号化 |
 

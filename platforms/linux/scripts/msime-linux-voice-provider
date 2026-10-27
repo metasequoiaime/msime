@@ -28,6 +28,7 @@ import uuid
 import wave
 
 from msime_provider_runtime import open_server
+import msime_crash_capture
 from msime_voice_doubao import normalize_doubao_auth_mode
 import msime_voice_local
 from msime_voice_polish_prompts import PROMPTS
@@ -101,7 +102,8 @@ def bounded_post(config, body, content_type, timeout, cancelled=None):
     payload = metadata + b"\n" + body
     process = subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), "--http-request"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        env=msime_crash_capture.worker_environment())
     try:
         while True:
             if cancelled is not None and cancelled.is_set():
@@ -1361,6 +1363,7 @@ def main():
     parser.add_argument("--capture-device", help="PulseAudio source, PipeWire node name/serial, or ALSA PCM device")
     parser.add_argument("--max-recording-seconds", type=int, default=300, help="1–600 seconds, default 300")
     args = parser.parse_args()
+    msime_crash_capture.start("voice-provider")
     try:
         try:
             config = load_config(args.config)
@@ -1445,5 +1448,6 @@ def main():
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--http-request"]:
+        msime_crash_capture.start_worker("voice-http")
         sys.exit(http_request_worker())
     main()

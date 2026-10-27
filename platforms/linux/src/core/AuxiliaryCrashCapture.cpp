@@ -9,13 +9,16 @@
 namespace msime::linux_host {
 
 std::optional<telemetry::Host> auxiliary_crash_host(
-    const std::string &component, const std::filesystem::path &preferences) {
+    const std::string &component, const std::filesystem::path &preferences,
+    const std::filesystem::path &options_path) {
   auto directory = telemetry::default_directory();
   if (directory.empty())
     return std::nullopt;
   auto actual_preferences = preferences;
   if (actual_preferences.empty()) {
-    const char *override_path = std::getenv("MSIME_CLIENT_HOST_OPTIONS");
+    const auto explicit_options = options_path.string();
+    const char *override_path = options_path.empty() ? std::getenv("MSIME_CLIENT_HOST_OPTIONS")
+                                                    : explicit_options.c_str();
     if (!override_path) {
       const char *ibus = std::getenv("MSIME_IBUS_OPTIONS");
       const char *fcitx = std::getenv("MSIME_FCITX5_OPTIONS");

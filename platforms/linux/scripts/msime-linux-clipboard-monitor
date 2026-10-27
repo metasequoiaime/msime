@@ -13,6 +13,7 @@ import sys
 import subprocess
 import tempfile
 import time
+import msime_crash_capture
 
 
 # Full preferences include custom prompts and dictionaries, not just clipboard settings.
@@ -170,6 +171,8 @@ def main():
     args = parser.parse_args()
     if not args.options.is_absolute():
         parser.error("runtime options path must be absolute")
+    msime_crash_capture.start("clipboard-event" if args.capture_event else "clipboard-monitor",
+                              options=args.options)
     capture = Path(__file__).resolve().parent / "msime-linux-clipboard-capture"
     if args.capture_event:
         try:
