@@ -29,6 +29,7 @@ final class ImeBottomRow {
     /** 分离式键盘右半边内侧的第二个空格键；第一次分离时建，换了一套控件（onCreateInputView）时作废重建。 */
     private SpaceKeyFace splitSpace;
     private boolean bottomCommaSwipeBound;
+    private Button bottomCommaSwipeButton;
 
     ImeBottomRow(MSIMEInputService s) {
         this.s = s;
@@ -39,10 +40,12 @@ final class ImeBottomRow {
         if (s.quickPunctuationButton == null) return;
         boolean enabled = s.longSpaceLayoutActive(s.imeLetterRows.drawnTouchLayout())
             && s.keyboardLayer == KeyboardLayout.Layer.LETTERS;
-        if (enabled == bottomCommaSwipeBound) return;
+        if (enabled == bottomCommaSwipeBound
+                && bottomCommaSwipeButton == s.quickPunctuationButton) return;
+        if (bottomCommaSwipeButton != null) bottomCommaSwipeButton.setOnTouchListener(null);
+        bottomCommaSwipeButton = s.quickPunctuationButton;
         bottomCommaSwipeBound = enabled;
-        if (enabled) bindCommaDownSwipe(s.quickPunctuationButton);
-        else s.quickPunctuationButton.setOnTouchListener(null);
+        if (enabled) bindCommaDownSwipe(bottomCommaSwipeButton);
     }
 
     /** 数字层的逗号键和字母层共用同一手势。 */
