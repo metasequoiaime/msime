@@ -1,0 +1,151 @@
+# Agent Note: 输入习惯跨设备同步：端到端加密、每台设备一份密文
+
+Status: proposed
+
+## Problem
+
+#10043：同一账号在几台设备上打字，候选顺序各学各的，换一台设备就要从头适应。issue 要求输入习惯能在设备之间同步，同时守住隐私底线：服务端不能读出用户打过什么。
+
+issue 的前提有一半不对，先更正：
+
+- **已经在明文同步的**：账号「词库」同步上传的是 Engine 日志里 `operation='upsert'` 且 `user_inserted=1` 的全部行（`export_local_snapshot` 截到 10 万条），不只是手动添加的词。打字时自动造的词也记成 `user_inserted=1`：选中的整句候选（`crates/engine/src/session/learning.rs:347`，最多 7 个音节）、分段选出来拼成的词（`session/commit.rs:394`）、连续三次一起选的两个词（`session/learning.rs:505`，阈值 `PICK_PAIR_WORD_THRESHOLD = 3`）、英文模式下回车上屏的英文单词（`user_dictionary/removal.rs:93` 的 `learn_entered_english_word`）、这些中文词顺带记下的五笔编码（`session/commit.rs:416` → `user_dictionary/wubi_learning.rs:97`）。学习调权写日志用 `UPSERT_JOURNAL_SQL`（`user_dictionary/journal.rs:79`），冲突分支不动 `user_inserted`，所以这些词被选中后学到的权重也在这一行上。上传路径：`crates/host-api/src/cloud_sync.rs:936-940` 先 `export_dictionary`（`:2124`，`export_snapshot` 不带 `include_learning`）再 `PUT /v1/users/me/dictionary/snapshot`；导出读 `msime_engine::host::dictionary_entries`（`crates/engine/src/host/dictionary.rs:35`，`include_learned_pinyin=false`），落到 `crates/engine/src/user_dictionary/personal.rs:593-596` 的 SQL `operation='upsert' AND (user_inserted=1 OR …)`。服务端按条解析成明文表（msime-cloud `internal/account/snapshot_decode.go`）。
+- **哪些设备在传**：自动的词库同步只有 Android 有。Android 的「我的 › 同步 › 云同步」开关只给真实账号（`platforms/android/java/app/msime/android/home/AccountFragment.java:267-270`），状态默认关闭（`crates/client-services/src/account/cloud_sync/state.rs:245`），打开后四类都同步，`dictionary: true`（`platforms/android/java/app/msime/android/account/RustCloudSync.java:166-167`）。iOS 的云同步不含词库（`platforms/ios/App/Sources/account/CloudSync.swift:102`）；桌面和 HarmonyOS 不调 `msime_client_cloud_sync`，各平台「云词库」页面只发送用户在页面上的修改和选中的文件。
+- **真正没同步的**：内置词（`user_inserted=0`）的调权和阶梯降权、全部删除记录、置顶（`pinned_candidates`）、固定位置（`fixed_candidate_positions`）、快捷短语槽位，以及[本地备份另存的输入习惯](../../implemented/feature/2026-10-10-android-backup-habits-and-verified-restore.md)那几张表（整句联想、连续选词对、纠错计数与抑制）。
+- **云端快照激活会丢本机学习**：快照激活只用快照里的记录另建一代（engine `user_dictionary/state.rs` 的 `build_generation`），而云同步上传的快照不带学习记录（`export_local_snapshot` 的 `include_learning` 为假）。Android 云端有变化、本机没有待上传改动时走整份下载激活（`crates/client-services/src/account/cloud_sync/policy.rs` 的 `incremental` 返回 `Download`），这一代就没有本机学到的东西。这一条目前只来自读代码，还没有在真机上复现。
+
+约束：
+
+- 2026-10-09 用户亲自定过「输入记录不进云同步」（[Android 本地备份带上输入记录](../../implemented/feature/2026-10-09-android-backup-learning-state.md)第 9 行）。默认打开等于替六个平台的所有用户推翻这条决定。
+- 上传类功能的先例都是默认关闭、要登录：[打字统计上传](../../implemented/feature/2026-10-17-typing-statistics-cloud-upload.md)、PRIVACY.md 的「打字统计上传」一节。
+- 维护者就 #10043 授权（「你调研好了定」）：同步范围、加密方案、合并语义、上限、默认值和分期都由这篇定下，不再逐项请示。只有两件事必须维护者本人做，见「必须由维护者处理的事项」。
+
+## Proposal
+
+同步学到的候选顺序：内置词的调权和阶梯降权、删除记录、置顶、固定位置。整句联想的 n-gram 第二期再加，前提是桌面和 HarmonyOS 的本机密钥串先进系统密钥库。数据在客户端压缩、补齐、端到端加密，每台设备一份密文，服务端只存不透明字节。新功能按设备默认关闭，只给真实账号用，入口是「账号与同步」里「词库」下面单独一个开关「同步输入习惯（端到端加密）」，和词库同步互不依赖。
+
+这把 2026-10-09 的「输入记录不进云同步」收窄为「输入记录不进明文云同步；用户自己打开后，可以端到端加密同步」。两篇都留着，10-09 那篇第 9 行后面有指向这里的链接。
+
+协议契约（威胁模型、MSL1 信封、HKDF 标签、带认证的封装与反向核对、防回滚、合并规则、上限、错误码、服务端看得到的元数据）写在 [`docs/learning-sync.md`](../../../../docs/learning-sync.md)，这里只记怎么定的、为什么。
+
+### 第 0 期：先把已有的事实说对
+
+- **PRIVACY.md 更正**（与这篇同一次提交）：「留在本地的东西」里「输入历史与学习数据……不上传」改成默认不上传，例外是 Android 云同步会把用户词连同自动造的词和学到的权重以服务端读得到的形式上传；「账号与同步」一节补一段写清这件事，以及其他平台为什么不会自动上传。每一句对应的代码路径就是上面「前提更正」里列的那些。输入习惯同步这个新功能在放出之前不写进 PRIVACY.md。
+- **Android 整份下载激活保留本机学习**：在 `dictionary_snapshot.rs` 的 `activate_with_hook` 里、拿到维护锁并关掉缓存连接之后，从将被换出的那一代导出学习记录和输入习惯，换代完成后在同一把锁里合并回来；只在快照请求带 `keep_local_learning:true` 时这样做，云同步和桌面「应用到本机」都带。不在排队时导出：输入习惯不在版本校验范围内，排队到激活之间学到的整句联想会丢。先写一个会失败的 host-api 测试，再在 Android 真机上复现，确认会丢再修。
+
+### 加密与密钥
+
+- **新开一个 learning 域**，是[云剪贴板端到端加密](../../implemented/feature/2026-10-11-cloud-clipboard-e2e.md)协议的又一个实例：设备身份、账号密钥 `K_learn`、本机密钥串、服务端表都单独一套，HKDF 标签全部换成 `msime-learning-v1-*`。不和剪贴板共用，因为关掉云剪贴板或删除剪贴板数据会删掉设备登记和密钥（msime-cloud `internal/account/user_data.go` 删除剪贴板分区的那一段），输入习惯不能跟着失效；WebDAV 词库同步也是单独的设备身份（[`docs/dictionary-webdav-sync.md`](../../../../docs/dictionary-webdav-sync.md)「密钥与设备批准」）。
+- **驱动按域参数化**：`clipboard_e2e.rs` 里写死的 `API` 路径和密钥串名改成域参数。剪贴板的请求、请求体和密钥串编码逐字节不变，由已有的已知答案测试兜住。
+- **带认证的封装加反向核对**，只在 learning 域上，从第一天就用。批准者用自己的静态私钥和临时私钥各对新设备公钥做一次 DH 再派生封装密钥；新设备解封后和批准者各显示一个由 `K_learn` 和两台设备公钥算出的 16 位反向核对码，用户在新设备上点「一致」后密钥才生效。这堵住了剪贴板 v1 写明不防的「服务端给新设备塞一把自己生成的密钥」。不新增依赖：`x25519-dalek`、`hkdf`、`chacha20poly1305` 已经在 `crates/client-core/Cargo.toml`。
+- **反向核对码带上 `K_learn`**：只用两台设备的公钥算的话，服务端事先知道两把公钥，可以离线搜索一个让号码相同的假批准者公钥，16 位十进制约 2⁵³ 次运算，对有算力的攻击者不算难。带上只有真设备持有的 `K_learn`，服务端就算不出真设备会显示的号码。
+- **信封 MSL1**：明文头 `"MSL1" ‖ key_id ‖ device_id ‖ generation ‖ nonce` 整个作为 AEAD 附加数据，服务端冒充设备、回滚代次都会让解密失败。先 gzip 再按 Padmé 补齐再加密，gzip 用已有的 `flate2`（`crates/client-services/Cargo.toml`），不新增依赖。调研时用一份开发者用户库估算，压缩比约 1/9，重度用户约 22 MB 的明文压完约 2.5 MB。
+- **防回滚**：读取方按（账号，`key_id`，来源设备）记「已验证的最大代次」和「已应用的代次」，永不清零；应用失败只是不推进「已应用」，下一轮重下同一代次。上传方的新代次取「服务端当前代次」和「自己上次上传的代次」中较大的那个再加一，服务端只接受比已存代次大的代次。这样服务端丢了或回滚了某台设备的密文时，那台设备重新上传的代次仍然比其他设备记着的大，同步不会卡死。
+- **服务端只做格式检查**：前缀、长度、补齐、`key_id` 是当前密钥、`device_id` 与路径一致；写和删只允许当前会话绑定的设备（会话是 msime-cloud 的 `Principal.SessionID`，刷新令牌不换会话）；看起来像明文的请求返回 400 `learning_e2e_required`，照云剪贴板的做法。
+- **密钥丢失与移除设备**：每台设备本地都有完整的学习数据，云端只是副本，只要还有一台设备在就不丢东西；所有设备都丢了就在新设备上重置，旧密文删除。移除设备时换钥，服务端同一事务删掉全部密文和旧封装，其余设备重新批准。退出登录时密钥串跟会话一起删，重新登录要重新批准。
+
+### 合并语义
+
+- **新的 Engine 流 `msime-learning-sync`**，不复用 `DictionaryStateRecord`：它的版本哈希是和 Apple 逐字节共用的契约（engine `user_dictionary/state.rs` 的 `REVISION_DOMAIN` 和 `dictionary_state_revision`）。每行带日志里真实的 `updated_at`；现有快照导出盖的是导出时间。
+- **逐行 Lamport 时间戳**：Engine 里每一条在冲突分支改写 `user_dictionary_operations` 或 `pinned_candidates` 的语句都改成 `updated_at=max(unixepoch(), updated_at+1)`。目前有八处：`journal.rs:79`、`:82`、`:86`，`positions.rs:209`，`personal.rs:784`，`bundled.rs:337`、`:347`，`wubi_learning.rs:97`。不影响版本哈希，因为 `DictionaryStateRecord` 里没有 `updated_at`。回放（`replay.rs`）按 `updated_at,rowid` 顺序读日志，时间戳变了读的顺序会变；日志主键保证每个 `(dictionary,key,value)` 只有一行，结果应与顺序无关，Engine 那个 PR 要用测试确认。
+- **新增 `merge_learning_sync`**：备份恢复用的 `merge_dictionary_state` 和 `merge_learning_habits` 不动。本机优先（local-wins）是用户为「恢复备份」定的语义，持续同步需要会收敛的语义，两套并存是有意的。合并 N 台设备时先在纯函数 `combine` 里按同一规则折叠（可交换、可结合、幂等），再一次性排进待合并文件，复用备份恢复那套认领与三次重试。
+- **规则**（全表见协议文档）：调权和删除记录按 `(updated_at, 内容)` 比较，平局时删除胜；远端行从不覆盖本机 `user_inserted=1` 的行，用户词归词库同步管；删除胜出时照本机删词的副作用删置顶和相关整句联想；删除记录必须同步，因为连续选词造词前会查它（`session/learning.rs:497-503`），不同步的话对端会把删掉的词又造回来。固定位置这张表没有时间戳、取消固定不留记录，第一期只增不删；快捷短语槽位不在任何导出流里，第二期加时间戳和删除记录；纠错计数与抑制取决于键位相邻（`pinyin/typos.rs`），触屏和实体键盘不能混用，不同步；连续选词对、选词计数、回执是用完就丢的进度，产出的词已经随词库同步，永不同步。
+- **首次打开**不问「合并还是用云端」：先上传本机这份，再合并其他设备的。本机原有的行保留原来的 `updated_at`，久未使用的设备加入时不会盖掉别人更新的调整。
+- **重置学习只清本机**，并记下重置时刻，之后合并时跳过远端 `updated_at` 不晚于这个时刻的行。远端密文是整份的，不跳过的话下一次合并会把重置之前学到的东西又带回来。
+- **词库版本不同**的设备之间名次可能不一致：学到的权重是相对导出设备词库邻居的绝对值。明文流 header 带词库内容标识，不一致时设置页提示，不修。
+
+### 客户端与服务端的分工
+
+- **client-core**：域参数、带认证的封装、反向核对、信封加解密、Padmé；C ABI、JNI、NAPI 加 `domain` 字段，缺省为剪贴板。
+- **engine**：Lamport SQL、`export_learning_sync`、`merge_learning_sync`（独占维护锁下执行，n-gram 第二期合并前 flush、合并后 invalidate 并截到上限）。
+- **client-services 与 host-api**：`Section::Learning`；`Capabilities` 加 `learning`（`deny_unknown_fields`，宿主和库必须同包发版）；一轮里的 learning 步骤；进度单独存 `cloud-sync/learning.json`，不放 `state.json`，因为旧版本改写 `state.json` 会丢掉新增的分区，防回滚下限也会跟着丢。上传：在会话访问权下导出，算过滤后明文的 SHA-256，没变不传，变了压缩、补齐、加密后上传，自动上传每小时最多一次。下载：取元数据，下载代次变大的设备的密文，校验后 `combine`，写待合并文件；待合并文件还没被认领时这一轮跳过下载。学习变化不在按键路径上标脏，只靠摘要比较发现，摘要是全表扫描，所以自动比较最多每小时一次。
+- **Android**：主进程的单线程执行器跑一轮（回到前台时），`:ime` 空闲时认领合并，排在快照激活之后。
+- **桌面**：设置应用打开时、开着期间每 30 分钟、点「立即同步」时跑一轮；合并在 `QuiescedHosts` 租约下执行（做法同完整备份的「应用到本机」）。上线门槛是 20 万行合成数据合并不超过 2 秒，否则改成下次空闲。
+- **iOS**：Engine 只在键盘扩展里，键盘在没有输入会话时导出到 App Group，App 回到前台时加密、上传、下载并写待合并文件，扩展空闲时合并。App Group 里的中间明文文件设 `isExcludedFromBackup`、加文件保护、用完即删。没有完全访问权限时开关置灰。
+- **HarmonyOS**：设置应用跑一轮，导出和待合并文件经共享沙箱镜像交换（[鸿蒙输入法共享沙箱](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)），键盘不生成身份。
+- **msime-cloud**：现有 `PUT /dictionary/snapshot` 完全不动。新增 `learning_schema.sql`（设置、设备、封装、密文四张表，设备行外键绑定会话、会话吊销时级联删除，全部从用户级联删除，密文 `bytea` 带 8 MiB 的 CHECK）和 `learning_e2e.go`，只抽出和剪贴板共用的纯格式校验函数，不改剪贴板的 SQL。用户数据的汇总、删除、导出加 learning 分区，导出只放元数据。设备 180 天不在线时清理。开关只存本机，不进设置同步（[iOS 自动云同步](../../implemented/feature/2026-10-12-ios-automatic-cloud-sync.md)里本地专属键的先例）。
+
+### 界面
+
+- 六个平台都放在「账号与同步」的「词库」下面：macOS、Linux、HarmonyOS 用 `packages/ui` 的设置页，Windows 用原生设置页和 Win7 表单，iOS 用 `AccountSettingsView`，Android 用 `AccountFragment`。开发期各平台的能力标为 false，控件不渲染、不放占位；六个平台都验收后一起打开。
+- 账号下已有设备开启、本机还没开时，卡片上显示一行提示，不弹窗。
+- 首次说明一屏讲完，默认焦点在「取消」：会同步什么、不会同步什么（选词进度、拼写纠错、打字统计，以及本来就不学习的隐私模式、密码框和 @/V// 模式）、服务端看得到什么、新设备要核对后允许、重置不影响其他设备、关闭会删除这台设备在云端的那一份。
+- 批准复用云剪贴板现成的组件，加一个域参数（`packages/ui/src/keyboard/cloud-clipboard-devices.tsx` 和各原生端的对应组件）。批准只放行 learning 这一个功能，不连带剪贴板。那个组件里同一台设备显示成多条待批准的问题（#10028）已由 #10032 修好，不是前置。
+- 关闭：先本机关掉，再删云端这一份、注销本机设备；删除失败时开关仍是关的并提示（照打字统计）。最后一台设备关闭时服务端删除密钥。
+- 「词库」同步仍是明文，两项的隐私级别要在界面上并列写清，免得用户以为「水杉读不到我学到的词」。
+
+### 分期与 PR
+
+以下 PR 都写 `Refs #10043`，最后一个写 `Fixes #10043`。
+
+第 0 期，不新增任何上传：
+
+1. msime，docs：这篇笔记、`docs/learning-sync.md`、PRIVACY.md 的更正。
+2. msime，fix(sync)：云词库整份激活时保留本机学习。另开 issue，先写会失败的测试、真机复现。
+
+第 1 期，寄存器类数据，六个平台：
+
+3. msime-cloud，feat(account)：learning 域的设备、封装和每设备密文。依赖 1。
+4. msime，client-core：E2E 驱动按域参数化，加入 learning 域。依赖 1。
+5. msime，engine：Lamport 时间戳、同步流与 `merge_learning_sync`。依赖 1。
+6. msime，client-services 与 host-api：Learning 同步段。依赖 3、4、5。
+7. Android 接入。8. 桌面三端接入。9. iOS 接入。10. HarmonyOS 接入。都依赖 6。
+11. 放出：六个平台的能力置为 true（默认仍关闭），PRIVACY.md 一句话结论和新章节，界面文案（含 `packages/ui/src/settings/pages/privacy-page.tsx`、iOS `CloudDictionaryView.swift` 和 Android 备份页里「不会上传学习记录」一类的说法）。依赖 7 到 10，以及维护者完成下面第 1 项。
+
+第 2 期：
+
+12. 桌面和 HarmonyOS 的密钥串进系统密钥库（Windows DPAPI、macOS 钥匙串、Linux libsecret、鸿蒙 HUKS）。新增依赖先列出 crate、版本、用途，问过维护者再加。是 13 的硬门槛。
+13. 用户库 v5：固定位置和快捷短语槽位加时间戳和删除记录，整句联想按设备分槽。
+
+第 3 期另开 issue，不在 #10043 内：桌面常驻进程里后台同步；评估纠错是否按键盘类型分开同步；同一信封走 WebDAV 和自建中继；「词库」同步迁到端到端加密；按意图同步调权；服务端 `user_dictionary_changes` 无限增长；剪贴板也改用带认证的封装。
+
+### 必须由维护者处理的事项
+
+1. **应用商店隐私申报**：放出（PR 11）之前更新 App Store Connect 的 App Privacy、Google Play 的 Data safety、华为 AppGallery 的隐私声明，加上「用户开启后上传的端到端加密输入习惯数据，与账号关联」。这几个后台只有账号持有人能改。
+2. **PRIVACY.md 的措辞**：PRIVACY.md 是对用户的公开说明。第 0 期的更正（PR 1）和放出时的新章节（PR 11）合并之前，请维护者过目，确认措辞可以对外发布。
+
+### 与已有笔记的关系
+
+- [Android 本地备份带上输入记录](../../implemented/feature/2026-10-09-android-backup-learning-state.md)：第 9 行「输入记录不进云同步」被这篇部分取代，其余（备份格式、本机优先合并、待合并文件）仍然成立，学习同步复用它的待合并文件机制。
+- [Android 本地备份带上全部输入习惯](../../implemented/feature/2026-10-10-android-backup-habits-and-verified-restore.md)：部分重叠，它的 `merge_learning_habits` 保持本机优先，第二期整句联想另走按设备分槽的合并。
+- [云剪贴板端到端加密](../../implemented/feature/2026-10-11-cloud-clipboard-e2e.md)：协议的母本；它写明不防的「给新设备塞密钥」在 learning 域上补上，剪贴板本身留到第 3 期。
+- [多分类自动云同步的编排收进 Rust](../architecture/2026-10-16-cloud-sync-orchestration-in-rust.md)：Learning 作为新的分类接进同一套状态机，进度文件分开存。
+- [自建存储个人词库同步方案](2026-10-27-dictionary-self-hosted-sync.md)：同步对象不重叠（它只同步用户词），它的操作日志设计是下文被否的备选。
+
+## Consequences
+
+- **收益**：打开开关的用户在几台设备之间得到一致的候选顺序，删掉的词不会被别的设备造回来；服务端和数据库泄露都读不到学到的内容；不开的用户行为完全不变。第 0 期让 PRIVACY.md 如实写出词库同步早已在明文上传自动造的词，Android 整份下载丢学习的问题也有了单独的修复。
+- **代价**：每台设备要为这个功能单独批准一次，第一次还多核对一次反向核对码，加上默认关闭，开启率会低，这是隐私和覆盖面之间有意的取舍。桌面第一期只在设置应用打开时同步。固定位置第一期只增不删。不同词库版本之间名次仍可能不一致。两套合并语义（备份的本机优先、同步的会收敛）并存，改合并代码的人要分清用的是哪一套。服务端仍看得到设备名、密文大小和上传时间，能推断某台设备大约在哪个小时里学到了东西。
+
+## Alternatives considered
+
+- **操作日志（照 #9880 的 WebDAV 词库同步那套）**：最强的理由是增量小、能精确传播每一次调权，和自建存储词库同步共用一套机制。不用：它依赖的 #9880 第二个 PR（WebDAV 传输和 Engine 一侧的本机词库）还没合并，[那篇笔记](2026-10-27-dictionary-self-hosted-sync.md)仍是 proposed；而且要在 Engine 每一个学习写入点挂钩记操作，调权、阶梯降权、删词、置顶、造词散在几十处，漏挂一处就静默不同步。每设备一份整份状态只需要一个导出函数和一个合并函数，正确性集中在两处。
+- **明文：把学习记录并进现有词库快照**（云同步也带 `include_learning`）：改动最小，格式和服务端都现成。不用：服务端会解析出全部调权和删除记录，等于把用户亲自否掉的「输入记录进云同步」原样做了，还违背 issue 要的「服务端不能读出用户打过什么」。
+- **每设备密文、但合并按本机优先、读取方每 7 天清零防回滚记录**（调研时以它为底的方案）：本机优先直接复用备份的合并函数。不用原样：本机优先在三台以上设备上不收敛，各台留着自己的值；防回滚记录清零后服务端可以在清零之后回放旧密文。改成逐行 Lamport 时间戳的后写者胜、防回滚记录永不清零。
+- **以服务端校验为主、客户端不认证封装者**：服务端绑定会话与设备、代次写进附加数据、长度补齐，这几条采用了；但只靠服务端校验挡不住服务端自己作恶，所以封装改成带认证的，再加反向核对。
+- **和云剪贴板共用设备身份与密钥**：用户只批准一次。不用：关掉云剪贴板或删除剪贴板数据会删掉设备登记和密钥，输入习惯会跟着失效；批准一次放行两个功能也超出用户当时同意的范围。
+- **反向核对码只用两台设备的公钥算**：实现最简单，新设备在拿到密钥前就能算。不用：服务端事先知道两把公钥，可以离线搜索一个号码相同的假批准者公钥，见上文。
+- **恢复码或口令派生密钥**：所有设备都丢了也能找回云端数据。不用：口令方案用户在云剪贴板上已经否决过（[云剪贴板端到端加密](../../implemented/feature/2026-10-11-cloud-clipboard-e2e.md)的备选方案）；口令派生还要新增 argon2 依赖；而云端只是副本，本机才是正本。
+- **默认开启**：覆盖面最大，用户换设备时直接生效。不用：上传类功能的先例都是默认关闭，默认开启等于替所有用户推翻 2026-10-09 用户亲自定的决定。
+- **按 2 的幂分桶补齐**：分桶粗、泄露的长度信息更少。不用：4.1 MiB 会补到 8 MiB，正好顶到单设备上限；Padmé 的额外开销不超过 12%。
+- **同步纠错计数与抑制**：纠错也是「输入习惯」。不用：纠错类别取决于键位相邻，触屏和实体键盘之间混用会学坏，第 3 期评估按键盘类型分开。
+
+## Acceptance criteria
+
+- PR 1：`verify-agent-note-format.ts`、`verify-agent-note-tree.ts` 通过；PRIVACY.md 每一句更正都能在上面「前提更正」列出的代码路径上对上。
+- PR 2：有调权、整句联想和固定位置的用户库经过 Download 激活后条数不变的 host-api 测试先失败后通过；Android 真机修前复现、修后复验。
+- PR 3：在 `MSIME_TEST_DATABASE_URL` 下覆盖代次比较冲突 409、明文和前缀不对 400、超过 8 MiB 413、超额度、跨会话写入 403、匿名账号 403、换钥删除密文、会话吊销后设备级联删除、删除数据和注销账号的级联、长期不在线的清理；`clipboard_*` 测试原样通过。
+- PR 4：剪贴板的请求路径、请求体、密钥串编码与改动前逐字节相同；learning 域的已知答案测试；篡改附加数据里的 `key_id`、`device_id`、`generation` 时解密失败；伪造批准者时反向核对码不一致；clippy 零告警。
+- PR 5：三个 Engine 实例用合成数据随机交错同步后收敛；重复合并结果不变；远端删除记录能阻止连续选词把词造回来；阶梯降权整组胜出；本机 `user_inserted=1` 的行不被覆盖；回放结果与 `updated_at` 顺序无关；`stream_dictionary_state` 的版本不变；`an_export_without_learning_is_byte_for_byte_the_cloud_snapshot` 仍然通过；挑词和上屏的耗时基准不回退。
+- PR 6：模拟服务端下三台设备往返直到收敛；回滚被拒；合并失败后重新应用；摘要没变不上传；重置学习后重置前的远端行不回来；旧 `state.json` 升级再降级后防回滚下限还在。
+- PR 7 到 10：两台真机上 A 把某个候选提到首位，B 获批后收起键盘名次一致；关闭开关后云端那份被删；打字过程中主线程不阻塞；桌面 20 万行合成数据合并不超过 2 秒；iOS 扩展内存峰值在限额内。
+- PR 11：六个平台截图；PRIVACY.md 新章节每条说法都对得上代码路径；维护者完成应用商店申报。
+
+## Risks
+
+- Android「整份下载冲掉学习」目前只来自读代码。真机证实的话，它本身就是 #10043 里「各学各的」的主要来源之一，PR 2 优先级最高。
+- 设备时钟偏差大时，并发修改的胜负可能和真实先后相反。Lamport 时间戳只保证之后的修改仍能胜出。
+- 第一期期间桌面和 HarmonyOS 的 `K_learn` 只在当前用户私有的文件里（`crates/client-services/src/account/file_storage.rs`），能读这个文件的程序就能解开全部输入习惯；所以能还原句子的整句联想要等 PR 12 之后才同步。
+- iOS 必须有完全访问权限；HarmonyOS 靠共享沙箱镜像交换，延迟和可靠性未知。两者都可能拖慢六个平台一起放出。
+- `Capabilities` 是 `deny_unknown_fields`，宿主和库必须同包发版，iOS 和 HarmonyOS 的打包也一样。
+- 体量估计来自一份开发者用户库外推，重度用户可能碰到 8 MiB 和 64 MiB 的上限；碰到时客户端截断并提示。
+- 「词库」同步仍然是明文。界面上没写清的话，用户会以为学到的词也读不到。
