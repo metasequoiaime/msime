@@ -21,6 +21,11 @@ public final class WindowInsetsPolicy {
         return !imeVisible;
     }
 
+    /** 部分 Android 11 厂商只更新输入法 inset，不更新 `isVisible(Type.ime())`。 */
+    public static boolean shouldShowFixedPageNavigation(boolean imeVisible, int imeBottom) {
+        return !imeVisible && imeBottom <= 0;
+    }
+
     /** 输入法弹出时收起主页底部导航；对话页无论是否弹出输入法都不显示。 */
     public static boolean shouldShowHomeTabs(boolean imeVisible, boolean chatVisible) {
         return !imeVisible && !chatVisible;

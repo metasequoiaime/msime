@@ -118,6 +118,15 @@ $oldHostOptions = $env:MSIME_CLIENT_HOST_OPTIONS
 $pages = @('typing', 'lexicon', 'shortcuts', 'expression', 'voice', 'osk', 'themes', 'candidate', 'toolbar', 'clip', 'ai', 'plugins', 'stats', 'account', 'dev', 'about')
 $process = $null
 # 用仓库许可明确的合成皮肤验证真实设置卡片；颜色块让缺图和旧模式都能被屏幕像素发现。
+# 屏幕比要的尺寸小时，SetWindowPos 撑不到要的大小，之后的「宽窗口」断言会在不相干的地方失败（Depot 的 Windows 机型主屏是 800×600，窗口停在最小尺寸 820×620）。设完尺寸先读回来，撑不到就直接说清楚是屏幕的问题。
+function Assert-WindowSize([IntPtr]$handle, [int]$width, [int]$height) {
+    $bounds = [System.Windows.Automation.AutomationElement]::FromHandle($handle).Current.BoundingRectangle
+    if ($bounds.Width -lt $width -or $bounds.Height -lt $height) {
+        $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        throw "Settings window is $([int]$bounds.Width)x$([int]$bounds.Height), not ${width}x${height}: the $($screen.Width)x$($screen.Height) screen is too small for this check"
+    }
+}
+
 function New-CanvasPreviewFixture {
     $skins = Join-Path $state 'skins'
     New-Item -ItemType Directory -Force $skins | Out-Null
@@ -740,6 +749,7 @@ function Assert-SentenceModelSettings($window, [string]$theme) {
     foreach ($width in @(1000, 800)) {
         $handle = [IntPtr]$window.Current.NativeWindowHandle
         if (-not [SettingsWindowProbe]::SetWindowPos($handle, [IntPtr]::Zero, 0, 0, $width, 780, 0x0040)) { throw 'Model fixture resize failed' }
+        Assert-WindowSize $handle $width 780
         foreach ($model in $models) {
             # 模型设置在页面底部，必须滚到控件可见再操作和截图。
             $content = Find-ById $window 'settings-content'
@@ -1138,6 +1148,7 @@ try {
         }
         foreach ($width in @(1000, 800)) {
             if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 780, 0x0040)) { throw 'Window resize failed' }
+            Assert-WindowSize $process.MainWindowHandle $width 780
             foreach ($page in $pages) {
                 if ($process.HasExited) { throw "Settings exited on $page" }
                 # 复用导航等待，既验证正文身份，也处理侧栏虚拟化。
