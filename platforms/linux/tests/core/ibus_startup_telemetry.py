@@ -239,7 +239,7 @@ def main():
         finally:
             cleanup()
 
-    # 宿主收到崩溃信号：处理函数只把这次会话的崩溃记录写到磁盘（第一行是信号摘要），然后照默认动作退出，不联网。
+    # 宿主收到崩溃信号：只落盘构建头、信号摘要和栈，然后照默认动作退出，不联网。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
         registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
@@ -253,7 +253,14 @@ def main():
             [record] = crash_records(scratch)
             # 测试从外部发 SIGSEGV，不是宿主执行出错：摘要写出发送者，即这个测试进程的名字。
             sender = Path("/proc/self/comm").read_text().strip()
-            assert record.read_text().startswith(f"SIGSEGV: segmentation fault (sent by {sender})\n"), record.read_text()
+            raw = record.read_text()
+            header, summary, stack = raw.split("\n", 2)
+            assert header.startswith("MSIME-CRASH/1 "), raw
+            identity = json.loads(header.removeprefix("MSIME-CRASH/1 "))
+            assert identity["platform"] == "linux" and identity["version"] == version, identity
+            assert identity["component"] == "input" and identity["arch"], identity
+            assert summary == f"SIGSEGV: segmentation fault (sent by {sender})", raw
+            assert "+0x" in stack and " [id 0x" in stack, raw
             assert len(endpoint.connections) == connections, "the crash path used the network"
         finally:
             cleanup()

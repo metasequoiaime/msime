@@ -303,6 +303,7 @@ public final class Telemetry {
     /** API 30 起系统提供退出原因；只接收本进程曾明确启用采集时留下的短身份，不读描述、日志或 tombstone。 */
     private static final class SystemExits {
         static void summary(Context app, String summary) {
+            if (android.os.Build.VERSION.SDK_INT < 30) return;
             android.app.ActivityManager manager = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
             if (manager == null) return;
             byte[] bytes = summary == null ? null : summary.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
@@ -310,6 +311,7 @@ public final class Telemetry {
         }
 
         static void collect(Context app) throws Exception {
+            if (android.os.Build.VERSION.SDK_INT < 30) return;
             android.app.ActivityManager manager = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
             if (manager == null) return;
             for (android.app.ApplicationExitInfo exit : manager.getHistoricalProcessExitReasons(app.getPackageName(), 0, 16)) {
