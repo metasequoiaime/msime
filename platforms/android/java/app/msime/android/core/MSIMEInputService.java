@@ -295,6 +295,8 @@ public final class MSIMEInputService extends InputMethodService {
     private long candidateOfflineGlossGeneration = -1;
     private java.util.List<String> englishSuggestions = java.util.List.of();
     private String englishSuggestionPrefix = "";
+    /** 第二行是否为纠错；等待查询时只显示原文，点它仍按拒绝纠错处理。 */
+    private boolean englishSuggestionCorrected;
     private String clearableEnglishWord = "";
     private int clearableEnglishCursor = -1;
     private InputConnection clearableEnglishConnection;
@@ -3451,6 +3453,7 @@ public final class MSIMEInputService extends InputMethodService {
         englishSuggestionRequestedPrefix = "";
         englishSuggestionPrefix = "";
         englishSuggestions = java.util.List.of();
+        englishSuggestionCorrected = false;
     }
 
     private String englishWordBeforeCursor() {
@@ -3525,6 +3528,7 @@ public final class MSIMEInputService extends InputMethodService {
         englishSuggestionPrefix = prefix;
         // 共享纠错始终把原文放在第一行；等待查询时先显示当前原文，避免每一键都闪回空闲工具栏。
         englishSuggestions = java.util.List.of(prefix);
+        englishSuggestionCorrected = true;
         long epoch = englishSuggestionEpoch;
         String resources = candidateGlossResources;
         englishSuggestionRequestedEpoch = epoch;
@@ -3532,17 +3536,9 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             englishSuggestionWorker.execute(() -> {
                 try {
-                    EnglishSuggestionModel.Result suggestions = EnglishSuggestionModel.decode(
-                        NativeClient.englishCorrections(prefix, resources));
-                    if (prefix.chars().allMatch(TextPolicy::isAsciiLetter)) {
-                        try {
-                            suggestions = EnglishSuggestionModel.withCompletions(suggestions,
-                                EnglishSuggestionModel.decode(NativeClient.englishCompletions(prefix, resources)));
-                        } catch (Exception | LinkageError ignored) {
-                            // 补全不可用时保留原文与纠错，空格提交仍只查询唯一纠错。
-                        }
-                    }
-                    EnglishSuggestionModel.Result result = suggestions;
+                    // 共享引擎给出完整展示：有纠错时只有原文与纠错，原文已是完整的词时只有原文，否则原文后接前缀补全；空格提交仍只查询唯一纠错。
+                    EnglishSuggestionModel.Result result = EnglishSuggestionModel.decode(
+                        NativeClient.englishSuggestions(prefix, resources));
                     main.post(() -> applyEnglishSuggestions(epoch, prefix, result));
                 } catch (Exception | LinkageError ignored) {
                     // Completion failures are optional display state and never block input.
@@ -3559,6 +3555,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || !prefix.equals(englishWordBeforeCursor())
                 || !prefix.equals(result.prefix())) return;
         englishSuggestions = result.items();
+        englishSuggestionCorrected = result.corrected();
         englishSuggestionPrefix = prefix;
         render();
     }
@@ -3576,8 +3573,10 @@ public final class MSIMEInputService extends InputMethodService {
         EnglishSuggestionPolicy.Replacement replacement = EnglishSuggestionPolicy.replacement(
             typed, candidate, startedCapitalized);
         if (replacement == null) {
+            // 只有展示了纠错（或答案未到）时点原文才是拒绝纠错；只有补全时点原文仅收起候选。
+            boolean rejected = englishSuggestionCorrected;
             clearEnglishSuggestions();
-            englishCorrectionRejectedPrefix = typed;
+            if (rejected) englishCorrectionRejectedPrefix = typed;
             render();
             return;
         }
