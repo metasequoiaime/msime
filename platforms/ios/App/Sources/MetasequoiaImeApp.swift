@@ -77,7 +77,11 @@ struct MetasequoiaImeApp: App {
       #endif
     }
     .onChange(of: scenePhase) { _, phase in
+      // 词库同步只在 App 在前台时按 Rust 给的间隔定时，进了后台就停。
+      if phase == .background { DictionarySyncCenter.shared.onBackground() }
       guard phase == .active else { return }
+      // 打开 App 就是「打开设置应用」：以 `opened` 同步一次，没有配置网盘时什么也不做。
+      DictionarySyncCenter.shared.onActive()
       OnboardingChoices.shared.sync()
       // 「水杉四季」跟随月份，所以启动或从后台返回时会重新解析季节；季节变化时发出 `AppThemePalette.didChange`。
       AppThemePalette.refresh()

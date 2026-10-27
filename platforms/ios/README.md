@@ -98,6 +98,8 @@ App「词库」里的个人词典对应 Windows 的用户词编辑：编辑器�
 
 个人词典页的「导出」对应 Windows 按词库类型导出：选类型和格式（词在前的标准格式，或编码在前的 Windows 格式）后点「生成导出文件」。App 不能在键盘可能持有词库时打开 Engine，所以导出和编辑走同一个队列：请求记在 App Group 的 `sync.json` 里，键盘下次同步、并且排队的编辑都已应用后，在一次维护窗口里按每页 1000 行调用 Engine 的 `export`，把结果写到 `PersonalDictionary/export.txt`，页面随后以桌面的文件名（如 `水杉IME-拼音用户词库.txt`）交给分享面板。导出规则来自 Engine，与桌面相同：拼音只导多字词，并带上调过权重的内置词，其他类型只导用户词。键盘扩展的内存上限远低于 App，所以一次导出最多 8 MB、20 万行，超出时在最后一个完整行处截断，页面说明只导出了前面一部分。
 
+「词库 → 词库同步」把「我的词条」经用户自己的 WebDAV 网盘在设备之间同步（`docs/dictionary-webdav-sync.md`），不需要水杉账号：填写页与云剪贴板的网盘相同（测试连接通过才写偏好的 `dictionary_sync_webdav`，应用密码不回显、留空沿用），页面上有状态和「立即同步」、本机等待批准时的核对码、等待批准的设备和设备列表、被挡下的大批删除的两个选择，以及重置密钥、以本机为准重新开始和停止同步（`App/Sources/dictionary/DictionarySyncView.swift`）。全部经 Rust 的 `msime_client_dictionary_sync`（`SharedUI/core/DictionarySync.swift`），本机目录是 App Group 容器的 `dictionary-sync/`，词库的密钥串是 Rust 在里面写的文件，App 和键盘共用一份和同一把锁，所以是一台设备。App 回到前台时同步一次、在前台时按 Rust 给的间隔再同步，进后台就停（`DictionarySyncCenter.swift`）；键盘应用了 App 排队的编辑或候选栏删除词条之后在后台记录一次本机改动（`KeyboardExtension/Sources/dictionary/KeyboardDictionarySync.swift`），只在有完全访问、App 已经同步过、状态文件不超过 2 MiB 时才做。别处的词在 App 打开、并且键盘没有占着词库时写进本机。
+
 英文混输开关只读共享偏好的 `mixed_input.english`。共享配置中的触发阈值、Emoji 与颜文字字段原样保留，iOS 不建立第二套偏好源，也不复制 Engine 的英文候选算法。
 
 全角输入与其余五个宿主同一条链路：共享偏好的 `character_width`（App「标点」页的「全角输入」，与桌面设置同一字段）是键盘会话的起始宽度，键盘经 `msime_client_set_character_width` 告诉运行时，此后运行时完成的每一次提交都已转成全角；键盘只再转换自己绕过运行时直接写入的符号、空格、快捷标点与英文字母，手写、剪贴板、AI、语音和表情保持原文。键盘收起时会销毁会话、再出现时重建，重建后的会话会被重新告知宽度。功能菜单的“全角”开关只临时切换当前键盘；设置页重载时，只有 `character_width` 本身变了才覆盖它，保存其它设置不会清掉刚按下的切换。
