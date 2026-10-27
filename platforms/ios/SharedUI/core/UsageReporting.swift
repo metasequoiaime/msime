@@ -30,9 +30,15 @@ enum UsageReporting {
       .appendingPathComponent("MSIME/telemetry", isDirectory: true)
   }
 
-  static func isEnabled(in preferences: [String: Any]?) -> Bool {
-    preferences?[preferenceKey] as? Bool ?? true
+  /// 缺字段沿用产品默认值；读盘失败和非布尔值暂时停采，不能扩大同意。
+  static func consent(in preferences: [String: Any]?) -> Bool? {
+    guard let preferences else { return nil }
+    guard let value = preferences[preferenceKey] else { return true }
+    guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+    return number.boolValue
   }
+
+  static func isEnabled(in preferences: [String: Any]?) -> Bool { consent(in: preferences) == true }
 
   /// 异常回调只看内存，避免崩溃时重入共享偏好的 Rust 锁。读取中的旧值不能覆盖设置页刚保存的选择。
   struct ExceptionConsent {
@@ -113,12 +119,10 @@ enum UsageReporting {
     exceptionConsent.withCurrent { current in
       if let defaults = diagnosticDefaults { refreshDiagnosticConsent(current, in: defaults) }
     }
-    if enabled {
-      arm(prepareApplicationCapture())
-    } else {
-      msimeIOSCrashRecordSet(nil, nil)
-      if let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
-    }
+    // 关闭立即撤下故障快照，队列上的撤回也使紧接着重开的采集取得新身份。
+    if !enabled { applicationCapture.revoke() }
+    applicationCapture.refresh()
+    if !enabled { clear() }
     return true
   }
 
@@ -126,11 +130,11 @@ enum UsageReporting {
     Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
   }
 
-  private static func request(_ directory: URL) -> [String: Any] {
-    var request: [String: Any] = ["directory": directory.path, "platform": "ios", "version": version]
-    let preferences = MetasequoiaInputSessionBridge.sharedStateDirectory
-    if preferences.hasPrefix("/") { request["preferences_directory"] = preferences } else { request["enabled"] = true }
-    return request
+  private static func request(_ directory: URL, preferencesDirectory: String? = nil) -> [String: Any]? {
+    let preferences = preferencesDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory
+    // 无法确定共享偏好来源时不提交请求，也不能按“明确关闭”清掉已有记录。
+    guard preferences.hasPrefix("/") else { return nil }
+    return ["directory": directory.path, "platform": "ios", "version": version, "preferences_directory": preferences]
   }
 
   /// 一次已经开始的键盘会话：结束它、为它写崩溃记录都按这个 id，不看标记现在属于谁（同时可能有别的键盘进程在开始会话）。
@@ -147,8 +151,8 @@ enum UsageReporting {
     return begin(in: directory)
   }
 
-  static func begin(in directory: URL) -> Session? {
-    var request = request(directory)
+  static func begin(in directory: URL, preferencesDirectory: String? = nil) -> Session? {
+    guard var request = request(directory, preferencesDirectory: preferencesDirectory) else { return nil }
     request["component"] = "keyboard"
     guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request) as? [String: Any],
           value["enabled"] as? Bool == true,
@@ -160,7 +164,7 @@ enum UsageReporting {
   /// App 只准备独立捕获，不开始或结束键盘会话。
   static func prepareApplicationCapture() -> Session? {
     guard let directory else { return nil }
-    var request = request(directory)
+    guard var request = request(directory) else { return nil }
     request["capture_only"] = true
     request["component"] = "application"
     guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request) as? [String: Any],
@@ -171,12 +175,139 @@ enum UsageReporting {
     return Session(id: id, crashRecordPath: path, crashRecordHeader: header)
   }
 
-  static func arm(_ session: Session?) {
-    guard let session, isEnabled else { msimeIOSCrashRecordSet(nil, nil); return }
+  private static func configure(_ session: Session?) {
+    guard let session else { msimeIOSCrashRecordSet(nil, nil); return }
     session.crashRecordPath.withCString { path in
       session.crashRecordHeader.withCString { msimeIOSCrashRecordSet(path, $0) }
     }
   }
+
+  private static func clear() {
+    if let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
+  }
+
+  /// 观察与会话收尾共用独立串行队列，网络发送不能阻塞撤回或键盘收起。
+  /// 暂时读失败仅解除武装并保留身份；明确关闭清队列并丢弃身份。
+  final class CaptureLifecycle {
+    private let queue = DispatchQueue(label: "app.msime.ios.crash-consent", qos: .utility)
+    private struct Snapshot {
+      var session: Session?
+      var generation: UInt64 = 0
+    }
+    private let snapshot = OSAllocatedUnfairLock(initialState: Snapshot())
+    private let load: () -> Bool?
+    private let prepare: () -> Session?
+    private let configure: (Session?) -> Void
+    private let clear: () -> Void
+    private let finish: (Session) -> Void
+    private var timer: DispatchSourceTimer?
+    private var active = false
+    private var session: Session?
+    private var disabled = false
+
+    init(load: @escaping () -> Bool?, prepare: @escaping () -> Session?,
+         configure: @escaping (Session?) -> Void, clear: @escaping () -> Void,
+         finish: @escaping (Session) -> Void = { _ in }) {
+      self.load = load
+      self.prepare = prepare
+      self.configure = configure
+      self.clear = clear
+      self.finish = finish
+    }
+
+    /// 故障路径不读盘、不等待生命周期队列；锁忙时放弃这份报告。
+    var current: Session? { snapshot.withLockIfAvailable { $0.session } ?? nil }
+
+    func start(_ ready: @escaping () -> Void = {}) {
+      queue.async {
+        if !self.active {
+          self.active = true
+          self.update()
+          let timer = DispatchSource.makeTimerSource(queue: self.queue)
+          timer.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
+          timer.setEventHandler { [weak self] in self?.update() }
+          self.timer = timer
+          timer.resume()
+        }
+        // 调用方只在这里向自己的网络队列投递任务，初次补录先于发送。
+        ready()
+      }
+    }
+
+    func refresh() { queue.async { self.update() } }
+
+    func revoke() {
+      // 本进程的设置回调无需等待下一次轮询就能停下异常和信号记录。
+      snapshot.withLock {
+        $0.generation &+= 1
+        $0.session = nil
+        configure(nil)
+      }
+      queue.async {
+        self.session = nil
+        self.disabled = true
+        self.snapshot.withLock { $0.session = nil }
+        self.configure(nil)
+      }
+    }
+
+    func stop() {
+      queue.async {
+        self.active = false
+        self.timer?.cancel()
+        self.timer = nil
+        self.snapshot.withLock { $0.session = nil }
+        self.configure(nil)
+        if let session = self.session { self.finish(session) }
+        self.session = nil
+        self.disabled = false
+      }
+    }
+
+    private func update() {
+      guard active else { return }
+      let generation = snapshot.withLock { $0.generation }
+      let consent = load()
+      // prepare 可能读盘；撤回不能等它完成，也不能让这次旧读重新武装。
+      if consent == true, session == nil { session = prepare() }
+      snapshot.withLock { current in
+        guard current.generation == generation else { return }
+        switch consent {
+        case true?:
+          disabled = false
+          current.session = session
+          configure(session)
+        case false?:
+          current.session = nil
+          configure(nil)
+          session = nil
+          if !disabled { clear() }
+          disabled = true
+        case nil:
+          current.session = nil
+          configure(nil)
+        }
+      }
+    }
+
+    /// 供验证等待已排入的生命周期操作；不等待网络发送。
+    func waitForPendingOperations() { queue.sync {} }
+  }
+
+  private static func loadCaptureConsent() -> Bool? {
+    var loaded: Bool?
+    let enabled = exceptionConsent.refresh {
+      loaded = consent(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+      return loaded == true
+    }
+    if loaded != nil, let defaults = diagnosticDefaults { refreshDiagnosticConsent(enabled, in: defaults) }
+    return loaded == nil ? nil : enabled
+  }
+
+  static let applicationCapture = CaptureLifecycle(load: loadCaptureConsent, prepare: prepareApplicationCapture,
+                                                    configure: configure, clear: clear)
+  static let keyboardCapture = CaptureLifecycle(load: loadCaptureConsent, prepare: begin,
+                                                 configure: configure, clear: clear, finish: { end(session: $0.id) })
 
   /// 系统报告原版本已知而源码构建未知时明确标成 unknown，不能用升级后的身份填补。
   static func diagnosticHeader(version: String) -> String? {
@@ -196,8 +327,8 @@ enum UsageReporting {
 
   /// Queues today's active and sends the queue. Blocks on the network: never on the main thread.
   static func flush() {
-    guard let directory else { return }
-    ClientRequestEnvelope.call(msimeClientTelemetryFlush, request(directory))
+    guard let directory, let request = request(directory) else { return }
+    ClientRequestEnvelope.call(msimeClientTelemetryFlush, request)
   }
 
   /// From an uncaught-exception handler in the keyboard: writes this session's crash record, sent on a later start.
@@ -241,12 +372,12 @@ enum UsageReporting {
     "ios-\(kind)-" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 
-  /// 主 App 的未捕获异常处理器调用：写一份不属于任何键盘会话的崩溃记录（新 id），下次键盘启动时报 `crash`；再把进程号追加到 `handledProcesses`，MetricKit 事后送来同一进程的诊断时由 `takeHandledProcess` 认出并跳过。MetricKit 只有 abort 时的线程栈，CFRunLoop 重新抛出后已经看不到抛出点，这里的栈来自异常本身。消息只有异常名，不带 `reason`（可能引用 App 里的数据）。只建文件、不加锁，可以在处理器里调用。
+  /// 主 App 的未捕获异常处理器调用：按当前已准备的身份写一份不属于任何键盘会话的崩溃记录，下次键盘启动时报 `crash`；再把进程号追加到 `handledProcesses`，MetricKit 事后送来同一进程的诊断时由 `takeHandledProcess` 认出并跳过。MetricKit 只有 abort 时的线程栈，CFRunLoop 重新抛出后已经看不到抛出点，这里的栈来自异常本身。消息只有异常名，不带 `reason`（可能引用 App 里的数据）。只建文件、不加锁，可以在处理器里调用。
   static func recordUncaughtException(name: String, returnAddresses: [NSNumber], pid: pid_t, in directory: URL,
-                                      handledProcesses: URL, capture: Session? = nil) {
+                                      handledProcesses: URL, capture: Session) {
     var request: [String: Any] = ["directory": directory.path, "message": "Uncaught \(name)",
-                                "stack": frames(fromReturnAddresses: returnAddresses), "session": capture?.id ?? UUID().uuidString]
-    if let capture { request["crash_record_header"] = capture.crashRecordHeader }
+                                "stack": frames(fromReturnAddresses: returnAddresses), "session": capture.id]
+    request["crash_record_header"] = capture.crashRecordHeader
     guard ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request) != nil else { return }
     let descriptor = open(handledProcesses.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
     guard descriptor >= 0 else { return }

@@ -14,7 +14,6 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
   private struct Recording {
     let directory: URL
     let handledProcesses: URL
-    let capture: UsageReporting.Session?
     let previous: (@convention(c) (NSException) -> Void)?
   }
 
@@ -32,15 +31,13 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
     MXMetricManager.shared.add(self)
     // 上报开关在共享偏好里，读它要经 Rust 读盘，不放在启动的主线程上；安装之前极短的窗口里抛出的异常只有 MetricKit 的诊断。
     DispatchQueue.global(qos: .utility).async {
-      _ = UsageReporting.isEnabled
-      let capture = UsageReporting.prepareApplicationCapture()
-      UsageReporting.arm(capture)
+      UsageReporting.applicationCapture.start()
       guard let directory = UsageReporting.directory,
             let handledProcesses = Self.handledProcesses else { return }
       try? FileManager.default.createDirectory(at: handledProcesses.deletingLastPathComponent(),
                                                withIntermediateDirectories: true)
       Self.recording.withLock {
-        $0 = Recording(directory: directory, handledProcesses: handledProcesses, capture: capture,
+        $0 = Recording(directory: directory, handledProcesses: handledProcesses,
                        previous: NSGetUncaughtExceptionHandler())
       }
       NSSetUncaughtExceptionHandler { CrashDiagnostics.handleUncaughtException($0) }
@@ -50,10 +47,10 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
   /// C 回调不能捕获上下文：闭包里写全类型名调用它，不经隐式的 `self`。
   private static func handleUncaughtException(_ exception: NSException) {
     guard let recording = recording.withLockIfAvailable({ $0 }) ?? nil else { return }
-    if UsageReporting.exceptionConsent.isEnabled {
+    if UsageReporting.exceptionConsent.isEnabled, let capture = UsageReporting.applicationCapture.current {
       UsageReporting.recordUncaughtException(name: exception.name.rawValue,
                                            returnAddresses: exception.callStackReturnAddresses, pid: getpid(),
-                                           in: recording.directory, handledProcesses: recording.handledProcesses, capture: recording.capture)
+                                           in: recording.directory, handledProcesses: recording.handledProcesses, capture: capture)
     }
     recording.previous?(exception)
   }

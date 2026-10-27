@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import os
 
 final class UsageReportingTests: XCTestCase {
   func testDelayedDiagnosticsRequireContinuousHistoricalConsent() throws {
@@ -159,14 +160,24 @@ final class UsageReportingTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let handled = directory.appendingPathComponent("uncaught-exception-pids")
+    let header = try XCTUnwrap(UsageReporting.diagnosticHeader(version: "0.0.1"))
 
+    let capture = UsageReporting.Session(id: UUID().uuidString.lowercased(), crashRecordPath: "", crashRecordHeader: header)
     UsageReporting.recordUncaughtException(name: "NSInternalInconsistencyException", returnAddresses: [],
-                                           pid: 4242, in: directory, handledProcesses: handled)
+                                           pid: 4242, in: directory, handledProcesses: handled, capture: capture)
     let crashes = directory.appendingPathComponent("telemetry-crashes")
     let files = try FileManager.default.contentsOfDirectory(at: crashes, includingPropertiesForKeys: nil)
     XCTAssertEqual(files.count, 1)
     XCTAssertNotNil(UUID(uuidString: files[0].deletingPathExtension().lastPathComponent))
-    XCTAssertEqual(try String(contentsOf: files[0], encoding: .utf8), "Uncaught NSInternalInconsistencyException\n")
+    XCTAssertEqual(files[0].deletingPathExtension().lastPathComponent, capture.id)
+    let record = try String(contentsOf: files[0], encoding: .utf8)
+    XCTAssertTrue(record.hasSuffix("\nUncaught NSInternalInconsistencyException\n"))
+    let storedHeader = try XCTUnwrap(record.split(separator: "\n").first)
+    let prefix = "MSIME-CRASH/1 "
+    XCTAssertTrue(storedHeader.hasPrefix(prefix))
+    let storedContext = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(storedHeader.dropFirst(prefix.count).utf8)) as? [String: String])
+    let expectedContext = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(header.dropFirst(prefix.count).utf8)) as? [String: String])
+    XCTAssertEqual(storedContext, expectedContext)
 
     XCTAssertFalse(UsageReporting.takeHandledProcess(7, in: handled))
     XCTAssertTrue(UsageReporting.takeHandledProcess(4242, in: handled))
@@ -175,7 +186,8 @@ final class UsageReportingTests: XCTestCase {
 
     for pid in 1...40 {
       UsageReporting.recordUncaughtException(name: "Synthetic", returnAddresses: [], pid: pid_t(pid), in: directory,
-                                             handledProcesses: handled)
+                                             handledProcesses: handled,
+                                             capture: .init(id: UUID().uuidString, crashRecordPath: "", crashRecordHeader: header))
     }
     XCTAssertFalse(UsageReporting.takeHandledProcess(999, in: handled))
     XCTAssertFalse(UsageReporting.takeHandledProcess(8, in: handled), "only the latest 32 are kept")
@@ -189,8 +201,10 @@ final class UsageReportingTests: XCTestCase {
     let blocked = root.appendingPathComponent("blocked")
     try Data("synthetic".utf8).write(to: blocked)
     let handled = root.appendingPathComponent("uncaught-exception-pids")
+    let header = try XCTUnwrap(UsageReporting.diagnosticHeader(version: "0.0.1"))
     UsageReporting.recordUncaughtException(name: "Synthetic", returnAddresses: [], pid: 4242,
-                                           in: blocked, handledProcesses: handled)
+                                           in: blocked, handledProcesses: handled,
+                                           capture: .init(id: UUID().uuidString, crashRecordPath: "", crashRecordHeader: header))
     XCTAssertFalse(UsageReporting.takeHandledProcess(4242, in: handled))
     XCTAssertFalse(FileManager.default.fileExists(atPath: handled.path))
   }
@@ -232,9 +246,176 @@ final class UsageReportingTests: XCTestCase {
   }
 
   func testUsageReportingIsOnUnlessTurnedOff() {
-    XCTAssertTrue(UsageReporting.isEnabled(in: nil))
+    XCTAssertFalse(UsageReporting.isEnabled(in: nil))
     XCTAssertTrue(UsageReporting.isEnabled(in: [:]))
+    XCTAssertTrue(UsageReporting.isEnabled(in: ["usage_reporting": true]))
     XCTAssertFalse(UsageReporting.isEnabled(in: ["usage_reporting": false]))
+    for value: Any in [NSNumber(value: 1), NSNumber(value: 0), "true", NSNull()] {
+      XCTAssertNil(UsageReporting.consent(in: ["usage_reporting": value]))
+      XCTAssertFalse(UsageReporting.isEnabled(in: ["usage_reporting": value]))
+    }
+  }
+
+  func testSharedPreferenceReadFailureDoesNotBecomeDefaultConsent() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let defaults = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: root))
+    XCTAssertTrue(UsageReporting.isEnabled(in: defaults), "缺失文档由共享层提供产品默认值")
+    try Data("{invalid synthetic document".utf8).write(to: root.appendingPathComponent("preferences.json"))
+    let unreadable = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: root)
+    XCTAssertNil(unreadable)
+    XCTAssertNil(UsageReporting.consent(in: unreadable))
+    XCTAssertFalse(UsageReporting.isEnabled(in: unreadable))
+  }
+
+  func testMissingPreferenceDirectoryDoesNotClearExistingCrash() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let crashes = root.appendingPathComponent("telemetry-crashes")
+    try FileManager.default.createDirectory(at: crashes, withIntermediateDirectories: true)
+    let record = crashes.appendingPathComponent(UUID().uuidString.lowercased() + ".crash")
+    let original = Data("Synthetic signal 11\n0 synthetic + 1".utf8)
+    try original.write(to: record)
+    XCTAssertNil(UsageReporting.begin(in: root, preferencesDirectory: ""))
+    XCTAssertNil(UsageReporting.begin(in: root, preferencesDirectory: "relative/synthetic"))
+    XCTAssertEqual(try Data(contentsOf: record), original)
+  }
+
+  private final class CaptureFixture {
+    struct State {
+      var consent: Bool? = true
+      var prepared = 0
+      var cleared = 0
+      var configured: UsageReporting.Session?
+      var ended: [UsageReporting.Session] = []
+    }
+    let state = OSAllocatedUnfairLock(initialState: State())
+    lazy var capture = UsageReporting.CaptureLifecycle(
+      load: { self.state.withLock { $0.consent } },
+      prepare: {
+        self.state.withLock {
+          $0.prepared += 1
+          return .init(id: "synthetic-\($0.prepared)", crashRecordPath: "/synthetic/\($0.prepared).crash",
+                       crashRecordHeader: "synthetic-header-\($0.prepared)")
+        }
+      },
+      configure: { session in self.state.withLock { $0.configured = session } },
+      clear: { self.state.withLock { $0.cleared += 1 } },
+      finish: { session in self.state.withLock { $0.ended.append(session) } })
+
+    func refresh(_ consent: Bool?) {
+      state.withLock { $0.consent = consent }
+      capture.refresh()
+      capture.waitForPendingOperations()
+    }
+
+    func stop() { capture.stop(); capture.waitForPendingOperations() }
+  }
+
+  func testActiveCapturePausesOnReadFailureAndRenewsAfterWithdrawal() throws {
+    let fixture = CaptureFixture()
+    defer { fixture.stop() }
+    fixture.capture.start()
+    fixture.refresh(true)
+    let first = try XCTUnwrap(fixture.capture.current)
+    fixture.capture.start()
+    fixture.refresh(true)
+    XCTAssertEqual(fixture.state.withLock { $0.prepared }, 1)
+    fixture.refresh(nil)
+    XCTAssertNil(fixture.capture.current)
+    XCTAssertNil(fixture.state.withLock { $0.configured })
+    XCTAssertEqual(fixture.state.withLock { $0.cleared }, 0)
+    fixture.refresh(true)
+    XCTAssertEqual(fixture.capture.current, first)
+    fixture.refresh(false)
+    fixture.refresh(false)
+    XCTAssertNil(fixture.capture.current)
+    XCTAssertEqual(fixture.state.withLock { $0.cleared }, 1)
+    fixture.refresh(true)
+    let second = try XCTUnwrap(fixture.capture.current)
+    XCTAssertNotEqual(first, second)
+    XCTAssertNotEqual(first.crashRecordHeader, second.crashRecordHeader)
+    fixture.stop()
+    XCTAssertEqual(fixture.state.withLock { $0.ended }, [second])
+    fixture.refresh(true)
+    XCTAssertNil(fixture.capture.current)
+    XCTAssertEqual(fixture.state.withLock { $0.prepared }, 2)
+  }
+
+  func testQueuedDismissDoesNotEndNextPresentation() throws {
+    let fixture = CaptureFixture()
+    defer { fixture.stop() }
+    fixture.capture.start()
+    fixture.refresh(true)
+    let first = try XCTUnwrap(fixture.capture.current)
+    fixture.capture.stop()
+    fixture.capture.start()
+    fixture.refresh(true)
+    let second = try XCTUnwrap(fixture.capture.current)
+    XCTAssertNotEqual(first, second)
+    XCTAssertEqual(fixture.state.withLock { $0.ended }, [first])
+    XCTAssertEqual(fixture.state.withLock { $0.configured }, second)
+  }
+
+  func testWithdrawalDuringSlowPreparationCannotRearmOldCapture() {
+    let entered = DispatchSemaphore(value: 0)
+    let proceed = DispatchSemaphore(value: 0)
+    let configured = OSAllocatedUnfairLock<UsageReporting.Session?>(initialState: nil)
+    let capture = UsageReporting.CaptureLifecycle(load: { true }, prepare: {
+      entered.signal()
+      _ = proceed.wait(timeout: .now() + 5)
+      return .init(id: "old", crashRecordPath: "/synthetic/old.crash")
+    }, configure: { session in configured.withLock { $0 = session } }, clear: {})
+    capture.start()
+    XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+    capture.revoke()
+    XCTAssertNil(capture.current)
+    XCTAssertNil(configured.withLock { $0 })
+    // 撤回后随即正常收起，旧的 prepare 即使返回成功也不能重新武装。
+    capture.stop()
+    proceed.signal()
+    capture.waitForPendingOperations()
+    XCTAssertNil(capture.current)
+    XCTAssertNil(configured.withLock { $0 })
+  }
+
+  func testCaptureReadyPrecedesTransportAndDismissDoesNotWaitForIt() throws {
+    let fixture = CaptureFixture()
+    let transport = DispatchQueue(label: "synthetic.blocked-transport")
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    defer { release.signal(); fixture.stop() }
+    fixture.capture.start {
+      XCTAssertNotNil(fixture.capture.current, "先准备并补录，再投递发送任务")
+      transport.async {
+        entered.signal()
+        _ = release.wait(timeout: .now() + 5)
+      }
+    }
+    XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+    let session = try XCTUnwrap(fixture.capture.current)
+    fixture.stop()
+    XCTAssertNil(fixture.capture.current)
+    XCTAssertEqual(fixture.state.withLock { $0.ended }, [session])
+  }
+
+  func testActiveCaptureObservesChangesWithoutNewPresentation() {
+    let fixture = CaptureFixture()
+    defer { fixture.stop() }
+    fixture.capture.start()
+    fixture.refresh(true)
+    fixture.state.withLock { $0.consent = false }
+    let observed = expectation(description: "active observer sees withdrawal")
+    DispatchQueue.global(qos: .utility).async {
+      let deadline = Date().addingTimeInterval(3)
+      while Date() < deadline {
+        if fixture.state.withLock({ $0.cleared }) == 1 { observed.fulfill(); return }
+        Thread.sleep(forTimeInterval: 0.01)
+      }
+    }
+    wait(for: [observed], timeout: 4)
+    XCTAssertNil(fixture.capture.current)
+    XCTAssertNil(fixture.state.withLock { $0.configured })
   }
 
   func testNoticeMarkdownKeepsSafeLinksAndNeverInterpretsHTML() {
