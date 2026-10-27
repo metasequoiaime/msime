@@ -3,19 +3,19 @@
     "2": {
       "cases": 1859,
       "found": 0.901,
-      "mrr": 0.141,
-      "top1": 0.049,
-      "top1_char_prefix": 0.125,
-      "top5": 0.204,
+      "mrr": 0.134,
+      "top1": 0.041,
+      "top1_char_prefix": 0.114,
+      "top5": 0.2,
       "top9": 0.315
     },
     "3": {
       "cases": 364,
       "found": 0.745,
-      "mrr": 0.556,
-      "top1": 0.462,
-      "top1_char_prefix": 0.58,
-      "top5": 0.684,
+      "mrr": 0.548,
+      "top1": 0.448,
+      "top1_char_prefix": 0.571,
+      "top5": 0.681,
       "top9": 0.725
     },
     "4": {
@@ -45,10 +45,10 @@
   "overall": {
     "cases": 2775,
     "found": 0.793,
-    "mrr": 0.256,
-    "top1": 0.179,
-    "top1_char_prefix": 0.27,
-    "top5": 0.318,
+    "mrr": 0.25,
+    "top1": 0.172,
+    "top1_char_prefix": 0.261,
+    "top5": 0.315,
     "top9": 0.398
   },
   "sample_failures": [
@@ -197,7 +197,7 @@
       "id": "w-00217",
       "input": "baid",
       "rank": 33,
-      "top1": "百度"
+      "top1": "八核"
     },
     {
       "gold": "败露",
@@ -260,7 +260,7 @@
       "id": "w-00334",
       "input": "banh",
       "rank": 32,
-      "top1": "保护"
+      "top1": "帮"
     },
     {
       "gold": "半径",
@@ -322,7 +322,7 @@
       "gold": "保存",
       "id": "w-00415",
       "input": "baoc",
-      "rank": 4,
+      "rank": 5,
       "top1": "版本"
     },
     {
@@ -330,7 +330,7 @@
       "id": "w-00424",
       "input": "baod",
       "rank": null,
-      "top1": "办法"
+      "top1": "保额"
     }
   ],
   "top1_source": {

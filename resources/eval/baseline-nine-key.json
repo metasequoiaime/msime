@@ -3,27 +3,27 @@
     "2": {
       "cases": 1860,
       "found": 0.995,
-      "mrr": 0.543,
-      "top1": 0.366,
-      "top1_char_prefix": 0.405,
-      "top5": 0.788,
+      "mrr": 0.566,
+      "top1": 0.394,
+      "top1_char_prefix": 0.432,
+      "top5": 0.797,
       "top9": 0.882
     },
     "3": {
       "cases": 365,
       "found": 0.989,
-      "mrr": 0.926,
-      "top1": 0.882,
-      "top1_char_prefix": 0.904,
+      "mrr": 0.939,
+      "top1": 0.904,
+      "top1_char_prefix": 0.923,
       "top5": 0.978,
       "top9": 0.981
     },
     "4": {
       "cases": 556,
       "found": 0.811,
-      "mrr": 0.806,
-      "top1": 0.8,
-      "top1_char_prefix": 0.835,
+      "mrr": 0.804,
+      "top1": 0.797,
+      "top1_char_prefix": 0.834,
       "top5": 0.811,
       "top9": 0.811
     },
@@ -46,10 +46,10 @@
   "overall": {
     "cases": 2791,
     "found": 0.954,
-    "mrr": 0.644,
-    "top1": 0.518,
-    "top1_char_prefix": 0.556,
-    "top5": 0.815,
+    "mrr": 0.66,
+    "top1": 0.539,
+    "top1_char_prefix": 0.576,
+    "top5": 0.821,
     "top9": 0.877
   },
   "sample_failures": [
@@ -65,7 +65,7 @@
       "id": "w-00010",
       "input": "aige",
       "rank": 8,
-      "top1": "吃饭"
+      "top1": "逼格"
     },
     {
       "gold": "爱慕",
@@ -79,7 +79,7 @@
       "id": "w-00037",
       "input": "aixi",
       "rank": 31,
-      "top1": "逼着"
+      "top1": "鼻子"
     },
     {
       "gold": "暗地里",
@@ -222,13 +222,6 @@
       "top1": "保底"
     },
     {
-      "gold": "暴风雨",
-      "id": "w-00433",
-      "input": "baofengyu",
-      "rank": 2,
-      "top1": "暴风雪"
-    },
-    {
       "gold": "报告",
       "id": "w-00442",
       "input": "baogao",
@@ -296,7 +289,7 @@
       "id": "w-00613",
       "input": "beicha",
       "rank": 4,
-      "top1": "北边"
+      "top1": "被查"
     },
     {
       "gold": "备荒",
@@ -332,6 +325,13 @@
       "input": "benzhe",
       "rank": 2,
       "top1": "奔着"
+    },
+    {
+      "gold": "彼岸",
+      "id": "w-00766",
+      "input": "bian",
+      "rank": 21,
+      "top1": "变"
     }
   ],
   "top1_source": {

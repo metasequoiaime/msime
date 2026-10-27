@@ -3,27 +3,27 @@
     "2": {
       "cases": 1860,
       "found": 0.995,
-      "mrr": 0.649,
-      "top1": 0.487,
-      "top1_char_prefix": 0.522,
-      "top5": 0.87,
+      "mrr": 0.658,
+      "top1": 0.498,
+      "top1_char_prefix": 0.531,
+      "top5": 0.875,
       "top9": 0.941
     },
     "3": {
       "cases": 365,
       "found": 1.0,
-      "mrr": 0.937,
-      "top1": 0.893,
-      "top1_char_prefix": 0.915,
+      "mrr": 0.945,
+      "top1": 0.904,
+      "top1_char_prefix": 0.923,
       "top5": 0.989,
       "top9": 0.989
     },
     "4": {
       "cases": 556,
       "found": 0.894,
-      "mrr": 0.89,
-      "top1": 0.887,
-      "top1_char_prefix": 0.912,
+      "mrr": 0.891,
+      "top1": 0.888,
+      "top1_char_prefix": 0.914,
       "top5": 0.894,
       "top9": 0.894
     },
@@ -46,10 +46,10 @@
   "overall": {
     "cases": 2791,
     "found": 0.972,
-    "mrr": 0.733,
-    "top1": 0.619,
-    "top1_char_prefix": 0.651,
-    "top5": 0.888,
+    "mrr": 0.74,
+    "top1": 0.628,
+    "top1_char_prefix": 0.659,
+    "top5": 0.891,
     "top9": 0.935
   },
   "sample_failures": [
@@ -113,7 +113,7 @@
       "gold": "败露",
       "id": "w-00244",
       "input": "bailu",
-      "rank": 6,
+      "rank": 5,
       "top1": "耐力"
     },
     {
@@ -162,8 +162,8 @@
       "gold": "褒奖",
       "id": "w-00469",
       "input": "baojiang",
-      "rank": 4,
-      "top1": "保监会"
+      "rank": 3,
+      "top1": "包浆"
     },
     {
       "gold": "褒义",
@@ -183,7 +183,7 @@
       "gold": "包子",
       "id": "w-00577",
       "input": "baozi",
-      "rank": 3,
+      "rank": 2,
       "top1": "脑子"
     },
     {
@@ -218,7 +218,7 @@
       "gold": "本县",
       "id": "w-00748",
       "input": "benxian",
-      "rank": 5,
+      "rank": 4,
       "top1": "本想"
     },
     {
@@ -260,7 +260,7 @@
       "gold": "比分",
       "id": "w-00955",
       "input": "bifen",
-      "rank": 5,
+      "rank": 4,
       "top1": "部分"
     },
     {
@@ -290,13 +290,6 @@
       "input": "biran",
       "rank": 2,
       "top1": "不然"
-    },
-    {
-      "gold": "比上不足",
-      "id": "w-01117",
-      "input": "bishangbuzu",
-      "rank": 2,
-      "top1": "不上不下"
     },
     {
       "gold": "必需",
@@ -332,6 +325,13 @@
       "input": "budui",
       "rank": 3,
       "top1": "不对"
+    },
+    {
+      "gold": "不凡",
+      "id": "w-01297",
+      "input": "bufan",
+      "rank": 2,
+      "top1": "不但"
     }
   ],
   "top1_source": {

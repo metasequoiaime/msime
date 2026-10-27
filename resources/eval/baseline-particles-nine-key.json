@@ -3,9 +3,9 @@
     "3": {
       "cases": 103,
       "found": 0.99,
-      "mrr": 0.41,
-      "top1": 0.233,
-      "top1_char_prefix": 0.411,
+      "mrr": 0.417,
+      "top1": 0.243,
+      "top1_char_prefix": 0.408,
       "top5": 0.767,
       "top9": 0.903
     }
@@ -14,9 +14,9 @@
     "particle": {
       "cases": 103,
       "found": 0.99,
-      "mrr": 0.41,
-      "top1": 0.233,
-      "top1_char_prefix": 0.411,
+      "mrr": 0.417,
+      "top1": 0.243,
+      "top1_char_prefix": 0.408,
       "top5": 0.767,
       "top9": 0.903
     }
@@ -29,9 +29,9 @@
   "overall": {
     "cases": 103,
     "found": 0.99,
-    "mrr": 0.41,
-    "top1": 0.233,
-    "top1_char_prefix": 0.411,
+    "mrr": 0.417,
+    "top1": 0.243,
+    "top1_char_prefix": 0.408,
     "top5": 0.767,
     "top9": 0.903
   },
@@ -76,7 +76,7 @@
       "id": "p005",
       "input": "zhihuila",
       "rank": 4,
-      "top1": "只回来"
+      "top1": "智慧卡"
     },
     {
       "gold": "处理啊",
@@ -104,7 +104,7 @@
       "id": "p012",
       "input": "xinxia",
       "rank": 36,
-      "top1": "印章"
+      "top1": "心下"
     },
     {
       "gold": "轿车呀",
