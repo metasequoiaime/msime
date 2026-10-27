@@ -94,11 +94,14 @@ pause_body=$(sed -n '/^  private pauseIdleDictionaryWork(): void {$/,/^  }$/p' "
 if ! grep -qF 'this.pauseIdleDictionaryWork();' <<< "$detach_body" \
   || ! grep -qF 'this.pauseIdleDictionaryWork();' <<< "$hidden_body" \
   || ! grep -qF 'this.cancelDictionarySnapshotPoll();' <<< "$pause_body" \
+  || ! grep -qF 'this.idleDictionaryVisible = false;' <<< "$pause_body" \
+  || ! grep -qF 'this.idleDictionaryVisible = true;' <<< "$attach_body" \
   || ! grep -qF 'this.personalDictionaryStalls > 0' <<< "$pause_body" \
   || ! grep -qF 'clearTimeout(this.personalDictionaryTimer);' <<< "$pause_body" \
   || ! grep -qF 'this.scheduleDictionarySnapshotPoll();' <<< "$attach_body" \
   || ! grep -qF 'this.schedulePersonalDictionaryDrain();' <<< "$attach_body" \
   || ! grep -qF 'this.inputClient === undefined) return;' <<< "$poll_body" \
+  || ! grep -qF '!this.idleDictionaryVisible' <<< "$poll_body" \
   || [[ $(grep -cF 'this.scheduleDictionarySnapshotPoll();' <<< "$poll_body") -ne 1 ]] \
   || ! grep -qF 'IdleDictionaryRetryPolicy.delay(this.snapshotQueueStalls)' <<< "$poll_body" \
   || ! grep -qF 'IdleDictionaryRetryPolicy.delay(this.personalDictionaryStalls)' <<< "$drain_body"; then
@@ -194,6 +197,7 @@ if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSess
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"
+node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do
   node "$repo_root/target/harmony-tests/tests/$(basename "${source%.ts}").js"

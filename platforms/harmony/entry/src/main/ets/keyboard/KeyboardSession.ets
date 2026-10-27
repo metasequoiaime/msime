@@ -1254,6 +1254,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  // 系统收起键盘后编辑框可能仍有焦点，空闲工作不能只靠 inputClient 判断是否显示。
+  private idleDictionaryVisible: boolean = false;
   private personalDictionarySettled: boolean = true;
   private personalDictionaryTimer: number = -1;
   // 个人词库排空连续没有进展的次数，以及上一次同步之后队列里剩的条数（不知道时为 -1），用来给重建会话的重试退避，见 `IdleDictionaryRetryPolicy`。
@@ -2145,14 +2147,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Continue a large import in bounded turns while the editor is idle.
+   * 编辑器空闲时按有界批次继续导入。
    *
-   * One synchronization applies at most 128 queued edits. Releasing the event loop between batches keeps a large import from monopolising the input method, while the composition/local-mode guards make the brief Engine-session rebuild invisible to typed text.
+   * 每次同步最多处理 128 条，批次之间交还事件循环，避免大词库导入占满输入法。组字和本地模式期间不重建会话，避免干扰输入。
    *
-   * 有进展时两秒后接着排下一批；整批被拒或队列原地不动时按 `IdleDictionaryRetryPolicy` 退避到最多五分钟一次，一直失败也不会每两秒重建一次会话。
+   * 有进展时两秒后接着排下一批；整批被拒或队列原地不动时按 `IdleDictionaryRetryPolicy` 退避到最多五分钟一次。隐藏后才停滞的队列也在这里停排，下一次显示再恢复。
    */
   private schedulePersonalDictionaryDrain(): void {
-    if (this.personalDictionarySettled || this.personalDictionaryTimer >= 0 || this.handle === 0) {
+    if (this.personalDictionarySettled || this.personalDictionaryTimer >= 0 || this.handle === 0
+        || (!this.idleDictionaryVisible && this.personalDictionaryStalls > 0)) {
       return;
     }
     this.personalDictionaryTimer = setTimeout((): void => {
@@ -2171,7 +2174,8 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 原来从会话建好起每两秒查一次，键盘收起后也不停；每次查询都要在主线程上扫一遍整个用户词库算哈希，再把 state.json 重写并 fsync。请求不是键盘自己排的，而键盘每次构建会话（`start`）都会先处理一次队列，所以这里只在键盘显示时（`attach`）查一次：没有待处理的请求就停下，等下一次显示；有请求就重建会话去处理，重建后仍没处理掉（例如属于账号的请求而键盘读不到会话）就按 `IdleDictionaryRetryPolicy` 退避，不再每两秒重建一次。键盘收起时（`detach`）取消。
    */
   private scheduleDictionarySnapshotPoll(): void {
-    if (this.snapshotQueueTimer >= 0 || this.handle === 0 || this.inputClient === undefined) return;
+    if (this.snapshotQueueTimer >= 0 || this.handle === 0 || !this.idleDictionaryVisible
+        || this.inputClient === undefined) return;
     this.snapshotQueueTimer = setTimeout((): void => {
       this.snapshotQueueTimer = -1;
       if (this.composing() || this.localMode !== 'none') {
@@ -2201,6 +2205,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 卡住的队列（整批被拒、剩余条数原地不动）按退避最多五分钟重建一次会话，隐藏的键盘不该为它在整个进程生命周期里一直醒来。有进展的排空照常在后台跑完，大词库导入不用等下一次显示。
    */
   private pauseIdleDictionaryWork(): void {
+    this.idleDictionaryVisible = false;
     this.cancelDictionarySnapshotPoll();
     if (this.personalDictionaryStalls > 0 && this.personalDictionaryTimer >= 0) {
       clearTimeout(this.personalDictionaryTimer);
@@ -3494,6 +3499,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    this.idleDictionaryVisible = true;
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
     const editorGeneration: number = ++this.editorGeneration;
