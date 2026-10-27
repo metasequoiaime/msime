@@ -4,6 +4,8 @@
  * 每次 `getForwardSync` 都是一次同步跨进程调用，要等宿主应用的 UI 线程作答。直接英文里每个字母都是一次上屏：上屏后会话已经按上屏后的上文匹配过邮箱后缀，编辑器随后回报的 `textChange`、`selectionChange` 只是这次上屏的回声，再读一遍读到的还是同一段文字。这里记下最近一次读上文时输入法自己发出过几次改动，回声到齐、之后没有新的改动时，那次读到的就是编辑器现在的上文。
  *
  * 异步改动（`insertText`、`sendKeyFunction`）什么时候落进编辑器不知道，在它的回声到齐之前读到的上文不算数；回声被当成外部修改、读失败、这时不该读上文，也都不算数，下一次选区回报照常重读。
+ *
+ * `EditEchoLedger` 会把一笔没等来回声的记录留到过期，这段时间里用户点到别处时编辑器发来的 `textChange` 会被它当成输入法自己的回声。所以这里只把文字长度变了的 `textChange` 当作回声：用户点光标、拖选区不改文字，长度一定不变，照常重读；输入法上屏或删字都会改长度。等长替换（预上屏文字原样上屏）因此也会重读一次，只是少省一次读，不会读错。
  */
 export class CaretContextEcho {
   /** 输入法自己发出的改动次数。 */
@@ -14,6 +16,8 @@ export class CaretContextEcho {
   private asyncPending: boolean = false;
   /** 刚到的 `textChange` 是输入法自己改动的回声；只给紧接着的那次 `selectionChange` 用。 */
   private ownEcho: boolean = false;
+  /** 上一次 `textChange` 报来的编辑器文字长度；-1 表示当前编辑器还没报过。只记长度，不留文字。 */
+  private textLength: number = -1;
 
   /** 即将改动编辑器（与 `EditEchoLedger.reserve` 同时调用）。`asynchronous` 表示调用返回时改动不一定已经落进编辑器。 */
   edited(asynchronous: boolean): void {
@@ -33,9 +37,11 @@ export class CaretContextEcho {
     this.readAt = -1;
   }
 
-  /** 编辑器回报了一次 `textChange`。`own` 是 `EditEchoLedger.acknowledge` 的结果，`settled` 表示确认之后不再有等回声的改动。 */
-  textChanged(own: boolean, settled: boolean): void {
-    this.ownEcho = own;
+  /** 编辑器回报了一次 `textChange`。`own` 是 `EditEchoLedger.acknowledge` 的结果，`settled` 表示确认之后不再有等回声的改动，`textLength` 是这次报来的整段文字的长度。 */
+  textChanged(own: boolean, settled: boolean, textLength: number): void {
+    const resized: boolean = this.textLength >= 0 && textLength !== this.textLength;
+    this.textLength = textLength;
+    this.ownEcho = own && resized;
     if (!own) {
       this.readAt = -1;
     } else if (settled) {
@@ -57,5 +63,6 @@ export class CaretContextEcho {
     this.readAt = -1;
     this.asyncPending = false;
     this.ownEcho = false;
+    this.textLength = -1;
   }
 }

@@ -3661,18 +3661,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /** Reconcile a document mutation reported by the editor with keyboard-owned edit echoes. */
-  editorTextChanged(): void {
+  /** Reconcile a document mutation reported by the editor with keyboard-owned edit echoes. `textLength` is the length of the editor text the change reported; only the length is kept. */
+  editorTextChanged(textLength: number): void {
     this.invalidateReplyContext();
     const now: number = Date.now();
     if (this.ownEdits.acknowledge(now)) {
-      this.caretContextEcho.textChanged(true, this.ownEdits.pending(now) === 0);
+      this.caretContextEcho.textChanged(true, this.ownEdits.pending(now) === 0, textLength);
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
       }
       return;
     }
-    this.caretContextEcho.textChanged(false, false);
+    this.caretContextEcho.textChanged(false, false, textLength);
     // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
     this.clearEnglishSuggestions();

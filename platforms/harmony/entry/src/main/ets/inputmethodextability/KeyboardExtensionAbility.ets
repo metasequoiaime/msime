@@ -134,8 +134,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     };
 
   /** The editor changed its document, either as our edit echo or independently of the keyboard. */
-  private readonly textChanged: (value: string) => void = (_value: string): void => {
-    KeyboardSession.shared.editorTextChanged();
+  private readonly textChanged: (value: string) => void = (value: string): void => {
+    KeyboardSession.shared.editorTextChanged(value.length);
   };
 
   /**
