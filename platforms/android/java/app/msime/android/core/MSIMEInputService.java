@@ -846,8 +846,6 @@ public final class MSIMEInputService extends InputMethodService {
     boolean backspaceRepeated;
     boolean backspaceClearedComposition;
     private volatile long personalDictionarySyncGeneration;
-    /** 上一次空闲同步后个人词库队列里还剩几项；还没看过时为 -1。只在 preferencesWorker 上读写。 */
-    private int personalQueuePending = -1;
     private Runnable personalDictionarySyncTask;
     /** 用户每复制一次就记进本机剪贴板历史；只在本服务（当前默认输入法）存活期间监听，关掉剪贴板历史或命中隐私规则时什么也不记。 */
     private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher = () -> {
@@ -2439,10 +2437,8 @@ public final class MSIMEInputService extends InputMethodService {
                         DictionaryCollectionsStore.synchronizeIdle(options);
                     if (!synchronizedWords.ok()) return;
                     DictionaryImportSynchronization.Batch batch = synchronizedWords.value();
-                    // 设置页排进队列的改词这时才写进词库，网盘同步在这之后记录它们（只记录、不联网）：集合送出了词，或者队列比上一次看到的短了。建会话前写进去的那几项没有计数可看，由下一次定时同步开头的核对记下。
-                    int previousPending = personalQueuePending;
-                    personalQueuePending = batch.pending();
-                    if (batch.sent() > 0 || (previousPending >= 0 && batch.pending() < previousPending))
+                    // 设置页排队的改词写入后立即记录，不依赖两次事后的队列长度；一批内清空也必须通知。
+                    if (batch.applied() > 0 || batch.sent() > 0)
                         imeDictionarySync.localChange();
                     // 每 100 毫秒软预算回到主线程确认空闲；失败词挡住待发项且没有进展时停止，避免空转。
                     if (batch.pending() > 0 && (batch.sent() > 0 || batch.failed() == 0))

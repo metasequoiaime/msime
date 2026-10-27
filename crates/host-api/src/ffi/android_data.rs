@@ -138,10 +138,10 @@ impl HanReadings for EngineReadings<'_> {
     }
 }
 
-/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，普通操作见 client-services `dictionary::collections`，返回集合视图。`synchronize` 的 `budget_millis` 为 1–2000，默认 2000；在软预算内逐批应用个人队列并补充集合待发项，返回总 `pending_count`、`failed_count` 与最后一轮 `sent`；每批至多 128 项并释放维护租约。失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
+/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，普通操作见 client-services `dictionary::collections`，返回集合视图。`synchronize` 的 `budget_millis` 为 1–2000，默认 2000；在软预算内逐批应用个人队列并补充集合待发项，返回总 `pending_count`、`failed_count` 与整个调用累计的 `sent`、`applied_count`（Engine 确认的 `Written` 请求数，含幂等重试）；每批个人队列至多 128 项、集合直接应用至多 4096 项，整批后释放维护租约。失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
 /// # Safety
-/// `request` must point to `length` readable bytes. Null is rejected.
-/// The returned response must be released with `msime_client_string_free`.
+/// `request` 必须指向 `length` 字节的可读内存，拒绝空指针。
+/// 返回值必须用 `msime_client_string_free` 释放。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_dictionary_collections(
     request: *const u8,
