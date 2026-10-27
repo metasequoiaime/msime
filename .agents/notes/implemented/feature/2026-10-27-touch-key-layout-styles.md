@@ -38,11 +38,126 @@ Status: implemented
 
 ### 宿主
 
-桌面宿主（macOS、Windows、Linux 与 `apps/desktop`）保留但不读这四项。macOS 的偏好覆盖门禁（`platforms/macos/tests/settings/preference_coverage.py`）为它们登记了不适用理由；React 设置页的字段对照（`scripts/test-preferences-field-parity.py`）把它们列进 `RUST_ONLY`，`packages/ui/src/core/preferences-model.ts` 带上了类型。Android、iOS 与鸿蒙的键面、设置入口和本机旧设置的迁移另行接入，接入时就地更新本篇。
+桌面宿主（macOS、Windows、Linux 与 `apps/desktop`）保留但不读这四项。macOS 的偏好覆盖门禁（`platforms/macos/tests/settings/preference_coverage.py`）为它们登记了不适用理由；`packages/ui/src/core/preferences-model.ts` 带上了类型，共享 React 设置页给鸿蒙手机提供了这四项的控件，所以字段对照（`scripts/test-preferences-field-parity.py`）不把它们列进 `RUST_ONLY`。Android、iOS 与鸿蒙的键面、设置入口、迁移和验证见下面的「各端实现」。
 
 Android 把 `platform.android.long_space_layout = true` 迁成 `touch_twenty_six_key_style = long_space` 时，只迁中文 26 键的底行：英文 26 键回到标准底行，独立句点键回来，不再由逗号下滑接替（[长空格布局](2026-10-27-android-long-space-layout.md)里对英文键面的那项改动不随 `long_space` 保留）。要保留它需要另做决定，不能当成 `long_space` 的附带效果。
 
 Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、长按选上标 ⁰ 或下标 ₀，是九键字母层直接输入 0 的地方（九宫格长按只给 1–9）。`tall_return` 去掉这个 ！ 时，接到符号栏默认表末尾的那个 ！ 带着同样的手势和右上角的 0，自定义表里的 ！ 不带；笔画右列的 ！ 本来没有这个手势（网格里有 0 键），笔画不带。iOS 与鸿蒙的 ！ 没有这组手势，不涉及。Android 笔画的数字层借的是九键数字九宫格，`tall_return` 下按笔画外框的列宽（0.9 / 3 / 0.9）画，和笔画字母层同一个外框，切 123 / 笔 时 符、切换键和回车不横移。
+
+## 各端实现
+
+三端都按上面四项画键盘，默认样式的底行与加样式之前逐键相同，各端的测试钉住这一点。下面是每端的接法、有意保留的差异，以及每端实际跑过什么、没验证什么。
+
+### Android
+
+底行由 `KeyboardActionRow.designEntries(..., TouchKeyStyle.Row)` 统一排布，`TouchKeyStyle.Styles.forLayout` 决定当前键面读哪一类样式。标准 26 键上的中文方案（全拼、双拼、五笔、粤拼，view 还没给出方案时按中文）读 26 键样式；英文、韩文和其他语言的 26 键画标准底行。14 键与 18 键读 14 键样式，拼音九键、九键双拼与笔画读九键样式，手写、注音和日文假名网格没有可选样式。密码框与纯数字框里三类样式一律画标准底行。份额不含地球键，地球键在 123 后占 1：
+
+- 26 键：`comma_period` 是 123 1.25 | 符 1.05 | ， 1 | 空格 3 | 。 1 | 中 1.05 | 回车 1.9，逗号长按改为常用标点菜单；`long_space` 就是原来的长空格行（空格 5.05，符号入口在工具栏，逗号下滑输入句号，123 进带逗号的 123 层）；`emoji` 的 😀 占 符 的位置和 1.05 份，是常驻的表情图标键，记 `SoftEmoji`，点按打开表情面板，符号面板经长按 123 打开。
+- 14/18 键：`long_space` 的空格是 5，逗号同样下滑输入句号（句号没有独立键之后的补位），长按仍是常用标点菜单；`emoji` 是 123 | 😀 1 | 空格 4 | ， 1 | 中 | 回车。
+- 九键：`comma_period` 是 符 | 123 | ， 1 | 空格 2 | 。 1 | 中 | 回车，`emoji` 是 符 | 123 | 😀 1.05 | 空格 2.95 | 中 | 回车，这两种样式不改数字层。
+
+右侧大回车（`tall_return`）用于拼音九键、九键双拼、笔画以及它们的数字层（含笔画借出的数字九宫格），判定在 `KeyboardActionRow.drawsTallReturn`；26 键等其他键面借用的数字九宫格不用。外框连同底行是一整块，高度角色是三行加底行，与标准外框总高相同；`designEntries` 对它返回空，功能行隐藏，与注音九键相同。底行各格用底行高度角色，九宫格加高时增量照旧只给上方。列宽沿用各自外框：九键 3 / 14 / 3，笔画 0.9 / 3 / 0.9（`StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT`、`GRID_WEIGHT`）。
+
+- 左列：跨三行的符号栏，栏下是与左列同宽的 符；数字层照旧在符号栏下方保留 #+=。默认字母符号表末尾接上 ！（`NineKeySidebarPolicy.letterSymbols(stored, true)`），与默认表相同的存储也按默认算，因为「恢复默认」会把默认表写回存储；自定义表原样使用。笔画的符号栏在这个样式下一屏最多五项，！ 不用滚动。
+- 中列：九宫格正下方是 `KeyboardActionRow.tallReturnEntries`，恰好与九宫格同宽。123 1.25、地球键 1、中/英 1.05 保持标准九键底行里的绝对宽度，空格占剩下的：拼音九键 4.175，带地球键 3.875，笔画 3.48125。交换中/英与 123 时两键对调。
+- 右列：⌫、重输、回车。回车格从第三行顶边画到底行底边，中间无缝；⌫ 和重输先包进没有外边距的格子再与回车格分高度，否则键距外边距先被扣掉，两键会比九宫格的行矮。九键双拼的网格是四行，⌫ 照旧占两格、重输一格，回车从第四行起，约 1.75 行高。
+- 数字层：符 和切换键横向位置不变，0 在空格的位置，右边是从 0 让出一份的小数点（按字面上屏）；空格按 Android 数字层的规矩移到右列重输的位置，回车仍两倍高。
+- 中/英与回车不在同一行，回车不让出点击区。
+- 换样式、进出密码框或地球键变化时，`ImeLayoutRows.tallReturnStale` 让下一次渲染重建键行。建外框时当场把功能行按空排布重排：偏好重读换了键面时只重建键行、不一定接着渲染，否则会留下上一个键面的功能行。外框里的常驻键经 `ImeBottomRow.placeKey` 挂入，与功能行同样上色。
+
+顶部数字行读 `touch_number_row`，画在 26 键（含英文）、韩文、14 键和 18 键的字母层上方（14/18 键整行铺满，包括左侧拼音栏的位置），窗口低于 480 dp（`KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP`）时不画；这些键面的 123 层保留补充的第五行，切层时高度不跳。密码框和 SSH 应用的自动数字行照旧，与共享开关取或。样式和数字行进了 `touchGeometryKey`，偏好一变键盘就地重排底行、按需重建键行，不重启进程，也不打断组字。四个偏好键记在键盘进程的皮肤片段（`SKIN_HINT_KEYS`）里，`:ime` 冷启动的第一帧就按用户的样式和数字行画；check-host 钉住 `applyTouchGeometry` 读到的每个样式键都在片段里。唯一的例外是从带本机数字行的旧版本升级后的第一次冷启动：旧片段里没有这几个键，那一帧仍按默认画，迁移后的实时偏好到了才补上。
+
+迁移（`KeyLayoutStyleMigration`）：本机 `platform.android.long_space_layout` 为真且共享的 26 键样式读出来是标准（缺键、`standard` 或不认识的写法）时写 `long_space`；本机 `platform.android.number_row` 为真且共享数字行为关时写开。写入按修订号保存，被拒就重读再算，最多三次；真改了才记成本机改动（`SyncSignals.markDirty`）。写好之后删掉两个本机键，失败时保留，下次再迁。迁移在这些地方先跑：云同步每一轮导出之前（`RustCloudSync.run`）、键盘建会话读实时偏好之前、本地备份导出之前、本地备份恢复写回本地设置之后，以及键盘设置页和按键布局子页读取时。云同步那一轮迁移没成功时，`RustCloudSync.run` 在 `host_inputs` 里带 `settings_locked: true`：设置（连同皮肤库）这一轮既不导出也不应用，待上传标记保留，常用语和词库照常同步，下一轮再迁，不会把共享偏好里的默认值当成用户的选择传上去。本地备份不需要这样处理：迁移没完成时旧键还在备份的 android-local 里，恢复时会再迁。两个旧键的常量仍保留声明，否则读文件时会被丢掉；check-host 钉住只有迁移类引用它们。
+
+设置与热力图：键盘页「布局」组的「按键布局」子页有 26 键、14 键与 18 键、9 键三组单选，每个选项下面画这种样式底行的预览，9 键第四项「右侧大回车」的预览画外框最后两行、回车跨两行；最后是放在无标题组里的「顶部数字行」开关，本版本既没有 26 键也没有 14/18 键时不列，与鸿蒙同一规则。本版本不提供的键面不列对应的组；原来的「长空格布局」和「数字行」两个开关已删除。统计页热力图按当前的 26 键、九键样式画，26 键打开数字行时多一行 `Digit1`…`Digit0`；右侧大回车由 `KeyHeatmapLayout.nine(TALL_RETURN)` 画，`Key` 的 `rows` 让回车跨两行，统计 id 不变。`platforms/android/README.md` 的「数字行」与「按键布局」两节描述了这些。
+
+验证：
+
+- 本机 JVM 层：`check-host.sh` 通过，289 项 JVM 冒烟、248 份设备测试源码编译。TouchKeyStyleSmoke 钉住每种样式的键序和宽度、整行总宽不变、偏好的宽松读取、各键面读哪类样式、数字行门槛、迁移规则，以及右侧大回车两种外框的列宽、中列各键的份额和字母层与数字层外侧键对齐；NineKeySidebarPolicySmoke 钉住 ！ 的接法和带上滑 0 的那一项；KeyHeatmapLayoutSmoke 钉住热力图外框。第一、二轮新加的 check-host 钉子在临时副本上改坏代码确认会失败，第二轮修复时新加的钉子没有做这一步。
+- 构建：在 Mac Studio 上经 `rbuild` 用本分支重编原生库，打出 arm64 APK 和设备测试包，打包时带上语言词库（不带时笔画词库缺失，键盘切不到笔画）。
+- API 35 arm64 模拟器：在设置子页逐个切换 26、14、9 键的样式和数字行后回到试用键盘截图核对，逗号句号样式实际打出「，。」，表情键打开表情面板，数字行打开时 123 层不跳高，热力图跟着样式变。冷启动录屏对照：片段里有这几个键时杀掉 `:ime` 后第一帧就有数字行和 😀，删掉后第一帧没有、下一帧才高出一行。最终那次全新安装里 NumberRowDeviceSmoke（含 AutomaticNumberRowDeviceSmoke）、KeyboardHeightDeviceSmoke（含 PortraitSplitDeviceChecks）、ToolbarEdgesDeviceSmoke 和 NineKeyNumericLayoutDeviceSmoke 都通过。后者带的 TallReturnDeviceChecks 量真实键帽：拼音九键字母层与数字层、侧栏 ！ 上滑出 0 与长按出 ⁰、点回车下半段在多行框里换行、数字层 1 0 . 空格 上屏 `10. `、换回标准样式后功能行与右列 ！ 回来，以及九键双拼和笔画的字母层与数字层。把笔画数字层的列宽改回九键列宽的对照包在笔画阶段如期失败（符 与切换键横移 40 px）。
+- NumberRowDeviceSmoke 与 PortraitSplitDeviceChecks 曾在 #+= 阶段失败，原因是 develop 上 #9925 把切回字母的说明改成「返回原键盘」、英文 123 键面改成「返回」，测试还在找旧名字；用 develop 合并基点打的包同样失败，本分支只改了这两套测试的标签。另有 10 份设备测试仍用旧标签，属于 develop 上要另修的问题。
+- 没验证：真机，平板和分离式键盘（含右侧大回车），旧键迁移与迁移失败时锁住设置同步（发布包不可调试，没法预先写入本地设置文件或让迁移失败，只有 JVM 冒烟、check-host 钉子和编译），长空格逗号下滑的真实手势，横屏门槛，账号同步往返。偏好重读换了键面却没接着渲染时，标准九键与注音外框可能在下一次按键前还留着上一个键面的功能行；这是本次之前就有的行为，右侧大回车外框自己处理了，其他外框没改也没验证。
+
+### iOS
+
+偏好由 `platforms/ios/SharedUI/preferences/TouchKeyLayoutStylePreference.swift` 的 `TouchKeyLayoutStyle` 读写，做法与 `TouchShuangpinLayoutPreference` 相同：共享文档是权威，App Group 里的 `keyboard.style.twentySixKey`、`keyboard.style.fourteenKey`、`keyboard.style.nineKey`、`keyboard.numberRow` 只是镜像。键盘在 `viewDidLoad` 和每次重载文档（`synchronizeSharedTouchPreferences`）时刷新镜像，样式和数字行门槛都在 `KeyboardLayoutInputs` 里，变了就当场重排，不碰会话，正在组的字照常继续。缺键、不是字符串或不认识的写法按 `standard` 读；设置页每次只写刚改的一项，文档接受了才写镜像。iOS 以前没有对应的本机设置，没有旧值要迁移。iOS 的账号同步走 `ios_settings.rs` 的自有映射，这四项不在里面，与 `touch_quanpin_shift` 一样暂不随账号同步。
+
+各样式的键序和份额只有一张表 `TouchBottomRowLayout`，键盘、统计热力图和设置页预览共用。标准样式仍走原来的约束，默认底行与以前完全相同；其他样式按表、以空格为基准加宽度约束。地球键跟在 123 后面占 1 份；本机「隐藏中/英键」打开时中/英的 1.05 份并进空格；九键双拼字母层的 0 排在空格后面。
+
+适用范围：
+
+- 26 键样式只作用于手机的中文 26 键：全拼、双拼、五笔 26 键、粤拼。日文罗马字、韩文、越南文、藏文、英文和本地模式保留标准底行，与 Android、鸿蒙一致。
+- 密码框（安全输入，或内容类型为 password / newPassword）和只收数字的框（numberPad、decimalPad、asciiCapableNumberPad、phonePad）里三类样式都退回标准底行（`KeyboardViewController.keepsStandardBottomRows`），顶部数字行照画；每次换输入框都重新判定。
+- iPad 没开「数字行与 Tab 键」时与手机一样画顶部数字行。开着时 iPad 全尺寸 26 键画自己的数字行和 Tab，14、18 键仍按顶部数字行开关（这一轮起 14/18 键在这种情况下也画数字行，以前不画）。14/18 键和九键的样式在 iPad 上同样生效；iPad 26 键的底行是它自己的。
+
+逗号与长空格：
+
+- 26 键 `comma_period`：逗号长按打开常用标点，句号是独立键，没有长按。
+- `long_space` 的字母层（26、14、18 键）逗号下滑输入句号，自定义了常用标点也一样；长按在 26 键默认标点下是句号，14/18 键和自定义了常用标点时打开常用标点菜单（`holdsCornerHint`）。26 键的 符 移到工具栏品牌键后面的「符」按钮，工具栏设成隐藏时这一行仍显示，只放品牌、符号和收起；123 进带空格的 123 层，不借数字九宫格，123 层和 #+= 层原来的表情或符号入口换成逗号。
+- 26 键 `emoji` 复用 123 层的表情键（记 `SoftEmoji`），符号面板经长按 123 打开。九键「底栏带标点」的逗号跟随标点键面，长按打开常用标点。
+
+右侧大回车用于拼音九键、九键双拼和笔画的字母层与数字层；26/14/18 键和手写借来的数字九宫格不跟。
+
+- 左列：符号栏（宽度仍是 14%）跨三行，标点是 ，。？！，！ 是只在这个样式里出现的新按钮（iOS 没有自定义符号栏列表）；栏下底行是与它同宽的 符。
+- 中列：九宫格下方是 123 |（🌐）| 空格 |（九键双拼的 0）| 中/英，左右与九宫格对齐。123、🌐、中/英、0 与标准九键底行同宽，空格占剩下的部分；表里写作 符 和回车各 1.281（9.15 × 14%），总份额仍是 9.15（`TouchBottomRowLayout.nineKeyTallReturn`）。这些宽度约束都是必需优先级：用 999 时会与分离键盘里隐藏的第二个空格的 999 约束打平，切过数字层后空格和中/英宽度会错。
+- 右列：沿用 iOS 现有的 ⌫ 和中间键（拼音是「分词」，笔画是「重输」，数字层是「.」）。回车 `tallReturnKey` 是叠在按键列上的独立键，从第三格顶边伸到底行底边；右列原来的 ！ 留着占位，但不画、不接触摸、不进无障碍，底行原来的回车隐藏。回车不在任何一行里，所以经 `KeyAreaStackView.overlayKeys` 加入键距分配，相邻键距里靠它的一半归它；其他样式下它隐藏、不参与。
+- 数字层：符 在符号栏下方（栏里自己的 符 隐藏，运算符占满），123 的位置放回到字母层的键（九键，笔画是「笔」），0 占空格的位置，空格在 0 右边、与中/英同宽，回车仍两倍高。
+- 中/英与回车不在同一行，回车不让点击区。
+
+顶部数字行画在 26 键（含英文和本地模式）、14、18 键的字母层，键面 1 到 0，记 `Digit1`…`Digit0`，走 `handleSymbol`，组字中 1–9 由 runtime 选词。手机横屏不画，存着的值不变。数字页和符号页显示补充行（`symbolExtraRow`）保持五排高度。键盘整整高一排（竖屏默认 289 → 348pt），26 键上下留白按排数算（`phoneLetterVerticalPadding(rows:)`），字母键仍是 44pt；留白在同一趟排版里数字行和补充行的显隐定下来之后才算，当场开关数字行、横屏转回竖屏、从九键换到 26 键时字母键都不会变成 43pt 或 45pt。
+
+设置与热力图：「键盘」页「中文键盘 / 双拼键盘 / 五笔键盘」之后的「按键布局」行，进去是三组单选，每项带底行缩略图（右侧大回车画两排），最后是顶部数字行开关；本版本不提供的键面类型不列它那一组。统计热力图读文档里的样式画 26 键和九键底行，数字行打开时多一排数字，右侧大回车画成跨两行的换行，侧栏的 ！ 是唯一的 `SoftPunctuation` 格；画在键盘上的键不再列进「其他键」。
+
+验证（模拟器级）：
+
+- 在 Mac Studio 上经 `rbuild` 用本分支重编模拟器原生库，`MSIMEApp` Debug 与 `MSIMEClientTests` 编译通过。测试宿主带上锁定版本的粤语、注音、笔画词库，笔画用例实际跑了。
+- 一次性 iPhone 17 / iOS 27.0 模拟器：`MSIMEKeyboardTests` 1013 项，1 项跳过，0 失败。其中 `KeyLayoutStyleTests` 23 项用真 `KeyboardViewController` 逐样式量底行键序和宽度（显示和隐藏中/英各量一遍），覆盖数字行门槛与高度、44pt 字母键、长空格工具栏入口与 123 层逗号、组字中改样式、中文 26 键范围、密码框与数字框退回、iPad 数字行、右侧大回车的外框与数字层（含九键双拼和笔画）、按下大回车结束组字、侧栏 ！、键距分配和热力图；`KeyGapRoutingTests` 12 项；`MSIMESharedTests/TypingStatisticsTests` 14 项。把 `root.overlayKeys = ...` 那一行注掉后，键距用例在大回车一侧的三个点上如期失败（显示和隐藏中/英共 6 处）。
+- 设置页：本机模拟器装真 App，经 `msime://settings/layout` 进按键布局，选「长空格」「右侧大回车」后保存，显示勾选和两排预览。
+- 没验证：真机，把键盘装成系统键盘在别的 App 里打字，真实 iPad 和真实旋转（横屏经 traitOverrides 模拟），真实的逗号下滑与长按手势（只断言配置），真实的安全输入框和数字键盘框（输入框类型经 `applyInputContext` 驱动），热力图界面（模拟器上统计页要设备密码，只核对了数据）。大回车记 `Return` 只核对了热力图表和按键闭包：单测宿主里 `countKeyPress` 的隐私门不放行。
+
+### 鸿蒙
+
+键序与份额在 `platforms/harmony/entry/src/main/ets/keyboard/TouchLayoutStylePolicy.ts`（`designRow`、`commaHold`、`commaSwipesPeriod`、`fieldRowStyle`、`numberRowExtraRows`、`symbolExtraRow`、`firstPanel`）和 `NineKeyLayout.actionRow(digitLayer, english, style)`；`KeyboardView.designActionRow` 与 `nineKeyActionRow` 按这些表画，默认样式与之前逐键相同。鸿蒙没有地球键。中文 26 键指字母层是 26 键一类、不是 14/18 键、且是中文（不是英文、韩文、越南语、藏文、日语罗马字）的键面；英文 26 键、大千注音和 2in1 保持原来的底行。
+
+- 26 键：`comma_period` 与 Android 份额相同，逗号长按打开常用标点；`long_space` 是 123 | ， | 空格 5.05 | 中 | 回车，逗号下滑或长按输入句号，符号入口移到工具栏标志右边（「符」），工具栏这一行一直画着、设成隐藏时只留标志、符号和收起，123 进带空格的数字符号层，该层与 #+= 层左下的 😀/符号 换成逗号；`emoji` 是 123 | 😀 1.05 | 空格 4 | ， | 中 | 回车，😀 记 `SoftEmoji`，符号面板经长按 123 进入。
+- 14/18 键：`long_space` 是 123 | ， | 空格 5 | 中 | 回车，逗号下滑输入句号、长按仍打开常用标点；`emoji` 是 123 | 😀 1 | 空格 4 | ， 1 | 中 | 回车，逗号长按打开常用标点。
+- 九键：`comma_period` 是 符 | 123 | ， 1 | 空格 2.2 | 。 1 | 中 | 回车，逗号长按打开常用标点（`NineKeyLayout.commaOpensQuickPunctuation`）；`emoji` 是 符 | 123 | 😀 1.05 | 空格 3.15 | 中 | 回车；英文九键不用九键样式。
+- 密码框和只收数字的框（数字、带小数点数字、电话号码，`EditorTraits.digits`）里，三类键面的所有样式都退回标准底行（`EditorPolicy.keepsStandardRows`、`TouchLayoutStylePolicy.fieldRowStyle`），这个状态进 `faceKey()`。
+
+右侧大回车由 `NineKeyLayout.tallReturn(english, style)` 决定画不画，`KeyboardView.tallReturnNineKeyFrame` 画外框，只在触屏键盘上、拼音九键 / 九键双拼 / 笔画及其数字层使用；英文九键、假名网格和其他中文键面借用的数字九宫格保持原样。三列沿用触屏网格原有的份额：左右各 1.15、中间 6（`NineKeyLayout.SIDE_SHARE`、`GRID_SHARE`），底行与上面三列对齐。
+
+- 左列：跨三行的符号栏，平时是 ，。？！（`NineKeyLayout.sideMarks(true)` 只在这个样式里接上 ！；鸿蒙没有自定义符号栏列表），组字时是读音栏；栏下是同宽的 符。
+- 中列：九宫格下方恰好与九宫格同宽：123 1.25 | 空格 3.7 | 中/英 1.05。
+- 右列：⌫，其下是鸿蒙原有的第二格「分词」，回车占一个网格行加行距加底行，两倍高、中间无缝；原来的 ！ 格去掉。笔画右列本来没有第二格，⌫ 占上面两行。
+- 数字层：左列 + − * / #+=，符 留在原处；九宫格下方是 切换键 1.25 | 空格 2.65 | 0 1.05 | 中/英 1.05，0 进空格的位置，空格按鸿蒙数字层原有的次序留在 0 左边；右列是 ⌫、小数点和两倍高的回车。
+- 回车不让出点击区（`NineKeyLayout.languageBesideReturn` 对这一行为假），其他九键行照旧让。
+
+顶部数字行：开关打开、字母层是 26/14/18 键一类（九键、假名、手写、笔画、大千注音都不画）、不是 2in1、也不是手机横屏（`KeyboardFormFactorPolicy.phoneLandscape`）时，在字母上方画 1 到 0，平板也画。行高是不带高度调整的 44vp，面板经 `KeyboardMetrics.totalHeightVp` 的 extraRows 正好高一行；同一键面的 123、#+= 层和借用的数字九宫格顶部画同高的补充行，切层时面板高度不变。数字记 `Digit0`–`Digit9`；组字中经 `KeyboardSession.pressElseCommitThenType` 先交给引擎（当前页 1–9 选词，韩语汉字列表打开时选汉字），收没收只看引擎的 handled，不收时先结束组合再上屏数字，与 Android `DeclinedKeyPolicy` 相同。韩语、越南语、藏文的引擎会先上屏音节或单词再把数字交回宿主，按「组字变了」当作收下会丢数字；`tests/run.sh` 钉住这条接线。
+
+偏好与第一帧：`KeyboardSession` 读四个字段，样式宽松解析，`faceKey()` 含四个值和输入框状态，设置页保存后 `onViewPreferencesReloaded` 当场重建键并重定面板高度，不打断组字；鸿蒙没有本机旧设置要迁移。视图把键面里决定面板高度的两件事（字母层是不是 26/14/18 键一类、是不是中文 26 键）记进键盘自己的 `touch_panel_face.json`，变了才重写；扩展能力挂视图之前用它和当前偏好算出第一帧的数字行与长空格工具条（`TouchLayoutStylePolicy.firstPanel`），视图出现时从同一个形状开始核对高度，记错了也会被纠正。视图在扩展能力挂上尺寸回调之前请求的高度由 `TouchHeightRelay` 暂存，挂上时补发。没有记录时与以前相同；手写多出的一行和一打开就在密码框里的面板仍在视图出现后纠正。
+
+设置与热力图：共享 React 页在鸿蒙手机「屏幕键盘 › 布局」里、中文键盘之后加「按键布局」入口，子页三组单选各带示意图（数据在 `packages/ui/src/keyboard/touch-key-layout-styles.ts`，测试直接对照鸿蒙键盘的样式表），9 键第四项「右侧大回车」画两行、回车跨两行；「顶部数字行」开关在无标题组里，版本既没有 26 键也没有 14 键时不列。版本没有的键盘类型不列它那一组（26 键看全拼/双拼/五笔/粤拼，14/18 键看全拼/双拼/五笔，9 键看全拼/双拼/笔画）。设置项搜索能找到子页里的选项并打开子页。打字统计热力图按当前 26 键与 9 键样式换底行，数字行打开时在 26 键上方画 1 到 0；右侧大回车由 `phoneHeatmapLayoutRows` 按九键加这个样式画，回车 `rowSpan` 为 2、下伸的位置是占位，统计 id 不变。
+
+验证：
+
+- 源码与单测：`bash platforms/harmony/tests/run.sh` 0 失败。`touch-layout-styles.test.ts` 覆盖样式表与默认行不变、逗号规则、数字行门槛与补充行、输入框退回、右侧大回车的行与份额和不让位、第一帧形状，以及 `TouchHeightRelay` 在视图出现的三种时机下都把面板定到较高的高度；`run.sh` 的接线守卫逐一改坏被守的代码（九处）确认会失败。`apps/desktop` 的 `tsc --noEmit` 与全量 vitest（867 个文件、5569 项）通过；所有 `scripts/test-harmony-*.py` 通过。
+- 编译：本机 `hvigorw assembleHap` 成功，CompileArkTS 实际执行。本分支的原生库在 Mac Studio 上经 `rbuild` 编出；main 检出里 Oct 25 的预编译库不能用，它的 client-core 没有这四个字段，设置页保存时会丢掉新键。
+- HarmonyOS 6.0.2 手机模拟器：设置子页的选项、示意图和保存；键盘侧看了右侧大回车的字母层与数字层、输入数字、读音栏、点回车下半段上屏，九键「底栏带标点」的逗号长按菜单，26 键数字行，标准九键不变，以及冷启动第一帧按记下的键面定高（两个方向）。日志里看到了视图先于回调请求高度的情况，补发后面板到了正确高度，26 键带数字行没有被截。模拟器没有共享沙箱，设置页的改动传不到键盘，键盘侧是临时在代码里写死样式和数字行看的，这些改动已还原、没有提交。
+- 本地模拟器要临时把 `~/sdk` 链到 `~/command-line-tools/sdk`（实例配置 `hardware-qemu.ini` 里的 sdk 根目录不存在，找不到 hdc），主机负载高时还要在启动期间临时挪开崩溃服务（它约 21 秒的 snapshot 启动检查连 `-bootmode coldboot` 也会杀掉）；两处用完都已复原。
+- 没验证：设置到键盘的端到端路径（需要带 data-group-id 签名的真机）、密码框和数字框在真实输入框里退回标准底行、笔画的右侧大回车外框、逐帧确认第一帧不再跳高、真机。
+
+### 有意保留的差异
+
+下面这些三端不一样，都来自本次之前各端已有的键或规矩，本次没有拉齐，要改需要另做产品决定：
+
+- 九键标准底行的份额：Android 空格 4、回车 1.9，iOS 与鸿蒙空格 4.2、回车 1.6；九键各样式的空格份额随之不同（底栏带标点 2 对 2.2，表情键 2.95 对 3.15）。右侧大回车中列：Android 与 iOS 让 123、中/英（和地球键）保持各自标准九键底行里的宽度、空格占剩下的；鸿蒙按网格份额 6 直接定成 123 1.25 | 空格 3.7 | 中 1.05。
+- iOS 九键双拼的底行多一个 0 键（排在空格后），右侧大回车里也保留。
+- 右列第二格：Android 是重输；iOS 拼音九键一直是分词（重输在 ⌫ 长按），笔画是重输；鸿蒙拼音是分词，笔画没有第二格、⌫ 占两行。所以 iOS 与鸿蒙的拼音右侧大回车第二格是分词，而不是 Decision 里写的重输。
+- 右侧大回车数字层的空格：Android 移到右列重输的位置，并在 0 右边加小数点；iOS 留在 0 右边、与中/英同宽，右列中间键是小数点；鸿蒙留在 0 左边，右列中间是小数点。
+- 符号栏 ！ 的上滑 0 与长按上下标只有 Android 拼音九键和九键双拼有。
+- 顶部数字行的高度门槛：Android 是窗口低于 480 dp 不画，iOS 与鸿蒙是手机横屏不画。
+- 账号同步：Android 与鸿蒙走 `TouchHostKeys`；iOS 不同步这四项，与 `touch_quanpin_shift` 相同。
 
 ## Alternatives considered
 
@@ -61,3 +176,4 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 
 - `rbuild cargo test -p msime-client-core -p msime-client-services`：新增的默认值与不改写旧文档、存储往返、线上写法与不认识的值、Android 同步写法与跳过，以及导出键清单的两处快照和 Android、鸿蒙的整份往返用例。
 - `python3 scripts/test-preferences-field-parity.py` 与 `python3 platforms/macos/tests/settings/preference_coverage.py .` 通过。
+- 三端第二轮合并后，在合并树上跑过 `bash platforms/harmony/tests/run.sh`（0 失败）、`python3 scripts/test-preferences-field-parity.py`、`python3 scripts/test-mobile-return-yield-parity.py`（三端回车让位一致）与 `git diff --check origin/develop...HEAD`，都通过。各端的构建、模拟器结果和没验证的部分见「各端实现」。
