@@ -204,12 +204,15 @@ struct KeyboardLayoutSettingsView: View {
           sheetTitle: "五笔键盘", identifier: "wubiKeyboardPicker",
           onSelect: selectWubiLayout)
       }
-      DesignDivider()
-      NavigationLink(destination: KeyboardKeyLayoutSettingsView()) {
-        DesignNavRowLabel(title: "按键布局", subtitle: "26 键、14 键与 18 键、9 键的底行样式和顶部数字行")
+      // 本版本一组都不提供时（`TouchKeyLayoutOffering.offersAnyGroup`）不列这一行，免得点进去是空页。
+      if TouchKeyLayoutOffering.edition.offersAnyGroup {
+        DesignDivider()
+        NavigationLink(destination: KeyboardKeyLayoutSettingsView()) {
+          DesignNavRowLabel(title: "按键布局", subtitle: TouchKeyLayoutOffering.entrySubtitle)
+        }
+        .buttonStyle(PressFillButtonStyle())
+        .accessibilityIdentifier("keyLayoutSettingsLink")
       }
-      .buttonStyle(PressFillButtonStyle())
-      .accessibilityIdentifier("keyLayoutSettingsLink")
       DesignDivider()
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
       if ChineseInputScheme.shuangpin.isOfferedByEdition {
