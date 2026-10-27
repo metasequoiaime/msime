@@ -14,9 +14,9 @@
 - `url` 是基地址：`https://`，可以带路径前缀，不能带查询串、片段和用户信息，不超过 2048 字节。`http://` 只接受 `localhost`、`127.0.0.1` 和 `[::1]`，给本机测试用。客户端把基地址规范化（主机名小写、去掉默认端口和末尾的 `/`）后拼上接口路径，例如 `https://relay.example.com/msime/v1/users/me/clipboard/keys?device_id=…`。
 - 客户端的 TLS 用 rustls 和内置的 webpki-roots 根证书，不读系统信任库。中继必须使用公网可信的证书（例如 Let's Encrypt；只在局域网里用的主机名可以走 DNS-01 签发），自签证书、企业 CA 和私有 CA 都连不上。
 - `token` 是中继管理员发的令牌，16 到 256 个可打印 ASCII 字符，不含空格。它和语音、翻译服务的凭据一样明文存在本机的偏好文档里，列在凭据清单（诊断快照里换成 `<redacted>`），不随设置文件导出，不进账号设置同步。
-- 配置了中继，Tauri 设置窗口和云剪贴板面板（macOS、Linux）、Windows 原生设置窗口、macOS 输入法菜单启动的面板与原生窗口、Android 原生宿主的设置页和键盘的请求就只走中继，不会在中继失败时退回水杉账号。iOS 和 HarmonyOS 的原生宿主还没接上，见下文「支持的宿主」。
+- 配置了中继，Tauri 设置窗口和云剪贴板面板（macOS、Linux）、Windows 原生设置窗口、macOS 输入法菜单启动的面板与原生窗口、Android 原生宿主的设置页和键盘、HarmonyOS 设置应用和键盘的请求就只走中继，不会在中继失败时退回水杉账号。iOS 的原生宿主还没接上，见下文「支持的宿主」。
 
-Windows 原生设置页、macOS 与 Linux 共享设置页「剪贴板」的「云剪贴板同步方式」和 Android「我的 → 云剪贴板」页顶部的「云剪贴板同步方式」可以填写这两项，其他宿主还不显示（见下文「支持的宿主」）。
+Windows 原生设置页、macOS、Linux 与 HarmonyOS 共享设置页「剪贴板」的「云剪贴板同步方式」和 Android「我的 → 云剪贴板」页顶部的「云剪贴板同步方式」可以填写这两项，其他宿主还不显示（见下文「支持的宿主」）。
 
 ## 鉴权
 
@@ -46,6 +46,7 @@ Windows 原生设置页、macOS 与 Linux 共享设置页「剪贴板」的「�
 | --- | --- |
 | Windows、Linux、macOS 的 Tauri 设置页与云剪贴板面板 | 与 `account-session.json` 同一目录 |
 | Android 原生宿主（设置页和 `:ime` 进程里的键盘共用） | 应用私有的 `noBackupFilesDir/cloud-clipboard-relay/`，由宿主用 AndroidKeyStore 里不导出的密钥加密（与账号那份同样做法），不进云备份和设备间迁移 |
+| HarmonyOS 设置应用与键盘扩展 | 各自沙箱的 `files/state`（与账号会话、账号那份密钥串同一目录），Rust 写的文件，只靠应用沙箱保护，与账号那份相同。只有设置应用生成；键盘的请求带 `create_identity: false`，用设置应用经共享沙箱镜像过来的那份，一台手机只登记一台设备 |
 
 桌面端这份比账号路径的密钥串弱：它是应用私有目录里的明文文件，只靠文件权限保护。Android 不用它：宿主自己跑驱动，中继的密钥串与账号那份一样用 AndroidKeyStore 加密（内容是中继的绑定加密钥串，绑定不同就当作没有），只借 `msime_client_relay_cloud_clipboard_exchange` 发请求。
 
@@ -58,7 +59,8 @@ Windows 原生设置页、macOS 与 Linux 共享设置页「剪贴板」的「�
 - Windows 原生 WinUI 设置窗口的「剪贴板」页提供同步方式、地址和遮罩令牌，点击「保存同步方式」后由共享 Rust 一起校验和保存；切回账号会删除中继配置。「发到云剪贴板」在后台查询所选来源，中继请求失败或来源读取失败不走账号；`relay_unauthorized` 显示令牌错误。中继密钥串与 Tauri 云剪贴板面板共用账号目录。配置变化后旧请求结果失效。
 - macOS 输入法进程经 Apple 的 Rust 函数表（`shared/backend/rust/MSIMERustClient.h`）接入同样两个 C 入口：输入法菜单启动的 Tauri 面板、未登录时退回的原生云剪贴板窗口（`MacClipboardModel`）和表情面板剪贴板历史的「发到云剪贴板」都先问 `msime_client_cloud_clipboard_source`，选了中继就只走 `msime_client_relay_cloud_clipboard`，不要求登录水杉账号；偏好和中继密钥串都在输入法状态目录（`~/Library/Application Support/app.msime.macos`）。选路失败（偏好读不了、中继配置不合规）退回登录窗口，不拿账号路径顶上。
 - [WebDAV 网盘](cloud-clipboard-webdav.md) 经同样两个 C 入口接入：`msime_client_cloud_clipboard_source` 对它也答 `relay`，另带 `backend: "webdav"`，中继入口按偏好自己分派。
-- 设置页的中继字段目前在 Windows、Linux、macOS 和 Android 显示，WebDAV 网盘的字段在同样这几处（见 [WebDAV 后端](cloud-clipboard-webdav.md) 的「设置界面」）。iOS 和 HarmonyOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。
+- HarmonyOS 经 NAPI 接上：设置应用（共享 React 页面）的云剪贴板面板、「发到云剪贴板」和键盘的「云端」每个请求都先问 `msime_client_cloud_clipboard_source`，选了中继或网盘就只走 `msime_client_relay_cloud_clipboard`（带读来源时的 `expected_revision`），来源读不出时按失败处理；没选时走账号，请求带 `preferences_directory`。都在隐私政策的授权之后。键盘只用设置应用生成的设备身份（`create_identity: false`，见上表），本机还没有时提示先在应用里打开一次云剪贴板。
+- 设置页的中继字段目前在 Windows、Linux、macOS、Android 和 HarmonyOS 显示，WebDAV 网盘的字段在同样这几处（见 [WebDAV 后端](cloud-clipboard-webdav.md) 的「设置界面」）。iOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。
 
 ## 参考实现
 
