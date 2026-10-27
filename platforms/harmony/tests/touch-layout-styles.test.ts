@@ -308,14 +308,15 @@ group("九键「右侧大回车」：网格下方的底行恰好与网格同宽�
     check(!NineKeyLayout.tallReturn(false, style), `${style} 不是大回车`);
   }
   const letters = NineKeyLayout.actionRow(false, false, "tall_return");
+  // 份额按没有键距算：外框 8.3 份，标准底行 9.15 份，123 与 中/英 是标准底行里的 1.25、1.05 份换算过来的宽度。
   check(
-    nine(letters) === "layer_toggle:1.25 space:3.7 language:1.05",
+    nine(letters) === "layer_toggle:1.13 space:3.91 language:0.95",
     `字母层：123 | 空格 | 中/英：${nine(letters)}`,
   );
   const digits = NineKeyLayout.actionRow(true, false, "tall_return");
   check(
-    nine(digits) === "layer_toggle:1.25 space:2.65 zero:1.05 language:1.05",
-    `数字层：切换键 | 空格 | 0 | 中/英，0 在空格的位置、空格留在 0 左边：${nine(digits)}`,
+    nine(digits) === "layer_toggle:1.13 zero:2.96 space:0.95 language:0.95",
+    `数字层：切换键 | 0 | 空格 | 中/英，0 占剩下的宽度、空格在它右边：${nine(digits)}`,
   );
   for (const row of [letters, digits]) {
     check(close(total(row), NineKeyLayout.GRID_SHARE), `底行恰好与网格同宽：${total(row)}`);
@@ -355,6 +356,81 @@ group("九键「右侧大回车」：网格下方的底行恰好与网格同宽�
   }
   check(NineKeyLayout.languageBesideReturn(NineKeyLayout.actionRow(true)), "数字层中/英 紧挨回车");
 });
+
+group(
+  "九键「右侧大回车」：123、中/英 和数字层空格与标准底行同宽，空格或 0 占网格剩下的宽度",
+  () => {
+    const frameShare = NineKeyLayout.SIDE_SHARE * 2 + NineKeyLayout.GRID_SHARE;
+    // 一块 390vp 宽、键距 6vp 的键面，和没有键距的份额两种量法。
+    for (const [faceWidth, spacing] of [
+      [390, 6],
+      [360, 4],
+      [frameShare, 0],
+    ]) {
+      for (const digitLayer of [false, true]) {
+        const standard = NineKeyLayout.actionRow(digitLayer);
+        const standardShare = total(standard);
+        // 标准底行五个键、四道键距铺满整块键面。
+        const unit = (faceWidth - (standard.length - 1) * spacing) / standardShare;
+        const standardWidth = (kind: NineKeyActionKind): number =>
+          (standard.find((item) => item.kind === kind)?.weight ?? 0) * unit;
+        const row = NineKeyLayout.tallReturnRow(digitLayer, faceWidth, spacing);
+        const width = (kind: NineKeyActionKind): number =>
+          row.find((item) => item.kind === kind)?.weight ?? -1;
+        const label = `${digitLayer ? "数字层" : "字母层"} ${faceWidth}/${spacing}`;
+        check(
+          close(
+            width(NineKeyActionKind.LAYER_TOGGLE),
+            standardWidth(NineKeyActionKind.LAYER_TOGGLE),
+          ),
+          `${label}：123 与标准底行同宽`,
+        );
+        check(
+          close(width(NineKeyActionKind.LANGUAGE), standardWidth(NineKeyActionKind.LANGUAGE)),
+          `${label}：中/英 与标准底行同宽`,
+        );
+        if (digitLayer) {
+          check(
+            close(width(NineKeyActionKind.SPACE), 1.05 * unit),
+            `${label}：数字层空格是标准底行的 1.05 份`,
+          );
+          check(
+            row.map((item) => item.kind).join(" ") === "layer_toggle zero space language",
+            `${label}：切换键 | 0 | 空格 | 中/英`,
+          );
+        } else {
+          check(
+            row.map((item) => item.kind).join(" ") === "layer_toggle space language",
+            `${label}：123 | 空格 | 中/英`,
+          );
+        }
+        check(
+          NineKeyLayout.tallReturnFill(digitLayer) ===
+            (digitLayer ? NineKeyActionKind.ZERO : NineKeyActionKind.SPACE),
+          `${label}：占剩余宽度的键`,
+        );
+        // 外框三列两道键距，中列再有 length - 1 道键距：这一段加键距正好是网格的宽度。
+        const grid = ((faceWidth - 2 * spacing) * NineKeyLayout.GRID_SHARE) / frameShare;
+        check(
+          close(total(row) + (row.length - 1) * spacing, grid),
+          `${label}：底行恰好与网格同宽：${total(row) + (row.length - 1) * spacing} 对 ${grid}`,
+        );
+        check(
+          row.every((item) => item.weight > 0),
+          `${label}：每个键都有宽度`,
+        );
+      }
+    }
+    // 没有键距时就是 actionRow 的份额，设置页示意图和热力图用的是这一份。
+    for (const digitLayer of [false, true]) {
+      check(
+        nine(NineKeyLayout.tallReturnRow(digitLayer, frameShare, 0)) ===
+          nine(NineKeyLayout.actionRow(digitLayer, false, "tall_return")),
+        "actionRow 的份额是没有键距时的宽度",
+      );
+    }
+  },
+);
 
 group("九键「底栏带标点」的逗号长按打开常用标点，与 Android、iOS 相同", () => {
   check(NineKeyLayout.commaOpensQuickPunctuation(false, false, "comma_period"), "中文九键字母层");

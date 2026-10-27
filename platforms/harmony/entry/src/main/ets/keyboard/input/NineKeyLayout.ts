@@ -134,6 +134,57 @@ export class NineKeyLayout {
     return !english && style === "tall_return";
   }
 
+  /** 「右侧大回车」数字层的空格按标准九键底行的份额算的宽度：与 中/英 相同，0 占剩下的部分。 */
+  static readonly TALL_RETURN_DIGIT_SPACE_WEIGHT: number = 1.05;
+
+  /**
+   * 「右侧大回车」网格下方那一段底行里每个键的宽度，与 Android、iOS 相同：123（数字层的切换键）和 中/英 保持标准九键底行里的绝对宽度，字母层空格占网格宽度剩下的部分；数字层是 切换键 | 0 | 空格 | 中/英，空格是标准底行的 1.05 份（`TALL_RETURN_DIGIT_SPACE_WEIGHT`），0 占剩下的部分（`tallReturnFill`）。鸿蒙没有地球键。
+   *
+   * 「绝对宽度」按同一块键面上的标准底行算：标准底行五个键、四道键距铺满整块宽度（`actionRow(digitLayer)`，两层都是 9.15 份），外框三列、两道键距，中列按 `GRID_SHARE` 分到的宽度里再有 `length - 1` 道键距。返回的 `weight` 是宽度，单位与 `faceWidth`、`keySpacing` 相同；键距为 0、`faceWidth` 取三列份额之和时就是 `actionRow` 里的份额。
+   *
+   * @param digitLayer 画的是数字层
+   * @param faceWidth 整块键面（外框）的宽度
+   * @param keySpacing 横向键距
+   */
+  static tallReturnRow(
+    digitLayer: boolean,
+    faceWidth: number,
+    keySpacing: number,
+  ): NineKeyAction[] {
+    const standard: NineKeyAction[] = NineKeyLayout.actionRow(digitLayer);
+    const standardShare: number = standard.reduce(
+      (sum: number, item: NineKeyAction): number => sum + item.weight,
+      0,
+    );
+    const unit: number = (faceWidth - (standard.length - 1) * keySpacing) / standardShare;
+    const frameShare: number = NineKeyLayout.SIDE_SHARE * 2 + NineKeyLayout.GRID_SHARE;
+    const grid: number = ((faceWidth - 2 * keySpacing) * NineKeyLayout.GRID_SHARE) / frameShare;
+    const fixed: NineKeyAction[] = digitLayer
+      ? [
+          action(NineKeyActionKind.LAYER_TOGGLE, NineKeyLayout.LAYER_WEIGHT * unit),
+          action(NineKeyActionKind.SPACE, NineKeyLayout.TALL_RETURN_DIGIT_SPACE_WEIGHT * unit),
+          action(NineKeyActionKind.LANGUAGE, NineKeyLayout.LANGUAGE_WEIGHT * unit),
+        ]
+      : [
+          action(NineKeyActionKind.LAYER_TOGGLE, NineKeyLayout.LAYER_WEIGHT * unit),
+          action(NineKeyActionKind.LANGUAGE, NineKeyLayout.LANGUAGE_WEIGHT * unit),
+        ];
+    const taken: number = fixed.reduce(
+      (sum: number, item: NineKeyAction): number => sum + item.weight,
+      0,
+    );
+    const fill: NineKeyAction = action(
+      NineKeyLayout.tallReturnFill(digitLayer),
+      grid - fixed.length * keySpacing - taken,
+    );
+    return [fixed[0], fill].concat(fixed.slice(1));
+  }
+
+  /** 「右侧大回车」网格下方那一段里占剩余宽度的键：字母层是空格，数字层是 0。 */
+  static tallReturnFill(digitLayer: boolean): NineKeyActionKind {
+    return digitLayer ? NineKeyActionKind.ZERO : NineKeyActionKind.SPACE;
+  }
+
   /**
    * 中/英 是否紧挨在回车左边（同一行）：这时两键的触摸分界挪进回车键帽（`KeyboardGeometry.RETURN_YIELD_VP`）。「右侧大回车」的底行里没有回车，回车在右列，不让出键帽。
    */
@@ -160,7 +211,7 @@ export class NineKeyLayout {
    *
    * 中文九键字母层按共享偏好 `touch_nine_key_style` 排：`comma_period` 是 符 | 123 | ， | 空格 | 。 | 中 | 回车，逗号句号各占从空格让出的 1 份；`emoji` 是 符 | 123 | 😀 | 空格 | 中 | 回车，😀 占从空格让出的 1.05 份。数字层和英文九键不受这两种样式影响，左侧标点栏和右列不变。
    *
-   * `tall_return`（`tallReturn`）的底行只是网格下方那一段，份额按网格的 `GRID_SHARE` 算、加起来正好是网格的宽度：字母层 123 1.25 | 空格 3.7 | 中 1.05；数字层 切换键 1.25 | 空格 2.65 | 0 1.05 | 中 1.05，0 放进空格的位置、空格留在 0 左边，与这里原有数字层「空格 | 0」的次序相同。符 和回车不在这一段里，由外框画在左列和右列。
+   * `tall_return`（`tallReturn`）的底行只是网格下方那一段，加起来正好是网格的份额 `GRID_SHARE`，各键的份额见 `tallReturnRow`（这里按没有键距算）：字母层 123 | 空格 | 中，数字层 切换键 | 0 | 空格 | 中。符 和回车不在这一段里，由外框画在左列和右列。
    *
    * @param digitLayer 画的是数字层
    * @param english 英文模式下的九键（数字层不受影响）
@@ -175,21 +226,12 @@ export class NineKeyLayout {
     const englishMarks: boolean = english && !digitLayer;
     const styled: boolean = !english && !digitLayer;
     if (NineKeyLayout.tallReturn(english, style)) {
-      const ends: number = NineKeyLayout.LAYER_WEIGHT + NineKeyLayout.LANGUAGE_WEIGHT;
-      row.push(action(NineKeyActionKind.LAYER_TOGGLE, NineKeyLayout.LAYER_WEIGHT));
-      if (digitLayer) {
-        row.push(
-          action(
-            NineKeyActionKind.SPACE,
-            NineKeyLayout.GRID_SHARE - ends - NineKeyLayout.ZERO_WEIGHT,
-          ),
-        );
-        row.push(action(NineKeyActionKind.ZERO, NineKeyLayout.ZERO_WEIGHT));
-      } else {
-        row.push(action(NineKeyActionKind.SPACE, NineKeyLayout.GRID_SHARE - ends));
-      }
-      row.push(action(NineKeyActionKind.LANGUAGE, NineKeyLayout.LANGUAGE_WEIGHT));
-      return row;
+      // 份额是没有键距时的宽度：整块外框宽 SIDE_SHARE * 2 + GRID_SHARE，键距为 0。
+      return NineKeyLayout.tallReturnRow(
+        digitLayer,
+        NineKeyLayout.SIDE_SHARE * 2 + NineKeyLayout.GRID_SHARE,
+        0,
+      );
     }
     if (styled && style === "comma_period") {
       row.push(action(NineKeyActionKind.SYMBOL_PANEL, NineKeyLayout.SYMBOL_PANEL_WEIGHT));
