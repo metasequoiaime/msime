@@ -115,7 +115,7 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
             await(field("msime-test-plain").and(node -> equalsText("5你好0‰7", node.getText())));
             tap(key("123"));
             await(key("‰"));
-            tap(described("切换到字母键盘"));
+            tap(described("返回原键盘"));
             await(key("q"));
 
             stage = "English number page adds useful symbols";
@@ -127,7 +127,7 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
                 throw new AssertionError("English number page lost its fifth row");
             tap(key("["));
             await(field("msime-test-plain").and(node -> equalsText("5你好0‰7[", node.getText())));
-            tap(key("ABC"));
+            tap(described("返回原键盘"));
             tap(key("英"));
             await(key("中"));
 
