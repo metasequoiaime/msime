@@ -23,7 +23,7 @@ int main() {
        L"local_model_checksum_mismatch",
        L"下载的文件校验不通过，已丢弃。请重试；若使用了镜像，请确认镜像内容完整。"},
       {"format", L"local_model_format_mismatch: unsupported-model.gram",
-       L"local_model_format_mismatch", L"模型文件格式无效或与当前版本不兼容，无法安装。"},
+       L"local_model_checksum_mismatch", L"下载的文件校验不通过，已丢弃。请重试；若使用了镜像，请确认镜像内容完整。"},
       {"archive", L"local_model_unsafe_archive: entry", L"local_model_invalid_archive",
        L"模型文件内容不完整或不安全，已丢弃。请重试。"},
       {"missing", L"local_model_missing_file: weights.bin", L"local_model_invalid_archive",

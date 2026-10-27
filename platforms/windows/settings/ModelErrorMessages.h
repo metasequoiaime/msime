@@ -5,13 +5,15 @@
 
 namespace msime::settings::models {
 
+// 与 apps/desktop/src-tauri/src/voice/local_models.rs 的 local_model_error_code 保持分类一致。
 // 仅保留错误标识，地址、路径等底层诊断详情不参与用户提示。
 inline std::wstring error_code(std::wstring_view error) {
   const auto colon = error.find(L':');
   const auto code = colon == std::wstring_view::npos ? error : error.substr(0, colon);
   if (code == L"local_model_install_running" || code == L"resource_pack_busy")
     return L"busy";
-  if (code == L"local_model_size_mismatch" || code == L"local_model_checksum_mismatch")
+  if (code == L"local_model_size_mismatch" || code == L"local_model_checksum_mismatch" ||
+      code == L"local_model_format_mismatch")
     return L"local_model_checksum_mismatch";
   if (code == L"local_model_unsafe_archive" || code == L"local_model_missing_file")
     return L"local_model_invalid_archive";
@@ -28,8 +30,6 @@ inline std::optional<std::wstring> error_message(std::wstring_view code) {
     return L"下载失败：服务器拒绝了请求。请稍后重试，或更换下载镜像。";
   if (code == L"local_model_checksum_mismatch")
     return L"下载的文件校验不通过，已丢弃。请重试；若使用了镜像，请确认镜像内容完整。";
-  if (code == L"local_model_format_mismatch")
-    return L"模型文件格式无效或与当前版本不兼容，无法安装。";
   if (code == L"local_model_invalid_archive")
     return L"模型文件内容不完整或不安全，已丢弃。请重试。";
   if (code == L"local_model_invalid_mirror")

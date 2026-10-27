@@ -135,7 +135,7 @@ int main() {
       {"local_model_network: synthetic-detail", "下载失败：无法连接下载服务器。请检查网络，或设置下载镜像后再试。"},
       {"local_model_http_status: 503", "下载失败：服务器拒绝了请求。请稍后重试，或更换下载镜像。"},
       {"local_model_checksum_mismatch: synthetic-detail", "下载的文件校验不通过，已丢弃。请重试；若使用了镜像，请确认镜像内容完整。"},
-      {"local_model_format_mismatch: synthetic-detail", "模型文件格式无效或与当前版本不兼容，无法安装。"},
+      {"local_model_format_mismatch: synthetic-detail", "下载的文件校验不通过，已丢弃。请重试；若使用了镜像，请确认镜像内容完整。"},
       {"local_model_io: synthetic-detail", "无法写入模型文件，请确认磁盘空间充足。"},
       {"local_model_cancelled: synthetic-detail", "安装已取消。"},
       {"future_model_error: synthetic-detail", "操作失败，请重试。"},
@@ -147,6 +147,12 @@ int main() {
       assert(IsWindowEnabled(control(Models::install)) && !IsWindowEnabled(control(Models::cancel)));
       assert(store.load().snapshot->revision() == failure_revision);
     }
+    // 格式错误经公共归一化后，离线导入仍显示专属校验提示。
+    { std::lock_guard<std::mutex> lock(mutex); install_error = "local_model_format_mismatch: synthetic-detail"; }
+    click(Models::add_file); click(Models::import_model);
+    assert(text(Models::notice) == "所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。");
+    assert(IsWindowEnabled(control(Models::import_model)) && IsWindowEnabled(control(Models::install)));
+    assert(store.load().snapshot->revision() == failure_revision);
     { std::lock_guard<std::mutex> lock(mutex); install_error.clear(); }
     block_install = true; assert(ResetEvent(gate)); SendMessageW(control(Models::install),BM_CLICK,0,0);
     pump([&] { return install_started.load(); }); assert(IsWindowEnabled(control(Models::cancel)) && !IsWindowEnabled(control(Models::install)));

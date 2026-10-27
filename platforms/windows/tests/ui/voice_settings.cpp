@@ -206,6 +206,10 @@ int main() {
             L"local_model_size_mismatch: selected-model.bin")) ==
             std::wstring(L"所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。"),
         "导入保留专属校验提示");
+  check(local_model_import_error_message(msime::settings::models::error_code(
+            L"local_model_format_mismatch: selected-model.bin")) ==
+            std::wstring(L"所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。"),
+        "格式错误归一化后保留导入专属校验提示");
   check(!local_model_import_error_message(msime::settings::models::error_code(
             L"local_model_cancelled: file selection")) &&
             local_model_import_error_message(L"new_model_error") ==
