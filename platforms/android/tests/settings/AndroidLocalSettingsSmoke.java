@@ -85,11 +85,13 @@ public final class AndroidLocalSettingsSmoke {
         check(settings.integer(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH) == 3, "stroke width default");
         check(settings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), "offline fallback default");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
+        check("before".equals(settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)), "quick delete keeps the cursor-before default");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
         check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT) == 0, "height default");
         check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT), "height is not explicit by default");
         check(!settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY), "overlay default");
-        check("warn".equals(settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL)), "log level default");
+        check(settings.bool(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED), "logging enabled default");
+        check("debug".equals(settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL)), "log level default");
         check(!settings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), "language/number swap defaults off");
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS).synced, "key swap stays local");
         check(!settings.bool(AndroidLocalSettings.NUMBER_ROW), "number row is off by default");
@@ -124,7 +126,8 @@ public final class AndroidLocalSettingsSmoke {
     }
 
     private static void diagnosticDirectorySetting() {
-        for (String key : new String[] {AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE, AndroidLocalSettings.CLIPBOARD_EXPORT_TREE}) {
+        for (String key : new String[] {AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE,
+                AndroidLocalSettings.CLIPBOARD_EXPORT_TREE, AndroidLocalSettings.BACKUP_EXPORT_TREE}) {
         AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(key);
         check("".equals(AndroidLocalSettings.defaults().text(key)), "export directory has no default grant");
         check(!spec.synced && !LocalBackupPolicy.backsUpLocalSetting(key), "directory stays on this device");
@@ -221,6 +224,7 @@ public final class AndroidLocalSettingsSmoke {
                 AndroidLocalSettings.HARDWARE_CARET_CANDIDATES,
                 AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.BOTTOM_PADDING,
                 AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
+                AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED,
                 AndroidLocalSettings.DEVELOPER_LOG_LEVEL, AndroidLocalSettings.DEVELOPER_INPUT_LOG,
                 AndroidLocalSettings.MCP_RETENTION, AndroidLocalSettings.MCP_INPUT_EVENTS}) {
             check(!synced.containsKey(local), local + " never syncs");

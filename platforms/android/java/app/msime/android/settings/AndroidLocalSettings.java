@@ -39,6 +39,10 @@ public final class AndroidLocalSettings {
     public static final String ONE_HANDED = "platform.android.one_handed";
     /** 平板横屏时把 26 键一族和韩文键盘分成左右两半（{@link SplitKeyboardPolicy}），默认关。 */
     public static final String SPLIT_KEYBOARD = "platform.android.split_keyboard";
+    /** 分离式键盘开始启用的最小屏幕宽度（dp），默认 600。 */
+    public static final String SPLIT_KEYBOARD_THRESHOLD = "platform.android.split_keyboard_threshold";
+    /** 分离式键盘左右两半之间的空隙比例（百分比），默认 25。 */
+    public static final String SPLIT_KEYBOARD_GAP = "platform.android.split_keyboard_gap";
     public static final String KEY_POPUP = "platform.android.key_popup";
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
@@ -81,6 +85,8 @@ public final class AndroidLocalSettings {
     public static final String NINE_KEY_SYMBOLS = "platform.android.nine_key_symbols";
     /** 拼音九键数字键面左侧符号栏的符号，格式同 {@link #NINE_KEY_SYMBOLS}，同样只在本机。 */
     public static final String NINE_KEY_DIGIT_SYMBOLS = "platform.android.nine_key_digit_symbols";
+    /** 退格键上滑快速删除的范围：默认只删光标前，可选清空整个输入框。 */
+    public static final String QUICK_DELETE_SCOPE = "platform.android.quick_delete_scope";
     /** 设计范围的键盘高度调整（dp，-46..129，即 75%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
     /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
@@ -107,11 +113,15 @@ public final class AndroidLocalSettings {
     /** 底部留白目标高度（dp），独立于按键高度，只在本机保存。 */
     public static final String BOTTOM_PADDING_HEIGHT = "platform.android.bottom_padding_height";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
+    /** 调试日志总开关；关闭后不显示调试信息，也不记录输入日志。 */
+    public static final String DEVELOPER_LOGGING_ENABLED = "platform.android.developer.logging_enabled";
     public static final String DEVELOPER_LOG_LEVEL = "platform.android.developer.log_level";
     /** 「记录输入日志」：只记时间和事件种类，不记按键内容、文本和候选。 */
     public static final String DEVELOPER_INPUT_LOG = "platform.android.developer.input_log";
     /** 剪贴板导出目录；空值代表 Download，仅保存在本机。 */
     public static final String CLIPBOARD_EXPORT_TREE = "platform.android.clipboard_export_tree";
+    /** 本地备份导出目录；空值表示每次用文件选择器，不随备份和账号同步。 */
+    public static final String BACKUP_EXPORT_TREE = "platform.android.backup_export_tree";
     /** 系统文件选择器授权的诊断包目录，仅保存在本机。 */
     public static final String DIAGNOSTICS_EXPORT_TREE = "platform.android.developer.diagnostics_export_tree";
     public static final String MCP_RETENTION = "platform.android.developer.mcp_retention";
@@ -182,6 +192,10 @@ public final class AndroidLocalSettings {
         choice(APP_THEME, "siji", true, "siji", "chunya", "xiayin", "qiushan", "dongxue");
         choice(ONE_HANDED, "off", true, "off", "left", "right");
         bool(SPLIT_KEYBOARD, false, true);
+        integer(SPLIT_KEYBOARD_THRESHOLD, SplitKeyboardPolicy.DEFAULT_THRESHOLD_DP, false,
+            SplitKeyboardPolicy.MIN_THRESHOLD_DP, SplitKeyboardPolicy.MAX_THRESHOLD_DP, SplitKeyboardPolicy.THRESHOLD_STEP_DP);
+        integer(SPLIT_KEYBOARD_GAP, SplitKeyboardPolicy.DEFAULT_GAP_PERCENT, false,
+            SplitKeyboardPolicy.MIN_GAP_PERCENT, SplitKeyboardPolicy.MAX_GAP_PERCENT, SplitKeyboardPolicy.GAP_PERCENT_STEP);
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
         choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.UP, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);
@@ -216,6 +230,7 @@ public final class AndroidLocalSettings {
             NineKeySidebarPolicy::normalize);
         text(NINE_KEY_DIGIT_SYMBOLS, NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS), false,
             NineKeySidebarPolicy::normalize);
+        choice(QUICK_DELETE_SCOPE, "before", false, "before", "all");
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
         bool(FLOATING_KEYBOARD, false, false);
         integer(FLOATING_KEYBOARD_X, FloatingKeyboardPolicy.DEFAULT_X_FRACTION, false, 0,
@@ -236,9 +251,12 @@ public final class AndroidLocalSettings {
         integer(BOTTOM_PADDING_HEIGHT, KeyboardBottomBarPolicy.DEFAULT_PADDING_DP, false,
             KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, 1);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
-        choice(DEVELOPER_LOG_LEVEL, "warn", false, "error", "warn", "info", "debug");
+        bool(DEVELOPER_LOGGING_ENABLED, true, false);
+        choice(DEVELOPER_LOG_LEVEL, "debug", false, "error", "warn", "info", "debug");
         bool(DEVELOPER_INPUT_LOG, false, false);
         text(CLIPBOARD_EXPORT_TREE, "", false,
+            value -> value.length() <= 8192 && (value.isEmpty() || value.startsWith("content://")) ? value : null);
+        text(BACKUP_EXPORT_TREE, "", false,
             value -> value.length() <= 8192 && (value.isEmpty() || value.startsWith("content://")) ? value : null);
         text(DIAGNOSTICS_EXPORT_TREE, "", false,
             value -> value.length() <= 8192 && (value.isEmpty() || value.startsWith("content://")) ? value : null);

@@ -142,9 +142,10 @@ final class ImeDebugOverlay {
         AndroidLocalSettings.Snapshot settings = s.localSettings;
         if (settings == localSeen) return;
         localSeen = settings;
-        overlayEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY);
+        boolean loggingEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED);
+        overlayEnabled = loggingEnabled && settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY);
         ImeLog.applyLevel(settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL));
-        mobileLogEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG);
+        mobileLogEnabled = loggingEnabled && settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG);
     }
 
     /** 本地输入日志是否在写：用户打开了「记录输入日志」，而且当前输入框与隐私模式允许。 */

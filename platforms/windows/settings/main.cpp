@@ -17803,7 +17803,7 @@ private:
       edited();
     });
     add_row(group, 0xE774, L"服务器地址",
-            L"网盘里存放云剪贴板的文件夹。使用 HTTPS 地址，证书要由公网信任的机构签发；仅本机回环地址允许 HTTP。", url);
+            L"坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。使用 HTTPS 地址，证书要由公网信任的机构签发；仅本机回环地址允许 HTTP。", url);
 
     TextBox username;
     username.Width(240);
