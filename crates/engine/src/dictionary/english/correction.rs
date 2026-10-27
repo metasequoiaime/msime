@@ -161,7 +161,8 @@ impl EnglishDictionary {
                 let mut matches = self.correction_matches(remaining, &standard_prefixes(remaining));
                 matches.retain(eligible);
                 if matches.is_empty() {
-                    matches = self.correction_matches(remaining, &alternate_prefixes(remaining));
+                    matches = self
+                        .correction_matches(remaining, &alternate_prefixes(remaining, start == 0));
                     matches.retain(eligible);
                 }
                 choices.extend(matches);
@@ -578,14 +579,16 @@ fn standard_prefixes(input: &str) -> Vec<String> {
     prefixes
 }
 
-/// 标准前缀都没有匹配时再查：首键按错或漏按、前两键之间漏按、多按了首键。
-fn alternate_prefixes(input: &str) -> Vec<String> {
+/// 标准前缀都没有匹配时再查：首键按到邻键、多按了首键；在整串开头还查首键或第二键漏按，这两种各要 26 页，放到连写中间的每个起点会让一次查询读上百页，而词中间的漏键在连写里也难与前一个词的末尾区分。
+fn alternate_prefixes(input: &str, first_word: bool) -> Vec<String> {
     let bytes = input.as_bytes();
     let standard = standard_prefixes(input);
     let mut prefixes = Vec::new();
     for key in b'a'..=b'z' {
-        for prefix in [[key, bytes[0]], [bytes[0], key]] {
-            prefixes.push(String::from_utf8(prefix.to_vec()).expect("ASCII"));
+        if first_word {
+            for prefix in [[key, bytes[0]], [bytes[0], key]] {
+                prefixes.push(String::from_utf8(prefix.to_vec()).expect("ASCII"));
+            }
         }
         if neighbors(key, bytes[0]) {
             prefixes.push(String::from_utf8(vec![key, bytes[1]]).expect("ASCII"));
@@ -1106,7 +1109,11 @@ mod tests {
                     }
                 }
             }
-            let slowest = typed.iter().copied().fold(0.0, f64::max);
+            let (slowest_end, slowest) = typed
+                .iter()
+                .copied()
+                .enumerate()
+                .fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
             cold_total += cold;
             cold_max = cold_max.max(cold);
             typed_total += typed.iter().sum::<f64>();
@@ -1114,10 +1121,11 @@ mod tests {
             typed_max = typed_max.max(slowest);
             let ok = actual.as_deref() == expected;
             eprintln!(
-                "{} {input} -> {:?} (expected {:?}) cold {cold:.2}ms, typed max {slowest:.2}ms",
+                "{} {input} -> {:?} (expected {:?}) cold {cold:.2}ms, typed max {slowest:.2}ms at {}",
                 if ok { "ok  " } else { "FAIL" },
                 actual,
                 expected,
+                &input[..=slowest_end],
             );
             if !ok {
                 mismatches.push(input);
