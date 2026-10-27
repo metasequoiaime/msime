@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
@@ -18,6 +19,7 @@ final class TextTrackpadDeviceChecks {
     private final DeviceSmoke t;
     private final float density;
     private String kind;
+    private long lastTapUp;
 
     TextTrackpadDeviceChecks(DeviceSmoke test) {
         t = test;
@@ -405,14 +407,14 @@ final class TextTrackpadDeviceChecks {
 
     private void taps(int count) {
         Rect rect = pad();
-        // Binder 注入自身可耗时数百毫秒；把整组事件排到当前时刻之后，用事件时间表达快速连点。
-        // 旧写法把事件时间放在当前时刻之前，慢的 API 35 模拟器会在三击事件送达前丢掉过期的第三下。
-        long first = SystemClock.uptimeMillis() + 100;
+        // 用事件时间表达快速连点，整组排在当前时刻之后：Binder 注入本身可耗时数百毫秒，不能算进连点间隔。每组第一下与上一组最后一下的事件时间相隔超过系统双击时限，否则产品按设计把两组当成同一串连点，双击之后紧接着的三击第一下就会被算成第三下。
+        long first = Math.max(SystemClock.uptimeMillis() + 100, lastTapUp + ViewConfiguration.getDoubleTapTimeout() + 1);
         for (int at = 0; at < count; at++) {
             long down = first + at * 40;
             touch(down, down, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY());
             touch(down, down + 10, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY());
         }
+        lastTapUp = first + (count - 1) * 40L + 10;
     }
 
     private void secondPointer(long down, int action, float x, float y) {
