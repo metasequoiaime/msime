@@ -37,9 +37,7 @@ jobs:
       - name: Ensure the label exists
         run: |
           set -euo pipefail
-          if ! gh label list --limit 500 --json name --jq '.[].name' | grep -qx "$LABEL"; then
-            gh label create "$LABEL" --color B60205 --description "与目标分支有合并冲突，需要先解决"
-          fi
+          gh label create "$LABEL" --color B60205 --description "与目标分支有合并冲突，需要先解决" --force
 
       - name: Label pull requests by their mergeable state
         run: |
