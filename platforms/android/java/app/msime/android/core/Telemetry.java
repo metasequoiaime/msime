@@ -119,17 +119,26 @@ public final class Telemetry {
         }
     }
 
-    /** The usage_reporting switch was saved. Turning it off clears everything queued at once rather than on the next start. */
+    /** usage_reporting 已保存：关闭时同步撤销历史诊断身份并清空队列，重开只在准备完成后启用。 */
     public static synchronized void setEnabled(Context context, boolean value) {
         long generation = consentGeneration.incrementAndGet();
-        enabled = value;
+        enabled = false;
         Context app = context.getApplicationContext();
         if (!value) {
             sessionCrashRecord = null;
             crashRecordHeader = "";
             disarmNativeCrashHandler();
             setSystemSummary(app, null);
-            WORKER.execute(() -> call(() -> NativeClient.telemetryClear(directoryRequest(app))));
+            try {
+                DiagnosticConsent.locked(app.getFilesDir(), consent -> {
+                    consent.observe(false, System.currentTimeMillis());
+                    call(() -> NativeClient.telemetryClear(directoryRequest(app)));
+                });
+            } catch (Exception error) {
+                // 同意文件损坏也必须履行清空承诺；该损坏同时阻止历史补录。
+                call(() -> NativeClient.telemetryClear(directoryRequest(app)));
+                Log.i(TAG, "Diagnostic consent unavailable");
+            }
         } else {
             WORKER.execute(() -> { prepareCapture(app, !inputProcess, generation); flush(app); });
         }
@@ -256,35 +265,61 @@ public final class Telemetry {
         if (value != null && !JsonPolicy.strictBoolean(value.opt("enabled"), enabled)) {
             enabled = false;
             disarmNativeCrashHandler();
+            setSystemSummary(app, null);
+            try { DiagnosticConsent.locked(app.getFilesDir(), consent -> {
+                if (!sharedEnabled(app)) consent.observe(false, System.currentTimeMillis());
+            }); }
+            catch (Exception error) { Log.i(TAG, "Diagnostic consent unavailable"); }
         }
     }
 
+    /** 重新读取共享偏好，不能用另一个进程尚未刷新的 enabled 认领历史记录。 */
+    private static boolean sharedEnabled(Context app) throws Exception {
+        String preferences = HostOptionsPolicy.readOption(app.getFilesDir(), "preferences_directory");
+        if (preferences.isEmpty()) {
+            if (Files.exists(new File(app.getFilesDir(), "runtime-options.json").toPath(), LinkOption.NOFOLLOW_LINKS))
+                throw new IllegalStateException("diagnostic options unavailable");
+            return true;
+        }
+        JSONObject value = call(() -> NativeClient.loadPreferences(preferences));
+        if (value == null || value.optJSONObject("preferences") == null) throw new IllegalStateException("diagnostic consent");
+        JSONObject settings = value.getJSONObject("preferences");
+        return !settings.has("usage_reporting") || JsonPolicy.strictTrue(settings.opt("usage_reporting"));
+    }
+
     private static void prepareCapture(Context app, boolean captureOnly, long generation) {
-        JSONObject value = call(() -> NativeClient.telemetryBegin(
-            new JSONObject(request(app)).put("capture_only", captureOnly)
-                .put("component", captureOnly ? "application" : "keyboard").toString()));
         synchronized (Telemetry.class) {
-            if (value == null) return;
-            if (generation != consentGeneration.get()) {
-                // 排队的 begin 已失效：关闭它自己的会话，不能重新启用采集。
-                if (!captureOnly) call(() -> NativeClient.telemetryEnd(
-                    new JSONObject(directoryRequest(app)).put("session", value.optString("session_id", "")).toString()));
-                return;
-            }
-            enabled = JsonPolicy.strictBoolean(value.opt("enabled"), false);
-            String path = value.optString("crash_record_path", "");
-            File candidate = path.isEmpty() ? null : new File(path);
-            sessionCrashRecord = enabled && isSafeSessionCrashRecord(candidate) ? candidate : null;
-            crashRecordHeader = value.optString("crash_record_header", "");
-            sessionId = captureOnly ? "" : value.optString("session_id", "");
-            sessionBegun = !captureOnly && !sessionId.isEmpty();
-            setSystemSummary(app, enabled ? "v1|" + value.optString("session_id", "") + "|" + version(app)
-                + "|" + (captureOnly ? "application" : "keyboard") : null);
+            if (generation != consentGeneration.get()) return;
             try {
-                if (sessionCrashRecord != null && !crashRecordHeader.isEmpty())
-                    NativeClient.telemetryCrashCapture(path, crashRecordHeader);
-                else NativeClient.telemetryCrashDisarm();
-            } catch (LinkageError error) { Log.i(TAG, "Native crash recorder unavailable"); }
+                DiagnosticConsent.locked(app.getFilesDir(), consent -> {
+                    JSONObject value = call(() -> NativeClient.telemetryBegin(
+                        new JSONObject(request(app)).put("capture_only", captureOnly)
+                            .put("component", captureOnly ? "application" : "keyboard").toString()));
+                    if (value == null) throw new IllegalStateException("diagnostic begin");
+                    enabled = JsonPolicy.strictBoolean(value.opt("enabled"), false) && sharedEnabled(app);
+                    DiagnosticConsent.State state = consent.observe(enabled, System.currentTimeMillis());
+                    String path = value.optString("crash_record_path", "");
+                    File candidate = path.isEmpty() ? null : new File(path);
+                    sessionCrashRecord = enabled && isSafeSessionCrashRecord(candidate) ? candidate : null;
+                    crashRecordHeader = value.optString("crash_record_header", "");
+                    sessionId = captureOnly ? "" : value.optString("session_id", "");
+                    sessionBegun = !captureOnly && !sessionId.isEmpty();
+                    setSystemSummary(app, state == null ? null : state.summary(value.optString("session_id", ""),
+                        version(app), captureOnly ? "application" : "keyboard"));
+                    try {
+                        if (sessionCrashRecord != null && !crashRecordHeader.isEmpty())
+                            NativeClient.telemetryCrashCapture(path, crashRecordHeader);
+                        else NativeClient.telemetryCrashDisarm();
+                    } catch (LinkageError error) { Log.i(TAG, "Native crash recorder unavailable"); }
+                });
+            } catch (Exception error) {
+                enabled = false;
+                sessionCrashRecord = null;
+                crashRecordHeader = "";
+                disarmNativeCrashHandler();
+                setSystemSummary(app, null);
+                Log.i(TAG, "Diagnostic consent unavailable");
+            }
         }
     }
 
@@ -314,35 +349,36 @@ public final class Telemetry {
             if (android.os.Build.VERSION.SDK_INT < 30) return;
             android.app.ActivityManager manager = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
             if (manager == null) return;
-            for (android.app.ApplicationExitInfo exit : manager.getHistoricalProcessExitReasons(app.getPackageName(), 0, 16)) {
-                if (!enabled) return;
-                byte[] bytes = exit.getProcessStateSummary();
-                if (bytes == null || bytes.length > 128) continue;
-                String[] fields = new String(bytes, java.nio.charset.StandardCharsets.US_ASCII).split("\\|", -1);
-                if (fields.length != 4 || !fields[0].equals("v1") || !fields[2].matches("[A-Za-z0-9._-]{1,64}")
-                        || !(fields[3].equals("application") || fields[3].equals("keyboard"))) continue;
-                String captureId;
-                try { captureId = UUID.fromString(fields[1]).toString(); }
-                catch (IllegalArgumentException error) { continue; }
-                int reason = exit.getReason();
-                boolean fatal = reason == android.app.ApplicationExitInfo.REASON_CRASH
-                    || reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE;
-                String message;
-                if (fatal) message = "Crash Android system reason " + reason + " signal " + exit.getStatus();
-                else if (reason == android.app.ApplicationExitInfo.REASON_ANR) message = "Hang Android ANR";
-                else if (reason == android.app.ApplicationExitInfo.REASON_LOW_MEMORY) message = "Killed Android low memory";
-                else continue;
-                // 真崩溃与现场记录共用 id，保留已有的精确栈；卡死、内存回收另分组，不污染输入会话崩溃率。
-                String id = fatal ? captureId : UUID.nameUUIDFromBytes(("msime-exit:" + captureId + ":" + exit.getTimestamp() + ":" + reason)
-                    .getBytes(java.nio.charset.StandardCharsets.US_ASCII)).toString();
-                JSONObject identity = new JSONObject().put("platform", "android").put("version", fields[2])
-                    .put("revision", "unknown").put("run", "").put("attempt", "").put("arch", "unknown")
-                    .put("component", fields[3]);
-                String header = "MSIME-CRASH/1 " + identity + "\n";
-                call(() -> NativeClient.telemetryRecordCrash(new JSONObject(directoryRequest(app))
-                    .put("session", id).put("message", message).put("stack", "")
-                    .put("crash_record_header", header).toString()));
-            }
+            DiagnosticConsent.locked(app.getFilesDir(), consent -> {
+                if (!enabled || !sharedEnabled(app)) return;
+                DiagnosticConsent.State state = consent.current();
+                if (state == null) return;
+                for (android.app.ApplicationExitInfo exit : manager.getHistoricalProcessExitReasons(app.getPackageName(), 0, 16)) {
+                    if (!enabled) return;
+                    DiagnosticConsent.Identity original = state.accept(exit.getProcessStateSummary(),
+                        exit.getTimestamp(), System.currentTimeMillis());
+                    if (original == null) continue;
+                    String captureId = original.capture;
+                    int reason = exit.getReason();
+                    boolean fatal = reason == android.app.ApplicationExitInfo.REASON_CRASH
+                        || reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE;
+                    String message;
+                    if (fatal) message = "Crash Android system reason " + reason + " signal " + exit.getStatus();
+                    else if (reason == android.app.ApplicationExitInfo.REASON_ANR) message = "Hang Android ANR";
+                    else if (reason == android.app.ApplicationExitInfo.REASON_LOW_MEMORY) message = "Killed Android low memory";
+                    else continue;
+                    // 真崩溃与现场记录共用 id，保留已有的精确栈；卡死、内存回收另分组，不污染输入会话崩溃率。
+                    String id = fatal ? captureId : UUID.nameUUIDFromBytes(("msime-exit:" + captureId + ":" + exit.getTimestamp() + ":" + reason)
+                        .getBytes(java.nio.charset.StandardCharsets.US_ASCII)).toString();
+                    JSONObject identity = new JSONObject().put("platform", "android").put("version", original.version)
+                        .put("revision", "unknown").put("run", "").put("attempt", "").put("arch", "unknown")
+                        .put("component", original.component);
+                    String header = "MSIME-CRASH/1 " + identity + "\n";
+                    call(() -> NativeClient.telemetryRecordCrash(new JSONObject(directoryRequest(app))
+                        .put("session", id).put("message", message).put("stack", "")
+                        .put("crash_record_header", header).toString()));
+                }
+            });
         }
     }
 
