@@ -24,6 +24,23 @@ final class MemoryClipboardKeystore: BackendClipboardKeystoreStorage, @unchecked
   func clear() throws { lock.lock(); value = nil; lock.unlock() }
 }
 
+/// 第一次读答「没有」，之后答 `value`：另一个进程在本进程读过之后才写进了它的身份。记下本进程的每次保存。
+final class StaleFirstReadKeystore: BackendClipboardKeystoreStorage, @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: String
+  private var reads = 0
+  private var saved: [String] = []
+  init(_ value: String) { self.value = value }
+  var saves: [String] { lock.lock(); defer { lock.unlock() }; return saved }
+  func load() throws -> String? {
+    lock.lock(); defer { lock.unlock() }
+    reads += 1
+    return reads == 1 ? nil : value
+  }
+  func save(_ value: String) throws { lock.lock(); self.value = value; saved.append(value); lock.unlock() }
+  func clear() throws {}
+}
+
 final class ClipboardEventLog: @unchecked Sendable {
   private let lock = NSLock()
   private var values: [String] = []
@@ -315,6 +332,51 @@ final class BackendClipboardE2ETests: XCTestCase {
     XCTAssertTrue(driver.inputs.first?["keystore"] is NSNull)
     XCTAssertEqual(keystore.stored, "created")
     XCTAssertTrue(ClipboardE2EProtocol.requests.isEmpty)
+  }
+
+  /// App 和键盘扩展同时第一次使用：本进程读密钥串时还没有，另一个进程随后写进了它的身份。驱动交来的新身份不覆盖它，本进程不发请求、改用存着的身份从头开始，服务端只看到一台设备。
+  func testFirstUseAdoptsTheIdentityAnotherProcessSavedFirst() async throws {
+    let theirs = "v1." + String(repeating: "A", count: 43)
+    let ours = "v1." + String(repeating: "B", count: 43)
+    let keystore = StaleFirstReadKeystore(theirs)
+    let page: [String: Any] = ["enabled": true, "items": [],
+                               "e2e": ["status": "pending", "code": "0421 9873 5530 1176", "pending_devices": 0, "undecryptable": 0]]
+    let driver = ScriptedClipboardDriver([
+      request("GET", "/v1/users/me/clipboard/keys?device_id=\(deviceID)", state: 1, keystore: ours),
+      ["done": page, "keystore": theirs],
+    ])
+    ClipboardE2EProtocol.reset([], events: .init())
+    let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: keystore, deviceName: { "合成设备" })
+    _ = try await client().clipboard(token: "synthetic-token", e2e: e2e)
+    XCTAssertTrue(ClipboardE2EProtocol.requests.isEmpty)
+    XCTAssertEqual(keystore.saves, [])
+    XCTAssertTrue(driver.inputs[0]["keystore"] is NSNull)
+    XCTAssertEqual(driver.inputs[1]["keystore"] as? String, theirs)
+    XCTAssertNotNil(driver.inputs[1]["start"])
+  }
+
+  /// 发过请求之后存储里换成了另一个身份（这次操作期间退出又登录过）：不覆盖，按 `clipboard_keystore_conflict` 失败。
+  func testIdentityChangeAfterARequestFails() async throws {
+    let first = "v1." + String(repeating: "A", count: 43)
+    let other = "v1." + String(repeating: "C", count: 43)
+    let keystore = MemoryClipboardKeystore(first)
+    let driver = ScriptedClipboardDriver([
+      request("GET", "/v1/users/me/clipboard/keys?device_id=\(deviceID)", state: 1, keystore: first),
+      ["done": ["enabled": true, "items": []], "keystore": first + "." + String(repeating: "d", count: 32) + "." + String(repeating: "E", count: 43)],
+    ])
+    ClipboardE2EProtocol.reset([(200, #"{"enabled":true,"key_id":null,"wrap":null,"devices":[]}"#)], events: .init(),
+                               beforeResponse: { _ = try? keystore.save(other) })
+    let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: keystore, deviceName: { "合成设备" })
+    do {
+      _ = try await client().clipboard(token: "synthetic-token", e2e: e2e)
+      XCTFail("a replaced identity must not be overwritten")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.code, "clipboard_keystore_conflict")
+    }
+    XCTAssertEqual(keystore.stored, other)
+    XCTAssertEqual(backendClipboardKeystoreIdentity(first + ".x.y"), first)
+    XCTAssertNil(backendClipboardKeystoreIdentity("v1.short"))
+    XCTAssertNil(backendClipboardKeystoreIdentity("synthetic-keystore"))
   }
 
   /// 驱动的错误保留 `status` 和 `code`，提示按错误码给出。

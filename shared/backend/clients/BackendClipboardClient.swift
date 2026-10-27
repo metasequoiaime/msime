@@ -41,10 +41,18 @@ struct BackendClipboardE2E: Sendable {
                                                         matchingSessionID: binding.sessionID) { try keystore.load() }
   }
 
-  func saveKeystore(_ value: String) async throws {
-    guard let binding else { return try keystore.save(value) }
-    try await binding.session.withSessionStorage(matchingUserID: binding.userID,
-                                                 matchingSessionID: binding.sessionID) { try keystore.save(value) }
+  /// 保存驱动交来的密钥串，但不覆盖另一个设备身份：存储里已经有另一个解析得了的身份时不写，交回存着的那份；写成时为 nil。同一台设备上的 App 和键盘扩展（或同时开始的两个操作）第一次使用时各自生成身份，覆盖的话两个都会登记，输掉的那个在其他设备上一直等着批准（`docs/cloud-clipboard-e2e.md` 的「宿主的职责」）。有登录绑定时读、比、写在会话存储的锁里做完。
+  func saveKeystore(_ value: String) async throws -> String? {
+    let store = keystore
+    let save: @Sendable () throws -> String? = {
+      if let stored = try store.load(), let identity = backendClipboardKeystoreIdentity(stored),
+         identity != backendClipboardKeystoreIdentity(value) { return stored }
+      try store.save(value)
+      return nil
+    }
+    guard let binding else { return try save() }
+    return try await binding.session.withSessionStorage(matchingUserID: binding.userID,
+                                                        matchingSessionID: binding.sessionID, save)
   }
 
   /// 把 C ABI 的驱动函数和释放函数包成 `drive`。回复按 `msime_client_string_free` 的约定释放且只释放一次。
@@ -155,15 +163,24 @@ extension BackendAccountClient {
     }
     guard let e2e else { throw Failure(status: 0) }
     var saved = try await e2e.loadKeystore()
-    var input: [String: Any] = ["start": operation.json, "keystore": saved ?? NSNull(),
-                                "device_name": await e2e.deviceName()]
+    let deviceName = await e2e.deviceName()
+    var input: [String: Any] = ["start": operation.json, "keystore": saved ?? NSNull(), "device_name": deviceName]
+    // 与 Android 的 `CloudClipboardE2e.run` 相同：新身份在第一个请求之前保存，这时被拒绝说明另一个进程先写进了它的身份，服务端还没见过本次的身份，改用存着的那份从头来一次；发过请求之后再被拒绝，是这次操作期间退出又登录过。
+    var sent = false
+    var restarted = false
     for _ in 0..<Self.clipboardDriverSteps {
       try await e2e.requireSession()
       let step = try Self.clipboardDriverStep(e2e, input)
       if let value = step["keystore"] {
         guard let keystore = value as? String else { throw Failure(status: 0) }
         if keystore != saved {
-          try await e2e.saveKeystore(keystore)
+          if let stored = try await e2e.saveKeystore(keystore) {
+            guard !sent, !restarted else { throw Failure(status: 0, code: "clipboard_keystore_conflict") }
+            restarted = true
+            saved = stored
+            input = ["start": operation.json, "keystore": stored, "device_name": deviceName]
+            continue
+          }
           saved = keystore
         }
       }
@@ -178,6 +195,7 @@ extension BackendAccountClient {
         default: throw Failure(status: 0)
         }
         try await e2e.requireSession()
+        sent = true
         let response = try await exchange(method, path, token: token, body: body,
                                           maximumResponseBytes: Self.clipboardResponseLimit)
         let text: String
