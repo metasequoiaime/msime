@@ -2,6 +2,7 @@
 
 #include "ControlText.h"
 #include "ThemeData.h"
+#include "../ModelErrorMessages.h"
 #include "../VoiceSettings.h"
 #include <commctrl.h>
 #include <filesystem>
@@ -100,8 +101,8 @@ public:
       if (operation == "install") { import_files_.clear(); SetWindowTextW(get(files), L""); }
       SetWindowTextW(get(notice), operation == "install" ? L"模型已安装。" : operation == "remove" ? L"模型已删除。" : L"模型目录已刷新。");
     } else {
-      const auto code = voice::local_model_error_code(control_text::wide(response.value("error", std::string{})));
-      const auto message = request.contains("files") ? voice::local_model_import_error_message(code) : voice::local_model_error_message(code);
+      const auto code = models::error_code(control_text::wide(response.value("error", std::string{})));
+      const auto message = request.contains("files") ? voice::local_model_import_error_message(code) : models::error_message(code);
       SetWindowTextW(get(notice), code == L"local_model_cancelled" ? L"安装已取消。" : message ? message->c_str() : L"本地模型操作未完成，已有文件不会自动重置。");
     }
     enable(enabled_); return changes;

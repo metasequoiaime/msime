@@ -198,19 +198,19 @@ int main() {
         "progress");
   check(local_model_stage_label(L"verify") == L"校验中" && local_model_stage_label(L"x") == L"准备中",
         "stage labels");
-  check(local_model_error_code(L"local_model_size_mismatch: a.bin") ==
-                L"local_model_checksum_mismatch" &&
-            local_model_error_code(L"local_model_missing_file: x") == L"local_model_invalid_archive" &&
-            local_model_error_code(L"local_model_install_running") == L"busy" &&
-            local_model_error_code(L"local_model_network: timed out") == L"local_model_network",
-        "host error codes become page codes");
-  check(!local_model_error_message(L"local_model_cancelled") &&
-            local_model_error_message(L"invalid local model root") == std::wstring(L"操作失败，请重试。"),
-        "error messages");
   check(local_model_import_error_message(L"busy") == std::wstring(L"该模型正在安装，请等待完成或先取消。") &&
             local_model_import_error_message(L"local_model_io") ==
                 std::wstring(L"无法写入模型文件，请确认磁盘空间充足。"),
         "import error messages");
+  check(local_model_import_error_message(msime::settings::models::error_code(
+            L"local_model_size_mismatch: selected-model.bin")) ==
+            std::wstring(L"所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。"),
+        "导入保留专属校验提示");
+  check(!local_model_import_error_message(msime::settings::models::error_code(
+            L"local_model_cancelled: file selection")) &&
+            local_model_import_error_message(L"new_model_error") ==
+                std::wstring(L"操作失败，请重试。"),
+        "导入复用取消与未知错误的公共处理");
 
   // 「服务配置 ›」的状态（desktopVoiceServiceStatus 的 Windows 分支）：豆包没填时照实说没填，不说「暂用系统识别」。
   check(service_status(L"local", false, true, L"", L"", L"", L"", L"api_key") == L"未选模型" &&

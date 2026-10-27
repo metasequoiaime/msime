@@ -44,6 +44,7 @@ int main() {
     assert(theme_data::value(catalog) && !catalog.at("value").at("models").empty());
     Json model = catalog.at("value").at("models").front(); model["path"] = (directory / L"models/synthetic").u8string();
     std::mutex mutex; std::vector<Json> requests; bool malformed = false, installed = false, allow = false, picker_cancel = false;
+    std::string install_error;
     std::atomic<bool> block_models{true}, models_started{false}, block_install{false}, install_started{false}, malformed_devices{false}, empty_devices{false};
     HANDLE models_gate = CreateEventW(nullptr, TRUE, FALSE, nullptr); assert(models_gate);
     HANDLE gate = CreateEventW(nullptr, TRUE, FALSE, nullptr); assert(gate);
@@ -61,6 +62,9 @@ int main() {
       if (operation == "capture_devices") return Json{{"ok",true},{"value",{{{"backend","windows"},{"id","synthetic-device"},{"label","合成麦克风🙂"}}}}}.dump();
       if (operation == "install" && block_install) { install_started = true; assert(WaitForSingleObject(gate, 10000) == WAIT_OBJECT_0); return Json{{"ok",false},{"error","local_model_cancelled"}}.dump(); }
       std::lock_guard<std::mutex> lock(mutex);
+      if (operation == "install" && !install_error.empty())
+        return Json{{"ok",false},{"error",install_error},
+          {"catalog",{{"ok",true},{"value",{{"models",{model}},{"default",model.at("id")}}}}}}.dump();
       if (operation == "install") installed = true;
       if (operation == "remove") installed = false;
       model["installed"] = installed;
@@ -124,6 +128,26 @@ int main() {
     click(Models::use); assert(voice().at("asr_provider") == "local" && !IsWindowEnabled(control(Form::test_asr)));
     allow = false; const auto before_remove = count(); click(Models::remove); assert(count() == before_remove);
     allow = true; click(Models::remove); assert(voice().at("asr_model_path") == "");
+    // 从真实窗口的下载按钮经过异步响应回到表单，失败不应改写偏好或阻止重试。
+    const auto failure_revision = store.load().snapshot->revision();
+    struct Failure { const char* code; const char* message; };
+    const Failure failures[] = {
+      {"local_model_network: synthetic-detail", "下载失败：无法连接下载服务器。请检查网络，或设置下载镜像后再试。"},
+      {"local_model_http_status: 503", "下载失败：服务器拒绝了请求。请稍后重试，或更换下载镜像。"},
+      {"local_model_checksum_mismatch: synthetic-detail", "下载的文件校验不通过，已丢弃。请重试；若使用了镜像，请确认镜像内容完整。"},
+      {"local_model_format_mismatch: synthetic-detail", "模型文件格式无效或与当前版本不兼容，无法安装。"},
+      {"local_model_io: synthetic-detail", "无法写入模型文件，请确认磁盘空间充足。"},
+      {"local_model_cancelled: synthetic-detail", "安装已取消。"},
+      {"future_model_error: synthetic-detail", "操作失败，请重试。"},
+    };
+    for (const auto& failure : failures) {
+      { std::lock_guard<std::mutex> lock(mutex); install_error = failure.code; }
+      click(Models::install);
+      assert(text(Models::notice) == failure.message);
+      assert(IsWindowEnabled(control(Models::install)) && !IsWindowEnabled(control(Models::cancel)));
+      assert(store.load().snapshot->revision() == failure_revision);
+    }
+    { std::lock_guard<std::mutex> lock(mutex); install_error.clear(); }
     block_install = true; assert(ResetEvent(gate)); SendMessageW(control(Models::install),BM_CLICK,0,0);
     pump([&] { return install_started.load(); }); assert(IsWindowEnabled(control(Models::cancel)) && !IsWindowEnabled(control(Models::install)));
     SendMessageW(control(Models::cancel),BM_CLICK,0,0); wait(); block_install = false;
