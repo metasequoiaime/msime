@@ -83,7 +83,10 @@ impl DictionarySyncError {
             RelayError::RateLimited => Self::Sync(SyncError::RateLimited),
             RelayError::Rollback => Self::Sync(SyncError::Rollback),
             RelayError::Unsupported => Self::Sync(SyncError::Unsupported),
-            error @ RelayError::Clipboard(_) => Self::KeyRing(error.code().to_owned()),
+            // 本机没有可用的设备身份（只用已有身份的宿主）和驱动给出的结果一样，都是密钥串这一层的事，原样交出错误码。
+            error @ (RelayError::Clipboard(_) | RelayError::IdentityMissing) => {
+                Self::KeyRing(error.code().to_owned())
+            }
         }
     }
 }

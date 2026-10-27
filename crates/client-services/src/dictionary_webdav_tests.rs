@@ -172,3 +172,15 @@ fn status_without_a_key_ring_reports_nothing_and_does_not_touch_the_network() {
     assert!(!view.approved && !view.joined);
     assert_eq!(view.last_error, None);
 }
+
+/// 密钥串这一层的错误原样交出错误码：本机没有可用的设备身份和驱动给出的结果都是 `KeyRing`，宿主照云剪贴板的码表给出说法。
+#[test]
+fn key_ring_errors_keep_their_codes() {
+    let missing = DictionarySyncError::from_relay(RelayError::IdentityMissing);
+    assert!(matches!(missing, DictionarySyncError::KeyRing(_)));
+    assert_eq!(missing.code(), crate::clipboard_relay::IDENTITY_MISSING);
+    assert_eq!(
+        DictionarySyncError::from_relay(RelayError::NotConfigured).code(),
+        "dictionary_sync_not_configured"
+    );
+}
