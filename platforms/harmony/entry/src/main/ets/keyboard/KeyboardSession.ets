@@ -18,6 +18,7 @@ import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
 import { readTypingStatisticsEnabled, writeKeyPresses } from './TypingStatisticsWriter';
+import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { AppThemePalette, AppThemeSeed } from './skin/AppThemePalette';
@@ -4480,6 +4481,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private customThemeBase: string = 'system';
   private customDesign: CustomKeyboardSkin | null = null;
   private vibratorFailed: boolean = false;
+  /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
+  private vibrationPending: boolean = false;
   private traditional: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
@@ -5730,15 +5733,20 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private tapFeedback(): void {
     const settings: FeedbackSettings = this.feedbackCurrent;
-    if (!settings.haptics || this.vibratorFailed) {
+    if (!settings.haptics || this.vibratorFailed || this.vibrationPending) {
       return;
     }
+    this.vibrationPending = true;
     try {
-      KeyboardSession.vibrate(settings.strength).catch((error: Object): void => {
+      KeyboardSession.vibrate(settings.strength).then((): void => {
+        this.vibrationPending = false;
+      }).catch((error: Object): void => {
+        this.vibrationPending = false;
         this.vibratorFailed = true;
         KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
       });
     } catch (error) {
+      this.vibrationPending = false;
       this.vibratorFailed = true;
       KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
     }
@@ -5762,12 +5770,41 @@ export class KeyboardSession implements HardwareKeyTarget {
     return supported;
   }
 
+  /** 按键振动在 TaskPool 线程上发（`startKeyVibration`）；那条路失败过一次就改回在 UI 线程上发，至少还能振。 */
+  private static vibratesOnWorker: boolean = true;
+
   /**
    * 按一档振一下，按键和设置页的试听共用。档位怎么振见 `KeyboardFeedback.plan`：设备支持预置效果就用效果加强度，不支持就按时长振；「跟随系统」用 `touch` 用途，由系统的触感反馈设置决定振不振、多强，不带自定义强度。
+   *
+   * 振动请求在 TaskPool 线程上发出，理由见 `KeyVibration.ets`。效果支不支持仍在这里查：每个效果只查一次，结果记在 UI 线程这一侧。
    */
   static vibrate(strength: HapticStrength): Promise<void> {
+    const plan: HapticPlan = KeyboardFeedback.plan(strength);
+    if (!KeyboardSession.vibratesOnWorker) {
+      return KeyboardSession.vibrateHere(plan);
+    }
+    const effectId: string = KeyboardSession.supportsEffect(plan.effectId) ? plan.effectId : '';
+    let task: Promise<Object>;
     try {
-      const plan: HapticPlan = KeyboardFeedback.plan(strength);
+      // 高优先级：TaskPool 里还跑着打字统计这类要拿文件锁、整份重写的任务，振动排在它们后面就晚了，晚到的振动比不振更乱手感。
+      task = taskpool.execute(new taskpool.Task(startKeyVibration, effectId, plan.intensity, plan.fallbackMillis,
+        plan.followsSystem), taskpool.Priority.HIGH);
+    } catch (error) {
+      return KeyboardSession.workerVibrationFailed(plan, error as Object);
+    }
+    return task.then((): void => {}, (error: Object): Promise<void> => {
+      return KeyboardSession.workerVibrationFailed(plan, error);
+    });
+  }
+
+  private static workerVibrationFailed(plan: HapticPlan, error: Object): Promise<void> {
+    KeyboardSession.vibratesOnWorker = false;
+    KeyboardLog.error(`vibration off the UI thread unavailable: ${describeError(error)}`);
+    return KeyboardSession.vibrateHere(plan);
+  }
+
+  private static vibrateHere(plan: HapticPlan): Promise<void> {
+    try {
       const attribute: vibrator.VibrateAttribute = { usage: plan.followsSystem ? 'touch' : 'physicalFeedback' };
       if (!KeyboardSession.supportsEffect(plan.effectId)) {
         const timed: vibrator.VibrateTime = { type: 'time', duration: plan.fallbackMillis };
@@ -5779,7 +5816,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       return vibrator.startVibration(preset, attribute);
     } catch (error) {
-      KeyboardLog.error('keyboard.KeyboardSession.vibrate failed');
+      KeyboardLog.error('keyboard.KeyboardSession.vibrateHere failed');
       throw error as Error;
     }
   }

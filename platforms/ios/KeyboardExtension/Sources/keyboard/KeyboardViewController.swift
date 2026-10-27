@@ -644,10 +644,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let keySounds = KeyboardSoundPlayer()
   private var wantedKeySoundPack: String?
   private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
+  /// 按键振动的开关和档位都从这一个 App Group 实例读。`KeyboardFeedbackPreference.hapticsEnabled` 这类属性每读一次都新建一个 `UserDefaults`，原来开着振动时按下、松开一次键要建五六个，都压在触摸处理的主线程上。不把值缓存起来：App 的设置页里也有输入框，键盘开着时在那里改振动，下一下按键就要按新的来。
+  private let feedbackDefaults = KeyboardFeedbackPreference.defaults
+  private var hapticsEnabled: Bool { KeyboardFeedbackPreference.hapticsEnabled(in: feedbackDefaults) }
+  private var hapticStrength: KeyboardHapticStrength { KeyboardFeedbackPreference.hapticStrength(in: feedbackDefaults) }
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
   private var keyFeedback: UIImpactFeedbackGenerator {
-    let strength = KeyboardFeedbackPreference.hapticStrength
+    let strength = hapticStrength
     if let feedbackGenerator, feedbackStrength == strength { return feedbackGenerator }
     let generator: UIImpactFeedbackGenerator
     if #available(iOS 17.5, *) {
@@ -2372,9 +2376,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                 isToggle: true, selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
         KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.hapticsEnabled,
                                        forKey: KeyboardFeedbackPreference.hapticsKey)
-        if KeyboardFeedbackPreference.hapticsEnabled {
-          if let self { KeyboardFeedbackPreference.hapticStrength.impact(self.keyFeedback) }
-          self?.prepareKeyFeedback()
+        if let self, hapticsEnabled {
+          hapticStrength.impact(keyFeedback)
+          prepareKeyFeedback()
         }
         self?.updateShortcutButtons()
       })
@@ -6374,9 +6378,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         configuration.image = nil
         space.configuration = configuration
       }
-      if KeyboardFeedbackPreference.hapticsEnabled {
-        KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
-      }
+      if hapticsEnabled { hapticStrength.impact(keyFeedback) }
     case .changed:
       let steps = cursorMovement.advance(to: position, document: document)
       if spaceDragEditsComposition && hasComposition {
@@ -8585,7 +8587,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func prepareKeyFeedback() {
     lastKeyTouchTime = ProcessInfo.processInfo.systemUptime
-    if KeyboardFeedbackPreference.hapticsEnabled { keyFeedback.prepare() }
+    if hapticsEnabled { keyFeedback.prepare() }
   }
 
   /// 按键音按 `KeySoundPackPolicy.playback` 出声：有完全访问、选中的包已经加载好时播包里这一类按键的样本，密码框里一律播普通键的；否则退回系统按键声。
@@ -8599,8 +8601,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .system: UIDevice.current.playInputClick()
     case .sample(let file): if !keySounds.play(file, gain: keySoundGain) { UIDevice.current.playInputClick() }
     }
-    if KeyboardFeedbackPreference.hapticsEnabled {
-      KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
+    if hapticsEnabled {
+      hapticStrength.impact(keyFeedback)
       keyFeedback.prepare()
     }
   }

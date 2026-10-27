@@ -22,6 +22,10 @@ export enum CloudClipboardState {
   PENDING = "pending",
   READY = "ready",
   FAILED = "failed",
+  /** 配置的自建中继或 WebDAV 网盘拒绝了凭据，或者配置本身不合规：要用户去设置里改，重试没用。 */
+  RELAY_REJECTED = "relay_rejected",
+  /** 设置应用还没有生成本机的设备身份：键盘只用设置应用那一份，不自己登记设备。 */
+  SETUP_REQUIRED = "setup_required",
 }
 
 export interface CloudClipboardListing {
@@ -35,6 +39,8 @@ export enum CloudClipboardSendOutcome {
   PENDING = "pending",
   INVALID = "invalid",
   FAILED = "failed",
+  RELAY_REJECTED = "relay_rejected",
+  SETUP_REQUIRED = "setup_required",
 }
 
 export const CLOUD_CLIPBOARD_TAB: string = "云端";
@@ -47,6 +53,10 @@ export const CLOUD_CLIPBOARD_FAILED: string = "云剪贴板暂时无法读取，
 export const CLOUD_CLIPBOARD_EMPTY: string = "云剪贴板里还没有内容";
 export const CLOUD_CLIPBOARD_SENT: string = "已发到云剪贴板";
 export const CLOUD_CLIPBOARD_SEND_FAILED: string = "发送失败，请稍后重试";
+export const CLOUD_CLIPBOARD_RELAY_REJECTED: string =
+  "自建中继或 WebDAV 网盘拒绝了连接，请到水杉输入法应用的「剪贴板」设置检查地址和凭据";
+export const CLOUD_CLIPBOARD_SETUP_REQUIRED: string =
+  "请先在水杉输入法应用里打开一次云剪贴板，键盘随后与它共用本机的设备身份";
 export const CLOUD_CLIPBOARD_TOO_LONG: string =
   "这条内容超过 4,000 字或含有无法同步的字符，不能发到云剪贴板";
 
@@ -79,6 +89,11 @@ interface RawItem {
   pinned?: unknown;
   device?: unknown;
 }
+
+/** 中继或网盘的这些错误要用户去设置里处理，重试没用。 */
+const RELAY_REJECTED_CODES: string[] = ["relay_unauthorized", "relay_not_configured"];
+/** Rust 只用已有身份时、本机还没有设备身份的错误码（`clipboard_identity_missing`）。 */
+const IDENTITY_MISSING: string = "clipboard_identity_missing";
 
 /** A Unicode control character (`Cc`): U+0000–U+001F and U+007F–U+009F, which is what Rust's `char::is_control` tests. */
 function isControl(code: number): boolean {
@@ -163,7 +178,7 @@ export class CloudClipboardPolicy {
   }
 
   /**
-   * 读取 Rust `msime_client_account_cloud_clipboard` 对 `{operation:"list"}` 的应答。
+   * 读取 Rust `msime_client_account_cloud_clipboard`（或经自建中继、WebDAV 网盘的 `msime_client_relay_cloud_clipboard`，结果形状相同）对 `{operation:"list"}` 的应答。中继拒绝凭据或配置不合规读作 `RELAY_REJECTED`，本机还没有设备身份读作 `SETUP_REQUIRED`。
    *
    * 整页一起检查，与 `client-services` 的 `validate_clipboard_page` 一样：只要有一个条目格式不对，整页都不显示，因为丢掉坏行会掩盖服务发来了本客户端无法遵从的内容。剪贴板被停用时，不论页面带了什么都不显示条目。
    *
@@ -174,9 +189,16 @@ export class CloudClipboardPolicy {
     const envelope: Envelope | null = parseObject(reply);
     if (envelope === null) return failed;
     if (envelope.ok !== true) {
-      return envelope.error === "account_unauthorized"
-        ? { state: CloudClipboardState.SIGNED_OUT, items: [] }
-        : failed;
+      if (envelope.error === "account_unauthorized") {
+        return { state: CloudClipboardState.SIGNED_OUT, items: [] };
+      }
+      if (typeof envelope.error === "string" && RELAY_REJECTED_CODES.includes(envelope.error)) {
+        return { state: CloudClipboardState.RELAY_REJECTED, items: [] };
+      }
+      if (envelope.error === IDENTITY_MISSING) {
+        return { state: CloudClipboardState.SETUP_REQUIRED, items: [] };
+      }
+      return failed;
     }
     const value: unknown = envelope.value;
     if (value === null || typeof value !== "object" || Array.isArray(value)) return failed;
@@ -209,6 +231,9 @@ export class CloudClipboardPolicy {
     if (envelope.error === "clipboard_device_pending") return CloudClipboardSendOutcome.PENDING;
     if (envelope.error === "account_invalid" || envelope.error === "invalid_clipboard_text")
       return CloudClipboardSendOutcome.INVALID;
+    if (typeof envelope.error === "string" && RELAY_REJECTED_CODES.includes(envelope.error))
+      return CloudClipboardSendOutcome.RELAY_REJECTED;
+    if (envelope.error === IDENTITY_MISSING) return CloudClipboardSendOutcome.SETUP_REQUIRED;
     return CloudClipboardSendOutcome.FAILED;
   }
 
@@ -223,6 +248,8 @@ export class CloudClipboardPolicy {
     if (state === CloudClipboardState.DISABLED) return CLOUD_CLIPBOARD_DISABLED;
     if (state === CloudClipboardState.PENDING) return CLOUD_CLIPBOARD_PENDING;
     if (state === CloudClipboardState.FAILED) return CLOUD_CLIPBOARD_FAILED;
+    if (state === CloudClipboardState.RELAY_REJECTED) return CLOUD_CLIPBOARD_RELAY_REJECTED;
+    if (state === CloudClipboardState.SETUP_REQUIRED) return CLOUD_CLIPBOARD_SETUP_REQUIRED;
     return CloudClipboardPolicy.validText(text) ? null : CLOUD_CLIPBOARD_TOO_LONG;
   }
 
@@ -234,6 +261,8 @@ export class CloudClipboardPolicy {
     if (state === CloudClipboardState.DISABLED) return CLOUD_CLIPBOARD_DISABLED;
     if (state === CloudClipboardState.PENDING) return CLOUD_CLIPBOARD_PENDING;
     if (state === CloudClipboardState.FAILED) return CLOUD_CLIPBOARD_FAILED;
+    if (state === CloudClipboardState.RELAY_REJECTED) return CLOUD_CLIPBOARD_RELAY_REJECTED;
+    if (state === CloudClipboardState.SETUP_REQUIRED) return CLOUD_CLIPBOARD_SETUP_REQUIRED;
     return count === 0 ? CLOUD_CLIPBOARD_EMPTY : "";
   }
 
@@ -243,6 +272,8 @@ export class CloudClipboardPolicy {
     if (outcome === CloudClipboardSendOutcome.SIGNED_OUT) return CLOUD_CLIPBOARD_SIGNED_OUT;
     if (outcome === CloudClipboardSendOutcome.PENDING) return CLOUD_CLIPBOARD_PENDING;
     if (outcome === CloudClipboardSendOutcome.INVALID) return CLOUD_CLIPBOARD_TOO_LONG;
+    if (outcome === CloudClipboardSendOutcome.RELAY_REJECTED) return CLOUD_CLIPBOARD_RELAY_REJECTED;
+    if (outcome === CloudClipboardSendOutcome.SETUP_REQUIRED) return CLOUD_CLIPBOARD_SETUP_REQUIRED;
     return CLOUD_CLIPBOARD_SEND_FAILED;
   }
 
