@@ -307,11 +307,12 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   for (const auto &page : pages) rows_height += page.rows_height;
 
   // 底部一行：本地模式和打字连击，macOS 候选窗没有这一行，Linux 用它保留原来辅助行里的信息；光标后编辑的提示（auxiliary_hint）靠右画在同一行，只有提示时这一行也要出现。
+  // 行高和释义行一样从释义字体本身的行高（gloss_line）起算，回退字体更高时再按实际文字加高。只按文字量时，整段落在比主字体矮的回退字体里的提示（没有中文字体时 Pango 1.57 的缺字方框也是这样）会让这一行比释义行矮，连击「×12」里的主字体字形一出现卡片就跟着长高，每次连击出现和消失卡片都要跳一下。
   const bool footer = !content.auxiliary.empty() || !content.auxiliary_hint.empty();
-  const double footer_height = footer ? std::max(
-      content.auxiliary.empty() ? 0.0 : native_canvas_line_height(cr, layout.gloss_font, content.auxiliary),
-      content.auxiliary_hint.empty() ? 0.0 : native_canvas_line_height(cr, layout.gloss_font, content.auxiliary_hint)) +
-      gloss_padding : 0;
+  const double footer_height = footer ? std::max({gloss_line,
+      content.auxiliary.empty() ? 0.0 : native_canvas_line_height(cr, layout.gloss_font, content.auxiliary) + gloss_padding,
+      content.auxiliary_hint.empty() ? 0.0 : native_canvas_line_height(cr, layout.gloss_font, content.auxiliary_hint) + gloss_padding})
+      : 0;
   const double band = assets.band.image && assets.band.top > 0 && !menu ? assets.band.top : 0;
   const double card_height = rows_height + 2 * inset + header_height + footer_height;
   layout.panel = {0, band, width, card_height};
