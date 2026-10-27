@@ -20,15 +20,18 @@ Status: implemented
 
 ## Consequences
 
-- 入口只增加 iOS 的触屏方案；共享偏好与引擎字段可被其他宿主读取但不会自动显示新入口。
+- 入口只增加 iOS 的触屏方案；共享偏好与引擎字段可被其他宿主读取但不会自动显示新入口。主应用的粤拼语言分组同时列出普通粤拼与粤语双拼；语言词典下载完成后同时提供两个入口，键盘里的「添加语言」跳转到此处启用。
 
 ## Verification
+
+- 入口审查回归使用真实 `InputLanguage.swift` 和 `InputSchemePreference.swift` 编译 Swift harness，仅替代应用容器与外部资源服务。修复前准确报出添加入口、语言归属和下载词典三个失败，修复后 7 项检查通过；旧特性测试排除集合同步纳入粤语双拼，避免把它误当作不需要词典的方案。
 
 - `cargo test -p msime-engine --locked --lib cantonese::`：39 项通过；显式模式同形码和会话切换回归通过。
 - `cargo test -p msime-client-core --locked --lib cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in`：通过。
 - `cargo check -p msime-host-api --locked --all-targets`、`cargo fmt --all -- --check`、`CI=true pnpm run verify-notes`：通过。
 - `xcodegen generate`、`bash platforms/ios/build-native.sh simulator` 和 `xcodebuild ... -scheme MSIMEKeyboardTestHost`：通过；`MSIMEClientTests` 的 `LanguageSchemesTests` 在 Xcode 27 测试会话保存阶段卡住，未宣称 Swift 测试套件通过。
 - 已在副盘 iOS 模拟器工作树中暂存锁定的粤拼词典；没有完成真实键盘扩展交互验收，需后续在模拟器测试会话稳定后补跑。
+- 入口补齐后实际运行 `scripts/verify-local.sh --quick`：真实 Swift 入口回归 7 项、本机 Windows 策略 173 项、Harmony 设置打包、工作流/笔记、Rust workspace、Android 目标、wasm 检查与 clippy、Android 宿主检查通过。公共 `windows package managers` 契约仍因 workflow runner 配置失败；系统盘仅余 20 GiB，在创建 Linux 构建树前退出 75，完整 quick 未完成，不能记为全绿。
 
 ## Risks
 

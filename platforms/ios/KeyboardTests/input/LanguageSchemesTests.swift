@@ -294,7 +294,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertTrue(ChineseInputScheme.stroke.drawsKeysAsGlyphs)
     XCTAssertNil(ChineseInputScheme.stroke.shuangpinProfile)
     XCTAssertFalse(ChineseInputScheme.stroke.editsBySyllable)
-    for scheme in ChineseInputScheme.allCases where ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke].contains(scheme) {
+    for scheme in ChineseInputScheme.allCases where ![.cantonese, .cantoneseShuangpin, .zhuyin, .vietnamese, .tibetan, .stroke].contains(scheme) {
       XCTAssertFalse(scheme.needsLanguageDictionary, scheme.rawValue)
       XCTAssertEqual(scheme.composesInPlace, scheme.isKorean, scheme.rawValue)
       XCTAssertEqual(scheme.hasSpellingCaret, scheme.writesChinese, scheme.rawValue)
