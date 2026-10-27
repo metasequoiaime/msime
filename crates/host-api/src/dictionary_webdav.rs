@@ -340,8 +340,8 @@ fn code(error: DictionarySyncError) -> String {
     error.code().to_owned()
 }
 
-/// 一个请求：`{options, directory, device_name?, action}`，见头文件。
-pub(crate) fn request_json(bytes: &[u8]) -> Result<Value, String> {
+/// 一个请求：`{options, directory, device_name?, action}`，见头文件。成功时是那个动作的 Value，失败时是错误码。C 入口 `msime_client_dictionary_sync` 和直接链接这个 crate 的 Tauri 设置应用都经这里；除 `status` 外都会联网，只在工作线程上调用。
+pub fn request_json(bytes: &[u8]) -> Result<Value, String> {
     let request: SyncRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
     let action: Action = serde_json::from_value(request.action).map_err(|_| INVALID)?;
     let absolute =

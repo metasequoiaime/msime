@@ -61,7 +61,19 @@ function snapshot(preferences: Preferences, revision = 7) {
   return { format_version: 1, revision, preferences };
 }
 
-const STATUS = {
+const STATUS: {
+  device_id: string;
+  code: string;
+  approved: boolean;
+  joined: boolean;
+  words: number;
+  pending_upload: number;
+  pending_apply: number;
+  held_deletions: number | null;
+  clock_skew: boolean;
+  last_success_ms: number | null;
+  last_error: string | null;
+} = {
   device_id: LOCAL_ID,
   code: LOCAL_CODE,
   approved: true,
@@ -395,7 +407,7 @@ test("words changed through settings are recorded as a local change", async () =
     { load: vi.fn(), save: vi.fn(), dictionary, dictionarySync: host },
     notify,
   );
-  await wrapped.dictionary!.list("pinyin", "", 0, 50);
+  await wrapped.dictionary!.list(0, 50, "pinyin", "");
   expect(notify).not.toHaveBeenCalled();
   await wrapped.dictionary!.edit(
     { key: "shui'shan", value: "水杉", weight: 10 } as never,
