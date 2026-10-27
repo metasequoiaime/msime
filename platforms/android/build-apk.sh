@@ -293,15 +293,48 @@ if [ "$omit_on_demand" = 1 ]; then
   done
 fi
 # 只量 GitHub 渠道的 APK：Play 版带着语音运行库，体积由 Play 按设备拆分后的下载大小把关。
+# MSIME_ANDROID_SIZE_REPORT=<路径> 时把 GitHub 渠道 APK 的体积和两条线写成一行 JSON，release-android.yml 收集各版本的这份报告，nightly 据此开关体积跟踪 issue（scripts/ci_issue_tracker.py apk-size）。不是瘦包的版本没有上限，照样报体积，两条线为 null。
+size_report=${MSIME_ANDROID_SIZE_REPORT:-}
+write_size_report() {
+  [ -n "$size_report" ] || return 0
+  mkdir -p "$(dirname "$size_report")"
+  printf '{"edition":"%s","apk":"%s","bytes":%s,"checked":%s,"warn_bytes":%s,"max_bytes":%s}\n' \
+    "$edition" "$(basename "$output")" "$apk_bytes" "$1" "$2" "$3" > "$size_report"
+}
+if [ "$distribution" = github ]; then
+  apk_bytes=$(wc -c < "$output" | tr -d '[:space:]')
+fi
 if [ "$omit_on_demand" = 1 ] && [ "$distribution" = github ]; then
   # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB、dict-v2.0.39 起的五笔码表压缩后约 45 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。背单词内置词书进包时瘦包约 130.5 MB（词书压缩后约 1 MB），上限随之从 130,000,000 提到 135,000,000，仍比任何一组按需资源回到包里时小得多。
   max_apk_bytes=${MSIME_ANDROID_MAX_APK_BYTES:-135000000}
+  # 预警线在上限之下留出约 3 MB：一次普通的词库锁更新或几个新随包文件就能把瘦包推过上限（2026-10-27 的 nightly 里拼音版 135,623,964 字节，发版直接失败），越过预警线时先在构建日志、job 摘要和 nightly 的 apk-size issue 里提示，还有时间把数据改成按需下载。MSIME_ANDROID_WARN_APK_BYTES 可改，不能高于上限。
+  warn_apk_bytes=${MSIME_ANDROID_WARN_APK_BYTES:-132000000}
   [[ "$max_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_MAX_APK_BYTES must be a byte count" >&2; exit 1; }
-  apk_bytes=$(wc -c < "$output" | tr -d '[:space:]')
+  [[ "$warn_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_WARN_APK_BYTES must be a byte count" >&2; exit 1; }
+  [ "$warn_apk_bytes" -le "$max_apk_bytes" ] || { echo "MSIME_ANDROID_WARN_APK_BYTES ($warn_apk_bytes) must not exceed MSIME_ANDROID_MAX_APK_BYTES ($max_apk_bytes)" >&2; exit 1; }
+  # 摘要和报告在判定之前写好，超过上限而失败的构建也留下它的数字。
+  write_size_report true "$warn_apk_bytes" "$max_apk_bytes"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "### Android APK 体积（${edition}）"
+      echo
+      echo "| APK | 字节 | 预警线 | 上限 |"
+      echo "|---|---:|---:|---:|"
+      echo "| \`$(basename "$output")\` | $apk_bytes | $warn_apk_bytes | $max_apk_bytes |"
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
   if [ "$apk_bytes" -gt "$max_apk_bytes" ]; then
     echo "$output is $apk_bytes bytes, above the $max_apk_bytes-byte ceiling for a package without on-demand resources" >&2
     exit 1
   fi
-  echo "APK size $apk_bytes bytes, within the $max_apk_bytes-byte ceiling"
+  if [ "$apk_bytes" -gt "$warn_apk_bytes" ]; then
+    message="APK for edition $edition is $apk_bytes bytes, above the $warn_apk_bytes-byte warning line and $((max_apk_bytes - apk_bytes)) bytes under the $max_apk_bytes-byte ceiling; move data to on-demand resource packs before the ceiling fails the release"
+    echo "WARNING: $message" >&2
+    [ "${GITHUB_ACTIONS:-}" != true ] || echo "::warning title=Android APK size::$message"
+  else
+    echo "APK size $apk_bytes bytes, under the $warn_apk_bytes-byte warning line and the $max_apk_bytes-byte ceiling"
+  fi
+elif [ "$distribution" = github ]; then
+  write_size_report false null null
 fi
 echo "$(tr a-z A-Z <<< "$package_ext") for edition $edition ($distribution) built and signed with the $android_signed_with: $output; not installed or device-verified"
