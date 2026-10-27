@@ -251,44 +251,54 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 14 键与 18 键共用一套样式。
+  /// 14 键与 18 键共用一套样式；隐藏中/英时它的份额给空格。
   func testLetterGridStylesDrawTheTable() throws {
     for scheme in [ChineseInputScheme.fourteenKey, .eighteenKey] {
       select(scheme)
       for style in TouchFourteenKeyStyle.allCases {
-        XCTAssertTrue(write(TouchKeyLayoutStyle(fourteenKey: style)))
-        let controller = keyboard()
-        try assertBottomRow(controller, matches: TouchBottomRowLayout.letterGrid(
-          style, globe: controller.needsInputModeSwitchKey), "\(scheme.rawValue) \(style.rawValue)")
-        if scheme == .fourteenKey { attach(controller, "14 键 \(style.title)") }
-        controller.viewDidDisappear(false)
+        for hidesLanguage in [false, true] {
+          KeyboardLayoutPreference.hideLanguageKey = hidesLanguage
+          XCTAssertTrue(write(TouchKeyLayoutStyle(fourteenKey: style)))
+          let controller = keyboard()
+          try assertBottomRow(controller, matches: TouchBottomRowLayout.letterGrid(
+            style, globe: controller.needsInputModeSwitchKey, language: !hidesLanguage),
+                              "\(scheme.rawValue) \(style.rawValue) hidesLanguage=\(hidesLanguage)")
+          if scheme == .fourteenKey && !hidesLanguage { attach(controller, "14 键 \(style.title)") }
+          controller.viewDidDisappear(false)
+        }
       }
     }
   }
 
-  /// 九键各样式；九键双拼字母层的 0 跟在空格后面。数字层不变。
+  /// 九键各样式，笔画沿用九键外框也跟着九键的样式；九键双拼字母层的 0 跟在空格后面；隐藏中/英时它的份额给空格。数字层不变。
   func testNineKeyStylesDrawTheTable() throws {
-    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin] {
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
       select(scheme)
+      // 笔画只在测试宿主带了 msime-stroke.db 时才能选上（CI 不带）；没带时选择落到别的方案，跳过。
+      if scheme == .stroke && InputSchemePreference.scheme != .stroke { continue }
       for style in TouchNineKeyStyle.allCases {
-        XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: style)))
-        let controller = keyboard()
-        try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKey(
-          style, globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin), "\(scheme.rawValue) \(style.rawValue)")
-        if scheme == .nineKey { attach(controller, "9 键 \(style.title)") }
-        if style == .commaPeriod {
-          // ， 与手机底行一样跟随标点：中文标点时印 ，，长按仍是常用标点菜单。
-          let comma = try button("quickPunctuationKey", in: controller)
-          XCTAssertEqual(comma.configuration?.title, "，")
-          XCTAssertNotNil(comma.menu)
+        for hidesLanguage in [false, true] {
+          KeyboardLayoutPreference.hideLanguageKey = hidesLanguage
+          XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: style)))
+          let controller = keyboard()
+          try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKey(
+            style, globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: !hidesLanguage),
+                              "\(scheme.rawValue) \(style.rawValue) hidesLanguage=\(hidesLanguage)")
+          if scheme == .nineKey && !hidesLanguage { attach(controller, "9 键 \(style.title)") }
+          if style == .commaPeriod {
+            // ， 与手机底行一样跟随标点：中文标点时印 ，，长按仍是常用标点菜单。
+            let comma = try button("quickPunctuationKey", in: controller)
+            XCTAssertEqual(comma.configuration?.title, "，")
+            XCTAssertNotNil(comma.menu)
+          }
+          // 数字层照旧：0 在中间，没有 ， 和 。。
+          try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+          controller.view.layoutIfNeeded()
+          XCTAssertFalse(shown(try button("quickPunctuationKey", in: controller)), "\(scheme.rawValue) \(style.rawValue)")
+          XCTAssertFalse(shown(try button("bottomPeriodKey", in: controller)))
+          XCTAssertFalse(shown(try button("layerEmojiKey", in: controller)))
+          controller.viewDidDisappear(false)
         }
-        // 数字层照旧：0 在中间，没有 ， 和 。。
-        try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-        controller.view.layoutIfNeeded()
-        XCTAssertFalse(shown(try button("quickPunctuationKey", in: controller)), "\(scheme.rawValue) \(style.rawValue)")
-        XCTAssertFalse(shown(try button("bottomPeriodKey", in: controller)))
-        XCTAssertFalse(shown(try button("layerEmojiKey", in: controller)))
-        controller.viewDidDisappear(false)
       }
     }
   }
@@ -387,9 +397,74 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
     try layoutAtRequestedHeight(controller)
     XCTAssertTrue(shown(period), "the new style is drawn without reopening the keyboard")
-    XCTAssertTrue(shown(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "numberRow" })))
+    let numberRow = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "numberRow" })
+    XCTAssertTrue(shown(numberRow))
+    try assertLetterKeysAre44(controller, "number row switched on live")
+    XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, preedit, "the composition survives")
+    // 再当场关掉数字行：留白按四排重算，字母键仍是 44pt。
+    XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .commaPeriod)))
+    controller.viewWillAppear(false)
+    let offDeadline = Date().addingTimeInterval(15)
+    while shown(numberRow) && Date() < offDeadline {
+      try await Task.sleep(for: .milliseconds(50))
+    }
+    try layoutAtRequestedHeight(controller)
+    XCTAssertFalse(shown(numberRow), "the number row goes away without reopening the keyboard")
+    try assertLetterKeysAre44(controller, "number row switched off live")
     XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, preedit, "the composition survives")
     controller.viewDidDisappear(false)
+  }
+
+  /// 数字行在同一趟排版里出现时（从九键换到全拼、横屏转回竖屏），26 键的上下留白按这一趟的排数算，字母键仍是 44pt，键区面板的底边也停在同一处。
+  func testLetterKeysStay44WhenTheNumberRowAppearsInOnePass() throws {
+    XCTAssertTrue(write(TouchKeyLayoutStyle(numberRow: true)))
+    let taller = KeyboardViewController.keyboardHeight(phoneNumberRow: true)
+    // 九键没有数字行，换成全拼时数字行和 26 键在同一趟里出现。
+    select(.nineKey)
+    var controller = keyboard()
+    var numberRow = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "numberRow" })
+    XCTAssertFalse(shown(numberRow))
+    select(.quanpin)
+    controller.viewWillAppear(false)
+    try layoutAtRequestedHeight(controller)
+    XCTAssertTrue(shown(numberRow), "nine-key to quanpin")
+    XCTAssertEqual(height(of: controller), taller, accuracy: 0.5)
+    try assertLetterKeysAre44(controller, "nine-key to quanpin")
+    controller.viewDidDisappear(false)
+
+    // 横屏不画数字行，转回竖屏时它在同一趟里回来。
+    controller = KeyboardViewController()
+    controller.traitOverrides.verticalSizeClass = .compact
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 874, height: KeyboardViewController.keyboardHeight(landscape: true))
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    numberRow = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "numberRow" })
+    XCTAssertFalse(shown(numberRow), "landscape")
+    controller.traitOverrides.verticalSizeClass = .regular
+    controller.updateTraitsIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 402, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    try layoutAtRequestedHeight(controller)
+    XCTAssertTrue(shown(numberRow), "landscape to portrait")
+    XCTAssertEqual(height(of: controller), taller, accuracy: 0.5)
+    try assertLetterKeysAre44(controller, "landscape to portrait")
+    // 键区面板（这里是「更多」）按此刻的留白停在按键底边，与新建的五排键盘停在同一处。
+    let rotated = try morePanelGap(controller)
+    controller.viewDidDisappear(false)
+    controller = keyboard()
+    XCTAssertEqual(rotated, try morePanelGap(controller), accuracy: 0.5, "the panel stops where the keys stop")
+    controller.viewDidDisappear(false)
+  }
+
+  /// 打开「更多」面板，返回回车键底边与面板底边的距离。
+  private func morePanelGap(_ controller: KeyboardViewController) throws -> CGFloat {
+    let returnKey = try button("returnKey", in: controller)
+    let keysBottom = returnKey.convert(returnKey.bounds, to: controller.view).maxY
+    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
+    return panel.convert(panel.bounds, to: controller.view).maxY - keysBottom
   }
 
   // MARK: - 热力图
@@ -460,6 +535,13 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewWillAppear(false)
     try? layoutAtRequestedHeight(controller)
     return controller
+  }
+
+  /// 26 键手机竖屏的字母键高 44pt（键帽收紧后的高度），与有几排无关。
+  private func assertLetterKeysAre44(_ controller: KeyboardViewController, _ label: String,
+                                     file: StaticString = #filePath, line: UInt = #line) throws {
+    let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" }, file: file, line: line)
+    XCTAssertEqual(letter.bounds.height, 44, accuracy: 0.5, label, file: file, line: line)
   }
 
   private func height(of controller: KeyboardViewController) -> CGFloat {
