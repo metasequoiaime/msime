@@ -3,7 +3,7 @@ package app.msime.android;
 import android.util.Log;
 
 /**
- * 键盘进程的日志：按 `developer_options.log_level` 过滤后交给 android.util.Log。默认门槛是警告，`error` 只留错误，`info` 再放出信息，`debug` 全部输出；未知取值按默认处理。
+ * 键盘进程的日志：按 `developer_options.log_level` 过滤后交给 android.util.Log。未知取值回退到警告，`error` 只留错误，`info` 再放出信息，`debug` 全部输出。
  *
  * <p>这里只记键盘自身的状态与失败原因，从不记输入内容、候选或按键字符。
  */

@@ -1,4 +1,5 @@
 import app.msime.android.QuickPunctuationPolicy;
+import android.text.InputType;
 
 public final class QuickPunctuationPolicySmoke {
     private static void check(boolean condition, String message) {
@@ -39,6 +40,19 @@ public final class QuickPunctuationPolicySmoke {
         var ascii = QuickPunctuationPolicy.entries(true, 0, "none");
         check(ascii.get(0).face().equals(",") && ascii.get(0).input() == ',',
             "English mode uses ASCII faces");
+        int uri = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI;
+        check(QuickPunctuationPolicy.uriPeriodPrimary(true, uri, true),
+            "English URI fields use a period on the reachable bottom key");
+        check(!QuickPunctuationPolicy.uriPeriodPrimary(false, uri, true)
+                && !QuickPunctuationPolicy.uriPeriodPrimary(true, uri, false)
+                && !QuickPunctuationPolicy.uriPeriodPrimary(true,
+                    InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, true)
+                && !QuickPunctuationPolicy.uriPeriodPrimary(true, InputType.TYPE_CLASS_TEXT, true),
+            "Chinese URI, other layouts, email and plain fields keep their punctuation key");
+        var url = QuickPunctuationPolicy.entries(true, 0, "none", true);
+        check(url.get(0).face().equals(".") && url.get(0).input() == '.'
+                && url.get(1).face().equals(",") && url.get(1).input() == ',',
+            "the URL key and secondary punctuation have matching faces and inputs");
         check(QuickPunctuationPolicy.entries(false, 0, "emoji").get(0).face().equals(","),
             "Local mode uses ASCII faces");
         System.out.println("Android quick punctuation: Chinese, Japanese, Korean, Zhuyin, Vietnamese, Tibetan and ASCII modes passed");

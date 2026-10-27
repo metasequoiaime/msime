@@ -950,6 +950,13 @@ interface PreparedPreferences {
   keybindings: PreparedKeybindings;
   /** Sound packs and the rest of the plugin settings; absent while every part is at its default. */
   plugins?: PluginPreferenceDocument;
+  /** 本地输入模式的开关；这里只读 / 指令那一项。 */
+  local_modes?: LocalModesDocument;
+}
+
+/** 共享偏好 `local_modes` 里键盘要读的部分：/ 指令缺省关。 */
+interface LocalModesDocument {
+  command?: boolean;
 }
 
 /** The shared fuzzy pinyin record. Turning it off keeps the rules, so the next on restores the same set. */
@@ -2355,6 +2362,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.refreshToolbar();
     return true;
+  }
+
+  /**
+   * 功能面板「本地输入」列不列「指令」：设置里打开了 / 指令（`local_modes.command`，缺省关），并且现在出中文标点。Engine 只在中文标点下把没有组字时的 / 当作进入指令的键，英文标点下点它只会打出一个 /。
+   */
+  offersCommandMode(): boolean {
+    const prepared: PreparedPreferences | undefined = this.preparedPreferences;
+    return prepared !== undefined && prepared.local_modes !== undefined
+      && prepared.local_modes.command === true && this.usesChinesePunctuation();
   }
 
   /** Whether candidates carry translations, which the function panel's 译 tile and the strip's 译 pill show as a switch. */
@@ -6569,7 +6585,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * 已安装符号集插件的组，读自 `<stateDirectory>/plugins`，即键盘自己沙箱里的插件目录。设置页把包装进设置应用的 `files/state/plugins`；API 12 起输入法扩展使用独立沙箱（见 platforms/harmony/README.md），要等两边都改用共享沙箱目录之后，这里才读得到设置页装的包，在那之前通常是空的。
+   * 已安装符号集插件的组，读自 `<stateDirectory>/plugins`，即键盘自己沙箱里的插件目录。设置页把包装进设置应用的 `files/state/plugins`；API 12 起输入法扩展使用独立沙箱，设置应用把插件目录发布到共享沙箱，键盘在启动和获得焦点时导入到这里（见 platforms/harmony/README.md）。签名不带共享沙箱授权时（开发构建、模拟器）这里读不到设置页装的包，通常是空的。
    *
    * 不依赖 `msime-others.db`；读不出来时返回空表，表情面板照旧只显示内置内容。
    */

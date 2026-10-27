@@ -14,6 +14,7 @@ import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.DictionarySnapshotWords;
 import app.msime.android.DigestPolicy;
+import app.msime.android.ExportDirectory;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.KeyboardFeedbackStore;
@@ -84,8 +85,33 @@ final class LocalBackup {
 
     // ---- 导出 ----
 
-    /** 导出到 `uri`，返回给用户看的结果。失败时保留提供方返回的文档。 */
+    private interface ArchiveDestination {
+        void write(Context context, Path archive) throws IOException;
+    }
+
+    /** 导出到文件选择器给的文档；失败时保留提供方返回的文档。 */
     static String export(Context context, Uri uri) {
+        return export(context, (owner, archive) -> BackupDestinationWriter.write(archive,
+            new BackupDestinationWriter.Destination() {
+                @Override public InputStream openForRead() throws FileNotFoundException {
+                    return owner.getContentResolver().openInputStream(uri);
+                }
+
+                @Override public OutputStream openForWrite() throws FileNotFoundException {
+                    return owner.getContentResolver().openOutputStream(uri, "wt");
+                }
+            }));
+    }
+
+    /** 写到已授权的目录；撤权或删除目录后由调用页提示重新选择。 */
+    static String exportToDirectory(Context context, String tree) {
+        try { ExportDirectory.inspect(context, tree); }
+        catch (IOException | RuntimeException unavailable) { return "备份文件夹不可用，请重新选择保存位置。"; }
+        return export(context, (owner, archive) ->
+            ExportDirectory.write(owner, tree, archive.toFile(), "application/zip"));
+    }
+
+    private static String export(Context context, ArchiveDestination destination) {
         String directory = HostStore.directory(context);
         if (directory.isEmpty()) return "还没有完成首次准备，暂时没有可以备份的数据。";
         Path dictionary = null;
@@ -95,7 +121,7 @@ final class LocalBackup {
             Path work = workDirectory(context);
             dictionary = work.resolve("export-dictionary.ndjson");
             habitsFile = work.resolve("export-habits.ndjson");
-            archive = work.resolve("export.zip");
+            archive = work.resolve(defaultName(context));
             JSONObject settings = CloudSync.nativeValue(NativeClient.accountSettingsExport(
                 new JSONObject().put("preferences_directory", directory)
                     .put("feedback", CloudSync.hostFeedback(context)).toString()))
@@ -153,15 +179,7 @@ final class LocalBackup {
                 putFile(zip, LocalBackupPolicy.DICTIONARY, dictionary);
                 if (habits != null) putFile(zip, LocalBackupPolicy.HABITS, habitsFile);
             }
-            BackupDestinationWriter.write(archive, new BackupDestinationWriter.Destination() {
-                @Override public InputStream openForRead() throws FileNotFoundException {
-                    return context.getContentResolver().openInputStream(uri);
-                }
-
-                @Override public OutputStream openForWrite() throws FileNotFoundException {
-                    return context.getContentResolver().openOutputStream(uri, "wt");
-                }
-            });
+            destination.write(context, archive);
             int records = (learning == null ? 0 : learning) + (habits == null ? 0 : habits);
             if (learningMissing) {
                 return "已导出备份：" + phrases.size() + " 条常用语、" + (words == null ? 0 : words) + " 个词、"
