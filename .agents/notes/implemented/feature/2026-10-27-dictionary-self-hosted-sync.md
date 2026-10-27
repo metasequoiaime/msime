@@ -75,6 +75,8 @@ Status: implemented
 
 设置 App 的「我的 → 词库同步」（词库页也有入口）是原生 Java 页 `home/DictionarySyncPage`，填写、测试连接和保存的行为与云剪贴板的 WebDAV 页相同；打开时 `opened`，「立即同步」`manual`，状态、被挡下的删除、核对码、设备批准、重置和重新开始都在这一页。键盘进程 `:ime` 由 `core/ImeDictionarySync` 在候选栏删除和设置页排队的改词写进词库之后调 `local_change`，按 `next_check_ms` 定时 `periodic`，输入会话结束时有没写进本机的远端改动就再来一次；调用在它自己的工作线程上，定时用主线程 Handler，与键盘已有的个人词库维护同一种机制。两个进程的目录都是 `noBackupFilesDir/dictionary-sync`，身份靠 Rust 在共用目录的锁里「读不到才生成」；键盘进程另外只在本机已有设备编号时才跑，第一次登记只由设置页做。错误码的中文说法在 `policy/DictionarySyncPolicy`，`scripts/test-android-dictionary-sync-contract.py` 核对它与 Rust 的错误码一致。
 
+Android 设置页的请求代次同时约束工作线程和界面回调。保存或停止网盘配置时，在写偏好之前先使旧代次失效；网络线程在执行用户操作、补读状态和读取设备之前分别检查代次，旧请求已开始的调用可以返回，但不能继续后续请求，尤其不能由 `devices` 对新网盘登记本机。代次由主线程写、工作线程读，用 `volatile` 保证可见。保存失败时也重新读取页面，旧任务的回调既然已失效，就不能再依赖它清理忙碌状态。
+
 ## Alternatives considered
 
 - **与云剪贴板共用一份密钥串和批准** — 最强的理由是用户只批准一次，两个功能看到同一份设备列表。不用：剪贴板的生命周期会直接伤到词库——关闭云剪贴板会删掉全部密钥、封装和设备登记，「重置云剪贴板」会换钥并清空；它的空间绑定的是 `cloud_clipboard_webdav` 的地址和账号，词库就得强制要求同一个网盘账号；Android 的剪贴板密钥串由 Java 用 AndroidKeyStore 保存，iOS 和 HarmonyOS 的宿主还没接中继，共用就要先把这些宿主的剪贴板密钥串接进词库同步。复用代码、分开实例，换来两个功能互不牵连，代价是用两个功能的设备要批准两次。
@@ -116,3 +118,5 @@ Status: implemented
 审查补充验证：新增真实 TCP 的 chunked 超限、正文截断、合法 chunked 与 401 状态用例，以及超大本机状态写入前拒绝并保留旧文件的回归；修复前 3 项实际失败，修复后 WebDAV 相关 33 项、词库 WebDAV 集成 9 项、云剪贴板 WebDAV 集成 3 项通过，库级严格 clippy 通过。词库 WebDAV 集成用例另覆盖删减本机新增词后恢复同步。完整 quick 门禁受开发机系统盘余量限制，未完成；Android 文件存储路径的设备验收仍待完成。
 
 Android 接入的验证：`platforms/android/check-host.sh` 全部通过（含新增的 `DictionarySyncPolicySmoke` 和设置搜索索引）；`scripts/test-android-dictionary-sync-contract.py` 核对 10 个错误码、2 MiB 上限、共用目录和键盘的触发；API 35 模拟器上 `CloudClipboardRelayDeviceSmoke -e dictionary-sync true` 经 JNI 跑通没配置、请求不合规、`local_change` 不联网、连不上的网盘（同步和测试连接）、noBackupFilesDir 下目录权限 0700 和锁文件。另在同一台模拟器上经 `adb reverse` 接一个本机的 `dav-server` 网盘（临时验收工具，没有提交）手动走了一遍：设置页测试连接、保存、本机登记后等待允许（两边核对码一致）、被另一台合成设备允许后立即同步、共享的词写进 Engine（音节数与字数不符的那一个被 Engine 拒收、没有反复重试）、在设置页允许第三台设备；只留键盘进程（`am force-stop` 后单独拉起输入法）时它在约 10 秒后跑了一次定时同步（同步状态文件被改写），密钥串文件没变，批准方看到这台设备始终只有一条。没在 API 28 上跑，也没在模拟器上验证候选栏删除之后的 `local_change` 推送。
+
+Android 请求代次的审查验证：提取实际网络任务的控制流、以合成传输替换 JNI，覆盖任务启动前已失效、用户操作返回前切换配置、状态读取返回前切换配置、当前代次正常完成四种交错；原实现第一种即失败，修复后四种通过。实际页面完整源码通过 Java 编译器的语法解析；`check-host.sh` 的 289 个 JVM 冒烟、252 个设备套件源文件编译通过，词库同步契约与笔记校验通过。这些检查没有编译 AndroidX 设置页或安装修复后的 APK，不能算设备验收。完整 quick 未完成：本机余量低于新建构建树所需的 50 GB，远程编译机负载超过 800，前轮门禁已因临时盘写满和超时中止。

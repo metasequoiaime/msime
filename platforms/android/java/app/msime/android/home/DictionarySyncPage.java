@@ -58,7 +58,8 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
     @Nullable private Config config;
     @Nullable private Loaded loaded;
     private boolean busy;
-    private long generation;
+    // 主线程更新，网络线程在每次宿主调用前读取，不能只过滤回到界面的结果。
+    private volatile long generation;
 
     @Override protected void onContentReady() {
         render();
@@ -104,10 +105,12 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         Context application = requireContext().getApplicationContext();
         busy = true;
         NetworkTask.run(this, (Callable<Loaded>) () -> {
+            if (request != generation) return null;
             DictionaryWebDavSync sync = DictionaryWebDavSync.open(application);
             String error = null;
             DictionaryWebDavSync.Status status = null;
             try {
+                if (request != generation) return null;
                 DictionaryWebDavSync.Run run = action.apply(sync);
                 if (run != null) {
                     status = run.status();
@@ -117,6 +120,7 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
                 error = failure.code;
             }
             if (status == null) {
+                if (request != generation) return null;
                 try {
                     status = sync.status();
                 } catch (DictionaryWebDavSync.Failure failure) {
@@ -129,6 +133,8 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
                 // 刚才连网盘就不行：不再读设备，原因已经写在状态里。
                 devicesError = error;
             } else {
+                // devices 会登记本机；旧任务不能在用户换过网盘后继续对新配置执行。
+                if (request != generation) return null;
                 try {
                     devices = sync.devices();
                 } catch (DictionaryWebDavSync.Failure failure) {
@@ -356,10 +362,13 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
     private void confirmStop() {
         MessageDialog.confirm(requireContext(), "停止词库同步？",
             "会清除本机保存的网盘地址、账号和应用密码。网盘上的词库和这台设备上的词都不受影响，之后可以再设置。",
-            "停止", () -> KeyboardSheets.save(this, preferences -> preferences.remove(DictionarySyncPolicy.PREFERENCE), () -> {
-                MsToast.show(requireContext(), "已停止词库同步");
-                reload();
-            }, this::reload));
+            "停止", () -> {
+                generation++;
+                KeyboardSheets.save(this, preferences -> preferences.remove(DictionarySyncPolicy.PREFERENCE), () -> {
+                    MsToast.show(requireContext(), "已停止词库同步");
+                    reload();
+                }, this::reload);
+            });
     }
 
     /**
@@ -435,6 +444,8 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
 
     /** 测试通过后写进偏好 `dictionary_sync_webdav`。写失败时对话框留着，可以再点「保存」。 */
     private void save(InputDialog dialog, String address, String account, String password) {
+        // 在写偏好之前撤销旧任务，而不是等保存回调到达后才换代。
+        generation++;
         KeyboardSheets.save(this, preferences -> {
             if (CloudClipboardRelayPolicy.webdavUrlProblem(address) != null
                     || CloudClipboardRelayPolicy.usernameProblem(account) != null
@@ -449,6 +460,8 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         }, () -> {
             dialog.setBusy(false);
             dialog.showStatus("保存失败，请重试", true);
+            // 旧请求的回调已失效；写失败也须重新读取，不能把页面留在旧的 busy 状态。
+            reload();
         });
     }
 
