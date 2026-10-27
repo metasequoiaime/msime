@@ -2936,7 +2936,7 @@ impl CloudClipboardRelayPreferences {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CloudClipboardWebDavPreferences {
-    /// 文件夹地址，例如 `https://dav.jianguoyun.com/dav/msime`；规则与中继地址相同（[`valid_relay_url`]）。
+    /// 文件夹地址，例如坚果云的根地址 `https://dav.jianguoyun.com/dav/`（客户端在它下面自己建 `msime-clipboard/`）；规则与中继地址相同（[`valid_relay_url`]）。
     pub url: String,
     /// 网盘账号；规则见 [`valid_webdav_username`]。
     pub username: String,

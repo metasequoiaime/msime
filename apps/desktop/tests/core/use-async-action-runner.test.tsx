@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import { useEffect, useState } from "react";
 import { useAsyncActionRunner } from "@msime/ui";
 
 test("serializes actions and ignores stale owner results", async () => {
@@ -126,3 +127,58 @@ test.each(["resolve", "reject"])(
     expect(result.current.busy).toBe(false);
   },
 );
+
+test("首次挂载后立即操作仍保持互斥，直到真实操作完成", async () => {
+  let show!: () => void;
+  let finish!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    show = resolve;
+  });
+  const operation = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const setError = vi.fn();
+  function Action() {
+    const runner = useAsyncActionRunner(setError, undefined);
+    return (
+      <button
+        disabled={runner.busy}
+        onClick={() => void runner.run(operation, { formatError: () => "失败" })}
+      >
+        {runner.busy ? "运行中" : "运行"}
+      </button>
+    );
+  }
+  function Harness() {
+    const [visible, setVisible] = useState(false);
+    useEffect(() => {
+      void ready.then(() => setVisible(true));
+    }, [ready]);
+    return visible ? <Action /> : null;
+  }
+  const { unmount } = render(<Harness />);
+  const observer = new MutationObserver(() => {
+    const button = screen.queryByRole<HTMLButtonElement>("button", { name: "运行" });
+    if (!button) return;
+    observer.disconnect();
+    act(() => button.click());
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  try {
+    show();
+    await waitFor(() => expect(operation).toHaveBeenCalledOnce());
+    const button = await screen.findByRole<HTMLButtonElement>("button", { name: "运行中" });
+    expect(button.disabled).toBe(true);
+    act(() => button.click());
+    expect(operation).toHaveBeenCalledOnce();
+    await act(async () => finish());
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "运行" }).disabled).toBe(false);
+    expect(setError).not.toHaveBeenCalledWith("失败");
+  } finally {
+    observer.disconnect();
+    unmount();
+  }
+});

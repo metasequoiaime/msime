@@ -46,8 +46,8 @@ inline CloudClipboardState cloud_clipboard_failure(std::wstring_view code) {
 inline constexpr std::wstring_view webdav_explanation =
     L"内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。";
 
-// 文件夹地址输入框里的示例。
-inline constexpr std::wstring_view webdav_url_placeholder = L"https://dav.jianguoyun.com/dav/msime";
+// 服务器地址输入框里的示例：坚果云的根地址，云剪贴板的文件夹由客户端自己建。
+inline constexpr std::wstring_view webdav_url_placeholder = L"https://dav.jianguoyun.com/dav/";
 
 // 「测试连接」通过时的说明。
 inline constexpr std::wstring_view webdav_probe_passed = L"连接正常，可以保存";

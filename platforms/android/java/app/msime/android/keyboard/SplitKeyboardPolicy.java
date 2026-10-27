@@ -13,6 +13,16 @@ public final class SplitKeyboardPolicy {
     public static final String PORTRAIT_PREFERENCE = "touch_keyboard_split_portrait";
     /** 中间空隙占整行宽度的最小比例。 */
     public static final float GAP_FRACTION = 0.25f;
+    /** 分离阈值的有界设置，默认保持原来的 600 dp。 */
+    public static final int MIN_THRESHOLD_DP = 480;
+    public static final int MAX_THRESHOLD_DP = 1000;
+    public static final int DEFAULT_THRESHOLD_DP = KeyboardFormFactorPolicy.EXPANDED_SMALLEST_WIDTH_DP;
+    public static final int THRESHOLD_STEP_DP = 20;
+    /** 中间空隙百分比的有界设置，默认保持原来的 25%。 */
+    public static final int MIN_GAP_PERCENT = 10;
+    public static final int MAX_GAP_PERCENT = 40;
+    public static final int DEFAULT_GAP_PERCENT = 25;
+    public static final int GAP_PERCENT_STEP = 5;
     /** 两侧原始键区的合计上限；重复 G/V 仍从中缝借一个键宽。 */
     public static final int MAX_KEY_AREA_WIDTH_DP = KeyboardFormFactorPolicy.EXPANDED_SURFACE_MAX_WIDTH_DP;
     /** 拆开的空格键每一半至少保留原宽度的这个比例，避免某一侧只剩一条窄缝。中/英挪到回车左边后，空格右侧的键（。中 ↵）比左侧（123 ，）宽得多，逗号隐藏时要让空隙仍落在正中，右半只剩约 16%，所以下限取 15%。 */
@@ -30,12 +40,18 @@ public final class SplitKeyboardPolicy {
      * @param landscape `Configuration.orientation` 是否为横屏
      */
     public static boolean active(boolean enabled, int smallestWidthDp, boolean landscape) {
-        return active(enabled, smallestWidthDp, landscape, false);
+        return active(enabled, smallestWidthDp, landscape, false, DEFAULT_THRESHOLD_DP);
     }
 
     /** 竖屏覆盖只改变方向条件，不绕过主开关和大屏边界。 */
     public static boolean active(boolean enabled, int smallestWidthDp, boolean landscape, boolean portrait) {
-        return enabled && (landscape || portrait) && KeyboardFormFactorPolicy.expanded(smallestWidthDp);
+        return active(enabled, smallestWidthDp, landscape, portrait, DEFAULT_THRESHOLD_DP);
+    }
+
+    /** 与默认重载相同，但由本机设置提供阈值；非法值按默认值处理。 */
+    public static boolean active(boolean enabled, int smallestWidthDp, boolean landscape, boolean portrait, int thresholdDp) {
+        int threshold = BoundsPolicy.bounded(thresholdDp, MIN_THRESHOLD_DP, MAX_THRESHOLD_DP);
+        return enabled && (landscape || portrait) && smallestWidthDp >= threshold;
     }
 
     /**
@@ -54,7 +70,12 @@ public final class SplitKeyboardPolicy {
     /** 当前窗口的方向变化不清除偏好；窄外屏仍不分离。 */
     public static boolean drawn(boolean enabled, int smallestWidthDp, boolean landscape, int touchLayout,
                                 boolean portrait) {
-        return active(enabled, smallestWidthDp, landscape, portrait) && splitsLayout(touchLayout);
+        return drawn(enabled, smallestWidthDp, landscape, touchLayout, portrait, DEFAULT_THRESHOLD_DP);
+    }
+
+    public static boolean drawn(boolean enabled, int smallestWidthDp, boolean landscape, int touchLayout,
+                                boolean portrait, int thresholdDp) {
+        return active(enabled, smallestWidthDp, landscape, portrait, thresholdDp) && splitsLayout(touchLayout);
     }
 
     /** 份额合计为 `rowWeight` 的一行需要多大份额的空隙，才能让空隙占插入后整行的 {@link #GAP_FRACTION}。 */
@@ -68,9 +89,22 @@ public final class SplitKeyboardPolicy {
         return Math.max(GAP_FRACTION, 1f - (float) MAX_KEY_AREA_WIDTH_DP / availableWidthDp);
     }
 
+    /** 按用户选择的空隙比例，并保留大屏布局为键区留出的最低比例。 */
+    public static float gapFraction(int availableWidthDp, int gapPercent) {
+        float configured = BoundsPolicy.bounded(gapPercent, MIN_GAP_PERCENT, MAX_GAP_PERCENT) / 100f;
+        return Math.max(configured, availableWidthDp <= 0 ? 0f
+            : 1f - (float) MAX_KEY_AREA_WIDTH_DP / availableWidthDp);
+    }
+
     /** 按当前窗口宽度计算中缝，数字、字母、符号和底行共用；重复键从中缝借宽。 */
     public static float gapWeight(float rowWeight, float duplicateWeight, int availableWidthDp) {
         float gap = gapFraction(availableWidthDp);
+        return BoundsPolicy.nonNegative(BoundsPolicy.nonNegative(rowWeight) * gap / (1f - gap)
+            - BoundsPolicy.nonNegative(duplicateWeight));
+    }
+
+    public static float gapWeight(float rowWeight, float duplicateWeight, int availableWidthDp, int gapPercent) {
+        float gap = gapFraction(availableWidthDp, gapPercent);
         return BoundsPolicy.nonNegative(BoundsPolicy.nonNegative(rowWeight) * gap / (1f - gap)
             - BoundsPolicy.nonNegative(duplicateWeight));
     }
