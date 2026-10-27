@@ -20,6 +20,8 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 Windows 包定义的离线契约检查同样接受 `depot-windows-*` 和 GitHub 托管的 `windows-*` runner 标签；两者都在 Windows 上执行 `Get-AuthenticodeSignature`。断言匹配完整的 `runs-on` 行，非 Windows runner 和注释中的标签均不能满足契约。
 
+PR 分流检查按事件种类使用两个并发组：`edited` 的标题检查只取代上一次编辑检查，`synchronize`、打开和重开等完整检查只取代上一轮完整检查。推送后更新正文不会取消还在执行的 `Path labels`、`Size label`；编辑事件仍按原有规则跳过这两项，只检查标题。2026-10-27 的 #9990 与 #9906 在推送后改正文，原本共用 PR 号的并发组把 head 上的分流检查取消，而后续编辑检查又不运行路径和大小任务，留下取消状态；拆开并发组消除这条取消链。
+
 组织里的其他仓库照同一规则改，各自一个 PR。
 
 ## Alternatives considered
@@ -36,3 +38,5 @@ GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、
 ## Verification
 
 `python3 scripts/test-windows-package-managers.py` 通过；合成 runner 标签回归接纳 `windows-2025` 和 `depot-windows-2025-8`，拒绝 Ubuntu、畸形标签以及注释中的 Windows 标签。`actionlint` 通过。PR 上会触发的检查（quality、contracts、ci-docs 等）由本 PR 的 CI 在 Depot 上实际跑一遍；`Windows native settings`、发版工作流和定时任务里挪过去的 job 要到下一次被触发时才实际跑到，`pull_request_target` 的几个要等下一个 PR。
+
+分流并发组核对 `edited` 与四种完整检查事件的组名不同，同类事件组名相同，并用 `actionlint` 校验表达式；编辑事件的标题 job 保持执行，路径和大小 job 的条件不变。已有取消状态不会被修改工作流追溯改写，待后续提交或重跑完整检查恢复。
