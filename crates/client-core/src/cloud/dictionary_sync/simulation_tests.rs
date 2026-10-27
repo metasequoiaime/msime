@@ -256,6 +256,10 @@ struct Engine {
     /// 下一批写好之后报错（写进去了，进程随即退出）。
     crash_after_apply: bool,
     applies: usize,
+    /// 每个请求编号写过什么：同一个编号重试必须是同一次写入。
+    requests: BTreeMap<String, (WordKey, bool)>,
+    /// 写入之后有没有放掉租约就去联网。
+    holding: bool,
 }
 
 impl LocalDictionary for Engine {
@@ -269,10 +273,21 @@ impl LocalDictionary for Engine {
             return Err(LocalError::Busy);
         }
         self.applies += 1;
+        self.holding = true;
+        for change in changes {
+            assert!(change.request_id.starts_with("dsync-") && change.request_id.len() == 38);
+            let previous = self
+                .requests
+                .insert(change.request_id.clone(), (change.key.clone(), change.add));
+            assert!(
+                previous.is_none_or(|previous| previous == (change.key.clone(), change.add)),
+                "request id reused for a different write"
+            );
+        }
         let outcomes = changes
             .iter()
             .map(|change| {
-                if change.add && self.refuse.contains(&change.key) {
+                if self.refuse.contains(&change.key) {
                     return LocalOutcome::Rejected;
                 }
                 if change.add {
@@ -287,6 +302,10 @@ impl LocalDictionary for Engine {
             return Err(LocalError::Unavailable);
         }
         Ok(outcomes)
+    }
+
+    fn release(&mut self) {
+        self.holding = false;
     }
 }
 
@@ -378,7 +397,12 @@ impl Device {
             offline: options.offline || offline,
             ..options
         };
-        run(&mut self.state, &mut parts, &self.ring, options)
+        let result = run(&mut self.state, &mut parts, &self.ring, options);
+        assert!(
+            !self.engine.holding,
+            "the engine lease outlived the apply phase"
+        );
+        result
     }
 
     fn sync(&mut self, share: &Share) -> Report {
@@ -1447,4 +1471,63 @@ fn a_first_join_from_a_checkpoint_never_deletes_local_words_even_against_later_t
         all.contains(&word),
         "the joining device's word is kept and shared"
     );
+}
+
+#[test]
+fn a_deletion_the_engine_refuses_is_not_turned_into_a_resurrection() {
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    let mut b = Device::new(0xb2, Some(K1));
+    let word = pinyin("shan'bu'diao", "删不掉");
+    a.add(&word);
+    a.sync(&share);
+    b.sync(&share);
+    assert!(b.engine.words.contains(&word));
+    b.engine.refuse.insert(word.clone());
+    a.remove(&word);
+    a.sync(&share);
+    b.sync(&share);
+    // B 的词库里还有它，但 B 不会把它当成本机新加的词发出去。
+    assert!(b.engine.words.contains(&word));
+    for _ in 0..3 {
+        b.advance(1_000);
+        b.sync(&share);
+        a.advance(1_000);
+        a.sync(&share);
+    }
+    assert!(!a.engine.words.contains(&word));
+    assert_eq!(b.state.status().pending_apply, 0);
+    assert_eq!(b.state.acked(), b.state.ledger().unwrap().seq);
+    let b_adds = share
+        .published(&[K1])
+        .into_iter()
+        .filter(|(device, key, live, _)| *device == b.id && *key == word && *live)
+        .count();
+    assert_eq!(b_adds, 0);
+}
+
+#[test]
+fn deleting_and_re_adding_a_word_uses_a_new_request_id_each_time() {
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    let mut b = Device::new(0xb2, Some(K1));
+    let word = pinyin("lai'hui", "来回");
+    a.sync(&share);
+    b.sync(&share);
+    for _ in 0..3 {
+        a.add(&word);
+        a.advance(1_000);
+        a.sync(&share);
+        b.advance(1_000);
+        b.sync(&share);
+        assert!(b.engine.words.contains(&word));
+        a.remove(&word);
+        a.advance(1_000);
+        a.sync(&share);
+        b.advance(1_000);
+        b.sync(&share);
+        assert!(!b.engine.words.contains(&word));
+    }
+    // 三次加入、三次删除，各用一个编号。
+    assert_eq!(b.engine.requests.len(), 6);
 }

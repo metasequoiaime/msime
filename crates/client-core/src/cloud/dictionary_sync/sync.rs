@@ -147,13 +147,33 @@ pub struct LocalChange {
     pub key: WordKey,
     /// 真是加入，假是删除。
     pub add: bool,
+    /// 这次写入的请求编号：`dsync-` 加 32 位小写十六进制，由词条、加入还是删除和决定它的那条操作（时间戳、设备）唯一决定。Engine 按请求编号记回执，同一次写入重试不改变结果；同一个词删了又加回来是另一条操作，编号也不同。
+    pub request_id: String,
+}
+
+fn request_id(key: &WordKey, add: bool, hlc: Hlc, device: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for part in [
+        "msime-dictionary-v1-apply",
+        key.kind().name(),
+        key.code(),
+        key.word(),
+        if add { "add" } else { "delete" },
+        &hlc.0.to_string(),
+        device,
+    ] {
+        hasher.update(part.as_bytes());
+        hasher.update([0]);
+    }
+    format!("dsync-{}", hex::encode(&hasher.finalize()[..16]))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocalOutcome {
     /// 写好了（加入的词本来就在、删除的词本来就不在也算）。
     Applied,
-    /// Engine 不收这个词条（例如这一版的拼音音节表里没有它）。不再重试，直到这个词条的共享值变了。
+    /// Engine 不收这个词条（例如这一版的拼音音节表里没有它），或者删不掉它。不再重试，直到这个词条的共享值变了。要删的词本来就不在时答 [`LocalOutcome::Applied`]，不是这个。
     Rejected,
 }
 
@@ -171,6 +191,9 @@ pub trait LocalDictionary {
     fn words(&mut self) -> Result<BTreeSet<WordKey>, LocalError>;
     /// 写一批，最多 [`MAX_APPLY_BATCH`] 项，结果与 `changes` 一一对应。整批要么写好、要么没写（[`LocalError`]）。同一批重复写一次不改变结果。
     fn apply(&mut self, changes: &[LocalChange]) -> Result<Vec<LocalOutcome>, LocalError>;
+
+    /// 这一轮写完了，接下来可能要联网：放掉为写入拿的东西（例如请输入法让出词库的租约）。维护权本来就只在一批之内持有，这里放的是跨批保留、但不能跨网络请求保留的那些。
+    fn release(&mut self) {}
 }
 
 /// 时钟和随机数。测试换成确定的。
@@ -326,24 +349,25 @@ impl SyncState {
         self.guard = None;
     }
 
-    /// 一个词条的有效值：共享值和本机待发送的操作里更晚的那个。
-    fn effective_live(&self, key: &WordKey) -> bool {
+    /// 一个词条的有效值：共享值和本机待发送的操作里更晚的那个，连同决定它的（时间戳、设备）。两边都没有时为 `None`。
+    fn effective(&self, key: &WordKey) -> Option<(bool, Hlc, &str)> {
         let record = self
             .ledger
             .as_ref()
             .and_then(|ledger| ledger.replica.entries.get(key));
+        let own = self.device.as_str();
         match (record, self.outbox.get(key)) {
-            (Some(record), Some(pending)) => {
-                if record.loses_to(pending.hlc, &self.device, pending.live) {
-                    pending.live
-                } else {
-                    record.live
-                }
+            (Some(record), Some(pending)) if !record.loses_to(pending.hlc, own, pending.live) => {
+                Some((record.live, record.hlc, record.device.as_str()))
             }
-            (Some(record), None) => record.live,
-            (None, Some(pending)) => pending.live,
-            (None, None) => false,
+            (_, Some(pending)) => Some((pending.live, pending.hlc, own)),
+            (Some(record), None) => Some((record.live, record.hlc, record.device.as_str())),
+            (None, None) => None,
         }
+    }
+
+    fn effective_live(&self, key: &WordKey) -> bool {
+        self.effective(key).is_some_and(|(live, _, _)| live)
     }
 
     fn live_words(&self) -> usize {
@@ -364,16 +388,15 @@ impl SyncState {
         keys.extend(self.outbox.keys());
         keys.into_iter()
             .filter_map(|key| {
-                let live = self.effective_live(key);
-                if live == applied.contains(key) {
-                    return None;
-                }
-                if live && self.rejected_now(key) {
+                let (live, hlc, device) =
+                    self.effective(key).unwrap_or((false, Hlc::default(), ""));
+                if live == applied.contains(key) || self.rejected_now(key) {
                     return None;
                 }
                 Some(LocalChange {
                     key: key.clone(),
                     add: live,
+                    request_id: request_id(key, live, hlc, device),
                 })
             })
             .collect()
@@ -695,6 +718,16 @@ fn apply_remote(
     parts: &mut Parts<'_>,
     report: &mut Report,
 ) -> Result<(), SyncError> {
+    let result = apply_batches(state, parts, report);
+    parts.local.release();
+    result
+}
+
+fn apply_batches(
+    state: &mut SyncState,
+    parts: &mut Parts<'_>,
+    report: &mut Report,
+) -> Result<(), SyncError> {
     if !state.joined() {
         return Ok(());
     }
@@ -726,13 +759,8 @@ fn apply_remote(
                     }
                     state.unappliable.remove(&change.key);
                 }
-                // Engine 说要删的词本来就不在：当作删好了。
-                (LocalOutcome::Rejected, false) => {
-                    if let Some(applied) = state.applied.as_mut() {
-                        applied.remove(&change.key);
-                    }
-                }
-                (LocalOutcome::Rejected, true) => {
+                // Engine 删不掉（本来就不在的删除算写好了，不会走到这里）：这个词还在本机词库里，`applied` 照实留着它，否则下一次核对会把它当成本机新加的词发出去，在所有设备上复活；和不收的词一样，共享值变了才再试。
+                (LocalOutcome::Rejected, _) => {
                     let version = state
                         .shared_version(&change.key)
                         .unwrap_or((Hlc::default(), String::new()));

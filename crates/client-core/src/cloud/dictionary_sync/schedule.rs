@@ -71,9 +71,23 @@ pub struct Schedule {
     busy_retries: u32,
     #[serde(default)]
     apply_retry_at_ms: u64,
+    /// 最后一次联网同步成功的时间（Unix 毫秒），0 表示还没有过。
+    #[serde(default)]
+    last_success_ms: u64,
+    /// 最后一次同步失败的错误码（[`SyncError::code`]）；之后成功一次就清掉。
+    #[serde(default)]
+    last_error: Option<String>,
 }
 
 impl Schedule {
+    pub fn last_success_ms(&self) -> u64 {
+        self.last_success_ms
+    }
+
+    pub fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
     fn trim(&mut self, now_ms: u64) {
         self.requests
             .retain(|&at| at + WINDOW_MS > now_ms && at <= now_ms);
@@ -143,6 +157,8 @@ impl Schedule {
                     self.failures = 0;
                     self.retry_at_ms = 0;
                     self.last_pull_ms = now_ms;
+                    self.last_success_ms = now_ms;
+                    self.last_error = None;
                     if report.published_events > 0 {
                         self.last_push_ms = now_ms;
                         self.dirty_since_ms = 0;
@@ -157,14 +173,23 @@ impl Schedule {
                     self.busy_retries = 0;
                 }
             }
-            Err(SyncError::RateLimited) => self.retry_at_ms = now_ms + RATE_LIMIT_BACKOFF_MS,
-            Err(SyncError::Unavailable | SyncError::TooLarge | SyncError::Storage) => {
+            Err(error) => {
+                self.last_error = Some(error.code().to_owned());
+                self.fail(now_ms, *error);
+            }
+        }
+    }
+
+    fn fail(&mut self, now_ms: u64, error: SyncError) {
+        match error {
+            SyncError::RateLimited => self.retry_at_ms = now_ms + RATE_LIMIT_BACKOFF_MS,
+            SyncError::Unavailable | SyncError::TooLarge | SyncError::Storage => {
                 let wait =
                     FAILURE_BACKOFF_MS[(self.failures as usize).min(FAILURE_BACKOFF_MS.len() - 1)];
                 self.failures = self.failures.saturating_add(1);
                 self.retry_at_ms = now_ms + wait;
             }
-            Err(_) => self.retry_at_ms = now_ms + ATTENTION_BACKOFF_MS,
+            _ => self.retry_at_ms = now_ms + ATTENTION_BACKOFF_MS,
         }
     }
 }
@@ -226,15 +251,15 @@ pub struct Outcome {
     pub next_check_ms: u64,
 }
 
-/// 宿主的唯一入口：记录本机改动，按调度决定要不要联网，联网时按额度计数，最后写盘。`options` 里只有用户的选择（确认或撤回被挡下的删除）会被采用，联网与否由调度决定。
-pub fn drive(
-    state: &mut SyncState,
-    parts: &mut Parts<'_>,
-    ring: &KeyRing,
-    trigger: Trigger,
-    options: Options,
-) -> Outcome {
-    let now_ms = parts.env.now_ms();
+/// 这一次要不要联网、要不要发送。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub network: bool,
+    pub push: bool,
+}
+
+/// 决定这一次做什么：记下本机刚改过词，按防抖、间隔、退避和额度得出要不要联网。宿主在联网之前还要先做别的请求时（词库的密钥串），先调它，那些请求用 [`record_requests`] 计进额度，再调 [`execute`]。
+pub fn plan(state: &mut SyncState, trigger: Trigger, now_ms: u64) -> Plan {
     state.schedule.trim(now_ms);
     if trigger == Trigger::LocalChange {
         state.schedule.last_change_ms = now_ms;
@@ -245,6 +270,33 @@ pub fn drive(
     let outbox =
         state.outbox_len() > 0 || trigger == Trigger::LocalChange || state.wants_event(now_ms);
     let (network, push) = state.schedule.plan(trigger, now_ms, outbox);
+    Plan { network, push }
+}
+
+/// 宿主在 [`execute`] 之外发出的请求（例如词库密钥串的读写）也计进这个窗口的额度。
+pub fn record_requests(state: &mut SyncState, count: usize, now_ms: u64) {
+    state
+        .schedule
+        .requests
+        .extend(std::iter::repeat_n(now_ms, count));
+}
+
+/// 在 [`execute`] 之前就失败了（例如读写密钥串时网盘拒绝了凭据）：照同样的规则退避，记下错误码。
+pub fn record_failure(state: &mut SyncState, error: SyncError, now_ms: u64) {
+    state.schedule.finished(now_ms, true, &Err(error));
+}
+
+/// 按 [`plan`] 的决定跑一次同步，联网时按剩下的额度计数，最后写盘。`options` 里只有用户的选择（确认或撤回被挡下的删除）会被采用，联网与否由 `plan` 决定。
+pub fn execute(
+    state: &mut SyncState,
+    parts: &mut Parts<'_>,
+    ring: &KeyRing,
+    trigger: Trigger,
+    plan: Plan,
+    options: Options,
+) -> Outcome {
+    let now_ms = parts.env.now_ms();
+    let Plan { network, push } = plan;
     let manual = trigger == Trigger::Manual;
     let limit = state.schedule.remaining(now_ms, manual);
     let options = Options {
@@ -288,6 +340,19 @@ pub fn drive(
         result,
         next_check_ms,
     }
+}
+
+/// [`plan`] 加 [`execute`]：没有别的请求要先做的宿主用它。
+pub fn drive(
+    state: &mut SyncState,
+    parts: &mut Parts<'_>,
+    ring: &KeyRing,
+    trigger: Trigger,
+    options: Options,
+) -> Outcome {
+    let now_ms = parts.env.now_ms();
+    let decided = plan(state, trigger, now_ms);
+    execute(state, parts, ring, trigger, decided, options)
 }
 
 #[cfg(test)]

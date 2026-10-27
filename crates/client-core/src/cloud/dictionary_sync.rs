@@ -21,7 +21,7 @@ pub mod sync;
 pub use clock::{Clock, Hlc};
 pub use crypto::DataKey;
 pub use entry::{WordKey, WordKind};
-pub use schedule::{drive, Outcome, Trigger};
+pub use schedule::{drive, execute, plan, record_failure, record_requests, Outcome, Plan, Trigger};
 pub use sync::{
     capture, restart, run, Environment, KeyRing, LocalChange, LocalDictionary, LocalError,
     LocalOutcome, Options, Parts, RemoteStore, Report, StateSink, Status, SyncError, SyncState,
