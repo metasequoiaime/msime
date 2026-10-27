@@ -1514,17 +1514,26 @@ group("projects the same form factor into every settings capability", () => {
     desktop.keySound && desktop.music && desktop.pluginTriggers && desktop.typingEffects,
     "2-in-1 settings offer key sounds, background music, the V, / and @ modes and the typing effects",
   );
+  const tablet = SettingsFormFactorCapabilities.resolve("tablet");
   check(
-    desktop.wordbookPacks && !phone.wordbookPacks,
-    "only the 2-in-1, where packs are installed, lists wordbook packs in 背单词",
+    desktop.wordbookPacks && phone.wordbookPacks && tablet.wordbookPacks,
+    "every form factor installs packs, so every one lists wordbook packs in 背单词",
   );
   check(
-    desktop.symbolSetPacks && !phone.symbolSetPacks,
-    "only the 2-in-1, where packs are installed, shows symbol set packs in the emoji panel",
+    desktop.symbolSetPacks && phone.symbolSetPacks && tablet.symbolSetPacks,
+    "every form factor's emoji panel reads the mirrored symbol set packs",
   );
   check(
-    !phone.keySound && !phone.music && !phone.pluginTriggers && !phone.typingEffects,
-    "a phone keeps its own key feedback, plays no music, draws no typing effect and does not claim the hardware-only modes",
+    phone.pluginTriggers && tablet.pluginTriggers,
+    "phones and tablets offer the / and @ switches: the touch keyboard enters / from 本地输入 and an attached keyboard routes all three",
+  );
+  check(
+    phone.touchPluginPacks && tablet.touchPluginPacks && !desktop.touchPluginPacks,
+    "phones and tablets get the touch plugin page, a 2-in-1 keeps the desktop one",
+  );
+  check(
+    !phone.keySound && !phone.music && !phone.typingEffects,
+    "a phone keeps its own key feedback, plays no music and draws no typing effect",
   );
   // The phone strip is always horizontal, so a layout select there is a control that does nothing; the 2in1 candidate window keeps the choice.
   check(
@@ -6446,7 +6455,7 @@ group("local modes are addressable by trigger and by preference key", () => {
   check(LocalInputMode.fromTrigger("Z") === null, "an unassigned letter enters nothing");
   const triggers = new Set(LocalInputMode.MODES.map((entry) => entry.trigger));
   check(triggers.size === LocalInputMode.MODES.length, "no two modes share a trigger");
-  // V, / and @ are named by the Engine's local_mode and entered from a hardware keyboard; the touch tools panel, which lists MODES, does not offer them as tiles.
+  // V、/ 和 @ 按 Engine 的 local_mode 命名，实体键盘进入；触屏功能面板只在设置打开 / 指令时多给「指令」一格。
   check(
     LocalInputMode.HARDWARE_MODES.map((entry) => entry.preferenceKey).join(",") ===
       "expression,command,mention",
@@ -6467,6 +6476,28 @@ group("local modes are addressable by trigger and by preference key", () => {
   check(
     new Set(all.map((entry) => entry.trigger)).size === all.length,
     "no hardware-only mode shares a trigger with a touch mode",
+  );
+  check(
+    LocalInputMode.touchModes(false) === LocalInputMode.MODES,
+    "with / 指令 off the touch panel lists the nine tiles and no 指令",
+  );
+  const withCommand = LocalInputMode.touchModes(true);
+  check(
+    withCommand.length === LocalInputMode.MODES.length + 1 &&
+      withCommand[withCommand.length - 1] === LocalInputMode.fromPreferenceKey("command") &&
+      withCommand[withCommand.length - 1].title === "指令",
+    "with / 指令 on the touch panel adds 指令 after 拆字",
+  );
+  check(
+    withCommand.every(
+      (entry) => entry.preferenceKey !== "expression" && entry.preferenceKey !== "mention",
+    ),
+    "V and @ stay off the touch panel: it has no face for digits, operators or the name list",
+  );
+  check(
+    LocalInputMode.entersWithShift(LocalInputMode.fromTrigger("K")!) &&
+      !LocalInputMode.entersWithShift(LocalInputMode.fromTrigger("/")!),
+    "letter tiles send their capital with Shift, 指令 sends a plain /",
   );
 });
 
@@ -10098,7 +10129,8 @@ group(
       near(grid.scale, scale) &&
       near(grid.rowHeight, row * scale) &&
       near(grid.rowsGap, (rows === 3 ? 12 : 16) * scale);
-    const used = (grid: PickerGrid): number => grid.rows * grid.rowHeight + (grid.rows - 1) * grid.rowsGap;
+    const used = (grid: PickerGrid): number =>
+      grid.rows * grid.rowHeight + (grid.rows - 1) * grid.rowsGap;
     check(
       FunctionPanelPolicy.THREE_ROW_GAP_VP === 12 &&
         FunctionPanelPolicy.TWO_ROW_GAP_VP === 16 &&
@@ -10106,9 +10138,18 @@ group(
       "the picker grid uses the same constants as Android and iOS: gaps 12 and 16, tiles at least 44vp",
     );
     // 三端共用的测试向量。
-    check(same(FunctionPanelPolicy.pickerGrid(false, 200, row), 3, 1), "200vp holds three full-size rows");
-    check(same(FunctionPanelPolicy.pickerGrid(false, 180, row), 3, 1), "180vp is exactly three full-size rows");
-    check(same(FunctionPanelPolicy.pickerGrid(false, 162, row), 3, 0.9), "162vp scales three rows to 0.9");
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 200, row), 3, 1),
+      "200vp holds three full-size rows",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 180, row), 3, 1),
+      "180vp is exactly three full-size rows",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 162, row), 3, 0.9),
+      "162vp scales three rows to 0.9",
+    );
     check(
       same(FunctionPanelPolicy.pickerGrid(false, 152.4, row), 3, 152.4 / 180),
       "152.4vp still keeps three rows, the tiles just above 44vp",
@@ -10157,7 +10198,10 @@ group(
       same(portrait, 3, (197 - 28) / 180) && portrait.rowHeight >= 44,
       "the default key area keeps three rows and scales the tiles to about 0.94",
     );
-    check(near(used(portrait), standard - chrome), "three scaled rows fill the default key area exactly");
+    check(
+      near(used(portrait), standard - chrome),
+      "three scaled rows fill the default key area exactly",
+    );
     const short: PickerGrid = FunctionPanelPolicy.pickerGrid(false, minimum - chrome, row);
     check(
       same(short, 2, 1),

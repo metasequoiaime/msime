@@ -3,7 +3,13 @@ import type { InputScheme } from "../core/input-scheme";
 import type { ConfirmRequest } from "../core/confirm";
 import * as settings from "./settings-style";
 import type { PluginPreferences } from "./plugin-preferences";
-import type { AuthoredKind, PluginClient, PluginKind, PluginSettingsPage } from "./plugin-types";
+import type {
+  AuthoredKind,
+  PluginClient,
+  PluginKind,
+  PluginSettingsPage,
+  TouchPluginRules,
+} from "./plugin-types";
 import { PluginListView } from "./plugin-list-view";
 import { scriptResidualRisk } from "./plugin-script-model";
 import { ScriptPluginDetailView } from "./plugin-script-view";
@@ -30,6 +36,7 @@ export type {
   PluginPhrase,
   PluginSettingsPage,
   PluginSymbolGroup,
+  TouchPluginRules,
   ScriptCapability,
   ScriptCommand,
   ScriptCommandState,
@@ -103,6 +110,8 @@ export interface PluginsSectionProps {
   symbolSetPacks?: boolean;
   /** 宿主运行脚本插件（`HostCapabilities.script_plugins`）：显示「脚本插件（实验）」分组和授权页。 */
   scriptPlugins?: boolean;
+  /** 触屏设置的插件页（`HostCapabilities.touch_plugin_packs`）：只列触屏键盘用得上的包，按键音效包按触屏的「按键音」开关选用，导入只收 .zip，子页推入历史记录。桌面不传。 */
+  touch?: TouchPluginRules;
   /** 打开某个包的详情（社区装好脚本插件后跳到它的授权页）；`serial` 变了才再打开一次。 */
   openRequest?: { kind: PluginKind; id: string; serial: number } | null;
   /** 宿主平台（`HostCapabilities.platform`），授权页按它说明这个平台上同一用户下的程序能伪造授权。 */
@@ -140,6 +149,7 @@ export function PluginsSection({
   wordbookPacks = false,
   symbolSetPacks = false,
   scriptPlugins = false,
+  touch,
   openRequest = null,
   platform,
   onOpenWordbook,
@@ -153,8 +163,11 @@ export function PluginsSection({
     root,
     view,
     openView,
+    goBack,
     backToList,
     catalog,
+    listedCatalog,
+    unlisted,
     catalogState,
     notice,
     libraryFilter,
@@ -201,7 +214,10 @@ export function PluginsSection({
     mentionMode,
     scheme,
     helpcode,
+    wordbookPacks,
+    symbolSetPacks,
     scriptPlugins,
+    touch,
     active,
     onChange,
     onError,
@@ -279,6 +295,7 @@ export function PluginsSection({
             helpcode={helpcode}
             wordbookPacks={wordbookPacks}
             symbolSetPacks={symbolSetPacks}
+            touch={touch}
             onOpenWordbook={onOpenWordbook}
             working={working}
             onChange={onChange}
@@ -315,9 +332,11 @@ export function PluginsSection({
           confirm={confirm}
           onBack={() =>
             target
-              ? openView(
-                  { kind: "pack", packKind: target.kind, id: target.id },
-                  `pack/${target.kind}/${target.id}`,
+              ? goBack(() =>
+                  openView(
+                    { kind: "pack", packKind: target.kind, id: target.id },
+                    `pack/${target.kind}/${target.id}`,
+                  ),
                 )
               : backToList()
           }
@@ -383,10 +402,12 @@ export function PluginsSection({
             : undefined
         }
         hasClient={Boolean(client)}
-        catalog={catalog}
+        catalog={listedCatalog}
+        unlisted={unlisted}
         catalogState={catalogState}
         missing={missing}
         kinds={actedKinds}
+        touch={touch}
         preferences={preferences}
         modes={{ quickPhrase: quickPhraseMode, command: commandMode, schemeOpens }}
         triggers={triggers}

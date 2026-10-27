@@ -92,6 +92,48 @@ fn index_of(candidates: &[WordItem], word: &str) -> usize {
 }
 
 #[test]
+fn builtin_profiles_find_den_in_a_synthetic_dictionary() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_d(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_1_d VALUES('den', 'd', '扽', 100), ('dia', 'd', '嗲', 95), ('deng', 'd', '灯', 90);",
+    );
+    for kind in [
+        ShuangpinProfileKind::Xiaohe,
+        ShuangpinProfileKind::Ziranma,
+        ShuangpinProfileKind::Shoudao,
+        ShuangpinProfileKind::Microsoft,
+        ShuangpinProfileKind::SmartAbc,
+    ] {
+        let selected = profile(kind).unwrap();
+        let code = if kind == ShuangpinProfileKind::Shoudao {
+            assert_eq!(super::utils::cvt_single_sp_to_pinyin("dk", selected), "dia");
+            "dk".to_string()
+        } else {
+            let code = super::utils::encode_pinyin("den", selected)
+                .unwrap_or_else(|| panic!("{kind:?} cannot encode den"));
+            assert_eq!(
+                super::utils::cvt_single_sp_to_pinyin(&code, selected),
+                "den"
+            );
+            code
+        };
+        let mut engine = fixture.engine(kind);
+        let candidates = engine.query(&request(&code, false), None);
+        assert!(
+            words(&candidates).contains(&"扽"),
+            "{kind:?}: {code}: {:?}",
+            words(&candidates)
+        );
+        if kind == ShuangpinProfileKind::Shoudao {
+            assert!(
+                words(&candidates).contains(&"嗲"),
+                "手心原有的 `dia` 候选应保留"
+            );
+        }
+    }
+}
+
+#[test]
 fn warm_queries_do_not_allocate_a_compact_input_only_for_the_empty_check() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER); INSERT INTO tbl_1_n VALUES('ni','n','你',100); CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER); INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200);",

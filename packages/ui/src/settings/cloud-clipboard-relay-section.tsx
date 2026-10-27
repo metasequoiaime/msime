@@ -124,8 +124,8 @@ export function CloudClipboardRelaySection({
           <EndpointSettingField
             label="服务器地址"
             inputLabel="服务器地址"
-            description="网盘里存放云剪贴板的文件夹，例如坚果云的 https://dav.jianguoyun.com/dav/msime。必须是 HTTPS，证书要由公网信任的机构签发。"
-            placeholder="https://dav.jianguoyun.com/dav/msime"
+            description="坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。"
+            placeholder="https://dav.jianguoyun.com/dav/"
             value={webdavUrl}
             disabled={disabled}
             onChange={editWebDavUrl}

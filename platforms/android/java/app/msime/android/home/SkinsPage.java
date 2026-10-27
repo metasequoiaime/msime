@@ -21,9 +21,12 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
+<<<<<<< ours
 import app.msime.android.KeyboardSkinModeChoice;
+import app.msime.android.LocalBackupPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.WindowInsetsPolicy;
 import app.msime.android.R;
@@ -31,6 +34,7 @@ import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
 import app.msime.android.core.InputViewValuePolicy;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
@@ -327,7 +331,9 @@ public final class SkinsPage extends ReloadingDetailPage {
             ViewPolicy.bindClick(export, () -> {
                 pendingExport = CustomSkinLibrary.exportDesigns(
                     List.of(new CustomSkinLibrary.Item(card.id(), card.title(), card.design())), Long.MAX_VALUE);
-                createDocument.launch(card.title() + ".json");
+                createDocument.launch(LocalBackupPolicy.skinFileName(
+                    context.getString(R.string.app_name), card.title(),
+                    AppVersionPolicy.versionName(context, "0"), LocalDateTime.now()));
             });
             actions.addView(export, LayoutPolicy.weightedWrapParams(1));
             MaterialButton remove = new MaterialButton(context, null,

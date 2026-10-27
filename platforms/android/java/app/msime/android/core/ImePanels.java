@@ -1769,6 +1769,12 @@ final class ImePanels {
                 clipboardSelectedTexts.size() + " 项已选择", 12);
             header.addView(selected, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", this::exitClipboardSelection);
+            Button export = clipboardAction(header, "导出", () -> {
+                java.util.List<String> selectedTexts = new java.util.ArrayList<>(clipboardSelectedTexts);
+                exitClipboardSelection();
+                s.exportClipboardItems(selectedTexts);
+            });
+            ViewPolicy.setEnabled(export, !clipboardSelectedTexts.isEmpty());
             Button remove = clipboardAction(header, "删除", () -> {
                 s.removeClipboardItems(new java.util.ArrayList<>(clipboardSelectedTexts));
                 exitClipboardSelection();
@@ -1851,7 +1857,13 @@ final class ImePanels {
                 swipedPresent |= swiped;
                 Button card = newClipboardCard(item.text(), meta, managed, () -> {
                     if (clipboardSelectionMode) {
-                        if (!clipboardSelectedTexts.add(item.text())) clipboardSelectedTexts.remove(item.text());
+                        if (clipboardSelectedTexts.contains(item.text())) {
+                            clipboardSelectedTexts.remove(item.text());
+                        } else if (ClipboardSelectionPolicy.canSelect(clipboardSelectedTexts.size())) {
+                            clipboardSelectedTexts.add(item.text());
+                        } else {
+                            s.notice("最多只能选择 " + ClipboardSelectionPolicy.MAX_SELECTIONS + " 项");
+                        }
                         renderClipboardHistory();
                         return;
                     }
