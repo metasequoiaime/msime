@@ -492,6 +492,12 @@ MSIME_ANDROID_RELATIVE_DATE=1 bash platforms/android/tests/device/build-editor.s
 
 API 28 不支持 `--no-restart`，运行上述 instrumentation 时去掉该参数。测试跨午夜时应重跑。
 
+## 关于彩蛋
+
+点击键盘左上角水杉图标，在功能菜单长按「关于」显示本地彩蛋，点击「返回工具」回到菜单；普通点击仍打开关于页。设置应用「我的」页的「关于」也支持长按。气泡按本地自然日计算自 2026-06-06 起经过的天数，不保存或上传使用记录。
+
+设备专项：`MSIME_ANDROID_ABOUT_EASTER_EGG=1 bash platforms/android/tests/device/build-editor.sh`，安装原生宿主与测试 APK 后运行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.AboutEasterEggDeviceSmoke`。它创建安装包内的输入法服务视图，操作品牌键和关于磁贴，检查返回、关闭重开与同服务重建输入视图，并验证 240/320/600dp、1/2 倍字号的内容测量及连续绘制像素；不改偏好或词库，不代表真实编辑器或报告者设备验收。
+
 ## 世界时钟
 
 键盘工具栏的「更多」里打开「世界时钟」，默认显示系统日期、星期和时分秒；日出日落标注时区的参考城市，未匹配到参考城市时明确提示，不请求定位。轻点卡片选择日期、时间、星期、ISO 8601 或 Unix 时间等格式插入当前输入框。通过「添加城市」按地区、国家/地区、城市离线选择，最多保存 32 个；长按已添加城市选择删除。目录包含 IANA 各国家/地区的代表时区城市和北京，并非全部城镇。

@@ -27,7 +27,7 @@ import org.json.JSONObject;
  *
  * <p>设置应用和 :ime 进程是同一个 UID，读写同一个文件。写入在同目录的锁文件上加进程间文件锁，读出、修改、写到临时文件再原子改名；读取按文件的 inode、修改时间和大小缓存，文件被另一进程换掉后下一次 {@link #load} 就读到新值。文件缺失、过大、损坏或某一项取值不合规时，那一项（或整份）回到默认值；读取从不改写文件。
  *
- * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十七项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白只留在本机。
+ * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白只留在本机。
  */
 public final class AndroidLocalSettings {
     public static final String FILE_NAME = "android-settings.json";
@@ -102,6 +102,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_FLOATING = "platform.android.toolbar_floating";
     /** 可选工具按钮的稳定 ID 排列，只在本机保存。 */
     public static final String TOOLBAR_ORDER = "platform.android.toolbar_order";
+    /** 空闲工具栏独立尺寸；未写入时仍跟随候选栏高度。 */
+    public static final String TOOLBAR_SIZE_PERCENT = "platform.android.toolbar_size_percent";
     /** 符号面板分类的稳定 ID 排列，只在本机保存。 */
     public static final String SYMBOL_CATEGORY_ORDER = "platform.android.symbol_category_order";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
@@ -243,6 +245,8 @@ public final class AndroidLocalSettings {
         bool(TOOLBAR_TEXT_EDIT, false, false);
         text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
             ToolbarOrderPolicy::normalize);
+        integer(TOOLBAR_SIZE_PERCENT, ToolbarSizePolicy.DEFAULT_PERCENT, false,
+            ToolbarSizePolicy.MIN_PERCENT, ToolbarSizePolicy.MAX_PERCENT, 10);
         text(SYMBOL_CATEGORY_ORDER, SymbolCategoryOrderPolicy.format(SymbolCategoryOrderPolicy.DEFAULT_ORDER), false,
             SymbolCategoryOrderPolicy::normalize);
         bool(BOTTOM_BAR, true, false);

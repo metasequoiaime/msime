@@ -9,6 +9,7 @@ import app.msime.android.KeyboardFormFactorPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ToolbarOrderPolicy;
+import app.msime.android.ToolbarSizePolicy;
 import app.msime.android.KeyboardSpacingPolicy;
 import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardTypographyPolicy;
@@ -293,6 +294,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
         bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin()));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
+        boolean customToolbarSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        int toolbarSize = settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        bar.nav("工具栏尺寸", "独立调整空闲工具栏、图标和按钮；候选栏及键盘高度不变",
+            customToolbarSize ? toolbarSize + "%" : "跟随候选栏",
+            hidden ? null : () -> pickToolbarSize(customToolbarSize, toolbarSize));
         bar.nav("按钮顺序", "调整工具按钮的排列；品牌和收起键保留在两端", null,
             hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show());
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
@@ -360,6 +366,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         ViewPolicy.setImportantForAccessibility(plate,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = ColorPolicy.parse(skin.toolbarIcon(), ThemeColorPolicy.subText(context));
+        int sizePercent = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT)
+            ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
         boolean anyButton = false;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
             anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
@@ -373,18 +381,18 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             TextView note = ViewPolicy.styledLabel(context, "没有打开的工具按钮，工具栏不显示，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
-            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)));
-            if (longSpace) addChip(context, plate, "符", icon);
+            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), sizePercent);
+            if (longSpace) addChip(context, plate, "符", icon, sizePercent);
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
-                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon);
+                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, sizePercent);
         }
-        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, 44));
+        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, ToolbarSizePolicy.buttonHeightDp(sizePercent)));
         strip.setContentDescription("工具栏预览");
         return strip;
     }
 
-    private static void addChip(Context context, LinearLayout plate, String label, int colour) {
-        TextView chip = ViewPolicy.styledLabel(context, label, 12, 500, colour);
+    private static void addChip(Context context, LinearLayout plate, String label, int colour, int sizePercent) {
+        TextView chip = ViewPolicy.styledLabel(context, label, Math.round(12f * sizePercent / 100f), 500, colour);
         ViewPolicy.setSingleLine(chip);
         LinearLayout.LayoutParams params = LayoutPolicy.wrapParams();
         params.setMarginEnd(DimensionPolicy.pixels(context, 12));
@@ -624,6 +632,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "显示方式", null);
         sheet.option("输入时显示", !hidden, () -> saveToolbar(AndroidLocalSettings.TOOLBAR_HIDDEN, false));
         sheet.option("隐藏", hidden, () -> saveToolbar(AndroidLocalSettings.TOOLBAR_HIDDEN, true));
+        sheet.show();
+    }
+
+    private void pickToolbarSize(boolean custom, int current) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "工具栏尺寸", null);
+        sheet.option("跟随候选栏", !custom,
+            () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, null,
+                this::reload, this::reload));
+        for (int percent = ToolbarSizePolicy.MIN_PERCENT; percent <= ToolbarSizePolicy.MAX_PERCENT; percent += 10) {
+            int choice = percent;
+            sheet.option(percent + "%", custom && current == percent,
+                () -> saveLocalSetting(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice));
+        }
         sheet.show();
     }
 

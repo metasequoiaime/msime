@@ -504,6 +504,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 文本编辑面板（方向键、选择、全选、复制、剪切、粘贴），见 {@link ImeTextEditPanel}。 */
     LinearLayout textEditPanel;
     LinearLayout shortcutToolbar;
+    View candidateHeightSpacer;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
     final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
@@ -1028,6 +1029,7 @@ public final class MSIMEInputService extends InputMethodService {
                         applyEditorPreferences(value(response).optJSONObject("preferences"));
                         offerRecentClipOnHistoryEnabled(previousClipboard);
                         render();
+                        imeWorldClock.resumePicker(getCurrentInputEditorInfo());
                     } catch (JSONException | LinkageError ignored) {
                         // Unreadable preferences leave the keyboard as it is.
                     }
@@ -1818,6 +1820,7 @@ public final class MSIMEInputService extends InputMethodService {
             // 键盘进程不在时复制的那一条，监听收不到；弹出键盘时看一眼是不是刚复制的。
             offerRecentClip(false);
             render();
+            imeWorldClock.resumePicker(effectiveInfo);
         };
         main.postDelayed(inputViewRefreshTask, INPUT_VIEW_REFRESH_DELAY_MILLIS);
     }
@@ -1889,6 +1892,8 @@ public final class MSIMEInputService extends InputMethodService {
         caretWindowHidden = false;
         // 系统或应用把窗口叫出来时可能正空闲（例如输入框获得焦点），按此刻的状态再收起。
         main.post(caretWindowSync);
+        // 选择页返回时，输入连接刷新可能先于窗口显示；等窗口可见再补一次原编辑器恢复。
+        main.post(() -> imeWorldClock.resumePicker(getCurrentInputEditorInfo()));
     }
 
     /** Match Apple's viewWillDisappear boundary while keeping the editor session alive. */
@@ -1990,7 +1995,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onDestroy() {
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
-        if (imeWorldClock != null) imeWorldClock.close();
+        if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
@@ -2370,6 +2375,8 @@ public final class MSIMEInputService extends InputMethodService {
             message = "";
             render();
             if (hasPreferencesDirectory) preferencesReloader.start(directory, this::reloadPreferences);
+            // 输入连接恢复时，时钟数据目录可能尚未恢复，等运行时真正准备好再续接城市选择。
+            imeWorldClock.resumePicker(getCurrentInputEditorInfo());
         } catch (Exception | LinkageError error) {
             stop(false);
             message = "共享运行时未就绪：仅直接输入";
@@ -4110,14 +4117,33 @@ public final class MSIMEInputService extends InputMethodService {
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
         int readingRow = readingRowHeight();
         if (candidateHeader != null) ViewPolicy.setFixedHeight(candidateHeader, readingRow);
-        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了读音行那一截，工具栏只取候选行的高度，总高不变。
+        // 未单独设置工具栏尺寸时继续跟随读音行与候选行。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白。
         boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
-        if (shortcutToolbar != null)
-            ViewPolicy.setFixedHeight(shortcutToolbar, (idleHeader ? 0 : readingRow) + pixels(line));
-        if (inlineAutofill != null) inlineAutofill.setHeight((idleHeader ? 0 : readingRow) + pixels(line));
+        int composingHeight = readingRow + pixels(line);
+        boolean customSize = localSettings != null && localSettings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        int sizePercent = customSize ? localSettings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
+        int targetIdleHeight = customSize
+            ? pixels(ToolbarSizePolicy.heightDp(sizePercent))
+            : composingHeight;
+        int idleHeight = customSize && idleHeader
+            ? Math.max(targetIdleHeight, readingRow + pixels(ToolbarSizePolicy.buttonHeightDp(sizePercent)))
+            : targetIdleHeight;
+        int idleRowHeight = idleHeight - (idleHeader ? readingRow : 0);
+        if (shortcutToolbar != null) ViewPolicy.setFixedHeight(shortcutToolbar, idleRowHeight);
+        if (inlineAutofill != null) inlineAutofill.setHeight(idleRowHeight);
         // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
-        if (recentClipRow != null)
-            ViewPolicy.setFixedHeight(recentClipRow, (idleHeader ? 0 : readingRow) + pixels(line));
+        if (recentClipRow != null) ViewPolicy.setFixedHeight(recentClipRow, idleRowHeight);
+        if (candidateHeightSpacer != null) {
+            boolean idleRowVisible = ViewPolicy.isVisible(shortcutToolbar)
+                || ViewPolicy.isVisible(recentClipRow)
+                || inlineAutofill != null && inlineAutofill.visible();
+            int spacer = customSize && idleRowVisible
+                ? ToolbarSizePolicy.idleSpacerPx(idleHeight, composingHeight)
+                : customSize && ViewPolicy.isVisible(candidateLine)
+                    ? ToolbarSizePolicy.composingSpacerPx(idleHeight, composingHeight) : 0;
+            ViewPolicy.setFixedHeight(candidateHeightSpacer, spacer);
+        }
+        imeToolbar.applyShortcutSize(sizePercent, customSize);
     }
 
     private int readingRowHeight() {
@@ -4870,7 +4896,7 @@ public final class MSIMEInputService extends InputMethodService {
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
             String input = shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
-            shuangpinKeyButtons.get(index).setCornerHint(LetterHintTable.face(input, chinese,
+            shuangpinKeyButtons.get(index).setCornerHint(LetterHintTable.face(input, dedicatedEnglish, chinese,
                 punctuationMarks()));
         }
     }
@@ -6034,6 +6060,7 @@ public final class MSIMEInputService extends InputMethodService {
     void closeClipboardHistory() {
         imePanels.resetClipboardCategoryPicker();
         imePanels.dismissClipboardPreview();
+        imePanels.clearClipboardDetail();
         if (clipboardSurface != null) ViewPolicy.hide(clipboardSurface);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;
@@ -6079,6 +6106,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeMoreTools() {
+        if (imeFunctionPanel != null) imeFunctionPanel.close();
         if (imeWorldClock != null) imeWorldClock.close();
         if (imeOcr != null) imeOcr.close();
         localInputToolsOpen = false;
@@ -9191,6 +9219,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        imeFunctionPanel.close();
         operationNotice.cancel();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
@@ -9252,6 +9281,8 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(imeLetterRows.keyPreviewLayer, LayoutPolicy.frameMatchParentParams());
         candidateCanvasRegion = new CandidateCanvasColumn(this);
         LinearLayout candidateRegion = candidateCanvasRegion;
+        candidateHeightSpacer = new View(this);
+        candidateRegion.addView(candidateHeightSpacer, LayoutPolicy.matchWidthHeightPx(0));
         imeToolbar.buildCandidateHeader(candidateRegion);
         imeCompositionEditor.install(candidateRegion);
         diagnosticView = ViewPolicy.textLabel(this, "", 12);

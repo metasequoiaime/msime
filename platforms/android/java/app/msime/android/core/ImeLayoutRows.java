@@ -873,7 +873,8 @@ final class ImeLayoutRows {
     void showLetterOptions(Button anchor, String input) {
         String lower = input.toLowerCase(java.util.Locale.ROOT);
         String upper = input.toUpperCase(java.util.Locale.ROOT);
-        String hint = LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks());
+        String hint = LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
+            s.punctuationMarks());
         java.util.List<String> choices = new java.util.ArrayList<>();
         choices.add(lower);
         if (!upper.equals(lower)) choices.add(upper);
@@ -946,7 +947,7 @@ final class ImeLayoutRows {
     /** 直接滑出角标与选项中的符号共用 Engine 标点路由，保留组字转换、引号和成对补全。 */
     void commitLetterHint(String input) {
         dismissNineKeyHoldOptions();
-        String hint = LetterHintTable.hint(input);
+        String hint = LetterHintTable.hint(input, s.dedicatedEnglish);
         if (hint == null) return;
         boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
             && s.punctuation(hint.charAt(0));

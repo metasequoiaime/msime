@@ -36,6 +36,10 @@ public final class EnglishLetterHoldPolicySmoke {
             "缺字的 q 不以普通字母或其他字形替代");
         check(EnglishLetterHoldPolicy.choices("o").contains(EnglishLetterHoldPolicy.PINYIN_KEYBOARD),
             "O 的既有拼音键盘入口保留");
+        check(EnglishLetterHoldPolicy.choices("x").contains("_")
+            && !EnglishLetterHoldPolicy.choices("x").contains("…"), "英文 X 长按只提供下划线角标");
+        check(EnglishLetterHoldPolicy.choices("c").contains("`")
+            && !EnglishLetterHoldPolicy.choices("c").contains("、"), "英文 C 长按只提供反引号角标");
         check(EnglishLetterHoldPolicy.choices(null).isEmpty()
             && EnglishLetterHoldPolicy.choices("ab").isEmpty()
             && EnglishLetterHoldPolicy.choices("1").isEmpty(), "忽略无效输入");

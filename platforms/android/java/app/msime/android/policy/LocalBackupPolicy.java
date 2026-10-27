@@ -64,16 +64,23 @@ public final class LocalBackupPolicy {
 
     private LocalBackupPolicy() {}
 
-    /** 「水杉输入法-0.2.2-20261008-0915」：应用名加版本号，再加导出时间；文件名里不能用的字符换成「_」。 */
+    /** 导出共用的基名：应用名、版本号和时间；文件名里不能用的字符换成「_」。 */
     public static String baseName(String appName, String versionName, LocalDateTime now) {
         String app = safeNamePart(appName, "msime");
         String version = safeNamePart(versionName, "0");
         return app + "-" + version + "-" + STAMP.format(now);
     }
 
-    /** 配置备份使用 zip 扩展名；其他导出文件共用 {@link #baseName}。 */
+    /** 配置备份文件名明确标示内容；其他导出文件仍共用 {@link #baseName}。 */
     public static String fileName(String appName, String versionName, LocalDateTime now) {
-        return baseName(appName, versionName, now) + ".zip";
+        return safeNamePart(appName, "msime") + "-配置备份-"
+            + safeNamePart(versionName, "0") + "-" + STAMP.format(now) + ".zip";
+    }
+
+    /** 剪贴板历史文本的文件名明确标示内容，仍使用相同的应用名、版本号和分钟时间。 */
+    public static String clipboardFileName(String appName, String versionName, LocalDateTime now) {
+        return safeNamePart(appName, "msime") + "-剪贴板备份-"
+            + safeNamePart(versionName, "0") + "-" + STAMP.format(now) + ".txt";
     }
 
     static String safeNamePart(String value, String fallback) {

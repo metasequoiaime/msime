@@ -26,6 +26,21 @@ public final class BackspaceSwipePolicySmoke {
         check(BackspaceSwipePolicy.clearsOnRelease(Phase.ARMED), "release while armed clears");
         check(!BackspaceSwipePolicy.clearsOnRelease(Phase.REVEALED), "release while not armed does nothing");
         check(!BackspaceSwipePolicy.clearsOnRelease(Phase.IDLE), "an ordinary release clears nothing");
+        check(BackspaceSwipePolicy.clearTarget(Phase.ARMED, true, true)
+                == BackspaceSwipePolicy.ClearTarget.COMPOSITION,
+            "a swipe that began in composition only cancels the current spelling");
+        check(BackspaceSwipePolicy.clearTarget(Phase.ARMED, true, false)
+                == BackspaceSwipePolicy.ClearTarget.COMPOSITION,
+            "the first backspace may empty the spelling before the swipe releases");
+        check(BackspaceSwipePolicy.clearTarget(Phase.ARMED, false, true)
+                == BackspaceSwipePolicy.ClearTarget.COMPOSITION,
+            "a composition started during the press still protects committed text");
+        check(BackspaceSwipePolicy.clearTarget(Phase.ARMED, false, false)
+                == BackspaceSwipePolicy.ClearTarget.EDITOR,
+            "an idle editor keeps full quick delete");
+        check(BackspaceSwipePolicy.clearTarget(Phase.REVEALED, true, true)
+                == BackspaceSwipePolicy.ClearTarget.NONE,
+            "sliding back out never cancels spelling or editor text");
 
         BackspaceSwipePolicy.Box box = BackspaceSwipePolicy.box(900f, keyTop, 1000f, 1080f, density);
         check(box.bottom() == 220f && box.top() == 140f, "the box ends at the arm line and is 40 dp tall");

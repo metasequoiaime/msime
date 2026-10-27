@@ -66,6 +66,17 @@ public final class AndroidLocalSettingsSmoke {
         check(settings.bool(AndroidLocalSettings.TOOLBAR_PHRASE), "toolbar phrase default");
         check(settings.bool(AndroidLocalSettings.TOOLBAR_SCHEME), "toolbar scheme default");
         check(!settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN), "toolbar hidden default");
+        check(!settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT), "toolbar size follows candidates by default");
+        check(settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) == 100, "toolbar size fallback");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT).synced, "toolbar size stays local");
+        check(AndroidLocalSettings.spec(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT).accept(90).equals(90), "small toolbar size accepted");
+        check(AndroidLocalSettings.spec(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT).accept(150).equals(150), "large toolbar size accepted");
+        check(AndroidLocalSettings.spec(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT).accept(95) == null, "toolbar size step enforced");
+        AndroidLocalSettings.Snapshot sizedToolbar = new AndroidLocalSettings.Snapshot(
+            AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, 130)));
+        check(sizedToolbar.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT)
+            && sizedToolbar.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) == 130, "explicit toolbar size survives a snapshot");
+        check(!sizedToolbar.synced().containsKey(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT), "toolbar size is not sent to sync");
         check("overlap".equals(settings.choice(AndroidLocalSettings.HANDWRITING_MODE)), "handwriting mode default matches HandwritingPreferences");
         check(settings.integer(AndroidLocalSettings.HANDWRITING_DELAY_MS) == HandwritingPreferences.DELAY_DEFAULT, "handwriting delay default");
         check(settings.integer(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH) == HandwritingPreferences.WIDTH_DEFAULT, "stroke width matches HandwritingPreferences");

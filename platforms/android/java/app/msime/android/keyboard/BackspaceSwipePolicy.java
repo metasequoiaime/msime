@@ -31,6 +31,15 @@ public final class BackspaceSwipePolicy {
         ARMED
     }
 
+    /** 上滑松手这一次允许清除的范围。 */
+    public enum ClearTarget { NONE, COMPOSITION, EDITOR }
+
+    /** 一次按压只要碰过组字，就不能在拼音被先前退格删空后再清除已提交正文。 */
+    public static ClearTarget clearTarget(Phase phase, boolean touchedComposition, boolean hasComposition) {
+        if (!clearsOnRelease(phase)) return ClearTarget.NONE;
+        return touchedComposition || hasComposition ? ClearTarget.COMPOSITION : ClearTarget.EDITOR;
+    }
+
     /** 框在覆盖层里的位置。 */
     public record Box(float left, float top, float right, float bottom) {}
 

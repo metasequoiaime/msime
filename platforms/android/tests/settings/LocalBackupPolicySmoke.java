@@ -24,11 +24,13 @@ public final class LocalBackupPolicySmoke {
             "水杉拼音-粉色皮肤-0.6.0-20261008-0905.json", "skin export identifies the design and version");
         equal(LocalBackupPolicy.skinFileName("水杉拼音", "粉/色", "0.6.0", now),
             "水杉拼音-粉_色-0.6.0-20261008-0905.json", "skin title is safe for document names");
-        equal(LocalBackupPolicy.fileName("水杉输入法", "0.2.2", now), "水杉输入法-0.2.2-20261008-0905.zip",
-            "file name carries the app name, the version and the export time");
-        equal(LocalBackupPolicy.fileName("水杉 五笔", "1.0/beta", now), "水杉_五笔-1.0_beta-20261008-0905.zip",
+        equal(LocalBackupPolicy.fileName("水杉输入法", "0.2.2", now), "水杉输入法-配置备份-0.2.2-20261008-0905.zip",
+            "backup name identifies its content, app version and export time");
+        equal(LocalBackupPolicy.fileName("水杉 五笔", "1.0/beta", now), "水杉_五笔-配置备份-1.0_beta-20261008-0905.zip",
             "characters a file name cannot hold become underscores");
-        equal(LocalBackupPolicy.fileName("", null, now), "msime-0-20261008-0905.zip", "missing name parts fall back");
+        equal(LocalBackupPolicy.fileName("水杉-拼音", "1.0", now), "水杉-拼音-配置备份-1.0-20261008-0905.zip",
+            "hyphens in the app name stay intact");
+        equal(LocalBackupPolicy.fileName("", null, now), "msime-配置备份-0-20261008-0905.zip", "missing name parts fall back");
 
         equal(LocalBackupPolicy.compatibility("msime-android-backup", 1), Compatibility.OK, "current format");
         equal(LocalBackupPolicy.compatibility("msime-android-backup", 2), Compatibility.NEWER_FORMAT,

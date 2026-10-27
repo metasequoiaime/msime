@@ -37,6 +37,14 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     private int markColor = Color.TRANSPARENT;
     private boolean panelOpen;
     private int panelOpenFill = Color.TRANSPARENT;
+    private int sizePercent = 100;
+
+    public void setSizePercent(int percent) {
+        int valid = ToolbarSizePolicy.percent(percent);
+        if (sizePercent == valid) return;
+        sizePercent = valid;
+        invalidate();
+    }
 
     public KeyboardBrandButton(Context context, IntSupplier accent) {
         super(context);
@@ -92,7 +100,7 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
             float available = Math.max(0f, Math.min(getWidth(), getHeight())
                 - DimensionPolicy.floatPixels(getContext(), ACTIVE_INSET_DP * 2));
             float side = BoundsPolicy.atMost(available,
-                DimensionPolicy.floatPixels(getContext(), ACTIVE_SIDE_DP));
+                DimensionPolicy.floatPixels(getContext(), ACTIVE_SIDE_DP * sizePercent / 100f));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);
             fill.setColor(panelOpenFill);
@@ -101,7 +109,7 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
         float disc = BoundsPolicy.atMost(shorter,
-            DimensionPolicy.floatPixels(getContext(), DISC_DP));
+            DimensionPolicy.floatPixels(getContext(), DISC_DP * sizePercent / 100f));
         fill.setColor(discColor);
         canvas.drawCircle(centerX, centerY, disc / 2f, fill);
         float markSize = disc * (DISC_MARK_DP / DISC_DP);
