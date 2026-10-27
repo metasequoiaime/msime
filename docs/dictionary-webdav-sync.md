@@ -27,17 +27,18 @@
 
 C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSON 请求，格式和错误码见 `crates/host-api/include/msime_client.h`。宿主要做的只有这几件：
 
-- **给一个目录**：放本机同步状态、词库密钥串和锁文件的绝对路径目录，同一台设备上的输入法、设置应用和面板要给同一个（否则会登记成几台设备）。里面有词条明文，放在应用私有、不备份的地方：桌面端可以是账号目录旁的 `dictionary-sync/`，Android 是 `noBackupFilesDir/dictionary-sync`，iOS 是 App 和键盘扩展共用的 App Group 容器，HarmonyOS 是应用私有目录。
-- **按时调用 `run`**：用户改词之后马上以 `local_change` 调一次（只记录、不联网）；打开设置应用或词库页时以 `opened` 调；之后按上一次结果里的 `next_check_ms` 以 `periodic` 再调；「立即同步」按钮是 `manual`。要不要联网、额度够不够都由 Rust 决定，宿主不用自己算防抖和退避。都在工作线程上调用。
+- **给一个目录**：放本机同步状态、词库密钥串和锁文件的绝对路径目录，同一台设备上的输入法、设置应用和面板要给同一个（否则会登记成几台设备）。里面有词条明文，放在应用私有、不备份的地方：桌面端可以是账号目录旁的 `dictionary-sync/`，Android 是 `noBackupFilesDir/dictionary-sync`，iOS 是 App 和键盘扩展共用的 App Group 容器里的 `dictionary-sync/`，HarmonyOS 是应用私有目录。
+- **按时调用 `run`**：用户改词之后马上以 `local_change` 调一次（记录本机改动，通常不联网，例外见下文「触发」）；打开设置应用或词库页时以 `opened` 调；之后按上一次结果里的 `next_check_ms` 以 `periodic` 再调；「立即同步」按钮是 `manual`。要不要联网、额度够不够都由 Rust 决定，宿主不用自己算防抖和退避。都在工作线程上调用。
 - **设置界面**：网盘地址、账号和应用密码（遮罩、留空沿用、测试连接通过才保存），本机的核对码和等待批准的设备（`devices`、`approve`、`reject`、`remove`，与云剪贴板的设备管理同一种形状，可以复用那套界面），状态（`status`：上次同步时间、待发送和待写入的数量、错误），被挡下的大批删除的两个选择，以及很少用到的「重置密钥」和「以本机为准重新开始」。
 
-写本机词库时 Rust 每批取一次 Engine 的独占维护权；Linux、macOS、Windows 在 `manual`、`opened` 和设备操作时会请输入法让出词库（50 毫秒间隔、2500 毫秒预算、租约 30 秒），自动同步和移动端不打扰输入会话，词库忙就留到下一次。所以在桌面端，别处的改动通常在打开设置或者没有输入会话占着词库的时候写进来。
+写本机词库时 Rust 每批取一次 Engine 的独占维护权；Linux、macOS、Windows 在 `manual`、`opened` 和设备操作时会请输入法让出词库（50 毫秒间隔、2500 毫秒预算、租约 30 秒；macOS 设置应用在租约挂上时还经分布式通知立刻叫醒 IMK，与设置页改词时相同，`request_json_announcing`），自动同步和移动端不打扰输入会话，词库忙就留到下一次。所以在桌面端，别处的改动通常在打开设置或者没有输入会话占着词库的时候写进来。
 
 | 宿主 | 状态 |
 | --- | --- |
 | macOS、Linux | 共享 React 设置页「词库」→「管理词库」里的「词库同步」与「词库同步设备」两组；Tauri 设置应用的 `dictionary_sync` 命令在阻塞线程上调 `msime_host_api::dictionary_webdav::request_json`（C 入口的同一个实现），HostOptions 取词库命令用的那份，目录是账号目录下的 `dictionary-sync/`：macOS 是输入法与设置应用共用的 `~/Library/Application Support/<设置应用 bundle id>/dictionary-sync`，Linux 是 IBus、Fcitx5 和设置应用共用的状态目录（通常 `~/.config/msime-client`）下的 `dictionary-sync`。输入法进程（IMK、IBus、Fcitx5）不调用，见下文「触发」 |
 | HarmonyOS | 同一个共享设置页（手机在「词库」页直列，2in1 在「管理词库」标签），经 `startRequest` 的 `dictionary_sync` → `HarmonyAccountCloudBridge.dictionarySync` → NAPI `dictionarySync`（工作线程）；目录是设置应用沙箱的 `files/state/dictionary-sync`；除 `status` 外都要隐私政策的授权。键盘扩展不调用，见下文「触发」 |
-| Windows（含 Win7）、Android、iOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+| Windows（含 Win7）、Android | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+| iOS | 设置 App「词库 → 词库同步」：网盘填写页（测试连接通过才保存）、状态与「立即同步」、核对码和设备批准、被挡下的大批删除、重置密钥、以本机为准重新开始和停止同步。App 回到前台时 `opened`，在前台时按 `next_check_ms` 以 `periodic` 再调，进后台就停；键盘扩展在应用了 App 排队的编辑或候选栏删除词条之后以 `local_change` 记录，只在有完全访问、App 已经用这个网盘同步过（目录里已有同步状态和密钥串）、状态文件不超过 2 MiB 时才调，否则留给 App。目录是 App Group 容器里的 `dictionary-sync/`（0700、首次解锁后的文件保护、不进备份），密钥串是 Rust 在里面写的文件，App 和键盘共用同一份和同一把锁 |
 
 目录不能直接用账号目录或 `files/state` 本身：云剪贴板的中继在那里放着 `cloud-clipboard-relay-keystore` 和 `cloud-clipboard-webdav-state`，词库的密钥串和它的网盘缓存用的是同样的文件名，放在一起会互相覆盖，所以一律是下面的 `dictionary-sync/` 子目录。
 
@@ -51,7 +52,7 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 - 「立即同步」和被挡下的删除的两个选择是 `manual`。
 - 所有请求排成一队依次发出，Rust 那边整次同步本来就持有一把文件锁。
 
-`local_change` 并不总是不联网：最后一次改词之后的防抖到期（一直在改时最多十分钟）而且离上次发送已过五分钟时，Rust 在这一次就发送。所以鸿蒙把 `local_change` 也算作要授权的请求。
+`local_change` 并不总是不联网。它把这次改词记成「最后一次改词」，所以一分钟的防抖在这一次总是还没到；但本机改动从第一处没发出去的算起已满十分钟（一直在改时防抖的上限）、并且离上一次发送已满五分钟时，发送已经到期，Rust 在这一次就联网拉取并发送（仍受退避和自动额度限制，`client-core` 的 `a_local_change_sends_at_once_once_unsent_edits_are_ten_minutes_old` 覆盖）。所以它要和其他触发一样放在工作线程上，鸿蒙也把它算作要授权的请求。
 
 输入法进程不触发同步。macOS 的 IMK、Linux 的 IBus 和 Fcitx5 里没有现成的同步类后台工作可以挂（它们只有遥测的定时上传），打字时 Engine 自动造的词、候选栏里删掉的词和输入法自带词库窗口里改的词，由下一次设置应用的 `opened`、`periodic` 或任何一次同步开头的核对记下来，不会丢，只是要等设置应用打开时才发出去；别的设备的改动同样在设置应用打开时才写进本机词库。鸿蒙的键盘扩展在 API 12 起的独立沙箱里，读写的是它自己那份个人词库（`user/` 不经共享沙箱交换，见 `platforms/harmony/README.md`「输入法扩展的独立沙箱」），而这个入口没有云剪贴板那样「只用已有设备身份」的开关，键盘一调就会登记成同一台手机的第二台设备，所以键盘不调；鸿蒙同步的是设置应用那一份「我的词条」，网盘来的词要等两份个人词库接上之后才进键盘。`scripts/test-harmony-dictionary-sync.py` 守着这一点。
 
@@ -237,7 +238,7 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 坚果云免费账号每 30 分钟 600 个请求，与这个账号授权的所有第三方应用（包括水杉的云剪贴板）共用。词库同步给每台设备定的额度是每 30 分钟自动同步最多 40 个请求，加上用户手动「立即同步」最多 60 个；三台设备同时用满也只占三成。额度按滚动窗口在本机计数，独占创建算两个请求（`PUT` 和 `MOVE`）。
 
 - **拉取**：一个 `PROPFIND`，加上每个新事件一个 `GET`。打开设置应用时拉一次（距上次不到一分钟就不拉），宿主活着时每 30 分钟拉一次。
-- **发送**：最后一次改词之后等一分钟（一直在改时最多等十分钟），两次自动发送至少隔五分钟；一次发送是每个事件一个 `PUT` 加一个 `MOVE`，抢不到序号时多一个 `PROPFIND`。改一个词马上就记下来（不联网），所以时间戳接近改动发生的时刻。
+- **发送**：最后一次改词之后等一分钟（一直在改时最多等十分钟），两次自动发送至少隔五分钟；一次发送是每个事件一个 `PUT` 加一个 `MOVE`，抢不到序号时多一个 `PROPFIND`。改一个词马上就记下来（通常不联网，到了十分钟的上限时这一次就发送），所以时间戳接近改动发生的时刻。
 - **压缩**：约 7 个请求，每 64 个事件一次。
 - **出错**：连不上时 1、2、5、10、30、60 分钟后再自动试；限流或额度用完等 30 分钟；凭据不对、日志被回退、格式不认识、日志损坏之后自动同步停一小时，手动同步照常。
 - 「立即同步」不受防抖和间隔限制，额度用完时报 `dictionary_sync_rate_limited`。
