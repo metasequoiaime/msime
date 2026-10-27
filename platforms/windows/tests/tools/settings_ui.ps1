@@ -118,7 +118,7 @@ $oldHostOptions = $env:MSIME_CLIENT_HOST_OPTIONS
 $pages = @('typing', 'lexicon', 'shortcuts', 'expression', 'voice', 'osk', 'themes', 'candidate', 'toolbar', 'clip', 'ai', 'plugins', 'stats', 'account', 'dev', 'about')
 $process = $null
 # 用仓库许可明确的合成皮肤验证真实设置卡片；颜色块让缺图和旧模式都能被屏幕像素发现。
-# 设置应用把窗口限在屏幕的八成以内，屏幕太小时 SetWindowPos 撑不到要的尺寸，之后的「宽窗口」断言会在不相干的地方失败（Depot 的 Windows 机型是 1024×768，窗口只有 820×620）。设完尺寸先读回来，撑不到就直接说清楚是屏幕的问题。
+# 屏幕比要的尺寸小时，SetWindowPos 撑不到要的大小，之后的「宽窗口」断言会在不相干的地方失败（Depot 的 Windows 机型主屏是 800×600，窗口停在最小尺寸 820×620）。设完尺寸先读回来，撑不到就直接说清楚是屏幕的问题。
 function Assert-WindowSize([IntPtr]$handle, [int]$width, [int]$height) {
     $bounds = [System.Windows.Automation.AutomationElement]::FromHandle($handle).Current.BoundingRectangle
     if ($bounds.Width -lt $width -or $bounds.Height -lt $height) {
