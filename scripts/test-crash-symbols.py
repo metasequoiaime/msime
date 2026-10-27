@@ -35,10 +35,21 @@ def main():
         command = [sys.executable, str(SCRIPT), "symbolize", str(archive), binary.name, module["build_id"], offset]
         result = subprocess.check_output(command, text=True)
         assert "synthetic_symbol(int)" in result and "synthetic.cpp:1" in result
+        executable = command.copy()
+        executable[-3] = "<executable>"
+        assert subprocess.check_output(executable, text=True) == result
         wrong = command.copy()
         wrong[-2] = "00"
         result = subprocess.run(wrong, capture_output=True, text=True)
         assert result.returncode != 0 and "未唯一命中" in result.stderr
+        duplicate = dict(module, name="msime-synthetic-other")
+        manifest["modules"].append(duplicate)
+        with zipfile.ZipFile(archive, "w") as file:
+            file.writestr("manifest.json", json.dumps(manifest))
+            file.writestr(module["file"], payload)
+        result = subprocess.run(executable, capture_output=True, text=True)
+        assert result.returncode != 0 and "未唯一命中" in result.stderr
+        manifest["modules"].pop()
         module["sha256"] = "0" * 64
         with zipfile.ZipFile(archive, "w") as file:
             file.writestr("manifest.json", json.dumps(manifest))

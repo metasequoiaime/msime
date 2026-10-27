@@ -83,8 +83,10 @@ def symbolize(args):
         raise ValueError("build-id 必须为十六进制，偏移必须以 0x 开头")
     with zipfile.ZipFile(args.archive) as archive:
         manifest = json.loads(archive.read("manifest.json"))
+        # ELF 主程序的模块快照可能没有文件名；仍须按 build-id 唯一命中，不能猜用同名文件。
         modules = [module for module in manifest["modules"]
-                   if module["name"] == args.module and module["build_id"] == args.build_id.lower()]
+                   if (module["name"] == args.module or args.module == "<executable>")
+                   and module["build_id"] == args.build_id.lower()]
         if len(modules) != 1:
             raise ValueError("模块与 build-id 未唯一命中，拒绝用其他构建猜测符号")
         module = modules[0]
