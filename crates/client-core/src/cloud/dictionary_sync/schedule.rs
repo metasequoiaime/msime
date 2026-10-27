@@ -36,7 +36,7 @@ pub const BUSY_RETRY_MS: [u64; 4] = [5_000, 30_000, 120_000, 600_000];
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {
-    /// 用户刚改了词（设置页、导入、MCP、候选栏删除之后）：马上记录，按防抖稍后发送。
+    /// 用户刚改了词（设置页、导入、MCP、候选栏删除之后）：马上记录，通常不联网、按防抖稍后发送。例外是发送已经到期：本机改动从第一处没发出去的算起已满 [`MAX_PUSH_DELAY_MS`]（一直在改、防抖总被推迟时的上限），并且离上一次发送也满了 [`MIN_PUSH_INTERVAL_MS`]，这一次就联网拉取并发送（仍受退避和自动额度限制）。
     LocalChange,
     /// 打开了设置应用或词库页。
     Opened,
@@ -385,6 +385,29 @@ mod tests {
         assert_eq!(soon + wait, NOW + PUSH_DEBOUNCE_MS + MIN_PUSH_INTERVAL_MS);
         // 手动同步不受防抖和间隔限制。
         assert_eq!(schedule.plan(Trigger::Manual, soon, true), (true, true));
+    }
+
+    #[test]
+    fn a_local_change_sends_at_once_once_unsent_edits_are_ten_minutes_old() {
+        // `plan` 已经把这次改词记成 `last_change_ms`，所以一分钟的防抖总是还没到；到期的只能是十分钟的上限。
+        let at = NOW + MAX_PUSH_DELAY_MS;
+        let mut schedule = Schedule {
+            dirty_since_ms: NOW,
+            last_change_ms: at - 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            schedule.plan(Trigger::LocalChange, at - 1, true),
+            (false, false)
+        );
+        schedule.last_change_ms = at;
+        assert_eq!(schedule.plan(Trigger::LocalChange, at, true), (true, true));
+        // 五分钟之内发过就仍然只记录。
+        schedule.last_push_ms = at - MIN_PUSH_INTERVAL_MS + 1;
+        assert_eq!(
+            schedule.plan(Trigger::LocalChange, at, true),
+            (false, false)
+        );
     }
 
     #[test]

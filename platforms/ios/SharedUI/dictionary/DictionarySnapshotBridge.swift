@@ -67,9 +67,10 @@ enum DictionarySnapshotBridge {
     let expected = try version(options)
     let staging = user.deletingLastPathComponent().appendingPathComponent("SnapshotStaging", isDirectory: true)
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+    // iOS 的快照队列只用于云词库「应用到本机」，云端快照不带输入记录，激活时要把本机学到的调权、删除记录、置顶、固定位置和整句联想并进新的一代，否则应用一次就全部清空。
     let request: [String: Any] = ["options": options, "staging_root": staging.path,
                                   "expected_version": expected, "records": maximumRecords,
-                                  "activation_id": identifier]
+                                  "activation_id": identifier, "keep_local_learning": true]
     let data = try JSONSerialization.data(withJSONObject: request)
     let box = SnapshotRecordBox(nextRecord)
     let opaque = Unmanaged.passRetained(box).toOpaque()
