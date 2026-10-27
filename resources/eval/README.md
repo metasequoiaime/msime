@@ -122,6 +122,41 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 语料署名（C4 为 ODC-BY）写在文件头里，随文本传播。
 
+## 双拼与触屏误触
+
+`--scheme shuangpin` 把同样的全拼用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触，量双拼纠错（纠错整句，也就是按方案键位生成邻键和对调变体的「平面表」）能把按错的键纠回多少、会不会碰坏打对的输入。设计和取舍见[决策笔记](../../.agents/notes/implemented/testing/2026-10-27-shuangpin-touch-eval.md)。
+
+```sh
+cargo run --release -p msime-input-runtime --example convert_eval -- \
+  --resources <已校验的词库目录> \
+  --set resources/eval/sentences-v1.tsv --set resources/eval/sentences-neutral-v1.tsv \
+  --set resources/eval/sentences-v2.tsv --set resources/eval/sentences-particles-v1.tsv \
+  --scheme shuangpin --shuangpin-profile xiaohe,ziranma,shoudao,microsoft,smart_abc --autocorrect \
+  --key-geometry resources/eval/key-geometry/android-portrait.json \
+  --key-geometry resources/eval/key-geometry/android-portrait-microsoft.json \
+  --touch-mode none,clean,noisy,realistic --touch-sigma 0,0.15,0.25,0.35 --touch-bias-y 0,0.1 \
+  --seed 20261027 --baseline resources/eval/baseline-shuangpin-touch-sentences.json
+```
+
+词级那一份把四个 `--set` 换成 `--set resources/eval/quanpin-words-v1.tsv --max-syllables 2 --limit 3000`，对照 `baseline-shuangpin-touch-words.json`。两份基线各跑一次完整的组合（5 个方案 × 4 种模式 × 4 个 σ × 2 个偏置，none 模式不分 σ 和偏置），在负载很高的 Mac Studio 上整句那份要一小时、词级那份五分钟，没有放进 `verify-local.sh`。
+
+**编码。** 用例的输入是不带分隔的全拼，先按 TSV 里的音节数切成音节，只认只有一种切法的（`fangan` 两个音节可以是 fang'an 也可以是 fan'gan，金标准是哪一个说不清，不打），再用引擎自己的表（`host::encode_shuangpin`）逐音节编成两键码。切不开、有歧义或有音节在这个方案里编不出来的用例丢掉，每个方案编出来的条数写在报告的 `encoding` 里。纠错整句不接受手打的 `'`，所以按键里不带它。
+
+**几何。** `key-geometry/` 下是宿主下发给引擎的同一种 JSON：`id` 是非零代次，`keys` 是 a 到 z 的 `[cx, cy, w, h]`，`semicolon` 是微软双拼显示的 `;` 键（没有为 `null`），`duplicates` 是分离键盘里重复的字母键 `["g", cx, cy, w, h]`。坐标是各平台自己的单位（dp、pt、vp），y 向下。宿主只在微软双拼下显示 `;`，第二行因此多一个键、键宽也不同，所以每个平台有一份不带 `;` 的和一份 `-microsoft`：给多份 `--key-geometry` 时，微软双拼取带 `;` 的那份，其余方案取不带的。这几份是按常量构造的参考布局，不是真机导出的：Android 按 `KeyboardGeometry` 的 `DESIGN_*` 常量（411 dp 宽、左右各留 6、键距 5、键高 46、行距 8）、第二行铺满宽度（`ImeLetterRows`）、末行大小写和删除各 1.4 个键宽（`KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT`）；iPhone 按 390 pt 宽、键距 6、键高 42、行距 7；HarmonyOS 按 360 vp 宽、`KeyboardMetrics` 的键距 6 和行距 7、不显示 `;` 时第二行两端各缩进半个键；`ipad-split` 是 iPad 横屏两个 360 pt 的半边、右半边内侧重复 G 和 V，没有微软双拼的版本。宿主接入触点的那一期会换成真机导出的几何，基线随之重跑。
+
+**落点。** 落点服从 N(键心 + (0, b), σ²)，σ 和 b 以键为单位：横向按键宽的中位数、纵向按键高的中位数归一。落在键的矩形里就是按到了它，落在键距或字母区外归最近的键，模拟宿主把键距让给相邻键。大小写、删除、候选栏这些功能键不建模，落在那里的点也归最近的字母键，所以按错率偏低。引擎现在还收不到触点，这一步只决定按到了哪个键，用户想按的键换成按到的键送进去。
+
+四种模式：
+
+- `none`：按想按的键原样打，不带触点，即桌面和实体键盘的基线；不分 σ 和偏置，每个方案只有一组。
+- `clean`：每键都按在本键上（手抖了但打对了），是将来触点纠错的精度闸。引擎收到触点之前，它送进去的键和 `none` 完全相同，结果也相同。
+- `noisy`：至少一键按到了别的键，量召回。按「至少一键按错」的条件分布精确抽样，不反复重抽；σ 为 0 时没有一键会按错，这些用例记在 `skipped` 里。
+- `realistic`：不加条件的落点分布，看净收益。
+
+**报告。** 每组配置一项，按音节档（1、2、3–5、6+）和错键数档（0、1、2、3+）分桶。`top1`、`top3`、`top9`（第一页）、`found`、`mrr` 是金标准在整张候选表里的名次；`top1_changed` 和 `gold_demoted` 是计数，拿同一条用例按想按的键原样打出的名次作对照：前者是对照首选是金标准、这次不是，后者是这次名次更靠后或找不到了。种子固定时同一份二进制两次运行的输出逐字节相同：每条用例的随机数流只由种子、方案、模式、σ、偏置和用例序号决定。
+
+`rerank_latency` 接受同样的 `--scheme shuangpin --shuangpin-profile <方案> --autocorrect`，再给 `--key-geometry` 和 `--touch-sigma` 时按 `realistic`（或 `--touch-mode` 指定的模式）合成误触，量带着按错的键时每次按键的开销。
+
 ## 往整句集里加用例
 
 手写不是唯一来源。真实行文自己就是金标准：把句子用 Engine 自己的拼音表转成拼音，再把拼音打回去，首选不是原句的就是一个带已知正确答案、并且带着真实上文的失败用例。三步，最后一步是人。
@@ -197,6 +232,6 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 ## 已知测不到的东西
 
-词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，见上文。
+词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，26 键双拼和触屏误触由 `--scheme shuangpin` 覆盖，见上文。
 
 共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。此轮基线覆盖 `dict-v2.0.24`，没有修改评测用例。
