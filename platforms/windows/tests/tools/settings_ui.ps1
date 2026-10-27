@@ -167,9 +167,11 @@ function Assert-CanvasPreview($window, [string]$mode) {
     foreach ($layout in @('horizontal', 'vertical')) {
         $expected = if ($mode -eq 'light') { 0x00ffff } else { 0x56789a }
         $ready = $false
+        $lastObservation = '元素不存在'
         $deadline = [DateTime]::UtcNow.AddSeconds(15)
         do {
             $image = Find-ById $window "canvas-preview-verify-canvas-$layout"
+            if ($image) { $lastObservation = "离屏=$($image.Current.IsOffscreen)，矩形=$($image.Current.BoundingRectangle)" }
             if ($image -and -not $image.Current.IsOffscreen) {
                 $bounds = $image.Current.BoundingRectangle
                 if ($bounds.Width -ge 40 -and $bounds.Height -ge 15) {
@@ -183,6 +185,7 @@ function Assert-CanvasPreview($window, [string]$mode) {
                                 if (($bitmap.GetPixel($x, $y).ToArgb() -band 0xffffff) -eq $expected) { $count++ }
                             }
                         }
+                        $lastObservation = "矩形=$bounds，目标像素数=$count"
                         if ($count -ge 8) {
                             $bitmap.Save((Join-Path $outputPath "$mode-canvas-$layout.png"), [Drawing.Imaging.ImageFormat]::Png)
                             $ready = $true
@@ -195,7 +198,10 @@ function Assert-CanvasPreview($window, [string]$mode) {
             }
             if (-not $ready) { Start-Sleep -Milliseconds 200 }
         } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $ready) { throw "Canvas $mode $layout panel pixels are absent or from the wrong mode" }
+        if (-not $ready) {
+            Save-Window $window "$mode-canvas-$layout-failed.png"
+            throw "Canvas $mode $layout panel pixels are absent or from the wrong mode：$lastObservation"
+        }
     }
     Save-Window $window "$mode-canvas-settings.png"
     $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
