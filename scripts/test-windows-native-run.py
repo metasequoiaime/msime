@@ -56,6 +56,7 @@ ARGUMENTS = {
     "input/wubi_auto_commit.cpp": ["platforms/windows/tests/input/fixtures/msime-wubi-commit.db"],
     "input/wubi_commit_owner.cpp": ["platforms/windows/tests/input/fixtures/msime-wubi-commit-owner.db"],
     "input/backspace_selected_phrase.cpp": ["platforms/windows/tests/input/fixtures/msime-phrase-backspace.db"],
+    "input/shuangpin_paged_selection.cpp": ["platforms/windows/tests/input/fixtures/msime-shuangpin-paging.db"],
     "input/host_online_candidates.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
     "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-zhuyin.db"],
@@ -89,6 +90,12 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     ),
     # Windows 的两份真实会话共同验证部分选词、普通退格与实时设置。
     "input/backspace_selected_phrase.cpp": (
+        ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
+         "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
+        True,
+    ),
+    # 双拼翻页后的键盘选词：Server 与 TIP 两份真实会话，TIP 照 Server 的回复在自己的会话里选同一个词。
+    "input/shuangpin_paged_selection.cpp": (
         ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
          "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
         True,

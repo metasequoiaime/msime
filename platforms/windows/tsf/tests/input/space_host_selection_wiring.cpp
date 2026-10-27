@@ -62,14 +62,14 @@ int main(int argc, char **argv) {
 
     // 空格上屏（Normal）：先在宿主会话里选，选不了才写 Server 的文字，写完也要丢掉宿主会话的组字。
     const std::string normal = between(finalize, "serverMsgType == Global::DataFromServerMsgType::Normal", "DataFromServerMsgType::CommitExactText");
-    expect_before(normal, "_SelectHighlightedHostCandidate(ec, pContext, &serverCandidateString)", "_InsertTextToComposition(ec, pContext, &candidateString)",
+    expect_before(normal, "_SelectHighlightedHostCandidate(ec, pContext, serverMsgType, &serverCandidateString)", "_InsertTextToComposition(ec, pContext, &candidateString)",
                   "Space selects the highlighted candidate in the host session before writing the Server's text");
     expect_before(normal, "_InsertTextToComposition(ec, pContext, &candidateString)", "_CancelHostComposition()",
                   "a Space commit that falls back to the Server's text drops the host session's composition");
 
     // 空格只选中一段（NeedToCreateWord）：宿主会话同样只选这一段，组字按宿主会话剩下的原文继续。
     const std::string partial = between(finalize, "serverMsgType == Global::DataFromServerMsgType::NeedToCreateWord", "NoPresenter:");
-    expect_before(partial, "_SelectHighlightedHostCandidate(ec, pContext, &serverCandidateString)", "AddVirtualKey(remainingRawInput[i])",
+    expect_before(partial, "_SelectHighlightedHostCandidate(ec, pContext, serverMsgType, &serverCandidateString)", "AddVirtualKey(remainingRawInput[i])",
                   "a partial Space selection advances the host session before the legacy key buffer is rebuilt");
 
     // 点选上屏：任何宿主会话拥有的组字都要丢掉，不只韩文这类内联方案。
@@ -80,27 +80,48 @@ int main(int argc, char **argv) {
 
     // 数字键和空格用同一个宿主选词函数。
     const std::string worker = between(presenter, "HRESULT CMetasequoiaIME::_HandleCandidateWorker(", "\n}\n");
-    expect(worker, "return _SelectHighlightedHostCandidate(ec, pContext, serverChoice.empty() ? nullptr : &serverChoice);", true, "digits select through the shared host selection");
+    expect(worker, "_SelectHighlightedHostCandidate(ec, pContext, reply->msg_type, &serverReply)", true, "digits select through the shared host selection");
+    // 数字只选一段（NeedToCreateWord）或什么都没选时也照 Server 的回复，不再退回宿主会话这一页上按键位置的那一项：滚轮只翻 Server 那一页，同一个位置上是另一个词。
+    expect(worker, "msime::tsf::ServerReplyDecidesSelection(reply->msg_type)", true,
+           "every selection reply, not only a whole commit, decides the digit's word");
+    expect(worker, "if (reply->msg_type == Global::DataFromServerMsgType::Normal)\n                serverChoice", false,
+           "a partial selection no longer falls back to the host page slot");
+    expect_before(worker, "ServerReplyDecidesSelection(reply->msg_type)", "if (!localSlotSelected) return S_FALSE;",
+                  "the local slot is used only when no Server reply decided");
+    // 宿主会话这一页比 Server 那一页短时，数字照样去读回复，不在宿主会话这一页上越界就返回。
+    const std::string byNumber = between(presenter, "HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(", "\n}\n");
+    expect(byNumber, "_HandleCandidateWorker(ec, pContext, requestId, prefetchedText, /*localSlotSelected=*/false)", true,
+           "a digit past the host page still follows the Server's reply");
     const std::string helper = between(presenter, "HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(", "\n}\n");
-    expect_before(helper, "displayed.MatchesEngineView(view.view.session, view.view.generation)", "host->select(view.view.generation",
+    expect_before(helper, "displayed.MatchesEngineView(view.view.session, view.view.generation)", "SelectHostCandidateByText(*host, view.view, target",
                   "the host selection refuses a candidate window that no longer matches the host session");
     // 候选身份按文字匹配，不套用显示项的下标：候选窗归 Server，宿主会话是另一个引擎会话，同一个下标会指向不同的词。
     expect(helper, "displayed._EngineIndex", false,
            "the host selection does not reuse the displayed candidate's index");
     // 上屏哪个词以 Server 的回复为准（候选窗归它画），再按文字到宿主会话里选中。
-    expect(helper, "serverChoice && !serverChoice->empty()", true,
+    expect(helper, "serverReply ? *serverReply : displayed._ItemString.ToWString()", true,
            "the host selection prefers the Server's reply as the text to commit");
-    expect_before(helper, "candidate.text != target", "host->select(view.view.generation",
-                  "the host selection locates that text in the host session before selecting");
-    expect(presenter, "_SelectHighlightedHostCandidate(ec, pContext, &serverCandidateString)", true,
-           "Space passes the Server's candidate text to the host selection");
-    expect(presenter, "serverChoice.assign(reply->candidate_string)", true,
-           "digits take the Server's reply as the chosen text");
-    expect_before(helper, "if (found) return S_FALSE;", "if (!found) return S_FALSE;",
-                  "an ambiguous match refuses instead of guessing");
+    // 回复里这次选的那段由 ServerSelectedPiece 取出：减掉已暂存的词段，只选一段的载荷取第二段。以前空格把整条带制表符的载荷当成候选文字。
+    expect_before(helper, "msime::tsf::ServerSelectedPiece({serverMsgType, text}, view.view.phrase_prefix)",
+                  "SelectHostCandidateByText(*host, view.view, target",
+                  "the host selection extracts the selected piece before locating it");
+    expect(presenter, "_SelectHighlightedHostCandidate(ec, pContext, serverMsgType, &serverCandidateString)", true,
+           "Space passes the Server's reply to the host selection");
+    // 宿主会话里找不到这个词时，数字和空格一样写 Server 已经上屏的文字，不让文档少一个词。
+    expect_before(worker, "_SelectHighlightedHostCandidate(ec, pContext, reply->msg_type, &serverReply)",
+                  "return _CommitServerExactText(ec, pContext, serverReply);",
+                  "a digit whose word the host session cannot find commits the Server's text");
     // 占位席位要把按键吃掉（S_OK），不能退回 S_FALSE——那会被当成选择失败，丢掉组字并把拼音原文写进文档。
-    expect_before(helper, "candidate_source_is_pending_seat(found->source)) return S_OK;",
-                  "host->select(view.view.generation",
+    expect_before(helper, "case msime::tsf::HostSelectionOutcome::PendingSeat:\n        return S_OK;",
+                  "case msime::tsf::HostSelectionOutcome::Refused:\n        return S_FALSE;",
                   "a pending seat swallows the key instead of falling through to the Server's text");
+    // 按文字查找：当前页上唯一的一个，没有就到完整候选列表里找唯一的一个；同形的不止一个时不猜。
+    const std::string lookup = read(root + "/HostServerSelection.h");
+    expect_before(lookup, "if (found) return HostSelectionOutcome::Refused;", "host.select(view.generation, found->index",
+                  "an ambiguous match on the page refuses instead of guessing");
+    expect_before(lookup, "host.all_candidates(raw, error)", "host.select_any(all.at(\"generation\")",
+                  "a word off the host page is selected from the full list by its own generation");
+    expect(lookup, "if (matched) return HostSelectionOutcome::Refused;", true,
+           "an ambiguous match in the full list refuses instead of guessing");
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
