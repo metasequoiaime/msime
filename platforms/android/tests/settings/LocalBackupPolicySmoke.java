@@ -28,7 +28,6 @@ public final class LocalBackupPolicySmoke {
             "backup name identifies its content, app version and export time");
         equal(LocalBackupPolicy.fileName("水杉 五笔", "1.0/beta", now), "水杉_五笔-配置备份-1.0_beta-20261008-0905.zip",
             "characters a file name cannot hold become underscores");
-            "characters a file name cannot hold become underscores");
         equal(LocalBackupPolicy.fileName("水杉-拼音", "1.0", now), "水杉-拼音-配置备份-1.0-20261008-0905.zip",
             "hyphens in the app name stay intact");
         equal(LocalBackupPolicy.fileName("", null, now), "msime-配置备份-0-20261008-0905.zip", "missing name parts fall back");
