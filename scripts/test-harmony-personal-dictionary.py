@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep Harmony's bounded personal-dictionary queue draining while the IME stays alive."""
+"""鸿蒙输入法存活时，个人词库队列按有界批次继续排空。"""
 import pathlib
 import sys
 
@@ -9,6 +9,7 @@ STORE = ROOT / "crates/client-services/src/dictionary/personal.rs"
 SETTINGS = ROOT / "platforms/harmony/entry/src/main/ets/pages/Settings.ets"
 POLICY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/DictionaryMaintenancePolicy.ts"
 HOST = ROOT / "crates/host-api/src/dictionary.rs"
+RETRY_POLICY = SESSION.parent / "IdleDictionaryRetryPolicy.ts"
 
 
 def main() -> int:
@@ -17,8 +18,9 @@ def main() -> int:
     settings = SETTINGS.read_text(encoding="utf-8")
     policy = POLICY.read_text(encoding="utf-8")
     host = HOST.read_text(encoding="utf-8")
+    retry_policy = RETRY_POLICY.read_text(encoding="utf-8") if RETRY_POLICY.exists() else ""
     start = session.index("  start(resources:")
-    drain = session.index("this.personalDictionarySettled = this.drainPersonalDictionary(options)")
+    drain = session.index("this.drainPersonalDictionary(options)", start)
     create = session.index("client.create(options)", drain)
     scheduler = session[
         session.index("  private schedulePersonalDictionaryDrain()") : session.index(
@@ -43,7 +45,12 @@ def main() -> int:
             )
         ) and ".take(limit)" in store,
         "idle sync before Engine session": start < drain < create,
-        "two-second yield": "IDLE_DICTIONARY_RETRY_MS: number = 2000" in session,
+        "drain result adopted": "this.personalDictionarySettled = this.drainPersonalDictionary(options)" in session
+        or "const drained: PersonalDictionaryDrain = this.drainPersonalDictionary(options)" in session
+        and "this.personalDictionarySettled = drained === 'settled'" in session,
+        "two-second yield": "IDLE_DICTIONARY_RETRY_MS: number = 2000" in session
+        or "IDLE_DICTIONARY_RETRY_MS: number = 2000" in retry_policy
+        and "IdleDictionaryRetryPolicy.delay(this.personalDictionaryStalls)" in scheduler,
         # Keep the queue out of both an active composition and a local Engine mode. The old
         # helper name was removed from KeyboardSession; checking the actual state also lets the
         # ArkTS compiler catch stale method calls instead of preserving one for this guard.
