@@ -53,12 +53,15 @@ fn reclaim_idle(stores: &mut HashMap<PathBuf, Arc<PersonalNgramStore>>, opening:
     });
 }
 
-/// The journal as a session left it when it let go of the store (`note_settled`). The next session keeps the store's model only while the journal is still the same file and no other connection, in this process or another, has committed to it since: a change made in between (the settings app merging or clearing habits, a restored or replaced journal, another input method process learning) is read from disk as before.
+/// 会话放手时的文件戳；实际模型来源保存在 Writer，不能把结束时的新版本当成旧模型的来源。
 struct Settled {
     files: JournalFiles,
-    /// `PRAGMA data_version` as the store's connection saw it. It moves when any other connection commits, which the size and the modification time (a few milliseconds coarse on Linux and Android) cannot be trusted to show. `None` when no connection could be asked (see `probe_version`); the file stamps alone decide then.
-    data_version: Option<i64>,
-    /// The connection the version was read from when the store had no writer: one opened read-only for this. Only on a journal in rollback mode, where an idle connection holds no lock.
+}
+
+/// 模型实际加载前后未变的同连接版本。只读探测连接必须跨接手保留，不能随 Settled 的消费被关闭。
+struct ModelOrigin {
+    journal: FileStamp,
+    data_version: i64,
     probe: Option<Connection>,
 }
 
@@ -82,6 +85,23 @@ struct FileStamp {
 }
 
 impl FileStamp {
+    fn at(path: &Path) -> Option<Self> {
+        Self::from(&std::fs::metadata(path).ok()?)
+    }
+
+    /// 自己的提交会改变大小和时间；来源只比文件身份。Windows 的打开连接不允许别的进程替换该文件。
+    fn same_file(&self, other: &Self) -> bool {
+        #[cfg(unix)]
+        {
+            self.device == other.device && self.inode == other.inode
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = other;
+            true
+        }
+    }
+
     fn from(metadata: &std::fs::Metadata) -> Option<Self> {
         #[cfg(unix)]
         use std::os::unix::fs::MetadataExt;
@@ -123,6 +143,19 @@ fn data_version(connection: &Connection) -> rusqlite::Result<i64> {
     connection.query_row("PRAGMA data_version", [], |row| row.get(0))
 }
 
+/// WAL 的只读连接会长期持有共享内存锁，Windows 的连接阻止删除或替换；只保留实际回滚模式的来源。
+fn read_only_can_idle(connection: &Connection) -> bool {
+    !cfg!(windows)
+        && connection
+            .query_row("PRAGMA journal_mode", [], |row| {
+                Ok(row
+                    .get_ref(0)?
+                    .as_str()
+                    .is_ok_and(|mode| matches!(mode, "delete" | "truncate" | "persist")))
+            })
+            .unwrap_or(false)
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // A panic in another thread while it held the lock leaves plain data behind, which is still what the store wrote last.
     mutex
@@ -142,7 +175,9 @@ fn or_start(word: &str) -> &str {
 #[derive(Default)]
 struct Writer {
     connection: Option<Connection>,
+    connection_file: Option<FileStamp>,
     retry_after: Option<Instant>,
+    origin: Option<ModelOrigin>,
 }
 
 pub struct PersonalNgramStore {
@@ -206,7 +241,6 @@ impl PersonalNgramStore {
         if transitions.is_empty() {
             return Ok(());
         }
-        self.refresh();
         if !self.probed.load(Ordering::Acquire) {
             // Once per store, so a journal that cannot be written is reported on the commit that first tries.
             let mut writer = lock(&self.writer);
@@ -215,6 +249,8 @@ impl PersonalNgramStore {
                 self.probed.store(true, Ordering::Release);
             }
         }
+        // 首次写连接使只读来源失效；先用新连接真正加载，再叠本次待写计数。
+        self.refresh();
         let queued = {
             let mut pending = lock(&self.pending);
             {
@@ -374,13 +410,29 @@ impl PersonalNgramStore {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .options();
         let mut fresh = PersonalNgram::new(options);
+        writer.origin = None;
         let loaded = match &writer.connection {
-            Some(connection) => load_from(connection, &mut fresh),
-            // Reading must not create the journal: a session that never learns anything leaves no file behind.
-            None => open_existing_read_only(&self.path).and_then(|connection| match connection {
-                Some(connection) => load_from(&connection, &mut fresh),
-                None => Ok(()),
-            }),
+            Some(connection) => {
+                self.load_model(connection, &mut fresh, writer.connection_file.as_ref())
+            }
+            // 只读不能创建日志；WAL 与 Windows 上不留只读连接，回滚模式才允许跨会话保留探测连接。
+            None => {
+                let source = FileStamp::at(&self.path);
+                open_existing_read_only(&self.path).and_then(|connection| match connection {
+                    Some(connection) => {
+                        let origin = self.load_model(&connection, &mut fresh, source.as_ref())?;
+                        Ok(if read_only_can_idle(&connection) {
+                            origin.map(|mut origin| {
+                                origin.probe = Some(connection);
+                                origin
+                            })
+                        } else {
+                            None
+                        })
+                    }
+                    None => Ok(None),
+                })
+            }
         };
         if loaded.is_err() {
             // A busy, damaged or unreadable journal keeps the previous counts and stays stale, so a later access loads again.
@@ -401,6 +453,7 @@ impl PersonalNgramStore {
             return;
         }
         writer.retry_after = None;
+        writer.origin = loaded.expect("加载错误已在上方处理");
         {
             let pending = lock(&self.pending);
             apply_pending(&pending, &mut fresh);
@@ -412,70 +465,77 @@ impl PersonalNgramStore {
             .store(invalidations, Ordering::Release);
     }
 
-    /// Record the journal as it is now, after a session wrote its queue and let go of the store. A model that may differ from the file (stale, or with transitions still queued after a failed write) records nothing, so the next session gets a new store as before; so does an empty model, which costs nothing to read again.
+    /// 完整读取前后用同一连接采样版本，外部提交发生在任意两次 SELECT 之间时不为模型建立可复用来源。
+    fn load_model(
+        &self,
+        connection: &Connection,
+        model: &mut PersonalNgram,
+        source: Option<&FileStamp>,
+    ) -> Result<Option<ModelOrigin>> {
+        let before = data_version(connection).ok();
+        load_from(connection, model)?;
+        // load_from 返回后语句与游标已释放，不能在持读事务时取后版本而遮住并发提交。
+        let after = data_version(connection).ok();
+        let origin = before
+            .filter(|version| Some(*version) == after)
+            .zip(FileStamp::at(&self.path))
+            .filter(|(_, journal)| source.is_some_and(|source| source.same_file(journal)))
+            .map(|(data_version, journal)| ModelOrigin {
+                journal,
+                data_version,
+                probe: None,
+            });
+        Ok(origin)
+    }
+
+    fn origin_matches(&self, writer: &Writer, files: &JournalFiles) -> bool {
+        let Some(origin) = writer.origin.as_ref() else {
+            return false;
+        };
+        let Some(connection) = origin.probe.as_ref().or(writer.connection.as_ref()) else {
+            return false;
+        };
+        origin.journal.same_file(&files.journal)
+            && (origin.probe.is_none() || read_only_can_idle(connection))
+            && data_version(connection).is_ok_and(|version| version == origin.data_version)
+    }
+
+    /// 只有模型实际加载的来源版本仍未变化时才留存；持有 pending 到记录落定，避免另一个 record 在检查后入队。
     fn note_settled(&self) {
-        let writer = lock(&self.writer);
-        let matches_disk = !self.stale()
-            && lock(&self.pending).is_empty()
-            && !self.write_failed.load(Ordering::Acquire);
+        let mut writer = lock(&self.writer);
+        let pending = lock(&self.pending);
+        let matches_disk =
+            !self.stale() && pending.is_empty() && !self.write_failed.load(Ordering::Acquire);
         let empty = self
             .model
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .is_empty();
         let settled = if matches_disk && !empty {
-            self.settle(&writer)
+            JournalFiles::of(&self.path)
+                .filter(|files| self.origin_matches(&writer, files))
+                .map(|files| Settled { files })
         } else {
             None
         };
+        if settled.is_none() {
+            writer.origin = None;
+        }
         *lock(&self.settled) = settled;
     }
 
-    fn settle(&self, writer: &Writer) -> Option<Settled> {
-        // The version is read before the files are stamped: a commit landing in between moves the version the next check reads, and opening a probe may itself leave an empty `-wal` behind.
-        let (data_version, probe) = match writer.connection.as_ref() {
-            Some(connection) => (Some(data_version(connection).ok()?), None),
-            None => self.probe_version()?,
-        };
-        Some(Settled {
-            files: JournalFiles::of(&self.path)?,
-            data_version,
-            probe,
-        })
-    }
-
-    /// The version of a journal this store only read, through a read-only connection kept for the check. Not on a journal with a `-wal`: in WAL mode a connection holds the `-shm` for as long as it is open (the iOS extension, which must not hold a lock while suspended, never switches its journal to WAL, see `prefer_write_ahead_log`), and every commit to a WAL journal appends to its `-wal`, which the file stamps show; the stamps alone decide there. On Windows, which opens database files without FILE_SHARE_DELETE, a probe left idle in the registry would block the reset's rename or a generation delete from another process, which `release_thread_journal` exists to prevent, so nothing is recorded there and the next session reads the journal again.
-    fn probe_version(&self) -> Option<(Option<i64>, Option<Connection>)> {
-        if cfg!(windows) {
-            return None;
-        }
-        if wal_path(&self.path).exists() {
-            return Some((None, None));
-        }
-        let probe = open_existing_read_only(&self.path).ok()??;
-        Some((Some(data_version(&probe).ok()?), Some(probe)))
-    }
-
-    /// Whether the journal is still as `note_settled` recorded it. Consumes the record.
+    /// 接手时再次校验文件戳和实际模型来源；消费记录不关闭只读来源，后续会话仍按同连接版本判断。
     fn unchanged_since_settled(&self) -> bool {
-        let writer = lock(&self.writer);
+        let mut writer = lock(&self.writer);
         let Some(settled) = lock(&self.settled).take() else {
             return false;
         };
-        if JournalFiles::of(&self.path).as_ref() != Some(&settled.files) {
-            return false;
+        let unchanged = JournalFiles::of(&self.path)
+            .is_some_and(|files| files == settled.files && self.origin_matches(&writer, &files));
+        if !unchanged {
+            writer.origin = None;
         }
-        let Some(recorded) = settled.data_version else {
-            return true;
-        };
-        let connection = match settled.probe.as_ref() {
-            Some(probe) => probe,
-            None => match writer.connection.as_ref() {
-                Some(connection) => connection,
-                None => return false,
-            },
-        };
-        data_version(connection).is_ok_and(|version| version == recorded)
+        unchanged
     }
 
     /// Whether a session recorded the journal as it let go of this store (`note_settled`).
@@ -486,6 +546,9 @@ impl PersonalNgramStore {
 
     fn open_connection<'a>(&self, writer: &'a mut Writer) -> Result<&'a Connection> {
         if writer.connection.is_none() {
+            writer.origin = None;
+            lock(&self.settled).take();
+            let before = FileStamp::at(&self.path);
             // The reference ran `ensure_user_database` here, whose connection it opened and closed within the call for any journal but its default one (user_dictionary_journal.cpp:445-452). Going through this thread's journal cache instead would leave the flush thread holding the journal after `close_cached_journals`, so the store's own connection takes the schema pass: it creates the whole journal, not only these two tables.
             let connection = open_database(
                 &self.path,
@@ -494,7 +557,12 @@ impl PersonalNgramStore {
             prefer_write_ahead_log(&connection);
             ensure_schema(&connection)?;
             drop_stale_pinyin_upserts(&connection);
+            let after = FileStamp::at(&self.path);
+            writer.connection_file =
+                after.filter(|after| before.as_ref().is_none_or(|before| before.same_file(after)));
             writer.connection = Some(connection);
+            // 新连接的 data_version 与旧只读连接无关；flush 中这里只失效，不能漏掉已从 pending 取出的批次。
+            self.invalidations.fetch_add(1, Ordering::AcqRel);
         }
         Ok(writer
             .connection
@@ -564,11 +632,14 @@ impl PersonalNgramStore {
             return;
         }
         let mut fresh = PersonalNgram::new(options);
-        if load_from(connection, &mut fresh).is_err() {
-            // The halving is committed but could not be read back; reload on next access instead of guessing.
+        writer.origin = None;
+        let loaded = self.load_model(connection, &mut fresh, writer.connection_file.as_ref());
+        let Ok(origin) = loaded else {
+            // 衰减已经提交却无法读回，下次访问重载，不能猜内存计数。
             self.invalidations.fetch_add(1, Ordering::AcqRel);
             return;
-        }
+        };
+        writer.origin = origin;
         {
             let pending = lock(&self.pending);
             apply_pending(&pending, &mut fresh);
@@ -763,7 +834,7 @@ pub(crate) fn flush_journal(user_db: &Path) -> Result<()> {
     }
 }
 
-/// A session of the journal let go of its store after writing the queue (`Session`'s drop): remember the file as it is, so the next session can keep the model if nothing changes it meanwhile. What another connection wrote while that session ran and the model never read is covered by this record too; but resetting, replacing the journal and merging a backup all take exclusive dictionary maintenance first, which they cannot get while this process still has a session, so what is missed can only be counts another input method process learned at the same time, and the next reread picks them up.
+/// 会话写完队列后尝试留下可复用模型；模型加载后发生过外部提交就不留，下个会话从磁盘重读。
 pub(crate) fn note_settled(user_db: &Path) {
     if let Some(store) = PersonalNgramStore::existing(user_db) {
         store.note_settled();
@@ -807,7 +878,9 @@ impl PersonalNgramStore {
             self.write_failed.store(false, Ordering::Release);
         }
         writer.connection = None;
-        // The file at this path may be replaced next, and the record's probe is a connection to it.
+        writer.connection_file = None;
+        writer.origin = None;
+        // 调用方随后可能替换文件，写连接与只读来源都必须关闭。
         lock(&self.settled).take();
     }
 }
@@ -1121,6 +1194,117 @@ mod tests {
         );
     }
 
+    /// 外部提交发生在模型读取之后、会话放手之前：结束时的新版本不能为旧模型背书。
+    #[test]
+    fn an_idle_store_is_dropped_if_another_connection_writes_before_settling() {
+        // 同一测试进程的 release_all 会改变全局代次，遇到它就重试本轮。
+        for _ in 0..5 {
+            let dir = Dir::new();
+            let journal = dir.journal();
+            let store = detached(&journal);
+            store.record(&run(&["甲", "乙"], 2)).unwrap();
+            store.flush().unwrap();
+            store.refresh();
+            let generation = STORE_GENERATION.load(Ordering::Acquire);
+            let old_total = store.model().total();
+            Connection::open(&journal)
+                .unwrap()
+                .execute_batch(
+                    "INSERT INTO personal_bigram(previous,word,count) VALUES('丙','丁',5)",
+                )
+                .unwrap();
+            // 不能调 settle 辅助函数：它会 refresh，掩盖本用例要检查的顺序。
+            store.note_settled();
+            if STORE_GENERATION.load(Ordering::Acquire) != generation || store.stale() {
+                continue;
+            }
+            let mut stores = HashMap::new();
+            let kept = keep(&mut stores, store);
+            reclaim_idle(&mut stores, Some(&journal));
+            assert!(
+                kept.upgrade().is_none(),
+                "外部计数没读进模型，却被会话结束时的版本标成了一致"
+            );
+            let fresh = detached(&journal);
+            assert_eq!(fresh.model().total(), old_total + 5);
+            return;
+        }
+        panic!("全局代次持续变动，未能完成隔离回归");
+    }
+
+    /// 只读模型也不能由会话结束时新开的连接替旧计数背书。
+    #[test]
+    fn a_read_only_store_rejects_external_learning_before_settling() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let connection = Connection::open(&journal).unwrap();
+        ensure_schema(&connection).unwrap();
+        connection
+            .execute_batch("INSERT INTO personal_bigram VALUES('甲','乙',2)")
+            .unwrap();
+        let store = detached(&journal);
+        assert_eq!(store.model().total(), 2);
+        connection
+            .execute_batch("INSERT INTO personal_bigram VALUES('丙','丁',5)")
+            .unwrap();
+        store.note_settled();
+        assert!(!store.settled_for_tests(), "只读旧模型被结束时的新版本背书");
+        assert_eq!(detached(&journal).model().total(), 7);
+    }
+
+    /// 只读连接与新写连接的 data_version 不可直接比较；首次写入先经写连接重新加载，再叠本地待写项。
+    #[test]
+    fn switching_from_read_only_to_writer_loads_intervening_learning() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let connection = Connection::open(&journal).unwrap();
+        ensure_schema(&connection).unwrap();
+        connection
+            .execute_batch("INSERT INTO personal_bigram VALUES('甲','乙',2)")
+            .unwrap();
+        let store = detached(&journal);
+        assert_eq!(store.model().total(), 2);
+        connection
+            .execute_batch("INSERT INTO personal_bigram VALUES('丙','丁',5)")
+            .unwrap();
+        store.record(&run(&["戊"], 1)).unwrap();
+        assert_eq!(store.model().total(), 8, "首次写入漏掉了只读之后的外部学习");
+        store.flush().unwrap();
+        settle(&store);
+        assert!(store.unchanged_since_settled());
+    }
+
+    /// 本机 flush 只更新自己的计数，不能顺便认领它没有加载的外部提交。
+    #[test]
+    fn a_local_flush_does_not_certify_external_learning() {
+        for before_flush in [true, false] {
+            let dir = Dir::new();
+            let journal = dir.journal();
+            let store = detached(&journal);
+            store.record(&run(&["甲"], 2)).unwrap();
+            store.flush().unwrap();
+            let connection = Connection::open(&journal).unwrap();
+            store.record(&run(&["乙"], 1)).unwrap();
+            if before_flush {
+                connection
+                    .execute_batch("INSERT INTO personal_bigram VALUES('丙','丁',5)")
+                    .unwrap();
+            }
+            store.flush().unwrap();
+            if !before_flush {
+                connection
+                    .execute_batch("INSERT INTO personal_bigram VALUES('丙','丁',5)")
+                    .unwrap();
+            }
+            store.note_settled();
+            assert!(
+                !store.settled_for_tests(),
+                "flush 前后之外的提交被算进旧模型：{before_flush}"
+            );
+            assert_eq!(detached(&journal).model().total(), 8);
+        }
+    }
+
     /// 只读过日志的 store 经自己的只读探测连接看 `data_version`：修改时间粒度粗的文件系统上，同样大小的原地改写只能这样看出来。
     #[cfg(not(windows))]
     #[test]
@@ -1135,8 +1319,72 @@ mod tests {
         let store = detached(&journal);
         assert_eq!(store.model().total(), 2);
         assert!(lock(&store.writer).connection.is_none());
-        settle(&store);
-        assert!(store.unchanged_since_settled());
+        for _ in 0..2 {
+            settle(&store);
+            assert!(store.unchanged_since_settled());
+        }
+
+        // 连续接手不能丢掉实际加载时的来源；下一轮结束前的外部提交仍须拒绝。
+        connection
+            .execute_batch("UPDATE personal_bigram SET count=3;")
+            .unwrap();
+        store.note_settled();
+        assert!(!store.settled_for_tests(), "连续接手后来源被重新背书");
+    }
+
+    /// RESTART 后 WAL 在原来的空间改写，长度不能证明模型包含外部提交。
+    #[test]
+    fn reusing_the_same_wal_length_does_not_certify_external_learning() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let connection = Connection::open(&journal).unwrap();
+        connection
+            .execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
+            .unwrap();
+        ensure_schema(&connection).unwrap();
+        connection
+            .execute_batch("INSERT INTO personal_bigram VALUES('甲','乙',2);")
+            .unwrap();
+        let store = detached(&journal);
+        store.record(&run(&["丙"], 1)).unwrap();
+        store.flush().unwrap();
+        assert_eq!(store.model().total(), 3);
+
+        connection
+            .execute_batch("PRAGMA wal_checkpoint(RESTART);")
+            .unwrap();
+        connection
+            .execute_batch("UPDATE personal_bigram SET count=3 WHERE previous='甲';")
+            .unwrap();
+        let wal_len = std::fs::metadata(wal_path(&journal)).unwrap().len();
+        connection
+            .execute_batch("PRAGMA wal_checkpoint(RESTART);")
+            .unwrap();
+        connection
+            .execute_batch("UPDATE personal_bigram SET count=4 WHERE previous='甲';")
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(wal_path(&journal)).unwrap().len(),
+            wal_len
+        );
+        store.note_settled();
+        assert!(!store.settled_for_tests(), "等长 WAL 复用让旧模型被背书");
+        assert_eq!(detached(&journal).model().total(), 5);
+    }
+
+    /// 接手后再修改的回滚日志也必须重新加载。
+    #[cfg(not(windows))]
+    #[test]
+    fn a_read_only_origin_detects_writes_after_settling() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let connection = Connection::open(&journal).unwrap();
+        ensure_schema(&connection).unwrap();
+        connection
+            .execute_batch("INSERT INTO personal_bigram VALUES('甲','乙',2);")
+            .unwrap();
+        let store = detached(&journal);
+        assert_eq!(store.model().total(), 2);
 
         settle(&store);
         connection
@@ -1236,14 +1484,16 @@ mod tests {
         assert!(kept.upgrade().is_none(), "清缓存后空闲 store 仍被持有");
     }
 
-    /// 只读连接在 WAL 日志旁留下或不留空的 `-wal`，最后一个写连接关闭时又删掉它：这都不是日志被改过。旁边有 `-wal` 时不开探测连接，只看文件戳。
+    /// 空 WAL 的出现和消失不改变文件戳；只读 WAL 仍保守丢弃，不以文件戳替代模型来源。
     #[test]
     fn an_empty_wal_appearing_or_vanishing_does_not_drop_an_idle_store() {
         let dir = Dir::new();
         let journal = dir.journal();
         {
             let connection = Connection::open(&journal).unwrap();
-            prefer_write_ahead_log(&connection);
+            connection
+                .execute_batch("PRAGMA journal_mode=WAL;")
+                .unwrap();
             ensure_schema(&connection).unwrap();
             connection
                 .execute_batch(
@@ -1268,7 +1518,7 @@ mod tests {
         std::fs::File::create(&wal).unwrap();
         assert_eq!(JournalFiles::of(&journal).as_ref(), Some(&files));
 
-        // 没有写连接的 store 经只读连接读日志；放手时旁边有 `-wal`，不开探测连接，之后 `-wal` 消失也照样沿用。Windows 上只读过日志的 store 不记录（见 `probe_version`）。
+        // WAL 只读连接不能跨会话保留；即使文件戳相同也不记录。
         if cfg!(windows) {
             return;
         }
@@ -1278,17 +1528,9 @@ mod tests {
         if !wal.exists() {
             std::fs::File::create(&wal).unwrap();
         }
-        settle(&store);
-        assert!(lock(&store.settled)
-            .as_ref()
-            .is_some_and(|settled| settled.probe.is_none() && settled.data_version.is_none()));
-        if std::fs::metadata(&wal).is_ok_and(|metadata| metadata.len() == 0) {
-            std::fs::remove_file(&wal).unwrap();
-        }
-        assert!(
-            store.unchanged_since_settled(),
-            "空的 -wal 被当成了日志改动"
-        );
+        store.note_settled();
+        assert!(!store.settled_for_tests(), "WAL 只读来源不能跨会话保留");
+        assert!(lock(&store.writer).origin.is_none());
     }
 
     #[test]

@@ -81,6 +81,10 @@ const NETWORK_REQUESTS: string[] = [
   "cloud_dictionary",
   "cloud_dictionary_snapshot",
   "cloud_clipboard",
+  // WebDAV 设置的「测试连接」：用草稿里的地址和应用密码向网盘发大约二十个请求。
+  "cloud_clipboard_webdav_probe",
+  // 「我的词条」经 WebDAV 网盘同步（`msime_client_dictionary_sync`）：除 `status` 外的动作都可能联网，`run` 的 `local_change` 在发送的防抖到期时也会发出去。
+  "dictionary_sync",
   "settings_sync",
   "ai_skin",
   "community_resource",
@@ -101,6 +105,8 @@ const LOCAL_OPERATIONS: Record<string, string[]> = {
   cloud_dictionary: [],
   cloud_dictionary_snapshot: [],
   cloud_clipboard: [],
+  cloud_clipboard_webdav_probe: [],
+  dictionary_sync: ["status"],
   settings_sync: [],
   ai_skin: ["cancel"],
   community_resource: ["store_reply", "remove_reply"],

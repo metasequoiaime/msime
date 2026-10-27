@@ -346,8 +346,10 @@ import {
   CLOUD_CLIPBOARD_FAILED,
   CLOUD_CLIPBOARD_LOADING,
   CLOUD_CLIPBOARD_PENDING,
+  CLOUD_CLIPBOARD_RELAY_REJECTED,
   CLOUD_CLIPBOARD_SEND,
   CLOUD_CLIPBOARD_SEND_FAILED,
+  CLOUD_CLIPBOARD_SETUP_REQUIRED,
   CLOUD_CLIPBOARD_SENT,
   CLOUD_CLIPBOARD_TAB,
   CLOUD_CLIPBOARD_TOO_LONG,
@@ -11821,6 +11823,55 @@ group("sending to the cloud clipboard needs a signed-in account with the clipboa
       CloudClipboardSendOutcome.FAILED &&
       CloudClipboardPolicy.parseSend("") === CloudClipboardSendOutcome.FAILED,
     "anything else is a failure",
+  );
+  // 经自建中继或 WebDAV 网盘时：凭据被拒、配置不合规要去设置里改，不说成未登录；键盘还没有设备身份时提示先打开应用，键盘自己不登记。
+  for (const code of ["relay_unauthorized", "relay_not_configured"]) {
+    const reply = `{"ok":false,"error":"${code}"}`;
+    check(
+      CloudClipboardPolicy.parseList(reply).state === CloudClipboardState.RELAY_REJECTED &&
+        CloudClipboardPolicy.parseSend(reply) === CloudClipboardSendOutcome.RELAY_REJECTED,
+      `${code} sends the user to the relay settings`,
+    );
+  }
+  const missing = '{"ok":false,"error":"clipboard_identity_missing"}';
+  check(
+    CloudClipboardPolicy.parseList(missing).state === CloudClipboardState.SETUP_REQUIRED &&
+      CloudClipboardPolicy.parseSend(missing) === CloudClipboardSendOutcome.SETUP_REQUIRED,
+    "a keyboard without the settings app's identity asks for the app instead of registering",
+  );
+  for (const code of [
+    "relay_unavailable",
+    "webdav_rate_limited",
+    "webdav_rollback",
+    "clipboard_source_changed",
+  ]) {
+    check(
+      CloudClipboardPolicy.parseList(`{"ok":false,"error":"${code}"}`).state ===
+        CloudClipboardState.FAILED,
+      `${code} is a failure to retry later`,
+    );
+  }
+  check(
+    CloudClipboardPolicy.notice(CloudClipboardState.RELAY_REJECTED, false, 0) ===
+      CLOUD_CLIPBOARD_RELAY_REJECTED &&
+      CloudClipboardPolicy.sendBlock(CloudClipboardState.RELAY_REJECTED, "x") ===
+        CLOUD_CLIPBOARD_RELAY_REJECTED &&
+      CloudClipboardPolicy.sendNotice(CloudClipboardSendOutcome.RELAY_REJECTED) ===
+        CLOUD_CLIPBOARD_RELAY_REJECTED,
+    "a refused relay says where to fix it",
+  );
+  check(
+    CloudClipboardPolicy.notice(CloudClipboardState.SETUP_REQUIRED, false, 0) ===
+      CLOUD_CLIPBOARD_SETUP_REQUIRED &&
+      CloudClipboardPolicy.sendBlock(CloudClipboardState.SETUP_REQUIRED, "x") ===
+        CLOUD_CLIPBOARD_SETUP_REQUIRED &&
+      CloudClipboardPolicy.sendNotice(CloudClipboardSendOutcome.SETUP_REQUIRED) ===
+        CLOUD_CLIPBOARD_SETUP_REQUIRED,
+    "a keyboard without an identity says to open the app",
+  );
+  check(
+    !CLOUD_CLIPBOARD_RELAY_REJECTED.includes("登录"),
+    "a relay refusal is not a sign-in prompt",
   );
   check(
     CloudClipboardPolicy.sendNotice(CloudClipboardSendOutcome.SENT) === CLOUD_CLIPBOARD_SENT &&

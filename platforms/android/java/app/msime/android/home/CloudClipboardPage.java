@@ -165,6 +165,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         if (relayMessage != null) return relayMessage;
         return switch (failure.code) {
             case "clipboard_key_conflict" -> "另一台设备刚刚改了云剪贴板，请稍后再试";
+            case "clipboard_keystore_conflict" -> "这台设备的云剪贴板身份刚被更换（例如退出后重新登录），请稍后再试";
             case "clipboard_device_limit" -> "这个账号登记的设备已满 20 台，请先移除不用的设备";
             case "clipboard_sync_disabled" -> "云剪贴板未开启";
             case "clipboard_device_pending" -> "这台设备还在等待允许";

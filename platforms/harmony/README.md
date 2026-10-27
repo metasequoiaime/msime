@@ -25,6 +25,24 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库、隐私政策授权（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
 
+### 「我的词条」只有一份
+
+两个进程各有一份 Engine 日志（各自的 `files/state/user/msime_user.db`），这一点没有变：学习记录、候选顺序和固定位置只在键盘里，设置应用不打字。变的是「我的词条」——日志里 `user_inserted` 而且没删的词条，也就是设置页「我的词条」列出的、WebDAV 网盘同步的那一组，身份是（词库类别、编码、词）：两份经共享沙箱交换，收敛成同一组。以前键盘打字学到的词只在键盘那份里，设置页改的、导入的词只在设置应用那份里。规则在 Rust 的 `msime_client_user_words_mirror`（`crates/host-api/src/user_words_mirror.rs`，C 头文件里有完整说明），宿主一侧是 `keyboard/UserWordsMirror.ets` 和 `keyboard/UserWordsMirrorPolicy.ts`（`tests/user-words-mirror-policy.test.ts`，调用点由 `scripts/test-harmony-user-words-mirror.py` 守着）。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-unified-user-words.md`。
+
+- 每一边在自己的 `files/state/user-words/` 里给每个词条记一个「最后写入者胜」的寄存器（时间戳、在不在），发布到 `<共享目录>/msime/<settings|keyboard>/user-words/words.json`。这个文件不走上面的清单和指纹，由两边的 Rust 直接原子替换和读取。
+- 设置应用：窗口回到前台和每次改完设置之后（与上面的镜像发布同一时机），在工作线程上先排空它自己的个人词库队列，再合并键盘的发布、发布自己的；本方日志、队列和键盘的发布都没变时不做。导入的个人词库文件、云词库下载和命名词库的词都走这个队列，API 12 起键盘排空的是它自己沙箱里的那个，所以这些词以前从来没进过任何一份词库；现在由设置应用写进它的词库，再交换到键盘。
+- 键盘：写词库要 Engine 的独占维护权，只有建会话之前拿得到，所以合并放在那里，和个人词库队列的排空在同一处，一次最多写 128 项，剩下的在空闲时的会话重建里接着写；获得焦点时发现设置应用的发布变了，就排一次空闲时的会话重建（不打断正在组字的输入）。失去焦点时在工作线程上只记录、只发布，不写词库，会话照常开着；日志没变或者距上次不到 30 秒时不做。
+- 基础访问模式下键盘对共享目录只读：设置应用的改动照样写进键盘，键盘学到的词、删掉的词留在键盘里，到不了设置应用，也就进不了网盘；切到完整体验模式以后的下一次发布一起带过去。模拟器上没有共享沙箱，两份照旧各管各的。
+
+合并规则：
+
+- 第一次运行（升级上来的老用户）两边都还没有寄存器，各自的词都记成新加的，合并结果是并集：迁移从不删词。代价是以前只在一边删过、另一边还在的词会回到两边。
+- 之后同一个词条两边都改过时，时间戳晚的胜，相同时「在」胜过「不在」；时间戳是察觉到改动的时刻（键盘建会话之前或失去焦点时、设置应用在上面那几个时机），不是改动本身的时刻。一边删一个词、另一边加另一个词，两件事都保留。删除是一次写入（墓碑），对方确认合并过包含它的发布以后两边各自回收；键盘一直在基础访问模式下时确认不了，墓碑超过两万个时去掉最早的。
+- 键盘一次少了 50 个以上、并且至少是原有一半的词时不当成删除：输入法里没有这种操作，多半是它的日志坏了被换成空的。设置应用那份照样留着，键盘这边也不自动写回。设置应用一侧不挡：停用命名词库、清除学习数据这类大批删除是用户在设置页的操作，照常传到键盘。
+- Engine 不收的词（例如音节表里没有的拼音）照实记下、不再重试，不会被当成删除传回去；写不进去（维护权被占着）的留到下一次。整个交换不联网，词条只在两个沙箱和共享目录之间。
+
+与「我的词条」的 WebDAV 网盘同步（`msime_client_dictionary_sync`）：同步只在设置应用里运行、只读写设置应用那份，键盘仍不调它，一台手机只有一个设备身份。键盘的词经上面的交换写进设置应用的词库以后，同步下一次运行开头的核对就把它们记成本机改动发出去；设置应用写进键盘的改动、或者排空队列写进了词时，还会向设置页派发 `msime-user-words-changed`，页面的词库同步（`packages/ui/src/settings/use-dictionary-sync.ts` 的 `HOST_USER_WORDS_CHANGED_EVENT`）据此马上以 `local_change` 记一次，和经设置改了词走同一条通知、连续几次只排一次；没有隐私政策的授权时页面不提供词库同步，也就不听这个事件、不联网。网盘来的词写进设置应用的词库后，下一次交换就带给键盘。
+
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 Rust Engine（`crates/engine`）提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
 繁体输出只在显示与上屏边界转换：候选条与展开候选面板的显示文字、Engine 提交、`insert` 与 `insertWithSource` 经过 `KeyboardSession.asTraditional`，Engine 的候选原文、候选身份（按序号选择）和组合文本保持简体；由 `ChineseOutputPolicy` 决定是否适用（dedicated English、日语方案、临时日语保留原文），转换本身走 NAPI `simplifiedToTraditional` 调共享导出 `msime_client_simplified_to_traditional`，即 OpenCC s2t 词级转换，与 Windows、macOS、Linux、Android、iOS 逐字一致——「头发」出「頭髮」、「发展」出「發展」，ICU `i18n.Transliterator` 的逐字转换分不开这两个「发」。C ABI 拒绝的输入（内嵌 NUL）返回 `null`，保留原文。`scripts/test-harmony-traditional-output.py` 钉住从 C 头文件到调用点的这条接线，并拒绝宿主源码里重新出现 ICU 转写。
@@ -85,9 +103,9 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 `openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时，「设置」首页状态卡片上的「试用键盘」打开共享的子页面「试用键盘」（`packages/ui/src/keyboard/try-keyboard-page.tsx`），那才是这里"让我看看键盘"的诚实版本：按 Android 试用页的聊天样式，一进页面就把焦点交给输入框，系统弹出当前输入法；AI 生成类功能打开时，登录后打的字可以作为 AI 对话发出去，走的是设置页已有的 `chat` 通道；目前总闸关着，页面不带发送键，只用来打字。这一页不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
 
-云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。请求经 Rust 的 `msime_client_account_cloud_clipboard`，目录是键盘沙箱自己的 `files/state`；设置应用里的登录经共享沙箱的会话镜像采用过来（见下文「账号与云端业务在 Rust 里」）。
+云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录（或选了自建中继、WebDAV 网盘）且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。每个请求先问 Rust 该走哪条路（`msime_client_cloud_clipboard_source`）：设置里选了自建中继或 WebDAV 网盘就只经 `msime_client_relay_cloud_clipboard`，否则经 `msime_client_account_cloud_clipboard`，目录都是键盘沙箱自己的 `files/state`；设置应用里的登录经共享沙箱的会话镜像采用过来（见下文「账号与云端业务在 Rust 里」）。键盘不自己生成云剪贴板的设备身份：请求带 `create_identity: false`，用设置应用经共享沙箱镜像过来的密钥串，设置应用还没用过云剪贴板时提示先在应用里打开一次，一台手机只登记一台设备（`scripts/test-harmony-cloud-clipboard-identity.py` 守着调用点）。
 
-云剪贴板是端到端加密的，协议和宿主的职责见 [docs/cloud-clipboard-e2e.md](../../docs/cloud-clipboard-e2e.md)。列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）、删除和开关都由 Rust 驱动和发送；驱动的错误码（`clipboard_device_pending`、`clipboard_sync_disabled`、`clipboard_key_conflict` 等）原样作为 `{ok:false,error}` 交给设置页和键盘。本机的密钥串仍是与会话同目录的 `files/state/cloud-clipboard-keystore`，Rust 读写的就是原来那一份，所以升级以后不会重新登记、不会出现「等待批准」；退出登录、注销和会话失效时随会话一起删除，换一个账号登录时不再删除（迁移差异 M3）。登记到服务端的设备名由宿主每次带上：`@ohos.deviceInfo` 的 `marketName`，没有时用 `productModel`，再没有时是「HarmonyOS 设备」。置顶、保留期和清空 Rust 也支持，共享页面在本宿主上还没有入口，宿主不放行。
+云剪贴板是端到端加密的，协议和宿主的职责见 [docs/cloud-clipboard-e2e.md](../../docs/cloud-clipboard-e2e.md)。列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）、删除和开关都由 Rust 驱动和发送；驱动的错误码（`clipboard_device_pending`、`clipboard_sync_disabled`、`clipboard_key_conflict` 等）原样作为 `{ok:false,error}` 交给设置页和键盘。本机的密钥串仍是与会话同目录的 `files/state/cloud-clipboard-keystore`，Rust 读写的就是原来那一份，所以升级以后不会重新登记、不会出现「等待批准」；完整体验模式下设置应用把它镜像给键盘，键盘只用这一份；退出登录、注销和会话失效时随会话一起删除，换一个账号登录时不再删除（迁移差异 M3）。登记到服务端的设备名由宿主每次带上：`@ohos.deviceInfo` 的 `marketName`，没有时用 `productModel`，再没有时是「HarmonyOS 设备」。置顶、保留期和清空 Rust 也支持，共享页面在本宿主上还没有入口，宿主不放行。
 
 面板记下读到列表时登录的账号 id。列表返回、点按插入和发送前都会重新核对；退出登录或换了账号以后，旧列表和待发送项作废，用户点刷新后再读取。同一个账号的令牌轮换或重新登录不再作废它，与 Rust 只按 user.id 绑定一致。
 
@@ -115,7 +133,7 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 这一条走队列而不是 Engine，是这里唯一这么做的词库操作。其余操作（列表、单条编辑、导入词库文件、导出）直接取 Engine 的维护锁，那对"在设置窗口里改一个词、并盯着旁边的列表看结果"是对的。导入个人词库文件不是那种操作：用户什么时候导入由他自己决定，键盘开着的可能性和关着的一样大，而"dictionary maintenance busy"不是"请把这些词加进去"的回答。
 
-队列是 Apple 与 Android 宿主已经给出的答案：词条写进 `<preferences_directory>/PersonalDictionary`，键盘在建立 Engine 会话之前先应用一批——那是确定没有会话开着的边界，和 Android 在 `scheduleEngineStartup` 里选的边界相同。每批最多四条；仍有待处理项时，宿主每两秒等一个非组字、非本地模式的空闲点，释放会话、应用下一批、重建会话并恢复中英文、九键与焦点状态。这也是卡片上写"已加入同步队列"而不是"已导入"的原因：在本宿主上那句话同样是实话。
+队列是 Apple 与 Android 宿主已经给出的答案：词条写进 `<preferences_directory>/PersonalDictionary`。API 12 起那是设置应用自己沙箱里的目录，键盘看不到，所以由设置应用自己在工作线程上排空、写进它的词库，再经「我的词条」交换到键盘（见上文「「我的词条」只有一份」）；键盘排空的是它自己沙箱里的队列，规则相同：在建立 Engine 会话之前先应用一批——那是确定没有会话开着的边界，和 Android 在 `scheduleEngineStartup` 里选的边界相同。每批最多四条；仍有待处理项时，宿主每两秒等一个非组字、非本地模式的空闲点，释放会话、应用下一批、重建会话并恢复中英文、九键与焦点状态。这也是卡片上写"已加入同步队列"而不是"已导入"的原因：在本宿主上那句话同样是实话。
 
 排空是尽力而为的。store 会保留没能应用的词条，失败只是推迟而不是丢失；为一个词库问题拒绝启动键盘，会把它变成"没有键盘"。请求 UUID 是 Engine 的持久回执，同一批在共享状态写回前中断也不会重复应用；损坏状态文件原样保留，读取不存在的队列不会创建目录。
 
@@ -205,7 +223,7 @@ Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI �
 
 选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
 
-没有授权时两个进程都不发受政策约束的请求：使用统计与崩溃记录、匿名账号注册、公告、账号登录（华为账号、邮箱、手机号）、反馈、对话、设置同步、云词库、云剪贴板、统计上传、社区、AI 皮肤、AI 与凭据测试、检查更新、词库更新、本地语音模型下载（设置桥接 `startRequest` 与 `dictionary` 回 `privacy_consent_required`，页面不画这些入口），以及键盘里的云联想、AI 联想、在线翻译、高情商回复、豆包与 HTTP 云端语音、语音润色和云剪贴板。本机打字、词库、皮肤、插件、统计、手写、系统语音识别和本地语音模型照常可用。规则在 `privacy/PrivacyConsentPolicy.ts`（`tests/privacy-consent.test.ts`），调用点由 `scripts/test-harmony-privacy-consent-gates.py` 守着。模拟器上没有共享沙箱，键盘读不到授权，键盘一侧的云端功能在模拟器上始终关着。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-privacy-first-launch.md`。
+没有授权时两个进程都不发受政策约束的请求：使用统计与崩溃记录、匿名账号注册、公告、账号登录（华为账号、邮箱、手机号）、反馈、对话、设置同步、云词库、云剪贴板、词库同步（`dictionary_sync`，只有 `status` 不要授权）、统计上传、社区、AI 皮肤、AI 与凭据测试、检查更新、词库更新、本地语音模型下载（设置桥接 `startRequest` 与 `dictionary` 回 `privacy_consent_required`，页面不画这些入口），以及键盘里的云联想、AI 联想、在线翻译、高情商回复、豆包与 HTTP 云端语音、语音润色和云剪贴板。本机打字、词库、皮肤、插件、统计、手写、系统语音识别和本地语音模型照常可用。规则在 `privacy/PrivacyConsentPolicy.ts`（`tests/privacy-consent.test.ts`），调用点由 `scripts/test-harmony-privacy-consent-gates.py` 守着。模拟器上没有共享沙箱，键盘读不到授权，键盘一侧的云端功能在模拟器上始终关着。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-privacy-first-launch.md`。
 
 ## 华为账号登录：Account Kit 的 ID Token
 
@@ -568,7 +586,9 @@ Windows 文档里的“自定义候选窗翻译”在 Harmony 上没有设置入
 
 设置页的本地词库管理复用共享设置 UI 和 `msime_client_dictionary`：可分页查看、编辑、导入、导出和处理失败队列。ArkTS 设置桥只接受操作 JSON；引擎资源和状态目录始终由宿主从应用沙盒准备，WebView 不能提交路径。词库写操作需要 Engine 独占维护窗口：空闲时会短暂重建会话并恢复语言、九键和焦点状态；正在组合输入时会返回忙碌错误，不会替用户取消输入。读取操作可与活动会话并行。
 
-手机的「词库」页按 Android 的 `LexiconPage` 布局，不再是那张按种类查词条的桌面表单（`packages/ui/src/settings/harmony-phone-dictionary.tsx`，只在 HarmonyOS 手机上出现，2in1 仍用桌面表单）：「已安装」列出拼音词库和命名词库，点进去启用、停用、加词或删除；「管理」新建、导入（导入成一个新词库）、导出和刷新；「发现词库」把社区词库装成一个独立的词库，社区页的「添加」也走同一条路，之后可以停用或删除。命名词库走 `msime_client_dictionary_collections`：设置页经 `startRequest` 的 `dictionary_collections` 调 NAPI `dictionaryCollectionsAsync`，导入最多 16 MiB，在原生工作线程上执行；词条由 client-services 经个人词库队列分批送进 Engine，键盘每排空一批个人词库队列就用同步的 `dictionaryCollections` 送下一批（`flush`），和 Android 键盘的 `flushSent` 一样，大词库不用等用户回词库页刷新。导入来源依次是文本文件、搜狗细胞词库（`.scel`）、Rime 词典和纯汉字词表；细胞词库是二进制文件，页面按 base64 放进同一个 `import` 动作的 `bytes_base64`（文件不超过 8 MiB），`KeyboardSession.dictionaryCollections` 只检查操作名、把整个动作原样交给原生层，由 client-services 的 `dictionary::scel` 转成标准文本后照文本导入。2in1 的桌面表单也能导入细胞词库：页面经 `startRequest` 的 `dictionary_scel_text` 调工作线程上的 NAPI `dictionaryScelTextAsync`（`msime_client_dictionary_scel_text`）把文件转成标准文本，再照常经 `dictionary` 的 `import` 导入。细胞词库文件受表单原有的 1 MiB 上限约束，但这条导入一次请求只收 64 KiB 文本、只看 1000 行，真实词库转出的文本大多比这长，所以页面只送转出文本开头的整行（最多 1001 行、不超过 64 KiB，`leadingImportRows`），报告说「文件过长，仅导入了前一部分」；要导入整个细胞词库用手机上的命名词库。`scripts/test-harmony-dictionary-collections.py` 守着这条接线。API 12 起设置应用与键盘不共用 `files/state`（见上文「输入法扩展的独立沙箱」），在共享沙箱接上之前，设置页建的命名词库和个人词库队列都只在设置应用这边，键盘看不到。
+手机的「词库」页按 Android 的 `LexiconPage` 布局，不再是那张按种类查词条的桌面表单（`packages/ui/src/settings/harmony-phone-dictionary.tsx`，只在 HarmonyOS 手机上出现，2in1 仍用桌面表单）：「已安装」列出拼音词库和命名词库，点进去启用、停用、加词或删除；「管理」新建、导入（导入成一个新词库）、导出和刷新；「发现词库」把社区词库装成一个独立的词库，社区页的「添加」也走同一条路，之后可以停用或删除。命名词库走 `msime_client_dictionary_collections`：设置页经 `startRequest` 的 `dictionary_collections` 调 NAPI `dictionaryCollectionsAsync`，导入最多 16 MiB，在原生工作线程上执行；词条由 client-services 经个人词库队列分批送进 Engine：设置应用排空它自己的队列，每排空一批就用 `dictionaryCollectionsAsync` 送下一批（`flush`），和 Android 键盘的 `flushSent` 一样，写进设置应用词库的词再经「我的词条」交换到键盘（见上文「「我的词条」只有一份」）。导入来源依次是文本文件、搜狗细胞词库（`.scel`）、Rime 词典和纯汉字词表；细胞词库是二进制文件，页面按 base64 放进同一个 `import` 动作的 `bytes_base64`（文件不超过 8 MiB），`KeyboardSession.dictionaryCollections` 只检查操作名、把整个动作原样交给原生层，由 client-services 的 `dictionary::scel` 转成标准文本后照文本导入。2in1 的桌面表单也能导入细胞词库：页面经 `startRequest` 的 `dictionary_scel_text` 调工作线程上的 NAPI `dictionaryScelTextAsync`（`msime_client_dictionary_scel_text`）把文件转成标准文本，再照常经 `dictionary` 的 `import` 导入。细胞词库文件受表单原有的 1 MiB 上限约束，但这条导入一次请求只收 64 KiB 文本、只看 1000 行，真实词库转出的文本大多比这长，所以页面只送转出文本开头的整行（最多 1001 行、不超过 64 KiB，`leadingImportRows`），报告说「文件过长，仅导入了前一部分」；要导入整个细胞词库用手机上的命名词库。`scripts/test-harmony-dictionary-collections.py` 守着这条接线。API 12 起设置应用与键盘不共用 `files/state`（见上文「输入法扩展的独立沙箱」），命名词库的元数据（名字、开关、来源）只在设置应用里，键盘只收到其中的词；没有共享沙箱时（模拟器上）这些词只在设置应用那份词库里。
+
+「我的词条」经 WebDAV 网盘同步（[docs/dictionary-webdav-sync.md](../../docs/dictionary-webdav-sync.md)）也在共享设置页的词库页里：页面经 `startRequest` 的 `dictionary_sync` 发动作，`HarmonyAccountCloudBridge.dictionarySync` 补上设置页词库管理用的同一份 HostOptions、本沙箱的 `files/state/dictionary-sync` 和设备名（规则在 `account/HarmonyAccountRequests.ts` 的 `dictionarySyncRequest`），再交给工作线程上的 NAPI `dictionarySync`（`msime_client_dictionary_sync`）。目录不是 `files/state` 本身，那里有云剪贴板中继同名的密钥串和网盘缓存；它也不在共享沙箱的镜像条目里。同步的是设置应用这份个人词库；键盘那份经上文「「我的词条」只有一份」的交换跟它收敛成同一组，网盘来的词写进设置应用的词库后，下一次交换就带给键盘。键盘扩展不调这个入口：它没有云剪贴板那样「只用已有设备身份」的开关，键盘一调就会登记成同一台手机的第二台设备，`scripts/test-harmony-dictionary-sync.py` 守着调用点只在设置应用。
 
 ## 设置页打包
 

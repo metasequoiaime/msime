@@ -2623,6 +2623,9 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
             /// 端到端加密登记本机时给其他设备看的名称（#8201 的 P6，例如鸿蒙的 marketName），规则与中继路径相同，见 [`host_device_name`]。
             #[serde(default)]
             device_name: Option<String>,
+            /// 为 `false` 时只用本机已有的设备身份，见头文件。
+            #[serde(default)]
+            create_identity: Option<bool>,
             action: Value,
         }
         // SAFETY: guaranteed by the documented caller contract.
@@ -2652,6 +2655,7 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
             }
         }
         let device_name = host_device_name(request.device_name);
+        let existing_identity = request.create_identity == Some(false);
         match source {
             super::session_store::Source::Directory(directory) => {
                 let client =
@@ -2660,13 +2664,28 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
                     client,
                     FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
                 );
-                crate::cloud_clipboard::account_request(
-                    &session,
+                if existing_identity {
+                    crate::cloud_clipboard::account_request_existing_identity(
+                        &session,
+                        &request.action,
+                        device_name.as_deref(),
+                    )
+                } else {
+                    crate::cloud_clipboard::account_request(
+                        &session,
+                        &request.action,
+                        device_name.as_deref(),
+                    )
+                }
+            }
+            // 注入的存储用注册时建好的会话对象，不每次新建。
+            super::session_store::Source::Store(entry) if existing_identity => {
+                crate::cloud_clipboard::account_request_existing_identity(
+                    &entry.account,
                     &request.action,
                     device_name.as_deref(),
                 )
             }
-            // 注入的存储用注册时建好的会话对象，不每次新建。
             super::session_store::Source::Store(entry) => crate::cloud_clipboard::account_request(
                 &entry.account,
                 &request.action,
@@ -2699,6 +2718,9 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
             directory: String,
             #[serde(default)]
             device_name: Option<String>,
+            /// 为 `false` 时只用 `directory` 里已有的设备身份，见头文件。
+            #[serde(default)]
+            create_identity: Option<bool>,
             action: Value,
         }
         // SAFETY: 由文档写明的调用方约定保证。
@@ -2718,12 +2740,17 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
         .ok_or("relay_not_configured")?;
         let device_name = host_device_name(request.device_name)
             .unwrap_or_else(msime_client_services::account::cloud_clipboard_device_name);
-        crate::cloud_clipboard::relay_request(
-            config,
-            std::path::Path::new(&request.directory),
-            &device_name,
-            &request.action,
-        )
+        let directory = std::path::Path::new(&request.directory);
+        if request.create_identity == Some(false) {
+            crate::cloud_clipboard::relay_request_existing_identity(
+                config,
+                directory,
+                &device_name,
+                &request.action,
+            )
+        } else {
+            crate::cloud_clipboard::relay_request(config, directory, &device_name, &request.action)
+        }
         .map_err(str::to_owned)
     })
 }

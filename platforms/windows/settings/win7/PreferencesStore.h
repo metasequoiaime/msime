@@ -85,6 +85,7 @@ public:
            change.path == std::vector<std::string>{"plugins"} ||
            change.path == std::vector<std::string>{"cloud_clipboard_relay"} ||
            change.path == std::vector<std::string>{"cloud_clipboard_webdav"} ||
+           change.path == std::vector<std::string>{"dictionary_sync_webdav"} ||
            change.path == std::vector<std::string>{"game_compatibility"} ||
            change.path == std::vector<std::string>{"multilingual_input"} ||
            change.path == std::vector<std::string>{"wubi_candidate_selection"});

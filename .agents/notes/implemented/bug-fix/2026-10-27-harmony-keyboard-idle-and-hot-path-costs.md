@@ -26,6 +26,7 @@ Status: implemented
 收起时停下空闲工作：
 
 - 快照队列只在键盘显示（`attach`）时排一次检查，查到没有待处理请求就停，不自己续排；失焦（`detach`）和系统收起（`keyboardHidden`）经 `pauseIdleDictionaryWork` 取消检查，上一次个人词库排空没有进展时也停下重试，`attach` 时按退避接着排。有进展的排空照常在后台跑完。
+- 建会话之前先排空个人词库队列，再同步设置应用的词条镜像；只有排空返回 `settled` 且镜像同步完成时才停止空闲重试。三态排空继续决定退避，镜像未完成不能被排空成功掩盖。
 - 两个重建会话的重试由 `IdleDictionaryRetryPolicy` 定间隔：有进展（送出新一批、剩余条数减少）两秒后接着处理，连续没有进展按 2、4、8 秒翻倍，最多五分钟；队列查空或排空、用户在键盘里新排入词条时复位。
 - 显示后的那次查询（`state`）和构建会话时的处理（`process`）都带 `skip_when_idle: true`：队列里没有排队或准备中的请求时 Rust 只读状态返回，不算本机版本、不写 `state.json`、不建队列目录。真有请求时照旧先发布本机版本再处理。这个字段由共享 Rust PR 提供，默认 false，其他宿主不带，行为不变；同一条 PR 里 `publish_local_version` 在版本没变时也不再重写 `state.json`。
 - 会话在 `keyboardHide` 和 `detach` 时经 `onPanelHidden` 通知视图，视图按 `VoiceRecognitionPolicy.cancelsOnHide` 取消录音和还在走的空格长按计时，与 Android 收起键盘即取消语音一致。已经点了「说完了」或静音自动结束、在等最终结果的不取消，麦克风已经关了，取消会丢掉用户说完的话。2in1 的语音面板不动。

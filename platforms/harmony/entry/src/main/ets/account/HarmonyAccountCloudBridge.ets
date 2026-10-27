@@ -12,10 +12,10 @@ import { HarmonyAccountIdentity } from './HarmonyAccountIdentity';
 import { HarmonyGoogleSignIn } from './HarmonyGoogleSignIn';
 import { HarmonyHuaweiSignIn } from './HarmonyHuaweiSignIn';
 import {
-  RequestPlan, SESSION_CHANGING_OPERATIONS, accountRequest, aiSkinRequest, appliedFeedbackText,
-  cloudClipboardRequest, cloudDictionaryFileRequest, cloudDictionaryRequest, communityRequest, hostAccountRequest,
-  preferencesPutAction, replyError, replyValueText, settingsApplyRequest, settingsExportRequest, statusUserId,
-  typingUploadReply, typingUploadRequest
+  CloudClipboardRoute, RequestPlan, SESSION_CHANGING_OPERATIONS, accountRequest, aiSkinRequest, appliedFeedbackText,
+  cloudClipboardRequest, cloudClipboardRoute, cloudDictionaryFileRequest, cloudDictionaryRequest, communityRequest,
+  dictionarySyncRequest, hostAccountRequest, preferencesPutAction, relayCloudClipboardRequest, replyError, replyValueText,
+  settingsApplyRequest, settingsExportRequest, statusUserId, typingUploadReply, typingUploadRequest, webDavProbeRequest
 } from './HarmonyAccountRequests';
 
 /** 页面动作里只读操作名，其余字段由 `HarmonyAccountRequests` 和 Rust 检查。 */
@@ -228,13 +228,42 @@ export class HarmonyAccountCloudBridge {
     return await client.community(plan.request);
   }
 
-  /** 设置页的云剪贴板面板。 */
+  /**
+   * 设置页的云剪贴板面板和「发到云剪贴板」。每个请求先问共享层该走哪条路（`msime_client_cloud_clipboard_source`）：配置了自建中继或 WebDAV 网盘就只走它，失败也不退回水杉账号；来源读不出时按失败答页面。中继的密钥串、网盘日志的本机缓存和锁都在本沙箱的 `files/state`，与账号会话同一个目录，设置应用在这里第一次使用时生成本机的设备身份，经共享沙箱镜像给键盘（`SharedStateMirrorPolicy` 的 `cloud-clipboard-relay-keystore`）。
+   */
   async cloudClipboard(action: string): Promise<string> {
-    const plan: RequestPlan =
-      cloudClipboardRequest(this.directory, HarmonyAccountIdentity.deviceName(), action);
+    const route: CloudClipboardRoute = cloudClipboardRoute(client.cloudClipboardSource(this.directory));
+    if (route.source === 'failed') return HarmonyAccountCloudBridge.failure(route.error);
+    const deviceName: string = HarmonyAccountIdentity.deviceName();
+    if (route.source === 'relay') {
+      const relay: RequestPlan = relayCloudClipboardRequest(this.directory, this.directory, deviceName, action,
+        route.revision, true);
+      if (relay.refusal.length > 0) return relay.refusal;
+      return await client.relayCloudClipboard(relay.request);
+    }
+    const plan: RequestPlan = cloudClipboardRequest(this.directory, deviceName, action, this.directory, true);
     if (plan.refusal.length > 0) return plan.refusal;
     await AccountSessionAdoption.beforeRequest();
     return await client.accountCloudClipboard(plan.request);
+  }
+
+  /** WebDAV 设置的「测试连接」，用页面里还没保存的草稿；通过后 Rust 删掉本沙箱里的网盘日志缓存，防回退从网盘现在的样子重新开始。 */
+  async cloudClipboardWebDavProbe(draft: string): Promise<string> {
+    const plan: RequestPlan = webDavProbeRequest(draft, this.directory);
+    if (plan.refusal.length > 0) return plan.refusal;
+    return await client.cloudClipboardWebDavProbe(plan.request);
+  }
+
+  /**
+   * 「词库」页的「词库同步」：「我的词条」经 WebDAV 网盘同步的一个动作（`msime_client_dictionary_sync`），在原生工作线程上执行。HostOptions 取设置页词库管理用的同一份，本机状态在本沙箱的 `files/state/dictionary-sync`。同步的是设置应用这份个人词库，也就是设置页「我的词条」列出的那份；API 12 起键盘在自己的沙箱里另有一份，两份经共享沙箱交换「我的词条」（`msime_client_user_words_mirror`，`platforms/harmony/README.md`「「我的词条」只有一份」），网盘来的词写进这一份之后由下一次交换带给键盘。键盘不调这个入口，免得登记成第二台设备。
+   */
+  async dictionarySync(action: string, resources: string, stateRoot: string): Promise<string> {
+    const options: string | null = this.hostOptions(resources, stateRoot);
+    if (options === null) return HarmonyAccountCloudBridge.failure('dictionary_sync_storage');
+    const plan: RequestPlan =
+      dictionarySyncRequest(options, stateRoot, HarmonyAccountIdentity.deviceName(), action);
+    if (plan.refusal.length > 0) return plan.refusal;
+    return await client.dictionarySync(plan.request);
   }
 
   /** AI 皮肤：`generate` 每完成一张插画经 `progress` 报一次，`cancel` 立即返回。 */

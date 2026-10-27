@@ -41,9 +41,10 @@ Status: implemented
 iOS 键盘每次收起都销毁会话，Android 每进一个输入框都重建会话，之前只要没有会话引用，注册表就把 store 丢掉，下一个会话把两张表整表重读。现在：
 
 - 记录点：`Session` 的 drop 在写完队列、放掉本线程的日志连接之后（host-api 会话这时还拿着词库租约）调 `note_settled`，本会话所有连接（整句联想写连接、选词计数和调频用的日志缓存连接）的写入都在记录之前。模型过期、队列没写完、上次写失败、模型为空时不记。
-- 记录内容：日志和非空 `-wal` 的大小、修改时间，unix 上加设备号和 inode；再加 store 自己连接看到的 `PRAGMA data_version`，任何别的连接（本进程或别的进程）提交过它就变，修改时间粒度粗的文件系统上同样大小的原地改写也认得出。没有写连接时开一条只读探测连接读它，留到下一次接手。日志旁有 `-wal` 时（WAL 模式，连接开着就占着 `-shm`）不开探测连接，只看文件戳，WAL 的每次提交都会追加 `-wal`；Windows 上只读过的 store 不记，免得空闲连接挡住别的进程改名或删除日志。空 `-wal` 与没有 `-wal` 同等看待。
-- 接手：`for_journal` 打开同一路径时，空闲 store 的记录对得上就沿用模型，记录只担保一次接手；还有会话在用的 store 丢掉记录，等那个会话放手时重记。其他路径的空闲 store 仍在下次打开日志时回收。`release_all`（重置、换代次之前）连同记录和探测连接一起丢掉；`release_idle_personal_models` 接进 `Session::reset_cache` 和 `msime_client_release_process_cache`，内存告警时交还模型和连接。
-- 会话期间别的输入法进程同时学到、模型没读到的计数会被这份记录盖过，下次重读时补上；重置、换日志、合并备份都要先拿独占维护权，本进程还有会话时拿不到，所以盖不过它们。
+- 模型来源：完整加载前后在同一连接读取 `PRAGMA data_version`，两次相等且日志文件身份未换才保存来源版本。会话结束、自己刷新队列不能把当前版本重新当成旧模型的来源；只有完整重读才能重建来源。首次从只读切到写连接先失效并真正重载，再叠本次学习，避免两条连接的版本号混用。
+- 记录内容：会话结束时保存日志和非空 `-wal` 的大小、修改时间，Unix 上加设备号和 inode，同时验证实际模型来源仍未改变。写连接自身的提交不会改变它看到的 `data_version`，任何其他连接的提交都会使来源失效。只读来源仅在实际 `journal_mode` 为 `delete`、`truncate` 或 `persist` 且不是 Windows 时保留加载用的那条连接；只读 WAL 无法在不长期占用共享内存锁的情况下证明来源，保守不缓存。空 `-wal` 与没有 `-wal` 同等看待，但不能用文件戳替代连接版本：检查点 RESTART 后 WAL 会在原空间复用。
+- 接手：`for_journal` 打开同一路径时同时比文件戳和来源连接版本，匹配才沿用模型。会话结束的记录只担保一次接手，但只读来源连接跨后续接手保留，避免第二轮重新采样为旧模型背书。还有会话在用的 store 丢掉结束记录，等那个会话放手时重记。其他路径的空闲 store 仍在下次打开日志时回收。`release_all`（重置、换代次之前）连同记录和来源连接一起丢掉；`release_idle_personal_models` 接进 `Session::reset_cache` 和 `msime_client_release_process_cache`，内存告警时交还模型和连接。
+- 会话期间别的输入法进程学到、模型没读到的计数会使来源校验失败，空闲 store 下次接手时丢弃并从磁盘重载。判定与队列检查持有 writer、pending 锁直至记录完成，避免检查后又有本地学习入队。
 
 ### 插件表进程缓存（`host-api/src/plugin_tables.rs`）
 
@@ -77,7 +78,8 @@ iOS 键盘每次收起都销毁会话，Android 每进一个输入框都重建�
 - **主词库工作副本也进 WAL、或给它缓存一条可写连接并降 `synchronous`**：调频时主词库的那次提交同样要 fsync，缓存连接还能省掉每次打开。本线没有做：重置学习数据挪走工作副本时不带旁路文件，WAL 会把旧 `-wal` 套到新词库上；缓存可写连接要和换代次、替换词库的关闭时机重新对齐，风险超出这一轮的范围。日志进 WAL 已拿到大部分收益，主词库这一步留给后续单独评估。
 - **n-gram store 无条件常驻**：最省事，内存代价与会话期间相同。但别的进程或别的连接改过日志而没有通知本进程时，新会话就读不到改动；用文件戳和 `data_version` 把关，代价只是几次 stat 和一次 PRAGMA。拼写纠错 profile 没有一起改：它的表很小、重读代价低，常驻会吃掉九键过滤刷新那条分配计数用例原有的余量。
 - **个人模型按读完日志、自己写完一批时的（修改时间, 大小）判断能否沿用**（本线最初的做法）：不用改会话的 drop。但会话里选词计数、调频、删词经日志缓存连接写同一个文件，整句联想最后一批写完之后只要还有一次这样的写入，下一个会话就对不上、照样整表重读；同一节拍里另一个连接同样大小的原地改写也看不出来。改成会话放手时记录、加 `data_version`。
-- **个人模型遇到 WAL 日志就不记录**（iOS 线最初的做法）：iOS 的日志不进 WAL，这样对 iOS 足够；但本线让其他平台的日志都进了 WAL，Android 这个最常重建会话的宿主就完全拿不到沿用。改成 WAL 下不开探测连接、靠文件戳（每次提交都追加 `-wal`）和写连接的 `data_version` 判断。
+- **所有 WAL 来源都丢弃**：不用保留只读探测连接就能避开 WAL 共享内存锁。但 Android 的写 store 也会失去跨会话收益，因此已有写连接时继续用它在实际加载时记录的 `data_version`，仅只读 WAL 保守丢弃。
+- **会话结束时重新采样版本，WAL 只读时靠文件戳**：能尽量保留缓存命中，且不保留 WAL 只读连接。但外部提交发生在加载后、结束前时，新版本会错误地为旧模型背书；RESTART 后 WAL 可以等长复用，文件戳也不能替代实际来源。仅在完整加载前后版本相等时建立来源。
 - **预览版本缓存放在 host-api、只给 `msime_client_snapshot_version` 用**（iOS 线另做过一份）：与本线引擎里的 `cached_dictionary_state_revision` 规则相同（日志、`-wal`、`-journal` 的文件身份，两秒落定），但覆盖不到队列的 `state` 和 `process` 发布，留引擎那一份。
 - **偏好按文件戳（mtime、inode）判断、或新增 `msime_client_load_preferences_if_changed` 只 stat 不读**：比逐字节比较更省 I/O。没有采用：mtime 粒度粗、inode 可能被重用、文件可能被原地改写，戳一样内容不一样时会读到旧快照；新增 C ABI 还要四端同时接。偏好文件不大，读字节的成本远小于两遍解析加校验。
 - **联系人读音在保存时算好写进 `mentions.json`**：聚焦时完全不用查词库。但改了落盘格式，主词库更新后读音也不会跟着变，没有采用。
@@ -109,5 +111,15 @@ iOS 键盘每次收起都销毁会话，Android 每进一个输入框都重建�
 各项改动都带了单元测试：统计的攒批不逐次写文件、flush 写出、30 秒门槛、时钟回拨、攒批与逐条写入得到相同文档、与另一进程的清空和关闭合并、清空代号丢弃旧批次；日志以 WAL/`NORMAL` 提交、检查点后主文件单独拷走仍完整；个人模型在会话放手后沿用且只担保一次接手、别的连接写入或换文件后重读、同样大小的原地改写经探测连接发现、模型可能与磁盘不一致或为空时不记录、清缓存放掉、空 `-wal` 出现又消失不算改动、Windows 上不留探测连接、会话 drop 时记下日志；`candidate_range` 一批之内不放尾部、越过末尾才放并换代，真实全拼引擎与整代复制逐行一致；释义缓存在改写、删除、替换各类文件后与重新打开一致、释放后再查不变；`skip_when_idle` 下空队列的 `state`、`process` 不动、排着的请求照样处理，版本没变但正是激活出来的一代时请求仍标为已应用；预览版本与精确版本一致、日志改过后跟着变；插件表缓存命中与主词库或名单变化后重查；空闲同步既不读页也不重写 `sync.json`、各种失效条件下重查、来源戳落定规则；同一份偏好快照再交时回复与第一次相同、效果包跟上、同修订号换内容仍拒绝；偏好文件字节不变时沿用、保存或改坏后重读。多语言「选词不写日志」的断言改为连同 `-wal` 一起比较，否则 WAL 下写入只进 `-wal` 会让断言形同虚设。
 
 合并四条线之后，在编译机上跑 `ulimit -n 4096; cargo test --no-fail-fast -p msime-engine -p msime-host-api -p msime-client-core -p msime-client-services -p msime-input-runtime`：client-core 582 项、client-services 1406 项、engine 2705 项、input-runtime 406 项全部通过；host-api 1016 项通过、2 项失败（`listing_reports_every_pack_and_checks_the_state_root` 没列 `pronunciations` 包、`a_command_gets_the_local_time_to_the_minute`），两项在基点上同样失败，与本线无关。`cargo clippy --keep-going --all-targets -- -D warnings` 只报 client-core 和 client-services 测试里两处 develop 上已有的 `field_reassign_with_default`；`cargo fmt --all --check` 通过。第一次全量跑时 engine 的分配预算用例（临时英文候选选词，预算 67）报 68，逐个提交单独跑定位到给 `journal_size_limit` 拼 PRAGMA 的 `format!`；改成字面量后通过。日志首次打开常在选词提交路径上，这条路径上的分配预算要留意。
+
+来源校验补修在旧实现上真实复现四类失败：加载后结束前的外部提交、只读加载后外部提交、首次只读转写丢掉中间提交、本地 flush 前后的外部提交。补修后，macOS 复用现有 `target/` 运行 `cargo test --locked -p msime-engine --lib -- --test-threads=1`：2717 项通过、57 项忽略、0 项失败；`cargo clippy --locked -p msime-engine --all-targets -- -D warnings` 通过。新增用例还覆盖只读来源连续接手后再修改、回滚日志在结束后修改、WAL 检查点 RESTART 后等长复用。独立代码复核未发现生产阻断问题；修正复核指出的 iOS WAL 夹具和并行代次收尾后，`user_dictionary::ngram_store::tests` 33 项再次全部通过。完整 quick 的最终结果见下；本机引擎测试不替代 Android 设备验证。
+
+整合验证补修：资源清单重构新增 `snapshot_queue_process_with` 后，`skip_when_idle` 必须从公开处理包装器传入该函数；云端激活的直接测试调用显式使用不跳过空闲的策略。新增学习保留参数后的队列测试和状态测试也显式补齐参数，避免合并后测试仍调用旧签名。修前 Rust 工作区检查报三处编译错误，修后复用现有 `target/` 的 `cargo check --locked --workspace --all-targets --exclude msime-desktop` 通过，`cloud::snapshot_queue` 45 项和 Host API 的 `dictionary_snapshot` 47 项通过，包含空闲队列不创建目录、排队请求仍处理、云端激活保留本机学习和不保留策略的回归。Host API 和 client-core 的严格 `--lib` Clippy 通过，新增代码中的多余借用也已修正。这条 Rust 工作区检查本身排除了尚未暂存原生 bundle 的桌面壳；完整 quick 另行覆盖 Linux 桌面壳，结果见下。
+
+整套仓库契约 `bash scripts/run-checks.sh` 复用主工作区现有 `target/` 后通过；鸿蒙个人词库检查跟随带来源戳的有界批次入口，兼容入口仍保留批次上限，移除有界入口或批次上限的反向检查均被拒绝。该命令只覆盖仓库契约，完整 quick 另列，Android 设备验证仍缺。
+
+Linux 原生整合验证发现 `linux-typing-statistics` 仍假定每次 `record` 都替换统计文件。测试现在分别验证攒批期间文件身份不变、刷新开关不额外查询，显式 `flush` 后文件身份改变且下一次刷新重新查询并保持开启；关闭统计和切换目录的既有断言继续保留。
+
+完整 `bash scripts/verify-local.sh --quick` 在 Linux 输入统计测试修正后退出 0：Windows 便携原生测试 176 项通过、2 项宿主差异排除；Rust 工作区、Android Rust 目标、WASM 与严格 Clippy、Android Java、鸿蒙共享设置页、Linux 设置外壳与原生门禁、macOS 原生构建、共享 Apple 桥均通过。Linux CTest 111 项实际通过、1 项环境条件跳过；full/wubi 生产目标、安装暂存及路径隔离也通过。MinGW 和 Windows 原生构建未配置，鸿蒙完整打包输入未暂存，相关阶段按脚本规则跳过，不计通过。另用本分支真实 Host API 链接的 macOS `typing-statistics`、`key-press-statistics`、`session-smoke`、`dictionary-runtime` 四项 CTest 全部通过。
 
 缺口：没有在任何真机上测过耗电、发热或卡顿。验证办法是在低端 Android 机上对比改动前后 `:ime` 进程的 CPU 时间增量（`adb shell top -p <pid>`、`dumpsys batterystats`）、`/proc/<pid>/io` 的写入量，以及聚焦到可打字的 trace。Windows 7 面板的 flush 改动只在 C++ 源码层面跟随，没有在 Windows 7 上运行。三条宿主 PR 的编译和宿主侧测试记在各自的笔记里，都没有装机复测。

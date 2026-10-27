@@ -20,7 +20,7 @@ def main() -> int:
     host = HOST.read_text(encoding="utf-8")
     retry_policy = RETRY_POLICY.read_text(encoding="utf-8") if RETRY_POLICY.exists() else ""
     start = session.index("  start(resources:")
-    drain = session.index("this.drainPersonalDictionary(options)", start)
+    drain = session.index("= this.drainPersonalDictionary(options)", start)
     create = session.index("client.create(options)", drain)
     scheduler = session[
         session.index("  private schedulePersonalDictionaryDrain()") : session.index(
@@ -34,20 +34,15 @@ def main() -> int:
         )
     ]
     required = {
-        "bounded native batch": (
-            ".synchronize_batch_reporting_present_with_source(" in host
-            and "self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, source, page)" in store
-            and "self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, || None, page)" in store
-            or ".synchronize_batch_reporting_present(" in host
-            and (
-                "self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, page)" in store
-                or "self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, || None, page)" in store
-            )
-        ) and ".take(limit)" in store,
+        "bounded native batch": ".synchronize_batch_reporting_present_with_source(" in host
+        and "self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, source, page)" in store
+        and "self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, || None, page)" in store
+        and ".take(limit)" in store,
         "idle sync before Engine session": start < drain < create,
         "drain result adopted": "this.personalDictionarySettled = this.drainPersonalDictionary(options)" in session
         or "const drained: PersonalDictionaryDrain = this.drainPersonalDictionary(options)" in session
-        and "this.personalDictionarySettled = drained === 'settled'" in session,
+        and "this.personalDictionarySettled = drained === 'settled' && mirrored" in session
+        and "const mirrored: boolean = this.syncUserWords(options)" in session,
         "two-second yield": "IDLE_DICTIONARY_RETRY_MS: number = 2000" in session
         or "IDLE_DICTIONARY_RETRY_MS: number = 2000" in retry_policy
         and "IdleDictionaryRetryPolicy.delay(this.personalDictionaryStalls)" in scheduler,

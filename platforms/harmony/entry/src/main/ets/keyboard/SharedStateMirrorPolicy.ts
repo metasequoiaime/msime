@@ -89,6 +89,23 @@ const RETENTIONS: string[] = ["forever", "30d", "90d", "180d", "365d"];
 export const ANONYMOUS_IDENTITY_FILE: string = "anonymous-account.json";
 export const ANONYMOUS_IDENTITY_ENTRY: string = "anonymous-account";
 
+/** 云剪贴板经自建中继或 WebDAV 网盘时的设备身份（Rust 的 `RELAY_KEYSTORE_FILE`），与账号会话同在 `files/state`。 */
+export const CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY: string = "cloud-clipboard-relay-keystore";
+/** 云剪贴板经水杉账号时的设备身份（Rust 的 `CLOUD_CLIPBOARD_KEYSTORE_FILE`）。 */
+export const CLOUD_CLIPBOARD_KEYSTORE_ENTRY: string = "cloud-clipboard-keystore";
+/** WebDAV 网盘日志的本机缓存（Rust 的 `WEBDAV_STATE_FILE`），只有密文和公开数据。 */
+export const CLOUD_CLIPBOARD_WEBDAV_STATE_ENTRY: string = "cloud-clipboard-webdav-state";
+
+/**
+ * 云剪贴板的设备身份只由设置应用生成，键盘扩展只用镜像过来的这一份（请求带 `create_identity: false`，本机没有就停下、不登记），同一台设备在空间里只是一台、只批准一次。
+ *
+ * 设置应用那边没有这份（还没用过云剪贴板）时不删键盘的副本：账号路径的旧版本里键盘自己登记过一台设备，在设置应用生成身份之前它照旧能用；设置应用的身份一到就整份换成它。退出登录时键盘的副本随会话一起由 Rust 的 `session_adopt` 清掉，不靠这里。
+ */
+export const CLOUD_CLIPBOARD_IDENTITY_ENTRIES: readonly string[] = [
+  CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY,
+  CLOUD_CLIPBOARD_KEYSTORE_ENTRY,
+];
+
 /** 设置应用发布、键盘导入的条目。 */
 export const SETTINGS_ENTRIES: MirrorEntry[] = [
   {
@@ -165,6 +182,30 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
     path: "anonymous-session.json",
     fullModeOnly: true,
   },
+  // 键盘从不改写中继的设备身份，只读得到就够了，所以基础访问模式下也导入。
+  {
+    name: CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY,
+    kind: "file",
+    base: "state",
+    path: CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY,
+    fullModeOnly: false,
+  },
+  // 网盘日志的缓存是同一台设备读到的同一份日志，键盘拿设置应用那份往后接着读就行。镜像它是为了「测试连接」通过后的重新信任能传到键盘：设置应用删掉自己的缓存，键盘的副本随之删掉，不会一直报 `webdav_rollback`。
+  {
+    name: CLOUD_CLIPBOARD_WEBDAV_STATE_ENTRY,
+    kind: "file",
+    base: "state",
+    path: CLOUD_CLIPBOARD_WEBDAV_STATE_ENTRY,
+    fullModeOnly: false,
+  },
+  // 账号路径的身份跟着账号会话走：基础访问模式下键盘不导入会话、没有登录，也用不到它。
+  {
+    name: CLOUD_CLIPBOARD_KEYSTORE_ENTRY,
+    kind: "file",
+    base: "state",
+    path: CLOUD_CLIPBOARD_KEYSTORE_ENTRY,
+    fullModeOnly: true,
+  },
 ];
 
 /** 键盘在完整体验模式下发布、设置应用导入的条目：键盘里改的偏好和按键反馈、刷新过的账号会话、匿名账号的身份（随匿名会话由 Rust 采用），以及打字统计。 */
@@ -224,6 +265,11 @@ export class SharedStateMirrorPolicy {
   /** 这个条目是不是交给 Rust 采用：导入时调用方返回 `handled`，不复制也不删除本地文件。 */
   static adoptedByRust(name: string): boolean {
     return RUST_ADOPTED_ENTRIES.includes(name);
+  }
+
+  /** 发布方没有这一条时是否保留导入方自己的副本，而不是跟着删掉：只有云剪贴板的设备身份如此，见 `CLOUD_CLIPBOARD_IDENTITY_ENTRIES`。 */
+  static keepsLocalWhenAbsent(name: string): boolean {
+    return CLOUD_CLIPBOARD_IDENTITY_ENTRIES.includes(name);
   }
 
   /** 导入一个普通文件前的决定：两份会话和匿名账号的身份交给 Rust（`handled`，不复制也不删除本地文件），其余条目照常复制。 */

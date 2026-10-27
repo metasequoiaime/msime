@@ -68,14 +68,9 @@ BUILD_DRIVEN = {
     "runtime/windows7_import_load.cpp": "需要同架构产品目录、导入清单和隔离的插件冷装载子进程",
 }
 
-# The three online workers are the exception to "one translation unit": their
-# class bodies live in a .cpp of their own, so a test of the queueing above them
-# links that file too. Every one of those files reaches the shared host library
-# for its request building, which is why this is a named list rather than a rule
-# - linking arbitrary sources would drag the whole Windows build in. When the
-# host library has not been built here the three are skipped exactly like any
-# other source that needs more than itself.
-# Values are (sources relative to platforms/windows, whether they need the shared host library).
+# 部分测试依赖伴随翻译单元或共享宿主库，按 CMake 目标逐项补齐已确认可移植的依赖。
+# 不自动链接任意源文件，避免把整个 Windows 构建引进来；缺少宿主库产物时仍跳过相关测试。
+# 值为（相对 platforms/windows 的源文件列表，是否需要共享宿主库）。
 COMPANIONS: dict[str, tuple[list[str], bool]] = {
     # 两份真实会话共同验证五笔自动上屏的文档写入归属。
     "input/wubi_auto_commit.cpp": (
@@ -103,8 +98,18 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
+    # 账号释义的请求和解析经共享 C ABI，策略用例需要链接真实宿主库。
+    "candidate/account_gloss_policy.cpp": ([], True),
     "core/uiless_candidates.cpp": (["src/ipc/ReplyCodec.cpp"], False),
-    # 候选信箱发布页面时做繁简投影，需要真实的转换实现。
+    # 候选投影、五笔提示与编辑光标经过繁简转换，需要同一实现及其宿主库依赖。
+    "candidate/caret_edit_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "candidate/candidate_pointer_input.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "candidate/korean_hanja_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "candidate/script_annotation_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "candidate/translation_reserved_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "candidate/wubi_code_hint.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "input/chinese_conversion.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "input/preedit_caret.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "ui/candidate_render_request.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 两份真实引擎会话通过外部候选选择继续组字。

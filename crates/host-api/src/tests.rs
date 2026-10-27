@@ -1221,6 +1221,46 @@ fn account_cloud_clipboard_refuses_without_a_signed_in_session_or_a_valid_action
         );
     }
     assert!(!directory.path().join("account-session.json").exists());
+
+    // 只用已有身份：本机没有密钥串时，经驱动的动作答 clipboard_identity_missing，不生成也不写出密钥串；不经驱动的动作照常停在会话上。
+    let borrowed = |action: serde_json::Value| {
+        let body = serde_json::to_vec(
+            &json!({ "directory": path, "create_identity": false, "action": action }),
+        )
+        .unwrap();
+        read(unsafe { msime_client_account_cloud_clipboard(body.as_ptr(), body.len()) })
+    };
+    for action in [
+        json!({ "operation": "list", "search": "" }),
+        json!({ "operation": "add", "text": "synthetic upload" }),
+        json!({ "operation": "devices" }),
+    ] {
+        assert_eq!(
+            borrowed(action.clone())["error"],
+            "clipboard_identity_missing",
+            "{action}"
+        );
+    }
+    assert_eq!(
+        borrowed(json!({ "operation": "clear" }))["error"],
+        "account_unauthorized"
+    );
+    assert!(!directory.path().join("cloud-clipboard-keystore").exists());
+    // 镜像过来的密钥串可以解析时照常往下走，这里停在没有登录会话上。
+    use msime_client_services::account::AccountSessionStorage as _;
+    let keystore = msime_client_core::cloud::clipboard_e2e::Keystore::generate()
+        .unwrap()
+        .encode();
+    msime_client_services::account::FileAccountSessionStorage::new(
+        directory.path(),
+        msime_client_services::account::AccountSessionFileLayout::Native,
+    )
+    .save_clipboard_keystore(&keystore)
+    .unwrap();
+    assert_eq!(
+        borrowed(json!({ "operation": "list", "search": "" }))["error"],
+        "account_unauthorized"
+    );
 }
 
 #[test]
@@ -1293,6 +1333,35 @@ fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_ne
         call(request(json!({ "operation": "clear" })))["error"],
         "relay_unavailable"
     );
+    // 只用已有身份：目录里没有这个中继的密钥串时，经驱动的动作停在本机（不是 relay_unavailable），不写出密钥串；直接请求的动作照常发出。
+    let borrowed = |action: serde_json::Value| {
+        let mut body = request(action);
+        body["create_identity"] = json!(false);
+        call(body)
+    };
+    for action in [
+        json!({ "operation": "list", "search": "" }),
+        json!({ "operation": "add", "text": "合成上传" }),
+        json!({ "operation": "devices" }),
+        json!({ "operation": "reset" }),
+    ] {
+        assert_eq!(
+            borrowed(action.clone())["error"],
+            "clipboard_identity_missing",
+            "{action}"
+        );
+    }
+    assert!(!keystore
+        .path()
+        .join("cloud-clipboard-relay-keystore")
+        .exists());
+    assert_eq!(
+        borrowed(json!({ "operation": "clear" }))["error"],
+        "relay_unavailable"
+    );
+    let mut wrong_type = request(json!({ "operation": "list", "search": "" }));
+    wrong_type["create_identity"] = json!("no");
+    assert_eq!(call(wrong_type)["error"], "invalid_cloud_clipboard");
     // 同一份配置快照提供修订号；地址、令牌改变或切回账号后旧动作都停在联网之前。
     let revision = source()["value"]["revision"].as_u64().unwrap();
     assert_eq!(revision, 1);
@@ -19314,6 +19383,10 @@ fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
     let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
     assert_eq!(synced["ok"], true, "{synced}");
     assert_eq!(synced["value"]["pending_count"], 0);
+    assert_eq!(
+        synced["value"]["applied_count"], 1,
+        "已存在项不计作写入：{synced}"
+    );
     let state = store.read().unwrap();
     assert_eq!(
         state.already_present,
@@ -19433,6 +19506,86 @@ fn common_phrases_and_collections_forward_to_client_core() {
         json!({"options": empty_host_options(directory.path()), "action": {"operation": "delete", "id": "builtin:pinyin"}}),
     );
     assert_eq!(locked["error"], "builtin_locked");
+}
+
+/// 单个个人编辑在一批内清空队列时，宿主仍能知道这一轮改过词库。
+#[test]
+fn personal_edits_report_written_count_even_when_the_queue_finishes_in_one_batch() {
+    use msime_client_services::dictionary::personal::{
+        PersonalDictionaryStore, PersonalWord, PersonalWordKind,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "ni'hao".into(),
+        value: "你好".into(),
+        weight: 100,
+    };
+    let synchronize = || {
+        call_android_data(
+            msime_client_dictionary_collections,
+            json!({"options": options, "action": {"operation": "synchronize", "budget_millis": 100}}),
+        )
+    };
+    let empty = synchronize();
+    assert_eq!(empty["ok"], true, "{empty}");
+    assert_eq!(empty["value"]["pending_count"], 0);
+    store
+        .enqueue(None, Some(word.clone()), "synthetic-add".into())
+        .unwrap();
+    let added = synchronize();
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["pending_count"], 0);
+    assert_eq!(added["value"]["sent"], 0);
+    assert_eq!(added["value"]["applied_count"], 1, "{added}");
+    store
+        .enqueue(Some(word), None, "synthetic-delete".into())
+        .unwrap();
+    let deleted = synchronize();
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    assert_eq!(deleted["value"]["pending_count"], 0);
+    assert_eq!(deleted["value"]["applied_count"], 1, "{deleted}");
+    assert_eq!(synchronize()["value"]["applied_count"], 0);
+}
+
+/// 个人队列和集合待发项跨过多个批次时，响应保留前批的写入与发送数量。
+#[test]
+fn collection_synchronization_accumulates_written_and_sent_counts_across_batches() {
+    use msime_client_services::dictionary::{
+        collections::DictionaryCollectionsStore,
+        personal::{PersonalDictionaryStore, PersonalWord, PersonalWordKind},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options =
+        HostOptions::from_document(host_options_with_main_dictionary(directory.path())).unwrap();
+    let personal = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = |index: u32| PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "ni'hao".into(),
+        value: format!("{}词", char::from_u32(0x4e00 + index).unwrap()),
+        weight: 100,
+    };
+    personal
+        .enqueue(None, Some(word(129)), "synthetic-first-batch".into())
+        .unwrap();
+    let collections = DictionaryCollectionsStore::new(directory.path(), personal);
+    let queued = collections
+        .queue_words((0..129).map(word).collect())
+        .unwrap();
+    assert_eq!(queued.queued, Some(129));
+    // 保存集合时已补满个人队列的剩余 127 个位置，本次同步只需再送最后两个词。
+    assert_eq!(queued.outbox_pending, 2);
+    let synchronized = crate::dictionary::synchronize_collections_with_budget(
+        &options,
+        std::time::Duration::from_secs(60),
+    )
+    .unwrap();
+    assert_eq!(synchronized["pending_count"], 0, "{synchronized}");
+    assert_eq!(synchronized["failed_count"], 0, "{synchronized}");
+    assert_eq!(synchronized["applied_count"], 130, "{synchronized}");
+    assert_eq!(synchronized["sent"], 2, "{synchronized}");
 }
 
 #[test]
@@ -19770,7 +19923,7 @@ fn credential_test_export_answers_incomplete_configurations_offline() {
             "voice.polish",
             json!({"token": "synthetic", "endpoint": "http://polish.example/v1", "model": "m"}),
         ),
-        "请填写有效的 HTTPS 接口地址和模型名。"
+        "请填写有效的接口地址（https://，或本机、局域网的 http://）和模型名。"
     );
     for invalid in [
         json!({"config": {}}),
@@ -20339,6 +20492,135 @@ fn mobile_english_correction_request_preserves_raw_and_the_session() {
     assert_eq!(
         call(json!({"prefix":"he!","limit":2,"correction":true}))["ok"],
         false
+    );
+    assert_eq!(read(msime_client_view(handle))["value"], before);
+    assert!(!path.with_extension("db-journal").exists());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
+fn mobile_english_display_request_merges_correction_and_completions() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let path = resources.join("msime-english.db");
+    msime_engine::ensure_english_schema(&path).unwrap();
+    rusqlite::Connection::open(&path).unwrap().execute_batch(
+        "INSERT INTO english_words VALUES('the','the',23000000000),('tech','tech',93000000),('hello','hello',50000000),('help','help',40000000),('hero','hero',1000000),('monday','Monday',79000000),('language','language',5000000000);"
+    ).unwrap();
+    let handle = test_host(root.path());
+    let before = read(msime_client_view(handle))["value"].clone();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        let resources = resources.to_str().unwrap().as_bytes();
+        read(unsafe {
+            msime_client_english_completions_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    let display = |prefix: &str, limit: u8| {
+        call(json!({"prefix": prefix, "limit": limit, "correction": true, "completions": true}))
+    };
+    // 有纠错：只有原文与纠错。
+    assert_eq!(
+        display("teh", 5),
+        json!({"ok":true,"value":{"prefix":"teh","items":["teh","the"],"corrected":true}})
+    );
+    assert_eq!(
+        display("Teh", 5)["value"],
+        json!({"prefix":"Teh","items":["Teh","The"],"corrected":true})
+    );
+    assert_eq!(
+        display("languaage", 5)["value"],
+        json!({"prefix":"languaage","items":["languaage","language"],"corrected":true})
+    );
+    // 第二行放不下时没有纠错行，corrected 为假。
+    assert_eq!(
+        display("teh", 1)["value"],
+        json!({"prefix":"teh","items":["teh"],"corrected":false})
+    );
+    // 原文已是完整的词：精确命中、固定词形与受保护的缩写都只有原文。
+    for raw in [
+        "hello", "Hello", "HELLO", "the", "you're", "I", "pls", "omg", "Monday",
+    ] {
+        assert_eq!(
+            display(raw, 5)["value"],
+            json!({"prefix":raw,"items":[raw],"corrected":false}),
+            "{raw}"
+        );
+    }
+    // 其余情况原文后接前缀补全。
+    assert_eq!(
+        display("he", 5)["value"],
+        json!({"prefix":"he","items":["he","hello","help","hero"],"corrected":false})
+    );
+    assert_eq!(
+        display("he", 2)["value"],
+        json!({"prefix":"he","items":["he","hello"],"corrected":false})
+    );
+    assert_eq!(
+        display("He", 3)["value"],
+        json!({"prefix":"He","items":["He","Hello","Help"],"corrected":false})
+    );
+    assert_eq!(
+        display("mon", 5)["value"],
+        json!({"prefix":"mon","items":["mon","Monday"],"corrected":false})
+    );
+    assert_eq!(
+        display("xq", 5)["value"],
+        json!({"prefix":"xq","items":["xq"],"corrected":false})
+    );
+    // completions 只能与 correction 同用；其他校验不变。
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3,"completions":true})),
+        json!({"ok":false,"error":"invalid English completion request"})
+    );
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3,"correction":false,"completions":true}))["ok"],
+        false
+    );
+    for request in [
+        json!({"prefix":"","limit":3,"correction":true,"completions":true}),
+        json!({"prefix":"he!","limit":3,"correction":true,"completions":true}),
+        json!({"prefix":"he","limit":0,"correction":true,"completions":true}),
+        json!({"prefix":"he","limit":33,"correction":true,"completions":true}),
+        json!({"prefix":"he","limit":3,"correction":true,"completions":"yes"}),
+    ] {
+        assert_eq!(call(request.clone())["ok"], false, "{request}");
+    }
+    // 不带 completions 的两种请求形状与此前逐字节相同。
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3})),
+        json!({"ok":true,"value":{"prefix":"he","items":["hello","help","hero"]}})
+    );
+    assert_eq!(
+        call(json!({"prefix":"teh","limit":2,"correction":true})),
+        json!({"ok":true,"value":{"prefix":"teh","items":["teh","the"]}})
+    );
+    assert_eq!(
+        call(json!({"prefix":"he","limit":3,"correction":true,"completions":false})),
+        json!({"ok":true,"value":{"prefix":"he","items":["he"]}})
+    );
+    // 缺词库时固定词形照常恢复，其余只有原文。
+    let missing = tempfile::tempdir().unwrap();
+    let missing = missing.path().to_str().unwrap().as_bytes();
+    let request =
+        serde_json::to_vec(&json!({"prefix":"i","limit":5,"correction":true,"completions":true}))
+            .unwrap();
+    assert_eq!(
+        read(unsafe {
+            msime_client_english_completions_request(
+                request.as_ptr(),
+                request.len(),
+                missing.as_ptr(),
+                missing.len(),
+            )
+        })["value"],
+        json!({"prefix":"i","items":["i","I"],"corrected":true})
     );
     assert_eq!(read(msime_client_view(handle))["value"], before);
     assert!(!path.with_extension("db-journal").exists());

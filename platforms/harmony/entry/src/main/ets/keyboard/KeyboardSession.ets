@@ -16,9 +16,14 @@ import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { IdleDictionaryRetryPolicy, PersonalDictionaryDrain } from './IdleDictionaryRetryPolicy';
+import { UserWordsMirror } from './UserWordsMirror';
+import {
+  KEYBOARD_MAX_CHANGES, KeyboardSyncOutcome, UserWordsMirrorPolicy, UserWordsReply
+} from './UserWordsMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
 import { readTypingStatisticsEnabled, writeKeyPresses, writeTypingStatistics } from './TypingStatisticsWriter';
+import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { AppThemePalette, AppThemeSeed } from './skin/AppThemePalette';
@@ -1254,6 +1259,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   // 个人词库排空连续没有进展的次数，以及上一次同步之后队列里剩的条数（不知道时为 -1），用来给重建会话的重试退避，见 `IdleDictionaryRetryPolicy`。
   private personalDictionaryStalls: number = 0;
   private personalDictionaryPending: number = -1;
+  // 与设置应用交换「我的词条」（`UserWordsMirrorPolicy`）：建会话之前要不要 sync、上次做完时设置应用发布的标记，以及失去焦点时 publish 的节流。
+  private userWordsDue: boolean = true;
+  private userWordsMergedMark: string | null = null;
+  private userWordsFailures: number = 0;
+  private userWordsPublishing: boolean = false;
+  private userWordsPublishedJournal: string | null = null;
+  private userWordsPublishMs: number = 0;
   private snapshotOptions: Object | undefined = undefined;
   private snapshotQueueTimer: number = -1;
   // 快照队列连续几轮查到待处理请求、为它重建了会话却仍没处理掉，重建后的下一次检查按它退避。
@@ -2012,7 +2024,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
     // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
     const drained: PersonalDictionaryDrain = this.drainPersonalDictionary(options);
-    this.personalDictionarySettled = drained === 'settled';
+    // 同一个边界上交换「我的词条」；队列和镜像都完成后才停止空闲重试。
+    const mirrored: boolean = this.syncUserWords(options);
+    this.personalDictionarySettled = drained === 'settled' && mirrored;
     this.personalDictionaryStalls = drained === 'stalled' ? this.personalDictionaryStalls + 1 : 0;
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
@@ -2066,6 +2080,52 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
       return 'stalled';
     }
+  }
+
+  /**
+   * 建会话之前与设置应用交换「我的词条」（`msime_client_user_words_mirror` 的 sync）。设置应用的发布从上次做完以后没变、上次也做完了时不做。完整体验模式下顺带发布键盘的；基础访问模式下键盘写不了共享目录，只收不发。返回这一次是否做完，没做完（忙、到了这次的上限）时由空闲时的会话重建接着做。
+   */
+  private syncUserWords(options: string): boolean {
+    const mirror: SharedStateMirror | null = this.sharedMirror;
+    if (mirror === null || this.stateDirectory.length === 0) return true;
+    const theirs: string = mirror.userWordsFile('settings');
+    const mark: string = UserWordsMirror.fileMark(theirs);
+    if (!UserWordsMirrorPolicy.keyboardSyncDue(this.userWordsDue, this.userWordsMergedMark, mark)) return true;
+    const publish: string | null = this.sharedFullMode() ? mirror.userWordsFile('keyboard') : null;
+    const reply: UserWordsReply = UserWordsMirror.run(UserWordsMirrorPolicy.request('sync', 'keyboard', options,
+      this.stateDirectory, theirs, publish, KEYBOARD_MAX_CHANGES));
+    const outcome: KeyboardSyncOutcome = UserWordsMirrorPolicy.keyboardOutcome(reply, this.userWordsFailures);
+    const settled: boolean = outcome.settled;
+    this.userWordsFailures = outcome.failures;
+    this.userWordsDue = !settled;
+    if (settled) this.userWordsMergedMark = mark;
+    if (reply.published) {
+      this.userWordsPublishedJournal = UserWordsMirror.journalMark(this.stateDirectory);
+      this.userWordsPublishMs = Date.now();
+    }
+    return settled;
+  }
+
+  /**
+   * 失去焦点时把这次编辑里学到、删掉的词发布给设置应用（publish：只记录，不写词库，会话开着也能做），在工作线程上。只在完整体验模式下、日志变了、距上次至少 30 秒时做。
+   */
+  private publishUserWords(): void {
+    const mirror: SharedStateMirror | null = this.sharedMirror;
+    if (mirror === null || this.stateDirectory.length === 0 || this.snapshotOptions === undefined) return;
+    const journal: string = UserWordsMirror.journalMark(this.stateDirectory);
+    const now: number = Date.now();
+    if (!UserWordsMirrorPolicy.keyboardPublishDue(this.sharedFullMode(), this.userWordsPublishing,
+      this.userWordsPublishedJournal, journal, this.userWordsPublishMs, now)) {
+      return;
+    }
+    this.userWordsPublishing = true;
+    this.userWordsPublishMs = now;
+    const request: string = UserWordsMirrorPolicy.request('publish', 'keyboard', JSON.stringify(this.snapshotOptions),
+      this.stateDirectory, null, mirror.userWordsFile('keyboard'), KEYBOARD_MAX_CHANGES);
+    UserWordsMirror.runAsync(request).then((reply: UserWordsReply): void => {
+      this.userWordsPublishing = false;
+      if (reply.ok) this.userWordsPublishedJournal = journal;
+    });
   }
 
   /** 把命名词库里还没送出的增删再送一批，返回这次送出的条数；失败按 0 算，下次排空时再试。 */
@@ -3548,6 +3608,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.start(resources, state, dark);
       if (this.handle !== 0) this.apply(client.focus(this.handle, true));
     }
+    // 设置应用的「我的词条」发布变了（设置页改了词、网盘同步写进了词）：写本机词库要等没有会话开着，排一次空闲时的会话重建，在那里的 `syncUserWords` 写进来。
+    if (UserWordsMirrorPolicy.keyboardSyncDue(this.userWordsDue, this.userWordsMergedMark,
+      UserWordsMirror.fileMark(this.sharedMirror.userWordsFile('settings')))) {
+      this.userWordsDue = true;
+      this.personalDictionarySettled = false;
+      this.schedulePersonalDictionaryDrain();
+    }
   }
 
   detach(): void {
@@ -3591,6 +3658,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         SharedStateSync.keyboardPublish(mirror);
       }
     });
+    // 这次编辑里学到、删掉的词也发布给设置应用，词库同步从那里送上网盘。
+    this.publishUserWords();
   }
 
   stop(): void {
@@ -4605,6 +4674,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private customThemeBase: string = 'system';
   private customDesign: CustomKeyboardSkin | null = null;
   private vibratorFailed: boolean = false;
+  /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
+  private vibrationPending: boolean = false;
   private traditional: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
@@ -5856,15 +5927,20 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private tapFeedback(): void {
     const settings: FeedbackSettings = this.feedbackCurrent;
-    if (!settings.haptics || this.vibratorFailed) {
+    if (!settings.haptics || this.vibratorFailed || this.vibrationPending) {
       return;
     }
+    this.vibrationPending = true;
     try {
-      KeyboardSession.vibrate(settings.strength).catch((error: Object): void => {
+      KeyboardSession.vibrate(settings.strength).then((): void => {
+        this.vibrationPending = false;
+      }).catch((error: Object): void => {
+        this.vibrationPending = false;
         this.vibratorFailed = true;
         KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
       });
     } catch (error) {
+      this.vibrationPending = false;
       this.vibratorFailed = true;
       KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
     }
@@ -5888,12 +5964,41 @@ export class KeyboardSession implements HardwareKeyTarget {
     return supported;
   }
 
+  /** 按键振动在 TaskPool 线程上发（`startKeyVibration`）；那条路失败过一次就改回在 UI 线程上发，至少还能振。 */
+  private static vibratesOnWorker: boolean = true;
+
   /**
    * 按一档振一下，按键和设置页的试听共用。档位怎么振见 `KeyboardFeedback.plan`：设备支持预置效果就用效果加强度，不支持就按时长振；「跟随系统」用 `touch` 用途，由系统的触感反馈设置决定振不振、多强，不带自定义强度。
+   *
+   * 振动请求在 TaskPool 线程上发出，理由见 `KeyVibration.ets`。效果支不支持仍在这里查：每个效果只查一次，结果记在 UI 线程这一侧。
    */
   static vibrate(strength: HapticStrength): Promise<void> {
+    const plan: HapticPlan = KeyboardFeedback.plan(strength);
+    if (!KeyboardSession.vibratesOnWorker) {
+      return KeyboardSession.vibrateHere(plan);
+    }
+    const effectId: string = KeyboardSession.supportsEffect(plan.effectId) ? plan.effectId : '';
+    let task: Promise<Object>;
     try {
-      const plan: HapticPlan = KeyboardFeedback.plan(strength);
+      // 高优先级：TaskPool 里还跑着打字统计这类要拿文件锁、整份重写的任务，振动排在它们后面就晚了，晚到的振动比不振更乱手感。
+      task = taskpool.execute(new taskpool.Task(startKeyVibration, effectId, plan.intensity, plan.fallbackMillis,
+        plan.followsSystem), taskpool.Priority.HIGH);
+    } catch (error) {
+      return KeyboardSession.workerVibrationFailed(plan, error as Object);
+    }
+    return task.then((): void => {}, (error: Object): Promise<void> => {
+      return KeyboardSession.workerVibrationFailed(plan, error);
+    });
+  }
+
+  private static workerVibrationFailed(plan: HapticPlan, error: Object): Promise<void> {
+    KeyboardSession.vibratesOnWorker = false;
+    KeyboardLog.error(`vibration off the UI thread unavailable: ${describeError(error)}`);
+    return KeyboardSession.vibrateHere(plan);
+  }
+
+  private static vibrateHere(plan: HapticPlan): Promise<void> {
+    try {
       const attribute: vibrator.VibrateAttribute = { usage: plan.followsSystem ? 'touch' : 'physicalFeedback' };
       if (!KeyboardSession.supportsEffect(plan.effectId)) {
         const timed: vibrator.VibrateTime = { type: 'time', duration: plan.fallbackMillis };
@@ -5905,7 +6010,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       return vibrator.startVibration(preset, attribute);
     } catch (error) {
-      KeyboardLog.error('keyboard.KeyboardSession.vibrate failed');
+      KeyboardLog.error('keyboard.KeyboardSession.vibrateHere failed');
       throw error as Error;
     }
   }

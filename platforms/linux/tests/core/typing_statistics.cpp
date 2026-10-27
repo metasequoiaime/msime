@@ -112,9 +112,20 @@ void switch_follows_the_store() {
   statistics.refresh(directory);
   assert(queries == 3);
   assert(statistics.enabled());
-  // Any store write replaces the document, a recorded commit included; this one goes straight to the store only to change the document's identity, and the tick after it reads it again and stays on.
+  // 上屏先攒在内存中，刷新开关不得触发额外查询或提前写出统计。
+  const auto before_record = identity(document);
   const auto recorded = call(directory, "{\"operation\":\"record\",\"text\":\"输入法\",\"source\":\"quanpin\",\"day\":\"2026-09-23\",\"hour\":10}");
   assert(recorded.find("\"recorded\":3") != std::string::npos);
+  assert(identity(document) == before_record);
+  statistics.refresh(directory);
+  assert(queries == 3);
+  assert(statistics.enabled());
+  assert(identity(document) == before_record);
+
+  // 失焦等路径显式写出后文件身份改变，下一次刷新重新查询并保持开启。
+  const auto flushed = call(directory, "{\"operation\":\"flush\"}");
+  assert(flushed.find("\"ok\":true") != std::string::npos);
+  assert(!(identity(document) == before_record));
   statistics.refresh(directory);
   assert(queries == 4);
   assert(statistics.enabled());

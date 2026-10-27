@@ -1486,3 +1486,84 @@ fn scel_text_feeds_the_queued_import_with_word_order_lines() {
     assert_eq!(report["entries"][0]["key"], "ce'shi");
     assert_eq!(report["entries"][0]["weight"], 10_000);
 }
+
+fn queued_collection_sync_fixture() -> (tempfile::TempDir, HostOptions, PersonalDictionaryStore) {
+    use msime_client_services::dictionary::collections::DictionaryCollectionsStore;
+    let directory = tempfile::tempdir().unwrap();
+    let options = HostOptions::from_document(crate::tests::host_options_with_main_dictionary(
+        directory.path(),
+    ))
+    .unwrap();
+    let personal = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let words = (0..129)
+        .map(|index: u32| PersonalWord {
+            kind: msime_client_services::dictionary::personal::PersonalWordKind::Pinyin,
+            key: "ni'hao".into(),
+            value: format!("{}词", char::from_u32(0x4e00 + index).unwrap()),
+            weight: 100,
+        })
+        .collect();
+    let collections = DictionaryCollectionsStore::new(
+        directory.path(),
+        PersonalDictionaryStore::new(directory.path().join("PersonalDictionary")),
+    );
+    assert_eq!(collections.queue_words(words).unwrap().outbox_pending, 1);
+    (directory, options, personal)
+}
+
+/// 在下一批开始时由真实输入会话抢占租约，已完成的进展仍返回给通知方。
+#[test]
+fn collection_sync_keeps_progress_when_next_batch_is_busy() {
+    let (_directory, options, personal) = queued_collection_sync_fixture();
+    let engine_options = options.clone().into_engine_options();
+    let mut attempts = 0;
+    let mut session = None;
+    let result =
+        synchronize_collections_with_access(&options, std::time::Duration::from_secs(60), || {
+            attempts += 1;
+            if attempts == 2 {
+                session = DictionaryAccess::try_session(
+                    Path::new(&engine_options.user_data),
+                    Path::new(&engine_options.dictionaries),
+                )
+                .unwrap();
+                assert!(session.is_some(), "前一批已释放维护租约");
+            }
+            DictionaryAccess::try_maintenance(
+                Path::new(&engine_options.user_data),
+                Path::new(&engine_options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable".to_owned())
+        });
+    let progress = result.expect("后批忙不能丢掉已应用数量");
+    assert_eq!(progress["applied_count"], 128, "{progress}");
+    assert_eq!(progress["pending_count"], 1, "{progress}");
+    assert_eq!(progress["sent"], 1, "{progress}");
+    assert_eq!(personal.read().unwrap().pending_count(), 1);
+    drop(session);
+    let resumed =
+        synchronize_collections_with_budget(&options, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(resumed["pending_count"], 0, "{resumed}");
+    assert_eq!(resumed["applied_count"], 1, "{resumed}");
+}
+
+/// 忙碌可重试，但维护租约的存储失败仍要报告，不能拿前批成功遮住它。
+#[test]
+fn collection_sync_does_not_hide_later_lease_storage_errors() {
+    let (_directory, options, _personal) = queued_collection_sync_fixture();
+    let engine_options = options.clone().into_engine_options();
+    let mut attempts = 0;
+    let result =
+        synchronize_collections_with_access(&options, std::time::Duration::from_secs(60), || {
+            attempts += 1;
+            if attempts == 2 {
+                return Err("dictionary access unavailable".to_owned());
+            }
+            DictionaryAccess::try_maintenance(
+                Path::new(&engine_options.user_data),
+                Path::new(&engine_options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable".to_owned())
+        });
+    assert_eq!(result.unwrap_err(), "dictionary access unavailable");
+}

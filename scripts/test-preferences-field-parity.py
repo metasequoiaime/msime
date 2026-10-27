@@ -40,6 +40,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_quanpin_shift",
         # 上屏后联想先在 Android 原生键盘验收，其他宿主保留字段，尚无共享设置入口。
         "next_word_prediction",
+        # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
+        "dictionary_sync_webdav",
 
     },
     "KeybindingPreferences": set(),

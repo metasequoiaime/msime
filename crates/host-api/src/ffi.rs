@@ -218,6 +218,7 @@ pub mod cloud_dictionary;
 pub mod cloud_sync;
 pub mod community;
 pub mod credentials;
+pub mod dictionary_sync;
 pub mod google;
 #[cfg(not(target_os = "android"))]
 pub mod handwriting;
@@ -238,6 +239,7 @@ pub mod settled;
 pub mod skin_image;
 pub mod spacing;
 pub mod translation;
+pub mod user_words;
 pub mod voice;
 #[cfg(windows)]
 pub mod windows_handwriting;
@@ -252,6 +254,7 @@ mod preference_schema_tests;
 pub use android_data::*;
 pub use candidates::*;
 pub use credentials::*;
+pub use dictionary_sync::*;
 pub use host::*;
 pub use input::*;
 pub use lifecycle::*;
@@ -263,6 +266,7 @@ pub use session::*;
 pub use settled::*;
 pub use skin_image::*;
 pub use translation::*;
+pub use user_words::*;
 pub use voice::*;
 #[cfg(windows)]
 pub use windows_handwriting::*;

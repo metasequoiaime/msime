@@ -1500,7 +1500,7 @@ fn user_entries_page(
 
 /// 分批把队列应用到 Engine。整批先申请独占维护租约；词库忙碌时不修改队列，调用方稍后重试。
 ///
-/// The request is the bare HostOptions a host passes to `msime_client_create`, as the C header documents and as both the Android and HarmonyOS hosts send it. Parsing it as an `{options, action}` envelope refused every call, which Android swallowed and HarmonyOS answered by rebuilding its session every two seconds.
+/// 请求直接使用宿主传给 `msime_client_create` 的 HostOptions，与 C 头文件及 Android、HarmonyOS 的调用一致。
 pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     if bytes.len() > DICTIONARY_REQUEST_LIMIT {
         return Err("invalid dictionary buffer".into());
@@ -1525,12 +1525,22 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     let options = options.into_engine_options();
     // 整个有界同步期间都持有维护租约。活动会话时保留 Pending，让调用方在会话销毁后重试。
-    let _access = DictionaryAccess::try_maintenance(
+    let access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
     )
     .map_err(|_| "dictionary access unavailable")?
     .ok_or("dictionary maintenance busy")?;
+    personal_dictionary_sync_with_access(&options, &store, &access)
+}
+
+/// 调用方持有本批维护租约，个人队列与集合应用之间不能释放再争抢。
+fn personal_dictionary_sync_with_access(
+    options: &msime_engine::host::EngineOptions,
+    store: &PersonalDictionaryStore,
+    _access: &DictionaryAccess,
+) -> Result<serde_json::Value, String> {
+    let mut applied_count = 0usize;
     store
         .synchronize_batch_reporting_present_with_source(
             |requests| {
@@ -1548,7 +1558,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                 for (index, queued) in requests.iter().enumerate() {
                     let (previous, replacement) = &entries[index];
                     let result = crate::validate_personal_dictionary_edit(
-                        &options,
+                        options,
                         previous.as_ref(),
                         replacement.as_ref(),
                         &queued.id,
@@ -1571,13 +1581,14 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                             .starts_with(COLLECTION_REQUEST_PREFIX),
                     })
                     .collect();
-                let applied = msime_engine::host::dictionary_edit_batch(&options, &edits)
+                let applied = msime_engine::host::dictionary_edit_batch(options, &edits)
                     .map_err(|_| "dictionary batch was not committed".to_owned())?;
                 for (index, result) in edit_indexes.into_iter().zip(applied) {
                     outcomes[index] = Some(
                         result
                             .map(|outcome| match outcome {
                                 msime_engine::host::DictionaryApplied::Written => {
+                                    applied_count += 1;
                                     PersonalWordApplied::Written
                                 }
                                 msime_engine::host::DictionaryApplied::AlreadyPresent => {
@@ -1595,10 +1606,10 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                     .collect()
             },
             // 队列空、宿主没要新页时，日志的戳没动就沿用上次那一页，聚焦时不必再扫日志、重写 sync.json。
-            || msime_engine::host::dictionary_entries_source(&options),
+            || msime_engine::host::dictionary_entries_source(options),
             |request| {
                 let (entries, has_more) = user_entries_page(
-                    &options,
+                    options,
                     request.offset,
                     100,
                     request.kind.map(personal_to_kind),
@@ -1624,6 +1635,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     let state = store.read().map_err(personal_dictionary_error)?;
     Ok(json!({
         "synchronized": true,
+        "applied_count": applied_count,
         "pending_count": state.pending_count(),
         "failed_count": state.requests.iter().filter(|request| request.status == PersonalWordRequestStatus::Failed).count(),
         "snapshot_error": state.snapshot_error,
@@ -1633,10 +1645,25 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
 /// `msime_client_services::dictionary::collections` 给它排队的请求所加的 id 前缀。
 const COLLECTION_REQUEST_PREFIX: &str = "collections-";
 
-/// 同一有界调用内复用集合状态；个人同步每批独立取得并释放维护租约。
+/// 同一有界调用内复用集合状态；每批以同一维护租约覆盖个人队列和集合，批间释放。
 pub(crate) fn synchronize_collections_with_budget(
     options: &HostOptions,
     budget: std::time::Duration,
+) -> Result<serde_json::Value, String> {
+    let engine_options = options.clone().into_engine_options();
+    synchronize_collections_with_access(options, budget, || {
+        DictionaryAccess::try_maintenance(
+            Path::new(&engine_options.user_data),
+            Path::new(&engine_options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable".to_owned())
+    })
+}
+
+fn synchronize_collections_with_access(
+    options: &HostOptions,
+    budget: std::time::Duration,
+    mut maintenance: impl FnMut() -> Result<Option<DictionaryAccess>, String>,
 ) -> Result<serde_json::Value, String> {
     let directory = options
         .preferences_directory
@@ -1653,18 +1680,19 @@ pub(crate) fn synchronize_collections_with_budget(
     let mut flushing = collections
         .begin_flush()
         .map_err(|error| error.code().to_owned())?;
-    let bytes = serde_json::to_vec(options).map_err(|_| "invalid dictionary request")?;
     let engine_options = options.clone().into_engine_options();
     let mut previous = usize::MAX;
+    let mut applied_count = 0u64;
+    let mut total_sent = 0usize;
+    let mut progress = None;
     loop {
-        // 先成功申请维护租约并应用个人队列，繁忙时不得提前推进集合待发项。
-        let mut synchronized = personal_dictionary_sync_json(&bytes)?;
-        let access = DictionaryAccess::try_maintenance(
-            Path::new(&engine_options.user_data),
-            Path::new(&engine_options.dictionaries),
-        )
-        .map_err(|_| "dictionary access unavailable")?
-        .ok_or("dictionary maintenance busy")?;
+        // 每批只申请一次租约；后批被会话抢先占用时，保留前批已确认的数量和待处理项。
+        let Some(access) = maintenance()? else {
+            return progress.ok_or_else(|| "dictionary maintenance busy".to_owned());
+        };
+        let mut synchronized =
+            personal_dictionary_sync_with_access(&engine_options, &personal, &access)?;
+        applied_count += synchronized["applied_count"].as_u64().unwrap_or(0);
         let view = if budget.is_zero() {
             flushing.flush()
         } else {
@@ -1676,17 +1704,20 @@ pub(crate) fn synchronize_collections_with_budget(
         let state = personal.read().map_err(personal_dictionary_error)?;
         let pending = state.pending_count().saturating_add(view.outbox_pending);
         let sent = view.sent.unwrap_or(0);
+        total_sent = total_sent.saturating_add(sent);
+        synchronized["applied_count"] = json!(applied_count);
         synchronized["pending_count"] = json!(pending);
         synchronized["failed_count"] = json!(state
             .requests
             .iter()
             .filter(|request| request.status == PersonalWordRequestStatus::Failed)
             .count());
-        synchronized["sent"] = json!(sent);
+        synchronized["sent"] = json!(total_sent);
         if pending == 0 || started.elapsed() >= budget || (sent == 0 && pending >= previous) {
             return Ok(synchronized);
         }
         previous = pending;
+        progress = Some(synchronized);
     }
 }
 

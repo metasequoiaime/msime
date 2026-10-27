@@ -71,6 +71,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
   private let idleMaintenance = IdleMaintenancePoll()
+  /// 「我的词条」在键盘里变了之后让词库同步记下来（`local_change`），见 `KeyboardDictionarySync`。
+  private let dictionarySync = KeyboardDictionarySync()
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
@@ -644,10 +646,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let keySounds = KeyboardSoundPlayer()
   private var wantedKeySoundPack: String?
   private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
+  /// 按键振动的开关和档位都从这一个 App Group 实例读。`KeyboardFeedbackPreference.hapticsEnabled` 这类属性每读一次都新建一个 `UserDefaults`，原来开着振动时按下、松开一次键要建五六个，都压在触摸处理的主线程上。不把值缓存起来：App 的设置页里也有输入框，键盘开着时在那里改振动，下一下按键就要按新的来。
+  private let feedbackDefaults = KeyboardFeedbackPreference.defaults
+  private var hapticsEnabled: Bool { KeyboardFeedbackPreference.hapticsEnabled(in: feedbackDefaults) }
+  private var hapticStrength: KeyboardHapticStrength { KeyboardFeedbackPreference.hapticStrength(in: feedbackDefaults) }
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
   private var keyFeedback: UIImpactFeedbackGenerator {
-    let strength = KeyboardFeedbackPreference.hapticStrength
+    let strength = hapticStrength
     if let feedbackGenerator, feedbackStrength == strength { return feedbackGenerator }
     let generator: UIImpactFeedbackGenerator
     if #available(iOS 17.5, *) {
@@ -2372,9 +2378,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                 isToggle: true, selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
         KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.hapticsEnabled,
                                        forKey: KeyboardFeedbackPreference.hapticsKey)
-        if KeyboardFeedbackPreference.hapticsEnabled {
-          if let self { KeyboardFeedbackPreference.hapticStrength.impact(self.keyFeedback) }
-          self?.prepareKeyFeedback()
+        if let self, hapticsEnabled {
+          hapticStrength.impact(keyFeedback)
+          prepareKeyFeedback()
         }
         self?.updateShortcutButtons()
       })
@@ -5024,6 +5030,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard !hasComposition, !isInLocalMode, !synchronizingPersonalDictionary,
           fullAccess ?? hasFullAccess else { return }
     let store = PersonalDictionaryStore()
+    // 这一轮有编辑写进了 Engine：结束后让词库同步记下来，包括后面一步失败的情况。
+    var applied = false
+    defer { if applied { recordDictionaryChange() } }
     do {
       let state = try store.read()
       guard force || state.needsKeyboardSynchronization else { return }
@@ -5032,6 +5041,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       try store.synchronize(apply: { request in
         try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
                                           requestID: request.id)
+        applied = true
       }, page: { request in
         let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind,
                                                  query: request.query)
@@ -5047,6 +5057,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } catch {
       showDiagnostic(error.localizedDescription)
     }
+  }
+
+  /// 「我的词条」刚在键盘里变了（应用了 App 排队的编辑、候选栏删除了词条）。只在主线程拿会话准备好的选项，记录在后台做。
+  private func recordDictionaryChange() {
+    dictionarySync.recordLocalChange(options: try? session.dictionaryStateVersionOptions(), fullAccess: hasFullAccess,
+                                     deviceName: IOSCloudClipboardDriver.deviceName(UIDevice.current))
   }
 
   private func synchronizeInputSchemePreference() {
@@ -6374,9 +6390,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         configuration.image = nil
         space.configuration = configuration
       }
-      if KeyboardFeedbackPreference.hapticsEnabled {
-        KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
-      }
+      if hapticsEnabled { hapticStrength.impact(keyFeedback) }
     case .changed:
       let steps = cursorMovement.advance(to: position, document: document)
       if spaceDragEditsComposition && hasComposition {
@@ -7727,6 +7741,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                attributes: destructive ? .destructive : []) { [weak self] _ in
         guard let self, let result = edit(operation) else { return }
         render(result)
+        if operation == .remove, result.isHandled { recordDictionaryChange() }
         if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
         else if result.diagnosticText == nil {
           playInputClick()
@@ -8585,7 +8600,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func prepareKeyFeedback() {
     lastKeyTouchTime = ProcessInfo.processInfo.systemUptime
-    if KeyboardFeedbackPreference.hapticsEnabled { keyFeedback.prepare() }
+    if hapticsEnabled { keyFeedback.prepare() }
   }
 
   /// 按键音按 `KeySoundPackPolicy.playback` 出声：有完全访问、选中的包已经加载好时播包里这一类按键的样本，密码框里一律播普通键的；否则退回系统按键声。
@@ -8599,8 +8614,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .system: UIDevice.current.playInputClick()
     case .sample(let file): if !keySounds.play(file, gain: keySoundGain) { UIDevice.current.playInputClick() }
     }
-    if KeyboardFeedbackPreference.hapticsEnabled {
-      KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
+    if hapticsEnabled {
+      hapticStrength.impact(keyFeedback)
       keyFeedback.prepare()
     }
   }
