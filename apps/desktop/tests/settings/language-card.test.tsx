@@ -363,17 +363,17 @@ test("the HarmonyOS phone 输入 page shows its groups without an outer 更多 f
   expect(within(page).queryByRole("radiogroup", { name: "中文输出" })).toBeNull();
 });
 
-test("拼音纠错 sets both quanpin corrections and 中文字符集 sets traditional output", async () => {
+test("分别设置全拼邻键纠错和乱序纠错", async () => {
   const save = renderInputPage("harmony");
   await settingsFormReady();
   const page = inputPage();
 
-  const autocorrect = within(page).getByRole("switch", { name: "拼音纠错" }) as HTMLInputElement;
-  expect(autocorrect.checked).toBe(true);
-  fireEvent.click(autocorrect);
-  fireEvent.change(within(page).getByRole("combobox", { name: "中文字符集" }), {
-    target: { value: "traditional" },
-  });
+  const neighbor = within(page).getByRole("switch", { name: "全拼邻键纠错" }) as HTMLInputElement;
+  const transposition = within(page).getByRole("switch", { name: "全拼乱序纠错" }) as HTMLInputElement;
+  expect(neighbor.checked).toBe(true);
+  expect(transposition.checked).toBe(true);
+  fireEvent.click(neighbor);
+  fireEvent.click(transposition);
   saveSettingsNow();
 
   await waitFor(() =>
@@ -381,7 +381,6 @@ test("拼音纠错 sets both quanpin corrections and 中文字符集 sets tradit
       4,
       expect.objectContaining({
         quanpin: { autocorrect_transposition: false, autocorrect_neighbor: false },
-        traditional_chinese_output: true,
       }),
     ),
   );

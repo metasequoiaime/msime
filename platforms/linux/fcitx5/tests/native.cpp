@@ -3323,6 +3323,16 @@ int main(int argc, char **argv) {
       require(ctrlSpace() && state->input_enabled_ && state->chinese_punctuation_ &&
                   state->session_chinese_punctuation_,
               "switching back to Chinese under the follow lock restores Chinese punctuation");
+      state->preferences_["chinese_punctuation"] = false;
+      state->chinese_punctuation_ = false;
+      state->syncSessionChinesePunctuation();
+      require(ctrlSpace() && !state->input_enabled_ && !state->chinese_punctuation_ &&
+                  ctrlSpace() && state->input_enabled_ && !state->chinese_punctuation_ &&
+                  !state->session_chinese_punctuation_,
+              "switching back to Chinese ignored saved English punctuation");
+      state->preferences_["chinese_punctuation"] = true;
+      state->chinese_punctuation_ = true;
+      state->syncSessionChinesePunctuation();
     }
     // In Chinese mode a pinned lock holds as well, as Windows resolves Ctrl+. and the toolbar switch through ResolvePunctuationOpen: the chord is eaten, the punctuation state stays, and no preference save starts. The lock is set on the host field directly so no lock save races the checks.
     {

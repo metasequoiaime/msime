@@ -12,7 +12,9 @@ import {
   kindOrder,
   missingReason,
   missingTitle,
+  packKindLabel,
   packMarker,
+  touchLocalModeEntry,
   type MissingSelection,
   type PluginTableModes,
 } from "./plugin-catalog-helpers";
@@ -21,6 +23,7 @@ import type {
   PluginKind,
   PluginPackage,
   ScriptGrantsResult,
+  TouchPluginRules,
 } from "./plugin-types";
 import { ActionButton } from "./action-button";
 import { scriptMarker } from "./plugin-script-model";
@@ -45,6 +48,10 @@ export interface PluginListViewProps {
   /** Absent on a host with no pack store: nothing is listed or imported, but the 声音与效果 entry still opens. */
   hasClient: boolean;
   catalog: PluginCatalogResult;
+  /** 触屏插件页不列出的已安装包（这台设备用不上的类型和按键旋律），列表末尾只说有几个。 */
+  unlisted?: readonly PluginPackage[];
+  /** 触屏设置的插件页（`HostCapabilities.touch_plugin_packs`）：按键音效包按触屏「按键音」开关标记，指令表的说明按触屏键盘的入口写，导入只收 .zip。 */
+  touch?: TouchPluginRules;
   /** Where the first read of the catalog stands. Until it has loaded, an empty catalog says nothing about what is installed, so no empty note is shown. */
   catalogState: "loading" | "loaded" | "failed";
   missing: readonly MissingSelection[];
@@ -80,6 +87,8 @@ export function PluginListView(props: PluginListViewProps) {
 function GroupedPluginListView({
   hasClient,
   catalog,
+  unlisted = [],
+  touch,
   catalogState,
   missing,
   kinds,
@@ -111,6 +120,8 @@ function GroupedPluginListView({
   const issues = scripts
     ? catalog.issues
     : catalog.issues.filter((issue) => issue.kind !== "script");
+  // 不列出的包按类型说一句，例如「特效包、音效包·旋律」。
+  const unlistedKinds = [...new Set(unlisted.map((pack) => packKindLabel(pack)))].join("、");
   return (
     <>
       {(soundEffects || mentionsEditable) && (
@@ -150,9 +161,11 @@ function GroupedPluginListView({
           <GroupList key={kind} title={kindLabels[kind]}>
             {kind === "command_table" && triggers && (
               <SettingsGroupNote>
-                在「输入 → 快捷模式」打开 / 指令后，按 /
-                再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用{" "}
-                {MAX_COMMAND_TABLES} 个。
+                {touch
+                  ? `在「输入 → 快捷模式」打开 / 指令后，${touchLocalModeEntry("指令")}再输入指令字母即可使用。`
+                  : "在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。"}
+                启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 {MAX_COMMAND_TABLES}{" "}
+                个。
               </SettingsGroupNote>
             )}
             {kind === "command_table" &&
@@ -180,7 +193,7 @@ function GroupedPluginListView({
                     .filter(Boolean)
                     .join(" · ") || undefined
                 }
-                marker={packMarker(pack, preferences, kinds, modes)}
+                marker={packMarker(pack, preferences, kinds, modes, touch)}
                 rowKey={`pack/${pack.kind}/${pack.id}`}
                 onOpen={() => onOpenPack(pack.kind, pack.id)}
               />
@@ -218,6 +231,11 @@ function GroupedPluginListView({
             ))}
           </GroupList>
         )}
+        {unlisted.length > 0 && (
+          <SettingsEmptyMessage>
+            另有 {unlisted.length} 个已安装的插件（{unlistedKinds}）在这台设备上用不到，没有列出。
+          </SettingsEmptyMessage>
+        )}
       </div>
       {hasClient && onCreate && (
         <GroupList title="制作插件">
@@ -240,15 +258,20 @@ function GroupedPluginListView({
               <span className={controls.rowDescription}>
                 {scripts
                   ? "数据插件只含音频、指令模板等数据；脚本插件（实验）带可执行代码，导入后要经授权才会运行。每个包须声明许可证"
-                  : "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"}
+                  : touch
+                    ? "选一个插件的 .zip 压缩包。只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"
+                    : "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"}
               </span>
             </span>
             <SettingsManagerActions as="span" className="shrink-0">
-              <ActionButton
-                action={() => onImport("folder")}
-                disabled={working}
-                label="导入文件夹"
-              />
+              {/* 手机和平板的系统文件选择器不能选文件夹，触屏插件页只收 .zip。 */}
+              {!touch && (
+                <ActionButton
+                  action={() => onImport("folder")}
+                  disabled={working}
+                  label="导入文件夹"
+                />
+              )}
               <ActionButton
                 action={() => onImport("archive")}
                 disabled={working}

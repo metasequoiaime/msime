@@ -398,7 +398,8 @@ final class ImeWorldClock {
         button.setAllCaps(false);
         button.setSingleLine(false);
         button.setMaxLines(5);
-        button.setMinHeight(s.pixels(48));
+        // 时钟卡片固定有时间、日期和日出日落三行；预留三行高度，避免 Android 11 的 Button 默认最小高度裁掉中文下半部。
+        button.setMinHeight(s.pixels(76));
         button.setPadding(s.pixels(10), s.pixels(8), s.pixels(10), s.pixels(8));
         button.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return button;

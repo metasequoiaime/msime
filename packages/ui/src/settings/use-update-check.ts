@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import {
   describeUpdateVersion,
@@ -44,7 +44,7 @@ export function useUpdateCheck({
   const [recorded, setRecorded] = useState<ValidatedUpdate | null>(null);
   const manualCheckStarted = useRef(false);
   const supported = !!checkForApplicationUpdate || (!!checkUpdate && !!platform);
-  const { busy, run } = useAsyncActionRunner(
+  const { busy, generation, run } = useAsyncActionRunner(
     setStatus,
     undefined,
     checkUpdate,
@@ -56,7 +56,8 @@ export function useUpdateCheck({
     platform,
   );
 
-  useEffect(() => {
+  // DOM 可交互前完成结果重置，避免清掉首次点击已经启动的检查。
+  useLayoutEffect(() => {
     manualCheckStarted.current = false;
     setStatus("");
     setAvailable(null);
@@ -67,9 +68,16 @@ export function useUpdateCheck({
   useEffect(() => {
     if (!pendingUpdateCheck) return;
     let active = true;
+    const current = generation.current;
     void (channel === undefined ? pendingUpdateCheck() : pendingUpdateCheck(channel))
       .then((result) => {
-        if (!active || manualCheckStarted.current || result?.status !== "available") return;
+        if (
+          !active ||
+          generation.current !== current ||
+          manualCheckStarted.current ||
+          result?.status !== "available"
+        )
+          return;
         const update = fromHostUpdate(result.update);
         if (!update) return;
         setRecorded(update);
@@ -88,6 +96,7 @@ export function useUpdateCheck({
     checkForApplicationUpdate,
     currentAppVersion,
     edition,
+    generation,
     pendingUpdateCheck,
     platform,
   ]);
