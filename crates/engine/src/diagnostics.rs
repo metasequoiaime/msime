@@ -20,6 +20,7 @@ pub const NINE_KEY_FREQUENCY_NOT_PERSISTED: &str =
 pub const NINE_KEY_REMOVAL_NOT_PERSISTED: &str = "Unable to persist nine-key candidate removal.";
 pub const NINE_KEY_POSITION_NOT_PERSISTED: &str = "Unable to persist nine-key candidate position.";
 pub const NINE_KEY_DIGIT_LIMIT: &str = "一次最多输入 48 个按键，请先选择候选";
+pub const GRID_HELPCODE_LIMIT: &str = "辅助码最多输入两位";
 
 // ---- Local mode query diagnostics ----
 pub const QUICK_PHRASE_UNAVAILABLE: &str = "Quick phrase database is unavailable.";

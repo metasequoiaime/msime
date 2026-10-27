@@ -244,6 +244,26 @@ impl Session {
         self.nine_key.set_filter(single_character, strokes)
     }
 
+    /// 实验网格辅筛的独立开关；不修改全键盘默认值或持久化偏好。
+    pub fn set_grid_helpcode_enabled(&mut self, enabled: bool) {
+        self.nine_key
+            .configure_grid_helpcode(enabled, self.input.helpcode_keymap.clone());
+    }
+
+    /// 仅供键盘编辑区渲染；不拼进普通预编辑或应用 composing text。
+    pub fn grid_helpcode_snapshot(&self) -> crate::grid_helpcode::GridHelpcodeSnapshot {
+        self.nine_key.grid_helpcode_snapshot()
+    }
+
+    /// 专用动作携带最近快照代次；普通 character/grid_key 不改为辅码输入。
+    pub fn grid_helpcode_action(
+        &mut self,
+        generation: u64,
+        action: crate::grid_helpcode::GridHelpcodeAction,
+    ) -> KeyResult {
+        self.nine_key.grid_helpcode_action(generation, action)
+    }
+
     pub fn command(&mut self, command: Command) -> KeyResult {
         if !self.prediction.rows.is_empty() {
             self.prediction.clear();
@@ -450,17 +470,27 @@ impl Session {
 
     /// False for an unsupported schema or a table that cannot be loaded.
     pub fn set_helpcode_schema(&mut self, schema: &str) -> bool {
-        self.input.set_helpcode_schema(schema)
+        if !self.input.set_helpcode_schema(schema) {
+            return false;
+        }
+        self.nine_key
+            .replace_grid_helpcode_table(self.input.helpcode_keymap.clone());
+        true
     }
 
     /// 换上宿主给的辅助码表，替换当前的表；全拼和双拼都用它。
     pub fn set_helpcode_table(&mut self, table: crate::helpcode::SharedKeymap) {
         self.input.set_helpcode_table(table);
+        self.nine_key
+            .replace_grid_helpcode_table(self.input.helpcode_keymap.clone());
     }
 
     /// Quanpin and shuangpin together, as `SessionOptions::helpcode` does.
     pub fn set_helpcode_enabled(&mut self, enabled: bool) {
         self.input.set_helpcode_enabled(enabled);
+        if !enabled {
+            self.set_grid_helpcode_enabled(false);
+        }
     }
 
     /// 只有模式改变时才取消组字；重复设置保留当前输入。

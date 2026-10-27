@@ -19,6 +19,7 @@ mod ime;
 mod japanese;
 mod korean;
 pub use korean::KoreanLayout;
+pub mod grid_helpcode;
 pub mod language_dictionary;
 mod lattice;
 mod local;

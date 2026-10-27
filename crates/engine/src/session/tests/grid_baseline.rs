@@ -2,7 +2,7 @@
 
 use super::*;
 
-const SQL: &str = "
+pub(super) const SQL: &str = "
 CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
 INSERT INTO tbl_1_n VALUES('ni','n','你',9000),('ni','n','拟',8000);
 CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -12,7 +12,7 @@ INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200),('ni''hao','nh','拟好'
 ";
 
 // 输入串独立固定，不使用生产编码函数生成预期，避免编码变化与断言同时漂移。
-fn layouts() -> Vec<(KeyGrid, &'static str, &'static str)> {
+pub(super) fn layouts() -> Vec<(KeyGrid, &'static str, &'static str)> {
     use crate::nine_key_shuangpin::{
         resolve, resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin,
     };
@@ -44,7 +44,7 @@ fn layouts() -> Vec<(KeyGrid, &'static str, &'static str)> {
     ]
 }
 
-fn start(fixture: &Fixture, grid: KeyGrid) -> Session {
+pub(super) fn start(fixture: &Fixture, grid: KeyGrid) -> Session {
     let mut session = fixture.session_with(|options| {
         options.learning = false;
         options.english.mixed_candidates = false;
@@ -60,7 +60,7 @@ fn start(fixture: &Fixture, grid: KeyGrid) -> Session {
     session
 }
 
-fn type_grid(session: &mut Session, grid: KeyGrid, keys: &str) {
+pub(super) fn type_grid(session: &mut Session, grid: KeyGrid, keys: &str) {
     for key in keys.bytes() {
         let result = if grid.uses_digits() {
             session.character(key, false)
@@ -74,7 +74,7 @@ fn type_grid(session: &mut Session, grid: KeyGrid, keys: &str) {
     }
 }
 
-fn lock_ni(session: &mut Session) {
+pub(super) fn lock_ni(session: &mut Session) {
     let index = session
         .snapshot()
         .nine_key_spellings

@@ -2,6 +2,8 @@
 //!
 //! The digits stay the composition: a chosen spelling only rewrites its span of digits and is remembered in `locked`, and every candidate's `pinyin` is the run of digits it consumes, so selection advances the same way whichever reading produced the row.
 
+mod helpcode;
+
 use std::borrow::Cow;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{HashMap, HashSet};
@@ -351,6 +353,9 @@ impl KeyGrid {
 type Path = Vec<String>;
 
 pub struct NineKeySession {
+    grid_helpcode: crate::grid_helpcode::GridHelpcodeState,
+    grid_helpcode_enabled: bool,
+    grid_helpcode_table: Option<crate::helpcode::SharedKeymap>,
     paths: RuntimePaths,
     learning: bool,
     frequency: FrequencyAdjustmentOptions,
@@ -482,6 +487,9 @@ impl NineKeySession {
         single_character_only: bool,
     ) -> Self {
         Self {
+            grid_helpcode: Default::default(),
+            grid_helpcode_enabled: false,
+            grid_helpcode_table: None,
             paths: paths.clone(),
             learning,
             frequency,
@@ -640,6 +648,7 @@ impl NineKeySession {
         if self.english_only == english_only {
             return;
         }
+        self.grid_helpcode.clear();
         self.english_only = english_only;
         self.refresh();
     }
@@ -658,9 +667,14 @@ impl NineKeySession {
             if !self.active() || self.english_only || !self.pinyin {
                 return KeyResult::unhandled();
             }
+            let had_helpcode = self.grid_helpcode.active();
+            self.grid_helpcode.clear();
             let caret = self.caret_position();
             // 开头和锁定拼写之间的边界本来就是音节的分界，切分没有作用，锁定的拼写也不解除；只有切在一个锁定拼写中间时，才从那个音节起解除锁定，再记下切分。
             if self.on_lock_boundary(caret) || self.splits.contains(&caret) {
+                if had_helpcode {
+                    self.refresh();
+                }
                 return KeyResult::handled();
             }
             self.unlock_from(caret);
@@ -676,6 +690,7 @@ impl NineKeySession {
             return KeyResult::handled()
                 .with_diagnostic(Some(diagnostics::NINE_KEY_DIGIT_LIMIT.to_string()));
         }
+        self.grid_helpcode.clear();
         let caret = self.caret_position();
         self.unlock_from(caret);
         if caret == self.locked_length() {
@@ -1041,6 +1056,9 @@ impl NineKeySession {
             return KeyResult::unhandled();
         }
         if first_index >= self.candidates.len() {
+            if self.grid_helpcode.active() {
+                return KeyResult::unhandled();
+            }
             return self.command(Command::CommitRaw);
         }
         let mut commit = String::new();
@@ -1097,6 +1115,18 @@ impl NineKeySession {
             // 光标在末尾时退格撤销最后一步：刚选的首字母、数字全部锁定时的最后一次锁定、末尾的切分，都没有时才删数字。锁定之后还有没锁定的数字时，删的是数字而不是锁定。
             // 光标移进数字中间时退格是在那里改字：先删光标前的切分，再删光标前的数字，光标在开头时什么也不删；不撤销首字母和锁定，那是「撤销最后一步」，而用户把光标移过去是要改那里的数字。
             Command::Backspace => {
+                if self.grid_helpcode.editing {
+                    if self.grid_helpcode.slots.pop().is_some() {
+                        self.refresh();
+                    } else {
+                        self.grid_helpcode.editing = false;
+                        self.grid_helpcode.changed();
+                    }
+                    return KeyResult::handled();
+                }
+                if self.caret_position() > 0 {
+                    self.grid_helpcode.clear();
+                }
                 let caret = self.caret_position();
                 let at_end = caret == self.digits.len();
                 let initial_untouched = at_end
@@ -1117,6 +1147,7 @@ impl NineKeySession {
             Command::DeleteForward => {
                 let caret = self.caret_position();
                 if caret < self.digits.len() {
+                    self.grid_helpcode.clear();
                     self.remove_digit(caret);
                     self.set_caret(caret);
                 }
@@ -1145,6 +1176,7 @@ impl NineKeySession {
 
     /// 结束这次组字：数字连同锁定、撤销记录、切分、首字母、光标和正在拼的词一起清掉。
     fn clear_composition(&mut self) {
+        self.grid_helpcode.clear();
         self.path_scratch.pages.clear();
         // 选词学习可能刚改了英文权重。
         self.english_rows = None;
@@ -1339,6 +1371,11 @@ impl NineKeySession {
     }
 
     fn refresh(&mut self) {
+        if self.grid_helpcode_enabled {
+            self.grid_helpcode.changed();
+        }
+        self.grid_helpcode.candidate_generation =
+            self.grid_helpcode.candidate_generation.wrapping_add(1);
         self.candidates.clear();
         self.reading.clear();
         if !self.active() {
@@ -1640,28 +1677,45 @@ impl NineKeySession {
             }
         }
         drop(dictionary);
-        let filtering = self.single_character || !self.strokes.is_empty();
+        let filtering =
+            self.single_character || !self.strokes.is_empty() || self.grid_helpcode.active();
         if filtering {
             let strokes = (!self.strokes.is_empty()).then_some(&self.stroke_texts);
             candidates.retain(|item| passes_filter(&item.word, self.single_character, strokes));
         }
-        rank_candidates(
-            &mut candidates,
-            prefer_exact,
-            initials_lead,
-            boost.as_ref(),
-            grid,
-        );
+        let helpcode_active = self.grid_helpcode.active();
+        if helpcode_active {
+            rank_candidates_unlimited(
+                &mut candidates,
+                prefer_exact,
+                initials_lead,
+                boost.as_ref(),
+                grid,
+            );
+            self.rank_grid_helpcode(&mut candidates);
+            candidates.truncate(CANDIDATE_LIMIT);
+        } else {
+            rank_candidates(
+                &mut candidates,
+                prefer_exact,
+                initials_lead,
+                boost.as_ref(),
+                grid,
+            );
+        }
         self.rerank_sentences(&mut candidates);
-        let mut seeds = std::mem::take(&mut self.seed_buffer);
-        next_seeds(
-            grid,
-            &candidates,
-            &self.digits,
-            &mut self.sentence_seeds,
-            &mut seeds,
-        );
-        self.seed_buffer = std::mem::replace(&mut self.sentence_seeds, seeds);
+        // 辅筛结果不得写回普通路径的历史种子。
+        if !helpcode_active {
+            let mut seeds = std::mem::take(&mut self.seed_buffer);
+            next_seeds(
+                grid,
+                &candidates,
+                &self.digits,
+                &mut self.sentence_seeds,
+                &mut seeds,
+            );
+            self.seed_buffer = std::mem::replace(&mut self.sentence_seeds, seeds);
+        }
         // emoji、颜文字和符号按拼音查，读法的先后要参照排好的拼音候选，所以在插入英文行之前查；插入在英文行之后，它们也可以接在英文词后面。单字、笔画筛选针对的是汉字，筛选时不混入。
         let (emoji, kaomoji, symbols) = if filtering {
             (Vec::new(), Vec::new(), Vec::new())
@@ -1721,6 +1775,9 @@ impl NineKeySession {
             false,
         );
         keep_expressive_rows_off_the_lead(&mut candidates);
+        if helpcode_active {
+            self.rank_grid_helpcode(&mut candidates);
+        }
         // One digit is predictive; after that, keep a likely reading visible
         // only once its digits are complete. An unfinished longer syllable
         // must not hide readings already spelled in full.
@@ -2063,6 +2120,9 @@ impl NineKeySession {
         if strokes.is_empty() {
             self.stroke_texts.clear();
         }
+        if !strokes.is_empty() {
+            self.grid_helpcode.clear();
+        }
         self.single_character = single_character;
         self.strokes = strokes.to_string();
         self.refresh();
@@ -2324,6 +2384,7 @@ impl NineKeySession {
 
     /// Drop the digits a selection consumed and every locked syllable they fully cover (NK:355-361). An English row's `pinyin` is the word, which can be longer than what was typed.
     fn consume(&mut self, count: usize) {
+        self.grid_helpcode.clear();
         let count = count.min(self.digits.len());
         self.digits.drain(..count);
         // 选词学习可能刚改了英文权重。
@@ -3097,6 +3158,17 @@ fn rank_candidates(
     boost: Option<&InitialsBoost>,
     grid: KeyGrid,
 ) {
+    rank_candidates_unlimited(candidates, prefer_exact, initials_lead, boost, grid);
+    candidates.truncate(CANDIDATE_LIMIT);
+}
+
+fn rank_candidates_unlimited(
+    candidates: &mut Vec<WordItem>,
+    prefer_exact: bool,
+    initials_lead: bool,
+    boost: Option<&InitialsBoost>,
+    grid: KeyGrid,
+) {
     if candidates.len() <= SMALL_CANDIDATE_SORT {
         candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
     } else {
@@ -3109,7 +3181,6 @@ fn rank_candidates(
     if let Some(boost) = boost {
         boost_used_initials(candidates, initials_lead, boost);
     }
-    candidates.truncate(CANDIDATE_LIMIT);
 }
 
 /// 简拼行按用户用过的次数挪位（#6185），沿用调频的模式、触发次数和步长。
