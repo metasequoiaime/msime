@@ -170,25 +170,43 @@ fn restore(replacements: &[Replacement]) {
     }
 }
 
-/// 重置在把原文件挪成 `.<名字>.backup.<时间戳>` 之后、新副本改名就位之前被杀时，`target` 不在，原文件只剩在备份里：词库缺了代次就打不开（`Incomplete runtime dictionary generation`），日志缺了下一次准备会新建空日志、丢掉学到的词。这里把时间戳最新的那份备份改名放回 `target`，再删掉同一时间戳没来得及发布的 `.reset.` 新副本，被杀的重置就像没发生过，用户再点一次即可。准备代次时在打开词库和日志之前调用。
+/// 重置在两次改名之间被杀时，从时间戳最新的普通文件备份恢复缺失的 `target`，再删除源文件名下同一时间戳没发布的 `.reset.` 副本。词库现名没有备份时也查找合法旧名备份，发布到请求的现名，供代次回放使用；现有文件与备份都按现名优先。准备代次时在打开词库和日志之前调用。
 ///
-/// `target` 在（哪怕是符号链接）时什么也不做；放不回去也不报错，由调用方照常发现文件缺失。做重置的进程若其实还活着（iOS 把它挂起在两次改名之间），它之后发布新副本时在 Unix 上直接替换放回去的原文件，重置照常完成；在 Windows 上替换失败就按原有的回滚把其余文件换回原样，这一个已经是原文件。两种结局都是一套一致的文件。
+/// `target` 在（包括符号链接）时不动它，最终发布也不得覆盖检查之后竞争者放回的文件；失败保留备份。恢复后原重置进程若还活着，它缺少已删除的 `.reset.` 副本，后续发布失败会走原有回滚；这里不提供跨文件事务原子性。
 pub(crate) fn restore_interrupted_reset(target: &Path) {
     match fs::symlink_metadata(target) {
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         _ => return,
     }
-    let (Some(directory), Some(name)) = (
-        target.parent(),
-        target.file_name().and_then(|name| name.to_str()),
-    ) else {
-        return;
-    };
+    // 旧文件挪开后 `RuntimePaths::dictionary` 已看不到它，只会给出现名；备份仍使用旧文件名。
+    let backup = newest_reset_backup(target).or_else(|| {
+        let name = target.file_name()?.to_str()?;
+        let (_, legacy) = assets::LEGACY_NAMES
+            .iter()
+            .find(|(current, _)| *current == name)?;
+        let legacy = target.with_file_name(legacy);
+        match fs::symlink_metadata(&legacy) {
+            Err(error) if error.kind() == ErrorKind::NotFound => newest_reset_backup(&legacy),
+            _ => None,
+        }
+    });
+    if let Some(backup) = backup {
+        backup.publish(target);
+    }
+}
+
+struct ResetBackup {
+    path: PathBuf,
+    unpublished: PathBuf,
+}
+
+/// 选择与发布分开：目录枚举结束后，其他准备者仍可能先把目标放回来。
+fn newest_reset_backup(target: &Path) -> Option<ResetBackup> {
+    let directory = target.parent()?;
+    let name = target.file_name()?.to_str()?;
     let prefix = format!(".{name}.backup.");
-    let Ok(entries) = fs::read_dir(directory) else {
-        return;
-    };
-    let newest = entries
+    fs::read_dir(directory)
+        .ok()?
         .flatten()
         .filter_map(|entry| {
             let stamp = entry
@@ -202,10 +220,22 @@ pub(crate) fn restore_interrupted_reset(target: &Path) {
                 .filter(|_| stamp.bytes().all(|byte| byte.is_ascii_digit()))?;
             is_real_file(&entry.path()).then_some((order, stamp, entry.path()))
         })
-        .max_by_key(|(order, _, _)| *order);
-    if let Some((_, stamp, backup)) = newest {
-        if fs::rename(&backup, target).is_ok() {
-            remove_ignoring_errors(&affixed(target, ".reset.", &stamp));
+        .max_by_key(|(order, _, _)| *order)
+        .map(|(_, stamp, path)| ResetBackup {
+            path,
+            unpublished: affixed(target, ".reset.", &stamp),
+        })
+}
+
+impl ResetBackup {
+    fn publish(self, target: &Path) {
+        let Ok(mut backup) = tempfile::TempPath::try_from_path(self.path) else {
+            return;
+        };
+        // 这是唯一的原件，失败或输掉发布竞争都不能让 `TempPath::drop` 删除它。
+        backup.disable_cleanup(true);
+        if backup.persist_noclobber(target).is_ok() {
+            remove_ignoring_errors(&self.unpublished);
         }
     }
 }
@@ -263,6 +293,74 @@ fn reject_redirected_directory(path: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use crate::user_dictionary::replay::tests::{sql, weight};
+
+    /// 两个准备者先看到缺失目标；最新备份先发布后，迟到的旧备份不能覆盖它，也不能被失败路径清理。
+    #[test]
+    fn a_late_reset_recovery_preserves_the_winners_file_and_its_own_backup() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join(assets::USER_JOURNAL);
+        let older = affixed(&target, ".backup.", "100");
+        let newest = affixed(&target, ".backup.", "200");
+        let older_stage = affixed(&target, ".reset.", "100");
+        fs::write(&older, b"older synthetic journal").unwrap();
+        fs::write(&newest, b"newest synthetic journal").unwrap();
+        fs::write(&older_stage, b"unpublished synthetic journal").unwrap();
+        assert_eq!(
+            fs::symlink_metadata(&target).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+
+        newest_reset_backup(&target).unwrap().publish(&target);
+        // 迟到者此前同样看到了缺失；枚举时最新备份已被赢家取走，只剩旧备份。
+        newest_reset_backup(&target).unwrap().publish(&target);
+
+        assert_eq!(fs::read(&target).unwrap(), b"newest synthetic journal");
+        assert_eq!(fs::read(&older).unwrap(), b"older synthetic journal");
+        assert_eq!(
+            fs::read(&older_stage).unwrap(),
+            b"unpublished synthetic journal"
+        );
+    }
+
+    /// 现有词库沿用路径解析的优先级；两种名称都只有备份时优先恢复现名备份。
+    #[test]
+    fn reset_recovery_follows_current_and_legacy_name_priority() {
+        for (name, legacy) in [
+            (assets::MAIN_DICTIONARY, "msime.db"),
+            (assets::ENGLISH_DICTIONARY, "english.db"),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let paths = RuntimePaths {
+                dictionaries: root.path().to_owned(),
+                ..RuntimePaths::default()
+            };
+            let current = root.path().join(name);
+            let old = root.path().join(legacy);
+            let current_backup = affixed(&current, ".backup.", "100");
+            let old_backup = affixed(&old, ".backup.", "200");
+            fs::write(&current, b"existing synthetic dictionary").unwrap();
+            fs::write(&old_backup, b"legacy synthetic backup").unwrap();
+            restore_interrupted_reset(&paths.dictionary(name));
+            assert_eq!(
+                fs::read(&current).unwrap(),
+                b"existing synthetic dictionary"
+            );
+            assert!(old_backup.exists());
+
+            fs::rename(&current, &old).unwrap();
+            fs::write(&current_backup, b"current synthetic backup").unwrap();
+            restore_interrupted_reset(&paths.dictionary(name));
+            assert_eq!(fs::read(&old).unwrap(), b"existing synthetic dictionary");
+            assert!(current_backup.exists());
+            assert!(!current.exists());
+
+            fs::remove_file(&old).unwrap();
+            restore_interrupted_reset(&paths.dictionary(name));
+            assert_eq!(fs::read(&current).unwrap(), b"current synthetic backup");
+            assert!(!current_backup.exists());
+            assert_eq!(fs::read(&old_backup).unwrap(), b"legacy synthetic backup");
+        }
+    }
 
     fn paths(root: &Path) -> RuntimePaths {
         let path = |name: &str| {

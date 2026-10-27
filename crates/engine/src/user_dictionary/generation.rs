@@ -1102,6 +1102,64 @@ mod tests {
         );
     }
 
+    fn assert_a_legacy_dictionary_left_aside_is_put_back(name: &str, legacy: &str) {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        fs::create_dir_all(&user).unwrap();
+        let journal = user.join(assets::USER_JOURNAL);
+        learn(&journal, "伱", 1);
+        sql(
+            &journal,
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES('english','zzfixture','Zzfixture','upsert',11,'Zzfixture',1,2)",
+        );
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let current = paths.dictionaries.join(name);
+        let old = paths.dictionaries.join(legacy);
+        fs::rename(&current, &old).unwrap();
+        assert_eq!(paths.dictionary(name), old);
+        let backup = paths.dictionaries.join(format!(".{legacy}.backup.200"));
+        let staged = paths.dictionaries.join(format!(".{legacy}.reset.200"));
+        fs::rename(&old, &backup).unwrap();
+        fs::write(&staged, b"unpublished synthetic dictionary").unwrap();
+
+        assert_eq!(
+            prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap(),
+            paths
+        );
+        assert_eq!(paths.dictionary(name), current);
+        assert!(!old.exists());
+        assert!(!backup.exists());
+        assert!(!staged.exists());
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT weight FROM tbl_1_n WHERE value='伱'"
+            ),
+            Some(50)
+        );
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::ENGLISH_DICTIONARY),
+                "SELECT weight FROM english_words WHERE word='zzfixture' AND display='Zzfixture'"
+            ),
+            Some(11)
+        );
+    }
+
+    /// 旧主词库被挪成备份后，路径解析已看不到旧名，准备仍应找到它。
+    #[test]
+    fn a_legacy_main_dictionary_left_aside_by_a_reset_is_put_back() {
+        assert_a_legacy_dictionary_left_aside_is_put_back(assets::MAIN_DICTIONARY, "msime.db");
+    }
+
+    /// 英文词库也从旧名备份恢复到现名，继续使用同一套回放路径。
+    #[test]
+    fn a_legacy_english_dictionary_left_aside_by_a_reset_is_put_back() {
+        assert_a_legacy_dictionary_left_aside_is_put_back(assets::ENGLISH_DICTIONARY, "english.db");
+    }
+
     /// 重置在把日志挪成 `.msime_user.db.backup.<时间戳>` 之后被杀：日志放回去，学到的词不会因为下一次准备新建了空日志而丢掉。
     #[test]
     fn a_journal_left_aside_by_a_killed_reset_is_put_back() {
