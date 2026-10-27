@@ -6,7 +6,7 @@ use rmcp::{RoleClient, ServiceExt};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::process::{Child, Command};
 
 /// 合成词库与运行时选项；独立五笔库对应宿主判定五笔资源可用的实际文件。
@@ -189,15 +189,6 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
         page,
         json!({ "phrases": [{ "code": "yx", "text": "someone@example.com" }], "has_more": false })
     );
-    // Too soon after the last write.
-    assert!(refused(
-        &client,
-        "edit_quick_phrases",
-        json!({ "edits": [{ "op": "remove", "code": "dz", "text": "合成地址" }] })
-    )
-    .await
-    .contains("one a second"));
-
     after_write_interval().await;
     let outcome = ok(
         &client,
@@ -901,7 +892,7 @@ fn the_version_is_the_input_method_s() {
 }
 
 #[test]
-fn writes_from_separate_runs_are_spaced_out_too() {
+fn writes_from_separate_runs_keep_the_shared_start_time() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let add = |text: &str| format!(r#"{{"edits":[{{"op":"add","code":"yx","text":"{text}"}}]}}"#);
@@ -916,19 +907,24 @@ fn writes_from_separate_runs_are_spaced_out_too() {
         None,
     );
     assert_eq!(code, 0, "{error}");
-    let (code, _, error) = run_cli(
-        &options,
-        &[
-            "--allow-write",
-            "call",
-            "edit_quick_phrases",
-            &add("two@example.com"),
-        ],
-        None,
-    );
-    assert_eq!(code, 1);
-    assert!(error.contains("one a second"), "{error}");
-    std::thread::sleep(Duration::from_millis(1100));
+    let lock = directory.path().join("mcp-write.lock");
+    let first = std::fs::read_to_string(&lock)
+        .unwrap()
+        .parse::<u128>()
+        .unwrap();
+    assert!(first > 0);
+    // 进程启动与真实词库写入可能超过一秒；拒绝边界由固定时钟的真实文件单测覆盖。
+    // 集成测试按已持久化的开始时间等到期，再验证下一次独立运行保留共享状态。
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        < first + 1000
+    {
+        assert!(Instant::now() < deadline, "合成写槽未到期");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let (code, _, error) = run_cli(
         &options,
         &[
@@ -940,6 +936,17 @@ fn writes_from_separate_runs_are_spaced_out_too() {
         None,
     );
     assert_eq!(code, 0, "{error}");
+    let second = std::fs::read_to_string(&lock)
+        .unwrap()
+        .parse::<u128>()
+        .unwrap();
+    assert!(second >= first + 1000);
+    let (code, page, error) = run_cli(&options, &["call", "list_quick_phrases", "{}"], None);
+    assert_eq!(code, 0, "{error}");
+    let phrases = page["phrases"].as_array().unwrap();
+    for text in ["one@example.com", "two@example.com"] {
+        assert!(phrases.contains(&json!({ "code": "yx", "text": text })));
+    }
 }
 
 #[test]
