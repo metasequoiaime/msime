@@ -102,7 +102,7 @@ Rust 改动另需 `cargo fmt` 与 `cargo clippy`；UI 改动另需类型检查�
 - **iOS**：工程由 XcodeGen 从 `platforms/ios/project.yml` 生成，`MSIMEClientTests` 聚合键盘、服务与共享三个单测 target，`MSIMEClientUITests` 跑引导流程和键盘扩展在编辑器里的界面用例；`platforms/ios/build-app.sh` 出模拟器或真机构建。
 - **Android**：`platforms/android/check-host.sh` 在没有 Android 运行时的机器上校验 JNI 契约并跑 JVM 冒烟；`platforms/android/tests/device/smoke.sh` 在专用 AVD 上跑设备套件，设置、打字统计和手写各有开关；`platforms/android/build-apk.sh` 出原生 IME 包。
 - **HarmonyOS**：`platforms/harmony/tests/run.sh` 做类型检查并跑键盘逻辑测试；HAP 由 DevEco 的 `hvigorw assembleHap` 打出，`ohpm install` 和真打包缺一不可——ArkTS 对 `@Builder` 体内声明、对象字面量类型的一批限制只有 `.ets` 真正编译时才报出来。
-- **Linux**：`platforms/linux/build-container.sh` 在固定容器里构建 IBus engine、Fcitx5 插件和全部 provider 入口并跑 ctest；`platforms/linux/tests/tools/check-container.sh` 起独立 D-Bus 与 IBus/Fcitx5 daemon 做隔离验收。
+- **Linux**：`platforms/linux/build-container.sh` 在固定容器里构建 IBus engine、Fcitx5 插件和全部 provider 入口并跑 ctest；`MSIME_PACKAGE_FORMAT=rpm MSIME_PACKAGE_TESTS_ONLY=1 platforms/linux/package-container.sh` 在发版 `.rpm` 用的 Fedora 容器里以 Release 编 full 版并跑同一套 ctest，不出包，PR 上的「Linux native host (Fedora)」就是它；`platforms/linux/tests/tools/check-container.sh` 起独立 D-Bus 与 IBus/Fcitx5 daemon 做隔离验收。
 - **Windows**：`platforms/windows/build-cross.sh` 用 MinGW 交叉构建 host DLL、TSF DLL、Server 和全部原生测试，`platforms/windows/run-tests-wine.sh` 在 Wine 下真跑这些产物；`platforms/windows/Build-Client.ps1` 是 Windows 上的 MSVC 全量构建，安装包由 `platforms/windows/installer/` 的 Inno Setup 脚本和双架构签名链产出。
 
 各平台的构建前置、环境变量和装机步骤见对应的 `platforms/<os>/README.md`，目录与职责总览见 [README](../README.md)。
