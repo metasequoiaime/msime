@@ -3108,6 +3108,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 当前编辑框是不是密码框；属性还没到达时说的是上一个编辑框，到达后 `onEditorChanged` 会再通知一次。 */
+  editorIsPassword(): boolean {
+    return this.traits.password;
+  }
+
   /** Whether something is being spelled right now, which decides who a physical key belongs to. */
   composing(): boolean {
     return HardwareKeyRouter.composing(this.editing, this.phrasePrefix);

@@ -195,9 +195,22 @@ group("逗号的长按与下滑", () => {
     check(!P.commaSwipesPeriod(StyledFace.TWENTY_SIX, style), `26 键 ${style} 不接下滑`);
   }
   check(!P.commaSwipesPeriod(StyledFace.NONE, "long_space"), "不受样式影响的底行不接下滑");
-  check(P.longSpaceActive(true, "long_space"), "中文 26 键长空格");
-  check(!P.longSpaceActive(false, "long_space"), "英文 26 键不随长空格变化");
-  check(!P.longSpaceActive(true, "emoji"), "其他样式不是长空格");
+  check(P.longSpaceActive(true, "long_space", false), "中文 26 键长空格");
+  check(!P.longSpaceActive(false, "long_space", false), "英文 26 键不随长空格变化");
+  check(!P.longSpaceActive(true, "emoji", false), "其他样式不是长空格");
+  // 与 Android 的 longSpaceLayoutActive 一样排除密码框：用户在密码框里切到中文时画标准底行。
+  check(!P.longSpaceActive(true, "long_space", true), "密码框里长空格不生效");
+  check(P.twentySixRowStyle("long_space", true) === "standard", "密码框里长空格退回标准底行");
+  check(P.twentySixRowStyle("long_space", false) === "long_space", "普通编辑框保留长空格");
+  for (const style of ["standard", "comma_period", "emoji"]) {
+    check(P.twentySixRowStyle(style, true) === style, `密码框里 ${style} 不变`);
+  }
+  check(
+    JSON.stringify(
+      P.designRow(true, false, StyledFace.TWENTY_SIX, P.twentySixRowStyle("long_space", true)),
+    ) === JSON.stringify(P.designRow(true, false, StyledFace.TWENTY_SIX, "standard")),
+    "密码框里中文 26 键底行与标准底行逐键相同",
+  );
 });
 
 group("逗号下滑手势：向下过门槛且竖向大于横向才算，点按随之被吞一次", () => {

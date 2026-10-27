@@ -704,6 +704,8 @@ struct KeyboardView {
   @State nineKeyStyle: string = KeyboardSession.shared.preferences().nineKeyStyle;
   /** 共享偏好 `touch_number_row`：26/14/18 键字母上方画 1 到 0，键盘高一行（`numberRowExtraRows`）。 */
   @State @Watch('syncStripHeight') numberRow: boolean = KeyboardSession.shared.preferences().numberRow;
+  /** 当前编辑框是不是密码框（`KeyboardSession.editorIsPassword`）：密码框里中文 26 键的长空格样式退回标准底行，工具栏是否一直画着也随之变，所以变了要重定面板高度。 */
+  @State @Watch('syncStripHeight') editorPassword: boolean = false;
   /** 长空格样式下底行逗号的下滑（输入句号）。 */
   private readonly commaSwipe: CommaSwipeGesture = new CommaSwipeGesture();
   /** 面板上一次按工具条显示与否定下的高度，`syncStripHeight` 只在它和现在不一样时改面板高度。 */
@@ -2441,6 +2443,7 @@ struct KeyboardView {
    * still focused outranks it until the next attach, the user having asked for that face by name.
    */
   private applyEditorFace(): void {
+    this.editorPassword = KeyboardSession.shared.editorIsPassword();
     const fullFace: boolean = KeyboardSession.shared.prefersFullFace();
     const grid: boolean = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout) && !fullFace;
     // 14 键同理：地址、密码这些编辑框画整块 26 键，离开后回到 14 键。
@@ -3235,7 +3238,7 @@ struct KeyboardView {
     return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
       + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.twentySixKeyStyle}:${this.fourteenKeyStyle}:${this.nineKeyStyle}:${this.numberRow}:`
-      + `${this.skin.key()}`;
+      + `${this.editorPassword}:${this.skin.key()}`;
   }
 
   /**
@@ -5656,9 +5659,10 @@ struct KeyboardView {
       && !this.drawsFourteenKey() && this.designLayerChinese() && this.scheme.engineScheme !== 'japanese';
   }
 
-  /** 中文 26 键处在长空格样式（`TouchLayoutStylePolicy.longSpaceActive`）：符号入口在工具栏，123 进带空格的数字符号层。 */
+  /** 中文 26 键处在长空格样式（`TouchLayoutStylePolicy.longSpaceActive`）：符号入口在工具栏，123 进带空格的数字符号层；密码框里不算，与 Android 一致。 */
   private longSpaceActive(): boolean {
-    return TouchLayoutStylePolicy.longSpaceActive(this.chineseTwentySixFace(), this.twentySixKeyStyle);
+    return TouchLayoutStylePolicy.longSpaceActive(this.chineseTwentySixFace(), this.twentySixKeyStyle,
+      this.editorPassword);
   }
 
   /** 字母上方的数字行（或 123 层上的补充行）多出的行数，0 或 1（`TouchLayoutStylePolicy.numberRowExtraRows`）；2in1 没有。 */
@@ -5686,7 +5690,7 @@ struct KeyboardView {
   private designRowStyle(): string {
     const styled: StyledFace = this.designRowStyledFace();
     if (styled === StyledFace.TWENTY_SIX) {
-      return this.twentySixKeyStyle;
+      return TouchLayoutStylePolicy.twentySixRowStyle(this.twentySixKeyStyle, this.editorPassword);
     }
     return styled === StyledFace.FOURTEEN ? this.fourteenKeyStyle : TouchLayoutStylePolicy.STANDARD;
   }

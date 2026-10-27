@@ -227,10 +227,25 @@ export class TouchLayoutStylePolicy {
   }
 
   /**
-   * 中文 26 键是否处在长空格样式（与在不在 123 层无关）。这时与 Android 的 `longSpaceLayoutActive` 一样：符号面板入口移到工具栏，工具栏这一行一直画着（设成隐藏时只留标志、符号和收起）；123 进入带空格的数字符号层而不借用数字九宫格，那一层和 #+= 层左下的 😀/符号 换成同一个逗号（下滑输入句号）。
+   * 中文 26 键是否处在长空格样式（与在不在 123 层无关）；密码框里不算（`twentySixRowStyle`）。这时与 Android 的 `longSpaceLayoutActive` 一样：符号面板入口移到工具栏，工具栏这一行一直画着（设成隐藏时只留标志、符号和收起）；123 进入带空格的数字符号层而不借用数字九宫格，那一层和 #+= 层左下的 😀/符号 换成同一个逗号（下滑输入句号）。
    */
-  static longSpaceActive(chineseTwentySix: boolean, twentySixStyle: string): boolean {
-    return chineseTwentySix && twentySixStyle === TouchLayoutStylePolicy.LONG_SPACE;
+  static longSpaceActive(
+    chineseTwentySix: boolean,
+    twentySixStyle: string,
+    password: boolean,
+  ): boolean {
+    return (
+      chineseTwentySix &&
+      TouchLayoutStylePolicy.twentySixRowStyle(twentySixStyle, password) ===
+        TouchLayoutStylePolicy.LONG_SPACE
+    );
+  }
+
+  /** 中文 26 键底行实际按哪种样式排：密码框里长空格样式退回标准底行，与 Android 的 `longSpaceLayoutActive` 排除密码框一致（用户在密码框里切到中文时也是这样）；其他样式照旧。 */
+  static twentySixRowStyle(twentySixStyle: string, password: boolean): string {
+    return password && twentySixStyle === TouchLayoutStylePolicy.LONG_SPACE
+      ? TouchLayoutStylePolicy.STANDARD
+      : twentySixStyle;
   }
 
   /** 字母层是 26、14 或 18 键这一类（数字行和 123 层补充行只出现在这一类上）：九键网格、假名网格、手写、笔画和大千注音都不算。 */
