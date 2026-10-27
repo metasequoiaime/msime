@@ -701,7 +701,7 @@ struct KeyboardView {
   @State fourteenKeyStyle: string = KeyboardSession.shared.preferences().fourteenKeyStyle;
   /** 共享偏好 `touch_nine_key_style`：九键字母层的底行样式（`NineKeyLayout.actionRow`）。 */
   @State nineKeyStyle: string = KeyboardSession.shared.preferences().nineKeyStyle;
-  /** 「右侧大回车」外框（`tallReturnNineKeyFrame`）量到的宽度，网格下方那一段底行按它定 123、中/英 和数字层空格的绝对宽度（`NineKeyLayout.tallReturnRow`）；量到之前为 0，按份额排。 */
+  /** 「右侧大回车」外框（`tallReturnNineKeyFrame`）量到的宽度，网格下方那一段底行按它定 123、中/英 和数字层空格的绝对宽度（`NineKeyLayout.tallReturnRow`）；量到之前和外框消失后为 0，按份额排。 */
   @State tallReturnFaceWidth: number = 0;
   /** 共享偏好 `touch_number_row`：26/14/18 键字母上方画 1 到 0，键盘高一行（`numberRowExtraRows`）。 */
   @State @Watch('syncStripHeight') numberRow: boolean = KeyboardSession.shared.preferences().numberRow;
@@ -4765,6 +4765,10 @@ struct KeyboardView {
     .height(this.faceHeight())
     .onAreaChange((_old: Area, now: Area): void => {
       this.tallReturnFaceWidth = Number(now.width);
+    })
+    // 外框不在时宽度可能变了（比如在 26 键上转了屏再切回九键），留着旧宽度会让新外框第一帧按旧宽度定出比网格还宽的固定键；清零后第一帧按份额排，量到新宽度再定宽。
+    .onDisAppear((): void => {
+      this.tallReturnFaceWidth = 0;
     })
   }
 

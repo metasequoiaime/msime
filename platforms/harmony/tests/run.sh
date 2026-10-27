@@ -97,7 +97,7 @@ if ! grep -qF 'hitRegion: NineKeyLayout.languageBesideReturn(this.nineKeyActions
   echo "KeyboardView.nineKeyActionRow must yield the return key only when the language key sits beside it, and draw return only when the row has one" >&2
   exit 1
 fi
-# 九键「右侧大回车」网格下方那一段（`NineKeyLayout.tallReturnRow` 由 touch-layout-styles.test.ts 覆盖）：外框量自己的宽度，123、中/英、空格和 0 按 `nineKeyActionWidth` / `nineKeyActionShare` 定宽，数字层的 0 排在空格左边。
+# 九键「右侧大回车」网格下方那一段（`NineKeyLayout.tallReturnRow` 由 touch-layout-styles.test.ts 覆盖）：外框量自己的宽度、消失时清零（下次出现时宽度可能已变，比如在别的键面上转了屏，清零后第一帧按份额排，不拿旧宽度定出比网格还宽的固定键），123、中/英、空格和 0 按 `nineKeyActionWidth` / `nineKeyActionShare` 定宽，数字层的 0 排在空格左边。
 tall_frame_body=$(sed -n '/^  tallReturnNineKeyFrame() {$/,/^  }$/p' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
 zero_body=$(sed -n '/^  nineKeyZeroKey() {$/,/^  }$/p' \
@@ -106,6 +106,7 @@ zero_body=$(sed -n '/^  nineKeyZeroKey() {$/,/^  }$/p' \
 zero_before_line=$(grep -nF 'if (this.nineKeyActionBeforeSpace(NineKeyActionKind.ZERO)) {' <<< "$nine_row_body" | head -n 1 | cut -d: -f1 || true)
 nine_space_line=$(grep -nF 'this.spaceKey(true, this.nineKeyActionShare(NineKeyActionKind.SPACE),' <<< "$nine_row_body" | head -n 1 | cut -d: -f1 || true)
 if ! grep -qF 'this.tallReturnFaceWidth = Number(now.width);' <<< "$tall_frame_body" \
+  || ! grep -qF 'this.tallReturnFaceWidth = 0;' <<< "$tall_frame_body" \
   || ! grep -qF 'this.nineKeyActionWidth(NineKeyActionKind.SPACE));' <<< "$nine_row_body" \
   || ! grep -qF '.width(this.nineKeyActionWidth(NineKeyActionKind.LAYER_TOGGLE))' <<< "$nine_row_body" \
   || ! grep -qF '.layoutWeight(this.nineKeyActionShare(NineKeyActionKind.LAYER_TOGGLE))' <<< "$nine_row_body" \

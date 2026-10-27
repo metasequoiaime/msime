@@ -128,7 +128,7 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 右侧大回车由 `NineKeyLayout.tallReturn(english, style)` 决定画不画，`KeyboardView.tallReturnNineKeyFrame` 画外框，只在触屏键盘上、拼音九键 / 九键双拼 / 笔画及其数字层使用；英文九键、假名网格和其他中文键面借用的数字九宫格保持原样。三列沿用触屏网格原有的份额：左右各 1.15、中间 6（`NineKeyLayout.SIDE_SHARE`、`GRID_SHARE`），底行与上面三列对齐。
 
 - 左列：跨三行的符号栏，平时是 ，。？！（`NineKeyLayout.sideMarks(true)` 只在这个样式里接上 ！；鸿蒙没有自定义符号栏列表），组字时是读音栏；栏下是同宽的 符。
-- 中列：九宫格下方恰好与九宫格同宽：123 | 空格 | 中/英，123 和 中/英 与标准九键底行同宽，空格占剩下的部分（`NineKeyLayout.tallReturnRow`）。标准底行五个键、四道键距铺满整块键面，外框三列两道键距、中列再有自己的键距，键距不成比例，所以份额定不准：外框量到自己的宽度（`tallReturnFaceWidth`）后给 123 和 中/英 定 vp 宽度，空格用 `layoutWeight` 拿剩下的；量到之前按 `NineKeyLayout.actionRow` 的份额排（按没有键距换算，123 约 1.13、空格约 3.91、中/英 约 0.95，共 6），设置页示意图和热力图也用这一份。
+- 中列：九宫格下方恰好与九宫格同宽：123 | 空格 | 中/英，123 和 中/英 与标准九键底行同宽，空格占剩下的部分（`NineKeyLayout.tallReturnRow`）。标准底行五个键、四道键距铺满整块键面，外框三列两道键距、中列再有自己的键距，键距不成比例，所以份额定不准：外框量到自己的宽度（`tallReturnFaceWidth`）后给 123 和 中/英 定 vp 宽度，空格用 `layoutWeight` 拿剩下的；量到之前、以及外框消失后（宽度清零，免得在别的键面上转屏后再切回来，第一帧拿旧宽度定出比网格还宽的固定键）按 `NineKeyLayout.actionRow` 的份额排（按没有键距换算，123 约 1.13、空格约 3.91、中/英 约 0.95，共 6），设置页示意图和热力图也用这一份。
 - 右列：⌫，其下是鸿蒙原有的第二格「分词」，回车占一个网格行加行距加底行，两倍高、中间无缝；原来的 ！ 格去掉。笔画右列本来没有第二格，⌫ 占上面两行。
 - 数字层：左列 + − * / #+=，符 留在原处；九宫格下方是 切换键 | 0 | 空格 | 中/英，切换键和 中/英 与标准底行同宽，空格是标准底行的 1.05 份（`NineKeyLayout.TALL_RETURN_DIGIT_SPACE_WEIGHT`），0 占剩下的宽度（`NineKeyLayout.tallReturnFill`）；空格照旧接语音长按和拖动移光标；右列是 ⌫、小数点和两倍高的回车。
 - 回车不让出点击区（`NineKeyLayout.languageBesideReturn` 对这一行为假），其他九键行照旧让。
@@ -146,7 +146,7 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 - HarmonyOS 6.0.2 手机模拟器：设置子页的选项、示意图和保存；键盘侧看了右侧大回车的字母层与数字层、输入数字、读音栏、点回车下半段上屏，九键「底栏带标点」的逗号长按菜单，26 键数字行，标准九键不变，以及冷启动第一帧按记下的键面定高（两个方向）。日志里看到了视图先于回调请求高度的情况，补发后面板到了正确高度，26 键带数字行没有被截。模拟器没有共享沙箱，设置页的改动传不到键盘，键盘侧是临时在代码里写死样式和数字行看的，这些改动已还原、没有提交。
 - 本地模拟器要临时把 `~/sdk` 链到 `~/command-line-tools/sdk`（实例配置 `hardware-qemu.ini` 里的 sdk 根目录不存在，找不到 hdc），主机负载高时还要在启动期间临时挪开崩溃服务（它约 21 秒的 snapshot 启动检查连 `-bootmode coldboot` 也会杀掉）；两处用完都已复原。
 - 没验证：设置到键盘的端到端路径（需要带 data-group-id 签名的真机）、密码框和数字框在真实输入框里退回标准底行、笔画的右侧大回车外框、逐帧确认第一帧不再跳高、真机。
-- 第三轮（右侧大回车中列改成与标准底行同宽、数字层 切换键 | 0 | 空格 | 中/英）：`bash platforms/harmony/tests/run.sh` 0 失败，`touch-layout-styles.test.ts` 用 390/6、360/4 和没有键距三组宽度钉住 123、中/英 与标准底行同宽、数字层空格是 1.05 份、这一段加键距正好是网格宽度，`run.sh` 新守卫（外框量宽度、四个键按 `nineKeyActionWidth` / `nineKeyActionShare` 定宽、0 排在空格左边）逐条改坏确认会失败；`apps/desktop` 里设置页与热力图的三个测试文件通过；`stage-settings.sh` 后本机 `hvigorw assembleHap` 成功，CompileArkTS 实际执行。这一轮没有上模拟器看键帽宽度。
+- 第三轮（右侧大回车中列改成与标准底行同宽、数字层 切换键 | 0 | 空格 | 中/英）：`bash platforms/harmony/tests/run.sh` 0 失败，`touch-layout-styles.test.ts` 用 390/6、360/4 和没有键距三组宽度钉住 123、中/英 与标准底行同宽、数字层空格是 1.05 份、这一段加键距正好是网格宽度，`run.sh` 新守卫（外框量宽度、四个键按 `nineKeyActionWidth` / `nineKeyActionShare` 定宽、0 排在空格左边）逐条改坏确认会失败；`apps/desktop` 里设置页与热力图的三个测试文件通过；`stage-settings.sh` 后本机 `hvigorw assembleHap` 成功，CompileArkTS 实际执行。这一轮没有上模拟器看键帽宽度。外框消失时把量到的宽度清零（`onDisAppear`），`run.sh` 守卫加了一条，删掉清零时守卫会失败；改后 `run.sh` 0 失败，本机 `hvigorw assembleHap` 成功。
 
 ### 有意保留的差异
 
