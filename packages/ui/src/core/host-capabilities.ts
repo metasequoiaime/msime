@@ -96,6 +96,8 @@ export interface HostCapabilities {
   touch_toolbar_tools?: boolean;
   /** 触屏键盘的按键音按 `plugins.key_sound.pack` 选音效包，只播包里的按键样本，不播旋律、上屏音和成就音；屏幕键盘页「按键反馈」组在「按键音」下给出「音效」选择。目前只有 HarmonyOS 手机和平板的设置桥按设备形态报告（`SettingsFormFactorCapabilities`），2in1 的音效包仍在插件页里选。缺省按不提供处理。 */
   touch_key_sound_packs?: boolean;
+  /** 触屏设置里的「插件」页：宿主的触屏键盘读插件目录，设置页在手机导航里给出插件页，只列在触屏键盘上生效的数据插件（按键音效包、指令表、短语表、辅助码表、单词本和符号集，按各自的能力），按键音效包按触屏规则选用（开关在「按键反馈」，只播按键音），导入只收 .zip，社区插件也只列这几类。目前只有 HarmonyOS 手机和平板的设置桥按设备形态报告（`SettingsFormFactorCapabilities`）；2in1 走桌面形态的插件页。缺省按不提供处理，其他触屏宿主不显示插件页。 */
+  touch_plugin_packs?: boolean;
   /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
   touch_keyboard_height?: boolean;
   /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */

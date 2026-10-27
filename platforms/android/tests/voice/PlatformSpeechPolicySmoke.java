@@ -35,9 +35,11 @@ public final class PlatformSpeechPolicySmoke {
         }
         check(PlatformSpeechPolicy.message(SpeechRecognizer.ERROR_NETWORK).contains("网络"), "network errors say network");
         String network = PlatformSpeechPolicy.message(SpeechRecognizer.ERROR_NETWORK);
-        check(PlatformSpeechPolicy.message(SpeechRecognizer.ERROR_NETWORK_TIMEOUT)
-                .startsWith(network.substring(0, network.indexOf("（错误码"))),
-            "both network errors share one explanation");
+        String networkTimeout = PlatformSpeechPolicy.message(SpeechRecognizer.ERROR_NETWORK_TIMEOUT);
+        check(networkTimeout.contains("超时") && !networkTimeout.contains("连不上网络"),
+            "a recognizer timeout does not claim that the device is offline");
+        check(network.contains("网络错误") && !network.contains("连不上网络"),
+            "a recognizer network error does not assert which connection failed");
         // 权限链可能在调用方或服务一侧被拒；不把已经授予运行时权限等同于录音一定获准。
         int denied = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS;
         String permission = PlatformSpeechPolicy.message(denied);
