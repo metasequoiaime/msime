@@ -15,7 +15,6 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import org.json.JSONObject;
 
@@ -61,7 +60,7 @@ public final class ClipboardExport {
                 context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
                 AppVersionPolicy.versionName(context, "0"), LocalDateTime.now());
             temporary = new File(context.getCacheDir(), filename);
-            Files.write(temporary.toPath(), ClipboardExportFormat.format(snapshot, ZoneId.systemDefault())
+            Files.write(temporary.toPath(), snapshot.text()
                 .getBytes(StandardCharsets.UTF_8));
             // 构建快照期间隐私设置可能已改变，公开文件前再检查一次。
             preferences = preferences(context);
@@ -69,7 +68,7 @@ public final class ClipboardExport {
                 return "剪贴板历史未开启，未导出";
             String directory = selected.isEmpty() ? writeDownloads(context, temporary)
                 : ExportDirectory.write(context, selected, temporary, "text/plain");
-            return "导出完成：" + snapshot.size() + " 条，已保存到「" + directory + "」/" + filename;
+            return "导出完成：" + snapshot.count() + " 条，已保存到「" + directory + "」/" + filename;
         } catch (IOException | RuntimeException failed) {
             return "剪贴板未导出成功，请检查目录权限和剩余空间；若有未完成文件，请手动删除";
         } finally {
