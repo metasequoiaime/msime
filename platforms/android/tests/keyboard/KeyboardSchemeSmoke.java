@@ -300,17 +300,23 @@ public final class KeyboardSchemeSmoke {
         wubiTableWanted();
     }
 
-    /** 设置应用只替在用五笔的人请求五笔码表：当前方案或要切回的中文方案是五笔、码表不在本机、本版本提供五笔；默认启用列表里有五笔不算。 */
+    /** 只替在用五笔的人补下五笔码表：当前方案或要切回的中文方案是五笔、五笔仍在启用列表里、码表不在本机、本版本提供五笔；默认启用列表里有五笔不算，移除了五笔的也不算。 */
     static void wubiTableWanted() {
-        check(KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of(), FULL));
-        check(KeyboardScheme.wubiTableWanted("japanese", "wubi", Set.of(), FULL));
-        check(KeyboardScheme.wubiTableWanted("wubi", null, Set.of("japanese"), FULL));
-        check(!KeyboardScheme.wubiTableWanted("quanpin", "quanpin", Set.of(), FULL));
-        check(!KeyboardScheme.wubiTableWanted(null, null, Set.of(), FULL));
-        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of("wubi"), FULL));
-        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of(), PINYIN));
+        List<String> withWubi = List.of("quanpin", "wubi");
+        check(KeyboardScheme.wubiTableWanted("wubi", "wubi", withWubi, Set.of(), FULL));
+        check(KeyboardScheme.wubiTableWanted("japanese", "wubi", List.of("quanpin", "wubi", "japanese"), Set.of(), FULL));
+        check(KeyboardScheme.wubiTableWanted("wubi", null, withWubi, Set.of("japanese"), FULL));
+        // 没存过列表时按默认启用列表算，full 的默认列表有五笔。
+        check(KeyboardScheme.wubiTableWanted("wubi", "wubi", null, Set.of(), FULL));
+        check(!KeyboardScheme.wubiTableWanted("quanpin", "quanpin", null, Set.of(), FULL));
+        check(!KeyboardScheme.wubiTableWanted(null, null, withWubi, Set.of(), FULL));
+        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", withWubi, Set.of("wubi"), FULL));
+        // 在设置页移除了五笔：偏好里还留着五笔也不再补下。
+        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", List.of("quanpin"), Set.of(), FULL));
+        check(!KeyboardScheme.wubiTableWanted("japanese", "wubi", List.of("quanpin", "japanese"), Set.of(), FULL));
+        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", withWubi, Set.of(), PINYIN));
         // 五笔版的码表随包，availablePacks 从资源目录认出它，不会请求下载。
-        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of("wubi"), WUBI));
+        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", null, Set.of("wubi"), WUBI));
     }
 
     /** 五笔版和拼音版只列本版本的入口，回退也落在本版本里；手写在有中文方案的版本里都有，写进偏好的是本版本的默认方案。 */

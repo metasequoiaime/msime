@@ -730,7 +730,9 @@ public final class TypingPage extends ReloadingDetailPage {
                 JSONObject schemes = KeyboardSheets.child(preferences, "touch_keyboard_schemes");
                 schemes.put("enabled", new JSONArray(ids));
                 JSONObject pending = snapshot;
-                if (language.schemes.contains(current)) {
+                // 词典还没到的方案（例如瘦包里码表没下载的五笔）不在可用列表里，`current` 已经解析成了别的方案，但偏好里存的 `scheme` 仍是它：也要切走，否则移除之后偏好还指着一个不在列表里的方案。
+                if (language.schemes.contains(current)
+                        || language.schemes.contains(SchemePreferences.storedScheme(preferences, edition))) {
                     schemes.remove("selected");
                     pending = SchemePreferences.withScheme(snapshot, remaining.get(0), null);
                     if (pending == null) return null;

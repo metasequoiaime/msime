@@ -181,13 +181,15 @@ public enum KeyboardScheme {
     }
 
     /**
-     * 设置应用回到前台时要不要替用户请求五笔码表：本版本提供五笔，码表不在本机（`packs` 是 {@link #availablePacks} 的结果，里面没有五笔包），而偏好里当前方案 `scheme` 或要切回的中文方案 `lastChineseScheme` 是五笔。
+     * 要不要替用户补下五笔码表（设置应用回到前台时请求下载，键盘里提示一句去设置应用下载）：本版本提供五笔，码表不在本机（`packs` 是 {@link #availablePacks} 的结果，里面没有五笔包），五笔还在启用的方案里（`enabledIds` 是 `touch_keyboard_schemes.enabled` 的原样内容，没存过列表时为 null，按默认启用列表算），而偏好里当前方案 `scheme` 或要切回的中文方案 `lastChineseScheme` 是五笔。
      *
-     * <p>这是在用五笔的人：升级到不带码表的瘦包、旧码表又因词库换了版本收编不了，或在首启引导里选了五笔。与 macOS 设置应用启动时为已选五笔的用户补齐码表的规则相同。默认启用列表里的五笔不算：新装 full 的启用列表本来就有五笔，按它判断会让每个新用户一打开应用就下载近百 MB。码表不在时键盘不列出五笔、host-api 把五笔回退到别的方案，但不改写偏好里的这两项，所以升级后第一次打开设置应用时仍能认出这些用户。
+     * <p>这是在用五笔的人：升级到不带码表的瘦包、旧码表又因词库换了版本收编不了（每次词库锁改了 `msime-wubi.db` 都会这样，已装的 wubi 资源包随之过期），或在首启引导里选了五笔。与 macOS 设置应用启动时为已选五笔的用户补齐码表的规则相同。光是启用列表里有五笔不算：新装 full 的默认启用列表本来就有五笔，按它判断会让每个新用户一打开应用就下载近百 MB。反过来光看偏好也不够：在设置页移除了五笔、偏好里的 `last_chinese_scheme` 却还留着五笔的人不要了。码表不在时键盘不列出五笔、host-api 把五笔回退到别的方案，但不改写偏好里的这两项，所以升级后仍能认出这些用户。
      */
-    public static boolean wubiTableWanted(String scheme, String lastChineseScheme, Set<String> packs, AppEdition edition) {
+    public static boolean wubiTableWanted(String scheme, String lastChineseScheme, List<String> enabledIds,
+            Set<String> packs, AppEdition edition) {
         if (!edition.offers("wubi") || (packs != null && packs.contains(WUBI_PACK))) return false;
-        return "wubi".equals(scheme) || "wubi".equals(lastChineseScheme);
+        if (!"wubi".equals(scheme) && !"wubi".equals(lastChineseScheme)) return false;
+        return enabledFromPreferenceIds(enabledIds, edition).contains(WUBI);
     }
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */

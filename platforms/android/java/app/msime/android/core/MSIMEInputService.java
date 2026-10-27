@@ -613,6 +613,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
     boolean allowLearning;
     private String preferencesNotice = "";
+    /** 上次提示「五笔码表要下载」的时刻（{@link android.os.SystemClock#elapsedRealtime}），见 {@link #announceWubiTableMissing}；还没提示过时为 0。 */
+    private long wubiTableNoticeAt;
+    /** 同一个键盘进程里两次「五笔码表要下载」提示至少隔这么久：提示在诊断行里只停几秒、按一下键就消失，只说一次容易错过，每次弹出键盘都说又太吵。 */
+    private static final long WUBI_TABLE_NOTICE_INTERVAL_MILLIS = 60 * 60 * 1000L;
     /** 上次以 Toast 说过的空闲提示，同一条不重复弹。 */
     private String announcedIdleNotice = "";
 
@@ -637,6 +641,20 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * 偏好里在用五笔、本机却没有五笔码表（{@link KeyboardScheme#wubiTableWanted}）时，在键盘上提示一句去设置应用下载。
+     *
+     * <p>full 和拼音版的瘦包不带五笔码表，安装包换了词库锁时已装的 wubi 资源包也随之过期。这时键盘不列五笔、host-api 回退到别的方案，而输入法进程从不联网，下载只能由设置应用发起（{@code HomeActivity} 回到前台时会问）。不提示的话，只用键盘、很少打开设置应用的人（Play 静默更新后尤其如此）只会看到五笔不见了。键盘窗口在屏幕上才提示，同一个进程里至少隔 {@link #WUBI_TABLE_NOTICE_INTERVAL_MILLIS}。
+     */
+    private void announceWubiTableMissing(boolean missing) {
+        if (!missing || !imeWindowVisible) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (wubiTableNoticeAt != 0 && now - wubiTableNoticeAt < WUBI_TABLE_NOTICE_INTERVAL_MILLIS) return;
+        wubiTableNoticeAt = now;
+        // 投递而不是直接显示：这里在 applyEditorPreferences 里面，调用方随后才 render()。
+        main.post(() -> notice("五笔要先下载码表：打开水杉输入法即可下载"));
     }
 
     long beginClipboardPhraseNotice() { return operationNotice.begin(); }
@@ -972,6 +990,11 @@ public final class MSIMEInputService extends InputMethodService {
             if (live) liveInputModePreferencesLoaded = true;
         }
         KeyboardScheme engineScheme = SchemePreferences.storedScheme(preferences, edition);
+        // 必须在 alignEngineSchemeWithSelection 改写内存里的 scheme 之前判断：它把缺码表的五笔换成了回退的方案。只认实时偏好，副本里是出厂值。
+        if (live && preferences != null) announceWubiTableMissing(KeyboardScheme.wubiTableWanted(
+            InputViewValuePolicy.textOr(preferences, "scheme", ""),
+            InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", ""),
+            SchemePreferences.enabledIds(preferences), resourcePacks, edition));
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();

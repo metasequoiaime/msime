@@ -348,6 +348,18 @@ public final class Bootstrap {
         return new File(resources.getParentFile(), group.pending());
     }
 
+    /** 资源包 `pack` 的那组文件是否正在 pending 目录里等下次启动收编（{@link #adoptOnDemandGroups} 上次遇到暂时性失败）。这时本机其实有这份字节，只是资源目录和资源包里都看不到它，不要为它联网下载。`files` 是 {@link Context#getFilesDir()}。 */
+    public static boolean adoptionPending(File files, String pack) {
+        for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+            if (!group.pack().equals(pack)) continue;
+            File pending = pending(new File(files, "bootstrap/resources"), group);
+            for (String name : group.artifacts()) {
+                if (Files.isRegularFile(new File(pending, name).toPath(), LinkOption.NOFOLLOW_LINKS)) return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * 升级时把上一个安装包解压在 `bootstrap/resources` 里的按需文件组（日文词典那一组、五笔码表）收编为资源包，不重新下载。
      *

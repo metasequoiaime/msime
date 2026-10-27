@@ -45,7 +45,7 @@ import org.json.JSONObject;
  *
  * <p>本地语音模型（{@link LocalVoiceModels}）和资源包走同一条队列：同样几十到几百 MB、同样要在主进程的工作线程上跑、同样要能从通知里取消。它们在这里的键是 {@code voice-model:<id>}（{@link #voiceModelKey}），状态、进度、取消和结果通知与资源包完全相同，只是安装和取消调用的是模型的共享接口。
  *
- * <p>下载只由用户的操作发起：在「添加语言」里加日语、粤语、注音、笔画或五笔，打开离线释义，打开离线识别，或在设置页点「下载」「重试」。启动时不自动下载，只有一个例外：偏好里当前方案或要切回的中文方案是五笔、而本机没有五笔码表时（升级到不带码表的瘦包后，旧码表与新词库锁对不上收编不了；或在首启引导里选了五笔），设置应用回到前台时为它请求一次，见 {@link KeyboardScheme#wubiTableWanted}。服务也不在进程被杀后自己重启（{@link #START_NOT_STICKY}）；没下完的文件留在共享层的续传目录里，下次点下载时用 HTTP Range 接着下。
+ * <p>下载只由用户的操作发起：在「添加语言」里加日语、粤语、注音、笔画或五笔，打开离线释义，打开离线识别，或在设置页点「下载」「重试」。启动时不自动下载，只有一个例外：偏好里当前方案或要切回的中文方案是五笔、而本机没有五笔码表时（升级到不带码表的瘦包后，旧码表与新词库锁对不上收编不了；或在首启引导里选了五笔），设置应用回到前台时弹窗问一次要不要下载（{@link #requestOnBehalf}），见 {@link KeyboardScheme#wubiTableWanted}。服务也不在进程被杀后自己重启（{@link #START_NOT_STICKY}）；没下完的文件留在共享层的续传目录里，下次点下载时用 HTTP Range 接着下。
  *
  * <p>同一个资源包同一时间只有一个下载：这里按资源包记着状态，正在下的再点一次什么也不做（共享层另有 {@code resource_pack_busy} 兜底）。服务不声明 {@code android:process}，所以和设置页一样跑在主进程，:ime 进程从不安装：两个进程同时装同一个包会互相清掉对方的暂存目录。
  *
@@ -137,6 +137,34 @@ public final class ResourcePackService extends Service {
             .setMessage("当前网络按流量计费。下载" + title(pack) + "需要 " + size(size)
                 + "，下载后只保存在本机。也可以连上 Wi-Fi 后再下载。")
             .setNegativeButton("取消", null)
+            .setPositiveButton("下载", (dialog, which) -> start(context, pack))
+            .show();
+    }
+
+    /**
+     * 不是用户点的、而是应用替用户发起的下载（目前只有 {@link KeyboardScheme#wubiTableWanted} 的五笔码表补齐）：不论什么网络都先弹窗，说明为什么要下载、要多大，用户点了「下载」才开始；按流量计费的网络在同一个框里说明，不再弹第二个。没联网时只提示一句。正在下的资源包什么也不做。
+     *
+     * @param context 页面的 Context，用来弹确认框
+     * @param size 下载字节数，取自 {@link ResourcePacks.Pack#size()}
+     * @param reason 为什么要下载，一两句话，放在确认框正文的开头
+     */
+    public static void requestOnBehalf(Context context, String pack, long size, String reason) {
+        Status current = STATUS.get(pack);
+        if (current != null && current.running()) return;
+        ConnectivityManager connectivity = context.getSystemService(ConnectivityManager.class);
+        boolean metered = true;
+        if (connectivity != null) {
+            if (connectivity.getActiveNetwork() == null) {
+                MsToast.show(context, "没有网络连接，联网后再下载" + title(pack));
+                return;
+            }
+            metered = connectivity.isActiveNetworkMetered();
+        }
+        new MaterialAlertDialogBuilder(context)
+            .setTitle("下载" + title(pack) + "？")
+            .setMessage(reason + "下载需要 " + size(size) + "，下载后只保存在本机。"
+                + (metered ? "当前网络按流量计费，也可以连上 Wi-Fi 后再下载。" : ""))
+            .setNegativeButton("以后再说", null)
             .setPositiveButton("下载", (dialog, which) -> start(context, pack))
             .show();
     }
