@@ -965,6 +965,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         this.panel = panel;
         if (!desktop) {
           // 挂上视图之前定下手机面板第一帧的形状：键面要等视图画出来才知道，按视图上次记下的键面和现在的偏好定（`TouchLayoutStylePolicy.firstPanel`），第一帧就带上数字行和长空格样式一直画着的工具条，不再先矮一行、过一帧再长高。视图出现时（`aboutToAppear`）从同一个形状出发核对高度，所以要在 `setUiContent` 之前。
+          // 上一个面板的视图在释放之后发来的高度请求不属于这个面板，作废。
+          KeyboardSession.shared.touchHeight.detach();
           const shown: display.Display = display.getDefaultDisplaySync();
           KeyboardSession.shared.decideFirstTouchPanel(KeyboardFormFactorPolicy.phoneLandscape(
             shown.width / shown.densityPixels, shown.height / shown.densityPixels));
@@ -983,6 +985,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         // 面板尺寸与视图布局使用同一组数值，避免裁掉最底行。
         const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
         const opened: TouchPanelShape = KeyboardSession.shared.firstTouchPanel();
+        // 视图若已在 `setUiContent` 期间出现并按真实键面请求了高度（记下的键面过时），第一帧直接用它；否则按记下的形状。
+        const requested: number | null = desktop ? null : KeyboardSession.shared.touchHeight.takePending();
         const heightVp: number = desktop
           ? (KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
             settings.candidateShowPreedit, settings.candidateDecorationTopVp,
@@ -990,7 +994,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
             settings.candidatePreeditFontSize, CandidateLayoutPolicy.gap(settings.candidateSkinLayout, true,
         settings.candidateFontSize)) + CandidateCanvasPolicy.extraHeight(settings.candidateCanvas, settings.candidateShowPreedit))
           // 刚创建时还没有组字也没有面板，工具条画不画看工具栏设置和上次的键面是不是长空格样式的中文 26 键，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
-          : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
+          : requested !== null ? requested : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
             settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows);
         // 软键盘占满屏幕宽度，候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
@@ -1048,12 +1052,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
             this.showDesktopSurface(surface);
           };
         } else {
-          KeyboardSession.shared.onTouchHeight = (requestedHeightVp: number): void => {
+          // 挂上回调时补发第一帧定高度之后、这里之前视图发来的请求（`TouchHeightRelay.attach`）。
+          KeyboardSession.shared.touchHeight.attach((requestedHeightVp: number): void => {
             panel.resize(screen.width, Math.round(requestedHeightVp * this.density))
               .catch((error: Object): void => {
                 KeyboardLog.error(`touch keyboard would not resize: ${describeError(error)}`);
               });
-          };
+          });
         }
         if (desktop) {
           await this.reconcileStatusPanels();
@@ -1109,7 +1114,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     KeyboardSession.shared.shutdown();
     // These close over the panel being released.
-    KeyboardSession.shared.onTouchHeight = undefined;
+    KeyboardSession.shared.touchHeight.detach();
     KeyboardSession.shared.onDismiss = undefined;
     KeyboardSession.shared.onCandidateWidth = undefined;
     KeyboardSession.shared.onCandidateCount = undefined;

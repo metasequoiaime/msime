@@ -8,7 +8,9 @@ import {
   DesignRowSlot,
   NumberRowFace,
   StyledFace,
+  TouchHeightRelay,
   TouchLayoutStylePolicy,
+  TouchPanelShape,
 } from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
 import {
   NineKeyAction,
@@ -225,14 +227,13 @@ group(
         `14 键 ${style} 在密码框里与标准底行逐键相同`,
       );
     }
+    // 九键的每种样式在普通编辑框里都确实换了外框（底行或大回车三列），所以退回标准是看得见的变化；视图经 `nineKeyFrameStyle` 用 `fieldRowStyle` 的接线由 run.sh 钉住。
     for (const style of ["comma_period", "emoji", "tall_return"]) {
-      const fallback = P.fieldRowStyle(style, true);
       check(
-        nine(NineKeyLayout.actionRow(false, false, fallback)) ===
-          nine(NineKeyLayout.actionRow(false)),
-        `九键 ${style} 在数字框里与标准底行逐键相同`,
+        nine(NineKeyLayout.actionRow(false, false, style)) !==
+          nine(NineKeyLayout.actionRow(false)) || NineKeyLayout.tallReturn(false, style),
+        `九键 ${style} 在普通编辑框里换了外框`,
       );
-      check(!NineKeyLayout.tallReturn(false, fallback), `九键 ${style} 在数字框里不画大回车外框`);
     }
   },
 );
@@ -485,6 +486,81 @@ group("中/英 不紧挨回车时回车不让出键帽", () => {
     ]),
     "中间隔着空格",
   );
+});
+
+group("记下的键面过时：视图在扩展能力挂上回调之前请求的高度不会丢，面板停在真实键面的高度", () => {
+  const height = (shape: TouchPanelShape): number =>
+    KeyboardMetrics.totalHeightVp(
+      undefined,
+      0,
+      0,
+      undefined,
+      undefined,
+      false,
+      shape.strip,
+      shape.extraRows,
+    );
+  // 记下的是九键（不算 26/14/18 键一类），键盘进程没开时在设置里换成 26 键、开着数字行。
+  const opened: TouchPanelShape = P.firstPanel(
+    { lettersRow: false, chineseTwentySix: false },
+    true,
+    "standard",
+    false,
+    false,
+  );
+  const actual: TouchPanelShape = {
+    strip: true,
+    extraRows: P.numberRowExtraRows(true, letters, false),
+  };
+  check(
+    opened.extraRows === 0 && actual.extraRows === 1,
+    "扩展能力按过时的键面少算一行，视图按真实键面多一行",
+  );
+  check(height(actual) > height(opened), "两个高度不同");
+  // 照扩展能力的次序走一遍：作废上一个面板的请求 → setUiContent → 定第一帧高度（优先用视图已经请求的）→ 挂上回调。视图的 aboutToAppear 可能落在这三步之间的任意一处，也可能在之后。
+  const open = (viewAppears: "during_mount" | "before_attach" | "after_attach"): number[] => {
+    const relay = new TouchHeightRelay();
+    relay.request(height({ strip: false, extraRows: 0 }));
+    relay.detach();
+    const resized: number[] = [];
+    if (viewAppears === "during_mount") relay.request(height(actual));
+    const requested: number | null = relay.takePending();
+    resized.push(requested !== null ? requested : height(opened));
+    if (viewAppears === "before_attach") relay.request(height(actual));
+    relay.attach((heightVp: number): void => {
+      resized.push(heightVp);
+    });
+    if (viewAppears === "after_attach") relay.request(height(actual));
+    return resized;
+  };
+  const mounted: number[] = open("during_mount");
+  check(
+    mounted.length === 1 && mounted[0] === height(actual),
+    `视图先出现时第一帧直接用它的高度：${mounted.join(",")}`,
+  );
+  const between: number[] = open("before_attach");
+  check(
+    between.length === 2 && between[0] === height(opened) && between[1] === height(actual),
+    `定完第一帧、挂上回调之前出现时挂上就补发：${between.join(",")}`,
+  );
+  const after: number[] = open("after_attach");
+  check(
+    after.length === 2 && after[0] === height(opened) && after[1] === height(actual),
+    `挂上之后出现时直接改高度：${after.join(",")}`,
+  );
+  // 上一个面板留下的请求在 detach 时作废，不会被新面板当成第一帧的高度。
+  for (const order of [mounted, between, after]) {
+    check(order[order.length - 1] === height(actual), "最后停在真实键面的高度");
+  }
+  const released = new TouchHeightRelay();
+  const late: number[] = [];
+  released.attach((heightVp: number): void => {
+    late.push(heightVp);
+  });
+  released.detach();
+  released.request(height(actual));
+  check(late.length === 0, "面板释放后不再改它的高度");
+  check(released.takePending() === height(actual) && released.takePending() === null, "取过即清");
 });
 
 if (failures > 0) {

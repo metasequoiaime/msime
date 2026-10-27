@@ -25,7 +25,7 @@ import { AppThemeStore } from './skin/AppThemeStore';
 import { CommonPhraseStarters } from './CommonPhraseStarters';
 import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
-import { TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
+import { TouchHeightRelay, TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -1457,8 +1457,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   onTypingEffect: ((effect: TypingEffect, settings: TypingEffectSettings, key: boolean) => void) | undefined = undefined;
   /** Lets a desktop panel follow the widest current candidate without measuring ArkUI nodes. */
   onCandidateWidth: ((widthVp: number) => void) | undefined = undefined;
-  /** The native host owns panel geometry; the touch view reports its newly requested total height. */
-  onTouchHeight: ((heightVp: number) => void) | undefined = undefined;
+  /** The native host owns panel geometry; the touch view reports its newly requested total height. 扩展能力挂上回调之前到达的请求先留着，见 `TouchHeightRelay`。 */
+  readonly touchHeight: TouchHeightRelay = new TouchHeightRelay();
   /** The ability's half of a preference reload: status panels and key bindings. */
   onPreferencesReloaded: (() => void) | undefined = undefined;
   /** The view's half of a preference reload: skins, geometry and the scheme face. */
@@ -3660,8 +3660,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Resize only the phone/tablet soft-keyboard panel; desktop surfaces have separate geometry. */
   resizeTouchKeyboard(heightVp: number): void {
-    if (!KeyboardFormFactor.isDesktop() && this.onTouchHeight !== undefined) {
-      this.onTouchHeight(heightVp);
+    if (!KeyboardFormFactor.isDesktop()) {
+      this.touchHeight.request(heightVp);
     }
   }
 

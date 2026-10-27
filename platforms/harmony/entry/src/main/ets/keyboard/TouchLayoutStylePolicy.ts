@@ -376,6 +376,45 @@ export class TouchLayoutStylePolicy {
 }
 
 /**
+ * 视图请求的手机面板高度（`KeyboardSession.resizeTouchKeyboard`）交给持有面板的扩展能力。冷启动时 `setUiContent` 与视图的 `aboutToAppear` 谁先完成没有保证，视图可能在扩展能力挂上回调之前就按真实键面请求高度（记下的键面已经过时，例如键盘进程没开时在设置里换了方案）；这时请求先留着，扩展能力给第一帧定高度时优先用它（`takePending`），挂上回调时（`attach`）再补发这之间到达的请求，面板不会停在按过时键面定的高度上。
+ */
+export class TouchHeightRelay {
+  private target: ((heightVp: number) => void) | null = null;
+  private pending: number | null = null;
+
+  /** 视图请求一个总高度：回调已挂上就立刻交给它，否则留着最近的一次。 */
+  request(heightVp: number): void {
+    if (this.target !== null) {
+      this.target(heightVp);
+      return;
+    }
+    this.pending = heightVp;
+  }
+
+  /** 取走还没送达的请求（取过即清）；没有时为 null。 */
+  takePending(): number | null {
+    const pending: number | null = this.pending;
+    this.pending = null;
+    return pending;
+  }
+
+  /** 扩展能力挂上改面板高度的回调；之前留着的请求立刻补发。 */
+  attach(target: (heightVp: number) => void): void {
+    this.target = target;
+    const pending: number | null = this.takePending();
+    if (pending !== null) {
+      target(pending);
+    }
+  }
+
+  /** 面板释放：回调不再可用，留着的请求也作废，下一个面板从自己的视图重新收请求。 */
+  detach(): void {
+    this.target = null;
+    this.pending = null;
+  }
+}
+
+/**
  * 长空格样式下底行逗号的下滑：手指按下后向下移过 `THRESHOLD_VP`、且竖向移动大于横向时，抬起输入句号，这次按键的普通点按被吞掉。ArkUI 先送触摸抬起再送点击，所以由视图在点击里问 `swallows()`；下一次按下时清掉，点击没有送来也不会吞掉之后的点按。长按已经识别时（输入句号或打开列表）调 `cancel()`，抬起不再按下滑处理。
  */
 export class CommaSwipeGesture {
