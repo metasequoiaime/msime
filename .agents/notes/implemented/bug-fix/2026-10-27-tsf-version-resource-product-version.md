@@ -26,4 +26,6 @@ TSF DLL 的版本资源用本次构建所属产品线的版本，第四段为 0�
 
 ## Verification
 
-`version_resource.cmake` 对新 rc 通过，对原来写死 0.1.0.0 的 rc 失败。用一个只引入 `ProductVersion.cmake` 的空工程配置三次：缺省得到 0.3.0.0（`version.txt`），`MSIME_WINDOWS7_CLIENT=ON` 得到 0.4.0.0，`MSIME_WINDOWS_VERSION=1.2.3-beta` 得到 1.2.3.0。实际编进 DLL 的资源以 Windows CI（MSVC 与 MinGW 交叉编译）为准。
+`version_resource.cmake` 对新 rc 通过，对原来写死 0.1.0.0 的 rc 失败。用一个只引入 `ProductVersion.cmake` 的空工程配置三次：缺省得到 0.3.0.0（`version.txt`），`MSIME_WINDOWS7_CLIENT=ON` 得到 0.4.0.0，`MSIME_WINDOWS_VERSION=1.2.3-beta` 得到 1.2.3.0；非法版本被配置阶段拒绝。
+
+PR 的 `Windows GNU cross build` 通过 `build-cross.sh x64` 编译生产 TSF DLL，覆盖 MinGW `windres` 资源编译；该作业成功前不能声称资源已编进 DLL。`Windows native settings` 只编设置与兼容宿主，不构建 TSF DLL，也不覆盖本次资源的 MSVC `rc.exe` 编译。独立的 `tsf/tests/exports` 工程已接入同一生成头文件，但当前 PR workflow 不构建它；MSVC 资源编译和两条产品线安装后的文件属性仍需另外验收。

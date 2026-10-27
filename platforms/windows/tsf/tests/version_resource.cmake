@@ -1,4 +1,4 @@
-# The DLL version resource carries the version of the product line being built (platforms/windows/version.txt, or version-win7.txt for Windows 7), the same number the Server reports, instead of a hand-written constant that never moved past 0.1.0.0.
+# DLL 版本资源使用本次构建所属产品线的版本：现代 Windows 读 platforms/windows/version.txt，Win7 读 version-win7.txt，与 Server 上报的版本一致。
 set(windows_root "${SOURCE_ROOT}/..")
 
 file(READ "${SOURCE_ROOT}/Header/resource.h" resource_header)
@@ -36,7 +36,7 @@ foreach(field IN ITEMS InternalName OriginalFilename)
   endif()
 endforeach()
 
-# Both product lines: the module reads the file, and the template turns its version into the four-part resource version.
+# 核对两条产品线：模块读取版本文件，模板将其转换为四段资源版本。
 file(READ "${windows_root}/ProductVersion.cmake" product_version_module)
 foreach(version_file IN ITEMS version.txt version-win7.txt)
   string(FIND "${product_version_module}" "${version_file}" module_position)
