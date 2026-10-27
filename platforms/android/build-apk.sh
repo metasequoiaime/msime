@@ -294,7 +294,7 @@ if [ "$omit_on_demand" = 1 ]; then
 fi
 # 只量 GitHub 渠道的 APK：Play 版带着语音运行库，体积由 Play 按设备拆分后的下载大小把关。
 if [ "$omit_on_demand" = 1 ] && [ "$distribution" = github ]; then
-  # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB、dict-v2.0.39 起的五笔码表 95 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。背单词内置词书进包时瘦包约 130.5 MB（词书压缩后约 1 MB），上限随之从 130,000,000 提到 135,000,000，仍比任何一组按需资源回到包里时小得多。
+  # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB、dict-v2.0.39 起的五笔码表压缩后约 45 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。背单词内置词书进包时瘦包约 130.5 MB（词书压缩后约 1 MB），上限随之从 130,000,000 提到 135,000,000，仍比任何一组按需资源回到包里时小得多。
   max_apk_bytes=${MSIME_ANDROID_MAX_APK_BYTES:-135000000}
   [[ "$max_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_MAX_APK_BYTES must be a byte count" >&2; exit 1; }
   apk_bytes=$(wc -c < "$output" | tr -d '[:space:]')
