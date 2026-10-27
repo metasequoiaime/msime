@@ -1405,6 +1405,8 @@ function makeClient(
   };
   // 只读一次：能力记录在应用运行期间不会变化，下面的反馈报告据此写明版本。
   const host = unwrap<HostCapabilities>(native.hostCapabilities());
+  // AI 生成类功能的总闸（`HostCapabilities.ai_generation`，鸿蒙版拿到资质之前为 false）：关着时不给页面 AI 对话、AI 皮肤和 AI 辅助的客户端，宿主的桥接也拒绝这些请求（`AiGenerationGate.ts`）。
+  const aiGeneration = host.ai_generation !== false;
   const setup = imeSetupClient(native);
   const oobe = oobeClient(native, setup);
   const chrome = hostChrome(native);
@@ -1589,7 +1591,7 @@ function makeClient(
     dictionaryCollections,
     typingStatistics,
     vocabularyReview,
-    aiAssistant,
+    aiAssistant: aiGeneration ? aiAssistant : undefined,
     testApiCredential,
     // Four surfaces the keyboard already honours. Each writes shared preferences and nothing else,
     // so opting in is all that was ever needed; without it the page saved nothing and the keyboard
@@ -1612,7 +1614,7 @@ function makeClient(
     },
     candidateEnglishGloss: true,
     account: accountClient(native),
-    chat: chatClient(native),
+    chat: aiGeneration ? chatClient(native) : undefined,
     // The Apple home surface, adapted rather than copied. Two of its five actions exist here and
     // three do not, and the page draws only what the host says it has.
     //
@@ -1647,7 +1649,7 @@ function makeClient(
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
     communityPlugins: communityPluginClient(native),
-    aiSkins: aiSkinClient(native),
+    aiSkins: aiGeneration ? aiSkinClient(native) : undefined,
     localVoiceModels: localVoiceModelClient(native),
     // 2in1 上是桌面形态的插件页；手机和平板上按 `touch_plugin_packs` 给触屏插件页，只列触屏键盘用得上的类型，导入只收 .zip（这两种形态的文件选择器选不了文件夹）。
     plugins: pluginClient(native),

@@ -4,6 +4,8 @@ import * as style from "./community-style";
 export interface CommunityCategoryTabsProps {
   category: CommunityDestinationCategory;
   hasSkins: boolean;
+  /** 列不列「回复模板」分类（高情商回复的提示词）。不提供 AI 生成类功能的宿主（HarmonyOS）不列；缺省为列出。 */
+  hasReplies?: boolean;
   look?: "harmony";
   onCategoryChange: (category: CommunityDestinationCategory) => void;
 }
@@ -12,6 +14,7 @@ export interface CommunityCategoryTabsProps {
 export function CommunityCategoryTabs({
   category,
   hasSkins,
+  hasReplies = true,
   look,
   onCategoryChange,
 }: CommunityCategoryTabsProps) {
@@ -20,7 +23,7 @@ export function CommunityCategoryTabs({
   const tabs: { category: CommunityDestinationCategory; label: string }[] = [
     ...(hasSkins ? [{ category: "skin" as const, label: "皮肤" }] : []),
     { category: "dictionary", label: "词库" },
-    { category: "reply", label: harmony ? "短语" : "回复模板" },
+    ...(hasReplies ? [{ category: "reply" as const, label: harmony ? "短语" : "回复模板" }] : []),
   ];
   return (
     <div

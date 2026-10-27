@@ -11,7 +11,8 @@ import { TelemetryRow } from "../telemetry-section";
  * 这几句与仓库根目录的 PRIVACY.md（逐项的网络请求说明）一致：云联想默认关闭；语音、AI 对话只在使用时发出那一次的内容；皮肤、词库、统计不会自动上传；匿名使用统计默认开启、不含输入内容。
  */
 export function PrivacySettingsPage() {
-  const { busy, page, draft, setDraft, selectPage, openExternalUrl } = useSettingsForm();
+  const { busy, page, draft, setDraft, selectPage, openExternalUrl, showAiGeneration } =
+    useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "privacy"} ariaLabel="隐私">
@@ -20,9 +21,14 @@ export function PrivacySettingsPage() {
           title="打的字留在手机上"
           description="输入在本机处理。「云联想」默认关闭，打开后才会把正在打的拼音发给 Google 输入工具。"
         />
+        {/* 不提供 AI 生成类功能的宿主（HarmonyOS）没有 AI 对话，这一句只说语音。 */}
         <Row
-          title="语音和 AI 对话只在用的时候发出"
-          description="只有你使用时，才把这一次的录音或文字发给你选的服务。"
+          title={showAiGeneration ? "语音和 AI 对话只在用的时候发出" : "语音只在用的时候发出"}
+          description={
+            showAiGeneration
+              ? "只有你使用时，才把这一次的录音或文字发给你选的服务。"
+              : "只有你使用时，才把这一次的录音发给你选的服务。"
+          }
         />
         <Row
           title="皮肤、词库和统计不会自动上传"

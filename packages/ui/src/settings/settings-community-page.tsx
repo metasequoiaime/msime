@@ -18,6 +18,7 @@ export interface SettingsCommunityPageProps {
     | "harmonyPlatform"
     | "openAccountLogin"
     | "communityTabs"
+    | "showAiGeneration"
   >;
   localDictionary?: CommunityPageProps["localDictionary"];
   onSkinApplied?: CommunityPageProps["onSkinApplied"];
@@ -42,6 +43,7 @@ export function SettingsCommunityPage({
     harmonyPlatform,
     openAccountLogin,
     communityTabs,
+    showAiGeneration,
   } = model;
   return (
     <>
@@ -50,6 +52,7 @@ export function SettingsCommunityPage({
           destinationKey={communityDestination}
           skins={client.communitySkins}
           resources={client.communityResources}
+          hasReplies={showAiGeneration}
           theme={keyboardPreviewTheme}
           initialMine={initialCommunityMine}
           initialCategory={initialCommunityCategory}

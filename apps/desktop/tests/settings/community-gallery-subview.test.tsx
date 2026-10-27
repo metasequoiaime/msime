@@ -145,7 +145,8 @@ function renderPhone(
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn().mockResolvedValue(initial),
-        host: testHost({ platform }),
+        // 回复模板是高情商回复的提示词：鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`。
+        host: testHost({ platform, ai_generation: true }),
         home: {},
         account: account(),
         communitySkins: skins,

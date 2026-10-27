@@ -88,6 +88,7 @@ export function AccountPage({
   onOpenLocalDesigns,
   onOpenCommunity,
   communityHasSkins,
+  communityHasReplies,
   onOpenCloudDictionary,
   onOpenCloudClipboard,
   onOpenAbout,
@@ -108,6 +109,8 @@ export function AccountPage({
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
   /** 社区页里有没有皮肤画廊。没有时（Windows 的社区页只有词包与回复模板）「我发布的皮肤」不经社区页打开。缺省为有。 */
   communityHasSkins?: boolean;
+  /** 「我的内容」里列不列回复模板的两行。回复模板是高情商回复的提示词，不提供 AI 生成类功能的宿主（HarmonyOS）不列。缺省为列出。 */
+  communityHasReplies?: boolean;
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
@@ -146,6 +149,7 @@ export function AccountPage({
       onOpenLocalDesigns={onOpenLocalDesigns}
       onOpenCommunity={onOpenCommunity}
       communityHasSkins={communityHasSkins}
+      communityHasReplies={communityHasReplies}
       onOpenCloudDictionary={onOpenCloudDictionary}
       onOpenCloudClipboard={onOpenCloudClipboard}
       onOpenAbout={onOpenAbout}
@@ -186,6 +190,7 @@ function AccountDetailsPage({
   onOpenLocalDesigns,
   onOpenCommunity,
   communityHasSkins = true,
+  communityHasReplies = true,
   onOpenCloudDictionary,
   onOpenCloudClipboard,
   onOpenAbout,
@@ -211,6 +216,7 @@ function AccountDetailsPage({
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
   communityHasSkins?: boolean;
+  communityHasReplies?: boolean;
   /** 触屏宿主的「我的」里打开云词库。桌面的云词库入口在「词库」页，账号页不再列出。 */
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
@@ -977,21 +983,25 @@ function AccountDetailsPage({
                 disabled={busy}
                 onClick={() => onOpenCommunity("published-dictionary")}
               />
-              <AccountMeRow
-                title="我发布的回复模板"
-                disabled={busy}
-                onClick={() => onOpenCommunity("published-reply")}
-              />
+              {communityHasReplies && (
+                <AccountMeRow
+                  title="我发布的回复模板"
+                  disabled={busy}
+                  onClick={() => onOpenCommunity("published-reply")}
+                />
+              )}
               <AccountMeRow
                 title="收藏的词库"
                 disabled={busy}
                 onClick={() => onOpenCommunity("saved-dictionary")}
               />
-              <AccountMeRow
-                title="收藏的回复模板"
-                disabled={busy}
-                onClick={() => onOpenCommunity("saved-reply")}
-              />
+              {communityHasReplies && (
+                <AccountMeRow
+                  title="收藏的回复模板"
+                  disabled={busy}
+                  onClick={() => onOpenCommunity("saved-reply")}
+                />
+              )}
             </>
           )}
         </GroupList>
@@ -1087,21 +1097,25 @@ function AccountDetailsPage({
                     disabled={busy}
                     onClick={() => onOpenCommunity("published-dictionary")}
                   />
-                  <AccountMeRow
-                    title="我发布的回复模板"
-                    disabled={busy}
-                    onClick={() => onOpenCommunity("published-reply")}
-                  />
+                  {communityHasReplies && (
+                    <AccountMeRow
+                      title="我发布的回复模板"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("published-reply")}
+                    />
+                  )}
                   <AccountMeRow
                     title="收藏的词库"
                     disabled={busy}
                     onClick={() => onOpenCommunity("saved-dictionary")}
                   />
-                  <AccountMeRow
-                    title="收藏的回复模板"
-                    disabled={busy}
-                    onClick={() => onOpenCommunity("saved-reply")}
-                  />
+                  {communityHasReplies && (
+                    <AccountMeRow
+                      title="收藏的回复模板"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("saved-reply")}
+                    />
+                  )}
                 </>
               )}
             </GroupList>

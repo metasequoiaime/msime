@@ -18,6 +18,8 @@ export interface UseTranslationSettingsOptions {
   windows?: boolean;
   /** HarmonyOS 的腾讯云密钥存在偏好里（它画的是 `TencentTranslationSection`，不是 Linux 的凭据文件表单），没有可用密钥时 host-api 不把腾讯云放进查询，与 macOS、Windows 相同。 */
   harmony?: boolean;
+  /** 宿主提供 AI 生成类功能（`HostCapabilities.ai_generation`）。为 false 时（HarmonyOS）不认「AI 辅助」翻译：存下的 `translation_ai` 显示成没有选在线服务，键盘一侧也不发这类请求。缺省为提供。 */
+  aiGeneration?: boolean;
   candidateEnglishGlossAvailable: boolean;
   onDeviceDownloadable: string[];
   onChange: (preferences: Preferences) => void;
@@ -31,6 +33,7 @@ export function useTranslationSettings({
   linux,
   windows = false,
   harmony = false,
+  aiGeneration = true,
   candidateEnglishGlossAvailable,
   onDeviceDownloadable,
   onChange,
@@ -68,7 +71,7 @@ export function useTranslationSettings({
           ? "custom"
           : tencentTranslation.enabled
             ? "tencent"
-            : preferences?.translation_ai
+            : preferences?.translation_ai && aiGeneration
               ? "ai"
               : "none";
   // 没有可用密钥的腾讯云不会被请求：host-api 的 `selected_translation_services` 只在两个密钥都可用时才把它放进查询，macOS（`InputController` 的 `currentOnDeviceGlossRequest`）、Windows（Server 的 `msime_client_translation_query`）和 HarmonyOS（`TranslationPolicy.provider`）都按查询走。所以新装时默认的 `enabled: true` 在这三处显示成 `none`，与实际一致；用户本次选了腾讯云才显示腾讯云，让凭据输入框出现。Linux 的显示不变：它的密钥在 provider 自己的 tencent-provider.json 里，偏好里的空密钥不代表没配置，host-api 也正靠 `enabled: true` 把查询交给那边。

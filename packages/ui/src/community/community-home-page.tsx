@@ -18,6 +18,8 @@ export interface CommunityHomePageProps {
   /** 键盘皮肤画廊。Windows 没有（它的候选窗口皮肤社区在主题页），这时只有「词库」和「回复模板」两个分类。 */
   skins?: CommunitySkinClient;
   resources: CommunityResourceClient;
+  /** 见 `CommunityCategoryTabsProps.hasReplies`。 */
+  hasReplies?: boolean;
   theme: "light" | "dark";
   initialMine?: boolean;
   initialCategory?: CommunityDestinationCategory;
@@ -42,6 +44,7 @@ export interface CommunityHomePageProps {
 export function CommunityHomePage({
   skins,
   resources,
+  hasReplies = true,
   theme,
   initialMine = false,
   initialCategory = "skin",
@@ -56,7 +59,9 @@ export function CommunityHomePage({
   onSkinApplied,
 }: CommunityHomePageProps) {
   const [category, setCategory] = useState<CommunityDestinationCategory>(
-    skins || initialCategory !== "skin" ? initialCategory : "dictionary",
+    (skins || initialCategory !== "skin") && (hasReplies || initialCategory !== "reply")
+      ? initialCategory
+      : "dictionary",
   );
   const harmony = look === "harmony";
   const body = (
@@ -64,6 +69,7 @@ export function CommunityHomePage({
       <CommunityCategoryTabs
         category={category}
         hasSkins={!!skins}
+        hasReplies={hasReplies}
         look={look}
         onCategoryChange={setCategory}
       />

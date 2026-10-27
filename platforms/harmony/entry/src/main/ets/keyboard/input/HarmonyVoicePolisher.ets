@@ -1,5 +1,6 @@
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../../network/HarmonyHttpSecurity';
+import { AiGenerationGate } from '../AiGenerationGate';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { TextPolicy } from '../TextPolicy';
 import { utf8Length } from '../Utf8';
@@ -38,6 +39,8 @@ export class HarmonyVoicePolisher {
   }
 
   async polish(config: VoiceInputConfiguration, text: string): Promise<string | null> {
+    // 语音识别后的润色和功能面板的 AI 润色都经这里发给大模型；总闸关着时存下的润色开关打开了也不发。
+    if (!AiGenerationGate.enabled()) return null;
     if (!config.polish_enabled && !config.polish_text) return null;
     const provider: string = (config.polish_provider ?? '').trim();
     const defaultEndpoint: string = VoiceProviderCatalog.polishEndpoint(provider);

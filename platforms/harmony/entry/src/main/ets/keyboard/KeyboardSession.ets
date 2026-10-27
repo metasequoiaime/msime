@@ -98,6 +98,7 @@ import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { NativeReplyPolicy } from './NativeReplyPolicy';
 import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
+import { AiGenerationGate } from './AiGenerationGate';
 import { OnlineCandidatePolicy, OnlineQuery, CloudHttpDescriptor } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -1889,6 +1890,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
     this.systemDark = systemDark;
+    // AI 生成类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.ai_generation`），鸿蒙版拿到资质之前为关。
+    AiGenerationGate.adopt(client.hostCapabilities('harmony'));
     this.refreshFeedback();
     this.refreshAppTheme(true);
     this.preferencesRevision = this.storedRevision(stateRoot);
@@ -4861,7 +4864,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     if (epoch !== this.onlineEpoch || handle !== this.handle) return;
     const assistant = aiQuery.ai_assistant;
-    if (assistant?.enabled === true && aiQuery.ai_eligible) {
+    // AI 联想把组字和光标前的文字发给大模型；总闸 `AiGenerationGate` 关着时存下的 `ai_assistant.enabled` 打开了也不问。
+    if (assistant?.enabled === true && aiQuery.ai_eligible && AiGenerationGate.enabled()) {
       // 这个组字问过 AI 而没有结果（云候选失败触发的重试走到这里）：不再发请求。
       const aiApplied: boolean = requestSignature !== this.aiResolvedSignature
         && await this.fetchAi(handle, aiDocument, assistant.candidate_limit, epoch);
@@ -6154,7 +6158,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Generates bounded reply candidates through the shared AI ABI without involving Engine state. */
   async thoughtfulReplies(source: string, style: string, extraPrompt: string = '', polish: boolean = false): Promise<string[]> {
     const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style, extraPrompt, polish);
-    if (request === null || !this.aiAssistant.enabled || this.aiAssistant.endpoint.length === 0) {
+    if (request === null || !AiGenerationGate.enabled() || !this.aiAssistant.enabled
+      || this.aiAssistant.endpoint.length === 0) {
       return [];
     }
     const editorGeneration: number = this.editorGeneration;

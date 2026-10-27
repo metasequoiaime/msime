@@ -52,6 +52,7 @@ function model(): SettingsAccountPageProps["model"] {
     availablePages: [],
     openExternalUrl: vi.fn().mockResolvedValue(undefined),
     currentAppVersion: "0.0.0",
+    showAiGeneration: true,
   };
 }
 
