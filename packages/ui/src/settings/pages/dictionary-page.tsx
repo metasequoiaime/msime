@@ -38,6 +38,7 @@ import { useSettingsTabs } from "../use-settings-tabs";
 import { cloudDictionaryTab, dictionaryTabs } from "../dictionary-tabs";
 import { CloudDictionaryTab } from "../cloud-dictionary-tab";
 import { ResourceDictionaryLookup } from "../resource-dictionary-lookup";
+import { DictionarySyncSection } from "../dictionary-sync-section";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -175,6 +176,7 @@ export function DictionarySettingsPage() {
               <DictionaryUpdates request={client.dictionary.updates} />
             )}
             <HarmonyPhoneDictionary />
+            <DictionarySyncSection />
             {contribution}
           </>
         )}
@@ -410,6 +412,8 @@ export function DictionarySettingsPage() {
               )}
             </GroupList>
           )}
+          {/* 「我的词条」经网盘同步，紧跟着个人词条的导入导出；宿主不提供时整组不显示。 */}
+          <DictionarySyncSection />
           {client.openCloudDictionary &&
             client.host?.platform !== "macos" &&
             (!client.cloudDictionary || mobilePlatform) && (

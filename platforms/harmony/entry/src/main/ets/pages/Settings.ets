@@ -1368,6 +1368,8 @@ class SettingsBridge {
       this.cloudClipboard(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_clipboard_webdav_probe') {
       this.cloudClipboardWebDavProbe(payload).then(deliver).catch(failed);
+    } else if (kind === 'dictionary_sync') {
+      this.dictionarySync(payload).then(deliver).catch(failed);
     } else if (kind === 'settings_sync') {
       this.settingsSync(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_skin') {
@@ -2366,6 +2368,14 @@ class SettingsBridge {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'relay_unavailable' }));
     }
     return this.accountBridge.cloudClipboardWebDavProbe(draft);
+  }
+
+  /** 「词库」页的「词库同步」，页面交来的是 `msime_client_dictionary_sync` 的 `action`；除 `status` 外都要隐私政策的授权（`startRequest` 开头已经拦过）。 */
+  dictionarySync(action: string): Promise<string> {
+    if (this.context === undefined || this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'dictionary_sync_storage' }));
+    }
+    return this.accountBridge.dictionarySync(action, `${this.context.filesDir}/engine`, this.stateDirectory);
   }
 
   cloudDictionary(action: string): Promise<string> {

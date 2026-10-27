@@ -79,6 +79,7 @@ import {
   type ScelText,
   type WubiCodeLookup,
   type CloudClipboardWebDavPreferences,
+  type DictionarySyncAction,
   UNBATCHED_DICTIONARY_FILE_BYTES,
   StatusMessage,
 } from "@msime/ui";
@@ -847,6 +848,11 @@ function DesktopSettings() {
                       username: draft.username,
                       password: draft.password,
                     });
+                  },
+                  // 「我的词条」经网盘同步：动作原样交给 Rust（`dictionary_sync`），HostOptions 和与输入法共用的状态目录由宿主补上。
+                  dictionarySync: {
+                    request: (action: DictionarySyncAction) =>
+                      invoke<unknown>("dictionary_sync", { action }),
                   },
                 }
               : {}),

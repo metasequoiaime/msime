@@ -620,7 +620,8 @@ pub(crate) fn request_json(bytes: &[u8]) -> Result<Value, String> {
         _ => Ok(None),
     };
 
-    let mut local = EngineDictionary::new(&engine, false);
+    // 移动端从不请输入法让出词库（`quiesce` 为假），所以让出时的通知用不到。
+    let mut local = EngineDictionary::announcing(&engine, false, || {});
     let (report, failure) = run(
         request.side,
         &mut state,

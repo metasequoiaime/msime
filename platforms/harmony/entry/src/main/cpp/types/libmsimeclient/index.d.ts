@@ -131,6 +131,8 @@ export const cloudClipboardSource: (directory: string) => string;
 export const relayCloudClipboard: (request: string) => Promise<string>;
 /** `msime_client_cloud_clipboard_webdav_probe` 在工作线程上：`{url, username, password, directory?}`，WebDAV 设置的「测试连接」，大约二十个请求。 */
 export const cloudClipboardWebDavProbe: (request: string) => Promise<string>;
+/** `msime_client_dictionary_sync` 在工作线程上：`{options, directory, device_name?, action}`，「我的词条」经 WebDAV 网盘同步的一个动作。只有设置应用调用，键盘扩展不调。 */
+export const dictionarySync: (request: string) => Promise<string>;
 /** `msime_client_account_harmony_settings_export` 在工作线程上：`{preferences_directory, feedback, schema, cloud?}`，不联网、不读会话。 */
 export const harmonySettingsExport: (request: string) => Promise<string>;
 /** `msime_client_account_harmony_settings_apply` 在工作线程上：`{preferences_directory, cloud, schema, feedback}`，按读到的修订号比较并交换写回偏好。 */

@@ -78,6 +78,51 @@ fn the_engine_dictionary_reads_my_words_and_writes_bounded_batches() {
     assert_eq!(local.words().unwrap().len(), 3);
 }
 
+/// 叫醒输入法的次数：`announce` 是 `fn()`，带不了闭包里的计数。
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+static ANNOUNCED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[test]
+fn an_interactive_write_wakes_the_input_method_once_when_it_asks_for_the_dictionary() {
+    use std::sync::atomic::Ordering;
+    let root = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(root.path());
+    let engine = engine(&options);
+    let session = DictionaryAccess::try_session(
+        std::path::Path::new(&engine.user_data),
+        std::path::Path::new(&engine.dictionaries),
+    )
+    .unwrap()
+    .unwrap();
+    let mut waiting = EngineDictionary::announcing(&engine, true, || {
+        ANNOUNCED.fetch_add(1, Ordering::SeqCst);
+    });
+    let word = WordKey::new(WordKind::Pinyin, "ni'men", "你们").unwrap();
+    // 输入会话一直不放，让出请求挂上、叫醒一次，预算用完后答「忙」；同一轮里再写一批不再叫醒。
+    assert_eq!(
+        waiting.apply(&[change(word.clone(), true, "1")]),
+        Err(LocalError::Busy)
+    );
+    assert_eq!(ANNOUNCED.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        waiting.apply(&[change(word.clone(), true, "1")]),
+        Err(LocalError::Busy)
+    );
+    assert_eq!(ANNOUNCED.load(Ordering::SeqCst), 1);
+    waiting.release();
+    drop(session);
+    // 输入会话放开之后照常写进去，没有再叫醒。
+    let mut local = EngineDictionary::announcing(&engine, true, || {
+        ANNOUNCED.fetch_add(1, Ordering::SeqCst);
+    });
+    assert_eq!(
+        local.apply(&[change(word, true, "1")]).unwrap(),
+        vec![LocalOutcome::Applied]
+    );
+    assert_eq!(ANNOUNCED.load(Ordering::SeqCst), 1);
+}
+
 #[test]
 fn an_active_input_session_makes_automatic_writes_wait() {
     let root = tempfile::tempdir().unwrap();

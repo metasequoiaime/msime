@@ -641,6 +641,11 @@ static napi_value CloudClipboardWebDavProbe(napi_env env, napi_callback_info inf
         "MSIME cloud clipboard webdav probe");
 }
 
+// 「我的词条」经 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）：除 status 外都会阻塞网络，整次同步还持有一把文件锁，所以在工作线程上调用。只有设置应用调它：键盘扩展在自己的沙箱里调会登记成另一台设备（scripts/test-harmony-dictionary-sync.py 守着）。
+static napi_value DictionarySync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_dictionary_sync, "MSIME dictionary sync");
+}
+
 // 云剪贴板该走哪条路：头文件规定它只读偏好、不联网，所以同步调用，键盘在主线程上核对列表的绑定时也读它。参数是偏好目录的绝对路径本身（不是 JSON），与 accountStatus 一样。
 static napi_value CloudClipboardSource(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
@@ -1758,6 +1763,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("cloudClipboardSource", CloudClipboardSource),
         ENTRY("relayCloudClipboard", RelayCloudClipboard),
         ENTRY("cloudClipboardWebDavProbe", CloudClipboardWebDavProbe),
+        ENTRY("dictionarySync", DictionarySync),
         ENTRY("harmonySettingsExport", HarmonySettingsExport),
         ENTRY("harmonySettingsApply", HarmonySettingsApply),
         ENTRY("aiSkinGenerate", AiSkinGenerate),

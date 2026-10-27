@@ -44,6 +44,7 @@ import type { CustomHelpcodeSchema } from "../settings/helpcode-preferences";
 import type { ClipboardHistoryClient } from "../settings/clipboard-history-model";
 import type { CloudClipboardRequest } from "../settings/cloud-clipboard-send";
 import type { CloudClipboardWebDavPreferences } from "../settings/cloud-clipboard-relay-preferences";
+import type { DictionarySyncClient } from "../settings/dictionary-sync";
 import type { MobileKeyboardFeedbackClient } from "../settings/mobile-keyboard-feedback";
 import type { CommunitySkinClient } from "../community/community-skin-model";
 import type { CommunityResourceClient } from "../community/community-resource-model";
@@ -175,6 +176,8 @@ export interface SettingsClient {
   cloudClipboardRelay?: boolean;
   /** WebDAV 设置的「测试连接」（Tauri 命令 `cloud_clipboard_webdav_probe`，见 `docs/cloud-clipboard-webdav.md`）：用还没保存的草稿试一遍网盘，通过时 resolve，失败时以带 `code` 的错误 reject。和 `cloudClipboardRelay` 一起提供时，同步方式里多出「WebDAV」。 */
   probeCloudClipboardWebDav?: (draft: CloudClipboardWebDavPreferences) => Promise<void>;
+  /** 「我的词条」经 WebDAV 网盘同步（`msime_client_dictionary_sync`，见 `docs/dictionary-webdav-sync.md`）。提供时词库页显示「词库同步」，设置打开期间按 Rust 给的时间自动同步，经设置改了词之后记录一次本机改动；没有它的宿主整组不显示。 */
+  dictionarySync?: DictionarySyncClient;
   openCloudDictionary?: () => Promise<void>;
   /** 桌面设置页内嵌的云词库客户端；提供时词库页显示「云词库」顶部标签。 */
   cloudDictionary?: CloudDictionaryPanelClient;
