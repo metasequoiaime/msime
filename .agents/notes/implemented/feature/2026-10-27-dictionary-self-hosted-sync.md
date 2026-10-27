@@ -77,6 +77,10 @@ Status: implemented
 
 Android 设置页的请求代次同时约束工作线程和界面回调。保存或停止网盘配置时，在写偏好之前先使旧代次失效；网络线程在执行用户操作、补读状态和读取设备之前分别检查代次，旧请求已开始的调用可以返回，但不能继续后续请求，尤其不能由 `devices` 对新网盘登记本机。代次由主线程写、工作线程读，用 `volatile` 保证可见。保存失败时也重新读取页面，旧任务的回调既然已失效，就不能再依赖它清理忙碌状态。
 
+Android 的回退恢复与普通测试连接分开：回退错误旁显示「确认网盘现状并恢复同步」，先在工作线程读取已保存凭据，再让用户单独确认遗忘待发改动的后果。确认期间页面换代就取消，执行前还须逐字段核对持久化配置，其他窗口换过地址、账号或密码时不执行旧恢复。只有这个入口才传 `trust_remote:true`，成功后让用户点「立即同步」；填写页的测试与保存预检不传，不能默默忘掉待上传删除。
+
+普通 `probe` 只测连接，不清同步位置、待发改动或防回退记录。设置保存前预检也遵守这个边界，否则一次无副作用外观的测试会抹掉待上传删除，使远端词重新出现。只有单独确认恢复时才传 `trust_remote:true`，确认文案说明待发改动会遗忘、未上传删除可能重新合并回来。宿主用已保存连接恢复，不能把未保存草稿的探测当作恢复。
+
 ## Alternatives considered
 
 - **与云剪贴板共用一份密钥串和批准** — 最强的理由是用户只批准一次，两个功能看到同一份设备列表。不用：剪贴板的生命周期会直接伤到词库——关闭云剪贴板会删掉全部密钥、封装和设备登记，「重置云剪贴板」会换钥并清空；它的空间绑定的是 `cloud_clipboard_webdav` 的地址和账号，词库就得强制要求同一个网盘账号；Android 的剪贴板密钥串由 Java 用 AndroidKeyStore 保存，iOS 和 HarmonyOS 的宿主还没接中继，共用就要先把这些宿主的剪贴板密钥串接进词库同步。复用代码、分开实例，换来两个功能互不牵连，代价是用两个功能的设备要批准两次。
@@ -108,7 +112,7 @@ Android 设置页的请求代次同时约束工作线程和界面回调。保存
 - 检查点边界：6500 条、每条 4096 字节的合成快捷短语不会发布超限检查点，日志不封口，确认删除后仍可收敛；超限重建不会增加远端事件，原设备可继续写入。
 
 - `cargo test -p msime-client-core --lib dictionary_sync`：66 项，含多设备模拟——三台设备增词、改编码、删词后收敛；40 个种子的随机离线交错加崩溃和重放收敛且没有重复发送；并发修改与删除两种上传顺序结果相同；时钟在重启和系统时间回调后不倒退；重装设备重新加入；同一设备只登记一次；移除设备后换钥并把它挡在外面；压缩并删除旧 epoch 后长期离线设备重新加入；Engine 忙时不提前确认、墓碑等它；每一次写盘处崩溃都不丢不重；回退、截尾、删除整个文件夹被识别；大批删除被挡下；Engine 不收或删不掉的词不反复重试、也不复活；删了又加回来用新的请求编号；从检查点加入时不会因为墓碑删掉本机的词（先在去掉修复时确认会失败）；调度在额度之内。
-- `cargo test -p msime-clipboard-relay --test dictionary_webdav_flow`：9 项，对着 `dav-server`：两台设备经密钥串配对（两边的核对码相同）、批准、互传、改编码和删词；同一安装两个进程同时第一次使用只登记一台；错误的应用密码在同步和测试连接里都是 `dictionary_sync_unauthorized`，连不上的地址是 `dictionary_sync_unavailable`；超大事件是 `dictionary_sync_too_large`；两台设备同时同步抢同一个序号，词都进去了；截掉日志尾部是 `dictionary_sync_rollback`，重新测试连接后恢复、本机的词都在；服务端暂时不可用时改动留在本机，恢复后发出；凭据和词条不出现在网盘文件里，凭据不出现在本机状态文件里。
+- `cargo test -p msime-clipboard-relay --test dictionary_webdav_flow`：9 项，对着 `dav-server`：两台设备经密钥串配对（两边的核对码相同）、批准、互传、改编码和删词；同一安装两个进程同时第一次使用只登记一台；错误的应用密码在同步和测试连接里都是 `dictionary_sync_unauthorized`，连不上的地址是 `dictionary_sync_unavailable`；超大事件是 `dictionary_sync_too_large`；两台设备同时同步抢同一个序号，词都进去了；截掉日志尾部是 `dictionary_sync_rollback`，普通测试连接仍拒绝回退，用户明确确认网盘现状后恢复、本机的词都在；服务端暂时不可用时改动留在本机，恢复后发出；凭据和词条不出现在网盘文件里，凭据不出现在本机状态文件里。
 - `cargo test -p msime-host-api --lib dictionary_webdav`：4 项，对着真实的 Engine 词库：读「我的词条」（含多行快捷短语和英文显示形）、加入、删除、删除本来就没有的词、同一个请求编号重试；输入会话占着词库时答「忙」、读照常；Engine 不收的词单独报告、同批其他词照常写进去；请求在联网之前就被校验。
 - `cargo test -p msime-client-core --lib`、`cargo test -p msime-client-services`、`cargo test -p msime-clipboard-relay`：全部通过；`cargo test -p msime-host-api --lib` 只有两项与本改动无关的失败（按需资源包列表与 develop 上新增的 `pronunciations` 不符，一项按分钟取本地时间的脚本插件测试）。`cargo clippy` 对四个 crate 加 `--all-targets` 只剩 develop 上已有的两处 `field_reassign_with_default`。
 
@@ -120,3 +124,5 @@ Android 设置页的请求代次同时约束工作线程和界面回调。保存
 Android 接入的验证：`platforms/android/check-host.sh` 全部通过（含新增的 `DictionarySyncPolicySmoke` 和设置搜索索引）；`scripts/test-android-dictionary-sync-contract.py` 核对 10 个错误码、2 MiB 上限、共用目录和键盘的触发；API 35 模拟器上 `CloudClipboardRelayDeviceSmoke -e dictionary-sync true` 经 JNI 跑通没配置、请求不合规、`local_change` 不联网、连不上的网盘（同步和测试连接）、noBackupFilesDir 下目录权限 0700 和锁文件。另在同一台模拟器上经 `adb reverse` 接一个本机的 `dav-server` 网盘（临时验收工具，没有提交）手动走了一遍：设置页测试连接、保存、本机登记后等待允许（两边核对码一致）、被另一台合成设备允许后立即同步、共享的词写进 Engine（音节数与字数不符的那一个被 Engine 拒收、没有反复重试）、在设置页允许第三台设备；只留键盘进程（`am force-stop` 后单独拉起输入法）时它在约 10 秒后跑了一次定时同步（同步状态文件被改写），密钥串文件没变，批准方看到这台设备始终只有一条。没在 API 28 上跑，也没在模拟器上验证候选栏删除之后的 `local_change` 推送。
 
 Android 请求代次的审查验证：提取实际网络任务的控制流、以合成传输替换 JNI，覆盖任务启动前已失效、用户操作返回前切换配置、状态读取返回前切换配置、当前代次正常完成四种交错；原实现第一种即失败，修复后四种通过。实际页面完整源码通过 Java 编译器的语法解析；`check-host.sh` 的 289 个 JVM 冒烟、252 个设备套件源文件编译通过，词库同步契约与笔记校验通过。这些检查没有编译 AndroidX 设置页或安装修复后的 APK，不能算设备验收。完整 quick 未完成：本机余量低于新建构建树所需的 50 GB，远程编译机负载超过 800，前轮门禁已因临时盘写满和超时中止。
+
+恢复入口追加验证：携带共享设置页、Windows 同一份普通探测与显式恢复的 C ABI 修复及真实 WebDAV 回归；Android 的错误提示冒烟改为单独确认恢复，并在设备套件补充显式恢复经 Java/JNI 的调用。`check-host.sh` 的 289 个 JVM 冒烟和 252 个设备套件源文件再次编译通过，完整页面语法解析、同步契约、Rust 格式、冲突标记与三项笔记检查通过。没有安装新 APK 或实际运行新增设备用例，设备验收与完整 quick 的限制仍然保留。

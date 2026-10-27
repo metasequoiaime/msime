@@ -53,6 +53,8 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
             @Nullable CloudClipboardApi.Devices devices, @Nullable String devicesError) {}
     /** 一次「测试连接」的结果：`code` 为 null 表示通过；`password` 是实际测试用的应用密码（留空保持不变时是已存的那个），通过后「保存」原样写进偏好。 */
     private record Probe(@Nullable String code, String password) {}
+    /** 仅在确认恢复期间持有已保存凭据，用于执行前检查是否被另一个窗口修改；不展示或记录。 */
+    private record RecoveryConnection(String url, String username, String password) {}
 
     /** 读到的网盘配置；还没读到或偏好读不了时为 null。 */
     @Nullable private Config config;
@@ -217,6 +219,10 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         }
         card.button("立即同步", "不等自动同步的间隔", "同步", () -> act(
             sync -> sync.run(DictionarySyncPolicy.TRIGGER_MANUAL, false, false), "已同步"));
+        String error = state.error() != null ? state.error() : status == null ? null : status.lastError();
+        if (DictionarySyncPolicy.CODE_ROLLBACK.equals(error)) {
+            card.button("确认网盘现状并恢复同步", "仅在自己清理过网盘文件夹后使用", "恢复", this::confirmTrustRemote);
+        }
         if (status != null && status.pendingApply() > 0) {
             card.footer("键盘正在用词库时，网盘上的改动先不写进本机，收起键盘后会写进去。");
         }
@@ -359,6 +365,35 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
             "重新开始", () -> act(sync -> { sync.restart(); return null; }, "已重新开始"));
     }
 
+    private void confirmTrustRemote() {
+        if (busy) {
+            MsToast.show(requireContext(), "正在同步，稍后再试");
+            return;
+        }
+        long request = generation;
+        Context application = requireContext().getApplicationContext();
+        HostTask.run(this, DictionarySyncPage::recoveryConnection, saved -> {
+            if (request != generation) return;
+            if (saved == null) {
+                MsToast.show(requireContext(), DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_NOT_CONFIGURED, false));
+                return;
+            }
+            MessageDialog.confirm(requireContext(), "确认网盘现状并恢复同步？",
+                "仅在你自己清理过网盘文件夹时使用。保留当前本机词条，但忘掉同步位置和待发改动；未上传的删除可能从网盘重新合并回来。",
+                "恢复同步", () -> {
+                    if (request != generation) return;
+                    act(sync -> {
+                        // 确认期间其他窗口换过配置，不能清掉新连接的待发改动。
+                        if (!saved.equals(recoveryConnection(application))) {
+                            throw new DictionaryWebDavSync.Failure(DictionarySyncPolicy.CODE_NOT_CONFIGURED);
+                        }
+                        sync.probe(saved.url(), saved.username(), saved.password(), true);
+                        return null;
+                    }, "已确认网盘现状，请点「立即同步」恢复");
+                });
+        });
+    }
+
     private void confirmStop() {
         MessageDialog.confirm(requireContext(), "停止词库同步？",
             "会清除本机保存的网盘地址、账号和应用密码。网盘上的词库和这台设备上的词都不受影响，之后可以再设置。",
@@ -470,6 +505,18 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         JSONObject preferences = KeyboardSheets.preferences(context);
         JSONObject saved = preferences == null ? null : preferences.optJSONObject(DictionarySyncPolicy.PREFERENCE);
         return saved == null ? "" : JsonPolicy.strictStringOrEmpty(saved.opt("password"));
+    }
+
+    /** 恢复确认用的完整已保存配置；缺失或偏好读不了时为 null。只在工作线程读取。 */
+    @Nullable private static RecoveryConnection recoveryConnection(Context context) {
+        JSONObject preferences = KeyboardSheets.preferences(context);
+        JSONObject saved = preferences == null ? null : preferences.optJSONObject(DictionarySyncPolicy.PREFERENCE);
+        if (saved == null) return null;
+        String url = JsonPolicy.strictStringOrEmpty(saved.opt("url"));
+        String username = JsonPolicy.strictStringOrEmpty(saved.opt("username"));
+        String password = JsonPolicy.strictStringOrEmpty(saved.opt("password"));
+        return url.isEmpty() || username.isEmpty() || password.isEmpty() ? null
+            : new RecoveryConnection(url, username, password);
     }
 
     /** 偏好里的网盘；偏好读不了时为 null。读文件，在工作线程上调用。 */

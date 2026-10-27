@@ -62,8 +62,8 @@ public final class DictionarySyncPolicySmoke {
         String syncUnsupported = DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_UNSUPPORTED, false);
         check(probeUnsupported.contains("文件操作") && !syncUnsupported.equals(probeUnsupported),
             "unsupported reads differently in the probe and in a sync");
-        // 回退的说法告诉用户怎么恢复：重新测试连接并保存。
-        check(DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_ROLLBACK, false).contains("重新测试连接并保存"),
+        // 恢复必须单独确认，普通测试连接不能清掉待发删除。
+        check(DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_ROLLBACK, false).contains("确认网盘现状并恢复同步"),
             "rollback tells the user how to recover");
 
         // 连网盘本身就不行时，设置页不再接着读设备；其余失败（例如回退、等待允许）照样读设备。
