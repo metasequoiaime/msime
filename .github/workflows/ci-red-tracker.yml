@@ -1,0 +1,42 @@
+name: CI red tracker
+
+# develop 上的推送 CI 和 nightly 红了要有人看见。2026-10-25 到 10-27 的 nightly 连红三天、合进 develop 后的 Native Platform CI 最近 30 次只绿了 3 次，都没人发现：红成了常态，真正的回归（Android 瘦包超过体积上限、只在 Fedora 容器里失败的 Linux ctest）混在里面溜了进去。这里在下面三个 workflow 每次跑完时，给失败开一张跟踪 issue（标签 ci-red，指派 houko），之后的失败追加评论，转绿时自动关闭。每个 workflow 各一张单，nightly 和 develop 的推送 CI 不会互相掩盖。判定和文案在 scripts/ci_issue_tracker.py，见 .agents/notes/implemented/process/2026-10-28-ci-red-tracking.md。
+#
+# workflow_run 只按默认分支（develop）上的这份文件触发，改动它在合并前不会生效。它不检出、不执行被跟踪运行的代码，只用默认分支上的脚本经 GitHub API 读运行和 job 的元数据。
+
+on:
+  workflow_run:
+    workflows: [Nightly builds, Native Platform CI, Core CI]
+    types: [completed]
+    branches: [develop]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  # 同一个 workflow 的结果串行处理，两次运行同时结束时不会各开一张单；不同 workflow 的单互不相关，可以并行。排队中的那次被更新的一次顶掉时，更新的那次按最近的运行历史重新判定，不丢状态。
+  group: ci-red-tracker-${{ github.event.workflow_run.workflow_id }}
+  cancel-in-progress: false
+
+jobs:
+  track:
+    name: Track red builds on develop
+    # 只看合进 develop 之后的运行（推送、定时、手动），PR 的运行一律不管；取消和跳过的运行既不算红也不算绿。脚本里还会再核对一次。
+    if: >-
+      github.repository == 'metasequoiaime/msime' &&
+      github.event.workflow_run.head_branch == 'develop' &&
+      contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event.workflow_run.event) &&
+      contains(fromJSON('["success", "failure", "timed_out"]'), github.event.workflow_run.conclusion)
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 scripts/ci_issue_tracker.py red-build --run-id "$RUN_ID"
