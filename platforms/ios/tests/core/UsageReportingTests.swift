@@ -2,6 +2,16 @@ import Foundation
 import XCTest
 
 final class UsageReportingTests: XCTestCase {
+  func testDiagnosticHeaderKeepsSourceVersionAndRejectsPrivatePaths() throws {
+    let header = try XCTUnwrap(UsageReporting.diagnosticHeader(version: "0.52.0"))
+    let json = String(header.dropFirst("MSIME-CRASH/1 ".count))
+    let context = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: String])
+    XCTAssertEqual(context["version"], "0.52.0")
+    XCTAssertEqual(context["revision"], "unknown")
+    XCTAssertNil(UsageReporting.diagnosticHeader(version: "/private/synthetic"))
+    XCTAssertNil(UsageReporting.diagnosticHeader(version: "0.1.0\nprivate"))
+  }
+
   func testSharedClientRequestEnvelope() {
     var request: [String: Any]?
     let reply = ClientRequestEnvelope.call({ bytes, count in

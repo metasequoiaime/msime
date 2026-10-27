@@ -26,6 +26,7 @@ underscored=${rust_target//-/_}
 env "CC_${underscored}=$compiler" "CXX_${underscored}=${compiler}++" \
   "AR_${underscored}=$ndk/llvm/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/ohos-cargo" \
+  CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
   cargo build -p msime-host-api --target "$rust_target" --release --locked
 output="$repo_root/target/ohos/libs/$abi"
 mkdir -p "$output"
@@ -37,7 +38,7 @@ miniaudio="platforms/windows/third_party/miniaudio"
 "${compiler}++" -std=c++17 -fPIC -O2 -c platforms/harmony/native/miniaudio.cpp -I"$miniaudio" \
   -o "$output/miniaudio.o"
 # The ArkTS side reaches the C ABI through this module. --no-undefined keeps a missing binding a link error here rather than a failed import on the device.
-"${compiler}++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
+"${compiler}++" -std=c++17 -g -Wl,--build-id=sha1 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-soname,libmsimeclient.so \
   platforms/harmony/native/client_napi.cpp platforms/harmony/native/key_sound_render.cpp \
   "$output/miniaudio.o" -Icrates/host-api/include -I"$miniaudio" \
@@ -54,3 +55,7 @@ cp "$output/libmsime_host_api.so" "$output/libmsimeclient.so" "$output/libc++_sh
 echo "OpenHarmony native libraries built: $output"
 echo "Staged for the HAP: $staged"
 echo "Next: platforms/harmony && hvigorw assembleHap (not yet device-verified)"
+
+python3 scripts/crash-symbols.py collect --platform harmony --version "${MSIME_HARMONY_VERSION:-$(cat platforms/harmony/version.txt)}" \
+  --root "$output" --tool-prefix "$ndk/llvm/bin/llvm-" \
+  --output "target/harmony-symbols/harmony-${MSIME_HARMONY_VERSION:-$(cat platforms/harmony/version.txt)}-$abi-${MSIME_BUILD_RUN:-${GITHUB_RUN_ID:-local}}-${GITHUB_RUN_ATTEMPT:-1}.zip"

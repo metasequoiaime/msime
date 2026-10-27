@@ -92,7 +92,7 @@ if(TARGET SQLite3::SQLite3)
 else()
   set(SQLITE_TARGET SQLite::SQLite3)
 endif()
-add_library(apple-client STATIC ../../shared/apple/MSIMEClientSession.mm ../../shared/apple/TextClient.mm)
+add_library(apple-client STATIC ../../shared/apple/MSIMEClientSession.mm ../../shared/apple/TextClient.mm ../common/CrashRecorder.cpp)
 target_compile_options(apple-client PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crates/host-api/include)
 # AppKit for the marked text attributes: a composition carrying an already chosen phrase piece is

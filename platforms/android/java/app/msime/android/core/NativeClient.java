@@ -376,6 +376,13 @@ public final class NativeClient {
     }
     /** Usage reporting (msime_client_telemetry_*): begin, end and clear touch only files; flush blocks on the network. Call on a worker. */
     public static String telemetryBegin(String request) { return TextPolicy.utf8(telemetryBeginRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    /** 主线程安装原生信号处理器；取得共享层确认的同意和路径后才启用采集。 */
+    public static native void telemetryCrashInstall();
+    public static native void telemetryCrashDisarm();
+    public static void telemetryCrashCapture(String path, String header) {
+        telemetryCrashCaptureRaw(utf8(path), utf8(header));
+    }
+    public static String telemetryRecordCrash(String request) { return TextPolicy.utf8(telemetryRecordCrashRaw(utf8(request))); }
     public static String telemetryEnd(String request) { return TextPolicy.utf8(telemetryEndRaw(request.getBytes(StandardCharsets.UTF_8))); }
     public static String telemetryFlush(String request) { return TextPolicy.utf8(telemetryFlushRaw(request.getBytes(StandardCharsets.UTF_8))); }
     public static String telemetryClear(String request) { return TextPolicy.utf8(telemetryClearRaw(request.getBytes(StandardCharsets.UTF_8))); }
@@ -1002,6 +1009,8 @@ public final class NativeClient {
     private static native byte[] snapshotVersionRaw(byte[] options);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] telemetryBeginRaw(byte[] request);
+    private static native void telemetryCrashCaptureRaw(byte[] path, byte[] header);
+    private static native byte[] telemetryRecordCrashRaw(byte[] request);
     private static native byte[] telemetryEndRaw(byte[] request);
     private static native byte[] telemetryFlushRaw(byte[] request);
     private static native byte[] telemetryClearRaw(byte[] request);

@@ -41,6 +41,8 @@
 #include "../../../shared/contracts/windows_ipc.h"
 #include "../tsf/IPC/AuxNamedpipeSender.h"
 #include "../../common/HostApiString.h"
+#include "../../common/CrashRecorder.h"
+#include <thread>
 #include "../common/GameCompatProfile.h"
 #include "AboutPageModel.h"
 #include "AccountPageModel.h"
@@ -631,6 +633,32 @@ uint64_t strict_revision(JsonObject const &object, std::wstring_view key,
   return static_cast<uint64_t>(raw);
 }
 
+// 原生设置独立采集，保存偏好后重新读取同意；不开始输入会话。
+void RefreshCrashCapture(bool send = false) {
+  try {
+    std::vector<wchar_t> local(32768);
+    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+    if (!length || length >= local.size()) return;
+    JsonObject request;
+    request.SetNamedValue(L"directory", JsonValue::CreateStringValue((std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY).wstring()));
+    request.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
+    request.SetNamedValue(L"version", JsonValue::CreateStringValue(text(MSIME_WINDOWS_VERSION)));
+    request.SetNamedValue(L"preferences_directory", JsonValue::CreateStringValue(state_directory().wstring()));
+    request.SetNamedValue(L"capture_only", JsonValue::CreateBooleanValue(true));
+    request.SetNamedValue(L"component", JsonValue::CreateStringValue(L"settings"));
+    const auto body = utf8(request.Stringify());
+    const auto response = take_response(msime_client_telemetry_begin(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    if (!response.ok) { msime::crash::disarm(); return; }
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+    if (value.GetNamedBoolean(L"enabled", false)) {
+      msime::crash::arm(utf8(value.GetNamedString(L"crash_record_path")), utf8(value.GetNamedString(L"crash_record_header")));
+    } else { msime::crash::disarm(); }
+    if (send) std::thread([body] {
+      auto response = msime::host_api::own_string(msime_client_telemetry_flush(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    }).detach();
+  } catch (...) { msime::crash::disarm(); }
+}
+
 class PreferencesDocument {
 public:
   PreferencesDocument() { reset_defaults(); }
@@ -678,6 +706,7 @@ public:
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
+      RefreshCrashCapture();
       return true;
     } catch (...) {
       error = L"设置已写入，但返回内容无法读取。";
@@ -26561,6 +26590,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
   if (activation != msime::settings::SettingsInstance::Start::primary)
     return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   init_apartment(apartment_type::single_threaded);
+  msime::crash::install_crash_handlers();
+  RefreshCrashCapture(true);
+  std::set_terminate([] { msime_native_crash_record("std::terminate in settings"); std::abort(); });
   Application::Start([&instance](auto &&) { make<App>(instance); });
   return 0;
 }

@@ -1329,3 +1329,49 @@ fn finished_scope_releases_inherited_lock() {
         &root.path().join(LOCK_FILE),
     );
 }
+
+#[test]
+fn a_full_crash_queue_keeps_later_records_on_disk_until_delivery_frees_space() {
+    let (_directory, store) = store();
+    let mut last = None;
+    for _ in 0..=MAX_QUEUED_EVENTS {
+        let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+        store
+            .record_crash_for(
+                &capture.session_id,
+                "Synthetic failure",
+                "libsynthetic.so+0x1",
+            )
+            .unwrap();
+        store.record_active(&app(), noon()).unwrap();
+        last = Some(capture.crash_record_path);
+    }
+    let last = last.unwrap();
+    assert_eq!(store.queued().unwrap().len(), MAX_QUEUED_EVENTS);
+    assert!(store
+        .queued()
+        .unwrap()
+        .iter()
+        .all(|event| event.kind == TelemetryKind::Crash));
+    assert!(last.is_file());
+    store
+        .record_active(&app(), noon() + Duration::from_secs(86400))
+        .unwrap();
+    assert!(last.is_file(), "新的日活不能挤掉待发崩溃");
+    let sender = ScriptedSender::new([]);
+    assert_eq!(
+        store.flush(&sender, noon()).unwrap().sent,
+        MAX_QUEUED_EVENTS
+    );
+    store.record_active(&app(), noon()).unwrap();
+    assert!(!last.exists());
+    assert_eq!(
+        store
+            .queued()
+            .unwrap()
+            .iter()
+            .filter(|event| event.kind == TelemetryKind::Crash)
+            .count(),
+        1
+    );
+}

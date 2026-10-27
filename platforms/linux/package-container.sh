@@ -86,6 +86,9 @@ docker run --rm --init \
   -w /source \
   -e CARGO_TARGET_DIR=/build/cargo \
   -e CARGO_HOME=/build/cargo-home \
+  -e MSIME_BUILD_REVISION="${MSIME_BUILD_REVISION:-$(git rev-parse HEAD)}" \
+  -e MSIME_BUILD_RUN="${MSIME_BUILD_RUN:-${GITHUB_RUN_ID:-}}" \
+  -e GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-}" \
   -e MSIME_PACKAGE_IMAGE="$package_image" \
   -e MSIME_VERSION="$version" \
   -e MSIME_RELEASE_DATE="$release_date" \
@@ -100,8 +103,9 @@ docker run --rm --init \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
     bash platforms/linux/scripts/prepare-package-cache.sh
-    # 在这里去掉 Rust 二进制的符号表，而不是写进 workspace 的 [profile.release]：CMake 用 install(FILES/PROGRAMS) 安装它们，CPACK_STRIP_FILES 管不到；而 debian/rules 和 rpm/msime.spec 构建同样的 crate 时带 line-tables-only 调试信息，由 dh_strip 和 find-debuginfo 拆分成 dbgsym 和 debuginfo 包。
-    export CARGO_PROFILE_RELEASE_STRIP=symbols
+    # 先保留行号用于符号归档，CPack 安装步骤只剥离安装副本；原件继续供其余版本使用。
+    export CARGO_PROFILE_RELEASE_STRIP=none
+    export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
     cargo build --release --locked -p msime-host-api
     cargo build --release --locked -p msime-mcp-server --bin msime-mcp
     desktop_args=()
@@ -161,7 +165,7 @@ docker run --rm --init \
       prefix=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" install_prefix)
       rm -f "$build/CMakeCache.txt"
       cmake -S platforms/linux -B "$build" -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_INSTALL_PREFIX="$prefix" \
         -DMSIME_EDITION="$edition" \
         -DBUILD_TESTING="$testing" \
@@ -178,6 +182,12 @@ docker run --rm --init \
       if [ "$testing" = ON ]; then
         ctest --test-dir "$build" --output-on-failure
       fi
+      python3 scripts/crash-symbols.py collect --platform linux --version "$MSIME_VERSION" \
+        --root "$build" --root /build/cargo/release \
+        --output "/build/symbols/linux-$MSIME_VERSION-$MSIME_PACKAGE_FORMAT-$edition-$(uname -m)-${MSIME_BUILD_RUN:-local}-${GITHUB_RUN_ATTEMPT:-1}.zip"
+      # Rust 模块由 install(FILES) 安装，CPack 不会替它们 strip；先归档再剥离。
+      # 安装脚本中的现有 CPACK_STRIP_FILES 只管 CMake 目标；Rust 文件保持原件供后续版本归档。
+
       if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
         cpack --config "$build/CPackConfig.cmake" -G RPM -B /build/dist
       else

@@ -1,8 +1,6 @@
 import Foundation
 import os
 
-@_silgen_name("msime_ios_crash_record_path_set")
-private func msimeIOSCrashRecordPathSet(_ path: UnsafePointer<CChar>?)
 @_silgen_name("msime_ios_crash_handlers_install")
 private func msimeIOSCrashHandlersInstall()
 
@@ -19,7 +17,7 @@ enum KeyboardUsageReporting {
     // 按自己的会话 id 写记录：标记可能已经属于另一个键盘进程刚开始的会话。
     guard let session = currentSession.withLock({ $0 }) else { return }
     UsageReporting.recordCrash(session: session,
-                               message: "Uncaught \(exception.name.rawValue): \(exception.reason ?? "")",
+                               message: "Uncaught \(exception.name.rawValue)",
                                stack: exception.callStackSymbols.joined(separator: "\n"))
   }
 
@@ -36,8 +34,8 @@ enum KeyboardUsageReporting {
     queue.async {
       let session = UsageReporting.begin()
       currentSession.withLock { $0 = session?.id }
-      guard let session else { msimeIOSCrashRecordPathSet(nil); return }
-      session.crashRecordPath.withCString { msimeIOSCrashRecordPathSet($0) }
+      UsageReporting.arm(session)
+      guard session != nil else { return }
       guard fullAccess, lastFlush.map({ Date().timeIntervalSince($0) >= flushInterval }) ?? true else { return }
       lastFlush = Date()
       UsageReporting.flush()
@@ -47,7 +45,7 @@ enum KeyboardUsageReporting {
   /// viewWillDisappear: the presentation ended normally.
   static func dismissed() {
     queue.async {
-      msimeIOSCrashRecordPathSet(nil)
+      UsageReporting.arm(nil)
       let session = currentSession.withLock { current in
         defer { current = nil }
         return current

@@ -84,6 +84,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="..\..\common\CrashRecorder.cpp" />
     <ClCompile Include="..\msimeui\src\AnimatedImage.cpp" />
     <ClCompile Include="..\src\system\ShellLauncher.cpp" />
     <ResourceCompile Include="Settings.rc" />

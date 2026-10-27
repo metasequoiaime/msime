@@ -6,7 +6,9 @@ use super::with_bounded_bytes;
 use crate::*;
 use msime_client_services::account::BackendAccountClient;
 use msime_client_services::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
-use msime_client_services::telemetry::{DiagnosedCrash, TelemetryApp, TelemetryStore};
+use msime_client_services::telemetry::{
+    CrashContext, DiagnosedCrash, TelemetryApp, TelemetryStore,
+};
 use msime_client_services::update_check::background::{pending_update, run_background_check};
 use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
 use std::time::SystemTime;
@@ -50,12 +52,21 @@ struct TelemetryRequest {
     directory: String,
     platform: String,
     version: String,
+    /// 独立应用和辅助进程只准备崩溃采集，不建立输入会话。
+    #[serde(default)]
+    capture_only: bool,
+    #[serde(default = "default_telemetry_component")]
+    component: String,
     /// The host's own `usage_reporting` switch, for hosts that keep preferences of their own.
     #[serde(default)]
     enabled: Option<bool>,
     /// The shared preferences directory (`preferences.json`), read for `usage_reporting` when `enabled` is absent.
     #[serde(default)]
     preferences_directory: Option<String>,
+}
+
+fn default_telemetry_component() -> String {
+    "input".to_owned()
 }
 
 impl TelemetryRequest {
@@ -77,8 +88,9 @@ impl TelemetryRequest {
 
     fn open(&self) -> Result<(TelemetryStore, TelemetryApp), String> {
         let store = TelemetryStore::new(absolute_directory(&self.directory)?);
-        let app =
-            TelemetryApp::new(&self.platform, &self.version).map_err(|error| error.to_string())?;
+        let app = TelemetryApp::new(&self.platform, &self.version)
+            .and_then(|app| app.with_component(&self.component))
+            .map_err(|error| error.to_string())?;
         Ok((store, app))
     }
 }
@@ -103,9 +115,12 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
         let (store, app) = request.open()?;
         match request.consent()? {
             Some(true) => {
-                let start = store
-                    .begin_session(&app, SystemTime::now())
-                    .map_err(|error| error.to_string())?;
+                let start = if request.capture_only {
+                    store.prepare_crash_capture(&app, SystemTime::now())
+                } else {
+                    store.begin_session(&app, SystemTime::now())
+                }
+                .map_err(|error| error.to_string())?;
                 let mut value = serde_json::to_value(start).map_err(|error| error.to_string())?;
                 value["enabled"] = Value::Bool(true);
                 Ok(value)
@@ -165,6 +180,9 @@ struct CrashRequest {
     /// 系统事后报告的强制结束（SIGKILL），不属于任何会话：只报 `crash`，不报 `session_crash`。
     #[serde(default)]
     outside_session: bool,
+    /// begin 返回的预计算记录头，供独立进程的异常回调保存原始构建身份。
+    #[serde(default)]
+    crash_record_header: Option<String>,
 }
 
 /// 写会话的崩溃记录（`{directory, message, stack, session?, pid?, outside_session?}`），记录在下次启动时成为 `crash` 事件。三种用法互斥：
@@ -185,16 +203,26 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
         // SAFETY: guaranteed by the documented caller contract.
         let request: CrashRequest = unsafe { document(request, length, MAX_CRASH_REQUEST_BYTES)? };
         let store = TelemetryStore::new(absolute_directory(&request.directory)?);
+        let context = request
+            .crash_record_header
+            .as_deref()
+            .map(|header| CrashContext::from_header(header).ok_or("invalid crash record header"))
+            .transpose()?;
         let (message, stack) = (&request.message, &request.stack);
         match (
             request.session.as_deref(),
             request.pid,
             request.outside_session,
         ) {
-            (Some(session), None, false) => store.record_crash_for(session, message, stack),
-            (None, None, false) => store.record_crash(message, stack),
+            (Some(session), None, false) => match context.as_ref() {
+                Some(context) => {
+                    store.record_crash_with_context(session, Some(context), message, stack)
+                }
+                None => store.record_crash_for(session, message, stack),
+            },
+            (None, None, false) if context.is_none() => store.record_crash(message, stack),
             (None, pid, outside) if pid.is_some() != outside => store
-                .record_diagnosed_crash(pid, message, stack)
+                .record_diagnosed_crash_with_context(pid, context.as_ref(), message, stack)
                 .map(|recorded| recorded != DiagnosedCrash::Duplicate),
             _ => return Err("session, pid and outside_session are exclusive".to_owned()),
         }

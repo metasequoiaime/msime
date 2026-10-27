@@ -42,6 +42,7 @@ impl CrashContext {
         };
         canonical_platform(&self.platform) == Some(self.platform.as_str())
             && TelemetryApp::new(&self.platform, &self.version).is_ok()
+            && token(&self.version)
             && [
                 &self.revision,
                 &self.run,

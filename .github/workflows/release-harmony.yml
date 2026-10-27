@@ -146,6 +146,7 @@ jobs:
         run: python3 scripts/test-harmony-release-signing.py
       - name: Build HarmonyOS native host
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
+        env: {MSIME_HARMONY_VERSION: "${{ steps.version.outputs.value }}"}
         run: bash platforms/harmony/build-native.sh arm64-v8a
       - name: Stage the sherpa-onnx HAR
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
@@ -215,6 +216,18 @@ jobs:
             ${{ steps.signing.outputs.hap || steps.hap.outputs.path }}
             ${{ steps.signing.outputs.sums }}
           if-no-files-found: error
+      - name: 保存原生调试符号和构建清单
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-harmony-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/harmony-symbols/*.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: 长期保存发布构建的原生符号
+        if: ${{ inputs.publish && !inputs.source_release && !inputs.test_package_id }}
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: bash scripts/publish-crash-symbols.sh harmony target/harmony-symbols/*.zip
       # APP 是应用市场上传材料，放 workflow artifact，不混在用户下载的 HAP 附件里。
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}

@@ -131,7 +131,7 @@ int main() {
   assert(msime::telemetry::begin(host(directory)));
   crashes = of_kind(directory, "crash");
   assert(crashes.size() == 2);
-  assert(crashes[1].at("message") == "std::terminate: std::runtime_error: synthetic failure");
+  assert(crashes[1].at("message").get<std::string>().rfind("std::terminate: std::runtime_error\n", 0) == 0);
   assert(of_kind(directory, "session_crash").size() == 2);
 
   // A crash handler the process already had (Fcitx5's) still runs after the record is written.
@@ -221,7 +221,7 @@ int main() {
     const auto crashed = of_kind(concurrent, "crash");
     const auto sessions_crashed = of_kind(concurrent, "session_crash");
     assert(crashed.size() == 1);
-    assert(crashed[0].at("message") == "std::terminate: std::runtime_error: synthetic failure");
+    assert(crashed[0].at("message").get<std::string>().rfind("std::terminate: std::runtime_error\n", 0) == 0);
     assert(sessions_crashed.size() == 1);
     // 崩溃和 session_crash 属于同一个会话，也就是崩溃的那个进程的会话（版本是它的 1.2.3，不是另一个进程的 9.9.9）。
     assert(crashed[0].at("id").get<std::string>().substr(6) == sessions_crashed[0].at("id").get<std::string>().substr(8));

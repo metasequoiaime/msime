@@ -6,7 +6,7 @@ import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
-import { CrashDestination, CrashReport, TelemetryPolicy } from './TelemetryPolicy';
+import { CrashReport, TelemetryPolicy } from './TelemetryPolicy';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 
 /**
@@ -36,6 +36,8 @@ interface TelemetryRequest {
   platform: string;
   version: string;
   preferences_directory: string;
+  capture_only?: boolean;
+  component?: string;
 }
 
 interface DirectoryRequest {
@@ -46,6 +48,8 @@ interface CrashRecordRequest {
   directory: string;
   message: string;
   stack: string;
+  pid?: number;
+  crash_record_header?: string;
 }
 
 interface BeginValue {
@@ -98,7 +102,18 @@ export class HarmonyTelemetry {
   /** The settings application started: send what is queued, which also counts today's `active`. No session: that is the keyboard's. */
   static applicationStarted(stateDirectory: string): void {
     void HarmonyPrivacyConsent.whenNetworkAllowed().then((): void => {
-      HarmonyTelemetry.send(HarmonyTelemetry.request(stateDirectory));
+      HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
+      HarmonyTelemetry.preferences = stateDirectory;
+      const request: TelemetryRequest = HarmonyTelemetry.request(stateDirectory);
+      request.capture_only = true;
+      request.component = 'application';
+      const reply: string = client.telemetryBegin(JSON.stringify(request));
+      try {
+        const parsed: BeginReply = JSON.parse(reply) as BeginReply;
+        HarmonyTelemetry.enabled = parsed.ok === true && parsed.value?.enabled === true;
+      } catch { HarmonyTelemetry.enabled = false; }
+      if (HarmonyTelemetry.enabled) HarmonyTelemetry.watchCrashes();
+      HarmonyTelemetry.send(request);
     });
   }
 
@@ -116,7 +131,14 @@ export class HarmonyTelemetry {
     HarmonyTelemetry.began = false;
     HarmonyTelemetry.enabled = false;
     HarmonyTelemetry.previousKeyboardPid = HarmonyTelemetry.readRememberedPid();
-    HarmonyTelemetry.watchCrashes();
+    // 独立准备只读取同意，不覆盖上一轮键盘会话；系统回调可以随时按 pid 认领。
+    const request: TelemetryRequest = HarmonyTelemetry.request(stateDirectory);
+    request.capture_only = true;
+    try {
+      const parsed: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(request))) as BeginReply;
+      HarmonyTelemetry.enabled = parsed.ok === true && parsed.value?.enabled === true;
+    } catch { HarmonyTelemetry.enabled = false; }
+    if (HarmonyTelemetry.enabled) HarmonyTelemetry.watchCrashes();
     HarmonyTelemetry.beginTimer = setTimeout((): void => {
       HarmonyTelemetry.beginTimer = -1;
       HarmonyTelemetry.begin();
@@ -157,6 +179,7 @@ export class HarmonyTelemetry {
 
   /** The user just turned usage reporting off in settings: nothing queued is sent, now or later. */
   static reportingTurnedOff(stateDirectory: string): void {
+    HarmonyTelemetry.enabled = false;
     const request: DirectoryRequest = { directory: HarmonyTelemetry.directoryFor(stateDirectory) };
     HarmonyTelemetry.logRefusal('clear', client.telemetryClear(JSON.stringify(request)));
   }
@@ -207,6 +230,7 @@ export class HarmonyTelemetry {
   }
 
   private static watchCrashes(): void {
+    if (HarmonyTelemetry.watcher !== undefined) return;
     const watcher: hiAppEvent.Watcher = {
       name: WATCHER_NAME,
       appEventFilters: [{ domain: hiAppEvent.domain.OS, names: [hiAppEvent.event.APP_CRASH] }],
@@ -230,22 +254,16 @@ export class HarmonyTelemetry {
   }
 
   private static recordCrash(report: CrashReport): void {
-    // After begin, an off switch means the crash is not kept at all; before it, begin clears what is written when reporting is off.
-    if (HarmonyTelemetry.began && !HarmonyTelemetry.enabled) {
+    if (!HarmonyTelemetry.enabled || !HarmonyPrivacyConsent.networkAllowed()) return;
+    // 按系统报告的 pid 认领未结束的会话，不依赖两秒内是否已收到回调。
+    const request: CrashRecordRequest = {
+      directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack, pid: report.pid,
+      crash_record_header: TelemetryPolicy.recordText(report).split('\n')[0] + '\n'
+    };
+    const reply: FlagReply | null = HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
+    if (reply !== null) {
+      HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
       return;
-    }
-    const destination: CrashDestination =
-      TelemetryPolicy.destination(report, HarmonyTelemetry.previousKeyboardPid, HarmonyTelemetry.began);
-    if (destination === CrashDestination.Session) {
-      // 磁盘上的标记仍属于崩溃的那个会话，所以 client-services 用那个会话的 id 写这条记录。
-      const request: CrashRecordRequest = {
-        directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack
-      };
-      const reply: FlagReply | null =
-        HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
-      if (reply !== null && reply.value === true) {
-        return;
-      }
     }
     HarmonyTelemetry.writeStandalone(report);
   }

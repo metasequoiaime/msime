@@ -15,6 +15,9 @@ struct Host {
   // The user's usage_reporting switch when the host has already read it. Unset means it is read from preferences_directory/preferences.json, and with neither the default (on) applies.
   std::optional<bool> enabled;
   std::filesystem::path preferences_directory;
+  // 组件名只含构建标识字符；独立进程只采集崩溃，不建立输入会话。
+  std::string component = "input";
+  bool capture_only = false;
 };
 
 // %LOCALAPPDATA%\MSIME on Windows; $XDG_STATE_HOME/msime (or ~/.local/state/msime) elsewhere.

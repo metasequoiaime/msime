@@ -50,9 +50,13 @@ public final class Telemetry {
     private static boolean crashHandlerInstalled;
     /** Where a crash in this process is written: the session's own record in the keyboard process, null elsewhere. */
     private static volatile File sessionCrashRecord;
+    private static volatile String crashRecordHeader = "";
+    private static volatile String sessionId = "";
+    private static boolean inputProcess;
+    private static final java.util.concurrent.atomic.AtomicLong consentGeneration = new java.util.concurrent.atomic.AtomicLong();
     private static volatile File crashDirectory;
     /** The last consent the shared store reported; a crash while reporting is off writes nothing. */
-    private static volatile boolean enabled = true;
+    private static volatile boolean enabled;
     private static long lastInputFlush;
     private static volatile boolean sessionBegun;
 
@@ -63,25 +67,23 @@ public final class Telemetry {
         Context app = context.getApplicationContext();
         crashDirectory = new File(directory(app), CRASH_DIRECTORY);
         installCrashHandler(app);
-        WORKER.execute(() -> flush(app));
+        installNativeCrashHandler();
+        long generation = consentGeneration.get();
+        WORKER.execute(() -> { prepareCapture(app, true, generation); collectSystemExits(app); flush(app); });
     }
 
     /** The keyboard process (MSIMEInputService.onCreate): crash handler, a new session, then a flush. */
     public static void beginInputSession(Context context) {
+        inputProcess = true;
         Context app = context.getApplicationContext();
         crashDirectory = new File(directory(app), CRASH_DIRECTORY);
         installCrashHandler(app);
+        installNativeCrashHandler();
         lastInputFlush = System.currentTimeMillis();
+        long generation = consentGeneration.get();
         WORKER.execute(() -> {
-            JSONObject value = call(() -> NativeClient.telemetryBegin(request(app)));
-            if (value != null) {
-                enabled = JsonPolicy.strictBoolean(value.opt("enabled"), false);
-                String path = value.optString("crash_record_path", "");
-                File candidate = path.isEmpty() ? null : new File(path);
-                sessionCrashRecord = enabled && isSafeSessionCrashRecord(candidate)
-                    ? candidate : null;
-            }
-            sessionBegun = true;
+            prepareCapture(app, false, generation);
+            collectSystemExits(app);
             flush(app);
         });
     }
@@ -98,8 +100,15 @@ public final class Telemetry {
     /** The keyboard process is shutting down normally (MSIMEInputService.onDestroy): queue its `session`. No network, only a small file write under the shared lock, so it runs right here once the session has begun; a begin still queued behind a flush is waited for briefly instead. */
     public static void endInputSession(Context context) {
         Context app = context.getApplicationContext();
-        sessionCrashRecord = null;
-        Runnable task = () -> call(() -> NativeClient.telemetryEnd(directoryRequest(app)));
+        synchronized (Telemetry.class) {
+            consentGeneration.incrementAndGet();
+            sessionCrashRecord = null;
+            crashRecordHeader = "";
+            inputProcess = false;
+            disarmNativeCrashHandler();
+        }
+        Runnable task = () -> call(() -> NativeClient.telemetryEnd(
+            new JSONObject(directoryRequest(app)).put("session", sessionId).toString()));
         if (sessionBegun) {
             task.run();
             return;
@@ -114,14 +123,18 @@ public final class Telemetry {
     }
 
     /** The usage_reporting switch was saved. Turning it off clears everything queued at once rather than on the next start. */
-    public static void setEnabled(Context context, boolean value) {
+    public static synchronized void setEnabled(Context context, boolean value) {
+        long generation = consentGeneration.incrementAndGet();
         enabled = value;
         Context app = context.getApplicationContext();
         if (!value) {
             sessionCrashRecord = null;
+            crashRecordHeader = "";
+            disarmNativeCrashHandler();
+            setSystemSummary(app, null);
             WORKER.execute(() -> call(() -> NativeClient.telemetryClear(directoryRequest(app))));
         } else {
-            WORKER.execute(() -> flush(app));
+            WORKER.execute(() -> { prepareCapture(app, !inputProcess, generation); flush(app); });
         }
     }
 
@@ -142,7 +155,12 @@ public final class Telemetry {
 
     /** Synchronous: the process is about to be killed, so the record is on disk (and forced) before the previous handler runs. */
     private static void writeCrashRecord(Throwable error) throws Exception {
-        File target = sessionCrashRecord;
+        File target;
+        String header;
+        synchronized (Telemetry.class) {
+            target = sessionCrashRecord;
+            header = crashRecordHeader;
+        }
         if (target != null && !isSafeSessionCrashRecord(target)) return;
         if (target == null) {
             File directory = crashDirectory;
@@ -150,7 +168,7 @@ public final class Telemetry {
             if (!prepareCrashDirectory(directory)) return;
             target = new File(directory, UUID.randomUUID() + CRASH_EXTENSION);
         }
-        byte[] record = TextPolicy.utf8Bytes(crashRecord(error));
+        byte[] record = TextPolicy.utf8Bytes(header + crashRecord(error));
         // CREATE_NEW: the first record of a session is kept, as the shared store's own writer does.
         try (FileChannel channel = FileChannel.open(target.toPath(),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
@@ -192,13 +210,13 @@ public final class Telemetry {
         }
     }
 
-    /** The record format the shared store reads: the summary line, '\n', then the frames. Java frames name classes and source files, never a path. */
+    /** 共享层读取的摘要只含异常类型，不上传可能含输入或凭据的异常消息；栈只含类名与源文件名。 */
     static String crashRecord(Throwable error) {
-        String summary = TextPolicy.clipCodePoints(firstLine(String.valueOf(error)), MAX_MESSAGE_CODE_POINTS);
+        String summary = TextPolicy.clipCodePoints(error.getClass().getName(), MAX_MESSAGE_CODE_POINTS);
         StringBuilder stack = new StringBuilder(MAX_STACK_CODE_POINTS);
         Throwable current = error;
         for (int depth = 0; current != null && depth <= MAX_CAUSES; depth++) {
-            if (depth > 0) stack.append("Caused by: ").append(firstLine(String.valueOf(current))).append('\n');
+            if (depth > 0) stack.append("Caused by: ").append(current.getClass().getName()).append('\n');
             for (StackTraceElement frame : current.getStackTrace()) stack.append("at ").append(frame).append('\n');
             Throwable cause = current.getCause();
             current = cause == current ? null : cause;
@@ -235,7 +253,105 @@ public final class Telemetry {
 
     private static void flush(Context app) {
         JSONObject value = call(() -> NativeClient.telemetryFlush(request(app)));
-        if (value != null) enabled = JsonPolicy.strictBoolean(value.opt("enabled"), enabled);
+        if (value != null && !JsonPolicy.strictBoolean(value.opt("enabled"), enabled)) {
+            enabled = false;
+            disarmNativeCrashHandler();
+        }
+    }
+
+    private static void prepareCapture(Context app, boolean captureOnly, long generation) {
+        JSONObject value = call(() -> NativeClient.telemetryBegin(
+            new JSONObject(request(app)).put("capture_only", captureOnly)
+                .put("component", captureOnly ? "application" : "keyboard").toString()));
+        synchronized (Telemetry.class) {
+            if (value == null) return;
+            if (generation != consentGeneration.get()) {
+                // 排队的 begin 已失效：关闭它自己的会话，不能重新启用采集。
+                if (!captureOnly) call(() -> NativeClient.telemetryEnd(
+                    new JSONObject(directoryRequest(app)).put("session", value.optString("session_id", "")).toString()));
+                return;
+            }
+            enabled = JsonPolicy.strictBoolean(value.opt("enabled"), false);
+            String path = value.optString("crash_record_path", "");
+            File candidate = path.isEmpty() ? null : new File(path);
+            sessionCrashRecord = enabled && isSafeSessionCrashRecord(candidate) ? candidate : null;
+            crashRecordHeader = value.optString("crash_record_header", "");
+            sessionId = captureOnly ? "" : value.optString("session_id", "");
+            sessionBegun = !captureOnly && !sessionId.isEmpty();
+            setSystemSummary(app, enabled ? "v1|" + value.optString("session_id", "") + "|" + version(app)
+                + "|" + (captureOnly ? "application" : "keyboard") : null);
+            try {
+                if (sessionCrashRecord != null && !crashRecordHeader.isEmpty())
+                    NativeClient.telemetryCrashCapture(path, crashRecordHeader);
+                else NativeClient.telemetryCrashDisarm();
+            } catch (LinkageError error) { Log.i(TAG, "Native crash recorder unavailable"); }
+        }
+    }
+
+    private static void setSystemSummary(Context app, String summary) {
+        if (android.os.Build.VERSION.SDK_INT < 30) return;
+        try { SystemExits.summary(app, summary); }
+        catch (RuntimeException error) { Log.i(TAG, "Exit summary unavailable"); }
+    }
+
+    private static void collectSystemExits(Context app) {
+        if (!enabled || android.os.Build.VERSION.SDK_INT < 30) return;
+        try { SystemExits.collect(app); }
+        catch (Exception error) { Log.i(TAG, "Exit diagnostics unavailable"); }
+    }
+
+    /** API 30 起系统提供退出原因；只接收本进程曾明确启用采集时留下的短身份，不读描述、日志或 tombstone。 */
+    private static final class SystemExits {
+        static void summary(Context app, String summary) {
+            android.app.ActivityManager manager = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager == null) return;
+            byte[] bytes = summary == null ? null : summary.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+            if (bytes == null || bytes.length <= 128) manager.setProcessStateSummary(bytes);
+        }
+
+        static void collect(Context app) throws Exception {
+            android.app.ActivityManager manager = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager == null) return;
+            for (android.app.ApplicationExitInfo exit : manager.getHistoricalProcessExitReasons(app.getPackageName(), 0, 16)) {
+                if (!enabled) return;
+                byte[] bytes = exit.getProcessStateSummary();
+                if (bytes == null || bytes.length > 128) continue;
+                String[] fields = new String(bytes, java.nio.charset.StandardCharsets.US_ASCII).split("\\|", -1);
+                if (fields.length != 4 || !fields[0].equals("v1") || !fields[2].matches("[A-Za-z0-9._-]{1,64}")
+                        || !(fields[3].equals("application") || fields[3].equals("keyboard"))) continue;
+                String captureId;
+                try { captureId = UUID.fromString(fields[1]).toString(); }
+                catch (IllegalArgumentException error) { continue; }
+                int reason = exit.getReason();
+                boolean fatal = reason == android.app.ApplicationExitInfo.REASON_CRASH
+                    || reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE;
+                String message;
+                if (fatal) message = "Crash Android system reason " + reason + " signal " + exit.getStatus();
+                else if (reason == android.app.ApplicationExitInfo.REASON_ANR) message = "Hang Android ANR";
+                else if (reason == android.app.ApplicationExitInfo.REASON_LOW_MEMORY) message = "Killed Android low memory";
+                else continue;
+                // 真崩溃与现场记录共用 id，保留已有的精确栈；卡死、内存回收另分组，不污染输入会话崩溃率。
+                String id = fatal ? captureId : UUID.nameUUIDFromBytes(("msime-exit:" + captureId + ":" + exit.getTimestamp() + ":" + reason)
+                    .getBytes(java.nio.charset.StandardCharsets.US_ASCII)).toString();
+                JSONObject identity = new JSONObject().put("platform", "android").put("version", fields[2])
+                    .put("revision", "unknown").put("run", "").put("attempt", "").put("arch", "unknown")
+                    .put("component", fields[3]);
+                String header = "MSIME-CRASH/1 " + identity + "\n";
+                call(() -> NativeClient.telemetryRecordCrash(new JSONObject(directoryRequest(app))
+                    .put("session", id).put("message", message).put("stack", "")
+                    .put("crash_record_header", header).toString()));
+            }
+        }
+    }
+
+    private static void installNativeCrashHandler() {
+        try { NativeClient.telemetryCrashInstall(); }
+        catch (LinkageError error) { Log.i(TAG, "Native crash recorder unavailable"); }
+    }
+
+    private static void disarmNativeCrashHandler() {
+        try { NativeClient.telemetryCrashDisarm(); }
+        catch (LinkageError error) { Log.i(TAG, "Native crash recorder unavailable"); }
     }
 
     private static File directory(Context app) {

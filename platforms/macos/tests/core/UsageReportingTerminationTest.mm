@@ -116,7 +116,7 @@ bool killed_by_sigterm(const ChildExit &outcome) {
 extern "C" char *msime_client_telemetry_begin(const uint8_t *, size_t) {
     const auto record = test_directory() / "session.crash";
     return copy(R"({"ok":true,"value":{"enabled":true,"crash_record_path":")" + record.string() +
-                R"(","previous_session_crashed":false,"crashes":0}})");
+                R"(","session_id":"11111111-1111-4111-8111-111111111111","crash_record_header":"","previous_session_crashed":false,"crashes":0}})");
 }
 
 extern "C" char *msime_client_telemetry_end(const uint8_t *, size_t) {

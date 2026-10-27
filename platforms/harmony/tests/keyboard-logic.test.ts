@@ -17364,7 +17364,8 @@ group(
       "a standalone record is named by process and time, so a report delivered twice is written once",
     );
     check(
-      TelemetryPolicy.recordText(report) === "SIGABRT\n",
+      TelemetryPolicy.recordText(report).startsWith("MSIME-CRASH/1 ") &&
+        TelemetryPolicy.recordText(report).endsWith("\nSIGABRT\n"),
       "a record is the summary line, then the frames",
     );
     check(

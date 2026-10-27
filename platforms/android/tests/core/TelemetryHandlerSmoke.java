@@ -45,8 +45,8 @@ public final class TelemetryHandlerSmoke {
         RuntimeException error = new RuntimeException("first line\nsecond line", cause);
         String record = Telemetry.crashRecord(error);
         String summary = record.substring(0, record.indexOf('\n'));
-        check(summary.equals("java.lang.RuntimeException: first line"), "summary is the first line only: " + summary);
-        check(record.contains("Caused by: java.lang.IllegalStateException: inner"), "causes are kept");
+        check(summary.equals("java.lang.RuntimeException"), "summary is the first line only: " + summary);
+        check(record.contains("Caused by: java.lang.IllegalStateException"), "causes are kept");
         check(record.contains("at app.msime.android.core.TelemetryHandlerSmoke.main("), "frames are kept");
         check(Telemetry.firstLine("a\r\nb").equals("a"), "CRLF first line");
 

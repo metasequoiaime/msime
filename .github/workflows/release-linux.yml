@@ -145,6 +145,17 @@ jobs:
           name: msime-linux-deb-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package/dist/
           if-no-files-found: error
+      - name: 保存 Linux 原生符号和构建清单
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-linux-deb-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/linux-package/symbols/*.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: 长期保存发布构建的 Linux 符号
+        if: inputs.publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: bash scripts/publish-crash-symbols.sh linux target/linux-package/symbols/*.zip
     outputs:
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}

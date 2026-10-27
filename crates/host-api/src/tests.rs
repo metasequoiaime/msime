@@ -17783,6 +17783,69 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
 }
 
 #[test]
+fn telemetry_abi_independent_capture_preserves_build_without_ending_input_session() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{TelemetryApp, TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let request = json!({"directory": root.path(), "platform": "android", "version": "1.2.3", "enabled": true});
+    let input = reporting_call(msime_client_telemetry_begin, request.clone());
+    let mut application = request.clone();
+    application["capture_only"] = json!(true);
+    application["component"] = json!("application");
+    let capture =
+        reporting_call(msime_client_telemetry_begin, application.clone())["value"].clone();
+    assert_eq!(capture["enabled"], true);
+    assert_ne!(capture["session_id"], input["value"]["session_id"]);
+    let crash = json!({"directory": root.path(), "session": capture["session_id"],
+        "message": "Synthetic fatal exception", "stack": "libsynthetic.so+0x123",
+        "crash_record_header": capture["crash_record_header"]});
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, crash.clone())["value"],
+        true
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, crash.clone())["value"],
+        false
+    );
+    let store = TelemetryStore::new(root.path());
+    store
+        .record_active(
+            &TelemetryApp::new("android", "9.0.0").unwrap(),
+            std::time::SystemTime::now(),
+        )
+        .unwrap();
+    let events = store.queued().unwrap();
+    let event = events
+        .iter()
+        .find(|event| event.kind == TelemetryKind::Crash)
+        .unwrap();
+    assert_eq!(event.version, "1.2.3");
+    assert!(event.message.contains("\"component\":\"application\""));
+    assert!(!events
+        .iter()
+        .any(|event| event.kind == TelemetryKind::SessionCrash));
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_end,
+            json!({"directory": root.path(), "session": input["value"]["session_id"]})
+        )["value"],
+        true
+    );
+    let mut invalid = crash;
+    invalid["crash_record_header"] = json!("MSIME-CRASH/1 {}\n");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, invalid)["ok"],
+        false
+    );
+    application["enabled"] = json!(false);
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, application)["value"]["enabled"],
+        false
+    );
+    assert!(store.queued().unwrap().is_empty());
+}
+
+#[test]
 fn notice_abi_serves_the_cached_feed_with_rendered_html_and_dismissals() {
     use crate::ffi::reporting::*;
     let root = tempfile::tempdir().unwrap();

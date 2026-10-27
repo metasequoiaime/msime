@@ -39,6 +39,7 @@ ANDROID_NDK_HOME="$ndk" VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
 env "CC_${rust_target//-/_}=$compiler" "CXX_${rust_target//-/_}=$compiler++" \
   "AR_${rust_target//-/_}=$toolchain/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" \
+  CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
   RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384" \
   cargo build -p msime-host-api --target "$rust_target" --release --locked
 output="$repo_root/target/android/jniLibs/$abi"
@@ -55,9 +56,9 @@ else
   rm -f "$output/libsherpa-onnx-c-api.so" "$output/libonnxruntime.so"
   echo "speech runtime omitted from $output; the app downloads it as the voice-runtime resource pack"
 fi
-"$compiler++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
+"$compiler++" -std=c++17 -g -Wl,--build-id=sha1 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
-  platforms/android/native/client_jni.cpp platforms/android/native/JniCallbacks.cpp shared/voice/LocalAsr.cpp \
+  platforms/android/native/client_jni.cpp platforms/android/native/JniCallbacks.cpp platforms/common/CrashRecorder.cpp shared/voice/LocalAsr.cpp \
   -Icrates/host-api/include -Ishared -Ishared/voice/third_party -I"$deps/$triplet/include" \
   -L"$output" -lmsime_host_api -ldl -o "$output/libmsime_android.so"
 bash platforms/android/verify-native.sh "$toolchain/bin/llvm-readelf" "$output" "$abi"
@@ -96,3 +97,7 @@ cp resources/licenses/OpenCC-Apache-2.0.txt "$notices/OpenCC-Apache-2.0.txt"
 # 世界时钟内嵌 IANA 城市目录，随原生库分发公共领域许可。
 cp resources/licenses/world-clock-NOTICE.txt "$notices/world-clock-NOTICE.txt"
 echo "Android native libraries built: $output (not yet device-verified)"
+
+python3 scripts/crash-symbols.py collect --platform android --version "${MSIME_ANDROID_VERSION:-$(cat platforms/android/version.txt)}" \
+  --root "$output" --tool-prefix "$toolchain/bin/llvm-" \
+  --output "target/android-symbols/android-${MSIME_ANDROID_VERSION:-$(cat platforms/android/version.txt)}-${MSIME_EDITION:-full}-$abi-${MSIME_BUILD_RUN:-${GITHUB_RUN_ID:-local}}-${GITHUB_RUN_ATTEMPT:-1}.zip"

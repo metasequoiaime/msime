@@ -7,6 +7,8 @@
 /** One crash HiAppEvent reported, reduced to what a crash record holds. */
 export interface CrashReport {
   pid: number;
+  /** 系统诊断里的原始版本，缺失时不冒用当前安装版本。 */
+  version?: string;
   /** When the crash happened, in milliseconds since the epoch. */
   time: number;
   /** The exception or signal summary, one line. */
@@ -28,39 +30,41 @@ const FLUSH_INTERVAL_MS: number = 6 * 60 * 60 * 1000;
 const MAX_FRAMES: number = 64;
 
 const SIGNALS: Map<number, string> = new Map<number, string>([
-  [4, 'SIGILL'],
-  [5, 'SIGTRAP'],
-  [6, 'SIGABRT'],
-  [7, 'SIGBUS'],
-  [8, 'SIGFPE'],
-  [11, 'SIGSEGV'],
-  [31, 'SIGSYS'],
+  [4, "SIGILL"],
+  [5, "SIGTRAP"],
+  [6, "SIGABRT"],
+  [7, "SIGBUS"],
+  [8, "SIGFPE"],
+  [11, "SIGSEGV"],
+  [31, "SIGSYS"],
 ]);
 
 function text(value: unknown): string {
-  return typeof value === 'string' ? value : '';
+  return typeof value === "string" ? value : "";
 }
 
 function integer(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function firstLine(value: string): string {
-  const line: string = value.split('\n')[0] ?? '';
+  const line: string = value.split("\n")[0] ?? "";
   return line.trim();
 }
 
 /** One native frame as `libmsimeclient.so+0x1a2b symbol`: the file name only, so no sandbox directory leaves the device. */
 function nativeFrame(value: unknown): string | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const frame = value as Record<string, unknown>;
-  const file: string = text(frame.file).split('/').pop() ?? '';
-  const pc: string = text(frame.pc).replace(/^0x/i, '').replace(/^0+(?=.)/, '');
+  const file: string = text(frame.file).split("/").pop() ?? "";
+  const pc: string = text(frame.pc)
+    .replace(/^0x/i, "")
+    .replace(/^0+(?=.)/, "");
   const symbol: string = text(frame.symbol).trim();
-  if (file === '' && pc === '' && symbol === '') return null;
-  let line: string = file === '' ? '<unknown>' : file;
-  if (pc !== '') line += `+0x${pc}`;
-  if (symbol !== '') line += ` ${symbol}`;
+  if (file === "" && pc === "" && symbol === "") return null;
+  let line: string = file === "" ? "<unknown>" : file;
+  if (pc !== "") line += `+0x${pc}`;
+  if (symbol !== "") line += ` ${symbol}`;
   return line;
 }
 
@@ -77,38 +81,40 @@ export class TelemetryPolicy {
     } catch {
       return null;
     }
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const params = parsed as Record<string, unknown>;
     const pid: number | null = integer(params.pid);
     const time: number | null = integer(params.time);
     const exception: unknown = params.exception;
-    if (pid === null || time === null || exception === null || typeof exception !== 'object') {
+    if (pid === null || time === null || exception === null || typeof exception !== "object") {
       return null;
     }
     const details = exception as Record<string, unknown>;
     const crashType: string = text(params.crash_type);
-    if (crashType === 'JsError') {
+    if (crashType === "JsError") {
       const name: string = firstLine(text(details.name));
       const message: string = firstLine(text(details.message));
-      const summary: string = name !== '' && message !== '' ? `${name}: ${message}` : name + message;
+      const summary: string =
+        name !== "" && message !== "" ? `${name}: ${message}` : name + message;
       return {
         pid,
         time,
-        message: summary === '' ? 'JavaScript error' : summary,
+        version: text(params.bundle_version),
+        message: summary === "" ? "JavaScript error" : summary,
         stack: text(details.stack).trim(),
       };
     }
-    if (crashType === 'NativeCrash') {
+    if (crashType === "NativeCrash") {
       const signal: unknown = details.signal;
       let summary: string = firstLine(text(details.message));
-      if (signal !== null && typeof signal === 'object' && !Array.isArray(signal)) {
+      if (signal !== null && typeof signal === "object" && !Array.isArray(signal)) {
         const fields = signal as Record<string, unknown>;
         const number: number | null = integer(fields.signo);
         const code: number | null = integer(fields.code);
         if (number !== null) {
           const name: string = SIGNALS.get(number) ?? `signal ${number}`;
           const described: string = code === null ? name : `${name} (code ${code})`;
-          summary = summary === '' ? described : `${described}: ${summary}`;
+          summary = summary === "" ? described : `${described}: ${summary}`;
         }
       }
       const frames: string[] = [];
@@ -122,8 +128,9 @@ export class TelemetryPolicy {
       return {
         pid,
         time,
-        message: summary === '' ? 'native crash' : summary,
-        stack: frames.join('\n'),
+        version: text(params.bundle_version),
+        message: summary === "" ? "native crash" : summary,
+        stack: frames.join("\n"),
       };
     }
     return null;
@@ -134,7 +141,11 @@ export class TelemetryPolicy {
    *
    * It is the unfinished keyboard session's crash only when it is that session's process (`previousKeyboardPid`, remembered when that session began) and this keyboard has not begun its own session yet: until then the session marker on disk is still the crashed one, and once begun it is this run's. Everything else is a standalone crash.
    */
-  static destination(report: CrashReport, previousKeyboardPid: number | null, begun: boolean): CrashDestination {
+  static destination(
+    report: CrashReport,
+    previousKeyboardPid: number | null,
+    begun: boolean,
+  ): CrashDestination {
     if (!begun && previousKeyboardPid !== null && report.pid === previousKeyboardPid) {
       return CrashDestination.Session;
     }
@@ -148,7 +159,18 @@ export class TelemetryPolicy {
 
   /** A crash record's contents: the summary line, then the frames. */
   static recordText(report: CrashReport): string {
-    return `${report.message}\n${report.stack}`;
+    const version: string = report.version ?? "unknown";
+    const safeVersion: string = /^[A-Za-z0-9._-]{1,64}$/.test(version) ? version : "unknown";
+    const context = {
+      platform: "harmony",
+      version: safeVersion,
+      revision: "unknown",
+      run: "",
+      attempt: "",
+      arch: "unknown",
+      component: "system-diagnostic",
+    };
+    return `MSIME-CRASH/1 ${JSON.stringify(context)}\n${report.message}\n${report.stack}`;
   }
 
   /**
@@ -159,13 +181,17 @@ export class TelemetryPolicy {
   static reportingTurnedOff(snapshotJson: string, saveReply: string): boolean {
     try {
       const reply: unknown = JSON.parse(saveReply);
-      if (reply === null || typeof reply !== 'object' || (reply as Record<string, unknown>).ok !== true) {
+      if (
+        reply === null ||
+        typeof reply !== "object" ||
+        (reply as Record<string, unknown>).ok !== true
+      ) {
         return false;
       }
       const snapshot: unknown = JSON.parse(snapshotJson);
-      if (snapshot === null || typeof snapshot !== 'object') return false;
+      if (snapshot === null || typeof snapshot !== "object") return false;
       const preferences: unknown = (snapshot as Record<string, unknown>).preferences;
-      if (preferences === null || typeof preferences !== 'object') return false;
+      if (preferences === null || typeof preferences !== "object") return false;
       return (preferences as Record<string, unknown>).usage_reporting === false;
     } catch {
       return false;
@@ -181,7 +207,7 @@ export class TelemetryPolicy {
   static rememberedPid(document: string): number | null {
     try {
       const value: unknown = JSON.parse(document);
-      if (value === null || typeof value !== 'object') return null;
+      if (value === null || typeof value !== "object") return null;
       return integer((value as Record<string, unknown>).pid);
     } catch {
       return null;

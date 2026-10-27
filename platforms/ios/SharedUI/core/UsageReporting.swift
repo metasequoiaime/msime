@@ -14,6 +14,9 @@ private func msimeClientTelemetryFlush(_ request: UnsafePointer<UInt8>?, _ lengt
 @_silgen_name("msime_client_telemetry_clear")
 private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("msime_ios_crash_record_set")
+private func msimeIOSCrashRecordSet(_ path: UnsafePointer<CChar>?, _ header: UnsafePointer<CChar>?)
+
 /// 经 client-services 的遥测队列（msime_client.h 中的 `msime_client_telemetry_*`）进行匿名使用上报，App 和键盘通过 App Group 共用。
 ///
 /// 键盘就是输入法本身，所以会话归它管：每次正常结束的键盘展示记一个会话，只有崩溃处理器留下了记录时才记一条 `session_crash`。App 负责发送队列里的内容，并把 MetricKit 的崩溃诊断转成崩溃记录：诊断按进程号对回键盘当时未结束的会话（键盘自己的处理程序已经记下的不再记第二份），App 自己的未捕获异常由它的处理器带着抛出点的栈记下（MetricKit 再送来时同样跳过），系统强制结束（SIGKILL）按共享语义不算会话崩溃，只报 `crash`。`usage_reporting` 偏好（默认开启）关闭时，什么都不记录也不发送。
@@ -68,7 +71,10 @@ enum UsageReporting {
   static func setEnabled(_ enabled: Bool) -> Bool {
     guard MetasequoiaInputSessionBridge.updateSharedPreferences({ $0[preferenceKey] = enabled }) else { return false }
     exceptionConsent.update(enabled)
-    if !enabled, let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
+    if !enabled {
+      msimeIOSCrashRecordSet(nil, nil)
+      if let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
+    }
     return true
   }
 
@@ -88,6 +94,7 @@ enum UsageReporting {
     let id: String
     /// 信号处理函数写这个会话崩溃记录的文件。
     let crashRecordPath: String
+    var crashRecordHeader: String = ""
   }
 
   /// Starts a keyboard session: closes the previous one, queues crash records and today's active. Nil when reporting is off. No network I/O.
@@ -101,7 +108,38 @@ enum UsageReporting {
           value["enabled"] as? Bool == true,
           let id = value["session_id"] as? String,
           let path = value["crash_record_path"] as? String else { return nil }
-    return Session(id: id, crashRecordPath: path)
+    return Session(id: id, crashRecordPath: path, crashRecordHeader: value["crash_record_header"] as? String ?? "")
+  }
+
+  /// App 只准备独立捕获，不开始或结束键盘会话。
+  static func prepareApplicationCapture() -> Session? {
+    guard let directory else { return nil }
+    var request = request(directory)
+    request["capture_only"] = true
+    request["component"] = "application"
+    guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request) as? [String: Any],
+          value["enabled"] as? Bool == true,
+          let id = value["session_id"] as? String,
+          let path = value["crash_record_path"] as? String,
+          let header = value["crash_record_header"] as? String else { return nil }
+    return Session(id: id, crashRecordPath: path, crashRecordHeader: header)
+  }
+
+  static func arm(_ session: Session?) {
+    guard let session else { msimeIOSCrashRecordSet(nil, nil); return }
+    session.crashRecordPath.withCString { path in
+      session.crashRecordHeader.withCString { msimeIOSCrashRecordSet(path, $0) }
+    }
+  }
+
+  /// 系统报告原版本已知而源码构建未知时明确标成 unknown，不能用升级后的身份填补。
+  static func diagnosticHeader(version: String) -> String? {
+    guard !version.isEmpty, version.utf8.count <= 64,
+          version.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [45,46,95].contains($0) }) else { return nil }
+    let context = ["platform": "ios", "version": version, "revision": "unknown", "run": "", "attempt": "", "arch": "unknown", "component": "system-diagnostic"]
+    guard let data = try? JSONSerialization.data(withJSONObject: context, options: [.sortedKeys]),
+          let json = String(data: data, encoding: .utf8) else { return nil }
+    return "MSIME-CRASH/1 \(json)\n"
   }
 
   /// The keyboard was dismissed normally: queues this session's event. No network I/O.
@@ -143,18 +181,20 @@ enum UsageReporting {
   }
 
   /// 系统事后报告的一次崩溃（MetricKit，App 下次打开时才送到），写成下次键盘启动时排队的崩溃记录。真崩溃按进程号 `pid` 对回该进程未结束的键盘会话，下次启动时连同那个会话的 `session_crash` 补报；键盘自己的处理程序已经为它写过记录时不再写。被强制结束的、`pid` 不可用的和不属于任何会话的（App 自身、收起后被挂起的键盘）只报 `crash`。会加锁写文件：不要在主线程上调用。
-  static func recordDiagnosedCrash(_ summary: DiagnosticSummary, stack: String, pid: pid_t, in directory: URL) {
+  static func recordDiagnosedCrash(_ summary: DiagnosticSummary, stack: String, pid: pid_t, version: String? = nil, in directory: URL) {
     var request: [String: Any] = ["directory": directory.path, "message": summary.message, "stack": stack]
+    if let version, let header = diagnosticHeader(version: version) { request["crash_record_header"] = header }
     if summary.killed || pid <= 0 { request["outside_session"] = true } else { request["pid"] = Int(pid) }
     ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request)
   }
 
   /// 主 App 的未捕获异常处理器调用：写一份不属于任何键盘会话的崩溃记录（新 id），下次键盘启动时报 `crash`；再把进程号追加到 `handledProcesses`，MetricKit 事后送来同一进程的诊断时由 `takeHandledProcess` 认出并跳过。MetricKit 只有 abort 时的线程栈，CFRunLoop 重新抛出后已经看不到抛出点，这里的栈来自异常本身。消息只有异常名，不带 `reason`（可能引用 App 里的数据）。只建文件、不加锁，可以在处理器里调用。
   static func recordUncaughtException(name: String, returnAddresses: [NSNumber], pid: pid_t, in directory: URL,
-                                      handledProcesses: URL) {
-    guard ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash,
-                               ["directory": directory.path, "message": "Uncaught \(name)",
-                                "stack": frames(fromReturnAddresses: returnAddresses), "session": UUID().uuidString]) != nil else { return }
+                                      handledProcesses: URL, capture: Session? = nil) {
+    var request: [String: Any] = ["directory": directory.path, "message": "Uncaught \(name)",
+                                "stack": frames(fromReturnAddresses: returnAddresses), "session": capture?.id ?? UUID().uuidString]
+    if let capture { request["crash_record_header"] = capture.crashRecordHeader }
+    guard ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request) != nil else { return }
     let descriptor = open(handledProcesses.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
     guard descriptor >= 0 else { return }
     defer { close(descriptor) }

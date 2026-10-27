@@ -5,6 +5,7 @@
 
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
+#include "../../../common/CrashRecorder.h"
 
 #include <execinfo.h>
 #include <fcntl.h>
@@ -42,12 +43,8 @@ dispatch_queue_t gQueue;
 dispatch_source_t gFlushTimer;
 NSUncaughtExceptionHandler *gPreviousExceptionHandler;
 
-// Written once by start, read by the signal handler, which may only use async-signal-safe calls.
-char gCrashRecordPath[PATH_MAX];
-const int kCrashSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
-struct sigaction gPreviousActions[NSIG];
-// Room to report a stack overflow on the main thread.
-char gAlternateStack[64 * 1024];
+NSString *gSessionId;
+NSString *gRecordHeader;
 
 // 输入法进程几乎从不走 `NSApplicationWillTerminateNotification`：设置应用装好或更新输入法时用 `pkill` 结束旧进程（`macos_input_source.rs` 的 `stop_running_copies`），系统注销、关机时结束它也可能是 SIGTERM；默认处置下进程当场死掉，会话标记留在磁盘上，下次启动按「只有标记」处理，什么事件都不产生。所以把 SIGTERM 接到这个调度源上：先排进 `session`，再按 SIGTERM 原样退出。
 dispatch_source_t gTerminationSource;
@@ -74,67 +71,23 @@ void Flush(void)
     });
 }
 
-const char *SignalName(int signal)
-{
-    switch (signal) {
-    case SIGSEGV: return "SIGSEGV";
-    case SIGBUS: return "SIGBUS";
-    case SIGILL: return "SIGILL";
-    case SIGFPE: return "SIGFPE";
-    case SIGABRT: return "SIGABRT";
-    case SIGTRAP: return "SIGTRAP";
-    default: return "signal";
-    }
-}
-
-// Only async-signal-safe work: open the record begin returned, write the summary line and the frames (backtrace_symbols_fd writes "index module address symbol + offset" without allocating, and names a module by its file name only), then hand the signal to whoever had it before.
-void CrashSignalHandler(int signal, siginfo_t *, void *)
-{
-    if (gCrashRecordPath[0] != '\0') {
-        int fd = open(gCrashRecordPath, O_WRONLY | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0) {
-            const char *prefix = "Fatal signal ";
-            const char *name = SignalName(signal);
-            (void)!write(fd, prefix, strlen(prefix));
-            (void)!write(fd, name, strlen(name));
-            (void)!write(fd, "\n", 1);
-            void *frames[64];
-            int count = backtrace(frames, 64);
-            backtrace_symbols_fd(frames, count, fd);
-            close(fd);
-        }
-    }
-    sigaction(signal, &gPreviousActions[signal], nullptr);
-    raise(signal);
-}
-
 void UncaughtException(NSException *exception)
 {
-    NSString *summary = [NSString stringWithFormat:@"Uncaught %@: %@", exception.name, exception.reason ?: @""];
+    if (!msime::crash::is_armed() || !gSessionId) return;
+    // 异常原因可能引用输入内容，只保存异常类型与抛出点的栈。
+    NSString *summary = [NSString stringWithFormat:@"Uncaught %@", exception.name];
     NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"] ?: @"";
     (void)CallHost(msime_client_telemetry_record_crash,
-                   @{@"directory": MSIMEUsageReportingDirectory(), @"message": summary, @"stack": stack});
+                   @{@"directory": MSIMEUsageReportingDirectory(), @"message": summary, @"stack": stack,
+                     @"session": gSessionId, @"crash_record_header": gRecordHeader ?: @""});
     if (gPreviousExceptionHandler) gPreviousExceptionHandler(exception);
 }
 
-void InstallCrashHandlers(NSString *recordPath)
+void InstallCrashHandlers(NSString *recordPath, NSString *header)
 {
-    if (![recordPath getFileSystemRepresentation:gCrashRecordPath maxLength:sizeof(gCrashRecordPath)]) {
-        gCrashRecordPath[0] = '\0';
-        return;
-    }
-    // The first backtrace() loads the unwinder, which allocates; do it here rather than inside a signal handler.
-    void *warm[1];
-    (void)backtrace(warm, 1);
-    stack_t alternate = {};
-    alternate.ss_sp = gAlternateStack;
-    alternate.ss_size = sizeof(gAlternateStack);
-    sigaltstack(&alternate, nullptr);
-    struct sigaction action = {};
-    action.sa_sigaction = CrashSignalHandler;
-    action.sa_flags = SA_SIGINFO | SA_ONSTACK;
-    sigemptyset(&action.sa_mask);
-    for (int signal : kCrashSignals) sigaction(signal, &action, &gPreviousActions[signal]);
+    gRecordHeader = [header copy];
+    msime::crash::install_crash_handlers();
+    msime::crash::arm(recordPath.UTF8String ?: "", header.UTF8String ?: "");
     gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
     NSSetUncaughtExceptionHandler(UncaughtException);
 }
@@ -186,8 +139,11 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
         // host-api telemetry 存储会在接触队列、标记或崩溃文件前创建并校验目录。
         NSDictionary *started = CallHost(msime_client_telemetry_begin, SessionRequest());
         if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
+        gSessionId = [started[@"session_id"] copy];
         NSString *recordPath = started[@"crash_record_path"];
-        if ([recordPath isKindOfClass:NSString.class]) InstallCrashHandlers(recordPath);
+        NSString *header = started[@"crash_record_header"];
+        if ([recordPath isKindOfClass:NSString.class] && [header isKindOfClass:NSString.class])
+            InstallCrashHandlers(recordPath, header);
         InstallTerminationHandler();
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillTerminateNotification
                                                         object:nil
@@ -208,5 +164,6 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
 void MSIMEUsageReportingStop(void)
 {
     if (!gQueue) return;
-    (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory()});
+    msime::crash::disarm();
+    if (gSessionId) (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory(), @"session": gSessionId});
 }

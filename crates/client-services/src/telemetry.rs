@@ -593,6 +593,17 @@ impl TelemetryStore {
         message: &str,
         stack: &str,
     ) -> Result<DiagnosedCrash, TelemetryError> {
+        self.record_diagnosed_crash_with_context(pid, None, message, stack)
+    }
+
+    /// 系统延迟诊断可提供原构建身份；未结束会话里的身份比补录的诊断信息优先。
+    pub fn record_diagnosed_crash_with_context(
+        &self,
+        pid: Option<u32>,
+        context: Option<&CrashContext>,
+        message: &str,
+        stack: &str,
+    ) -> Result<DiagnosedCrash, TelemetryError> {
         let _lock = self.lock()?;
         if let Some(pid) = pid {
             let state = self.read_state();
@@ -618,7 +629,7 @@ impl TelemetryStore {
             }
         }
         let id = Uuid::new_v4().hyphenated().to_string();
-        self.record_crash_for(&id, message, stack)?;
+        self.record_crash_with_context(&id, context, message, stack)?;
         Ok(DiagnosedCrash::Outside)
     }
 
@@ -910,11 +921,24 @@ impl TelemetryStore {
                     .file_stem()
                     .and_then(|value| value.to_str())
                     .unwrap_or_default();
-                if let Some(index) = state
+                let session_index = state
                     .open_sessions
                     .iter()
-                    .position(|session| session.id == stem)
-                {
+                    .position(|session| session.id == stem);
+                let needed = usize::from(!queue.iter().any(|queued| queued.id == event.id))
+                    + usize::from(
+                        session_index.is_some()
+                            && !queue
+                                .iter()
+                                .any(|queued| queued.id == format!("session-{stem}")),
+                    );
+                let available = MAX_QUEUED_EVENTS.saturating_sub(queue.len())
+                    + queue.iter().filter(|event| !is_crash_event(event)).count();
+                // 队列全是待发崩溃时保留原记录，不能确认删除尚未容纳的诊断。
+                if needed > available {
+                    continue;
+                }
+                if let Some(index) = session_index {
                     let session = state.open_sessions.remove(index);
                     collected.sessions.push(session.id.clone());
                     collected.session_crashed = true;
@@ -983,7 +1007,7 @@ fn crash_event(
     } else {
         (None, text.as_ref())
     };
-    let (message, stack) = text.split_once('\n').unwrap_or((&text, ""));
+    let (message, stack) = text.split_once('\n').unwrap_or((text, ""));
     let mut message = clean_message(message);
     if message.trim().is_empty() {
         message = "unknown crash".to_owned();
@@ -1042,16 +1066,25 @@ fn read_crash_file(path: &Path) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// Appends `event` unless an event with its id is queued already, then drops the oldest events beyond [`MAX_QUEUED_EVENTS`].
+fn is_crash_event(event: &TelemetryEvent) -> bool {
+    matches!(
+        event.kind,
+        TelemetryKind::Crash | TelemetryKind::SessionCrash
+    )
+}
+
+/// 有界队列优先保留崩溃；普通统计不能挤掉已经接收的诊断。
 fn push(queue: &mut Vec<TelemetryEvent>, event: TelemetryEvent) {
     if queue.iter().any(|queued| queued.id == event.id) {
         return;
     }
-    queue.push(event);
-    if queue.len() > MAX_QUEUED_EVENTS {
-        let excess = queue.len() - MAX_QUEUED_EVENTS;
-        queue.drain(..excess);
+    if queue.len() >= MAX_QUEUED_EVENTS {
+        let Some(index) = queue.iter().position(|queued| !is_crash_event(queued)) else {
+            return;
+        };
+        queue.remove(index);
     }
+    queue.push(event);
 }
 
 /// Queues `active` for the UTC day of `now` unless the state says it was queued for that day. Returns whether anything changed.
@@ -1110,10 +1143,6 @@ fn read_small_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     let file = open_regular_file(path)?;
     let bytes = crate::bounded_io::read_bounded(file, MAX_SMALL_FILE_BYTES).ok()?;
     serde_json::from_slice(&bytes).ok()
-}
-
-fn is_regular_file(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
 
 fn open_regular_file(path: &Path) -> Option<File> {

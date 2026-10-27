@@ -116,6 +116,18 @@ jobs:
           name: msime-android-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
+      - name: 保存原生调试符号和构建清单
+        if: ${{ success() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-android-${{ matrix.edition }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/android-symbols/*.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: 长期保存发布构建的原生符号
+        if: ${{ inputs.publish }}
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: bash scripts/publish-crash-symbols.sh android target/android-symbols/*.zip
       # 名字故意不以 msime-android- 开头：publish 按 msime-android-*-<版本> 收集发布页上的 APK。
       - if: steps.version.outputs.bundle == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
