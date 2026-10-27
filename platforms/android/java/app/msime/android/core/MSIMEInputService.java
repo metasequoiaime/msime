@@ -448,6 +448,8 @@ public final class MSIMEInputService extends InputMethodService {
     String oneHandedMode = "off";
     /** 本地设置的分离主开关；实际画不画还要看窗口大小、方向和布局，见 {@link #splitKeyboardDrawn}。 */
     boolean splitKeyboardEnabled;
+    int splitKeyboardThresholdDp;
+    int splitKeyboardGapPercent;
     boolean splitKeyboardPortrait;
     /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
@@ -1025,6 +1027,7 @@ public final class MSIMEInputService extends InputMethodService {
                         applyEditorPreferences(value(response).optJSONObject("preferences"));
                         offerRecentClipOnHistoryEnabled(previousClipboard);
                         render();
+                        imeWorldClock.resumePicker(getCurrentInputEditorInfo());
                     } catch (JSONException | LinkageError ignored) {
                         // Unreadable preferences leave the keyboard as it is.
                     }
@@ -1395,6 +1398,9 @@ public final class MSIMEInputService extends InputMethodService {
         } else {
             imeLetterRows.invalidateBackspaceScrub();
             selectionEcho.invalidate();
+            // 部分远程编辑器（例如桌面控制类应用）拒绝 surrounding-text 删除，但仍处理原始退格键。
+            // 连接已明确返回失败时才回退，避免普通编辑器重复删除。
+            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
         }
     }
 
@@ -1812,6 +1818,7 @@ public final class MSIMEInputService extends InputMethodService {
             // 键盘进程不在时复制的那一条，监听收不到；弹出键盘时看一眼是不是刚复制的。
             offerRecentClip(false);
             render();
+            imeWorldClock.resumePicker(effectiveInfo);
         };
         main.postDelayed(inputViewRefreshTask, INPUT_VIEW_REFRESH_DELAY_MILLIS);
     }
@@ -1883,6 +1890,8 @@ public final class MSIMEInputService extends InputMethodService {
         caretWindowHidden = false;
         // 系统或应用把窗口叫出来时可能正空闲（例如输入框获得焦点），按此刻的状态再收起。
         main.post(caretWindowSync);
+        // 选择页返回时，输入连接刷新可能先于窗口显示；等窗口可见再补一次原编辑器恢复。
+        main.post(() -> imeWorldClock.resumePicker(getCurrentInputEditorInfo()));
     }
 
     /** Match Apple's viewWillDisappear boundary while keeping the editor session alive. */
@@ -1984,7 +1993,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onDestroy() {
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
-        if (imeWorldClock != null) imeWorldClock.close();
+        if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
@@ -2364,6 +2373,8 @@ public final class MSIMEInputService extends InputMethodService {
             message = "";
             render();
             if (hasPreferencesDirectory) preferencesReloader.start(directory, this::reloadPreferences);
+            // 输入连接恢复时，时钟数据目录可能尚未恢复，等运行时真正准备好再续接城市选择。
+            imeWorldClock.resumePicker(getCurrentInputEditorInfo());
         } catch (Exception | LinkageError error) {
             stop(false);
             message = "共享运行时未就绪：仅直接输入";
@@ -2546,6 +2557,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
+        splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
+        splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
         numberRowEnabled = localSettings.bool(AndroidLocalSettings.NUMBER_ROW);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
@@ -4656,13 +4669,15 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；每次按当前窗口配置重算。 */
+    int splitKeyboardGapPercent() { return splitKeyboardGapPercent; }
+
     boolean splitKeyboardDrawn() {
         // 浮动键盘是一块窄面板，不分成两半。
         if (floatingDrawn() || imeLetterRows.numberPadDrawn()) return false;
         Configuration configuration = getResources().getConfiguration();
         return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view),
-            splitKeyboardPortrait);
+            splitKeyboardPortrait, splitKeyboardThresholdDp);
     }
 
     /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
@@ -4764,7 +4779,8 @@ public final class MSIMEInputService extends InputMethodService {
     java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
-            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"),
+            uriPeriodPrimary());
     }
 
     private boolean quickPunctuationVisible() {
@@ -4783,6 +4799,11 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean commaSecondaryPeriod() {
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
             && KeyboardActionRow.usesCommaSecondaryPeriod(imeLetterRows.drawnTouchLayout());
+    }
+
+    private boolean uriPeriodPrimary() {
+        return QuickPunctuationPolicy.uriPeriodPrimary(dedicatedEnglish, editorInputType,
+            commaSecondaryPeriod());
     }
 
     /** 手写底行在场：逗号长按输入问号、句号长按输入叹号，接替原来书写区左列的 ？ ！。 */
@@ -4815,12 +4836,13 @@ public final class MSIMEInputService extends InputMethodService {
         CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
         boolean question = handwritingMarksShown();
         if (quickPunctuationButton instanceof KeyHintButton hintButton) {
-            hintButton.setCornerHint(commaSecondaryPeriod()
+            hintButton.setCornerHint(uriPeriodPrimary() ? "," : commaSecondaryPeriod()
                 ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks())
                 : question ? ChineseSymbolFaces.face("?", sendsChinesePunctuation(), punctuationMarks()) : "");
         }
         quickPunctuationButton.setContentDescription("常用标点：" + face
-            + (commaSecondaryPeriod() ? "；长按输入句号" : question ? "；长按输入问号" : "；长按选择常用标点"));
+            + (uriPeriodPrimary() ? "；长按输入逗号" : commaSecondaryPeriod() ? "；长按输入句号"
+                : question ? "；长按输入问号" : "；长按选择常用标点"));
     }
 
     private void updateSymbolKeyFaces() {
@@ -4840,7 +4862,7 @@ public final class MSIMEInputService extends InputMethodService {
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
             String input = shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
-            shuangpinKeyButtons.get(index).setCornerHint(LetterHintTable.face(input, chinese,
+            shuangpinKeyButtons.get(index).setCornerHint(LetterHintTable.face(input, dedicatedEnglish, chinese,
                 punctuationMarks()));
         }
     }
@@ -6004,6 +6026,7 @@ public final class MSIMEInputService extends InputMethodService {
     void closeClipboardHistory() {
         imePanels.resetClipboardCategoryPicker();
         imePanels.dismissClipboardPreview();
+        imePanels.clearClipboardDetail();
         if (clipboardSurface != null) ViewPolicy.hide(clipboardSurface);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;
@@ -6049,6 +6072,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeMoreTools() {
+        if (imeFunctionPanel != null) imeFunctionPanel.close();
         if (imeWorldClock != null) imeWorldClock.close();
         if (imeOcr != null) imeOcr.close();
         localInputToolsOpen = false;
@@ -7781,6 +7805,17 @@ public final class MSIMEInputService extends InputMethodService {
         authenticateClipboard("导出", this::exportClipboardHistoryAfterAuthentication);
     }
 
+    /** 输入法面板多选导出；只接收面板当前选中的文字，不把未选记录带出。 */
+    void exportClipboardItems(java.util.List<String> texts) {
+        if (texts == null || texts.isEmpty()) return;
+        if (texts.size() > app.msime.android.ClipboardSelectionPolicy.MAX_SELECTIONS) {
+            notice("最多只能选择 " + app.msime.android.ClipboardSelectionPolicy.MAX_SELECTIONS + " 项");
+            return;
+        }
+        java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        authenticateClipboard("导出", () -> exportClipboardItemsAfterAuthentication(snapshot));
+    }
+
     private void exportClipboardHistoryAfterAuthentication() {
         if (clipboardExportBusy) return;
         clipboardExportBusy = true;
@@ -7788,6 +7823,25 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesWorker.execute(() -> {
             String message;
             try { message = app.msime.android.ClipboardExport.export(application); }
+            catch (RuntimeException | LinkageError failed) { message = "剪贴板导出失败，请重试"; }
+            String result = message;
+            main.post(() -> {
+                clipboardExportBusy = false;
+                if (app.msime.android.ClipboardExport.NEEDS_DIRECTORY.equals(result)) {
+                    openHostPage(ClipboardSearchPolicy.SEARCH_PAGE);
+                    notice("首次导出请在历史页点击「导出」，选择并授权文件夹");
+                } else notice(result);
+            });
+        });
+    }
+
+    private void exportClipboardItemsAfterAuthentication(java.util.List<String> texts) {
+        if (clipboardExportBusy) return;
+        clipboardExportBusy = true;
+        Context application = getApplicationContext();
+        preferencesWorker.execute(() -> {
+            String message;
+            try { message = app.msime.android.ClipboardExport.export(application, texts); }
             catch (RuntimeException | LinkageError failed) { message = "剪贴板导出失败，请重试"; }
             String result = message;
             main.post(() -> {
@@ -8858,6 +8912,35 @@ public final class MSIMEInputService extends InputMethodService {
         refreshAfterQuickDelete();
     }
 
+    /** 快速删除的可选全框模式：显式选中光标前后读到的整段文字后删除，并保留一次撤回。 */
+    void deleteAllInput() {
+        clearQuickDeleteUndo();
+        if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
+        if (hasEngineComposition()) discardComposition();
+        InputConnection target = connection;
+        if (target == null) return;
+        int cursor = quickDeleteCursor(target);
+        CharSequence before = InputConnectionGuard.textBeforeCursor(target, QuickDeleteUndo.MAX_UNITS);
+        CharSequence after = InputConnectionGuard.textAfterCursor(target, QuickDeleteUndo.MAX_UNITS);
+        if (cursor < 0 || before == null || after == null
+                || before.length() >= QuickDeleteUndo.MAX_UNITS
+                || after.length() >= QuickDeleteUndo.MAX_UNITS) return;
+        String deleted = before.toString() + after;
+        if (deleted.isEmpty() || deleted.length() > QuickDeleteUndo.MAX_UNITS) return;
+        int start = cursor - before.length();
+        int end = cursor + after.length();
+        if (!InputConnectionGuard.setSelection(target, start, end)
+                || !InputConnectionGuard.commitText(target, "", 1)) return;
+        selectionEcho.invalidate();
+        if (!EditorPolicy.password(editorInputType) && allowLearning && !incognitoEnabled
+                && deleted.length() <= QuickDeleteUndo.MAX_UNITS) {
+            quickDeleteUndo = new QuickDeleteUndo(target, start, deleted, "", "",
+                SystemClock.elapsedRealtime());
+            main.postDelayed(expireQuickDeleteUndo, QuickDeleteUndo.LIFETIME_MS);
+        }
+        refreshAfterQuickDelete();
+    }
+
     /** 只取绝对选区位置；编辑器不支持或仍有选区时不提供撤回。 */
     private int quickDeleteCursor(InputConnection target) {
         if (target == null) return -1;
@@ -9102,6 +9185,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        imeFunctionPanel.close();
         operationNotice.cancel();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
@@ -9298,7 +9382,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (commaSecondaryPeriod() || handwritingMarksShown()) {
                 imeKeyFeedback.playFeedback(quickPunctuationButton);
                 countKey(quickPunctuationButton);
-                type(commaSecondaryPeriod() ? '.' : '?');
+                if (uriPeriodPrimary()) type(',');
+                else type(commaSecondaryPeriod() ? '.' : '?');
             } else showQuickPunctuationMenu();
             return true;
         });

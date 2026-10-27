@@ -37,22 +37,29 @@ public final class ClipboardExport {
 
     /** 在生成快照和创建文件前重新读隐私开关；关闭时不导出残留记录。 */
     public static String export(Context context) {
+        return export(context, null);
+    }
+
+    /** 导出用户在输入法面板中选中的记录；null 表示导出全部历史。 */
+    public static String export(Context context, List<String> selectedTexts) {
         JSONObject preferences = preferences(context);
         if (preferences == null) return "剪贴板设置读取失败，请重试";
         if (!preferences.optBoolean("clipboard_history", false)) return "剪贴板历史未开启，未导出";
         File temporary = null;
         try {
-            List<ClipboardHistory.Item> snapshot = new ClipboardHistoryStore(
-                ClipboardModeStore.directory(context)).load();
-            if (snapshot.isEmpty()) return "剪贴板历史为空，未导出";
+            ClipboardHistoryStore store = new ClipboardHistoryStore(ClipboardModeStore.directory(context));
+            ClipboardHistoryStore.Export snapshot = selectedTexts == null
+                ? store.exportText() : store.exportSelectedText(selectedTexts);
+            if (snapshot.count() == 0) return "剪贴板历史为空，未导出";
             String selected = saved(context);
             if (selected.isEmpty() && Build.VERSION.SDK_INT < 29) return NEEDS_DIRECTORY;
             if (!selected.isEmpty()) {
                 try { ExportDirectory.inspect(context, selected); }
                 catch (IOException | RuntimeException unavailable) { return "导出文件夹不可用，请重新选择"; }
             }
-            String filename = LocalBackupPolicy.baseName(context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
-                AppVersionPolicy.versionName(context, "0"), LocalDateTime.now()) + ".txt";
+            String filename = LocalBackupPolicy.clipboardFileName(
+                context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
+                AppVersionPolicy.versionName(context, "0"), LocalDateTime.now());
             temporary = new File(context.getCacheDir(), filename);
             Files.write(temporary.toPath(), ClipboardExportFormat.format(snapshot, ZoneId.systemDefault())
                 .getBytes(StandardCharsets.UTF_8));

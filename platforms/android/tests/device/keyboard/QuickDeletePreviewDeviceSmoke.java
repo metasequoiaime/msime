@@ -49,6 +49,10 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
                 tap(describedPrefix("输入方案："));
                 tap(described("输入方案卡片 " + layout));
                 await(described("输入方案：" + layout));
+                if (layout.contains("26")) {
+                    compositionSwipeKeepsCommittedText(false);
+                    compositionSwipeKeepsCommittedText(true);
+                }
                 for (var window : automation.getWindows()) {
                     if (find(window.getRoot(), key("英")) != null) {
                         tap(key("英"));
@@ -156,6 +160,42 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Swiping into the preview did not clear the prefix");
+    }
+
+    private void compositionSwipeKeepsCommittedText(boolean held) throws Exception {
+        stage = held ? "held quick delete keeps committed prefix while composing"
+            : "quick delete keeps committed prefix while composing";
+        Bundle text = new Bundle();
+        text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "清风");
+        if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text))
+            throw new AssertionError("Synthetic editor setup failed");
+        Bundle selection = new Bundle();
+        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 2);
+        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, 2);
+        if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection))
+            throw new AssertionError("Synthetic editor selection failed");
+        awaitStableBounds(describedPrefix("输入方案：").and(AccessibilityNodeInfo::isEnabled));
+        for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
+        await(field("msime-test-plain").and(node -> equalsText("清风ni'hao", node.getText())));
+        Rect key = deleteBounds();
+        long down = SystemClock.uptimeMillis();
+        touch(down, MotionEvent.ACTION_DOWN, key.centerX(), key.centerY());
+        if (held) {
+            SystemClock.sleep(550);
+            await(field("msime-test-plain").and(node -> equalsText("清风", node.getText())));
+        }
+        float y = key.top - 42 * getContext().getResources().getDisplayMetrics().density;
+        touch(down, MotionEvent.ACTION_MOVE, key.centerX(), y);
+        touch(down, MotionEvent.ACTION_UP, key.centerX(), y);
+        await(field("msime-test-plain").and(node -> equalsText("清风", node.getText())));
+        if (held) {
+            tap(key("⌫"));
+            await(field("msime-test-plain").and(node -> equalsText("清", node.getText())));
+        } else {
+            for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
+            tap(key("空格"));
+            await(field("msime-test-plain").and(node -> equalsText("清风你好", node.getText())));
+        }
     }
 
     private int length() {

@@ -343,8 +343,12 @@ public final class AccountFragment extends HomeTabFragment {
             () -> SettingsNavigator.open(context, PageId.DOWNLOAD, null));
         row(group, R.drawable.ic_ms_feedback, "帮助与反馈", null, null,
             () -> SettingsNavigator.open(context, PageId.FEEDBACK, null));
-        row(group, R.drawable.ic_ms_info, "关于", null, version(),
+        LinearLayout about = row(group, R.drawable.ic_ms_info, "关于", null, version(),
             () -> SettingsNavigator.open(context, PageId.ABOUT, null));
+        about.setOnLongClickListener(ignored -> {
+            AboutEasterEgg.show(context);
+            return true;
+        });
         row(group, R.drawable.ic_ms_keyboard, "新手引导", "四步走完键盘的启用和设置", null,
             () -> startActivity(new Intent(context, OnboardingActivity.class)));
         // 「开屏动画」只重播开屏，不会接着进入新手引导。

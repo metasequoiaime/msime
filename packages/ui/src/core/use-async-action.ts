@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
 import { runAsyncAction, type AsyncActionOptions } from "./async-action";
@@ -25,7 +25,8 @@ export function useAsyncActionRunner(
   const mounted = useMountedRef();
   const generation = useAsyncGeneration(...owners);
 
-  useEffect(() => {
+  // 与归属代次一起在布局阶段重置，不能清掉首次可点击时刚启动的动作。
+  useLayoutEffect(() => {
     running.current = false;
     setBusy(false);
     return () => {

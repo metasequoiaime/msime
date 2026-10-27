@@ -240,7 +240,8 @@ final class ImeLetterRows {
                 s.imeLayoutRows.showLetterOptions(key, input);
             } else {
                 optionsShown[0] = false;
-                showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                showKeyPreview(key, LetterHintTable.face(input, s.dedicatedEnglish,
+                    s.sendsChinesePunctuation(), s.punctuationMarks()));
             }
         };
         key.setOnTouchListener((view, event) -> {
@@ -278,7 +279,8 @@ final class ImeLetterRows {
                             triggered[0] = true;
                             key.removeCallbacks(hold);
                             if (keyPreview != null && keyPreviewOwner == key)
-                                keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                                keyPreview.setLabel(LetterHintTable.face(input, s.dedicatedEnglish,
+                                    s.sendsChinesePunctuation(), s.punctuationMarks()));
                         } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
                                 && SwipeHintPolicy.swiped(opposite, downY[0], currentY)) {
                             triggered[0] = true;
@@ -411,7 +413,7 @@ final class ImeLetterRows {
     private void splitRow(LinearLayout row, float duplicateWeight) {
         float[] weights = splitWeights(row);
         row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), LayoutPolicy.weightedMatchParentParams(
-            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp())));
+            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp(), s.splitKeyboardGapPercent())));
     }
 
     /**
@@ -430,7 +432,7 @@ final class ImeLetterRows {
         float right = weights[spaceIndex] - left;
         space.setLayoutParams(LayoutPolicy.weightedMatchParentParams(left));
         row.addView(splitGap(), spaceIndex + 1,
-            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp())));
+            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp(), s.splitKeyboardGapPercent())));
         Button second = s.imeBottomRow.splitSpaceButton();
         if (second.getParent() instanceof android.view.ViewGroup parent) parent.removeView(second);
         ViewPolicy.show(second);
@@ -447,6 +449,7 @@ final class ImeLetterRows {
     private BackspaceSwipePolicy.Phase backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
     private boolean backspaceUndo;
     private boolean backspaceUndoHeld;
+    private boolean backspaceTouchedComposition;
     private BackspaceScrub backspaceScrub;
     private float backspaceDownX;
     private float backspaceDownY;
@@ -474,6 +477,7 @@ final class ImeLetterRows {
                     s.backspaceRepeatButton = button;
                     s.backspaceRepeated = false;
                     s.backspaceClearedComposition = false;
+                    backspaceTouchedComposition = s.hasEngineComposition();
                     backspaceUndo = s.canUndoQuickDelete();
                     backspaceDownX = event.getX();
                     backspaceDownY = event.getY();
@@ -500,10 +504,13 @@ final class ImeLetterRows {
                             }
                             // 连删无论重复几次都算一次按压，按下时已经计数。
                             s.backspaceRepeated = true;
-                            if (s.hasEngineComposition()) {
-                                s.imeKeyFeedback.playFeedback(button);
-                                // 长按删除整个音节，汉字列表打开时也一样。
-                                s.discardComposition();
+                            if (backspaceTouchedComposition || s.hasEngineComposition()) {
+                                if (s.hasEngineComposition()) {
+                                    backspaceTouchedComposition = true;
+                                    s.imeKeyFeedback.playFeedback(button);
+                                    // 长按删除整个音节，汉字列表打开时也一样。
+                                    s.discardComposition();
+                                }
                                 s.backspaceClearedComposition = true;
                                 s.main.removeCallbacks(this);
                                 s.backspaceRepeatTask = null;
@@ -573,15 +580,21 @@ final class ImeLetterRows {
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
-                    boolean clear = s.backspaceRepeatButton == button
-                        && BackspaceSwipePolicy.clearsOnRelease(backspaceSwipePhase);
+                    BackspaceSwipePolicy.ClearTarget target = s.backspaceRepeatButton == button
+                        ? BackspaceSwipePolicy.clearTarget(backspaceSwipePhase,
+                            backspaceTouchedComposition, s.hasEngineComposition())
+                        : BackspaceSwipePolicy.ClearTarget.NONE;
                     boolean undo = backspaceUndo;
                     boolean click = undo && !backspaceUndoHeld && button.isPressed();
                     cancelBackspaceRepeat();
                     button.setPressed(false);
-                    if (clear) {
+                    if (target != BackspaceSwipePolicy.ClearTarget.NONE) {
                         s.imeKeyFeedback.playFeedback(button);
                         if (undo) s.undoQuickDelete();
+                        else if (target == BackspaceSwipePolicy.ClearTarget.COMPOSITION) {
+                            if (s.hasEngineComposition()) s.discardComposition();
+                        } else if ("all".equals(s.localSettings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)))
+                            s.deleteAllInput();
                         else s.deleteAllBeforeCursor();
                     }
                     if (click) button.performClick();
@@ -635,6 +648,7 @@ final class ImeLetterRows {
         backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
         backspaceUndo = false;
         backspaceUndoHeld = false;
+        backspaceTouchedComposition = false;
         backspaceScrub = null;
         backspaceHorizontal = false;
         if (s.quickDeleteOverlay != null) s.quickDeleteOverlay.hide();
@@ -856,7 +870,8 @@ final class ImeLetterRows {
                 s.shuangpinKeyInputs.add(input);
                 // 键面随中文标点切换，之后由 render() 里的 updateLetterCornerHints 就地更新。
                 hintButton.setCornerHint(standardLetters
-                    ? LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()) : null);
+                    ? LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
+                        s.punctuationMarks()) : null);
                 KeyboardTypographyPolicy.setKeyTextSize(hintButton, 22);
                 bindLetterGestures(hintButton, standardLetters ? input : null);
             } else {
@@ -1176,7 +1191,7 @@ final class ImeLetterRows {
     }
 
     /**
-     * 新设计的 123 层（moreSymbols 为假）或 #+= 层：四行键自带底行（拼音 / ABC | 表情或符号 | 空格 | ↵），功能行这时整行不显示。字符键原样上屏，⌫ / 空格 / 回车用常驻的那几个键。标点用全角中文还是半角英文跟「中文标点」走（{@link MSIMEInputService#sendsChinesePunctuation}），不是跟中英文模式：0.2.0 起这里只看中英文模式，关掉中文标点后这一层照样上屏「，」「。」。
+     * 新设计的 123 层（moreSymbols 为假）或 #+= 层：四行键自带底行（返回 | 表情或符号 | 空格 | ↵），功能行这时整行不显示。字符键原样上屏，⌫ / 空格 / 回车用常驻的那几个键。标点用全角中文还是半角英文跟「中文标点」走（{@link MSIMEInputService#sendsChinesePunctuation}），不是跟中英文模式：0.2.0 起这里只看中英文模式，关掉中文标点后这一层照样上屏「，」「。」。
      */
     private void rebuildDesignLayer() {
         boolean chinese = !s.dedicatedEnglish;

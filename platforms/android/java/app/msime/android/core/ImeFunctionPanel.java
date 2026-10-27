@@ -23,10 +23,13 @@ final class ImeFunctionPanel {
     private FunctionPanelView chooserPanel;
     private String chooserTitle = "";
     private List<String> chooserLabels = List.of();
+    private View easterEgg;
 
     ImeFunctionPanel(MSIMEInputService s) {
         this.s = s;
     }
+
+    void close() { easterEgg = null; }
 
     /** 品牌键：面板关着时打开，开着时回到键盘。 */
     void toggleFunctionPanel() {
@@ -44,6 +47,10 @@ final class ImeFunctionPanel {
         if (s.imeOcr != null && s.imeOcr.active()) return;
         if (s.imeWorldClock != null && s.imeWorldClock.active()) {
             s.imeWorldClock.render();
+            return;
+        }
+        if (easterEgg != null) {
+            renderEasterEgg();
             return;
         }
         // 子页没有 FunctionPanelView，由容器自己承担「更多工具」的描述，免得同一面板出现两个同名节点。
@@ -184,7 +191,7 @@ final class ImeFunctionPanel {
                     s.render();
                 }), FunctionPanelView.State.NONE, s.connection != null);
             case ABOUT -> add(entries, states, enabled,
-                icon(item, KeyboardIconPaths.Icon.ABOUT, () -> host("ABOUT"), null),
+                icon(item, KeyboardIconPaths.Icon.ABOUT, () -> host("ABOUT"), this::openEasterEgg),
                 FunctionPanelView.State.NONE, true);
             case WEBSITE -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.WEBSITE, s::openWebsite, null),
@@ -251,6 +258,28 @@ final class ImeFunctionPanel {
     private void host(String page) {
         s.closeMoreTools();
         s.openHostPage(page);
+    }
+
+    private void openEasterEgg() {
+        easterEgg = AboutEasterEgg.scene(s, Color.parseColor(s.skin.background()));
+        renderEasterEgg();
+    }
+
+    private void renderEasterEgg() {
+        if (easterEgg.getParent() == s.moreToolsPanel) return;
+        s.moreToolsPanel.removeAllViews();
+        s.moreToolsPanel.setContentDescription("水杉的小秘密");
+        KeyboardIconKey back = new KeyboardIconKey(s, KeyboardIconKey.Kind.CURSOR_LEFT);
+        back.setKeyboardRole(KeyboardKeyRole.PLAIN);
+        back.setText("返回工具");
+        back.setContentDescription("返回工具");
+        ViewPolicy.bindClick(back, () -> {
+            close();
+            renderMoreTools();
+        });
+        s.moreToolsPanel.addView(back, LayoutPolicy.matchWidthHeightPx(s.pixels(44)));
+        s.moreToolsPanel.addView(easterEgg, LayoutPolicy.matchWidthWrapParams());
+        s.moreToolsScroll.scrollTo(0, 0);
     }
 
     private static FunctionPanelView.State toggle(boolean on) {

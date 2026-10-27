@@ -240,12 +240,11 @@ impl Canonical {
     fn matches(&self, profile: &ShuangpinProfile) -> bool {
         fn same(left: &[(&'static str, String)], right: &[(&str, &str)]) -> bool {
             left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right)
-                    .all(|((unit, key), (other_unit, other_key))| {
-                        unit == other_unit && key == other_key
-                    })
+                && left.iter().all(|(unit, key)| {
+                    right
+                        .iter()
+                        .any(|(other_unit, other_key)| unit == other_unit && key == other_key)
+                })
         }
         same(&self.initials, profile.initials)
             && same(&self.finals, profile.finals)
@@ -388,6 +387,8 @@ fn key_is_valid(part: CustomTablePart, key: &[u8]) -> bool {
 }
 
 fn check_codes(canonical: &Canonical) -> Result<(), CustomProfileError> {
+    // 内置手心表原样复制为自定义表时，继承其 `dk` 的 `dia`/`den` 同码例外。
+    let inherited_shoudao = canonical.matches(profile(ShuangpinProfileKind::Shoudao).unwrap());
     let mut initial_keys: HashSet<u8> = HashSet::new();
     for (unit, key) in &canonical.initials {
         let byte = key.as_bytes()[0];
@@ -408,7 +409,16 @@ fn check_codes(canonical: &Canonical) -> Result<(), CustomProfileError> {
     let mut buffer = String::with_capacity(8);
     for first in b'a'..=b'z' {
         for &second in &final_keys {
-            canonical.decode_pair(first, second, &mut buffer)?;
+            match canonical.decode_pair(first, second, &mut buffer) {
+                Err(CustomProfileError::AmbiguousCode {
+                    code,
+                    first,
+                    second,
+                }) if inherited_shoudao && code == "dk" && first == "den" && second == "dia" => {}
+                result => {
+                    result?;
+                }
+            }
         }
     }
     let mut zero_codes: Vec<(&str, &str)> = Vec::with_capacity(canonical.zero_initials.len());
@@ -518,6 +528,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn shoudao_copy_only_inherits_its_known_collision_while_unchanged() {
+        let mut changed = table_of(ShuangpinProfileKind::Shoudao);
+        replace(&mut changed.zero_initials, "a", "oa");
+        assert!(matches!(
+            check_custom_profile(&changed),
+            Err(CustomProfileError::AmbiguousCode { code, .. }) if code == "dk"
+        ));
     }
 
     #[test]

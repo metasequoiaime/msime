@@ -78,11 +78,12 @@ public final class ExportDirectory {
         return directory.name();
     }
 
-    /** 两项导出可以共享一个授权；更换一项时不能撤销另一项仍在用的目录。 */
+    /** 多项导出可以共享一个授权；更换一项时不能撤销其他项仍在用的目录。 */
     public static void releaseIfUnused(Context context, String previous) {
         var settings = AndroidLocalSettings.load(context);
         if (!previous.equals(settings.text(AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE))
-                && !previous.equals(settings.text(AndroidLocalSettings.CLIPBOARD_EXPORT_TREE)))
+                && !previous.equals(settings.text(AndroidLocalSettings.CLIPBOARD_EXPORT_TREE))
+                && !previous.equals(settings.text(AndroidLocalSettings.BACKUP_EXPORT_TREE)))
             release(context.getContentResolver(), Uri.parse(previous));
     }
 

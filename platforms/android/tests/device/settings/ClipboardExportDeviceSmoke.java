@@ -486,7 +486,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         try { version = getTargetContext().getPackageManager()
             .getPackageInfo(getTargetContext().getPackageName(), 0).versionName; }
         catch (Exception missing) { version = "0"; }
-        return safeNamePart(app, "msime") + "-" + safeNamePart(version, "0") + "-";
+        return safeNamePart(app, "msime") + "-剪贴板备份-" + safeNamePart(version, "0") + "-";
     }
 
     private String safeNamePart(String value, String fallback) {

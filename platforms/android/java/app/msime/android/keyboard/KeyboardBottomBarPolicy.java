@@ -67,7 +67,12 @@ public final class KeyboardBottomBarPolicy {
      * @param gestureBottom 屏幕底部系统手势区的高度
      */
     public static int barBottomPx(int insetBottom, int navigationBottom, int gestureBottom) {
-        return BoundsPolicy.nonNegative(insetBottom)
-            + BoundsPolicy.nonNegative(gestureBottom - BoundsPolicy.nonNegative(navigationBottom));
+        int inset = BoundsPolicy.nonNegative(insetBottom);
+        int navigation = BoundsPolicy.nonNegative(navigationBottom);
+        // 某些厂商在 WindowMetrics 报告 0 导航栏时仍把整块底部区域放进 view inset；
+        // 这不是底栏应该避让的系统栏，按已知导航栏高度收窄，避免底栏下方留下大块空白。
+        inset = Math.min(inset, navigation);
+        return inset
+            + BoundsPolicy.nonNegative(gestureBottom - navigation);
     }
 }
