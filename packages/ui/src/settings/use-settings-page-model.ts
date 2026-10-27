@@ -13,7 +13,7 @@ import { aiSettingsPreferences } from "./ai-settings-preferences";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./clipboard-history-preferences";
 import { useSettingsThemePreviews } from "./use-settings-theme-previews";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { settingsPlatformPresentation } from "./settings-platform-presentation";
 import { settingsPageEnvironment } from "./settings-page-environment";
 import { schemeTitle } from "./label-helpers";
@@ -58,6 +58,11 @@ import { describeInstallerTrust, updateChannelOf } from "./update-manifest";
 import { editionUsesHelpcode } from "./input-scheme-options";
 import { useSettingsIntroTabs } from "./use-settings-intro-tabs";
 import { useAutomaticDictionaryUpdates } from "./use-automatic-dictionary-updates";
+import {
+  createDictionaryLocalChanges,
+  useDictionarySync,
+  withDictionaryChangeNotices,
+} from "./use-dictionary-sync";
 
 export type SettingsPageProps = {
   client: SettingsClient;
@@ -69,7 +74,17 @@ export type SettingsPageProps = {
 };
 
 /** 设置窗口的状态、副作用和处理器；外壳与各设置页面消费同一份模型。 */
-export function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
+export function useSettingsPageModel({
+  client: hostClient,
+  initialPage,
+  route,
+}: SettingsPageProps) {
+  // 宿主提供词库同步时，经设置改了词就记一次本机改动；各页拿到的都是这一份客户端。
+  const dictionaryLocalChanges = useMemo(createDictionaryLocalChanges, []);
+  const client = useMemo(
+    () => withDictionaryChangeNotices(hostClient, dictionaryLocalChanges.notify),
+    [hostClient, dictionaryLocalChanges],
+  );
   const { introTabs, selectIntroTab } = useSettingsIntroTabs();
   useAutomaticDictionaryUpdates(client);
   const { confirm, confirmation } = useConfirm();
@@ -414,6 +429,12 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
 
   // 保存失败才会长时间留下未保存修改，重新读取前需要确认是否丢弃。
   const dirty = !!draft && !!snapshot && !deepEqual(draft, snapshot.preferences);
+  // 「我的词条」经网盘同步：跟着已保存（不是草稿）的网盘配置走，设置打开期间按 Rust 给的时间自动同步。
+  const dictionarySync = useDictionarySync({
+    client,
+    saved: snapshot?.preferences.dictionary_sync_webdav,
+    localChanges: dictionaryLocalChanges,
+  });
   const { ai, storedAiCredential } = aiSettingsPreferences(
     draft?.ai_assistant,
     providerCredentials,
@@ -681,6 +702,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     introTabs,
     selectIntroTab,
     client,
+    dictionarySync,
     confirmation,
     confirm,
     linuxPlatform,

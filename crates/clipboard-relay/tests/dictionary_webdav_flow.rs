@@ -492,12 +492,61 @@ fn a_truncated_log_is_refused_until_the_user_trusts_the_share_again() {
     assert!((200..300).contains(&status));
     let run = manual(&sync, &mut words);
     assert_eq!(run.report.unwrap_err().code(), "dictionary_sync_rollback");
-    // 用户在设置里重新测试连接并保存：从网盘现在的样子重新开始，本机的词都保留。
-    probe(&server.url(), USER, PASSWORD, Some(directory.path())).unwrap();
+    // 普通探测不解除防回退；只有用户确认恢复才从网盘现状重新开始。
+    let action = serde_json::json!({"operation": "probe", "url": server.url(), "username": USER, "password": PASSWORD});
+    assert_eq!(host_probe(directory.path(), action.clone())["ok"], true);
+    assert_eq!(
+        manual(&sync, &mut words).report.unwrap_err().code(),
+        "dictionary_sync_rollback"
+    );
+    let mut confirmed = action;
+    confirmed["trust_remote"] = serde_json::json!(true);
+    assert_eq!(host_probe(directory.path(), confirmed)["ok"], true);
     let run = manual(&sync, &mut words);
     run.report.unwrap();
     assert!(run.view.joined);
     assert_eq!(words.0.len(), 2);
+}
+
+#[allow(unsafe_code)]
+fn host_probe(directory: &Path, action: serde_json::Value) -> serde_json::Value {
+    let body =
+        serde_json::json!({"options": {}, "directory": directory, "action": action}).to_string();
+    // SAFETY: 活字符串提供完整字节区间，响应立即复制并通过配对接口释放。
+    unsafe {
+        let pointer = msime_host_api::msime_client_dictionary_sync(body.as_ptr(), body.len());
+        assert!(!pointer.is_null());
+        let text = std::ffi::CStr::from_ptr(pointer)
+            .to_str()
+            .unwrap()
+            .to_owned();
+        msime_host_api::msime_client_string_free(pointer);
+        serde_json::from_str(&text).unwrap()
+    }
+}
+
+/// 普通设置探测不能忘掉尚未发送的删除；这里走宿主实际使用的 C ABI。
+#[test]
+fn a_host_connection_probe_keeps_pending_deletions() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let sync = device(&server, directory.path(), "Synthetic device");
+    let mut words = Words(BTreeSet::from([word("ma", "妈")]));
+    manual(&sync, &mut words).report.unwrap();
+    words.0.clear();
+    sync.run(&mut words, Trigger::LocalChange, Options::default())
+        .unwrap()
+        .report
+        .unwrap();
+    assert_eq!(sync.status().unwrap().pending_upload, 1);
+    let response = host_probe(
+        directory.path(),
+        serde_json::json!({"operation": "probe", "url": server.url(), "username": USER, "password": PASSWORD}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(sync.status().unwrap().pending_upload, 1);
+    manual(&sync, &mut words).report.unwrap();
+    assert!(words.0.is_empty(), "测试连接不能让已删除的词从网盘回来");
 }
 
 #[test]

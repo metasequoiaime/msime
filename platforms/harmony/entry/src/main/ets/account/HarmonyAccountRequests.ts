@@ -360,6 +360,55 @@ export function webDavProbeRequest(draftDocument: string, directory: string): Re
   });
 }
 
+/** 页面经「词库同步」通道能发的动作，名字与 `msime_client_dictionary_sync` 相同。 */
+export const PAGE_DICTIONARY_SYNC_OPERATIONS: readonly string[] = [
+  "run",
+  "status",
+  "devices",
+  "approve",
+  "reject",
+  "remove",
+  "reset",
+  "restart",
+  "probe",
+];
+
+/** 本机词库同步状态的目录：设置应用沙箱 `files/state` 下的 `dictionary-sync`。不直接用 `files/state`：云剪贴板的中继在那里放着 `cloud-clipboard-relay-keystore` 和 `cloud-clipboard-webdav-state`，词库的密钥串用同样的文件名，放在一起会互相覆盖。 */
+export function dictionarySyncDirectory(stateDirectory: string): string {
+  return `${stateDirectory}/dictionary-sync`;
+}
+
+/**
+ * 「我的词条」经 WebDAV 网盘同步的一个动作，拼成 `msime_client_dictionary_sync` 的请求。`optionsDocument` 是 `prepareHost` 给的 HostOptions 文档（带偏好目录，Engine 的词库路径也从它来），`stateDirectory` 是设置应用的 `files/state`。动作按操作名放行，字段由 Rust 的 `deny_unknown_fields` 再查一遍。
+ *
+ * 只有设置应用发这个请求。键盘扩展在自己的沙箱里，读写的是它自己那份个人词库，这个入口又没有「只用已有身份」的开关，键盘一调就会在网盘上登记成另一台设备，所以键盘不调它（`scripts/test-harmony-dictionary-sync.py` 守着）。
+ */
+export function dictionarySyncRequest(
+  optionsDocument: string,
+  stateDirectory: string,
+  deviceName: string,
+  actionDocument: string,
+): RequestPlan {
+  const action: JsonObject | null = parseObject(actionDocument);
+  const options: JsonObject | null = parseObject(optionsDocument);
+  const operation: unknown = action === null ? undefined : action.operation;
+  if (
+    action === null ||
+    options === null ||
+    typeof operation !== "string" ||
+    !PAGE_DICTIONARY_SYNC_OPERATIONS.includes(operation)
+  ) {
+    return refused(operationName(actionDocument), "invalid_dictionary_sync");
+  }
+  const request: JsonObject = {
+    options,
+    directory: dictionarySyncDirectory(stateDirectory),
+    action,
+  };
+  if (deviceName.length > 0) request.device_name = deviceName;
+  return planned(operation, request);
+}
+
 /**
  * 设备在端到端加密里登记的名称：`marketName`（如「HUAWEI Mate 70」），没有时用 `productModel`，两者都没有时用「HarmonyOS 设备」，与原来的 ArkTS 桥接相同。总要带上，否则 Rust 退回读主机名，鸿蒙上会显示成「Linux」。
  */
