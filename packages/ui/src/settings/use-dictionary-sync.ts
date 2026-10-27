@@ -158,9 +158,14 @@ export function useDictionarySync({
     return next;
   };
 
-  const request = (action: DictionarySyncAction): Promise<unknown> => {
+  const request = (action: DictionarySyncAction, owner = generation.current): Promise<unknown> => {
     if (!sync) return Promise.reject({ code: "dictionary_sync_not_configured" });
-    return enqueue(() => sync.request(action));
+    return enqueue(() => {
+      // 排队期间换过宿主或网盘时，旧设备管理操作不能发到新的网盘。
+      if (owner !== generation.current)
+        return Promise.reject({ code: "dictionary_sync_not_configured" });
+      return sync.request(action);
+    });
   };
 
   const schedule = (owner: number, nextCheckMs: number) => {
@@ -191,8 +196,8 @@ export function useDictionarySync({
     const action: DictionarySyncAction = { operation: "run", trigger, ...choice };
     try {
       const value = await enqueue(async () => {
-        if (trigger === "local_change") localQueued.current = false;
         if (owner !== generation.current) return null;
+        if (trigger === "local_change") localQueued.current = false;
         setSyncing(true);
         try {
           return await sync!.request(action);
@@ -223,6 +228,8 @@ export function useDictionarySync({
     setError(null);
     setDevices(null);
     setDevicesLoading(false);
+    setBusy(false);
+    setSyncing(false);
     setNotice("");
     if (!sync || !configured) return;
     void run(owner, "opened").catch(() => undefined);
@@ -236,7 +243,7 @@ export function useDictionarySync({
       generation.current += 1;
       clearTimeout(timer.current);
     };
-    // `run` closes over refs only; re-running it on every render would restart the schedule.
+    // 调度通过代次和引用保持状态，不随每次渲染重新启动。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync, key, localChanges]);
 
@@ -291,9 +298,9 @@ export function useDictionarySync({
         const load = async (owner: number) => {
           setDevicesLoading(true);
           try {
-            applyDevices(owner, await request({ operation: "devices" }));
+            applyDevices(owner, await request({ operation: "devices" }, owner));
             // 第一次取设备会在网盘上登记本机，核对码随后才有，所以再读一次不联网的概况。
-            const next = dictionarySyncStatus(await request({ operation: "status" }));
+            const next = dictionarySyncStatus(await request({ operation: "status" }, owner));
             if (next && owner === generation.current) setStatus(next);
           } finally {
             if (owner === generation.current) setDevicesLoading(false);
@@ -304,17 +311,17 @@ export function useDictionarySync({
       },
       approve: (deviceId) =>
         userAction(async (owner) => {
-          applyDevices(owner, await request({ operation: "approve", device_id: deviceId }));
+          applyDevices(owner, await request({ operation: "approve", device_id: deviceId }, owner));
           if (owner === generation.current) setError(null);
         }),
       reject: (deviceId) =>
         userAction(async (owner) => {
-          applyDevices(owner, await request({ operation: "reject", device_id: deviceId }));
+          applyDevices(owner, await request({ operation: "reject", device_id: deviceId }, owner));
           if (owner === generation.current) setError(null);
         }),
       remove: (deviceId) =>
         userAction(async (owner) => {
-          const value = (await request({ operation: "remove", device_id: deviceId })) as {
+          const value = (await request({ operation: "remove", device_id: deviceId }, owner)) as {
             devices?: unknown;
             run?: unknown;
           } | null;
@@ -323,7 +330,7 @@ export function useDictionarySync({
         }),
       reset: () =>
         userAction(async (owner) => {
-          const value = (await request({ operation: "reset" })) as {
+          const value = (await request({ operation: "reset" }, owner)) as {
             devices?: unknown;
             run?: unknown;
           } | null;
@@ -332,7 +339,7 @@ export function useDictionarySync({
         }),
       restart: () =>
         userAction(async (owner) => {
-          const next = dictionarySyncStatus(await request({ operation: "restart" }));
+          const next = dictionarySyncStatus(await request({ operation: "restart" }, owner));
           if (owner !== generation.current) return;
           if (next) setStatus(next);
           setError(null);
@@ -342,7 +349,7 @@ export function useDictionarySync({
         await request({ operation: "probe", ...draft });
       },
     };
-    // The actions close over refs and the queue; the memo only follows the visible state.
+    // 操作共享引用和请求队列，只在可见状态变化时重建模型。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync, configured, status, error, busy, syncing, devices, devicesLoading, notice]);
 }
