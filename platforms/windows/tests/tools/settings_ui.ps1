@@ -172,6 +172,22 @@ function Assert-CanvasPreview($window, [string]$mode) {
         do {
             $image = Find-ById $window "canvas-preview-verify-canvas-$layout"
             if ($image) { $lastObservation = "离屏=$($image.Current.IsOffscreen)，矩形=$($image.Current.BoundingRectangle)" }
+            # 搜索只定位卡片，短窗口里预览仍可能在视口下方；先滚到图片完整可见，再读取真实屏幕像素。
+            $content = Find-ById $window 'settings-content'
+            [object]$scroll = $null
+            if ($image -and $content -and $content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll) -and $scroll.Current.VerticallyScrollable) {
+                $bounds = $image.Current.BoundingRectangle
+                $viewport = $content.Current.BoundingRectangle
+                $direction = [System.Windows.Automation.ScrollAmount]::NoAmount
+                if ($bounds.Height -le 0) { $direction = [System.Windows.Automation.ScrollAmount]::SmallIncrement }
+                elseif ($bounds.Top -lt $viewport.Top) { $direction = [System.Windows.Automation.ScrollAmount]::SmallDecrement }
+                elseif ($bounds.Bottom -gt $viewport.Bottom) { $direction = [System.Windows.Automation.ScrollAmount]::SmallIncrement }
+                if ($direction -ne [System.Windows.Automation.ScrollAmount]::NoAmount) {
+                    $scroll.Scroll([System.Windows.Automation.ScrollAmount]::NoAmount, $direction)
+                    Start-Sleep -Milliseconds 200
+                    continue
+                }
+            }
             if ($image -and -not $image.Current.IsOffscreen) {
                 $bounds = $image.Current.BoundingRectangle
                 if ($bounds.Width -ge 40 -and $bounds.Height -ge 15) {
