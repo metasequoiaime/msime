@@ -107,6 +107,18 @@ target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crat
 # reqwest 的 system-proxy 功能通过 SystemConfiguration 读取系统代理设置。
 set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration")
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
+target_sources(msime-voice-local PRIVATE src/voice/HelperCrashCapture.mm ../common/Telemetry.cpp)
+target_compile_definitions(msime-voice-local PRIVATE MSIME_VOICE_CRASH_CAPTURE)
+set_target_properties(msime-voice-local PROPERTIES OBJCXX_STANDARD 17)
+target_compile_options(msime-voice-local PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+target_link_libraries(msime-voice-local PRIVATE apple-client)
+find_package(nlohmann_json CONFIG REQUIRED)
+include(../common/tests/capture_only.cmake)
+target_link_libraries(common-capture-only-test PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
+add_test(NAME macos-voice-helper-crash-capture
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/helper_crash_capture.py"
+    --helper $<TARGET_FILE:msime-voice-local> --controller $<TARGET_FILE:common-capture-only-test>)
+set_tests_properties(macos-voice-helper-crash-capture PROPERTIES TIMEOUT 120)
 if(TARGET shared-doubao-auth)
   # The Rust archive needs the same Apple/system dependencies in shared ABI tests.
   target_link_libraries(shared-doubao-auth PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS})

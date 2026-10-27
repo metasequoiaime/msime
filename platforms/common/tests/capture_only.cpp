@@ -81,6 +81,10 @@ int main(int argc, char **argv) {
   const std::string directory = argv[2];
   const std::string preferences = argv[3];
   const std::string component = argv[4];
+  if (std::string(argv[1]) == "enable" || std::string(argv[1]) == "disable") {
+    save(preferences, std::string(argv[1]) == "enable");
+    return 0;
+  }
   if (std::string(argv[1]) == "collect") {
     const auto body = nlohmann::json{{"directory", directory}, {"platform", platform},
                                     {"version", "9.9.9"}, {"component", "collector"},

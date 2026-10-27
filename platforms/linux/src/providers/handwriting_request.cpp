@@ -1,3 +1,4 @@
+#include "../core/AuxiliaryCrashCapture.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
@@ -29,6 +30,7 @@ int main(int argc, char **argv) {
     std::cout << "Usage: msime-linux-handwriting [provider-socket] | --local [model]\n";
     return 0;
   }
+  msime::linux_host::AuxiliaryCrashCapture crash_capture("handwriting");
   const bool local = argc >= 2 && std::string(argv[1]) == "--local";
   if (local && argc > 3)
     return 2;

@@ -1,3 +1,4 @@
+#include "../core/AuxiliaryCrashCapture.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
@@ -12,6 +13,7 @@ int main(int argc, char **argv) {
   const auto socket_path = msime_cli_provider_socket(
       argc, argv, "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
   if (socket_path.empty()) return 2;
+  msime::linux_host::AuxiliaryCrashCapture crash_capture("online");
   std::array<char, MSIME_ONLINE_QUERY_MAX_BYTES + 1> buffer;
   const auto request_length = msime::linux_host::read_bounded_cli_input(std::cin, buffer);
   if (!request_length)
