@@ -36,6 +36,7 @@ import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
+import { CaretContextEcho } from './input/CaretContextEcho';
 import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
 import { SchemeCompositionPolicy } from './input/SchemeCompositionPolicy';
@@ -1301,6 +1302,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private englishSuggestionRequested: string = '';
   // 候选栏上正在给的邮箱后缀，以及它们接上的那个 `@` 之后已打的域名；没有时为 null。
   private emailSuffixMatch: EmailSuffixMatch | null = null;
+  // 邮箱后缀最近一次按读到的上文匹配之后，编辑器是否只回报了输入法自己改动的回声；是的话选区回报不再重读，见 `CaretContextEcho`。
+  private readonly caretContextEcho: CaretContextEcho = new CaretContextEcho();
   // The Windows voice shortcuts, which only a machine with a hardware keyboard can press.
   private voiceHotkeys: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
   // Whether the recognizer is running. The view owns it and says so; the shortcuts need to know,
@@ -3248,6 +3251,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (inputClient === undefined) return;
     const generation: number = this.editorGeneration;
     this.ownEdits.reserve(Date.now());
+    this.caretContextEcho.edited(true);
     inputClient.sendKeyFunction(this.enterKey).then((handled: boolean): void => {
       if (!handled && generation === this.editorGeneration && this.inputClient === inputClient) {
         this.ownEdits.release();
@@ -3413,6 +3417,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
+    this.caretContextEcho.reset();
     this.previewSupported = false;
     this.previewText = '';
     this.invalidateReplyContext();
@@ -3527,6 +3532,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.attributeGeneration++;
     this.manualLanguageGeneration = -1;
     this.ownEdits.clear();
+    this.caretContextEcho.reset();
     this.modeScope.deactivate();
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
@@ -3561,6 +3567,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   stop(): void {
     this.editorGeneration++;
     this.ownEdits.clear();
+    this.caretContextEcho.reset();
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
@@ -3651,14 +3658,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Reconcile a document mutation reported by the editor with keyboard-owned edit echoes. */
   editorTextChanged(): void {
     this.invalidateReplyContext();
-    if (this.ownEdits.acknowledge(Date.now())) {
+    const now: number = Date.now();
+    if (this.ownEdits.acknowledge(now)) {
+      this.caretContextEcho.textChanged(true, this.ownEdits.pending(now) === 0);
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
       }
       return;
     }
-    // A host edit may clear the field, replace the document or move text around the active
-    // composition. Commit what the user typed before the Engine's state can drift from the editor.
+    this.caretContextEcho.textChanged(false, false);
+    // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
     this.clearEnglishSuggestions();
     this.refreshEmailSuffixes();
@@ -3674,7 +3683,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearEnglishSuggestions();
     // 与 Android 在 `onUpdateSelection` 里重新匹配相同：无论 `@` 从哪里上屏（字母键、符号层、符面板、九键常用标点、引擎上屏），编辑器随后都会回报一次选区变化。
-    this.refreshEmailSuffixes();
+    // 这次回报只是输入法自己同步上屏的回声、上屏后已经按新的上文匹配过时不再读：直接英文里每个字母都会走到这里，每读一次就是一次等宿主 UI 线程作答的同步跨进程调用。
+    const current: boolean = this.caretContextEcho.selectionChanged(this.ownEdits.pending(Date.now()) === 0);
+    if (!current || !this.emailSuffixesReadContext()) {
+      this.refreshEmailSuffixes();
+    }
     if (this.onEditorChanged !== undefined) {
       this.onEditorChanged();
     }
@@ -3695,6 +3708,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const generation: number = this.editorGeneration;
     this.ownEdits.reserve(Date.now());
+    this.caretContextEcho.edited(true);
     inputClient.insertText(text).catch((error: Object): void => {
       if (generation === this.editorGeneration && this.inputClient === inputClient) {
         this.ownEdits.release();
@@ -3715,6 +3729,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 同步改动一次编辑器，并为它的 `textChange` 回声记一笔；调用抛错说明编辑器没有改动，那一笔随即撤回。 */
   private editEditorSync(edit: () => void): void {
     this.ownEdits.reserve(Date.now());
+    this.caretContextEcho.edited(false);
     try {
       edit();
     } catch (error) {
@@ -4728,11 +4743,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // view is published, and native result application rechecks the exact generation.
     this.scheduleOnlineProviders();
     this.scheduleTranslations();
-    // Every typed letter and every backspace arrives here, which is the one place that sees the
-    // editor change in direct English as well as in a composition.
-    this.refreshEnglishSuggestions();
+    // Every typed letter and every backspace arrives here, which is the one place that sees the editor change in direct English as well as in a composition.
     // 组字开始时收起后缀（候选栏归引擎），结束时按上屏后的上文重新匹配。
-    this.refreshEmailSuffixes();
+    this.refreshCaretSuggestions();
   }
 
   private publishCurrentCandidates(): void {
@@ -6747,27 +6760,60 @@ export class KeyboardSession implements HardwareKeyTarget {
       const output: string = this.asTraditional(widened === null ? text : widened);
       this.insertEditorText(output);
       this.recordTypingStatistics(output, this.typingSource());
+      this.refreshCaretSuggestions();
+    }
+  }
+
+  /**
+   * 打字或上屏之后，按光标前的上文刷新英文补全和邮箱后缀。
+   *
+   * 两者都要读上文时只向编辑器要一次：每次 `getForwardSync` 都是一次同步跨进程调用，要等宿主应用的 UI 线程作答，而直接英文里每个字母都走到这里。读的长度取两者中较长的；邮箱后缀只看末尾 `EmailSuffixPolicy.MAX_CONTEXT` 个字符，和它自己去读时看到的一样。
+   */
+  private refreshCaretSuggestions(): void {
+    if (!this.englishSuggestionsApply() || !this.emailSuffixesReadContext()) {
       this.refreshEnglishSuggestions();
       this.refreshEmailSuffixes();
+      return;
+    }
+    const context: string | null = this.contextBeforeCaret(
+      Math.max(EnglishSuggestionPolicy.CONTEXT_CHARACTERS, EmailSuffixPolicy.MAX_CONTEXT));
+    this.suggestEnglish(EnglishSuggestionPolicy.currentWord(context));
+    this.matchEmailSuffixes(true,
+      context === null ? null : context.slice(-EmailSuffixPolicy.MAX_CONTEXT));
+  }
+
+  /** 光标前最多 `length` 个字符；编辑器读不到时为 null。 */
+  private contextBeforeCaret(length: number): string | null {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return null;
+    try {
+      return inputClient.getForwardSync(length);
+    } catch (error) {
+      return null;
     }
   }
 
   /**
    * Offer completions for the English word being typed.
    *
-   * Only in direct English with nothing composing: a pinyin composition already has a candidate
-   * strip of its own, and the two would be competing for it. The query is a packaged-dictionary
-   * lookup that creates no session, so it runs off the UI thread and its answer is checked against
-   * the word still in the editor before anything is drawn.
+   * Only in direct English with nothing composing: a pinyin composition already has a candidate strip of its own, and the two would be competing for it. The query is a packaged-dictionary lookup that creates no session. It runs in a microtask after the key's own work, still on the UI thread, and its answer is dropped if another edit has bumped the epoch before it is drawn.
    */
   private refreshEnglishSuggestions(): void {
-    if (!this.englishSuggestionsEnabled || !this.englishMode || this.composing()
-        || this.inputClient === undefined || this.resourceDirectory.length === 0
-        || EditorPolicy.prefersLatin(this.traits) || !EditorPolicy.useEngine(this.traits)) {
+    if (!this.englishSuggestionsApply()) {
       this.clearEnglishSuggestions();
       return;
     }
-    const prefix: string = this.englishWordBeforeCursor();
+    this.suggestEnglish(this.englishWordBeforeCursor());
+  }
+
+  private englishSuggestionsApply(): boolean {
+    return this.englishSuggestionsEnabled && this.englishMode && !this.composing()
+      && this.inputClient !== undefined && this.resourceDirectory.length > 0
+      && !EditorPolicy.prefersLatin(this.traits) && EditorPolicy.useEngine(this.traits);
+  }
+
+  /** 按光标前正在打的词 `prefix` 查补全；`prefix` 是调用方刚从编辑器读到的。 */
+  private suggestEnglish(prefix: string): void {
     if (prefix !== this.englishCorrectionRejectedPrefix) this.englishCorrectionRejectedPrefix = '';
     const correction: boolean = this.englishCorrectionEnabled();
     if (!EnglishSuggestionPolicy.suggestible(prefix, correction)) {
@@ -6783,8 +6829,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       prefix: prefix, limit: correction ? 2 : EnglishSuggestionPolicy.LIMIT, correction: correction
     };
     const resources: string = this.resourceDirectory;
-    // A promise rather than a direct call: the lookup opens a packaged dictionary, and the keyboard
-    // has to keep drawing while it happens.
+    // A promise rather than a direct call: the lookup waits until the key that asked for it has finished its own work. It still runs on this thread.
     Promise.resolve().then((): string =>
       client.englishCompletions(JSON.stringify(request), resources)
     ).then((raw: string): void => {
@@ -6796,10 +6841,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     });
   }
 
+  /**
+   * 不再向编辑器重读当前词：这个微任务紧跟在发出查询的那次刷新之后、同一轮事件里运行，编辑器的任何改动都要等之后的回报才进来，而改动编辑器的路径和每次编辑器回报都会清掉或重发补全，让 `englishSuggestionEpoch` 前进。选用补全时 `useEnglishSuggestion` 还会按编辑器里的词再核对一次，不会删错字。
+   */
   private applyEnglishSuggestions(epoch: number, prefix: string,
                                   completions: EnglishCompletions | null): void {
     if (epoch !== this.englishSuggestionEpoch || completions === null
-        || completions.prefix !== prefix || prefix !== this.englishWordBeforeCursor()) {
+        || completions.prefix !== prefix) {
       return;
     }
     this.englishSuggestions = completions.items;
@@ -6878,16 +6926,25 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 上文只在内存里匹配一次，不记录、不保存；密码框和属性尚未到达的输入框不读。结果变了才通知视图。
    */
   private refreshEmailSuffixes(): void {
-    let next: EmailSuffixMatch | null = null;
-    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
-    if (inputClient !== undefined && EmailSuffixPolicy.readsContext(KeyboardFormFactor.isDesktop(),
-      this.editorAttributesKnown, this.traits.password, this.composing())) {
-      try {
-        next = EmailSuffixPolicy.match(inputClient.getForwardSync(EmailSuffixPolicy.MAX_CONTEXT));
-      } catch (error) {
-        // 上文读不到时不给后缀；不记录读到或没读到的文字。
-        next = null;
-      }
+    const reads: boolean = this.emailSuffixesReadContext();
+    this.matchEmailSuffixes(reads,
+      reads ? this.contextBeforeCaret(EmailSuffixPolicy.MAX_CONTEXT) : null);
+  }
+
+  private emailSuffixesReadContext(): boolean {
+    return this.inputClient !== undefined && EmailSuffixPolicy.readsContext(
+      KeyboardFormFactor.isDesktop(), this.editorAttributesKnown, this.traits.password, this.composing());
+  }
+
+  /**
+   * 按光标前的上文 `context` 更新后缀。`reads` 为假表示这时不该读上文，后缀收起；`context` 为 null 表示上文读不到，也不给后缀。不记录读到或没读到的文字。
+   */
+  private matchEmailSuffixes(reads: boolean, context: string | null): void {
+    const next: EmailSuffixMatch | null = reads ? EmailSuffixPolicy.match(context) : null;
+    if (reads && context !== null) {
+      this.caretContextEcho.read();
+    } else {
+      this.caretContextEcho.unread();
     }
     if (EmailSuffixPolicy.same(next, this.emailSuffixMatch)) return;
     this.emailSuffixMatch = next;
@@ -6895,6 +6952,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private clearEmailSuffixes(): void {
+    this.caretContextEcho.unread();
     if (this.emailSuffixMatch === null) return;
     this.emailSuffixMatch = null;
     this.publishEmailSuffixes();

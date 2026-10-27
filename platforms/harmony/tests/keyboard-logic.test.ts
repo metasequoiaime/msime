@@ -255,6 +255,7 @@ import {
 import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
+import { CaretContextEcho } from "../entry/src/main/ets/keyboard/input/CaretContextEcho";
 import { KeyboardSkin } from "../entry/src/main/ets/keyboard/skin/KeyboardSkin";
 import {
   GlobalTheme,
@@ -9377,6 +9378,50 @@ group("editor change echoes preserve keyboard-owned composition", () => {
     ledger.reserve(10000);
   }
   check(ledger.pending(10000) === EditEchoLedger.MAX_PENDING, "reservations are bounded");
+});
+
+// 直接英文每个字母同步上屏后已经按新的上文匹配过邮箱后缀；编辑器随后的选区回报只是这次上屏的回声，不必再同步跨进程读一次。其他情况都照常重读。
+group("a selection echo of the keyboard's own synchronous edit reuses the context read after it", () => {
+  const echo = new CaretContextEcho();
+  echo.edited(false);
+  echo.read();
+  echo.textChanged(true, true);
+  check(echo.selectionChanged(true), "a letter written synchronously and read afterwards is still current at its echo");
+  check(!echo.selectionChanged(true), "the echo flag is spent by the selection change that follows its text change");
+
+  echo.edited(false);
+  echo.textChanged(true, true);
+  check(!echo.selectionChanged(true), "an edit made after the last read is not covered by it");
+
+  echo.read();
+  echo.textChanged(false, false);
+  check(!echo.selectionChanged(true), "a change the host made is always read again");
+
+  echo.edited(false);
+  echo.read();
+  echo.textChanged(true, false);
+  check(!echo.selectionChanged(false), "while another edit still waits for its echo the editor may not show the read text");
+
+  echo.reset();
+  echo.edited(true);
+  echo.read();
+  echo.textChanged(true, true);
+  check(!echo.selectionChanged(true), "a read taken before an asynchronous insert had landed does not count");
+  echo.read();
+  echo.textChanged(true, true);
+  check(echo.selectionChanged(true), "once its echo has arrived, a later read counts again");
+
+  echo.edited(false);
+  echo.read();
+  echo.unread();
+  echo.textChanged(true, true);
+  check(!echo.selectionChanged(true), "suffixes cleared or matched without a read are refreshed at the echo");
+
+  echo.edited(false);
+  echo.read();
+  echo.reset();
+  echo.textChanged(true, true);
+  check(!echo.selectionChanged(true), "a new editor starts with no trusted read");
 });
 
 group("a password field never sees a composition buffer", () => {
