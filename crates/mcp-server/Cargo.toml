@@ -11,6 +11,9 @@ rust-version.workspace = true
 name = "msime-mcp"
 path = "src/main.rs"
 
+[build-dependencies]
+cc = "1"
+
 [dependencies]
 msime-client-core = { path = "../client-core" }
 msime-client-services = { path = "../client-services" }

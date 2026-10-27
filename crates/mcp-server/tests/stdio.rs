@@ -48,6 +48,10 @@ fn fixture(root: &Path) -> std::path::PathBuf {
 async fn start(options: &Path, flags: &[&str]) -> (RunningService<RoleClient, ()>, Child) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
     command.arg("--options").arg(options).args(flags);
+    // 崩溃采集与宿主共用按版本目录，测试不能碰开发机的真实遥测状态。
+    for name in ["HOME", "LOCALAPPDATA", "XDG_STATE_HOME"] {
+        command.env(name, options.parent().unwrap().join("synthetic-home"));
+    }
     // The test machine's own input method must not leak in.
     for name in [
         "MSIME_CLIENT_HOST_OPTIONS",
@@ -602,6 +606,10 @@ fn run_cli_text(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, Str
     use std::io::Write;
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
     command.arg("--options").arg(options).args(args);
+    // 命令行和长驻服务器都使用合成遥测根目录。
+    for name in ["HOME", "LOCALAPPDATA", "XDG_STATE_HOME"] {
+        command.env(name, options.parent().unwrap().join("synthetic-home"));
+    }
     for name in [
         "MSIME_CLIENT_HOST_OPTIONS",
         "MSIME_IBUS_OPTIONS",
@@ -627,6 +635,17 @@ fn run_cli_text(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, Str
         String::from_utf8(output.stdout).unwrap(),
         String::from_utf8(output.stderr).unwrap(),
     )
+}
+
+#[test]
+fn help_and_version_do_not_initialize_telemetry() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    for flag in ["--help", "--version"] {
+        let (code, _, _) = run_cli_text(&options, &[flag], None);
+        assert_eq!(code, 0, "{flag}");
+        assert!(!directory.path().join("synthetic-home").exists(), "{flag}");
+    }
 }
 
 #[test]

@@ -234,6 +234,9 @@ jobs:
           [ -e apps/desktop/dist/index.html ] || : > apps/desktop/dist/index.html
           cargo clippy --locked -p msime-desktop --all-targets -- -D warnings
           cargo test --locked -p msime-desktop
+          # MCP 的原生记录器按目标平台链接，必须在 Linux 上运行子进程和协议测试。
+          cargo clippy --locked -p msime-mcp-server --all-targets -- -D warnings
+          cargo test --locked -p msime-mcp-server
           # 复用已构建的 Rust 依赖，检查共享 UI 的静态语音目录没有漂移。
           cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --check
           cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --check
@@ -568,6 +571,16 @@ jobs:
           & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
           Copy-Item target/debug/msime_host_api.dll $output
+      - name: Test the MCP helper
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # 使用同一个 MSVC 工具链检查记录器链接、同意变化和未处理 panic。
+          cargo clippy --locked -p msime-mcp-server --all-targets -j 2 -- -D warnings
+          if ($LASTEXITCODE -ne 0) { throw 'MCP helper Clippy failed' }
+          cargo test --locked -p msime-mcp-server -j 2
+          if ($LASTEXITCODE -ne 0) { throw 'MCP helper tests failed' }
       - name: Build and test the compatibility settings host
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
