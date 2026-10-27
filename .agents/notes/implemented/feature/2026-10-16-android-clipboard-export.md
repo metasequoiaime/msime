@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+Android 后来的记录元信息与链接格式由[导出记录详情](2026-10-27-android-clipboard-export-details.md)单独记录；本篇原有的共享快照与目录授权决定保留作历史背景。
+
 共享 client-core 生成 UTF-8 文本快照，经现有 mobile clipboard action 暴露全文和条数；原始文字与换行不截断，按历史现有顺序编号并保留置顶标记。Android 在键盘设置的剪贴板分类配置本机目录，在历史页及键盘面板右上方提供导出。导出时重新检查实时隐私开关，关闭或空历史不创建文件；所有存储操作在工作线程运行。
 
 Android 29 及以上默认通过 MediaStore.Downloads 创建独立待发布文件，完成后解除 pending；Android 28 首次用 SAF 授权文件夹，选择器初始定位 Download。自选 SAF 目录持久授权，不进同步与备份；撤权或删除时明确报错，不自动改存其他位置。复用诊断目录授权与空文档写入保护，两个功能选中同一目录时更改其中一个不能撤销另一个的授权。文件名复用本地配置备份的应用名、版本号和 `yyyyMMdd-HHmm` 基名，剪贴板使用 `.txt`、配置备份使用 `.zip`；同一分钟内的同类导出由系统提供方处理重名。缓存临时文件在完成后删除。默认目录依据 [Android 共享存储文档](https://developer.android.com/training/data-storage/shared/media) 的 Downloads 所有权模型，不额外申请整个存储权限。Android 9 从键盘首次导出且未授权时打开历史页，用户在那里点击导出并授权；先在设置里选过目录的用户仍直接导出。

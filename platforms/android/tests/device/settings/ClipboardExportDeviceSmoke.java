@@ -471,8 +471,12 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     }
     private static void checkText(byte[] bytes) {
         String text = new String(bytes, StandardCharsets.UTF_8);
-        check(text.contains("共 2 条") && text.contains("1 · 已置顶 ==========\n" + LONG + "\n")
-            && text.contains("2 ==========\n合成新记录\n"), "complete Unicode snapshot and order");
+        check(text.contains("共 2 条") && text.contains("官网：https://msime.app/")
+            && text.contains("项目：https://github.com/metasequoiaime/msime")
+            && text.contains("1 · 已置顶 ==========\n记录时间：")
+            && text.contains("来源 App：系统未提供\n包名：系统未提供\n正文：\n" + LONG + "\n")
+            && text.contains("2 ==========\n记录时间：")
+            && text.contains("正文：\n合成新记录\n"), "complete Unicode snapshot and order");
     }
 
     private String namePrefix() {
