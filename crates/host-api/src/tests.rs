@@ -18670,8 +18670,15 @@ fn the_verified_marker_is_invalidated_when_the_shipped_set_shrinks() {
         .unwrap()
         .set_modified(modified)
         .unwrap();
+    // 夹具的锁里没有五笔码表，只有日文词典那一组可删。
     for name in on_demand.iter().flat_map(|group| group.iter()) {
-        std::fs::remove_file(resources.join(name)).unwrap();
+        if specification
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.name == *name)
+        {
+            std::fs::remove_file(resources.join(name)).unwrap();
+        }
     }
 
     let error = verify_resources_once(&resources, &specification, &state, on_demand)
