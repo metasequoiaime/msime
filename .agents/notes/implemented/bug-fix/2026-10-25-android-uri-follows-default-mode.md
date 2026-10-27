@@ -12,6 +12,7 @@ Status: implemented
 
 - `prefersLatin` 只认两种邮箱 variation 和三种密码 variation，不再认 URI。网址框和只带无建议标志的框一样，按 `default_ime_mode` 和 `ime_mode_scope` 的记忆进框，九宫格、14 键、18 键在中文模式下保持自己的布局。
 - 网址框其余的照顾不变：新增 `EditorPolicy.uri`，`englishSuggestionsActive` 另外排除它，用户在网址框里切到英文后仍不显示英文建议、空格和标点也不自动采用纠错；`capitalizationMode` 对 URI 本来就单独返回 `NONE`，不自动大写。邮箱后缀照常给。
+- 英文模式下底行句号的触达性由[网址框底键优先句号](../feature/2026-10-27-android-url-period-key.md)单独处理，不改变此处的默认模式决定。
 - 中文模式下输入网址由引擎的网址模式接管（`crates/engine/src/local/url.rs`：全拼、双拼、五笔组字里键入 `www.`、`http:` 等之后按 ASCII 原样输入），所以纯网址框留在中文也能打网址；九宫格打英文网址仍要先切到英文。
 - 设备验收里 14 键五笔、14 键双拼和 18 键全拼的「password and URL fallback」改为：密码框仍回落 26 键，网址框保留各自的布局；英文纠错的编辑器门禁仍断言网址框里不纠错。
 - HarmonyOS 不在本次范围：它的 `EditorPolicy.prefersLatin` 和 `prefersFullFace` 同样包含 URI，理由是九宫格靠词典消歧、网址里没法逐字输入；鸿蒙浏览器地址栏声明的是哪种类型没有核实过，改不改另行决定。iOS 已经区分 `.URL` 与 `.webSearch`，不需要改。

@@ -170,7 +170,7 @@ public final class KeyboardLayout {
         /** 123 层的 `#+=`（切到更多符号）或 #+= 层的 `123`（切回数字）。 */
         LAYER_TOGGLE,
         DELETE,
-        /** 底行左下：回到字母键盘（中文「拼音」、英文「ABC」）。 */
+        /** 底行左下：返回进入数字或符号层前的键盘。 */
         LETTERS,
         /** 123 层底行的表情键。 */
         EMOJI,
@@ -220,15 +220,15 @@ public final class KeyboardLayout {
     public static final float LAYER_RETURN_WEIGHT = 1.9f;
 
     /**
-     * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 拼音（或 ABC）| 😀 | 中标或英标 | 空格 | ↵。
+     * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 返回 | 😀 | 中标或英标 | 空格 | ↵。
      *
-     * @param chinese 中文模式用全角符号与中文标点，英文模式用 ASCII 版，底行返回键为「ABC」
+     * @param chinese 中文模式用全角符号与中文标点，英文模式用 ASCII 版，底行均标示「返回」
      */
     public static List<List<LayerKey>> numberLayer(boolean chinese) {
         return numberLayer(chinese, chinese);
     }
 
-    /** `chinese` 决定左下返回键是「拼音」还是「ABC」；`chinesePunctuation` 决定标点和符号用全角中文还是半角英文，跟「中文标点」开关走。两者分开：中文模式下关掉中文标点时，这一层要上屏半角标点。 */
+    /** `chinese` 决定当前语言键面；`chinesePunctuation` 决定标点和符号用全角中文还是半角英文，跟「中文标点」开关走。两者分开：中文模式下关掉中文标点时，这一层要上屏半角标点。 */
     public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation) {
         return numberLayer(chinese, chinesePunctuation, false);
     }
@@ -254,7 +254,7 @@ public final class KeyboardLayout {
     }
 
     /**
-     * 新设计的 #+= 层：[ ] { } # % ^ * + = / _ \ | ~ 《 》 € & · … / `123` + 五个标点 + ⌫ / 拼音（或 ABC）| 符号 | 空格 | ↵。左下原表情位是打开符号面板的「符号」键。
+     * 新设计的 #+= 层：[ ] { } # % ^ * + = / _ \ | ~ 《 》 € & · … / `123` + 五个标点 + ⌫ / 返回 | 符号 | 空格 | ↵。左下原表情位是打开符号面板的「符号」键。
      */
     public static List<List<LayerKey>> moreSymbolLayer(boolean chinese) {
         return moreSymbolLayer(chinese, chinese);
@@ -275,9 +275,9 @@ public final class KeyboardLayout {
             LayerKeyKind.PUNCTUATION_TOGGLE, LAYER_EMOJI_WEIGHT);
     }
 
-    /** 层底行左下返回字母键盘的键面：中文「拼音」、英文「ABC」；描述都是「切换到字母键盘」。 */
+    /** 层底行左下统一标示「返回」，让它表达回到进入前键盘的操作。 */
     public static String lettersKeyTitle(boolean chinese) {
-        return chinese ? "拼音" : "ABC";
+        return "返回";
     }
 
     private static List<List<LayerKey>> layer(List<String> first, List<String> second,
@@ -290,7 +290,7 @@ public final class KeyboardLayout {
             third.add(character(key));
         third.add(new LayerKey("⌫", "删除", LayerKeyKind.DELETE, LAYER_EDGE_WEIGHT));
         List<LayerKey> bottom = List.of(
-            new LayerKey(lettersKeyTitle(chinese), "切换到字母键盘", LayerKeyKind.LETTERS,
+            new LayerKey(lettersKeyTitle(chinese), "返回原键盘", LayerKeyKind.LETTERS,
                 LAYER_BACK_WEIGHT),
             panelKey,
             punctuationToggle,
