@@ -22,12 +22,13 @@ import {
   schemeTableModeNote,
   WORDBOOK_PREVIEW_WORDS,
   SYMBOL_PREVIEW_ITEMS,
+  touchLocalModeEntry,
   wordbookPackBookId,
   type MissingSelection,
 } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
 import { PluginInfoGroup } from "./plugin-info-group";
-import type { PluginPackage, PluginSettingsPage } from "./plugin-types";
+import type { PluginPackage, PluginSettingsPage, TouchPluginRules } from "./plugin-types";
 import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
 import { ActionButton } from "./action-button";
@@ -57,6 +58,8 @@ export interface PluginDetailViewProps {
   wordbookPacks: boolean;
   /** 宿主的符号面板显示符号集插件。 */
   symbolSetPacks: boolean;
+  /** 触屏设置的插件页：音效包按触屏键盘的「按键音」开关选用，模式的进入方式按触屏键盘写。桌面不传。 */
+  touch?: TouchPluginRules;
   /** 在背单词里选中这本书并打开背单词；没有背单词的宿主为空。 */
   onOpenWordbook?: (book: string) => void;
   working: boolean;
@@ -90,6 +93,7 @@ export function PluginDetailView({
   helpcode,
   wordbookPacks,
   symbolSetPacks,
+  touch,
   onOpenWordbook,
   working,
   onChange,
@@ -136,6 +140,7 @@ export function PluginDetailView({
           helpcode={helpcode}
           wordbookPacks={wordbookPacks}
           symbolSetPacks={symbolSetPacks}
+          touch={touch}
           onOpenWordbook={onOpenWordbook}
           onSelect={select}
           onChange={onChange}
@@ -318,6 +323,7 @@ function PackActions({
   helpcode,
   wordbookPacks,
   symbolSetPacks,
+  touch,
   onOpenWordbook,
   onSelect,
   onChange,
@@ -339,6 +345,7 @@ function PackActions({
   helpcode: boolean;
   wordbookPacks: boolean;
   symbolSetPacks: boolean;
+  touch?: TouchPluginRules;
   onOpenWordbook?: (book: string) => void;
   onSelect: () => void;
   onChange: (preferences: PluginPreferences) => void;
@@ -349,6 +356,16 @@ function PackActions({
 }) {
   switch (pack.kind) {
     case "sound": {
+      if (touch)
+        return (
+          <TouchSoundActions
+            pack={pack}
+            preferences={preferences}
+            touch={touch}
+            onChange={onChange}
+            onOpenPage={onOpenPage}
+          />
+        );
       if (!keySound) return <PluginActionBlock note="这台设备不播放音效。" />;
       // 选用即使用：按钮在包已选中但开关没开（之后在「声音与效果」关掉了按键音或换了发声方式）时仍可点，点了会把开关重新打开。
       if (pack.mode === "sequence") {
@@ -461,7 +478,13 @@ function PackActions({
             onChange={(enabled) => onCommandTable(pack.id, enabled)}
           />
           {!commandMode && (
-            <PluginActionBlock note="/ 指令（「输入 → 快捷模式」里的开关）已关闭，启用的指令表不会生效。打开后，在中文标点下没有输入时按 / 再输入指令字母即可使用。">
+            <PluginActionBlock
+              note={
+                touch
+                  ? `/ 指令（「输入 → 快捷模式」里的开关）已关闭，启用的指令表不会生效。打开后，${touchLocalModeEntry("指令")}再输入指令字母即可使用。`
+                  : "/ 指令（「输入 → 快捷模式」里的开关）已关闭，启用的指令表不会生效。打开后，在中文标点下没有输入时按 / 再输入指令字母即可使用。"
+              }
+            >
               {onLocalMode ? (
                 <ActionButton action={() => onLocalMode("command")} label="打开 / 指令" />
               ) : (
@@ -544,7 +567,13 @@ function PackActions({
             onChange={(enabled) => onPhraseTable(pack.id, enabled)}
           />
           {!quickPhraseMode && (
-            <PluginActionBlock note="快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，按 Shift+K 再输入编码即可用到短语表。">
+            <PluginActionBlock
+              note={
+                touch
+                  ? `快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，${touchLocalModeEntry("快捷短语")}再输入编码即可用到短语表。`
+                  : "快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，按 Shift+K 再输入编码即可用到短语表。"
+              }
+            >
               {onOpenPage && (
                 <ActionButton action={() => onOpenPage("input")} label="前往输入设置" />
               )}
@@ -555,6 +584,56 @@ function PackActions({
       );
     }
   }
+}
+
+/**
+ * 触屏键盘的音效包：只播按键音，不播旋律、上屏音和成就音（宿主的 `KeySoundPolicy.touchSettings`）。包写在共享偏好 `plugins.key_sound.pack`，「按键音」开关是宿主本机的按键反馈设置，在「屏幕键盘 → 按键反馈」里，和那里的「音效」选择是同一个值。和桌面一样，设为按键音效时按键音若关着就一起打开。
+ */
+function TouchSoundActions({
+  pack,
+  preferences,
+  touch,
+  onChange,
+  onOpenPage,
+}: {
+  pack: PluginPackage;
+  preferences: PluginPreferences;
+  touch: TouchPluginRules;
+  onChange: (preferences: PluginPreferences) => void;
+  onOpenPage?: (page: PluginSettingsPage) => void;
+}) {
+  if (pack.mode === "sequence") {
+    return <PluginActionBlock note="这台设备的触屏键盘不播放按键旋律。" />;
+  }
+  const selected = preferences.key_sound.pack === pack.id;
+  // 还没读到开关时按打开处理，与列表的标记一致。
+  const soundOn = touch.keySoundEnabled !== false;
+  const enable = touch.onEnableKeySound;
+  const select = () => {
+    onChange({ ...preferences, key_sound: { ...preferences.key_sound, pack: pack.id } });
+    if (!soundOn) enable?.();
+  };
+  const note = soundOn
+    ? "按键时播放这个音效包里的按键声，手机和平板不播放上屏和成就音效。开关和音量跟随「键盘 → 按键反馈」里的「按键音」。"
+    : enable
+      ? "按键音现在没有打开。设为按键音效会同时打开「键盘 → 按键反馈」里的「按键音」；手机和平板不播放上屏和成就音效。"
+      : "按键音现在没有打开，在「键盘 → 按键反馈」里打开「按键音」后才会出声；手机和平板不播放上屏和成就音效。";
+  return (
+    <PluginActionBlock note={note}>
+      {selected && !soundOn && enable ? (
+        <ActionButton action={enable} label="打开按键音" />
+      ) : (
+        <ActionButton
+          action={select}
+          disabled={selected}
+          label={selected ? (soundOn ? "使用中" : "已选") : "设为按键音效"}
+        />
+      )}
+      {!soundOn && !enable && onOpenPage && (
+        <ActionButton action={() => onOpenPage("screen-keyboard")} label="前往按键反馈" />
+      )}
+    </PluginActionBlock>
+  );
 }
 
 /** A selection that names a pack no longer on this machine, or a sound pack in the wrong mode, with the one way out: drop it the way removing the pack would have. */
