@@ -11,6 +11,12 @@ public final class StatisticsAuthenticationPolicySmoke {
             "已配置凭据时首次进入、取消、失败和重新进入都需认证");
         check(!StatisticsAuthenticationPolicy.requiresAuthentication(true, true),
             "本次认证成功后可以读取统计");
+        long minute = 60_000L;
+        check(!StatisticsAuthenticationPolicy.withinCooldown(0, 10 * minute), "从未认证过时没有冷却");
+        check(StatisticsAuthenticationPolicy.withinCooldown(10 * minute, 10 * minute), "刚认证完再进入不用重新认证");
+        check(StatisticsAuthenticationPolicy.withinCooldown(10 * minute, 15 * minute - 1), "五分钟之内不用重新认证");
+        check(!StatisticsAuthenticationPolicy.withinCooldown(10 * minute, 15 * minute), "满五分钟要重新认证");
+        check(!StatisticsAuthenticationPolicy.withinCooldown(10 * minute, 9 * minute), "时钟回到记录之前（例如重启设备）要重新认证");
         System.out.println("StatisticsAuthenticationPolicySmoke ok");
     }
 

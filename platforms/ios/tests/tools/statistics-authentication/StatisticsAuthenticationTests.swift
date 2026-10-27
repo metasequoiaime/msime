@@ -28,7 +28,7 @@ struct StatisticsAuthenticationTests {
       let context = AuthenticationContext()
       context.available = false
       context.unavailableError = NSError(domain: LAError.errorDomain, code: code.rawValue)
-      let gate = StatisticsAuthentication(makeContext: { context })
+      let gate = StatisticsAuthentication(makeContext: { context }, cooldown: StatisticsAuthenticationCooldown())
       gate.authenticate(automatically: true)
       precondition(gate.authorized == (code == .passcodeNotSet))
       precondition(!gate.busy && context.evaluations == 0)
@@ -36,7 +36,7 @@ struct StatisticsAuthenticationTests {
     let first = AuthenticationContext()
     let second = AuthenticationContext()
     var contexts = [first, second]
-    let gate = StatisticsAuthentication(makeContext: { contexts.removeFirst() })
+    let gate = StatisticsAuthentication(makeContext: { contexts.removeFirst() }, cooldown: StatisticsAuthenticationCooldown())
     gate.authenticate(automatically: true)
     gate.authenticate(automatically: true)
     precondition(first.evaluations == 1 && gate.busy && !gate.authorized)
@@ -62,7 +62,7 @@ struct StatisticsAuthenticationTests {
     let disabled = AuthenticationContext()
     let enabledAgain = AuthenticationContext()
     var choices = [disabled, enabledAgain]
-    let configurable = StatisticsAuthentication(makeContext: { choices.removeFirst() })
+    let configurable = StatisticsAuthentication(makeContext: { choices.removeFirst() }, cooldown: StatisticsAuthenticationCooldown())
     configurable.authenticate()
     configurable.authenticate(enabled: false)
     precondition(configurable.authorized && disabled.invalidated && !configurable.busy)
@@ -74,6 +74,44 @@ struct StatisticsAuthenticationTests {
     configurable.lock()
     configurable.authenticate(enabled: false)
     precondition(configurable.authorized && !configurable.busy)
-    print("iOS 统计认证：无密码、失败、重试、后台和过期回调检查通过")
+    // 冷却：认证成功后、或已认证时离开之后五分钟内再进入不弹认证，满五分钟再要求；关闭开关或未设密码得到的授权不算。
+    let start = ContinuousClock.now
+    var elapsed = Duration.zero
+    let cooldown = StatisticsAuthenticationCooldown(now: { start + elapsed })
+    let verifiedOnce = AuthenticationContext()
+    let afterCooldown = AuthenticationContext()
+    var cooled = [verifiedOnce, afterCooldown]
+    let timed = StatisticsAuthentication(makeContext: { cooled.removeFirst() }, cooldown: cooldown)
+    timed.authenticate(automatically: true)
+    verifiedOnce.reply?(true, nil)
+    while timed.busy { await Task.yield() }
+    precondition(timed.authorized)
+    elapsed = .seconds(4 * 60)
+    timed.lock()
+    elapsed = .seconds(8 * 60)
+    timed.authenticate(automatically: true)
+    precondition(timed.authorized && !timed.busy && cooled.count == 1, "离开后四分钟内回来不弹认证，冷却从离开时算起")
+    let another = StatisticsAuthentication(makeContext: { cooled.removeFirst() }, cooldown: cooldown)
+    another.authenticate(automatically: true)
+    precondition(another.authorized && cooled.count == 1, "冷却跨页面实例共用")
+    elapsed = .seconds(9 * 60)
+    another.lock()
+    timed.lock()
+    elapsed = .seconds(14 * 60)
+    timed.authenticate(automatically: true)
+    precondition(!timed.authorized && verifiedOnce.evaluations == 1 && afterCooldown.evaluations == 1, "满五分钟重新认证")
+    timed.lock()
+    let passcodeless = AuthenticationContext()
+    passcodeless.available = false
+    passcodeless.unavailableError = NSError(domain: LAError.errorDomain, code: LAError.passcodeNotSet.rawValue)
+    let fresh = StatisticsAuthenticationCooldown(now: { start + elapsed })
+    let unverified = StatisticsAuthentication(makeContext: { passcodeless }, cooldown: fresh)
+    unverified.authenticate(enabled: false)
+    unverified.lock()
+    unverified.authenticate()
+    precondition(unverified.authorized)
+    unverified.lock()
+    precondition(!fresh.isActive, "关闭开关或未设密码的授权不开启冷却")
+    print("iOS 统计认证：无密码、失败、重试、后台、过期回调和冷却检查通过")
   }
 }

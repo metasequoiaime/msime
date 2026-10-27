@@ -36,6 +36,17 @@ if ! grep -qF 'this.shuangpinKeyHints' <<< "$face_key_body"; then
   echo "KeyboardView.faceKey must include the shuangpin key hint switch so a live change redraws the letter keys" >&2
   exit 1
 fi
+# 统计页认证默认关闭，认证成功后五分钟冷却。冷却规则由 keyboard-logic.test.ts 的 `StatisticsAuthenticationCooldown` 覆盖；认证本身是 ArkTS，node 下编不了，这里钉住接线：默认值是关、冷却期内直接放行、认证成功开启冷却、离开时从现在算起，时钟用含深度睡眠的开机时间。
+statistics_auth="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/settings/StatisticsAuthentication.ets"
+if [[ $(grep -cF "getSync('enabled', false)" "$statistics_auth") -ne 2 ]] \
+  || grep -qF "getSync('enabled', true)" "$statistics_auth" \
+  || ! grep -qF 'if (cooldown.active()) {' "$statistics_auth" \
+  || ! grep -qF 'if (success) cooldown.granted();' "$statistics_auth" \
+  || ! grep -qF 'cooldown.ended();' "$statistics_auth" \
+  || ! grep -qF 'systemDateTime.TimeType.STARTUP' "$statistics_auth"; then
+  echo "Statistics authentication must default to off and skip re-authentication within the cooldown" >&2
+  exit 1
+fi
 # 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。入口怎么选由 keyboard-logic.test.ts 的 `KeyboardScheme.handwritingReturn` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：离开手写经 handwritingReturn 取入口，进入前是英文时回到英文。
 toggle_body=$(sed -n '/^  private toggleHandwritingScheme(): void {$/,/^  }$/p' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")

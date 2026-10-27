@@ -8,7 +8,7 @@ struct AccountSettingsView: View {
   @Environment(\.horizontalSizeClass) private var widthClass
   @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults)
   private var skin = GlobalThemeCatalog.systemId
-  @AppStorage(StatisticsAuthentication.preferenceKey) private var statisticsAuthenticationEnabled = true
+  @AppStorage(StatisticsAuthentication.preferenceKey) private var statisticsAuthenticationEnabled = StatisticsAuthentication.enabledByDefault
   @State private var signedIn = false
   @State private var user: CommunityUser?
   @State private var profile: CommunityProfile?
@@ -338,7 +338,7 @@ struct AccountSettingsView: View {
       Toggle(isOn: $statisticsAuthenticationEnabled) {
         VStack(alignment: .leading, spacing: 2) {
           Text("统计页身份验证").font(.system(size: 16))
-          Text("开启后使用系统认证，未配置锁屏凭据时直接进入")
+          Text("开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入")
             .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
         }
       }

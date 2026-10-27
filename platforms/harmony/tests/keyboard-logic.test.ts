@@ -32,6 +32,10 @@ import {
   LocalAsrTextReaderApi,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrTextReader";
 import { CaptureGeneration } from "../entry/src/main/ets/keyboard/input/CaptureGeneration";
+import {
+  STATISTICS_AUTHENTICATION_COOLDOWN_MS,
+  StatisticsAuthenticationCooldown,
+} from "../entry/src/main/ets/keyboard/settings/StatisticsAuthenticationCooldown";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import { NativeReplyPolicy } from "../entry/src/main/ets/keyboard/NativeReplyPolicy";
 import { KeyboardLayoutDragPolicy } from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
@@ -3503,10 +3507,14 @@ group("英文九键字母层：句点紧挨空格左边、逗号紧挨空格右�
     `英文九键：${actionKinds(english)}`,
   );
   check(
-    english.map((action: NineKeyAction) => action.weight).join(" ") === "1.05 1.25 1 2.2 1 1.05 1.6",
+    english.map((action: NineKeyAction) => action.weight).join(" ") ===
+      "1.05 1.25 1 2.2 1 1.05 1.6",
     `句点、逗号各 1 份，从空格让出：${english.map((action: NineKeyAction) => action.weight).join(" ")}`,
   );
-  check(Math.abs(actionWeight(english) - actionWeight(chinese)) < 1e-9, "整行份额不变，其余键与中文九键同宽");
+  check(
+    Math.abs(actionWeight(english) - actionWeight(chinese)) < 1e-9,
+    "整行份额不变，其余键与中文九键同宽",
+  );
   check(
     actionKinds(NineKeyLayout.actionRow(true, true)) === actionKinds(NineKeyLayout.actionRow(true)),
     "英文九键的数字层不变",
@@ -3546,7 +3554,10 @@ group("26 键底行保留逗号并长按句号；14 键和大千注音保留独�
       `${scheme} 中文 26 键不加句点`,
     );
   }
-  check(!KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)), "英文符号行不加句点");
+  check(
+    !KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)),
+    "英文符号行不加句点",
+  );
   check(
     KeyboardScheme.designRowUsesCommaSecondaryPeriod(
       SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
@@ -17503,3 +17514,32 @@ group("quote and bracket styles change only the faces and pairs of their own key
     "开关关闭时仍显示分词",
   );
 }
+
+// 统计页认证冷却：认证成功后、或已认证时离开之后五分钟内再进入不弹认证，满五分钟重新认证；没授权过的离开不开启冷却。
+group(
+  "statistics authentication cooldown starts when an authorized page is left and lasts five minutes",
+  () => {
+    let now = 1000;
+    const cooldown = new StatisticsAuthenticationCooldown((): number => now);
+    check(!cooldown.active(), "从未认证过时没有冷却");
+    cooldown.ended();
+    check(!cooldown.active(), "关闭开关或未设密码的放行离开时不开启冷却");
+    cooldown.granted();
+    now += 4 * 60 * 1000;
+    cooldown.ended();
+    now += 4 * 60 * 1000;
+    check(cooldown.active(), "冷却从离开时算起，离开四分钟后回来不用认证");
+    cooldown.granted();
+    cooldown.ended();
+    now += STATISTICS_AUTHENTICATION_COOLDOWN_MS - 1;
+    check(cooldown.active(), "五分钟之内不用认证");
+    now += 1;
+    check(!cooldown.active(), "满五分钟重新认证");
+    cooldown.ended();
+    check(!cooldown.active(), "未授权时离开不延长冷却");
+    const reboot = new StatisticsAuthenticationCooldown((): number => now);
+    reboot.granted();
+    now -= 60 * 1000;
+    check(!reboot.active(), "时钟回到记录之前（重启设备）要重新认证");
+  },
+);

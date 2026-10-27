@@ -333,7 +333,7 @@ public final class AccountFragment extends HomeTabFragment {
             preferences == null ? null : () -> AppThemeSheet.show(this, preferences, this::reload));
         row(group, R.drawable.ic_ms_shield_lock, "隐私", null, "本地优先",
             () -> SettingsNavigator.open(context, PageId.PRIVACY, null));
-        group.toggle("统计页身份验证", "开启后使用系统认证，未配置锁屏凭据时直接进入",
+        group.toggle("统计页身份验证", "开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入",
             StatisticsAuthenticationPreference.enabled(context),
             enabled -> StatisticsAuthenticationPreference.save(context, enabled));
         AppIconStyle icon = AppIcons.selected(context);
