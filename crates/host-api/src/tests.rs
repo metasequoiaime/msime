@@ -19547,7 +19547,7 @@ fn credential_test_export_answers_incomplete_configurations_offline() {
             "voice.polish",
             json!({"token": "synthetic", "endpoint": "http://polish.example/v1", "model": "m"}),
         ),
-        "请填写有效的 HTTPS 接口地址和模型名。"
+        "请填写有效的接口地址（https://，或本机、局域网的 http://）和模型名。"
     );
     for invalid in [
         json!({"config": {}}),

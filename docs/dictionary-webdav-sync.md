@@ -235,3 +235,7 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 - `crates/client-core/src/preferences.rs`：偏好 `dictionary_sync_webdav`。
 - `crates/host-api/src/dictionary_webdav.rs`：Engine 一侧的本机词库（一致的读、批量写、维护权和请求输入法让出词库的策略）和 `msime_client_dictionary_sync` 的动作分派。
 - 测试：`client-core` 的模拟测试；`crates/clipboard-relay/tests/dictionary_webdav_flow.rs` 对着真实的 WebDAV 服务端（`dav-server`）跑配对、互传、错误的应用密码、超大响应、同时抢序号、截尾和服务端暂时不可用；`host-api` 的单元测试对着真实的 Engine 词库跑读写、输入会话占着词库时的「忙」和 Engine 不收的词。
+
+### 检查点超过上限时
+
+生成和读取都遵守 32 MiB 上限。合法长短语可能在达到 10 万词之前就超过它：普通压缩会保留当前日志继续同步，用户删减词条并让设备确认后再压缩。换钥不能继续使用旧钥，检查点超限时返回 `dictionary_sync_too_large`，不封口；应先在仍使用旧钥的设备上删减并同步，或以较小的本机词库重新开始。重新开始在封口前也执行同样的大小检查，失败不会挡住其他设备继续写旧日志。尚未压缩时目录中的事件会继续增长，仍受目录列表的读取上限限制。
