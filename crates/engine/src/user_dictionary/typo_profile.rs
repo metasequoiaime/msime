@@ -11,6 +11,7 @@ use rusqlite::{params, params_from_iter, Connection, ToSql};
 use super::journal::{open_existing_read_only, open_journal, UNSTORABLE_ENTRY};
 use crate::error::{EngineError, Result};
 use crate::pinyin::typos::syllable_typo_kind;
+use crate::types::ShuangpinProfileKind;
 
 /// Typo learning describes habits, not dictionary content, so a small bounded table is enough; the rows that matter are the ones seen often (J:728-732).
 pub const MAX_TYPO_STATE_ROWS: usize = 2_048;
@@ -23,6 +24,75 @@ const MAX_SYLLABLE_LENGTH: usize = 6;
 pub struct PinyinTypoState {
     pub accepted: HashMap<String, HashMap<String, i32>>,
     pub suppressed: HashSet<String>,
+    /// 双拼按两键码记的接受和拒绝次数（#10018），只有触屏的触点路径读写。
+    pub shuangpin: HashMap<ShuangpinTypoKey, ShuangpinTypoCounts>,
+    /// 用户按原样上屏、拒绝过触点纠错的双拼输入，按方案分开。
+    pub shuangpin_suppressed: HashMap<ShuangpinProfileKind, HashSet<String>>,
+}
+
+/// 双拼的一条纠错：哪个内置方案下，把两键码 `typed` 当成 `intended`。键是小写字母或 `;`。不和全拼共用 `pinyin_typo_counts`：两键码会和全拼音节撞名（`ai`、`an`），`;` 也过不了全拼的校验。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ShuangpinTypoKey {
+    pub profile: ShuangpinProfileKind,
+    pub typed: [u8; 2],
+    pub intended: [u8; 2],
+}
+
+/// 一条双拼纠错被接受（选中纠错行）和被拒绝（纠错行坐首选、用户却选了别的行）的次数。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShuangpinTypoCounts {
+    pub accepted: i32,
+    pub rejected: i32,
+}
+
+/// 双拼纠错计数的哪一列。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShuangpinTypoOutcome {
+    Accepted,
+    Rejected,
+}
+
+impl ShuangpinTypoOutcome {
+    fn column(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+/// 只学内置方案：自定义方案的键位随时会改，按旧键位记下的键码对换了键位就是别的意思。
+fn learnable_shuangpin_profile(profile: ShuangpinProfileKind) -> bool {
+    profile != ShuangpinProfileKind::Custom
+}
+
+/// 双拼编码里的一个键：小写字母，或微软双拼的 `;`。
+fn is_shuangpin_key(byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte == b';'
+}
+
+fn shuangpin_code(text: &str) -> Option<[u8; 2]> {
+    let code: [u8; 2] = text.as_bytes().try_into().ok()?;
+    code.iter()
+        .all(|&byte| is_shuangpin_key(byte))
+        .then_some(code)
+}
+
+/// 触点纠错只会产出两种改法：换掉一个键，或两键对调。
+fn is_shuangpin_one_edit(typed: [u8; 2], intended: [u8; 2]) -> bool {
+    let changed = typed
+        .iter()
+        .zip(&intended)
+        .filter(|(left, right)| left != right)
+        .count();
+    changed == 1 || (changed == 2 && typed == [intended[1], intended[0]])
+}
+
+/// 双拼抑制表能存的输入：带触点的输入串，小写字母和 `;`，不含 `'`。
+pub fn is_storable_shuangpin_suppression(input: &str) -> bool {
+    !input.is_empty()
+        && input.len() <= MAX_SUPPRESSED_INPUT_LENGTH
+        && input.bytes().all(is_shuangpin_key)
 }
 
 fn is_lowercase_letters(text: &str, max_length: usize) -> bool {
@@ -121,6 +191,98 @@ pub fn record_autocorrect_suppression(user_db: &Path, input: &str) -> Result<()>
     Ok(())
 }
 
+/// 每一对加一次 `outcome` 那一列；有一对不是内置方案下合法的一处改动（换一个键或两键对调）就整批拒绝，什么也不写。写完把表修剪到 `MAX_TYPO_STATE_ROWS` 行，先删接受加拒绝最少、最久没动的，这一批写的不删。
+pub fn record_shuangpin_typos(
+    user_db: &Path,
+    profile: ShuangpinProfileKind,
+    pairs: &[([u8; 2], [u8; 2])],
+    outcome: ShuangpinTypoOutcome,
+) -> Result<()> {
+    let valid = learnable_shuangpin_profile(profile)
+        && !pairs.is_empty()
+        && pairs.iter().all(|(typed, intended)| {
+            typed
+                .iter()
+                .chain(intended)
+                .all(|&byte| is_shuangpin_key(byte))
+                && is_shuangpin_one_edit(*typed, *intended)
+        });
+    if !valid {
+        return Err(EngineError::invalid(UNSTORABLE_ENTRY));
+    }
+    let codes: Vec<(String, String)> = pairs
+        .iter()
+        .map(|(typed, intended)| {
+            (
+                String::from_utf8_lossy(typed).into_owned(),
+                String::from_utf8_lossy(intended).into_owned(),
+            )
+        })
+        .collect();
+    let column = outcome.column();
+    let journal = open_journal(user_db)?;
+    journal.execute_batch("BEGIN IMMEDIATE")?;
+    {
+        let mut upsert = journal.prepare_cached(&format!(
+            "INSERT INTO shuangpin_typo_counts(profile,typed,intended,{column}) VALUES(?1,?2,?3,1) ON CONFLICT(profile,typed,intended) DO UPDATE SET {column}=min({column}+1,?4),updated_at=unixepoch()"
+        ))?;
+        for (typed, intended) in &codes {
+            upsert.execute(params![
+                profile.name(),
+                typed,
+                intended,
+                MAX_TYPO_STATE_COUNT
+            ])?;
+        }
+    }
+    let rows: Vec<String> = (0..codes.len())
+        .map(|index| format!("(?2,?{},?{})", 2 * index + 3, 2 * index + 4))
+        .collect();
+    let keep = format!("(profile,typed,intended) IN (VALUES {})", rows.join(","));
+    let mut keep_values: Vec<&str> = vec![profile.name()];
+    keep_values.extend(
+        codes
+            .iter()
+            .flat_map(|(typed, intended)| [typed.as_str(), intended.as_str()]),
+    );
+    trim_typo_table(
+        &journal,
+        "shuangpin_typo_counts",
+        "accepted+rejected",
+        &keep,
+        &keep_values,
+    )?;
+    journal.execute_batch("COMMIT")?;
+    Ok(())
+}
+
+/// 记一次「这串双拼输入有触点纠错可选，用户却按原样上屏」。
+pub fn record_shuangpin_suppression(
+    user_db: &Path,
+    profile: ShuangpinProfileKind,
+    input: &str,
+) -> Result<()> {
+    if !learnable_shuangpin_profile(profile) || !is_storable_shuangpin_suppression(input) {
+        return Err(EngineError::invalid(UNSTORABLE_ENTRY));
+    }
+    let journal = open_journal(user_db)?;
+    journal.execute_batch("BEGIN IMMEDIATE")?;
+    journal
+        .prepare_cached(
+            "INSERT INTO shuangpin_autocorrect_suppressions(profile,input,commits) VALUES(?1,?2,1) ON CONFLICT(profile,input) DO UPDATE SET commits=min(commits+1,?3),updated_at=unixepoch()",
+        )?
+        .execute(params![profile.name(), input, MAX_TYPO_STATE_COUNT])?;
+    trim_typo_table(
+        &journal,
+        "shuangpin_autocorrect_suppressions",
+        "commits",
+        "profile=?2 AND input=?3",
+        &[profile.name(), input],
+    )?;
+    journal.execute_batch("COMMIT")?;
+    Ok(())
+}
+
 fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
     Ok(connection
         .prepare_cached("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1")?
@@ -193,7 +355,84 @@ pub fn load_pinyin_typo_state(user_db: &Path) -> Result<PinyinTypoState> {
             }
         }
     }
+    load_shuangpin_typo_state(&connection, &mut state)?;
     Ok(state)
+}
+
+/// 两张双拼表读进 `state`；没有这两张表的旧日志读作空。和全拼的表一样，行数超过上限时整份读取失败，档案保留原来的状态。
+fn load_shuangpin_typo_state(connection: &Connection, state: &mut PinyinTypoState) -> Result<()> {
+    const COUNTS_FILTER: &str = "FROM shuangpin_typo_counts WHERE accepted BETWEEN 0 AND ?1 AND rejected BETWEEN 0 AND ?1 AND accepted+rejected > 0 AND length(CAST(typed AS BLOB))=2 AND length(CAST(intended AS BLOB))=2";
+    if table_exists(connection, "shuangpin_typo_counts")? {
+        let count: i64 = connection.query_row(
+            &format!("SELECT count(*) {COUNTS_FILTER}"),
+            params![MAX_TYPO_STATE_COUNT],
+            |row| row.get(0),
+        )?;
+        if count > MAX_TYPO_STATE_ROWS as i64 {
+            return Err(EngineError::failed(
+                "shuangpin typo state exceeds its memory limit",
+            ));
+        }
+        let mut statement = connection.prepare(&format!(
+            "SELECT profile,typed,intended,accepted,rejected {COUNTS_FILTER}"
+        ))?;
+        let rows = statement.query_map(params![MAX_TYPO_STATE_COUNT], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, i32>(4)?,
+            ))
+        })?;
+        for row in rows {
+            let (profile, typed, intended, accepted, rejected) = row?;
+            let key = ShuangpinProfileKind::from_name(&profile)
+                .filter(|profile| learnable_shuangpin_profile(*profile))
+                .zip(shuangpin_code(&typed).zip(shuangpin_code(&intended)))
+                .filter(|(_, (typed, intended))| is_shuangpin_one_edit(*typed, *intended));
+            if let Some((profile, (typed, intended))) = key {
+                state.shuangpin.insert(
+                    ShuangpinTypoKey {
+                        profile,
+                        typed,
+                        intended,
+                    },
+                    ShuangpinTypoCounts { accepted, rejected },
+                );
+            }
+        }
+    }
+    if table_exists(connection, "shuangpin_autocorrect_suppressions")? {
+        const FILTER: &str = "FROM shuangpin_autocorrect_suppressions WHERE commits >= 1 AND length(CAST(input AS BLOB)) BETWEEN 1 AND ?1";
+        let count: i64 = connection.query_row(
+            &format!("SELECT count(*) {FILTER}"),
+            params![MAX_SUPPRESSED_INPUT_LENGTH as i64],
+            |row| row.get(0),
+        )?;
+        if count > MAX_TYPO_STATE_ROWS as i64 {
+            return Err(EngineError::failed(
+                "shuangpin suppression state exceeds its memory limit",
+            ));
+        }
+        let mut statement = connection.prepare(&format!("SELECT profile,input {FILTER}"))?;
+        let rows = statement.query_map(params![MAX_SUPPRESSED_INPUT_LENGTH as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (profile, input) = row?;
+            let profile = ShuangpinProfileKind::from_name(&profile)
+                .filter(|profile| learnable_shuangpin_profile(*profile));
+            if let Some(profile) = profile.filter(|_| is_storable_shuangpin_suppression(&input)) {
+                state
+                    .shuangpin_suppressed
+                    .entry(profile)
+                    .or_default()
+                    .insert(input);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `(modified, size)` of a file, `None` when it cannot be read; the journal and its `-wal` together say whether anything was written since the last load.
@@ -371,6 +610,106 @@ impl PersonalTypoProfile {
         record_autocorrect_suppression(&self.path, input_key)?;
         self.reload_after_write(&mut loaded, |state| {
             state.suppressed.insert(input_key.to_owned());
+        });
+        Ok(())
+    }
+
+    /// 有没有任何双拼纠错计数：没有时计价不必逐个变体去查。
+    pub fn has_shuangpin_counts(&self) -> bool {
+        !self
+            .state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .shuangpin
+            .is_empty()
+    }
+
+    /// 双拼方案 `profile` 下把 `typed` 当成 `intended` 的接受和拒绝次数；没记过时都是 0。不分配。
+    pub fn shuangpin_counts(
+        &self,
+        profile: ShuangpinProfileKind,
+        typed: [u8; 2],
+        intended: [u8; 2],
+    ) -> ShuangpinTypoCounts {
+        let state = self
+            .state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.shuangpin.is_empty() {
+            return ShuangpinTypoCounts::default();
+        }
+        state
+            .shuangpin
+            .get(&ShuangpinTypoKey {
+                profile,
+                typed,
+                intended,
+            })
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// 这串双拼输入在方案 `profile` 下是否被用户拒绝过触点纠错。
+    pub fn shuangpin_suppressed(&self, profile: ShuangpinProfileKind, input: &str) -> bool {
+        let state = self
+            .state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state
+            .shuangpin_suppressed
+            .get(&profile)
+            .is_some_and(|inputs| inputs.contains(input))
+    }
+
+    /// 写一批双拼纠错的接受或拒绝并重读，规则见 [`record_shuangpin_typos`]。
+    pub fn record_shuangpin(
+        &self,
+        profile: ShuangpinProfileKind,
+        pairs: &[([u8; 2], [u8; 2])],
+        outcome: ShuangpinTypoOutcome,
+    ) -> Result<()> {
+        let mut loaded = self
+            .loaded
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        record_shuangpin_typos(&self.path, profile, pairs, outcome)?;
+        self.reload_after_write(&mut loaded, |state| {
+            for &(typed, intended) in pairs {
+                let counts = state
+                    .shuangpin
+                    .entry(ShuangpinTypoKey {
+                        profile,
+                        typed,
+                        intended,
+                    })
+                    .or_default();
+                let count = match outcome {
+                    ShuangpinTypoOutcome::Accepted => &mut counts.accepted,
+                    ShuangpinTypoOutcome::Rejected => &mut counts.rejected,
+                };
+                *count = (*count + 1).min(MAX_TYPO_STATE_COUNT);
+            }
+        });
+        Ok(())
+    }
+
+    /// 记下双拼输入 `input` 被拒绝了触点纠错并重读。
+    pub fn record_shuangpin_suppression(
+        &self,
+        profile: ShuangpinProfileKind,
+        input: &str,
+    ) -> Result<()> {
+        let mut loaded = self
+            .loaded
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        record_shuangpin_suppression(&self.path, profile, input)?;
+        self.reload_after_write(&mut loaded, |state| {
+            state
+                .shuangpin_suppressed
+                .entry(profile)
+                .or_default()
+                .insert(input.to_owned());
         });
         Ok(())
     }
@@ -587,5 +926,317 @@ mod tests {
         let generation = profile.generation();
         profile.refresh_if_changed();
         assert_eq!(profile.generation(), generation);
+    }
+
+    // ---- 双拼按两键码学的纠错（#10018） ----
+
+    const XIAOHE: ShuangpinProfileKind = ShuangpinProfileKind::Xiaohe;
+
+    fn shuangpin_count(
+        journal: &Path,
+        column: &str,
+        profile: &str,
+        typed: &str,
+        intended: &str,
+    ) -> i64 {
+        count(
+            journal,
+            &format!("SELECT {column} FROM shuangpin_typo_counts WHERE profile='{profile}' AND typed='{typed}' AND intended='{intended}'"),
+        )
+    }
+
+    /// 整批校验：内置方案、两个键都是小写字母或 `;`、只换一个键或两键对调，有一对不合格就什么也不写，连日志都不开。接受和拒绝各记各的列，满 1000 不再涨。
+    #[test]
+    fn shuangpin_batches_are_validated_and_counted_per_outcome() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let accepted = ShuangpinTypoOutcome::Accepted;
+        for (profile, pairs) in [
+            (ShuangpinProfileKind::Custom, vec![(*b"gf", *b"gr")]),
+            (XIAOHE, vec![]),
+            (XIAOHE, vec![(*b"gf", *b"gf")]),
+            (XIAOHE, vec![(*b"gf", *b"hr")]),
+            (XIAOHE, vec![(*b"gf", *b"gR")]),
+            (XIAOHE, vec![(*b"g'", *b"gr")]),
+            (XIAOHE, vec![(*b"gf", *b"gr"), (*b"ab", *b"cd")]),
+        ] {
+            assert!(
+                record_shuangpin_typos(&journal, profile, &pairs, accepted).is_err(),
+                "{pairs:?}"
+            );
+        }
+        assert!(
+            record_shuangpin_suppression(&journal, ShuangpinProfileKind::Custom, "mwgfxi").is_err()
+        );
+        for input in ["", "mw'gf", "mwGf", "啊"] {
+            assert!(
+                record_shuangpin_suppression(&journal, XIAOHE, input).is_err(),
+                "{input}"
+            );
+        }
+        assert!(!journal.exists(), "a rejected batch opened the journal");
+
+        record_shuangpin_typos(
+            &journal,
+            XIAOHE,
+            &[(*b"gf", *b"gr"), (*b"j;", *b";j")],
+            accepted,
+        )
+        .unwrap();
+        record_shuangpin_typos(&journal, XIAOHE, &[(*b"gf", *b"gr")], accepted).unwrap();
+        record_shuangpin_typos(
+            &journal,
+            XIAOHE,
+            &[(*b"gf", *b"gr")],
+            ShuangpinTypoOutcome::Rejected,
+        )
+        .unwrap();
+        record_shuangpin_typos(
+            &journal,
+            ShuangpinProfileKind::Microsoft,
+            &[(*b"gf", *b"gr")],
+            accepted,
+        )
+        .unwrap();
+        assert_eq!(
+            shuangpin_count(&journal, "accepted", "xiaohe", "gf", "gr"),
+            2
+        );
+        assert_eq!(
+            shuangpin_count(&journal, "rejected", "xiaohe", "gf", "gr"),
+            1
+        );
+        assert_eq!(
+            shuangpin_count(&journal, "accepted", "xiaohe", "j;", ";j"),
+            1
+        );
+        assert_eq!(
+            shuangpin_count(&journal, "rejected", "xiaohe", "j;", ";j"),
+            0
+        );
+        assert_eq!(
+            shuangpin_count(&journal, "accepted", "microsoft", "gf", "gr"),
+            1
+        );
+        // 双拼不碰全拼的表。
+        assert_eq!(
+            count(&journal, "SELECT count(*) FROM pinyin_typo_counts"),
+            0
+        );
+
+        Connection::open(&journal)
+            .unwrap()
+            .execute_batch("UPDATE shuangpin_typo_counts SET accepted=1000")
+            .unwrap();
+        record_shuangpin_typos(&journal, XIAOHE, &[(*b"gf", *b"gr")], accepted).unwrap();
+        assert_eq!(
+            shuangpin_count(&journal, "accepted", "xiaohe", "gf", "gr"),
+            1000
+        );
+
+        record_shuangpin_suppression(&journal, XIAOHE, "mwgfxi").unwrap();
+        record_shuangpin_suppression(&journal, XIAOHE, "mwgfxi").unwrap();
+        record_shuangpin_suppression(&journal, ShuangpinProfileKind::Ziranma, "mwgfxi").unwrap();
+        assert_eq!(
+            count(&journal, "SELECT commits FROM shuangpin_autocorrect_suppressions WHERE profile='xiaohe' AND input='mwgfxi'"),
+            2
+        );
+        assert_eq!(
+            count(
+                &journal,
+                "SELECT count(*) FROM pinyin_autocorrect_suppressions"
+            ),
+            0
+        );
+    }
+
+    /// 两张表都修剪到 `MAX_TYPO_STATE_ROWS` 行：先删接受加拒绝（或上屏次数）最少、最久没动的，这一批刚写的不删。
+    #[test]
+    fn shuangpin_tables_are_pruned_to_the_cap() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let accepted = ShuangpinTypoOutcome::Accepted;
+        record_shuangpin_typos(&journal, XIAOHE, &[(*b"gf", *b"gr")], accepted).unwrap();
+        record_shuangpin_typos(
+            &journal,
+            XIAOHE,
+            &[(*b"gf", *b"gr")],
+            ShuangpinTypoOutcome::Rejected,
+        )
+        .unwrap();
+        let connection = Connection::open(&journal).unwrap();
+        connection
+            .execute_batch(
+                "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<2099) INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted,updated_at) SELECT 'ziranma',char(97+i%26)||char(97+(i/26)%26),char(97+i%26)||char(97+(i/676)%26+1),1,i FROM n;",
+            )
+            .unwrap();
+        record_shuangpin_typos(&journal, XIAOHE, &[(*b"hc", *b"hv")], accepted).unwrap();
+        assert_eq!(
+            count(&journal, "SELECT count(*) FROM shuangpin_typo_counts"),
+            2048
+        );
+        assert_eq!(
+            shuangpin_count(&journal, "accepted", "xiaohe", "hc", "hv"),
+            1
+        );
+        // 接受加拒绝是 2 的那一行比只记过 1 次的留得久。
+        assert_eq!(
+            shuangpin_count(&journal, "accepted", "xiaohe", "gf", "gr"),
+            1
+        );
+
+        connection
+            .execute_batch(
+                "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<2099) INSERT INTO shuangpin_autocorrect_suppressions(profile,input,commits,updated_at) SELECT 'xiaohe','a'||i,1,i FROM n;",
+            )
+            .unwrap();
+        record_shuangpin_suppression(&journal, XIAOHE, "mwgfxi").unwrap();
+        assert_eq!(
+            count(
+                &journal,
+                "SELECT count(*) FROM shuangpin_autocorrect_suppressions"
+            ),
+            2048
+        );
+        assert_eq!(
+            count(
+                &journal,
+                "SELECT count(*) FROM shuangpin_autocorrect_suppressions WHERE input='mwgfxi'"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn loading_a_shuangpin_table_over_the_memory_cap_fails_closed() {
+        for table in [
+            "shuangpin_typo_counts",
+            "shuangpin_autocorrect_suppressions",
+        ] {
+            let dir = Dir::new();
+            let journal = dir.journal();
+            record_shuangpin_suppression(&journal, XIAOHE, "mwgfxi").unwrap();
+            let rows = if table == "shuangpin_typo_counts" {
+                "INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted) SELECT 'xiaohe',char(97+i%26)||char(97+(i/26)%26),char(97+i%26)||char(97+(i/676)%26+1),1 FROM n;"
+            } else {
+                "INSERT INTO shuangpin_autocorrect_suppressions(profile,input,commits) SELECT 'xiaohe','a'||i,1 FROM n;"
+            };
+            Connection::open(&journal)
+                .unwrap()
+                .execute_batch(&format!(
+                    "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<{MAX_TYPO_STATE_ROWS}) {rows}"
+                ))
+                .unwrap();
+            assert!(load_pinyin_typo_state(&journal).is_err(), "{table}");
+        }
+    }
+
+    /// 读的时候只认内置方案、合法的两键码和一处改动；自定义方案和写坏的行被跳过，不影响别的行。
+    #[test]
+    fn loading_skips_shuangpin_rows_it_cannot_use() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        record_shuangpin_suppression(&journal, XIAOHE, "mwgfxi").unwrap();
+        Connection::open(&journal)
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted,rejected) VALUES
+                 ('xiaohe','gf','gr',2,1),('custom','gf','gr',5,0),('nowhere','gf','gr',5,0),
+                 ('xiaohe','gF','gr',5,0),('xiaohe','gf','hr',5,0),('xiaohe','gff','gr',5,0);
+                 INSERT INTO shuangpin_autocorrect_suppressions(profile,input,commits) VALUES
+                 ('custom','abcd',1),('xiaohe','ab''cd',1);",
+            )
+            .unwrap();
+        let state = load_pinyin_typo_state(&journal).unwrap();
+        assert_eq!(
+            state.shuangpin,
+            HashMap::from([(
+                ShuangpinTypoKey {
+                    profile: XIAOHE,
+                    typed: *b"gf",
+                    intended: *b"gr"
+                },
+                ShuangpinTypoCounts {
+                    accepted: 2,
+                    rejected: 1
+                }
+            )])
+        );
+        assert_eq!(
+            state.shuangpin_suppressed,
+            HashMap::from([(XIAOHE, HashSet::from(["mwgfxi".to_owned()]))])
+        );
+        assert!(state.accepted.is_empty() && state.suppressed.is_empty());
+    }
+
+    /// 档案看得见自己的写入和别的写入方：计数、抑制按方案分开，代次随之前进；查询不分配。
+    #[test]
+    fn the_profile_reads_and_writes_shuangpin_learning() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let profile = PersonalTypoProfile::shared(&journal);
+        assert!(!profile.has_shuangpin_counts());
+        let before = profile.generation();
+        assert!(profile
+            .record_shuangpin(XIAOHE, &[(*b"gf", *b"zz")], ShuangpinTypoOutcome::Accepted)
+            .is_err());
+        assert_eq!(profile.generation(), before);
+        profile
+            .record_shuangpin(XIAOHE, &[(*b"gf", *b"gr")], ShuangpinTypoOutcome::Accepted)
+            .unwrap();
+        profile
+            .record_shuangpin(XIAOHE, &[(*b"gf", *b"gr")], ShuangpinTypoOutcome::Rejected)
+            .unwrap();
+        assert!(profile.generation() > before);
+        assert!(profile.has_shuangpin_counts());
+        assert_eq!(
+            profile.shuangpin_counts(XIAOHE, *b"gf", *b"gr"),
+            ShuangpinTypoCounts {
+                accepted: 1,
+                rejected: 1
+            }
+        );
+        assert_eq!(
+            profile.shuangpin_counts(ShuangpinProfileKind::Ziranma, *b"gf", *b"gr"),
+            ShuangpinTypoCounts::default()
+        );
+        // 全拼那一侧的记录不受影响。
+        assert_eq!(profile.accepted("gf", "gr"), 0);
+
+        profile
+            .record_shuangpin_suppression(XIAOHE, "mwgfxi")
+            .unwrap();
+        assert!(profile.shuangpin_suppressed(XIAOHE, "mwgfxi"));
+        assert!(!profile.shuangpin_suppressed(ShuangpinProfileKind::Ziranma, "mwgfxi"));
+        assert!(!profile.shuangpin_suppressed(XIAOHE, "mwgf"));
+        assert!(!profile.suppressed("mwgfxi"));
+
+        let generation = profile.generation();
+        record_shuangpin_typos(
+            &journal,
+            XIAOHE,
+            &[(*b"hc", *b"hv")],
+            ShuangpinTypoOutcome::Accepted,
+        )
+        .unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&journal)
+            .unwrap()
+            .set_modified(SystemTime::now() + std::time::Duration::from_secs(4))
+            .unwrap();
+        profile.refresh_if_changed();
+        assert_eq!(profile.shuangpin_counts(XIAOHE, *b"hc", *b"hv").accepted, 1);
+        assert!(profile.generation() > generation);
+
+        let (values, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            (
+                profile.shuangpin_counts(XIAOHE, *b"gf", *b"gr").accepted,
+                profile.shuangpin_counts(XIAOHE, *b"xx", *b"xc").accepted,
+                profile.shuangpin_suppressed(XIAOHE, "mwgfxi"),
+            )
+        });
+        assert_eq!(values, (1, 0, true));
+        assert_eq!(allocations, 0);
     }
 }
