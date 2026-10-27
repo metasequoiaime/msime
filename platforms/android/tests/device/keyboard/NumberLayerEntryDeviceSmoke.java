@@ -47,6 +47,11 @@ public final class NumberLayerEntryDeviceSmoke extends DeviceSmoke {
                 for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
                 tap(key("空格"));
                 await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
+                stage = "Chinese number returns to letters " + variant;
+                tap(key("123"));
+                tap(described("返回原键盘").and(node -> equalsText("返回", node.getText())));
+                await(key("中"));
+                await(key("n"));
                 // 中文数字页使用九宫格；这里验证携带可选表情键的英文横排数字页。
                 tap(key("中"));
                 await(key("英"));
@@ -80,6 +85,10 @@ public final class NumberLayerEntryDeviceSmoke extends DeviceSmoke {
                 tap(key("#+="));
                 await(symbol);
                 if (findVisible(emoji) != null) throw new AssertionError("Extended page duplicates emoji");
+                stage = "English symbols return to letters " + variant;
+                tap(described("返回原键盘").and(node -> equalsText("返回", node.getText())));
+                await(key("英"));
+                await(key("n"));
             }
         } finally {
             publish(preferences, original);
