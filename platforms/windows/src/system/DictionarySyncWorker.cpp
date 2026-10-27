@@ -82,11 +82,9 @@ DictionarySyncWorker::DictionarySyncWorker(bool configured) : state_(std::make_s
 DictionarySyncWorker::~DictionarySyncWorker() { stop(); }
 
 void DictionarySyncWorker::start(Options options) {
-  if (!state_)
-    return;
   {
     std::lock_guard<std::mutex> lock(state_->mutex);
-    if (state_->started)
+    if (state_->started || state_->stopping)
       return;
     state_->options = std::move(options);
     state_->started = true;
@@ -112,28 +110,26 @@ void DictionarySyncWorker::start(Options options) {
 }
 
 void DictionarySyncWorker::configure(bool configured) {
-  if (!state_)
-    return;
   {
     std::lock_guard<std::mutex> lock(state_->mutex);
+    if (state_->stopping)
+      return;
     state_->schedule.configure(configured, now_ms());
   }
   state_->wake.notify_all();
 }
 
 void DictionarySyncWorker::note_local_change() {
-  if (!state_)
-    return;
   {
     std::lock_guard<std::mutex> lock(state_->mutex);
+    if (state_->stopping)
+      return;
     state_->schedule.note_local_change();
   }
   state_->wake.notify_all();
 }
 
 void DictionarySyncWorker::stop() {
-  if (!state_)
-    return;
   {
     std::lock_guard<std::mutex> lock(state_->mutex);
     state_->stopping = true;
@@ -150,7 +146,6 @@ void DictionarySyncWorker::stop() {
     else
       state_->worker.detach();
   }
-  state_.reset();
 }
 
 } // namespace msime::windows

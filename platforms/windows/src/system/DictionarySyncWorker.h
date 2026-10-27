@@ -40,7 +40,8 @@ public:
   struct State;
 
 private:
-  std::shared_ptr<State> state_;
+  // stop 与在途通知可以重叠；状态指针在对象存活期间不变，停机只改锁内标志。
+  const std::shared_ptr<State> state_;
 };
 
 } // namespace msime::windows

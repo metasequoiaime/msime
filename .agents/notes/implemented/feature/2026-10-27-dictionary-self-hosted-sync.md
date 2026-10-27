@@ -70,6 +70,8 @@ Status: implemented
 
 一个安装只有一份设备身份：同步目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`，Server、WinUI 设置、Win7 设置和 Win7 面板都调 `common/DictionarySyncDirectory.h` 的同一个函数。两个进程第一次使用时同时生成身份由 Rust 的文件锁和「不覆盖另一个身份」挡住；仍然报 `clipboard_keystore_conflict`（#10032 的约定：已经发出请求之后才发现存储里是另一个身份）时，宿主用同一个请求再调，最多三次（`common/DictionarySyncRetry.h`），第二次就会用存着的那份身份。
 
+Server 停机时，偏好和候选删词的生产线程可能还在送最后一条通知。`DictionarySyncWorker` 的共享状态指针在对象存活期间保持不变：`stop` 只在状态锁内设置停止标志，不清空指针；后到的 `configure`、`note_local_change` 读到停止标志就返回，`start` 也不能重新启动。这样不用让退出路径无限等待网盘；两秒后仍在途的工作线程继续持有自己的共享状态，通知线程也不会与 `shared_ptr::reset` 并发读写同一个指针。调用方仍须在销毁 worker 对象前结束所有通知来源。
+
 ## Alternatives considered
 
 - **与云剪贴板共用一份密钥串和批准** — 最强的理由是用户只批准一次，两个功能看到同一份设备列表。不用：剪贴板的生命周期会直接伤到词库——关闭云剪贴板会删掉全部密钥、封装和设备登记，「重置云剪贴板」会换钥并清空；它的空间绑定的是 `cloud_clipboard_webdav` 的地址和账号，词库就得强制要求同一个网盘账号；Android 的剪贴板密钥串由 Java 用 AndroidKeyStore 保存，iOS 和 HarmonyOS 的宿主还没接中继，共用就要先把这些宿主的剪贴板密钥串接进词库同步。复用代码、分开实例，换来两个功能互不牵连，代价是用两个功能的设备要批准两次。
@@ -108,3 +110,6 @@ Status: implemented
 Windows（含 Win7）：`windows-dictionary-sync-schedule`（偏好判断、请求形状、三种回答、身份冲突重试、没启动和没配网盘时不调、配上后十秒、删词后马上记且连着只记一次、按 `next_check_ms` 排下一次、失败半小时）和 `windows-dictionary-sync-model`（错误说法与共享页一致、概况、同一设备合并成一条、重试次数）在 macOS 上用 clang++ 编译运行通过，并用 MinGW 交叉编译器做了语法检查（含 `server_main.cpp` 的普通与 Win7 两种配置）；`windows7-dictionary-sync-panel-test`、WinUI 设置窗口和 `settings_ui.ps1` 的词库同步验收只能在 CI 的 Windows runner 上编译运行，真实网盘、真实 Server 里的删词触发和两个进程同时第一次使用还没有在 Windows 上验收。
 
 审查补充验证：新增真实 TCP 的 chunked 超限、正文截断、合法 chunked 与 401 状态用例，以及超大本机状态写入前拒绝并保留旧文件的回归；修复前 3 项实际失败，修复后 WebDAV 相关 33 项、词库 WebDAV 集成 9 项、云剪贴板 WebDAV 集成 3 项通过，库级严格 clippy 通过。词库 WebDAV 集成用例另覆盖删减本机新增词后恢复同步。完整 quick 门禁受开发机系统盘余量限制，未完成；Android 文件存储路径的设备验收仍待完成。
+
+
+停机竞态补修验证：`windows-dictionary-sync-worker` 链接真实 worker 与两个禁止调用的 Host API 桩，未配置时不联网；两条通知线程与 `stop` 重叠，随后重复停机并发送迟到通知。macOS clang++ 的 ThreadSanitizer 在修复前明确报告 `stop` 中 `shared_ptr::reset` 与 `configure` 中读指针的数据竞争；修复后同一用例零诊断通过，普通编译运行也通过。该测试已接入 Windows CMake/ctest；本轮未跑 Windows runner、真实 Server 退出或完整 quick 门禁，系统盘低于 50 GiB，未启动新的完整构建树。
