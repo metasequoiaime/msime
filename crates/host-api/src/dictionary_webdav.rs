@@ -546,7 +546,8 @@ impl SchedulerHost for ImeHost {
             return None;
         };
         // 自动同步不打扰输入会话：拿不到维护权就答「忙」，按核心的间隔再试。
-        let mut local = EngineDictionary::new(&engine, false);
+        // 不请输入法让出词库，所以也没有要叫醒的输入法。
+        let mut local = EngineDictionary::announcing(&engine, false, || {});
         let mut watched = Watched::new(&mut local);
         let result = sync.run(&mut watched, trigger, Options::default());
         let seen = watched.seen();
@@ -556,7 +557,9 @@ impl SchedulerHost for ImeHost {
 
     fn fingerprint(&mut self) -> Option<u64> {
         let engine = self.engine.as_ref()?;
-        let words = EngineDictionary::new(engine, false).words().ok()?;
+        let words = EngineDictionary::announcing(engine, false, || {})
+            .words()
+            .ok()?;
         Some(fingerprint(&words))
     }
 
