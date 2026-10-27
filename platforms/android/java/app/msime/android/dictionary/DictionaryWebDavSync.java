@@ -115,12 +115,22 @@ public final class DictionaryWebDavSync {
     }
 
     /**
-     * 「测试连接」：用设置页里还没保存的草稿试一遍网盘行为，不读偏好；通过时 Rust 让本机状态从网盘现在的样子重新开始（本机的词全部保留），这也是 `dictionary_sync_rollback` 之后的恢复办法。请求里有应用密码，不写日志。大约二十个请求，阻塞在网络上。
+     * 「测试连接」：用设置页里还没保存的草稿试一遍网盘行为，不读偏好，也不改同步位置、待发改动或防回退记录。请求里有应用密码，不写日志。大约二十个请求，阻塞在网络上。
      */
     public void probe(String url, String username, String password) throws Failure {
+        probe(url, username, password, false);
+    }
+
+    /** 用户单独确认恢复后，使用确认前已保存的连接重新信任网盘现状；待发改动会遗忘，未上传删除可能重新合并回来。 */
+    public void trustRemote(String url, String username, String password) throws Failure {
+        probe(url, username, password, true);
+    }
+
+    private void probe(String url, String username, String password, boolean trustRemote) throws Failure {
         JSONObject action = action("probe");
         try {
             action.put("url", url).put("username", username).put("password", password);
+            if (trustRemote) action.put("trust_remote", true);
         } catch (JSONException impossible) {
             throw new Failure(DictionarySyncPolicy.CODE_INVALID);
         }

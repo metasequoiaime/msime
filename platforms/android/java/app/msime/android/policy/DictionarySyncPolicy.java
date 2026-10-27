@@ -119,7 +119,7 @@ public final class DictionarySyncPolicy {
             case CODE_UNAVAILABLE -> "连不上网盘，请检查地址和网络；证书须由公网信任的机构签发。";
             case CODE_RATE_LIMITED -> "网盘暂时限制了请求次数，或本机这 30 分钟的同步次数已用完，请稍后再试。";
             case CODE_TOO_LARGE -> "网盘上的词库或本机的同步记录超过了上限，删减一些词条后再试。";
-            case CODE_ROLLBACK -> "网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，重新测试连接并保存即可，本机的词条都会保留。";
+            case CODE_ROLLBACK -> "网盘上的词库比本机读到过的旧，或者被删改过。若是你自己清理了网盘文件，请用「重新信任网盘现状」单独确认恢复；测试连接不会清除防回退记录。";
             case CODE_UNSUPPORTED -> probe
                 ? "这个网盘不支持词库同步需要的文件操作（独占创建、列目录），请换一个 WebDAV 服务或文件夹。"
                 : "网盘上的词库是更新版本的格式，请先更新水杉输入法。";

@@ -53,6 +53,12 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
             @Nullable CloudClipboardApi.Devices devices, @Nullable String devicesError) {}
     /** 一次「测试连接」的结果：`code` 为 null 表示通过；`password` 是实际测试用的应用密码（留空保持不变时是已存的那个），通过后「保存」原样写进偏好。 */
     private record Probe(@Nullable String code, String password) {}
+    /** 仅在恢复确认期间持有的已存连接，不显示或记录应用密码。 */
+    private record SavedConnection(String url, String username, String password) {}
+    /** 用户确认期间已存连接发生变化，终止整项任务，不继续读取新网盘的状态或设备。 */
+    private static final class SavedConnectionChanged extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+    }
 
     /** 读到的网盘配置；还没读到或偏好读不了时为 null。 */
     @Nullable private Config config;
@@ -146,8 +152,10 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
             if (request != generation) return;
             busy = false;
             if (outcome.value() == null) {
-                MsToast.show(requireContext(), outcome.error() instanceof DictionaryWebDavSync.Failure failure
-                    ? DictionarySyncPolicy.failureMessage(failure.code, false) : "词库同步没有读出来，请稍后再试");
+                MsToast.show(requireContext(), outcome.error() instanceof SavedConnectionChanged
+                    ? "网盘设置已更改，请重新确认恢复"
+                    : outcome.error() instanceof DictionaryWebDavSync.Failure failure
+                        ? DictionarySyncPolicy.failureMessage(failure.code, false) : "词库同步没有读出来，请稍后再试");
                 loaded = null;
             } else {
                 loaded = outcome.value();
@@ -217,6 +225,10 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         }
         card.button("立即同步", "不等自动同步的间隔", "同步", () -> act(
             sync -> sync.run(DictionarySyncPolicy.TRIGGER_MANUAL, false, false), "已同步"));
+        String error = state.error() != null ? state.error() : status == null ? null : status.lastError();
+        if (DictionarySyncPolicy.CODE_ROLLBACK.equals(error)) {
+            card.button("重新信任网盘现状", "仅在确认网盘被你清理后恢复同步", "恢复", this::confirmTrustRemote);
+        }
         if (status != null && status.pendingApply() > 0) {
             card.footer("键盘正在用词库时，网盘上的改动先不写进本机，收起键盘后会写进去。");
         }
@@ -369,6 +381,51 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
                     reload();
                 }, this::reload);
             });
+    }
+
+    /** 先在工作线程捕获已存连接，再确认；未保存的草稿不能用来恢复。 */
+    private void confirmTrustRemote() {
+        if (busy) return;
+        long owner = generation;
+        Context application = requireContext().getApplicationContext();
+        HostTask.run(this, DictionarySyncPage::savedConnection, saved -> {
+            if (owner != generation) return;
+            if (saved == null) {
+                MsToast.show(requireContext(), "网盘设置没有读出来，请重新设置后再试");
+                return;
+            }
+            MessageDialog.confirm(requireContext(), "重新信任网盘现状？",
+                "服务器：" + saved.url() + "\n账号：" + saved.username()
+                    + "\n\n只有在确认网盘上的词库文件是你自己清理或恢复的情况下继续。会遗忘本机待发送的改动和防回退记录，未上传的删除可能让词重新出现；本机现有词条会保留。",
+                "重新信任", () -> trustRemote(owner, saved, application));
+        });
+    }
+
+    /** 确认归属和已存三字段都没变时才恢复，之后的状态和设备读取仍由 work 的代次检查约束。 */
+    private void trustRemote(long owner, SavedConnection saved, Context application) {
+        if (owner != generation || busy) {
+            MsToast.show(requireContext(), "网盘设置已更改，请重新确认恢复");
+            return;
+        }
+        long request = ++generation;
+        render();
+        work(request, sync -> {
+            SavedConnection current = savedConnection(application);
+            if (request != generation || !saved.equals(current)) throw new SavedConnectionChanged();
+            sync.trustRemote(saved.url(), saved.username(), saved.password());
+            if (request != generation) throw new SavedConnectionChanged();
+            return sync.run(DictionarySyncPolicy.TRIGGER_MANUAL, false, false);
+        }, "已重新信任网盘并同步");
+    }
+
+    @Nullable private static SavedConnection savedConnection(Context context) {
+        JSONObject preferences = KeyboardSheets.preferences(context);
+        JSONObject saved = preferences == null ? null : preferences.optJSONObject(DictionarySyncPolicy.PREFERENCE);
+        if (saved == null) return null;
+        String url = JsonPolicy.strictStringOrEmpty(saved.opt("url"));
+        String username = JsonPolicy.strictStringOrEmpty(saved.opt("username"));
+        String password = JsonPolicy.strictStringOrEmpty(saved.opt("password"));
+        return url.isEmpty() ? null : new SavedConnection(url, username, password);
     }
 
     /**

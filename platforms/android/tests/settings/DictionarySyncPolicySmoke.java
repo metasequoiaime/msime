@@ -62,9 +62,11 @@ public final class DictionarySyncPolicySmoke {
         String syncUnsupported = DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_UNSUPPORTED, false);
         check(probeUnsupported.contains("文件操作") && !syncUnsupported.equals(probeUnsupported),
             "unsupported reads differently in the probe and in a sync");
-        // 回退的说法告诉用户怎么恢复：重新测试连接并保存。
-        check(DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_ROLLBACK, false).contains("重新测试连接并保存"),
-            "rollback tells the user how to recover");
+        // 回退恢复必须单独确认，不能再告诉用户测试连接会清掉防回退记录。
+        String rollback = DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_ROLLBACK, false);
+        check(rollback.contains("重新信任网盘现状") && rollback.contains("单独确认")
+            && rollback.contains("测试连接不会") && !rollback.contains("重新测试连接并保存"),
+            "回退提示指向独立确认入口");
 
         // 连网盘本身就不行时，设置页不再接着读设备；其余失败（例如回退、等待允许）照样读设备。
         for (String code : new String[] {DictionarySyncPolicy.CODE_UNAVAILABLE, DictionarySyncPolicy.CODE_UNAUTHORIZED,
