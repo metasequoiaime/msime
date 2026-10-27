@@ -49,6 +49,7 @@ macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行�
 
 ## Verification
 
+- 辅助进程接入后的 Linux CI 在 `linux-setup-update` 的目录清单断言失败：共享偏好读取新增 `preferences.lock`，运行时配置与旧词库未改变。测试只允许这个锁文件，仍拒绝新偏好文档和其它额外产物；真实准备程序的子进程同时复用合成环境，避免新采集入口触碰测试者的默认数据目录。本机复用既有 Host API 静态库编译准备入口，原断言可复现失败，修订后相对配置拒绝、过期退出码及原配置保留检查通过；这不是当前完整 Linux 宿主验收。该轮 CI 的 `common-capture-only` 已实际通过。
 - 共享层遥测 51 项、Host API 遥测 4 项及相关 Rust 库的库 target Clippy 通过，覆盖损坏构建头、原子写入、超过单批额度的保留和入队失败后的原件保留。新增持锁的半份原生记录留待写完、空文件不伪造崩溃两项回归。client-services 测试 target 的严格 Clippy 被既有 `account/settings_sync/tests.rs` 的 `field_reassign_with_default` 阻断，库 target 的严格 Clippy 通过，不把前者记为通过。
 - MCP 在 macOS 构建机运行 124 项单元测试与 18 项协议测试，全部通过；记录器子进程入口由父用例显式启动，不把该入口的 ignored 状态计作通过。七种子进程情况验证未处理 panic、原生终止、可恢复 panic、启动关闭、运行中关闭再开启、配置不可读；记录不含合成私密参数，按新版本补报时仍保留故障原版本，不产生输入会话事件。该包全部 target 的 Clippy 通过。帮助与版本命令的实际二进制用例确认不初始化遥测目录。Linux 的 MCP 门禁已在 PR CI 通过；Windows 的严格检查先发现剪贴板返回单元错误类型，补具名错误后继续发现 `bounded` 测试模块只在 Unix 使用导入；目录拒读回归本不依赖 Unix，移除其 Unix 限定，让 Windows 门禁也执行该回归；其余 Unix 专属回归仍按平台限定。Windows 严格 Clippy 随后通过；运行测试暴露 Unix 绝对路径与混合分隔符夹具，现按宿主构造解析测试的绝对路径和预期原生路径，保留 Windows 拒绝无盘符根路径的断言，并把状态目录回退断言对齐生产代码既有的 macOS/Windows 范围。完整 Windows 测试等待新轮 CI，不能以 macOS 的通过代替。
 - 辅助进程 `CaptureOnly` 使用真实 Rust Host API，在 macOS 构建机完成 `watchdog`/`prepare` 两种组件的访问违规与未捕获异常子进程：故障落盘、以 9.9.9 补报仍归属原来的 1.2.3、没有输入会话事件、关闭后不记录、重开后恢复、配置不可读/抛出/偏好损坏即停用、正常停止及已捕获异常恢复原处理器均通过。Linux GCC 与 Windows MinGW x64/x86 的新记录器、入口和夹具严格语法编译通过。Linux 完整 CTest 与 Windows MSVC/真实故障执行由本轮 PR CI 补验；Windows 夹具同时校验实际宿主目录工厂的运行时偏好重定向和损坏配置拒绝，尚不能把 macOS 结果当作 Windows 实际通过。
