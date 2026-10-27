@@ -98,6 +98,25 @@ if ! grep -qF 'this.cancelDictionarySnapshotPoll();' <<< "$detach_body" \
   echo "KeyboardSession must poll the dictionary snapshot queue only while shown and until it is empty, and back off both idle rebuild retries" >&2
   exit 1
 fi
+# 打字统计的提交和语音时长不在 UI 线程上写：都排进同一个 SequenceRunner（`writeTypingStatistics`）在 TaskPool 线程上调用原生库，原生层攒着的计数在键盘收起（dismiss 与系统的 keyboardHide）、编辑框失去焦点（detach）和扩展销毁（shutdown）时 flush；detach 等 flush 写完再把统计文件发布给设置应用。会话是 ArkTS，这里钉住接线。
+record_body=$(sed -n '/^  private recordTypingStatistics(text: string, source: string): void {$/,/^  }$/p' "$session_ets")
+voice_body=$(sed -n '/^  insertVoiceResult(text: string): void {$/,/^  }$/p' "$session_ets")
+dismiss_body=$(sed -n '/^  dismiss(): void {$/,/^  }$/p' "$session_ets")
+shutdown_body=$(sed -n '/^  shutdown(): void {$/,/^  }$/p' "$session_ets")
+ability_ets="$ets/inputmethodextability/KeyboardExtensionAbility.ets"
+if ! grep -qF 'this.typingStatisticsWrites.execute(new taskpool.Task(writeTypingStatistics, request))' <<< "$record_body" \
+  || grep -qF 'client.typingStatistics(' <<< "$record_body" \
+  || ! grep -qF 'this.typingStatisticsWrites.execute(new taskpool.Task(writeTypingStatistics, request))' <<< "$voice_body" \
+  || grep -qF 'client.typingStatistics(' <<< "$voice_body" \
+  || ! grep -qF 'this.flushTypingStatistics().then((): void => {' <<< "$detach_body" \
+  || ! grep -qF 'SharedStateSync.keyboardPublish(mirror);' <<< "$detach_body" \
+  || ! grep -qF 'this.flushTypingStatistics();' <<< "$dismiss_body" \
+  || ! grep -qF 'this.flushTypingStatistics();' <<< "$shutdown_body" \
+  || ! grep -qF "engine.on('keyboardHide', this.keyboardHidden);" "$ability_ets" \
+  || ! grep -qF "engine.off('keyboardHide', this.keyboardHidden);" "$ability_ets"; then
+  echo "KeyboardSession must write typing statistics on its TaskPool SequenceRunner and flush them on hide, focus loss and teardown" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do

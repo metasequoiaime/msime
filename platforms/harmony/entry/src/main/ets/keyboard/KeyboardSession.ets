@@ -18,7 +18,7 @@ import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { IdleDictionaryRetryPolicy, PersonalDictionaryDrain } from './IdleDictionaryRetryPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
-import { readTypingStatisticsEnabled, writeKeyPresses } from './TypingStatisticsWriter';
+import { readTypingStatisticsEnabled, writeKeyPresses, writeTypingStatistics } from './TypingStatisticsWriter';
 import taskpool from '@ohos.taskpool';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { AppThemePalette, AppThemeSeed } from './skin/AppThemePalette';
@@ -317,6 +317,15 @@ interface TypingStatisticsVoiceAction {
 interface TypingStatisticsVoiceRequest {
   directory: string;
   action: TypingStatisticsVoiceAction;
+}
+
+interface TypingStatisticsFlushAction {
+  operation: string;
+}
+
+interface TypingStatisticsFlushRequest {
+  directory: string;
+  action: TypingStatisticsFlushAction;
 }
 
 interface MobileClipboardAction {
@@ -1250,6 +1259,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   private keyStatisticsEditorKnown: boolean = false;
   private readonly keyPresses: KeyPressBatch = new KeyPressBatch();
   private keyFlushTimer: number = -1;
+  // 提交、语音时长和 flush 都排在这一个 SequenceRunner 上，在 TaskPool 线程里调用原生统计：存储要加文件锁、读写整份文件，不能占着 UI 线程；排成一列是为了让提交按输入顺序到达存储（活跃时长按相邻提交的间隔算），也让 flush 落在它之前排入的记录之后。
+  private readonly typingStatisticsWrites: taskpool.SequenceRunner = new taskpool.SequenceRunner();
+  // 上次 flush 之后是否又送出过提交。原生层把提交攒在进程内存里，最多三十秒或 flush 时才写盘；没有新提交时收起键盘、换编辑框不必再排一次 flush。
+  private typingStatisticsUnflushed: boolean = false;
+  // 最近一次排入的 flush。收起键盘紧接着失去焦点时，第二次 flush 没有新提交可写，但发布统计文件仍要等第一次写完。
+  private typingStatisticsFlushed: Promise<void> = Promise.resolve();
   private editorGeneration: number = 0;
   // Bumped only by attach/detach: an idle Engine restart (which bumps editorGeneration) must not
   // drop the focused editor's attribute.
@@ -3170,6 +3185,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Ask the host to put the keyboard away, committing whatever was being composed first. */
   dismiss(): void {
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
+    // 收起键盘时编辑框可能仍有焦点、不会有 inputStop，在这里把攒着的打字统计写盘。
+    this.flushTypingStatistics();
     if (this.onDismiss !== undefined) {
       this.onDismiss();
     }
@@ -3504,10 +3521,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.updateMusic();
     this.keyStatisticsEditorKnown = false;
     this.flushKeyPresses();
-    // 完整体验模式下把这次编辑里记下的统计、在键盘里改的偏好发布给设置应用；基础访问模式下键盘写不了共享目录。
-    if (this.sharedMirror !== null && this.sharedFullMode()) {
-      SharedStateSync.keyboardPublish(this.sharedMirror);
-    }
+    // 编辑框失去焦点：攒着的打字统计写盘。完整体验模式下把这次编辑里记下的统计、在键盘里改的偏好发布给设置应用；发布直接拷贝统计文件，所以等 flush 写完再发布，否则设置应用看到的会少掉最后一段提交。基础访问模式下键盘写不了共享目录。
+    const mirror: SharedStateMirror | null =
+      this.sharedMirror !== null && this.sharedFullMode() ? this.sharedMirror : null;
+    this.flushTypingStatistics().then((): void => {
+      if (mirror !== null) {
+        SharedStateSync.keyboardPublish(mirror);
+      }
+    });
   }
 
   stop(): void {
@@ -3544,6 +3565,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.previewText = '';
     this.keyStatisticsEditorKnown = false;
     this.flushKeyPresses();
+    this.flushTypingStatistics();
   }
 
   /** Invalidate host-side network work before the focused editor changes or the session dies. */
@@ -7135,17 +7157,15 @@ export class KeyboardSession implements HardwareKeyTarget {
       action: { operation: 'record_voice', day: TypingStatisticsPolicy.day(new Date()), milliseconds: milliseconds }
     };
     const request: string = JSON.stringify(requestDocument);
-    // 存储会加文件锁，所以要等插入的内容交给编辑框之后再写入。
-    setTimeout((): void => {
-      try {
-        const response: TypingStatisticsRecordResponse = JSON.parse(client.typingStatistics(request)) as TypingStatisticsRecordResponse;
-        if (response.ok !== true) {
-          KeyboardLog.error('voice duration not recorded');
-        }
-      } catch (error) {
-        KeyboardLog.error(`voice duration unavailable: ${describeError(error)}`);
+    // 存储会加文件锁，和提交一样排到 TaskPool 线程上写，排在刚才那次提交之后。
+    this.typingStatisticsWrites.execute(new taskpool.Task(writeTypingStatistics, request)).then((reply: Object): void => {
+      const response: TypingStatisticsRecordResponse = JSON.parse(reply as string) as TypingStatisticsRecordResponse;
+      if (response.ok !== true) {
+        KeyboardLog.error('voice duration not recorded');
       }
-    }, 0);
+    }).catch((error: Object): void => {
+      KeyboardLog.error(`voice duration unavailable: ${describeError(error)}`);
+    });
   }
 
   private typingSource(): string {
@@ -7237,22 +7257,46 @@ export class KeyboardSession implements HardwareKeyTarget {
       directory: this.stateDirectory, action: action
     };
     const request: string = JSON.stringify(requestDocument);
-    // Native storage takes a file lock. Defer it off the key event so a slow filesystem never
-    // changes the latency of the next key, while retaining the same bounded text and source.
-    setTimeout((): void => {
-      try {
-        const response: string = client.typingStatistics(request);
-        const value: TypingStatisticsRecordResponse = JSON.parse(response) as TypingStatisticsRecordResponse;
-        if (value.ok !== true) {
-          KeyboardLog.error('typing statistics write refused');
-        } else if (typeof value.value?.milestone === 'number' && !this.soundsSilencedByEditor()) {
-          // host-api reports the milestone only while achievements are on; it plays the jingle itself on the desktop, and here the player does. Not over a password field, like every other sound.
-          this.soundPlayer.achievement();
-        }
-      } catch (error) {
-        KeyboardLog.error(`typing statistics unavailable: ${describeError(error)}`);
+    // 原生存储要加文件锁、读写统计文件，交给 TaskPool 线程，不占 UI 线程，下一个键的延迟不受慢文件系统影响。以前用 setTimeout(0) 推迟，那仍在 UI 线程上，低端机上每次提交都会卡一下。
+    this.typingStatisticsUnflushed = true;
+    this.typingStatisticsWrites.execute(new taskpool.Task(writeTypingStatistics, request)).then((response: Object): void => {
+      const value: TypingStatisticsRecordResponse = JSON.parse(response as string) as TypingStatisticsRecordResponse;
+      if (value.ok !== true) {
+        KeyboardLog.error('typing statistics write refused');
+      } else if (typeof value.value?.milestone === 'number' && !this.soundsSilencedByEditor()) {
+        // host-api reports the milestone only while achievements are on; it plays the jingle itself on the desktop, and here the player does. Not over a password field, like every other sound, and not once the editor has let go: its attributes are forgotten then.
+        this.soundPlayer.achievement();
       }
-    }, 0);
+    }).catch((error: Object): void => {
+      KeyboardLog.error(`typing statistics unavailable: ${describeError(error)}`);
+    });
+  }
+
+  /**
+   * 让原生层把这个键盘进程攒着的打字统计现在写进文件：键盘收起、编辑框失去焦点、扩展销毁时调用。排在同一个 SequenceRunner 上，之前送出的提交都会包含在这次写入里。返回的 Promise 在写完后完成，失败也完成；上次 flush 之后没有新提交时不再排一次，返回上一次的。
+   *
+   * 不认识 `flush` 的旧原生库会回答错误，这里不理会：那样的库每次提交都直接写盘，本来就没有攒着的。
+   */
+  private flushTypingStatistics(): Promise<void> {
+    if (!this.typingStatisticsUnflushed || this.stateDirectory.length === 0) {
+      return this.typingStatisticsFlushed;
+    }
+    this.typingStatisticsUnflushed = false;
+    const requestDocument: TypingStatisticsFlushRequest = {
+      directory: this.stateDirectory, action: { operation: 'flush' }
+    };
+    const task: taskpool.Task = new taskpool.Task(writeTypingStatistics, JSON.stringify(requestDocument));
+    this.typingStatisticsFlushed = this.typingStatisticsWrites.execute(task).then((): void => {
+      // 回答不看，见上。
+    }).catch((error: Object): void => {
+      KeyboardLog.error(`typing statistics flush unavailable: ${describeError(error)}`);
+    });
+    return this.typingStatisticsFlushed;
+  }
+
+  /** 键盘收起（系统的 keyboardHide，例如返回手势）：把攒着的打字统计写盘。编辑框可能仍有焦点，所以不等 inputStop。 */
+  keyboardHidden(): void {
+    this.flushTypingStatistics();
   }
 
   /**

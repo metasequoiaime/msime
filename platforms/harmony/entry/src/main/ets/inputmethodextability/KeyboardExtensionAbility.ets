@@ -608,6 +608,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     });
   }
 
+  // 系统收起键盘（返回手势、点空白处）时编辑框不一定失去焦点，等不到 inputStop；会话在这里把攒着的打字统计写盘。
+  private readonly keyboardHidden: () => void = (): void => {
+    KeyboardSession.shared.keyboardHidden();
+  };
+
   private readonly stopped: () => void = (): void => {
     // An editor that stops while the panel is still being built must not be attached once it is.
     this.pending = undefined;
@@ -933,6 +938,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       }
       engine.on('inputStart', this.started);
       engine.on('inputStop', this.stopped);
+      engine.on('keyboardHide', this.keyboardHidden);
       inputMethodEngine.getKeyboardDelegate().on('selectionChange', this.selectionChanged);
       inputMethodEngine.getKeyboardDelegate().on('textChange', this.textChanged);
       // 手势绑定取自偏好文档，保证键盘与设置页一致；每种设备都在接收按键前完成绑定，兼容之后插入的实体键盘。
@@ -1090,6 +1096,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     this.pending = undefined;
     engine.off('inputStart', this.started);
     engine.off('inputStop', this.stopped);
+    engine.off('keyboardHide', this.keyboardHidden);
     inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
     inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
     // Before releasing keyEvent, so a queued hot-plug change cannot subscribe it again.
