@@ -14,7 +14,7 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
     let previous: (@convention(c) (NSException) -> Void)?
   }
 
-  /// 处理器可能在任何线程上运行，而它在工具队列上安装：放在锁里。上报关着时为 nil，处理器什么都不写。
+  /// 处理器可能在任何线程上运行，而它在工具队列上安装：放在锁里，权限由 `UsageReporting.exceptionConsent` 单独维护。
   private static let recording = OSAllocatedUnfairLock<Recording?>(initialState: nil)
 
   /// 主 App 处理器记下过崩溃的进程号，App 私有目录。
@@ -27,7 +27,8 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
     MXMetricManager.shared.add(self)
     // 上报开关在共享偏好里，读它要经 Rust 读盘，不放在启动的主线程上；安装之前极短的窗口里抛出的异常只有 MetricKit 的诊断。
     DispatchQueue.global(qos: .utility).async {
-      guard UsageReporting.isEnabled, let directory = UsageReporting.directory,
+      _ = UsageReporting.isEnabled
+      guard let directory = UsageReporting.directory,
             let handledProcesses = Self.handledProcesses else { return }
       try? FileManager.default.createDirectory(at: handledProcesses.deletingLastPathComponent(),
                                                withIntermediateDirectories: true)
@@ -41,10 +42,12 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
 
   /// C 回调不能捕获上下文：闭包里写全类型名调用它，不经隐式的 `self`。
   private static func handleUncaughtException(_ exception: NSException) {
-    guard let recording = recording.withLock({ $0 }) else { return }
-    UsageReporting.recordUncaughtException(name: exception.name.rawValue,
+    guard let recording = recording.withLockIfAvailable({ $0 }) ?? nil else { return }
+    if UsageReporting.exceptionConsent.isEnabled {
+      UsageReporting.recordUncaughtException(name: exception.name.rawValue,
                                            returnAddresses: exception.callStackReturnAddresses, pid: getpid(),
                                            in: recording.directory, handledProcesses: recording.handledProcesses)
+    }
     recording.previous?(exception)
   }
 

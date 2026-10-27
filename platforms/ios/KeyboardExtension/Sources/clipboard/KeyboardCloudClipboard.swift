@@ -1,8 +1,12 @@
 import Foundation
+import UIKit
 
+/// 面板这一次读取属于谁：水杉账号的登录（user.id 和会话），或者偏好里的自建中继、WebDAV 网盘（`relay` 是 `IOSCloudClipboardRelayPolicy` 的绑定，地址和令牌或账号的摘要，不含凭据）。
 struct KeyboardCloudClipboardBinding: Equatable, Sendable {
   let userID: String
   let sessionID: UUID
+  /// 经中继或网盘时的绑定；经水杉账号时为 nil。
+  var relay: String? = nil
 }
 
 /// What the keyboard needs from the account's cloud clipboard. The live one goes through the signed-in session the app shares with the keyboard through the App Group keychain group; tests substitute their own.
@@ -26,12 +30,25 @@ extension KeyboardCloudClipboardService {
 }
 
 /// 列表和上传经端到端加密驱动（`IOSCloudClipboardDriver`），与 App 用同一份密钥串，所以键盘和 App 是同一台设备。
+///
+/// 偏好里配置了自建中继或 WebDAV 网盘时（以共享层的 `msime_client_cloud_clipboard_source` 为准）只经 `IOSCloudClipboardRelay`，与 App 用同一份中继密钥串（App Group 访问组的钥匙串项）和同一个本机目录；读不了偏好或配置不合规时按失败处理，从不改走账号。每次请求前都核对这时的同步方式还是读列表时那一种、中继还是那一个，不在配置了中继时经账号读写，也不把一条记录发到刚换掉的中继。
 struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
   var session: BackendAccountSession = .shared
   var client = BackendAccountClient()
   var e2e: BackendClipboardE2E? = IOSCloudClipboardDriver.e2e
+  var preferencesDirectory = IOSCloudClipboardRelay.preferencesDirectory
+  var relayDirectory = IOSCloudClipboardRelay.directory
+
+  /// 中继路径没有登录会话，绑定里的会话编号固定为这个值。
+  private static let relaySession = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
   func binding() async throws -> KeyboardCloudClipboardBinding? {
+    if try await IOSCloudClipboardRelay.selected(preferencesDirectory: preferencesDirectory) {
+      guard let relay = try IOSCloudClipboardRelay.currentConfiguration(preferencesDirectory: preferencesDirectory) else {
+        throw IOSCloudClipboardRelayFailure(code: IOSCloudClipboardRelayPolicy.changed)
+      }
+      return .init(userID: "", sessionID: Self.relaySession, relay: relay.binding)
+    }
     do {
       let identity = try await session.credentials()
       return .init(userID: identity.userID, sessionID: identity.sessionID)
@@ -40,19 +57,39 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
     }
   }
   func matches(_ binding: KeyboardCloudClipboardBinding) async -> Bool {
+    if let relay = binding.relay {
+      return (try? IOSCloudClipboardRelay.currentConfiguration(preferencesDirectory: preferencesDirectory))?.binding == relay
+    }
+    // 读列表之后改成了中继或网盘：账号的条目不再插入。
+    guard (try? await IOSCloudClipboardRelay.selected(preferencesDirectory: preferencesDirectory)) == false else { return false }
     do {
       try await session.requireSession(matchingUserID: binding.userID, matchingSessionID: binding.sessionID)
       return true
     } catch { return false }
   }
   func page(matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage {
-    try await authorized(matching: binding) { [client] token, e2e in try await client.clipboard(token: token, e2e: e2e) }
+    if binding.relay != nil { return try await relay(matching: binding).page() }
+    return try await authorized(matching: binding) { [client] token, e2e in try await client.clipboard(token: token, e2e: e2e) }
   }
   func add(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws {
+    if binding.relay != nil {
+      _ = try await relay(matching: binding).add(text)
+      return
+    }
     _ = try await authorized(matching: binding) { [client] token, e2e in try await client.addClipboard(text, token: token, e2e: e2e) }
   }
   /// 驱动上传前自己会读服务端的开关和本机是否已获批准：开关关着时返回 nil，本机等待批准时以 `clipboard_device_pending` 失败，两种情况都不上传。
   func uploadIfEnabled(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage? {
+    if binding.relay != nil {
+      let relay = try await relay(matching: binding)
+      do {
+        _ = try await relay.add(text)
+      } catch let failure as IOSCloudClipboardRelayFailure where failure.code == "clipboard_sync_disabled" {
+        return nil
+      }
+      return try await relay.page()
+    }
+    try await requireAccountRoute()
     let e2e = e2e?.bound(to: session, userID: binding.userID, sessionID: binding.sessionID)
     func request<T: Sendable>(_ operation: @Sendable (String) async throws -> T) async throws -> T {
       try await session.authenticated(matchingUserID: binding.userID,
@@ -65,9 +102,28 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
     }
     return try await request { [client, e2e] token in try await client.clipboard(token: token, e2e: e2e) }
   }
+  /// 偏好里的中继还是读列表时那一个，打开它；换过了、改回了账号或偏好读不了都抛出（`relay_changed`、`storage`）。
+  private func relay(matching binding: KeyboardCloudClipboardBinding) async throws -> IOSCloudClipboardRelay {
+    guard try await IOSCloudClipboardRelay.selected(preferencesDirectory: preferencesDirectory) else {
+      throw IOSCloudClipboardRelayFailure(code: IOSCloudClipboardRelayPolicy.changed)
+    }
+    let name = await MainActor.run { IOSCloudClipboardDriver.deviceName(UIDevice.current) }
+    let relay = try IOSCloudClipboardRelay.open(preferencesDirectory: preferencesDirectory, directory: relayDirectory, deviceName: name)
+    guard relay.binding == binding.relay else { throw IOSCloudClipboardRelayFailure(code: IOSCloudClipboardRelayPolicy.changed) }
+    return relay
+  }
+
+  /// 经水杉账号发请求之前确认这时没有改成中继或网盘；读不了偏好也不发。
+  private func requireAccountRoute() async throws {
+    if try await IOSCloudClipboardRelay.selected(preferencesDirectory: preferencesDirectory) {
+      throw IOSCloudClipboardRelayFailure(code: IOSCloudClipboardRelayPolicy.changed)
+    }
+  }
+
   /// 将请求及可能发生的令牌刷新绑定到发起时的登录会话。
   private func authorized<T: Sendable>(matching binding: KeyboardCloudClipboardBinding,
                                        _ body: @Sendable (String, BackendClipboardE2E?) async throws -> T) async throws -> T {
+    try await requireAccountRoute()
     let e2e = e2e?.bound(to: session, userID: binding.userID, sessionID: binding.sessionID)
     let result = try await session.authenticated(matchingUserID: binding.userID,
                                                  matchingSessionID: binding.sessionID) { token in
@@ -265,6 +321,8 @@ final class KeyboardCloudClipboard {
     if let failure = error as? BackendAccountClient.Failure {
       return failure.status == 401 ? .signedOut : .failed(failure.localizedDescription)
     }
+    // 中继或网盘的失败（令牌被拒、连不上、网盘回退……）各有说法，都不是没登录。
+    if let failure = error as? IOSCloudClipboardRelayFailure { return .failed(failure.localizedDescription) }
     return .failed(offlineMessage)
   }
 }

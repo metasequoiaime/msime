@@ -143,6 +143,34 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertTrue(UsageReporting.takeHandledProcess(9, in: handled))
   }
 
+  func testFailedUncaughtExceptionWriteDoesNotSuppressMetricKit() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let blocked = root.appendingPathComponent("blocked")
+    try Data("synthetic".utf8).write(to: blocked)
+    let handled = root.appendingPathComponent("uncaught-exception-pids")
+    UsageReporting.recordUncaughtException(name: "Synthetic", returnAddresses: [], pid: 4242,
+                                           in: blocked, handledProcesses: handled)
+    XCTAssertFalse(UsageReporting.takeHandledProcess(4242, in: handled))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: handled.path))
+  }
+
+  func testExceptionConsentFollowsChangesAndRejectsStaleStartupRead() {
+    let consent = UsageReporting.ExceptionConsent()
+    XCTAssertFalse(consent.isEnabled)
+    XCTAssertTrue(consent.refresh { true })
+    consent.update(false)
+    XCTAssertFalse(consent.isEnabled)
+    consent.update(true)
+    XCTAssertTrue(consent.isEnabled)
+    XCTAssertFalse(consent.refresh {
+      consent.update(false)
+      return true
+    })
+    XCTAssertFalse(consent.isEnabled)
+  }
+
   func testCrashDiagnosticDoesNotFollowCrashDirectorySymlink() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let outside = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
