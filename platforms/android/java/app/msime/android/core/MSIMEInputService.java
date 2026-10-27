@@ -4812,7 +4812,6 @@ public final class MSIMEInputService extends InputMethodService {
         return QuickPunctuationPolicy.uriPeriodPrimary(dedicatedEnglish, editorInputType,
             commaSecondaryPeriod());
     }
-    }
 
     /** 手写底行在场：逗号长按输入问号、句号长按输入叹号，接替原来书写区左列的 ？ ！。 */
     boolean handwritingMarksShown() {
