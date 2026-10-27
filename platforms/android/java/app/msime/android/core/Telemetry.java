@@ -9,12 +9,9 @@ import app.msime.android.NativeClient;
 import app.msime.android.ThreadPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -153,7 +150,7 @@ public final class Telemetry {
         return true;
     }
 
-    /** Synchronous: the process is about to be killed, so the record is on disk (and forced) before the previous handler runs. */
+    /** 进程即将被系统结束：经共享层同步落盘并原子发布，再交给之前的异常处理器。 */
     private static void writeCrashRecord(Throwable error) throws Exception {
         File target;
         String header;
@@ -168,15 +165,18 @@ public final class Telemetry {
             if (!prepareCrashDirectory(directory)) return;
             target = new File(directory, UUID.randomUUID() + CRASH_EXTENSION);
         }
-        byte[] record = TextPolicy.utf8Bytes(header + crashRecord(error));
-        // CREATE_NEW: the first record of a session is kept, as the shared store's own writer does.
-        try (FileChannel channel = FileChannel.open(target.toPath(),
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
-                LinkOption.NOFOLLOW_LINKS)) {
-            ByteBuffer buffer = ByteBuffer.wrap(record);
-            while (buffer.hasRemaining()) channel.write(buffer);
-            channel.force(true);
-        }
+        String record = crashRecord(error);
+        int newline = record.indexOf('\n');
+        String name = target.getName();
+        String id = UUID.fromString(name.substring(0, name.length() - CRASH_EXTENSION.length())).toString();
+        JSONObject request = new JSONObject()
+            .put("directory", target.getParentFile().getParentFile().getAbsolutePath())
+            .put("session", id)
+            .put("message", record.substring(0, newline))
+            .put("stack", record.substring(newline + 1));
+        if (!header.isEmpty()) request.put("crash_record_header", header);
+        // 带预先分配的 id，不按当前会话标记认领；该分支不取共享队列锁，也不联网。
+        NativeClient.telemetryRecordCrash(request.toString());
     }
 
     /** The native begin response names the reserved record below our crash directory. Recheck it
@@ -189,7 +189,7 @@ public final class Telemetry {
             Path raw = target.toPath();
             if (!raw.isAbsolute()) return false;
             Path path = raw.normalize();
-            if (path.equals(root) || !path.startsWith(root)
+            if (!root.equals(path.getParent())
                     || !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return false;
             app.msime.android.SafePaths.rejectSymlinkComponents(path);
             return true;
