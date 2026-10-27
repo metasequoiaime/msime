@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,7 +34,9 @@ public final class HttpAsrRecognizer {
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
     /** Why a recognition did not produce text. The caller maps these onto its own outcomes. */
-    public enum Failure { PERMISSION, UNAVAILABLE, CANCELLED, NETWORK, EMPTY }
+    public enum Failure {
+        PERMISSION, UNAVAILABLE, CANCELLED, NETWORK, TIMEOUT, SERVICE_TIMEOUT, LIMIT, SERVICE, EMPTY
+    }
 
     /** Thrown rather than returning null so a caller cannot mistake a failure for silence. */
     public static final class Refused extends Exception {
@@ -153,7 +156,13 @@ public final class HttpAsrRecognizer {
             }
             if (cancelled.get()) throw new Refused(Failure.CANCELLED);
             int status = opened.getResponseCode();
-            if (!HttpConnectionPolicy.isSuccessful(status)) throw new Refused(Failure.NETWORK);
+            if (!HttpConnectionPolicy.isSuccessful(status)) {
+                throw new Refused(switch (HttpAsrPolicy.statusFailure(status)) {
+                    case TOO_LARGE -> Failure.LIMIT;
+                    case TIMED_OUT -> Failure.SERVICE_TIMEOUT;
+                    case REJECTED -> Failure.SERVICE;
+                });
+            }
             String text;
             try (InputStream input = opened.getInputStream()) {
                 String response = TextPolicy.utf8(
@@ -163,6 +172,8 @@ public final class HttpAsrRecognizer {
             }
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
             return text;
+        } catch (SocketTimeoutException error) {
+            throw new Refused(Failure.TIMEOUT);
         } catch (IOException error) {
             throw new Refused(Failure.NETWORK);
         } finally {

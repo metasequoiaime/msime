@@ -30,8 +30,8 @@ cask "msime" do
   zap trash: [
     "~/Library/Application Support/app.msime.macos",
     "~/Library/Caches/app.msime.macos",
-    "~/Library/Preferences/app.msime.macos.plist",
     "~/Library/Preferences/app.msime.inputmethod.MetasequoiaIME.plist",
+    "~/Library/Preferences/app.msime.macos.plist",
     "~/Library/Saved Application State/app.msime.macos.savedState",
     "~/Library/WebKit/app.msime.macos",
   ]

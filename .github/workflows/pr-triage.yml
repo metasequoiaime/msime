@@ -9,7 +9,8 @@ on:
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 concurrency:
-  group: pr-triage-${{ github.event.pull_request.number }}
+  # 编辑正文或标题不取消新提交的路径与大小检查；同类新事件仍取代旧执行。
+  group: pr-triage-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'head' }}
   cancel-in-progress: true
 
 permissions:

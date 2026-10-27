@@ -16,6 +16,7 @@ public final class InputConnectionGuardSmoke {
         check(!InputConnectionGuard.beginBatchEdit(disconnected));
         check(!InputConnectionGuard.endBatchEdit(disconnected));
         check(!InputConnectionGuard.commitText(disconnected, "x", 1));
+        check(!InputConnectionGuard.setSelection(disconnected, 0, 0));
         check(!InputConnectionGuard.deleteSurroundingText(disconnected, 1, 0));
         check(!InputConnectionGuard.deleteSurroundingTextInCodePoints(disconnected, 1, 0));
         check(InputConnectionGuard.textBeforeCursor(disconnected, 2) == null);
