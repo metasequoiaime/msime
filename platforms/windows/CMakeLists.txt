@@ -1456,7 +1456,7 @@ set_tests_properties(windows-cloud-candidate-worker PROPERTIES TIMEOUT 60)
 # anywhere else. Both take an injectable fetcher for the same reason the cloud
 # worker does.
 add_executable(windows-ai-candidate-worker tests/candidate/ai_candidate_worker.cpp)
-target_link_libraries(windows-ai-candidate-worker PRIVATE msime-windows-pump)
+target_link_libraries(windows-ai-candidate-worker PRIVATE msime-windows-pump nlohmann_json::nlohmann_json)
 target_include_directories(windows-ai-candidate-worker PRIVATE src/candidate)
 if(MSVC)
   target_compile_options(windows-ai-candidate-worker PRIVATE /W4 /WX /utf-8)
