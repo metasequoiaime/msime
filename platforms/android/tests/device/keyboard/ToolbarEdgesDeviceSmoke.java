@@ -162,15 +162,20 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 int distance = android.view.ViewConfiguration.get(getTargetContext()).getScaledTouchSlop() + 20;
                 int[] actions = {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE,
                     android.view.MotionEvent.ACTION_UP};
-                committed.setLength(0);
-                for (int index = 0; index < actions.length; index++) {
-                    android.view.MotionEvent event = android.view.MotionEvent.obtain(down, down + index * 20,
-                        actions[index], 40, index == 0 ? 40 : 40 + distance, 0);
-                    try { comma.dispatchTouchEvent(event); }
-                    finally { event.recycle(); }
+                // 下滑是 #9881 要的方向；上滑与字母键滑动输入符号的默认方向一致，两个方向都要提交句号。
+                for (int direction : new int[] {1, -1}) {
+                    committed.setLength(0);
+                    for (int index = 0; index < actions.length; index++) {
+                        android.view.MotionEvent event = android.view.MotionEvent.obtain(down, down + index * 20,
+                            actions[index], 40, index == 0 ? 100 : 100 + direction * distance, 0);
+                        try { comma.dispatchTouchEvent(event); }
+                        finally { event.recycle(); }
+                    }
+                    check(committed.toString().equals("."),
+                        "long-space comma " + (direction > 0 ? "down" : "up") + " swipe lost after input-view generation "
+                            + generation + ": " + committed);
+                    down = android.os.SystemClock.uptimeMillis();
                 }
-                check(committed.toString().equals("."),
-                    "long-space comma swipe lost after input-view generation " + generation + ": " + committed);
             }
         } finally {
             put.invoke(null, getTargetContext(), key, previous);
