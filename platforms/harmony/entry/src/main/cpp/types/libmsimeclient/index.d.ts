@@ -216,6 +216,8 @@ export const applyOnlineCandidates: (
 /** `msime_client_resolve_online_candidates`：AI 回答为空、失败或被拒时调用（source 只认 1）。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变。应答 `{ok, value: {applied, view}}`。 */
 export const resolveOnlineCandidates: (handle: number, query: string, source: number) => string;
 export const personalDictionarySync: (options: string) => string;
+/** 同一个排空放在工作线程上，给设置应用排空它自己的队列用：API 12 起键盘读的是自己沙箱里的队列，设置应用排进去的词只能由设置应用写进它的词库，再经「我的词条」交换到键盘。 */
+export const personalDictionarySyncAsync: (options: string) => Promise<string>;
 /**
  * `{options,action}` against the queued personal dictionary rather than the Engine.
  *
@@ -232,6 +234,10 @@ export const dictionaryCollections: (request: string) => string;
 export const dictionaryCollectionsAsync: (request: string) => Promise<string>;
 /** `{bytes_base64}` of a Sogou cell dictionary (`.scel`) answered as `{ok,value:{name,category,entries,text}}`, where `text` is the standard TSV the desktop form then imports, or `{ok:false,error}` with a `dictionary_scel_*` code. Pure, on a worker thread. */
 export const dictionaryScelTextAsync: (request: string) => Promise<string>;
+/** `msime_client_user_words_mirror`：设置应用和键盘之间交换「我的词条」，请求 `{operation:"sync"|"publish", side, options, directory, theirs?, publish?, max_changes?}`，应答 `{ok, value:{captured, applied, rejected, deferred, held_deletions, words, theirs, published}}` 或 `{ok:false, error}`（`user_words_*`）。同步版只给键盘在建会话之前用。 */
+export const userWordsMirror: (request: string) => string;
+/** 同一个请求放在工作线程上：设置应用的 `sync` 和键盘失去焦点时的 `publish`。 */
+export const userWordsMirrorAsync: (request: string) => Promise<string>;
 export const prepareHost: (options: string) => string;
 
 export const snapshotVersion: (options: string) => string;

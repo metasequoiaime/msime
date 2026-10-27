@@ -68,6 +68,10 @@ import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 import { SharedStateMirror } from '../keyboard/SharedStateMirror';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
+import { UserWordsMirror } from '../keyboard/UserWordsMirror';
+import {
+  FileIdentity, SETTINGS_MAX_CHANGES, SETTINGS_QUEUE_ROUNDS, SETTINGS_RETRY_MS, UserWordsMirrorPolicy, UserWordsReply
+} from '../keyboard/UserWordsMirrorPolicy';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { ConsentState, PrivacyConsentPolicy } from '../privacy/PrivacyConsentPolicy';
 import { PrivacyConsentDialog } from '../privacy/PrivacyConsentDialog';
@@ -969,6 +973,11 @@ class SettingsBridge {
   // 与键盘交换状态的共享沙箱镜像，拿不到共享目录时为 null；`sharedPublishTimer` 合并短时间内的多次改动，只发布一次。
   private sharedMirror: SharedStateMirror | null = null;
   private sharedPublishTimer: number = -1;
+  // 与键盘交换「我的词条」（`UserWordsMirrorPolicy`）：上次做完时本方日志和键盘发布的标记、是否正在做、正在做时又被叫了一次，以及没做完时的重试。
+  private userWordsMark: string | null = null;
+  private userWordsRunning: boolean = false;
+  private userWordsAgain: boolean = false;
+  private userWordsRetryTimer: number = -1;
   private dictionaryUpdateTimer: number = -1;
   // What the page was last handed, so an activation can tell a changed document from an unchanged
   // one. -1 until the page has loaded once, which never compares equal to a real revision.
@@ -1068,6 +1077,7 @@ class SettingsBridge {
     }
     SharedStateSync.settingsSync(this.sharedMirror, this.stateDirectory);
     AccountSessionAdoption.adopt(this.sharedMirror, this.stateDirectory, 'keyboard');
+    this.syncUserWords();
   }
 
   /** 立即把设置应用管的条目发布给键盘：窗口退到后台时调用，用户接下来多半要去别的应用打字。 */
@@ -1080,6 +1090,87 @@ class SettingsBridge {
       return;
     }
     SharedStateSync.settingsPublish(this.sharedMirror, this.stateDirectory);
+    this.syncUserWords();
+  }
+
+  /**
+   * 与键盘交换「我的词条」（`msime_client_user_words_mirror` 的 sync），在工作线程上：先把设置应用自己排进个人词库队列的词写进它的词库，再把键盘发布的改动（打字学到的词、候选栏里删掉的词）写进来，并把设置应用这边的改动（设置页改的词、导入的词、网盘同步写进来的词）发布给键盘。窗口回到前台和每次改完设置之后调用；本方日志、队列和键盘的发布从上次做完以后都没变时不做。键盘的改动写进来以后，词库同步要记一次本机改动，网盘才收得到。
+   */
+  private syncUserWords(): void {
+    const mirror: SharedStateMirror | null = this.sharedMirror;
+    if (mirror === null || this.context === undefined) return;
+    if (this.userWordsRunning) {
+      this.userWordsAgain = true;
+      return;
+    }
+    const theirs: string = mirror.userWordsFile('keyboard');
+    // 标记在开始之前取：这一次进行当中页面又改了词，下次标记不同就再做一次。
+    const mark: string = [
+      UserWordsMirror.journalMark(this.stateDirectory),
+      UserWordsMirrorPolicy.mark(UserWordsMirrorPolicy.settingsQueueFiles(this.stateDirectory)
+        .map((path: string): FileIdentity | null => UserWordsMirror.identity(path))),
+      UserWordsMirror.fileMark(theirs),
+    ].join('#');
+    if (!UserWordsMirrorPolicy.settingsSyncDue(this.userWordsMark, mark)) return;
+    let options: string;
+    try {
+      const prepared: Record<string, Object> = JSON.parse(client.prepareHost(JSON.stringify(
+        KeyboardSession.prepareRequest(`${this.context.filesDir}/engine`, this.stateDirectory)))) as Record<string, Object>;
+      if (prepared['ok'] !== true) {
+        KeyboardLog.error(`user words not exchanged: host preparation refused: ${String(prepared['error'])}`);
+        return;
+      }
+      options = JSON.stringify(prepared['value']);
+    } catch (error) {
+      KeyboardLog.error(`user words not exchanged: ${describeError(error)}`);
+      return;
+    }
+    this.userWordsRunning = true;
+    const request: string = UserWordsMirrorPolicy.request('sync', 'settings', options, this.stateDirectory, theirs,
+      mirror.userWordsFile('settings'), SETTINGS_MAX_CHANGES);
+    this.drainDictionaryQueues(options).then(async (drained: boolean): Promise<void> => {
+      const reply: UserWordsReply = await UserWordsMirror.runAsync(request);
+      this.userWordsRunning = false;
+      if (drained && UserWordsMirrorPolicy.settled(reply)) {
+        this.userWordsMark = mark;
+      } else if (this.userWordsRetryTimer === -1) {
+        this.userWordsRetryTimer = setTimeout((): void => {
+          this.userWordsRetryTimer = -1;
+          this.syncUserWords();
+        }, SETTINGS_RETRY_MS);
+      }
+      if (UserWordsMirrorPolicy.dictionaryChanged(reply)) {
+        this.userWordsChanged();
+      }
+      if (this.userWordsAgain) {
+        this.userWordsAgain = false;
+        this.syncUserWords();
+      }
+    });
+  }
+
+  /**
+   * 设置应用自己排进个人词库队列的词（导入的个人词库文件、云词库下载、命名词库的增删），由设置应用自己写进它的词库，再经「我的词条」交换到键盘。API 12 起键盘排空的是它自己沙箱里的那个队列，这些词以前从来没进过任何一份词库。每轮写最多 4 条（队列的上限），再让命名词库送下一批；一次最多 `SETTINGS_QUEUE_ROUNDS` 轮，剩下的下次接着写。返回队列排空了没有。
+   */
+  private async drainDictionaryQueues(options: string): Promise<boolean> {
+    try {
+      for (let round = 0; round < SETTINGS_QUEUE_ROUNDS; round++) {
+        const personal: string = await client.personalDictionarySyncAsync(options);
+        const flushed: string = await client.dictionaryCollectionsAsync(
+          `{"options":${options},"action":{"operation":"flush"}}`);
+        if (UserWordsMirrorPolicy.queueDrained(personal, flushed)) return true;
+      }
+    } catch (error) {
+      KeyboardLog.error(`personal dictionary queue not drained: ${describeError(error)}`);
+    }
+    return false;
+  }
+
+  /**
+   * 设置应用的词库有了页面不知道的改动（键盘的词写了进来、排空队列写进了词）：告诉页面一声（`msime-user-words-changed`）。「我的词条」的网盘同步由页面排队调用，页面可以据此马上以 `local_change` 记一次本机改动；页面不听时，同步下一次运行开头的核对同样会记下它们。
+   */
+  private userWordsChanged(): void {
+    this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-user-words-changed'))").catch((): void => {});
   }
 
   /**
