@@ -33,8 +33,8 @@ public final class Bootstrap {
             installWordbooks(context, new File(root, "bootstrap/wordbooks"));
             File configuration = new File(root, "runtime-options.json");
             File resources = new File(root, "bootstrap/resources");
-            // 必须在刷新和 extractDictionary 之前：extractDictionary 会把新安装包的锁里没有的文件移出资源目录，老用户已解压的日文词典要先收编。
-            adoptJapaneseDictionary(context, root, resources);
+            // 必须在刷新和 extractDictionary 之前：extractDictionary 会把新安装包的锁里没有的文件移出资源目录，老用户已解压的日文词典和五笔码表要先收编。
+            adoptOnDemandGroups(context, root, resources);
             if (existingConfiguration(configuration)) {
                 refreshExistingConfiguration(context, configuration, resources);
                 return false;
@@ -276,7 +276,7 @@ public final class Bootstrap {
     }
 
     /**
-     * 把 APK 里 `desktop-dictionary.lock.json` 固定的词库解包到 `resources`。共享校验要求资源目录恰好是锁里的文件（外加 `helpcodes/`），所以先删掉锁里没有的条目（例如统一 `msime-` 前缀之前的旧文件名），`helpcodes/` 连同用户自己的辅助码表原样保留。例外是收编没成的日文词典那一组（{@link #adoptJapaneseDictionary} 遇到暂时性失败时留下的）：改名挪进 {@link #japanesePending} 等下次启动再收编，不删，免得用户重新下载 66 MB。每个文件经临时同级文件原子替换，中途失败时下次启动的刷新仍报词库过期，会再解包一次。
+     * 把 APK 里 `desktop-dictionary.lock.json` 固定的词库解包到 `resources`。共享校验要求资源目录恰好是锁里的文件（外加 `helpcodes/`），所以先删掉锁里没有的条目（例如统一 `msime-` 前缀之前的旧文件名），`helpcodes/` 连同用户自己的辅助码表原样保留。例外是收编没成的按需文件组（日文词典那一组或五笔码表，{@link #adoptOnDemandGroups} 遇到暂时性失败时留下的）：改名挪进这一组的 {@link #pending} 目录等下次启动再收编，不删，免得用户重新下载 66 MB 的日文词典或近百 MB 的五笔码表。每个文件经临时同级文件原子替换，中途失败时下次启动的刷新仍报词库过期，会再解包一次。
      */
     private static void extractDictionary(Context context, File resources) throws Exception {
         ensureSafeDirectory(resources.toPath());
@@ -284,9 +284,9 @@ public final class Bootstrap {
         File[] existing = resources.listFiles();
         for (File entry : existing == null ? new File[0] : existing) {
             if (entry.getName().equals("helpcodes") || names.contains(entry.getName())) continue;
-            if (java.util.Arrays.asList(JAPANESE_ARTIFACTS).contains(entry.getName())
-                    && Files.isRegularFile(entry.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-                File pending = japanesePending(resources);
+            OnDemandGroup group = onDemandGroupOf(entry.getName());
+            if (group != null && Files.isRegularFile(entry.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                File pending = pending(resources, group);
                 ensureSafeDirectory(pending.toPath());
                 Files.move(entry.toPath(), new File(pending, entry.getName()).toPath(),
                     StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
@@ -320,51 +320,87 @@ public final class Bootstrap {
         return names;
     }
 
-    /** 日文词典那一组，与 crates/client-core/src/resources.rs 的 `ON_DEMAND_JAPANESE_ARTIFACTS` 一致：共享校验要求它们整组在或整组不在资源目录里。 */
-    private static final String[] JAPANESE_ARTIFACTS = {
-        "msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt", "msime-mozc_LICENSE.txt",
-    };
+    /**
+     * 发布包可以不带、改为按需下载的一组词库文件，与 crates/client-core/src/resources.rs 的 `on_demand_artifacts("android")` 一致：共享校验要求每组整组在或整组不在资源目录里。
+     *
+     * @param pack 这组文件收编成的资源包
+     * @param pending 收编没成、又被 {@link #extractDictionary} 挪出资源目录时暂放的目录名，与资源目录同级、在同一个文件系统上，下次启动从那里收编
+     */
+    private record OnDemandGroup(String pack, java.util.List<String> artifacts, String pending) {}
 
-    /** 收编没成、又被 {@link #extractDictionary} 挪出资源目录的日文词典那一组暂放在这里（`bootstrap/japanese-pending`），与资源目录同一个文件系统，下次启动从这里收编。 */
-    private static File japanesePending(File resources) {
-        return new File(resources.getParentFile(), "japanese-pending");
+    /** 日文词典与它的两份 Mozc 许可文本（`ON_DEMAND_JAPANESE_ARTIFACTS`）。 */
+    private static final OnDemandGroup JAPANESE_GROUP = new OnDemandGroup(ResourcePacks.JAPANESE,
+        java.util.List.of("msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt", "msime-mozc_LICENSE.txt"),
+        "japanese-pending");
+    /** 五笔码表（`ON_DEMAND_WUBI_ARTIFACTS`）。full 和拼音版的瘦包不带它，五笔版照旧随包。 */
+    private static final OnDemandGroup WUBI_GROUP = new OnDemandGroup(ResourcePacks.WUBI,
+        java.util.List.of("msime-wubi.db"), "wubi-pending");
+    private static final java.util.List<OnDemandGroup> ON_DEMAND_GROUPS = java.util.List.of(JAPANESE_GROUP, WUBI_GROUP);
+
+    /** 文件 `name` 属于哪一组按需文件；都不属于时为 null。 */
+    private static OnDemandGroup onDemandGroupOf(String name) {
+        for (OnDemandGroup group : ON_DEMAND_GROUPS) if (group.artifacts().contains(name)) return group;
+        return null;
+    }
+
+    /** 收编没成、又被 {@link #extractDictionary} 挪出资源目录的那组文件暂放在这里（例如 `bootstrap/japanese-pending`）。 */
+    private static File pending(File resources, OnDemandGroup group) {
+        return new File(resources.getParentFile(), group.pending());
     }
 
     /**
-     * 升级时把上一个安装包解压在 `bootstrap/resources` 里的日文词典收编为 `japanese` 资源包，不重新下载。
+     * 升级时把上一个安装包解压在 `bootstrap/resources` 里的按需文件组（日文词典那一组、五笔码表）收编为资源包，不重新下载。
      *
-     * <p>只在本安装包的锁里已经没有 `msime-japanese.dat` 时做：日文版和仍随包带日文的安装包照旧从资源目录读。先收编资源目录里的那组，再收编 {@link #japanesePending} 里的那组。收编是同一文件系统内的改名，不复制；输入法进程正内存映射着的词典 inode 不变，映射继续有效，下次获得焦点时 host-api 改从资源包读。收编成功（或同一组字节早已装好）后来源目录里不再留这组文件，共享校验按「整组缺席」通过。字节对不上或这组不完整时整组删掉，等用户添加日语时再按需下载；其他失败（例如另一个下载正占着这个资源包）原样保留，下次启动再试，那之前资源目录里仍是完整的一组。失败只记一条不含路径的日志，不影响准备。
+     * <p>一组只在本安装包的锁里已经没有它时处理：日文版、五笔版和仍随包带着它的安装包照旧从资源目录读。先收编资源目录里的那组，再收编 {@link #pending} 里的那组。收编是同一文件系统内的改名，不复制；输入法进程正内存映射着的文件 inode 不变，映射继续有效，下次获得焦点时 host-api 改从资源包读。收编成功（或同一组字节早已装好）后来源目录里不再留这组文件，共享校验按「整组缺席」通过。字节对不上（例如安装包同时换了词库版本，旧版本的五笔码表与新锁不符）或这组不完整时整组删掉，等用户需要时再按需下载；其他失败（例如另一个下载正占着这个资源包）原样保留，下次启动再试，那之前资源目录里仍是完整的一组。失败只记一条不含路径的日志，不影响准备。
+     *
+     * <p>本版本不提供五笔（拼音版）时五笔码表不收编、直接删掉：拼音版以前随包带着它却从来用不到，收编成资源包只会让词库自动更新每次都替它下载新版本。
      *
      * <p>进程在收编途中被杀时，这组文件（或其中几个）留在共享层的暂存目录里，资源目录里一个也不剩或只剩几个。所以资源包还没装好时，资源目录里没有这组文件也照样调用一次收编：共享层先按暂存目录里的来源记录把文件放回原处，再照常收编。
      */
-    private static void adoptJapaneseDictionary(Context context, File root, File resources) {
+    private static void adoptOnDemandGroups(Context context, File root, File resources) {
+        java.util.Set<String> packaged;
         try {
-            if (packagedArtifacts(context).contains(JAPANESE_ARTIFACTS[0])) return;
-            adoptJapaneseFrom(root, resources, !ResourcePacks.installed(root, ResourcePacks.JAPANESE));
-            adoptJapaneseFrom(root, japanesePending(resources), false);
+            packaged = packagedArtifacts(context);
         } catch (Exception | LinkageError error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
-            android.util.Log.w("MSIMEBootstrap", "Japanese dictionary adoption failed", error);
+            android.util.Log.w("MSIMEBootstrap", "On-demand dictionary adoption failed", error);
+            return;
+        }
+        for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+            try {
+                if (packaged.contains(group.artifacts().get(0))) continue;
+                if (group == WUBI_GROUP && !AppEdition.current().offers("wubi")) {
+                    for (String name : group.artifacts()) {
+                        deleteTree(new File(resources, name));
+                        deleteTree(new File(pending(resources, group), name));
+                    }
+                    continue;
+                }
+                adoptFrom(root, resources, group, !ResourcePacks.installed(root, group.pack()));
+                adoptFrom(root, pending(resources, group), group, false);
+            } catch (Exception | LinkageError error) {
+                android.util.Log.w("MSIMEBootstrap", "On-demand dictionary adoption failed: " + group.pack(), error);
+            }
         }
     }
 
-    /** 收编 `directory` 里的日文词典那一组；`directory` 里一个也没有时，只有 `recover` 为真才调用（让共享层放回被打断的收编移走的文件）。 */
-    private static void adoptJapaneseFrom(File root, File directory, boolean recover) throws IOException {
+    /** 收编 `directory` 里的那组文件；`directory` 里一个也没有时，只有 `recover` 为真才调用（让共享层放回被打断的收编移走的文件）。 */
+    private static void adoptFrom(File root, File directory, OnDemandGroup group, boolean recover) throws IOException {
         boolean present = false;
-        for (String name : JAPANESE_ARTIFACTS) {
+        for (String name : group.artifacts()) {
             present |= Files.exists(new File(directory, name).toPath(), LinkOption.NOFOLLOW_LINKS);
         }
         if (!present && !recover) return;
         if (!Files.isDirectory(directory.toPath(), LinkOption.NOFOLLOW_LINKS)) return;
         try {
-            ResourcePacks.adopt(root, ResourcePacks.JAPANESE, directory);
+            ResourcePacks.adopt(root, group.pack(), directory);
         } catch (ResourcePacks.Failure failure) {
             // 本来就没有这组文件时缺文件是常态，不记日志。
             if (present || !"local_model_missing_file".equals(failure.code()))
-                android.util.Log.w("MSIMEBootstrap", "Japanese dictionary adoption failed: " + failure.code());
+                android.util.Log.w("MSIMEBootstrap", "On-demand dictionary adoption failed: " + group.pack() + " " + failure.code());
             if (!unusableForAdoption(failure)) return;
         }
-        for (String name : JAPANESE_ARTIFACTS) deleteTree(new File(directory, name));
+        for (String name : group.artifacts()) deleteTree(new File(directory, name));
     }
 
     /**

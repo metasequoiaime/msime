@@ -45,7 +45,7 @@ import org.json.JSONObject;
  *
  * <p>本地语音模型（{@link LocalVoiceModels}）和资源包走同一条队列：同样几十到几百 MB、同样要在主进程的工作线程上跑、同样要能从通知里取消。它们在这里的键是 {@code voice-model:<id>}（{@link #voiceModelKey}），状态、进度、取消和结果通知与资源包完全相同，只是安装和取消调用的是模型的共享接口。
  *
- * <p>下载只由用户的操作发起：在「添加语言」里加日语、粤语、注音或笔画，打开离线释义，打开离线识别，或在设置页点「下载」「重试」。启动时从不自动下载，服务也不在进程被杀后自己重启（{@link #START_NOT_STICKY}）；没下完的文件留在共享层的续传目录里，下次点下载时用 HTTP Range 接着下。
+ * <p>下载只由用户的操作发起：在「添加语言」里加日语、粤语、注音、笔画或五笔，打开离线释义，打开离线识别，或在设置页点「下载」「重试」。启动时不自动下载，只有一个例外：偏好里当前方案或要切回的中文方案是五笔、而本机没有五笔码表时（升级到不带码表的瘦包后，旧码表与新词库锁对不上收编不了；或在首启引导里选了五笔），设置应用回到前台时为它请求一次，见 {@link KeyboardScheme#wubiTableWanted}。服务也不在进程被杀后自己重启（{@link #START_NOT_STICKY}）；没下完的文件留在共享层的续传目录里，下次点下载时用 HTTP Range 接着下。
  *
  * <p>同一个资源包同一时间只有一个下载：这里按资源包记着状态，正在下的再点一次什么也不做（共享层另有 {@code resource_pack_busy} 兜底）。服务不声明 {@code android:process}，所以和设置页一样跑在主进程，:ime 进程从不安装：两个进程同时装同一个包会互相清掉对方的暂存目录。
  *
@@ -63,7 +63,7 @@ public final class ResourcePackService extends Service {
     private static final int RESULT_NOTIFICATION = 0x6d730510;
     private static final List<String> PACKS = List.of(ResourcePacks.JAPANESE, ResourcePacks.LANGUAGE_DICTIONARIES,
         ResourcePacks.OFFLINE_GLOSSES, ResourcePacks.PRONUNCIATIONS, ResourcePacks.VOICE_RUNTIME,
-        ResourcePacks.OCR_MODULE);
+        ResourcePacks.OCR_MODULE, ResourcePacks.WUBI);
     private static final String VOICE_MODEL_PREFIX = "voice-model:";
 
     /** 一个资源包正在经历的阶段。下载完成后不再有状态。 */
@@ -194,6 +194,7 @@ public final class ResourcePackService extends Service {
         return switch (pack) {
             case ResourcePacks.JAPANESE -> "日文词典";
             case ResourcePacks.LANGUAGE_DICTIONARIES -> "粤拼、注音和笔画词库";
+            case ResourcePacks.WUBI -> "五笔码表";
             case ResourcePacks.OFFLINE_GLOSSES -> "离线释义词典";
             case ResourcePacks.PRONUNCIATIONS -> "离线英文音标词典";
             case ResourcePacks.OCR_MODULE -> "离线拍照识字模块";

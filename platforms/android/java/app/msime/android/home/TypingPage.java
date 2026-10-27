@@ -302,8 +302,9 @@ public final class TypingPage extends ReloadingDetailPage {
         languages.nav("联系人", "导入姓名和手机号，输入姓名时优先显示", null,
             () -> SettingsNavigator.open(context, PageId.CONTACTS, null));
 
-        // 五笔查码（#6789）：本版本的方案列表里启用了五笔才列出，与共享设置页「五笔查码」一组出现的条件一致。
-        if (enabled.contains(KeyboardScheme.WUBI)) {
+        // 五笔查码（#6789）：本版本的方案列表里启用了五笔、五笔码表也在本机时才列出，与共享设置页「五笔查码」一组出现的条件一致。瘦包还没下载码表时查不出任何编码，五笔那一行给出下载入口。
+        if (enabled.contains(KeyboardScheme.WUBI)
+                && KeyboardScheme.WUBI.installed(state.languageDictionaries(), state.packs())) {
             GroupCard wubi = GroupCard.add(sectionColumn(target, "中文"), "五笔");
             wubi.nav(PageId.WUBI_LOOKUP.title(), "查汉字的 86、98 五笔编码", null,
                 () -> SettingsNavigator.open(context, PageId.WUBI_LOOKUP, null));

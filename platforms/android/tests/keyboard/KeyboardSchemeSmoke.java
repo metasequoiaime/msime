@@ -243,10 +243,11 @@ public final class KeyboardSchemeSmoke {
         System.out.println("Android keyboard schemes: eighteen labels, glyphs, wubi profile titles, opt-in defaults, installed dictionaries, host fallback and shared preference mappings and the per-edition narrowing passed");
     }
 
-    /** 日语要日文词典资源包，粤拼、注音和笔画要语言词库资源包；资源目录里还带着日文词典（日文版、尚未收编的旧安装）时日文包算作已具备。 */
+    /** 日语要日文词典资源包，五笔要五笔码表资源包，粤拼、注音和笔画要语言词库资源包；资源目录里还带着日文词典或五笔码表（日文版、五笔版、开发构建、尚未收编的旧安装）时对应的包算作已具备。 */
     static void resourcePacks() throws Exception {
         check(KeyboardScheme.JAPANESE.resourcePack().equals("japanese")
             && KeyboardScheme.JAPANESE_NINE_KEY.resourcePack().equals("japanese"));
+        check(KeyboardScheme.WUBI.resourcePack().equals("wubi"));
         check(KeyboardScheme.CANTONESE.resourcePack().equals("language-dictionaries")
             && KeyboardScheme.ZHUYIN_NINE_KEY.resourcePack().equals("language-dictionaries")
             && KeyboardScheme.STROKE.resourcePack().equals("language-dictionaries"));
@@ -263,13 +264,24 @@ public final class KeyboardSchemeSmoke {
             Set.of(), FULL).equals(List.of(KeyboardScheme.QUANPIN)));
         check(KeyboardScheme.installedOf(List.of(KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN), "",
             Set.of("japanese"), FULL).equals(List.of(KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN)));
+        // 瘦包没有五笔码表：五笔不进键盘的方案列表，装好 wubi 资源包后才进；86 和 98 是同一个入口，读同一张码表。
+        check(!KeyboardScheme.WUBI.installed(null, Set.of()) && !KeyboardScheme.WUBI.installed(""));
+        check(KeyboardScheme.WUBI.installed(null, Set.of("wubi"))
+            && !KeyboardScheme.WUBI.installed(null, Set.of("japanese", "language-dictionaries")));
+        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.WUBI), "",
+            Set.of(), FULL).equals(List.of(KeyboardScheme.QUANPIN)));
+        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.WUBI), "",
+            Set.of("wubi"), FULL).equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.WUBI)));
+        check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.WUBI, "wubi",
+            KeyboardScheme.installedOf(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.WUBI), "", Set.of(), FULL),
+            FULL) == KeyboardScheme.QUANPIN);
         // 词典装好不等于用户启用：中英键轮换只应在调用方传入的启用列表里找方案。
         check(KeyboardScheme.installedOf(List.of(KeyboardScheme.QUANPIN), "",
             Set.of("japanese"), FULL).equals(List.of(KeyboardScheme.QUANPIN)));
 
         check(KeyboardScheme.availablePacks(pack -> false, "").isEmpty());
         check(KeyboardScheme.availablePacks(pack -> true, null)
-            .equals(Set.of("japanese", "language-dictionaries")));
+            .equals(Set.of("japanese", "language-dictionaries", "wubi")));
         Path resources = Files.createTempDirectory("msime-resources");
         try {
             String root = resources.toAbsolutePath().toString();
@@ -277,10 +289,28 @@ public final class KeyboardSchemeSmoke {
             Files.write(resources.resolve("msime-japanese.dat"), new byte[] {1});
             check(KeyboardScheme.availablePacks(pack -> false, root).equals(Set.of("japanese")));
             check(KeyboardScheme.availablePacks(pack -> false, "relative/" + resources.getFileName()).isEmpty());
+            Files.write(resources.resolve("msime-wubi.db"), new byte[] {1});
+            check(KeyboardScheme.availablePacks(pack -> false, root).equals(Set.of("japanese", "wubi")));
+            check(KeyboardScheme.availablePacks(pack -> false, "relative/" + resources.getFileName()).isEmpty());
         } finally {
+            Files.deleteIfExists(resources.resolve("msime-wubi.db"));
             Files.deleteIfExists(resources.resolve("msime-japanese.dat"));
             Files.deleteIfExists(resources);
         }
+        wubiTableWanted();
+    }
+
+    /** 设置应用只替在用五笔的人请求五笔码表：当前方案或要切回的中文方案是五笔、码表不在本机、本版本提供五笔；默认启用列表里有五笔不算。 */
+    static void wubiTableWanted() {
+        check(KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of(), FULL));
+        check(KeyboardScheme.wubiTableWanted("japanese", "wubi", Set.of(), FULL));
+        check(KeyboardScheme.wubiTableWanted("wubi", null, Set.of("japanese"), FULL));
+        check(!KeyboardScheme.wubiTableWanted("quanpin", "quanpin", Set.of(), FULL));
+        check(!KeyboardScheme.wubiTableWanted(null, null, Set.of(), FULL));
+        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of("wubi"), FULL));
+        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of(), PINYIN));
+        // 五笔版的码表随包，availablePacks 从资源目录认出它，不会请求下载。
+        check(!KeyboardScheme.wubiTableWanted("wubi", "wubi", Set.of("wubi"), WUBI));
     }
 
     /** 五笔版和拼音版只列本版本的入口，回退也落在本版本里；手写在有中文方案的版本里都有，写进偏好的是本版本的默认方案。 */
@@ -316,7 +346,8 @@ public final class KeyboardSchemeSmoke {
         check(KeyboardScheme.enabledFromPreferenceIds(null, PINYIN).equals(List.of(KeyboardScheme.QUANPIN,
             KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA,
             KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.HANDWRITING)));
-        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.values()), "", WUBI).equals(
+        // 五笔版的码表随包，availablePacks 从资源目录认出五笔包。
+        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.values()), "", Set.of("wubi"), WUBI).equals(
             List.of(KeyboardScheme.WUBI, KeyboardScheme.HANDWRITING)));
         check(KeyboardScheme.installedOf(List.of(KeyboardScheme.QUANPIN_NINE_KEY), "", WUBI).equals(
             List.of(KeyboardScheme.WUBI)));

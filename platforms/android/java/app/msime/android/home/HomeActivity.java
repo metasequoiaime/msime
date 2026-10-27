@@ -27,9 +27,15 @@ import java.util.concurrent.Executors;
 import org.json.JSONObject;
 import androidx.fragment.app.FragmentTransaction;
 import app.msime.android.AccountIdentity;
+import app.msime.android.AppEdition;
 import app.msime.android.CommunityRequest;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.HostDeepLink;
+import app.msime.android.KeyboardScheme;
+import app.msime.android.ResourcePackService;
+import app.msime.android.ResourcePacks;
+import app.msime.android.core.InputViewValuePolicy;
+import app.msime.android.policy.HostOptionsPolicy;
 import app.msime.android.core.Telemetry;
 import app.msime.android.R;
 import app.msime.android.ThreadPolicy;
@@ -88,6 +94,9 @@ public final class HomeActivity extends AppCompatActivity {
     /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
     private final ExecutorService themeWorker = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedDaemonFactory("msime-home-theme"));
+    /** 这个进程里是否已经替用户请求过五笔码表（{@link #requestWubiTableIfWanted}）：用户在计费网络的确认框里点了取消、或当时没联网，到下次启动应用再问，不在每次回到前台时都打扰。 */
+    private static final java.util.concurrent.atomic.AtomicBoolean WUBI_TABLE_REQUESTED =
+        new java.util.concurrent.atomic.AtomicBoolean();
 
     @Override protected void onCreate(Bundle state) {
         app.msime.android.LauncherIcons.normalize(this);
@@ -193,6 +202,7 @@ public final class HomeActivity extends AppCompatActivity {
     private final FirstRunPreparation.Listener dictionaryPreparation = state -> {
         if (state == FirstRunPreparation.State.READY && !themeWorker.isShutdown()) {
             themeWorker.execute(() -> DictionaryUpdates.request(getApplicationContext(), "automatic", null));
+            requestWubiTableIfWanted();
         }
     };
 
@@ -214,6 +224,43 @@ public final class HomeActivity extends AppCompatActivity {
         // 打开了「上传到云端」时补传打字统计；十分钟的节流在共享层，没登录真实账号时什么都不发。
         TypingUpload.onResume(this);
         themeWorker.execute(() -> DictionaryUpdates.request(getApplicationContext(), "automatic", null));
+        requestWubiTableIfWanted();
+    }
+
+    /**
+     * 在用五笔、本机却没有五笔码表的人（{@link KeyboardScheme#wubiTableWanted}）：请求下载 wubi 资源包，与设置页的「下载」走同一条路，计费网络先弹窗说明大小，没联网时提示一句，进度和结果在通知里。
+     *
+     * <p>full 和拼音版的瘦包不带五笔码表。升级时 Bootstrap 把旧安装包留下的码表收编为资源包，收编不了（安装包同时换了词库版本，旧码表与新锁对不上）的五笔用户、以及在首启引导里选了五笔的新用户，码表到来之前键盘不列出五笔，host-api 把五笔回退到别的方案，所以在设置应用回到前台时替他们请求一次。只在准备完成（{@link FirstRunPreparation.State#READY}）之后判断：准备途中收编正把码表从资源目录挪进资源包，这时两处都看不到它。首启引导和开屏还在前面时不弹，等回到这个页面再判断。
+     */
+    private void requestWubiTableIfWanted() {
+        if (FirstRunPreparation.state() != FirstRunPreparation.State.READY || WUBI_TABLE_REQUESTED.get()
+                || themeWorker.isShutdown()) return;
+        themeWorker.execute(() -> {
+            AppEdition edition = AppEdition.current();
+            if (!edition.offers("wubi")) return;
+            JSONObject snapshot = HostStore.prepared(this) ? HostStore.loadPreferences(this) : null;
+            JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+            if (preferences == null) return;
+            String scheme = InputViewValuePolicy.textOr(preferences, "scheme", "");
+            String lastChinese = InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", "");
+            // 先按偏好排除不用五笔的人，免得每次回到前台都经 JNI 列一遍资源包。
+            if (!KeyboardScheme.wubiTableWanted(scheme, lastChinese, java.util.Set.of(), edition)) return;
+            ResourcePacks.Pack pack = ResourcePacks.pack(getFilesDir(), ResourcePacks.WUBI);
+            if (pack == null) return;
+            java.util.Set<String> packs = KeyboardScheme.availablePacks(
+                id -> ResourcePacks.WUBI.equals(id) && pack.installed(),
+                HostOptionsPolicy.readOption(getFilesDir(), "resources"));
+            if (!KeyboardScheme.wubiTableWanted(scheme, lastChinese, packs, edition)) return;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || !getLifecycle().getCurrentState().isAtLeast(
+                        androidx.lifecycle.Lifecycle.State.RESUMED)) return;
+                if (ViewPolicy.isVisible(findViewById(R.id.home_intro)) || !OnboardingActivity.seen(this)) return;
+                ResourcePackService.Status status = ResourcePackService.status(ResourcePacks.WUBI);
+                if (status != null && status.running()) return;
+                if (!WUBI_TABLE_REQUESTED.compareAndSet(false, true)) return;
+                ResourcePackService.request(this, ResourcePacks.WUBI, pack.size());
+            });
+        });
     }
 
     /**
