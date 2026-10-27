@@ -3,22 +3,22 @@
     "3": {
       "cases": 103,
       "found": 0.99,
-      "mrr": 0.417,
-      "top1": 0.243,
-      "top1_char_prefix": 0.408,
-      "top5": 0.767,
-      "top9": 0.903
+      "mrr": 0.405,
+      "top1": 0.223,
+      "top1_char_prefix": 0.392,
+      "top5": 0.786,
+      "top9": 0.893
     }
   },
   "by_tag": {
     "particle": {
       "cases": 103,
       "found": 0.99,
-      "mrr": 0.417,
-      "top1": 0.243,
-      "top1_char_prefix": 0.408,
-      "top5": 0.767,
-      "top9": 0.903
+      "mrr": 0.405,
+      "top1": 0.223,
+      "top1_char_prefix": 0.392,
+      "top5": 0.786,
+      "top9": 0.893
     }
   },
   "cases": 103,
@@ -29,11 +29,11 @@
   "overall": {
     "cases": 103,
     "found": 0.99,
-    "mrr": 0.417,
-    "top1": 0.243,
-    "top1_char_prefix": 0.408,
-    "top5": 0.767,
-    "top9": 0.903
+    "mrr": 0.405,
+    "top1": 0.223,
+    "top1_char_prefix": 0.392,
+    "top5": 0.786,
+    "top9": 0.893
   },
   "sample_failures": [
     {
@@ -48,7 +48,7 @@
       "id": "p001",
       "input": "biaozhuya",
       "rank": 4,
-      "top1": "此案猪杂"
+      "top1": "此案蛀牙"
     },
     {
       "gold": "相关吧",
@@ -86,6 +86,13 @@
       "top1": "出家"
     },
     {
+      "gold": "新车呀",
+      "id": "p007",
+      "input": "xincheya",
+      "rank": 4,
+      "top1": "一马戈雅"
+    },
+    {
       "gold": "实现吗",
       "id": "p010",
       "input": "shixianma",
@@ -103,7 +110,7 @@
       "gold": "信息啊",
       "id": "p012",
       "input": "xinxia",
-      "rank": 36,
+      "rank": 33,
       "top1": "心下"
     },
     {
@@ -118,7 +125,7 @@
       "id": "p014",
       "input": "qizhaba",
       "rank": 7,
-      "top1": "日子阿坝"
+      "top1": "妻子吧啊"
     },
     {
       "gold": "登录吗",
@@ -126,6 +133,13 @@
       "input": "dengluma",
       "rank": 5,
       "top1": "登录码"
+    },
+    {
+      "gold": "签约啦",
+      "id": "p017",
+      "input": "qianyuela",
+      "rank": 4,
+      "top1": "善于饿啦"
     },
     {
       "gold": "精华啊",
@@ -138,8 +152,8 @@
       "gold": "院长呀",
       "id": "p019",
       "input": "yuanzhangya",
-      "rank": 11,
-      "top1": "愿意阿尼亚"
+      "rank": 5,
+      "top1": "武安象牙"
     },
     {
       "gold": "市场吗",
@@ -170,17 +184,10 @@
       "top1": "我你有把"
     },
     {
-      "gold": "金钱呢",
-      "id": "p027",
-      "input": "jinqianne",
-      "rank": 4,
-      "top1": "金沙抹额"
-    },
-    {
       "gold": "应用吗",
       "id": "p028",
       "input": "yingyongma",
-      "rank": 15,
+      "rank": 12,
       "top1": "悉尼我你妈"
     },
     {
@@ -195,7 +202,14 @@
       "id": "p031",
       "input": "xingchengya",
       "rank": 6,
-      "top1": "性别你咋"
+      "top1": "行车你咋"
+    },
+    {
+      "gold": "披露呢",
+      "id": "p033",
+      "input": "pilune",
+      "rank": null,
+      "top1": "思路呢"
     },
     {
       "gold": "公司啦",
@@ -229,8 +243,8 @@
       "gold": "面包吗",
       "id": "p040",
       "input": "mianbaoma",
-      "rank": 6,
-      "top1": "尼奥斑马"
+      "rank": 48,
+      "top1": "年宝马"
     },
     {
       "gold": "工程啦",
@@ -243,7 +257,7 @@
       "gold": "判决啊",
       "id": "p042",
       "input": "panjuea",
-      "rank": null,
+      "rank": 2,
       "top1": "三巨大"
     },
     {
@@ -301,20 +315,6 @@
       "input": "zijima",
       "rank": 2,
       "top1": "自己拿"
-    },
-    {
-      "gold": "蛋糕啊",
-      "id": "p054",
-      "input": "dangaoa",
-      "rank": 4,
-      "top1": "大棉袄"
-    },
-    {
-      "gold": "游戏呀",
-      "id": "p055",
-      "input": "youxiya",
-      "rank": 10,
-      "top1": "有希望"
     }
   ],
   "top1_source": {

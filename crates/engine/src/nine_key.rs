@@ -58,8 +58,8 @@ const SEEDED_TRUNCATE_DIGITS: usize = 12;
 const SEEDED_PATH_LIMIT: usize = 24;
 /// 每次刷新真正拿去查词库的切分条数。切分搜索本身每个位置仍留 `PATH_LIMIT` 条，这里只截最后物化的路径：每条路径都要查一遍候选、合并整句，一次刷新的耗时大致随条数增长。从 48 降到 24，`ninekey_latency` 整轮执行的指令数少约 31%；`convert_eval` 九键常用词首选 57.5% → 57.1%、前五 85.2% → 84.7%，九键长句首选不变、前五 65.4% → 64.2%，14 键常用词首选 66.0% → 65.8%、长句不变；先锁定首音节再打余下数字时，1500 个多音节词里正确词进前九的从 1448 个变为 1446 个。搜索宽度一起降到 24 时这几组数字完全相同，指令数也一样，所以只截查询这一步。有种子的长串原本截到的 `SEEDED_PATH_LIMIT` 与它相等，那一步现在不再多截。
 const QUERY_PATH_LIMIT: usize = 24;
-/// 音节频度取这个音节权重最高的几个单字之和，见 `SyllablePrior`。
-const PRIOR_CHAR_LIMIT: usize = 3;
+/// 音节频度表：每个音节在词库里出现的总权重，由 `msime-dict-build syllable-frequency` 从 msime-pinyin.db 生成，见 `SyllablePrior`。
+const SYLLABLE_FREQUENCY: &str = include_str!("nine_key/syllable_frequency.tsv");
 // 少量查询键直接扫描已有切分路径，避免刷新时为临时哈希表分配堆内存。
 const SMALL_QUERY_KEY_BATCH: usize = 64;
 // 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
@@ -413,7 +413,7 @@ pub struct NineKeySession {
     single_character_only: bool,
     /// Opened on first use.
     dictionary: Option<QuanpinDictionary>,
-    /// 每个音节及其前缀的单字频度，`SyllablePrior::from_dictionary` 在第一次查词前建好，给切分路径排序用。
+    /// 每个音节及其前缀的频度，`SyllablePrior::shipped` 在第一次查词前按内嵌的音节频度表建好，给切分路径排序用。
     prior: Option<SyllablePrior<'static>>,
     english: Option<EnglishDictionary>,
     /// 完整分组码的 SQLite GLOB 模式；热刷新复用容量。
@@ -1412,12 +1412,9 @@ impl NineKeySession {
             alternatives.push(Vec::new());
             alternatives
         } else {
-            let dictionary = self
-                .dictionary
-                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()));
             let prior = self
                 .prior
-                .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
+                .get_or_insert_with(|| SyllablePrior::shipped(table));
             table.spellings_for_into(
                 remaining,
                 locked_length,
@@ -2654,7 +2651,7 @@ fn next_seeds(
     }
 }
 
-/// 按数字切分路径只看音节频度，长串里正确的切分常常排不进每个位置的 `PATH_LIMIT` 条（#6059）；而词网格看得懂词，前几次刷新排在前面的整句的切分多半就是这一次的前半截。所以取每条种子的 `seed_prefix` 里仍拼得出 `remaining` 开头的那几个音节，接上余下数字的前 `SEED_TAIL_LIMIT` 条切分，补进 `alternatives`。等于在按键之间做一次宽度为 `SEED_RETAIN_LIMIT` 的束搜索，每次按键只把束里的切分往后接一两个音节。
+/// 按数字切分路径只看音节频度，长串里正确的切分常常排不进每个位置的 `PATH_LIMIT` 条（#6059）；而词网格看得懂词，前几次刷新排在前面的整句的切分多半就是这一次的前半截。所以取每条种子的 `seed_prefix` 里仍拼得出 `remaining` 开头的那几个音节，接上余下数字的前 `SEED_TAIL_LIMIT` 条切分，补进 `alternatives`。等于在按键之间做一次宽度为 `SEED_RETAIN_LIMIT` 的束搜索，每次按键只把束里的切分往后接一两个音节。种子的末音节整个拼得出时，再多接一条保住这个末音节的尾段。
 fn seeded_paths(
     alternatives: &mut Vec<Path>,
     seeds: &[String],
@@ -2696,6 +2693,26 @@ fn seeded_paths(
                 .take(SEED_TAIL_LIMIT)
             {
                 append(tail_path);
+            }
+            // 种子的末音节整个拼得出、后面又按了数字时，再接一条以这个末音节开头、余下数字取频度最高那一条切分的尾段。末音节是词网格已经认过的，不该再交给音节频度重排：`32622` 的尾段按频度是 dao'ba、dan'ba、dao'ca，「吃饭」之后的 fan'ba 排第四被丢掉。
+            let (_, full_covered, full_fits) = fitting_syllables(table.grid, seed, remaining);
+            if full_fits {
+                let last = &seed[seed_prefix(seed).len() + 1..];
+                let rest = &remaining[full_covered..];
+                let rest_path = if rest.is_empty() {
+                    Some(Vec::new())
+                } else {
+                    table
+                        .split_paths_limited(rest, &[], prior, 1)
+                        .into_iter()
+                        .next()
+                };
+                if let Some(rest_path) = rest_path {
+                    let mut anchored = Vec::with_capacity(1 + rest_path.len());
+                    anchored.push(last.to_owned());
+                    anchored.extend(rest_path);
+                    append(anchored);
+                }
             }
         }
     }
@@ -3936,9 +3953,9 @@ impl SpellingTable {
     }
 }
 
-/// 音节和音节前缀的单字频度：音节取词库里它权重最高的 `PRIOR_CHAR_LIMIT` 个字的权重之和取对数，前缀取以它开头的音节里最高的那个。九宫格用它决定每个位置留哪 48 条切分路径、种子接哪几条尾段和左列音节的先后，候选本身的先后仍由词库和整句解码决定。
+/// 音节和音节前缀的频度：音节取内嵌的音节频度表（`SYLLABLE_FREQUENCY`，单字行的权重加上音节在多字词里每出现一次计一次的词的权重）取对数，前缀取以它开头的音节里最高的那个。九宫格用它决定每个位置留哪 48 条切分路径、种子接哪几条尾段和左列音节的先后，候选本身的先后仍由词库和整句解码决定。
 ///
-/// 原先只取最常用的那一个字。dict-v2.0.30 只调了单字权重，na 最常用的「那」从 9929703 降到 5580163，ma 的「吗」从 9028487 降到 5664547，两个音节的先后就翻了过来；种子 wo'men'jin'tian'qu'na 接 6254 的三条尾段变成 ma'ji、na'ji、ma'li，na'li 排第四被丢掉，`966365468426786254` 的首选从「我们今天去哪里」变成「我们今天去马力」，「哪里」不在 128 行里。取前三个字之和时 na 有 那、哪、拿 三个常用字，比只有一个常用字「吗」的 ma 稳。
+/// 原先只从词库的单字行估：先是最常用的那一个字，dict-v2.0.30 调单字权重后 na 和 ma 的先后翻了过来，改成前三个字之和。dict-v2.0.39 起单字行记的是这个字单用的次数，「饭、午、物」这类多半出现在词里的字权重掉到原来的一成上下（fan 前三个字合计 3234183 → 374521，wu 6572932 → 1131635），而 he、hao 涨了七倍；种子接尾段时 `94298` 的 xia'wu 排在 xia'yu、xia'zu、zha'yu 之后被丢掉，「我们几个人下午一起去吃饭」成了「下雨」。单字行到底记的是什么，随词库怎么分单字和词的权重而变；音节在全部词条里出现的总权重不随它变，两版词库按它排的音节先后几乎一致（421 个音节的秩相关 0.977，只看前三个单字时 0.780）。表是内嵌的，不从运行时的词库现算：现算要扫一遍全部多字词，第一次按键等不起。
 #[derive(Default)]
 struct SyllablePrior<'a> {
     scores: HashMap<&'a str, f64>,
@@ -3947,17 +3964,9 @@ struct SyllablePrior<'a> {
 }
 
 impl<'a> SyllablePrior<'a> {
-    fn from_dictionary(
-        dictionary: &QuanpinDictionary,
-        table: &'a SpellingTable,
-    ) -> SyllablePrior<'a> {
-        let keys: Vec<String> = table
-            .syllables
-            .iter()
-            .map(|(syllable, _)| syllable.clone())
-            .collect();
-        let weights = dictionary.top_weight_sums(&keys, PRIOR_CHAR_LIMIT);
-        Self::from_weights(&table.syllables, &weights)
+    /// 按内嵌的音节频度表给 `table` 的音节估频度。
+    fn shipped(table: &'a SpellingTable) -> SyllablePrior<'a> {
+        Self::from_weights(&table.syllables, shipped_syllable_frequency())
     }
 
     fn from_weights(syllables: &'a [(String, String)], weights: &HashMap<String, i64>) -> Self {
@@ -3996,6 +4005,26 @@ impl<'a> SyllablePrior<'a> {
     fn syllable_score(&self, syllable: &str) -> f64 {
         self.syllables.get(syllable).copied().unwrap_or(0.0)
     }
+}
+
+/// 解析内嵌的音节频度表，进程里只解析一次。`#` 开头的是来源说明；其余每行都必须是 `音节<TAB>权重`，表是编进二进制的，生成坏了要在测试里就炸，不能悄悄退化成全部按 1 算的均匀频度。
+fn shipped_syllable_frequency() -> &'static HashMap<String, i64> {
+    static TABLE: OnceLock<HashMap<String, i64>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        SYLLABLE_FREQUENCY
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(|line| {
+                let (syllable, weight) = line
+                    .split_once('\t')
+                    .expect("syllable_frequency.tsv: syllable<TAB>weight");
+                let weight = weight
+                    .parse()
+                    .expect("syllable_frequency.tsv: integer weight");
+                (syllable.to_owned(), weight)
+            })
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -4425,50 +4454,105 @@ mod tests {
         assert_eq!(whole, [path(&["wo", "men", "yi", "qi"])]);
     }
 
-    /// 种子接尾段时只取频度最高的 `SEED_TAIL_LIMIT` 条，两个音节各有一对读法（ma/na、ji/li）时四种组合留三种；只按最常用的一个字估频度，na 和 ma 的单字权重差几个百分点就决定 na'li 在不在。权重取自 dict-v2.0.32。
+    /// 「吃饭」之后再按 `22`，种子 chi'fan 去掉末音节接 `32622` 的三条尾段按频度是 dao'ba、dan'ba、dao'ca，fan'ba 排第四；种子的末音节 fan 整个拼得出，再接一条以它开头的尾段，「吃饭吧」的切分就不丢。
+    #[test]
+    fn seed_tails_keep_the_seed_last_syllable_when_it_is_spelled_in_full() {
+        let table = KeyGrid::NineKey.spelling_table();
+        let prior = SyllablePrior::shipped(table);
+        let remaining = encode("chi'fan'ba");
+        let seeds = ["chi'fan".to_owned()];
+        let tail = &remaining[encode("chi").len()..];
+        assert!(!table
+            .split_paths_limited(tail, &[], &prior, SEED_TAIL_LIMIT)
+            .contains(&path(&["fan", "ba"])));
+        let mut alternatives = Vec::new();
+        seeded_paths(&mut alternatives, &seeds, &remaining, table, &prior);
+        assert!(alternatives.contains(&path(&["chi", "fan", "ba"])));
+        assert_eq!(alternatives.len(), SEED_TAIL_LIMIT + 1);
+    }
+
+    /// 种子接尾段时只取频度最高的 `SEED_TAIL_LIMIT` 条，两个音节各有一对读法（ma/na、ji/li）时四种组合留三种。只按最常用的一个字估频度时（dict-v2.0.32 的单字权重），吗 比 那 高 1.5%，尾段取 ma'ji、na'ji、ma'li，na'li 排第四；内嵌的音节频度表里 na 远比 ma 常见，na'li 留在尾段里。
     #[test]
     fn seed_tails_keep_a_reading_whose_best_character_barely_loses() {
-        let table = SpellingTable::new(&[
-            "wo", "men", "jin", "tian", "qu", "na", "ma", "li", "ji", "jiu",
-        ]);
+        let table = KeyGrid::NineKey.spelling_table();
         let remaining = encode("wo'men'jin'tian'qu'na'li");
         let seeds = ["wo'men'jin'tian'qu'na".to_owned()];
         let wanted = path(&["wo", "men", "jin", "tian", "qu", "na", "li"]);
-        // 每个音节权重最高的三个字；末尾的 ji 按前缀取以它开头的 jiu 的频度，jiu 的权重是编的。
-        let characters: [(&str, [i64; 3]); 10] = [
-            ("wo", [3_000_000, 50_000, 40_000]),
-            ("men", [1_788_123, 544_382, 24_690]),
-            ("jin", [2_000_000, 900_000, 500_000]),
-            ("tian", [2_000_000, 400_000, 100_000]),
-            ("qu", [3_000_000, 800_000, 300_000]),
-            ("na", [5_580_163, 1_372_701, 1_345_242]),
-            ("ma", [5_664_547, 279_925, 112_776]),
-            ("li", [7_995_093, 999_387, 380_201]),
-            ("ji", [2_726_986, 1_102_969, 159_650]),
-            ("jiu", [8_500_000, 600_000, 200_000]),
-        ];
-        let tails = |weights: HashMap<String, i64>| {
-            let prior = SyllablePrior::from_weights(&table.syllables, &weights);
+        let tails = |prior: &SyllablePrior| {
             let mut alternatives = Vec::new();
-            seeded_paths(&mut alternatives, &seeds, &remaining, &table, &prior);
+            seeded_paths(&mut alternatives, &seeds, &remaining, table, prior);
             alternatives
         };
-        let best: HashMap<String, i64> = characters
+        // dict-v2.0.32 各音节最常用的那个字的权重；末尾的 ji 按前缀取以它开头的 jiu 的频度，jiu 的权重是编的。
+        let best: HashMap<String, i64> = [
+            ("na", 5_580_163),
+            ("ma", 5_664_547),
+            ("li", 7_995_093),
+            ("ji", 2_726_986),
+            ("jiu", 8_500_000),
+        ]
+        .into_iter()
+        .map(|(syllable, weight)| (syllable.to_owned(), weight))
+        .collect();
+        assert!(!tails(&SyllablePrior::from_weights(&table.syllables, &best)).contains(&wanted));
+        assert!(tails(&SyllablePrior::shipped(table)).contains(&wanted));
+    }
+
+    #[test]
+    fn shipped_syllable_frequency_covers_every_spelling_and_names_its_source() {
+        // 第一行记着取自哪份 msime-pinyin.db，和那一版词库发布锁里的 sha256 对得上；换词库重新生成时一起换。
+        let source = SYLLABLE_FREQUENCY
+            .lines()
+            .next()
+            .and_then(|line| line.strip_prefix("# msime-pinyin.db sha256="))
+            .expect("source line");
+        assert!(source.len() == 64 && source.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        // 只缺 jv、lue 这类别写：词库行记在 ju、lve 这些正写下，原先现查单字时别写同样查不到、按 1 算。
+        let weights = shipped_syllable_frequency();
+        let mut missing: Vec<&str> = KeyGrid::NineKey
+            .spelling_table()
+            .syllables
             .iter()
-            .map(|(syllable, weights)| (syllable.to_string(), weights[0]))
+            .map(|(syllable, _)| syllable.as_str())
+            .filter(|syllable| weights.get(*syllable).is_none_or(|weight| *weight <= 0))
             .collect();
-        let summed: HashMap<String, i64> = characters
-            .iter()
-            .map(|(syllable, weights)| {
-                (
-                    syllable.to_string(),
-                    weights[..PRIOR_CHAR_LIMIT].iter().sum(),
-                )
-            })
-            .collect();
-        // 只看最常用的字：吗 比 那 高 1.5%，尾段取 ma'ji、na'ji、ma'li，na'li 排第四。
-        assert!(!tails(best).contains(&wanted));
-        assert!(tails(summed).contains(&wanted));
+        missing.sort_unstable();
+        assert_eq!(
+            missing,
+            ["jv", "jve", "lue", "nue", "qv", "qve", "xv", "xve", "yv", "yve"]
+        );
+    }
+
+    /// dict-v2.0.39 的单字行记的是字单用的次数：wu 前三个字（无 五 伍）合计 1131635，yu（与 于 雨）18021628，「午」根本不在前三。种子 wo'men'ji'ge'ren 接 `94298` 的三条尾段只按单字估时是 xia'yu、xia'zu、zha'yu，「我们几个人下午一起去吃饭」的 xia'wu 排第五被丢掉，之后每一键都接不回来，首选成了「下雨」。音节频度表把 下午、午饭 里的 wu 也算上，xia'wu 留在前三。
+    #[test]
+    fn seed_tails_keep_a_syllable_that_mostly_occurs_inside_words() {
+        // 完整音节也按前缀取以它开头的音节里最高的频度，所以 xu 沾 xue、zu 沾 zuo、yu 沾 yue 的光。
+        let table =
+            SpellingTable::new(&["xia", "zha", "wu", "yu", "yue", "xu", "xue", "zu", "zuo"]);
+        let tail = encode("xia'wu");
+        let wanted = path(&["xia", "wu"]);
+        // dict-v2.0.39 各音节权重最高的三个单字之和，即原先的音节频度口径。
+        let characters: HashMap<String, i64> = [
+            ("xia", 4_490_788),
+            ("zha", 175_682),
+            ("wu", 1_131_635),
+            ("yu", 18_021_628),
+            ("yue", 6_441_425),
+            ("xu", 271_070),
+            ("xue", 1_673_519),
+            ("zu", 685_682),
+            ("zuo", 7_592_605),
+        ]
+        .into_iter()
+        .map(|(syllable, weight)| (syllable.to_owned(), weight))
+        .collect();
+        let tails = |weights: &HashMap<String, i64>| {
+            let prior = SyllablePrior::from_weights(&table.syllables, weights);
+            table.split_paths_limited(&tail, &[], &prior, SEED_TAIL_LIMIT)
+        };
+        // 只按单字：xia'yu、xia'zu、xia'xu，xia'wu 排第四。
+        assert!(!tails(&characters).contains(&wanted));
+        assert!(tails(shipped_syllable_frequency()).contains(&wanted));
     }
 
     /// 末尾只按了一个音节开头的数字、没有覆盖全部数字的行时，种子留着；组字结束时清空。
@@ -5460,7 +5544,8 @@ mod tests {
                 .map(|candidate| candidate.word.as_str()),
             Some("是")
         );
-        assert_eq!(&view.nine_key_spellings[..4], ["pi", "qi", "ri", "si"]);
+        // 同样两键的音节按内嵌的音节频度表排，不看夹具词库的单字。
+        assert_eq!(&view.nine_key_spellings[..4], ["qi", "si", "ri", "pi"]);
     }
 
     #[test]
@@ -6088,8 +6173,8 @@ mod tests {
         assert_eq!(
             before.nine_key_spellings,
             [
-                "ni", "mi", "mie", "min", "miu", "nie", "nin", "niu", "mian", "miao", "ming",
-                "nian", "niao", "ning", "niang", "o", "M", "N", "O", "6"
+                "ni", "mi", "min", "niu", "nin", "mie", "nie", "miu", "nian", "mian", "ming",
+                "miao", "ning", "niao", "niang", "o", "M", "N", "O", "6"
             ],
             "the preferred spelling leads, the key's letters and digit follow"
         );
@@ -6101,7 +6186,7 @@ mod tests {
         assert_eq!(view.preedit, "ni'426");
         assert_eq!(
             view.nine_key_spellings,
-            ["hao", "gan", "gao", "han", "gang", "hang", "ga", "ha", "G", "H"],
+            ["hao", "gao", "gan", "han", "hang", "gang", "ha", "ga", "G", "H"],
             "no i, which starts no syllable, and no digit behind a lock"
         );
         let result = session.select(index_of(&session, "你好"));

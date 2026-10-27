@@ -2,7 +2,7 @@
   "by_syllables": {
     "2": {
       "cases": 1859,
-      "found": 0.901,
+      "found": 0.902,
       "mrr": 0.134,
       "top1": 0.041,
       "top1_char_prefix": 0.114,
@@ -11,45 +11,45 @@
     },
     "3": {
       "cases": 364,
-      "found": 0.745,
-      "mrr": 0.548,
+      "found": 0.794,
+      "mrr": 0.563,
       "top1": 0.448,
-      "top1_char_prefix": 0.571,
-      "top5": 0.681,
-      "top9": 0.725
+      "top1_char_prefix": 0.57,
+      "top5": 0.72,
+      "top9": 0.777
     },
     "4": {
       "cases": 543,
-      "found": 0.468,
-      "mrr": 0.451,
-      "top1": 0.436,
-      "top1_char_prefix": 0.56,
-      "top5": 0.468,
-      "top9": 0.468
+      "found": 0.576,
+      "mrr": 0.559,
+      "top1": 0.545,
+      "top1_char_prefix": 0.643,
+      "top5": 0.576,
+      "top9": 0.576
     },
     "5": {
       "cases": 9,
-      "found": 0.0,
-      "mrr": 0.0,
-      "top1": 0.0,
-      "top1_char_prefix": 0.244,
-      "top5": 0.0,
-      "top9": 0.0
+      "found": 0.111,
+      "mrr": 0.111,
+      "top1": 0.111,
+      "top1_char_prefix": 0.311,
+      "top5": 0.111,
+      "top9": 0.111
     }
   },
   "by_tag": {},
   "cases": 2775,
   "gold_source": {
-    "database": 2200
+    "database": 2279
   },
   "overall": {
     "cases": 2775,
-    "found": 0.793,
-    "mrr": 0.25,
-    "top1": 0.172,
-    "top1_char_prefix": 0.261,
-    "top5": 0.315,
-    "top9": 0.398
+    "found": 0.821,
+    "mrr": 0.273,
+    "top1": 0.193,
+    "top1_char_prefix": 0.278,
+    "top5": 0.342,
+    "top9": 0.426
   },
   "sample_failures": [
     {
@@ -140,7 +140,7 @@
       "gold": "安全保卫",
       "id": "w-00118",
       "input": "anquanbaow",
-      "rank": 3,
+      "rank": 4,
       "top1": "安全保障"
     },
     {
@@ -315,7 +315,7 @@
       "gold": "包产",
       "id": "w-00406",
       "input": "baoch",
-      "rank": 77,
+      "rank": 78,
       "top1": "保持"
     },
     {
@@ -334,7 +334,7 @@
     }
   ],
   "top1_source": {
-    "database": 2586,
-    "generated": 189
+    "database": 2598,
+    "generated": 177
   }
 }
