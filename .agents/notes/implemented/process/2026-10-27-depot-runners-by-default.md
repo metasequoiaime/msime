@@ -27,7 +27,7 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 ## Consequences
 
-Depot 的 `depot-windows-2025-8` 与 GitHub 的 `windows-2025` 不是同一个镜像：Depot 的装的是 Visual Studio 18（MSBuild 18），GitHub 的是 Visual Studio 2022；Depot 的镜像也不导出 `VCPKG_INSTALLATION_ROOT`，vcpkg 仍在 `C:\vcpkg`，`Windows native settings` 因此在开头补上这个变量。挪过去的 Windows CI 换了编译器，与本来就在 Depot 上的 `release-windows.yml` 反而一致了。
+Depot 的 `depot-windows-2025-8` 与 GitHub 的 `windows-2025` 不是同一个镜像：Depot 的装的是 Visual Studio 18（MSBuild 18），GitHub 的是 Visual Studio 2022；Depot 的镜像也不导出 `VCPKG_INSTALLATION_ROOT`，vcpkg 仍在 `C:\vcpkg`，`Windows native settings` 因此在开头补上这个变量。Depot 的 Windows 桌面只有约 800×600（GitHub 是 1024×768），Windows 不让窗口超出屏幕，设置界面检查要的 1000 px 宽窗口被压到 820 px，宽布局断言因此失败；同一个 job 在界面检查前把桌面调到至少 1280×1024，调不了就带原因失败。挪过去的 Windows CI 换了编译器，与本来就在 Depot 上的 `release-windows.yml` 反而一致了。
 
 GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、少数特殊机型和截图，平时 PR 不再因为额度排队；Windows 设置编译从 4 核换到 8 核。代价是这些 job 依赖 Depot 的可用性，Depot 出故障时 PR 检查会卡住而不是变慢；Depot 的 macOS 并发本来就紧，`release-pack-tool` 的 macOS 构建挪过去后发 pack 工具时可能和 macOS CI 抢机器。
 
