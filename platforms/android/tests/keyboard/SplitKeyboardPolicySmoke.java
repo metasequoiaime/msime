@@ -12,6 +12,7 @@ public final class SplitKeyboardPolicySmoke {
     public static void main(String[] args) {
         whenSplitApplies();
         portraitOverride();
+        configurableBounds();
         whichLayoutsSplit();
         gapWidth();
         responsiveGapWidth();
@@ -40,6 +41,16 @@ public final class SplitKeyboardPolicySmoke {
         check(!SplitKeyboardPolicy.active(true, 411, true), "a phone in landscape never splits");
         check(!SplitKeyboardPolicy.active(true, 800, false), "a tablet in portrait does not split");
         check(!SplitKeyboardPolicy.active(false, 800, true), "the setting is off by default and then nothing splits");
+    }
+
+    private static void configurableBounds() {
+        check(SplitKeyboardPolicy.active(true, 480, true, false, 480), "minimum threshold is usable");
+        check(!SplitKeyboardPolicy.active(true, 479, true, false, 480), "below threshold stays whole");
+        check(SplitKeyboardPolicy.active(true, 1000, true, false, 1200), "threshold clamps to maximum");
+        check(SplitKeyboardPolicy.gapFraction(0, 10) == 0.10f, "minimum configured gap");
+        check(SplitKeyboardPolicy.gapFraction(0, 50) == 0.40f, "maximum configured gap");
+        close(SplitKeyboardPolicy.gapWeight(10f, 0f, 0, 10), 10f / 9f, "configured ten percent gap");
+        check(SplitKeyboardPolicy.gapFraction(1200, 10) >= 0.399f, "wide screen keeps key area usable");
     }
 
     private static void whichLayoutsSplit() {

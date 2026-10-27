@@ -1207,12 +1207,12 @@ public:
     if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
   }
 #endif
-  // Windows re-resolves punctuation on every Chinese/English switch: under the "follow" lock (0) it tracks the mode, and a pinned lock keeps its value. Session-only - the saved chinese_punctuation preference is not rewritten, so the next preference refresh restates it.
+  // 中英模式切换时，「跟随」让英文模式用英文标点，中文模式恢复已保存的起始标点；固定锁定值保持不变。这只改会话状态，不改偏好文件。
   void resyncPunctuationForMode() {
     english_punctuation_ = {};
     english_chinese_punctuation_ = false;
     if (punctuation_lock_ != 0) return;
-    chinese_punctuation_ = input_enabled_;
+    chinese_punctuation_ = input_enabled_ && preferences_.value("chinese_punctuation", true);
     syncSessionChinesePunctuation();
   }
   bool toggleInputMode() {

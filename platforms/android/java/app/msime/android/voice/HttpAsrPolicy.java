@@ -20,7 +20,19 @@ public final class HttpAsrPolicy {
     /** A provider response must fit the same transcript bound used by contribution uploads. */
     public static final int MAX_TRANSCRIPT = 2000;
 
+    /** 已收到 HTTP 拒绝状态时的失败原因；传输异常和空正文由调用方另行处理。 */
+    public enum StatusFailure { TOO_LARGE, TIMED_OUT, REJECTED }
+
     private HttpAsrPolicy() {}
+
+    /** 服务端明确回复的状态不能当成本机断网；413 是请求体过大，408/504 是等待超时。 */
+    public static StatusFailure statusFailure(int status) {
+        return switch (status) {
+            case 413 -> StatusFailure.TOO_LARGE;
+            case 408, 504 -> StatusFailure.TIMED_OUT;
+            default -> StatusFailure.REJECTED;
+        };
+    }
 
     /** 共享层给出的请求格式是不是本宿主能发的整句上传。 */
     public static boolean supported(String requestFormat) {
