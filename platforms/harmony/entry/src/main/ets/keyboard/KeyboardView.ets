@@ -932,6 +932,17 @@ struct KeyboardView {
         this.replyNotice = '输入位置已变化，请重新选择回复方式';
       }
     };
+    KeyboardSession.shared.onPanelHidden = (): void => {
+      // 面板收起时视图不会销毁（aboutToDisappear 不会执行）。还在走的空格长按计时要取消，否则收起后它照样到点开始录音。
+      this.cancelSpaceLongPress();
+      if (!VoiceRecognitionPolicy.cancelsOnHide(this.touchDesign(), this.voiceBusy, this.voiceFinishing)) {
+        return;
+      }
+      // 按住空格说话时收起：松手事件可能再也收不到，空格键上的「松开结束」不能留到下次显示。
+      this.spaceVoiceHeld = false;
+      this.spaceVoiceHint = '';
+      this.cancelVoice();
+    };
     KeyboardSession.shared.onChanged = (state: KeyboardState): void => {
       const wasHandwriting: boolean = KeyboardScheme.usesHandwritingFace(
         this.scheme, this.english, this.symbols, this.localMode);
@@ -1037,6 +1048,7 @@ struct KeyboardView {
     KeyboardSession.shared.onEditorChanged = undefined;
     KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
+    KeyboardSession.shared.onPanelHidden = undefined;
     KeyboardSession.shared.onPanelKey = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelHoverTip();

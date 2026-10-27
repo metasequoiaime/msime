@@ -1504,6 +1504,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   onReplyContextChanged: (() => void) | undefined = undefined;
   /** Putting the keyboard away belongs to the panel, which the view has no handle on. */
   onDismiss: (() => void) | undefined = undefined;
+  /** 键盘收起（系统的 keyboardHide，或 inputStop 时宿主隐藏面板）。面板收起时视图不会销毁，视图靠它停掉键盘内的语音识别。 */
+  onPanelHidden: (() => void) | undefined = undefined;
 
   /**
    * True once the native ABI matches and a session exists.
@@ -3528,6 +3530,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   detach(): void {
+    // 宿主随后隐藏面板。先让视图停掉录音，取消发生在旧编辑框还连着的时候，与 Android 在 onFinishInput 里先取消语音再收尾一致。
+    if (this.onPanelHidden !== undefined) {
+      this.onPanelHidden();
+    }
     this.editorGeneration++;
     this.attributeGeneration++;
     this.manualLanguageGeneration = -1;
@@ -7383,8 +7389,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.typingStatisticsFlushed;
   }
 
-  /** 键盘收起（系统的 keyboardHide，例如返回手势）：把攒着的打字统计写盘。编辑框可能仍有焦点，所以不等 inputStop。 */
+  /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘。编辑框可能仍有焦点，所以不等 inputStop。 */
   keyboardHidden(): void {
+    if (this.onPanelHidden !== undefined) {
+      this.onPanelHidden();
+    }
     this.flushTypingStatistics();
   }
 

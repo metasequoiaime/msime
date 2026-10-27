@@ -78,6 +78,13 @@ export class VoiceRecognitionPolicy {
   }
 
   /**
+   * 触屏键盘收起（系统的 keyboardHide 或 inputStop）时是否放弃正在进行的录音，与 Android `finishInputViewPresentation` 收起键盘即取消 `ImeVoiceEntry` 一致。面板收起时视图不会销毁，不在这里取消的话，还没识别出文字的流式识别（豆包推流、本地模型在 worker 上持续解码）和上传式识别都会在看不见的地方一直录到识别器 120 秒的上限。用户已经点了「说完了」或静音自动结束、正在等最终结果（`finishing`）时不取消：麦克风已经关了，剩下的只是有时限的收尾，取消会丢掉用户说完的话；结果到达时照 `deliverVoice` 的规则处理，编辑框已断开就保留在语音界面上。2in1 的语音面板由 `SurfaceRoutingPolicy.endsVoice` 负责，保持原样。
+   */
+  static cancelsOnHide(touch: boolean, recording: boolean, finishing: boolean): boolean {
+    return touch && recording && !finishing;
+  }
+
+  /**
    * 静音计时到点时能否结束录音。经过 VAD 的整段本地模型只在一段说完后才出文字，用户连续说上超过 `VOICE_SILENCE_STOP_MS` 的一段时没有新文字，只看文字会在说话中途截断录音；VAD 此刻还听到说话就顺延，等说完再从头计时。没有 VAD 的识别器从不报说话，行为不变。
    */
   static silenceStops(speaking: boolean): boolean {

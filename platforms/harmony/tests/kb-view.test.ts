@@ -331,6 +331,13 @@ group("触屏离开语音界面时放弃正在进行的录音", () => {
   check(!VoiceRecognitionPolicy.cancelsOnLeave(false, true, true), "2in1 的语音面板另有规则");
 });
 
+group("触屏键盘收起时放弃正在进行的录音", () => {
+  check(VoiceRecognitionPolicy.cancelsOnHide(true, true, false), "键盘收起后麦克风和识别不能继续跑到上限");
+  check(!VoiceRecognitionPolicy.cancelsOnHide(true, false, false), "没有在录音");
+  check(!VoiceRecognitionPolicy.cancelsOnHide(true, true, true), "已经说完、正在等结果，不丢掉用户说完的话");
+  check(!VoiceRecognitionPolicy.cancelsOnHide(false, true, false), "2in1 的语音面板另有规则");
+});
+
 group("the 2in1 candidate window is sized for the card's 8vp padding", () => {
   check(KeyboardMetrics.CANDIDATE_CARD_PADDING_VP === 8, "the design's card padding");
   check(

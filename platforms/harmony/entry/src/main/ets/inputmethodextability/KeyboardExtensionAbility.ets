@@ -609,7 +609,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     });
   }
 
-  // 系统收起键盘（返回手势、点空白处）时编辑框不一定失去焦点，等不到 inputStop；会话在这里把攒着的打字统计写盘。候选皮肤停放的位图也在这里释放，隐藏的键盘不留着它们。
+  // 系统收起键盘（返回手势、点空白处）时编辑框不一定失去焦点，等不到 inputStop；会话在这里停掉键盘内的语音识别，把攒着的打字统计写盘。候选皮肤停放的位图也在这里释放，隐藏的键盘不留着它们。
   private readonly keyboardHidden: () => void = (): void => {
     KeyboardSession.shared.keyboardHidden();
     CandidateCanvasDecoder.trim();

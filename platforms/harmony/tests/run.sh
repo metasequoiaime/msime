@@ -143,6 +143,20 @@ if ! grep -qF 'new CandidateCanvasLeaseCache<CanvasDecodeLease>(' "$frame_ets" \
   echo "Candidate canvas decodes must park in CandidateCanvasLeaseCache and be trimmed on keyboard hide, input stop and teardown" >&2
   exit 1
 fi
+# 键盘收起时停掉键盘内的语音识别（取舍规则由 kb-view.test.ts 的 `VoiceRecognitionPolicy.cancelsOnHide` 覆盖）。面板收起时视图不会销毁，会话和视图是 ArkTS，这里钉住接线：会话在系统的 keyboardHide 和 inputStop（detach）时都通知视图，视图按 cancelsOnHide 取消录音、取消还在走的空格长按计时，销毁时清掉回调。
+view_ets="$ets/keyboard/KeyboardView.ets"
+session_hidden_body=$(sed -n '/^  keyboardHidden(): void {$/,/^  }$/p' "$session_ets")
+detach_body=$(sed -n '/^  detach(): void {$/,/^  }$/p' "$session_ets")
+panel_hidden_body=$(sed -n '/^    KeyboardSession.shared.onPanelHidden = (): void => {$/,/^    };$/p' "$view_ets")
+if ! grep -qF 'this.onPanelHidden();' <<< "$session_hidden_body" \
+  || ! grep -qF 'this.onPanelHidden();' <<< "$detach_body" \
+  || ! grep -qF 'VoiceRecognitionPolicy.cancelsOnHide(' <<< "$panel_hidden_body" \
+  || ! grep -qF 'this.cancelVoice();' <<< "$panel_hidden_body" \
+  || ! grep -qF 'this.cancelSpaceLongPress();' <<< "$panel_hidden_body" \
+  || ! grep -qF 'KeyboardSession.shared.onPanelHidden = undefined;' "$view_ets"; then
+  echo "Hiding the keyboard must cancel in-keyboard voice recognition on touch devices" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do
