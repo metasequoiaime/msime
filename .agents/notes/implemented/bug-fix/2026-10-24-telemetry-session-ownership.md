@@ -20,7 +20,9 @@ Linux 近 30 天的匿名遥测里，0.10.1 的 `session_crash`（552）比 `ses
 ## Decision
 
 - `TelemetryStore` 在 `telemetry-state.json` 里记着尚未结束的会话（`open_sessions`，最多 16 个，超出淘汰最旧的）。`begin_session` 为其中每个留下了自己崩溃记录的会话补报一条 `session_crash`（版本取自那个会话），并把它移出列表；只留下标记的会话照旧不算崩溃。旧版本只写了标记、没有列表时，标记里的会话按未结束会话处理，升级后第一次启动仍能认领它的崩溃记录。
+- 崩溃补收同时发生在 `begin_session` 和不建立输入会话的 `record_active`（包括 `flush_with`）中，所以只打开应用也能补报。一次最多认领八条，未处理的记录及对应会话留到下一次。队列、会话状态与新会话标记持久化后才删除已认领的原记录；没有新会话覆盖时，先删除属于已认领会话的旧标记，防止下次补收将它重新放回 `open_sessions`。非 UUID 的系统记录文件名用 SHA-256 派生稳定事件 id，写盘失败后的重放仍然去重。
 - `SessionStart` 新增 `session_id`。新增 `end_session_by_id` 与 `record_crash_for`：前者只结束给定的会话，标记只在仍属于它时才删；后者把记录写到这个会话自己的文件，不看标记。Host API 的 `msime_client_telemetry_end` 与 `msime_client_telemetry_record_crash` 各加一个可选的 `session` 字段；不给时保持原来按标记的行为，macOS、iOS、Android、HarmonyOS 的宿主不需要跟着改。
+- `SessionStart` 还返回预计算的 `crash_record_header`（`MSIME-CRASH/1` 加 JSON），包含原始平台、版本、组件、架构、提交、构建运行和重跑编号。新写入端先写头，再写摘要和栈；原有无头记录仍可读，新会话的上下文也保存在标记中供无头记录回退。`prepare_crash_capture` 只准备独立记录，不建立或替换输入会话。入队时构建身份放在消息第二行，摘要第一行和栈保持原有聚合格式；不能放在调用栈顶部，因为后台会把任意非空行当作业务首帧。整个跨平台接入与符号归档的范围另见[全平台闭环提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md)。
 - `platforms/common/Telemetry.cpp`（Linux 两个宿主和 Windows Server 共用）记住 begin 返回的 `session_id`：`end()` 只结束自己的会话，本进程没有会话（上报关着）时不调用；`record_terminate()` 写自己会话的记录，与信号处理函数写的是同一个文件（`O_EXCL`），所以 terminate 之后的 SIGABRT 不再记第二份。
 - IBus 宿主进入主循环前为 SIGTERM、SIGHUP、SIGINT 装处理函数（已被忽略的保持忽略）。处理函数只写管道唤醒主循环并调用 `alarm(5)`；主循环据此 `ibus_quit()`，走完收尾和 `telemetry::end()` 后把该信号恢复为默认动作再 `raise()`，启动器和 `ibus-daemon` 看到的退出状态与以前相同。主循环卡住时管道没人读，5 秒后 SIGALRM 的默认动作结束进程；`SA_RESETHAND` 让第二个同样的信号立即生效。
 
@@ -30,6 +32,7 @@ Linux 近 30 天的匿名遥测里，0.10.1 的 `session_crash`（552）比 `ses
 - **把 IBus 宿主的 `telemetry::begin` 挪到成功拿到组件名之后**：能让争组件名失败、立刻退出的重复宿主不开始会话，不改写标记。按 id 认领之后，这个重复宿主的会话既不会顶掉别人的会话，也不会被记成崩溃（它没有崩溃记录），挪动只剩缩小崩溃捕获窗口这一个效果：连 ibus-daemon 之前的崩溃就不再记录。所以不挪。
 - **用 `g_unix_signal_add` 处理 SIGTERM**：代码最少。但它的回调在主循环里执行，主循环卡住时 SIGTERM 就再也结束不了进程，启动器会一直等下去；自己装处理函数才能加上 `alarm()` 期限。
 - **只在服务端修正**：服务端的无崩溃率公式已经是 `session/(session+session_crash)`，问题出在客户端报上来的分子分母本身，服务端没法从事件里还原会话归属，也补不回没有上报的 `session`。服务端可做的只是展示层面的补充（按设备去重的崩溃率等），不能替代客户端修正。
+- **先删除原崩溃记录，再保存队列**：实现最直接，文件也不会重复扫描。但队列写盘失败便不可重试，而且处理八条后删除整目录会丢失剩余报告。保留原件直到持久化完成，再用稳定事件 id 处理失败重放。
 
 ## Consequences
 
@@ -41,6 +44,7 @@ Linux 近 30 天的匿名遥测里，0.10.1 的 `session_crash`（552）比 `ses
 
 ## Verification
 
+- 2026-10-27 共享层扩展：Studio 上 `cargo test -p msime-client-services --lib telemetry --locked -- --test-threads=4` 的 46 项通过。原实现上批次积压、队列写盘失败及只启动应用的新增用例都失败；修复后同组通过，另覆盖重试事件 id 稳定、旧标记不复活、独立捕获不替换输入会话，以及升级后原始版本和构建身份仍在。Android 设备、宿主写入端和全平台构建由闭环提案跟进，这组单测不代表设备验收。
 - `cargo test -p msime-client-services --lib telemetry`：35 项通过。新增的同目录并发会话用例覆盖 terminate 只记一份、只为崩溃的会话补报、按 id 结束不动别人的标记、被挤出列表的会话只报 `crash`、旧版本留下的标记仍被认领。
 - `cargo test -p msime-host-api --lib telemetry`：ABI 用例核对 `session_id` 与崩溃记录文件名一致、带 `session` 的 end 只结束一次。
 - `platforms/common/tests/telemetry.cpp`（ctest `common-telemetry`）在子进程里开始会话、经 Host API 模拟同目录的另一个宿主、再触发真实的 `std::terminate` 与 SIGABRT：把四个源文件换回 develop 上的版本重编后，它在 `crashed.size() == 1` 处失败（同一次崩溃得到两条 `crash`）；修复后只有一条，`session_crash` 与它同属崩溃的那个会话、版本是崩溃进程的，随后的正常结束只结束自己的会话、不动别的进程的标记。

@@ -17,11 +17,15 @@
 use crate::account::{AccountError, BackendAccountClient};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+mod identity;
+pub use identity::CrashContext;
 
 /// The queue, a JSON array of events.
 pub const QUEUE_FILE: &str = "telemetry.json";
@@ -154,6 +158,7 @@ pub fn valid_install_id(value: &str) -> bool {
 pub struct TelemetryApp {
     platform: &'static str,
     version: String,
+    component: String,
 }
 
 impl TelemetryApp {
@@ -166,6 +171,7 @@ impl TelemetryApp {
         Ok(Self {
             platform,
             version: version.to_owned(),
+            component: "input".to_owned(),
         })
     }
 
@@ -175,6 +181,12 @@ impl TelemetryApp {
 
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    pub fn with_component(mut self, component: &str) -> Result<Self, TelemetryError> {
+        CrashContext::new(&self, component)?;
+        self.component = component.to_owned();
+        Ok(self)
     }
 }
 
@@ -197,6 +209,8 @@ impl From<std::io::Error> for TelemetryError {
 pub struct SessionStart {
     /// The file a crash handler writes this session's crash record to: UTF-8 text, the first line the exception or signal summary, the following lines the stack. The directory already exists, so an async-signal handler only needs `open(path, O_WRONLY|O_CREAT|O_EXCL, 0600)` and `write`. An existing record is never replaced.
     pub crash_record_path: PathBuf,
+    /// 采集前计算的版本化记录头。信号处理函数直接写这些字节，再写摘要和调用栈，不在崩溃现场序列化。
+    pub crash_record_header: String,
     /// 这次开始的会话 id。宿主用它结束自己的会话（[`TelemetryStore::end_session_by_id`]）和写自己的崩溃记录（[`TelemetryStore::record_crash_for`]），不受同目录里别的进程后来写下的标记影响。
     pub session_id: String,
     /// 这次启动是否为之前的会话补报了 `session_crash`（它们留下了崩溃记录）。
@@ -299,6 +313,8 @@ struct SessionMarker {
     /// 开始这个会话的进程号，只留在本机，用来把系统事后报告的崩溃对回会话。旧版本写下的标记没有这一项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context: Option<CrashContext>,
 }
 
 impl SessionMarker {
@@ -306,6 +322,7 @@ impl SessionMarker {
         Uuid::parse_str(&self.id).is_ok()
             && canonical_platform(&self.platform) == Some(self.platform.as_str())
             && crate::community::valid_text(&self.version, 1, 64, false)
+            && self.context.as_ref().is_none_or(CrashContext::is_valid)
     }
 }
 
@@ -313,6 +330,31 @@ impl SessionMarker {
 #[derive(Clone, Debug)]
 pub struct TelemetryStore {
     directory: PathBuf,
+}
+
+/// 只有队列、会话状态和新标记都持久化后才确认删除原记录；失败重试沿用相同事件 id。
+#[derive(Default)]
+struct CollectedCrashes {
+    records: Vec<PathBuf>,
+    sessions: Vec<String>,
+    crashes: usize,
+    session_crashed: bool,
+}
+
+impl CollectedCrashes {
+    fn acknowledge(&self, store: &TelemetryStore) -> Result<(), TelemetryError> {
+        // 补报时没有新会话替换旧标记；先清除已关闭的那个，避免下次补报把它重新认作未结束会话。
+        if store
+            .read_marker()
+            .is_some_and(|marker| self.sessions.contains(&marker.id))
+        {
+            remove_file(&store.directory.join(SESSION_FILE))?;
+        }
+        for path in &self.records {
+            remove_file(path)?;
+        }
+        Ok(())
+    }
 }
 
 impl TelemetryStore {
@@ -356,46 +398,22 @@ impl TelemetryStore {
         let crashes_directory = self.directory.join(CRASH_DIRECTORY);
         crate::storage::create_directory_and_check(&crashes_directory)?;
         // 旧版本只写标记、不记未结束列表；标记里的会话照样算一个未结束会话。
-        let mut open = std::mem::take(&mut state.open_sessions);
         if let Some(previous) = self.read_marker() {
-            if !open.iter().any(|session| session.id == previous.id) {
-                open.push(previous);
+            if !state
+                .open_sessions
+                .iter()
+                .any(|session| session.id == previous.id)
+            {
+                state.open_sessions.push(previous);
             }
         }
-        let known = open.clone();
-        let mut previous_session_crashed = false;
-        let crashed_processes = &mut state.crashed_processes;
-        open.retain(|session| {
-            let record = crashes_directory.join(format!("{}.{CRASH_EXTENSION}", session.id));
-            if !is_regular_file(&record) {
-                return true;
-            }
-            previous_session_crashed = true;
-            if let Some(pid) = session.pid {
-                crashed_processes.retain(|known| *known != pid);
-                crashed_processes.push(pid);
-            }
-            push(
-                &mut queue,
-                TelemetryEvent {
-                    id: format!("session-{}", session.id),
-                    kind: TelemetryKind::SessionCrash,
-                    platform: session.platform.clone(),
-                    version: session.version.clone(),
-                    message: String::new(),
-                    stack: String::new(),
-                    artifact: String::new(),
-                    channel: String::new(),
-                    install_id: install_id.clone(),
-                },
-            );
-            false
-        });
-        if crashed_processes.len() > MAX_CRASHED_PROCESSES {
-            crashed_processes.drain(..crashed_processes.len() - MAX_CRASHED_PROCESSES);
-        }
-        let crashes =
-            self.ingest_crash_records(&crashes_directory, app, &known, &install_id, &mut queue)?;
+        let collected = self.ingest_crash_records(
+            &crashes_directory,
+            app,
+            &mut state,
+            &install_id,
+            &mut queue,
+        )?;
         push_active(&mut state, &mut queue, app, &install_id, now);
         let marker = SessionMarker {
             id: Uuid::new_v4().hyphenated().to_string(),
@@ -403,20 +421,48 @@ impl TelemetryStore {
             version: app.version.clone(),
             started_at_unix_ms: unix_ms(now),
             pid: Some(pid),
+            context: Some(CrashContext::new(app, &app.component)?),
         };
-        open.push(marker.clone());
-        if open.len() > MAX_OPEN_SESSIONS {
-            open.drain(..open.len() - MAX_OPEN_SESSIONS);
+        state.open_sessions.push(marker.clone());
+        if state.open_sessions.len() > MAX_OPEN_SESSIONS {
+            state
+                .open_sessions
+                .drain(..state.open_sessions.len() - MAX_OPEN_SESSIONS);
         }
-        state.open_sessions = open;
         self.write_queue(&queue)?;
         self.write_state(&state)?;
         self.write_json(SESSION_FILE, &marker)?;
+        collected.acknowledge(self)?;
         Ok(SessionStart {
             crash_record_path: crashes_directory.join(format!("{}.{CRASH_EXTENSION}", marker.id)),
+            crash_record_header: marker
+                .context
+                .as_ref()
+                .expect("new marker has context")
+                .record_header(),
             session_id: marker.id,
-            previous_session_crashed,
-            crashes,
+            previous_session_crashed: collected.session_crashed,
+            crashes: collected.crashes,
+        })
+    }
+
+    /// 为独立应用、设置或辅助进程准备采集位置，不建立输入会话，也不改写其它进程的会话标记。
+    pub fn prepare_crash_capture(
+        &self,
+        app: &TelemetryApp,
+        now: SystemTime,
+    ) -> Result<SessionStart, TelemetryError> {
+        self.record_active(app, now)?;
+        let id = Uuid::new_v4().hyphenated().to_string();
+        Ok(SessionStart {
+            crash_record_path: self
+                .directory
+                .join(CRASH_DIRECTORY)
+                .join(format!("{id}.{CRASH_EXTENSION}")),
+            crash_record_header: CrashContext::new(app, &app.component)?.record_header(),
+            session_id: id,
+            previous_session_crashed: false,
+            crashes: 0,
         })
     }
 
@@ -492,6 +538,27 @@ impl TelemetryStore {
         message: &str,
         stack: &str,
     ) -> Result<bool, TelemetryError> {
+        let context = self
+            .read_state()
+            .open_sessions
+            .into_iter()
+            .chain(self.read_marker())
+            .find(|marker| marker.id == session)
+            .and_then(|marker| marker.context);
+        self.record_crash_with_context(session, context.as_ref(), message, stack)
+    }
+
+    /// 将预先固定的构建身份写入记录；不加锁，可以用于允许分配内存的异常回调。
+    pub fn record_crash_with_context(
+        &self,
+        session: &str,
+        context: Option<&CrashContext>,
+        message: &str,
+        stack: &str,
+    ) -> Result<bool, TelemetryError> {
+        if context.is_some_and(|context| !context.is_valid()) {
+            return Err(TelemetryError::Invalid);
+        }
         let session = Uuid::parse_str(session).map_err(|_| TelemetryError::Invalid)?;
         let directory = self.directory.join(CRASH_DIRECTORY);
         crate::storage::create_directory_and_check(&directory)?;
@@ -508,6 +575,9 @@ impl TelemetryStore {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
             Err(error) => return Err(error.into()),
         };
+        if let Some(context) = context {
+            file.write_all(context.record_header().as_bytes())?;
+        }
         let message = message.lines().next().unwrap_or_default();
         file.write_all(message.as_bytes())?;
         file.write_all(b"\n")?;
@@ -552,15 +622,30 @@ impl TelemetryStore {
         Ok(DiagnosedCrash::Outside)
     }
 
-    /// Queues today's `active` unless it was already queued today. Long-running hosts call this (or [`Self::flush_with`]) periodically so a process that runs across midnight still counts the new day.
+    /// 补收本地崩溃记录，再排进当天的 `active`。不开始新会话，设置应用和长时间运行的宿主也能补报，不必等待键盘再次启动。
     pub fn record_active(&self, app: &TelemetryApp, now: SystemTime) -> Result<(), TelemetryError> {
         let _lock = self.lock()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
         let mut queue = self.read_queue()?;
-        if push_active(&mut state, &mut queue, app, &install_id, now) {
+        let directory = self.directory.join(CRASH_DIRECTORY);
+        crate::storage::create_directory_and_check(&directory)?;
+        if let Some(previous) = self.read_marker() {
+            if !state
+                .open_sessions
+                .iter()
+                .any(|session| session.id == previous.id)
+            {
+                state.open_sessions.push(previous);
+            }
+        }
+        let collected =
+            self.ingest_crash_records(&directory, app, &mut state, &install_id, &mut queue)?;
+        let active = push_active(&mut state, &mut queue, app, &install_id, now);
+        if active || !collected.records.is_empty() {
             self.write_queue(&queue)?;
             self.write_state(&state)?;
+            collected.acknowledge(self)?;
         }
         Ok(())
     }
@@ -812,23 +897,57 @@ impl TelemetryStore {
         &self,
         directory: &Path,
         app: &TelemetryApp,
-        sessions: &[SessionMarker],
+        state: &mut TelemetryState,
         install_id: &str,
         queue: &mut Vec<TelemetryEvent>,
-    ) -> Result<usize, TelemetryError> {
+    ) -> Result<CollectedCrashes, TelemetryError> {
         let mut records = crash_record_paths(directory)?;
         records.sort();
-        let mut queued = 0;
-        for path in records {
-            if queued < MAX_CRASH_RECORDS_PER_START {
-                if let Some(event) = crash_event(&path, app, sessions, install_id) {
-                    push(queue, event);
-                    queued += 1;
+        let mut collected = CollectedCrashes::default();
+        for path in records.into_iter().take(MAX_CRASH_RECORDS_PER_START) {
+            if let Some(event) = crash_event(&path, app, &state.open_sessions, install_id) {
+                let stem = path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or_default();
+                if let Some(index) = state
+                    .open_sessions
+                    .iter()
+                    .position(|session| session.id == stem)
+                {
+                    let session = state.open_sessions.remove(index);
+                    collected.sessions.push(session.id.clone());
+                    collected.session_crashed = true;
+                    if let Some(pid) = session.pid {
+                        state.crashed_processes.retain(|known| *known != pid);
+                        state.crashed_processes.push(pid);
+                    }
+                    push(
+                        queue,
+                        TelemetryEvent {
+                            id: format!("session-{}", session.id),
+                            kind: TelemetryKind::SessionCrash,
+                            platform: session.platform,
+                            version: session.version,
+                            message: String::new(),
+                            stack: String::new(),
+                            artifact: String::new(),
+                            channel: String::new(),
+                            install_id: install_id.to_owned(),
+                        },
+                    );
                 }
+                push(queue, event);
+                collected.crashes += 1;
+                collected.records.push(path);
             }
-            remove_file(&path)?;
         }
-        Ok(queued)
+        if state.crashed_processes.len() > MAX_CRASHED_PROCESSES {
+            state
+                .crashed_processes
+                .drain(..state.crashed_processes.len() - MAX_CRASHED_PROCESSES);
+        }
+        Ok(collected)
     }
 }
 
@@ -858,20 +977,39 @@ fn crash_event(
     // A record is read up to the limit and the rest ignored rather than refused: a stack that ran long still has its useful top.
     let bytes = read_crash_file(path)?;
     let text = String::from_utf8_lossy(&bytes);
+    let (context, text) = if text.starts_with(identity::RECORD_PREFIX) {
+        let (header, rest) = text.split_once('\n')?;
+        (CrashContext::from_header(header), rest)
+    } else {
+        (None, text.as_ref())
+    };
     let (message, stack) = text.split_once('\n').unwrap_or((&text, ""));
     let mut message = clean_message(message);
     if message.trim().is_empty() {
         message = "unknown crash".to_owned();
     }
     let stem = path.file_stem()?.to_str()?;
-    let (platform, version) = match sessions.iter().find(|marker| marker.id == stem) {
-        Some(marker) => (marker.platform.clone(), marker.version.clone()),
-        None => (app.platform.to_owned(), app.version.clone()),
+    let context = context.or_else(|| {
+        sessions
+            .iter()
+            .find(|marker| marker.id == stem)
+            .and_then(|marker| marker.context.clone())
+    });
+    let (platform, version) = match context.as_ref() {
+        Some(context) => (context.platform.clone(), context.version.clone()),
+        None => match sessions.iter().find(|marker| marker.id == stem) {
+            Some(marker) => (marker.platform.clone(), marker.version.clone()),
+            None => (app.platform.to_owned(), app.version.clone()),
+        },
     };
+    if let Some(context) = context {
+        message = context.message(&message);
+    }
     let id = if Uuid::parse_str(stem).is_ok() {
         format!("crash-{stem}")
     } else {
-        format!("crash-{}", Uuid::new_v4().hyphenated())
+        // 系统诊断的文件名未必是 UUID；相同文件重试入队时也必须得到相同 id。
+        format!("crash-{}", hex::encode(Sha256::digest(stem.as_bytes())))
     };
     let event = TelemetryEvent {
         id,

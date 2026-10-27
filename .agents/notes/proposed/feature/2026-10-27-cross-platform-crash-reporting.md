@@ -1,0 +1,39 @@
+# Agent Note: 六个平台的崩溃捕获、构建归属与符号还原闭环
+
+Status: proposed
+
+## Problem
+
+六个平台已有共享遥测队列，但覆盖范围不一致：Android 只有 Java 异常，桌面的设置、面板和辅助进程没有同等捕获；Windows x86 的结构化异常没有展开调用栈。iOS 与 HarmonyOS 依赖系统的延迟诊断，独立崩溃记录按补报时版本归属，记录里也缺少构建号、架构和组件身份。同版本的正式版、测试版与每日构建无法可靠地和符号包对应。共享层每次只转换八条崩溃记录，却删除目录里所有记录，且先删记录再持久化队列，批量补报和写盘失败都可能丢失报告。
+
+## Proposal
+
+沿用 `client-services::telemetry` 的队列、同意开关、去重和投递协议，不引入新的第三方采集 SDK，不在崩溃现场联网。分层补齐四部分：
+
+1. 共享层保存崩溃发生时的版本、源码提交、构建运行与重跑编号、目标架构和组件身份。旧记录继续可读，新记录使用带版本的头部；身份作为消息第二行的结构化诊断上传，不改变服务端事件 schema，也不占用后台聚合所用的摘要第一行与业务栈首帧。崩溃记录在队列持久化后才确认删除，超过单批额度的保留到后续补报。共享层的这一部分已在[会话归属笔记](../../implemented/bug-fix/2026-10-24-telemetry-session-ownership.md)落地，平台接入与符号闭环仍属于本提案。
+2. 复用现有原生捕获机制，把 Android 的致命信号、Windows x86 的故障栈，以及桌面独立设置、面板和自有辅助进程接入。TSF 在其他应用进程里运行，只记录归属本产品模块的故障，并保持原处理程序和宿主进程的处置语义。进程启动但没有开始输入会话时只产生独立 `crash`，不得污染输入法的 `session` 和 `session_crash`。
+3. 所有发布流程保存与具体构建身份对应的符号清单；原生帧保留模块相对偏移和模块身份。补齐 Linux、Android、HarmonyOS 与 Win7 的符号归档，并提供按构建选择符号的离线还原入口。iOS 的已有九十天 dSYM 保留与 macOS、Windows 的滚动符号 release 分别沿用，不把符号包放进用户安装包。
+4. 平台原有系统诊断补录继续工作，增加可获得的 Android ANR、系统退出与 Apple/HarmonyOS 卡死诊断；把崩溃、系统强制退出和卡死分清，不把裸会话标记或关闭统计的用户当成崩溃。用合成故障逐项验证捕获、落盘、重启入队、收件和符号还原。
+
+## Related notes
+
+动手前检索了 `proposed`、`implemented` 与 `rejected` 中的 `telemetry`、崩溃捕获、会话与符号归档。以下是部分重叠，保留原决定并互链：[按会话 id 归属](../../implemented/bug-fix/2026-10-24-telemetry-session-ownership.md)、[iOS 系统诊断认领](../../implemented/bug-fix/2026-10-25-ios-crash-diagnostic-session-attribution.md)、[iOS App 抛出点的栈](../../implemented/bug-fix/2026-10-27-ios-app-uncaught-exception-stack.md)、[Windows 符号归档](../../implemented/process/2026-10-20-windows-release-page-symbols.md)。[遥测本地队列绑定目录句柄](../../implemented/bug-fix/2026-10-09-telemetry-cache-directory-handle.md)、[清理绑定目录句柄](../../implemented/bug-fix/2026-10-09-telemetry-crash-cleanup-directory-handle.md) 与[空扫描不分配](../../implemented/testing/2026-10-11-telemetry-empty-crash-lazy-buffer.md)是本次必须保持的约束，不改变其决定。未发现本篇完全吸收的旧提案。
+
+## Alternatives considered
+
+- **统一接第三方崩溃平台 SDK**：成熟的转储、符号化和设备采集覆盖最广，但会引入新的第三方网络与隐私边界，不能直接替换用户已经使用的自有后台。本次保留自有传输，复用平台已有诊断和原生捕获。
+- **给事件直接增加构建和模块字段**：类型化最明确，但会把客户端的这次改动绑定到服务端部署顺序。先在既有 `message` 的第二行保留带版本的结构化身份，旧后台仍能完整储存，离线工具可确定性解析。不能放在 `stack` 顶部：现有后台会把元数据当业务帧，从而改变崩溃签名。
+- **将所有独立进程也记作输入会话**：复用现有 begin/end 最简单，但会改变无崩溃率的分母，让打开设置也算一次输入法会话。独立捕获沿用同一队列但不产生输入会话。
+
+## Acceptance criteria
+
+- 六个平台的版本、组件、构建与架构在发生崩溃时固定，升级补报不得更换归属；同版本不同构建可区分。
+- 保持关闭统计不捕获、不上传和清空待发记录的语义；不上传输入内容、私人目录、凭据或原始系统日志。
+- 超过八条的记录仍可后续送达；入队失败不删除记录；重试不产生新的事件身份。
+- Android Java 和原生崩溃都有设备用例；Windows Server、x86、TSF 和独立进程分别有验证；macOS、Linux、iOS、HarmonyOS 分别核对信号、异常或系统诊断的实际入口。
+- 各平台发布符号和构建清单可核对，并用合成调用栈还原到确定的函数或源码位置。
+- 跑相关测试、Rust 格式与 Clippy、笔记校验、quick 门禁，提交并推送后向 `develop` 开中文 PR。设备端与后台收件的未完成项持续保留，不用编译通过代替。
+
+## Risks
+
+信号与异常处理器可能面对栈耗尽、堆损坏和加载器锁；捕获应写入有限的预备缓冲，先保存故障摘要，再尽力展开栈，并交还原来的系统处置。TSF 不得接管其他应用的无关崩溃。系统诊断可能延迟或缺失，不能承诺百分之百投递，也不能把没有报告当成没有故障。本机可用磁盘低于五十 GB，新增构建树放在 `rbuild` 的 Studio 镜像，设备验收只拉回所需产物。

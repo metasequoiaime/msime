@@ -197,7 +197,10 @@ fn a_crash_record_turns_the_leftover_session_into_session_crash_and_a_crash() {
     assert_eq!(session_crash.version, "0.50.1");
     assert_eq!(crash.version, "0.50.1");
     assert_eq!(crash.platform, "windows");
-    assert_eq!(crash.message, "std::runtime_error: bad state in data.bin");
+    assert_eq!(
+        crash.message.lines().next(),
+        Some("std::runtime_error: bad state in data.bin")
+    );
     assert_eq!(
         crash.stack,
         "msime-server.exe+0x1a2b\nmsime_host_api.dll+0x77"
@@ -422,7 +425,7 @@ fn a_diagnosed_crash_belongs_to_the_open_session_of_its_process_once() {
     let crashes: Vec<_> = queue
         .iter()
         .filter(|event| event.kind == TelemetryKind::Crash)
-        .map(|event| event.message.as_str())
+        .map(|event| event.message.lines().next().unwrap())
         .collect();
     assert_eq!(crashes.len(), 4);
     assert!(crashes.contains(&"Crash exception 10 code 0 signal 6"));
@@ -548,7 +551,7 @@ fn a_record_a_signal_handler_wrote_raw_is_read_too() {
         .into_iter()
         .find(|event| event.kind == TelemetryKind::Crash)
         .unwrap();
-    assert_eq!(crash.message, "SIGSEGV");
+    assert_eq!(crash.message.lines().next(), Some("SIGSEGV"));
     assert_eq!(
         crash.stack,
         "libmsime_host_api.so(+0x1f2e)[0x7f00]\nlibc.so.6(+0x3c050)[0x7f01]\n\u{fffd}"
@@ -556,9 +559,223 @@ fn a_record_a_signal_handler_wrote_raw_is_read_too() {
 }
 
 #[test]
+fn crash_records_beyond_one_batch_survive_for_the_next_collection() {
+    let (_directory, store) = store();
+    store.begin_session(&app(), noon()).unwrap();
+    let directory = store.directory().join(CRASH_DIRECTORY);
+    for index in 0..MAX_CRASH_RECORDS_PER_START + 3 {
+        let path = directory.join(format!("{}.crash", Uuid::new_v4()));
+        std::fs::write(path, format!("synthetic crash {index}\nmodule.so+0x12\n")).unwrap();
+    }
+    let first = store.begin_session(&app(), noon()).unwrap();
+    assert_eq!(first.crashes, MAX_CRASH_RECORDS_PER_START);
+    assert_eq!(crash_record_paths(&directory).unwrap().len(), 3);
+    let second = store.begin_session(&app(), noon()).unwrap();
+    assert_eq!(second.crashes, 3);
+    assert!(crash_record_paths(&directory).unwrap().is_empty());
+    assert_eq!(
+        store
+            .queued()
+            .unwrap()
+            .iter()
+            .filter(|event| event.kind == TelemetryKind::Crash)
+            .count(),
+        MAX_CRASH_RECORDS_PER_START + 3
+    );
+}
+
+#[test]
+fn a_failed_queue_write_keeps_the_original_crash_record() {
+    let (_directory, store) = store();
+    let start = store.begin_session(&app(), noon()).unwrap();
+    std::fs::write(
+        &start.crash_record_path,
+        "synthetic crash\nmodule.so+0x12\n",
+    )
+    .unwrap();
+    let queue_path = store.directory().join(QUEUE_FILE);
+    std::fs::remove_file(&queue_path).unwrap();
+    std::fs::create_dir(&queue_path).unwrap();
+    assert_eq!(
+        store.begin_session(&app(), noon()),
+        Err(TelemetryError::Storage)
+    );
+    assert!(start.crash_record_path.is_file());
+    std::fs::remove_dir(queue_path).unwrap();
+    assert_eq!(store.begin_session(&app(), noon()).unwrap().crashes, 1);
+}
+
+#[test]
+fn flushing_without_a_keyboard_session_collects_standalone_crash_records() {
+    let (_directory, store) = store();
+    store.record_active(&app(), noon()).unwrap();
+    let directory = store.directory().join(CRASH_DIRECTORY);
+    std::fs::create_dir_all(&directory).unwrap();
+    let record = directory.join(format!("{}.crash", Uuid::new_v4()));
+    std::fs::write(&record, "synthetic settings crash\nsettings+0x12\n").unwrap();
+    let sender = ScriptedSender::new([]);
+    store.flush_with(&app(), &sender, noon()).unwrap();
+    assert!(sender
+        .bodies
+        .borrow()
+        .iter()
+        .any(|body| body["kind"] == "crash"));
+    assert!(!sender
+        .bodies
+        .borrow()
+        .iter()
+        .any(|body| body["kind"] == "session_crash"));
+    assert!(!record.exists());
+    assert!(!store.directory().join(SESSION_FILE).exists());
+}
+
+#[test]
+fn retrying_a_standalone_crash_after_marker_write_failure_keeps_its_event_id() {
+    let (_directory, store) = store();
+    store.record_active(&app(), noon()).unwrap();
+    let directory = store.directory().join(CRASH_DIRECTORY);
+    std::fs::create_dir_all(&directory).unwrap();
+    let record = directory.join("harmony-123-456.crash");
+    std::fs::write(&record, "synthetic delayed crash\nmodule.so+0x12\n").unwrap();
+    let marker = store.directory().join(SESSION_FILE);
+    std::fs::create_dir(&marker).unwrap();
+    assert_eq!(
+        store.begin_session(&app(), noon()),
+        Err(TelemetryError::Storage)
+    );
+    assert!(record.is_file());
+    let first = store
+        .queued()
+        .unwrap()
+        .into_iter()
+        .find(|event| event.kind == TelemetryKind::Crash)
+        .unwrap();
+    std::fs::remove_dir(&marker).unwrap();
+    store.begin_session(&app(), noon()).unwrap();
+    let crashes: Vec<_> = store
+        .queued()
+        .unwrap()
+        .into_iter()
+        .filter(|event| event.kind == TelemetryKind::Crash)
+        .collect();
+    assert_eq!(crashes.len(), 1);
+    assert_eq!(crashes[0].id, first.id);
+}
+
+#[test]
+fn collecting_a_crashed_session_does_not_resurrect_its_legacy_marker() {
+    let (_directory, store) = store();
+    let start = store.begin_session(&app(), noon()).unwrap();
+    std::fs::write(
+        &start.crash_record_path,
+        "synthetic crash\nmodule.so+0x12\n",
+    )
+    .unwrap();
+    store.record_active(&app(), noon()).unwrap();
+    assert!(store.read_state().open_sessions.is_empty());
+    assert!(!store.directory().join(SESSION_FILE).exists());
+    store.record_active(&app(), noon()).unwrap();
+    assert!(store.read_state().open_sessions.is_empty());
+    assert!(!store.end_session().unwrap());
+    let events = store.queued().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == TelemetryKind::SessionCrash)
+            .count(),
+        1
+    );
+    assert!(!events
+        .iter()
+        .any(|event| event.kind == TelemetryKind::Session));
+}
+
+#[test]
 fn record_crash_without_a_session_writes_nothing() {
     let (_directory, store) = store();
     assert!(!store.record_crash("boom", "").unwrap());
+}
+
+#[test]
+fn independent_capture_preserves_the_crashing_build_after_an_upgrade() {
+    let (_directory, store) = store();
+    let previous = TelemetryApp::new("android", "1.2.3")
+        .unwrap()
+        .with_component("settings")
+        .unwrap();
+    let capture = store.prepare_crash_capture(&previous, noon()).unwrap();
+    assert!(!store.directory().join(SESSION_FILE).exists());
+    assert!(store.read_state().open_sessions.is_empty());
+    let mut context = CrashContext::from_header(&capture.crash_record_header).unwrap();
+    context.revision = "1234567890abcdef1234567890abcdef12345678".to_owned();
+    context.run = "100".to_owned();
+    context.attempt = "2".to_owned();
+    context.arch = "aarch64".to_owned();
+    std::fs::write(
+        &capture.crash_record_path,
+        format!("{}SIGSEGV\nlibsynthetic.so+0x42\n", context.record_header()),
+    )
+    .unwrap();
+    let upgraded = TelemetryApp::new("android", "2.0.0").unwrap();
+    store.record_active(&upgraded, noon()).unwrap();
+    let queue = store.queued().unwrap();
+    let crash = queue
+        .iter()
+        .find(|event| event.kind == TelemetryKind::Crash)
+        .unwrap();
+    assert_eq!(crash.version, "1.2.3");
+    assert_eq!(crash.message.lines().next(), Some("SIGSEGV"));
+    let metadata = crash
+        .message
+        .lines()
+        .nth(1)
+        .unwrap()
+        .strip_prefix("[msime-crash-v1] ")
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<CrashContext>(metadata).unwrap(),
+        context
+    );
+    assert_eq!(crash.stack, "libsynthetic.so+0x42");
+    assert!(crash.is_valid());
+    assert!(!queue.iter().any(|event| matches!(
+        event.kind,
+        TelemetryKind::Session | TelemetryKind::SessionCrash
+    )));
+    assert!(!store.end_session_by_id(&capture.session_id).unwrap());
+}
+
+#[test]
+fn crash_identity_is_bounded_and_refuses_paths_and_control_characters() {
+    let (_directory, store) = store();
+    assert!(app().with_component("/synthetic/private").is_err());
+    let start = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let mut context = CrashContext::from_header(&start.crash_record_header).unwrap();
+    context.revision = "/synthetic/private".to_owned();
+    assert!(CrashContext::from_header(&context.record_header()).is_none());
+    assert_eq!(
+        store.record_crash_with_context(&start.session_id, Some(&context), "SIGSEGV", ""),
+        Err(TelemetryError::Invalid)
+    );
+    context.revision = "synthetic-revision".to_owned();
+    let summary = "错".repeat(MAX_MESSAGE_CHARS + 1);
+    let message = context.message(&summary);
+    assert_eq!(message.chars().count(), MAX_MESSAGE_CHARS);
+    assert_eq!(message.lines().count(), 2);
+    assert!(!message.lines().next().unwrap().is_empty());
+}
+
+#[test]
+fn independent_capture_does_not_replace_another_process_session() {
+    let (_directory, store) = store();
+    let input = store.begin_session(&app(), noon()).unwrap();
+    let capture = store
+        .prepare_crash_capture(&app().with_component("panel").unwrap(), noon())
+        .unwrap();
+    assert_eq!(store.read_marker().unwrap().id, input.session_id);
+    assert!(!store.end_session_by_id(&capture.session_id).unwrap());
+    assert_eq!(store.read_marker().unwrap().id, input.session_id);
+    assert!(store.end_session_by_id(&input.session_id).unwrap());
 }
 
 #[test]
