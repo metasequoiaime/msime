@@ -1,6 +1,8 @@
-//! 「我的词条」经 WebDAV 网盘同步（`docs/dictionary-webdav-sync.md`）的设置应用一侧，macOS 与 Linux 的 Tauri 设置应用用。请求经 `msime_host_api::dictionary_webdav::request_json`，与 C 入口 `msime_client_dictionary_sync` 是同一个实现；这里只补上 HostOptions 和本机状态的目录，由调用方挪到阻塞线程上。
+//! 「我的词条」经 WebDAV 网盘同步（`docs/dictionary-webdav-sync.md`）的设置应用一侧，macOS 与 Linux 的 Tauri 设置应用用。请求经 `msime_host_api::dictionary_webdav::request_json_announcing`，与 C 入口 `msime_client_dictionary_sync` 是同一个实现；这里只补上 HostOptions 和本机状态的目录，由调用方挪到阻塞线程上。
 //!
 //! 目录是账号目录下的 `dictionary-sync/`。账号目录是设置应用和输入法共用的那一个：macOS 是 `~/Library/Application Support/<设置应用的 bundle id>`（`macos_launch::native_locator_root`，输入法的 `BackendDesktopSessionFile.standardDirectory` 也是它），Linux 是 IBus、Fcitx5 和设置应用共用的状态目录（`LinuxStateDirectory`，通常是 `~/.config/msime-client`）。不直接用账号目录本身：云剪贴板的中继在那里放着 `cloud-clipboard-relay-keystore` 和 `cloud-clipboard-webdav-state`，词库的密钥串和它的网盘缓存用的是同样的文件名，放在一起会互相覆盖。
+//!
+//! 同步遇到词库正忙、要请输入法让出时，macOS 与设置页改词一样经分布式通知立刻叫醒 IMK（[`wake_input_method`]）。
 //!
 //! 什么时候调由共享设置页决定（`packages/ui/src/settings/use-dictionary-sync.ts`）：设置打开时 `opened`，之后按 `next_check_ms` 定时 `periodic`，经设置改了词之后 `local_change`，「立即同步」是 `manual`。
 
@@ -52,6 +54,12 @@ pub(crate) fn error_code(code: &str) -> &'static str {
         .unwrap_or("dictionary_sync_unavailable")
 }
 
+/// 同步要请输入法让出词库（手动同步、打开设置和设备操作时词库正忙）的租约一挂上就叫醒输入法：macOS 经分布式通知叫醒 IMK，与设置页改词时 `dictionary_request` 的做法相同，不让它等每秒一次的偏好轮询；Linux 的 IBus、Fcitx5 没有这样的通道，只靠它们的定时器看租约。
+fn wake_input_method() {
+    #[cfg(target_os = "macos")]
+    msime_host_macos::quiesce_input_sessions();
+}
+
 /// 一个词库同步动作。除 `status` 外都会联网，只在阻塞线程上调用。
 pub(crate) fn request(
     options: Value,
@@ -65,9 +73,11 @@ pub(crate) fn request(
     let body = serde_json::to_vec(&document).map_err(|_| crate::CommandError {
         code: "invalid_dictionary_sync",
     })?;
-    msime_host_api::dictionary_webdav::request_json(&body).map_err(|code| crate::CommandError {
-        code: error_code(&code),
-    })
+    msime_host_api::dictionary_webdav::request_json_announcing(&body, wake_input_method).map_err(
+        |code| crate::CommandError {
+            code: error_code(&code),
+        },
+    )
 }
 
 #[cfg(test)]

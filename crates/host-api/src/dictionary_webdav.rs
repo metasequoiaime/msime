@@ -56,6 +56,12 @@ pub(crate) struct EngineDictionary<'a> {
     options: &'a EngineOptions,
     /// 拿不到维护权时请输入法让出词库（只在桌面端、用户手动同步或打开设置时）。
     quiesce: bool,
+    /// 让出请求第一次挂上时直接叫醒能被叫醒的输入法（macOS 设置应用经分布式通知叫醒 IMK，与设置页改词时相同），不让它等自己每秒一次的偏好轮询。
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
+        allow(dead_code)
+    )]
+    announce: fn(),
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     hosts: Option<msime_client_services::dictionary::quiesce::QuiescedHosts<'a, fn()>>,
     /// 上一次读到的权重：删除时 Engine 要核对它。
@@ -64,9 +70,15 @@ pub(crate) struct EngineDictionary<'a> {
 
 impl<'a> EngineDictionary<'a> {
     pub(crate) fn new(options: &'a EngineOptions, quiesce: bool) -> Self {
+        Self::announcing(options, quiesce, || {})
+    }
+
+    /// 同 [`Self::new`]，让出请求第一次挂上时再调一次 `announce`。
+    pub(crate) fn announcing(options: &'a EngineOptions, quiesce: bool, announce: fn()) -> Self {
         Self {
             options,
             quiesce,
+            announce,
             #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             hosts: None,
             weights: HashMap::new(),
@@ -122,10 +134,11 @@ impl<'a> EngineDictionary<'a> {
         };
         #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         if self.quiesce {
+            let announce = self.announce;
             let hosts = self.hosts.get_or_insert_with(|| {
                 msime_client_services::dictionary::quiesce::QuiescedHosts::new(
                     Some(options.user_data.as_str()),
-                    (|| {}) as fn(),
+                    announce,
                 )
             });
             return hosts.run(attempt).map_err(busy);
@@ -342,6 +355,11 @@ fn code(error: DictionarySyncError) -> String {
 
 /// 一个请求：`{options, directory, device_name?, action}`，见头文件。成功时是那个动作的 Value，失败时是错误码。C 入口 `msime_client_dictionary_sync` 和直接链接这个 crate 的 Tauri 设置应用都经这里；除 `status` 外都会联网，只在工作线程上调用。
 pub fn request_json(bytes: &[u8]) -> Result<Value, String> {
+    request_json_announcing(bytes, || {})
+}
+
+/// 同 [`request_json`]，请输入法让出词库（`manual`、`opened`、`remove`、`reset`、`restart` 遇到词库忙时）的租约第一次挂上时调一次 `announce`，给能直接叫醒输入法的宿主用：macOS 的设置应用传 `msime_host_macos::quiesce_input_sessions`，与设置页改词时的 `settings_dictionary::request` 相同，IMK 不用等每秒一次的轮询。C 入口不叫醒任何人，输入法只靠租约文件。
+pub fn request_json_announcing(bytes: &[u8], announce: fn()) -> Result<Value, String> {
     let request: SyncRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
     let action: Action = serde_json::from_value(request.action).map_err(|_| INVALID)?;
     let absolute =
@@ -394,7 +412,7 @@ pub fn request_json(bytes: &[u8]) -> Result<Value, String> {
             | Action::Reset
             | Action::Restart
     );
-    let mut local = EngineDictionary::new(&engine, interactive);
+    let mut local = EngineDictionary::announcing(&engine, interactive, announce);
     match action {
         Action::Run {
             trigger,

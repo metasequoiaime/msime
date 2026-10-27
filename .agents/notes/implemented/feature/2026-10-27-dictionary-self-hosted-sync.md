@@ -32,7 +32,7 @@ Status: implemented
 
 ### 捕获本机改动：三方核对而不是在写入点挂钩
 
-本机记着「认为本机词库里有哪些词」（`applied`）。本机词库相对它的变化是本机改动，记成操作；共享状态叠上待发送操作相对它的变化，是要写进本机词库的远端改动。宿主在用户改词后马上以 `local_change` 调一次，只做核对、不联网，时间戳因此接近改动发生的时刻；每次同步开始前也核对一次，漏掉的通知不会丢改动。核对读的是 Engine `stream_dictionary_state` 在一个读事务里给出的一致视图。一次核对里少了 50 个以上、且至少一半的词时先挡下删除，由用户选择同步删除或从网盘恢复：词库被重置或损坏时不能把其他设备上的词也删掉。
+本机记着「认为本机词库里有哪些词」（`applied`）。本机词库相对它的变化是本机改动，记成操作；共享状态叠上待发送操作相对它的变化，是要写进本机词库的远端改动。宿主在用户改词后马上以 `local_change` 调一次，通常只做核对、不联网（本机改动没发出去已满十分钟、离上次发送已满五分钟时这一次就发送，见「触发与请求量」），时间戳因此接近改动发生的时刻；每次同步开始前也核对一次，漏掉的通知不会丢改动。核对读的是 Engine `stream_dictionary_state` 在一个读事务里给出的一致视图。一次核对里少了 50 个以上、且至少一半的词时先挡下删除，由用户选择同步删除或从网盘恢复：词库被重置或损坏时不能把其他设备上的词也删掉。
 
 ### Engine 集成
 
@@ -60,7 +60,7 @@ Status: implemented
 
 ### 触发与请求量
 
-每台设备每 30 分钟自动同步最多 40 个请求（密钥串的请求也算在里面），加上手动最多 60 个，三台设备用满只占坚果云配额的三成。改词后防抖一分钟（一直改时最多十分钟）、两次自动发送至少隔五分钟；打开设置时拉一次（一分钟内不重复），宿主活着时每 30 分钟拉一次；「立即同步」不受防抖限制。连不上按 1、2、5、10、30、60 分钟退避，限流等 30 分钟，需要用户处理的错误自动同步停一小时。宿主每次调用都拿到下一次该什么时候再调用，不用自己算。
+每台设备每 30 分钟自动同步最多 40 个请求（密钥串的请求也算在里面），加上手动最多 60 个，三台设备用满只占坚果云配额的三成。改词后防抖一分钟（一直改时最多十分钟）、两次自动发送至少隔五分钟；`local_change` 本身把这次改词记成最后一次，所以只有十分钟的上限会在它身上到期，到期（并且离上次发送满五分钟）时这一次就联网发送，宿主要把它当作联网的调用；打开设置时拉一次（一分钟内不重复），宿主活着时每 30 分钟拉一次；「立即同步」不受防抖限制。连不上按 1、2、5、10、30、60 分钟退避，限流等 30 分钟，需要用户处理的错误自动同步停一小时。宿主每次调用都拿到下一次该什么时候再调用，不用自己算。
 
 ### 宿主接线：共享设置页、macOS、Linux 与 HarmonyOS
 
@@ -68,7 +68,7 @@ Status: implemented
 
 触发放在共享页的模型里（`use-dictionary-sync.ts`），宿主只提供 `dictionarySync.request(action)`：设置打开且已保存的偏好配置了网盘时 `opened`，按 `next_check_ms` 排 `periodic`（限在 1 秒到 30 分钟），经设置改了词成功之后 `local_change`（模型给词库客户端的写方法包一层成功后的通知，只在宿主提供词库同步时包，其他宿主拿到的还是同一个客户端），按钮是 `manual`；请求排成一队依次发出。
 
-目录：macOS 与 Linux 是账号目录下的 `dictionary-sync/`，账号目录本来就是设置应用和输入法共用的那一个（macOS 的 Application Support 里设置应用 bundle id 那一层，Linux 的状态目录）；鸿蒙是设置应用沙箱的 `files/state/dictionary-sync`。三处都不直接用账号目录或 `files/state`：云剪贴板中继的 `cloud-clipboard-relay-keystore`、`cloud-clipboard-webdav-state` 在那里，词库密钥串的文件名与它们相同。Tauri 设置应用经新公开的 `msime_host_api::dictionary_webdav::request_json` 直接调用（C 入口的同一个实现），鸿蒙经 NAPI `dictionarySync` 在工作线程上调 C 入口；鸿蒙的 `dictionary_sync` 请求除 `status` 外都在隐私政策授权之后，`local_change` 也算，因为防抖到期时它会在这一次就发送。
+目录：macOS 与 Linux 是账号目录下的 `dictionary-sync/`，账号目录本来就是设置应用和输入法共用的那一个（macOS 的 Application Support 里设置应用 bundle id 那一层，Linux 的状态目录）；鸿蒙是设置应用沙箱的 `files/state/dictionary-sync`。三处都不直接用账号目录或 `files/state`：云剪贴板中继的 `cloud-clipboard-relay-keystore`、`cloud-clipboard-webdav-state` 在那里，词库密钥串的文件名与它们相同。Tauri 设置应用经新公开的 `msime_host_api::dictionary_webdav::request_json` 直接调用（C 入口的同一个实现），鸿蒙经 NAPI `dictionarySync` 在工作线程上调 C 入口；鸿蒙的 `dictionary_sync` 请求除 `status` 外都在隐私政策授权之后，`local_change` 也算，因为发送到了十分钟上限时它会在这一次就发送。macOS 设置应用经 `request_json_announcing` 把 `msime_host_macos::quiesce_input_sessions` 交给让出租约，租约一挂上就经分布式通知叫醒 IMK，与设置页改词（`dictionary_request`）相同；C 入口和 Linux 只靠租约文件和输入法的定时器。
 
 输入法进程不触发：macOS 的 IMK、Linux 的 IBus 和 Fcitx5 只有遥测定时上传这一类后台工作，没有可以挂的同步；鸿蒙的键盘扩展读写的是自己沙箱里的另一份个人词库，C 入口又没有「只用已有身份」的开关，键盘一调就是同一台手机的第二个设备身份（#10029、#10032 修的那一类），`scripts/test-harmony-dictionary-sync.py` 守着调用点只在设置应用。
 
@@ -112,7 +112,7 @@ Status: implemented
 
 ## Verification
 
-- 宿主接线（共享设置页、macOS、Linux、鸿蒙）：`apps/desktop/tests/settings/dictionary-sync.test.tsx` 18 项，覆盖结果的严格解析和错误码的中文说明、保存与停止只动 `dictionary_sync_webdav`、重复登记的设备只列一条、宿主不提供时不画、测试连接失败不保存且草稿留着、应用密码不回显且留空沿用、打开时 `opened` 之后按 `next_check_ms` 跑 `periodic`、「立即同步」、经设置改词后只排一次 `local_change`（写失败不记）、本机等待批准时显示核对码、不给允许和移除，已获准时允许拒绝、移除先确认、被挡下删除的两个选择、重置与重新开始先确认、鸿蒙手机词库页、切换网盘时取消旧代次的排队任务并清除忙碌状态、停止同步后旧请求不能恢复同步中状态；后两项在修复前实际失败，修复后 18 项通过，TypeScript 检查与生产构建通过；`platform::dictionary_sync` 的 Rust 单测覆盖目录、请求文档和错误码，以及没配置网盘时不联网就答 `dictionary_sync_not_configured`；`platforms/harmony/tests/run.sh` 覆盖请求文档（子目录、HostOptions、设备名、按操作名放行）和授权（只放行 `status`）；`scripts/test-harmony-dictionary-sync.py` 守着 NAPI 工作线程、授权之后的分派和「只有设置应用调」。没有在真实的坚果云或 Nextcloud 上、也没有在 macOS、Linux、鸿蒙的设备上跑过这条链路。
+- 宿主接线（共享设置页、macOS、Linux、鸿蒙）：`apps/desktop/tests/settings/dictionary-sync.test.tsx` 18 项，覆盖结果的严格解析和错误码的中文说明、保存与停止只动 `dictionary_sync_webdav`、重复登记的设备只列一条、宿主不提供时不画、测试连接失败不保存且草稿留着、应用密码不回显且留空沿用、打开时 `opened` 之后按 `next_check_ms` 跑 `periodic`、「立即同步」、经设置改词后只排一次 `local_change`（写失败不记）、本机等待批准时显示核对码、不给允许和移除，已获准时允许拒绝、移除先确认、被挡下删除的两个选择、重置与重新开始先确认、鸿蒙手机词库页、切换网盘时取消旧代次的排队任务并清除忙碌状态、停止同步后旧请求不能恢复同步中状态；后两项在修复前实际失败，修复后 18 项通过，TypeScript 检查与生产构建通过；`platform::dictionary_sync` 的 Rust 单测覆盖目录、请求文档和错误码，以及没配置网盘时不联网就答 `dictionary_sync_not_configured`；`platforms/harmony/tests/run.sh` 覆盖请求文档（子目录、HostOptions、设备名、按操作名放行）和授权（只放行 `status`）；`scripts/test-harmony-dictionary-sync.py` 守着 NAPI 工作线程、授权之后的分派和「只有设置应用调」。host-api 的 `an_interactive_write_wakes_the_input_method_once_when_it_asks_for_the_dictionary` 证明交互的写入在词库被输入会话占着时叫醒输入法一次、同一轮不重复、放开后照常写入；`scripts/test-macos-dictionary-quiesce-wake.py` 守着设置页改词和词库同步两处都把 macOS 的通知交出去；client-core 的 `a_local_change_sends_at_once_once_unsent_edits_are_ten_minutes_old` 钉住 `local_change` 何时联网。没有在真实的坚果云或 Nextcloud 上、也没有在 macOS、Linux、鸿蒙的设备上跑过这条链路。
 
 - 检查点边界：6500 条、每条 4096 字节的合成快捷短语不会发布超限检查点，日志不封口，确认删除后仍可收敛；超限重建不会增加远端事件，原设备可继续写入。
 
