@@ -512,12 +512,13 @@ struct TypingKeyHeatmap: Equatable {
   /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`，打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
   static func letterRows(for style: TouchKeyLayoutStyle) -> [[Cell]] {
     let number: [[Cell]] = style.numberRow ? ["1234567890".map { Cell("Digit\($0)", String($0)) }] : []
-    return number + [
+    let rows: [[Cell]] = [
       letters("QWERTYUIOP"),
       letters("ASDFGHJKL"),
       [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
       bottomRow(TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)),
     ]
+    return number + rows
   }
 
   /// 26 键热力图里第二排字母（要两侧缩进的那一排）的下标：数字行打开时往下挪一排。
