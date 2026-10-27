@@ -90,6 +90,7 @@ static void FinishCandidateFrameAnimation(MSIMEInputController *controller) {
 @property(nonatomic, copy) NSArray<NSString *> *texts;
 @property(nonatomic) NSUInteger cursor;
 @property(nonatomic) NSUInteger selected;
+@property(nonatomic, copy) NSIndexSet *pendingIndices;
 // 联想候选：视图带 prediction，翻页命令照 runtime 清掉联想。
 @property(nonatomic) BOOL prediction;
 @property(nonatomic) NSMutableArray<NSNumber *> *commands;
@@ -103,6 +104,7 @@ static void FinishCandidateFrameAnimation(MSIMEInputController *controller) {
     NSMutableArray *entries = [NSMutableArray array];
     for (NSUInteger index = 0; index < self.texts.count; ++index)
         [entries addObject:@{@"text":self.texts[index], @"highlighted":@(index == self.cursor),
+            @"source":@([self.pendingIndices containsIndex:index] ? 15 : 0),
             @"id":@{@"session":@1, @"generation":@7, @"index":@(index)}}];
     return entries;
 }
@@ -301,6 +303,97 @@ static void AssertNativeCandidateFrameAnimation(AdaptiveLayoutController *contro
 @end
 
 // PR 审查补的边界：显示页上报、释义按显示行请求、收起后与联想状态的翻页、窄宽度大缩放的首行控件。
+static NSView *HeaderChild(NSView *content, NSString *identifier);
+
+static void TestFilteredFixedPages(RowLayoutClient *client) {
+    NSString *suite = [@"app.msime.test.filtered-pages." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [appearance applySharedCandidatePreferences:@{@"candidate_layout":@"horizontal", @"candidate_count_mode":@"fixed",
+        @"candidate_page_size":@6}];
+    appearance.showsCandidatePreedit = NO;
+    appearance.showsCandidatePageNumber = YES;
+    appearance.showsAppLogo = NO;
+    appearance.candidateTranslations = NO;
+    AdaptiveKeySession *session = [AdaptiveKeySession new];
+    session.forwarded = [NSMutableArray array];
+    session.typed = [NSMutableString string];
+    session.commands = [NSMutableArray array];
+    AdaptiveLayoutController *controller = [[AdaptiveLayoutController alloc] init];
+    MSIMECandidatePanel *panel = [[TogglingRowLayoutPanel alloc] initWithContentRect:NSZeroRect
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:panel forKey:@"panel"];
+    for (BOOL vertical : {NO, YES}) for (NSUInteger count : {7, 13}) {
+        appearance.vertical = vertical;
+        NSMutableArray *texts = [NSMutableArray array];
+        for (NSUInteger index = 0; index < count; ++index) [texts addObject:@"合成候选"];
+        session.texts = texts;
+        session.pendingIndices = [NSIndexSet indexSetWithIndex:1];
+        session.cursor = 0;
+        [controller setValue:[session viewWithError:nil] forKey:@"view"];
+        [controller renderCandidates];
+        assert(CandidateButton(panel.contentView, 5));
+        assert(CandidateButton(panel.contentView, 6) == nil);
+        assert([CandidateButton(panel.contentView, 5).candidateID[@"index"] isEqual:@6]);
+        assert(([session.displayPage isEqual:@[@0, @2, @3, @4, @5, @6]]));
+        assert([CandidateButton(panel.contentView, 1).title hasPrefix:@"2  "]);
+        NSEvent *six = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+            windowNumber:0 context:nil characters:@"6" charactersIgnoringModifiers:@"6" isARepeat:NO keyCode:22];
+        session.selected = NSNotFound;
+        assert([controller handleEvent:six client:client]);
+        assert(session.selected == 6 && session.typed.length == 0);
+        [controller apply:[controller candidateCommand:MSIME_NEXT_CANDIDATE]];
+        assert(session.cursor == 2);
+        [controller apply:[controller candidateCommand:MSIME_PREVIOUS_CANDIDATE]];
+        assert(session.cursor == 0);
+        if (count == 7) {
+            assert(!HeaderChild(panel.contentView, @"candidate-page-indicator"));
+            assert(!CandidateButton(panel.contentView, -2));
+        } else {
+            NSTextField *indicator = (id)HeaderChild(panel.contentView, @"candidate-page-indicator");
+            assert([indicator.stringValue isEqual:@"1 / 2"]);
+            [controller changeCandidatePage:CandidateButton(panel.contentView, -2)];
+            assert(session.cursor == 7);
+            indicator = (id)HeaderChild(panel.contentView, @"candidate-page-indicator");
+            assert([indicator.stringValue isEqual:@"2 / 2"]);
+            assert(([session.displayPage isEqual:@[@7, @8, @9, @10, @11, @12]]));
+            [controller selectCandidate:CandidateButton(panel.contentView, 5)];
+            assert(session.selected == 12);
+            session.selected = NSNotFound;
+            assert([controller handleEvent:six client:client]);
+            assert(session.selected == 12 && session.typed.length == 0);
+            [controller changeCandidatePage:CandidateButton(panel.contentView, -1)];
+            assert(session.cursor == 0);
+        }
+        session.pendingIndices = nil;
+        [controller setValue:[session viewWithError:nil] forKey:@"view"];
+        [controller renderCandidates];
+        assert([CandidateButton(panel.contentView, 5).candidateID[@"index"] isEqual:@5]);
+        assert(session.displayPage.count == 0);
+        NSTextField *restoredIndicator = (id)HeaderChild(panel.contentView, @"candidate-page-indicator");
+        assert([restoredIndicator.stringValue isEqual:count == 7 ? @"1 / 2" : @"1 / 3"]);
+    }
+    session.texts = @[@"合成首项", @"等待", @"等待", @"等待", @"等待", @"等待", @"等待", @"等待", @"等待", @"等待", @"等待", @"等待", @"合成尾项"];
+    session.pendingIndices = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(1, 11)];
+    session.cursor = 0;
+    [controller setValue:[session viewWithError:nil] forKey:@"view"];
+    [controller renderCandidates];
+    assert(([session.displayPage isEqual:@[@0, @12]]));
+    [controller apply:[controller candidateCommand:MSIME_NEXT_CANDIDATE]];
+    assert(session.cursor == 12);
+    [controller apply:[controller candidateCommand:MSIME_PREVIOUS_CANDIDATE]];
+    assert(session.cursor == 0);
+    session.pendingIndices = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, session.texts.count)];
+    [controller setValue:[session viewWithError:nil] forKey:@"view"];
+    [controller renderCandidates];
+    assert(session.displayPage.count == 0 && !panel.isVisible);
+    [controller setValue:nil forKey:@"session"];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestAdaptiveReviewFixes(RowLayoutClient *client) {
     NSString *suite = [@"app.msime.test.adaptive-review." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -3190,6 +3283,7 @@ int main(int argc, char **argv)
             client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
             TestAdaptiveCandidateLayout(client);
             TestAdaptiveReviewFixes(client);
+            TestFilteredFixedPages(client);
             return 0;
         }
         // 动效需要独立的主事件循环，避免大布局矩阵的旧窗口回调占用计时阶段。

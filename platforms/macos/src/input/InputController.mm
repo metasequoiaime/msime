@@ -1769,6 +1769,7 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _expandedGridMovesCursor;
     // 运行时手里有这一行的显示页（见 reportAdaptiveDisplayPage）；换回固定分页时要清掉。
     BOOL _displayPageReported;
+    BOOL _filteredFixedPages;
     NSUInteger _adaptivePage;
     NSViewAnimation *_candidateFrameAnimation;
     NSDictionary<NSDictionary *, NSValue *> *_candidateTransitionFrames;
@@ -2623,7 +2624,7 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
 
 - (BOOL)expandedCandidatesOffered {
     if (![self expandedCandidatesAllowed]) return NO;
-    if (_appearance.adaptiveCandidateCount && _adaptiveCandidates.count)
+    if ([self usesPresentedCandidatePages] && _adaptiveCandidates.count)
         return _adaptivePages.knownPages() > 1;
     NSUInteger pageCount = 0;
     return MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount) && pageCount > 1;
@@ -2704,7 +2705,7 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
 - (BOOL)openExpandedCandidatesAfterSelection:(BOOL)afterSelection {
     if (_expandedCandidates || !(afterSelection ? [self expandedCandidatesAllowed] : [self expandedCandidatesOffered])) return NO;
     NSArray<NSDictionary *> *entries = [self expandedCandidatesFromSnapshot:[_session allCandidatesWithError:nil]];
-    NSArray *page = [self usesAdaptiveCandidates] ? _adaptivePageCandidates
+    NSArray *page = [self usesPresentedCandidatePages] ? _adaptivePageCandidates
         : ([_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[]);
     if (!entries.count || (!afterSelection && entries.count <= page.count)) return NO;
     const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
@@ -4459,8 +4460,14 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     }
 
 }
+static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, NSDictionary *view);
+
 - (BOOL)usesAdaptiveCandidates {
     return _appearance.adaptiveCandidateCount && ![self glossSensePageActive] && !MSIMECandidateListOpen(_view);
+}
+
+- (BOOL)usesPresentedCandidatePages {
+    return _filteredFixedPages || [self usesAdaptiveCandidates];
 }
 
 // 自动适应显示的一行未必等于引擎的固定页：把这一行的座位报给运行时，二三候选键、五笔自定义选词键和翻译查询都按看得见的这一行。
@@ -4487,7 +4494,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 
 // 释义和翻译按看得见的候选请求：自动适应时把服务看到的视图换成这一行，与运行时翻译查询用的显示页一致。
 - (NSDictionary *)serviceViewShowingAdaptiveRow:(NSDictionary *)view {
-    if (![view isKindOfClass:NSDictionary.class] || ![self usesAdaptiveCandidates] || !_adaptivePageCandidates.count) return view;
+    if (![view isKindOfClass:NSDictionary.class] || ![self usesPresentedCandidatePages] || !_adaptivePageCandidates.count) return view;
     NSDictionary *identity = _adaptivePageCandidates.firstObject[@"id"];
     if (![identity[@"session"] isEqual:view[@"session"]] || ![identity[@"generation"] isEqual:view[@"generation"]]) return view;
     NSMutableDictionary *shown = [view mutableCopy];
@@ -4505,7 +4512,14 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 // 只接管正在显示的这一行的翻页：候选窗收起后（上屏、取消）的翻页键照原样交给引擎，不能被上一行的分页吞掉；
 // 上屏后的联想翻页在 runtime 里会清掉联想，同样沿用原来的单次命令。
 - (NSDictionary *)candidateCommand:(uint32_t)command {
-    if (![self usesAdaptiveCandidates] || _expandedCandidates || !_adaptivePages.widths.size() || !_panel.isVisible ||
+    if (_filteredFixedPages && !_expandedCandidates && _panel.isVisible &&
+        !MSIMEStrictBoolean(_view[@"prediction"]) && (command == MSIME_NEXT_CANDIDATE || command == MSIME_PREVIOUS_CANDIDATE)) {
+        const NSUInteger highlighted = MSIMEAdaptiveHighlightIndex(_adaptiveCandidates, _view);
+        const NSUInteger target = command == MSIME_NEXT_CANDIDATE ? MIN(highlighted + 1, _adaptiveCandidates.count - 1)
+            : (highlighted ? highlighted - 1 : 0);
+        return [self moveEngineHighlightToIndex:[_adaptiveCandidates[target][@"id"][@"index"] unsignedIntegerValue]];
+    }
+    if (![self usesPresentedCandidatePages] || _expandedCandidates || !_adaptivePages.widths.size() || !_panel.isVisible ||
         MSIMEStrictBoolean(_view[@"prediction"]) || (command != MSIME_NEXT_PAGE && command != MSIME_PREVIOUS_PAGE))
         return [_session command:command error:nil];
     // 下一页从已排最后一行的结尾开始，按需分页总会多排出这一项的位置。
@@ -4519,7 +4533,9 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 - (NSDictionary *)moveEngineHighlightToIndex:(NSUInteger)target {
     NSUInteger current = [self highlightedEngineCandidateIndex];
     NSDictionary *transition = nil;
-    for (NSUInteger attempts = 0; current != target && attempts <= _adaptiveCandidates.count; ++attempts) {
+    // 隐藏行仍占引擎索引，导航步数按真实身份距离限定，不能按过滤后的可见项数截断。
+    const NSUInteger distance = current > target ? current - target : target - current;
+    for (NSUInteger attempts = 0; current != target && attempts <= distance; ++attempts) {
         transition = [_session command:current < target ? MSIME_NEXT_CANDIDATE : MSIME_PREVIOUS_CANDIDATE error:nil];
         if (!transition) {
             msime_macos_diagnostic_write("adaptive_candidate_navigation_failed");
@@ -4538,7 +4554,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 }
 
 - (NSDictionary *)synchronizeAdaptiveCandidateIdentity:(NSDictionary *)identifier {
-    if (![self usesAdaptiveCandidates]) return identifier;
+    if (![self usesPresentedCandidatePages]) return identifier;
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return nil;
     const NSUInteger target = [identifier[@"index"] unsignedIntegerValue];
     if (![self moveEngineHighlightToIndex:target]) return nil;
@@ -7790,8 +7806,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 自动适应的一行和引擎的固定页各算各的：只要任一边用到第十格，`0` 就归选词，
     // 由下面的候选身份检查吞掉这一行没有的格子，不能落进引擎去选它固定页里看不见的第十个。
     const int physicalDigit = msime::mac::CandidateDigitSlotOnPage(msime::mac::PhysicalCandidateDigitSlot(event.keyCode),
-        [self usesAdaptiveCandidates] ? MAX((NSUInteger)_appearance.pageSize, _adaptivePageCandidates.count) : _appearance.pageSize);
-    NSArray *visibleCandidates = [self usesAdaptiveCandidates] ? _adaptivePageCandidates
+        [self usesPresentedCandidatePages] ? MAX((NSUInteger)_appearance.pageSize, _adaptivePageCandidates.count) : _appearance.pageSize);
+    NSArray *visibleCandidates = [self usesPresentedCandidatePages] ? _adaptivePageCandidates
         : MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
     const NSEventModifierFlags glossModifiers = event.modifierFlags &
         (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
@@ -7826,7 +7842,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
             uint64_t generation = 0; NSUInteger index = 0;
             if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return YES;
-            NSDictionary *selected = [self usesAdaptiveCandidates]
+            NSDictionary *selected = [self usesPresentedCandidatePages]
                 ? [_session selectAnyCandidateGeneration:generation index:index error:nil]
                 : [_session selectGeneration:generation index:index error:nil];
             if (selected) [self apply:selected];
@@ -9851,8 +9867,44 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // 普通候选页结束上一轮展开布局，不能把旧字号或皮肤的视口带到下一次展开。
     _expandedViewportHeight = 0;
     if (_appearance.englishMode && !_managedEnglishComposition) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
-    NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
+    NSArray *rawCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
+    NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(rawCandidates, MSIMECandidatePinCode(_view)));
+    // 固定页也按可见行装满：占位只在首屏出现，第一次发现后持续从当前代次的完整快照分页，直到占位被真实结果替换。
+    // 所有条目保留原始引擎身份；显示页上报和任意候选选择复用自动适应已有的协议。
+    const BOOL hadFilteredPages = _filteredFixedPages;
+    _filteredFixedPages = NO;
+    if (_session && ![self usesAdaptiveCandidates] && ![self glossSensePageActive] &&
+        !MSIMECandidateListOpen(_view) && (hadFilteredPages || candidates.count != rawCandidates.count)) {
+        NSDictionary *snapshot = [_session allCandidatesWithError:nil];
+        if (snapshot && ![snapshot[@"generation"] isEqual:_view[@"generation"]]) {
+            NSDictionary *updated = [_session viewWithError:nil];
+            if (updated) _view = updated;
+        }
+        NSArray *entries = [self expandedCandidatesFromSnapshot:snapshot];
+        NSArray *snapshotRows = [snapshot[@"candidates"] isKindOfClass:NSArray.class] ? snapshot[@"candidates"] : @[];
+        if (entries.count && entries.count < snapshotRows.count) {
+            _filteredFixedPages = YES;
+            _adaptiveCandidates = entries;
+            const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
+            _adaptivePage = MSIMEAdaptiveHighlightIndex(entries, _view) / columns;
+            _adaptivePages = {};
+            for (NSUInteger start = 0; start < entries.count; start += columns) {
+                const NSUInteger length = MIN(columns, entries.count - start);
+                _adaptivePages.widths.emplace_back(length, 0);
+                _adaptivePages.starts.push_back(start + length);
+            }
+            const NSUInteger start = _adaptivePages.starts[_adaptivePage];
+            _adaptivePageCandidates = candidates = [entries subarrayWithRange:NSMakeRange(start,
+                _adaptivePages.starts[_adaptivePage + 1] - start)];
+        } else if (snapshot && entries.count == snapshotRows.count) {
+            candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
+        }
+    }
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
+        _adaptiveCandidates = nil;
+        _adaptivePageCandidates = nil;
+        _adaptivePages = {};
+        [self clearAdaptiveDisplayPage];
         _armedGlossColumn = 0;
         _renderedCandidateView = nil;
         [self resetCandidateAnchor];
@@ -9946,7 +9998,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         _adaptiveCandidates = entries;
         adaptiveHighlight = MSIMEAdaptiveHighlightIndex(entries, _view);
         paginate(0);
-    } else {
+    } else if (!_filteredFixedPages) {
         _adaptiveCandidates = nil;
         _adaptivePageCandidates = nil;
         _adaptivePages = {};
@@ -9958,7 +10010,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page);
     MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount);
     // 自动适应只知道到下一页为止的页数，够判断前后有没有页；总页数不显示。
-    if (adaptive) { page = _adaptivePage; pageCount = _adaptivePages.knownPages(); }
+    if (adaptive || _filteredFixedPages) { page = _adaptivePage; pageCount = _adaptivePages.knownPages(); }
     const BOOL paging = pageCount > 1;
     // 用户开关控制所有鼠标翻页按钮；共享版式把它们放进列表，显式关闭时也不回退到首行。
     const BOOL pageControls = paging && _appearance.showsCandidatePageNumber && !skin.pageArrows.has_value();
@@ -9985,7 +10037,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         page = _adaptivePage;
         pageCount = _adaptivePages.knownPages();
     }
-    if (adaptive) [self reportAdaptiveDisplayPage];
+    if (adaptive || _filteredFixedPages) [self reportAdaptiveDisplayPage];
     // 「1 / 3」只在知道总页数时显示；自动适应只留 ‹ ›。
     const BOOL pageIndicatorShown = pageControls && !adaptive;
     NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
@@ -10563,7 +10615,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return;
     // 指针点选先开一轮；上屏音和上屏特效照常来自这次派发。
     [self reportPointerToLifecycle];
-    [self apply:[self usesAdaptiveCandidates] ? [_session selectAnyCandidateGeneration:generation index:index error:nil]
+    [self apply:[self usesPresentedCandidatePages] ? [_session selectAnyCandidateGeneration:generation index:index error:nil]
                                               : [_session selectGeneration:generation index:index error:nil]];
 }
 
@@ -10630,7 +10682,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // Windows hides deletion for one Unicode scalar, including supplementary Han.
     if ([text isKindOfClass:NSString.class] && [text lengthOfBytesUsingEncoding:NSUTF32LittleEndianStringEncoding] / 4 > 1) {
         NSMenuItem *remove = item(@"删除", 1);
-        NSArray *candidates = [self usesAdaptiveCandidates] ? _adaptivePageCandidates
+        NSArray *candidates = [self usesPresentedCandidatePages] ? _adaptivePageCandidates
             : MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
         NSUInteger slot = [candidates isKindOfClass:NSArray.class] ? [candidates indexOfObjectIdenticalTo:candidate] : NSNotFound;
         if (slot < 8) {
@@ -10654,7 +10706,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if ((item.tag < 0 || item.tag > 2) && (item.tag < 11 || item.tag > 15)) return;
     // 候选右键菜单的这几项都是指针操作引起的派发，和点选候选一样先开一轮，见 msime_client.h 的顺序契约。
     [self reportPointerToLifecycle];
-    if ([self usesAdaptiveCandidates]) {
+    if ([self usesPresentedCandidatePages]) {
         identifier = [self synchronizeAdaptiveCandidateIdentity:identifier];
         if (!identifier) { NSBeep(); return; }
         generation = [identifier[@"generation"] unsignedLongLongValue];
@@ -10692,7 +10744,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (!MSIMEUnsignedCandidateIdentityValue(_view[@"page_count"])) return;
     NSUInteger page = 0; NSUInteger count = 0;
     if (!MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page) || !MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &count)) return;
-    if ([self usesAdaptiveCandidates]) { page = _adaptivePage; count = _adaptivePages.knownPages(); }
+    if ([self usesPresentedCandidatePages]) { page = _adaptivePage; count = _adaptivePages.knownPages(); }
     if (count == 0 || page >= count) return;
     // 先定下要派发的命令，报告和派发共用同一个条件，免得两边各写一份、日后改出分歧。
     uint32_t command = UINT32_MAX;
