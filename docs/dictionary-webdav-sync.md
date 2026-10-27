@@ -268,6 +268,14 @@ macOS 与 Linux 的输入法进程自己触发同步：IMK、IBus 和 Fcitx5 起
 
 词、编码、设备之间的确认和移除都在本机加密，网盘看不到。网盘能看到：事件的数量、大小和写入时间（`at`），检查点的大小、epoch、换钥次数和共享词库编号，以及密钥串里的设备名称、公钥和登记时间（与云剪贴板相同，见 [端到端加密](cloud-clipboard-e2e.md) 的威胁模型）。删掉的词在压缩后从网盘上删掉，但网盘的回收站和历史版本可能还留着旧的密文。
 
+## 对真实网盘跑端到端测试
+
+`crates/clipboard-relay/tests/webdav_real_server.rs` 把词库同步和云剪贴板的代表步骤对着一个真实的网盘（例如坚果云）跑一遍，由维护者手动开启：设置 `MSIME_TEST_WEBDAV_URL`（例如 `https://dav.jianguoyun.com/dav/`）、`MSIME_TEST_WEBDAV_USERNAME`、`MSIME_TEST_WEBDAV_PASSWORD`（应用密码）三个环境变量，再运行 `cargo test -p msime-clipboard-relay --locked --test webdav_real_server -- --nocapture`。命令的完整写法、不设置时跳过、凭据怎么隐去见 [云剪贴板的 WebDAV 后端](cloud-clipboard-webdav.md#对真实网盘跑端到端测试)。
+
+- 词库同步覆盖：测试连接；设备甲带两个词第一次同步、生成密钥；设备乙登记、等待批准，两边核对码相同；甲批准后乙加入并收到甲的词；乙删一个词并同步，甲同步后也没了；甲乙各加一个词同时同步（抢同一个序号），各自再同步一次后两边一样。
+- 目录：两个流程都以给定地址下的 `msime-e2e/run-<毫秒>-<随机数>/` 为基地址，词库在里面的 `msime-dictionary/`；跑完删掉本次的目录。根目录下只建 `msime-e2e/`，坚果云不许删根目录下建出来的文件夹，它会一直留着。删除失败时输出会报出留下的目录，需要手动删。
+- 额度：词库这一段约 111 个请求（本机 `dav-server` 上的数），整次运行约 185 个，输出最后打印实际数。坚果云免费账号每 30 分钟 600 个请求、与其他应用共用；每台测试设备也受本机「手动 60 个」的额度约束，测试每次用新的本机目录，所以连跑不会被本机额度挡住，但会吃网盘的额度。被限流（网盘的 429/503 退避后仍不行，或本机额度用完）时以「被限流」失败，不再继续发请求。
+
 ## 实现在哪里
 
 - `crates/client-core/src/cloud/dictionary_sync.rs` 及其子模块：不碰网络、不碰 Engine 的协议核心——时钟（`clock`）、词条身份（`entry`）、合并与墓碑回收（`replica`）、加密（`crypto`）、文件格式和日志位置（`log`）、一次同步的步骤与本机状态（`sync`）、调度与额度（`schedule`）。网盘、本机词库、时钟和写盘都经接口注入；`simulation_tests.rs` 用内存里的网盘和合成设备跑上面的全部规则。
