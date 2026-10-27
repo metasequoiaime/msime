@@ -149,6 +149,21 @@ fn queue_request(action: Value) -> Result<Value, &'static str> {
     crate::snapshot_queue_json(&bytes).map_err(|reason| snapshot_error(&reason))
 }
 
+/// 把用户确认过的预览排进队列的请求。
+fn enqueue_action(root: &Path, pending: &PendingSnapshot) -> Value {
+    json!({
+        "operation": "enqueue",
+        "directory": root.join(QUEUE_DIRECTORY),
+        "source": pending.path,
+        "account_id": pending.account_id,
+        "cloud_revision": pending.cloud_revision,
+        "expected_local_version": pending.local_version,
+        "file_sha256": pending.file_sha256,
+        // 云端快照只有用户自己的词，激活时保留本机学到的东西（#10043）。
+        "keep_local_learning": true,
+    })
+}
+
 /// 读出队列状态，同时把本机词库的当前版本记进队列。`acknowledge` 为真时取走已结束请求的结果，与鸿蒙相同。
 fn queue_state(options: &Value, acknowledge: bool) -> Result<Value, &'static str> {
     let (_, root) = state_paths(options)?;
@@ -372,17 +387,7 @@ fn enqueue<A: AccountApi, S: AccountSessionStorage>(
     let queued = (|| {
         validate_pending(session, &pending).map_err(|error| error.code())?;
         let (_, root) = state_paths(options)?;
-        let action = json!({
-            "operation": "enqueue",
-            "directory": root.join(QUEUE_DIRECTORY),
-            "source": pending.path,
-            "account_id": pending.account_id,
-            "cloud_revision": pending.cloud_revision,
-            "expected_local_version": pending.local_version,
-            "file_sha256": pending.file_sha256,
-            // 云端快照只有用户自己的词，激活时保留本机学到的东西（#10043）。
-            "keep_local_learning": true,
-        });
+        let action = enqueue_action(&root, &pending);
         session
             .with_generation(pending.generation, Some(&pending.account_id), || {
                 Ok(queue_request(action))
@@ -632,8 +637,9 @@ fn discard_stale_previews<A: AccountApi, S: AccountSessionStorage>(
 #[cfg(test)]
 mod tests {
     use super::{
-        export_to_file, process_due, request, restore_from_file, restore_preview_from_file,
-        state_paths, CloudDictionaryState,
+        enqueue_action, export_to_file, process_due, queue_request, request, restore_from_file,
+        restore_preview_from_file, state_paths, CloudDictionaryState, PendingSnapshot,
+        QUEUE_DIRECTORY,
     };
     use crate::cloud_dictionary::CloudDictionaryRequest;
     use msime_client_core::cloud::dictionary::DictionaryKind;
@@ -1103,6 +1109,35 @@ mod tests {
         assert_eq!(root, std::env::temp_dir().join("state"));
         assert!(state_paths(&json!({ "user_data": "relative/user" })).is_err());
         assert!(state_paths(&json!({})).is_err());
+    }
+
+    /// 「应用到本机」排的请求带 `keep_local_learning`：云端快照只有用户自己的词，激活时要保留本机学到的东西（#10043）。走真实的队列 JSON 入口，认领时读出来的请求就是激活看到的那份。
+    #[test]
+    fn applying_the_cloud_dictionary_keeps_local_learning() {
+        use msime_client_core::cloud::snapshot_queue::DictionarySnapshotQueue;
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("state");
+        std::fs::create_dir(&root).unwrap();
+        let queue = DictionarySnapshotQueue::new(root.join(QUEUE_DIRECTORY)).unwrap();
+        let local_version = format!("local-v1:legacy:{}", "a".repeat(64));
+        queue.publish_local_version(&local_version).unwrap();
+        let source = directory.path().join("download.ndjson");
+        std::fs::write(&source, snapshot()).unwrap();
+        let pending = PendingSnapshot {
+            account_id: "synthetic-user".into(),
+            generation: 1,
+            path: source.clone(),
+            cloud_revision: 7,
+            file_sha256: hex::encode(Sha256::digest(std::fs::read(&source).unwrap())),
+            local_version,
+        };
+        queue_request(enqueue_action(&root, &pending)).unwrap();
+        let lease = queue.acquire_worker_lease().unwrap();
+        let claimed = queue
+            .claim(&lease, Some("synthetic-user"))
+            .unwrap()
+            .unwrap();
+        assert!(claimed.keep_local_learning);
     }
 
     #[test]

@@ -60,6 +60,7 @@ class EnqueueSnapshotArgs {
     var cloudRevision: Long = -1
     lateinit var expectedLocalVersion: String
     lateinit var fileSha256: String
+    var keepLocalLearning: Boolean = false
 }
 
 @InvokeArg
@@ -487,7 +488,7 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
             val args = invoke.parseArgs(EnqueueSnapshotArgs::class.java)
             val state = DictionarySnapshotQueue.enqueue(snapshotQueueRoot(),
                 privateSnapshotSource(args.source), args.accountId, args.cloudRevision,
-                args.expectedLocalVersion, args.fileSha256)
+                args.expectedLocalVersion, args.fileSha256, args.keepLocalLearning)
             invoke.resolve(snapshotStateResponse(state))
         } catch (error: DictionarySnapshotQueue.Failure) {
             invoke.reject(error.code, error.code)

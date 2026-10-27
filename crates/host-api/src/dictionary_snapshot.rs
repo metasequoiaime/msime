@@ -1368,9 +1368,10 @@ where
     msime_engine::close_cached_databases();
     // 排着的整句联想此刻已经写进旧日志，在同一把锁里把旧的一代学到的东西并进新的一代，再换入：入队到激活之间学到的也带得过去，合并失败时旧的一代原样留着。
     if prepared.keep_local_learning {
-        carry_local_learning(active, staged, prepared.directory.path())?;
-        // 合并在新的一代上开过连接，换入之前全部关掉（Windows 不让移动打开着的 SQLite 文件）。
+        let carried = carry_local_learning(active, staged, prepared.directory.path());
+        // 合并在新的一代上开过连接，不论成败都先全部关掉：成功时 Windows 不让移动打开着的 SQLite 文件；失败时调用方要删掉暂存的新一代，同样删不掉打开着的文件。
         msime_engine::close_cached_databases();
+        carried?;
     }
     let suffix = format!(".msime-snapshot-old-{handle}");
     let pairs = [
@@ -1633,10 +1634,12 @@ fn carry_local_learning(
         }
     }
     let path = scratch.join("outgoing-habits.ndjson");
-    let exported = habits::export_learning_habits(active, &path)
-        .ok()
-        .and_then(|exported| exported.get("habits").and_then(Value::as_u64))
-        .unwrap_or(0);
+    // 只有旧的一代的习惯表读不出来（`habits read rejected`）时跳过这一类；中间文件写不进去（磁盘满、I/O 失败）等其余错误都让激活失败，下次再试，不能当成「没有习惯」把它们丢掉。
+    let exported = match habits::export_learning_habits(active, &path) {
+        Ok(exported) => exported.get("habits").and_then(Value::as_u64).unwrap_or(0),
+        Err("habits read rejected") => 0,
+        Err(_) => return Err(FAILED),
+    };
     if exported > 0 {
         habits::merge_claimed_habits(staged, &path).map_err(|_| FAILED)?;
     }

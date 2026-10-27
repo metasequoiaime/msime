@@ -3,8 +3,8 @@
 //! 2026-10 以前 Android 的快照激活队列是 Java 的 `DictionarySnapshotQueue`（`platforms/android/java/app/msime/android/dictionary/DictionarySnapshotQueue.java`），状态由 `writeState` 经 `DataOutputStream` 写成大端序二进制：`int` 魔数 `0x4d535131`（`MSQ1`）、`int` 版本 1、`boolean` 有无本机版本、有时 `writeUTF` 本机版本、`boolean` 有无请求，有请求时依次是 `long` UUID 高 64 位、`long` 低 64 位、`writeUTF` 账号、`writeUTF` 期望的本机版本、`writeUTF` 文件 SHA-256、`long` 云端修订号、`byte` 状态序号（`QUEUED`、`PREPARING`、`APPLIED`、`CONFLICT`、`FAILED`、`CANCELLED` 依次是 0–5），后面不能再有字节，整份最多 65536 字节。`writeUTF` 是两字节长度加 Java 的 modified UTF-8：U+0000 写成两字节，补充平面的字符拆成两个代理项、各写三字节。快照文件与 Rust 同名（`<id>.ndjson`），转换时不动。
 
 use super::{
-    SnapshotQueueError, SnapshotQueueState, SnapshotRequest, SnapshotRequestStatus,
-    MAXIMUM_STATE_BYTES,
+    legacy_keep_local_learning, SnapshotQueueError, SnapshotQueueState, SnapshotRequest,
+    SnapshotRequestStatus, MAXIMUM_STATE_BYTES,
 };
 use std::ffi::OsStr;
 use uuid::Uuid;
@@ -84,6 +84,8 @@ fn request(input: &mut Reader<'_>) -> Result<SnapshotRequest, SnapshotQueueError
         5 => SnapshotRequestStatus::Cancelled,
         _ => return Err(SnapshotQueueError::Invalid),
     };
+    // 旧版 Java 队列没有这个标记：账号的请求是云端快照，保留本机学习；本地备份恢复的不保留。
+    let keep_local_learning = legacy_keep_local_learning(&account_id);
     Ok(SnapshotRequest {
         id: Uuid::from_u64_pair(most_significant, least_significant),
         account_id,
@@ -91,7 +93,7 @@ fn request(input: &mut Reader<'_>) -> Result<SnapshotRequest, SnapshotQueueError
         expected_local_version,
         file_sha256,
         status,
-        keep_local_learning: false,
+        keep_local_learning,
     })
 }
 

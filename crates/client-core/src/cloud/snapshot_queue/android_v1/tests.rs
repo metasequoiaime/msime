@@ -32,6 +32,7 @@ fn request(
     account_id: &str,
     cloud_revision: i64,
     status: SnapshotRequestStatus,
+    keep_local_learning: bool,
 ) -> SnapshotRequest {
     SnapshotRequest {
         id: Uuid::parse_str(id).unwrap(),
@@ -40,7 +41,7 @@ fn request(
         expected_local_version: legacy_version(),
         file_sha256: FILE_SHA256.to_owned(),
         status,
-        keep_local_learning: false,
+        keep_local_learning,
     }
 }
 
@@ -60,6 +61,7 @@ fn preparing_state() -> SnapshotQueueState {
             "fixture-账号-𝄞",
             7,
             SnapshotRequestStatus::Preparing,
+            true,
         )),
     )
 }
@@ -129,6 +131,7 @@ fn decodes_every_java_fixture() {
                     "local-backup",
                     0,
                     SnapshotRequestStatus::Queued,
+                    false,
                 )),
             ),
         ),
@@ -141,6 +144,7 @@ fn decodes_every_java_fixture() {
                     "fixture",
                     3,
                     SnapshotRequestStatus::Cancelled,
+                    true,
                 )),
             ),
         ),
@@ -245,6 +249,7 @@ fn existing_state_json_wins_and_a_leftover_state_bin_is_removed() {
             "fixture-账号-𝄞",
             7,
             SnapshotRequestStatus::Applied,
+            true,
         )),
     );
     private_write(
@@ -469,6 +474,7 @@ fn assert_local_backup_is_applied_without_an_account(import_first: bool) {
             LOCAL_RESTORE_OWNER,
             0,
             SnapshotRequestStatus::Queued,
+            false,
         )),
     );
     if import_first {

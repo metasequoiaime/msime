@@ -559,6 +559,7 @@ struct EnqueueSnapshotRequest {
     cloud_revision: i64,
     expected_local_version: String,
     file_sha256: String,
+    keep_local_learning: bool,
 }
 
 #[derive(Serialize)]
@@ -663,6 +664,8 @@ async fn dictionary_snapshot_enqueue(
                 cloud_revision: pending.metadata.cloud_revision,
                 expected_local_version: expected,
                 file_sha256: pending.metadata.file_sha256.clone(),
+                // 云端快照只有用户自己的词，激活时保留本机学到的东西（#10043）。
+                keep_local_learning: true,
             };
             session.with_generation(pending.generation, Some(&pending.account_id), || {
                 platform

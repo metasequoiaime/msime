@@ -1879,8 +1879,8 @@ fn downloading_device() -> LearningDevice {
     device
 }
 
-/// 按云同步的路走一遍「下载」：云端快照来自另一台设备，有用户词你好和泥好，不带输入记录（云同步上传时 `include_learning` 为假）。像 `cloud_sync.rs` 的 `replace_dictionary` 那样按键盘发布的本机版本排进队列，再像键盘空闲时那样处理队列（`process`），断言请求已经激活。排队之后、激活之前本机又学到一条整句联想（它不在本机版本里，排队时的版本照样对得上）。
-fn download_into(device: &LearningDevice, keep_local_learning: bool) {
+/// 按云同步的路走一遍「下载」：云端快照来自另一台设备，有用户词你好和泥好，不带输入记录（云同步上传时 `include_learning` 为假）。`from_cloud_sync` 为真时就用云同步的 `HostLocal::replace_dictionary` 按键盘发布的本机版本排进队列，标记由它决定；为假时像本地备份恢复那样直接排一份不带标记的请求。再像键盘空闲时那样处理队列（`process`），断言请求已经激活。排队之后、激活之前本机又学到一条整句联想（它不在本机版本里，排队时的版本照样对得上）。
+fn download_into(device: &LearningDevice, from_cloud_sync: bool) {
     use sha2::Digest;
     let cloud_device = LearningDevice::new();
     for (request, word) in [("cloud-nihao", "你好"), ("cloud-nihao-2", "泥好")] {
@@ -1906,18 +1906,22 @@ fn download_into(device: &LearningDevice, keep_local_learning: bool) {
     let options = || -> crate::HostOptions { serde_json::from_value(device.host.clone()).unwrap() };
     let queue = super::snapshot_queue(device.root.path().join("queue").to_str().unwrap()).unwrap();
     super::snapshot_queue_state(&queue, options(), false).unwrap();
-    let local_version = queue.read().unwrap().local_version.unwrap();
-    let sha256 = hex::encode(sha2::Sha256::digest(std::fs::read(&cloud).unwrap()));
-    queue
-        .enqueue(
-            &cloud,
-            "account",
-            7,
-            &local_version,
-            &sha256,
-            keep_local_learning,
-        )
-        .unwrap();
+    if from_cloud_sync {
+        use crate::cloud_sync::SyncLocal;
+        let local = crate::cloud_sync::HostLocal {
+            preferences: device.root.path().join("preferences"),
+            options: None,
+            snapshot_queue: Some(device.root.path().join("queue")),
+            inputs: Default::default(),
+        };
+        local.replace_dictionary(&cloud, "account", 7).unwrap();
+    } else {
+        let local_version = queue.read().unwrap().local_version.unwrap();
+        let sha256 = hex::encode(sha2::Sha256::digest(std::fs::read(&cloud).unwrap()));
+        queue
+            .enqueue(&cloud, "account", 7, &local_version, &sha256, false)
+            .unwrap();
+    }
     device.sql(
         "INSERT INTO personal_trigram(earlier,previous,word,count) VALUES(char(1),'拟好','你',2);",
     );
@@ -1974,7 +1978,7 @@ fn lost_learning(device: &LearningDevice) -> Vec<&'static str> {
     .collect()
 }
 
-/// 云同步「下载」和「应用到本机」排的请求带 `keep_local_learning`：整份换上云端快照以后，本机学到的东西都还在，新的一代的工作词库里也按学到的调权和删除改过；用户自己的词以云端为准，本机删过、云端又有的泥好回来了。
+/// 云同步「下载」排的请求带 `keep_local_learning`（排队走的就是 `replace_dictionary`）：整份换上云端快照以后，本机学到的东西都还在，新的一代的工作词库里也按学到的调权和删除改过；用户自己的词以云端为准，本机删过、云端又有的泥好回来了。
 #[test]
 fn a_cloud_download_activation_keeps_local_learning() {
     let device = downloading_device();
