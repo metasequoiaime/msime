@@ -3,13 +3,17 @@ import { testHost } from "../support/host";
 import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { SettingsPage, type Snapshot } from "@msime/ui";
+import { SettingsPage, type InputScheme, type Snapshot } from "@msime/ui";
 import {
   fourteenKeyBottomRows,
   nineKeyBottomRows,
   twentySixKeyBottomRows,
 } from "../../../../packages/ui/src/keyboard/touch-key-layout-styles";
 import { touchKeyLayoutGroups } from "../../../../packages/ui/src/settings/touch-key-layout-settings";
+import {
+  collectSettingsSearchTargets,
+  revealSettingsSearchTarget,
+} from "../../../../packages/ui/src/settings/settings-search-index";
 // 设置页的示意图和 HarmonyOS 键盘读同一组排法：键盘的样式表改了，这里跟着变红。
 import {
   StyledFace,
@@ -47,7 +51,7 @@ function renderSettings({
   preferences?: Record<string, unknown>;
   platform?: string;
   mobile?: boolean;
-  inputSchemes?: string[];
+  inputSchemes?: InputScheme[];
 } = {}) {
   const save = vi.fn().mockImplementation(async (_revision: number, next: unknown) => ({
     ...snapshot(),
@@ -119,6 +123,36 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
   expect(within(dialog).getByText(/字母上方加一行 1 到 0/)).toBeTruthy();
   // 返回关上子页，回到键盘页。
   fireEvent.click(within(dialog).getByRole("button", { name: "返回" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
+  expect(entryRow()).toBeTruthy();
+});
+
+test("settings search finds the sub page's rows under 按键布局 and opens the sub page", async () => {
+  renderSettings();
+  await settingsFormReady();
+  await waitFor(() => {
+    if (!entryRow()) throw new Error("no 按键布局 row");
+  });
+  // 子页关着时它的选项也在索引里，路径带上子页名和组名。
+  const targets = () =>
+    collectSettingsSearchTargets(document.body, new Map([["screen-keyboard", "屏幕键盘"]]));
+  const numberRow = targets().find((target) => target.title === "顶部数字行");
+  expect(numberRow?.path).toEqual(["屏幕键盘", "按键布局"]);
+  const longSpace = targets().filter((target) => target.title === "长空格");
+  expect(longSpace.map((target) => target.path)).toEqual([
+    ["屏幕键盘", "按键布局", "26 键"],
+    ["屏幕键盘", "按键布局", "14 键与 18 键"],
+  ]);
+  expect(targets().some((target) => target.title === "底栏带标点")).toBe(true);
+  expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull();
+  // 命中子页里的行时打开子页；再命中正文里的行时关上子页回到正文。
+  revealSettingsSearchTarget(numberRow!);
+  const dialog = await screen.findByRole("dialog", { name: "按键布局" });
+  expect(within(dialog).getByRole("switch", { name: "顶部数字行" })).toBeTruthy();
+  expect(entryRow()).toBeNull();
+  const height = targets().find((target) => target.title === "键盘高度");
+  expect(height).toBeTruthy();
+  revealSettingsSearchTarget(height!);
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
   expect(entryRow()).toBeTruthy();
 });
