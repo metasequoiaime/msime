@@ -35,24 +35,23 @@ public static class SettingsSnapshotReplacementProbe {
 }
 '@
         $replacement = Join-Path $root 'replacement.json'
-        foreach ($allowDelete in @($false, $true)) {
-            [IO.File]::WriteAllText($path, 'synthetic-before')
-            [IO.File]::WriteAllText($replacement, 'synthetic-after')
-            $sharing = [IO.FileShare]::ReadWrite
-            if ($allowDelete) { $sharing = $sharing -bor [IO.FileShare]::Delete }
-            $reader = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $sharing)
-            try {
-                # 句柄保持打开，消除轮询时机和机器速度对结果的影响。
-                $errorCode = [SettingsSnapshotReplacementProbe]::Replace($replacement, $path)
-                if ($allowDelete) {
-                    if ($errorCode -ne 0) { throw "允许 Delete 的读取仍阻止原子替换：$errorCode" }
-                    if ((Read-SettingsSnapshotText $path) -ne 'synthetic-after') { throw '原子替换没有发布新内容' }
-                } else {
-                    if ($errorCode -notin @(5, 32)) { throw "未允许 Delete 的对照应拒绝替换（5 或 32），实际为 $errorCode" }
-                    if ((Read-SettingsSnapshotText $path) -ne 'synthetic-before') { throw '失败替换改变了原文件' }
-                }
-                Write-Host "Windows 原子替换对照：allowDelete=$allowDelete，错误码=$errorCode"
-            } finally { $reader.Dispose() }
+        [IO.File]::WriteAllText($path, 'synthetic-before')
+        [IO.File]::WriteAllText($replacement, 'synthetic-after')
+        $reader = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            # 旧读取方式把句柄留给管道下游，确定性复现写入受到读取探针干扰。
+            $errorCode = [SettingsSnapshotReplacementProbe]::Replace($replacement, $path)
+            if ($errorCode -notin @(5, 32)) { throw "读取句柄未关闭的对照应拒绝替换（5 或 32），实际为 $errorCode" }
+            if ((Read-SettingsSnapshotText $path) -ne 'synthetic-before') { throw '失败替换改变了原文件' }
+            Write-Host "Windows 原子替换对照：读取句柄未关闭，错误码=$errorCode"
+        } finally { $reader.Dispose() }
+        # 有 Delete 共享标志也不能保证 MoveFileEx 覆盖打开的目标；验收真实 helper 在返回前关闭句柄。
+        Read-SettingsSnapshotText $path | ForEach-Object {
+            if ($_ -ne 'synthetic-before') { throw '替换前的快照内容不符' }
+            $errorCode = [SettingsSnapshotReplacementProbe]::Replace($replacement, $path)
+            if ($errorCode -ne 0) { throw "快照读取已返回但仍阻止原子替换：$errorCode" }
+            if ((Read-SettingsSnapshotText $path) -ne 'synthetic-after') { throw '原子替换没有发布新内容' }
+            Write-Host "Windows 原子替换对照：真实快照 helper 已返回，错误码=$errorCode，新内容验证通过"
         }
     }
 } finally { Remove-Item -LiteralPath $root -Recurse -Force }
