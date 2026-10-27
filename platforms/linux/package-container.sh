@@ -98,7 +98,6 @@ docker run --rm --init \
   -e MSIME_REQUIRE_LANGUAGE_DICTIONARIES="${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" \
   -e MSIME_REQUIRE_OFFICIAL_PLUGINS="${MSIME_REQUIRE_OFFICIAL_PLUGINS:-0}" \
   -e MSIME_REQUIRE_WORDBOOKS="${MSIME_REQUIRE_WORDBOOKS:-0}" \
-  ${MSIME_BUILD_RUN:+-e MSIME_BUILD_RUN="$MSIME_BUILD_RUN"} \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
@@ -185,8 +184,7 @@ docker run --rm --init \
       python3 scripts/crash-symbols.py collect --platform linux --version "$MSIME_VERSION" \
         --root "$build" --root /build/cargo/release \
         --output "/build/symbols/linux-$MSIME_VERSION-$MSIME_PACKAGE_FORMAT-$edition-$(uname -m)-${MSIME_BUILD_RUN:-local}-${GITHUB_RUN_ATTEMPT:-1}.zip"
-      # Rust 模块由 install(FILES) 安装，CPack 不会替它们 strip；先归档再剥离。
-      # 安装脚本中的现有 CPACK_STRIP_FILES 只管 CMake 目标；Rust 文件保持原件供后续版本归档。
+      # Rust 安装副本由 install(CODE) 剥离；原件保留给后续版本归档。
 
       if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
         cpack --config "$build/CPackConfig.cmake" -G RPM -B /build/dist

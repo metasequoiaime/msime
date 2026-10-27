@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
+#[allow(unsafe_code)]
 unsafe extern "C" {
     fn msime_native_crash_install();
     fn msime_native_crash_arm(path: *const std::ffi::c_char, header: *const std::ffi::c_char);
@@ -66,6 +67,7 @@ fn directory() -> Option<PathBuf> {
     }
 }
 
+#[allow(unsafe_code)]
 pub(crate) fn start(app: &tauri::AppHandle, preferences: Arc<PreferencesStore>) {
     let Some(directory) = directory().filter(|path| path.is_absolute()) else {
         return;
@@ -99,6 +101,7 @@ pub(crate) fn start(app: &tauri::AppHandle, preferences: Arc<PreferencesStore>) 
 }
 
 /// 设置保存和既有偏好监视器都调用它；不新建轮询线程。
+#[allow(unsafe_code)]
 pub(crate) fn refresh() {
     let Some(reporter) = REPORTER.get() else {
         return;

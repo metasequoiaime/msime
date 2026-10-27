@@ -1,4 +1,4 @@
-use std::{env, path::Path, process::Command};
+use std::{env, fs, path::Path, process::Command};
 
 fn git(root: &Path, arguments: &[&str]) -> Option<String> {
     let output = Command::new("git")
@@ -42,6 +42,12 @@ fn main() {
             own_git
                 .then(|| git(&root, &["rev-parse", "HEAD"]))
                 .flatten()
+        })
+        .or_else(|| {
+            let file = root.join("platforms/linux/build-revision.txt");
+            let revision = fs::read_to_string(&file).ok()?;
+            println!("cargo:rerun-if-changed={}", file.display());
+            Some(revision.trim().to_owned())
         })
         .unwrap_or_else(|| "unknown".to_owned());
     let run = env::var("MSIME_BUILD_RUN")

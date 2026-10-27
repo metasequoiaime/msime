@@ -49,7 +49,9 @@ interface CrashRecordRequest {
   message: string;
   stack: string;
   pid?: number;
+  outside_session?: boolean;
   crash_record_header?: string;
+  diagnostic_id?: string;
 }
 
 interface BeginValue {
@@ -233,11 +235,13 @@ export class HarmonyTelemetry {
     if (HarmonyTelemetry.watcher !== undefined) return;
     const watcher: hiAppEvent.Watcher = {
       name: WATCHER_NAME,
-      appEventFilters: [{ domain: hiAppEvent.domain.OS, names: [hiAppEvent.event.APP_CRASH] }],
+      appEventFilters: [{ domain: hiAppEvent.domain.OS, names: [hiAppEvent.event.APP_CRASH, hiAppEvent.event.APP_FREEZE] }],
       onReceive: (domain: string, groups: Array<hiAppEvent.AppEventGroup>): void => {
         for (const group of groups) {
           for (const info of group.appEventInfos) {
-            const report: CrashReport | null = TelemetryPolicy.crashReport(JSON.stringify(info.params));
+            const report: CrashReport | null = info.name === hiAppEvent.event.APP_FREEZE
+              ? TelemetryPolicy.freezeReport(JSON.stringify(info.params))
+              : TelemetryPolicy.crashReport(JSON.stringify(info.params));
             if (report !== null) {
               HarmonyTelemetry.recordCrash(report);
             }
@@ -257,9 +261,12 @@ export class HarmonyTelemetry {
     if (!HarmonyTelemetry.enabled || !HarmonyPrivacyConsent.networkAllowed()) return;
     // 按系统报告的 pid 认领未结束的会话，不依赖两秒内是否已收到回调。
     const request: CrashRecordRequest = {
-      directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack, pid: report.pid,
-      crash_record_header: TelemetryPolicy.recordText(report).split('\n')[0] + '\n'
+      directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack,
+      crash_record_header: TelemetryPolicy.recordText(report).split('\n')[0] + '\n',
+      diagnostic_id: TelemetryPolicy.standaloneRecordName(report)
     };
+    if (report.outsideSession === true) request.outside_session = true;
+    else request.pid = report.pid;
     const reply: FlagReply | null = HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
     if (reply !== null) {
       HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));

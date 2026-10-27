@@ -183,6 +183,9 @@ struct CrashRequest {
     /// begin 返回的预计算记录头，供独立进程的异常回调保存原始构建身份。
     #[serde(default)]
     crash_record_header: Option<String>,
+    /// 系统诊断的稳定身份；只在事后补录时使用，不含系统原始描述。
+    #[serde(default)]
+    diagnostic_id: Option<String>,
 }
 
 /// 写会话的崩溃记录（`{directory, message, stack, session?, pid?, outside_session?}`），记录在下次启动时成为 `crash` 事件。三种用法互斥：
@@ -214,15 +217,25 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
             request.pid,
             request.outside_session,
         ) {
-            (Some(session), None, false) => match context.as_ref() {
-                Some(context) => {
-                    store.record_crash_with_context(session, Some(context), message, stack)
+            (Some(session), None, false) if request.diagnostic_id.is_none() => {
+                match context.as_ref() {
+                    Some(context) => {
+                        store.record_crash_with_context(session, Some(context), message, stack)
+                    }
+                    None => store.record_crash_for(session, message, stack),
                 }
-                None => store.record_crash_for(session, message, stack),
-            },
-            (None, None, false) if context.is_none() => store.record_crash(message, stack),
+            }
+            (None, None, false) if context.is_none() && request.diagnostic_id.is_none() => {
+                store.record_crash(message, stack)
+            }
             (None, pid, outside) if pid.is_some() != outside => store
-                .record_diagnosed_crash_with_context(pid, context.as_ref(), message, stack)
+                .record_diagnosed_crash_with_context(
+                    pid,
+                    context.as_ref(),
+                    request.diagnostic_id.as_deref(),
+                    message,
+                    stack,
+                )
                 .map(|recorded| recorded != DiagnosedCrash::Duplicate),
             _ => return Err("session, pid and outside_session are exclusive".to_owned()),
         }

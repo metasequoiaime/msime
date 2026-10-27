@@ -324,11 +324,7 @@ import {
   VoiceInputConfigurationPolicy,
   DoubaoCredentialPolicy,
 } from "../entry/src/main/ets/keyboard/input/VoiceInputConfiguration";
-import {
-  CrashDestination,
-  CrashReport,
-  TelemetryPolicy,
-} from "../entry/src/main/ets/telemetry/TelemetryPolicy";
+import { CrashReport, TelemetryPolicy } from "../entry/src/main/ets/telemetry/TelemetryPolicy";
 import { NoticePolicy } from "../entry/src/main/ets/notices/NoticePolicy";
 import {
   HttpRequestLike,
@@ -17318,10 +17314,7 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
       },
     }),
   );
-  check(
-    javascript?.message === "TypeError: Cannot read property 'x' of undefined",
-    "a JavaScript crash keeps the error name and the first line of its message",
-  );
+  check(javascript?.message === "TypeError", "JavaScript 崩溃只保留类型，不上传异常消息");
   check(javascript?.stack.startsWith("at view") === true, "and its stack, trimmed");
 
   check(TelemetryPolicy.crashReport("not json") === null, "an unreadable report is ignored");
@@ -17339,42 +17332,54 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
   );
 });
 
-group(
-  "a crash belongs to the unfinished keyboard session only before this keyboard begins its own",
-  () => {
-    const report: CrashReport = { pid: 99, time: 1, message: "SIGABRT", stack: "" };
-    check(
-      TelemetryPolicy.destination(report, 99, false) === CrashDestination.Session,
-      "the previous keyboard process's crash, before begin, is that session's crash",
-    );
-    check(
-      TelemetryPolicy.destination(report, 99, true) === CrashDestination.Standalone,
-      "after begin the marker is this run's, so the crash stands alone",
-    );
-    check(
-      TelemetryPolicy.destination(report, 12, false) === CrashDestination.Standalone,
-      "another process's crash (the settings application) never closes the keyboard session",
-    );
-    check(
-      TelemetryPolicy.destination(report, null, false) === CrashDestination.Standalone,
-      "with no remembered keyboard process nothing is attributed",
-    );
-    check(
-      TelemetryPolicy.standaloneRecordName(report) === "harmony-99-1.crash",
-      "a standalone record is named by process and time, so a report delivered twice is written once",
-    );
-    check(
-      TelemetryPolicy.recordText(report).startsWith("MSIME-CRASH/1 ") &&
-        TelemetryPolicy.recordText(report).endsWith("\nSIGABRT\n"),
-      "a record is the summary line, then the frames",
-    );
-    check(
-      TelemetryPolicy.rememberedPid('{"pid":4321}') === 4321,
-      "the remembered process id is read",
-    );
-    check(TelemetryPolicy.rememberedPid("{}") === null, "and a file without one is no process");
-  },
-);
+group("鸿蒙卡死独立归属且不携带系统原文", () => {
+  const report = TelemetryPolicy.freezeReport(
+    JSON.stringify({
+      pid: 42,
+      time: 100,
+      bundle_version: "0.1.0",
+      exception: { name: "THREAD_BLOCK_6S", message: "synthetic private content" },
+      hilog: ["synthetic private log"],
+      external_log: ["/private/synthetic.log"],
+    }),
+  );
+  check(
+    report?.message === "Hang THREAD_BLOCK_6S" && report.outsideSession === true,
+    "卡死不改变输入会话崩溃计数",
+  );
+  check(
+    report?.stack === "" && !JSON.stringify(report).includes("private"),
+    "系统日志和异常原文不进入记录",
+  );
+  check(
+    report !== null &&
+      TelemetryPolicy.standaloneRecordName(report) === "harmony-freeze-42-100.crash",
+    "卡死身份稳定且与同刻崩溃区分",
+  );
+  const unknown = TelemetryPolicy.freezeReport(
+    JSON.stringify({ pid: 42, time: 101, exception: { name: "synthetic private name" } }),
+  );
+  check(unknown?.message === "Hang unknown", "未知原因不泄露任意字符串");
+  check(TelemetryPolicy.freezeReport("invalid") === null, "拒绝损坏的卡死报告");
+});
+
+group("系统诊断文件名和原始版本在重复投递时保持稳定", () => {
+  const report: CrashReport = { pid: 99, time: 1, message: "SIGABRT", stack: "" };
+  check(
+    TelemetryPolicy.standaloneRecordName(report) === "harmony-99-1.crash",
+    "a standalone record is named by process and time, so a report delivered twice is written once",
+  );
+  check(
+    TelemetryPolicy.recordText(report).startsWith("MSIME-CRASH/1 ") &&
+      TelemetryPolicy.recordText(report).endsWith("\nSIGABRT\n"),
+    "a record is the summary line, then the frames",
+  );
+  check(
+    TelemetryPolicy.rememberedPid('{"pid":4321}') === 4321,
+    "the remembered process id is read",
+  );
+  check(TelemetryPolicy.rememberedPid("{}") === null, "and a file without one is no process");
+});
 
 group("usage reporting is cleared only by a saved document that turns it off", () => {
   const saved = '{"ok":true,"value":{"revision":3}}';

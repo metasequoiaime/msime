@@ -80,7 +80,6 @@ targets:
         NSFaceIDUsageDescription: 验证身份以查看打字统计
     sources:
       - path: App/Sources
-      - path: KeyboardExtension/Sources/core/CrashSignalRecorder.c
       - path: App/Services
       - path: KeyboardExtension/Sources
         includes:

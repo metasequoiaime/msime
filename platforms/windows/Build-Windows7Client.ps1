@@ -94,7 +94,9 @@ try {
             $machine = if ($arch -eq 'x64') { 'X64' } else { 'X86' }
             Invoke-Windows7Build lib @('/NOLOGO',"/DEF:$definition","/OUT:$hostLibrary","/MACHINE:$machine")
         }
-        $common = @('-G','Visual Studio 17 2022','-A',$platform,"-DCMAKE_PREFIX_PATH=$prefix",
+        $common = @('-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Zi /Oy-',
+            '-DCMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG /INCREMENTAL:NO',
+            '-DCMAKE_SHARED_LINKER_FLAGS_RELEASE=/DEBUG /INCREMENTAL:NO','-G','Visual Studio 17 2022','-A',$platform,"-DCMAKE_PREFIX_PATH=$prefix",
             "-DMSIME_WINDOWS_VERSION=$version",
             "-DMSIME_HOST_LIBRARY=$hostLibrary","-DMSIME_EDITION=$Edition",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=$bin",'-DBUILD_TESTING=ON')

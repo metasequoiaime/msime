@@ -275,6 +275,19 @@ jobs:
           if ($vc64.Count -ne 1 -or $vc86.Count -ne 1 -or $ucrt64.Count -ne 1 -or $ucrt86.Count -ne 1) { throw '找不到 Win7 所需的 VC/UCRT 运行库目录' }
           ./platforms/windows/Build-Windows7Client.ps1 -X64Dependencies $x64 -X86Dependencies $x86 -X64RuntimeDirectories @($ucrt64[0], $vc64[0]) -X86RuntimeDirectories @($ucrt86[0], $vc86[0]) -VcpkgRoot (Join-Path $env:RUNNER_TEMP 'vcpkg') -Edition $env:EDITION -CoreOutputs "$PWD/target/windows7-core" -VoiceOutputs "$PWD/target/windows7-voice"
 
+      - name: 保存 Win7 同源模块和调试符号
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content platforms/windows/version-win7.txt -TotalCount 1).Trim()
+          ./platforms/windows/installer/Collect-Windows7Symbols.ps1 -Edition $env:EDITION -Version $version -OutputDirectory target/windows7-symbols
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-windows7-${{ env.EDITION }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/windows7-symbols/*.zip
+          retention-days: 90
+          if-no-files-found: error
+
       - name: 收集 Win7 安装包声明
         shell: pwsh
         run: |
@@ -365,6 +378,17 @@ jobs:
         with:
           name: msime-windows7-full-${{ github.sha }}
           path: dist
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: crash-symbols-windows7-full-*
+          path: dist-symbols
+          merge-multiple: true
+      - name: 发布 Win7 长期调试符号
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}
+        run: bash scripts/publish-crash-symbols.sh windows7 dist-symbols/*.zip
 
       - name: 整理安装包 artifact 目录
         shell: bash

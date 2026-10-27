@@ -67,19 +67,21 @@ NSDictionary *SessionRequest(void)
 void Flush(void)
 {
     dispatch_async(gQueue, ^{
-        (void)CallHost(msime_client_telemetry_flush, SessionRequest());
+        NSDictionary *result = CallHost(msime_client_telemetry_flush, SessionRequest());
+        if ([result isKindOfClass:NSDictionary.class] && [result[@"enabled"] isEqual:@NO]) msime::crash::disarm();
     });
 }
 
 void UncaughtException(NSException *exception)
 {
-    if (!msime::crash::is_armed() || !gSessionId) return;
-    // 异常原因可能引用输入内容，只保存异常类型与抛出点的栈。
-    NSString *summary = [NSString stringWithFormat:@"Uncaught %@", exception.name];
-    NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"] ?: @"";
-    (void)CallHost(msime_client_telemetry_record_crash,
-                   @{@"directory": MSIMEUsageReportingDirectory(), @"message": summary, @"stack": stack,
-                     @"session": gSessionId, @"crash_record_header": gRecordHeader ?: @""});
+    if (msime::crash::is_armed() && gSessionId) {
+        // 异常原因可能引用输入内容，只保存异常类型与抛出点的栈。
+        NSString *summary = [NSString stringWithFormat:@"Uncaught %@", exception.name];
+        NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"] ?: @"";
+        (void)CallHost(msime_client_telemetry_record_crash,
+                       @{@"directory": MSIMEUsageReportingDirectory(), @"message": summary, @"stack": stack,
+                         @"session": gSessionId, @"crash_record_header": gRecordHeader ?: @""});
+    }
     if (gPreviousExceptionHandler) gPreviousExceptionHandler(exception);
 }
 
@@ -155,7 +157,8 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
         const uint64_t interval = 3ull * 60 * 60 * NSEC_PER_SEC;
         dispatch_source_set_timer(gFlushTimer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)interval), interval, 10ull * 60 * NSEC_PER_SEC);
         dispatch_source_set_event_handler(gFlushTimer, ^{
-            (void)CallHost(msime_client_telemetry_flush, SessionRequest());
+            NSDictionary *result = CallHost(msime_client_telemetry_flush, SessionRequest());
+        if ([result isKindOfClass:NSDictionary.class] && [result[@"enabled"] isEqual:@NO]) msime::crash::disarm();
         });
         dispatch_resume(gFlushTimer);
     });

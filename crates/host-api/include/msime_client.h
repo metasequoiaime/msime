@@ -117,7 +117,7 @@ char *msime_client_cloud_clipboard_webdav_probe(const uint8_t *request, size_t l
  * record_crash {directory, message, stack, outside_session: true}：系统事后报告的强制结束（SIGKILL：看门狗、内存上限、挂起时持有文件锁），不算会话崩溃，总是写成单独的记录，只报 crash。带 pid 或 outside_session 的两种会加锁，不能在崩溃处理程序里调用；session、pid、outside_session 三者互斥。
  * flush (same request as begin): queues today's active and sends the queue oldest first; 400 drops an event, 429/5xx/network keep it (Retry-After honoured across processes). Value {enabled, sent, dropped, remaining, deferred}. Blocks on the network: background thread only.
  * clear {directory}: usage reporting was just turned off. */
-/* begin 的可选 capture_only:true 为设置或辅助进程准备独立崩溃记录，不触碰输入会话；component 是只含字母数字、点、下划线和连字符的组件名（默认 input）。成功时另外返回 crash_record_header：新宿主在信号路径中把它原样写在摘要之前，或把它与 session 一起传给 record_crash。系统事后诊断也可以传原构建的记录头；不带 session 的普通写入拒绝记录头，避免静默忽略归属。 */
+/* begin 的可选 capture_only:true 为设置或辅助进程准备独立崩溃记录，不触碰输入会话；component 是只含字母数字、点、下划线和连字符的组件名（默认 input）。成功时另外返回 crash_record_header：新宿主在信号路径中把它原样写在摘要之前，或把它与 session 一起传给 record_crash。系统事后诊断也可以传原构建的记录头；不带 session 的普通写入拒绝记录头，避免静默忽略归属。事后诊断可另带长度不超过 256 字节的 diagnostic_id，重复送达沿用同一个事件 id；不得传入原始描述、路径或输入内容。 */
 char *msime_client_telemetry_begin(const uint8_t *request, size_t length);
 char *msime_client_telemetry_end(const uint8_t *request, size_t length);
 char *msime_client_telemetry_record_crash(const uint8_t *request, size_t length);

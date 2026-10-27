@@ -766,6 +766,49 @@ fn crash_identity_is_bounded_and_refuses_paths_and_control_characters() {
 }
 
 #[test]
+fn malformed_crash_identity_is_not_attributed_to_the_collecting_build() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    std::fs::write(
+        &capture.crash_record_path,
+        "MSIME-CRASH/1 {\"version\":\"1.2.3\"}\nSIGSEGV\nsynthetic.so+0x42\n",
+    )
+    .unwrap();
+    store.record_active(&app(), noon()).unwrap();
+    assert!(capture.crash_record_path.exists());
+    assert!(!store
+        .queued()
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == TelemetryKind::Crash));
+}
+
+#[test]
+fn damaged_records_do_not_starve_valid_reports_after_the_batch_limit() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let directory = capture.crash_record_path.parent().unwrap();
+    for index in 0..MAX_CRASH_RECORDS_PER_START {
+        std::fs::write(
+            directory.join(format!("000-damaged-{index}.crash")),
+            "MSIME-CRASH/1 {}\nSIGSEGV\n",
+        )
+        .unwrap();
+    }
+    store
+        .record_crash_for(&capture.session_id, "synthetic valid crash", "")
+        .unwrap();
+    store.record_active(&app(), noon()).unwrap();
+    assert!(store.queued().unwrap().iter().any(|event| {
+        event.kind == TelemetryKind::Crash && event.message == "synthetic valid crash"
+    }));
+    assert_eq!(
+        std::fs::read_dir(directory).unwrap().count(),
+        MAX_CRASH_RECORDS_PER_START
+    );
+}
+
+#[test]
 fn independent_capture_does_not_replace_another_process_session() {
     let (_directory, store) = store();
     let input = store.begin_session(&app(), noon()).unwrap();
@@ -1374,4 +1417,40 @@ fn a_full_crash_queue_keeps_later_records_on_disk_until_delivery_frees_space() {
             .count(),
         1
     );
+}
+
+#[test]
+fn delayed_system_diagnostics_keep_a_stable_event_identity() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let context = CrashContext::from_header(&capture.crash_record_header).unwrap();
+    let record = || {
+        store
+            .record_diagnosed_crash_with_context(
+                None,
+                Some(&context),
+                Some("synthetic-123-456"),
+                "Synthetic system diagnostic",
+                "libsynthetic.so+0x1",
+            )
+            .unwrap()
+    };
+    assert_eq!(record(), DiagnosedCrash::Outside);
+    assert_eq!(record(), DiagnosedCrash::Duplicate);
+    store.record_active(&app(), noon()).unwrap();
+    let first = store
+        .queued()
+        .unwrap()
+        .into_iter()
+        .find(|event| event.kind == TelemetryKind::Crash)
+        .unwrap();
+    assert_eq!(record(), DiagnosedCrash::Outside);
+    store.record_active(&app(), noon()).unwrap();
+    let crashes: Vec<_> = store
+        .queued()
+        .unwrap()
+        .into_iter()
+        .filter(|event| event.kind == TelemetryKind::Crash)
+        .collect();
+    assert_eq!(crashes, [first]);
 }

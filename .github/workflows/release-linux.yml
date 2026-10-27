@@ -223,6 +223,18 @@ jobs:
           name: msime-linux-rpm-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
+      - name: 保存 RPM 原生调试符号
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-linux-rpm-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/linux-package-rpm/symbols/*.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: 发布 RPM 长期调试符号
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-crash-symbols.sh linux target/linux-package-rpm/symbols/*.zip
   # glibc 2.28 基线（Debian 10、UOS 20 一类）用的 legacy .deb（#6311），在 buster 容器里构建，两个架构各在原生 runner 上；逻辑在 build-linux-legacy.yml。它的产物名也是 msime-linux-*-VERSION，publish 一并取到并作为附件发布。取消勾选 legacy 时跳过，发布照常进行。
   legacy:
     needs: source

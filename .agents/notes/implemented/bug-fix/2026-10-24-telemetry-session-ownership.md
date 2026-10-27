@@ -21,6 +21,8 @@ Linux 近 30 天的匿名遥测里，0.10.1 的 `session_crash`（552）比 `ses
 
 - `TelemetryStore` 在 `telemetry-state.json` 里记着尚未结束的会话（`open_sessions`，最多 16 个，超出淘汰最旧的）。`begin_session` 为其中每个留下了自己崩溃记录的会话补报一条 `session_crash`（版本取自那个会话），并把它移出列表；只留下标记的会话照旧不算崩溃。旧版本只写了标记、没有列表时，标记里的会话按未结束会话处理，升级后第一次启动仍能认领它的崩溃记录。
 - 崩溃补收同时发生在 `begin_session` 和不建立输入会话的 `record_active`（包括 `flush_with`）中，所以只打开应用也能补报。一次最多认领八条，未处理的记录及对应会话留到下一次。队列、会话状态与新会话标记持久化后才删除已认领的原记录；没有新会话覆盖时，先删除属于已认领会话的旧标记，防止下次补收将它重新放回 `open_sessions`。非 UUID 的系统记录文件名用 SHA-256 派生稳定事件 id，写盘失败后的重放仍然去重。
+- 有界队列优先保留 `crash` 和 `session_crash`，普通统计只能淘汰普通统计。全是崩溃且放不下下一组事件时不认领原文件，等待投递释放容量。系统延迟诊断可传稳定 `diagnostic_id`，跨补报重试保持同一事件身份。
+- 共享层异常回调先在目录绑定的临时文件里完整写盘，再原子且不覆盖地发布记录；Android 使用既有 `renameat2(RENAME_NOREPLACE)`，不依赖 SELinux 禁止的硬链接。原生信号写入不经过分配内存的这条路径。带新格式头但身份无效的原文件保留，不冒用补报版本；无头旧文件仍按旧规则兼容。
 - `SessionStart` 新增 `session_id`。新增 `end_session_by_id` 与 `record_crash_for`：前者只结束给定的会话，标记只在仍属于它时才删；后者把记录写到这个会话自己的文件，不看标记。Host API 的 `msime_client_telemetry_end` 与 `msime_client_telemetry_record_crash` 各加一个可选的 `session` 字段；不给时保持原来按标记的行为，macOS、iOS、Android、HarmonyOS 的宿主不需要跟着改。
 - `SessionStart` 还返回预计算的 `crash_record_header`（`MSIME-CRASH/1` 加 JSON），包含原始平台、版本、组件、架构、提交、构建运行和重跑编号。新写入端先写头，再写摘要和栈；原有无头记录仍可读，新会话的上下文也保存在标记中供无头记录回退。`prepare_crash_capture` 只准备独立记录，不建立或替换输入会话。入队时构建身份放在消息第二行，摘要第一行和栈保持原有聚合格式；不能放在调用栈顶部，因为后台会把任意非空行当作业务首帧。整个跨平台接入与符号归档的范围另见[全平台闭环提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md)。
 - `platforms/common/Telemetry.cpp`（Linux 两个宿主和 Windows Server 共用）记住 begin 返回的 `session_id`：`end()` 只结束自己的会话，本进程没有会话（上报关着）时不调用；`record_terminate()` 写自己会话的记录，与信号处理函数写的是同一个文件（`O_EXCL`），所以 terminate 之后的 SIGABRT 不再记第二份。

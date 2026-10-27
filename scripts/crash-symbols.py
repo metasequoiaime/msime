@@ -54,12 +54,15 @@ def collect(args):
             sections = run(args.tool_prefix + "readelf", "-S", "-W", str(path))
             if ".debug_line" not in sections:
                 raise ValueError("缺少行号调试信息，必须在 strip 前归档: " + path.name)
-            data = path.read_bytes()
-            digest = hashlib.sha256(data).hexdigest()
+            hasher = hashlib.sha256()
+            with path.open("rb") as file:
+                for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()
             archive = "modules/" + digest[:16] + "/" + path.name
             if archive in payloads:
                 continue
-            payloads[archive] = data
+            payloads[archive] = path
             modules.append({"name": path.name, "build_id": build_id, "machine": machine,
                             "sha256": digest, "file": archive})
     if not modules:
@@ -70,8 +73,8 @@ def collect(args):
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-        for name, data in payloads.items():
-            archive.writestr(name, data)
+        for name, path in payloads.items():
+            archive.write(path, name)
     print(str(args.output) + ": " + str(len(modules)) + " modules")
 
 

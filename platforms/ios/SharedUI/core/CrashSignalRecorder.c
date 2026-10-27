@@ -1,4 +1,4 @@
-// 键盘用于使用情况报告的致命信号处理函数。它只做异步信号安全的事：打开 client-services 的 `msime_client_telemetry_begin` 返回的崩溃记录路径（`O_EXCL`，所以未捕获异常处理函数已经写下的记录会保留），写入一行摘要和各帧，再把信号交还给之前接管它的处理函数。`backtrace_symbols_fd` 写出 "index binary address symbol + offset" 时不分配内存，二进制只以文件名标出。
+// App 与键盘用于使用情况报告的致命信号处理函数。它只做异步信号安全的事：打开 client-services 的 `msime_client_telemetry_begin` 返回的崩溃记录路径（`O_EXCL`，所以未捕获异常处理函数已经写下的记录会保留），写入一行摘要和各帧，再把信号交还给之前接管它的处理函数。`backtrace_symbols_fd` 写出 "index binary address symbol + offset" 时不分配内存，二进制只以文件名标出。
 #include <execinfo.h>
 #include <fcntl.h>
 #include <limits.h>

@@ -2,6 +2,15 @@ import Foundation
 import XCTest
 
 final class UsageReportingTests: XCTestCase {
+  func testDiagnosticIdentityIsStableAndSeparatesHangsFromCrashes() {
+    let data = Data("synthetic diagnostic".utf8)
+    let id = UsageReporting.diagnosticID(kind: "crash", data: data)
+    XCTAssertEqual(id, UsageReporting.diagnosticID(kind: "crash", data: data))
+    XCTAssertNotEqual(id, UsageReporting.diagnosticID(kind: "hang", data: data))
+    XCTAssertNotEqual(id, UsageReporting.diagnosticID(kind: "crash", data: Data("other".utf8)))
+    XCTAssertFalse(id.contains("synthetic"))
+  }
+
   func testDiagnosticHeaderKeepsSourceVersionAndRejectsPrivatePaths() throws {
     let header = try XCTUnwrap(UsageReporting.diagnosticHeader(version: "0.52.0"))
     let json = String(header.dropFirst("MSIME-CRASH/1 ".count))
@@ -81,7 +90,7 @@ final class UsageReportingTests: XCTestCase {
     let record = crashes.appendingPathComponent(session.id + ".crash")
     XCTAssertEqual(URL(fileURLWithPath: session.crashRecordPath).standardizedFileURL, record.standardizedFileURL)
     XCTAssertEqual(try String(contentsOf: record, encoding: .utf8),
-                   "Crash exception 10 code 0 signal 6\n0 MSIMEKeyboardExtension + 1")
+                   session.crashRecordHeader + "Crash exception 10 code 0 signal 6\n0 MSIMEKeyboardExtension + 1")
     // MetricKit 再送一次，或键盘自己的信号处理函数已经写过：保留第一份。
     UsageReporting.recordDiagnosedCrash(crash, stack: "0 other + 2", pid: getpid(), in: directory)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [session.id + ".crash"])

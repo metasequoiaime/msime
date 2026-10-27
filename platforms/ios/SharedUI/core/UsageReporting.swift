@@ -1,5 +1,6 @@
 import Foundation
 import CoreFoundation
+import CryptoKit
 import Darwin
 import os
 
@@ -71,7 +72,9 @@ enum UsageReporting {
   static func setEnabled(_ enabled: Bool) -> Bool {
     guard MetasequoiaInputSessionBridge.updateSharedPreferences({ $0[preferenceKey] = enabled }) else { return false }
     exceptionConsent.update(enabled)
-    if !enabled {
+    if enabled {
+      arm(prepareApplicationCapture())
+    } else {
       msimeIOSCrashRecordSet(nil, nil)
       if let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
     }
@@ -104,7 +107,9 @@ enum UsageReporting {
   }
 
   static func begin(in directory: URL) -> Session? {
-    guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request(directory)) as? [String: Any],
+    var request = request(directory)
+    request["component"] = "keyboard"
+    guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request) as? [String: Any],
           value["enabled"] as? Bool == true,
           let id = value["session_id"] as? String,
           let path = value["crash_record_path"] as? String else { return nil }
@@ -126,7 +131,7 @@ enum UsageReporting {
   }
 
   static func arm(_ session: Session?) {
-    guard let session else { msimeIOSCrashRecordSet(nil, nil); return }
+    guard let session, isEnabled else { msimeIOSCrashRecordSet(nil, nil); return }
     session.crashRecordPath.withCString { path in
       session.crashRecordHeader.withCString { msimeIOSCrashRecordSet(path, $0) }
     }
@@ -181,11 +186,18 @@ enum UsageReporting {
   }
 
   /// 系统事后报告的一次崩溃（MetricKit，App 下次打开时才送到），写成下次键盘启动时排队的崩溃记录。真崩溃按进程号 `pid` 对回该进程未结束的键盘会话，下次启动时连同那个会话的 `session_crash` 补报；键盘自己的处理程序已经为它写过记录时不再写。被强制结束的、`pid` 不可用的和不属于任何会话的（App 自身、收起后被挂起的键盘）只报 `crash`。会加锁写文件：不要在主线程上调用。
-  static func recordDiagnosedCrash(_ summary: DiagnosticSummary, stack: String, pid: pid_t, version: String? = nil, in directory: URL) {
+  static func recordDiagnosedCrash(_ summary: DiagnosticSummary, stack: String, pid: pid_t, version: String? = nil,
+                                   diagnosticID: String? = nil, in directory: URL) {
     var request: [String: Any] = ["directory": directory.path, "message": summary.message, "stack": stack]
-    if let version, let header = diagnosticHeader(version: version) { request["crash_record_header"] = header }
+    if let diagnosticID { request["diagnostic_id"] = diagnosticID }
+    if let version, let header = diagnosticHeader(version: version) ?? diagnosticHeader(version: "unknown") { request["crash_record_header"] = header }
     if summary.killed || pid <= 0 { request["outside_session"] = true } else { request["pid"] = Int(pid) }
     ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request)
+  }
+
+  /// 同一份系统诊断重复送达时固定事件身份，原始诊断只参与本地散列，不上传。
+  static func diagnosticID(kind: String, data: Data) -> String {
+    "ios-\(kind)-" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 
   /// 主 App 的未捕获异常处理器调用：写一份不属于任何键盘会话的崩溃记录（新 id），下次键盘启动时报 `crash`；再把进程号追加到 `handledProcesses`，MetricKit 事后送来同一进程的诊断时由 `takeHandledProcess` 认出并跳过。MetricKit 只有 abort 时的线程栈，CFRunLoop 重新抛出后已经看不到抛出点，这里的栈来自异常本身。消息只有异常名，不带 `reason`（可能引用 App 里的数据）。只建文件、不加锁，可以在处理器里调用。

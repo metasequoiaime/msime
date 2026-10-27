@@ -465,6 +465,7 @@ void crash_signal(int number, siginfo_t *info, void *context) {
         write_all(fd, frame.data, frame.size);
       }
 #endif
+      (void)::fsync(fd);
       ::close(fd);
     }
   }
@@ -559,6 +560,8 @@ void record(const char *summary) {
 }
 
 std::string current_stack(int skip) {
+  ConfigurationGuard configuration;
+  if (!configuration.owns) return {};
   std::ostringstream stack;
 #ifdef _WIN32
   void *frames[62];

@@ -7,6 +7,8 @@
 /** One crash HiAppEvent reported, reduced to what a crash record holds. */
 export interface CrashReport {
   pid: number;
+  /** 卡死等系统处置独立记录，不记作输入会话崩溃。 */
+  outsideSession?: boolean;
   /** 系统诊断里的原始版本，缺失时不冒用当前安装版本。 */
   version?: string;
   /** When the crash happened, in milliseconds since the epoch. */
@@ -15,14 +17,6 @@ export interface CrashReport {
   message: string;
   /** Frames, one per line: `file+0xpc symbol` for native code, the JavaScript stack as the engine wrote it. */
   stack: string;
-}
-
-/** What to do with a crash report. */
-export enum CrashDestination {
-  /** The keyboard session that crashed has not been closed yet: record it as that session's crash, so it counts as a `session_crash`. */
-  Session,
-  /** Any other crash (the settings application, or a keyboard session already closed): a standalone crash record, sent as a `crash` only. */
-  Standalone,
 }
 
 /** How often a long-running keyboard sends what it has queued, so a process that lives for days still reports each day. */
@@ -69,6 +63,40 @@ function nativeFrame(value: unknown): string | null {
 }
 
 export class TelemetryPolicy {
+  /** 卡死只保留标准原因，不读取系统日志、页面历史或异常消息。 */
+  static freezeReport(paramsJson: string): CrashReport | null {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(paramsJson);
+    } catch {
+      return null;
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const params = parsed as Record<string, unknown>;
+    const pid: number | null = integer(params.pid);
+    const time: number | null = integer(params.time);
+    if (pid === null || time === null) return null;
+    const exception: unknown = params.exception;
+    const name: string =
+      exception !== null && typeof exception === "object" && !Array.isArray(exception)
+        ? text((exception as Record<string, unknown>).name)
+        : "";
+    const safeName: string =
+      /^(THREAD_BLOCK_6S|APP_INPUT_BLOCK|INPUT_BLOCK|LIFECYCLE_TIMEOUT|BUSSINESS_THREAD_BLOCK_6S)$/.test(
+        name,
+      )
+        ? name
+        : "unknown";
+    return {
+      pid,
+      time,
+      version: text(params.bundle_version),
+      outsideSession: true,
+      message: `Hang ${safeName}`,
+      stack: "",
+    };
+  }
+
   /**
    * The crash in one HiAppEvent `APP_CRASH` event's parameters (as JSON), or null when they are not a crash this can describe.
    *
@@ -93,20 +121,27 @@ export class TelemetryPolicy {
     const crashType: string = text(params.crash_type);
     if (crashType === "JsError") {
       const name: string = firstLine(text(details.name));
-      const message: string = firstLine(text(details.message));
+      // 异常消息可能包含用户内容，只保留标准异常类型和实际栈帧。
       const summary: string =
-        name !== "" && message !== "" ? `${name}: ${message}` : name + message;
+        /^(Error|TypeError|ReferenceError|SyntaxError|RangeError|URIError|EvalError)$/.test(name)
+          ? name
+          : "JavaScript error";
       return {
         pid,
         time,
         version: text(params.bundle_version),
         message: summary === "" ? "JavaScript error" : summary,
-        stack: text(details.stack).trim(),
+        stack: text(details.stack)
+          .split("\n")
+          .map((line: string): string => line.trim())
+          .filter((line: string): boolean => line.startsWith("at "))
+          .slice(0, MAX_FRAMES)
+          .join("\n"),
       };
     }
     if (crashType === "NativeCrash") {
       const signal: unknown = details.signal;
-      let summary: string = firstLine(text(details.message));
+      let summary: string = "";
       if (signal !== null && typeof signal === "object" && !Array.isArray(signal)) {
         const fields = signal as Record<string, unknown>;
         const number: number | null = integer(fields.signo);
@@ -114,7 +149,7 @@ export class TelemetryPolicy {
         if (number !== null) {
           const name: string = SIGNALS.get(number) ?? `signal ${number}`;
           const described: string = code === null ? name : `${name} (code ${code})`;
-          summary = summary === "" ? described : `${described}: ${summary}`;
+          summary = described;
         }
       }
       const frames: string[] = [];
@@ -136,25 +171,9 @@ export class TelemetryPolicy {
     return null;
   }
 
-  /**
-   * Where a crash belongs.
-   *
-   * It is the unfinished keyboard session's crash only when it is that session's process (`previousKeyboardPid`, remembered when that session began) and this keyboard has not begun its own session yet: until then the session marker on disk is still the crashed one, and once begun it is this run's. Everything else is a standalone crash.
-   */
-  static destination(
-    report: CrashReport,
-    previousKeyboardPid: number | null,
-    begun: boolean,
-  ): CrashDestination {
-    if (!begun && previousKeyboardPid !== null && report.pid === previousKeyboardPid) {
-      return CrashDestination.Session;
-    }
-    return CrashDestination.Standalone;
-  }
-
   /** The file name of a standalone crash record: unique per crash, so a report delivered twice is written once. Not a UUID, so client-core gives the event an id of its own. */
   static standaloneRecordName(report: CrashReport): string {
-    return `harmony-${report.pid}-${report.time}.crash`;
+    return `harmony-${report.outsideSession === true ? "freeze-" : ""}${report.pid}-${report.time}.crash`;
   }
 
   /** A crash record's contents: the summary line, then the frames. */

@@ -19,6 +19,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -562,28 +563,32 @@ impl TelemetryStore {
         let session = Uuid::parse_str(session).map_err(|_| TelemetryError::Invalid)?;
         let directory = self.directory.join(CRASH_DIRECTORY);
         crate::storage::create_directory_and_check(&directory)?;
-        let path = directory.join(format!("{}.{CRASH_EXTENSION}", session.hyphenated()));
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
+        let name = format!("{}.{CRASH_EXTENSION}", session.hyphenated());
+        let mut contents = context.map(CrashContext::record_header).unwrap_or_default();
+        contents.push_str(message.lines().next().unwrap_or_default());
+        contents.push('\n');
+        contents.push_str(stack);
+        // 完整写盘后才原子发布；另一个进程补报时不能读走半份异常记录。
         #[cfg(unix)]
         {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
+            let directory = crate::storage::open_private_directory(&directory)?;
+            Ok(crate::storage::write_private_file_at_noclobber(
+                &directory,
+                std::ffi::OsStr::new(&name),
+                contents.as_bytes(),
+            )?)
         }
-        let mut file = match options.open(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-        if let Some(context) = context {
-            file.write_all(context.record_header().as_bytes())?;
+        #[cfg(not(unix))]
+        {
+            let mut file = tempfile::NamedTempFile::new_in(&directory)?;
+            file.write_all(contents.as_bytes())?;
+            file.as_file().sync_all()?;
+            match file.persist_noclobber(directory.join(name)) {
+                Ok(_) => Ok(true),
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+                Err(error) => Err(error.error.into()),
+            }
         }
-        let message = message.lines().next().unwrap_or_default();
-        file.write_all(message.as_bytes())?;
-        file.write_all(b"\n")?;
-        file.write_all(stack.as_bytes())?;
-        file.sync_all()?;
-        Ok(true)
     }
 
     /// 记下系统事后报告的一次崩溃（iOS 的 MetricKit 诊断）。`pid` 是崩溃进程的进程号：它有未结束的会话时写成最近开始的那个会话的崩溃记录；这个进程的崩溃已经由它自己的崩溃处理程序记下（记录还在，或已经补报过 `session_crash`）时什么都不写，一次崩溃只报一次；都不是时写成不属于任何会话的记录。`pid` 为 `None` 用于系统强制结束（SIGKILL）：按会话语义它不算会话崩溃，总是写成单独的记录。不联网；会加锁，不能在崩溃处理程序里调用。
@@ -593,7 +598,7 @@ impl TelemetryStore {
         message: &str,
         stack: &str,
     ) -> Result<DiagnosedCrash, TelemetryError> {
-        self.record_diagnosed_crash_with_context(pid, None, message, stack)
+        self.record_diagnosed_crash_with_context(pid, None, None, message, stack)
     }
 
     /// 系统延迟诊断可提供原构建身份；未结束会话里的身份比补录的诊断信息优先。
@@ -601,6 +606,7 @@ impl TelemetryStore {
         &self,
         pid: Option<u32>,
         context: Option<&CrashContext>,
+        diagnostic_id: Option<&str>,
         message: &str,
         stack: &str,
     ) -> Result<DiagnosedCrash, TelemetryError> {
@@ -628,9 +634,27 @@ impl TelemetryStore {
                 });
             }
         }
-        let id = Uuid::new_v4().hyphenated().to_string();
-        self.record_crash_with_context(&id, context, message, stack)?;
-        Ok(DiagnosedCrash::Outside)
+        let id = if let Some(identity) = diagnostic_id {
+            if identity.is_empty() || identity.len() > 256 {
+                return Err(TelemetryError::Invalid);
+            }
+            let hash = Sha256::digest(identity.as_bytes());
+            Uuid::from_bytes(hash[..16].try_into().expect("SHA-256 has 32 bytes"))
+        } else {
+            Uuid::new_v4()
+        };
+        Ok(
+            if self.record_crash_with_context(
+                &id.hyphenated().to_string(),
+                context,
+                message,
+                stack,
+            )? {
+                DiagnosedCrash::Outside
+            } else {
+                DiagnosedCrash::Duplicate
+            },
+        )
     }
 
     /// 补收本地崩溃记录，再排进当天的 `active`。不开始新会话，设置应用和长时间运行的宿主也能补报，不必等待键盘再次启动。
@@ -915,7 +939,10 @@ impl TelemetryStore {
         let mut records = crash_record_paths(directory)?;
         records.sort();
         let mut collected = CollectedCrashes::default();
-        for path in records.into_iter().take(MAX_CRASH_RECORDS_PER_START) {
+        for path in records {
+            if collected.crashes >= MAX_CRASH_RECORDS_PER_START {
+                break;
+            }
             if let Some(event) = crash_event(&path, app, &state.open_sessions, install_id) {
                 let stem = path
                     .file_stem()
@@ -936,7 +963,7 @@ impl TelemetryStore {
                     + queue.iter().filter(|event| !is_crash_event(event)).count();
                 // 队列全是待发崩溃时保留原记录，不能确认删除尚未容纳的诊断。
                 if needed > available {
-                    continue;
+                    break;
                 }
                 if let Some(index) = session_index {
                     let session = state.open_sessions.remove(index);
@@ -998,12 +1025,13 @@ fn crash_event(
     sessions: &[SessionMarker],
     install_id: &str,
 ) -> Option<TelemetryEvent> {
-    // A record is read up to the limit and the rest ignored rather than refused: a stack that ran long still has its useful top.
+    // 只读额度内的前段，过长的栈仍保留有用的顶部。
     let bytes = read_crash_file(path)?;
     let text = String::from_utf8_lossy(&bytes);
     let (context, text) = if text.starts_with(identity::RECORD_PREFIX) {
         let (header, rest) = text.split_once('\n')?;
-        (CrashContext::from_header(header), rest)
+        // 新格式的身份无效时保留原文件，不能悄悄归到补报时的版本。
+        (Some(CrashContext::from_header(header)?), rest)
     } else {
         (None, text.as_ref())
     };
@@ -1096,7 +1124,9 @@ fn push_active(
     now: SystemTime,
 ) -> bool {
     let day = utc_day(now);
-    if state.active_day == day {
+    if state.active_day == day
+        || (queue.len() >= MAX_QUEUED_EVENTS && queue.iter().all(is_crash_event))
+    {
         return false;
     }
     push(
