@@ -117,6 +117,19 @@ if ! grep -qF 'this.typingStatisticsWrites.execute(new taskpool.Task(writeTyping
   echo "KeyboardSession must write typing statistics on its TaskPool SequenceRunner and flush them on hide, focus loss and teardown" >&2
   exit 1
 fi
+# 完整体验模式下键盘失焦、获得焦点各发布一次共享状态，文件身份没变时不读文件、不再算指纹（缓存规则由 shared-state-mirror-policy.test.ts 的 `FingerprintCache` 覆盖）；每次获得焦点比偏好修订号时，文档身份没变就不经 NAPI 读整份文档；构建会话时处理词库快照队列，队列空着就不扫词库算本机版本。这些都是 ArkTS，这里钉住接线。
+mirror_ets="$ets/keyboard/SharedStateMirror.ets"
+fingerprint_body=$(sed -n '/^  private static fingerprintOf(entry: MirrorEntry, path: string): string {$/,/^  }$/p' "$mirror_ets")
+reload_body=$(sed -n '/^  reloadChangedPreferences(): void {$/,/^  }$/p' "$session_ets")
+snapshot_body=$(sed -n '/^  private processDictionarySnapshot(options: Object, stateRoot: string): void {$/,/^  }$/p' "$session_ets")
+if ! grep -qF 'SharedStateMirror.localFingerprints.fingerprint(' <<< "$fingerprint_body" \
+  || ! grep -qF 'stat.mtimeNs' <<< "$fingerprint_body" \
+  || ! grep -qF 'this.storedRevisionIfMoved(this.stateDirectory)' <<< "$reload_body" \
+  || grep -qF 'this.storedRevision(' <<< "$reload_body" \
+  || ! grep -qF 'skip_when_idle: true' <<< "$snapshot_body"; then
+  echo "Shared state fingerprints, the focus-time preference revision check and the session-build snapshot queue pass must skip work when nothing changed" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do

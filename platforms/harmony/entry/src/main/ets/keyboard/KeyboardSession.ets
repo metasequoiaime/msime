@@ -154,6 +154,7 @@ import {
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 import { SharedStateMirror } from './SharedStateMirror';
+import { FingerprintCache } from './SharedStateMirrorPolicy';
 import { SharedStateSync } from './SharedStateSync';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
 import {
@@ -836,6 +837,7 @@ interface SnapshotQueueProcessAction {
   staging_root: string;
   options: Object;
   account_id: string | null;
+  skip_when_idle: boolean;
 }
 
 interface SnapshotQueueProcessReply {
@@ -2200,12 +2202,37 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0 || this.composing() || this.localMode !== 'none') {
       return;
     }
-    const revision: number = this.storedRevision(this.stateDirectory);
+    const revision: number = this.storedRevisionIfMoved(this.stateDirectory);
     if (revision < 0 || revision === this.preferencesRevision) {
       return;
     }
     KeyboardLog.info(`preferences moved from revision ${this.preferencesRevision} to ${revision}`);
     this.restartIdleSession('preferences reload');
+  }
+
+  /**
+   * 与 `storedRevision` 相同，但 `preferences.json` 的文件身份（inode、大小、纳秒修改时间）与上次读到时相同，就直接用上次的修订号，不经 NAPI 读出、解析整份文档。每次获得焦点都要比一次，而设置大多没改过。修订号就写在这份文档里，存储每次保存都先写暂存文件再改名换入，inode 必变。拿不到纳秒修改时间、读不到修订号时不记，下次照旧读。
+   */
+  private storedRevisionIfMoved(stateRoot: string): number {
+    const path: string = `${stateRoot}/preferences.json`;
+    let identity: string | null = null;
+    try {
+      const stat: fs.Stat = fs.lstatSync(path);
+      const nanoseconds: bigint | undefined = stat.mtimeNs;
+      const stamp: string | null = stat.isFile() ? FingerprintCache.stamp(stat.ino.toString(), stat.size,
+        nanoseconds === undefined ? undefined : nanoseconds.toString()) : null;
+      identity = stamp === null ? null : `${path}#${stamp}`;
+    } catch {
+      // 文档不在时由 `storedRevision` 照旧回答。
+      identity = null;
+    }
+    if (identity !== null && identity === this.checkedPreferencesIdentity) {
+      return this.checkedPreferencesRevision;
+    }
+    const revision: number = this.storedRevision(stateRoot);
+    this.checkedPreferencesIdentity = revision < 0 ? null : identity;
+    this.checkedPreferencesRevision = revision;
+    return revision;
   }
 
   /** The revision of the stored preference document, or -1 when it cannot be read. */
@@ -3766,9 +3793,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
       // 每次空闲处理都重新读本沙箱的会话文件（目录模式的 status，只读本地文件）：键盘进程可能比设置里的一次账号切换活得更久。
       const accountId: string | null = statusUserId(client.accountStatus(stateRoot));
+      // 队列空着时（几乎总是）Rust 只读一下状态就返回，不在构建会话、键盘出来之前扫整个用户词库算本机版本、重写并 fsync state.json；本机版本由显示后的队列查询（`dictionarySnapshotNeedsWork`）发布。
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
-        staging_root: staging, options: options, account_id: accountId
+        staging_root: staging, options: options, account_id: accountId, skip_when_idle: true
       };
       const reply: SnapshotQueueProcessReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueProcessReply;
@@ -4588,6 +4616,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   private localMode: string = 'none';
   /** Revision of the preference document the session was last built from; -1 before the first. */
   private preferencesRevision: number = -1;
+  /** `reloadChangedPreferences` 上次读到的偏好文档的路径和文件身份，以及当时的修订号，见 `storedRevisionIfMoved`。 */
+  private checkedPreferencesIdentity: string | null = null;
+  private checkedPreferencesRevision: number = -1;
   /** Set by Ctrl+Shift+E; only meaningful while `englishMode` is on. */
   private englishCandidates: boolean = false;
 
