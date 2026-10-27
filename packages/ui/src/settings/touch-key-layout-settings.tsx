@@ -3,18 +3,23 @@ import type { Preferences } from "../core/preferences-model";
 import type { InputScheme } from "../core/input-scheme";
 import type { PreviewKey } from "../keyboard/keyboard-layouts";
 import { GroupList } from "../core/platform-controls";
+import { SettingsGroupNote } from "./settings-group-note";
 import { SwitchRow } from "./switch-row";
 import {
   fourteenKeyBottomRows,
   fourteenKeyStyle,
+  fourteenKeyStyleNote,
   fourteenKeyStyleOptions,
   nineKeyBottomRows,
   nineKeyStyle,
+  nineKeyStyleNote,
   nineKeyStyleOptions,
   nineKeyTallReturnPreview,
+  numberRowDescription,
   twentySixKeyBottomRows,
   type FramePreviewKey,
   twentySixKeyStyle,
+  twentySixKeyStyleNote,
   twentySixKeyStyleOptions,
 } from "../keyboard/touch-key-layout-styles";
 
@@ -99,12 +104,13 @@ function FramePreview({ rows }: { rows: readonly (readonly FramePreviewKey[])[] 
   );
 }
 
-/** 一组单选：每个选项是一行，名字在上、它的底行示意图在下（`frames` 里有的样式画多行示意）。 */
+/** 一组单选：每个选项是一行，名字在上、它的底行示意图在下（`frames` 里有的样式画多行示意）；`note` 是组末的说明，读屏把它当作这组单选的描述。 */
 function StyleChoices<T extends string>({
   title,
   options,
   rows,
   frames,
+  note,
   value,
   onChange,
 }: {
@@ -112,13 +118,15 @@ function StyleChoices<T extends string>({
   options: readonly { value: T; label: string }[];
   rows: Record<T, PreviewKey[]>;
   frames?: Partial<Record<T, FramePreviewKey[][]>>;
+  note: string;
   value: T;
   onChange: (value: T) => void;
 }) {
   const name = useId();
+  const noteId = useId();
   return (
     <GroupList title={title}>
-      <div role="radiogroup" aria-label={title} className="flex flex-col">
+      <div role="radiogroup" aria-label={title} aria-describedby={noteId} className="flex flex-col">
         {options.map((option) => (
           <label
             key={option.value}
@@ -144,12 +152,15 @@ function StyleChoices<T extends string>({
           </label>
         ))}
       </div>
+      <SettingsGroupNote>
+        <span id={noteId}>{note}</span>
+      </SettingsGroupNote>
     </GroupList>
   );
 }
 
 /**
- * 「按键布局」子页的内容：26 键、14 键与 18 键、9 键三组底行样式各选一种，每个选项下画出它的底行（九键「右侧大回车」画网格最后一行和底行，回车跨两行）；最后是「顶部数字行」开关。写的是共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 和 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」子页的内容：26 键、14 键与 18 键、9 键三组底行样式各选一种，每个选项下画出它的底行（九键「右侧大回车」画网格最后一行和底行，回车跨两行），每组末尾一句说明（与 Android、iOS 逐字相同）；最后是「顶部数字行」开关。写的是共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 和 `touch_number_row`，键盘开着时当场换排法。
  */
 export function TouchKeyLayoutSettings({
   preferences,
@@ -167,6 +178,7 @@ export function TouchKeyLayoutSettings({
           title="26 键"
           options={twentySixKeyStyleOptions}
           rows={twentySixKeyBottomRows}
+          note={twentySixKeyStyleNote}
           value={twentySixKeyStyle(preferences)}
           onChange={(touch_twenty_six_key_style) => onChange({ touch_twenty_six_key_style })}
         />
@@ -176,6 +188,7 @@ export function TouchKeyLayoutSettings({
           title="14 键与 18 键"
           options={fourteenKeyStyleOptions}
           rows={fourteenKeyBottomRows}
+          note={fourteenKeyStyleNote}
           value={fourteenKeyStyle(preferences)}
           onChange={(touch_fourteen_key_style) => onChange({ touch_fourteen_key_style })}
         />
@@ -186,6 +199,7 @@ export function TouchKeyLayoutSettings({
           options={nineKeyStyleOptions}
           rows={nineKeyBottomRows}
           frames={{ tall_return: nineKeyTallReturnPreview }}
+          note={nineKeyStyleNote}
           value={nineKeyStyle(preferences)}
           onChange={(touch_nine_key_style) => onChange({ touch_nine_key_style })}
         />
@@ -194,7 +208,7 @@ export function TouchKeyLayoutSettings({
         <GroupList>
           <SwitchRow
             title="顶部数字行"
-            description="26 键、14 键和 18 键的字母上方加一行 1 到 0，键盘高一行；手机横屏时不显示"
+            description={numberRowDescription}
             checked={preferences.touch_number_row === true}
             onChange={(touch_number_row) => onChange({ touch_number_row })}
           />

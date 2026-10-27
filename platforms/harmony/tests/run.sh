@@ -118,6 +118,18 @@ if ! grep -qF 'this.tallReturnFaceWidth = Number(now.width);' <<< "$tall_frame_b
   echo "KeyboardView must measure the tall return frame, size its middle bottom row from NineKeyLayout.tallReturnRow, and draw the digit layer's 0 left of space when the row says so" >&2
   exit 1
 fi
+# 九键「右侧大回车」右列与中间网格逐行对齐（`NineKeyLayout.tallReturnGridRowHeight` 由 touch-layout-styles.test.ts 覆盖）：一格的高度按这块网格自己的行数算，笔画是 `StrokeLayout.ROWS` 的两行，⌫ 只占一格，回车跨网格最后一行和底行。按三行切时笔画的回车从第二行中间开始。
+grid_row_body=$(sed -n '/^  private tallReturnGridRowHeight(): number {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+grid_rows_body=$(sed -n '/^  private tallReturnGridRows(): number {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+if ! grep -qF 'NineKeyLayout.tallReturnGridRowHeight(this.gridHeight(), this.rowSpacing(), this.tallReturnGridRows());' <<< "$grid_row_body" \
+  || ! grep -qF 'return StrokeLayout.ROWS.length;' <<< "$grid_rows_body" \
+  || grep -qF 'this.tallReturnGridRowHeight() *' <<< "$tall_frame_body" \
+  || (( $(grep -cF '.height(this.tallReturnGridRowHeight())' <<< "$tall_frame_body") != 3 )); then
+  echo "The tall return frame's right column must cut one key per grid row from the face's own row count (two stroke rows), so return spans the last grid row and the bottom row" >&2
+  exit 1
+fi
 # 视图出现前（`setUiContent` 与 `aboutToAppear` 谁先完成没有保证）请求的面板高度不能丢（`TouchHeightRelay`，规则由 touch-layout-styles.test.ts 覆盖）：会话经它转交请求，扩展能力第一帧优先用留着的请求、挂回调时补发、换面板时作废旧请求。
 view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"

@@ -4689,7 +4689,7 @@ struct KeyboardView {
    *
    * - 左列：跨网格三行的标点栏（拼音九键是 ，。？！、组字时的读音、数字层的四则运算和 #+=；笔画是标点栏），栏下方底行放与它同宽的 符，数字层也在这里。
    * - 中间：3×3 网格（笔画是笔画键），格下方是恰好与网格同宽的底行 `nineKeyActionRow`：123 | 空格 | 中/英，数字层 切换键 | 0 | 空格 | 中/英。123、中/英 和数字层的空格与标准九键底行里同宽，空格（数字层是 0）占剩下的部分；外框量到自己的宽度（`tallReturnFaceWidth`）后按 `NineKeyLayout.tallReturnRow` 定宽，之前按 `NineKeyLayout.actionRow` 的份额排。
-   * - 右列：⌫ 在第一行，第二行是拼音分词（数字层小数点），回车跨第三行和底行、两倍高中间无缝；原来第三行的 ！ 接到左列末尾。笔画没有第二格，⌫ 占上两行。
+   * - 右列：与中间网格逐行对齐（`tallReturnGridRowHeight`），回车跨网格最后一行和底行、两倍高中间无缝。拼音九键 ⌫ 在第一行，第二行是拼音分词（数字层小数点），回车跨第三行和底行；原来第三行的 ！ 接到左列末尾。笔画网格只有两行（`StrokeLayout.ROWS`），⌫ 占第一行，回车跨第二行和底行。
    *
    * 中/英 与回车不在同一行，回车不让出键帽，两键都是普通的触摸区。
    */
@@ -4742,7 +4742,7 @@ struct KeyboardView {
             this.deleteKey('100%', true, 0)
           }
           .width('100%')
-          .height(this.tallReturnGridRowHeight() * 2 + this.rowSpacing())
+          .height(this.tallReturnGridRowHeight())
         } else {
           Column() {
             this.deleteKey('100%', true, 0)
@@ -4755,7 +4755,7 @@ struct KeyboardView {
           .width('100%')
           .height(this.tallReturnGridRowHeight())
         }
-        // 回车占右列剩下的高度：网格第三行、一道行距和底行。
+        // 回车占右列剩下的高度：网格最后一行、一道行距和底行。
         this.tallReturnKey()
       }
       .layoutWeight(NineKeyLayout.SIDE_SHARE)
@@ -4772,9 +4772,17 @@ struct KeyboardView {
     })
   }
 
-  /** 「右侧大回车」外框里网格一行的高度：网格三行平分网格高度减去两道行距。 */
+  /** 「右侧大回车」外框里网格一行的高度：按这块网格自己的行数（`tallReturnGridRows`）平分网格高度减去行距（`NineKeyLayout.tallReturnGridRowHeight`），右列的键与网格逐行对齐。 */
   private tallReturnGridRowHeight(): number {
-    return (this.gridHeight() - 2 * this.rowSpacing()) / 3;
+    return NineKeyLayout.tallReturnGridRowHeight(this.gridHeight(), this.rowSpacing(), this.tallReturnGridRows());
+  }
+
+  /** 「右侧大回车」中间网格的行数，与 `tallReturnNineKeyFrame` 画的格子一致：笔画字母层是 `StrokeLayout.ROWS` 的两行，拼音九键、九键双拼和数字层是三行。 */
+  private tallReturnGridRows(): number {
+    if (this.strokeFace() && !this.symbols) {
+      return StrokeLayout.ROWS.length;
+    }
+    return (this.symbols ? NineKeyLayout.digits() : NineKeyLayout.touchRows()).length;
   }
 
   /** 「右侧大回车」的回车：与设计底行的回车同一键面和动作，宽度是右列的宽度，高度占右列剩下的部分（`layoutWeight(1)`，在列里是竖向的）。左边没有紧挨的中/英，不让出键帽。 */

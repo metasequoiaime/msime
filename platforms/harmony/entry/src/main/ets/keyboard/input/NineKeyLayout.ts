@@ -125,7 +125,7 @@ export class NineKeyLayout {
   static readonly EMOJI_WEIGHT: number = 1.05;
 
   /**
-   * 九键样式「右侧大回车」（`touch_nine_key_style` 为 `tall_return`）是否作用于这块键面：中文九键（拼音九键、九键双拼、笔画）的字母层和它们的数字层都画这个外框——左列是跨网格三行的标点栏，栏下方是与它同宽的 符；中间网格下方的底行恰好与网格同宽（`actionRow`）；右列自上而下是 ⌫、第二格，回车跨第三行和底行。英文九键与其他样式一样不受影响。
+   * 九键样式「右侧大回车」（`touch_nine_key_style` 为 `tall_return`）是否作用于这块键面：中文九键（拼音九键、九键双拼、笔画）的字母层和它们的数字层都画这个外框——左列是跨网格三行的标点栏，栏下方是与它同宽的 符；中间网格下方的底行恰好与网格同宽（`actionRow`）；右列自上而下是 ⌫、第二格，回车跨第三行和底行（笔画网格只有两行，⌫ 占第一行，回车跨第二行和底行，见 `tallReturnGridRowHeight`）。英文九键与其他样式一样不受影响。
    *
    * @param english 英文模式下的九键
    * @param style 九键样式（`TouchLayoutStylePolicy.fieldRowStyle` 之后的值）
@@ -183,6 +183,17 @@ export class NineKeyLayout {
   /** 「右侧大回车」网格下方那一段里占剩余宽度的键：字母层是空格，数字层是 0。 */
   static tallReturnFill(digitLayer: boolean): NineKeyActionKind {
     return digitLayer ? NineKeyActionKind.ZERO : NineKeyActionKind.SPACE;
+  }
+
+  /**
+   * 「右侧大回车」网格一行的高度，右列按它与中间网格逐行对齐：回车上方每个网格行一个键（拼音九键、九键双拼和数字层是 ⌫ 和第二格，笔画只有 ⌫），回车占网格最后一行、一道行距和底行。网格各行平分网格高度减去行距，所以要按这块网格自己的行数算：笔画网格只有两行（`StrokeLayout.ROWS`），按三行切会让回车从笔画第二行中间开始。
+   *
+   * @param gridHeight 网格的高度
+   * @param rowSpacing 纵向行距
+   * @param gridRows 网格的行数：拼音九键、九键双拼和数字层是 3，笔画是 `StrokeLayout.ROWS.length`
+   */
+  static tallReturnGridRowHeight(gridHeight: number, rowSpacing: number, gridRows: number): number {
+    return (gridHeight - (gridRows - 1) * rowSpacing) / gridRows;
   }
 
   /**
