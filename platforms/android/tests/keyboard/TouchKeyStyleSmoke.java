@@ -153,7 +153,7 @@ public final class TouchKeyStyleSmoke {
     }
 
     /**
-     * 右侧大回车（tall_return）：拼音九键、笔画和九键数字层都没有单独的底行，外框连同底行一整块；九宫格正下方那一行恰好与九宫格同宽，123、地球键、中/英保持标准九键底行里的绝对宽度，空格（数字层是 0 和小数点）占剩下的。中/英与回车不在同一行，不让出回车的点击区。
+     * 右侧大回车（tall_return）：拼音九键、笔画和九键数字层都没有单独的底行，外框连同底行一整块；九宫格正下方那一行恰好与九宫格同宽，123（数字层是切换键）、地球键、中/英保持标准九键底行里的绝对宽度，字母层的空格占剩下的；数字层 0 在空格的位置，右边是与中/英同宽（1.05）的空格，0 占剩下的，小数点在右列，与 iOS、鸿蒙相同。中/英与回车不在同一行，不让出回车的点击区。
      */
     private static void tallReturn() {
         TouchKeyStyle.Row tall = TouchKeyStyle.Row.TALL_RETURN;
@@ -181,24 +181,34 @@ public final class TouchKeyStyleSmoke {
         expectTall(nineShare, true, false, false, entries(LAYER, 1.25f, GLOBE, 1f, SPACE, 10.25f * 0.7f - 3.3f, LANGUAGE, 1.05f));
         expectTall(nineShare, false, true, false, entries(LANGUAGE, 1.05f, SPACE, 9.25f * 0.7f - 2.3f, LAYER, 1.25f));
         expectTall(nineShare, false, false, true,
-            entries(LAYER, 1.25f, KeyboardActionRow.DesignSlot.ZERO, 9.25f * 0.7f - 3.3f, PERIOD, 1f, LANGUAGE, 1.05f));
+            entries(LAYER, 1.25f, KeyboardActionRow.DesignSlot.ZERO, 9.25f * 0.7f - 3.35f, SPACE, 1.05f, LANGUAGE, 1.05f));
+        expectTall(nineShare, true, false, true, entries(LAYER, 1.25f, GLOBE, 1f, KeyboardActionRow.DesignSlot.ZERO,
+            10.25f * 0.7f - 4.35f, SPACE, 1.05f, LANGUAGE, 1.05f));
         expectTall(nineShare, true, true, true, entries(LANGUAGE, 1.05f, GLOBE, 1f, KeyboardActionRow.DesignSlot.ZERO,
-            10.25f * 0.7f - 4.3f, PERIOD, 1f, LAYER, 1.25f));
-        // 笔画外框 0.9 / 3 / 0.9：同一行按笔画网格的比例变窄，变的只有空格。
+            10.25f * 0.7f - 4.35f, SPACE, 1.05f, LAYER, 1.25f));
+        check(KeyboardActionRow.TALL_RETURN_DIGIT_SPACE_WEIGHT == 1.05f, "the number layer's space is 1.05, as wide as 中/英");
+        // 笔画外框 0.9 / 3 / 0.9：同一行按笔画网格的比例变窄，变的只有空格（数字层是 0）。
         expectTall(3f / 4.8f, false, false, false, entries(LAYER, 1.25f, SPACE, 9.25f * 0.625f - 2.3f, LANGUAGE, 1.05f));
+        expectTall(3f / 4.8f, false, false, true, entries(LAYER, 1.25f, KeyboardActionRow.DesignSlot.ZERO,
+            9.25f * 0.625f - 3.35f, SPACE, 1.05f, LANGUAGE, 1.05f));
         frameColumns();
         for (float share : new float[] {nineShare, 3f / 4.8f}) {
             for (boolean globe : new boolean[] {false, true}) {
-                List<KeyboardActionRow.DesignEntry> standard = KeyboardActionRow.designEntries(nine, globe);
-                List<KeyboardActionRow.DesignEntry> strip = KeyboardActionRow.tallReturnEntries(share, globe, false, false);
-                check(Math.abs(total(strip) - total(standard) * share) < 1e-4f, "the strip spans exactly the grid width");
-                // 123、地球键、中/英在整行里的占比与标准九键底行相同。
-                for (KeyboardActionRow.DesignSlot slot : List.of(LAYER, GLOBE, LANGUAGE)) {
-                    int index = slots(strip).indexOf(slot);
-                    if (index < 0) continue;
-                    float tallFraction = strip.get(index).weight() * share / total(strip);
-                    float standardFraction = standard.get(slots(standard).indexOf(slot)).weight() / total(standard);
-                    check(Math.abs(tallFraction - standardFraction) < 1e-5f, slot + " keeps its absolute width");
+                for (boolean digits : new boolean[] {false, true}) {
+                    List<KeyboardActionRow.DesignEntry> standard = KeyboardActionRow.designEntries(nine, globe);
+                    List<KeyboardActionRow.DesignEntry> strip = KeyboardActionRow.tallReturnEntries(share, globe, false, digits);
+                    check(Math.abs(total(strip) - total(standard) * share) < 1e-4f, "the strip spans exactly the grid width");
+                    // 123（数字层的切换键）、地球键、中/英在整行里的占比与同一地球键状态的标准九键底行相同。
+                    for (KeyboardActionRow.DesignSlot slot : List.of(LAYER, GLOBE, LANGUAGE)) {
+                        int index = slots(strip).indexOf(slot);
+                        check(index >= 0 == (slot != GLOBE || globe), slot + " is drawn when expected, digits " + digits);
+                        if (index < 0) continue;
+                        float tallFraction = strip.get(index).weight() * share / total(strip);
+                        float standardFraction = standard.get(slots(standard).indexOf(slot)).weight() / total(standard);
+                        check(Math.abs(tallFraction - standardFraction) < 1e-5f, slot + " keeps its absolute width, digits " + digits);
+                    }
+                    // 小数点在右列 ⌫ 下面，不在九宫格下方那一行。
+                    check(!slots(strip).contains(PERIOD), "the decimal point is not in the strip, digits " + digits);
                 }
             }
         }

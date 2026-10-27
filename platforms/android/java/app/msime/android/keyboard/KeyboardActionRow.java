@@ -360,13 +360,13 @@ public final class KeyboardActionRow {
         return grid / (2 * tallReturnSideWeight(touchLayout) + grid);
     }
 
-    /** 右侧大回车外框里数字层的小数点：0 右边、从 0 里让出一份，与计算器的 0 . 相同；按字面上屏 `.`。 */
-    public static final float TALL_RETURN_DECIMAL_WEIGHT = DESIGN_PUNCTUATION_WEIGHT;
+    /** 右侧大回车外框里数字层的空格：0 右边、从 0 里让出、与中/英同宽（1.05），三端相同；小数点在右列 ⌫ 下面。 */
+    public static final float TALL_RETURN_DIGIT_SPACE_WEIGHT = DESIGN_LANGUAGE_WEIGHT;
 
     /**
      * 右侧大回车外框里九宫格正下方那一行：123 |（地球）| 空格 | 中/英，恰好与九宫格同宽。123、地球键和中/英保持在标准九键底行里的绝对宽度，空格占剩下的宽度；份额的单位与 {@link #designEntries} 相同，总和是标准九键底行（含地球键时连地球键）的总份额乘以九宫格占整行的比例 {@code gridShare}，宿主按九宫格的宽度铺满即可。
      *
-     * <p>数字层（{@code digits}）照同一框架：123 的位置是切换键（{@link DesignSlot#LAYER}），空格的位置放 0（{@link DesignSlot#ZERO}），0 右边是小数点（{@link DesignSlot#PERIOD}，{@link #TALL_RETURN_DECIMAL_WEIGHT}）；空格按 Android 数字层的规矩移到右列（重输的位置）。交换中/英与 123 时两键对调，宽度跟着键走。
+     * <p>数字层（{@code digits}）照同一框架：123 的位置是切换键（{@link DesignSlot#LAYER}），空格的位置放 0（{@link DesignSlot#ZERO}），0 右边是空格（{@link DesignSlot#SPACE}，{@link #TALL_RETURN_DIGIT_SPACE_WEIGHT}），0 占剩下的宽度；小数点在右列重输的位置，与 iOS、鸿蒙相同。交换中/英与 123 时两键对调，宽度跟着键走。
      *
      * @param gridShare 九宫格占外框整行宽度的比例（拼音九键 14/20，笔画 3/4.8）
      */
@@ -375,12 +375,12 @@ public final class KeyboardActionRow {
         float total = 0;
         for (DesignEntry entry : designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe)) total += entry.weight();
         float fixed = DESIGN_LAYER_WEIGHT + (globe ? DESIGN_GLOBE_WEIGHT : 0) + DESIGN_LANGUAGE_WEIGHT
-            + (digits ? TALL_RETURN_DECIMAL_WEIGHT : 0);
+            + (digits ? TALL_RETURN_DIGIT_SPACE_WEIGHT : 0);
         List<DesignEntry> entries = new ArrayList<>(5);
         entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
         if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
         entries.add(new DesignEntry(digits ? DesignSlot.ZERO : DesignSlot.SPACE, total * gridShare - fixed));
-        if (digits) entries.add(new DesignEntry(DesignSlot.PERIOD, TALL_RETURN_DECIMAL_WEIGHT));
+        if (digits) entries.add(new DesignEntry(DesignSlot.SPACE, TALL_RETURN_DIGIT_SPACE_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
         if (swapLanguageNumber) java.util.Collections.swap(entries, 0, entries.size() - 1);
         return List.copyOf(entries);

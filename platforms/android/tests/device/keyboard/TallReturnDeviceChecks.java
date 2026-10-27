@@ -16,12 +16,16 @@ import org.json.JSONObject;
 /**
  * 九键「右侧大回车」（共享偏好 `touch_nine_key_style = tall_return`，.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）的设备验收，由 {@link NineKeyNumericLayoutDeviceSmoke} 在自己的检查之后调用（API 35 的设备测试清单已到 100 项 instrumentation 的上限，不另加入口）。
  *
- * <p>量真实键帽，核对外框是一整块（没有单独的功能行）、符 在符号栏正下方且同宽、九宫格下方的 123 | 空格 | 中 与九宫格左右对齐、右列自上而下 ⌫ 重输 回车且回车从第三行顶边画到底行底边、右列不再有 ！ 而符号栏里有 ！；符号栏的 ！ 接过右列 ！ 的手势，上滑输入 0、长按选上标 ⁰；点回车落在底行那一段时照样换行。数字层照同一外框：符 和切换键横向位置不变，0 在空格的位置、右边是小数点，空格移到右列重输的位置，回车仍两倍高，点数字、小数点、空格按字面上屏。然后换回标准样式，功能行回来、右列的 ！ 回来。
+ * <p>量真实键帽，核对外框是一整块（没有单独的功能行）、符 在符号栏正下方且同宽、九宫格下方的 123 | 空格 | 中 与九宫格左右对齐、右列自上而下 ⌫ 重输 回车且回车从第三行顶边画到底行底边、右列不再有 ！ 而符号栏里有 ！；符号栏的 ！ 接过右列 ！ 的手势，上滑输入 0、长按选上标 ⁰；点回车落在底行那一段时照样换行。数字层照同一外框（与 iOS、鸿蒙相同）：符 和切换键横向位置不变，0 在空格的位置、右边是与中/英同宽的空格，小数点在右列重输的位置，回车仍两倍高，点数字、小数点、空格按字面上屏。然后换回标准样式，功能行回来、右列的 ！ 回来，标准底行的 123 和中/英与大回车外框里的同宽。
  *
  * <p>另外两种键面各量一遍：九键双拼的网格有四行，⌫ 仍占网格前两行、重输在第三行，回车从第四行的顶边画到底行的底边；笔画外框是 0.9 / 3 / 0.9 的三列，符 与符号栏同宽、九宫格下方那一行与笔画网格左右对齐、回车从第三行画到底行，切到它借的数字九宫格时 符、切换键和回车留在原处（数字层按笔画外框的份额画，不按九键的）。结束后恢复原偏好。
  */
 final class TallReturnDeviceChecks {
     private final DeviceSmoke t;
+
+    /** 右侧大回车字母层九宫格下方 123 和中/英的宽度，换回标准样式后与标准底行的同名键比。 */
+    private int tallLayerWidth;
+    private int tallLanguageWidth;
 
     private TallReturnDeviceChecks(DeviceSmoke test) { t = test; }
 
@@ -72,6 +76,12 @@ final class TallReturnDeviceChecks {
             Rect exclamation = bounds(t.key("！").and(node -> boundsOf(node).left >= delete.left - 3));
             if (exclamation.top < bounds(t.key("重输")).bottom)
                 throw new AssertionError("标准样式下 ！ 应回到右列最下");
+            // 右侧大回车九宫格下方的 123 和中/英保持标准九键底行里的绝对宽度，空格占剩下的。
+            int standardLayer = bounds(t.key("123")).width();
+            int standardLanguage = bounds(t.key("中")).width();
+            if (Math.abs(standardLayer - tallLayerWidth) > tolerance() || Math.abs(standardLanguage - tallLanguageWidth) > tolerance())
+                throw new AssertionError("右侧大回车的 123、中 应与标准底行同宽：123 " + tallLayerWidth + " / " + standardLayer
+                    + "，中 " + tallLanguageWidth + " / " + standardLanguage);
 
             shuangpinFrame(preferences, new JSONObject(base.toString())
                 .put("touch_keyboard_layout", "nine_key_shuangpin").put("nine_key_shuangpin_profile", "migala3")
@@ -143,6 +153,8 @@ final class TallReturnDeviceChecks {
         if (!exclamationNode.isLongClickable() || exclamationNode.getContentDescription() == null
                 || !exclamationNode.getContentDescription().toString().startsWith("！；上滑输入 0"))
             throw new AssertionError("符号栏的 ！ 应接过右列 ！ 的上滑 0 与长按上下标：" + exclamationNode.getContentDescription());
+        tallLayerWidth = layer.width();
+        tallLanguageWidth = language.width();
         System.out.println("tall return letters: sidebar=" + sidebar + " symbol=" + symbol + " enter=" + enter
             + " strip=" + layer.left + ".." + language.right + " grid=" + topLeft.left + ".." + topRight.right);
 
@@ -186,12 +198,16 @@ final class TallReturnDeviceChecks {
         if (!near(symbol, letterSymbol, tolerance) || Math.abs(back.left - letterLayer.left) > tolerance
                 || Math.abs(back.right - letterLayer.right) > tolerance)
             throw new AssertionError("数字层的 符 与切换键应保持字母层的位置：" + symbol + " " + back);
-        if (zero.top < eight.bottom || zero.left < back.right || decimal.left < zero.right
-                || language.left < decimal.right || Math.abs(zero.centerY() - symbol.centerY()) > tolerance)
-            throw new AssertionError("数字层底行应是 切换键 | 0 | . | 中：" + back + " " + zero + " " + decimal + " " + language);
-        if (Math.abs(space.left - delete.left) > tolerance || space.top < delete.bottom || space.bottom > enter.top
-                || space.left < nine.right)
-            throw new AssertionError("数字层的空格应在右列 ⌫ 与回车之间：" + space);
+        if (zero.top < eight.bottom || zero.left < back.right || space.left < zero.right
+                || language.left < space.right || Math.abs(zero.centerY() - symbol.centerY()) > tolerance
+                || Math.abs(space.centerY() - symbol.centerY()) > tolerance)
+            throw new AssertionError("数字层底行应是 切换键 | 0 | 空格 | 中：" + back + " " + zero + " " + space + " " + language);
+        if (Math.abs(space.width() - language.width()) > tolerance || zero.width() <= space.width())
+            throw new AssertionError("数字层的空格应与中同宽，0 占剩下的宽度：0 " + zero.width() + "，空格 " + space.width()
+                + "，中 " + language.width());
+        if (Math.abs(decimal.left - delete.left) > tolerance || Math.abs(decimal.right - delete.right) > tolerance
+                || decimal.top < delete.bottom || decimal.bottom > enter.top || decimal.left < nine.right)
+            throw new AssertionError("数字层的小数点应在右列 ⌫ 与回车之间：" + decimal);
         if (!near(enter, letterEnter, tolerance))
             throw new AssertionError("数字层的回车应与字母层一样两倍高、同一位置：" + enter + " / " + letterEnter);
 

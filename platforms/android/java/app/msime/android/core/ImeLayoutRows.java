@@ -441,7 +441,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 右侧大回车外框的中列：九宫格（或笔画网格）占三行，正下方是与它同宽的 123 |（地球）| 空格 | 中/英（{@link KeyboardActionRow#tallReturnEntries}）。数字层是切换键 |（地球）| 0 | 小数点 | 中/英，小数点按字面上屏。
+     * 右侧大回车外框的中列：九宫格（或笔画网格）占三行，正下方是与它同宽的 123 |（地球）| 空格 | 中/英（{@link KeyboardActionRow#tallReturnEntries}）。数字层是切换键 |（地球）| 0 | 空格 | 中/英，空格就是常驻的空格键，长按语音和拖动光标的手势跟着它走。
      */
     private LinearLayout tallReturnMiddleColumn(LinearLayout grid, float gridShare, boolean digits) {
         LinearLayout middle = LayoutPolicy.column(s);
@@ -451,13 +451,6 @@ final class ImeLayoutRows {
         builtTallReturnGlobe = globe;
         for (KeyboardActionRow.DesignEntry entry : KeyboardActionRow.tallReturnEntries(gridShare, globe,
                 s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits)) {
-            if (digits && entry.slot() == KeyboardActionRow.DesignSlot.PERIOD) {
-                Button decimal = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
-                KeyboardTypographyPolicy.setKeyTextSize(decimal, 22);
-                if (decimal instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
-                cell.addView(decimal, LayoutPolicy.weightedMatchParentParams(entry.weight()));
-                continue;
-            }
             Button key = s.imeBottomRow.actionRowKey(entry.slot());
             if (key == null) continue;
             s.imeBottomRow.placeKey(cell, entry.slot(), key, LayoutPolicy.weightedMatchParentParams(entry.weight()));
@@ -469,7 +462,7 @@ final class ImeLayoutRows {
     /**
      * 右侧大回车外框右列最下面的回车：一格底行高度的容器再按权重分到与上面每格同样的一份，回车铺满它，于是从第三行的顶边一直画到底行的底边，中间没有缝。中/英不在它左边，不让出点击区。
      *
-     * <p>右列上面已经放好的键（⌫、重输或数字层的空格）带着键距外边距；它们和回车格直接按权重分高度时，LinearLayout 先把外边距从剩余高度里扣掉，这几个键就比九宫格的行矮、和网格错开。所以先把它们挪进一个没有外边距的格子，这个格子按它们的权重和与回车格分高度，里面再按各自的权重分，和九宫格的行一样高。
+     * <p>右列上面已经放好的键（⌫、重输或数字层的小数点）带着键距外边距；它们和回车格直接按权重分高度时，LinearLayout 先把外边距从剩余高度里扣掉，这几个键就比九宫格的行矮、和网格错开。所以先把它们挪进一个没有外边距的格子，这个格子按它们的权重和与回车格分高度，里面再按各自的权重分，和九宫格的行一样高。
      */
     private void addTallReturnKey(LinearLayout actions) {
         LinearLayout upper = LayoutPolicy.column(s);
@@ -597,9 +590,8 @@ final class ImeLayoutRows {
         if (shuangpin) actions.addView(delete, LayoutPolicy.weightedCrossAxisFillParams(false, 2));
         else addNineKey(actions, delete);
         if (tallReturn) {
-            // 右侧大回车：⌫ 下面一格在字母层是重输；数字层按 Android 数字层的规矩放移过来的空格（小数点在中列 0 的右边）。右列原来最下面的 ！ 去掉，接到符号栏默认表的末尾。回车占第三行和底行；九键双拼的 ⌫ 照旧占网格的两行，回车接在网格第四行上。
-            if (digits) s.imeBottomRow.placeKey(actions, KeyboardActionRow.DesignSlot.SPACE, s.spaceButton,
-                LayoutPolicy.weightedCrossAxisFillParams(false, 1));
+            // 右侧大回车：⌫ 下面一格在字母层是重输，数字层是按字面上屏的小数点（空格在中列 0 的右边，与 iOS、鸿蒙相同）。右列原来最下面的 ！ 去掉，接到符号栏默认表的末尾。回车占第三行和底行；九键双拼的 ⌫ 照旧占网格的两行，回车接在网格第四行上。
+            if (digits) addNineKey(actions, nineKeyDecimalKey());
             else addNineKey(actions, nineKeyRewriteKey());
             addTallReturnKey(actions);
             container.addView(actions, LayoutPolicy.weightedMatchParentParams(tallSide));
@@ -608,10 +600,7 @@ final class ImeLayoutRows {
         }
         if (digits) {
             // 小数点按字面上屏；移动原空格键保留点按、长按语音与光标手势，0 由底行提供。
-            Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
-            KeyboardTypographyPolicy.setKeyTextSize(period, 22);
-            if (period instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
-            addNineKey(actions, period);
+            addNineKey(actions, nineKeyDecimalKey());
             adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
             // 重建数字网格时空格换了父容器，即使底行签名相同也要重新确认归属。
             s.actionRowSignature = "";
@@ -630,6 +619,14 @@ final class ImeLayoutRows {
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
+    }
+
+    /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面。 */
+    private Button nineKeyDecimalKey() {
+        Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
+        KeyboardTypographyPolicy.setKeyTextSize(period, 22);
+        if (period instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+        return period;
     }
 
     /** 重输：组字时丢掉整串数字和选过的拼音，和搜狗、讯飞九键右列的「重输」在同一个位置。这一格曾经改成「拆分」、重输挪到长按 ⌫，用户照习惯按这里清空却得到一个音节分界，长按 ⌫ 也没人知道；拆分现在是组字时的 1 键「分词」（symbolKey）。长按 ⌫ 清空照旧保留。没在组字时什么也不发生。 */

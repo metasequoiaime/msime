@@ -55,7 +55,7 @@ final class BottomRowPreview extends View {
                 case SPACE, COMMA, PERIOD, ZERO -> Tone.CHARACTER;
                 default -> Tone.FUNCTION;
             };
-            row.add(new Cell(face(entry.slot(), style), entry.weight(), tone, 1));
+            row.add(new Cell(face(entry.slot()), entry.weight(), tone, 1));
         }
         return List.of(List.copyOf(row));
     }
@@ -79,14 +79,15 @@ final class BottomRowPreview extends View {
     }
 
     /** 底行一个键在预览里写的字。 */
-    static String face(KeyboardActionRow.DesignSlot slot, TouchKeyStyle.Row style) {
+    static String face(KeyboardActionRow.DesignSlot slot) {
         return switch (slot) {
             case SYMBOL_PANEL -> "符";
             case LAYER -> "123";
             case GLOBE -> "🌐";
             case EMOJI -> "😀";
             case COMMA -> "，";
-            case SPACE -> style == TouchKeyStyle.Row.LONG_SPACE ? "长空格" : "空格";
+            // 长空格样式的空格同样写「空格」，宽度已经说明它长，与 iOS、鸿蒙的预览一致。
+            case SPACE -> "空格";
             case ZERO -> "0";
             case PERIOD -> "。";
             case LANGUAGE -> "中";

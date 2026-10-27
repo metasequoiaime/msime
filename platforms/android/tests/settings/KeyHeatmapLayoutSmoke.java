@@ -292,6 +292,14 @@ public final class KeyHeatmapLayoutSmoke {
             && layoutRows.contains("KeyboardActionRow.tallReturnEntries(gridShare, globe,")
             && layoutRows.contains("else addNineKey(actions, nineKeyRewriteKey());"),
             "the keyboard's tall frame puts the same keys where the heatmap draws them");
+        // 右侧大回车的数字层（热力图不画数字层）：右列 ⌫ 下面是小数点，空格在中列 0 的右边（KeyboardActionRow.tallReturnEntries），与 iOS、鸿蒙相同。
+        check(layoutRows.contains("if (digits) addNineKey(actions, nineKeyDecimalKey());")
+            && !layoutRows.contains("s.imeBottomRow.placeKey(actions, KeyboardActionRow.DesignSlot.SPACE"),
+            "the tall frame's number layer puts the decimal point in the right column and leaves space in the strip");
+        // 「按键布局」预览里长空格样式的空格也写「空格」，与 iOS、鸿蒙的预览一致。
+        String preview = read("home/BottomRowPreview.java");
+        check(preview.contains("case SPACE -> \"空格\";") && !preview.contains("\"长空格\""),
+            "the layout preview labels every space key 空格");
         String view = read("home/KeyHeatmapView.java");
         check(view.contains("if (key.rows() == 0) {")
             && view.contains("float keyHeight = key.rows() * height + (key.rows() - 1) * gap;"),
