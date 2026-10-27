@@ -9,11 +9,11 @@
 偏好文档里的 `cloud_clipboard_webdav`：
 
 ```json
-{"cloud_clipboard_webdav": {"url": "https://dav.jianguoyun.com/dav/msime", "username": "<网盘账号>", "password": "<应用密码>"}}
+{"cloud_clipboard_webdav": {"url": "https://dav.jianguoyun.com/dav/", "username": "<网盘账号>", "password": "<应用密码>"}}
 ```
 
 - 三项要么都空（不用网盘），要么都合规；没配置时这个键不写进文档，旧版本照样能读。与 `cloud_clipboard_relay` 只能二选一，两者同时配置的偏好存不进去。配置了网盘就只走网盘，失败时不退回水杉账号。
-- `url` 是用户选的文件夹，规则与 [中继地址](cloud-clipboard-relay.md) 相同：`https://`（`http://` 只接受本机回环地址），不带查询串、片段和用户信息，不跟随重定向；TLS 用 rustls 和内置的 webpki-roots，不认自签证书和私有 CA。
+- `url` 是用户选的文件夹，可以就是网盘根目录（坚果云填 `https://dav.jianguoyun.com/dav/`），客户端在它下面自己建 `msime-clipboard/`，用户不用先建文件夹；规则与 [中继地址](cloud-clipboard-relay.md) 相同：`https://`（`http://` 只接受本机回环地址），不带查询串、片段和用户信息，不跟随重定向；TLS 用 rustls 和内置的 webpki-roots，不认自签证书和私有 CA。
 - `username` 是网盘账号（坚果云是登录邮箱），1 到 256 字节，不含控制字符和冒号；`password` 是应用密码（坚果云、Nextcloud 都要求第三方应用用应用密码而不是登录密码），1 到 256 字节，不含控制字符。应用密码列在凭据清单里，账号在诊断快照里也换成 `<redacted>`；整组不随设置文件导出、不进账号设置同步，MCP 的偏好白名单也不包括它。
 - 保存之前先「测试连接」（见下文），不通过不保存。
 - 本机密钥串仍是中继那份 `cloud-clipboard-relay-keystore`，只是它绑定的空间换成 `sha256("webdav\0" ‖ 基地址 ‖ "\0" ‖ 账号)` 的前 16 字节：换了地址或账号就生成新的设备身份，要重新批准；换应用密码不换，不用重新批准。
@@ -29,7 +29,7 @@
 | Android | 「我的 → 云剪贴板」页顶部的卡片和对话框 |
 | iOS、HarmonyOS | 没有：原生宿主还没接中继 |
 
-各处做法相同：填「服务器地址」（网盘里的一个文件夹）、「账号」和「应用密码」（遮罩输入；已经保存过时留空表示沿用，已存的密码不回显）；「测试连接」只测不存；「保存」先测，通过才写 `cloud_clipboard_webdav` 并删掉 `cloud_clipboard_relay`，不通过时说明原因、草稿留着。保存中继时删掉网盘配置，改回水杉账号时两者都删。WebDAV 那一组下面有一段说明：内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。
+各处做法相同：填「服务器地址」（网盘根目录或其中一个文件夹，说明里写明坚果云填 `https://dav.jianguoyun.com/dav/`）、「账号」和「应用密码」（遮罩输入；已经保存过时留空表示沿用，已存的密码不回显）；「测试连接」只测不存；「保存」先测，通过才写 `cloud_clipboard_webdav` 并删掉 `cloud_clipboard_relay`，不通过时说明原因、草稿留着。保存中继时删掉网盘配置，改回水杉账号时两者都删。WebDAV 那一组下面有一段说明：内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。
 
 ## 宿主怎么接入
 
@@ -46,7 +46,7 @@
 
 ## 存储布局
 
-用户选一个文件夹作基地址（例如坚果云的 `https://dav.jianguoyun.com/dav/msime`），客户端只在它下面的 `msime-clipboard/` 里读写：
+用户选一个文件夹作基地址（通常就是网盘根目录，例如坚果云的 `https://dav.jianguoyun.com/dav/`；结尾的 `/` 有没有都一样，规范化时去掉），客户端只在它下面的 `msime-clipboard/` 里读写：
 
 ```text
 <基地址>/msime-clipboard/v1/format.json

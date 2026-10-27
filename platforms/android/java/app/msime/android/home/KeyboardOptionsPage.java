@@ -202,6 +202,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false),
                 checked -> savePreference(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, checked))
                 .setEnabled(settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD));
+            boolean splitEnabled = settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
+            layout.slider("分离启用宽度", SplitKeyboardPolicy.MIN_THRESHOLD_DP, SplitKeyboardPolicy.MAX_THRESHOLD_DP,
+                SplitKeyboardPolicy.THRESHOLD_STEP_DP, settings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD),
+                value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD, value))
+                .setEnabled(splitEnabled);
+            layout.slider("分离中间空隙", SplitKeyboardPolicy.MIN_GAP_PERCENT, SplitKeyboardPolicy.MAX_GAP_PERCENT,
+                SplitKeyboardPolicy.GAP_PERCENT_STEP, settings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP),
+                value -> value + "%", value -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_GAP, value))
+                .setEnabled(splitEnabled);
         }
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
@@ -263,6 +272,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
             distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
         }
+        String quickDeleteScope = settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE);
+        GroupCard.Row[] quickDeleteRow = new GroupCard.Row[1];
+        quickDeleteRow[0] = gestures.nav("快速删除范围", "上滑退格松手时删除的范围；普通退格和左滑连续删除不受影响",
+            quickDeleteScopeLabel(quickDeleteScope), () -> pickQuickDeleteScope(quickDeleteScope, quickDeleteRow[0]));
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",
             settings.bool(AndroidLocalSettings.GLIDE_TYPING),
             checked -> saveLocalSetting(AndroidLocalSettings.GLIDE_TYPING, checked));
@@ -540,6 +553,22 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 });
         }
         sheet.show();
+    }
+
+    private void pickQuickDeleteScope(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "快速删除范围", null);
+        for (String value : new String[] {"before", "all"}) {
+            sheet.option(quickDeleteScopeLabel(value), value.equals(selected), () -> {
+                row.setValue(quickDeleteScopeLabel(value));
+                KeyboardSheets.saveLocal(this, AndroidLocalSettings.QUICK_DELETE_SCOPE, value,
+                    this::reload, this::reload);
+            });
+        }
+        sheet.show();
+    }
+
+    private static String quickDeleteScopeLabel(String value) {
+        return "all".equals(value) ? "整个输入框" : "光标前文字";
     }
 
     private void pickClipboardColumns(String selected) {

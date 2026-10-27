@@ -412,7 +412,7 @@ final class ImeLetterRows {
     private void splitRow(LinearLayout row, float duplicateWeight) {
         float[] weights = splitWeights(row);
         row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), LayoutPolicy.weightedMatchParentParams(
-            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp())));
+            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp(), s.splitKeyboardGapPercent())));
     }
 
     /**
@@ -431,7 +431,7 @@ final class ImeLetterRows {
         float right = weights[spaceIndex] - left;
         space.setLayoutParams(LayoutPolicy.weightedMatchParentParams(left));
         row.addView(splitGap(), spaceIndex + 1,
-            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp())));
+            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp(), s.splitKeyboardGapPercent())));
         Button second = s.imeBottomRow.splitSpaceButton();
         if (second.getParent() instanceof android.view.ViewGroup parent) parent.removeView(second);
         ViewPolicy.show(second);
@@ -583,6 +583,8 @@ final class ImeLetterRows {
                     if (clear) {
                         s.imeKeyFeedback.playFeedback(button);
                         if (undo) s.undoQuickDelete();
+                        else if ("all".equals(s.localSettings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)))
+                            s.deleteAllInput();
                         else s.deleteAllBeforeCursor();
                     }
                     if (click) button.performClick();
@@ -1177,7 +1179,7 @@ final class ImeLetterRows {
     }
 
     /**
-     * 新设计的 123 层（moreSymbols 为假）或 #+= 层：四行键自带底行（拼音 / ABC | 表情或符号 | 空格 | ↵），功能行这时整行不显示。字符键原样上屏，⌫ / 空格 / 回车用常驻的那几个键。标点用全角中文还是半角英文跟「中文标点」走（{@link MSIMEInputService#sendsChinesePunctuation}），不是跟中英文模式：0.2.0 起这里只看中英文模式，关掉中文标点后这一层照样上屏「，」「。」。
+     * 新设计的 123 层（moreSymbols 为假）或 #+= 层：四行键自带底行（返回 | 表情或符号 | 空格 | ↵），功能行这时整行不显示。字符键原样上屏，⌫ / 空格 / 回车用常驻的那几个键。标点用全角中文还是半角英文跟「中文标点」走（{@link MSIMEInputService#sendsChinesePunctuation}），不是跟中英文模式：0.2.0 起这里只看中英文模式，关掉中文标点后这一层照样上屏「，」「。」。
      */
     private void rebuildDesignLayer() {
         boolean chinese = !s.dedicatedEnglish;

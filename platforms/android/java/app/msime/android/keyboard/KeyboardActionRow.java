@@ -86,7 +86,7 @@ public final class KeyboardActionRow {
         return touchLayout == KeyboardLayout.ZHUYIN_LAYOUT ? 1f : 1.6f;
     }
 
-    /** 借用数字九宫格时返回键按中文习惯印「拼音」（与 123 层的 {@link KeyboardLayout#lettersKeyTitle} 一致），专属键面仍印各自的短名。 */
+    /** 借用数字九宫格时返回键标示「返回」（与 123 层的 {@link KeyboardLayout#lettersKeyTitle} 一致），专属键面仍印各自的短名。 */
     public static String layerTitle(int touchLayout, boolean symbols, boolean chineseNumberPad) {
         String title = layerTitle(touchLayout, symbols);
         return chineseNumberPad && (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
@@ -105,9 +105,9 @@ public final class KeyboardActionRow {
         return touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT ? "九键" : "ABC";
     }
 
-    /** Accessibility label matching {@link #layerTitle}. */
+    /** 与 {@link #layerTitle} 对应的无障碍操作说明。 */
     public static String layerDescription(boolean symbols) {
-        return symbols ? "切换到字母键盘" : "切换到数字和符号";
+        return symbols ? "返回原键盘" : "切换到数字和符号";
     }
 
     // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：14 键和大千注音是 123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9；手写是 123 1.25 / ， 1 / 空格 2.4 / 。 1 / 中 1.05 / 重写 1.25 / ⌫ 1.25 / ↵ 1.6；26 键是 123 / 符 / 空格 / ， / 中 / ↵，九键外框是 符 / 123 / 空格 / 中 / ↵ ----

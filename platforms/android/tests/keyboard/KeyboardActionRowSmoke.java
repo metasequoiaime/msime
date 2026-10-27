@@ -344,9 +344,9 @@ public final class KeyboardActionRowSmoke {
             "the digit page returns to 26 keys");
         check("九键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true)),
             "the digit page returns to the grid the user picked");
-        check("拼音".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, true))
-                && "拼音".equals(KeyboardActionRow.layerTitle(KeyboardLayout.HANDWRITING_LAYOUT, true, true)),
-            "a borrowed Chinese number pad returns by the Chinese letters title");
+        check("返回".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, true))
+                && "返回".equals(KeyboardActionRow.layerTitle(KeyboardLayout.HANDWRITING_LAYOUT, true, true)),
+            "a borrowed Chinese number pad names its return action");
         check("九键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, true))
                 && "14键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true, true))
                 && "ABC".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false))
@@ -367,7 +367,7 @@ public final class KeyboardActionRowSmoke {
                 && "笔".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STROKE_LAYOUT, true)),
             "the stroke digit page returns to the stroke keypad");
         check("切换到数字和符号".equals(KeyboardActionRow.layerDescription(false))
-            && "切换到字母键盘".equals(KeyboardActionRow.layerDescription(true)),
+            && "返回原键盘".equals(KeyboardActionRow.layerDescription(true)),
             "layer key descriptions");
 
         List<KeyboardLayout.LayerKey> chineseNumberBottom =

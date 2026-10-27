@@ -2109,6 +2109,7 @@ class SettingsBridge {
       value['symbol_set_packs'] = projection.symbolSetPacks;
       value['touch_toolbar_tools'] = projection.touchToolbarTools;
       value['touch_key_sound_packs'] = projection.touchKeySoundPacks;
+      value['touch_plugin_packs'] = projection.touchPluginPacks;
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {

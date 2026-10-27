@@ -12,7 +12,8 @@ final class FixedNavigationInsetsPolicy {
     static void bind(View root, View navigation, Runnable reposition) {
         ViewCompat.setOnApplyWindowInsetsListener(root, (target, insets) -> {
             navigation.setVisibility(WindowInsetsPolicy.shouldShowFixedPageNavigation(
-                insets.isVisible(WindowInsetsCompat.Type.ime())) ? View.VISIBLE : View.GONE);
+                insets.isVisible(WindowInsetsCompat.Type.ime()),
+                insets.getInsets(WindowInsetsCompat.Type.ime()).bottom) ? View.VISIBLE : View.GONE);
             reposition.run();
             return insets;
         });
