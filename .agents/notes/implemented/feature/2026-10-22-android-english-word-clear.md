@@ -12,6 +12,8 @@ Status: implemented
 
 ## Related notes
 
+「清除」的字号大于读音，同行高度及按钮显示前的预留由[读音行尺寸](../bug-fix/2026-10-09-android-reading-font-size.md)统一计算，避免文字底部裁剪或输入时键盘跳高（#10057）。
+
 检索 `独立英文`、`专用英文`、`英文工具栏`、`退出本地模式` 的活跃笔记。[手机英文纠错](../../implemented/feature/2026-10-16-mobile-english-correction.md)部分重叠，继续拥有直输和重新核对当前词的规则；本篇补清除入口。[专用英文切换](../../implemented/bug-fix/2026-10-16-dedicated-english-held-phrase.md)管理引擎组字，和此处已直输的当前词无关，其余候选算法与其他平台笔记无关。
 
 ## Alternatives considered
@@ -21,6 +23,8 @@ Status: implemented
 ## Verification
 
 原生 APK 构建和 Android 宿主检查通过，含 254 项 JVM 冒烟及 202 个设备套件源文件编译。设备回归覆盖从中文九键切英文后清掉合成错词、前后文本、异步建议、继续输入、全角字母与撇号，以及空闲、中文、选区、词中光标、长词和密码框边界。API 28、35 的专用模拟器安装原生 APK 后，基础输入验收与完整 `NineKeyEnglishDeviceSmoke` 均通过。关闭英文建议时同样可清除。最终 `scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和差异检查通过；未做手机真机验收。
+
+本次 #10057 在 API 28 安装后的原生宿主隔离视图中覆盖 9.6/12/25.6sp 与系统字体 1/2 倍，六组均无裁剪，按钮显隐行高一致，合成截图完整；完整 `NineKeyEnglishDeviceSmoke` 同包重跑通过。首轮在清除用例之前的九键完整英文候选 `commit` 检查失败，原测试与产品逻辑均未为重跑改动。Java 宿主重新构建，未改的原生库和资源复用先前设备验证包；本次未重跑 API 35 或报告者的 vivo 真机。quick 重跑结果见[读音行尺寸](../bug-fix/2026-10-09-android-reading-font-size.md)。
 
 ## Consequences
 
