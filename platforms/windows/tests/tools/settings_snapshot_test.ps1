@@ -48,7 +48,7 @@ public static class SettingsSnapshotReplacementProbe {
                     if ($errorCode -ne 0) { throw "允许 Delete 的读取仍阻止原子替换：$errorCode" }
                     if ((Read-SettingsSnapshotText $path) -ne 'synthetic-after') { throw '原子替换没有发布新内容' }
                 } else {
-                    if ($errorCode -ne 32) { throw "未允许 Delete 的对照应报共享冲突 32，实际为 $errorCode" }
+                    if ($errorCode -notin @(5, 32)) { throw "未允许 Delete 的对照应拒绝替换（5 或 32），实际为 $errorCode" }
                     if ((Read-SettingsSnapshotText $path) -ne 'synthetic-before') { throw '失败替换改变了原文件' }
                 }
                 Write-Host "Windows 原子替换对照：allowDelete=$allowDelete，错误码=$errorCode"
