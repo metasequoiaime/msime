@@ -15,8 +15,9 @@ Status: implemented
 
 ## Decision
 
-- App 的 `CrashDiagnostics.start()` 在工具队列上读上报开关，开着时安装 `NSSetUncaughtExceptionHandler`（保留并调用此前的处理器）。处理器经 `UsageReporting.recordUncaughtException` 写一份新 id 的崩溃记录：消息是 `Uncaught <异常名>`，栈是 `NSException.callStackReturnAddresses` 经 `dladdr` 换成的「序号 二进制 + 偏移」，偏移从映像起点算，与 MetricKit 的 `offsetIntoBinaryTextSegment` 同一基准，同一份 dSYM 能符号化两者。下次键盘启动时它照常成为 `crash`。
-- 去重在 Swift 里做：处理器把进程号追加到 App 私有目录的 `uncaught-exception-pids`；`didReceive` 收到同一进程号的 MetricKit 诊断时由 `UsageReporting.takeHandledProcess` 认出、跳过并删掉这个进程号。文件只留最近 32 个。
+- App 的 `CrashDiagnostics.start()` 在工具队列上读上报开关，无论启动时开关如何都安装 `NSSetUncaughtExceptionHandler`（保留并调用此前的处理器）。处理器经 `UsageReporting.recordUncaughtException` 写一份新 id 的崩溃记录：消息是 `Uncaught <异常名>`，栈是 `NSException.callStackReturnAddresses` 经 `dladdr` 换成的「序号 二进制 + 偏移」，偏移从映像起点算，与 MetricKit 的 `offsetIntoBinaryTextSegment` 同一基准，同一份 dSYM 能符号化两者。下次键盘启动时它照常成为 `crash`。
+- 异常回调只读取内存权限：`UsageReporting.setEnabled` 保存成功后同步更新，关闭后不再记录、重新开启后恢复；启动读盘用代次保护，不能把旧的开启状态盖回刚保存的关闭选择。回调取锁失败时放弃记录，避免崩溃线程重入同一把锁。
+- 去重在 Swift 里做：仅崩溃记录写入成功后，处理器把进程号追加到 App 私有目录的 `uncaught-exception-pids`；`didReceive` 收到同一进程号的 MetricKit 诊断时由 `UsageReporting.takeHandledProcess` 认出、跳过并删掉这个进程号。文件只留最近 32 个。
 - `upload-testflight.sh` 把归档里的 dSYM 打成 `msime-ios-<版本>-<构建号>-dsym.zip`，`release-ios.yml` 以同名 artifact 保留 90 天。归档里没有 dSYM 时只告警，不挡发版。
 
 ## Alternatives considered
@@ -33,8 +34,10 @@ Status: implemented
 
 ## Verification
 
-- `platforms/ios/tests/core/UsageReportingTests.swift` 新增两项：返回地址换成「二进制 + 偏移」并以测试二进制自身的映像起点核对偏移、零地址记为 `???`；未捕获异常写成会话外的记录、只带异常名，MetricKit 同一进程号只认一次，列表只留最近 32 个。
+- `platforms/ios/tests/core/UsageReportingTests.swift` 新增两项：返回地址换成「二进制 + 偏移」并以测试二进制自身的映像起点核对偏移、零地址记为 `???`；未捕获异常写成会话外的记录、只带异常名，MetricKit 同一进程号只认一次，列表只留最近 32 个。补充覆盖：记录目录不可写但 PID 文件可写时不标记已处理；内存权限的关闭、恢复和启动旧读覆盖保护。
 - 本地对 `SharedUI`、`CrashDiagnostics.swift` 和测试文件用 iOS 17 模拟器 SDK 做 `swiftc -typecheck`，新代码无错误；用例本身由 PR 上的 iOS Simulator 任务运行。
+- 审查补修用合成目录和现有 `host-api` 静态库独立运行同一份 `UsageReportingTests.swift`，13 项通过；写失败复现的旧代码返回 `failed_write_marked_handled=true`（退出 1），修复后为 false（退出 0）。该运行在 macOS XCTest 上，偏好桥由合成内存适配替代，不等同于 iOS 装机验收。改动文件与 `CrashDiagnostics` 另经 iOS 17 模拟器 SDK 类型检查通过。
+- 补修的本地 quick 已通过仓库契约与笔记检查，进入 Rust 工作区编译后因系统盘仅余 15 GiB 主动停止，整条 quick 未完成；不新建完整构建树，完整编译留待 PR CI，未验证设备中的真实异常回调。
 - `bash -n platforms/ios/upload-testflight.sh`、`actionlint .github/workflows/release-ios.yml` 通过；`nightly.yml` 不下载 iOS 的 artifact，新 artifact 名不会被它的模式误取。dSYM 打包和 artifact 上传要到下一次 TestFlight 发版才真正跑到。
 
 ## Related notes

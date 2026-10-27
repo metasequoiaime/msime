@@ -1,6 +1,7 @@
 import Foundation
 import CoreFoundation
 import Darwin
+import os
 
 @_silgen_name("msime_client_telemetry_begin")
 private func msimeClientTelemetryBegin(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
@@ -29,12 +30,44 @@ enum UsageReporting {
     preferences?[preferenceKey] as? Bool ?? true
   }
 
-  static var isEnabled: Bool { isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) }
+  /// 异常回调只看内存，避免崩溃时重入共享偏好的 Rust 锁。读取中的旧值不能覆盖设置页刚保存的选择。
+  struct ExceptionConsent {
+    private struct State {
+      var enabled = false
+      var generation: UInt64 = 0
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
-  /// Turns usage reporting on or off in the shared preferences; off also drops everything queued. Returns false when the preference could not be saved.
+    var isEnabled: Bool { state.withLockIfAvailable { $0.enabled } ?? false }
+
+    func update(_ enabled: Bool) {
+      state.withLock {
+        $0.enabled = enabled
+        $0.generation &+= 1
+      }
+    }
+
+    func refresh(_ load: () -> Bool) -> Bool {
+      let generation = state.withLock { $0.generation }
+      let enabled = load()
+      return state.withLock {
+        if $0.generation == generation { $0.enabled = enabled }
+        return $0.enabled
+      }
+    }
+  }
+
+  static let exceptionConsent = ExceptionConsent()
+
+  static var isEnabled: Bool {
+    exceptionConsent.refresh { isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) }
+  }
+
+  /// 保存上报开关并同步异常回调的内存权限；关闭时丢弃队列。偏好保存失败时返回 false。
   @discardableResult
   static func setEnabled(_ enabled: Bool) -> Bool {
     guard MetasequoiaInputSessionBridge.updateSharedPreferences({ $0[preferenceKey] = enabled }) else { return false }
+    exceptionConsent.update(enabled)
     if !enabled, let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
     return true
   }
@@ -119,9 +152,9 @@ enum UsageReporting {
   /// 主 App 的未捕获异常处理器调用：写一份不属于任何键盘会话的崩溃记录（新 id），下次键盘启动时报 `crash`；再把进程号追加到 `handledProcesses`，MetricKit 事后送来同一进程的诊断时由 `takeHandledProcess` 认出并跳过。MetricKit 只有 abort 时的线程栈，CFRunLoop 重新抛出后已经看不到抛出点，这里的栈来自异常本身。消息只有异常名，不带 `reason`（可能引用 App 里的数据）。只建文件、不加锁，可以在处理器里调用。
   static func recordUncaughtException(name: String, returnAddresses: [NSNumber], pid: pid_t, in directory: URL,
                                       handledProcesses: URL) {
-    ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash,
+    guard ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash,
                                ["directory": directory.path, "message": "Uncaught \(name)",
-                                "stack": frames(fromReturnAddresses: returnAddresses), "session": UUID().uuidString])
+                                "stack": frames(fromReturnAddresses: returnAddresses), "session": UUID().uuidString]) != nil else { return }
     let descriptor = open(handledProcesses.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
     guard descriptor >= 0 else { return }
     defer { close(descriptor) }
@@ -144,7 +177,7 @@ enum UsageReporting {
     return index != nil
   }
 
-  /// Return addresses (NSException.callStackReturnAddresses) as "index binary + offset" lines in the format of `frames(fromCallStackTree:)`: the offset is from the start of the binary's image, which is where MetricKit's `offsetIntoBinaryTextSegment` counts from, so the same dSYM symbolicates both.
+  /// 把异常返回地址写成与 `frames(fromCallStackTree:)` 相同的「序号 二进制 + 偏移」；偏移从映像起点算，与 MetricKit 的 `offsetIntoBinaryTextSegment` 同基准，可用同一份 dSYM 符号化。
   static func frames(fromReturnAddresses addresses: [NSNumber], limit: Int = 128) -> String {
     addresses.prefix(limit).enumerated().map { index, address in
       var info = Dl_info()
