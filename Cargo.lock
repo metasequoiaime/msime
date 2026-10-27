@@ -3303,6 +3303,8 @@ dependencies = [
  "msime-client-core",
  "msime-engine",
  "msime-path-trust",
+ "rand 0.10.2",
+ "rand_pcg",
  "rusqlite",
  "rustix",
  "serde",

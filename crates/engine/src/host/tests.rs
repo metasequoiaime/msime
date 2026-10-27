@@ -1175,6 +1175,23 @@ fn shuangpin_key_hints_reject_an_unknown_profile() {
     assert!(shuangpin_key_hints("quanpin").is_empty());
 }
 
+/// 评测工具靠它把全拼用例编成双拼按键：按名字取内置方案，`custom` 和不认识的名字没有表可编。
+#[test]
+fn encode_shuangpin_uses_the_named_builtin_profile() {
+    assert_eq!(
+        encode_shuangpin("ni'hao", "xiaohe").as_deref(),
+        Some("ni'hc")
+    );
+    assert_eq!(
+        encode_shuangpin("a'ming", "microsoft").as_deref(),
+        Some("oa'm;")
+    );
+    for profile in ["custom", "", "quanpin", "xiaohe-v2"] {
+        assert_eq!(encode_shuangpin("ni'hao", profile), None, "{profile}");
+    }
+    assert_eq!(encode_shuangpin("ni'bad", "xiaohe"), None);
+}
+
 #[test]
 fn all_shuangpin_profiles_accept_yo_as_one_syllable() {
     let dir = tempfile::tempdir().unwrap();

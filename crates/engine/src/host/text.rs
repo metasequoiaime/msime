@@ -7,6 +7,7 @@ use crate::assets;
 use crate::error::Result;
 use crate::local::catalog::{self, EmojiCatalogItem, EmojiCatalogSlice, EmojiSymbolGroup};
 use crate::shuangpin::hints::ShuangpinKeyHint;
+use crate::types::ShuangpinProfileKind;
 use crate::wubi::lookup::WubiCodeLookup;
 
 /// Over the generation's working `msime-pinyin.db`.
@@ -49,6 +50,13 @@ pub fn shuangpin_key_hints(profile: &str) -> Vec<ShuangpinKeyHint> {
 
 pub fn shuangpin_zero_initials(profile: &str) -> Vec<(&'static str, &'static str)> {
     crate::shuangpin::hints::shuangpin_zero_initials(profile)
+}
+
+/// 把已规范化、用 `'` 分隔的全拼编成内置 26 键双拼方案 `profile`（方案名，同 [`shuangpin_key_hints`]）的两键码，仍用 `'` 分隔。方案名不认识或是 `custom`（没有内置的表）、有音节编不出来或编出来解不回原读音时为 `None`。评测工具用它把全拼用例换成双拼按键，与引擎解码用的是同一张表。
+pub fn encode_shuangpin(pinyin: &str, profile: &str) -> Option<String> {
+    let profile =
+        ShuangpinProfileKind::from_name(profile).and_then(crate::shuangpin::profile::profile)?;
+    crate::shuangpin::utils::encode_pinyin(pinyin, profile)
 }
 
 /// Deduplicated items of one page.

@@ -24,6 +24,9 @@ msime-path-trust = { path = "../path-trust", features = ["test-support"] }
 # Writes the msime-cantonese.db fixture and reads the journal back in the Cantonese tests.
 rusqlite.workspace = true
 tempfile.workspace = true
+# 只给 `convert_eval` 和 `rerank_latency` 合成触屏误触：固定种子的 PCG 流加均匀采样，跨平台、跨版本按同一种子出同样的键。两者已在 Cargo.lock 里，不带默认特性，不拉系统随机源。
+rand = { version = "0.10.2", default-features = false }
+rand_pcg = "0.10.2"
 
 [lints]
 workspace = true
