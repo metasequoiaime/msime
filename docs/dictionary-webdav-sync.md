@@ -35,7 +35,8 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 
 | 宿主 | 状态 |
 | --- | --- |
-| Windows（含 Win7）、macOS、Linux、Android、iOS、HarmonyOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+| Windows（含 Win7） | 已接入。目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`（`platforms/windows/common/DictionarySyncDirectory.h`），Server 和设置窗口共用。Server 在候选窗口删词后以 `local_change` 记一次，按 `next_check_ms` 以 `periodic` 再调（`src/system/DictionarySyncWorker.cpp`，只在受管理的 Server 里）；WinUI 设置在词库页「云端词库」标签、Win7 在词库同步面板（`--route=dictionary-sync`，从设置窗口词库页打开）里配置网盘、看状态和设备，进入时 `opened`、「立即同步」`manual`，经设置改了词之后 `local_change`。密钥串身份冲突（`clipboard_keystore_conflict`）时宿主重试 |
+| macOS、Linux、Android、iOS、HarmonyOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
 
 ## 存储布局
 

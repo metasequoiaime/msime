@@ -64,6 +64,12 @@ Status: implemented
 
 偏好是 `dictionary_sync_webdav {url, username, password}`，规则照 `cloud_clipboard_webdav`，两者各配各的：应用密码进凭据清单，账号在诊断里换成 `<redacted>`，整组进 `LOCAL_SECTIONS`，不进账号设置同步和 MCP。本机同步状态只记网盘地址和账号的摘要，不记凭据；测试证明网盘文件不含凭据和词条明文；本机状态含词条明文但不含凭据，调试输出也不打印凭据。
 
+### Windows 宿主（含 Win7）
+
+触发分在两类进程里。自动的两种在 Server：它一直活着、持有输入会话，候选菜单的「删除」和维护快捷键删词之后以 `local_change` 记一次（只记录、不联网，连着几次只记一次），启动两分钟后第一次 `periodic`，之后照回答里的 `next_check_ms`（夹在 1 秒到 30 分钟之间，与共享设置页相同；调用本身失败时半小时后再试）。这些都在 `DictionarySyncWorker` 自己的工作线程上，不在输入线程、管道线程或消息循环上；偏好里没配网盘时线程只等着，偏好发布时配上就十秒后开始、清掉就停。只有受管理的 Server 做，预览实例不替用户联网；Win7 的 Server 是同一份代码。用户在等着看的两种由设置窗口调：进入 WinUI 词库页「云端词库」标签（或打开 Win7 词库同步面板）时 `opened`，「立即同步」是 `manual`；设置窗口经 `msime_client_settings_dictionary` 改了词之后也自己记一次 `local_change`，与共享页的 `withDictionaryChangeNotices` 相同。Win7 设置窗口的导航不收云端同步的页面，所以 Win7 的配置与设备管理放在独立面板 `--route=dictionary-sync`，与云剪贴板一样，由设置窗口词库页的按钮打开。
+
+一个安装只有一份设备身份：同步目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`，Server、WinUI 设置、Win7 设置和 Win7 面板都调 `common/DictionarySyncDirectory.h` 的同一个函数。两个进程第一次使用时同时生成身份由 Rust 的文件锁和「不覆盖另一个身份」挡住；仍然报 `clipboard_keystore_conflict`（#10032 的约定：已经发出请求之后才发现存储里是另一个身份）时，宿主用同一个请求再调，最多三次（`common/DictionarySyncRetry.h`），第二次就会用存着的那份身份。
+
 ## Alternatives considered
 
 - **与云剪贴板共用一份密钥串和批准** — 最强的理由是用户只批准一次，两个功能看到同一份设备列表。不用：剪贴板的生命周期会直接伤到词库——关闭云剪贴板会删掉全部密钥、封装和设备登记，「重置云剪贴板」会换钥并清空；它的空间绑定的是 `cloud_clipboard_webdav` 的地址和账号，词库就得强制要求同一个网盘账号；Android 的剪贴板密钥串由 Java 用 AndroidKeyStore 保存，iOS 和 HarmonyOS 的宿主还没接中继，共用就要先把这些宿主的剪贴板密钥串接进词库同步。复用代码、分开实例，换来两个功能互不牵连，代价是用两个功能的设备要批准两次。
@@ -78,6 +84,10 @@ Status: implemented
 - **直接同步数据库或 Rime `sync` 目录** — 可复用现成文件同步工具，但数据库版本、并发使用和删除传播无法因此获得一致契约，不作为首版路径。
 - **复用水杉账号云词库 API** — 已有认证和分页代码，但不能满足用户自选存储，也不能把个人词库自动改发到账号服务。
 - **首版同时支持 WebDAV、S3、OneDrive** — 覆盖面更大，但会同时扩散认证、发布、重试和错误语义；日志格式与传输无关，以后加 S3 只需另一个独占创建的实现。
+
+- **Windows 的同步目录直接用账号目录 `account`（云剪贴板中继密钥串所在的目录）** — 最强的理由是任务要求「照云剪贴板中继的选择」，所有进程都已经知道这个目录。不用：词库密钥串的文件名同样是 `cloud-clipboard-relay-keystore`，放在一起两个功能会读写同一份身份和封装，正是上面「分开密钥串」要避免的；所以照中继的选择取同一个父目录（本用户的 `%LOCALAPPDATA%\<本版本的用户目录>`），另建 `dictionary-sync`。
+- **Windows 的同步目录放状态根** — 最强的理由是 Server 和设置窗口本来就共用状态根，偏好也在那里。不用：安装后的状态根是安装器的 DataDir，整台机器一个目录、每个用户都能改，里面不能放词条明文和设备私钥，几个 Windows 用户也会共用一个设备身份。
+- **Windows 的 periodic 也放在设置窗口里（像共享页那样开着设置时定时）** — 最强的理由是设置窗口开着时状态能自己刷新。不用：Server 已经在定时，两边都定时只会多花额度；设置窗口在进入页面、点「立即同步」和设备操作后都会重读状态。
 
 ## Consequences
 
@@ -94,5 +104,7 @@ Status: implemented
 - `cargo test -p msime-clipboard-relay --test dictionary_webdav_flow`：9 项，对着 `dav-server`：两台设备经密钥串配对（两边的核对码相同）、批准、互传、改编码和删词；同一安装两个进程同时第一次使用只登记一台；错误的应用密码在同步和测试连接里都是 `dictionary_sync_unauthorized`，连不上的地址是 `dictionary_sync_unavailable`；超大事件是 `dictionary_sync_too_large`；两台设备同时同步抢同一个序号，词都进去了；截掉日志尾部是 `dictionary_sync_rollback`，重新测试连接后恢复、本机的词都在；服务端暂时不可用时改动留在本机，恢复后发出；凭据和词条不出现在网盘文件里，凭据不出现在本机状态文件里。
 - `cargo test -p msime-host-api --lib dictionary_webdav`：4 项，对着真实的 Engine 词库：读「我的词条」（含多行快捷短语和英文显示形）、加入、删除、删除本来就没有的词、同一个请求编号重试；输入会话占着词库时答「忙」、读照常；Engine 不收的词单独报告、同批其他词照常写进去；请求在联网之前就被校验。
 - `cargo test -p msime-client-core --lib`、`cargo test -p msime-client-services`、`cargo test -p msime-clipboard-relay`：全部通过；`cargo test -p msime-host-api --lib` 只有两项与本改动无关的失败（按需资源包列表与 develop 上新增的 `pronunciations` 不符，一项按分钟取本地时间的脚本插件测试）。`cargo clippy` 对四个 crate 加 `--all-targets` 只剩 develop 上已有的两处 `field_reassign_with_default`。
+
+Windows（含 Win7）：`windows-dictionary-sync-schedule`（偏好判断、请求形状、三种回答、身份冲突重试、没启动和没配网盘时不调、配上后十秒、删词后马上记且连着只记一次、按 `next_check_ms` 排下一次、失败半小时）和 `windows-dictionary-sync-model`（错误说法与共享页一致、概况、同一设备合并成一条、重试次数）在 macOS 上用 clang++ 编译运行通过，并用 MinGW 交叉编译器做了语法检查（含 `server_main.cpp` 的普通与 Win7 两种配置）；`windows7-dictionary-sync-panel-test`、WinUI 设置窗口和 `settings_ui.ps1` 的词库同步验收只能在 CI 的 Windows runner 上编译运行，真实网盘、真实 Server 里的删词触发和两个进程同时第一次使用还没有在 Windows 上验收。
 
 审查补充验证：新增真实 TCP 的 chunked 超限、正文截断、合法 chunked 与 401 状态用例，以及超大本机状态写入前拒绝并保留旧文件的回归；修复前 3 项实际失败，修复后 WebDAV 相关 33 项、词库 WebDAV 集成 9 项、云剪贴板 WebDAV 集成 3 项通过，库级严格 clippy 通过。词库 WebDAV 集成用例另覆盖删减本机新增词后恢复同步。完整 quick 门禁受开发机系统盘余量限制，未完成；Android 文件存储路径的设备验收仍待完成。
