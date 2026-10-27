@@ -83,14 +83,21 @@ if grep -qF 'FunctionPanelPolicy.items()' "$ets/keyboard/KeyboardView.ets"; then
   echo "KeyboardView must list function tiles through FunctionPanelPolicy.items(AiGenerationGate.enabled())" >&2
   exit 1
 fi
-# 词库快照队列只在键盘显示时查、没有待处理请求就停，重建会话的重试按 `IdleDictionaryRetryPolicy` 退避（规则由 keyboard-logic.test.ts 覆盖）。会话是 ArkTS，这里钉住接线：收起时取消检查、显示时排一次检查、键盘没显示时不排、查到没有请求时不再自己续排，两个重试都按退避取间隔而不是固定两秒。
+# 词库快照队列只在键盘显示时查、没有待处理请求就停，重建会话的重试按 `IdleDictionaryRetryPolicy` 退避（规则由 keyboard-logic.test.ts 覆盖）。会话是 ArkTS，这里钉住接线：失焦和系统收起键盘（keyboardHide）时取消检查、停下没有进展的个人词库重试，显示时排一次检查并接着排个人词库，键盘没显示时不排、查到没有请求时不再自己续排，两个重试都按退避取间隔而不是固定两秒。
 session_ets="$ets/keyboard/KeyboardSession.ets"
 detach_body=$(sed -n '/^  detach(): void {$/,/^  }$/p' "$session_ets")
 attach_body=$(sed -n '/^  attach(inputClient: inputMethodEngine.InputClient): void {$/,/^  }$/p' "$session_ets")
 poll_body=$(sed -n '/^  private scheduleDictionarySnapshotPoll(): void {$/,/^  }$/p' "$session_ets")
 drain_body=$(sed -n '/^  private schedulePersonalDictionaryDrain(): void {$/,/^  }$/p' "$session_ets")
-if ! grep -qF 'this.cancelDictionarySnapshotPoll();' <<< "$detach_body" \
+hidden_body=$(sed -n '/^  keyboardHidden(): void {$/,/^  }$/p' "$session_ets")
+pause_body=$(sed -n '/^  private pauseIdleDictionaryWork(): void {$/,/^  }$/p' "$session_ets")
+if ! grep -qF 'this.pauseIdleDictionaryWork();' <<< "$detach_body" \
+  || ! grep -qF 'this.pauseIdleDictionaryWork();' <<< "$hidden_body" \
+  || ! grep -qF 'this.cancelDictionarySnapshotPoll();' <<< "$pause_body" \
+  || ! grep -qF 'this.personalDictionaryStalls > 0' <<< "$pause_body" \
+  || ! grep -qF 'clearTimeout(this.personalDictionaryTimer);' <<< "$pause_body" \
   || ! grep -qF 'this.scheduleDictionarySnapshotPoll();' <<< "$attach_body" \
+  || ! grep -qF 'this.schedulePersonalDictionaryDrain();' <<< "$attach_body" \
   || ! grep -qF 'this.inputClient === undefined) return;' <<< "$poll_body" \
   || [[ $(grep -cF 'this.scheduleDictionarySnapshotPoll();' <<< "$poll_body") -ne 1 ]] \
   || ! grep -qF 'IdleDictionaryRetryPolicy.delay(this.snapshotQueueStalls)' <<< "$poll_body" \
@@ -117,17 +124,19 @@ if ! grep -qF 'this.typingStatisticsWrites.execute(new taskpool.Task(writeTyping
   echo "KeyboardSession must write typing statistics on its TaskPool SequenceRunner and flush them on hide, focus loss and teardown" >&2
   exit 1
 fi
-# 完整体验模式下键盘失焦、获得焦点各发布一次共享状态，文件身份没变时不读文件、不再算指纹（缓存规则由 shared-state-mirror-policy.test.ts 的 `FingerprintCache` 覆盖）；每次获得焦点比偏好修订号时，文档身份没变就不经 NAPI 读整份文档；构建会话时处理词库快照队列，队列空着就不扫词库算本机版本。这些都是 ArkTS，这里钉住接线。
+# 完整体验模式下键盘失焦、获得焦点各发布一次共享状态，文件身份没变时不读文件、不再算指纹（缓存规则由 shared-state-mirror-policy.test.ts 的 `FingerprintCache` 覆盖）；每次获得焦点比偏好修订号时，文档身份没变就不经 NAPI 读整份文档；构建会话时处理词库快照队列、显示后查一次队列状态，队列空着都不扫词库算本机版本。这些都是 ArkTS，这里钉住接线。
 mirror_ets="$ets/keyboard/SharedStateMirror.ets"
 fingerprint_body=$(sed -n '/^  private static fingerprintOf(entry: MirrorEntry, path: string): string {$/,/^  }$/p' "$mirror_ets")
 reload_body=$(sed -n '/^  reloadChangedPreferences(): void {$/,/^  }$/p' "$session_ets")
 snapshot_body=$(sed -n '/^  private processDictionarySnapshot(options: Object, stateRoot: string): void {$/,/^  }$/p' "$session_ets")
+needs_work_body=$(sed -n '/^  private dictionarySnapshotNeedsWork(): boolean {$/,/^  }$/p' "$session_ets")
 if ! grep -qF 'SharedStateMirror.localFingerprints.fingerprint(' <<< "$fingerprint_body" \
   || ! grep -qF 'stat.mtimeNs' <<< "$fingerprint_body" \
   || ! grep -qF 'this.storedRevisionIfMoved(this.stateDirectory)' <<< "$reload_body" \
   || grep -qF 'this.storedRevision(' <<< "$reload_body" \
-  || ! grep -qF 'skip_when_idle: true' <<< "$snapshot_body"; then
-  echo "Shared state fingerprints, the focus-time preference revision check and the session-build snapshot queue pass must skip work when nothing changed" >&2
+  || ! grep -qF 'skip_when_idle: true' <<< "$snapshot_body" \
+  || ! grep -qF 'skip_when_idle: true' <<< "$needs_work_body"; then
+  echo "Shared state fingerprints, the focus-time preference revision check and the snapshot queue pass and poll must skip work when nothing changed" >&2
   exit 1
 fi
 # 候选皮肤位图在候选条放手后停放一份，同一套皮肤不再每个词重新解码；停放规则由 candidate-canvas-lease.test.ts 覆盖。解码器和扩展能力是 ArkTS，这里钉住接线：解码器经 CandidateCanvasLeaseCache 取用和放手，键盘收起、停止输入和销毁时 trim。

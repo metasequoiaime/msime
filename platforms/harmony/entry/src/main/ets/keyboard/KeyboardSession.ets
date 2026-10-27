@@ -865,6 +865,7 @@ interface SnapshotQueueStateAction {
   directory: string;
   options: Object;
   acknowledge: boolean;
+  skip_when_idle: boolean;
 }
 
 // Only the fields the keyboard acts on are declared. The rest of the document is forwarded to create
@@ -2134,13 +2135,30 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /** Querying queue state takes no Engine maintenance lock and never acknowledges terminal state. */
+  /**
+   * 键盘收起或编辑框失去焦点：不再查快照队列；个人词库排空上一次没有进展时也停下重试，下一次显示（`attach`）再接着排。
+   *
+   * 卡住的队列（整批被拒、剩余条数原地不动）按退避最多五分钟重建一次会话，隐藏的键盘不该为它在整个进程生命周期里一直醒来。有进展的排空照常在后台跑完，大词库导入不用等下一次显示。
+   */
+  private pauseIdleDictionaryWork(): void {
+    this.cancelDictionarySnapshotPoll();
+    if (this.personalDictionaryStalls > 0 && this.personalDictionaryTimer >= 0) {
+      clearTimeout(this.personalDictionaryTimer);
+      this.personalDictionaryTimer = -1;
+    }
+  }
+
+  /**
+   * Querying queue state takes no Engine maintenance lock and never acknowledges terminal state.
+   *
+   * 带 `skip_when_idle`：队列空着时（几乎总是）Rust 只读一下状态就返回，不在 UI 线程上扫整个用户词库算哈希、不重写并 fsync state.json。鸿蒙没有任何东西往键盘的这个队列里排请求，发布出去的本机版本没人读；真有请求时，重建会话的 `processDictionarySnapshot` 会在认领前先发布。
+   */
   private dictionarySnapshotNeedsWork(): boolean {
     if (this.snapshotOptions === undefined || this.stateDirectory.length === 0) return false;
     try {
       const action: SnapshotQueueStateAction = {
         operation: 'state', directory: `${this.stateDirectory}/dictionary-snapshots`,
-        options: this.snapshotOptions, acknowledge: false
+        options: this.snapshotOptions, acknowledge: false, skip_when_idle: true
       };
       const reply: SnapshotQueueStateReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueStateReply;
@@ -3500,8 +3518,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
     }
-    // 键盘显示时查一次词库快照队列；上面的重建若已排过检查，这里不会重复排。
+    // 键盘显示时查一次词库快照队列；上面的重建若已排过检查，这里不会重复排。收起时停下的个人词库重试也在这里按退避接着排。
     this.scheduleDictionarySnapshotPoll();
+    this.schedulePersonalDictionaryDrain();
   }
 
   /** 设置应用和键盘共享沙箱的镜像，由扩展在拿到共享目录后交给会话；`fullMode` 每次调用时读当前的安全模式。 */
@@ -3547,8 +3566,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
-    // 键盘收起后不再查快照队列，下一次显示（attach）时再查。
-    this.cancelDictionarySnapshotPoll();
+    // 键盘收起后不再查快照队列、不再重试卡住的个人词库排空，下一次显示（attach）时再查。
+    this.pauseIdleDictionaryWork();
     if (this.handle !== 0) {
       // Runtime focus(false) cancels whatever remains. Finish first while the old editor client is
       // still attached, so changing fields cannot silently discard what the user just typed.
@@ -3816,7 +3835,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
       // 每次空闲处理都重新读本沙箱的会话文件（目录模式的 status，只读本地文件）：键盘进程可能比设置里的一次账号切换活得更久。
       const accountId: string | null = statusUserId(client.accountStatus(stateRoot));
-      // 队列空着时（几乎总是）Rust 只读一下状态就返回，不在构建会话、键盘出来之前扫整个用户词库算本机版本、重写并 fsync state.json；本机版本由显示后的队列查询（`dictionarySnapshotNeedsWork`）发布。
+      // 队列空着时（几乎总是）Rust 只读一下状态就返回，不在构建会话、键盘出来之前扫整个用户词库算本机版本、重写并 fsync state.json。显示后的队列查询（`dictionarySnapshotNeedsWork`）同样只读；本机版本只在真有请求、这里认领之前发布。
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
         staging_root: staging, options: options, account_id: accountId, skip_when_idle: true
@@ -7395,12 +7414,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.typingStatisticsFlushed;
   }
 
-  /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘。编辑框可能仍有焦点，所以不等 inputStop。 */
+  /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘，停下词库的空闲检查。编辑框可能仍有焦点，所以不等 inputStop。 */
   keyboardHidden(): void {
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
     this.flushTypingStatistics();
+    this.pauseIdleDictionaryWork();
   }
 
   /**
