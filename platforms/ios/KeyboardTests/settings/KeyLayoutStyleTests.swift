@@ -976,6 +976,49 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 右侧大回车中列的宽度约束按当时的键距扣键距，键距变了要重排底行。键盘里调完高度点「完成」、共享文档却没写成时，键盘按文档对齐 App Group，键距可能当场变了（这里从 6pt 变成文档里的 3pt），此后没有别的重排：123、地球键、中/英 仍按 6pt 扣键距，比标准底行窄约 1.6pt，直到下一次重排。用例让偏好文件不可改写来模拟写失败。
+  func testTallReturnFollowsTheKeySpacingTheFailedGeometryCommitFallsBackTo() async throws {
+    let groupKeySpacing = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.keySpacingKey)
+    let groupHeight = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.heightAdjustmentKey)
+    let documentKeySpacing = MetasequoiaInputSessionBridge.loadSharedPreferences()?["touch_key_spacing_tenths"]
+    addTeardownBlock {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_key_spacing_tenths"] = documentKeySpacing }
+      KeyboardLayoutPreference.defaults.set(groupKeySpacing, forKey: KeyboardLayoutPreference.keySpacingKey)
+      KeyboardLayoutPreference.defaults.set(groupHeight, forKey: KeyboardLayoutPreference.heightAdjustmentKey)
+    }
+    select(.nineKey)
+    // 先量 3pt 键距下标准九键底行的键宽，再让同一个键盘当场换成 6pt 键距的右侧大回车。
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(keySpacing: 3))
+    let controller = keyboard()
+    let standard = try standardNineKeyWidths(controller, "3pt")
+    let tall = try button("tallReturnKey", in: controller)
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(keySpacing: 6))
+    try await restyle(controller, TouchKeyLayoutStyle(nineKey: .tallReturn), "6pt") { self.shown(tall) }
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
+    let layer = try view("layoutToggleButton", in: controller)
+    let standardLayer = try XCTUnwrap(standard["layoutToggleButton"])
+    XCTAssertGreaterThan(abs(layer.bounds.width - standardLayer), 1, "at 6pt 123 is not as wide as at 3pt")
+
+    // 文档里的键距改成 3pt，App Group 和键盘仍是 6pt；偏好文件设成不可改写，「完成」写文档失败，键盘按文档对齐成 3pt。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_key_spacing_tenths"] = 30 })
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
+    let document = URL(fileURLWithPath: MetasequoiaInputSessionBridge.sharedStateDirectory)
+      .appendingPathComponent("preferences.json").path
+    XCTAssertEqual(chflags(document, UInt32(UF_IMMUTABLE)), 0, "the preferences file can be locked")
+    defer { chflags(document, 0) }
+    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-键盘高度" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightDone" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 3, "the failed commit falls back to the document's key spacing")
+    try layoutAtRequestedHeight(controller)
+    try assertTallReturnFrame(controller, digits: false, standard: standard, "after the failed commit")
+    controller.viewDidDisappear(false)
+  }
+
   /// 右侧大回车的数字层照同一外框：符 留在符号栏下方，123 的位置是回到字母层的键，0 占空格的位置、空格在它右边，回车仍两倍高；数字层符号栏里的 符 移到底行，运算符占满整条符号栏。从别的键面借来的数字九宫格不跟九键的样式。
   func testTallReturnNumberLayer() async throws {
     var pinyinStandard: [String: CGFloat] = [:]

@@ -8346,6 +8346,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardLayoutPreference.mirrorGeometry(document)
     sharedKeyboardHeightAdjustment = CGFloat(KeyboardLayoutPreference.heightAdjustment)
     applyLayoutPreferences()
+    // 文档里的键距可能与键盘刚才用的不同。applyLayoutPreferences 只改各行的 spacing，九键「右侧大回车」中列的宽度约束在常数里扣的是建约束时的键距，要重排底行才会换成新键距的那一组；几何是 layoutInputs 的一部分，键距变了这里就会重排，没变什么也不做。
+    updateKeyboardLayoutIfNeeded()
     updatePreferredKeyboardHeight()
   }
 
