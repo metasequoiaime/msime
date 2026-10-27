@@ -916,6 +916,40 @@ fn a_google_challenge_without_a_target_asks_for_the_id_token_flow() {
 }
 
 #[test]
+fn a_huawei_challenge_has_no_target_and_its_id_token_goes_to_login() {
+    let (origin, received) = serve(vec![
+        json_response(
+            "201 Created",
+            json!({ "challenge_id": "c".repeat(64), "expires_in": 300, "nonce": "fixture-nonce" }),
+        ),
+        json_response("200 OK", session_tokens()),
+    ]);
+    let client = client(&origin);
+    let challenge = client.challenge("huawei", "").unwrap();
+    assert_eq!(challenge.nonce.as_deref(), Some("fixture-nonce"));
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/auth/challenges HTTP/1.1");
+    assert_eq!(
+        sent.json(),
+        json!({ "provider": "huawei", "target": "", "purpose": "login" })
+    );
+    client
+        .login(&"c".repeat(64), "aGVhZGVy.cGF5bG9hZA.c2lnbmF0dXJl")
+        .unwrap();
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/auth/login HTTP/1.1");
+    assert_eq!(
+        sent.json(),
+        json!({ "challenge_id": "c".repeat(64), "credential": "aGVhZGVy.cGF5bG9hZA.c2lnbmF0dXJl" })
+    );
+    // 华为账号没有回跳地址这一说，带目标的请求在发出去之前拒绝。
+    assert_eq!(
+        client.challenge("huawei", "x").unwrap_err(),
+        AccountError::Invalid
+    );
+}
+
+#[test]
 fn an_apple_web_sign_in_posts_the_digest_then_the_grant_and_verifier() {
     let authorization_url = "https://appleid.apple.com/auth/authorize?client_id=app.msime.signin&state=fixture-state&nonce=fixture-nonce";
     let (origin, received) = serve(vec![

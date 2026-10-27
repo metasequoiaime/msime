@@ -303,7 +303,12 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.nonce_challenge("google")
     }
 
-    /// 这两种流程的 identity token 里必须带着服务端生成的 nonce，响应里没有 nonce 时登录不可能成功，按服务端不可用处理。
+    /// 申请一个华为账号 challenge，给鸿蒙设置应用经 Account Kit 发起的授权请求用：`nonce` 原样放进 `AuthorizationWithHuaweiIDRequest.nonce`，拿到的 ID token 交给 [`Self::sign_in_huawei_id_token`]。
+    pub fn huawei_challenge(&self) -> Result<AccountChallenge, AccountError> {
+        self.nonce_challenge("huawei")
+    }
+
+    /// 这几种流程的 identity token 里必须带着服务端生成的 nonce，响应里没有 nonce 时登录不可能成功，按服务端不可用处理。
     fn nonce_challenge(&self, provider: &str) -> Result<AccountChallenge, AccountError> {
         let challenge = self.api.challenge(provider, "")?;
         validate_challenge(&challenge)?;
@@ -335,6 +340,16 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         credential: &str,
     ) -> Result<AccountUser, AccountError> {
         validate_google_id_token_login(challenge, credential)?;
+        self.sign_in_validated(challenge, credential, |_| {})
+    }
+
+    /// 用华为账号的 ID token 完成 [`Self::huawei_challenge`] 申请的 challenge。服务端按 `sub`（UnionID）认人，这里只检查令牌形状。
+    pub fn sign_in_huawei_id_token(
+        &self,
+        challenge: &str,
+        credential: &str,
+    ) -> Result<AccountUser, AccountError> {
+        validate_huawei_id_token_login(challenge, credential)?;
         self.sign_in_validated(challenge, credential, |_| {})
     }
 
