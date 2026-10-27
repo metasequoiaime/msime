@@ -8,7 +8,7 @@ Status: proposed
 
 issue 的前提有一半不对，先更正：
 
-- **已经在明文同步的**：账号「词库」同步上传的是 Engine 日志里 `operation='upsert'` 且 `user_inserted=1` 的全部行（`export_local_snapshot` 截到 10 万条），不只是手动添加的词。打字时自动造的词也记成 `user_inserted=1`：选中的整句候选（`crates/engine/src/session/learning.rs:347`，最多 7 个音节）、分段选出来拼成的词（`session/commit.rs:394`）、连续三次一起选的两个词（`session/learning.rs:505`，阈值 `PICK_PAIR_WORD_THRESHOLD = 3`）、英文模式下回车上屏的英文单词（`user_dictionary/removal.rs:93` 的 `learn_entered_english_word`）、这些中文词顺带记下的五笔编码（`session/commit.rs:416` → `user_dictionary/wubi_learning.rs:97`）。学习调权写日志用 `UPSERT_JOURNAL_SQL`（`user_dictionary/journal.rs:79`），冲突分支不动 `user_inserted`，所以这些词被选中后学到的权重也在这一行上。上传路径：`crates/host-api/src/cloud_sync.rs:936-940` 先 `export_dictionary`（`:2124`，`export_snapshot` 不带 `include_learning`）再 `PUT /v1/users/me/dictionary/snapshot`；导出读 `msime_engine::host::dictionary_entries`（`crates/engine/src/host/dictionary.rs:35`，`include_learned_pinyin=false`），落到 `crates/engine/src/user_dictionary/personal.rs:593-596` 的 SQL `operation='upsert' AND (user_inserted=1 OR …)`。服务端按条解析成明文表（msime-cloud `internal/account/snapshot_decode.go`）。
+- **已经在明文同步的**：账号「词库」同步上传的是 Engine 日志里 `operation='upsert'` 且 `user_inserted=1` 的全部行（`export_local_snapshot` 截到 10 万条），不只是手动添加的词。打字时自动造的词也记成 `user_inserted=1`：选中的整句候选，以及云联想、AI 联想给出的候选（`crates/engine/src/session/learning.rs:175-178`：`is_sentence_learning` 包括整句猜出的行和在线行，见 `types.rs:90-91`；写入在 `learning.rs:347`，最多 7 个音节）；整句改字后上屏的整句（`session/conversion.rs:298-309` 的 `learn_conversion_sentence`，同样走 `store_user_phrase_from_canonical_pinyin`）；分段选出来拼成的词（`session/commit.rs:394`）；连续三次一起选的两个词（`session/learning.rs:505`，阈值 `PICK_PAIR_WORD_THRESHOLD = 3`）；回车原样上屏的英文字母串（`crates/engine/src/host/session.rs:765-808` 的 `commit_raw_with_policy`：英文模式、临时英文和临时日文模式，以及拼音方案里打的不是完整拼音时都学，例如打 github 回车；由 `learn_english_on_enter` 控制，出厂为开，见 `host/options.rs:235` 和 client-core 偏好 `enter_learns_english_word`；写入是 `user_dictionary/removal.rs:93` 的 `learn_entered_english_word`）；这些中文词顺带记下的五笔编码（`session/commit.rs:416` → `user_dictionary/wubi_learning.rs:97`）。学习调权写日志用 `UPSERT_JOURNAL_SQL`（`user_dictionary/journal.rs:79`），冲突分支不动 `user_inserted`，所以这些词被选中后学到的权重也在这一行上。上传路径：`crates/host-api/src/cloud_sync.rs:936-940` 先 `export_dictionary`（`:2124`，`export_snapshot` 不带 `include_learning`）再 `PUT /v1/users/me/dictionary/snapshot`；导出读 `msime_engine::host::dictionary_entries`（`crates/engine/src/host/dictionary.rs:35`，`include_learned_pinyin=false`），落到 `crates/engine/src/user_dictionary/personal.rs:593-596` 的 SQL `operation='upsert' AND (user_inserted=1 OR …)`。服务端按条解析成明文表（msime-cloud `internal/account/snapshot_decode.go`）。
 - **哪些设备在传**：自动的词库同步只有 Android 有。Android 的「我的 › 同步 › 云同步」开关只给真实账号（`platforms/android/java/app/msime/android/home/AccountFragment.java:267-270`），状态默认关闭（`crates/client-services/src/account/cloud_sync/state.rs:245`），打开后四类都同步，`dictionary: true`（`platforms/android/java/app/msime/android/account/RustCloudSync.java:166-167`）。iOS 的云同步不含词库（`platforms/ios/App/Sources/account/CloudSync.swift:102`）；桌面和 HarmonyOS 不调 `msime_client_cloud_sync`，各平台「云词库」页面只发送用户在页面上的修改和选中的文件。
 - **真正没同步的**：内置词（`user_inserted=0`）的调权和阶梯降权、全部删除记录、置顶（`pinned_candidates`）、固定位置（`fixed_candidate_positions`）、快捷短语槽位，以及[本地备份另存的输入习惯](../../implemented/feature/2026-10-10-android-backup-habits-and-verified-restore.md)那几张表（整句联想、连续选词对、纠错计数与抑制）。
 - **云端快照激活会丢本机学习**：快照激活只用快照里的记录另建一代（engine `user_dictionary/state.rs` 的 `build_generation`），而云同步上传的快照不带学习记录（`export_local_snapshot` 的 `include_learning` 为假）。Android 云端有变化、本机没有待上传改动时走整份下载激活（`crates/client-services/src/account/cloud_sync/policy.rs` 的 `incremental` 返回 `Download`），这一代就没有本机学到的东西。这一条目前只来自读代码，还没有在真机上复现。
@@ -25,7 +25,7 @@ issue 的前提有一半不对，先更正：
 
 这把 2026-10-09 的「输入记录不进云同步」收窄为「输入记录不进明文云同步；用户自己打开后，可以端到端加密同步」。两篇都留着，10-09 那篇第 9 行后面有指向这里的链接。
 
-协议契约（威胁模型、MSL1 信封、HKDF 标签、带认证的封装与反向核对、防回滚、合并规则、上限、错误码、服务端看得到的元数据）写在 [`docs/learning-sync.md`](../../../../docs/learning-sync.md)，这里只记怎么定的、为什么。
+协议契约（威胁模型、MSL1 信封、域分隔标签、带认证的封装与反向核对、防回滚、合并规则、上限、错误码、服务端看得到的元数据）写在 [`docs/learning-sync.md`](../../../../docs/learning-sync.md)，这里只记怎么定的、为什么。
 
 ### 第 0 期：先把已有的事实说对
 
@@ -34,23 +34,24 @@ issue 的前提有一半不对，先更正：
 
 ### 加密与密钥
 
-- **新开一个 learning 域**，是[云剪贴板端到端加密](../../implemented/feature/2026-10-11-cloud-clipboard-e2e.md)协议的又一个实例：设备身份、账号密钥 `K_learn`、本机密钥串、服务端表都单独一套，HKDF 标签全部换成 `msime-learning-v1-*`。不和剪贴板共用，因为关掉云剪贴板或删除剪贴板数据会删掉设备登记和密钥（msime-cloud `internal/account/user_data.go` 删除剪贴板分区的那一段），输入习惯不能跟着失效；WebDAV 词库同步也是单独的设备身份（[`docs/dictionary-webdav-sync.md`](../../../../docs/dictionary-webdav-sync.md)「密钥与设备批准」）。
+- **新开一个 learning 域**，是[云剪贴板端到端加密](../../implemented/feature/2026-10-11-cloud-clipboard-e2e.md)协议的又一个实例：设备身份、账号密钥 `K_learn`、本机密钥串、服务端表都单独一套，域分隔标签（HKDF 的 `info`、附加数据前缀和核对码的哈希前缀）全部换成 `msime-learning-v1-*`。不和剪贴板共用，因为关掉云剪贴板或删除剪贴板数据会删掉设备登记和密钥（msime-cloud `internal/account/user_data.go` 删除剪贴板分区的那一段），输入习惯不能跟着失效；WebDAV 词库同步也是单独的设备身份（[`docs/dictionary-webdav-sync.md`](../../../../docs/dictionary-webdav-sync.md)「密钥与设备批准」）。
 - **驱动按域参数化**：`clipboard_e2e.rs` 里写死的 `API` 路径和密钥串名改成域参数。剪贴板的请求、请求体和密钥串编码逐字节不变，由已有的已知答案测试兜住。
 - **带认证的封装加反向核对**，只在 learning 域上，从第一天就用。批准者用自己的静态私钥和临时私钥各对新设备公钥做一次 DH 再派生封装密钥；新设备解封后和批准者各显示一个由 `K_learn` 和两台设备公钥算出的 16 位反向核对码，用户在新设备上点「一致」后密钥才生效。这堵住了剪贴板 v1 写明不防的「服务端给新设备塞一把自己生成的密钥」。不新增依赖：`x25519-dalek`、`hkdf`、`chacha20poly1305` 已经在 `crates/client-core/Cargo.toml`。
-- **反向核对码带上 `K_learn`**：只用两台设备的公钥算的话，服务端事先知道两把公钥，可以离线搜索一个让号码相同的假批准者公钥，16 位十进制约 2⁵³ 次运算，对有算力的攻击者不算难。带上只有真设备持有的 `K_learn`，服务端就算不出真设备会显示的号码。
+- **反向核对码带上 `K_learn`**：只用两台设备的公钥算的话，攻击是一次第二原像搜索，`P_D` 在 D 登记时才出现，服务端要在用户核对之前现场搜出一个号码相同、自己知道私钥的假批准者公钥，16 位十进制约 2⁵³ 次运算，强度与设备核对码相同。带上只有真设备持有的 `K_learn`，号码就和服务端能控制的东西无关，再多算力也只有 10⁻¹⁶ 的机会，比「和设备核对码一样强」更好，代价只是新设备要解封之后才能显示。
+- **设备核对码的强度照剪贴板，不加强**：它是挡「登记假设备取得密钥」的唯一一道，强度约 2⁵³ 的现场第二原像。几分钟的批准窗口里要做到需要大规模算力，拿到会话令牌的人和一般的服务端入侵做不到，但服务端能拖延列出待批准设备来拉长窗口。要彻底堵上得让核对码在批准之后才揭示的随机数上做承诺，协议和界面都要多一轮。这一版接受这个残余风险，写进协议文档的「不防的」，和剪贴板一起留到第 3 期。
 - **信封 MSL1**：明文头 `"MSL1" ‖ key_id ‖ device_id ‖ generation ‖ nonce` 整个作为 AEAD 附加数据，服务端冒充设备、回滚代次都会让解密失败。先 gzip 再按 Padmé 补齐再加密，gzip 用已有的 `flate2`（`crates/client-services/Cargo.toml`），不新增依赖。调研时用一份开发者用户库估算，压缩比约 1/9，重度用户约 22 MB 的明文压完约 2.5 MB。
-- **防回滚**：读取方按（账号，`key_id`，来源设备）记「已验证的最大代次」和「已应用的代次」，永不清零；应用失败只是不推进「已应用」，下一轮重下同一代次。上传方的新代次取「服务端当前代次」和「自己上次上传的代次」中较大的那个再加一，服务端只接受比已存代次大的代次。这样服务端丢了或回滚了某台设备的密文时，那台设备重新上传的代次仍然比其他设备记着的大，同步不会卡死。
+- **防回滚**：读取方按（账号，`key_id`，来源设备）记「已验证的最大代次」和「已应用的代次」，永不清零；「来源设备」取解密后验证过的明文头里的设备编号，并且必须等于请求的那台，不信 URL 和元数据，否则服务端把 A 的旧密文放进 B 的位置就绕过了 A 的下限；应用失败只是不推进「已应用」，下一轮重下同一代次。上传方的新代次取「服务端当前代次」和「自己上次上传的代次」中较大的那个再加一，服务端只接受比已存代次大的代次。这样服务端丢了或回滚了某台设备的密文时，那台设备重新上传的代次仍然比其他设备记着的大，同步不会卡死。
 - **服务端只做格式检查**：前缀、长度、补齐、`key_id` 是当前密钥、`device_id` 与路径一致；写和删只允许当前会话绑定的设备（会话是 msime-cloud 的 `Principal.SessionID`，刷新令牌不换会话）；看起来像明文的请求返回 400 `learning_e2e_required`，照云剪贴板的做法。
 - **密钥丢失与移除设备**：每台设备本地都有完整的学习数据，云端只是副本，只要还有一台设备在就不丢东西；所有设备都丢了就在新设备上重置，旧密文删除。移除设备时换钥，服务端同一事务删掉全部密文和旧封装，其余设备重新批准。退出登录时密钥串跟会话一起删，重新登录要重新批准。
 
 ### 合并语义
 
 - **新的 Engine 流 `msime-learning-sync`**，不复用 `DictionaryStateRecord`：它的版本哈希是和 Apple 逐字节共用的契约（engine `user_dictionary/state.rs` 的 `REVISION_DOMAIN` 和 `dictionary_state_revision`）。每行带日志里真实的 `updated_at`；现有快照导出盖的是导出时间。
-- **逐行 Lamport 时间戳**：Engine 里每一条在冲突分支改写 `user_dictionary_operations` 或 `pinned_candidates` 的语句都改成 `updated_at=max(unixepoch(), updated_at+1)`。目前有八处：`journal.rs:79`、`:82`、`:86`，`positions.rs:209`，`personal.rs:784`，`bundled.rs:337`、`:347`，`wubi_learning.rs:97`。不影响版本哈希，因为 `DictionaryStateRecord` 里没有 `updated_at`。回放（`replay.rs`）按 `updated_at,rowid` 顺序读日志，时间戳变了读的顺序会变；日志主键保证每个 `(dictionary,key,value)` 只有一行，结果应与顺序无关，Engine 那个 PR 要用测试确认。
+- **逐行 Lamport 时间戳**：Engine 里每一条在冲突分支改写 `user_dictionary_operations` 或 `pinned_candidates` 的语句都改成 `updated_at=min(max(unixepoch(), updated_at+1), 2⁴⁰)`；上限防止离谱的远端时间把它推到 SQLite 的 64 位整数溢出，`generation` 同理限在 2⁵³−1 以内，见协议文档「上限与额度」。目前有八处：`journal.rs:79`、`:82`、`:86`，`positions.rs:209`，`personal.rs:784`，`bundled.rs:337`、`:347`，`wubi_learning.rs:97`。一次调频在一个事务里写下的一组行（被选中的行加阶梯降权改写的行）例外，必须整组共用一个时间戳 `g = max(unixepoch(), 组内各行已有的最大 updated_at + 1)`：`ranking.rs:482-499` 现在是逐行各写一次 UPSERT，逐行各算 `max` 的话，刚改过或刚合并进未来时间的那一行得到「旧值 + 1」、其余行得到「现在」，逐行比较时一组会被拆开。不影响版本哈希，因为 `DictionaryStateRecord` 里没有 `updated_at`。回放（`replay.rs`）按 `updated_at,rowid` 顺序读日志，时间戳变了读的顺序会变；日志主键保证每个 `(dictionary,key,value)` 只有一行，结果应与顺序无关，Engine 那个 PR 要用测试确认。
 - **新增 `merge_learning_sync`**：备份恢复用的 `merge_dictionary_state` 和 `merge_learning_habits` 不动。本机优先（local-wins）是用户为「恢复备份」定的语义，持续同步需要会收敛的语义，两套并存是有意的。合并 N 台设备时先在纯函数 `combine` 里按同一规则折叠（可交换、可结合、幂等），再一次性排进待合并文件，复用备份恢复那套认领与三次重试。
 - **规则**（全表见协议文档）：调权和删除记录按 `(updated_at, 内容)` 比较，平局时删除胜；远端行从不覆盖本机 `user_inserted=1` 的行，用户词归词库同步管；删除胜出时照本机删词的副作用删置顶和相关整句联想；删除记录必须同步，因为连续选词造词前会查它（`session/learning.rs:497-503`），不同步的话对端会把删掉的词又造回来。固定位置这张表没有时间戳、取消固定不留记录，第一期只增不删；快捷短语槽位不在任何导出流里，第二期加时间戳和删除记录；纠错计数与抑制取决于键位相邻（`pinyin/typos.rs`），触屏和实体键盘不能混用，不同步；连续选词对、选词计数、回执是用完就丢的进度，产出的词已经随词库同步，永不同步。
 - **首次打开**不问「合并还是用云端」：先上传本机这份，再合并其他设备的。本机原有的行保留原来的 `updated_at`，久未使用的设备加入时不会盖掉别人更新的调整。
-- **重置学习只清本机**，并记下重置时刻，之后合并时跳过远端 `updated_at` 不晚于这个时刻的行。远端密文是整份的，不跳过的话下一次合并会把重置之前学到的东西又带回来。
+- **重置学习只清本机**，并记下重置时刻，之后合并时跳过远端 `updated_at` 不晚于这个时刻的行。远端密文是整份的，不跳过的话下一次合并会把重置之前学到的东西又带回来。重置时刻按账号记在 `learning.json` 里，不挂在 `key_id` 下：换钥后所有设备会用新密钥重传整份状态，这时它仍要挡住重置前的行。
 - **词库版本不同**的设备之间名次可能不一致：学到的权重是相对导出设备词库邻居的绝对值。明文流 header 带词库内容标识，不一致时设置页提示，不修。
 
 ### 客户端与服务端的分工
@@ -96,7 +97,7 @@ issue 的前提有一半不对，先更正：
 12. 桌面和 HarmonyOS 的密钥串进系统密钥库（Windows DPAPI、macOS 钥匙串、Linux libsecret、鸿蒙 HUKS）。新增依赖先列出 crate、版本、用途，问过维护者再加。是 13 的硬门槛。
 13. 用户库 v5：固定位置和快捷短语槽位加时间戳和删除记录，整句联想按设备分槽。
 
-第 3 期另开 issue，不在 #10043 内：桌面常驻进程里后台同步；评估纠错是否按键盘类型分开同步；同一信封走 WebDAV 和自建中继；「词库」同步迁到端到端加密；按意图同步调权；服务端 `user_dictionary_changes` 无限增长；剪贴板也改用带认证的封装。
+第 3 期另开 issue，不在 #10043 内：桌面常驻进程里后台同步；评估纠错是否按键盘类型分开同步；同一信封走 WebDAV 和自建中继；「词库」同步迁到端到端加密；按意图同步调权；服务端 `user_dictionary_changes` 无限增长；剪贴板也改用带认证的封装；两个域的设备核对码改成对批准后才揭示的随机数做承诺。
 
 ### 必须由维护者处理的事项
 
@@ -105,7 +106,7 @@ issue 的前提有一半不对，先更正：
 
 ### 与已有笔记的关系
 
-- [Android 本地备份带上输入记录](../../implemented/feature/2026-10-09-android-backup-learning-state.md)：第 9 行「输入记录不进云同步」被这篇部分取代，其余（备份格式、本机优先合并、待合并文件）仍然成立，学习同步复用它的待合并文件机制。
+- [Android 本地备份带上输入记录](../../implemented/feature/2026-10-09-android-backup-learning-state.md)：第 9 行「输入记录不进云同步」在这个功能放出（PR 11）后被这篇部分取代，在那之前仍是现行行为，其余（备份格式、本机优先合并、待合并文件）仍然成立，学习同步复用它的待合并文件机制。
 - [Android 本地备份带上全部输入习惯](../../implemented/feature/2026-10-10-android-backup-habits-and-verified-restore.md)：部分重叠，它的 `merge_learning_habits` 保持本机优先，第二期整句联想另走按设备分槽的合并。
 - [云剪贴板端到端加密](../../implemented/feature/2026-10-11-cloud-clipboard-e2e.md)：协议的母本；它写明不防的「给新设备塞密钥」在 learning 域上补上，剪贴板本身留到第 3 期。
 - [多分类自动云同步的编排收进 Rust](../architecture/2026-10-16-cloud-sync-orchestration-in-rust.md)：Learning 作为新的分类接进同一套状态机，进度文件分开存。
@@ -123,7 +124,7 @@ issue 的前提有一半不对，先更正：
 - **每设备密文、但合并按本机优先、读取方每 7 天清零防回滚记录**（调研时以它为底的方案）：本机优先直接复用备份的合并函数。不用原样：本机优先在三台以上设备上不收敛，各台留着自己的值；防回滚记录清零后服务端可以在清零之后回放旧密文。改成逐行 Lamport 时间戳的后写者胜、防回滚记录永不清零。
 - **以服务端校验为主、客户端不认证封装者**：服务端绑定会话与设备、代次写进附加数据、长度补齐，这几条采用了；但只靠服务端校验挡不住服务端自己作恶，所以封装改成带认证的，再加反向核对。
 - **和云剪贴板共用设备身份与密钥**：用户只批准一次。不用：关掉云剪贴板或删除剪贴板数据会删掉设备登记和密钥，输入习惯会跟着失效；批准一次放行两个功能也超出用户当时同意的范围。
-- **反向核对码只用两台设备的公钥算**：实现最简单，新设备在拿到密钥前就能算。不用：服务端事先知道两把公钥，可以离线搜索一个号码相同的假批准者公钥，见上文。
+- **反向核对码只用两台设备的公钥算**：实现最简单，新设备在拿到密钥前就能算。不用：这样它的强度只和设备核对码一样，是约 2⁵³ 的现场第二原像；带上 `K_learn` 之后与算力无关，只剩 10⁻¹⁶ 的碰运气，见上文。
 - **恢复码或口令派生密钥**：所有设备都丢了也能找回云端数据。不用：口令方案用户在云剪贴板上已经否决过（[云剪贴板端到端加密](../../implemented/feature/2026-10-11-cloud-clipboard-e2e.md)的备选方案）；口令派生还要新增 argon2 依赖；而云端只是副本，本机才是正本。
 - **默认开启**：覆盖面最大，用户换设备时直接生效。不用：上传类功能的先例都是默认关闭，默认开启等于替所有用户推翻 2026-10-09 用户亲自定的决定。
 - **按 2 的幂分桶补齐**：分桶粗、泄露的长度信息更少。不用：4.1 MiB 会补到 8 MiB，正好顶到单设备上限；Padmé 的额外开销不超过 12%。
@@ -133,10 +134,10 @@ issue 的前提有一半不对，先更正：
 
 - PR 1：`verify-agent-note-format.ts`、`verify-agent-note-tree.ts` 通过；PRIVACY.md 每一句更正都能在上面「前提更正」列出的代码路径上对上。
 - PR 2：有调权、整句联想和固定位置的用户库经过 Download 激活后条数不变的 host-api 测试先失败后通过；Android 真机修前复现、修后复验。
-- PR 3：在 `MSIME_TEST_DATABASE_URL` 下覆盖代次比较冲突 409、明文和前缀不对 400、超过 8 MiB 413、超额度、跨会话写入 403、匿名账号 403、换钥删除密文、会话吊销后设备级联删除、删除数据和注销账号的级联、长期不在线的清理；`clipboard_*` 测试原样通过。
+- PR 3：在 `MSIME_TEST_DATABASE_URL` 下覆盖代次比较冲突 409、代次超过 2⁵³−1 返回 400、明文和前缀不对 400、超过 8 MiB 413、超额度、跨会话写入 403、匿名账号 403、换钥删除密文、会话吊销后设备级联删除、删除数据和注销账号的级联、长期不在线的清理；`clipboard_*` 测试原样通过。
 - PR 4：剪贴板的请求路径、请求体、密钥串编码与改动前逐字节相同；learning 域的已知答案测试；篡改附加数据里的 `key_id`、`device_id`、`generation` 时解密失败；伪造批准者时反向核对码不一致；clippy 零告警。
-- PR 5：三个 Engine 实例用合成数据随机交错同步后收敛；重复合并结果不变；远端删除记录能阻止连续选词把词造回来；阶梯降权整组胜出；本机 `user_inserted=1` 的行不被覆盖；回放结果与 `updated_at` 顺序无关；`stream_dictionary_state` 的版本不变；`an_export_without_learning_is_byte_for_byte_the_cloud_snapshot` 仍然通过；挑词和上屏的耗时基准不回退。
-- PR 6：模拟服务端下三台设备往返直到收敛；回滚被拒；合并失败后重新应用；摘要没变不上传；重置学习后重置前的远端行不回来；旧 `state.json` 升级再降级后防回滚下限还在。
+- PR 5：三个 Engine 实例用合成数据随机交错同步后收敛；重复合并结果不变；远端删除记录能阻止连续选词把词造回来；一次调频写下的一组行共用一个时间戳，在两组都写过的行上 `g` 大的一组整组胜出（含「组里有一行刚合并进未来时间」的情形）；本机 `user_inserted=1` 的行不被覆盖；回放结果与 `updated_at` 顺序无关；`stream_dictionary_state` 的版本不变；`an_export_without_learning_is_byte_for_byte_the_cloud_snapshot` 仍然通过；挑词和上屏的耗时基准不回退。
+- PR 6：模拟服务端下三台设备往返直到收敛；回滚被拒；服务端把 A 的旧密文放进 B 的位置时被拒、A 的防回滚下限不受影响；合并失败后重新应用；摘要没变不上传；超过上限时只丢最久没动过的调权、同样的数据两次截出同样的字节；重置学习后重置前的远端行不回来，重置之后再换钥、重新批准、各设备重传整份时也不回来；旧 `state.json` 升级再降级后防回滚下限还在。
 - PR 7 到 10：两台真机上 A 把某个候选提到首位，B 获批后收起键盘名次一致；关闭开关后云端那份被删；打字过程中主线程不阻塞；桌面 20 万行合成数据合并不超过 2 秒；iOS 扩展内存峰值在限额内。
 - PR 11：六个平台截图；PRIVACY.md 新章节每条说法都对得上代码路径；维护者完成应用商店申报。
 
