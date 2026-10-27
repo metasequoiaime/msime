@@ -113,6 +113,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     preferences.cloud_clipboard_webdav.url = "https://SENTINEL-dav.example.test".into();
     preferences.cloud_clipboard_webdav.username = "SENTINEL-dav-user".into();
     preferences.cloud_clipboard_webdav.password = "SENTINEL-dav-password".into();
+    preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
+    preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
+    preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
     let exported = export_android_settings(&preferences, Some(&feedback())).unwrap();
     let keys: Vec<&str> = exported.keys().map(String::as_str).collect();
     assert_eq!(
@@ -1056,6 +1059,9 @@ fn settings_sync_desktop_export_is_only_the_shared_input_keys() {
     preferences.cloud_clipboard_webdav.url = "https://SENTINEL-dav.example.test".into();
     preferences.cloud_clipboard_webdav.username = "SENTINEL-dav-user".into();
     preferences.cloud_clipboard_webdav.password = "SENTINEL-dav-password".into();
+    preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
+    preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
+    preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
     let exported = export_desktop_settings(&preferences);
     assert!(exported.keys().all(|key| key.starts_with("input.")));
     assert!(exported.values().all(|value| !matches!(

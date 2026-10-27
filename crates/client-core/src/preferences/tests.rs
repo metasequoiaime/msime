@@ -7494,6 +7494,70 @@ fn cloud_clipboard_webdav_is_all_or_nothing_and_exclusive_with_the_relay() {
     assert!(!redacted.to_string().contains("synthetic"));
 }
 
+/// 词库同步的网盘与云剪贴板的网盘各配各的：三项要么都空、要么都合规，没配置时不写进文档；应用密码进凭据清单，诊断快照里账号和密码都换掉；恢复默认设置时保留。
+#[test]
+fn dictionary_sync_webdav_is_all_or_nothing_redacted_and_kept_on_reset() {
+    let defaults = Preferences::default();
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("dictionary_sync_webdav")
+        .is_none());
+    let configured = |url: &str, username: &str, password: &str| {
+        let mut preferences = Preferences::default();
+        preferences.dictionary_sync_webdav.url = url.into();
+        preferences.dictionary_sync_webdav.username = username.into();
+        preferences.dictionary_sync_webdav.password = password.into();
+        preferences
+    };
+    let user = "synthetic@example.test";
+    let password = "synthetic-app-password";
+    for (url, username, password, valid) in [
+        ("https://dav.example.test/dav/", user, password, true),
+        ("http://127.0.0.1:8080/dav", user, password, true),
+        ("http://dav.example.test/dav", user, password, false),
+        ("https://dav.example.test/dav?x=1", user, password, false),
+        ("https://dav.example.test/dav", "has:colon", password, false),
+        ("https://dav.example.test/dav", user, "", false),
+        ("", user, password, false),
+    ] {
+        let preferences = configured(url, username, password);
+        assert_eq!(preferences.validate().is_ok(), valid, "{url} {username}");
+        if !valid {
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidDictionarySyncWebDav)
+            ));
+        }
+    }
+    // 与云剪贴板的网盘、中继同时配置也可以：各走各的。
+    let mut both = configured("https://dav.example.test/dav", user, password);
+    both.cloud_clipboard_webdav = CloudClipboardWebDavPreferences {
+        url: "https://dav.example.test/dav".into(),
+        username: user.into(),
+        password: password.into(),
+    };
+    assert!(both.validate().is_ok());
+
+    let mut preferences = configured("https://dav.example.test/dav?token=secret", user, password);
+    let redacted = preferences.redacted_for_diagnostics();
+    assert_eq!(redacted["dictionary_sync_webdav"]["username"], REDACTED);
+    assert_eq!(redacted["dictionary_sync_webdav"]["password"], REDACTED);
+    assert_eq!(
+        redacted["dictionary_sync_webdav"]["url"],
+        "https://dav.example.test/dav"
+    );
+    assert!(!redacted.to_string().contains("synthetic"));
+    assert!(preferences
+        .credential_slots()
+        .iter()
+        .any(|(path, _)| *path == "dictionary_sync_webdav.password"));
+    preferences.dictionary_sync_webdav.url = "https://dav.example.test/dav".into();
+    assert_eq!(
+        preferences.restored_to_defaults().dictionary_sync_webdav,
+        preferences.dictionary_sync_webdav
+    );
+}
+
 // 引号样式与方头括号样式缺省是弯引号、实心，等于缺省时不写进文档；三种引号样式和两种括号样式都能保存读回，不认识的取值让整份文档解析失败。
 #[test]
 fn punctuation_styles_default_omitted_roundtrip_and_reject_unknown_values() {
