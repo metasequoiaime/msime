@@ -255,7 +255,7 @@ export class HarmonyAccountCloudBridge {
   }
 
   /**
-   * 「词库」页的「词库同步」：「我的词条」经 WebDAV 网盘同步的一个动作（`msime_client_dictionary_sync`），在原生工作线程上执行。HostOptions 取设置页词库管理用的同一份，本机状态在本沙箱的 `files/state/dictionary-sync`。同步的是设置应用这份个人词库，也就是设置页「我的词条」列出的那份；API 12 起键盘在自己的沙箱里另有一份，不经共享沙箱交换（`platforms/harmony/README.md`「输入法扩展的独立沙箱」），所以网盘来的词要等这两份接上之后才进键盘。键盘不调这个入口，免得登记成第二台设备。
+   * 「词库」页的「词库同步」：「我的词条」经 WebDAV 网盘同步的一个动作（`msime_client_dictionary_sync`），在原生工作线程上执行。HostOptions 取设置页词库管理用的同一份，本机状态在本沙箱的 `files/state/dictionary-sync`。同步的是设置应用这份个人词库，也就是设置页「我的词条」列出的那份；API 12 起键盘在自己的沙箱里另有一份，两份经共享沙箱交换「我的词条」（`msime_client_user_words_mirror`，`platforms/harmony/README.md`「「我的词条」只有一份」），网盘来的词写进这一份之后由下一次交换带给键盘。键盘不调这个入口，免得登记成第二台设备。
    */
   async dictionarySync(action: string, resources: string, stateRoot: string): Promise<string> {
     const options: string | null = this.hostOptions(resources, stateRoot);

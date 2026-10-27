@@ -1167,7 +1167,7 @@ class SettingsBridge {
   }
 
   /**
-   * 设置应用的词库有了页面不知道的改动（键盘的词写了进来、排空队列写进了词）：告诉页面一声（`msime-user-words-changed`）。「我的词条」的网盘同步由页面排队调用，页面可以据此马上以 `local_change` 记一次本机改动；页面不听时，同步下一次运行开头的核对同样会记下它们。
+   * 设置应用的词库有了页面不知道的改动（键盘的词写了进来、排空队列写进了词）：告诉页面一声（`msime-user-words-changed`）。页面的词库同步（`use-dictionary-sync`）据此以 `local_change` 记一次本机改动，与经设置改了词走同一个队列；没有隐私政策的授权时页面拿不到词库同步、不听这个事件，同步下一次运行开头的核对照样会记下这些词。
    */
   private userWordsChanged(): void {
     this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-user-words-changed'))").catch((): void => {});
