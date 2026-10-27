@@ -27,6 +27,8 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 ## Consequences
 
+Depot 的 `depot-windows-2025-8` 与 GitHub 的 `windows-2025` 不是同一个镜像：Depot 的装的是 Visual Studio 18（MSBuild 18），GitHub 的是 Visual Studio 2022；Depot 的镜像也不导出 `VCPKG_INSTALLATION_ROOT`，vcpkg 仍在 `C:\vcpkg`，`Windows native settings` 因此在开头补上这个变量。挪过去的 Windows CI 换了编译器，与本来就在 Depot 上的 `release-windows.yml` 反而一致了。
+
 GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、少数特殊机型和截图，平时 PR 不再因为额度排队；Windows 设置编译从 4 核换到 8 核。代价是这些 job 依赖 Depot 的可用性，Depot 出故障时 PR 检查会卡住而不是变慢；Depot 的 macOS 并发本来就紧，`release-pack-tool` 的 macOS 构建挪过去后发 pack 工具时可能和 macOS CI 抢机器。
 
 ## Verification
