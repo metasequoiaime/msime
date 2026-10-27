@@ -8,13 +8,13 @@ Status: implemented
 
 ## Decision
 
-`convert_eval` 加 `--scheme shuangpin`，把现有评测集编成 26 键双拼的按键再打；`--touch-mode` 在参考键位几何上合成误触。产品行为不变：引擎只多了一个只读的公开函数 `host::encode_shuangpin`，全拼路径的输出与 merge-base 逐字节相同。
+`convert_eval` 加 `--scheme shuangpin`，把现有评测集编成 26 键双拼的按键再打；`--touch-mode` 在参考键位几何上合成误触。产品行为不变：引擎只多了两个只读的公开函数 `host::encode_shuangpin` 和 `host::is_shuangpin_syllable`，全拼路径的输出与 merge-base 逐字节相同。
 
 ### 编码
 
-- 用例的输入是不带分隔的全拼。先按 TSV 里的音节数切成音节，只认只有一种切法的，再用 `host::encode_shuangpin`（包住引擎解码用的同一个 `shuangpin::utils::encode_pinyin`）逐音节编成两键码，去掉 `'`。纠错整句不接受手打的 `'`，所以按键里不带它，每个音节恰好两键。
-- 切法有歧义（`fangan` 两个音节可以是 fang'an 也可以是 fan'gan）、有音节在这个方案里编不出来的用例丢掉，编出来的条数按方案写进报告的 `encoding`。整句族编出 1519–1525 / 1580 条，词级族 2748 / 2772 条。
-- 切音节的递归和九键双拼共用（`grid_keys.rs` 的 `syllable_pieces`），差别只在「认不认这个音节」的判据。
+- 用例的输入是不带分隔的全拼。先按 TSV 里的音节数切成音节，只认只有一种切法的。切音节按与方案无关的音节表（`host::is_shuangpin_syllable`，即引擎的 `accepted_syllables`），不按这个方案编不编得出来。首道双拼的 `en` 和 `ia` 同在 `k` 上，`den` 编出来解回 `dia`，它编不出 `den`；要是按方案编不编得出来切，`dena` 在首道上就只剩 de'na 一种切法，看起来没有歧义，首道就会比其余方案多打几条有歧义的用例，各方案比的就不是同一批用例。然后用 `host::encode_shuangpin`（包住引擎解码用的同一个 `shuangpin::utils::encode_pinyin`）逐音节编成两键码，去掉 `'`。纠错整句不接受手打的 `'`，所以按键里不带它，每个音节恰好两键。
+- 切法有歧义（`fangan` 两个音节可以是 fang'an 也可以是 fan'gan）、有音节在这个方案里编不出来的用例丢掉，编出来的条数按方案写进报告的 `encoding`。五个内置方案编出的条数相同：整句族都是 1519 / 1580 条，词级族都是 2748 / 2772 条。
+- 切音节的递归和九键双拼共用（`grid_keys.rs` 的 `syllable_pieces`），差别只在「认不认这个音节」的判据：九键双拼按它自己的码表，26 键双拼按与方案无关的音节表。
 
 ### 触点合成（`touch_noise.rs`）
 
@@ -42,7 +42,8 @@ Status: implemented
 - `resources/eval/baseline-shuangpin-touch-sentences.json`：sentences-v1、sentences-neutral-v1、sentences-v2、sentences-particles-v1 共 1580 条。
 - `resources/eval/baseline-shuangpin-touch-words.json`：quanpin-words-v1 的 2 音节子集，`--max-syllables 2 --limit 3000` 抽出 2772 条。词级集生成时已丢掉单字，所以没有 1 音节用例。
 - 两份都是 5 个内置方案 × {none, clean, noisy, realistic} × σ{0, 0.15, 0.25, 0.35} × b{0, 0.1}，开 `--autocorrect`，用 `android-portrait` 和 `android-portrait-microsoft` 两份几何，种子 20261027。完整命令写在 `resources/eval/README.md`「双拼与触屏误触」。
-- 在负载很高的 Mac Studio 上，整句族一次跑完要 57 分钟，词级族要 5 分钟。所以两份基线不进 `verify-local.sh`，由改双拼纠错的那一期自己跑、自己对照。
+- 资源目录只有 `desktop-dictionary.lock.json` 那一组文件加 `sentence-model.safetensors`，没有 settled 模型 `sentence-model-desktop.safetensors`（它由另一份锁 `settled-model.lock.json` 发布）。`convert_eval` 见到那个文件就挂上 settled 重排，排序会变，两份基线就对不上，并不是产品改了。所以复跑时 stderr 必须打出 `no settled model at ...`。10-09 那篇笔记的全拼验证特意加了这个文件，照它准备资源目录会得到 `eval baseline mismatch`。
+- 在 Mac Studio 上，整句族一次跑完要一到五小时，看同时跑的 CI 有多少（负载 50 左右时约一小时，负载在 300–780 之间时约五小时），词级族要 5 分钟。所以两份基线不进 `verify-local.sh`，由改双拼纠错的那一期自己跑、自己对照。
 - `rerank_latency` 接受同样的 `--scheme shuangpin --shuangpin-profile --autocorrect`，再给 `--key-geometry` 和 `--touch-sigma` 时按 realistic（或 `--touch-mode` 指定的模式）合成误触。
 
 ### 参考布局
@@ -87,22 +88,22 @@ Status: implemented
 
 - **收益**：
   - 双拼纠错第一次有可复现的召回、精度和延迟数字。同一种子同一份二进制两次输出逐字节相同，含 `--dump`。
-  - 五个内置方案在 none 模式下数字一致，可以反证编码没有偏差。
+  - 五个内置方案打的是同一批用例（切音节的歧义按与方案无关的音节表判断），none 模式下两族的数字逐项相同：none 送进去的是想按的键，各方案解回的读音相同，这只说明编码和解码互为逆，不说明各方案的纠错能力一样。触屏模式下各方案的按错分布随键位而变，数字才开始分开。
   - 这次就量出了今天平面表在 `Runtime` 里实际上不可见这件事，以后每一期都有对照。
 - **代价与已知上限**：
   - 落点模型偏乐观：只有各向同性的高斯加统一偏置，不模拟拇指的系统性偏移、同一音节两键都错、漏键和多键；功能键也不建模，落在大小写、删除、候选栏的点算成最近的字母。
   - 参考几何是构造的。
-  - 基线绑定 `dict-v2.0.24` 和当前的重排模型，二者一变就要重跑。
+  - 基线绑定 `dict-v2.0.24` 和当前的 `sentence-model.safetensors`，而且是在没有 settled 模型的条件下生成的；这几样一变就要重跑。
   - 重访信号：宿主导出真机几何之后要重跑；引擎开始消费触点（PR1a）后，`clean` 才会和 `none` 分开，记忆表的键也必须带上触点，因为那时候选表就不只取决于按键了。
 
 ## Verification
 
-- `cargo test -p msime-input-runtime --example convert_eval --example rerank_latency`：19 / 14 项通过。新增几类测试：
+- `cargo test -p msime-input-runtime --example convert_eval --example rerank_latency`：20 / 15 项通过。新增几类测试：
   - 落点模型：键距归最近的键、σ=0 永不按错、行分布归一且随 σ 变宽、偏置让第一排更容易按到第二排、noisy 每条都有错且 clean 一条都没有、同种子同结果、坏几何被拒；
   - 分桶与对照计数；
-  - `shuangpin_keys` 的切音节与歧义丢弃。
-- `cargo test -p msime-engine --lib host::` 122 项通过，含新增的 `encode_shuangpin_uses_the_named_builtin_profile`。`cargo clippy -p msime-input-runtime -p msime-engine --all-targets -- -D warnings` 无警告。
+  - `shuangpin_keys` 的切音节与歧义丢弃，以及歧义按与方案无关的音节表判断（`dena` 在五个方案上都丢掉，首道双拼的 `den` 整条丢掉而不改打另一种切法；按方案编不编得出来切时这一项失败）。
+- `cargo test -p msime-engine --lib host::` 123 项通过，含新增的 `encode_shuangpin_uses_the_named_builtin_profile` 和 `shuangpin_syllables_do_not_depend_on_the_profile`。`cargo clippy -p msime-input-runtime -p msime-engine --all-targets -- -D warnings` 无警告。
 - **G0**：分支和 merge-base（`ad2e677c96`）的 `convert_eval` 各跑一遍现有 11 组，输出逐字节相同。其中 sentences、harvested、neutral、words、nine-key 五组与仓库里提交的基线不一致，merge-base 自己也一样，是基线落后于 develop，与这次改动无关，这里不更新它们。
 - **可复现**：sentences-v1 加 particles、全部 5 个方案和全部配置，同一种子跑两遍，报告 JSON 和 66 MB 的 dump 都逐字节相同。
-- **其余几何**：iPhone、HarmonyOS、ipad-split 各跑一组 noisy 和 realistic σ=0.25。数字和 Android 同一量级：realistic 有错的用例 18%–29%，ipad-split 最高，因为两半各自的键更窄。
-- **未跑**：`verify-local.sh` 整套、golden 测试、宿主相关的一切。这一期不碰产品代码路径，只多一个公开函数。
+- **其余几何**：sentences-v1 加 particles（每个方案 147 条），iPhone、HarmonyOS、ipad-split 和 Android 各跑一组 noisy 和 realistic σ=0.25、b=0。realistic 有错的用例：Android 19.7%–27.2%，iPhone 19.0%–27.9%，HarmonyOS 17.7%–24.5%，ipad-split 23.8%–29.3%，同一量级。ipad-split 最高，原因不是键宽：σ 按键宽、键高归一，键本身多大不影响按错率。它的键约 60 pt 宽、键距只有 6，键距相对键宽更窄：键距归最近的键，所以键心到与邻键分界的距离是半个键心间距，归一之后 ipad-split 横向只有 0.54–0.55 个键宽（Android 0.57–0.62），纵向 0.565 个键高（Android 0.587），算按到本键的那块区域更小。iPhone 的第二行按宿主的规则两端各缩进半个键距、键宽同第一行，HarmonyOS 的键高按 `KeyboardMetrics.ROW_HEIGHT_VP` 取 44。
+- **未跑**：`verify-local.sh` 整套、golden 测试、宿主相关的一切。这一期不碰产品代码路径，只多两个公开函数。
