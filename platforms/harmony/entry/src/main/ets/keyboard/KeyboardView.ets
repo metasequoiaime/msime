@@ -5772,7 +5772,7 @@ struct KeyboardView {
   }
 
   /**
-   * 数字行的数字，与 Android 数字行相同：没有组字时和 123 层的数字一样输入；组字中先交给引擎，当前页有对应候选的 1–9 由引擎选词，引擎不收（0，或没有对应候选）时先按首选结束组合再上屏这个数字。按下记 `Digit0`–`Digit9`。
+   * 数字行的数字，与 Android 数字行相同：没有组字时和 123 层的数字一样输入；组字中先交给引擎，当前页有对应候选的 1–9 由引擎选词，引擎不收（0，或没有对应候选，或韩语、越南语等引擎自己先上屏了组字）时先结束还在的组合再上屏这个数字（`KeyboardSession.pressElseCommitThenType`）。按下记 `Digit0`–`Digit9`。
    */
   private typeNumberRowDigit(digit: string): void {
     if (!KeyboardSession.shared.composing()) {
@@ -5780,10 +5780,7 @@ struct KeyboardView {
       return;
     }
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(digit));
-    const code: number = digit.charCodeAt(0);
-    if (!KeyboardSession.shared.press(code, false)) {
-      KeyboardSession.shared.commitThenType(code);
-    }
+    KeyboardSession.shared.pressElseCommitThenType(digit.charCodeAt(0));
   }
 
   /**

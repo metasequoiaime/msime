@@ -4198,6 +4198,20 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
+   * 数字行的数字，与 Android 数字行（`DeclinedKeyPolicy`）相同：先交给引擎，当前页有对应候选的 1–9 由运行时选词（韩语打开汉字列表时选汉字）；引擎不收时先结束还在的组合，再在后面上屏这个数字。是否收下只看引擎的 handled，不能像 `press` 那样把组字变了也算作收下：韩语音节、越南语单词等方案的引擎会先上屏组字再把数字交回宿主，这时组字已经空了，数字仍要由键盘输入；组合已经被引擎结束时 `commitThenType` 的结束组合什么也不做。
+   */
+  pressElseCommitThenType(ascii: number): void {
+    if (!this.composes() || this.handle === 0) {
+      this.press(ascii, false);
+      return;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.tapFeedback();
+    if (this.apply(client.character(this.handle, ascii, false))) return;
+    this.commitThenType(ascii);
+  }
+
+  /**
    * 藏文的空格：先把键交给引擎，有组字时引擎上屏藏文加音节点并吞掉这个键；引擎没处理时（没有组字，或 Esc 锁定原文后只上屏原文），由键盘在上屏内容之后插入这个键本身，和硬件键盘把未处理的键交回应用的效果一致。
    */
   pressThenType(ascii: number): void {
