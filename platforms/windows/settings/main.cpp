@@ -17056,8 +17056,9 @@ private:
     dsync_notice_.clear();
   }
 
+  // 只在「云端词库」标签画着的时候重画：别的标签（例如正在打字的查找框）不因为词库同步的回答被整页重建。
   void redraw_dictionary_sync() {
-    if (!closed_ && current_page_ == "lexicon")
+    if (!closed_ && current_page_ == "lexicon" && !vocabulary_view_ && page_tab("lexicon") == L"cloud")
       queue_refresh();
   }
 
