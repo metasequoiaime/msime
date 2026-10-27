@@ -38,6 +38,11 @@ RUST_ONLY: dict[str, set[str]] = {
         "android_keyboard_skin_dark",
         # 组字时保留 Shift 只由 Android 与 iOS 的原生键盘设置页提供，其他宿主没有触屏全拼 26 键，React 设置页不显示。
         "touch_quanpin_shift",
+        # 手机触屏键盘的底行样式与顶部数字行先由 Android、iOS 与鸿蒙的键盘与原生设置页接入，桌面宿主没有这些键面，React 设置页暂不显示。
+        "touch_twenty_six_key_style",
+        "touch_fourteen_key_style",
+        "touch_nine_key_style",
+        "touch_number_row",
         # 上屏后联想先在 Android 原生键盘验收，其他宿主保留字段，尚无共享设置入口。
         "next_word_prediction",
 

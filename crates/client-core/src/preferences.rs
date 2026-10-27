@@ -198,6 +198,154 @@ impl TouchWubiLayout {
     }
 }
 
+/// 中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的排法；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 的整排键盘不受它影响。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchTwentySixKeyStyle {
+    /// 现有底行：123 | 符 | 空格 | ，（长按出。）| 中/英 | 回车。
+    #[default]
+    Standard,
+    /// 空格两侧各一个标点：123 | 符 | ， | 空格 | 。 | 中/英 | 回车。
+    CommaPeriod,
+    /// 长空格：123 | ， | 长空格 | 中/英 | 回车，符号入口移到工具栏；接替 Android 本机设置 `platform.android.long_space_layout`。
+    LongSpace,
+    /// 表情键：123 | 😀 | 空格 | ， | 中/英 | 回车，符号经长按 123 进入。
+    Emoji,
+}
+
+impl TouchTwentySixKeyStyle {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::CommaPeriod => "comma_period",
+            Self::LongSpace => "long_space",
+            Self::Emoji => "emoji",
+        }
+    }
+
+    /// 严格解析：只认四种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "comma_period" => Some(Self::CommaPeriod),
+            "long_space" => Some(Self::LongSpace),
+            "emoji" => Some(Self::Emoji),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchTwentySixKeyStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的样式）按现有底行读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 14 键与 18 键字母层（全拼、双拼、五笔 14 键共用）底行的排法。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchFourteenKeyStyle {
+    /// 现有底行：123 | ， | 空格 | 。 | 中/英 | 回车。
+    #[default]
+    Standard,
+    /// 长空格：123 | ， | 长空格 | 中/英 | 回车。
+    LongSpace,
+    /// 表情键：123 | 😀 | 空格 | ， | 中/英 | 回车。
+    Emoji,
+}
+
+impl TouchFourteenKeyStyle {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::LongSpace => "long_space",
+            Self::Emoji => "emoji",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "long_space" => Some(Self::LongSpace),
+            "emoji" => Some(Self::Emoji),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchFourteenKeyStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串按现有底行读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 九键字母层（拼音九键、九键双拼、笔画共用这一框架）底行的排法；左侧符号栏和右侧功能列不变。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchNineKeyStyle {
+    /// 现有底行：符 | 123 | 空格 | 中/英 | 回车。
+    #[default]
+    Standard,
+    /// 空格两侧各一个标点：符 | 123 | ， | 空格 | 。 | 中/英 | 回车。
+    CommaPeriod,
+    /// 表情键：符 | 123 | 😀 | 空格 | 中/英 | 回车。
+    Emoji,
+}
+
+impl TouchNineKeyStyle {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::CommaPeriod => "comma_period",
+            Self::Emoji => "emoji",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "comma_period" => Some(Self::CommaPeriod),
+            "emoji" => Some(Self::Emoji),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchNineKeyStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串按现有底行读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1485,6 +1633,18 @@ pub struct Preferences {
     /// 全拼 26 键组字时第三排左端的 ⇧ 默认画「分词」（送 `'` 断音节）；打开后保留 Shift，点一下臂辅助码（Shift+字母）。九键、14 键和 18 键有自己的分词键，不受它影响。默认关，即原有分词行为。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_quanpin_shift: bool,
+    /// 手机触屏中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的样式，见 [`TouchTwentySixKeyStyle`]；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 不受它影响。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchTwentySixKeyStyle::is_default")]
+    pub touch_twenty_six_key_style: TouchTwentySixKeyStyle,
+    /// 手机触屏 14 键与 18 键字母层（全拼、双拼、五笔 14 键）底行的样式，见 [`TouchFourteenKeyStyle`]。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchFourteenKeyStyle::is_default")]
+    pub touch_fourteen_key_style: TouchFourteenKeyStyle,
+    /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式，见 [`TouchNineKeyStyle`]；左侧符号栏和右侧功能列不变。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchNineKeyStyle::is_default")]
+    pub touch_nine_key_style: TouchNineKeyStyle,
+    /// 手机触屏 26 键、14 键和 18 键字母层上方加一行 1 到 0（九键和手写不加）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 本机设置 `platform.android.number_row`。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_number_row: bool,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -3612,6 +3772,10 @@ impl Default for Preferences {
             touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
             touch_quanpin_shift: false,
+            touch_twenty_six_key_style: TouchTwentySixKeyStyle::default(),
+            touch_fourteen_key_style: TouchFourteenKeyStyle::default(),
+            touch_nine_key_style: TouchNineKeyStyle::default(),
+            touch_number_row: false,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),

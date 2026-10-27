@@ -52,6 +52,10 @@ const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     shuangpin_key_hints: "platform.harmony.shuangpin_key_hints",
     // 鸿蒙键盘的全拼分词键暂无设置入口，共享偏好原样同步。
     quanpin_shift: "platform.harmony.quanpin_shift",
+    twenty_six_key_style: "platform.harmony.twenty_six_key_style",
+    fourteen_key_style: "platform.harmony.fourteen_key_style",
+    nine_key_style: "platform.harmony.nine_key_style",
+    number_row: "platform.harmony.number_row",
     feedback: HARMONY_FEEDBACK_KEYS,
 };
 

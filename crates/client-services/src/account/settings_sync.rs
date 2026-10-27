@@ -14,8 +14,9 @@ use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, Accou
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
     BracketStyle, FrequencyMode, FrequencyPreferences, InputScheme, NumberKeypadOrder, Preferences,
-    QuoteStyle, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TraditionalVariant,
-    TwentySixKeyNumberLayout, WubiProfile,
+    QuoteStyle, ShuangpinProfile, ThemeMode, TouchFourteenKeyStyle, TouchKeyboardLayout,
+    TouchNineKeyStyle, TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout,
+    WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -37,6 +38,14 @@ const TWENTY_SIX_KEY_NUMBER_LAYOUT: &str = "platform.android.twenty_six_key_numb
 const SHUANGPIN_KEY_HINTS: &str = "platform.android.shuangpin_key_hints";
 /// 共享偏好 `touch_quanpin_shift`；账号字段表收录它之前上传时会被滤掉。
 const QUANPIN_SHIFT: &str = "platform.android.quanpin_shift";
+/// 共享偏好 `touch_twenty_six_key_style`；账号字段表收录它之前上传时会被滤掉。
+const TWENTY_SIX_KEY_STYLE: &str = "platform.android.twenty_six_key_style";
+/// 共享偏好 `touch_fourteen_key_style`；账号字段表收录它之前上传时会被滤掉。
+const FOURTEEN_KEY_STYLE: &str = "platform.android.fourteen_key_style";
+/// 共享偏好 `touch_nine_key_style`；账号字段表收录它之前上传时会被滤掉。
+const NINE_KEY_STYLE: &str = "platform.android.nine_key_style";
+/// 共享偏好 `touch_number_row`；账号字段表收录它之前上传时会被滤掉。Android 本机设置文件里有一个同名、不同步的旧键（不在 [`ANDROID_LOCAL_SETTINGS`] 里），它的值由宿主迁进这个共享偏好。
+const NUMBER_ROW: &str = "platform.android.number_row";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -64,6 +73,10 @@ pub(super) struct TouchHostKeys {
     pub(super) twenty_six_key_number_layout: &'static str,
     pub(super) shuangpin_key_hints: &'static str,
     pub(super) quanpin_shift: &'static str,
+    pub(super) twenty_six_key_style: &'static str,
+    pub(super) fourteen_key_style: &'static str,
+    pub(super) nine_key_style: &'static str,
+    pub(super) number_row: &'static str,
     /// 按键音、振动开关、振动强度，值来自宿主本地存储。
     pub(super) feedback: [&'static str; 3],
 }
@@ -86,6 +99,10 @@ const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     twenty_six_key_number_layout: TWENTY_SIX_KEY_NUMBER_LAYOUT,
     shuangpin_key_hints: SHUANGPIN_KEY_HINTS,
     quanpin_shift: QUANPIN_SHIFT,
+    twenty_six_key_style: TWENTY_SIX_KEY_STYLE,
+    fourteen_key_style: FOURTEEN_KEY_STYLE,
+    nine_key_style: NINE_KEY_STYLE,
+    number_row: NUMBER_ROW,
     feedback: ANDROID_FEEDBACK_KEYS,
 };
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
@@ -465,7 +482,7 @@ pub fn export_android_settings(
     Ok(settings)
 }
 
-/// 触屏宿主的平台键：触屏布局、主题、键距与键盘高度、语音键、数字层、双拼键位提示，`feedback` 不为空时再加按键反馈三个键。Android 和鸿蒙各按自己的 [`TouchHostKeys`] 导出。
+/// 触屏宿主的平台键：触屏布局、主题、键距与键盘高度、语音键、数字层、双拼键位提示、组字 Shift、底行样式与数字行，`feedback` 不为空时再加按键反馈三个键。Android 和鸿蒙各按自己的 [`TouchHostKeys`] 导出。
 pub(super) fn insert_touch_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
@@ -523,6 +540,22 @@ pub(super) fn insert_touch_settings(
         keys.quanpin_shift,
         preferences.touch_quanpin_shift,
     );
+    insert_string(
+        settings,
+        keys.twenty_six_key_style,
+        preferences.touch_twenty_six_key_style.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.fourteen_key_style,
+        preferences.touch_fourteen_key_style.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.nine_key_style,
+        preferences.touch_nine_key_style.as_str(),
+    );
+    insert_bool(settings, keys.number_row, preferences.touch_number_row);
     if let Some(feedback) = feedback {
         insert_bool(settings, keys.feedback[0], feedback.sound_enabled);
         insert_bool(settings, keys.feedback[1], feedback.haptics_enabled);
@@ -1222,6 +1255,22 @@ pub(super) fn apply_touch_settings(
     })?;
     applier.set_bool(keys.quanpin_shift, |preferences, value| {
         preferences.touch_quanpin_shift = value
+    })?;
+    // 三种底行样式按严格写法应用：较新版本加的样式本机不认识时只跳过这一个键，本机的选择不变。
+    applier.set_string(keys.twenty_six_key_style, |preferences, value| {
+        preferences.touch_twenty_six_key_style = TouchTwentySixKeyStyle::parse(value)?;
+        Some(())
+    })?;
+    applier.set_string(keys.fourteen_key_style, |preferences, value| {
+        preferences.touch_fourteen_key_style = TouchFourteenKeyStyle::parse(value)?;
+        Some(())
+    })?;
+    applier.set_string(keys.nine_key_style, |preferences, value| {
+        preferences.touch_nine_key_style = TouchNineKeyStyle::parse(value)?;
+        Some(())
+    })?;
+    applier.set_bool(keys.number_row, |preferences, value| {
+        preferences.touch_number_row = value
     })?;
 
     extra(&mut applier)?;

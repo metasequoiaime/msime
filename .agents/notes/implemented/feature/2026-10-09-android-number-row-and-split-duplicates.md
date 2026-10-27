@@ -2,6 +2,8 @@
 
 Status: implemented
 
+数字行「只在本机、不随账号同步」的决定由[触屏按键布局样式](2026-10-27-touch-key-layout-styles.md)部分取代：开关成为共享偏好 `touch_number_row`，随账号同步；本篇的画法、高度门槛与数字输入规则继续适用。
+
 切换数字符号页时缩高的决定由[数字符号页第五排](../../implemented/bug-fix/2026-10-16-number-symbol-extra-row.md)部分取代，其他布局的数字行边界与输入语义不变。
 
 数字层标点入口的决定已由[数字层中英文标点切换](../../implemented/feature/2026-10-14-android-number-layer-punctuation-toggle.md)取代；数字行和分离式键盘的其余决定仍然有效。
