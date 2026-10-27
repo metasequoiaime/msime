@@ -38,12 +38,12 @@ Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需�
 
 ## Verification
 
-- 共享层遥测最终 50 项通过，覆盖损坏构建头和原子写入；Host API 遥测前轮 4 项通过，最终复跑和相关 Rust 库 Clippy 仍在执行。
+- 共享层遥测 50 项、Host API 遥测 4 项及相关 Rust 库 Clippy 均通过，覆盖损坏构建头、原子写入、超过单批额度的保留和入队失败后的原件保留。
 - Windows runner 实际执行 x86、x64 异常子进程用例：访问违规落盘、关闭不记录、首份记录保留通过；ARM64 只完成 MSVC 编译。Win7 符号采集脚本通过 PowerShell 解析检查，尚未用完整同源安装产物验收。
-- Android API 28、35 实际运行原生故障子进程；Java 宿主门禁通过。两个模拟器均跑过四个共享 crate 的全套设备测试：client-base 36、client-core 649、client-providers 274、client-services 1356 项通过；原有 ignored 与按设备限制跳过的 hard_link 用例不算通过。完整 APK 的 JNI 接入和重启后补报仍待完成。
+- Android API 28、35 实际运行原生故障子进程；Java 宿主门禁通过。两个模拟器均跑过四个共享 crate 的全套设备测试：client-base 36、client-core 649、client-providers 274、client-services 1356 项通过；原有 ignored 与按设备限制跳过的 hard_link 用例不算通过。同源 Java/JNI 和 Rust debug 库的完整 APK 在两个模拟器上进一步验证 Java 异常、原生信号落盘及重启入队，关闭统计后两类故障均不记录；独立应用不产生输入会话事件。测试按应用 UID 阻断网络，结束后删除合成队列并撤销规则，没有把合成故障发到生产后台。该包因未优化的 Rust 库超过正式包 135 MB 体积门禁，不能当作发布打包通过。整套装包冒烟的基本输入通过，但 API 28、35 都在十八键中英文及数字往返用例失败，不能将专项通过扩大为全套通过。
 - macOS 原生记录器子进程及目录、退出回归用例通过；Linux 容器中的记录器经 ASan/UBSan 运行通过。ELF 合成模块的归档、源码行还原、错误 build id 和错误哈希拒绝用例通过。
 - HarmonyOS 逻辑测试和实际 ArkTS/HAP 构建通过。复用的原生二进制仅用于 ArkTS 编译与打包检查，不作为同源产品或设备验收。
-- iOS 工程重新生成；Swift、Xcode 构建与设备故障链路尚未验收。仓库最终 quick 门禁仍在运行，不能将上述分项通过写成全平台验收通过。
+- iOS 工程重新生成，实际 SDK Swift 类型检查与完整 Xcode build-for-testing 通过；iOS 27 模拟器实际执行 UsageReportingTests 16 项，全部通过（已核对 xcresult 数量）。App/键盘的真实致命故障、MetricKit 系统回调与后台收件仍未验收。仓库最终 quick 门禁仍在运行，不能将上述分项通过写成全平台验收通过。
 
 ## Consequences
 
