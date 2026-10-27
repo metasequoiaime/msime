@@ -32,6 +32,7 @@ jobs:
       engine: ${{ steps.decide.outputs.engine }}
       ui: ${{ steps.decide.outputs.ui }}
       plugins: ${{ steps.decide.outputs.plugins }}
+      android_device: ${{ steps.decide.outputs.android_device }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,12 +46,12 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]] ||
              [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
-            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\nengine=true\nui=true\nplugins=true\n' >> "$GITHUB_OUTPUT"
+            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\nengine=true\nui=true\nplugins=true\nandroid_device=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\nweb=false\nengine=false\nui=false\nplugins=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\nweb=false\nengine=false\nui=false\nplugins=false\nandroid_device=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
           fi
           # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 develop 切出；两个点的 diff 比的是两棵树，会把分叉之后 develop 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -58,7 +59,7 @@ jobs:
           else
             changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           fi
-          shared=false; ui=false; plugins=false
+          shared=false; ui=false; plugins=false; android_device=false
           android=false; linux=false; harmonyos=false; windows=false; web=false
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
@@ -68,6 +69,11 @@ jobs:
                 ui=true ;;
             esac
             # 脚本插件合集：插件本身、它们依赖的 SDK（crates/script-sdk）与模板、运行它们的沙箱和 msime-pack、几个脚本，以及插件包逐字节复制的 Unicode 许可证和常用字集生成器读的 Unihan 锁。plugins/ 和 docs/ 不在下面任何一条里，没有这一条时只改插件的 PR 什么都不跑；那两个 resources/ 文件在下面只触发 web 或什么都不触发，改了它们包就过期了。
+            # PR 上的设备验收只看键盘与设置界面的 Java、资源、清单、版本资源和设备套件本身：改了界面文字或交互却只在合并后才跑设备验收，nightly 就会在合并后才红（2026-10-27 #9924 改了皮肤卡片读屏文字，验收找不到旧文字）。共享 Rust 的改动太多，不在这里触发，仍由合并后的 push 和 nightly 兜底。
+            case "$path" in
+              platforms/android/java/*|platforms/android/res/*|platforms/android/AndroidManifest.xml|platforms/android/editions/*|platforms/android/tests/device/*|.github/workflows/android-device.yml)
+                android_device=true ;;
+            esac
             case "$path" in
               plugins/*|docs/script-plugin-template/*|crates/script-sdk/*|crates/script-runtime/*|crates/pack-tool/*|scripts/build-script-plugins.sh|scripts/test-script-plugins.sh|scripts/test-script-plugin-data.py|scripts/build-official-plugins.sh|resources/licenses/Unicode-License-V3.txt|resources/character-glosses.lock.json)
                 plugins=true ;;
@@ -97,8 +103,8 @@ jobs:
             android=true; linux=true; harmonyos=true; windows=true; web=true; plugins=true
           fi
           # 引擎作业跟着共享路径走（crates/、工作区清单、工具链等），只改平台目录时不跑。
-          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\nweb=%s\nengine=%s\nui=%s\nplugins=%s\n' \
-            "$android" "$linux" "$harmonyos" "$windows" "$web" "$shared" "$ui" "$plugins" >> "$GITHUB_OUTPUT"
+          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\nweb=%s\nengine=%s\nui=%s\nplugins=%s\nandroid_device=%s\n' \
+            "$android" "$linux" "$harmonyos" "$windows" "$web" "$shared" "$ui" "$plugins" "$android_device" >> "$GITHUB_OUTPUT"
 
   android:
     needs: changes
@@ -167,11 +173,19 @@ jobs:
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
   # 上面只证明编译得过；这里在 API 28 和 35 的模拟器上真正运行 client-base、client-core、client-providers、client-services 单测和 APK。0.3.0 的三个设备上才出现的问题（词库准备失败、匿名账号写不进、Android 9 启动崩溃）全过了上面那个 job。
-  # 打 APK、起两台模拟器是打包级的验收，不在 PR 上跑：合进 develop 后的 push 跑一次，Release Android 发版前用同一个提交再跑一次（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
+  # 合进 develop 后的 push 在 API 28 和 35 上跑整套，Release Android 发版前用同一个提交再跑一次（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
   android-device:
     needs: changes
     if: ${{ needs.changes.outputs.android == 'true' && github.event_name != 'pull_request' }}
     uses: ./.github/workflows/android-device.yml
+
+  # PR 改了键盘或设置界面的 Java、资源或设备套件时，只在 API 35 上跑一遍设备验收，让作者合并前就看到界面文字、交互改动打破了哪条验收。它不是必需检查，失败不挡合并；API 28 和整套仍在合并后的 push 与 nightly 上跑（见 .agents/notes/implemented/process/2026-10-28-android-device-on-ui-prs.md）。
+  android-device-pr:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.android_device == 'true' }}
+    uses: ./.github/workflows/android-device.yml
+    with:
+      matrix: '[{"api": 35, "smoke": ""}]'
 
   linux:
     needs: changes
