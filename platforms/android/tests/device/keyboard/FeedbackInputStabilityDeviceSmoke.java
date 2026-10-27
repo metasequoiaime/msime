@@ -1,9 +1,11 @@
 package app.msime.android.test;
 
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -13,8 +15,15 @@ import org.json.JSONObject;
 
 /** 只在真实原生反馈页输入合成内容，覆盖文字监听与计数更新，不提交反馈。 */
 public final class FeedbackInputStabilityDeviceSmoke extends DeviceSmoke {
+    private boolean navigationOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        navigationOnly = arguments != null && "true".equals(arguments.getString("navigation-only"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
-        return "native feedback continuous composition, commits, deletion and hide/show without submission";
+        return "native feedback input, draft tab navigation and keyboard submit reachability without submission";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -53,7 +62,7 @@ public final class FeedbackInputStabilityDeviceSmoke extends DeviceSmoke {
             await(feedbackField().and(node -> node.isShowingHintText()
                 || node.getText() == null || node.getText().length() == 0));
             String expected = "";
-            for (int block = 0; block < 5; block++) {
+            for (int block = 0; block < (navigationOnly ? 0 : 5); block++) {
                 for (int phrase = 0; phrase < 10; phrase++) {
                     stage = "feedback phrase " + block + ":" + phrase;
                     for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
@@ -79,6 +88,57 @@ public final class FeedbackInputStabilityDeviceSmoke extends DeviceSmoke {
                 progress.putString("stream", "Synthetic feedback block " + (block + 1) + "/5 passed\n");
                 sendStatus(0, progress);
             }
+            if (navigationOnly) {
+                stage = "feedback synthetic navigation draft";
+                expected = "合成反馈草稿";
+                android.os.Bundle replacement = new android.os.Bundle();
+                replacement.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, expected);
+                if (!await(feedbackField()).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, replacement))
+                    throw new AssertionError("Synthetic feedback draft could not be entered");
+                String entered = expected;
+                await(feedbackField().and(node -> equalsText(entered, node.getText())));
+            }
+            stage = "feedback submit reachable with keyboard";
+            Predicate<AccessibilityNodeInfo> submit = hostText("提交")
+                .and(node -> equalsText("android.widget.TextView", node.getClassName()))
+                .and(AccessibilityNodeInfo::isEnabled);
+            AccessibilityNodeInfo scroll = awaitAny(node -> equalsText("app.msime.android:id/ms_detail_scroll",
+                node.getViewIdResourceName()));
+            Rect scrollBounds = new Rect();
+            scroll.getBoundsInScreen(scrollBounds);
+            int imeTop = imeTop();
+            int startY = imeTop - 80;
+            int endY = scrollBounds.top + 80;
+            if (startY <= endY) throw new AssertionError("Feedback scroll viewport is covered by keyboard");
+            shellDiscard("input swipe " + scrollBounds.centerX() + " " + startY + " "
+                + scrollBounds.centerX() + " " + endY + " 400");
+            AccessibilityNodeInfo button = await(submit.and(AccessibilityNodeInfo::isVisibleToUser));
+            Rect buttonBounds = new Rect();
+            button.getBoundsInScreen(buttonBounds);
+            if (buttonBounds.bottom > imeTop()) throw new AssertionError("Submit is covered by keyboard");
+            stage = "feedback account tab present";
+            shellDiscard("input keyevent 4");
+            await(described("我的"));
+            stage = "feedback open account tab";
+            tap(described("我的"));
+            stage = "feedback entry present";
+            for (int attempt = 0; attempt < 3; attempt++) {
+                AccessibilityNodeInfo entry = awaitAny(hostText("帮助与反馈"));
+                if (entry.isVisibleToUser()) break;
+                AccessibilityNodeInfo accountScroll = awaitAny(node ->
+                    equalsText("app.msime.android:id/account_scroll", node.getViewIdResourceName()));
+                Rect bounds = new Rect();
+                accountScroll.getBoundsInScreen(bounds);
+                shellDiscard("input swipe " + bounds.centerX() + " " + (bounds.bottom - 120) + " "
+                    + bounds.centerX() + " " + (bounds.top + 120) + " 400");
+                dropStaleNodes();
+            }
+            await(hostText("帮助与反馈"));
+            stage = "feedback reopen";
+            tap(hostText("帮助与反馈"));
+            stage = "feedback draft restored";
+            String retained = expected;
+            await(feedbackField().and(node -> equalsText(retained, node.getText())));
         } finally {
             // 离开合成反馈草稿后再恢复偏好，避免任何恢复动作被当成反馈提交。
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity --ei msime_open_tab 0");
@@ -94,6 +154,21 @@ public final class FeedbackInputStabilityDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> feedbackField() {
         return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("描述", node.getContentDescription()) && node.isEditable();
+    }
+
+    private Predicate<AccessibilityNodeInfo> hostText(String text) {
+        return node -> equalsText("app.msime.android", node.getPackageName())
+            && equalsText(text, node.getText());
+    }
+
+    private int imeTop() {
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (window.getType() != AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
+            Rect bounds = new Rect();
+            window.getBoundsInScreen(bounds);
+            return bounds.top;
+        }
+        throw new AssertionError("Keyboard window is missing");
     }
 
     // 只输出固定阶段名；反馈页与输入法同包，不能沿用会收集页面文字的默认错误摘要。

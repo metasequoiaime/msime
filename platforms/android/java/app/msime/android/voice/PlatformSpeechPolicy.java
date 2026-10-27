@@ -31,7 +31,8 @@ public final class PlatformSpeechPolicy {
      */
     public static String message(int error) {
         String reason = switch (error) {
-            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_NETWORK -> "语音识别服务连不上网络";
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "语音识别服务响应超时";
+            case SpeechRecognizer.ERROR_NETWORK -> "语音识别服务报告网络错误";
             case SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "语音识别服务出错";
             case SpeechRecognizer.ERROR_AUDIO -> "无法录音，麦克风可能被其他应用占用";
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听到声音，请靠近麦克风再试";
