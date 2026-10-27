@@ -69,11 +69,12 @@ pub(crate) struct EngineDictionary<'a> {
 }
 
 impl<'a> EngineDictionary<'a> {
+    #[cfg(test)]
     pub(crate) fn new(options: &'a EngineOptions, quiesce: bool) -> Self {
         Self::announcing(options, quiesce, || {})
     }
 
-    /// 同 [`Self::new`]，让出请求第一次挂上时再调一次 `announce`。
+    /// 创建词库适配器，让出请求第一次挂上时调一次 `announce`。
     pub(crate) fn announcing(options: &'a EngineOptions, quiesce: bool, announce: fn()) -> Self {
         Self {
             options,
