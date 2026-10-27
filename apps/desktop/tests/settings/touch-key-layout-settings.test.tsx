@@ -7,6 +7,7 @@ import { SettingsPage, type InputScheme, type Snapshot } from "@msime/ui";
 import {
   fourteenKeyBottomRows,
   nineKeyBottomRows,
+  nineKeyTallReturnPreview,
   twentySixKeyBottomRows,
 } from "../../../../packages/ui/src/keyboard/touch-key-layout-styles";
 import { touchKeyLayoutGroups } from "../../../../packages/ui/src/settings/touch-key-layout-settings";
@@ -114,7 +115,7 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
   expect(groups).toEqual(["26 键", "14 键与 18 键", "9 键"]);
   expect(optionLabels(dialog, "26 键")).toEqual(["标准", "逗号句号在空格两侧", "长空格", "表情键"]);
   expect(optionLabels(dialog, "14 键与 18 键")).toEqual(["标准", "长空格", "表情键"]);
-  expect(optionLabels(dialog, "9 键")).toEqual(["标准", "底栏带标点", "表情键"]);
+  expect(optionLabels(dialog, "9 键")).toEqual(["标准", "底栏带标点", "表情键", "右侧大回车"]);
   // 文档里没有这几个键时都是标准，数字行关着。
   for (const group of ["26 键", "14 键与 18 键", "9 键"])
     expect(checkedOption(dialog, group)).toBe("标准");
@@ -144,6 +145,11 @@ test("settings search finds the sub page's rows under 按键布局 and opens the
     ["屏幕键盘", "按键布局", "14 键与 18 键"],
   ]);
   expect(targets().some((target) => target.title === "底栏带标点")).toBe(true);
+  expect(targets().find((target) => target.title === "右侧大回车")?.path).toEqual([
+    "屏幕键盘",
+    "按键布局",
+    "9 键",
+  ]);
   expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull();
   // 命中子页里的行时打开子页；再命中正文里的行时关上子页回到正文。
   revealSettingsSearchTarget(numberRow!);
@@ -170,7 +176,7 @@ test("choosing styles and the number row saves the four shared preferences", asy
   };
   choose("26 键", "长空格");
   choose("14 键与 18 键", "表情键");
-  choose("9 键", "底栏带标点");
+  choose("9 键", "右侧大回车");
   fireEvent.click(within(dialog).getByRole("switch", { name: "顶部数字行" }));
   expect(checkedOption(dialog, "26 键")).toBe("长空格");
   saveSettingsNow();
@@ -178,7 +184,7 @@ test("choosing styles and the number row saves the four shared preferences", asy
   const saved = save.mock.calls.at(-1)?.[1];
   expect(saved.touch_twenty_six_key_style).toBe("long_space");
   expect(saved.touch_fourteen_key_style).toBe("emoji");
-  expect(saved.touch_nine_key_style).toBe("comma_period");
+  expect(saved.touch_nine_key_style).toBe("tall_return");
   expect(saved.touch_number_row).toBe(true);
 });
 
@@ -187,14 +193,14 @@ test("a stored style is shown, and one this page does not know reads as 标准",
     preferences: {
       touch_twenty_six_key_style: "emoji",
       touch_fourteen_key_style: "split_bar",
-      touch_nine_key_style: "emoji",
+      touch_nine_key_style: "tall_return",
       touch_number_row: true,
     },
   });
   const dialog = await openKeyLayout();
   expect(checkedOption(dialog, "26 键")).toBe("表情键");
   expect(checkedOption(dialog, "14 键与 18 键")).toBe("标准");
-  expect(checkedOption(dialog, "9 键")).toBe("表情键");
+  expect(checkedOption(dialog, "9 键")).toBe("右侧大回车");
   expect(
     (within(dialog).getByRole("switch", { name: "顶部数字行" }) as HTMLInputElement).checked,
   ).toBe(true);
@@ -238,6 +244,39 @@ test("each option's preview draws the keyboard's bottom row for that style, key 
     "中",
     "↵",
   ]);
+  // 右侧大回车画两行：网格最后一行（左列 ？！、右列跨两行的回车）和底行（符 | 123 | 空格 | 中，回车下伸的位置是占位）。
+  const tall = within(within(dialog).getByRole("radiogroup", { name: "9 键" }))
+    .getByRole("radio", { name: "右侧大回车" })
+    .closest("label")
+    ?.querySelector("[data-key-layout-frame]");
+  if (!tall) throw new Error("no frame preview for 右侧大回车");
+  const frame = [...tall.querySelectorAll("[data-key-layout-preview]")].map((row) =>
+    [...row.children].map((key) => [
+      key.textContent,
+      Number(key.getAttribute("data-weight")),
+      Number(key.getAttribute("data-row-span")),
+    ]),
+  );
+  expect(frame).toEqual([
+    [
+      ["？！", 1.15, 1],
+      ["PQRS", 2, 1],
+      ["TUV", 2, 1],
+      ["WXYZ", 2, 1],
+      ["↵", 1.15, 2],
+    ],
+    [
+      ["符", 1.15, 1],
+      ["123", 1.25, 1],
+      ["空格", 3.7, 1],
+      ["中", 1.05, 1],
+      ["", 1.15, 1],
+    ],
+  ]);
+  // 跨两行的回车高两行加一道行距，下边距收回一行，所在行不变高。
+  const returnCap = tall.querySelector("[data-row-span='2']") as HTMLElement;
+  expect(returnCap.style.height).toBe("51px");
+  expect(returnCap.style.marginBottom).toBe("-27px");
 });
 
 test("the preview rows are the HarmonyOS keyboard's rows, shares included", () => {
@@ -258,6 +297,15 @@ test("the preview rows are the HarmonyOS keyboard's rows, shares included", () =
     expect(nineKeyBottomRows[style].map((key) => round(key.weight))).toEqual(
       NineKeyLayout.actionRow(false, false, style).map((action) => round(action.weight)),
     );
+  // 右侧大回车：符 在左列下方、回车在右列，中间一段就是键盘网格下方的那一行。
+  expect(nineKeyBottomRows.tall_return.map((key) => round(key.weight))).toEqual([
+    NineKeyLayout.SIDE_SHARE,
+    ...NineKeyLayout.actionRow(false, false, "tall_return").map((action) => round(action.weight)),
+    NineKeyLayout.SIDE_SHARE,
+  ]);
+  expect(nineKeyTallReturnPreview[1].slice(0, -1)).toEqual(
+    nineKeyBottomRows.tall_return.slice(0, -1),
+  );
 });
 
 test("groups follow the key types the edition offers", async () => {

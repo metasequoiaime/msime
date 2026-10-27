@@ -11,7 +11,9 @@ import {
   nineKeyBottomRows,
   nineKeyStyle,
   nineKeyStyleOptions,
+  nineKeyTallReturnPreview,
   twentySixKeyBottomRows,
+  type FramePreviewKey,
   twentySixKeyStyle,
   twentySixKeyStyleOptions,
 } from "../keyboard/touch-key-layout-styles";
@@ -53,17 +55,63 @@ function BottomRowPreview({ row }: { row: readonly PreviewKey[] }) {
   );
 }
 
-/** 一组单选：每个选项是一行，名字在上、它的底行示意图在下。 */
+/** 跨两行的回车往下伸到下一行的占位上：高度是两行加一道行距，下边距收回一行，所在行的高度不变。 */
+const PREVIEW_ROW_PX = 24;
+const PREVIEW_GAP_PX = 3;
+
+/** 一种样式里不止底行变了时（九键「右侧大回车」）的示意图：画网格最后一行和底行，`rowSpan` 为 2 的键跨这两行。每一行与 `BottomRowPreview` 同样按份额铺满。 */
+function FramePreview({ rows }: { rows: readonly (readonly FramePreviewKey[])[] }) {
+  return (
+    <span
+      className="flex w-full flex-col"
+      style={{ gap: PREVIEW_GAP_PX }}
+      aria-hidden="true"
+      data-key-layout-frame=""
+    >
+      {rows.map((row, rowIndex) => (
+        <span
+          key={rowIndex}
+          className="flex w-full items-start"
+          style={{ gap: PREVIEW_GAP_PX }}
+          data-key-layout-preview=""
+        >
+          {row.map((key, index) => {
+            const span = key.rowSpan ?? 1;
+            return (
+              <span
+                key={`${index}-${key.label}`}
+                className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[4px] text-[11px] leading-none whitespace-nowrap [color:var(--p-sub)] ${key.label ? "border [border-color:var(--p-row-divider)]" : ""}`}
+                style={{
+                  flex: `${key.weight} 1 0%`,
+                  height: span * PREVIEW_ROW_PX + (span - 1) * PREVIEW_GAP_PX,
+                  marginBottom: -(span - 1) * (PREVIEW_ROW_PX + PREVIEW_GAP_PX),
+                }}
+                data-weight={key.weight}
+                data-row-span={span}
+              >
+                {key.label}
+              </span>
+            );
+          })}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** 一组单选：每个选项是一行，名字在上、它的底行示意图在下（`frames` 里有的样式画多行示意）。 */
 function StyleChoices<T extends string>({
   title,
   options,
   rows,
+  frames,
   value,
   onChange,
 }: {
   title: string;
   options: readonly { value: T; label: string }[];
   rows: Record<T, PreviewKey[]>;
+  frames?: Partial<Record<T, FramePreviewKey[][]>>;
   value: T;
   onChange: (value: T) => void;
 }) {
@@ -88,7 +136,11 @@ function StyleChoices<T extends string>({
               />
               {option.label}
             </span>
-            <BottomRowPreview row={rows[option.value]} />
+            {frames?.[option.value] ? (
+              <FramePreview rows={frames[option.value] ?? []} />
+            ) : (
+              <BottomRowPreview row={rows[option.value]} />
+            )}
           </label>
         ))}
       </div>
@@ -97,7 +149,7 @@ function StyleChoices<T extends string>({
 }
 
 /**
- * 「按键布局」子页的内容：26 键、14 键与 18 键、9 键三组底行样式各选一种，每个选项下画出它的底行；最后是「顶部数字行」开关。写的是共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 和 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」子页的内容：26 键、14 键与 18 键、9 键三组底行样式各选一种，每个选项下画出它的底行（九键「右侧大回车」画网格最后一行和底行，回车跨两行）；最后是「顶部数字行」开关。写的是共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 和 `touch_number_row`，键盘开着时当场换排法。
  */
 export function TouchKeyLayoutSettings({
   preferences,
@@ -133,6 +185,7 @@ export function TouchKeyLayoutSettings({
           title="9 键"
           options={nineKeyStyleOptions}
           rows={nineKeyBottomRows}
+          frames={{ tall_return: nineKeyTallReturnPreview }}
           value={nineKeyStyle(preferences)}
           onChange={(touch_nine_key_style) => onChange({ touch_nine_key_style })}
         />

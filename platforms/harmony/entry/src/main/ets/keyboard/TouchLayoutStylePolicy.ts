@@ -49,6 +49,20 @@ export interface NumberRowFace {
   readonly stroke: boolean;
 }
 
+/** 视图画过的键面里决定第一帧高度的两件事，存在键盘自己的状态目录里，下次冷启动建面板时用（`TouchLayoutStylePolicy.firstPanel`）。 */
+export interface TouchPanelFace {
+  /** 字母层是 26、14 或 18 键这一类（`lettersRowFace`），开着数字行时多一行。 */
+  readonly lettersRow: boolean;
+  /** 字母层是中文 26 键，长空格样式让工具栏一直画着。 */
+  readonly chineseTwentySix: boolean;
+}
+
+/** 面板的形状：工具条那一行画不画，按键区多出几行（`KeyboardMetrics.totalHeightVp` 的 `withStrip` 和 `extraRows`）。 */
+export interface TouchPanelShape {
+  readonly strip: boolean;
+  readonly extraRows: number;
+}
+
 function entry(slot: DesignRowSlot, share: number): DesignRowEntry {
   return { slot: slot, share: share };
 }
@@ -58,6 +72,8 @@ export class TouchLayoutStylePolicy {
   static readonly COMMA_PERIOD: string = "comma_period";
   static readonly LONG_SPACE: string = "long_space";
   static readonly EMOJI: string = "emoji";
+  /** 九键「右侧大回车」：回车跨右列下两行，符 在符号栏下方（`NineKeyLayout.tallReturn`）。 */
+  static readonly TALL_RETURN: string = "tall_return";
 
   /** 设计底行的份额：123 1.25 | 符 1.05 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，`KeyboardView.designActionRow` 按它们定宽。 */
   static readonly LAYER_SHARE: number = 1.25;
@@ -88,6 +104,7 @@ export class TouchLayoutStylePolicy {
     TouchLayoutStylePolicy.STANDARD,
     TouchLayoutStylePolicy.COMMA_PERIOD,
     TouchLayoutStylePolicy.EMOJI,
+    TouchLayoutStylePolicy.TALL_RETURN,
   ];
 
   /** `touch_twenty_six_key_style` 的值；缺键、不是字符串或本版本不认识的样式（较新版本加的）都按 `standard`，与 client-core 宽松读取的规则相同。 */
@@ -227,25 +244,23 @@ export class TouchLayoutStylePolicy {
   }
 
   /**
-   * 中文 26 键是否处在长空格样式（与在不在 123 层无关）；密码框里不算（`twentySixRowStyle`）。这时与 Android 的 `longSpaceLayoutActive` 一样：符号面板入口移到工具栏，工具栏这一行一直画着（设成隐藏时只留标志、符号和收起）；123 进入带空格的数字符号层而不借用数字九宫格，那一层和 #+= 层左下的 😀/符号 换成同一个逗号（下滑输入句号）。
+   * 中文 26 键是否处在长空格样式（与在不在 123 层无关）；密码框和只收数字的编辑框里不算（`fieldRowStyle`）。这时与 Android 的 `longSpaceLayoutActive` 一样：符号面板入口移到工具栏，工具栏这一行一直画着（设成隐藏时只留标志、符号和收起）；123 进入带空格的数字符号层而不借用数字九宫格，那一层和 #+= 层左下的 😀/符号 换成同一个逗号（下滑输入句号）。
    */
   static longSpaceActive(
     chineseTwentySix: boolean,
     twentySixStyle: string,
-    password: boolean,
+    standardField: boolean,
   ): boolean {
     return (
       chineseTwentySix &&
-      TouchLayoutStylePolicy.twentySixRowStyle(twentySixStyle, password) ===
+      TouchLayoutStylePolicy.fieldRowStyle(twentySixStyle, standardField) ===
         TouchLayoutStylePolicy.LONG_SPACE
     );
   }
 
-  /** 中文 26 键底行实际按哪种样式排：密码框里长空格样式退回标准底行，与 Android 的 `longSpaceLayoutActive` 排除密码框一致（用户在密码框里切到中文时也是这样）；其他样式照旧。 */
-  static twentySixRowStyle(twentySixStyle: string, password: boolean): string {
-    return password && twentySixStyle === TouchLayoutStylePolicy.LONG_SPACE
-      ? TouchLayoutStylePolicy.STANDARD
-      : twentySixStyle;
+  /** 一种键面类型（中文 26 键、14/18 键、九键）的底行实际按哪种样式排：密码框和只收数字的编辑框（`standardField`）里每种样式都退回标准底行，与 Android `bottomRowStyle` 遇到 `directNumberPad` 或密码框时一律用标准底行相同（用户在密码框里切到中文时也是这样）；其他编辑框照选中的样式。 */
+  static fieldRowStyle(style: string, standardField: boolean): string {
+    return standardField ? TouchLayoutStylePolicy.STANDARD : style;
   }
 
   /** 字母层是 26、14 或 18 键这一类（数字行和 123 层补充行只出现在这一类上）：九键网格、假名网格、手写、笔画和大千注音都不算。 */
@@ -292,6 +307,57 @@ export class TouchLayoutStylePolicy {
     ];
   }
 
+  /**
+   * 扩展能力建面板时（视图还没出现）定第一帧的高度：工具条画不画、字母上方多不多一行。键面要等视图按方案画出来才知道，所以用视图上次记下的键面（`TouchPanelFace`，没记过时为 null）配上现在的偏好来算，与 Android 冷启动按记住的样式画第一帧同一个意思：上次停在中文 26 键、开着长空格样式时工具栏一直画着；上次停在 26/14/18 键一类、开着数字行且不是手机横屏时多一行。没记过时与加样式之前相同：工具条只看工具栏设置，不多行。视图出现后仍按同一套规则（`stripShown`、`extraRows`）核对一次，键面与记下的不同时再改高度。
+   *
+   * @param face 视图上次记下的键面
+   * @param numberRow 共享偏好 `touch_number_row`
+   * @param twentySixStyle 共享偏好 `touch_twenty_six_key_style`（已经过 `twentySixKeyStyle`）
+   * @param toolbarRowHidden 工具栏设置空闲时不画这一行（`TouchToolbarPolicy.rowHidden`）
+   * @param phoneLandscape 手机横屏
+   */
+  static firstPanel(
+    face: TouchPanelFace | null,
+    numberRow: boolean,
+    twentySixStyle: string,
+    toolbarRowHidden: boolean,
+    phoneLandscape: boolean,
+  ): TouchPanelShape {
+    const P = TouchLayoutStylePolicy;
+    if (face === null) {
+      return { strip: !toolbarRowHidden, extraRows: 0 };
+    }
+    // 编辑框的属性这时还没到，按普通编辑框算；第一个编辑框是密码框时由视图改回。
+    const longSpace: boolean = P.longSpaceActive(face.chineseTwentySix, twentySixStyle, false);
+    const extraRows: number = numberRow && face.lettersRow && !phoneLandscape ? 1 : 0;
+    return { strip: !toolbarRowHidden || longSpace, extraRows: extraRows };
+  }
+
+  /** 读视图记下的键面（`touchPanelFaceText` 写的那几个字节）；读不懂时为 null，按没记过算。 */
+  static parseTouchPanelFace(text: string): TouchPanelFace | null {
+    let decoded: Object;
+    try {
+      decoded = JSON.parse(text) as Object;
+    } catch {
+      return null;
+    }
+    if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
+      return null;
+    }
+    const record: Record<string, Object> = decoded as Record<string, Object>;
+    if (typeof record.letters_row !== "boolean" || typeof record.chinese_twenty_six !== "boolean") {
+      return null;
+    }
+    return {
+      lettersRow: record.letters_row === true,
+      chineseTwentySix: record.chinese_twenty_six === true,
+    };
+  }
+
+  static touchPanelFaceText(face: TouchPanelFace): string {
+    return `{"letters_row":${face.lettersRow},"chinese_twenty_six":${face.chineseTwentySix}}`;
+  }
+
   /** 中/英键是否紧挨在回车左边：这时两键的触摸分界挪进回车键帽（`KeyboardGeometry.RETURN_YIELD_VP`）。 */
   static languageBesideReturn(row: readonly DesignRowEntry[]): boolean {
     for (let index = 1; index < row.length; index++) {
@@ -306,6 +372,45 @@ export class TouchLayoutStylePolicy {
     return typeof value === "string" && styles.includes(value)
       ? value
       : TouchLayoutStylePolicy.STANDARD;
+  }
+}
+
+/**
+ * 视图请求的手机面板高度（`KeyboardSession.resizeTouchKeyboard`）交给持有面板的扩展能力。冷启动时 `setUiContent` 与视图的 `aboutToAppear` 谁先完成没有保证，视图可能在扩展能力挂上回调之前就按真实键面请求高度（记下的键面已经过时，例如键盘进程没开时在设置里换了方案）；这时请求先留着，扩展能力给第一帧定高度时优先用它（`takePending`），挂上回调时（`attach`）再补发这之间到达的请求，面板不会停在按过时键面定的高度上。
+ */
+export class TouchHeightRelay {
+  private target: ((heightVp: number) => void) | null = null;
+  private pending: number | null = null;
+
+  /** 视图请求一个总高度：回调已挂上就立刻交给它，否则留着最近的一次。 */
+  request(heightVp: number): void {
+    if (this.target !== null) {
+      this.target(heightVp);
+      return;
+    }
+    this.pending = heightVp;
+  }
+
+  /** 取走还没送达的请求（取过即清）；没有时为 null。 */
+  takePending(): number | null {
+    const pending: number | null = this.pending;
+    this.pending = null;
+    return pending;
+  }
+
+  /** 扩展能力挂上改面板高度的回调；之前留着的请求立刻补发。 */
+  attach(target: (heightVp: number) => void): void {
+    this.target = target;
+    const pending: number | null = this.takePending();
+    if (pending !== null) {
+      target(pending);
+    }
+  }
+
+  /** 面板释放：回调不再可用，留着的请求也作废，下一个面板从自己的视图重新收请求。 */
+  detach(): void {
+    this.target = null;
+    this.pending = null;
   }
 }
 

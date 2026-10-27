@@ -8,7 +8,9 @@ import {
   DesignRowSlot,
   NumberRowFace,
   StyledFace,
+  TouchHeightRelay,
   TouchLayoutStylePolicy,
+  TouchPanelShape,
 } from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
 import {
   NineKeyAction,
@@ -70,7 +72,7 @@ group("偏好读法：认识的样式原样保留，缺键、非字符串和不�
   for (const style of ["standard", "long_space", "emoji"]) {
     check(P.fourteenKeyStyle(style) === style, `14 键 ${style}`);
   }
-  for (const style of ["standard", "comma_period", "emoji"]) {
+  for (const style of ["standard", "comma_period", "emoji", "tall_return"]) {
     check(P.nineKeyStyle(style) === style, `9 键 ${style}`);
   }
   for (const value of [undefined, null, 1, true, "", "split", "LONG_SPACE"]) {
@@ -81,6 +83,8 @@ group("偏好读法：认识的样式原样保留，缺键、非字符串和不�
   // 每种键面类型只认它真能画出来的取值：14 键没有 comma_period，九键没有 long_space。
   check(P.fourteenKeyStyle("comma_period") === "standard", "14 键不认 comma_period");
   check(P.nineKeyStyle("long_space") === "standard", "9 键不认 long_space");
+  check(P.twentySixKeyStyle("tall_return") === "standard", "26 键不认 tall_return");
+  check(P.fourteenKeyStyle("tall_return") === "standard", "14 键不认 tall_return");
 });
 
 group("默认行与加样式之前逐键相同", () => {
@@ -198,20 +202,41 @@ group("逗号的长按与下滑", () => {
   check(P.longSpaceActive(true, "long_space", false), "中文 26 键长空格");
   check(!P.longSpaceActive(false, "long_space", false), "英文 26 键不随长空格变化");
   check(!P.longSpaceActive(true, "emoji", false), "其他样式不是长空格");
-  // 与 Android 的 longSpaceLayoutActive 一样排除密码框：用户在密码框里切到中文时画标准底行。
-  check(!P.longSpaceActive(true, "long_space", true), "密码框里长空格不生效");
-  check(P.twentySixRowStyle("long_space", true) === "standard", "密码框里长空格退回标准底行");
-  check(P.twentySixRowStyle("long_space", false) === "long_space", "普通编辑框保留长空格");
-  for (const style of ["standard", "comma_period", "emoji"]) {
-    check(P.twentySixRowStyle(style, true) === style, `密码框里 ${style} 不变`);
-  }
-  check(
-    JSON.stringify(
-      P.designRow(true, false, StyledFace.TWENTY_SIX, P.twentySixRowStyle("long_space", true)),
-    ) === JSON.stringify(P.designRow(true, false, StyledFace.TWENTY_SIX, "standard")),
-    "密码框里中文 26 键底行与标准底行逐键相同",
-  );
+  // 与 Android 的 longSpaceLayoutActive 一样排除密码框和只收数字的编辑框：用户在密码框里切到中文时画标准底行。
+  check(!P.longSpaceActive(true, "long_space", true), "密码框、数字框里长空格不生效");
 });
+
+group(
+  "密码框和只收数字的编辑框：三种键面类型的每种样式都退回标准底行（Android `bottomRowStyle`）",
+  () => {
+    for (const style of ["standard", "comma_period", "long_space", "emoji", "tall_return"]) {
+      check(P.fieldRowStyle(style, true) === "standard", `${style} 退回标准`);
+      check(P.fieldRowStyle(style, false) === style, `普通编辑框保留 ${style}`);
+    }
+    for (const style of ["comma_period", "long_space", "emoji"]) {
+      check(
+        describe(P.designRow(true, false, StyledFace.TWENTY_SIX, P.fieldRowStyle(style, true))) ===
+          describe(P.designRow(true, false, StyledFace.TWENTY_SIX, "standard")),
+        `中文 26 键 ${style} 在密码框里与标准底行逐键相同`,
+      );
+    }
+    for (const style of ["long_space", "emoji"]) {
+      check(
+        describe(P.designRow(false, false, StyledFace.FOURTEEN, P.fieldRowStyle(style, true))) ===
+          describe(P.designRow(false, false, StyledFace.FOURTEEN, "standard")),
+        `14 键 ${style} 在密码框里与标准底行逐键相同`,
+      );
+    }
+    // 九键的每种样式在普通编辑框里都确实换了外框（底行或大回车三列），所以退回标准是看得见的变化；视图经 `nineKeyFrameStyle` 用 `fieldRowStyle` 的接线由 run.sh 钉住。
+    for (const style of ["comma_period", "emoji", "tall_return"]) {
+      check(
+        nine(NineKeyLayout.actionRow(false, false, style)) !==
+          nine(NineKeyLayout.actionRow(false)) || NineKeyLayout.tallReturn(false, style),
+        `九键 ${style} 在普通编辑框里换了外框`,
+      );
+    }
+  },
+);
 
 group("逗号下滑手势：向下过门槛且竖向大于横向才算，点按随之被吞一次", () => {
   const gesture = new CommaSwipeGesture();
@@ -276,6 +301,144 @@ group("九键样式：符 | 123 | ， | 空格 | 。 与 符 | 123 | 😀 | 空�
   );
 });
 
+group("九键「右侧大回车」：网格下方的底行恰好与网格同宽，回车不在这一行", () => {
+  check(NineKeyLayout.tallReturn(false, "tall_return"), "中文九键");
+  check(!NineKeyLayout.tallReturn(true, "tall_return"), "英文九键不受影响");
+  for (const style of ["standard", "comma_period", "emoji"]) {
+    check(!NineKeyLayout.tallReturn(false, style), `${style} 不是大回车`);
+  }
+  const letters = NineKeyLayout.actionRow(false, false, "tall_return");
+  check(
+    nine(letters) === "layer_toggle:1.25 space:3.7 language:1.05",
+    `字母层：123 | 空格 | 中/英：${nine(letters)}`,
+  );
+  const digits = NineKeyLayout.actionRow(true, false, "tall_return");
+  check(
+    nine(digits) === "layer_toggle:1.25 space:2.65 zero:1.05 language:1.05",
+    `数字层：切换键 | 空格 | 0 | 中/英，0 在空格的位置、空格留在 0 左边：${nine(digits)}`,
+  );
+  for (const row of [letters, digits]) {
+    check(close(total(row), NineKeyLayout.GRID_SHARE), `底行恰好与网格同宽：${total(row)}`);
+    check(
+      !row.some(
+        (item) =>
+          item.kind === NineKeyActionKind.SYMBOL_PANEL || item.kind === NineKeyActionKind.RETURN,
+      ),
+      "符 和回车由外框画在左列和右列",
+    );
+    check(!NineKeyLayout.languageBesideReturn(row), "中/英 与回车不在同一行，不让出回车键帽");
+  }
+  check(
+    close(NineKeyLayout.SIDE_SHARE * 2 + NineKeyLayout.GRID_SHARE, 8.3),
+    "左列、网格、右列与普通网格同宽：1.15 | 6 | 1.15",
+  );
+  check(
+    nine(NineKeyLayout.actionRow(false, true, "tall_return")) ===
+      nine(NineKeyLayout.actionRow(false, true)),
+    "英文九键字母层不变",
+  );
+  check(
+    nine(NineKeyLayout.actionRow(true, true, "tall_return")) ===
+      nine(NineKeyLayout.actionRow(true, true)),
+    "英文九键数字层不变",
+  );
+  // ！ 从右列让到左列末尾；其他样式的左列不变。
+  check(NineKeyLayout.sideMarks(true).join(" ") === ", . ? !", "左列末尾多一个 !");
+  check(NineKeyLayout.sideMarks().join(" ") === ", . ?", "其他样式左列仍是 , . ?");
+  check(NineKeyLayout.sideMarks(false).join(" ") === ", . ?", "显式 false 同上");
+  // 默认和其他样式的整行仍以中/英紧挨回车结尾，保留回车让位。
+  for (const style of ["standard", "comma_period", "emoji"]) {
+    check(
+      NineKeyLayout.languageBesideReturn(NineKeyLayout.actionRow(false, false, style)),
+      `${style} 中/英 紧挨回车`,
+    );
+  }
+  check(NineKeyLayout.languageBesideReturn(NineKeyLayout.actionRow(true)), "数字层中/英 紧挨回车");
+});
+
+group("九键「底栏带标点」的逗号长按打开常用标点，与 Android、iOS 相同", () => {
+  check(NineKeyLayout.commaOpensQuickPunctuation(false, false, "comma_period"), "中文九键字母层");
+  check(
+    !NineKeyLayout.commaOpensQuickPunctuation(false, true, "comma_period"),
+    "英文九键的逗号不接长按",
+  );
+  check(
+    !NineKeyLayout.commaOpensQuickPunctuation(true, false, "comma_period"),
+    "数字层没有这个逗号",
+  );
+  for (const style of ["standard", "emoji", "tall_return"]) {
+    check(!NineKeyLayout.commaOpensQuickPunctuation(false, false, style), `${style} 没有这个逗号`);
+  }
+});
+
+group("扩展能力按上次记下的键面定第一帧：数字行和长空格样式的工具条一开始就算进去", () => {
+  const twentySix = { lettersRow: true, chineseTwentySix: true };
+  const nineGrid = { lettersRow: false, chineseTwentySix: false };
+  const english = { lettersRow: true, chineseTwentySix: false };
+  const shape = (value: { strip: boolean; extraRows: number }) =>
+    `${value.strip}:${value.extraRows}`;
+  // 没记过：与加样式之前相同，工具条只看工具栏设置，不多行。
+  check(
+    shape(P.firstPanel(null, true, "long_space", false, false)) === "true:0",
+    "没记过，工具栏开着",
+  );
+  check(
+    shape(P.firstPanel(null, true, "long_space", true, false)) === "false:0",
+    "没记过，工具栏隐藏",
+  );
+  check(
+    shape(P.firstPanel(twentySix, true, "standard", false, false)) === "true:1",
+    "26 键开着数字行多一行",
+  );
+  check(
+    shape(P.firstPanel(twentySix, false, "standard", false, false)) === "true:0",
+    "数字行关着不多行",
+  );
+  check(
+    shape(P.firstPanel(twentySix, true, "standard", false, true)) === "true:0",
+    "手机横屏不多行",
+  );
+  check(
+    shape(P.firstPanel(nineGrid, true, "standard", false, false)) === "true:0",
+    "九键不画数字行",
+  );
+  check(
+    shape(P.firstPanel(english, true, "long_space", true, false)) === "false:1",
+    "英文 26 键有数字行、不算长空格",
+  );
+  check(
+    shape(P.firstPanel(twentySix, false, "long_space", true, false)) === "true:0",
+    "中文 26 键长空格：工具栏设成隐藏也画工具条",
+  );
+  check(
+    shape(P.firstPanel(twentySix, false, "emoji", true, false)) === "false:0",
+    "其他样式照工具栏设置",
+  );
+  // 与视图出现后算的一致：同样的键面和偏好，第一帧的多出行数就是 numberRowExtraRows 的结果。
+  check(
+    P.firstPanel(twentySix, true, "standard", false, false).extraRows ===
+      P.numberRowExtraRows(true, letters, false),
+    "多出的行与视图的数字行门槛一致",
+  );
+  const text = P.touchPanelFaceText(twentySix);
+  check(text === '{"letters_row":true,"chinese_twenty_six":true}', text);
+  const parsed = P.parseTouchPanelFace(text);
+  check(parsed !== null && parsed.lettersRow && parsed.chineseTwentySix, "写下的能读回来");
+  const back = P.parseTouchPanelFace(P.touchPanelFaceText(nineGrid));
+  check(back !== null && !back.lettersRow && !back.chineseTwentySix, "两个 false 也读得回来");
+  for (const broken of [
+    "",
+    "{",
+    "[]",
+    "null",
+    "1",
+    '{"letters_row":1,"chinese_twenty_six":true}',
+    '{"letters_row":true}',
+  ]) {
+    check(P.parseTouchPanelFace(broken) === null, `读不懂的 ${broken} 按没记过`);
+  }
+});
+
 group("数字行门槛：26/14/18 键一类、开关打开、不是手机横屏", () => {
   check(P.numberRowExtraRows(true, letters, false) === 1, "竖屏多一行");
   check(P.numberRowExtraRows(false, letters, false) === 0, "开关关着不画");
@@ -323,6 +486,81 @@ group("中/英 不紧挨回车时回车不让出键帽", () => {
     ]),
     "中间隔着空格",
   );
+});
+
+group("记下的键面过时：视图在扩展能力挂上回调之前请求的高度不会丢，面板停在真实键面的高度", () => {
+  const height = (shape: TouchPanelShape): number =>
+    KeyboardMetrics.totalHeightVp(
+      undefined,
+      0,
+      0,
+      undefined,
+      undefined,
+      false,
+      shape.strip,
+      shape.extraRows,
+    );
+  // 记下的是九键（不算 26/14/18 键一类），键盘进程没开时在设置里换成 26 键、开着数字行。
+  const opened: TouchPanelShape = P.firstPanel(
+    { lettersRow: false, chineseTwentySix: false },
+    true,
+    "standard",
+    false,
+    false,
+  );
+  const actual: TouchPanelShape = {
+    strip: true,
+    extraRows: P.numberRowExtraRows(true, letters, false),
+  };
+  check(
+    opened.extraRows === 0 && actual.extraRows === 1,
+    "扩展能力按过时的键面少算一行，视图按真实键面多一行",
+  );
+  check(height(actual) > height(opened), "两个高度不同");
+  // 照扩展能力的次序走一遍：作废上一个面板的请求 → setUiContent → 定第一帧高度（优先用视图已经请求的）→ 挂上回调。视图的 aboutToAppear 可能落在这三步之间的任意一处，也可能在之后。
+  const open = (viewAppears: "during_mount" | "before_attach" | "after_attach"): number[] => {
+    const relay = new TouchHeightRelay();
+    relay.request(height({ strip: false, extraRows: 0 }));
+    relay.detach();
+    const resized: number[] = [];
+    if (viewAppears === "during_mount") relay.request(height(actual));
+    const requested: number | null = relay.takePending();
+    resized.push(requested !== null ? requested : height(opened));
+    if (viewAppears === "before_attach") relay.request(height(actual));
+    relay.attach((heightVp: number): void => {
+      resized.push(heightVp);
+    });
+    if (viewAppears === "after_attach") relay.request(height(actual));
+    return resized;
+  };
+  const mounted: number[] = open("during_mount");
+  check(
+    mounted.length === 1 && mounted[0] === height(actual),
+    `视图先出现时第一帧直接用它的高度：${mounted.join(",")}`,
+  );
+  const between: number[] = open("before_attach");
+  check(
+    between.length === 2 && between[0] === height(opened) && between[1] === height(actual),
+    `定完第一帧、挂上回调之前出现时挂上就补发：${between.join(",")}`,
+  );
+  const after: number[] = open("after_attach");
+  check(
+    after.length === 2 && after[0] === height(opened) && after[1] === height(actual),
+    `挂上之后出现时直接改高度：${after.join(",")}`,
+  );
+  // 上一个面板留下的请求在 detach 时作废，不会被新面板当成第一帧的高度。
+  for (const order of [mounted, between, after]) {
+    check(order[order.length - 1] === height(actual), "最后停在真实键面的高度");
+  }
+  const released = new TouchHeightRelay();
+  const late: number[] = [];
+  released.attach((heightVp: number): void => {
+    late.push(heightVp);
+  });
+  released.detach();
+  released.request(height(actual));
+  check(late.length === 0, "面板释放后不再改它的高度");
+  check(released.takePending() === height(actual) && released.takePending() === null, "取过即清");
 });
 
 if (failures > 0) {
