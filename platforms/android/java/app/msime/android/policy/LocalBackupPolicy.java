@@ -71,9 +71,11 @@ public final class LocalBackupPolicy {
         return app + "-" + version + "-" + STAMP.format(now);
     }
 
-    /** 配置备份使用 zip 扩展名；其他导出文件共用 {@link #baseName}。 */
+    /** 配置备份在共用文件名中标明用途，再加 zip 扩展名；其他导出文件继续使用 {@link #baseName}。 */
     public static String fileName(String appName, String versionName, LocalDateTime now) {
-        return baseName(appName, versionName, now) + ".zip";
+        String app = safeNamePart(appName, "msime");
+        String version = safeNamePart(versionName, "0");
+        return app + "-配置备份-" + version + "-" + STAMP.format(now) + ".zip";
     }
 
     static String safeNamePart(String value, String fallback) {

@@ -76,7 +76,7 @@ final class LocalBackup {
 
     private LocalBackup() {}
 
-    /** 系统文件选择器里预填的文件名：应用名、版本号和导出时间。 */
+    /** 系统文件选择器里预填的文件名：应用名、配置备份、版本号和导出时间。 */
     static String defaultName(Context context) {
         return LocalBackupPolicy.fileName(context.getString(R.string.app_name),
             UpdateJobService.currentVersion(context), LocalDateTime.now());

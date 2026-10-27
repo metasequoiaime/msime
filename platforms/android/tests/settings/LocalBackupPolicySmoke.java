@@ -20,11 +20,11 @@ public final class LocalBackupPolicySmoke {
         LocalDateTime now = LocalDateTime.of(2026, 10, 8, 9, 5);
         equal(LocalBackupPolicy.baseName("水杉输入法", "0.2.2", now), "水杉输入法-0.2.2-20261008-0905",
             "shared export name carries the app name, version and export time");
-        equal(LocalBackupPolicy.fileName("水杉输入法", "0.2.2", now), "水杉输入法-0.2.2-20261008-0905.zip",
-            "file name carries the app name, the version and the export time");
-        equal(LocalBackupPolicy.fileName("水杉 五笔", "1.0/beta", now), "水杉_五笔-1.0_beta-20261008-0905.zip",
+        equal(LocalBackupPolicy.fileName("水杉输入法", "0.2.2", now), "水杉输入法-配置备份-0.2.2-20261008-0905.zip",
+            "file name identifies the configuration backup, app, version and export time");
+        equal(LocalBackupPolicy.fileName("水杉 五笔", "1.0/beta", now), "水杉_五笔-配置备份-1.0_beta-20261008-0905.zip",
             "characters a file name cannot hold become underscores");
-        equal(LocalBackupPolicy.fileName("", null, now), "msime-0-20261008-0905.zip", "missing name parts fall back");
+        equal(LocalBackupPolicy.fileName("", null, now), "msime-配置备份-0-20261008-0905.zip", "missing name parts fall back");
 
         equal(LocalBackupPolicy.compatibility("msime-android-backup", 1), Compatibility.OK, "current format");
         equal(LocalBackupPolicy.compatibility("msime-android-backup", 2), Compatibility.NEWER_FORMAT,
