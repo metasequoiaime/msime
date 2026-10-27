@@ -18,6 +18,8 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 规格按负载选：一两分钟的检查用 `depot-ubuntu-24.04`，编 wasm 插件用 `-4`，编 Rust、前端或打 vendor 包用 `-8`，Windows 用 `depot-windows-2025-8`，macOS 构建用 `depot-macos-15`。新标签要同时加进 `.github/actionlint.yaml`。
 
+Windows 包定义的离线契约检查同样接受 `depot-windows-*` 和 GitHub 托管的 `windows-*` runner 标签；两者都在 Windows 上执行 `Get-AuthenticodeSignature`。断言匹配完整的 `runs-on` 行，非 Windows runner 和注释中的标签均不能满足契约。
+
 组织里的其他仓库照同一规则改，各自一个 PR。
 
 ## Alternatives considered
@@ -27,10 +29,10 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 ## Consequences
 
-Depot 的 `depot-windows-2025-8` 与 GitHub 的 `windows-2025` 不是同一个镜像：Depot 的装的是 Visual Studio 18（MSBuild 18），GitHub 的是 Visual Studio 2022；Depot 的镜像也不导出 `VCPKG_INSTALLATION_ROOT`，vcpkg 仍在 `C:\vcpkg`，`Windows native settings` 因此在开头补上这个变量。Depot 的 Windows 桌面只有约 800×600（GitHub 是 1024×768），Windows 不让窗口超出屏幕，设置界面检查要的 1000 px 宽窗口被压到 820 px，宽布局断言因此失败；同一个 job 在界面检查前把桌面调到至少 1280×1024，调不了就带原因失败。挪过去的 Windows CI 换了编译器，与本来就在 Depot 上的 `release-windows.yml` 反而一致了。
+Depot 的 `depot-windows-2025-8` 与 GitHub 的 `windows-2025` 不是同一个镜像：Depot 的装的是 Visual Studio 18（MSBuild 18），GitHub 的是 Visual Studio 2022；Depot 的镜像也不导出 `VCPKG_INSTALLATION_ROOT`，vcpkg 仍在 `C:\vcpkg`，`Windows native settings` 因此在开头补上这个变量。Depot 的 Windows 桌面只有约 800×600（GitHub 是 1024×768），设置界面验收需要按实际可用行宽判断布局，见[剪贴板布局验收](../feature/2026-10-20-windows-settings-page-tabs.md)。不把调用 `EnumDisplaySettings` 调大桌面作为构建前置：该 API 在 Depot 的当前会话中返回失败，会让原本能运行的编译和自适应布局验收直接跳过。挪过去的 Windows CI 换了编译器，与本来就在 Depot 上的 `release-windows.yml` 反而一致了。
 
 GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、少数特殊机型和截图，平时 PR 不再因为额度排队；Windows 设置编译从 4 核换到 8 核。代价是这些 job 依赖 Depot 的可用性，Depot 出故障时 PR 检查会卡住而不是变慢；Depot 的 macOS 并发本来就紧，`release-pack-tool` 的 macOS 构建挪过去后发 pack 工具时可能和 macOS CI 抢机器。
 
 ## Verification
 
-`actionlint` 通过。PR 上会触发的检查（quality、contracts、ci-docs 等）由本 PR 的 CI 在 Depot 上实际跑一遍；`Windows native settings`、发版工作流和定时任务里挪过去的 job 要到下一次被触发时才实际跑到，`pull_request_target` 的几个要等下一个 PR。
+`python3 scripts/test-windows-package-managers.py` 通过；合成 runner 标签回归接纳 `windows-2025` 和 `depot-windows-2025-8`，拒绝 Ubuntu、畸形标签以及注释中的 Windows 标签。`actionlint` 通过。PR 上会触发的检查（quality、contracts、ci-docs 等）由本 PR 的 CI 在 Depot 上实际跑一遍；`Windows native settings`、发版工作流和定时任务里挪过去的 job 要到下一次被触发时才实际跑到，`pull_request_target` 的几个要等下一个 PR。
