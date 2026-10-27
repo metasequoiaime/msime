@@ -8,7 +8,9 @@ enable_testing()
 # Exercise the exact production definition file without pretending to build
 # the complete TIP or providing stub definitions for its native dependencies.
 add_library(tsf-export-fixture SHARED exports.cpp ../../IME/MetasequoiaIME.def ../../IME/MetasequoiaIME.rc)
-target_include_directories(tsf-export-fixture PRIVATE ../.. ../../Header)
+# The version resource takes its numbers from the header the product version module generates.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../../ProductVersion.cmake")
+target_include_directories(tsf-export-fixture PRIVATE ../.. ../../Header "${MSIME_TSF_VERSION_INCLUDE_DIR}")
 if(MINGW)
   target_link_options(tsf-export-fixture PRIVATE -Wl,--enable-stdcall-fixup)
 endif()
