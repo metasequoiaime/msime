@@ -534,7 +534,7 @@ if(BUILD_TESTING)
       --host-library "${MSIME_HOST_LIBRARY}"
       --version "${MSIME_LINUX_VERSION}" --client-directory "${MSIME_CLIENT_DIRECTORY}"
       --telemetry-directory "${MSIME_EDITION_FCITX5_ADDON}")
-  set_tests_properties(linux-python-crash-capture PROPERTIES TIMEOUT 120)
+  set_tests_properties(linux-python-crash-capture PROPERTIES TIMEOUT 180)
   if(TARGET msime-linux-clipboard-watch-x11 AND MSIME_XVFB_RUN)
     add_test(NAME linux-x11-auxiliary-crash-capture
       COMMAND "${MSIME_XVFB_RUN}" -a "${Python3_EXECUTABLE}"

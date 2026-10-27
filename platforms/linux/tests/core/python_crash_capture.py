@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import resource
 import runpy
+import select
 import shutil
 import signal
 import subprocess
@@ -24,6 +25,9 @@ class PythonFixture(Fixture):
     def __init__(self, root, settings, installation):
         super().__init__(root, settings)
         self.installation = installation
+        self.client_directory = settings.client_directory
+        edition = runpy.run_path(str(installation / "msime_voice_paths.py"))["EDITION"]
+        self.setup_name = "msime-linux-setup" if edition == "full" else "msime-linux-%s-setup" % edition
         self.runtime = root / "runtime"
         self.runtime.mkdir(mode=0o700)
         self.environment.update(PYTHONDONTWRITEBYTECODE="1", WAYLAND_DISPLAY="synthetic-wayland")
@@ -132,6 +136,94 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         assert process.returncode == 1
         self.check_records("clipboard-monitor", expected, version, python_exception=True)
 
+    def configuration(self, component, expected, version, fault="native", change=None, explicit=False, query=None, provider="online"):
+        script = self.installation / (self.setup_name if component == "setup" else "msime-linux-provider-session")
+        if component == "setup":
+            arguments = ["--update", "--state", str(self.options.parent)] if explicit else ["--register"]
+            pause = "read_dictionary_lock" if explicit else "use_runtime_session_bus"
+            if query:
+                arguments = [query]
+                pause = "input_method_status" if query == "--status" else "read_dictionary_lock"
+        else:
+            arguments, pause = [provider], None
+            if provider == "online":
+                # 在线服务的启动器和子进程同样使用 XDG 配置目录里的偏好。
+                shutil.copyfile(self.preferences / "preferences.json", self.options.parent / "preferences.json")
+        self.environment["XDG_RUNTIME_DIR"] = str(self.runtime)
+        injection = """
+import pathlib, runpy, sys
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).parent))
+sys.argv = [sys.argv[1], *sys.argv[3:]]
+namespace = runpy.run_path(sys.argv[0], run_name="synthetic_configuration")
+def pause(*args, **kwargs):
+    print("ready", flush=True)
+    while True:
+        command = sys.stdin.buffer.read(1)
+        if command == b"?":
+            capture = getattr(sys.modules.get("msime_crash_capture"), "_capture", None)
+            armed = capture is not None and capture.library.msime_python_crash_is_armed() != 0
+            print("armed" if armed else "disarmed", flush=True)
+        else:
+            raise FAULT("synthetic-private-exception")
+"""
+        injection = injection.replace("FAULT", "SystemExit" if fault == "handled" else "RuntimeError")
+        injection += ("namespace['main'].__globals__[%r] = pause\n" % pause if pause else
+                      "pathlib.Path.mkdir = pause\n")
+        injection += "namespace['main']()\n"
+        process = subprocess.Popen([sys.executable, "-c", injection, str(script), "fixture", *arguments],
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   env=self.environment)
+        try:
+            # 暂停点在真实 main 完成采集初始化之后、任何注册/下载/exec 操作之前。
+            assert select.select([process.stdout], [], [], 10)[0], (component, "not ready")
+            assert process.stdout.readline() == b"ready\n", (component, process.poll())
+            if change:
+                change()
+            if fault != "handled":
+                def observed():
+                    assert process.poll() is None, (component, provider, "exited before consent refresh")
+                    process.stdin.write(b"?")
+                    process.stdin.flush()
+                    assert select.select([process.stdout], [], [], 10)[0], (component, provider, "no state")
+                    return process.stdout.readline() == (b"armed\n" if expected else b"disarmed\n")
+                wait_for(observed, "配置进程未完成实际同意刷新：%s/%s" % (component, provider))
+            if fault == "native":
+                process.send_signal(signal.SIGABRT)
+                assert process.wait(timeout=15) == -signal.SIGABRT
+            else:
+                process.stdin.write(b"x")
+                process.stdin.flush()
+                assert process.wait(timeout=15) == 1
+            if expected and fault == "exception":
+                raw = self.records()[0].read_text()
+                assert "Python unhandled exception" in raw and script.name + "!main:" in raw, raw
+            self.check_records(component, expected, version)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=10)
+            process.stdin.close()
+            process.stdout.close()
+
+    def provider_exec(self, expected, version, provider):
+        self.environment["XDG_RUNTIME_DIR"] = str(self.runtime)
+        if provider == "online":
+            shutil.copyfile(self.preferences / "preferences.json", self.options.parent / "preferences.json")
+        process = subprocess.Popen([sys.executable, str(self.installation / "msime-linux-provider-session"), provider],
+                                   env=self.environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            def ready():
+                assert process.poll() is None, ("provider exec", process.returncode)
+                return (self.runtime / self.client_directory / (provider + ".sock")).exists()
+            wait_for(ready, "启动器未 exec 到实际 provider")
+            process.send_signal(signal.SIGABRT)
+            assert process.wait(timeout=15) == -signal.SIGABRT
+            self.check_records(provider + "-provider", expected, version)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=10)
+
 
 def main():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
@@ -149,11 +241,13 @@ def main():
         root = Path(temporary).resolve()
         installation = root / "product" / "bin"
         installation.mkdir(parents=True)
-        for path in args.scripts.iterdir():
-            if path.suffix == ".py" or path.name in ("msime-linux-online-provider", "msime-linux-voice-provider", "msime-linux-clipboard-monitor"):
-                shutil.copyfile(path, installation / path.name)
-        shutil.copyfile(args.paths, installation / "msime_voice_paths.py")
         paths = runpy.run_path(str(args.paths))
+        setup_name = "msime-linux-setup" if paths["EDITION"] == "full" else "msime-linux-%s-setup" % paths["EDITION"]
+        for path in args.scripts.iterdir():
+            if path.suffix == ".py" or path.name in ("msime-linux-online-provider", "msime-linux-voice-provider", "msime-linux-clipboard-monitor", "msime-linux-provider-session", "msime-linux-setup", setup_name):
+                name = setup_name if path.name == "msime-linux-setup" else path.name
+                shutil.copy2(path, installation / name)
+        shutil.copyfile(args.paths, installation / "msime_voice_paths.py")
         bridge = installation / paths["CRASH_LIBRARY"]
         bridge.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(args.bridge, bridge)
@@ -200,13 +294,57 @@ def main():
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
             assert result.returncode == 1
             assert not fixture.records(), "普通请求拒绝不能成为崩溃"
-        for script in ("msime-linux-online-provider", "msime-linux-voice-provider", "msime-linux-clipboard-monitor"):
+        for component in ("setup", "provider-session"):
+            for enabled in (False, True):
+                for fault in ("native", "exception", "handled"):
+                    fixture = PythonFixture(root / (component + fault + str(enabled)), args, installation)
+                    fixture.control("enable" if enabled else "disable")
+                    fixture.configuration(component, enabled and fault != "handled", args.version, fault)
+            for mode in ("disable", "enable", "invalid"):
+                fixture = PythonFixture(root / (component + mode), args, installation)
+                fixture.control("disable" if mode == "enable" else "enable")
+                def change():
+                    if mode == "invalid":
+                        target = fixture.options if component == "setup" else fixture.options.parent / "preferences.json"
+                        target.write_text("{synthetic-private-invalid")
+                    else:
+                        fixture.control(mode)
+                        if component == "provider-session":
+                            shutil.copyfile(fixture.preferences / "preferences.json", fixture.options.parent / "preferences.json")
+                fixture.configuration(component, mode == "enable", args.version, change=change)
+        fixture = PythonFixture(root / "setup-explicit-state", args, installation)
+        fixture.control("enable")
+        custom = fixture.root / "custom-state"
+        custom.mkdir()
+        custom.joinpath("runtime-options.json").write_text(fixture.options.read_text())
+        # 默认位置指向关闭的偏好；--state 必须仍跟随实际配置目录并记录故障。
+        other = fixture.root / "disabled-preferences"
+        fixture.control("disable", other)
+        fixture.options.write_text(json.dumps({"preferences_directory": str(other)}))
+        fixture.options = custom / "runtime-options.json"
+        fixture.configuration("setup", True, args.version, explicit=True)
+        for query in ("--status", "--list-downloads"):
+            fixture = PythonFixture(root / ("setup-query" + query), args, installation)
+            fixture.control("enable")
+            fixture.configuration("setup", False, args.version, query=query)
+        for provider in ("online", "voice"):
+            for enabled in (False, True):
+                fixture = PythonFixture(root / (provider + "-exec" + str(enabled)), args, installation)
+                fixture.control("enable" if enabled else "disable")
+                fixture.provider_exec(enabled, args.version, provider)
+                if provider == "voice":
+                    fixture = PythonFixture(root / (provider + "-launcher" + str(enabled)), args, installation)
+                    fixture.control("enable" if enabled else "disable")
+                    # XDG 目录的同意与 options 指向的偏好相反，启动器必须跟随语音子进程。
+                    fixture.control("disable" if enabled else "enable", fixture.options.parent)
+                    fixture.configuration("provider-session", enabled, args.version, provider=provider)
+        for script in ("msime-linux-online-provider", "msime-linux-voice-provider", "msime-linux-clipboard-monitor", "msime-linux-provider-session", setup_name):
             home = root / (script + "-help")
             result = subprocess.run([sys.executable, str(installation / script), "--help"],
                                     env=dict(os.environ, HOME=str(home), XDG_STATE_HOME=str(home / "state")),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
             assert result.returncode == 0 and not home.exists()
-    print("Linux Python 六个入口：致命信号、异常脱敏、动态同意、原版本补报及无输入会话通过")
+    print("Linux Python 八个入口：致命信号、异常脱敏、动态同意、原版本补报及无输入会话通过")
 
 
 if __name__ == "__main__":

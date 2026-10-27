@@ -13,6 +13,7 @@ _preferences = ""
 _options = ""
 _source_names = frozenset((
     "msime-linux-online-provider", "msime-linux-voice-provider", "msime-linux-clipboard-monitor",
+    "msime-linux-setup", "msime-linux-provider-session",
     "msime_provider_runtime.py", "msime_voice_doubao.py", "msime_voice_local.py",
     "msime_voice_polish_prompts.py", "msime_voice_provider_catalog.py", "host_api.py",
 ))
@@ -58,13 +59,15 @@ class _Capture:
 
 def start(component, preferences=None, options=None):
     """解析参数后在主线程调用一次；源码树缺少安装身份时安静停用。"""
-    global _capture, _preferences, _options
+    global _capture, _preferences, _options, _source_names
     if _capture is not None:
         return
     _preferences = str(preferences) if preferences is not None else ""
     _options = str(options) if options is not None else ""
     try:
-        from msime_voice_paths import CRASH_LIBRARY
+        from msime_voice_paths import CRASH_LIBRARY, EDITION
+        if re.fullmatch(r"[a-z][a-z0-9]*", EDITION):
+            _source_names = _source_names | {"msime-linux-%s-setup" % EDITION}
         root = Path(__file__).resolve().parent
         library = ctypes.CDLL(str(root / CRASH_LIBRARY))
         library.msime_python_crash_start.argtypes = [ctypes.c_char_p] * 3

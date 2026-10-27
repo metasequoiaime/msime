@@ -13,7 +13,8 @@ extern "C" void *msime_python_crash_start(const char *component, const char *pre
       return nullptr;
     const std::string name(component);
     if (name != "online-provider" && name != "online-http" && name != "voice-provider" &&
-        name != "voice-http" && name != "clipboard-monitor" && name != "clipboard-event")
+        name != "voice-http" && name != "clipboard-monitor" && name != "clipboard-event" &&
+        name != "setup" && name != "provider-session")
       return nullptr;
     const std::filesystem::path directory(preferences ? preferences : "");
     const std::filesystem::path runtime(options ? options : "");
@@ -30,6 +31,11 @@ extern "C" void *msime_python_crash_start(const char *component, const char *pre
 
 extern "C" void msime_python_crash_stop(void *capture) noexcept {
   delete static_cast<msime::telemetry::CaptureOnly *>(capture);
+}
+
+// 只读就绪状态；设备回归据此等待实际观察器完成，不用固定睡眠猜测同意已生效。
+extern "C" int msime_python_crash_is_armed() noexcept {
+  return msime::crash::is_armed() ? 1 : 0;
 }
 
 extern "C" void msime_python_crash_exception(const char *frames) noexcept {
