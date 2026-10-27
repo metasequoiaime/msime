@@ -446,6 +446,8 @@ public final class VoiceRecognitionActivity extends Activity {
                     case PERMISSION -> DiagnosticEventKind.VOICE_FAILURE_PERMISSION;
                     case UNAVAILABLE -> DiagnosticEventKind.VOICE_FAILURE_AUDIO;
                     case NETWORK -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
+                    case TIMEOUT -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
+                    case SERVICE_TIMEOUT, LIMIT, SERVICE -> DiagnosticEventKind.VOICE_FAILURE_RESPONSE;
                     case EMPTY -> DiagnosticEventKind.VOICE_EMPTY;
                     case CANCELLED -> DiagnosticEventKind.VOICE_CANCELLED;
                 });
@@ -453,6 +455,9 @@ public final class VoiceRecognitionActivity extends Activity {
                     case PERMISSION -> "语音识别需要麦克风权限";
                     case UNAVAILABLE -> "麦克风被其他应用占用";
                     case NETWORK -> "语音服务未响应，请检查网络与密钥";
+                    case TIMEOUT, SERVICE_TIMEOUT -> "语音服务请求超时，请稍后重试";
+                    case LIMIT -> "音频超过服务限制，请缩短录音";
+                    case SERVICE -> "语音服务拒绝请求，请检查服务配置";
                     case EMPTY -> "没有听到内容";
                     case CANCELLED -> null;
                 };

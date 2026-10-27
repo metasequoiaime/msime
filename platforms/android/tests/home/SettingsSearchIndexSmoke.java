@@ -58,6 +58,8 @@ public final class SettingsSearchIndexSmoke {
         }
         // #6132：搜「浮动」要找到键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("浮动"), "searching 浮动 finds the keyboard page");
+        check(pages.containsKey("FUZZY_PINYIN") && pages.get("FUZZY_PINYIN").matches("前后鼻音"),
+            "searching 前后鼻音 finds the fuzzy-pinyin rule page");
         System.out.println("SettingsSearchIndexSmoke ok");
     }
 

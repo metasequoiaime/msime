@@ -4,13 +4,15 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.function.Predicate;
+import android.os.SystemClock;
+import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** 验证引擎生成模糊拼音候选，以及关闭开关后保留规则的行为。 */
 public final class FuzzyPinyinDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "fuzzy-pinyin candidate generation, disabled-rule retention and deferred update";
+        return "fuzzy-pinyin candidate generation, native rule selection and persistence";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -53,6 +55,27 @@ public final class FuzzyPinyinDeviceSmoke extends DeviceSmoke {
             if (fuzzy.getBoolean("enabled") || !fuzzy.getJSONArray("rules").toString().contains("z-zh")) {
                 throw new AssertionError("disabled fuzzy rule was not retained");
             }
+
+            stage = "native fuzzy rules select independently";
+            openRuleSettings();
+            tapSetting("z ↔ zh");
+            awaitFuzzy(preferences, value -> !hasRule(value, "z-zh") && value.optBoolean("seeded", false));
+            tapSetting("an ↔ ang");
+            awaitFuzzy(preferences, value -> hasRule(value, "an-ang") && !hasRule(value, "z-zh"));
+            tapSetting("en ↔ eng");
+            awaitFuzzy(preferences, value -> hasRule(value, "an-ang") && hasRule(value, "en-eng"));
+            tapSetting("en ↔ eng");
+            awaitFuzzy(preferences, value -> hasRule(value, "an-ang") && !hasRule(value, "en-eng"));
+
+            stage = "native fuzzy rules persist through first enable and reopen";
+            openRuleSettings();
+            tapSetting("启用模糊音");
+            awaitFuzzy(preferences, value -> value.optBoolean("enabled", false)
+                && hasRule(value, "an-ang") && !hasRule(value, "z-zh"));
+            openRuleSettings();
+            await(setting("z ↔ zh").and(node -> !node.isChecked()));
+            scrollToSetting("an ↔ ang");
+            await(setting("an ↔ ang").and(AccessibilityNodeInfo::isChecked));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
@@ -85,6 +108,49 @@ public final class FuzzyPinyinDeviceSmoke extends DeviceSmoke {
 
     private void openEditor() throws Exception {
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+    }
+
+    private void openRuleSettings() throws Exception {
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page TYPING");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page FUZZY_PINYIN");
+        await(node -> equalsText("app.msime.android", node.getPackageName())
+            && equalsText("启用模糊音", node.getText()));
+    }
+
+    private Predicate<AccessibilityNodeInfo> setting(String label) {
+        return node -> equalsText("app.msime.android", node.getPackageName()) && node.isCheckable()
+            && find(node, child -> equalsText(label, child.getText())) != null;
+    }
+
+    private void scrollToSetting(String label) throws Exception {
+        for (int attempt = 0; attempt < 8; attempt++) {
+            if (findVisible(setting(label).and(AccessibilityNodeInfo::isVisibleToUser)) != null) return;
+            await(node -> equalsText("app.msime.android", node.getPackageName()) && node.isScrollable())
+                .performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+        }
+        throw new AssertionError("Fuzzy rule setting is not reachable: " + label);
+    }
+
+    private void tapSetting(String label) throws Exception {
+        scrollToSetting(label);
+        tap(setting(label));
+    }
+
+    private void awaitFuzzy(File preferences, Predicate<JSONObject> expected) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 10000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            JSONObject saved = new JSONObject(new String(Files.readAllBytes(preferences.toPath()), StandardCharsets.UTF_8));
+            if (expected.test(saved.getJSONObject("preferences").getJSONObject("fuzzy_pinyin"))) return;
+            SystemClock.sleep(100);
+        }
+        throw new AssertionError("Fuzzy rule preference was not saved");
+    }
+
+    private boolean hasRule(JSONObject fuzzy, String id) {
+        JSONArray rules = fuzzy.optJSONArray("rules");
+        if (rules == null) return false;
+        for (int index = 0; index < rules.length(); index++) if (id.equals(rules.optString(index))) return true;
+        return false;
     }
 
 
