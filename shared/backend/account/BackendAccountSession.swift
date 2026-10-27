@@ -195,6 +195,16 @@ func backendClipboardKeystoreValue(_ data: Data) -> String? {
   return value
 }
 
+/// 密钥串里代表设备身份的那一段 `v1.<私钥>`（私钥是 43 个 base64url 字符），剪贴板密钥换了它也不变；格式不对时为 nil。与 Android 的 `CloudClipboardKeystore.identity` 相同。
+func backendClipboardKeystoreIdentity(_ value: String) -> String? {
+  guard value.hasPrefix("v1.") else { return nil }
+  let secret = value.dropFirst(3).prefix { $0 != "." }
+  guard secret.count == 43,
+        secret.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_") })
+  else { return nil }
+  return "v1." + secret
+}
+
 #if os(macOS)
 /// macOS 的账号会话：输入法 Application Support 目录下的 `account-session.json`，由本进程和设置应用（`crates/client-services` 中的 `FileAccountSessionStorage`）读写。双方每次写入前后都持有旁边的 `account-refresh.lock`，因此谁都不会用对方已经用掉的刷新令牌去刷新；一旦有已用过的令牌被交回，服务端会吊销该会话。仅属主可访问，且从不跟随符号链接。
 struct BackendDesktopSessionFile: BackendSessionStorage {
