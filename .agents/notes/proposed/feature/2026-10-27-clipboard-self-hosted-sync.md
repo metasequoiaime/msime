@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-#9989 希望在 Windows、Android、Linux 等设备间同步常用词库和剪贴板，并提出 WebDAV、S3 或自建服务器。仓库已经实现账号云剪贴板、自建 HTTP 中继和 [WebDAV 虚拟中继](../../implemented/feature/2026-10-26-cloud-clipboard-webdav.md)。WebDAV 已有设备批准、端到端加密、不可变事件、压缩和回滚检测；不能把它描述为尚未实现的后端。本篇记录现有文本同步之外的待评估扩展，不改变现行协议。
+#9989 希望在 Windows、Android、Linux 等设备间同步常用词库和剪贴板，并提出 WebDAV、S3 或自建服务器。仓库已经实现账号云剪贴板、自建 HTTP 中继和 [WebDAV 虚拟中继](../../implemented/feature/2026-10-26-cloud-clipboard-webdav.md)。WebDAV 已有设备批准、端到端加密、不可变事件、压缩和回滚检测；不能把它描述为尚未实现的后端。本篇记录现有文本同步之外的待评估扩展，不改变现行协议；#9989 提到的常用词库同步见 [自建存储个人词库同步方案](2026-10-27-dictionary-self-hosted-sync.md)。
 
 ## Proposal
 
