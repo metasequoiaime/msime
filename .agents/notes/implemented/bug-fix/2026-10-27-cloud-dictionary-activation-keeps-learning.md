@@ -29,6 +29,7 @@ Status: implemented
 - **在哪一步做**：在 `activate_with_hook` 里，拿到独占维护权、版本核对通过、新一代的试开会话关掉、调过 `close_cached_databases` 之后，调用 `carry_local_learning(active, staged, scratch)`。
   - 这时排着的整句联想已经写进旧日志。不在入队时导出：习惯表不在本机版本的校验范围内，入队到激活之间学到的整句联想会漏掉。
   - 合并完不论成败都再调一次 `close_cached_databases`：成功时接着改名换入，失败时调用方要删掉暂存的新一代，Windows 上两者都不能有打开着的 SQLite 文件。
+- **合并后整代可读**：输入记录和习惯合并完后，用 `dictionary_state_revision(staged)` 按后续读取版本的路径验证整代，再允许换入。旧代与云端快照各自合法不代表合并后的总量合法：499,999 条本机选词计数加两条云端用户词会超过 Engine 的 500,000 条上限。超限或整代不可读时按合并失败处理，不发布新一代、不删除旧代。
 - **合并进哪一代**：并进还没换入的新一代，不是换入以后再并回当前这一代。合并失败（磁盘满、I/O 失败）时报 `snapshot learning merge failed`，激活不做，旧的一代原样留着，请求停在 `preparing`，下次空闲再认领重试。
 - **导出和合并的内容**：都复用本地备份的代码，语义也与本地备份恢复相同。
   - 输入记录：用 `learning_records` 写成一份只有输入记录的快照（与 `queue_learning_merge` 写的待合并文件同一个形状），放在这次准备的私有暂存目录里，再用 `merge_dictionary_state` 并进新一代。它同时改新一代的日志和工作词库。
@@ -70,5 +71,6 @@ Status: implemented
   - `keep_local_learning_is_persisted_only_when_it_differs_from_the_owner_default`：账号为真、`local-backup` 为假时 `state.json` 里没有这个字段，反过来时写出来，四种都在认领时原样带出。
   - `a_request_queued_before_the_flag_keeps_learning_unless_it_is_a_local_backup`：没有这个字段的旧请求，账号的读成真，`local-backup` 的读成假。
   - `android_v1` 的 `decodes_every_java_fixture`：旧版 Java 队列转换来的账号请求带标记，本地备份的不带。
+- 边界回归 `a_cloud_download_over_the_combined_record_limit_keeps_the_active_generation`：真实云下载排队与激活，499,999 条合成选词计数加两条云端用户词；修前激活后版本读取失败，修后失败时旧版本和全部旧记录仍可读。修后整个 `dictionary_snapshot` 测试组 43 项通过。
 - Android 的 Java、Kotlin 和 Tauri 侧（`DictionarySnapshotQueue.enqueue`、`AccountPlugin.enqueueSnapshot`、`android_account.rs`）没有编译验证，也没有跑 Android 构建。
 - 真机复现和复验（Android 上先学一个调权，在另一台设备改词库触发下载，收起键盘后看调权是否还在）还没有做。

@@ -1881,6 +1881,14 @@ fn downloading_device() -> LearningDevice {
 
 /// 按云同步的路走一遍「下载」：云端快照来自另一台设备，有用户词你好和泥好，不带输入记录（云同步上传时 `include_learning` 为假）。`from_cloud_sync` 为真时就用云同步的 `HostLocal::replace_dictionary` 按键盘发布的本机版本排进队列，标记由它决定；为假时像本地备份恢复那样直接排一份不带标记的请求。再像键盘空闲时那样处理队列（`process`），断言请求已经激活。排队之后、激活之前本机又学到一条整句联想（它不在本机版本里，排队时的版本照样对得上）。
 fn download_into(device: &LearningDevice, from_cloud_sync: bool) {
+    let state = try_download_into(device, from_cloud_sync).unwrap();
+    assert_eq!(state["request"]["status"], "applied", "{state}");
+}
+
+fn try_download_into(
+    device: &LearningDevice,
+    from_cloud_sync: bool,
+) -> Result<serde_json::Value, String> {
     use sha2::Digest;
     let cloud_device = LearningDevice::new();
     for (request, word) in [("cloud-nihao", "你好"), ("cloud-nihao-2", "泥好")] {
@@ -1928,7 +1936,7 @@ fn download_into(device: &LearningDevice, from_cloud_sync: bool) {
 
     let staging = device.root.path().join("staging");
     std::fs::create_dir(&staging).unwrap();
-    let state = super::snapshot_queue_process_with(
+    super::snapshot_queue_process_with(
         &queue,
         staging.to_str().unwrap().into(),
         options(),
@@ -1936,8 +1944,6 @@ fn download_into(device: &LearningDevice, from_cloud_sync: bool) {
         |_| Ok(specification),
         &[],
     )
-    .unwrap();
-    assert_eq!(state["request"]["status"], "applied", "{state}");
 }
 
 /// 激活以后本机还在的输入记录和输入习惯，以及丢掉的那些的名字。
@@ -2019,4 +2025,30 @@ fn an_activation_without_keep_local_learning_replaces_the_learning() {
     let device = downloading_device();
     download_into(&device, false);
     assert_eq!(lost_learning(&device).len(), 7);
+}
+
+/// 两份各自合法的状态合并后超限时，不能换入一代连版本都读不出的日志。
+#[test]
+fn a_cloud_download_over_the_combined_record_limit_keeps_the_active_generation() {
+    let device = LearningDevice::with_learning();
+    device.sql(
+        "DELETE FROM user_dictionary_operations;
+         DELETE FROM fixed_candidate_positions;
+         DELETE FROM candidate_selection_state;
+         WITH RECURSIVE rows(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM rows WHERE n<499999)
+         INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count)
+         SELECT printf('%06d',n),'a','x',1 FROM rows;",
+    );
+    let before = super::version(&device.options).unwrap();
+    let result = try_download_into(&device, true);
+    assert!(result.is_err(), "超限的新一代不能发布：{result:?}");
+    assert_eq!(super::version(&device.options), Ok(before));
+    assert_eq!(
+        device.number("SELECT count(*) FROM candidate_selection_state"),
+        Some(499999)
+    );
+    assert_eq!(
+        device.number("SELECT count(*) FROM user_dictionary_operations"),
+        Some(0)
+    );
 }

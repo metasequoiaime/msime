@@ -1643,6 +1643,8 @@ fn carry_local_learning(
     if exported > 0 {
         habits::merge_claimed_habits(staged, &path).map_err(|_| FAILED)?;
     }
+    // 两份各自合法的记录合并后仍可能超过总量上限；换入前按后续版本读取的同一条路径验证整代，失败时保留旧代。
+    dictionary_state_revision(staged).map_err(|_| FAILED)?;
     Ok(())
 }
 
