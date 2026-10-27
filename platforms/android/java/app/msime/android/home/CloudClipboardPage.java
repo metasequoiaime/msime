@@ -319,7 +319,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         boolean editing = current.mode() == Mode.WEBDAV;
         boolean keepPassword = editing && current.secretSaved();
         InputDialog dialog = new InputDialog(requireContext(), "WebDAV 网盘",
-            "服务器地址是网盘里存放云剪贴板的文件夹，例如坚果云的 https://dav.jianguoyun.com/dav/msime；应用密码是网盘为第三方应用生成的密码，不是登录密码。\n" + WEBDAV_NOTE);
+            "服务器地址：坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。应用密码是网盘为第三方应用生成的密码，不是登录密码。\n" + WEBDAV_NOTE);
         EditText url = dialog.addField("服务器地址", editing ? current.url() : "",
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         EditText account = dialog.addField("账号", editing ? current.username() : "",

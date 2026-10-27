@@ -43,7 +43,6 @@ pub const RUNTIME_ROOTS_OVERLAP: &str =
 pub const INCOMPLETE_RUNTIME_GENERATION: &str = "Incomplete runtime dictionary generation";
 /// Followed by the replay error.
 pub const RUNTIME_REPLAY_FAILED: &str = "Runtime dictionary replay failed: ";
-pub const RUNTIME_STAGING_EXISTS: &str = "Runtime dictionary staging directory already exists";
 /// Followed by the source path.
 pub const RUNTIME_COPY_FAILED: &str = "Unable to copy runtime dictionary: ";
 pub const RUNTIME_FINALIZE_FAILED: &str = "Cannot finalize runtime dictionary generation";

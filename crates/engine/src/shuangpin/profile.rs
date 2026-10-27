@@ -318,9 +318,9 @@ pub fn profile(kind: ShuangpinProfileKind) -> Option<&'static ShuangpinProfile> 
     }
 }
 
-/// Spellings the quanpin table accepts but the historical shuangpin `pinyin.txt` did not; keeping them out preserves the ambiguous-segmentation results users are used to (shuangpin_utils.cpp:40-47). `yo` was removed from this list by the shuangpin_yo overlay.
-const EXCLUDED_SYLLABLES: [&str; 13] = [
-    "chua", "den", "fiao", "jve", "lo", "lue", "nou", "nue", "nun", "qve", "xve", "yve", "zhei",
+/// 全拼接受、历史双拼音节表未收录的拼写。保留其余排除项以维持既有歧义切分；`yo` 和 `den` 已按实际输入需求接纳。
+const EXCLUDED_SYLLABLES: [&str; 12] = [
+    "chua", "fiao", "jve", "lo", "lue", "nou", "nue", "nun", "qve", "xve", "yve", "zhei",
 ];
 
 pub fn accepted_syllables() -> &'static HashSet<&'static str> {
@@ -429,9 +429,10 @@ mod tests {
     }
 
     #[test]
-    fn accepted_set_keeps_yo_and_drops_the_historical_exclusions() {
+    fn accepted_set_keeps_yo_and_den_and_drops_the_historical_exclusions() {
         let set = accepted_syllables();
         assert!(set.contains("yo"));
+        assert!(set.contains("den"));
         assert!(set.contains("eng"));
         for excluded in EXCLUDED_SYLLABLES {
             assert!(!set.contains(excluded), "{excluded} is accepted");
