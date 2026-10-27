@@ -173,7 +173,7 @@ function DictionarySyncSettings({
             </p>
           )}
           {status?.device_id && status.code && !status.approved && (
-            <div aria-label="本设备等待允许">
+            <div className={settings.syncPrompt} aria-label="本设备等待允许">
               <p className={settings.managerNote}>
                 本设备还没有获准同步词库。在一台已在同步词库的设备上打开「词库」设置里的「词库同步」，确认那里显示的核对码与下面完全一致后点「允许」，再回到这里点「立即同步」。
               </p>
@@ -183,7 +183,7 @@ function DictionarySyncSettings({
             </div>
           )}
           {status?.held_deletions != null && (
-            <div aria-label="被挡下的删除">
+            <div className={settings.syncPrompt} aria-label="被挡下的删除">
               <p className={settings.managerNote}>
                 本机比上次同步时少了 {status.held_deletions}{" "}
                 个词条，这些删除还没有发到网盘。如果是你自己删的，选「同步删除」，其他设备上也会删掉；如果是本机词库被重置或损坏了，选「从网盘恢复」把它们写回本机。
@@ -236,6 +236,8 @@ function DictionarySyncDevices({ model }: { model: DictionarySyncModel }) {
   const disabled = busy || model.busy;
   const { devices, status } = model;
   const registered = Boolean(status?.device_id);
+  // 本机还没获准时手里没有密钥，允许、拒绝和移除别的设备都做不了，只列出设备；重置和重新开始仍在。
+  const canManage = status?.approved !== false;
   // 已经在网盘上登记过的设备打开本页时取一次设备列表，等待允许的设备才看得到；还没登记的等第一次同步。
   const loaded = useRef(false);
   useEffect(() => {
@@ -265,7 +267,7 @@ function DictionarySyncDevices({ model }: { model: DictionarySyncModel }) {
         </SettingsManagerBlock>
       ) : (
         <>
-          {groups.waiting.length > 0 && (
+          {canManage && groups.waiting.length > 0 && (
             <>
               <SettingsGroupNote role="status">
                 有 {groups.waiting.length}{" "}
@@ -311,7 +313,7 @@ function DictionarySyncDevices({ model }: { model: DictionarySyncModel }) {
               title={`${deviceName(device)}${device.current ? "（本机）" : ""}`}
               description={`${registeredAt(device.created_at)} 登记`}
             >
-              {!device.current && (
+              {canManage && !device.current && (
                 <ActionButton
                   label="移除"
                   ariaLabel={`移除 ${deviceName(device)}`}

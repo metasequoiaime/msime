@@ -201,6 +201,8 @@ export const managerNote = "m-0 leading-relaxed [font-size:var(--p-sub-fs)] [col
 export const managerActions = "flex flex-wrap gap-1.5 [&_.secondary]:mt-0 [&_.primary]:mt-0";
 /** 词库同步的核对码：等宽、加大，两台设备上要逐位对照。 */
 export const syncCode = "m-0 font-mono text-lg tracking-[0.08em] tabular-nums select-all";
+/** 词库同步状态里的一段提示和它的按钮：本机等待允许、被挡下的删除。 */
+export const syncPrompt = "flex flex-col gap-2";
 /** 设备行说明里的核对码，等宽显示。 */
 export const syncCodeInline = "font-mono tabular-nums select-all";
 export const importPreview =

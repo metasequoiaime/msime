@@ -437,7 +437,7 @@ test("words changed through settings are recorded as a local change", async () =
   await waitFor(() => expect(operations(host.request)).toEqual(["run:opened", "run:local_change"]));
 });
 
-test("this device's code is shown while it waits, and waiting devices are approved after comparing codes", async () => {
+test("this device's code is shown while it waits, and it cannot approve others yet", async () => {
   const host = syncHost({
     run: () => runValue({ approved: false }),
     status: () => ({ ...STATUS, approved: false }),
@@ -446,8 +446,20 @@ test("this device's code is shown while it waits, and waiting devices are approv
   await settingsFormReady();
   const waiting = await screen.findByLabelText("本设备等待允许");
   expect(within(waiting).getByLabelText("本设备核对码").textContent).toBe(LOCAL_CODE);
-  // 已经登记过的设备打开页面就取一次设备列表；重复登记的设备只有一条。
+  // 已经登记过的设备打开页面就取一次设备列表；还没获准时手里没有密钥，只列出设备。
+  await waitFor(() => expect(operations(host.request)).toContain("devices"));
+  expect(await screen.findByText("书房的 Mac（本机）")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "允许 客厅的平板" })).toBeNull();
+  expect(screen.getByRole("button", { name: "重置密钥" })).toBeDefined();
+});
+
+test("waiting devices are listed once and approved after comparing codes", async () => {
+  const host = syncHost();
+  renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
+  await settingsFormReady();
   expect(await screen.findByText(/有 1 台设备请求同步词库/)).toBeDefined();
+  expect(screen.queryByLabelText("本设备等待允许")).toBeNull();
+  // 重复登记的设备只有一条。
   expect(screen.getAllByLabelText("客厅的平板 的核对码")).toHaveLength(1);
   expect(screen.getByLabelText("客厅的平板 的核对码").textContent).toBe(OTHER_CODE);
   expect(screen.getByText("书房的 Mac（本机）")).toBeDefined();

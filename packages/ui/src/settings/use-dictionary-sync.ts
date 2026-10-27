@@ -7,7 +7,6 @@ import {
   dictionarySyncRun,
   dictionarySyncStatus,
   type DictionarySyncAction,
-  type DictionarySyncClient,
   type DictionarySyncRun,
   type DictionarySyncStatus,
   type DictionarySyncTrigger,
