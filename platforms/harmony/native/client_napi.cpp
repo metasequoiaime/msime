@@ -1459,6 +1459,12 @@ static napi_value AbiVersion(napi_env env, napi_callback_info) {
     return output;
 }
 
+// 键盘收起时关掉 UI 线程缓存的候选释义词库连接和读好的自定义译文；释义只在 UI 线程上查，所以也只在 UI 线程上调。
+static napi_value ReleaseGlossCaches(napi_env, napi_callback_info) {
+    msime_client_release_gloss_caches();
+    return nullptr;
+}
+
 // The global theme picker takes no argument: the ids, titles and palettes all come from the shared catalog.
 static napi_value ThemeCatalog(napi_env env, napi_callback_info) {
     return response(env, msime_client_theme_catalog());
@@ -1688,6 +1694,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
+        ENTRY("releaseGlossCaches", ReleaseGlossCaches),
         ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("resetCache", ResetCache),
         ENTRY("translationGlossSave", TranslationGlossSave),

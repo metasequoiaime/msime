@@ -3568,6 +3568,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.cancelOnlineProviders();
     // 键盘收起后不再查快照队列、不再重试卡住的个人词库排空，下一次显示（attach）时再查。
     this.pauseIdleDictionaryWork();
+    // 编辑框失去焦点：释义词库连接和自定义译文同样不留，见 `keyboardHidden`。
+    client.releaseGlossCaches();
     if (this.handle !== 0) {
       // Runtime focus(false) cancels whatever remains. Finish first while the old editor client is
       // still attached, so changing fields cannot silently discard what the user just typed.
@@ -7414,13 +7416,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.typingStatisticsFlushed;
   }
 
-  /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘，停下词库的空闲检查。编辑框可能仍有焦点，所以不等 inputStop。 */
+  /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘，停下词库的空闲检查，关掉缓存的释义词库。编辑框可能仍有焦点，所以不等 inputStop。 */
   keyboardHidden(): void {
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
     this.flushTypingStatistics();
     this.pauseIdleDictionaryWork();
+    // 候选释义按文件身份缓存在 UI 线程上的词库连接和自定义译文，隐藏的键盘不留着它们（关掉释义以后也不会一直占着）；下一次显示后的第一次查询重新打开。
+    client.releaseGlossCaches();
   }
 
   /**

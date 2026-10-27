@@ -176,6 +176,8 @@ export const vocabularyReview: (request: string) => Promise<string>;
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
 export const candidateGlosses: (request: string, resources: string) => string;
+/** Close the calling thread's cached candidate-gloss databases and drop its parsed custom translations; the next query reopens them. Call on the thread that queries glosses (the UI thread). */
+export const releaseGlossCaches: () => void;
 /** `{prefix,limit}` against the packaged English dictionary; no session, safe off the UI thread. */
 export const englishCompletions: (request: string, resources: string) => string;
 /** Clear the session's Engine candidate cache and refresh its view. */

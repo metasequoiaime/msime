@@ -105,6 +105,12 @@ if ! grep -qF 'this.pauseIdleDictionaryWork();' <<< "$detach_body" \
   echo "KeyboardSession must poll the dictionary snapshot queue only while shown and until it is empty, and back off both idle rebuild retries" >&2
   exit 1
 fi
+# 候选释义的词库连接和自定义译文按文件身份缓存在 UI 线程上（engine 的 `release_gloss_caches` 由 Rust 测试覆盖）。会话是 ArkTS，这里钉住接线：失焦和系统收起键盘时释放，隐藏的键盘不留着它们。
+if ! grep -qF 'client.releaseGlossCaches();' <<< "$detach_body" \
+  || ! grep -qF 'client.releaseGlossCaches();' <<< "$hidden_body"; then
+  echo "KeyboardSession must release the UI thread's candidate gloss caches on focus loss and keyboardHide" >&2
+  exit 1
+fi
 # 打字统计的提交和语音时长不在 UI 线程上写：都排进同一个 SequenceRunner（`writeTypingStatistics`）在 TaskPool 线程上调用原生库，原生层攒着的计数在键盘收起（dismiss 与系统的 keyboardHide）、编辑框失去焦点（detach）和扩展销毁（shutdown）时 flush；detach 等 flush 写完再把统计文件发布给设置应用。会话是 ArkTS，这里钉住接线。
 record_body=$(sed -n '/^  private recordTypingStatistics(text: string, source: string): void {$/,/^  }$/p' "$session_ets")
 voice_body=$(sed -n '/^  insertVoiceResult(text: string): void {$/,/^  }$/p' "$session_ets")
