@@ -237,8 +237,8 @@ fn clipboard_privacy_markers() -> clipboard_privacy::ClipboardPrivacyMarkers {
     }
 }
 
-/// 无法安全读取系统剪贴板；不携带可能包含私人内容的系统描述。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// 剪贴板不可读取或内容无效；错误不携带剪贴板内容或系统诊断。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClipboardReadError;
 
 impl std::fmt::Display for ClipboardReadError {
@@ -259,7 +259,7 @@ pub fn read_clipboard_text() -> Result<Option<String>, ClipboardReadError> {
         GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     };
     use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize};
-    // SAFETY: 没有窗口的调用方可以使用空 owner；返回的剪贴板句柄在访问前均检查为空。
+    // SAFETY: 无窗口调用方可传空 owner；所有返回的剪贴板句柄都在访问前判空。
     let opened = unsafe { OpenClipboard(std::ptr::null_mut()) } != 0;
     if !opened {
         return Err(ClipboardReadError);
@@ -268,7 +268,7 @@ pub fn read_clipboard_text() -> Result<Option<String>, ClipboardReadError> {
     if clipboard_privacy_markers().excluded() {
         return Ok(None);
     }
-    // SAFETY: 这些调用只访问上面已经打开的剪贴板。
+    // SAFETY: 这些调用只访问上面已打开的剪贴板。
     if unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT) } == 0 {
         return Err(ClipboardReadError);
     }
@@ -286,7 +286,7 @@ pub fn read_clipboard_text() -> Result<Option<String>, ClipboardReadError> {
         return Err(ClipboardReadError);
     }
     let _lock = GlobalLockGuard(handle);
-    // SAFETY: 切片受 GlobalSize 限界，锁守卫让内存在 String::from_utf16 复制完成前保持有效。
+    // SAFETY: GlobalSize 限定切片边界；锁守卫保持内存有效，直到 String::from_utf16 完成复制。
     let value = unsafe { std::slice::from_raw_parts(pointer, units) };
     let end = value
         .iter()
