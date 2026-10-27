@@ -53,6 +53,7 @@ final class KeyboardSchemePickerView: UIView {
       case .japaneseNineKey: glyph = "あ"; badge = "9"
       case .korean: glyph = "한"; badge = "26"
       case .cantonese: glyph = "粤"; badge = "26"
+      case .cantoneseShuangpin: glyph = "粤"; badge = "双"
       case .zhuyin: glyph = "注"; badge = "大千"
       case .vietnamese: glyph = "越"; badge = "26"
       case .tibetan: glyph = "藏"; badge = "26"

@@ -36,14 +36,14 @@ final class LanguageSchemesTests: XCTestCase {
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     let enabled = InputSchemePreference.enabledSchemes
     // 全拼 14 键和 18 键同样要用户自己打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
-    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey].contains($0) })
+    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin].contains($0) })
   }
 
   func testAMissingDictionaryHidesOnlyItsScheme() {
-    let enabled: [ChineseInputScheme] = [.quanpin, .cantonese, .zhuyin, .vietnamese]
+    let enabled: [ChineseInputScheme] = [.quanpin, .cantonese, .cantoneseShuangpin, .zhuyin, .vietnamese]
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: nil), enabled,
                    "a process that cannot tell hides nothing")
-    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.cantonese, .zhuyin]), enabled)
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.cantonese, .cantoneseShuangpin, .zhuyin]), enabled)
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.zhuyin]), [.quanpin, .zhuyin, .vietnamese])
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: []), [.quanpin, .vietnamese],
                    "Vietnamese needs no data")
@@ -61,11 +61,11 @@ final class LanguageSchemesTests: XCTestCase {
     try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [])
     try Data().write(to: state.appendingPathComponent("msime-cantonese.db"))
-    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese])
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .cantoneseShuangpin])
     try Data().write(to: state.appendingPathComponent("msime-zhuyin.db"))
-    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin])
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .cantoneseShuangpin, .zhuyin])
     try Data().write(to: state.appendingPathComponent("msime-stroke.db"))
-    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin, .stroke])
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .cantoneseShuangpin, .zhuyin, .stroke])
     try FileManager.default.removeItem(at: state.appendingPathComponent("msime-cantonese.db"))
     try FileManager.default.removeItem(at: state.appendingPathComponent("msime-zhuyin.db"))
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.stroke], "msime-stroke.db alone offers Stroke")
@@ -82,7 +82,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   func testCantoneseZhuyinAndStrokeAreChineseSchemesAndVietnameseIsNot() {
     let enabled = ChineseInputScheme.allCases
-    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false), (.tibetan, "tibetan", false), (.stroke, "stroke", true)] {
+    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.cantoneseShuangpin, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false), (.tibetan, "tibetan", false), (.stroke, "stroke", true)] {
       var document: [String: Any] = ["last_chinese_scheme": "wubi"]
       MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: enabled)?(&document)
       XCTAssertEqual(document["scheme"] as? String, engine)
@@ -93,7 +93,24 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.stroke.sharedIdentifier, "stroke")
     XCTAssertEqual(ChineseInputScheme(rawValue: "stroke"), .stroke, "the App Group value is the shared one")
     XCTAssertEqual(ChineseInputScheme.stroke.title, "笔画")
-    XCTAssertEqual(ChineseInputScheme.allCases.suffix(2), [.nineKeyShuangpin, .eighteenKey], "the scheme order is persisted, so new schemes go last")
+    XCTAssertEqual(ChineseInputScheme.allCases.suffix(3), [.nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin], "the scheme order is persisted, so new schemes go last")
+  }
+
+  func testCantoneseShuangpinHasItsOwnSavedSelection() {
+    let scheme = ChineseInputScheme.cantoneseShuangpin
+    XCTAssertEqual(scheme.engineScheme, "cantonese")
+    XCTAssertEqual(scheme.sharedIdentifier, "cantonese_shuangpin")
+    XCTAssertEqual(scheme.title, "粤语双拼")
+    XCTAssertTrue(ChineseInputScheme.optInSchemes.contains(scheme))
+    XCTAssertNil(scheme.cloudSchema)
+    XCTAssertEqual(KeyboardViewController.languageKeyValue(scheme), "粤语双拼输入")
+    var document: [String: Any] = [:]
+    MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: [.quanpin, .cantonese, scheme])?(&document)
+    XCTAssertEqual(document["scheme"] as? String, "cantonese")
+    XCTAssertEqual((document["touch_keyboard_schemes"] as? [String: Any])?["selected"] as? String, "cantonese_shuangpin")
+    XCTAssertEqual(InputSchemePreference.selectedScheme(in: document), scheme)
+    MetasequoiaInputSessionBridge.schemeMapping(.cantonese, enabledSchemes: [.quanpin, .cantonese, scheme])?(&document)
+    XCTAssertEqual(InputSchemePreference.selectedScheme(in: document), .cantonese)
   }
 
   /// 全拼 14 键：引擎方案是全拼，共享文档里的 id 和布局都是 `fourteen_key`，云端按全拼上传，默认不启用，空格键和方案简称写「全拼」，统计来源是 `fourteenKey`。

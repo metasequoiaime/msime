@@ -644,11 +644,13 @@ pub enum TouchKeyboardScheme {
     NineKeyShuangpin,
     /// 全拼十八键（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::EighteenKey`），Android、iOS 和鸿蒙的触屏键盘都有；默认不启用，由用户选择布局。
     EighteenKey,
+    /// 粤语双拼 26 键：与粤拼共用词典，按选中入口显式解释同形两键码。
+    CantoneseShuangpin,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -669,6 +671,7 @@ impl TouchKeyboardScheme {
         Self::FourteenKey,
         Self::NineKeyShuangpin,
         Self::EighteenKey,
+        Self::CantoneseShuangpin,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。

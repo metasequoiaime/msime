@@ -4238,9 +4238,10 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::FourteenKey,
             TouchKeyboardScheme::NineKeyShuangpin,
             TouchKeyboardScheme::EighteenKey,
+            TouchKeyboardScheme::CantoneseShuangpin,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 20);
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 21);
     // 全拼 14 键和九键双拼也不在以前的默认列表里，没存列表的旧文档不会凭空多出它们。
     for scheme in [
         TouchKeyboardScheme::FourteenKey,
@@ -4250,6 +4251,10 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
     }
     for (scheme, id) in [
         (TouchKeyboardScheme::Cantonese, "cantonese"),
+        (
+            TouchKeyboardScheme::CantoneseShuangpin,
+            "cantonese_shuangpin",
+        ),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
         (TouchKeyboardScheme::Vietnamese, "vietnamese"),
         (TouchKeyboardScheme::Tibetan, "tibetan"),

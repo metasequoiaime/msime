@@ -798,6 +798,9 @@ impl HostSession {
         let fallback =
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
+        options.force_cantonese_shuangpin = scheme == InputScheme::Cantonese
+            && preferences.touch_keyboard_schemes.selected
+                == Some(TouchKeyboardScheme::CantoneseShuangpin);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
@@ -2157,6 +2160,9 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
+            force_cantonese_shuangpin: scheme == InputScheme::Cantonese
+                && self.preferences.touch_keyboard_schemes.selected
+                    == Some(TouchKeyboardScheme::CantoneseShuangpin),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
