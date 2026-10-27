@@ -145,9 +145,9 @@ struct IOSDictionarySync: Sendable {
     try decode(Status.self, try await request(["operation": "restart"]))
   }
 
-  /// 保存之前的「测试连接」：用填写页里还没保存的草稿，通过时 Rust 让本机状态从网盘现在的样子重新开始（本机的词全部保留）。请求里有应用密码，不写日志。大约二十个请求。
-  func probe(url: String, username: String, password: String) async throws {
-    _ = try await request(["operation": "probe", "url": url, "username": username, "password": password])
+  /// 保存之前的「测试连接」：用填写页里还没保存的草稿，默认不改同步状态。只有用户单独确认恢复后才传 trustRemote。请求里有应用密码，不写日志。大约二十个请求。
+  func probe(url: String, username: String, password: String, trustRemote: Bool = false) async throws {
+    _ = try await request(["operation": "probe", "url": url, "username": username, "password": password, "trust_remote": trustRemote])
   }
 
   /// 一个动作，Value 原样交回。

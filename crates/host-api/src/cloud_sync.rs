@@ -2152,8 +2152,16 @@ impl SyncLocal for HostLocal {
                     .map(str::to_owned)
             })
             .ok_or_else(|| "dictionary_invalid".to_owned())?;
+        // 云端快照只有用户自己的词，激活时保留本机学到的东西（#10043）。
         queue
-            .enqueue(snapshot, account_id, revision, &local_version, &sha256)
+            .enqueue(
+                snapshot,
+                account_id,
+                revision,
+                &local_version,
+                &sha256,
+                true,
+            )
             .map(|id| id.to_string())
             .map_err(|_| "dictionary_storage".to_owned())
     }

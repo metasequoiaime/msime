@@ -63,16 +63,18 @@ public final class DictionarySnapshotQueue {
      * 排一份快照，键盘下次没有会话时整份激活。Rust 把 `source` 复制进队列（不跟随符号链接、最多 512 MiB、核对 SHA-256），只在没有正在排队的请求、且 `expectedLocalVersion` 仍是键盘发布的版本时才收下，否则是 snapshot_busy 或 snapshot_conflict。返回排队以后的状态。
      *
      * @param owner 请求的所有者：云同步是账号 id，本地备份是 {@link #LOCAL_RESTORE_OWNER}
+     * @param keepLocalLearning 激活时把本机学到的东西并进新的一代（Rust 的 `keep_local_learning`）：云词库「应用到本机」为真，云端快照不带输入记录；本地备份恢复为假，备份自己带着输入记录
      */
     public static JSONObject enqueue(Path directory, Path source, String owner, long cloudRevision,
-            String expectedLocalVersion, String fileSha256) throws Failure {
+            String expectedLocalVersion, String fileSha256, boolean keepLocalLearning) throws Failure {
         try {
             return call(request("enqueue", directory)
                 .put("source", source.toAbsolutePath().toString())
                 .put("account_id", owner)
                 .put("cloud_revision", cloudRevision)
                 .put("expected_local_version", expectedLocalVersion)
-                .put("file_sha256", fileSha256));
+                .put("file_sha256", fileSha256)
+                .put("keep_local_learning", keepLocalLearning));
         } catch (JSONException invalid) {
             throw new Failure("snapshot_invalid");
         }

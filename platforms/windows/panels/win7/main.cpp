@@ -3,6 +3,7 @@
 #include "CloudClipboardWindow.h"
 #include "VocabularyWindow.h"
 #include "CloudDictionaryWindow.h"
+#include "DictionarySyncWindow.h"
 #include "EmojiWindow.h"
 #include "KeyboardWindow.h"
 #include "VoiceWindow.h"
@@ -13,7 +14,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   const auto requested = msime::windows::requested_surface_route("handwriting");
   if (!requested) return 2;
   const auto& route = *requested;
-  if (route != "handwriting" && route != "clipboard" && route != "cloud-clipboard" && route != "vocabulary" && route != "cloud-dictionary" && route != "emoji" && route != "keyboard" && route != "voice") return 2;
+  if (route != "handwriting" && route != "clipboard" && route != "cloud-clipboard" && route != "vocabulary" && route != "cloud-dictionary" && route != "dictionary-sync" && route != "emoji" && route != "keyboard" && route != "voice") return 2;
   msime::windows::compat::process_context(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
   if (route == "voice") {
     msime::windows::win7::VoiceWindow window;
@@ -32,6 +33,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   }
   if (route == "cloud-dictionary") {
     msime::windows::win7::CloudDictionaryWindow window;
+    if (!window.create(instance)) return 1;
+    return window.run(show);
+  }
+  if (route == "dictionary-sync") {
+    msime::windows::win7::DictionarySyncWindow window;
     if (!window.create(instance)) return 1;
     return window.run(show);
   }
