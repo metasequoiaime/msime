@@ -1,0 +1,340 @@
+{
+  "by_syllables": {
+    "2": {
+      "cases": 1859,
+      "found": 0.901,
+      "mrr": 0.141,
+      "top1": 0.049,
+      "top1_char_prefix": 0.125,
+      "top5": 0.204,
+      "top9": 0.315
+    },
+    "3": {
+      "cases": 364,
+      "found": 0.745,
+      "mrr": 0.556,
+      "top1": 0.462,
+      "top1_char_prefix": 0.58,
+      "top5": 0.684,
+      "top9": 0.725
+    },
+    "4": {
+      "cases": 543,
+      "found": 0.468,
+      "mrr": 0.451,
+      "top1": 0.436,
+      "top1_char_prefix": 0.56,
+      "top5": 0.468,
+      "top9": 0.468
+    },
+    "5": {
+      "cases": 9,
+      "found": 0.0,
+      "mrr": 0.0,
+      "top1": 0.0,
+      "top1_char_prefix": 0.244,
+      "top5": 0.0,
+      "top9": 0.0
+    }
+  },
+  "by_tag": {},
+  "cases": 2775,
+  "gold_source": {
+    "database": 2200
+  },
+  "overall": {
+    "cases": 2775,
+    "found": 0.793,
+    "mrr": 0.256,
+    "top1": 0.179,
+    "top1_char_prefix": 0.27,
+    "top5": 0.318,
+    "top9": 0.398
+  },
+  "sample_failures": [
+    {
+      "gold": "阿爸",
+      "id": "w-00001",
+      "input": "ab",
+      "rank": 84,
+      "top1": "把"
+    },
+    {
+      "gold": "挨个",
+      "id": "w-00010",
+      "input": "aig",
+      "rank": 13,
+      "top1": "吃"
+    },
+    {
+      "gold": "爱好者",
+      "id": "w-00019",
+      "input": "aihaozh",
+      "rank": null,
+      "top1": "笔杆子"
+    },
+    {
+      "gold": "爱慕",
+      "id": "w-00028",
+      "input": "aim",
+      "rank": 22,
+      "top1": "避免"
+    },
+    {
+      "gold": "爱惜",
+      "id": "w-00037",
+      "input": "aix",
+      "rank": 113,
+      "top1": "必须"
+    },
+    {
+      "gold": "艾滋病",
+      "id": "w-00046",
+      "input": "aizib",
+      "rank": null,
+      "top1": "笔下"
+    },
+    {
+      "gold": "岸边",
+      "id": "w-00055",
+      "input": "anb",
+      "rank": 14,
+      "top1": "波长"
+    },
+    {
+      "gold": "暗地里",
+      "id": "w-00064",
+      "input": "andil",
+      "rank": 2,
+      "top1": "奥地利"
+    },
+    {
+      "gold": "安抚",
+      "id": "w-00073",
+      "input": "anf",
+      "rank": 5,
+      "top1": "波动"
+    },
+    {
+      "gold": "昂扬",
+      "id": "w-00082",
+      "input": "angy",
+      "rank": 2,
+      "top1": "肮脏"
+    },
+    {
+      "gold": "按理",
+      "id": "w-00100",
+      "input": "anl",
+      "rank": 66,
+      "top1": "案例"
+    },
+    {
+      "gold": "按钮",
+      "id": "w-00109",
+      "input": "ann",
+      "rank": 3,
+      "top1": "从"
+    },
+    {
+      "gold": "安全保卫",
+      "id": "w-00118",
+      "input": "anquanbaow",
+      "rank": 3,
+      "top1": "安全保障"
+    },
+    {
+      "gold": "安全运输",
+      "id": "w-00136",
+      "input": "anquanyunsh",
+      "rank": null,
+      "top1": "安全运气"
+    },
+    {
+      "gold": "岸上",
+      "id": "w-00145",
+      "input": "ansh",
+      "rank": 20,
+      "top1": "博士"
+    },
+    {
+      "gold": "安息",
+      "id": "w-00154",
+      "input": "anx",
+      "rank": 42,
+      "top1": "按照"
+    },
+    {
+      "gold": "奥秘",
+      "id": "w-00181",
+      "input": "aom",
+      "rank": 21,
+      "top1": "从"
+    },
+    {
+      "gold": "奥运会",
+      "id": "w-00190",
+      "input": "aoyunh",
+      "rank": null,
+      "top1": "拨鱼面"
+    },
+    {
+      "gold": "八达岭",
+      "id": "w-00199",
+      "input": "badal",
+      "rank": 4,
+      "top1": "把大家"
+    },
+    {
+      "gold": "百倍",
+      "id": "w-00208",
+      "input": "baib",
+      "rank": 13,
+      "top1": "猜测"
+    },
+    {
+      "gold": "摆渡",
+      "id": "w-00217",
+      "input": "baid",
+      "rank": 33,
+      "top1": "百度"
+    },
+    {
+      "gold": "败露",
+      "id": "w-00244",
+      "input": "bail",
+      "rank": 77,
+      "top1": "材料"
+    },
+    {
+      "gold": "摆脱",
+      "id": "w-00262",
+      "input": "bait",
+      "rank": 3,
+      "top1": "白天"
+    },
+    {
+      "gold": "百依百顺",
+      "id": "w-00271",
+      "input": "baiyibaish",
+      "rank": null,
+      "top1": "白衣白起"
+    },
+    {
+      "gold": "摆正",
+      "id": "w-00280",
+      "input": "baizh",
+      "rank": 12,
+      "top1": "材质"
+    },
+    {
+      "gold": "办案",
+      "id": "w-00289",
+      "input": "ban",
+      "rank": null,
+      "top1": "办"
+    },
+    {
+      "gold": "颁布实施",
+      "id": "w-00298",
+      "input": "banbushish",
+      "rank": null,
+      "top1": "颁布时期"
+    },
+    {
+      "gold": "绑架",
+      "id": "w-00316",
+      "input": "bangj",
+      "rank": 2,
+      "top1": "仓库"
+    },
+    {
+      "gold": "办公室",
+      "id": "w-00325",
+      "input": "bangongsh",
+      "rank": null,
+      "top1": "办公司"
+    },
+    {
+      "gold": "办好",
+      "id": "w-00334",
+      "input": "banh",
+      "rank": 32,
+      "top1": "保护"
+    },
+    {
+      "gold": "半径",
+      "id": "w-00343",
+      "input": "banj",
+      "rank": 20,
+      "top1": "包括"
+    },
+    {
+      "gold": "伴侣",
+      "id": "w-00352",
+      "input": "banl",
+      "rank": 56,
+      "top1": "包括"
+    },
+    {
+      "gold": "办事处",
+      "id": "w-00361",
+      "input": "banshich",
+      "rank": null,
+      "top1": "办事比"
+    },
+    {
+      "gold": "半脱产",
+      "id": "w-00370",
+      "input": "bantuoch",
+      "rank": null,
+      "top1": "版图买"
+    },
+    {
+      "gold": "半圆",
+      "id": "w-00379",
+      "input": "bany",
+      "rank": 118,
+      "top1": "操作"
+    },
+    {
+      "gold": "搬走",
+      "id": "w-00388",
+      "input": "banz",
+      "rank": 51,
+      "top1": "操作"
+    },
+    {
+      "gold": "宝贝",
+      "id": "w-00397",
+      "input": "baob",
+      "rank": 7,
+      "top1": "版本"
+    },
+    {
+      "gold": "包产",
+      "id": "w-00406",
+      "input": "baoch",
+      "rank": 77,
+      "top1": "保持"
+    },
+    {
+      "gold": "保存",
+      "id": "w-00415",
+      "input": "baoc",
+      "rank": 4,
+      "top1": "版本"
+    },
+    {
+      "gold": "胞弟",
+      "id": "w-00424",
+      "input": "baod",
+      "rank": null,
+      "top1": "办法"
+    }
+  ],
+  "top1_source": {
+    "database": 2586,
+    "generated": 189
+  }
+}

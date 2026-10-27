@@ -1156,15 +1156,18 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   #
   # `fourteen-key` 和 `fourteen-key-sentences` 是同样两份集合在全拼 14 键上打：每个字母换成它所在键的组码（这一组的首字母），从 `GridKey` 送进去。14 键与九键共用一套解码，只换码表，所以两者的数字可以直接比。
   # `particles`、`particles-nine-key`、`particles-fourteen-key` 是常用词接句末语气词（债券吗、标注呀）在三种键盘上打：n-gram 表没有句尾，这类口语短句其余几份集合都量不到。
-  for set in sentences harvested neutral words nine-key nine-key-sentences fourteen-key fourteen-key-sentences particles particles-nine-key particles-fourteen-key; do
+  # `nine-key-prefix` 和 `fourteen-key-prefix` 是同一份词级集打到末音节的声母就停（吃饭 打 chif），金标准仍是整个词。其余集合每条都打全了读音，补全词往后排只会让它们变好；停在声母上的用户要的正是补全词，排序改动要在这两份上一起看。
+  for set in sentences harvested neutral words nine-key nine-key-prefix nine-key-sentences fourteen-key fourteen-key-prefix fourteen-key-sentences particles particles-nine-key particles-fourteen-key; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
       neutral) args="--set resources/eval/sentences-neutral-v1.tsv" ;;
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
       nine-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --nine-key" ;;
+      nine-key-prefix) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --nine-key --cut-last-syllable initial" ;;
       nine-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --nine-key" ;;
       fourteen-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --grid fourteen" ;;
+      fourteen-key-prefix) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --grid fourteen --cut-last-syllable initial" ;;
       fourteen-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --grid fourteen" ;;
       particles) args="--set resources/eval/sentences-particles-v1.tsv" ;;
       particles-nine-key) args="--set resources/eval/sentences-particles-v1.tsv --nine-key" ;;

@@ -82,6 +82,14 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在锁定词库（dict-v2.0.39）里首选是「不好」（权重 1294182），「你好」（705916）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
 
+### `--cut-last-syllable`：打到末音节的声母就停
+
+`convert_eval --cut-last-syllable initial` 把每条用例的最后一个音节截到只剩声母再打，金标准仍是整个词：吃饭 打 `chif`，进一步 打 `jinyib`。九键上常有人这样打，打到最后一个音节的声母，看见要的词就选。音节用引擎自己的 `normalize_full_pinyin` 切成金标准那么多个（`build_eval_set` 收用例时用的也是它）；zh、ch、sh 算一个声母，没有辅音声母的音节（an、e）留第一个字母。截了跟没截一样的用例（末音节只有一个字母，如 a、e）不计入，`--limit 3000` 的 2791 条剩 2775 条。九键双拼一个音节两键，按打全的读法切音节，再少打最后一键。`--cut-last-syllable letter` 截到第一个字母，只收末音节以 zh、ch、sh 开头的用例（办公室 打 `bangongs`），其余用例两种截法打出来一样，不重复计入；2791 条里有 444 条。
+
+**为什么要有它。** 其余集合每条都打全了读音，所以只要把补全词往后排，它们就只会变好，量不到这样做的代价。停在声母上的用户要的恰恰是补全词：`2443` 打全了是 挨个（ai'ge），停在声母上是 吃饭（chi'f）。排序改动要两边一起看。`verify-local.sh` 以 `nine-key-prefix`、`fourteen-key-prefix`（`quanpin-words-v1.tsv --limit 3000 --cut-last-syllable initial`，分别在九键和 14 键上打）跑它，对照同名基线。
+
+锁定资源 dict-v2.0.39 加 `sentence-model.safetensors` 上的基线（top-1 / top-5 / found）：九键 0.179 / 0.318 / 0.793，14 键 0.326 / 0.550 / 0.957。打全的同一批用例是九键 0.518 / 0.815 / 0.954，14 键 0.619 / 0.888 / 0.972。换锁前的 dict-v2.0.24 上，同一份代码停在声母上是九键 0.212 / 0.359 / 0.834、14 键 0.361 / 0.590 / 0.963。九键差得多，主要因为候选表只有 128 行（`CANDIDATE_LIMIT`）：三四个数字能拼出几百个单字，要的词排不进去。挂不挂重排模型，这两份的 top-1、top-5、found 都一样。
+
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
 从 C4 中文部分（ODC-BY，保留标点的原文，不是 `corpus/fetch.py` 剥过标点的训练语料）收割：把句子用 Engine 的拼音表转成拼音再打回去，首选与原句不同的收下来，上文取同一篇的前一句。`harvest_eval_set` 做这件事，`scripts/review-harvested-cases.py` 用 Jev 过一道评审（选中原文且无强歧义否决），再按拼音+原文去重。500 条收割 → 345 条通过 → 310 条。
@@ -201,6 +209,6 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 ## 已知测不到的东西
 
-词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，见上文。
+词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，停在末音节声母上的输入由 `--cut-last-syllable` 覆盖，见上文。
 
 共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.0.39`，换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
