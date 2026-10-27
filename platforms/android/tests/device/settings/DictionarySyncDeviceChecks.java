@@ -110,6 +110,10 @@ final class DictionarySyncDeviceChecks {
             bridge.probe(url, "synthetic-user", "synthetic-app-password");
             return null;
         })), "the Java probe reports dictionary_sync_unavailable");
+        check(DictionarySyncPolicy.CODE_UNAVAILABLE.equals(failure(() -> {
+            bridge.trustRemote(url, "synthetic-user", "synthetic-app-password");
+            return null;
+        })), "the confirmed recovery reaches the same Java/JNI transport");
 
         // 两个进程用的目录：noBackupFilesDir/dictionary-sync。
         File shared = new File(target.getNoBackupFilesDir(), "dictionary-sync");

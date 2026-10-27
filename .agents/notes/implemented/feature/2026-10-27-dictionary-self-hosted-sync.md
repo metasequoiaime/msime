@@ -133,3 +133,5 @@ Android 请求代次的审查验证：提取实际网络任务的控制流、以
 Android 空闲触发的审查验证：受控主线程和工作队列驱动真实 `ImeDictionarySync`，复现设置 App 留下待应用改动、IME 上轮缓存仍为零时必须在收起后重试；修前断言失败，修后通过，同时覆盖无待应用项不调用同步、不撤半小时定时器、连续收起限频和销毁停机。`platforms/android/check-host.sh` 的 290 个 JVM 冒烟、252 个设备套件源码编译以及 JNI 的 aarch64 Android 交叉编译通过；`cargo clippy -p msime-host-api --lib -- -D warnings`、同步契约、Rust 格式和笔记校验通过。桌面 JNI JVM 检查因未提供 JDK 原生头文件和 libjvm 跳过。本轮没有安装修复后的 APK 或在 Android 设备上验收，完整 quick 仍受磁盘余量限制，不能把上述结果当作设备验证。
 
 Android 恢复入口验证：直接提取原生页的确认、执行和 `work` 方法及桥接 `probe` 方法，在受控弹窗、线程队列、偏好与 JNI 边界运行 13 类情形，覆盖普通探测不授权、取消、正常确认、快照回调前失效、确认期间换代、已存三字段分别变化、停用、排队后变化、忙碌和在途恢复后换代；去掉确认代次保护、去掉持久三字段保护分别确证失败，恢复后全过。回退文案用旧实现运行新断言失败、新实现通过。`check-host.sh` 再次通过 290 个 JVM 冒烟和 252 个设备套件源码编译；`dictionary_webdav_flow` 的 10 项真实网盘回归通过，含 Host API 默认探测保留待发删除及明确授权恢复。三个完整 Java 源文件通过 javac 语法解析，原生页依赖 AndroidX 的完整编译和修复后 APK 安装未做，不能称作设备验收；完整 quick 的磁盘缺口仍保留。
+
+作者补充的 `DictionarySyncDeviceChecks` 保留经 Java/JNI 显式恢复访问不可达网盘的断言，通过独立 `trustRemote` 入口调用；该设备源码随整合重新编译，没有在设备上执行。
