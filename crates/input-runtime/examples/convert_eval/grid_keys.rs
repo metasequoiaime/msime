@@ -2,7 +2,9 @@
 //!
 //! 按字母归组的网格（九键、14 键）把字母逐个换成所在键的组码。九键双拼和 26 键双拼按音节编码，而用例的输入是不带分隔的全拼（`xianzai`），要先切成音节：`xian` 和 `xi'an` 在双拼上是不同的键，切错了金标准就打不出来。
 
-use msime_engine::host::{encode_shuangpin, resolve_nine_key_shuangpin, NineKeyShuangpinKind};
+use msime_engine::host::{
+    encode_shuangpin, is_shuangpin_syllable, resolve_nine_key_shuangpin, NineKeyShuangpinKind,
+};
 use msime_engine::KeyGrid;
 
 /// `--grid` 的取值：`nine`、`fourteen`，或 `shuangpin-<方案>`（`shuangpin-migala2`、`shuangpin-migala3`、`shuangpin-gushi2_low`）。
@@ -37,13 +39,9 @@ pub fn grid_keys(grid: KeyGrid, input: &str, syllables: Option<usize>) -> Option
     (!keys.is_empty()).then_some(keys)
 }
 
-/// 一条全拼输入在内置 26 键双拼方案 `profile`（方案名）上的按键：切成音节的规则同 [`grid_keys`] 的九键双拼，再逐音节编成两键码，去掉分隔。纠错整句不接受手打的 `'`，所以按键里不带它，每个音节恰好两键；切不开、有歧义或有音节在这个方案里编不出来时为 `None`。
+/// 一条全拼输入在内置 26 键双拼方案 `profile`（方案名）上的按键：切成音节的规则同 [`grid_keys`] 的九键双拼，再逐音节编成两键码，去掉分隔。纠错整句不接受手打的 `'`，所以按键里不带它，每个音节恰好两键；切不开、有歧义或有音节在这个方案里编不出来时为 `None`。切音节按与方案无关的音节表（[`is_shuangpin_syllable`]），不按这个方案编不编得出来：否则某个方案编不出的音节会让有歧义的切法看起来唯一，各方案打的用例集合就不一样了。
 pub fn shuangpin_keys(profile: &str, input: &str, syllables: Option<usize>) -> Option<String> {
-    let pieces = syllable_pieces(
-        &|piece| encode_shuangpin(piece, profile).is_some(),
-        input,
-        syllables,
-    )?;
+    let pieces = syllable_pieces(&is_shuangpin_syllable, input, syllables)?;
     let codes = encode_shuangpin(&pieces.join("'"), profile)?;
     let keys = codes.replace('\'', "");
     (keys.len() == 2 * pieces.len()).then_some(keys)
@@ -127,5 +125,18 @@ mod tests {
             Some("oam;")
         );
         assert_eq!(shuangpin_keys("custom", "nihao", Some(2)), None);
+    }
+
+    /// 首道双拼（`shoudao`）的 `en` 和 `ia` 同在 `k` 上，`den` 编出来解回 `dia`，这个方案编不出 `den`。切法的歧义仍按真实的音节表判断：`dena` 是 de'na 还是 den'a 在每个方案上都说不清，不能因为首道编不出 `den` 就把 de'na 当成唯一切法，否则各方案打的用例集合就不一样了。
+    #[test]
+    fn shuangpin_keys_judge_ambiguity_by_syllables_not_by_profile() {
+        assert!(shuangpin_keys("shoudao", "nihao", Some(2)).is_some());
+        for profile in ["xiaohe", "ziranma", "shoudao", "microsoft", "smart_abc"] {
+            assert_eq!(shuangpin_keys(profile, "dena", Some(2)), None, "{profile}");
+        }
+        // 唯一切法里有这个方案编不出来的音节：用例丢掉，而不是改打另一种切法。
+        assert!(shuangpin_keys("xiaohe", "den", Some(1)).is_some());
+        assert_eq!(shuangpin_keys("shoudao", "den", Some(1)), None);
+        assert_eq!(shuangpin_keys("shoudao", "den'a", Some(2)), None);
     }
 }

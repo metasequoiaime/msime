@@ -52,6 +52,11 @@ pub fn shuangpin_zero_initials(profile: &str) -> Vec<(&'static str, &'static str
     crate::shuangpin::hints::shuangpin_zero_initials(profile)
 }
 
+/// 双拼认的全拼音节，是与方案无关的同一张表：内置方案编不出来的音节（比如首道双拼的 `den`）仍算音节。评测工具按它把不带分隔的全拼切成音节，再交给 [`encode_shuangpin`]，这样切法有没有歧义在每个方案上判断得一样。
+pub fn is_shuangpin_syllable(syllable: &str) -> bool {
+    crate::shuangpin::profile::accepted_syllables().contains(syllable)
+}
+
 /// 把已规范化、用 `'` 分隔的全拼编成内置 26 键双拼方案 `profile`（方案名，同 [`shuangpin_key_hints`]）的两键码，仍用 `'` 分隔。方案名不认识或是 `custom`（没有内置的表）、有音节编不出来或编出来解不回原读音时为 `None`。评测工具用它把全拼用例换成双拼按键，与引擎解码用的是同一张表。
 pub fn encode_shuangpin(pinyin: &str, profile: &str) -> Option<String> {
     let profile =
