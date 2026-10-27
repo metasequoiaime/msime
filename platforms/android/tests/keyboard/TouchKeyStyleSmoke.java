@@ -25,6 +25,7 @@ public final class TouchKeyStyleSmoke {
         twentySixKeyRows();
         fourteenKeyRows();
         nineKeyRows();
+        tallReturn();
         numberRow();
         migration();
         System.out.println("touch key layout styles: passed");
@@ -34,6 +35,17 @@ public final class TouchKeyStyleSmoke {
         check(TouchKeyStyle.Row.STANDARD.wire.equals("standard") && TouchKeyStyle.Row.COMMA_PERIOD.wire.equals("comma_period")
             && TouchKeyStyle.Row.LONG_SPACE.wire.equals("long_space") && TouchKeyStyle.Row.EMOJI.wire.equals("emoji"),
             "wire strings match client-core");
+        check(TouchKeyStyle.Row.TALL_RETURN.wire.equals("tall_return"), "tall_return matches client-core");
+        check(TouchKeyStyle.NINE_KEY_ROWS.equals(List.of(TouchKeyStyle.Row.STANDARD, TouchKeyStyle.Row.COMMA_PERIOD,
+            TouchKeyStyle.Row.EMOJI, TouchKeyStyle.Row.TALL_RETURN)), "右侧大回车 is the fourth nine-key option, after 表情键");
+        check(TouchKeyStyle.parse("tall_return", TouchKeyStyle.NINE_KEY_ROWS) == TouchKeyStyle.Row.TALL_RETURN,
+            "nine keys read tall_return");
+        check(TouchKeyStyle.parse("tall_return", TouchKeyStyle.TWENTY_SIX_KEY_ROWS) == TouchKeyStyle.Row.STANDARD
+            && TouchKeyStyle.parse("tall_return", TouchKeyStyle.FOURTEEN_KEY_ROWS) == TouchKeyStyle.Row.STANDARD,
+            "only the nine-key frame offers tall_return");
+        check(new TouchKeyStyle.Styles(TouchKeyStyle.Row.TALL_RETURN, TouchKeyStyle.Row.TALL_RETURN, TouchKeyStyle.Row.TALL_RETURN)
+            .equals(new TouchKeyStyle.Styles(TouchKeyStyle.Row.STANDARD, TouchKeyStyle.Row.STANDARD, TouchKeyStyle.Row.TALL_RETURN)),
+            "tall_return on a 26 or 14 key face falls back to standard");
         check(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE.equals("touch_twenty_six_key_style")
             && TouchKeyStyle.FOURTEEN_KEY_PREFERENCE.equals("touch_fourteen_key_style")
             && TouchKeyStyle.NINE_KEY_PREFERENCE.equals("touch_nine_key_style")
@@ -130,12 +142,76 @@ public final class TouchKeyStyleSmoke {
             check(row(layout, false, TouchKeyStyle.Row.STANDARD).equals(KeyboardActionRow.designEntries(layout, false)),
                 "the standard nine-key style is today's row");
         }
-        // 九键数字层不随样式变：0 接替空格。
+        // 九键数字层不随样式变：0 接替空格。右侧大回车另见 tallReturn()。
         int nine = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
-        for (TouchKeyStyle.Row style : TouchKeyStyle.NINE_KEY_ROWS)
+        for (TouchKeyStyle.Row style : TouchKeyStyle.NINE_KEY_ROWS) {
+            if (style == TouchKeyStyle.Row.TALL_RETURN) continue;
             check(KeyboardActionRow.designEntries(nine, true, false, true, false, style)
                     .equals(KeyboardActionRow.designEntries(nine, true, false, true)),
                 "the nine-key number layer ignores " + style);
+        }
+    }
+
+    /**
+     * 右侧大回车（tall_return）：拼音九键、笔画和九键数字层都没有单独的底行，外框连同底行一整块；九宫格正下方那一行恰好与九宫格同宽，123、地球键、中/英保持标准九键底行里的绝对宽度，空格（数字层是 0 和小数点）占剩下的。中/英与回车不在同一行，不让出回车的点击区。
+     */
+    private static void tallReturn() {
+        TouchKeyStyle.Row tall = TouchKeyStyle.Row.TALL_RETURN;
+        int nine = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
+        for (int layout : new int[] {nine, KeyboardLayout.STROKE_LAYOUT}) {
+            check(KeyboardActionRow.drawsTallReturn(layout, tall), "tall frame on " + layout);
+            for (TouchKeyStyle.Row other : List.of(TouchKeyStyle.Row.STANDARD, TouchKeyStyle.Row.COMMA_PERIOD, TouchKeyStyle.Row.EMOJI))
+                check(!KeyboardActionRow.drawsTallReturn(layout, other), "no tall frame for " + other + " on " + layout);
+            for (boolean globe : new boolean[] {false, true}) {
+                for (boolean swap : new boolean[] {false, true}) {
+                    for (boolean digits : new boolean[] {false, true}) {
+                        List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(layout, globe, swap, digits, false, tall);
+                        check(entries.isEmpty() && !KeyboardActionRow.languageBesideReturn(entries),
+                            "the tall frame owns its bottom row on " + layout);
+                    }
+                }
+            }
+        }
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.FOURTEEN_KEY_LAYOUT,
+                KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT, KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT})
+            check(!KeyboardActionRow.drawsTallReturn(layout, tall), "no tall frame on " + layout);
+        // 拼音九键：九宫格占外框 14/20；标准九键底行总份额 9.25（带地球键 10.25）。
+        float nineShare = NineKeyLayout.GRID_WEIGHT / (2 * NineKeyLayout.SIDE_COLUMN_WEIGHT + NineKeyLayout.GRID_WEIGHT);
+        expectTall(nineShare, false, false, false, entries(LAYER, 1.25f, SPACE, 9.25f * 0.7f - 2.3f, LANGUAGE, 1.05f));
+        expectTall(nineShare, true, false, false, entries(LAYER, 1.25f, GLOBE, 1f, SPACE, 10.25f * 0.7f - 3.3f, LANGUAGE, 1.05f));
+        expectTall(nineShare, false, true, false, entries(LANGUAGE, 1.05f, SPACE, 9.25f * 0.7f - 2.3f, LAYER, 1.25f));
+        expectTall(nineShare, false, false, true,
+            entries(LAYER, 1.25f, KeyboardActionRow.DesignSlot.ZERO, 9.25f * 0.7f - 3.3f, PERIOD, 1f, LANGUAGE, 1.05f));
+        expectTall(nineShare, true, true, true, entries(LANGUAGE, 1.05f, GLOBE, 1f, KeyboardActionRow.DesignSlot.ZERO,
+            10.25f * 0.7f - 4.3f, PERIOD, 1f, LAYER, 1.25f));
+        // 笔画外框 0.9 / 3 / 0.9：同一行按笔画网格的比例变窄，变的只有空格。
+        expectTall(3f / 4.8f, false, false, false, entries(LAYER, 1.25f, SPACE, 9.25f * 0.625f - 2.3f, LANGUAGE, 1.05f));
+        for (float share : new float[] {nineShare, 3f / 4.8f}) {
+            for (boolean globe : new boolean[] {false, true}) {
+                List<KeyboardActionRow.DesignEntry> standard = KeyboardActionRow.designEntries(nine, globe);
+                List<KeyboardActionRow.DesignEntry> strip = KeyboardActionRow.tallReturnEntries(share, globe, false, false);
+                check(Math.abs(total(strip) - total(standard) * share) < 1e-4f, "the strip spans exactly the grid width");
+                // 123、地球键、中/英在整行里的占比与标准九键底行相同。
+                for (KeyboardActionRow.DesignSlot slot : List.of(LAYER, GLOBE, LANGUAGE)) {
+                    int index = slots(strip).indexOf(slot);
+                    if (index < 0) continue;
+                    float tallFraction = strip.get(index).weight() * share / total(strip);
+                    float standardFraction = standard.get(slots(standard).indexOf(slot)).weight() / total(standard);
+                    check(Math.abs(tallFraction - standardFraction) < 1e-5f, slot + " keeps its absolute width");
+                }
+            }
+        }
+    }
+
+    private static void expectTall(float share, boolean globe, boolean swap, boolean digits,
+            List<KeyboardActionRow.DesignEntry> expected) {
+        List<KeyboardActionRow.DesignEntry> actual = KeyboardActionRow.tallReturnEntries(share, globe, swap, digits);
+        check(actual.size() == expected.size(), "tall strip " + globe + swap + digits + ": " + actual);
+        for (int index = 0; index < expected.size(); index++) {
+            check(actual.get(index).slot() == expected.get(index).slot()
+                    && Math.abs(actual.get(index).weight() - expected.get(index).weight()) < 1e-4f,
+                "tall strip " + globe + swap + digits + " key " + index + ": " + actual);
+        }
     }
 
     private static void numberRow() {

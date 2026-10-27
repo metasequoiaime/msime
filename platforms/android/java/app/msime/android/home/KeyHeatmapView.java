@@ -183,19 +183,26 @@ public final class KeyHeatmapView extends View {
                 Key key = row.get(index);
                 float keyWidth = unit * key.weight();
                 if (index > 0) x += gap;
+                // 被上一行跨下来的键盖住的格子（右侧大回车的底行那一格）只占宽度，不画。
+                if (key.rows() == 0) {
+                    x += keyWidth;
+                    continue;
+                }
+                // 跨两行的键（右侧大回车的回车）连同中间的行距一起画到下一行底边，键面和百分数按整块居中。
+                float keyHeight = key.rows() * height + (key.rows() - 1) * gap;
                 long value = value(key);
                 int level = HeatmapView.level(value, peak);
                 fill.setColor(ThemeColorPolicy.color(context, HEAT[level]));
-                box.set(x, top, x + keyWidth, top + height);
+                box.set(x, top, x + keyWidth, top + keyHeight);
                 canvas.drawRoundRect(box, radius, radius, fill);
                 int ink = level >= 3 ? onAccent : text;
                 face.setColor(ink);
                 share.setColor(level >= 3 ? ColorPolicy.withAlpha(onAccent, .85f) : sub);
                 float centre = x + keyWidth / 2;
-                canvas.drawText(key.face(), centre, top + height / 2 + DimensionPolicy.pixels(context, 1), face);
+                canvas.drawText(key.face(), centre, top + keyHeight / 2 + DimensionPolicy.pixels(context, 1), face);
                 if (total > 0 && !key.ids().isEmpty() && !containsAny(shared, key.ids())) {
                     String percent = TypingStatisticsSummary.percentTenths(value / (double) total) + "%";
-                    canvas.drawText(percent, centre, top + height - DimensionPolicy.pixels(context, 6), share);
+                    canvas.drawText(percent, centre, top + keyHeight - DimensionPolicy.pixels(context, 6), share);
                 }
                 x += keyWidth;
             }

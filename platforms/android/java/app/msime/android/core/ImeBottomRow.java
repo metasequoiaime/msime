@@ -563,6 +563,28 @@ final class ImeBottomRow {
         return handwritingDeleteButton;
     }
 
+    /**
+     * 把底行的一个常驻键（{@link #actionRowKey}）挂进 {@code parent}：先从原来的父视图摘下，再按功能行的规矩给角色、键帽、样式和字号。功能行自己用它，右侧大回车外框（{@link ImeLayoutRows#rebuildNineKeyRows}）把 符、123、空格、中/英、回车挂进外框时也用它，两处画出来的键一样。
+     */
+    void placeKey(LinearLayout parent, KeyboardActionRow.DesignSlot slot, Button key, LinearLayout.LayoutParams params) {
+        if (key.getParent() instanceof android.view.ViewGroup previous) previous.removeView(key);
+        KeyboardKeyRole role = switch (slot) {
+            case RETURN -> returnKeyRole();
+            case SPACE, ZERO, COMMA, PERIOD -> KeyboardKeyRole.KEY;
+            default -> KeyboardKeyRole.ACCENT;
+        };
+        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
+        // 符、123、中/英、逗号由通用的 button() 建出来，没有经过键帽工厂；放进底行时才知道它们是键帽。
+        KeyboardTypographyPolicy.normalizeKeyCap(key);
+        s.imeStyler.styleButton(key, role, s.skin);
+        if (slot == KeyboardActionRow.DesignSlot.COMMA)
+            KeyboardTypographyPolicy.setKeyTextSize(key, 22);
+        else if (role == KeyboardKeyRole.ACCENT)
+            KeyboardTypographyPolicy.setKeyTextSize(key, 15);
+        ViewPolicy.show(key);
+        parent.addView(key, params);
+    }
+
     /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
     boolean layerOwnsBottomRow() {
         int layout = s.imeLetterRows.drawnTouchLayout();
@@ -638,22 +660,7 @@ final class ImeBottomRow {
         for (KeyboardActionRow.DesignEntry entry : entries) {
             Button key = actionRowKey(entry.slot());
             if (key == null) continue;
-            if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
-            KeyboardKeyRole role = switch (entry.slot()) {
-                case RETURN -> returnKeyRole();
-                case SPACE, ZERO, COMMA, PERIOD -> KeyboardKeyRole.KEY;
-                default -> KeyboardKeyRole.ACCENT;
-            };
-            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
-            // 符、123、中/英、逗号由通用的 button() 建出来，没有经过键帽工厂；放进底行时才知道它们是键帽。
-            KeyboardTypographyPolicy.normalizeKeyCap(key);
-            s.imeStyler.styleButton(key, role, s.skin);
-            if (entry.slot() == KeyboardActionRow.DesignSlot.COMMA)
-                KeyboardTypographyPolicy.setKeyTextSize(key, 22);
-            else if (role == KeyboardKeyRole.ACCENT)
-                KeyboardTypographyPolicy.setKeyTextSize(key, 15);
-            ViewPolicy.show(key);
-            s.actionRow.addView(key, LayoutPolicy.weightedMatchParentParams(entry.weight()));
+            placeKey(s.actionRow, entry.slot(), key, LayoutPolicy.weightedMatchParentParams(entry.weight()));
         }
         // 样式第一次把句号键排进底行时它刚建好，键面还是建键时的「.」，这里按当前标点模式补上。
         refreshPeriodFace();

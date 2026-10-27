@@ -19,9 +19,21 @@ public final class KeyHeatmapLayout {
      *
      * <p>多数键只记一个 id。26 键第三行左端在中文全拼下是「分词」、记 `Quote`；英文模式下同一键位是 ⇧、记 `ShiftLeft`，热力图画的是中文键盘，⇧ 不并进这一格而列进「其他键」，与 iOS、鸿蒙一致。九键右列的「重输」不计数，没有 id，画成 0 次那一档。
      */
-    public record Key(String face, float weight, List<String> ids) {
+    public record Key(String face, float weight, List<String> ids, int rows) {
         public Key {
             ids = List.copyOf(ids);
+            if (rows < 0 || rows > 2 || rows == 0 && !ids.isEmpty())
+                throw new IllegalArgumentException("Invalid heatmap key span: " + rows);
+        }
+
+        /** 只占一行的键。 */
+        public Key(String face, float weight, List<String> ids) {
+            this(face, weight, ids, 1);
+        }
+
+        /** 占位：这一格被上一行跨下来的键（`rows == 2`）盖住，不画、不记 id，只占同样的宽度让同一行后面的键对齐。 */
+        static Key covered(float weight) {
+            return new Key("", weight, List.of(), 0);
         }
     }
 
@@ -66,8 +78,9 @@ public final class KeyHeatmapLayout {
         return List.copyOf(rows);
     }
 
-    /** 拼音九键，底行按 `style` 排；左栏、网格和右列不随样式变。 */
+    /** 拼音九键，底行按 `style` 排；除右侧大回车（{@link #tallReturnNine}）外，左栏、网格和右列不随样式变。 */
     public static List<List<Key>> nine(TouchKeyStyle.Row style) {
+        if (KeyboardActionRow.drawsTallReturn(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style)) return tallReturnNine();
         List<List<NineKeyLayout.Key>> grid = NineKeyLayout.rows();
         List<String> sidebar = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
         List<String> punctuation = NineKeyLayout.punctuation();
@@ -94,32 +107,75 @@ public final class KeyHeatmapLayout {
         return List.copyOf(rows);
     }
 
+    /**
+     * 右侧大回车的拼音九键外框，和键盘的 `ImeLayoutRows` 排的一样：右列自上而下 ⌫、重输，回车（`Enter`）从第三行跨到底行（{@link Key#rows} 为 2，底行那一格是 {@link Key#covered} 占位）；底行最左是与左栏同宽的 符（`SoftSymbol`），九宫格正下方是 {@link KeyboardActionRow#tallReturnEntries}，份额换算到与九宫格同宽。
+     *
+     * <p>左栏的默认符号是 ，。？！ 四个，键盘上四个均分整栏高度，这里逐行只画得下前三个；！ 与它们同记 `SoftPunctuation`，按它的次数照样落在这三格的颜色里（{@link #sharedIds}）。
+     */
+    private static List<List<Key>> tallReturnNine() {
+        List<List<NineKeyLayout.Key>> grid = NineKeyLayout.rows();
+        List<String> sidebar = NineKeySidebarPolicy.TALL_RETURN_LETTER_SYMBOLS;
+        float side = NineKeyLayout.SIDE_COLUMN_WEIGHT;
+        List<Key> actions = List.of(
+            new Key("⌫", side, List.of("Backspace")),
+            new Key(REWRITE_FACE, side, List.of()),
+            new Key("↵", side, List.of("Enter"), 2));
+        float cellWeight = NineKeyLayout.GRID_WEIGHT / grid.get(0).size();
+        List<List<Key>> rows = new ArrayList<>(grid.size() + 1);
+        for (int index = 0; index < grid.size(); index++) {
+            List<Key> row = new ArrayList<>(grid.get(index).size() + 2);
+            row.add(new Key(sidebar.get(index), side, List.of("SoftPunctuation")));
+            for (NineKeyLayout.Key key : grid.get(index)) {
+                row.add(new Key(NineKeyLayout.face(key, false), cellWeight,
+                    List.of(KeyPressIds.forNineKeyDigit(key.digit()))));
+            }
+            row.add(actions.get(index));
+            rows.add(List.copyOf(row));
+        }
+        List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.tallReturnEntries(
+            NineKeyLayout.GRID_WEIGHT / (2 * side + NineKeyLayout.GRID_WEIGHT), false, false, false);
+        float total = 0;
+        for (KeyboardActionRow.DesignEntry entry : entries) total += entry.weight();
+        List<Key> bottom = new ArrayList<>(entries.size() + 2);
+        bottom.add(new Key("符", side, List.of("SoftSymbol")));
+        for (KeyboardActionRow.DesignEntry entry : entries) {
+            bottom.add(key(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, new KeyboardActionRow.DesignEntry(entry.slot(),
+                entry.weight() * NineKeyLayout.GRID_WEIGHT / total)));
+        }
+        bottom.add(Key.covered(side));
+        rows.add(List.copyOf(bottom));
+        return List.copyOf(rows);
+    }
+
     /** 默认设置下的功能行：不交换中/英和 123，Android 9 起不画地球键；键的排法跟着底行样式。 */
     private static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style) {
         List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(touchLayout, false, false,
             false, false, style);
         List<Key> row = new ArrayList<>(entries.size());
-        for (KeyboardActionRow.DesignEntry entry : entries) {
-            row.add(switch (entry.slot()) {
-                case SYMBOL_PANEL -> new Key("符", entry.weight(), List.of("SoftSymbol"));
-                case LAYER -> new Key(KeyboardActionRow.layerTitle(touchLayout, false), entry.weight(),
-                    List.of("SoftLayer"));
-                case GLOBE -> new Key(KeyPressIds.label("SoftGlobe"), entry.weight(), List.of("SoftGlobe"));
-                // 表情键样式的 😀 与工具栏的表情按钮记同一个 id，存储分不出按的是哪一个，次数都落在这一格。
-                case EMOJI -> new Key("😀", entry.weight(), List.of("SoftEmoji"));
-                case COMMA -> new Key("，", entry.weight(), List.of("Comma"));
-                case SPACE -> new Key("空格", entry.weight(), List.of("Space"));
-                case ZERO -> new Key("0", entry.weight(), List.of("Nine0"));
-                case PERIOD -> new Key("。", entry.weight(), List.of("Period"));
-                case LANGUAGE -> new Key(LanguageKeyCyclePolicy.label(false, KeyboardScheme.QUANPIN, false,
-                    List.of()), entry.weight(), List.of("SoftLanguage"));
-                // 只有手写底行带这两个键；热力图画的 26 键和九键底行不会走到这里。
-                case REWRITE -> new Key("重写", entry.weight(), List.of());
-                case DELETE -> new Key("⌫", entry.weight(), List.of("Backspace"));
-                case RETURN -> new Key("↵", entry.weight(), List.of("Enter"));
-            });
-        }
+        for (KeyboardActionRow.DesignEntry entry : entries) row.add(key(touchLayout, entry));
         return List.copyOf(row);
+    }
+
+    /** 底行一个键的键面与 id。 */
+    private static Key key(int touchLayout, KeyboardActionRow.DesignEntry entry) {
+        return switch (entry.slot()) {
+            case SYMBOL_PANEL -> new Key("符", entry.weight(), List.of("SoftSymbol"));
+            case LAYER -> new Key(KeyboardActionRow.layerTitle(touchLayout, false), entry.weight(),
+                List.of("SoftLayer"));
+            case GLOBE -> new Key(KeyPressIds.label("SoftGlobe"), entry.weight(), List.of("SoftGlobe"));
+            // 表情键样式的 😀 与工具栏的表情按钮记同一个 id，存储分不出按的是哪一个，次数都落在这一格。
+            case EMOJI -> new Key("😀", entry.weight(), List.of("SoftEmoji"));
+            case COMMA -> new Key("，", entry.weight(), List.of("Comma"));
+            case SPACE -> new Key("空格", entry.weight(), List.of("Space"));
+            case ZERO -> new Key("0", entry.weight(), List.of("Nine0"));
+            case PERIOD -> new Key("。", entry.weight(), List.of("Period"));
+            case LANGUAGE -> new Key(LanguageKeyCyclePolicy.label(false, KeyboardScheme.QUANPIN, false,
+                List.of()), entry.weight(), List.of("SoftLanguage"));
+            // 只有手写底行带这两个键；热力图画的 26 键和九键底行不会走到这里。
+            case REWRITE -> new Key("重写", entry.weight(), List.of());
+            case DELETE -> new Key("⌫", entry.weight(), List.of("Backspace"));
+            case RETURN -> new Key("↵", entry.weight(), List.of("Enter"));
+        };
     }
 
     /** 一套布局里画出来的全部 id，按出现顺序、不重复。 */

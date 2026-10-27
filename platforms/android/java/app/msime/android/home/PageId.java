@@ -31,7 +31,7 @@ public enum PageId {
     /** 键盘页「按键布局」进来的子页：三类键面的底行样式与顶部数字行（{@link KeyLayoutStylesPage}）。 */
     KEY_LAYOUT_STYLES("KeyLayoutStylesPage", "按键布局", HostDeepLink.TAB_SETTINGS,
         "26 键", "14 键与 18 键", "9 键", "九键", "底行", "标准", "逗号句号在空格两侧", "长空格", "长空格布局", "表情键", "底栏带标点",
-        "顶部数字行", "数字行"),
+        "右侧大回车", "大回车", "顶部数字行", "数字行"),
     TOOLBAR_EDITOR("ToolbarEditorPage", "编辑工具栏", HostDeepLink.TAB_SETTINGS, "编辑工具栏"),
     PLUGINS("PluginsPage", "插件", HostDeepLink.TAB_SETTINGS,
         "我的插件", "社区插件", "音效包", "指令表", "短语表", "辅助码表", "单词本", "符号集", "制作插件", "新建插件", "导入插件",

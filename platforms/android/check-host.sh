@@ -1019,6 +1019,25 @@ if ! sed -n '/private void render(@Nullable JSONObject preferences) {$/,/^    }$
   echo "Android 顶部数字行 must sit in an untitled group and be hidden when the edition offers neither 26-key nor 14/18-key faces" >&2
   exit 1
 fi
+# 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画外框最后两行。
+for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
+  body=$(sed -n "/    $builder\$/,/^    }\$/p" "$layout_rows")
+  if ! rg_q_stdin 'boolean tallReturn = tallReturnDrawn\(\);' <<< "$body" \
+    || ! rg_q_stdin 'if \(tallReturn\) s\.imeStyler\.adjustBottomRowBlockHeight\(container\);' <<< "$body" \
+    || ! rg_q_stdin 'addTallReturnKey\(actions\);' <<< "$body" \
+    || ! rg_q_stdin 'hideActionRowForTallReturn\(\);' <<< "$body"; then
+    echo "Android $builder must build the tall-return frame as one block with the double-height return" >&2
+    exit 1
+  fi
+done
+if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
+  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn\);' "$layout_rows" \
+  || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_page" \
+  || ! rg -q 'if \(KeyboardActionRow\.drawsTallReturn\(touchLayout, style\)\) return tallReturnRows\(\);' \
+    "$repo_root/platforms/android/java/app/msime/android/home/BottomRowPreview.java"; then
+  echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the frame" >&2
+  exit 1
+fi
 # 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。
 nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
 for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \

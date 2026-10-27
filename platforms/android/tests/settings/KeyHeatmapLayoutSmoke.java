@@ -28,12 +28,14 @@ public final class KeyHeatmapLayoutSmoke {
         others();
         shared();
         styles();
+        tallReturn();
         sources();
         System.out.println("Android key heatmap layout matches the touch keyboard");
     }
 
     private static void whitelisted() {
-        for (List<List<Key>> layout : List.of(KeyHeatmapLayout.SOFT, KeyHeatmapLayout.NINE)) {
+        for (List<List<Key>> layout : List.of(KeyHeatmapLayout.SOFT, KeyHeatmapLayout.NINE,
+                KeyHeatmapLayout.nine(TouchKeyStyle.Row.TALL_RETURN))) {
             for (List<Key> row : layout) {
                 for (Key key : row) {
                     check(key.weight() > 0, "every drawn key has a width: " + key.face());
@@ -164,6 +166,8 @@ public final class KeyHeatmapLayoutSmoke {
             && faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.EMOJI, false))).equals(List.of("123", "😀", "空格", "，", "中", "↵")),
             "26-key bottom rows as each style draws them");
         for (TouchKeyStyle.Row style : TouchKeyStyle.NINE_KEY_ROWS) {
+            // 右侧大回车改的是整个外框，见 tallReturn()。
+            if (style == TouchKeyStyle.Row.TALL_RETURN) continue;
             List<List<Key>> rows = KeyHeatmapLayout.nine(style);
             check(rows.subList(0, 3).equals(KeyHeatmapLayout.NINE.subList(0, 3)), "the nine-key grid ignores the style");
             styledBottom(rows.get(3), KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style);
@@ -184,6 +188,58 @@ public final class KeyHeatmapLayoutSmoke {
             "without the number row and the emoji style both are listed under 其他键");
         check(KeyHeatmapLayout.others(counts, KeyHeatmapLayout.soft(TouchKeyStyle.Row.EMOJI, true)).isEmpty(),
             "with them both are drawn");
+    }
+
+    /**
+     * 右侧大回车的九键外框：右列 ⌫、重输，回车（Enter）从第三行跨到底行，底行最左是与左栏同宽的 符，九宫格正下方的 123 | 空格 | 中 恰好与九宫格同宽；底行回车那一格是不画、不记 id 的占位。每行总份额相同、跨行的回车和占位同宽，所以两行的右列左边缘对齐。统计 id 不变。
+     */
+    private static void tallReturn() {
+        List<List<Key>> rows = KeyHeatmapLayout.nine(TouchKeyStyle.Row.TALL_RETURN);
+        float side = NineKeyLayout.SIDE_COLUMN_WEIGHT;
+        float frame = 2 * side + NineKeyLayout.GRID_WEIGHT;
+        check(rows.size() == 4, "three grid rows and the bottom row");
+        for (int index = 0; index < 3; index++) {
+            List<Key> row = rows.get(index);
+            check(row.subList(1, 4).equals(KeyHeatmapLayout.NINE.get(index).subList(1, 4)), "the grid is unchanged in row " + index);
+            check(row.get(0).face().equals(NineKeySidebarPolicy.TALL_RETURN_LETTER_SYMBOLS.get(index))
+                && row.get(0).ids().equals(List.of("SoftPunctuation")) && row.get(0).weight() == side, "sidebar cell " + index);
+        }
+        check(faces(rows.get(0)).get(4).equals("⌫") && rows.get(0).get(4).ids().equals(List.of("Backspace"))
+            && faces(rows.get(1)).get(4).equals("重输") && rows.get(1).get(4).ids().isEmpty(),
+            "the right column keeps ⌫ and the uncounted 重输");
+        Key enter = rows.get(2).get(4);
+        check(enter.face().equals("↵") && enter.ids().equals(List.of("Enter")) && enter.rows() == 2 && enter.weight() == side,
+            "return spans the third row and the bottom row in the right column");
+        List<Key> bottom = rows.get(3);
+        check(faces(bottom).equals(List.of("符", "123", "空格", "中", "")), "bottom row: 符 under the sidebar, then 123 | space | 中");
+        check(bottom.get(0).ids().equals(List.of("SoftSymbol")) && bottom.get(0).weight() == side, "符 is as wide as the sidebar");
+        Key covered = bottom.get(bottom.size() - 1);
+        check(covered.rows() == 0 && covered.ids().isEmpty() && covered.weight() == side, "the return's lower half is a placeholder");
+        check(bottom.get(1).ids().equals(List.of("SoftLayer")) && bottom.get(2).ids().equals(List.of("Space"))
+            && bottom.get(3).ids().equals(List.of("SoftLanguage")), "statistics ids are unchanged");
+        float strip = 0;
+        for (Key key : bottom.subList(1, bottom.size() - 1)) strip += key.weight();
+        check(Math.abs(strip - NineKeyLayout.GRID_WEIGHT) < 1e-4f, "the strip under the grid is exactly as wide as the grid");
+        for (List<Key> row : rows) {
+            float sum = 0;
+            for (Key key : row) sum += key.weight();
+            check(Math.abs(sum - frame) < 1e-4f && row.size() == 5, "every row spans the frame with five keys");
+        }
+        // 123 和中/英在整行里的占比与标准九键底行相同，空格占剩下的。
+        List<Key> standard = KeyHeatmapLayout.NINE.get(3);
+        float standardTotal = 0;
+        for (Key key : standard) standardTotal += key.weight();
+        check(Math.abs(bottom.get(1).weight() / frame - standard.get(1).weight() / standardTotal) < 1e-5f
+            && Math.abs(bottom.get(3).weight() / frame - standard.get(3).weight() / standardTotal) < 1e-5f,
+            "123 and 中 keep their width from the standard bottom row");
+        check(KeyHeatmapLayout.sharedIds(rows).equals(Set.of("SoftPunctuation")), "only the sidebar shares SoftPunctuation");
+        int punctuation = 0;
+        for (List<Key> row : rows) for (Key key : row) if (key.ids().contains("SoftPunctuation")) punctuation++;
+        check(punctuation == 3, "the right-column ！ is gone; the sidebar draws three of its four symbols");
+        check(KeyHeatmapLayout.ids(rows).containsAll(List.of("SoftSymbol", "SoftLayer", "Space", "SoftLanguage", "Enter", "Backspace")),
+            "every bottom-row id is drawn");
+        check(KeyHeatmapLayout.others(Map.of("SoftSymbol", 3L, "Enter", 2L, "Comma", 1L), rows).equals(List.of("Comma")),
+            "only keys the frame does not draw are listed under 其他键");
     }
 
     private static List<Key> last(List<List<Key>> rows) {
@@ -227,11 +283,19 @@ public final class KeyHeatmapLayoutSmoke {
             && letterRows.contains("String id = separator ? \"Quote\" : \"ShiftLeft\";"),
             "the 全拼 case key is still 分词 recording Quote, ⇧ recording ShiftLeft otherwise");
         check(layoutRows.contains("weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT)")
-            && layoutRows.contains("container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));")
+            && layoutRows.contains(": grid,\n            LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));")
             && layoutRows.contains(": KeyPressIds.forNineKeyDigit(key.digit()));")
             && layoutRows.contains("Button rewrite = s.keyboardKey(\"重输\""),
             "the nine-key frame still uses the heatmap's column weights, Nine ids and the uncounted 重输");
+        check(layoutRows.contains("s.imeBottomRow.placeKey(cell, KeyboardActionRow.DesignSlot.SYMBOL_PANEL, s.symbolPanelButton,")
+            && layoutRows.contains("s.imeBottomRow.placeKey(cell, KeyboardActionRow.DesignSlot.RETURN, s.enterButton,")
+            && layoutRows.contains("KeyboardActionRow.tallReturnEntries(gridShare, globe,")
+            && layoutRows.contains("else addNineKey(actions, nineKeyRewriteKey());"),
+            "the keyboard's tall frame puts the same keys where the heatmap draws them");
         String view = read("home/KeyHeatmapView.java");
+        check(view.contains("if (key.rows() == 0) {")
+            && view.contains("float keyHeight = key.rows() * height + (key.rows() - 1) * gap;"),
+            "the view draws a spanning return and skips the cell it covers");
         check(view.contains("KeyHeatmapLayout.SOFT") && view.contains("KeyHeatmapLayout.NINE") && !view.contains("new Key("),
             "the view draws the derived layout instead of a hand-written copy");
         check(view.contains("KeyHeatmapLayout.sharedIds(nine)") && view.contains("!containsAny(shared, key.ids())")

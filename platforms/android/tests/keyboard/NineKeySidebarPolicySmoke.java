@@ -9,6 +9,7 @@ public final class NineKeySidebarPolicySmoke {
         defaults();
         digitDefaults();
         layerChoice();
+        tallReturn();
         rowHeight();
         parsing();
         choices();
@@ -21,6 +22,23 @@ public final class NineKeySidebarPolicySmoke {
         check(NineKeySidebarPolicy.sidebarSymbols(true, "， 。", "+ -").equals(List.of("+", "-")), "the digit layer reads the digit table");
         check(NineKeySidebarPolicy.sidebarSymbols(false, "， 。", "+ -").equals(List.of("，", "。")), "the letter layer reads the letter table");
         check(NineKeySidebarPolicy.sidebarSymbols(true, null, null).equals(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS), "the digit layer falls back to the digit defaults");
+    }
+
+    /** 右侧大回车去掉右列的 ！，它接在字母键面默认表的末尾；自定义的表（与默认表相同的除外，设置页「恢复默认」会把默认表原样写进存储）和数字键面的表不变，其他样式不受影响。 */
+    private static void tallReturn() {
+        List<String> tall = List.of("，", "。", "？", "！");
+        check(NineKeySidebarPolicy.TALL_RETURN_LETTER_SYMBOLS.equals(tall), "！ is appended to the default letter table");
+        check(NineKeySidebarPolicy.letterSymbols(null, true).equals(tall), "nothing stored reads as the tall-return defaults");
+        check(NineKeySidebarPolicy.letterSymbols(NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS), true)
+            .equals(tall), "the default table written back by 恢复默认 still gets the ！");
+        check(NineKeySidebarPolicy.letterSymbols("+ -", true).equals(List.of("+", "-")), "a custom table is used as it is");
+        check(NineKeySidebarPolicy.letterSymbols("， 。", true).equals(List.of("，", "。")), "a shortened custom table stays short");
+        check(NineKeySidebarPolicy.letterSymbols(null, false).equals(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS),
+            "other styles keep the three-symbol default");
+        check(NineKeySidebarPolicy.sidebarSymbols(true, null, null, true).equals(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS),
+            "the digit table already ends its punctuation with ！ and does not change");
+        check(NineKeySidebarPolicy.sidebarSymbols(false, null, null, true).equals(tall), "the letter layer reads the tall table");
+        check(tall.size() <= NineKeySidebarPolicy.VISIBLE_ROWS, "the four symbols fit one screen");
     }
 
     private static void defaults() {

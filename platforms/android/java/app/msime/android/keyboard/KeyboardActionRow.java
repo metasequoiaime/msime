@@ -308,9 +308,10 @@ public final class KeyboardActionRow {
             longSpace && usesCommaSecondaryPeriod(touchLayout) ? TouchKeyStyle.Row.LONG_SPACE : TouchKeyStyle.Row.STANDARD);
     }
 
-    /** 按底行样式（{@link #baseEntries}）排布字母层底行；九键数字层不受样式影响。 */
+    /** 按底行样式（{@link #baseEntries}）排布字母层底行；九键数字层不受样式影响，只有右侧大回车例外：那时字母层和数字层都没有单独的底行（{@link #drawsTallReturn}）。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
             boolean swapLanguageNumber, boolean digits, boolean english, TouchKeyStyle.Row style) {
+        if (drawsTallReturn(touchLayout, style)) return List.of();
         List<DesignEntry> entries = baseEntries(touchLayout, globe, english && !digits,
             digits ? TouchKeyStyle.Row.STANDARD : style);
         if (digits && touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT) {
@@ -330,6 +331,40 @@ public final class KeyboardActionRow {
         }
         if (layer >= 0 && language >= 0) java.util.Collections.swap(swapped, layer, language);
         return List.copyOf(swapped);
+    }
+
+    /**
+     * 这个键面是否画右侧大回车外框：拼音九键与笔画（共用九键外框）选了 {@link TouchKeyStyle.Row#TALL_RETURN}。这时外框连同底行是一整块，像注音九键一样没有单独的底行：回车从右列第三行跨到底行，符 在符号栏下方，九宫格下方是 {@link #tallReturnEntries}。宿主排数字层时传 {@link KeyboardLayout#QUANPIN_NINE_KEY_LAYOUT} 和当前键面的样式，笔画借用的数字九宫格因此同样画这个外框。
+     */
+    public static boolean drawsTallReturn(int touchLayout, TouchKeyStyle.Row style) {
+        return style == TouchKeyStyle.Row.TALL_RETURN && (touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
+            || touchLayout == KeyboardLayout.STROKE_LAYOUT);
+    }
+
+    /** 右侧大回车外框里数字层的小数点：0 右边、从 0 里让出一份，与计算器的 0 . 相同；按字面上屏 `.`。 */
+    public static final float TALL_RETURN_DECIMAL_WEIGHT = DESIGN_PUNCTUATION_WEIGHT;
+
+    /**
+     * 右侧大回车外框里九宫格正下方那一行：123 |（地球）| 空格 | 中/英，恰好与九宫格同宽。123、地球键和中/英保持在标准九键底行里的绝对宽度，空格占剩下的宽度；份额的单位与 {@link #designEntries} 相同，总和是标准九键底行（含地球键时连地球键）的总份额乘以九宫格占整行的比例 {@code gridShare}，宿主按九宫格的宽度铺满即可。
+     *
+     * <p>数字层（{@code digits}）照同一框架：123 的位置是切换键（{@link DesignSlot#LAYER}），空格的位置放 0（{@link DesignSlot#ZERO}），0 右边是小数点（{@link DesignSlot#PERIOD}，{@link #TALL_RETURN_DECIMAL_WEIGHT}）；空格按 Android 数字层的规矩移到右列（重输的位置）。交换中/英与 123 时两键对调，宽度跟着键走。
+     *
+     * @param gridShare 九宫格占外框整行宽度的比例（拼音九键 14/20，笔画 3/4.8）
+     */
+    public static List<DesignEntry> tallReturnEntries(float gridShare, boolean globe,
+            boolean swapLanguageNumber, boolean digits) {
+        float total = 0;
+        for (DesignEntry entry : designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe)) total += entry.weight();
+        float fixed = DESIGN_LAYER_WEIGHT + (globe ? DESIGN_GLOBE_WEIGHT : 0) + DESIGN_LANGUAGE_WEIGHT
+            + (digits ? TALL_RETURN_DECIMAL_WEIGHT : 0);
+        List<DesignEntry> entries = new ArrayList<>(5);
+        entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
+        if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
+        entries.add(new DesignEntry(digits ? DesignSlot.ZERO : DesignSlot.SPACE, total * gridShare - fixed));
+        if (digits) entries.add(new DesignEntry(DesignSlot.PERIOD, TALL_RETURN_DECIMAL_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
+        if (swapLanguageNumber) java.util.Collections.swap(entries, 0, entries.size() - 1);
+        return List.copyOf(entries);
     }
 
     /**

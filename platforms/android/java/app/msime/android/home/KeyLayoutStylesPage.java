@@ -26,7 +26,7 @@ import java.util.List;
 import org.json.JSONObject;
 
 /**
- * 「按键布局」子页（键盘页「布局」组进来）：26 键、14 键与 18 键、9 键三组单选，每个选项下面画这种样式的字母层底行（{@link BottomRowPreview}），最后是没有标题的一组里的「顶部数字行」开关（本版本既没有 26 键也没有 14/18 键时不列）。四项都写共享偏好（`touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_number_row`，{@link TouchKeyStyle}），随账号同步，键盘每秒重读偏好时就地换底行，不打断正在组的字。本版本没有某类键面（例如五笔版没有九键）时不列那一组。
+ * 「按键布局」子页（键盘页「布局」组进来）：26 键、14 键与 18 键、9 键三组单选，每个选项下面画这种样式的字母层底行（{@link BottomRowPreview}，右侧大回车画外框最后两行），最后是没有标题的一组里的「顶部数字行」开关（本版本既没有 26 键也没有 14/18 键时不列）。四项都写共享偏好（`touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_number_row`，{@link TouchKeyStyle}），随账号同步，键盘每秒重读偏好时就地换底行，不打断正在组的字。本版本没有某类键面（例如五笔版没有九键）时不列那一组。
  *
  * <p>页面打开时先把本机旧的「长空格布局」和「数字行」设置迁进共享偏好（{@link KeyLayoutStyleMigration}），显示的就是迁移后的选择。
  */
@@ -89,13 +89,14 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         }
     }
 
-    /** 选项的名字；九键的「逗号句号在空格两侧」叫「底栏带标点」，因为九键的标点原本在侧栏里。 */
+    /** 选项的名字；九键的「逗号句号在空格两侧」叫「底栏带标点」，因为九键的标点原本在侧栏里；「右侧大回车」只有九键有。 */
     static String label(int touchLayout, TouchKeyStyle.Row row) {
         return switch (row) {
             case STANDARD -> "标准";
             case COMMA_PERIOD -> touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT ? "底栏带标点" : "逗号句号在空格两侧";
             case LONG_SPACE -> "长空格";
             case EMOJI -> "表情键";
+            case TALL_RETURN -> "右侧大回车";
         };
     }
 

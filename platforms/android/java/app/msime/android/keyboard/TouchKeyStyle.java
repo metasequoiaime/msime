@@ -21,7 +21,9 @@ public final class TouchKeyStyle {
         /** 长空格：26 键与 14/18 键。 */
         LONG_SPACE("long_space"),
         /** 表情键：三类键面都有。 */
-        EMOJI("emoji");
+        EMOJI("emoji"),
+        /** 右侧大回车：只有九键外框。回车跨右列下两行，符 移到符号栏下方，九宫格下方的底行只剩 123 |（地球）| 空格 | 中/英（{@link KeyboardActionRow#tallReturnEntries}）。 */
+        TALL_RETURN("tall_return");
 
         public final String wire;
 
@@ -34,8 +36,8 @@ public final class TouchKeyStyle {
     public static final List<Row> TWENTY_SIX_KEY_ROWS = List.of(Row.STANDARD, Row.COMMA_PERIOD, Row.LONG_SPACE, Row.EMOJI);
     /** 14 键与 18 键：本来就有独立逗号句号，没有 `comma_period`。 */
     public static final List<Row> FOURTEEN_KEY_ROWS = List.of(Row.STANDARD, Row.LONG_SPACE, Row.EMOJI);
-    /** 九键：左右两列已占满，没有地方放长空格。 */
-    public static final List<Row> NINE_KEY_ROWS = List.of(Row.STANDARD, Row.COMMA_PERIOD, Row.EMOJI);
+    /** 九键：左右两列已占满，没有地方放长空格；右侧大回车排在表情键之后。 */
+    public static final List<Row> NINE_KEY_ROWS = List.of(Row.STANDARD, Row.COMMA_PERIOD, Row.EMOJI, Row.TALL_RETURN);
 
     /** 三类键面各自选中的样式，缺省全是标准底行。 */
     public record Styles(Row twentySix, Row fourteen, Row nine) {
