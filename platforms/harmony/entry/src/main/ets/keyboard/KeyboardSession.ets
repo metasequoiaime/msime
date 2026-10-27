@@ -1266,6 +1266,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private readonly typingStatisticsWrites: taskpool.SequenceRunner = new taskpool.SequenceRunner();
   // 上次 flush 之后是否又送出过提交。原生层把提交攒在进程内存里，最多三十秒或 flush 时才写盘；没有新提交时收起键盘、换编辑框不必再排一次 flush。
   private typingStatisticsUnflushed: boolean = false;
+  // 原生库拒绝过 flush 并已记过一次日志。拒绝多半每次都会重复（例如统计目录不可用），只记一次，免得每次收起键盘都写一条。
+  private typingStatisticsFlushRefusalLogged: boolean = false;
   // 最近一次排入的 flush。收起键盘紧接着失去焦点时，第二次 flush 没有新提交可写，但发布统计文件仍要等第一次写完。
   private typingStatisticsFlushed: Promise<void> = Promise.resolve();
   private editorGeneration: number = 0;
@@ -7370,7 +7372,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /**
    * 让原生层把这个键盘进程攒着的打字统计现在写进文件：键盘收起、编辑框失去焦点、扩展销毁时调用。排在同一个 SequenceRunner 上，之前送出的提交都会包含在这次写入里。返回的 Promise 在写完后完成，失败也完成；上次 flush 之后没有新提交时不再排一次，返回上一次的。
    *
-   * 不认识 `flush` 的旧原生库会回答错误，这里不理会：那样的库每次提交都直接写盘，本来就没有攒着的。
+   * 原生库拒绝 flush 时记一次日志：攒着的计数这时只能等原生层自己在失焦、销毁或满三十秒时写出，原因能从诊断日志里看出来。
    */
   private flushTypingStatistics(): Promise<void> {
     if (!this.typingStatisticsUnflushed || this.stateDirectory.length === 0) {
@@ -7381,8 +7383,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       directory: this.stateDirectory, action: { operation: 'flush' }
     };
     const task: taskpool.Task = new taskpool.Task(writeTypingStatistics, JSON.stringify(requestDocument));
-    this.typingStatisticsFlushed = this.typingStatisticsWrites.execute(task).then((): void => {
-      // 回答不看，见上。
+    this.typingStatisticsFlushed = this.typingStatisticsWrites.execute(task).then((response: Object): void => {
+      const value: TypingStatisticsRecordResponse = JSON.parse(response as string) as TypingStatisticsRecordResponse;
+      if (value.ok !== true && !this.typingStatisticsFlushRefusalLogged) {
+        this.typingStatisticsFlushRefusalLogged = true;
+        KeyboardLog.error(`typing statistics flush refused: ${value.error ?? 'unknown'}`);
+      }
     }).catch((error: Object): void => {
       KeyboardLog.error(`typing statistics flush unavailable: ${describeError(error)}`);
     });
