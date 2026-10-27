@@ -29,6 +29,8 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、少数特殊机型和截图，平时 PR 不再因为额度排队；Windows 设置编译从 4 核换到 8 核。代价是这些 job 依赖 Depot 的可用性，Depot 出故障时 PR 检查会卡住而不是变慢；Depot 的 macOS 并发本来就紧，`release-pack-tool` 的 macOS 构建挪过去后发 pack 工具时可能和 macOS CI 抢机器。
 
+`Windows native settings` 第一次在 Depot 上跑就在「宽窗口的剪贴板行」断言上失败。原因不是显示缩放（两边滚轮一格都是 81 px），而是桌面大小：Depot 的 Windows 机型主屏是 1024×768，设置应用把窗口限在屏幕的八成，冒烟要的 1000×780 只撑到 820×620（截图产物里的尺寸），窄窗口的排法把操作收进了「更多操作」；GitHub 的 windows-2025 截图是完整的 1000×780。处理是在冒烟之前加一步「Enlarge the desktop for the settings smoke」，用 `ChangeDisplaySettings` 把主屏调到 1920×1080 并把前后分辨率写进日志，冒烟里新增 `Assert-WindowSize`，窗口撑不到要的尺寸时直接报屏幕太小。Depot 的虚拟显示器不接受这个分辨率时，把这一个 job 退回 `windows-2025`：它需要一块够大的交互桌面，属于上面「要交互桌面」的例外。
+
 ## Verification
 
 `actionlint` 通过。PR 上会触发的检查（quality、contracts、ci-docs 等）由本 PR 的 CI 在 Depot 上实际跑一遍；`Windows native settings`、发版工作流和定时任务里挪过去的 job 要到下一次被触发时才实际跑到，`pull_request_target` 的几个要等下一个 PR。
