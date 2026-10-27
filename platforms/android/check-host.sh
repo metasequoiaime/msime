@@ -982,7 +982,9 @@ style_migration="$repo_root/platforms/android/java/app/msime/android/settings/Ke
 legacy_readers=$(rg -l 'AndroidLocalSettings\.(NUMBER_ROW|LONG_SPACE_LAYOUT)\b' "$repo_root/platforms/android/java" | sed "s#^$repo_root/##" | LC_ALL=C sort | tr '\n' ' ')
 if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java " ]] \
   || ! sed -n '/public static Round run(/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/account/RustCloudSync.java" \
-    | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(context, preferencesDirectory\);\n\s*JSONObject inputs' \
+    | rg_q_stdin -U 'boolean settingsMigrated = KeyLayoutStyleMigration\.migrate\(context, preferencesDirectory\);\n\s*JSONObject inputs' \
+  || ! sed -n '/public static Round run(/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/account/RustCloudSync.java" \
+    | rg_q_stdin 'if \(!settingsMigrated\) inputs\.put\("settings_locked", true\);' \
   || ! sed -n '/private EngineStartOptions withLivePreferences(/,/^    }$/p' "$account_service" \
     | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(this, directory\);\n\s*String response = candidateSkinResolver\.read\(directory\);' \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.LONG_SPACE_LAYOUT, null\);' "$style_migration" \
@@ -994,6 +996,22 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
   echo "Android touch key layout styles must read the shared preferences, migrate the two legacy local keys before any settings export or live read, re-render when they change, and draw the number row on 14/18 keys" >&2
   exit 1
 fi
+# 底行样式和顶部数字行在 applyTouchGeometry 里读，冷启动的第一帧按皮肤片段算；片段里没有它们时每次键盘进程冷启动都先画标准底行、没有数字行，一两秒后实时偏好到了键盘整体高出一行、底行换样。这里钉住 applyTouchGeometry 读到的每个 TouchKeyStyle 偏好键都在 SKIN_HINT_KEYS 里。
+skin_hint_keys=$(sed -n '/private static final String\[\] SKIN_HINT_KEYS = {/,/};$/p' "$account_service")
+touch_style_reads=$(sed -n '/private static TouchKeyStyle\.Styles touchKeyStylesFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean numberRowFrom(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+  | rg -o 'TouchKeyStyle\.[A-Z_]+_PREFERENCE' | LC_ALL=C sort -u)
+if [[ -z "$skin_hint_keys" ]] || [[ "$(printf '%s\n' "$touch_style_reads" | wc -l | tr -d ' ')" -ne 4 ]] \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'touchKeyStyles = touchKeyStylesFrom\(preferences\);'; then
+  echo "Android check-host could not locate SKIN_HINT_KEYS or the touch key style readers in MSIMEInputService" >&2
+  exit 1
+fi
+while IFS= read -r key; do
+  if ! rg -qF "$key" <<< "$skin_hint_keys"; then
+    echo "Android SKIN_HINT_KEYS must remember $key so a cold-started keyboard draws the user's bottom row and number row from the first frame" >&2
+    exit 1
+  fi
+done <<< "$touch_style_reads"
 # 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。
 nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
 for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \

@@ -157,13 +157,14 @@ public final class RustCloudSync {
     public static Round run(Context context, String trigger, String choice, String preferencesDirectory,
             String options) throws AccountStore.Failure, IOException, JSONException {
         migrate(context);
-        // 导出设置之前先迁本机旧的长空格和数字行设置，否则共享偏好里的默认值会被当成用户的选择传上去。
-        KeyLayoutStyleMigration.migrate(context, preferencesDirectory);
+        // 导出设置之前先迁本机旧的长空格和数字行设置，否则共享偏好里的默认值会被当成用户的选择传上去。没迁完（共享偏好读写失败、修订号一直被抢）时这一轮锁住设置分类：设置既不导出也不应用、待上传标记留着，常用语和词库照常同步，下一轮再迁。
+        boolean settingsMigrated = KeyLayoutStyleMigration.migrate(context, preferencesDirectory);
         JSONObject inputs = new JSONObject()
             .put("feedback", feedback(context))
             .put("android_local", new JSONObject(AndroidLocalSettings.load(context).synced()))
             .put("custom_keyboard_skins", CustomSkinLibrary.exportDesigns(Paths.get(preferencesDirectory)))
             .put("excluded_phrase_texts", new JSONArray(CommonPhrasesStore.untouchedStarters(context)));
+        if (!settingsMigrated) inputs.put("settings_locked", true);
         JSONObject action = new JSONObject().put("trigger", trigger)
             .put("capabilities", new JSONObject().put("settings", true).put("skins_library", true)
                 .put("phrases", true).put("dictionary", true))
