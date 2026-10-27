@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 import { normalizeFontCatalog } from "../../../../packages/ui/src/candidate/font-catalog";
+import { CandidateFontControls } from "../../../../packages/ui/src/candidate/candidate-font-controls";
 import { testHost } from "../support/host";
 afterEach(cleanup);
 const initial: Snapshot = {
@@ -53,27 +54,22 @@ test("search loads once and selects with keyboard without saving", async () => {
   fireEvent.keyDown(primary, { key: "Escape" });
   expect(primary.getAttribute("aria-expanded")).toBe("false");
 });
-test("late results from a replaced reader cannot reappear", async () => {
+test("替换字体读取器后，旧请求的迟到结果不能重新出现", async () => {
   let resolve!: (fonts: string[]) => void;
   const old = () =>
     new Promise<string[]>((done) => {
       resolve = done;
     });
-  const client = { load: async () => initial, save: vi.fn() };
-  const view = render(
-    <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: old }} />,
-  );
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
-  // 字体框在「候选字体」选「自定义…」后才出现。
-  fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
+  const value = { candidate_font_family: "" };
+  const onChange = vi.fn();
+  const view = render(<CandidateFontControls value={value} onChange={onChange} readFonts={old} />);
   fireEvent.focus(await screen.findByLabelText("主字体"));
   expect(screen.getByText("正在读取字体列表。")).toBeDefined();
   const next = vi.fn().mockResolvedValue(["New font"]);
-  view.rerender(
-    <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: next }} />,
-  );
+  view.rerender(<CandidateFontControls value={value} onChange={onChange} readFonts={next} />);
   await screen.findByRole("option", { name: "New font" });
   await act(async () => resolve(["Stale font"]));
+  expect(screen.getByRole("option", { name: "New font" })).toBeDefined();
   expect(screen.queryByRole("option", { name: "Stale font" })).toBeNull();
 });
 test("failed catalog retries while allowing manual font entry", async () => {

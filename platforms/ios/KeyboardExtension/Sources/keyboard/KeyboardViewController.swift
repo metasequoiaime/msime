@@ -71,6 +71,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
   private let idleMaintenance = IdleMaintenancePoll()
+  /// 「我的词条」在键盘里变了之后让词库同步记下来（`local_change`），见 `KeyboardDictionarySync`。
+  private let dictionarySync = KeyboardDictionarySync()
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
@@ -5028,6 +5030,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard !hasComposition, !isInLocalMode, !synchronizingPersonalDictionary,
           fullAccess ?? hasFullAccess else { return }
     let store = PersonalDictionaryStore()
+    // 这一轮有编辑写进了 Engine：结束后让词库同步记下来，包括后面一步失败的情况。
+    var applied = false
+    defer { if applied { recordDictionaryChange() } }
     do {
       let state = try store.read()
       guard force || state.needsKeyboardSynchronization else { return }
@@ -5036,6 +5041,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       try store.synchronize(apply: { request in
         try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
                                           requestID: request.id)
+        applied = true
       }, page: { request in
         let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind,
                                                  query: request.query)
@@ -5051,6 +5057,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } catch {
       showDiagnostic(error.localizedDescription)
     }
+  }
+
+  /// 「我的词条」刚在键盘里变了（应用了 App 排队的编辑、候选栏删除了词条）。只在主线程拿会话准备好的选项，记录在后台做。
+  private func recordDictionaryChange() {
+    dictionarySync.recordLocalChange(options: try? session.dictionaryStateVersionOptions(), fullAccess: hasFullAccess,
+                                     deviceName: IOSCloudClipboardDriver.deviceName(UIDevice.current))
   }
 
   private func synchronizeInputSchemePreference() {
@@ -7729,6 +7741,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                attributes: destructive ? .destructive : []) { [weak self] _ in
         guard let self, let result = edit(operation) else { return }
         render(result)
+        if operation == .remove, result.isHandled { recordDictionaryChange() }
         if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
         else if result.diagnosticText == nil {
           playInputClick()

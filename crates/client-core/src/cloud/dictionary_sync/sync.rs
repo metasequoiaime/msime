@@ -569,7 +569,13 @@ pub fn run(
     apply_remote(state, parts, &mut report)?;
     if !options.offline && !options.skip_push && !report.pending_key {
         // 换钥先做：密钥串换了钥之后旧 epoch 不再收新事件，待发送的操作要等到新 epoch 才能发。
-        compact(state, parts, ring, &mut report)?;
+        if state.ledger.as_ref().is_some_and(|ledger| {
+            ring.current
+                .as_ref()
+                .is_some_and(|current| current.key_id() != ledger.key_id)
+        }) {
+            compact(state, parts, ring, &mut report)?;
+        }
         push(state, parts, ring, &mut report)?;
         compact(state, parts, ring, &mut report)?;
         cleanup(state, parts)?;
@@ -951,8 +957,8 @@ fn cross_seal(
         let next = sealed
             .next_epoch(key.key_id())
             .ok_or(SyncError::Unavailable)?;
+        let bytes = checked_checkpoint(&next, &key, parts.env)?;
         parts.remote.mkcol(&dir)?;
-        let bytes = next.checkpoint(&key, nonce(parts.env)?);
         parts.remote.create(&path, &bytes)?;
     }
     let bytes = parts
@@ -1206,6 +1212,7 @@ fn push(
 ) -> Result<(), SyncError> {
     let mut attempts = 0;
     let mut unsaved = 0;
+    let mut compactable = true;
     while let Some(key) = writable(state, ring) {
         let draft = next_draft(state);
         let now = parts.env.now();
@@ -1238,9 +1245,12 @@ fn push(
                 unsaved = 0;
             }
             // 第一次加入时一次要发很多批：攒够了就在中途封口，免得一个 epoch 太大。
-            if state.ledger.as_ref().is_some_and(Ledger::compaction_due) {
-                compact(state, parts, ring, report)?;
-                unsaved = 0;
+            if compactable && state.ledger.as_ref().is_some_and(Ledger::compaction_due) {
+                // 超限或争抢失败后留到这一轮结束再试，避免每发一批都加密整个词库。
+                compactable = compact(state, parts, ring, report)?;
+                if compactable {
+                    unsaved = 0;
+                }
             }
             continue;
         }
@@ -1267,35 +1277,62 @@ fn compact(
     parts: &mut Parts<'_>,
     ring: &KeyRing,
     report: &mut Report,
-) -> Result<(), SyncError> {
+) -> Result<bool, SyncError> {
     let Some(ledger) = state.ledger.clone() else {
-        return Ok(());
+        return Ok(false);
     };
     if ledger.sealed.is_some() || state.key(&ledger.key_id).is_none() {
-        return Ok(());
+        return Ok(false);
     }
     let rekey = ring
         .current
         .as_ref()
         .is_some_and(|current| current.key_id() != ledger.key_id);
     if !ledger.compaction_due() && !rekey {
-        return Ok(());
+        return Ok(false);
     }
     let mut sealed = ledger;
     let seal = sealed.seal(parts.env.now());
+    let mut preview = sealed.clone();
+    preview.apply(&seal, None).map_err(log_error)?;
+    let key = next_key(state, ring, &preview).ok_or(SyncError::Unavailable)?;
+    let next = preview
+        .next_epoch(key.key_id())
+        .ok_or(SyncError::Unavailable)?;
+    // 长词条可能让合法的共享状态超过检查点的读取上限。普通压缩先跳过，
+    // 保持当前 epoch 可写，让后续删减和确认有机会缩小状态；换钥不能继续写旧钥。
+    match checked_checkpoint(&next, key, parts.env) {
+        Err(SyncError::TooLarge) if !rekey => return Ok(false),
+        result => {
+            result?;
+        }
+    }
     if !parts
         .remote
         .create(&event_path(sealed.epoch, sealed.seq + 1), &seal)?
     {
         // 另一台设备刚写过：下一次同步再说。
-        return Ok(());
+        return Ok(false);
     }
     sealed.apply(&seal, None).map_err(log_error)?;
     state.ledger = Some(sealed.clone());
     parts.sink.save(state)?;
     report.compacted = true;
     cross_seal(state, parts, ring, sealed, report)?;
-    Ok(())
+    Ok(true)
+}
+
+/// 生成检查点时也遵守读取上限，不能把超限文件留给其他设备。
+fn checked_checkpoint(
+    ledger: &Ledger,
+    key: &DataKey,
+    env: &mut dyn Environment,
+) -> Result<Vec<u8>, SyncError> {
+    let bytes = ledger.checkpoint(key, nonce(env)?);
+    if bytes.len() as u64 > MAX_CHECKPOINT_BYTES {
+        return Err(SyncError::TooLarge);
+    }
+    Ok(bytes)
 }
 
 /// 删掉过了宽限期的旧 epoch。失败不再试：留着的旧 epoch 不影响读写。
@@ -1330,6 +1367,22 @@ pub fn restart(
         return Err(SyncError::Unavailable);
     }
     let mut ledger = state.ledger.clone().ok_or(SyncError::Unavailable)?;
+    let words = parts.local.words().map_err(local_error)?;
+    let now_ms = parts.env.now_ms();
+    let mut replica = Replica::default();
+    for word in &words {
+        let hlc = state.clock.tick(now_ms).ok_or(SyncError::Unavailable)?;
+        replica.entries.insert(
+            word.clone(),
+            Record {
+                live: true,
+                hlc,
+                device: state.device.clone(),
+                seq: 0,
+            },
+        );
+    }
+    let lineage = random_hex(parts.env)?;
     for _ in 0..MAX_PUBLISH_ATTEMPTS {
         let Some(names) = parts.remote.list(&epoch_dir(ledger.epoch))? else {
             // 本机所在的 epoch 已经被压缩删掉了：重新定位到最新的那个。
@@ -1349,55 +1402,44 @@ pub fn restart(
             };
             skip_without_key(&mut ledger, &bytes).map_err(log_error)?;
         }
-        if ledger.sealed.is_some() {
-            break;
+        let seal = ledger
+            .sealed
+            .is_none()
+            .then(|| ledger.seal(parts.env.now()));
+        let mut sealed = ledger.clone();
+        if let Some(bytes) = &seal {
+            skip_without_key(&mut sealed, bytes).map_err(log_error)?;
         }
-        let seal = ledger.seal(parts.env.now());
-        if parts
-            .remote
-            .create(&event_path(ledger.epoch, ledger.seq + 1), &seal)?
-        {
-            skip_without_key(&mut ledger, &seal).map_err(log_error)?;
-            break;
+        for record in replica.entries.values_mut() {
+            record.seq = sealed.seq;
         }
+        let next = sealed
+            .restart(&lineage, key.key_id(), replica.clone())
+            .ok_or(SyncError::Unavailable)?;
+        // 本机词库放不进检查点时，不能先封口旧日志，连带挡住其他设备。
+        let bytes = checked_checkpoint(&next, &key, parts.env)?;
+        if let Some(seal) = &seal {
+            if !parts
+                .remote
+                .create(&event_path(ledger.epoch, ledger.seq + 1), seal)?
+            {
+                continue;
+            }
+        }
+        let dir = epoch_dir(next.epoch);
+        parts.remote.mkcol(&dir)?;
+        if !parts.remote.create(&checkpoint_path(next.epoch), &bytes)? {
+            return Err(SyncError::Unavailable);
+        }
+        schedule_cleanup(state, ledger.epoch, parts.env.now());
+        state.ledger = Some(next);
+        state.applied = Some(words);
+        state.outbox.clear();
+        state.unappliable.clear();
+        state.guard = None;
+        return parts.sink.save(state);
     }
-    if ledger.sealed.is_none() {
-        return Err(SyncError::Unavailable);
-    }
-    let words = parts.local.words().map_err(local_error)?;
-    let now_ms = parts.env.now_ms();
-    let mut replica = Replica::default();
-    for word in &words {
-        let hlc = state.clock.tick(now_ms).ok_or(SyncError::Unavailable)?;
-        replica.entries.insert(
-            word.clone(),
-            Record {
-                live: true,
-                hlc,
-                device: state.device.clone(),
-                seq: ledger.seq,
-            },
-        );
-    }
-    let lineage = random_hex(parts.env)?;
-    let next = ledger
-        .restart(&lineage, key.key_id(), replica)
-        .ok_or(SyncError::Unavailable)?;
-    let dir = epoch_dir(next.epoch);
-    parts.remote.mkcol(&dir)?;
-    if !parts.remote.create(
-        &checkpoint_path(next.epoch),
-        &next.checkpoint(&key, nonce(parts.env)?),
-    )? {
-        return Err(SyncError::Unavailable);
-    }
-    schedule_cleanup(state, ledger.epoch, parts.env.now());
-    state.ledger = Some(next);
-    state.applied = Some(words);
-    state.outbox.clear();
-    state.unappliable.clear();
-    state.guard = None;
-    parts.sink.save(state)
+    Err(SyncError::Unavailable)
 }
 
 /// [`restart`] 用：本机还没有位置时，只读检查点的明文头部定位到最新的 epoch（不需要能解开它）。

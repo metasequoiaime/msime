@@ -167,6 +167,8 @@ pub(crate) struct HttpDav {
     username: String,
     password: String,
     client: Client,
+    /// 有成功响应的正文超过了请求给的上限。云剪贴板照旧把它当作连不上或读不懂；词库同步据此答「响应过大」（[`HttpDav::take_oversized`]）。
+    oversized: std::sync::atomic::AtomicBool,
 }
 
 impl HttpDav {
@@ -185,7 +187,14 @@ impl HttpDav {
             username: username.to_owned(),
             password: password.to_owned(),
             client,
+            oversized: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// 上一个请求以来，有没有成功响应的正文超过上限；读完清零。
+    pub(crate) fn take_oversized(&self) -> bool {
+        self.oversized
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 基地址拼上一个本模块生成的相对路径；只有小写字母、数字、`-`、`.`、`_` 和 `/`，拼完再确认没有跑出基地址。
@@ -250,9 +259,23 @@ impl DavHttp for HttpDav {
             .content_length()
             .is_some_and(|length| length > limit && (200..300).contains(&status))
         {
+            self.oversized
+                .store(true, std::sync::atomic::Ordering::SeqCst);
             return Err(RelayError::Unavailable);
         }
-        let body = crate::bounded_io::read_bounded(response, limit).unwrap_or_default();
+        let body = match crate::bounded_io::read_bounded(response, limit) {
+            Ok(body) => body,
+            Err(error) => {
+                if (200..300).contains(&status) {
+                    if error.kind() == std::io::ErrorKind::InvalidData {
+                        self.oversized
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    return Err(RelayError::Unavailable);
+                }
+                Vec::new()
+            }
+        };
         Ok(DavResponse {
             status,
             retry_after,
@@ -498,6 +521,22 @@ impl VirtualRelay {
             directory,
             locks,
         })
+    }
+
+    /// 请求经 `http` 发出（例如加上路径前缀，把同一套日志放进别的目录：词库同步的密钥串放在 `msime-dictionary/keyring/` 下，见 `crate::dictionary_webdav`）。
+    pub(crate) fn with_http(
+        config: RelayConfig,
+        directory: PathBuf,
+        http: Box<dyn DavHttp>,
+        locks: bool,
+    ) -> Self {
+        Self {
+            config,
+            http,
+            env: Box::new(SystemEnvironment),
+            directory,
+            locks,
+        }
     }
 
     #[cfg(test)]

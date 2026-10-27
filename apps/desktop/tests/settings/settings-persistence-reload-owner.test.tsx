@@ -56,11 +56,74 @@ function renderPersistence(client: SettingsClient) {
         setNotice: vi.fn(),
         setRecoveredBackup: vi.fn(),
       });
-      return { ...persistence, busy, error };
+      return { ...persistence, snapshot, draft, setSnapshot, setDraft, busy, error };
     },
     { initialProps: { client } },
   );
 }
+
+test("新宿主首次加载失败后不复用旧快照和草稿", async () => {
+  const pending = deferred<Snapshot>();
+  const oldClient: SettingsClient = { load: async () => initial, save: vi.fn() };
+  const nextClient: SettingsClient = { load: () => pending.promise, save: vi.fn() };
+  const { result, rerender } = renderPersistence(oldClient);
+  await act(async () => {});
+  expect(result.current.snapshot).toEqual(initial);
+
+  rerender({ client: nextClient });
+  await act(async () => {
+    pending.reject(new Error("合成新宿主读取失败"));
+  });
+  expect(result.current.loadFailed).toBe(true);
+  expect(result.current.busy).toBe(false);
+  expect(result.current.snapshot).toBeUndefined();
+  expect(result.current.draft).toBeUndefined();
+  expect(result.current.snapshotRef.current).toBeUndefined();
+  expect(result.current.draftRef.current).toBeUndefined();
+  await act(async () => {
+    await result.current.flush();
+  });
+  expect(nextClient.save).not.toHaveBeenCalled();
+});
+
+test("首次读取仍挂起时重载失败，配置修复后的快照仍能触发保存", async () => {
+  const initialLoad = deferred<Snapshot>();
+  const reloadLoad = deferred<Snapshot>();
+  const recovered: Snapshot = {
+    ...initial,
+    revision: 4,
+    preferences: { ...initial.preferences, scheme: "wubi" },
+  };
+  const client: SettingsClient = {
+    load: vi.fn().mockReturnValueOnce(initialLoad.promise).mockReturnValueOnce(reloadLoad.promise),
+    save: vi.fn().mockImplementation(async (revision, preferences) => ({
+      ...recovered,
+      revision: revision + 1,
+      preferences,
+    })),
+  };
+  const { result } = renderPersistence(client);
+  await act(async () => {});
+  let reload!: Promise<void>;
+  act(() => {
+    reload = result.current.reload();
+  });
+  await act(async () => {
+    reloadLoad.reject(new Error("合成重载失败"));
+    await reload;
+  });
+  act(() => {
+    result.current.setSnapshot(recovered);
+    result.current.setDraft({ ...recovered.preferences, candidate_page_size: 7 });
+  });
+  await act(async () => {
+    await result.current.flush();
+  });
+  expect(client.save).toHaveBeenCalledWith(4, {
+    ...recovered.preferences,
+    candidate_page_size: 7,
+  });
+});
 
 test.each(["success", "failure"] as const)(
   "旧宿主重载的 %s 不改变正在加载的新宿主状态",

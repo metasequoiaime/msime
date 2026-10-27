@@ -1816,6 +1816,14 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return try WubiCodeLookup.decode(callOptions(msimeClientDictionary, ["options": options, "action": action]))
   }
 
+  /// 词库同步（`IOSDictionarySync`）在设置 App 里要的 HostOptions，编成 JSON：与五笔查码相同，经 `msime_client_prepare_host` 解析，不建输入会话、不拿词库维护租约，资源目录是键盘扩展包里的 `EngineResources`，所以 Engine 的词库路径与键盘的相同。键盘自己用会话准备好的那一份（`dictionaryStateVersionOptions`）。读文件，调用方放到主线程之外。
+  static func preparedHostOptions(resources: URL? = PersonalDictionaryBridge.packagedResources,
+                                  stateRoot: URL? = nil) throws -> Data {
+    guard let resources else { throw InputBridgeFailure.unavailable }
+    let options = try callOptions(msimeClientPrepareHost, bootstrapOptions(resources: resources, stateRoot: stateRoot))
+    return try JSONSerialization.data(withJSONObject: options)
+  }
+
   /// 词库的一页。不带种类时是用户自己的词条；在某个种类里按编码前缀查，或者列快捷短语时，查的是整份词库，内置行带 `source: bundled` 返回，可以经队列调权重或删除。
   ///
   /// 列表不经 `withDictionaryMaintenance`，活着的会话原样保留：host-api 的 `list` 只取共享租约（`DictionaryAccess::try_session`），和会话自己持有的共享租约并存，只有维护者在场时才报 `dictionary maintenance busy`；它读的个人词条行由会话在上屏时直接写进日志，不在会话的延迟写队列里，销毁会话也不会让列表多出什么。键盘每次出现都强制刷新一次这个列表，原来每次都要为它销毁、重建并聚焦一遍刚在 `viewWillAppear` 建好的会话。

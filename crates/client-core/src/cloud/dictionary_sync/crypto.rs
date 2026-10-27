@@ -1,7 +1,7 @@
-//! 事件和检查点的加密。词库的密钥 `K` 来自词库自己的密钥串（与云剪贴板同一套设备批准协议，见 `docs/dictionary-webdav-sync.md`），这里只用 HKDF 从它派生出两把子密钥，网盘上只有密文。
+//! 事件和检查点的加密。词库的密钥 `K` 来自词库自己的密钥串（与云剪贴板同一套设备批准协议，见 `docs/dictionary-webdav-sync.md`）；密钥串只交出 `M = HKDF(K, info="msime-dictionary-v1-key", 32)`（[`DataKey::from_keystore`]），这里再从 `M` 派生两把子密钥，网盘上只有密文。
 //!
-//! - 事件：`HKDF(K, info="msime-dictionary-v1-event", 32)`
-//! - 检查点：`HKDF(K, info="msime-dictionary-v1-checkpoint", 32)`
+//! - 事件：`HKDF(M, info="msime-dictionary-v1-event", 32)`
+//! - 检查点：`HKDF(M, info="msime-dictionary-v1-checkpoint", 32)`
 //!
 //! 密文是 `"v1." ‖ b64(nonce ‖ XChaCha20-Poly1305(子密钥, nonce, 明文, aad))`，aad 是文件里明文头部的规范写法，改动头部的任何字段都会让解密失败。
 
@@ -16,6 +16,8 @@ use sha2::Sha256;
 use std::fmt;
 
 const PREFIX: &str = "v1.";
+/// 从密钥串的当前密钥派生词库密钥用的标签。
+pub const KEYSTORE_INFO: &[u8] = b"msime-dictionary-v1-key";
 const EVENT_INFO: &[u8] = b"msime-dictionary-v1-event";
 const CHECKPOINT_INFO: &[u8] = b"msime-dictionary-v1-checkpoint";
 pub const NONCE_BYTES: usize = 24;
@@ -68,6 +70,12 @@ impl DataKey {
 
     pub fn key_id(&self) -> &str {
         &self.key_id
+    }
+
+    /// 词库密钥串现在的密钥；本机还没获准（没有密钥）时为 `None`。
+    pub fn from_keystore(keystore: &crate::cloud::clipboard_e2e::Keystore) -> Option<Self> {
+        let (key_id, material) = keystore.derived_key(KEYSTORE_INFO)?;
+        Self::new(key_id, &material)
     }
 
     fn cipher(&self, purpose: Purpose) -> XChaCha20Poly1305 {
@@ -152,6 +160,40 @@ mod tests {
         assert!(key.open(Purpose::Event, "v2.AAAA", b"header").is_none());
         // 密文里看不出明文。
         assert!(!boxed.contains("payload"));
+    }
+
+    #[test]
+    fn the_keystore_hands_out_a_derived_key_but_never_its_own_labels() {
+        use crate::cloud::clipboard_e2e::Keystore;
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine as _};
+        let mut key_id = [0u8; 16];
+        Hkdf::<Sha256>::new(None, &[5; 32])
+            .expand(b"msime-clipboard-v1-key-id", &mut key_id)
+            .unwrap();
+        let encoded = format!(
+            "v1.{}.{}.{}",
+            B64.encode([3u8; 32]),
+            hex::encode(key_id),
+            B64.encode([5u8; 32])
+        );
+        let keystore = Keystore::parse(&encoded).unwrap();
+        let key = DataKey::from_keystore(&keystore).unwrap();
+        assert_eq!(key.key_id(), hex::encode(key_id));
+        assert_eq!(
+            key,
+            DataKey::new(&hex::encode(key_id), &derive(&[5; 32], KEYSTORE_INFO)).unwrap()
+        );
+        for label in [
+            b"msime-clipboard-v1-item".as_slice(),
+            b"msime-clipboard-v1-dedup",
+            b"msime-clipboard-v1-wrap",
+            b"msime-clipboard-v1-key-id",
+            b"msime-clipboard-v1-code",
+        ] {
+            assert!(keystore.derived_key(label).is_none());
+        }
+        let pending = Keystore::parse(&format!("v1.{}", B64.encode([3u8; 32]))).unwrap();
+        assert!(DataKey::from_keystore(&pending).is_none());
     }
 
     #[test]
