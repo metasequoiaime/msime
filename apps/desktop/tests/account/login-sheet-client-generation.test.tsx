@@ -75,6 +75,8 @@ test.each([false, true])(
     });
     const { sheet, onClose, onSignedIn } = sheetView(strict);
     const view = render(sheet(old));
+    // 不勾选同意时 Google 登录和发送验证码都不会发出请求，见 login-consent.test.tsx。
+    fireEvent.click(screen.getByRole("checkbox", { name: "我已阅读并同意《隐私政策》" }));
     fireEvent.click(screen.getByRole("button", { name: "使用 Google 登录" }));
     await screen.findByRole("button", { name: "正在等待浏览器完成 Google 登录…" });
 
@@ -121,6 +123,8 @@ test.each(["success", "failure"])(
     });
     const { sheet, onSignedIn, onClose } = sheetView(true);
     const view = render(sheet(old));
+    // 不勾选同意时 Google 登录和发送验证码都不会发出请求，见 login-consent.test.tsx。
+    fireEvent.click(screen.getByRole("checkbox", { name: "我已阅读并同意《隐私政策》" }));
     fireEvent.click(screen.getByRole("button", { name: "使用 Google 登录" }));
     await screen.findByRole("button", { name: "正在等待浏览器完成 Google 登录…" });
     view.rerender(sheet(next));

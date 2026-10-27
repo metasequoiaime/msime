@@ -51,6 +51,14 @@ export const submit =
 export const signInFooter = "flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5";
 export const link =
   "cursor-pointer border-0 bg-transparent p-0 text-xs [color:var(--p-sub)] not-disabled:hover:[color:var(--p-text)] not-disabled:hover:underline disabled:cursor-default disabled:opacity-60";
+/** 登录前的同意勾选：一行小字，勾选框和「我已阅读并同意」同在一个 label 里，点文字也能勾上；文档名是独立的链接按钮，点它只打开文档、不改变勾选。账号页和鸿蒙手机的登录面板共用。 */
+export const consent = "flex flex-col items-center gap-1 text-center";
+export const consentLine = "m-0 text-xs leading-relaxed [color:var(--p-sub)]";
+export const consentLabel = "inline-flex cursor-pointer items-center gap-1.5 align-middle";
+export const consentBox = "m-0 size-4 shrink-0 cursor-pointer accent-[var(--accent-color)]";
+export const consentLink =
+  "m-0 cursor-pointer border-0 bg-transparent p-0 align-middle text-xs [font-family:inherit] [color:var(--p-accent-text)] underline-offset-2 hover:underline active:underline";
+export const consentPrompt = "m-0 text-xs text-danger";
 
 export const hero = "flex items-center gap-4";
 /** The edit dialog's avatar, which opens the file dialog: round like the avatar it holds, with a focus ring and no button chrome. */
@@ -208,9 +216,6 @@ export const sheetInput =
 export const sheetField = "flex flex-col gap-1.5";
 export const sheetHint = "m-0 text-[13px] leading-snug [color:var(--p-sub)]";
 export const sheetHintError = "m-0 text-[13px] leading-snug text-danger";
-export const sheetFooter = "m-0 text-center text-xs [color:var(--p-sub)]";
-export const sheetFooterLink =
-  "m-0 cursor-pointer border-0 bg-transparent p-0 text-xs [font-family:inherit] [color:var(--p-sub)] underline-offset-2 active:underline";
 export const sheetQuiet = signInFooter;
 
 // ---- 其他平台下载 ----

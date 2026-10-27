@@ -33,6 +33,7 @@ import { AppIconSettingsCard } from "./app-icon-settings-card";
 import { AppThemeRow } from "./app-theme-row";
 import { MobileQqLinksPage, QqLinkCard } from "./qq-link-card";
 import { LoginSheet } from "./login-sheet";
+import { LoginConsent, useLoginConsent } from "./login-consent";
 import { MobileDownloadPage, otherPlatformCount } from "./mobile-download-page";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
@@ -314,6 +315,8 @@ function AccountDetailsPage({
     cancel: cancelGoogle,
     signIn: runGoogleLogin,
   } = useAccountGoogleLogin({ client, mounted, clientGeneration });
+  // 桌面式登录卡片（macOS、Linux、鸿蒙 2in1）的同意勾选；鸿蒙手机的登录面板自己持有一份。
+  const consent = useLoginConsent();
 
   // Leaving the page must not leave the loopback listener waiting for a browser the user abandoned.
   useEffect(() => () => cancelGoogle(), [client]);
@@ -339,8 +342,11 @@ function AccountDetailsPage({
   });
 
   // 登录成功（任何一种方式）或者读出了已登录的用户，说明保存的登录状态是可读的，之前那次读不出来的结论作废；否则退出登录后又会冒出「清除失效登录状态」。
+  // 同意勾选也一并清掉：退出登录后再登录要重新勾选。
   useEffect(() => {
-    if (user) setSessionUnreadable(false);
+    if (!user) return;
+    setSessionUnreadable(false);
+    consent.reset();
   }, [user]);
 
   const loadProfile = async (generation = clientGeneration.current) => {
@@ -393,9 +399,12 @@ function AccountDetailsPage({
     setNotice("");
   };
 
-  const requestCode = () => void perform(sendCode);
+  const requestCode = () => {
+    if (consent.confirm()) void perform(sendCode);
+  };
 
-  const signIn = () =>
+  const signIn = () => {
+    if (!consent.confirm()) return;
     void perform(async () => {
       const result = await runVerificationSignIn();
       if (!result) return;
@@ -408,6 +417,7 @@ function AccountDetailsPage({
       setNotice("登录成功。");
       onLoginComplete?.();
     });
+  };
 
   // Only the user and profile change: the nickname field keeps whatever is being typed in the dialog.
   const applyAvatar = (updated: AccountProfile) => {
@@ -521,7 +531,8 @@ function AccountDetailsPage({
     Number(appleAvailable) +
     Number(googleAvailable);
 
-  const signInWithApple = () =>
+  const signInWithApple = () => {
+    if (!consent.confirm()) return;
     void perform(async () => {
       const generation = clientGeneration.current;
       if (!client.appleLogin) throw { code: "account_unavailable" };
@@ -534,8 +545,10 @@ function AccountDetailsPage({
       setNotice("登录成功。");
       onLoginComplete?.();
     });
+  };
 
-  const signInWithGoogle = () =>
+  const signInWithGoogle = () => {
+    if (!consent.confirm()) return;
     void perform(async () => {
       const result = await runGoogleLogin();
       if (!result) return;
@@ -545,6 +558,7 @@ function AccountDetailsPage({
       setNotice("登录成功。");
       onLoginComplete?.();
     });
+  };
 
   if (harmony) {
     // 别的页面请求了登录（`onCancelLogin` 是回去的路），所以面板直接打开；关掉它就回到那里。
@@ -850,6 +864,7 @@ function AccountDetailsPage({
               </div>
             </div>
           )}
+          <LoginConsent consent={consent} onOpenUrl={onOpenUrl} />
         </section>
       )}
       {appIcon && (
