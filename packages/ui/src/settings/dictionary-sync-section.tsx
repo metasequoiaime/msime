@@ -167,6 +167,23 @@ function DictionarySyncSettings({
             </p>
           )}
           {error && <ErrorAlert>{dictionarySyncErrorMessage(error)}</ErrorAlert>}
+          {error === "dictionary_sync_rollback" && (
+            <ActionButton
+              label="确认网盘现状并恢复同步"
+              disabled={actionsDisabled || model.syncing}
+              action={() =>
+                model.trustRemote(() =>
+                  confirm({
+                    title: "确认网盘现状并恢复同步",
+                    message:
+                      "仅在你自己清理过网盘文件夹时使用。会保留当前本机词条，但忘掉同步位置和待发改动；未上传的删除可能从网盘重新合并回来。",
+                    confirmLabel: "恢复同步",
+                    danger: true,
+                  }),
+                )
+              }
+            />
+          )}
           {status?.clock_skew && (
             <p className={settings.managerNote}>
               收到的改动里有时间比本机快一天以上，请检查各台设备的系统时间。

@@ -110,6 +110,8 @@ export interface DictionarySyncModel {
   remove(deviceId: string): Promise<void>;
   reset(): Promise<void>;
   restart(): Promise<void>;
+  /** 用户确认网盘现状后恢复；会忘掉待发改动。 */
+  trustRemote(confirm: () => Promise<boolean>): Promise<void>;
   /** 「测试连接」：用还没保存的草稿，通过时 resolve，失败时以带 `code` 的错误 reject。 */
   probe(draft: DictionarySyncWebDavPreferences): Promise<void>;
 }
@@ -345,11 +347,19 @@ export function useDictionarySync({
           setError(null);
           setNotice("已以本机的词条重新开始，其他设备获准后会把它们的词合并进来。");
         }),
+      trustRemote: async (confirm) => {
+        const owner = generation.current;
+        if (!saved || !(await confirm()) || owner !== generation.current) return;
+        await userAction(async () => {
+          await request({ operation: "probe", ...saved, trust_remote: true }, owner);
+          await run(owner, "manual");
+        });
+      },
       probe: async (draft) => {
         await request({ operation: "probe", ...draft });
       },
     };
     // 操作共享引用和请求队列，只在可见状态变化时重建模型。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sync, configured, status, error, busy, syncing, devices, devicesLoading, notice]);
+  }, [sync, key, status, error, busy, syncing, devices, devicesLoading, notice]);
 }

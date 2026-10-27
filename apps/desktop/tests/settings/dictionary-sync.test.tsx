@@ -216,7 +216,7 @@ test("sync results are read strictly and errors have their own words", () => {
     "更新水杉输入法",
   );
   expect(dictionarySyncErrorMessage({ code: "dictionary_sync_rollback" })).toContain(
-    "重新测试连接并保存",
+    "确认网盘现状并恢复同步",
   );
   for (const code of [
     "dictionary_sync_not_configured",
@@ -443,7 +443,8 @@ test("changing the saved connection releases a previous manual action's busy sta
     finishManual = resolve;
   });
   const host = syncHost({
-    run: (action) => action.operation === "run" && action.trigger === "manual" ? manual : runValue(),
+    run: (action) =>
+      action.operation === "run" && action.trigger === "manual" ? manual : runValue(),
   });
   const localChanges = createDictionaryLocalChanges();
   const { result, rerender } = renderHook(
@@ -453,7 +454,9 @@ test("changing the saved connection releases a previous manual action's busy sta
   );
   await waitFor(() => expect(operations(host.request)).toEqual(["run:opened"]));
   let action!: Promise<void>;
-  act(() => { action = result.current!.syncNow(); });
+  act(() => {
+    action = result.current!.syncNow();
+  });
   await waitFor(() => expect(result.current!.syncing).toBe(true));
   expect(result.current!.busy).toBe(true);
   rerender({ saved: undefined });
@@ -462,7 +465,9 @@ test("changing the saved connection releases a previous manual action's busy sta
     await action;
   });
   rerender({ saved: WEBDAV });
-  await waitFor(() => expect(operations(host.request)).toEqual(["run:opened", "run:manual", "run:opened"]));
+  await waitFor(() =>
+    expect(operations(host.request)).toEqual(["run:opened", "run:manual", "run:opened"]),
+  );
   await waitFor(() => expect(result.current!.syncing).toBe(false));
   expect(result.current!.busy).toBe(false);
 });
@@ -669,4 +674,53 @@ test("stopping the drive during an automatic request clears syncing", async () =
   });
   expect(result.current!.status).toBeNull();
   expect(result.current!.syncing).toBe(false);
+});
+
+test("recovering after remote cleanup requires confirmation and uses the saved connection", async () => {
+  const host = syncHost({
+    run: () => ({ ...runValue(), report: undefined, error: "dictionary_sync_rollback" }),
+  });
+  renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
+  await settingsFormReady();
+  const recover = await screen.findByRole("button", { name: "确认网盘现状并恢复同步" });
+  fireEvent.click(recover);
+  expect(operations(host.request)).not.toContain("probe");
+  expect(await screen.findByText(/未上传的删除可能从网盘重新合并回来/)).toBeDefined();
+  await answerConfirm("confirm");
+  await waitFor(() =>
+    expect(host.request).toHaveBeenCalledWith({
+      operation: "probe",
+      ...WEBDAV,
+      trust_remote: true,
+    }),
+  );
+  await waitFor(() => expect(operations(host.request)).toContain("run:manual"));
+});
+
+test("changing connection while recovery confirmation is open cancels the old recovery", async () => {
+  const host = syncHost();
+  const localChanges = createDictionaryLocalChanges();
+  const { result, rerender } = renderHook(
+    ({ saved }) => useDictionarySync({ client: { dictionarySync: host }, saved, localChanges }),
+    { initialProps: { saved: WEBDAV } },
+  );
+  await waitFor(() => expect(operations(host.request)).toContain("run:opened"));
+  let answer!: (value: boolean) => void;
+  const confirmation = new Promise<boolean>((resolve) => {
+    answer = resolve;
+  });
+  let recovery!: Promise<void>;
+  act(() => {
+    recovery = result.current!.trustRemote(() => confirmation);
+  });
+  rerender({ saved: { ...WEBDAV, url: "https://dav.example.test/changed/" } });
+  await waitFor(() =>
+    expect(operations(host.request).filter((op) => op === "run:opened")).toHaveLength(2),
+  );
+  await act(async () => {
+    answer(true);
+    await recovery;
+  });
+  expect(operations(host.request)).not.toContain("probe");
+  expect(operations(host.request)).not.toContain("run:manual");
 });

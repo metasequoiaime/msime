@@ -26,7 +26,7 @@ export type DictionarySyncAction =
   | { operation: "approve" | "reject" | "remove"; device_id: string }
   | { operation: "reset" }
   | { operation: "restart" }
-  | { operation: "probe"; url: string; username: string; password: string };
+  | { operation: "probe"; url: string; username: string; password: string; trust_remote?: boolean };
 
 /** 宿主的词库同步：在工作线程上调 `msime_client_dictionary_sync`，`options`、`directory` 和设备名由宿主补上。成功时 resolve 成那个动作的 Value，失败时以带 `code` 的错误 reject（错误码见头文件）。没有它的宿主不显示「词库同步」。 */
 export interface DictionarySyncClient {
@@ -175,7 +175,7 @@ export function dictionarySyncErrorMessage(error: unknown, probe = false): strin
     case "dictionary_sync_too_large":
       return "网盘上的词库或本机的同步记录超过了上限，删减一些词条后再试。";
     case "dictionary_sync_rollback":
-      return "网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，重新测试连接并保存即可，本机的词条都会保留。";
+      return "网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，请确认网盘现状并恢复同步。本机词条保留，但未上传的删除可能重新合并回来。";
     case "dictionary_sync_unsupported":
       return probe
         ? "这个网盘不支持词库同步需要的文件操作（独占创建、列目录），请换一个 WebDAV 服务或文件夹。"
