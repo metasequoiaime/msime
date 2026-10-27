@@ -27,7 +27,7 @@
 
 C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSON 请求，格式和错误码见 `crates/host-api/include/msime_client.h`。宿主要做的只有这几件：
 
-- **给一个目录**：放本机同步状态、词库密钥串和锁文件的绝对路径目录，同一台设备上的输入法、设置应用和面板要给同一个（否则会登记成几台设备）。里面有词条明文，放在应用私有、不备份的地方：桌面端可以是账号目录旁的 `dictionary-sync/`，Android 是 `noBackupFilesDir/dictionary-sync`，iOS 是 App 和键盘扩展共用的 App Group 容器，HarmonyOS 是应用私有目录。
+- **给一个目录**：放本机同步状态、词库密钥串和锁文件的绝对路径目录，同一台设备上的输入法、设置应用和面板要给同一个（否则会登记成几台设备）。里面有词条明文，放在应用私有、不备份的地方：桌面端可以是账号目录旁的 `dictionary-sync/`，Android 是 `noBackupFilesDir/dictionary-sync`，iOS 是 App 和键盘扩展共用的 App Group 容器里的 `dictionary-sync/`，HarmonyOS 是应用私有目录。
 - **按时调用 `run`**：用户改词之后马上以 `local_change` 调一次（只记录、不联网）；打开设置应用或词库页时以 `opened` 调；之后按上一次结果里的 `next_check_ms` 以 `periodic` 再调；「立即同步」按钮是 `manual`。要不要联网、额度够不够都由 Rust 决定，宿主不用自己算防抖和退避。都在工作线程上调用。
 - **设置界面**：网盘地址、账号和应用密码（遮罩、留空沿用、测试连接通过才保存），本机的核对码和等待批准的设备（`devices`、`approve`、`reject`、`remove`，与云剪贴板的设备管理同一种形状，可以复用那套界面），状态（`status`：上次同步时间、待发送和待写入的数量、错误），被挡下的大批删除的两个选择，以及很少用到的「重置密钥」和「以本机为准重新开始」。
 
@@ -37,7 +37,8 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 | --- | --- |
 | macOS、Linux | 共享 React 设置页「词库」→「管理词库」里的「词库同步」与「词库同步设备」两组；Tauri 设置应用的 `dictionary_sync` 命令在阻塞线程上调 `msime_host_api::dictionary_webdav::request_json`（C 入口的同一个实现），HostOptions 取词库命令用的那份，目录是账号目录下的 `dictionary-sync/`：macOS 是输入法与设置应用共用的 `~/Library/Application Support/<设置应用 bundle id>/dictionary-sync`，Linux 是 IBus、Fcitx5 和设置应用共用的状态目录（通常 `~/.config/msime-client`）下的 `dictionary-sync`。输入法进程（IMK、IBus、Fcitx5）不调用，见下文「触发」 |
 | HarmonyOS | 同一个共享设置页（手机在「词库」页直列，2in1 在「管理词库」标签），经 `startRequest` 的 `dictionary_sync` → `HarmonyAccountCloudBridge.dictionarySync` → NAPI `dictionarySync`（工作线程）；目录是设置应用沙箱的 `files/state/dictionary-sync`；除 `status` 外都要隐私政策的授权。键盘扩展不调用，见下文「触发」 |
-| Windows（含 Win7）、Android、iOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+| Windows（含 Win7）、Android | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+| iOS | 设置 App「词库 → 词库同步」：网盘填写页（测试连接通过才保存）、状态与「立即同步」、核对码和设备批准、被挡下的大批删除、重置密钥、以本机为准重新开始和停止同步。App 回到前台时 `opened`，在前台时按 `next_check_ms` 以 `periodic` 再调，进后台就停；键盘扩展在应用了 App 排队的编辑或候选栏删除词条之后以 `local_change` 记录，只在有完全访问、App 已经用这个网盘同步过（目录里已有同步状态和密钥串）、状态文件不超过 2 MiB 时才调，否则留给 App。目录是 App Group 容器里的 `dictionary-sync/`（0700、首次解锁后的文件保护、不进备份），密钥串是 Rust 在里面写的文件，App 和键盘共用同一份和同一把锁 |
 
 目录不能直接用账号目录或 `files/state` 本身：云剪贴板的中继在那里放着 `cloud-clipboard-relay-keystore` 和 `cloud-clipboard-webdav-state`，词库的密钥串和它的网盘缓存用的是同样的文件名，放在一起会互相覆盖，所以一律是下面的 `dictionary-sync/` 子目录。
 
