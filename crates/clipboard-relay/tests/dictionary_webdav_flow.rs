@@ -12,9 +12,7 @@ use dav_server::{fakels::FakeLs, memfs::MemFs, DavHandler};
 use msime_client_core::cloud::dictionary_sync::{
     LocalChange, LocalDictionary, LocalError, LocalOutcome, Options, Trigger, WordKey, WordKind,
 };
-use msime_client_services::dictionary_webdav::{
-    probe, DictionarySync, DictionarySyncError, RunResult, STATE_FILE,
-};
+use msime_client_services::dictionary_webdav::{probe, DictionarySync, RunResult, STATE_FILE};
 use msime_client_services::dictionary_webdav_scheduler::{
     fingerprint, Round, Scheduler, SchedulerHost, Timing, Watched, BACKGROUND_LOCK_WAIT,
 };
@@ -810,11 +808,14 @@ fn the_input_method_and_the_settings_app_sync_concurrently_from_one_directory() 
     assert_eq!(pixel.0.len(), 5);
 }
 
+/// 后台调度每一次同步的触发方式和错误码（成功时为 `None`）。
+type RunLog = Arc<Mutex<Vec<(Trigger, Option<String>)>>>;
+
 /// 后台调度的宿主：同步是只用已有身份的那一份，本机词库是共享的那一份，每一次同步的结果都记下来。
 struct ImeHost {
     sync: DictionarySync,
     local: SharedWords,
-    log: Arc<Mutex<Vec<(Trigger, Option<String>)>>>,
+    log: RunLog,
 }
 
 impl SchedulerHost for ImeHost {

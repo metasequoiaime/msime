@@ -559,7 +559,7 @@ key_bindings 可选对象示例：
 
 「我的词条」经用户自己的 WebDAV 网盘同步（[docs/dictionary-webdav-sync.md](../../docs/dictionary-webdav-sync.md)）的自动触发在 Server 里：它是一直活着、持有输入会话的进程。`src/system/DictionarySyncWorker.cpp` 起一个工作线程调用 `msime_client_dictionary_sync`：候选菜单的「删除」和维护快捷键删掉候选之后以 `local_change` 记一次（只记录、不联网，连着几次只记一次），启动两分钟后第一次 `periodic`，之后照每次回答里的 `next_check_ms` 再调（夹在 1 秒到 30 分钟之间，调用本身失败时半小时后再试）。要不要联网、额度、防抖和退避都在共享 Rust；偏好里没配网盘（`dictionary_sync_webdav.url` 为空）时线程只是等着，偏好发布时配上就在十秒后开始，清掉就停下。自动同步不请输入法让出词库，输入会话占着时这一轮的远端改动留到下一次；Rust 写本机词库每批取一次维护权、从不跨网络请求持有。打开设置（`opened`）和「立即同步」（`manual`）由设置窗口调，设置窗口改了词之后也自己记一次 `local_change`。只有受管理的 Server 做，预览实例不替用户联网；Win7 构建的 Server 是同一份代码。
 
-同步目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`（full 是 `%LOCALAPPDATA%\MSIME\dictionary-sync`，`common/DictionarySyncDirectory.h`），Server、WinUI 设置、Win7 设置和 Win7 词库同步面板都调这一个函数，所以一个安装只有一份设备身份：两个进程第一次使用时同时生成身份由 Rust 的文件锁和「不覆盖另一个身份」挡住，仍然报 `clipboard_keystore_conflict` 时宿主重试（最多三次，`common/DictionarySyncRetry.h`）。不用账号目录本身：云剪贴板中继的密钥串也在那里、文件名相同；不放状态根：安装后的状态根整台机器共用、每个用户都能改，里面不能放词条明文和设备私钥。调度、请求和回答解析在 `src/system/DictionarySyncSchedule.h`，由 `windows-dictionary-sync-schedule` 测试核对。
+同步目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`（full 是 `%LOCALAPPDATA%\MSIME\dictionary-sync`，`common/DictionarySyncDirectory.h`），Server、WinUI 设置、Win7 设置和 Win7 词库同步面板都调这一个函数，所以一个安装只有一份设备身份：Server 的请求带 `create_identity: false`，身份只由设置窗口在第一次配置时生成，设置窗口还没配过时 Server 答 `clipboard_identity_missing`、不登记也不联网；设置窗口的几个进程第一次使用时同时生成身份由 Rust 的文件锁和「不覆盖另一个身份」挡住，仍然报 `clipboard_keystore_conflict` 时宿主重试（最多三次，`common/DictionarySyncRetry.h`）。不用账号目录本身：云剪贴板中继的密钥串也在那里、文件名相同；不放状态根：安装后的状态根整台机器共用、每个用户都能改，里面不能放词条明文和设备私钥。调度、请求和回答解析在 `src/system/DictionarySyncSchedule.h`，由 `windows-dictionary-sync-schedule` 测试核对。
 
 #### 后台更新提醒
 
