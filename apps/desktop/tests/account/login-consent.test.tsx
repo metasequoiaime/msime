@@ -15,8 +15,8 @@ const user: AccountUser = {
   createdAt: "2026-01-01T00:00:00Z",
 };
 const providers = { email: true, phone: false, google: true };
-const consentName = "我已阅读并同意《隐私政策》";
-const prompt = "请先阅读并勾选同意《隐私政策》";
+const consentName = "我已阅读并同意《用户协议》和《隐私政策》";
+const prompt = "请先阅读并勾选同意《用户协议》和《隐私政策》";
 
 function client(overrides: Partial<AccountClient> = {}): AccountClient {
   return {
@@ -54,12 +54,12 @@ function sheet(account: AccountClient, onOpenUrl?: (url: string) => void) {
   return { onSignedIn, dialog: within(screen.getByRole("dialog", { name: "登录水杉" })) };
 }
 
-test("鸿蒙登录面板的同意框默认不勾，也不再写「登录即表示同意」或打不开的《用户协议》", () => {
+test("鸿蒙登录面板的同意框默认不勾，也不再写「登录即表示同意」，《用户协议》能点开", () => {
   const { dialog } = sheet(client(), vi.fn());
   const checkbox = dialog.getByRole("checkbox", { name: consentName }) as HTMLInputElement;
   expect(checkbox.checked).toBe(false);
   expect(dialog.queryByText(/登录即/)).toBeNull();
-  expect(dialog.queryByText(/用户协议/)).toBeNull();
+  expect(dialog.getByRole("button", { name: "《用户协议》" })).not.toBeNull();
   expect(dialog.queryByRole("alert")).toBeNull();
 });
 
@@ -116,11 +116,13 @@ test("鸿蒙登录面板验证码已发出后取消勾选，登录按钮同样�
   await waitFor(() => expect(onSignedIn).toHaveBeenCalledWith(user));
 });
 
-test("点《隐私政策》只打开隐私政策，不改变勾选；宿主不能开网页时它是普通文字", () => {
+test("点《用户协议》《隐私政策》各自打开对应网页，不改变勾选；宿主不能开网页时它们是普通文字", () => {
   const onOpenUrl = vi.fn();
   const { dialog } = sheet(client(), onOpenUrl);
+  fireEvent.click(dialog.getByRole("button", { name: "《用户协议》" }));
+  expect(onOpenUrl).toHaveBeenLastCalledWith("https://msime.app/terms/");
   fireEvent.click(dialog.getByRole("button", { name: "《隐私政策》" }));
-  expect(onOpenUrl).toHaveBeenCalledWith("https://msime.app/privacy/");
+  expect(onOpenUrl).toHaveBeenLastCalledWith("https://msime.app/privacy/");
   expect((dialog.getByRole("checkbox", { name: consentName }) as HTMLInputElement).checked).toBe(
     false,
   );
@@ -128,6 +130,7 @@ test("点《隐私政策》只打开隐私政策，不改变勾选；宿主不�
 
   const plain = sheet(client()).dialog;
   expect(plain.queryByRole("button", { name: "《隐私政策》" })).toBeNull();
+  expect(plain.queryByRole("button", { name: "《用户协议》" })).toBeNull();
   expect(plain.getByRole("checkbox", { name: consentName })).not.toBeNull();
 });
 

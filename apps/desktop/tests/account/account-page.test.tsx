@@ -63,7 +63,9 @@ function deferred<T>() {
 
 /** 勾上登录前的隐私政策同意；不勾时验证码、Google 和 Apple 登录都不会发出请求。 */
 async function agreeToPrivacyPolicy(scope: Pick<typeof screen, "findByRole"> = screen) {
-  fireEvent.click(await scope.findByRole("checkbox", { name: "我已阅读并同意《隐私政策》" }));
+  fireEvent.click(
+    await scope.findByRole("checkbox", { name: "我已阅读并同意《用户协议》和《隐私政策》" }),
+  );
 }
 
 test("code login trims the target, requires six ASCII digits and loads the profile", async () => {

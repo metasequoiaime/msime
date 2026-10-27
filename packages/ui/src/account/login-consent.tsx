@@ -1,9 +1,9 @@
 import { useId, useRef, useState } from "react";
-import { privacyUrl } from "../settings/app-resources";
+import { privacyUrl, termsUrl } from "../settings/app-resources";
 import * as account from "./account-style";
 
 /** 没勾选就去登录时的提示，同时是提示段落的文字。 */
-export const LOGIN_CONSENT_PROMPT = "请先阅读并勾选同意《隐私政策》";
+export const LOGIN_CONSENT_PROMPT = "请先阅读并勾选同意《用户协议》和《隐私政策》";
 
 /**
  * 登录前的明示同意（《个人信息保护法》要求的「明示同意」，AppGallery 审核按它驳回过「登录即代表同意」的写法）：勾选框默认不勾，用户自己勾上之前，发送验证码、验证码登录、Google 和 Apple 登录都不发出任何请求。
@@ -34,7 +34,7 @@ export function useLoginConsent() {
 export type LoginConsentState = ReturnType<typeof useLoginConsent>;
 
 /**
- * 「我已阅读并同意《隐私政策》」一行。只列隐私政策：仓库和 msime.app 上都还没有用户协议（Android「关于」页因此也不显示「用户协议」），列一个打不开的文档名正是审核驳回的「用户协议点击无响应」。
+ * 「我已阅读并同意《用户协议》和《隐私政策》」一行，两个文档名各自打开 msime.app 上对应的网页。以前没有用户协议页面时这里只列隐私政策，因为列一个打不开的文档名正是审核驳回的「用户协议点击无响应」。
  *
  * 宿主不能打开网页（没有 `onOpenUrl`）时文档名是普通文字。
  */
@@ -54,24 +54,15 @@ export function LoginConsent({
             ref={consent.checkbox}
             type="checkbox"
             className={account.consentBox}
-            aria-label="我已阅读并同意《隐私政策》"
+            aria-label="我已阅读并同意《用户协议》和《隐私政策》"
             aria-describedby={consent.prompting ? promptId : undefined}
             checked={consent.agreed}
             onChange={(event) => consent.setAgreed(event.target.checked)}
           />
           我已阅读并同意
         </label>
-        {onOpenUrl ? (
-          <button
-            type="button"
-            className={account.consentLink}
-            onClick={() => onOpenUrl(privacyUrl)}
-          >
-            《隐私政策》
-          </button>
-        ) : (
-          "《隐私政策》"
-        )}
+        <ConsentDocument title="《用户协议》" url={termsUrl} onOpenUrl={onOpenUrl} />和
+        <ConsentDocument title="《隐私政策》" url={privacyUrl} onOpenUrl={onOpenUrl} />
       </p>
       {consent.prompting && (
         <p id={promptId} role="alert" className={account.consentPrompt}>
@@ -79,5 +70,22 @@ export function LoginConsent({
         </p>
       )}
     </div>
+  );
+}
+
+function ConsentDocument({
+  title,
+  url,
+  onOpenUrl,
+}: {
+  title: string;
+  url: string;
+  onOpenUrl?: (url: string) => void;
+}) {
+  if (!onOpenUrl) return <>{title}</>;
+  return (
+    <button type="button" className={account.consentLink} onClick={() => onOpenUrl(url)}>
+      {title}
+    </button>
   );
 }
