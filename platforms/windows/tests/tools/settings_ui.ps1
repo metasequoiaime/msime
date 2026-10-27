@@ -143,6 +143,15 @@ function New-CanvasPreviewFixture {
         } finally { $bitmap.Dispose() }
     }
 }
+function Get-CanvasPreviewScrollDirection($bounds, $viewport, $screen) {
+    if ($bounds.Height -le 0) { return 1 }
+    # UIA 返回的矩形可能已经被正文裁剪；留出余量才能识别贴边的残片。
+    $top = [Math]::Max($viewport.Top, $screen.Top)
+    $bottom = [Math]::Min($viewport.Bottom, $screen.Bottom)
+    if ($bounds.Top -le $top + 8) { return -1 }
+    if ($bounds.Bottom -ge $bottom - 8 -or $bounds.Height -lt 15) { return 1 }
+    return 0
+}
 function Assert-CanvasPreview($window, [string]$mode) {
     Open-Page $window 'themes'
     $search = Find-ById $window 'settings-search'
@@ -179,11 +188,13 @@ function Assert-CanvasPreview($window, [string]$mode) {
             if ($image -and $content -and $content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll) -and $scroll.Current.VerticallyScrollable) {
                 $bounds = $image.Current.BoundingRectangle
                 $viewport = $content.Current.BoundingRectangle
-                $direction = [System.Windows.Automation.ScrollAmount]::NoAmount
-                if ($bounds.Height -le 0) { $direction = [System.Windows.Automation.ScrollAmount]::SmallIncrement }
-                elseif ($bounds.Top -lt $viewport.Top) { $direction = [System.Windows.Automation.ScrollAmount]::SmallDecrement }
-                elseif ($bounds.Bottom -gt $viewport.Bottom) { $direction = [System.Windows.Automation.ScrollAmount]::SmallIncrement }
-                if ($direction -ne [System.Windows.Automation.ScrollAmount]::NoAmount) {
+                $screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$window.Current.NativeWindowHandle).WorkingArea
+                $visibleTop = [Math]::Max($viewport.Top, $screen.Top)
+                $visibleBottom = [Math]::Min($viewport.Bottom, $screen.Bottom)
+                $lastObservation += "，正文=$viewport，可采样纵向=$visibleTop..$visibleBottom，滚动=$($scroll.Current.VerticalScrollPercent)"
+                $direction = Get-CanvasPreviewScrollDirection $bounds $viewport $screen
+                if ($direction -ne 0) {
+                    $direction = if ($direction -lt 0) { [System.Windows.Automation.ScrollAmount]::SmallDecrement } else { [System.Windows.Automation.ScrollAmount]::SmallIncrement }
                     $scroll.Scroll([System.Windows.Automation.ScrollAmount]::NoAmount, $direction)
                     Start-Sleep -Milliseconds 200
                     continue
@@ -202,7 +213,7 @@ function Assert-CanvasPreview($window, [string]$mode) {
                                 if (($bitmap.GetPixel($x, $y).ToArgb() -band 0xffffff) -eq $expected) { $count++ }
                             }
                         }
-                        $lastObservation = "矩形=$bounds，目标像素数=$count"
+                        $lastObservation += "，目标像素数=$count"
                         if ($count -ge 8) {
                             $bitmap.Save((Join-Path $outputPath "$mode-canvas-$layout.png"), [Drawing.Imaging.ImageFormat]::Png)
                             $ready = $true
