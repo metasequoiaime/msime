@@ -16,7 +16,11 @@ import { CommunityPageShell } from "./community-page-shell";
 import { CommunityPluginPublishDialog } from "./community-plugin-publish-dialog";
 import { CommunityPluginDetail } from "./community-plugin-detail";
 
-import { communityPluginKindsFor, type CommunityPluginClient } from "./community-plugin-model";
+import {
+  communityPluginKindsFor,
+  type CommunityPluginClient,
+  type CommunityPluginKind,
+} from "./community-plugin-model";
 export {
   type CommunityPluginKind,
   communityPluginKinds,
@@ -39,6 +43,8 @@ export function CommunityPluginsPage({
   onInstalled,
   onOpenScript,
   scriptPlugins = false,
+  kinds: shownKinds,
+  mobile = false,
   onLogin,
 }: {
   client: CommunityPluginClient;
@@ -50,6 +56,10 @@ export function CommunityPluginsPage({
   onOpenScript?: (installed: PluginPackage) => void;
   /** 宿主运行脚本插件（`HostCapabilities.script_plugins`）：可以按「脚本插件」筛选、发布自己的脚本插件。 */
   scriptPlugins?: boolean;
+  /** 只列、只筛这几类（触屏插件页，见 `touchPluginKinds`）；缺省时按 `scriptPlugins` 给全部可分享的类型。 */
+  kinds?: readonly CommunityPluginKind[];
+  /** 触屏设置：详情推入历史记录，系统返回键关掉它。 */
+  mobile?: boolean;
   onLogin?: () => void;
 }) {
   const {
@@ -84,8 +94,15 @@ export function CommunityPluginsPage({
     setConfirmReplace,
     install,
     publishDone,
-  } = useCommunityPluginGallery({ client, localPlugins, onInstalled, onOpenScript });
-  const kinds = communityPluginKindsFor(scriptPlugins);
+  } = useCommunityPluginGallery({
+    client,
+    localPlugins,
+    onInstalled,
+    onOpenScript,
+    kinds: shownKinds,
+    mobile,
+  });
+  const kinds = shownKinds ?? communityPluginKindsFor(scriptPlugins);
 
   if (selected) {
     return (
@@ -123,9 +140,11 @@ export function CommunityPluginsPage({
         onSearchSubmit={() => void requestList(search, false)}
         title="社区插件"
         note={
-          scriptPlugins
-            ? "音效、音乐、指令表、特效、短语表、辅助码表、单词本、符号集与脚本插件，安装后在「我的插件」中选用；脚本插件经管理员审核后才会出现，安装后要授权才会运行"
-            : "音效、音乐、指令表、特效、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用"
+          shownKinds
+            ? `${shownKinds.map((item) => kindLabels[item]).join("、")}，安装后在「我的插件」中选用；这台设备用不上的类型不在这里列出`
+            : scriptPlugins
+              ? "音效、音乐、指令表、特效、短语表、辅助码表、单词本、符号集与脚本插件，安装后在「我的插件」中选用；脚本插件经管理员审核后才会出现，安装后要授权才会运行"
+              : "音效、音乐、指令表、特效、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用"
         }
       >
         <CommunityScopeButtons
