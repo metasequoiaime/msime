@@ -78,10 +78,24 @@ export const fourteenKeyBottomRows: Record<FourteenKeyStyle, PreviewKey[]> = {
 
 /**
  * 九键「右侧大回车」外框的份额，与 HarmonyOS `NineKeyLayout.SIDE_SHARE`、`GRID_SHARE` 相同：左列和右列各 1.15，中间网格 6（三列字母格各 2）。底行与这三列对齐：符 在左列下方，123 | 空格 | 中/英 恰好占网格的宽度，回车在右列。
+ *
+ * 123 和 中/英 与标准九键底行同宽（`NineKeyLayout.tallReturnRow`）：标准底行 9.15 份铺满整块键面，外框 8.3 份，所以这两个键按 8.3 / 9.15 换算到外框的份额，空格占网格剩下的部分。
  */
 const tallReturnSide = 1.15;
 const tallReturnGrid = 6;
-const tallReturnSpace = tallReturnGrid - layer.weight - language.weight;
+/** 九键标准底行：符 | 123 | 空格 | 中 | 回车。 */
+const nineKeyStandardRow: PreviewKey[] = [
+  symbol,
+  layer,
+  key("空格", 4.2, "Space"),
+  language,
+  key("↵", 1.6, "Enter"),
+];
+const nineKeyStandardShare = nineKeyStandardRow.reduce((sum, item) => sum + item.weight, 0);
+const tallReturnScale = (tallReturnSide * 2 + tallReturnGrid) / nineKeyStandardShare;
+const tallReturnLayer = key("123", layer.weight * tallReturnScale, "SoftLayer");
+const tallReturnLanguage = key("中", language.weight * tallReturnScale, "SoftLanguage");
+const tallReturnSpace = tallReturnGrid - tallReturnLayer.weight - tallReturnLanguage.weight;
 
 /** 可能跨行的示意键：`rowSpan` 为 2 时这个键从所在行往下多占一行（「右侧大回车」的回车），下一行同一位置是没有 `code` 的占位。 */
 export type FramePreviewKey = PreviewKey & { rowSpan?: number };
@@ -89,10 +103,10 @@ export type FramePreviewKey = PreviewKey & { rowSpan?: number };
 /**
  * 九键字母层每种样式的底行（`NineKeyLayout.actionRow`）：标准 符 | 123 | 空格 | 中 | 回车；底栏带标点在空格两侧加 ， 和 。，各从空格让出一份；表情键在 123 右边加 😀，从空格让出 1.05。
  *
- * 右侧大回车的底行按外框的三列排（份额总和与网格行相同）：符 1.15 | 123 1.25 | 空格 3.7 | 中 1.05 | 回车 1.15，回车其实从上一行往下跨两行，示意图见 `nineKeyTallReturnPreview`。
+ * 右侧大回车的底行按外框的三列排（份额总和与网格行相同）：符 1.15 | 123 | 空格 | 中 | 回车 1.15，123 和 中 与标准底行同宽（`tallReturnLayer`、`tallReturnLanguage`），回车其实从上一行往下跨两行，示意图见 `nineKeyTallReturnPreview`。
  */
 export const nineKeyBottomRows: Record<NineKeyStyle, PreviewKey[]> = {
-  standard: [symbol, layer, key("空格", 4.2, "Space"), language, key("↵", 1.6, "Enter")],
+  standard: nineKeyStandardRow,
   comma_period: [
     symbol,
     layer,
@@ -112,9 +126,9 @@ export const nineKeyBottomRows: Record<NineKeyStyle, PreviewKey[]> = {
   ],
   tall_return: [
     key("符", tallReturnSide, "SoftSymbol"),
-    layer,
+    tallReturnLayer,
     key("空格", tallReturnSpace, "Space"),
-    language,
+    tallReturnLanguage,
     key("↵", tallReturnSide, "Enter"),
   ],
 };

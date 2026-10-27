@@ -253,7 +253,7 @@ test("each option's preview draws the keyboard's bottom row for that style, key 
   const frame = [...tall.querySelectorAll("[data-key-layout-preview]")].map((row) =>
     [...row.children].map((key) => [
       key.textContent,
-      Number(key.getAttribute("data-weight")),
+      Math.round(Number(key.getAttribute("data-weight")) * 100) / 100,
       Number(key.getAttribute("data-row-span")),
     ]),
   );
@@ -266,10 +266,11 @@ test("each option's preview draws the keyboard's bottom row for that style, key 
       ["↵", 1.15, 2],
     ],
     [
+      // 123 和 中 与标准底行同宽：标准底行 9.15 份铺满整行，外框 8.3 份，按 8.3 / 9.15 换算。
       ["符", 1.15, 1],
-      ["123", 1.25, 1],
-      ["空格", 3.7, 1],
-      ["中", 1.05, 1],
+      ["123", 1.13, 1],
+      ["空格", 3.91, 1],
+      ["中", 0.95, 1],
       ["", 1.15, 1],
     ],
   ]);
@@ -303,6 +304,18 @@ test("the preview rows are the HarmonyOS keyboard's rows, shares included", () =
     ...NineKeyLayout.actionRow(false, false, "tall_return").map((action) => round(action.weight)),
     NineKeyLayout.SIDE_SHARE,
   ]);
+  // 123 和 中 占整行的比例与标准九键底行相同，空格占剩下的部分。
+  const fraction = (row: readonly { weight: number }[], index: number) =>
+    round(row[index].weight / row.reduce((sum, key) => sum + key.weight, 0));
+  expect(nineKeyBottomRows.tall_return.map((key) => key.code)).toEqual([
+    "SoftSymbol",
+    "SoftLayer",
+    "Space",
+    "SoftLanguage",
+    "Enter",
+  ]);
+  expect(fraction(nineKeyBottomRows.tall_return, 1)).toBe(fraction(nineKeyBottomRows.standard, 1));
+  expect(fraction(nineKeyBottomRows.tall_return, 3)).toBe(fraction(nineKeyBottomRows.standard, 3));
   expect(nineKeyTallReturnPreview[1].slice(0, -1)).toEqual(
     nineKeyBottomRows.tall_return.slice(0, -1),
   );

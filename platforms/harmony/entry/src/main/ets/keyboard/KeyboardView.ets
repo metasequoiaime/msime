@@ -701,6 +701,8 @@ struct KeyboardView {
   @State fourteenKeyStyle: string = KeyboardSession.shared.preferences().fourteenKeyStyle;
   /** 共享偏好 `touch_nine_key_style`：九键字母层的底行样式（`NineKeyLayout.actionRow`）。 */
   @State nineKeyStyle: string = KeyboardSession.shared.preferences().nineKeyStyle;
+  /** 「右侧大回车」外框（`tallReturnNineKeyFrame`）量到的宽度，网格下方那一段底行按它定 123、中/英 和数字层空格的绝对宽度（`NineKeyLayout.tallReturnRow`）；量到之前为 0，按份额排。 */
+  @State tallReturnFaceWidth: number = 0;
   /** 共享偏好 `touch_number_row`：26/14/18 键字母上方画 1 到 0，键盘高一行（`numberRowExtraRows`）。 */
   @State @Watch('syncStripHeight') numberRow: boolean = KeyboardSession.shared.preferences().numberRow;
   /** 当前编辑框是密码框或只收数字（`KeyboardSession.editorKeepsStandardRows`）：这时三种键面类型的底行样式都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`），长空格样式让工具栏一直画着的规则也随之不算，所以变了要重定面板高度。 */
@@ -4686,7 +4688,7 @@ struct KeyboardView {
    * 九键样式「右侧大回车」的外框（`tallReturnFrame`），拼音九键、九键双拼、笔画键盘和它们的数字层共用，三列与普通网格同宽（`NineKeyLayout.SIDE_SHARE`、`GRID_SHARE`）：
    *
    * - 左列：跨网格三行的标点栏（拼音九键是 ，。？！、组字时的读音、数字层的四则运算和 #+=；笔画是标点栏），栏下方底行放与它同宽的 符，数字层也在这里。
-   * - 中间：3×3 网格（笔画是笔画键），格下方是恰好与网格同宽的底行 `nineKeyActionRow`：123 | 空格 | 中/英，数字层 切换键 | 空格 | 0 | 中/英（`NineKeyLayout.actionRow`）。
+   * - 中间：3×3 网格（笔画是笔画键），格下方是恰好与网格同宽的底行 `nineKeyActionRow`：123 | 空格 | 中/英，数字层 切换键 | 0 | 空格 | 中/英。123、中/英 和数字层的空格与标准九键底行里同宽，空格（数字层是 0）占剩下的部分；外框量到自己的宽度（`tallReturnFaceWidth`）后按 `NineKeyLayout.tallReturnRow` 定宽，之前按 `NineKeyLayout.actionRow` 的份额排。
    * - 右列：⌫ 在第一行，第二行是拼音分词（数字层小数点），回车跨第三行和底行、两倍高中间无缝；原来第三行的 ！ 接到左列末尾。笔画没有第二格，⌫ 占上两行。
    *
    * 中/英 与回车不在同一行，回车不让出键帽，两键都是普通的触摸区。
@@ -4761,6 +4763,9 @@ struct KeyboardView {
     }
     .width('100%')
     .height(this.faceHeight())
+    .onAreaChange((_old: Area, now: Area): void => {
+      this.tallReturnFaceWidth = Number(now.width);
+    })
   }
 
   /** 「右侧大回车」外框里网格一行的高度：网格三行平分网格高度减去两道行距。 */
@@ -5072,6 +5077,22 @@ struct KeyboardView {
     return found === undefined ? 0 : found.weight;
   }
 
+  /** 九键外框底行里这个键的固定宽度：「右侧大回车」量到外框宽度后，除了占剩余宽度的键（`NineKeyLayout.tallReturnFill`），都按 `NineKeyLayout.tallReturnRow` 取与标准底行相同的绝对宽度；其余情况为 0，按份额定宽。 */
+  private nineKeyActionWidth(kind: NineKeyActionKind): number {
+    if (!this.tallReturnFrame() || this.tallReturnFaceWidth <= 0
+      || kind === NineKeyLayout.tallReturnFill(this.symbols)) {
+      return 0;
+    }
+    const found: NineKeyAction | undefined = NineKeyLayout.tallReturnRow(this.symbols, this.tallReturnFaceWidth,
+      this.keySpacing()).find((item: NineKeyAction): boolean => item.kind === kind);
+    return found === undefined ? 0 : found.weight;
+  }
+
+  /** 九键外框底行里这个键的 `layoutWeight`：定了固定宽度（`nineKeyActionWidth`）的键为 0，占剩余宽度的键和其他样式按份额。 */
+  private nineKeyActionShare(kind: NineKeyActionKind): number {
+    return this.nineKeyActionWidth(kind) > 0 ? 0 : this.nineKeyActionWeight(kind);
+  }
+
   /** 九键外框底行的句点或句号，经 Engine 的标点路由输入。 */
   @Builder
   nineKeyPeriodKey() {
@@ -5120,6 +5141,21 @@ struct KeyboardView {
     }
   }
 
+  /** 九键外框数字层底行的 0：标准排在空格右边，「右侧大回车」排在空格左边、占剩余宽度。 */
+  @Builder
+  nineKeyZeroKey() {
+    this.fixedKey({
+      face: '0',
+      label: '数字 0',
+      size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+      fontWeight: FUNCTION_LABEL_WEIGHT,
+      emphasized: false,
+      width: this.nineKeyActionWidth(NineKeyActionKind.ZERO),
+      share: this.nineKeyActionShare(NineKeyActionKind.ZERO),
+      action: () => this.typeNineKeyZero()
+    });
+  }
+
   /**
    * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。中文时标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；英文九键的字母层在空格左边加句点、右边加逗号，与三端英文 26 键底行一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；其他中文键面借用这个数字页时，该键按原键面印「拼音」、「14键」或「笔」（`NineKeyLayout.numberPadReturnTitle`），与 Android 和 iOS 相同。数字层的网格只有 1-9，所以那里 符 让给空格右边的 0。
    */
@@ -5144,7 +5180,8 @@ struct KeyboardView {
           action: () => this.toggleSymbolLayer()
         });
       }
-      .layoutWeight(NineKeyLayout.LAYER_WEIGHT)
+      .width(this.nineKeyActionWidth(NineKeyActionKind.LAYER_TOGGLE))
+      .layoutWeight(this.nineKeyActionShare(NineKeyActionKind.LAYER_TOGGLE))
       .height('100%')
       .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
       if (this.nineKeyActionShown(NineKeyActionKind.EMOJI)) {
@@ -5159,7 +5196,12 @@ struct KeyboardView {
         // 九键样式「底栏带标点」：逗号紧挨空格左边，句号在空格右边。
         this.nineKeyCommaKey()
       }
-      this.spaceKey(true, this.nineKeyActionWeight(NineKeyActionKind.SPACE));
+      if (this.nineKeyActionBeforeSpace(NineKeyActionKind.ZERO)) {
+        // 「右侧大回车」的数字层：0 占空格原来的位置和剩余宽度，空格在它右边。
+        this.nineKeyZeroKey()
+      }
+      this.spaceKey(true, this.nineKeyActionShare(NineKeyActionKind.SPACE),
+        this.nineKeyActionWidth(NineKeyActionKind.SPACE));
       if (this.nineKeyActionAfterSpace(NineKeyActionKind.COMMA)) {
         // 英文九键：逗号紧挨空格右边。
         this.nineKeyCommaKey()
@@ -5167,17 +5209,8 @@ struct KeyboardView {
       if (this.nineKeyActionAfterSpace(NineKeyActionKind.PERIOD)) {
         this.nineKeyPeriodKey()
       }
-      if (this.nineKeyActionShown(NineKeyActionKind.ZERO)) {
-        this.fixedKey({
-          face: '0',
-          label: '数字 0',
-          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-          fontWeight: FUNCTION_LABEL_WEIGHT,
-          emphasized: false,
-          width: 0,
-          share: NineKeyLayout.ZERO_WEIGHT,
-          action: () => this.typeNineKeyZero()
-        });
+      if (this.nineKeyActionAfterSpace(NineKeyActionKind.ZERO)) {
+        this.nineKeyZeroKey()
       }
       this.fixedKey({
         face: this.languageFace(),
@@ -5186,8 +5219,8 @@ struct KeyboardView {
         fontWeight: FUNCTION_LABEL_WEIGHT,
         emphasized: false,
         special: true,
-        width: 0,
-        share: NineKeyLayout.LANGUAGE_WEIGHT,
+        width: this.nineKeyActionWidth(NineKeyActionKind.LANGUAGE),
+        share: this.nineKeyActionShare(NineKeyActionKind.LANGUAGE),
         // 「右侧大回车」的回车在右列、不在这一行，中/英 不伸进回车键帽（`NineKeyLayout.languageBesideReturn`）。
         hitRegion: NineKeyLayout.languageBesideReturn(this.nineKeyActions()) ? this.languageKeyHitRegion() : undefined,
         action: () => {
@@ -6030,7 +6063,7 @@ struct KeyboardView {
         // 英文 26 键：句点紧挨空格左边，逗号在空格右边。
         this.designPeriodKey(this.designShare(DesignRowSlot.PERIOD))
       }
-      this.spaceKey(true, this.designShare(DesignRowSlot.SPACE));
+      this.spaceKey(true, this.designShare(DesignRowSlot.SPACE), 0);
       if (this.designAfterSpace(DesignRowSlot.COMMA)) {
         this.designCommaKey(this.designShare(DesignRowSlot.COMMA))
       }
@@ -6167,7 +6200,7 @@ struct KeyboardView {
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
         KeyboardSession.shared.punctuation(0x3f);
       }))
-      this.spaceKey(true, HANDWRITING_SPACE_SHARE);
+      this.spaceKey(true, HANDWRITING_SPACE_SHARE, 0);
       Column() {
         this.fixedKey({
           face: this.chinesePunctuationFaces() ? '。' : '.',
@@ -6291,7 +6324,7 @@ struct KeyboardView {
           this.punctuation = true;
         }))
       }
-      this.spaceKey(false, 1);
+      this.spaceKey(false, 1, 0);
       this.fixedKey({
         // The face is the mode it is in, not the pair it toggles between: a key labelled 中/英
         // says nothing about which one is running.
@@ -6401,7 +6434,7 @@ struct KeyboardView {
    * 触屏上按住 `SPACE_LONG_PRESS_MS` 不动即按住说话，与拖动移光标的先后判定在 `SpaceVoiceGesture`：松手结束录音，上滑进入「松开取消」后松手放弃。
    */
   @Builder
-  spaceKey(design: boolean, share: number) {
+  spaceKey(design: boolean, share: number, width: Length) {
     Column() {
       if (design) {
         // 设计稿的空格键：开启语音输入时先是麦克风，然后是方案简称（Android 的 `SpaceKeyFace`）。
@@ -6434,6 +6467,8 @@ struct KeyboardView {
           .width('100%')
       }
     }
+    .width(width)
+    // 权重会覆盖沿行方向的宽度；为 0 时由宽度决定。
     .layoutWeight(share)
     .height('100%')
     .justifyContent(FlexAlign.Center)
@@ -10885,7 +10920,7 @@ struct KeyboardView {
           }
         });
       }
-      this.spaceKey(true, NumberSymbolLayout.SPACE_WEIGHT);
+      this.spaceKey(true, NumberSymbolLayout.SPACE_WEIGHT, 0);
       this.designReturnKey(NumberSymbolLayout.RETURN_WEIGHT, false);
     }
     .width('100%')

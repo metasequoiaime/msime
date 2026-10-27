@@ -97,6 +97,26 @@ if ! grep -qF 'hitRegion: NineKeyLayout.languageBesideReturn(this.nineKeyActions
   echo "KeyboardView.nineKeyActionRow must yield the return key only when the language key sits beside it, and draw return only when the row has one" >&2
   exit 1
 fi
+# 九键「右侧大回车」网格下方那一段（`NineKeyLayout.tallReturnRow` 由 touch-layout-styles.test.ts 覆盖）：外框量自己的宽度，123、中/英、空格和 0 按 `nineKeyActionWidth` / `nineKeyActionShare` 定宽，数字层的 0 排在空格左边。
+tall_frame_body=$(sed -n '/^  tallReturnNineKeyFrame() {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+zero_body=$(sed -n '/^  nineKeyZeroKey() {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+# 找不到时 grep 返回 1，pipefail 会让脚本不打印原因就退出，所以这里吞掉退出码，由下面的判断报告。
+zero_before_line=$(grep -nF 'if (this.nineKeyActionBeforeSpace(NineKeyActionKind.ZERO)) {' <<< "$nine_row_body" | head -n 1 | cut -d: -f1 || true)
+nine_space_line=$(grep -nF 'this.spaceKey(true, this.nineKeyActionShare(NineKeyActionKind.SPACE),' <<< "$nine_row_body" | head -n 1 | cut -d: -f1 || true)
+if ! grep -qF 'this.tallReturnFaceWidth = Number(now.width);' <<< "$tall_frame_body" \
+  || ! grep -qF 'this.nineKeyActionWidth(NineKeyActionKind.SPACE));' <<< "$nine_row_body" \
+  || ! grep -qF '.width(this.nineKeyActionWidth(NineKeyActionKind.LAYER_TOGGLE))' <<< "$nine_row_body" \
+  || ! grep -qF '.layoutWeight(this.nineKeyActionShare(NineKeyActionKind.LAYER_TOGGLE))' <<< "$nine_row_body" \
+  || ! grep -qF 'width: this.nineKeyActionWidth(NineKeyActionKind.LANGUAGE),' <<< "$nine_row_body" \
+  || ! grep -qF 'share: this.nineKeyActionShare(NineKeyActionKind.LANGUAGE),' <<< "$nine_row_body" \
+  || ! grep -qF 'width: this.nineKeyActionWidth(NineKeyActionKind.ZERO),' <<< "$zero_body" \
+  || ! grep -qF 'share: this.nineKeyActionShare(NineKeyActionKind.ZERO),' <<< "$zero_body" \
+  || [[ -z "$zero_before_line" || -z "$nine_space_line" ]] || (( zero_before_line >= nine_space_line )); then
+  echo "KeyboardView must measure the tall return frame, size its middle bottom row from NineKeyLayout.tallReturnRow, and draw the digit layer's 0 left of space when the row says so" >&2
+  exit 1
+fi
 # 视图出现前（`setUiContent` 与 `aboutToAppear` 谁先完成没有保证）请求的面板高度不能丢（`TouchHeightRelay`，规则由 touch-layout-styles.test.ts 覆盖）：会话经它转交请求，扩展能力第一帧优先用留着的请求、挂回调时补发、换面板时作废旧请求。
 view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
