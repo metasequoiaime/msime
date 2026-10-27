@@ -29,6 +29,7 @@ HarmonyOS 的冷却放在原生 `StatisticsAuthentication`：共享 React 认证
 ## Verification
 
 - Android：`StatisticsAuthenticationPolicySmoke` 新增冷却边界（从未认证、刚认证、差 1 毫秒满五分钟、满五分钟、时钟回退），`javac` 编译运行通过。
+- Android 回前台契约同步要求 `onPause()` 和 `reenter()` 先记录已有授权的冷却时刻，再走原有暂停跟踪或重新认证读取。旧脚本逐字匹配不含 `rememberAuthorized()` 的方法体，导致合入冷却后的基线与 #9993 都在同一契约失败；补齐预期后保留完整方法体检查，仍禁止额外条件跳过失败读取的重试。
 - iOS：`scripts/test-ios-statistics-authentication.py` 运行真实状态机，新增注入时钟的冷却用例（离开后四分钟回来不弹认证、跨实例共用、满五分钟重新认证、关闭开关和未设密码不开启冷却）；原有用例各用独立的冷却实例，通过。
 - HarmonyOS：`bash platforms/harmony/tests/run.sh` 通过，`keyboard-logic.test.ts` 新增冷却分组，`run.sh` 钉住 ArkTS 接线（默认值、冷却放行、成功开启冷却、离开顺延、开机时钟）。
 - `apps/desktop/tests/settings/statistics-authentication-setting.test.tsx` 通过。

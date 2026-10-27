@@ -24,11 +24,11 @@ def main() -> int:
         "    @Override protected void onBecameVisible()":
             "@Override protected void onBecameVisible() {\n        if (pause.reentersOnVisible(authentication != null)) reenter();\n    }",
         "    private void reenter()":
-            "private void reenter() {\n        authorized = false;\n        requestAuthentication();\n    }",
+            "private void reenter() {\n        rememberAuthorized();\n        authorized = false;\n        requestAuthentication();\n    }",
         "    private void authenticationEnded(boolean systemCanceled)":
             "private void authenticationEnded(boolean systemCanceled) {\n        if (pause.reentersOnEnd(systemCanceled, isResumed() && !isHidden() && getView() != null)) reenter();\n    }",
         "    @Override public void onPause()":
-            "@Override public void onPause() {\n        super.onPause();\n        pause.paused(authentication != null);\n    }",
+            "@Override public void onPause() {\n        super.onPause();\n        rememberAuthorized();\n        pause.paused(authentication != null);\n    }",
     }
     for header, body in expected.items():
         if method(source, header) != body:
