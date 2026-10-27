@@ -60,13 +60,14 @@ export const PAGE_ACCOUNT_OPERATIONS: readonly string[] = [
   "feedback",
 ];
 
-/** 会换掉本机登录会话的操作：之前之后都要取消旧账号排队中的词库快照、丢掉快照预览。宿主自己的 Google 回环登录（`google_sign_in`）也算。 */
+/** 会换掉本机登录会话的操作：之前之后都要取消旧账号排队中的词库快照、丢掉快照预览。宿主自己的 Google 回环登录（`google_sign_in`）和华为账号登录（`huawei_sign_in`）也算。 */
 export const SESSION_CHANGING_OPERATIONS: readonly string[] = [
   "login",
   "logout",
   "account_delete",
   "forget",
   "google_sign_in",
+  "huawei_sign_in",
 ];
 
 /** 宿主自报的 User-Agent 只在不为空时带上；`msime_client_client_agent` 失败时宿主得到空串，请求仍以默认 User-Agent 发出。 */
@@ -89,7 +90,7 @@ function feedbackAction(action: JsonObject): JsonObject {
   return rebuilt;
 }
 
-/** 页面的账号动作，拼成 `msime_client_account` 的请求。宿主自己的 `google_sign_in`、`google_cancel` 在这之前就处理掉了。 */
+/** 页面的账号动作，拼成 `msime_client_account` 的请求。宿主自己的 `google_sign_in`、`google_cancel`、`huawei_sign_in` 在这之前就处理掉了。 */
 export function accountRequest(
   directory: string,
   clientAgent: string,
@@ -105,7 +106,7 @@ export function accountRequest(
   return planned(operation, withAgent({ directory, action: forwarded }, clientAgent));
 }
 
-/** 宿主自己发的账号操作（设置同步、Google 回环、会话镜像），不经页面的名单。`actionDocument` 是宿主拼好的动作原文，读不懂时为 null。 */
+/** 宿主自己发的账号操作（设置同步、Google 回环、华为账号登录、会话镜像），不经页面的名单。`actionDocument` 是宿主拼好的动作原文，读不懂时为 null。 */
 export function hostAccountRequest(
   directory: string,
   clientAgent: string,
