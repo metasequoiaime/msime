@@ -48,7 +48,12 @@ public final class DictionarySyncPolicySmoke {
             check(!DictionarySyncPolicy.failureMessage(code, false).equals(GENERIC), code + " has its own message");
         }
         check(GENERIC.equals(DictionarySyncPolicy.failureMessage(null, false)), "a missing code gets the generic message");
-        check(GENERIC.equals(DictionarySyncPolicy.failureMessage("", true)), "an empty code gets the generic message");
+        check(DictionarySyncPolicy.failureMessage("", true).equals(DictionarySyncPolicy.failureMessage("synthetic_unknown_code", true))
+            && !DictionarySyncPolicy.failureMessage("", true).equals(GENERIC), "an empty probe code gets the probe's generic message");
+        // 与 iOS 和共享设置页逐字相同的几句。
+        check(DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_UNAVAILABLE, false)
+            .equals("连不上网盘，请检查地址和网络；证书须由公网信任的机构签发。"), "unavailable matches the shared wording");
+        check(GENERIC.equals("同步失败，请稍后再试。"), "the generic sentence matches the shared wording");
         // 网盘拒绝凭据不是水杉账号没登录，说法不提登录。
         check(!DictionarySyncPolicy.failureMessage(DictionarySyncPolicy.CODE_UNAUTHORIZED, false).contains("登录"),
             "rejected WebDAV credentials do not ask the user to sign in");

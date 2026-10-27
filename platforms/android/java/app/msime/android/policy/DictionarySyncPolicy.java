@@ -107,29 +107,29 @@ public final class DictionarySyncPolicy {
     }
 
     /**
-     * 失败时给人看的一句话，与共享设置页的说法对齐；认不出的码给通用的一句。`probe` 为真时说的是「测试连接」：格式不认识（`dictionary_sync_unsupported`）在那里是网盘不支持需要的文件操作。
+     * 失败时给人看的一句话，与 iOS 的 `DictionarySyncPolicy.failureMessage` 和共享设置页的 `dictionarySyncErrorMessage` 逐字相同。`probe` 为真时说的是「测试连接」：`dictionary_sync_unsupported` 在那里是网盘不支持需要的文件操作，同步时是网盘上的格式比本机新。认不出的码给通用的一句，不抛出。
      */
     public static String failureMessage(String code, boolean probe) {
-        if (code == null || code.isEmpty()) return "没有完成，请稍后再试";
+        String fallback = probe ? "测试连接失败，请稍后再试。" : "同步失败，请稍后再试。";
+        if (code == null || code.isEmpty()) return fallback;
         return switch (code) {
-            case CODE_NOT_CONFIGURED -> "地址、账号或应用密码不完整";
-            case CODE_INVALID -> "请求不合规，请重新打开页面";
-            case CODE_UNAUTHORIZED -> "网盘拒绝了这个账号或应用密码";
-            case CODE_UNAVAILABLE -> "连不上网盘，请检查地址和网络；证书须由公网信任的机构签发";
-            case CODE_RATE_LIMITED -> "网盘暂时限制了请求次数，或本机这半小时的同步额度已用完（坚果云免费账号每 30 分钟 600 次，与其他应用共用），请稍后再试";
-            case CODE_TOO_LARGE -> "网盘上的词库数据超过了上限，请删减一些词条后再试";
-            case CODE_ROLLBACK -> "网盘上的词库记录比这台设备读到过的旧，或者被改动过，已停止同步。若是你自己清理过网盘文件夹，请重新测试连接并保存";
+            case CODE_NOT_CONFIGURED -> "地址、账号或应用密码不完整。";
+            case CODE_INVALID -> "请求无效，请关闭设置后重新打开再试。";
+            case CODE_UNAUTHORIZED -> "网盘拒绝了这个账号或应用密码。";
+            case CODE_UNAVAILABLE -> "连不上网盘，请检查地址和网络；证书须由公网信任的机构签发。";
+            case CODE_RATE_LIMITED -> "网盘暂时限制了请求次数，或本机这 30 分钟的同步次数已用完，请稍后再试。";
+            case CODE_TOO_LARGE -> "网盘上的词库或本机的同步记录超过了上限，删减一些词条后再试。";
+            case CODE_ROLLBACK -> "网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，重新测试连接并保存即可，本机的词条都会保留。";
             case CODE_UNSUPPORTED -> probe
-                ? "这个网盘不支持词库同步需要的文件操作（独占创建、列目录），请换一个 WebDAV 服务或文件夹"
-                : "网盘上的词库是更新版本的格式，请先更新水杉输入法";
-            case CODE_CORRUPT -> "网盘上的词库记录被写坏了，已停止同步";
-            case CODE_STORAGE -> "这台设备上的词库同步状态读写失败，请稍后再试";
-            case "clipboard_device_pending" -> "这台设备还在等待允许";
-            case "clipboard_key_conflict" -> "另一台设备刚刚换了词库同步的密钥，请稍后再试";
-            case "clipboard_keystore_conflict" -> "这台设备的词库同步身份刚被更换，请稍后再试";
-            case "clipboard_device_limit" -> "登记的设备已满，请先移除不用的设备";
-            case "not_found" -> "那台设备已经不在了，请刷新后再试";
-            default -> "没有完成，请稍后再试";
+                ? "这个网盘不支持词库同步需要的文件操作（独占创建、列目录），请换一个 WebDAV 服务或文件夹。"
+                : "网盘上的词库是更新版本的格式，请先更新水杉输入法。";
+            case CODE_CORRUPT -> "网盘上的词库记录损坏了，自动同步已暂停。";
+            case CODE_STORAGE -> "本机的同步记录读写失败。";
+            case "clipboard_device_pending" -> "本设备还在等待允许。";
+            case "not_found" -> "这台设备已经不在列表里了，请刷新后再试。";
+            case "clipboard_key_conflict", "clipboard_keystore_conflict" -> "另一台设备同时修改了密钥，请稍后再试。";
+            case "clipboard_device_limit" -> "设备数已达上限，请先移除不再使用的设备。";
+            default -> fallback;
         };
     }
 }
