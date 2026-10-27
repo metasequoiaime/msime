@@ -265,10 +265,13 @@ impl DavHttp for HttpDav {
         }
         let body = match crate::bounded_io::read_bounded(response, limit) {
             Ok(body) => body,
-            Err(_) => {
+            Err(error) => {
                 if (200..300).contains(&status) {
-                    self.oversized
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    if error.kind() == std::io::ErrorKind::InvalidData {
+                        self.oversized
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    return Err(RelayError::Unavailable);
                 }
                 Vec::new()
             }

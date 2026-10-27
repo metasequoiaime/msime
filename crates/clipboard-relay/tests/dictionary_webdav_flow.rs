@@ -542,3 +542,41 @@ fn credentials_and_words_never_reach_the_share_and_credentials_never_reach_local
     let debug = format!("{sync:?} {:?}", sync.status().unwrap());
     assert!(!debug.contains(PASSWORD) && !debug.contains(USER) && !debug.contains("秘密词条"));
 }
+
+#[test]
+fn oversized_local_changes_keep_state_readable_and_allow_recovery() {
+    let server = start();
+    let dir = tempfile::tempdir().unwrap();
+    let sync = device(&server, dir.path(), "Synthetic");
+    let original = word("ma", "合成词");
+    let mut words = Words(BTreeSet::from([original.clone()]));
+    manual(&sync, &mut words).report.unwrap();
+    let before = std::fs::read(dir.path().join(STATE_FILE)).unwrap();
+    let mut remote_before = server.files("msime-dictionary/");
+    remote_before.sort();
+    for index in 0..10_000 {
+        words.0.insert(
+            WordKey::new(WordKind::Quick, &format!("q{index}"), &"s".repeat(4096)).unwrap(),
+        );
+    }
+    let run = sync
+        .run(&mut words, Trigger::LocalChange, Options::default())
+        .unwrap();
+    assert!(!run.network);
+    assert_eq!(run.report.unwrap_err().code(), "dictionary_sync_too_large");
+    assert_eq!(std::fs::read(dir.path().join(STATE_FILE)).unwrap(), before);
+    sync.status().unwrap();
+    let mut remote_after = server.files("msime-dictionary/");
+    remote_after.sort();
+    assert_eq!(remote_after, remote_before);
+    words.0 = BTreeSet::from([
+        original,
+        WordKey::new(WordKind::Quick, "small", "合成恢复词").unwrap(),
+    ]);
+    sync.run(&mut words, Trigger::LocalChange, Options::default())
+        .unwrap()
+        .report
+        .unwrap();
+    manual(&sync, &mut words).report.unwrap();
+    assert_eq!(sync.status().unwrap().pending_upload, 0);
+}

@@ -24,7 +24,7 @@ Status: implemented
 ## 契约
 
 - `docs/cloud-clipboard-e2e.md` 的「宿主的职责」写明保存不能替换另一个身份、要在跨进程锁里读比写、冲突时重来或报 `clipboard_keystore_conflict`；「结果」写明 `devices` 与 `pending_devices` 不含被盖住的旧登记、哪些操作会删它们。`msime_client.h` 的 session store 读写语义补了一句：`CLIPBOARD_KEYSTORE` 的 save 本身仍是整体替换，Rust 只在 ACCOUNT 槽的锁里确认没有另一个身份之后才调用它，自己也写这一项的宿主要守同一条规则。
-- 正在给 iOS、HarmonyOS 接中继和 WebDAV、以及复用这套批准流程做 [自建词库同步](../../proposed/feature/2026-10-27-dictionary-self-hosted-sync.md) 的改动：自己跑驱动、自己存密钥串的宿主，保存要按上面的规则做（参考 Android 的 `CloudClipboardKeystore.save` 或 Apple 的 `saveKeystore`）；经 `clipboard_e2e::run` 的，`persist` 要如实答 `Conflict`，不能一律答 `Saved`，除非像 `RelayClipboard::drive` 那样整次操作持锁、开始时读到的就是保存前存着的那份。
+- 正在给 iOS、HarmonyOS 接中继和 WebDAV、以及复用这套批准流程做 [自建词库同步](../feature/2026-10-27-dictionary-self-hosted-sync.md) 的改动：自己跑驱动、自己存密钥串的宿主，保存要按上面的规则做（参考 Android 的 `CloudClipboardKeystore.save` 或 Apple 的 `saveKeystore`）；经 `clipboard_e2e::run` 的，`persist` 要如实答 `Conflict`，不能一律答 `Saved`，除非像 `RelayClipboard::drive` 那样整次操作持锁、开始时读到的就是保存前存着的那份。
 
 ## Alternatives considered
 

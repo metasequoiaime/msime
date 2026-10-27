@@ -38,7 +38,7 @@ pub const LOCK_FILE: &str = "dictionary-sync.lock";
 const ROOT: &str = "msime-dictionary/";
 const KEYRING: &str = "msime-dictionary/keyring/";
 const TMP: &str = "msime-dictionary/v1/tmp/";
-/// 同步状态里有整个共享词库（10 万个词条约 10 MB）。
+/// 同步状态包含共享词库和待发送、已应用的词条；读写都遵守同一个字节预算。
 const MAX_STATE_BYTES: u64 = 64 * 1024 * 1024;
 /// 等另一个进程跑完一次同步。一次同步最多几十个请求，每个 30 秒超时。
 const LOCK_TIMEOUT: Duration = Duration::from_secs(120);
@@ -342,6 +342,9 @@ impl StateSink for FileSink<'_> {
             state: state.clone(),
         };
         let bytes = serde_json::to_vec(&stored).map_err(|_| SyncError::Storage)?;
+        if bytes.len() as u64 > MAX_STATE_BYTES {
+            return Err(SyncError::TooLarge);
+        }
         self.storage
             .write_private(STATE_FILE, &bytes)
             .map_err(|_| SyncError::Storage)

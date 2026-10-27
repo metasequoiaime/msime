@@ -184,3 +184,41 @@ fn key_ring_errors_keep_their_codes() {
         "dictionary_sync_not_configured"
     );
 }
+
+#[test]
+fn oversized_local_state_preserves_the_last_readable_file() {
+    use crate::cloud::dictionary_sync::{WordKey, WordKind};
+
+    let directory = tempfile::tempdir().unwrap();
+    let sync = DictionarySync::new(URL, USER, PASSWORD, directory.path(), "").unwrap();
+    sync.storage().create_directory().unwrap();
+    let original = SyncState::new(&"a".repeat(32)).unwrap();
+    sync.sink().save(&original).unwrap();
+    let before = std::fs::read(directory.path().join(STATE_FILE)).unwrap();
+    let mut state = serde_json::to_value(&original).unwrap();
+    let words: Vec<_> = (0..10_000)
+        .map(|index| {
+            serde_json::to_value(
+                WordKey::new(WordKind::Quick, &format!("q{index}"), &"s".repeat(4096)).unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+    state["applied"] = serde_json::json!(words);
+    state["outbox"] = serde_json::Value::Array(
+        words
+            .into_iter()
+            .map(|word| serde_json::json!([word, {"live": true, "hlc": 1024}]))
+            .collect(),
+    );
+    let oversized: SyncState = serde_json::from_value(state).unwrap();
+    assert!(serde_json::to_vec(&oversized).unwrap().len() as u64 > MAX_STATE_BYTES);
+    assert_eq!(sync.sink().save(&oversized), Err(SyncError::TooLarge));
+    assert_eq!(
+        std::fs::read(directory.path().join(STATE_FILE)).unwrap(),
+        before
+    );
+    assert_eq!(sync.load_state().unwrap(), Some(original.clone()));
+    sync.sink().save(&original).unwrap();
+    assert_eq!(sync.load_state().unwrap(), Some(original));
+}

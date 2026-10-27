@@ -48,13 +48,19 @@ Status: implemented
 
 一个 epoch 攒到 64 个事件或 8 MiB 封口，下一个 epoch 从加密的检查点开始，旧 epoch 10 分钟后删除。墓碑在封口时回收：参与确认的是没被移除、在日志里最晚一次写入之前 90 天内出现过的设备，它们确认位置的最小值以内的墓碑删掉。确认游标的因果范围是「这台设备的本机词库已经持久地写到了这个序号」。长期离线的设备从最新检查点重新开始，按 `applied` 与检查点比较得出别处的删除。
 
+### 本机状态与响应字节预算
+
+本机状态读取和写入都受 64 MiB 预算约束，序列化后先检查再原子替换，超限答 `dictionary_sync_too_large` 并保留上次可读文件。词条数量合法不代表字节数够小：1 万条各 4096 字节的快捷短语同时出现在 `applied` 和 `outbox` 时就超过预算，不能先写出无法再读取的状态。用户删减本机新增内容后可以继续同步。预算不扩大，避免把读取与内存开销转嫁给移动宿主。
+
+成功 HTTP 正文读取失败必须作为失败交回；只有有界读取报告 `InvalidData`（超过字节上限）时才标记为 `TooLarge`，其他传输错误仍为 `Unavailable`。这覆盖 chunked 和没有 `Content-Length` 的响应，防止把坏文件当空文件跳过并持久化错误日志位置；非成功 HTTP 状态保持原有鉴权和退避语义。
+
 ### 触发与请求量
 
 每台设备每 30 分钟自动同步最多 40 个请求（密钥串的请求也算在里面），加上手动最多 60 个，三台设备用满只占坚果云配额的三成。改词后防抖一分钟（一直改时最多十分钟）、两次自动发送至少隔五分钟；打开设置时拉一次（一分钟内不重复），宿主活着时每 30 分钟拉一次；「立即同步」不受防抖限制。连不上按 1、2、5、10、30、60 分钟退避，限流等 30 分钟，需要用户处理的错误自动同步停一小时。宿主每次调用都拿到下一次该什么时候再调用，不用自己算。
 
 ### 偏好与凭据
 
-偏好是 `dictionary_sync_webdav {url, username, password}`，规则照 `cloud_clipboard_webdav`，两者各配各的：应用密码进凭据清单，账号在诊断里换成 `<redacted>`，整组进 `LOCAL_SECTIONS`，不进账号设置同步和 MCP。本机同步状态只记网盘地址和账号的摘要，不记凭据；测试证明凭据和词条都不出现在网盘文件、本机状态和调试输出里。
+偏好是 `dictionary_sync_webdav {url, username, password}`，规则照 `cloud_clipboard_webdav`，两者各配各的：应用密码进凭据清单，账号在诊断里换成 `<redacted>`，整组进 `LOCAL_SECTIONS`，不进账号设置同步和 MCP。本机同步状态只记网盘地址和账号的摘要，不记凭据；测试证明网盘文件不含凭据和词条明文；本机状态含词条明文但不含凭据，调试输出也不打印凭据。
 
 ## Alternatives considered
 
@@ -83,3 +89,5 @@ Status: implemented
 - `cargo test -p msime-clipboard-relay --test dictionary_webdav_flow`：8 项，对着 `dav-server`：两台设备经密钥串配对（两边的核对码相同）、批准、互传、改编码和删词；同一安装两个进程同时第一次使用只登记一台；错误的应用密码在同步和测试连接里都是 `dictionary_sync_unauthorized`，连不上的地址是 `dictionary_sync_unavailable`；超大事件是 `dictionary_sync_too_large`；两台设备同时同步抢同一个序号，词都进去了；截掉日志尾部是 `dictionary_sync_rollback`，重新测试连接后恢复、本机的词都在；服务端暂时不可用时改动留在本机，恢复后发出；凭据和词条不出现在网盘文件里，凭据不出现在本机状态文件里。
 - `cargo test -p msime-host-api --lib dictionary_webdav`：4 项，对着真实的 Engine 词库：读「我的词条」（含多行快捷短语和英文显示形）、加入、删除、删除本来就没有的词、同一个请求编号重试；输入会话占着词库时答「忙」、读照常；Engine 不收的词单独报告、同批其他词照常写进去；请求在联网之前就被校验。
 - `cargo test -p msime-client-core --lib`、`cargo test -p msime-client-services`、`cargo test -p msime-clipboard-relay`：全部通过；`cargo test -p msime-host-api --lib` 只有两项与本改动无关的失败（按需资源包列表与 develop 上新增的 `pronunciations` 不符，一项按分钟取本地时间的脚本插件测试）。`cargo clippy` 对四个 crate 加 `--all-targets` 只剩 develop 上已有的两处 `field_reassign_with_default`。
+
+审查补充验证：新增真实 TCP 的 chunked 超限、正文截断、合法 chunked 与 401 状态用例，以及超大本机状态写入前拒绝并保留旧文件的回归；修复前 3 项实际失败，修复后 WebDAV 相关 33 项、词库 WebDAV 集成 9 项、云剪贴板 WebDAV 集成 3 项通过，库级严格 clippy 通过。词库 WebDAV 集成用例另覆盖删减本机新增词后恢复同步。完整 quick 门禁受开发机系统盘余量限制，未完成；Android 文件存储路径的设备验收仍待完成。

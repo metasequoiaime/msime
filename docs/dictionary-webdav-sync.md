@@ -210,8 +210,9 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 | 待发送的操作 | 2 万个词条；超过时本机的改动先留在词库里，等发出去一批再记，不会丢 |
 | 一次写进本机词库 | 128 项 |
 | 一个词条 | 编码 512 字节，词 4096 字节 |
+| 本机同步状态文件 | 64 MiB，序列化后写入前检查，与读取上限一致 |
 
-响应超过上限时是 `dictionary_sync_too_large`。
+响应或本机状态超过字节上限时是 `dictionary_sync_too_large`。本机状态超限时不替换上一次可读文件，新增词仍保留在本机词库；删减本次新增内容后可重试。成功 HTTP 响应的正文必须完整读完：无 `Content-Length` 或 chunked 正文超限也返回上述错误；传输中断返回 `dictionary_sync_unavailable`，不会把空正文当成成功并推进日志位置。非成功 HTTP 状态仍按鉴权、限流等既有规则处理。
 
 ## 请求量
 
