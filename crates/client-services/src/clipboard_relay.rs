@@ -464,8 +464,7 @@ impl RelayClipboard {
         })
     }
 
-    /// WebDAV 后端换成测试里的假网盘。
-    #[cfg(test)]
+    /// WebDAV 后端换成给定的虚拟中继：测试里的假网盘，或者词库同步那份放在别的目录下的密钥串。
     pub(crate) fn with_webdav(
         relay: VirtualRelay,
         directory: impl Into<PathBuf>,
@@ -624,7 +623,7 @@ impl RelayClipboard {
     }
 
     /// 本机给这个中继、这个令牌空间保存的密钥串。文件属于别的中继或别的空间、或者解析不了时当作没有。
-    fn load_keystore(&self) -> Result<Option<String>, RelayError> {
+    pub(crate) fn load_keystore(&self) -> Result<Option<String>, RelayError> {
         let Some(bytes) = self
             .storage()
             .read_private(RELAY_KEYSTORE_FILE, MAX_KEYSTORE_FILE_BYTES)
