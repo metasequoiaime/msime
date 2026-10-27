@@ -10658,3 +10658,60 @@ fn the_fourteen_key_grid_is_offered_to_quanpin_and_wubi_only() {
         Err(RuntimeError::InvalidNineKeyScheme)
     ));
 }
+
+/// 网格侧栏换代后旧页不能选词；翻页前后使用同一份全局候选身份。
+#[test]
+fn grid_baseline_paging_then_spelling_rejects_old_candidates() {
+    for grid in [KeyGrid::NineKey, KeyGrid::FourteenKey] {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        runtime.set_key_grid(Some(grid)).unwrap();
+        let action = if grid == KeyGrid::NineKey {
+            Action::Character {
+                value: b'6',
+                shift: false,
+            }
+        } else {
+            Action::GridKey(b'b')
+        };
+        let first = runtime.dispatch(action).unwrap().view;
+        let all = runtime.all_candidates();
+        assert_eq!(all.candidates.len(), 12);
+        let second = runtime.dispatch(Action::NextPage).unwrap().view;
+        assert_eq!(second.page, 1);
+        assert_eq!(second.candidates[0].text, "candidate-5");
+        assert_eq!(second.candidates[0].id.index, all.candidates[5].id.index);
+        assert_eq!(second.editing_text, first.editing_text);
+        let old_candidate = second.candidates[2].id;
+        let selected = runtime
+            .dispatch(Action::ChooseNineKeySpelling(NineKeySpellingId {
+                session: second.session,
+                generation: second.generation,
+                index: 0,
+            }))
+            .unwrap();
+        assert_eq!(selected.view.page, 0);
+        assert_eq!(selected.view.editing_text, "ni");
+        assert!(selected.view.generation > second.generation);
+        assert!(matches!(
+            runtime.dispatch(Action::SelectAnyCandidate(old_candidate)),
+            Err(RuntimeError::StaleCandidate)
+        ));
+        let generation = runtime.view().generation;
+        assert!(matches!(
+            runtime.dispatch(Action::ChooseNineKeySpelling(NineKeySpellingId {
+                session: second.session,
+                generation: second.generation,
+                index: 0,
+            })),
+            Err(RuntimeError::StaleNineKeySpelling)
+        ));
+        assert_eq!(runtime.view().generation, generation);
+        let page = runtime.dispatch(Action::NextPage).unwrap().view;
+        let picked = runtime
+            .dispatch(Action::Select(page.candidates[2].id))
+            .unwrap();
+        assert_eq!(picked.commit.as_deref(), Some("candidate-7"));
+        assert!(picked.view.editing_text.is_empty());
+    }
+}
