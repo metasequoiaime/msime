@@ -157,6 +157,19 @@ if ! grep -qF 'this.onPanelHidden();' <<< "$session_hidden_body" \
   echo "Hiding the keyboard must cancel in-keyboard voice recognition on touch devices" >&2
   exit 1
 fi
+# 书写中每个移动事件只补画最后一段，不清屏重画整个字（墨色是否可补画由 keyboard-logic.test.ts 的 `HandwritingStrokePolicy.opaqueInk` 覆盖）。视图是 ArkTS，这里钉住接线：移动事件走 drawHandwritingSegment，补画不清屏、半透明墨色退回整幅重画，抬笔仍整幅重画让定稿画面与逐点重画一致。
+touch_body=$(sed -n '/^  private handwritingTouch(event: TouchEvent): void {$/,/^  }$/p' "$view_ets")
+segment_body=$(sed -n '/^  private drawHandwritingSegment(): void {$/,/^  }$/p' "$view_ets")
+move_branch=$(sed -n '/^    if (event.type === TouchType.Move) {$/,/^    }$/p' <<< "$touch_body")
+up_branch=$(sed -n '/^    if (event.type === TouchType.Up) {$/,/^    }$/p' <<< "$touch_body")
+if ! grep -qF 'this.drawHandwritingSegment();' <<< "$move_branch" \
+  || grep -qF 'this.redrawHandwriting();' <<< "$move_branch" \
+  || ! grep -qF 'HandwritingStrokePolicy.opaqueInk(' <<< "$segment_body" \
+  || grep -qF 'clearRect' <<< "$segment_body" \
+  || ! grep -qF 'this.redrawHandwriting();' <<< "$up_branch"; then
+  echo "Handwriting moves must draw only the new segment, and lifting the pen must redraw the whole pad" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do

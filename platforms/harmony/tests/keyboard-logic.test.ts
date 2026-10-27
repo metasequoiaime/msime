@@ -1671,6 +1671,19 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
     tablet.x === HANDWRITING_CANVAS_SIZE && tablet.y < HANDWRITING_CANVAS_SIZE,
     "a pad wider than 420vp still maps inside the canvas",
   );
+  // 书写中按段补画只对不透明墨色成立，半透明或认不出的颜色要整幅重画。
+  check(
+    ["#000000", "#FFFFFF", "#2F6FDB", "#fff", "#FF1A1A1A", "#ff1a1a1a", "#F123"].every(
+      (ink: string): boolean => HandwritingStrokePolicy.opaqueInk(ink),
+    ),
+    "opaque inks are drawn segment by segment while writing",
+  );
+  check(
+    ["#991A1A1A", "#00000000", "#8123", "rgba(0,0,0,0.5)", "black", "", "#12345", "#GGGGGG"].every(
+      (ink: string): boolean => !HandwritingStrokePolicy.opaqueInk(ink),
+    ),
+    "translucent or unrecognised inks fall back to redrawing the whole pad",
+  );
   check(!HandwritingStrokePolicy.canRecognize([]), "empty ink does not trigger OCR");
   check(
     HandwritingStrokePolicy.canRecognize([{ points: [point] }]),
