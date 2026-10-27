@@ -1,7 +1,10 @@
 // App 与键盘的致命信号记录器：先写摘要和系统上下文里的故障指令，再尽力展开，最后交还系统处置。O_EXCL 保留异常回调已写下的首份记录；展开器面对损坏栈仍可能失败，不能把它当作完全异步信号安全的路径。
 #include <execinfo.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -18,6 +21,105 @@ static atomic_flag msime_configuration = ATOMIC_FLAG_INIT;
 static const int msime_crash_signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
 static struct sigaction msime_previous_actions[NSIG];
 static char msime_alternate_stack[64 * 1024];
+
+// 在正常配置路径固定模块身份，信号里不查询动态加载器或输出设备目录。
+struct msime_crash_module {
+  uintptr_t begin;
+  uintptr_t end;
+  uintptr_t base;
+  char name[128];
+  char uuid[33];
+};
+static struct msime_crash_module msime_modules[512];
+static size_t msime_module_count;
+
+static void msime_snapshot_modules(void) {
+  msime_module_count = 0;
+  for (uint32_t index = 0; index < _dyld_image_count() &&
+       msime_module_count < sizeof(msime_modules) / sizeof(msime_modules[0]); ++index) {
+    const struct mach_header *image = _dyld_get_image_header(index);
+    if (image == NULL || image->magic != MH_MAGIC_64) continue;
+    const struct mach_header_64 *header = (const struct mach_header_64 *)image;
+    struct msime_crash_module *module = &msime_modules[msime_module_count];
+    memset(module, 0, sizeof(*module));
+    module->base = (uintptr_t)image;
+    const char *name = _dyld_get_image_name(index);
+    if (name == NULL) name = "<executable>";
+    for (const char *cursor = name; *cursor; ++cursor) if (*cursor == '/') name = cursor + 1;
+    strlcpy(module->name, name, sizeof(module->name));
+    const intptr_t slide = _dyld_get_image_vmaddr_slide(index);
+    const unsigned char *cursor = (const unsigned char *)(header + 1);
+    size_t remaining = header->sizeofcmds;
+    for (uint32_t command = 0; command < header->ncmds && remaining >= sizeof(struct load_command); ++command) {
+      const struct load_command *load = (const struct load_command *)cursor;
+      if (load->cmdsize < sizeof(*load) || load->cmdsize > remaining) break;
+      if (load->cmd == LC_SEGMENT_64 && load->cmdsize >= sizeof(struct segment_command_64)) {
+        const struct segment_command_64 *segment = (const struct segment_command_64 *)load;
+        if (segment->initprot & 4) {
+          const uintptr_t begin = (uintptr_t)(segment->vmaddr + slide);
+          if (module->begin == 0 || begin < module->begin) module->begin = begin;
+          if (begin + segment->vmsize > module->end) module->end = begin + segment->vmsize;
+        }
+      }
+      if (load->cmd == LC_UUID && load->cmdsize >= sizeof(struct uuid_command)) {
+        const struct uuid_command *uuid = (const struct uuid_command *)load;
+        for (size_t byte = 0; byte < sizeof(uuid->uuid); ++byte) {
+          module->uuid[byte * 2] = "0123456789abcdef"[uuid->uuid[byte] >> 4];
+          module->uuid[byte * 2 + 1] = "0123456789abcdef"[uuid->uuid[byte] & 15];
+        }
+      }
+      cursor += load->cmdsize;
+      remaining -= load->cmdsize;
+    }
+    if (module->begin < module->end) ++msime_module_count;
+  }
+}
+
+static void msime_write_all(int fd, const char *value, size_t length) {
+  while (length != 0) {
+    const ssize_t written = write(fd, value, length);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) return;
+    value += written;
+    length -= (size_t)written;
+  }
+}
+
+static void msime_write_text(int fd, const char *value) {
+  msime_write_all(fd, value, strlen(value));
+}
+
+static void msime_write_hex(int fd, uintptr_t value) {
+  char digits[2 + sizeof(value) * 2];
+  size_t begin = sizeof(digits);
+  do {
+    digits[--begin] = "0123456789abcdef"[value & 15];
+    value >>= 4;
+  } while (value != 0);
+  digits[--begin] = 'x';
+  digits[--begin] = '0';
+  msime_write_all(fd, digits + begin, sizeof(digits) - begin);
+}
+
+static void msime_write_frame(int fd, uintptr_t address) {
+  for (size_t index = 0; index < msime_module_count; ++index) {
+    const struct msime_crash_module *module = &msime_modules[index];
+    if (address < module->begin || address >= module->end) continue;
+    msime_write_text(fd, module->name);
+    msime_write_text(fd, "+");
+    msime_write_hex(fd, address - module->base);
+    if (module->uuid[0] != '\0') {
+      msime_write_text(fd, " [id 0x");
+      msime_write_text(fd, module->uuid);
+      msime_write_text(fd, "]");
+    }
+    msime_write_text(fd, "\n");
+    return;
+  }
+  msime_write_text(fd, "<unknown>+");
+  msime_write_hex(fd, address);
+  msime_write_text(fd, "\n");
+}
 
 static const char *msime_signal_name(int signal) {
   switch (signal) {
@@ -54,13 +156,10 @@ static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
         pc = machine->uc_mcontext->__ss.__rip;
 #endif
       }
-      if (pc != 0) {
-        void *fault = (void *)pc;
-        backtrace_symbols_fd(&fault, 1, fd);
-      }
+      if (pc != 0) msime_write_frame(fd, pc);
       void *frames[64];
       int count = backtrace(frames, 64);
-      backtrace_symbols_fd(frames, count, fd);
+      for (int index = 1; index < count; ++index) msime_write_frame(fd, (uintptr_t)frames[index]);
       (void)fsync(fd);
       close(fd);
     }
@@ -88,6 +187,7 @@ void msime_ios_crash_record_set(const char *path, const char *header) {
   // 配置锁保护两个字段成对发布。
   char *slot = atomic_load(&msime_crash_path) == msime_crash_paths[0] ? msime_crash_paths[1] : msime_crash_paths[0];
   strlcpy(slot, path, PATH_MAX);
+  msime_snapshot_modules();
   atomic_store(&msime_crash_path, slot);
   atomic_flag_clear(&msime_configuration);
 }
