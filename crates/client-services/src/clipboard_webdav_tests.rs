@@ -1237,3 +1237,76 @@ fn root_address_with_trailing_slash_is_the_same_folder() {
         "https://dav.example.test/dav/msime-clipboard/v1/format.json"
     );
 }
+
+/// 用真实 HTTP 正文覆盖没有 Content-Length 的超限与传输中断，线程在断言前回收。
+fn http_body_response(
+    response: &'static [u8],
+    limit: u64,
+) -> (Result<DavResponse, RelayError>, bool) {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut headers = Vec::new();
+        let mut byte = [0];
+        while !headers.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            headers.push(byte[0]);
+            assert!(headers.len() < 16 * 1024);
+        }
+        stream.write_all(response).unwrap();
+    });
+    let config = RelayConfig::webdav(&format!("http://{address}/dav"), USER, PASSWORD).unwrap();
+    let http = HttpDav::new(&config).unwrap();
+    let result = http.send(&DavRequest {
+        method: "GET",
+        path: "event.json",
+        depth: None,
+        destination: None,
+        body: None,
+        limit,
+    });
+    server.join().unwrap();
+    (result, http.take_oversized())
+}
+
+#[test]
+fn chunked_body_over_limit_is_an_error_instead_of_an_empty_success() {
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\n12345\r\n0\r\n\r\n",
+        4,
+    );
+    assert!(matches!(result, Err(RelayError::Unavailable)));
+    assert!(oversized);
+}
+
+#[test]
+fn truncated_body_is_unavailable_without_being_marked_oversized() {
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n12",
+        8,
+    );
+    assert!(matches!(result, Err(RelayError::Unavailable)));
+    assert!(!oversized);
+}
+
+#[test]
+fn complete_chunked_body_and_error_status_keep_their_semantics() {
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\n12345\r\n0\r\n\r\n",
+        5,
+    );
+    assert_eq!(result.unwrap().body, b"12345");
+    assert!(!oversized);
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 5\r\nConnection: close\r\n\r\n12",
+        8,
+    );
+    assert_eq!(result.unwrap().status, 401);
+    assert!(!oversized);
+}

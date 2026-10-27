@@ -102,7 +102,8 @@ int main() {
   assert(msime::telemetry::begin(host(directory)));
   auto crashes = of_kind(directory, "crash");
   assert(crashes.size() == 1);
-  assert(crashes[0].at("message").get<std::string>().rfind("SIGSEGV: segmentation fault", 0) == 0);
+  // raise() 是本进程自己发出的信号，不是执行出错：摘要写明来源。
+  assert(crashes[0].at("message").get<std::string>().rfind("SIGSEGV: segmentation fault (raised by this process)\n", 0) == 0);
   const auto stack = crashes[0].value("stack", std::string());
   assert(!stack.empty());
   // Module paths are reduced to file names.
@@ -110,6 +111,47 @@ int main() {
   assert(of_kind(directory, "session_crash").size() == 1);
   // Still exactly one active today.
   assert(of_kind(directory, "active").size() == 1);
+
+  // 别的进程用 kill 发来的 SIGSEGV：摘要写出发送者的进程名（这里是测试程序自己，/proc/<pid>/comm 截到 15 个字节），不写 pid。用单独的目录，直接读子进程写下的崩溃记录，不动本进程包装层的会话。
+  {
+    const auto sent_directory = directory / "sent";
+    fs::create_directories(sent_directory);
+    int ready[2];
+    assert(pipe(ready) == 0);
+    const pid_t child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+      close(ready[0]);
+      msime::telemetry::install_crash_handlers();
+      msime::telemetry::begin(host(sent_directory));
+      const char byte = 1;
+      [[maybe_unused]] const auto written = write(ready[1], &byte, 1);
+      for (;;)
+        pause();
+    }
+    close(ready[1]);
+    char byte = 0;
+    assert(read(ready[0], &byte, 1) == 1);
+    close(ready[0]);
+    assert(kill(child, SIGSEGV) == 0);
+    int killed = 0;
+    assert(waitpid(child, &killed, 0) == child);
+    assert(WIFSIGNALED(killed) && WTERMSIG(killed) == SIGSEGV);
+    std::ifstream comm("/proc/self/comm");
+    std::string sender;
+    std::getline(comm, sender);
+    assert(!sender.empty());
+    std::vector<fs::path> records;
+    for (const auto &entry : fs::directory_iterator(sent_directory / "telemetry-crashes"))
+      records.push_back(entry.path());
+    assert(records.size() == 1);
+    std::ifstream record(records[0]);
+    std::string message;
+    std::getline(record, message);
+    assert(message.rfind("MSIME-CRASH/1 ", 0) == 0);
+    std::getline(record, message);
+    assert(message == "SIGSEGV: segmentation fault (sent by " + sender + ")");
+  }
 
   // A leftover marker alone (the process killed, no record) is no crash.
   status = crash_child([&] {

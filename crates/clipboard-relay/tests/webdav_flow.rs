@@ -303,7 +303,7 @@ fn a_host_that_keeps_its_own_keystore_pairs_through_the_transport_alone() {
             |request| transport.send(&request.method, &request.path, request.body.as_deref()),
             |value| {
                 latest = Some(value.to_owned());
-                Ok::<(), RelayError>(())
+                Ok::<_, RelayError>(clipboard_e2e::Persisted::Saved)
             },
             || RelayError::Unavailable,
         )

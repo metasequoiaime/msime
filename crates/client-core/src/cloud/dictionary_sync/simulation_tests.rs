@@ -1531,3 +1531,108 @@ fn deleting_and_re_adding_a_word_uses_a_new_request_id_each_time() {
     // 三次加入、三次删除，各用一个编号。
     assert_eq!(b.engine.requests.len(), 6);
 }
+
+/// 合法长短语也会把检查点撑过读取上限：不能先封口、再发布一个自己读不了的文件；用户删减词条后应能继续同步。
+#[test]
+fn an_oversized_checkpoint_keeps_the_log_open_for_corrective_deletions() {
+    // 崩溃与持久化由其他模拟覆盖；这里仅观察远端文件与封口，不在每批上传时重复编码几十 MiB 的本机快照。
+    struct VolatileSink;
+    impl StateSink for VolatileSink {
+        fn save(&mut self, _: &SyncState) -> Result<(), SyncError> {
+            Ok(())
+        }
+    }
+    let share = Share::new();
+    let synchronize = |device: &mut Device, options: Options| {
+        let mut remote = Connection {
+            share: share.clone(),
+        };
+        let mut sink = VolatileSink;
+        let mut parts = Parts {
+            remote: &mut remote,
+            local: &mut device.engine,
+            env: &mut device.env,
+            sink: &mut sink,
+        };
+        run(&mut device.state, &mut parts, &device.ring, options)
+    };
+    let mut a = Device::new(0xa1, Some(K1));
+    for index in 0..6_500 {
+        a.add(&WordKey::new(WordKind::Quick, &format!("q{index}"), &"s".repeat(4_096)).unwrap());
+    }
+    assert!(synchronize(&mut a, Options::default()).is_ok());
+    share.with(|disk| {
+        for (path, bytes) in &disk.files {
+            if path.ends_with("checkpoint.json") {
+                assert!(
+                    bytes.len() as u64 <= super::log::MAX_CHECKPOINT_BYTES,
+                    "{path}: {}",
+                    bytes.len()
+                );
+            }
+        }
+    });
+    assert!(a.state.ledger().unwrap().sealed.is_none());
+    let oversized_epoch = a.state.ledger().unwrap().epoch;
+    let before_rekey = share.with(|disk| disk.history.len());
+    a.ring.current = Some(data_key(K2));
+    assert_eq!(
+        synchronize(&mut a, Options::default()),
+        Err(SyncError::TooLarge)
+    );
+    assert_eq!(share.with(|disk| disk.history.len()), before_rekey);
+    assert!(a.state.ledger().unwrap().sealed.is_none());
+    a.ring.current = Some(data_key(K1));
+    a.engine.words.clear();
+    for _ in 0..3 {
+        synchronize(
+            &mut a,
+            Options {
+                confirm_deletions: true,
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    }
+    assert!(a.state.ledger().unwrap().replica.live_count() == 0);
+    assert_eq!(a.state.status().outbox, 0);
+    // 下一次设备确认把删除纳入回收范围后，检查点恢复为有界文件。
+    a.advance(86_400_000);
+    synchronize(&mut a, Options::default()).unwrap();
+    assert!(a.state.ledger().unwrap().epoch > oversized_epoch);
+    let mut b = Device::new(0xb2, Some(K1));
+    synchronize(&mut b, Options::default()).unwrap();
+    assert!(b.engine.words.is_empty());
+}
+
+/// 重建也必须在封口前检查本机词库能否装进检查点。
+#[test]
+fn an_oversized_restart_leaves_the_existing_log_writable() {
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    a.sync(&share);
+    let before = share.with(|disk| (disk.history.clone(), disk.dirs.clone()));
+    let mut c = Device::new(0xc3, Some(K2));
+    for index in 0..6_500 {
+        c.add(&WordKey::new(WordKind::Quick, &format!("q{index}"), &"s".repeat(4_096)).unwrap());
+    }
+    let mut connection = Connection {
+        share: share.clone(),
+    };
+    let mut parts = Parts {
+        remote: &mut connection,
+        local: &mut c.engine,
+        env: &mut c.env,
+        sink: &mut c.sink,
+    };
+    assert_eq!(
+        restart(&mut c.state, &mut parts, &c.ring),
+        Err(SyncError::TooLarge)
+    );
+    assert_eq!(
+        share.with(|disk| (disk.history.clone(), disk.dirs.clone())),
+        before
+    );
+    a.add(&pinyin("shui", "合成词"));
+    a.sync(&share);
+}

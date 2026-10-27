@@ -141,7 +141,7 @@
 
 ### 输出
 
-`C ABI` 外层仍是 `{"ok": true, "value": …}`；`value` 是下面三种之一，任何一种都可能带 `keystore`，宿主看到就立即保存（替换旧值）：
+`C ABI` 外层仍是 `{"ok": true, "value": …}`；`value` 是下面三种之一，任何一种都可能带 `keystore`，宿主看到就立即保存（替换旧值，但不替换另一个设备身份，见下文「宿主的职责」）：
 
 - 要发请求：`{"request": {"method": "GET", "path": "/v1/…", "body": "<JSON 文本>"|null}, "state": {…}, "keystore": "…"}`。请求一律带登录凭据。
 - 完成：`{"done": <结果>, "keystore": "…"}`。
@@ -149,13 +149,15 @@
 
 ### 结果
 
-- `list`：与旧接口相同的明文形状，宿主原有的解析可以不改：`{"enabled", "retention_days", "items": [{"id", "text", "updated_at", "pinned", "device"}], "e2e": {"status", "code", "pending_devices", "undecryptable"}}`。`e2e.status` 是 `ready`、`pending`（本机等待批准，`items` 为空）或 `disabled`；`pending_devices` 是等待本机批准的设备数，设置页据此提示；`undecryptable` 是解不开而被略去的条目数。
+- `list`：与旧接口相同的明文形状，宿主原有的解析可以不改：`{"enabled", "retention_days", "items": [{"id", "text", "updated_at", "pinned", "device"}], "e2e": {"status", "code", "pending_devices", "undecryptable"}}`。`e2e.status` 是 `ready`、`pending`（本机等待批准，`items` 为空）或 `disabled`；`pending_devices` 是等待本机批准的设备数（不算被同名设备盖住的旧登记，见下一条），设置页据此提示；`undecryptable` 是解不开而被略去的条目数。
 - `add`：一条明文条目 `{"id", "text", "updated_at", "pinned", "device"}`。
 - `status`、`approve`、`reject`、`remove`、`reset`：`{"enabled", "status", "device_id", "code", "devices": [{"device_id", "name", "created_at", "approved", "current", "code"}]}`，`current` 标出本机。
 
+  `devices` 不含被同名设备盖住的旧登记：还没被批准、不是本机，并且之后又登记过一台同名的设备。同一台设备丢了身份（重装、清除数据、退出再登录，或者旧版本里两个进程同时第一次使用）再登记时名字不变，旧的那条它再也用不上，却会一直等着批准，批准方就会看到同一台设备好几次。本机能读写时，`status`、`approve`、`reject`、`remove`、`reset` 在回报之前顺手以 `DELETE /devices/{device_id}` 删掉这些旧登记（一次最多 16 条，删不掉的不影响操作），再取一次状态；`list` 只是不计数、不删。只按名字认是个猜测：两台同名的设备（iOS 16 起设备名都是「iPhone」）里先登记的那台会被当成旧登记删掉，它下次同步时重新登记、排到最后，就又能被看到和批准。
+
 ### 宿主的职责
 
-- 保存 `keystore`：每台设备（每个应用安装）只有一份，输入法进程、设置进程和 Tauri 设置页读写同一份，否则同一台设备会在服务端登记成几台、要批准几次。存放位置见下一节，写入一律原子替换，退出登录时与会话一起删除。配置了自建中继时，已经接上中继的宿主（目前是 Tauri 桌面端的设置页和云剪贴板面板）只走中继，密钥串另存一份、退出登录不删除，见 [自建中继](cloud-clipboard-relay.md) 的「本机的密钥串」。
+- 保存 `keystore`：每台设备（每个应用安装）只有一份，输入法进程、设置进程和 Tauri 设置页读写同一份，否则同一台设备会在服务端登记成几台、要批准几次。存放位置见下一节，写入一律原子替换，退出登录时与会话一起删除。保存不能替换另一个设备身份（密钥串开头的 `v1.<私钥>` 那一段不同）：同一台设备上的两个进程、或者同一进程里同时开始的两个操作第一次使用时，都会读到「没有」、各自生成身份，覆盖的话两个都会登记，输掉的那个在其他设备上一直等着批准。所以读、比、写要在同一把跨进程锁里做完；存着另一个解析得了的身份时不写，改用存着的那份从头开始这次操作（新身份在发出第一个请求之前交来，这时服务端还没见过它），发过请求之后才发现时按 `clipboard_keystore_conflict` 失败。Rust 的 `clipboard_e2e::run`（`persist` 答 `Persisted::Conflict`）、Android 的 `CloudClipboardE2e.run` 和 Apple 共用的 `BackendAccountClient.clipboardE2E` 都这样做；存着的内容解析不了时照常覆盖，那个身份本来就找不回来了。配置了自建中继时，已经接上中继的宿主（目前是 Tauri 桌面端的设置页和云剪贴板面板）只走中继，密钥串另存一份、退出登录不删除，见 [自建中继](cloud-clipboard-relay.md) 的「本机的密钥串」。
 - 设置页显示待批准的设备和核对码，提供「允许」「拒绝」「移除」和「重置云剪贴板」；本机待批准时显示自己的核对码，并说明去哪里批准。移除和重置之后其他设备都要重新批准，确认框里要写明。
 - 键盘只用 `list` 和 `add`；本机待批准时显示一句提示，不上传。
 - 置顶、保留期、删除、清空和开关仍直接调用原来的接口，不经过驱动。

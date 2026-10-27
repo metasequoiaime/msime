@@ -1539,6 +1539,7 @@ impl From<PreferencesError> for CommandError {
                 PreferencesError::InvalidVimModeApps => "vim_mode_apps_invalid",
                 PreferencesError::InvalidCloudClipboardRelay => "cloud_clipboard_relay_invalid",
                 PreferencesError::InvalidCloudClipboardWebDav => "cloud_clipboard_webdav_invalid",
+                PreferencesError::InvalidDictionarySyncWebDav => "dictionary_sync_webdav_invalid",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",
             },

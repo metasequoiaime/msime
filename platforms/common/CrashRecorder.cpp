@@ -408,6 +408,61 @@ void write_all(int fd, const char *data, size_t size) {
   }
 }
 
+// 发信号的进程名（Linux 的 `/proc/<pid>/comm`，至多 15 个字节）追加到 `out`；读不到或不是可打印 ASCII 时什么也不写，返回 false。只用 open、read、close，可以在信号处理函数里调用。
+bool append_sender_name(Buffer &out, pid_t pid) {
+#ifdef __linux__
+  char path[32] = "/proc/";
+  size_t length = 6;
+  char digits[12];
+  int count = 0;
+  auto value = static_cast<unsigned long>(pid);
+  do {
+    digits[count++] = static_cast<char>('0' + value % 10);
+    value /= 10;
+  } while (value && count < 11);
+  while (count)
+    path[length++] = digits[--count];
+  for (const char *suffix = "/comm"; *suffix;)
+    path[length++] = *suffix++;
+  path[length] = '\0';
+  const int fd = ::open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0)
+    return false;
+  char name[17];
+  const auto got = ::read(fd, name, 16);
+  ::close(fd);
+  if (got <= 0)
+    return false;
+  size_t size = static_cast<size_t>(got);
+  while (size && (name[size - 1] == '\n' || name[size - 1] == ' '))
+    --size;
+  if (!size)
+    return false;
+  for (size_t index = 0; index < size; ++index) {
+    if (name[index] < 0x20 || name[index] > 0x7e)
+      return false;
+  }
+  name[size] = '\0';
+  out.text(name);
+  return true;
+#else
+  (void)out;
+  (void)pid;
+  return false;
+#endif
+}
+
+// 信号是别的进程用 kill、sigqueue 发来的，或者本进程的某个线程用 raise、tgkill 发出的，而不是执行时出的错（那时 si_code 为正）。
+bool sent_by_a_process(const siginfo_t *info) {
+  if (!info)
+    return false;
+#ifdef SI_TKILL
+  if (info->si_code == SI_TKILL)
+    return true;
+#endif
+  return info->si_code == SI_USER || info->si_code == SI_QUEUE;
+}
+
 // 先用信号安全的写入保存摘要，再尽力展开预热过的运行时栈；展开器仍可能受损坏栈影响。
 void crash_signal(int number, siginfo_t *info, void *context) {
   const int saved = errno;
@@ -427,6 +482,16 @@ void crash_signal(int number, siginfo_t *info, void *context) {
         summary.text(" (code ");
         summary.decimal(info->si_code);
         summary.text(")");
+      } else if (sent_by_a_process(info)) {
+        // 区分同进程 raise、tgkill 与外部发送的信号；来源信息本身不能排除宿主或依赖库的上游缺陷。只记录进程名，不写 pid，服务端分组会掩去数字。
+        if (info->si_pid == getpid()) {
+          summary.text(" (raised by this process)");
+        } else {
+          summary.text(" (sent by ");
+          if (!append_sender_name(summary, info->si_pid))
+            summary.text("another process");
+          summary.text(")");
+        }
       }
       summary.text("\n");
       write_all(fd, summary.data, summary.size);
