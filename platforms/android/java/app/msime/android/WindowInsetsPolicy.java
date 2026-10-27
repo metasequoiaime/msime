@@ -21,10 +21,7 @@ public final class WindowInsetsPolicy {
         return !imeVisible;
     }
 
-    /**
-     * 隐藏详情页导航时同时检查输入法底部避让距离。部分 Android 11 厂商实现不更新
-     * `isVisible(Type.ime())`，但仍会提供非零的输入法 inset。
-     */
+    /** 部分 Android 11 厂商只更新输入法 inset，不更新 `isVisible(Type.ime())`。 */
     public static boolean shouldShowFixedPageNavigation(boolean imeVisible, int imeBottom) {
         return !imeVisible && imeBottom <= 0;
     }
