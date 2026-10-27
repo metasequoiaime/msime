@@ -6,6 +6,8 @@ import { withoutRemovedPack, type PluginPreferences } from "./plugin-preferences
 import {
   missingSelections,
   packKindLabel,
+  soundPackUse,
+  touchPluginKinds,
   pluginErrorCode,
   pluginErrorMessage,
   schemeOpensTableModes,
@@ -19,6 +21,7 @@ import type {
   PluginPackage,
   ScriptCapability,
   ScriptGrantsResult,
+  TouchPluginRules,
 } from "./plugin-types";
 import type { PluginLibraryFilter } from "./plugin-library-view";
 import { runningScriptIds } from "./plugin-script-model";
@@ -38,7 +41,11 @@ interface PluginsSectionOptions {
   mentionMode: boolean;
   scheme?: InputScheme;
   helpcode: boolean;
+  /** 触屏插件页才读：单词本和符号集装上就生效，宿主接了它们才列出。 */
+  wordbookPacks?: boolean;
+  symbolSetPacks?: boolean;
   scriptPlugins: boolean;
+  touch?: TouchPluginRules;
   active: boolean;
   onChange: (preferences: PluginPreferences) => void;
   onError: (message: string) => void;
@@ -58,7 +65,10 @@ export function usePluginsSection({
   mentionMode,
   scheme,
   helpcode,
+  wordbookPacks = false,
+  symbolSetPacks = false,
   scriptPlugins,
+  touch,
   active,
   onChange,
   onError,
@@ -151,21 +161,37 @@ export function usePluginsSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, client, mentionsEditable, scriptsShown]);
 
-  const navigation = usePluginNavigation(active);
+  const navigation = usePluginNavigation(active, Boolean(touch));
 
   const { command_tables, phrase_tables } = preferences;
   const effectPacksDrawn = typingEffects && effectStyles && effectPacks;
   const packsListed = Boolean(client) && catalogState === "loaded";
   // 仅对宿主实际使用的包类型报告缺失和标记使用中。
   const actedKinds = new Set<PluginKind>([
-    ...(keySound ? (["sound"] as const) : []),
+    ...(keySound || touch ? (["sound"] as const) : []),
     ...(music ? (["music"] as const) : []),
     ...(triggers ? (["command_table", "phrase_table"] as const) : []),
     ...(effectPacksDrawn ? (["effect"] as const) : []),
     ...(helpcode ? (["helpcode"] as const) : []),
   ]);
   // 列出宿主使用但目录中已不存在的选择，供用户恢复默认。
-  const missing = packsListed ? missingSelections(preferences, catalog.packages, actedKinds) : [];
+  const missing = packsListed
+    ? missingSelections(preferences, catalog.packages, actedKinds, !touch)
+    : [];
+  // 触屏插件页只列触屏键盘用得上的包（`touchPluginKinds`），音效包里只列按键包；其余的只在列表里说一句有几个。桌面照旧全列。
+  const listedKinds = touch
+    ? new Set<PluginKind>(touchPluginKinds({ triggers, helpcode, wordbookPacks, symbolSetPacks }))
+    : null;
+  const listed = (pack: PluginPackage) =>
+    !listedKinds ||
+    (listedKinds.has(pack.kind) && (pack.kind !== "sound" || soundPackUse(pack) === "keys"));
+  const listedCatalog: PluginCatalogResult = listedKinds
+    ? {
+        packages: catalog.packages.filter(listed),
+        issues: catalog.issues.filter((issue) => listedKinds.has(issue.kind)),
+      }
+    : catalog;
+  const unlisted = listedKinds ? catalog.packages.filter((pack) => !listed(pack)) : [];
 
   // 导入或删除已经成功后，重读失败单独报告读取错误。
   const refresh = async () => {
@@ -236,10 +262,14 @@ export function usePluginsSection({
     await refresh();
     if (generation !== clientGeneration.current) return;
     setJustSaved({ kind: saved.kind, id: saved.id });
-    navigation.openView(
-      { kind: "pack", packKind: saved.kind, id: saved.id },
-      `pack/${saved.kind}/${saved.id}`,
-    );
+    const savedView = { kind: "pack", packKind: saved.kind, id: saved.id } as const;
+    const savedRow = `pack/${saved.kind}/${saved.id}`;
+    // 编辑保存后退回原来那层详情；新建保存后由详情顶替编辑器那层，返回时回到列表。
+    if (navigation.view.kind === "edit") {
+      navigation.goBack(() => navigation.openView(savedView, savedRow));
+    } else {
+      navigation.openView(savedView, savedRow, true);
+    }
   };
 
   const scriptPacks = scriptsShown ? catalog.packages.filter((pack) => pack.kind === "script") : [];
@@ -325,6 +355,8 @@ export function usePluginsSection({
   return {
     ...navigation,
     catalog,
+    listedCatalog,
+    unlisted,
     catalogState,
     notice,
     libraryFilter,

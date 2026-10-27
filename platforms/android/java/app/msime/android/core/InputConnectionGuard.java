@@ -30,6 +30,12 @@ final class InputConnectionGuard {
         catch (RuntimeException ignored) { return false; }
     }
 
+    static boolean setSelection(InputConnection connection, int start, int end) {
+        if (connection == null) return false;
+        try { return connection.setSelection(start, end); }
+        catch (RuntimeException ignored) { return false; }
+    }
+
     static boolean deleteSurroundingText(InputConnection connection, int before, int after) {
         if (connection == null) return false;
         try { return connection.deleteSurroundingText(before, after); }
