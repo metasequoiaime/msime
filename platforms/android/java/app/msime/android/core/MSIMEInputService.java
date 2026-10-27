@@ -6004,6 +6004,7 @@ public final class MSIMEInputService extends InputMethodService {
     void closeClipboardHistory() {
         imePanels.resetClipboardCategoryPicker();
         imePanels.dismissClipboardPreview();
+        imePanels.clearClipboardDetail();
         if (clipboardSurface != null) ViewPolicy.hide(clipboardSurface);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;

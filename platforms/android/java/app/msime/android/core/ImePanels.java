@@ -28,6 +28,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
+import java.time.ZoneId;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -1313,6 +1314,7 @@ final class ImePanels {
         s.clipboardTab = CloudClipboardPanelPolicy.initialTab(s.clipboardTab, cloudAllowed);
         clipboardClearPending = false;
         clipboardActionText = null;
+        clearClipboardDetail();
         clipboardSwipedText = null;
         clipboardSelectionMode = false;
         clipboardSelectedTexts.clear();
@@ -1328,6 +1330,11 @@ final class ImePanels {
 
     boolean clipboardPanelOpen() {
         return ViewPolicy.isVisible(s.clipboardSurface);
+    }
+
+    void clearClipboardDetail() {
+        clipboardDetailItem = null;
+        clipboardDetailScrollY = 0;
     }
 
     boolean cloudClipboardAllowed() {
@@ -1546,6 +1553,9 @@ final class ImePanels {
     private boolean clipboardClearPending;
     /** 长按打开了操作行的那一条（共享存储以文字标识条目）；没有时为 null。 */
     private String clipboardActionText;
+    /** 详情页只保留本次打开时的记录快照，返回后重新读取本机历史。 */
+    private ClipboardHistory.Item clipboardDetailItem;
+    private int clipboardDetailScrollY;
     /** 本机历史的多选状态；文字是共享存储识别条目的键。 */
     private boolean clipboardSelectionMode;
     private final java.util.Set<String> clipboardSelectedTexts = new java.util.LinkedHashSet<>();
@@ -1667,6 +1677,10 @@ final class ImePanels {
         clipboardSwipedCell = null;
         LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
+        if (clipboardDetailItem != null) {
+            renderClipboardDetail(clipboardDetailItem);
+            return;
+        }
         boolean cloudAllowed = cloudClipboardTabAvailable();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         boolean cloud = s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD;
@@ -1828,7 +1842,8 @@ final class ImePanels {
                 : "此分类还没有记录，长按记录后可移动分类"));
             long now = System.currentTimeMillis();
             int columns = s.clipboardColumns;
-            float reveal = ClipboardSwipePolicy.revealWidth(DimensionPolicy.density(s), clipboardCellWidth(columns));
+            float reveal = ClipboardSwipePolicy.revealWidth(DimensionPolicy.density(s),
+                clipboardCellWidth(columns) - (clipboardSelectionMode ? 0 : s.pixels(38)));
             boolean swipedPresent = false;
             ClipboardHistory.Item actionItem = null;
             for (int index = 0; index < items.size(); index++) {
@@ -1872,7 +1887,25 @@ final class ImePanels {
                     });
                     return true;
                 });
-                placeClipboardCell(index, items.size(), clipboardSwipeCell(card, item, swiped, reveal));
+                View cell = clipboardSwipeCell(card, item, swiped, reveal);
+                if (!clipboardSelectionMode) {
+                    LinearLayout withDetail = LayoutPolicy.row(s);
+                    Button detail = MSIMEInputService.role(s.button(withDetail, "ⓘ", () -> {
+                        clipboardDetailItem = item;
+                        clipboardDetailScrollY = s.clipboardScroll.getScrollY();
+                        clipboardActionText = null;
+                        clipboardSwipedText = null;
+                        renderClipboardHistory();
+                        s.clipboardScroll.scrollTo(0, 0);
+                    }), KeyboardKeyRole.GLYPH);
+                    detail.setContentDescription("查看这条剪贴板记录详情");
+                    detail.setLayoutParams(new LinearLayout.LayoutParams(s.pixels(38),
+                        LinearLayout.LayoutParams.MATCH_PARENT));
+                    withDetail.addView(cell, new LinearLayout.LayoutParams(0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                    cell = withDetail;
+                }
+                placeClipboardCell(index, items.size(), cell);
                 if (managed) actionItem = item;
                 // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
                 boolean rowEnds = index == items.size() - 1
@@ -1894,6 +1927,43 @@ final class ImePanels {
         clipboardSelectionMode = false;
         clipboardSelectedTexts.clear();
         renderClipboardHistory();
+    }
+
+    /** 详情仍在剪贴板面板内，返回只重绘上一级列表，不触碰输入框焦点。 */
+    private void renderClipboardDetail(ClipboardHistory.Item item) {
+        LinearLayout header = LayoutPolicy.row(s);
+        ViewPolicy.setCenteredVertically(header);
+        Button back = clipboardAction(header, "返回", () -> {
+            returnFromClipboardDetail();
+        });
+        back.setContentDescription("返回剪贴板历史列表");
+        TextView title = ViewPolicy.centeredText(s, "记录详情", 14);
+        header.addView(title, LayoutPolicy.weightedMatchParentParams(1));
+        s.clipboardHeader.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(36)));
+
+        TextView text = ViewPolicy.textLabel(s, item.text(), 16);
+        LayoutPolicy.setSymmetricPaddingDp(text, s, 14, 12);
+        s.clipboardPanel.addView(text, LayoutPolicy.matchWidthWrapParams());
+        String time = ClipboardDetailPolicy.recordedAt(item.timestamp(), ZoneId.systemDefault());
+        TextView details = clipboardNote("记录时间：" + time + "\n来源 App："
+            + ClipboardDetailPolicy.sourceLabel(null) + "\n包名："
+            + ClipboardDetailPolicy.sourceLabel(null));
+        details.setGravity(Gravity.START);
+        LinearLayout actions = LayoutPolicy.row(s);
+        Button insert = clipboardAction(actions, "插入", () -> s.insertClipboardText(item.text()),
+            KeyboardKeyRole.RETURN);
+        insert.setContentDescription("插入这条剪贴板记录");
+        clipboardAction(actions, "返回", this::returnFromClipboardDetail);
+        s.clipboardPanel.addView(actions, LayoutPolicy.matchWidthHeightPx(s.pixels(44)));
+        s.imeStyler.applySkin();
+        ViewPolicy.setTextColor(details, ImeStyler.fade(s.skin.keyForeground(), .8));
+    }
+
+    private void returnFromClipboardDetail() {
+        int scrollY = clipboardDetailScrollY;
+        clearClipboardDetail();
+        renderClipboardHistory();
+        s.clipboardScroll.post(() -> s.clipboardScroll.scrollTo(0, scrollY));
     }
 
     /**
