@@ -452,6 +452,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean caretStripShown;
     /** 输入法窗口是跟随光标的候选栏空闲时自己收起的（{@link CaretCandidatePolicy#hidesWindow}）：从发出收起请求起，到窗口再显示出来或离开输入框为止。候选栏又有内容时只叫回这样收起的窗口。 */
     private boolean caretWindowHidden;
+    /** 输入法窗口此刻显示着（`onWindowShown` 到 `onWindowHidden` 之间）。偏好轮询只在这段时间里跑。 */
+    private boolean imeWindowVisible;
     /** 发出过空闲收起请求（{@link CaretCandidatePolicy#ownHide}），离开输入框时清掉。窗口在落地前可能又被应用叫出来（`onWindowShown`），系统也可能把一次收起分几次落地，所以与 {@link #caretWindowHidden} 分开记、落地时不清：请求后 {@link CaretCandidatePolicy#HIDE_LANDING_MS} 之内落地的收起都认作自己的，不当作用户收起键盘。 */
     private boolean caretHidePending;
     /** 上一次因为空闲收起窗口的时刻（`uptimeMillis`），限制多久才能再收一次（{@link CaretCandidatePolicy#WINDOW_REHIDE_MS}）。 */
@@ -1539,7 +1541,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Re-read host settings at the appearance boundary, matching Apple's viewWillAppear path. */
     private void refreshPreferencesOnInputView() {
-        if (session == 0 || preferencesDirectory.isEmpty() || hasEngineComposition()) return;
+        if (session == 0 || preferencesDirectory.isEmpty() || hasEngineComposition() || !imeWindowVisible) return;
         preferencesReloader.start(preferencesDirectory, this::reloadPreferences);
     }
 
@@ -1900,11 +1902,17 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onWindowHidden() {
         if (imeOcr != null && imeOcr.active()) closeMoreTools();
+        // 窗口收起后不再每秒重读偏好：会话要一直活到输入框失焦，按返回键收起键盘后输入框通常还留着焦点，原先这段时间里每秒都在后台读偏好、解析皮肤、把快照推给引擎，电池统计里全算后台耗电（#9916）。窗口再显示时 onWindowShown 先读一次再接着轮询。
+        imeWindowVisible = false;
+        preferencesReloader.stop();
         super.onWindowHidden();
     }
 
     @Override public void onWindowShown() {
         super.onWindowShown();
+        imeWindowVisible = true;
+        if (session != 0 && !preferencesDirectory.isEmpty())
+            preferencesReloader.start(preferencesDirectory, this::reloadPreferences);
         caretWindowHidden = false;
         // 系统或应用把窗口叫出来时可能正空闲（例如输入框获得焦点），按此刻的状态再收起。
         main.post(caretWindowSync);
@@ -2398,7 +2406,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。
             message = "";
             render();
-            if (hasPreferencesDirectory) preferencesReloader.start(directory, this::reloadPreferences);
+            // 窗口没显示时（会话在 onStartInput 里先于窗口建好，或在收起后为隐私模式重建）不起轮询，等 onWindowShown 再起。
+            if (hasPreferencesDirectory && imeWindowVisible) preferencesReloader.start(directory, this::reloadPreferences);
             // 输入连接恢复时，时钟数据目录可能尚未恢复，等运行时真正准备好再续接城市选择。
             imeWorldClock.resumePicker(getCurrentInputEditorInfo());
         } catch (Exception | LinkageError error) {
