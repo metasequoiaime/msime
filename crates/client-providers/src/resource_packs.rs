@@ -299,7 +299,7 @@ pub enum ResourcePack {
     Pronunciations,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
     VoiceRuntime,
-    /// macOS 发布包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
+    /// macOS 发布包和 Android 的 full、拼音版瘦包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
     Wubi,
     /// macOS 上本地语音识别加载的 `libsherpa-onnx-c-api.dylib`（universal），取自 `resources/voice-runtime-macos.lock.json` 固定的、用本项目 Developer ID 重签过的归档。锁文件还没固定归档时不存在，见 [`ResourcePack::pinned`]。
     MacosVoiceRuntime,
@@ -2179,6 +2179,34 @@ mod tests {
             adopt(state.path(), pack, source.path()),
             Err(LocalModelError::MissingFile(name)) if name == "msime-stroke.db"
         ));
+    }
+
+    /// Android 升级到不带五笔码表的瘦包时，Bootstrap 把资源目录里上一个安装包解出的 `msime-wubi.db` 收编为 `wubi` 资源包。词库锁同时换了版本时那份是旧字节：不发布，文件原样留在资源目录里，由宿主删掉后改走下载；资源目录里本来就没有它时报缺文件。
+    #[test]
+    fn adopting_a_wubi_table_from_an_older_dictionary_publishes_nothing() {
+        let state = tempfile::tempdir().unwrap();
+        let resources = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::Wubi;
+        assert!(matches!(
+            adopt(state.path(), pack, resources.path()),
+            Err(LocalModelError::MissingFile(name)) if name == ON_DEMAND_WUBI_ARTIFACTS[0]
+        ));
+        let table = resources.path().join(ON_DEMAND_WUBI_ARTIFACTS[0]);
+        fs::write(&table, b"an older dictionary's wubi table").unwrap();
+        fs::write(resources.path().join("msime-pinyin.db"), b"core").unwrap();
+        let error = adopt(state.path(), pack, resources.path()).unwrap_err();
+        assert!(
+            matches!(error, LocalModelError::SizeMismatch(_)),
+            "{error:?}"
+        );
+        assert_eq!(
+            fs::read(&table).unwrap(),
+            b"an older dictionary's wubi table"
+        );
+        assert!(resources.path().join("msime-pinyin.db").is_file());
+        assert!(list(state.path())
+            .iter()
+            .any(|status| status.id == "wubi" && status.state == PackState::Missing));
     }
 
     #[test]

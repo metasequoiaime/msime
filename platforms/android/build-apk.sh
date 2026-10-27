@@ -13,7 +13,7 @@ edition_lock=$(python3 "$edition_tool" field --edition "$edition" resource_lock)
 edition_languages=$(python3 "$edition_tool" field --edition "$edition" language_dictionaries)
 edition_offline_glosses=$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)
 flavor="$(tr '[:lower:]' '[:upper:]' <<< "${edition:0:1}")${edition:1}"
-# MSIME_ANDROID_OMIT_ON_DEMAND=1 打发布用的瘦包，对照 macOS 的 MSIME_MACOS_OMIT_ON_DEMAND：日文词典那一组（词典与两份 Mozc 许可文本，resources.rs 的 ON_DEMAND_JAPANESE_ARTIFACTS）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进包，由应用在用户添加日语或这些语言、打开离线释义、打开离线识别时作为资源包下载到 files/bootstrap/state/resource-packs/。只对 full 和 pinyin 生效：它们的日文只是附加功能；日文版的主词库就是 msime-japanese.dat，不能省。默认不省略，开发构建照旧全带。
+# MSIME_ANDROID_OMIT_ON_DEMAND=1 打发布用的瘦包，对照 macOS 的 MSIME_MACOS_OMIT_ON_DEMAND：resources.rs 的 on_demand_artifacts("android") 列出的两组（日文词典那一组，即词典与两份 Mozc 许可文本；五笔码表 msime-wubi.db）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进包，由应用在用户添加日语、五笔或这些语言、打开离线释义、打开离线识别时作为资源包下载到 files/bootstrap/state/resource-packs/。只对 full 和 pinyin 生效：它们的日文只是附加功能，五笔在 full 里是可选方案、拼音版根本不提供；日文版的主词库就是 msime-japanese.dat，五笔版的默认方案离不开五笔码表，都不能省。默认不省略，开发构建照旧全带。
 omit_on_demand=${MSIME_ANDROID_OMIT_ON_DEMAND:-0}
 verify_flags=()
 native_flags=()
@@ -26,7 +26,7 @@ if [ "$omit_on_demand" = 1 ]; then
     echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 contradicts MSIME_ANDROID_OMIT_ON_DEMAND=1, which leaves the language dictionaries to download on demand" >&2
     exit 1
   fi
-  verify_flags=(--omit-on-demand)
+  verify_flags=(--omit-on-demand --platform android)
   native_flags=(--omit-voice-runtime)
 elif [ "$omit_on_demand" != 0 ]; then
   echo "MSIME_ANDROID_OMIT_ON_DEMAND must be 0 or 1" >&2
@@ -48,7 +48,7 @@ tools_dir="$android_sdk/build-tools/35.0.0"
 # partially installed SDK fails before Gradle starts resolving dependencies.
 android_jar="$android_sdk/platforms/android-36/android.jar"
 [[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android API 36 platform and build-tools 35 required" >&2; exit 1; }
-# 带 --omit-on-demand 时完整的源目录照样整体校验，输出的只是去掉日文词典那一组后的文件名。
+# 带 --omit-on-demand 时完整的源目录照样整体校验，输出的只是去掉日文词典那一组和五笔码表后的文件名。
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} "$resource_dir")
 # 默认只构建 arm64-v8a：这个包面向的手机都是 arm64，多带一份 x86_64 原生库会让 APK 大约翻倍。MSIME_ANDROID_ABIS（空格或逗号分隔，例如 "arm64-v8a x86_64"）可以为 x86_64 模拟器加上 x86_64；Gradle 的 abiFilters 经 -PmsimeAbis 收到同一份列表，第三方库（ML Kit）也按它过滤。
 read -r -a abis <<< "$(tr ',' ' ' <<< "${MSIME_ANDROID_ABIS:-arm64-v8a}")"
@@ -81,7 +81,7 @@ if [ "$edition" != full ]; then
   artifacts=$(grep -Fx -f <(printf '%s\n' "$edition_artifacts") <<< "$artifacts")
   edition_flags=(--edition "$edition")
 fi
-# Bootstrap 只按这份锁解包，锁里列了而 APK 里没有对应 asset 会直接失败，所以省略日文词典时随包的锁是本版本的锁去掉没暂存的条目，其余字段原样保留。host-api 仍按编译进二进制的完整锁校验，日文那一组整体缺席时放行，用户词库的代次不变。
+# Bootstrap 只按这份锁解包，锁里列了而 APK 里没有对应 asset 会直接失败，所以省略按需文件时随包的锁是本版本的锁去掉没暂存的条目，其余字段原样保留。host-api 仍按编译进二进制的完整锁校验，日文那一组、五笔码表各自整体缺席时放行，用户词库的代次不变。
 if [ "$omit_on_demand" = 1 ]; then
   python3 -c 'import json, sys
 lock = json.load(open(sys.argv[1]))
@@ -275,7 +275,7 @@ if [ "$edition_offline_glosses" != true ] && grep -q '^assets/offline-glosses/' 
   echo "$output carries offline glosses, but edition $edition offers no Chinese scheme" >&2
   exit 1
 fi
-# 省略按需资源的瘦包里不能混进任何一样该下载的东西：日文词典那一组、语言词库、非英文离线释义和两个语音运行库。Play 版例外的是语音运行库：它必须在包里，见上面 MSIME_ANDROID_DISTRIBUTION 的说明。
+# 省略按需资源的瘦包里不能混进任何一样该下载的东西：日文词典那一组、五笔码表、语言词库、非英文离线释义和两个语音运行库。Play 版例外的是语音运行库：它必须在包里，见上面 MSIME_ANDROID_DISTRIBUTION 的说明。
 voice_runtime_patterns=('^lib/[^/]+/libonnxruntime\.so$' '^lib/[^/]+/libsherpa-onnx-c-api\.so$')
 if [ "$distribution" = play ]; then
   for pattern in "${voice_runtime_patterns[@]}"; do
@@ -283,7 +283,7 @@ if [ "$distribution" = play ]; then
   done
 fi
 if [ "$omit_on_demand" = 1 ]; then
-  omitted_patterns=('(^|/)msime-japanese\.dat$' '^assets/dictionary/msime-mozc_' '^assets/language-dictionaries/' '^assets/offline-glosses/')
+  omitted_patterns=('(^|/)msime-japanese\.dat$' '^assets/dictionary/msime-mozc_' '(^|/)msime-wubi\.db$' '^assets/language-dictionaries/' '^assets/offline-glosses/')
   [ "$distribution" = play ] || omitted_patterns+=("${voice_runtime_patterns[@]}")
   for pattern in "${omitted_patterns[@]}"; do
     if grep -Eq "$pattern" <<< "$apk_entries"; then
@@ -294,7 +294,7 @@ if [ "$omit_on_demand" = 1 ]; then
 fi
 # 只量 GitHub 渠道的 APK：Play 版带着语音运行库，体积由 Play 按设备拆分后的下载大小把关。
 if [ "$omit_on_demand" = 1 ] && [ "$distribution" = github ]; then
-  # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。背单词内置词书进包时瘦包约 130.5 MB（词书压缩后约 1 MB），上限随之从 130,000,000 提到 135,000,000，仍比任何一组按需资源回到包里时小得多。
+  # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB、dict-v2.0.39 起的五笔码表 95 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。背单词内置词书进包时瘦包约 130.5 MB（词书压缩后约 1 MB），上限随之从 130,000,000 提到 135,000,000，仍比任何一组按需资源回到包里时小得多。
   max_apk_bytes=${MSIME_ANDROID_MAX_APK_BYTES:-135000000}
   [[ "$max_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_MAX_APK_BYTES must be a byte count" >&2; exit 1; }
   apk_bytes=$(wc -c < "$output" | tr -d '[:space:]')
