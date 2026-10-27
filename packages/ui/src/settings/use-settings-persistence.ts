@@ -206,6 +206,9 @@ export function useSettingsPersistence({
     loadingClientRef.current = client;
     snapshotRef.current = undefined;
     draftRef.current = undefined;
+    // 同时清空界面状态，避免新宿主加载失败后同步回旧宿主的草稿。
+    setSnapshot(undefined);
+    setDraft(undefined);
     setBusy(true);
     setLoadFailed(false);
     setSaveState("idle");
@@ -227,6 +230,8 @@ export function useSettingsPersistence({
       })
       .catch((reason) => {
         if (generation.current !== current || loadTokenRef.current !== loadToken) return;
+        // 读取失败也结束加载隔离，让配置修复写回的快照和后续编辑参与自动保存。
+        loadingClientRef.current = undefined;
         setError(errorMessage(reason));
         setLoadFailed(true);
       })
@@ -269,6 +274,8 @@ export function useSettingsPersistence({
           loadTokenRef.current !== loadToken
         )
           return;
+        // 重载取代首次读取后，即使失败也要释放加载隔离，让修复后的草稿可以保存。
+        loadingClientRef.current = undefined;
         setError(errorMessage(reason));
         setLoadFailed(true);
       } finally {
