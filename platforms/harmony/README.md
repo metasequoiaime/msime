@@ -4,7 +4,7 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 ## AI 生成类功能目前不提供
 
-华为应用市场（中国大陆）要求 AI 生成类功能先做实名认证、提交《安全评估报告》和生成内容标识材料，这些资质到位之前，鸿蒙版不提供任何把用户文字发给大模型、再展示或上屏生成内容的功能：设置页的「AI 辅助」页、AI 对话（「试用键盘」也不带发送键）、AI 皮肤、语音页的「文本润色」、翻译服务里的「AI 辅助」、社区的回复模板，以及键盘功能面板的「高情商回复」「AI 润色」、打字时的 AI 联想、AI 候选翻译（含 `/fy`）和语音识别后的 AI 润色。
+华为应用市场（中国大陆）要求 AI 生成类功能先做实名认证、提交《安全评估报告》和生成内容标识材料，这些资质到位之前，鸿蒙版不提供任何把用户文字发给大模型、再展示或上屏生成内容的功能：设置页的「AI 辅助」页、AI 对话（「试用键盘」也不带发送键）、AI 皮肤、语音页的「文本润色」、翻译服务里的「AI 辅助」、社区的回复模板、打字统计里「AI 润色」「高情商回复」两类分布（历史计数还在，只是不画），以及键盘功能面板的「高情商回复」「AI 润色」、打字时的 AI 联想、AI 候选翻译（含 `/fy`）和语音识别后的 AI 润色。
 
 总闸只有一个：Rust 的 `HostCapabilities.ai_generation`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showAiGeneration`；`apps/harmony` 按它不给页面 `chat`、`aiSkins`、`aiAssistant` 客户端；键盘进程和设置进程启动时把它交给 `keyboard/AiGenerationGate.ts`，功能面板据此去掉两个 AI 格子，`HarmonyVoicePolisher.polish`、`KeyboardSession.thoughtfulReplies`、AI 联想分支、`TranslationPolicy.provider` 和设置桥的 `startRequest` 发请求前都问它，所以从别的设备同步来、打开了 AI 的偏好也不会触发请求。系统语音识别和各识别服务、云候选、腾讯云 / 小牛 / DeepL 机器翻译不是大模型生成，照常提供。资质到位后把那一行改回 true 即可恢复，下文描述的各 AI 功能就是那时的样子。决定与备选见[决策笔记](../../.agents/notes/implemented/feature/2026-10-27-harmony-hide-ai-generation.md)。
 

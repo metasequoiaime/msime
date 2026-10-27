@@ -2,7 +2,7 @@
 import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 import { settingsCapabilities } from "../../../../packages/ui/src/settings/settings-capabilities";
 
@@ -131,4 +131,43 @@ test("HarmonyOS keeps its AI page once the host reports AI generation again", as
   renderDesktop("harmony", "ai", { ai_generation: true });
   await settingsFormReady();
   expect(screen.getByRole("group", { name: "AI 辅助" })).toBeTruthy();
+});
+
+test("the HarmonyOS statistics page draws no AI polish or reply category", async () => {
+  const today = new Date();
+  const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const sources = { quanpin: 6, ai: 4, reply: 2 };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue({
+      statistics: {
+        enabled: true,
+        total: 12,
+        days: { [day]: 12 },
+        detail: { characters: { han: 12 }, sources },
+        dailyDetails: { [day]: { characters: { han: 12 }, sources } },
+      },
+      availability: "ready",
+      lastWrittenMs: Date.now(),
+    }),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(
+    <SettingsPage
+      initialPage="typing-statistics"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "harmony", mobile_settings: false, panel_windows: true }),
+        typingStatistics,
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
+  expect(screen.getByLabelText(/^全拼 26 键 6 字符/)).toBeTruthy();
+  expect(screen.queryByLabelText(/^AI 润色/)).toBeNull();
+  expect(screen.queryByLabelText(/^高情商回复/)).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.queryByLabelText(/^AI 润色/)).toBeNull();
+  expect(screen.queryByText(/AI 润色和语音输入/)).toBeNull();
 });

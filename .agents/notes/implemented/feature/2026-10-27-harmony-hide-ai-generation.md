@@ -19,14 +19,14 @@ Status: implemented
 - **共享设置页**（`packages/ui`）：`settingsCapabilities` 派生 `showAiGeneration = host?.ai_generation !== false`，宿主没报或没有宿主时照旧给出。它为假时：
   - 页面投影去掉「AI 辅助」（`hasAi`）和「AI 对话」（`hasChat`），偏好表单不挂 AI 页，搜索也搜不到；路由到 `ai`、`chat` 落回默认页；`useAiAssistant` 拿不到客户端，不发模型列表和润色测试。
   - 「试用键盘」不带 AI 对话：触屏首页打开不带发送键的试用页（[试用键盘子页面](2026-10-08-touch-try-keyboard-page.md)本来就是给没有对话的宿主准备的）。
-  - 语音页不画「文本润色」组（`showVoicePolish`）；翻译服务不列「AI 辅助」，存下的 `translation_ai` 显示成没有选在线服务；皮肤页没有 AI 皮肤入口；「标点与翻译」页不画高情商回复说明；社区不列回复模板分类，「我的内容」不列回复模板的两行（回复模板是高情商回复的提示词）；触屏「隐私」页那句改为只说语音。
+  - 语音页不画「文本润色」组（`showVoicePolish`）；翻译服务不列「AI 辅助」，存下的 `translation_ai` 显示成没有选在线服务；皮肤页没有 AI 皮肤入口；「标点与翻译」页不画高情商回复说明；社区不列回复模板分类，「我的内容」不列回复模板的两行（回复模板是高情商回复的提示词）；触屏「隐私」页那句改为只说语音；打字统计的方案与模式分布不列「AI 润色」「高情商回复」两类，模式分布的说明也不提 AI（`statisticsDistributionSlices` 的 `aiGeneration`），历史计数照旧留在统计文件里，只是不画出来。
 - **鸿蒙设置宿主**（`apps/harmony/src/main.tsx`）：`ai_generation` 为 false 时不给页面 `chat`、`aiSkins`、`aiAssistant` 三个客户端。
 - **鸿蒙原生一侧**：`platforms/harmony/entry/src/main/ets/keyboard/AiGenerationGate.ts` 在键盘进程（`KeyboardSession.start`）和设置进程（`Settings.ets` 桥接的 `attach`）启动时读 `client.hostCapabilities`，只有明确为 true 才打开，`adopt` 之前或回答读不懂时按关闭处理。
   - 功能面板：`FunctionPanelPolicy.items(AiGenerationGate.enabled())` 去掉「高情商回复」和「AI 润色」两格。
   - 请求点：`HarmonyVoicePolisher.polish`（语音润色和面板 AI 润色共用）、`KeyboardSession.thoughtfulReplies`（高情商回复）、`fetchOnline` 的 AI 联想分支、`TranslationPolicy.provider`（AI 翻译当作没有服务，只出离线释义）在发请求前都问它，所以从别的设备同步来、打开了 AI 的偏好也不会触发请求。
   - 设置桥：`startRequest` 先问 `AiGenerationGate.allowsSettingsRequest`，拒绝 `chat`、`ai_skin`、`ai_test`、`ai_models`、账号通道上的 `chat` / `chat_models`，以及探 `ai.assistant`、`voice.polish`、`translation.ai` 的配置测试，回 `ai_generation_unavailable`。
 
-不归这道闸管、照常提供的：系统语音识别和豆包、HTTP ASR、本地模型等语音识别服务（只做语音转文字，含百炼 `qwen3-asr-flash` 走 chat-completions 接口的那一种）；云候选（候选服务器返回拼音候选）；腾讯云、小牛、DeepL / DeepLX 机器翻译和离线释义；本地神经联想和手写模型；打字统计里「AI 润色」「高情商回复」两类历史计数的显示。
+不归这道闸管、照常提供的：系统语音识别和豆包、HTTP ASR、本地模型等语音识别服务（只做语音转文字，含百炼 `qwen3-asr-flash` 走 chat-completions 接口的那一种）；云候选（候选服务器返回拼音候选）；腾讯云、小牛、DeepL / DeepLX 机器翻译和离线释义；本地神经联想和手写模型。
 
 ## 重新打开
 
@@ -48,6 +48,6 @@ Status: implemented
 ## Verification
 
 - Rust：`crates/client-core/src/host_surface/tests.rs` 的 `only_harmony_withholds_ai_generation`。
-- 共享设置页：`apps/desktop/tests/settings/harmony-ai-generation.test.tsx`（能力派生、2in1 侧栏与路由、其余桌面平台保留 AI 页），`core/mobile-tab-bar.test.tsx`（手机首页列表、试用键盘、路由），以及 `voice-handwriting-harmony`、`expression-harmony`、`skin-grid`、`account/account-page`、`community/community-category-tabs` 里的对应用例。
+- 共享设置页：`apps/desktop/tests/settings/harmony-ai-generation.test.tsx`（能力派生、2in1 侧栏与路由、其余桌面平台保留 AI 页），`core/mobile-tab-bar.test.tsx`（手机首页列表、试用键盘、路由），以及 `voice-handwriting-harmony`、`expression-harmony`、`skin-grid`、`account/account-page`、`community/community-category-tabs`、`statistics-distribution-model`、`typing-statistics` 里的对应用例。
 - 鸿蒙原生：`platforms/harmony/tests/ai-generation-gate.test.ts` 覆盖能力解析、功能面板、翻译服务和设置桥的放行规则；`tests/run.sh` 钉住各 `.ets` 请求点和两个 `adopt` 的接线；`hvigorw assembleHap` 编译过 ArkTS。
 - 相关笔记：[触屏 AI 对话改为二级页](2026-10-16-mobile-chat-secondary-page.md)描述的是总闸打开时鸿蒙的对话入口。

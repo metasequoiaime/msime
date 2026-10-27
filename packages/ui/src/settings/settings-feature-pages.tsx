@@ -147,6 +147,7 @@ export function SettingsFeaturePages({
           mobile={mobilePlatform}
           platform={client.host?.platform}
           openSystemSettings={client.openSystemKeyboardSettings}
+          aiGeneration={showAiGeneration}
           look={
             settingsPlatform === "harmony"
               ? "harmony"
