@@ -90,7 +90,8 @@ final class ImeCandidateGrid {
                     InputViewValuePolicy.integer(candidate, "source", -1))) continue;
             Button button = s.imeCandidates.expandedCandidateButton(candidate);
             list.addView(button, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(44)));
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                s.pixels(s.candidatePronunciationVisible() ? 60 : 44)));
             // 打开和重画时随后的整树样式通道会画这些格子；滚动中追加的格子没有那一遍，在这里按同一条规则画。
             if (style) s.imeStyler.applySkinToView(button, candidateContext, s.skin);
         }

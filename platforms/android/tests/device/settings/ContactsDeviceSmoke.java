@@ -23,7 +23,7 @@ public final class ContactsDeviceSmoke extends DeviceSmoke {
     private String productPackage() { return getTargetContext().getPackageName(); }
 
     @Override protected String successDescription() {
-        return "contacts import/count, refresh, name/combined editor commits, corner badge and clear";
+        return "contacts import/count, refresh, name/combined editor commits, large list, corner badge and clear";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -138,6 +138,18 @@ public final class ContactsDeviceSmoke extends DeviceSmoke {
             await(describedPrefix("候选 1："));
             if (findAnyVisibleImeNode(describedPrefix("候选 1：来自联系人：")) != null)
                 throw new AssertionError("清空后仍显示联系人来源");
+
+            stage = "large imported list keeps keyboard responsive";
+            JSONArray large = new JSONArray().put(new JSONObject().put("text", NAME)
+                .put("key", "").put("phone", PHONE));
+            for (int index = 0; index < 999; index++)
+                large.put(new JSONObject().put("text", "拟" + (char) (0x4e00 + index))
+                    .put("key", "").put("phone", PHONE));
+            publish(mentions, new JSONObject().put("format_version", 1).put("entries", large)
+                .toString().getBytes(StandardCharsets.UTF_8));
+            openEditor();
+            typeName();
+            await(describedPrefix("候选 1：来自联系人：" + NAME));
         } finally {
             removeSyntheticContacts();
             restore(preferences, previousPreferences);

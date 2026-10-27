@@ -2,6 +2,12 @@
 
 ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用、账号、社区、AI、语音、手写、候选与词库都在本目录内。能力对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、哪些是按平台特性裁剪而不是欠账。
 
+## AI 生成类功能目前不提供
+
+华为应用市场（中国大陆）要求 AI 生成类功能先做实名认证、提交《安全评估报告》和生成内容标识材料，这些资质到位之前，鸿蒙版不提供任何把用户文字发给大模型、再展示或上屏生成内容的功能：设置页的「AI 辅助」页、AI 对话（「试用键盘」也不带发送键）、AI 皮肤、语音页的「文本润色」、翻译服务里的「AI 辅助」、社区的回复模板、打字统计里「AI 润色」「高情商回复」两类分布（历史计数还在，只是不画），以及键盘功能面板的「高情商回复」「AI 润色」、打字时的 AI 联想、AI 候选翻译（含 `/fy`）和语音识别后的 AI 润色。
+
+总闸只有一个：Rust 的 `HostCapabilities.ai_generation`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showAiGeneration`；`apps/harmony` 按它不给页面 `chat`、`aiSkins`、`aiAssistant` 客户端；键盘进程和设置进程启动时把它交给 `keyboard/AiGenerationGate.ts`，功能面板据此去掉两个 AI 格子，`HarmonyVoicePolisher.polish`、`KeyboardSession.thoughtfulReplies`、AI 联想分支、`TranslationPolicy.provider` 和设置桥的 `startRequest` 发请求前都问它，所以从别的设备同步来、打开了 AI 的偏好也不会触发请求。系统语音识别和各识别服务、云候选、腾讯云 / 小牛 / DeepL 机器翻译不是大模型生成，照常提供。资质到位后把那一行改回 true 即可恢复，下文描述的各 AI 功能就是那时的样子。决定与备选见[决策笔记](../../.agents/notes/implemented/feature/2026-10-27-harmony-hide-ai-generation.md)。
+
 ## 输入法扩展的独立沙箱与共享沙箱镜像
 
 **从 API 12（OpenHarmony 5.0.0.38）起，输入法扩展进程使用独立沙箱，与设置应用（UIAbility）互相看不到对方的 `files/`。** 华为「输入法安全模式介绍」原文：「输入法扩展使用独立沙箱，与应用主入口不可互相访问对方的独立沙箱。」ExtensionAbility 类型表里，「是否有独立 Extension 沙箱」一栏对 `inputMethod` 是「是」。两个进程拿到的路径字符串相同（`/data/storage/el2/base/haps/entry/files`），背后是两个不同的目录。
@@ -13,11 +19,11 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 - 设置页的改动（输入方案、按键反馈、自定义皮肤）不会传到键盘，键盘只读它自己那份 `preferences.json`。
 - 键盘看不到设置应用里的登录会话：键盘里的云剪贴板等账号功能按未登录处理。
 - 打字统计：设置页打开统计只改了设置应用那份文件，键盘那份仍是默认的关闭状态，每次上屏计 0 个字。
-- 插件（2in1）：插件页把包和 `mentions.json` 装进设置应用自己的 `files/state/plugins`，键盘读的是它自己沙箱里的 `plugins/`，所以从设置页导入的符号集、音效、音乐、指令表、短语表、辅助码和特效包在键盘里都看不到；选用哪个包写在共享偏好里，同样传不到键盘。背单词在设置进程里运行，读的就是设置应用那份目录，单词本插件不受影响。
+- 插件：插件页（2in1 和手机、平板都有）把包和 `mentions.json` 装进设置应用自己的 `files/state/plugins`，键盘读的是它自己沙箱里的 `plugins/`，所以从设置页导入的符号集、音效、音乐、指令表、短语表、辅助码和特效包在键盘里都看不到；选用哪个包写在共享偏好里，同样传不到键盘。背单词在设置进程里运行，读的就是设置应用那份目录，单词本插件不受影响。
 
 官方提供的共享方式是「共享沙箱」：签名 Profile 和键盘扩展 `module.json5` 的 `dataGroupIds` 登记同一个 data-group-id，两个进程用 `context.getGroupDir(id)` 拿到同一个目录；基础访问模式下键盘对它只读，完整体验模式下可读写。本宿主的 ID 是 AppGallery Connect 签发的 `group.1516753898738609107`（代码里在 `keyboard/SharedStateMirror.ets` 的 `DATA_GROUP_ID`）。签名 Profile 必须在 AGC 网页端「证书、APP ID和Profile › Profile › 新增」手动新建，DevEco 自动签名不会写入这项授权；新建后用 `strings <profile>.p7b | grep data-group-ids` 确认带着这个 ID。模拟器不做这项授权校验，只能在真机上验证。
 
-两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
+两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库、隐私政策授权（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
 
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 Rust Engine（`crates/engine`）提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
@@ -29,9 +35,9 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 语音输入的麦克风由键盘自己采集（`HarmonyPcmCapture`），再交给选中的识别方式：系统识别把音频写进 Core Speech Kit `speechRecognizer` 的写音频模式（见下文），豆包、HTTP 服务商和本地模型各自接收同一份 PCM。工具面板可以开始、停止或取消识别，最终文字经过长度和控制字符边界检查后通过当前 `KeyboardSession` 提交；原始音频不写入文件、不进入日志，也不复制到 Engine，只有选了云端服务时才发给那个服务。选了豆包却一项凭据都没填（这就是出厂配置）时用系统识别，语音面板和设置页都写明这一点；填了一部分时，语音面板报出缺的那一项，不再悄悄换成系统识别。系统识别需要 `SystemCapability.AI.SpeechRecognizer`，所有识别方式都需要用户授予 `ohos.permission.MICROPHONE`。
 
-云联想与 AI 联想复用 Engine 的 `online_query` 代际契约：Harmony NAPI 只传递有界查询和结果，ArkTS 通过系统 HTTPS 栈异步访问云候选或用户配置的 Chat Completions 服务，结果再交回 Engine 做会话、偏好和 generation 校验。请求防抖、超时、响应大小、重复候选和控制字符检查均在宿主边界完成，失败只丢弃可选展示结果，不阻塞本地输入，也不把查询或响应写入日志。用户配置的 AI 服务地址经 NAPI 的 `aiEndpointCheck`（`msime_client_ai_endpoint_check`）交给 `crates/client-providers/src/ai/endpoint.rs` 检查，`keyboard/settings/AiEndpoint.ets` 调用、`AiEndpointPolicy.ts` 读回答，宿主不再自己判断：https 不限主机，http 只能指向本机或局域网（回环、私有地址、`100.64.0.0/10`、链路本地、IPv6 唯一本地地址、`.local`），这样 LM Studio 这类本地模型服务可以直接用 `http://192.168.x.x:1234/v1`，公网主机仍然只走 https。本工程没有 `network_config.json`，按 HarmonyOS 网络安全配置的默认值（`cleartextTrafficPermitted` 未配置时允许明文），系统 http 模块不会拦下这类请求；这一点尚未在设备上验证，若设备报 2300997（Cleartext traffic not permitted），再在 `entry/src/main/resources/base/profile/network_config.json` 里按需放开。
+云联想与 AI 联想复用 Engine 的 `online_query` 代际契约（AI 联想目前随 AI 生成类功能一起关闭，见上文）：Harmony NAPI 只传递有界查询和结果，ArkTS 通过系统 HTTPS 栈异步访问云候选或用户配置的 Chat Completions 服务，结果再交回 Engine 做会话、偏好和 generation 校验。请求防抖、超时、响应大小、重复候选和控制字符检查均在宿主边界完成，失败只丢弃可选展示结果，不阻塞本地输入，也不把查询或响应写入日志。用户配置的 AI 服务地址经 NAPI 的 `aiEndpointCheck`（`msime_client_ai_endpoint_check`）交给 `crates/client-providers/src/ai/endpoint.rs` 检查，`keyboard/settings/AiEndpoint.ets` 调用、`AiEndpointPolicy.ts` 读回答，宿主不再自己判断：https 不限主机，http 只能指向本机或局域网（回环、私有地址、`100.64.0.0/10`、链路本地、IPv6 唯一本地地址、`.local`），这样 LM Studio 这类本地模型服务可以直接用 `http://192.168.x.x:1234/v1`，公网主机仍然只走 https。本工程没有 `network_config.json`，按 HarmonyOS 网络安全配置的默认值（`cleartextTrafficPermitted` 未配置时允许明文），系统 http 模块不会拦下这类请求；这一点尚未在设备上验证，若设备报 2300997（Cleartext traffic not permitted），再在 `entry/src/main/resources/base/profile/network_config.json` 里按需放开。
 
-共享设置页的「AI 对话」现在也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardChatView` 与 `BackendChatClient`。它与「AI」页那个用户自配的服务不是一回事：后者带着用户自己的 endpoint 和 token，而这一个用宿主已经持有的账号会话认证（没有登录时用本机匿名账号，额度按匿名账号算），WebView 全程看不到任何凭据。模型列表是 Rust `msime_client_account` 的 `chat_models`，回复是 `chat`，请求与响应的边界都在 Rust 里校验（16 条历史、单条 16 KiB、请求体 64 KiB），与其他平台相同。`chat` 最长阻塞 125 秒，NAPI 的 `accountThread` 给它单独起一个线程，不占工作线程池。
+共享设置页的「AI 对话」由 Harmony 承载（目前随 AI 生成类功能一起关闭，见上文），对应 MSIME-Apple 的 `KeyboardChatView` 与 `BackendChatClient`。它与「AI」页那个用户自配的服务不是一回事：后者带着用户自己的 endpoint 和 token，而这一个用宿主已经持有的账号会话认证（没有登录时用本机匿名账号，额度按匿名账号算），WebView 全程看不到任何凭据。模型列表是 Rust `msime_client_account` 的 `chat_models`，回复是 `chat`，请求与响应的边界都在 Rust 里校验（16 条历史、单条 16 KiB、请求体 64 KiB），与其他平台相同。`chat` 最长阻塞 125 秒，NAPI 的 `accountThread` 给它单独起一个线程，不占工作线程池。
 
 完成请求单独走一条 `chat` 请求类型，为的是它自己的期限。一次补全是模型在写字，共享客户端给它 125 秒；与账号请求共用一条通道就只有两种结果——要么把还差一点就返回的补全提前判成超时（随后到达的回复会因为没人在等那个编号而被丢弃），要么让一次卡住的资料拉取也空转两分钟。
 
@@ -71,13 +77,13 @@ id 会进 URL 路径，所以在进去之前先按形状校验：把页面给的
 
 请求信封上限从 64 KB 提到 512 KB。每个操作仍各自校验自己的载荷，这一条只是解析前拦掉荒谬输入的第一道；但发布一份社区词库最多带 128 条、每条最长 1024 字符，而服务端允许 350,000 字节内容，64 KB 的信封会在本宿主上拒掉服务端本会接受的资源。
 
-AI 生成皮肤也由 Harmony 承载，对应 MSIME-Apple 的 `AISkinGenerationView` 与 `AISkinService`。整条流水线（提示词、模型调用、解析三套设计、三张插画的任务和轮询、失败时停掉其余任务、任务无论怎样结束都释放）在 Rust 的 `msime_client_ai_skin_generate` 里，与其他平台相同；NAPI 的 `aiSkinGenerate` 给它单独起一个线程，取消是 `aiSkinCancel`。没有登录时用本机匿名账号，额度按匿名账号算。
+AI 生成皮肤也由 Harmony 承载（目前随 AI 生成类功能一起关闭，见上文），对应 MSIME-Apple 的 `AISkinGenerationView` 与 `AISkinService`。整条流水线（提示词、模型调用、解析三套设计、三张插画的任务和轮询、失败时停掉其余任务、任务无论怎样结束都释放）在 Rust 的 `msime_client_ai_skin_generate` 里，与其他平台相同；NAPI 的 `aiSkinGenerate` 给它单独起一个线程，取消是 `aiSkinCancel`。没有登录时用本机匿名账号，额度按匿名账号算。
 
 进度单独走一条通道，不混在回复里，方向与偏好变更通知相同，并带上页面自己选的 request id：三张图要几分钟，一次从头到尾不吭声的运行和一次已经停了的运行在屏幕上没有区别；而过期运行的计数器不该去驱动新运行的显示。Rust 每完成一张插画在生成线程上回调一次，NAPI 经线程安全函数把张数送回 ArkTS 线程。
 
 Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平台裁剪而不是照抄：五个动作里这里有两个。「设置」打开系统输入法列表，选择器是安装第二步的去处，两个都是本宿主的能力。
 
-`openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时，「设置」首页状态卡片上的「试用键盘」打开共享的子页面「试用键盘」（`packages/ui/src/keyboard/try-keyboard-page.tsx`），那才是这里"让我看看键盘"的诚实版本：按 Android 试用页的聊天样式，一进页面就把焦点交给输入框，系统弹出当前输入法；登录后打的字可以作为 AI 对话发出去，走的是设置页已有的 `chat` 通道。这一页不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
+`openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时，「设置」首页状态卡片上的「试用键盘」打开共享的子页面「试用键盘」（`packages/ui/src/keyboard/try-keyboard-page.tsx`），那才是这里"让我看看键盘"的诚实版本：按 Android 试用页的聊天样式，一进页面就把焦点交给输入框，系统弹出当前输入法；AI 生成类功能打开时，登录后打的字可以作为 AI 对话发出去，走的是设置页已有的 `chat` 通道；目前总闸关着，页面不带发送键，只用来打字。这一页不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
 
 云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。请求经 Rust 的 `msime_client_account_cloud_clipboard`，目录是键盘沙箱自己的 `files/state`；设置应用里的登录经共享沙箱的会话镜像采用过来（见下文「账号与云端业务在 Rust 里」）。
 
@@ -117,7 +123,7 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 `personal_dictionary_request_json` 此前只有 Tauri 宿主当 Rust 直接调，本次以 `msime_client_personal_dictionary_request` 发布给通过 C ABI 到达这个 crate 的宿主。NAPI 侧的 `personalDictionarySync`（排空那一半）本来就已经导出，只是没有人调用。
 
-键盘上的「AI 润色」也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardAIView` 与 Android 的 `aiPolishPanel`。
+键盘上的「AI 润色」也由 Harmony 承载（目前随 AI 生成类功能一起关闭，见上文），对应 MSIME-Apple 的 `KeyboardAIView` 与 Android 的 `aiPolishPanel`。
 
 Apple 润色的是**选区**：用户选中一段话，点润色，面板给出那一段的重写。HarmonyOS 不给输入法读取选区的能力——`InputClient` 只有 `getForwardSync`（光标前）和 `getBackwardSync`（光标后），选区只以一对下标的形式通知键盘——照抄那个手势等于画一个不知道自己在操作什么的按钮。所以这里润色的是光标前的文字，也就是用户刚打完的那段话。同一个意图，用这个平台确实提供的东西表达；在手机上它也是更自然的手势：先打，再理。
 
@@ -193,9 +199,27 @@ Harmony 触屏键盘的工具栏没有语音按钮，语音从功能面板的「
 
 Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI 上重新跑通，除 NDK 之外不再需要任何准备：以前要手工编译的 `libsqlite3.a` 前缀和 32 位 `armeabi-v7a` 需要的 fmt/spdlog 替身 config 都随 C++ Engine 一起去掉了，`libmsime_host_api.so` 的动态依赖只剩 `libc.so`。这一轮没有重新打 HAP，也没有上设备。
 
-## Google 登录：系统浏览器加本机回环
+## 首次启动的隐私政策授权
 
-设置页的「登录水杉」面板在后端开着 Google（`/v1/auth/providers` 返回 `google: true`）时显示「使用 Google 登录」。鸿蒙没有 Google 服务，GoogleSignIn SDK 用不了；Google 也拒绝在应用内的 WebView 里登录。所以走与桌面端同一条流程（RFC 8252）：设置应用在 `127.0.0.1` 的随机动态端口上用 `TCPSocketServer` 监听，经 Rust `msime_client_account` 的 `google_challenge {target}` 申请 Google challenge（`target` 是这个回环地址，Rust 校验过授权链接是指向它的 Google 授权链接），用 `openLink` 把授权链接交给系统浏览器，Google 跳回本机端口后把授权码经 `google_code_login` 交给后端去换 token，会话由 Rust 存进 `files/state`。PKCE 和 client secret 都在后端，后端不需要为鸿蒙做任何改动。
+设置应用首次启动时在启动画面上弹出原生授权弹窗（`privacy/PrivacyConsentDialog.ets`，在 `pages/Settings.ets` 的 `onPageShow` 打开）：几句话说明处理什么、为什么，可以点开的《用户协议》和《隐私政策》（`https://msime.app/terms/`、`https://msime.app/privacy/`，经 `openExternalUrl` 交给系统浏览器），「不同意」「同意」两个按钮。首次弹窗不能用返回手势关掉。协议列表是 `PrivacyConsentPolicy.DOCUMENTS`，只列已经上线、点得开的页面。
+
+选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
+
+没有授权时两个进程都不发受政策约束的请求：使用统计与崩溃记录、匿名账号注册、公告、账号登录（华为账号、邮箱、手机号）、反馈、对话、设置同步、云词库、云剪贴板、统计上传、社区、AI 皮肤、AI 与凭据测试、检查更新、词库更新、本地语音模型下载（设置桥接 `startRequest` 与 `dictionary` 回 `privacy_consent_required`，页面不画这些入口），以及键盘里的云联想、AI 联想、在线翻译、高情商回复、豆包与 HTTP 云端语音、语音润色和云剪贴板。本机打字、词库、皮肤、插件、统计、手写、系统语音识别和本地语音模型照常可用。规则在 `privacy/PrivacyConsentPolicy.ts`（`tests/privacy-consent.test.ts`），调用点由 `scripts/test-harmony-privacy-consent-gates.py` 守着。模拟器上没有共享沙箱，键盘读不到授权，键盘一侧的云端功能在模拟器上始终关着。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-privacy-first-launch.md`。
+
+## 华为账号登录：Account Kit 的 ID Token
+
+设置页的「登录水杉」面板（手机）和登录卡片（2in1）在后端开着华为账号（`/v1/auth/providers` 返回 `huawei: true`）时显示「华为账号登录」，与其他登录方式一样要先勾选同意《用户协议》和《隐私政策》。点下去以后 `account/HarmonyHuaweiSignIn.ets` 经 Rust `msime_client_account` 的 `huawei_challenge` 申请带 nonce 的 challenge，用 `authentication.AuthorizationWithHuaweiIDRequest`（`scopes: ["openid"]`、`permissions: ["idtoken"]`、`forceAuthorization: true`、nonce 原样传入、`idTokenSignAlgorithm: PS256`）拉起系统的华为账号授权页，拿到的 ID Token 经 `huawei_login` 交给后端 `/v1/auth/login`，会话由 Rust 存进 `files/state`。后端用华为公布的 JWKS 验签并核对发行方、受众（应用 Client ID）、有效期和 nonce，按 ID Token 的 `sub`（UnionID）认人；不换授权码，客户端和后端都不需要 Client Secret。challenge 回答、nonce 形状、响应核对和错误码换算在可测的 `HuaweiIdSignInPolicy.ts`（`tests/huawei-sign-in.test.ts`）。
+
+只要 `openid` 不需要在 AppGallery Connect 申请账号权限；`compatibleSdkVersion` 是 6.0.1(21)，不需要配置公钥指纹（华为文档「配置签名和指纹」：compatibleSdkVersion ≥ 20 不需要）。需要的配置只有 Client ID：AGC「常规 > 应用」里应用的 Client ID 与 APP ID 不同时，要在 `entry/src/main/module.json5` 的 module 级 `metadata` 里写 `{"name": "client_id", "value": "<应用 Client ID>"}`（直接写数字，不能用 `$string` 引用），`scripts/test-harmony-manifest.py` 核对它的位置和形状；后端 `auth.huawei.client_ids` 要列同一个值。没有设备上的真实账号验收之前，这条路径只经过逻辑测试、HAP 编译和后端用本地签名令牌的测试。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-huawei-id-sign-in.md`。
+
+用户关掉授权页时 Account Kit 以取消结束，面板不提示；网络错误提示检查网络；指纹证书或权限错误（1001500001、1001502014）是 AGC 配置问题，日志里单独写明，页面显示「账号服务暂不可用」。
+
+## Google 登录：系统浏览器加本机回环（默认不提供）
+
+中国大陆连不上 Google，AppGallery 审核按「使用 Google 登录」点了没反应提过意见，所以鸿蒙设置应用默认不给共享账号页提供 `googleLogin`（`apps/harmony/src/main.tsx` 的 `HARMONY_GOOGLE_SIGN_IN`），面板上不再出现 Google 按钮，第三方登录改由上面的华为账号登录提供。下面的回环实现原样保留，把那个开关改回 true 就恢复；其他平台的 Google 登录不受影响。
+
+设置页的「登录水杉」面板在后端开着 Google（`/v1/auth/providers` 返回 `google: true`）且宿主提供 `googleLogin` 时显示「使用 Google 登录」。鸿蒙没有 Google 服务，GoogleSignIn SDK 用不了；Google 也拒绝在应用内的 WebView 里登录。所以走与桌面端同一条流程（RFC 8252）：设置应用在 `127.0.0.1` 的随机动态端口上用 `TCPSocketServer` 监听，经 Rust `msime_client_account` 的 `google_challenge {target}` 申请 Google challenge（`target` 是这个回环地址，Rust 校验过授权链接是指向它的 Google 授权链接），用 `openLink` 把授权链接交给系统浏览器，Google 跳回本机端口后把授权码经 `google_code_login` 交给后端去换 token，会话由 Rust 存进 `files/state`。PKCE 和 client secret 都在后端，后端不需要为鸿蒙做任何改动。
 
 哪些判定不在 ArkTS 里写：回跳地址的形状、授权链接能不能打开、等多久、一次回环请求是不是回跳、写回浏览器的页面，都由 C ABI `msime_client_google_loopback`（NAPI `googleLoopback`）给出，它和桌面端 `AccountSession::sign_in_google_with_browser` 用的是 `crates/client-services/src/account/google.rs` 里同一份代码。`account/HarmonyGoogleSignIn.ets` 只做 socket、浏览器和后台保活，请求头的拼接与截断在可测的 `GoogleLoopbackRequestHead.ts`。
 
@@ -336,9 +360,11 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 顺带修掉一处从 `bdb801b63`（加设置应用那次）起就存在的 `"abilities"` 整段重复：JSON 后者覆盖前者，所以前一块是一段长得和生效配置一模一样的死文本，改错地方会毫无反应也毫无线索。
 
-验证看的是打出来的包而不是源文件——`$media:` 解析不到时会被丢掉而不是报错。解包 `module.json` 后两个元素都带着 `"iconId": 16777217`，说明引用真的解析到了资源。`scripts/test-harmony-manifest.py` 现在查这三件事：模块级重复键、mainElement 有没有 icon、桌面入口有没有 icon，外加包里 `icon` 有没有对应的 `iconId`。对着改之前的清单跑，三条全报。
+验证看的是打出来的包而不是源文件——`$media:` 解析不到时会被丢掉而不是报错。解包 `module.json` 后两个元素都带着 `"iconId": 16777217`，说明引用真的解析到了资源。`scripts/test-harmony-manifest.py` 现在查这三件事：模块级重复键、mainElement 有没有 icon、桌面入口有没有 icon，外加包里 `icon` 有没有对应的 `iconId`。对着改之前的清单跑，三条全报。后来又加了一条：两份清单里配置的每个图标都不能含透明像素（分层图标看背景层），原因见下一段。
 
-桌面图标用分层图标 `$media:app_icon_layered`（`AppScope/resources/base/media/app_icon_layered.json`）：背景层 `app_icon_background.png` 是 1024×1024 的 `#252525`，与 Android 经典图标的 `app_icon_field` 同色；前景层 `app_icon_foreground.png` 是 `app_icon.png` 缩到 640 居中，四周留给桌面的圆角遮罩。只有 `app.json5` 和桌面入口 `EntryAbility` 用它；`app_icon.png` 本身是透明底，直接给桌面时圆角方块外透出壁纸，看起来没有底板，而键盘里的品牌键、输入模式提示和启动窗仍按普通图片用它，输入法列表那枚也照旧。
+桌面图标用分层图标 `$media:app_icon_layered`（`AppScope/resources/base/media/app_icon_layered.json`）：背景层 `app_icon_background.png` 是 1024×1024 的 `#252525`，与 Android 经典图标的 `app_icon_field` 同色；前景层 `app_icon_foreground.png` 是 `app_icon.png` 缩到 640 居中，四周留给桌面的圆角遮罩。只有 `app.json5` 和桌面入口 `EntryAbility` 用它；`app_icon.png` 本身是透明底，直接给桌面时圆角方块外透出壁纸，看起来没有底板，而键盘里的品牌键、输入模式提示和启动窗仍按普通图片用它。
+
+输入法扩展 `KeyboardExtensionAbility` 的 `icon`（系统输入法列表和切换器里那枚）用 `app_icon_opaque.png`：分层图标的背景层和前景层压成的一张 1024×1024 不透明图。AppGallery 上架审核要求提审页上传的图标和包内配置的图标都不含透明像素，以前这里直接用透明底的 `app_icon.png`，审核因此退回过。重新生成：在 `AppScope/resources/base/media` 下运行 `magick app_icon_background.png app_icon_foreground.png -compose over -composite -alpha off -strip PNG24:app_icon_opaque.png`。AGC 提审页上传的图标也用这张。
 
 ## 日语数字层的第十二格：从死键变成括号键
 
@@ -356,7 +382,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 `touch_keyboard_schemes` 整体进了设置记录：`scheme` 和 `touch_keyboard_layout` 是 Engine 的视角，它们解析出什么与选择器还提不提供它无关。
 
-高情商回复是工具而不是输入方案：`KeyboardScheme.SCHEMES` 和方案选择器里没有它，功能面板里的「高情商回复」图块（读屏名 `reply`）在任何方案下都在，点一下打开回复面板（`SURFACE_REPLY`），点面板里的「完成」回到原来的键盘。旧文档里存的 `thoughtful_reply` 不是一个已知的方案 id，按未知 id 处理：`enabledFromPreferenceIds` 把它从启用列表里去掉（只剩它时回落到全拼 26 键），`resolveEnabledSelection` 把存着它的选择落到第一个启用项。插入的回复按 `reply` 来源记入打字统计，与当前方案无关。
+高情商回复是工具而不是输入方案（目前随 AI 生成类功能一起关闭，功能面板里没有这一格，见上文）：`KeyboardScheme.SCHEMES` 和方案选择器里没有它，功能面板里的「高情商回复」图块（读屏名 `reply`）在任何方案下都在，点一下打开回复面板（`SURFACE_REPLY`），点面板里的「完成」回到原来的键盘。旧文档里存的 `thoughtful_reply` 不是一个已知的方案 id，按未知 id 处理：`enabledFromPreferenceIds` 把它从启用列表里去掉（只剩它时回落到全拼 26 键），`resolveEnabledSelection` 把存着它的选择落到第一个启用项。插入的回复按 `reply` 来源记入打字统计，与当前方案无关。
 
 单测覆盖了来源断言的那两种情形（已应用项不在启用列表、启用列表被清空）和写回的三种判定。
 
@@ -504,11 +530,13 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 候选的两项可选注释现在各读各的共享偏好，不再一律显示：`wubi_code_hint` 控制五笔剩余编码提示，共享默认开启，只有文档明确写 `false` 才隐藏；`candidate_english_gloss` 控制离线英文释义，共享默认关闭，只有文档明确写 `true` 才显示。Engine 注释仍优先占用同一个提示槽位。
 
-2in1 的按键音、打字旋律、上屏音和成就音效读共享偏好的 `plugins` 段，与桌面三端同一份设置、同一套音效包，只是播放器不同：host-api 在 HarmonyOS 上不链接音频栈，所以由 `KeySoundPlayer.ets` 用 SoundPool 播放。包里有哪些文件由 NAPI `keySoundPack` 调 `msime_client_key_sound_pack` 取得，校验只有 client-services 一份；哪个事件放哪个文件、旋律怎么走、停顿 3 秒从头开始，是 `KeySoundPolicy.ts` 照 host-api 播放器移植的规则，逻辑测试钉住。WAV 样本由 `native/key_sound_render.cpp` 用 miniaudio（与 Windows 宿主同一份单头文件）解码，先按头部声明的帧数查 1.5 秒上限、解码时再以声明长度为界，然后按旋律用到的每个音高各写一个 48 kHz 的 WAV 到 cacheDir，SoundPool 只解码本宿主写出的文件；变调按播放速率算，与桌面一致，升一个八度的音也短一半。Ogg 样本在 2in1 上不播放：本宿主不解码 Vorbis，交给 SoundPool 就会在媒体服务里整段解码，解码后的长度没有任何东西能限住，所以只有 WAV 样本出声（内置包全是 WAV）。SoundPool 用音乐流类型创建，系统对短音走混音而不打断正在播放的音乐，不走录音那套 `CONCURRENCY_PAUSE_OTHERS`。这套插件设置只在 2in1 上生效，密码框里和英文模式下不出声，与桌面三端一致。手机和平板的触屏键盘也用同一个播放器，但开关是本机 `key-feedback.json` 的 `sound`（出厂关），只播按键音，包和音量取 `plugins.key_sound`，没选包时是内置的「清脆键盘」（`KeySoundPolicy.touchSettings`）；每个软键按下时经 `KeyboardSession.softKeyPress` 出声，密码框里每个键都播普通键的声音，跟随媒体音量。按键音在按键被处理之后触发，包括交还给应用的键；上屏音跟着 Engine 的每次提交；成就音效来自打字统计 `record` 应答里的 `milestone`，所以要打字统计开着才有。设置页在 2in1 上声明 `key_sound`、`music` 与 `plugin_triggers` 能力。
+2in1 的按键音、打字旋律、上屏音和成就音效读共享偏好的 `plugins` 段，与桌面三端同一份设置、同一套音效包，只是播放器不同：host-api 在 HarmonyOS 上不链接音频栈，所以由 `KeySoundPlayer.ets` 用 SoundPool 播放。包里有哪些文件由 NAPI `keySoundPack` 调 `msime_client_key_sound_pack` 取得，校验只有 client-services 一份；哪个事件放哪个文件、旋律怎么走、停顿 3 秒从头开始，是 `KeySoundPolicy.ts` 照 host-api 播放器移植的规则，逻辑测试钉住。WAV 样本由 `native/key_sound_render.cpp` 用 miniaudio（与 Windows 宿主同一份单头文件）解码，先按头部声明的帧数查 1.5 秒上限、解码时再以声明长度为界，然后按旋律用到的每个音高各写一个 48 kHz 的 WAV 到 cacheDir，SoundPool 只解码本宿主写出的文件；变调按播放速率算，与桌面一致，升一个八度的音也短一半。Ogg 样本在 2in1 上不播放：本宿主不解码 Vorbis，交给 SoundPool 就会在媒体服务里整段解码，解码后的长度没有任何东西能限住，所以只有 WAV 样本出声（内置包全是 WAV）。SoundPool 用音乐流类型创建，系统对短音走混音而不打断正在播放的音乐，不走录音那套 `CONCURRENCY_PAUSE_OTHERS`。这套插件设置只在 2in1 上生效，密码框里和英文模式下不出声，与桌面三端一致。手机和平板的触屏键盘也用同一个播放器，但开关是本机 `key-feedback.json` 的 `sound`（出厂关），只播按键音，包和音量取 `plugins.key_sound`，没选包时是内置的「清脆键盘」（`KeySoundPolicy.touchSettings`）；每个软键按下时经 `KeyboardSession.softKeyPress` 出声，密码框里每个键都播普通键的声音，跟随媒体音量。按键音在按键被处理之后触发，包括交还给应用的键；上屏音跟着 Engine 的每次提交；成就音效来自打字统计 `record` 应答里的 `milestone`，所以要打字统计开着才有。设置页在 2in1 上声明 `key_sound` 与 `music` 能力，`plugin_triggers` 每种形态都声明：实体键盘接上任何设备都路由 V、/ 和 @，手机和平板的触屏键盘从功能面板「本地输入」里的「指令」进入 / 模式（设置打开 / 指令且用中文标点时才列出这一项）。
 
 2in1 的背景音乐由 `MusicPlayer.ets` 用 AVPlayer 流式播放：曲目由 NAPI `musicPack` 调 `msime_client_music_pack` 取得（绝对路径与 `max_track_seconds`），校验同样只有 client-services 一份；何时放、按什么顺序是 `MusicPolicy.ts` 照 host-api 播放器 `tick_music` 移植的规则，逻辑测试钉住。音乐开关打开且选了包时，inputStart 之后等编辑框属性回来、确认不是密码框才开始放；inputStop（系统随之收起面板）、密码框获得焦点和录音期间暂停，焦点回到普通编辑框再继续。候选窗每打完一个词就收起一次，那不是输入法被收起，不暂停音乐。每首曲子开播前先用 AVMetadataExtractor 读容器声明的时长，超过 `max_track_seconds` 或读不出来就跳过；播放中再按 `timeUpdate` 的位置查同一个上限，超出就切下一首，与桌面解码器先查声明帧数、播放中再数帧数一致。曲目按清单顺序循环。AVPlayer 边读边解码，所以 Ogg 曲目在这里也能放，不像按键音样本那样只放 WAV。包读不出来、没有一首时长合格、或 AVPlayer 报错，音乐就关掉并在日志里留一行，直到音乐设置变化（换包、开关、音量）才重试；换包或开关会从头重新加载，只改音量直接调到正在放的曲子上。AVPlayer 的 `state` 要等 play/pause 执行完才变，所以同一时间只发一个 play 或 pause，播放器落定到 playing 或 paused 后再按会话此刻的状态对一次，`MusicTransport` 的逻辑测试钉住：快速切换焦点不会让音乐在普通编辑框里卡在暂停，也不会在密码框里响。播放用音乐流类型，是否打断别的应用正在放的音乐由系统的音频焦点策略决定；别的应用拿走焦点后，系统自己暂停的曲子不会马上被重新播放，被系统停掉的播放器直接释放，下次焦点回到可以放音乐的编辑框时重新打开当前曲目。手机形态拿到的永远是关着的设置，不创建任何播放器。
 
 插件页的包管理与 @ 名单走 NAPI `plugins` 调 `msime_client_plugins`：列出已装和内置的包、删除、读写 @ 名单都在设置桥的同步方法 `plugins` 里完成，状态目录和内置音效包目录（`resourceDir/sound-packs`）由桥补上，页面不经手任何路径，规则和失败码与桌面三端的 Tauri 命令是同一份（client-services 的 `PluginFailure`），失败时连同 client-services 给出的具体原因一起显示。导入要等系统选择器，所以走 `startRequest` 的 `plugin_import`：用 `DocumentViewPicker` 选文件夹或 `.zip`，选中的文档 URI 本库打不开，于是先复制到 cacheDir 下的临时目录，再交给 `msime_client_plugins` 按同一套规则安装，临时副本无论成败都删掉。桌面的 client-services 直接读选中的文件夹或压缩包、边复制边按上限停下，这里的临时复制也照同一组上限先查再复制（`PluginImportPolicy.ts`，数值取自 `crates/client-services/src/plugins/import.rs`）：文件夹只看顶层，遇到子文件夹、符号链接、超过 16 个文件、单个文件超过 16 MiB 或合计超过 66 MiB 就不复制直接拒绝，压缩包超过 80 MiB 同样不复制，所以误选了「下载」这类大文件夹不会先整个复制进缓存再被拒绝；真正的规则校验仍只在 client-services。临时副本用固定名字（`pack`、`pack.zip`），不用选中的文件名，包 id 本来就读自 plugin.toml。安装要解压最多 80 MB、校验后换入，所以走 NAPI `pluginsAsync` 在工作线程上跑，不占 UI 线程；列表、删除和 @ 名单这些小读写仍走同步的 `plugins`。包和 `mentions.json` 装进设置应用的 `files/state/plugins`。键盘进程每次聚焦时读的是它自己的 `<stateDirectory>/plugins`，要等两边都改用共享沙箱目录（`getGroupDir`）之后才会是同一个目录；在那之前键盘看不到设置页装的包（见上文「输入法扩展的独立沙箱」）。
+
+手机和平板也有插件页，靠设置桥按形态报告的 `touch_plugin_packs`（`SettingsFormFactorCapabilities.touchPluginPacks`）打开，走同一套 NAPI `plugins` / `pluginsAsync` 和 `plugin_import`，不另写原生代码。页面只列触屏键盘用得上的短语表、指令表、符号集、单词本、`keys` 模式音效包和辅助码表，其余已装的包只在列表末尾说有几个；导入只给「导入 .zip」：`DocumentViewPicker` 的文件夹选择模式按华为文档只在 2in1 上提供，`plugin_import` 在没有 `FolderSelection` 系统能力时拒绝文件夹导入，手机上给这个按钮只会得到一次失败（还没在手机真机上核对过）。音效包只设 `plugins.key_sound.pack`，开关仍是本机 `key-feedback.json` 的 `sound`。`wordbook_packs` 与 `symbol_set_packs` 每种形态都声明，手机键盘的符号和颜文字面板也读镜像过来的 `plugins/` 里的符号集。社区插件经同一个 `community_plugin` 桥浏览、安装和发布，页面只列这六类。
 
 V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决定：`HardwareKeyRouter` 在组合中遇到列在其中的字符就交给 Engine 拼写，否则 Shift+1..9 选词，原先只认 `local_mode === "unicode"` 的分支因此泛化到 V 模式的数字和运算符（Shift+9 是 `(` 不是选第九个；`-`、`.` 是运算符和小数点不是翻页；小键盘的点也是小数点）。`/`、`@` 在无组合时照常作为标点交给 runtime，由 runtime 按 `spelling_symbols` 改走 Engine 进入模式。这三个模式生成的上屏内容按 `commit_context.typing_statistics` 不计入打字统计。
 

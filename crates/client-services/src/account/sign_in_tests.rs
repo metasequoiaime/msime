@@ -229,6 +229,64 @@ fn apple_and_google_id_token_challenges_ask_without_a_target_and_need_a_nonce() 
 }
 
 #[test]
+fn a_huawei_challenge_asks_without_a_target_and_needs_a_nonce() {
+    let (session, api, _) = session();
+    assert_eq!(
+        session.huawei_challenge().unwrap().nonce.as_deref(),
+        Some(NONCE)
+    );
+    assert_eq!(api.calls(), [SignInApi::call("challenge", "huawei", "")]);
+    // 没有 nonce 时 Account Kit 签出的 ID token 带的是缺省的「default」，服务端一定拒绝，不交给宿主。
+    for missing in [None, Some(String::new())] {
+        *api.nonce.lock().unwrap() = missing;
+        assert_eq!(session.huawei_challenge(), Err(AccountError::Unavailable));
+    }
+}
+
+#[test]
+fn a_huawei_id_token_signs_in_and_only_a_jwt_leaves_the_process() {
+    let (session, api, storage) = session();
+    assert_eq!(
+        session
+            .sign_in_huawei_id_token("huawei-challenge", ID_TOKEN)
+            .unwrap(),
+        user()
+    );
+    assert!(storage.load().unwrap().is_some());
+    assert_eq!(
+        api.calls(),
+        [SignInApi::call("login", "huawei-challenge", ID_TOKEN)]
+    );
+    storage.clear().unwrap();
+    let before = api.network.load(Ordering::SeqCst);
+    for (challenge, credential) in [
+        ("huawei-challenge", ""),
+        ("huawei-challenge", "header.payload"),
+        ("huawei-challenge", "header.pay load.signature"),
+        ("huawei-challenge", "123456"),
+        ("", ID_TOKEN),
+    ] {
+        assert_eq!(
+            session.sign_in_huawei_id_token(challenge, credential),
+            Err(AccountError::Invalid),
+            "{credential:?}"
+        );
+    }
+    assert_eq!(api.network.load(Ordering::SeqCst), before);
+    assert!(storage.load().unwrap().is_none());
+}
+
+#[test]
+fn the_account_page_request_code_refuses_huawei() {
+    let (session, api, _) = session();
+    assert_eq!(
+        session.request_code("huawei", "").unwrap_err(),
+        AccountError::Invalid
+    );
+    assert_eq!(api.network.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn the_account_page_request_code_still_refuses_a_google_challenge_without_a_target() {
     let (session, api, _) = session();
     assert_eq!(

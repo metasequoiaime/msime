@@ -1,9 +1,9 @@
 import { isComposingKeyEvent } from "../core/ime-key-event";
 import { CloseGlyph } from "../core/close-glyph";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { privacyUrl } from "../settings/app-resources";
 import { AccountVerificationForm } from "./account-verification-form";
 import { AccountStatusMessages } from "./account-status-messages";
+import { LoginConsent, useLoginConsent } from "./login-consent";
 import { useAccountAction } from "./account-operation";
 import { useAccountRecoveryActions } from "./use-account-recovery-actions";
 import { useAccountGoogleLogin } from "./use-account-google-login";
@@ -151,9 +151,11 @@ export function BottomSheet({
 }
 
 /**
- * HarmonyOS 手机上的「登录水杉」：把页面原先内嵌绘制的邮箱和手机验证码登录放进设计里的底部面板，再加上宿主提供时的 Google 登录。HarmonyOS 没有 Apple 登录；Google 登录由宿主用系统浏览器加本机回环完成（`googleLogin`），面板只显示等待和取消。页面从未登录的个人资料卡片打开它，其他页面要求登录时也直接打开。
+ * HarmonyOS 手机上的「登录水杉」：把页面原先内嵌绘制的邮箱和手机验证码登录放进设计里的底部面板，再加上宿主提供时的华为账号登录和 Google 登录。HarmonyOS 没有 Apple 登录；华为账号登录由宿主经 Account Kit 拉起系统授权页完成（`huaweiLogin`），面板只等结果。Google 登录由宿主用系统浏览器加本机回环完成（`googleLogin`），面板只显示等待和取消；鸿蒙宿主目前不提供它（中国大陆连不上 Google），提供它的宿主照旧显示。页面从未登录的个人资料卡片打开它，其他页面要求登录时也直接打开。
  *
  * 验证码被接受后 `onSignedIn` 收到用户信息；页面随后关闭面板并加载个人资料。修复操作（刷新登录方式、清除失效登录状态）以低调的链接留在底部。
+ *
+ * 发送验证码、登录、华为账号登录和 Google 登录都要先勾选同意隐私政策（`useLoginConsent`），没勾时只提示、不发请求；选邮箱或手机号只是展开表单，不需要勾选。
  */
 export function LoginSheet({
   client,
@@ -195,6 +197,8 @@ export function LoginSheet({
     signIn: runGoogleLogin,
   } = useAccountGoogleLogin({ client, mounted, clientGeneration, cancelOnce: true });
 
+  const consent = useLoginConsent();
+
   // 关掉面板或换了客户端时，不留一个还在等浏览器的本机监听。
   useEffect(() => () => cancelGoogle(), [client]);
 
@@ -205,21 +209,40 @@ export function LoginSheet({
     setNotice("");
   };
 
-  const requestCode = () => void perform(sendCode);
+  const requestCode = () => {
+    if (consent.confirm()) void perform(sendCode);
+  };
 
-  const signIn = () =>
+  const signIn = () => {
+    if (!consent.confirm()) return;
     void perform(async () => {
       const result = await runVerificationSignIn();
       if (result) onSignedIn(result.user);
     });
+  };
 
-  const signInWithGoogle = () =>
+  const signInWithHuawei = () => {
+    if (!consent.confirm()) return;
+    void perform(async () => {
+      const generation = clientGeneration.current;
+      if (!client.huaweiLogin) throw { code: "account_unavailable" };
+      const result = await client.huaweiLogin();
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      if (!result.user) throw { code: "account_unavailable" };
+      onSignedIn(result.user);
+    });
+  };
+
+  const signInWithGoogle = () => {
+    if (!consent.confirm()) return;
     void perform(async () => {
       const result = await runGoogleLogin();
       if (result) onSignedIn(result.user);
     });
+  };
 
-  // 后端可能为没有对应客户端的宿主也开着 Google，所以还要看宿主有没有 googleLogin。
+  // 后端可能为没有对应客户端的宿主也开着华为账号或 Google，所以还要看宿主有没有 huaweiLogin、googleLogin。
+  const huaweiAvailable = providers.huawei === true && Boolean(client.huaweiLogin);
   const googleAvailable = providers.google === true && Boolean(client.googleLogin);
 
   return (
@@ -235,6 +258,17 @@ export function LoginSheet({
     >
       <AccountStatusMessages error={error} notice={notice} />
       <div className={account.sheetBody}>
+        {huaweiAvailable && (
+          // 按钮文字按华为账号登录按钮规范写「华为账号登录」。
+          <button
+            type="button"
+            className={account.sheetChoice}
+            disabled={busy}
+            onClick={signInWithHuawei}
+          >
+            华为账号登录
+          </button>
+        )}
         {googleAvailable && (
           <button
             type="button"
@@ -272,7 +306,7 @@ export function LoginSheet({
             使用手机号登录
           </button>
         )}
-        {!providers.email && !providers.phone && !googleAvailable && (
+        {!providers.email && !providers.phone && !huaweiAvailable && !googleAvailable && (
           <p className={`${account.sheetHint} text-center`}>当前没有可用的登录方式，请稍后重试。</p>
         )}
         {channel && (
@@ -285,20 +319,7 @@ export function LoginSheet({
           />
         )}
       </div>
-      <p className={account.sheetFooter}>
-        登录即表示同意《用户协议》和
-        {onOpenUrl ? (
-          <button
-            type="button"
-            className={account.sheetFooterLink}
-            onClick={() => onOpenUrl(privacyUrl)}
-          >
-            《隐私政策》
-          </button>
-        ) : (
-          "《隐私政策》"
-        )}
-      </p>
+      <LoginConsent consent={consent} onOpenUrl={onOpenUrl} />
       <div className={account.sheetQuiet}>
         <button type="button" className={account.link} disabled={busy} onClick={refreshProviders}>
           刷新登录方式

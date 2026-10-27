@@ -197,7 +197,7 @@ function SettingsShell(props: SettingsPageProps) {
   });
   const { onOpenChat, onRestoreDefaults } = createSettingsNavigationActions({
     selectPage,
-    chatAvailable: Boolean(client.chat),
+    chatAvailable: availablePages.some((item) => item.id === "chat"),
     openPanel,
     openHandwriting: client.openHandwriting,
     restoreDefaults,

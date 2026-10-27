@@ -217,7 +217,8 @@ public final class AccountFragment extends HomeTabFragment {
         Local state = local;
         Remote online = remote;
         GroupCard group = GroupCard.add(groups, "我的内容").withDividers(56);
-        row(group, R.drawable.ic_ms_palette, "我的皮肤", null, skinName(state == null ? null : state.preferences()),
+        row(group, R.drawable.ic_ms_palette, "我的皮肤", null, skinName(state == null ? null : state.preferences(),
+                AppMode.dark(requireContext())),
             () -> SettingsNavigator.open(context, PageId.SKINS, null));
         row(group, R.drawable.ic_ms_menu_book, "我的词库", null, null,
             () -> SettingsNavigator.open(context, PageId.LEXICON, null));
@@ -234,10 +235,16 @@ public final class AccountFragment extends HomeTabFragment {
         }
     }
 
-    /** 当前全局主题在共享目录里的名字；读不到时不显示。 */
-    @Nullable private static String skinName(@Nullable JSONObject preferences) {
+    /** 当前键盘明暗对应的皮肤名；设计库引用由皮肤页显示具体名字。 */
+    @Nullable private static String skinName(@Nullable JSONObject preferences, boolean systemDark) {
         if (preferences == null) return null;
-        String id = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
+        boolean dark = app.msime.android.KeyboardSkin.resolveDark(
+            preferences.optString("screen_keyboard_theme", "follow"),
+            preferences.optString("theme", "system"), systemDark);
+        String modeChoice = preferences.optString(app.msime.android.KeyboardSkinModeChoice.key(dark), "");
+        if (modeChoice.startsWith("design:")) return "我的皮肤";
+        String id = modeChoice.startsWith("theme:") ? modeChoice.substring("theme:".length())
+            : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONArray themes = HostStore.themeCatalog();
         for (int index = 0; index < themes.length(); index++) {
             JSONObject entry = themes.optJSONObject(index);
@@ -326,7 +333,7 @@ public final class AccountFragment extends HomeTabFragment {
             preferences == null ? null : () -> AppThemeSheet.show(this, preferences, this::reload));
         row(group, R.drawable.ic_ms_shield_lock, "隐私", null, "本地优先",
             () -> SettingsNavigator.open(context, PageId.PRIVACY, null));
-        group.toggle("统计页身份验证", "开启后使用系统认证，未配置锁屏凭据时直接进入",
+        group.toggle("统计页身份验证", "开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入",
             StatisticsAuthenticationPreference.enabled(context),
             enabled -> StatisticsAuthenticationPreference.save(context, enabled));
         AppIconStyle icon = AppIcons.selected(context);
@@ -343,8 +350,12 @@ public final class AccountFragment extends HomeTabFragment {
             () -> SettingsNavigator.open(context, PageId.DOWNLOAD, null));
         row(group, R.drawable.ic_ms_feedback, "帮助与反馈", null, null,
             () -> SettingsNavigator.open(context, PageId.FEEDBACK, null));
-        row(group, R.drawable.ic_ms_info, "关于", null, version(),
+        LinearLayout about = row(group, R.drawable.ic_ms_info, "关于", null, version(),
             () -> SettingsNavigator.open(context, PageId.ABOUT, null));
+        about.setOnLongClickListener(ignored -> {
+            AboutEasterEgg.show(context);
+            return true;
+        });
         row(group, R.drawable.ic_ms_keyboard, "新手引导", "四步走完键盘的启用和设置", null,
             () -> startActivity(new Intent(context, OnboardingActivity.class)));
         // 「开屏动画」只重播开屏，不会接着进入新手引导。

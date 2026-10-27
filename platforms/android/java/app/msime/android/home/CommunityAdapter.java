@@ -213,8 +213,9 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         }
         if (holder.badge != null) ViewPolicy.setVisible(holder.badge, skin == null);
         if (holder.category != null) {
-            holder.category.setText(item.category() == null ? "" : item.category().label());
-            ViewPolicy.setVisible(holder.category, item.category() != null);
+            holder.category.setText((item.category() == null ? "" : item.category().label() + " · ")
+                + "浅深均可选 · 外观固定");
+            ViewPolicy.show(holder.category);
         }
         String author = author(item);
         String uses = CommunityRequest.usesLabel(item.downloads());
@@ -222,6 +223,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         if (holder.meta != null) holder.meta.setText(uses);
         holder.itemView.setContentDescription(item.name() + "，"
             + (item.category() == null ? "" : item.category().label() + "分类，")
+            + "浅深均可选，外观固定，"
             + author + "，" + uses + "，" + rating(item) + "，点按查看详情");
     }
 

@@ -98,6 +98,8 @@ import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { NativeReplyPolicy } from './NativeReplyPolicy';
 import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
+import { AiGenerationGate } from './AiGenerationGate';
 import { OnlineCandidatePolicy, OnlineQuery, CloudHttpDescriptor } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -324,6 +326,8 @@ interface MobileClipboardAction {
 
 interface MobileClipboardRequest {
   directory: string;
+  // 容量偏好在 stateDirectory，历史在它的父目录；不传时 host-api 从 directory 读偏好，会按默认 50 条淘汰。
+  preferences_directory: string;
   action: MobileClipboardAction;
 }
 
@@ -950,6 +954,13 @@ interface PreparedPreferences {
   keybindings: PreparedKeybindings;
   /** Sound packs and the rest of the plugin settings; absent while every part is at its default. */
   plugins?: PluginPreferenceDocument;
+  /** 本地输入模式的开关；这里只读 / 指令那一项。 */
+  local_modes?: LocalModesDocument;
+}
+
+/** 共享偏好 `local_modes` 里键盘要读的部分：/ 指令缺省关。 */
+interface LocalModesDocument {
+  command?: boolean;
 }
 
 /** The shared fuzzy pinyin record. Turning it off keeps the rules, so the next on restores the same set. */
@@ -1882,6 +1893,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
     this.systemDark = systemDark;
+    // AI 生成类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.ai_generation`），鸿蒙版拿到资质之前为关。
+    AiGenerationGate.adopt(client.hostCapabilities('harmony'));
     this.refreshFeedback();
     this.refreshAppTheme(true);
     this.preferencesRevision = this.storedRevision(stateRoot);
@@ -2355,6 +2368,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.refreshToolbar();
     return true;
+  }
+
+  /**
+   * 功能面板「本地输入」列不列「指令」：设置里打开了 / 指令（`local_modes.command`，缺省关），并且现在出中文标点。Engine 只在中文标点下把没有组字时的 / 当作进入指令的键，英文标点下点它只会打出一个 /。
+   */
+  offersCommandMode(): boolean {
+    const prepared: PreparedPreferences | undefined = this.preparedPreferences;
+    return prepared !== undefined && prepared.local_modes !== undefined
+      && prepared.local_modes.command === true && this.usesChinesePunctuation();
   }
 
   /** Whether candidates carry translations, which the function panel's 译 tile and the strip's 译 pill show as a switch. */
@@ -3387,6 +3409,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     // 先导入设置应用经共享沙箱发布的改动，随后的修订号比较、按键反馈和应用主题的重新读取就会看到它们。
     this.syncSharedState();
+    // 隐私政策的授权也随镜像导入：在设置应用里刚同意或撤回，下一次获得焦点就生效。同意时放行扩展创建时等着的匿名注册和使用统计。
+    if (this.stateDirectory.length > 0) HarmonyPrivacyConsent.load(this.stateDirectory);
     this.reloadChangedPreferences();
     // 镜像导入的 `skins` 可能换掉了正在用的包而偏好修订号没动，上面那步不会重新应用外观。会话建好之后键盘只在这里导入皮肤目录（扩展 `onCreate` 的那次在 `start` 之前，`start` 本来就读新包），所以也只在这里查。视图的 reload 钩子按新外观重画。
     if (this.reloadReplacedSkinPackages() && this.onViewPreferencesReloaded !== undefined) {
@@ -4845,7 +4869,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     if (epoch !== this.onlineEpoch || handle !== this.handle) return;
     const assistant = aiQuery.ai_assistant;
-    if (assistant?.enabled === true && aiQuery.ai_eligible) {
+    // AI 联想把组字和光标前的文字发给大模型；总闸 `AiGenerationGate` 关着时存下的 `ai_assistant.enabled` 打开了也不问。
+    if (assistant?.enabled === true && aiQuery.ai_eligible && AiGenerationGate.enabled()) {
       // 这个组字问过 AI 而没有结果（云候选失败触发的重试走到这里）：不再发请求。
       const aiApplied: boolean = requestSignature !== this.aiResolvedSignature
         && await this.fetchAi(handle, aiDocument, assistant.candidate_limit, epoch);
@@ -4875,6 +4900,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (epoch !== this.onlineEpoch || handle !== this.handle) return false;
       return this.applyCloudBody(handle, queryDocument, descriptor.cached_response);
     }
+    // 云联想把正在组的拼音发出去，没有隐私政策的授权就不发。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return false;
     const request = http.createHttp();
     installNoRedirectGuard(request);
     this.onlineRequests.add(request);
@@ -4926,6 +4953,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private async fetchAi(handle: number, queryDocument: string, limit: number,
     epoch: number): Promise<boolean> {
+    // AI 联想把上下文发给用户配置的服务，没有隐私政策的授权就不发。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return false;
     let descriptor: AiHttpDescriptor | null;
     try {
       const reply: NativeReply<AiHttpDescriptor | null> = JSON.parse(
@@ -5478,6 +5507,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       || descriptor.url.includes('\r')
       || !TextPolicy.validSecureAuthority(descriptor.url, allowHttp)) return null;
     if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
+    // 在线翻译把候选发给翻译服务，没有隐私政策的授权就不发，候选照常显示本机释义。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return null;
     const request = http.createHttp();
     installNoRedirectGuard(request);
     this.translationRequests.add(request);
@@ -5774,7 +5805,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const directory: string = this.clipboardRoot();
     if (directory.length === 0) return null;
     const request: MobileClipboardRequest = {
-      directory: directory, action: action
+      directory: directory, preferences_directory: this.stateDirectory, action: action
     };
     try {
       const reply: MobileClipboardReply = JSON.parse(
@@ -6138,7 +6169,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Generates bounded reply candidates through the shared AI ABI without involving Engine state. */
   async thoughtfulReplies(source: string, style: string, extraPrompt: string = '', polish: boolean = false): Promise<string[]> {
     const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style, extraPrompt, polish);
-    if (request === null || !this.aiAssistant.enabled || this.aiAssistant.endpoint.length === 0) {
+    if (request === null || !AiGenerationGate.enabled() || !this.aiAssistant.enabled
+      || this.aiAssistant.endpoint.length === 0 || !HarmonyPrivacyConsent.networkAllowed()) {
       return [];
     }
     const editorGeneration: number = this.editorGeneration;
@@ -6569,7 +6601,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * 已安装符号集插件的组，读自 `<stateDirectory>/plugins`，即键盘自己沙箱里的插件目录。设置页把包装进设置应用的 `files/state/plugins`；API 12 起输入法扩展使用独立沙箱（见 platforms/harmony/README.md），要等两边都改用共享沙箱目录之后，这里才读得到设置页装的包，在那之前通常是空的。
+   * 已安装符号集插件的组，读自 `<stateDirectory>/plugins`，即键盘自己沙箱里的插件目录。设置页把包装进设置应用的 `files/state/plugins`；API 12 起输入法扩展使用独立沙箱，设置应用把插件目录发布到共享沙箱，键盘在启动和获得焦点时导入到这里（见 platforms/harmony/README.md）。签名不带共享沙箱授权时（开发构建、模拟器）这里读不到设置页装的包，通常是空的。
    *
    * 不依赖 `msime-others.db`；读不出来时返回空表，表情面板照旧只显示内置内容。
    */

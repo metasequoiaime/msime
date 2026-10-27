@@ -13,7 +13,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 按需下载的资源包（日文词典、语言词库、离线释义、语音运行库），经共享层的 {@code msime_client_resource_pack_*} 列出、下载和收编。
+ * 按需下载的资源包（日文词典、语言词库、离线释义、英文音标、语音运行库），经共享层的 {@code msime_client_resource_pack_*} 列出、下载和收编。
  *
  * <p>资源包装在 {@code filesDir/bootstrap/state/resource-packs/<id>/}：{@code bootstrap/state} 就是 host-api 的 {@code preferences_directory}，会话在获得焦点时从那里找到新装好的资源包；Bootstrap 随安装包替换的目录碰不到它。设置页和键盘的方案可用判断都以这里的 {@link #installed} 为准。
  *
@@ -23,6 +23,7 @@ public final class ResourcePacks {
     public static final String JAPANESE = "japanese";
     public static final String LANGUAGE_DICTIONARIES = "language-dictionaries";
     public static final String OFFLINE_GLOSSES = "offline-glosses";
+    public static final String PRONUNCIATIONS = "pronunciations";
     public static final String OCR_MODULE = "ocr-module-android";
     public static final String VOICE_RUNTIME = "voice-runtime";
 

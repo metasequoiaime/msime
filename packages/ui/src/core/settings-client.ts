@@ -13,6 +13,7 @@ import type {
   FeedbackClient,
   HostChromeClient,
   OobeClient,
+  PrivacyConsentClient,
 } from "./host-contracts";
 import type { PickedApplication } from "../settings/app-input-mode-rules";
 import type { VoiceDeviceReader } from "../voice/voice-device-model";
@@ -62,6 +63,8 @@ import type { CloudDictionaryPanelClient } from "../keyboard/panel-client";
 export interface SettingsClient {
   /** 宿主能力；未提供时按 user-agent 检测。 */
   host?: HostCapabilities;
+  /** 宿主征得的隐私政策授权（HarmonyOS）；提供时「隐私」页显示授权状态和重新打开弹窗的入口。 */
+  privacyConsent?: PrivacyConsentClient;
   /** Android 适配平台的 Apple 风格键盘首页。 */
   home?: HomePageActions;
   /** 跨平台首次运行引导状态；系统无法可靠查询的事实以 null 表示。 */

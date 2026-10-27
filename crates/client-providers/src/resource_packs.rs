@@ -1,4 +1,4 @@
-//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
+//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典、英文音标表和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
 //!
 //! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。固定资源的文件名、URL、长度和 SHA-256 来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；会原地替换的万象 LTS 使用响应长度和 `.gram` 格式校验，语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
 //!
@@ -255,6 +255,7 @@ fn dynamic_grammar_manifest(pack: ResourcePack, artifact: &crate::resources::Art
     })
 }
 const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
+const PRONUNCIATIONS_LOCK: &str = include_str!("../../../resources/pronunciations.lock.json");
 /// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
 const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.lock.json");
 /// 从 Android 归档里取出的两个库各自的长度和 SHA-256。
@@ -294,6 +295,8 @@ pub enum ResourcePack {
     GrammarBaishuang,
     /// 候选的非英文离线释义：`zh-<语言>.db` 六份加上随它们一起分发的 `offline-glosses-NOTICE.txt`（改编自 CC BY-SA 4.0 的维基词典）。
     OfflineGlosses,
+    /// Android 候选用的 ECDICT 英文音标表及 MIT 许可声明；桌面包仍可随包携带同一份表。
+    Pronunciations,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
     VoiceRuntime,
     /// macOS 发布包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
@@ -427,6 +430,12 @@ struct OfflineGlossesInput {
 }
 
 #[derive(Deserialize)]
+struct PronunciationsLock {
+    source_commit: String,
+    built: Vec<crate::resources::Artifact>,
+}
+
+#[derive(Deserialize)]
 struct VoiceRuntimeLock {
     source_commit: String,
     platforms: std::collections::BTreeMap<String, VoiceRuntimeArchive>,
@@ -485,7 +494,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 13] = [
+    pub const ALL: [ResourcePack; 14] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -495,6 +504,7 @@ impl ResourcePack {
         ResourcePack::GrammarBaguwenCompact,
         ResourcePack::GrammarBaishuang,
         ResourcePack::OfflineGlosses,
+        ResourcePack::Pronunciations,
         ResourcePack::VoiceRuntime,
         ResourcePack::Wubi,
         ResourcePack::MacosVoiceRuntime,
@@ -527,6 +537,7 @@ impl ResourcePack {
             ResourcePack::GrammarBaguwenCompact => "grammar-model-baguwen-compact",
             ResourcePack::GrammarBaishuang => "grammar-model-baishuang",
             ResourcePack::OfflineGlosses => "offline-glosses",
+            ResourcePack::Pronunciations => "pronunciations",
             ResourcePack::VoiceRuntime => "voice-runtime",
             ResourcePack::Wubi => "wubi",
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
@@ -563,6 +574,7 @@ impl ResourcePack {
             | ResourcePack::GrammarBaguwenCompact
             | ResourcePack::GrammarBaishuang
             | ResourcePack::OfflineGlosses
+            | ResourcePack::Pronunciations
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime
             | ResourcePack::AndroidOcrModule => &[],
@@ -607,7 +619,7 @@ impl ResourcePack {
         if self == ResourcePack::AndroidOcrModule {
             return android_ocr_module_set();
         }
-        static SETS: OnceLock<[ResourceSet; 11]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 12]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
             // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
@@ -632,6 +644,8 @@ impl ResourcePack {
                 serde_json::from_str(GRAMMAR_MODELS_LOCK).expect("grammar models lock is valid");
             let glosses: OfflineGlossesLock =
                 serde_json::from_str(OFFLINE_GLOSSES_LOCK).expect("offline glosses lock is valid");
+            let pronunciations: PronunciationsLock =
+                serde_json::from_str(PRONUNCIATIONS_LOCK).expect("pronunciations lock is valid");
             let (runtime_commit, archive, members) = voice_runtime_locks();
             [
                 desktop.only(&ON_DEMAND_JAPANESE_ARTIFACTS),
@@ -662,6 +676,10 @@ impl ResourcePack {
                         .collect(),
                 },
                 desktop.only(&ON_DEMAND_WUBI_ARTIFACTS),
+                ResourceSet {
+                    source_commit: pronunciations.source_commit,
+                    artifacts: pronunciations.built,
+                },
             ]
         });
         match self {
@@ -674,6 +692,7 @@ impl ResourcePack {
             ResourcePack::GrammarBaguwenCompact => &sets[6],
             ResourcePack::GrammarBaishuang => &sets[7],
             ResourcePack::OfflineGlosses => &sets[8],
+            ResourcePack::Pronunciations => &sets[11],
             ResourcePack::VoiceRuntime => &sets[9],
             ResourcePack::Wubi => &sets[10],
             ResourcePack::MacosVoiceRuntime | ResourcePack::AndroidOcrModule => {
@@ -1828,6 +1847,38 @@ mod tests {
             pack.set().source_commit,
             lock["input"]["source_revision"].as_str().unwrap()
         );
+        assert!(pack.archive().is_none());
+        assert!(pack.schemes().is_empty());
+    }
+
+    /// Android 音标包只能安装 ECDICT 锁定的数据库和许可声明，不能由调用者替换下载清单。
+    #[test]
+    fn the_pronunciations_pack_is_the_pinned_lock() {
+        let lock: Value = serde_json::from_str(PRONUNCIATIONS_LOCK).unwrap();
+        let pack = ResourcePack::Pronunciations;
+        assert_eq!(pack.id(), "pronunciations");
+        assert_eq!(ResourcePack::from_id(pack.id()), Some(pack));
+        assert_eq!(
+            pack.set().source_commit,
+            lock["source_commit"].as_str().unwrap()
+        );
+        let names: Vec<&str> = pack
+            .set()
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect();
+        assert_eq!(names, ["en-phonetic.db", "pronunciations-NOTICE.txt"]);
+        for (artifact, locked) in pack
+            .set()
+            .artifacts
+            .iter()
+            .zip(lock["built"].as_array().unwrap())
+        {
+            assert_eq!(artifact.url, locked["url"].as_str().unwrap());
+            assert_eq!(artifact.sha256, locked["sha256"].as_str().unwrap());
+            assert_eq!(artifact.size, locked["size"].as_u64().unwrap());
+        }
         assert!(pack.archive().is_none());
         assert!(pack.schemes().is_empty());
     }

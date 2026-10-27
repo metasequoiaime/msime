@@ -60,6 +60,14 @@ public final class KeyboardLayout {
             || layout == STROKE_LAYOUT || layout == ZHUYIN_NINE_KEY_LAYOUT);
     }
 
+    /** 长空格模式的 26 键保留含空格的数字符号层；原生九键仍使用数字网格。 */
+    public static boolean drawsNumberPad(Layer layer, int layout, boolean chinese,
+            boolean localMode, boolean longSpace) {
+        return !(longSpace && layer == Layer.SYMBOLS
+            && (layout == STANDARD_TOUCH_LAYOUT || layout == KOREAN_LAYOUT))
+            && drawsNumberPad(layer, layout, chinese, localMode);
+    }
+
     /** 数字九宫格只属于中文方案：日文罗马字、越南语、藏文等独立语言与 iOS、HarmonyOS 一样保留各自的符号层；视图还没给出方案时沿用中文默认。 */
     public static boolean numberPadLanguage(int scheme, boolean english) {
         return !english && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.isChinese(scheme));
@@ -170,7 +178,7 @@ public final class KeyboardLayout {
         /** 123 层的 `#+=`（切到更多符号）或 #+= 层的 `123`（切回数字）。 */
         LAYER_TOGGLE,
         DELETE,
-        /** 底行左下：回到字母键盘（中文「拼音」、英文「ABC」）。 */
+        /** 底行左下：返回进入数字或符号层前的键盘。 */
         LETTERS,
         /** 123 层底行的表情键。 */
         EMOJI,
@@ -178,6 +186,8 @@ public final class KeyboardLayout {
         PUNCTUATION_TOGGLE,
         /** #+= 层底行原表情位的「符号」键，打开符号面板。 */
         SYMBOL_PANEL,
+        /** 长空格模式数字层的逗号键，下滑输入句号。 */
+        COMMA,
         SPACE,
         /** 回车：文字与描述由视图按 {@link ReturnKeyAction} 替换，这里给的是空闲时的「换行」。 */
         RETURN
@@ -220,15 +230,15 @@ public final class KeyboardLayout {
     public static final float LAYER_RETURN_WEIGHT = 1.9f;
 
     /**
-     * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 拼音（或 ABC）| 😀 | 中标或英标 | 空格 | ↵。
+     * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 返回 | 😀 | 中标或英标 | 空格 | ↵。
      *
-     * @param chinese 中文模式用全角符号与中文标点，英文模式用 ASCII 版，底行返回键为「ABC」
+     * @param chinese 中文模式用全角符号与中文标点，英文模式用 ASCII 版，底行均标示「返回」
      */
     public static List<List<LayerKey>> numberLayer(boolean chinese) {
         return numberLayer(chinese, chinese);
     }
 
-    /** `chinese` 决定左下返回键是「拼音」还是「ABC」；`chinesePunctuation` 决定标点和符号用全角中文还是半角英文，跟「中文标点」开关走。两者分开：中文模式下关掉中文标点时，这一层要上屏半角标点。 */
+    /** `chinese` 决定当前语言键面；`chinesePunctuation` 决定标点和符号用全角中文还是半角英文，跟「中文标点」开关走。两者分开：中文模式下关掉中文标点时，这一层要上屏半角标点。 */
     public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation) {
         return numberLayer(chinese, chinesePunctuation, false);
     }
@@ -242,19 +252,25 @@ public final class KeyboardLayout {
     /** 顶部已有表情入口时，同一位置直接打开符号面板；关闭顶部入口时保留表情兜底。 */
     public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
             boolean cornerQuotes, boolean toolbarEmojiAvailable) {
+        return numberLayer(chinese, chinesePunctuation, cornerQuotes, toolbarEmojiAvailable, false);
+    }
+
+    /** 长空格模式把底行符号或表情入口换成逗号，符号面板从工具栏打开。 */
+    public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
+            boolean cornerQuotes, boolean toolbarEmojiAvailable, boolean longSpace) {
         return layer(NUMBER_DIGITS,
             chinesePunctuation ? (cornerQuotes ? CHINESE_CORNER_NUMBER_SYMBOLS : CHINESE_NUMBER_SYMBOLS)
                 : ENGLISH_NUMBER_SYMBOLS,
             new LayerKey("#+=", "更多符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
             chinese, chinesePunctuation,
-            toolbarEmojiAvailable
+            longSpace ? commaLayerKey(chinesePunctuation) : toolbarEmojiAvailable
                 ? new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL, LAYER_EMOJI_WEIGHT)
                 : new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT),
             punctuationToggle(chinesePunctuation));
     }
 
     /**
-     * 新设计的 #+= 层：[ ] { } # % ^ * + = / _ \ | ~ 《 》 € & · … / `123` + 五个标点 + ⌫ / 拼音（或 ABC）| 符号 | 空格 | ↵。左下原表情位是打开符号面板的「符号」键。
+     * 新设计的 #+= 层：[ ] { } # % ^ * + = / _ \ | ~ 《 》 € & · … / `123` + 五个标点 + ⌫ / 返回 | 符号 | 空格 | ↵。左下原表情位是打开符号面板的「符号」键。
      */
     public static List<List<LayerKey>> moreSymbolLayer(boolean chinese) {
         return moreSymbolLayer(chinese, chinese);
@@ -262,11 +278,23 @@ public final class KeyboardLayout {
 
     /** 参数的含义同 {@link #numberLayer(boolean, boolean)}。 */
     public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation) {
+        return moreSymbolLayer(chinese, chinesePunctuation, false);
+    }
+
+    /** 长空格模式的更多符号层沿用数字层的逗号与下滑句号。 */
+    public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation,
+            boolean longSpace) {
         return layer(MORE_SYMBOLS_FIRST,
             chinesePunctuation ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
             new LayerKey("123", "切换到数字和符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
-            chinese, chinesePunctuation, new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
-                LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation));
+            chinese, chinesePunctuation, longSpace ? commaLayerKey(chinesePunctuation)
+                : new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
+                    LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation));
+    }
+
+    private static LayerKey commaLayerKey(boolean chinesePunctuation) {
+        return new LayerKey(chinesePunctuation ? "，" : ",", "逗号；下滑输入句号",
+            LayerKeyKind.COMMA, LAYER_EMOJI_WEIGHT);
     }
 
     private static LayerKey punctuationToggle(boolean chinesePunctuation) {
@@ -275,9 +303,9 @@ public final class KeyboardLayout {
             LayerKeyKind.PUNCTUATION_TOGGLE, LAYER_EMOJI_WEIGHT);
     }
 
-    /** 层底行左下返回字母键盘的键面：中文「拼音」、英文「ABC」；描述都是「切换到字母键盘」。 */
+    /** 层底行左下统一标示「返回」，让它表达回到进入前键盘的操作。 */
     public static String lettersKeyTitle(boolean chinese) {
-        return chinese ? "拼音" : "ABC";
+        return "返回";
     }
 
     private static List<List<LayerKey>> layer(List<String> first, List<String> second,
@@ -290,7 +318,7 @@ public final class KeyboardLayout {
             third.add(character(key));
         third.add(new LayerKey("⌫", "删除", LayerKeyKind.DELETE, LAYER_EDGE_WEIGHT));
         List<LayerKey> bottom = List.of(
-            new LayerKey(lettersKeyTitle(chinese), "切换到字母键盘", LayerKeyKind.LETTERS,
+            new LayerKey(lettersKeyTitle(chinese), "返回原键盘", LayerKeyKind.LETTERS,
                 LAYER_BACK_WEIGHT),
             panelKey,
             punctuationToggle,

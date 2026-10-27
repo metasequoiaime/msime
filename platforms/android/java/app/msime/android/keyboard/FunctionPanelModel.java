@@ -42,7 +42,6 @@ public final class FunctionPanelModel {
         action(Id.HANDWRITING, "手写"),
         action(Id.LOCAL_INPUT, "本地输入"),
         new Item(Id.AI_ASSIST, "AI 辅助", "AI 回复与润色", false),
-        action(Id.SETTINGS, "设置"),
         toggle(Id.ONE_HAND, "单手模式", "单手模式"),
         toggle(Id.FLOATING, "浮动键盘", "浮动键盘"),
         toggle(Id.PRIVACY, "无痕输入", "无痕输入"),
@@ -56,14 +55,16 @@ public final class FunctionPanelModel {
         action(Id.TEXT_EDIT, "文本编辑"),
         action(Id.TOOLBAR_EDITOR, "编辑工具栏"),
         action(Id.COPY_DEVICE_INFO, "设备信息"),
-        action(Id.FEEDBACK, "反馈"),
-        action(Id.PROMOTION, "宣传"),
-        action(Id.WEBSITE, "打开官网"),
-        action(Id.ABOUT, "关于"),
         action(Id.EMOJI, "表情"),
         action(Id.CLIPBOARD, "剪贴板历史"),
         action(Id.WORLD_CLOCK, "世界时钟"),
-        action(Id.OCR, "拍照识字"));
+        action(Id.OCR, "拍照识字"),
+        // 这五项是功能面板的固定尾部；新增工具必须放在它们之前，不能改变用户熟悉的位置。
+        action(Id.SETTINGS, "设置"),
+        action(Id.FEEDBACK, "反馈"),
+        action(Id.PROMOTION, "宣传"),
+        action(Id.WEBSITE, "打开官网"),
+        action(Id.ABOUT, "关于"));
 
     private FunctionPanelModel() { }
 

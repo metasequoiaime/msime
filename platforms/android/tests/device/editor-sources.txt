@@ -137,6 +137,7 @@ platforms/android/java/app/msime/android/keyboard/LetterHintTable.java
 platforms/android/java/app/msime/android/keyboard/KeyboardPressButton.java
 platforms/android/java/app/msime/android/keyboard/KeyboardPressFeedback.java
 platforms/android/java/app/msime/android/keyboard/KeyboardSkin.java
+platforms/android/java/app/msime/android/keyboard/KeyboardSkinModeChoice.java
 platforms/android/java/app/msime/android/keyboard/ZhuyinKeyboardLayout.java
 platforms/android/java/app/msime/android/policy/AccountSessionRoutingPolicy.java
 platforms/android/java/app/msime/android/policy/InputSchemeTraits.java
@@ -161,6 +162,7 @@ platforms/android/tests/device/keyboard/EmptyEditorBackspaceDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardCapacityDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardShareSinkActivity.java
 platforms/android/tests/device/clipboard/ClipboardSegmentActionsDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardPhraseNoticeDeviceCheck.java
@@ -258,3 +260,4 @@ platforms/android/tests/device/keyboard/OcrDocumentsProvider.java
 platforms/android/gradle-app/ocr-fixture/app/msime/ocr/fixture/SyntheticOcrFixture.java
 platforms/android/tests/device/keyboard/TextEditLineDeviceChecks.java
 platforms/android/tests/device/settings/OnboardingDeviceSmoke.java
+platforms/android/tests/device/keyboard/AboutEasterEggDeviceSmoke.java

@@ -23,6 +23,7 @@ export interface SettingsAccountPageProps {
     | "availablePages"
     | "openExternalUrl"
     | "currentAppVersion"
+    | "showAiGeneration"
   >;
   onReplayOnboarding?: SettingsPageProps["onReplayOnboarding"];
 }
@@ -47,6 +48,7 @@ export function SettingsAccountPage({ model, onReplayOnboarding }: SettingsAccou
     availablePages,
     openExternalUrl,
     currentAppVersion,
+    showAiGeneration,
   } = model;
   const accountActions = useAccountPageActions({
     hasAccountLoginReturnPage: Boolean(accountLoginReturnPage),
@@ -78,6 +80,7 @@ export function SettingsAccountPage({ model, onReplayOnboarding }: SettingsAccou
       }
       mobile={mobilePlatform}
       communityHasSkins={Boolean(client.communitySkins)}
+      communityHasReplies={showAiGeneration}
       onOpenCloudDictionary={
         !mobilePlatform && client.cloudDictionary
           ? () => {

@@ -5,6 +5,7 @@ import { GroupList, LinkRow, Row } from "../../core/platform-controls";
 import { MascotIllustration } from "../../core/mascot";
 import { LicenseRows } from "../license-rows";
 import { TelemetryRow, TelemetrySection } from "../telemetry-section";
+import { PrivacyConsentRow } from "../privacy-consent-row";
 import { AboutHeroSection, HarmonyAboutHero } from "../about-hero-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 import { OtherPlatformDownloadRows } from "./download-page";
@@ -213,6 +214,7 @@ export function AboutSettingsPage() {
                   label="查看"
                 />
               </Row>
+              <PrivacyConsentRow consent={client.privacyConsent} />
               <Row title="开源许可">
                 <ActionButton
                   action={() => void openExternalUrl(platformLicenseUrl)}

@@ -4238,9 +4238,10 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::FourteenKey,
             TouchKeyboardScheme::NineKeyShuangpin,
             TouchKeyboardScheme::EighteenKey,
+            TouchKeyboardScheme::CantoneseShuangpin,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 20);
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 21);
     // 全拼 14 键和九键双拼也不在以前的默认列表里，没存列表的旧文档不会凭空多出它们。
     for scheme in [
         TouchKeyboardScheme::FourteenKey,
@@ -4250,6 +4251,10 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
     }
     for (scheme, id) in [
         (TouchKeyboardScheme::Cantonese, "cantonese"),
+        (
+            TouchKeyboardScheme::CantoneseShuangpin,
+            "cantonese_shuangpin",
+        ),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
         (TouchKeyboardScheme::Vietnamese, "vietnamese"),
         (TouchKeyboardScheme::Tibetan, "tibetan"),
@@ -4662,6 +4667,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 enabled: false,
                 schema,
                 show_in_candidate_window: true,
+                strict_filter: false,
                 modes: ShuangpinHelpcodeModes::default(),
             },
             ..Preferences::default()
@@ -8031,6 +8037,45 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
     let error = serde_json::from_value::<Preferences>(unknown).unwrap_err();
     assert!(error.to_string().contains("unknown variant `return`"));
 }
+#[test]
+fn android_keyboard_skin_slots_round_trip_without_changing_legacy_theme() {
+    let mut preferences = Preferences::default();
+    preferences.global_theme = crate::theme::GlobalTheme::Night;
+    preferences.android_keyboard_skin_light = Some("theme:paper".into());
+    preferences.android_keyboard_skin_dark = Some("design:synthetic-night".into());
+    preferences.validate().unwrap();
+    let decoded: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert_eq!(
+        decoded.android_keyboard_skin_light.as_deref(),
+        Some("theme:paper")
+    );
+    assert_eq!(
+        decoded.android_keyboard_skin_dark.as_deref(),
+        Some("design:synthetic-night")
+    );
+    assert_eq!(decoded.global_theme, crate::theme::GlobalTheme::Night);
+
+    let mut legacy = serde_json::to_value(&preferences).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("android_keyboard_skin_light");
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("android_keyboard_skin_dark");
+    let decoded: Preferences = serde_json::from_value(legacy).unwrap();
+    assert_eq!(decoded.android_keyboard_skin_light, None);
+    assert_eq!(decoded.android_keyboard_skin_dark, None);
+
+    preferences.android_keyboard_skin_dark = Some("design:invalid\nvalue".into());
+    assert!(preferences.validate().is_err());
+    preferences.android_keyboard_skin_dark = Some("theme:native".into());
+    assert!(preferences.validate().is_err());
+    preferences.android_keyboard_skin_dark = Some(format!("design:{}", "x".repeat(129)));
+    assert!(preferences.validate().is_err());
+}
 
 #[test]
 fn text_edit_button_order_saved_before_select_line_still_loads() {
@@ -8074,4 +8119,24 @@ fn text_edit_button_order_saved_before_select_line_still_loads() {
         store.load(),
         Err(PreferencesError::InvalidTextEditButtonOrder)
     ));
+}
+
+#[test]
+fn candidate_status_defaults_on_and_can_be_disabled_without_changing_preedit() {
+    assert!(Preferences::default().show_candidate_status);
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("show_candidate_status");
+    let mut preferences: Preferences = serde_json::from_value(value).unwrap();
+    assert!(preferences.show_candidate_status);
+    preferences.show_candidate_status = false;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert!(!restored.show_candidate_status);
+    assert_eq!(
+        restored.candidate_preedit_style,
+        Preferences::default().candidate_preedit_style
+    );
 }

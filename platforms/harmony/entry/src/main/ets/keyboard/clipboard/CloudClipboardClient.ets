@@ -1,5 +1,7 @@
 import client from 'libmsimeclient.so';
 import { AccountSessionAdoption } from '../../account/AccountSessionAdoption';
+import { HarmonyPrivacyConsent } from '../../privacy/HarmonyPrivacyConsent';
+import { PrivacyConsentPolicy } from '../../privacy/PrivacyConsentPolicy';
 import { HarmonyAccountIdentity } from '../../account/HarmonyAccountIdentity';
 import { RequestPlan, cloudClipboardRequest, statusUserId } from '../../account/HarmonyAccountRequests';
 import { KeyboardLog, describeError } from '../KeyboardLog';
@@ -79,6 +81,8 @@ export class CloudClipboardClient {
   }
 
   private async send(action: string): Promise<string> {
+    // 云剪贴板要联网，没有隐私政策的授权就按请求失败处理，面板照常显示本机剪贴板历史。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return PrivacyConsentPolicy.refusal();
     const plan: RequestPlan = cloudClipboardRequest(this.stateDirectory, HarmonyAccountIdentity.deviceName(), action);
     if (plan.refusal.length > 0) return plan.refusal;
     try {

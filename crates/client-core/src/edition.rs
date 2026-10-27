@@ -311,7 +311,9 @@ impl Edition {
                 InputScheme::Japanese
             }
             TouchKeyboardScheme::Korean => InputScheme::Korean,
-            TouchKeyboardScheme::Cantonese => InputScheme::Cantonese,
+            TouchKeyboardScheme::Cantonese | TouchKeyboardScheme::CantoneseShuangpin => {
+                InputScheme::Cantonese
+            }
             TouchKeyboardScheme::Zhuyin | TouchKeyboardScheme::ZhuyinNineKey => InputScheme::Zhuyin,
             TouchKeyboardScheme::Vietnamese => InputScheme::Vietnamese,
             TouchKeyboardScheme::Tibetan => InputScheme::Tibetan,

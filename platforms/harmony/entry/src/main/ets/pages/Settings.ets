@@ -68,6 +68,10 @@ import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 import { SharedStateMirror } from '../keyboard/SharedStateMirror';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
+import { ConsentState, PrivacyConsentPolicy } from '../privacy/PrivacyConsentPolicy';
+import { PrivacyConsentDialog } from '../privacy/PrivacyConsentDialog';
+import { AiGenerationGate } from '../keyboard/AiGenerationGate';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -204,6 +208,16 @@ interface SystemBarsRequest {
 interface FlagReply {
   ok: boolean;
   value: boolean;
+}
+
+/** 页面经 `privacyConsent` 发来的动作：`status` 只读当前授权，`review` 另外打开授权弹窗。 */
+interface PrivacyConsentAction {
+  operation?: string;
+}
+
+interface PrivacyConsentReply {
+  ok: boolean;
+  value: ConsentState;
 }
 
 interface PendingPageReply {
@@ -618,6 +632,24 @@ struct Settings {
       this.bridge.refreshSetupState();
     }
   });
+  // 隐私政策的授权弹窗。`privacyGranted` 是当前版本是否已同意，从「隐私」页重新打开时弹窗据此多显示一句撤回的说明。
+  @State privacyGranted: boolean = false;
+  // 这一次弹窗是否必须做出选择：首次启动和隐私政策更新后的弹窗不能用返回手势关掉，从「隐私」页重新打开的可以。
+  private privacyRequired: boolean = false;
+  // 本进程是否已经自动弹过一次；回到前台时的 onPageShow 不再弹。
+  private privacyPrompted: boolean = false;
+  private privacyDialog: CustomDialogController = new CustomDialogController({
+    builder: PrivacyConsentDialog({
+      granted: $privacyGranted,
+      onDecide: (granted: boolean): void => this.decidePrivacy(granted),
+      onOpenDocument: (url: string): void => this.bridge.openExternalUrl(url)
+    }),
+    autoCancel: false,
+    alignment: DialogAlignment.Center,
+    onWillDismiss: (action: DismissDialogAction): void => {
+      if (!this.privacyRequired) action.dismiss();
+    }
+  });
   // Notices from the MSIME service that the user has not dismissed, newest first; the card shows the first.
   @State notices: NoticeItem[] = [];
   private noticeController: web_webview.WebviewController = new web_webview.WebviewController();
@@ -637,6 +669,7 @@ struct Settings {
     this.bridge.attach(this.context);
     this.bridge.uiContext = this.getUIContext();
     this.bridge.onInputMethodPicker = (): void => this.inputMethodDialog.open();
+    this.bridge.onPrivacyReview = (): void => this.openPrivacyDialog(false);
     this.bridge.useWebview(this.controller);
     this.bridge.onNoticeHold = (held: boolean): void => {
       this.noticeHeld = held;
@@ -676,6 +709,31 @@ struct Settings {
   }
 
   /**
+   * 首次启动（或隐私政策更新后第一次打开）时弹出授权弹窗。放在页面显示时而不是 aboutToAppear：页面还没显示时弹窗打不开。弹窗盖在启动画面和网页上，网页照常加载，但在用户同意之前桥接拒绝所有联网请求（`PrivacyConsentPolicy`）。
+   */
+  onPageShow(): void {
+    if (this.privacyPrompted || !HarmonyPrivacyConsent.shouldPrompt()) {
+      return;
+    }
+    this.privacyPrompted = true;
+    this.openPrivacyDialog(true);
+  }
+
+  private openPrivacyDialog(required: boolean): void {
+    this.privacyRequired = required;
+    this.privacyGranted = HarmonyPrivacyConsent.networkAllowed();
+    this.privacyDialog.open();
+  }
+
+  /** 用户在弹窗里选了「同意」或「不同意」：记下来、告诉键盘和页面；同意后补上公告，拒绝后撤掉公告卡片。 */
+  private decidePrivacy(granted: boolean): void {
+    this.privacyRequired = false;
+    this.privacyGranted = granted;
+    this.bridge.decidePrivacy(granted);
+    this.loadNotices();
+  }
+
+  /**
    * 系统返回手势和返回键先走页面自己的历史。
    *
    * 页面为每个子页面和引导步骤压入一条历史记录并监听 `popstate`，所以在 web view 里后退就是回到上一屏。只有无处可退时手势才交给系统，即退出应用。
@@ -698,6 +756,12 @@ struct Settings {
    */
   private loadNotices(): void {
     const generation: number = ++this.noticeRequest;
+    // 拉取公告要联网，没有隐私政策的授权就不拉，已显示的公告卡片也撤掉。
+    if (!HarmonyPrivacyConsent.networkAllowed()) {
+      this.notices = [];
+      this.renderNotice();
+      return;
+    }
     const request: NoticesRequest = {
       directory: `${this.context.filesDir}/state/notices`, platform: PLATFORM, channel: 'app'
     };
@@ -867,7 +931,7 @@ struct Settings {
                   'keyboardFeedback', 'onboardingStatus',
                   'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
                   'setupStatus', 'refreshSetupStatus', 'oobeStatus', 'retryOobeResources', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
-                  'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted'],
+                  'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted', 'privacyConsent'],
                 []);
             } catch (error) {
               KeyboardLog.error(`settings bridge not registered: ${describeError(error)}`);
@@ -898,6 +962,8 @@ struct Settings {
 class SettingsBridge {
   uiContext: UIContext | undefined = undefined;
   onInputMethodPicker: (() => void) | undefined = undefined;
+  // 由页面组件设置：重新打开隐私政策的授权弹窗。
+  onPrivacyReview: (() => void) | undefined = undefined;
   private stateDirectory: string = '';
   private sharedSandboxAvailable: boolean = false;
   // 与键盘交换状态的共享沙箱镜像，拿不到共享目录时为 null；`sharedPublishTimer` 合并短时间内的多次改动，只发布一次。
@@ -964,6 +1030,8 @@ class SettingsBridge {
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    // AI 生成类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.ai_generation`），鸿蒙版拿到资质之前为关；`startRequest` 据此拒绝 AI 对话、AI 皮肤和探 AI 服务的请求。
+    AiGenerationGate.adopt(client.hostCapabilities(PLATFORM));
     const seen = this.readStateFile(ONBOARDING_SEEN_FILE, 64);
     this.onboardingDone = false;
     if (seen !== null) {
@@ -1187,10 +1255,19 @@ class SettingsBridge {
    */
   startRequest(kind: string, id: number, payload: string): string {
     const deliver: (reply: string) => void = (reply: string): void => this.deliverReply(id, reply);
+    // 账号、社区、云同步、检查更新、AI 和凭据测试这些请求要联网，没有隐私政策的授权一律拒绝；页面在没有授权时本来就不画这些入口，这里是第二道墙。
+    if (PrivacyConsentPolicy.refuses(kind, payload, HarmonyPrivacyConsent.networkAllowed())) {
+      KeyboardLog.info(`bridge request ${kind} refused: no privacy consent`);
+      deliver(PrivacyConsentPolicy.refusal());
+      return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+    }
     const failed: (error: Object) => void = (error: Object): void => {
       deliver(JSON.stringify({ ok: false, error: describeError(error) }));
     };
-    if (kind === 'account') {
+    if (!AiGenerationGate.allowsSettingsRequest(kind, payload)) {
+      // 页面在总闸关着时本来就不画这些入口；这里再拦一道，旧页面或手写的请求也发不出去。
+      deliver(AiGenerationGate.refusal());
+    } else if (kind === 'account') {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary') {
       this.cloudDictionary(payload).then(deliver).catch(failed);
@@ -2109,6 +2186,7 @@ class SettingsBridge {
       value['symbol_set_packs'] = projection.symbolSetPacks;
       value['touch_toolbar_tools'] = projection.touchToolbarTools;
       value['touch_key_sound_packs'] = projection.touchKeySoundPacks;
+      value['touch_plugin_packs'] = projection.touchPluginPacks;
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
@@ -2132,6 +2210,10 @@ class SettingsBridge {
   dictionary(action: string): string {
     if (this.context === undefined) {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' });
+    }
+    // 词库更新的 `automatic` 和 `check` 会去下载，没有隐私政策的授权就不发。
+    if (!HarmonyPrivacyConsent.networkAllowed() && PrivacyConsentPolicy.dictionaryActionNeedsConsent(action)) {
+      return PrivacyConsentPolicy.refusal();
     }
     const response: string = KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
       this.stateDirectory);
@@ -3034,6 +3116,42 @@ class SettingsBridge {
   /** 发布日期 `YYYY-MM-DD`，构建时由 entry/hvigorfile.ts 写进 `BuildProfile`；构建时无从得知则为空串。 */
   appReleaseDate(): string {
     return BuildProfile.RELEASE_DATE;
+  }
+
+  /**
+   * 隐私政策的授权：`{operation:"status"}` 回复 `{ok,value:{granted,decided}}`；`{operation:"review"}` 另外打开授权弹窗（「隐私」页的「查看并同意」），选择的结果之后经 `msimeHarmonyPrivacyConsentChanged` 送达页面。
+   */
+  privacyConsent(request: string): string {
+    let operation: string = '';
+    try {
+      const action: PrivacyConsentAction = JSON.parse(request) as PrivacyConsentAction;
+      operation = typeof action.operation === 'string' ? action.operation : '';
+    } catch {
+      operation = '';
+    }
+    if (operation === 'review') {
+      this.onPrivacyReview?.();
+    } else if (operation !== 'status') {
+      return JSON.stringify({ ok: false, error: 'privacy_consent_invalid' });
+    }
+    const reply: PrivacyConsentReply = { ok: true, value: HarmonyPrivacyConsent.state() };
+    return JSON.stringify(reply);
+  }
+
+  /**
+   * 弹窗里的选择：记在当前版本上，立即发布给键盘（键盘下一次获得焦点就按它联网或不联网），再告诉页面重建联网的入口。不同意时清空本机排队待发的使用统计：用户没同意上传，就不该留着等下次。
+   */
+  decidePrivacy(granted: boolean): void {
+    HarmonyPrivacyConsent.decide(this.stateDirectory, granted, Date.now());
+    if (!granted) {
+      HarmonyTelemetry.reportingTurnedOff(this.stateDirectory);
+    }
+    this.publishShared();
+    this.webview?.runJavaScript(
+      `globalThis.msimeHarmonyPrivacyConsentChanged && globalThis.msimeHarmonyPrivacyConsentChanged(${granted})`)
+      .catch((error: Object): void => {
+        KeyboardLog.error(`privacy consent change not delivered: ${describeError(error)}`);
+      });
   }
 
   openExternalUrl(url: string): void {

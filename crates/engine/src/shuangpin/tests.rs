@@ -92,6 +92,48 @@ fn index_of(candidates: &[WordItem], word: &str) -> usize {
 }
 
 #[test]
+fn builtin_profiles_find_den_in_a_synthetic_dictionary() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_d(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_1_d VALUES('den', 'd', '扽', 100), ('dia', 'd', '嗲', 95), ('deng', 'd', '灯', 90);",
+    );
+    for kind in [
+        ShuangpinProfileKind::Xiaohe,
+        ShuangpinProfileKind::Ziranma,
+        ShuangpinProfileKind::Shoudao,
+        ShuangpinProfileKind::Microsoft,
+        ShuangpinProfileKind::SmartAbc,
+    ] {
+        let selected = profile(kind).unwrap();
+        let code = if kind == ShuangpinProfileKind::Shoudao {
+            assert_eq!(super::utils::cvt_single_sp_to_pinyin("dk", selected), "dia");
+            "dk".to_string()
+        } else {
+            let code = super::utils::encode_pinyin("den", selected)
+                .unwrap_or_else(|| panic!("{kind:?} cannot encode den"));
+            assert_eq!(
+                super::utils::cvt_single_sp_to_pinyin(&code, selected),
+                "den"
+            );
+            code
+        };
+        let mut engine = fixture.engine(kind);
+        let candidates = engine.query(&request(&code, false), None);
+        assert!(
+            words(&candidates).contains(&"扽"),
+            "{kind:?}: {code}: {:?}",
+            words(&candidates)
+        );
+        if kind == ShuangpinProfileKind::Shoudao {
+            assert!(
+                words(&candidates).contains(&"嗲"),
+                "手心原有的 `dia` 候选应保留"
+            );
+        }
+    }
+}
+
+#[test]
 fn warm_queries_do_not_allocate_a_compact_input_only_for_the_empty_check() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER); INSERT INTO tbl_1_n VALUES('ni','n','你',100); CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER); INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200);",
@@ -241,6 +283,51 @@ fn single_and_double_helpcodes_filter_the_base() {
     assert!(!engine
         .query(&request("nihcAE", false), Some(&codes))
         .is_empty());
+}
+
+#[test]
+fn strict_single_helpcode_filters_direct_triggered_and_fuzzy_rows() {
+    let fixture = Fixture::new(HELPCODE_FILTER);
+    let codes = helpcode_filter_keymap();
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for (input, expected) in [
+        ("nihcc", vec!["拟好"]),
+        ("nihca", vec!["你好"]),
+        ("nihcE", vec!["你好", "拟好"]),
+        ("nihcA", vec!["你好"]),
+    ] {
+        let mut typed = request(input, true);
+        let loose = engine.query(&typed, Some(&codes));
+        assert!(words(&loose).contains(&"GitHub"));
+        typed.strict_quanpin_helpcode = true;
+        assert_eq!(words(&engine.query(&typed, Some(&codes))), expected);
+        typed.strict_quanpin_helpcode = false;
+        assert_eq!(words(&engine.query(&typed, Some(&codes))), words(&loose));
+    }
+    let mut triggered = request("nihc", true);
+    triggered.end_helpcodes = "c".into();
+    triggered.strict_quanpin_helpcode = true;
+    assert_eq!(words(&engine.query(&triggered, Some(&codes))), ["拟好"]);
+    triggered.shuangpin_helpcode_modes.mid_sentence = true;
+    triggered.syllable_helpcodes = vec![crate::types::SyllableHelpcode {
+        syllable: 0,
+        first: b'a',
+        second: 0,
+    }];
+    assert!(engine.query(&triggered, Some(&codes)).is_empty());
+
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_n VALUES('nen','n','嫩',100);\
+         CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_r VALUES('ren','r','人',10000);",
+    );
+    let codes = keymap(&[("嫩", "ab"), ("人", "cd")]);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let mut fuzzy = request("lfa", true);
+    fuzzy.fuzzy_pinyin.rules = fuzzy_rule::N_L | fuzzy_rule::R_L;
+    fuzzy.strict_quanpin_helpcode = true;
+    assert_eq!(words(&engine.query(&fuzzy, Some(&codes))), ["嫩"]);
 }
 
 /// `shuangpin_helpcode_modes.direct` 关闭后，「完整基座 + 末尾裸字母」不再算辅助码：单码 `nihcc` 与双码 `nihcAB` 都按纯拼音读，与辅助码整体关闭一致；打开时维持现有的重排与筛选。

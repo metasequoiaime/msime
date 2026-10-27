@@ -10,6 +10,7 @@ const project = (overrides: Partial<Parameters<typeof settingsPageProjections>[0
     hasVocabularyReview: true,
     hasAccount: true,
     hasChat: true,
+    hasAi: true,
     hasCommunity: true,
     showFloatingToolbar: true,
     showDeveloperPage: true,

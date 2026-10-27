@@ -62,6 +62,7 @@ export function ExpressionSettingsPage() {
     credentialTestControl,
     selectPage,
     host,
+    showAiGeneration,
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const translation = createTranslationSettingsBindings({
@@ -92,6 +93,7 @@ export function ExpressionSettingsPage() {
     harmony: harmonyPlatform,
     mobile: mobilePlatform,
     translationAccount: draft.translation_account ?? false,
+    aiGeneration: showAiGeneration,
     translationTargetLanguage,
     translationSecondaryLanguage: draft.translation_secondary_language,
     candidateGlossLanguagesEnabled,
@@ -152,6 +154,7 @@ export function ExpressionSettingsPage() {
                 available={candidateTranslations}
                 provider={translationProvider}
                 showAccountProvider={translation.candidate.showAccountProvider ?? false}
+                showAiProvider={translation.candidate.showAiProvider}
                 offlineFallback={translation.candidate.offlineFallback}
                 onChange={setTranslationProvider}
               />
@@ -210,7 +213,9 @@ export function ExpressionSettingsPage() {
             : panel(tab, children)
         }
       />
-      {mobilePlatform && <MobileInputAiNotice onOpenAi={() => selectPage("ai")} />}
+      {mobilePlatform && showAiGeneration && (
+        <MobileInputAiNotice onOpenAi={() => selectPage("ai")} />
+      )}
     </SettingsPageFieldset>
   );
 }

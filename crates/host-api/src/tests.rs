@@ -328,6 +328,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -340,6 +341,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
+        strict_quanpin_helpcode: false,
         show_helpcode: false,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".into(),
@@ -4959,6 +4961,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             enabled: false,
             schema: HelpcodeSchema::Xiaohe,
             show_in_candidate_window: false,
+            strict_filter: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         shuangpin_helpcode: HelpcodePreferences {
@@ -4966,6 +4969,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             enabled: true,
             schema: HelpcodeSchema::Shouyou2,
             show_in_candidate_window: true,
+            strict_filter: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         ..Preferences::default()
@@ -7275,10 +7279,9 @@ fn mobile_clipboard_uses_structured_actions() {
         .unwrap();
         read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
     };
-    assert_eq!(
-        call(json!({"operation": "load"}))["value"]["entries"],
-        json!([])
-    );
+    let initial = call(json!({"operation": "load"}));
+    assert_eq!(initial["value"]["entries"], json!([]));
+    assert_eq!(initial["value"]["limit"], 50);
     assert!(!directory.path().join("preferences.json").exists());
 
     assert_eq!(
@@ -7339,6 +7342,43 @@ fn mobile_clipboard_uses_structured_actions() {
             ["ok"],
         false
     );
+}
+
+#[test]
+fn mobile_clipboard_uses_separate_preferences_directory_for_capacity() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("bootstrap/state");
+    let store = PreferencesStore::new(&state);
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences;
+    preferences.clipboard_history_limit = 100;
+    store.save(snapshot.revision, preferences).unwrap();
+
+    for history in [
+        directory.path().to_path_buf(),
+        directory.path().join("clipboard-visitor"),
+    ] {
+        let call = |action: Value| {
+            let request = serde_json::to_vec(&json!({
+                "directory": history,
+                "preferences_directory": state,
+                "action": action,
+            }))
+            .unwrap();
+            read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+        };
+        for index in 0..60 {
+            let result =
+                call(json!({"operation": "capture", "text": format!("synthetic-{index:03}")}));
+            assert_eq!(result["value"]["captured"], true);
+        }
+        let loaded = call(json!({"operation": "load"}));
+        assert_eq!(loaded["value"]["limit"], 100);
+        assert_eq!(loaded["value"]["entries"].as_array().unwrap().len(), 60);
+        let restarted = call(json!({"operation": "load"}));
+        assert_eq!(restarted["value"]["entries"].as_array().unwrap().len(), 60);
+        assert!(history.join("MSIME/clipboard_history.json").exists());
+    }
 }
 
 #[test]
@@ -17127,10 +17167,10 @@ fn pronunciation_request_reads_the_table_beside_resources() {
 }
 
 #[test]
-fn pronunciation_request_falls_back_to_explicit_bundled_table() {
+fn pronunciation_request_uses_installed_android_resource_pack() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("state/generation");
-    let supplementary = root.path().join("bundle/Contents/Resources");
+    let supplementary = root.path().join("state/resource-packs");
     std::fs::create_dir_all(&resources).unwrap();
     let install = |directory: &std::path::Path, reading: &str| {
         std::fs::create_dir_all(directory).unwrap();
@@ -17167,7 +17207,7 @@ fn pronunciation_request_falls_back_to_explicit_bundled_table() {
     let result = call(request.clone());
     assert_eq!(
         result["ok"], true,
-        "包内音标表必须能作为旧资源目录的显式回退：{result}"
+        "Android 安装的音标包必须能经显式补充目录读取：{result}"
     );
     assert_eq!(
         result["value"],
@@ -20854,6 +20894,43 @@ fn contacts_load_and_refresh_when_mention_mode_is_disabled() {
     assert!(!local_mode_candidates(handle, b"nihao")
         .iter()
         .any(|row| row.contains("202-555-")));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
+fn large_imported_contact_list_keeps_derived_name_candidates_available() {
+    let dir = tempfile::tempdir().unwrap();
+    let dictionaries = dir.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_2_n VALUES('ni''hao','nh','拟好',100);",
+        )
+        .unwrap();
+    let mut entries = vec![msime_client_services::plugins::mentions::MentionEntry {
+        text: "拟好".into(),
+        key: String::new(),
+        phone: "202-555-0101".into(),
+    }];
+    entries.extend((0..999).map(
+        |index| msime_client_services::plugins::mentions::MentionEntry {
+            text: format!("拟{}", char::from_u32(0x4e00 + index).unwrap()),
+            key: String::new(),
+            phone: "202-555-0102".into(),
+        },
+    ));
+    msime_client_services::plugins::mentions::MentionStore::new(dir.path().join("state/plugins"))
+        .save(&entries)
+        .unwrap();
+
+    let handle = plugin_host(dir.path(), chinese_preferences());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        &local_mode_candidates(handle, b"nihao")[..2],
+        ["拟好", "拟好 202-555-0101"]
+    );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 

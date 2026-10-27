@@ -28,11 +28,16 @@ struct ClipboardHistoryStore {
   static let maxLimit = 1000
   let root: URL
   let file: URL
+  /// 容量偏好所在目录。历史在 App Group 根下，`clipboard_history_limit` 却由设置页写进共享偏好的 state_root（App Group/MSIME）；不传时 host-api 从 `root` 读，找不到偏好就按 50 条淘汰。
+  let preferencesDirectory: String?
 
-  init(directory: URL? = nil) {
+  /// 不传 `directory` 时用 App Group 根和共享偏好目录；传入自己的目录（测试）时偏好也从该目录读，除非另给 `preferencesDirectory`。
+  init(directory: URL? = nil, preferencesDirectory: String? = nil) {
     root = directory ?? IOSSharedPaths.sharedContainerOrApplicationSupport(
       for: InputSchemePreference.appGroupIdentifier)
     file = root.appendingPathComponent("MSIME/clipboard_history.json")
+    self.preferencesDirectory = preferencesDirectory
+      ?? (directory == nil ? MetasequoiaInputSessionBridge.sharedStateDirectory : nil)
   }
 
   func load() throws -> [ClipboardHistoryItem] {
@@ -86,10 +91,11 @@ struct ClipboardHistoryStore {
   }
 
   private func call(_ action: [String: Any]) throws -> [String: Any] {
-    let request = try JSONSerialization.data(withJSONObject: [
-      "directory": root.path,
-      "action": action,
-    ])
+    var payload: [String: Any] = ["directory": root.path, "action": action]
+    if let preferencesDirectory, !preferencesDirectory.isEmpty {
+      payload["preferences_directory"] = preferencesDirectory
+    }
+    let request = try JSONSerialization.data(withJSONObject: payload)
     let pointer = request.withUnsafeBytes { bytes in
       msimeClientMobileClipboardHistory(
         bytes.bindMemory(to: MSIMEClipboardByte.self).baseAddress, UInt(request.count))

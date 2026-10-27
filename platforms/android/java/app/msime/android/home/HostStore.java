@@ -5,6 +5,8 @@ import androidx.annotation.Nullable;
 import app.msime.android.AppThemePalette;
 import app.msime.android.JsonPolicy;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.KeyboardSkinModeChoice;
+import app.msime.android.CustomSkinLibrary;
 import app.msime.android.NativeClient;
 import app.msime.android.PreferencesRevisionPolicy;
 import app.msime.android.SyncSignals;
@@ -14,7 +16,9 @@ import app.msime.android.TypingStatisticsModel;
 import app.msime.android.policy.HostOptionsPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import java.io.File;
+import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -128,18 +132,29 @@ public final class HostStore {
         return value(call(NativeClient::textTrackpadOptions));
     }
 
-    /**
-     * The touch keyboard the stored global theme draws, in the mode `screen_keyboard_theme` and the app mode pick (`systemDark` stands in for the Android night mode). It goes through the same resolver the input service uses and, like {@link #themeCatalog}, takes no lock. A refused answer draws the Material 3 keyboard.
-     */
+    /** 按当前键盘明暗解析皮肤；传入的设计库用于找到专用槽位的设计，缺项时回退旧主题。 */
     public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark) {
+        return keyboardSkin(preferences, systemDark, List.of());
+    }
+
+    public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark,
+            List<CustomSkinLibrary.Item> library) {
         boolean dark = KeyboardSkin.resolveDark(
             InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
             InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
+        KeyboardSkinModeChoice.Selected selected = KeyboardSkinModeChoice.selected(preferences, dark, library);
         String globalTheme = KeyboardSkin.effectiveTheme(themeCatalog(),
-            InputViewValuePolicy.textOr(preferences, "global_theme", "system"), dark);
+            selected.theme(), dark);
         JSONObject customTheme = preferences.optJSONObject("custom_theme");
+        if (selected.libraryId() != null) {
+            try {
+                customTheme = customTheme == null ? new JSONObject() : new JSONObject(customTheme.toString());
+                customTheme.put("keyboard", selected.design());
+            } catch (JSONException error) { return KeyboardSkin.system(dark); }
+        }
+        JSONObject requestTheme = customTheme;
         JSONObject theme = value(call(() -> NativeClient.resolveTheme(
-            KeyboardSkin.themeRequest(globalTheme, customTheme, dark))));
+            KeyboardSkin.themeRequest(globalTheme, requestTheme, dark))));
         if (theme == null) return KeyboardSkin.system(dark);
         return KeyboardSkin.resolved(theme, KeyboardSkin.themeTitle(themeCatalog(), globalTheme),
             dark, customTheme == null ? null : customTheme.optJSONObject("keyboard"));
@@ -148,20 +163,42 @@ public final class HostStore {
     /**
      * {@link #keyboardSkin(JSONObject, boolean)} with the app theme's seed for the 跟随系统 skin.
      *
-     * <p>跟随系统（`global_theme` 为 `system`）时键盘颜色由应用主题当前季节的种子推导（设计令牌 §1.4），与 `:ime` 画出来的一致，所以这里直接用 {@link KeyboardSkin#system(boolean, AppThemePalette.Seed)}，不再问解析器；其他皮肤与两参数形式相同。与两参数形式一样不拿锁。
+     * <p>当前键盘明暗实际选中跟随系统时，键盘颜色由应用主题当前季节的种子推导（设计令牌 §1.4），与 `:ime` 画出来的一致，所以直接用 {@link KeyboardSkin#system(boolean, AppThemePalette.Seed)}；其他皮肤按同一份模式槽位解析。
      *
      * @param seed the app theme's seed, normally {@link #seed(Context)}; null draws the unseeded palette
      */
     public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark,
             AppThemePalette.Seed seed) {
+        return keyboardSkin(preferences, systemDark, seed, List.of());
+    }
+
+    public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark,
+            AppThemePalette.Seed seed, List<CustomSkinLibrary.Item> library) {
         boolean dark = KeyboardSkin.resolveDark(
             InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
             InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
         // 所选主题属于另一种明暗时键盘按跟随系统画，这里也要走跟随系统的种子配色。
         if (!"system".equals(KeyboardSkin.effectiveTheme(themeCatalog(),
-                InputViewValuePolicy.textOr(preferences, "global_theme", "system"), dark)))
-            return keyboardSkin(preferences, systemDark);
+                KeyboardSkinModeChoice.selected(preferences, dark, library).theme(), dark)))
+            return keyboardSkin(preferences, systemDark, library);
         return KeyboardSkin.system(dark, seed);
+    }
+
+    /** 设置页工作线程读取本机设计库后解析当前键盘皮肤；库失效时沿用旧主题。 */
+    public static KeyboardSkin keyboardSkin(Context context, JSONObject preferences, boolean systemDark,
+            AppThemePalette.Seed seed) {
+        boolean dark = KeyboardSkin.resolveDark(
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
+        if (!preferences.optString(KeyboardSkinModeChoice.key(dark), "").startsWith("design:"))
+            return keyboardSkin(preferences, systemDark, seed);
+        List<CustomSkinLibrary.Item> library = List.of();
+        String directory = directory(context);
+        if (!directory.isEmpty()) try { library = CustomSkinLibrary.read(Paths.get(directory)); }
+        catch (java.io.IOException | RuntimeException error) {
+            android.util.Log.w("MSIMESettings", "Custom skin library unreadable", error);
+        }
+        return keyboardSkin(preferences, systemDark, seed, library);
     }
 
     /**

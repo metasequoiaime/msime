@@ -656,6 +656,22 @@ fn insert_new_android_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
 ) {
+    insert_string(
+        settings,
+        "platform.android.keyboard_skin_light",
+        preferences
+            .android_keyboard_skin_light
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    insert_string(
+        settings,
+        "platform.android.keyboard_skin_dark",
+        preferences
+            .android_keyboard_skin_dark
+            .as_deref()
+            .unwrap_or_default(),
+    );
     let pack = &preferences.plugins.key_sound.pack;
     if pack.chars().count() <= MAX_KEY_SOUND_PACK_CHARS {
         insert_string(settings, "platform.android.key_sound_pack", pack);
@@ -1237,6 +1253,26 @@ pub(super) fn apply_touch_settings(
 
 /// [`insert_new_android_settings`] 的反方向。取值不认识或超出本机范围时跳过这一个键。
 fn apply_new_android_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string(
+        "platform.android.keyboard_skin_light",
+        |preferences, value| {
+            if !value.is_empty() && !crate::preferences::valid_android_keyboard_skin_choice(value) {
+                return None;
+            }
+            preferences.android_keyboard_skin_light = (!value.is_empty()).then(|| value.to_owned());
+            Some(())
+        },
+    )?;
+    applier.set_string(
+        "platform.android.keyboard_skin_dark",
+        |preferences, value| {
+            if !value.is_empty() && !crate::preferences::valid_android_keyboard_skin_choice(value) {
+                return None;
+            }
+            preferences.android_keyboard_skin_dark = (!value.is_empty()).then(|| value.to_owned());
+            Some(())
+        },
+    )?;
     applier.set_string("platform.android.key_sound_pack", |preferences, value| {
         if value.chars().count() > MAX_KEY_SOUND_PACK_CHARS {
             return None;

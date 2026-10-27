@@ -54,6 +54,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL inputModeStatusItem;
 /// 候选窗和悬浮工具栏左端是否画水杉 logo（共享偏好 `show_app_logo`）。没有共享值也没有本机值时按新装处理，不画。
 @property(nonatomic) BOOL showsAppLogo;
+/// 候选窗首行是否显示「全拼 · 中 · 简」状态和右侧水杉枝叶装饰（共享偏好 `show_candidate_status`）。
+@property(nonatomic) BOOL showsCandidateStatus;
 /// 候选窗首行是否画「1 / 3」和 ‹ › 翻页按钮（共享偏好 `show_candidate_page_number`）。没有共享值也没有本机值时画，与共享偏好的默认一致。它不改变键盘和滚轮翻页，但滚轮翻页（`navigation.mouse_wheel`）默认关，关掉它后鼠标只能靠滚轮翻页。
 @property(nonatomic) BOOL showsCandidatePageNumber;
 /// 「展开候选」（共享偏好 `expand_candidates`）：横排候选窗按 ↓ 展开成多行候选网格。没有共享值也没有本机值时关闭。

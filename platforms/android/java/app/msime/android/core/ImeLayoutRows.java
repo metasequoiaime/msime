@@ -457,11 +457,13 @@ final class ImeLayoutRows {
         addNineKey(actions, rewrite);
         java.util.List<String> punctuation = NineKeyLayout.punctuation();
         String last = punctuation.get(punctuation.size() - 1);
-        Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
+        NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        // 上滑可输入 0，在右上角沿用九键数字提示，点按和长按行为不变。
+        exclamation.setDigitText("0");
         s.imeLetterRows.bindSuperscriptShortcut(exclamation, last);
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
-        if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
     }
@@ -871,7 +873,8 @@ final class ImeLayoutRows {
     void showLetterOptions(Button anchor, String input) {
         String lower = input.toLowerCase(java.util.Locale.ROOT);
         String upper = input.toUpperCase(java.util.Locale.ROOT);
-        String hint = LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks());
+        String hint = LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
+            s.punctuationMarks());
         java.util.List<String> choices = new java.util.ArrayList<>();
         choices.add(lower);
         if (!upper.equals(lower)) choices.add(upper);
@@ -944,7 +947,7 @@ final class ImeLayoutRows {
     /** 直接滑出角标与选项中的符号共用 Engine 标点路由，保留组字转换、引号和成对补全。 */
     void commitLetterHint(String input) {
         dismissNineKeyHoldOptions();
-        String hint = LetterHintTable.hint(input);
+        String hint = LetterHintTable.hint(input, s.dedicatedEnglish);
         if (hint == null) return;
         boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
             && s.punctuation(hint.charAt(0));

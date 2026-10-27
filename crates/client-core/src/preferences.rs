@@ -517,6 +517,17 @@ fn is_system_theme(theme: &crate::theme::GlobalTheme) -> bool {
     *theme == crate::theme::GlobalTheme::System
 }
 
+/// Android 键盘模式槽位只存短引用，不复制设计与照片；设计 id 只作为库查找键使用。
+pub fn valid_android_keyboard_skin_choice(value: &str) -> bool {
+    if let Some(id) = value.strip_prefix("theme:") {
+        return crate::theme::GlobalTheme::from_id(id)
+            .is_some_and(|theme| theme != crate::theme::GlobalTheme::Native);
+    }
+    value
+        .strip_prefix("design:")
+        .is_some_and(|id| !id.is_empty() && id.len() <= 128 && !id.chars().any(char::is_control))
+}
+
 impl CustomTheme {
     /// The same checks `Preferences::validate` applies to `custom_theme`, for hosts that receive a custom theme outside a preferences document.
     pub fn validate(&self) -> Result<(), PreferencesError> {
@@ -644,11 +655,13 @@ pub enum TouchKeyboardScheme {
     NineKeyShuangpin,
     /// 全拼十八键（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::EighteenKey`），Android、iOS 和鸿蒙的触屏键盘都有；默认不启用，由用户选择布局。
     EighteenKey,
+    /// 粤语双拼 26 键：与粤拼共用词典，按选中入口显式解释同形两键码。
+    CantoneseShuangpin,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -669,6 +682,7 @@ impl TouchKeyboardScheme {
         Self::FourteenKey,
         Self::NineKeyShuangpin,
         Self::EighteenKey,
+        Self::CantoneseShuangpin,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。
@@ -1347,6 +1361,12 @@ pub struct Preferences {
     /// The one theme that colours the candidate window, toolbar, menus and touch keyboard on every host. `theme` above stays the light/dark mode the `system` theme and the settings window follow.
     #[serde(default)]
     pub global_theme: crate::theme::GlobalTheme,
+    /// Android 键盘浅色皮肤选择：`theme:<id>` 或 `design:<本机设计库 id>`；缺省时沿用 `global_theme`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub android_keyboard_skin_light: Option<String>,
+    /// Android 键盘深色皮肤选择；格式同浅色槽位，缺省时沿用 `global_theme`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub android_keyboard_skin_dark: Option<String>,
     #[serde(default)]
     pub custom_theme: CustomTheme,
     #[serde(default)]
@@ -1356,6 +1376,9 @@ pub struct Preferences {
     /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
+    /// macOS 候选窗首行的输入状态文字和枝叶装饰，独立于拼音预编辑开关。
+    #[serde(default = "enabled_by_default")]
+    pub show_candidate_status: bool,
     #[serde(default)]
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
@@ -2936,7 +2959,7 @@ impl CloudClipboardRelayPreferences {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CloudClipboardWebDavPreferences {
-    /// 文件夹地址，例如 `https://dav.jianguoyun.com/dav/msime`；规则与中继地址相同（[`valid_relay_url`]）。
+    /// 文件夹地址，例如坚果云的根地址 `https://dav.jianguoyun.com/dav/`（客户端在它下面自己建 `msime-clipboard/`）；规则与中继地址相同（[`valid_relay_url`]）。
     pub url: String,
     /// 网盘账号；规则见 [`valid_webdav_username`]。
     pub username: String,
@@ -3548,10 +3571,13 @@ impl Default for Preferences {
             menu_theme: SettingsTheme::default(),
             // 新装在所有平台都跟随系统。触屏键盘的跟随系统皮肤按应用主题当前季节取色，键盘与应用界面是同一套颜色；原先触屏默认的薄荷晨光是固定配色，秋冬季节和应用主题对不上。
             global_theme: crate::theme::GlobalTheme::default(),
+            android_keyboard_skin_light: None,
+            android_keyboard_skin_dark: None,
             custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             show_candidate_page_number: true,
+            show_candidate_status: true,
             tsf_preedit_style: PreeditStyle::default(),
             diagnostic_log: DiagnosticLogPreferences::default(),
             candidate_follow_cursor: true,
@@ -3935,6 +3961,9 @@ pub struct HelpcodePreferences {
     pub schema: HelpcodeSchema,
     #[serde(default = "enabled_by_default")]
     pub show_in_candidate_window: bool,
+    /// 一码辅助码严格排除不匹配候选；默认关闭，保持已有的一码重排行为。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub strict_filter: bool,
     /// 双拼专属的辅助码触发方式，对应 Windows v0.11.1 `[helpcode]` 组里 `shuangpin_helpcode_direct` 起的十一枚键；`quanpin_helpcode` 不读这一段。等于默认值时不写进文档，旧文档缺这一段时按 [`ShuangpinHelpcodeModes::default`] 处理。
     #[serde(default, skip_serializing_if = "ShuangpinHelpcodeModes::is_default")]
     pub modes: ShuangpinHelpcodeModes,
@@ -3947,6 +3976,7 @@ impl Default for HelpcodePreferences {
             schema: HelpcodeSchema::default(),
             trigger_key: String::new(),
             show_in_candidate_window: true,
+            strict_filter: false,
             modes: ShuangpinHelpcodeModes::default(),
         }
     }
@@ -4027,6 +4057,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Ziranma,
         trigger_key: String::new(),
         show_in_candidate_window: false,
+        strict_filter: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }
@@ -4080,6 +4111,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,
+        strict_filter: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }
@@ -4491,6 +4523,16 @@ impl Preferences {
             return Err(PreferencesError::InvalidTouchQuickSymbols);
         }
         self.custom_theme.validate()?;
+        if [
+            &self.android_keyboard_skin_light,
+            &self.android_keyboard_skin_dark,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| !valid_android_keyboard_skin_choice(value))
+        {
+            return Err(PreferencesError::InvalidAndroidKeyboardSkinChoice);
+        }
         if self.touch_keyboard_schemes.enabled.is_empty()
             || self
                 .touch_keyboard_schemes
@@ -4662,6 +4704,8 @@ pub enum PreferencesError {
     InvalidNineKeyShuangpinCustomProfile,
     #[error("custom theme keyboard design is invalid")]
     InvalidTouchKeyboardSkinDesign,
+    #[error("Android 键盘皮肤选择不是有效主题或设计库 id")]
+    InvalidAndroidKeyboardSkinChoice,
     #[error("custom theme base must be system or a built-in theme")]
     InvalidCustomThemeBase,
     #[error("candidate font size must be between 12 and 32")]

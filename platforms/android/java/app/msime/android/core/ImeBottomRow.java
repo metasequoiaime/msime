@@ -28,9 +28,64 @@ final class ImeBottomRow {
     private Button zeroButton;
     /** 分离式键盘右半边内侧的第二个空格键；第一次分离时建，换了一套控件（onCreateInputView）时作废重建。 */
     private SpaceKeyFace splitSpace;
+    private boolean bottomCommaSwipeBound;
+    private Button bottomCommaSwipeButton;
 
     ImeBottomRow(MSIMEInputService s) {
         this.s = s;
+    }
+
+    /** 长空格模式的逗号下滑输入句号，普通短按和已有长按动作保持原样。 */
+    void updateCommaSwipe() {
+        if (s.quickPunctuationButton == null) return;
+        boolean enabled = s.longSpaceLayoutActive(s.imeLetterRows.drawnTouchLayout())
+            && s.keyboardLayer == KeyboardLayout.Layer.LETTERS;
+        if (enabled == bottomCommaSwipeBound
+                && bottomCommaSwipeButton == s.quickPunctuationButton) return;
+        if (bottomCommaSwipeButton != null) bottomCommaSwipeButton.setOnTouchListener(null);
+        bottomCommaSwipeButton = s.quickPunctuationButton;
+        bottomCommaSwipeBound = enabled;
+        if (enabled) bindCommaDownSwipe(bottomCommaSwipeButton);
+    }
+
+    /** 数字层的逗号键和字母层共用同一手势。 */
+    void bindCommaDownSwipe(Button button) {
+        final float[] start = new float[2];
+        final boolean[] swiped = new boolean[1];
+        final int slop = ViewConfiguration.get(s).getScaledTouchSlop();
+        button.setOnTouchListener((ignored, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    start[0] = event.getX();
+                    start[1] = event.getY();
+                    swiped[0] = false;
+                    return false;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    float dx = event.getX() - start[0];
+                    float dy = event.getY() - start[1];
+                    if (dy > slop && dy > Math.abs(dx)) {
+                        swiped[0] = true;
+                        button.cancelLongPress();
+                        button.setPressed(false);
+                    }
+                    return swiped[0];
+                }
+                case MotionEvent.ACTION_UP -> {
+                    if (!swiped[0]) return false;
+                    s.imeKeyFeedback.playFeedback(button);
+                    s.countKey(button);
+                    s.type('.');
+                    swiped[0] = false;
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL -> {
+                    swiped[0] = false;
+                    return false;
+                }
+                default -> { return swiped[0]; }
+            }
+        });
     }
 
     /** 回车键始终是 accent 填充（设计：空闲画 ↵ 图标，组词时显示「确认」）。 */
@@ -533,15 +588,16 @@ final class ImeBottomRow {
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
+        boolean longSpace = s.longSpaceLayoutActive(layout);
         // 英文 26 键在空格左边多一个句点，中英切换时底行要重排。
         boolean english = s.dedicatedEnglish;
         String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
-            + ":" + english
+            + ":" + english + ":" + longSpace
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
             : KeyboardActionRow.designEntries(numberPad ? KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT : layout,
-                globe, swapLanguageNumber, numberPad, english);
+                globe, swapLanguageNumber, numberPad, english, longSpace);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());

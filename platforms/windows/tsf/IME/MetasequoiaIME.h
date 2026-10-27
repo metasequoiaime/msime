@@ -345,9 +345,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleCandidateFinalizeForVKReturn(TfEditCookie ec, _In_ ITfContext *pContext);
     // Server 回了 CommitExactText（预选的释义列、Ctrl+Enter 的释义页）：它已经取消了自己的组字，text 是要原样上屏的完整文本。宿主会话也丢掉组字，再把 text 写进组字并结束组字，不补成对标点。
     HRESULT _CommitServerExactText(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
-    // 宿主会话拥有组字时，在宿主会话里选中候选窗高亮的那一项：选完了就上屏并结束组字，只选了一段（分段选词）就按宿主会话剩下的原文继续组字。数字键和空格都走这里，宿主会话因此和 Server 一样前进，之后的 Shift、回车不会再把已经上屏或选过的拼音交出来。候选窗与宿主会话的候选列表对不上（代次过期）或选择失败时返回 S_FALSE，什么也不写。
-    HRESULT _SelectHighlightedHostCandidate(TfEditCookie ec, _In_ ITfContext *pContext,
-                                            _In_opt_ const std::wstring *serverChoice = nullptr);
+    // 宿主会话拥有组字时，在宿主会话里选中 Server 对这个键选的那一项（`serverReply` 是它回复的 candidate_string，`serverMsgType` 是回复类型，见 HostServerSelection.h）；没有回复可读时传 nullptr，选候选窗高亮的那一项。选完了就上屏并结束组字，只选了一段（分段选词）就按宿主会话剩下的原文继续组字。数字键和空格都走这里，宿主会话因此和 Server 一样前进，之后的 Shift、回车不会再把已经上屏或选过的拼音交出来。候选窗与宿主会话的候选列表对不上（代次过期）、回复里什么都没选、宿主会话里找不到唯一的那个词或选择失败时返回 S_FALSE，什么也不写。
+    HRESULT _SelectHighlightedHostCandidate(TfEditCookie ec, _In_ ITfContext *pContext, UINT serverMsgType = 0,
+                                            _In_opt_ const std::wstring *serverReply = nullptr);
     // typedKey：产生这个答复的字符键，宿主会话在没有组字时不收它时，按上屏这个字符处理（DeclinedIdleCharacterCommit）；不是字符键的答复传 '\0'。
     HRESULT _ApplyHostCompositionResult(TfEditCookie ec, ITfContext *pContext,
                                          const msime::tsf::EngineResult &result, bool serverCommit = false,
@@ -428,8 +428,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                           TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId);
     HRESULT _CreateAndStartCandidate(_In_ CCompositionProcessorEngine *pCompositionProcessorEngine, TfEditCookie ec,
                                      _In_ ITfContext *pContext);
+    // localSlotSelected：数字键在 presenter 这一页上选中了按键位置的那一项。宿主会话这一页比 Server 那一页短时为假，这时仍要读 Server 的回复跟着选，只是读不到回复时不再退回本地高亮项。
     HRESULT _HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId,
-                                   const std::wstring &prefetchedText);
+                                   const std::wstring &prefetchedText, bool localSlotSelected = true);
 
     struct AsyncKeyRequest
     {

@@ -1,4 +1,5 @@
 #include "AiCandidateWorker.h"
+#include "CandidateCurlHeaders.h"
 #include "msime_client.h"
 
 #include <chrono>
@@ -119,6 +120,30 @@ struct Harness {
 
 int main() {
   try {
+    // 发给接口的头部链表要完整保留描述里的每一项。0.3.0 构造链表时对同一表头反复 reset，从第二个头部起整条表就被释放了，libcurl 发请求时读到已释放的内存而崩溃。
+    {
+      const auto headers = candidate_curl_headers(nlohmann::json{
+          {"Authorization", "Bearer secret"},
+          {"Content-Type", "application/json"},
+          {"X-Request", "1"}});
+      require(headers.has_value() && *headers, "valid headers build a list");
+      std::vector<std::string> lines;
+      for (const curl_slist *node = headers->get(); node; node = node->next)
+        lines.emplace_back(node->data);
+      require(lines == std::vector<std::string>{"Authorization: Bearer secret",
+                                                "Content-Type: application/json",
+                                                "X-Request: 1"},
+              "every header stays in the list");
+      const auto empty = candidate_curl_headers(nlohmann::json::object());
+      require(empty.has_value() && !*empty, "no headers build an empty list");
+      require(!candidate_curl_headers(nlohmann::json{{"Bad Name", "x"}}),
+              "an invalid header name is refused");
+      require(!candidate_curl_headers(nlohmann::json{{"X-Line", "a\nb"}}),
+              "a header value with a line break is refused");
+      require(!candidate_curl_headers(nlohmann::json{{"X-Number", 1}}),
+              "a non-string header value is refused");
+    }
+
     // A completed request reaches the owner with its own lease, query and
     // candidates.
     {

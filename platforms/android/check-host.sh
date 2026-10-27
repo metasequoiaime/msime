@@ -722,6 +722,15 @@ if ! rg -q 'forgetCurrentClip\(\);' <<< "$search_body" \
   echo "Android clipboard search must open the app's CLIPBOARD_SEARCH page from the panel header after forgetting the current clip, never a query field in the input method (#5973)" >&2
   exit 1
 fi
+# 搜索框固定在剪贴板历史页顶部；结果列表滚动时不得把查询框一起卷走（#9958）。
+clipboard_search_page="$repo_root/platforms/android/java/app/msime/android/home/ClipboardSearchPage.java"
+if ! rg -q 'protected View fixedNavigation\(\)' "$clipboard_search_page" \
+  || ! rg -q 'searchNavigation = new SearchPill' "$clipboard_search_page" \
+  || ! rg -q 'searchNavigation' "$clipboard_search_page" \
+  || rg -q 'target\.addView\(search' "$clipboard_search_page"; then
+  echo "Android clipboard search must keep its search field fixed above the scrolling results (#9958)" >&2
+  exit 1
+fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
 share_body=$(rg -A 24 'void shareClipboardText\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
@@ -745,6 +754,18 @@ if ! rg -A 30 'void renderClipboardSegmentation\(\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
     | rg_q_stdin 'new ScrollView\('; then
   echo "Android clipboard segmentation must scroll its word pieces separately from the pinned action bar (#5645)" >&2
+  exit 1
+fi
+# 多选剪贴板最多保留 20 项，并同时提供选中项导出和删除；导出走同一份认证与文件目录流程（#9957）。
+if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'clipboardAction\(header, "导出"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'exportClipboardItems' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'exportSelectedText' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
+  echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
   exit 1
 fi
 # 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。
@@ -932,9 +953,9 @@ if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   echo "Android 中/英 keys must open the system input method picker on long press" >&2
   exit 1
 fi
-# 删除键上滑快速删除（#5585）：判定只在 BackspaceSwipePolicy，键的触摸监听按它决定松手是否清空，清空经服务的 deleteAllBeforeCursor 分段删除；连删的间隔按 BackspaceRepeatPolicy 逐级加速，不能写回固定间隔。
+# 删除键上滑快速删除（#5585、#9893）：判定和组字边界只在 BackspaceSwipePolicy，键的触摸监听按它决定松手清哪一层；清正文经服务的 deleteAllBeforeCursor 分段删除，连删间隔由 BackspaceRepeatPolicy 逐级加速。
 letter_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLetterRows.java"
-if ! rg -q 'BackspaceSwipePolicy\.clearsOnRelease\(backspaceSwipePhase\)' "$letter_rows" \
+if ! rg -q 'BackspaceSwipePolicy\.clearTarget\(backspaceSwipePhase' "$letter_rows" \
   || ! rg -q 'BackspaceRepeatPolicy\.repeatInterval\(repeats\)' "$letter_rows" \
   || rg -q 'BackspaceRepeatPolicy\.REPEAT_INTERVAL_MS' "$letter_rows" \
   || ! rg -q 'BackspaceSwipePolicy\.clearBeforeCursor' "$account_service"; then

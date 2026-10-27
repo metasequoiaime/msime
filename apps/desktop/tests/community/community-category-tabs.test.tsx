@@ -32,6 +32,24 @@ test.each([
   },
 );
 
+// 回复模板（鸿蒙上叫「短语」）是高情商回复的提示词：不提供 AI 生成类功能的宿主不列这一类。
+test.each([undefined, "harmony" as const])(
+  "a host without AI generation has no reply category: %s",
+  (look) => {
+    render(
+      <CommunityCategoryTabs
+        category="dictionary"
+        hasSkins
+        hasReplies={false}
+        look={look}
+        onCategoryChange={vi.fn()}
+      />,
+    );
+    const tabs = within(screen.getByRole("tablist", { name: "社区分类" })).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["皮肤", "词库"]);
+  },
+);
+
 test("category tabs emit the category while selection stays controlled by their caller", () => {
   const onCategoryChange = vi.fn();
   const view = render(

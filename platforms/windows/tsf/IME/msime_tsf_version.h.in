@@ -1,0 +1,11 @@
+// 由 platforms/windows/ProductVersion.cmake 根据产品版本文件生成；需要调整版本时修改产品版本文件，不要编辑构建目录中的副本。
+// 供 MetasequoiaIME.rc 引用，使用头文件保护宏。
+#ifndef MSIME_TSF_VERSION_H
+#define MSIME_TSF_VERSION_H
+
+#define MSIME_TSF_VERSION_MAJOR @MSIME_TSF_VERSION_MAJOR@
+#define MSIME_TSF_VERSION_MINOR @MSIME_TSF_VERSION_MINOR@
+#define MSIME_TSF_VERSION_PATCH @MSIME_TSF_VERSION_PATCH@
+#define MSIME_TSF_VERSION_STRING "@MSIME_TSF_VERSION_MAJOR@.@MSIME_TSF_VERSION_MINOR@.@MSIME_TSF_VERSION_PATCH@.0"
+
+#endif

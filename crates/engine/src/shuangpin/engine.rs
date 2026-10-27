@@ -12,8 +12,8 @@ use super::query::{
 use super::utils::{cvt_single_sp_to_pinyin, get_full_help_codes, is_all_complete_pinyin};
 use super::ShuangpinProfile;
 use crate::helpcode::{
-    filter_candidates_with_double_helpcodes, reorder_candidates_with_single_helpcode,
-    HelpcodeKeymap,
+    filter_candidates_with_double_helpcodes, filter_candidates_with_single_helpcode,
+    reorder_candidates_with_single_helpcode, HelpcodeKeymap,
 };
 use crate::paths::RuntimePaths;
 use crate::quanpin::QuanpinDictionary;
@@ -368,6 +368,22 @@ impl ShuangpinEngine {
                 keymap,
             );
         }
+        if request.enable_shuangpin_helpcode && request.strict_quanpin_helpcode {
+            let helpcode = if request.end_helpcodes.is_empty() {
+                active_helpcode_query(request, self.profile).map(|query| query.help_codes)
+            } else {
+                Some(request.end_helpcodes.clone())
+            };
+            if let Some(helpcode) = helpcode.filter(|code| code.len() == 1) {
+                // 在普通、模糊与句中候选合并后筛选，避免后续补查重新加入未命中的行。
+                let empty = HelpcodeKeymap::default();
+                candidates = filter_candidates_with_single_helpcode(
+                    candidates,
+                    &helpcode.to_ascii_lowercase(),
+                    keymap.unwrap_or(&empty),
+                );
+            }
+        }
         candidates
     }
 
@@ -427,8 +443,19 @@ impl ShuangpinEngine {
         sort_by_coverage(&mut candidates);
         // 不同替代路径的词库行共用权重，随后恢复辅助码匹配优先级。
         sort_dictionary_weights(&mut candidates);
-        if let (Some(helpcode), Some(keymap)) = (single_helpcode, keymap) {
-            candidates = reorder_candidates_with_single_helpcode(candidates, &helpcode, keymap);
+        if let Some(helpcode) = single_helpcode {
+            let empty = HelpcodeKeymap::default();
+            let keymap = keymap.unwrap_or(&empty);
+            candidates = if request.strict_quanpin_helpcode {
+                // 原编码的声母不合法时，只有模糊音替代路径能识别末尾一码。
+                filter_candidates_with_single_helpcode(
+                    candidates,
+                    &helpcode.to_ascii_lowercase(),
+                    keymap,
+                )
+            } else {
+                reorder_candidates_with_single_helpcode(candidates, &helpcode, keymap)
+            };
             sort_by_coverage(&mut candidates);
         }
         keep_typo_sentence_off_first_seat(&mut candidates);

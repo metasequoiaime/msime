@@ -147,6 +147,14 @@ jobs:
           export MSIME_IOS_KEYBOARD_PROFILE_PATH="$SIGNING_DIR/keyboard.mobileprovision"
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/ios/build-app.sh "$resource_dir" testflight
+      # upload-testflight.sh 从归档里打出的 dSYM 留 90 天，用来符号化遥测崩溃里的「二进制 + 偏移」；App Store Connect 那边另有 uploadSymbols 传上去的一份，供 Xcode Organizer 用。不像 macos-symbols 那样放滚动 release：nightly 在版本号已发布后也送外部组，同一版本号每天都有新构建，release 的附件会无限增长，而排查用到的是最近几个月的构建。
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ inputs.testflight }}
+        with:
+          name: msime-ios-${{ steps.version.outputs.value }}-${{ steps.build-number.outputs.value }}-dsym
+          path: target/ios/testflight/msime-ios-*-dsym.zip
+          if-no-files-found: warn
+          retention-days: 90
       - name: Hand the build to its testers
         id: testers
         if: ${{ inputs.testflight }}

@@ -33,10 +33,12 @@ const MODES: LocalInputModeDefinition[] = [
   mode("CHAIZI", "C", "拆字", "chaizi"),
 ];
 
-// Entered from a hardware keyboard only, with Shift+V on an empty composition or `/` and `@` with nothing composed, so they are named but not offered as tiles: the touch tools panel lists MODES, and these three spell with digits, operators and a list the touch keyboard has no face for. All three are off until the user turns them on.
+const COMMAND: LocalInputModeDefinition = mode("COMMAND", "/", "指令", "command");
+
+// 实体键盘在没有组字时以 Shift+V、/ 和 @ 进入这三种，三种都默认关。触屏功能面板只额外给「指令」（`touchModes`）：指令触发词是字母，触屏的字母键面打得出来，进入后九键也换成全键字母面；V 要输入数字和运算符，@ 要从名单里挑，触屏键盘没有相应的键面，所以不给。
 const HARDWARE_MODES: LocalInputModeDefinition[] = [
   mode("EXPRESSION", "V", "计算", "expression"),
-  mode("COMMAND", "/", "指令", "command"),
+  COMMAND,
   mode("MENTION", "@", "名单", "mention"),
 ];
 
@@ -47,6 +49,18 @@ export class LocalInputMode {
   static readonly MODES: LocalInputModeDefinition[] = MODES;
   /** The modes only a hardware keyboard enters; see HARDWARE_MODES. */
   static readonly HARDWARE_MODES: LocalInputModeDefinition[] = HARDWARE_MODES;
+
+  /**
+   * 触屏功能面板「本地输入」列出的模式：MODES，设置里打开了 / 指令（`local_modes.command`，缺省关）时末尾再加「指令」。没打开时 Engine 不进入指令模式，列出来只会是一个点了没用的格子。
+   */
+  static touchModes(command: boolean): LocalInputModeDefinition[] {
+    return command ? MODES.concat([COMMAND]) : MODES;
+  }
+
+  /** 点这一项交给 Engine 的键要不要带 Shift：字母触发词按大写进入，`/` 按普通标点键送，与实体键盘没有组字时按 / 一样。 */
+  static entersWithShift(definition: LocalInputModeDefinition): boolean {
+    return definition.trigger >= "A" && definition.trigger <= "Z";
+  }
 
   static fromTrigger(trigger: string): LocalInputModeDefinition | null {
     for (const candidate of ALL_MODES) {

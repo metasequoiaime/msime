@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use crate::dictionary::DictRow;
 use crate::error::Result;
 use crate::helpcode::{
-    filter_candidates_with_double_helpcodes, reorder_candidates_with_single_helpcode,
-    HelpcodeKeymap,
+    filter_candidates_with_double_helpcodes, filter_candidates_with_single_helpcode,
+    reorder_candidates_with_single_helpcode, HelpcodeKeymap,
 };
 use crate::lattice::decode::PinnedSpan;
 use crate::paths::RuntimePaths;
@@ -79,6 +79,8 @@ impl QuanpinEngine {
         let keymap = keymap.unwrap_or(&empty);
         if helpcode_length == 2 {
             filter_candidates_with_double_helpcodes(rows, codes, keymap)
+        } else if request.strict_quanpin_helpcode {
+            filter_candidates_with_single_helpcode(rows, codes, keymap)
         } else {
             reorder_candidates_with_single_helpcode(rows, codes, keymap)
         }

@@ -62,7 +62,8 @@ public final class ResourcePackService extends Service {
     /** 每个资源包一条结果通知（下载完成或失败），按 {@link #PACKS} 里的位置错开 id。 */
     private static final int RESULT_NOTIFICATION = 0x6d730510;
     private static final List<String> PACKS = List.of(ResourcePacks.JAPANESE, ResourcePacks.LANGUAGE_DICTIONARIES,
-        ResourcePacks.OFFLINE_GLOSSES, ResourcePacks.VOICE_RUNTIME, ResourcePacks.OCR_MODULE);
+        ResourcePacks.OFFLINE_GLOSSES, ResourcePacks.PRONUNCIATIONS, ResourcePacks.VOICE_RUNTIME,
+        ResourcePacks.OCR_MODULE);
     private static final String VOICE_MODEL_PREFIX = "voice-model:";
 
     /** 一个资源包正在经历的阶段。下载完成后不再有状态。 */
@@ -194,6 +195,7 @@ public final class ResourcePackService extends Service {
             case ResourcePacks.JAPANESE -> "日文词典";
             case ResourcePacks.LANGUAGE_DICTIONARIES -> "粤拼、注音和笔画词库";
             case ResourcePacks.OFFLINE_GLOSSES -> "离线释义词典";
+            case ResourcePacks.PRONUNCIATIONS -> "离线英文音标词典";
             case ResourcePacks.OCR_MODULE -> "离线拍照识字模块";
             case ResourcePacks.VOICE_RUNTIME -> "本地语音运行库";
             default -> isVoiceModel(pack) ? MODEL_TITLES.getOrDefault(pack, "本地语音模型") : pack;

@@ -4,7 +4,7 @@ import SwiftUI
 struct StatisticsAuthenticationGate<Content: View>: View {
   @ViewBuilder let content: () -> Content
   @Environment(\.scenePhase) private var scenePhase
-  @AppStorage(StatisticsAuthentication.preferenceKey) private var enabled = true
+  @AppStorage(StatisticsAuthentication.preferenceKey) private var enabled = StatisticsAuthentication.enabledByDefault
   @State private var isVisible = false
   @StateObject private var authentication = StatisticsAuthentication()
 

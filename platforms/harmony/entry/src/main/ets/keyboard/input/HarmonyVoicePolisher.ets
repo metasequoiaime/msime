@@ -1,5 +1,6 @@
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../../network/HarmonyHttpSecurity';
+import { AiGenerationGate } from '../AiGenerationGate';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { TextPolicy } from '../TextPolicy';
 import { utf8Length } from '../Utf8';
@@ -8,6 +9,7 @@ import { VoicePolishPromptCatalog } from './VoicePolishPromptCatalog';
 import { VoiceProviderCatalog } from './VoiceProviderCatalog';
 import { VoiceInputConfiguration, VoicePolishTokens } from './VoiceInputConfiguration';
 import { VoicePolishRequestPolicy } from './VoicePolishRequestPolicy';
+import { HarmonyPrivacyConsent } from '../../privacy/HarmonyPrivacyConsent';
 
 const MAX_ENDPOINT_BYTES: number = 2048;
 const MAX_MODEL_BYTES: number = 512;
@@ -38,7 +40,11 @@ export class HarmonyVoicePolisher {
   }
 
   async polish(config: VoiceInputConfiguration, text: string): Promise<string | null> {
+    // 语音识别后的润色和功能面板的 AI 润色都经这里发给大模型；总闸关着时存下的润色开关打开了也不发。
+    if (!AiGenerationGate.enabled()) return null;
     if (!config.polish_enabled && !config.polish_text) return null;
+    // 润色把识别出的文字发给用户配置的服务，没有隐私政策的授权就不发，照原样上屏。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return null;
     const provider: string = (config.polish_provider ?? '').trim();
     const defaultEndpoint: string = VoiceProviderCatalog.polishEndpoint(provider);
     const defaultModel: string = VoiceProviderCatalog.polishModel(provider);

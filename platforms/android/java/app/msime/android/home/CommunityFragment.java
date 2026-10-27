@@ -406,10 +406,17 @@ public final class CommunityFragment extends Fragment {
     private void use(CommunityCatalog.Item item) {
         JSONObject design = item.payload();
         if (design == null) return;
+        Boolean editingDark = getParentFragment() instanceof SkinsPage page ? page.editingDark() : null;
         adapter.setAction(item.id(), CommunityAdapter.Action.BUSY);
         HostTask.run(this, context -> {
-            JSONObject saved = KeyboardSheets.write(context, preferences ->
-                KeyboardSheets.applyDesign(preferences, design));
+            JSONObject saved = KeyboardSheets.write(context, preferences -> {
+                boolean dark = editingDark != null ? editingDark : app.msime.android.KeyboardSkin.resolveDark(
+                    preferences.optString("screen_keyboard_theme", "follow"),
+                    preferences.optString("theme", "system"), AppMode.dark(context));
+                preferences.put(app.msime.android.KeyboardSkinModeChoice.key(dark),
+                    app.msime.android.KeyboardSkinModeChoice.design(item.id()));
+                KeyboardSheets.applyDesignFeedback(preferences, design);
+            });
             if (saved == null) return Boolean.FALSE;
             KeyboardSheets.applyLocalFeedback(context, design);
             KeyboardSheets.recordSkin(context, item.id());

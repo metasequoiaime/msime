@@ -12,6 +12,10 @@ Status: implemented
 
 在共享偏好中增加本机字段 `clipboard_history_limit`，档位固定为 50、100、200、500、1000，缺省为 50。共享 Rust 存储按调用方传入的有效档位裁剪、去重和淘汰，固定条目继续优先保留；平台设置页只负责选择档位和显示当前值。容量字段与剪贴板开关一样只属于本机，不导出到跨设备设置文件。
 
+Android 的历史文件根目录是 `filesDir`，访客模式是 `filesDir/clipboard-visitor`；共享偏好位于运行时选项 `preferences_directory` 指向的 `filesDir/bootstrap/state`。移动剪贴板请求分别传 `directory` 和可选的 `preferences_directory`：前者决定历史隔离，后者决定容量；未传后者的宿主仍从前者读偏好。这样设置页、键盘和访客模式遵循同一档位，同时保留各自的历史文件。
+
+iOS 和 HarmonyOS 也有同样的目录错位：iOS 的历史根是 App Group，偏好在 state_root（App Group/MSIME）；HarmonyOS 的历史根是 `stateDirectory` 的父目录，偏好在 `stateDirectory`。两端同样传 `preferences_directory`，否则保存的档位只影响键盘显示，存储仍按 50 条淘汰。HarmonyOS 目前没有容量设置项，传这个字段只是让契约一致。
+
 ## Alternatives considered
 
 - **只修改 Windows 的 50 条常量** — 改动最小，但 Android、iOS 和 HarmonyOS 共享同一移动历史文件，平台之间仍会出现不同容量规则。
@@ -22,6 +26,8 @@ Status: implemented
 
 - 偏好缺少或写入非法容量时使用 50；合法档位可被各宿主保存并读取。
 - 共享存储读写、固定、删除、编辑和清空均遵守当前档位；降低档位后只返回按固定优先规则保留的记录。
+- Android 在主模式和访客模式各写入至少 60 条合成记录后，键盘加载、重新打开和导出均使用保存的容量，不回退到 50。
+- iOS 在历史根之外的 state_root 保存 100 条档位后写入 60 条合成记录，加载和重新打开都保留 60 条。
 - 共享设置页、Windows 原生设置、Android 原生设置和 iOS 原生设置提供相同档位；移动端键盘显示的容量与共享偏好一致。
 
 ## Consequences

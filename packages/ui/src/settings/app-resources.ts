@@ -48,6 +48,7 @@ const sharedLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/L
 const sharedPrivacyUrl = "https://msime.app/privacy/";
 export const licenseUrl = sharedLicenseUrl;
 export const privacyUrl = sharedPrivacyUrl;
+export const termsUrl = "https://msime.app/terms/";
 export const androidPrivacyUrl = sharedPrivacyUrl;
 export const linuxLicenseUrl = sharedLicenseUrl;
 export const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";

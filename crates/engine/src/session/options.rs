@@ -34,6 +34,8 @@ pub struct SessionOptions {
     pub korean_layout: crate::KoreanLayout,
     /// Where `msime-cantonese.db` is; empty when the host has none. Read only when Cantonese is activated, which fails without it.
     pub cantonese_dictionary: PathBuf,
+    /// 独立粤语双拼入口强制按两键码解释，普通粤拼入口仍按现有规则自动识别。
+    pub force_cantonese_shuangpin: bool,
     /// Where `msime-zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
     pub zhuyin_dictionary: PathBuf,
     /// Where `msime-stroke.db` is; empty when the host has none. Read only when Stroke is activated, which fails without it.
@@ -50,6 +52,8 @@ pub struct SessionOptions {
     /// `autocorrect_type` bits; 0 keeps the user's spelling. Either of transposition and neighbor also enables missing and extra letters, and on inputs of three or more complete syllables offers a sentence that reads one syllable as a typo. Committing the raw letters while a correction is offered turns correction off for that exact input.
     pub autocorrect_types: u32,
     pub helpcode: bool,
+    /// 一码辅助码严格筛选，默认关闭以保持原有重排行为。
+    pub strict_quanpin_helpcode: bool,
     /// 双拼辅助码的触发方式（Windows `[helpcode]` 组的双拼专属键）；只在双拼方案下生效。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub chinese_punctuation: bool,
@@ -118,6 +122,7 @@ impl SessionOptions {
             vietnamese_tone_style: VietnameseToneStyle::Modern,
             korean_layout: crate::KoreanLayout::Dubeolsik,
             cantonese_dictionary: PathBuf::new(),
+            force_cantonese_shuangpin: false,
             zhuyin_dictionary: PathBuf::new(),
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
@@ -127,6 +132,7 @@ impl SessionOptions {
             helpcode_fallback_resources: None,
             autocorrect_types: 0,
             helpcode: true,
+            strict_quanpin_helpcode: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             chinese_punctuation: true,
             paired_punctuation: true,

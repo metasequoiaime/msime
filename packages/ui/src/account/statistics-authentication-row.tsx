@@ -43,11 +43,13 @@ export function StatisticsAuthenticationRow({
   return (
     <Row
       title="统计页身份验证"
-      description={error || "开启后使用系统认证，未配置锁屏凭据时直接进入"}
+      description={
+        error || "开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入"
+      }
       icon={<FluentIcon name="shield_lock" size={18} />}
     >
       <Switch
-        checked={enabled ?? true}
+        checked={enabled ?? false}
         disabled={enabled === null || busy}
         onChange={(value) => {
           void change(value);

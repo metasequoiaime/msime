@@ -12,6 +12,8 @@
 
 另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。打字统计的每日计数只有在你登录账号并打开「上传到云端」后才会上传，默认关闭，见[打字统计上传](#打字统计上传默认关闭需要登录)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报](#社区举报与审核)。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。上述自有上报不依赖第三方统计或崩溃上报 SDK。可选的 Android 拍照识字模块在本机离线识别，关闭了所用推理库的遥测，见[拍照识字](#android-拍照识字可选模块手动导入)；Android 与 iOS 手写所用 ML Kit 自带的诊断上报也关掉了（Android 在基础 APK 里删掉上传组件，iOS 键盘写入 ML Kit 的统计关闭开关），见[资源与更新下载](#资源与更新下载)。
 
+HarmonyOS 在这些之前还多一道门：设置应用首次启动时弹窗征得隐私政策授权，选择「不同意」或还没选之前，设置应用和键盘都不发出本文列出的任何请求（使用统计、匿名账号注册、公告、账号、社区、云同步、检查更新、词库更新、模型下载，以及你自己配置的云联想、翻译、AI 和云端语音），本机打字照常；升级上来的老用户也会看到一次。规则在 `platforms/harmony/entry/src/main/ets/privacy/PrivacyConsentPolicy.ts`，说明见 `platforms/harmony/README.md` 的「首次启动的隐私政策授权」。
+
 ## 逐项说明
 
 ### 云联想（新装默认关闭）
@@ -77,6 +79,8 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### 语音润色（不填 Token 不发生）
 
+HarmonyOS 版目前不提供语音润色、AI 联想、AI 对话、高情商回复、AI 润色、AI 候选翻译和 AI 皮肤：这些功能在拿到 AI 生成类资质之前由 `HostCapabilities.ai_generation` 关闭，偏好里存着打开的值也不会发请求（见 `platforms/harmony/README.md`）。下面两节说的是其余五个平台。
+
 开启后把识别出的文本发给一个 Chat Completions 服务做整理。默认值按平台不同：Windows 与 macOS 跟随来源模板，默认服务是 DeepSeek（`https://api.deepseek.com/chat/completions`，模型 `deepseek-v4-flash`），`voice_input.polish_text` 默认开启；其余宿主默认服务是 SiliconFlow，`polish_text` 默认关闭。`voice_input.polish_enabled` 在所有宿主上默认 `false`。无论哪个平台，`polish_token` 默认都为空，宿主在 Token 为空时不发起润色请求，所以默认情况下不会发送任何文本。
 
 ### AI 联想（自带端点与密钥）
@@ -93,7 +97,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - Windows：Server 首次以 `--production` 启动时（安装程序完成页会拉起它），按 Windows 用户分别保存在 `%LOCALAPPDATA%\MSIME\account`，不放进全机共用、所有用户都可写的数据目录。
 - macOS：输入法首次激活时（`MSIMEEnsureAnonymousAccount`）；iOS：应用首次启动时，已存有登录或匿名会话（即使已过期）就不发请求。两者都存于 App Group 容器，键盘与应用共用。
 - Android：应用首次打开时（`AccountIdentity.register`），已存有匿名会话（即使已过期）就不发请求，存于应用私有存储。
-- HarmonyOS：应用首次启动或键盘首次加载时，存于应用的 `files/state` 目录。
+- HarmonyOS：在设置应用的首次启动弹窗里同意隐私政策之后（键盘在读到这份同意之后），存于应用的 `files/state` 目录；没有同意就不注册。
 
 Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审核)之外，不用这个账号发送任何内容。候选翻译在你选择了「水杉账号」时才发送，见[候选翻译](#候选翻译默认不联网)；Android 浏览社区皮肤与词库目录时，也会带上匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。凭据的存放：iOS 用 Keychain（`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘；macOS、Windows 与 Linux 桌面端存在当前用户私有的 `account-session.json` 里（`crates/client-services/src/account/file_storage.rs`），只有本人可读写，不加密。
 

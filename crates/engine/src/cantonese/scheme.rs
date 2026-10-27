@@ -35,6 +35,8 @@ pub struct CantoneseScheme {
     inventory: Arc<Inventory>,
     /// 首个完整双拼码被识别后保持该输入段按粤语双拼解释；普通粤拼仍优先保留。
     shuangpin: bool,
+    /// 独立双拼入口从第一键起按双拼解释，即使两键也是合法粤拼音节。
+    force_shuangpin: bool,
 }
 
 /// 会话查询复用的字典行和跨度键；不属于方案的组字状态。
@@ -51,12 +53,19 @@ impl CantoneseScheme {
             input: String::new(),
             inventory,
             shuangpin: false,
+            force_shuangpin: false,
         }
+    }
+
+    /// 切换入口时设置解释方式；调用方在空组字上使用。
+    pub fn set_force_shuangpin(&mut self, enabled: bool) {
+        self.force_shuangpin = enabled;
+        self.reset();
     }
 
     pub fn reset(&mut self) {
         self.input.clear();
-        self.shuangpin = false;
+        self.shuangpin = self.force_shuangpin;
     }
 
     /// Lowercase letters append and Backspace removes the last key. `'` appends only between letters: a boundary before the first syllable or right after another boundary marks nothing. Uppercase letters are not part of Jyutping and are ignored, like every other key.
@@ -93,7 +102,7 @@ impl CantoneseScheme {
             SchemeKey::Backspace => {
                 let removed = self.input.pop().is_some();
                 if self.input.len() < 2 {
-                    self.shuangpin = false;
+                    self.shuangpin = self.force_shuangpin;
                 }
                 removed
             }
@@ -135,7 +144,7 @@ impl CantoneseScheme {
     /// Replaces the composition with a host edit: letters are lowercased, `'` and the spaces `editing_text` shows at syllable boundaries are both boundaries, anything else is dropped, and boundaries are normalized as typing would leave them. Reading a space as a boundary keeps the syllables the user saw when an edit changes the letters around them (`ngo oi` edited to `ngo i` stays two syllables rather than becoming `ngoi`).
     pub fn set_raw_input(&mut self, raw: &str) {
         self.input.clear();
-        self.shuangpin = false;
+        self.shuangpin = self.force_shuangpin;
         self.input.reserve(raw.len());
         for character in raw.chars() {
             if character.is_ascii_alphabetic() {
@@ -791,6 +800,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("你好", 4), ("妳好", 4), ("你", 2), ("妳", 2)]
         );
+    }
+
+    #[test]
+    fn explicit_shuangpin_mode_decodes_a_code_that_is_also_jyutping() {
+        let inventory = Arc::new(inventory());
+        let mut plain = CantoneseScheme::new(inventory.clone());
+        plain.set_raw_input("oi");
+        assert!(!plain.is_shuangpin());
+        assert_eq!(plain.shuangpin_expansions(), None);
+
+        let mut selected = CantoneseScheme::new(inventory);
+        selected.set_force_shuangpin(true);
+        selected.set_raw_input("oi");
+        assert!(selected.is_shuangpin());
+        assert_eq!(selected.shuangpin_expansions(), Some(vec!["i".to_owned()]));
+        selected.reset();
+        selected.set_raw_input("oi");
+        assert!(selected.is_shuangpin());
     }
 
     #[test]

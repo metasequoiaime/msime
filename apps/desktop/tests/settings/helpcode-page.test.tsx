@@ -26,7 +26,12 @@ test("helper-code settings expose independent scheme updates", () => {
   fireEvent.click(screen.getByRole("switch", { name: "全拼辅助码" }));
 
   expect(onChange).toHaveBeenCalledWith({
-    quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: false,
+      schema: "ziranma",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
   });
 });
 
@@ -67,6 +72,7 @@ test("helper-code settings include discovered custom schemas", () => {
       enabled: true,
       schema: "custom/synthetic",
       show_in_candidate_window: false,
+      strict_filter: false,
     },
   });
 });
@@ -141,7 +147,12 @@ test("helper-code settings offer installed helpcode packs per scheme", () => {
   expect(screen.getByRole("option", { name: "gone（插件，未找到）" })).toBeTruthy();
   fireEvent.change(quanpin, { target: { value: "xiaohe" } });
   expect(onChange).toHaveBeenLastCalledWith({
-    quanpin_helpcode: { enabled: true, schema: "xiaohe", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: true,
+      schema: "xiaohe",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
     plugins: expect.objectContaining({
       helpcode_pack_quanpin: "",
       helpcode_pack_shuangpin: "gone",
@@ -202,6 +213,7 @@ test("辅助码前导键按全拼和双拼独立保存，并保留当前方案",
       schema: "xiaohe",
       trigger_key: "`",
       show_in_candidate_window: false,
+      strict_filter: false,
     },
   });
   fireEvent.change(shuangpin, { target: { value: "" } });
@@ -211,6 +223,7 @@ test("辅助码前导键按全拼和双拼独立保存，并保留当前方案",
       schema: "lantian",
       trigger_key: "",
       show_in_candidate_window: true,
+      strict_filter: false,
       modes: {
         manual_tab: false,
         direct: true,

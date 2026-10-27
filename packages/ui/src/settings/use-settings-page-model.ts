@@ -7,7 +7,7 @@ import { useSettingsNavigation } from "./use-settings-navigation";
 import { useSettingsPageRouting } from "./use-settings-page-routing";
 import type { SettingsPageId } from "./settings-page-registry";
 import { settingsPageProjections } from "./settings-page-projections";
-import { mobileHiddenPageIds, settingsPageModelVisibility } from "./settings-page-model-visibility";
+import { mobileHiddenPages, settingsPageModelVisibility } from "./settings-page-model-visibility";
 import { settingsInputPreferences } from "./settings-input-preferences";
 import { aiSettingsPreferences } from "./ai-settings-preferences";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
@@ -112,6 +112,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showShuangpinKeymapHint,
     showCharacterWidth,
     aiProviderCredentials,
+    showAiGeneration,
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
@@ -149,9 +150,11 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showTouchPluginPacks,
     showScriptPlugins,
     showUpdateChannel,
   } = capabilities;
+  const mobileHiddenPageIds = mobileHiddenPages(showTouchPluginPacks);
   const {
     fullwidthChord,
     releasesPageUrl: platformReleasesPageUrl,
@@ -431,7 +434,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     fetchModels: fetchAiModels,
     test: testAi,
   } = useAiAssistant({
-    client: client.aiAssistant,
+    // 不提供 AI 生成类功能的宿主连模型列表和润色测试也不发。
+    client: showAiGeneration ? client.aiAssistant : undefined,
     ai,
     providerCredentialAvailable: aiProviderCredentials,
     credentialGeneration: aiCredentialGeneration,
@@ -497,6 +501,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     linux: linuxPlatform,
     windows: windowsPlatform,
     harmony: harmonyPlatform,
+    aiGeneration: showAiGeneration,
     candidateEnglishGlossAvailable: Boolean(client.candidateEnglishGloss),
     onDeviceDownloadable,
     onChange: onTranslationChange,
@@ -595,19 +600,21 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     hasTypingStatistics: Boolean(client.typingStatistics),
     hasVocabularyReview: Boolean(client.vocabularyReview),
     hasAccount: Boolean(client.account || client.appIcon),
-    hasChat: Boolean(client.chat),
+    // AI 对话和「AI 辅助」页都归 AI 生成类功能的总闸（`showAiGeneration`）：HarmonyOS 在拿到资质之前两页都没有。
+    hasChat: Boolean(client.chat) && showAiGeneration,
+    hasAi: showAiGeneration,
     hasCommunity: Boolean(client.communitySkins || client.communityResources),
     showFloatingToolbar,
     showDeveloperPage,
-    // 宿主有资源包商店，或能播放、路由本页开关控制的功能。
-    hasPlugins:
-      !mobilePlatform &&
-      (Boolean(client.plugins) ||
+    // 宿主有资源包商店，或能播放、路由本页开关控制的功能。触屏设置只在宿主报告 `touch_plugin_packs` 且有插件目录时给出：那里的插件页只管包，没有声音与效果。
+    hasPlugins: mobilePlatform
+      ? showTouchPluginPacks && Boolean(client.plugins)
+      : Boolean(client.plugins) ||
         Boolean(client.communityPlugins) ||
         showKeySound ||
         showMusic ||
         showPluginTriggers ||
-        showTypingEffects),
+        showTypingEffects,
     // full 不带版本信息，手写一直都在。
     hasHandwriting: client.host?.edition?.handwriting ?? true,
     // 桌面上的手写页只有一个打开按钮（HarmonyOS 2-in-1 是一段说明），并进屏幕键盘页；Windows 的原生设置窗口也并成了一页（`SettingsNavigation.h`）。触屏宿主的手写页另有内容，投影本身就不并。
@@ -756,9 +763,11 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showTypingEffectPacks,
     showEffectIntensity,
     showAiCandidateLimit,
+    showAiGeneration,
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showTouchPluginPacks,
     showScriptPlugins,
     showUpdateChannel,
     snapshot,

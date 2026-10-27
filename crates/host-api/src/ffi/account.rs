@@ -108,6 +108,12 @@ enum AccountAction {
         challenge_id: String,
         identity_token: String,
     },
+    /// 鸿蒙设置应用经 Account Kit 的华为账号登录：先要 challenge 和 nonce，nonce 放进 `AuthorizationWithHuaweiIDRequest`，再交回 ID token。空结构体变体的理由与 `AppleChallenge {}` 相同。
+    HuaweiChallenge {},
+    HuaweiLogin {
+        challenge_id: String,
+        id_token: String,
+    },
     /// 不带 `target` 是 ID token 流程（iOS 的 GoogleSignIn、安卓的 Credential Manager），返回 nonce；带 `target`（`msime_client_google_loopback` 的 `target` 给的回跳地址）是回环流程（鸿蒙），返回校验过的授权链接。
     GoogleChallenge {
         #[serde(default)]
@@ -323,7 +329,7 @@ fn status(
     })
 }
 
-/// Apple 登录和 Google ID token 流程的 challenge：nonce 只交给宿主自己弹的登录界面，账号页的 `request_code` 不返回它。
+/// Apple 登录、华为账号登录和 Google ID token 流程的 challenge：nonce 只交给宿主自己弹的登录界面，账号页的 `request_code` 不返回它。
 fn nonce_challenge(
     challenge: msime_client_services::account::AccountChallenge,
 ) -> Result<Value, AccountError> {
@@ -498,6 +504,13 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
             challenge_id,
             identity_token,
         } => status(Some(session.sign_in_apple(&challenge_id, &identity_token)?)),
+        AccountAction::HuaweiChallenge {} => nonce_challenge(session.huawei_challenge()?),
+        AccountAction::HuaweiLogin {
+            challenge_id,
+            id_token,
+        } => status(Some(
+            session.sign_in_huawei_id_token(&challenge_id, &id_token)?,
+        )),
         AccountAction::GoogleChallenge {
             target: None,
             purpose: Purpose::Login,
@@ -805,6 +818,8 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
 mod client_agent_assembly_tests;
 #[cfg(test)]
 mod client_agent_tests;
+#[cfg(test)]
+mod huawei_tests;
 #[cfg(test)]
 mod link_tests;
 #[cfg(test)]
@@ -1285,6 +1300,10 @@ mod tests {
             json!({ "operation": "apple_web_start" }),
             json!({ "operation": "apple_web_login", "grant": "g".repeat(42) + "h", "code_verifier": verifier }),
             json!({ "operation": "apple_web_login", "grant": grant, "code_verifier": "short" }),
+            json!({ "operation": "huawei_challenge", "purpose": "login" }),
+            json!({ "operation": "huawei_login", "challenge_id": "synthetic", "id_token": "header.payload" }),
+            json!({ "operation": "huawei_login", "challenge_id": "", "id_token": id_token }),
+            json!({ "operation": "huawei_login", "challenge_id": "synthetic", "id_token": id_token, "purpose": "link" }),
         ]
     }
 
@@ -1326,6 +1345,14 @@ mod tests {
         assert!(matches!(
             parse(json!({ "operation": "apple_web_login", "grant": "g", "code_verifier": "v" })),
             AccountAction::AppleWebLogin { grant, code_verifier, purpose: Purpose::Login } if grant == "g" && code_verifier == "v"
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "huawei_challenge" })),
+            AccountAction::HuaweiChallenge {}
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "huawei_login", "challenge_id": "c", "id_token": "t" })),
+            AccountAction::HuaweiLogin { challenge_id, id_token } if challenge_id == "c" && id_token == "t"
         ));
         // 已有的 google_login 仍是不带参数的 Windows 浏览器流程。
         assert!(matches!(

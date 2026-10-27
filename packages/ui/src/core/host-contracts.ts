@@ -107,6 +107,16 @@ export interface ImeSetupClient {
   refresh?(): void;
 }
 
+/**
+ * 宿主自己征得的隐私政策授权（目前只有 HarmonyOS：首次启动时由原生弹窗询问）。没有授权时宿主不提供账号、社区、云同步、检查更新这些联网入口，设置页在「隐私」里说明现状并给出重新打开弹窗的入口。
+ */
+export interface PrivacyConsentClient {
+  /** 用户是否已同意当前版本的隐私政策。授权变化时宿主换一个新的 client。 */
+  granted: boolean;
+  /** 重新打开宿主的授权弹窗，用户在其中同意、拒绝或撤回同意。 */
+  review(): Promise<void>;
+}
+
 export interface HostChromeClient {
   /** 给系统状态栏和导航栏着色以配合页面；`dark` 表示要求浅色的栏内容。 */
   setSystemBars(bars: { background: string; navigationBar: string; dark: boolean }): void;

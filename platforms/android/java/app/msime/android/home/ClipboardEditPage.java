@@ -21,7 +21,6 @@ import app.msime.android.ClipboardHistory;
 import app.msime.android.ClipboardEditKey;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryStore;
-import app.msime.android.ClipboardModeStore;
 import app.msime.android.HostDeepLink;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.ViewPolicy;
@@ -99,7 +98,7 @@ public final class ClipboardEditPage extends ColumnDetailPage {
 
     /** 在共享存储里按键找那一条；找不到时为空串。读不出来时抛异常，由 {@link HostTask} 交回 null。 */
     private static String find(Context context, String key) {
-        for (ClipboardHistory.Item item : new ClipboardHistoryStore(ClipboardModeStore.directory(context)).load()) {
+        for (ClipboardHistory.Item item : ClipboardHistoryStore.forContext(context).load()) {
             String current = ClipboardEditKey.editKey(context, item.timestamp(), item.text());
             if (current != null && key.equals(current)) return item.text();
         }
@@ -185,7 +184,7 @@ public final class ClipboardEditPage extends ColumnDetailPage {
         HostTask.run(this, context -> {
             ClipboardHistoryPolicy.EditResult result;
             try {
-                result = new ClipboardHistoryStore(ClipboardModeStore.directory(context)).replace(from, to);
+                result = ClipboardHistoryStore.forContext(context).replace(from, to);
             } catch (RuntimeException | LinkageError error) {
                 result = null;
             }

@@ -2040,11 +2040,17 @@ test("helpcode schemes save independently and retain disabled selections", async
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: false,
+      schema: "xiaohe",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
     shuangpin_helpcode: {
       enabled: true,
       schema: "wubi86",
       show_in_candidate_window: true,
+      strict_filter: false,
       modes: defaultShuangpinHelpcodeModes,
     },
   });
@@ -8718,6 +8724,54 @@ test("a Linux release without a chosen package points at SHA256SUMS instead of i
   ).toBeDefined();
 });
 
+test.each(["立即返回", "延后返回"])(
+  "关于页首次可点击时的更新检查保留结果（%s）",
+  async (completion) => {
+    const load = deferred<Snapshot>();
+    const response = deferred<UpdateCheckResult>();
+    const update: UpdateCheckResult = {
+      status: "available",
+      update: hostRelease("linux-v1.2.0"),
+    };
+    const checkUpdate = vi.fn(() =>
+      completion === "立即返回" ? Promise.resolve(update) : response.promise,
+    );
+    render(
+      <SettingsPage
+        client={{
+          load: () => load.promise,
+          save: vi.fn(),
+          checkUpdate,
+          host: testHost({ platform: "linux", arch: "x86_64" }),
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
+    let disabledAtClick: boolean | undefined;
+    // 在 DOM 提交后的第一个可点击时刻操作，不让测试框架先冲刷 passive effects。
+    const observer = new MutationObserver(() => {
+      const button = screen.queryByRole<HTMLButtonElement>("button", { name: "检查更新" });
+      if (!button) return;
+      observer.disconnect();
+      disabledAtClick = button.matches(":disabled");
+      act(() => button.click());
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      load.resolve(initial);
+      await waitFor(() => expect(checkUpdate).toHaveBeenCalledOnce());
+      expect(disabledAtClick).toBe(false);
+      if (completion === "延后返回") {
+        expect(await screen.findByRole("button", { name: "正在检查…" })).toBeDefined();
+        await act(async () => response.resolve(update));
+      }
+      expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+    } finally {
+      observer.disconnect();
+    }
+  },
+);
+
 test("Linux update notice shows the .deb digest and the sha256sum command", async () => {
   const digest = "0123456789abcdef".repeat(4);
   render(
@@ -10290,7 +10344,12 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     candidate_page_size: 9,
-    quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: false,
+      schema: "ziranma",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
   });
   expect(client.load).toHaveBeenCalledTimes(1);
 });
@@ -10659,7 +10718,8 @@ test.each(["macos", "windows", "linux", "harmony"])(
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
-          host: testHost({ platform }),
+          // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`，测的是那时重新出现的 AI 页。
+          host: testHost({ platform, ai_generation: true }),
         }}
       />,
     );

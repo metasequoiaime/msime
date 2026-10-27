@@ -1034,6 +1034,8 @@ pub struct QueryRequest {
     /// 双拼辅助码的触发方式；`enable_shuangpin_helpcode` 为真时才读。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub enable_quanpin_helpcode: bool,
+    /// 一码辅助码是否严格排除未命中的候选；默认关闭以保持历史排序。
+    pub strict_quanpin_helpcode: bool,
     /// 会话的「拼音纠错」开关。名字带 quanpin 是历史原因：双拼也按它决定是否给纠错整句。
     pub enable_quanpin_autocorrect_transposition: bool,
     pub enable_quanpin_autocorrect_neighbor: bool,

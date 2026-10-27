@@ -271,6 +271,31 @@ describe("the HarmonyOS phone 表达 page", () => {
     );
   });
 
+  // 「AI 辅助」翻译让大模型逐条生成释义：鸿蒙版拿到 AI 生成类资质之前（`ai_generation` 为 false）不列它，存下的 `translation_ai` 也显示成没有选在线服务，与键盘一侧 `TranslationPolicy.provider` 的处理一致。
+  test("without AI generation the 翻译服务 sheet has no AI 辅助 and a stored AI choice reads as none", async () => {
+    await mountPhone({
+      translation_ai: true,
+      tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
+    });
+    const service = group("翻译服务");
+    fireEvent.click(within(service).getByText("更多选项"));
+    const row = within(service).getByRole("button", { name: /^翻译服务/ });
+    expect(row.textContent).toContain("不使用在线服务");
+    fireEvent.click(row);
+    const sheet = screen.getByRole("dialog", { name: "翻译服务" });
+    expect(within(sheet).getByRole("button", { name: "腾讯云机器翻译" })).toBeTruthy();
+    expect(within(sheet).queryByRole("button", { name: "AI 辅助" })).toBeNull();
+  });
+
+  test("with AI generation the 翻译服务 sheet offers AI 辅助 again", async () => {
+    await mountPhone({}, { ai_generation: true });
+    const service = group("翻译服务");
+    fireEvent.click(within(service).getByText("更多选项"));
+    fireEvent.click(within(service).getByRole("button", { name: /^翻译服务/ }));
+    const sheet = screen.getByRole("dialog", { name: "翻译服务" });
+    expect(within(sheet).getByRole("button", { name: "AI 辅助" })).toBeTruthy();
+  });
+
   test("the unconfigured default Tencent reads as 不使用在线服务 until the user picks Tencent", async () => {
     // 鸿蒙的密钥存在偏好里，没有可用密钥时 host-api 不把腾讯云放进查询，TranslationPolicy 也就不会请求它。
     await mountPhone();

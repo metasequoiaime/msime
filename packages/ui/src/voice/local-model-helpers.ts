@@ -1,4 +1,8 @@
 import { errorCode } from "../core/error-code";
+import {
+  PRIVACY_CONSENT_REQUIRED,
+  PRIVACY_CONSENT_REQUIRED_MESSAGE,
+} from "../settings/privacy-consent-row";
 import { clamp } from "../core/number";
 import { utf8ByteLength } from "../core/text";
 import type { LocalVoiceModel, LocalVoiceModelProgress } from "./local-models";
@@ -65,6 +69,8 @@ export function localModelErrorMessage(error: unknown): string | null {
   switch (errorCode(error)) {
     case "local_model_cancelled":
       return null;
+    case PRIVACY_CONSENT_REQUIRED:
+      return PRIVACY_CONSENT_REQUIRED_MESSAGE;
     case "local_model_network":
       return "下载失败：无法连接下载服务器。请检查网络，或设置下载镜像后再试。";
     case "local_model_http_status":

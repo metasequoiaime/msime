@@ -79,6 +79,7 @@ static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCu
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
 static NSString *const InputModeStatusItemKey = @"MSIMEClientInputModeStatusItem";
 static NSString *const AppLogoKey = @"MSIMEClientAppLogo";
+static NSString *const CandidateStatusKey = @"MSIMEClientCandidateStatus";
 static NSString *const CandidatePageNumberKey = @"MSIMEClientCandidatePageNumber";
 static NSString *const ExpandCandidatesKey = @"MSIMEClientExpandCandidates";
 static NSString *const CandidateExpandButtonKey = @"MSIMEClientCandidateExpandButton";
@@ -451,6 +452,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         AppInputModeRulesKey : @"sharedAppInputModeRules",
         VimModeAppsKey : @"sharedVimModeApps",
         AppLogoKey : @"sharedShowsAppLogo",
+        CandidateStatusKey : @"sharedShowsCandidateStatus",
         CandidatePageNumberKey : @"sharedShowsCandidatePageNumber",
         ExpandCandidatesKey : @"sharedExpandCandidates",
         CandidateExpandButtonKey : @"sharedShowsCandidateExpandButton",
@@ -611,6 +613,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             InputModeHUDKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeHUD); },
             InputModeStatusItemKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeStatusItem); },
             AppLogoKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsAppLogo); },
+            CandidateStatusKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidateStatus); },
             CandidatePageNumberKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidatePageNumber); },
             ExpandCandidatesKey : ^id(MSIMEAppearancePreferences *p) { return @(p.expandCandidates); },
             CandidateExpandButtonKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidateExpandButton); },
@@ -1145,6 +1148,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedCandidateFollowCursor;
     NSNumber *_sharedInputModeHUD;
     NSNumber *_sharedInputModeStatusItem;
+    NSNumber *_sharedShowsCandidateStatus;
     NSNumber *_sharedShowsAppLogo;
     NSNumber *_sharedShowsCandidatePageNumber;
     NSNumber *_sharedExpandCandidates;
@@ -1457,6 +1461,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"input_mode_status_item"] = @(self.inputModeStatusItem);
     merged[@"show_app_logo"] = @(self.showsAppLogo);
+    if ([_defaults objectForKey:CandidateStatusKey] != nil) merged[@"show_candidate_status"] = @(self.showsCandidateStatus);
     merged[@"show_candidate_page_number"] = @(self.showsCandidatePageNumber);
     merged[@"expand_candidates"] = @(self.expandCandidates);
     merged[@"show_candidate_expand_button"] = @(self.showsCandidateExpandButton);
@@ -1885,6 +1890,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setInputModeStatusItem:(BOOL)value {
     _sharedInputModeStatusItem = nil;
     [_defaults setBool:value forKey:InputModeStatusItemKey];
+    [self preferencesChanged];
+}
+- (BOOL)showsCandidateStatus {
+    if (_sharedShowsCandidateStatus) return _sharedShowsCandidateStatus.boolValue;
+    return [_defaults objectForKey:CandidateStatusKey] == nil ? YES : [_defaults boolForKey:CandidateStatusKey];
+}
+- (void)setShowsCandidateStatus:(BOOL)value {
+    _sharedShowsCandidateStatus = nil;
+    [_defaults setBool:value forKey:CandidateStatusKey];
     [self preferencesChanged];
 }
 - (BOOL)showsAppLogo {
@@ -3289,6 +3303,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if (LocalModeBoolean(inputModeStatusItem)) _sharedInputModeStatusItem = inputModeStatusItem;
     id appLogo = preferences[@"show_app_logo"];
     if (LocalModeBoolean(appLogo)) _sharedShowsAppLogo = appLogo;
+    id candidateStatus = preferences[@"show_candidate_status"];
+    if (LocalModeBoolean(candidateStatus)) _sharedShowsCandidateStatus = candidateStatus;
     id pageNumber = preferences[@"show_candidate_page_number"];
     if (LocalModeBoolean(pageNumber)) _sharedShowsCandidatePageNumber = pageNumber;
     id expandCandidates = preferences[@"expand_candidates"];
