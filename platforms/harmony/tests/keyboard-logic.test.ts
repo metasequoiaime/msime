@@ -234,6 +234,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/GlideTypingPolicy";
 import {
   EnglishCompletions,
+  EnglishRefresh,
   EnglishReplacement,
   EnglishSuggestionPolicy,
 } from "../entry/src/main/ets/keyboard/input/EnglishSuggestionPolicy";
@@ -7598,6 +7599,58 @@ group("a completion reply is bounded before it reaches the strip", () => {
       JSON.stringify({ ok: true, value: { prefix: "hel", items: ["x".repeat(200)] } }),
     ) === null,
     "an implausibly long word is refused",
+  );
+  check(good !== null && !good.corrected, "不带 completions 的答案没有纠错标记");
+});
+
+group("手机候选栏的合并展示按 corrected 区分纠错与补全", () => {
+  const corrected: EnglishCompletions | null = EnglishSuggestionPolicy.decode(
+    '{"ok":true,"value":{"corrected":true,"items":["teh","the"],"prefix":"teh"}}',
+  );
+  check(
+    corrected !== null && corrected.corrected && corrected.items.join(",") === "teh,the",
+    "有纠错时第二行是纠错",
+  );
+  const completions: EnglishCompletions | null = EnglishSuggestionPolicy.decode(
+    '{"ok":true,"value":{"corrected":false,"items":["eng","English","engine"],"prefix":"eng"}}',
+  );
+  check(
+    completions !== null &&
+      !completions.corrected &&
+      completions.items.join(",") === "eng,English,engine",
+    "没有纠错时原文后接前缀补全，按引擎顺序展示",
+  );
+  check(
+    EnglishSuggestionPolicy.decode(
+      '{"ok":true,"value":{"corrected":true,"items":["teh"],"prefix":"teh"}}',
+    ) === null,
+    "标为纠错却没有恰好两行的答案不可信",
+  );
+  check(EnglishSuggestionPolicy.DISPLAY_LIMIT === 12, "与 Android、iOS 的合并展示上限相同");
+});
+
+group("选区回报重新核对当前词而不是清空英文建议", () => {
+  // 编辑器在每次 insertTextSync 之后都回报一次选区变化，此时当前词就是刚查询的词。
+  check(
+    EnglishSuggestionPolicy.refresh("teh", "teh", true) === EnglishRefresh.KEEP,
+    "上屏后的选区回声保留刚出的建议和进行中的查询",
+  );
+  check(
+    EnglishSuggestionPolicy.refresh("tehx", "teh", true) === EnglishRefresh.QUERY,
+    "当前词变了就重新查询",
+  );
+  check(
+    EnglishSuggestionPolicy.refresh("hello", "", true) === EnglishRefresh.QUERY,
+    "光标移到另一个词后按那个词查询",
+  );
+  check(
+    EnglishSuggestionPolicy.refresh("", "teh", true) === EnglishRefresh.CLEAR,
+    "光标前没有词时收起建议",
+  );
+  check(
+    EnglishSuggestionPolicy.refresh("i", "", true) === EnglishRefresh.QUERY &&
+      EnglishSuggestionPolicy.refresh("i", "", false) === EnglishRefresh.CLEAR,
+    "单字母只在手机纠错模式下可查询",
   );
 });
 
