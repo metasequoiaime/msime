@@ -258,7 +258,7 @@ export class TouchLayoutStylePolicy {
    */
   static symbolExtraRow(more: boolean, numberPad: boolean, chinesePunctuation: boolean): string[] {
     if (more) {
-      return [...TouchLayoutStylePolicy.NUMBER_ROW];
+      return TouchLayoutStylePolicy.NUMBER_ROW.slice();
     }
     if (!numberPad) {
       return ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="];
