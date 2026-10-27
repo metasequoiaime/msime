@@ -57,6 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut segmentation_filter: Option<KeyGrid> = None;
     let mut keyboard_neural = false;
     let mut cut: Option<Cut> = None;
+    let mut first_page_rows: Option<usize> = None;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -78,6 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--dump" => dump = Some(PathBuf::from(take(&mut index)?)),
             "--grid" => grid = Some(grid_keys::parse_grid(&take(&mut index)?)?),
             "--keyboard-neural" => keyboard_neural = true,
+            "--first-page-rows" => first_page_rows = Some(take(&mut index)?.parse()?),
             "--cut-last-syllable" => {
                 cut = Some(match take(&mut index)?.as_str() {
                     "initial" => Cut::Initial,
@@ -157,6 +159,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dump.as_deref(),
         grid,
         keyboard_neural,
+        first_page_rows,
         &verified.source_commit,
     )?;
     let json = render(&report, &cases);
@@ -222,6 +225,7 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
     Ok(cases)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     resources: &Path,
     state: &Path,
@@ -229,6 +233,7 @@ fn run(
     dump: Option<&Path>,
     grid: Option<KeyGrid>,
     keyboard_neural: bool,
+    first_page_rows: Option<usize>,
     source_commit: &str,
 ) -> Result<Report, Box<dyn std::error::Error>> {
     // Optional JSONL of the real candidate lists, for offline experiments that must not be able
@@ -265,10 +270,15 @@ fn run(
     // Measure the shipped path: the host asks for every reading and crops the list itself.
     options.sentence_alternatives = true;
     options.sentence_association.neural_keyboard = keyboard_neural;
+    // 宿主把每页候选数同时交给引擎（首页放得下几行）和 runtime（分页）；不给时引擎用默认的 6 行。iOS 固定每页 9 个。
+    if let Some(rows) = first_page_rows {
+        options.first_page_rows = rows;
+    }
 
     let engine = Session::new(&options)?;
     // page_size is capped at 9 by the runtime, but all_candidates() is not paginated.
-    let mut runtime = Runtime::new(engine, 9)?;
+    let page_size = first_page_rows.map_or(9, |rows| rows.clamp(1, 9));
+    let mut runtime = Runtime::new(engine, u8::try_from(page_size)?)?;
     // Measuring the shipped path means measuring it with whatever the resource set contains. The
     // model is optional there, so its absence has to leave these numbers exactly as they were.
     // The settled model, when the resource set ships one. Attaching it here is what lets the eval

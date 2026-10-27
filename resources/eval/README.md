@@ -90,6 +90,10 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 锁定资源 dict-v2.0.39 加 `sentence-model.safetensors` 上的基线（top-1 / top-5 / found）：九键 0.179 / 0.318 / 0.793，14 键 0.326 / 0.550 / 0.957。打全的同一批用例是九键 0.518 / 0.815 / 0.954，14 键 0.619 / 0.888 / 0.972。换锁前的 dict-v2.0.24 上，同一份代码停在声母上是九键 0.212 / 0.359 / 0.834、14 键 0.361 / 0.590 / 0.963。九键差得多，主要因为候选表只有 128 行（`CANDIDATE_LIMIT`）：三四个数字能拼出几百个单字，要的词排不进去。挂不挂重排模型，这两份的 top-1、top-5、found 都一样。
 
+### `--first-page-rows`：宿主的每页候选数
+
+宿主把每页候选数交给引擎（`first_page_rows`，首页放得下几行）：全拼据此决定整组补全词并不并进来。偏好默认每页 6 个，iOS 固定 9 个。`convert_eval` 不给这个参数时引擎用默认的 6 行，给了就同时作为引擎的首页行数和 runtime 的每页候选数（最多 9）。首页行数不同，top-5、top-6 会跟着变，比较时两边要用同一个值。
+
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
 从 C4 中文部分（ODC-BY，保留标点的原文，不是 `corpus/fetch.py` 剥过标点的训练语料）收割：把句子用 Engine 的拼音表转成拼音再打回去，首选与原句不同的收下来，上文取同一篇的前一句。`harvest_eval_set` 做这件事，`scripts/review-harvested-cases.py` 用 Jev 过一道评审（选中原文且无强歧义否决），再按拼音+原文去重。500 条收割 → 345 条通过 → 310 条。
