@@ -130,6 +130,19 @@ if ! grep -qF 'SharedStateMirror.localFingerprints.fingerprint(' <<< "$fingerpri
   echo "Shared state fingerprints, the focus-time preference revision check and the session-build snapshot queue pass must skip work when nothing changed" >&2
   exit 1
 fi
+# 候选皮肤位图在候选条放手后停放一份，同一套皮肤不再每个词重新解码；停放规则由 candidate-canvas-lease.test.ts 覆盖。解码器和扩展能力是 ArkTS，这里钉住接线：解码器经 CandidateCanvasLeaseCache 取用和放手，键盘收起、停止输入和销毁时 trim。
+frame_ets="$ets/keyboard/candidate/CandidateCanvasFrame.ets"
+hidden_body=$(sed -n '/^  private readonly keyboardHidden: () => void = (): void => {$/,/^  };$/p' "$ability_ets")
+stopped_body=$(sed -n '/^  private readonly stopped: () => void = (): void => {$/,/^  };$/p' "$ability_ets")
+teardown_body=$(sed -n '/^  private teardown(): void {$/,/^  }$/p' "$ability_ets")
+if ! grep -qF 'new CandidateCanvasLeaseCache<CanvasDecodeLease>(' "$frame_ets" \
+  || grep -qF 'Map<string, CanvasDecodeLease>' "$frame_ets" \
+  || ! grep -qF 'CandidateCanvasDecoder.trim();' <<< "$hidden_body" \
+  || ! grep -qF 'CandidateCanvasDecoder.trim();' <<< "$stopped_body" \
+  || ! grep -qF 'CandidateCanvasDecoder.trim();' <<< "$teardown_body"; then
+  echo "Candidate canvas decodes must park in CandidateCanvasLeaseCache and be trimmed on keyboard hide, input stop and teardown" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do

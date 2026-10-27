@@ -1,5 +1,6 @@
 import { CandidateLayoutPolicy } from '../keyboard/candidate/CandidateSkinPolicy';
 import { CandidateCanvasPolicy } from '../keyboard/candidate/CandidateCanvasPolicy';
+import { CandidateCanvasDecoder } from '../keyboard/candidate/CandidateCanvasFrame';
 import InputMethodExtensionAbility from '@ohos.InputMethodExtensionAbility';
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import Want from '@ohos.app.ability.Want';
@@ -608,9 +609,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     });
   }
 
-  // 系统收起键盘（返回手势、点空白处）时编辑框不一定失去焦点，等不到 inputStop；会话在这里把攒着的打字统计写盘。
+  // 系统收起键盘（返回手势、点空白处）时编辑框不一定失去焦点，等不到 inputStop；会话在这里把攒着的打字统计写盘。候选皮肤停放的位图也在这里释放，隐藏的键盘不留着它们。
   private readonly keyboardHidden: () => void = (): void => {
     KeyboardSession.shared.keyboardHidden();
+    CandidateCanvasDecoder.trim();
   };
 
   private readonly stopped: () => void = (): void => {
@@ -619,6 +621,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     this.backspaceHold.reset();
     this.heldKeys.reset();
     KeyboardSession.shared.detach();
+    CandidateCanvasDecoder.trim();
     if (this.panel !== undefined) {
       this.panel.hide();
     }
@@ -1110,6 +1113,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       inputMethodEngine.getKeyboardDelegate().off('cursorContextChange', this.caretMoved);
     }
     KeyboardSession.shared.shutdown();
+    CandidateCanvasDecoder.trim();
     // These close over the panel being released.
     KeyboardSession.shared.onTouchHeight = undefined;
     KeyboardSession.shared.onDismiss = undefined;
