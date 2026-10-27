@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 触屏按键布局样式（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：三类键面每种样式底行的键序与宽度份额逐个钉住，样式多出的键从空格里让宽度、整行总份额不变；偏好写法的宽松读取；哪些键面读哪一类样式；顶部数字行的门槛；本机旧设置迁进共享偏好的规则。iOS 与鸿蒙要画出同样的行。
+ * 触屏按键布局样式（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：三类键面每种样式底行的键序与宽度份额逐个钉住，样式多出的键从空格里让宽度、整行总份额不变；偏好写法的宽松读取；哪些键面读哪一类样式；顶部数字行的门槛；各版本列出哪几组样式、是否列「按键布局」入口；本机旧设置迁进共享偏好的规则。iOS 与鸿蒙要画出同样的行。
  */
 public final class TouchKeyStyleSmoke {
     private static final KeyboardActionRow.DesignSlot SYMBOL = KeyboardActionRow.DesignSlot.SYMBOL_PANEL;
@@ -27,6 +27,7 @@ public final class TouchKeyStyleSmoke {
         nineKeyRows();
         tallReturn();
         numberRow();
+        groups();
         migration();
         System.out.println("touch key layout styles: passed");
     }
@@ -257,6 +258,27 @@ public final class TouchKeyStyleSmoke {
             check(actual.get(index).slot() == expected.get(index).slot()
                     && Math.abs(actual.get(index).weight() - expected.get(index).weight()) < 1e-4f,
                 "tall strip " + globe + swap + digits + " key " + index + ": " + actual);
+        }
+    }
+
+    /** 各版本列出哪几组样式（与鸿蒙 `touchKeyLayoutGroups` 同一条规则）：一组都没有时键盘页不列「按键布局」入口，26 键与 14/18 键都没有时子页不列「顶部数字行」。 */
+    private static void groups() {
+        check(TouchKeyStyle.Groups.offeredBy(AppEdition.FULL).equals(new TouchKeyStyle.Groups(true, true, true)),
+            "full offers all three groups");
+        check(TouchKeyStyle.Groups.offeredBy(AppEdition.of("pinyin", "quanpin,shuangpin", "quanpin", true))
+            .equals(new TouchKeyStyle.Groups(true, true, true)), "pinyin edition offers all three groups");
+        TouchKeyStyle.Groups wubi = TouchKeyStyle.Groups.offeredBy(AppEdition.of("wubi", "wubi", "wubi", false));
+        check(wubi.equals(new TouchKeyStyle.Groups(true, true, false)) && wubi.any() && wubi.numberRow(),
+            "wubi edition has 26 and 14 key faces but no nine-key group");
+        TouchKeyStyle.Groups stroke = TouchKeyStyle.Groups.offeredBy(AppEdition.of("stroke", "stroke", "stroke", false));
+        check(stroke.equals(new TouchKeyStyle.Groups(false, false, true)) && stroke.any() && !stroke.numberRow(),
+            "a stroke-only edition lists the entry but not the number row switch");
+        check(TouchKeyStyle.Groups.offeredBy(AppEdition.of("cantonese", "cantonese", "cantonese", false))
+            .equals(new TouchKeyStyle.Groups(true, false, false)), "cantonese offers only the 26 key group");
+        for (String language : new String[] {"japanese", "vietnamese", "tibetan", "korean", "zhuyin"}) {
+            TouchKeyStyle.Groups none = TouchKeyStyle.Groups.offeredBy(AppEdition.of(language, language, language, false));
+            check(none.equals(new TouchKeyStyle.Groups(false, false, false)) && !none.any() && !none.numberRow(),
+                language + " edition hides the 按键布局 entry");
         }
     }
 

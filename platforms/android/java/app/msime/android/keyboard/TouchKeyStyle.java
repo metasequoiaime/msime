@@ -73,6 +73,30 @@ public final class TouchKeyStyle {
         }
     }
 
+    /**
+     * 本版本提供哪几组样式：中文 26 键（全拼、双拼、五笔、粤拼）、14 键与 18 键（全拼 14/18 键，双拼和五笔也有 14 键）、9 键（拼音九键、九键双拼、笔画）。与鸿蒙 `touchKeyLayoutGroups` 同一条规则：一组都没有时（例如日语版）键盘页不列「按键布局」入口，26 键与 14/18 键都没有时子页不列「顶部数字行」开关。
+     */
+    public record Groups(boolean twentySix, boolean fourteen, boolean nine) {
+        public static Groups offeredBy(AppEdition edition) {
+            return new Groups(
+                offersAny(edition, KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE, KeyboardScheme.WUBI, KeyboardScheme.CANTONESE),
+                offersAny(edition, KeyboardScheme.QUANPIN_FOURTEEN_KEY, KeyboardScheme.QUANPIN_EIGHTEEN_KEY,
+                    KeyboardScheme.XIAOHE, KeyboardScheme.WUBI),
+                offersAny(edition, KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.NINE_KEY_SHUANGPIN, KeyboardScheme.STROKE));
+        }
+
+        /** 至少有一组：键盘页列出「按键布局」入口。 */
+        public boolean any() { return twentySix || fourteen || nine; }
+
+        /** 顶部数字行只画在 26 键、14 键和 18 键上。 */
+        public boolean numberRow() { return twentySix || fourteen; }
+
+        private static boolean offersAny(AppEdition edition, KeyboardScheme... schemes) {
+            for (KeyboardScheme scheme : schemes) if (scheme.offeredBy(edition)) return true;
+            return false;
+        }
+    }
+
     private TouchKeyStyle() {}
 
     /** 严格写法里属于这类键面的那一种；缺键、不认识或这类键面不提供时是标准底行。 */

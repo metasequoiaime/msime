@@ -136,9 +136,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             layout.nav("中文键盘", note, layoutLabel(current),
                 pairOffered ? () -> pickLayout(current, pair) : null);
         }
-        // 底行样式与顶部数字行在共享偏好里，三端相同；子页按本版本提供的键面列出几组。
-        layout.nav("按键布局", "26 键、14 键与 18 键、9 键的底行排法，以及顶部数字行", null,
-            () -> SettingsNavigator.open(requireContext(), PageId.KEY_LAYOUT_STYLES, null));
+        // 底行样式与顶部数字行在共享偏好里，三端相同；子页按本版本提供的键面列出几组，一组都没有（例如日语版）时不列这个入口，与鸿蒙同一条规则。副标题三端相同。
+        if (TouchKeyStyle.Groups.offeredBy(edition).any())
+            layout.nav("按键布局", "各类键盘的底行样式和顶部数字行", null,
+                () -> SettingsNavigator.open(requireContext(), PageId.KEY_LAYOUT_STYLES, null));
         String spellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         layout.nav("拼音显示位置", "全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏",
