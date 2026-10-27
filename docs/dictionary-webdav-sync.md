@@ -35,10 +35,18 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 
 | 宿主 | 状态 |
 | --- | --- |
+| Windows（含 Win7） | 已接入。目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`（`platforms/windows/common/DictionarySyncDirectory.h`），Server 和设置窗口共用。Server 在候选窗口删词后以 `local_change` 记一次，按 `next_check_ms` 以 `periodic` 再调（`src/system/DictionarySyncWorker.cpp`，只在受管理的 Server 里）；WinUI 设置在词库页「云端词库」标签、Win7 在词库同步面板（`--route=dictionary-sync`，从设置窗口词库页打开）里配置网盘、看状态和设备，进入时 `opened`、「立即同步」`manual`，经设置改了词之后 `local_change`。密钥串身份冲突（`clipboard_keystore_conflict`）时宿主重试 |
 | macOS、Linux | 共享 React 设置页「词库」→「管理词库」里的「词库同步」与「词库同步设备」两组；Tauri 设置应用的 `dictionary_sync` 命令在阻塞线程上调 `msime_host_api::dictionary_webdav::request_json`（C 入口的同一个实现），HostOptions 取词库命令用的那份，目录是账号目录下的 `dictionary-sync/`：macOS 是输入法与设置应用共用的 `~/Library/Application Support/<设置应用 bundle id>/dictionary-sync`，Linux 是 IBus、Fcitx5 和设置应用共用的状态目录（通常 `~/.config/msime-client`）下的 `dictionary-sync`。输入法进程（IMK、IBus、Fcitx5）不调用，见下文「触发」 |
 | HarmonyOS | 同一个共享设置页（手机在「词库」页直列，2in1 在「管理词库」标签），经 `startRequest` 的 `dictionary_sync` → `HarmonyAccountCloudBridge.dictionarySync` → NAPI `dictionarySync`（工作线程）；目录是设置应用沙箱的 `files/state/dictionary-sync`；除 `status` 外都要隐私政策的授权。键盘扩展不调用，见下文「触发」 |
-| Windows（含 Win7）、Android | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
 | iOS | 设置 App「词库 → 词库同步」：网盘填写页（测试连接通过才保存）、状态与「立即同步」、核对码和设备批准、被挡下的大批删除、重置密钥、以本机为准重新开始和停止同步。App 回到前台时 `opened`，在前台时按 `next_check_ms` 以 `periodic` 再调，进后台就停；键盘扩展在应用了 App 排队的编辑或候选栏删除词条之后以 `local_change` 记录，只在有完全访问、App 已经用这个网盘同步过（目录里已有同步状态和密钥串）、状态文件不超过 2 MiB 时才调，否则留给 App。目录是 App Group 容器里的 `dictionary-sync/`（0700、首次解锁后的文件保护、不进备份），密钥串是 Rust 在里面写的文件，App 和键盘共用同一份和同一把锁 |
+| Android | 设置 App「我的 → 词库同步」（词库页也有入口）和 `:ime` 键盘进程的触发已接入，见下文 |
+
+Android 的接法（`platforms/android`）：
+
+- JNI 是 `NativeClient.dictionarySync`（`msime_client_dictionary_sync`，请求上限 2 MiB），Java 这一层是 `DictionaryWebDavSync`；两个进程给的目录都是 `noBackupFilesDir/dictionary-sync`，HostOptions 是 `runtime-options.json` 那一份。
+- 设置页（`home/DictionarySyncPage`）：网盘地址、账号和应用密码在对话框里填，应用密码不回显、留空沿用已存的；「测试连接」只测不存，「保存」先测、通过了才写进偏好，没通过时对话框和草稿都留着。打开这一页时以 `opened` 同步并读设备，「立即同步」是 `manual`，都在工作线程上。状态、被挡下的大批删除（「同步删除」「从网盘恢复」）、本机核对码、等待允许的设备（允许 / 拒绝）、已允许的设备（移除）、「重置密钥」和「以本机为准重新开始」都在这一页，移除、重置和重新开始先确认。
+- 键盘进程（`core/ImeDictionarySync`）：候选栏删除之后、设置页排进队列的改词被键盘写进词库之后以 `local_change` 调；之后按 `next_check_ms` 以 `periodic` 定时，键盘收起（输入会话刚结束）时如果还有没写进本机的远端改动就马上再来一次。调用在它自己的一条工作线程上，不在输入线程上，也不排在建会话用的线程后面；定时用主线程的 Handler（与键盘已有的个人词库维护相同，没有拿 WorkManager 排任务），进程被回收时定时跟着没了，下一次键盘起来再接上。输入会话开着时 Rust 拿不到词库维护权，这一轮不写，等会话结束。
+- 设备身份：一个安装只有一份词库密钥串，在共用目录里由 Rust 在锁里「读不到才生成」。键盘进程还多守一条：本机还没有设备编号时不跑，第一次登记只由设置页（打开或保存之后的 `opened`）做。这份密钥串由 Rust 存成只有本应用能读的文件，不像云剪贴板的中继密钥串那样由 Java 用 AndroidKeyStore 加密，因为这个入口没有让宿主保管密钥串的接口；noBackupFilesDir 不进云备份和设备间迁移。
 
 目录不能直接用账号目录或 `files/state` 本身：云剪贴板的中继在那里放着 `cloud-clipboard-relay-keystore` 和 `cloud-clipboard-webdav-state`，词库的密钥串和它的网盘缓存用的是同样的文件名，放在一起会互相覆盖，所以一律是下面的 `dictionary-sync/` 子目录。
 
