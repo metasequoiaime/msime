@@ -289,6 +289,11 @@ fn touch_key_styles_and_number_row_round_trip_through_the_store() {
             TouchFourteenKeyStyle::Standard,
             TouchNineKeyStyle::Standard,
         ),
+        (
+            TouchTwentySixKeyStyle::Standard,
+            TouchFourteenKeyStyle::Standard,
+            TouchNineKeyStyle::TallReturn,
+        ),
     ] {
         let configured = Preferences {
             touch_twenty_six_key_style: twenty_six,
@@ -301,7 +306,16 @@ fn touch_key_styles_and_number_row_round_trip_through_the_store() {
         let loaded = store.load().unwrap().preferences;
         assert_eq!(loaded, configured);
         let written = serde_json::to_value(&loaded).unwrap();
-        assert_eq!(written["touch_twenty_six_key_style"], twenty_six.as_str());
+        assert_eq!(
+            written.get("touch_twenty_six_key_style"),
+            (!twenty_six.is_default())
+                .then(|| twenty_six.as_str().into())
+                .as_ref()
+        );
+        assert_eq!(
+            written.get("touch_nine_key_style"),
+            (!nine.is_default()).then(|| nine.as_str().into()).as_ref()
+        );
         assert_eq!(written["touch_number_row"], true);
     }
 }
@@ -339,6 +353,7 @@ fn touch_key_style_wire_strings_are_pinned_and_unknown_strings_read_as_standard(
         (TouchNineKeyStyle::Standard, "standard"),
         (TouchNineKeyStyle::CommaPeriod, "comma_period"),
         (TouchNineKeyStyle::Emoji, "emoji"),
+        (TouchNineKeyStyle::TallReturn, "tall_return"),
     ] {
         assert_eq!(serde_json::to_value(style).unwrap(), wire);
         assert_eq!(style.as_str(), wire);

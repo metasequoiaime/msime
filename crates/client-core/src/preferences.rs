@@ -298,7 +298,7 @@ impl<'de> Deserialize<'de> for TouchFourteenKeyStyle {
     }
 }
 
-/// 九键字母层（拼音九键、九键双拼、笔画共用这一框架）底行的排法；左侧符号栏和右侧功能列不变。桌面宿主原样保留、不使用。
+/// 九键字母层（拼音九键、九键双拼、笔画共用这一框架）底行的排法；除 [`Self::TallReturn`] 外，左侧符号栏和右侧功能列不变。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
@@ -311,6 +311,8 @@ pub enum TouchNineKeyStyle {
     CommaPeriod,
     /// 表情键：符 | 123 | 😀 | 空格 | 中/英 | 回车。
     Emoji,
+    /// 右侧大回车：左列是跨三行的符号栏，栏下方底行放 符（与符号栏同宽）；中间是 3×3 九宫格，格下方底行 123 | 🌐 | 空格 | 中/英 恰好与九宫格同宽，空格占剩余宽度；右列（与现有右列同宽）自上而下是 ⌫、重输，回车跨第三行和底行（两倍高、中间无缝）。现有右列的 ！ 键去掉，只在这个样式里把 ！ 接在符号栏默认字母符号表的末尾，自定义的符号栏列表原样使用。九键数字层照同一框架：符 留在符号栏下方，123 的位置放切换键，空格的位置放 0（空格放哪按各端现有数字层规则），回车仍是两倍高。中/英 与回车不在同一行，不让出回车的点击区。较旧的版本不认识这个值，按现有底行读。
+    TallReturn,
 }
 
 impl TouchNineKeyStyle {
@@ -320,15 +322,17 @@ impl TouchNineKeyStyle {
             Self::Standard => "standard",
             Self::CommaPeriod => "comma_period",
             Self::Emoji => "emoji",
+            Self::TallReturn => "tall_return",
         }
     }
 
-    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    /// 严格解析：只认四种写法，其他值为 `None`。偏好文档走宽松的反序列化。
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "standard" => Some(Self::Standard),
             "comma_period" => Some(Self::CommaPeriod),
             "emoji" => Some(Self::Emoji),
+            "tall_return" => Some(Self::TallReturn),
             _ => None,
         }
     }
@@ -1639,7 +1643,7 @@ pub struct Preferences {
     /// 手机触屏 14 键与 18 键字母层（全拼、双拼、五笔 14 键）底行的样式，见 [`TouchFourteenKeyStyle`]。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchFourteenKeyStyle::is_default")]
     pub touch_fourteen_key_style: TouchFourteenKeyStyle,
-    /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式，见 [`TouchNineKeyStyle`]；左侧符号栏和右侧功能列不变。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式，见 [`TouchNineKeyStyle`]；除右侧大回车样式外，左侧符号栏和右侧功能列不变。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchNineKeyStyle::is_default")]
     pub touch_nine_key_style: TouchNineKeyStyle,
     /// 手机触屏 26 键、14 键和 18 键字母层上方加一行 1 到 0（九键和手写不加）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 本机设置 `platform.android.number_row`。默认关且不写进文档。桌面宿主原样保留、不使用。

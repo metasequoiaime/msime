@@ -12,7 +12,7 @@ Status: implemented
 
 - `touch_twenty_six_key_style: TouchTwentySixKeyStyle`，作用于全部中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 的整排键盘不受它影响。取值 `standard`（默认，123 | 符 | 空格 | ，长按。 | 中/英 | 回车）、`comma_period`（123 | 符 | ， | 空格 | 。 | 中/英 | 回车）、`long_space`（123 | ， | 长空格 | 中/英 | 回车，符号入口移到工具栏，接替 Android 的 `long_space_layout`）、`emoji`（123 | 😀 | 空格 | ， | 中/英 | 回车，符号经长按 123 进入）。
 - `touch_fourteen_key_style: TouchFourteenKeyStyle`，14 键与 18 键字母层（全拼、双拼、五笔 14 键）共用。取值 `standard`（默认，123 | ， | 空格 | 。 | 中/英 | 回车）、`long_space`、`emoji`。
-- `touch_nine_key_style: TouchNineKeyStyle`，九键字母层（拼音九键、九键双拼、笔画共用这个框架），左侧符号栏和右侧功能列不变。取值 `standard`（默认，符 | 123 | 空格 | 中/英 | 回车）、`comma_period`、`emoji`。
+- `touch_nine_key_style: TouchNineKeyStyle`，九键字母层（拼音九键、九键双拼、笔画共用这个框架），除 `tall_return` 外左侧符号栏和右侧功能列不变。取值 `standard`（默认，符 | 123 | 空格 | 中/英 | 回车）、`comma_period`、`emoji`、`tall_return`（设置页名「右侧大回车」，排在表情键之后：左列是跨三行的符号栏，栏下方底行放与它同宽的 符；九宫格下方底行 123 | 🌐 | 空格 | 中/英 恰好与九宫格同宽，空格占剩余宽度；右列与现有右列同宽，自上而下 ⌫、重输，回车跨第三行和底行、两倍高且中间无缝。现有右列的 ！ 去掉，只在这个样式里接到符号栏默认字母符号表末尾，自定义列表原样使用。九键数字层照同一框架：符 留在原处，123 的位置放切换键，空格的位置放 0，空格放哪按各端现有数字层规则，回车仍两倍高。中/英 与回车不在同一行，不适用回车让位和点击区规则。热力图照这个框架画，统计 id 不变。较旧的版本读到它按 `standard` 处理）。
 - `touch_number_row: bool`，默认关，在 26 键、14 键和 18 键字母层上方画 1 到 0（九键、手写不画）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 的 `platform.android.number_row`。
 
 三个样式按键面类型分开存，而不是一个枚举套所有键面：每类键面能放的排法不同（14 键本来就有逗号和句号，没有 `comma_period`；九键没有地方放长空格），分开存时每个值都是这类键面真能画出来的样子。

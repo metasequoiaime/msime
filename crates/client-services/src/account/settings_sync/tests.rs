@@ -1362,6 +1362,11 @@ fn touch_key_styles_and_number_row_sync_by_their_wire_names() {
             TouchFourteenKeyStyle::Standard,
             TouchNineKeyStyle::Standard,
         ),
+        (
+            TouchTwentySixKeyStyle::Standard,
+            TouchFourteenKeyStyle::Standard,
+            TouchNineKeyStyle::TallReturn,
+        ),
     ] {
         let local = Preferences {
             touch_twenty_six_key_style: twenty_six,
@@ -1374,6 +1379,10 @@ fn touch_key_styles_and_number_row_sync_by_their_wire_names() {
         assert_eq!(
             exported[TWENTY_SIX_KEY_STYLE],
             AccountPreferenceValue::String(twenty_six.as_str().into())
+        );
+        assert_eq!(
+            exported[NINE_KEY_STYLE],
+            AccountPreferenceValue::String(nine.as_str().into())
         );
         let applied = apply(&Preferences::default(), exported, &full_schema());
         assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
