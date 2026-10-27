@@ -10,6 +10,7 @@ import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.AbsoluteSizeSpan;
@@ -91,6 +92,8 @@ public final class StatisticsFragment extends HomeTabFragment {
     /** 热力图的 26 键和 9 键布局，按用户当前的底行样式与数字行；还没读到偏好时是标准底行。 */
     private List<List<List<KeyHeatmapLayout.Key>>> heatmapLayouts = List.of(KeyHeatmapLayout.SOFT, KeyHeatmapLayout.NINE);
     private boolean authorized;
+    /** 最后一次处于已认证状态的时刻（{@link SystemClock#elapsedRealtime()}），跨页面实例共用，见 {@link StatisticsAuthenticationPolicy#withinCooldown}。 */
+    private static long lastAuthorizedMs;
     @Nullable private BiometricPrompt authentication;
     private final AuthenticationPauseTracker pause = new AuthenticationPauseTracker();
 
@@ -126,6 +129,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     @Override public void onDestroyView() {
         if (authentication != null) authentication.cancelAuthentication();
         authentication = null;
+        rememberAuthorized();
         authorized = false;
         pause.reset();
         super.onDestroyView();
@@ -141,6 +145,13 @@ public final class StatisticsFragment extends HomeTabFragment {
         KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
         if (keyguard == null) {
             MsToast.show(context, "无法读取系统认证状态，请稍后重试");
+            return;
+        }
+        // 刚认证过（含刚离开统计页或退到后台）时不再弹认证。
+        if (StatisticsAuthenticationPolicy.withinCooldown(lastAuthorizedMs, SystemClock.elapsedRealtime())) {
+            authorized = true;
+            rememberAuthorized();
+            reload();
             return;
         }
         // 未设置锁屏凭据时直接读统计；已配置认证的设备仍需认证成功，临时不可用不算未配置。
@@ -159,6 +170,7 @@ public final class StatisticsFragment extends HomeTabFragment {
                 @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
                     authentication = null;
                     authorized = true;
+                    rememberAuthorized();
                     if (getView() != null) reload();
                     authenticationEnded(false);
                 }
@@ -205,7 +217,13 @@ public final class StatisticsFragment extends HomeTabFragment {
 
     @Override public void onPause() {
         super.onPause();
+        rememberAuthorized();
         pause.paused(authentication != null);
+    }
+
+    /** 已认证时把冷却的起点挪到现在：看着统计离开或退到后台之后，冷却从离开时算起。 */
+    private void rememberAuthorized() {
+        if (authorized) lastAuthorizedMs = SystemClock.elapsedRealtime();
     }
 
     // 键盘在另一个进程里，这个页面不在眼前时它一直在记，所以每次重新可见都重新认证再读一次。例外是暂停时认证还开着：回来时是否重新认证由这次认证的结果决定，见 AuthenticationPauseTracker；认证成功的回调自己会读。
@@ -214,6 +232,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     private void reenter() {
+        rememberAuthorized();
         authorized = false;
         requestAuthentication();
     }

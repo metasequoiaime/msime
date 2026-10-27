@@ -60,6 +60,7 @@
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
 #include "McpConnect.h"
+#include "ModelErrorMessages.h"
 #include "PluginEditorModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
@@ -133,6 +134,7 @@ using A11y = Microsoft::UI::Xaml::Automation::AutomationProperties;
 namespace nav = msime::settings;
 namespace pg = msime::settings::plugins;
 namespace vs = msime::settings::voice;
+namespace model_errors = msime::settings::models;
 namespace ps = msime::settings::punctuation;
 namespace ism = msime::settings::input;
 namespace ais = msime::settings::ai;
@@ -14114,10 +14116,13 @@ private:
         },
         [this, id](Response const &response) {
           sentence_pack_installing_.erase(id);
-          if (!response.ok)
-            show_notice(L"模型下载失败，请检查网络或稍后重试。", InfoBarSeverity::Error);
-          else
+          if (!response.ok) {
+            if (const auto message = model_errors::error_message(
+                    model_errors::error_code(response_error(response))))
+              show_notice(*message, InfoBarSeverity::Error);
+          } else {
             grammar_updates_available_.erase(id);
+          }
           refresh_sentence_packs();
           redraw_input();
         });
@@ -24126,7 +24131,7 @@ private:
     local_models_stale_ = false;
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *vs::local_model_error_message(L"local_model_invalid_root");
+      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
       return;
     }
     JsonObject request;
@@ -24142,14 +24147,14 @@ private:
             return;
           if (!response.ok) {
             local_models_notice_ =
-                vs::local_model_error_message(vs::local_model_error_code(response_error(response)))
+                model_errors::error_message(model_errors::error_code(response_error(response)))
                     .value_or(L"");
           } else {
             try {
               local_models_ = parse_local_models(
                   JsonObject::Parse(text(response.text)).GetNamedObject(L"value"));
             } catch (...) {
-              local_models_notice_ = *vs::local_model_error_message(L"");
+              local_models_notice_ = *model_errors::error_message(L"");
             }
           }
           redraw_voice();
@@ -24241,7 +24246,7 @@ private:
     }
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *vs::local_model_error_message(L"local_model_invalid_root");
+      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
       redraw_voice();
       return;
     }
@@ -24292,9 +24297,9 @@ private:
                 doc.SetString(L"voice_input.asr_model_path", path);
               }, false);
           } else {
-            const auto code = vs::local_model_error_code(response_error(response));
+            const auto code = model_errors::error_code(response_error(response));
             const auto message = import ? vs::local_model_import_error_message(code)
-                                        : vs::local_model_error_message(code);
+                                        : model_errors::error_message(code);
             local_models_notice_ =
                 message ? *message
                         : (import ? L"已取消导入「" : L"已取消下载「") + title + L"」。";
@@ -24321,7 +24326,7 @@ private:
       co_return;
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *vs::local_model_error_message(L"local_model_invalid_root");
+      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
       redraw_voice();
       co_return;
     }
@@ -24348,7 +24353,7 @@ private:
               }, false);
           } else {
             local_models_notice_ =
-                vs::local_model_error_message(vs::local_model_error_code(response_error(response)))
+                model_errors::error_message(model_errors::error_code(response_error(response)))
                     .value_or(L"");
           }
           local_model_removing_.erase(model.id);

@@ -33,6 +33,20 @@ final class ClipboardHistoryTests: XCTestCase {
     try store.clear()
     XCTAssertTrue(try store.load().isEmpty)
   }
+  /// #9897：容量写在共享偏好的 state_root，历史在它之外的根目录；存储必须按保存的档位而不是默认 50 条淘汰。
+  func testSavedCapacityComesFromThePreferencesDirectory() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let state = directory.appendingPathComponent("MSIME", isDirectory: true)
+    try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["clipboard_history_limit"] = 100
+    })
+    let store = ClipboardHistoryStore(directory: directory, preferencesDirectory: state.path)
+    for number in 0..<60 { try store.add("合成记录 \(number)") }
+    XCTAssertEqual(try store.load().count, 60)
+    XCTAssertEqual(try ClipboardHistoryStore(directory: directory, preferencesDirectory: state.path).load().count, 60)
+  }
   func testInvalidInputAndCorruptHistoryDoNotOverwriteData() throws {
     let store = try temporaryStore()
     XCTAssertThrowsError(try store.add(" \n"))

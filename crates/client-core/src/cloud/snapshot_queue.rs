@@ -55,7 +55,7 @@ impl SnapshotRequestStatus {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(from = "StoredSnapshotRequest", into = "StoredSnapshotRequest")]
 pub struct SnapshotRequest {
     pub id: Uuid,
     pub account_id: String,
@@ -63,6 +63,63 @@ pub struct SnapshotRequest {
     pub expected_local_version: String,
     pub file_sha256: String,
     pub status: SnapshotRequestStatus,
+    /// 激活时把本机即将换下来的这一代学到的东西（学习调权、删除记录、固定位置、选词计数和输入习惯）并进新的一代，见 host-api 的 `activate_with_hook`。云同步的「下载」和「应用到本机」排的请求为真：云端快照只有用户自己的词，不带输入记录。本地备份恢复的请求为假：备份自己带着输入记录，要整份换成备份里的那份。`state.json` 里怎么存见 [`StoredSnapshotRequest`]。
+    pub keep_local_learning: bool,
+}
+
+/// [`SnapshotRequest`] 在 `state.json` 里的样子。`keepLocalLearning` 只在与 [`legacy_keep_local_learning`] 推出来的值不同时才写：
+/// - 加这个字段之前排的请求（升级时还排着的、旧版 Java 队列转换来的）没有它，按所有者补上，账号的请求是云端快照、要保留本机学习，本地备份恢复的不保留。不这样补，升级那一刻排着的云同步下载会把本机学习清空一次。
+/// - 现有的入队处排的请求（账号的为真、本地备份的为假）写出来与加这个字段之前逐字节相同，降级到不认识这个字段的旧版本（`deny_unknown_fields`）也读得懂。
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSnapshotRequest {
+    id: Uuid,
+    account_id: String,
+    cloud_revision: i64,
+    expected_local_version: String,
+    file_sha256: String,
+    status: SnapshotRequestStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keep_local_learning: Option<bool>,
+}
+
+/// 没有记下 `keep_local_learning` 的请求按所有者推出来的值。加这个字段之前，属于账号的请求都来自云端快照（云同步的「下载」和「应用到本机」），只有 [`LOCAL_RESTORE_OWNER`] 的请求来自本地备份。
+fn legacy_keep_local_learning(account_id: &str) -> bool {
+    account_id != LOCAL_RESTORE_OWNER
+}
+
+impl From<StoredSnapshotRequest> for SnapshotRequest {
+    fn from(stored: StoredSnapshotRequest) -> Self {
+        let keep_local_learning = stored
+            .keep_local_learning
+            .unwrap_or_else(|| legacy_keep_local_learning(&stored.account_id));
+        Self {
+            id: stored.id,
+            account_id: stored.account_id,
+            cloud_revision: stored.cloud_revision,
+            expected_local_version: stored.expected_local_version,
+            file_sha256: stored.file_sha256,
+            status: stored.status,
+            keep_local_learning,
+        }
+    }
+}
+
+impl From<SnapshotRequest> for StoredSnapshotRequest {
+    fn from(request: SnapshotRequest) -> Self {
+        let keep_local_learning = (request.keep_local_learning
+            != legacy_keep_local_learning(&request.account_id))
+        .then_some(request.keep_local_learning);
+        Self {
+            id: request.id,
+            account_id: request.account_id,
+            cloud_revision: request.cloud_revision,
+            expected_local_version: request.expected_local_version,
+            file_sha256: request.file_sha256,
+            status: request.status,
+            keep_local_learning,
+        }
+    }
 }
 
 impl SnapshotRequest {
@@ -424,6 +481,7 @@ impl DictionarySnapshotQueue {
         cloud_revision: i64,
         expected_local_version: &str,
         file_sha256: &str,
+        keep_local_learning: bool,
     ) -> Result<Uuid, SnapshotQueueError> {
         let source_metadata =
             fs::symlink_metadata(source).map_err(|_| SnapshotQueueError::Invalid)?;
@@ -538,6 +596,7 @@ impl DictionarySnapshotQueue {
                 expected_local_version: expected_local_version.to_owned(),
                 file_sha256: file_sha256.to_owned(),
                 status: SnapshotRequestStatus::Queued,
+                keep_local_learning,
             });
             Ok(previous)
         });
@@ -914,7 +973,7 @@ mod tests {
         let initial = version("legacy", 'b');
         queue.publish_local_version(&initial).unwrap();
         let id = queue
-            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
             .unwrap();
         let fresh = queue.acquire_worker_lease().unwrap();
         let replacement_state = fs::read(root.join(STATE_NAME)).unwrap();
@@ -981,7 +1040,7 @@ mod tests {
         let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
         queue.publish_local_version(&initial).unwrap();
         let id = queue
-            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
             .unwrap();
         let lease = queue.acquire_worker_lease().unwrap();
         queue.claim(&lease, Some("fixture")).unwrap();
@@ -1022,7 +1081,7 @@ mod tests {
         assert!(!root.exists(), "a read must not create queue files");
         queue.publish_local_version(&initial).unwrap();
         let id = queue
-            .enqueue(&source, "fixture-account", 7, &initial, &digest)
+            .enqueue(&source, "fixture-account", 7, &initial, &digest, false)
             .unwrap();
         drop(queue);
 
@@ -1100,7 +1159,7 @@ mod tests {
         queue.publish_local_version(&initial).unwrap();
 
         assert!(matches!(
-            queue.enqueue(&source, "fixture", 1, &initial, &digest),
+            queue.enqueue(&source, "fixture", 1, &initial, &digest, false),
             Err(SnapshotQueueError::Invalid)
         ));
         assert_eq!(queue.read().unwrap().request, None);
@@ -1117,11 +1176,11 @@ mod tests {
         let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
         queue.publish_local_version(&initial).unwrap();
         assert!(matches!(
-            queue.enqueue(&source, "fixture", 1, &initial, &"b".repeat(64)),
+            queue.enqueue(&source, "fixture", 1, &initial, &"b".repeat(64), false),
             Err(SnapshotQueueError::Invalid)
         ));
         let id = queue
-            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
             .unwrap();
         queue.cancel("other-account").unwrap();
         assert_eq!(
@@ -1150,7 +1209,7 @@ mod tests {
         queue.publish_local_version(&initial).unwrap();
 
         let stale = queue
-            .enqueue(&source, "old-account", 1, &initial, &digest)
+            .enqueue(&source, "old-account", 1, &initial, &digest, false)
             .unwrap();
         let lease = queue.acquire_worker_lease().unwrap();
         assert!(queue.claim(&lease, Some("new-account")).unwrap().is_none());
@@ -1161,7 +1220,7 @@ mod tests {
         assert!(!queue.file_path(stale).unwrap().exists());
 
         let signed_out = queue
-            .enqueue(&source, "old-account", 2, &initial, &digest)
+            .enqueue(&source, "old-account", 2, &initial, &digest, false)
             .unwrap();
         assert!(queue.claim(&lease, Some("")).unwrap().is_none());
         assert_eq!(
@@ -1171,7 +1230,7 @@ mod tests {
         assert!(!queue.file_path(signed_out).unwrap().exists());
 
         let changed_during_prepare = queue
-            .enqueue(&source, "old-account", 3, &initial, &digest)
+            .enqueue(&source, "old-account", 3, &initial, &digest, false)
             .unwrap();
         assert!(queue.claim(&lease, Some("old-account")).unwrap().is_some());
         let mut activated = false;
@@ -1227,11 +1286,79 @@ mod tests {
                 expected_local_version: initial,
                 file_sha256: "a".repeat(64),
                 status: SnapshotRequestStatus::Queued,
+                keep_local_learning: true,
             }),
         };
         fs::write(root.join(STATE_NAME), serde_json::to_vec(&state).unwrap()).unwrap();
 
         assert!(matches!(queue.read(), Err(SnapshotQueueError::Invalid)));
+    }
+
+    /// `keep_local_learning` 随请求落盘、认领时原样带出。现有入队处排的请求（账号的为真、本地备份的为假）`state.json` 里没有这个字段，与加字段之前逐字节相同，旧版本照样读得懂；只有与所有者推出来的值不同时才写。
+    #[test]
+    fn keep_local_learning_is_persisted_only_when_it_differs_from_the_owner_default() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        let source = parent.path().join("snapshot.ndjson");
+        fs::write(&source, b"synthetic snapshot\n").unwrap();
+        let digest = hex::encode(Sha256::digest(b"synthetic snapshot\n"));
+        let initial = version("legacy", 'a');
+        let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
+        queue.publish_local_version(&initial).unwrap();
+
+        for (revision, (owner, keep, stored)) in [
+            ("fixture", true, None),
+            (LOCAL_RESTORE_OWNER, false, None),
+            ("fixture", false, Some("\"keepLocalLearning\":false")),
+            (
+                LOCAL_RESTORE_OWNER,
+                true,
+                Some("\"keepLocalLearning\":true"),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            queue
+                .enqueue(&source, owner, revision as i64, &initial, &digest, keep)
+                .unwrap();
+            let state = fs::read_to_string(root.join(STATE_NAME)).unwrap();
+            match stored {
+                Some(field) => assert!(state.contains(field), "{state}"),
+                None => assert!(!state.contains("keepLocalLearning"), "{state}"),
+            }
+            let lease = queue.acquire_worker_lease().unwrap();
+            let claimed = queue.claim(&lease, Some("fixture")).unwrap().unwrap();
+            assert_eq!(claimed.keep_local_learning, keep, "{owner} {keep}");
+            queue.cancel(owner).unwrap();
+        }
+    }
+
+    /// 加这个字段之前排的请求没有 `keepLocalLearning`：账号的请求按云端快照处理、保留本机学习，本地备份恢复的不保留。
+    #[test]
+    fn a_request_queued_before_the_flag_keeps_learning_unless_it_is_a_local_backup() {
+        let initial = version("legacy", 'a');
+        for (owner, keep) in [("fixture", true), (LOCAL_RESTORE_OWNER, false)] {
+            let parent = tempfile::tempdir().unwrap();
+            let root = parent.path().join("queue");
+            let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
+            queue.publish_local_version(&initial).unwrap();
+            let legacy = serde_json::json!({
+                "version": 1,
+                "localVersion": initial,
+                "request": {
+                    "id": Uuid::new_v4(),
+                    "accountId": owner,
+                    "cloudRevision": 1,
+                    "expectedLocalVersion": initial,
+                    "fileSha256": "a".repeat(64),
+                    "status": "queued",
+                },
+            });
+            fs::write(root.join(STATE_NAME), legacy.to_string()).unwrap();
+            let request = queue.read().unwrap().request.unwrap();
+            assert_eq!(request.keep_local_learning, keep, "{owner}");
+        }
     }
 
     #[test]
@@ -1246,7 +1373,7 @@ mod tests {
         let queue = DictionarySnapshotQueue::new(root).unwrap();
         queue.publish_local_version(&initial).unwrap();
         let id = queue
-            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
             .unwrap();
         let lease = queue.acquire_worker_lease().unwrap();
         queue.claim(&lease, Some("fixture")).unwrap();
@@ -1275,7 +1402,7 @@ mod tests {
         let queue = DictionarySnapshotQueue::new(root).unwrap();
         queue.publish_local_version(&initial).unwrap();
         let id = queue
-            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
             .unwrap();
         queue.cancel("fixture").unwrap();
 
@@ -1300,7 +1427,7 @@ mod tests {
         let queue = DictionarySnapshotQueue::new(root).unwrap();
         queue.publish_local_version(&initial).unwrap();
         let id = queue
-            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
             .unwrap();
         let lease = queue.acquire_worker_lease().unwrap();
         queue.claim(&lease, Some("fixture")).unwrap();
@@ -1336,7 +1463,7 @@ mod tests {
         let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
         queue.publish_local_version(&initial).unwrap();
         let id = queue
-            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
             .unwrap();
         let (entered_send, entered_receive) = std::sync::mpsc::channel();
         let (release_send, release_receive) = std::sync::mpsc::channel();

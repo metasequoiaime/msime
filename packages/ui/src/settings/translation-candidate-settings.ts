@@ -36,6 +36,8 @@ export interface CandidateTranslationSettingsOptions {
   /** 触屏键盘（iOS、Android、HarmonyOS 手机）只显示一种候选翻译：第二种语言让每个候选下多一行，候选栏太高，所以不给「第二种候选语言」。 */
   mobile?: boolean;
   translationAccount: boolean;
+  /** 宿主提供 AI 生成类功能（`HostCapabilities.ai_generation`）；为 false 时（HarmonyOS）翻译服务里不列「AI 辅助」。缺省为提供。 */
+  aiGeneration?: boolean;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
   onDeviceMissingLanguages: readonly (readonly [string, string])[];
   openSettings?: () => Promise<void>;
@@ -63,6 +65,7 @@ export function createCandidateTranslationSettings({
   windows = false,
   mobile = false,
   translationAccount,
+  aiGeneration = true,
   onPreferencesChange,
   onDeviceMissingLanguages,
   openSettings,
@@ -112,6 +115,7 @@ export function createCandidateTranslationSettings({
     showTranslationService: !android,
     translationProvider,
     showAccountProvider: macos || linux || windows,
+    showAiProvider: aiGeneration,
     // 不选在线服务时宿主仍会出的释义：macOS 还有系统本机翻译，叫「离线翻译」；Windows、Linux、HarmonyOS 只有离线词库，叫「不使用在线服务」；Android、iOS 沿用「关闭」，等各自核对过再改。
     offlineFallback: translationOfflineFallback({ macos, windows, linux, harmony }),
     onTranslationProviderChange: setTranslationProvider,

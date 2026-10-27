@@ -53,7 +53,8 @@ test.each(["linux", "harmony", "windows", "ios", "android"])(
         client={{
           load: async () => snapshot,
           save: async () => snapshot,
-          host: testHost({ platform }),
+          // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`，这样它也有 AI 页可点。
+          host: testHost({ platform, ai_generation: true }),
         }}
       />,
     );

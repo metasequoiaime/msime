@@ -618,6 +618,28 @@ static napi_value AccountCloudClipboard(napi_env env, napi_callback_info info) {
         "MSIME account cloud clipboard");
 }
 
+// 自建中继和 WebDAV 网盘（docs/cloud-clipboard-relay.md、docs/cloud-clipboard-webdav.md）：驱动、密钥串和网盘日志都在 Rust 里，会阻塞网络，与账号的云剪贴板一样在工作线程上调用。
+static napi_value RelayCloudClipboard(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_relay_cloud_clipboard,
+        "MSIME relay cloud clipboard");
+}
+
+static napi_value CloudClipboardWebDavProbe(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_cloud_clipboard_webdav_probe,
+        "MSIME cloud clipboard webdav probe");
+}
+
+// 云剪贴板该走哪条路：头文件规定它只读偏好、不联网，所以同步调用，键盘在主线程上核对列表的绑定时也读它。参数是偏好目录的绝对路径本身（不是 JSON），与 accountStatus 一样。
+static napi_value CloudClipboardSource(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string directory;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], directory)) {
+        return response(env, msime_client_cloud_clipboard_source(nullptr, 0));
+    }
+    return response(env, msime_client_cloud_clipboard_source(
+        reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+}
+
 static napi_value EnsureAnonymousAccountWithAgent(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_ensure_anonymous_account_with_agent,
         "MSIME anonymous account with agent");
@@ -1721,6 +1743,9 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("cloudDictionary", CloudDictionary),
         ENTRY("cloudDictionarySnapshot", CloudDictionarySnapshot),
         ENTRY("accountCloudClipboard", AccountCloudClipboard),
+        ENTRY("cloudClipboardSource", CloudClipboardSource),
+        ENTRY("relayCloudClipboard", RelayCloudClipboard),
+        ENTRY("cloudClipboardWebDavProbe", CloudClipboardWebDavProbe),
         ENTRY("harmonySettingsExport", HarmonySettingsExport),
         ENTRY("harmonySettingsApply", HarmonySettingsApply),
         ENTRY("aiSkinGenerate", AiSkinGenerate),

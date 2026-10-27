@@ -289,7 +289,7 @@ impl Device {
             |request| Ok::<_, ()>(server.handle(request)),
             |keystore| {
                 saved = Some(keystore.to_owned());
-                Ok(())
+                Ok(Persisted::Saved)
             },
             || (),
         )
@@ -1008,6 +1008,206 @@ fn invalid_operations_fail_before_any_request() {
             matches!(step, Step::Failed { error, keystore } if error.code == code && keystore.starts_with("v1."))
         );
     }
+}
+
+/// 等待批准的设备里同名的几台：只有最晚登记的那台算数。
+fn pending_names(status: &Value) -> Vec<(String, String)> {
+    status["devices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|device| device["approved"] == false && device["current"] == false)
+        .map(|device| {
+            (
+                device["name"].as_str().unwrap().to_owned(),
+                device["device_id"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// 同一部手机丢过两次设备身份（重装、清除数据、退出再登录），服务端留着两条它再也用不上的待批准登记，第三次是现在这个身份。批准方只看到一台「Pixel 8」，核对码是手机现在显示的那串；打开设备页时旧登记被删掉，批准一次就够。
+#[test]
+fn a_phone_registered_three_times_waits_for_one_approval() {
+    let mut server = FakeServer::new();
+    let mut mac = Device::new("MacBook");
+    mac.list(&mut server, "");
+    for _ in 0..2 {
+        Device::new("Pixel 8").list(&mut server, "");
+    }
+    let mut phone = Device::new("Pixel 8");
+    let page = phone.list(&mut server, "");
+    assert_eq!(page["e2e"]["status"], "pending");
+    assert_eq!(server.devices.len(), 4);
+
+    let list = mac.list(&mut server, "");
+    assert_eq!(list["e2e"]["pending_devices"], 1);
+    let status = mac.status(&mut server);
+    assert_eq!(pending_names(&status), [("Pixel 8".to_owned(), phone.id())]);
+    let shown = status["devices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|device| device["device_id"] == phone.id())
+        .unwrap();
+    assert_eq!(shown["code"], phone.code());
+    // 旧登记已经从服务端删掉，不再占 20 台的名额。
+    assert_eq!(server.devices.len(), 2);
+
+    let approved = mac
+        .run(
+            &mut server,
+            Operation::Approve {
+                device_id: phone.id(),
+            },
+        )
+        .unwrap();
+    assert!(pending_names(&approved).is_empty());
+    assert_eq!(phone.list(&mut server, "")["e2e"]["status"], "ready");
+    assert_eq!(mac.list(&mut server, "")["e2e"]["pending_devices"], 0);
+}
+
+/// 批准直接从「允许」发出、之前没有打开过设备页时，批准同样清掉这台设备更早的登记。
+#[test]
+fn approving_the_newest_registration_prunes_the_older_ones() {
+    let mut server = FakeServer::new();
+    let mut mac = Device::new("MacBook");
+    mac.list(&mut server, "");
+    Device::new("Pixel 8").list(&mut server, "");
+    let mut phone = Device::new("Pixel 8");
+    phone.list(&mut server, "");
+    let approved = mac
+        .run(
+            &mut server,
+            Operation::Approve {
+                device_id: phone.id(),
+            },
+        )
+        .unwrap();
+    assert!(pending_names(&approved).is_empty());
+    let ids: Vec<&str> = server
+        .devices
+        .iter()
+        .map(|d| d.device_id.as_str())
+        .collect();
+    assert_eq!(ids, [mac.id(), phone.id()]);
+}
+
+/// 两部同名的手机（iOS 16 起的设备名都是「iPhone」）：先登记的那部被后来那部「盖住」、登记被删掉之后，它下次同步时重新登记，排到最后，又能被看到和批准。只按名字合并是个猜测，猜错的代价是那部手机晚一轮出现，不会被永远藏起来。
+#[test]
+fn a_live_device_hidden_behind_a_namesake_comes_back() {
+    let mut server = FakeServer::new();
+    let mut mac = Device::new("MacBook");
+    mac.list(&mut server, "");
+    let mut first = Device::new("iPhone");
+    first.list(&mut server, "");
+    let mut second = Device::new("iPhone");
+    second.list(&mut server, "");
+    assert_eq!(
+        pending_names(&mac.status(&mut server)),
+        [("iPhone".to_owned(), second.id())]
+    );
+    mac.run(
+        &mut server,
+        Operation::Approve {
+            device_id: second.id(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(first.list(&mut server, "")["e2e"]["status"], "pending");
+    assert_eq!(
+        pending_names(&mac.status(&mut server)),
+        [("iPhone".to_owned(), first.id())]
+    );
+    mac.run(
+        &mut server,
+        Operation::Approve {
+            device_id: first.id(),
+        },
+    )
+    .unwrap();
+    assert_eq!(first.list(&mut server, "")["e2e"]["status"], "ready");
+    assert_eq!(second.list(&mut server, "")["e2e"]["status"], "ready");
+}
+
+/// `persist` 答「已经有另一个身份」时，还没发出任何请求，[`run`] 改用存着的身份重来；发过请求之后再冲突就失败，不会把第二个身份登记上去。
+#[test]
+fn run_adopts_the_identity_another_process_saved_first() {
+    let mut server = FakeServer::new();
+    let mut settings = Device::new("Pixel 8");
+    settings.list(&mut server, "");
+    let stored = settings.keystore.clone().unwrap();
+
+    let mut saves = Vec::new();
+    let result = run(
+        Operation::Status,
+        None,
+        "Pixel 8",
+        |request| Ok::<_, ()>(server.handle(request)),
+        |value| {
+            saves.push(value.to_owned());
+            Ok(
+                match Keystore::other_identity(Some(stored.clone()), value) {
+                    Some(other) => Persisted::Conflict(other),
+                    None => Persisted::Saved,
+                },
+            )
+        },
+        || (),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result["device_id"], settings.id());
+    assert_eq!(server.devices.len(), 1);
+    assert_eq!(saves.len(), 1);
+
+    // 发过请求之后存储里换成了别的身份（这次操作期间退出又登录过）：本机刚被批准、要存下剪贴板密钥时发现，不再重来。
+    let mut tablet = Device::new("Tablet");
+    tablet.list(&mut server, "");
+    settings
+        .run(
+            &mut server,
+            Operation::Approve {
+                device_id: tablet.id(),
+            },
+        )
+        .unwrap();
+    let other = Keystore::generate().unwrap().encode();
+    let error = run(
+        Operation::Status,
+        tablet.keystore.as_deref(),
+        "Tablet",
+        |request| Ok::<_, ()>(server.handle(request)),
+        |_| Ok(Persisted::Conflict(other.clone())),
+        || (),
+    )
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(error, DriverError::local("clipboard_keystore_conflict"));
+
+    assert_eq!(Keystore::other_identity(None, &stored), None);
+    assert_eq!(
+        Keystore::other_identity(Some("not a keystore".into()), &stored),
+        None
+    );
+    assert!(Keystore::same_identity(
+        &stored,
+        &settings.keystore.clone().unwrap()
+    ));
+}
+
+/// 等待批准的设备自己不删别人的登记：它没有密钥，设备由已经能用的设备管理。
+#[test]
+fn a_pending_device_does_not_prune() {
+    let mut server = FakeServer::new();
+    let mut mac = Device::new("MacBook");
+    mac.list(&mut server, "");
+    Device::new("Pixel 8").list(&mut server, "");
+    let mut phone = Device::new("Pixel 8");
+    phone.status(&mut server);
+    assert_eq!(server.devices.len(), 3);
+    assert!(!server.log.iter().any(|line| line.starts_with("DELETE")));
 }
 
 #[test]

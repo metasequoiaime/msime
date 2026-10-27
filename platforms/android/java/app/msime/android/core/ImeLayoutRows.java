@@ -91,7 +91,9 @@ final class ImeLayoutRows {
         LinearLayout row = LayoutPolicy.row(s);
 
         FrameLayout area = new FrameLayout(s);
-        s.handwritingCanvas = new HandwritingCanvas(s);
+        // 卡片的布局监听用这次建出的画布，不读 s.handwritingCanvas：离开手写时 deactivateHandwriting 把字段清空，旧卡片仍可能再走一次布局，读字段会空指针（0.6.0 崩溃分组 950520c320652963）；重建手写后读字段又会把旧卡片的位置写进新画布。
+        HandwritingCanvas canvas = new HandwritingCanvas(s);
+        s.handwritingCanvas = canvas;
         s.handwritingCanvas.applySkin(s.handwritingSkin);
         s.handwritingCanvas.setInk(handwritingPreferences.inkColor(),
             s.pixels(handwritingPreferences.strokeWidth()));
@@ -104,7 +106,7 @@ final class ImeLayoutRows {
         cardParams.setMargins(inset, inset, inset, inset);
         area.addView(cardFrame, cardParams);
         cardFrame.addOnLayoutChangeListener((view, left, top, right, bottom,
-                oldLeft, oldTop, oldRight, oldBottom) -> s.handwritingCanvas.setCardRect(
+                oldLeft, oldTop, oldRight, oldBottom) -> canvas.setCardRect(
                     left, top, right, bottom));
         cardFrame.addView(s.handwritingStatus, LayoutPolicy.frameMatchWidthWrapParams(
             Gravity.CENTER));

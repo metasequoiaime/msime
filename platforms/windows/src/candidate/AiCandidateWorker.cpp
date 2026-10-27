@@ -1,5 +1,6 @@
 #include "AiCandidateWorker.h"
 #include "AiEndpointPolicy.h"
+#include "CandidateCurlHeaders.h"
 #include "CandidateHttpPolicy.h"
 
 #include "msime_client.h"
@@ -151,21 +152,9 @@ std::optional<std::string> https_post(const nlohmann::json &descriptor,
                                                              curl_easy_cleanup);
     if (!curl)
       return std::nullopt;
-    curl_slist *raw_headers = nullptr;
-    std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> request_headers(
-        nullptr, curl_slist_free_all);
-    for (auto it = headers.begin(); it != headers.end(); ++it) {
-      if (!valid_candidate_header_name(it.key()) || !it.value().is_string() ||
-          it.key().size() > 128 ||
-          it.value().get<std::string>().size() > 8192 ||
-          !valid_candidate_header_value(it.value().get<std::string>()))
-        return std::nullopt;
-      const auto line = it.key() + ": " + it.value().get<std::string>();
-      raw_headers = curl_slist_append(raw_headers, line.c_str());
-      if (!raw_headers)
-        return std::nullopt;
-      request_headers.reset(raw_headers);
-    }
+    auto request_headers = candidate_curl_headers(headers);
+    if (!request_headers)
+      return std::nullopt;
     HttpResponse response{{}, cancelled};
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, protocol.c_str());
@@ -179,7 +168,7 @@ std::optional<std::string> https_post(const nlohmann::json &descriptor,
     curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 8000L);
     curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "MSIME-Client/1.0");
-    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, request_headers.get());
+    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, request_headers->get());
     curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_response);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response);

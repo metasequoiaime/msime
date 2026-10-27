@@ -59,7 +59,7 @@ public final class CloudClipboardRelayPolicy {
      */
     // 不用 Set.of：它要 API 30，minSdk 是 28。
     private static final java.util.List<String> KNOWN_CODES = Arrays.asList(
-        "clipboard_device_pending", "clipboard_sync_disabled", "clipboard_key_conflict", "clipboard_device_limit",
+        "clipboard_device_pending", "clipboard_sync_disabled", "clipboard_key_conflict", "clipboard_keystore_conflict", "clipboard_device_limit",
         "clipboard_e2e_required", "invalid_clipboard_device", "invalid_clipboard_key", "invalid_clipboard_ciphertext",
         "invalid_clipboard_text", "invalid_device_id", "invalid_search", "invalid_response", "invalid_state",
         "not_found", "account_invalid", "account_unauthorized", "account_rate_limited", "account_storage",

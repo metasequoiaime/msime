@@ -55,6 +55,37 @@ thread_local! {
 
 /// 手机英文始终以原始按键为第一行，仅在需要时附加唯一纠错；不创建或改变输入会话。
 pub fn english_corrections(resources: &str, raw: &str) -> Result<Vec<String>> {
+    validate_mobile_english(raw)?;
+    let mut candidates = vec![raw.to_owned()];
+    with_correction_dictionary(resources, |dictionary| {
+        if let Some(correction) = dictionary.correct_mobile_english(raw) {
+            candidates.push(correction);
+        }
+    });
+    Ok(candidates)
+}
+
+/// 手机英文的合并展示，最多 `limit` 行：有纠错时只有原文与纠错；原文已是完整的词（词库精确命中、固定词形或受保护的网络缩写）时只有原文；否则原文后接前缀补全，首字母随原文大写。布尔值为真当且仅当第二行是纠错。不创建或改变输入会话。
+pub fn english_correction_display(
+    resources: &str,
+    raw: &str,
+    limit: usize,
+) -> Result<(Vec<String>, bool)> {
+    if limit == 0 || limit > MAXIMUM_ENGLISH_COMPLETIONS {
+        return Err(EngineError::invalid(
+            diagnostics::INVALID_ENGLISH_COMPLETION_LIMIT,
+        ));
+    }
+    validate_mobile_english(raw)?;
+    // 缺词库时与纠错查询一样：固定词形照常恢复，其余只有原文。
+    let mut display = (vec![raw.to_owned()], false);
+    with_correction_dictionary(resources, |dictionary| {
+        display = dictionary.mobile_english_display(raw, limit);
+    });
+    Ok(display)
+}
+
+fn validate_mobile_english(raw: &str) -> Result<()> {
     if raw.is_empty()
         || raw.len() > 128
         || !raw
@@ -65,7 +96,11 @@ pub fn english_corrections(resources: &str, raw: &str) -> Result<Vec<String>> {
             diagnostics::INVALID_ENGLISH_COMPLETION_PREFIX,
         ));
     }
-    let mut candidates = vec![raw.to_owned()];
+    Ok(())
+}
+
+/// 复用本线程最近一次打开的词库及其纠错缓存；资源目录变化或词库此前不可用时重新打开。
+fn with_correction_dictionary(resources: &str, use_dictionary: impl FnOnce(&EnglishDictionary)) {
     ENGLISH_CORRECTION.with(|slot| {
         let mut slot = slot.borrow_mut();
         let path = Path::new(resources).join(assets::ENGLISH_DICTIONARY);
@@ -76,12 +111,9 @@ pub fn english_corrections(resources: &str, raw: &str) -> Result<Vec<String>> {
             *slot = Some((path.clone(), EnglishDictionary::open(&path, None, None)));
         }
         if let Some((_, dictionary)) = slot.as_ref() {
-            if let Some(correction) = dictionary.correct_mobile_english(raw) {
-                candidates.push(correction);
-            }
+            use_dictionary(dictionary);
         }
     });
-    Ok(candidates)
 }
 
 /// Parallel to `candidates`; empty for ineligible rows (emoji, kaomoji, neither Latin nor Han).

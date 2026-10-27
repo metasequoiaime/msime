@@ -1,6 +1,8 @@
 package app.msime.android;
 
+import android.content.Context;
 import android.util.Log;
+import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,26 +13,36 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * The clipboard history, in the one file every mobile host shares.
- *
- * <p>This used to be a private `SharedPreferences` document with its own ordering, eviction and
- * pinning rules. The settings page reads the shared store — the same file iOS and HarmonyOS use —
- * so the keyboard and the settings page were showing two different histories: text copied here
- * never appeared there, and deleting an entry there left it on the keyboard.
- *
- * <p>历史记录的排序、所选容量、淘汰规则、固定项不可淘汰规则和磁盘格式都由共享存储决定；此类只把
- * 共享存储的结果转换成键盘绘制所需的模型。
+ * Android 本机剪贴板历史的共享存储适配。主模式和访客模式分别存文件，设置页与键盘在各自模式下读同一份历史。
+ * 排序、容量、淘汰、固定项和磁盘格式由共享 Rust 存储决定；此类转换键盘绘制所需的模型。
  */
 public final class ClipboardHistoryStore {
     private static final String TAG = "MSIMEClipboard";
     private final String directory;
+    private final String preferencesDirectory;
     private int limit = ClipboardHistoryPolicy.DEFAULT_LIMIT;
 
     /**
-     * @param directory the host's own data directory; the shared store keeps its file beneath it
+     * @param directory 历史根目录；共享存储把文件放在其下的 `MSIME` 目录
      */
     public ClipboardHistoryStore(File directory) {
+        this(directory, null);
+    }
+
+    public ClipboardHistoryStore(File directory, String preferencesDirectory) {
         this.directory = directory == null ? null : directory.getAbsolutePath();
+        this.preferencesDirectory = preferencesDirectory;
+    }
+
+    /** 历史按访客模式隔离；容量始终从键盘共用的偏好目录读取。 */
+    public static ClipboardHistoryStore forMode(Context context, ClipboardModePolicy.Mode mode) {
+        File files = context.getFilesDir();
+        return new ClipboardHistoryStore(ClipboardModePolicy.directory(files, mode),
+            HostOptionsPolicy.readOption(files, "preferences_directory"));
+    }
+
+    public static ClipboardHistoryStore forContext(Context context) {
+        return forMode(context, ClipboardModeStore.load(context));
     }
 
     public record Category(String id, String name) {}
@@ -232,9 +244,6 @@ public final class ClipboardHistoryStore {
             if (text != null) action.put("text", text);
             if ("set_pinned".equals(operation)) action.put("pinned", pinned);
             if (replacement != null) action.put("replacement", replacement);
-            JSONObject payload = new JSONObject()
-                .put("directory", directory)
-                .put("action", action);
             return send(action);
         } catch (JSONException | LinkageError error) {
             throw new IllegalStateException(
@@ -244,6 +253,8 @@ public final class ClipboardHistoryStore {
 
     private JSONObject send(JSONObject action) throws JSONException {
         JSONObject payload = new JSONObject().put("directory", directory).put("action", action);
+        if (preferencesDirectory != null && !preferencesDirectory.isEmpty())
+            payload.put("preferences_directory", preferencesDirectory);
         JSONObject response = new JSONObject(NativeClient.mobileClipboardHistory(payload.toString()));
         String operation = action.optString("operation", "unknown");
         if (!JsonPolicy.strictTrue(response.opt("ok"))) {

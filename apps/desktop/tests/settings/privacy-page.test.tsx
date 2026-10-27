@@ -69,3 +69,60 @@ test("desktop hosts have no separate privacy page", async () => {
   await settingsFormReady();
   expect(screen.queryByRole("group", { name: "隐私" })).toBeNull();
 });
+
+// HarmonyOS 首次启动时由原生弹窗征得隐私政策授权；没同意时「隐私」页说明联网功能关着，并能重新打开那个弹窗。
+test("the privacy page shows the host's consent and reopens its dialog", async () => {
+  const review = vi.fn().mockResolvedValue(undefined);
+  const host = testHost({ platform: "harmony", mobile_settings: true, panel_windows: false });
+  const { rerender } = render(
+    <SettingsPage
+      initialPage="privacy"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host,
+        privacyConsent: { granted: false, review },
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const page = screen.getByRole("group", { name: "隐私" });
+  expect(within(page).getByText("隐私政策授权")).toBeTruthy();
+  expect(
+    within(page).getByText(/未同意：登录、云同步、社区、检查更新等联网功能已关闭/),
+  ).toBeTruthy();
+  fireEvent.click(within(page).getByRole("button", { name: "查看并同意隐私政策" }));
+  await waitFor(() => expect(review).toHaveBeenCalledTimes(1));
+
+  rerender(
+    <SettingsPage
+      initialPage="privacy"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host,
+        privacyConsent: { granted: true, review },
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const granted = screen.getByRole("group", { name: "隐私" });
+  expect(within(granted).getByText("已同意，联网功能已开启。")).toBeTruthy();
+  expect(within(granted).getByRole("button", { name: "查看或撤回隐私政策授权" })).toBeTruthy();
+});
+
+// 其他宿主不提供授权，这一行不出现。
+test("hosts without a consent dialog show no consent row", async () => {
+  render(
+    <SettingsPage
+      initialPage="privacy"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "android", mobile_settings: true, panel_windows: false }),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(screen.queryByText("隐私政策授权")).toBeNull();
+});

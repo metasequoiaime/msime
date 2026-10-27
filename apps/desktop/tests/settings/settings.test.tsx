@@ -2117,8 +2117,12 @@ test("clears helpcode packs when the active host has no plugin catalog", async (
   await waitFor(() => expect(within(quanpin).getByRole("option", { name: "部首码（插件）" })));
 
   view.rerender(<SettingsPage initialPage="input" client={withoutPlugins} />);
+  // 宿主切换会清空并重建表单，断言当前页面，不能继续检查已经卸载的旧节点。
+  await settingsReady();
+  selectSettingsTab("进阶");
+  const currentQuanpin = screen.getByRole("combobox", { name: "全拼辅助码方案" });
   await waitFor(() =>
-    expect(within(quanpin).queryByRole("option", { name: "部首码（插件）" })).toBeNull(),
+    expect(within(currentQuanpin).queryByRole("option", { name: "部首码（插件）" })).toBeNull(),
   );
 });
 
@@ -10483,7 +10487,7 @@ test("a host that fixes the candidate page size and layout does not offer them",
   expect(screen.getByLabelText("候选项排列方式")).toBeTruthy();
 });
 
-test("an unreadable preferences document offers a repair that backs it up first", async () => {
+test("配置修复先备份原文档，修复后的修改仍会自动保存", async () => {
   const recovered: Snapshot = {
     ...initial,
     revision: 12,
@@ -10506,7 +10510,7 @@ test("an unreadable preferences document offers a repair that backs it up first"
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("配置文件无法读取");
 
-  // Cancelling asks nothing of the host.
+  // 取消确认不调用宿主修复。
   fireEvent.click(within(alert).getByRole("button", { name: "修复配置文件…" }));
   expect((await screen.findByRole("alertdialog")).textContent).toContain(
     "损坏的配置文件会先备份到同一目录",
@@ -10524,6 +10528,19 @@ test("an unreadable preferences document offers a repair that backs it up first"
 
   fireEvent.click(within(notice).getByRole("button", { name: "在 Finder 中显示" }));
   expect(openPreferencesDirectory).toHaveBeenCalledTimes(1);
+
+  vi.mocked(client.save).mockImplementation(async (revision, preferences) => ({
+    ...recovered,
+    revision: revision + 1,
+    preferences,
+  }));
+  fireEvent.click(screen.getByRole("radio", { name: "五笔" }));
+  saveSettingsNow();
+  await waitFor(() => expect(client.save).toHaveBeenCalledOnce());
+  expect(client.save).toHaveBeenCalledWith(
+    recovered.revision,
+    expect.objectContaining({ scheme: "wubi", candidate_page_size: 7 }),
+  );
 });
 
 test("a host without a repair keeps the unreadable-document message alone", async () => {
@@ -10718,7 +10735,8 @@ test.each(["macos", "windows", "linux", "harmony"])(
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
-          host: testHost({ platform }),
+          // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`，测的是那时重新出现的 AI 页。
+          host: testHost({ platform, ai_generation: true }),
         }}
       />,
     );

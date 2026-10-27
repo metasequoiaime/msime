@@ -830,6 +830,21 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
+/// 鸿蒙版在拿到 AI 生成类资质之前不提供 AI 对话、润色、回复、AI 联想、AI 翻译和 AI 皮肤；其余宿主照旧提供。
+#[test]
+fn only_harmony_withholds_ai_generation() {
+    assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).ai_generation);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        assert!(HostCapabilities::for_platform(platform).ai_generation);
+    }
+}
+
 /// 空格锁定和开始、结束提示音的细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 有得选。macOS、Windows、HarmonyOS 只给一个「麦克风」下拉。
 #[test]
 fn only_mobile_reads_space_lock_and_cue_split_and_only_linux_picks_capture_backend() {

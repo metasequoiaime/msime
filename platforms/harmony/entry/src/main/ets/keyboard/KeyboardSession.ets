@@ -18,6 +18,7 @@ import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
 import { readTypingStatisticsEnabled, writeKeyPresses } from './TypingStatisticsWriter';
+import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { AppThemePalette, AppThemeSeed } from './skin/AppThemePalette';
@@ -99,6 +100,8 @@ import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { NativeReplyPolicy } from './NativeReplyPolicy';
 import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
+import { AiGenerationGate } from './AiGenerationGate';
 import { OnlineCandidatePolicy, OnlineQuery, CloudHttpDescriptor } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -325,6 +328,8 @@ interface MobileClipboardAction {
 
 interface MobileClipboardRequest {
   directory: string;
+  // 容量偏好在 stateDirectory，历史在它的父目录；不传时 host-api 从 directory 读偏好，会按默认 50 条淘汰。
+  preferences_directory: string;
   action: MobileClipboardAction;
 }
 
@@ -1920,6 +1925,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
     this.systemDark = systemDark;
+    // AI 生成类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.ai_generation`），鸿蒙版拿到资质之前为关。
+    AiGenerationGate.adopt(client.hostCapabilities('harmony'));
     this.refreshFeedback();
     this.refreshAppTheme(true);
     this.preferencesRevision = this.storedRevision(stateRoot);
@@ -3502,6 +3509,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     // 先导入设置应用经共享沙箱发布的改动，随后的修订号比较、按键反馈和应用主题的重新读取就会看到它们。
     this.syncSharedState();
+    // 隐私政策的授权也随镜像导入：在设置应用里刚同意或撤回，下一次获得焦点就生效。同意时放行扩展创建时等着的匿名注册和使用统计。
+    if (this.stateDirectory.length > 0) HarmonyPrivacyConsent.load(this.stateDirectory);
     this.reloadChangedPreferences();
     // 镜像导入的 `skins` 可能换掉了正在用的包而偏好修订号没动，上面那步不会重新应用外观。会话建好之后键盘只在这里导入皮肤目录（扩展 `onCreate` 的那次在 `start` 之前，`start` 本来就读新包），所以也只在这里查。视图的 reload 钩子按新外观重画。
     if (this.reloadReplacedSkinPackages() && this.onViewPreferencesReloaded !== undefined) {
@@ -4585,6 +4594,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private customThemeBase: string = 'system';
   private customDesign: CustomKeyboardSkin | null = null;
   private vibratorFailed: boolean = false;
+  /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
+  private vibrationPending: boolean = false;
   private traditional: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
@@ -4974,7 +4985,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     if (epoch !== this.onlineEpoch || handle !== this.handle) return;
     const assistant = aiQuery.ai_assistant;
-    if (assistant?.enabled === true && aiQuery.ai_eligible) {
+    // AI 联想把组字和光标前的文字发给大模型；总闸 `AiGenerationGate` 关着时存下的 `ai_assistant.enabled` 打开了也不问。
+    if (assistant?.enabled === true && aiQuery.ai_eligible && AiGenerationGate.enabled()) {
       // 这个组字问过 AI 而没有结果（云候选失败触发的重试走到这里）：不再发请求。
       const aiApplied: boolean = requestSignature !== this.aiResolvedSignature
         && await this.fetchAi(handle, aiDocument, assistant.candidate_limit, epoch);
@@ -5004,6 +5016,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (epoch !== this.onlineEpoch || handle !== this.handle) return false;
       return this.applyCloudBody(handle, queryDocument, descriptor.cached_response);
     }
+    // 云联想把正在组的拼音发出去，没有隐私政策的授权就不发。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return false;
     const request = http.createHttp();
     installNoRedirectGuard(request);
     this.onlineRequests.add(request);
@@ -5055,6 +5069,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private async fetchAi(handle: number, queryDocument: string, limit: number,
     epoch: number): Promise<boolean> {
+    // AI 联想把上下文发给用户配置的服务，没有隐私政策的授权就不发。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return false;
     let descriptor: AiHttpDescriptor | null;
     try {
       const reply: NativeReply<AiHttpDescriptor | null> = JSON.parse(
@@ -5607,6 +5623,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       || descriptor.url.includes('\r')
       || !TextPolicy.validSecureAuthority(descriptor.url, allowHttp)) return null;
     if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
+    // 在线翻译把候选发给翻译服务，没有隐私政策的授权就不发，候选照常显示本机释义。
+    if (!HarmonyPrivacyConsent.networkAllowed()) return null;
     const request = http.createHttp();
     installNoRedirectGuard(request);
     this.translationRequests.add(request);
@@ -5828,15 +5846,20 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private tapFeedback(): void {
     const settings: FeedbackSettings = this.feedbackCurrent;
-    if (!settings.haptics || this.vibratorFailed) {
+    if (!settings.haptics || this.vibratorFailed || this.vibrationPending) {
       return;
     }
+    this.vibrationPending = true;
     try {
-      KeyboardSession.vibrate(settings.strength).catch((error: Object): void => {
+      KeyboardSession.vibrate(settings.strength).then((): void => {
+        this.vibrationPending = false;
+      }).catch((error: Object): void => {
+        this.vibrationPending = false;
         this.vibratorFailed = true;
         KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
       });
     } catch (error) {
+      this.vibrationPending = false;
       this.vibratorFailed = true;
       KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
     }
@@ -5860,12 +5883,41 @@ export class KeyboardSession implements HardwareKeyTarget {
     return supported;
   }
 
+  /** 按键振动在 TaskPool 线程上发（`startKeyVibration`）；那条路失败过一次就改回在 UI 线程上发，至少还能振。 */
+  private static vibratesOnWorker: boolean = true;
+
   /**
    * 按一档振一下，按键和设置页的试听共用。档位怎么振见 `KeyboardFeedback.plan`：设备支持预置效果就用效果加强度，不支持就按时长振；「跟随系统」用 `touch` 用途，由系统的触感反馈设置决定振不振、多强，不带自定义强度。
+   *
+   * 振动请求在 TaskPool 线程上发出，理由见 `KeyVibration.ets`。效果支不支持仍在这里查：每个效果只查一次，结果记在 UI 线程这一侧。
    */
   static vibrate(strength: HapticStrength): Promise<void> {
+    const plan: HapticPlan = KeyboardFeedback.plan(strength);
+    if (!KeyboardSession.vibratesOnWorker) {
+      return KeyboardSession.vibrateHere(plan);
+    }
+    const effectId: string = KeyboardSession.supportsEffect(plan.effectId) ? plan.effectId : '';
+    let task: Promise<Object>;
     try {
-      const plan: HapticPlan = KeyboardFeedback.plan(strength);
+      // 高优先级：TaskPool 里还跑着打字统计这类要拿文件锁、整份重写的任务，振动排在它们后面就晚了，晚到的振动比不振更乱手感。
+      task = taskpool.execute(new taskpool.Task(startKeyVibration, effectId, plan.intensity, plan.fallbackMillis,
+        plan.followsSystem), taskpool.Priority.HIGH);
+    } catch (error) {
+      return KeyboardSession.workerVibrationFailed(plan, error as Object);
+    }
+    return task.then((): void => {}, (error: Object): Promise<void> => {
+      return KeyboardSession.workerVibrationFailed(plan, error);
+    });
+  }
+
+  private static workerVibrationFailed(plan: HapticPlan, error: Object): Promise<void> {
+    KeyboardSession.vibratesOnWorker = false;
+    KeyboardLog.error(`vibration off the UI thread unavailable: ${describeError(error)}`);
+    return KeyboardSession.vibrateHere(plan);
+  }
+
+  private static vibrateHere(plan: HapticPlan): Promise<void> {
+    try {
       const attribute: vibrator.VibrateAttribute = { usage: plan.followsSystem ? 'touch' : 'physicalFeedback' };
       if (!KeyboardSession.supportsEffect(plan.effectId)) {
         const timed: vibrator.VibrateTime = { type: 'time', duration: plan.fallbackMillis };
@@ -5877,7 +5929,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       return vibrator.startVibration(preset, attribute);
     } catch (error) {
-      KeyboardLog.error('keyboard.KeyboardSession.vibrate failed');
+      KeyboardLog.error('keyboard.KeyboardSession.vibrateHere failed');
       throw error as Error;
     }
   }
@@ -5903,7 +5955,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const directory: string = this.clipboardRoot();
     if (directory.length === 0) return null;
     const request: MobileClipboardRequest = {
-      directory: directory, action: action
+      directory: directory, preferences_directory: this.stateDirectory, action: action
     };
     try {
       const reply: MobileClipboardReply = JSON.parse(
@@ -6267,7 +6319,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Generates bounded reply candidates through the shared AI ABI without involving Engine state. */
   async thoughtfulReplies(source: string, style: string, extraPrompt: string = '', polish: boolean = false): Promise<string[]> {
     const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style, extraPrompt, polish);
-    if (request === null || !this.aiAssistant.enabled || this.aiAssistant.endpoint.length === 0) {
+    if (request === null || !AiGenerationGate.enabled() || !this.aiAssistant.enabled
+      || this.aiAssistant.endpoint.length === 0 || !HarmonyPrivacyConsent.networkAllowed()) {
       return [];
     }
     const editorGeneration: number = this.editorGeneration;

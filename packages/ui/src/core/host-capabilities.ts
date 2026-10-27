@@ -124,6 +124,8 @@ export interface HostCapabilities {
   /** 宿主向运行时报告字符宽度，因此全角输入能够生效。 */
   character_width: boolean;
   ai_provider_credentials: boolean;
+  /** 宿主提供 AI 生成类功能（AI 对话、AI 润色与高情商回复、AI 联想候选、AI 翻译、语音润色和 AI 皮肤）。为 false 时设置页不给 AI 辅助页、AI 对话和其余这些入口；只有 HarmonyOS 在拿到 AI 生成类资质之前报 false。缺省按提供处理。 */
+  ai_generation?: boolean;
   voice_commit_mode: boolean;
   /** 宿主运行的操作系统版本，供反馈页附带。 */
   os_version?: string;

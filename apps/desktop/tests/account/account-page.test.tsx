@@ -364,7 +364,8 @@ test("Harmony chat login leaves the composer unfocused and cancel returns to it"
       client={{
         load: async () => preferences,
         save: vi.fn(),
-        host: testHost({ platform: "harmony" }),
+        // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`。
+        host: testHost({ platform: "harmony", ai_generation: true }),
         home: {},
         chat: {
           models: vi.fn().mockRejectedValue({ code: "account_unauthorized" }),
@@ -734,6 +735,20 @@ test("logged-in accounts expose local designs and every community collection", a
     ["saved-dictionary"],
     ["saved-reply"],
   ]);
+});
+
+// 回复模板是高情商回复的提示词：不提供 AI 生成类功能的宿主（鸿蒙版拿到资质之前）「我的内容」里不列这两行。
+test("a host without AI generation lists no reply template collections", async () => {
+  const openCommunity = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(
+    <AccountPage client={client} onOpenCommunity={openCommunity} communityHasReplies={false} />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "我发布的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的词库" }));
+  expect(screen.queryByRole("button", { name: "我发布的回复模板" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "收藏的回复模板" })).toBeNull();
+  expect(openCommunity.mock.calls).toEqual([["published-dictionary"], ["saved-dictionary"]]);
 });
 
 test("a community page without the skin gallery offers only its dictionary and reply collections", async () => {

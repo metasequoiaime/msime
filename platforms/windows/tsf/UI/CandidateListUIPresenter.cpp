@@ -1,4 +1,5 @@
 #include "../../common/CandidateSources.h"
+#include "../HostServerSelection.h"
 #include "../../common/GameCompatProfile.h"
 #include "FanyDefines.h"
 #include "Globals.h"
@@ -153,7 +154,7 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
             // 宿主会话拥有组字时，空格在宿主会话里选中同一个高亮候选，和数字键一样（_HandleCandidateWorker）。以前这里只写 Server 回的文字，宿主会话从不前进：每次空格上屏的拼音都留在里面越积越长，Shift 切英文时整串上屏（打 nihao 空格、shijie 空格，再按 Shift 得到「你好世界nihaoshijie」）。
             if (hostOwnsComposition)
             {
-                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext, &serverCandidateString);
+                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext, serverMsgType, &serverCandidateString);
                 if (selected != S_FALSE)
                 {
                     return selected;
@@ -191,10 +192,10 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
         /* 处理造词的逻辑 */
         else if (serverMsgType == Global::DataFromServerMsgType::NeedToCreateWord)
         {
-            // 空格只选中了一段：宿主会话同样选中这一段，组字显示「已选汉字 + 剩下的拼音」。以前宿主会话没有前进，组字又显示成整段拼音（选了「你好」后是「你好nihaoshijie」），Shift 时已选的「你好」也丢了。下面按 Server 回的剩余原文重建按键缓冲的写法只对没有宿主会话的旧处理器有意义。
+            // 空格只选中了一段：宿主会话同样选中这一段，组字显示「已选汉字 + 剩下的拼音」。以前宿主会话没有前进，组字又显示成整段拼音（选了「你好」后是「你好nihaoshijie」），Shift 时已选的「你好」也丢了。下面按 Server 回的剩余原文重建按键缓冲的写法只对没有宿主会话的旧处理器有意义。回复是「剩下的原文\t已选的词段\t预编辑」，选哪个词由 _SelectHighlightedHostCandidate 从中取出（ServerSelectedPiece）；以前把整条载荷当作候选文字去找，永远找不到，宿主会话于是从不跟着前进。
             if (hostOwnsComposition)
             {
-                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext, &serverCandidateString);
+                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext, serverMsgType, &serverCandidateString);
                 if (selected != S_FALSE)
                 {
                     return selected;
@@ -395,7 +396,7 @@ HRESULT CMetasequoiaIME::_HandleCandidateConvert(TfEditCookie ec, _In_ ITfContex
 //----------------------------------------------------------------------------
 
 HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId,
-                                                const std::wstring &prefetchedText)
+                                                const std::wstring &prefetchedText, bool localSlotSelected)
 {
     HRESULT hrReturn = E_FAIL;
     DWORD_PTR candidateLen = 0;
@@ -420,7 +421,6 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
     if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
     {
         // 数字在预选的释义列（Tab）或 Ctrl+Enter 的释义页上是上屏释义：Server 已经取消了自己的组字，回 CommitExactText。宿主会话不知道这两种状态，所以先读这个键的回复；读不到（不中断管道，和 _HandleConversionKey 一样）或是别的回复时，照旧向宿主会话选词。以前这里不读回复，上屏的是宿主会话的候选而不是释义，Server 记下的上屏文字也和文档不一致。
-        std::wstring serverChoice;
         if (requestId != FANY_IME_NO_REQUEST_ID)
         {
             const FanyImeNamedpipeDataToTsf *reply =
@@ -430,12 +430,20 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
                 const std::wstring exactText(reply->candidate_string);
                 return _CommitServerExactText(ec, pContext, exactText);
             }
-            // 数字选中的是哪个词以 Server 的回复为准：候选窗是它画的，用户数的编号也是数在它那一份上。
-            if (reply->msg_type == Global::DataFromServerMsgType::Normal)
-                serverChoice.assign(reply->candidate_string);
+            // 数字选中的是哪个词以 Server 的回复为准：候选窗是它画的，用户数的编号也是数在它那一份上。整段上屏（Normal）、只选一段（NeedToCreateWord）和什么都没选（NavigationIgnored）都算，宿主会话照着回复选，不再按自己那一页的位置选。以前只认 Normal，只选一段的回复退回宿主会话这一页上按键位置的那一项：鼠标滚轮翻过页、或两个会话的顺序已经分开时，那是另一个词。双拼的长读音翻几页之后多是只消耗前一段读音的短词，所以越翻越容易上屏错的词。
+            if (msime::tsf::ServerReplyDecidesSelection(reply->msg_type))
+            {
+                const std::wstring serverReply(reply->candidate_string);
+                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext, reply->msg_type, &serverReply);
+                // 宿主会话里找不到这个词（同形的不止一个、繁体输出下文字对不上）时，和空格一样写 Server 已经上屏的文字并丢掉宿主会话的组字：Server 的会话已经清空，什么都不写的话文档里少了这个词，两边的组字也从此分开。
+                if (selected == S_FALSE && reply->msg_type == Global::DataFromServerMsgType::Normal && !serverReply.empty())
+                    return _CommitServerExactText(ec, pContext, serverReply);
+                return selected;
+            }
         }
-        // Never turn a stale/failed host selection into a legacy text commit.
-        return _SelectHighlightedHostCandidate(ec, pContext, serverChoice.empty() ? nullptr : &serverChoice);
+        // 读不到回复时才按宿主会话这一页上按键位置的那一项选；按键位置超出了宿主会话这一页就什么都不选。Never turn a stale/failed host selection into a legacy text commit.
+        if (!localSlotSelected) return S_FALSE;
+        return _SelectHighlightedHostCandidate(ec, pContext);
     }
 
     hrReturn = _HandleCandidateFinalize(ec, pContext, requestId, prefetchedText);
@@ -451,7 +459,7 @@ Exit:
 //----------------------------------------------------------------------------
 
 HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(TfEditCookie ec, _In_ ITfContext *pContext,
-                                                         _In_opt_ const std::wstring *serverChoice)
+                                                         UINT serverMsgType, _In_opt_ const std::wstring *serverReply)
 {
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
     if (!host || !host->valid() || !_pCandidateListUIPresenter) return S_FALSE;
@@ -463,33 +471,36 @@ HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(TfEditCookie ec, _In_ I
         !msime::tsf::EngineSessionAdapter::parse_result(viewRaw, &view, &error) ||
         !displayed.MatchesEngineView(view.view.session, view.view.generation))
         return S_FALSE;
-    // 上屏哪个词由 Server 的回复决定，再按文字到宿主会话里唯一匹配着选中（选中是为了让宿主会话跟着前进，见 2026-10-16 的笔记）。候选窗是 Server 画的，用户看见和选中的就是它那一份；TIP 的宿主会话是另一个引擎会话，两边的列表会不同步，无论照抄下标还是拿本地列表自己的文字去找，上屏的都可能是用户没看见的那一个。`serverChoice` 为空（没有回复可读）时才退回本地高亮项的文字，那是旧行为。
-    const std::wstring shown = serverChoice && !serverChoice->empty()
-                                   ? *serverChoice
-                                   : displayed._ItemString.ToWString();
-    if (shown.empty()) return S_FALSE;
-    const int targetSize = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, shown.data(),
-                                               static_cast<int>(shown.size()), nullptr, 0, nullptr, nullptr);
-    if (targetSize <= 0) return S_FALSE;
-    std::string target(static_cast<size_t>(targetSize), '\0');
-    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, shown.data(), static_cast<int>(shown.size()),
-                            target.data(), targetSize, nullptr, nullptr) != targetSize)
-        return S_FALSE;
-    const msime::tsf::EngineCandidate *found = nullptr;
-    for (const auto &candidate : view.view.candidates)
+    // 上屏哪个词由 Server 的回复决定，再按文字到宿主会话里唯一匹配着选中（选中是为了让宿主会话跟着前进，见 2026-10-16 的笔记）。候选窗是 Server 画的，用户看见和选中的就是它那一份；TIP 的宿主会话是另一个引擎会话，两边的列表会不同步，无论照抄下标还是拿本地列表自己的文字去找，上屏的都可能是用户没看见的那一个。回复里这次选的那段文字由 ServerSelectedPiece 取出：整段上屏的文字要减掉已经暂存的词段，只选一段的回复是带制表符的载荷。`serverReply` 为空（没有回复可读）时才退回本地高亮项的文字，那是旧行为。
+    const std::wstring shown = serverReply ? *serverReply : displayed._ItemString.ToWString();
+    std::string text;
+    if (!shown.empty())
     {
-        if (candidate.text != target) continue;
-        // 同一页上同形的候选不止一个时不猜，交给调用方的兜底路径。
-        if (found) return S_FALSE;
-        found = &candidate;
+        const int textSize = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, shown.data(),
+                                                 static_cast<int>(shown.size()), nullptr, 0, nullptr, nullptr);
+        if (textSize <= 0) return S_FALSE;
+        text.assign(static_cast<size_t>(textSize), '\0');
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, shown.data(), static_cast<int>(shown.size()),
+                                text.data(), textSize, nullptr, nullptr) != textSize)
+            return S_FALSE;
     }
-    if (!found) return S_FALSE;
+    const std::string target =
+        serverReply ? msime::tsf::ServerSelectedPiece({serverMsgType, text}, view.view.phrase_prefix) : text;
+    if (target.empty()) return S_FALSE;
+    // 先在宿主会话的当前页上找，找不到再到这一代的完整候选列表里找（滚轮只翻了 Server 那一页时，用户选的词在宿主会话里不在当前页上），都只认唯一的一个；同形的不止一个时不猜，交给调用方的兜底路径。
     // 占位席位（云的「☁」、旧数据里的 AI 行）占着一格和一个编号，却不是候选。引擎对它们「什么都不做但算处理过」（`crates/engine/src/session/commit.rs`，#6888），这里必须给出同样的结果：返回 S_OK 把按键吃掉，组字原样留着。退回 S_FALSE 会被调用方当成选择失败，于是去写 Server 的文字并丢掉宿主会话的组字——按一下云席位的数字键，整串拼音就被原样吐进文档了。
-    if (msime::windows::candidate_source_is_pending_seat(found->source)) return S_OK;
     std::string raw;
+    switch (msime::tsf::SelectHostCandidateByText(*host, view.view, target, &raw, &error))
+    {
+    case msime::tsf::HostSelectionOutcome::PendingSeat:
+        return S_OK;
+    case msime::tsf::HostSelectionOutcome::Refused:
+        return S_FALSE;
+    case msime::tsf::HostSelectionOutcome::Selected:
+        break;
+    }
     msime::tsf::EngineResult selected;
-    if (!host->select(view.view.generation, found->index, &raw, &error) ||
-        !msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error))
+    if (!msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error))
         return S_FALSE;
     if (selected.has_commit && !selected.commit.empty())
     {
@@ -622,6 +633,11 @@ HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(TfEditCookie ec, _In_ IT
         if (_pCandidateListUIPresenter->_SetSelectionInPage(iSelectAsNumber))
         {
             return _HandleCandidateConvert(ec, pContext, requestId, prefetchedText);
+        }
+        // 宿主会话这一页没有这么多项，但选哪个词由 Server 那一页决定（它可能停在另一页上）：仍然读这个键的回复跟着选。以前在这里直接返回，回复没人读，Server 已经上屏或暂存了一段，宿主会话却原地不动。
+        if (requestId != FANY_IME_NO_REQUEST_ID && _pCandidateListUIPresenter->_HoldsEnginePage())
+        {
+            return _HandleCandidateWorker(ec, pContext, requestId, prefetchedText, /*localSlotSelected=*/false);
         }
     }
 

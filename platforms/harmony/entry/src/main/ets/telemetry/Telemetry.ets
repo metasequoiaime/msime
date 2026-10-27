@@ -7,11 +7,14 @@ import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { CrashDestination, CrashReport, TelemetryPolicy } from './TelemetryPolicy';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 
 /**
  * 匿名使用情况报告（`usage_reporting` 偏好，默认开启）。
  *
  * 队列、随机安装 id、每日的 `active` 和会话记账都在 client-services 里，位于 `files/state/telemetry`，设置应用和键盘扩展共用这个目录；client-services 在两个进程之间为它加锁。一个会话就是一个键盘进程：键盘在扩展创建时开始会话，在扩展正常销毁时结束会话。设置应用只发送已经排队的内容。
+ *
+ * 两个进程都要先有隐私政策的授权（`HarmonyPrivacyConsent`）：没同意之前设置应用不发送，键盘不开始会话、不收崩溃报告；撤回同意之后什么都不再发送。
  *
  * 崩溃用的是 HarmonyOS 自己的报告。HiAppEvent 在下次启动时把上一次运行的 `APP_CRASH` 交给监听者，JavaScript 和原生崩溃都一样，所以这里不安装任何处理函数，也不改变崩溃结束进程的方式。键盘进程的崩溃如果在这个键盘开始自己的会话之前报告，就写成那个未结束会话的崩溃记录，成为 `session_crash`；其他的都是独立记录。记录在下次启动时作为 `crash` 事件发送。
  */
@@ -84,6 +87,8 @@ export class HarmonyTelemetry {
   private static beginTimer: number = -1;
   private static lastFlush: number = 0;
   private static watcher: hiAppEvent.Watcher | undefined = undefined;
+  // 每次扩展创建和销毁都加一：销毁之后才等到授权的那次启动不再开始会话。
+  private static startGeneration: number = 0;
 
   /** The telemetry directory under a process's shared state directory. */
   static directoryFor(stateDirectory: string): string {
@@ -92,11 +97,20 @@ export class HarmonyTelemetry {
 
   /** The settings application started: send what is queued, which also counts today's `active`. No session: that is the keyboard's. */
   static applicationStarted(stateDirectory: string): void {
-    HarmonyTelemetry.send(HarmonyTelemetry.request(stateDirectory));
+    void HarmonyPrivacyConsent.whenNetworkAllowed().then((): void => {
+      HarmonyTelemetry.send(HarmonyTelemetry.request(stateDirectory));
+    });
   }
 
-  /** The keyboard extension was created: watch for the system's crash reports, then begin this process's session. */
+  /** 键盘扩展创建了：先监听系统的崩溃报告，再开始本进程的会话。没有隐私政策的授权时等到键盘读到同意（之后某次获得焦点）再开始。 */
   static keyboardStarted(stateDirectory: string): void {
+    const generation: number = ++HarmonyTelemetry.startGeneration;
+    void HarmonyPrivacyConsent.whenNetworkAllowed().then((): void => {
+      if (generation === HarmonyTelemetry.startGeneration) HarmonyTelemetry.startKeyboardSession(stateDirectory);
+    });
+  }
+
+  private static startKeyboardSession(stateDirectory: string): void {
     HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
     HarmonyTelemetry.preferences = stateDirectory;
     HarmonyTelemetry.began = false;
@@ -119,6 +133,7 @@ export class HarmonyTelemetry {
 
   /** The keyboard extension is being destroyed normally: its session ended without a crash. */
   static keyboardStopped(): void {
+    HarmonyTelemetry.startGeneration++;
     if (HarmonyTelemetry.beginTimer !== -1) {
       clearTimeout(HarmonyTelemetry.beginTimer);
       HarmonyTelemetry.beginTimer = -1;
@@ -179,6 +194,10 @@ export class HarmonyTelemetry {
   }
 
   private static send(request: TelemetryRequest): void {
+    // 用户撤回了同意：排队的内容留在本机，不再发送。
+    if (!HarmonyPrivacyConsent.networkAllowed()) {
+      return;
+    }
     HarmonyTelemetry.lastFlush = Date.now();
     client.telemetryFlush(JSON.stringify(request)).then((reply: string): void => {
       HarmonyTelemetry.logRefusal('flush', reply);

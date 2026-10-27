@@ -48,6 +48,7 @@ export function TranslationSettingsContent({
                     available={candidate.enabled}
                     provider={candidate.translationProvider ?? "none"}
                     showAccountProvider={candidate.showAccountProvider ?? false}
+                    showAiProvider={candidate.showAiProvider}
                     offlineFallback={candidate.offlineFallback}
                     onChange={candidate.onTranslationProviderChange}
                   />

@@ -95,6 +95,7 @@ export function SkinSettingsPage({
     openCommunity,
     openAccountLogin,
     communityGallery,
+    showAiGeneration,
   } = useSettingsForm();
   useLayoutEffect(() => {
     if (page === "skin" && !mobilePlatform && settingsContentRef.current) {
@@ -128,7 +129,9 @@ export function SkinSettingsPage({
   // 触屏外壳把这页的标题叫作「皮肤」，所以页面也这样称呼自己。
   const pageName = mobilePlatform ? mobilePageTitle("skin", "主题") : "主题";
   // 从网格的 AI 图块打开的「AI 皮肤抽卡」是 WebView 返回栈上单独的一个视图，所以系统返回手势能关掉它。
-  const { aiSkins, customSkinLibrary } = client;
+  // 不提供 AI 生成类功能的宿主（HarmonyOS，`showAiGeneration`）不给 AI 皮肤：网格上没有 AI 图块，编辑器里也没有 AI 生成入口。
+  const aiSkins = showAiGeneration ? client.aiSkins : undefined;
+  const { customSkinLibrary } = client;
   const {
     value: aiSubview,
     open: openAiSubview,
@@ -299,7 +302,7 @@ export function SkinSettingsPage({
             theme={keyboardPreviewTheme}
             disabled={busy}
             library={client.customSkinLibrary}
-            aiSkins={client.aiSkins}
+            aiSkins={aiSkins}
             communitySkins={client.communitySkins}
             phonePreview={mobilePlatform}
             onChange={(design) => onCustomThemeChange({ keyboard: design })}
@@ -470,7 +473,7 @@ export function SkinSettingsPage({
           theme={keyboardPreviewTheme}
           disabled={busy}
           library={client.customSkinLibrary}
-          aiSkins={client.aiSkins}
+          aiSkins={aiSkins}
           communitySkins={client.communitySkins}
           touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
           onChange={(design) => onCustomThemeChange({ keyboard: design })}

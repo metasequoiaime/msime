@@ -43,6 +43,7 @@ import { SharedStateMirror } from '../keyboard/SharedStateMirror';
 import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -897,6 +898,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         KeyboardSession.shared.useSharedSandbox(mirror, fullMode);
         SharedStateSync.keyboardSync(mirror, state, fullMode());
       }
+      // 隐私政策的授权由设置应用经共享沙箱镜像过来，上面那次导入之后读。没有授权时下面的匿名注册和使用统计都等着，键盘里的云端功能也不发请求；之后每次获得焦点导入镜像时再读一次（`KeyboardSession.attach`）。
+      HarmonyPrivacyConsent.load(state);
       // 覆盖从未打开应用就启用键盘的场景。完整体验模式下键盘获得焦点或编辑结束时发布这个匿名会话，设置应用第一次启动时本地还没有匿名会话，由 session_adopt 采用它，不再注册第二个；键盘发布之前就打开了设置应用、或者键盘在基础访问模式下时，设置应用仍会注册自己的那个。
       HarmonyAccountIdentity.ensureAnonymous(state);
       // 每个键盘进程只启动一个用量上报会话；在下方提前返回之前创建，让没有面板的进程也能上报。

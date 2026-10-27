@@ -86,7 +86,16 @@ const sourceSymbols: Record<string, string> = {
   unknown: "?",
 };
 
-export function statisticsDistributionSlices(breakdown: TypingBreakdown) {
+/** AI 生成类功能写下的两类来源（AI 润色、高情商回复）。 */
+const aiGenerationSources: readonly string[] = ["ai", "reply"];
+
+/**
+ * 统计页的三组分布。`aiGeneration` 为 false（宿主报 `ai_generation` 为 false，即鸿蒙版拿到 AI 生成类资质之前）时不列 AI 润色和高情商回复两类：历史计数照旧留在统计文件里，只是不画出来，其余扇区的颜色不变。
+ */
+export function statisticsDistributionSlices(
+  breakdown: TypingBreakdown,
+  { aiGeneration = true }: { aiGeneration?: boolean } = {},
+) {
   const characterSlices = characterKinds.map(([id, title], index) => ({
     id,
     title,
@@ -94,14 +103,16 @@ export function statisticsDistributionSlices(breakdown: TypingBreakdown) {
     color: palette[index % palette.length],
     symbol: characterSymbols[id] ?? "?",
   }));
-  const sourceSlices = sources.map(([id, title], index) => ({
-    id,
-    title,
-    count: breakdown.sources[id] ?? 0,
-    color: palette[index % palette.length],
-    symbol: sourceSymbols[id] ?? "?",
-  }));
-  const languageSlices: Slice[] = [
+  const sourceSlices = sources
+    .map(([id, title], index) => ({
+      id,
+      title,
+      count: breakdown.sources[id] ?? 0,
+      color: palette[index % palette.length],
+      symbol: sourceSymbols[id] ?? "?",
+    }))
+    .filter((slice) => aiGeneration || !aiGenerationSources.includes(slice.id));
+  const allLanguageSlices: Slice[] = [
     {
       id: "chinese",
       title: "中文模式",
@@ -196,5 +207,8 @@ export function statisticsDistributionSlices(breakdown: TypingBreakdown) {
       symbol: "?",
     },
   ];
+  const languageSlices = aiGeneration
+    ? allLanguageSlices
+    : allLanguageSlices.filter((slice) => !aiGenerationSources.includes(slice.id));
   return { characterSlices, sourceSlices, languageSlices };
 }

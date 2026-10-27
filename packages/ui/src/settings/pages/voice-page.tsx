@@ -23,6 +23,7 @@ export function VoiceSettingsPage() {
     showVoiceCaptureBackends,
     captureBackendOptions,
     showVoiceHotkeys,
+    showAiGeneration,
     draft,
     setDraft,
     busy,
@@ -97,6 +98,7 @@ export function VoiceSettingsPage() {
       showVoiceCueSwitches={showVoiceCueSwitches}
       showVoiceCaptureBackends={showVoiceCaptureBackends}
       captureBackendOptions={captureBackendOptions}
+      showVoicePolish={showAiGeneration}
     />
   );
 }

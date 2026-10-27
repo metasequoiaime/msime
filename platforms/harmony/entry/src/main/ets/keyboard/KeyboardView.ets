@@ -133,6 +133,7 @@ import { PanelTile } from './faces/PanelTile';
 import { OneHandRail } from './faces/OneHandRail';
 import { OneHandedMode, OneHandedPolicy } from './OneHandedPolicy';
 import { PrivacyGate } from './PrivacyGate';
+import { AiGenerationGate } from './AiGenerationGate';
 import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY } from './faces/PhraseList';
 import { VoiceListening } from './faces/VoiceListening';
 
@@ -9118,16 +9119,16 @@ struct KeyboardView {
         .layoutWeight(1)
       } else {
         PagedTiles({
-          count: FunctionPanelPolicy.items().length,
+          count: FunctionPanelPolicy.items(AiGenerationGate.enabled()).length,
           pageSize: this.tilePageSize(),
-          rowHeight: this.tileRowHeight(FunctionPanelPolicy.items().length),
+          rowHeight: this.tileRowHeight(FunctionPanelPolicy.items(AiGenerationGate.enabled()).length),
           rowsGap: this.tileGrid().rowsGap,
           topPadding: TILE_TOP_PADDING_VP,
           resetToken: this.panelResetToken,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
           tile: (index: number): void => {
-            this.functionTile(FunctionPanelPolicy.items()[index])
+            this.functionTile(FunctionPanelPolicy.items(AiGenerationGate.enabled())[index])
           }
         })
       }

@@ -925,6 +925,63 @@ fn a_refused_password_is_a_relay_authorization_error() {
 }
 
 #[test]
+fn a_process_that_borrows_the_identity_never_registers_a_device_of_its_own() {
+    // 鸿蒙的设置应用和键盘扩展是同一台设备的两个沙箱：键盘只用设置应用镜像过来的密钥串，自己从不生成身份、从不登记。
+    let root = tempfile::tempdir().unwrap();
+    let drive = FakeDav::new(&Clock::new());
+    let (settings_directory, keyboard_directory) =
+        (root.path().join("settings"), root.path().join("keyboard"));
+    let keyboard = device(&drive, &keyboard_directory, "合成手机").existing_identity_only();
+
+    // 设置应用还没打开过云剪贴板：键盘停在本机，网盘上什么也没发生，再试几次也一样。
+    for _ in 0..3 {
+        assert_eq!(keyboard.list("").unwrap_err(), RelayError::IdentityMissing);
+        assert_eq!(
+            keyboard.add("合成上传").unwrap_err().code(),
+            "clipboard_identity_missing"
+        );
+    }
+    assert!(drive.requests().is_empty());
+    assert!(!keyboard_directory
+        .join(crate::clipboard_relay::RELAY_KEYSTORE_FILE)
+        .exists());
+
+    // 设置应用登记、建钥；共享沙箱把它的密钥串原样复制进键盘的沙箱。
+    let settings = device(&drive, &settings_directory, "合成手机");
+    settings.list("").unwrap();
+    let mirrored = |from: &Path, to: &Path| {
+        std::fs::create_dir_all(to).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let name = crate::clipboard_relay::RELAY_KEYSTORE_FILE;
+        std::fs::copy(from.join(name), to.join(name)).unwrap();
+    };
+    mirrored(&settings_directory, &keyboard_directory);
+
+    // 键盘反复读取、上传：用的是同一台设备，空间里始终只有一台，也没有待批准的设备。
+    for round in 0..3 {
+        keyboard.list("").unwrap();
+        keyboard.add(&format!("合成上传 {round}")).unwrap();
+    }
+    let devices = settings.devices().unwrap().devices;
+    assert_eq!(devices.len(), 1, "{devices:?}");
+    assert!(devices[0].approved);
+    assert_eq!(
+        texts(&settings, ""),
+        ["合成上传 2", "合成上传 1", "合成上传 0"]
+    );
+    let page = keyboard.list("").unwrap();
+    assert_eq!(page.e2e.status, AccountClipboardE2eStatus::Ready);
+    assert_eq!(page.e2e.pending_devices, 0);
+    // 开关、删除这些不经驱动的动作不需要身份。
+    let fresh = device(&drive, &root.path().join("fresh"), "合成").existing_identity_only();
+    fresh.clear().unwrap();
+}
+
+#[test]
 fn malformed_requests_are_answered_here_without_touching_the_drive() {
     let root = tempfile::tempdir().unwrap();
     let drive = FakeDav::new(&Clock::new());
@@ -1179,4 +1236,77 @@ fn root_address_with_trailing_slash_is_the_same_folder() {
             .as_str(),
         "https://dav.example.test/dav/msime-clipboard/v1/format.json"
     );
+}
+
+/// 用真实 HTTP 正文覆盖没有 Content-Length 的超限与传输中断，线程在断言前回收。
+fn http_body_response(
+    response: &'static [u8],
+    limit: u64,
+) -> (Result<DavResponse, RelayError>, bool) {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut headers = Vec::new();
+        let mut byte = [0];
+        while !headers.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            headers.push(byte[0]);
+            assert!(headers.len() < 16 * 1024);
+        }
+        stream.write_all(response).unwrap();
+    });
+    let config = RelayConfig::webdav(&format!("http://{address}/dav"), USER, PASSWORD).unwrap();
+    let http = HttpDav::new(&config).unwrap();
+    let result = http.send(&DavRequest {
+        method: "GET",
+        path: "event.json",
+        depth: None,
+        destination: None,
+        body: None,
+        limit,
+    });
+    server.join().unwrap();
+    (result, http.take_oversized())
+}
+
+#[test]
+fn chunked_body_over_limit_is_an_error_instead_of_an_empty_success() {
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\n12345\r\n0\r\n\r\n",
+        4,
+    );
+    assert!(matches!(result, Err(RelayError::Unavailable)));
+    assert!(oversized);
+}
+
+#[test]
+fn truncated_body_is_unavailable_without_being_marked_oversized() {
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n12",
+        8,
+    );
+    assert!(matches!(result, Err(RelayError::Unavailable)));
+    assert!(!oversized);
+}
+
+#[test]
+fn complete_chunked_body_and_error_status_keep_their_semantics() {
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\n12345\r\n0\r\n\r\n",
+        5,
+    );
+    assert_eq!(result.unwrap().body, b"12345");
+    assert!(!oversized);
+    let (result, oversized) = http_body_response(
+        b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 5\r\nConnection: close\r\n\r\n12",
+        8,
+    );
+    assert_eq!(result.unwrap().status, 401);
+    assert!(!oversized);
 }

@@ -19,6 +19,7 @@ export interface SettingsFeaturePagesProps {
     | "page"
     | "settingsPlatform"
     | "surfaceThemesFollow"
+    | "showAiGeneration"
     | "mobileSecondaryGroups"
     | "communityGallery"
     | "closeCommunityGallery"
@@ -54,6 +55,7 @@ export function SettingsFeaturePages({
     harmonyPlatform,
     settingsPlatform,
     surfaceThemesFollow,
+    showAiGeneration,
     mobileSecondaryGroups,
     openAccountLogin,
     openExternalUrl,
@@ -88,7 +90,7 @@ export function SettingsFeaturePages({
         <TryKeyboardPage
           actions={client.home}
           switchAway={!harmonyPlatform}
-          chat={client.chat}
+          chat={showAiGeneration ? client.chat : undefined}
           onLogin={openAccountLogin}
           onOpenUrl={
             client.openExternalUrl
@@ -103,7 +105,7 @@ export function SettingsFeaturePages({
         <SettingsAccountPage model={model} onReplayOnboarding={onReplayOnboarding} />
       )}
       {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
-      {client.chat && (page === "chat" || (mobilePlatform && chatMounted)) && (
+      {client.chat && showAiGeneration && (page === "chat" || (mobilePlatform && chatMounted)) && (
         <div className={page === "chat" ? "contents" : undefined} hidden={page !== "chat"}>
           <ChatPage
             client={client.chat}
@@ -146,6 +148,7 @@ export function SettingsFeaturePages({
           mobile={mobilePlatform}
           platform={client.host?.platform}
           openSystemSettings={client.openSystemKeyboardSettings}
+          aiGeneration={showAiGeneration}
           look={
             settingsPlatform === "harmony"
               ? "harmony"

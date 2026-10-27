@@ -47,7 +47,7 @@ public final class ClipboardExport {
         if (!preferences.optBoolean("clipboard_history", false)) return "剪贴板历史未开启，未导出";
         File temporary = null;
         try {
-            ClipboardHistoryStore store = new ClipboardHistoryStore(ClipboardModeStore.directory(context));
+            ClipboardHistoryStore store = ClipboardHistoryStore.forContext(context);
             List<ClipboardHistory.Item> snapshot = ClipboardExportFormat.select(store.load(), selectedTexts);
             if (snapshot.isEmpty()) return "剪贴板历史为空，未导出";
             String selected = saved(context);

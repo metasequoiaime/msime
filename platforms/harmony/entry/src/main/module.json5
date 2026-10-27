@@ -14,6 +14,7 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    // 华为账号登录（Account Kit）认的是 AppGallery Connect「常规 > 应用」里应用的 Client ID。它与 APP ID 不同时，要在 module 这一级加 "metadata": [{ "name": "client_id", "value": "<应用 Client ID>" }]，value 直接写 AGC 给的数字，不能用 $string 引用，也不能填项目 Client ID（华为文档「配置Client ID」，harmonyos-guides/account-client-id）；两者相同时不用配。服务端 auth.huawei.client_ids 要列同一个值，否则 ID Token 的受众对不上。scripts/test-harmony-manifest.py 核对它的位置和形状。
     // Reading the system clipboard is a system_basic permission on OpenHarmony, so an ordinary
     // third-party input method is refused it however it asks: the request is granted only to a build
     // signed with a provisioning profile that carries the ACL for it. Declared so such a build works,

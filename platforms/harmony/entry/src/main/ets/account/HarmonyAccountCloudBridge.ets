@@ -10,11 +10,12 @@ import { TypingStatisticsPolicy } from '../keyboard/TypingStatisticsPolicy';
 import { AccountSessionAdoption } from './AccountSessionAdoption';
 import { HarmonyAccountIdentity } from './HarmonyAccountIdentity';
 import { HarmonyGoogleSignIn } from './HarmonyGoogleSignIn';
+import { HarmonyHuaweiSignIn } from './HarmonyHuaweiSignIn';
 import {
-  RequestPlan, SESSION_CHANGING_OPERATIONS, accountRequest, aiSkinRequest, appliedFeedbackText,
-  cloudClipboardRequest, cloudDictionaryFileRequest, cloudDictionaryRequest, communityRequest, hostAccountRequest,
-  preferencesPutAction, replyError, replyValueText, settingsApplyRequest, settingsExportRequest, statusUserId,
-  typingUploadReply, typingUploadRequest
+  CloudClipboardRoute, RequestPlan, SESSION_CHANGING_OPERATIONS, accountRequest, aiSkinRequest, appliedFeedbackText,
+  cloudClipboardRequest, cloudClipboardRoute, cloudDictionaryFileRequest, cloudDictionaryRequest, communityRequest,
+  hostAccountRequest, preferencesPutAction, relayCloudClipboardRequest, replyError, replyValueText,
+  settingsApplyRequest, settingsExportRequest, statusUserId, typingUploadReply, typingUploadRequest, webDavProbeRequest
 } from './HarmonyAccountRequests';
 
 /** 页面动作里只读操作名，其余字段由 `HarmonyAccountRequests` 和 Rust 检查。 */
@@ -132,13 +133,14 @@ const DICTIONARY_FORMATS: string[] = ['standard', 'windows'];
  * - 每个认证请求之前先等本进程的会话镜像做完；
  * - 登录、退出、注销前后取消旧账号排队中的词库快照；
  * - 文件选择器：选择器给的是 URI，Rust 要的是路径，所以导出先写进私有目录再由这里复制到用户选的位置，恢复先把选中的文件复制进私有目录再交给 Rust；
- * - Google 回环登录的 socket 和浏览器（`HarmonyGoogleSignIn`）；
+ * - Google 回环登录的 socket 和浏览器（`HarmonyGoogleSignIn`），以及华为账号登录的 Account Kit 授权页（`HarmonyHuaweiSignIn`）；
  * - 设置同步里本宿主才有的按键反馈文件。
  */
 export class HarmonyAccountCloudBridge {
   private readonly context: common.UIAbilityContext;
   private readonly directory: string;
   private readonly google: HarmonyGoogleSignIn;
+  private readonly huawei: HarmonyHuaweiSignIn;
   private restoreFile: string = '';
   private restoreToken: string = '';
   private restoreAccountId: string = '';
@@ -153,8 +155,9 @@ export class HarmonyAccountCloudBridge {
     } catch {
       // 目录建不出来时 Rust 的每个请求都会报 account_storage。
     }
-    // 回环流程里申请 challenge 和提交授权码是宿主自己发的账号操作，与页面的操作走同一个目录和 User-Agent。
+    // 回环流程里申请 challenge 和提交授权码、华为账号登录里申请 challenge 和提交 ID Token，都是宿主自己发的账号操作，与页面的操作走同一个目录和 User-Agent。
     this.google = new HarmonyGoogleSignIn(context, (action: string): Promise<string> => this.hostAccount(action));
+    this.huawei = new HarmonyHuaweiSignIn(context, (action: string): Promise<string> => this.hostAccount(action));
   }
 
   /** 本沙箱里登录的账号，没有登录时为 null。只读本地会话文件，可以在主线程上调用。 */
@@ -175,8 +178,10 @@ export class HarmonyAccountCloudBridge {
       const reply: NullReply = { ok: true, value: null };
       return JSON.stringify(reply);
     }
+    // 宿主自己完成的两种登录不经页面的操作名单。
+    const hostSignIn: boolean = operation === 'google_sign_in' || operation === 'huawei_sign_in';
     let plan: RequestPlan | null = null;
-    if (operation !== 'google_sign_in') {
+    if (!hostSignIn) {
       plan = accountRequest(this.directory, HarmonyAccountIdentity.clientAgent(), action);
       if (plan.refusal.length > 0) return plan.refusal;
     }
@@ -189,7 +194,9 @@ export class HarmonyAccountCloudBridge {
       }
     }
     let reply: string;
-    if (plan === null) {
+    if (operation === 'huawei_sign_in') {
+      reply = await this.huawei.signIn();
+    } else if (plan === null) {
       reply = await this.google.signIn();
     } else if (operation === 'chat') {
       reply = await client.accountThread(plan.request);
@@ -204,7 +211,7 @@ export class HarmonyAccountCloudBridge {
     return reply;
   }
 
-  /** 宿主自己发的账号操作：Google 回环登录的 challenge 和授权码。 */
+  /** 宿主自己发的账号操作：Google 回环登录的 challenge 和授权码，华为账号登录的 challenge 和 ID Token。 */
   private async hostAccount(action: string): Promise<string> {
     const request: string | null =
       hostAccountRequest(this.directory, HarmonyAccountIdentity.clientAgent(), action);
@@ -221,13 +228,30 @@ export class HarmonyAccountCloudBridge {
     return await client.community(plan.request);
   }
 
-  /** 设置页的云剪贴板面板。 */
+  /**
+   * 设置页的云剪贴板面板和「发到云剪贴板」。每个请求先问共享层该走哪条路（`msime_client_cloud_clipboard_source`）：配置了自建中继或 WebDAV 网盘就只走它，失败也不退回水杉账号；来源读不出时按失败答页面。中继的密钥串、网盘日志的本机缓存和锁都在本沙箱的 `files/state`，与账号会话同一个目录，设置应用在这里第一次使用时生成本机的设备身份，经共享沙箱镜像给键盘（`SharedStateMirrorPolicy` 的 `cloud-clipboard-relay-keystore`）。
+   */
   async cloudClipboard(action: string): Promise<string> {
-    const plan: RequestPlan =
-      cloudClipboardRequest(this.directory, HarmonyAccountIdentity.deviceName(), action);
+    const route: CloudClipboardRoute = cloudClipboardRoute(client.cloudClipboardSource(this.directory));
+    if (route.source === 'failed') return HarmonyAccountCloudBridge.failure(route.error);
+    const deviceName: string = HarmonyAccountIdentity.deviceName();
+    if (route.source === 'relay') {
+      const relay: RequestPlan = relayCloudClipboardRequest(this.directory, this.directory, deviceName, action,
+        route.revision, true);
+      if (relay.refusal.length > 0) return relay.refusal;
+      return await client.relayCloudClipboard(relay.request);
+    }
+    const plan: RequestPlan = cloudClipboardRequest(this.directory, deviceName, action, this.directory, true);
     if (plan.refusal.length > 0) return plan.refusal;
     await AccountSessionAdoption.beforeRequest();
     return await client.accountCloudClipboard(plan.request);
+  }
+
+  /** WebDAV 设置的「测试连接」，用页面里还没保存的草稿；通过后 Rust 删掉本沙箱里的网盘日志缓存，防回退从网盘现在的样子重新开始。 */
+  async cloudClipboardWebDavProbe(draft: string): Promise<string> {
+    const plan: RequestPlan = webDavProbeRequest(draft, this.directory);
+    if (plan.refusal.length > 0) return plan.refusal;
+    return await client.cloudClipboardWebDavProbe(plan.request);
   }
 
   /** AI 皮肤：`generate` 每完成一张插画经 `progress` 报一次，`cancel` 立即返回。 */

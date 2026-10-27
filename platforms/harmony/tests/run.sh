@@ -43,6 +43,17 @@ for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this
     exit 1
   fi
 done
+# 统计页认证默认关闭，认证成功后五分钟冷却。冷却规则由 keyboard-logic.test.ts 的 `StatisticsAuthenticationCooldown` 覆盖；认证本身是 ArkTS，node 下编不了，这里钉住接线：默认值是关、冷却期内直接放行、认证成功开启冷却、离开时从现在算起，时钟用含深度睡眠的开机时间。
+statistics_auth="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/settings/StatisticsAuthentication.ets"
+if [[ $(grep -cF "getSync('enabled', false)" "$statistics_auth") -ne 2 ]] \
+  || grep -qF "getSync('enabled', true)" "$statistics_auth" \
+  || ! grep -qF 'if (cooldown.active()) {' "$statistics_auth" \
+  || ! grep -qF 'if (success) cooldown.granted();' "$statistics_auth" \
+  || ! grep -qF 'cooldown.ended();' "$statistics_auth" \
+  || ! grep -qF 'systemDateTime.TimeType.STARTUP' "$statistics_auth"; then
+  echo "Statistics authentication must default to off and skip re-authentication within the cooldown" >&2
+  exit 1
+fi
 # 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。入口怎么选由 keyboard-logic.test.ts 的 `KeyboardScheme.handwritingReturn` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：离开手写经 handwritingReturn 取入口，进入前是英文时回到英文。
 toggle_body=$(sed -n '/^  private toggleHandwritingScheme(): void {$/,/^  }$/p' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
@@ -178,6 +189,33 @@ if ! grep -qF 'digits: pattern === inputMethodEngine.PATTERN_NUMBER' <<< "$trait
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.twentySixKeyStyle, this.standardRowsField)' <<< "$design_style_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.fourteenKeyStyle, this.standardRowsField)' <<< "$design_style_body"; then
   echo "Password and digit-only fields must fall back to the standard row for every key type: KeyboardSession.traitsFor sets digits from PATTERN_NUMBER/PHONE/NUMBER_DECIMAL, applyEditorFace refreshes standardRowsField, and nineKeyFrameStyle and designRowStyle go through TouchLayoutStylePolicy.fieldRowStyle" >&2
+  exit 1
+fi
+# AI 生成类功能的总闸（`AiGenerationGate`，取自 Rust 的 `HostCapabilities.ai_generation`）：规则由 ai-generation-gate.test.ts 覆盖；键盘、语音润色和设置桥是 ArkTS，node 下编不了，这里钉住接线：两个进程启动时都读宿主能力，功能面板按它去掉 AI 格子，AI 联想、高情商回复、润色和设置桥的 AI 请求在发出前都问它。
+ets="$repo_root/platforms/harmony/entry/src/main/ets"
+for wiring in \
+  "keyboard/KeyboardSession.ets:AiGenerationGate.adopt(client.hostCapabilities('harmony'))" \
+  "keyboard/KeyboardSession.ets:aiQuery.ai_eligible && AiGenerationGate.enabled()" \
+  "keyboard/KeyboardSession.ets:request === null || !AiGenerationGate.enabled()" \
+  "keyboard/KeyboardView.ets:FunctionPanelPolicy.items(AiGenerationGate.enabled())" \
+  "keyboard/input/HarmonyVoicePolisher.ets:if (!AiGenerationGate.enabled()) return null;" \
+  "pages/Settings.ets:AiGenerationGate.adopt(client.hostCapabilities(PLATFORM))" \
+  "pages/Settings.ets:if (!AiGenerationGate.allowsSettingsRequest(kind, payload)) {"; do
+  if ! grep -qF "${wiring#*:}" "$ets/${wiring%%:*}"; then
+    echo "${wiring%%:*} must consult AiGenerationGate: missing \"${wiring#*:}\"" >&2
+    exit 1
+  fi
+done
+if grep -qF 'FunctionPanelPolicy.items()' "$ets/keyboard/KeyboardView.ets"; then
+  echo "KeyboardView must list function tiles through FunctionPanelPolicy.items(AiGenerationGate.enabled())" >&2
+  exit 1
+fi
+# 按键振动的 `startVibration` 在 NAPI 层同步发 IPC，放在 UI 线程上开了振动打字就跟不上手；这里钉住接线：振动经 TaskPool 以高优先级发出，上一下还没发完时不再排队。
+if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'taskpool.Priority.HIGH);' "$ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'this.vibrationPending) {' "$ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF '@Concurrent' "$ets/keyboard/KeyVibration.ets"; then
+  echo "key vibration must go through a high-priority taskpool.Task(startKeyVibration, ...) and skip while one is pending" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

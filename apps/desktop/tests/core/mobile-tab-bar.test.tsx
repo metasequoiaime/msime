@@ -27,6 +27,8 @@ function mount(
   initialPage?: string,
   platform = "harmony",
   home: Parameters<typeof SettingsPage>[0]["client"]["home"] = {},
+  // 这些用例测的是触屏外壳里的 AI 对话二级页，所以鸿蒙按拿到资质、总闸打开时的样子报 `ai_generation`；总闸关着的样子由文件末尾的用例覆盖。
+  aiGeneration = true,
 ) {
   render(
     <SettingsPage
@@ -54,7 +56,7 @@ function mount(
         communitySkins: {
           list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
         } as never,
-        host: testHost({ platform }),
+        host: testHost({ platform, ai_generation: aiGeneration }),
       }}
     />,
   );
@@ -376,4 +378,31 @@ test("a link to the skin page from a page under 首页 stays on the 首页 tab",
 
   window.history.back();
   expect(await screen.findByRole("heading", { level: 1, name: "键盘" })).toBeTruthy();
+});
+
+// 鸿蒙版拿到 AI 生成类资质之前（`ai_generation` 为 false）：「首页」列表没有「AI 辅助」，AI 对话和 AI 辅助的路由回到首页，试用键盘打开不带发送键的试用页。
+test("HarmonyOS without AI generation offers no AI page, no chat and a plain 试用键盘", async () => {
+  mount(undefined, "harmony", {}, false);
+  await settingsFormReady();
+  expect(rootRowTitles()).not.toContain("AI 辅助");
+  expect(rootRowTitles().some((title) => title.includes("AI"))).toBe(false);
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "水杉输入法状态" })).getByRole("button", {
+      name: "试用键盘",
+    }),
+  );
+  expect(await screen.findByRole("region", { name: "试用键盘" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "AI 对话" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "发送" })).toBeNull();
+});
+
+test("HarmonyOS without AI generation does not open the AI page or the chat by route", async () => {
+  mount("chat", "harmony", {}, false);
+  await settingsFormReady();
+  expect(screen.queryByRole("region", { name: "AI 对话" })).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "聊天消息" })).toBeNull();
+  cleanup();
+  mount("ai", "harmony", {}, false);
+  await settingsFormReady();
+  expect(screen.queryByRole("heading", { level: 1, name: "AI 辅助" })).toBeNull();
 });
