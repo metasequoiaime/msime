@@ -4240,7 +4240,6 @@ struct KeyboardView {
     .alignItems(VerticalAlign.Center)
   }
 
-  /** 工具栏的一个面板工具：40vp 按钮里的线框图标，平时为次要文字色（设计稿的 kbSub，即 Android 的 `KeyboardSkin.toolbarIcon()`；收起箭头仍用按键文字色），`surface` 为当前显示的界面时着色。标签不可省略，因为按钮只绘制图标。 */
   /** 工具栏上的这个工具画不画：工具栏设成隐藏、又因为长空格样式一直画着这一行时，与 Android 一样只留标志、符号和收起。 */
   private toolbarToolShown(enabled: boolean): boolean {
     return enabled && !(this.toolbarTools.hidden && this.longSpaceActive());
@@ -4280,6 +4279,7 @@ struct KeyboardView {
     .justifyContent(FlexAlign.Center)
   }
 
+  /** 工具栏的一个面板工具：40vp 按钮里的线框图标，平时为次要文字色（设计稿的 kbSub，即 Android 的 `KeyboardSkin.toolbarIcon()`；收起箭头仍用按键文字色），`surface` 为当前显示的界面时着色。标签不可省略，因为按钮只绘制图标。 */
   @Builder
   toolbarButton(path: string, surface: string, label: string, action: () => void) {
     Column() {
