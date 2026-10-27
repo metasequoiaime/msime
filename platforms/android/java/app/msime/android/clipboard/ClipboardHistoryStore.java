@@ -6,6 +6,8 @@ import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -171,6 +173,24 @@ public final class ClipboardHistoryStore {
         if (value == null || !(value.opt("text") instanceof String))
             throw new IllegalStateException("Clipboard export had no answer");
         return new Export(value.optString("text"), value.optInt("count", 0));
+    }
+
+    /** 按用户选中的文字生成同一格式的有限快照；顺序、置顶状态和原文沿用共享历史。 */
+    public Export exportSelectedText(List<String> selectedTexts) {
+        if (selectedTexts == null || selectedTexts.isEmpty()) return new Export("", 0);
+        Set<String> selected = new HashSet<>(selectedTexts);
+        List<ClipboardHistory.Item> entries = new ArrayList<>();
+        for (ClipboardHistory.Item item : load()) {
+            if (selected.contains(item.text())) entries.add(item);
+        }
+        StringBuilder text = new StringBuilder("水杉剪贴板历史，共 ").append(entries.size()).append(" 条\n");
+        for (int index = 0; index < entries.size(); index++) {
+            ClipboardHistory.Item item = entries.get(index);
+            text.append("\n========== ").append(index + 1);
+            if (item.pinned()) text.append(" · 已置顶");
+            text.append(" ==========\n").append(item.text()).append('\n');
+        }
+        return new Export(text.toString(), entries.size());
     }
 
     public void clear() {

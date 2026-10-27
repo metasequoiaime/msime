@@ -231,6 +231,20 @@ pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     ]
 }
 
+/// 读进来的排列补上它不认识的侧边动作：新版本加了动作（例如选择行）之后，旧文档、旧的设置导出和同步来的偏好只列着当时那几个，不补的话整份偏好通不过 [`Preferences::validate`]，Windows 的 Server 因此起不来。缺的动作按默认排列的先后接在末尾，用户排好的顺序不动；重复和未知的动作照旧由校验和枚举拒绝。
+fn deserialize_text_edit_button_order<'de, D>(d: D) -> Result<Vec<TextEditButton>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let mut order = Vec::<TextEditButton>::deserialize(d)?;
+    for button in default_text_edit_button_order() {
+        if !order.contains(&button) {
+            order.push(button);
+        }
+    }
+    Ok(order)
+}
+
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1427,8 +1441,11 @@ pub struct Preferences {
     /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
     #[serde(default)]
     pub touch_number_keypad_order: NumberKeypadOrder,
-    /// Android 文本编辑面板七个侧边动作的完整排列；其他宿主保留但不使用。
-    #[serde(default = "default_text_edit_button_order")]
+    /// Android 文本编辑面板全部侧边动作的完整排列；其他宿主保留但不使用。读入时补上旧文档缺的动作（见 `deserialize_text_edit_button_order`）。
+    #[serde(
+        default = "default_text_edit_button_order",
+        deserialize_with = "deserialize_text_edit_button_order"
+    )]
     pub touch_text_edit_button_order: Vec<TextEditButton>,
     /// 26 键按「123」时出一行 1 到 0 的数字符号页，还是九宫格那样的 3×3 数字层。
     #[serde(default)]
@@ -2919,7 +2936,7 @@ impl CloudClipboardRelayPreferences {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CloudClipboardWebDavPreferences {
-    /// 文件夹地址，例如 `https://dav.jianguoyun.com/dav/msime`；规则与中继地址相同（[`valid_relay_url`]）。
+    /// 文件夹地址，例如坚果云的根地址 `https://dav.jianguoyun.com/dav/`（客户端在它下面自己建 `msime-clipboard/`）；规则与中继地址相同（[`valid_relay_url`]）。
     pub url: String,
     /// 网盘账号；规则见 [`valid_webdav_username`]。
     pub username: String,
@@ -4603,7 +4620,7 @@ impl PreferencesSnapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesError {
-    #[error("text edit button order must contain each of the seven side actions once")]
+    #[error("text edit button order must contain each side action once")]
     InvalidTextEditButtonOrder,
     #[error("辅助码触发键必须为空或 ; / \\ ` = 中的一个标点")]
     InvalidHelpcodeTriggerKey,

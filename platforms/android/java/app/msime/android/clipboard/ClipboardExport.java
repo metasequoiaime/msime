@@ -15,6 +15,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.json.JSONObject;
 
 /** 显式操作才导出全文；调用方必须放到存储工作线程，不能记录快照内容。 */
@@ -35,12 +36,19 @@ public final class ClipboardExport {
 
     /** 在生成快照和创建文件前重新读隐私开关；关闭时不导出残留记录。 */
     public static String export(Context context) {
+        return export(context, null);
+    }
+
+    /** 导出用户在输入法面板中选中的记录；null 表示导出全部历史。 */
+    public static String export(Context context, List<String> selectedTexts) {
         JSONObject preferences = preferences(context);
         if (preferences == null) return "剪贴板设置读取失败，请重试";
         if (!preferences.optBoolean("clipboard_history", false)) return "剪贴板历史未开启，未导出";
         File temporary = null;
         try {
-            ClipboardHistoryStore.Export snapshot = ClipboardHistoryStore.forContext(context).exportText();
+            ClipboardHistoryStore store = ClipboardHistoryStore.forContext(context);
+            ClipboardHistoryStore.Export snapshot = selectedTexts == null
+                ? store.exportText() : store.exportSelectedText(selectedTexts);
             if (snapshot.count() == 0) return "剪贴板历史为空，未导出";
             String selected = saved(context);
             if (selected.isEmpty() && Build.VERSION.SDK_INT < 29) return NEEDS_DIRECTORY;

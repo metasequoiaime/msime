@@ -136,6 +136,23 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
             target.set(service, emptyThenDisconnected);
             method(type, "deleteCodePointBeforeCursor").invoke(service);
             check(keyEvents[0] == 2, "empty editor sends one guarded down/up pair");
+            stage = "editor rejects surrounding deletion but accepts raw backspace";
+            int[] fallbackEvents = new int[1];
+            InputConnection rejectsSurrounding = (InputConnection) Proxy.newProxyInstance(
+                InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},
+                (proxy, call, args) -> switch (call.getName()) {
+                    case "getSelectedText" -> null;
+                    case "getTextBeforeCursor" -> "synthetic";
+                    case "deleteSurroundingTextInCodePoints" -> false;
+                    case "sendKeyEvent" -> {
+                        fallbackEvents[0]++;
+                        yield true;
+                    }
+                    default -> throw new AssertionError("Unexpected editor operation: " + call.getName());
+                });
+            target.set(service, rejectsSurrounding);
+            method(type, "deleteCodePointBeforeCursor").invoke(service);
+            check(fallbackEvents[0] == 2, "rejected surrounding deletion falls back to one raw backspace");
             target.set(service, disconnected);
             stage = "disconnected email context";
             Field inputType = type.getDeclaredField("editorInputType");
