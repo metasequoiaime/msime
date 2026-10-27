@@ -24,7 +24,6 @@ import app.msime.android.CustomSkinLibrary;
 import app.msime.android.AppVersionPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
-<<<<<<< ours
 import app.msime.android.KeyboardSkinModeChoice;
 import app.msime.android.LocalBackupPolicy;
 import app.msime.android.ViewPolicy;
