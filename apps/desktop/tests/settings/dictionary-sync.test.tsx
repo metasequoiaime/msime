@@ -611,3 +611,62 @@ test("the HarmonyOS phone's dictionary page offers sync through the host bridge"
   expect(save.mock.calls[0][1].dictionary_sync_webdav).toEqual(WEBDAV);
   await waitFor(() => expect(operations(host.request)).toContain("run:opened"));
 });
+
+test("changing the drive cancels queued device actions and clears busy state", async () => {
+  let finishOpened!: (value: unknown) => void;
+  const host = syncHost({
+    run: vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOpened = resolve;
+          }),
+      )
+      .mockImplementation(() => runValue()),
+  });
+  const localChanges = createDictionaryLocalChanges();
+  const { result, rerender } = renderHook(
+    ({ saved }) => useDictionarySync({ client: { dictionarySync: host }, saved, localChanges }),
+    { initialProps: { saved: WEBDAV } },
+  );
+  await waitFor(() => expect(operations(host.request)).toEqual(["run:opened"]));
+  let pending!: Promise<void>;
+  act(() => {
+    pending = result.current!.reset();
+  });
+  expect(result.current!.busy).toBe(true);
+  rerender({ saved: { ...WEBDAV, url: "https://other.example.test/dav/" } });
+  expect(result.current!.busy).toBe(false);
+  await act(async () => {
+    finishOpened(runValue());
+    await pending;
+  });
+  await waitFor(() => expect(operations(host.request)).toEqual(["run:opened", "run:opened"]));
+  expect(result.current!.busy).toBe(false);
+  expect(result.current!.syncing).toBe(false);
+});
+
+test("stopping the drive during an automatic request clears syncing", async () => {
+  let finishOpened!: (value: unknown) => void;
+  const host = syncHost({
+    run: () =>
+      new Promise((resolve) => {
+        finishOpened = resolve;
+      }),
+  });
+  const localChanges = createDictionaryLocalChanges();
+  const { result, rerender } = renderHook(
+    ({ saved }: { saved: typeof WEBDAV | undefined }) =>
+      useDictionarySync({ client: { dictionarySync: host }, saved, localChanges }),
+    { initialProps: { saved: WEBDAV as typeof WEBDAV | undefined } },
+  );
+  await waitFor(() => expect(result.current!.syncing).toBe(true));
+  rerender({ saved: undefined });
+  expect(result.current!.syncing).toBe(false);
+  await act(async () => {
+    finishOpened(runValue());
+  });
+  expect(result.current!.status).toBeNull();
+  expect(result.current!.syncing).toBe(false);
+});
