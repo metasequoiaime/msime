@@ -14,9 +14,9 @@ deployment=${MACOSX_DEPLOYMENT_TARGET:-13.0}
 release=false
 if [[ ${MSIME_SWIFT_CONFIGURATION:-} == Release ]]; then release=true; fi
 optimisation=()
-if $release; then optimisation=(-Osize -wmo -Xlinker -dead_strip); fi
+if $release; then optimisation=(-Osize -wmo -gline-tables-only -Xlinker -dead_strip); fi
 
-# Translation.framework first ships with macOS 15 and the package runs on 13, where a strong link would stop the whole backend from loading. Its only user checks #available(macOS 26) before touching it.
+# Translation.framework 从 macOS 15 才提供，包仍支持 13，故弱链接；调用方在使用前检查系统版本。
 # `-I shared/backend/rust` 让 Swift 看到 C 头文件的类型（`CMSIMEClient` 模块）；dylib 不链接 Rust，函数指针由输入法经 `MSIMEInstallRustClient` 交来。
 compile() {
   xcrun swiftc -parse-as-library -emit-library -emit-module \
@@ -36,10 +36,16 @@ if [[ -n ${MSIME_SWIFT_TARGET:-} || ${#architectures[@]} -eq 1 ]]; then
   exit
 fi
 slices=()
+symbols=()
 for architecture in "${architectures[@]}"; do
   mkdir -p "$module_dir/$architecture"
   compile "$architecture-apple-macosx$deployment" "$module_dir/$architecture/$(basename "$output")"
   slices+=("$module_dir/$architecture/$(basename "$output")")
+  symbols+=("$module_dir/$architecture/$(basename "$output").dSYM")
 done
 lipo -create "${slices[@]}" -output "$output"
-if $release; then xcrun strip -x "$output"; fi
+if $release; then
+  # swiftc 已在临时对象消失之前产生 dSYM，按 UUID 归并原件后再剥离安装用的 dylib。
+  python3 "$root/platforms/macos/scripts/crash_symbols.py" merge "$output" "$output.dSYM" "${symbols[@]}"
+  xcrun strip -x "$output"
+fi

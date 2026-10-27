@@ -71,6 +71,13 @@ log show --last 5m --style compact --info --predicate 'subsystem == "app.msime.i
 MSIME_SPARKLE_ROOT=/absolute/path/to/Sparkle-2.9.6 platforms/macos/package-release.sh [版本] [输出目录]
 ```
 
+发布构建为 Rust、原生代码和 Swift 保留调试行；符号 zip 包含四个自有可执行文件、`MSIMEBackend.dylib` 的 dSYM 和构建清单。打包前逐架构核对 UUID 与实际源码行表，空 dSYM、缺架构或错构建都会失败。Rust/Swift 使用编译器产生的原始 dSYM，避免临时对象清理后重新生成空包。解压符号 zip 后，可用记录里的模块名、UUID、架构和相对偏移离线还原；工具先检查 DWARF 哈希和 UUID：
+
+```sh
+python3 platforms/macos/scripts/crash_symbols.py symbolize /path/to/unpacked/dsym \
+  --module msime-mcp --uuid <报告里的模块UUID> --arch arm64 --offset 0x1234
+```
+
 DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一份 `安装说明.txt`（提醒拖进去之后要打开一次 MSIME）。设置应用的 `Contents/Resources` 内嵌核心词库 `EngineResources`（经 `verify_resources --omit-on-demand` 校验）、许可证文件，以及输入法本体 `水杉输入法.app`（Release 构建，链接 Release 版 Rust 静态库）。安装方式与 Windows 的「下载、双击、能打字」对应：把应用拖进「应用程序」并打开。本机从未装过这个输入法（`~/Library/Input Methods` 里没有 `水杉输入法.app`）时，设置应用先以一个 480×440、不可缩放的安装窗口打开，用户点「立即安装」后才把内嵌的输入法复制到 `~/Library/Input Methods`，并以 `--register-input-source` 登记；装好后点「进入设置」，窗口恢复成设置页的尺寸。复制和登记本身不报告进度，只要几秒，所以安装窗口的进度条是按时间推进的：越往后越慢，停在 93% 等待安装真正结束，最短显示 2.2 秒。已经装过时不出现安装窗口，仍在启动时静默刷新（见「词库准备与 Tauri 设置应用」一节的启动时安装与刷新）。macOS 27 上登记不会把输入源加进用户的输入法列表（见上文），输入源不在列表里时由设置页顶部的状态提示说明添加步骤（系统设置 → 键盘 → 文字输入 → 输入法 → 编辑…），并提供「打开键盘设置」按钮。`/Library/Input Methods` 里有这个输入法的副本（任何名字）时，引导先请用户用管理员权限把它移到废纸篓，设置应用不替用户提权。首次安装有一个例外：这个 bundle identifier 在本次登录会话开始时还不在输入源列表里（全新的机器就是这样）时，按「安装与输入源注册」一节的限制，注册在下次登录前不会生效。此时 bundle 保留在原处，安装窗口的标题是「还差一步：注销并重新登录」而不是「安装完成」，设置页提示注销并重新登录，重新登录后在系统设置里添加即可，与 `scripts/install.sh` 的处理相同；设置页的「修复输入源」在这种情况下同样保留 bundle，接着重新登记。这条路径上设置应用照样清掉「添加」对话框的输入源缓存、退出系统设置：登记后查不到源也可能只是上面那段分钟级的注册表空窗，源过一会儿就进了注册表，缓存不清就要等下次登录对话框才列得出来。同一次登录里之后再打开设置应用，已装版本与内嵌版本相同，启动检查只能报「已是最新」；这时输入法若不在输入法列表里，状态请求再跑一次已装输入法的 `--input-source-registered`（隔一秒查一次，三次都查不到才算不在），不在注册表里就照样报需要重新登录，而不是叫用户去添加一个这次登录列不出来的输入法。刚装好或刚更新的那次启动不这样查，理由同样是那段空窗。同一次登录里打开的若是更新版的设置应用，启动检查在替换 bundle 之前先用内嵌那份跑一次 `--input-source-registered`（查的是标识符，哪份 bundle 都一样，这时还没登记，不在空窗里）；那时就查不到、登记又失败时，不回滚到这次登录同样列不出来的旧版本再报失败，而是留下新版本、删掉备份，照样提示需要重新登录。DMG 里的 `安装说明.txt` 也写了这一步。首次启动时从内嵌词库准备用户数据。输入法 bundle 里的 Sparkle.framework 以符号链接组成、签名把链接本身封在里面，所以打包时用 `ditto` 放回签过名的副本（Tauri 的资源复制会把链接展开成文件），设置页的安装也原样重建包内的相对链接，指向 bundle 之外的链接一律拒绝。桌面的整句重排模型（`target/macos/settled-model`）不随包：用户打开「桌面神经联想」时由设置应用按需下载到 `resource-packs/settled-model/`，Windows 和 Linux 相同。
 
 包里只能证明本机能构建出的东西：脚本在构建后和挂载 DMG 后各检查一遍内嵌资源、输入法的 bundle identifier 与麦克风 entitlement、两层签名的 `codesign --verify --deep --strict`，任何一项不符就失败。

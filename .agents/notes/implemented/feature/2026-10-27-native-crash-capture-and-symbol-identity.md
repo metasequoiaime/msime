@@ -27,6 +27,8 @@ ELF 帧保存模块名、相对偏移和 GNU build id；Mach-O 帧保存模块�
 
 Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需文件缺失或为空就失败。发布 workflow 同时保留九十天 artifact；只有维护者手动选择发布时才推到平台滚动符号 release。本次不触发发布。现代 Windows、macOS 的已有滚动符号和 iOS 的 dSYM 保留机制继续使用。
 
+macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行，归档四个自有可执行文件及 `MSIMEBackend.dylib`。Rust 和 Swift 单步编译链接会在临时对象消失前产生原始 dSYM；universal 构建按分片归并这些原件，不能对合并后的已失去对象的程序再次运行 `dsymutil`。CMake 保留的原生对象仍可用于生成输入法和语音辅助程序的 dSYM。`crash_symbols.py` 对每个架构核对 UUID 和非空源码行表，缺架构、错误构建或空行表都中止打包；清单保留原始版本、源码提交、构建运行及 DWARF 哈希。符号归档不随版本安装包分发。
+
 ## Related notes
 
 动手前按 `telemetry`、`CrashRecorder`、致命信号和符号归档检索活跃笔记。[全平台闭环提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md)部分落地到本篇，保留其 TSF、自有辅助进程、设备及后台收件验收要求；不把整个提案标为完成。[iOS 系统诊断认领](../../implemented/bug-fix/2026-10-25-ios-crash-diagnostic-session-attribution.md)、[iOS 未捕获异常栈](../../implemented/bug-fix/2026-10-27-ios-app-uncaught-exception-stack.md)和[Windows 发布符号](../../implemented/process/2026-10-20-windows-release-page-symbols.md)分别持有既有决定，部分重叠并保留。[诊断目录句柄](../../implemented/bug-fix/2026-10-09-diagnostics-crash-directory-handle.md)持有路径访问边界，不被本篇替代。其余模型删除、词库与语音记录不涉及此决定；没有完全吸收的旧笔记。
@@ -37,6 +39,7 @@ Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需�
 - **独立进程也调用普通 begin/end**：最省接入代码，但会把打开设置计作一次输入会话，改变无崩溃率分母。独立捕获只产生 `crash`。
 - **在 MCP 的全局 panic hook 中记崩溃**：能取得最初抛出点，但 Rust 的可恢复 panic 和工具任务失败也会经过 hook，不能证明进程死亡。钩子只暂存源码位置，主入口边界仅为实际越界的 panic 写记录；原生致命信号仍由共同记录器处理。代价是该类 Rust 记录的展开栈位于主入口边界；摘要中的源码行来自最初的 panic hook，不能将边界栈冒充抛出点栈。
 - **在故障时动态查模块和格式化完整异常**：信息丰富，但可能再次进入已损坏的堆、加载器锁，异常消息也可能含用户内容。模块映射和身份提前固定，故障时只做有限写入和尽力展开。
+- **对所有最终 Mach-O 统一重新运行 `dsymutil`**：调用最简单，也能生成同名目录；但 Clang/Swift 的临时对象可能已清理，命令仍返回零并覆盖掉可用的原始 dSYM。按编译器的产物生命周期保留原件，以 UUID 和实际源码行拒绝空包。
 - **只归档工作流 artifact**：不需要滚动 release，但九十天后正式版仍在线而符号消失。发布构建额外留滚动符号，文件名含运行及重跑编号，安装包不携带调试符号。
 
 ## Verification
@@ -45,7 +48,7 @@ Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需�
 - MCP 在 macOS 构建机运行 124 项单元测试与 18 项协议测试，全部通过；记录器子进程入口由父用例显式启动，不把该入口的 ignored 状态计作通过。七种子进程情况验证未处理 panic、原生终止、可恢复 panic、启动关闭、运行中关闭再开启、配置不可读；记录不含合成私密参数，按新版本补报时仍保留故障原版本，不产生输入会话事件。该包全部 target 的 Clippy 通过。帮助与版本命令的实际二进制用例确认不初始化遥测目录。Linux 与 Windows 新增的 MCP 门禁尚待本轮 PR CI 执行。
 - Windows runner 实际执行 x86、x64 异常子进程用例：访问违规落盘、关闭不记录、首份记录保留通过；ARM64 只完成 MSVC 编译。Win7 符号采集脚本通过 PowerShell 解析检查，尚未用完整同源安装产物验收。
 - Android API 28、35 实际运行原生故障子进程；Java 宿主门禁与 Gradle lintFullRelease 通过；API 30 系统退出辅助方法内部也检查版本，保持 API 28 可用。两个模拟器均跑过四个共享 crate 的全套设备测试：client-base 36、client-core 649、client-providers 274、client-services 1356 项通过；原有 ignored 与按设备限制跳过的 hard_link 用例不算通过。同源 Java/JNI 和 Rust debug 库的完整 APK 在两个模拟器上进一步验证 Java 异常、原生信号落盘及重启入队，关闭统计后两类故障均不记录；独立应用不产生输入会话事件。测试按应用 UID 阻断网络，结束后删除合成队列并撤销规则，没有把合成故障发到生产后台。该包因未优化的 Rust 库超过正式包 135 MB 体积门禁，不能当作发布打包通过。整套装包冒烟的基本输入通过，但 API 28、35 都在十八键中英文及数字往返用例失败，不能将专项通过扩大为全套通过。
-- macOS 原生记录器子进程及目录、退出回归用例通过；Linux 容器中的记录器经 ASan/UBSan 运行通过；PR CI 的完整 Linux native host 门禁通过（112 项执行通过，1 项环境条件跳过），IBus 实际启动、版本化故障记录及信号来源回归已执行；Linux 设置应用、Windows GNU 交叉构建及 macOS arm64/x86_64 CI 也通过。ELF 合成模块的归档、源码行还原、错误 build id 和错误哈希拒绝用例通过。
+- macOS 新增五项真实 Clang/Swift/Rust 合成构建用例通过：剥离后还原到源码行、无调试信息时拒绝空 dSYM、拒绝错构建和缺架构、保留并归并双架构 Swift 原始 dSYM、保留 Rust packed dSYM；离线还原入口按 UUID、架构和 DWARF 哈希拒绝错配与篡改。实际 Swift 后端进一步按 Release 构建 arm64/x86_64，归档后两种架构均还原到 `BackendAccountWindow.swift:420`。完整同源发布包仍需另验，不能把分项符号验收记作发布成功。macOS 原生记录器子进程及目录、退出回归用例通过；Linux 容器中的记录器经 ASan/UBSan 运行通过；PR CI 的完整 Linux native host 门禁通过（112 项执行通过，1 项环境条件跳过），IBus 实际启动、版本化故障记录及信号来源回归已执行；Linux 设置应用、Windows GNU 交叉构建及 macOS arm64/x86_64 CI 也通过。ELF 合成模块的归档、源码行还原、错误 build id 和错误哈希拒绝用例通过。
 - HarmonyOS 逻辑测试和实际 ArkTS/HAP 构建通过。复用的原生二进制仅用于 ArkTS 编译与打包检查，不作为同源产品或设备验收。
 - iOS 工程重新生成，实际 SDK Swift 类型检查与完整 Xcode build-for-testing 通过；iOS 27 模拟器实际执行 UsageReportingTests 16 项，全部通过（已核对 xcresult 数量）。App/键盘的真实致命故障、MetricKit 系统回调与后台收件仍未验收。完整 quick 已执行，退出码为 1：为避开远端系统盘满而自建的 mktemp 包装器错误处理绝对模板，导致 macOS 发布附件与 Windows 发布页两组契约失败。修正包装器后分别单独复跑 23、14 项全部通过，其余契约和 Rust/Android/wasm/macOS/Apple 共享桥接编译通过；未再次整轮复跑，不写成 quick 整轮全绿。构建机缺少 Docker、MinGW 和部分暂存依赖的阶段明确跳过；Linux 与 Windows GNU 的对应构建由上述 CI 补验。不能将这些分项通过写成全平台验收通过。
 
