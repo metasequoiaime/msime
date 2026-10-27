@@ -12,7 +12,7 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 - **持有长期凭据**：引用了 `GITHUB_TOKEN` 以外的 secret（发版令牌、签名证书与密钥、公证与 App Store Connect 凭据、各发行渠道的上传凭据、跨仓库触发令牌）。这是既有约定，见 [macOS 发版打包](2026-10-20-macos-release-faster-packaging.md) 与 [Xcode 26](2026-10-09-macos-ci-and-release-on-xcode-26.md)，`release-android.yml`、`release-ios.yml`、`release-macos.yml`、`release-harmony.yml` 的注释也写着。`GITHUB_TOKEN` 每次运行临时签发，不算长期凭据，拿着它写标签、评论、取消运行的 job（`conflict-label`、`pr-triage`、`welcome`、`stale`、`cancel-closed-pr-runs`）照样上 Depot。
 - **用 OIDC 签发身份**：npm 可信发布和 provenance、Pages 部署（`publish-web-engine-npm`、`release-script-sdk` 的 `publish`、`web-engine-demo` 的 `deploy`）。
-- **需要 Depot 没有的硬件或环境**：Android 模拟器要 KVM（[Android 设备门禁](../testing/2026-10-08-android-device-gates.md)），x86_64 macOS（`macos-15-intel`）和 Windows on Arm（`windows-11-arm`）Depot 没有对应机型，Windows 候选皮肤截图要交互式桌面。
+- **需要 Depot 没有的硬件或环境**：Android 模拟器要 KVM（[Android 设备门禁](../testing/2026-10-08-android-device-gates.md)），x86_64 macOS（`macos-15-intel`）和 Windows on Arm（`windows-11-arm`）Depot 没有对应机型，Windows 候选皮肤截图要交互式桌面，`Windows native settings` 要比 800×600 大的桌面。
 - **工具链即验收对象**：Win7 发版留在 `windows-2022`，Win7 二进制的兼容性是在那个镜像的 MSVC 和 Windows SDK 上核对的，Depot 的 Windows runner 只有 2025 镜像。
 - **SignPath**：开源项目签名要求签名请求之前的每个 job 都在 GitHub 托管 runner 上（[SignPath 签名](2026-10-08-windows-signpath-ci-signing.md)）。
 
@@ -27,9 +27,9 @@ job 默认跑在 Depot 上，只有下面几类留在 GitHub 托管的 runner，
 
 ## Consequences
 
-GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、少数特殊机型和截图，平时 PR 不再因为额度排队；Windows 设置编译从 4 核换到 8 核。代价是这些 job 依赖 Depot 的可用性，Depot 出故障时 PR 检查会卡住而不是变慢；Depot 的 macOS 并发本来就紧，`release-pack-tool` 的 macOS 构建挪过去后发 pack 工具时可能和 macOS CI 抢机器。
+GitHub 托管的额度只剩 Android 模拟器、发版里持有凭据的 job、少数特殊机型和截图，平时 PR 不再因为额度排队。代价是这些 job 依赖 Depot 的可用性，Depot 出故障时 PR 检查会卡住而不是变慢；Depot 的 macOS 并发本来就紧，`release-pack-tool` 的 macOS 构建挪过去后发 pack 工具时可能和 macOS CI 抢机器。
 
-`Windows native settings` 第一次在 Depot 上跑就在「宽窗口的剪贴板行」断言上失败。原因不是显示缩放（两边滚轮一格都是 81 px），而是桌面大小：Depot 的 Windows 机型主屏只有 800×600（`GetSystemMetrics` 读到的），冒烟要的 1000×780 窗口停在设置窗口的最小尺寸 820×620（截图产物里的尺寸），窄窗口的排法把操作收进了「更多操作」；GitHub 的 windows-2025 截图是完整的 1000×780。直接换 1920×1080 时 `ChangeDisplaySettings` 返回 -2（这一档不支持），所以在冒烟之前加一步「Enlarge the desktop for the settings smoke」，列出显卡支持的全部分辨率写进日志，换上面积最大、至少 1280×960 的一档，冒烟里新增 `Assert-WindowSize`，窗口撑不到要的尺寸时直接报屏幕太小。Depot 的虚拟显示器不接受这个分辨率时，把这一个 job 退回 `windows-2025`：它需要一块够大的交互桌面，属于上面「要交互桌面」的例外。
+`Windows native settings` 第一次在 Depot 上跑就在「宽窗口的剪贴板行」断言上失败。原因不是显示缩放（两边滚轮一格都是 81 px），而是桌面大小：Depot 的 Windows 机型主屏只有 800×600（`GetSystemMetrics` 读到的），冒烟要的 1000×780 窗口停在设置窗口的最小尺寸 820×620（截图产物里的尺寸），窄窗口的排法把操作收进了「更多操作」；GitHub 的 windows-2025 截图是完整的 1000×780。直接换 1920×1080 时 `ChangeDisplaySettings` 返回 -2（这一档不支持），再用 `EnumDisplaySettings` 列出显卡支持的全部分辨率，只有 800×600 一档，桌面调不大。所以这一个 job 退回 `windows-2025`，归到上面「需要 Depot 没有的硬件或环境」：它要一块至少 1000×780 的交互桌面。冒烟里新增 `Assert-WindowSize`，以后窗口撑不到要的尺寸时直接报屏幕太小，不再在不相干的断言上失败。这也意味着 Problem 里占额度最多的这一项仍留在 GitHub 上，额度的缓解主要来自其余挪走的 job。
 
 ## Verification
 

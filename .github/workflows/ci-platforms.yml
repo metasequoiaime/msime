@@ -528,7 +528,8 @@ jobs:
   windows-settings:
     needs: changes
     name: Windows native settings
-    runs-on: depot-windows-2025-8
+    # 留在 GitHub 托管的 runner：冒烟要把设置窗口撑到 1000×780，Depot 的 Windows 机型主屏只有 800×600，显卡也只报这一档分辨率。
+    runs-on: windows-2025
     # 完整 WinUI、Win7 设置、手写及多版本门禁已实测耗时 39 分钟，保留冷构建余量。
     timeout-minutes: 60
     steps:
@@ -612,55 +613,6 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "Windows 7 $edition $surface tests failed" }
             }
           }
-      # Depot 的 Windows 机型主屏只有 800×600，设置窗口最小也是 820×620，放不下冒烟要的 1000×780；GitHub 的 windows-2025 本来就够大。先列出显卡支持的分辨率，挑面积最大、至少 1280×960 的一档换上，把列表和结果写进日志；没有这样的一档时这一步不失败，冒烟里的 Assert-WindowSize 会说明窗口撑不到多大。
-      - name: Enlarge the desktop for the settings smoke
-        if: ${{ needs.changes.outputs.windows == 'true' }}
-        shell: powershell
-        run: |
-          Add-Type @'
-          using System;
-          using System.Runtime.InteropServices;
-          public static class DisplayMode {
-              [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-              public struct DEVMODE {
-                  [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
-                  public short dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
-                  public int dmFields, dmPositionX, dmPositionY, dmDisplayOrientation, dmDisplayFixedOutput;
-                  public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
-                  [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
-                  public short dmLogPixels;
-                  public int dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
-                  public int dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2, dmPanningWidth, dmPanningHeight;
-              }
-              [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool EnumDisplaySettings(string device, int mode, ref DEVMODE devMode);
-              [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int ChangeDisplaySettings(ref DEVMODE devMode, int flags);
-              [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
-              public static string Modes() {
-                  var seen = new System.Collections.Generic.SortedSet<string>();
-                  var mode = new DEVMODE();
-                  mode.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
-                  for (int i = 0; EnumDisplaySettings(null, i, ref mode); i++) seen.Add(mode.dmPelsWidth + "x" + mode.dmPelsHeight);
-                  return string.Join(" ", seen);
-              }
-              public static string Largest(int minWidth, int minHeight) {
-                  var best = new DEVMODE();
-                  var mode = new DEVMODE();
-                  mode.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
-                  long bestArea = 0;
-                  for (int i = 0; EnumDisplaySettings(null, i, ref mode); i++) {
-                      long area = (long)mode.dmPelsWidth * mode.dmPelsHeight;
-                      if (mode.dmPelsWidth >= minWidth && mode.dmPelsHeight >= minHeight && area > bestArea) { best = mode; bestArea = area; }
-                  }
-                  if (bestArea == 0) return "no mode of at least " + minWidth + "x" + minHeight;
-                  best.dmFields = 0x80000 | 0x100000;
-                  return best.dmPelsWidth + "x" + best.dmPelsHeight + " -> ChangeDisplaySettings " + ChangeDisplaySettings(ref best, 0);
-              }
-          }
-          '@
-          $before = "$([DisplayMode]::GetSystemMetrics(0))x$([DisplayMode]::GetSystemMetrics(1))"
-          Write-Host "Display modes: $([DisplayMode]::Modes())"
-          $result = [DisplayMode]::Largest(1280, 960)
-          Write-Host "Primary screen $before -> $([DisplayMode]::GetSystemMetrics(0))x$([DisplayMode]::GetSystemMetrics(1)) ($result)"
       - name: Inspect native settings pages
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: powershell
