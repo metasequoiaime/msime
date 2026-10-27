@@ -99,6 +99,8 @@ public final class HomeActivity extends AppCompatActivity {
     /** 这个进程里是否已经替用户请求过五笔码表（{@link #requestWubiTableIfWanted}）：用户在计费网络的确认框里点了取消、或当时没联网，到下次启动应用再问，不在每次回到前台时都打扰。 */
     private static final java.util.concurrent.atomic.AtomicBoolean WUBI_TABLE_REQUESTED =
         new java.util.concurrent.atomic.AtomicBoolean();
+    /** 安装包的临时说明（{@link InstallNotice}）正显示着：五笔码表的下载询问等它关掉再弹。只在主线程上读写。 */
+    private boolean installNoticeShowing;
 
     @Override protected void onCreate(Bundle state) {
         app.msime.android.LauncherIcons.normalize(this);
@@ -213,7 +215,11 @@ public final class HomeActivity extends AppCompatActivity {
         super.onResume();
         View intro = findViewById(R.id.home_intro);
         if (!ViewPolicy.isVisible(intro) && OnboardingActivity.seen(this)) {
-            InstallNotice.showIfNeeded(this);
+            // 升级后第一次打开时说明和五笔码表的下载询问会同时到来，叠在一起时下面那个看不清：说明关掉之后再问。
+            installNoticeShowing = InstallNotice.showIfNeeded(this, () -> {
+                installNoticeShowing = false;
+                requestWubiTableIfWanted();
+            });
         }
         themeWorker.execute(() -> {
             JSONObject snapshot = HostStore.prepared(this) ? HostStore.loadPreferences(this) : null;
@@ -232,7 +238,7 @@ public final class HomeActivity extends AppCompatActivity {
     /**
      * 在用五笔、本机却没有五笔码表的人（{@link KeyboardScheme#wubiTableWanted}）：弹窗说明为什么要下载、要多大，用户同意后下载 wubi 资源包（{@link ResourcePackService#requestOnBehalf}），没联网时提示一句，进度和结果在通知里。
      *
-     * <p>full 和拼音版的瘦包不带五笔码表。升级时 Bootstrap 把旧安装包留下的码表收编为资源包；收编不了的五笔用户（安装包换了词库锁、旧码表对不上，以后每次词库锁改了 `msime-wubi.db` 都会这样，已装的 wubi 资源包也随之过期），以及在首启引导里选了五笔的新用户，码表到来之前键盘不列出五笔，host-api 把五笔回退到别的方案，所以在设置应用回到前台时替他们问一次。词库自动更新已经下载过同一份码表时，共享层从那里复制，不联网。只在准备完成（{@link FirstRunPreparation.State#READY}）之后判断：准备途中收编正把码表从资源目录挪进资源包，这时两处都看不到它。收编遇到暂时性失败、码表正在 pending 目录里等下次启动时也不问（{@link Bootstrap#adoptionPending}）。首启引导和开屏还在前面时不弹，等回到这个页面再判断。
+     * <p>full 和拼音版的瘦包不带五笔码表。升级时 Bootstrap 把旧安装包留下的码表收编为资源包；收编不了的五笔用户（安装包换了词库锁、旧码表对不上，以后每次词库锁改了 `msime-wubi.db` 都会这样，已装的 wubi 资源包也随之过期），以及在首启引导里选了五笔的新用户，码表到来之前键盘不列出五笔，host-api 把五笔回退到别的方案，所以在设置应用回到前台时替他们问一次。词库自动更新已经下载过同一份码表时，共享层从那里复制，不联网。只在准备完成（{@link FirstRunPreparation.State#READY}）之后判断：准备途中收编正把码表从资源目录挪进资源包，这时两处都看不到它。收编遇到暂时性失败、码表正在 pending 目录里等下次启动时也不问（{@link Bootstrap#adoptionPending}）。首启引导和开屏还在前面时不弹，等回到这个页面再判断；升级后的临时说明（{@link InstallNotice}）显示着时也不弹，等它关掉再判断。
      */
     private void requestWubiTableIfWanted() {
         if (FirstRunPreparation.state() != FirstRunPreparation.State.READY || WUBI_TABLE_REQUESTED.get()
@@ -261,7 +267,8 @@ public final class HomeActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed() || !getLifecycle().getCurrentState().isAtLeast(
                         androidx.lifecycle.Lifecycle.State.RESUMED)) return;
-                if (ViewPolicy.isVisible(findViewById(R.id.home_intro)) || !OnboardingActivity.seen(this)) return;
+                if (ViewPolicy.isVisible(findViewById(R.id.home_intro)) || !OnboardingActivity.seen(this)
+                        || installNoticeShowing) return;
                 ResourcePackService.Status status = ResourcePackService.status(ResourcePacks.WUBI);
                 if (status != null && status.running()) return;
                 if (!WUBI_TABLE_REQUESTED.compareAndSet(false, true)) return;

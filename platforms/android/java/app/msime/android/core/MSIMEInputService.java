@@ -615,6 +615,10 @@ public final class MSIMEInputService extends InputMethodService {
     private String preferencesNotice = "";
     /** 上次提示「五笔码表要下载」的时刻（{@link android.os.SystemClock#elapsedRealtime}），见 {@link #announceWubiTableMissing}；还没提示过时为 0。 */
     private long wubiTableNoticeAt;
+    /** 最近一次实时偏好里的 `scheme`、`last_chinese_scheme` 和方案列表 `touch_keyboard_schemes.enabled`，在 alignEngineSchemeWithSelection 改写之前记下，给 {@link #announceWubiTableMissing} 用；还没读到实时偏好时 scheme 为 null。 */
+    private String wubiNoticeScheme;
+    private String wubiNoticeLastChinese;
+    private java.util.List<String> wubiNoticeEnabledIds;
     /** 同一个键盘进程里两次「五笔码表要下载」提示至少隔这么久：提示在诊断行里只停几秒、按一下键就消失，只说一次容易错过，每次弹出键盘都说又太吵。 */
     private static final long WUBI_TABLE_NOTICE_INTERVAL_MILLIS = 60 * 60 * 1000L;
     /** 上次以 Toast 说过的空闲提示，同一条不重复弹。 */
@@ -646,14 +650,16 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * 偏好里在用五笔、本机却没有五笔码表（{@link KeyboardScheme#wubiTableWanted}）时，在键盘上提示一句去设置应用下载。
      *
-     * <p>full 和拼音版的瘦包不带五笔码表，安装包换了词库锁时已装的 wubi 资源包也随之过期。这时键盘不列五笔、host-api 回退到别的方案，而输入法进程从不联网，下载只能由设置应用发起（{@code HomeActivity} 回到前台时会问）。不提示的话，只用键盘、很少打开设置应用的人（Play 静默更新后尤其如此）只会看到五笔不见了。键盘窗口在屏幕上才提示，同一个进程里至少隔 {@link #WUBI_TABLE_NOTICE_INTERVAL_MILLIS}。
+     * <p>full 和拼音版的瘦包不带五笔码表，安装包换了词库锁时已装的 wubi 资源包也随之过期。这时键盘不列五笔、host-api 回退到别的方案，而输入法进程从不联网，下载只能由设置应用发起（{@code HomeActivity} 回到前台时会问）。不提示的话，在那里点了「以后再说」、之后只用键盘的人只会看到五笔不见了。偏好取最近一次读到的实时偏好，码表在不在取 onStartInput 刚算的 {@link #resourcePacks}：键盘进程常常比设置应用活得久，码表消失（设置应用启动时换了代次）之后偏好并没有变，所以读到实时偏好时、每次开始输入时和键盘窗口显示时都判断一次。键盘窗口在屏幕上才提示，同一个进程里至少隔 {@link #WUBI_TABLE_NOTICE_INTERVAL_MILLIS}。
      */
-    private void announceWubiTableMissing(boolean missing) {
-        if (!missing || !imeWindowVisible) return;
+    private void announceWubiTableMissing() {
+        if (wubiNoticeScheme == null || !imeWindowVisible) return;
+        if (!KeyboardScheme.wubiTableWanted(wubiNoticeScheme, wubiNoticeLastChinese, wubiNoticeEnabledIds,
+                resourcePacks, edition)) return;
         long now = android.os.SystemClock.elapsedRealtime();
         if (wubiTableNoticeAt != 0 && now - wubiTableNoticeAt < WUBI_TABLE_NOTICE_INTERVAL_MILLIS) return;
         wubiTableNoticeAt = now;
-        // 投递而不是直接显示：这里在 applyEditorPreferences 里面，调用方随后才 render()。
+        // 投递而不是直接显示：调用方随后才 render()，onStartInput 的 render 会清掉提前显示的诊断行。
         main.post(() -> notice("五笔要先下载码表：打开水杉输入法即可下载"));
     }
 
@@ -991,10 +997,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         KeyboardScheme engineScheme = SchemePreferences.storedScheme(preferences, edition);
         // 必须在 alignEngineSchemeWithSelection 改写内存里的 scheme 之前判断：它把缺码表的五笔换成了回退的方案。只认实时偏好，副本里是出厂值。
-        if (live && preferences != null) announceWubiTableMissing(KeyboardScheme.wubiTableWanted(
-            InputViewValuePolicy.textOr(preferences, "scheme", ""),
-            InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", ""),
-            SchemePreferences.enabledIds(preferences), resourcePacks, edition));
+        if (live && preferences != null) {
+            wubiNoticeScheme = InputViewValuePolicy.textOr(preferences, "scheme", "");
+            wubiNoticeLastChinese = InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", "");
+            wubiNoticeEnabledIds = SchemePreferences.enabledIds(preferences);
+            announceWubiTableMissing();
+        }
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();
@@ -1712,6 +1720,7 @@ public final class MSIMEInputService extends InputMethodService {
                 resourcePacks = KeyboardScheme.availablePacks(
                     installedPacks::contains, options.optString("resources", ""));
                 candidatePronunciationPackInstalled = installedPacks.contains(ResourcePacks.PRONUNCIATIONS);
+                announceWubiTableMissing();
                 JSONObject preferences = options.optJSONObject("preferences");
                 applyEditorPreferences(preferences, ClipboardHistoryRetentionPolicy.Source.RUNTIME_OPTIONS_COPY);
                 if (newDocument) {
@@ -1934,6 +1943,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onWindowShown() {
         super.onWindowShown();
         imeWindowVisible = true;
+        announceWubiTableMissing();
         if (session != 0 && !preferencesDirectory.isEmpty())
             preferencesReloader.start(preferencesDirectory, this::reloadPreferences);
         caretWindowHidden = false;
