@@ -1,6 +1,8 @@
 use super::*;
 use std::cell::RefCell;
 use std::collections::VecDeque;
+#[cfg(unix)]
+use std::io::Write as _;
 use std::io::{BufRead, BufReader, Read};
 use std::net::TcpListener;
 use std::sync::{Arc, Barrier};
@@ -18,6 +20,49 @@ fn store() -> (tempfile::TempDir, TelemetryStore) {
     let directory = tempfile::tempdir().unwrap();
     let store = TelemetryStore::new(directory.path().join("state"));
     (directory, store)
+}
+
+#[cfg(unix)]
+#[test]
+fn an_in_progress_native_record_waits_for_the_writer_to_release_its_lock() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&capture.crash_record_path)
+        .unwrap();
+    let held = crate::file_lock::ScopedFileLock::exclusive(file).unwrap();
+    let mut writer = held.file();
+    writer
+        .write_all(capture.crash_record_header.as_bytes())
+        .unwrap();
+    writer.write_all(b"Synthetic native fault\n").unwrap();
+    assert!(read_crash_file(&capture.crash_record_path).is_none());
+    let next = store.begin_session(&app(), noon()).unwrap();
+    assert_eq!(next.crashes, 0);
+    assert!(capture.crash_record_path.exists());
+    writer.write_all(b"synthetic-module+0x1234\n").unwrap();
+    drop(held);
+    assert_eq!(store.begin_session(&app(), noon()).unwrap().crashes, 1);
+    let queue = store.read_queue().unwrap();
+    let crash = queue
+        .iter()
+        .find(|event| event.kind == TelemetryKind::Crash)
+        .unwrap();
+    assert_eq!(crash.stack, "synthetic-module+0x1234");
+    assert!(!capture.crash_record_path.exists());
+}
+
+#[test]
+fn an_empty_native_record_is_not_promoted_to_an_unknown_crash() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    std::fs::write(&capture.crash_record_path, b"").unwrap();
+    assert_eq!(store.begin_session(&app(), noon()).unwrap().crashes, 0);
+    assert!(capture.crash_record_path.exists());
+    std::fs::write(&capture.crash_record_path, b"Synthetic native fault\n").unwrap();
+    assert_eq!(store.begin_session(&app(), noon()).unwrap().crashes, 1);
 }
 
 /// Answers each send with the next scripted delivery and records the bodies.

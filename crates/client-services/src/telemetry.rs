@@ -1079,6 +1079,12 @@ fn crash_event(
 
 fn read_crash_file(path: &Path) -> Option<Vec<u8>> {
     let file = open_regular_file(path)?;
+    // 原生信号写入先锁住暂存文件再发布文件名；不能读走仍在展开栈的半份记录。
+    // Windows 原生写入以不共享的 CreateFile 打开，open_regular_file 本身就会拒绝并发读取。
+    #[cfg(unix)]
+    let lock = crate::file_lock::ScopedFileLock::try_exclusive(file).ok()??;
+    #[cfg(unix)]
+    let file = lock.file();
     let capacity = file
         .metadata()
         .ok()
@@ -1091,7 +1097,7 @@ fn read_crash_file(path: &Path) -> Option<Vec<u8>> {
         &mut bytes,
     )
     .ok()?;
-    Some(bytes)
+    (!bytes.is_empty()).then_some(bytes)
 }
 
 fn is_crash_event(event: &TelemetryEvent) -> bool {

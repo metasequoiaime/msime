@@ -1,4 +1,5 @@
 #include "CrashRecorder.h"
+#include "PosixCrashFile.h"
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
@@ -47,6 +48,7 @@ struct ConfigurationGuard {
 wchar_t record_path[32768];
 #else
 char record_path[4096];
+char temporary_record_path[4096];
 #endif
 
 // 信号与异常处理器使用的固定缓冲区。
@@ -472,7 +474,7 @@ void crash_signal(int number, siginfo_t *info, void *context) {
     ++index;
   ConfigurationGuard configuration;
   if (configuration.owns && index < crash_signal_count && armed.load(std::memory_order_acquire) && !handling.exchange(true)) {
-    const int fd = ::open(record_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    const int fd = msime_crash_file_create(record_path, temporary_record_path);
     if (fd >= 0) {
       write_all(fd, record_header, record_header_size);
       // 静态缓冲区减少信号栈占用；handling 保证只由一个崩溃处理器使用。
@@ -591,10 +593,13 @@ void arm(const std::string &path, const std::string &header) {
     return;
   record_path[length] = L'\0';
 #else
-  if (path.empty() || path.size() >= sizeof(record_path))
+  constexpr char temporary_suffix[] = ".writing";
+  if (path.empty() || path.size() + sizeof(temporary_suffix) > sizeof(record_path))
     return;
   std::memcpy(record_path, path.data(), path.size());
   record_path[path.size()] = '\0';
+  std::memcpy(temporary_record_path, path.data(), path.size());
+  std::memcpy(temporary_record_path + path.size(), temporary_suffix, sizeof(temporary_suffix));
 #endif
   armed.store(true, std::memory_order_release);
 }
@@ -619,7 +624,7 @@ void record(const char *summary) {
   FlushFileBuffers(file);
   CloseHandle(file);
 #else
-  const int file = ::open(record_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+  const int file = msime_crash_file_create(record_path, temporary_record_path);
   if (file < 0)
     return;
   write_all(file, record_header, record_header_size);

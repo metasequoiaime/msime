@@ -1,4 +1,5 @@
 #include "../CrashRecorder.h"
+#include "../PosixCrashFile.h"
 #include <cassert>
 #include <csignal>
 #include <cstdint>
@@ -31,6 +32,50 @@ template<class Body> int child(Body body) {
 
 void earlier_handler(int) { _exit(42); }
 
+// 两个进程在摘要与栈之间交错：发布文件名时已经持锁，退出后才允许收件。
+void concurrent_file(const std::filesystem::path &root, bool interrupted) {
+  const auto path = root / (interrupted ? "interrupted.crash" : "concurrent.crash");
+  const auto temporary = path.string() + ".writing";
+  int ready[2], proceed[2];
+  assert(pipe(ready) == 0 && pipe(proceed) == 0);
+  const pid_t writer = fork();
+  assert(writer >= 0);
+  if (writer == 0) {
+    close(ready[0]);
+    close(proceed[1]);
+    const int file = msime_crash_file_create(path.c_str(), temporary.c_str());
+    assert(file >= 0);
+    assert(write(file, "Synthetic fault\n", 16) == 16);
+    assert(write(ready[1], "r", 1) == 1);
+    char token;
+    assert(::read(proceed[0], &token, 1) == 1);
+    assert(write(file, "synthetic-module+0x1\n", 21) == 21);
+    close(file);
+    _exit(0);
+  }
+  close(ready[1]);
+  close(proceed[0]);
+  char token;
+  assert(::read(ready[0], &token, 1) == 1);
+  const int reader = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  assert(reader >= 0);
+  assert(flock(reader, LOCK_EX | LOCK_NB) == -1 && (errno == EWOULDBLOCK || errno == EAGAIN));
+  assert(!std::filesystem::exists(temporary));
+  if (interrupted) assert(kill(writer, SIGKILL) == 0);
+  else assert(write(proceed[1], "p", 1) == 1);
+  int status;
+  assert(waitpid(writer, &status, 0) == writer);
+  assert(interrupted ? WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL : WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  assert(flock(reader, LOCK_EX | LOCK_NB) == 0);
+  assert(read(path) == (interrupted ? "Synthetic fault\n" : "Synthetic fault\nsynthetic-module+0x1\n"));
+  close(reader);
+  close(ready[0]);
+  close(proceed[1]);
+  // 原有首份记录不能被后续信号替换，也不能残留本次创建的暂存文件。
+  assert(msime_crash_file_create(path.c_str(), temporary.c_str()) == -1 && errno == EEXIST);
+  assert(!std::filesystem::exists(temporary));
+}
+
 // 真实内存故障的第一帧必须来自故障函数，不能来自信号处理器或展开器。
 __attribute__((noinline)) void synthetic_fault(void *page) {
   *static_cast<volatile char *>(page) = 7;
@@ -40,6 +85,8 @@ __attribute__((noinline)) void synthetic_fault(void *page) {
 int main() {
   const auto root = std::filesystem::temp_directory_path() / ("msime-crash-recorder-" + std::to_string(getpid()));
   assert(std::filesystem::create_directory(root));
+  concurrent_file(root, false);
+  concurrent_file(root, true);
   const auto fatal = root / "fatal.crash";
   int status = child([&] {
     msime_native_crash_install();

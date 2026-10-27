@@ -12,8 +12,10 @@
 #include <string.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
+#include "../../../common/PosixCrashFile.h"
 
 static char msime_crash_paths[2][PATH_MAX];
+static char msime_temporary_path[PATH_MAX];
 static _Atomic(const char *) msime_crash_path = NULL;
 static char msime_record_header[1024];
 static size_t msime_record_header_size;
@@ -138,7 +140,7 @@ static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
   const bool owns = !atomic_flag_test_and_set(&msime_configuration);
   const char *path = owns ? atomic_load(&msime_crash_path) : NULL;
   if (path != NULL) {
-    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    int fd = msime_crash_file_create(path, msime_temporary_path);
     if (fd >= 0) {
       (void)!write(fd, msime_record_header, msime_record_header_size);
       const char *prefix = "Fatal signal ";
@@ -179,7 +181,8 @@ void msime_ios_crash_record_set(const char *path, const char *header) {
   }
   strlcpy(msime_record_header, header, sizeof(msime_record_header));
   msime_record_header_size = strlen(header);
-  if (path == NULL || strlen(path) >= PATH_MAX) {
+  const char temporary_suffix[] = ".writing";
+  if (path == NULL || strlen(path) + sizeof(temporary_suffix) > PATH_MAX) {
     atomic_store(&msime_crash_path, NULL);
     atomic_flag_clear(&msime_configuration);
     return;
@@ -187,6 +190,8 @@ void msime_ios_crash_record_set(const char *path, const char *header) {
   // 配置锁保护两个字段成对发布。
   char *slot = atomic_load(&msime_crash_path) == msime_crash_paths[0] ? msime_crash_paths[1] : msime_crash_paths[0];
   strlcpy(slot, path, PATH_MAX);
+  strlcpy(msime_temporary_path, path, sizeof(msime_temporary_path));
+  strlcat(msime_temporary_path, temporary_suffix, sizeof(msime_temporary_path));
   msime_snapshot_modules();
   atomic_store(&msime_crash_path, slot);
   atomic_flag_clear(&msime_configuration);

@@ -11,6 +11,7 @@ fn main() {
     ) {
         println!("cargo:rerun-if-changed=../../platforms/common/CrashRecorder.cpp");
         println!("cargo:rerun-if-changed=../../platforms/common/CrashRecorder.h");
+        println!("cargo:rerun-if-changed=../../platforms/common/PosixCrashFile.h");
         cc::Build::new()
             .cpp(true)
             .std("c++17")
