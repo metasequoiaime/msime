@@ -183,6 +183,7 @@ extension BackendAccountClient {
     var saved = try await e2e.loadKeystore()
     let deviceName = await e2e.deviceName()
     var input: [String: Any] = ["start": operation.json, "keystore": saved ?? NSNull(), "device_name": deviceName]
+    // 与 Android 的 `CloudClipboardE2e.run` 相同：新身份在第一个请求之前保存，这时被拒绝说明另一个进程先写进了它的身份，服务端还没见过本次的身份，改用存着的那份从头来一次；发过请求之后再被拒绝，是这次操作期间退出又登录过。
     var sent = false
     var restarted = false
     for _ in 0..<Self.clipboardDriverSteps {

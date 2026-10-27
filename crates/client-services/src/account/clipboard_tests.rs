@@ -232,6 +232,8 @@ struct Storage {
     session: Arc<Mutex<Option<SavedAccountSession>>>,
     keystore: Arc<Mutex<Option<String>>>,
     saves: Arc<Mutex<Vec<String>>>,
+    /// 接下来这么多次读密钥串都答「没有」：模拟同一台设备上的另一个进程在这次读之后、本进程保存之前才写进身份。
+    stale_keystore_loads: Arc<Mutex<usize>>,
 }
 
 impl AccountSessionStorage for Storage {
@@ -248,6 +250,11 @@ impl AccountSessionStorage for Storage {
         Ok(())
     }
     fn load_clipboard_keystore(&self) -> Result<Option<String>, AccountError> {
+        let mut stale = self.stale_keystore_loads.lock().unwrap();
+        if *stale > 0 {
+            *stale -= 1;
+            return Ok(None);
+        }
         Ok(self.keystore.lock().unwrap().clone())
     }
     fn save_clipboard_keystore(&self, value: &str) -> Result<(), AccountError> {
@@ -412,6 +419,36 @@ fn the_keystore_is_saved_before_the_next_request_is_sent() {
     session.clipboard("", None).unwrap();
     assert_eq!(server.lock().unwrap().devices.len(), 1);
     assert_eq!(storage.saves.lock().unwrap().len(), 2);
+}
+
+/// 同一台设备上的两个进程（输入法和设置页，或者设置页同时发出的两个操作）几乎同时第一次使用：两边都读到「没有密钥串」，各自生成身份。后保存的一方不能覆盖先保存的身份，要改用它重新开始，服务端只登记一台设备。
+#[test]
+fn two_processes_starting_at_once_register_one_device() {
+    let server = server();
+    let (settings, storage) = device(&server);
+    let keyboard_storage = Storage {
+        keystore: Arc::clone(&storage.keystore),
+        stale_keystore_loads: Arc::new(Mutex::new(1)),
+        ..Storage::default()
+    };
+    let keyboard = BackendAccountSession::new(
+        Api {
+            server: Arc::clone(&server),
+        },
+        keyboard_storage,
+    );
+    keyboard.sign_in("synthetic-challenge", "123456").unwrap();
+
+    settings.clipboard_devices(None).unwrap();
+    let identity = storage.keystore.lock().unwrap().clone().unwrap();
+    // 键盘进程在设置页保存之前读过密钥串，读到的是没有。
+    let status = keyboard.clipboard_devices(None).unwrap();
+
+    assert_eq!(server.lock().unwrap().devices.len(), 1);
+    assert_eq!(status.devices.len(), 1);
+    assert!(status.devices[0].current);
+    let stored = storage.keystore.lock().unwrap().clone().unwrap();
+    assert!(stored.starts_with(&identity[..46]));
 }
 
 #[test]

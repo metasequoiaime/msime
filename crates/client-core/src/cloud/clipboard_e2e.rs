@@ -35,6 +35,8 @@ const MAX_ITEMS: usize = 50;
 const MAX_DEVICES: usize = 20;
 /// 一次操作里最多取几次密钥状态。并发建钥或换钥时会 409 后重取，正常情况下两到三次就够；超过说明另一台设备在反复换钥，交给用户稍后再试。
 const MAX_KEY_ROUNDS: u8 = 4;
+/// 一次操作最多删几条被同名设备盖住的旧登记（见 [`superseded_devices`]）。宿主给一次操作的步数上限是 32，批准本身最多走六步，留出余量；没删完的下次再删。
+const MAX_PRUNED_PER_OPERATION: usize = 16;
 const API: &str = "/v1/users/me/clipboard";
 
 /// 本机的设备私钥和当前剪贴板密钥。宿主把 [`Keystore::encode`] 的结果当作不透明字符串存进与账号会话相同的安全存储。
@@ -167,6 +169,19 @@ impl Keystore {
 
     pub fn verification_code(&self) -> String {
         verification_code(&self.public_key())
+    }
+
+    /// 两份编码过的密钥串是不是同一个设备身份（同一把设备私钥，剪贴板密钥可以不同）。任何一份解析不了都答 `false`。
+    pub fn same_identity(left: &str, right: &str) -> bool {
+        match (Self::parse(left), Self::parse(right)) {
+            (Some(left), Some(right)) => left.secret.as_bytes() == right.secret.as_bytes(),
+            _ => false,
+        }
+    }
+
+    /// 宿主保存 `value` 之前的检查：存储里的 `stored` 是另一个解析得了的设备身份时原样交回，保存方不能覆盖它（见 [`run`] 和 [`Persisted::Conflict`]）；没有、就是同一个身份、或者解析不了（那个身份本来就找不回来了）时为 `None`，可以写。
+    pub fn other_identity(stored: Option<String>, value: &str) -> Option<String> {
+        stored.filter(|stored| Self::parse(stored).is_some() && !Self::same_identity(stored, value))
     }
 
     /// 当前持有的剪贴板密钥编号。
@@ -458,6 +473,9 @@ pub struct DriverState {
     key_rounds: u8,
     #[serde(default)]
     registered: bool,
+    /// 这次操作已经删过被同名设备盖住的旧登记，不再删第二轮。
+    #[serde(default)]
+    pruned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -477,6 +495,8 @@ enum Phase {
     Changed,
     /// 等待最后一次取密钥状态，用来回报状态。
     Final,
+    /// 等待删掉一条被同名设备盖住的旧登记；`remaining` 是还要删的，删完再取一次状态回报。
+    Prune { remaining: Vec<String> },
 }
 
 #[derive(Debug, Deserialize)]
@@ -571,6 +591,7 @@ pub fn start(
         phase: Phase::Keys,
         key_rounds: 0,
         registered: false,
+        pruned: false,
     };
     if let Some(code) = invalid_operation(&state.operation, &keystore.device_id()) {
         return Ok(fail(&state, DriverError::local(code)));
@@ -702,10 +723,70 @@ pub fn resume(mut state: DriverState, response: HttpResponse) -> Result<Step, Ra
             };
             let readiness = evaluate(&mut keystore, &keys);
             state.keystore = keystore.encode();
-            let view = status_view(&keystore, &keys, readiness);
-            Ok(done(&state, view))
+            Ok(report_status(state, &keystore, &keys, readiness))
+        }
+        Phase::Prune { mut remaining } => {
+            // 删不掉（已经被别的设备删了、刚好被批准了）不影响这次操作，接着删下一条。
+            if remaining.is_empty() {
+                state.phase = Phase::Final;
+                Ok(request(
+                    state,
+                    "GET",
+                    keys_path(&keystore.device_id()),
+                    None,
+                ))
+            } else {
+                let next = remaining.remove(0);
+                Ok(prune(state, next, remaining))
+            }
         }
     }
+}
+
+/// 回报设备状态。本机能读写时先删掉被同名设备盖住的旧登记（[`superseded_devices`]），删完再取一次状态；每次操作只删一轮。
+fn report_status(
+    mut state: DriverState,
+    keystore: &Keystore,
+    keys: &KeysResponse,
+    readiness: Readiness,
+) -> Step {
+    if readiness == Readiness::Ready && keys.enabled && !state.pruned {
+        let mut stale = superseded_devices(&keys.devices, &keystore.device_id());
+        stale.truncate(MAX_PRUNED_PER_OPERATION);
+        if !stale.is_empty() {
+            state.pruned = true;
+            let first = stale.remove(0);
+            return prune(state, first, stale);
+        }
+    }
+    done(&state, status_view(keystore, keys, readiness))
+}
+
+fn prune(mut state: DriverState, device_id: String, remaining: Vec<String>) -> Step {
+    state.phase = Phase::Prune { remaining };
+    request(state, "DELETE", format!("{API}/devices/{device_id}"), None)
+}
+
+/// 被同名设备盖住的待批准登记：不是本机、还没被批准，并且在它之后（设备列表按登记时间排序）还登记过一台同名的设备；两边的公钥都要与编号相符，否则本来就不显示。
+///
+/// 同一台设备丢了身份（重装、清除数据、退出再登录，或者两个进程同时第一次使用）后重新登记时名字不变，旧的那条它再也用不上，却会一直等着批准，批准方于是看到同一台设备好几次。这些登记在列表里不显示、不计入待批准的数量，本机能读写时打开设备页或批准、拒绝之后顺手删掉。只按名字认是个猜测：两台同名的设备（iOS 16 起的设备名都是「iPhone」）里先登记的那台会被当成旧登记删掉，它下次同步时重新登记、排到最后，就又能被看到和批准，代价是晚一轮，不会被永远藏起来。
+fn superseded_devices(devices: &[ServerDevice], own_id: &str) -> Vec<String> {
+    let visible = |device: &ServerDevice| device.verified_public_key().is_some();
+    devices
+        .iter()
+        .enumerate()
+        .filter(|(index, device)| {
+            let name = sanitize_device_name(&device.name);
+            device.device_id != own_id
+                && !device.approved
+                && visible(device)
+                && !name.is_empty()
+                && devices[index + 1..]
+                    .iter()
+                    .any(|later| visible(later) && sanitize_device_name(&later.name) == name)
+        })
+        .map(|(_, device)| device.device_id.clone())
+        .collect()
 }
 
 fn fetch_keys(mut state: DriverState) -> Step {
@@ -822,16 +903,14 @@ fn handle_keys(
                 let view = list_view(&keystore, "pending", Vec::new(), 0, 0, 0);
                 done(&state, view)
             }
-            Operation::Status => {
-                let view = status_view(&keystore, &keys, readiness);
-                done(&state, view)
-            }
+            Operation::Status => report_status(state, &keystore, &keys, readiness),
             _ => fail(&state, DriverError::local("clipboard_device_pending")),
         }),
         Readiness::Ready => {
             let key = keystore.key.clone().expect("ready implies a key");
             match state.operation.clone() {
                 Operation::List { .. } => {
+                    let superseded = superseded_devices(&keys.devices, &own_id);
                     let pending_devices = keys
                         .devices
                         .iter()
@@ -839,6 +918,7 @@ fn handle_keys(
                             device.device_id != own_id
                                 && !device.approved
                                 && device.verified_public_key().is_some()
+                                && !superseded.contains(&device.device_id)
                         })
                         .count();
                     state.phase = Phase::List { pending_devices };
@@ -850,10 +930,7 @@ fn handle_keys(
                     let body = serde_json::to_value(sealed).expect("sealed item serialises");
                     Ok(request(state, "POST", API.to_owned(), Some(body)))
                 }
-                Operation::Status => {
-                    let view = status_view(&keystore, &keys, readiness);
-                    Ok(done(&state, view))
-                }
+                Operation::Status => Ok(report_status(state, &keystore, &keys, readiness)),
                 Operation::Approve { device_id } => {
                     let Some(device) = keys
                         .devices
@@ -941,10 +1018,13 @@ fn status_view(keystore: &Keystore, keys: &KeysResponse, readiness: Readiness) -
     } else {
         "pending"
     };
+    // 删除没成功（或者本机还在等待批准、不删）时，被盖住的旧登记照样不显示。
+    let superseded = superseded_devices(&keys.devices, &own_id);
     let devices = keys
         .devices
         .iter()
         .take(MAX_DEVICES)
+        .filter(|device| !superseded.contains(&device.device_id))
         .filter_map(|device| {
             let public_key = device.verified_public_key()?;
             Some(json!({
@@ -1080,20 +1160,33 @@ pub fn step_json(step: Step) -> Value {
     }
 }
 
+/// 宿主保存一份密钥串的结果，见 [`run`] 的 `persist`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Persisted {
+    /// 已经保存（或者存着的就是这一份）。
+    Saved,
+    /// 存储里已经有另一个设备身份（[`Keystore::same_identity`] 不成立），没有覆盖；里面是存着的那份密钥串。
+    Conflict(String),
+}
+
 /// 在 Rust 里直接驱动一个操作（桌面端）：`send` 发请求，`persist` 保存每一步交回的密钥串。外层错误是传输错误，内层是操作结果。
+///
+/// 一个安装只有一个设备身份。`persist` 在存储里已有另一个身份时不能覆盖它，要答 [`Persisted::Conflict`]：同一台设备上的另一个进程（或同一进程里同时开始的另一个操作）刚好也在第一次使用、先写进了它生成的身份。新身份在发出第一个请求之前就交给 `persist`，所以这时服务端还没见过它，这里改用存着的那份从头再来一次，服务端只会登记一台设备；已经发过请求之后再冲突，说明这次操作期间退出又登录过，答 `clipboard_keystore_conflict`。覆盖的话，两个身份都会登记，输掉的那个从此没有设备能用，在其他设备上一直等着批准。
 pub fn run<E>(
     operation: Operation,
     keystore: Option<&str>,
     device_name: &str,
     mut send: impl FnMut(&HttpRequest) -> Result<HttpResponse, E>,
-    mut persist: impl FnMut(&str) -> Result<(), E>,
+    mut persist: impl FnMut(&str) -> Result<Persisted, E>,
     random_unavailable: impl FnOnce() -> E,
 ) -> Result<Result<Value, DriverError>, E> {
     let mut saved = keystore.map(str::to_owned);
-    let mut step = match start(operation, keystore, device_name) {
+    let mut step = match start(operation.clone(), keystore, device_name) {
         Ok(step) => step,
         Err(RandomUnavailable) => return Err(random_unavailable()),
     };
+    let mut sent = false;
+    let mut restarted = false;
     loop {
         let current = match &step {
             Step::Request { keystore, .. }
@@ -1101,11 +1194,25 @@ pub fn run<E>(
             | Step::Failed { keystore, .. } => keystore,
         };
         if saved.as_deref() != Some(current.as_str()) {
-            persist(current)?;
-            saved = Some(current.clone());
+            match persist(current)? {
+                Persisted::Saved => saved = Some(current.clone()),
+                Persisted::Conflict(stored) => {
+                    if sent || restarted || Keystore::parse(&stored).is_none() {
+                        return Ok(Err(DriverError::local("clipboard_keystore_conflict")));
+                    }
+                    restarted = true;
+                    step = match start(operation.clone(), Some(&stored), device_name) {
+                        Ok(step) => step,
+                        Err(RandomUnavailable) => return Err(random_unavailable()),
+                    };
+                    saved = Some(stored);
+                    continue;
+                }
+            }
         }
         match step {
             Step::Request { request, state, .. } => {
+                sent = true;
                 let response = send(&request)?;
                 step = match resume(state, response) {
                     Ok(step) => step,
