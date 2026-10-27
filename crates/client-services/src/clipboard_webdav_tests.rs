@@ -925,6 +925,63 @@ fn a_refused_password_is_a_relay_authorization_error() {
 }
 
 #[test]
+fn a_process_that_borrows_the_identity_never_registers_a_device_of_its_own() {
+    // 鸿蒙的设置应用和键盘扩展是同一台设备的两个沙箱：键盘只用设置应用镜像过来的密钥串，自己从不生成身份、从不登记。
+    let root = tempfile::tempdir().unwrap();
+    let drive = FakeDav::new(&Clock::new());
+    let (settings_directory, keyboard_directory) =
+        (root.path().join("settings"), root.path().join("keyboard"));
+    let keyboard = device(&drive, &keyboard_directory, "合成手机").existing_identity_only();
+
+    // 设置应用还没打开过云剪贴板：键盘停在本机，网盘上什么也没发生，再试几次也一样。
+    for _ in 0..3 {
+        assert_eq!(keyboard.list("").unwrap_err(), RelayError::IdentityMissing);
+        assert_eq!(
+            keyboard.add("合成上传").unwrap_err().code(),
+            "clipboard_identity_missing"
+        );
+    }
+    assert!(drive.requests().is_empty());
+    assert!(!keyboard_directory
+        .join(crate::clipboard_relay::RELAY_KEYSTORE_FILE)
+        .exists());
+
+    // 设置应用登记、建钥；共享沙箱把它的密钥串原样复制进键盘的沙箱。
+    let settings = device(&drive, &settings_directory, "合成手机");
+    settings.list("").unwrap();
+    let mirrored = |from: &Path, to: &Path| {
+        std::fs::create_dir_all(to).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let name = crate::clipboard_relay::RELAY_KEYSTORE_FILE;
+        std::fs::copy(from.join(name), to.join(name)).unwrap();
+    };
+    mirrored(&settings_directory, &keyboard_directory);
+
+    // 键盘反复读取、上传：用的是同一台设备，空间里始终只有一台，也没有待批准的设备。
+    for round in 0..3 {
+        keyboard.list("").unwrap();
+        keyboard.add(&format!("合成上传 {round}")).unwrap();
+    }
+    let devices = settings.devices().unwrap().devices;
+    assert_eq!(devices.len(), 1, "{devices:?}");
+    assert!(devices[0].approved);
+    assert_eq!(
+        texts(&settings, ""),
+        ["合成上传 2", "合成上传 1", "合成上传 0"]
+    );
+    let page = keyboard.list("").unwrap();
+    assert_eq!(page.e2e.status, AccountClipboardE2eStatus::Ready);
+    assert_eq!(page.e2e.pending_devices, 0);
+    // 开关、删除这些不经驱动的动作不需要身份。
+    let fresh = device(&drive, &root.path().join("fresh"), "合成").existing_identity_only();
+    fresh.clear().unwrap();
+}
+
+#[test]
 fn malformed_requests_are_answered_here_without_touching_the_drive() {
     let root = tempfile::tempdir().unwrap();
     let drive = FakeDav::new(&Clock::new());

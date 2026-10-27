@@ -1221,6 +1221,46 @@ fn account_cloud_clipboard_refuses_without_a_signed_in_session_or_a_valid_action
         );
     }
     assert!(!directory.path().join("account-session.json").exists());
+
+    // 只用已有身份：本机没有密钥串时，经驱动的动作答 clipboard_identity_missing，不生成也不写出密钥串；不经驱动的动作照常停在会话上。
+    let borrowed = |action: serde_json::Value| {
+        let body = serde_json::to_vec(
+            &json!({ "directory": path, "create_identity": false, "action": action }),
+        )
+        .unwrap();
+        read(unsafe { msime_client_account_cloud_clipboard(body.as_ptr(), body.len()) })
+    };
+    for action in [
+        json!({ "operation": "list", "search": "" }),
+        json!({ "operation": "add", "text": "synthetic upload" }),
+        json!({ "operation": "devices" }),
+    ] {
+        assert_eq!(
+            borrowed(action.clone())["error"],
+            "clipboard_identity_missing",
+            "{action}"
+        );
+    }
+    assert_eq!(
+        borrowed(json!({ "operation": "clear" }))["error"],
+        "account_unauthorized"
+    );
+    assert!(!directory.path().join("cloud-clipboard-keystore").exists());
+    // 镜像过来的密钥串可以解析时照常往下走，这里停在没有登录会话上。
+    use msime_client_services::account::AccountSessionStorage as _;
+    let keystore = msime_client_core::cloud::clipboard_e2e::Keystore::generate()
+        .unwrap()
+        .encode();
+    msime_client_services::account::FileAccountSessionStorage::new(
+        directory.path(),
+        msime_client_services::account::AccountSessionFileLayout::Native,
+    )
+    .save_clipboard_keystore(&keystore)
+    .unwrap();
+    assert_eq!(
+        borrowed(json!({ "operation": "list", "search": "" }))["error"],
+        "account_unauthorized"
+    );
 }
 
 #[test]
@@ -1293,6 +1333,35 @@ fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_ne
         call(request(json!({ "operation": "clear" })))["error"],
         "relay_unavailable"
     );
+    // 只用已有身份：目录里没有这个中继的密钥串时，经驱动的动作停在本机（不是 relay_unavailable），不写出密钥串；直接请求的动作照常发出。
+    let borrowed = |action: serde_json::Value| {
+        let mut body = request(action);
+        body["create_identity"] = json!(false);
+        call(body)
+    };
+    for action in [
+        json!({ "operation": "list", "search": "" }),
+        json!({ "operation": "add", "text": "合成上传" }),
+        json!({ "operation": "devices" }),
+        json!({ "operation": "reset" }),
+    ] {
+        assert_eq!(
+            borrowed(action.clone())["error"],
+            "clipboard_identity_missing",
+            "{action}"
+        );
+    }
+    assert!(!keystore
+        .path()
+        .join("cloud-clipboard-relay-keystore")
+        .exists());
+    assert_eq!(
+        borrowed(json!({ "operation": "clear" }))["error"],
+        "relay_unavailable"
+    );
+    let mut wrong_type = request(json!({ "operation": "list", "search": "" }));
+    wrong_type["create_identity"] = json!("no");
+    assert_eq!(call(wrong_type)["error"], "invalid_cloud_clipboard");
     // 同一份配置快照提供修订号；地址、令牌改变或切回账号后旧动作都停在联网之前。
     let revision = source()["value"]["revision"].as_u64().unwrap();
     assert_eq!(revision, 1);

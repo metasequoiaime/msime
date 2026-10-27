@@ -145,6 +145,16 @@ pub(crate) fn validate_devices(value: &AccountClipboardDevices) -> Result<(), Ac
 }
 
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
+    /// 本机是否已经保存了驱动解析得了的密钥串，也就是已经有端到端加密的设备身份。只读本地存储、不联网。没有时驱动的下一个操作会生成新身份并登记一台设备；与另一个进程共用同一份身份的宿主（鸿蒙的键盘扩展）先问它，没有就不发请求。
+    pub fn has_clipboard_identity(&self) -> Result<bool, AccountError> {
+        Ok(self
+            .storage
+            .load_clipboard_keystore()?
+            .as_deref()
+            .and_then(clipboard_e2e::Keystore::parse)
+            .is_some())
+    }
+
     /// 解密后的云端条目，`search` 由驱动在本机解密后匹配。本机还在等待批准时 `e2e.status` 为 `pending`、条目为空。
     ///
     /// 这个方法和下面经端到端加密驱动的几个（上传、设备状态、批准、拒绝、移除、重置）都收 `device_name`：本机还没登记时用它登记，显示在其他设备的批准提示里；`None` 时用 [`cloud_clipboard_device_name`]。
