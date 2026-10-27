@@ -243,6 +243,51 @@ fn single_and_double_helpcodes_filter_the_base() {
         .is_empty());
 }
 
+#[test]
+fn strict_single_helpcode_filters_direct_triggered_and_fuzzy_rows() {
+    let fixture = Fixture::new(HELPCODE_FILTER);
+    let codes = helpcode_filter_keymap();
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for (input, expected) in [
+        ("nihcc", vec!["拟好"]),
+        ("nihca", vec!["你好"]),
+        ("nihcE", vec!["你好", "拟好"]),
+        ("nihcA", vec!["你好"]),
+    ] {
+        let mut typed = request(input, true);
+        let loose = engine.query(&typed, Some(&codes));
+        assert!(words(&loose).contains(&"GitHub"));
+        typed.strict_quanpin_helpcode = true;
+        assert_eq!(words(&engine.query(&typed, Some(&codes))), expected);
+        typed.strict_quanpin_helpcode = false;
+        assert_eq!(words(&engine.query(&typed, Some(&codes))), words(&loose));
+    }
+    let mut triggered = request("nihc", true);
+    triggered.end_helpcodes = "c".into();
+    triggered.strict_quanpin_helpcode = true;
+    assert_eq!(words(&engine.query(&triggered, Some(&codes))), ["拟好"]);
+    triggered.shuangpin_helpcode_modes.mid_sentence = true;
+    triggered.syllable_helpcodes = vec![crate::types::SyllableHelpcode {
+        syllable: 0,
+        first: b'a',
+        second: 0,
+    }];
+    assert!(engine.query(&triggered, Some(&codes)).is_empty());
+
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_n VALUES('nen','n','嫩',100);\
+         CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_r VALUES('ren','r','人',10000);",
+    );
+    let codes = keymap(&[("嫩", "ab"), ("人", "cd")]);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let mut fuzzy = request("lfa", true);
+    fuzzy.fuzzy_pinyin.rules = fuzzy_rule::N_L | fuzzy_rule::R_L;
+    fuzzy.strict_quanpin_helpcode = true;
+    assert_eq!(words(&engine.query(&fuzzy, Some(&codes))), ["嫩"]);
+}
+
 /// `shuangpin_helpcode_modes.direct` 关闭后，「完整基座 + 末尾裸字母」不再算辅助码：单码 `nihcc` 与双码 `nihcAB` 都按纯拼音读，与辅助码整体关闭一致；打开时维持现有的重排与筛选。
 #[test]
 fn direct_off_reads_trailing_letters_as_plain_pinyin() {
