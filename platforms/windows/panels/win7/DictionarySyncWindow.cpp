@@ -20,13 +20,14 @@ constexpr wchar_t body_class[] = L"MSIME.Windows7DictionarySync.Body" MSIME_EDIT
 // 一件事：request 是表单给的 {probe, save} 或 {action, devices?, status?}，changes 是要写进偏好的网盘配置。都为空时只读一次偏好。
 struct Job { std::optional<Json> request; std::vector<shared::Change> changes; };
 struct Completion { shared::Result preferences; std::optional<Json> response; bool unprepared = false; Job job; };
-class Worker {
-public:
-  Worker(HWND window, DictionarySyncWindow::Services services) : window_(window), services_(std::move(services)), thread_([this] { run(); }) {}
-  ~Worker() { { std::lock_guard<std::mutex> guard(mutex_); stopping_ = true; } ready_.notify_one(); thread_.join(); }
+struct WorkerState {
+  WorkerState(HWND window, DictionarySyncWindow::Services services) : window_(window), services_(std::move(services)) {}
+  void stop() {
+    { std::lock_guard<std::mutex> guard(mutex_); stopping_ = true; window_ = nullptr; pending_.reset(); }
+    ready_.notify_one();
+  }
   void submit(Job job) { { std::lock_guard<std::mutex> guard(mutex_); pending_ = std::move(job); } ready_.notify_one(); }
   std::optional<Completion> take() { std::lock_guard<std::mutex> guard(mutex_); return std::exchange(completed_, std::nullopt); }
-private:
   Completion execute(Job job) {
     const auto context = panel_context(); shared::PreferencesStore store(context.directory.u8string());
     // 本用户的同步目录，与 Server 和 WinUI 设置同一个（DictionarySyncDirectory.h）：一个安装只有一份设备身份。
@@ -58,7 +59,7 @@ private:
   void run() {
     for (;;) {
       std::unique_lock<std::mutex> guard(mutex_); ready_.wait(guard, [this] { return stopping_ || pending_; });
-      if (!pending_) return;
+      if (stopping_) return;
       auto job = std::move(*pending_); pending_.reset(); guard.unlock();
       Completion result;
       try { result = execute(std::move(job)); } catch (const std::exception&) { result.preferences = {}; }
@@ -73,6 +74,18 @@ private:
   std::optional<Job> pending_;
   std::optional<Completion> completed_;
   std::optional<shared::Snapshot> snapshot_;
+};
+// 网络调用不能取消，也不能在 WM_DESTROY 上等待。共享状态持有服务和快照，窗口关闭后工作线程只收尾，不再投递消息。
+class Worker {
+public:
+  Worker(HWND window, DictionarySyncWindow::Services services)
+      : state_(std::make_shared<WorkerState>(window, std::move(services))),
+        thread_([state = state_] { state->run(); }) {}
+  ~Worker() { state_->stop(); thread_.detach(); }
+  void submit(Job job) { state_->submit(std::move(job)); }
+  std::optional<Completion> take() { return state_->take(); }
+private:
+  std::shared_ptr<WorkerState> state_;
   std::thread thread_;
 };
 } // namespace

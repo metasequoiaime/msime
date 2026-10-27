@@ -4,7 +4,11 @@
 #include "../../settings/win7/PreferencesStore.h"
 #include "../../settings/win7/ControlText.h"
 #include "../../settings/win7/ThemeData.h"
+#include <atomic>
 #include <cassert>
+#include <chrono>
+#include <future>
+#include <thread>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -147,5 +151,38 @@ int main() {
   const auto before = confirms; click(Form::clear);
   assert(confirms == before + 1 && !preferences().contains("dictionary_sync_webdav") && !IsWindowEnabled(control(Form::sync_now)));
   DestroyWindow(host);
+  // 网盘请求没有返回时关闭面板：界面不能等待它，返回后也不能再访问窗口。
+  auto entered = std::make_shared<std::atomic<bool>>(false);
+  auto finished = std::make_shared<std::atomic<bool>>(false);
+  auto lifetime = std::shared_ptr<int>(new int(0), [finished](int* value) { delete value; finished->store(true); });
+  std::promise<void> release;
+  const auto released = release.get_future().share();
+  DictionarySyncWindow::Services blocked_services;
+  blocked_services.sync = [entered, lifetime, released](const std::string&) {
+    entered->store(true);
+    released.wait();
+    return success(Json::object()).dump();
+  };
+  auto blocked = std::make_unique<DictionarySyncWindow>(blocked_services);
+  blocked_services.sync = {};
+  lifetime.reset();
+  assert(blocked->create(GetModuleHandleW(nullptr)));
+  const auto blocked_host = blocked->handle();
+  const auto blocked_body = GetDlgItem(blocked_host, dictionary_sync_panel_body);
+  pump([&] { return IsWindowEnabled(GetDlgItem(blocked_body, Form::test)) != FALSE; });
+  assert(SetWindowTextW(GetDlgItem(blocked_body, Form::url), L"http://127.0.0.1:9/dav"));
+  assert(SetWindowTextW(GetDlgItem(blocked_body, Form::username), L"synthetic@example.test"));
+  assert(SetWindowTextW(GetDlgItem(blocked_body, Form::password), L"synthetic-app-password"));
+  SendMessageW(GetDlgItem(blocked_body, Form::test), BM_CLICK, 0, 0);
+  pump([&] { return entered->load(); });
+  // 即使旧实现阻塞，辅助线程也会释放请求，让失败断言有机会执行。
+  std::thread unblock([&] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); release.set_value(); });
+  const auto closing = GetTickCount64();
+  assert(DestroyWindow(blocked_host));
+  const auto close_duration = GetTickCount64() - closing;
+  blocked.reset();
+  unblock.join();
+  pump([&] { return finished->load(); });
+  assert(close_duration < 1000);
   std::puts("Windows 7 dictionary sync panel: probe-gated saving, blank password keeps the saved one, opened sync with devices and status, one entry per device, confirmed approvals, keystore conflict retry, held deletions and stopping sync passed");
 }
