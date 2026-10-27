@@ -581,7 +581,7 @@ impl RelayClipboard {
         Ok(devices)
     }
 
-    /// 跑完一个驱动操作。整个操作持有本机的中继锁；驱动交回的密钥串在发出下一个请求之前保存。
+    /// 跑完一个驱动操作。整个操作持有本机的中继锁，同一台设备上别的进程在这期间不会读写密钥串，所以开始时读到的就是保存前存着的那份；驱动交回的密钥串在发出下一个请求之前保存。
     fn drive(&self, operation: Operation) -> Result<Value, RelayError> {
         let _lock = self.lock()?;
         let keystore = self.load_keystore()?;
@@ -593,7 +593,10 @@ impl RelayClipboard {
                 self.transport
                     .send(&request.method, &request.path, request.body.as_deref())
             },
-            |value| self.save_keystore(value),
+            |value| {
+                self.save_keystore(value)
+                    .map(|()| clipboard_e2e::Persisted::Saved)
+            },
             || RelayError::Unavailable,
         )?;
         result.map_err(RelayError::Clipboard)

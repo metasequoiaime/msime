@@ -16,6 +16,7 @@ const CLIPBOARD_ERROR_CODES: &[&str] = &[
     "clipboard_device_pending",
     "clipboard_sync_disabled",
     "clipboard_key_conflict",
+    "clipboard_keystore_conflict",
     "clipboard_device_limit",
     "clipboard_e2e_required",
     "invalid_clipboard_device",
@@ -281,8 +282,18 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 self.api.clipboard_e2e(request, &token)
             },
             |value| {
-                self.with_generation(generation, Some(&user_id), || {
-                    self.storage.save_clipboard_keystore(value)
+                // 读、比、写在会话存储的跨进程锁里做完（与刷新令牌、登录、退出同一把锁，先存储的锁再会话的互斥锁），同一台设备上别的进程不会在中间写进另一个身份。
+                self.storage.with_refresh_lock(|| {
+                    self.with_generation(generation, Some(&user_id), || {
+                        let stored = self.storage.load_clipboard_keystore()?;
+                        match clipboard_e2e::Keystore::other_identity(stored, value) {
+                            Some(stored) => Ok(clipboard_e2e::Persisted::Conflict(stored)),
+                            None => self
+                                .storage
+                                .save_clipboard_keystore(value)
+                                .map(|()| clipboard_e2e::Persisted::Saved),
+                        }
+                    })
                 })
             },
             || AccountError::Unavailable,
