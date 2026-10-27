@@ -990,6 +990,8 @@ pub unsafe extern "C" fn msime_client_gloss_breakdown_request(
 
 /// 查询固定英文词库；`correction: true` 时返回原文与唯一纠错。此接口不创建或改变输入会话，可在宿主工作线程调用。
 ///
+/// `completions: true` 只能与 `correction: true` 同用，返回手机候选栏的合并展示：有纠错时为原文与纠错；原文已是完整的词（词库精确命中、固定词形或受保护的网络缩写）时只有原文；否则原文后接至多 `limit - 1` 个前缀补全，原文首字母大写时补全的首字母随之大写。这种请求的响应多一个 `corrected`，当且仅当第二行是纠错时为真；不带 `completions` 的两种请求响应形状不变。
+///
 /// # Safety
 /// 请求与资源指针须在所给长度内可读；函数返回后不保留缓冲区。
 #[no_mangle]
@@ -1006,6 +1008,8 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         limit: u8,
         #[serde(default)]
         correction: bool,
+        #[serde(default)]
+        completions: bool,
     }
     response(|| {
         if request.is_null()
@@ -1018,6 +1022,9 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         let request: Request =
             serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
                 .map_err(|_| "invalid English completion request")?;
+        if request.completions && !request.correction {
+            return Err("invalid English completion request".into());
+        }
         if !(1..=32).contains(&request.limit)
             || request.prefix.is_empty()
             || request.prefix.len() > 128
@@ -1033,6 +1040,15 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
                 .map_err(|_| "resources path is not UTF-8")?;
         if !Path::new(resources).is_absolute() {
             return Err("resources path must be absolute".into());
+        }
+        if request.completions {
+            let (items, corrected) = msime_engine::host::english_correction_display(
+                resources,
+                &request.prefix,
+                usize::from(request.limit),
+            )
+            .map_err(|_| "English completion dictionary unavailable")?;
+            return Ok(json!({"prefix": request.prefix, "items": items, "corrected": corrected}));
         }
         let items = if request.correction {
             msime_engine::host::english_corrections(resources, &request.prefix)

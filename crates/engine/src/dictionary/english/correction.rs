@@ -211,6 +211,57 @@ impl EnglishDictionary {
         capitalize(best.text)
     }
 
+    /// 手机候选栏的合并展示：有纠错时只给原文与纠错；原文本身是完整的词时只给原文；否则原文后接前缀补全。第二项是不是纠错由返回的布尔值说明。
+    pub(crate) fn mobile_english_display(&self, raw: &str, limit: usize) -> (Vec<String>, bool) {
+        let mut items = vec![raw.to_owned()];
+        if limit <= 1 {
+            return (items, false);
+        }
+        if let Some(correction) = self.correct_mobile_english(raw) {
+            items.push(correction);
+            return (items, true);
+        }
+        if self.mobile_english_is_word(raw) {
+            return (items, false);
+        }
+        let key = raw.replace('\'', "").to_ascii_lowercase();
+        let capitalize = raw.as_bytes()[0].is_ascii_uppercase();
+        let mut seen = HashSet::from([raw.to_ascii_lowercase()]);
+        // 去重会丢掉一部分行（Go 与 go），多取一些再截到上限。
+        for item in self.query_prefix(&key, limit.saturating_mul(2)) {
+            if items.len() == limit {
+                break;
+            }
+            let mut word = item.word.into_string();
+            // 输入里已有撇号时，补全必须延续用户写下的拼法。
+            if raw.contains('\'')
+                && !word
+                    .to_ascii_lowercase()
+                    .starts_with(&raw.to_ascii_lowercase())
+            {
+                continue;
+            }
+            if capitalize {
+                if let Some(first) = word.get_mut(..1) {
+                    first.make_ascii_uppercase();
+                }
+            }
+            if seen.insert(word.to_ascii_lowercase()) {
+                items.push(word);
+            }
+        }
+        (items, false)
+    }
+
+    /// 原文是否已是完整的正确词：词库精确命中、固定词形（大小写不论）或受保护的网络缩写。
+    fn mobile_english_is_word(&self, raw: &str) -> bool {
+        let input = raw.to_ascii_lowercase();
+        protected(&input)
+            || canonical(&input.replace('\'', ""))
+                .is_some_and(|display| display.eq_ignore_ascii_case(&input))
+            || (!input.contains('\'') && self.exact_correction_word(&input).is_some())
+    }
+
     fn exact_correction_word(&self, word: &str) -> Option<Lexeme> {
         if word.len() < 2 {
             return None;
@@ -887,6 +938,46 @@ mod tests {
             .map(|input| cold.correct_mobile_english(input))
             .collect::<Vec<_>>();
         assert_eq!(evicted, expected);
+    }
+
+    #[test]
+    fn mobile_english_display_merges_correction_word_and_completions() {
+        let (_root, dictionary) = weighted(RULE_ROWS);
+        let display = |raw: &str, limit: usize| dictionary.mobile_english_display(raw, limit);
+        assert_eq!(display("teh", 5), (vec!["teh".into(), "the".into()], true));
+        assert_eq!(display("teh", 1), (vec!["teh".into()], false));
+        assert_eq!(display("hello", 5), (vec!["hello".into()], false));
+        assert_eq!(display("Hello", 5), (vec!["Hello".into()], false));
+        assert_eq!(display("you're", 5), (vec!["you're".into()], false));
+        assert_eq!(display("pls", 5), (vec!["pls".into()], false));
+        assert_eq!(display("I", 5), (vec!["I".into()], false));
+        // 前三键离某个词只差一键时按纠错展示（hel 少按一个 l）。
+        assert_eq!(display("hel", 5), (vec!["hel".into(), "hell".into()], true));
+        assert_eq!(
+            display("separ", 5),
+            (vec!["separ".into(), "separate".into()], false)
+        );
+        assert_eq!(
+            display("Separ", 2),
+            (vec!["Separ".into(), "Separate".into()], false)
+        );
+        assert_eq!(
+            display("don'", 5),
+            (vec!["don'".into(), "don't".into()], false)
+        );
+        // Go 与 go 只留一行；与原文大小写不同的同一个词也去掉。
+        assert_eq!(
+            display("g", 5),
+            (vec!["g".into(), "go".into(), "good".into()], false)
+        );
+        assert_eq!(
+            display("mon", 5),
+            (vec!["mon".into(), "Monday".into()], false)
+        );
+        assert_eq!(
+            display("Mon", 5),
+            (vec!["Mon".into(), "Monday".into()], false)
+        );
     }
 
     #[test]

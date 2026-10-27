@@ -806,9 +806,12 @@ char *msime_client_pronunciation_request(const uint8_t *request, size_t request_
 char *msime_client_gloss_breakdown_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
 /* 查询固定英文词库，不创建或改变输入会话。
- * JSON 请求：{prefix,limit,correction?:false}；limit 为 1..32，响应为 {prefix,items:[...]}。
+ * JSON 请求：{prefix,limit,correction?:false,completions?:false}；limit 为 1..32，响应为 {prefix,items:[...]}。
  * 缺省按原有方式补全 ASCII 字母前缀；correction:true 时接受字母与撇号，第一行始终原文，最多附加一行纠错。
  * 纠错仅处理不超过 32 字节的输入，33..128 字节原样返回；缺词库也保留原文。
+ * completions:true 只能与 correction:true 同用（单独使用报错），返回手机候选栏的合并展示，响应为 {prefix,items:[...],corrected}：
+ * 有纠错时 items 为 [原文, 纠错]；原文已是完整的词（词库精确命中、固定词形或受保护的网络缩写）时只有 [原文]；否则原文后接至多 limit-1 个前缀补全，按大小写不敏感去重，原文首字母大写时补全首字母随之大写，其余照词库拼写。
+ * corrected 当且仅当 items[1] 是纠错时为 true。不带 completions 的请求响应形状保持不变，不含 corrected。
  * resources 必须是资源分代目录的绝对路径；词库只读，检索结果可以缓存，可在工作线程调用。 */
 char *msime_client_english_completions_request(const uint8_t *request,
                                                size_t request_length,
