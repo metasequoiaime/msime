@@ -1649,7 +1649,7 @@ function makeClient(
     communityPlugins: communityPluginClient(native),
     aiSkins: aiSkinClient(native),
     localVoiceModels: localVoiceModelClient(native),
-    // The page is offered only on a 2in1, the form factor that plays packs and routes the / and @ modes; a phone hides it whatever the host supplies.
+    // 2in1 上是桌面形态的插件页；手机和平板上按 `touch_plugin_packs` 给触屏插件页，只列触屏键盘用得上的类型，导入只收 .zip（这两种形态的文件选择器选不了文件夹）。
     plugins: pluginClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     cloudClipboardRequest: cloudClipboardClient(native, () => undefined).request,

@@ -1,8 +1,23 @@
 #import "../../src/voice/VoiceCuePlayer.h"
+#import <AVFoundation/AVFoundation.h>
 #import <AppKit/AppKit.h>
+#import <CoreAudio/CoreAudio.h>
 #include <cassert>
+#include <cstdio>
 
 namespace {
+// 默认输出设备同时带输入流时（Depot 的 macOS 虚拟机只有一个收放一体的 Apple Virtual Sound Device），coreaudiod 在开始播放前会按调用方的责任进程检查麦克风授权。授权还没决定过，它就弹授权框并同步等回应，NSSound play 跟着卡住；CI 上没人点，就一直卡到超时。这里只读 CoreAudio 属性、只做 TCC 预检，两者都不会弹框。
+bool PlaybackWaitsOnMicrophonePrompt() {
+    AudioObjectPropertyAddress output = {kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    AudioObjectID device = kAudioObjectUnknown;
+    UInt32 size = sizeof(device);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &output, 0, nullptr, &size, &device) != noErr || device == kAudioObjectUnknown) return false;
+    AudioObjectPropertyAddress inputs = {kAudioDevicePropertyStreams, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain};
+    size = 0;
+    if (AudioObjectGetPropertyDataSize(device, &inputs, 0, nullptr, &size) != noErr || size == 0) return false;
+    return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusNotDetermined;
+}
+
 // A throwaway .bundle with the given cue files under Contents/Resources/audios, laid out as the input method bundle stages them.
 NSBundle *MakeBundle(NSURL *root, NSString *name, NSArray<NSString *> *cues) {
     NSFileManager *files = NSFileManager.defaultManager;
@@ -45,6 +60,13 @@ int main() {
         // A test executable's main bundle carries no cues at all; the default initialiser must not fail.
         MSIMEVoiceCuePlayer *bare = [[MSIMEVoiceCuePlayer alloc] init];
         assert(bare && !bare.startCueIsBundled && !bare.stopCueIsBundled && bare.startSound && bare.stopSound);
+
+        // 产品里 toggleVoiceInput: 先要求麦克风已授权才开始采集，提示音又只在采集开始之后播放，所以产品不会走到这个分支。
+        if (PlaybackWaitsOnMicrophonePrompt()) {
+            fprintf(stderr, "跳过播放断言：默认输出设备带输入流且麦克风授权未决定，播放会停在无人应答的授权框上\n");
+            [NSFileManager.defaultManager removeItemAtURL:root error:nil];
+            return 77;
+        }
 
         // The start cue's completion (the deferred system-audio mute) runs once after the cue ends, never while it can still be heard. Restarting drops the earlier completion. Volume 0 keeps the run silent; a host without an output device fails play and runs the completion at once, which the same assertions accept.
         player.startSound.volume = 0;

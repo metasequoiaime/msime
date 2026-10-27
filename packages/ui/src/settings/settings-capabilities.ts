@@ -108,6 +108,8 @@ export function settingsCapabilities({
   const typingEffectsFlashOnly = showTypingEffectStyles && harmony;
   const showWordbookPacks = host ? host.wordbook_packs : false;
   const showSymbolSetPacks = host ? host.symbol_set_packs : false;
+  // 触屏设置里的插件页（`HostCapabilities.touch_plugin_packs`）：没有宿主或宿主没报时不给。
+  const showTouchPluginPacks = host?.touch_plugin_packs === true;
   // 没有宿主时不显示：脚本插件只有运行它们的桌面输入法进程才有意义。
   const showScriptPlugins = host?.script_plugins === true;
   // 更新通道只有用这份页面当设置界面的桌面宿主给：Linux 的设置应用按它检查、提醒，macOS 的 Sparkle 按它选 appcast。HarmonyOS 也加载这份页面，但它的发布不分通道，不给；Windows 的设置界面是原生 WinUI，自己画这一行。
@@ -174,6 +176,7 @@ export function settingsCapabilities({
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showTouchPluginPacks,
     showScriptPlugins,
     showUpdateChannel,
   } as const;
