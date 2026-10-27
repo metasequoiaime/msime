@@ -437,6 +437,36 @@ test("words changed through settings are recorded as a local change", async () =
   await waitFor(() => expect(operations(host.request)).toEqual(["run:opened", "run:local_change"]));
 });
 
+test("changing the saved connection releases a previous manual action's busy state", async () => {
+  let finishManual!: (value: ReturnType<typeof runValue>) => void;
+  const manual = new Promise<ReturnType<typeof runValue>>((resolve) => {
+    finishManual = resolve;
+  });
+  const host = syncHost({
+    run: (action) => action.operation === "run" && action.trigger === "manual" ? manual : runValue(),
+  });
+  const localChanges = createDictionaryLocalChanges();
+  const { result, rerender } = renderHook(
+    ({ saved }: { saved: typeof WEBDAV | undefined }) =>
+      useDictionarySync({ client: { dictionarySync: host }, saved, localChanges }),
+    { initialProps: { saved: WEBDAV as typeof WEBDAV | undefined } },
+  );
+  await waitFor(() => expect(operations(host.request)).toEqual(["run:opened"]));
+  let action!: Promise<void>;
+  act(() => { action = result.current!.syncNow(); });
+  await waitFor(() => expect(result.current!.syncing).toBe(true));
+  expect(result.current!.busy).toBe(true);
+  rerender({ saved: undefined });
+  await act(async () => {
+    finishManual(runValue());
+    await action;
+  });
+  rerender({ saved: WEBDAV });
+  await waitFor(() => expect(operations(host.request)).toEqual(["run:opened", "run:manual", "run:opened"]));
+  await waitFor(() => expect(result.current!.syncing).toBe(false));
+  expect(result.current!.busy).toBe(false);
+});
+
 test("this device's code is shown while it waits, and it cannot approve others yet", async () => {
   const host = syncHost({
     run: () => runValue({ approved: false }),
