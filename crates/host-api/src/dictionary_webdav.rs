@@ -303,6 +303,8 @@ enum Action {
         url: String,
         username: String,
         password: String,
+        #[serde(default)]
+        trust_remote: bool,
     },
 }
 
@@ -354,9 +356,10 @@ pub(crate) fn request_json(bytes: &[u8]) -> Result<Value, String> {
         url,
         username,
         password,
+        trust_remote,
     } = &action
     {
-        probe(url, username, password, Some(directory)).map_err(code)?;
+        probe(url, username, password, trust_remote.then_some(directory)).map_err(code)?;
         return Ok(json!({}));
     }
     let options = HostOptions::from_document(request.options).ok_or(INVALID)?;
