@@ -953,9 +953,9 @@ if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   echo "Android 中/英 keys must open the system input method picker on long press" >&2
   exit 1
 fi
-# 删除键上滑快速删除（#5585）：判定只在 BackspaceSwipePolicy，键的触摸监听按它决定松手是否清空，清空经服务的 deleteAllBeforeCursor 分段删除；连删的间隔按 BackspaceRepeatPolicy 逐级加速，不能写回固定间隔。
+# 删除键上滑快速删除（#5585、#9893）：判定和组字边界只在 BackspaceSwipePolicy，键的触摸监听按它决定松手清哪一层；清正文经服务的 deleteAllBeforeCursor 分段删除，连删间隔由 BackspaceRepeatPolicy 逐级加速。
 letter_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLetterRows.java"
-if ! rg -q 'BackspaceSwipePolicy\.clearsOnRelease\(backspaceSwipePhase\)' "$letter_rows" \
+if ! rg -q 'BackspaceSwipePolicy\.clearTarget\(backspaceSwipePhase' "$letter_rows" \
   || ! rg -q 'BackspaceRepeatPolicy\.repeatInterval\(repeats\)' "$letter_rows" \
   || rg -q 'BackspaceRepeatPolicy\.REPEAT_INTERVAL_MS' "$letter_rows" \
   || ! rg -q 'BackspaceSwipePolicy\.clearBeforeCursor' "$account_service"; then

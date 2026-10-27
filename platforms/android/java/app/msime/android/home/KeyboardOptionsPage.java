@@ -9,6 +9,7 @@ import app.msime.android.KeyboardFormFactorPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ToolbarOrderPolicy;
+import app.msime.android.ToolbarSizePolicy;
 import app.msime.android.KeyboardSpacingPolicy;
 import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardTypographyPolicy;
@@ -163,6 +164,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show());
         layout.nav("符号分类顺序", "调整符号面板底部分类的排列顺序",
             null, () -> new SymbolCategoryOrderSheet(this, settings, this::reload).show());
+        layout.toggle("长空格布局", "26 键底行把符号入口移到顶部工具栏，逗号移到空格左边；逗号下滑输入句号，数字和更多符号层沿用同一手势。隐藏工具栏时仍保留顶部符号入口",
+            settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT),
+            checked -> saveLocalSetting(AndroidLocalSettings.LONG_SPACE_LAYOUT, checked));
         // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。
         if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
@@ -290,6 +294,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
         bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin()));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
+        boolean customToolbarSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        int toolbarSize = settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        bar.nav("工具栏尺寸", "独立调整空闲工具栏、图标和按钮；候选栏及键盘高度不变",
+            customToolbarSize ? toolbarSize + "%" : "跟随候选栏",
+            hidden ? null : () -> pickToolbarSize(customToolbarSize, toolbarSize));
         bar.nav("按钮顺序", "调整工具按钮的排列；品牌和收起键保留在两端", null,
             hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show());
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
@@ -357,29 +366,33 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         ViewPolicy.setImportantForAccessibility(plate,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = ColorPolicy.parse(skin.toolbarIcon(), ThemeColorPolicy.subText(context));
+        int sizePercent = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT)
+            ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
         boolean anyButton = false;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
             anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
-        if (settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)) {
+        boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
+        boolean longSpace = settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT);
+        if (hidden && !longSpace) {
             TextView note = ViewPolicy.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
             plate.addView(note);
-        } else if (!anyButton) {
+        } else if (!anyButton && !longSpace) {
             // 键盘在工具按钮全关时不画这一行（MSIMEInputService.toolbarRowHidden），预览跟着说明。
             TextView note = ViewPolicy.styledLabel(context, "没有打开的工具按钮，工具栏不显示，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
-            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)));
-            for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
-                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon);
-            }
+            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), sizePercent);
+            if (longSpace) addChip(context, plate, "符", icon, sizePercent);
+            if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
+                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, sizePercent);
         }
-        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, 44));
+        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, ToolbarSizePolicy.buttonHeightDp(sizePercent)));
         strip.setContentDescription("工具栏预览");
         return strip;
     }
 
-    private static void addChip(Context context, LinearLayout plate, String label, int colour) {
-        TextView chip = ViewPolicy.styledLabel(context, label, 12, 500, colour);
+    private static void addChip(Context context, LinearLayout plate, String label, int colour, int sizePercent) {
+        TextView chip = ViewPolicy.styledLabel(context, label, Math.round(12f * sizePercent / 100f), 500, colour);
         ViewPolicy.setSingleLine(chip);
         LinearLayout.LayoutParams params = LayoutPolicy.wrapParams();
         params.setMarginEnd(DimensionPolicy.pixels(context, 12));
@@ -619,6 +632,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "显示方式", null);
         sheet.option("输入时显示", !hidden, () -> saveToolbar(AndroidLocalSettings.TOOLBAR_HIDDEN, false));
         sheet.option("隐藏", hidden, () -> saveToolbar(AndroidLocalSettings.TOOLBAR_HIDDEN, true));
+        sheet.show();
+    }
+
+    private void pickToolbarSize(boolean custom, int current) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "工具栏尺寸", null);
+        sheet.option("跟随候选栏", !custom,
+            () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, null,
+                this::reload, this::reload));
+        for (int percent = ToolbarSizePolicy.MIN_PERCENT; percent <= ToolbarSizePolicy.MAX_PERCENT; percent += 10) {
+            int choice = percent;
+            sheet.option(percent + "%", custom && current == percent,
+                () -> saveLocalSetting(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice));
+        }
         sheet.show();
     }
 

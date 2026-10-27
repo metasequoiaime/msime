@@ -51,7 +51,7 @@ enum InputLanguage: String, CaseIterable, Identifiable {
     case .zhuyin: [.zhuyin]
     case .stroke: [.stroke]
     case .handwriting: [.handwriting]
-    case .cantonese: [.cantonese]
+    case .cantonese: [.cantonese, .cantoneseShuangpin]
     case .japanese: [.japanese, .japaneseNineKey]
     case .korean: [.korean]
     case .vietnamese: [.vietnamese]
@@ -78,7 +78,7 @@ enum InputLanguage: String, CaseIterable, Identifiable {
         installed.formUnion(InputSchemePreference.installedLanguageSchemes(in: directory) ?? [])
       }
     if (try? IOSResourcePacks.list())?.contains(where: { $0.id == "language-dictionaries" && $0.installed }) == true {
-      installed.formUnion([.cantonese, .zhuyin, .stroke])
+      installed.formUnion([.cantonese, .cantoneseShuangpin, .zhuyin, .stroke])
     }
     return installed
   }

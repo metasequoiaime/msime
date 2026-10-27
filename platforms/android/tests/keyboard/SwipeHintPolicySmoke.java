@@ -20,6 +20,15 @@ public final class SwipeHintPolicySmoke {
             "with swipes off the swipe types the letter");
         check("，".equals(SwipeHintPolicy.output("，", true, down, 0, 20)),
             "a key without a hint types itself");
+        for (String[] entry : new String[][] {{"x", "…"}, {"c", "、"}}) {
+            for (String direction : new String[] {down, up}) {
+                float end = down.equals(direction) ? 20 : -20;
+                check(entry[1].equals(SwipeHintPolicy.output(entry[0], true, direction, 0, end)),
+                    "中文滑动保留原输出：" + entry[0]);
+                check(entry[0].equals(SwipeHintPolicy.output(entry[0], false, direction, 0, end)),
+                    "关闭滑动仍输入字母：" + entry[0]);
+            }
+        }
         check(!SwipeHintPolicy.enabled(true, true),
             "candidate state disables 26-key symbol swipes");
         check(SwipeHintPolicy.enabled(true, false),

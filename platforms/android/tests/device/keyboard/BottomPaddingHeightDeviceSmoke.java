@@ -47,24 +47,33 @@ public final class BottomPaddingHeightDeviceSmoke extends Instrumentation {
                 directory = Files.createTempDirectory(getTargetContext().getCacheDir().toPath(), "padding-smoke-");
                 Path file = directory.resolve("android-settings.json");
                 float density = getTargetContext().getResources().getDisplayMetrics().density;
-                for (boolean barEnabled : new boolean[] {false, true}) {
-                    boolean barShown = barEnabled && Build.VERSION.SDK_INT >= 31;
-                    for (int height : new int[] {0, 40, 80, 160}) {
-                        update.invoke(null, file, Map.of("platform.android.bottom_bar", barEnabled,
-                            "platform.android.bottom_padding", true, "platform.android.bottom_padding_height", height));
-                        Object saved = load.invoke(null, file);
-                        check(((Integer) snapshot.getMethod("integer", String.class).invoke(saved,
-                            "platform.android.bottom_padding_height")) == height, "custom padding did not persist");
-                        field(type, "localSettings").set(service, saved);
-                        apply.invoke(bottom, keyboard);
-                        int expected = 4 + Math.round((barShown ? Math.max(40, height) : height) * density);
-                        check(Math.abs(keyboard.getPaddingBottom() - expected) <= 1,
-                            "padding target differs: " + height + "/" + barShown);
-                        View bar = (View) field(bottom.getClass(), "bar").get(bottom);
-                        check((bar.getVisibility() == View.VISIBLE) == barShown, "bottom bar visibility changed");
+                // 同时覆盖小 inset 和厂商异常的大 inset；仅底栏显示时按已知导航栏收窄。
+                for (int insetBottom : new int[] {4, 144}) {
+                    ((Rect) field(bottom.getClass(), "insets").get(bottom)).bottom = insetBottom;
+                    for (boolean barEnabled : new boolean[] {false, true}) {
+                        boolean barShown = barEnabled && Build.VERSION.SDK_INT >= 31;
+                        for (int height : new int[] {0, 40, 80, 160}) {
+                            update.invoke(null, file, Map.of("platform.android.bottom_bar", barEnabled,
+                                "platform.android.bottom_padding", true, "platform.android.bottom_padding_height", height));
+                            Object saved = load.invoke(null, file);
+                            check(((Integer) snapshot.getMethod("integer", String.class).invoke(saved,
+                                "platform.android.bottom_padding_height")) == height, "custom padding did not persist");
+                            field(type, "localSettings").set(service, saved);
+                            apply.invoke(bottom, keyboard);
+                            int expected = (barShown ? 0 : insetBottom) + Math.round((barShown ? Math.max(40, height) : height) * density);
+                            check(Math.abs(keyboard.getPaddingBottom() - expected) <= 1,
+                                "padding target differs: " + height + "/" + barShown + "/" + insetBottom);
+                            View bar = (View) field(bottom.getClass(), "bar").get(bottom);
+                            check((bar.getVisibility() == View.VISIBLE) == barShown, "bottom bar visibility changed");
+                            if (barShown) check(((android.widget.FrameLayout.LayoutParams) bar.getLayoutParams())
+                                .bottomMargin == 0, "abnormal inset still lifts bottom bar");
+                            check(keyboard.getPaddingLeft() == 1 && keyboard.getPaddingTop() == 2
+                                && keyboard.getPaddingRight() == 3, "bottom clamp changed another edge");
+                        }
                     }
                 }
                 // 调高留白后关闭开关，仍保留保存的高度，但实际不抬高键区。
+                ((Rect) field(bottom.getClass(), "insets").get(bottom)).bottom = 4;
                 Object disabled = update.invoke(null, file, Map.of("platform.android.bottom_bar", false,
                     "platform.android.bottom_padding", false));
                 field(type, "localSettings").set(service, disabled);
@@ -96,7 +105,7 @@ public final class BottomPaddingHeightDeviceSmoke extends Instrumentation {
         Throwable error = failure[0];
         Bundle result = new Bundle();
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: persisted 0/40/80/160dp padding, real IME insets, bottom bar accounting and disable\n"
+            ? "MSIME_DEVICE_SMOKE_PASSED: persisted 0/40/80/160dp padding, 4/144px inset clamp, bottom bar margin and disable\n"
             : "MSIME_DEVICE_SMOKE_FAILED: bottom padding (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);

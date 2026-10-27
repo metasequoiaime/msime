@@ -362,6 +362,10 @@ public final class TypingPage extends ReloadingDetailPage {
             aux.toggle(shuangpin ? "在候选栏中显示双拼辅助码" : "在候选栏中显示全拼辅助码",
                 "关掉后候选旁不再标注辅助码，Shift 筛选照常可用", shownInCandidates,
                 checked -> saveHelpcode(family, shuangpin, "show_in_candidate_window", checked));
+            boolean strictFilter = helpcode != null && helpcode.optBoolean("strict_filter", false);
+            aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选",
+                "关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选",
+                strictFilter, checked -> saveHelpcode(family, shuangpin, "strict_filter", checked));
         }
 
         GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
@@ -382,6 +386,18 @@ public final class TypingPage extends ReloadingDetailPage {
         translation.toggle("离线英文释义", "给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典",
             glossOn, checked -> savePreferences(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); }));
+        InputFeatureToggle pronunciation = InputFeatureToggle.CANDIDATE_PRONUNCIATION;
+        boolean pronunciationOn = preferences.optBoolean(pronunciation.key(), pronunciation.enabledByDefault());
+        java.io.File phonetics = new java.io.File(requireContext().getFilesDir(),
+            "bootstrap/pronunciations/en-phonetic.db");
+        boolean phoneticsReady = phonetics.isFile() || state.packs().contains(ResourcePacks.PRONUNCIATIONS);
+        String pronunciationDescription = phoneticsReady
+            ? pronunciation.description() : "离线音标词典未安装；打开后点下方「下载」，安装完成再进入输入框";
+        translation.toggle(pronunciation.title(), pronunciationDescription, pronunciationOn,
+            checked -> savePreferences(values -> values.put(pronunciation.key(), checked)));
+        if (pronunciationOn && !phoneticsReady)
+            packRow(translation, state, "离线英文音标词典", "仅供本机候选显示英文音标",
+                ResourcePacks.PRONUNCIATIONS);
         translation.nav("翻译目标语言", null, labelOf(List.of(TARGET_LANGUAGES), targetLanguage),
             () -> pickTargetLanguage(targetLanguage, glossOn, state));
         if (glossOn && needsGlosses(targetLanguage, state)) {
@@ -875,7 +891,8 @@ public final class TypingPage extends ReloadingDetailPage {
             helpcode = new JSONObject()
                 .put("enabled", true)
                 .put("schema", shuangpin ? "lantian" : "ziranma")
-                .put("show_in_candidate_window", shuangpin);
+                .put("show_in_candidate_window", shuangpin)
+                .put("strict_filter", false);
             values.put(family, helpcode);
         }
         return helpcode;

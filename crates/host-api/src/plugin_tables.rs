@@ -209,11 +209,23 @@ impl PluginTables {
             return Vec::new();
         };
         let entries = mentions::MentionStore::new(root).load().unwrap_or_default();
+        let names: Vec<&str> = entries
+            .iter()
+            .map(|entry| {
+                if entry.key.is_empty() && !entry.text.is_ascii() {
+                    entry.text.as_str()
+                } else {
+                    ""
+                }
+            })
+            .collect();
+        let readings = msime_engine::host::hanzi_to_pinyin_batch(options, &names);
         entries
             .into_iter()
-            .map(|entry| {
+            .zip(readings)
+            .map(|(entry, reading)| {
                 let key = if entry.key.is_empty() && !entry.text.is_ascii() {
-                    msime_engine::host::hanzi_to_pinyin(options, &entry.text)
+                    reading
                 } else {
                     entry.key
                 };

@@ -31,6 +31,8 @@ public final class KeyboardShortcutIconPolicySmoke {
             "floating keyboard glyph mapping");
         check(KeyboardShortcutIconPolicy.forLabel("文本编辑") == Icon.TEXT_EDIT,
             "text edit glyph mapping (#6351)");
+        check(KeyboardShortcutIconPolicy.forLabel("符") == Icon.SYMBOL,
+            "长空格布局的顶栏符号入口");
         for (Icon icon : new Icon[] {Icon.EMOJI, Icon.PHRASE, Icon.CLIPBOARD, Icon.SKIN,
                 Icon.SCHEME, Icon.FLOATING, Icon.TEXT_EDIT, Icon.DISMISS}) {
             check(KeyboardShortcutIconPolicy.materialGlyph(icon), "material toolbar glyph " + icon);

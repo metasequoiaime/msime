@@ -32,11 +32,16 @@ const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
 const DEFAULT_TIME_FORMAT: &str = "%H:%M";
 
 /// The built-in commands: the date/time mode's keywords, the translate command, and the title shown beside their rows.
-const BUILTINS: [(&[&str], &str); 5] = [
+const BUILTINS: [(&[&str], &str); 10] = [
     (&["rq", "riqi", "date"], "日期"),
     (&["sj", "shijian", "time"], "时间"),
     (&["xq", "xingqi", "week"], "星期"),
     (&["nl", "nongli", "yinli"], "农历"),
+    (&["jidu"], "季度"),
+    (&["tianshu"], "天数"),
+    (&["daojishi"], "倒计时"),
+    (&["zhou"], "周"),
+    (&["shengxiao", "shu"], "生肖"),
     (TRANSLATE_TRIGGERS, "翻译"),
 ];
 
@@ -418,11 +423,28 @@ mod tests {
                 "2026年10月1日",
                 "09:05",
                 "星期四",
-                "丙午年八月二十一日"
+                "丙午年八月二十一日",
+                "2026年第4季度",
+                "已过273天/剩92天",
+                "已过39周/剩14周",
+                "马年"
             ]
         );
         let triggers: Vec<&str> = rows.iter().map(|row| row.pinyin.as_str()).collect();
-        assert_eq!(triggers, ["sig", "rq", "sj", "xq", "nl"]);
+        assert_eq!(
+            triggers,
+            [
+                "sig",
+                "rq",
+                "sj",
+                "xq",
+                "nl",
+                "jidu",
+                "tianshu",
+                "zhou",
+                "shengxiao"
+            ]
+        );
         for (index, row) in rows.iter().enumerate() {
             assert_eq!(row.source, CandidateSource::Generated);
             assert_eq!(row.weight, (rows.len() - index) as i64);
@@ -474,7 +496,7 @@ mod tests {
         ]);
         // The table's own `sj` wins over the built-in one and is listed first as the exact match.
         let rows = query_command("s", &now(), &table);
-        assert_eq!(words(&rows), ["张三", "覆盖", "09:05"]);
+        assert_eq!(words(&rows), ["张三", "覆盖", "09:05", "马年"]);
         assert_eq!(words(&query_command("ad", &now(), &table)), ["北京市"]);
         assert!(query_command("zz", &now(), &table).is_empty());
     }
@@ -717,13 +739,33 @@ mod tests {
                 "nl",
                 "nongli",
                 "yinli",
+                "jidu",
+                "tianshu",
+                "daojishi",
+                "zhou",
+                "shengxiao",
+                "shu",
                 "translate",
                 "fanyi",
                 "fy"
             ]
         );
         let titles: Vec<&str> = builtin_titles().collect();
-        assert_eq!(titles, ["日期", "时间", "星期", "农历", "翻译"]);
+        assert_eq!(
+            titles,
+            [
+                "日期",
+                "时间",
+                "星期",
+                "农历",
+                "季度",
+                "天数",
+                "倒计时",
+                "周",
+                "生肖",
+                "翻译"
+            ]
+        );
     }
 
     #[test]

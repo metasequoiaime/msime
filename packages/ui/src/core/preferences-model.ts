@@ -193,6 +193,8 @@ export type Preferences = PunctuationPreferences &
     input_mode_status_item?: boolean;
     candidate_layout?: "horizontal" | "vertical";
     show_candidate_page_number?: boolean;
+    /** macOS 候选窗首行的输入状态文字和枝叶装饰，缺省显示。 */
+    show_candidate_status?: boolean;
     /** 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏，旧文档缺这个字段时读成显示。 */
     show_app_logo?: boolean;
     /** 「展开候选」：横排候选窗按 Tab、↓ 展开成多行候选网格，默认关闭。 */

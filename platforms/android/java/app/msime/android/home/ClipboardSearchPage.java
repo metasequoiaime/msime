@@ -75,10 +75,12 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         boolean focused;
     }
 
-    /** 搜索框固定在详情页滚动区之外，历史结果滚动时仍可直接修改查询。 */
+    /** 搜索框和导出按钮固定在详情页滚动区之外，历史结果滚动时仍可直接操作。 */
     @Override @Nullable protected View fixedNavigation() {
         Context context = requireContext();
-        FrameLayout navigation = new FrameLayout(context);
+        LinearLayout navigation = new LinearLayout(context);
+        navigation.setOrientation(LinearLayout.HORIZONTAL);
+        navigation.setGravity(android.view.Gravity.CENTER_VERTICAL);
         navigation.setMinimumHeight(DimensionPolicy.pixels(context, 56));
         ViewPolicy.setBackgroundColor(navigation, ThemeColorPolicy.page(context));
         ViewPolicy.setSymmetricPaddingDp(context, navigation, 16, 4);
@@ -91,7 +93,12 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
             if (query != null) query.text = text;
             renderResults();
         });
-        navigation.addView(searchNavigation, LayoutPolicy.matchWidthWrapParams());
+        navigation.addView(searchNavigation, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams exportParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        exportParams.setMarginStart(DimensionPolicy.pixels(context, 8));
+        navigation.addView(clipboardExport.button(), exportParams);
         return navigation;
     }
 
@@ -108,7 +115,6 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     }
 
     @Override protected void onContentReady() {
-        headerActions().addView(clipboardExport.button());
         LinearLayout target = contentColumn();
         if (target == null) return;
         Context context = target.getContext();

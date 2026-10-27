@@ -60,6 +60,14 @@ public final class KeyboardLayout {
             || layout == STROKE_LAYOUT || layout == ZHUYIN_NINE_KEY_LAYOUT);
     }
 
+    /** 长空格模式的 26 键保留含空格的数字符号层；原生九键仍使用数字网格。 */
+    public static boolean drawsNumberPad(Layer layer, int layout, boolean chinese,
+            boolean localMode, boolean longSpace) {
+        return !(longSpace && layer == Layer.SYMBOLS
+            && (layout == STANDARD_TOUCH_LAYOUT || layout == KOREAN_LAYOUT))
+            && drawsNumberPad(layer, layout, chinese, localMode);
+    }
+
     /** 数字九宫格只属于中文方案：日文罗马字、越南语、藏文等独立语言与 iOS、HarmonyOS 一样保留各自的符号层；视图还没给出方案时沿用中文默认。 */
     public static boolean numberPadLanguage(int scheme, boolean english) {
         return !english && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.isChinese(scheme));
@@ -178,6 +186,8 @@ public final class KeyboardLayout {
         PUNCTUATION_TOGGLE,
         /** #+= 层底行原表情位的「符号」键，打开符号面板。 */
         SYMBOL_PANEL,
+        /** 长空格模式数字层的逗号键，下滑输入句号。 */
+        COMMA,
         SPACE,
         /** 回车：文字与描述由视图按 {@link ReturnKeyAction} 替换，这里给的是空闲时的「换行」。 */
         RETURN
@@ -242,12 +252,18 @@ public final class KeyboardLayout {
     /** 顶部已有表情入口时，同一位置直接打开符号面板；关闭顶部入口时保留表情兜底。 */
     public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
             boolean cornerQuotes, boolean toolbarEmojiAvailable) {
+        return numberLayer(chinese, chinesePunctuation, cornerQuotes, toolbarEmojiAvailable, false);
+    }
+
+    /** 长空格模式把底行符号或表情入口换成逗号，符号面板从工具栏打开。 */
+    public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
+            boolean cornerQuotes, boolean toolbarEmojiAvailable, boolean longSpace) {
         return layer(NUMBER_DIGITS,
             chinesePunctuation ? (cornerQuotes ? CHINESE_CORNER_NUMBER_SYMBOLS : CHINESE_NUMBER_SYMBOLS)
                 : ENGLISH_NUMBER_SYMBOLS,
             new LayerKey("#+=", "更多符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
             chinese, chinesePunctuation,
-            toolbarEmojiAvailable
+            longSpace ? commaLayerKey(chinesePunctuation) : toolbarEmojiAvailable
                 ? new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL, LAYER_EMOJI_WEIGHT)
                 : new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT),
             punctuationToggle(chinesePunctuation));
@@ -262,11 +278,23 @@ public final class KeyboardLayout {
 
     /** 参数的含义同 {@link #numberLayer(boolean, boolean)}。 */
     public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation) {
+        return moreSymbolLayer(chinese, chinesePunctuation, false);
+    }
+
+    /** 长空格模式的更多符号层沿用数字层的逗号与下滑句号。 */
+    public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation,
+            boolean longSpace) {
         return layer(MORE_SYMBOLS_FIRST,
             chinesePunctuation ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
             new LayerKey("123", "切换到数字和符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
-            chinese, chinesePunctuation, new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
-                LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation));
+            chinese, chinesePunctuation, longSpace ? commaLayerKey(chinesePunctuation)
+                : new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
+                    LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation));
+    }
+
+    private static LayerKey commaLayerKey(boolean chinesePunctuation) {
+        return new LayerKey(chinesePunctuation ? "，" : ",", "逗号；下滑输入句号",
+            LayerKeyKind.COMMA, LAYER_EMOJI_WEIGHT);
     }
 
     private static LayerKey punctuationToggle(boolean chinesePunctuation) {

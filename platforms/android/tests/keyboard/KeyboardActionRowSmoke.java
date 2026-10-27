@@ -110,8 +110,32 @@ public final class KeyboardActionRowSmoke {
                 if (globe) expected.add(1, KeyboardActionRow.DesignSlot.GLOBE);
                 check(designSlots(layout, globe, false).equals(expected), "26 键底行保留独立逗号");
                 check(KeyboardActionRow.usesCommaSecondaryPeriod(layout), "26 键长按逗号输入句号");
+                List<KeyboardActionRow.DesignEntry> longRow = KeyboardActionRow.designEntries(
+                    layout, globe, false, false, false, true);
+                List<KeyboardActionRow.DesignSlot> longSlots = longRow.stream()
+                    .map(KeyboardActionRow.DesignEntry::slot).toList();
+                List<KeyboardActionRow.DesignSlot> expectedLong = new java.util.ArrayList<>(List.of(
+                    KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.COMMA,
+                    KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.LANGUAGE,
+                    KeyboardActionRow.DesignSlot.RETURN));
+                if (globe) expectedLong.add(1, KeyboardActionRow.DesignSlot.GLOBE);
+                check(longSlots.equals(expectedLong), "长空格模式将符号移出底行，逗号移到空格左侧");
+                check(longRow.stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
+                    .findFirst().orElseThrow().weight() > KeyboardActionRow.DESIGN_SPACE_WEIGHT,
+                    "长空格模式扩大空格键");
+                check(KeyboardActionRow.designEntries(layout, globe, false, false, true, true)
+                    .stream().noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.PERIOD),
+                    "英文长空格底行的句点由逗号下滑输入");
+                check(KeyboardActionRow.designEntries(layout, globe, true, false, false, true)
+                    .stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
+                    .findFirst().orElseThrow().weight() == KeyboardActionRow.DESIGN_LONG_SPACE_WEIGHT,
+                    "交换语言与数字键后仍保持长空格");
             }
         }
+        check(KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT,
+            false, false, false, false, true).equals(
+                KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false)),
+            "长空格选项不改变 14 键底行");
         englishRow();
         check(!KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.FOURTEEN_KEY_LAYOUT)
             && !KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT),

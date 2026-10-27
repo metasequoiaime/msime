@@ -103,6 +103,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(scroll.getScrollX() == 0, "hidden tools left stale scroll offset");
                 check(buttons[0].getWidth() >= scroll.getWidth() - 2 * Math.round(density),
                     "single visible tool did not fill available width");
+                checkLongSpaceGestureAfterRecreation(type, service, loader);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (service != null) {
@@ -123,6 +124,57 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
+    }
+
+    /** 同一服务重建键盘视图后，新逗号键仍要接收下滑；用合成编辑器收集实际提交字符。 */
+    private void checkLongSpaceGestureAfterRecreation(Class<?> type, Object service, ClassLoader loader)
+            throws Exception {
+        Class<?> settings = loader.loadClass("app.msime.android.AndroidLocalSettings");
+        String key = "platform.android.long_space_layout";
+        Object original = settings.getMethod("load", Context.class).invoke(null, getTargetContext());
+        boolean hadValue = (Boolean) original.getClass().getMethod("has", String.class).invoke(original, key);
+        Object previous = hadValue ? original.getClass().getMethod("value", String.class).invoke(original, key) : null;
+        Method put = settings.getMethod("put", Context.class, String.class, Object.class);
+        Object enabled = put.invoke(null, getTargetContext(), key, true);
+        StringBuilder committed = new StringBuilder();
+        android.view.inputmethod.InputConnection connection =
+            (android.view.inputmethod.InputConnection) java.lang.reflect.Proxy.newProxyInstance(
+                android.view.inputmethod.InputConnection.class.getClassLoader(),
+                new Class<?>[] {android.view.inputmethod.InputConnection.class}, (proxy, call, args) -> {
+                    if (call.getName().equals("commitText")) committed.append((CharSequence) args[0]);
+                    if (call.getReturnType() == boolean.class) return true;
+                    if (call.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        try {
+            for (int generation = 0; generation < 2; generation++) {
+                if (generation > 0) type.getMethod("onCreateInputView").invoke(service);
+                field(type, "localSettings").set(service, enabled);
+                field(type, "dedicatedEnglish").setBoolean(service, true);
+                field(type, "editorInputType").setInt(service, android.text.InputType.TYPE_CLASS_TEXT);
+                field(type, "touchLayoutHint").setInt(service, 0);
+                field(type, "connection").set(service, connection);
+                method(type, "updateQuickPunctuation").invoke(service);
+                Button comma = (Button) field(type, "quickPunctuationButton").get(service);
+                comma.setEnabled(true);
+                comma.layout(0, 0, 200, 200);
+                long down = android.os.SystemClock.uptimeMillis();
+                int distance = android.view.ViewConfiguration.get(getTargetContext()).getScaledTouchSlop() + 20;
+                int[] actions = {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE,
+                    android.view.MotionEvent.ACTION_UP};
+                committed.setLength(0);
+                for (int index = 0; index < actions.length; index++) {
+                    android.view.MotionEvent event = android.view.MotionEvent.obtain(down, down + index * 20,
+                        actions[index], 40, index == 0 ? 40 : 40 + distance, 0);
+                    try { comma.dispatchTouchEvent(event); }
+                    finally { event.recycle(); }
+                }
+                check(committed.toString().equals("."),
+                    "long-space comma swipe lost after input-view generation " + generation + ": " + committed);
+            }
+        } finally {
+            put.invoke(null, getTargetContext(), key, previous);
+        }
     }
 
     /** 用隔离历史驱动产品的真实渲染，记录卡片滚动时顶栏仍留在原位。 */

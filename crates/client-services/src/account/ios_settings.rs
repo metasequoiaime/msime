@@ -446,6 +446,7 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "handwriting" => Ok(TouchKeyboardScheme::Handwriting),
         "korean" => Ok(TouchKeyboardScheme::Korean),
         "cantonese" => Ok(TouchKeyboardScheme::Cantonese),
+        "cantoneseShuangpin" => Ok(TouchKeyboardScheme::CantoneseShuangpin),
         "zhuyin" => Ok(TouchKeyboardScheme::Zhuyin),
         "vietnamese" => Ok(TouchKeyboardScheme::Vietnamese),
         "tibetan" => Ok(TouchKeyboardScheme::Tibetan),
@@ -526,7 +527,7 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
             preferences.scheme = InputScheme::Tibetan;
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         }
-        TouchKeyboardScheme::Cantonese => {
+        TouchKeyboardScheme::Cantonese | TouchKeyboardScheme::CantoneseShuangpin => {
             preferences.scheme = InputScheme::Cantonese;
             preferences.last_chinese_scheme = Some(ChineseScheme::Cantonese);
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
@@ -659,6 +660,12 @@ mod tests {
             (
                 "cantonese",
                 TouchKeyboardScheme::Cantonese,
+                InputScheme::Cantonese,
+                ChineseScheme::Cantonese,
+            ),
+            (
+                "cantoneseShuangpin",
+                TouchKeyboardScheme::CantoneseShuangpin,
                 InputScheme::Cantonese,
                 ChineseScheme::Cantonese,
             ),

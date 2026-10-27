@@ -17,6 +17,10 @@ public final class KeyboardLayoutSmoke {
             check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false));
         check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, false, false));
         check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, true, true));
+        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS,
+            KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false, true));
+        check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS,
+            KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, false, true));
         // 日文罗马字同样画 26 键，但 123 保留自己的符号层，与 iOS、HarmonyOS 一致。
         check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.JAPANESE, false));
         check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.VIETNAMESE, false));
@@ -95,6 +99,12 @@ public final class KeyboardLayoutSmoke {
 
         // 新设计的 123 层（中文）。
         List<List<KeyboardLayout.LayerKey>> number = KeyboardLayout.numberLayer(true);
+        List<KeyboardLayout.LayerKey> longNumber = KeyboardLayout.numberLayer(true, true, false, true, true).get(3);
+        check(longNumber.get(1).kind() == KeyboardLayout.LayerKeyKind.COMMA
+            && longNumber.stream().noneMatch(key -> key.kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL));
+        List<KeyboardLayout.LayerKey> longMore = KeyboardLayout.moreSymbolLayer(true, true, true).get(3);
+        check(longMore.get(1).kind() == KeyboardLayout.LayerKeyKind.COMMA
+            && longMore.stream().noneMatch(key -> key.kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL));
         check(number.size() == 4);
         check(texts(number.get(0)).equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
         check(texts(number.get(1)).equals(List.of("-", "/", "：", "；", "（", "）", "¥", "@", "“", "”")));

@@ -100,10 +100,9 @@
         "srcEntry": "./ets/inputmethodextability/KeyboardExtensionAbility.ets",
         "description": "$string:keyboard_ability_desc",
         "label": "$string:keyboard_ability_label",
-        // The mark the system input-method list draws next to the name, and the one the switcher
-        // shows. The module schema requires it of whichever element is mainElement, and this is it;
-        // without it the keyboard sat in that list with a name and no logo.
-        "icon": "$media:app_icon",
+        // The mark the system input-method list draws next to the name, and the one the switcher shows. The module schema requires it of whichever element is mainElement, and this is it; without it the keyboard sat in that list with a name and no logo.
+        // 上架审核要求包内配置的图标没有透明像素：这里用分层图标的背景层和前景层压成的不透明 app_icon_opaque.png，透明底的 app_icon 只留给键盘里当图片用。
+        "icon": "$media:app_icon_opaque",
         "type": "inputMethod",
         "exported": true,
         // 「输入法应用内数据共享」：与设置应用共用的共享沙箱（context.getGroupDir）。这个 ID 由 AppGallery Connect 签发，签名 Profile 的 data-group-ids 必须带着同一个值，否则 getGroupDir 拿不到目录，两边退回各自的 files/state。代码里的同一个值在 keyboard/SharedStateMirror.ets 的 DATA_GROUP_ID。

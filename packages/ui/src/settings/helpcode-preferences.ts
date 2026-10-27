@@ -45,6 +45,8 @@ export type HelpcodePreferences = {
   enabled: boolean;
   schema: HelpcodeSchema;
   show_in_candidate_window?: boolean;
+  /** 一码辅助码严格排除不匹配候选；关闭时只把匹配项前移。 */
+  strict_filter?: boolean;
   trigger_key?: "" | ";" | "/" | "\\" | "`" | "=";
   /** 双拼专属的触发方式；缺省时按 `defaultShuangpinHelpcodeModes`。 */
   modes?: ShuangpinHelpcodeModes;
@@ -81,11 +83,13 @@ export const defaultHelpcode: Readonly<Record<HelpcodeKey, HelpcodePreferences>>
     enabled: true,
     schema: "ziranma",
     show_in_candidate_window: false,
+    strict_filter: false,
   },
   shuangpin_helpcode: {
     enabled: true,
     schema: "lantian",
     show_in_candidate_window: true,
+    strict_filter: false,
     modes: defaultShuangpinHelpcodeModes,
   },
 };

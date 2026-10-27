@@ -109,6 +109,7 @@ public static class SettingsWindowProbe {
 }
 '@
 . (Join-Path $PSScriptRoot 'settings_wheel.ps1')
+. (Join-Path $PSScriptRoot 'settings_snapshot.ps1')
 $programPath = (Resolve-Path -LiteralPath $Program).Path
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
@@ -151,6 +152,15 @@ function New-CanvasPreviewFixture {
         } finally { $bitmap.Dispose() }
     }
 }
+function Get-CanvasPreviewScrollDirection($bounds, $viewport, $screen) {
+    if ($bounds.Height -le 0) { return 1 }
+    # UIA 返回的矩形可能已经被正文裁剪；留出余量才能识别贴边的残片。
+    $top = [Math]::Max($viewport.Top, $screen.Top)
+    $bottom = [Math]::Min($viewport.Bottom, $screen.Bottom)
+    if ($bounds.Top -le $top + 8) { return -1 }
+    if ($bounds.Bottom -ge $bottom - 8 -or $bounds.Height -lt 15) { return 1 }
+    return 0
+}
 function Assert-CanvasPreview($window, [string]$mode) {
     Open-Page $window 'themes'
     $search = Find-ById $window 'settings-search'
@@ -176,9 +186,29 @@ function Assert-CanvasPreview($window, [string]$mode) {
     foreach ($layout in @('horizontal', 'vertical')) {
         $expected = if ($mode -eq 'light') { 0x00ffff } else { 0x56789a }
         $ready = $false
+        $lastObservation = '元素不存在'
         $deadline = [DateTime]::UtcNow.AddSeconds(15)
         do {
             $image = Find-ById $window "canvas-preview-verify-canvas-$layout"
+            if ($image) { $lastObservation = "离屏=$($image.Current.IsOffscreen)，矩形=$($image.Current.BoundingRectangle)" }
+            # 搜索只定位卡片，短窗口里预览仍可能在视口下方；先滚到图片完整可见，再读取真实屏幕像素。
+            $content = Find-ById $window 'settings-content'
+            [object]$scroll = $null
+            if ($image -and $content -and $content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll) -and $scroll.Current.VerticallyScrollable) {
+                $bounds = $image.Current.BoundingRectangle
+                $viewport = $content.Current.BoundingRectangle
+                $screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$window.Current.NativeWindowHandle).WorkingArea
+                $visibleTop = [Math]::Max($viewport.Top, $screen.Top)
+                $visibleBottom = [Math]::Min($viewport.Bottom, $screen.Bottom)
+                $lastObservation += "，正文=$viewport，可采样纵向=$visibleTop..$visibleBottom，滚动=$($scroll.Current.VerticalScrollPercent)"
+                $direction = Get-CanvasPreviewScrollDirection $bounds $viewport $screen
+                if ($direction -ne 0) {
+                    $direction = if ($direction -lt 0) { [System.Windows.Automation.ScrollAmount]::SmallDecrement } else { [System.Windows.Automation.ScrollAmount]::SmallIncrement }
+                    $scroll.Scroll([System.Windows.Automation.ScrollAmount]::NoAmount, $direction)
+                    Start-Sleep -Milliseconds 200
+                    continue
+                }
+            }
             if ($image -and -not $image.Current.IsOffscreen) {
                 $bounds = $image.Current.BoundingRectangle
                 if ($bounds.Width -ge 40 -and $bounds.Height -ge 15) {
@@ -192,6 +222,7 @@ function Assert-CanvasPreview($window, [string]$mode) {
                                 if (($bitmap.GetPixel($x, $y).ToArgb() -band 0xffffff) -eq $expected) { $count++ }
                             }
                         }
+                        $lastObservation += "，目标像素数=$count"
                         if ($count -ge 8) {
                             $bitmap.Save((Join-Path $outputPath "$mode-canvas-$layout.png"), [Drawing.Imaging.ImageFormat]::Png)
                             $ready = $true
@@ -204,7 +235,10 @@ function Assert-CanvasPreview($window, [string]$mode) {
             }
             if (-not $ready) { Start-Sleep -Milliseconds 200 }
         } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $ready) { throw "Canvas $mode $layout panel pixels are absent or from the wrong mode" }
+        if (-not $ready) {
+            Save-Window $window "$mode-canvas-$layout-failed.png"
+            throw "Canvas $mode $layout panel pixels are absent or from the wrong mode：$lastObservation"
+        }
     }
     Save-Window $window "$mode-canvas-settings.png"
     $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
@@ -375,17 +409,17 @@ function Assert-WubiCandidateSelection($window) {
     $thirdValue = $third.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
     if ($secondValue.Current.Value -ne ';' -or $thirdValue.Current.Value -ne "'") { throw 'Wubi shortcut defaults are incorrect' }
     $path = Join-Path $state 'preferences.json'
-    $beforeEdit = [IO.File]::ReadAllText($path)
+    $beforeEdit = (Read-SettingsSnapshotText $path)
     # 交换键位的中间状态会重复；只有按保存时才能成对进入共享偏好库。
     $secondValue.SetValue("'")
     $thirdValue.SetValue(';')
-    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'Editing Wubi shortcuts saved an intermediate pair' }
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'Editing Wubi shortcuts saved an intermediate pair' }
     $save = Wait-WubiControl $window 'wubi-save-candidate-keys'
     $save.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
         $keys = $saved.preferences.wubi_candidate_selection
     } while (($keys.second_key -ne "'" -or $keys.third_key -ne ';') -and [DateTime]::UtcNow -lt $deadline)
     if (-not $keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Wubi shortcut pair was not saved together' }
@@ -400,7 +434,7 @@ function Assert-WubiCandidateSelection($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
         $keys = $saved.preferences.wubi_candidate_selection
     } while ($keys.enabled -and [DateTime]::UtcNow -lt $deadline)
     if ($keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Disabling Wubi shortcuts lost custom keys' }
@@ -416,14 +450,14 @@ function Assert-CommandLineCandidates($window) {
     $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
     if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw '命令行查询候选 must default to off' }
     $path = Join-Path $state 'preferences.json'
-    $before = (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).preferences.diagnostic_log
+    $before = ((Read-SettingsSnapshotText $path) | ConvertFrom-Json).preferences.diagnostic_log
     if ($before.command_line_candidates -ne $false) { throw 'Synthetic preferences do not start with command_line_candidates off' }
     foreach ($expected in @($true, $false)) {
         $pattern.Toggle()
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
-            $diagnostics = (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).preferences.diagnostic_log
+            $diagnostics = ((Read-SettingsSnapshotText $path) | ConvertFrom-Json).preferences.diagnostic_log
         } while ($diagnostics.command_line_candidates -ne $expected -and [DateTime]::UtcNow -lt $deadline)
         if ($diagnostics.command_line_candidates -ne $expected) { throw "命令行查询候选 was not saved as $expected" }
         if ($diagnostics.server -ne $before.server -or $diagnostics.tsf -ne $before.tsf) { throw 'Saving 命令行查询候选 changed the diagnostic log switches' }
@@ -515,12 +549,13 @@ function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
 function Wait-CandidatePageSizeSaved([int]$expected) {
     $path = Join-Path $state 'preferences.json'
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    $saved = $null
     do {
-        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
         if ($saved.preferences.candidate_page_size -eq $expected) { return }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw '候选数量未保存'
+    throw "候选数量未保存：期望 $expected，文件里是 $($saved.preferences.candidate_page_size)，revision=$($saved.revision)"
 }
 function Find-SliderThumb($slider) {
     # WinUI 默认模板把滑块柄放在 Raw view，只遍历当前滑块，不能扫描右侧标签。
@@ -594,6 +629,8 @@ function Assert-CandidatePageSize($window, [string]$screenshotPrefix) {
     foreach ($expected in @(3, 9, 4, 6)) {
         $slider = Show-CandidatePageSizeSlider $window
         if (-not $slider -or -not $slider.Current.IsEnabled) { throw '候选数量滑块不可用' }
+        $savedBefore = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
+        Write-Host "候选数量 $screenshotPrefix 操作前：滑块=$($slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).Current.Value)，文件=$($savedBefore.preferences.candidate_page_size)，revision=$($savedBefore.revision)，目标=$expected"
         $slider.SetFocus()
         $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
         $range.SetValue($expected)
@@ -642,7 +679,7 @@ function Select-ComboChoice($window, [string]$id, [string]$label) {
 # 仅操作独立合成窗口，验证录键经过原生事件、共享预检及真实偏好保存。
 function Assert-VoiceToggleRecorder($window, [IntPtr]$handle) {
     function Read-VoiceBinding {
-        $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
         $field = $saved.preferences.keybindings.PSObject.Properties['toggle_voice_input']
         if ($field) { return [string]$field.Value }
         return ''
@@ -774,7 +811,7 @@ function Assert-SentenceModelSettings($window, [string]$theme) {
             do {
                 Start-Sleep -Milliseconds 150
                 try {
-                    $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
                     $property = $saved.preferences.sentence_association.PSObject.Properties['grammar_model']
                     $value = if ($property) { $property.Value } else { 'none' }
                     $ready = $value -eq $model.value
@@ -926,7 +963,7 @@ function Assert-CloudClipboardRelaySettings($window) {
         return $null
     }
     $path = Join-Path $state 'preferences.json'
-    $beforeEdit = [IO.File]::ReadAllText($path)
+    $beforeEdit = (Read-SettingsSnapshotText $path)
     $scroll = (Find-ById $window 'settings-content').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
     if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 100) }
     Select-ComboChoice $window 'cloud-clipboard-source' '自建中继'
@@ -935,10 +972,10 @@ function Assert-CloudClipboardRelaySettings($window) {
     if (-not $token.Current.IsPassword) { throw 'Relay token is not masked' }
     $url.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('http://relay.example.test')
     $token.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-relay-token')
-    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'Relay draft was persisted before saving' }
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'Relay draft was persisted before saving' }
     (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-RelayControl $window 'settings-notice' | Out-Null
-    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'Invalid HTTP relay passed Rust preference validation' }
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'Invalid HTTP relay passed Rust preference validation' }
     # 校验失败后窗口按共享设置的冲突处理重新读取，重新选择中继再填写合成配置；只使用本机拒绝连接的端口，不发送真实数据。
     Select-ComboChoice $window 'cloud-clipboard-source' '自建中继'
     $url = Wait-RelayControl $window 'cloud-clipboard-relay-url'
@@ -949,7 +986,7 @@ function Assert-CloudClipboardRelaySettings($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
         $relay = Read-RelayPreference $saved
     } while (($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') -and [DateTime]::UtcNow -lt $deadline)
     if ($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') { throw 'Relay address and token were not saved together' }
@@ -964,7 +1001,7 @@ function Assert-CloudClipboardRelaySettings($window) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
         $relay = Read-RelayPreference $saved
     } while ($relay -and [DateTime]::UtcNow -lt $deadline)
     if ($relay) { throw 'Switching to account retained relay credentials' }
@@ -976,7 +1013,7 @@ function Assert-CloudClipboardWebDavSettings($window) {
     $webdavUrl = 'http://127.0.0.1:9/dav'
     $path = Join-Path $state 'preferences.json'
     function Read-CloudPreference([string]$key) {
-        $saved = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
         $property = $saved.preferences.PSObject.Properties[$key]
         if ($property) { return $property.Value }
         return $null
@@ -998,7 +1035,7 @@ function Assert-CloudClipboardWebDavSettings($window) {
     function Restart-WithSavedWebDav {
         $script:process.CloseMainWindow() | Out-Null
         if (-not $script:process.WaitForExit(10000) -or $script:process.ExitCode -ne 0) { throw 'Settings window failed to close before seeding WebDAV' }
-        $document = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $document = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
         $document.preferences | Add-Member -NotePropertyName cloud_clipboard_webdav -NotePropertyValue ([pscustomobject]@{url = $webdavUrl; username = 'synthetic@example.test'; password = 'synthetic-app-password'}) -Force
         $document.revision = [uint64]$document.revision + 1
         [IO.File]::WriteAllText($path, ($document | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
@@ -1010,7 +1047,7 @@ function Assert-CloudClipboardWebDavSettings($window) {
         return $reopened
     }
 
-    $beforeEdit = [IO.File]::ReadAllText($path)
+    $beforeEdit = (Read-SettingsSnapshotText $path)
     Show-CloudGroup $window
     Select-ComboChoice $window 'cloud-clipboard-source' 'WebDAV'
     $url = Wait-RelayControl $window 'cloud-clipboard-webdav-url'
@@ -1021,10 +1058,10 @@ function Assert-CloudClipboardWebDavSettings($window) {
     $url.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($webdavUrl)
     $username.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic@example.test')
     $password.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-app-password')
-    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'WebDAV draft was persisted before saving' }
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'WebDAV draft was persisted before saving' }
     (Wait-RelayControl $window 'cloud-clipboard-webdav-test').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-WebDavResult $window $unavailable
-    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'WebDAV connection test wrote preferences' }
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'WebDAV connection test wrote preferences' }
     # 保存先跑测试连接，不通过就不写盘，输入留在草稿里。先改一下应用密码，让上一次的结果收起，看到的失败说明才是这次保存跑出来的。
     (Wait-RelayControl $window 'cloud-clipboard-webdav-password').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-app-password-b')
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -1032,7 +1069,7 @@ function Assert-CloudClipboardWebDavSettings($window) {
     if (Find-ById $window 'cloud-clipboard-webdav-result') { throw 'Editing the WebDAV draft did not clear the previous probe result' }
     (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-WebDavResult $window $unavailable
-    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'WebDAV failing connection test did not block saving' }
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'WebDAV failing connection test did not block saving' }
     if ((Find-ById $window 'cloud-clipboard-webdav-url').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $webdavUrl) { throw 'Failed WebDAV save lost the draft' }
 
     # 已保存的网盘：选项、状态说明和输入框按偏好回填，应用密码框留空也能保存（沿用已存的密码）。之后改存中继，网盘配置要一起删掉。
@@ -1061,7 +1098,7 @@ function Assert-CloudClipboardWebDavSettings($window) {
     if ($webdav) { throw 'Saving a relay retained the WebDAV credentials' }
 
     # 再存一次网盘配置（替掉中继，模拟测试通过后的保存结果），改回水杉账号时中继和网盘都不留。
-    $document = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+    $document = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
     $document.preferences.PSObject.Properties.Remove('cloud_clipboard_relay')
     [IO.File]::WriteAllText($path, ($document | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
     $window = Restart-WithSavedWebDav
@@ -1268,7 +1305,7 @@ try {
                     Assert-PluginEditor $window "$theme-$width"
                 }
                 if ($page -eq 'clip') {
-                    # 「历史记录」标签：合成的两条记录在第一页，不足一页时没有翻页器；宽窗口直接排出四个操作，窄窗口收进「更多操作」，两种都不能挤掉正文或伸出正文列。
+                    # 「历史记录」标签：合成的两条记录在第一页，不足一页时没有翻页器；操作按行内可用宽度排开或收进「更多操作」，两种都不能挤掉正文或伸出正文列。
                     Select-PageTab $window 'clip-tab-history' '历史记录'
                     Assert-PageIntro $window 'clip' '查看、复制和管理已保存的剪贴板记录。'
                     # 行宽要等第一轮布局后才决定操作是排开还是收进菜单；再等一轮呈现再量。
@@ -1292,7 +1329,9 @@ try {
                     $textBounds = $preview.Current.BoundingRectangle
                     if ($textBounds.Width -lt 180 -or $textBounds.Right -gt $copy.Current.BoundingRectangle.Left) { throw 'Clipboard actions crowded out the text preview' }
                     if ($last.Current.BoundingRectangle.Right -gt $content.Current.BoundingRectangle.Right) { throw 'Clipboard actions overflow the content column' }
-                    if ($width -eq 1000 -and -not (Find-ById $window 'clipboard-entry-0-pin')) { throw 'Wide clipboard rows do not lay out their actions like macOS' }
+                    $pin = Find-ById $window 'clipboard-entry-0-pin'
+                    $more = Find-ById $window 'clipboard-entry-0-actions'
+                    if ([bool]$pin -eq [bool]$more) { throw 'Clipboard actions must be either inline or in the overflow menu' }
                     Save-Window $window "$theme-$width-clip-history.png"
                     Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
                 }
@@ -1511,7 +1550,7 @@ try {
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             do {
                 Start-Sleep -Milliseconds 200
-                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+                $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
             } while ($saved.preferences.scheme -ne $scheme -and [DateTime]::UtcNow -lt $deadline)
             if ($saved.preferences.scheme -ne $scheme) { throw "Scheme was not saved: $scheme" }
             $content = Find-ById $window 'settings-content'
@@ -1665,7 +1704,7 @@ try {
         $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
         Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
         # 与 macOS 一样，示例与预览明暗在离开再回到本页后保留，但不写入真实设置。
-        $preferencesBeforePreview = [IO.File]::ReadAllText((Join-Path $state 'preferences.json'))
+        $preferencesBeforePreview = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json'))
         $sample = Find-ById $window 'candidate-preview-sample'
         if (-not $sample) { throw 'Candidate preview sample input is missing' }
         $sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('杉树🌲 Alpha')
@@ -1699,7 +1738,7 @@ try {
             $first = Find-ById $window 'candidate-preview-word-0'
         } while ((-not $first -or $first.Current.Name -ne '你们') -and [DateTime]::UtcNow -lt $deadline)
         if (-not $first -or $first.Current.Name -ne '你们') { throw 'Whitespace did not restore the default preview' }
-        if ([IO.File]::ReadAllText((Join-Path $state 'preferences.json')) -ne $preferencesBeforePreview) { throw 'Preview-only controls changed saved preferences' }
+        if ((Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) -ne $preferencesBeforePreview) { throw 'Preview-only controls changed saved preferences' }
         # 真实开关必须同时改变持久化和预览宽度，再切回初始值，避免静态画面假通过。预览下面照 macOS 不再写尺寸，画出来的 DIP 尺寸在「预览」小字的帮助文本里。
         Open-Page $window 'toolbar'
         $size = Find-ById $window 'toolbar-preview-label'
@@ -1713,7 +1752,7 @@ try {
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             do {
                 Start-Sleep -Milliseconds 200
-                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+                $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
                 $size = Find-ById $window 'toolbar-preview-label'
                 $changed = $size -and ($size.Current.HelpText -ne $original)
             } while (($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) -and [DateTime]::UtcNow -lt $deadline)
@@ -1744,7 +1783,7 @@ try {
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
-            $savedEntries = @(Get-Content -LiteralPath (Join-Path $state 'clipboard_history.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
+            $savedEntries = @((Read-SettingsSnapshotText (Join-Path $state 'clipboard_history.json')) | ConvertFrom-Json)
         } while (-not $savedEntries[0].pinned -and [DateTime]::UtcNow -lt $deadline)
         if (-not $savedEntries[0].pinned) { throw 'Clipboard pin action was not saved' }
         # 写盘完成不等于 UI 回调已呈现；确认固定标记与可用操作后再验收最终画面。

@@ -375,6 +375,26 @@ pub fn reorder_candidates_with_single_helpcode(
     candidates
 }
 
+/// 一码严格筛选：只保留至少一个汉字命中该码的候选；未命中的候选被排除。
+pub fn filter_candidates_with_single_helpcode(
+    candidates: Vec<WordItem>,
+    help_code: &str,
+    keymap: &HelpcodeKeymap,
+) -> Vec<WordItem> {
+    if help_code.len() != 1 {
+        return Vec::new();
+    }
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            !matches!(
+                match_single_helpcode(&candidate.word, help_code, keymap),
+                SingleHelpcodeMatch::None
+            )
+        })
+        .collect()
+}
+
 /// Only the double-helpcode matches; empty unless `help_codes` is two letters.
 pub fn filter_candidates_with_double_helpcodes(
     candidates: Vec<WordItem>,
@@ -858,5 +878,7 @@ mod tests {
             filter_candidates_with_double_helpcodes(items(&["泥", "你", "拟"]), "ab", &map);
         assert_eq!(words(&filtered), ["你"]);
         assert!(filter_candidates_with_double_helpcodes(items(&["你"]), "a", &map).is_empty());
+        let strict = filter_candidates_with_single_helpcode(items(&["泥", "你", "拟"]), "a", &map);
+        assert_eq!(words(&strict), ["你", "拟"]);
     }
 }

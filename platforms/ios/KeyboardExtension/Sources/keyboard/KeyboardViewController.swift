@@ -4317,7 +4317,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if scheme.isJapanese { return "日" }
     switch scheme {
     case .korean: return "한"
-    case .cantonese: return "粤"
+    case .cantonese, .cantoneseShuangpin: return "粤"
     case .zhuyin: return "注"
     case .vietnamese: return "越"
     case .tibetan: return "藏"
@@ -4332,6 +4332,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch scheme {
     case .korean: return "韩语输入"
     case .cantonese: return "粤语输入"
+    case .cantoneseShuangpin: return "粤语双拼输入"
     case .zhuyin: return "注音输入"
     case .vietnamese: return "越南语输入"
     case .tibetan: return "藏文输入"
@@ -4638,7 +4639,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .wubi: letterGrid == .fourteenKey ? session.switchToFourteenKeyWubi() : session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .korean: session.switchToKorean()
-    case .cantonese: session.switchToCantonese()
+    case .cantonese, .cantoneseShuangpin: session.switchToCantonese()
     case .zhuyin: session.switchToZhuyin()
     case .vietnamese: session.switchToVietnamese()
     case .tibetan: session.switchToTibetan()
@@ -4685,6 +4686,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func selectInputScheme(_ scheme: ChineseInputScheme, persistShared: Bool = true) {
     guard InputSchemePreference.offeredSchemes.contains(scheme) else { return }
     if scheme == inputScheme { return }
+    let previous = inputScheme
     // 换到别的方案：「手写」图块记下的方案作废，图块自己在这之后重新记。
     schemeBeforeHandwriting = nil
     playInputClick()
@@ -4693,9 +4695,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if composesInPlace && hasComposition { render(session.finishComposition(), source: source) }
     handwriting.clear()
     inputScheme = scheme
+    // 双拼入口必须先写选中标识，接下来的会话切换才会按双拼解释同形粤拼码。
+    let savedCantoneseShuangpin = persistShared && scheme == .cantoneseShuangpin
+    if savedCantoneseShuangpin && !session.setTouchKeyboardScheme(scheme, enabledSchemes: InputSchemePreference.enabledSchemes) {
+      inputScheme = previous
+      return
+    }
     let snapshot = applyInputScheme()
     InputSchemePreference.scheme = scheme
-    if persistShared {
+    if persistShared && !savedCantoneseShuangpin {
       _ = session.setTouchKeyboardScheme(scheme, enabledSchemes: InputSchemePreference.enabledSchemes)
     }
     showsSymbols = false
@@ -6499,6 +6507,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if localModeTrigger != nil { return .local }
     if !isChineseMode { return .english }
     if inputScheme == .nineKeyShuangpin { return .nineKey }
+    if inputScheme == .cantoneseShuangpin { return .cantonese }
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 

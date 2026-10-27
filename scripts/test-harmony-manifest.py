@@ -19,15 +19,56 @@ an ability carrying `entity.system.home`: it is what the launcher draws.
 The packaged manifest is where the answer really lives — a `$media:` reference that does not resolve
 is dropped rather than failing the build — so this also checks the built `module.json` when one is
 there, which is where `iconId` appears.
+
+An icon with transparent pixels. AppGallery review rejects a package whose configured icons carry any transparency (the published rule covers rounded corners cut into the image and transparent padding alike), and it sent the keyboard back once for pointing `KeyboardExtensionAbility` at the transparent `app_icon.png` the keyboard draws as an image. Every icon the manifests name must be a PNG without an alpha channel or `tRNS` chunk, or a layered icon whose background layer is one; the foreground layer of a layered icon is meant to be transparent around the mark.
 """
 import json
 import pathlib
 import re
+import struct
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "platforms/harmony/entry/src/main/module.json5"
 PACKAGED = ROOT / "platforms/harmony/entry/build/default/outputs/default"
+APP = ROOT / "platforms/harmony/AppScope/app.json5"
+MEDIA = (
+    ROOT / "platforms/harmony/AppScope/resources/base/media",
+    ROOT / "platforms/harmony/entry/src/main/resources/base/media",
+)
+
+
+def png_transparency(path: pathlib.Path) -> str | None:
+    """Why the PNG at `path` can hold transparent pixels, or None when it cannot: colour types 4 and 6 carry alpha, and a `tRNS` chunk makes chosen colours transparent."""
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return "is not a PNG"
+    if data[25] in (4, 6):
+        return "has an alpha channel"
+    offset = 8
+    while offset + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[offset : offset + 8])
+        if kind == b"tRNS":
+            return "has a tRNS chunk"
+        if kind == b"IDAT":
+            return None
+        offset += 12 + length
+    return None
+
+
+def icon_transparency(reference: str) -> str | None:
+    """Check the image a `$media:` icon reference names; a layered icon is judged by its background layer."""
+    name = reference.removeprefix("$media:")
+    for directory in MEDIA:
+        layered = directory / f"{name}.json"
+        if layered.is_file():
+            background = json.loads(layered.read_text(encoding="utf-8"))["layered-image"]["background"]
+            problem = icon_transparency(background)
+            return None if problem is None else f"background layer {background} {problem}"
+        image = directory / f"{name}.png"
+        if image.is_file():
+            return png_transparency(image)
+    return "names no PNG or layered icon in the base media folders"
 
 
 def without_comments(text: str) -> str:
@@ -69,6 +110,18 @@ def main() -> int:
         )
         if home and not element.get("icon"):
             failures.append(f"{element['name']} is a launcher entry and declares no icon")
+
+    icons = [(element["name"], element["icon"]) for element in elements if element.get("icon")]
+    if APP.is_file():
+        app_icon = json.loads(without_comments(APP.read_text(encoding="utf-8")))["app"].get("icon")
+        if app_icon:
+            icons.append(("app.json5", app_icon))
+    for owner, reference in icons:
+        problem = icon_transparency(reference)
+        if problem is not None:
+            failures.append(
+                f"{owner} uses {reference}, which {problem}; AppGallery review rejects icons with transparent pixels"
+            )
 
     # The build is where a $media: reference is resolved, and an unresolved one is simply dropped.
     built = PACKAGED / "module.json"

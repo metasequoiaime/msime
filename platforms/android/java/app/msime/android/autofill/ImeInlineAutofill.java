@@ -123,6 +123,8 @@ final class ImeInlineAutofill {
         return visible;
     }
 
+    boolean visible() { return row != null && row.getVisibility() == View.VISIBLE; }
+
     void setHeight(int height) {
         if (row != null) ViewPolicy.setFixedHeight(row, height);
     }

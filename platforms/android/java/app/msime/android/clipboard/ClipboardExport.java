@@ -15,6 +15,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import org.json.JSONObject;
 
@@ -47,26 +48,27 @@ public final class ClipboardExport {
         File temporary = null;
         try {
             ClipboardHistoryStore store = ClipboardHistoryStore.forContext(context);
-            ClipboardHistoryStore.Export snapshot = selectedTexts == null
-                ? store.exportText() : store.exportSelectedText(selectedTexts);
-            if (snapshot.count() == 0) return "剪贴板历史为空，未导出";
+            List<ClipboardHistory.Item> snapshot = ClipboardExportFormat.select(store.load(), selectedTexts);
+            if (snapshot.isEmpty()) return "剪贴板历史为空，未导出";
             String selected = saved(context);
             if (selected.isEmpty() && Build.VERSION.SDK_INT < 29) return NEEDS_DIRECTORY;
             if (!selected.isEmpty()) {
                 try { ExportDirectory.inspect(context, selected); }
                 catch (IOException | RuntimeException unavailable) { return "导出文件夹不可用，请重新选择"; }
             }
-            String filename = LocalBackupPolicy.baseName(context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
-                AppVersionPolicy.versionName(context, "0"), LocalDateTime.now()) + ".txt";
+            String filename = LocalBackupPolicy.clipboardFileName(
+                context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
+                AppVersionPolicy.versionName(context, "0"), LocalDateTime.now());
             temporary = new File(context.getCacheDir(), filename);
-            Files.write(temporary.toPath(), snapshot.text().getBytes(StandardCharsets.UTF_8));
+            Files.write(temporary.toPath(), ClipboardExportFormat.format(snapshot, ZoneId.systemDefault())
+                .getBytes(StandardCharsets.UTF_8));
             // 构建快照期间隐私设置可能已改变，公开文件前再检查一次。
             preferences = preferences(context);
             if (preferences == null || !preferences.optBoolean("clipboard_history", false))
                 return "剪贴板历史未开启，未导出";
             String directory = selected.isEmpty() ? writeDownloads(context, temporary)
                 : ExportDirectory.write(context, selected, temporary, "text/plain");
-            return "导出完成：" + snapshot.count() + " 条，已保存到「" + directory + "」/" + filename;
+            return "导出完成：" + snapshot.size() + " 条，已保存到「" + directory + "」/" + filename;
         } catch (IOException | RuntimeException failed) {
             return "剪贴板未导出成功，请检查目录权限和剩余空间；若有未完成文件，请手动删除";
         } finally {

@@ -66,6 +66,8 @@ pub struct EngineOptions {
     /// `shuangpin_profile` 为 4 时的键位表（`SessionOptions::shuangpin_custom_profile`）。双拼在 `enabled_schemes` 里时缺表或表不合法，建会话失败（`INVALID_CUSTOM_SHUANGPIN_PROFILE`）；宿主应先用 `validate_shuangpin_custom_profile` 校验，不合法就不要传 4。
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
+    /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
+    pub force_cantonese_shuangpin: bool,
     pub learning: bool,
     /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。
     pub learn_english_on_enter: bool,
@@ -81,6 +83,8 @@ pub struct EngineOptions {
     /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
     pub helpcode: bool,
+    /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
+    pub strict_quanpin_helpcode: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
     /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
@@ -224,6 +228,7 @@ pub fn prepare_options_for(
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -236,6 +241,7 @@ pub fn prepare_options_for(
         wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         helpcode: true,
+        strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".to_owned(),
@@ -340,6 +346,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.shuangpin_profile = shuangpin_profile;
     session.shuangpin_custom_profile = options.shuangpin_custom_profile.clone();
     session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
+    session.force_cantonese_shuangpin = options.force_cantonese_shuangpin;
     session.single_character_only = options.single_character_only;
     session.caret_edit_suffix = options.caret_edit_suffix;
     session.vietnamese_input_method = vietnamese_input_method;
@@ -379,6 +386,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         enumeration_comma_slash: options.enumeration_comma_slash,
     };
     session.helpcode = options.helpcode;
+    session.strict_quanpin_helpcode = options.strict_quanpin_helpcode;
     session.helpcode_trigger_key = options.helpcode_trigger_key;
     session.shuangpin_helpcode_modes = options.shuangpin_helpcode_modes;
     session.helpcode_schema = options.helpcode_schema.clone();

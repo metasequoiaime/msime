@@ -1,12 +1,5 @@
-file(READ "${SOURCE_ROOT}/../../../Cargo.toml" workspace_manifest)
-string(REGEX MATCH
-  "\\[workspace\\.package\\][ \t\r\n]+version[ \t]*=[ \t]*\"([0-9]+)\\.([0-9]+)\\.([0-9]+)\""
-  workspace_version_match "${workspace_manifest}")
-if(NOT workspace_version_match)
-  message(FATAL_ERROR "workspace package version missing or unsupported")
-endif()
-set(expected_version "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}.0")
-set(expected_version_commas "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0")
+# DLL 版本资源使用本次构建所属产品线的版本：现代 Windows 读 platforms/windows/version.txt，Win7 读 version-win7.txt，与 Server 上报的版本一致。
+set(windows_root "${SOURCE_ROOT}/..")
 
 file(READ "${SOURCE_ROOT}/Header/resource.h" resource_header)
 if(NOT resource_header MATCHES "#define[ \t]+VS_VERSION_INFO[ \t]+1")
@@ -17,33 +10,53 @@ if(resource_header MATCHES "IDR_VERSION2")
 endif()
 
 file(READ "${SOURCE_ROOT}/IME/MetasequoiaIME.rc" version_resource)
+if(NOT version_resource MATCHES "#include \"msime_tsf_version.h\"")
+  message(FATAL_ERROR "the version resource does not include the generated msime_tsf_version.h")
+endif()
 foreach(kind IN ITEMS FILEVERSION PRODUCTVERSION)
-  string(REGEX MATCH
-    "${kind}[ \t]+([0-9]+),([0-9]+),([0-9]+),([0-9]+)"
-    numeric_version_match "${version_resource}")
-  if(NOT numeric_version_match)
-    message(FATAL_ERROR "${kind} numeric resource is missing")
-  endif()
-  set(actual_version_commas
-    "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},${CMAKE_MATCH_4}")
-  if(NOT actual_version_commas STREQUAL expected_version_commas)
-    message(FATAL_ERROR
-      "${kind} ${actual_version_commas} does not match workspace ${expected_version_commas}")
+  if(NOT version_resource MATCHES "${kind}[ \t]+MSIME_TSF_VERSION_MAJOR,MSIME_TSF_VERSION_MINOR,MSIME_TSF_VERSION_PATCH,0")
+    message(FATAL_ERROR "${kind} does not come from the generated product version")
   endif()
 endforeach()
-
 foreach(field IN ITEMS FileVersion ProductVersion)
-  string(FIND "${version_resource}"
-    "VALUE \"${field}\", \"${expected_version}\"" field_position)
+  string(FIND "${version_resource}" "VALUE \"${field}\", MSIME_TSF_VERSION_STRING" field_position)
   if(field_position EQUAL -1)
-    message(FATAL_ERROR "${field} does not match workspace ${expected_version}")
+    message(FATAL_ERROR "${field} does not come from the generated product version")
   endif()
 endforeach()
+if(version_resource MATCHES "VERSION[ \t]+[0-9]+,[0-9]+,[0-9]+,[0-9]+")
+  message(FATAL_ERROR "a hand-written numeric version remains in the version resource")
+endif()
 
 foreach(field IN ITEMS InternalName OriginalFilename)
   string(FIND "${version_resource}"
     "VALUE \"${field}\", \"MetasequoiaImeTsf.dll\"" field_position)
   if(field_position EQUAL -1)
     message(FATAL_ERROR "${field} does not match the TSF DLL output name")
+  endif()
+endforeach()
+
+# 核对两条产品线：模块读取版本文件，模板将其转换为四段资源版本。
+file(READ "${windows_root}/ProductVersion.cmake" product_version_module)
+foreach(version_file IN ITEMS version.txt version-win7.txt)
+  string(FIND "${product_version_module}" "${version_file}" module_position)
+  if(module_position EQUAL -1)
+    message(FATAL_ERROR "ProductVersion.cmake does not read ${version_file}")
+  endif()
+  file(STRINGS "${windows_root}/${version_file}" product_version LIMIT_COUNT 1)
+  string(STRIP "${product_version}" product_version)
+  if(NOT product_version MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
+    message(FATAL_ERROR "${version_file} is not MAJOR.MINOR.PATCH: ${product_version}")
+  endif()
+  set(MSIME_TSF_VERSION_MAJOR "${CMAKE_MATCH_1}")
+  set(MSIME_TSF_VERSION_MINOR "${CMAKE_MATCH_2}")
+  set(MSIME_TSF_VERSION_PATCH "${CMAKE_MATCH_3}")
+  set(generated "${CMAKE_CURRENT_BINARY_DIR}/msime-tsf-version-resource-test/${version_file}.h")
+  configure_file("${SOURCE_ROOT}/IME/msime_tsf_version.h.in" "${generated}" @ONLY)
+  file(READ "${generated}" generated_header)
+  file(REMOVE "${generated}")
+  string(FIND "${generated_header}" "#define MSIME_TSF_VERSION_STRING \"${product_version}.0\"" string_position)
+  if(string_position EQUAL -1)
+    message(FATAL_ERROR "the generated header for ${version_file} does not carry ${product_version}.0")
   endif()
 endforeach()

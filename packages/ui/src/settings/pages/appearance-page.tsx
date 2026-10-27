@@ -28,6 +28,7 @@ import { CandidateFontSettingsRows } from "../candidate-font-settings-rows";
 import { CandidateBadgeSettingsSection } from "../candidate-badge-settings-section";
 import { SegmentedRow } from "../segmented-row";
 import { SliderRow } from "../slider-row";
+import { SwitchRow } from "../switch-row";
 
 /** 候选窗口按功能分区，共用预览；手机保留直列和折叠区。 */
 export function AppearanceSettingsPage() {
@@ -296,6 +297,16 @@ export function AppearanceSettingsPage() {
         showShuangpinPreedit={shuangpinPreeditHere}
         onChange={appearanceActions.onPreferencesChange}
       />
+      {host?.platform === "macos" && (
+        <SwitchRow
+          title="显示候选状态和装饰"
+          description="在拼音预编辑旁显示输入方案、中英文、简繁状态和水杉枝叶装饰。"
+          checked={draft.show_candidate_status !== false}
+          onChange={(show_candidate_status) =>
+            appearanceActions.onPreferencesChange({ show_candidate_status })
+          }
+        />
+      )}
     </>
   );
   return (

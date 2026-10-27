@@ -644,11 +644,13 @@ pub enum TouchKeyboardScheme {
     NineKeyShuangpin,
     /// 全拼十八键（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::EighteenKey`），Android、iOS 和鸿蒙的触屏键盘都有；默认不启用，由用户选择布局。
     EighteenKey,
+    /// 粤语双拼 26 键：与粤拼共用词典，按选中入口显式解释同形两键码。
+    CantoneseShuangpin,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -669,6 +671,7 @@ impl TouchKeyboardScheme {
         Self::FourteenKey,
         Self::NineKeyShuangpin,
         Self::EighteenKey,
+        Self::CantoneseShuangpin,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。
@@ -1356,6 +1359,9 @@ pub struct Preferences {
     /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
+    /// macOS 候选窗首行的输入状态文字和枝叶装饰，独立于拼音预编辑开关。
+    #[serde(default = "enabled_by_default")]
+    pub show_candidate_status: bool,
     #[serde(default)]
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
@@ -3552,6 +3558,7 @@ impl Default for Preferences {
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             show_candidate_page_number: true,
+            show_candidate_status: true,
             tsf_preedit_style: PreeditStyle::default(),
             diagnostic_log: DiagnosticLogPreferences::default(),
             candidate_follow_cursor: true,
@@ -3935,6 +3942,9 @@ pub struct HelpcodePreferences {
     pub schema: HelpcodeSchema,
     #[serde(default = "enabled_by_default")]
     pub show_in_candidate_window: bool,
+    /// 一码辅助码严格排除不匹配候选；默认关闭，保持已有的一码重排行为。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub strict_filter: bool,
     /// 双拼专属的辅助码触发方式，对应 Windows v0.11.1 `[helpcode]` 组里 `shuangpin_helpcode_direct` 起的十一枚键；`quanpin_helpcode` 不读这一段。等于默认值时不写进文档，旧文档缺这一段时按 [`ShuangpinHelpcodeModes::default`] 处理。
     #[serde(default, skip_serializing_if = "ShuangpinHelpcodeModes::is_default")]
     pub modes: ShuangpinHelpcodeModes,
@@ -3947,6 +3957,7 @@ impl Default for HelpcodePreferences {
             schema: HelpcodeSchema::default(),
             trigger_key: String::new(),
             show_in_candidate_window: true,
+            strict_filter: false,
             modes: ShuangpinHelpcodeModes::default(),
         }
     }
@@ -4027,6 +4038,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Ziranma,
         trigger_key: String::new(),
         show_in_candidate_window: false,
+        strict_filter: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }
@@ -4080,6 +4092,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,
+        strict_filter: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }

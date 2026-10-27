@@ -4238,9 +4238,10 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::FourteenKey,
             TouchKeyboardScheme::NineKeyShuangpin,
             TouchKeyboardScheme::EighteenKey,
+            TouchKeyboardScheme::CantoneseShuangpin,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 20);
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 21);
     // 全拼 14 键和九键双拼也不在以前的默认列表里，没存列表的旧文档不会凭空多出它们。
     for scheme in [
         TouchKeyboardScheme::FourteenKey,
@@ -4250,6 +4251,10 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
     }
     for (scheme, id) in [
         (TouchKeyboardScheme::Cantonese, "cantonese"),
+        (
+            TouchKeyboardScheme::CantoneseShuangpin,
+            "cantonese_shuangpin",
+        ),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
         (TouchKeyboardScheme::Vietnamese, "vietnamese"),
         (TouchKeyboardScheme::Tibetan, "tibetan"),
@@ -4662,6 +4667,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 enabled: false,
                 schema,
                 show_in_candidate_window: true,
+                strict_filter: false,
                 modes: ShuangpinHelpcodeModes::default(),
             },
             ..Preferences::default()
@@ -8074,4 +8080,24 @@ fn text_edit_button_order_saved_before_select_line_still_loads() {
         store.load(),
         Err(PreferencesError::InvalidTextEditButtonOrder)
     ));
+}
+
+#[test]
+fn candidate_status_defaults_on_and_can_be_disabled_without_changing_preedit() {
+    assert!(Preferences::default().show_candidate_status);
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("show_candidate_status");
+    let mut preferences: Preferences = serde_json::from_value(value).unwrap();
+    assert!(preferences.show_candidate_status);
+    preferences.show_candidate_status = false;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert!(!restored.show_candidate_status);
+    assert_eq!(
+        restored.candidate_preedit_style,
+        Preferences::default().candidate_preedit_style
+    );
 }

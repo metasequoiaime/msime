@@ -2040,11 +2040,17 @@ test("helpcode schemes save independently and retain disabled selections", async
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: false,
+      schema: "xiaohe",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
     shuangpin_helpcode: {
       enabled: true,
       schema: "wubi86",
       show_in_candidate_window: true,
+      strict_filter: false,
       modes: defaultShuangpinHelpcodeModes,
     },
   });
@@ -10338,7 +10344,12 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     candidate_page_size: 9,
-    quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: false,
+      schema: "ziranma",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
   });
   expect(client.load).toHaveBeenCalledTimes(1);
 });

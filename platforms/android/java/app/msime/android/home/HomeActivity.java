@@ -199,6 +199,10 @@ public final class HomeActivity extends AppCompatActivity {
     /** 每次回到前台都按今天的月份重新解析一次应用主题：「水杉四季」跨季节时，开着的页面要换成新季节的颜色。 */
     @Override protected void onResume() {
         super.onResume();
+        View intro = findViewById(R.id.home_intro);
+        if (!ViewPolicy.isVisible(intro) && OnboardingActivity.seen(this)) {
+            InstallNotice.showIfNeeded(this);
+        }
         themeWorker.execute(() -> {
             JSONObject snapshot = HostStore.prepared(this) ? HostStore.loadPreferences(this) : null;
             JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");

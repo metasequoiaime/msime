@@ -2,7 +2,7 @@
 
 The Windows DLL requires `MSIME_HOST_LIBRARY` at CMake configure time. Supply an absolute path to the Cargo-built host static library or DLL import library for the same architecture. Missing paths and directories are rejected before native dependency discovery. The linker remains responsible for format, architecture and symbols. Portable component tests and the standalone export fixture do not require it.
 
-The DLL version resource uses the standard `VS_VERSION_INFO` identifier, the workspace package version with a zero Windows revision, and the actual `MetasequoiaImeTsf.dll` output name. The portable CMake tests verify this source contract without loading or registering the DLL.
+The DLL version resource uses the standard `VS_VERSION_INFO` identifier, the version of the product line being built with a zero Windows revision, and the actual `MetasequoiaImeTsf.dll` output name. `platforms/windows/ProductVersion.cmake` takes that version from `MSIME_WINDOWS_VERSION` when the installer build scripts pass it, otherwise from `platforms/windows/version.txt` (or `version-win7.txt` with `MSIME_WINDOWS7_CLIENT`), the same source as the version the Server reports, and generates `msime_tsf_version.h` for the resource script. The portable CMake tests verify this source contract without loading or registering the DLL.
 
 The TIP reads `%LOCALAPPDATA%\MSIME-Client\runtime-options.json`, not legacy product state or guessed paths relative to the embedding application. The installer prepares that state for the production TIP; the command below prepares an equivalent state directory by hand, which is what a development build of the DLL wants.
 
