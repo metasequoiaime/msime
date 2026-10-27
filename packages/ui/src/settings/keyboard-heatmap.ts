@@ -5,6 +5,12 @@ import {
   type PreviewKey,
 } from "../keyboard/keyboard-layouts";
 import { clamp } from "../core/number";
+import {
+  nineKeyBottomRows,
+  numberRowKeys,
+  twentySixKeyBottomRows,
+  type TouchKeyLayoutStyle,
+} from "../keyboard/touch-key-layout-styles";
 
 /** Per-key press counts per local day, as the statistics store keeps them: `{ "YYYY-MM-DD": { keyId: count } }`. */
 export type DailyKeyCounts = Record<string, Record<string, number>>;
@@ -320,6 +326,23 @@ export const phoneHeatmapRows: Record<PhoneHeatmapLayout, PhoneHeatmapKey[][]> =
   ],
 };
 
+/**
+ * 用户当前按键布局下的热力图键盘：在 `phoneHeatmapRows` 的基础上换上所选样式的底行（`touch_twenty_six_key_style`、`touch_nine_key_style`，键序、份额与 id 和键盘相同，见 `touch-key-layout-styles.ts`），26 键打开数字行时在字母上方加 1 到 0（记 `Digit1`…`Digit0`）。不给样式时就是 `phoneHeatmapRows` 本身。
+ */
+export function phoneHeatmapLayoutRows(
+  layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
+): PhoneHeatmapKey[][] {
+  const rows = phoneHeatmapRows[layout];
+  if (!style) return rows;
+  const bottom =
+    layout === "full"
+      ? twentySixKeyBottomRows[style.twentySixKeyStyle]
+      : nineKeyBottomRows[style.nineKeyStyle];
+  const numberRow = layout === "full" && style.numberRow ? [numberRowKeys] : [];
+  return [...numberRow, ...rows.slice(0, -1), bottom];
+}
+
 /** 一个画出的键的次数：`code` 加上 `also` 里各 id 的次数；占位为 0。 */
 export function phoneHeatmapCount(counts: Record<string, number>, key: PhoneHeatmapKey): number {
   if (!key.code) return 0;
@@ -329,9 +352,9 @@ export function phoneHeatmapCount(counts: Record<string, number>, key: PhoneHeat
 }
 
 /** `layout` 画出的键所用的 id（含 `also`），每个只出现一次。 */
-function phoneHeatmapCodes(layout: PhoneHeatmapLayout): Set<string> {
+function phoneHeatmapCodes(layout: PhoneHeatmapLayout, style?: TouchKeyLayoutStyle): Set<string> {
   const codes = new Set<string>();
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) {
       if (key.code) codes.add(key.code);
       for (const code of key.also ?? []) codes.add(code);
@@ -340,10 +363,13 @@ function phoneHeatmapCodes(layout: PhoneHeatmapLayout): Set<string> {
 }
 
 /** `layout` 中由不止一个键帽共用的 id：这些键帽画的是合计，所以不单独标占比。 */
-export function phoneHeatmapSharedCodes(layout: PhoneHeatmapLayout): Set<string> {
+export function phoneHeatmapSharedCodes(
+  layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
+): Set<string> {
   const seen = new Set<string>();
   const shared = new Set<string>();
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) {
       if (!key.code) continue;
       if (seen.has(key.code)) shared.add(key.code);
@@ -356,8 +382,9 @@ export function phoneHeatmapSharedCodes(layout: PhoneHeatmapLayout): Set<string>
 export function phoneHeatmapOthers(
   counts: Record<string, number>,
   layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
 ): KeyCount[] {
-  const drawn = phoneHeatmapCodes(layout);
+  const drawn = phoneHeatmapCodes(layout, style);
   return Object.entries(counts)
     .filter(([code, count]) => count > 0 && !drawn.has(code))
     .map(([code, count]) => ({ code, label: keyLabel(code), count }))
@@ -391,9 +418,10 @@ export function summaryHeatLevel(count: number, peak: number): number {
 export function phoneHeatmapPeak(
   counts: Record<string, number>,
   layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
 ): number {
   let peak = 0;
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) peak = Math.max(peak, phoneHeatmapCount(counts, key));
   return peak;
 }
@@ -404,9 +432,10 @@ export function phoneHeatmapPeak(
 export function phoneHeatmapLeader(
   counts: Record<string, number>,
   layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
 ): { label: string; count: number } | null {
   let best: { label: string; count: number } | null = null;
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) {
       const code = key.code ?? "";
       const spelling = layout === "nine" ? /^Nine[2-9]$/.test(code) : /^Key[A-Z]$/.test(code);

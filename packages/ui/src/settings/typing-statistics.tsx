@@ -50,6 +50,7 @@ import { StatisticsSection } from "./statistics-section";
 import { TypingStatisticsUpload } from "./typing-statistics-upload";
 export type { TypingBreakdown } from "./typing-speed";
 export type { TypingSummary } from "./typing-summary";
+import type { TouchKeyLayoutStyle } from "../keyboard/touch-key-layout-styles";
 import { dayLabel, mobileTrendLength, recentDays } from "./typing-statistics-helpers";
 import {
   StatisticsMetric,
@@ -146,6 +147,8 @@ type TypingStatisticsPageProps = {
   openSystemSettings?: () => Promise<void>;
   /** 鸿蒙统计摘要使用「概览 / 习惯 / 按键 / 成就」四个标签。 */
   look?: StatisticsLook;
+  /** HarmonyOS 手机上用户当前的按键布局样式与数字行，按键热力图照它画；不传时画默认键盘。 */
+  layoutStyle?: TouchKeyLayoutStyle;
 };
 
 function TypingStatisticsContent({
@@ -154,6 +157,7 @@ function TypingStatisticsContent({
   platform,
   openSystemSettings,
   look,
+  layoutStyle,
 }: TypingStatisticsPageProps) {
   const { confirm, confirmation } = useConfirm();
   const { status, today, busy, error, summary, summaryFailed, update, openDataDirectory } =
@@ -274,6 +278,7 @@ function TypingStatisticsContent({
             summary={summary}
             dailyKeys={statistics.dailyKeys}
             uploading={uploadEnabled}
+            layoutStyle={layoutStyle}
           />
         ) : summaryFailed ? (
           <ErrorAlert>统计暂时读不到，可以在右上角菜单里刷新。</ErrorAlert>

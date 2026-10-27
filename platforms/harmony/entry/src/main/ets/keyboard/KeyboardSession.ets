@@ -25,6 +25,7 @@ import { AppThemeStore } from './skin/AppThemeStore';
 import { CommonPhraseStarters } from './CommonPhraseStarters';
 import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
+import { TouchLayoutStylePolicy } from './TouchLayoutStylePolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -940,6 +941,14 @@ interface PreparedPreferences {
   touch_shuangpin_key_hints?: boolean;
   /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」；旧文档没有这个键，按关。 */
   touch_quanpin_shift?: boolean;
+  /** 中文 26 键底行样式（standard / comma_period / long_space / emoji）；等于默认值时 client-core 不写进文档。 */
+  touch_twenty_six_key_style?: string;
+  /** 14 键与 18 键底行样式（standard / long_space / emoji）；默认值不写进文档。 */
+  touch_fourteen_key_style?: string;
+  /** 九键底行样式（standard / comma_period / emoji）；默认值不写进文档。 */
+  touch_nine_key_style?: string;
+  /** 26/14/18 键字母上方的 1 到 0 数字行；默认关，不写进文档。 */
+  touch_number_row?: boolean;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1099,6 +1108,14 @@ export interface KeyboardPreferences {
   readonly quanpinShift: boolean;
   /** `harmony_toolbar`：手机工具栏上显示哪些工具，整行是否隐藏。 */
   readonly toolbarTools: ToolbarTools;
+  /** `touch_twenty_six_key_style`：中文 26 键的底行样式，不认识的值按 `standard`（`TouchLayoutStylePolicy`）。 */
+  readonly twentySixKeyStyle: string;
+  /** `touch_fourteen_key_style`：14 键与 18 键的底行样式。 */
+  readonly fourteenKeyStyle: string;
+  /** `touch_nine_key_style`：九键字母层的底行样式。 */
+  readonly nineKeyStyle: string;
+  /** `touch_number_row`：26/14/18 键字母上方画 1 到 0。 */
+  readonly numberRow: boolean;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1394,7 +1411,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     shuangpinKeyHints: false,
     quanpinShift: false,
-    toolbarTools: TouchToolbarPolicy.DEFAULT
+    toolbarTools: TouchToolbarPolicy.DEFAULT,
+    twentySixKeyStyle: TouchLayoutStylePolicy.STANDARD,
+    fourteenKeyStyle: TouchLayoutStylePolicy.STANDARD,
+    nineKeyStyle: TouchLayoutStylePolicy.STANDARD,
+    numberRow: false
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1812,7 +1833,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
       shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true,
       quanpinShift: preferences.touch_quanpin_shift === true,
-      toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar)
+      toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar),
+      twentySixKeyStyle: TouchLayoutStylePolicy.twentySixKeyStyle(preferences.touch_twenty_six_key_style),
+      fourteenKeyStyle: TouchLayoutStylePolicy.fourteenKeyStyle(preferences.touch_fourteen_key_style),
+      nineKeyStyle: TouchLayoutStylePolicy.nineKeyStyle(preferences.touch_nine_key_style),
+      numberRow: preferences.touch_number_row === true
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -3083,6 +3108,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 当前编辑框是不是密码框；属性还没到达时说的是上一个编辑框，到达后 `onEditorChanged` 会再通知一次。 */
+  editorIsPassword(): boolean {
+    return this.traits.password;
+  }
+
   /** Whether something is being spelled right now, which decides who a physical key belongs to. */
   composing(): boolean {
     return HardwareKeyRouter.composing(this.editing, this.phrasePrefix);
@@ -4170,6 +4200,20 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   commitThenType(ascii: number): void {
     this.commitThenInsert(String.fromCharCode(ascii));
+  }
+
+  /**
+   * 数字行的数字，与 Android 数字行（`DeclinedKeyPolicy`）相同：先交给引擎，当前页有对应候选的 1–9 由运行时选词（韩语打开汉字列表时选汉字）；引擎不收时先结束还在的组合，再在后面上屏这个数字。是否收下只看引擎的 handled，不能像 `press` 那样把组字变了也算作收下：韩语音节、越南语单词等方案的引擎会先上屏组字再把数字交回宿主，这时组字已经空了，数字仍要由键盘输入；组合已经被引擎结束时 `commitThenType` 的结束组合什么也不做。
+   */
+  pressElseCommitThenType(ascii: number): void {
+    if (!this.composes() || this.handle === 0) {
+      this.press(ascii, false);
+      return;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.tapFeedback();
+    if (this.apply(client.character(this.handle, ascii, false))) return;
+    this.commitThenType(ascii);
   }
 
   /**

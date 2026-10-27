@@ -8,11 +8,23 @@ import {
 } from "@msime/ui";
 import {
   phoneHeatmapCount,
+  phoneHeatmapLayoutRows,
+  phoneHeatmapLeader,
   phoneHeatmapOthers,
+  phoneHeatmapPeak,
   phoneHeatmapRows,
   phoneHeatmapSharedCodes,
   type PhoneHeatmapLayout,
 } from "../../../../packages/ui/src/settings/keyboard-heatmap";
+import {
+  touchKeyLayoutStyle,
+  type TouchKeyLayoutStyle,
+} from "../../../../packages/ui/src/keyboard/touch-key-layout-styles";
+import {
+  DesignRowSlot,
+  StyledFace,
+  TouchLayoutStylePolicy,
+} from "../../../../platforms/harmony/entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
 // 直接读 HarmonyOS 键盘自己的布局表和键位 id，鸿蒙键盘改了九键网格或计数 id 时这里跟着变红，热力图不会再悄悄过时。
 import { NineKeyLayout } from "../../../../platforms/harmony/entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
@@ -251,4 +263,130 @@ test("keys pressed but not drawn on the shown phone keyboard are listed as other
   ]);
   expect(phoneHeatmapSharedCodes("nine")).toEqual(new Set(["SoftPunctuation"]));
   expect(phoneHeatmapSharedCodes("full").size).toBe(0);
+});
+
+// ---- 按键布局样式与数字行：热力图照用户当前的键盘画 ----
+
+const styled = (style: Partial<TouchKeyLayoutStyle>): TouchKeyLayoutStyle => ({
+  twentySixKeyStyle: "standard",
+  nineKeyStyle: "standard",
+  numberRow: false,
+  ...style,
+});
+
+const slotIds: Record<string, string> = {
+  [DesignRowSlot.LAYER]: "SoftLayer",
+  [DesignRowSlot.SYMBOL_PANEL]: "SoftSymbol",
+  [DesignRowSlot.EMOJI]: "SoftEmoji",
+  [DesignRowSlot.COMMA]: "Comma",
+  [DesignRowSlot.PERIOD]: "Period",
+  [DesignRowSlot.SPACE]: "Space",
+  [DesignRowSlot.LANGUAGE]: "SoftLanguage",
+  [DesignRowSlot.RETURN]: "Enter",
+};
+
+const round = (value: number) => Math.round(value * 100) / 100;
+
+test("the default style and no style draw exactly the heatmap the keyboard had before styles", () => {
+  for (const layout of ["full", "nine"] as const) {
+    expect(phoneHeatmapLayoutRows(layout)).toBe(phoneHeatmapRows[layout]);
+    expect(phoneHeatmapLayoutRows(layout, styled({}))).toEqual(phoneHeatmapRows[layout]);
+  }
+  // 文档里没有这几个键或存着本页不认识的样式时按标准画。
+  expect(touchKeyLayoutStyle({} as never)).toEqual(styled({}));
+  expect(
+    touchKeyLayoutStyle({
+      touch_twenty_six_key_style: "toString",
+      touch_nine_key_style: "split",
+    } as never),
+  ).toEqual(styled({}));
+});
+
+test("each 26-key style's heatmap bottom row is the HarmonyOS keyboard's row for that style", () => {
+  for (const style of ["standard", "comma_period", "long_space", "emoji"] as const) {
+    const rows = phoneHeatmapLayoutRows("full", styled({ twentySixKeyStyle: style }));
+    expect(rows.slice(0, 3)).toEqual(phoneHeatmapRows.full.slice(0, 3));
+    const keyboard = TouchLayoutStylePolicy.designRow(true, false, StyledFace.TWENTY_SIX, style);
+    expect(rows[3].map((key) => [key.code, round(key.weight)])).toEqual(
+      keyboard.map((entry) => [slotIds[entry.slot], round(entry.share)]),
+    );
+  }
+  expect(
+    phoneHeatmapLayoutRows("full", styled({ twentySixKeyStyle: "comma_period" }))[3].map(
+      (key) => key.label,
+    ),
+  ).toEqual(["123", "符", "，", "空格", "。", "中", "↵"]);
+  expect(
+    phoneHeatmapLayoutRows("full", styled({ twentySixKeyStyle: "emoji" }))[3].map(
+      (key) => key.label,
+    ),
+  ).toEqual(["123", "😀", "空格", "，", "中", "↵"]);
+});
+
+test("each 9-key style's heatmap bottom row is the HarmonyOS nine-key frame's row", () => {
+  const faces: Record<string, string> = {
+    symbol_panel: "SoftSymbol",
+    layer_toggle: "SoftLayer",
+    comma: "Comma",
+    period: "Period",
+    emoji: "SoftEmoji",
+    space: "Space",
+    language: "SoftLanguage",
+    return: "Enter",
+  };
+  for (const style of ["standard", "comma_period", "emoji"] as const) {
+    const rows = phoneHeatmapLayoutRows("nine", styled({ nineKeyStyle: style }));
+    expect(rows.slice(0, 3)).toEqual(phoneHeatmapRows.nine.slice(0, 3));
+    expect(rows[3].map((key) => [key.code, round(key.weight)])).toEqual(
+      NineKeyLayout.actionRow(false, false, style).map((action) => [
+        faces[action.kind],
+        round(action.weight),
+      ]),
+    );
+  }
+});
+
+test("the number row is drawn over the 26-key heatmap only and counts Digit1 to Digit0", () => {
+  const full = phoneHeatmapLayoutRows("full", styled({ numberRow: true }));
+  expect(full).toHaveLength(5);
+  expect(full[0].map((key) => [key.label, key.code, key.weight])).toEqual(
+    [..."1234567890"].map((digit) => [digit, `Digit${digit}`, 1]),
+  );
+  expect(full.slice(1)).toEqual(phoneHeatmapRows.full);
+  expect(phoneHeatmapLayoutRows("nine", styled({ numberRow: true }))).toEqual(
+    phoneHeatmapRows.nine,
+  );
+  const counts = { Digit1: 9, KeyQ: 4, SoftEmoji: 2, Period: 1 };
+  // 画着数字行时数字不再列进「其他键」，计数落在数字键帽上；没画时照旧是其他键。
+  expect(
+    phoneHeatmapOthers(counts, "full", styled({ numberRow: true })).map((key) => key.code),
+  ).toEqual(["SoftEmoji", "Period"]);
+  expect(phoneHeatmapOthers(counts, "full").map((key) => key.code)).toContain("Digit1");
+  expect(phoneHeatmapPeak(counts, "full", styled({ numberRow: true }))).toBe(9);
+  expect(phoneHeatmapPeak(counts, "full")).toBe(4);
+  // 表情键和独立句号画出来时也不再是其他键。
+  expect(
+    phoneHeatmapOthers(counts, "full", styled({ twentySixKeyStyle: "emoji" })).map(
+      (key) => key.code,
+    ),
+  ).toEqual(["Digit1", "Period"]);
+  expect(
+    phoneHeatmapOthers(counts, "full", styled({ twentySixKeyStyle: "comma_period" })).map(
+      (key) => key.code,
+    ),
+  ).toEqual(["Digit1", "SoftEmoji"]);
+  // 「字母键最常按」只看字母，数字行再忙也不是它。
+  expect(phoneHeatmapLeader(counts, "full", styled({ numberRow: true }))?.label).toBe("Q");
+  expect(phoneHeatmapSharedCodes("full", styled({ numberRow: true })).size).toBe(0);
+});
+
+test("every key a styled phone heatmap draws is an id the HarmonyOS keyboard records", () => {
+  for (const twentySixKeyStyle of ["standard", "comma_period", "long_space", "emoji"] as const)
+    for (const nineKeyStyle of ["standard", "comma_period", "emoji"] as const)
+      for (const layout of ["full", "nine"] as const)
+        for (const key of phoneHeatmapLayoutRows(
+          layout,
+          styled({ twentySixKeyStyle, nineKeyStyle, numberRow: true }),
+        ).flat())
+          if (key.code) expect(KEY_IDS).toContain(key.code);
 });
