@@ -1012,6 +1012,13 @@ while IFS= read -r key; do
     exit 1
   fi
 done <<< "$touch_style_reads"
+# 「按键布局」页的「顶部数字行」开关与 iOS、鸿蒙一样放在没有标题的一组；数字行只画在 26 键和 14/18 键上，本版本两类键面都没有时不列这个开关（与鸿蒙同一条规则）。
+style_page="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPage.java"
+if ! sed -n '/private void render(@Nullable JSONObject preferences) {$/,/^    }$/p' "$style_page" \
+    | rg_q_stdin -U 'if \(!twentySix && !fourteen\) return;\n\s*GroupCard numbers = GroupCard\.add\(target, null\);'; then
+  echo "Android 顶部数字行 must sit in an untitled group and be hidden when the edition offers neither 26-key nor 14/18-key faces" >&2
+  exit 1
+fi
 # 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。
 nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
 for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \
