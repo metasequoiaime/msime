@@ -64,3 +64,5 @@ Status: implemented
 - [Android `InputConnection.getExtractedText`](https://developer.android.com/reference/android/view/inputmethod/InputConnection#getExtractedText(android.view.inputmethod.ExtractedTextRequest,%20int))：编辑器可以返回空结果，返回范围不保证严格服从请求。
 
 [行边界与换行长按符号](2026-10-25-android-text-edit-line-keys.md)保留上排行首尾，将触控区限制在中央第二、三行；本篇的移动、预览和取消生命周期继续成立。
+
+[夜间设备验收失败的归因](../bug-fix/2026-10-28-android-nightly-device-failures.md)收窄了上文「用输入连接身份和代次丢弃迟到结果」：触控板自己设下的选区回报回来时不再作废在途的选词、选行回读，其余作废规则不变。
