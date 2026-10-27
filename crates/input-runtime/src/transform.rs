@@ -481,6 +481,11 @@ mod desktop {
 
         /// 内置排序之后调用：派发类调用里运行插件、记下它们的操作，其余调用只重放记下的操作。返回隐藏的行数或注释是否变了（重排由调用方比较数组得知）。
         pub(crate) fn transform_candidates(&mut self) -> bool {
+            if self.grid_helpcode_active() {
+                self.plugins.hidden_rows = 0;
+                self.plugins.clear_recorded();
+                return false;
+            }
             // 列表里还留着上一次插入的行（落定整理在原列表上重新排列时）：先拿掉，排完再按记下的插入放回。
             let inserted_before = self.remove_inserted_rows();
             let hidden_before = self.plugins.hidden_rows;

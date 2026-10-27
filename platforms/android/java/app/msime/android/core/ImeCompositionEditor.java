@@ -36,8 +36,11 @@ final class ImeCompositionEditor {
         ViewPolicy.hide(container);
     }
 
+    boolean isOpen() { return open; }
+
     void open() {
         if (!s.compositionEditable()) return;
+        s.imeGridHelpcode.send("clear", null);
         open = true;
         s.render();
     }

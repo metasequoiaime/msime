@@ -10715,3 +10715,37 @@ fn grid_baseline_paging_then_spelling_rejects_old_candidates() {
         assert!(picked.view.editing_text.is_empty());
     }
 }
+
+/// 网格专用动作必须在修改引擎前拒绝耗尽的 runtime 身份。
+#[test]
+fn grid_helpcode_identity_exhaustion_does_not_mutate_engine() {
+    use msime_engine::grid_helpcode::GridHelpcodeAction;
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.helpcode = true;
+    let tables = directory.path().join("resources/helpcodes");
+    std::fs::create_dir_all(&tables).unwrap();
+    std::fs::write(tables.join("zrm_helpcode_big_unique.txt"), "你=ab\n").unwrap();
+    let mut session = msime_engine::host::Session::new(&options).unwrap();
+    session.set_grid_helpcode_enabled(true);
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+    type_characters(&mut runtime, "64");
+    let view = runtime.view();
+    assert_eq!(
+        view.grid_helpcode.as_ref().unwrap().availability,
+        msime_engine::grid_helpcode::GridHelpcodeAvailability::Available
+    );
+    runtime.generation = u64::MAX;
+    let before = runtime.engine.grid_helpcode_snapshot();
+    assert!(matches!(
+        runtime.dispatch(Action::GridHelpcode {
+            session: view.session,
+            generation: u64::MAX,
+            action: GridHelpcodeAction::Begin,
+        }),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.grid_helpcode_snapshot(), before);
+}

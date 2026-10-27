@@ -565,6 +565,11 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_characterRaw(JN
     return response(env, msime_client_character(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), shift == JNI_TRUE));
 }
 // 字母网格小写送整组，十八键双拼的大写送精确字母；有效性由引擎判定。先拦非 ASCII，避免截断成另一字母。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridHelpcodeRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
+    return bounded_request(env, request, 1024, [handle](const uint8_t *bytes, size_t length) {
+        return msime_client_grid_helpcode(static_cast<uint64_t>(handle), bytes, length);
+    });
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridKeyRaw(JNIEnv *env, jclass, jlong handle, jint letter) {
     if (letter < 0 || letter > 127) {
         env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Grid key must be ASCII");

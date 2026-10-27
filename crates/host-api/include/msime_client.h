@@ -844,6 +844,8 @@ char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
  * 五笔 14 键最多四码：四码之后的一键先把首选顶上屏，再开始下一组编码，组码里没有 z，所以 z 通配、z 拼音反查和混输拼音都不作用于它；四码唯一时与 26 键一样按偏好自动上屏。
  * 硬件键盘的字母照常经 msime_client_character 走当前方案的 26 键：字母网格组字进行中它们 handled=false，同九键。 */
 char *msime_client_grid_key(uint64_t session, uint8_t letter);
+/* 网格辅筛 JSON：session、generation、action；上限 1024 字节，旧代次不修改状态。 */
+char *msime_client_grid_helpcode(uint64_t session, const uint8_t *request, size_t length);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：不记录选词位置和上屏效率，并立即禁止、清除上屏后联想；宿主须重新读取 View，以丢弃旧候选代次。用户单独关掉学习不算隐私会话；学习本身仍由 learning 偏好决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
 /* Android 的 next_word_prediction 偏好开启时，View.prediction=true 标记上屏后的空闲联想：editing_text、preedit 和 reading 为空；只有显式选择候选才上屏。空格、回车、数字、导航和失焦不提交联想；普通状态省略 prediction 字段，宿主缺省按 false 读取。 */

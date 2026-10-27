@@ -1,10 +1,18 @@
 //! 网格辅筛的显式编辑协议；不复用拼音的大写精确标记或竖线字符。
 
+use serde::{Deserialize, Serialize};
+
 use crate::helpcode::{self, HelpcodeKeymap, SingleHelpcodeMatch};
 use crate::nine_key::KeyGrid;
 use crate::types::WordItem;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum GridHelpcodeAction {
     Begin,
     ToggleCase,
@@ -17,7 +25,8 @@ pub enum GridHelpcodeAction {
     Clear,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GridHelpcodeAvailability {
     Available,
     Disabled,
@@ -26,7 +35,7 @@ pub enum GridHelpcodeAvailability {
     MissingTable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GridHelpcodeSlot {
     /// 键面顺序的小写字母，锁定后仍保留来源。
     pub letters: String,
@@ -50,7 +59,7 @@ impl GridHelpcodeSlot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GridHelpcodeSnapshot {
     pub availability: GridHelpcodeAvailability,
     /// 所有专用操作均核对此代次，编辑状态变化也使旧选择失效。

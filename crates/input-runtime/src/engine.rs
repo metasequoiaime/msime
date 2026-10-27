@@ -147,6 +147,17 @@ pub trait InputEngine {
     fn expand_initial_candidates(&mut self) -> Result<bool, RuntimeError> {
         Ok(false)
     }
+    /// 网格辅筛独立快照，旧引擎无需实现。
+    fn grid_helpcode_snapshot(&self) -> Option<msime_engine::grid_helpcode::GridHelpcodeSnapshot> {
+        None
+    }
+    fn grid_helpcode_action(
+        &mut self,
+        _generation: u64,
+        _action: msime_engine::grid_helpcode::GridHelpcodeAction,
+    ) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine("Grid helpcode is unsupported".into()))
+    }
     fn choose_nine_key_spelling(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
         Err(RuntimeError::Engine(
             "Nine-key spelling selection is unsupported".into(),
@@ -387,6 +398,17 @@ impl InputEngine for Session {
     }
     fn expand_initial_candidates(&mut self) -> Result<bool, RuntimeError> {
         Session::expand_initial_candidates(self).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn grid_helpcode_snapshot(&self) -> Option<msime_engine::grid_helpcode::GridHelpcodeSnapshot> {
+        Some(Session::grid_helpcode_snapshot(self))
+    }
+    fn grid_helpcode_action(
+        &mut self,
+        generation: u64,
+        action: msime_engine::grid_helpcode::GridHelpcodeAction,
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::grid_helpcode_action(self, generation, action)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::choose_nine_key_spelling(self, index)

@@ -997,12 +997,13 @@ final class ImeLetterRows {
                 row.addView(eighteenRowLeadingIndent, LayoutPolicy.weightedMatchParentParams(0.5f));
             }
             if (last) {
-                Button separator = s.keyId(s.keyboardKey(FourteenKeyLayout.separatorFace(composing),
+                Button separator = s.keyId(s.nineKeyGridKey(FourteenKeyLayout.separatorFace(composing),
                     FourteenKeyLayout.separatorDescription(composing), this::fourteenKeySeparator),
                     "SoftSymbol");
                 KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
                 if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
                 fourteenSeparatorKey = separator;
+                s.imeGridHelpcode.bind(separator);
                 row.addView(separator, LayoutPolicy.weightedMatchParentParams(
                     edgeWeight));
             }
@@ -1045,7 +1046,7 @@ final class ImeLetterRows {
         String face = key.getText().toString();
         key.setOnTouchListener((view, event) -> {
             updateKeyPreview(key, event);
-            if (!fourteenShuangpin()) {
+            if (!fourteenShuangpin() && !s.imeGridHelpcode.editing()) {
                 gesture.cancel();
                 key.setText(face);
                 hideKeyPreview(key);
@@ -1114,6 +1115,7 @@ final class ImeLetterRows {
 
     /** 分词键：拼音组字时送 `'`，在已打的组码末尾定一个音节分界；空闲时和五笔组字中打开符号面板（面板先按高亮行结束组字）。 */
     private void fourteenKeySeparator() {
+        if (s.imeGridHelpcode.available()) { s.imeGridHelpcode.tap(); return; }
         if (separatesSyllables()) s.character('\'', false);
         else s.imePanels.showSymbolPanel();
     }
@@ -1138,6 +1140,8 @@ final class ImeLetterRows {
             }
         }
         if (fourteenSeparatorKey == null) return;
+        if (s.imeGridHelpcode.available()) { s.imeGridHelpcode.label(fourteenSeparatorKey); return; }
+        s.imeGridHelpcode.clearHints(fourteenSeparatorKey);
         boolean composing = separatesSyllables();
         String face = FourteenKeyLayout.separatorFace(composing);
         if (face.contentEquals(fourteenSeparatorKey.getText())) return;

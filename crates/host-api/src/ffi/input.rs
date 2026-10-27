@@ -306,6 +306,41 @@ pub extern "C" fn msime_client_grid_key(handle: u64, letter: u8) -> *mut c_char 
     dispatch(handle, Action::GridKey(letter))
 }
 
+/// 网格辅筛的有界专用请求；会话与视图代次在 runtime 核对。
+///
+/// # Safety
+/// `request` 必须指向至少 `length` 个可读字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_grid_helpcode(
+    handle: u64,
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        session: u64,
+        generation: u64,
+        action: msime_engine::grid_helpcode::GridHelpcodeAction,
+    }
+    if request.is_null() || length == 0 || length > 1024 {
+        return response(|| Err("invalid grid helpcode request".into()));
+    }
+    // SAFETY：长度已限界，可读性由调用方契约保证。
+    let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+    let Ok(request) = serde_json::from_slice::<Request>(bytes) else {
+        return response(|| Err("invalid grid helpcode request".into()));
+    };
+    dispatch(
+        handle,
+        Action::GridHelpcode {
+            session: request.session,
+            generation: request.generation,
+            action: request.action,
+        },
+    )
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char {
     let action = match command {

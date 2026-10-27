@@ -41,6 +41,11 @@ pub enum Action {
     FixCandidatePosition(CandidateId, u8),
     ClearCandidatePosition(CandidateId),
     ChooseNineKeySpelling(NineKeySpellingId),
+    GridHelpcode {
+        session: u64,
+        generation: u64,
+        action: msime_engine::grid_helpcode::GridHelpcodeAction,
+    },
     /// 14 键的一键，`a`–`z` 里这一组的任一字母（宿主约定送首字母）。不在 14 键下时不处理。
     GridKey(u8),
     /// 九宫格候选的筛选：只留单字，以及首字笔顺的前缀（`hspnz`，空表示不按笔画）。没有九宫格组字时不处理。
@@ -398,6 +403,9 @@ impl Runtime<Session> {
     }
 
     pub fn online_query(&self) -> Result<Option<OnlineQuery>, RuntimeError> {
+        if self.grid_helpcode_active() {
+            return Ok(None);
+        }
         let query = self
             .engine
             .online_query()
@@ -503,7 +511,7 @@ impl Runtime<Session> {
         // their query identity is still current. Keep the single-item path
         // subject to the same bounds as the batch path before handing text to
         // Engine; the Windows source rejects empty callback results as well.
-        if candidate.is_empty()
+        if self.grid_helpcode_active() || candidate.is_empty()
             || !msime_client_core::is_bounded_text(candidate, 4096)
             || source > 1
             // Windows only merges a cloud suggestion into an existing
@@ -632,7 +640,8 @@ impl Runtime<Session> {
         cloud_candidates: bool,
         limit: usize,
     ) -> Result<bool, RuntimeError> {
-        if candidates.is_empty()
+        if self.grid_helpcode_active()
+            || candidates.is_empty()
             || candidates.len() > limit
             || candidates
                 .iter()
@@ -1251,7 +1260,8 @@ impl<E: InputEngine> Runtime<E> {
             promote,
             reranker,
         } = score;
-        let current = generation == self.generation
+        let current = !self.grid_helpcode_active()
+            && generation == self.generation
             && self.settled_rerank_enabled
             && Arc::ptr_eq(&settings_epoch, &self.settled_settings_epoch)
             && Arc::ptr_eq(&model_epoch, &self.settled_model_epoch);
@@ -1278,7 +1288,7 @@ impl<E: InputEngine> Runtime<E> {
 
     fn settled_rerank_blocked(&self) -> bool {
         // 重排必须推进候选代次，避免旧身份选到新座位；代次耗尽时不得重排。
-        !self.settled_rerank_enabled
+        self.grid_helpcode_active() || !self.settled_rerank_enabled
             || self.settled_reranker.is_none()
             || self.is_idle()
             || self.generation.checked_add(1).is_none()
@@ -1490,6 +1500,7 @@ impl<E: InputEngine> Runtime<E> {
             nine_key_reading: self.cached.nine_key_reading.clone(),
             nine_key_single_character: self.cached.nine_key_single_character,
             nine_key_strokes: self.cached.nine_key_strokes.clone(),
+            grid_helpcode: self.engine.grid_helpcode_snapshot(),
             touch_keyboard_layout: self.touch_keyboard_layout,
             character_width: self.character_width,
             punctuation_marks: self.punctuation_marks,
@@ -2703,8 +2714,17 @@ impl<E: InputEngine> Runtime<E> {
         true
     }
 
+    pub(crate) fn grid_helpcode_active(&self) -> bool {
+        self.engine
+            .grid_helpcode_snapshot()
+            .is_some_and(|s| !s.slots.is_empty())
+    }
+
     /// 内置的呈现排序：逐键重排、整句读法降位、在线候选的座位。refresh、展开和落定重排三处都走这里，免得三处的步骤漂移。返回是否挪动了候选。
     fn order_presentation(&mut self) -> bool {
+        if self.grid_helpcode_active() {
+            return false;
+        }
         if self.cached.prediction {
             return false;
         }
@@ -3212,6 +3232,40 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused && !matches!(&action, Action::ResetCache) {
             return Ok(self.transition(empty_result(false)));
         }
+        if let Action::GridHelpcode {
+            session,
+            generation,
+            action,
+        } = action
+        {
+            if session != self.session || generation != self.generation {
+                return Err(RuntimeError::StaleNineKeySpelling);
+            }
+            if self.generation == u64::MAX {
+                return Err(RuntimeError::IdentityExhausted);
+            }
+            let Some(before) = self.engine.grid_helpcode_snapshot() else {
+                return Ok(self.transition(empty_result(false)));
+            };
+            let result = self
+                .engine
+                .grid_helpcode_action(before.generation, action)?;
+            if !result.handled {
+                return Ok(self.transition(result));
+            }
+            self.advance()?;
+            let changed = self
+                .engine
+                .grid_helpcode_snapshot()
+                .is_some_and(|after| after.candidate_generation != before.candidate_generation);
+            if changed {
+                self.refresh()?;
+                // 筛选条件改变，即使候选文字相同，也回到首屏首项。
+                self.highlighted = 0;
+                self.display_page = None;
+            }
+            return Ok(self.transition(result));
+        }
         // 空闲联想没有可编辑的组字；导航键清掉建议后交还编辑器，不能沿用普通候选的高亮导航。
         if self.cached.prediction
             && matches!(
@@ -3401,6 +3455,11 @@ impl<E: InputEngine> Runtime<E> {
             && !self.cached.editing_text.is_empty()
             && !self.phrase_prefix.is_empty()
             && self.cached.local_mode != "temporary_japanese";
+        let helper_revision = self
+            .engine
+            .grid_helpcode_snapshot()
+            .filter(|v| v.editing || !v.slots.is_empty())
+            .map(|v| v.candidate_generation);
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -3662,7 +3721,16 @@ impl<E: InputEngine> Runtime<E> {
             || !self.phrase_prefix.is_empty()
             || self.wubi_should_auto_commit(character_action);
         let commit_context = needs_commit_context.then(|| self.output_context());
+        let helper_changed = helper_revision.is_some_and(|before| {
+            self.engine
+                .grid_helpcode_snapshot()
+                .is_some_and(|after| before != after.candidate_generation)
+        });
         let refresh = self.refresh();
+        if helper_changed {
+            self.highlighted = 0;
+            self.display_page = None;
+        }
         let mut result = result?;
         if let Err(error) = refresh {
             // A successful engine commit must survive a presentation refresh failure.

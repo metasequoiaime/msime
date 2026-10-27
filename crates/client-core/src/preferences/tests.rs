@@ -4668,6 +4668,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 schema,
                 show_in_candidate_window: true,
                 strict_filter: false,
+                grid_enabled: false,
                 modes: ShuangpinHelpcodeModes::default(),
             },
             ..Preferences::default()
@@ -8203,4 +8204,21 @@ fn candidate_status_defaults_on_and_can_be_disabled_without_changing_preedit() {
         restored.candidate_preedit_style,
         Preferences::default().candidate_preedit_style
     );
+}
+
+#[test]
+fn grid_helpcode_preference_is_opt_in_and_round_trips_independently() {
+    let defaults = Preferences::default();
+    assert!(!defaults.quanpin_helpcode.grid_enabled);
+    assert!(!defaults.shuangpin_helpcode.grid_enabled);
+    let old = serde_json::to_value(&defaults).unwrap();
+    assert!(old["quanpin_helpcode"].get("grid_enabled").is_none());
+    let mut changed = defaults.clone();
+    changed.quanpin_helpcode.grid_enabled = true;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&changed).unwrap()).unwrap();
+    assert_eq!(restored, changed);
+    assert_eq!(restored.shuangpin_helpcode, defaults.shuangpin_helpcode);
+    changed.quanpin_helpcode.grid_enabled = false;
+    assert_eq!(changed, defaults);
 }

@@ -426,6 +426,11 @@ public final class NativeClient {
     /** 全拼十八键，与共享 C ABI 布局编号一致。 */
     public static final int KEY_GRID_EIGHTEEN_KEY = 4;
     /** 字母组网格的一键：小写送整组；仅十八键双拼的大写 ASCII 表示精确小写字母。返回与 {@link #character} 相同的输入响应。 */
+    public static String gridHelpcode(long session, String request) {
+        return TextPolicy.utf8(gridHelpcodeRaw(session, request.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+    private static native byte[] gridHelpcodeRaw(long session, byte[] request);
+
     public static String gridKey(long session, char letter) {
         if ((letter < 'a' || letter > 'z') && (letter < 'A' || letter > 'Z'))
             throw new IllegalArgumentException("Grid key must be an ASCII letter");

@@ -143,7 +143,8 @@ impl InputClass {
                 Command::Cancel => Self::Cancel,
                 Command::CycleKanaVariant | Command::ConvertHanja => Self::Other,
             },
-            Action::ResetCache
+            Action::GridHelpcode { .. }
+            | Action::ResetCache
             | Action::PinCandidate(_)
             | Action::RemoveCandidate(_)
             | Action::FixCandidatePosition(..)

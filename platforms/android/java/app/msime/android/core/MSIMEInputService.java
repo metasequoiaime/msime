@@ -119,6 +119,7 @@ public final class MSIMEInputService extends InputMethodService {
     // 键盘的构建、渲染与扩展点（见各类说明）；onCreate 里创建。
     ImeToolbar imeToolbar;
     ImeCompositionEditor imeCompositionEditor;
+    final ImeGridHelpcode imeGridHelpcode = new ImeGridHelpcode(this);
     ImeCandidates imeCandidates;
     ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
@@ -4339,6 +4340,11 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
+    void gridDigit(int ascii) {
+        if (imeGridHelpcode.editing()) imeGridHelpcode.group(ascii);
+        else character(ascii);
+    }
+
     boolean character(int ascii) {
         return character(ascii, letterCase.usesUppercase());
     }
@@ -4353,6 +4359,11 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
+        if (imeGridHelpcode.editing()) {
+            if (Character.isUpperCase(letter)) imeGridHelpcode.exact(letter);
+            else imeGridHelpcode.group(letter);
+            return true;
+        }
         clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.gridKey(session, letter)); }
@@ -5428,6 +5439,12 @@ public final class MSIMEInputService extends InputMethodService {
         // Every physical press counts once, whoever ends up handling it; the OS's auto-repeat does not.
         if (event.getRepeatCount() == 0) countKey(KeyPressIds.forKeyCode(keyCode));
         if (event.getRepeatCount() == 0 && physicalKeyboardEvent(event)) noteHardwareTyping();
+        if (keyCode == KeyEvent.KEYCODE_BACK && ViewPolicy.isVisible(symbolPanel)) {
+            closeSymbolPanel(); return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_BACK && imeGridHelpcode.editing() && !anyToolbarPanelOpen()) {
+            imeGridHelpcode.send("end", null); return true;
+        }
         if (keyCode == KeyEvent.KEYCODE_BACK && emojiPickerVisible()) {
             closeEmojiPicker();
             return true;
@@ -10740,11 +10757,12 @@ public final class MSIMEInputService extends InputMethodService {
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
                     ? CompositionCaretPolicy.withMark(caretSpelling, caretMark) : localModeTitle,
                     !"none".equals(localModeKey));
+            if (imeGridHelpcode.editing() || imeGridHelpcode.active()) displayText = imeGridHelpcode.title(spelling);
             // 光标符画成强调色的粗竖条（#6110），文本里仍是那个字符，点读音行的下标换算不变。
             int caretInTitle = idleTitle ? -1
                 : CompositionCaretPolicy.markInTitle(phrasePrefix, caretMark, !"none".equals(localModeKey));
-            if (caretEditable && !spellingDrawn && phrasePrefix.isEmpty()) displayText = "编辑拼写";
-            preedit.setText(CompositionCaretSpan.mark(displayText, caretInTitle, pixels(2), pixels(2),
+            if (caretEditable && !spellingDrawn && phrasePrefix.isEmpty() && !imeGridHelpcode.editing() && !imeGridHelpcode.active()) displayText = "编辑拼写";
+            preedit.setText(CompositionCaretSpan.mark(displayText, imeGridHelpcode.editing() || imeGridHelpcode.active() ? -1 : caretInTitle, pixels(2), pixels(2),
                 imeStyler.caretColor()));
             preedit.setContentDescription(caretEditable ? "编辑拼写"
                 : offersLocalModes ? "长按打开本地输入模式" : displayText);

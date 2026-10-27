@@ -301,7 +301,7 @@ final class ImePanels {
             s.notice("符号面板尚未就绪");
             return;
         }
-        s.command(2);
+        if (!s.imeGridHelpcode.available() && !s.imeGridHelpcode.active()) s.command(2);
         if (s.session == 0 || s.connection == null) return;
         s.closeCandidatePanel();
         s.closeClipboardHistory();
@@ -2805,6 +2805,7 @@ final class ImePanels {
             new SymbolPanelView.Listener() {
                 @Override public void insert(String text, boolean wholePair, boolean remember) {
                     if (s.connection == null) return;
+                    if (s.imeGridHelpcode.available() || s.imeGridHelpcode.active()) s.command(2);
                     // 轻点的正是前面自动补上、还在光标右边的那个后半个时跨过它，不再写一个；长按照字面上屏。
                     if (wholePair && s.stepOverPairedSymbol(text)) {
                         if (remember) recordSymbolRecent(text);

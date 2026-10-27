@@ -345,6 +345,7 @@ final class ImeLayoutRows {
     private java.util.List<NineKeyShuangpinKeypad.Face> builtShuangpinFaces;
     /** 当前键行是 {@link #rebuildNineKeyRows} 建的。 */
     private boolean builtNineKeyGrid;
+    private boolean builtHelpcode;
 
     /** 按实际绘制的网格选择高度分摊，包含其他中文布局借用的数字页。 */
     boolean nineKeyGridDrawn() { return builtNineKeyGrid; }
@@ -358,6 +359,7 @@ final class ImeLayoutRows {
     /** 九宫格的键面过期了：拼音九键和九键双拼之间换了（布局编号相同，`apply` 不会重建），或者九键双拼换了表。 */
     boolean shuangpinStale() {
         if (!builtNineKeyGrid) return false;
+        if (builtHelpcode != s.imeGridHelpcode.editing()) return true;
         boolean drawn = s.keyboardLayer == KeyboardLayout.Layer.LETTERS && s.nineKeyShuangpinDrawn();
         if (drawn != (builtShuangpinFaces != null)) return true;
         return drawn && !s.nineKeyShuangpinFaces().equals(builtShuangpinFaces);
@@ -389,6 +391,7 @@ final class ImeLayoutRows {
         // 九键双拼：字母键面换成表里的声母和韵母，见 addShuangpinGrid；数字键面与拼音九键相同。
         boolean shuangpin = !digits && s.nineKeyShuangpinDrawn();
         builtNineKeyGrid = true;
+        builtHelpcode = s.imeGridHelpcode.editing();
         builtShuangpinFaces = shuangpin ? s.nineKeyShuangpinFaces() : null;
         if (shuangpin) addShuangpinGrid(grid, composing);
         for (java.util.List<NineKeyLayout.Key> keys : shuangpin ? java.util.List.<java.util.List<NineKeyLayout.Key>>of() : NineKeyLayout.rows()) {
@@ -400,7 +403,7 @@ final class ImeLayoutRows {
                     NineKeyLayout.face(key, digits, composing), description,
                     digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
                         : NineKeyLayout.offersPunctuation(key, false) ? () -> symbolKey(key)
-                        : () -> s.character(key.input()));
+                        : () -> s.gridDigit(key.input()));
                 KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14,
                     digits ? 22 : KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
                 if (NineKeyLayout.offersPunctuation(key, digits)) s.nineKeySymbolKey = keyButton;
@@ -413,6 +416,7 @@ final class ImeLayoutRows {
                     keyButton.setContentDescription("按键 " + description + "；长按输入 " + key.digit()
                         + (NineKeyLayout.offersPunctuation(key, false) ? "" : " 或字母"));
                     keyButton.setOnLongClickListener(ignored -> {
+                        if (keyButton == s.nineKeySymbolKey && s.imeGridHelpcode.available()) { s.imeGridHelpcode.separator(); return true; }
                         // 长按只算这格的一次按键，随后选择菜单不重复统计。
                         s.countKey(keyButton);
                         showNineKeyHoldOptions(keyButton, NineKeyLayout.digitInput(key),
@@ -487,6 +491,7 @@ final class ImeLayoutRows {
         NineKeyDigitButton separator = s.nineKeyGridKey(NineKeyLayout.face(symbols, false, composing),
             NineKeyLayout.description(symbols, false, composing), () -> symbolKey(symbols));
         s.nineKeySymbolKey = separator;
+        s.imeGridHelpcode.bind(separator);
         s.keyId(separator, "SoftSymbol");
         addNineKey(lastRow, separator);
         addNineKey(lastRow, shuangpinKey(faces, '0'));
@@ -503,13 +508,21 @@ final class ImeLayoutRows {
 
     /** 九键双拼的一个数字键：数字作主标签，表用到它时附简短提示、点按送这个数字；没用到时只印数字，0 原样上屏，其他键不送。 */
     private NineKeyDigitButton shuangpinKey(java.util.List<NineKeyShuangpinKeypad.Face> faces, char digit) {
+        if (s.imeGridHelpcode.editing()) {
+            String letters = switch (digit) { case '2' -> "ABC"; case '3' -> "DEF"; case '4' -> "GHI";
+                case '5' -> "JKL"; case '6' -> "MNO"; case '7' -> "PQRS"; case '8' -> "TUV"; case '9' -> "WXYZ"; default -> ""; };
+            NineKeyDigitButton key = s.nineKeyGridKey(letters, "辅码 " + letters, () -> s.gridDigit(digit));
+            s.keyId(key, digit == '0' ? "Nine0" : KeyPressIds.forNineKeyDigit(digit - '0'));
+            ViewPolicy.setEnabled(key, !letters.isEmpty());
+            return key;
+        }
         NineKeyShuangpinKeypad.Face face = NineKeyShuangpinKeypad.face(faces, digit);
         String digitText = String.valueOf(digit);
         NineKeyDigitButton key;
         if (face != null) {
             // 数字独占主行，只保留一行简短提示，不再把完整声韵母表铺满键帽。
             key = s.nineKeyGridKey(digitText, NineKeyShuangpinKeypad.description(face),
-                () -> s.character(digit));
+                () -> s.gridDigit(digit));
             String hint = NineKeyShuangpinKeypad.compactHint(face);
             KeyboardTypographyPolicy.setKeyTextSize(key, 22);
             key.setHintText(hint);
@@ -757,6 +770,7 @@ final class ImeLayoutRows {
      * 拼音九键的 1 键：组字时是「分词」，把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 分词 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）；读音栏显示成 94'26，⌫ 先删分界再删数字。没在组字时是「@#」，把当前模式的常用标点放进候选条（{@link ImeNineKeyQuickPunctuation}），符号面板改从底行最左边的 符 打开。
      */
     private void symbolKey(NineKeyLayout.Key key) {
+        if (s.imeGridHelpcode.available()) { s.imeGridHelpcode.tap(); return; }
         if (NineKeyLayout.separatesSyllables(key, false, s.hasEngineComposition())) {
             s.character('\'', false);
         } else {
@@ -767,6 +781,10 @@ final class ImeLayoutRows {
     /** 1 键的键面跟着组字状态在「@#」和「分词」之间换，render 时调用。 */
     void updateNineKeySymbolKey() {
         if (s.nineKeySymbolKey == null) return;
+        if (s.imeGridHelpcode.available()) { s.imeGridHelpcode.label(s.nineKeySymbolKey); return; }
+        s.imeGridHelpcode.clearHints(s.nineKeySymbolKey);
+        if (s.nineKeySymbolKey instanceof NineKeyDigitButton digit)
+            digit.setDigitText(s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS || s.nineKeyShuangpinDrawn() ? "" : "1");
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         NineKeyLayout.Key key = NineKeyLayout.rows().get(0).get(0);
         boolean composing = s.hasEngineComposition();
@@ -798,6 +816,7 @@ final class ImeLayoutRows {
             keyButton.setDigitText(digit);
         };
         keyButton.setOnTouchListener((view, event) -> {
+            if (keyButton == s.nineKeySymbolKey && s.imeGridHelpcode.available()) return s.imeGridHelpcode.touch(keyButton, event);
             s.imeLetterRows.updateKeyPreview(keyButton, event);
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
@@ -1058,6 +1077,9 @@ final class ImeLayoutRows {
     void commitNineKeyHoldOption(String text) {
         dismissNineKeyHoldOptions();
         if (s.connection == null) return;
+        if (s.imeGridHelpcode.editing() && text.length() == 1 && Character.isLetter(text.charAt(0))) {
+            s.imeGridHelpcode.exact(text.charAt(0)); return;
+        }
         s.command(2);
         s.commitText(s.fullWidthOutput(text));
     }
@@ -1470,7 +1492,9 @@ final class ImeLayoutRows {
     /** `nine_key_spellings` 里非空的各项及它们在数组里的下标（选择时交给引擎的是下标）。 */
     record Spellings(long generation, java.util.List<String> values, java.util.List<Integer> indices) {
         static Spellings of(JSONObject view) {
-            JSONArray spellings = view == null ? null : view.optJSONArray("nine_key_spellings");
+            JSONObject helper = view == null ? null : view.optJSONObject("grid_helpcode");
+            JSONArray spellings = helper != null && helper.optBoolean("editing") ? helper.optJSONArray("choices")
+                : view == null ? null : view.optJSONArray("nine_key_spellings");
             long generation = view == null ? -1 : CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
             int count = spellings == null ? 0 : spellings.length();
             java.util.List<String> values = new java.util.ArrayList<>(count);
@@ -1519,7 +1543,7 @@ final class ImeLayoutRows {
             if (visible) ViewPolicy.setInvisible(nineKeyPunctuation);
             else ViewPolicy.show(nineKeyPunctuation);
         }
-        s.nineKeySpellingScroll.setContentDescription(zhuyin ? "注音读音选择"
+        s.nineKeySpellingScroll.setContentDescription(s.imeGridHelpcode.editing() ? "辅助码选择" : zhuyin ? "注音读音选择"
             : fourteenKey ? "14 键拼音选择" : eighteenKey ? "18 键拼音选择" : "九键拼音选择");
         if (!visible) {
             s.nineKeySpellingIndices = java.util.List.of();
@@ -1537,6 +1561,12 @@ final class ImeLayoutRows {
         while (s.nineKeySpellingButtons.size() < values.size()) {
             int slot = s.nineKeySpellingButtons.size();
             Runnable choose = () -> {
+                if (s.imeGridHelpcode.editing()) {
+                    JSONArray choices = s.imeGridHelpcode.state().optJSONArray("choices");
+                    if (choices != null && slot < choices.length()) s.imeGridHelpcode.send("choose", choices.optString(slot),
+                        s.view.optLong("session"), s.nineKeySpellingGeneration);
+                    return;
+                }
                 if (slot < s.nineKeySpellingIndices.size()) {
                     chooseNineKeySpelling(s.session, s.nineKeySpellingGeneration,
                         s.nineKeySpellingIndices.get(slot));
@@ -1564,7 +1594,7 @@ final class ImeLayoutRows {
             if (slotVisible) {
                 String spelling = values.get(slot);
                 key.setText(spelling);
-                key.setContentDescription(NineKeyPanelPolicy.spellingDescription(spelling, zhuyin));
+                key.setContentDescription(s.imeGridHelpcode.editing() ? "选择辅码 " + spelling : NineKeyPanelPolicy.spellingDescription(spelling, zhuyin));
             }
         }
     }

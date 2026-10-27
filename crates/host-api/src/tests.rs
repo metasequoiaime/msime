@@ -5031,6 +5031,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             schema: HelpcodeSchema::Xiaohe,
             show_in_candidate_window: false,
             strict_filter: false,
+            grid_enabled: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         shuangpin_helpcode: HelpcodePreferences {
@@ -5039,6 +5040,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             schema: HelpcodeSchema::Shouyou2,
             show_in_candidate_window: true,
             strict_filter: false,
+            grid_enabled: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         ..Preferences::default()
@@ -21563,4 +21565,126 @@ fn world_clock_validates_and_forwards_offline_requests() {
         )["ok"],
         false
     );
+}
+
+fn grid_helpcode_request(handle: u64, view: &Value, action: Value) -> Value {
+    let request =
+        json!({"session": view["session"], "generation": view["generation"], "action": action})
+            .to_string();
+    read(unsafe { msime_client_grid_helpcode(handle, request.as_ptr(), request.len()) })
+}
+
+#[test]
+fn grid_helpcode_abi_ranking_paging_case_and_stale_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    let table = dir.path().join("resources/helpcodes");
+    std::fs::create_dir_all(&table).unwrap();
+    std::fs::write(
+        table.join("zrm_helpcode_big_unique.txt"),
+        "本=ab\n地=bc\n拟=ba\n好=bc\n",
+    )
+    .unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.quanpin_helpcode.grid_enabled = true;
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    read(msime_client_set_key_grid(handle, 1));
+    for letter in b"64426" {
+        read(msime_client_character(handle, *letter, false));
+    }
+    let original = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(original["grid_helpcode"]["availability"], "available");
+    assert_eq!(original["grid_helpcode"]["editing"], false);
+    read(msime_client_command(handle, 102));
+    let before = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(
+        grid_helpcode_request(handle, &before, json!({"kind":"begin"}))["ok"],
+        true
+    );
+    let editing = read(msime_client_view(handle))["value"].clone();
+    let rows = |view: &Value| {
+        view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (row["text"].clone(), row["highlighted"].clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&editing), rows(&before));
+    assert_eq!(
+        grid_helpcode_request(handle, &before, json!({"kind":"toggle_case"}))["ok"],
+        false
+    );
+    assert_eq!(read(msime_client_view(handle))["value"], editing);
+    grid_helpcode_request(handle, &editing, json!({"kind":"append_exact","value":98}));
+    let filtered = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(filtered["grid_helpcode"]["display"], "b");
+    assert_eq!(filtered["editing_text"], original["editing_text"]);
+    assert!(!filtered["preedit"].as_str().unwrap().contains('|'));
+    assert_eq!(filtered["candidates"][0]["highlighted"], true);
+    assert_eq!(filtered["candidates"][0]["text"], "拟好");
+    grid_helpcode_request(handle, &filtered, json!({"kind":"toggle_case"}));
+    let upper = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(upper["grid_helpcode"]["uppercase"], true);
+    assert_eq!(upper["grid_helpcode"]["display"], "b");
+    assert_eq!(
+        upper["grid_helpcode"]["candidate_generation"],
+        filtered["grid_helpcode"]["candidate_generation"]
+    );
+    grid_helpcode_request(handle, &upper, json!({"kind":"end"}));
+    let ended = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(ended["grid_helpcode"]["display"], "b");
+    assert_eq!(ended["grid_helpcode"]["editing"], false);
+    assert_eq!(
+        ended["grid_helpcode"]["candidate_generation"],
+        filtered["grid_helpcode"]["candidate_generation"]
+    );
+    grid_helpcode_request(handle, &ended, json!({"kind":"clear"}));
+    let cleared = read(msime_client_view(handle))["value"].clone();
+    grid_helpcode_request(handle, &cleared, json!({"kind":"begin"}));
+    let begun = read(msime_client_view(handle))["value"].clone();
+    grid_helpcode_request(handle, &begun, json!({"kind":"append_exact","value":122}));
+    read(msime_client_command(handle, 102));
+    let unmatched = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(unmatched["candidates"][1]["highlighted"], true);
+    // 退格删空辅筛：文字顺序相同也必须回到首项，不能沿用 refresh 的高亮保留。
+    read(msime_client_command(handle, 0));
+    let erased = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(erased["candidates"][0]["highlighted"], true);
+    assert_eq!(erased["grid_helpcode"]["display"], "");
+
+    read(msime_client_character(handle, b'2', false));
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["grid_helpcode"]["display"],
+        ""
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn grid_helpcode_abi_rejects_invalid_documents_without_side_effects() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    let before = read(msime_client_view(handle));
+    for request in [
+        "{}",
+        "null",
+        "{\"session\":1,\"generation\":0,\"action\":{\"kind\":\"append_exact\",\"value\":256}}",
+    ] {
+        assert_eq!(
+            read(unsafe { msime_client_grid_helpcode(handle, request.as_ptr(), request.len()) })
+                ["ok"],
+            false
+        );
+    }
+    assert_eq!(
+        read(unsafe { msime_client_grid_helpcode(handle, std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_grid_helpcode(handle, b"x".as_ptr(), 1025) })["ok"],
+        false
+    );
+    assert_eq!(read(msime_client_view(handle)), before);
+    read(msime_client_destroy(handle));
 }

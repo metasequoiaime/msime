@@ -624,6 +624,25 @@ impl Session {
         Ok(())
     }
 
+    /// 显式启用网格辅筛，默认关闭。
+    pub fn set_grid_helpcode_enabled(&mut self, enabled: bool) {
+        self.inner.set_grid_helpcode_enabled(enabled);
+    }
+
+    pub fn grid_helpcode_snapshot(&self) -> crate::grid_helpcode::GridHelpcodeSnapshot {
+        self.inner.grid_helpcode_snapshot()
+    }
+
+    pub fn grid_helpcode_action(
+        &mut self,
+        generation: u64,
+        action: crate::grid_helpcode::GridHelpcodeAction,
+    ) -> Result<EngineResult> {
+        Ok(result_for(
+            self.inner.grid_helpcode_action(generation, action),
+        ))
+    }
+
     /// 14 键的一键，见 [`crate::Session::grid_key`]；不是当前网格的字母时不处理，状态不变。
     pub fn grid_key(&mut self, letter: u8) -> Result<EngineResult> {
         Ok(result_for(self.inner.grid_key(letter)))
