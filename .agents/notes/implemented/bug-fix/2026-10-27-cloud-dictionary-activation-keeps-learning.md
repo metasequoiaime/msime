@@ -57,7 +57,7 @@ Status: implemented
     - 输入记录的 `updated_at` 变成激活时刻。#10043 第 1 期的 Lamport 时间戳要用真实的 `updated_at`，届时要改成原样保留。
     - 选词计数截到 10。
     - 编码、词或上下文里含换行、制表符的行跳过。
-  - iOS 的「应用到本机」走自己的 Swift 队列，直接调 `msime_client_snapshot_prepare`/`activate`，没有带这个标记，激活时仍会清空学习。要修，就在 `DictionarySnapshotWorker` 的 `PrepareRequest` 里加 `keep_local_learning: true`。iOS 的云同步不同步词库（capabilities 里 `dictionary` 为假），不会走到这条路。
+  - iOS 的「应用到本机」走自己的 Swift 队列，直接调 `msime_client_snapshot_prepare`/`activate`。这条队列只用于云词库应用到本机（请求都绑定账号），所以 `DictionarySnapshotBridge.prepare` 一律在 `PrepareRequest` 里带 `keep_local_learning: true`。iOS 的云同步不同步词库（capabilities 里 `dictionary` 为假），不会走到云同步下载那条路。
   - 只有与所有者推出来的值不同的请求（属于账号却不保留学习、`local-backup` 却保留）才会把 `keepLocalLearning` 写进 `state.json`，被不认识这个字段的旧版本读到会因 `deny_unknown_fields` 报 `snapshot_invalid`。现在没有入队处排这样的请求。以后加这样的入队处，就要接受「排着这种请求时降级」读不出队列。
 
 ## Verification
