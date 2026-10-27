@@ -370,6 +370,7 @@ for entry in \
     "QuickDeletePreviewDeviceSmoke|Quick delete held preview acceptance failed" \
     "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
+    "ClipboardCapacityDeviceSmoke|Clipboard capacity acceptance failed" \
     "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
     "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \
@@ -385,6 +386,8 @@ do
   if [[ "$suite" == WubiLookupDeviceSmoke ]]; then
     # 它直接改偏好文件，再让设置进程读新配置；必须重新启动产品主进程。
     result=$("$adb" -s "$serial" shell am instrument -w "app.msime.android.test/app.msime.android.test.$suite")
+  elif [[ "$suite" == ClipboardCapacityDeviceSmoke ]]; then
+    result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardCategoriesDeviceSmoke -e capacity true)
   else
     result=$(run_instrumentation "app.msime.android.test/app.msime.android.test.$suite")
   fi

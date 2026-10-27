@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.text.InputType;
 import android.widget.LinearLayout;
 import app.msime.android.ClipboardHistoryStore;
-import app.msime.android.ClipboardModeStore;
 
 /** 剪贴板分类管理；名称规则、数量限制和持久化由共享 Rust 决定。 */
 public final class ClipboardCategoriesPage extends ReloadingDetailPage {
@@ -13,7 +12,7 @@ public final class ClipboardCategoriesPage extends ReloadingDetailPage {
     @Override protected boolean shouldReloadWhenVisible() { return !busy; }
 
     @Override protected void reload() {
-        HostTask.run(this, context -> new ClipboardHistoryStore(ClipboardModeStore.directory(context)).catalog(), this::render);
+        HostTask.run(this, context -> ClipboardHistoryStore.forContext(context).catalog(), this::render);
     }
 
     private void render(ClipboardHistoryStore.Catalog value) {
@@ -60,7 +59,7 @@ public final class ClipboardCategoriesPage extends ReloadingDetailPage {
     private void change(Change change) {
         if (busy) return;
         busy = true;
-        HostTask.run(this, context -> change.apply(new ClipboardHistoryStore(ClipboardModeStore.directory(context))), ok -> {
+        HostTask.run(this, context -> change.apply(ClipboardHistoryStore.forContext(context)), ok -> {
             busy = false;
             if (getContext() != null) MsToast.show(requireContext(), Boolean.TRUE.equals(ok)
                 ? "分类已更新" : "未能保存，请检查名称长度、重名、数量上限，或重新读取分类");

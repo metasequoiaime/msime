@@ -15,7 +15,7 @@ private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ lengt
 
 /// 经 client-services 的遥测队列（msime_client.h 中的 `msime_client_telemetry_*`）进行匿名使用上报，App 和键盘通过 App Group 共用。
 ///
-/// 键盘就是输入法本身，所以会话归它管：每次正常结束的键盘展示记一个会话，只有崩溃处理器留下了记录时才记一条 `session_crash`。App 负责发送队列里的内容，并把 MetricKit 的崩溃诊断转成崩溃记录：诊断按进程号对回键盘当时未结束的会话（键盘自己的处理程序已经记下的不再记第二份），系统强制结束（SIGKILL）按共享语义不算会话崩溃，只报 `crash`。`usage_reporting` 偏好（默认开启）关闭时，什么都不记录也不发送。
+/// 键盘就是输入法本身，所以会话归它管：每次正常结束的键盘展示记一个会话，只有崩溃处理器留下了记录时才记一条 `session_crash`。App 负责发送队列里的内容，并把 MetricKit 的崩溃诊断转成崩溃记录：诊断按进程号对回键盘当时未结束的会话（键盘自己的处理程序已经记下的不再记第二份），App 自己的未捕获异常由它的处理器带着抛出点的栈记下（MetricKit 再送来时同样跳过），系统强制结束（SIGKILL）按共享语义不算会话崩溃，只报 `crash`。`usage_reporting` 偏好（默认开启）关闭时，什么都不记录也不发送。
 enum UsageReporting {
   static let preferenceKey = "usage_reporting"
 
@@ -114,6 +114,45 @@ enum UsageReporting {
     var request: [String: Any] = ["directory": directory.path, "message": summary.message, "stack": stack]
     if summary.killed || pid <= 0 { request["outside_session"] = true } else { request["pid"] = Int(pid) }
     ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request)
+  }
+
+  /// 主 App 的未捕获异常处理器调用：写一份不属于任何键盘会话的崩溃记录（新 id），下次键盘启动时报 `crash`；再把进程号追加到 `handledProcesses`，MetricKit 事后送来同一进程的诊断时由 `takeHandledProcess` 认出并跳过。MetricKit 只有 abort 时的线程栈，CFRunLoop 重新抛出后已经看不到抛出点，这里的栈来自异常本身。消息只有异常名，不带 `reason`（可能引用 App 里的数据）。只建文件、不加锁，可以在处理器里调用。
+  static func recordUncaughtException(name: String, returnAddresses: [NSNumber], pid: pid_t, in directory: URL,
+                                      handledProcesses: URL) {
+    ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash,
+                               ["directory": directory.path, "message": "Uncaught \(name)",
+                                "stack": frames(fromReturnAddresses: returnAddresses), "session": UUID().uuidString])
+    let descriptor = open(handledProcesses.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+    guard descriptor >= 0 else { return }
+    defer { close(descriptor) }
+    let line = Array("\(pid)\n".utf8)
+    _ = line.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
+  }
+
+  /// 进程 `pid` 的崩溃是否已经由主 App 自己的处理器记下：是的话从 `handledProcesses` 里去掉它并返回 true。文件只留最近 32 个进程号（MetricKit 不一定送来诊断，未对上的不会一直累积）。
+  static func takeHandledProcess(_ pid: pid_t, in handledProcesses: URL) -> Bool {
+    guard let text = try? String(contentsOf: handledProcesses, encoding: .utf8) else { return false }
+    var pids = text.split(separator: "\n").compactMap { pid_t($0) }
+    let index = pids.firstIndex(of: pid)
+    if let index { pids.remove(at: index) }
+    pids = Array(pids.suffix(32))
+    if pids.isEmpty {
+      try? FileManager.default.removeItem(at: handledProcesses)
+    } else {
+      try? Data(pids.map { "\($0)\n" }.joined().utf8).write(to: handledProcesses, options: .atomic)
+    }
+    return index != nil
+  }
+
+  /// Return addresses (NSException.callStackReturnAddresses) as "index binary + offset" lines in the format of `frames(fromCallStackTree:)`: the offset is from the start of the binary's image, which is where MetricKit's `offsetIntoBinaryTextSegment` counts from, so the same dSYM symbolicates both.
+  static func frames(fromReturnAddresses addresses: [NSNumber], limit: Int = 128) -> String {
+    addresses.prefix(limit).enumerated().map { index, address in
+      var info = Dl_info()
+      guard let pointer = UnsafeRawPointer(bitPattern: address.uintValue), dladdr(pointer, &info) != 0,
+            let base = info.dli_fbase, let path = info.dli_fname else { return "\(index) ??? + 0" }
+      let binary = (String(cString: path) as NSString).lastPathComponent
+      return "\(index) \(binary) + \(UInt(bitPattern: pointer) - UInt(bitPattern: base))"
+    }.joined(separator: "\n")
   }
 
   /// The frames of a MetricKit call stack tree (MXCallStackTree.jsonRepresentation()) as "index binary + offset" lines, the crashed thread's first: binary file names and offsets only, never paths or symbols from the device.

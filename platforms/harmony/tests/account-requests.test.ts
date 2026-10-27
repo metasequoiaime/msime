@@ -106,6 +106,9 @@ async function main(): Promise<void> {
         "delete",
         "google_login",
         "voice_contribution",
+        // 华为账号登录的两步只由宿主（HarmonyHuaweiSignIn）发，页面只能发 huawei_sign_in。
+        "huawei_challenge",
+        "huawei_login",
       ]) {
         const plan = accountRequest(
           DIRECTORY,
@@ -161,8 +164,15 @@ async function main(): Promise<void> {
     check(!("diagnostics" in bare), "null diagnostics are left out, Rust only takes an object");
   });
 
-  await group("session-changing operations include the host's Google loopback login", () => {
-    for (const operation of ["login", "logout", "account_delete", "forget", "google_sign_in"]) {
+  await group("session-changing operations include the host's Google and Huawei logins", () => {
+    for (const operation of [
+      "login",
+      "logout",
+      "account_delete",
+      "forget",
+      "google_sign_in",
+      "huawei_sign_in",
+    ]) {
       check(
         SESSION_CHANGING_OPERATIONS.includes(operation),
         `${operation} cancels the old account's queued snapshot`,
@@ -211,22 +221,25 @@ async function main(): Promise<void> {
     }
   });
 
-  await group("community plugins: the gallery's operations pass, pack work gets the state root", () => {
-    for (const operation of ["plugin_pack_preview", "plugin_publish", "plugin_install"]) {
-      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation, id: "x" }));
-      check(
-        plan.refusal.length === 0 && parsed(plan.request).state_root === DIRECTORY,
-        `${operation} reads or writes the plugins root`,
-      );
-    }
-    for (const operation of ["plugin_list", "plugin_detail", "plugin_rate", "plugin_delete"]) {
-      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
-      check(
-        plan.refusal.length === 0 && !("state_root" in parsed(plan.request)),
-        `${operation} is forwarded without the state root`,
-      );
-    }
-  });
+  await group(
+    "community plugins: the gallery's operations pass, pack work gets the state root",
+    () => {
+      for (const operation of ["plugin_pack_preview", "plugin_publish", "plugin_install"]) {
+        const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation, id: "x" }));
+        check(
+          plan.refusal.length === 0 && parsed(plan.request).state_root === DIRECTORY,
+          `${operation} reads or writes the plugins root`,
+        );
+      }
+      for (const operation of ["plugin_list", "plugin_detail", "plugin_rate", "plugin_delete"]) {
+        const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
+        check(
+          plan.refusal.length === 0 && !("state_root" in parsed(plan.request)),
+          `${operation} is forwarded without the state root`,
+        );
+      }
+    },
+  );
 
   await group("cloud dictionary: short requests pass, file operations are the host's", () => {
     check(

@@ -528,14 +528,16 @@ function AccountDetailsPage({
       />
     );
 
-  // Count only providers this host can render; the backend may enable Apple or Google for hosts without a native client for them.
+  // 只数本宿主画得出的登录方式：服务端可能为没有对应原生客户端的宿主也开着 Apple、Google 或华为账号。
   const appleAvailable = providers.apple === true && Boolean(client.appleLogin);
   const googleAvailable = providers.google === true && Boolean(client.googleLogin);
+  const huaweiAvailable = providers.huawei === true && Boolean(client.huaweiLogin);
   const enabledProviders =
     Number(providers.email) +
     Number(providers.phone) +
     Number(appleAvailable) +
-    Number(googleAvailable);
+    Number(googleAvailable) +
+    Number(huaweiAvailable);
 
   const signInWithApple = () => {
     if (!consent.confirm()) return;
@@ -543,6 +545,23 @@ function AccountDetailsPage({
       const generation = clientGeneration.current;
       if (!client.appleLogin) throw { code: "account_unavailable" };
       const result = await client.appleLogin();
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      if (!result.user) throw { code: "account_unavailable" };
+      setUser(result.user);
+      await loadProfile(generation);
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      setNotice("登录成功。");
+      onLoginComplete?.();
+    });
+  };
+
+  // 鸿蒙 2in1 的桌面式登录卡片：Account Kit 的授权页由宿主拉起，页面只等结果。
+  const signInWithHuawei = () => {
+    if (!consent.confirm()) return;
+    void perform(async () => {
+      const generation = clientGeneration.current;
+      if (!client.huaweiLogin) throw { code: "account_unavailable" };
+      const result = await client.huaweiLogin();
       if (!mounted.current || generation !== clientGeneration.current) return;
       if (!result.user) throw { code: "account_unavailable" };
       setUser(result.user);
@@ -782,6 +801,14 @@ function AccountDetailsPage({
           {!channel ? (
             <>
               <div className={account.signInBody}>
+                {huaweiAvailable && (
+                  <ActionButton
+                    action={signInWithHuawei}
+                    className={account.provider}
+                    disabled={busy}
+                    label="华为账号登录"
+                  />
+                )}
                 {appleAvailable && (
                   <ActionButton
                     action={signInWithApple}

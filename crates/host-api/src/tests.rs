@@ -7279,10 +7279,9 @@ fn mobile_clipboard_uses_structured_actions() {
         .unwrap();
         read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
     };
-    assert_eq!(
-        call(json!({"operation": "load"}))["value"]["entries"],
-        json!([])
-    );
+    let initial = call(json!({"operation": "load"}));
+    assert_eq!(initial["value"]["entries"], json!([]));
+    assert_eq!(initial["value"]["limit"], 50);
     assert!(!directory.path().join("preferences.json").exists());
 
     assert_eq!(
@@ -7343,6 +7342,43 @@ fn mobile_clipboard_uses_structured_actions() {
             ["ok"],
         false
     );
+}
+
+#[test]
+fn mobile_clipboard_uses_separate_preferences_directory_for_capacity() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("bootstrap/state");
+    let store = PreferencesStore::new(&state);
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences;
+    preferences.clipboard_history_limit = 100;
+    store.save(snapshot.revision, preferences).unwrap();
+
+    for history in [
+        directory.path().to_path_buf(),
+        directory.path().join("clipboard-visitor"),
+    ] {
+        let call = |action: Value| {
+            let request = serde_json::to_vec(&json!({
+                "directory": history,
+                "preferences_directory": state,
+                "action": action,
+            }))
+            .unwrap();
+            read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+        };
+        for index in 0..60 {
+            let result =
+                call(json!({"operation": "capture", "text": format!("synthetic-{index:03}")}));
+            assert_eq!(result["value"]["captured"], true);
+        }
+        let loaded = call(json!({"operation": "load"}));
+        assert_eq!(loaded["value"]["limit"], 100);
+        assert_eq!(loaded["value"]["entries"].as_array().unwrap().len(), 60);
+        let restarted = call(json!({"operation": "load"}));
+        assert_eq!(restarted["value"]["entries"].as_array().unwrap().len(), 60);
+        assert!(history.join("MSIME/clipboard_history.json").exists());
+    }
 }
 
 #[test]

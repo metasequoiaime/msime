@@ -63,6 +63,9 @@ pub struct ProvidersResponse {
     apple: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     google: Option<bool>,
+    /// 服务端的华为账号开关（`/v1/auth/providers` 的 `huawei`）。共享页面只在宿主提供 `huaweiLogin`（鸿蒙的 Account Kit）时才给出按钮。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    huawei: Option<bool>,
     /// 服务端的 Apple 网页登录开关（`/v1/auth/providers` 的 `apple_web`），给没有 Apple 原生登录的 Android 宿主决定要不要给出 Apple 按钮。共享页面不读它。
     #[serde(skip_serializing_if = "Option::is_none")]
     apple_web: Option<bool>,
@@ -82,6 +85,7 @@ pub fn providers_response(providers: HashMap<String, bool>) -> ProvidersResponse
         phone,
         apple: Some(providers.get("apple") == Some(&true)),
         google: Some(providers.get("google") == Some(&true)),
+        huawei: Some(providers.get("huawei") == Some(&true)),
         apple_web: Some(providers.get("apple_web") == Some(&true)),
     }
 }
@@ -93,6 +97,7 @@ pub fn providers_response_without_apple(providers: HashMap<String, bool>) -> Pro
         phone,
         apple: None,
         google: None,
+        huawei: None,
         apple_web: None,
     }
 }
@@ -128,6 +133,7 @@ impl From<AccountProfile> for ProfileResponse {
         let mut provider_names: BTreeMap<String, String> = [
             ("apple", "Apple"),
             ("google", "Google"),
+            ("huawei", "华为账号"),
             ("email", "邮箱"),
             ("phone", "手机号"),
             ("sms", "手机号"),
@@ -324,6 +330,7 @@ mod tests {
             json!({
                 "apple": "Apple",
                 "google": "Google",
+                "huawei": "华为账号",
                 "email": "邮箱",
                 "phone": "手机号",
                 "sms": "手机号",
@@ -338,11 +345,12 @@ mod tests {
             ("email".into(), true),
             ("sms".into(), true),
             ("apple_web".into(), true),
+            ("huawei".into(), true),
         ]));
         // "sms" is the backend's name for the phone provider, and apple is reported even when absent so the client can tell "this account has no Apple identity" from "this build does not know about the provider".
         assert_eq!(
             serde_json::to_value(providers).unwrap(),
-            json!({"email":true,"phone":true,"apple":false,"google":false,"apple_web":true})
+            json!({"email":true,"phone":true,"apple":false,"google":false,"huawei":true,"apple_web":true})
         );
 
         let profile = ProfileResponse::from(AccountProfile {
@@ -367,7 +375,7 @@ mod tests {
             json!({
                 "user":{"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z"},
                 "providers":["email","phone"],
-                "providerNames":{"apple":"Apple","google":"Google","email":"邮箱","phone":"手机号","sms":"手机号"}
+                "providerNames":{"apple":"Apple","google":"Google","huawei":"华为账号","email":"邮箱","phone":"手机号","sms":"手机号"}
             })
         );
     }

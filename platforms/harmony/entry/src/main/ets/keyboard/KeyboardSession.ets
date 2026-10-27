@@ -326,6 +326,8 @@ interface MobileClipboardAction {
 
 interface MobileClipboardRequest {
   directory: string;
+  // 容量偏好在 stateDirectory，历史在它的父目录；不传时 host-api 从 directory 读偏好，会按默认 50 条淘汰。
+  preferences_directory: string;
   action: MobileClipboardAction;
 }
 
@@ -5803,7 +5805,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const directory: string = this.clipboardRoot();
     if (directory.length === 0) return null;
     const request: MobileClipboardRequest = {
-      directory: directory, action: action
+      directory: directory, preferences_directory: this.stateDirectory, action: action
     };
     try {
       const reply: MobileClipboardReply = JSON.parse(

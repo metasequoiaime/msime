@@ -1276,6 +1276,17 @@ else()
 endif()
 add_test(NAME windows-candidate-continuation COMMAND windows-candidate-continuation)
 set_tests_properties(windows-candidate-continuation PROPERTIES TIMEOUT 30)
+# 双拼翻页后的键盘选词：滚轮只翻 Server 那一页时，TIP 照 Server 的回复在自己的宿主会话里选同一个词，不按自己那一页的位置选。两份真实会话，合成词库。
+add_executable(windows-shuangpin-paged-selection tests/input/shuangpin_paged_selection.cpp
+               tsf/EngineSessionAdapter.cpp tsf/EngineResponse.cpp)
+target_link_libraries(windows-shuangpin-paged-selection PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-shuangpin-paged-selection PRIVATE /W4 /WX /UNDEBUG /utf-8)
+else()
+  target_compile_options(windows-shuangpin-paged-selection PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-shuangpin-paged-selection COMMAND windows-shuangpin-paged-selection ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/msime-shuangpin-paging.db)
+set_tests_properties(windows-shuangpin-paged-selection PROPERTIES TIMEOUT 30)
 # TIP 续接时候选不在本会话的当前页上（Server 卷轴展开网格里的候选）：到完整候选列表里按文字找唯一的一个、按全局下标选。只模拟宿主边界，不链接共享库。
 add_executable(windows-host-candidate-continuation tests/input/host_candidate_continuation.cpp
                tsf/EngineResponse.cpp)

@@ -140,6 +140,9 @@ group("refusal blocks every networked bridge request", () => {
     ["api_credential", '{"service":"tencent"}'],
     ["update_check", '{"current_version":"1.0.0"}'],
     ["voice_local_model", '{"operation":"install","id":"synthetic"}'],
+    ["account", '{"operation":"huawei_sign_in"}'],
+    ["account", '{"operation":"huawei_challenge"}'],
+    ["account", '{"operation":"huawei_login","id_token":"synthetic"}'],
     ["account", "not json"],
   ];
   for (const [kind, payload] of networked) {

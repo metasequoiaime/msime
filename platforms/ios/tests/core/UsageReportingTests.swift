@@ -100,6 +100,49 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(permissions?.intValue, 0o600)
   }
 
+  /// 异常自带的返回地址写成与 MetricKit 相同的「序号 二进制 + 偏移」，偏移从映像起点算，同一份 dSYM 能符号化两者。
+  func testReturnAddressesBecomeBinaryAndOffsetLines() throws {
+    let addresses = Thread.callStackReturnAddresses
+    var info = Dl_info()
+    XCTAssertNotEqual(dladdr(#dsohandle, &info), 0)
+    let binary = (String(cString: try XCTUnwrap(info.dli_fname)) as NSString).lastPathComponent
+    let lines = UsageReporting.frames(fromReturnAddresses: addresses).split(separator: "\n").map(String.init)
+    XCTAssertEqual(lines.count, min(addresses.count, 128))
+    let base = UInt(bitPattern: try XCTUnwrap(info.dli_fbase))
+    let index = try XCTUnwrap(lines.firstIndex { $0.contains(" \(binary) + ") }, "no frame from the test binary")
+    XCTAssertEqual(lines[index], "\(index) \(binary) + \(addresses[index].uintValue - base)")
+    XCTAssertEqual(UsageReporting.frames(fromReturnAddresses: [0, addresses[0]], limit: 1), "0 ??? + 0")
+  }
+
+  /// App 自己的未捕获异常：记录不属于任何会话、只带异常名；MetricKit 再送来同一进程的诊断时认出它，只认一次。
+  func testUncaughtExceptionIsRecordedOnceAcrossItsMetricKitCopy() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let handled = directory.appendingPathComponent("uncaught-exception-pids")
+
+    UsageReporting.recordUncaughtException(name: "NSInternalInconsistencyException", returnAddresses: [],
+                                           pid: 4242, in: directory, handledProcesses: handled)
+    let crashes = directory.appendingPathComponent("telemetry-crashes")
+    let files = try FileManager.default.contentsOfDirectory(at: crashes, includingPropertiesForKeys: nil)
+    XCTAssertEqual(files.count, 1)
+    XCTAssertNotNil(UUID(uuidString: files[0].deletingPathExtension().lastPathComponent))
+    XCTAssertEqual(try String(contentsOf: files[0], encoding: .utf8), "Uncaught NSInternalInconsistencyException\n")
+
+    XCTAssertFalse(UsageReporting.takeHandledProcess(7, in: handled))
+    XCTAssertTrue(UsageReporting.takeHandledProcess(4242, in: handled))
+    XCTAssertFalse(UsageReporting.takeHandledProcess(4242, in: handled))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: handled.path))
+
+    for pid in 1...40 {
+      UsageReporting.recordUncaughtException(name: "Synthetic", returnAddresses: [], pid: pid_t(pid), in: directory,
+                                             handledProcesses: handled)
+    }
+    XCTAssertFalse(UsageReporting.takeHandledProcess(999, in: handled))
+    XCTAssertFalse(UsageReporting.takeHandledProcess(8, in: handled), "only the latest 32 are kept")
+    XCTAssertTrue(UsageReporting.takeHandledProcess(9, in: handled))
+  }
+
   func testCrashDiagnosticDoesNotFollowCrashDirectorySymlink() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let outside = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

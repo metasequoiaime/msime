@@ -29,7 +29,6 @@ import app.msime.android.ClipboardEditKey;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryRetentionPolicy;
 import app.msime.android.ClipboardHistoryStore;
-import app.msime.android.ClipboardModeStore;
 import app.msime.android.ClipboardSearchPolicy;
 import app.msime.android.ClipboardOperationAuthenticationPolicy;
 import app.msime.android.ScrollTopButtonPolicy;
@@ -200,7 +199,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
             JSONObject preferences = KeyboardSheets.preferences(context);
             if (preferences == null) return null;
             boolean enabled = preferences.optBoolean("clipboard_history", false);
-            ClipboardHistoryStore store = new ClipboardHistoryStore(ClipboardModeStore.directory(context));
+            ClipboardHistoryStore store = ClipboardHistoryStore.forContext(context);
             if (ClipboardHistoryRetentionPolicy.clearsHistory(ClipboardHistoryRetentionPolicy.Source.LIVE, enabled)) {
                 store.clearQuietly();
                 return new Snapshot(false, List.of());
@@ -330,7 +329,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         String text = item.text();
         HostTask.run(this, context -> {
             ClipboardHistory.Item current = ClipboardSearchPolicy.currentEditItem(
-                new ClipboardHistoryStore(ClipboardModeStore.directory(context)).load(), text);
+                ClipboardHistoryStore.forContext(context).load(), text);
             return current == null ? null : ClipboardEditKey.editKey(context, current.timestamp(), current.text());
         }, (String key) -> {
             busy = false;
@@ -350,7 +349,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         busy = true;
         String text = item.text();
         HostTask.run(this, context -> {
-            new ClipboardHistoryStore(ClipboardModeStore.directory(context)).remove(text);
+            ClipboardHistoryStore.forContext(context).remove(text);
             return Boolean.TRUE;
         }, done -> {
             busy = false;

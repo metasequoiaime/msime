@@ -736,6 +736,34 @@ function privacyConsentClient(
 /** Google 登录等浏览器跳回最多 300 秒（client-services 的 `GOOGLE_SIGN_IN_TIMEOUT`），之后还要用授权码换 token；默认的 30 秒会在用户还在浏览器里时就报超时。取消由页面的「取消」经 google_cancel 完成，不靠这个超时。 */
 const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
 
+/**
+ * 鸿蒙设置应用是否给共享账号页提供 Google 登录。中国大陆连不上 Google，AppGallery 审核按「使用 Google 登录」点了没反应提过意见，并建议提供华为账号登录，所以默认关掉，改由 `huaweiLogin` 提供第三方登录（见 .agents/notes/implemented/feature/2026-10-27-harmony-huawei-id-sign-in.md）。宿主的回环实现（`HarmonyGoogleSignIn`）和下面的 `googleLogin`、`googleCancel` 都保留，改回 true 就恢复；别的平台的 Google 登录不经过这里。
+ */
+const HARMONY_GOOGLE_SIGN_IN = false;
+
+/** 华为账号登录的等待上限：Account Kit 的授权页由用户操作，未登录华为账号时还要先在系统页登录，用户可以在页面上停很久；默认的 30 秒会在用户还在授权页时就报超时。授权页由系统管理，用户关掉它时 Account Kit 立即以取消结束，不靠这个超时。 */
+const HUAWEI_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
+
+/** 鸿蒙宿主的 Google 回环登录：宿主在 127.0.0.1 上监听、用系统浏览器打开 Google，等它跳回来再用授权码登录；页面只看到结果。 */
+function googleSignIn(native: NativeBridge): Pick<AccountClient, "googleLogin" | "googleCancel"> {
+  return {
+    googleLogin: async () =>
+      unwrap<{ user: AccountUser | null }>(
+        await bridgeRequest(
+          native,
+          "account",
+          JSON.stringify({ operation: "google_sign_in" }),
+          GOOGLE_SIGN_IN_TIMEOUT_MS,
+        ),
+      ),
+    googleCancel: async () => {
+      unwrap(
+        await bridgeRequest(native, "account", JSON.stringify({ operation: "google_cancel" })),
+      );
+    },
+  };
+}
+
 function accountClient(native: NativeBridge): AccountClient {
   // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），user 含原始 displayName 和共享 preferredName，直接透传共享账号页，不在这里重建显示名。
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
@@ -755,19 +783,17 @@ function accountClient(native: NativeBridge): AccountClient {
         challenge_id: challengeId,
         code,
       }),
-    // 宿主在 127.0.0.1 上监听、用系统浏览器打开 Google，等它跳回来再用授权码登录；页面只看到结果。
-    googleLogin: async () =>
+    // 宿主经 Account Kit 拉起华为账号授权页，challenge、nonce 和 ID token 都在原生层，页面只看到登录结果。
+    huaweiLogin: async () =>
       unwrap<{ user: AccountUser | null }>(
         await bridgeRequest(
           native,
           "account",
-          JSON.stringify({ operation: "google_sign_in" }),
-          GOOGLE_SIGN_IN_TIMEOUT_MS,
+          JSON.stringify({ operation: "huawei_sign_in" }),
+          HUAWEI_SIGN_IN_TIMEOUT_MS,
         ),
       ),
-    googleCancel: async () => {
-      await request({ operation: "google_cancel" });
-    },
+    ...(HARMONY_GOOGLE_SIGN_IN ? googleSignIn(native) : {}),
     profile: () => request<AccountProfile>({ operation: "profile" }),
     rename: (displayName) =>
       request<AccountProfile>({ operation: "rename", display_name: displayName }),
