@@ -141,6 +141,26 @@ pub fn relay_request(
     validate_relay_request(action).map_err(|_| INVALID)?;
     let relay = RelayClipboard::new(config, keystore_directory, device_name)
         .map_err(|error| error.code())?;
+    relay_action(&relay, action)
+}
+
+/// 与 [`relay_request`] 相同，但只用 `keystore_directory` 里已有的设备身份（`RelayClipboard::existing_identity_only`）：本机没有给这个中继和空间保存过可用的密钥串时，经驱动的动作（`list`、`add` 和设备管理）答 `clipboard_identity_missing`，不生成新身份、不登记设备、不联网。鸿蒙的键盘扩展用它沿用设置应用的身份，同一台设备只登记一次。
+pub fn relay_request_existing_identity(
+    config: RelayConfig,
+    keystore_directory: &Path,
+    device_name: &str,
+    action: &Value,
+) -> Result<Value, &'static str> {
+    const INVALID: &str = "invalid_cloud_clipboard";
+    validate_relay_request(action).map_err(|_| INVALID)?;
+    let relay = RelayClipboard::new(config, keystore_directory, device_name)
+        .map_err(|error| error.code())?
+        .existing_identity_only();
+    relay_action(&relay, action)
+}
+
+fn relay_action(relay: &RelayClipboard, action: &Value) -> Result<Value, &'static str> {
+    const INVALID: &str = "invalid_cloud_clipboard";
     let field = |name: &str| action.get(name).and_then(Value::as_str).ok_or(INVALID);
     let flag = |name: &str| action.get(name).and_then(Value::as_bool).ok_or(INVALID);
     let done = |result: Result<(), RelayError>, value: Value| {
@@ -223,6 +243,26 @@ pub fn webdav_probe(
 fn relay_value<T: serde::Serialize>(result: Result<T, RelayError>) -> Result<Value, &'static str> {
     let value = result.map_err(|error| error.code())?;
     serde_json::to_value(value).map_err(|_| RelayError::Unavailable.code())
+}
+
+/// 与 [`account_request`] 相同，但只用本机已有的设备身份：经端到端加密驱动的动作（`list`、`add` 和设备管理）在本机没有可用的密钥串时答 `clipboard_identity_missing`，不生成新身份、不登记设备、不联网；开关、删除这些直接请求的动作照常。鸿蒙的键盘扩展用它沿用设置应用经共享沙箱镜像过来的那份身份。检查在驱动读取密钥串之前、不在同一把锁里：密钥串只会随会话一起被清掉（退出登录、会话采用清空），那时驱动在取凭据时就停下了。
+pub fn account_request_existing_identity<A: AccountApi, S: AccountSessionStorage>(
+    session: &BackendAccountSession<A, S>,
+    action: &Value,
+    device_name: Option<&str>,
+) -> Result<Value, &'static str> {
+    let driven = matches!(
+        action.get("operation").and_then(Value::as_str),
+        Some("list" | "add" | "devices" | "approve" | "reject" | "remove" | "reset")
+    );
+    if driven
+        && !session
+            .has_clipboard_identity()
+            .map_err(|error| error.code())?
+    {
+        return Err(msime_client_services::clipboard_relay::IDENTITY_MISSING);
+    }
+    account_request(session, action, device_name)
 }
 
 /// 经账号会话答一个云剪贴板动作：云剪贴板面板发的 `list`、`set_enabled`、`add` 和 `delete`，端到端加密的设备管理（`devices`、`approve`、`reject`、`remove`、`reset`，见 `docs/cloud-clipboard-e2e.md`），以及原生 Android、iOS 和 macOS 页面用的 `pin {id, pinned}`、`set_retention {days}` 和 `clear`。`pin` 和 `clear` 答 `{}`，`set_retention` 答 `{retention_days}`，形状与 [`relay_request`] 相同；`clear` 删掉所有条目，不动开关。`device_name` 是本设备在端到端加密里登记的名字，显示在其他设备的批准提示里；为 `None` 时用 `cloud_clipboard_device_name`，即计算机名或平台名。会联网，调用方不要在界面线程上调用。Tauri 外壳传它们 `AccountState` 持有的会话；原生 Windows 设置窗口（`msime_client_account_cloud_clipboard`）传一个基于外壳写下的已登录会话文件的会话。不属于这些的动作、或缺字段的动作是 `invalid_cloud_clipboard`，不会发到后端；调用失败时是账号错误的错误码，没人登录时是 `account_unauthorized`，或者是驱动的错误码（例如 `clipboard_device_pending`）。

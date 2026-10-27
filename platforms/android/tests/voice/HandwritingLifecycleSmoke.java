@@ -17,6 +17,10 @@ public final class HandwritingLifecycleSmoke {
             "the reset must cancel delayed handwriting work and invalidate pinyin results");
         check(service.contains("imeLayoutRows.resetForInput();"),
             "the service must invalidate ImeLayoutRows work when the input session ends");
+        // 离开手写后字段被清空，旧卡片的布局监听若读字段就会空指针（0.6.0 崩溃分组 950520c320652963）。
+        check(!rows.contains("-> s.handwritingCanvas.setCardRect(")
+                && rows.contains("-> canvas.setCardRect("),
+            "the card layout listener must use the canvas it was built with, not s.handwritingCanvas");
         System.out.println("Android handwriting lifecycle state is reset with the input session");
     }
 

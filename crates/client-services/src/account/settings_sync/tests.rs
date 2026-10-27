@@ -48,7 +48,58 @@ fn full_schema() -> AccountPreferenceSchema {
             value_type: "string".into(),
         },
     );
+    // Android 不导出、只有部分宿主导出的共享偏好（msime-cloud#1277 收录）。
+    for (key, kind) in NEW_SHARED_KEYS {
+        schema.fields.insert(
+            (*key).into(),
+            AccountPreferenceField {
+                value_type: (*kind).into(),
+            },
+        );
+    }
     schema
+}
+
+/// msime-cloud#1277 加进字段表、此前没有宿主导出的共享偏好；两个思考强度和三个快捷键只有 macOS 能改，共享层的宿主都不导出。
+const NEW_SHARED_KEYS: &[(&str, &str)] = &[
+    ("mixed_input.quick_phrase", "boolean"),
+    ("mixed_input.quick_phrase_frequency", "boolean"),
+    ("sentence_association.grammar_model", "string"),
+    ("local_modes.symbol", "boolean"),
+    ("local_modes.date_time_menu", "boolean"),
+    ("second_third_candidate.enabled", "boolean"),
+    ("second_third_candidate.keys", "string"),
+    ("translation.ai", "boolean"),
+    ("ai_assistant.thinking", "string"),
+    ("voice_input.polish_thinking", "string"),
+    ("keybindings.toggle_english_candidates", "string"),
+    ("keybindings.toggle_full_width", "string"),
+    ("keybindings.toggle_punctuation", "string"),
+];
+
+fn exported_new_keys(settings: &BTreeMap<String, AccountPreferenceValue>) -> Vec<&str> {
+    NEW_SHARED_KEYS
+        .iter()
+        .map(|(key, _)| *key)
+        .filter(|key| settings.contains_key(*key))
+        .collect()
+}
+
+/// 和默认值都不同的一组新增共享偏好，用来确认往返之后每一项都应用到了。
+fn new_shared_preferences() -> Preferences {
+    let mut preferences = Preferences::default();
+    preferences.mixed_input.quick_phrase = !preferences.mixed_input.quick_phrase;
+    preferences.mixed_input.quick_phrase_frequency =
+        !preferences.mixed_input.quick_phrase_frequency;
+    preferences.sentence_association.grammar_model =
+        crate::preferences::GrammarModel::BaguwenCompact;
+    preferences.local_modes.symbol = !preferences.local_modes.symbol;
+    preferences.local_modes.date_time_menu = !preferences.local_modes.date_time_menu;
+    preferences.second_third_candidate.enabled = !preferences.second_third_candidate.enabled;
+    preferences.translation_ai = !preferences.translation_ai;
+    preferences.ai_assistant.thinking = "high".into();
+    preferences.voice_input.polish_thinking = "max".into();
+    preferences
 }
 
 fn document(settings: BTreeMap<String, AccountPreferenceValue>) -> AccountPreferences {
@@ -1048,7 +1099,7 @@ fn settings_sync_custom_keyboard_skin_library_is_bounded_and_an_array() {
 }
 
 #[test]
-fn settings_sync_desktop_export_is_only_the_shared_input_keys() {
+fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() {
     let mut preferences = Preferences {
         scheme: InputScheme::Wubi,
         traditional_chinese_output: true,
@@ -1063,7 +1114,9 @@ fn settings_sync_desktop_export_is_only_the_shared_input_keys() {
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
     let exported = export_desktop_settings(&preferences);
-    assert!(exported.keys().all(|key| key.starts_with("input.")));
+    assert!(exported
+        .keys()
+        .all(|key| key.starts_with("input.") || NEW_SHARED_KEYS.iter().any(|(new, _)| new == key)));
     assert!(exported.values().all(|value| !matches!(
         value,
         AccountPreferenceValue::String(text) if text.contains("SENTINEL")
@@ -1073,7 +1126,12 @@ fn settings_sync_desktop_export_is_only_the_shared_input_keys() {
         .into_iter()
         .filter(|(key, _)| key.starts_with("input."))
         .collect();
-    assert_eq!(exported, shared);
+    let exported_input: BTreeMap<_, _> = exported
+        .clone()
+        .into_iter()
+        .filter(|(key, _)| key.starts_with("input."))
+        .collect();
+    assert_eq!(exported_input, shared);
     assert_eq!(
         exported.get("input.character_set"),
         Some(&AccountPreferenceValue::String("traditional".into()))
@@ -1323,5 +1381,126 @@ fn android_keyboard_skin_mode_slots_sync_without_overwriting_global_theme() {
     assert_eq!(
         applied.preferences.android_keyboard_skin_dark.as_deref(),
         Some("design:synthetic-night")
+    );
+}
+
+/// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 只有语法模型，Linux 是除思考强度和快捷键之外的全部。
+#[test]
+fn settings_sync_new_shared_keys_follow_what_each_host_can_change() {
+    let preferences = new_shared_preferences();
+    let android = export_android_settings(&preferences, Some(&feedback())).unwrap();
+    assert!(exported_new_keys(&android).is_empty());
+    let windows = export_desktop_settings_for(DesktopHost::Windows, &preferences);
+    assert_eq!(
+        exported_new_keys(&windows),
+        ["sentence_association.grammar_model"]
+    );
+    let linux = export_desktop_settings_for(DesktopHost::Linux, &preferences);
+    assert_eq!(
+        exported_new_keys(&linux),
+        [
+            "mixed_input.quick_phrase",
+            "mixed_input.quick_phrase_frequency",
+            "sentence_association.grammar_model",
+            "local_modes.symbol",
+            "local_modes.date_time_menu",
+            "second_third_candidate.enabled",
+            "second_third_candidate.keys",
+            "translation.ai",
+        ]
+    );
+    assert_eq!(
+        linux.get("sentence_association.grammar_model"),
+        Some(&AccountPreferenceValue::String("baguwen_compact".into()))
+    );
+    assert_eq!(
+        linux.get("second_third_candidate.keys"),
+        Some(&AccountPreferenceValue::String("semicolon_quote".into()))
+    );
+}
+
+/// Linux 往返：导出的每一项都应用回来；Windows 只应用语法模型，云端的 `translation.ai` 等不动本机（Windows 运行时读它，设置里却关不掉）。
+#[test]
+fn settings_sync_new_shared_keys_round_trip_on_the_desktop_hosts() {
+    let local = Preferences::default();
+    let remote = new_shared_preferences();
+    let cloud = document(export_desktop_settings_for(DesktopHost::Linux, &remote));
+
+    let linux =
+        apply_desktop_settings_for(DesktopHost::Linux, &local, &cloud, &full_schema()).unwrap();
+    assert!(linux.skipped.is_empty(), "{:?}", linux.skipped);
+    let applied = &linux.preferences;
+    assert_eq!(
+        applied.mixed_input.quick_phrase,
+        remote.mixed_input.quick_phrase
+    );
+    assert_eq!(
+        applied.mixed_input.quick_phrase_frequency,
+        remote.mixed_input.quick_phrase_frequency
+    );
+    assert_eq!(
+        applied.sentence_association.grammar_model,
+        remote.sentence_association.grammar_model
+    );
+    assert_eq!(applied.local_modes.symbol, remote.local_modes.symbol);
+    assert_eq!(
+        applied.local_modes.date_time_menu,
+        remote.local_modes.date_time_menu
+    );
+    assert_eq!(
+        applied.second_third_candidate,
+        remote.second_third_candidate
+    );
+    assert_eq!(applied.translation_ai, remote.translation_ai);
+    // 共享层的宿主不导出也不应用思考强度。
+    assert_eq!(applied.ai_assistant.thinking, local.ai_assistant.thinking);
+    assert_eq!(
+        applied.voice_input.polish_thinking,
+        local.voice_input.polish_thinking
+    );
+
+    let windows =
+        apply_desktop_settings_for(DesktopHost::Windows, &local, &cloud, &full_schema()).unwrap();
+    assert!(windows.skipped.is_empty(), "{:?}", windows.skipped);
+    let mut expected = local.clone();
+    expected.sentence_association.grammar_model = remote.sentence_association.grammar_model;
+    assert_eq!(windows.preferences, expected);
+}
+
+/// 不认识的语法模型和键位只跳过这一个键，同一份文档里别的键照常应用。
+#[test]
+fn settings_sync_unknown_grammar_model_and_candidate_keys_are_skipped() {
+    let local = Preferences::default();
+    let mut settings = export_desktop_settings_for(DesktopHost::Linux, &new_shared_preferences());
+    settings.insert(
+        "sentence_association.grammar_model".into(),
+        AccountPreferenceValue::String("future_model".into()),
+    );
+    settings.insert(
+        "second_third_candidate.keys".into(),
+        AccountPreferenceValue::String("left_right_shift".into()),
+    );
+    let applied = apply_desktop_settings_for(
+        DesktopHost::Linux,
+        &local,
+        &document(settings),
+        &full_schema(),
+    )
+    .unwrap();
+    assert_eq!(
+        applied.skipped,
+        [
+            "second_third_candidate.keys",
+            "sentence_association.grammar_model"
+        ]
+    );
+    assert_eq!(
+        applied.preferences.sentence_association.grammar_model,
+        local.sentence_association.grammar_model
+    );
+    assert!(applied.preferences.second_third_candidate.enabled);
+    assert_eq!(
+        applied.preferences.local_modes.symbol,
+        !local.local_modes.symbol
     );
 }

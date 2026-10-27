@@ -90,6 +90,10 @@ def main() -> int:
          allowed, "http.createHttp()"),
         ("keyboard/clipboard/CloudClipboardClient.ets", "  private async send(action: string): Promise<string>",
          allowed, "client.accountCloudClipboard("),
+        # 键盘经自建中继或 WebDAV 网盘的云剪贴板，与账号路径同一道门。
+        ("keyboard/clipboard/CloudClipboardClient.ets",
+         "  private async sendRelay(action: string, revision: number): Promise<string>",
+         allowed, "client.relayCloudClipboard("),
         ("keyboard/input/HarmonyVoicePolisher.ets",
          "  async polish(config: VoiceInputConfiguration, text: string): Promise<string | null>",
          allowed, "http.createHttp()"),

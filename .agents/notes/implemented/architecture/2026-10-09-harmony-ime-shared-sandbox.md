@@ -20,7 +20,7 @@ Status: implemented
 1. AppGallery Connect 为包名 `app.msime.hmos` 签发了「输入法应用内数据共享」的 data-group-id `group.1516753898738609107`（工单 D645548）。键盘扩展在 `module.json5` 的 `dataGroupIds` 里声明它，代码里同一个值在 `keyboard/SharedStateMirror.ets` 的 `DATA_GROUP_ID`。签名 Profile 必须在 AGC 网页端手动新建（DevEco 自动签名走标准模板，带能力开关但不写授权值），生成时间要晚于能力「已通过」的时间，`bundle-info` 里要有 `"data-group-ids": ["group.1516753898738609107"]`；Profile 里的值与邮件不一致时以 Profile 为准，两处代码一起改。
 2. 两个进程都用 `context.getGroupDir(DATA_GROUP_ID)` 拿共享目录（`SharedStateMirror.resolve`）。拿不到（签名不带 ID、模拟器不做这项授权校验、调用失败）时两边照旧各用各的 `files/state`，记一条日志，设置页不对用户提示：这是签名和开发上的状态，用户对它无能为力。
 3. 发布方把条目复制到 `<共享目录>/msime/<settings|keyboard>/`，最后写清单 `manifest.json`（每条的内容指纹和变化时刻）；导入方读清单，把指纹与上次导入不同的条目复制回自己的私有目录，导入到哪一版记在私有的 `state/shared-import-<发布方>.json`。规则在 `keyboard/SharedStateMirrorPolicy.ts`，文件操作在 `keyboard/SharedStateMirror.ets`，两侧的时机在 `keyboard/SharedStateSync.ets`。
-   - 设置应用发布：偏好、按键反馈、应用主题、打字统计开关（`typing-statistics-switch.json`：开关、保留期、清空次数）、候选窗皮肤 `skins/`、插件 `plugins/`（含 `mentions.json`）、社区回复库 `CommunityLibrary.json`、账号会话和匿名账号。时机：每次改设置后合并 300 ms 发布一次（同步桥接方法开头、异步请求经 `deliverReply` 交回时），以及窗口退到后台时立即发布。
+   - 设置应用发布：偏好、按键反馈、应用主题、打字统计开关（`typing-statistics-switch.json`：开关、保留期、清空次数）、候选窗皮肤 `skins/`、插件 `plugins/`（含 `mentions.json`）、社区回复库 `CommunityLibrary.json`、账号会话和匿名账号，以及云剪贴板的设备身份与网盘日志缓存。时机：每次改设置后合并 300 ms 发布一次（同步桥接方法开头、异步请求经 `deliverReply` 交回时），以及窗口退到后台时立即发布。
    - 键盘导入：扩展 `onCreate` 在会话第一次读状态之前导入一次，之后每次获得焦点（`KeyboardSession.attach`）在偏好修订号比较之前导入。偏好经 `savePreferences` 写入（走存储的锁和修订号），随后的修订号比较发现变化并重建会话；按键反馈和应用主题在 attach 里本来就会重新读；插件和皮肤由原生会话在获得焦点时重新盖戳；正在用的皮肤包被同名替换时修订号不变，`attach` 随后比较选中包的文件身份，变了就重新应用外观（见[皮肤包同名替换](../bug-fix/2026-10-20-macos-replaced-skin-package-refresh.md)）。统计开关经 `typingStatistics` 的 `set_enabled` / `set_retention` / `reset` 用到键盘自己的统计文件上；第一次导入时不清空，免得共享沙箱启用前记下的计数被早先的清空带走。
    - 键盘只在完整体验模式下发布（`getSecurityMode() === FULL`）：键盘里改的偏好和按键反馈、刷新过的账号会话、打字统计，并附上它从设置应用导入到了哪一版。时机：每次获得焦点导入之前、失去焦点时。设置应用在窗口回到前台时先发布自己的、再导入键盘的；键盘的统计文件只在键盘已经导入了设置应用当前的统计开关时才采用，否则会把刚改的开关或刚清空的计数改回去；采用时不整体覆盖，计数取键盘的，设置应用自己记的试过的皮肤（`skinsTried`）和徽章（`achievements`）取并集，并持有统计存储的同一把 flock 写回，免得与工作线程上的 `summary` 互相覆盖。
 4. 指纹只看内容：偏好按 `preferences` 本身（不含修订号、键排好序），小文件按全文，目录按每个文件的路径、大小和修改时间（锁文件和暂存文件不算）。导入写回的内容与对方相同，指纹也相同，所以不会被发布回去，两边不会来回打转。两边都改过同一条时，以变化时刻较晚的一方为准；基础访问模式下键盘不发布，设置应用的改动总会覆盖键盘里的同一条。
@@ -39,7 +39,7 @@ Status: implemented
 - 签名 Profile 带上 data-group-id 之后，设置页改的方案、按键反馈、主题、皮肤、插件在键盘下次获得焦点时生效；完整体验模式下，键盘里的登录会话、打字统计也和设置应用一致。没有共享目录时行为与改动前完全相同。
 - 基础访问模式下是单向的：键盘工具栏里改的简繁、标点等会在设置应用下次改动偏好并发布时被覆盖；统计计数留在键盘里，设置应用的统计页看不到；键盘里的云剪贴板等账号功能仍按匿名账号。统计页还没有提示「需要完整体验模式」，这一条留作后续。
 - 同一份数据在两个沙箱和共享目录里各有一份，皮肤和插件目录会占两到三倍空间；目录指纹按秒级修改时间和大小算，同一秒内大小不变的改动察觉不到，下一次变化会一起带过去。
-- 本地语音模型（`files/voice-models`，体积大）和云剪贴板的端到端密钥串不在镜像范围内：前者复制代价太大，后者两个进程本来就各是一台设备。设置应用下载的本地语音模型键盘仍然用不到，留作后续。
+- 本地语音模型（`files/voice-models`，体积大）不在镜像范围内，复制代价太大；设置应用下载的本地语音模型键盘仍然用不到，留作后续。云剪贴板的端到端密钥串（账号路径与自建中继、WebDAV 各一份）和网盘日志缓存由设置应用发布、键盘导入，键盘只用设置应用生成的身份，一台手机只登记一台设备，见 [鸿蒙接入自建中继与 WebDAV](../feature/2026-10-27-harmony-cloud-clipboard-relay-webdav.md)。
 - 两边对同一条的冲突按变化时刻裁决，依赖同一台设备的系统时钟；用户在两个进程里几乎同时改同一项时，后发布的一方赢。
 
 ## Verification

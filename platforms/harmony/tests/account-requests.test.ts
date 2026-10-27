@@ -11,11 +11,15 @@ import {
   clientAgentRequest,
   cloudClipboardDeviceName,
   cloudClipboardRequest,
+  cloudClipboardRoute,
   cloudDictionaryFileRequest,
   cloudDictionaryRequest,
   communityRequest,
   hostAccountRequest,
   preferencesPutAction,
+  relayBinding,
+  relayBindingRevision,
+  relayCloudClipboardRequest,
   replyError,
   replyValueText,
   settingsApplyRequest,
@@ -23,6 +27,7 @@ import {
   statusUserId,
   typingUploadReply,
   typingUploadRequest,
+  webDavProbeRequest,
 } from "../entry/src/main/ets/account/HarmonyAccountRequests";
 import {
   ADOPTED_SESSIONS,
@@ -290,15 +295,29 @@ async function main(): Promise<void> {
         DIRECTORY,
         "HUAWEI Mate 70",
         '{"operation":"list","search":""}',
+        DIRECTORY,
+        true,
       );
+      const request = parsed(plan.request);
       check(
-        parsed(plan.request).device_name === "HUAWEI Mate 70",
+        request.device_name === "HUAWEI Mate 70",
         "the device name is sent so other devices do not see Linux",
       );
+      check(
+        request.preferences_directory === DIRECTORY,
+        "the preferences travel so Rust refuses the account once a relay is configured",
+      );
+      check(!("create_identity" in request), "the settings app creates the device identity");
+      const keyboard = parsed(
+        cloudClipboardRequest(DIRECTORY, "x", '{"operation":"add","text":"合成"}', DIRECTORY, false)
+          .request,
+      );
+      check(keyboard.create_identity === false, "the keyboard only borrows the identity");
       for (const operation of ["pin", "set_retention", "clear"]) {
         check(
           replyError(
-            cloudClipboardRequest(DIRECTORY, "x", JSON.stringify({ operation })).refusal,
+            cloudClipboardRequest(DIRECTORY, "x", JSON.stringify({ operation }), DIRECTORY, true)
+              .refusal,
             "",
           ) === "invalid_cloud_clipboard",
           `${operation} has no entry on this host's page yet`,
@@ -310,6 +329,118 @@ async function main(): Promise<void> {
       );
       check(cloudClipboardDeviceName("", " ALN-AL00 ") === "ALN-AL00", "then the model");
       check(cloudClipboardDeviceName(" ", "") === "HarmonyOS 设备", "then the old fallback");
+    },
+  );
+
+  await group(
+    "cloud clipboard: a relay or a WebDAV drive is the only route once configured",
+    () => {
+      const account = cloudClipboardRoute('{"ok":true,"value":{"source":"account","revision":3}}');
+      check(account.source === "account" && account.revision === 3, "the account route");
+      check(relayBinding(account) === "", "the account has no relay binding");
+      const drive = cloudClipboardRoute(
+        '{"ok":true,"value":{"source":"relay","backend":"webdav","revision":7}}',
+      );
+      check(drive.source === "relay" && drive.backend === "webdav", "a WebDAV drive is a relay");
+      const binding = relayBinding(drive);
+      check(binding === "relay:webdav:7", "the binding names the backend and the revision");
+      check(!binding.includes("dav.example"), "no address or credential is in the binding");
+      check(relayBindingRevision(binding) === 7, "the revision is read back from the binding");
+      check(
+        relayBindingRevision("synthetic-user-id") === -1,
+        "an account id is not a relay binding",
+      );
+      check(
+        relayBinding(
+          cloudClipboardRoute(
+            '{"ok":true,"value":{"source":"relay","backend":"relay","revision":7}}',
+          ),
+        ) !== binding,
+        "a relay and a drive at the same revision do not share a binding",
+      );
+      // 读不出来源时从不当成「走账号」。
+      for (const reply of [
+        '{"ok":false,"error":"relay_not_configured"}',
+        '{"ok":false,"error":"storage"}',
+        '{"ok":true,"value":{"source":"relay","backend":"s3","revision":1}}',
+        '{"ok":true,"value":{"source":"socket","revision":1}}',
+        '{"ok":true,"value":{"source":"account"}}',
+        "not json",
+        "",
+      ]) {
+        const route = cloudClipboardRoute(reply);
+        check(route.source === "failed" && route.error.length > 0, `${reply} is a failure`);
+      }
+      check(
+        cloudClipboardRoute('{"ok":false,"error":"relay_not_configured"}').error ===
+          "relay_not_configured",
+        "the page hears why",
+      );
+
+      const relay = relayCloudClipboardRequest(
+        DIRECTORY,
+        DIRECTORY,
+        "HUAWEI Mate 70",
+        '{"operation":"list","search":""}',
+        7,
+        true,
+      );
+      const request = parsed(relay.request);
+      check(
+        request.preferences_directory === DIRECTORY && request.directory === DIRECTORY,
+        "the keystore and the drive cache live with the account session",
+      );
+      check(request.expected_revision === 7, "Rust compares the revision the route was read at");
+      check(request.device_name === "HUAWEI Mate 70", "the device name travels to the relay too");
+      check(!("create_identity" in request), "settings may create the identity");
+      const borrowed = parsed(
+        relayCloudClipboardRequest(
+          DIRECTORY,
+          DIRECTORY,
+          "x",
+          '{"operation":"add","text":"合成"}',
+          7,
+          false,
+        ).request,
+      );
+      check(borrowed.create_identity === false, "the keyboard never creates its own identity");
+      for (const operation of ["pin", "set_retention", "clear", "unknown"]) {
+        check(
+          replyError(
+            relayCloudClipboardRequest(
+              DIRECTORY,
+              DIRECTORY,
+              "x",
+              JSON.stringify({ operation }),
+              1,
+              true,
+            ).refusal,
+            "",
+          ) === "invalid_cloud_clipboard",
+          `${operation} is refused on the relay as on the account`,
+        );
+      }
+
+      const probe = webDavProbeRequest(
+        '{"url":"https://dav.example.test/dav","username":"synthetic@example.test","password":"synthetic-app-password"}',
+        DIRECTORY,
+      );
+      check(probe.refusal === "", "a draft becomes a probe");
+      check(
+        parsed(probe.request).directory === DIRECTORY,
+        "a passing probe resets the local cache",
+      );
+      for (const draft of [
+        '{"url":"https://dav.example.test/dav","username":"a"}',
+        '{"url":1,"username":"a","password":"b"}',
+        '{"url":"https://dav.example.test/dav","username":"a","password":"b","directory":"/x"}',
+        "not json",
+      ]) {
+        check(
+          replyError(webDavProbeRequest(draft, DIRECTORY).refusal, "") === "relay_not_configured",
+          `${draft} is not probed`,
+        );
+      }
     },
   );
 

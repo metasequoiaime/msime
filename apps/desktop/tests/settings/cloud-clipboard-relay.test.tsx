@@ -23,6 +23,7 @@ import {
   withCloudClipboardWebDav,
 } from "../../../../packages/ui/src/settings/cloud-clipboard-relay";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { testHost } from "../support/host";
 
 afterEach(() => {
   cleanup();
@@ -494,4 +495,41 @@ test("the drive's own failures have their own words and are not read as signed o
     "网盘拒绝了这个账号或应用密码。",
   );
   expect(cloudClipboardWebDavProbeMessage({ code: "relay_unavailable" })).toContain("连不上网盘");
+});
+
+test("the HarmonyOS phone's clipboard page offers the relay and a tested WebDAV drive", async () => {
+  // 鸿蒙设置应用（apps/harmony）在同意隐私政策后提供这两项，「测试连接」经宿主的 `cloud_clipboard_webdav_probe` 请求由 Rust 跑。
+  const save = vi.fn(async (revision: number, preferences: Preferences) =>
+    snapshot(preferences, revision + 1),
+  );
+  const probeCloudClipboardWebDav = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        host: testHost({ platform: "harmony" }),
+        load: vi.fn().mockResolvedValue(snapshot(base)),
+        save,
+        cloudClipboardRelay: true,
+        probeCloudClipboardWebDav,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(await screen.findByRole("radio", { name: "自建中继" })).toBeDefined();
+  fireEvent.click(screen.getByRole("radio", { name: "WebDAV" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "服务器地址" }), {
+    target: { value: WEBDAV.url },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "账号" }), {
+    target: { value: WEBDAV.username },
+  });
+  fireEvent.change(screen.getByLabelText("应用密码"), { target: { value: WEBDAV.password } });
+  const saveButton = screen.getByRole("button", { name: "保存 WebDAV 设置" }) as HTMLButtonElement;
+  await waitFor(() => expect(saveButton.disabled).toBe(false));
+  fireEvent.click(saveButton);
+  await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledWith(WEBDAV));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0][1].cloud_clipboard_webdav).toEqual(WEBDAV);
 });
