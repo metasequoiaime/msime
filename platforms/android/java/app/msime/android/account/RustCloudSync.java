@@ -157,6 +157,8 @@ public final class RustCloudSync {
     public static Round run(Context context, String trigger, String choice, String preferencesDirectory,
             String options) throws AccountStore.Failure, IOException, JSONException {
         migrate(context);
+        // 导出设置之前先迁本机旧的长空格和数字行设置，否则共享偏好里的默认值会被当成用户的选择传上去。
+        KeyLayoutStyleMigration.migrate(context, preferencesDirectory);
         JSONObject inputs = new JSONObject()
             .put("feedback", feedback(context))
             .put("android_local", new JSONObject(AndroidLocalSettings.load(context).synced()))

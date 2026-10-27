@@ -13,7 +13,7 @@ import app.msime.android.KeyboardGeometry;
 import android.widget.LinearLayout;
 
 /**
- * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布。26 键为 123 | 符 | 空格 | ， | 中 | ↵，逗号长按输入句号；14 键和大千注音保留独立逗号句号；手写为 123 | ， | 空格 | 。 | 中 | 重写 | ⌫ | ↵，逗号长按输入问号、句号长按输入叹号；拼音九键和笔画为 符 | 123 | 空格 | 中 | ↵。地球键按系统能力插在 123 之后，空格保留语音与移光标手势，回车始终使用操作色。
+ * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布。26 键为 123 | 符 | 空格 | ， | 中 | ↵，逗号长按输入句号；14 键和大千注音保留独立逗号句号；手写为 123 | ， | 空格 | 。 | 中 | 重写 | ⌫ | ↵，逗号长按输入问号、句号长按输入叹号；拼音九键和笔画为 符 | 123 | 空格 | 中 | ↵。26 键、14/18 键和九键的字母层底行另按共享偏好里的底行样式排（{@link TouchKeyStyle}，{@link MSIMEInputService#bottomRowStyle}）。地球键按系统能力插在 123 之后，空格保留语音与移光标手势，回车始终使用操作色。
  *
  * <p>空格与回车换成画图标的 {@link SpaceKeyFace} / {@link KeyboardIconKey}：SVC 建的原按钮留作点击的执行者（它带着计数、反馈与动作），新键点一下就让原按钮 performClick，所以 SVC 里的动作不必搬动；节点 text 照旧由 SVC 设置（「空格」、「换行/确认/…」）。
  */
@@ -26,6 +26,8 @@ final class ImeBottomRow {
     private Button handwritingDeleteButton;
     /** 九键数字层的唯一 0，普通层不挂载。 */
     private Button zeroButton;
+    /** 表情键样式底行的 😀；第一次排布这种底行时建，之后和其他常驻键一样换行时挪过去。 */
+    private Button emojiButton;
     /** 分离式键盘右半边内侧的第二个空格键；第一次分离时建，换了一套控件（onCreateInputView）时作废重建。 */
     private SpaceKeyFace splitSpace;
     private boolean bottomCommaSwipeBound;
@@ -35,11 +37,10 @@ final class ImeBottomRow {
         this.s = s;
     }
 
-    /** 长空格模式的逗号下滑输入句号，普通短按和已有长按动作保持原样。 */
+    /** 长空格样式（26 键与 14/18 键）的逗号下滑输入句号，普通短按和已有长按动作保持原样。 */
     void updateCommaSwipe() {
         if (s.quickPunctuationButton == null) return;
-        boolean enabled = s.longSpaceLayoutActive(s.imeLetterRows.drawnTouchLayout())
-            && s.keyboardLayer == KeyboardLayout.Layer.LETTERS;
+        boolean enabled = s.commaSwipesPeriod(s.imeLetterRows.drawnTouchLayout());
         if (enabled == bottomCommaSwipeBound
                 && bottomCommaSwipeButton == s.quickPunctuationButton) return;
         if (bottomCommaSwipeButton != null) bottomCommaSwipeButton.setOnTouchListener(null);
@@ -484,6 +485,7 @@ final class ImeBottomRow {
             case LAYER -> s.layerButton;
             case LANGUAGE -> s.languageButton;
             case GLOBE -> s.globeButton;
+            case EMOJI -> emojiButton();
             case COMMA -> s.quickPunctuationButton;
             case SPACE -> s.spaceButton;
             case ZERO -> zeroButton();
@@ -501,6 +503,22 @@ final class ImeBottomRow {
             KeyboardTypographyPolicy.setFittedKeyTextSize(zeroButton, 14, 22);
         }
         return zeroButton;
+    }
+
+    /** 表情键样式底行的 😀：点按打开表情面板，记作 `SoftEmoji`，与工具栏的表情按钮同一个键位；符号面板仍可长按 123 打开。 */
+    private Button emojiButton() {
+        if (emojiButton == null) {
+            KeyboardIconKey icon = new KeyboardIconKey(s, KeyboardIconKey.Kind.EMOJI);
+            icon.setText("😀");
+            icon.setContentDescription(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.EMOJI, true));
+            s.bindCountedAction(icon, () -> {
+                s.imePanels.showEmojiPicker();
+                // 与 123 层底行的表情键相同：刷新工具栏的返回动作，隐藏工具栏时面板要临时显示它。
+                s.render();
+            });
+            emojiButton = s.keyId(icon, "SoftEmoji");
+        }
+        return emojiButton;
     }
 
     /** 底行句号键：中文标点模式画「。」，否则「.」；发出的都是 `.`，由 Engine 按标点模式转换。手写底行上长按输入叹号（{@link KeyboardActionRow#usesHandwritingMarks}），其他底行长按不做事。 */
@@ -553,6 +571,22 @@ final class ImeBottomRow {
             && (ImeLetterRows.drawsDesignLayer(layout) || layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT);
     }
 
+    /** 句号键的键面、角标和可用状态跟着标点模式与键面走；句号键还没建时不做事。 */
+    private void refreshPeriodFace() {
+        if (periodButton == null) return;
+        boolean chinesePunctuation = s.sendsChinesePunctuation();
+        String periodFace = KeyboardActionRow.punctuationFace(
+            KeyboardActionRow.DesignSlot.PERIOD, chinesePunctuation);
+        boolean exclamation = s.handwritingMarksShown();
+        // 句号沿用字体里的大小和基线位置，避免放大居中后看起来像圆圈。
+        periodButton.setText(periodFace);
+        periodButton.setCornerHint(exclamation
+            ? ChineseSymbolFaces.face("!", chinesePunctuation, s.punctuationMarks()) : "");
+        periodButton.setContentDescription("按键 " + periodFace + (exclamation ? "；长按输入叹号" : ""));
+        // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
+        ViewPolicy.setEnabled(periodButton, s.connection != null);
+    }
+
     /** 按当前键面重挂常驻按键，保留空格手势与删除连按的状态和监听器。 */
     void updateActionRow() {
         if (s.actionRow == null) return;
@@ -563,19 +597,7 @@ final class ImeBottomRow {
         boolean numberPad = s.imeLetterRows.numberPadDrawn(layout);
         boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
-        boolean chinesePunctuation = s.sendsChinesePunctuation();
-        if (periodButton != null) {
-            String periodFace = KeyboardActionRow.punctuationFace(
-                KeyboardActionRow.DesignSlot.PERIOD, chinesePunctuation);
-            boolean exclamation = s.handwritingMarksShown();
-            // 句号沿用字体里的大小和基线位置，避免放大居中后看起来像圆圈。
-            periodButton.setText(periodFace);
-            periodButton.setCornerHint(exclamation
-                ? ChineseSymbolFaces.face("!", chinesePunctuation, s.punctuationMarks()) : "");
-            periodButton.setContentDescription("按键 " + periodFace + (exclamation ? "；长按输入叹号" : ""));
-            // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
-            ViewPolicy.setEnabled(periodButton, s.connection != null);
-        }
+        refreshPeriodFace();
         if (s.spaceButton instanceof SpaceKeyFace face)
             face.setSchemeLabel(numberPad ? "" : spaceLabel());
         // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。
@@ -588,16 +610,16 @@ final class ImeBottomRow {
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
-        boolean longSpace = s.longSpaceLayoutActive(layout);
+        TouchKeyStyle.Row style = s.bottomRowStyle(layout);
         // 英文 26 键在空格左边多一个句点，中英切换时底行要重排。
         boolean english = s.dedicatedEnglish;
         String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
-            + ":" + english + ":" + longSpace
+            + ":" + english + ":" + style
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
             : KeyboardActionRow.designEntries(numberPad ? KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT : layout,
-                globe, swapLanguageNumber, numberPad, english, longSpace);
+                globe, swapLanguageNumber, numberPad, english, style);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
@@ -633,6 +655,8 @@ final class ImeBottomRow {
             ViewPolicy.show(key);
             s.actionRow.addView(key, LayoutPolicy.weightedMatchParentParams(entry.weight()));
         }
+        // 样式第一次把句号键排进底行时它刚建好，键面还是建键时的「.」，这里按当前标点模式补上。
+        refreshPeriodFace();
         // The quick punctuation key hides itself when the scheme has no punctuation to offer, and
         // the loop above just told every slot it was visible.
         if (!ownBottom) s.updateQuickPunctuation();

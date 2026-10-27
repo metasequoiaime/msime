@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 统计页按键热力图画的两套键盘：竖屏默认设置下的中文全拼 26 键和拼音九键，键序、宽度份额、键面和每个键记的 id 都取自触屏键盘自己用的常量（{@link KeyboardLayout}、{@link KeyboardActionRow}、{@link NineKeyLayout}、{@link NineKeySidebarPolicy}），键盘改了，热力图跟着变。
+ * 统计页按键热力图画的两套键盘：竖屏默认设置下的中文全拼 26 键和拼音九键，键序、宽度份额、键面和每个键记的 id 都取自触屏键盘自己用的常量（{@link KeyboardLayout}、{@link KeyboardActionRow}、{@link NineKeyLayout}、{@link NineKeySidebarPolicy}），键盘改了，热力图跟着变。底行按用户当前选的底行样式画（{@link #soft(TouchKeyStyle.Row, boolean)}、{@link #nine(TouchKeyStyle.Row)}），26 键打开顶部数字行时在字母上方多画 1–0。
  *
  * <p>纯 Java，不碰 android.graphics，所以 check-host 能在宿主机 JVM 上核对它和键盘一致。
  */
@@ -30,17 +30,26 @@ public final class KeyHeatmapLayout {
     /** 九键右列中间那格，`ImeLayoutRows#rebuildNineKeyRows` 建的「重输」；它不登记 id，按了不计数。 */
     static final String REWRITE_FACE = "重输";
 
-    /** 中文全拼 26 键：三行字母（中文模式画大写，第二行九个键铺满整行），第三行两端是分词 / ⇧ 和 ⌫，底行与键盘的功能行相同。 */
-    public static final List<List<Key>> SOFT = soft();
+    /** 中文全拼 26 键：三行字母（中文模式画大写，第二行九个键铺满整行），第三行两端是分词 / ⇧ 和 ⌫，底行与键盘的标准功能行相同。 */
+    public static final List<List<Key>> SOFT = soft(TouchKeyStyle.Row.STANDARD, false);
 
-    /** 拼音九键：左栏默认的三个符号、3×3 网格、右列 ⌫ / 重输 / 最后一个标点，三列逐行对齐；底行与键盘的功能行相同。 */
-    public static final List<List<Key>> NINE = nine();
+    /** 拼音九键：左栏默认的三个符号、3×3 网格、右列 ⌫ / 重输 / 最后一个标点，三列逐行对齐；底行与键盘的标准功能行相同。 */
+    public static final List<List<Key>> NINE = nine(TouchKeyStyle.Row.STANDARD);
 
     private KeyHeatmapLayout() {}
 
-    private static List<List<Key>> soft() {
+    /**
+     * 中文全拼 26 键，底行按 `style` 排（与键盘的 {@link KeyboardActionRow#designEntries} 相同）；`numberRow` 为真时字母上方多一行 1–0，每个数字记 `Digit0`…`Digit9`，与键盘顶部数字行记的 id 相同。
+     */
+    public static List<List<Key>> soft(TouchKeyStyle.Row style, boolean numberRow) {
         List<List<String>> letters = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS);
-        List<List<Key>> rows = new ArrayList<>(letters.size() + 1);
+        List<List<Key>> rows = new ArrayList<>(letters.size() + 2);
+        if (numberRow) {
+            List<Key> digits = new ArrayList<>(KeyboardLayout.NUMBER_ROW.size());
+            for (String digit : KeyboardLayout.NUMBER_ROW)
+                digits.add(new Key(digit, 1f, List.of(KeyPressIds.forCharacter(digit.charAt(0)))));
+            rows.add(List.copyOf(digits));
+        }
         for (int index = 0; index < letters.size(); index++) {
             List<Key> row = new ArrayList<>(letters.get(index).size() + 2);
             boolean last = index == letters.size() - 1;
@@ -53,11 +62,12 @@ public final class KeyHeatmapLayout {
             if (last) row.add(new Key("⌫", KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT, List.of("Backspace")));
             rows.add(List.copyOf(row));
         }
-        rows.add(bottom(KeyboardLayout.STANDARD_TOUCH_LAYOUT));
+        rows.add(bottom(KeyboardLayout.STANDARD_TOUCH_LAYOUT, style));
         return List.copyOf(rows);
     }
 
-    private static List<List<Key>> nine() {
+    /** 拼音九键，底行按 `style` 排；左栏、网格和右列不随样式变。 */
+    public static List<List<Key>> nine(TouchKeyStyle.Row style) {
         List<List<NineKeyLayout.Key>> grid = NineKeyLayout.rows();
         List<String> sidebar = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
         List<String> punctuation = NineKeyLayout.punctuation();
@@ -80,13 +90,14 @@ public final class KeyHeatmapLayout {
             row.add(actions.get(index));
             rows.add(List.copyOf(row));
         }
-        rows.add(bottom(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT));
+        rows.add(bottom(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style));
         return List.copyOf(rows);
     }
 
-    /** 默认设置下的功能行：不交换中/英和 123，Android 9 起不画地球键。 */
-    private static List<Key> bottom(int touchLayout) {
-        List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(touchLayout, false, false);
+    /** 默认设置下的功能行：不交换中/英和 123，Android 9 起不画地球键；键的排法跟着底行样式。 */
+    private static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style) {
+        List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(touchLayout, false, false,
+            false, false, style);
         List<Key> row = new ArrayList<>(entries.size());
         for (KeyboardActionRow.DesignEntry entry : entries) {
             row.add(switch (entry.slot()) {
@@ -94,6 +105,8 @@ public final class KeyHeatmapLayout {
                 case LAYER -> new Key(KeyboardActionRow.layerTitle(touchLayout, false), entry.weight(),
                     List.of("SoftLayer"));
                 case GLOBE -> new Key(KeyPressIds.label("SoftGlobe"), entry.weight(), List.of("SoftGlobe"));
+                // 表情键样式的 😀 与工具栏的表情按钮记同一个 id，存储分不出按的是哪一个，次数都落在这一格。
+                case EMOJI -> new Key("😀", entry.weight(), List.of("SoftEmoji"));
                 case COMMA -> new Key("，", entry.weight(), List.of("Comma"));
                 case SPACE -> new Key("空格", entry.weight(), List.of("Space"));
                 case ZERO -> new Key("0", entry.weight(), List.of("Nine0"));
@@ -142,7 +155,12 @@ public final class KeyHeatmapLayout {
      * @param nine 画的是拼音九键（{@link #NINE}）还是 26 键（{@link #SOFT}）
      */
     public static List<String> others(Map<String, Long> counts, boolean nine) {
-        Set<String> drawn = new LinkedHashSet<>(ids(nine ? NINE : SOFT));
+        return others(counts, nine ? NINE : SOFT);
+    }
+
+    /** 同上，按实际画出来的那套布局（带着用户的底行样式和数字行）判断。 */
+    public static List<String> others(Map<String, Long> counts, List<List<Key>> layout) {
+        Set<String> drawn = new LinkedHashSet<>(ids(layout));
         List<String> result = new ArrayList<>(counts.size());
         for (Map.Entry<String, Long> entry : counts.entrySet()) {
             if (entry.getValue() > 0 && !drawn.contains(entry.getKey())) result.add(entry.getKey());

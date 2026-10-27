@@ -5,6 +5,7 @@ import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardLayout;
 import app.msime.android.NineKeyLayout;
 import app.msime.android.NineKeySidebarPolicy;
+import app.msime.android.TouchKeyStyle;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +27,7 @@ public final class KeyHeatmapLayoutSmoke {
         nine();
         others();
         shared();
+        styles();
         sources();
         System.out.println("Android key heatmap layout matches the touch keyboard");
     }
@@ -147,6 +149,67 @@ public final class KeyHeatmapLayoutSmoke {
         check(punctuation == 4, "，。？ and ！ all record SoftPunctuation");
     }
 
+    /** 热力图按用户当前的底行样式画（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md），底行与键盘的 designEntries 一一对应；26 键打开顶部数字行时多画一行 Digit1…Digit0。 */
+    private static void styles() {
+        check(KeyHeatmapLayout.soft(TouchKeyStyle.Row.STANDARD, false).equals(KeyHeatmapLayout.SOFT)
+            && KeyHeatmapLayout.nine(TouchKeyStyle.Row.STANDARD).equals(KeyHeatmapLayout.NINE),
+            "the standard style draws today's heatmaps");
+        for (TouchKeyStyle.Row style : TouchKeyStyle.TWENTY_SIX_KEY_ROWS) {
+            List<List<Key>> rows = KeyHeatmapLayout.soft(style, false);
+            styledBottom(rows.get(rows.size() - 1), KeyboardLayout.STANDARD_TOUCH_LAYOUT, style);
+        }
+        check(faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.COMMA_PERIOD, false)))
+                .equals(List.of("123", "符", "，", "空格", "。", "中", "↵"))
+            && faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.LONG_SPACE, false))).equals(List.of("123", "，", "空格", "中", "↵"))
+            && faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.EMOJI, false))).equals(List.of("123", "😀", "空格", "，", "中", "↵")),
+            "26-key bottom rows as each style draws them");
+        for (TouchKeyStyle.Row style : TouchKeyStyle.NINE_KEY_ROWS) {
+            List<List<Key>> rows = KeyHeatmapLayout.nine(style);
+            check(rows.subList(0, 3).equals(KeyHeatmapLayout.NINE.subList(0, 3)), "the nine-key grid ignores the style");
+            styledBottom(rows.get(3), KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style);
+        }
+        check(faces(last(KeyHeatmapLayout.nine(TouchKeyStyle.Row.COMMA_PERIOD))).equals(List.of("符", "123", "，", "空格", "。", "中", "↵"))
+            && faces(last(KeyHeatmapLayout.nine(TouchKeyStyle.Row.EMOJI))).equals(List.of("符", "123", "😀", "空格", "中", "↵")),
+            "nine-key bottom rows as each style draws them");
+        check(KeyHeatmapLayout.sharedIds(KeyHeatmapLayout.nine(TouchKeyStyle.Row.COMMA_PERIOD)).equals(Set.of("SoftPunctuation")),
+            "the bottom-row comma and period record Comma and Period, not the sidebar's SoftPunctuation");
+        List<List<Key>> numbered = KeyHeatmapLayout.soft(TouchKeyStyle.Row.STANDARD, true);
+        check(numbered.size() == KeyHeatmapLayout.SOFT.size() + 1 && numbered.subList(1, numbered.size()).equals(KeyHeatmapLayout.SOFT),
+            "the number row sits above the unchanged 26-key board");
+        check(faces(numbered.get(0)).equals(KeyboardLayout.NUMBER_ROW), "the number row is 1–0");
+        for (Key key : numbered.get(0))
+            check(key.weight() == 1f && key.ids().equals(List.of("Digit" + key.face())), "digit " + key.face() + " counts as Digit");
+        Map<String, Long> counts = Map.of("Digit1", 4L, "SoftEmoji", 2L);
+        check(KeyHeatmapLayout.others(counts, KeyHeatmapLayout.SOFT).equals(List.of("Digit1", "SoftEmoji")),
+            "without the number row and the emoji style both are listed under 其他键");
+        check(KeyHeatmapLayout.others(counts, KeyHeatmapLayout.soft(TouchKeyStyle.Row.EMOJI, true)).isEmpty(),
+            "with them both are drawn");
+    }
+
+    private static List<Key> last(List<List<Key>> rows) {
+        return rows.get(rows.size() - 1);
+    }
+
+    private static void styledBottom(List<Key> row, int touchLayout, TouchKeyStyle.Row style) {
+        List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(touchLayout, false, false, false, false, style);
+        check(row.size() == entries.size(), "the styled action row has the keyboard's keys: " + style);
+        for (int index = 0; index < row.size(); index++) {
+            check(row.get(index).weight() == entries.get(index).weight(), "styled action key " + index + " width: " + style);
+            String id = switch (entries.get(index).slot()) {
+                case SYMBOL_PANEL -> "SoftSymbol";
+                case LAYER -> "SoftLayer";
+                case EMOJI -> "SoftEmoji";
+                case COMMA -> "Comma";
+                case PERIOD -> "Period";
+                case SPACE -> "Space";
+                case LANGUAGE -> "SoftLanguage";
+                case RETURN -> "Enter";
+                default -> throw new AssertionError("unexpected slot " + entries.get(index).slot());
+            };
+            check(row.get(index).ids().equals(List.of(id)), "styled action key " + index + " counts as " + id + ": " + style);
+        }
+    }
+
     private static void sources() throws Exception {
         String service = read("core/MSIMEInputService.java");
         String letterRows = read("core/ImeLetterRows.java");
@@ -158,6 +221,8 @@ public final class KeyHeatmapLayoutSmoke {
             "the keyboard still records 符, 123 and 中 under the ids the heatmap draws");
         check(bottomRow.contains("new SpaceKeyFace(s), \"Space\")") && bottomRow.contains("KeyboardIconKey.Kind.RETURN), \"Enter\")"),
             "the keyboard still records space and return under the ids the heatmap draws");
+        check(bottomRow.contains("emojiButton = s.keyId(icon, \"SoftEmoji\")"),
+            "the emoji style's 😀 records SoftEmoji, the id the heatmap draws for it");
         check(service.contains("shiftButton.setText(separator ? \"分词\"")
             && letterRows.contains("String id = separator ? \"Quote\" : \"ShiftLeft\";"),
             "the 全拼 case key is still 分词 recording Quote, ⇧ recording ShiftLeft otherwise");
@@ -169,14 +234,18 @@ public final class KeyHeatmapLayoutSmoke {
         String view = read("home/KeyHeatmapView.java");
         check(view.contains("KeyHeatmapLayout.SOFT") && view.contains("KeyHeatmapLayout.NINE") && !view.contains("new Key("),
             "the view draws the derived layout instead of a hand-written copy");
-        check(view.contains("KeyHeatmapLayout.sharedIds(NINE)") && view.contains("!containsAny(shared, key.ids())")
+        check(view.contains("KeyHeatmapLayout.sharedIds(nine)") && view.contains("!containsAny(shared, key.ids())")
             && !view.contains("labelled"),
             "keys sharing an id are coloured alike and none of them prints a percentage");
         String page = read("home/StatisticsFragment.java");
-        check(page.contains("KeyHeatmapLayout.others(presses, nine)")
+        check(page.contains("KeyHeatmapLayout.others(presses, drawn)")
             && page.contains("ViewPolicy.setVisible(card, !ids.isEmpty());")
-            && page.contains("otherKeys(context, others, presses, nineKey);"),
+            && page.contains("otherKeys(context, others, presses, layouts.get(index == 1 ? 1 : 0));"),
             "the 其他键 card lists the undrawn keys, hides when empty and follows the 26 / 9 switch");
+        check(page.contains("heatmap.setLayouts(layouts.get(0), layouts.get(1));")
+            && page.contains("KeyHeatmapLayout.soft(styles.twentySix(),")
+            && page.contains("KeyHeatmapLayout.nine(styles.nine())"),
+            "the heatmap draws the user's bottom-row styles and number row");
     }
 
     private static List<String> faces(List<Key> row) {

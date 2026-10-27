@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.KeyLayoutStyleMigration;
 import app.msime.android.AppEdition;
 import app.msime.android.BackupDestinationWriter;
 import app.msime.android.BoundsPolicy;
@@ -114,6 +115,8 @@ final class LocalBackup {
     private static String export(Context context, ArchiveDestination destination) {
         String directory = HostStore.directory(context);
         if (directory.isEmpty()) return "还没有完成首次准备，暂时没有可以备份的数据。";
+        // 备份里的设置文档要带上迁移后的底行样式和数字行，旧的本机键迁完即删、不再进备份。
+        KeyLayoutStyleMigration.migrate(context, directory);
         Path dictionary = null;
         Path habitsFile = null;
         Path archive = null;
@@ -585,6 +588,8 @@ final class LocalBackup {
                 applied = true;
             }
         }
+        // 旧版本的备份带着长空格和数字行两个本机旧键，写回后立刻迁进共享偏好。
+        KeyLayoutStyleMigration.migrate(context, directory);
         return applied;
     }
 
