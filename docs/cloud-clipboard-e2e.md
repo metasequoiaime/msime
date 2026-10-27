@@ -170,6 +170,7 @@
 | Android | 应用私有目录下的 `cloud-clipboard-keystore`，与账号会话一样先用 AndroidKeyStore 加密 | 主进程、`:ime` 进程与 Tauri 设置页 |
 | HarmonyOS | 与账号会话同一个应用私有目录（各自沙箱的 `files/state`）下的 `cloud-clipboard-keystore`；只有设置应用生成，键盘用经共享沙箱镜像过来的那份（与账号会话一样只在完整体验模式下导入；请求带 `create_identity: false`），一台手机只登记一台设备 | 设置应用与键盘 |
 | 自建中继（目前是 Tauri 桌面端） | 与 `account-session.json` 同一目录下的 `cloud-clipboard-relay-keystore`，记着它属于哪个中继和令牌空间，仅本人可读写 | 设置页与云剪贴板面板（Rust） |
+| 自建中继与 WebDAV 网盘（iOS） | 钥匙串通用密码项，service `app.msime.backend.account`，account `cloud-clipboard-relay-keystore`，与账号那份同一个 App Group 访问组，记着它属于哪个中继或网盘 | App 与键盘扩展（Swift） |
 
 文件里只有密钥串本身；读取时忽略末尾的换行，否则手工编辑或换行风格不同的写入会让密钥串解析失败，驱动随之生成新的设备身份，这台设备就要重新批准。
 

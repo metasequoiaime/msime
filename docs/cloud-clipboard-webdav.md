@@ -27,18 +27,18 @@
 | macOS、Linux | 共享设置页「剪贴板」→「设置」→「云剪贴板同步方式」（`packages/ui/src/settings/cloud-clipboard-relay-section.tsx`，「测试连接」经 Tauri 命令 `cloud_clipboard_webdav_probe`） |
 | Windows | 原生 WinUI 设置窗口「剪贴板」页；Windows 7 版的设置窗口不再显示云剪贴板页，配置在云剪贴板面板的表单里（单独一组「WebDAV」，「测试并保存」） |
 | Android | 「我的 → 云剪贴板」页顶部的卡片和对话框 |
+| iOS | 「我的 → 云剪贴板」页顶部的「云剪贴板同步方式」卡片和填写页（`platforms/ios/App/Sources/keyboard/CloudClipboardSyncModeView.swift`，「测试连接」经 `msime_client_cloud_clipboard_webdav_probe`） |
 | HarmonyOS | 设置应用「剪贴板」页的「云剪贴板同步方式」，即上面那份共享设置页（`apps/harmony` 在 ArkWeb 里加载），「测试连接」经桥接请求 `cloud_clipboard_webdav_probe`；同意隐私政策之前不显示 |
-| iOS | 没有：原生宿主还没接中继 |
 
 各处做法相同：填「服务器地址」（网盘根目录或其中一个文件夹，说明里写明坚果云填 `https://dav.jianguoyun.com/dav/`）、「账号」和「应用密码」（遮罩输入；已经保存过时留空表示沿用，已存的密码不回显）；「测试连接」只测不存；「保存」先测，通过才写 `cloud_clipboard_webdav` 并删掉 `cloud_clipboard_relay`，不通过时说明原因、草稿留着。保存中继时删掉网盘配置，改回水杉账号时两者都删。WebDAV 那一组下面有一段说明：内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。
 
 ## 宿主怎么接入
 
 - `msime_client_cloud_clipboard_source` 对网盘也答 `{"source":"relay"}`，另带 `"backend":"webdav"`（中继是 `"relay"`）。已有的宿主把不认识的来源当作错误，所以不加新的来源值；`msime_client_relay_cloud_clipboard` 按偏好里的配置自己分派，Tauri 桌面端的设置页和云剪贴板面板、Windows 原生设置窗口、macOS 输入法进程、Linux Fcitx5 键盘栏这些已经接上中继的入口不用改就能走网盘。宿主只在给用户说明「现在经哪里同步」时看 `backend`。
-- 自己跑驱动、自己保存密钥串的宿主（Android）经 `msime_client_relay_cloud_clipboard_exchange` 发请求，网盘时传 `{"backend":"webdav", url, username, password, directory, method, path, body}`；`directory` 放日志的本机缓存和锁文件，要与 `msime_client_relay_cloud_clipboard` 用的那个目录相同（Android 是 `noBackupFilesDir/cloud-clipboard-relay`，里面只有密文和公开数据）。Android 的绑定（键盘用来认出「换过了」）是 `webdav:` 加地址和账号的摘要，同样不含应用密码。
-- 「测试连接」是 `msime_client_cloud_clipboard_webdav_probe`（Tauri 桌面端是命令 `cloud_clipboard_webdav_probe`，Android 是 `NativeClient.cloudClipboardWebDavProbe`），带设置页里还没保存的草稿；给了本机密钥串的目录时，通过后删掉那里的日志缓存。格式见 `crates/host-api/include/msime_client.h`。
+- 自己跑驱动、自己保存密钥串的宿主（Android、iOS）经 `msime_client_relay_cloud_clipboard_exchange` 发请求，网盘时传 `{"backend":"webdav", url, username, password, directory, method, path, body}`；`directory` 放日志的本机缓存和锁文件，要与 `msime_client_relay_cloud_clipboard` 用的那个目录相同（Android 是 `noBackupFilesDir/cloud-clipboard-relay`，iOS 是 App Group 容器里的 `cloud-clipboard-relay/`，App 和键盘扩展共用、不进设备备份；里面只有密文和公开数据）。Android 和 iOS 的绑定（键盘用来认出「换过了」）是 `webdav:` 加地址和账号的摘要，同样不含应用密码。
+- 「测试连接」是 `msime_client_cloud_clipboard_webdav_probe`（Tauri 桌面端是命令 `cloud_clipboard_webdav_probe`，Android 是 `NativeClient.cloudClipboardWebDavProbe`，iOS 是 `IOSCloudClipboardRelay.probeWebDAV`），带设置页里还没保存的草稿；给了本机密钥串的目录时，通过后删掉那里的日志缓存。格式见 `crates/host-api/include/msime_client.h`。
 - HarmonyOS 的设置应用和键盘扩展都经 NAPI 调 `msime_client_cloud_clipboard_source` 和 `msime_client_relay_cloud_clipboard`，`directory` 是各自沙箱的 `files/state`（与账号会话同一目录）。设备身份只由设置应用生成：键盘的请求带 `create_identity: false`，用的是设置应用经共享沙箱镜像过来的 `cloud-clipboard-relay-keystore`，本机还没有时答 `clipboard_identity_missing`、不登记，一台手机只是一台设备；网盘缓存 `cloud-clipboard-webdav-state` 也随设置应用镜像，「测试连接」通过后的重新信任因此传到键盘。
-- Android 和 iOS 的 Tauri 外壳只经水杉账号答，配置了网盘时与配置了中继一样拒绝（`relay_unsupported`）。iOS 的原生宿主还没有接中继，也就没有网盘。
+- Android 和 iOS 的 Tauri 外壳只经水杉账号答，配置了网盘时与配置了中继一样拒绝（`relay_unsupported`）。
 
 ## 实现在哪里
 
@@ -133,7 +133,7 @@
 
 ## 本机缓存
 
-`cloud-clipboard-webdav-state` 放在中继密钥串的同一个目录里（桌面端与 `account-session.json` 同一目录，HarmonyOS 是设置应用和键盘各自的 `files/state`，键盘那份由设置应用镜像过来），仅本人可读写、原子替换写入。里面是读到的位置、链头、算出的状态（只有密文和公开数据：设备公钥和名称、封装、条目密文）和待删的旧 epoch，绑定基地址和账号；换了地址或账号就当作没有。同一台设备上的几个进程经 `cloud-clipboard-relay.lock` 串行。
+`cloud-clipboard-webdav-state` 放在中继密钥串的同一个目录里（桌面端与 `account-session.json` 同一目录；iOS 的密钥串在钥匙串里，缓存放在 App Group 容器的 `cloud-clipboard-relay/`；HarmonyOS 是设置应用和键盘各自的 `files/state`，键盘那份由设置应用镜像过来），仅本人可读写、原子替换写入。里面是读到的位置、链头、算出的状态（只有密文和公开数据：设备公钥和名称、封装、条目密文）和待删的旧 epoch，绑定基地址和账号；换了地址或账号就当作没有。同一台设备上的几个进程经 `cloud-clipboard-relay.lock` 串行。
 
 驱动的一个操作要连着发两三个读请求，两秒内读过的缓存直接用，不再去网盘。写入不受这个影响：独占创建保证了写在最新的位置上，被拒绝或不改变状态的写入只在这一次刚读过网盘时才直接回答。
 

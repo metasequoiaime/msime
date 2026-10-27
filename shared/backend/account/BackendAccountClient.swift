@@ -128,6 +128,7 @@ struct BackendAccountClient: Sendable {
       "clipboard_device_pending": "这台设备还在等待批准，请在已经能用云剪贴板的设备上点「允许」后再试。",
       "clipboard_sync_disabled": "云剪贴板未开启",
       "clipboard_key_conflict": "云剪贴板的密钥刚被其他设备更换，请稍后重试。",
+      "clipboard_keystore_conflict": "这台设备的云剪贴板身份刚被另一处更换（例如退出后重新登录），请稍后重试。",
       "clipboard_device_limit": "这个账号登记的设备已达 20 台，请先在设备列表里移除不用的设备。",
       "clipboard_e2e_required": "云剪贴板已改为端到端加密，请把所有设备上的水杉输入法升级到最新版本。",
       "invalid_clipboard_text": "内容为空、超过 4000 字或含有不支持的字符，不能发到云剪贴板。",
