@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 词库页：已安装的词库、导入入口、可添加的社区词库和切到「社区」标签页「词库」分段的「浏览更多词库」、学习开关，以及进入「背单词」和「词库信息」的链接。「学习」保存在共享偏好文档里（见 InputHabitPreference），键盘下次出现时重新读取；手机和 iPad 显示同一个页面。
+/// 词库页：已安装的词库、导入入口、进入「词库同步」的链接、可添加的社区词库和切到「社区」标签页「词库」分段的「浏览更多词库」、学习开关，以及进入「背单词」和「词库信息」的链接。「学习」保存在共享偏好文档里（见 InputHabitPreference），键盘下次出现时重新读取；手机和 iPad 显示同一个页面。
 struct DictionarySettingsView: View {
   /// 设计稿最多列出这么多社区词库；完整列表（搜索、详情、收藏、评分、举报和发布）在「社区」标签页的「词库」分段里。
   private static let discoverLimit = 8
@@ -13,6 +13,8 @@ struct DictionarySettingsView: View {
   @State private var habits = InputHabitPreference.mirrored
   @State private var saveFailed = false
   @State private var dictionary: PersonalDictionaryState?
+  /// 偏好里有没有配置词库同步的网盘。
+  @State private var syncConfigured = false
   @State private var importing = false
   @State private var discover: [CommunityResource]?
   @State private var discoverFailed = false
@@ -39,6 +41,13 @@ struct DictionarySettingsView: View {
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("importDictionaryAction")
+        }
+        DesignGroup(title: "同步", footer: "把「我的词条」经你自己的 WebDAV 网盘（坚果云、Nextcloud 等）在设备之间同步，包括删除；不需要登录水杉账号，网盘只保存密文。") {
+          NavigationLink(destination: DictionarySyncView()) {
+            DesignNavRowLabel(title: "词库同步", value: syncConfigured ? "WebDAV" : "未开启")
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("dictionarySyncLink")
         }
         updateSection
         DesignGroup(title: "发现词库") { discoverRows }
@@ -285,7 +294,9 @@ struct DictionarySettingsView: View {
   }
 
   private func reload() {
-    habits = InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+    let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    habits = InputHabitPreference.settings(in: preferences)
+    syncConfigured = IOSDictionarySyncPolicy.Configuration(preferences: preferences) != nil
     // 队列文件读不出来只是在这里不显示数量；错误由「拼音词库」页报告。
     dictionary = try? store.read()
     added = CommunityDictionaryImports.ids()
