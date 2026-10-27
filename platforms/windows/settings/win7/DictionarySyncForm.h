@@ -17,7 +17,7 @@ namespace msime::settings::win7 {
 class DictionarySyncForm {
 public:
   enum Id { url = 3800, username, password, test, save, clear, config, sync_now, status, held, confirm_deletions,
-      restore_deletions, devices, device_detail, approve, reject, remove, reset, restart, notice };
+      restore_deletions, devices, device_detail, approve, reject, remove, reset, restart, trust_remote, notice };
   struct Command {
     bool handled = false;
     std::vector<Change> changes;
@@ -60,6 +60,7 @@ public:
     add(remove, L"BUTTON", L"移除此设备并更换密钥…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(reset, L"BUTTON", L"重置词库同步密钥…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(restart, L"BUTTON", L"以本机为准重新开始…", WS_TABSTOP | BS_PUSHBUTTON, 32);
+    add(trust_remote, L"BUTTON", L"确认网盘现状并恢复同步…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(notice, L"STATIC", L"", SS_LEFT, 98);
     return top;
   }
@@ -105,7 +106,7 @@ public:
       const Json draft{{"url", *address}, {"username", *account}, {"password", secret->empty() ? webdav_.value("password", std::string{}) : *secret}};
       const bool saving = id == save;
       command.request = Json{{"probe", draft}, {"save", saving}};
-      // 和已存的一样时只重新测试：通过后 Rust 让本机的同步状态从网盘现在的样子重新开始，网盘记录被回退后靠这一步恢复。
+      // 和已存的一样时只重新测试；普通探测不改同步状态。
       if (saving && draft != webdav_) command.changes.push_back({{"dictionary_sync_webdav"}, draft});
       SetWindowTextW(get(notice), saving ? L"正在测试连接，通过后保存…" : L"正在测试连接…");
     } else if (id == clear) {
@@ -121,6 +122,12 @@ public:
     } else if (id == reset) {
       command.request = Json{{"action", {{"operation", "reset"}}}};
       command.confirmation = std::wstring(dictionary_sync::reset_question);
+    } else if (id == trust_remote) {
+      Json action = webdav_;
+      action["operation"] = "probe";
+      action["trust_remote"] = true;
+      command.request = Json{{"action", action}, {"status", true}};
+      command.confirmation = std::wstring(dictionary_sync::trust_remote_question);
     } else if (id == restart) {
       command.request = Json{{"action", {{"operation", "restart"}}}};
       command.confirmation = std::wstring(dictionary_sync::restart_question);
@@ -161,6 +168,8 @@ public:
     else if (operation == "remove" || operation == "reset") {
       devices_from(value->value("devices", Json()));
       message = run(value->value("run", Json()), false);
+    } else if (operation == "probe") {
+      message = L"已确认网盘现状，请点「立即同步」恢复。";
     } else if (operation == "restart") {
       if (const auto parsed = status_from(*value)) { status_ = *parsed; message = dictionary_sync::restarted; }
       else message = dictionary_sync::error_message(L"");
@@ -276,7 +285,7 @@ private:
   void update() {
     for (const auto& control : controls_) EnableWindow(control.second, enabled_);
     const bool saved = enabled_ && configured();
-    for (int id : {clear, sync_now, reset, restart, devices, device_detail}) EnableWindow(get(id), saved);
+    for (int id : {clear, sync_now, reset, restart, trust_remote, devices, device_detail}) EnableWindow(get(id), saved);
     const bool holding = saved && status_ && status_->held_deletions;
     for (int id : {confirm_deletions, restore_deletions}) EnableWindow(get(id), holding);
     const auto* device = selected();

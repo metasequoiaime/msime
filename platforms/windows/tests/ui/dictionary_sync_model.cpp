@@ -37,7 +37,7 @@ int main() {
         "sync unsupported asks for an update");
   check(error_message(L"clipboard_keystore_conflict") == error_message(L"clipboard_key_conflict"),
         "both key ring conflicts read the same");
-  check(error_message(L"dictionary_sync_rollback").find(L"重新测试连接并保存") != std::wstring::npos,
+  check(error_message(L"dictionary_sync_rollback").find(L"确认网盘现状并恢复同步") != std::wstring::npos,
         "rollback explains the recovery");
   check(error_message(L"something_new") == L"同步失败，请稍后再试。", "unknown sync code");
   check(error_message(L"something_new", true) == L"测试连接失败，请稍后再试。", "unknown probe code");

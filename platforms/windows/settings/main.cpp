@@ -17322,6 +17322,27 @@ private:
     });
   }
 
+  // 恢复只使用打开确认框时的已保存配置，期间换代则取消。
+  fire_and_forget trust_dictionary_sync_remote() {
+    auto strong = get_strong();
+    if (dsync_busy_ || !dictionary_sync_saved()) co_return;
+    const auto generation = dsync_generation_;
+    const auto saved = dsync_configuration_;
+    if (!co_await confirm(L"确认网盘现状并恢复同步", std::wstring(ds::trust_remote_question), L"恢复同步")) co_return;
+    if (generation != dsync_generation_ || dsync_busy_) co_return;
+    auto action = dictionary_sync_action(L"probe");
+    action.SetNamedValue(L"url", JsonValue::CreateStringValue(hstring(saved.url)));
+    action.SetNamedValue(L"username", JsonValue::CreateStringValue(hstring(saved.username)));
+    action.SetNamedValue(L"password", JsonValue::CreateStringValue(hstring(saved.password)));
+    action.SetNamedValue(L"trust_remote", JsonValue::CreateBooleanValue(true));
+    dictionary_sync_job(action, false, true, [this](DictionarySyncOutcome &outcome) {
+      if (!outcome.action.ok) { record_dictionary_sync_failure(outcome.action); return; }
+      if (outcome.status) apply_dictionary_sync_status(*outcome.status);
+      dsync_error_.clear();
+      dsync_notice_ = L"已确认网盘现状，请点「立即同步」恢复。";
+    });
+  }
+
   // 以本机为准重新开始：回答是概况。
   fire_and_forget restart_dictionary_sync() {
     auto strong = get_strong();
@@ -17365,7 +17386,7 @@ private:
            (!dsync_draft_->password.empty() || !dsync_configuration_.password.empty());
   }
 
-  // 「测试连接」：在工作线程上用草稿跑 probe（只测、不读偏好），通过时 Rust 让本机的同步状态从网盘现在的样子重新开始，这也是网盘记录被回退后的恢复办法。`save` 为真时通过后才把三项成对写进偏好（仍由共享 Rust 偏好库校验），不通过就只说明原因、草稿留着。
+  // 「测试连接」：在工作线程上用草稿跑 probe（只测、不读偏好），不改同步位置、待发改动或防回退记录。`save` 为真时通过后才把三项成对写进偏好（仍由共享 Rust 偏好库校验），不通过就只说明原因、草稿留着。
   void probe_dictionary_sync(bool save) {
     if (!dsync_draft_ || dsync_probe_busy_)
       return;
@@ -17396,7 +17417,7 @@ private:
           }
           if (!save) {
             dsync_probe_message_ = ds::probe_passed;
-            // 已经在同步时重新读一次：网盘记录被回退后不用离开页面就能接着同步。
+            // 已经在同步时重新读取状态，普通探测不解除防回退。
             if (dictionary_sync_saved()) {
               ++dsync_generation_;
               dsync_checked_ = false;
@@ -17618,6 +17639,9 @@ private:
       add_row(group, 0xE7BA, L"被挡下的删除", ds::held_deletions_text(dsync_status_->held_deletions), choices);
     }
 
+    auto recover = button_control(L"恢复同步…", [this] { trust_dictionary_sync_remote(); }, loaded_ && !busy);
+    A11y::SetAutomationId(recover, L"dictionary-sync-trust-remote");
+    add_row(group, 0xE777, L"确认网盘现状并恢复同步", L"仅在自己清理过网盘文件夹、同步报历史被删改时使用。", recover);
     auto reset = button_control(L"重置…", [this] { rekey_dictionary_sync(std::nullopt); }, loaded_ && !busy);
     A11y::SetAutomationId(reset, L"dictionary-sync-reset");
     add_row(group, 0xE72C, L"重置词库同步密钥", L"换一把只给本设备的新密钥，其他设备都要重新允许。找不到能允许本设备的设备时使用。", reset);

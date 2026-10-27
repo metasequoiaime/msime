@@ -125,6 +125,16 @@ int main() {
   assert(read(Form::password).empty() && !preferences().contains("cloud_clipboard_webdav"));
   assert((operations == std::vector<std::string>{"probe", "run", "devices", "status"}) && last_run.at("trigger") == "opened");
   assert(read(Form::status).find("0123 4567 8901 2345") != std::string::npos);
+  // 普通探测不恢复；恢复必须单独确认，且使用已保存配置，不用输入框里的草稿。
+  assert(!last_probe.value("trust_remote", false));
+  operations.clear(); click(Form::trust_remote); assert(confirms == 1 && operations.empty());
+  allowed = true; set(Form::url, L"http://127.0.0.1:9/unsaved"); click(Form::trust_remote);
+  assert(confirms == 2 && last_probe.value("trust_remote", false));
+  assert(last_probe.at("url") == "http://127.0.0.1:9/dav");
+  assert((operations == std::vector<std::string>{"probe", "status"}));
+  allowed = false;
+  confirms = 0;
+  set(Form::url, L"http://127.0.0.1:9/dav");
   // 同一台设备两条登记只列一条：等待允许的笔记本在前，后面是本机和手机。
   assert(SendMessageW(control(Form::devices), LB_GETCOUNT, 0, 0) == 3);
   select(0); assert(IsWindowEnabled(control(Form::approve)) && !IsWindowEnabled(control(Form::remove)));

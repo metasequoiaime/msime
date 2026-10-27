@@ -22,7 +22,7 @@ inline std::wstring error_message(std::wstring_view code, bool probe = false) {
   if (code == L"dictionary_sync_too_large")
     return L"网盘上的词库或本机的同步记录超过了上限，删减一些词条后再试。";
   if (code == L"dictionary_sync_rollback")
-    return L"网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，重新测试连接并保存即可，本机的词条都会保留。";
+    return L"网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，请确认网盘现状并恢复同步。本机词条保留，但未上传的删除可能重新合并回来。";
   if (code == L"dictionary_sync_unsupported")
     return probe ? L"这个网盘不支持词库同步需要的文件操作（独占创建、列目录），请换一个 WebDAV 服务或文件夹。"
                  : L"网盘上的词库是更新版本的格式，请先更新水杉输入法。";
@@ -191,6 +191,9 @@ inline std::wstring remove_question(const Device &device) {
 
 inline constexpr std::wstring_view reset_question =
     L"重置词库同步的密钥？新密钥只给本设备，其他设备都要重新允许一次。网盘上的词条不会被删除。";
+
+inline constexpr std::wstring_view trust_remote_question =
+    L"仅在你自己清理过网盘文件夹时使用。保留当前本机词条，但忘掉同步位置和待发改动；未上传的删除可能从网盘重新合并回来。";
 
 inline constexpr std::wstring_view restart_question =
     L"以本机为准重新开始？网盘上的共享词库换成本机现在的词条，其他设备获准后会把它们的词合并进来，不会因此删词。只在持有旧密钥的设备都不在了时使用。";
