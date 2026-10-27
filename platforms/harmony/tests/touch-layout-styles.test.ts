@@ -18,6 +18,7 @@ import {
   NineKeyLayout,
 } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
+import { StrokeLayout } from "../entry/src/main/ets/keyboard/input/StrokeLayout";
 
 let failures = 0;
 
@@ -431,6 +432,47 @@ group(
     }
   },
 );
+
+group("九键「右侧大回车」：右列与网格逐行对齐，回车跨网格最后一行和底行，笔画网格按两行切", () => {
+  check(StrokeLayout.ROWS.length === 2, "笔画网格两行");
+  check(
+    NineKeyLayout.touchRows().length === 3 && NineKeyLayout.digits().length === 3,
+    "拼音九键和数字层三行",
+  );
+  for (const [gridHeight, rowSpacing, bottomRow] of [
+    [150, 6, 44],
+    [132, 4, 40],
+  ]) {
+    for (const gridRows of [StrokeLayout.ROWS.length, 3]) {
+      const label = `${gridRows} 行 ${gridHeight}/${rowSpacing}`;
+      // 网格是 Column({ space: rowSpacing }) 里 gridRows 个 layoutWeight(1) 的行：各行同高，第 i 行从 i × (行高 + 行距) 开始。
+      const gridRow = (gridHeight - (gridRows - 1) * rowSpacing) / gridRows;
+      const lastRowTop = (gridRows - 1) * (gridRow + rowSpacing);
+      const row = NineKeyLayout.tallReturnGridRowHeight(gridHeight, rowSpacing, gridRows);
+      check(close(row, gridRow), `${label}：右列一格与网格一行同高：${row} 对 ${gridRow}`);
+      // 右列回车上方每个网格行一个键（笔画只有 ⌫，拼音九键是 ⌫ 和第二格），各隔一道行距。
+      const returnTop = (gridRows - 1) * (row + rowSpacing);
+      check(
+        close(returnTop, lastRowTop),
+        `${label}：回车顶边与网格最后一行顶边对齐：${returnTop} 对 ${lastRowTop}`,
+      );
+      // 右列与外框同高：网格、一道行距、底行；回车占剩下的部分。
+      const returnHeight = gridHeight + rowSpacing + bottomRow - returnTop;
+      check(
+        close(returnHeight, gridRow + rowSpacing + bottomRow),
+        `${label}：回车是网格最后一行、一道行距和底行：${returnHeight}`,
+      );
+    }
+    // 笔画网格两行：按三行切的旧写法（三行里的两行加一道行距）让 ⌫ 比笔画第一行高，回车从笔画第二行中间开始。
+    const strokeRow = NineKeyLayout.tallReturnGridRowHeight(
+      gridHeight,
+      rowSpacing,
+      StrokeLayout.ROWS.length,
+    );
+    const threeRowCut = ((gridHeight - 2 * rowSpacing) / 3) * 2 + rowSpacing;
+    check(!close(strokeRow, threeRowCut), `笔画 ⌫ 不按三行切：${strokeRow} 对 ${threeRowCut}`);
+  }
+});
 
 group("九键「底栏带标点」的逗号长按打开常用标点，与 Android、iOS 相同", () => {
   check(NineKeyLayout.commaOpensQuickPunctuation(false, false, "comma_period"), "中文九键字母层");
