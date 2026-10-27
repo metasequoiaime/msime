@@ -15,6 +15,17 @@ public final class HttpAsrPolicySmoke {
     }
 
     public static void main(String[] args) {
+        // 服务已经返回 HTTP 状态时，容量限制和等待超时不能再提示为设备断网。
+        check(HttpAsrPolicy.statusFailure(413) == HttpAsrPolicy.StatusFailure.TOO_LARGE,
+            "413 reports the provider's request-size limit");
+        check(HttpAsrPolicy.statusFailure(408) == HttpAsrPolicy.StatusFailure.TIMED_OUT
+                && HttpAsrPolicy.statusFailure(504) == HttpAsrPolicy.StatusFailure.TIMED_OUT,
+            "408 and 504 report a timeout rather than a network outage");
+        for (int status : new int[] {400, 401, 429, 500, 503}) {
+            check(HttpAsrPolicy.statusFailure(status) == HttpAsrPolicy.StatusFailure.REJECTED,
+                "other HTTP failures stay distinguishable from a transport error");
+        }
+
         // 按共享层给出的请求格式判断，不再看 provider 名字（#6017）。
         check(HttpAsrPolicy.supported("multipart"), "multipart is the OpenAI-compatible upload");
         check(HttpAsrPolicy.supported("chat_audio"), "chat_audio is the Bailian chat upload");

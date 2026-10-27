@@ -63,5 +63,5 @@ int main() {
       assert(message != webdav_error_message(known));
   }
   assert(webdav_explanation.find(L"网盘只保存密文") != std::wstring_view::npos);
-  assert(webdav_url_placeholder == L"https://dav.jianguoyun.com/dav/msime");
+  assert(webdav_url_placeholder == L"https://dav.jianguoyun.com/dav/");
 }

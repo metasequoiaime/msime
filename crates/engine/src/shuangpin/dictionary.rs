@@ -42,7 +42,9 @@ use crate::quanpin::dictionary::{
 };
 use crate::quanpin::series::fold_reading;
 use crate::text::last_characters;
-use crate::types::{CandidateSource, SentenceAssociationOptions, SyllableHelpcode, WordItem};
+use crate::types::{
+    CandidateSource, SentenceAssociationOptions, ShuangpinProfileKind, SyllableHelpcode, WordItem,
+};
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 
 // 双拼前缀候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
@@ -279,9 +281,23 @@ impl ShuangpinDictionary {
         if segments.is_empty() {
             return Vec::new();
         }
-        self.database
-            .query_segments_keyed_flat(&segments, UNLIMITED_ROWS, QuerySource::Shuangpin)
-            .into_iter()
+        let mut rows = self.database.query_segments_keyed_flat(
+            &segments,
+            UNLIMITED_ROWS,
+            QuerySource::Shuangpin,
+        );
+        if self.profile.kind == ShuangpinProfileKind::Shoudao && segmentation == "dk" {
+            // 手心的 `dk` 同时对应 `dia` 和 `den`；保留原有的 `dia`，并补查 `den`。
+            rows.extend(self.database.query_segments_keyed_flat(
+                &["den".to_string()],
+                UNLIMITED_ROWS,
+                QuerySource::Shuangpin,
+            ));
+            rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
+            let mut seen = HashSet::new();
+            rows.retain(|row| seen.insert(row.value.clone()));
+        }
+        rows.into_iter()
             .map(|row| {
                 WordItem::new(
                     pure,

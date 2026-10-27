@@ -146,10 +146,6 @@ export function InputSettingsPage() {
   const showAppInputModeRules = host?.app_input_mode_rules === true;
   // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译直接可见，输入通用设置也直接展开，不再额外套一个「更多」分组。翻页键在它的 外接键盘快捷键 页，整句联想 在它的 表达 页，所以这里不画。
   const harmonyPhone = harmonyPlatform && mobilePlatform;
-  // 拼音纠错 是两项全拼纠错共用的一个开关，只有两项都开启时才显示为开；打开或关闭会同时设置两项，和 Android 的 `TypingPage` 一样。
-  const autocorrect =
-    (draft.quanpin?.autocorrect_transposition ?? true) &&
-    (draft.quanpin?.autocorrect_neighbor ?? true);
   const fuzzyPinyinSection = (layout: "section" | "row") => (
     <FuzzyPinyinSection
       preferences={fuzzyPinyin}
@@ -310,14 +306,25 @@ export function InputSettingsPage() {
               <option value="traditional">繁体</option>
             </SelectRow>
             <SwitchRow
-              title="拼音纠错"
-              checked={autocorrect}
+              title="全拼邻键纠错"
+              checked={draft.quanpin?.autocorrect_neighbor ?? true}
+              onChange={(checked) =>
+                onPreferencesChange({
+                  quanpin: {
+                    ...draft.quanpin,
+                    autocorrect_neighbor: checked,
+                  },
+                })
+              }
+            />
+            <SwitchRow
+              title="全拼乱序纠错"
+              checked={draft.quanpin?.autocorrect_transposition ?? true}
               onChange={(checked) =>
                 onPreferencesChange({
                   quanpin: {
                     ...draft.quanpin,
                     autocorrect_transposition: checked,
-                    autocorrect_neighbor: checked,
                   },
                 })
               }
