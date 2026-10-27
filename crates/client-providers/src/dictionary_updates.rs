@@ -304,6 +304,46 @@ pub fn generation_file(directory: &Path, set: &ResourceSet, name: &str) -> Optio
     (metadata.is_file() && metadata.len() == artifact.size).then_some(path)
 }
 
+/// 词库更新下载过的代次里与 `artifact` 字节相同的一份（名字、长度、SHA-256 都对上），不管那个代次现在还算不算有效的选择；没有时为 `None`。
+///
+/// 给资源包安装复用：发布包不带的五笔码表（以及日文词典）由资源包提供，安装包换了词库锁后已装的资源包随之过期，而换锁之前词库自动更新多半已经把同一个版本的码表下载进了某个代次，那个代次的选择又因基线变了而失效。只看 `generations/` 下 64 位十六进制名字的代次目录，暂存目录和符号链接都跳过；每个长度对得上的候选都完整算一遍摘要，取消时报 [`LocalModelError::Cancelled`]。
+pub(crate) fn generation_copy(
+    state: &Path,
+    artifact: &Artifact,
+    cancel: &AtomicBool,
+) -> Result<Option<PathBuf>, LocalModelError> {
+    let generations = root(state).join("generations");
+    if msime_path_trust::reject_symlinked_components(&generations).is_err() {
+        return Ok(None);
+    }
+    let Ok(entries) = std::fs::read_dir(&generations) else {
+        return Ok(None);
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit()))
+        .collect();
+    names.sort();
+    for name in names {
+        let path = generations.join(&name).join(&artifact.name);
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.file_type().is_file()
+            || metadata.len() != artifact.size
+            || msime_path_trust::reject_symlinked_components(&path).is_err()
+        {
+            continue;
+        }
+        match local_models::file_sha256(&path, cancel) {
+            Ok(digest) if digest.eq_ignore_ascii_case(&artifact.sha256) => return Ok(Some(path)),
+            Ok(_) | Err(LocalModelError::UnreadableImportFile(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(None)
+}
+
 pub fn due(context: &UpdateContext) -> bool {
     automatic_check_due(&status(context), now())
 }
@@ -626,7 +666,7 @@ fn install(
 ) -> Result<(), UpdateError> {
     store(&context.state_root)
         .install(set, |file| {
-            // 复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。
+            // 复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。发布包不带的日文词典和五笔码表在已装的资源包里，新版本没改这份文件时从那里取，不重新下载（五笔码表近百 MB）。
             let active = selected(&context.state_root, &context.baseline);
             let candidates = [
                 Some(context.resources.join(&file.name)),
@@ -634,6 +674,9 @@ fn install(
                 active
                     .and_then(|s| directory(&context.state_root, &s.desktop).ok())
                     .map(|p| p.join(&file.name)),
+                on_demand_pack(&file.name).and_then(|pack| {
+                    crate::resource_packs::installed_file(&context.state_root, pack, &file.name)
+                }),
             ];
             for path in candidates.into_iter().flatten() {
                 if msime_path_trust::reject_symlinked_components(&path).is_err() {
