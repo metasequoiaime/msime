@@ -199,9 +199,19 @@ Harmony 触屏键盘的工具栏没有语音按钮，语音从功能面板的「
 
 Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI 上重新跑通，除 NDK 之外不再需要任何准备：以前要手工编译的 `libsqlite3.a` 前缀和 32 位 `armeabi-v7a` 需要的 fmt/spdlog 替身 config 都随 C++ Engine 一起去掉了，`libmsime_host_api.so` 的动态依赖只剩 `libc.so`。这一轮没有重新打 HAP，也没有上设备。
 
-## Google 登录：系统浏览器加本机回环
+## 华为账号登录：Account Kit 的 ID Token
 
-设置页的「登录水杉」面板在后端开着 Google（`/v1/auth/providers` 返回 `google: true`）时显示「使用 Google 登录」。鸿蒙没有 Google 服务，GoogleSignIn SDK 用不了；Google 也拒绝在应用内的 WebView 里登录。所以走与桌面端同一条流程（RFC 8252）：设置应用在 `127.0.0.1` 的随机动态端口上用 `TCPSocketServer` 监听，经 Rust `msime_client_account` 的 `google_challenge {target}` 申请 Google challenge（`target` 是这个回环地址，Rust 校验过授权链接是指向它的 Google 授权链接），用 `openLink` 把授权链接交给系统浏览器，Google 跳回本机端口后把授权码经 `google_code_login` 交给后端去换 token，会话由 Rust 存进 `files/state`。PKCE 和 client secret 都在后端，后端不需要为鸿蒙做任何改动。
+设置页的「登录水杉」面板（手机）和登录卡片（2in1）在后端开着华为账号（`/v1/auth/providers` 返回 `huawei: true`）时显示「华为账号登录」，与其他登录方式一样要先勾选同意《用户协议》和《隐私政策》。点下去以后 `account/HarmonyHuaweiSignIn.ets` 经 Rust `msime_client_account` 的 `huawei_challenge` 申请带 nonce 的 challenge，用 `authentication.AuthorizationWithHuaweiIDRequest`（`scopes: ["openid"]`、`permissions: ["idtoken"]`、`forceAuthorization: true`、nonce 原样传入、`idTokenSignAlgorithm: PS256`）拉起系统的华为账号授权页，拿到的 ID Token 经 `huawei_login` 交给后端 `/v1/auth/login`，会话由 Rust 存进 `files/state`。后端用华为公布的 JWKS 验签并核对发行方、受众（应用 Client ID）、有效期和 nonce，按 ID Token 的 `sub`（UnionID）认人；不换授权码，客户端和后端都不需要 Client Secret。challenge 回答、nonce 形状、响应核对和错误码换算在可测的 `HuaweiIdSignInPolicy.ts`（`tests/huawei-sign-in.test.ts`）。
+
+只要 `openid` 不需要在 AppGallery Connect 申请账号权限；`compatibleSdkVersion` 是 6.0.1(21)，不需要配置公钥指纹（华为文档「配置签名和指纹」：compatibleSdkVersion ≥ 20 不需要）。需要的配置只有 Client ID：AGC「常规 > 应用」里应用的 Client ID 与 APP ID 不同时，要在 `entry/src/main/module.json5` 的 module 级 `metadata` 里写 `{"name": "client_id", "value": "<应用 Client ID>"}`（直接写数字，不能用 `$string` 引用），`scripts/test-harmony-manifest.py` 核对它的位置和形状；后端 `auth.huawei.client_ids` 要列同一个值。没有设备上的真实账号验收之前，这条路径只经过逻辑测试、HAP 编译和后端用本地签名令牌的测试。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-huawei-id-sign-in.md`。
+
+用户关掉授权页时 Account Kit 以取消结束，面板不提示；网络错误提示检查网络；指纹证书或权限错误（1001500001、1001502014）是 AGC 配置问题，日志里单独写明，页面显示「账号服务暂不可用」。
+
+## Google 登录：系统浏览器加本机回环（默认不提供）
+
+中国大陆连不上 Google，AppGallery 审核按「使用 Google 登录」点了没反应提过意见，所以鸿蒙设置应用默认不给共享账号页提供 `googleLogin`（`apps/harmony/src/main.tsx` 的 `HARMONY_GOOGLE_SIGN_IN`），面板上不再出现 Google 按钮，第三方登录改由上面的华为账号登录提供。下面的回环实现原样保留，把那个开关改回 true 就恢复；其他平台的 Google 登录不受影响。
+
+设置页的「登录水杉」面板在后端开着 Google（`/v1/auth/providers` 返回 `google: true`）且宿主提供 `googleLogin` 时显示「使用 Google 登录」。鸿蒙没有 Google 服务，GoogleSignIn SDK 用不了；Google 也拒绝在应用内的 WebView 里登录。所以走与桌面端同一条流程（RFC 8252）：设置应用在 `127.0.0.1` 的随机动态端口上用 `TCPSocketServer` 监听，经 Rust `msime_client_account` 的 `google_challenge {target}` 申请 Google challenge（`target` 是这个回环地址，Rust 校验过授权链接是指向它的 Google 授权链接），用 `openLink` 把授权链接交给系统浏览器，Google 跳回本机端口后把授权码经 `google_code_login` 交给后端去换 token，会话由 Rust 存进 `files/state`。PKCE 和 client secret 都在后端，后端不需要为鸿蒙做任何改动。
 
 哪些判定不在 ArkTS 里写：回跳地址的形状、授权链接能不能打开、等多久、一次回环请求是不是回跳、写回浏览器的页面，都由 C ABI `msime_client_google_loopback`（NAPI `googleLoopback`）给出，它和桌面端 `AccountSession::sign_in_google_with_browser` 用的是 `crates/client-services/src/account/google.rs` 里同一份代码。`account/HarmonyGoogleSignIn.ets` 只做 socket、浏览器和后台保活，请求头的拼接与截断在可测的 `GoogleLoopbackRequestHead.ts`。
 

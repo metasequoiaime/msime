@@ -36,7 +36,7 @@ iOS 的做法用不了：它用 GoogleSignIn SDK 拿 ID token（见 [iOS 通过 
 ## Consequences
 
 - **收益**：鸿蒙用户可以用 Google 登录，与其他平台的同一个账号互通；回环判定只有一份，桌面端行为不变。
-- **代价**：真机上的后台冻结可能比模拟器严格，延迟挂起是否足够要在真机上确认。中国大陆的网络访问不了 Google，这个按钮对那里的用户没有用，是否按地区隐藏没有在这次决定。
+- **代价**：真机上的后台冻结可能比模拟器严格，延迟挂起是否足够要在真机上确认。中国大陆的网络访问不了 Google，这个按钮对那里的用户没有用。2026-10-27 起鸿蒙设置应用默认不给页面提供 `googleLogin`（`apps/harmony/src/main.tsx` 的 `HARMONY_GOOGLE_SIGN_IN`），改由华为账号登录提供第三方登录，本篇的回环实现原样保留，见[鸿蒙用华为账号登录替换 Google 登录](2026-10-27-harmony-huawei-id-sign-in.md)。
 
 ## Verification
 
