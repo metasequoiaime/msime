@@ -144,7 +144,7 @@
 
 网盘只见到密文。词库的密钥 `K` 来自词库自己的密钥串：它是 [云剪贴板端到端加密](cloud-clipboard-e2e.md) 那一套协议的另一个实例——同样的设备密钥对、核对码、封装和批准流程，同样由第一台设备生成密钥、新设备必须由已有设备点「允许」——放在 `msime-dictionary/keyring/` 下，按 [云剪贴板 WebDAV 布局 v1](cloud-clipboard-webdav.md) 存放（格式名仍是 `msime-clipboard`）。本机的密钥串与云剪贴板的分开存放，所以同一台设备在两个功能里是两个设备身份、要分别批准一次。
 
-两把子密钥由 HKDF-SHA256 从 `K` 派生：事件用 `info="msime-dictionary-v1-event"`，检查点用 `info="msime-dictionary-v1-checkpoint"`，都是 32 字节，没有 salt。`key_id` 就是密钥串给这把密钥的编号。本机同步状态里只存子密钥，不存 `K`。
+密钥串只交出 `M = HKDF-SHA256(K, info="msime-dictionary-v1-key", 32)`，不交出 `K` 本身；两把子密钥再由 HKDF-SHA256 从 `M` 派生：事件用 `info="msime-dictionary-v1-event"`，检查点用 `info="msime-dictionary-v1-checkpoint"`，都是 32 字节，没有 salt。`key_id` 就是密钥串给 `K` 的编号。本机同步状态里只存子密钥。
 
 ### 设备身份
 

@@ -173,6 +173,16 @@ impl Keystore {
     pub fn key_id(&self) -> Option<&str> {
         self.key.as_ref().map(|key| key.id.as_str())
     }
+
+    /// 用同一套批准协议管理密钥的其他功能（词库同步的密钥串，见 `docs/dictionary-webdav-sync.md`）从当前密钥派生自己的密钥：`HKDF(K, info, 32)` 和密钥编号。不交出密钥本身；`info` 不能是剪贴板自己用的那几个标签。还没有密钥时为 `None`。
+    pub fn derived_key(&self, info: &[u8]) -> Option<(&str, [u8; 32])> {
+        if [KEY_ID_INFO, ITEM_INFO, DEDUP_INFO, WRAP_INFO, CODE_LABEL].contains(&info) {
+            return None;
+        }
+        self.key
+            .as_ref()
+            .map(|key| (key.id.as_str(), key.subkey(info)))
+    }
 }
 
 /// 上传用的条目请求体。
