@@ -83,11 +83,12 @@ if grep -qF 'FunctionPanelPolicy.items()' "$ets/keyboard/KeyboardView.ets"; then
   echo "KeyboardView must list function tiles through FunctionPanelPolicy.items(AiGenerationGate.enabled())" >&2
   exit 1
 fi
-# 按键振动的 `startVibration` 在 NAPI 层同步发 IPC，放在 UI 线程上开了振动打字就跟不上手；这里钉住接线：振动经 TaskPool 发出，上一下还没发完时不再排队。
-if ! grep -qF 'taskpool.execute(startKeyVibration,' "$ets/keyboard/KeyboardSession.ets" \
+# 按键振动的 `startVibration` 在 NAPI 层同步发 IPC，放在 UI 线程上开了振动打字就跟不上手；这里钉住接线：振动经 TaskPool 以高优先级发出，上一下还没发完时不再排队。
+if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'taskpool.Priority.HIGH);' "$ets/keyboard/KeyboardSession.ets" \
   || ! grep -qF 'this.vibrationPending) {' "$ets/keyboard/KeyboardSession.ets" \
   || ! grep -qF '@Concurrent' "$ets/keyboard/KeyVibration.ets"; then
-  echo "key vibration must go through taskpool.execute(startKeyVibration, ...) and skip while one is pending" >&2
+  echo "key vibration must go through a high-priority taskpool.Task(startKeyVibration, ...) and skip while one is pending" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

@@ -5786,7 +5786,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     const effectId: string = KeyboardSession.supportsEffect(plan.effectId) ? plan.effectId : '';
     let task: Promise<Object>;
     try {
-      task = taskpool.execute(startKeyVibration, effectId, plan.intensity, plan.fallbackMillis, plan.followsSystem);
+      // 高优先级：TaskPool 里还跑着打字统计这类要拿文件锁、整份重写的任务，振动排在它们后面就晚了，晚到的振动比不振更乱手感。
+      task = taskpool.execute(new taskpool.Task(startKeyVibration, effectId, plan.intensity, plan.fallbackMillis,
+        plan.followsSystem), taskpool.Priority.HIGH);
     } catch (error) {
       return KeyboardSession.workerVibrationFailed(plan, error as Object);
     }
