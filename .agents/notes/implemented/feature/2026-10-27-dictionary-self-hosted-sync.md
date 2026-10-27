@@ -71,6 +71,8 @@ Status: implemented
 - **目录和密钥串**：App Group 容器里的 `dictionary-sync/`，App 和键盘给同一个目录。目录建成 0700、文件保护设为「首次解锁后」（Rust 之后建的文件继承它）、排除在设备备份之外，与云剪贴板网盘缓存的 `cloud-clipboard-relay/` 相同。词库密钥串按核心的存储契约是 Rust 在这个目录里写的 `cloud-clipboard-relay-keystore` 文件（只有本应用可读），不进钥匙串，理由见下面的备选方案。
 - **一个安装一个身份**：App 和键盘用同一个目录，Rust 整次同步持有 `dictionary-sync.lock`、在锁里「读不到密钥串才生成」，两个进程第一次同时用也只有一个身份；键盘又只在密钥串已经存在时才调。设备列表按设备编号再去一次重，每台一条。
 
+普通 `probe` 只测连接，不清同步位置、待发改动或防回退记录。设置保存前预检也遵守这个边界，否则一次无副作用外观的测试会抹掉待上传删除，使远端词重新出现。只有单独确认恢复时才传 `trust_remote:true`，确认文案说明待发改动会遗忘、未上传删除可能重新合并回来。宿主用已保存连接恢复，不能把未保存草稿的探测当作恢复。
+
 ### Android 接入
 
 设置 App 的「我的 → 词库同步」（词库页也有入口）是原生 Java 页 `home/DictionarySyncPage`，填写、测试连接和保存的行为与云剪贴板的 WebDAV 页相同；打开时 `opened`，「立即同步」`manual`，状态、被挡下的删除、核对码、设备批准、重置和重新开始都在这一页。键盘进程 `:ime` 由 `core/ImeDictionarySync` 在候选栏删除和设置页排队的改词写进词库之后调 `local_change`，按 `next_check_ms` 定时 `periodic`，输入会话结束时有没写进本机的远端改动就再来一次；调用在它自己的工作线程上，定时用主线程 Handler，与键盘已有的个人词库维护同一种机制。两个进程的目录都是 `noBackupFilesDir/dictionary-sync`，身份靠 Rust 在共用目录的锁里「读不到才生成」；键盘进程另外只在本机已有设备编号时才跑，第一次登记只由设置页做。错误码的中文说法在 `policy/DictionarySyncPolicy`，`scripts/test-android-dictionary-sync-contract.py` 核对它与 Rust 的错误码一致。
@@ -111,7 +113,7 @@ Android 设置页的请求代次同时约束工作线程和界面回调。保存
 - 检查点边界：6500 条、每条 4096 字节的合成快捷短语不会发布超限检查点，日志不封口，确认删除后仍可收敛；超限重建不会增加远端事件，原设备可继续写入。
 
 - `cargo test -p msime-client-core --lib dictionary_sync`：66 项，含多设备模拟——三台设备增词、改编码、删词后收敛；40 个种子的随机离线交错加崩溃和重放收敛且没有重复发送；并发修改与删除两种上传顺序结果相同；时钟在重启和系统时间回调后不倒退；重装设备重新加入；同一设备只登记一次；移除设备后换钥并把它挡在外面；压缩并删除旧 epoch 后长期离线设备重新加入；Engine 忙时不提前确认、墓碑等它；每一次写盘处崩溃都不丢不重；回退、截尾、删除整个文件夹被识别；大批删除被挡下；Engine 不收或删不掉的词不反复重试、也不复活；删了又加回来用新的请求编号；从检查点加入时不会因为墓碑删掉本机的词（先在去掉修复时确认会失败）；调度在额度之内。
-- `cargo test -p msime-clipboard-relay --test dictionary_webdav_flow`：9 项，对着 `dav-server`：两台设备经密钥串配对（两边的核对码相同）、批准、互传、改编码和删词；同一安装两个进程同时第一次使用只登记一台；错误的应用密码在同步和测试连接里都是 `dictionary_sync_unauthorized`，连不上的地址是 `dictionary_sync_unavailable`；超大事件是 `dictionary_sync_too_large`；两台设备同时同步抢同一个序号，词都进去了；截掉日志尾部是 `dictionary_sync_rollback`，重新测试连接后恢复、本机的词都在；服务端暂时不可用时改动留在本机，恢复后发出；凭据和词条不出现在网盘文件里，凭据不出现在本机状态文件里。
+- `cargo test -p msime-clipboard-relay --test dictionary_webdav_flow`：9 项，对着 `dav-server`：两台设备经密钥串配对（两边的核对码相同）、批准、互传、改编码和删词；同一安装两个进程同时第一次使用只登记一台；错误的应用密码在同步和测试连接里都是 `dictionary_sync_unauthorized`，连不上的地址是 `dictionary_sync_unavailable`；超大事件是 `dictionary_sync_too_large`；两台设备同时同步抢同一个序号，词都进去了；截掉日志尾部是 `dictionary_sync_rollback`，普通测试连接仍拒绝回退，用户明确确认网盘现状后恢复、本机的词都在；服务端暂时不可用时改动留在本机，恢复后发出；凭据和词条不出现在网盘文件里，凭据不出现在本机状态文件里。
 - `cargo test -p msime-host-api --lib dictionary_webdav`：4 项，对着真实的 Engine 词库：读「我的词条」（含多行快捷短语和英文显示形）、加入、删除、删除本来就没有的词、同一个请求编号重试；输入会话占着词库时答「忙」、读照常；Engine 不收的词单独报告、同批其他词照常写进去；请求在联网之前就被校验。
 - `cargo test -p msime-client-core --lib`、`cargo test -p msime-client-services`、`cargo test -p msime-clipboard-relay`：全部通过；`cargo test -p msime-host-api --lib` 只有两项与本改动无关的失败（按需资源包列表与 develop 上新增的 `pronunciations` 不符，一项按分钟取本地时间的脚本插件测试）。`cargo clippy` 对四个 crate 加 `--all-targets` 只剩 develop 上已有的两处 `field_reassign_with_default`。
 
