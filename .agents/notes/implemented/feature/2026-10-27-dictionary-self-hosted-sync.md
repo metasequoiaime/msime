@@ -66,6 +66,8 @@ Status: implemented
 
 ### Windows 宿主（含 Win7）
 
+Win7 词库同步面板关闭时只撤销窗口投递、丢弃尚未开始的任务并唤醒工作线程，不在 `WM_DESTROY` 等待网盘请求。线程以共享状态保留正在使用的服务、偏好快照和同步请求，当前调用返回后自行退出，不再触碰已销毁的窗口。否则离线或网盘缓慢时关闭窗口会把界面线程卡到全部请求超时。
+
 触发分在两类进程里。自动的两种在 Server：它一直活着、持有输入会话，候选菜单的「删除」和维护快捷键删词之后以 `local_change` 记一次（只记录、不联网，连着几次只记一次），启动两分钟后第一次 `periodic`，之后照回答里的 `next_check_ms`（夹在 1 秒到 30 分钟之间，与共享设置页相同；调用本身失败时半小时后再试）。这些都在 `DictionarySyncWorker` 自己的工作线程上，不在输入线程、管道线程或消息循环上；偏好里没配网盘时线程只等着，偏好发布时配上就十秒后开始、清掉就停。只有受管理的 Server 做，预览实例不替用户联网；Win7 的 Server 是同一份代码。用户在等着看的两种由设置窗口调：进入 WinUI 词库页「云端词库」标签（或打开 Win7 词库同步面板）时 `opened`，「立即同步」是 `manual`；设置窗口经 `msime_client_settings_dictionary` 改了词之后也自己记一次 `local_change`，与共享页的 `withDictionaryChangeNotices` 相同。Win7 设置窗口的导航不收云端同步的页面，所以 Win7 的配置与设备管理放在独立面板 `--route=dictionary-sync`，与云剪贴板一样，由设置窗口词库页的按钮打开。
 
 一个安装只有一份设备身份：同步目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`，Server、WinUI 设置、Win7 设置和 Win7 面板都调 `common/DictionarySyncDirectory.h` 的同一个函数。两个进程第一次使用时同时生成身份由 Rust 的文件锁和「不覆盖另一个身份」挡住；仍然报 `clipboard_keystore_conflict`（#10032 的约定：已经发出请求之后才发现存储里是另一个身份）时，宿主用同一个请求再调，最多三次（`common/DictionarySyncRetry.h`），第二次就会用存着的那份身份。
@@ -106,6 +108,8 @@ Server 停机时，偏好和候选删词的生产线程可能还在送最后一�
 - `cargo test -p msime-clipboard-relay --test dictionary_webdav_flow`：9 项，对着 `dav-server`：两台设备经密钥串配对（两边的核对码相同）、批准、互传、改编码和删词；同一安装两个进程同时第一次使用只登记一台；错误的应用密码在同步和测试连接里都是 `dictionary_sync_unauthorized`，连不上的地址是 `dictionary_sync_unavailable`；超大事件是 `dictionary_sync_too_large`；两台设备同时同步抢同一个序号，词都进去了；截掉日志尾部是 `dictionary_sync_rollback`，重新测试连接后恢复、本机的词都在；服务端暂时不可用时改动留在本机，恢复后发出；凭据和词条不出现在网盘文件里，凭据不出现在本机状态文件里。
 - `cargo test -p msime-host-api --lib dictionary_webdav`：4 项，对着真实的 Engine 词库：读「我的词条」（含多行快捷短语和英文显示形）、加入、删除、删除本来就没有的词、同一个请求编号重试；输入会话占着词库时答「忙」、读照常；Engine 不收的词单独报告、同批其他词照常写进去；请求在联网之前就被校验。
 - `cargo test -p msime-client-core --lib`、`cargo test -p msime-client-services`、`cargo test -p msime-clipboard-relay`：全部通过；`cargo test -p msime-host-api --lib` 只有两项与本改动无关的失败（按需资源包列表与 develop 上新增的 `pronunciations` 不符，一项按分钟取本地时间的脚本插件测试）。`cargo clippy` 对四个 crate 加 `--all-targets` 只剩 develop 上已有的两处 `field_reassign_with_default`。
+
+审查补充：`DictionarySyncWindow.cpp` 与窗口回归用例的 MinGW 交叉语法检查通过；新增请求阻塞期间 `DestroyWindow` 应在一秒内返回、后台状态随后释放的窗口测试，实际执行待 Windows CI。
 
 Windows（含 Win7）：`windows-dictionary-sync-schedule`（偏好判断、请求形状、三种回答、身份冲突重试、没启动和没配网盘时不调、配上后十秒、删词后马上记且连着只记一次、按 `next_check_ms` 排下一次、失败半小时）和 `windows-dictionary-sync-model`（错误说法与共享页一致、概况、同一设备合并成一条、重试次数）在 macOS 上用 clang++ 编译运行通过，并用 MinGW 交叉编译器做了语法检查（含 `server_main.cpp` 的普通与 Win7 两种配置）；`windows7-dictionary-sync-panel-test`、WinUI 设置窗口和 `settings_ui.ps1` 的词库同步验收只能在 CI 的 Windows runner 上编译运行，真实网盘、真实 Server 里的删词触发和两个进程同时第一次使用还没有在 Windows 上验收。
 
