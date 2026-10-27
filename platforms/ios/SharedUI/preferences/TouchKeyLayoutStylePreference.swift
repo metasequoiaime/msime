@@ -153,6 +153,32 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
   }
 }
 
+/// 设置页「按键布局」列出哪几组，按版本提供的入口判断，与 Android、鸿蒙同一规则：没有的键面类型不列它那一组，既没有中文 26 键也没有 14/18 键时不列「顶部数字行」开关。`offers` 在设置页是本版本（`edition`），测试换成别的版本。
+struct TouchKeyLayoutOffering: Equatable {
+  /// 读 26 键样式的中文 26 键入口：全拼、各种双拼、五笔、粤拼。日文罗马字、韩文、越南文和藏文的 26 键画标准底行（键盘的 `drawsChineseTwentySixKey`），不算。
+  static let twentySixKeySchemes: [ChineseInputScheme] = [
+    .quanpin, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .cantonese, .cantoneseShuangpin,
+  ]
+  /// 有 14 键或 18 键的入口：全拼的两个入口，以及双拼和五笔可选的字母键布局。
+  static let letterGridSchemes: [ChineseInputScheme] = [.fourteenKey, .eighteenKey, .shuangpin, .wubi]
+  /// 九键框架：拼音九键、九键双拼和笔画。
+  static let nineKeySchemes: [ChineseInputScheme] = [.nineKey, .nineKeyShuangpin, .stroke]
+
+  let twentySixKey: Bool
+  let letterGrid: Bool
+  let nineKey: Bool
+  /// 顶部数字行只画在中文 26 键和 14/18 键上时才有意义，两样都没有就不列开关。
+  var numberRow: Bool { twentySixKey || letterGrid }
+
+  init(offers: (ChineseInputScheme) -> Bool) {
+    twentySixKey = Self.twentySixKeySchemes.contains(where: offers)
+    letterGrid = Self.letterGridSchemes.contains(where: offers)
+    nineKey = Self.nineKeySchemes.contains(where: offers)
+  }
+
+  static var edition: TouchKeyLayoutOffering { TouchKeyLayoutOffering { $0.isOfferedByEdition } }
+}
+
 /// 手机触屏底行按「按键布局」样式的排法：每个显示的键、从左到右的顺序和它在本行里的宽度份额。三端相同，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。
 ///
 /// 标准样式就是原来的底行（`KeyboardViewController` 的 `phoneActionWidths`、`nineKeyActionWidths` 等），表里照抄一份，供统计热力图、设置页预览和测试使用；其余样式由键盘控制器按这张表排列并加宽度约束。样式加的键都从空格里让出份额，整行总份额不变。地球键只在宿主要求时出现，占 1 份，从行宽里另外分；隐藏中/英键时它的 1.05 份交给空格。
@@ -237,14 +263,22 @@ enum TouchBottomRowLayout {
     return finish(keys, language: language, returnWeight: nineKeyReturnWeight)
   }
 
-  /// 九键标准底行的总份额（符 1.05 + 123 1.25 + 空格 4.2 + 中/英 1.05 + 回车 1.6），即整个九键外框的宽度。
+  /// 九键标准底行不带地球键时的总份额（符 1.05 + 123 1.25 + 空格 4.2 + 中/英 1.05 + 回车 1.6），即整个九键外框的宽度。
   static let nineKeyFrameWeight: CGFloat = symbolsWeight + layerWeight + nineKeySpaceWeight + languageWeight + nineKeyReturnWeight
   /// 九键外框左侧符号栏和右列各占的宽度：整宽的 14%（`KeyboardGeometry.sidebarRatio`）。
   static let nineKeySideRatio: CGFloat = 0.14
-  /// 一个侧列折成底行份额：`nineKeyFrameWeight` × 14%。
-  static let nineKeySideWeight: CGFloat = nineKeyFrameWeight * nineKeySideRatio
 
-  /// 九键「右侧大回车」的底行，整行与九键外框同宽、总份额与标准底行相同。第一格 符 在符号栏正下方、与符号栏同宽，最后一格回车与右列同宽（它在键盘上从右列第三行一直伸到底行，两倍高）；中间几格合起来正好是九宫格的宽度：123、地球键、中/英 与标准九键底行同宽，空格占剩下的部分，地球键也从空格里让出。九键双拼字母层的 0 照旧跟在空格后面。
+  /// 同一地球键状态下九键标准底行的总份额：宿主要求地球键时它在 123 后另占 1 份，整行按 10.15 份分，每一份因此比不带地球键时窄。
+  static func nineKeyRowWeight(globe: Bool) -> CGFloat {
+    nineKeyFrameWeight + (globe ? globeWeight : 0)
+  }
+
+  /// 一个侧列折成同一地球键状态下标准底行的份额：`nineKeyRowWeight(globe:)` × 14%。
+  static func nineKeySideWeight(globe: Bool) -> CGFloat {
+    nineKeyRowWeight(globe: globe) * nineKeySideRatio
+  }
+
+  /// 九键「右侧大回车」的底行，整行与九键外框同宽、总份额与同一地球键状态下的标准底行相同（带地球键时是 10.15 份）。第一格 符 在符号栏正下方、与符号栏同宽，最后一格回车与右列同宽（它在键盘上从右列第三行一直伸到底行，两倍高）；中间几格合起来正好是九宫格的宽度：123、地球键、中/英 与同一地球键状态下的标准九键底行同宽，空格占剩下的部分，地球键也从空格里让出。九键双拼字母层的 0 照旧跟在空格后面。
   ///
   /// 数字层（`digits`）照同一框架：符 不动，123 的位置是回到字母层的切换键，空格的位置放 0、占剩下的部分；空格按 iOS 数字层原来的规则留在 0 的右边，与 中/英 同宽。
   static func nineKeyTallReturn(globe: Bool, zero: Bool = false, language: Bool = true, digits: Bool = false) -> [Key] {
@@ -258,10 +292,11 @@ enum TouchBottomRowLayout {
       middle.append(Key(.zero, zeroWeight))
     }
     if language { middle.append(Key(.language, languageWeight)) }
-    let gridWeight = nineKeyFrameWeight - 2 * nineKeySideWeight
+    let side = nineKeySideWeight(globe: globe)
+    let gridWeight = nineKeyRowWeight(globe: globe) - 2 * side
     let rest = gridWeight - middle.reduce(0) { $0 + $1.weight }
     middle = middle.map { $0.slot == fill ? Key(fill, rest) : $0 }
-    return [Key(.symbols, nineKeySideWeight)] + middle + [Key(.returnKey, nineKeySideWeight)]
+    return [Key(.symbols, side)] + middle + [Key(.returnKey, side)]
   }
 
   /// 补上中/英和回车；隐藏中/英时把它的份额并进空格。

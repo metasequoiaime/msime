@@ -2,15 +2,17 @@ import SwiftUI
 
 /// 「键盘 › 按键布局」：26 键、14 键与 18 键、9 键三类键面各选一种底行样式，外加顶部数字行开关，对应共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 与 `touch_number_row`（`TouchKeyLayoutStyle`）。三端同一套选项和画法，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。
 ///
-/// 每个选项下面画一条那种底行的缩略图，键的顺序和宽度取自键盘用的同一张表（`TouchBottomRowLayout`）。本版本不提供的键面类型不列出它那一组。改动只写刚选的那一项，键盘下次出现或重载文档时当场换上，不打断正在组的字。
+/// 每个选项下面画一条那种底行的缩略图，键的顺序和宽度取自键盘用的同一张表（`TouchBottomRowLayout`）。本版本不提供的键面类型不列出它那一组，既没有中文 26 键也没有 14/18 键时不列顶部数字行开关（`TouchKeyLayoutOffering`）。改动只写刚选的那一项，键盘下次出现或重载文档时当场换上，不打断正在组的字。
 struct KeyboardKeyLayoutSettingsView: View {
   @State private var style = TouchKeyLayoutStyle.mirrored
   @State private var saveFailed = false
+  /// 本版本提供哪几类键面，决定列哪几组和要不要数字行开关。
+  private let offering = TouchKeyLayoutOffering.edition
 
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        if Self.offersTwentySixKey {
+        if offering.twentySixKey {
           choiceGroup(title: "26 键", footer: "作用于中文 26 键（全拼、双拼、五笔等），英文键盘不变。长空格把符号入口移到工具栏，逗号下滑或长按输入句号；表情键样式长按 123 打开符号。",
                       options: TouchTwentySixKeyStyle.allCases, selected: style.twentySixKey, label: \.title,
                       identifier: { "keyLayout26_\($0.rawValue)" },
@@ -18,7 +20,7 @@ struct KeyboardKeyLayoutSettingsView: View {
             save(TouchKeyLayoutStyle.save(twentySixKey: next))
           }
         }
-        if Self.offersLetterGrid {
+        if offering.letterGrid {
           choiceGroup(title: "14 键与 18 键", footer: nil,
                       options: TouchFourteenKeyStyle.allCases, selected: style.fourteenKey, label: \.title,
                       identifier: { "keyLayout14_\($0.rawValue)" },
@@ -26,7 +28,7 @@ struct KeyboardKeyLayoutSettingsView: View {
             save(TouchKeyLayoutStyle.save(fourteenKey: next))
           }
         }
-        if Self.offersNineKey {
+        if offering.nineKey {
           choiceGroup(title: "9 键", footer: "右侧大回车把回车加高到两排，符 移到符号栏下方，右列的 ！ 并进符号栏，数字页也这样排；其他样式的左侧符号栏、右侧功能键和数字页不变。",
                       options: TouchNineKeyStyle.allCases, selected: style.nineKey, label: \.title,
                       identifier: { "keyLayout9_\($0.rawValue)" },
@@ -34,10 +36,18 @@ struct KeyboardKeyLayoutSettingsView: View {
             save(TouchKeyLayoutStyle.save(nineKey: next))
           }
         }
-        DesignGroup(footer: saveFailed ? SettingsSaveFailure.message : nil) {
-          DesignToggleRow(title: "顶部数字行", subtitle: "在 26 键、14 键和 18 键的字母上方多一排 1 到 0，手机横屏时不显示",
-                          isOn: Binding(get: { style.numberRow }, set: { save(TouchKeyLayoutStyle.save(numberRow: $0)) }))
-            .accessibilityIdentifier("keyLayoutNumberRowToggle")
+        if offering.numberRow {
+          DesignGroup(footer: saveFailed ? SettingsSaveFailure.message : nil) {
+            DesignToggleRow(title: "顶部数字行", subtitle: "在 26 键、14 键和 18 键的字母上方多一排 1 到 0，手机横屏时不显示",
+                            isOn: Binding(get: { style.numberRow }, set: { save(TouchKeyLayoutStyle.save(numberRow: $0)) }))
+              .accessibilityIdentifier("keyLayoutNumberRowToggle")
+          }
+        } else if saveFailed {
+          // 没有数字行开关时，保存失败的提示单独放在最后一组下面。
+          Text(SettingsSaveFailure.message).designSubtext()
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
       }
       .padding(.horizontal, 16)
@@ -48,24 +58,6 @@ struct KeyboardKeyLayoutSettingsView: View {
     .tint(MetasequoiaTheme.accent)
     .navigationTitle("按键布局").navigationBarTitleDisplayMode(.inline)
     .reloadOnAppearAndActive(readPreferences)
-  }
-
-  /// 本版本有没有画中文 26 键的方案。
-  static var offersTwentySixKey: Bool {
-    ChineseInputScheme.allCases.contains { scheme in
-      scheme.isOfferedByEdition && !scheme.isMandarinNineKey && scheme != .japaneseNineKey && !scheme.isZhuyin
-        && !scheme.isStroke && scheme != .handwriting && scheme != .fourteenKey && scheme != .eighteenKey
-    }
-  }
-
-  /// 本版本有没有 14 键或 18 键：全拼的两个入口，以及双拼和五笔可选的字母键布局。
-  static var offersLetterGrid: Bool {
-    [ChineseInputScheme.fourteenKey, .eighteenKey, .shuangpin, .wubi].contains { $0.isOfferedByEdition }
-  }
-
-  /// 本版本有没有九键框架：拼音九键、九键双拼和笔画。
-  static var offersNineKey: Bool {
-    [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke].contains { $0.isOfferedByEdition }
   }
 
   private func choiceGroup<Value: Hashable>(

@@ -6309,11 +6309,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 「右侧大回车」底行的宽度约束：符 与左侧符号栏同宽，回车那一格与右列同宽，中间的键按 `TouchBottomRowLayout.nineKeyTallReturn` 的份额以符号栏为基准（符号栏折成 `nineKeySideWeight` 份）；空格（数字层是 0）不加约束，占九宫格剩下的宽度，于是中间几格正好与九宫格左右对齐。表里只有此刻显示的键（地球键、0、中/英 随宿主和设置进出这一行），所以这些约束都是 required：分离式键盘那个隐藏的第二个空格以 999 跟空格等宽，中间的键若也是 999，两者打平，空格和 中/英 的宽度就没有唯一解。按行缓存。
+  /// 「右侧大回车」底行的宽度约束：符 与左侧符号栏同宽，回车那一格与右列同宽，中间的键按 `TouchBottomRowLayout.nineKeyTallReturn` 的份额以符号栏为基准（符号栏折成 `nineKeySideWeight(globe:)` 份，带地球键时整行是 10.15 份，与同一地球键状态下的标准九键底行一样）；空格（数字层是 0）不加约束，占九宫格剩下的宽度，于是中间几格正好与九宫格左右对齐。表里只有此刻显示的键（地球键、0、中/英 随宿主和设置进出这一行），所以这些约束都是 required：分离式键盘那个隐藏的第二个空格以 999 跟空格等宽，中间的键若也是 999，两者打平，空格和 中/英 的宽度就没有唯一解。按行缓存。
   private func tallReturnActionWidths(_ row: [TouchBottomRowLayout.Key], digits: Bool) -> [NSLayoutConstraint] {
     if let cached = tallReturnActionWidthCache[row] { return cached }
     guard let sidebar = nineSidebarWidth?.firstItem as? UIView, let controls = nineControls else { return [] }
     let fill: TouchBottomRowLayout.Slot = digits ? .zero : .space
+    let sideWeight = TouchBottomRowLayout.nineKeySideWeight(globe: row.contains { $0.slot == .globe })
     let constraints = row.compactMap { key -> NSLayoutConstraint? in
       guard key.slot != fill, let view = actionRowKey(key.slot, tallReturn: true) else { return nil }
       let constraint: NSLayoutConstraint
@@ -6322,7 +6323,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       case .returnKey: constraint = view.widthAnchor.constraint(equalTo: controls.widthAnchor)
       default:
         constraint = view.widthAnchor.constraint(
-          equalTo: sidebar.widthAnchor, multiplier: key.weight / TouchBottomRowLayout.nineKeySideWeight)
+          equalTo: sidebar.widthAnchor, multiplier: key.weight / sideWeight)
       }
       return constraint
     }
