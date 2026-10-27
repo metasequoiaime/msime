@@ -35,7 +35,25 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 
 | 宿主 | 状态 |
 | --- | --- |
-| Windows（含 Win7）、macOS、Linux、Android、iOS、HarmonyOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+| macOS、Linux | 共享 React 设置页「词库」→「管理词库」里的「词库同步」与「词库同步设备」两组；Tauri 设置应用的 `dictionary_sync` 命令在阻塞线程上调 `msime_host_api::dictionary_webdav::request_json`（C 入口的同一个实现），HostOptions 取词库命令用的那份，目录是账号目录下的 `dictionary-sync/`：macOS 是输入法与设置应用共用的 `~/Library/Application Support/<设置应用 bundle id>/dictionary-sync`，Linux 是 IBus、Fcitx5 和设置应用共用的状态目录（通常 `~/.config/msime-client`）下的 `dictionary-sync`。输入法进程（IMK、IBus、Fcitx5）不调用，见下文「触发」 |
+| HarmonyOS | 同一个共享设置页（手机在「词库」页直列，2in1 在「管理词库」标签），经 `startRequest` 的 `dictionary_sync` → `HarmonyAccountCloudBridge.dictionarySync` → NAPI `dictionarySync`（工作线程）；目录是设置应用沙箱的 `files/state/dictionary-sync`；除 `status` 外都要隐私政策的授权。键盘扩展不调用，见下文「触发」 |
+| Windows（含 Win7）、Android、iOS | 共享核心和 C 入口已就绪，界面与触发随各平台的 PR 接入 |
+
+目录不能直接用账号目录或 `files/state` 本身：云剪贴板的中继在那里放着 `cloud-clipboard-relay-keystore` 和 `cloud-clipboard-webdav-state`，词库的密钥串和它的网盘缓存用的是同样的文件名，放在一起会互相覆盖，所以一律是下面的 `dictionary-sync/` 子目录。
+
+### 触发
+
+共享设置页（`packages/ui/src/settings/use-dictionary-sync.ts`）替用到它的宿主排触发，宿主只提供 `dictionarySync.request(action)`：
+
+- 设置打开、并且已保存的偏好里配置了网盘时以 `opened` 调一次；保存了新的网盘配置（测试连接通过之后）也再调一次。
+- 之后按每次结果里的 `next_check_ms`（限在 1 秒到 30 分钟之间）以 `periodic` 再调，直到设置关掉。
+- 经设置改了词（单条编辑和删除、导入、个人词库文件导入、失败重试、命名词库的增删改与启停、装社区词库、清除学习数据）成功之后以 `local_change` 调；连续几次只排一次。
+- 「立即同步」和被挡下的删除的两个选择是 `manual`。
+- 所有请求排成一队依次发出，Rust 那边整次同步本来就持有一把文件锁。
+
+`local_change` 并不总是不联网：最后一次改词之后的防抖到期（一直在改时最多十分钟）而且离上次发送已过五分钟时，Rust 在这一次就发送。所以鸿蒙把 `local_change` 也算作要授权的请求。
+
+输入法进程不触发同步。macOS 的 IMK、Linux 的 IBus 和 Fcitx5 里没有现成的同步类后台工作可以挂（它们只有遥测的定时上传），打字时 Engine 自动造的词、候选栏里删掉的词和输入法自带词库窗口里改的词，由下一次设置应用的 `opened`、`periodic` 或任何一次同步开头的核对记下来，不会丢，只是要等设置应用打开时才发出去；别的设备的改动同样在设置应用打开时才写进本机词库。鸿蒙的键盘扩展在 API 12 起的独立沙箱里，读写的是它自己那份个人词库（`user/` 不经共享沙箱交换，见 `platforms/harmony/README.md`「输入法扩展的独立沙箱」），而这个入口没有云剪贴板那样「只用已有设备身份」的开关，键盘一调就会登记成同一台手机的第二台设备，所以键盘不调；鸿蒙同步的是设置应用那一份「我的词条」，网盘来的词要等两份个人词库接上之后才进键盘。`scripts/test-harmony-dictionary-sync.py` 守着这一点。
 
 ## 存储布局
 
