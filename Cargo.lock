@@ -3138,6 +3138,7 @@ dependencies = [
  "hex",
  "msime-client-core",
  "msime-client-services",
+ "msime-host-api",
  "rusqlite",
  "serde_json",
  "sha2 0.11.0",

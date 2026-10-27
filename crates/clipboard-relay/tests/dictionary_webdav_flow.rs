@@ -486,6 +486,42 @@ fn a_truncated_log_is_refused_until_the_user_trusts_the_share_again() {
     assert_eq!(words.0.len(), 2);
 }
 
+/// 普通设置探测不能忘掉尚未发送的删除；这里走宿主实际使用的 C ABI。
+#[test]
+#[allow(unsafe_code)]
+fn a_host_connection_probe_keeps_pending_deletions() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let sync = device(&server, directory.path(), "Synthetic device");
+    let mut words = Words(BTreeSet::from([word("ma", "妈")]));
+    manual(&sync, &mut words).report.unwrap();
+    words.0.clear();
+    sync.run(&mut words, Trigger::LocalChange, Options::default())
+        .unwrap()
+        .report
+        .unwrap();
+    assert_eq!(sync.status().unwrap().pending_upload, 1);
+    let body = serde_json::json!({
+        "options": {}, "directory": directory.path(),
+        "action": {"operation": "probe", "url": server.url(), "username": USER, "password": PASSWORD}
+    }).to_string();
+    // SAFETY: 活字符串提供完整字节区间，响应立即复制并通过配对接口释放。
+    let response = unsafe {
+        let pointer = msime_host_api::msime_client_dictionary_sync(body.as_ptr(), body.len());
+        assert!(!pointer.is_null());
+        let text = std::ffi::CStr::from_ptr(pointer)
+            .to_str()
+            .unwrap()
+            .to_owned();
+        msime_host_api::msime_client_string_free(pointer);
+        serde_json::from_str::<serde_json::Value>(&text).unwrap()
+    };
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(sync.status().unwrap().pending_upload, 1);
+    manual(&sync, &mut words).report.unwrap();
+    assert!(words.0.is_empty(), "测试连接不能让已删除的词从网盘回来");
+}
+
 #[test]
 fn changes_made_while_the_server_is_down_go_out_once_it_is_back() {
     let server = start();
