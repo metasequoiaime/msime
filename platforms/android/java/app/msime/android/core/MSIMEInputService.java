@@ -1025,6 +1025,7 @@ public final class MSIMEInputService extends InputMethodService {
                         applyEditorPreferences(value(response).optJSONObject("preferences"));
                         offerRecentClipOnHistoryEnabled(previousClipboard);
                         render();
+                        imeWorldClock.resumePicker(getCurrentInputEditorInfo());
                     } catch (JSONException | LinkageError ignored) {
                         // Unreadable preferences leave the keyboard as it is.
                     }
@@ -1812,6 +1813,7 @@ public final class MSIMEInputService extends InputMethodService {
             // 键盘进程不在时复制的那一条，监听收不到；弹出键盘时看一眼是不是刚复制的。
             offerRecentClip(false);
             render();
+            imeWorldClock.resumePicker(effectiveInfo);
         };
         main.postDelayed(inputViewRefreshTask, INPUT_VIEW_REFRESH_DELAY_MILLIS);
     }
@@ -1883,6 +1885,8 @@ public final class MSIMEInputService extends InputMethodService {
         caretWindowHidden = false;
         // 系统或应用把窗口叫出来时可能正空闲（例如输入框获得焦点），按此刻的状态再收起。
         main.post(caretWindowSync);
+        // 选择页返回时，输入连接刷新可能先于窗口显示；等窗口可见再补一次原编辑器恢复。
+        main.post(() -> imeWorldClock.resumePicker(getCurrentInputEditorInfo()));
     }
 
     /** Match Apple's viewWillDisappear boundary while keeping the editor session alive. */
@@ -1984,7 +1988,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onDestroy() {
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
-        if (imeWorldClock != null) imeWorldClock.close();
+        if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
@@ -2364,6 +2368,8 @@ public final class MSIMEInputService extends InputMethodService {
             message = "";
             render();
             if (hasPreferencesDirectory) preferencesReloader.start(directory, this::reloadPreferences);
+            // 输入连接恢复时，时钟数据目录可能尚未恢复，等运行时真正准备好再续接城市选择。
+            imeWorldClock.resumePicker(getCurrentInputEditorInfo());
         } catch (Exception | LinkageError error) {
             stop(false);
             message = "共享运行时未就绪：仅直接输入";

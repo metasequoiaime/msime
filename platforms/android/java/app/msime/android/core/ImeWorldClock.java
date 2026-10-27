@@ -3,13 +3,10 @@ package app.msime.android;
 import android.graphics.Color;
 import android.icu.text.TimeZoneNames;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
-import java.text.Collator;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -32,6 +29,10 @@ final class ImeWorldClock {
     private JSONArray cards = new JSONArray();
     private String page = "clock";
     private String formatCity = "system";
+    private long pickerGeneration;
+    private boolean pickerFinished;
+    private String pickerPackage;
+    private int pickerField;
     private final Map<String, TextView> cardViews = new LinkedHashMap<>();
     private final Map<String, TextView> formatViews = new LinkedHashMap<>();
     private final Map<String, String> cityLabels = new LinkedHashMap<>();
@@ -68,6 +69,22 @@ final class ImeWorldClock {
         s.main.removeCallbacks(tick);
         cardViews.clear();
         formatViews.clear();
+    }
+
+    void destroy() {
+        close();
+        pickerGeneration++;
+        pickerPackage = null;
+    }
+
+    /** 选择页有自己的输入连接；结束后只在原编辑器恢复时重开时钟。 */
+    void resumePicker(android.view.inputmethod.EditorInfo info) {
+        if (!pickerFinished || info == null || WorldClockCityActivity.SEARCH_EDITOR.equals(info.privateImeOptions)
+                || !s.isInputViewShown() || s.preferencesDirectory == null || s.preferencesDirectory.isEmpty()) return;
+        if (!java.util.Objects.equals(pickerPackage, info.packageName) || pickerField != info.fieldId) return;
+        pickerFinished = false;
+        pickerPackage = null;
+        open();
     }
 
     /** 常规 render 不重建时钟，保留滚动位置和正在触摸的视图。 */
@@ -344,55 +361,31 @@ final class ImeWorldClock {
     }
 
     private void countries(String region) {
-        renderCountries(region, "");
-    }
-
-    private void renderCountries(String region, String query) {
-        build();
-        s.moreToolsPanel.addView(text(regionName(region) + " · 选择国家或地区", 14));
-        LinearLayout search = LayoutPolicy.row(s);
-        EditText input = new EditText(s);
-        input.setHint("输入国家名称");
-        input.setContentDescription("按国家名称搜索");
-        input.setSingleLine(true);
-        input.setText(query);
-        input.setTextColor(Color.parseColor(s.skin.keyForeground()));
-        input.setHintTextColor(Color.parseColor(s.skin.hint()));
-        search.addView(input, LayoutPolicy.weightedMatchParentParams(1));
-        s.button(search, "搜索", () -> renderCountries(region, input.getText().toString().trim()));
-        s.moreToolsPanel.addView(search, LayoutPolicy.matchWidthWrapParams());
-        Map<String, String> countries = new LinkedHashMap<>();
-        for (int i = 0; i < catalog.length(); i++) {
-            JSONObject city = catalog.optJSONObject(i);
-            if (city == null || !city.optString("zone").startsWith(region + "/")) continue;
-            String country = city.optString("country");
-            String label = new Locale("", country).getDisplayCountry(Locale.SIMPLIFIED_CHINESE);
-            if (query.isEmpty() || label.contains(query)) countries.put(country, label);
-        }
-        List<Map.Entry<String, String>> entries = new ArrayList<>(countries.entrySet());
-        Collator collator = Collator.getInstance(Locale.SIMPLIFIED_CHINESE);
-        entries.sort((a, b) -> collator.compare(a.getValue(), b.getValue()));
-        if (entries.isEmpty()) s.moreToolsPanel.addView(text("没有匹配的国家或地区", 14));
-        for (Map.Entry<String, String> entry : entries) row(entry.getValue(), () -> cities(region, entry.getKey()));
-    }
-
-    private void cities(String region, String country) {
-        build();
-        s.moreToolsPanel.addView(text("选择城市（离线）", 14));
-        List<JSONObject> cities = new ArrayList<>();
-        for (int i = 0; i < catalog.length(); i++) {
-            JSONObject city = catalog.optJSONObject(i);
-            if (city != null && city.optString("country").equals(country)
-                    && city.optString("zone").startsWith(region + "/")) cities.add(city);
-        }
-        Collator collator = Collator.getInstance(Locale.SIMPLIFIED_CHINESE);
-        cities.sort((a, b) -> collator.compare(name(a.optString("id")), name(b.optString("id"))));
-        for (JSONObject city : cities) {
-            String id = city.optString("id");
-            boolean added = false;
-            for (int i = 0; i < selected.length(); i++) if (id.equals(selected.optString(i))) added = true;
-            Button button = row(name(id) + " · " + city.optString("zone") + (added ? "（已添加）" : ""), () -> mutate("add", id));
-            ViewPolicy.setEnabled(button, !added);
+        android.view.inputmethod.EditorInfo info = s.getCurrentInputEditorInfo();
+        if (info == null) return;
+        pickerPackage = info.packageName;
+        pickerField = info.fieldId;
+        pickerFinished = false;
+        long expected = ++pickerGeneration;
+        android.os.ResultReceiver receiver = new android.os.ResultReceiver(s.main) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle value) {
+                if (expected != pickerGeneration || pickerPackage == null) return;
+                pickerFinished = true;
+                resumePicker(s.getCurrentInputEditorInfo());
+            }
+        };
+        android.content.Intent intent = new android.content.Intent(s, WorldClockCityActivity.class)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                | android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            .putExtra("region", region).putExtra("catalog", catalog.toString()).putExtra("selected", selected.toString())
+            .putExtra("directory", s.preferencesDirectory).putExtra("result", receiver);
+        try {
+            s.closeMoreTools();
+            s.startActivity(intent);
+        } catch (RuntimeException unavailable) {
+            pickerPackage = null;
+            open();
+            error("无法打开城市选择页，请重试");
         }
     }
 
