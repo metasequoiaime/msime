@@ -8,6 +8,14 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 总闸只有一个：Rust 的 `HostCapabilities.ai_generation`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showAiGeneration`；`apps/harmony` 按它不给页面 `chat`、`aiSkins`、`aiAssistant` 客户端；键盘进程和设置进程启动时把它交给 `keyboard/AiGenerationGate.ts`，功能面板据此去掉两个 AI 格子，`HarmonyVoicePolisher.polish`、`KeyboardSession.thoughtfulReplies`、AI 联想分支、`TranslationPolicy.provider` 和设置桥的 `startRequest` 发请求前都问它，所以从别的设备同步来、打开了 AI 的偏好也不会触发请求。系统语音识别和各识别服务、云候选、腾讯云 / 小牛 / DeepL 机器翻译不是大模型生成，照常提供。资质到位后把那一行改回 true 即可恢复，下文描述的各 AI 功能就是那时的样子。决定与备选见[决策笔记](../../.agents/notes/implemented/feature/2026-10-27-harmony-hide-ai-generation.md)。
 
+## 社区投稿目前不提供
+
+华为应用市场（中国大陆）要求「信息发布」类服务先做实名认证，鸿蒙版的邮箱和华为账号登录都不核验手机号，所以实名认证到位之前，社区里只能浏览、搜索、看详情、获取和试用皮肤、安装插件、收藏、导入词包和存取回复模板，以及下架或删除自己的作品；不提供发布皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，评分和举报。
+
+总闸是 Rust 的 `HostCapabilities.community_contribution`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showCommunityContribution`，社区页据此不画这些入口；`apps/harmony` 的社区客户端对这些操作直接拒绝、不给举报；设置进程启动时把它交给 `keyboard/CommunityContributionGate.ts`，设置桥的 `startRequest` 在分发社区请求之前问它。
+
+AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设置桥的社区请求带 `exclude_ai_generated`，Rust 向服务端发 `exclude=ai`，服务端没有回 `X-MSIME-Skin-Origin: v1` 时皮肤图库按「社区暂不可用」处理。服务端契约和恢复方法见 `.agents/notes/implemented/feature/2026-10-28-harmony-withhold-community-contribution.md`。
+
 ## 输入法扩展的独立沙箱与共享沙箱镜像
 
 **从 API 12（OpenHarmony 5.0.0.38）起，输入法扩展进程使用独立沙箱，与设置应用（UIAbility）互相看不到对方的 `files/`。** 华为「输入法安全模式介绍」原文：「输入法扩展使用独立沙箱，与应用主入口不可互相访问对方的独立沙箱。」ExtensionAbility 类型表里，「是否有独立 Extension 沙箱」一栏对 `inputMethod` 是「是」。两个进程拿到的路径字符串相同（`/data/storage/el2/base/haps/entry/files`），背后是两个不同的目录。
