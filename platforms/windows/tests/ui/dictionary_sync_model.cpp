@@ -105,6 +105,27 @@ int main() {
   after = before;
   after.approved = false;
   check(after != before, "approval changes the status");
+  after = before;
+  after.budget_wait_until = 3000;
+  check(after != before, "a budget wait changes the status");
+
+  // 自动同步在等额度时说什么时候继续：今天之内只写时分，跨了天写上月日；没在等或已经过了时不说。本地时间由宿主换好交进来。
+  const LocalMinute resumes{2026, 10, 28, 9, 5};
+  const LocalMinute morning{2026, 10, 28, 8, 40};
+  const LocalMinute late_night{2026, 10, 27, 23, 50};
+  const uint64_t until = 1'800'000'000'000ULL;
+  check(budget_wait_text(until, until - 25 * 60 * 1000, resumes, morning) ==
+            L"额度用完，将于 09:05 继续自动同步；可点「立即同步」。",
+        "a wait later today names the time");
+  check(budget_wait_text(until, until - 9 * 60 * 60 * 1000, resumes, late_night) ==
+            L"额度用完，将于 10月28日 09:05 继续自动同步；可点「立即同步」。",
+        "a wait on another day names the date");
+  check(budget_wait_text(until, until, resumes, resumes).empty(), "a wait ending now is not shown");
+  check(budget_wait_text(until, until + 60'000, resumes, resumes).empty(), "a past wait is not shown");
+  check(budget_wait_text(0, until, resumes, morning).empty(), "no wait means no text");
+  check(budget_wait_text(until, until - 60'000, LocalMinute{2026, 1, 2, 0, 7}, LocalMinute{2026, 1, 1, 23, 59}) ==
+            L"额度用完，将于 1月2日 00:07 继续自动同步；可点「立即同步」。",
+        "single-digit month and day are not padded, hours and minutes are");
 
   // 密钥串身份冲突时重试，最多三次；别的错误和成功都不重试。
   int calls = 0;
@@ -121,6 +142,6 @@ int main() {
 
   if (failures)
     return 1;
-  std::puts("dictionary sync model: shared error texts, status lines, status comparison, one entry per device and keystore conflict retries passed");
+  std::puts("dictionary sync model: shared error texts, status lines, budget wait text, status comparison, one entry per device and keystore conflict retries passed");
   return 0;
 }
