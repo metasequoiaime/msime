@@ -18,7 +18,7 @@ HarmonyOS 设置应用（`app.msime.hmos`）在 AppGallery 审核中因账号登
 - 鸿蒙手机的 `LoginSheet` 用这一行替换原来的「登录即表示同意…」；桌面式账号页（macOS、Linux、鸿蒙 2in1，以及只在开发合包里出现的 Android/iOS 共享页）把它放在登录卡片底部，登录成功后重置，退出登录后要重新勾。
 - 同意文字是「我已阅读并同意《用户协议》和《隐私政策》」，两个文档名都是按钮，分别打开 `https://msime.app/terms/` 和 `https://msime.app/privacy/`（`app-resources.ts` 的 `termsUrl`、`privacyUrl`）。用户协议由 msime-web PR #670 起草、维护者审定后发布到 `/terms/`，这个 PR 在它上线之后才把《用户协议》接回来；之前列一个打不开的文档名就是第一条驳回本身。
 - 鸿蒙上两个文档名经设置桥接的 `SettingsBridge.openExternalUrl`（`pages/Settings.ets`）用 `startAbility` 交给系统浏览器，首次启动授权弹窗里的两条链接走同一个方法。桥接方法是同步的，页面拿不到 `startAbility` 的失败，`useExternalUrl` 的「无法打开外部链接」提示因此永远不会出现；设备上没有能打开网页的应用时，点协议看起来又是「点击无响应」。所以失败时由原生侧弹出 `TextPolicy.unopenedLinkNotice` 的提示「没能打开浏览器，请在浏览器中访问 msime.app/terms/」，带上去掉协议头的地址，用户可以自己去浏览器里打开。
-- 从登录面板点开的 msime.app 用户协议正文同样不能写成默认同意：msime-web 的 `src/content/terms.md` 原来写「确认登录，或者开始使用本服务，即表示你已阅读并同意本协议」和「修改生效后你继续使用本服务的，视为接受修改后的协议」，审核员点开就能看到与应用内勾选流程矛盾的条款。msime-web 分支 `fix/terms-explicit-consent` 把它改成以勾选同意后登录、或在隐私授权弹窗中选择「同意」为前提，重要变更改为在 App 内重新征得同意。
+- 从登录面板点开的 msime.app 用户协议正文同样不能写成默认同意：msime-web 的 `src/content/terms.md` 原来写「确认登录，或者开始使用本服务，即表示你已阅读并同意本协议」和「修改生效后你继续使用本服务的，视为接受修改后的协议」，审核员点开就能看到与应用内勾选流程矛盾的条款。msime-web 分支 `fix/terms-explicit-consent` 把它改成以勾选同意后登录、或在隐私授权弹窗中选择「同意」为前提，重要变更改为在 App 内重新征得同意；写这一条时那个分支还没有开 PR 合并，条款措辞要等维护者审定，上线前点开的仍是旧正文。
 
 ## 其他平台的现状（这次没有改）
 
