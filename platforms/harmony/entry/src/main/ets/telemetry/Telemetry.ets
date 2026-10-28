@@ -9,19 +9,10 @@ import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { CrashReport, ReportingConsent, TelemetryPolicy } from './TelemetryPolicy';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 
-/**
- * 匿名使用情况报告（`usage_reporting` 偏好，默认开启）。
- *
- * 队列、随机安装 id、每日的 `active` 和会话记账都在 client-services 里，位于 `files/state/telemetry`，设置应用和键盘扩展共用这个目录；client-services 在两个进程之间为它加锁。一个会话就是一个键盘进程：键盘在扩展创建时开始会话，在扩展正常销毁时结束会话。设置应用只发送已经排队的内容。
- *
- * 两个进程都要先有隐私政策的授权（`HarmonyPrivacyConsent`）：没同意之前设置应用不发送，键盘不开始会话、不收崩溃报告；撤回同意之后什么都不再发送。
- *
- * 崩溃用的是 HarmonyOS 自己的报告。HiAppEvent 在下次启动时把上一次运行的 `APP_CRASH` 交给监听者，JavaScript 和原生崩溃都一样，所以这里不安装任何处理函数，也不改变崩溃结束进程的方式。键盘进程的崩溃如果在这个键盘开始自己的会话之前报告，就写成那个未结束会话的崩溃记录，成为 `session_crash`；其他的都是独立记录。记录在下次启动时作为 `crash` 事件发送。
- */
+/** App 与键盘各自拥有私有队列；共享只读授权记录负责跨沙箱持续同意，不依赖焦点镜像。 */
 
 const PLATFORM: string = 'harmony';
 const WATCHER_NAME: string = 'msime_crash_reports';
-const CONSENT_FILE: string = 'harmony-reporting-consent.json';
 /** The keyboard's process id, remembered so the next start can tell its crash from the settings application's. */
 const KEYBOARD_PROCESS_FILE: string = 'harmony-keyboard-process.json';
 /**
@@ -31,11 +22,22 @@ const KEYBOARD_PROCESS_FILE: string = 'harmony-keyboard-process.json';
  */
 const BEGIN_DELAY_MS: number = 2000;
 
+interface ConsentPublication {
+  policy_allowed: boolean;
+  policy_identity: string;
+}
+
+interface ConsentQuery {
+  directory?: string;
+  authority_directory?: string;
+  publication?: ConsentPublication;
+}
+
 interface TelemetryRequest {
   directory: string;
   platform: string;
   version: string;
-  preferences_directory: string;
+  authority_directory?: string;
   capture_only?: boolean;
   component?: string;
   consent_epoch?: string;
@@ -43,7 +45,7 @@ interface TelemetryRequest {
 
 interface DirectoryRequest {
   directory: string;
-  preferences_directory?: string;
+  authority_directory?: string;
   session?: string;
 }
 
@@ -58,7 +60,7 @@ interface CrashRecordRequest {
   diagnostic_begin_unix_ms?: number;
   diagnostic_end_unix_ms?: number;
   consent_epoch?: string;
-  preferences_directory?: string;
+  authority_directory?: string;
 }
 
 interface BeginValue {
@@ -95,173 +97,242 @@ function version(): string {
 export class HarmonyTelemetry {
   private static directory: string = '';
   private static preferences: string = '';
+  private static authority: string = '';
+  private static publisher: boolean = true;
+  private static blocked: boolean = false;
   private static began: boolean = false;
   private static session: string = '';
+  private static epoch: string = '';
   private static enabled: boolean = false;
-  private static previousKeyboardPid: number | null = null;
+  private static publicationFailed: boolean = false;
+  private static cleared: boolean = false;
+  private static stopped: boolean = true;
   private static beginTimer: number = -1;
+  private static observer: number = -1;
   private static lastFlush: number = 0;
   private static watcher: hiAppEvent.Watcher | undefined = undefined;
-  // 每次扩展创建和销毁都加一：销毁之后才等到授权的那次启动不再开始会话。
   private static startGeneration: number = 0;
 
-  /** The telemetry directory under a process's shared state directory. */
+  /** 设置进程发布，键盘只读；拿不到共享目录时键盘不能自行退回私有授权。 */
+  static configureAuthority(groupDirectory: string | null, publisher: boolean): void {
+    HarmonyTelemetry.publisher = publisher;
+    HarmonyTelemetry.authority = groupDirectory === null ? '' : `${groupDirectory}/msime/reporting-authority`;
+    HarmonyTelemetry.blocked = !publisher && groupDirectory === null;
+  }
+
   static directoryFor(stateDirectory: string): string {
     return `${stateDirectory}/telemetry`;
   }
 
-  /** The settings application started: send what is queued, which also counts today's `active`. No session: that is the keyboard's. */
+  /** 设置应用只准备独立采集；首次未同意政策也要发布关闭，不能留下旧许可。 */
   static applicationStarted(stateDirectory: string): void {
+    const generation: number = HarmonyTelemetry.start(stateDirectory);
     void HarmonyPrivacyConsent.whenNetworkAllowed().then((): void => {
-      HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
-      HarmonyTelemetry.preferences = stateDirectory;
-      const request: TelemetryRequest = HarmonyTelemetry.request(stateDirectory);
-      request.capture_only = true;
-      request.component = 'application';
-      const reply: string = client.telemetryBegin(JSON.stringify(request));
-      try {
-        const parsed: BeginReply = JSON.parse(reply) as BeginReply;
-        HarmonyTelemetry.enabled = parsed.ok === true && parsed.value?.enabled === true;
-      } catch { HarmonyTelemetry.enabled = false; }
-      HarmonyTelemetry.refreshDiagnosticConsent();
-      HarmonyTelemetry.watchCrashes();
-      HarmonyTelemetry.send(request);
+      if (generation === HarmonyTelemetry.startGeneration && !HarmonyTelemetry.stopped) HarmonyTelemetry.refresh();
     });
   }
 
-  /** 键盘扩展创建了：先监听系统的崩溃报告，再开始本进程的会话。没有隐私政策的授权时等到键盘读到同意（之后某次获得焦点）再开始。 */
+  /** 无需等焦点导入偏好；只读的共享授权观察独立于网络与本地政策镜像。 */
   static keyboardStarted(stateDirectory: string): void {
-    const generation: number = ++HarmonyTelemetry.startGeneration;
+    const generation: number = HarmonyTelemetry.start(stateDirectory);
     void HarmonyPrivacyConsent.whenNetworkAllowed().then((): void => {
-      if (generation === HarmonyTelemetry.startGeneration) HarmonyTelemetry.startKeyboardSession(stateDirectory);
+      if (generation === HarmonyTelemetry.startGeneration && !HarmonyTelemetry.stopped) HarmonyTelemetry.refresh();
     });
   }
 
-  private static startKeyboardSession(stateDirectory: string): void {
-    HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
+  private static start(stateDirectory: string): number {
+    HarmonyTelemetry.stopped = false;
     HarmonyTelemetry.preferences = stateDirectory;
-    HarmonyTelemetry.began = false;
-    HarmonyTelemetry.session = '';
-    HarmonyTelemetry.enabled = false;
-    HarmonyTelemetry.previousKeyboardPid = HarmonyTelemetry.readRememberedPid();
-    // 独立准备只读取同意，不覆盖上一轮键盘会话；系统回调可以随时按 pid 认领。
-    const request: TelemetryRequest = HarmonyTelemetry.request(stateDirectory);
-    request.capture_only = true;
-    try {
-      const parsed: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(request))) as BeginReply;
-      HarmonyTelemetry.enabled = parsed.ok === true && parsed.value?.enabled === true;
-    } catch { HarmonyTelemetry.enabled = false; }
-    HarmonyTelemetry.refreshDiagnosticConsent();
-    HarmonyTelemetry.watchCrashes();
-    HarmonyTelemetry.beginTimer = setTimeout((): void => {
-      HarmonyTelemetry.beginTimer = -1;
-      HarmonyTelemetry.begin();
-    }, BEGIN_DELAY_MS);
+    HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
+    if (HarmonyTelemetry.publisher && HarmonyTelemetry.authority === '') HarmonyTelemetry.authority = `${stateDirectory}/reporting-authority`;
+    const generation: number = ++HarmonyTelemetry.startGeneration;
+    HarmonyTelemetry.refresh();
+    if (HarmonyTelemetry.observer === -1) {
+      HarmonyTelemetry.observer = setInterval((): void => HarmonyTelemetry.refresh(), 1000);
+    }
+    return generation;
   }
 
-  /** A text field took the keyboard: a process that stays up for days still sends each day's `active`. */
   static keyboardShown(): void {
-    if (!HarmonyTelemetry.began || !TelemetryPolicy.flushDue(HarmonyTelemetry.lastFlush, Date.now())) {
-      return;
-    }
-    HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
+    HarmonyTelemetry.refresh();
   }
 
-  /** 键盘扩展正常销毁时，只结束本进程实际开始的会话。 */
+  static applicationStopped(): void {
+    HarmonyTelemetry.stop();
+  }
+
   static keyboardStopped(): void {
+    HarmonyTelemetry.stop();
+  }
+
+  private static cancelBegin(): void {
+    if (HarmonyTelemetry.beginTimer !== -1) clearTimeout(HarmonyTelemetry.beginTimer);
+    HarmonyTelemetry.beginTimer = -1;
+  }
+
+  private static stop(): void {
+    HarmonyTelemetry.stopped = true;
     HarmonyTelemetry.startGeneration++;
-    if (HarmonyTelemetry.beginTimer !== -1) {
-      clearTimeout(HarmonyTelemetry.beginTimer);
-      HarmonyTelemetry.beginTimer = -1;
-    }
+    if (HarmonyTelemetry.observer !== -1) clearInterval(HarmonyTelemetry.observer);
+    HarmonyTelemetry.observer = -1;
+    HarmonyTelemetry.cancelBegin();
     if (HarmonyTelemetry.watcher !== undefined) {
-      try {
-        hiAppEvent.removeWatcher(HarmonyTelemetry.watcher);
-      } catch (error) {
-        KeyboardLog.error(`telemetry: crash watcher not removed: ${describeError(error)}`);
-      }
+      try { hiAppEvent.removeWatcher(HarmonyTelemetry.watcher); }
+      catch (error) { KeyboardLog.error(`telemetry: crash watcher not removed: ${describeError(error)}`); }
       HarmonyTelemetry.watcher = undefined;
     }
-    // 尚未开始会话时不能结束上一进程留下的故障会话。
-    if (!HarmonyTelemetry.began) {
-      return;
+    // 只结束本进程实际开始的会话，不动其他进程或上一轮故障的标记。
+    if (HarmonyTelemetry.began && HarmonyTelemetry.session !== '') {
+      const request: DirectoryRequest = { directory: HarmonyTelemetry.directory, session: HarmonyTelemetry.session };
+      HarmonyTelemetry.logRefusal('end', client.telemetryEnd(JSON.stringify(request)));
     }
     HarmonyTelemetry.began = false;
-    const request: DirectoryRequest = { directory: HarmonyTelemetry.directory, session: HarmonyTelemetry.session };
     HarmonyTelemetry.session = '';
-    HarmonyTelemetry.logRefusal('end', client.telemetryEnd(JSON.stringify(request)));
-  }
-
-  /** 保存后的通知只触发权威偏好重读；迟到的关闭不能清理重新开启后的队列。 */
-  static reportingTurnedOff(stateDirectory: string): void {
-    HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
-    HarmonyTelemetry.preferences = stateDirectory;
-    HarmonyTelemetry.refreshDiagnosticConsent();
-    const request: DirectoryRequest = {
-      directory: HarmonyTelemetry.directory,
-      preferences_directory: stateDirectory,
-    };
-    HarmonyTelemetry.logRefusal('clear', client.telemetryClear(JSON.stringify(request)));
-  }
-
-  /** 隐私政策撤回独立于使用统计开关；迟到的通知仍核对当前政策。 */
-  static privacyChanged(stateDirectory: string): void {
-    if (HarmonyPrivacyConsent.networkAllowed()) return;
-    HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
-    HarmonyTelemetry.preferences = stateDirectory;
+    HarmonyTelemetry.epoch = '';
     HarmonyTelemetry.enabled = false;
-    const request: DirectoryRequest = { directory: HarmonyTelemetry.directory };
-    HarmonyTelemetry.logRefusal('clear', client.telemetryClear(JSON.stringify(request)));
   }
 
-  private static request(stateDirectory: string): TelemetryRequest {
+  /** 保存通知只促使当前权威状态重读，不信任通知里缓存的开关。 */
+  static reportingTurnedOff(stateDirectory: string): void {
+    HarmonyTelemetry.preferencesChanged(stateDirectory);
+  }
+
+  static preferencesChanged(stateDirectory: string): void {
+    if (HarmonyTelemetry.preferences !== stateDirectory) return;
+    HarmonyTelemetry.refresh();
+  }
+
+  static privacyChanged(stateDirectory: string): void {
+    HarmonyTelemetry.preferencesChanged(stateDirectory);
+  }
+
+  private static consentQuery(): ConsentQuery {
+    return { authority_directory: HarmonyTelemetry.blocked ? '' : HarmonyTelemetry.authority };
+  }
+
+  private static consentReply(): string {
+    try { return client.telemetryConsent(JSON.stringify(HarmonyTelemetry.consentQuery())); }
+    catch { return '{"ok":false}'; }
+  }
+
+  private static sharedConsent(stateDirectory: string): ReportingConsent | null {
+    if (stateDirectory !== HarmonyTelemetry.preferences || HarmonyTelemetry.blocked || HarmonyTelemetry.stopped) return null;
+    return TelemetryPolicy.sharedConsentReply(HarmonyTelemetry.consentReply());
+  }
+
+  private static request(stateDirectory: string, epoch?: string): TelemetryRequest {
     const request: TelemetryRequest = {
-      directory: HarmonyTelemetry.directoryFor(stateDirectory),
-      platform: PLATFORM,
-      version: version(),
-      preferences_directory: stateDirectory,
+      directory: HarmonyTelemetry.directoryFor(stateDirectory), platform: PLATFORM, version: version(),
+      component: HarmonyTelemetry.publisher ? 'application' : 'input',
     };
-    const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(stateDirectory);
-    // 始终给代次；读失败或关闭时空身份被共享层拒绝，不能回退到旧布尔授权协议。
-    request.consent_epoch = consent === null ? '' : consent.epoch;
+    request.authority_directory = HarmonyTelemetry.blocked ? '' : HarmonyTelemetry.authority;
+    const consent: ReportingConsent | null = epoch === undefined ? HarmonyTelemetry.sharedConsent(stateDirectory) : null;
+    // 授权错误必须明确拒绝，不能省略字段退回旧布尔协议。
+    request.consent_epoch = epoch === undefined ? (consent === null ? '' : consent.epoch) : epoch;
     return request;
   }
 
-  /** Rust 偏好是唯一授权来源；本地摘要文件只镜像它，不能自行生成 UUID。 */
-  private static sharedConsent(stateDirectory: string): ReportingConsent | null {
+  private static reportingAllowed(): boolean {
+    if (HarmonyTelemetry.blocked || HarmonyTelemetry.stopped || !HarmonyTelemetry.enabled) return false;
+    return HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences) !== null;
+  }
+
+  private static clearDisabled(): void {
+    if (!HarmonyTelemetry.cleared) {
+      const request: DirectoryRequest = { directory: HarmonyTelemetry.directory, authority_directory: HarmonyTelemetry.authority };
+      const reply: FlagReply | null = HarmonyTelemetry.flagReply('clear', client.telemetryClear(JSON.stringify(request)));
+      HarmonyTelemetry.cleared = reply?.value === true;
+    }
+    HarmonyTelemetry.cancelBegin();
+    HarmonyTelemetry.enabled = false;
+    HarmonyTelemetry.began = false;
+    HarmonyTelemetry.session = '';
+    HarmonyTelemetry.epoch = '';
+  }
+
+  private static publishConsent(): boolean {
+    if (!HarmonyTelemetry.publisher || HarmonyTelemetry.authority === '') return true;
+    const query: ConsentQuery = {
+      directory: HarmonyTelemetry.preferences,
+      authority_directory: HarmonyTelemetry.authority,
+      publication: { policy_allowed: HarmonyPrivacyConsent.networkAllowed(), policy_identity: HarmonyPrivacyConsent.reportingIdentity() },
+    };
     try {
-      return TelemetryPolicy.sharedConsentReply(client.telemetryConsent(JSON.stringify({ directory: stateDirectory })));
-    } catch { return null; }
+      const reply: BeginReply = JSON.parse(client.telemetryConsent(JSON.stringify(query))) as BeginReply;
+      return reply.ok === true;
+    } catch { return false; }
+  }
+
+  /** 同步本地观察不等待任何 flush Promise；网络期间撤回仍可发布并被逐条发送核对。 */
+  private static refresh(): void {
+    if (HarmonyTelemetry.stopped || HarmonyTelemetry.blocked) return;
+    if (!HarmonyTelemetry.publishConsent()) {
+      if (!HarmonyTelemetry.publicationFailed) KeyboardLog.error('telemetry: reporting authorization publication failed');
+      HarmonyTelemetry.publicationFailed = true;
+      HarmonyTelemetry.enabled = false;
+      return;
+    }
+    HarmonyTelemetry.publicationFailed = false;
+    const reply: string = HarmonyTelemetry.consentReply();
+    const consent: ReportingConsent | null = TelemetryPolicy.sharedConsentReply(reply);
+    if (consent === null) {
+      HarmonyTelemetry.enabled = false;
+      if (TelemetryPolicy.sharedConsentDisabled(reply)) HarmonyTelemetry.clearDisabled();
+      return;
+    }
+    HarmonyTelemetry.enabled = true;
+    HarmonyTelemetry.cleared = false;
+    if (consent.epoch === HarmonyTelemetry.epoch) {
+      if (!HarmonyTelemetry.publisher && !HarmonyTelemetry.began && HarmonyTelemetry.beginTimer === -1) HarmonyTelemetry.scheduleBegin();
+      if ((HarmonyTelemetry.publisher || HarmonyTelemetry.began) && TelemetryPolicy.flushDue(HarmonyTelemetry.lastFlush, Date.now()))
+        HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences, consent.epoch));
+      return;
+    }
+    HarmonyTelemetry.cancelBegin();
+    HarmonyTelemetry.began = false;
+    HarmonyTelemetry.session = '';
+    const request: TelemetryRequest = HarmonyTelemetry.request(HarmonyTelemetry.preferences, consent.epoch);
+    request.capture_only = true;
+    try {
+      const prepared: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(request))) as BeginReply;
+      if (prepared.ok !== true || prepared.value?.enabled !== true) {
+        HarmonyTelemetry.enabled = false;
+        return;
+      }
+    } catch { HarmonyTelemetry.enabled = false; return; }
+    HarmonyTelemetry.epoch = consent.epoch;
+    HarmonyTelemetry.lastFlush = 0;
+    HarmonyTelemetry.watchCrashes();
+    if (HarmonyTelemetry.publisher) HarmonyTelemetry.send(request);
+    else HarmonyTelemetry.scheduleBegin();
+  }
+
+  private static scheduleBegin(): void {
+    const epoch: string = HarmonyTelemetry.epoch;
+    const generation: number = HarmonyTelemetry.startGeneration;
+    HarmonyTelemetry.beginTimer = setTimeout((): void => {
+      HarmonyTelemetry.beginTimer = -1;
+      if (!HarmonyTelemetry.stopped && generation === HarmonyTelemetry.startGeneration && epoch === HarmonyTelemetry.epoch) HarmonyTelemetry.begin();
+    }, BEGIN_DELAY_MS);
   }
 
   private static begin(): void {
+    if (!HarmonyTelemetry.reportingAllowed()) return;
     const request: TelemetryRequest = HarmonyTelemetry.request(HarmonyTelemetry.preferences);
-    const reply: string = client.telemetryBegin(JSON.stringify(request));
-    let parsed: BeginReply;
+    if (request.consent_epoch !== HarmonyTelemetry.epoch) { HarmonyTelemetry.refresh(); return; }
     try {
-      parsed = JSON.parse(reply) as BeginReply;
-    } catch (error) {
-      KeyboardLog.error(`telemetry: begin answer unreadable: ${describeError(error)}`);
-      return;
-    }
-    if (parsed.ok !== true) {
-      KeyboardLog.error(`telemetry: begin refused: ${parsed.error ?? 'unknown'}`);
-      return;
-    }
-    HarmonyTelemetry.enabled = parsed.value?.enabled === true;
-    const session: string | undefined = parsed.value?.session_id;
-    if (!HarmonyTelemetry.enabled || typeof session !== 'string' || session.length === 0) return;
-    HarmonyTelemetry.session = session;
-    HarmonyTelemetry.began = true;
-    HarmonyTelemetry.rememberPid();
-    HarmonyTelemetry.send(request);
+      const parsed: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(request))) as BeginReply;
+      const session: string | undefined = parsed.value?.session_id;
+      if (parsed.ok !== true || parsed.value?.enabled !== true || typeof session !== 'string' || session === '') return;
+      HarmonyTelemetry.session = session;
+      HarmonyTelemetry.began = true;
+      HarmonyTelemetry.rememberPid();
+      HarmonyTelemetry.send(request);
+    } catch (error) { KeyboardLog.error(`telemetry: begin refused: ${describeError(error)}`); }
   }
 
   private static send(request: TelemetryRequest): void {
-    // 用户撤回了同意：排队的内容留在本机，不再发送。
-    if (!HarmonyPrivacyConsent.networkAllowed()) {
-      return;
-    }
+    if (!HarmonyTelemetry.reportingAllowed()) return;
     HarmonyTelemetry.lastFlush = Date.now();
     client.telemetryFlush(JSON.stringify(request)).then((reply: string): void => {
       HarmonyTelemetry.logRefusal('flush', reply);
@@ -281,101 +352,31 @@ export class HarmonyTelemetry {
             const report: CrashReport | null = info.name === hiAppEvent.event.APP_FREEZE
               ? TelemetryPolicy.freezeReport(JSON.stringify(info.params))
               : TelemetryPolicy.crashReport(JSON.stringify(info.params));
-            if (report !== null) {
-              HarmonyTelemetry.recordCrash(report);
-            }
+            if (report !== null) HarmonyTelemetry.recordCrash(report);
           }
         }
       }
     };
-    try {
-      hiAppEvent.addWatcher(watcher);
-      HarmonyTelemetry.watcher = watcher;
-    } catch (error) {
-      KeyboardLog.error(`telemetry: crash watcher refused: ${describeError(error)}`);
-    }
+    try { hiAppEvent.addWatcher(watcher); HarmonyTelemetry.watcher = watcher; }
+    catch (error) { KeyboardLog.error(`telemetry: crash watcher refused: ${describeError(error)}`); }
   }
 
   private static recordCrash(report: CrashReport): void {
-    if (!HarmonyPrivacyConsent.networkAllowed()) return;
-    // 另一个进程可能刚关闭统计；不能只信监听器安装时的内存开关。
-    const consentRequest: TelemetryRequest = HarmonyTelemetry.request(HarmonyTelemetry.preferences);
-    consentRequest.capture_only = true;
-    try {
-      const reply: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(consentRequest))) as BeginReply;
-      HarmonyTelemetry.enabled = reply.ok === true && reply.value?.enabled === true;
-    } catch { HarmonyTelemetry.enabled = false; }
-    if (!HarmonyTelemetry.enabled) {
-      HarmonyTelemetry.refreshDiagnosticConsent();
-      return;
-    }
-    HarmonyTelemetry.refreshDiagnosticConsent();
+    HarmonyTelemetry.refresh();
+    if (!HarmonyTelemetry.reportingAllowed()) return;
     const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
     if (consent === null || !TelemetryPolicy.diagnosticAllowed(report, consent.since, Date.now())) return;
-    // 按系统报告的 pid 认领未结束的会话，不依赖两秒内是否已收到回调。
     const request: CrashRecordRequest = {
       directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack,
       crash_record_header: TelemetryPolicy.recordText(report).split('\n')[0] + '\n',
-      diagnostic_id: TelemetryPolicy.standaloneRecordName(report)
+      diagnostic_id: TelemetryPolicy.standaloneRecordName(report), consent_epoch: consent.epoch,
+      diagnostic_begin_unix_ms: report.time, diagnostic_end_unix_ms: report.time,
     };
+    request.authority_directory = HarmonyTelemetry.authority;
     if (report.outsideSession === true) request.outside_session = true;
     else request.pid = report.pid;
-    request.consent_epoch = consent.epoch;
-    request.preferences_directory = HarmonyTelemetry.preferences;
-    request.diagnostic_begin_unix_ms = report.time;
-    request.diagnostic_end_unix_ms = report.time;
     const reply: FlagReply | null = HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
-    if (reply !== null) {
-      HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
-    }
-    // 共享层拒绝时不能用本地文件回退绕过授权或代次；不承诺系统一定再次交付。
-  }
-
-  private static refreshDiagnosticConsent(): void {
-    if (!HarmonyTelemetry.prepareTelemetryDirectory()) return;
-    const path: string = `${HarmonyTelemetry.directory}/${CONSENT_FILE}`;
-    try {
-      const reply: string = client.telemetryConsent(JSON.stringify({ directory: HarmonyTelemetry.preferences }));
-      const consent: ReportingConsent | null = TelemetryPolicy.sharedConsentReply(reply);
-      if (consent === null) {
-        if (TelemetryPolicy.sharedConsentDisabled(reply)) {
-          HarmonyTelemetry.enabled = false;
-          if (fs.accessSync(path)) fs.unlinkSync(path);
-        }
-        return;
-      } else {
-        const current = HarmonyTelemetry.readConsent();
-        if (current === null || current.epoch !== consent.epoch || current.since !== consent.since)
-          HarmonyTelemetry.atomicWrite(path, JSON.stringify(consent), true);
-      }
-    } catch {
-      // 无法持久化同意时不补录系统历史诊断。
-    }
-  }
-
-  private static readConsent(): ReportingConsent | null {
-    if (!HarmonyTelemetry.safeTelemetryDirectory()) return null;
-    const path: string = `${HarmonyTelemetry.directory}/${CONSENT_FILE}`;
-    let handle: fs.File | null = null;
-    try {
-      const expected: fs.Stat = fs.lstatSync(path);
-      if (expected.isSymbolicLink() || !expected.isFile() || expected.size > 256) return null;
-      handle = fs.openSync(path, fs.OpenMode.READ_ONLY);
-      const stat: fs.Stat = fs.statSync(handle.fd);
-      if (!stat.isFile() || stat.ino !== expected.ino || stat.size > 256) return null;
-      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
-      const count: number = fs.readSync(handle.fd, buffer);
-      if (count !== stat.size) return null;
-      const text: string = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
-      const value: ReportingConsent = JSON.parse(text) as ReportingConsent;
-      const since: number | null = TelemetryPolicy.consentSince(text);
-      return value !== null && typeof value.epoch === 'string' && since !== null
-        ? { epoch: value.epoch, since: since } : null;
-    } catch {
-      return null;
-    } finally {
-      if (handle !== null) NativeCleanup.close(handle);
-    }
+    if (reply !== null) HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
   }
 
   private static readRememberedPid(): number | null {

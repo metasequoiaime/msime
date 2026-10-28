@@ -50,7 +50,7 @@ impl Document {
             || !self.policy.bytes().all(|value| value.is_ascii_hexdigit())
             || self.source.is_some_and(|id| id.is_nil())
             || self.consent.is_some_and(|value| !value.valid())
-            || self.consent.is_some() && self.source.is_none()
+            || self.consent.is_some() && (self.source.is_none() || !self.source_seen)
         {
             return Err(io::Error::other("invalid reporting authority"));
         }
@@ -163,6 +163,11 @@ impl ReportingAuthority {
             match previous.clone() {
                 Some(mut document) => {
                     document.suspended = true;
+                    if document.policy != policy {
+                        document.policy = policy.to_owned();
+                        document.source = None;
+                        document.consent = None;
+                    }
                     document
                 }
                 None => Document {
@@ -367,6 +372,62 @@ mod tests {
             authority.publish_from(&source, false, "policy").unwrap(),
             ReportingAuthorization::Disabled
         );
+    }
+
+    #[test]
+    fn reporting_authority_policy_change_during_pause_cannot_restore_an_old_grant() {
+        let root = tempfile::tempdir().unwrap();
+        let source = PreferencesStore::new(root.path().join("source"));
+        let authority = ReportingAuthority::new(root.path().join("authority"));
+        let first = enabled(
+            authority
+                .publish_from(&source, true, "first-policy")
+                .unwrap(),
+        );
+        let path = source.directory().join("preferences.json");
+        let saved = fs::read(&path).unwrap();
+        fs::write(&path, b"broken").unwrap();
+        authority
+            .publish_from(&source, true, "second-policy")
+            .unwrap();
+        fs::write(&path, saved).unwrap();
+        assert_ne!(
+            enabled(
+                authority
+                    .publish_from(&source, true, "first-policy")
+                    .unwrap()
+            )
+            .epoch,
+            first.epoch
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reporting_authority_refuses_linked_lock_document_and_directory() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let source = PreferencesStore::new(root.path().join("source"));
+        let authority = ReportingAuthority::new(root.path().join("authority"));
+        authority.publish_from(&source, true, "policy").unwrap();
+        for name in [LOCK, DOCUMENT] {
+            let path = authority.directory().join(name);
+            let saved = fs::read(&path).unwrap();
+            let outside = root.path().join(format!("outside-{name}"));
+            fs::write(&outside, &saved).unwrap();
+            fs::remove_file(&path).unwrap();
+            symlink(&outside, &path).unwrap();
+            assert!(authority.with_current(|value| value).is_err());
+            assert!(authority.publish_from(&source, true, "policy").is_err());
+            assert_eq!(fs::read(&outside).unwrap(), saved);
+            fs::remove_file(&path).unwrap();
+            fs::write(&path, saved).unwrap();
+        }
+        let linked = root.path().join("linked-authority");
+        symlink(authority.directory(), &linked).unwrap();
+        assert!(ReportingAuthority::new(linked)
+            .with_current(|value| value)
+            .is_err());
     }
 
     #[test]

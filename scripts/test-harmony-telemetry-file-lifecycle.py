@@ -12,7 +12,7 @@ def main() -> int:
         "private static atomicWrite(path: string, text: string, replaceExisting: boolean): boolean",
         "util.generateRandomUUID(false)",
         "fs.renameSync(staging, path)",
-        "HarmonyTelemetry.atomicWrite(path, JSON.stringify(consent), true)",
+        "client.telemetryRecordCrash(JSON.stringify(request))",
         "HarmonyTelemetry.atomicWrite(path, JSON.stringify(remembered), true)",
     )
     missing = [token for token in required if token not in source]

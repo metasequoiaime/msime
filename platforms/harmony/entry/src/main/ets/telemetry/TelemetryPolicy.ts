@@ -112,7 +112,9 @@ export class TelemetryPolicy {
         value !== null &&
         typeof value === "object" &&
         !Array.isArray(value) &&
-        (value as Record<string, unknown>).enabled === false
+        (value as Record<string, unknown>).enabled === false &&
+        ((value as Record<string, unknown>).suspended === undefined ||
+          (value as Record<string, unknown>).suspended === false)
       );
     } catch {
       return false;

@@ -2214,10 +2214,8 @@ class SettingsBridge {
     this.schedulePublish();
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);
-    // 使用统计关闭后条件清理本进程队列；其他沙箱的同步另由共享镜像处理。
-    if (TelemetryPolicy.reportingTurnedOff(document, reply)) {
-      HarmonyTelemetry.reportingTurnedOff(this.stateDirectory);
-    }
+    // 同步发布权威状态；关闭再开启不能被普通镜像的防抖合并掉。
+    HarmonyTelemetry.preferencesChanged(this.stateDirectory);
     return PreferencesErrorCode.rewrite(reply);
   }
 
@@ -3254,9 +3252,7 @@ class SettingsBridge {
    */
   decidePrivacy(granted: boolean): void {
     HarmonyPrivacyConsent.decide(this.stateDirectory, granted, Date.now());
-    if (!granted) {
-      HarmonyTelemetry.privacyChanged(this.stateDirectory);
-    }
+    HarmonyTelemetry.privacyChanged(this.stateDirectory);
     this.publishShared();
     this.webview?.runJavaScript(
       `globalThis.msimeHarmonyPrivacyConsentChanged && globalThis.msimeHarmonyPrivacyConsentChanged(${granted})`)
