@@ -708,6 +708,7 @@ impl Simulator<'_> {
                     chars: 0,
                     panel: false,
                     committed: transition.commit.is_some(),
+                    after_correction: false,
                 });
                 record.slipped = true;
                 // 发现点错了：丢掉还在组字的部分，整块重打。点错上屏的字留在上文里，学到的也留着。
@@ -720,6 +721,8 @@ impl Simulator<'_> {
 
         let mut remaining = chunk.text.clone();
         let mut locked = 0usize;
+        // 补完过简拼或者锁过拼写之后，这一块剩下的点选都不再算首选（见 metrics.rs 的口径）。
+        let mut corrected = false;
         let mut first = true;
         loop {
             let snapshot = self.runtime.all_candidates();
@@ -765,6 +768,7 @@ impl Simulator<'_> {
                 Decision::NotFound => {
                     if abbreviation_pending {
                         record.completion_keys += self.complete_spelling(&mut pending)?;
+                        corrected = true;
                         continue;
                     }
                     if self.keyboard.grid().is_some() && locked < pending.len() {
@@ -782,6 +786,7 @@ impl Simulator<'_> {
                             ))?;
                             self.clock.advance(self.timing.select);
                             record.locks += 1;
+                            corrected = true;
                             pending[locked].typed = pending[locked].gold.clone();
                             locked += 1;
                             continue;
@@ -825,6 +830,7 @@ impl Simulator<'_> {
                 chars,
                 panel,
                 committed: transition.commit.is_some(),
+                after_correction: corrected,
             });
             remaining = remaining.chars().skip(chars).collect();
             pending.drain(..chars);
@@ -854,6 +860,7 @@ impl Simulator<'_> {
                 "abbreviated": record.abbreviated,
                 "top1_exact": record.top1_exact,
                 "seats": record.selections.iter().map(|s| s.seat).collect::<Vec<_>>(),
+                "after_correction": record.selections.iter().map(|s| s.after_correction).collect::<Vec<_>>(),
                 "panel_opens": record.panel_opens,
                 "locks": record.locks,
                 "completion_keys": record.completion_keys,
@@ -956,6 +963,7 @@ fn render(
         let mut value = totals.to_json();
         for (name, metric) in [
             ("cfa", Totals::cfa as fn(&Totals) -> f64),
+            ("cfa_lenient", Totals::cfa_lenient),
             ("cca", Totals::cca),
             ("cpr", Totals::cpr),
             ("zcr", Totals::zcr),
@@ -999,7 +1007,7 @@ fn render(
         "learning_curve": run
             .buckets(None, |r| format!("{:06}", r.offset / CURVE_BAND * CURVE_BAND))
             .into_iter()
-            .map(|(band, totals)| serde_json::json!({"from_char": band.parse::<usize>().unwrap_or(0), "chars": totals.chars, "cfa": metrics::round(totals.cfa()), "cca": metrics::round(totals.cca())}))
+            .map(|(band, totals)| serde_json::json!({"from_char": band.parse::<usize>().unwrap_or(0), "chars": totals.chars, "cfa": metrics::round(totals.cfa()), "cfa_lenient": metrics::round(totals.cfa_lenient()), "cca": metrics::round(totals.cca())}))
             .collect::<Vec<_>>(),
         "sample_failures": failures.iter().map(|f| serde_json::json!({
             "row": f.row, "keys": f.keys, "gold": f.gold, "seat": f.seat, "strip": f.strip,

@@ -2,7 +2,9 @@
 //!
 //! 口径（都只数 dev、test 两部分的汉字，预热不计）：
 //!
-//! - `cfa` 逐字首选率：点选时座位是 0 的那些选择上屏的汉字数 ÷ 全部汉字。部分选择也算，只要被点时它在第一位；走失败路径的字算 0。
+//! - `cfa` 逐字首选率（主指标）：点选时座位是 0、而且这一块里在它之前没有做过纠正的那些选择上屏的汉字数 ÷ 全部汉字。部分选择也算，只要被点时它在第一位；走失败路径的字算 0。「纠正」指改变了引擎手里输入的动作：补完停在声母上的音节，或者在拼写列里锁定音节。用户在候选栏和面板里都找不到才会做这两件事，之后再点第一位，是用户多按了键、替引擎说清了读音才换来的，不算首选。
+//!   点了第一位之外的候选、开面板、翻页都不算纠正：它们不改输入，那次点选本身已经记为不是首选，之后剩下的键上引擎排第一的仍是它自己对同一串输入的判断。`--slip` 点错后整块重打也不算：重打的是同一串键，引擎没有多拿到信息，点错的那次本身记为不是首选。
+//! - `cfa_lenient` 宽口径的逐字首选率：只看点选时座位是不是 0，不管之前有没有纠正。第一轮报告里的 `cfa` 就是这个数，留着作对照；两者之差是「纠正之后再点第一位」的字。
 //! - `cca` 整块首选率：打完一块的键、第一次看候选时，第一个候选正好是整块的那些块的字数 ÷ 全部汉字。拆开选不算，这是最严的那个数。
 //! - `chunk_top1` 同一件事按块数算。
 //! - `zcr` 零修正块率：只点过第一位、没开面板、没锁拼写、没补键、没点错就打完的块 ÷ 全部块。
@@ -25,6 +27,8 @@ pub struct Selection {
     pub panel: bool,
     /// 这次点选让文字上屏了（`Transition::commit` 非空）。
     pub committed: bool,
+    /// 这一块里在这次点选之前补完过简拼或者锁过拼写。
+    pub after_correction: bool,
 }
 
 /// 金标准打不出来时停在哪一步。
@@ -81,7 +85,17 @@ pub struct ChunkRecord {
 }
 
 impl ChunkRecord {
+    /// 主口径：第一位，而且之前没有纠正过。
     pub fn first_choice_chars(&self) -> usize {
+        self.selections
+            .iter()
+            .filter(|selection| selection.seat == 0 && !selection.after_correction)
+            .map(|selection| selection.chars)
+            .sum()
+    }
+
+    /// 宽口径：只看是不是第一位。
+    pub fn first_choice_chars_lenient(&self) -> usize {
         self.selections
             .iter()
             .filter(|selection| selection.seat == 0)
@@ -109,6 +123,7 @@ pub struct Totals {
     pub chunks: usize,
     pub chars: usize,
     pub first_choice_chars: usize,
+    pub first_choice_chars_lenient: usize,
     pub top1_exact_chars: usize,
     pub top1_exact_chunks: usize,
     pub zero_correction_chunks: usize,
@@ -138,6 +153,7 @@ impl Totals {
         self.chunks += 1;
         self.chars += record.chars;
         self.first_choice_chars += record.first_choice_chars();
+        self.first_choice_chars_lenient += record.first_choice_chars_lenient();
         if record.top1_exact {
             self.top1_exact_chars += record.chars;
             self.top1_exact_chunks += 1;
@@ -187,6 +203,7 @@ impl Totals {
         self.chunks += other.chunks;
         self.chars += other.chars;
         self.first_choice_chars += other.first_choice_chars;
+        self.first_choice_chars_lenient += other.first_choice_chars_lenient;
         self.top1_exact_chars += other.top1_exact_chars;
         self.top1_exact_chunks += other.top1_exact_chunks;
         self.zero_correction_chunks += other.zero_correction_chunks;
@@ -217,6 +234,10 @@ impl Totals {
         ratio(self.first_choice_chars, self.chars)
     }
 
+    pub fn cfa_lenient(&self) -> f64 {
+        ratio(self.first_choice_chars_lenient, self.chars)
+    }
+
     pub fn cca(&self) -> f64 {
         ratio(self.top1_exact_chars, self.chars)
     }
@@ -235,6 +256,7 @@ impl Totals {
             "chunks": self.chunks,
             "chars": self.chars,
             "cfa": round(self.cfa()),
+            "cfa_lenient": round(self.cfa_lenient()),
             "cca": round(self.cca()),
             "chunk_top1": round(ratio(self.top1_exact_chunks, self.chunks)),
             "zcr": round(self.zcr()),
@@ -371,6 +393,14 @@ mod tests {
             chars,
             panel: false,
             committed,
+            after_correction: false,
+        }
+    }
+
+    fn corrected(seat: usize, chars: usize, committed: bool) -> Selection {
+        Selection {
+            after_correction: true,
+            ..selection(seat, chars, committed)
         }
     }
 
@@ -478,6 +508,52 @@ mod tests {
     }
 
     #[test]
+    fn first_seats_after_a_correction_count_only_on_the_lenient_metric() {
+        // 「辞掉」打成 `ci'd`，候选栏里没有，补完成 `ci'diao` 后第一位就是它；「了」之后锁过拼写，再点第一位。
+        let record = ChunkRecord {
+            doc: "d".into(),
+            chars: 5,
+            completion_keys: 3,
+            locks: 1,
+            selections: vec![
+                selection(0, 1, false),
+                corrected(0, 2, false),
+                corrected(3, 1, false),
+                corrected(0, 1, true),
+            ],
+            ..ChunkRecord::default()
+        };
+        assert_eq!(record.first_choice_chars(), 1);
+        assert_eq!(record.first_choice_chars_lenient(), 4);
+        let mut totals = Totals::default();
+        totals.add(&record);
+        assert_eq!(totals.cfa(), 0.2);
+        assert_eq!(totals.cfa_lenient(), 0.8);
+        let json = totals.to_json();
+        assert_eq!(
+            (json["cfa"].clone(), json["cfa_lenient"].clone()),
+            (serde_json::json!(0.2), serde_json::json!(0.8))
+        );
+        // 每次上屏首选率和设备统计同口径，不分纠正前后。
+        assert_eq!((totals.commits, totals.first_choice_commits), (1, 1));
+        assert!(!record.zero_correction());
+    }
+
+    #[test]
+    fn without_corrections_both_metrics_agree() {
+        let record = ChunkRecord {
+            doc: "d".into(),
+            chars: 4,
+            panel_opens: 1,
+            selections: vec![selection(9, 2, false), selection(0, 2, true)],
+            ..ChunkRecord::default()
+        };
+        // 开面板不算纠正：面板里那次点选已经记为不是首选，之后的第一位照算。
+        assert_eq!(record.first_choice_chars(), 2);
+        assert_eq!(record.first_choice_chars_lenient(), 2);
+    }
+
+    #[test]
     fn merging_equals_adding_one_by_one() {
         let records = [
             ChunkRecord {
@@ -492,6 +568,13 @@ mod tests {
                 chars: 3,
                 selections: vec![selection(1, 3, true)],
                 panel_opens: 1,
+                ..ChunkRecord::default()
+            },
+            ChunkRecord {
+                doc: "c".into(),
+                chars: 2,
+                locks: 1,
+                selections: vec![corrected(0, 2, true)],
                 ..ChunkRecord::default()
             },
         ];
