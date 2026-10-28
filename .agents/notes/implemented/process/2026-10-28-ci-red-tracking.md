@@ -60,7 +60,7 @@ Status: implemented
 
 ## Verification
 
-- `python3 scripts/test-ci-issue-tracker.py`：14 项，用假的 GitHub 覆盖首红开单（只列失败和超时的 job，取消的运行不打断连续失败的计数）、追加评论与重复事件、重跑 attempt、乱序事件、更旧运行触发时按最新一次有结论的运行开单和关单、`startup_failure` 算红而 `action_required` 不算、提交标题里的标记冒充不了别的单、成功关单与重新开单、PR 和其他分支的运行、各 workflow 各一张单、没有失败 job 的运行，以及体积单的开、改、缺报告不关和全部回落关闭；另从 `ci-red-tracker.yml` 读出并发组必须在 job 的 `if` 之后、结论列表与 `DECISIVE` 一致。job 级 `if` 跳过的 job 不进并发组是 GitHub 的行为，本地验证不了。
+- `python3 scripts/test-ci-issue-tracker.py`：14 项，用假的 GitHub 覆盖首红开单（只列失败和超时的 job，取消的运行不打断连续失败的计数）、追加评论与重复事件、重跑 attempt、乱序事件、更旧运行触发时按最新一次有结论的运行开单和关单、`startup_failure` 算红而 `action_required` 不算、提交标题里的标记冒充不了别的单、成功关单与重新开单、PR 和其他分支的运行、各 workflow 各一张单、没有失败 job 的运行，以及体积单的开、改、缺报告不关和全部回落关闭；另从 `ci-red-tracker.yml` 读出并发组必须在 job 的 `if` 之后、结论列表与 `DECISIVE` 一致。job 级 `if` 跳过的 job 不进并发组是 GitHub 的行为，本地验证不了。体积单首次开单也保存运行标记，同一次运行重复送达不会追加评论。
 - 用假的 `gh` 走真实的 `GitHub` 类跑两条子命令，核对调用参数和渲染出的正文。
 - 从 `build-apk.sh` 截出体积那一段，用 128,000,000、133,000,000 和 135,623,964 字节的假 APK 分别跑出通过、警告加注解、超过上限失败，三种情况都写了摘要和合法的 JSON 报告；非瘦包写出 null 阈值的报告；预警线高于上限或不是数字时失败；`LC_ALL=C` 下照常运行。
 - 用假的 `docker` 跑 `package-container.sh`：`MSIME_PACKAGE_TESTS_ONLY=1` 传进容器，版本缺省为 full、桌面缺省为 0；不含 full 的版本列表和非法取值都以 2 退出。`scripts/test-linux-package-cache.py`、`scripts/test-linux-distro-packaging.py` 通过。

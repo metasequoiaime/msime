@@ -13,6 +13,7 @@ import {
   type DictionarySyncWebDavPreferences,
 } from "./dictionary-sync";
 import { errorCode } from "../core/error-code";
+import { subscribeToWindowResume } from "../core/window-focus";
 
 /** 经设置改了词的通知：词库客户端的写操作成功后发出，词库同步据此以 `local_change` 记一次本机改动。 */
 export interface DictionaryLocalChanges {
@@ -133,7 +134,7 @@ function savedKey(saved: DictionarySyncWebDavPreferences | undefined): string {
 }
 
 /**
- * 设置打开期间的词库同步。配置了网盘时：挂载（或者保存了新的网盘配置）时以 `opened` 同步一次，之后按 Rust 给的 `next_check_ms` 以 `periodic` 再调；经设置改了词以 `local_change` 记一次（不联网，由 Rust 防抖）。要不要联网、额度够不够都由 Rust 决定，这里不算防抖和退避。
+ * 设置打开期间的词库同步。配置了网盘时：挂载（或者保存了新的网盘配置）时以 `opened` 同步一次，之后按 Rust 给的 `next_check_ms` 以 `periodic` 再调；经设置改了词以 `local_change` 记一次（不联网，由 Rust 防抖）；窗口回到前台时读一次不联网的 `status`，跟上输入法进程在后台做的同步。要不要联网、额度够不够都由 Rust 决定，这里不算防抖和退避。
  *
  * 所有请求排成一队依次发出：Rust 那边整次同步持有一把文件锁，并发的请求只会互相等待。
  */
@@ -250,8 +251,18 @@ export function useDictionarySync({
     if (typeof window !== "undefined") {
       window.addEventListener(HOST_USER_WORDS_CHANGED_EVENT, hostChanged);
     }
+    // 窗口回到前台时重读一次不联网的概况：macOS 和 Linux 的输入法进程在后台按自己的定时同步，结果不经本页，不重读的话「上次同步」和待发送、待写入的数量要等本页自己的下一次同步才跟上。请求排在队里，正在跑的同步之后才读；错误码不动，它记的是本页最近一次操作的结果。
+    const stopResume = subscribeToWindowResume(() => {
+      void request({ operation: "status" }, owner)
+        .then((value) => {
+          const next = dictionarySyncStatus(value);
+          if (next && owner === generation.current) setStatus(next);
+        })
+        .catch(() => undefined);
+    });
     return () => {
       stop();
+      stopResume();
       if (typeof window !== "undefined") {
         window.removeEventListener(HOST_USER_WORDS_CHANGED_EVENT, hostChanged);
       }

@@ -1642,7 +1642,7 @@ final class ImePanels {
         });
         button.setContentDescription("剪贴板目标分类 " + name);
         ViewPolicy.setEnabled(button, !clipboardCategoryBusy);
-        s.clipboardPanel.addView(button, LayoutPolicy.matchWidthHeightPx(s.pixels(40)));
+        s.clipboardPanel.addView(button, LayoutPolicy.matchWidthWrapParams());
     }
 
     private void moveClipboardCategory(String text, String id) {

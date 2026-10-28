@@ -475,6 +475,29 @@ test("words the host wrote itself are recorded as a local change only while sync
   expect(unconsented).not.toHaveBeenCalled();
 });
 
+test("returning to the window reads the status the input method's background sync left", async () => {
+  const localChanges = createDictionaryLocalChanges();
+  // 输入法进程在后台把待发送的那一个词发了出去：本页读到的概况随之变了。
+  let background = STATUS;
+  const host = syncHost({ status: () => background });
+  const { result, unmount } = renderHook(() =>
+    useDictionarySync({ client: { dictionarySync: host }, saved: WEBDAV, localChanges }),
+  );
+  await waitFor(() => expect(result.current?.status?.pending_upload).toBe(1));
+  background = { ...STATUS, pending_upload: 0, last_success_ms: Date.UTC(2026, 9, 27, 8, 30) };
+  act(() => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await waitFor(() => expect(result.current?.status?.pending_upload).toBe(0));
+  expect(result.current?.status?.last_success_ms).toBe(Date.UTC(2026, 9, 27, 8, 30));
+  expect(operations(host.request)).toEqual(["run:opened", "status"]);
+  // 卸载以后不再读。
+  unmount();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(operations(host.request)).toEqual(["run:opened", "status"]);
+});
+
 test("changing the saved connection releases a previous manual action's busy state", async () => {
   let finishManual!: (value: ReturnType<typeof runValue>) => void;
   const manual = new Promise<ReturnType<typeof runValue>>((resolve) => {

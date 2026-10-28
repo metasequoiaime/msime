@@ -2069,6 +2069,71 @@ struct HostOptions {
     edition: Option<&'static Edition>,
 }
 
+/// 宿主选项里的偏好副本用不了时，输入运行时改用的偏好：`preferences_directory` 下有实时的 preferences.json 就读它（读不了时在内存里救下认得的设置），没有就救副本自己的，默认值取文档记录的版本。文档里没有偏好副本、也没有实时文档时返回 `None`。读不了的偏好经诊断出口报告，盘上的文件不动。
+fn runtime_preferences_for(document: &Value) -> Option<Preferences> {
+    let directory = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .map(std::path::PathBuf::from)
+        // load_for_runtime() 会创建传入的目录；从没在那里写过偏好的宿主没有可替代的内容。
+        .filter(|directory| {
+            directory.is_absolute() && directory.join("preferences.json").is_file()
+        });
+    if let Some(directory) = directory {
+        if let Ok(runtime) = PreferencesStore::new(&directory).load_for_runtime() {
+            report_unreadable_preferences(&runtime);
+            return Some(runtime.snapshot.preferences);
+        }
+    }
+    let copy = document.get("preferences")?.clone();
+    // 副本本身没问题、是文档别处不对时照原样交回，不当成偏好读不了去报告。
+    if let Ok(preferences) = Preferences::deserialize(&copy) {
+        if preferences.validate().is_ok() {
+            return Some(preferences);
+        }
+    }
+    let edition = Edition::of_host_options(document)?;
+    let (preferences, not_kept) =
+        Preferences::salvaged_from(copy, edition_default_preferences(edition)).ok()?;
+    crate::diagnostics::report(
+        "runtime options preferences unusable",
+        &format!(
+            "the preferences copy in the runtime options does not validate and there is no live preferences.json; running on the settings that could be kept, settings not kept: {}",
+            not_kept.join(", ")
+        ),
+    );
+    Some(preferences)
+}
+
+/// `edition` 的默认偏好，与 [`PreferencesStore`] 修复损坏文件时垫底的相同。
+fn edition_default_preferences(edition: &'static Edition) -> Preferences {
+    if edition.is_full() {
+        Preferences::default()
+    } else {
+        Preferences::for_edition(edition)
+    }
+}
+
+/// 读得了时什么也不做；读不了时报告输入运行时改用了在内存里救下的设置。设置界面经严格读取看到同一个错误，修不修复由用户决定。
+///
+/// 只报告错误的种类和没能保留的设置键，不带 serde 的错误原文：类型不对时它会引出文档里的字符串取值，那可能是用户填的地址或密钥，而诊断日志会被打进诊断包发出去。
+fn report_unreadable_preferences(runtime: &msime_client_core::preferences::RuntimePreferences) {
+    use msime_client_core::preferences::PreferencesError;
+    let Some(error) = &runtime.load_error else {
+        return;
+    };
+    let kind = match error {
+        PreferencesError::Json(_) => {
+            "the document does not parse as this version's preferences".to_owned()
+        }
+        other => other.to_string(),
+    };
+    crate::diagnostics::report(
+        "preferences document unreadable",
+        &format!("{kind}; settings not kept: {}; typing continues on the settings that could be kept, the file is left untouched until it is repaired in settings or rewritten by a newer version", runtime.not_kept.join(", ")),
+    );
+}
+
 /// HostOptions 的 `edition` 键与版本表条目之间的转换。
 mod edition_id {
     use msime_client_core::edition::Edition;
@@ -2102,18 +2167,14 @@ impl HostOptions {
         self.edition.unwrap_or_else(Edition::full)
     }
 
-    /// 解析 HostOptions 文档。其中的 `preferences` 是准备运行时配置那一刻的副本，升级时被原样带下去（`refresh_options_file`）。#2830 退役 `autocorrect` 时，带着它的副本曾让会话、快照和词库请求全部被拒，macOS 每个按键都像在英文模式下一样直接交给应用；偏好结构现在不拒绝不认识的键，新增或退役一个键不会再让副本读不了，但取值的类型或格式变化仍会。副本被拒时，改用 `preferences_directory` 下实时的 preferences.json——设置界面会保持它最新并负责修复，宿主在会话打开后本来也会应用它。副本能解析时照原样使用。
+    /// 解析 HostOptions 文档。其中的 `preferences` 是准备运行时配置那一刻的副本，升级时被原样带下去（`refresh_options_file`）。#2830 退役 `autocorrect` 时，带着它的副本曾让会话、快照和词库请求全部被拒，macOS 每个按键都像在英文模式下一样直接交给应用；偏好结构现在不拒绝不认识的键，新增或退役一个键不会再让副本读不了，但取值的类型或格式变化、以及新版本校验更严（#9802 的文本编辑排列）仍会。副本解析不了或通不过校验时，改用 `preferences_directory` 下实时的 preferences.json——设置界面会保持它最新并负责修复，宿主在会话打开后本来也会应用它；实时文档也读不了时在内存里救下它认得的设置（[`PreferencesStore::load_for_runtime`]），没有实时文档时救副本自己的，都不改写任何文件。副本能用时照原样使用。
     pub(crate) fn from_document(mut document: Value) -> Option<Self> {
         if let Ok(options) = Self::deserialize(&document) {
-            return Some(options);
+            if options.preferences.validate().is_ok() {
+                return Some(options);
+            }
         }
-        let directory = std::path::PathBuf::from(document.get("preferences_directory")?.as_str()?);
-        // load() 会创建传入的目录；从没在那里写过偏好的宿主没有可替代的内容。
-        if !directory.is_absolute() || !directory.join("preferences.json").is_file() {
-            return None;
-        }
-        let snapshot = PreferencesStore::new(&directory).load().ok()?;
-        document["preferences"] = serde_json::to_value(snapshot.preferences).ok()?;
+        document["preferences"] = serde_json::to_value(runtime_preferences_for(&document)?).ok()?;
         Self::deserialize(&document).ok()
     }
 
@@ -2654,13 +2715,22 @@ fn prepare_host_with_updates(
 }
 
 /// 状态目录里 `edition` 的偏好。还没有偏好文件时，先把此刻读到的偏好写成第一份文件（[`PreferencesStore::write_first_document`]），理由见 [`prepare_host_configuration_for_edition`]。必须在建用户词库代次之前调用：没有偏好文件时，状态目录有没有被准备过决定触屏键盘按新装还是按升级前的默认方案。
+///
+/// 已有的偏好文件读不了（更新的版本写的取值、本版本校验更严、写坏的字节）时不让准备失败，否则用户完全打不了字（#9802 那次 iOS 键盘、HarmonyOS 和 Windows 的 Server 都是这样）：改用在内存里救下的设置（[`PreferencesStore::load_for_runtime`]），文件不动，原因经诊断出口报告。只有存储本身出错时准备才失败。
 fn edition_preferences(
     state_root: &Path,
     edition: &'static Edition,
 ) -> Result<Preferences, Box<dyn std::error::Error>> {
-    Ok(PreferencesStore::for_edition(state_root, edition)
-        .write_first_document()?
-        .preferences)
+    let store = PreferencesStore::for_edition(state_root, edition);
+    match store.write_first_document() {
+        Ok(snapshot) => Ok(snapshot.preferences),
+        Err(msime_client_core::preferences::PreferencesError::Io(error)) => Err(error.into()),
+        Err(_) => {
+            let runtime = store.load_for_runtime()?;
+            report_unreadable_preferences(&runtime);
+            Ok(runtime.snapshot.preferences)
+        }
+    }
 }
 
 /// [`prepare_host_configuration_for_edition`] 按给定的锁文件和按需下载清单准备；测试借它在各平台上检查 macOS 的发货规则。

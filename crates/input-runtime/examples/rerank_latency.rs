@@ -166,6 +166,46 @@ fn type_case(
     Ok(())
 }
 
+fn non_negative_finite(value: &str, option: &str) -> Result<f64, String> {
+    match value.parse::<f64>() {
+        Ok(value) if value.is_finite() && value >= 0.0 => Ok(value),
+        _ => Err(format!(
+            "{option}: {value} is not a finite non-negative number"
+        )),
+    }
+}
+
+/// 两臂共用预先算好的按键；无法产生错键的 noisy 用例留空，稍后一起剔除。
+fn case_keys(
+    input: &str,
+    shuangpin: Option<ShuangpinProfileKind>,
+    grid: Option<KeyGrid>,
+    touch: Option<&(TouchNoise, TouchMode)>,
+    seed: u64,
+    position: usize,
+) -> Result<Vec<u8>, String> {
+    match (shuangpin, grid) {
+        (Some(profile), _) => {
+            let intended = grid_keys::shuangpin_keys(profile.name(), input, None)
+                .unwrap_or_default()
+                .into_bytes();
+            match touch {
+                Some((noise, mode)) => {
+                    let mut rng = touch_noise::case_rng(seed, &[position as u64]);
+                    Ok(noise
+                        .synthesize(*mode, &intended, &mut rng)?
+                        .unwrap_or_default())
+                }
+                None => Ok(intended),
+            }
+        }
+        (None, Some(grid)) => Ok(grid_keys::grid_keys(grid, input, None)
+            .unwrap_or_default()
+            .into_bytes()),
+        (None, None) => Ok(input.bytes().collect()),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut resources: Option<PathBuf> = None;
@@ -219,8 +259,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--autocorrect" => autocorrect = true,
             "--key-geometry" => geometry.push(PathBuf::from(take(&mut index)?)),
             "--touch-mode" => touch_mode = Some(TouchMode::parse(&take(&mut index)?)?),
-            "--touch-sigma" => sigma = Some(take(&mut index)?.parse()?),
-            "--touch-bias-y" => bias = take(&mut index)?.parse()?,
+            "--touch-sigma" => {
+                sigma = Some(non_negative_finite(&take(&mut index)?, "--touch-sigma")?)
+            }
+            "--touch-bias-y" => bias = non_negative_finite(&take(&mut index)?, "--touch-bias-y")?,
             "--seed" => seed = take(&mut index)?.parse()?,
             other => return Err(format!("unknown argument: {other}").into()),
         }
@@ -292,28 +334,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let stride = cases.len().div_ceil(limit.max(1));
         cases = cases.into_iter().step_by(stride.max(1)).collect();
     }
-    // 两臂打同样的键，所以按键在开始计时前算好。给了 `grid` 时把字母换成它所在键的组码再输入（`'` 不输入），与 `convert_eval --grid` 相同；九键双拼和 26 键双拼按音节最少的切法编码，切不开的用例打空串。
+    // 两臂打同样的键，所以按键在开始计时前算好；切不开或无法满足 noisy 条件的用例不参与计时。
     for (position, case) in cases.iter_mut().enumerate() {
-        case.keys = match (shuangpin, grid) {
-            (Some(profile), _) => {
-                let intended = grid_keys::shuangpin_keys(profile.name(), &case.input, None)
-                    .unwrap_or_default()
-                    .into_bytes();
-                match &touch {
-                    Some((noise, mode)) => {
-                        let mut rng = touch_noise::case_rng(seed, &[position as u64]);
-                        noise
-                            .synthesize(*mode, &intended, &mut rng)?
-                            .unwrap_or(intended)
-                    }
-                    None => intended,
-                }
-            }
-            (None, Some(grid)) => grid_keys::grid_keys(grid, &case.input, None)
-                .unwrap_or_default()
-                .into_bytes(),
-            (None, None) => case.input.bytes().collect(),
-        };
+        case.keys = case_keys(&case.input, shuangpin, grid, touch.as_ref(), seed, position)?;
+    }
+    let before = cases.len();
+    cases.retain(|case| !case.keys.is_empty());
+    if cases.len() != before {
+        eprintln!(
+            "skipped {} cases without eligible keystrokes",
+            before - cases.len()
+        );
+    }
+    if cases.is_empty() {
+        return Err("no eligible keystrokes to measure".into());
     }
 
     let state = tempfile::tempdir()?;
@@ -457,4 +491,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "p{GATE_PERCENTILE:.0} with the model is {observed:.2}ms, within the {budget_ms:.2}ms budget"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touch_parameters_reject_non_finite_and_negative_values() {
+        for value in ["NaN", "inf", "-inf", "-0.1"] {
+            assert!(non_negative_finite(value, "--touch-sigma").is_err());
+            assert!(non_negative_finite(value, "--touch-bias-y").is_err());
+        }
+        assert_eq!(non_negative_finite("0", "--touch-sigma").unwrap(), 0.0);
+        assert_eq!(non_negative_finite("0.25", "--touch-sigma").unwrap(), 0.25);
+    }
+
+    #[test]
+    fn impossible_noisy_cases_do_not_fall_back_to_clean_keys() {
+        let layout = KeyLayout::load(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/eval/key-geometry/android-portrait.json"),
+        )
+        .unwrap();
+        let touch = (TouchNoise::new(&layout, 0.0, 0.0), TouchMode::Noisy);
+        let keys = |touch| {
+            case_keys(
+                "nihao",
+                Some(ShuangpinProfileKind::Xiaohe),
+                None,
+                touch,
+                7,
+                0,
+            )
+            .unwrap()
+        };
+        assert!(!keys(None).is_empty());
+        assert!(keys(Some(&touch)).is_empty());
+        let touch = (TouchNoise::new(&layout, 0.35, 0.0), TouchMode::Noisy);
+        assert_ne!(keys(Some(&touch)), keys(None));
+    }
 }
