@@ -5747,13 +5747,31 @@ fn bare_shortcut_rejected_capitals_stay_in_the_runtime_composition() {
     }
 }
 
+/// #10123：Shift 字母入口后只打了字母，模式不收的字母让整串留在 runtime 的组字里，驼峰英文不会中途上屏。
+#[test]
+fn camel_case_after_a_shortcut_entry_stays_in_the_runtime_composition() {
+    for text in ["TextBlock", "TxB", "UbU", "Ui", "Uq", "KaA"] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, text);
+        let view = runtime.view();
+        assert_eq!(view.local_mode, "none", "{text}");
+        assert_eq!(view.editing_text, text);
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(committed.commit.as_deref(), Some(text));
+    }
+}
+
 #[test]
 fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
     for (entry, spelling, rejected) in [
-        (b'U', "", b'i'),
         (b'U', "0", b'I'),
-        (b'K', "a", b'A'),
-        (b'T', "r", b'A'),
+        (b'U', "0", b'g'),
         (b'E', "", b'1'),
         (b'U', "", b'!'),
     ] {
