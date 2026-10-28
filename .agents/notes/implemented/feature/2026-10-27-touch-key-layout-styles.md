@@ -15,7 +15,7 @@ Status: implemented
 - `touch_nine_key_style: TouchNineKeyStyle`，九键字母层（拼音九键、九键双拼、笔画共用这个框架），除 `tall_return` 外左侧符号栏和右侧功能列不变。取值 `standard`（默认，符 | 123 | 空格 | 中/英 | 回车）、`comma_period`、`emoji`、`tall_return`（设置页名「右侧大回车」，排在表情键之后：左列是跨三行的符号栏，栏下方底行放与它同宽的 符；九宫格下方底行 123 |（🌐）| 空格 | 中/英 恰好与九宫格同宽；右列与现有右列同宽，自上而下 ⌫、各端标准九键右列原有的第二格（Android 重输，iOS 与鸿蒙的拼音九键和九键双拼是分词），回车跨第三行和底行、两倍高且中间无缝。现有右列的 ！ 去掉，只在这个样式里接到符号栏默认字母符号表末尾，自定义列表原样使用。九键数字层照同一框架，三端相同：符 留在原处，九宫格下方是 切换键 |（🌐）| 0 | 空格 | 中/英，空格是 1.05 份，0 占剩余宽度；右列是 ⌫、小数点（.）和两倍高的回车。数字层的空格仍是原来那个空格键，各端已有的手势（长按语音、拖动移光标）照旧。中列宽度三端同一规则，字母层和数字层都适用：123（数字层是切换键）、🌐、中/英 保持本端同一地球键状态下标准九键底行里的绝对宽度，剩下的宽度归字母层的空格，或数字层扣掉 1.05 份空格后的 0。中/英 与回车不在同一行，不适用回车让位和点击区规则。热力图照这个框架画，统计 id 不变。较旧的版本读到它按 `standard` 处理）。
 - `touch_number_row: bool`，默认关，在 26 键、14 键和 18 键字母层上方画 1 到 0（九键、手写不画）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 的 `platform.android.number_row`。
 
-`long_space` 把 符 放到工具栏，所以工具栏设成隐藏或按钮全关时，这一行也要留着。留不留只看用户的 26 键样式和这块键盘的中文键面是不是中文 26 键，不看此刻的中/英：同一块键盘切到英文 26 键时，英文照旧画自己的标准底行、工具栏上没有 符，但这一行照样留着（只剩标志和收起），来回切换时键盘高度不跳。三端都按这条规则（Android `TouchKeyStyle.Styles.keepsToolbarRow`，鸿蒙 `chineseTwentySixKeyboard`）；iOS 的顶栏本来一直占着高度，只换内容。
+`long_space` 把 符 放到工具栏，所以工具栏设成隐藏或按钮全关时，这一行也要留着。留不留只看用户的 26 键样式和这块键盘的中文键面是不是中文 26 键，不看此刻的中/英：同一块键盘切到英文 26 键时，英文照旧画自己的标准底行、工具栏上没有 符，但这一行照样留着（只剩标志和收起），来回切换时键盘高度不跳。三端都按这条规则（Android `TouchKeyStyle.Styles.keepsToolbarRow`，iOS `KeyboardViewController.longSpaceToolbarRowKept`，鸿蒙 `TouchLayoutStylePolicy.chineseTwentySixKeyboard`）。iOS 的顶栏本来就一直占着高度，切换时不跳；第六轮之前它在英文 26 键上把整条工具栏连同标志和收起一起藏掉，只剩空着的顶栏，现在与另两端一样留着标志和收起。
 
 三个样式按键面类型分开存，而不是一个枚举套所有键面：每类键面能放的排法不同（14 键本来就有逗号和句号，没有 `comma_period`；九键没有地方放长空格），分开存时每个值都是这类键面真能画出来的样子。
 
@@ -110,7 +110,7 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 逗号与长空格：
 
 - 26 键 `comma_period`：逗号长按打开常用标点，句号是独立键，没有长按。
-- `long_space` 的字母层（26、14、18 键）逗号下滑输入句号，自定义了常用标点也一样；长按在 26 键默认标点下是句号，14/18 键和自定义了常用标点时打开常用标点菜单（`holdsCornerHint`）。26 键的 符 移到工具栏品牌键后面的「符」按钮，工具栏设成隐藏时这一行仍显示，只放品牌、符号和收起；123 进带空格的 123 层，不借数字九宫格，123 层和 #+= 层原来的表情或符号入口换成逗号。
+- `long_space` 的字母层（26、14、18 键）逗号下滑输入句号，自定义了常用标点也一样；长按在 26 键默认标点下是句号，14/18 键和自定义了常用标点时打开常用标点菜单（`holdsCornerHint`）。26 键的 符 移到工具栏品牌键后面的「符」按钮，工具栏设成隐藏时这一行仍显示，只放品牌、符号和收起，同一块键盘切到英文 26 键时只放品牌和收起（`longSpaceToolbarRowKept` 按 `chineseTwentySixKeyboard` 算，不看此刻的中/英）；123 进带空格的 123 层，不借数字九宫格，123 层和 #+= 层原来的表情或符号入口换成逗号。
 - 26 键 `emoji` 复用 123 层的表情键（记 `SoftEmoji`），符号面板经长按 123 打开。九键「底栏带标点」的逗号跟随标点键面，长按打开常用标点。
 
 右侧大回车用于拼音九键、九键双拼和笔画的字母层与数字层；26/14/18 键和手写借来的数字九宫格不跟。
@@ -138,7 +138,7 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 
 ### 鸿蒙
 
-键序与份额在 `platforms/harmony/entry/src/main/ets/keyboard/TouchLayoutStylePolicy.ts`（`designRow`、`commaHold`、`commaSwipesPeriod`、`fieldRowStyle`、`numberRowExtraRows`、`symbolExtraRow`、`firstPanel`）和 `NineKeyLayout.actionRow(digitLayer, english, style)`；`KeyboardView.designActionRow` 与 `nineKeyActionRow` 按这些表画，默认样式与之前逐键相同。鸿蒙没有地球键。中文 26 键指字母层是 26 键一类、不是 14/18 键、且是中文（不是英文、韩文、越南语、藏文、日语罗马字）的键面；英文 26 键、大千注音和 2in1 保持原来的底行。
+键序与份额在 `platforms/harmony/entry/src/main/ets/keyboard/TouchLayoutStylePolicy.ts`（`designRow`、`commaHold`、`commaSwipesPeriod`、`fieldRowStyle`、`numberRowExtraRows`、`symbolExtraRow`、`firstPanel`）和 `NineKeyLayout.actionRow(digitLayer, english, style)`；`KeyboardView.designActionRow` 与 `nineKeyActionRow` 按这些表画，默认样式与之前逐键相同。两行都用 ForEach 逐个画键：数组是 `TouchLayoutStylePolicy.designRowItems` 与 `NineKeyLayout.actionItems`（后者在「右侧大回车」量到外框宽度后并入 `tallReturnRow` 的固定宽度），每次重建这一行时底行表和 `tallReturnRow` 各算一次；份额、固定宽度和让位按值传给每个键的 @Builder，所以都放进 ForEach 的键（`designRowItemKey`、`actionItemKey`），哪个变了就重建哪个键。按值传给 @Builder 的参数编译后只在建键时取一次（编译产物里是 `this.spaceKey.bind(this)(true, 份额, 0)`，不在任何 `observeComponentCreation2` 闭包里），不能在行里直接传随状态变的份额。这块键盘的中文键面是不是中文 26 键（`chineseTwentySixKeyboard`）和字母层键面（`letterFace`）也在 `TouchLayoutStylePolicy`，视图交来的 `TouchKeyboard` 里没有中/英。鸿蒙没有地球键。中文 26 键指字母层是 26 键一类、不是 14/18 键、且是中文（不是英文、韩文、越南语、藏文、日语罗马字）的键面；英文 26 键、大千注音和 2in1 保持原来的底行。
 
 - 26 键：`comma_period` 与 Android 份额相同，逗号长按打开常用标点；`long_space` 是 123 | ， | 空格 5.05 | 中 | 回车，逗号下滑或长按输入句号，符号入口移到工具栏标志右边（「符」），工具栏这一行一直画着、设成隐藏时只留标志、符号和收起，123 进带空格的数字符号层，该层与 #+= 层左下的 😀/符号 换成逗号；`emoji` 是 123 | 😀 1.05 | 空格 4 | ， | 中 | 回车，😀 记 `SoftEmoji`，符号面板经长按 123 进入。
 - 14/18 键：`long_space` 是 123 | ， | 空格 5 | 中 | 回车，逗号下滑输入句号、长按仍打开常用标点；`emoji` 是 123 | 😀 1 | 空格 4 | ， 1 | 中 | 回车，逗号长按打开常用标点。
@@ -209,5 +209,9 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 - 三端第四轮（设置页入口按版本显示与说明三端统一、iOS 中列扣键距、鸿蒙笔画右列按两行对齐）合并后，在合并树上重跑 `bash platforms/harmony/tests/run.sh`、`python3 scripts/test-preferences-field-parity.py`、`python3 scripts/test-mobile-return-yield-parity.py`、`git diff --check origin/develop...HEAD` 与三个笔记校验脚本，都通过。
 
 - 审查第五轮：(1) Android 与鸿蒙的工具栏行改为按用户的 26 键样式和这块键盘的中文键面留着（之前按此刻的中/英算，工具栏隐藏时每次切中/英整行出没、键盘跳高），iOS 本来不跳，`KeyLayoutStyleTests` 补了来回切中/英高度与底行位置不变的用例；(2) Android 迁移只在共享值缺键或明写默认值时写入；(3) Android 自动数字行退回 26 键一族和韩文；(4) 鸿蒙设计底行的查询（`designShare`、`designSlotIndex`、`designBeforeSpace`、`designAfterSpace`、`designLanguageBesideReturn`）改为接收调用方取好的底行表，逗号的 `designCommaHold`、`designCommaSwipes`、`designCommaLabel` 和 `designRowStyle` 接收算好的键面类型，一个查询里只算一次（空格两侧判断从两次变一次，逗号读屏文字里的键面类型从五次变一次），排布不变。没有做到整行只算一次：按 ArkUI 文档，`@Builder` 按值收到的参数在状态变了时不刷新，整行算一次往下传，切中/英、改样式后那几处会停在旧值，所以 `designActionRow` 的每个属性和条件仍各自取一次。九键外框的 `nineKeyActionWidth` / `nineKeyActionShare` 同理不改：每处属性本来就只算一次 `tallReturnRow`，把它提成参数省不下任何计算；(5) `KeyboardActionRow.baseEntries` 的注释改成英文 26 键总画英文底行。验证：`bash platforms/android/check-host.sh` 通过（289 项 JVM 冒烟、249 份设备测试源码编译），`rbuild` 上 Gradle `compileFullDebugJavaWithJavac` 通过；`bash platforms/harmony/tests/run.sh` 0 失败，本机 `hvigorw assembleHap` 成功（设置页 `index.html` 和 `sherpa_onnx.har` 取自主检出，只为让 ArkTS 编译跑起来）；iOS 在 Studio 上一次性 iPhone 17 Pro / iOS 27.0 模拟器跑 `KeyLayoutStyleTests` 28 项，0 失败，模拟器用完即删。工具栏行的 check-host 与 `run.sh` 钉子单独拿出来，在把接线改回按此刻中/英算的副本上确认会失败。没上模拟器或真机看工具栏行。
+
+- 审查第六轮：(1) 鸿蒙设计底行和九键外框底行改为 ForEach 逐个画键（见「鸿蒙」），底行表与 `tallReturnRow` 每次重建这一行各算一次，第五轮「不能整行只算一次」的说法作废。第五轮担心的按值传参不刷新，从编译产物看确有其事，而且 develop 上就有：`this.spaceKey.bind(this)(true, 份额)` 只在建键时执行一次，不在观察闭包里，照这个机制，中文 26 键切英文时空格份额会停在 4（应为 3），要等换层这类让整块键面重建的操作才对；本分支右侧大回车的数字层空格（字母层建键时是占剩余宽度的份额，数字层应定宽 1.05 份）同理。这两处都是按编译产物推断，没在模拟器或真机上看到过。现在份额、宽度和让位都在 ForEach 的键里，不再依赖这一点。`touch-layout-styles.test.ts` 新增两组，核对逐键的份额、固定宽度、让位与键（中/英 切换时只有空格和句点的键变、右侧大回车量到宽度后定宽的键重建、字母层和数字层的空格是两个键），`run.sh` 的接线守卫改为钉住 ForEach 的数组、键和每个键从 item 取值；(2) iOS 长空格的工具栏行改为按这块键盘留着（`longSpaceToolbarRowKept`），英文 26 键上留标志和收起，与 Android、鸿蒙相同，`KeyLayoutStyleTests` 的来回切中/英用例补了工具栏可见和按钮列表；(3) 鸿蒙的「这块键盘是不是中文 26 键」移进 `TouchLayoutStylePolicy.chineseTwentySixKeyboard`，新增一组按方案逐个核对（全拼、小鹤、五笔、粤拼为真且英文 26 键仍是字母层，韩文、越南语、藏文、日语、注音、笔画、手写、九键、14/18 键为假），以及中文 26 键停在英文 26 键时第一帧与中文同高；原来的 `english` 固定值改名 `otherOnEnglish`，去掉多出的空行。新用例逐条改坏实现确认会失败（键里去掉份额或宽度、占剩余宽度的键也定宽、让位不分键位、判定恒为假、去掉韩文判断）。
+
+  验证：`bash platforms/harmony/tests/run.sh` 0 失败；本机 `hvigorw assembleHap --no-daemon` 成功，CompileArkTS 实际执行，改动的三个文件没有 ArkTS 告警，编译产物里 `designActionRow` 是 `this.forEachUpdateFunction(elmtId, this.designRowItems(), …)`，数组在 ForEach 的观察闭包里求值。iOS 在 Mac Studio 上经 `rbuild` 重编模拟器原生库，一次性 iPhone 17 Pro / iOS 27.0 模拟器跑 `KeyLayoutStyleTests`（28 项）和 `NineKeyKeyboardTests`（119 项，1 项跳过），0 失败，模拟器用完即删；把控制器换回上一版、只留新测试时，来回切中/英的用例在英文那一遍如期失败（工具栏整条藏掉）。Android 这一轮没有改动，没有重跑。没上鸿蒙模拟器或真机看这两行：本机只剩约 10 GB，现有的模拟器实例不是这次建的，新建实例的系统镜像放不下，所以 ForEach 底行的实际画面、切中/英和改样式时键的重建只到编译和逻辑测试这一级。
 
 - PR CI 的 Xcode 26.3 在热力图数字行的空数组分支把拼接推断为 `[Any]`；`letterRows(for:)` 为该局部值显式声明 `[[Cell]]`，不改变行内容或数字行开关。手写底行契约同步识别鸿蒙 `spaceKey` 的显式宽度参数 `0`，仍核对空格的位置与共享份额。
