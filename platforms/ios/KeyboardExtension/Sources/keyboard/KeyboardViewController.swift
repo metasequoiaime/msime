@@ -236,6 +236,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }()
   /// a..z 二十六个字母键，按字母顺序；滑行请求里的键中心按这个顺序给出。
   private var glideLetterKeys: [UIButton] = []
+  /// 第二排 L 右边的 `;` 键，微软双拼和粤语双拼显示（`ChineseInputScheme.showsSemicolonFinalKey`）。名字沿用最早只给微软双拼时的叫法，测试按 `microsoftFinalKey` 这个无障碍 id 找它。
   private var microsoftFinalKey: UIButton?
   /// Comma and full stop at the end of the third letter row; shown only on the tablet keyboard.
   private var letterRowPunctuationKeys: [UIButton] = []
@@ -1559,7 +1560,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 此刻是否开着 VoiceOver：读屏的双击落在键的激活点，不是手指的落点。测试替换它来模拟读屏。
   var isVoiceOverRunning: () -> Bool = { UIAccessibility.isVoiceOverRunning }
 
-  /// 键区里此刻 26 个字母键和微软双拼 `;` 的布局矩形，坐标系与按键记下的按下点相同；字母行没在显示时为 nil。
+  /// 键区里此刻 26 个字母键和显示中的 `;` 键（微软双拼、粤语双拼）的布局矩形，坐标系与按键记下的按下点相同；字母行没在显示时为 nil。
   private var currentKeyLayout: TouchPointPolicy.Layout? {
     guard let root = keyboardRoot as? KeyAreaStackView, glideLetterKeys.count == GlideTyping.letters.count,
           !letterRowViews.isEmpty, letterRowViews.allSatisfy({ !$0.isHidden }) else { return nil }
@@ -1624,7 +1625,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         row.distribution = .fill
         for key in characterKeys.dropFirst() {
           let width = key.widthAnchor.constraint(equalTo: characterKeys[0].widthAnchor)
-          // 微软双拼的 `;` 只在该方案下显示：等宽约束低于 required，让 stack view 隐藏它时的零宽约束胜出。
+          // `;` 只在微软双拼和粤语双拼下显示：等宽约束低于 required，让 stack view 隐藏它时的零宽约束胜出。
           if key === microsoftFinalKey { width.priority = .init(999) }
           width.isActive = true
         }
@@ -3067,7 +3068,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       deleteWidth.isActive = true
     }
     if letters == letterRows[1] {
-      let key = makeTouchKey(title: ";", accessibilityLabel: "微软双拼 ing") { [weak self] key in
+      // 读屏标签随方案变化，由 `updateLetterCaseControls` 按当前方案写入。
+      let key = makeTouchKey(title: ";", accessibilityLabel: inputScheme.semicolonFinalKeyAccessibilityLabel) { [weak self] key in
         self?.countKeyPress(TypingKeyID.character(";"))
         self?.handleCharacter(";", touchDown: key?.takeTouchDownLocation())
       }
@@ -3089,7 +3091,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       tabletReturnKey = enter
       row.addArrangedSubview(enter)
       row.distribution = .fill
-      // 字母保持等宽，微软双拼的 `;` 以低于 required 的约束与它们等宽，隐藏时 stack view 的零宽约束胜出；回车宽 1.75 个键，同样低于 required，让手机能把它隐藏。
+      // 字母保持等宽，`;`（微软双拼、粤语双拼）以低于 required 的约束与它们等宽，隐藏时 stack view 的零宽约束胜出；回车宽 1.75 个键，同样低于 required，让手机能把它隐藏。
       let keys = row.arrangedSubviews.filter { $0 !== enter }
       for other in keys.dropFirst() {
         let width = other.widthAnchor.constraint(equalTo: keys[0].widthAnchor)
@@ -4541,6 +4543,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       hintLabel.text = hint
       hintLabel.isHidden = hint == nil
+      // `;` 键的标签已经说出它在当前方案里的韵母，不再按字母读，也不重复读键位提示。
+      if lowercase == ";" {
+        button.accessibilityLabel = inputScheme.semicolonFinalKeyAccessibilityLabel
+        button.accessibilityValue = nil
+        continue
+      }
       button.accessibilityLabel =
         shifted
         ? "大写 \(lowercase.uppercased())" : "字母 \(lowercase.uppercased())"
@@ -5960,7 +5968,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
     }
     guard letterRowViews.count > 1, let row = letterRowViews[1] as? UIStackView else { return }
-    // 手机的中间一排两侧各缩进半个键，微软双拼用 `;` 键填上这块空位；iPad 的中间一排缩进 2.5% 开始，以回车结尾（`TabletLetterLayout`）。
+    // 手机的中间一排两侧各缩进半个键，微软双拼和粤语双拼用 `;` 键填上这块空位；iPad 的中间一排缩进 2.5% 开始，以回车结尾（`TabletLetterLayout`）。
     // 这个比例按按键区域本身的宽度计算，单手模式会把它收窄。
     let keysWidth = KeyboardOneHandLayout.keysWidth(
       available: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing, mode: appliedOneHanded ?? .off)
@@ -5968,7 +5976,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if formFactor == .tablet {
       margins = UIEdgeInsets(top: 0, left: keysWidth * TabletLetterLayout.middleRowLeadingInset, bottom: 0, right: 0)
     } else {
-      let inset: CGFloat = KeyboardLayoutPreference.geometry.centeredLetters && inputScheme != .microsoft
+      let inset: CGFloat = KeyboardLayoutPreference.geometry.centeredLetters && !inputScheme.showsSemicolonFinalKey
         ? keysWidth * CGFloat(KeyboardLayoutPreference.geometry.letterInsetRatio) : 0
       margins = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
     }
@@ -6203,7 +6211,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyKeyboardMetrics()
     applyOneHanded()
     standardRowHeights.forEach { $0.1.isActive = false }
-    microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !isInLocalMode && !usesLetterGrid)
+    microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme.showsSemicolonFinalKey && !isInLocalMode && !usesLetterGrid)
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !isInLocalMode
     japaneseKeys?.isHidden = !kana
     japaneseKeys?.setDigits(showsSymbols)

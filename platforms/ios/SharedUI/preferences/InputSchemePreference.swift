@@ -19,6 +19,18 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Cantonese Jyutping on the 26 letter keys: Traditional candidates from the Cantonese dictionary, with nothing learned.
   var isCantonese: Bool { self == .cantonese || self == .cantoneseShuangpin }
 
+  /// 26 键字母层第二排 L 右边是否有 `;` 键。微软双拼把 ing 放在 `;` 上，粤语双拼把 ing 和 ik 放在 `;` 上（引擎 `cantonese::shuangpin`），少了这个键这些音节就打不出来，所以选了方案就一直显示，不设开关（#10099）。其他方案的 `;` 不是编码键，不加这个键。
+  var showsSemicolonFinalKey: Bool { self == .microsoft || self == .cantoneseShuangpin }
+
+  /// `;` 键的读屏标签：先说它是分号，再说它在当前方案里是哪个韵母。不显示这个键的方案只说「分号」。
+  var semicolonFinalKeyAccessibilityLabel: String {
+    switch self {
+    case .microsoft: "分号，微软双拼 ing"
+    case .cantoneseShuangpin: "分号，粤语双拼 ing 和 ik"
+    default: "分号"
+    }
+  }
+
   /// Zhuyin on the Dachen layout: the keys send the ASCII under each bopomofo, and the Engine converts the syllables in place into Traditional Chinese.
   var isZhuyin: Bool { self == .zhuyin }
 

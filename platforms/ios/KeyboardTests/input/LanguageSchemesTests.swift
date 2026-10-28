@@ -113,6 +113,81 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.selectedScheme(in: document), .cantonese)
   }
 
+  /// 粤语双拼和微软双拼一样在第二排 L 右边有 `;` 键（#10099）：引擎把 ing、ik 放在 `;` 上，没有这个键这些音节打不出来，所以选了方案就一直显示，没有开关；其他方案的 `;` 不是编码键，不加这个键。
+  func testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey() {
+    XCTAssertEqual(ChineseInputScheme.allCases.filter(\.showsSemicolonFinalKey), [.microsoft, .cantoneseShuangpin])
+    XCTAssertEqual(ChineseInputScheme.microsoft.semicolonFinalKeyAccessibilityLabel, "分号，微软双拼 ing")
+    XCTAssertEqual(ChineseInputScheme.cantoneseShuangpin.semicolonFinalKeyAccessibilityLabel, "分号，粤语双拼 ing 和 ik")
+    XCTAssertEqual(ChineseInputScheme.cantonese.semicolonFinalKeyAccessibilityLabel, "分号")
+  }
+
+  /// 粤语双拼的 `;` 与微软双拼排在同一个位置、同样宽：第二排十个键，两侧不缩进；读屏说出粤语双拼的韵母；M 加 `;` 是 ming。普通粤拼不显示这个键。
+  func testCantoneseShuangpinKeyboardShowsTheSemicolonKeyRightOfL() throws {
+    try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.cantoneseShuangpin) == true,
+                      "msime-cantonese.db is not staged into the test host")
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    func keyboard(_ scheme: ChineseInputScheme) throws -> KeyboardViewController {
+      InputSchemePreference.scheme = scheme
+      XCTAssertEqual(InputSchemePreference.scheme, scheme)
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      return controller
+    }
+    func key(_ predicate: (UIView) -> Bool, in controller: KeyboardViewController) throws -> UIButton {
+      try XCTUnwrap(nodes(controller.view).first(where: predicate) as? UIButton)
+    }
+    func semicolon(in controller: KeyboardViewController) throws -> UIButton {
+      try key({ $0.accessibilityIdentifier == "microsoftFinalKey" }, in: controller)
+    }
+    func letter(_ face: String, in controller: KeyboardViewController) throws -> UIButton {
+      try key({ $0.accessibilityLabel == "字母 \(face)" && shown($0) }, in: controller)
+    }
+    func frame(_ view: UIView, in controller: KeyboardViewController) -> CGRect {
+      view.convert(view.bounds, to: controller.view)
+    }
+
+    let microsoft = try keyboard(.microsoft)
+    defer { microsoft.viewDidDisappear(false) }
+    let microsoftSemicolon = try semicolon(in: microsoft)
+    XCTAssertTrue(shown(microsoftSemicolon))
+    XCTAssertEqual(microsoftSemicolon.accessibilityLabel, "分号，微软双拼 ing")
+
+    let cantonese = try keyboard(.cantoneseShuangpin)
+    defer { cantonese.viewDidDisappear(false) }
+    let cantoneseSemicolon = try semicolon(in: cantonese)
+    XCTAssertTrue(shown(cantoneseSemicolon), "ing and ik live only on the semicolon key")
+    XCTAssertEqual(cantoneseSemicolon.accessibilityLabel, "分号，粤语双拼 ing 和 ik")
+    XCTAssertNil(cantoneseSemicolon.accessibilityValue)
+    let l = frame(try letter("L", in: cantonese), in: cantonese)
+    let semicolonFrame = frame(cantoneseSemicolon, in: cantonese)
+    XCTAssertGreaterThan(semicolonFrame.minX, l.maxX, "the key sits right of L")
+    XCTAssertEqual(semicolonFrame.midY, l.midY, accuracy: 0.5)
+    XCTAssertEqual(semicolonFrame.width, l.width, accuracy: 0.5)
+    // 与微软双拼同一个横向几何：第二排不缩进，A 和 `;` 的横向位置、宽度都一样（纵向随候选栏高度，不比）。
+    let microsoftFrame = frame(microsoftSemicolon, in: microsoft)
+    XCTAssertEqual(semicolonFrame.minX, microsoftFrame.minX, accuracy: 0.5)
+    XCTAssertEqual(semicolonFrame.width, microsoftFrame.width, accuracy: 0.5)
+    XCTAssertEqual(frame(try letter("A", in: cantonese), in: cantonese).minX,
+                   frame(try letter("A", in: microsoft), in: microsoft).minX, accuracy: 0.5)
+
+    try letter("M", in: cantonese).sendActions(for: .primaryActionTriggered)
+    cantoneseSemicolon.sendActions(for: .primaryActionTriggered)
+    cantonese.view.layoutIfNeeded()
+    let candidates = nodes(cantonese.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+      .compactMap { $0.configuration?.attributedTitle.map { String($0.characters) } ?? $0.configuration?.title }
+    XCTAssertTrue(candidates.contains("名"), "m; is ming: \(candidates.prefix(5))")
+
+    let plain = try keyboard(.cantonese)
+    defer { plain.viewDidDisappear(false) }
+    XCTAssertFalse(shown(try semicolon(in: plain)), "plain Jyutping has no semicolon final")
+  }
+
   /// 全拼 14 键：引擎方案是全拼，共享文档里的 id 和布局都是 `fourteen_key`，云端按全拼上传，默认不启用，空格键和方案简称写「全拼」，统计来源是 `fourteenKey`。
   func testTheFourteenKeySchemeIsQuanpinOnItsOwnLayout() {
     let scheme = ChineseInputScheme.fourteenKey
