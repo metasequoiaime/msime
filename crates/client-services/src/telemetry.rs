@@ -26,7 +26,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 mod consent;
-pub use consent::{clear_if_consent_disabled, with_consent_epoch, ConsentEpochSender};
+pub use consent::{
+    clear_if_authority_disabled, clear_if_consent_disabled, with_consent_epoch, ConsentEpochSender,
+};
 mod identity;
 pub use identity::CrashContext;
 #[cfg(test)]

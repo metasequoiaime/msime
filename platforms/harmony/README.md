@@ -121,9 +121,9 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 已知的回退：已有的账号操作断网时从「网络连接失败」变成「暂不可用」（Rust 对已有操作仍报 `account_unavailable`）；云词库面板参数不合法时的码从 `account_invalid` 变成 `invalid_cloud_dictionary`，面板对每个动作有自己的失败句子，不按码写文案，所以措辞不变。
 
-使用情况上报、公告与社区审核走 client-services 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启），队列、随机安装 id、每日一次的 `active` 和会话记录位于**各进程私有**的 `files/state/telemetry`；API 12 起 App 与键盘的 `files/state` 不同，不能把两份队列视为共用，见上文「输入法扩展的独立沙箱」。一次会话就是一个键盘进程，正常销毁时仅结束本进程实际开始的会话；设置应用只准备独立捕获并发送，不增加输入会话。HiAppEvent 监听 `APP_CRASH`（JavaScript 与原生）及 `APP_FREEZE`，不安装自己的异常处理器。延迟报告带系统原版本与发生时间，经本沙箱 Rust 授权代次核对后入队，读取授权失败保持拒绝，不回退为独立文件。统计关闭通知使用条件清理，隐私政策撤回另外处理。原生帧只留文件名、pc 和符号；信号只留名称与 code。
+使用情况上报、公告与社区审核走 client-services 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启），队列、随机安装 id、每日一次的 `active` 和会话记录位于**各进程私有**的 `files/state/telemetry`；API 12 起 App 与键盘的 `files/state` 不同，不能把两份队列视为共用，见上文「输入法扩展的独立沙箱」。一次会话就是一个键盘进程，正常销毁时仅结束本进程实际开始的会话；设置应用只准备独立捕获并发送，不增加输入会话。HiAppEvent 监听 `APP_CRASH`（JavaScript 与原生）及 `APP_FREEZE`，不安装自己的异常处理器。正常路径用 `setEventParam` 保存 Rust 预备的 UUID、原构建头、PID 与准备时刻，系统补报只有原身份与当前授权匹配时才入队，旧无身份报告不追认。崩溃按原 UUID 归属会话，卡死独立；原生帧保留合法 ELF build-id。延迟报告带系统原版本与发生时间，经 Rust 共享权威授权代次核对后入队，读取授权失败保持拒绝，不回退为独立文件。统计关闭与隐私政策撤回共同使权威授权失效，通知只触发重读和条件清理。原生帧只留文件名、pc 和符号；信号只留名称与 code。
 
-本沙箱授权检查不等于跨沙箱持续同意已经完整：镜像导入偏好时会保留接收方自己的代次，两次导入之间关闭再开启、活跃进程独立观察、系统报告的原捕获与精确构建归属仍待补齐。`tests/run.sh` 覆盖策略和替代系统 API 后的实际适配器回归；HAP 编译不代表设备上新增 NAPI 及系统回调已验收。
+App 在共享目录 `msime/reporting-authority` 发布合并统计开关与隐私政策的持续授权；键盘只读既有锁文件和记录，不创建文件。两个活跃进程每秒独立核对，网络请求不阻塞撤回；源或政策关闭重开换代，临时源读取错误暂停且不清队列。App 无共享目录时使用私有授权，键盘保持拒绝。App 导入键盘偏好保留自己的统计开关，避免陈旧镜像重新开启。系统原身份传递的真实投递与精确构建收件仍待设备验收；官方 HiAppEvent 规格从 API 22 支持输入法应用，当前最低 API 21 的兼容采集尚未实现；协议与设备缺口见[共享授权笔记](../../.agents/notes/implemented/architecture/2026-10-28-harmony-reporting-authority.md)。`tests/run.sh` 覆盖策略和替代系统 API 后的实际适配器回归；HAP 编译不代表设备上新增 NAPI 及系统回调已验收。
 
 公告在设置窗口打开或回到前台时取（client-services 一分钟内直接用缓存），显示为设置页上方一张可关闭的卡片，关闭按公告 id 记在本地。正文是 client-services 用 pulldown-cmark 渲染、原始 HTML 已转义的 HTML，放进一个禁用脚本、CSP 为 `default-src 'none'` 的小 Web 组件里；点链接一律交给系统浏览器或邮件应用。这里没有用 RichText：它没有拦截链接点击的入口，链接会在卡片里打开，而 Web 组件的 `onLoadIntercept` 可以把它拦下来交出去。
 

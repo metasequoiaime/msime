@@ -1,6 +1,8 @@
 //! 所有桌面正常入口共享的持久授权适配，偏好锁先于队列锁。
 use super::{Delivery, TelemetrySender, TelemetryStore};
-use msime_client_core::preferences::{PreferencesStore, UsageReportingConsent};
+use msime_client_core::preferences::{
+    PreferencesStore, ReportingAuthority, ReportingAuthorization, UsageReportingConsent,
+};
 
 /// 在偏好锁内核对持久代次并执行本地操作；操作不得联网或反向取得偏好锁。
 pub fn with_consent_epoch<T>(
@@ -58,12 +60,30 @@ pub fn clear_if_consent_disabled(
             if enabled {
                 return Ok(false);
             }
-            let current = TelemetryStore::new(store.directory());
-            let _lock = current.lock().map_err(|error| error.to_string())?;
-            current.clear_locked().map_err(|error| error.to_string())?;
-            Ok(true)
+            clear_authorized(store)
         })
         .map_err(|error| error.to_string())?
+}
+
+/// 只读授权明确关闭后才清理；暂停与读错误保留队列，核对期间保持授权读锁。
+pub fn clear_if_authority_disabled(
+    authority: &ReportingAuthority,
+    store: &TelemetryStore,
+) -> Result<bool, String> {
+    authority
+        .with_current(|current| match current {
+            ReportingAuthorization::Enabled(_) => Ok(false),
+            ReportingAuthorization::Disabled => clear_authorized(store),
+            ReportingAuthorization::Suspended => Err("reporting authority is suspended".into()),
+        })
+        .map_err(|error| error.to_string())?
+}
+
+fn clear_authorized(store: &TelemetryStore) -> Result<bool, String> {
+    let current = TelemetryStore::new(store.directory());
+    let _lock = current.lock().map_err(|error| error.to_string())?;
+    current.clear_locked().map_err(|error| error.to_string())?;
+    Ok(true)
 }
 
 #[cfg(test)]

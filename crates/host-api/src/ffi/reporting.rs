@@ -485,15 +485,11 @@ pub unsafe extern "C" fn msime_client_telemetry_clear(
                 request.preferences_directory.as_deref(),
                 request.authority_directory.as_deref(),
             )?;
-            return source.with_current(|current| {
-                if current.is_some() {
-                    return Ok(Value::Bool(false));
-                }
-                TelemetryStore::new(absolute_directory(&request.directory)?)
-                    .clear()
-                    .map(|()| Value::Bool(true))
-                    .map_err(|error| error.to_string())
-            });
+            return source
+                .clear_if_disabled(&TelemetryStore::new(absolute_directory(
+                    &request.directory,
+                )?))
+                .map(Value::Bool);
         }
         TelemetryStore::new(absolute_directory(&request.directory)?)
             .clear()
