@@ -58,6 +58,8 @@ export interface DictionarySyncRun {
   status: DictionarySyncStatus;
   pendingKey: boolean;
   deferred: boolean;
+  /** 这一次写进本机词库的改动数（网盘来的词和删除）；失败时为 0。 */
+  applied: number;
   error: string | null;
 }
 
@@ -105,6 +107,7 @@ export function dictionarySyncRun(value: unknown): DictionarySyncRun | null {
     status,
     pendingKey: report?.pending_key === true,
     deferred: report?.deferred === true,
+    applied: count(report?.applied),
     error: report ? null : (optionalText(run.error) ?? "dictionary_sync_unavailable"),
   };
 }
