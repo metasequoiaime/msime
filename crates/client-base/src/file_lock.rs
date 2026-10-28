@@ -18,7 +18,7 @@ pub struct ScopedFileLock {
 }
 
 impl ScopedFileLock {
-    /// 接管已经成功取得独占锁的同一个文件；本方法不执行取锁。
+    /// 接管已经成功取得锁的同一个文件（共享或独占）；本方法不执行取锁。
     pub fn from_locked(file: File) -> Self {
         Self { _file: file }
     }

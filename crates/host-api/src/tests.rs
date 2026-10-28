@@ -21917,3 +21917,113 @@ fn world_clock_validates_and_forwards_offline_requests() {
         false
     );
 }
+
+#[test]
+fn telemetry_authority_abi_shares_one_epoch_across_private_sandboxes() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::TelemetryStore;
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("settings-state");
+    let authority = root.path().join("shared-authority");
+    let queue = root.path().join("keyboard-state/telemetry");
+    let publish = |allowed: bool| {
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":source,"authority_directory":authority,"publication":{"policy_allowed":allowed,"policy_identity":"synthetic-policy"}}),
+        )
+    };
+    let first = publish(true);
+    assert_eq!(first["ok"], true, "{first}");
+    let request = |epoch: &Value| json!({"directory":queue,"platform":"harmony","version":"0.1.0","consent_epoch":epoch,"authority_directory":authority});
+    let begin = reporting_call(
+        msime_client_telemetry_begin,
+        request(&first["value"]["epoch"]),
+    );
+    assert_eq!(begin["value"]["enabled"], true, "{begin}");
+    assert!(!root.path().join("keyboard-state/preferences.json").exists());
+    // 设置进程经历撤回和重开，键盘只读到最终快照也必须失去旧权限。
+    assert_eq!(publish(false)["value"]["enabled"], false);
+    let second = publish(true);
+    assert_ne!(first["value"]["epoch"], second["value"]["epoch"]);
+    let current = reporting_call(
+        msime_client_telemetry_begin,
+        request(&second["value"]["epoch"]),
+    );
+    assert_eq!(current["value"]["enabled"], true, "{current}");
+    let store = TelemetryStore::new(&queue);
+    let fresh = store.queued().unwrap();
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_begin,
+            request(&first["value"]["epoch"])
+        )["value"]["enabled"],
+        false
+    );
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_clear,
+            json!({"directory":queue,"authority_directory":authority})
+        )["value"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    // 旧现场文件晚到，继续按原代次过滤，不能改写为当前授权。
+    let path = begin["value"]["crash_record_path"].as_str().unwrap();
+    std::fs::write(
+        path,
+        format!(
+            "{}Synthetic old fault\nsynthetic+0x12\n",
+            begin["value"]["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    let collected = reporting_call(
+        msime_client_telemetry_begin,
+        request(&second["value"]["epoch"]),
+    );
+    assert_eq!(collected["value"]["crashes"], 0);
+    assert!(!std::path::Path::new(path).exists());
+    let mut bypass = request(&second["value"]["epoch"]);
+    bypass["enabled"] = true.into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, bypass)["ok"],
+        false
+    );
+    let mut no_epoch = request(&second["value"]["epoch"]);
+    no_epoch.as_object_mut().unwrap().remove("consent_epoch");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, no_epoch)["ok"],
+        false
+    );
+    let mut mixed = request(&second["value"]["epoch"]);
+    mixed["preferences_directory"] = source.to_string_lossy().as_ref().into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, mixed)["ok"],
+        false
+    );
+    // 暂时损坏只暂停，不能被当作关闭清队列；恢复仍是同一轮授权。
+    let source_file = source.join("preferences.json");
+    let saved = std::fs::read(&source_file).unwrap();
+    std::fs::write(&source_file, b"broken").unwrap();
+    let paused = publish(true);
+    assert_eq!(paused["value"]["suspended"], true);
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_clear,
+            json!({"directory":queue,"authority_directory":authority})
+        )["ok"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    std::fs::write(&source_file, saved).unwrap();
+    assert_eq!(publish(true)["value"]["epoch"], second["value"]["epoch"]);
+    publish(false);
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_clear,
+            json!({"directory":queue,"authority_directory":authority})
+        )["value"],
+        true
+    );
+    assert!(store.queued().unwrap().is_empty());
+}
