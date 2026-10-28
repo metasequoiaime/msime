@@ -243,7 +243,8 @@ enum UsageReporting {
     var current: Session? { snapshot.withLockIfAvailable { $0.session } ?? nil }
 
     func start(_ ready: @escaping () -> Void = {}) {
-      queue.async {
+      queue.async { [weak self] in
+        guard let self else { return }
         if !self.active {
           self.active = true
           self.update()
@@ -309,9 +310,11 @@ enum UsageReporting {
           }
         }
       }
+      // 闭包在并发队列上执行，固定本轮授权值，避免捕获仍会被更新的局部变量。
+      let resolvedConsent = consent
       let shouldClear = snapshot.withLock { current -> Bool in
         guard current.generation == generation else { return false }
-        switch consent {
+        switch resolvedConsent {
         case .enabled?:
           disabled = false
           current.session = session
