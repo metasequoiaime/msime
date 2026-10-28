@@ -73,5 +73,21 @@ int main(int argc, char **argv) {
     } else {
         expect(globals.substr(table, end - table), "L'/'", true, "'/' commits the highlighted candidate");
     }
+    // 标点契约第 5 版（shared/contracts/punctuation/policy.json 的 simple）：TIP 自己的标点表里 `{` `}` 固定出「」，与引擎和 Linux 宿主一致。
+    {
+        const auto punctuation = globals.find("PunctuationTable[");
+        const auto punctuationEnd = punctuation == std::string::npos ? punctuation : globals.find("};", punctuation);
+        if (punctuation == std::string::npos || punctuationEnd == std::string::npos) {
+            std::fprintf(stderr, "FAIL: PunctuationTable not found\n");
+            ++failures;
+        } else {
+            const std::string rows = globals.substr(punctuation, punctuationEnd - punctuation);
+            expect(rows, "{L'{', L\"「\"}", true, "'{' gives the left corner bracket");
+            expect(rows, "{L'}', L\"」\"}", true, "'}' gives the right corner bracket");
+            expect(rows, "{L'{', L\"{\"}", false, "'{' no longer gives an ascii brace");
+        }
+    }
+    // `{` `}` 出的「」不武装空格转换。
+    expect(handler, "const bool braceKey = wch == L'{' || wch == L'}';", true, "brace keys do not arm the space conversion");
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -2327,13 +2327,10 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
 
     const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed) &&
                                           !Global::IsPairedPunctuationExcludedProcess(Global::current_process_name);
-    // 全角模式下 `{` 补出 ｛｝、`}` 跨过 ｝，与 macOS 一致；只在成对补全打开时才需要读这个状态。
-    const bool fullWidthPair = pairedPunctuationEnabled && (wch == L'{' || wch == L'}') &&
-                               pCompositionProcessorEngine->GetDoubleSingleByteMode(_pThreadMgr, _tfClientId) != FALSE;
     if (pairedPunctuationEnabled && !_IsComposing() && _candidateMode == CANDIDATE_NONE)
     {
         // A pair whose closing half is still waiting on the right of the caret is closed by stepping over it. Without this the closing key inserts a second one （内容）） and, because of the pinning below, the right quote could never be typed at all.
-        const WCHAR stepOver = Global::PairedPunctuationStepOverCandidate(wch, punctuationStr, fullWidthPair);
+        const WCHAR stepOver = Global::PairedPunctuationStepOverCandidate(wch, punctuationStr);
         if (_TryStepOverPairedPunctuation(ec, pContext, stepOver))
         {
             return S_OK;
@@ -2347,7 +2344,6 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         // toggle maintained by GetPunctuation().
         // 直角引号样式下同理：』改回『，」改回「。
         punctuationStr.back() = Global::ReopenedPairedQuote(wch, punctuationStr.back());
-        punctuationStr.back() = Global::PairedPunctuationKeyOpening(wch, punctuationStr.back(), fullWidthPair);
     }
 
     const WCHAR pairedOpening = punctuationStr.empty() ? 0 : punctuationStr.back();
@@ -2403,7 +2399,9 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     // Chinese punctuation commit. Auto-completed pairs and candidate-prefixed
     // commits are deliberately left untouched so a following space cannot
     // rewrite half of a pair or historical candidate text.
-    _ArmSmartPunctuationSpace(punctuationStr.size() == 1 ? punctuationStr.back() : 0,
+    // `{` `}` 出的「」不武装空格转换：花括号不在空格转换的名单里（与 Linux 宿主的 is_space_conversion_key 一致），而 SmartPunctuationAsciiFor 会把「」按引号样式转回 `'`。
+    const bool braceKey = wch == L'{' || wch == L'}';
+    _ArmSmartPunctuationSpace(punctuationStr.size() == 1 && !braceKey ? punctuationStr.back() : 0,
                               pairedClosing != 0 || punctuationStr.size() != 1, smartPunctuationBeforeChar);
     if (pairedClosing != 0)
     {
