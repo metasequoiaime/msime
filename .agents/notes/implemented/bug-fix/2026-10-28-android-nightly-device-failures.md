@@ -12,7 +12,9 @@ Nightly builds 从 2026-10-25 起每天失败（上一次成功是 10-20 的 `39
 2. **只在 API 35 间歇出现的触控板三击失败**。夜间 `40230902154`、`40411840275` 停在「trackpad triple tap line」，夜间 `40192905422` 和 develop 的 `c34513834d` 停在「trackpad last word and unterminated final line」；同期 develop 的 `af0ace384e`、`f03731f317`、`060b72974d` 等又整套通过，API 28 从未失败。出错的两个阶段都含三击，只做双击的阶段从未失败。
 3. **下载损坏**：`40590337289` 的 API 28 在安装步骤失败，代码还没构建。
 
-其余几项已有归属，本篇不再处理：10-25 的「launch」（剪贴板常用语提示）由 #9785 修好；`40164019651` 的剪贴板导出和 API 28「deferred composition length 1」见[设备验收回归修复](2026-10-22-android-device-ci-regressions.md)；10-26 develop 上的「clipboard export real keyboard panel clipboard entry」由 #10007 修好。这几项在最近的运行里都已通过。
+其余几项已有归属，本篇不再处理：10-25 的「launch」（剪贴板常用语提示）由 #9785 修好；`40164019651` 的剪贴板导出和 API 28「deferred composition length 1」见[设备验收回归修复](2026-10-22-android-device-ci-regressions.md)；10-26 develop 上的「clipboard export real keyboard panel clipboard entry」当时记为由 #10007 修好，10-28 的 `40608633162` 又在同一阶段失败一次，见下文「报告全部失败后露出的五处」。其余几项在最近的运行里都已通过。
+
+#10094 让 `smoke.sh` 跑完全部独立检查再汇总后，第一次完整的 API 35 运行（PR #10093 的 `40608633162`，只改 CI 接线，产品代码与 develop 相同）跑了 1 小时 21 分钟，列出五处此前被挡在前面的失败：剪贴板导出的「real keyboard panel clipboard entry」、MoreTools 的「function panel first page」、NumberRow 的「English number page adds useful symbols」、QuickDeletePreview 的「quick delete keeps committed prefix while composing」、英文角标滑动的「English down swipe x」。同一时刻 develop 推送的 `40608663443`（`4b48685e7e`）列出后四处，剪贴板导出通过。
 
 ## Decision
 
@@ -20,7 +22,12 @@ Nightly builds 从 2026-10-25 起每天失败（上一次成功是 10-20 的 `39
 - 触控板双击选词、三击选行的回读代次由 `TextTrackpadSelectionVersion` 持有。新的一下触摸、换编辑器、关面板和编辑器报告的选区变化照旧让在途回读作废；触控板自己设下、编辑器已接受的选区，其回报只认一次、不作废回读。这份记录只陪紧随其后的一下触摸，再下一下触摸时作废；换编辑器和关面板时同样清掉。选区本来就是那一段时 `setSelection` 不改变什么，编辑器不发回报（`InputMethodManager` 只在选区与上次发出的不同时才报），记录若一直留着，之后外部恰好设成同一段的回报会被吞掉，在途回读就盖过它。三击里要保护的只有第三下松手发出的选行回读，下一下触摸本来就让它作废。
 - 设备验收的连点组之间，事件时间至少隔开系统双击时限；组内仍用排在当前时刻之后的事件时间表达快速连点。选区断言超时时报出合成编辑器的实际选区偏移。
 - 设备验收的 NDK 改用发版和 OCR 模块构建共用的 `platforms/android/install-ndk.sh`，其余 SDK 包照旧一次装完，安装后的 NDK 版本与系统镜像核对保留。`install-ndk.sh` 每次重试前清掉 sdkmanager 的 `.temp`、`.downloadIntermediates` 和没装完的 NDK 目录。
-- `DeviceSmoke.await` 的 15 秒时限和失败即退出的套件顺序不变。
+- MoreTools 按 #9945 的固定尾部验收功能面板：第一页的十二格是默认工具栏去掉输入方式、表情、剪贴板后的前十二项，末格是按键音；辅助入口的先后改为从第一页翻到最后一页、按页行列读出全部条目后比较，并断言设置、反馈、宣传、打开官网、关于是最后五项。
+- NumberRow 在英文数字页点左下的「返回」（描述「返回原键盘」）回字母键盘，与 #9925 之后的键面一致。
+- QuickDeletePreview 的组字用例写入「清风」后断言编辑器里实际的文字和光标位置，不再把 `ACTION_SET_SELECTION` 的返回值当成断言。
+- 英文角标滑动按 #9995 期望 X 上屏 `_`、C 上屏反引号，其余 24 键和中文键盘的 `…`、`、` 不变。
+- 剪贴板导出的键盘入口仍按原判据等 15 秒；超时的断言里报出每个「剪贴板」控件所在的行、是否可见可用、方案入口是否可用，并在清掉 UiAutomation 缓存前后各读一次。
+- `DeviceSmoke.await` 的 15 秒时限不变。失败即退出已由 #10094 改成跑完全部独立检查再汇总，见[设备门禁](../testing/2026-10-08-android-device-gates.md)。
 
 ## 三击为什么在 API 35 上丢掉选行
 
@@ -30,6 +37,16 @@ Nightly builds 从 2026-10-25 起每天失败（上一次成功是 10-20 的 `39
 
 `df2ae111b0` 当时把失败归为慢模拟器丢掉了过期的第三下，于是去掉每组前的「按下加取消」，改为把事件时间排到当前时刻之后。这没有触及上面的竞态，还让相邻两组可能被算成同一串连点：上一组最后一下与下一组第一下的事件时间若相隔不到双击时限，三击的第一下就成了第三下。现有运行里两组相隔约 500 ms，没有因此失败，但更快的设备会撞上，所以测试一侧补回组间间隔。
 
+## 报告全部失败后露出的五处
+
+四处是确定性失败，在 `40608633162` 和 `40608663443` 两次运行里同样出现；对应的 PR 都在 10-27 13:16 到 13:31 之间合入 develop，那时整套在更前面的「open native saved skins」「eighteen quanpin」上停下，设备套件又不在 PR 上跑，所以这几处冒烟从合入起一次也没跑到。没有一处是前一项留下的状态：五处失败前一项都已通过，失败点与前面的检查无关。
+
+- **MoreTools「function panel first page」，界面改了、冒烟没跟上**。#9945（`de10716226`）把设置从第一页第八格移到全部工具之后的固定尾部，`FunctionPanelModelSmoke` 跟着改了，`MoreToolsDeviceSmoke` 没改：它在第一页等「设置」，15 秒后超时。失败信息只列出工具栏和字母键，是因为 `imeTexts` 只收前 30 条文字，面板磁贴排在键盘后面没被列出，不代表面板关了。冒烟后面的「按键振动与按键音同页」「辅助入口同屏比较坐标」同样过时：默认工具栏下按键音落在第一页末格，按键振动在第二页，关于在第三页。
+- **NumberRow「English number page adds useful symbols」，界面改了、冒烟没跟上**。#9925（`094ce2aaac`）把数字页和符号页左下的返回键从「拼音 / ABC」统一成「返回」（描述「返回原键盘」），同一 PR 改了 `NumberLayerEntryDeviceSmoke`，漏了 `NumberRowDeviceSmoke` 里的 `tap(key("ABC"))`。报错是 `awaitAny` 的「Expected synthetic control was not observed」，失败时键盘停在英文数字页（`[`、`]`、`{` 等都在），说明「中」「123」「[」都点到了，等不到的是 ABC。
+- **英文角标滑动「English down swipe x」，界面改了、冒烟没跟上**。#9995（`427d4652a9`）让英文键盘的 X、C 角标改成 `_` 和反引号，宿主的 `commitLetterHint` 按 `dedicatedEnglish` 取 `LetterHintTable.hint(input, english)`，JVM 冒烟跟上了，设备冒烟仍按中文表期望 `…`、`、`。D 的 `¥` 已上屏，X 处等不到 `¥…`。
+- **QuickDeletePreview「quick delete keeps committed prefix while composing」，冒烟自己写错**。这一段是 #9938（`3af6184bd7`）随产品修改一起加的：先 `ACTION_SET_TEXT` 写入「清风」，再 `ACTION_SET_SELECTION` 把光标设到 2，返回 false 就报「Synthetic editor selection failed」。安卓 15 的 `TextView.performAccessibilityActionInternal` 处理 `ACTION_SET_TEXT` 时已把光标放到文末，处理 `ACTION_SET_SELECTION` 时只在目标与当前选区不同时才设并返回 true，相同就落到 `return false`。光标本来就在 2，这一步每次都返回 false，产品还没被触到。后面组字、上滑、长按的断言从没在设备上跑过。
+- **剪贴板导出「real keyboard panel clipboard entry」，间歇失败，未归因**。`40608633162` 里 `:ime` 进程 00:51:47.414 冷启动（每个阶段前 `am force-stop app.msime.android`，instrumentation 启动时系统又强停一次），00:51:49.800 输入法窗口已经占着屏幕下部（keep-clear 区域 `0,1613-1080,2400`），此后 15 秒里冒烟没找到可见且可用的「剪贴板」，00:52:03.7 失败。同一提交的 develop 运行在同一阶段通过，10-27 以来另外四次跑到这里的运行也都通过，时间线（编辑器启动、`:ime` 冷启动、LatinIME 窗口被换下）与失败那次一致。产品一侧的日志无从查起：这次 logcat 的 main 缓冲从 01:07:03 开始，之前的应用日志都被后面的套件冲掉了，只剩 system 缓冲。已知的线索是 [剪贴板操作认证](../feature/2026-10-25-android-clipboard-operations-auth.md) 记过的同一症状：冷启动的输入法在实时偏好到达之前 `clipboardHistoryEnabled` 为假，工具栏「剪贴板」存在但不可用，而有引擎会话的输入框要等会话起来后由 `preferencesReloader` 补上实时偏好；另外 verify 段「real keyboard panel clipboard capture」等的合成全文在 select 段已由 `seed()` 写进历史，这一等立刻满足，并不能证明输入法已经捕获。这些都只是候选解释，这次的日志不足以在其中定案，所以不改判据，只让下次失败自带足够的状态。
+
 ## Alternatives considered
 
 - **统一放宽 `await` 时限或给失败的冒烟加重试**：改动最小，慢 runner 上确有等待偏紧的情形。不采用：皮肤卡在 15 秒里根本不会出现，三击失败后编辑器选区再也不变，等多久都一样；重试只会把确定性失配和真实竞态一起盖住。
@@ -38,9 +55,18 @@ Nightly builds 从 2026-10-25 起每天失败（上一次成功是 10-20 的 `39
 - **选区已经是目标范围时不记录自身选区**：直接针对不发回报的情形。不采用：面板手里的选区是最近一次回报，三击竞态里它恰好落后于编辑器（选词的回报还没到），拿它判断会漏记或错记，正是这次要修的时序。
 - **收到任何一次回报就清掉记录，不论是否对上**：最简单。不采用：比自身回报更早的外部回报可能先到，按这条会把随后的真回报当成外部变化，三击竞态换个次序又回来；冒烟里「先到的旧回报照旧作废、随后的自身回报仍被识别」钉住这一点。
 - **去掉 `onUpdateSelection` 对代次的影响**：一行改动即可。不采用：触控板的设计要求核对最新选区，外部改动后套用旧回读算出的范围会把选区挪到别处。
+- **MoreTools 在设备上按 `FunctionPanelModel` 算出期望的分页**：测试包能加载产品类，写起来短。不采用：期望值和被测代码同源，模型怎么排都会通过；被工具栏隐藏的条目还取决于运行时状态（语音快捷键是否显示、有没有待插入的语音结果），算法要在测试里再抄一遍。模型的顺序已由 `FunctionPanelModelSmoke` 锁住，设备上只核对渲染出来的分页和翻页顺序。
+- **MoreTools 把辅助入口的期望写成固定页码**：断言更具体。不采用：页码随工具栏显示哪些入口、语音快捷键是否开着而变，换个默认值就要改冒烟；翻页读出的全序同样能发现顺序错和尾部被挤开。
+- **QuickDeletePreview 先把光标挪到别处再设回 2，让 `ACTION_SET_SELECTION` 返回 true**：保留原来的动作和断言写法。不采用：多出来的一次选区变化会经 `onUpdateSelection` 进输入法，测的就不是「写入文字后直接组字」这个场景；该断言的是编辑器的实际状态，动作的返回值只说明选区有没有变。
+- **剪贴板导出的入口等待加长、或失败后重开键盘再找一次**：最可能让这一项变绿。不采用：没查明原因前加时限或重试，会把可能存在的冷启动偏好竞态一起盖住，和本篇开头的取舍一致。
+- **把 verify 段的捕获等待改成先从历史里删掉合成全文、再等输入法重新捕获**：能让这一等名副其实。暂不采用：它改变了导出验收的数据前提（后面的导出比对按 select 段写入的历史检查），而这次失败与它的关系还没坐实；先由新的失败信息确认是不是输入法没就绪。
 - **在 `android-device.yml` 里内联「失败后清理再装一次」**：贴近出错位置，只改一个文件。不采用：仓库已有带合成 SDK 测试的 `install-ndk.sh` 供发版使用，再写一份会让两处的重试规则分叉；清理半截下载放进共享脚本，三个 workflow 一起受益。
 
 ## Consequences
+
+- 五处隐藏失败里四处按产品已定的行为改冒烟，没有放宽判据：MoreTools 的磁贴尺寸、四列三行、开关状态和辅助入口顺序照样检查，顺序检查从同屏两两比较扩成跨页全序，还多锁住固定尾部是最后五项；NumberRow、英文角标和 QuickDeletePreview 只换成新的键面或实际状态。代价是 MoreTools 读全序要把每一页翻一遍，每页等磁贴位置稳定两次。
+- 剪贴板导出的间歇失败没有修。下次失败时断言会写出「剪贴板」控件在工具栏还是「最近复制」那一行、可见与可用、引擎是否就绪，以及清掉缓存后是否不同，据此再定是产品冷启动的偏好竞态、控件不在，还是 UiAutomation 缓存过期。
+- 四处确定性失败同源于流程：改界面的 PR 没跑设备套件，套件又在更前面的失败上停下，过时的冒烟一直藏着。#10094 解决了后一半；前一半仍是[设备门禁](../testing/2026-10-08-android-device-gates.md)里的流程取舍。
 
 - 收益：夜间与 develop 推送的设备验收不再卡在皮肤卡片文字上；三击选行在回报晚到时也成立，触控板笔记里「用输入连接身份和代次丢弃迟到结果」的规则收窄为不把自身回报算作外部变化；NDK 下载损坏不再直接让 job 失败。
 - 代价：多了一个只在主线程使用的小类；自身选区的回报若被编辑器改写成别的值，仍按外部变化作废，与改动前相同。选词不发回报（选区本来就是那个词）且第三下的选行回读在途时，外部恰好设成同一个词的回报仍会被当成自身回报，这与真回报无法区分，窗口只有一下触摸。连点组之间的间隔只体现在事件时间上，测试不额外等待。
@@ -53,8 +79,12 @@ Nightly builds 从 2026-10-25 起每天失败（上一次成功是 10-20 的 `39
 - `scripts/test-android-install-ndk.py` 新增的「留下坏压缩包、准备完成的暂存操作和残缺 NDK 目录后重试」用例在旧脚本上失败（得到退出码 1、三次尝试），新脚本上两次尝试成功；其余四项照旧通过。`actionlint`（含 ShellCheck）检查 `android-device.yml`，ShellCheck 检查 `install-ndk.sh`，均通过。
 - 归因依据是 `gh run view` 的失败日志、各次运行上传的 logcat 和 develop 推送的同期运行；没有在本机模拟器复现，本机 arm64 模拟器的时序与 CI 的 x86_64 swiftshader 不同。
 
+- 五处隐藏失败：`ANDROID_SDK_ROOT=$HOME/Library/Android/sdk bash platforms/android/check-host.sh` 退出码 0（291 项 JVM 冒烟，252 个设备套件源码以 `-Xlint:all -Werror` 编译通过）。归因依据是 `40608633162`、`40608663443` 的失败日志和两次运行上传的 logcat，以及 AOSP `android15-release` 的 `TextView.java`；本机磁盘不足，没有起模拟器，四处冒烟修改后的设备行为没有实跑。
+
 ## 验证缺口
 
 修复只能由 CI 上的整套设备验收确认：需要一次 develop 推送或手动触发的 Nightly builds，看 API 28、35 两台设备都通过，特别是 API 35 的触控板专项和 `skin-delete` 专项。皮肤删除在新读屏文字下后续的取消、删除和偏好字节检查，本次只在源码层面核对，没有在设备上跑到。
+
+报告全部失败后露出的四处确定性失败，修好后各自后面的步骤此前也没在设备上跑过：MoreTools 的翻页全序、按键音切换、本地输入子页和隐藏方案入口，NumberRow 的横屏和关闭数字行，QuickDeletePreview 组字后的上滑与长按、九键布局，英文角标的上滑一轮和关闭滑动。需要下一次 API 35 整套运行确认，若在这些后续步骤失败，要先区分是新的过时期望还是产品问题。剪贴板导出的间歇失败要等它再出现一次，按新的失败信息归因。
 
 相关：[设备验收回归修复](2026-10-22-android-device-ci-regressions.md) 记录了更早一批同类失配；[设备门禁](../testing/2026-10-08-android-device-gates.md) 持有套件与模拟器的整体安排。
