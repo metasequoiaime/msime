@@ -1,6 +1,7 @@
 EXPORTS
   msime_test_tsf_snapshot
   msime_test_tsf_acquire
+  msime_test_tsf_crash
   msime_test_tsf_release
   msime_test_tsf_registered
   msime_test_tsf_unregistered

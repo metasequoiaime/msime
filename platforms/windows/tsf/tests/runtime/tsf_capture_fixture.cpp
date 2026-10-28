@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <werapi.h>
 #include "../../TsfCrashCapture.h"
 #include "../../HostPathEncoding.h"
 #include "../../CrashCaptureContext.h"
@@ -8,6 +9,10 @@
 
 namespace {
 std::atomic<unsigned> registered{0}, unregistered{0}, failures{0};
+bool system_wer() {
+  wchar_t value[2]{};
+  return GetEnvironmentVariableW(L"MSIME_TSF_TEST_SYSTEM_WER", value, 2) == 1 && value[0] == L'1';
+}
 struct RefreshBarrier {
   HANDLE entered = nullptr, resumed = nullptr;
   std::atomic<bool> blocked{false};
@@ -25,10 +30,12 @@ std::string default_state_directory() {
 extern "C" HRESULT msime_test_wer_register(PCWSTR path, PVOID context) {
   if (!path || !context || std::filesystem::path(path).filename() != L"MetasequoiaImeCrashWer.dll") return E_INVALIDARG;
   ++registered;
+  if (system_wer()) return WerRegisterRuntimeExceptionModule(path, context);
   return S_OK;
 }
-extern "C" HRESULT msime_test_wer_unregister(PCWSTR, PVOID) {
+extern "C" HRESULT msime_test_wer_unregister(PCWSTR path, PVOID context) {
   ++unregistered;
+  if (system_wer()) return WerUnregisterRuntimeExceptionModule(path, context);
   auto count = failures.load();
   while (count && !failures.compare_exchange_weak(count, count - 1)) {}
   return count ? E_FAIL : S_OK;
@@ -40,6 +47,11 @@ extern "C" void msime_test_tsf_after_refresh() {
   }
 }
 extern "C" {
+__declspec(noinline) void msime_test_tsf_crash() {
+  // 仅在显式系统专项中触发真实故障，验证 WER 的首帧归属。
+  volatile std::uintptr_t address = 1;
+  *reinterpret_cast<volatile unsigned *>(address) = 42;
+}
 void *msime_test_tsf_acquire() { return new msime::tsf::TsfCrashCapture(); }
 void msime_test_tsf_release(void *lease) { delete static_cast<msime::tsf::TsfCrashCapture *>(lease); }
 unsigned msime_test_tsf_registered() { return registered.load(); }

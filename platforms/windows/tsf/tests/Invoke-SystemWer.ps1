@@ -1,0 +1,72 @@
+﻿[CmdletBinding()]
+param(
+  [Parameter(Mandatory = $true)][string]$BuildDirectory,
+  [Parameter(Mandatory = $true)][string]$OutputDirectory,
+  [string]$Configuration = 'RelWithDebInfo'
+)
+$ErrorActionPreference = 'Stop'
+$payload = Join-Path (Resolve-Path -LiteralPath $BuildDirectory).Path "capture-test-payload/$Configuration"
+$executable = (Resolve-Path -LiteralPath (Join-Path $payload 'msime-tsf-capture-system-test.exe')).Path
+$helper = (Resolve-Path -LiteralPath (Join-Path $payload 'MetasequoiaImeCrashWer.dll')).Path
+$output = [IO.Path]::GetFullPath($OutputDirectory)
+if (Test-Path -LiteralPath $output) { throw '输出目录必须是尚不存在的合成专项目录' }
+# 只登记本次 helper 的完整路径，不改变系统通用 WER 策略或其他模块的值。
+$image = [IO.File]::ReadAllBytes($executable)
+$machine = [BitConverter]::ToUInt16($image, [BitConverter]::ToInt32($image, 0x3c) + 4)
+$view = if ($machine -eq 0x14c) { [Microsoft.Win32.RegistryView]::Registry32 } else { [Microsoft.Win32.RegistryView]::Registry64 }
+$registry = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+$key = $registry.CreateSubKey('Software\Microsoft\Windows\Windows Error Reporting\RuntimeExceptionHelperModules')
+if ($key.GetValueNames() -contains $helper) {
+  $key.Dispose()
+  $registry.Dispose()
+  throw '测试路径已经在允许列表中，拒绝覆盖'
+}
+$process = $null
+try {
+  New-Item -ItemType Directory -Path $output | Out-Null
+  $key.SetValue($helper, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
+  foreach ($case in @('tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
+    $caseDirectory = Join-Path $output $case
+    New-Item -ItemType Directory -Path $caseDirectory | Out-Null
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName = $executable
+    $process.StartInfo.Arguments = "$case `"$caseDirectory`""
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    if (-not $process.Start()) { throw "无法启动 $case" }
+    # 夹具只写有界诊断；先开始读取，避免子进程管道互相等待。
+    $stdout = $process.StandardOutput.ReadToEndAsync()
+    $stderr = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit(45000)) { throw "$case 的系统 WER 投递超时" }
+    $process.WaitForExit()
+    [IO.File]::WriteAllText((Join-Path $caseDirectory 'stdout.txt'), $stdout.GetAwaiter().GetResult())
+    [IO.File]::WriteAllText((Join-Path $caseDirectory 'stderr.txt'), $stderr.GetAwaiter().GetResult())
+    $expectedExit = if ($case -eq 'caught') { 0 } else { -1073741819 }
+    if ($process.ExitCode -ne $expectedExit) { throw "$case 退出码 $($process.ExitCode)，预期 $expectedExit" }
+    $expected = Get-Content -LiteralPath (Join-Path $caseDirectory 'expected.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $records = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.crash' -File)
+    if ($expected.record_expected) {
+      if ($records.Count -ne 1 -or -not (Test-Path -LiteralPath $expected.path -PathType Leaf)) { throw "$case 未收到唯一的系统 WER 记录" }
+      $record = [IO.File]::ReadAllText($expected.path)
+      $pattern = '^' + [regex]::Escape($expected.header) + 'EXCEPTION_ACCESS_VIOLATION \(0xc0000005\)\n' + [regex]::Escape($expected.module) + '\+0x[0-9a-f]+\n$'
+      if ($record -cnotmatch $pattern) { throw "$case 的原头、异常码或自有模块偏移不符" }
+      if ($case -eq 'reopened' -and ((Test-Path -LiteralPath $expected.initial_path) -or $expected.path -eq $expected.initial_path)) { throw '重开后错误复用了旧记录身份' }
+    } elseif ($records.Count -ne 0) { throw "$case 错误采集了外部、撤回或已捕获的异常" }
+    if (@(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.werpartial' -File).Count -ne 0) { throw "$case 留下了未完成的记录" }
+    Write-Output "PASS system WER $case; exit=$($process.ExitCode); records=$($records.Count)"
+    $process.Dispose()
+    $process = $null
+  }
+} finally {
+  if ($process) {
+    if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+    $process.Dispose()
+  }
+  $key.DeleteValue($helper, $false)
+  $remaining = $key.GetValueNames() -contains $helper
+  $key.Dispose()
+  $registry.Dispose()
+  if ($remaining) { throw '测试 helper 允许列表清理失败' }
+}
+Write-Output 'PASS 系统投递专项及测试路径允许列表清理；未调用产品上传入口'

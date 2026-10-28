@@ -15,10 +15,13 @@ target_compile_definitions(msime-tsf-capture-test-tip PRIVATE MSIME_TSF_CRASH_CA
 target_include_directories(msime-tsf-capture-test-tip PRIVATE "${MSIME_TSF_VERSION_INCLUDE_DIR}" "${msime_tsf_capture_source}/../../../crates/host-api/include")
 target_link_libraries(msime-tsf-capture-test-tip PRIVATE msime-tsf-capture-test-host nlohmann_json::nlohmann_json)
 add_executable(msime-tsf-capture-lifecycle-test "${msime_tsf_capture_source}/tests/runtime/tsf_capture_lifecycle.cpp")
+add_executable(msime-tsf-capture-system-test "${msime_tsf_capture_source}/tests/runtime/tsf_capture_system.cpp")
+target_link_libraries(msime-tsf-capture-system-test PRIVATE nlohmann_json::nlohmann_json)
 add_dependencies(msime-tsf-capture-lifecycle-test msime-tsf-capture-test-tip msime-tsf-crash-wer)
+add_dependencies(msime-tsf-capture-system-test msime-tsf-capture-lifecycle-test)
 add_custom_command(TARGET msime-tsf-capture-lifecycle-test POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:msime-tsf-crash-wer>" "$<TARGET_FILE_DIR:msime-tsf-capture-lifecycle-test>")
-foreach(target IN ITEMS msime-tsf-capture-test-host msime-tsf-capture-test-tip msime-tsf-capture-lifecycle-test)
+foreach(target IN ITEMS msime-tsf-capture-test-host msime-tsf-capture-test-tip msime-tsf-capture-lifecycle-test msime-tsf-capture-system-test)
   set_target_properties(${target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/capture-test-payload"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/capture-test-payload"
@@ -35,6 +38,9 @@ foreach(target IN ITEMS msime-tsf-capture-test-host msime-tsf-capture-test-tip m
   else()
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
     target_link_options(${target} PRIVATE -static)
+    if(target STREQUAL "msime-tsf-capture-system-test")
+      target_link_options(${target} PRIVATE -municode)
+    endif()
   endif()
 endforeach()
 add_test(NAME msime-tsf-capture-lifecycle COMMAND msime-tsf-capture-lifecycle-test)

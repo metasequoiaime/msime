@@ -34,6 +34,10 @@ void barrier(int phase) {
 }
 }
 extern "C" {
+__declspec(noinline) void msime_test_host_crash() {
+  volatile std::uintptr_t address = 1;
+  *reinterpret_cast<volatile unsigned *>(address) = 42;
+}
 void msime_test_host_initialize(const char *directory) {
   root = directory;
   entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);

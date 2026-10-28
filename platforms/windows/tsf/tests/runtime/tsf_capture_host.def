@@ -1,4 +1,5 @@
 EXPORTS
+  msime_test_host_crash
   msime_client_telemetry_consent
   msime_client_telemetry_begin
   msime_client_telemetry_clear
