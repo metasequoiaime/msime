@@ -7,7 +7,8 @@ use crate::*;
 use msime_client_services::account::BackendAccountClient;
 use msime_client_services::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
 use msime_client_services::telemetry::{
-    backend_sender, CrashContext, DiagnosedCrash, TelemetryApp, TelemetryStore,
+    backend_sender, clear_if_consent_disabled, CrashContext, DiagnosedCrash, TelemetryApp,
+    TelemetryStore,
 };
 use msime_client_services::update_check::background::{pending_update, run_background_check};
 use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
@@ -83,6 +84,38 @@ fn default_telemetry_component() -> String {
 }
 
 impl TelemetryRequest {
+    /// 真实偏好入口自动取得当前代次；显式旧代次仍必须被拒绝，不能追认为当前请求。
+    fn bind_shared_consent(&mut self, store: &TelemetryStore) -> Result<bool, String> {
+        if self.consent_epoch.is_some() {
+            self.epoch_source()?;
+            return Ok(true);
+        }
+        // 桌面旧调用自动绑定；移动宿主显式传入它们准备时取得的代次。
+        if self.enabled.is_none()
+            && matches!(
+                msime_client_services::telemetry::canonical_platform(&self.platform),
+                Some("macos" | "windows" | "linux")
+            )
+        {
+            let directory = self
+                .preferences_directory
+                .as_deref()
+                .ok_or("enabled or preferences_directory is required")?;
+            let preferences = PreferencesStore::new(absolute_directory(directory)?);
+            match preferences
+                .usage_reporting_consent()
+                .map_err(|error| error.to_string())?
+            {
+                Some(consent) => self.consent_epoch = Some(consent.epoch.to_string()),
+                None => {
+                    clear_if_consent_disabled(&preferences, store)?;
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     fn epoch_source(&self) -> Result<consent::ConsentSource, String> {
         if self.enabled.is_some() {
             return Err("consent_epoch cannot be combined with enabled".into());
@@ -139,8 +172,12 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
 ) -> *mut c_char {
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
-        let request: TelemetryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let mut request: TelemetryRequest =
+            unsafe { document(request, length, MAX_REQUEST_BYTES)? };
         let (store, app) = request.open()?;
+        if !request.bind_shared_consent(&store)? {
+            return Ok(json!({"enabled": false}));
+        }
         if let Some(epoch) = request.consent_epoch.as_deref() {
             let start =
                 consent::with_epoch(&request.epoch_source()?, epoch, &store, |store, _| {
@@ -174,7 +211,14 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
                 Ok(value)
             }
             Some(false) => {
-                store.clear().map_err(|error| error.to_string())?;
+                if let Some(directory) = request.preferences_directory.as_deref() {
+                    clear_if_consent_disabled(
+                        &PreferencesStore::new(absolute_directory(directory)?),
+                        &store,
+                    )?;
+                } else {
+                    store.clear().map_err(|error| error.to_string())?;
+                }
                 Ok(json!({ "enabled": false }))
             }
             None => Ok(json!({ "enabled": false })),
@@ -383,8 +427,12 @@ pub unsafe extern "C" fn msime_client_telemetry_flush(
 ) -> *mut c_char {
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
-        let request: TelemetryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let mut request: TelemetryRequest =
+            unsafe { document(request, length, MAX_REQUEST_BYTES)? };
         let (store, app) = request.open()?;
+        if !request.bind_shared_consent(&store)? {
+            return Ok(json!({"enabled": false}));
+        }
         if let Some(epoch) = request.consent_epoch.as_deref() {
             let source = request.epoch_source()?;
             let bound = consent::with_epoch(&source, epoch, &store, |store, _| {
@@ -420,7 +468,14 @@ pub unsafe extern "C" fn msime_client_telemetry_flush(
                 Ok(value)
             }
             Some(false) => {
-                store.clear().map_err(|error| error.to_string())?;
+                if let Some(directory) = request.preferences_directory.as_deref() {
+                    clear_if_consent_disabled(
+                        &PreferencesStore::new(absolute_directory(directory)?),
+                        &store,
+                    )?;
+                } else {
+                    store.clear().map_err(|error| error.to_string())?;
+                }
                 Ok(json!({ "enabled": false }))
             }
             None => Ok(json!({ "enabled": false })),
@@ -444,15 +499,11 @@ pub unsafe extern "C" fn msime_client_telemetry_clear(
                 request.preferences_directory.as_deref(),
                 request.authority_directory.as_deref(),
             )?;
-            return source.with_current(|current| {
-                if current.is_some() {
-                    return Ok(Value::Bool(false));
-                }
-                TelemetryStore::new(absolute_directory(&request.directory)?)
-                    .clear()
-                    .map(|()| Value::Bool(true))
-                    .map_err(|error| error.to_string())
-            });
+            return source
+                .clear_if_disabled(&TelemetryStore::new(absolute_directory(
+                    &request.directory,
+                )?))
+                .map(Value::Bool);
         }
         TelemetryStore::new(absolute_directory(&request.directory)?)
             .clear()

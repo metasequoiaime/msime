@@ -6,7 +6,7 @@ add_executable(common-input-capture-test
   "${CMAKE_CURRENT_LIST_DIR}/../Telemetry.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/../CrashRecorder.cpp")
 target_compile_features(common-input-capture-test PRIVATE cxx_std_17)
-target_compile_definitions(common-input-capture-test PRIVATE MSIME_TELEMETRY_TEST_FLUSH)
+target_compile_definitions(common-input-capture-test PRIVATE MSIME_TELEMETRY_TEST_FLUSH MSIME_TELEMETRY_TEST_BEGIN)
 target_include_directories(common-input-capture-test PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/.." "${CMAKE_CURRENT_LIST_DIR}/../../../crates/host-api/include")
 target_link_libraries(common-input-capture-test PRIVATE

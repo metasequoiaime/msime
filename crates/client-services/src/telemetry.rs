@@ -25,6 +25,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+mod consent;
+pub use consent::{
+    clear_if_authority_disabled, clear_if_consent_disabled, with_consent_epoch, ConsentEpochSender,
+};
 mod identity;
 pub use identity::CrashContext;
 mod transport;
@@ -292,6 +296,9 @@ struct TelemetryState {
     /// 绑定这份本地队列的持续同意代次；旧版文档没有此字段。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     consent_epoch: Option<Uuid>,
+    /// 已接入持久授权的目录在撤回后仍拒绝未绑定的正常入口。
+    #[serde(default)]
+    consent_required: bool,
     #[serde(default)]
     install_id: String,
     /// `yyyymmdd` (UTC) of the last queued `active`.
@@ -392,10 +399,14 @@ impl TelemetryStore {
         }
         let unbound = Self::new(self.directory.clone());
         let _lock = unbound.lock()?;
-        if unbound.read_state().consent_epoch != Some(epoch) {
+        let mut state = unbound.read_state();
+        if state.consent_epoch != Some(epoch) {
             unbound.clear_locked()?;
-            let mut state = unbound.read_state();
+            state = unbound.read_state();
+        }
+        if state.consent_epoch != Some(epoch) || !state.consent_required {
             state.consent_epoch = Some(epoch);
+            state.consent_required = true;
             unbound.write_state(&state)?;
         }
         Ok(Self {
@@ -433,7 +444,7 @@ impl TelemetryStore {
         now: SystemTime,
         pid: u32,
     ) -> Result<SessionStart, TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
         let mut queue = self.read_queue()?;
@@ -519,7 +530,11 @@ impl TelemetryStore {
     }
 
     fn end(&self, id: Option<&str>) -> Result<bool, TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = if id.is_some() {
+            self.lock()?
+        } else {
+            self.lock_normal_operation()?
+        };
         let marker = self.read_marker();
         let Some(id) = id
             .map(str::to_owned)
@@ -656,7 +671,7 @@ impl TelemetryStore {
         message: &str,
         stack: &str,
     ) -> Result<DiagnosedCrash, TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
         if let Some(pid) = pid {
             let state = self.read_state();
             if state.crashed_processes.contains(&pid) {
@@ -705,7 +720,7 @@ impl TelemetryStore {
 
     /// 补收本地崩溃记录，再排进当天的 `active`。不开始新会话，设置应用和长时间运行的宿主也能补报，不必等待键盘再次启动。
     pub fn record_active(&self, app: &TelemetryApp, now: SystemTime) -> Result<(), TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
         let mut queue = self.read_queue()?;
@@ -749,7 +764,7 @@ impl TelemetryStore {
         now: SystemTime,
     ) -> Result<FlushReport, TelemetryError> {
         let (pending, observed_retry_after) = {
-            let _lock = self.lock()?;
+            let _lock = self.lock_normal_operation()?;
             let state = self.read_state();
             if state.retry_deadline(unix_ms(now)).is_some() {
                 return Ok(FlushReport {
@@ -765,8 +780,8 @@ impl TelemetryStore {
         let mut retry_after = None;
         for event in &pending {
             // 旧发送快照不能在另一进程换代后继续发送；网络期间不持队列锁。
-            if self.consent_epoch.is_some() {
-                let _lock = self.lock()?;
+            {
+                let _lock = self.lock_normal_operation()?;
             }
             let body = serde_json::to_vec(event).map_err(|_| TelemetryError::Invalid)?;
             let delivery = if body.len() > MAX_EVENT_BYTES {
@@ -790,7 +805,7 @@ impl TelemetryStore {
                 Delivery::Failed => break,
             }
         }
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
         let mut state = self.read_state();
         let mut queue = self.read_queue()?;
         queue.retain(|event| !done.contains(&event.id));
@@ -825,7 +840,7 @@ impl TelemetryStore {
 
     /// Reporting was turned off: drops the queue, the session marker and every crash record. The installation id stays, so turning reporting back on does not count the installation twice.
     pub fn clear(&self) -> Result<(), TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
         self.clear_locked()
     }
 
@@ -865,10 +880,10 @@ impl TelemetryStore {
             state.open_sessions.clear();
             state.crashed_processes.clear();
             state.consent_epoch = None;
-            if !state.install_id.is_empty() {
+            if !state.install_id.is_empty() || state.consent_required {
                 self.write_state(&state)?;
             } else {
-                // 只激活授权、尚未生成安装 ID 的状态也必须撤销，不能留下有效的旧绑定。
+                // 未接入授权且没有安装身份的空状态无需保留。
                 remove_file(&self.directory.join(STATE_FILE))?;
             }
         }
@@ -879,6 +894,17 @@ impl TelemetryStore {
     pub fn queued(&self) -> Result<Vec<TelemetryEvent>, TelemetryError> {
         let _lock = self.lock()?;
         self.read_queue()
+    }
+
+    fn lock_normal_operation(&self) -> Result<crate::file_lock::ScopedFileLock, TelemetryError> {
+        let lock = self.lock()?;
+        if self.consent_epoch.is_none() && {
+            let state = self.read_state();
+            state.consent_required || state.consent_epoch.is_some()
+        } {
+            return Err(TelemetryError::ConsentChanged);
+        }
+        Ok(lock)
     }
 
     fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, TelemetryError> {

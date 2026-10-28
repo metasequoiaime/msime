@@ -59,8 +59,7 @@ def main():
                 request = host.command("flush-start")
                 assert request["consent_epoch"] == host.epoch() and "enabled" not in request
                 assert host.command("disable") == "saved"
-                host.wait(False)
-                host.wait_cleared("active")
+                host.wait(False, queue_cleared=True)
                 assert not host.events("active")
                 assert host.command("enable") == "saved"
                 current = host.wait(True, host.epoch())

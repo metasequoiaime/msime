@@ -50,12 +50,15 @@ class Input:
         assert self.epoch() != old
         return old, self.epoch()
 
-    def wait(self, enabled, epoch=None):
+    def wait(self, enabled, epoch=None, *, queue_cleared=False):
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             state = self.command("status")
             marker = state["marker"]
-            if state["armed"] == enabled and (epoch is None or marker.get("context", {}).get("consent_epoch") == epoch):
+            # 解除采集先于清理队列；关闭验收在同一期限内等待两者完成。
+            if (state["armed"] == enabled
+                    and (epoch is None or marker.get("context", {}).get("consent_epoch") == epoch)
+                    and (not queue_cleared or not self.events("active"))):
                 return state
             time.sleep(0.05)
         raise AssertionError("input observer did not reach the expected authorization")
@@ -75,13 +78,6 @@ class Input:
         except FileNotFoundError:
             return []
         return [event for event in queued if event["kind"] == kind]
-
-    def wait_cleared(self, kind):
-        # 观察器先解除武装再清队列；解除武装本身不代表随后磁盘事务已经结束。
-        deadline = time.monotonic() + 10
-        while self.events(kind):
-            assert time.monotonic() < deadline, "disabled observer did not clear the queue"
-            time.sleep(0.02)
 
     def records(self):
         return sorted((self.directory / "telemetry-crashes").glob("*.crash"))
@@ -218,6 +214,20 @@ def main():
         finally:
             fresh.cleanup()
 
+        for reopen in (False, True):
+            host = Input(root / ("prepared-cycle" if reopen else "prepared-off"))
+            try:
+                host.rotate()
+                assert host.command("prepare-start") == "prepared"
+                assert host.command("disable") == "saved"
+                if reopen:
+                    assert host.command("enable") == "saved"
+                assert not host.command("prepare-release")["armed"], "late begin rearmed withdrawn consent"
+                host.die()
+                assert not host.records()
+            finally:
+                host.cleanup()
+
         for stop in (False, True):
             host = Input(root / ("blocked-stop" if stop else "blocked-reopen"), "observe")
             try:
@@ -225,8 +235,7 @@ def main():
                 assert request["consent_epoch"] == host.epoch()
                 assert request["preferences_directory"] == str(host.preferences) and "enabled" not in request
                 assert host.command("disable") == "saved"
-                host.wait(False)
-                host.wait_cleared("active")
+                host.wait(False, queue_cleared=True)
                 assert not host.events("active")
                 assert host.command("enable") == "saved"
                 current = host.wait(True, host.epoch())

@@ -1,7 +1,8 @@
 use super::*;
 use msime_client_services::telemetry::{
-    CrashContext, TelemetryKind, CRASH_DIRECTORY, SESSION_FILE,
+    CrashContext, Delivery, TelemetryKind, CRASH_DIRECTORY, SESSION_FILE,
 };
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -81,6 +82,15 @@ fn child_process() {
                 assert_eq!(state.capture.as_ref().unwrap().1, first.1);
             }
         }
+        "prepared-off" | "prepared-cycle" => {
+            state.suspend();
+            set_enabled(&reporter.preferences, false);
+            if mode == "prepared-cycle" {
+                set_enabled(&reporter.preferences, true);
+            }
+            assert!(reporter.arm_capture(&mut state, first.0).is_none());
+            assert!(state.suspended);
+        }
         "off" => {
             set_enabled(&reporter.preferences, false);
             assert!(reporter.refresh_capture(&mut state).is_none());
@@ -102,6 +112,8 @@ fn capture_consent_lifecycle() {
         "read-recovery",
         "unreadable",
         "stale-late",
+        "prepared-off",
+        "prepared-cycle",
     ] {
         let root = tempfile::tempdir().unwrap();
         let output = Command::new(std::env::current_exe().unwrap())
@@ -115,14 +127,22 @@ fn capture_consent_lifecycle() {
             .env("MSIME_DESKTOP_CRASH_TEST_MODE", mode)
             .output()
             .unwrap();
-        assert!(!output.status.success(), "{mode}: child must abort");
+        assert_eq!(
+            output.status.signal(),
+            Some(6),
+            "{mode}: child must abort: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         let reporter = reporter(root.path());
         let records: Vec<_> = std::fs::read_dir(reporter.store.directory().join(CRASH_DIRECTORY))
             .into_iter()
             .flatten()
             .flatten()
             .collect();
-        let expected = !matches!(mode, "off" | "unreadable");
+        let expected = !matches!(
+            mode,
+            "off" | "unreadable" | "prepared-off" | "prepared-cycle"
+        );
         assert_eq!(
             records.len(),
             usize::from(expected),

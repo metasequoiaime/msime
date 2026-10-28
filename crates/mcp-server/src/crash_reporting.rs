@@ -3,7 +3,9 @@
 use crate::config::Config;
 use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{Preferences, PreferencesStore, UsageReportingConsent};
-use msime_client_services::telemetry::{SessionStart, TelemetryApp, TelemetryStore};
+use msime_client_services::telemetry::{
+    clear_if_consent_disabled, with_consent_epoch, SessionStart, TelemetryApp, TelemetryStore,
+};
 use std::cell::Cell;
 use std::ffi::{CString, OsString};
 use std::panic::{catch_unwind, resume_unwind, UnwindSafe};
@@ -175,9 +177,7 @@ impl Capture {
             return;
         }
         // 关闭观察可能迟到；只在偏好锁内仍明确关闭时清理，不能删除已重开的新队列。
-        let cleared = preferences.with_usage_reporting_consent(|enabled, _| {
-            !enabled && TelemetryStore::new(&target.0).clear().is_ok()
-        });
+        let cleared = clear_if_consent_disabled(preferences, &TelemetryStore::new(&target.0));
         if matches!(cleared, Ok(true)) {
             self.disabled_target = Some(target);
         }
@@ -241,7 +241,7 @@ impl Capture {
                 && snapshot.consent.epoch == consent.epoch
         }) {
             if self.suspended {
-                self.arm();
+                self.arm_authorized(&preferences);
             }
             return;
         }
@@ -260,15 +260,16 @@ impl Capture {
             return;
         };
         // 偏好先于队列加锁，检查与准备同处一次事务；旧准备不能激活已经撤回的代次。
-        let Ok(Ok(Some(start))) = preferences.with_usage_reporting_consent(|enabled, current| {
-            if !enabled || current.map(|value| value.epoch) != Some(consent.epoch) {
-                return Ok(None);
-            }
-            TelemetryStore::new(&directory)
-                .activate_consent_epoch(consent.epoch)?
-                .prepare_crash_capture(&app, SystemTime::now())
-                .map(Some)
-        }) else {
+        let Ok(Some(start)) = with_consent_epoch(
+            &preferences,
+            &consent.epoch.to_string(),
+            &TelemetryStore::new(&directory),
+            |store, _| {
+                store
+                    .prepare_crash_capture(&app, SystemTime::now())
+                    .map_err(|error| error.to_string())
+            },
+        ) else {
             return;
         };
         self.current = Some(CaptureSnapshot {
@@ -277,7 +278,28 @@ impl Capture {
             consent,
             start,
         });
-        self.arm();
+        self.arm_authorized(&preferences);
+    }
+
+    fn arm_authorized(&mut self, preferences: &PreferencesStore) {
+        let Some(snapshot) = self.current.as_ref() else {
+            return;
+        };
+        let directory = snapshot.directory.clone();
+        let epoch = snapshot.consent.epoch.to_string();
+        // 准备回包与暂停恢复都可能迟到，最终发布必须再次核对持久授权。
+        let armed = with_consent_epoch(
+            preferences,
+            &epoch,
+            &TelemetryStore::new(directory),
+            |_, _| {
+                self.arm();
+                Ok(!self.suspended)
+            },
+        );
+        if !matches!(armed, Ok(Some(true))) {
+            self.suspend();
+        }
     }
 }
 
@@ -355,6 +377,16 @@ mod tests {
         capture.refresh(config);
         let first = capture.current.as_ref().unwrap().start.clone();
         match mode {
+            "prepared-off" | "prepared-cycle" => {
+                capture.suspend();
+                set_consent(root, false);
+                if mode == "prepared-cycle" {
+                    set_consent(root, true);
+                }
+                capture.arm_authorized(&PreferencesStore::new(root));
+                assert!(capture.suspended);
+                assert_eq!(capture.current.as_ref().unwrap().start, first);
+            }
             "epoch-cycle" => {
                 set_consent(root, false);
                 set_consent(root, true);
@@ -427,7 +459,7 @@ mod tests {
         run_main(|| {
             let controlled = matches!(
                 mode.as_str(),
-                "epoch-cycle" | "read-recovery" | "stale-late"
+                "epoch-cycle" | "read-recovery" | "stale-late" | "prepared-off" | "prepared-cycle"
             );
             let _capture = controlled.then(|| controlled_capture(&config, &root, &mode));
             let _reporter =
@@ -436,6 +468,37 @@ mod tests {
                 "disable" | "enable" => {
                     set_consent(&root, mode == "enable");
                     std::thread::sleep(Duration::from_millis(1600));
+                }
+                "rotate" => {
+                    set_consent(&root, false);
+                    set_consent(&root, true);
+                    let epoch = PreferencesStore::new(&root)
+                        .usage_reporting_consent()
+                        .unwrap()
+                        .unwrap()
+                        .epoch;
+                    let telemetry =
+                        directory(Edition::full(), &|name| std::env::var_os(name)).unwrap();
+                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                    loop {
+                        let observed = std::fs::read(telemetry.join("telemetry-state.json"))
+                            .ok()
+                            .and_then(|bytes| {
+                                serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+                            });
+                        if observed
+                            .as_ref()
+                            .and_then(|value| value["consent_epoch"].as_str())
+                            == Some(epoch.to_string().as_str())
+                        {
+                            break;
+                        }
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "MCP 未观察到新的授权代次"
+                        );
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
                 }
                 "unreadable" => {
                     std::fs::write(root.join("preferences.json"), b"{").unwrap();
@@ -457,6 +520,9 @@ mod tests {
     fn crash_capture_lifecycle() {
         let modes = [
             ("panic", true, true),
+            ("inline-off", true, true),
+            ("inline-on", false, false),
+            ("rotate", true, true),
             ("off", false, false),
             ("disable", true, false),
             ("enable", false, true),
@@ -465,6 +531,8 @@ mod tests {
             ("epoch-cycle", true, true),
             ("read-recovery", true, true),
             ("stale-late", true, true),
+            ("prepared-off", true, false),
+            ("prepared-cycle", true, false),
             ("embedded-off", false, false),
             #[cfg(unix)]
             ("native", true, true),
@@ -475,7 +543,7 @@ mod tests {
             std::fs::write(
                 root.join("runtime-options.json"),
                 serde_json::to_vec(&json!({"preferences_directory": root,
-                    "preferences": {"usage_reporting": enabled}}))
+                    "preferences": {"usage_reporting": if matches!(mode, "inline-off" | "embedded-off") { false } else if mode == "inline-on" { true } else { enabled }}}))
                 .unwrap(),
             )
             .unwrap();
@@ -533,9 +601,15 @@ mod tests {
                     mode != "stale-late",
                     "{mode}"
                 );
-                let store = TelemetryStore::new(&directory)
-                    .activate_consent_epoch(consent.epoch)
-                    .unwrap();
+                let preferences = PreferencesStore::new(root);
+                let store = with_consent_epoch(
+                    &preferences,
+                    &consent.epoch.to_string(),
+                    &TelemetryStore::new(&directory),
+                    |store, _| Ok(store.clone()),
+                )
+                .unwrap()
+                .unwrap();
                 let app = TelemetryApp::new("linux", "99.0.0").unwrap();
                 store.record_active(&app, SystemTime::now()).unwrap();
                 let events = store.queued().unwrap();

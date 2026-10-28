@@ -17964,6 +17964,135 @@ fn reporting_call(
 }
 
 #[test]
+fn telemetry_unmigrated_mobile_preferences_keep_the_legacy_lifecycle() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::CrashContext;
+    for platform in ["android", "harmony"] {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("telemetry");
+        let preferences = root.path().join("preferences");
+        let request = json!({"directory": directory, "platform": platform, "version": "1.2.3", "preferences_directory": preferences});
+        let started = reporting_call(msime_client_telemetry_begin, request);
+        assert_eq!(started["value"]["enabled"], true, "{started}");
+        assert_eq!(
+            CrashContext::from_header(started["value"]["crash_record_header"].as_str().unwrap())
+                .unwrap()
+                .consent_epoch,
+            None
+        );
+        assert_eq!(
+            reporting_call(
+                msime_client_telemetry_clear,
+                json!({"directory": directory})
+            )["value"],
+            true
+        );
+    }
+}
+
+#[test]
+fn telemetry_shared_preferences_and_explicit_epoch_keep_live_sessions_and_current_crashes() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{CrashContext, TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let preferences = root.path().join("preferences");
+    let request = json!({"directory": directory, "platform": "macos", "version": "1.2.3", "preferences_directory": preferences});
+    let main = reporting_call(msime_client_telemetry_begin, request.clone())["value"].clone();
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences}),
+    );
+    let epoch = consent["value"]["epoch"].as_str().unwrap();
+    let mut helper = request.clone();
+    helper["capture_only"] = json!(true);
+    helper["consent_epoch"] = json!(epoch);
+    reporting_call(msime_client_telemetry_begin, helper.clone());
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_end,
+            json!({"directory": directory, "session": main["session_id"]})
+        )["value"],
+        true
+    );
+    let main = reporting_call(msime_client_telemetry_begin, request)["value"].clone();
+    assert_eq!(
+        CrashContext::from_header(main["crash_record_header"].as_str().unwrap())
+            .unwrap()
+            .consent_epoch
+            .unwrap()
+            .to_string(),
+        epoch
+    );
+    std::fs::write(
+        main["crash_record_path"].as_str().unwrap(),
+        format!(
+            "{}Synthetic current main fault\nsynthetic+0x20\n",
+            main["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    reporting_call(msime_client_telemetry_begin, helper);
+    let events = TelemetryStore::new(directory).queued().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == TelemetryKind::Crash)
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == TelemetryKind::SessionCrash)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn telemetry_shared_preferences_reject_withdrawn_helper_records() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let preferences_directory = root.path().join("preferences");
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let first = preferences.usage_reporting_consent().unwrap().unwrap();
+    let request = json!({"directory": directory, "platform": "linux", "version": "1.2.3", "preferences_directory": preferences_directory});
+    let mut helper = request.clone();
+    helper["capture_only"] = json!(true);
+    helper["consent_epoch"] = json!(first.epoch.to_string());
+    let old = reporting_call(msime_client_telemetry_begin, helper)["value"].clone();
+    for enabled in [false, true] {
+        let current = preferences.load().unwrap();
+        let mut edited = current.preferences;
+        edited.usage_reporting = enabled;
+        preferences.save(current.revision, edited).unwrap();
+    }
+    reporting_call(msime_client_telemetry_begin, request.clone());
+    let path = old["crash_record_path"].as_str().unwrap();
+    std::fs::write(
+        path,
+        format!(
+            "{}Synthetic withdrawn helper fault\nsynthetic+0x30\n",
+            old["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, request)["value"]["crashes"],
+        0
+    );
+    assert!(!std::path::Path::new(path).exists());
+    assert!(TelemetryStore::new(directory)
+        .queued()
+        .unwrap()
+        .iter()
+        .all(|event| event.kind != TelemetryKind::Crash));
+}
+
+#[test]
 fn telemetry_consent_before_bootstrap_preserves_edition_defaults() {
     use crate::ffi::reporting::msime_client_telemetry_consent;
     let root = tempfile::tempdir().unwrap();
@@ -18389,7 +18518,7 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
         "version": "0.50.0",
         "preferences_directory": preferences,
     });
-    // No preferences saved yet: the default, which is on.
+    // 尚无偏好文档时仍使用默认开启值，并持久化本轮授权。
     let started = reporting_call(msime_client_telemetry_begin, request.clone());
     assert_eq!(started["value"]["enabled"], true, "{started}");
 
@@ -18398,7 +18527,7 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
         usage_reporting: false,
         ..Preferences::default()
     };
-    store.save(0, off).unwrap();
+    store.save(store.load().unwrap().revision, off).unwrap();
     let stopped = reporting_call(msime_client_telemetry_begin, request);
     assert_eq!(stopped["value"]["enabled"], false);
     assert!(

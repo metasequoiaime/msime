@@ -73,6 +73,15 @@ def stop(process):
             process.wait()
 
 
+def prepare_preferences(scratch, preferences_writer):
+    """首次通过真实存储写入完整偏好；后续启动沿用同一份文档和授权。"""
+    preferences = scratch / "preferences"
+    if not (preferences / "preferences.json").exists():
+        subprocess.run([preferences_writer, "enable", str(scratch / "unused-telemetry"),
+                        str(preferences), "fixture"], check=True, timeout=10)
+    return preferences
+
+
 def run_host(host, registration_bus, scratch, recovered, preferences_writer):
     """Start the host against a fresh bus and endpoint; returns (registration time, main loop probe, endpoint, host process, cleanup)."""
     bus_socket = scratch / "bus"
@@ -110,15 +119,8 @@ def run_host(host, registration_bus, scratch, recovered, preferences_writer):
         ).start()
 
         options = scratch / "options/runtime-options.json"
-        options.parent.mkdir()
-        preferences = scratch / "preferences"
-        # 真实存储生成完整合成偏好，避免手写缺少必填字段的文档被保守停采。
-        subprocess.run([preferences_writer, "enable", str(scratch / "unused-telemetry"),
-                        str(preferences), "fixture"], check=True, timeout=10)
-        document = json.loads((preferences / "preferences.json").read_text())
-        document["preferences"]["usage_reporting_consent"] = {
-            "epoch": CONSENT_EPOCH, "since_unix_ms": 1}
-        (preferences / "preferences.json").write_text(json.dumps(document))
+        options.parent.mkdir(exist_ok=True)
+        preferences = prepare_preferences(scratch, preferences_writer)
         options.write_text(json.dumps({"preferences": {}, "preferences_directory": str(preferences)}))
         proxy = f"http://127.0.0.1:{endpoint.port}"
         environment = {
@@ -204,9 +206,55 @@ def main():
         finally:
             cleanup()
 
-    # 崩溃守护重启（--recovered）：上一会话留下了崩溃记录，所以补报 session_crash 和 crash，崩溃记录里的目录只剩文件名；同样排进 active。
+    # 崩溃守护重启（--recovered）：真实宿主在同一授权下留下记录，重启补报 session_crash 和 crash；同日 active 只入队一次。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
+        _, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, False, preferences_writer)
+        try:
+            wait_for(lambda: endpoint.connections, "initial session events were never sent")
+            previous = json.loads((scratch / STATE / "telemetry-session.json").read_text())["id"]
+            consent = json.loads((scratch / "preferences/preferences.json").read_text())["preferences"]["usage_reporting_consent"]
+            process.send_signal(signal.SIGSEGV)
+            assert process.wait(timeout=10) == -signal.SIGSEGV, process.returncode
+            [record] = crash_records(scratch)
+            header = record.read_text().split("\n", 1)[0]
+            assert header.startswith("MSIME-CRASH/1 "), header
+            identity = json.loads(header.removeprefix("MSIME-CRASH/1 "))
+            assert identity["consent_epoch"] == consent["epoch"], identity
+            # 保留真实采集头，只用合成摘要和路径验证补报时的正文处理。
+            record.write_text(header + "\nSIGSEGV: segmentation fault\n"
+                              "/home/synthetic-private/.local/lib/libmsime_host_api.so(+0x1f) [0x7f00]\n")
+        finally:
+            cleanup()
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, True, preferences_writer)
+        try:
+            wait_for(lambda: endpoint.connections, "recovered events were never sent")
+            assert endpoint.connections[0][0] >= registered, ("recovered host sent before registration", endpoint.connections[0][0], registered)
+            assert process.poll() is None, ("recovered host exited", process.returncode)
+            queued = events(scratch)
+            assert [event["kind"] for event in queued] == ["active", "session_crash", "crash"], queued
+            assert json.loads((scratch / "preferences/preferences.json").read_text())["preferences"]["usage_reporting_consent"] == consent
+            _, session_crash, crash = queued
+            assert session_crash["id"] == f"session-{previous}" and session_crash["version"] == version, session_crash
+            assert crash["id"] == f"crash-{previous}" and crash["version"] == version, crash
+            assert crash["message"].splitlines()[0] == "SIGSEGV: segmentation fault", crash
+            metadata = json.loads(crash["message"].split("\n[msime-crash-v1] ", 1)[1])
+            assert metadata == {key: value for key, value in identity.items() if key != "consent_epoch"}, crash
+            assert crash["stack"] == "libmsime_host_api.so(+0x1f) [0x7f00]", crash
+            assert "synthetic-private" not in json.dumps(queued) and consent["epoch"] not in json.dumps(queued), queued
+            assert not crash_records(scratch)
+        finally:
+            cleanup()
+
+    # 同一持续授权下旧版本留下的绑定记录，补报必须沿用捕获时的版本与构建元数据。
+    with tempfile.TemporaryDirectory() as name:
+        scratch = Path(name)
+        preferences = prepare_preferences(scratch, preferences_writer)
+        document = json.loads((preferences / "preferences.json").read_text())
+        # 旧版本场景的合成记录与共享偏好使用同一代次；其余场景由真实宿主建立授权。
+        document["preferences"]["usage_reporting_consent"] = {
+            "epoch": CONSENT_EPOCH, "since_unix_ms": 1}
+        (preferences / "preferences.json").write_text(json.dumps(document))
         state = scratch / STATE
         (state / "telemetry-crashes").mkdir(parents=True)
         previous = "6f1c2a7e-0d35-4c0b-9a4e-2f8d1b3c4e5f"
@@ -229,13 +277,38 @@ def main():
             assert [event["kind"] for event in queued] == ["session_crash", "crash", "active"], queued
             session_crash, crash, _ = queued
             assert session_crash["id"] == f"session-{previous}" and session_crash["version"] == "0.0.1", session_crash
+            assert crash["id"] == f"crash-{previous}" and crash["version"] == "0.0.1", crash
             summary, metadata = crash["message"].split("\n", 1)
             assert summary == "SIGSEGV: segmentation fault", crash
             identity = json.loads(metadata.removeprefix("[msime-crash-v1] "))
             assert identity["version"] == "0.0.1" and identity["revision"] == "synthetic", crash
-            assert "consent_epoch" not in json.dumps(queued), queued
+            assert identity == {key: value for key, value in context.items() if key != "consent_epoch"}, crash
+            assert "consent_epoch" not in json.dumps(queued) and CONSENT_EPOCH not in json.dumps(queued), queued
             assert crash["stack"] == "libmsime_host_api.so(+0x1f) [0x7f00]", crash
             assert "someone" not in json.dumps(queued)
+            assert not crash_records(scratch)
+        finally:
+            cleanup()
+
+    # 没有持续授权代次的旧记录不能由本次开启追认，即使以 --recovered 启动也只产生新的 active。
+    with tempfile.TemporaryDirectory() as name:
+        scratch = Path(name)
+        state = scratch / STATE
+        (state / "telemetry-crashes").mkdir(parents=True)
+        previous = "6f1c2a7e-0d35-4c0b-9a4e-2f8d1b3c4e5f"
+        (state / "telemetry-session.json").write_text(json.dumps(
+            {"id": previous, "platform": "linux", "version": "0.0.1", "started_at_unix_ms": 1}))
+        (state / "telemetry-crashes" / f"{previous}.crash").write_text(
+            "SIGSEGV: segmentation fault\n/home/synthetic-private/.local/lib/libmsime_host_api.so(+0x1f) [0x7f00]\n")
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, True, preferences_writer)
+        try:
+            wait_for(lambda: endpoint.connections, "queued events were never sent")
+            assert endpoint.connections[0][0] >= registered, ("recovered host sent before registration", endpoint.connections[0][0], registered)
+            assert process.poll() is None, ("recovered host exited", process.returncode)
+            queued = events(scratch)
+            assert [event["kind"] for event in queued] == ["active"], queued
+            assert queued[0]["version"] == version, queued
+            assert "synthetic-private" not in json.dumps(queued)
             assert not crash_records(scratch)
         finally:
             cleanup()

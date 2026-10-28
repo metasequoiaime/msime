@@ -1,7 +1,7 @@
 use msime_client_core::preferences::{PreferencesStore, UsageReportingConsent};
 use msime_client_services::telemetry::{
-    backend_sender, Delivery, FlushReport, SessionStart, TelemetryApp, TelemetryError,
-    TelemetrySender, TelemetryStore,
+    backend_sender, clear_if_consent_disabled, with_consent_epoch, ConsentEpochSender, FlushReport,
+    SessionStart, TelemetryApp, TelemetrySender, TelemetryStore,
 };
 use std::ffi::CString;
 use std::path::PathBuf;
@@ -133,9 +133,7 @@ impl Reporter {
                 if !state.cleared {
                     // 关闭观察可能迟到，只有偏好锁内仍关闭才清理。
                     state.cleared = matches!(
-                        self.preferences.with_usage_reporting_consent(|enabled, _| {
-                            !enabled && self.store.clear().is_ok()
-                        }),
+                        clear_if_consent_disabled(&self.preferences, &self.store),
                         Ok(true)
                     );
                 }
@@ -152,25 +150,39 @@ impl Reporter {
             state.suspend();
             state.capture = None;
             state.last_flush = None;
-            let capture = self
-                .preferences
-                .with_usage_reporting_consent(|enabled, current| {
-                    if !enabled || current.map(|current| current.epoch) != Some(consent.epoch) {
-                        return Ok(None);
-                    }
-                    self.store
-                        .activate_consent_epoch(consent.epoch)?
+            let capture = with_consent_epoch(
+                &self.preferences,
+                &consent.epoch.to_string(),
+                &self.store,
+                |store, _| {
+                    store
                         .prepare_crash_capture(&self.app, SystemTime::now())
-                        .map(Some)
-                })
-                .ok()?
-                .ok()??;
+                        .map_err(|error| error.to_string())
+                },
+            )
+            .ok()??;
             state.capture = Some((consent, capture));
         }
         if state.suspended {
-            state.arm()?;
+            self.arm_capture(state, consent)?;
         }
         Some(consent)
+    }
+
+    fn arm_capture(&self, state: &mut State, consent: UsageReportingConsent) -> Option<()> {
+        // 慢准备或恢复结束后，再在持久偏好锁内发布；旧快照不能重新启用采集。
+        let armed = with_consent_epoch(
+            &self.preferences,
+            &consent.epoch.to_string(),
+            &self.store,
+            |_, _| Ok(state.arm()),
+        );
+        if matches!(armed, Ok(Some(Some(())))) {
+            Some(())
+        } else {
+            state.suspend();
+            None
+        }
     }
 
     fn flush(
@@ -180,48 +192,24 @@ impl Reporter {
         sender: &impl TelemetrySender,
     ) -> Option<FlushReport> {
         // 本地准备按偏好、队列顺序加锁，发送期间不持偏好锁。
-        let store = self
-            .preferences
-            .with_usage_reporting_consent(|enabled, current| {
-                if !enabled || current.map(|current| current.epoch) != Some(consent.epoch) {
-                    return Ok::<_, TelemetryError>(None);
-                }
-                let bound = store.activate_consent_epoch(consent.epoch)?;
-                bound.record_active(&self.app, SystemTime::now())?;
-                Ok(Some(bound))
-            })
-            .ok()?
-            .ok()??;
+        let epoch = consent.epoch.to_string();
+        let store = with_consent_epoch(&self.preferences, &epoch, store, |bound, _| {
+            bound
+                .record_active(&self.app, SystemTime::now())
+                .map_err(|error| error.to_string())?;
+            Ok(bound.clone())
+        })
+        .ok()??;
         store
             .flush(
-                &EpochSender {
-                    preferences: &self.preferences,
-                    consent,
+                &ConsentEpochSender {
+                    preferences: PreferencesStore::new(self.preferences.directory()),
+                    epoch: &epoch,
                     sender,
                 },
                 SystemTime::now(),
             )
             .ok()
-    }
-}
-
-struct EpochSender<'a, S> {
-    preferences: &'a PreferencesStore,
-    consent: UsageReportingConsent,
-    sender: &'a S,
-}
-
-impl<S: TelemetrySender> TelemetrySender for EpochSender<'_, S> {
-    fn send(&self, body: &[u8]) -> Delivery {
-        let allowed = self
-            .preferences
-            .with_usage_reporting_consent(|enabled, current| {
-                enabled && current.map(|current| current.epoch) == Some(self.consent.epoch)
-            });
-        if !matches!(allowed, Ok(true)) {
-            return Delivery::Failed;
-        }
-        self.sender.send(body)
     }
 }
 

@@ -29,6 +29,11 @@ std::condition_variable sending_changed;
 bool sending_entered = false;
 bool sending_released = false;
 Json sent;
+std::mutex preparing_mutex;
+std::condition_variable preparing_changed;
+bool preparing_entered = false;
+bool preparing_released = false;
+bool preparing_paused = false;
 std::filesystem::path denied_preferences;
 
 Json result(char *raw) {
@@ -69,6 +74,18 @@ Json capture_status(const std::filesystem::path &directory) {
   std::exit(4);
 }
 } // namespace
+
+// 真实 begin 完成并释放偏好锁后才暂停，确定性覆盖回包前关闭或换代。
+extern "C" char *msime_test_telemetry_begin(const uint8_t *request, size_t length) {
+  char *response = msime_client_telemetry_begin(request, length);
+  std::unique_lock lock(preparing_mutex);
+  if (preparing_paused) {
+    preparing_entered = true;
+    preparing_changed.notify_all();
+    preparing_changed.wait(lock, [] { return preparing_released; });
+  }
+  return response;
+}
 
 // 返回真实 Rust 所有权的关闭响应，模拟旧请求迟到；只检验 C++ 请求身份与收尾，逐条发送由 Rust 测试覆盖。
 extern "C" char *msime_test_telemetry_flush(const uint8_t *request, size_t length) {
@@ -116,6 +133,7 @@ int main(int argc, char **argv) {
   if (mode == "observe" || independent) observer.emplace();
   std::set_terminate([] { msime::telemetry::record_terminate(); std::abort(); });
   std::thread network;
+  std::thread preparation;
   std::cout << std::unitbuf << capture_status(directory).dump() << '\n';
   std::string command;
   while (std::getline(std::cin, command)) {
@@ -129,6 +147,25 @@ int main(int argc, char **argv) {
       std::cout << capture_status(directory).dump() << '\n';
     } else if (command == "status" || command == "refresh") {
       if (command == "refresh") msime::telemetry::refresh();
+      std::cout << capture_status(directory).dump() << '\n';
+    } else if (command == "prepare-start") {
+      if (preparation.joinable()) return 2;
+      {
+        std::lock_guard guard(preparing_mutex);
+        preparing_paused = true;
+      }
+      preparation = std::thread([] { msime::telemetry::refresh(); });
+      std::unique_lock lock(preparing_mutex);
+      if (!preparing_changed.wait_for(lock, std::chrono::seconds(10), [] { return preparing_entered; }))
+        std::exit(8);
+      std::cout << "prepared\n";
+    } else if (command == "prepare-release") {
+      {
+        std::lock_guard guard(preparing_mutex);
+        preparing_released = true;
+      }
+      preparing_changed.notify_all();
+      if (preparation.joinable()) preparation.join();
       std::cout << capture_status(directory).dump() << '\n';
     } else if (command == "flush-start") {
       if (network.joinable()) return 2;
@@ -154,6 +191,14 @@ int main(int argc, char **argv) {
     } else {
       return 2;
     }
+  }
+  if (preparation.joinable()) {
+    {
+      std::lock_guard guard(preparing_mutex);
+      preparing_released = true;
+    }
+    preparing_changed.notify_all();
+    preparation.join();
   }
   if (network.joinable()) {
     {

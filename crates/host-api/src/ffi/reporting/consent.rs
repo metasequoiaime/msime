@@ -122,6 +122,16 @@ impl ConsentSource {
         }
     }
 
+    /// 条件清理在来源锁内执行，绕过普通操作的代次校验但不绕过关闭校验。
+    pub fn clear_if_disabled(&self, store: &TelemetryStore) -> Result<bool, String> {
+        match self {
+            Self::Preferences(preferences) => clear_if_consent_disabled(preferences, store),
+            Self::Authority(authority) => {
+                msime_client_services::telemetry::clear_if_authority_disabled(authority, store)
+            }
+        }
+    }
+
     /// 暂停和读错误保持错误；只有明确关闭才把 None 交给条件清理。
     pub fn with_current<T>(
         &self,

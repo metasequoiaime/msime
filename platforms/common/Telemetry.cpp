@@ -37,6 +37,10 @@
 // 仅故障测试替代网络入口；准备、授权与队列仍走真实 Host API。
 extern "C" char *msime_test_telemetry_flush(const uint8_t *, size_t);
 #endif
+#if defined(MSIME_TELEMETRY_TEST_BEGIN)
+// 仅故障测试暂停真实 begin 返回后的发布，不替代持久授权与队列事务。
+extern "C" char *msime_test_telemetry_begin(const uint8_t *, size_t);
+#endif
 
 namespace msime::telemetry {
 namespace {
@@ -129,6 +133,14 @@ nlohmann::json bound_session_request() {
   return request;
 }
 
+bool consent_matches_locked() {
+  if (consent_epoch.empty())
+    return true;
+  const auto consent = consent_locked();
+  return consent && consent->value("enabled", false) &&
+         consent->value("epoch", std::string()) == consent_epoch;
+}
+
 bool refresh_locked() {
   if (!configured || !current.directory.is_absolute())
     return false;
@@ -168,13 +180,20 @@ bool refresh_locked() {
   }
   disabled_cleared = false;
   if (!session_id.empty() && consent_epoch == epoch && !capture_path.empty()) {
-    if (!crash::is_armed())
+    if (!crash::is_armed()) {
+      if (!consent_matches_locked())
+        return false;
       crash::arm(capture_path, capture_header);
+    }
     return crash::is_armed();
   }
   forget_capture_locked();
   consent_epoch = epoch;
+#if defined(MSIME_TELEMETRY_TEST_BEGIN)
+  const auto value = call(msime_test_telemetry_begin, bound_session_request());
+#else
   const auto value = call(msime_client_telemetry_begin, bound_session_request());
+#endif
   if (!value || !value->is_object() || !value->value("enabled", false)) {
     forget_capture_locked();
     return false;
@@ -190,6 +209,9 @@ bool refresh_locked() {
   session_id = id->get<std::string>();
   capture_path = path->get<std::string>();
   capture_header = header->get<std::string>();
+  // begin 已释放共享偏好锁；慢回包不能重新武装已经撤回或换代的头。
+  if (!consent_matches_locked())
+    return false;
   crash::arm(capture_path, capture_header);
   return crash::is_armed();
 }
