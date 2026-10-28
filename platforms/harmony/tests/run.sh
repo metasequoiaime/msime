@@ -253,6 +253,25 @@ if ! grep -qF 'showToast({ message: TextPolicy.unopenedLinkNotice(url)' <<< "$op
   echo "SettingsBridge.openExternalUrl must tell the user the address when the system cannot open a link" >&2
   exit 1
 fi
+# 社区投稿类功能的总闸（`CommunityContributionGate`，取自 Rust 的 `HostCapabilities.community_contribution`）：规则由 community-contribution-gate.test.ts 覆盖；设置桥是 ArkTS，node 下编不了，这里钉住接线：设置进程启动时读宿主能力，社区的发布、改分类、评分和举报在发出前问它；社区请求按 AI 生成类功能的总闸带上排除 AI 生成皮肤的标记（规则由 account-requests.test.ts 覆盖）。
+for wiring in \
+  "pages/Settings.ets:CommunityContributionGate.adopt(client.hostCapabilities(PLATFORM))" \
+  "pages/Settings.ets:} else if (!CommunityContributionGate.allowsSettingsRequest(kind, payload)) {" \
+  "account/HarmonyAccountCloudBridge.ets:communityRequest(this.directory, this.directory, action, !AiGenerationGate.enabled())"; do
+  if ! grep -qF "${wiring#*:}" "$ets/${wiring%%:*}"; then
+    echo "${wiring%%:*} must consult the community gates: missing \"${wiring#*:}\"" >&2
+    exit 1
+  fi
+done
+# 两道闸都要在分发社区请求之前判断：放在 `kind === 'community_*'` 分支之后就拦不住。
+dispatch_body=$(sed -n '/^  startRequest(kind: string, id: number, payload: string): string {$/,/^  }$/p' \
+  "$ets/pages/Settings.ets")
+gate_line=$(grep -nF 'CommunityContributionGate.allowsSettingsRequest(kind, payload)' <<< "$dispatch_body" | head -1 | cut -d: -f1)
+community_line=$(grep -nF "kind === 'community_skin'" <<< "$dispatch_body" | head -1 | cut -d: -f1)
+if [[ -z "$gate_line" || -z "$community_line" || "$gate_line" -ge "$community_line" ]]; then
+  echo "Settings.startRequest must ask CommunityContributionGate before it dispatches community requests" >&2
+  exit 1
+fi
 # 按键振动的 `startVibration` 在 NAPI 层同步发 IPC，放在 UI 线程上开了振动打字就跟不上手；这里钉住接线：振动经 TaskPool 以高优先级发出，上一下还没发完时不再排队。
 if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSession.ets" \
   || ! grep -qF 'taskpool.Priority.HIGH);' "$ets/keyboard/KeyboardSession.ets" \

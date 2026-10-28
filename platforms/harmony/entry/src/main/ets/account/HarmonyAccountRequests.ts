@@ -150,11 +150,16 @@ const PLUGIN_ROOT_OPERATIONS: readonly string[] = [
   "plugin_install",
 ];
 
-/** 页面的社区动作，拼成 `msime_client_community` 的请求。`keyboard_skin_install` 要把皮肤写进皮肤库和试用，插件的打包预检、发布和安装要读写插件目录，所以带上状态目录。 */
+/**
+ * 页面的社区动作，拼成 `msime_client_community` 的请求。`keyboard_skin_install` 要把皮肤写进皮肤库和试用，插件的打包预检、发布和安装要读写插件目录，所以带上状态目录。
+ *
+ * `excludeAiGenerated` 由宿主决定、不由页面决定：AI 生成类功能的总闸关着时（`AiGenerationGate.enabled()` 为 false，鸿蒙版拿到 AI 生成类资质之前）为 true，请求带上 `exclude_ai_generated`，Rust 的键盘皮肤列表、详情、下载和安装据此不要 AI 生成的皮肤，服务端没有声明支持这项筛选时答 `community_unavailable`。为 false 时不带这一项，与以前相同。
+ */
 export function communityRequest(
   directory: string,
   stateRoot: string,
   actionDocument: string,
+  excludeAiGenerated: boolean,
 ): RequestPlan {
   const action: JsonObject | null = parseObject(actionDocument);
   const operation: string =
@@ -166,6 +171,7 @@ export function communityRequest(
   if (operation === "keyboard_skin_install" || PLUGIN_ROOT_OPERATIONS.includes(operation)) {
     request.state_root = stateRoot;
   }
+  if (excludeAiGenerated) request.exclude_ai_generated = true;
   return planned(operation, request);
 }
 

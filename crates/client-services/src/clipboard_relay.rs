@@ -300,6 +300,7 @@ impl RelayTransport {
         }
         // 中继源站固定；系统代理模式也必须明确排除本机和明文目标。
         let client = crate::proxy::configure_blocking_for(Client::builder(), &config.base)
+            .map_err(|_| RelayError::Unavailable)?
             .redirect(reqwest::redirect::Policy::none())
             .timeout(REQUEST_TIMEOUT)
             .user_agent(format!("MSIME/{}", std::env::consts::OS))

@@ -48,6 +48,7 @@ impl ProbeTransport for ChatProbeTransport {
     fn post(&self, endpoint: &str, token: &str, body: &Value) -> Result<u16, ProbeFailure> {
         let url = crate::ai::endpoint::validate(endpoint).map_err(|_| ProbeFailure::Connection)?;
         let client = crate::ai::endpoint::blocking_client_builder(&url)
+            .map_err(|_| ProbeFailure::Connection)?
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15))
             .build()

@@ -667,8 +667,7 @@ fn write_zip(
             .as_file()
             .sync_all()
             .map_err(DiagnosticsError::Write)?;
-        let file = temporary
-            .persist(destination)
+        let file = crate::storage::persist_replacing(temporary, destination)
             .map_err(|error| DiagnosticsError::Write(error.error))?;
         let bytes = file.metadata().map_err(DiagnosticsError::Write)?.len();
         Ok(bytes)

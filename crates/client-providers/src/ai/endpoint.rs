@@ -108,14 +108,17 @@ pub fn models_url(mut url: Url, clear_query: bool) -> Url {
 /// https 地址按用户的网络代理设置（`network.proxy_mode` / `proxy_server`）决定走不走代理：`system` 跟随系统，
 /// `none` 直连，`custom` 走用户填的 HTTP 代理。判据见 `msime_client_core::network::should_use_proxy`，
 /// 本机或局域网目标在三种模式下都直连。
-pub fn blocking_client_builder(url: &Url) -> reqwest::blocking::ClientBuilder {
+pub fn blocking_client_builder(
+    url: &Url,
+) -> Result<reqwest::blocking::ClientBuilder, msime_client_core::network::RequiredProxyUnavailable>
+{
     let builder = reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none());
     let builder = if url.scheme() == "https" {
-        crate::proxy::configure_blocking_for(builder, url).https_only(true)
+        crate::proxy::configure_blocking_for(builder, url)?.https_only(true)
     } else {
         builder.no_proxy()
     };
-    builder
+    Ok(builder)
 }
 
 /// 主机是否属于本机或局域网，见模块说明。`host` 是 `Url::host_str` 的结果：IPv4 已规范成点分十进制，IPv6 带方括号。判断在 `msime_client_core::network::is_local_host`，与代理判据共用一份。

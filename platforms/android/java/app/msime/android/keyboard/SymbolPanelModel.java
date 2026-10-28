@@ -220,6 +220,30 @@ public final class SymbolPanelModel {
     }
 
     /**
+     * 符号格里的一个条目是否按字形墨迹居中（{@code CenteredGlyphSpan}）。
+     *
+     * <p>只有全角/CJK 标点的墨迹偏在字身一角，需要按墨迹居中才不贴着格子边；其余字形的高低是字形本身的
+     * 意义，按字体基线排：半角 ASCII 的 `_` 才能落在 `-` 下方，目录里的 `₀` 与 `⁰`、`‚` 与 `‛`、
+     * `⏝` 与 `⏞`、`▁` 与 `▔` 也不会叠在同一高度。多字条目和颜文字不居中。
+     */
+    public static boolean centersGlyphInk(String symbol) {
+        if (symbol == null || TextPolicy.codePointLength(symbol) != 1) return false;
+        int codePoint = symbol.codePointAt(0);
+        // 字母、数字和全角字母数字都按基线排，半角假名和全角数字才不会因为字身高低不同而上下跳。
+        if (Character.isLetterOrDigit(codePoint)) return false;
+        // 这些码位在全角区段里，但高低本身就是字形的一部分（垂直引号、上/下线、全角长音符），不拉回中线。
+        if ((codePoint >= 0x301D && codePoint <= 0x301F)
+                || (codePoint >= 0xFE49 && codePoint <= 0xFE4F)
+                || codePoint == 0xFF3F || codePoint == 0xFFE3) return false;
+        return (codePoint >= 0x3000 && codePoint <= 0x303F)
+            || (codePoint >= 0xFE30 && codePoint <= 0xFE4F)
+            || (codePoint >= 0xFF00 && codePoint <= 0xFFEF)
+            || codePoint == 0x2014
+            || codePoint == 0x2018 || codePoint == 0x2019 || codePoint == 0x201C || codePoint == 0x201D
+            || codePoint == 0x2026 || codePoint == 0x00B7;
+    }
+
+    /**
      * 符号格里一个条目的字号（sp）：颜文字 14；不超过 {@link #SHORT_SYMBOL_CODE_POINTS} 个码位的 18；更长的条目在 9 个码位以内用 13，再长用 11；固定分类的长条目按实际字宽跨列，保持单行。
      */
     public static float cellTextSizeSp(Category category, String symbol) {

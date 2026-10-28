@@ -96,6 +96,9 @@ struct CommunityRequest {
     /// 放 `plugins/` 的状态根目录（与 `msime_client_plugins` 的 `state_root` 相同）；在本机打包、发布和安装插件时必需。
     #[serde(default)]
     state_root: Option<String>,
+    /// 键盘皮肤的列表、详情、下载和安装不要 AI 生成的皮肤。由宿主决定、不由页面决定：HarmonyOS 在 AI 生成类资质到位之前（`HostCapabilities.ai_generation` 为假）总是带上它；其他操作不看它。缺省为假，与以前相同。
+    #[serde(default)]
+    exclude_ai_generated: bool,
     action: CommunityAction,
 }
 
@@ -307,13 +310,14 @@ fn catalog_response(root: &Path) -> Result<Value, PluginFailure> {
     Ok(response)
 }
 
-/// 一次操作。皮肤根目录、插件根目录和状态根目录只在用到的操作里要求。`anonymous` 给出本机匿名账号的会话，只有键盘皮肤的下载、安装和举报会调用它：这三项登录账号优先、没有登录时用匿名账号（#8201 的决定 13）。
+/// 一次操作。皮肤根目录、插件根目录和状态根目录只在用到的操作里要求。`anonymous` 给出本机匿名账号的会话，只有键盘皮肤的下载、安装和举报会调用它：这三项登录账号优先、没有登录时用匿名账号（#8201 的决定 13）。`exclude_ai_generated` 见 [`CommunityRequest`]。
 fn run(
     services: &Services,
     anonymous: impl FnOnce() -> Result<Arc<Session>, AccountError>,
     skins: Option<&Path>,
     plugins: Option<&Path>,
     state_root: Option<&Path>,
+    exclude_ai_generated: bool,
     action: CommunityAction,
 ) -> Result<Value, PluginFailure> {
     let skins = || skins.ok_or_else(invalid);
@@ -560,18 +564,26 @@ fn run(
             category,
         } => value(
             keyboard
-                .list(offset, &search, mine.unwrap_or(false), category)
+                .list(
+                    offset,
+                    &search,
+                    mine.unwrap_or(false),
+                    category,
+                    exclude_ai_generated,
+                )
                 .map_err(account)?,
         ),
-        CommunityAction::KeyboardSkinDetail { id: item } => {
-            value(keyboard.detail(id(&item)?).map_err(account)?)
-        }
+        CommunityAction::KeyboardSkinDetail { id: item } => value(
+            keyboard
+                .detail(id(&item)?, exclude_ai_generated)
+                .map_err(account)?,
+        ),
         CommunityAction::KeyboardSkinDownload { id: item } => {
             let item = id(&item)?;
             let anonymous = anonymous().map_err(account)?;
             value(
                 keyboard
-                    .download_with_anonymous(&anonymous, item)
+                    .download_with_anonymous(&anonymous, item, exclude_ai_generated)
                     .map_err(account)?,
             )
         }
@@ -580,7 +592,7 @@ fn run(
             let root = state_root.ok_or_else(invalid)?;
             let anonymous = anonymous().map_err(account)?;
             let design = keyboard
-                .download_with_anonymous(&anonymous, item)
+                .download_with_anonymous(&anonymous, item, exclude_ai_generated)
                 .map_err(account)?;
             super::host::install_downloaded_keyboard_skin(root, item, &name, design)
                 .map_err(PluginFailure::code)
@@ -659,6 +671,7 @@ pub unsafe extern "C" fn msime_client_community(request: *const u8, length: usiz
                 skins,
                 plugins.as_deref(),
                 state_root,
+                request.exclude_ai_generated,
                 request.action,
             ),
             Source::Directory(_) => {
@@ -670,6 +683,7 @@ pub unsafe extern "C" fn msime_client_community(request: *const u8, length: usiz
                     skins,
                     plugins.as_deref(),
                     state_root,
+                    request.exclude_ai_generated,
                     request.action,
                 )
             }

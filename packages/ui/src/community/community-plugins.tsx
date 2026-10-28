@@ -46,6 +46,7 @@ export function CommunityPluginsPage({
   kinds: shownKinds,
   mobile = false,
   onLogin,
+  contributions = true,
 }: {
   client: CommunityPluginClient;
   /** 已安装包目录，供发布选择与安装替换预检使用。 */
@@ -61,6 +62,8 @@ export function CommunityPluginsPage({
   /** 触屏设置：详情推入历史记录，系统返回键关掉它。 */
   mobile?: boolean;
   onLogin?: () => void;
+  /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`）。为 false 时（HarmonyOS 在实名认证到位之前）没有「发布我的插件」，详情里也没有评分和举报；浏览、安装和下架自己的插件照常。缺省为提供。 */
+  contributions?: boolean;
 }) {
   const {
     plugins,
@@ -103,6 +106,8 @@ export function CommunityPluginsPage({
     mobile,
   });
   const kinds = shownKinds ?? communityPluginKindsFor(scriptPlugins);
+  // 能发布的前提：宿主提供投稿类功能，并且读得到本机已安装的插件。
+  const publishable = contributions && Boolean(localPlugins);
 
   if (selected) {
     return (
@@ -120,13 +125,13 @@ export function CommunityPluginsPage({
         onBack={closeDetail}
         onInstall={(replace) => void install(replace)}
         onCancelReplace={() => setConfirmReplace(false)}
-        onRate={(stars) => void rateSelected(stars)}
+        onRate={contributions ? (stars) => void rateSelected(stars) : undefined}
         onRequestUnpublish={() => setConfirmUnpublish(true)}
         onUnpublish={() =>
           void unpublishSelected("已下架这个插件；其他用户将无法再下载。已安装的插件会保留。")
         }
         onCancelUnpublish={() => setConfirmUnpublish(false)}
-        onReport={client.report ? reportSelected : undefined}
+        onReport={contributions && client.report ? reportSelected : undefined}
       />
     );
   }
@@ -154,7 +159,7 @@ export function CommunityPluginsPage({
           mineLabel="我的作品"
           onMineOnlyChange={changeMineOnly}
         />
-        {localPlugins && (
+        {publishable && (
           <ActionButton
             action={() => setPublishOpen(true)}
             className="primary"
@@ -198,7 +203,7 @@ export function CommunityPluginsPage({
                   ? "你还没有发布过插件。"
                   : activeSearch || kind
                     ? "没有匹配的插件。"
-                    : localPlugins
+                    : publishable
                       ? "社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
                       : "社区里还没有插件。"}
               </CommunityNotice>
@@ -217,7 +222,7 @@ export function CommunityPluginsPage({
         loadingText="正在读取插件…"
         onLoadMore={() => void requestList(activeSearch, true)}
       />
-      {publishOpen && localPlugins && (
+      {publishOpen && publishable && localPlugins && (
         <CommunityPluginPublishDialog
           client={client}
           localPlugins={localPlugins}

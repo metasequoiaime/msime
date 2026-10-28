@@ -7,6 +7,7 @@ import android.graphics.Rect;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.text.Spanned;
 import android.view.ContextThemeWrapper;
 import android.view.InputDevice;
 import android.view.MotionEvent;
@@ -93,6 +94,8 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         if (closes[0] != 0) throw new AssertionError("Symbol insertion still closes the panel");
         findButton(panel, "中文").performClick();
         layout(panel, 1000);
+        assertGlyphCentering(panel, "，", true);
+        assertGlyphCentering(panel, "°", false);
         ScrollView scroll = (ScrollView) findDescription(panel, "符号网格；长条目加宽");
         scroll.scrollTo(0, 100);
         swipe(scroll, 0.8f, 0.3f, 0.2f, 0.3f, MotionEvent.ACTION_UP);
@@ -103,6 +106,9 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
             + scroll.getWidth() + "x" + scroll.getHeight() + ", child " + scroll.getChildAt(0).getWidth()
             + "x" + scroll.getChildAt(0).getHeight());
         layout(panel, 1000);
+        assertGlyphCentering(panel, "-", false);
+        assertGlyphCentering(panel, "_", false);
+        assertGlyphCentering(panel, ",", false);
         swipe(scroll, 0.2f, 0.3f, 0.8f, 0.3f, MotionEvent.ACTION_CANCEL);
         if (!findButton(panel, "英文").isSelected()) throw new AssertionError("Cancelled swipe changed category");
         swipe(scroll, 0.2f, 0.3f, 0.8f, 0.3f, MotionEvent.ACTION_UP);
@@ -165,6 +171,14 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
             if (insertions[0] != 6) throw new AssertionError("滚动或点击笔画时误上屏");
         }
         findButton(panel, "1画").performClick();
+    }
+
+    /** 只有全角/CJK 标点按墨迹居中；靠高低表达含义的字形保持字体基线，`_` 才不会和 `-` 停在同一高度。 */
+    private static void assertGlyphCentering(View panel, String symbol, boolean inkCentered) {
+        Button button = findButton(panel, symbol);
+        if (button == null) throw new AssertionError("缺少符号 " + symbol);
+        if ((button.getText() instanceof Spanned) != inkCentered)
+            throw new AssertionError(symbol + " 的居中方式不对：inkCentered=" + inkCentered);
     }
 
     private static void assertEmptyCommon(View panel) {

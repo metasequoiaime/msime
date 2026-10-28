@@ -31,7 +31,7 @@ impl Transport for HttpTransport {
             .timeout(Duration::from_secs(15));
         // 识别接口都是 https 公网地址；按用户的网络代理设置走。
         if let Ok(url) = reqwest::Url::parse(endpoint) {
-            builder = crate::proxy::configure_blocking_for(builder, &url);
+            builder = crate::proxy::configure_blocking_for(builder, &url).ok()?;
         }
         let client = builder.build().ok()?;
         let request = client.post(endpoint).bearer_auth(token);

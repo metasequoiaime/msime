@@ -430,6 +430,43 @@ fn autocorrect_switch_matrix() {
     assert_ne!(dictionary.pinyin_segmentation, "sun'g");
 }
 
+/// `wiaini` 想打 `woaini`：`i` 不能开始音节，整串一个读法都没有，纠错前本地候选为空。两字母键 `wi` 把它读成 wo'ai'ni，同成本的 ai/ei/qi/si/wu 开头的读法按词频和它比。
+#[test]
+fn a_two_letter_typo_without_a_reading_is_corrected() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("wo", "我", 100_000)
+        .insert("wu", "无", 60_000)
+        .insert("si", "四", 50_000)
+        .insert("qi", "七", 50_000)
+        .insert("ai", "爱", 80_000)
+        .insert("ni", "你", 90_000)
+        .insert("ni", "逆", 20_000)
+        .insert("wo'ai'ni", "我爱你", 50_000)
+        .insert("ai'ni", "爱你", 40_000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+
+    let corrected = query(&mut dictionary, "wiaini", "wiaini", BOTH);
+    assert!(
+        position(&corrected, "我爱你") < 3,
+        "{:?}",
+        words(&corrected)
+    );
+    assert_eq!(
+        corrected[position(&corrected, "我爱你")].corrected_from,
+        "wiaini"
+    );
+
+    let off = query(&mut dictionary, "wiaini", "wiaini", NONE);
+    assert!(!contains(&off, "我爱你"), "{:?}", words(&off));
+    let transposition_only = query(&mut dictionary, "wiaini", "wiaini", TRANSPOSITION);
+    assert!(!contains(&transposition_only, "我爱你"));
+
+    // 单独的两字母键没有打对的音节作旁证，不纠。
+    let alone = query(&mut dictionary, "wi", "wi", BOTH);
+    assert!(!contains(&alone, "我"), "{:?}", words(&alone));
+}
+
 #[test]
 fn autocorrect_marking() {
     let fixture = Fixture::new();

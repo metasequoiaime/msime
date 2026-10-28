@@ -158,7 +158,8 @@ impl CommunityResourceLibraryStore {
             let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
             temporary.write_all(&bytes)?;
             temporary.as_file().sync_all()?;
-            temporary.persist(&self.file).map_err(|error| error.error)?;
+            crate::storage::persist_replacing(temporary, &self.file)
+                .map_err(|error| error.error)?;
             Ok(())
         }
     }

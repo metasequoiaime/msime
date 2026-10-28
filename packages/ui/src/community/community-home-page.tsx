@@ -20,6 +20,8 @@ export interface CommunityHomePageProps {
   resources: CommunityResourceClient;
   /** 见 `CommunityCategoryTabsProps.hasReplies`。 */
   hasReplies?: boolean;
+  /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`），转交给皮肤和资源图库。缺省为提供。 */
+  contributions?: boolean;
   theme: "light" | "dark";
   initialMine?: boolean;
   initialCategory?: CommunityDestinationCategory;
@@ -45,6 +47,7 @@ export function CommunityHomePage({
   skins,
   resources,
   hasReplies = true,
+  contributions = true,
   theme,
   initialMine = false,
   initialCategory = "skin",
@@ -85,6 +88,7 @@ export function CommunityHomePage({
           preferences={preferences}
           onApplyPreferences={onApplyPreferences}
           onSkinApplied={onSkinApplied}
+          contributions={contributions}
         />
       ) : (
         <CommunityResourcesPage
@@ -94,6 +98,7 @@ export function CommunityHomePage({
           localDictionary={localDictionary}
           mobile={mobile}
           look={look}
+          contributions={contributions}
         />
       )}
     </>

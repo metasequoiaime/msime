@@ -76,6 +76,7 @@ import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { ConsentState, PrivacyConsentPolicy } from '../privacy/PrivacyConsentPolicy';
 import { PrivacyConsentDialog } from '../privacy/PrivacyConsentDialog';
 import { AiGenerationGate } from '../keyboard/AiGenerationGate';
+import { CommunityContributionGate } from '../keyboard/CommunityContributionGate';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -1041,6 +1042,8 @@ class SettingsBridge {
     this.stateDirectory = `${context.filesDir}/state`;
     // AI 生成类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.ai_generation`），鸿蒙版拿到资质之前为关；`startRequest` 据此拒绝 AI 对话、AI 皮肤和探 AI 服务的请求。
     AiGenerationGate.adopt(client.hostCapabilities(PLATFORM));
+    // 社区投稿类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.community_contribution`），鸿蒙版在实名认证到位之前为关；`startRequest` 据此拒绝社区的发布、改分类、评分和举报。
+    CommunityContributionGate.adopt(client.hostCapabilities(PLATFORM));
     const seen = this.readStateFile(ONBOARDING_SEEN_FILE, 64);
     this.onboardingDone = false;
     if (seen !== null) {
@@ -1358,6 +1361,9 @@ class SettingsBridge {
     if (!AiGenerationGate.allowsSettingsRequest(kind, payload)) {
       // 页面在总闸关着时本来就不画这些入口；这里再拦一道，旧页面或手写的请求也发不出去。
       deliver(AiGenerationGate.refusal());
+    } else if (!CommunityContributionGate.allowsSettingsRequest(kind, payload)) {
+      // 页面在总闸关着时本来就不画这些入口，`apps/harmony` 的社区客户端也先拒绝；这里再拦一道，旧页面或手写的请求也发不出去。
+      deliver(CommunityContributionGate.refusal());
     } else if (kind === 'account') {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary') {
@@ -2082,12 +2088,11 @@ class SettingsBridge {
   }
 
   /**
-   * The community skin gallery.
+   * 社区皮肤图库。
    *
-   * 浏览、评分、发布、下架和「获取」都交给 Rust（`msime_client_community`）。「获取」（`keyboard_skin_install`）下载设计、开始试用并导入皮肤库是一步，导入失败时结束刚开始的试用；它改写了偏好文档，所以之后把新文档交给页面。
+   * 浏览、评分、发布、下架和「获取」都交给 Rust（`msime_client_community`）；评分和发布在社区投稿类功能的总闸关着时已在 `startRequest` 被拒绝。「获取」（`keyboard_skin_install`）下载设计、开始试用并导入皮肤库是一步，导入失败时结束刚开始的试用；它改写了偏好文档，所以之后把新文档交给页面。
    *
-   * Finishing a trial never touches the network at all. It is the answer to 保留 or 还原 on a skin
-   * that is already applied, so it is answered from the device.
+   * 结束试用不会联网；它响应已应用皮肤的「保留」或「还原」，直接在设备上处理。
    */
   async communitySkin(actionDocument: string): Promise<string> {
     if (this.accountBridge === undefined) {
