@@ -27,6 +27,8 @@ use uuid::Uuid;
 
 mod identity;
 pub use identity::CrashContext;
+#[cfg(test)]
+mod consent_tests;
 
 /// The queue, a JSON array of events.
 pub const QUEUE_FILE: &str = "telemetry.json";
@@ -197,6 +199,8 @@ pub enum TelemetryError {
     Invalid,
     #[error("telemetry storage is unavailable")]
     Storage,
+    #[error("telemetry consent changed")]
+    ConsentChanged,
 }
 
 impl From<std::io::Error> for TelemetryError {
@@ -281,6 +285,9 @@ pub struct FlushReport {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct TelemetryState {
+    /// 绑定这份本地队列的持续同意代次；旧版文档没有此字段。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    consent_epoch: Option<Uuid>,
     #[serde(default)]
     install_id: String,
     /// `yyyymmdd` (UTC) of the last queued `active`.
@@ -331,6 +338,7 @@ impl SessionMarker {
 #[derive(Clone, Debug)]
 pub struct TelemetryStore {
     directory: PathBuf,
+    consent_epoch: Option<Uuid>,
 }
 
 /// 只有队列、会话状态和新标记都持久化后才确认删除原记录；失败重试沿用相同事件 id。
@@ -362,11 +370,40 @@ impl TelemetryStore {
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
+            consent_epoch: None,
         }
     }
 
     pub fn directory(&self) -> &Path {
         &self.directory
+    }
+
+    /// 调用方在偏好锁内确认代次后激活；锁顺序是偏好、队列，不能反过来。
+    /// 新代次清理旧报告但保留匿名安装 ID，返回的存储拒绝之后的旧代次操作。
+    pub fn activate_consent_epoch(&self, epoch: Uuid) -> Result<Self, TelemetryError> {
+        if epoch.get_version() != Some(uuid::Version::Random)
+            || epoch.get_variant() != uuid::Variant::RFC4122
+        {
+            return Err(TelemetryError::Invalid);
+        }
+        let unbound = Self::new(self.directory.clone());
+        let _lock = unbound.lock()?;
+        if unbound.read_state().consent_epoch != Some(epoch) {
+            unbound.clear_locked()?;
+            let mut state = unbound.read_state();
+            state.consent_epoch = Some(epoch);
+            unbound.write_state(&state)?;
+        }
+        Ok(Self {
+            directory: self.directory.clone(),
+            consent_epoch: Some(epoch),
+        })
+    }
+
+    fn crash_context(&self, app: &TelemetryApp) -> Result<CrashContext, TelemetryError> {
+        let mut context = CrashContext::new(app, &app.component)?;
+        context.consent_epoch = self.consent_epoch;
+        Ok(context)
     }
 
     /// The anonymous installation id, generated and stored on first use.
@@ -422,7 +459,7 @@ impl TelemetryStore {
             version: app.version.clone(),
             started_at_unix_ms: unix_ms(now),
             pid: Some(pid),
-            context: Some(CrashContext::new(app, &app.component)?),
+            context: Some(self.crash_context(app)?),
         };
         state.open_sessions.push(marker.clone());
         if state.open_sessions.len() > MAX_OPEN_SESSIONS {
@@ -460,7 +497,7 @@ impl TelemetryStore {
                 .directory
                 .join(CRASH_DIRECTORY)
                 .join(format!("{id}.{CRASH_EXTENSION}")),
-            crash_record_header: CrashContext::new(app, &app.component)?.record_header(),
+            crash_record_header: self.crash_context(app)?.record_header(),
             session_id: id,
             previous_session_crashed: false,
             crashes: 0,
@@ -559,6 +596,11 @@ impl TelemetryStore {
     ) -> Result<bool, TelemetryError> {
         if context.is_some_and(|context| !context.is_valid()) {
             return Err(TelemetryError::Invalid);
+        }
+        if self.consent_epoch.is_some()
+            && context.and_then(|context| context.consent_epoch) != self.consent_epoch
+        {
+            return Err(TelemetryError::ConsentChanged);
         }
         let session = Uuid::parse_str(session).map_err(|_| TelemetryError::Invalid)?;
         let directory = self.directory.join(CRASH_DIRECTORY);
@@ -718,6 +760,10 @@ impl TelemetryStore {
         let mut report = FlushReport::default();
         let mut retry_after = None;
         for event in &pending {
+            // 旧发送快照不能在另一进程换代后继续发送；网络期间不持队列锁。
+            if self.consent_epoch.is_some() {
+                let _lock = self.lock()?;
+            }
             let body = serde_json::to_vec(event).map_err(|_| TelemetryError::Invalid)?;
             let delivery = if body.len() > MAX_EVENT_BYTES {
                 Delivery::Rejected
@@ -776,6 +822,10 @@ impl TelemetryStore {
     /// Reporting was turned off: drops the queue, the session marker and every crash record. The installation id stays, so turning reporting back on does not count the installation twice.
     pub fn clear(&self) -> Result<(), TelemetryError> {
         let _lock = self.lock()?;
+        self.clear_locked()
+    }
+
+    fn clear_locked(&self) -> Result<(), TelemetryError> {
         remove_file(&self.directory.join(QUEUE_FILE))?;
         remove_file(&self.directory.join(SESSION_FILE))?;
         #[cfg(unix)]
@@ -804,13 +854,18 @@ impl TelemetryStore {
             || state.retry_after_unix_ms != 0
             || !state.open_sessions.is_empty()
             || !state.crashed_processes.is_empty()
+            || state.consent_epoch.is_some()
         {
             state.active_day.clear();
             state.retry_after_unix_ms = 0;
             state.open_sessions.clear();
             state.crashed_processes.clear();
+            state.consent_epoch = None;
             if !state.install_id.is_empty() {
                 self.write_state(&state)?;
+            } else {
+                // 只激活授权、尚未生成安装 ID 的状态也必须撤销，不能留下有效的旧绑定。
+                remove_file(&self.directory.join(STATE_FILE))?;
             }
         }
         Ok(())
@@ -830,6 +885,9 @@ impl TelemetryStore {
         }
         let file = crate::file_lock::open_private_lock_file(self.directory.join(LOCK_FILE))?;
         let file = crate::file_lock::ScopedFileLock::exclusive(file)?;
+        if self.consent_epoch.is_some() && self.read_state().consent_epoch != self.consent_epoch {
+            return Err(TelemetryError::ConsentChanged);
+        }
         Ok(file)
     }
 
@@ -943,55 +1001,67 @@ impl TelemetryStore {
             if collected.crashes >= MAX_CRASH_RECORDS_PER_START {
                 break;
             }
-            if let Some(event) = crash_event(&path, app, &state.open_sessions, install_id) {
-                let stem = path
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or_default();
-                let session_index = state
-                    .open_sessions
-                    .iter()
-                    .position(|session| session.id == stem);
-                let needed = usize::from(!queue.iter().any(|queued| queued.id == event.id))
-                    + usize::from(
-                        session_index.is_some()
-                            && !queue
-                                .iter()
-                                .any(|queued| queued.id == format!("session-{stem}")),
-                    );
-                let available = MAX_QUEUED_EVENTS.saturating_sub(queue.len())
-                    + queue.iter().filter(|event| !is_crash_event(event)).count();
-                // 队列全是待发崩溃时保留原记录，不能确认删除尚未容纳的诊断。
-                if needed > available {
-                    break;
+            let event = match crash_event(
+                &path,
+                app,
+                &state.open_sessions,
+                install_id,
+                self.consent_epoch,
+            ) {
+                Ok(event) => event,
+                Err(CrashRecordSkip::Revoked) => {
+                    collected.records.push(path);
+                    continue;
                 }
-                if let Some(index) = session_index {
-                    let session = state.open_sessions.remove(index);
-                    collected.sessions.push(session.id.clone());
-                    collected.session_crashed = true;
-                    if let Some(pid) = session.pid {
-                        state.crashed_processes.retain(|known| *known != pid);
-                        state.crashed_processes.push(pid);
-                    }
-                    push(
-                        queue,
-                        TelemetryEvent {
-                            id: format!("session-{}", session.id),
-                            kind: TelemetryKind::SessionCrash,
-                            platform: session.platform,
-                            version: session.version,
-                            message: String::new(),
-                            stack: String::new(),
-                            artifact: String::new(),
-                            channel: String::new(),
-                            install_id: install_id.to_owned(),
-                        },
-                    );
-                }
-                push(queue, event);
-                collected.crashes += 1;
-                collected.records.push(path);
+                Err(CrashRecordSkip::Unavailable) => continue,
+            };
+            let stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            let session_index = state
+                .open_sessions
+                .iter()
+                .position(|session| session.id == stem);
+            let needed = usize::from(!queue.iter().any(|queued| queued.id == event.id))
+                + usize::from(
+                    session_index.is_some()
+                        && !queue
+                            .iter()
+                            .any(|queued| queued.id == format!("session-{stem}")),
+                );
+            let available = MAX_QUEUED_EVENTS.saturating_sub(queue.len())
+                + queue.iter().filter(|event| !is_crash_event(event)).count();
+            // 队列全是待发崩溃时保留原记录，不能确认删除尚未容纳的诊断。
+            if needed > available {
+                break;
             }
+            if let Some(index) = session_index {
+                let session = state.open_sessions.remove(index);
+                collected.sessions.push(session.id.clone());
+                collected.session_crashed = true;
+                if let Some(pid) = session.pid {
+                    state.crashed_processes.retain(|known| *known != pid);
+                    state.crashed_processes.push(pid);
+                }
+                push(
+                    queue,
+                    TelemetryEvent {
+                        id: format!("session-{}", session.id),
+                        kind: TelemetryKind::SessionCrash,
+                        platform: session.platform,
+                        version: session.version,
+                        message: String::new(),
+                        stack: String::new(),
+                        artifact: String::new(),
+                        channel: String::new(),
+                        install_id: install_id.to_owned(),
+                    },
+                );
+            }
+            push(queue, event);
+            collected.crashes += 1;
+            collected.records.push(path);
         }
         if state.crashed_processes.len() > MAX_CRASHED_PROCESSES {
             state
@@ -1019,19 +1089,28 @@ fn crash_record_paths(directory: &Path) -> Result<Vec<PathBuf>, TelemetryError> 
     Ok(records)
 }
 
+enum CrashRecordSkip {
+    Revoked,
+    Unavailable,
+}
+
 fn crash_event(
     path: &Path,
     app: &TelemetryApp,
     sessions: &[SessionMarker],
     install_id: &str,
-) -> Option<TelemetryEvent> {
+    consent_epoch: Option<Uuid>,
+) -> Result<TelemetryEvent, CrashRecordSkip> {
     // 只读额度内的前段，过长的栈仍保留有用的顶部。
-    let bytes = read_crash_file(path)?;
+    let bytes = read_crash_file(path).ok_or(CrashRecordSkip::Unavailable)?;
     let text = String::from_utf8_lossy(&bytes);
     let (context, text) = if text.starts_with(identity::RECORD_PREFIX) {
-        let (header, rest) = text.split_once('\n')?;
+        let (header, rest) = text.split_once('\n').ok_or(CrashRecordSkip::Unavailable)?;
         // 新格式的身份无效时保留原文件，不能悄悄归到补报时的版本。
-        (Some(CrashContext::from_header(header)?), rest)
+        (
+            Some(CrashContext::from_header(header).ok_or(CrashRecordSkip::Unavailable)?),
+            rest,
+        )
     } else {
         (None, text.as_ref())
     };
@@ -1040,13 +1119,21 @@ fn crash_event(
     if message.trim().is_empty() {
         message = "unknown crash".to_owned();
     }
-    let stem = path.file_stem()?.to_str()?;
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or(CrashRecordSkip::Unavailable)?;
     let context = context.or_else(|| {
         sessions
             .iter()
             .find(|marker| marker.id == stem)
             .and_then(|marker| marker.context.clone())
     });
+    if consent_epoch.is_some()
+        && context.as_ref().and_then(|context| context.consent_epoch) != consent_epoch
+    {
+        return Err(CrashRecordSkip::Revoked);
+    }
     let (platform, version) = match context.as_ref() {
         Some(context) => (context.platform.clone(), context.version.clone()),
         None => match sessions.iter().find(|marker| marker.id == stem) {
@@ -1074,7 +1161,10 @@ fn crash_event(
         channel: String::new(),
         install_id: install_id.to_owned(),
     };
-    event.is_valid().then_some(event)
+    event
+        .is_valid()
+        .then_some(event)
+        .ok_or(CrashRecordSkip::Unavailable)
 }
 
 fn read_crash_file(path: &Path) -> Option<Vec<u8>> {

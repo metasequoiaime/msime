@@ -16,7 +16,7 @@ enum KeyboardUsageReporting {
     // 按自己的会话 id 写记录：标记可能已经属于另一个键盘进程刚开始的会话。
     if UsageReporting.exceptionConsent.isEnabled,
        let session = UsageReporting.keyboardCapture.current {
-      UsageReporting.recordCrash(session: session.id,
+      UsageReporting.recordCrash(session: session,
                                  message: "Uncaught \(exception.name.rawValue)",
                                  stack: UsageReporting.frames(fromReturnAddresses: exception.callStackReturnAddresses))
     }

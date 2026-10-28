@@ -17617,6 +17617,179 @@ fn reporting_call(
 }
 
 #[test]
+fn telemetry_epoch_abi_rejects_stale_begin_and_late_native_records() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences_directory = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences_directory}),
+    );
+    assert_eq!(consent["ok"], true, "{consent}");
+    let first_epoch = consent["value"]["epoch"].as_str().unwrap().to_owned();
+    let request = |epoch: &str| json!({"directory": directory, "platform": "ios", "version": "0.1.0", "preferences_directory": preferences_directory, "consent_epoch": epoch});
+    let first = reporting_call(msime_client_telemetry_begin, request(&first_epoch));
+    assert_eq!(first["value"]["enabled"], true, "{first}");
+    let current = preferences.load().unwrap();
+    let mut edited = current.preferences;
+    edited.usage_reporting = false;
+    let off = preferences.save(current.revision, edited).unwrap();
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory": preferences_directory})
+        )["value"]["enabled"],
+        false
+    );
+    let mut edited = off.preferences;
+    edited.usage_reporting = true;
+    let on = preferences.save(off.revision, edited).unwrap();
+    let second_epoch = on
+        .preferences
+        .usage_reporting_consent
+        .unwrap()
+        .epoch
+        .to_string();
+    assert_ne!(first_epoch, second_epoch);
+    let second = reporting_call(msime_client_telemetry_begin, request(&second_epoch));
+    assert_eq!(second["value"]["enabled"], true);
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
+    let fresh = store.queued().unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, request(&first_epoch))["value"]["enabled"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    let mut bypass = request(&second_epoch);
+    bypass["enabled"] = true.into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, bypass)["ok"],
+        false
+    );
+
+    let path = first["value"]["crash_record_path"].as_str().unwrap();
+    std::fs::write(
+        path,
+        format!(
+            "{}Synthetic obsolete native fault\nsynthetic+0x41\n",
+            first["value"]["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    let next = reporting_call(msime_client_telemetry_begin, request(&second_epoch));
+    assert_eq!(next["value"]["crashes"], 0);
+    assert!(!std::path::Path::new(path).exists());
+    assert_eq!(store.queued().unwrap(), fresh);
+}
+
+#[test]
+fn telemetry_epoch_system_diagnostics_require_current_continuous_history() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences_directory = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences_directory}),
+    );
+    let epoch = consent["value"]["epoch"].as_str().unwrap();
+    let since = consent["value"]["since_unix_ms"].as_u64().unwrap();
+    let capture = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": directory,"platform":"ios","version":"0.1.0","preferences_directory":preferences_directory,"consent_epoch":epoch,"capture_only":true}),
+    );
+    let mut context = msime_client_services::telemetry::CrashContext::from_header(
+        capture["value"]["crash_record_header"].as_str().unwrap(),
+    )
+    .unwrap();
+    context.consent_epoch = None;
+    let request = json!({"directory":directory,"message":"Synthetic system fault","outside_session":true,"crash_record_header":context.record_header(),"diagnostic_id":"synthetic-current-diagnostic","preferences_directory":preferences_directory,"consent_epoch":epoch,"diagnostic_begin_unix_ms":since,"diagnostic_end_unix_ms":since});
+    let mut old = request.clone();
+    old["diagnostic_begin_unix_ms"] = since.saturating_sub(1).into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, old)["value"],
+        false
+    );
+    let mut future = request.clone();
+    future["diagnostic_end_unix_ms"] = (since + 1_000_000).into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, future)["value"],
+        false
+    );
+    let mut missing = request.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("diagnostic_begin_unix_ms");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, missing)["ok"],
+        false
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        true
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        false
+    );
+
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let current = preferences.load().unwrap();
+    let mut disabled = current.preferences;
+    disabled.usage_reporting = false;
+    let off = preferences.save(current.revision, disabled).unwrap();
+    let mut enabled = off.preferences;
+    enabled.usage_reporting = true;
+    preferences.save(off.revision, enabled).unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request)["value"],
+        false
+    );
+}
+
+#[test]
+fn telemetry_conditional_clear_cannot_delete_reenabled_reports() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences_directory = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let consent = preferences.usage_reporting_consent().unwrap().unwrap();
+    let begin = json!({"directory": directory,"platform":"ios","version":"0.1.0","preferences_directory":preferences_directory,"consent_epoch":consent.epoch});
+    reporting_call(msime_client_telemetry_begin, begin);
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
+    let fresh = store.queued().unwrap();
+    let clear = json!({"directory":directory,"preferences_directory":preferences_directory});
+    assert_eq!(
+        reporting_call(msime_client_telemetry_clear, clear.clone())["value"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    let current = preferences.load().unwrap();
+    let mut edited = current.preferences;
+    edited.usage_reporting = false;
+    preferences.save(current.revision, edited).unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_clear, clear)["value"],
+        true
+    );
+    assert!(store.queued().unwrap().is_empty());
+    let path = preferences_directory.join("preferences.json");
+    std::fs::write(&path, b"{synthetic damaged").unwrap();
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":preferences_directory})
+        )["ok"],
+        false
+    );
+    assert_eq!(std::fs::read(path).unwrap(), b"{synthetic damaged");
+}
+
+#[test]
 fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
     use crate::ffi::reporting::*;
     let root = tempfile::tempdir().unwrap();

@@ -4,6 +4,8 @@ import CryptoKit
 import Darwin
 import os
 
+@_silgen_name("msime_client_telemetry_consent")
+private func msimeClientTelemetryConsent(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_telemetry_begin")
 private func msimeClientTelemetryBegin(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_telemetry_end")
@@ -73,24 +75,37 @@ enum UsageReporting {
 
   static let exceptionConsent = ExceptionConsent()
 
-  private static let diagnosticConsentKey = "msime.telemetry.diagnostic-consent-since"
-  private static var diagnosticDefaults: UserDefaults? {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier)
+  struct Authorization: Equatable {
+    let epoch: UUID
+    let sinceUnixMilliseconds: UInt64
+    let preferencesDirectory: String
+    var since: Date { Date(timeIntervalSince1970: Double(sinceUnixMilliseconds) / 1000) }
   }
 
-  /// 系统诊断可能隔天才到；缺少历史同意时从现在开始，不追认此前的记录。
-  static func refreshDiagnosticConsent(_ enabled: Bool, in defaults: UserDefaults, now: Date = Date()) {
-    if !enabled {
-      defaults.removeObject(forKey: diagnosticConsentKey)
-    } else if diagnosticConsentSince(in: defaults) == nil {
-      defaults.set(now.timeIntervalSince1970, forKey: diagnosticConsentKey)
-    }
+  enum CaptureConsent: Equatable {
+    case disabled
+    case enabled(Authorization)
   }
 
-  static func diagnosticConsentSince(in defaults: UserDefaults) -> Date? {
-    guard let value = defaults.object(forKey: diagnosticConsentKey) as? NSNumber,
-          value.doubleValue.isFinite, value.doubleValue > 0 else { return nil }
-    return Date(timeIntervalSince1970: value.doubleValue)
+  /// 只接受共享层明确返回的布尔开关与有效代次，不从旧 UserDefaults 历史追认授权。
+  static func captureConsent(from value: [String: Any]?, preferencesDirectory: String) -> CaptureConsent? {
+    guard preferencesDirectory.hasPrefix("/"), let value,
+          let enabled = value["enabled"] as? NSNumber, CFGetTypeID(enabled) == CFBooleanGetTypeID() else { return nil }
+    if !enabled.boolValue { return .disabled }
+    guard let text = value["epoch"] as? String, let epoch = UUID(uuidString: text),
+          text.lowercased() == epoch.uuidString.lowercased(),
+          let since = SharedNumber.strictUInt64(value["since_unix_ms"]),
+          (1...253_402_300_799_999).contains(since) else { return nil }
+    let canonical = Array(epoch.uuidString.utf8)
+    guard canonical[14] == 52, [56, 57, 65, 66].contains(canonical[19]) else { return nil }
+    return .enabled(.init(epoch: epoch, sinceUnixMilliseconds: since, preferencesDirectory: preferencesDirectory))
+  }
+
+  static func captureConsent(preferencesDirectory: String? = nil) -> CaptureConsent? {
+    let preferences = preferencesDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory
+    guard preferences.hasPrefix("/") else { return nil }
+    let value = ClientRequestEnvelope.call(msimeClientTelemetryConsent, ["directory": preferences]) as? [String: Any]
+    return captureConsent(from: value, preferencesDirectory: preferences)
   }
 
   /// MetricKit 只给诊断批次的时间范围；跨越同意起点的整批保守跳过。
@@ -99,16 +114,8 @@ enum UsageReporting {
     return begin >= consentSince && end >= begin && end <= now
   }
 
-  static func diagnosticAllowed(begin: Date, end: Date) -> Bool {
-    diagnosticAllowed(begin: begin, end: end, consentSince: diagnosticDefaults.flatMap { diagnosticConsentSince(in: $0) })
-  }
-
   static var isEnabled: Bool {
-    _ = exceptionConsent.refresh { isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) }
-    return exceptionConsent.withCurrent { enabled in
-      if let defaults = diagnosticDefaults { refreshDiagnosticConsent(enabled, in: defaults) }
-      return enabled
-    }
+    exceptionConsent.refresh { isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) }
   }
 
   /// 保存上报开关并同步异常回调的内存权限；关闭时丢弃队列。偏好保存失败时返回 false。
@@ -116,9 +123,6 @@ enum UsageReporting {
   static func setEnabled(_ enabled: Bool) -> Bool {
     guard MetasequoiaInputSessionBridge.updateSharedPreferences({ $0[preferenceKey] = enabled }) else { return false }
     exceptionConsent.update(enabled)
-    exceptionConsent.withCurrent { current in
-      if let defaults = diagnosticDefaults { refreshDiagnosticConsent(current, in: defaults) }
-    }
     // 关闭立即撤下故障快照，队列上的撤回也使紧接着重开的采集取得新身份。
     if !enabled { applicationCapture.revoke() }
     applicationCapture.refresh()
@@ -130,11 +134,21 @@ enum UsageReporting {
     Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
   }
 
-  private static func request(_ directory: URL, preferencesDirectory: String? = nil) -> [String: Any]? {
-    let preferences = preferencesDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory
+  private static func request(_ directory: URL, preferencesDirectory: String? = nil,
+                              authorization: Authorization? = nil) -> [String: Any]? {
+    let preferences = preferencesDirectory ?? authorization?.preferencesDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory
     // 无法确定共享偏好来源时不提交请求，也不能按“明确关闭”清掉已有记录。
     guard preferences.hasPrefix("/") else { return nil }
-    return ["directory": directory.path, "platform": "ios", "version": version, "preferences_directory": preferences]
+    let current: Authorization
+    if let authorization {
+      guard authorization.preferencesDirectory == preferences else { return nil }
+      current = authorization
+    } else {
+      guard case let .enabled(loaded)? = captureConsent(preferencesDirectory: preferences) else { return nil }
+      current = loaded
+    }
+    return ["directory": directory.path, "platform": "ios", "version": version,
+            "preferences_directory": preferences, "consent_epoch": current.epoch.uuidString.lowercased()]
   }
 
   /// 一次已经开始的键盘会话：结束它、为它写崩溃记录都按这个 id，不看标记现在属于谁（同时可能有别的键盘进程在开始会话）。
@@ -145,14 +159,15 @@ enum UsageReporting {
     var crashRecordHeader: String = ""
   }
 
-  /// Starts a keyboard session: closes the previous one, queues crash records and today's active. Nil when reporting is off. No network I/O.
-  static func begin() -> Session? {
+  /// 开始当前持续授权内的键盘会话；关闭或读取失败返回 nil，不联网。
+  static func begin(authorization: Authorization? = nil) -> Session? {
     guard let directory else { return nil }
-    return begin(in: directory)
+    return begin(in: directory, authorization: authorization)
   }
 
-  static func begin(in directory: URL, preferencesDirectory: String? = nil) -> Session? {
-    guard var request = request(directory, preferencesDirectory: preferencesDirectory) else { return nil }
+  static func begin(in directory: URL, preferencesDirectory: String? = nil,
+                    authorization: Authorization? = nil) -> Session? {
+    guard var request = request(directory, preferencesDirectory: preferencesDirectory, authorization: authorization) else { return nil }
     request["component"] = "keyboard"
     guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request) as? [String: Any],
           value["enabled"] as? Bool == true,
@@ -162,9 +177,9 @@ enum UsageReporting {
   }
 
   /// App 只准备独立捕获，不开始或结束键盘会话。
-  static func prepareApplicationCapture() -> Session? {
+  static func prepareApplicationCapture(authorization: Authorization? = nil) -> Session? {
     guard let directory else { return nil }
-    guard var request = request(directory) else { return nil }
+    guard var request = request(directory, authorization: authorization) else { return nil }
     request["capture_only"] = true
     request["component"] = "application"
     guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request) as? [String: Any],
@@ -183,7 +198,15 @@ enum UsageReporting {
   }
 
   private static func clear() {
-    if let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
+    if let directory { clear(in: directory) }
+  }
+
+  /// 只在共享开关当前仍关闭时清理；旧撤回回调不能删掉另一个进程重开后的队列。
+  static func clear(in directory: URL, preferencesDirectory: String? = nil) {
+    let preferences = preferencesDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory
+    guard preferences.hasPrefix("/") else { return }
+    ClientRequestEnvelope.call(msimeClientTelemetryClear,
+      ["directory": directory.path, "preferences_directory": preferences])
   }
 
   /// 观察与会话收尾共用独立串行队列，网络发送不能阻塞撤回或键盘收起。
@@ -195,17 +218,18 @@ enum UsageReporting {
       var generation: UInt64 = 0
     }
     private let snapshot = OSAllocatedUnfairLock(initialState: Snapshot())
-    private let load: () -> Bool?
-    private let prepare: () -> Session?
+    private let load: () -> CaptureConsent?
+    private let prepare: (Authorization) -> Session?
     private let configure: (Session?) -> Void
     private let clear: () -> Void
     private let finish: (Session) -> Void
     private var timer: DispatchSourceTimer?
     private var active = false
     private var session: Session?
+    private var authorization: Authorization?
     private var disabled = false
 
-    init(load: @escaping () -> Bool?, prepare: @escaping () -> Session?,
+    init(load: @escaping () -> CaptureConsent?, prepare: @escaping (Authorization) -> Session?,
          configure: @escaping (Session?) -> Void, clear: @escaping () -> Void,
          finish: @escaping (Session) -> Void = { _ in }) {
       self.load = load
@@ -245,6 +269,7 @@ enum UsageReporting {
       }
       queue.async {
         self.session = nil
+        self.authorization = nil
         self.disabled = true
         self.snapshot.withLock { $0.session = nil }
         self.configure(nil)
@@ -260,6 +285,7 @@ enum UsageReporting {
         self.configure(nil)
         if let session = self.session { self.finish(session) }
         self.session = nil
+        self.authorization = nil
         self.disabled = false
       }
     }
@@ -267,47 +293,66 @@ enum UsageReporting {
     private func update() {
       guard active else { return }
       let generation = snapshot.withLock { $0.generation }
-      let consent = load()
-      // prepare 可能读盘；撤回不能等它完成，也不能让这次旧读重新武装。
-      if consent == true, session == nil { session = prepare() }
-      snapshot.withLock { current in
-        guard current.generation == generation else { return }
+      var consent = load()
+      // 准备后再核对同一次持续授权；两次轮询间的关闭重开也不能沿用旧身份。
+      if case let .enabled(current)? = consent {
+        if authorization != current { session = nil; authorization = current }
+        if session == nil {
+          let prepared = prepare(current)
+          let latest = load()
+          if latest == consent {
+            session = prepared
+          } else {
+            consent = latest
+            session = nil
+            authorization = nil
+          }
+        }
+      }
+      let shouldClear = snapshot.withLock { current -> Bool in
+        guard current.generation == generation else { return false }
         switch consent {
-        case true?:
+        case .enabled?:
           disabled = false
           current.session = session
           configure(session)
-        case false?:
+        case .disabled?:
           current.session = nil
           configure(nil)
           session = nil
-          if !disabled { clear() }
+          authorization = nil
+          let shouldClear = !disabled
           disabled = true
+          return shouldClear
         case nil:
           current.session = nil
           configure(nil)
         }
+        return false
       }
+      // 清理会取得偏好与队列锁，不占用故障快照锁；共享层另核对当前仍明确关闭。
+      if shouldClear { clear() }
     }
 
     /// 供验证等待已排入的生命周期操作；不等待网络发送。
     func waitForPendingOperations() { queue.sync {} }
   }
 
-  private static func loadCaptureConsent() -> Bool? {
-    var loaded: Bool?
+  private static func loadCaptureConsent() -> CaptureConsent? {
+    var loaded: CaptureConsent?
     let enabled = exceptionConsent.refresh {
-      loaded = consent(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
-      return loaded == true
+      loaded = captureConsent()
+      if case .enabled? = loaded { return true }
+      return false
     }
-    if loaded != nil, let defaults = diagnosticDefaults { refreshDiagnosticConsent(enabled, in: defaults) }
-    return loaded == nil ? nil : enabled
+    if case .disabled? = loaded { return .disabled }
+    return enabled ? loaded : nil
   }
 
-  static let applicationCapture = CaptureLifecycle(load: loadCaptureConsent, prepare: prepareApplicationCapture,
-                                                    configure: configure, clear: clear)
-  static let keyboardCapture = CaptureLifecycle(load: loadCaptureConsent, prepare: begin,
-                                                 configure: configure, clear: clear, finish: { end(session: $0.id) })
+  static let applicationCapture = CaptureLifecycle(load: loadCaptureConsent,
+    prepare: { prepareApplicationCapture(authorization: $0) }, configure: configure, clear: clear)
+  static let keyboardCapture = CaptureLifecycle(load: loadCaptureConsent,
+    prepare: { begin(authorization: $0) }, configure: configure, clear: clear, finish: { end(session: $0.id) })
 
   /// 系统报告原版本已知而源码构建未知时明确标成 unknown，不能用升级后的身份填补。
   static func diagnosticHeader(version: String) -> String? {
@@ -331,11 +376,12 @@ enum UsageReporting {
     ClientRequestEnvelope.call(msimeClientTelemetryFlush, request)
   }
 
-  /// From an uncaught-exception handler in the keyboard: writes this session's crash record, sent on a later start.
-  static func recordCrash(session: String, message: String, stack: String) {
+  /// 键盘异常沿用预备身份与记录头；不在故障现场读偏好或会话状态。
+  static func recordCrash(session: Session, message: String, stack: String) {
     guard let directory else { return }
     ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash,
-                               ["directory": directory.path, "message": message, "stack": stack, "session": session])
+                               ["directory": directory.path, "message": message, "stack": stack, "session": session.id,
+                                "crash_record_header": session.crashRecordHeader])
   }
 
   /// MetricKit 崩溃诊断的摘要行和归类。`killed` 为真表示进程是被系统用 SIGKILL 强制结束的（看门狗、内存上限、挂起时持有 App Group 里的文件锁即 `0xdead10cc`），而不是自己出错：摘要以 `Killed` 开头，与以 `Crash` 开头的真崩溃分成不同的崩溃组。
@@ -359,12 +405,24 @@ enum UsageReporting {
 
   /// 系统事后报告的一次崩溃（MetricKit，App 下次打开时才送到），写成下次键盘启动时排队的崩溃记录。真崩溃按进程号 `pid` 对回该进程未结束的键盘会话，下次启动时连同那个会话的 `session_crash` 补报；键盘自己的处理程序已经为它写过记录时不再写。被强制结束的、`pid` 不可用的和不属于任何会话的（App 自身、收起后被挂起的键盘）只报 `crash`。会加锁写文件：不要在主线程上调用。
   static func recordDiagnosedCrash(_ summary: DiagnosticSummary, stack: String, pid: pid_t, version: String? = nil,
-                                   diagnosticID: String? = nil, in directory: URL) {
-    var request: [String: Any] = ["directory": directory.path, "message": summary.message, "stack": stack]
+                                   diagnosticID: String? = nil, in directory: URL,
+                                   authorization: Authorization, begin: Date, end: Date) {
+    guard diagnosticAllowed(begin: begin, end: end, consentSince: authorization.since),
+          let beginMilliseconds = milliseconds(begin), let endMilliseconds = milliseconds(end),
+          let header = diagnosticHeader(version: version ?? "unknown") else { return }
+    var request: [String: Any] = ["directory": directory.path, "message": summary.message, "stack": stack,
+      "crash_record_header": header, "preferences_directory": authorization.preferencesDirectory,
+      "consent_epoch": authorization.epoch.uuidString.lowercased(),
+      "diagnostic_begin_unix_ms": beginMilliseconds, "diagnostic_end_unix_ms": endMilliseconds]
     if let diagnosticID { request["diagnostic_id"] = diagnosticID }
-    if let version, let header = diagnosticHeader(version: version) ?? diagnosticHeader(version: "unknown") { request["crash_record_header"] = header }
     if summary.killed || pid <= 0 { request["outside_session"] = true } else { request["pid"] = Int(pid) }
     ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request)
+  }
+
+  private static func milliseconds(_ date: Date) -> UInt64? {
+    let value = date.timeIntervalSince1970 * 1000
+    guard value.isFinite, value >= 0, value <= 253_402_300_799_999 else { return nil }
+    return UInt64(value.rounded(.down))
   }
 
   /// 同一份系统诊断重复送达时固定事件身份，原始诊断只参与本地散列，不上传。

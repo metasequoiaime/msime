@@ -4379,6 +4379,10 @@ impl Preferences {
     /// 诊断包里的配置快照：整份偏好文档，凭据清单里的每个字段都换成 [`REDACTED`]；此外任何键名符合服务端脱敏规则（含 `token`、`secret`、`password`、`api_key` 或以 `key` 结尾，不分大小写）的值也一律换掉，这样快照上传时一定通过服务端的校验。
     pub fn redacted_for_diagnostics(&self) -> serde_json::Value {
         let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        // 持续授权身份只留本机，诊断包和凭据脱敏快照同样不能导出它。
+        if let Some(object) = value.as_object_mut() {
+            object.remove("usage_reporting_consent");
+        }
         let mut copy = self.clone();
         for (path, _) in copy.credential_slots() {
             let mut cursor = &mut value;
@@ -5059,6 +5063,20 @@ impl PreferencesStore {
         let preferences = current.preferences.clone();
         self.save_locked(current, &unknown, revision, preferences, true)
             .map(|snapshot| snapshot.preferences.usage_reporting_consent)
+    }
+
+    /// 在同一偏好锁内核对持续同意并执行本地操作；不初始化历史，也不把读失败当关闭。
+    /// 操作可以再取得遥测队列锁，不能联网或从故障处理器调用。
+    pub fn with_usage_reporting_consent<T>(
+        &self,
+        operation: impl FnOnce(bool, Option<UsageReportingConsent>) -> T,
+    ) -> Result<T, PreferencesError> {
+        let _lock = self.lock()?;
+        let snapshot = self.read_locked()?;
+        Ok(operation(
+            snapshot.preferences.usage_reporting,
+            snapshot.preferences.usage_reporting_consent,
+        ))
     }
 
     /// None means the writer lock is busy; retry later without using defaults.

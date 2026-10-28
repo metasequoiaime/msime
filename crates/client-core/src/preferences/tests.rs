@@ -7483,6 +7483,20 @@ fn every_credential_like_preference_field_is_listed() {
 }
 
 #[test]
+fn diagnostic_snapshot_omits_local_reporting_consent() {
+    let consent = UsageReportingConsent::new().unwrap();
+    let preferences = Preferences {
+        usage_reporting_consent: Some(consent),
+        ..Preferences::default()
+    };
+    let snapshot = preferences.redacted_for_diagnostics();
+    assert!(snapshot.get("usage_reporting_consent").is_none());
+    assert!(!snapshot.to_string().contains(&consent.epoch.to_string()));
+    assert_eq!(snapshot["usage_reporting"], true);
+    assert_eq!(preferences.usage_reporting_consent, Some(consent));
+}
+
+#[test]
 fn diagnostic_snapshot_redacts_every_credential() {
     let preferences = with_every_credential(Preferences::default());
     let redacted = preferences.redacted_for_diagnostics();

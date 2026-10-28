@@ -33,12 +33,12 @@ Status: proposed
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障与部分符号还原 | 完整同源安装包及真实故障到后台和双架构符号 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对 | 部分发行版符号与后台链路 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制 | 完整正式包和含按需资源的完整冒烟；后台精确符号化 |
-| iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 同意认领、UUID 帧；同源模拟器回归 | 跨进程短暂撤回的持久 epoch；实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
+| iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听与同意认领；逻辑和 HAP 构建 | 同源原生包、真实设备系统回调与后台精确符号化 |
 
 所有平台继续保留“栈展开尽力而为、备用栈仅安装线程、后加载模块快照要重新准备”的边界。下一步 TSF 方案需验证进程外 WER 适配：Microsoft 的 [注册接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werregisterruntimeexceptionmodule)要求安装时配置模块列表并导出三个回调；[异常回调](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nc-werapi-pfn_wer_runtime_exception_event)允许返回不认领，保持宿主默认处置；[注销接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werunregisterruntimeexceptionmodule)必须与生命周期配对。这是待验证的候选方案，尚无实现，不能把 API 可用性当成 TSF 已覆盖。
 
-[共享偏好的持续同意存储](../../implemented/bug-fix/2026-10-28-persisted-reporting-consent.md)已提供原子代次；iOS 采集、旧原生记录、MetricKit 和发送端仍未接入，表中持续授权缺口继续保留。
+[共享偏好的持续同意存储](../../implemented/bug-fix/2026-10-28-persisted-reporting-consent.md)提供原子代次；[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)把 iOS 采集、旧原生记录过滤、MetricKit 补录与逐条发送接入同一代次。它不代替实际致命故障、系统 MetricKit 投递与后台精确符号化验收。本轮首先将 iOS 迁入共享队列代次协议；其余宿主仍需逐入口核对撤回、旧原生记录晚写和在途发送边界，不能由共享接口可用推定全平台均已迁移。Android 自有持续授权不等同于已经使用该共享协议。
 
 ## Alternatives considered
 

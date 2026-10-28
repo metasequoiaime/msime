@@ -13,6 +13,9 @@ use msime_client_services::update_check::background::{pending_update, run_backgr
 use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
 use std::time::SystemTime;
 
+mod consent;
+pub use consent::msime_client_telemetry_consent;
+
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 /// A crash request carries a message and a stack the host has not trimmed yet.
 const MAX_CRASH_REQUEST_BYTES: usize = 256 * 1024;
@@ -63,6 +66,9 @@ struct TelemetryRequest {
     /// The shared preferences directory (`preferences.json`), read for `usage_reporting` when `enabled` is absent.
     #[serde(default)]
     preferences_directory: Option<String>,
+    /// 可选的持续同意身份；给出时必须使用共享偏好，不能由 enabled 绕过。
+    #[serde(default)]
+    consent_epoch: Option<String>,
 }
 
 fn default_telemetry_component() -> String {
@@ -70,6 +76,14 @@ fn default_telemetry_component() -> String {
 }
 
 impl TelemetryRequest {
+    fn epoch_preferences(&self) -> Result<&str, String> {
+        if self.enabled.is_some() {
+            return Err("consent_epoch cannot be combined with enabled".into());
+        }
+        self.preferences_directory
+            .as_deref()
+            .ok_or_else(|| "consent_epoch requires preferences_directory".into())
+    }
     /// The user's choice: `Some(false)` clears what is queued, `None` (preferences unreadable) neither reports nor clears.
     fn consent(&self) -> Result<Option<bool>, String> {
         if let Some(enabled) = self.enabled {
@@ -113,6 +127,26 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
         // SAFETY: guaranteed by the documented caller contract.
         let request: TelemetryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
         let (store, app) = request.open()?;
+        if let Some(epoch) = request.consent_epoch.as_deref() {
+            let start =
+                consent::with_epoch(request.epoch_preferences()?, epoch, &store, |store, _| {
+                    if request.capture_only {
+                        store.prepare_crash_capture(&app, SystemTime::now())
+                    } else {
+                        store.begin_session(&app, SystemTime::now())
+                    }
+                    .map_err(|error| error.to_string())
+                })?;
+            return match start {
+                Some(start) => {
+                    let mut value =
+                        serde_json::to_value(start).map_err(|error| error.to_string())?;
+                    value["enabled"] = Value::Bool(true);
+                    Ok(value)
+                }
+                None => Ok(json!({"enabled": false})),
+            };
+        }
         match request.consent()? {
             Some(true) => {
                 let start = if request.capture_only {
@@ -186,6 +220,15 @@ struct CrashRequest {
     /// 系统诊断的稳定身份；只在事后补录时使用，不含系统原始描述。
     #[serde(default)]
     diagnostic_id: Option<String>,
+    /// 仅系统事后诊断使用；普通故障处理器沿用记录头，不读偏好。
+    #[serde(default)]
+    consent_epoch: Option<String>,
+    #[serde(default)]
+    preferences_directory: Option<String>,
+    #[serde(default)]
+    diagnostic_begin_unix_ms: Option<u64>,
+    #[serde(default)]
+    diagnostic_end_unix_ms: Option<u64>,
 }
 
 /// 写会话的崩溃记录（`{directory, message, stack, session?, pid?, outside_session?}`），记录在下次启动时成为 `crash` 事件。三种用法互斥：
@@ -212,6 +255,57 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
             .map(|header| CrashContext::from_header(header).ok_or("invalid crash record header"))
             .transpose()?;
         let (message, stack) = (&request.message, &request.stack);
+        if let Some(epoch) = request.consent_epoch.as_deref() {
+            if request.session.is_some() || request.pid.is_some() == request.outside_session {
+                return Err("consent_epoch requires a system diagnostic".into());
+            }
+            let preferences = request
+                .preferences_directory
+                .as_deref()
+                .ok_or("preferences_directory is required")?;
+            let begin = request
+                .diagnostic_begin_unix_ms
+                .ok_or("diagnostic_begin_unix_ms is required")?;
+            let end = request
+                .diagnostic_end_unix_ms
+                .ok_or("diagnostic_end_unix_ms is required")?;
+            let recorded = consent::with_epoch(preferences, epoch, &store, |store, consent| {
+                let now = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|error| error.to_string())?
+                    .as_millis();
+                if begin < consent.since_unix_ms || end < begin || u128::from(end) > now {
+                    return Ok(false);
+                }
+                let mut context = context
+                    .clone()
+                    .ok_or("system diagnostic requires crash_record_header")?;
+                if context
+                    .consent_epoch
+                    .is_some_and(|epoch| epoch != consent.epoch)
+                {
+                    return Ok(false);
+                }
+                context.consent_epoch = Some(consent.epoch);
+                store
+                    .record_diagnosed_crash_with_context(
+                        request.pid,
+                        Some(&context),
+                        request.diagnostic_id.as_deref(),
+                        message,
+                        stack,
+                    )
+                    .map(|recorded| recorded != DiagnosedCrash::Duplicate)
+                    .map_err(|error| error.to_string())
+            })?;
+            return Ok(Value::Bool(recorded.unwrap_or(false)));
+        }
+        if request.preferences_directory.is_some()
+            || request.diagnostic_begin_unix_ms.is_some()
+            || request.diagnostic_end_unix_ms.is_some()
+        {
+            return Err("diagnostic consent fields require consent_epoch".into());
+        }
         match (
             request.session.as_deref(),
             request.pid,
@@ -256,6 +350,30 @@ pub unsafe extern "C" fn msime_client_telemetry_flush(
         // SAFETY: guaranteed by the documented caller contract.
         let request: TelemetryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
         let (store, app) = request.open()?;
+        if let Some(epoch) = request.consent_epoch.as_deref() {
+            let preferences_directory = request.epoch_preferences()?;
+            let bound = consent::with_epoch(preferences_directory, epoch, &store, |store, _| {
+                store
+                    .record_active(&app, SystemTime::now())
+                    .map_err(|error| error.to_string())?;
+                Ok(store.clone())
+            })?;
+            let Some(store) = bound else {
+                return Ok(json!({"enabled": false}));
+            };
+            let client = BackendAccountClient::new().map_err(|error| error.to_string())?;
+            let sender = consent::EpochSender {
+                preferences: PreferencesStore::new(absolute_directory(preferences_directory)?),
+                epoch,
+                sender: &client,
+            };
+            let report = store
+                .flush(&sender, SystemTime::now())
+                .map_err(|error| error.to_string())?;
+            let mut value = serde_json::to_value(report).map_err(|error| error.to_string())?;
+            value["enabled"] = Value::Bool(true);
+            return Ok(value);
+        }
         match request.consent()? {
             Some(true) => {
                 let client = BackendAccountClient::new().map_err(|error| error.to_string())?;
@@ -285,12 +403,34 @@ pub unsafe extern "C" fn msime_client_telemetry_clear(
 ) -> *mut c_char {
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
-        let request: DirectoryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let request: ClearRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        if let Some(preferences) = request.preferences_directory.as_deref() {
+            let store = PreferencesStore::new(absolute_directory(preferences)?);
+            return store
+                .with_usage_reporting_consent(|enabled, _| {
+                    if enabled {
+                        return Ok(Value::Bool(false));
+                    }
+                    TelemetryStore::new(absolute_directory(&request.directory)?)
+                        .clear()
+                        .map(|()| Value::Bool(true))
+                        .map_err(|error| error.to_string())
+                })
+                .map_err(|error| error.to_string())?;
+        }
         TelemetryStore::new(absolute_directory(&request.directory)?)
             .clear()
             .map(|()| Value::Bool(true))
             .map_err(|error| error.to_string())
     })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClearRequest {
+    directory: String,
+    #[serde(default)]
+    preferences_directory: Option<String>,
 }
 
 #[derive(Deserialize)]

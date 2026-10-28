@@ -56,15 +56,16 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
   }
 
   func didReceive(_ payloads: [MXDiagnosticPayload]) {
-    guard UsageReporting.isEnabled, let directory = UsageReporting.directory else { return }
+    guard case let .enabled(authorization)? = UsageReporting.captureConsent(),
+          let directory = UsageReporting.directory else { return }
     for payload in payloads {
-      guard UsageReporting.diagnosticAllowed(begin: payload.timeStampBegin, end: payload.timeStampEnd) else { continue }
+      guard UsageReporting.diagnosticAllowed(begin: payload.timeStampBegin, end: payload.timeStampEnd, consentSince: authorization.since) else { continue }
       for hang in payload.hangDiagnostics ?? [] {
         // 卡死诊断不代表进程崩溃，也不能计入键盘的 session_crash。
         UsageReporting.recordDiagnosedCrash(.init(message: "Hang main thread", killed: true),
           stack: UsageReporting.frames(fromCallStackTree: hang.callStackTree.jsonRepresentation()),
           pid: 0, version: hang.applicationVersion,
-          diagnosticID: UsageReporting.diagnosticID(kind: "hang", data: hang.jsonRepresentation()), in: directory)
+          diagnosticID: UsageReporting.diagnosticID(kind: "hang", data: hang.jsonRepresentation()), in: directory, authorization: authorization, begin: payload.timeStampBegin, end: payload.timeStampEnd)
       }
       for crash in payload.crashDiagnostics ?? [] {
         // App 自己的处理器已经带着抛出点的栈记下了这次崩溃。
@@ -76,7 +77,7 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
         UsageReporting.recordDiagnosedCrash(summary,
                                             stack: UsageReporting.frames(fromCallStackTree: crash.callStackTree.jsonRepresentation()),
                                             pid: crash.metaData.pid, version: crash.applicationVersion,
-                                            diagnosticID: UsageReporting.diagnosticID(kind: "crash", data: crash.jsonRepresentation()), in: directory)
+                                            diagnosticID: UsageReporting.diagnosticID(kind: "crash", data: crash.jsonRepresentation()), in: directory, authorization: authorization, begin: payload.timeStampBegin, end: payload.timeStampEnd)
       }
     }
   }

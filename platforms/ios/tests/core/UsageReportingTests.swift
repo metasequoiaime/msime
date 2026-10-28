@@ -3,24 +3,61 @@ import XCTest
 import os
 
 final class UsageReportingTests: XCTestCase {
-  func testDelayedDiagnosticsRequireContinuousHistoricalConsent() throws {
-    let suite = "app.msime.synthetic.telemetry.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
+  private static func syntheticAuthorization() -> UsageReporting.Authorization {
+    .init(epoch: UUID(), sinceUnixMilliseconds: 1000, preferencesDirectory: "/synthetic/preferences")
+  }
+
+  private func authorization(in directory: URL) throws -> UsageReporting.Authorization {
+    let preferences = directory.appendingPathComponent("preferences")
+    guard case let .enabled(authorization)? = UsageReporting.captureConsent(preferencesDirectory: preferences.path) else {
+      throw NSError(domain: "SyntheticConsent", code: 1)
+    }
+    // 留出毫秒转换余量，避免测试本身把刚保存的起点舍入到上一毫秒。
+    Thread.sleep(forTimeInterval: 0.005)
+    return authorization
+  }
+
+  func testDelayedDiagnosticsRequireContinuousHistoricalConsent() {
     let first = Date(timeIntervalSince1970: 1000)
     let later = Date(timeIntervalSince1970: 2000)
-    XCTAssertNil(UsageReporting.diagnosticConsentSince(in: defaults))
-    UsageReporting.refreshDiagnosticConsent(true, in: defaults, now: first)
-    UsageReporting.refreshDiagnosticConsent(true, in: defaults, now: later)
-    XCTAssertEqual(UsageReporting.diagnosticConsentSince(in: defaults), first)
     XCTAssertTrue(UsageReporting.diagnosticAllowed(begin: first, end: later, consentSince: first, now: later))
     XCTAssertFalse(UsageReporting.diagnosticAllowed(begin: first, end: later, consentSince: later, now: later))
     XCTAssertFalse(UsageReporting.diagnosticAllowed(begin: first, end: later, consentSince: nil, now: later))
     XCTAssertFalse(UsageReporting.diagnosticAllowed(begin: later, end: first, consentSince: first, now: later))
-    UsageReporting.refreshDiagnosticConsent(false, in: defaults, now: later)
-    XCTAssertNil(UsageReporting.diagnosticConsentSince(in: defaults))
-    UsageReporting.refreshDiagnosticConsent(true, in: defaults, now: later)
-    XCTAssertEqual(UsageReporting.diagnosticConsentSince(in: defaults), later)
+    XCTAssertFalse(UsageReporting.diagnosticAllowed(begin: first, end: later, consentSince: first, now: first))
+  }
+
+  func testCaptureConsentRequiresSharedPersistentEpochAndStrictTypes() {
+    let epoch = UUID().uuidString.lowercased()
+    let valid: [String: Any] = ["enabled": true, "epoch": epoch, "since_unix_ms": 1000]
+    let path = "/synthetic/preferences"
+    let expected = UsageReporting.CaptureConsent.enabled(.init(epoch: UUID(uuidString: epoch)!,
+      sinceUnixMilliseconds: 1000, preferencesDirectory: path))
+    XCTAssertEqual(UsageReporting.captureConsent(from: valid, preferencesDirectory: path), expected)
+    XCTAssertEqual(UsageReporting.captureConsent(from: ["enabled": false], preferencesDirectory: path), .disabled)
+    XCTAssertNil(UsageReporting.captureConsent(from: valid, preferencesDirectory: "relative"))
+    XCTAssertNil(UsageReporting.captureConsent(from: nil, preferencesDirectory: path))
+    for value: Any in [1, "true", NSNull()] {
+      var invalid = valid
+      invalid["enabled"] = value
+      XCTAssertNil(UsageReporting.captureConsent(from: invalid, preferencesDirectory: path))
+    }
+    for value: Any in [true, -1, 0, 1.5, "1000", 253_402_300_800_000 as UInt64] {
+      var invalid = valid
+      invalid["since_unix_ms"] = value
+      XCTAssertNil(UsageReporting.captureConsent(from: invalid, preferencesDirectory: path))
+    }
+    for value: Any in [NSNull(), "00000000-0000-0000-0000-000000000000", "12345678-1234-4123-7123-123456789012"] {
+      var invalid = valid
+      invalid["epoch"] = value
+      XCTAssertNil(UsageReporting.captureConsent(from: invalid, preferencesDirectory: path))
+    }
+    // 旧本地历史即使很早也不构成共享授权；缺少起点或代次都拒绝。
+    for key in ["epoch", "since_unix_ms"] {
+      var invalid = valid
+      invalid.removeValue(forKey: key)
+      XCTAssertNil(UsageReporting.captureConsent(from: invalid, preferencesDirectory: path))
+    }
   }
 
   func testDiagnosticIdentityIsStableAndSeparatesHangsFromCrashes() {
@@ -102,23 +139,28 @@ final class UsageReportingTests: XCTestCase {
   func testCrashDiagnosticOfAKeyboardProcessBelongsToItsOpenSessionOnce() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let session = try XCTUnwrap(UsageReporting.begin(in: directory))
+    let authorization = try authorization(in: directory)
+    let date = Date()
+    let session = try XCTUnwrap(UsageReporting.begin(in: directory, authorization: authorization))
     let crashes = directory.appendingPathComponent("telemetry-crashes")
     let crash = UsageReporting.diagnosticSummary(exceptionType: 10, exceptionCode: 0, signal: NSNumber(value: SIGABRT),
                                                  exceptionName: nil, terminationReason: nil)
 
-    UsageReporting.recordDiagnosedCrash(crash, stack: "0 MSIMEKeyboardExtension + 1", pid: getpid(), in: directory)
+    UsageReporting.recordDiagnosedCrash(crash, stack: "0 MSIMEKeyboardExtension + 1", pid: getpid(), in: directory,
+                                        authorization: authorization, begin: date, end: date)
     let record = crashes.appendingPathComponent(session.id + ".crash")
     XCTAssertEqual(URL(fileURLWithPath: session.crashRecordPath).standardizedFileURL, record.standardizedFileURL)
     XCTAssertEqual(try String(contentsOf: record, encoding: .utf8),
                    session.crashRecordHeader + "Crash exception 10 code 0 signal 6\n0 MSIMEKeyboardExtension + 1")
     // MetricKit 再送一次，或键盘自己的信号处理函数已经写过：保留第一份。
-    UsageReporting.recordDiagnosedCrash(crash, stack: "0 other + 2", pid: getpid(), in: directory)
+    UsageReporting.recordDiagnosedCrash(crash, stack: "0 other + 2", pid: getpid(), in: directory,
+                                        authorization: authorization, begin: date, end: date)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [session.id + ".crash"])
 
     let killed = UsageReporting.diagnosticSummary(exceptionType: 10, exceptionCode: 0, signal: NSNumber(value: SIGKILL),
                                                   exceptionName: nil, terminationReason: nil)
-    UsageReporting.recordDiagnosedCrash(killed, stack: "0 libsystem_kernel.dylib + 3", pid: getpid(), in: directory)
+    UsageReporting.recordDiagnosedCrash(killed, stack: "0 libsystem_kernel.dylib + 3", pid: getpid(), in: directory,
+                                        authorization: authorization, begin: date, end: date)
     let files = try FileManager.default.contentsOfDirectory(atPath: crashes.path).filter { $0 != session.id + ".crash" }
     XCTAssertEqual(files.count, 1)
     XCTAssertNotNil(UUID(uuidString: (files[0] as NSString).deletingPathExtension))
@@ -127,15 +169,23 @@ final class UsageReportingTests: XCTestCase {
   func testCrashDiagnosticOutsideASessionIsAPrivateRecordWithOneSummaryLine() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
+    let authorization = try authorization(in: directory)
+    let date = Date()
     let summary = UsageReporting.DiagnosticSummary(message: "Crash signal 11\nsecond line", killed: false)
     // 没有会话的进程（App 自身）。
-    UsageReporting.recordDiagnosedCrash(summary, stack: "0 MSIMEApp + 1", pid: getpid(), in: directory)
+    UsageReporting.recordDiagnosedCrash(summary, stack: "0 MSIMEApp + 1", pid: getpid(), in: directory,
+                                        authorization: authorization, begin: date, end: date)
     let crashes = directory.appendingPathComponent("telemetry-crashes")
     let files = try FileManager.default.contentsOfDirectory(at: crashes, includingPropertiesForKeys: nil)
     XCTAssertEqual(files.count, 1)
     XCTAssertEqual(files[0].pathExtension, "crash")
     XCTAssertNotNil(UUID(uuidString: files[0].deletingPathExtension().lastPathComponent))
-    XCTAssertEqual(try String(contentsOf: files[0], encoding: .utf8), "Crash signal 11\n0 MSIMEApp + 1")
+    let record = try String(contentsOf: files[0], encoding: .utf8)
+    XCTAssertTrue(record.hasSuffix("\nCrash signal 11\n0 MSIMEApp + 1"))
+    let header = try XCTUnwrap(record.split(separator: "\n").first)
+    let context = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(header.dropFirst("MSIME-CRASH/1 ".count).utf8)) as? [String: String])
+    XCTAssertEqual(context["consent_epoch"], authorization.epoch.uuidString.lowercased())
+    XCTAssertEqual(context["version"], "unknown")
     let permissions = try FileManager.default.attributesOfItem(atPath: files[0].path)[.posixPermissions] as? NSNumber
     XCTAssertEqual(permissions?.intValue, 0o600)
   }
@@ -238,8 +288,11 @@ final class UsageReportingTests: XCTestCase {
       withDestinationURL: outside
     )
 
+    let authorization = try authorization(in: root)
+    let date = Date()
     UsageReporting.recordDiagnosedCrash(.init(message: "Synthetic crash", killed: true), stack: "0 synthetic + 1",
-                                        pid: getpid(), in: root)
+                                        pid: getpid(), in: root,
+                                        authorization: authorization, begin: date, end: date)
 
     let outsideFiles = try FileManager.default.contentsOfDirectory(at: outside, includingPropertiesForKeys: nil)
     XCTAssertTrue(outsideFiles.isEmpty)
@@ -283,7 +336,9 @@ final class UsageReportingTests: XCTestCase {
 
   private final class CaptureFixture {
     struct State {
-      var consent: Bool? = true
+      var authorization = UsageReportingTests.syntheticAuthorization()
+      var consent: UsageReporting.CaptureConsent?
+      init() { consent = .enabled(authorization) }
       var prepared = 0
       var cleared = 0
       var configured: UsageReporting.Session?
@@ -292,7 +347,7 @@ final class UsageReportingTests: XCTestCase {
     let state = OSAllocatedUnfairLock(initialState: State())
     lazy var capture = UsageReporting.CaptureLifecycle(
       load: { self.state.withLock { $0.consent } },
-      prepare: {
+      prepare: { _ in
         self.state.withLock {
           $0.prepared += 1
           return .init(id: "synthetic-\($0.prepared)", crashRecordPath: "/synthetic/\($0.prepared).crash",
@@ -304,7 +359,14 @@ final class UsageReportingTests: XCTestCase {
       finish: { session in self.state.withLock { $0.ended.append(session) } })
 
     func refresh(_ consent: Bool?) {
-      state.withLock { $0.consent = consent }
+      state.withLock {
+        if consent == true {
+          if $0.consent == .disabled { $0.authorization = UsageReportingTests.syntheticAuthorization() }
+          $0.consent = .enabled($0.authorization)
+        } else {
+          $0.consent = consent == false ? .disabled : nil
+        }
+      }
       capture.refresh()
       capture.waitForPendingOperations()
     }
@@ -342,6 +404,76 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(fixture.state.withLock { $0.prepared }, 2)
   }
 
+  func testEpochChangeWithoutObservedWithdrawalRenewsCapture() throws {
+    let fixture = CaptureFixture()
+    defer { fixture.stop() }
+    fixture.capture.start()
+    fixture.refresh(true)
+    let first = try XCTUnwrap(fixture.capture.current)
+    fixture.state.withLock {
+      $0.authorization = Self.syntheticAuthorization()
+      $0.consent = .enabled($0.authorization)
+    }
+    fixture.refresh(true)
+    let second = try XCTUnwrap(fixture.capture.current)
+    XCTAssertNotEqual(first, second)
+    XCTAssertEqual(fixture.state.withLock { $0.cleared }, 0)
+    XCTAssertTrue(fixture.state.withLock { $0.ended.isEmpty })
+    fixture.refresh(nil)
+    fixture.refresh(true)
+    XCTAssertEqual(fixture.capture.current, second)
+  }
+
+  func testEpochChangeDuringPreparationDoesNotPublishOldCapture() throws {
+    let first = Self.syntheticAuthorization()
+    let second = Self.syntheticAuthorization()
+    let consent = OSAllocatedUnfairLock(initialState: first)
+    let prepared = OSAllocatedUnfairLock(initialState: 0)
+    let capture = UsageReporting.CaptureLifecycle(load: { .enabled(consent.withLock { $0 }) }, prepare: { authorization in
+      prepared.withLock { $0 += 1 }
+      consent.withLock { $0 = second }
+      return .init(id: authorization.epoch.uuidString, crashRecordPath: "/synthetic/record.crash")
+    }, configure: { _ in }, clear: {})
+    defer { capture.stop(); capture.waitForPendingOperations() }
+    capture.start()
+    capture.waitForPendingOperations()
+    XCTAssertNil(capture.current)
+    capture.refresh()
+    capture.waitForPendingOperations()
+    XCTAssertEqual(capture.current?.id, second.epoch.uuidString)
+    XCTAssertEqual(prepared.withLock { $0 }, 2)
+  }
+
+  func testPersistentWithdrawalRejectsOldBeginAndDelayedDiagnostic() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let first = try authorization(in: directory)
+    let date = Date()
+    let old = try XCTUnwrap(UsageReporting.begin(in: directory, authorization: first))
+    let preferences = URL(fileURLWithPath: first.preferencesDirectory)
+    for enabled in [false, true] {
+      XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: preferences) {
+        $0[UsageReporting.preferenceKey] = enabled
+      })
+    }
+    let second = try authorization(in: directory)
+    XCTAssertNotEqual(first.epoch, second.epoch)
+    let current = try XCTUnwrap(UsageReporting.begin(in: directory, authorization: second))
+    XCTAssertNil(UsageReporting.begin(in: directory, authorization: first))
+    // 旧撤回回调不能清除新授权队列，旧原生进程可以晚写，但不能被补录。
+    UsageReporting.clear(in: directory, preferencesDirectory: first.preferencesDirectory)
+    try Data((old.crashRecordHeader + "Synthetic old fault\n").utf8).write(to: URL(fileURLWithPath: old.crashRecordPath))
+    UsageReporting.recordDiagnosedCrash(.init(message: "Synthetic delayed fault", killed: true), stack: "",
+      pid: 0, in: directory, authorization: first, begin: date, end: date)
+    let next = try XCTUnwrap(UsageReporting.begin(in: directory, authorization: second))
+    XCTAssertNotEqual(current.id, next.id)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: old.crashRecordPath))
+    XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("telemetry-crashes").path).isEmpty)
+    let queue = try String(contentsOf: directory.appendingPathComponent("telemetry.json"), encoding: .utf8)
+    XCTAssertFalse(queue.contains("Synthetic"))
+    XCTAssertFalse(queue.contains("consent_epoch"))
+  }
+
   func testQueuedDismissDoesNotEndNextPresentation() throws {
     let fixture = CaptureFixture()
     defer { fixture.stop() }
@@ -361,7 +493,8 @@ final class UsageReportingTests: XCTestCase {
     let entered = DispatchSemaphore(value: 0)
     let proceed = DispatchSemaphore(value: 0)
     let configured = OSAllocatedUnfairLock<UsageReporting.Session?>(initialState: nil)
-    let capture = UsageReporting.CaptureLifecycle(load: { true }, prepare: {
+    let authorization = Self.syntheticAuthorization()
+    let capture = UsageReporting.CaptureLifecycle(load: { .enabled(authorization) }, prepare: { _ in
       entered.signal()
       _ = proceed.wait(timeout: .now() + 5)
       return .init(id: "old", crashRecordPath: "/synthetic/old.crash")
@@ -404,7 +537,7 @@ final class UsageReportingTests: XCTestCase {
     defer { fixture.stop() }
     fixture.capture.start()
     fixture.refresh(true)
-    fixture.state.withLock { $0.consent = false }
+    fixture.state.withLock { $0.consent = .disabled }
     let observed = expectation(description: "active observer sees withdrawal")
     DispatchQueue.global(qos: .utility).async {
       let deadline = Date().addingTimeInterval(3)
