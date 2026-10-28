@@ -202,10 +202,10 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(TouchShuangpinLayoutPreference.save(.twentySixKey))
     let controller = makeController(width: 390)
     defer { controller.viewDidDisappear(false) }
-    let qw = try button("fourteenKeyQW", in: controller)
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "fourteenKeyQW" },
+                   "26 键启动不预建尚未使用的 14 键行")
     let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
     let initialHeight = height.constant
-    XCTAssertFalse(shown(qw))
 
     func reload(until done: () -> Bool) {
       controller.viewWillAppear(false)
@@ -216,7 +216,10 @@ final class FourteenKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
     }
     XCTAssertTrue(TouchShuangpinLayoutPreference.save(.fourteenKey))
-    reload { shown(qw) }
+    reload {
+      descendants(controller.view).contains { $0.accessibilityIdentifier == "fourteenKeyQW" && shown($0) }
+    }
+    let qw = try button("fourteenKeyQW", in: controller)
     XCTAssertTrue(shown(qw))
     XCTAssertEqual(height.constant - initialHeight, readingRowCost)
     XCTAssertEqual(InputSchemePreference.scheme, .shuangpin)
@@ -404,10 +407,10 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(TouchWubiLayoutPreference.save(.twentySixKey))
     let controller = makeController(width: 390)
     defer { controller.viewDidDisappear(false) }
-    let qw = try button("fourteenKeyQW", in: controller)
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "fourteenKeyQW" },
+                   "26 键启动不预建尚未使用的 14 键行")
     let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
     let initialHeight = height.constant
-    XCTAssertFalse(shown(qw))
 
     func reload(until done: () -> Bool) {
       controller.viewWillAppear(false)
@@ -418,7 +421,10 @@ final class FourteenKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
     }
     XCTAssertTrue(TouchWubiLayoutPreference.save(.fourteenKey))
-    reload { shown(qw) }
+    reload {
+      descendants(controller.view).contains { $0.accessibilityIdentifier == "fourteenKeyQW" && shown($0) }
+    }
+    let qw = try button("fourteenKeyQW", in: controller)
     XCTAssertTrue(shown(qw))
     XCTAssertEqual(height.constant - initialHeight, readingRowCost)
     XCTAssertEqual(InputSchemePreference.scheme, .wubi)

@@ -54,8 +54,8 @@ final class VoiceSessionChannel: @unchecked Sendable {
   static let levelInterval: TimeInterval = 0.1
   /// 电平变化不到这么多就不报，安静时不反复写文件、发通知。
   static let levelStep: Float = 0.02
-  /// 会话空闲多久后 App 关掉录音会话，状态栏的麦克风标记随之消失。
-  static let idleLifetime: TimeInterval = 300
+  /// 会话空闲多久后 App 关掉录音会话，状态栏的麦克风标记随之消失。会话开着时麦克风和音频引擎一直在跑（App 在后台不能重新开始录音，所以听写之间停不得），音频线程每秒醒几十次，CPU 进不了深度空闲，低端机上明显耗电发热，而且不管键盘还在不在屏幕上都一样。原来取 5 分钟，偶尔说一句的用户等于麦克风几乎一直开着；时限从每次听写开始和出结果时重新算，接连几句话不会中断，所以取 1 分钟：说完一分钟内不再说就交还麦克风，代价是隔得更久再说时要多跳一次 App。
+  static let idleLifetime: TimeInterval = 60
   private static let maximumBytes = 64 * 1024
 
   /// 按版本区分，装了多个版本时不会串到另一个版本的 App。

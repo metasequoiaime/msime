@@ -12,6 +12,12 @@ export function writeKeyPresses(request: string): string {
   return client.typingStatistics(request);
 }
 
+/** Sends one `record` (a commit), `record_voice` or `flush` request. Run on the session's one SequenceRunner, so commits reach the store in the order they were typed, which the active-time gaps are measured by, and a `flush` lands after every record queued before it. */
+@Concurrent
+export function writeTypingStatistics(request: string): string {
+  return client.typingStatistics(request);
+}
+
 /** The statistics master switch: 1 on, 0 off or never written, -1 for an unreadable document. */
 @Concurrent
 export function readTypingStatisticsEnabled(directory: string): number {

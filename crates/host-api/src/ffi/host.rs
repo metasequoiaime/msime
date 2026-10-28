@@ -839,6 +839,11 @@ pub unsafe extern "C" fn msime_client_nine_key_shuangpin_layout(
     })
 }
 
+/// 进程里 `msime_client_load_preferences` 最近读到的一份偏好，连同它所在的目录：Android 键盘显示期间每秒在工作线程上读一次，偏好文件没变时不再解析和校验，见 [`PreferencesStore::load_reusing`]。
+static LOADED_PREFERENCES: Mutex<
+    Option<(String, msime_client_core::preferences::LoadedPreferences)>,
+> = Mutex::new(None);
+
 /// Load the shared store on a worker thread; no session handle is accessed.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
@@ -858,10 +863,22 @@ pub unsafe extern "C" fn msime_client_load_preferences(
             "invalid preferences directory encoding",
             "preferences directory must be absolute",
         )?;
-        let snapshot = PreferencesStore::new(directory)
-            .load()
+        // 读文件时不持这把锁：同时来的另一次读拿不到上一份，照常整读一遍。
+        let previous = LOADED_PREFERENCES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .filter(|(cached, _)| cached == directory)
+            .map(|(_, loaded)| loaded);
+        let loaded = PreferencesStore::new(directory)
+            .load_reusing(previous)
             .map_err(|e| e.to_string())?;
-        serde_json::to_value(snapshot).map_err(|e| e.to_string())
+        let value = serde_json::to_value(&loaded.snapshot).map_err(|e| e.to_string())?;
+        *LOADED_PREFERENCES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((directory.to_owned(), loaded));
+        Ok(value)
     })
 }
 
@@ -1032,6 +1049,8 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             #[serde(default)]
             quiet: bool,
         },
+        /// 把本进程为 `directory` 攒着的上屏写进统计文件，答 null。`record` 不再每次上屏都写文件，宿主在键盘收起、输入框失焦和进程或服务退出前，在它平时调统计的那个线程上调用这一项。
+        Flush,
         SetEnabled {
             enabled: bool,
         },
@@ -1131,23 +1150,26 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 hour,
                 quiet,
             } => {
-                // The count is read first only when a session asked for achievement sounds, so recording stays one read and one write for everyone else.
-                let before = key_sound::achievements_armed()
-                    .then(|| store.load().ok().map(|statistics| statistics.total))
-                    .flatten();
-                let recorded = store
-                    .record(&text, source, &day, hour)
+                // 累计字数是文件里的加上本进程攒着的，由 record 一并答出：不能再先 load 一遍，load 会把攒着的上屏写出去，成就音效开着时就又变回每次上屏写一次文件。
+                let (recorded, total) = store
+                    .record_with_total(&text, source, &day, hour)
                     .map_err(|error| error.to_string())?;
-                let milestone = before.and_then(|before| {
-                    msime_client_services::plugins::achievement_milestone(
-                        before,
-                        before.saturating_add(recorded),
-                    )
-                });
+                let milestone = key_sound::achievements_armed()
+                    .then(|| {
+                        msime_client_services::plugins::achievement_milestone(
+                            total.saturating_sub(recorded),
+                            total,
+                        )
+                    })
+                    .flatten();
                 if milestone.is_some() && !quiet {
                     key_sound::achievement();
                 }
                 Ok(json!({"recorded": recorded, "milestone": milestone}))
+            }
+            StatisticsAction::Flush => {
+                store.flush().map_err(|error| error.to_string())?;
+                Ok(Value::Null)
             }
             StatisticsAction::RecordKeys { day, keys } => {
                 let recorded = store

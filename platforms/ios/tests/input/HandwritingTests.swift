@@ -79,6 +79,55 @@ final class HandwritingTests: XCTestCase {
     XCTAssertTrue(panel.results.isEmpty)
     XCTAssertTrue(panel.canvas.strokes.isEmpty)
   }
+  /// 书写时画布只重画新线段周围的一小块（`extendStroke` 返回的区域），一笔写完后的画面必须和整块重画一模一样，包括卡片底边的投影和穿过已有笔画的地方。
+  func testIncrementalInkRedrawMatchesFullRedraw() throws {
+    let size = CGSize(width: 320, height: 155)
+    let format = UIGraphicsImageRendererFormat(); format.scale = 2; format.opaque = false
+    let renderer = UIGraphicsImageRenderer(size: size, format: format)
+    let canvas = HandwritingCanvas(frame: CGRect(origin: .zero, size: size))
+    canvas.inkWidth = 6
+    canvas.setTestStrokes(chineseInk + [[CGPoint(x: 20, y: 20)]])
+    // 斜穿已有笔画，再贴着底边写出界（被夹回边上），每 2pt 一个采样点，和手指移动时的触摸事件相当。
+    let path = (0...140).map { CGPoint(x: 20 + Double($0) * 2, y: 20 + Double($0) * 0.9) }
+      + (0...20).map { CGPoint(x: 300 - Double($0) * 2, y: 150 + Double($0)) }
+    var dirtyRects: [CGRect] = []
+    let incremental = renderer.image { context in
+      // UIKit 每次 draw(_:) 都给一个新的上下文；这里共用一个，所以每次都存取一下状态，免得笔迹的圆头线帽漏到下一次画的虚线辅助线上。
+      context.cgContext.saveGState(); canvas.draw(canvas.bounds); context.cgContext.restoreGState()
+      for point in path {
+        guard let dirty = canvas.extendStroke([point]) else { continue }
+        dirtyRects.append(dirty)
+        // 和 UIKit 处理 setNeedsDisplay(_:) 一样：区域按像素向外取整，先清空再在裁剪下重画，区域外保留上一次的结果。
+        let area = dirty.integral
+        context.cgContext.saveGState()
+        context.cgContext.clip(to: area)
+        context.cgContext.clear(area)
+        canvas.draw(area)
+        context.cgContext.restoreGState()
+      }
+    }
+    XCTAssertNil(canvas.extendStroke([canvas.strokes.last!.last!]), "不到 1pt 的移动不接点，也不重画")
+    XCTAssertGreaterThan(dirtyRects.count, 100)
+    for dirty in dirtyRects { XCTAssertLessThan(dirty.width * dirty.height, size.width * size.height / 50, "\(dirty)") }
+    let reference = HandwritingCanvas(frame: CGRect(origin: .zero, size: size))
+    reference.inkWidth = canvas.inkWidth
+    reference.setTestStrokes(canvas.strokes)
+    let full = renderer.image { _ in reference.draw(reference.bounds) }
+    let actual = try pixels(incremental), expected = try pixels(full)
+    XCTAssertEqual(actual.count, expected.count)
+    // 同一笔描得更长以后，少数抗锯齿边缘像素会差一个舍入单位；再大就是新线段没画全或旧像素被弄脏了。
+    let worst = zip(actual, expected).map { abs(Int($0) - Int($1)) }.max() ?? 0
+    XCTAssertLessThanOrEqual(worst, 2)
+    if worst > 2 {
+      for (name, image) in [("incremental", incremental), ("full", full)] {
+        let shot = XCTAttachment(image: image); shot.name = name; shot.lifetime = .keepAlways; add(shot)
+      }
+    }
+  }
+  private func pixels(_ image: UIImage) throws -> [UInt8] {
+    let data = try XCTUnwrap(image.cgImage?.dataProvider?.data) as Data
+    return [UInt8](data)
+  }
   func testHandwritingSchemeKeepsToolbarAndSwitchesBackToLetters() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes

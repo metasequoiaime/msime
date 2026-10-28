@@ -15,13 +15,14 @@ import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
+import { IdleDictionaryRetryPolicy, PersonalDictionaryDrain } from './IdleDictionaryRetryPolicy';
 import { UserWordsMirror } from './UserWordsMirror';
 import {
   KEYBOARD_MAX_CHANGES, KeyboardSyncOutcome, UserWordsMirrorPolicy, UserWordsReply
 } from './UserWordsMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
-import { readTypingStatisticsEnabled, writeKeyPresses } from './TypingStatisticsWriter';
+import { readTypingStatisticsEnabled, writeKeyPresses, writeTypingStatistics } from './TypingStatisticsWriter';
 import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
 import { KeyboardSkin } from './skin/KeyboardSkin';
@@ -41,6 +42,7 @@ import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
+import { CaretContextEcho } from './input/CaretContextEcho';
 import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
 import { SchemeCompositionPolicy } from './input/SchemeCompositionPolicy';
@@ -160,6 +162,7 @@ import {
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 import { SharedStateMirror } from './SharedStateMirror';
+import { FingerprintCache } from './SharedStateMirrorPolicy';
 import { SharedStateSync } from './SharedStateSync';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
 import {
@@ -329,6 +332,15 @@ interface TypingStatisticsVoiceAction {
 interface TypingStatisticsVoiceRequest {
   directory: string;
   action: TypingStatisticsVoiceAction;
+}
+
+interface TypingStatisticsFlushAction {
+  operation: string;
+}
+
+interface TypingStatisticsFlushRequest {
+  directory: string;
+  action: TypingStatisticsFlushAction;
 }
 
 interface MobileClipboardAction {
@@ -842,6 +854,7 @@ interface SnapshotQueueProcessAction {
   staging_root: string;
   options: Object;
   account_id: string | null;
+  skip_when_idle: boolean;
 }
 
 interface SnapshotQueueProcessReply {
@@ -868,6 +881,7 @@ interface SnapshotQueueStateAction {
   directory: string;
   options: Object;
   acknowledge: boolean;
+  skip_when_idle: boolean;
 }
 
 // Only the fields the keyboard acts on are declared. The rest of the document is forwarded to create
@@ -1253,7 +1267,6 @@ enum InputCommand {
 }
 
 const JAPANESE_SCHEME: number = 3;
-const IDLE_DICTIONARY_RETRY_MS: number = 2000;
 
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
@@ -1270,8 +1283,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 本会话注册过的 26 键双拼键位几何，会话一换就作废。 */
   private keyGeometry: KeyGeometryRegistry = new KeyGeometryRegistry();
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  // 系统收起键盘后编辑框可能仍有焦点，空闲工作不能只靠 inputClient 判断是否显示。
+  private idleDictionaryVisible: boolean = false;
   private personalDictionarySettled: boolean = true;
   private personalDictionaryTimer: number = -1;
+  // 个人词库排空连续没有进展的次数，以及上一次同步之后队列里剩的条数（不知道时为 -1），用来给重建会话的重试退避，见 `IdleDictionaryRetryPolicy`。
+  private personalDictionaryStalls: number = 0;
+  private personalDictionaryPending: number = -1;
   // 与设置应用交换「我的词条」（`UserWordsMirrorPolicy`）：建会话之前要不要 sync、上次做完时设置应用发布的标记，以及失去焦点时 publish 的节流。
   private userWordsDue: boolean = true;
   private userWordsMergedMark: string | null = null;
@@ -1281,11 +1299,21 @@ export class KeyboardSession implements HardwareKeyTarget {
   private userWordsPublishMs: number = 0;
   private snapshotOptions: Object | undefined = undefined;
   private snapshotQueueTimer: number = -1;
+  // 快照队列连续几轮查到待处理请求、为它重建了会话却仍没处理掉，重建后的下一次检查按它退避。
+  private snapshotQueueStalls: number = 0;
   // Key press counts for the key heatmap. Nothing is held while statistics are off, which is read from the store on every focus; until the editor's attribute has said what kind of field it is, a press could be a password's, so none is counted.
   private keyStatisticsEnabled: boolean = false;
   private keyStatisticsEditorKnown: boolean = false;
   private readonly keyPresses: KeyPressBatch = new KeyPressBatch();
   private keyFlushTimer: number = -1;
+  // 提交、语音时长和 flush 都排在这一个 SequenceRunner 上，在 TaskPool 线程里调用原生统计：存储要加文件锁、读写整份文件，不能占着 UI 线程；排成一列是为了让提交按输入顺序到达存储（活跃时长按相邻提交的间隔算），也让 flush 落在它之前排入的记录之后。
+  private readonly typingStatisticsWrites: taskpool.SequenceRunner = new taskpool.SequenceRunner();
+  // 上次 flush 之后是否又送出过提交。原生层把提交攒在进程内存里，最多三十秒或 flush 时才写盘；没有新提交时收起键盘、换编辑框不必再排一次 flush。
+  private typingStatisticsUnflushed: boolean = false;
+  // 原生库拒绝过 flush 并已记过一次日志。拒绝多半每次都会重复（例如统计目录不可用），只记一次，免得每次收起键盘都写一条。
+  private typingStatisticsFlushRefusalLogged: boolean = false;
+  // 最近一次排入的 flush。收起键盘紧接着失去焦点时，第二次 flush 没有新提交可写，但发布统计文件仍要等第一次写完。
+  private typingStatisticsFlushed: Promise<void> = Promise.resolve();
   private editorGeneration: number = 0;
   // Bumped only by attach/detach: an idle Engine restart (which bumps editorGeneration) must not
   // drop the focused editor's attribute.
@@ -1322,6 +1350,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private englishSuggestionRequested: string = '';
   // 候选栏上正在给的邮箱后缀，以及它们接上的那个 `@` 之后已打的域名；没有时为 null。
   private emailSuffixMatch: EmailSuffixMatch | null = null;
+  // 邮箱后缀最近一次按读到的上文匹配之后，编辑器是否只回报了输入法自己改动的回声；是的话选区回报不再重读，见 `CaretContextEcho`。
+  private readonly caretContextEcho: CaretContextEcho = new CaretContextEcho();
   // The Windows voice shortcuts, which only a machine with a hardware keyboard can press.
   private voiceHotkeys: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
   // Whether the recognizer is running. The view owns it and says so; the shortcuts need to know,
@@ -1530,6 +1560,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   onReplyContextChanged: (() => void) | undefined = undefined;
   /** Putting the keyboard away belongs to the panel, which the view has no handle on. */
   onDismiss: (() => void) | undefined = undefined;
+  /** 同一编辑框收起后可直接重新显示，不一定再次触发 `inputStart`；恢复空闲任务且不重建已有计时器。 */
+  keyboardShown(): void {
+    if (this.handle === 0 || this.inputClient === undefined) return;
+    this.idleDictionaryVisible = true;
+    this.scheduleDictionarySnapshotPoll();
+    this.schedulePersonalDictionaryDrain();
+  }
+
+  /** 键盘收起（系统的 keyboardHide，或 inputStop 时宿主隐藏面板）。面板收起时视图不会销毁，视图靠它停掉键盘内的语音识别。 */
+  onPanelHidden: (() => void) | undefined = undefined;
 
   /**
    * True once the native ABI matches and a session exists.
@@ -2036,10 +2076,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     // exclusive lock that a live session's shared lock would block, so this is the one moment in
     // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
     // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
-    const drained: boolean = this.drainPersonalDictionary(options);
-    // 同一个边界上和设置应用交换「我的词条」：设置应用发布的改动（设置页改的词、网盘同步来的词）写进本机词库，键盘自己学到的词记下来并发布。没做完的和排空一样，在空闲时的会话重建里接着做。
+    const drained: PersonalDictionaryDrain = this.drainPersonalDictionary(options);
+    // 同一个边界上交换「我的词条」；队列和镜像都完成后才停止空闲重试。
     const mirrored: boolean = this.syncUserWords(options);
-    this.personalDictionarySettled = drained && mirrored;
+    this.personalDictionarySettled = drained === 'settled' && mirrored;
+    this.personalDictionaryStalls = drained === 'stalled' ? this.personalDictionaryStalls + 1 : 0;
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
       if (created.ok !== true) {
@@ -2074,20 +2115,24 @@ export class KeyboardSession implements HardwareKeyTarget {
    * a delay rather than the import; refusing to start the keyboard over it would turn a dictionary
    * problem into no keyboard at all.
    */
-  private drainPersonalDictionary(options: string): boolean {
+  private drainPersonalDictionary(options: string): PersonalDictionaryDrain {
     try {
       const reply: PersonalDictionarySyncResponse =
         JSON.parse(client.personalDictionarySync(options)) as PersonalDictionarySyncResponse;
       if (reply.ok !== true) {
         KeyboardLog.error(`personal dictionary queue not applied; it will be retried: ${reply.error}`);
-        return false;
+        return 'stalled';
       }
       // 命名词库的词分批交给个人词库队列（同时最多 128 条在途）。每处理完一批就送下一批，和 Android 键盘的 `flushSent` 一样，导入的大词库不用等用户回设置页刷新。
       const sent: number = this.flushDictionaryCollections(options);
-      return reply.value.pending_count === 0 && sent === 0;
+      const pending: number = reply.value.pending_count;
+      const drained: PersonalDictionaryDrain =
+        IdleDictionaryRetryPolicy.drain(pending, sent, this.personalDictionaryPending);
+      this.personalDictionaryPending = drained === 'settled' ? -1 : pending;
+      return drained;
     } catch (error) {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
-      return false;
+      return 'stalled';
     }
   }
 
@@ -2154,14 +2199,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Continue a large import in four-entry turns while the editor is idle.
+   * 编辑器空闲时按有界批次继续导入。
    *
-   * The native queue deliberately limits one synchronization to four edits. Releasing the event
-   * loop between batches keeps a 128-entry import from monopolising the input method, while the
-   * composition/local-mode guards make the brief Engine-session rebuild invisible to typed text.
+   * 每次同步最多处理 128 条，批次之间交还事件循环，避免大词库导入占满输入法。组字和本地模式期间不重建会话，避免干扰输入。
+   *
+   * 有进展时两秒后接着排下一批；整批被拒或队列原地不动时按 `IdleDictionaryRetryPolicy` 退避到最多五分钟一次。隐藏后才停滞的队列也在这里停排，下一次显示再恢复。
    */
   private schedulePersonalDictionaryDrain(): void {
-    if (this.personalDictionarySettled || this.personalDictionaryTimer >= 0 || this.handle === 0) {
+    if (this.personalDictionarySettled || this.personalDictionaryTimer >= 0 || this.handle === 0
+        || (!this.idleDictionaryVisible && this.personalDictionaryStalls > 0)) {
       return;
     }
     this.personalDictionaryTimer = setTimeout((): void => {
@@ -2171,12 +2217,17 @@ export class KeyboardSession implements HardwareKeyTarget {
         return;
       }
       this.restartIdleSession('personal dictionary queue');
-    }, IDLE_DICTIONARY_RETRY_MS);
+    }, IdleDictionaryRetryPolicy.delay(this.personalDictionaryStalls));
   }
 
-  /** Poll the cross-process snapshot queue just as the Apple worker timer does. */
+  /**
+   * Check the cross-process snapshot queue once after the keyboard is shown, and keep checking only while a request is waiting.
+   *
+   * 原来从会话建好起每两秒查一次，键盘收起后也不停；每次查询都要在主线程上扫一遍整个用户词库算哈希，再把 state.json 重写并 fsync。请求不是键盘自己排的，而键盘每次构建会话（`start`）都会先处理一次队列，所以这里只在键盘显示时（`attach`）查一次：没有待处理的请求就停下，等下一次显示；有请求就重建会话去处理，重建后仍没处理掉（例如属于账号的请求而键盘读不到会话）就按 `IdleDictionaryRetryPolicy` 退避，不再每两秒重建一次。键盘收起时（`detach`）取消。
+   */
   private scheduleDictionarySnapshotPoll(): void {
-    if (this.snapshotQueueTimer >= 0 || this.handle === 0) return;
+    if (this.snapshotQueueTimer >= 0 || this.handle === 0 || !this.idleDictionaryVisible
+        || this.inputClient === undefined) return;
     this.snapshotQueueTimer = setTimeout((): void => {
       this.snapshotQueueTimer = -1;
       if (this.composing() || this.localMode !== 'none') {
@@ -2184,20 +2235,47 @@ export class KeyboardSession implements HardwareKeyTarget {
         return;
       }
       if (this.dictionarySnapshotNeedsWork()) {
+        this.snapshotQueueStalls++;
+        // 重建会话的 start() 会处理队列并按退避后的间隔再排一次检查。
         this.restartIdleSession('snapshot queue');
         return;
       }
-      this.scheduleDictionarySnapshotPoll();
-    }, IDLE_DICTIONARY_RETRY_MS);
+      this.snapshotQueueStalls = 0;
+    }, IdleDictionaryRetryPolicy.delay(this.snapshotQueueStalls));
   }
 
-  /** Querying queue state takes no Engine maintenance lock and never acknowledges terminal state. */
+  private cancelDictionarySnapshotPoll(): void {
+    if (this.snapshotQueueTimer >= 0) {
+      clearTimeout(this.snapshotQueueTimer);
+      this.snapshotQueueTimer = -1;
+    }
+  }
+
+  /**
+   * 键盘收起或编辑框失去焦点：不再查快照队列；个人词库排空上一次没有进展时也停下重试，下一次显示（`attach`）再接着排。
+   *
+   * 卡住的队列（整批被拒、剩余条数原地不动）按退避最多五分钟重建一次会话，隐藏的键盘不该为它在整个进程生命周期里一直醒来。有进展的排空照常在后台跑完，大词库导入不用等下一次显示。
+   */
+  private pauseIdleDictionaryWork(): void {
+    this.idleDictionaryVisible = false;
+    this.cancelDictionarySnapshotPoll();
+    if (this.personalDictionaryStalls > 0 && this.personalDictionaryTimer >= 0) {
+      clearTimeout(this.personalDictionaryTimer);
+      this.personalDictionaryTimer = -1;
+    }
+  }
+
+  /**
+   * Querying queue state takes no Engine maintenance lock and never acknowledges terminal state.
+   *
+   * 带 `skip_when_idle`：队列空着时（几乎总是）Rust 只读一下状态就返回，不在 UI 线程上扫整个用户词库算哈希、不重写并 fsync state.json。鸿蒙没有任何东西往键盘的这个队列里排请求，发布出去的本机版本没人读；真有请求时，重建会话的 `processDictionarySnapshot` 会在认领前先发布。
+   */
   private dictionarySnapshotNeedsWork(): boolean {
     if (this.snapshotOptions === undefined || this.stateDirectory.length === 0) return false;
     try {
       const action: SnapshotQueueStateAction = {
         operation: 'state', directory: `${this.stateDirectory}/dictionary-snapshots`,
-        options: this.snapshotOptions, acknowledge: false
+        options: this.snapshotOptions, acknowledge: false, skip_when_idle: true
       };
       const reply: SnapshotQueueStateReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueStateReply;
@@ -2266,12 +2344,37 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0 || this.composing() || this.localMode !== 'none') {
       return;
     }
-    const revision: number = this.storedRevision(this.stateDirectory);
+    const revision: number = this.storedRevisionIfMoved(this.stateDirectory);
     if (revision < 0 || revision === this.preferencesRevision) {
       return;
     }
     KeyboardLog.info(`preferences moved from revision ${this.preferencesRevision} to ${revision}`);
     this.restartIdleSession('preferences reload');
+  }
+
+  /**
+   * 与 `storedRevision` 相同，但 `preferences.json` 的文件身份（inode、大小、纳秒修改时间）与上次读到时相同，就直接用上次的修订号，不经 NAPI 读出、解析整份文档。每次获得焦点都要比一次，而设置大多没改过。修订号就写在这份文档里，存储每次保存都先写暂存文件再改名换入，inode 必变。拿不到纳秒修改时间、读不到修订号时不记，下次照旧读。
+   */
+  private storedRevisionIfMoved(stateRoot: string): number {
+    const path: string = `${stateRoot}/preferences.json`;
+    let identity: string | null = null;
+    try {
+      const stat: fs.Stat = fs.lstatSync(path);
+      const nanoseconds: bigint | undefined = stat.mtimeNs;
+      const stamp: string | null = stat.isFile() ? FingerprintCache.stamp(stat.ino.toString(), stat.size,
+        nanoseconds === undefined ? undefined : nanoseconds.toString()) : null;
+      identity = stamp === null ? null : `${path}#${stamp}`;
+    } catch {
+      // 文档不在时由 `storedRevision` 照旧回答。
+      identity = null;
+    }
+    if (identity !== null && identity === this.checkedPreferencesIdentity) {
+      return this.checkedPreferencesRevision;
+    }
+    const revision: number = this.storedRevision(stateRoot);
+    this.checkedPreferencesIdentity = revision < 0 ? null : identity;
+    this.checkedPreferencesRevision = revision;
+    return revision;
   }
 
   /** The revision of the stored preference document, or -1 when it cannot be read. */
@@ -3319,6 +3422,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Ask the host to put the keyboard away, committing whatever was being composed first. */
   dismiss(): void {
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
+    // 收起键盘时编辑框可能仍有焦点、不会有 inputStop，在这里把攒着的打字统计写盘。
+    this.flushTypingStatistics();
     if (this.onDismiss !== undefined) {
       this.onDismiss();
     }
@@ -3353,6 +3458,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (inputClient === undefined) return;
     const generation: number = this.editorGeneration;
     this.ownEdits.reserve(Date.now());
+    this.caretContextEcho.edited(true);
     inputClient.sendKeyFunction(this.enterKey).then((handled: boolean): void => {
       if (!handled && generation === this.editorGeneration && this.inputClient === inputClient) {
         this.ownEdits.release();
@@ -3513,11 +3619,13 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    this.idleDictionaryVisible = true;
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
+    this.caretContextEcho.reset();
     this.previewSupported = false;
     this.previewText = '';
     this.invalidateReplyContext();
@@ -3596,6 +3704,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
     }
+    // 键盘显示时查一次词库快照队列；上面的重建若已排过检查，这里不会重复排。收起时停下的个人词库重试也在这里按退避接着排。
+    this.scheduleDictionarySnapshotPoll();
+    this.schedulePersonalDictionaryDrain();
   }
 
   /** 设置应用和键盘共享沙箱的镜像，由扩展在拿到共享目录后交给会话；`fullMode` 每次调用时读当前的安全模式。 */
@@ -3633,16 +3744,25 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   detach(): void {
+    // 宿主随后隐藏面板。先让视图停掉录音，取消发生在旧编辑框还连着的时候，与 Android 在 onFinishInput 里先取消语音再收尾一致。
+    if (this.onPanelHidden !== undefined) {
+      this.onPanelHidden();
+    }
     this.editorGeneration++;
     this.attributeGeneration++;
     this.manualLanguageGeneration = -1;
     this.ownEdits.clear();
+    this.caretContextEcho.reset();
     this.modeScope.deactivate();
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
+    // 键盘收起后不再查快照队列、不再重试卡住的个人词库排空，下一次显示（attach）时再查。
+    this.pauseIdleDictionaryWork();
+    // 编辑框失去焦点：释义词库连接和自定义译文同样不留，见 `keyboardHidden`。
+    client.releaseGlossCaches();
     if (this.handle !== 0) {
       // Runtime focus(false) cancels whatever remains. Finish first while the old editor client is
       // still attached, so changing fields cannot silently discard what the user just typed.
@@ -3656,10 +3776,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.updateMusic();
     this.keyStatisticsEditorKnown = false;
     this.flushKeyPresses();
-    // 完整体验模式下把这次编辑里记下的统计、在键盘里改的偏好发布给设置应用；基础访问模式下键盘写不了共享目录。
-    if (this.sharedMirror !== null && this.sharedFullMode()) {
-      SharedStateSync.keyboardPublish(this.sharedMirror);
-    }
+    // 编辑框失去焦点：攒着的打字统计写盘。完整体验模式下把这次编辑里记下的统计、在键盘里改的偏好发布给设置应用；发布直接拷贝统计文件，所以等 flush 写完再发布，否则设置应用看到的会少掉最后一段提交。基础访问模式下键盘写不了共享目录。
+    const mirror: SharedStateMirror | null =
+      this.sharedMirror !== null && this.sharedFullMode() ? this.sharedMirror : null;
+    this.flushTypingStatistics().then((): void => {
+      if (mirror !== null) {
+        SharedStateSync.keyboardPublish(mirror);
+      }
+    });
     // 这次编辑里学到、删掉的词也发布给设置应用，词库同步从那里送上网盘。
     this.publishUserWords();
   }
@@ -3667,6 +3791,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   stop(): void {
     this.editorGeneration++;
     this.ownEdits.clear();
+    this.caretContextEcho.reset();
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
@@ -3680,10 +3805,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       clearTimeout(this.personalDictionaryTimer);
       this.personalDictionaryTimer = -1;
     }
-    if (this.snapshotQueueTimer >= 0) {
-      clearTimeout(this.snapshotQueueTimer);
-      this.snapshotQueueTimer = -1;
-    }
+    this.cancelDictionarySnapshotPoll();
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
@@ -3702,6 +3824,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.previewText = '';
     this.keyStatisticsEditorKnown = false;
     this.flushKeyPresses();
+    this.flushTypingStatistics();
   }
 
   /** Invalidate host-side network work before the focused editor changes or the session dies. */
@@ -3757,17 +3880,19 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /** Reconcile a document mutation reported by the editor with keyboard-owned edit echoes. */
-  editorTextChanged(): void {
+  /** Reconcile a document mutation reported by the editor with keyboard-owned edit echoes. `textLength` is the length of the editor text the change reported; only the length is kept. */
+  editorTextChanged(textLength: number): void {
     this.invalidateReplyContext();
-    if (this.ownEdits.acknowledge(Date.now())) {
+    const now: number = Date.now();
+    if (this.ownEdits.acknowledge(now)) {
+      this.caretContextEcho.textChanged(true, this.ownEdits.pending(now) === 0, textLength);
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
       }
       return;
     }
-    // A host edit may clear the field, replace the document or move text around the active
-    // composition. Commit what the user typed before the Engine's state can drift from the editor.
+    this.caretContextEcho.textChanged(false, false, textLength);
+    // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
     this.clearEnglishSuggestions();
     this.refreshEmailSuffixes();
@@ -3788,7 +3913,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.clearEnglishSuggestions();
     }
     // 与 Android 在 `onUpdateSelection` 里重新匹配相同：无论 `@` 从哪里上屏（字母键、符号层、符面板、九键常用标点、引擎上屏），编辑器随后都会回报一次选区变化。
-    this.refreshEmailSuffixes();
+    // 这次回报只是输入法自己同步上屏的回声、上屏后已经按新的上文匹配过时不再读：直接英文里每个字母都会走到这里，每读一次就是一次等宿主 UI 线程作答的同步跨进程调用。
+    const current: boolean = this.caretContextEcho.selectionChanged(this.ownEdits.pending(Date.now()) === 0);
+    if (!current || !this.emailSuffixesReadContext()) {
+      this.refreshEmailSuffixes();
+    }
     if (this.onEditorChanged !== undefined) {
       this.onEditorChanged();
     }
@@ -3809,6 +3938,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const generation: number = this.editorGeneration;
     this.ownEdits.reserve(Date.now());
+    this.caretContextEcho.edited(true);
     inputClient.insertText(text).catch((error: Object): void => {
       if (generation === this.editorGeneration && this.inputClient === inputClient) {
         this.ownEdits.release();
@@ -3829,6 +3959,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 同步改动一次编辑器，并为它的 `textChange` 回声记一笔；调用抛错说明编辑器没有改动，那一笔随即撤回。 */
   private editEditorSync(edit: () => void): void {
     this.ownEdits.reserve(Date.now());
+    this.caretContextEcho.edited(false);
     try {
       edit();
     } catch (error) {
@@ -3907,9 +4038,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
       // 每次空闲处理都重新读本沙箱的会话文件（目录模式的 status，只读本地文件）：键盘进程可能比设置里的一次账号切换活得更久。
       const accountId: string | null = statusUserId(client.accountStatus(stateRoot));
+      // 队列空着时（几乎总是）Rust 只读一下状态就返回，不在构建会话、键盘出来之前扫整个用户词库算本机版本、重写并 fsync state.json。显示后的队列查询（`dictionarySnapshotNeedsWork`）同样只读；本机版本只在真有请求、这里认领之前发布。
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
-        staging_root: staging, options: options, account_id: accountId
+        staging_root: staging, options: options, account_id: accountId, skip_when_idle: true
       };
       const reply: SnapshotQueueProcessReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueProcessReply;
@@ -3985,6 +4117,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (decision.queued) {
         result = client.personalDictionaryRequest(JSON.stringify(request));
         this.personalDictionarySettled = false;
+        // 用户刚排进新的词条：之前因失败退避的重试作废，按两秒重新开始。
+        this.personalDictionaryStalls = 0;
+        if (this.personalDictionaryTimer >= 0) {
+          clearTimeout(this.personalDictionaryTimer);
+          this.personalDictionaryTimer = -1;
+        }
         this.schedulePersonalDictionaryDrain();
       } else {
         result = client.dictionary(JSON.stringify(request));
@@ -4775,6 +4913,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   private localMode: string = 'none';
   /** Revision of the preference document the session was last built from; -1 before the first. */
   private preferencesRevision: number = -1;
+  /** `reloadChangedPreferences` 上次读到的偏好文档的路径和文件身份，以及当时的修订号，见 `storedRevisionIfMoved`。 */
+  private checkedPreferencesIdentity: string | null = null;
+  private checkedPreferencesRevision: number = -1;
   /** Set by Ctrl+Shift+E; only meaningful while `englishMode` is on. */
   private englishCandidates: boolean = false;
 
@@ -4884,11 +5025,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // view is published, and native result application rechecks the exact generation.
     this.scheduleOnlineProviders();
     this.scheduleTranslations();
-    // Every typed letter and every backspace arrives here, which is the one place that sees the
-    // editor change in direct English as well as in a composition.
-    this.refreshEnglishSuggestions();
+    // Every typed letter and every backspace arrives here, which is the one place that sees the editor change in direct English as well as in a composition.
     // 组字开始时收起后缀（候选栏归引擎），结束时按上屏后的上文重新匹配。
-    this.refreshEmailSuffixes();
+    this.refreshCaretSuggestions();
   }
 
   private publishCurrentCandidates(): void {
@@ -6937,27 +7076,60 @@ export class KeyboardSession implements HardwareKeyTarget {
       const output: string = this.asTraditional(widened === null ? text : widened);
       this.insertEditorText(output);
       this.recordTypingStatistics(output, this.typingSource());
+      this.refreshCaretSuggestions();
+    }
+  }
+
+  /**
+   * 打字或上屏之后，按光标前的上文刷新英文补全和邮箱后缀。
+   *
+   * 两者都要读上文时只向编辑器要一次：每次 `getForwardSync` 都是一次同步跨进程调用，要等宿主应用的 UI 线程作答，而直接英文里每个字母都走到这里。读的长度取两者中较长的；邮箱后缀只看末尾 `EmailSuffixPolicy.MAX_CONTEXT` 个字符，和它自己去读时看到的一样。
+   */
+  private refreshCaretSuggestions(): void {
+    if (!this.englishSuggestionsApply() || !this.emailSuffixesReadContext()) {
       this.refreshEnglishSuggestions();
       this.refreshEmailSuffixes();
+      return;
+    }
+    const context: string | null = this.contextBeforeCaret(
+      Math.max(EnglishSuggestionPolicy.CONTEXT_CHARACTERS, EmailSuffixPolicy.MAX_CONTEXT));
+    this.suggestEnglish(EnglishSuggestionPolicy.currentWord(context));
+    this.matchEmailSuffixes(true,
+      context === null ? null : context.slice(-EmailSuffixPolicy.MAX_CONTEXT));
+  }
+
+  /** 光标前最多 `length` 个字符；编辑器读不到时为 null。 */
+  private contextBeforeCaret(length: number): string | null {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return null;
+    try {
+      return inputClient.getForwardSync(length);
+    } catch (error) {
+      return null;
     }
   }
 
   /**
    * Offer completions for the English word being typed.
    *
-   * Only in direct English with nothing composing: a pinyin composition already has a candidate
-   * strip of its own, and the two would be competing for it. The query is a packaged-dictionary
-   * lookup that creates no session, so it runs off the UI thread and its answer is checked against
-   * the word still in the editor before anything is drawn.
+   * Only in direct English with nothing composing: a pinyin composition already has a candidate strip of its own, and the two would be competing for it. The query is a packaged-dictionary lookup that creates no session. It runs in a microtask after the key's own work, still on the UI thread, and its answer is dropped if another edit has bumped the epoch before it is drawn.
    */
   private refreshEnglishSuggestions(): void {
-    if (!this.englishSuggestionsEnabled || !this.englishMode || this.composing()
-        || this.inputClient === undefined || this.resourceDirectory.length === 0
-        || EditorPolicy.prefersLatin(this.traits) || !EditorPolicy.useEngine(this.traits)) {
+    if (!this.englishSuggestionsApply()) {
       this.clearEnglishSuggestions();
       return;
     }
-    const prefix: string = this.englishWordBeforeCursor();
+    this.suggestEnglish(this.englishWordBeforeCursor());
+  }
+
+  private englishSuggestionsApply(): boolean {
+    return this.englishSuggestionsEnabled && this.englishMode && !this.composing()
+      && this.inputClient !== undefined && this.resourceDirectory.length > 0
+      && !EditorPolicy.prefersLatin(this.traits) && EditorPolicy.useEngine(this.traits);
+  }
+
+  /** 按光标前正在打的词 `prefix` 查补全；`prefix` 是调用方刚从编辑器读到的。 */
+  private suggestEnglish(prefix: string): void {
     if (prefix !== this.englishCorrectionRejectedPrefix) this.englishCorrectionRejectedPrefix = '';
     const correction: boolean = this.englishCorrectionEnabled();
     const action: EnglishRefresh =
@@ -6977,8 +7149,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       correction: correction, completions: correction
     };
     const resources: string = this.resourceDirectory;
-    // A promise rather than a direct call: the lookup opens a packaged dictionary, and the keyboard
-    // has to keep drawing while it happens.
+    // A promise rather than a direct call: the lookup waits until the key that asked for it has finished its own work. It still runs on this thread.
     Promise.resolve().then((): string =>
       client.englishCompletions(JSON.stringify(request), resources)
     ).then((raw: string): void => {
@@ -6990,10 +7161,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     });
   }
 
+  /**
+   * 不再向编辑器重读当前词：这个微任务紧跟在发出查询的那次刷新之后、同一轮事件里运行，编辑器的任何改动都要等之后的回报才进来，而改动编辑器的路径和每次编辑器回报都会清掉或重发补全，让 `englishSuggestionEpoch` 前进。选用补全时 `useEnglishSuggestion` 还会按编辑器里的词再核对一次，不会删错字。
+   */
   private applyEnglishSuggestions(epoch: number, prefix: string,
                                   completions: EnglishCompletions | null): void {
     if (epoch !== this.englishSuggestionEpoch || completions === null
-        || completions.prefix !== prefix || prefix !== this.englishWordBeforeCursor()) {
+        || completions.prefix !== prefix) {
       return;
     }
     this.englishSuggestions = completions.items;
@@ -7076,16 +7250,25 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 上文只在内存里匹配一次，不记录、不保存；密码框和属性尚未到达的输入框不读。结果变了才通知视图。
    */
   private refreshEmailSuffixes(): void {
-    let next: EmailSuffixMatch | null = null;
-    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
-    if (inputClient !== undefined && EmailSuffixPolicy.readsContext(KeyboardFormFactor.isDesktop(),
-      this.editorAttributesKnown, this.traits.password, this.composing())) {
-      try {
-        next = EmailSuffixPolicy.match(inputClient.getForwardSync(EmailSuffixPolicy.MAX_CONTEXT));
-      } catch (error) {
-        // 上文读不到时不给后缀；不记录读到或没读到的文字。
-        next = null;
-      }
+    const reads: boolean = this.emailSuffixesReadContext();
+    this.matchEmailSuffixes(reads,
+      reads ? this.contextBeforeCaret(EmailSuffixPolicy.MAX_CONTEXT) : null);
+  }
+
+  private emailSuffixesReadContext(): boolean {
+    return this.inputClient !== undefined && EmailSuffixPolicy.readsContext(
+      KeyboardFormFactor.isDesktop(), this.editorAttributesKnown, this.traits.password, this.composing());
+  }
+
+  /**
+   * 按光标前的上文 `context` 更新后缀。`reads` 为假表示这时不该读上文，后缀收起；`context` 为 null 表示上文读不到，也不给后缀。不记录读到或没读到的文字。
+   */
+  private matchEmailSuffixes(reads: boolean, context: string | null): void {
+    const next: EmailSuffixMatch | null = reads ? EmailSuffixPolicy.match(context) : null;
+    if (reads && context !== null) {
+      this.caretContextEcho.read();
+    } else {
+      this.caretContextEcho.unread();
     }
     if (EmailSuffixPolicy.same(next, this.emailSuffixMatch)) return;
     this.emailSuffixMatch = next;
@@ -7093,6 +7276,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private clearEmailSuffixes(): void {
+    this.caretContextEcho.unread();
     if (this.emailSuffixMatch === null) return;
     this.emailSuffixMatch = null;
     this.publishEmailSuffixes();
@@ -7386,17 +7570,15 @@ export class KeyboardSession implements HardwareKeyTarget {
       action: { operation: 'record_voice', day: TypingStatisticsPolicy.day(new Date()), milliseconds: milliseconds }
     };
     const request: string = JSON.stringify(requestDocument);
-    // 存储会加文件锁，所以要等插入的内容交给编辑框之后再写入。
-    setTimeout((): void => {
-      try {
-        const response: TypingStatisticsRecordResponse = JSON.parse(client.typingStatistics(request)) as TypingStatisticsRecordResponse;
-        if (response.ok !== true) {
-          KeyboardLog.error('voice duration not recorded');
-        }
-      } catch (error) {
-        KeyboardLog.error(`voice duration unavailable: ${describeError(error)}`);
+    // 存储会加文件锁，和提交一样排到 TaskPool 线程上写，排在刚才那次提交之后。
+    this.typingStatisticsWrites.execute(new taskpool.Task(writeTypingStatistics, request)).then((reply: Object): void => {
+      const response: TypingStatisticsRecordResponse = JSON.parse(reply as string) as TypingStatisticsRecordResponse;
+      if (response.ok !== true) {
+        KeyboardLog.error('voice duration not recorded');
       }
-    }, 0);
+    }).catch((error: Object): void => {
+      KeyboardLog.error(`voice duration unavailable: ${describeError(error)}`);
+    });
   }
 
   private typingSource(): string {
@@ -7488,22 +7670,56 @@ export class KeyboardSession implements HardwareKeyTarget {
       directory: this.stateDirectory, action: action
     };
     const request: string = JSON.stringify(requestDocument);
-    // Native storage takes a file lock. Defer it off the key event so a slow filesystem never
-    // changes the latency of the next key, while retaining the same bounded text and source.
-    setTimeout((): void => {
-      try {
-        const response: string = client.typingStatistics(request);
-        const value: TypingStatisticsRecordResponse = JSON.parse(response) as TypingStatisticsRecordResponse;
-        if (value.ok !== true) {
-          KeyboardLog.error('typing statistics write refused');
-        } else if (typeof value.value?.milestone === 'number' && !this.soundsSilencedByEditor()) {
-          // host-api reports the milestone only while achievements are on; it plays the jingle itself on the desktop, and here the player does. Not over a password field, like every other sound.
-          this.soundPlayer.achievement();
-        }
-      } catch (error) {
-        KeyboardLog.error(`typing statistics unavailable: ${describeError(error)}`);
+    // 原生存储要加文件锁、读写统计文件，交给 TaskPool 线程，不占 UI 线程，下一个键的延迟不受慢文件系统影响。以前用 setTimeout(0) 推迟，那仍在 UI 线程上，低端机上每次提交都会卡一下。
+    this.typingStatisticsUnflushed = true;
+    this.typingStatisticsWrites.execute(new taskpool.Task(writeTypingStatistics, request)).then((response: Object): void => {
+      const value: TypingStatisticsRecordResponse = JSON.parse(response as string) as TypingStatisticsRecordResponse;
+      if (value.ok !== true) {
+        KeyboardLog.error('typing statistics write refused');
+      } else if (typeof value.value?.milestone === 'number' && !this.soundsSilencedByEditor()) {
+        // host-api reports the milestone only while achievements are on; it plays the jingle itself on the desktop, and here the player does. Not over a password field, like every other sound, and not once the editor has let go: its attributes are forgotten then.
+        this.soundPlayer.achievement();
       }
-    }, 0);
+    }).catch((error: Object): void => {
+      KeyboardLog.error(`typing statistics unavailable: ${describeError(error)}`);
+    });
+  }
+
+  /**
+   * 让原生层把这个键盘进程攒着的打字统计现在写进文件：键盘收起、编辑框失去焦点、扩展销毁时调用。排在同一个 SequenceRunner 上，之前送出的提交都会包含在这次写入里。返回的 Promise 在写完后完成，失败也完成；上次 flush 之后没有新提交时不再排一次，返回上一次的。
+   *
+   * 原生库拒绝 flush 时记一次日志：攒着的计数这时只能等原生层自己在失焦、销毁或满三十秒时写出，原因能从诊断日志里看出来。
+   */
+  private flushTypingStatistics(): Promise<void> {
+    if (!this.typingStatisticsUnflushed || this.stateDirectory.length === 0) {
+      return this.typingStatisticsFlushed;
+    }
+    this.typingStatisticsUnflushed = false;
+    const requestDocument: TypingStatisticsFlushRequest = {
+      directory: this.stateDirectory, action: { operation: 'flush' }
+    };
+    const task: taskpool.Task = new taskpool.Task(writeTypingStatistics, JSON.stringify(requestDocument));
+    this.typingStatisticsFlushed = this.typingStatisticsWrites.execute(task).then((response: Object): void => {
+      const value: TypingStatisticsRecordResponse = JSON.parse(response as string) as TypingStatisticsRecordResponse;
+      if (value.ok !== true && !this.typingStatisticsFlushRefusalLogged) {
+        this.typingStatisticsFlushRefusalLogged = true;
+        KeyboardLog.error(`typing statistics flush refused: ${value.error ?? 'unknown'}`);
+      }
+    }).catch((error: Object): void => {
+      KeyboardLog.error(`typing statistics flush unavailable: ${describeError(error)}`);
+    });
+    return this.typingStatisticsFlushed;
+  }
+
+  /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘，停下词库的空闲检查，关掉缓存的释义词库。编辑框可能仍有焦点，所以不等 inputStop。 */
+  keyboardHidden(): void {
+    if (this.onPanelHidden !== undefined) {
+      this.onPanelHidden();
+    }
+    this.flushTypingStatistics();
+    this.pauseIdleDictionaryWork();
+    // 候选释义按文件身份缓存在 UI 线程上的词库连接和自定义译文，隐藏的键盘不留着它们（关掉释义以后也不会一直占着）；下一次显示后的第一次查询重新打开。
+    client.releaseGlossCaches();
   }
 
   /**

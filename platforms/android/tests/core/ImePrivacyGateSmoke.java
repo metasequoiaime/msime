@@ -148,6 +148,37 @@ public final class ImePrivacyGateSmoke {
             "diagnostic log append does not modify a hard-linked file");
         check(new String(java.nio.file.Files.readAllBytes(appendTarget), java.nio.charset.StandardCharsets.UTF_8)
             .equals("outside-sentinelsynthetic\n"), "the replacement retains existing diagnostic bytes");
+
+        // 平常的一行原地追加到同一个文件，不再每行整份读出再重写；写满时仍然整份重写并丢掉最旧的行。
+        java.nio.file.Path inPlaceRoot = java.nio.file.Files.createTempDirectory("msime-event-log-append-");
+        ImeDebugOverlay.EventLog inPlace = new ImeDebugOverlay.EventLog(inPlaceRoot.toFile());
+        java.nio.file.Path events = inPlaceRoot.resolve(ImeDebugOverlay.EventLog.EVENTS_FILE);
+        append.invoke(inPlace, ImeDebugOverlay.EventLog.EVENTS_FILE,
+            "first\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Object identity = java.nio.file.Files.readAttributes(events,
+            java.nio.file.attribute.BasicFileAttributes.class).fileKey();
+        check(identity != null, "the host file system exposes inode identity");
+        append.invoke(inPlace, ImeDebugOverlay.EventLog.EVENTS_FILE,
+            "second\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        check(new String(java.nio.file.Files.readAllBytes(events), java.nio.charset.StandardCharsets.UTF_8)
+            .equals("first\nsecond\n"), "appended lines keep their order");
+        check(identity.equals(java.nio.file.Files.readAttributes(events,
+            java.nio.file.attribute.BasicFileAttributes.class).fileKey()), "an ordinary line is appended in place");
+        byte[] full = new byte[ImeDebugOverlay.EventLog.MAX_BYTES];
+        java.util.Arrays.fill(full, (byte) 'x');
+        for (int at = 99; at < full.length; at += 100) full[at] = '\n';
+        full[full.length - 1] = '\n';
+        java.nio.file.Files.write(events, full);
+        append.invoke(inPlace, ImeDebugOverlay.EventLog.EVENTS_FILE,
+            "last\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        byte[] rolled = java.nio.file.Files.readAllBytes(events);
+        check(rolled.length <= ImeDebugOverlay.EventLog.MAX_BYTES * 3 / 4 + 5
+            && new String(rolled, java.nio.charset.StandardCharsets.UTF_8).endsWith("x\nlast\n"),
+            "a full log still drops its oldest lines before appending");
+        try (var leftovers = java.nio.file.Files.list(inPlaceRoot)) {
+            check(leftovers.count() == 1, "appending leaves no staging files behind");
+        }
+        inPlace.shutdown();
         log.shutdown();
         System.out.println("Android IME privacy gate passed");
     }

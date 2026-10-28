@@ -625,3 +625,41 @@ export class SharedStateMirrorPolicy {
 interface PreferencesDocument {
   preferences?: Object;
 }
+
+interface CachedFingerprint {
+  stamp: string;
+  fingerprint: string;
+}
+
+/**
+ * 发布方每次发布都要算一遍本地条目的内容指纹：读整个文件、偏好还要解析后按键排序，再逐字符算 FNV。键盘在完整体验模式下每次失焦、获得焦点各发布一次，中间文件大多没动，打字统计开着时这份文件又会越攒越大，于是每次切换输入框都在 UI 线程上把同样的内容读两遍、算两遍。
+ *
+ * 这里按路径记住上次算出的指纹和当时文件的身份（inode、大小、纳秒修改时间），身份没变就直接用上次的指纹，不读文件。指纹本身仍是内容指纹，导入写回同样内容时指纹也相同，不会来回打转。写这些文件的一方（client-core 的存储、`writePrivateText`、镜像自己的 `copy`）都是先写暂存文件再改名换入，每次写 inode 都变；拿不到纳秒修改时间（`stamp` 为 null）时不缓存，照旧每次读。读不到文件（指纹是 `ABSENT_FINGERPRINT`）时也不记，下次再读。缓存只在本进程内，设置应用和键盘各有各的。
+ */
+export class FingerprintCache {
+  private readonly entries: Map<string, CachedFingerprint> = new Map<string, CachedFingerprint>();
+
+  /** `stamp` 与上次记下的相同时返回上次的指纹，否则调用 `compute` 重新算并记下。 */
+  fingerprint(key: string, stamp: string | null, compute: () => string): string {
+    if (stamp === null) {
+      this.entries.delete(key);
+      return compute();
+    }
+    const cached: CachedFingerprint | undefined = this.entries.get(key);
+    if (cached !== undefined && cached.stamp === stamp) {
+      return cached.fingerprint;
+    }
+    const fingerprint: string = compute();
+    if (fingerprint === ABSENT_FINGERPRINT) {
+      this.entries.delete(key);
+    } else {
+      this.entries.set(key, { stamp: stamp, fingerprint: fingerprint });
+    }
+    return fingerprint;
+  }
+
+  /** 一个文件的身份：inode、大小和纳秒修改时间。没有纳秒修改时间时为 null，秒级的修改时间分不清同一秒里的两次改写。 */
+  static stamp(ino: string, size: number, mtimeNs: string | undefined): string | null {
+    return mtimeNs === undefined ? null : `${ino}:${size}:${mtimeNs}`;
+  }
+}

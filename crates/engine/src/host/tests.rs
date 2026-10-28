@@ -387,6 +387,141 @@ fn hand_written_glosses_apply_without_a_learned_store() {
     );
 }
 
+/// 释义来源在查询线程里按路径加文件身份缓存，省掉每个按键重新打开词库；同一线程上改写自定义译文、删掉学到的释义库、换掉发布词库，下一次查询都要看到新文件，结果与每次重新打开相同。替换的文件都比原来长，免得粗粒度的修改时间和复用的 inode 让新旧文件看起来一样。
+#[test]
+fn cached_glosses_follow_replaced_and_removed_files() {
+    let resources = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    let packaged = resources.path().join("msime-english.db");
+    Connection::open(&packaged)
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
+        ))
+        .unwrap();
+    let resources_path = resources.path().to_str().unwrap();
+    let user_path = user.path().to_str().unwrap();
+    let candidates = vec![("测试".into(), 0)];
+    let glosses = || candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+
+    let custom = user.path().join("custom_translations.txt");
+    std::fs::write(&custom, "测试\thand written gloss\n").unwrap();
+    assert_eq!(glosses(), vec!["hand written gloss"]);
+    std::fs::write(
+        &custom,
+        "# edited in Settings\n测试\tedited hand written gloss\n",
+    )
+    .unwrap();
+    assert_eq!(glosses(), vec!["edited hand written gloss"]);
+    std::fs::remove_file(&custom).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+
+    assert!(save_candidate_gloss(
+        user_path,
+        true,
+        "测试",
+        "learned gloss"
+    ));
+    assert_eq!(glosses(), vec!["learned gloss"]);
+    assert!(save_candidate_gloss(
+        user_path,
+        true,
+        "测试",
+        "relearned gloss"
+    ));
+    assert_eq!(glosses(), vec!["relearned gloss"]);
+    std::fs::remove_file(user.path().join("translation-glosses.db")).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+
+    std::fs::remove_file(&packaged).unwrap();
+    Connection::open(&packaged)
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','replaced gloss');
+             CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(65536));"
+        ))
+        .unwrap();
+    assert_eq!(glosses(), vec!["replaced gloss"]);
+    assert_eq!(
+        candidate_glosses(resources_path, &candidates).unwrap(),
+        vec!["replaced gloss"]
+    );
+    std::fs::remove_file(&packaged).unwrap();
+    assert!(candidate_glosses(resources_path, &candidates).is_err());
+}
+
+/// 离线释义库的连接同样按文件身份缓存：换成另一种语言的文件、再删掉，下一次查询给出和重新打开一样的结果。
+#[test]
+fn cached_offline_target_glosses_follow_replaced_and_removed_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zh-fr.db");
+    offline_gloss_database(&path, "fr", 1);
+    let candidates = vec![("猫".into(), 0)];
+    let glosses = || candidate_target_glosses(path.to_str().unwrap(), "fr", &candidates);
+    assert_eq!(glosses().unwrap(), vec!["chat, chatte; félin"]);
+    assert_eq!(glosses().unwrap(), vec!["chat, chatte; félin"]);
+
+    std::fs::remove_file(&path).unwrap();
+    offline_gloss_database(&path, "ja", 1);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(65536));",
+        )
+        .unwrap();
+    assert_eq!(
+        glosses().unwrap_err().to_string(),
+        "Offline gloss dictionary language mismatch"
+    );
+    assert_eq!(
+        candidate_target_glosses(path.to_str().unwrap(), "ja", &candidates).unwrap(),
+        vec!["chat, chatte; félin"]
+    );
+
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(
+        glosses().unwrap_err().to_string(),
+        "Offline gloss dictionary unavailable"
+    );
+    assert!(!path.exists(), "a read-only open must not create the file");
+}
+
+/// 键盘收起、内存吃紧时宿主释放调用线程的释义缓存；之后的查询重新打开词库、重新读自定义译文，结果与释放前相同，没打开过任何缓存时释放也不出错。
+#[test]
+fn released_gloss_caches_reopen_on_the_next_query() {
+    release_gloss_caches();
+    let resources = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    Connection::open(resources.path().join("msime-english.db"))
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
+        ))
+        .unwrap();
+    std::fs::write(
+        user.path().join("custom_translations.txt"),
+        "你好\thand written gloss\n",
+    )
+    .unwrap();
+    let target = resources.path().join("zh-fr.db");
+    offline_gloss_database(&target, "fr", 1);
+    let resources_path = resources.path().to_str().unwrap();
+    let user_path = user.path().to_str().unwrap();
+    let candidates = vec![("测试".into(), 0), ("你好".into(), 0)];
+    let glosses = || candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap();
+    let target_candidates = vec![("猫".into(), 0)];
+    let target_glosses =
+        || candidate_target_glosses(target.to_str().unwrap(), "fr", &target_candidates).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss", "hand written gloss"]);
+    assert_eq!(target_glosses(), vec!["chat, chatte; félin"]);
+
+    release_gloss_caches();
+    assert_eq!(glosses(), vec!["packaged gloss", "hand written gloss"]);
+    assert_eq!(target_glosses(), vec!["chat, chatte; félin"]);
+}
+
 #[cfg(unix)]
 #[test]
 fn learned_glosses_reject_a_symlinked_database() {
@@ -3943,4 +4078,22 @@ fn host_multilingual_snapshot_keeps_the_raw_identity_and_language_ranges() {
         .unwrap()
         .multilingual_conversion
         .is_none());
+}
+
+/// The iOS keyboard destroys its session whenever it goes away and builds one on the next appearance; the personal context model survives that only if the session records the journal as it lets go. Not on Windows, where a store that only read the journal records nothing rather than keep a probe connection open.
+#[cfg(not(windows))]
+#[test]
+fn dropping_a_session_records_its_journal_for_the_next_one() {
+    let root = tempfile::tempdir().unwrap();
+    let options = helpcode_fixture(root.path(), "", "");
+    let journal = super::options::runtime_paths(&options).user(crate::assets::USER_JOURNAL);
+    let connection = Connection::open(&journal).unwrap();
+    crate::user_dictionary::journal::ensure_schema(&connection).unwrap();
+    connection
+        .execute_batch("INSERT INTO personal_bigram(previous,word,count) VALUES('你','好',2);")
+        .unwrap();
+    drop(connection);
+    let store = crate::user_dictionary::ngram_store::PersonalNgramStore::for_journal(&journal);
+    drop(Session::new(&options).unwrap());
+    assert!(store.settled_for_tests());
 }

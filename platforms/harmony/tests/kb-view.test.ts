@@ -148,7 +148,15 @@ group("the touch frame the view draws is the panel height the ability asks for",
       for (const strip of [true, false]) {
         const tall: number = drawnTouchHeight(spacing, adjustment, strip, 1);
         const tallSized: number = KeyboardMetrics.totalHeightVp(
-          spacing, adjustment, 0, 18, 15, false, strip, 1);
+          spacing,
+          adjustment,
+          0,
+          18,
+          15,
+          false,
+          strip,
+          1,
+        );
         check(
           Math.abs(tall - tallSized) < 1e-9,
           `handwriting, strip ${strip}, row spacing ${spacing}, adjustment ${adjustment}: drawn ${tall}, panel ${tallSized}`,
@@ -160,7 +168,10 @@ group("the touch frame the view draws is the panel height the ability asks for",
 
 group("portrait handwriting is one key row taller, landscape keeps the old height", () => {
   check(KeyboardMetrics.handwritingExtraRows(true, false) === 1, "portrait handwriting adds a row");
-  check(KeyboardMetrics.handwritingExtraRows(true, true) === 0, "landscape handwriting keeps three rows");
+  check(
+    KeyboardMetrics.handwritingExtraRows(true, true) === 0,
+    "landscape handwriting keeps three rows",
+  );
   check(
     KeyboardMetrics.handwritingExtraRows(false, false) === 0,
     "every other face keeps the standard height",
@@ -172,7 +183,8 @@ group("portrait handwriting is one key row taller, landscape keeps the old heigh
   );
   check(
     KeyboardMetrics.totalHeightVp(70, 30, 0, 18, 15, false, true, 1) -
-      KeyboardMetrics.totalHeightVp(70, 30, 0, 18, 15, false) === 44 + 7,
+      KeyboardMetrics.totalHeightVp(70, 30, 0, 18, 15, false) ===
+      44 + 7,
     "the user's height adjustment is applied once, not again for the extra row",
   );
   check(
@@ -329,6 +341,19 @@ group("触屏离开语音界面时放弃正在进行的录音", () => {
   check(!VoiceRecognitionPolicy.cancelsOnLeave(true, false, true), "没有在录音");
   check(!VoiceRecognitionPolicy.cancelsOnLeave(true, true, false), "并不是从语音界面离开");
   check(!VoiceRecognitionPolicy.cancelsOnLeave(false, true, true), "2in1 的语音面板另有规则");
+});
+
+group("触屏键盘收起时放弃正在进行的录音", () => {
+  check(
+    VoiceRecognitionPolicy.cancelsOnHide(true, true, false),
+    "键盘收起后麦克风和识别不能继续跑到上限",
+  );
+  check(!VoiceRecognitionPolicy.cancelsOnHide(true, false, false), "没有在录音");
+  check(
+    !VoiceRecognitionPolicy.cancelsOnHide(true, true, true),
+    "已经说完、正在等结果，不丢掉用户说完的话",
+  );
+  check(!VoiceRecognitionPolicy.cancelsOnHide(false, true, false), "2in1 的语音面板另有规则");
 });
 
 group("the 2in1 candidate window is sized for the card's 8vp padding", () => {

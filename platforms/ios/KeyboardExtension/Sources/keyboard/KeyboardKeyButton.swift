@@ -38,14 +38,23 @@ final class KeyboardKeyButton: UIButton {
       let smaller = font.withSize(size)
       if measure(text, smaller) <= width { return (text, smaller) }
     }
+    // 整段在最小字号下也放不下：留下最长的、接上「…」还放得下的前缀（0 到少一个字符），连「…」都放不下时为空。按长度二分，每次只量一次。原来从末尾一个字一个字地删、每删一个量一次，单字候选的 Unihan 释义常要删掉几十个字符，每次按键每个词块都要量几十次。只记量过确实放得下的结果，所以字宽偶尔不随长度单调增长时也不会画出超宽的一行。
     let floorFont = font.withSize(minimumGlossFontSize)
-    var characters = Array(text)
-    while !characters.isEmpty {
-      characters.removeLast()
-      let shortened = String(characters) + "…"
-      if measure(shortened, floorFont) <= width { return (shortened, floorFont) }
+    let characters = Array(text)
+    var fitted = ""
+    var low = 0
+    var high = characters.count - 1
+    while low <= high {
+      let length = (low + high) / 2
+      let shortened = String(characters[..<length]) + "…"
+      if measure(shortened, floorFont) <= width {
+        fitted = shortened
+        low = length + 1
+      } else {
+        high = length - 1
+      }
     }
-    return ("", floorFont)
+    return (fitted, floorFont)
   }
 
   /// 按住按钮时给手指的反馈，取自设计稿的 `style-active` 规则。

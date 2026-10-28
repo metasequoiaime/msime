@@ -77,14 +77,23 @@ public final class CandidateExpansionDeviceSmoke extends Instrumentation {
                         field(type, "session").setLong(service, session);
                         value(nativeType.getMethod("focus", long.class, boolean.class).invoke(null, session, true));
                     }
+                    field(type, "candidatePanelOpen").setBoolean(service, false);
+                    field(type, "candidatePanelSnapshot").set(service, null);
                     apply.invoke(service, command.invoke(null, session, 3));
                     for (char letter : letters.toCharArray()) {
                         apply.invoke(service, character.invoke(null, session, (int) letter, false));
-                        if (mode == 2) glosses.invoke(service);
+                        if (mode == 2) {
+                            stage = "collapsed gloss lookup preserves held candidates";
+                            long generation = ((JSONObject) field(type, "view").get(service)).getLong("generation");
+                            glosses.invoke(service);
+                            check(value(nativeView.invoke(null, session)).getLong("generation") == generation,
+                                "collapsed gloss lookup does not release held candidates");
+                        }
                     }
                     JSONObject before = (JSONObject) field(type, "view").get(service);
                     if (mode == 0) {
-                        stage = "offline gloss expansion synchronizes view";
+                        stage = "expanded panel gloss lookup synchronizes view";
+                        field(type, "candidatePanelOpen").setBoolean(service, true);
                         glosses.invoke(service);
                     } else if (mode == 1) {
                         stage = "manual panel expansion synchronizes view";

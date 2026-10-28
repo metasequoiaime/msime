@@ -95,7 +95,7 @@ const SHARED_MODEL_CAPACITY: usize = if cfg!(test) { 256 } else { 2 };
 
 /// 判断同一路径上的模型文件是否换过：长度和修改时间，unix 上加设备号和 inode，Windows 上加创建时间。rename 进来的新文件 inode 一定不同，长度和修改时间也几乎一定不同。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FileIdentity {
+pub(crate) struct FileIdentity {
     len: u64,
     modified: Option<SystemTime>,
     #[cfg(unix)]
@@ -125,7 +125,7 @@ impl FileIdentity {
     }
 
     /// 路径上此刻那个普通文件的身份；不存在、不是普通文件（含符号链接）时为 `None`，与 `load` 的拒绝条件一致。
-    fn at(path: &Path) -> Option<Self> {
+    pub(crate) fn at(path: &Path) -> Option<Self> {
         let metadata = std::fs::symlink_metadata(path).ok()?;
         metadata.file_type().is_file().then(|| Self::of(&metadata))
     }

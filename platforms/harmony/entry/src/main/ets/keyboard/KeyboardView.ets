@@ -961,6 +961,17 @@ struct KeyboardView {
         this.replyNotice = '输入位置已变化，请重新选择回复方式';
       }
     };
+    KeyboardSession.shared.onPanelHidden = (): void => {
+      // 面板收起时视图不会销毁（aboutToDisappear 不会执行）。还在走的空格长按计时要取消，否则收起后它照样到点开始录音。
+      this.cancelSpaceLongPress();
+      if (!VoiceRecognitionPolicy.cancelsOnHide(this.touchDesign(), this.voiceBusy, this.voiceFinishing)) {
+        return;
+      }
+      // 按住空格说话时收起：松手事件可能再也收不到，空格键上的「松开结束」不能留到下次显示。
+      this.spaceVoiceHeld = false;
+      this.spaceVoiceHint = '';
+      this.cancelVoice();
+    };
     KeyboardSession.shared.onChanged = (state: KeyboardState): void => {
       const wasHandwriting: boolean = KeyboardScheme.usesHandwritingFace(
         this.scheme, this.english, this.symbols, this.localMode);
@@ -1066,6 +1077,7 @@ struct KeyboardView {
     KeyboardSession.shared.onEditorChanged = undefined;
     KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
+    KeyboardSession.shared.onPanelHidden = undefined;
     KeyboardSession.shared.onPanelKey = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelHoverTip();
@@ -7379,37 +7391,61 @@ struct KeyboardView {
     this.clipboardNotice = result.failure;
   }
 
-  private redrawHandwriting(): void {
-    const context: CanvasRenderingContext2D = this.handwritingContext;
+  /** 设置笔迹的颜色、粗细和圆头圆角，返回这次用的墨色。整幅重画和书写中补画新的一段共用，两者画出的笔迹一致。 */
+  private applyHandwritingInk(context: CanvasRenderingContext2D): string {
     const pad: FeedbackSettings = KeyboardSession.shared.feedbackSettings();
-    // 书写区铺满键盘宽度，平板和折叠屏上会比 420vp 宽：按画布实际大小清，免得右侧留下上一笔。
-    context.clearRect(0, 0, Math.max(context.width, HANDWRITING_CANVAS_SIZE),
-      Math.max(context.height, HANDWRITING_CANVAS_SIZE));
     // 「笔迹颜色」：「跟随皮肤」取手写板皮肤的文字颜色，这样笔迹在任何底色上都看得清；其余是 `KeyboardFeedback` 的固定墨色。
-    context.strokeStyle = KeyboardFeedback.strokeInk(pad.handwritingStrokeColor, this.handwritingSkin.keyForeground);
+    const ink: string = KeyboardFeedback.strokeInk(pad.handwritingStrokeColor, this.handwritingSkin.keyForeground);
+    context.strokeStyle = ink;
     // 「笔迹粗细」以 vp 为单位，这块画布也是：笔画按触摸的 vp 坐标记录，限制在画布自己的宽高之内（`HandwritingStrokePolicy.pointInCanvas`），绘制上下文用的也是同一单位，所以线宽无需缩放就与设置显示的一致。
     context.lineWidth = KeyboardFeedback.handwritingStrokeWidth(pad.handwritingStrokeWidth);
     context.lineCap = 'round';
     context.lineJoin = 'round';
+    return ink;
+  }
+
+  private redrawHandwriting(): void {
+    const context: CanvasRenderingContext2D = this.handwritingContext;
+    // 书写区铺满键盘宽度，平板和折叠屏上会比 420vp 宽：按画布实际大小清，免得右侧留下上一笔。
+    context.clearRect(0, 0, Math.max(context.width, HANDWRITING_CANVAS_SIZE),
+      Math.max(context.height, HANDWRITING_CANVAS_SIZE));
+    this.applyHandwritingInk(context);
     for (const stroke of this.handwritingStrokes) {
-      if (stroke.points.length === 0) {
-        continue;
-      }
-      context.beginPath();
-      context.moveTo(stroke.points[0].x, stroke.points[0].y);
-      for (const point of stroke.points.slice(1)) {
-        context.lineTo(point.x, point.y);
-      }
-      context.stroke();
+      this.strokeHandwritingPoints(context, stroke.points);
     }
-    if (this.handwritingCurrent.length > 0) {
-      context.beginPath();
-      context.moveTo(this.handwritingCurrent[0].x, this.handwritingCurrent[0].y);
-      for (const point of this.handwritingCurrent.slice(1)) {
-        context.lineTo(point.x, point.y);
-      }
-      context.stroke();
+    this.strokeHandwritingPoints(context, this.handwritingCurrent);
+  }
+
+  /** 一笔画成一条连续路径。按下标取点，不为每一笔复制一份点数组。 */
+  private strokeHandwritingPoints(context: CanvasRenderingContext2D, points: HandwritingPoint[]): void {
+    if (points.length === 0) {
+      return;
     }
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    for (let index: number = 1; index < points.length; index++) {
+      context.lineTo(points[index].x, points[index].y);
+    }
+    context.stroke();
+  }
+
+  /**
+   * 书写中每来一个触摸点，只在已有画面上补画最后一段，不清屏重画整个字：已画好的笔画在这期间不会变，整幅重画让每个移动事件的开销随已写的点数增长，写一个字是平方级。抬笔、取消、撤销、重做、清除和画布重建仍整幅重画，所以笔画定稿后的画面与原来逐点重画完全相同。半透明墨色的圆头线段在接点处会叠深，这时退回整幅重画。
+   */
+  private drawHandwritingSegment(): void {
+    const context: CanvasRenderingContext2D = this.handwritingContext;
+    const ink: string = this.applyHandwritingInk(context);
+    const count: number = this.handwritingCurrent.length;
+    if (count < 2 || !HandwritingStrokePolicy.opaqueInk(ink)) {
+      this.redrawHandwriting();
+      return;
+    }
+    const from: HandwritingPoint = this.handwritingCurrent[count - 2];
+    const to: HandwritingPoint = this.handwritingCurrent[count - 1];
+    context.beginPath();
+    context.moveTo(from.x, from.y);
+    context.lineTo(to.x, to.y);
+    context.stroke();
   }
 
   private handwritingPoint(event: TouchEvent): HandwritingPoint {
@@ -7439,7 +7475,7 @@ struct KeyboardView {
       if (this.handwritingCurrent.length > 0
         && this.handwritingCurrent.length < HANDWRITING_MAX_POINTS) {
         this.handwritingCurrent.push(this.handwritingPoint(event));
-        this.redrawHandwriting();
+        this.drawHandwritingSegment();
       }
       return;
     }

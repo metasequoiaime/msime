@@ -216,6 +216,8 @@ impl ToSql for Text<'_> {
 }
 
 /// `ATTACH DATABASE ?1 AS <schema>`; `schema` is one of this module's fixed aliases, never user input.
+///
+/// iOS 以外日志是 WAL：附上它的事务只在每个文件内原子，崩溃时可能日志已提交而词库回滚，下一次回放补齐，见 `journal::prefer_write_ahead_log`。
 pub(super) fn attach(connection: &Connection, path: &Path, schema: &str) -> rusqlite::Result<()> {
     let path = crate::paths::sqlite_path_no_follow(path)
         .map_err(|_| rusqlite::Error::InvalidPath(path.to_owned()))?;

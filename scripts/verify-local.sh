@@ -1014,6 +1014,8 @@ fi
 
 note "rust tests"
 : > "$collected.rust"
+# 用户词库日志改用 WAL 之后，每个还开着的日志除了主文件还占着 `-wal`、`-shm`，WAL 连接持锁期间别的连接关掉的描述符也要等它们一起放；msime-engine 与 msime-host-api 的测试并行建几百个临时日志，进程里同时开着的文件从约 100 涨到近 400。macOS 上 launchd 给的软上限是 256（经 SSH 的 rbuild 也是），会让夹具随机报 `unable to open database file` / `Too many open files`。这里只抬软上限，硬上限更低时保持原样。
+ulimit -n 4096 2>/dev/null || true
 # The neural sentence model tests (msime-engine's lattice::neural and settling tests, msime-input-runtime's settle test) skip without the shipped models, and neither model is in the repository. Fetch the pinned pair so they run here; the path is absolute because cargo runs each test binary from its own crate directory. A failed fetch is not a test failure: the tests skip and say why.
 if python3 scripts/fetch_neural_model.py --out "$root/target/neural-model" > "$collected.neural-model" 2>&1; then
   export MSIME_NEURAL_MODEL_DIR="$root/target/neural-model"

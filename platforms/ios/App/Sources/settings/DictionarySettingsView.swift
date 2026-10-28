@@ -81,6 +81,8 @@ struct DictionarySettingsView: View {
     .navigationTitle("词库")
     .navigationBarTitleDisplayMode(.inline)
     .reloadOnAppearAndActive(reload)
+    // 自造词数量取自键盘上次列出的那一页；打开页面时请键盘下次出现时重新列一次。
+    .task { try? store.requestRefresh() }
     .task { await loadDiscover() }
     .task {
       while !Task.isCancelled {

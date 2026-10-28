@@ -196,6 +196,7 @@ fn a_document_naming_an_unknown_source_still_loads_and_records() {
     store
         .record("你好", TypingSource::Cantonese, "2026-10-01", Some(9))
         .unwrap();
+    store.flush().unwrap();
     let path = directory.path().join("typing-statistics.json");
     let written = fs::read_to_string(&path).unwrap();
     assert!(written.contains("\"cantonese\""));

@@ -29,6 +29,8 @@ public final class SelectionEchoTracker {
     private final int[] pendingComposingEnd = new int[MAX_PENDING];
     private final int[] pendingSlack = new int[MAX_PENDING];
     private int pendingCount;
+    /** 记下过的预期总数，只增不减，见 {@link #expectations()}。 */
+    private long expectations;
 
     /** 新的编辑器：从 `EditorInfo.initialSelStart/End` 开始，任何一端未知（-1）就先不预测。 */
     public void reset(int start, int end) {
@@ -117,6 +119,12 @@ public final class SelectionEchoTracker {
         pendingComposingEnd[pendingCount] = composingEnd;
         pendingSlack[pendingCount] = slack;
         pendingCount++;
+        expectations++;
+    }
+
+    /** 到现在为止记下过多少条预期（只增不减）。调用方在重画时记下它，回声到达时数目没变，就说明这次回声对应的写入之后界面已经按写完的编辑器重画过。 */
+    public long expectations() {
+        return expectations;
     }
 
     /**

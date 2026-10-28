@@ -122,3 +122,8 @@ pub fn unload_japanese_dictionary(path: &std::path::Path) {
 pub fn release_japanese_dictionary_cache() {
     japanese::decoder::JapaneseDictionary::release_shared();
 }
+
+/// 放掉进程里为下一个会话留着、没有会话在用的整句联想 n-gram store（连同它的模型和日志连接）。正在用的会话不受影响；之后第一个会话重新读日志。和 [`release_japanese_dictionary_cache`] 一样由宿主的清缓存、内存告警动作调用。
+pub fn release_idle_personal_models() {
+    user_dictionary::ngram_store::release_idle();
+}

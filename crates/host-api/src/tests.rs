@@ -1703,6 +1703,74 @@ fn mixed_input_changes_defer_until_composition_ends() {
     assert_eq!(update(handle, 2, &preferences)["ok"], false);
     read(msime_client_destroy(handle));
 }
+/// Android 键盘显示期间每秒把读到的偏好原样再交一次：同一份快照不再整套重做，但回复与第一次相同，组字中延后的偏好照样在组字结束后生效，设置页重新导入的效果包照样跟上。
+#[test]
+fn an_identical_preferences_resend_answers_like_the_first_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    bundle_wubi_table(&path("resources"));
+    let state = path("state");
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": state, "preferences": chinese_preferences() }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    read(msime_client_character(handle, b'U', true));
+
+    let mut preferences = chinese_preferences();
+    preferences.candidate_page_size = 7;
+    preferences.plugins.effect_pack = "neon".into();
+    let first = update(handle, 1, &preferences);
+    assert_eq!(first["ok"], true, "{first}");
+    assert_eq!(first["value"]["deferred"], true);
+    assert_eq!(update(handle, 1, &preferences), first);
+    SESSIONS.with(|sessions| {
+        let sessions = sessions.borrow();
+        assert!(sessions[&handle].requested_settled);
+        assert!(sessions[&handle].preferences_pending);
+    });
+    let effect = read(msime_client_typing_effect_settings(handle));
+    assert!(effect["value"]["issue"].is_string(), "{effect}");
+
+    // 设置页装上了选中的效果包：原样再交一次偏好就跟上，不必等下一次聚焦。
+    let pack = state.join("plugins/effect/neon");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(
+        pack.join("plugin.toml"),
+        "schema_version = 1\nkind = \"effect\"\nid = \"neon\"\nname = \"Neon\"\nversion = \"1\"\nlicense = \"CC0-1.0\"\n[effect]\nstyle = \"sparks\"\nintensity = 80\ncolors = [\"#00FFCC\"]\nparticles = 12\n",
+    )
+    .unwrap();
+    assert_eq!(update(handle, 1, &preferences), first);
+    let effect = read(msime_client_typing_effect_settings(handle));
+    assert_eq!(effect["value"]["issue"], Value::Null, "{effect}");
+    assert_eq!(effect["value"]["style"], "sparks");
+
+    // 组字结束时延后的偏好换上，再交一次报告已经应用。
+    read(msime_client_command(handle, 3));
+    let settled = update(handle, 1, &preferences);
+    assert_eq!(settled["ok"], true, "{settled}");
+    assert_eq!(settled["value"]["deferred"], false);
+    assert_eq!(settled["value"]["revision"], 1);
+    assert_eq!(
+        settled["value"]["floating_toolbar"],
+        first["value"]["floating_toolbar"]
+    );
+    SESSIONS.with(|sessions| {
+        let sessions = sessions.borrow();
+        assert!(!sessions[&handle].preferences_pending);
+        assert_eq!(sessions[&handle].applied, preferences);
+    });
+
+    // 同一修订号换了内容仍然拒绝，不会被当成没变。
+    preferences.candidate_page_size = 6;
+    assert_eq!(update(handle, 1, &preferences)["ok"], false);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 /// 不读触发字符数的宿主（macOS、Windows、Linux）一律拿默认的 5，触屏宿主照文档里存的数。
 #[test]
 fn english_minimum_prefix_is_fixed_where_the_host_does_not_read_it() {
@@ -4864,6 +4932,93 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 横向候选条每键只取一批（`msime_client_candidate_range`）：首字母打下去时不把整张声母表放出来，身份与整代复制里同一座位的那一行相同；把放出来的取完再要，才放出暂扣的尾部并换一代。
+#[test]
+fn candidate_range_takes_one_batch_and_releases_the_initial_tail_only_past_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    let dictionaries = path("dictionaries");
+    // 声母 c 有 30 个字，比首字母先给的 24 行多。
+    let mut fixture =
+        String::from("CREATE TABLE tbl_1_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);");
+    let words: Vec<char> = "才菜参残草测层茶查差柴产长常场唱超朝车成城程吃池出初除处川穿"
+        .chars()
+        .collect();
+    assert_eq!(words.len(), 30);
+    for (index, word) in words.iter().enumerate() {
+        fixture.push_str(&format!(
+            "INSERT INTO tbl_1_c VALUES('c{index:02}','c','{word}',{});",
+            1000 - index * 10
+        ));
+    }
+    fixture.push_str("CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);");
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(&fixture)
+            .unwrap();
+    }
+    bundle_wubi_table(&resources);
+    let preferences = Preferences {
+        learning: false,
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    let typed = read(msime_client_character(handle, b'c', false));
+    let generation = typed["value"]["view"]["generation"].as_u64().unwrap();
+
+    let first = read(msime_client_candidate_range(handle, 0, 48))["value"].clone();
+    assert_eq!(first["generation"], generation, "{first}");
+    let total = first["total"].as_u64().unwrap() as usize;
+    assert!(total < words.len(), "the initial tail stays held: {first}");
+    assert_eq!(first["candidates"].as_array().unwrap().len(), total);
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["generation"],
+        generation
+    );
+    let window = read(msime_client_candidate_range(handle, 2, 3))["value"].clone();
+    let window = window["candidates"].as_array().unwrap();
+    assert_eq!(window.len(), 3);
+    assert_eq!(window[0]["id"]["index"], 2);
+    assert_eq!(window[0]["id"]["generation"], generation);
+    assert_eq!(window[0]["text"], first["candidates"][2]["text"]);
+
+    // 取到放出来的末尾之后再要：放出尾部、换一代，视图跟着换。
+    let more = read(msime_client_candidate_range(handle, total, 48))["value"].clone();
+    let released = more["generation"].as_u64().unwrap();
+    assert!(released > generation, "{more}");
+    let released_total = more["total"].as_u64().unwrap() as usize;
+    assert!(released_total >= words.len(), "{more}");
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["generation"],
+        released
+    );
+    // 新的一代里每个座位都和整代复制同一身份、同一候选；取到末尾以后同一代不再给。
+    let whole = read(msime_client_candidate_range(handle, 0, released_total))["value"].clone();
+    let complete = read(msime_client_all_candidates(handle))["value"].clone();
+    assert_eq!(complete["generation"], released);
+    assert_eq!(whole["candidates"], complete["candidates"]);
+    let exhausted = read(msime_client_candidate_range(handle, released_total, 48))["value"].clone();
+    assert_eq!(exhausted["generation"], released);
+    assert_eq!(exhausted["candidates"].as_array().unwrap().len(), 0);
+
+    // 选中范围里取来的候选和整代复制里的一样可用。
+    let index = whole["candidates"][released_total - 1]["id"]["index"]
+        .as_u64()
+        .unwrap() as usize;
+    let selected = read(msime_client_select_any_candidate(handle, released, index));
+    assert_eq!(selected["value"]["handled"], true, "{selected}");
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 /// 宿主按宽度排出的一行跨过固定页：报出显示页后，`;` 选的是这一行的第二个，翻译查询列的也是这一行。
 #[test]
 fn display_page_routes_second_third_shortcut_and_translation_query_through_the_abi() {
@@ -6864,7 +7019,25 @@ fn background_preferences_reader_uses_shared_store_and_preserves_bad_files() {
     };
     assert_eq!(
         load(path.clone())["value"],
-        serde_json::to_value(saved).unwrap()
+        serde_json::to_value(&saved).unwrap()
+    );
+    // 文件没变时再读得到同一份快照；保存过之后读到新的那份。
+    assert_eq!(
+        load(path.clone())["value"],
+        serde_json::to_value(&saved).unwrap()
+    );
+    let resaved = PreferencesStore::new(directory.path())
+        .save(
+            saved.revision,
+            Preferences {
+                learning: false,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        load(path.clone())["value"],
+        serde_json::to_value(resaved).unwrap()
     );
     let file = directory.path().join("preferences.json");
     std::fs::write(&file, "broken").unwrap();
@@ -8124,6 +8297,20 @@ fn multilingual_preferences_reach_host_session_and_rebuild() {
     // 临时宿主投影跨越空闲重建保留，下一次显式偏好更新才接管输出。
     let reset = update(handle, 4, &preferences);
     assert!(reset["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["source"] == 18 && row["text"] == "hello网络"));
+    // 同一份偏好原样再交一次（Android 键盘显示期间每秒一次）同样把输出交还给偏好：Windows 宿主每次更新偏好后也按偏好重置自己的繁简状态。
+    let switched = read(msime_client_set_multilingual_output(handle, true));
+    assert!(switched["value"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["source"] == 18 && row["text"] == "hello網絡"));
+    let resent = update(handle, 4, &preferences);
+    assert_eq!(resent["ok"], true, "{resent}");
+    assert!(resent["value"]["view"]["candidates"]
         .as_array()
         .unwrap()
         .iter()
@@ -17499,6 +17686,44 @@ fn statistics_record_reports_the_milestone_field() {
     assert!(quiet["value"].get("milestone").is_some());
 }
 
+/// `record` 把上屏攒在进程里，宿主在键盘收起、失焦和退出前调 `flush` 把它们写进文件。
+#[test]
+fn statistics_flush_writes_what_record_held() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request =
+            serde_json::to_vec(&json!({"directory": directory.path(), "action": action})).unwrap();
+        read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })
+    };
+    call(json!({"operation": "set_enabled", "enabled": true}));
+    let recorded = call(
+        json!({"operation": "record", "text": "合成", "source": "quanpin", "day": "2026-10-01", "hour": 9}),
+    );
+    assert_eq!(recorded["value"]["recorded"], 2, "{recorded}");
+    let flushed = call(json!({"operation": "flush"}));
+    assert_eq!(flushed["ok"], true, "{flushed}");
+    assert_eq!(flushed["value"], Value::Null);
+    let persisted: Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("typing-statistics.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(persisted["total"], 2);
+    assert_eq!(persisted["dailyHours"]["2026-10-01"][9], 2);
+    // 没有攒着的上屏时照样答 null，不碰磁盘。
+    assert_eq!(call(json!({"operation": "flush"}))["value"], Value::Null);
+    // flush 不回答设置页的状态。
+    let request = serde_json::to_vec(&json!({
+        "directory": directory.path(),
+        "action": {"operation": "flush"},
+        "status": true,
+    }))
+    .unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })["ok"],
+        false
+    );
+}
+
 #[test]
 fn pronunciation_request_reads_the_table_beside_resources() {
     let root = tempfile::tempdir().unwrap();
@@ -20011,6 +20236,73 @@ fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
     assert_eq!(weight_of("你们"), Some(json!(10_000)), "{listed}");
 }
 
+/// 键盘每次聚焦都会同步个人词库。队列空、词库没动时不能每次都扫一页日志、重写并 fsync sync.json；日志在队列之外变了（打字时学到的自造词）时，设置页看到的那一页仍要跟着刷新。
+#[test]
+fn an_idle_personal_dictionary_sync_keeps_the_page_and_the_file() {
+    use msime_client_services::dictionary::personal::PersonalDictionaryStore;
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let edit = |value: &str, request_id: &str| {
+        let entry = json!({"kind": "pinyin", "key": "ni'hao", "value": value, "weight": 100});
+        let edited = call_android_data(
+            msime_client_dictionary,
+            json!({"options": options, "action": {"operation": "edit", "previous": null, "replacement": entry, "request_id": request_id}}),
+        );
+        assert_eq!(edited["ok"], true, "{edited}");
+    };
+    let sync = || {
+        let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+        assert_eq!(synced["ok"], true, "{synced}");
+        assert!(synced["value"]["snapshot_error"].is_null(), "{synced}");
+    };
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let path = directory
+        .path()
+        .join("PersonalDictionary")
+        .join("sync.json");
+    let identity = || {
+        let metadata = std::fs::metadata(&path).unwrap();
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(&metadata);
+        #[cfg(not(unix))]
+        let inode = 0;
+        (
+            inode,
+            metadata.modified().unwrap(),
+            std::fs::read(&path).unwrap(),
+        )
+    };
+    let values = || -> Vec<String> {
+        store
+            .read()
+            .unwrap()
+            .entries
+            .into_iter()
+            .map(|entry| entry.value)
+            .collect()
+    };
+
+    edit("你好", "seed-first");
+    sync();
+    assert_eq!(values(), ["你好"]);
+    // 刚写过的日志不给来源戳（同一个时间粒度里的写入 stat 可能看不出来，见 `dictionary_entries_source`），等它落定（两秒）以后的那次同步才记下。
+    std::thread::sleep(std::time::Duration::from_millis(2_500));
+    sync();
+    assert!(store.read().unwrap().snapshot_source.is_some());
+    let written = identity();
+    // 读页本身（只读连接打开 WAL 日志）不能让下一次的来源戳变掉。
+    sync();
+    sync();
+    assert_eq!(identity(), written, "an idle sync rewrote sync.json");
+
+    edit("拟好", "seed-second");
+    sync();
+    let mut listed = values();
+    listed.sort();
+    assert_eq!(listed, ["你好", "拟好"]);
+    assert_ne!(identity(), written);
+}
+
 #[test]
 fn common_phrases_and_collections_forward_to_client_core() {
     let directory = tempfile::tempdir().unwrap();
@@ -22043,6 +22335,66 @@ fn large_imported_contact_list_keeps_derived_name_candidates_available() {
         ["拟好", "拟好 202-555-0101"]
     );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 联系人读音在进程里按名单和主词库的戳记下：Android 每次聚焦都新建会话，新会话来源没动时沿用记下的读音，主词库或名单一变就要重新查，不能停在旧的上面。
+#[test]
+fn a_new_session_reads_contact_readings_again_once_the_dictionary_or_list_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let dictionaries = dir.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    let dictionary = dictionaries.join("msime-pinyin.db");
+    rusqlite::Connection::open(&dictionary)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_2_n VALUES('ni''hao','nh','拟好',100);",
+        )
+        .unwrap();
+    // 带上电话：名单里的「拟好」才有一条词库给不出的候选「拟好 202-555-0101」。
+    let save = |phone: &str| {
+        msime_client_services::plugins::mentions::MentionStore::new(
+            dir.path().join("state/plugins"),
+        )
+        .save(&[msime_client_services::plugins::mentions::MentionEntry {
+            text: "拟好".into(),
+            key: String::new(),
+            phone: phone.into(),
+        }])
+        .unwrap()
+    };
+    save("202-555-0101");
+    let contact = "拟好 202-555-0101".to_owned();
+    let session_candidates = |keys: &[u8]| {
+        let handle = plugin_host(dir.path(), chinese_preferences());
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let candidates = local_mode_candidates(handle, keys);
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        candidates
+    };
+    assert!(session_candidates(b"nihao").contains(&contact));
+    assert!(session_candidates(b"nihao").contains(&contact));
+
+    // 改读音的同时多建一张表，让文件长度一定变：只靠修改时间的话，计时粒度粗的文件系统上可能看不出变化。
+    rusqlite::Connection::open(&dictionary)
+        .unwrap()
+        .execute_batch(
+            "UPDATE tbl_2_n SET key='nai''hao';\
+             CREATE TABLE tbl_3_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+        )
+        .unwrap();
+    let candidates = session_candidates(b"naihao");
+    assert!(candidates.contains(&contact), "{candidates:?}");
+    let candidates = session_candidates(b"nihao");
+    assert!(!candidates.contains(&contact), "{candidates:?}");
+
+    save("202-555-0102");
+    let candidates = session_candidates(b"naihao");
+    assert!(
+        candidates.contains(&"拟好 202-555-0102".to_owned()),
+        "{candidates:?}"
+    );
+    assert!(!candidates.contains(&contact), "{candidates:?}");
 }
 
 #[test]

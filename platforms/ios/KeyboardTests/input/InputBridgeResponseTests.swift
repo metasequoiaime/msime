@@ -150,6 +150,34 @@ final class InputBridgeResponseTests: XCTestCase {
     _ = bridge.cancel()
   }
 
+  /// 空闲渲染每次都把同样的学习设置再推一遍，会话已经应用的同一份偏好不再发。组字时被推迟的那次不算应用：组字结束后同样的请求要再发一次，如实报告已经生效；会话重建后也照常发送。
+  @MainActor
+  func testRepeatedPreferencesSkipOnlyWhatTheSessionAlreadyApplied() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.initializationFailed)
+    XCTAssertTrue(bridge.setLearningEnabled(false))
+    XCTAssertTrue(bridge.setLearningEnabled(false))
+    XCTAssertTrue(bridge.setPrivateSession(true))
+    XCTAssertTrue(bridge.setPrivateSession(true))
+
+    XCTAssertFalse(bridge.handleCharacter("n").preedit.isEmpty)
+    XCTAssertFalse(bridge.setLearningEnabled(true), "组字中的偏好改动推迟到空闲时应用")
+    XCTAssertFalse(bridge.setLearningEnabled(true), "推迟的那次不能当作已经应用")
+    XCTAssertEqual(bridge.cancel().preedit, "")
+    XCTAssertTrue(bridge.setLearningEnabled(true))
+    XCTAssertTrue(bridge.setLearningEnabled(true))
+
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    try bridge.resumeDictionarySession()
+    XCTAssertTrue(bridge.setLearningEnabled(false))
+    XCTAssertTrue(bridge.setPrivateSession(true))
+    XCTAssertTrue(bridge.setPrivateSession(false))
+    XCTAssertNil(bridge.handleCharacter("n").diagnosticText)
+    _ = bridge.cancel()
+  }
+
   @MainActor
   func testControlReenteredFromCompletionDrainsTheRemainingSnapshotsFirst() throws {
     let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

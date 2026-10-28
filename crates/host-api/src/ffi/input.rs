@@ -963,6 +963,22 @@ pub extern "C" fn msime_client_all_candidates(handle: u64) -> *mut c_char {
     })
 }
 
+/// 座位 `start` 起最多 `count` 行候选，身份与 `msime_client_all_candidates` 同一座位的那一行相同；每键重画的横向候选条只取它建得出来的这一批。
+/// 引擎暂扣的尾部只在 `start` 到了 `total` 时才放出，放出来就换一代。
+#[no_mangle]
+pub extern "C" fn msime_client_candidate_range(
+    handle: u64,
+    start: usize,
+    count: usize,
+) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            serde_json::to_value(session.runtime.candidate_range(start, count))
+                .map_err(|e| e.to_string())
+        })
+    })
+}
+
 /// 一页最多报这么多座位；按宽度排的一行再宽也到不了。
 const MAX_DISPLAY_PAGE_SEATS: usize = 256;
 

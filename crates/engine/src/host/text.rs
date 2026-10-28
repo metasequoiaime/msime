@@ -1,6 +1,6 @@
 //! Thin string-path wrappers the bridge exposed over engine helpers.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::options::{runtime_paths, EngineOptions};
 use crate::assets;
@@ -20,10 +20,12 @@ pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
 
 /// 一批联系人姓名共用词库连接与整词查询，顺序与输入一致。
 pub fn hanzi_to_pinyin_batch(options: &EngineOptions, texts: &[&str]) -> Vec<String> {
-    crate::dictionary::hanzi::hanzi_to_pinyin_batch(
-        &runtime_paths(options).dictionary(assets::MAIN_DICTIONARY),
-        texts,
-    )
+    crate::dictionary::hanzi::hanzi_to_pinyin_batch(&main_dictionary_path(options), texts)
+}
+
+/// `hanzi_to_pinyin` 和 `hanzi_to_pinyin_batch` 查读音用的主词库文件（代次里的工作副本）。宿主在进程里缓存联系人读音时，拿这个文件的戳判断读音还算不算数。
+pub fn main_dictionary_path(options: &EngineOptions) -> PathBuf {
+    runtime_paths(options).dictionary(assets::MAIN_DICTIONARY)
 }
 
 /// 五笔查码：`text` 里每个不同汉字（以及整段作为一个词）在 86 和 98 码表里的编码，读会话所用的同一份五笔码表（`wubi_database` 选出的文件，含用户加的五笔词）。

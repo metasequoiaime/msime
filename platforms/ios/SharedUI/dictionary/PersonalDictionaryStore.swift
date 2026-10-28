@@ -221,6 +221,12 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     let size: Int64
     let modifiedSeconds: Int
     let modifiedNanoseconds: Int
+
+    /// 修改时间早于 `now` 超过 `interval`。修改时间在未来（时钟被往回调过）时为 false。
+    func isOlder(than interval: TimeInterval, at now: Date) -> Bool {
+      let modified = Double(modifiedSeconds) + Double(modifiedNanoseconds) / 1_000_000_000
+      return now.timeIntervalSince1970 - modified > interval
+    }
   }
 
   /// 不跟随符号链接；文件不存在或不是普通文件时为 nil，调用方照常走 `read()`，由它做符号链接检查和报错。
@@ -233,11 +239,21 @@ final class PersonalDictionaryStore: @unchecked Sendable {
                         modifiedSeconds: status.st_mtimespec.tv_sec, modifiedNanoseconds: status.st_mtimespec.tv_nsec)
   }
 
+  /// 键盘出现时不再每次都重新列出个人词库，设置页上的列表、自造词数量和徽标取自键盘上次列出的那一页。用户没开过这些页面时没有人要刷新，这一页可能停在几周前；所以 `sync.json` 超过这么久没被写过，键盘下一次空闲时就重新列一次，给陈旧程度一个上限。用文件的修改时间而不是 `snapshotDate`：列出失败时后者不变，按它判断会每轮空闲都重试，而键盘的每次同步无论成败都会重写这个文件。
+  static let listingLifetime: TimeInterval = 15 * 60
+
+  /// `sync.json` 超过 `listingLifetime` 没被写过。文件不存在时为 false，由 `needsKeyboardSynchronization` 照常判断（默认状态本来就要同步一次）。
+  func listingIsStale(now: Date = Date()) -> Bool {
+    guard let revision = fileRevision() else { return false }
+    return revision.isOlder(than: Self.listingLifetime, at: now)
+  }
+
   /// 键盘空闲轮询用的只读检查，可以在主线程之外调用：只读文件，不取 `sync.lock`，所以键盘被挂起时不会因为持有共享容器里的文件锁被系统终止。
   ///
-  /// `idle` 是上一次判定无事可做时记下的文件身份；文件还是那一个就不再读取和解码。返回的 `idle` 是这一次可以记下的身份：只有判定无事可做、并且读取前后文件没被替换时才给出，否则为 nil，下一次照常读取。
-  func pollKeyboardSynchronization(idle: FileRevision?) throws -> (needed: Bool, idle: FileRevision?) {
+  /// `idle` 是上一次判定无事可做时记下的文件身份；文件还是那一个就不再读取和解码。返回的 `idle` 是这一次可以记下的身份：只有判定无事可做、并且读取前后文件没被替换时才给出，否则为 nil，下一次照常读取。文件超过 `listingLifetime` 没被写过时，不管记没记住身份都判定要同步。
+  func pollKeyboardSynchronization(idle: FileRevision?, now: Date = Date()) throws -> (needed: Bool, idle: FileRevision?) {
     let before = fileRevision()
+    if let before, before.isOlder(than: Self.listingLifetime, at: now) { return (true, nil) }
     if let before, before == idle { return (false, before) }
     let needed = try read().needsKeyboardSynchronization
     guard !needed, let before, fileRevision() == before else { return (needed, nil) }
@@ -388,6 +404,11 @@ final class PersonalDictionaryStore: @unchecked Sendable {
       $0.requestedQuery = query
       $0.refreshID = UUID()
     }
+  }
+
+  /// 请键盘下次出现或空闲时把当前请求的那一页重新列一遍。键盘只在有待应用的编辑、有刷新请求（`needsKeyboardSynchronization`）或这一页已超过 `listingLifetime` 没重新列过时才同步，不再每次出现都刷新，所以显示这份快照的设置页打开时要用它要一份新的。
+  func requestRefresh() throws {
+    try update { $0.refreshID = UUID() }
   }
 
   // Keep the queue lock through apply and acknowledgement. If writing sync.json is interrupted,

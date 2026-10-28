@@ -29,6 +29,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let session = MetasequoiaInputSessionBridge()
   private var englishCorrectionRejectedPrefix = ""
   private var englishCorrectionRejectedDocument: UUID?
+  /// 候选条内容每换一次加一，在途的英文建议回来时拿它判断自己是否已过时。
+  private var englishSuggestionStripGeneration: UInt64 = 0
+  /// 当前可点的英文建议所属的词和输入框；点击时再次核对，不能拿旧答案替换新词。
+  private var englishSuggestionPrefix = ""
+  private var englishSuggestionDocument: UUID?
   /// 候选栏当前的英文建议第二行是否为纠错；只有补全时点原文不算拒绝纠错。
   private var englishSuggestionCorrected = false
   /// 引擎会话刚建好时的内存读数，紧跟在 `session` 后面声明，`keyboard_loaded` 记成 `session=`。
@@ -52,6 +57,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     label: "app.msime.ios.typing-statistics", qos: .utility)
   private var candidateGlossEpoch: UInt64 = 0
   private var candidateGlossRequestedGeneration: UInt64?
+  /// Whether the request for `candidateGlossRequestedGeneration` covered the whole candidate list. When false it covered only the strip's page, and opening the candidate grid still asks once more for the whole list of the same generation.
+  private var candidateGlossRequestedFullList = false
   private let translations = CandidateTranslationStore()
   /// The translation service the shared document picks; `.none` means nothing was chosen or the chosen provider is incomplete, and no words leave the device.
   private var translationRoute: TranslationRoute = .none
@@ -493,6 +500,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Key presses waiting for the next write. Counted only while statistics are on, which the store is asked on every appearance; with them off nothing is kept, not even in memory.
   private var keyPresses = TypingKeyCounter()
   private var countsKeyPresses = false
+  /// 上次要共享层写出以来，有没有交给它 `record` 过上屏；没有就不必再调 flush。只在主线程读写。
+  private var typingStatisticsUnflushed = false
   private var keyPressFlushTimer: Timer?
   private var visiblePreedit = ""
   /// The already-chosen half of a phrase at the front of `visiblePreedit`, which 「候选栏预编辑」 never hides.
@@ -509,11 +518,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidatePalette: CandidatePalette?
   /// 当前候选皮肤的解码快照，普通条与展开面板共用；解码在后台完成。
   private var candidateCanvasSkin: ExternalCandidateSkin.Canvas?
+  /// 上一次加载候选皮肤时的请求（开关、明暗、主题、皮肤目录和清单的修改时间与大小），没变就沿用已解码的快照。只有内存警告清它（见 `viewWillAppear` 里的说明）。
   private var candidateCanvasRequestKey: Data?
   private var candidateCanvasEpoch: UInt64 = 0
   /// Whether the top row shows candidates (or the reading, a diagnostic or the local mode) rather than the toolbar; set by `renderCandidateStrip`, read by `currentStripBackground`.
   private var stripShowsCandidates = false
   private var candidateCanvasActive = true
+  /// 上一次给整棵按键树换装（`applyKeyboardSkin` 里的 `recolor`）时的皮肤和 trait。`viewWillAppear` 和 `viewIsAppearing` 拿它和现在的比，都没变就不再重新换装。
+  private var appliedKeySkin: KeyboardTheme?
+  private var appliedKeySkinTraits: UITraitCollection?
+  /// 有按键在窗口外经过 `decorateKey`：阴影色是静态的 CGColor，这时按默认外观解析，要等一次在窗口里的完整换装重新解析。
+  private var keySkinNeedsWindowPass = true
   private var candidatePreeditGapConstraint: NSLayoutConstraint?
   private static let candidateCanvasQueue = DispatchQueue(label: "app.msime.candidate-canvas", qos: .userInitiated)
   private var candidateRevision: UInt64 = 0
@@ -849,7 +864,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeReplyKeyboard()
     // The host going to the background may end the extension without a viewWillDisappear.
     NotificationCenter.default.addObserver(
-      self, selector: #selector(flushKeyPresses), name: .NSExtensionHostWillResignActive, object: nil)
+      self, selector: #selector(flushStatistics), name: .NSExtensionHostWillResignActive, object: nil)
     DiagnosticLog.shared.write("keyboard_built \(DiagnosticLog.MemorySample.current().fields)")
   }
 
@@ -874,8 +889,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     synchronizeInputContext()
     prepareKeyFeedback()
-    synchronizePersonalDictionary(force: true)
-    snapshotWorker.tick(idle: !hasComposition && !isInLocalMode, fullAccess: hasFullAccess, force: true)
+    // 出现时先跑一轮词库维护，不必等两秒的定时器：两份队列文件在后台读，个人词库只在有待应用的编辑、设置页要求刷新或上次列出已超过 15 分钟（`PersonalDictionaryStore.listingLifetime`）时才同步，快照版本照常按 `DictionarySnapshotWorker.idleVersionPollInterval`（已有版本、没有活动请求时一分钟）节流。以前这里每次出现都在主线程上强制同步一次个人词库、强制重算一次词库版本，没有任何变化时也要读写共享文件、查询引擎。
+    startIdleMaintenance()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.startIdleMaintenance() }
@@ -912,10 +927,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     candidateCanvasActive = true
-    candidateCanvasRequestKey = nil
+    // 不清候选皮肤的请求键：键里已有皮肤 id、明暗、主题和清单的修改时间与大小，皮肤真的换了照样重新加载。以前这里每次出现都清掉它，跟随桌面候选皮肤的用户每次出现都要丢掉快照、在后台把整包图片重新读一遍解一遍，候选条先退回配色再换回皮肤。
     InputSchemePreference.refreshResourceAvailability()
     // 进程可能跨过换季或应用主题的改动；在下面任何地方解析皮肤之前先刷新。变了就重新解析主题，让末尾的 `applyKeyboardSkin` 给按键换上新的颜色实例：按键进窗口时已按旧季节解析过同一批动态色，同一个实例再设一次 UIButton 不会重新解析。
-    if KeyboardTheme.refreshSeason() { KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark) }
+    let seasonChanged = KeyboardTheme.refreshSeason()
+    if seasonChanged { KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark) }
     incognito = KeyboardPrivacyPreference.incognito
     oneHandedMode = KeyboardLayoutPreference.oneHanded
     readToolbarPreferences()
@@ -926,7 +942,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configureDiagnosticLog()
     DiagnosticLog.shared.write("focus_in \(DiagnosticLog.MemorySample.current().fields)")
     KeyboardUsageReporting.presented(fullAccess: hasFullAccess)
-    do { try session.resumeDictionarySession() }
+    // 收起时销毁的会话在这里同步重建，挡在这次出现的第一帧前面；记下耗时，在设备上看它有多重。
+    let rebuildsSession = session.dictionarySessionSuspended
+    let resumeStart = ProcessInfo.processInfo.systemUptime
+    do {
+      try session.resumeDictionarySession()
+      if rebuildsSession { DiagnosticLog.shared.write("dictionary_resumed ms=\(Self.elapsedMilliseconds(since: resumeStart))") }
+    }
     catch {
       DiagnosticLog.shared.write("dictionary_resume_failed")
       showDiagnostic(error.localizedDescription)
@@ -979,9 +1001,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     onlineCandidates.cancel()
     renderCandidateStrip()
     scheduleCandidateGlosses()
-    applyKeyboardSkin()
+    // 换了季节必须整棵重新换装（见上面 `refreshSeason` 的注释）；否则只在皮肤变了时才在这里重走按键树，trait 和窗口外建过的按键留给 `viewIsAppearing`。
+    applyKeyboardSkin(onlyIfChanged: !seasonChanged)
     synchronizeReplyKeyboard()
     startCountingKeyPresses()
+  }
+
+  /// 到这里视图已经进了窗口、trait 也定了，而第一帧还没画。`viewWillAppear` 时视图通常还不在窗口里：在那里按 trait 和「有按键在窗口外装饰过」判断，`viewDidLoad` 留下的标记会让第一次出现再整棵走一遍，在窗口外走完又把标记留给下一次，每次出现都是完整换装。所以这两项在这里判断，只有确实要补的时候才换装。
+  override func viewIsAppearing(_ animated: Bool) {
+    super.viewIsAppearing(animated)
+    if keySkinNeedsWindowPass || appliedKeySkin != KeyboardTheme.current || appliedKeySkinTraits != traitCollection {
+      applyKeyboardSkin()
+    }
+  }
+
+  /// 诊断日志里的耗时：从 `start`（`systemUptime`）到现在的整毫秒数。
+  private static func elapsedMilliseconds(since start: TimeInterval) -> Int {
+    Int(((ProcessInfo.processInfo.systemUptime - start) * 1000).rounded())
   }
 
   /// iOS ends a keyboard extension that keeps using too much memory, so a warning is worth a line when a report says the keyboard vanished.
@@ -1117,6 +1153,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       flushDeferredNineKeySnapshot()
       render(discardComposition())
       asynchronousInputDocument = document
+      // 换了输入框就是上一个失焦了：攒着的上屏这时写出，不等键盘收起。
+      flushTypingStatistics()
     }
     synchronizeInputContext()
     // 宿主可能把焦点换到了凭据输入框，诊断日志跟着当前输入框开关；只在闸门的判断变了时重新配置，不必每次按键都去读偏好。
@@ -1173,14 +1211,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
     // throw them away.
     render(session.finishComposition())
-    _ = session.suspendDictionarySession()
+    let releasesSession = !session.dictionarySessionSuspended
+    let suspendStart = ProcessInfo.processInfo.systemUptime
+    // 销毁会话时引擎同步写完选词计数和个人上下文，也在主线程上。
+    if session.suspendDictionarySession() && releasesSession {
+      DiagnosticLog.shared.write("dictionary_suspended ms=\(Self.elapsedMilliseconds(since: suspendStart))")
+    }
     ownEditEcho.reset()
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()
     diagnosticDismissTimer = nil
     keyPressFlushTimer?.invalidate()
     keyPressFlushTimer = nil
-    flushKeyPresses()
+    flushStatistics()
     // A reused controller must not count presses on its next appearance until that appearance's isEnabled() answer arrives.
     countsKeyPresses = false
   }
@@ -1218,24 +1261,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       letterRowViews.append(rowView)
       keyColumn.addArrangedSubview(rowView)
     }
-    for (index, row) in ZhuyinKeyLayout.rows.enumerated() {
-      let rowView = makeZhuyinRow(row, includesDelete: index == ZhuyinKeyLayout.rows.count - 1)
-      rowView.isHidden = true
-      zhuyinRowViews.append(rowView)
-      keyColumn.addArrangedSubview(rowView)
-    }
-    for (index, row) in FourteenKeyLayout.rows.enumerated() {
-      let rowView = makeLetterGridRow(row, grid: .fourteenKey, includesEdges: index == FourteenKeyLayout.rows.count - 1)
-      rowView.isHidden = true
-      fourteenKeyRowViews.append(rowView)
-      keyColumn.addArrangedSubview(rowView)
-    }
-    for (index, row) in EighteenKeyLayout.rows.enumerated() {
-      let rowView = makeLetterGridRow(row, grid: .eighteenKey, includesEdges: index == EighteenKeyLayout.rows.count - 1)
-      rowView.isHidden = true
-      eighteenKeyRowViews.append(rowView)
-      keyColumn.addArrangedSubview(rowView)
-    }
+    // 大千注音、14 键和 18 键的各排不在这里建：只有用这几种方案的人用得到，第一次要画它们时由 `ensureAlternateLetterRows` 插到字母行和九键外框之间。
     keyColumn.addArrangedSubview(makeNineKeyLayout())
     let japaneseSymbols = makeKey(title: "123", accessibilityLabel: "切换到数字和符号") { [weak self] in
       self?.countKeyPress(TypingKeyID.layer)
@@ -1326,9 +1352,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 分几步拼出来：写成一个长的 + 表达式时，编译器会在类型推断上超时。
     var standardRows: [UIView] = [numberRow, extraRow]
     standardRows += letterRowViews
-    standardRows += zhuyinRowViews
-    standardRows += fourteenKeyRowViews
-    standardRows += eighteenKeyRowViews
     standardRows += symbolRowViews
     standardRows += symbolLayerRowViews as [UIView]
     standardRowHeights = standardRows.map {
@@ -3967,10 +3990,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.handleCharacter(key))
   }
 
-  /// Read the current word from the host document instead of maintaining a shadow
-  /// buffer; autocorrect, cursor movement and external edits then stay truthful.
+  /// 从宿主读取当前词，跟随光标和外部编辑；非空选区不参与纠错，避免退格删掉用户选中的内容。
   private var englishWordBeforeCursor: String {
-    guard englishCorrectionsEnabled else { return "" }
+    guard englishCorrectionsEnabled, textDocumentProxy.selectedText?.isEmpty != false else { return "" }
     let before = textDocumentProxy.documentContextBeforeInput ?? ""
     return EnglishSuggestionPolicy.currentWord(before: before)
   }
@@ -3986,10 +4008,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       updateCandidateStrip(preedit: "", candidates: [])
       return
     }
-    // 共享引擎给出完整展示：有纠错时只有原文与纠错，原文已是完整的词时只有原文，否则原文后接前缀补全；空格和标点边界仍只查询唯一纠错。
-    let suggestions = session.englishSuggestions(forPrefix: prefix)
-    englishSuggestionCorrected = suggestions.corrected
-    updateCandidateStrip(preedit: "", candidates: suggestions.items)
+    let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
+    // 新词先显示自己的原文，避免异步查询期间留下上一词的可点纠错或旧邮箱后缀；同一词已有的答案可以保留。
+    if englishSuggestionPrefix != prefix || englishSuggestionDocument != document {
+      englishSuggestionCorrected = false
+      updateCandidateStrip(preedit: "", candidates: [prefix])
+      if visibleEmailSuffixes.isEmpty {
+        englishSuggestionPrefix = prefix
+        englishSuggestionDocument = document
+      }
+    }
+    // 纠错在输入线程上算。回来时候选条已被别的路径改过、换了输入框或光标前的词已变，这次结果就作废。
+    englishSuggestionStripGeneration &+= 1
+    let generation = englishSuggestionStripGeneration
+    session.englishSuggestions(forPrefix: prefix) { [weak self] suggestions in
+      guard let self, generation == englishSuggestionStripGeneration,
+            document == KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
+            prefix == englishWordBeforeCursor else { return }
+      englishSuggestionCorrected = suggestions.corrected
+      updateCandidateStrip(preedit: "", candidates: suggestions.items)
+      if visibleEmailSuffixes.isEmpty {
+        englishSuggestionPrefix = prefix
+        englishSuggestionDocument = document
+      }
+    }
   }
 
   private var englishCorrectionsEnabled: Bool {
@@ -4025,6 +4067,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func useEnglishSuggestion(at index: Int) {
     guard visibleCandidates.indices.contains(index) else { return }
     let typed = englishWordBeforeCursor
+    guard !typed.isEmpty, typed == englishSuggestionPrefix,
+          englishSuggestionDocument == KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
+      updateCandidateStrip(preedit: "", candidates: [])
+      return
+    }
     let startedCapitalized = typed.first?.isUppercase ?? false
     guard let replacement = EnglishSuggestionPolicy.replacement(
       typed: typed, candidate: visibleCandidates[index], startedCapitalized: startedCapitalized)
@@ -5291,7 +5338,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     defer { if applied { recordDictionaryChange() } }
     do {
       let state = try store.read()
-      guard force || state.needsKeyboardSynchronization else { return }
+      guard force || state.needsKeyboardSynchronization || store.listingIsStale() else { return }
       synchronizingPersonalDictionary = true
       defer { synchronizingPersonalDictionary = false }
       try store.synchronize(apply: { request in
@@ -5546,7 +5593,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardPicker()
     playInputClick()
     do {
-      let snapshot = try CandidatePanelSnapshot.decode(session.allCandidates())
+      let allCandidates = try session.allCandidates()
+      let snapshot = try CandidatePanelSnapshot.decode(allCandidates)
       guard !snapshot.entries.isEmpty else { return }
       let columns = opensNineKeyPanel ? makeNineKeyPanelColumns() : nil
       let panel = KeyboardCandidatePanelView(
@@ -5579,6 +5627,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       installPanel(panel)
       updateExpandRotation(animated: true)
       updateNineKeyPanelColumns()
+      // 收起时候选条只查了自己那一页的释义，网格里其余候选的释义在打开时补查，用的就是上面刚读出的这份完整列表。
+      if visibleEmailSuffixes.isEmpty {
+        candidateGlossTimer?.invalidate()
+        candidateGlossTimer = nil
+        requestCandidateGlosses(allCandidates: allCandidates)
+      }
     } catch {
       showDiagnostic("候选列表暂不可用")
     }
@@ -6099,7 +6153,52 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 大千注音、14 键和 18 键的各排第一次要画时才建，建好后一直留着。首次出现的键盘原来把每种方案的键都建好再藏起来，两百多个按键里这三种占了将近八十个，挡在第一帧前面，而大多数人从来不用它们。
+  ///
+  /// 在 `updateKeyboardLayout` 的最前面调用，后面的键距、iPad 宽度、18 键第二排缩进和显隐都照常落到新建的行上。
+  private func ensureAlternateLetterRows() {
+    guard actionRow != nil, isChineseMode, !isInLocalMode, !showsSymbols else { return }
+    if inputScheme.isZhuyin && zhuyinRowViews.isEmpty {
+      zhuyinRowViews = ZhuyinKeyLayout.rows.enumerated().map { index, row in
+        makeZhuyinRow(row, includesDelete: index == ZhuyinKeyLayout.rows.count - 1)
+      }
+      insertAlternateLetterRows(zhuyinRowViews, before: fourteenKeyRowViews.first ?? eighteenKeyRowViews.first ?? nineKeyContainer)
+    }
+    switch letterGrid {
+    case .fourteenKey where fourteenKeyRowViews.isEmpty:
+      fourteenKeyRowViews = FourteenKeyLayout.rows.enumerated().map { index, row in
+        makeLetterGridRow(row, grid: .fourteenKey, includesEdges: index == FourteenKeyLayout.rows.count - 1)
+      }
+      insertAlternateLetterRows(fourteenKeyRowViews, before: eighteenKeyRowViews.first ?? nineKeyContainer)
+    case .eighteenKey where eighteenKeyRowViews.isEmpty:
+      eighteenKeyRowViews = EighteenKeyLayout.rows.enumerated().map { index, row in
+        makeLetterGridRow(row, grid: .eighteenKey, includesEdges: index == EighteenKeyLayout.rows.count - 1)
+      }
+      insertAlternateLetterRows(eighteenKeyRowViews, before: nineKeyContainer)
+    default: break
+    }
+  }
+
+  /// 把后建的几排按原来的顺序插进按键列（字母行之后、九键外框之前），先藏着，并补上原来在 `installKeyboard` 里给的东西：与底行等高的约束（`updateKeyboardLayout` 末尾按显隐启用）和当前键距（`applyLayoutPreferences` 只在几何变化时才重设）。
+  private func insertAlternateLetterRows(_ rows: [UIView], before anchor: UIView) {
+    var index = keyColumn.arrangedSubviews.firstIndex(of: anchor) ?? keyColumn.arrangedSubviews.count
+    for row in rows {
+      row.isHidden = true
+      if let keySpacing = appliedLayout?.keySpacing { (row as? UIStackView)?.spacing = keySpacing }
+      keyColumn.insertArrangedSubview(row, at: index)
+      index += 1
+      standardRowHeights.append((row, row.heightAnchor.constraint(equalTo: actionRow.heightAnchor)))
+    }
+    // `decorateKey` 建键时按键还不在窗口里，动态的阴影色按默认外观解析；首屏建的键由 `viewWillAppear` 的 `applyKeyboardSkin` 在窗口里重新解析，键盘开着时才建的行在这里补上。
+    let skin = KeyboardTheme.current
+    guard view.window != nil, skin.design == nil else { return }
+    for case let button as UIButton in rows.flatMap(\.subviews) {
+      button.layer.shadowColor = skin.shadowColor.resolvedColor(with: button.traitCollection).cgColor
+    }
+  }
+
   private func updateKeyboardLayout() {
+    ensureAlternateLetterRows()
     applyLayoutPreferences()
     applyKeyboardMetrics()
     applyOneHanded()
@@ -7028,12 +7127,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     setFullWidthInput(width == CharacterWidthPreference.fullwidth)
   }
 
-  // Swallowing this left the settings screen showing zeros with nothing to explain them, which is
-  // how it reached a bug report rather than the person typing. The reason does not change between
-  // keystrokes and a banner on each one would bury the composition, so it is said once per session.
-  // The store locks, rewrites and fsyncs per commit, so it runs off main on a serial queue.
+  // Swallowing this left the settings screen showing zeros with nothing to explain them, which is how it reached a bug report rather than the person typing. The reason does not change between keystrokes and a banner on each one would bury the composition, so it is said once per session.
+  // The shared store holds commits in this process and rewrites and fsyncs the file only once 30 seconds have passed since its last write (or on `flushTypingStatistics`), but that write, and the first read of the file, still happen inside a call, so it runs off main on a serial queue.
   private func recordTypingStatistics(_ text: String, source: TypingSource) {
     guard hasFullAccess, privacyGate.allows(.typing) else { return }
+    typingStatisticsUnflushed = true
     let date = Date()
     statisticsQueue.async { [weak self] in
       do {
@@ -7064,7 +7162,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if !enabled { _ = keyPresses.drain() }
       }
     }
-    let timer = Timer(timeInterval: 30, target: self, selector: #selector(flushKeyPresses), userInfo: nil, repeats: true)
+    let timer = Timer(timeInterval: 30, target: self, selector: #selector(flushStatistics), userInfo: nil, repeats: true)
     RunLoop.main.add(timer, forMode: .common)
     keyPressFlushTimer = timer
   }
@@ -7090,6 +7188,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func flushKeyPresses() {
     if let batch = keyPresses.drain() { writeKeyPresses(batch) }
+  }
+
+  /// 按键批次和攒着的上屏一起写出：30 秒定时器、键盘收起和宿主退到后台（扩展可能不经 viewWillDisappear 就被结束）都走这里。
+  @objc private func flushStatistics() {
+    flushKeyPresses()
+    flushTypingStatistics()
+  }
+
+  /// 共享层的 `record` 把上屏攒在本进程里，距上次写文件满 30 秒的下一次上屏才写，停下不打字时最后一批会一直留在内存里，进程被杀就丢了，设置页也看不到。所以键盘收起、换输入框、宿主退到后台和每 30 秒的定时器在这里要它写出。排在统计队列上，跟在之前交出去的 record 后面；没有攒着的上屏时共享层不碰磁盘。flush 失败只记进诊断日志，不打扰正在打字的人。
+  private func flushTypingStatistics() {
+    guard typingStatisticsUnflushed else { return }
+    typingStatisticsUnflushed = false
+    statisticsQueue.async {
+      do { try TypingStatisticsStore().flush() } catch { DiagnosticLog.shared.write("statistics_flush_failed") }
+    }
   }
 
   private func writeKeyPresses(_ batch: TypingKeyBatch) {
@@ -7279,6 +7392,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                     candidateEngineIndices: [Int]? = nil,
                                     answeredByPinyinFallback: Bool = false) {
     // 光标前打到 `xxx@` 时邮箱后缀占候选条，排在英文建议之前，与 Android 一样；它们不是 Engine 的候选，不带编码、释义和来源。
+    // 还在输入线程上算的英文建议不能再盖掉这次的内容。
+    englishSuggestionStripGeneration &+= 1
+    englishSuggestionPrefix = ""
+    englishSuggestionDocument = nil
     let emailSuffixes = emailSuffixesForStrip(preedit: preedit)
     visibleEmailSuffixes = emailSuffixes
     let showsEmailSuffixes = !emailSuffixes.isEmpty
@@ -7675,12 +7792,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     // Ask once the typing pauses, not once per key.
     //
-    // The request needs every candidate the query has, and reading them costs in proportion:
-    // `yi` answers with hundreds, and that one call measured 3.5ms - more than the whole rest of
-    // a keystroke. The answer is applied asynchronously and guarded by generation, so the glosses
-    // for the compositions a fast typist passes through are fetched and then thrown away. Nobody
-    // ever saw them.
+    // The answer is applied asynchronously and guarded by generation, so the glosses for the compositions a fast typist passes through are fetched and then thrown away. Nobody ever saw them.
     candidateGlossTimer?.invalidate()
+    candidateGlossTimer = nil
+    // The render that applies an answer lands here again with the same generation; the strip's page was already asked for, so there is nothing to wait for.
+    if candidatePanel == nil, let visible = visibleInputGeneration, candidateGlossRequestedGeneration == visible { return }
     let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         self?.candidateGlossTimer = nil
@@ -7691,18 +7807,37 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateGlossTimer = timer
   }
 
-  private func requestCandidateGlosses() {
+  /// `allCandidates` is the whole list the candidate grid just read, so opening the grid does not read it a second time.
+  private func requestCandidateGlosses(allCandidates prefetched: [String: Any]? = nil) {
     guard CandidateGlossPreference.enabled, glossesCandidates,
           !isInLocalMode, !visibleCandidates.isEmpty,
           let resources = session.candidateGlossResources(), !resources.isEmpty else { return }
     do {
-      let allCandidates = try session.allCandidates()
-      guard let value = allCandidates["generation"] as? NSNumber else { return }
-      guard let generation = CandidateGlossModel.integerValue(value, maximum: UInt64.max) else { return }
-      if candidateGlossRequestedGeneration == generation { return }
-      guard let candidates = allCandidates["candidates"] as? [[String: Any]] else { return }
+      let generation: UInt64
+      let candidates: [[String: Any]]
+      let fullList: Bool
+      // While the grid is closed only the strip's page is on screen, so only that page is asked for, straight from the rendered view. Reading the whole list costs in proportion to it: `yi` answers with hundreds, and that one call measured 3.5ms on the main thread - more than the whole rest of a keystroke - before the lookup, two more encodes of every row and the full view `applyTranslations` returns. The grid asks for the whole list when it opens (`showCandidatePanel`) and on every pause while it is open. A strip that is not the session's view (no sources, e.g. English suggestions or nine-key symbols) still reads the whole list as before.
+      if prefetched == nil, candidatePanel == nil, let visible = visibleInputGeneration,
+         visibleCandidateSources.count == visibleCandidates.count, visibleCandidateSources.allSatisfy({ $0 >= 0 }) {
+        if candidateGlossRequestedGeneration == visible { return }
+        generation = visible
+        candidates = zip(visibleCandidates, visibleCandidateSources).map { text, source -> [String: Any] in
+          ["text": text, "source": NSNumber(value: source)]
+        }
+        fullList = false
+      } else {
+        let allCandidates = try prefetched ?? session.allCandidates()
+        guard let value = allCandidates["generation"] as? NSNumber else { return }
+        guard let listGeneration = CandidateGlossModel.integerValue(value, maximum: UInt64.max) else { return }
+        if candidateGlossRequestedGeneration == listGeneration && candidateGlossRequestedFullList { return }
+        guard let rows = allCandidates["candidates"] as? [[String: Any]] else { return }
+        generation = listGeneration
+        candidates = rows
+        fullList = true
+      }
       let request = try CandidateGlossModel.request(generation: generation, candidates: candidates)
       candidateGlossRequestedGeneration = generation
+      candidateGlossRequestedFullList = fullList
       let targetEpoch = candidateGlossEpoch
       let targetResources = resources
       let queue = candidateGlossQueue
@@ -8269,12 +8404,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func decorateKey(_ button: UIButton) {
     button.addTarget(self, action: #selector(prepareKeyFeedback), for: .touchDown)
+    if button.window == nil { keySkinNeedsWindowPass = true }
     let skin = KeyboardTheme.current
     guard var configuration = button.configuration else { return }
     if let design = skin.design {
-      let surface = SkinKeySurfaceView()
-      surface.design = design
-      surface.fillColor = configuration.background.backgroundColor ?? skin.keyBackground
+      // 已经有按键表面就接着用，只在设计或底色变了时重画；以前每次换装、每次切换 ⇧ 都给按键新建一个表面，丢掉旧的位图重新画。
+      let surface = configuration.background.customView as? SkinKeySurfaceView ?? SkinKeySurfaceView()
+      if surface.design != design { surface.design = design }
+      let fill = configuration.background.backgroundColor ?? skin.keyBackground
+      if surface.fillColor != fill { surface.fillColor = fill }
       configuration.background.customView = surface
       configuration.background.backgroundColor = .clear
       configuration.background.cornerRadius = 0
@@ -8861,13 +8999,43 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return skin.design == nil ? .clear : skin.keyBackground.withAlphaComponent(0.6)
   }
 
-  private func applyKeyboardSkin() {
-    handwriting.canvas.setNeedsDisplay()
-    replyModel.objectWillChange.send()
+  /// 给键盘换上 `KeyboardTheme.current`。`onlyIfChanged` 时（每次出现由 `viewWillAppear` 调用），皮肤和 trait 都与上一次换装相同、也没有按键在窗口外建过，就跳过重画背景、重走整棵按键树重设每个按键的配置这些重活；按键状态相关的更新（回车、方案键、工具栏、候选条）照常做。视图不在窗口里时只看皮肤：trait 还没定，在窗口外走的一遍也只会留下标记让 `viewIsAppearing` 再走一遍，这两项交给它判断。
+  private func applyKeyboardSkin(onlyIfChanged: Bool = false) {
     let skin = KeyboardTheme.current
+    let reskinsKeys = !onlyIfChanged || appliedKeySkin != skin
+      || (view.window != nil && (keySkinNeedsWindowPass || appliedKeySkinTraits != traitCollection))
+    if reskinsKeys {
+      handwriting.canvas.setNeedsDisplay()
+      replyModel.objectWillChange.send()
+    }
     candidatePalette = currentCandidatePalette()
     refreshCandidatePalette()
     candidateButtonStyleRevision &+= 1
+    if reskinsKeys { recolorKeys(skin) }
+    styleReturnKey()
+    updateLanguageModeButton()
+    updateSchemeButton()
+    updateShortcutButtons()
+    renderCandidateStrip()
+    updateSpellingStrip()
+    updateSpaceKeyTitle()
+    exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
+    preeditButton.configuration?.baseForegroundColor = candidatePalette?.preeditText ?? candidatePalette?.secondary ?? skin.secondary
+    expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
+    expandDivider.backgroundColor = skin.hairline
+    inlineHeightBar?.apply(skin: skin)
+    oneHandGutter.apply(skin: skin)
+    voicePanel?.apply(skin: skin)
+    for (_, _, hint, corner) in letterButtons {
+      hint.textColor = skin.accent
+      corner.textColor = skin.secondary
+    }
+    view.tintColor = skin.accent
+    applyCandidateAppearance()
+  }
+
+  /// 换装里的重活：键盘背景、整棵按键树和回车键的配置。每个按键重设一遍配置，设计皮肤还要重画每个按键表面，键盘图片或花纹的背景整块重画。
+  private func recolorKeys(_ skin: KeyboardTheme) {
     view.backgroundColor = skin.drawsNativeBackground ? .clear : skin.background
     skinBackdrop.skin = skin
     // Only here, not in KeyboardSkinBackgroundView: the App's skin previews have no system backdrop behind them.
@@ -8903,26 +9071,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       enter.configuration = configuration
       decorateKey(enter)
     }
-    styleReturnKey()
-    updateLanguageModeButton()
-    updateSchemeButton()
-    updateShortcutButtons()
-    renderCandidateStrip()
-    updateSpellingStrip()
-    updateSpaceKeyTitle()
-    exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
-    preeditButton.configuration?.baseForegroundColor = candidatePalette?.preeditText ?? candidatePalette?.secondary ?? skin.secondary
-    expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
-    expandDivider.backgroundColor = skin.hairline
-    inlineHeightBar?.apply(skin: skin)
-    oneHandGutter.apply(skin: skin)
-    voicePanel?.apply(skin: skin)
-    for (_, _, hint, corner) in letterButtons {
-      hint.textColor = skin.accent
-      corner.textColor = skin.secondary
-    }
-    view.tintColor = skin.accent
-    applyCandidateAppearance()
+    appliedKeySkin = skin
+    appliedKeySkinTraits = traitCollection
+    // 在窗口外走完的这一遍，阴影色仍按默认外观解析，下一次出现还要再走。
+    keySkinNeedsWindowPass = view.window == nil
+    // 在设备上确认出现时重走按键树的次数：皮肤没变时再出现应当一行都没有。
+    DiagnosticLog.shared.write("keys_reskinned in_window=\(keySkinNeedsWindowPass ? 0 : 1)")
   }
 
   /// 键盘画在深色下：「键盘明暗」设成深色，或者跟随时宿主是深色。

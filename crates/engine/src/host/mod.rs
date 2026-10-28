@@ -45,8 +45,9 @@ pub use crate::wubi::lookup::{
 };
 pub use crate::{close_cached_databases, flush_personal_learning};
 pub use dictionary::{
-    count_learning_habits, dictionary_edit, dictionary_edit_batch, dictionary_edit_bundled,
-    dictionary_edit_collection_batch, dictionary_entries, dictionary_entries_for_kind,
+    cached_dictionary_state_revision, count_learning_habits, dictionary_edit,
+    dictionary_edit_batch, dictionary_edit_bundled, dictionary_edit_collection_batch,
+    dictionary_entries, dictionary_entries_for_kind, dictionary_entries_source,
     dictionary_export_entries, dictionary_export_entries_for_kind, dictionary_state_revision,
     dictionary_table_entries, dictionary_validate, dictionary_validate_previous, habit_is_storable,
     merge_dictionary_state, merge_learning_habits, replay_user_dictionary, reset_learned_data,
@@ -57,7 +58,8 @@ pub use dictionary::{
 };
 pub use glosses::{
     candidate_glosses, candidate_glosses_with_user, candidate_target_glosses, english_completions,
-    english_correction_display, english_corrections, english_phonetics, save_candidate_gloss,
+    english_correction_display, english_corrections, english_phonetics, release_gloss_caches,
+    save_candidate_gloss,
 };
 pub use options::{prepare_options, prepare_options_for, EngineOptions};
 pub use session::{
@@ -67,6 +69,6 @@ pub use session::{
 pub use text::{
     emoji_catalog_filtered_page, emoji_catalog_groups, emoji_catalog_slice, emoji_symbol_groups,
     encode_shuangpin, handwriting_order_candidates, hanzi_to_pinyin, hanzi_to_pinyin_batch,
-    is_shuangpin_syllable, normalize_full_pinyin, shuangpin_key_hints, shuangpin_uses_semicolon,
-    shuangpin_zero_initials, wubi_code_lookup,
+    is_shuangpin_syllable, main_dictionary_path, normalize_full_pinyin, shuangpin_key_hints,
+    shuangpin_uses_semicolon, shuangpin_zero_initials, wubi_code_lookup,
 };

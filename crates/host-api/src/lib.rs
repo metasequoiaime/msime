@@ -42,7 +42,7 @@ use msime_client_services::typing_statistics::{
 };
 use msime_engine::host::{
     check_nine_key_shuangpin_table, check_shuangpin_custom_profile,
-    nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints,
+    nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints, release_gloss_caches,
     resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin, resolve_nine_key_shuangpin,
     shuangpin_builtin_table, validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile,
     CandidateEdge, Command, EngineOptions, NineKeyShuangpinError, NineKeyShuangpinKeyHint,
@@ -50,7 +50,8 @@ use msime_engine::host::{
     ShuangpinCustomTable, ShuangpinCustomTablePart,
 };
 use msime_engine::{
-    release_japanese_dictionary_cache, SchemeSet, SchemeType, ShuangpinProfileKind,
+    release_idle_personal_models, release_japanese_dictionary_cache, SchemeSet, SchemeType,
+    ShuangpinProfileKind,
 };
 #[cfg(unix)]
 use msime_input_runtime::TranslationQuery;
@@ -284,6 +285,8 @@ struct HostSession {
     edition: &'static Edition,
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
+    /// `requested` 的宿主状态（各个 setter、AI 配置缓存、音效设置）都已按它设好。上一次 `update` 在设到一半时出错，就还是 `false`，同一份快照再来时要完整重做，不能走「没变」的捷径。
+    requested_settled: bool,
     /// Whether the requested preferences still need an Engine replacement. This decision is made
     /// when the document arrives so every keystroke does not compare the full preference tree.
     preferences_pending: bool,
@@ -1159,6 +1162,14 @@ impl HostSession {
         if snapshot.format_version != 1 {
             return Err("unsupported preferences format".into());
         }
+        // Android 键盘显示期间每秒把读到的偏好原样交来一次，绝大多数时候和上一份逐字相同。上一份已经校验过、所有 setter 已经按它设过（这些宿主状态只有偏好会改，`msime_client_set_multilingual_output` 的临时投影除外），`preferences_pending` 也一直等于「它与 `applied` 不同」，所以这里只补上会被别处改动的那几样，不再校验、比较整棵偏好、克隆偏好和重建音效设置。
+        if self.requested_settled
+            && self.requested.as_ref().is_some_and(|previous| {
+                previous.revision == snapshot.revision && *previous == snapshot
+            })
+        {
+            return self.update_unchanged();
+        }
         snapshot.preferences.validate().map_err(|e| e.to_string())?;
         if let Some(previous) = &self.requested {
             if snapshot.revision < previous.revision
@@ -1214,6 +1225,7 @@ impl HostSession {
         }
         self.preferences_pending = snapshot.preferences != self.applied;
         self.requested = Some(snapshot);
+        self.requested_settled = false;
         let requested_preferences = self
             .requested
             .as_ref()
@@ -1267,14 +1279,36 @@ impl HostSession {
             &requested_preferences.plugins,
             &self.plugin_roots,
         ));
+        self.requested_settled = true;
         let fallback = self.apply_pending()?;
+        Ok(self.preferences_response(fallback))
+    }
+
+    /// `update` 收到与上一份逐字相同的快照：只做可能因别处改动而需要重做的事，回复与完整更新相同。
+    fn update_unchanged(&mut self) -> Result<Value, String> {
+        let snapshot = self.requested.as_ref().expect("requested snapshot exists");
+        // 宿主经 `msime_client_set_multilingual_output` 临时切过繁简时，再交一次偏好照旧把输出交还给偏好；Windows 宿主在每次更新偏好后也按偏好重置自己的繁简状态，两边要一致。
+        let (traditional, variant) = (
+            snapshot.preferences.traditional_chinese_output,
+            snapshot.preferences.traditional_chinese_variant,
+        );
+        self.runtime.set_multilingual_output(traditional, variant);
+        // 设置页可能重新导入或删掉了正在用的音效包、效果包：只给清单盖戳，戳变了才重读效果包，和完整更新里新建的设置结果相同。
+        self.sound.restamp();
+        // 组字结束后待应用的偏好、资源包和落定重排模型仍在这里换上。
+        let fallback = self.apply_pending()?;
+        Ok(self.preferences_response(fallback))
+    }
+
+    /// `update` 的回复：宿主都会读其中的 `view`。
+    fn preferences_response(&self, fallback: Option<String>) -> Value {
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
         let mut response = json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
         // Applied at once, so no transition will carry the reason the preferred scheme was replaced; a deferred change reports it from `complete_transition` instead.
         if let Some(fallback) = fallback {
             response["diagnostic"] = fallback.into();
         }
-        Ok(response)
+        response
     }
 }
 

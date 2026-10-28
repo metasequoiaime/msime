@@ -101,6 +101,8 @@ private struct AuthenticatedTypingStatisticsView: View {
     .navigationDestination(isPresented: $showsDailyDetail) { TypingDailyDetailView(statistics: statistics) }
     .sheet(isPresented: $showsAbout) { about }
     .reloadOnAppearAndActive(reload)
+    // 自造词徽标取自键盘上次列出的个人词库那一页；打开页面时请键盘下次出现时重新列一次。
+    .task { try? PersonalDictionaryStore.forSettingsPages().requestRefresh() }
     .alert("清空所有打字统计？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}
       Button("清空", role: .destructive) { update { try $0.reset() } }

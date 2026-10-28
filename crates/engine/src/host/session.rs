@@ -23,7 +23,7 @@ use crate::types::{
     KeyResult, LocalInputMode, MentionEntry, OnlineQuery, PluginCommand, PluginCommandQuery,
     QuickPhraseEntry, SchemeType,
 };
-use crate::user_dictionary::ngram_store::flush_journal;
+use crate::user_dictionary::ngram_store::{flush_journal, note_settled};
 use crate::user_dictionary::removal::learn_entered_english_word;
 
 /// The weight an entered English word is learned at: the C++ default argument of `learn_entered_english_word` (user_dictionary_journal.h:136-137), which the bridge relied on.
@@ -850,6 +850,8 @@ impl Drop for Session {
         let _ = flush_journal(&journal);
         // A host thread whose sessions are gone (a quiesced IME, a closed window) holds no journal handle.
         crate::user_dictionary::journal::release_thread_journal();
+        // Nothing of this session writes the journal after this point. A host-api session still holds its dictionary access here (its Runtime drops first), so no dictionary maintenance can change the file between the write above and this record.
+        note_settled(&journal);
     }
 }
 

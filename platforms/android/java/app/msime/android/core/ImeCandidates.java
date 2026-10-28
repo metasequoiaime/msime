@@ -27,6 +27,16 @@ final class ImeCandidates {
     private int accentText;
     private Typeface candidateTypeface;
     private CandidateAppearance.Layout candidateLayout;
+    /** 上次解析样式缓存时的外观对象；外观对象不可变，同一个对象就不必再拼一遍 key()。 */
+    private CandidateAppearance.Palette styledAppearance;
+    /** 候选条 chip 与展开网格单元共用的文字配色（选中文字、普通文字）；ColorStateList 不可变，各按钮共用一份。 */
+    private android.content.res.ColorStateList candidateTextColors;
+    /**
+     * 每个候选按钮上次装上的底。外观和密度都没变、按钮的底也没被别处换掉时，样式通道不再给它新建五块 GradientDrawable 和一个 StateListDrawable：render 末尾的换肤每次都会走到每个候选，低端机上每键几百个短命 Drawable。外观或密度一变整个作废。
+     */
+    private final java.util.Map<Button, android.graphics.drawable.Drawable> chipFaces =
+        new java.util.WeakHashMap<>();
+    private float chipDensity;
     /** 整面展开网格；滚动视图随键盘视图重建时跟着换。 */
     private ImeCandidateGrid expandedGrid;
 
@@ -36,9 +46,17 @@ final class ImeCandidates {
 
     /** 每次外观变化只解析一次；候选包生效时，候选按钮与候选面板使用同一套配色。 */
     private void ensureStyleCache() {
+        float density = DimensionPolicy.density(s);
+        if (density != chipDensity) {
+            chipDensity = density;
+            chipFaces.clear();
+        }
+        if (s.candidateAppearance == styledAppearance) return;
+        styledAppearance = s.candidateAppearance;
         String key = s.candidateAppearance.key();
         if (key.equals(styleCacheKey)) return;
         styleCacheKey = key;
+        chipFaces.clear();
         selectedBackground = s.candidateAppearance.chip();
         selectedText = s.candidateAppearance.chipText();
         keyBackground = s.candidateAppearance.canvas() == null
@@ -48,6 +66,16 @@ final class ImeCandidates {
         accentText = selectedText;
         candidateTypeface = s.imeStyler.candidateTypeface();
         candidateLayout = s.candidateAppearance.layout();
+        // 展开网格单元的 accentText 与 chip 的 selectedText 是同一个色，两处共用这一份。
+        candidateTextColors = ColorPolicy.stateList(
+            new int[][] {{android.R.attr.state_selected}, {}},
+            new int[] {selectedText, keyForeground});
+    }
+
+    /** 按钮现在的底就是上次在当前外观和密度下装上的那块。 */
+    private boolean keepsChipFace(Button button) {
+        android.graphics.drawable.Drawable background = button.getBackground();
+        return background != null && chipFaces.get(button) == background;
     }
 
     /** 首选候选 chip：字母键的底（kb.key）、圆角 9，皮肤强调色 600 字重；其余候选不画底。 */
@@ -66,23 +94,24 @@ final class ImeCandidates {
             styleExpandedCell(button);
             return;
         }
-        android.graphics.drawable.Drawable pressed =
-            s.imeStyler.candidateDrawable(s.candidateAppearance.hover());
-        android.graphics.drawable.Drawable focused =
-            s.imeStyler.candidateDrawable(s.candidateAppearance.hover());
-        android.graphics.drawable.Drawable hovered =
-            s.imeStyler.candidateDrawable(s.candidateAppearance.hover());
-        android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(
-            new int[][] {
-                {android.R.attr.state_selected}, {android.R.attr.state_pressed},
-                {android.R.attr.state_focused}, {android.R.attr.state_hovered}, new int[0]
-            },
-            chip(selectedBackground, 9), pressed, focused, hovered,
-            chip(android.graphics.Color.TRANSPARENT, 9));
-        ViewPolicy.setBackground(button, states);
-        ViewPolicy.setTextColor(button, ColorPolicy.stateList(
-            new int[][] {{android.R.attr.state_selected}, {}},
-            new int[] {selectedText, keyForeground}));
+        if (!keepsChipFace(button)) {
+            android.graphics.drawable.Drawable pressed =
+                s.imeStyler.candidateDrawable(s.candidateAppearance.hover());
+            android.graphics.drawable.Drawable focused =
+                s.imeStyler.candidateDrawable(s.candidateAppearance.hover());
+            android.graphics.drawable.Drawable hovered =
+                s.imeStyler.candidateDrawable(s.candidateAppearance.hover());
+            android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(
+                new int[][] {
+                    {android.R.attr.state_selected}, {android.R.attr.state_pressed},
+                    {android.R.attr.state_focused}, {android.R.attr.state_hovered}, new int[0]
+                },
+                chip(selectedBackground, 9), pressed, focused, hovered,
+                chip(android.graphics.Color.TRANSPARENT, 9));
+            ViewPolicy.setBackground(button, states);
+            chipFaces.put(button, states);
+        }
+        ViewPolicy.setTextColor(button, candidateTextColors);
         applyCandidateTypeface(button);
         // 候选条只有触控下限，不取皮肤的 itemMinWidth（见 CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP）。
         ViewPolicy.setMinimumWidth(button, s.pixels(CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP));
@@ -96,8 +125,12 @@ final class ImeCandidates {
         if (button.getLayoutParams() instanceof LinearLayout.LayoutParams params) {
             double gap = candidateLayout == null || !Double.isFinite(candidateLayout.itemGap) ? 0
                 : candidateLayout.itemGap + (candidateLayout.fitContent ? 0 : 6);
-            params.rightMargin = s.pixels((int) Math.round(gap));
-            button.setLayoutParams(params);
+            int margin = s.pixels((int) Math.round(gap));
+            // setLayoutParams 每次都会 requestLayout；边距没变就不再设。
+            if (params.rightMargin != margin) {
+                params.rightMargin = margin;
+                button.setLayoutParams(params);
+            }
         }
         ViewPolicy.setLineSpacing(button, 0, 1.0f);
         ViewPolicy.clearFontPadding(button);
@@ -115,15 +148,16 @@ final class ImeCandidates {
 
     /** 展开网格的单元：44 dp 高、圆角 8，底色和选中色都取候选栏配色。 */
     private void styleExpandedCell(Button button) {
-        android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(
-            new int[][] {
-                {android.R.attr.state_selected}, {android.R.attr.state_pressed}, new int[0]
-            },
-            chip(accentSoft, 8), chip(s.candidateAppearance.hover(), 8), chip(keyBackground, 8));
-        ViewPolicy.setBackground(button, states);
-        ViewPolicy.setTextColor(button, ColorPolicy.stateList(
-            new int[][] {{android.R.attr.state_selected}, {}},
-            new int[] {accentText, keyForeground}));
+        if (!keepsChipFace(button)) {
+            android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(
+                new int[][] {
+                    {android.R.attr.state_selected}, {android.R.attr.state_pressed}, new int[0]
+                },
+                chip(accentSoft, 8), chip(s.candidateAppearance.hover(), 8), chip(keyBackground, 8));
+            ViewPolicy.setBackground(button, states);
+            chipFaces.put(button, states);
+        }
+        ViewPolicy.setTextColor(button, candidateTextColors);
         applyCandidateTypeface(button);
         ViewPolicy.clearElevation(button);
     }
@@ -207,11 +241,16 @@ final class ImeCandidates {
         return button;
     }
 
-    /** 横向完整候选按全局身份选择，点击不再依赖引擎当前页的槽位。 */
-    Button stripCandidateButton(JSONObject snapshot, JSONObject candidate, int visibleSlot) {
+    /** 横向完整候选条的一个按钮；由 {@link ImeCandidateStrip} 按位置复用，每次 render 经 {@link #bindStripCandidateButton} 换上当前候选。 */
+    KeyboardPressButton newStripCandidateButton() {
         KeyboardPressButton button = candidateButton();
         s.bindCandidateRenderRelease(button);
-        s.updateCandidateButton(button, candidate, visibleSlot, visibleSlot);
+        return button;
+    }
+
+    /** 横向完整候选按全局身份选择，点击不再依赖引擎当前页的槽位。按钮会复用：点击和长按每次都重新绑到这一代的候选与快照上。 */
+    void bindStripCandidateButton(KeyboardPressButton button, JSONObject snapshot, JSONObject candidate,
+                                  int visibleSlot) {
         JSONObject id = candidate.optJSONObject("id");
         ViewPolicy.bindClick(button, () -> s.selectStripCandidate(button, candidate));
         if (AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(candidate, "source", -1)))
@@ -221,7 +260,9 @@ final class ImeCandidates {
                     InputViewValuePolicy.integer(candidate, "source", -1));
                 return showCandidateMenu(button, -1, id, text, candidate, false, snapshot);
             });
-        return button;
+        else button.setOnLongClickListener(null);
+        // 放在绑长按之后：setOnLongClickListener 总会把按钮设成可长按，updateCandidateButton 再按来源改回去。
+        s.updateCandidateButton(button, candidate, visibleSlot, visibleSlot);
     }
 
     Button expandedCandidateButton(JSONObject candidate) {

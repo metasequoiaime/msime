@@ -253,6 +253,26 @@ final class DictionarySnapshotQueueTests: XCTestCase {
       XCTAssertEqual(try queue.read().request?.status, .cancelled)
     }
   }
+  func testRepublishingTheSameVersionDoesNotRewriteState() throws {
+    try fixture { queue, file, hash, root in
+      _ = try enqueue(queue, file, hash)
+      let directory = root.appendingPathComponent("DictionarySnapshots", isDirectory: true)
+      let state = directory.appendingPathComponent("state.json")
+      let before = try Data(contentsOf: state)
+      // 目录只读时原子写入会失败：键盘空闲时反复发布同一个版本，不能每次都重写状态文件。
+      try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+      defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+
+      try queue.publishLocalVersion(first)
+      XCTAssertEqual(try Data(contentsOf: state), before)
+      XCTAssertThrowsError(try queue.publishLocalVersion(second), "版本变了仍须写入")
+
+      try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+      try queue.publishLocalVersion(second)
+      XCTAssertEqual(try queue.read().localVersion, second)
+      XCTAssertEqual(try queue.read().request?.status, .queued)
+    }
+  }
   func testPublishedButUnacknowledgedRequestIsNotReapplied() throws {
     try fixture { queue, file, hash, _ in
       let id = try enqueue(queue, file, hash)

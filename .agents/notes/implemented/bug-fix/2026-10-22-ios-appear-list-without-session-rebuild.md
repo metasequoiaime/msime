@@ -21,7 +21,7 @@ App 只在用户动作时请求刷新：搜索、翻页、点刷新按钮、编�
 
 ## Decision
 
-强制同步保留，列表不再销毁会话。`MetasequoiaInputSessionBridge.personalEntries` 直接调 `msime_client_dictionary` 的 `list`，不再包在 `withDictionaryMaintenance` 里。键盘出现时只剩 `viewWillAppear` 那一次创建和聚焦；`viewDidAppear` 的同步变成在主线程上读写一次 `sync.json`、跑一条列表查询。
+列表不再销毁会话。键盘出现时的强制同步已由 [iOS 键盘在低端机上的耗电、发热和卡顿](2026-10-27-ios-keyboard-low-end-power.md) 取消，改为设置页打开时请求刷新加 15 分钟陈旧上限；本篇「列表不重建会话」的决定不受影响，下面关于强制同步的描述是本篇做决定时的情形。`MetasequoiaInputSessionBridge.personalEntries` 直接调 `msime_client_dictionary` 的 `list`，不再包在 `withDictionaryMaintenance` 里。键盘出现时只剩 `viewWillAppear` 那一次创建和聚焦；`viewDidAppear` 的同步变成在主线程上读写一次 `sync.json`、跑一条列表查询。
 
 可以这样做的依据：
 

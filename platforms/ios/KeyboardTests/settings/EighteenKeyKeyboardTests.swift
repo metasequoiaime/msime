@@ -164,7 +164,9 @@ final class EighteenKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(delete.maxX, p.maxX, accuracy: 0.5)
         XCTAssertEqual(try button("eighteenKeySeparator", in: controller).configuration?.title, "符")
         XCTAssertFalse(shown(try button("shiftButton", in: controller)))
-        XCTAssertFalse(shown(try button("fourteenKeyQW", in: controller)), "the 14 keys stay hidden")
+        // 14 键的几排第一次要画时才建，没用过 14 键的键盘里根本没有它们。
+        XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "fourteenKeyQW" && shown($0) },
+                       "the 14 keys stay hidden")
         XCTAssertFalse(shown(try view("numberRow", in: controller)))
         XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 18 键")
         XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
@@ -172,6 +174,39 @@ final class EighteenKeyKeyboardTests: XCTestCase {
         attachScreenshot(of: controller, named: "Eighteen-key keyboard at \(Int(width))pt, spacing \(spacing)")
       }
     }
+  }
+
+  /// 字母网格和大千注音的几排第一次要画时才建：26 键的键盘不带这些键，切到 18 键时才建出来，与底行一样高；切回 26 键后藏起来，不重建。
+  func testLetterGridRowsAreBuiltTheFirstTimeTheyAreDrawn() throws {
+    XCTAssertTrue(InputSchemePreference.select(.quanpin))
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    func views(_ prefix: String) -> [UIView] {
+      descendants(controller.view).filter { ($0.accessibilityIdentifier ?? "").hasPrefix(prefix) }
+    }
+    func waitUntil(_ condition: () -> Bool) {
+      let deadline = Date().addingTimeInterval(15)
+      while !condition() && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+      controller.view.layoutIfNeeded()
+    }
+    XCTAssertTrue(views("eighteenKey").isEmpty)
+    XCTAssertTrue(views("fourteenKey").isEmpty)
+    XCTAssertTrue(views("zhuyin").isEmpty)
+
+    XCTAssertTrue(InputSchemePreference.select(.eighteenKey))
+    controller.viewWillAppear(false)
+    waitUntil { views("eighteenKeyQ").first.map(shown) == true }
+    let q = try button("eighteenKeyQ", in: controller)
+    XCTAssertTrue(shown(q))
+    XCTAssertEqual(q.bounds.height, try button("returnKey", in: controller).bounds.height, accuracy: 0.5)
+    XCTAssertTrue(views("fourteenKey").isEmpty, "only the grid on screen is built")
+    let built = views("eighteenKey").count
+
+    XCTAssertTrue(InputSchemePreference.select(.quanpin))
+    controller.viewWillAppear(false)
+    waitUntil { !shown(q) }
+    XCTAssertFalse(shown(q))
+    XCTAssertEqual(views("eighteenKey").count, built, "switching back keeps the rows rather than building them again")
   }
 
   // MARK: - 输入
@@ -274,14 +309,18 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
     let fourteenHeight = height.constant
     XCTAssertTrue(shown(try button("fourteenKeyQW", in: controller)))
-    let we = try button("eighteenKeyWE", in: controller)
-    XCTAssertFalse(shown(we))
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "eighteenKeyWE" },
+                   "14 键启动不预建尚未使用的 18 键行")
 
     XCTAssertTrue(TouchShuangpinLayoutPreference.save(.eighteenKey))
     controller.viewWillAppear(false)
     let deadline = Date().addingTimeInterval(15)
-    while !shown(we) && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+    while !descendants(controller.view).contains(where: { $0.accessibilityIdentifier == "eighteenKeyWE" && shown($0) })
+      && Date() < deadline {
+      RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
     controller.view.layoutIfNeeded()
+    let we = try button("eighteenKeyWE", in: controller)
     XCTAssertTrue(shown(we))
     XCTAssertFalse(shown(try button("fourteenKeyQW", in: controller)))
     XCTAssertEqual(height.constant, fourteenHeight)

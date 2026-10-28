@@ -42,8 +42,49 @@ final class ImeStyler {
         }
     };
 
+    /**
+     * 为真时 {@link #applySkinToView} 不进 GONE 的子树，只记进 {@link #skippedHidden}。只在 {@link #applySkin} 自己的几遍里为真：render 每键都会换一次肤，键盘树里收着的剪贴板、方案、皮肤、更多工具、文本编辑、表情、符号等面板平时都是 GONE，打开过一次的表情和符号网格就有几百格，每键都把它们上一遍色是白花的主线程时间。单独给某个子树上色的调用（候选条追加、符号面板 restyle、回复面板）照旧整棵走。
+     */
+    private boolean skipHidden;
+    /** 手写时的键区：和表情面板一样，整树那一遍不进去，由 {@link #applySkin} 按它自己的皮肤单独走；不在手写时为空。 */
+    private View separateHandwritingRows;
+    /** 最近一次 applySkin 因为 GONE 没走的子树；按身份比较，视图被丢掉后自动消失。 */
+    private final java.util.Set<View> skippedHidden =
+        java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private View observedRoot;
+    /**
+     * 兜底：没走过的子树被直接显示出来、之后却没有 render 或 applySkin 时，在画下一帧之前补一遍换肤，不让它带着旧皮肤露面。平时打开面板的路径都会接着换肤，这里只在漏掉时生效；每帧只看这几十个记下的视图是否已显示。
+     */
+    private final android.view.ViewTreeObserver.OnPreDrawListener restyleShown = () -> {
+        for (View view : skippedHidden) {
+            if (!view.isShown()) continue;
+            applySkin();
+            // 换肤之后仍显示着的视图从记录里去掉，就算换肤本身又显示了某个没走过的视图，也不会每帧反复换肤。
+            skippedHidden.removeIf(View::isShown);
+            break;
+        }
+        return true;
+    };
+
     ImeStyler(MSIMEInputService s) {
         this.s = s;
+    }
+
+    /** 每个键盘根视图挂一次 {@link #restyleShown}；跟着根视图进出窗口增删，旧根视图留下的监听不会累积在输入法窗口上。 */
+    private void observeRoot() {
+        View root = s.keyboardRoot;
+        if (root == observedRoot) return;
+        observedRoot = root;
+        if (root.isAttachedToWindow()) root.getViewTreeObserver().addOnPreDrawListener(restyleShown);
+        root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View view) {
+                view.getViewTreeObserver().addOnPreDrawListener(restyleShown);
+            }
+
+            @Override public void onViewDetachedFromWindow(View view) {
+                view.getViewTreeObserver().removeOnPreDrawListener(restyleShown);
+            }
+        });
     }
 
     /** 读音行光标使用候选包的专用颜色，未指定时保留皮肤强调色。 */
@@ -433,8 +474,17 @@ final class ImeStyler {
         }
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;
-            for (int index = 0; index < group.getChildCount(); index++)
-                applySkinToView(group.getChildAt(index), candidate, target);
+            for (int index = 0; index < group.getChildCount(); index++) {
+                View child = group.getChildAt(index);
+                if (skipHidden) {
+                    if (child.getVisibility() == View.GONE) {
+                        skippedHidden.add(child);
+                        continue;
+                    }
+                    if (child == s.emojiPanel || child == separateHandwritingRows) continue;
+                }
+                applySkinToView(child, candidate, target);
+            }
         }
     }
 
@@ -505,14 +555,23 @@ final class ImeStyler {
         if (s.textEditPanel != null)
             applySkinBackground(s.textEditPanel);
         if (s.handwritingCanvas != null) s.handwritingCanvas.applySkin(s.handwritingSkin);
-        applySkinToView(s.keyboardRoot);
-        // The keyboard-wide pass already styled these subtrees; re-walk the two that carry their
-        // own light/dark setting so only their faces change.
-        if (s.emojiPanel != null) {
-            applySkinToView(s.emojiPanel, s.emojiSkin);
-            s.imePanels.styleEmojiChrome();
+        observeRoot();
+        skippedHidden.clear();
+        separateHandwritingRows = s.handwritingActive() ? s.keyRows : null;
+        skipHidden = true;
+        try {
+            applySkinToView(s.keyboardRoot);
+            // 表情面板和手写时的键区带着自己的明暗设置，整树那一遍不进去，只在这里按各自的皮肤走一遍；以前先按主皮肤画一遍再改回来，键帽缓存每次都对不上，自定义主题下每键都给这些键重建底图。表情面板收着时不走，打开时那次换肤再画。
+            if (s.emojiPanel != null && s.emojiPanel.getVisibility() != View.GONE) {
+                applySkinToView(s.emojiPanel, s.emojiSkin);
+                s.imePanels.styleEmojiChrome();
+            } else if (s.emojiPanel != null) {
+                skippedHidden.add(s.emojiPanel);
+            }
+            if (separateHandwritingRows != null) applySkinToView(separateHandwritingRows, s.handwritingSkin);
+        } finally {
+            skipHidden = false;
         }
-        if (s.handwritingActive() && s.keyRows != null) applySkinToView(s.keyRows, s.handwritingSkin);
         // 回复面板的分段控件、源文字卡片和操作列不按角色上色，上面那一遍把它们清成了无底色，这里补回来。
         s.imePanels.styleReplyKeyboard();
         s.imeLayoutRows.applySidebarRail();

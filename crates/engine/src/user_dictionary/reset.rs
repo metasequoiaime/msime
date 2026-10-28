@@ -13,7 +13,9 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
 use crate::user_dictionary::generation::{copy_private_file, merge_split_wubi, weakly_canonical};
-use crate::user_dictionary::journal::{close_cached_journals, ensure_schema, open_database};
+use crate::user_dictionary::journal::{
+    checkpoint_journal, close_cached_journals, ensure_schema, open_database,
+};
 
 /// SQLite files that sit beside the journal. A leftover `-wal` would bring the learned data the user just erased back on the next open.
 const JOURNAL_SIDECARS: [&str; 3] = ["-wal", "-shm", "-journal"];
@@ -64,6 +66,8 @@ pub fn reset_learned_data_with(paths: &RuntimePaths, main_dictionary: bool) -> R
         .map_or(0, |elapsed| elapsed.as_nanos())
         .to_string();
     let journal = paths.user(assets::USER_JOURNAL);
+    // 日志是 WAL 时，最近的学习可能还在 `-wal` 里、没并回主文件。先并回并清空 `-wal`：失败回滚或被杀后放回的备份本身就是完整的日志，新日志发布后、旁路文件删掉之前，原名旁边也只剩一个空 `-wal`，套不到新日志上。
+    checkpoint_journal(&journal);
     // 词库在前、日志在最后：`swap` 按顺序把 `sources` 配给前面的词库。
     let mut replacements: Vec<Replacement> = names
         .iter()

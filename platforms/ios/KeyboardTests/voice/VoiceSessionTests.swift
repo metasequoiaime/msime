@@ -109,6 +109,13 @@ final class VoiceSessionTests: XCTestCase {
     XCTAssertFalse(state(.ready, request: nil, heartbeat: now.addingTimeInterval(60)).isAvailable(now: now))
   }
 
+  /// 会话空闲时麦克风和音频引擎仍在后台运行，耗电发热，所以说完不久就要交还麦克风；心跳间隔要比判定 App 不在的时限短，否则开着的会话会被键盘当成已经不在。
+  func testAnIdleSessionReleasesTheMicrophoneWithinAMinute() {
+    XCTAssertLessThanOrEqual(VoiceSessionChannel.idleLifetime, 60)
+    XCTAssertLessThan(VoiceSessionChannel.heartbeatInterval, VoiceSessionState.staleAfter)
+    XCTAssertGreaterThan(VoiceSessionChannel.idleLifetime, VoiceSessionState.staleAfter)
+  }
+
   func testWithoutASessionTheKeyboardMustOpenTheApp() {
     XCTAssertFalse(KeyboardVoiceDictation(channel: VoiceSessionChannel(directory: directory)).sessionAvailable)
     let channel = VoiceSessionChannel(directory: directory)

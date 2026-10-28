@@ -717,8 +717,43 @@ final class ImeLetterRows {
         return builtLanguageNumberSwap != s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
     }
 
+    /** 最近一次 {@link #rebuildKeyRows} 建在哪个容器上；onCreateInputView 换了新容器后旧的记录不能再拿来判断键行是否可留。 */
+    private LinearLayout builtKeyRows;
+
+    /**
+     * 换输入框时更新键行。原来每次 onStartInput 都整组重建，低端机上每换一个输入框（连同切到桌面、设置页这类不打字的窗口）都要摘掉再新建几十个键和它们的底图。只有通用分支在字母层建的键行（26 键、韩文、大千注音）能留：布局、分离式键盘、数字行、中英/数字键互换和数字页状态都和建的时候一样时，键的个数和位置不变，只做重建时顺带做的逐框复位，键面经 {@link #relabelLetterCase} 就地换。其余布局（九键、14 键、笔画、手写、符号层）键行里带着各自的状态，照旧整组重建。
+     */
+    void refreshKeyRowsForEditor() {
+        if (!letterRowsReusable()) {
+            rebuildKeyRows();
+            return;
+        }
+        ensureIconKeys();
+        s.imeBottomRow.ensureFaces();
+        hideKeyPreview();
+        // 与 rebuildKeyRows 相同：字母层上不留上一个输入框的 #+= 页。
+        moreSymbols = false;
+        s.imeLayoutRows.hideJapaneseFlickPreview();
+        s.deactivateHandwriting();
+        if (!relabelLetterCase()) {
+            rebuildKeyRows();
+            return;
+        }
+        s.imeStyler.applyKeyboardGeometry();
+    }
+
+    private boolean letterRowsReusable() {
+        return s.keyRows != null && s.keyRows == builtKeyRows && s.keyRows.getChildCount() > 0
+            && builtLetterLayout >= 0
+            && s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && s.displayedTouchLayout(s.view) == builtLetterLayout
+            && !splitStale() && !numberRowStale() && !languageNumberSwapStale() && !numberPadStale()
+            && !(builtSplit && microsoftTenKeys() != builtMicrosoftTenKeys);
+    }
+
     void rebuildKeyRows() {
         if (s.keyRows == null) return;
+        builtKeyRows = s.keyRows;
         drawnTouchLayout = s.displayedTouchLayout(s.view);
         builtLanguageNumberSwap = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
         builtLayerPunctuation = null;

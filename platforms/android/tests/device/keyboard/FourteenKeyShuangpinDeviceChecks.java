@@ -164,13 +164,16 @@ final class FourteenKeyShuangpinDeviceChecks {
     /** 真实触摸覆盖左右选择、反向重选、取消、回中心及手势之后的普通点按。 */
     private void exactSwipeChecks() throws Exception {
         editor(false);
-        t.stage = "eighteen exact swipe cancellation and reversal";
+        t.stage = "eighteen exact right swipe";
         gesture("按键 B N", false, 40);
         t.await(reading("n"));
+        t.stage = "eighteen exact swipe cancellation";
         gesture("按键 B N", true, -40);
         t.await(reading("n"));
+        t.stage = "eighteen exact swipe return to center";
         gesture("按键 B N", false, 40, 0);
         t.await(reading("n"));
+        t.stage = "eighteen exact swipe reversal";
         gesture("按键 I O", false, 40, -40);
         t.await(t.described("选择拼音 ni"));
         absent(t.described("选择拼音 bi"));
@@ -199,7 +202,7 @@ final class FourteenKeyShuangpinDeviceChecks {
     /** 从节点中心注入坐标事件；不使用无障碍点击代替横滑。 */
     private void gesture(String description, boolean cancel, float... offsetsDp) throws Exception {
         t.automation.waitForIdle(500, 5000);
-        AccessibilityNodeInfo key = t.await(t.described(description));
+        AccessibilityNodeInfo key = t.awaitStableBounds(t.described(description));
         Rect bounds = new Rect();
         key.getBoundsInScreen(bounds);
         float density = t.getTargetContext().getResources().getDisplayMetrics().density;

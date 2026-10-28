@@ -173,8 +173,7 @@ function GrammarModelRow({
         <ActionRow
           title="下载模型更新"
           description={
-            resourcePacks.errors[pack] ??
-            "下载并完整校验后替换当前模型；下载失败保留旧模型。"
+            resourcePacks.errors[pack] ?? "下载并完整校验后替换当前模型；下载失败保留旧模型。"
           }
           action={() => resourcePacks.install(pack)}
           label={resourcePacks.progress[pack] ? "下载中…" : "下载更新"}

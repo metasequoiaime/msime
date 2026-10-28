@@ -66,10 +66,15 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                 expanded.setAccessible(true);
                 Button staleButton = (Button) expanded.invoke(candidates,
                     old.getJSONArray("candidates").getJSONObject(0));
-                Method strip = candidates.getClass().getDeclaredMethod("stripCandidateButton",
-                    JSONObject.class, JSONObject.class, int.class);
-                strip.setAccessible(true);
-                Button staleStrip = (Button) strip.invoke(candidates, old,
+                Method newStrip = candidates.getClass().getDeclaredMethod("newStripCandidateButton");
+                newStrip.setAccessible(true);
+                Button staleStrip = (Button) newStrip.invoke(candidates);
+                // 实例是 ContactCandidateButton 子类，反射查找必须使用方法声明的 KeyboardPressButton 参数。
+                Method bindStrip = candidates.getClass().getDeclaredMethod("bindStripCandidateButton",
+                    loader.loadClass("app.msime.android.KeyboardPressButton"), JSONObject.class,
+                    JSONObject.class, int.class);
+                bindStrip.setAccessible(true);
+                bindStrip.invoke(candidates, staleStrip, old,
                     old.getJSONArray("candidates").getJSONObject(0), 0);
                 JSONObject current = value(character.invoke(null, session, (int) 'h', false)).getJSONObject("view");
                 check(current.getLong("generation") != id.getLong("generation"), "generation advanced");
@@ -133,6 +138,15 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                 freshButton.performClick();
                 check(writes[0] == 1, "fresh candidate committed");
                 check(field(type, "session").getLong(service) == session, "fresh candidate stopped session");
+                stage = "reused strip button binds the fresh candidate";
+                character.invoke(null, session, (int) 'n', false);
+                JSONObject rebound = value(character.invoke(null, session, (int) 'i', false)).getJSONObject("view");
+                field(type, "view").set(service, rebound);
+                bindStrip.invoke(candidates, staleStrip, rebound,
+                    rebound.getJSONArray("candidates").getJSONObject(0), 0);
+                staleStrip.performClick();
+                check(writes[0] == 2, "reused strip candidate committed");
+                check(field(type, "session").getLong(service) == session, "reused strip stopped session");
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (nativeType != null && session != 0) {

@@ -1184,6 +1184,11 @@ struct TypingStatisticsStore {
     }
   }
 
+  /// 把本进程攒着的上屏写进统计文件。共享层的 `record` 不再每次上屏都写文件，计数攒在进程里，距上次写满 30 秒的下一次上屏、这一项或同一目录上的任何其他操作才写；没有攒着的上屏时不碰磁盘。键盘在收起、换输入框和退到后台时，在调 `record` 的同一个队列上调它。
+  func flush() throws {
+    _ = try call(["operation": "flush"])
+  }
+
   /// Splits on character boundaries so no grapheme is counted as two.
   static func chunks(_ text: String) -> [String] {
     var chunks: [String] = []

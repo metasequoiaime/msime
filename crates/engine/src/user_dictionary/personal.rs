@@ -643,6 +643,8 @@ fn read_personal_dictionary_page(
 }
 
 /// The main dictionary opened for writing with the journal attached as `personal_journal` and the English dictionary as `replay_english`, both prepared first (J:1822-1836). `main_dictionary` 为假（代次里没有 `msime-pinyin.db`）时以一个内存库代替它，只有 attach 的日志和英文词库可写。
+///
+/// 日志是 WAL 时（iOS 以外）编辑事务只在每个文件内原子：崩溃可能留下日志已记下、词库工作副本回滚，下一次回放补齐，见 `journal::prefer_write_ahead_log`。
 pub(super) fn open_edit_connection(
     paths: &RuntimePaths,
     main_dictionary: bool,

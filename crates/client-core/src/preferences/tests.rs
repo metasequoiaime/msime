@@ -5601,6 +5601,68 @@ fn try_load_distinguishes_busy_missing_and_corrupt() {
 }
 
 #[test]
+fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    // 没有文件：每次照常取默认快照，不沿用上一份。
+    let missing = store.load_reusing(None).unwrap();
+    assert_eq!(missing.snapshot, store.load().unwrap());
+    let stale = LoadedPreferences {
+        bytes: None,
+        snapshot: PreferencesSnapshot {
+            revision: 99,
+            ..PreferencesSnapshot::default()
+        },
+    };
+    assert_eq!(
+        store.load_reusing(Some(stale)).unwrap().snapshot,
+        missing.snapshot
+    );
+
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                learning: false,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let loaded = store.load_reusing(Some(missing)).unwrap();
+    assert_eq!(loaded.snapshot, saved);
+    assert_eq!(loaded.snapshot, store.load().unwrap());
+
+    // 字节没变：交回传入的那份快照，不再解析。换掉快照内容来认出确实是沿用的。
+    let marked = LoadedPreferences {
+        snapshot: PreferencesSnapshot {
+            revision: 99,
+            ..loaded.snapshot.clone()
+        },
+        ..loaded.clone()
+    };
+    assert_eq!(
+        store.load_reusing(Some(marked)).unwrap().snapshot.revision,
+        99
+    );
+
+    // 文件变了（保存，或被直接改写）就重新读，坏掉的文档照样报错。
+    let resaved = store.save(saved.revision, Preferences::default()).unwrap();
+    let reloaded = store.load_reusing(Some(loaded)).unwrap();
+    assert_eq!(reloaded.snapshot, resaved);
+    // 缓存读取与普通读取共用新版本取值的宽松规则，不能留下旧的严格解码分支。
+    let mut future = serde_json::to_value(&resaved).unwrap();
+    future["preferences"]["touch_text_edit_button_order"]
+        .as_array_mut()
+        .unwrap()
+        .push("future_action".into());
+    fs::write(store.path(), serde_json::to_vec(&future).unwrap()).unwrap();
+    let reloaded = store.load_reusing(Some(reloaded)).unwrap();
+    assert_eq!(reloaded.snapshot, store.load().unwrap());
+    fs::write(store.path(), "broken").unwrap();
+    assert!(store.load_reusing(Some(reloaded)).is_err());
+}
+
+#[test]
 fn persists_across_instances_and_rejects_stale_save() {
     let dir = tempfile::tempdir().unwrap();
     let first = PreferencesStore::new(dir.path());

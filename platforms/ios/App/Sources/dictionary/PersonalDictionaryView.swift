@@ -169,6 +169,8 @@ struct PersonalDictionaryView: View {
       Button("好", role: .cancel) { error = nil }
     } message: { Text(error ?? "") }
     .task {
+      // 列表是键盘上次列出的那一页；打开页面时请键盘重新列一次，下次键盘出现就会换成最新的。请求没写进去（例如键盘正占着队列）也照样显示已有的那一页。
+      try? store.requestRefresh()
       await ViewRequestTask.poll(every: .seconds(1)) { refresh() }
     }
   }

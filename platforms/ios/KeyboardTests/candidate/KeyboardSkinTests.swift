@@ -301,6 +301,56 @@ final class KeyboardSkinTests: XCTestCase {
     assertClose(try drawnFill(delete), winter, "冬雪下的 ⌫")
   }
 
+  /// 键盘再出现时皮肤和明暗都没变，`viewWillAppear` 和 `viewIsAppearing` 都不再重走整棵按键树、重设每个按键的配置；皮肤换了照样重新换装。按键不在窗口里时阴影色按默认外观解析，要由 `viewIsAppearing` 补走一遍。字母键先被涂成皮肤里没有的颜色，看换装有没有把它改回去。
+  @MainActor
+  func testReappearingWithAnUnchangedSkinLeavesTheKeysAlone() throws {
+    preserveSharedTheme()
+    let scheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = scheme }
+    InputSchemePreference.scheme = .quanpin
+    XCTAssertTrue(GlobalThemePreference.save("paper"))
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    let marker = UIColor(red: 0.1, green: 0.9, blue: 0.2, alpha: 1)
+    func markLetterKey(_ controller: KeyboardViewController) throws -> UIButton {
+      let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
+      var configuration = try XCTUnwrap(key.configuration)
+      configuration.background.backgroundColor = marker
+      key.configuration = configuration
+      return key
+    }
+    let light = UITraitCollection(userInterfaceStyle: .light)
+
+    let controller = KeyboardViewController()
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight))
+    window.overrideUserInterfaceStyle = .light
+    window.rootViewController = controller
+    window.isHidden = false
+    defer { window.isHidden = true }
+    controller.viewWillAppear(false)
+    window.layoutIfNeeded()
+    let key = try markLetterKey(controller)
+    controller.viewWillAppear(false)
+    controller.viewIsAppearing(false)
+    XCTAssertEqual(key.configuration?.background.backgroundColor, marker, "皮肤没变时不重设按键")
+
+    XCTAssertTrue(GlobalThemePreference.save(GlobalThemeCatalog.nativeId))
+    controller.viewWillAppear(false)
+    XCTAssertEqual(key.configuration?.background.backgroundColor?.resolvedColor(with: light),
+                   KeyboardTheme.current.keyBackground.resolvedColor(with: light), "皮肤换了要重新换装")
+
+    let detached = KeyboardViewController()
+    detached.loadViewIfNeeded()
+    detached.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    detached.viewWillAppear(false)
+    let detachedKey = try markLetterKey(detached)
+    // 真实的顺序：`viewWillAppear` 时视图还不在窗口里，trait 也没定，皮肤没变时不在这里换装（`viewDidLoad` 在窗口外走过一遍，留着标记）；进了窗口的 `viewIsAppearing` 才补走一遍。
+    detached.viewWillAppear(false)
+    XCTAssertEqual(detachedKey.configuration?.background.backgroundColor, marker, "窗口外的 viewWillAppear 不换装")
+    detached.viewIsAppearing(false)
+    XCTAssertEqual(detachedKey.configuration?.background.backgroundColor?.resolvedColor(with: light),
+                   KeyboardTheme.current.keyBackground.resolvedColor(with: light), "不在窗口里换的装到 viewIsAppearing 要再换")
+  }
+
   /// `kbHair`（ios-kb-31）：浅色键盘上是黑色 .12；深色键盘、任一模式下的深色表面内置主题，以及背景为深色的设计上是白色 .14。
   func testHairlineFollowsTheDrawnSurface() throws {
     let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)

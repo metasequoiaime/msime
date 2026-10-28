@@ -959,6 +959,11 @@ public final class NativeClient {
         return TextPolicy.utf8(setNineKeyFilterRaw(session, singleCharacter, payload));
     }
     public static String allCandidates(long session) { return TextPolicy.utf8(allCandidatesRaw(session)); }
+    /** 座位 {@code start} 起最多 {@code count} 行候选（{@code msime_client_candidate_range}）：横向候选条每键只取它建得出来的一批，不整代复制。 */
+    public static String candidateRange(long session, int start, int count) {
+        if (start < 0 || count < 0) throw new IllegalArgumentException("Invalid candidate range");
+        return TextPolicy.utf8(candidateRangeRaw(session, start, count));
+    }
     public static String applyTranslations(long session, long generation, String translations) {
         if (generation < 0) throw new IllegalArgumentException("Invalid candidate generation");
         byte[] payload = translations.getBytes(StandardCharsets.UTF_8);
@@ -1151,6 +1156,7 @@ public final class NativeClient {
     private static native byte[] setNineKeyFilterRaw(long session, boolean singleCharacter,
         byte[] strokes);
     private static native byte[] allCandidatesRaw(long session);
+    private static native byte[] candidateRangeRaw(long session, int start, int count);
     private static native byte[] applyTranslationsRaw(long session, long generation,
         byte[] translations);
     private static native byte[] onlineQueryRaw(long session);

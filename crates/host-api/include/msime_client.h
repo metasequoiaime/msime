@@ -345,7 +345,7 @@ char *msime_client_snapshot_inspect(const uint8_t *path, size_t length);
 char *msime_client_snapshot_restore(const uint8_t *request, size_t request_length,
                                     const uint8_t *path, size_t path_length);
 /* Crash-safe queue state, enqueue, cancellation and idle processing. */
-/* {operation:"import_android_v1", directory} → {imported, state}：把 Android 旧版 Java 队列（DictionarySnapshotQueue.java）的 state.bin 就地转成本队列的 state.json，在 state.lock 的 flock 里做（等正在持锁的激活做完）；目录里已经没有 state.bin 时不取锁直接返回，转换过以后这一步不会排在激活后面，快照文件两边同名（<id>.ndjson），原样留着、不复制。先原子地写好 state.json、对目录 fsync，再删 state.bin，中途中断时下一次接着做，队列不丢。目录不存在（不会创建）、没有 state.bin、或者已经有 state.json（只补删留下的 state.bin）时 imported 为 false，什么也不改；state 是转换以后的队列状态，形状同其他操作。state.bin 读不懂（截断、魔数或版本不对、字段不合法）是 snapshot_invalid，两份文件都不动。其余会改队列的操作持锁时也先做同样的转换，还没转换时只读的读取直接解码 state.bin，所以 Android 的主进程和 :ime 谁先用到队列都不会把旧队列当成空的。{operation:"process", directory, staging_root, options, account_id?} 的 account_id 是当前账号，不知道当前账号是谁（读不到会话或未登录）时不给：属于某个账号的请求这时原样留着、下次再处理，属于别的账号时取消；账号是 local-backup 的请求（Android 本地备份恢复排的，与 Java 的 DictionarySnapshotQueue.LOCAL_RESTORE_OWNER 相同，转换时原样保留）不属于任何账号，不给 account_id 时照样认领和激活，也从不因账号不同被取消，只有 cancel 给的 account_id 正好是 local-backup 时才取消。 */
+/* {operation:"import_android_v1", directory} → {imported, state}：把 Android 旧版 Java 队列（DictionarySnapshotQueue.java）的 state.bin 就地转成本队列的 state.json，在 state.lock 的 flock 里做（等正在持锁的激活做完）；目录里已经没有 state.bin 时不取锁直接返回，转换过以后这一步不会排在激活后面，快照文件两边同名（<id>.ndjson），原样留着、不复制。先原子地写好 state.json、对目录 fsync，再删 state.bin，中途中断时下一次接着做，队列不丢。目录不存在（不会创建）、没有 state.bin、或者已经有 state.json（只补删留下的 state.bin）时 imported 为 false，什么也不改；state 是转换以后的队列状态，形状同其他操作。state.bin 读不懂（截断、魔数或版本不对、字段不合法）是 snapshot_invalid，两份文件都不动。其余会改队列的操作持锁时也先做同样的转换，还没转换时只读的读取直接解码 state.bin，所以 Android 的主进程和 :ime 谁先用到队列都不会把旧队列当成空的。{operation:"process", directory, staging_root, options, account_id?} 的 account_id 是当前账号，不知道当前账号是谁（读不到会话或未登录）时不给：属于某个账号的请求这时原样留着、下次再处理，属于别的账号时取消；账号是 local-backup 的请求（Android 本地备份恢复排的，与 Java 的 DictionarySnapshotQueue.LOCAL_RESTORE_OWNER 相同，转换时原样保留）不属于任何账号，不给 account_id 时照样认领和激活，也从不因账号不同被取消，只有 cancel 给的 account_id 正好是 local-backup 时才取消。state 和 process 可以带 skip_when_idle（默认 false）：为 true 且队列里没有排队或准备中的请求时只读状态返回，不扫用户词库算本机版本、不发布它，也不创建队列目录；鸿蒙键盘这样查，因为它的队列没有生产者，发布出去的本机版本没人读。 */
 char *msime_client_snapshot_queue(const uint8_t *request, size_t length);
 char *msime_client_snapshot_prepare(const uint8_t *request, size_t length,
                                      msime_client_snapshot_next next, void *context);
@@ -415,7 +415,8 @@ char *msime_client_check_toggle_hotkey(const uint8_t *request, size_t length);
  * {directory,action:{operation:"set_retention",retention,day:"YYYY-MM-DD"}}
  *   retention 取 forever|30d|90d|180d|365d，其他值一律按 forever 读，绝不当成更短的时间窗。`day` 是调用方的本地日期。
  * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD",hour?:0-23}}。
- * record 在内存里给上屏文本分类，只持久化聚合计数；文本既不返回也不存储。可能阻塞在磁盘或文件锁上：请在工作线程调用。`hour` 是这次上屏的本地小时，必须与 `day` 取自同一时刻；拿不准就省略，不要猜，这一天的计数照样保留，只是不按小时拆分。record 返回 {recorded, milestone}：milestone 是总数刚刚越过的成就计数（100、1000……），没有越过时为 null。只有本进程里有会话开着成就音效时才计算它，而在桌面宿主上此时提示音已经排进队列。
+ * record 在内存里给上屏文本分类，只持久化聚合计数；文本既不返回也不存储。可能阻塞在磁盘或文件锁上：请在工作线程调用。`hour` 是这次上屏的本地小时，必须与 `day` 取自同一时刻；拿不准就省略，不要猜，这一天的计数照样保留，只是不按小时拆分。record 返回 {recorded, milestone}：milestone 是总数刚刚越过的成就计数（100、1000……），没有越过时为 null。只有本进程里有会话开着成就音效时才计算它，而在桌面宿主上此时提示音已经排进队列。record 不再每次上屏都写文件：计数攒在本进程里（按 directory 分开），距上次读写这个目录的统计文件满 30 秒后的下一次 record、flush，或这个 directory 上的任何其他操作才在文件锁内重读文件、合并写出（期间别的进程改了保留期就合并进它写下的文件；清空了统计或关掉了统计就丢掉这批，清空之前打的字不会写回清空后的文件）；recorded 按上次读到的开关回答。进程被杀时最多丢 30 秒的计数。
+ * {directory,action:{operation:"flush"}} 把本进程为 directory 攒着的上屏写进统计文件，value 为 null；没有攒着的上屏时不碰磁盘。宿主在键盘收起、输入框失焦和进程或服务退出前，在平时调统计的那个工作线程上调用；旧版本的库不认识 flush 会回错误，宿主忽略即可。会话失焦、msime_client_destroy 和 msime_client_flush_all 也会写出本进程攒着的全部上屏（macOS、Linux 的失焦和移动宿主的失焦与销毁在后台线程上写，不阻塞调用线程）。
  * {directory,action:{operation:"record_keys",day:"YYYY-MM-DD",keys:{"KeyA":3,...}}}
  *   把各键的按键次数加到 `day` 上，`day` 是这些按键发生的本地日期（跨过午夜的一批先按旧日期写出）。每个键只存每日按键次数：不存顺序、时间或文本。键 id 是 W3C KeyboardEvent.code 名加上软键盘 id（Nine0-Nine9、SoftPunctuation、SoftSymbol、SoftLayer、SoftLanguage、SoftGlobe、SoftEmoji、SoftVoice）；完整列表是 client-services typing_statistics.rs 里的 KEY_IDS。只要有一个未知 id 或零计数就拒绝整批；绝不要自造 id。返回 {recorded:n}，统计关闭时为 0（什么都不写）。宿主在内存里攒批，从工作线程调用，绝不每按一个键调用一次。
  * {directory,action:{operation:"summary",day:"YYYY-MM-DD",user_words?:n}} 返回调用方本地 `day` 的派生指标（总览、习惯、按键、成就）；统计开着时，新解锁的成就在锁内写下。user_words 是词库 "count" 加 user_only:true 的结果。隐私模式不影响它：它只读。
@@ -591,8 +592,10 @@ char *msime_client_update_preferences(uint64_t session, const uint8_t *snapshot,
 char *msime_client_focus(uint64_t session, bool focused);
 /* Clear the current session's Engine candidate cache and refresh its view. */
 char *msime_client_reset_cache(uint64_t session);
-/* Release process-level model caches without a session handle (memory pressure). */
+/* Release process-level model caches without a session handle (memory pressure): the Japanese dictionary, personal context models no session uses, and the plugin tables kept for the next session. Also releases the calling thread's candidate-gloss caches, as msime_client_release_gloss_caches does. */
 void msime_client_release_process_cache(void);
+/* 关掉调用线程缓存的候选释义词库连接（发布词库、学到的释义库、离线释义库），丢掉读好的自定义译文；下一次查询重新打开，结果不变。不动日文词典这类重新加载很贵的模型，宿主可以在每次键盘收起时调用。只清调用线程自己的那份，要在查询释义的那个线程上调。 */
+void msime_client_release_gloss_caches(void);
 /* 语音设置服务目录。纯函数，无文件、网络或设备访问；响应 value 为 {asr:[preset],polish:[preset],doubao_stream_endpoints:[{id,label,title,endpoint}]}。
  * preset 为 {id,title,endpoint,model,models:[string],documentation}，仅含公开预设。
  * 数组顺序即设置页顺序；不含平台特有的 system/local，宿主按能力追加。
@@ -973,6 +976,8 @@ char *msime_client_select_edge(uint64_t session, uint64_t generation, size_t ind
 /* On-demand {session,generation,preedit,candidates:[Candidate...]}. Unlike View,
  * candidates contains the complete cached Engine generation with global IDs. */
 char *msime_client_all_candidates(uint64_t session);
+/* {session,generation,preedit,reading,total,candidates:[Candidate...]}：座位 start 起最多 count 行，到 total（这一代已放出的候选数）为止，身份与 msime_client_all_candidates 同一座位的那一行相同，可交给 msime_client_select_any_candidate。每键重画的横向候选条只取它这次建得出来的一批，不必整代复制。引擎暂扣的尾部（首字母只先给 24 行）只在 start 到了 total 时才放出；放出来会重排座位并换一代，宿主看到 generation 变了要按新的一代从头取。同一代里 candidates 为空表示已经没有更多。 */
+char *msime_client_candidate_range(uint64_t session, size_t start, size_t count);
 /* 宿主按自己的排版显示了与固定分页不同的一组候选（macOS 横排按宽度自适应）时，报出这一代里这些候选的全局序号
  * （来自 all_candidates 的 id.index，<=256 个）。二三候选键、五笔自定义选词键和翻译查询都按看得见的这一组；
  * count 为 0 时清掉。只对 generation 这一代有效，组字推进后自动失效。

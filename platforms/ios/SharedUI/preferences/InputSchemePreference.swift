@@ -531,7 +531,7 @@ enum InputSchemePreference {
   static let appGroupIdentifier = MSIMEAppEdition.appGroupIdentifier
 
   /// The shared App Group defaults used by preferences mirrored between the app and keyboard.
-  static var appGroupDefaults: UserDefaults {
-    UserDefaults(suiteName: appGroupIdentifier) ?? .standard
-  }
+  ///
+  /// Built once: every preference getter reads through this, and the keyboard reads dozens of them per keystroke (several per candidate chip). CFPreferences caches values per process and per suite, not per instance, so one shared instance sees the same values and the same writes from the app as a fresh instance would.
+  static let appGroupDefaults: UserDefaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
 }

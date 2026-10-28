@@ -48,7 +48,26 @@ export class HandwritingStrokePolicy {
       Number.isFinite(height) && height > 0 ? height : HANDWRITING_CANVAS_SIZE;
     const scale: number = HANDWRITING_CANVAS_SIZE / Math.max(canvasWidth, canvasHeight);
     return HandwritingStrokePolicy.point(
-      (Number.isFinite(x) ? x : 0) * scale, (Number.isFinite(y) ? y : 0) * scale);
+      (Number.isFinite(x) ? x : 0) * scale,
+      (Number.isFinite(y) ? y : 0) * scale,
+    );
+  }
+
+  /**
+   * 墨色是否完全不透明。书写中只补画新的一小段，圆头线段首尾相接处的笔迹会画两遍：不透明的墨色画两遍和一条连续路径看起来一样，半透明的会在每个接点叠出深色圆点，所以只有能确认不透明（`#RGB`、`#RRGGBB`，或透明度为 FF 的 `#ARGB`/`#AARRGGBB`）时才走补画，认不出的格式按半透明处理、整幅重画。
+   */
+  static opaqueInk(color: string): boolean {
+    if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color)) {
+      return false;
+    }
+    const digits: number = color.length - 1;
+    if (digits === 4) {
+      return color[1] === "f" || color[1] === "F";
+    }
+    if (digits === 8) {
+      return color.substring(1, 3).toUpperCase() === "FF";
+    }
+    return true;
   }
 
   static canRecognize(strokes: HandwritingStroke[]): boolean {

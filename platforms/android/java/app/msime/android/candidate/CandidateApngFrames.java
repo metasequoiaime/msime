@@ -43,6 +43,18 @@ public final class CandidateApngFrames {
         return frames[frames.length - 1];
     }
 
+    /** 当前帧还要停多久才换下一帧；不动（单帧、减弱动效或有限循环已停在末帧）时返回 -1。 */
+    public long millisUntilNextFrame(long elapsed, boolean motion) {
+        if (!motion || frames.length < 2) return -1;
+        long duration = durationMillis();
+        elapsed = Math.max(0, elapsed);
+        if (loops != 0 && elapsed / duration >= loops) return -1;
+        long time = elapsed % duration;
+        for (int i = 0; i < ends.length - 1; i++) if (time < ends[i]) return ends[i] - time;
+        // 末帧之后回到首帧；有限循环的最后一遍停在末帧，不再换帧。
+        return loops != 0 && elapsed / duration == loops - 1 ? -1 : duration - time;
+    }
+
     /** 普通 PNG 返回 null；损坏、越界或不完整的 APNG 抛异常，不能悄悄只画默认图。 */
     public static CandidateApngFrames decode(byte[] bytes) throws IOException {
         if (bytes.length < 8 || !Arrays.equals(Arrays.copyOf(bytes, 8), SIGNATURE)) return null;

@@ -84,6 +84,22 @@ pub struct CandidateSnapshot {
     pub candidates: Vec<Candidate>,
 }
 
+/// 一代候选里按需取的一段（[`Runtime::candidate_range`]），身份与 [`CandidateSnapshot`] 里同一座位的那一行相同。
+///
+/// 触屏宿主的横向候选条每键都要重画，只取它这次建得出来的那一批，不必每键把整代候选（单个声母可有几千行）序列化一遍再在宿主主线程上解析。
+#[derive(Clone, Debug, Serialize)]
+pub struct CandidateRange {
+    pub session: u64,
+    pub generation: u64,
+    pub preedit: String,
+    /// Engine-owned kana reading for Japanese, the composing Hangul for Korean; empty for other schemes.
+    pub reading: String,
+    /// 这一代已经放出来的候选总数。引擎可能还扣着一段尾部（首字母只先给 24 行），从这个位置往后再取时才放出来。
+    pub total: usize,
+    /// 座位 `start` 起的候选，最多 `count` 行，到 `total` 为止。
+    pub candidates: Vec<Candidate>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum CharacterWidth {
     Fullwidth,

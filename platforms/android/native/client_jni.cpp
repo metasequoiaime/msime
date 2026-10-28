@@ -768,6 +768,11 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_viewRaw(JNIEnv 
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_allCandidatesRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_all_candidates(static_cast<uint64_t>(handle)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_candidateRangeRaw(JNIEnv *env, jclass, jlong handle, jint start, jint count) {
+    if (start < 0 || count < 0) return nullptr;
+    return response(env, msime_client_candidate_range(static_cast<uint64_t>(handle),
+        static_cast<size_t>(start), static_cast<size_t>(count)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyTranslationsRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jbyteArray translations) {
     if (!translations || generation < 0) {
         return response(env, msime_client_apply_translations(static_cast<uint64_t>(handle),

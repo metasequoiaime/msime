@@ -113,31 +113,58 @@ final class HandwritingCanvas: UIView {
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
     guard acceptsInk, strokes.count < 64, let touch = touches.first else { return }
     drawing = true
-    strokes.append([touch.location(in: self)])
+    let point = touch.location(in: self)
+    strokes.append([point])
     onStrokeBegan?()
-    setNeedsDisplay()
+    setNeedsDisplay(inkDirtyRect(around: CGRect(origin: point, size: .zero)))
   }
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
     guard drawing, let touch = touches.first, !strokes.isEmpty else { return }
-    for point in (event?.coalescedTouches(for: touch) ?? [touch]).map({ $0.location(in: self) }) {
+    extendStroke((event?.coalescedTouches(for: touch) ?? [touch]).map { $0.location(in: self) })
+  }
+  /// 把 `points` 接到最后一笔上，只让新线段（原来的末点到新接上的点）所在的区域重画，返回这块区域；一个点都没接上时为 nil，也不重画。
+  ///
+  /// 书写时每一帧都会走到这里。以前每次都整块面板重画：卡片、投影、辅助线，再把已写的每一笔从头描一遍，低端机上手写时一直占着主线程发热；现在每帧只光栅化新线段周围几十个点见方的一小块，`draw(_:)` 在这块区域里按同样的顺序画同样的东西，所以画出来和整块重画一样。
+  @discardableResult func extendStroke(_ points: [CGPoint]) -> CGRect? {
+    guard !strokes.isEmpty else { return nil }
+    var changed = CGRect.null
+    if let start = strokes[strokes.count - 1].last { changed = CGRect(origin: start, size: .zero) }
+    var appended = false
+    for point in points {
       guard strokes[strokes.count - 1].count < 512 else { break }
       let bounded = CGPoint(
         x: SharedNumber.clamped(point.x, to: 0...bounds.width),
         y: SharedNumber.clamped(point.y, to: 0...bounds.height))
       if let last = strokes.last?.last, hypot(last.x - bounded.x, last.y - bounded.y) < 1 { continue }
       strokes[strokes.count - 1].append(bounded)
+      changed = changed.union(CGRect(origin: bounded, size: .zero))
+      appended = true
     }
-    setNeedsDisplay()
+    guard appended else { return nil }
+    let dirty = inkDirtyRect(around: changed)
+    setNeedsDisplay(dirty)
+    return dirty
+  }
+  /// `points` 的外框放大到笔迹能画到的范围：半个笔宽的圆头和圆角，再留 2pt 给抗锯齿。
+  private func inkDirtyRect(around points: CGRect) -> CGRect {
+    let margin = inkWidth / 2 + 2
+    return points.insetBy(dx: -margin, dy: -margin)
   }
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
     guard drawing else { return }; touchesMoved(touches, with: event); drawing = false; onChange?()
   }
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { if drawing { undo() } }
-  private func drawInk(_ context: CGContext, color: UIColor, width: CGFloat) {
+  private func drawInk(_ context: CGContext, in rect: CGRect, color: UIColor, width: CGFloat) {
     context.setStrokeColor(color.cgColor); context.setFillColor(color.cgColor)
     context.setLineWidth(width); context.setLineCap(.round); context.setLineJoin(.round)
     for stroke in strokes {
       guard let first = stroke.first else { continue }
+      // 只重画新线段那一小块时，大多数笔画碰不到它，描了也会被裁掉，先按外框跳过。
+      var minX = first.x, minY = first.y, maxX = first.x, maxY = first.y
+      for point in stroke.dropFirst() {
+        minX = min(minX, point.x); minY = min(minY, point.y); maxX = max(maxX, point.x); maxY = max(maxY, point.y)
+      }
+      guard inkDirtyRect(around: CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)).intersects(rect) else { continue }
       if stroke.count == 1 { context.fillEllipse(in: CGRect(x: first.x - width / 2, y: first.y - width / 2, width: width, height: width)); continue }
       context.beginPath(); context.move(to: first)
       for point in stroke.dropFirst() { context.addLine(to: point) }
@@ -147,9 +174,10 @@ final class HandwritingCanvas: UIView {
   override func draw(_ rect: CGRect) {
     guard let context = UIGraphicsGetCurrentContext() else { return }
     let skin = KeyboardTheme.current
+    // 书写时 `rect` 只是新线段周围的一小块，UIKit 已把绘制裁到这块里、其余部分保留上一次的结果；卡片照样整张画，只有落在这块里的像素会真正光栅化。
     HandwritingCanvasCard.draw(HandwritingCanvasCard.cardRect(in: cardRect.isEmpty ? bounds : cardRect, skin: skin),
                                in: context, skin: skin, traits: traitCollection)
-    drawInk(context, color: ink(skin), width: inkWidth)
+    drawInk(context, in: rect, color: ink(skin), width: inkWidth)
     // The status label is centred over the same card and carries the empty-state and live messages.
   }
   private func ink(_ skin: KeyboardTheme) -> UIColor {

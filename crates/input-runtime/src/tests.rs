@@ -7831,6 +7831,63 @@ fn releasing_the_held_tail_publishes_a_new_generation() {
 }
 
 #[test]
+fn candidate_range_copies_one_batch_without_releasing_the_held_tail() {
+    // 候选条每键只取一批：放出来的 12 行之内不向引擎要暂扣的 8 行，也不换代，首字母不必把整张声母表查出来。
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let view = runtime.view();
+    let first = runtime.candidate_range(0, 48);
+    assert_eq!(first.generation, view.generation);
+    assert_eq!(first.total, 12);
+    assert_eq!(first.candidates.len(), 12);
+    let middle = runtime.candidate_range(3, 4);
+    assert_eq!(middle.generation, view.generation);
+    assert_eq!(
+        middle
+            .candidates
+            .iter()
+            .map(|candidate| candidate.id.index)
+            .collect::<Vec<_>>(),
+        vec![3, 4, 5, 6]
+    );
+    assert_eq!(runtime.view().generation, view.generation);
+    assert!(runtime.candidate_range(5, 0).candidates.is_empty());
+    assert_eq!(runtime.view().generation, view.generation);
+
+    // 和视图里同一座位的那一行是同一个身份、同一个候选。
+    assert_eq!(view.candidates.len(), 5);
+    for (ranged, shown) in first.candidates.iter().zip(&view.candidates) {
+        assert_eq!(ranged.id, shown.id);
+        assert_eq!(ranged.text, shown.text);
+    }
+}
+
+#[test]
+fn candidate_range_past_the_released_rows_releases_the_tail_in_a_new_generation() {
+    // 宿主把放出来的都建完了还要更多，才放出暂扣的尾部；座位可能重排，所以换一代，宿主据此从头取。
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let before = runtime.view().generation;
+    let more = runtime.candidate_range(12, 48);
+    assert!(more.generation > before);
+    assert_eq!(more.total, 20);
+    assert_eq!(more.candidates.len(), 8);
+    assert_eq!(more.candidates[0].id.index, 12);
+    assert_eq!(runtime.view().generation, more.generation);
+    // 没有可放的了：同一代、一行不给，宿主据此停止追加。
+    let exhausted = runtime.candidate_range(20, 48);
+    assert_eq!(exhausted.generation, more.generation);
+    assert_eq!(exhausted.total, 20);
+    assert!(exhausted.candidates.is_empty());
+    assert_eq!(
+        runtime.candidate_range(0, 48).candidates.len(),
+        runtime.all_candidates().candidates.len()
+    );
+}
+
+#[test]
 fn full_list_does_not_reorder_after_generation_identity_is_exhausted() {
     let mut runtime = withholding_runtime(12, 8, 5);
     runtime.focus(true).unwrap();

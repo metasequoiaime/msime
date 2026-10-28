@@ -383,7 +383,7 @@ pub(crate) fn music_active(sound: &SessionSound, active: bool) -> bool {
     deliver(sound, Event::Music(active))
 }
 
-/// Whether the process's sessions last asked for achievement sounds; the statistics recorder only reads the count before a commit when they did.
+/// Whether the process's sessions last asked for achievement sounds; the statistics recorder only reports a milestone when they did.
 pub(crate) fn achievements_armed() -> bool {
     ACHIEVEMENTS.load(Ordering::Relaxed)
 }

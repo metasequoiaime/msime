@@ -303,6 +303,14 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
         check(frozen.getPixel(0, 0) == 0xffff0000, "reduced-motion first frame");
         Bitmap finalFrame = (Bitmap) call(animation, "frameAt", new Class<?>[] {long.class, boolean.class}, 2000L, true);
         check(finalFrame.getPixel(1, 0) == 0 && finalFrame.getPixel(0, 0) == 0xffffffff, "finite animation final frame");
+        // 画布只在换帧那一刻约下一次重画：剩余时长要落在帧边界上，停住的动画不再约。
+        long[][] waits = {{0, 100}, {150, 50}, {299, 1}, {300, -1}, {350, -1}, {2000, -1}};
+        for (long[] wait : waits) {
+            Object left = call(animation, "millisUntilNextFrame", new Class<?>[] {long.class, boolean.class}, wait[0], true);
+            check(left.equals(wait[1]), "APNG next frame at " + wait[0] + " was " + left);
+        }
+        check(call(animation, "millisUntilNextFrame", new Class<?>[] {long.class, boolean.class}, 0L, false).equals(-1L),
+            "reduced-motion APNG must not schedule frames");
         bytes[bytes.length - 1] ^= 1;
         try {
             type.getMethod("decode", byte[].class).invoke(null, (Object) bytes);

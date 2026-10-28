@@ -1630,13 +1630,47 @@ impl<E: InputEngine> Runtime<E> {
     /// quietly showing the first tranche. Release them here too: this call is the request for all of
     /// them. A refusal is not fatal; the caller still gets whatever the generation already holds.
     pub fn all_candidates(&mut self) -> CandidateSnapshot {
+        self.release_held_candidates();
+        self.all_candidates_cached()
+    }
+
+    /// 座位 `start` 起最多 `count` 行候选，给每键都要重画的横向候选条用：只序列化这一批，不像 [`Self::all_candidates`] 那样整代复制。
+    ///
+    /// 引擎暂扣的尾部只在 `start` 已经走到放出来的末尾（宿主把已有的都建完了还要更多）时才放，和翻页宿主翻到最后一页时一样；放出来会重排座位并换一代，宿主看到 `generation` 变了就要按新的一代从头取。首字母打下去时因此不必把整张声母表查出来。
+    pub fn candidate_range(&mut self, start: usize, count: usize) -> CandidateRange {
+        if count > 0 && start >= self.visible_len() {
+            self.release_held_candidates();
+        }
+        let total = self.visible_len();
+        let end = start.saturating_add(count).min(total);
+        let candidates = self
+            .cached
+            .candidates
+            .iter()
+            .enumerate()
+            .take(end)
+            .skip(start)
+            .map(|(index, text)| self.candidate(index, text))
+            .collect();
+        CandidateRange {
+            session: self.session,
+            generation: self.generation,
+            preedit: self.cached.preedit.clone(),
+            reading: self.cached.reading.clone(),
+            total,
+            candidates,
+        }
+    }
+
+    /// 让引擎放出暂扣的候选尾部；放出来了就换一代。
+    fn release_held_candidates(&mut self) {
         // Candidate IDs are tied to the generation.  Once that identity space is
         // exhausted we cannot publish a reordered snapshot safely: advancing would
         // fail and retaining the old generation would let an ID from the previous
         // seat select a different candidate.  Keep the currently published view
         // stable; callers can still inspect the candidates already released.
         if self.generation == u64::MAX {
-            return self.all_candidates_cached();
+            return;
         }
         // The released tail reorders the list, so the page's IDs must not keep selecting by seat.
         if self.expand_cached_candidates().unwrap_or(false) {
@@ -1644,7 +1678,6 @@ impl<E: InputEngine> Runtime<E> {
             let advanced = self.advance();
             debug_assert!(advanced.is_ok());
         }
-        self.all_candidates_cached()
     }
 
     /// The generation as it stands, without asking the engine for more.

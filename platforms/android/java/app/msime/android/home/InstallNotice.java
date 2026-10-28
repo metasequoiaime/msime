@@ -39,10 +39,20 @@ final class InstallNotice {
             .setMessage(MESSAGE)
             .setPositiveButton("知道了", null)
             .create();
-        dialog.setOnShowListener(ignored -> new Handler(Looper.getMainLooper())
-            .postDelayed(() -> { if (dialog.isShowing()) dialog.dismiss(); },
-                InstallNoticePolicy.dismissDelayMillis(MESSAGE.length())));
-        if (afterDismiss != null) dialog.setOnDismissListener(ignored -> afterDismiss.run());
+        Handler handler = new Handler(Looper.getMainLooper());
+        Runnable autoDismiss = () -> {
+            // Activity 销毁时窗口可能已由系统移除，但 Dialog 仍报告正在显示。
+            if (!activity.isFinishing() && !activity.isDestroyed() && dialog.isShowing()
+                    && dialog.getWindow() != null
+                    && dialog.getWindow().getDecorView().isAttachedToWindow()) dialog.dismiss();
+        };
+        dialog.setOnShowListener(ignored -> handler.postDelayed(autoDismiss,
+            InstallNoticePolicy.dismissDelayMillis(MESSAGE.length())));
+        dialog.setOnDismissListener(ignored -> {
+            handler.removeCallbacks(autoDismiss);
+            if (afterDismiss != null && !activity.isFinishing() && !activity.isDestroyed())
+                afterDismiss.run();
+        });
         dialog.show();
         return true;
     }
