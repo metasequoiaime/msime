@@ -207,7 +207,9 @@ test("the HarmonyOS phone 候选栏 group offers 候选栏大小 right after the
   expect(scale.getAttribute("min")).toBe("50");
   expect(scale.getAttribute("max")).toBe("200");
   const all = within(candidate).getAllByRole("slider");
-  expect(all.indexOf(scale)).toBe(all.indexOf(within(candidate).getByRole("slider", { name: "候选字号" })) + 1);
+  expect(all.indexOf(scale)).toBe(
+    all.indexOf(within(candidate).getByRole("slider", { name: "候选字号" })) + 1,
+  );
   expect(screen.queryByRole("slider", { name: "整体大小" })).toBeNull();
 });
 
