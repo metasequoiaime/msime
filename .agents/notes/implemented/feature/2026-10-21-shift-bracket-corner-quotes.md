@@ -19,6 +19,8 @@ Status: implemented
 
 ## 其他平台
 
+键位语义已由 [第 5 版笔记](2026-10-29-brace-keys-fixed-corner-brackets.md)（issue #10047）定为固定「/」：契约把 `{` `}` 挪进 `simple`，引擎和英文模式表不再交替，下面待办里的 Linux、Windows TIP 两项与最后一条的键位分裂由那篇落地；本篇其余记录仍是第 3 版当时的状态。
+
 契约是全平台共用：Windows TIP 经 `policy.h`、Linux 经同一引擎拿表，所以语义上各平台都会跟着变。但 `{`/`}` 键在多数宿主上仍被引擎之前的拦截挡住，拿不到新功能：Linux IBus/Fcitx5 在 `pairedPunctuation` 里把 `{` 拦成 `Mode::Brace` + `msime_client_punctuation_ascii`，Windows TIP 在 `PairedPunctuationHostPolicy.h`/`Globals.cpp` 把 `{` 查表成 `{`/`｛`。不改不会回归——`{` 继续出 `{}`。待办：
 
 - Linux：把 `{`/`}` 改走 `msime_client_punctuation` + 引号配对面（`normalize_punctuation_pair` 已能按提交尾认「」『』），`paired_closing_for_key('}')` 的 `}`/`｝` 跨过条目退役。
