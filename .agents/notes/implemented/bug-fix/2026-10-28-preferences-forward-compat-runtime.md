@@ -95,6 +95,8 @@ Status: implemented
   - 语音识别的 `asr_provider`、`asr_endpoint` → `voice_input.enabled` 关掉；润色的 `polish_provider`、`polish_endpoint` → `polish_enabled` 关掉；
   - 自定义翻译的 `endpoint` → `custom_translation.enabled` 关掉；
   - 代理模式读不了而文档里填了代理地址 → 用这个地址（`Custom`）。新版本的代理类型和 HTTP 代理不兼容时请求失败，而不是绕开代理直连。
+  - 去向叶子的 JSON pointer 不存在时，继续查最近存在的祖先：祖先是对象，表示整段或字段真正缺省，照旧采用默认去向；祖先不是对象，表示原服务段无法按字段读取，按去向未保留处理。否则 `cloud_candidate_provider` 整段变成字符串或 `null` 后，开关仍能被救下，服务却回到 Google；`ai_assistant` 整段损坏时，顶层的 `translation_ai` 也会错误保留。
+  - 这条只约束救援结果，不改变严格反序列化接受的形状：空数组原本可被 serde 读成缺省字段，不一定让文档读不了；只有文档因其它字段损坏而进入救援时，这个非对象服务段才会保守关闭。真正省略段落和对象内字段（包括 `{}`）继续沿用原有缺省行为，AI 空对象的逐字段默认与整段默认不同也不改变。
   - 腾讯、小牛翻译和云剪贴板、词库同步的 WebDAV 不在其中：它们的去向是固定的服务商或用户填的地址，默认值是空的、不会发到别处。匿名使用报告读的是严格的 `load`，偏好读不了时不上报也不清空（`ffi/reporting.rs` 的 `consent`），不受降级影响。
   - 设置页的「修复」（`recover`）不这样做：它写下的结果用户在设置页看得见、改得了。
 - **host-api 有两处改用它**，所有平台都经过这两处：
@@ -140,6 +142,7 @@ Status: implemented
   - 用户在本版本里清空模糊音规则并关掉模糊音，更新版本加的规则仍会接回，本版本里也看不到、删不掉；开关关着时它不起作用，更新的版本再打开模糊音时才生效。
   - 两边都读不了（副本通不过校验、实时文档也读不了）时，每次建会话、词库请求和快照请求都会重新救一遍并报告一次，没有缓存。只有副本出自校验更严或更松的另一个版本时才会走到这里，没有实测开销。
 - **已知上限**：
+  - `network` 整段损坏且代理地址无法救下时，仍回到默认的 `System` 和空代理地址；关闭去向的这次补丁不能重建用户的代理配置。该残余交由代理实现补齐，不在此处改变网络策略。
   - 已经发出去的版本照旧严格。不写出默认排列以后，降级到 Android 0.6.0、HarmonyOS 0.3.0-beta、macOS 0.55.0、Linux 0.14.0 时读得了用户没排过顺序的文档；在 Android 上排过文本编辑面板顺序的用户，或者文档里有那些版本不认识的其它取值，仍然读不了，只能升级回来或在设置页修复。
   - 除韩文布局、文本编辑排列、触屏方案和模糊音规则之外，其它字段的新取值仍让整份文档严格读不了，只是不再挡住打字。
 
@@ -162,6 +165,10 @@ Status: implemented
 - 运行时降级：
   - `load_for_runtime_keeps_typing_on_unreadable_documents`：更新版本的标量枚举、通不过校验的值都能运行，读不了的键取默认值并列进 `not_kept`，其余设置照旧，修订号沿用文档里的值；更新的格式版本、不是 JSON 的字节整份取默认值，`not_kept` 是 `["*"]`。文件不变，`save` 仍被拒绝。
   - `runtime_salvage_closes_features_whose_destination_was_not_kept`：别的设置读不了时云候选和代理照常；云候选来源读不了时云候选关掉；代理模式读不了而填了地址时用这个地址；AI 地址表、语音识别和润色地址读不了时对应功能关掉。
+  - `runtime_salvage_closes_cloud_when_its_destination_section_is_not_an_object` 和 `runtime_salvage_closes_ai_when_its_destination_section_is_not_an_object`：直接调用真实 `Preferences::salvaged_from`，服务整段分别为字符串、`null`、空数组、数字和布尔值，同时用无关的 `candidate_layout` 未来值确保原文档严格读不了；救援后关闭对应开关，另一功能保留，结果通过校验。修复前两项实际在各自首个 `"future-shape"` 的关闭断言失败，不把后续形状冒称为逐个复现。
+  - `runtime_salvage_keeps_features_with_missing_destination_defaults`：整段省略与空对象两种文档都因无关字段进入真实救援，云候选和 AI 翻译继续开启，服务配置与同一原文档严格读取的结果一致。
+  - 严格 clippy 首次仍发现此前基线里的 `android_keyboard_skin_slots_round_trip_without_changing_legacy_theme` 在默认初始化后逐字段赋值；该测试现改为等价的结构体初始化，字段取值和校验行为不变，不放宽 lint。
+  - 服务父段补修的完整 `bash scripts/verify-local.sh --quick` 退出 0：202 项 Windows 可移植测试、仓库契约、Rust workspace、Android Rust/Java、WASM 及严格 Clippy、Linux 设置壳和原生门禁、macOS 原生编译与共享 Apple 桥通过。Linux 注册 112 项，111 项通过、`linux-ibus-demand-activation` 因环境跳过，full/wubi 构建及安装隔离通过。未配置的 Windows 原生/pipe-only 与鸿蒙 HAP 按脚本规则跳过；没有把跨目标编译计为设备验收。core 全目标严格 Clippy 和救援回归另行通过。
   - `recover_keeps_what_a_newer_version_wrote`：修复后顶层和段落里的未知键、启用列表里的新方案都还在，读不了的取值换成默认值。
   - host-api 的 `clipboard_reader_respects_preferences_and_preserves_history`：偏好里别的设置读不了时剪贴板面板照常列出条目，整份读不了时按关闭处理。
   - `every_string_setting_with_a_future_value_still_runs` 覆盖所有字符串取值。
