@@ -41,7 +41,7 @@ final class ImeTextEditPanel {
     private boolean modeSaving;
     private boolean destroyed;
     private long modeSaveGeneration;
-    private long selectionVersion;
+    private final TextTrackpadSelectionVersion selectionVersion = new TextTrackpadSelectionVersion();
     private int selectionStart = -1;
     private int selectionEnd = -1;
     private boolean previewActive;
@@ -102,7 +102,7 @@ final class ImeTextEditPanel {
             @Override public void active(boolean active) {
                 if (active) {
                     selectionReads.cancel();
-                    selectionVersion++;
+                    selectionVersion.invalidate();
                 }
                 setPreviewActive(active);
             }
@@ -266,6 +266,7 @@ final class ImeTextEditPanel {
         temporaryTrackpad = false;
         stopRepeat();
         selectionReads.cancel();
+        selectionVersion.reset();
         if (trackpad != null) trackpad.cancel();
         setPreviewActive(false);
         selecting = false;
@@ -597,7 +598,7 @@ final class ImeTextEditPanel {
     }
 
     void selectionChanged(int start, int end) {
-        selectionVersion++;
+        selectionVersion.reported(start, end);
         selectionStart = start;
         selectionEnd = end;
         refreshPreview();
@@ -662,16 +663,17 @@ final class ImeTextEditPanel {
     private void selectTrackpad(TextTrackpadGesture.Tap tap) {
         InputConnection target = s.connection;
         if (target == null || EditorPolicy.password(s.editorInputType)) return;
-        long version = selectionVersion;
+        long version = selectionVersion.current();
         selectionReads.request(() -> readTrackpadSelection(target, tap), range -> {
-            if (s.connection != target || version != selectionVersion || !ViewPolicy.isVisible(s.textEditPanel)) return;
+            if (s.connection != target || version != selectionVersion.current() || !ViewPolicy.isVisible(s.textEditPanel)) return;
             if (range == null) {
                 s.notice("当前编辑器未提供完整的词或行，仍可长按拖动选择");
                 return;
             }
             s.selectionEcho.invalidate();
             try {
-                if (!target.setSelection(range.start(), range.end())) s.notice("当前输入框不支持选择");
+                if (target.setSelection(range.start(), range.end())) selectionVersion.applied(range.start(), range.end());
+                else s.notice("当前输入框不支持选择");
             }
             catch (RuntimeException ignored) { s.notice("当前输入框不支持选择"); }
         });

@@ -322,7 +322,7 @@ pub fn execute(
         skip_push: !push && !manual,
         ..options
     };
-    let mut requests = std::mem::take(&mut state.schedule.requests);
+    // 核心会在本轮中途保存整个状态，历史窗口必须始终留在状态里。
     let request_start = parts.remote.request_count();
     let result = {
         let mut metered = Metered {
@@ -342,13 +342,15 @@ pub fn execute(
             metered.inner.finish(report, now_ms);
         }
         if let (Some(start), Some(end)) = (request_start, metered.inner.request_count()) {
-            requests.extend(std::iter::repeat_n(now_ms, end.saturating_sub(start)));
+            state
+                .schedule
+                .requests
+                .extend(std::iter::repeat_n(now_ms, end.saturating_sub(start)));
         } else {
-            requests.extend(metered.requests);
+            state.schedule.requests.extend(metered.requests);
         }
         result
     };
-    state.schedule.requests = requests;
     // 手动同步时额度已经用完：照常记录了本机改动，但告诉用户为什么没有同步。
     let result = match result {
         Ok(_) if manual && !network => Err(SyncError::RateLimited),

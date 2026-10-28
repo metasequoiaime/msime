@@ -4345,12 +4345,25 @@ public final class MSIMEInputService extends InputMethodService {
     private int readingRowHeight() {
         int design = pixels(ImeToolbar.READING_ROW_DP);
         if (preedit == null) return design;
-        Paint.FontMetricsInt metrics = preedit.getPaint().getFontMetricsInt();
         // 读音行自己的上下内边距（下边就是和候选行之间的 READING_GAP_DP）也算进去，否则字号大时间距被读音挤掉。
         int headerPadding = candidateHeader == null ? 0
             : candidateHeader.getPaddingTop() + candidateHeader.getPaddingBottom();
-        return ReadingRowPolicy.heightPx(design, metrics.ascent, metrics.descent,
-            preedit.getPaddingTop() + preedit.getPaddingBottom() + headerPadding);
+        int height = readingLabelHeight(preedit, design, headerPadding);
+        // 「清除」等按钮的字号和字体留白可能比读音大；收起时仍预留同一行高，避免输入时键盘跳动。
+        if (candidateHeader != null) for (int index = 0; index < candidateHeader.getChildCount(); index++) {
+            View child = candidateHeader.getChildAt(index);
+            if (child instanceof TextView label)
+                height = Math.max(height, readingLabelHeight(label, design, headerPadding));
+        }
+        return height;
+    }
+
+    private int readingLabelHeight(TextView label, int design, int headerPadding) {
+        Paint.FontMetricsInt metrics = label.getPaint().getFontMetricsInt();
+        int top = label.getIncludeFontPadding() ? metrics.top : metrics.ascent;
+        int bottom = label.getIncludeFontPadding() ? metrics.bottom : metrics.descent;
+        return ReadingRowPolicy.heightPx(design, top, bottom,
+            label.getCompoundPaddingTop() + label.getCompoundPaddingBottom() + headerPadding);
     }
 
     void fail(Throwable error) {
