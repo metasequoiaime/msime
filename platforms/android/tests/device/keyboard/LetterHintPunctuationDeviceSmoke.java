@@ -591,7 +591,8 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     /** 英文角标包含三个非 ASCII 字符，期望表独立于产品字符表。 */
     private void runEnglishSwipeChecks() throws Exception {
         String letters = "dxcqwertyuiopasfghjklzvbnm";
-        String[] symbols = {"¥", "…", "、", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+        // 英文键盘的 X、C 角标从 #9995 起是下划线和反引号（中文键盘仍是 … 和 、），D 仍是非 ASCII 的 ¥。
+        String[] symbols = {"¥", "_", "`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
             "@", "#", "%", "&", "*", "(", ")", "\"", "~", "?", "!", "-", "/"};
         for (String direction : new String[] {"down", "up"}) {
             shellDiscard("am force-stop app.msime.android.test");

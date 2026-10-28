@@ -452,7 +452,7 @@ check "Letter hold case acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrum
 check "Letter swipe option acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e letter-swipe true
 # 英文三排长按覆盖大小写、数字与字母上下标、声调和 O 的既有切换入口。
 check "English letter hold acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-hold true
-# 英文三排角标在两种方向上均应上屏，包含 D、X、C 的非 ASCII 符号。
+# 英文三排角标在两种方向上均应上屏，包含 D 的非 ASCII 符号和 #9995 改成下划线、反引号的 X、C。
 check "English symbol swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-swipe true
 if [[ "$settings" == true ]]; then
   for suite in OptionSheetDeviceSmoke SettingsDeviceSmoke SettingsLifecycleSmoke AccountStorageDeviceSmoke CloudClipboardKeystoreDeviceSmoke CloudClipboardDriverDeviceSmoke CloudClipboardRelayDeviceSmoke; do
