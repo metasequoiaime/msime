@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import platform
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,6 +66,42 @@ class CrashSymbolsTests(unittest.TestCase):
         subprocess.run(["xcrun", "dsymutil", str(binary), "-o", str(dsym)], check=True, capture_output=True)
         with self.assertRaisesRegex(ValueError, "没有可还原的源码行"):
             symbols.validate(binary, dsym)
+
+    def test_manifest_uses_the_capture_build_identity(self):
+        binary, dsym = self.compile(arch=platform.machine())
+        identity = {"MSIME_BUILD_REVISION": "1" * 40, "MSIME_BUILD_RUN": "synthetic-local-run",
+                    "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2"}
+        with patch.dict(os.environ, identity):
+            symbols.collect(binary, self.root / "explicit", dsym, "1.2.3")
+            manifest = json.loads((self.root / "explicit/manifest.json").read_text())
+            self.assertEqual(manifest["source_revision"], identity["MSIME_BUILD_REVISION"])
+            self.assertEqual(manifest["build_run"], identity["MSIME_BUILD_RUN"])
+            self.assertEqual(manifest["build_attempt"], "2")
+            del os.environ["MSIME_BUILD_RUN"]
+            symbols.collect(binary, self.root / "github", dsym, "1.2.3")
+            manifest = json.loads((self.root / "github/manifest.json").read_text())
+            self.assertEqual(manifest["build_run"], "123")
+
+    def test_reject_mixed_identity_before_replacing_archived_symbols(self):
+        binary, dsym = self.compile(arch=platform.machine())
+        archive = self.root / "archive"
+        identity = {"MSIME_BUILD_REVISION": "1" * 40, "MSIME_BUILD_RUN": "synthetic-run",
+                    "GITHUB_RUN_ATTEMPT": "1"}
+        with patch.dict(os.environ, identity):
+            symbols.collect(binary, archive, dsym, "1.2.3")
+        original_manifest = (archive / "manifest.json").read_bytes()
+        original_dwarf = symbols.dwarf_file(archive / "fixture.dSYM").read_bytes()
+        self.source.write_text("int main(void) { return 8; }\n")
+        binary, dsym = self.compile(arch=platform.machine())
+        cases = [("version", {}, "1.2.4"), ("revision", {"MSIME_BUILD_REVISION": "2" * 40}, "1.2.3"),
+                 ("run", {"MSIME_BUILD_RUN": "other-run"}, "1.2.3"),
+                 ("attempt", {"GITHUB_RUN_ATTEMPT": "2"}, "1.2.3")]
+        for name, changed, version in cases:
+            with self.subTest(name=name), patch.dict(os.environ, {**identity, **changed}):
+                with self.assertRaisesRegex(ValueError, "构建身份"):
+                    symbols.collect(binary, archive, dsym, version)
+                self.assertEqual((archive / "manifest.json").read_bytes(), original_manifest)
+                self.assertEqual(symbols.dwarf_file(archive / "fixture.dSYM").read_bytes(), original_dwarf)
 
     def test_reject_other_build_and_missing_architecture(self):
         arm, arm_dsym = self.compile("arm", "arm64")

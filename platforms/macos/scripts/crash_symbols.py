@@ -102,6 +102,18 @@ def merge(binary: Path, output: Path, inputs: list[Path]) -> None:
 
 
 def collect(binary: Path, output: Path, source: Path | None, version: str) -> None:
+    # 与客户端构建头采用相同的显式覆盖和 CI 回退；先核对整包身份，再替换任何已归档模块。
+    revision = os.environ.get("MSIME_BUILD_REVISION") or run("git", "rev-parse", "HEAD").strip()
+    identity = {"format": 1, "platform": "macos", "version": version, "source_revision": revision,
+                "build_run": os.environ.get("MSIME_BUILD_RUN", os.environ.get("GITHUB_RUN_ID", "")),
+                "build_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "")}
+    manifest_path = output / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        if any(manifest.get(key) != value for key, value in identity.items()):
+            raise ValueError("同一符号目录不能混入不同构建身份")
+    else:
+        manifest = {**identity, "modules": []}
     output.mkdir(parents=True, exist_ok=True)
     target = output / (binary.name + ".dSYM")
     with tempfile.TemporaryDirectory(prefix=".msime-dsym-", dir=output) as directory:
@@ -116,16 +128,6 @@ def collect(binary: Path, output: Path, source: Path | None, version: str) -> No
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
-    manifest_path = output / "manifest.json"
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text())
-    else:
-        revision = run("git", "rev-parse", "HEAD").strip()
-        manifest = {"format": 1, "platform": "macos", "version": version, "source_revision": revision,
-                    "build_run": os.environ.get("GITHUB_RUN_ID", ""),
-                    "build_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""), "modules": []}
-    if manifest["version"] != version:
-        raise ValueError("同一符号目录不能混入不同版本")
     manifest["modules"] = [row for row in manifest["modules"] if row["name"] != binary.name]
     manifest["modules"].append({"name": binary.name, "uuids": uuids, "dsym": target.name,
                                 "dwarf_sha256": digest})
