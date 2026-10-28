@@ -55,5 +55,6 @@ Status: implemented
 - Android：`check-host.sh` 通过（292 个 JVM 冒烟，含新增的 `VoiceListeningPolicySmoke` 和扩充的 `VoiceAudioLevelSmoke`，252 个设备套件源文件编译）。在 Mac Studio 上用同一份源码分别编出 develop 基线和本分支的 APK，装到专用 API 35 模拟器（Pixel 6，1080×2400），用一个只发回调、不录音的合成识别服务持续报音量和逐字的中间文字，按住空格截图：基线竖屏和横屏的光圈都被切成平顶、取消按钮贴着键行、中间文字挤掉了提示；本分支竖屏、横屏、深色、字体 130%、关闭动画下光圈都在面板内，中间文字在标题位从开头省略，提示行保留，取消区、识别中、识别完成三态正确。合成服务只在截图时临时编进测试包，没有提交。
 - HarmonyOS：`tests/run.sh` 通过（新增 48 项检查）；`hvigorw assembleHap` 编译 ArkTS 成功；`test-harmony-unwired-policies.py`、`test-harmony-unwired-symbols.py`、`test-harmony-arkts-subset.py` 通过。没有上设备或模拟器：HAP 不带原生库时键盘起不来。
 - iOS：Studio 上 iOS 27 模拟器跑 `SpaceVoicePanelTests`、`VoiceSessionTests` 和一个临时截图用例共 27 项全部通过，MSIMEApp 模拟器构建成功。完整 `MSIMEClientTests` 在 Studio 过载时停在 928 项通过，唯一失败是无关的计时用例 `IdleMaintenancePollTests`，所以完整套件结果没有拿到。截图由 XCTest 直接渲染面板得到，不是真键盘界面。
+- 设备测试的文本编辑顺序检查通过正式 JNI 补齐磁盘中被省略的默认值，与同期其余 PR 的设备测试补修一致；未改变产品默认排列。
 - 审查补修：HarmonyOS 的尾部截取复用 `TextPolicy.characters`，避免 ArkTS 运行时的 `Array.from` 按 UTF-16 码元拆开 emoji；由 `test-harmony-string-code-points.py` 和已有 emoji 尾部截取用例共同验证。
 - 三端都没有在真机上用真实麦克风验收：电平的实际范围、光圈的流畅度、App 到键盘的电平链路（iOS）和 `measureTextSize` 与实际 `Text` 的行高是否一致（HarmonyOS）都还要真机确认。
