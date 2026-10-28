@@ -52,7 +52,9 @@ final class ImeBottomRow {
     void bindCommaSwipe(Button button) {
         final float[] start = new float[2];
         final boolean[] swiped = new boolean[1];
-        final int slop = ViewConfiguration.get(s).getScaledTouchSlop();
+        // 门槛与字母键滑动输入符号相同（14 dp，严格大于），不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
+        final float threshold = SwipeHintPolicy.THRESHOLD_DP * s.getResources().getDisplayMetrics().density;
+        final int longPress = ViewConfiguration.getLongPressTimeout();
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
@@ -62,9 +64,11 @@ final class ImeBottomRow {
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
+                    // 按满长按时限还没滑出去，这次触摸已经归长按（长按逗号输入句号），之后手指挪动不能再起滑动，否则松手会多输入一个。
+                    if (!swiped[0] && event.getEventTime() - event.getDownTime() >= longPress) return false;
                     float dx = event.getX() - start[0];
                     float dy = event.getY() - start[1];
-                    if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) {
+                    if (Math.abs(dy) > threshold && Math.abs(dy) > Math.abs(dx)) {
                         swiped[0] = true;
                         button.cancelLongPress();
                         button.setPressed(false);
