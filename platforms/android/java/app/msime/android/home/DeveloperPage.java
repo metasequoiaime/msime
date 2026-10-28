@@ -655,6 +655,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
                         return;
                     }
                     snapshot = restored.has("preferences") ? restored : snapshot;
+                    // 重置经过了系统认证，「防止截屏」随其他本地设置回到关闭；本页所在的窗口当场跟上。
+                    ScreenCaptureProtection.apply(requireActivity());
                     render();
                     reload();
                     MsToast.show(requireContext(), "已恢复出厂设置");

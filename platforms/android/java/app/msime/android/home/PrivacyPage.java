@@ -43,7 +43,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
     @Nullable private BiometricPrompt clipboardAuthentication;
     @Nullable private GroupCard.Row screenCaptureRow;
     /** 读到的本地设置；还没读到时开关保持禁用。 */
-    @Nullable private AndroidLocalSettings.Snapshot local;
+    @Nullable private AndroidLocalSettings.Snapshot localSettings;
     /** 正在认证或正在写入的目标值；非空时开关禁用，避免重复切换。 */
     @Nullable private Boolean pendingScreenCaptureValue;
     @Nullable private BiometricPrompt screenCaptureAuthentication;
@@ -107,7 +107,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
             render();
         });
         HostTask.run(this, AndroidLocalSettings::load, snapshot -> {
-            local = snapshot;
+            localSettings = snapshot;
             render();
         });
     }
@@ -121,14 +121,14 @@ public final class PrivacyPage extends ReloadingDetailPage {
             if (preferences != null) row.setChecked(preferences.optBoolean(toggle.key(), toggle.enabledByDefault()));
         }
         if (screenCaptureRow != null) {
-            screenCaptureRow.setEnabled(local != null && pendingScreenCaptureValue == null);
-            if (local != null) screenCaptureRow.setChecked(local.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION));
+            screenCaptureRow.setEnabled(localSettings != null && pendingScreenCaptureValue == null);
+            if (localSettings != null) screenCaptureRow.setChecked(localSettings.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION));
         }
     }
 
     /** 切换「防止截屏」：第一次打开直接保存，打开过以后先认证；设备没有系统认证时一律不切换，否则打开以后再也关不掉。 */
     private void saveScreenCaptureProtection(boolean value) {
-        AndroidLocalSettings.Snapshot current = local;
+        AndroidLocalSettings.Snapshot current = localSettings;
         if (current == null || pendingScreenCaptureValue != null) {
             render();
             return;
@@ -204,7 +204,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
             if (saved == null) {
                 MsToast.show(requireContext(), "没有保存，请重试");
             } else {
-                local = saved;
+                localSettings = saved;
                 ScreenCaptureProtection.apply(requireActivity().getWindow(),
                     saved.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION));
             }
