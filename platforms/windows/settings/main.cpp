@@ -503,6 +503,30 @@ std::wstring local_date_time(uint64_t milliseconds) {
   return std::wstring(date) + L" " + time;
 }
 
+// 词库同步概况里「额度用完，将于某时继续自动同步」那一句：把 Unix 毫秒换成本机时区的年月日时分交给 ds::budget_wait_text；没在等、已经过了或时间读不出来时为空。
+std::wstring dictionary_sync_budget_wait(uint64_t until_ms) {
+  constexpr uint64_t unix_epoch = 116444736000000000ULL;
+  const auto local_minute = [](uint64_t milliseconds) -> std::optional<ds::LocalMinute> {
+    if (milliseconds > 900000000000000ULL)
+      return std::nullopt;
+    ULARGE_INTEGER ticks{};
+    ticks.QuadPart = milliseconds * 10000ULL + unix_epoch;
+    const FILETIME utc{ticks.LowPart, ticks.HighPart};
+    SYSTEMTIME universal{}, local{};
+    if (!FileTimeToSystemTime(&utc, &universal) || !SystemTimeToTzSpecificLocalTime(nullptr, &universal, &local))
+      return std::nullopt;
+    return ds::LocalMinute{local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute};
+  };
+  if (!until_ms)
+    return {};
+  const auto now = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count());
+  const auto until = local_minute(until_ms);
+  const auto today = local_minute(now);
+  return until && today ? ds::budget_wait_text(until_ms, now, *until, *today) : std::wstring();
+}
+
 // An entry's text on one line, as the shared row shows it (`white-space: nowrap`): every run of white space, line breaks included, becomes one space.
 std::wstring single_line(std::wstring const &value) {
   std::wstring line;
@@ -17194,6 +17218,7 @@ private:
     status.clock_skew = named_flag(object, L"clock_skew");
     status.last_success_ms = named_size(object, L"last_success_ms");
     status.last_error = named_string(object, L"last_error");
+    status.budget_wait_until = named_size(object, L"budget_wait_until");
     return status;
   }
 
@@ -17691,7 +17716,7 @@ private:
     }
   }
 
-  // 同步状态：本设备是否获准、核对码、词条和待处理的数量、上次同步的时间和错误，「立即同步」和它的结果，被挡下的大批删除，以及很少用到的重置密钥和重新开始。
+  // 同步状态：本设备是否获准、核对码、词条和待处理的数量、上次同步的时间、自动同步在等额度时什么时候继续和错误，「立即同步」和它的结果，被挡下的大批删除，以及很少用到的重置密钥和重新开始。
   void build_dictionary_sync_status(StackPanel const &page) {
     auto group = add_group(page, L"词库同步状态");
     const bool busy = dsync_busy_;
@@ -17701,6 +17726,8 @@ private:
       if (dsync_status_->last_success_ms)
         if (const auto when = local_date_time(dsync_status_->last_success_ms); !when.empty())
           summary += L"\n上次同步：" + when;
+      if (const auto wait = dictionary_sync_budget_wait(dsync_status_->budget_wait_until); !wait.empty())
+        summary += L"\n" + wait;
       if (!dsync_status_->last_error.empty() && dsync_error_.empty())
         summary += L"\n上次出错：" + ds::error_message(dsync_status_->last_error);
       if (dsync_status_->clock_skew)

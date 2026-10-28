@@ -29,6 +29,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
 import app.msime.android.SchemePreferences;
 import app.msime.android.TextPolicy;
+import app.msime.android.TouchKeyStyle;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -325,8 +326,11 @@ public final class KeyboardFragment extends HomeTabFragment {
                 listed.add(page);
                 shown++;
             }
+            // 本版本一组底行样式都没有（日语、越南语、藏语版）时键盘页不列「按键布局」入口，搜索同样不列它，免得打开一页空白。
+            boolean keyLayoutOffered = TouchKeyStyle.Groups.offeredBy(AppEdition.current()).any();
             for (PageId page : PageId.values()) {
                 if (listed.contains(page) || !page.searchable() || !page.matches(query)) continue;
+                if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;
                 if (group == null) group = HomeNavGroup.add(results);
                 group.add(R.drawable.ic_search, page.title(), matchedKeyword(page, query, null),
                     () -> open(page));

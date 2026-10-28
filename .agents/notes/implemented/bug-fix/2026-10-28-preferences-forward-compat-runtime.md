@@ -150,6 +150,8 @@ Status: implemented
 
 ## Verification
 
+Android 文本编辑设备用例通过正式 `loadPreferences` JNI 接口核对保存、取消和重置后的有效排列，不再把磁盘上省略的默认键当作损坏。默认排列仍由共享层提供，测试不复制默认动作列表。
+
 - 文本编辑排列：
   - `text_edit_button_order_reads_any_list_it_is_given`，从文件读入以下几种排列，结果都是完整排列、文件不被改写：v0.6.0 之前写下的七个动作、现在的八个、带更新版本动作 `select_word` 的、有重复的、空列表、不是字符串的元素。
   - 不是数组时 `load` 报错，`load_for_runtime` 用默认排列运行。

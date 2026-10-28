@@ -11,6 +11,8 @@ import android.text.style.ReplacementSpan;
  * 按字形实际墨迹居中画一个标点。
  *
  * <p>全角的「，」「。」在系统字体里只占字身左下角的一小块：键面文字按字身垂直居中时，看到的只是贴着键底的一个小点。这里按 {@link Paint#getTextBounds} 量出墨迹，把墨迹的中心放到键面中线略偏下（与设计稿一致），并按 {@code scale} 放大；颜色取当前画笔，随键盘皮肤变化。
+ *
+ * <p>只适用于墨迹偏离字身中线的全角标点一类字形。其余字形（半角 ASCII、上下标、高低引号、上下括号、低位线等）的高低是字形本身的意义，套上这里会被拉回中线，符号面板的取舍见 {@code SymbolPanelModel.centersGlyphInk}。
  */
 public final class CenteredGlyphSpan extends ReplacementSpan {
     private final float scale;

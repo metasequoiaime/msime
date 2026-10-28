@@ -268,7 +268,7 @@ macOS 与 Linux 的输入法进程自己触发同步：IMK、IBus 和 Fcitx5 起
 - **压缩**：约 7 个请求，每 64 个事件一次。
 - **出错**：连不上时 1、2、5、10、30、60 分钟后再自动试；限流或额度用完等 30 分钟；凭据不对、日志被回退、格式不认识、日志损坏之后自动同步停一小时，手动同步照常。
 - 「立即同步」不受防抖和间隔限制，总额度用完时报 `dictionary_sync_rate_limited`。
-- **在等额度时**：自动同步不联网，改词照常记下、到时一起发出；`status.budget_wait_until` 是自动同步什么时候继续（Unix 毫秒，没在等时为 `null`），本机额度不够一轮和被限流之后的等待都算。宿主据此显示「额度用完，将于某时继续同步」，不要让「上次同步」停在那里看上去像卡住了。
+- **在等额度时**：自动同步不联网，改词照常记下、到时一起发出；`status.budget_wait_until` 是自动同步什么时候继续（Unix 毫秒，没在等时为 `null`），本机额度不够一轮和被限流之后的等待都算。各平台的同步状态（共享设置页、iOS、Android、Windows 和 Win7）在它晚于现在时多显示一句「额度用完，将于 HH:MM 继续自动同步；可点「立即同步」。」（本机时间，不是今天时写成「M月D日 HH:MM」，已经过了就不显示），与「上次同步」和错误说明并列、不顶掉它们，免得「上次同步」停在那里看上去像卡住了。四处的说法逐字相同，各自有单测核对：`dictionary-sync.ts` 的 `dictionarySyncBudgetWaitMessage`、`IOSDictionarySyncPolicy.budgetWait`、Android 的 `DictionarySyncPolicy.budgetWaitMessage` 和 Windows 的 `DictionarySyncModel.h` 里的 `budget_wait_text`。
 
 ## 网盘能看到什么
 

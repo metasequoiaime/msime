@@ -9315,8 +9315,16 @@ function traits(
   uri: boolean,
   email: boolean,
   noSuggestions: boolean,
+  digits: boolean = false,
 ): EditorTraits {
-  return { text: text, password: password, uri: uri, email: email, noSuggestions: noSuggestions };
+  return {
+    text: text,
+    password: password,
+    uri: uri,
+    email: email,
+    noSuggestions: noSuggestions,
+    digits: digits,
+  };
 }
 
 const PLAIN: EditorTraits = traits(true, false, false, false, false);
@@ -9324,7 +9332,7 @@ const PASSWORD: EditorTraits = traits(true, true, false, false, false);
 const URI: EditorTraits = traits(true, false, true, false, false);
 const EMAIL: EditorTraits = traits(true, false, false, true, false);
 const NO_SUGGESTIONS: EditorTraits = traits(true, false, false, false, true);
-const NUMERIC: EditorTraits = traits(false, false, false, false, false);
+const NUMERIC: EditorTraits = traits(false, false, false, false, false, true);
 
 group("a delayed editor callback never interrupts typing", () => {
   check(
@@ -9346,6 +9354,23 @@ group("a delayed editor callback never interrupts typing", () => {
   check(
     EditorPolicy.appliesDelayedLanguage(false, false, true, false),
     "the same field preference still applies in a fresh editor generation",
+  );
+});
+
+group("password and digit-only fields keep the standard touch bottom rows, as on Android", () => {
+  check(EditorPolicy.keepsStandardRows(PASSWORD), "a password field draws the standard rows");
+  check(EditorPolicy.keepsStandardRows(NUMERIC), "a number or phone field draws the standard rows");
+  check(
+    EditorPolicy.keepsStandardRows(traits(false, true, false, false, false, true)),
+    "a numeric password field too",
+  );
+  for (const plain of [PLAIN, URI, EMAIL, NO_SUGGESTIONS]) {
+    check(!EditorPolicy.keepsStandardRows(plain), "other fields keep the chosen styles");
+  }
+  // 日期框在 Android 上也不算只收数字（`numberInput` 只认数字和电话号码两类）。
+  check(
+    !EditorPolicy.keepsStandardRows(traits(false, false, false, false, false, false)),
+    "a non-text field that is not digit-only keeps the chosen styles",
   );
 });
 

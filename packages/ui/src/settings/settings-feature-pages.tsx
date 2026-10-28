@@ -7,6 +7,7 @@ import { communityGalleryPage } from "./use-community-gallery-subview";
 import { CommunityGallerySubview } from "./community-gallery-subview";
 import { TypingStatisticsPage } from "./typing-statistics";
 import { VocabularyReviewPage } from "./vocabulary-review";
+import { touchKeyLayoutStyle } from "../keyboard/touch-key-layout-styles";
 import type { SettingsPageModel } from "./use-settings-page-model";
 import type { useSettingsShellState } from "./use-settings-shell-state";
 
@@ -156,6 +157,10 @@ export function SettingsFeaturePages({
               : settingsPlatform === "hm2"
                 ? "hm2"
                 : undefined
+          }
+          // 只有 HarmonyOS 手机的键盘读按键布局样式；2in1 画的是整排键盘，热力图照旧。
+          layoutStyle={
+            harmonyPlatform && mobilePlatform && draft ? touchKeyLayoutStyle(draft) : undefined
           }
         />
       )}

@@ -16,10 +16,10 @@ import org.json.JSONObject;
  * <p>本类不 import `androidx`、`R` 或 `home/`，check-host 会编译它。除 {@link #status} 外每个动作都阻塞在网络上，不要在主线程或输入线程上调用。
  */
 public final class DictionaryWebDavSync {
-    /** 一次 `status`：本机在词库密钥串里的编号和核对码（还没用过网盘时为 null）、是否已获准、共享词库里的词数、待发送和待写入的改动数、被挡下的大批删除（没有时为 null）、时钟是否不准、上次成功的时间（毫秒，没有时为 null）和上次的错误码（没有时为 null）。 */
+    /** 一次 `status`：本机在词库密钥串里的编号和核对码（还没用过网盘时为 null）、是否已获准、共享词库里的词数、待发送和待写入的改动数、被挡下的大批删除（没有时为 null）、时钟是否不准、上次成功的时间（毫秒，没有时为 null）、上次的错误码（没有时为 null），以及自动同步因请求额度在等时什么时候继续（Unix 毫秒，没在等时或旧版本的 Rust 不给时为 null；「立即同步」不受它限制）。 */
     public record Status(String deviceId, String code, boolean approved, boolean joined, int words,
             int pendingUpload, int pendingApply, Integer heldDeletions, boolean clockSkew, Long lastSuccessMs,
-            String lastError) {}
+            String lastError, Long budgetWaitUntil) {}
 
     /** 一次 `run`：这一轮有没有联网、下一次定时同步隔多久、同步后的状态；失败时 `error` 是错误码，`report` 为 null。 */
     public record Run(boolean network, Long nextCheckMs, Status status, String error, Report report) {}
@@ -229,9 +229,11 @@ public final class DictionaryWebDavSync {
         Integer held = rawHeld == null || rawHeld == JSONObject.NULL ? null : JsonPolicy.nonNegativeInteger(rawHeld);
         Object rawLast = value.opt("last_success_ms");
         Long last = rawLast == null || rawLast == JSONObject.NULL ? null : JsonPolicy.nonNegativeLong(rawLast);
+        Object rawWait = value.opt("budget_wait_until");
+        Long wait = rawWait == null || rawWait == JSONObject.NULL ? null : JsonPolicy.nonNegativeLong(rawWait);
         return new Status(deviceId, optionalString(value.opt("code")), approved, joined, count(value.opt("words")),
             count(value.opt("pending_upload")), count(value.opt("pending_apply")), held, skew, last,
-            optionalString(value.opt("last_error")));
+            optionalString(value.opt("last_error")), wait);
     }
 
     /** 一个可以为 null 的字符串字段：缺失、null 或空串都当作没有；不是字符串时也当作没有，不让整页作废。 */

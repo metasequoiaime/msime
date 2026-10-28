@@ -53,6 +53,8 @@ struct IOSDictionarySync: Sendable {
     let clock_skew: Bool
     let last_success_ms: UInt64?
     let last_error: String?
+    /// 自动同步因请求额度在等时什么时候继续（Unix 毫秒）：本机额度不够一轮，或者被网盘限流之后；没在等时为 nil（旧版本的 Rust 不给这个字段，也是 nil）。「立即同步」不受它限制。
+    let budget_wait_until: UInt64?
 
     /// 已经登记，但还在等另一台设备批准。
     var isPending: Bool { device_id != nil && !approved }

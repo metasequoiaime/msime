@@ -21,6 +21,7 @@ import app.msime.android.clipboard.CloudClipboardRelayPolicy;
 import app.msime.android.policy.DictionarySyncPolicy;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
@@ -213,7 +214,7 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         card.footer("「我的词条」现在经 WebDAV 网盘 " + current.url() + " 同步。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。\n" + NOTE);
     }
 
-    /** 「状态」：上次同步、共享词库的词数、待同步的改动、时钟提示、被挡下的删除和「立即同步」。 */
+    /** 「状态」：上次同步、共享词库的词数、待同步的改动、自动同步在等额度时什么时候继续、时钟提示、被挡下的删除和「立即同步」。 */
     private void renderStatus(LinearLayout target, Loaded state) {
         GroupCard card = GroupCard.add(sectionColumn(target, "状态"), "同步").withDividers(Ui.ROW_PADDING_H);
         DictionaryWebDavSync.Status status = state.status();
@@ -222,6 +223,9 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
             card.value("共享的词", null, NumberPolicy.groupedCount(status.words()));
             String pending = DictionarySyncPolicy.pendingSummary(status.pendingUpload(), status.pendingApply());
             if (!pending.isEmpty()) card.value("待同步", pending, null);
+            String wait = DictionarySyncPolicy.budgetWaitMessage(status.budgetWaitUntil(), System.currentTimeMillis(),
+                ZoneId.systemDefault());
+            if (wait != null) card.note(wait);
         }
         card.button("立即同步", "不等自动同步的间隔", "同步", () -> act(
             sync -> sync.run(DictionarySyncPolicy.TRIGGER_MANUAL, false, false), "已同步"));

@@ -53,6 +53,8 @@ final class KeyAreaStackView: UIStackView {
   /// 把键帽左侧 `KeyGapRouting.returnYield` 让给紧挨在左边的 `yieldReceiver` 的键：底行的回车让给中/英。两者不相邻（别的布局把中/英挪走或藏起来）时不起作用。
   weak var yieldingKey: UIControl?
   weak var yieldReceiver: UIControl?
+  /// 叠在键区上、不在任何一行里的键：九键「右侧大回车」的回车（`tallReturnKey`）叠在按键列上，跨着右列第三格和底行。空隙的候选只从命中的那个 stack view 里收，收不到它，于是它与 中/英、九宫格 9 键和右列中间键之间的键距里靠它那一半没有键接；这里列出的键显示着时也参与每一段空隙的归属，与行内的键一样按最近、够得着来分。
+  var overlayKeys: [UIControl] = []
   /// 滑行输入或横滑光标进行中：新落下的手指一律命中键区自己而不是键，它们什么都不输入，挂在键区上的手势仍能结束或取消当前触摸。
   var suppressesKeyHits = false
 
@@ -63,6 +65,9 @@ final class KeyAreaStackView: UIStackView {
     guard let gap = hit as? UIStackView, !isExcluded(gap) else { return hit }
     var keys: [UIControl] = []
     collectKeys(in: gap, into: &keys)
+    for key in overlayKeys where acceptsGapTouches(key) && !keys.contains(where: { $0 === key }) {
+      keys.append(key)
+    }
     guard !keys.isEmpty else { return hit }
     let frames = keys.map { Self.layoutFrame(of: $0, in: gap) }
     let reach = KeyGapRouting.reach(
@@ -93,6 +98,17 @@ final class KeyAreaStackView: UIStackView {
 
   private func isExcluded(_ view: UIView) -> Bool {
     gapRoutingExclusions.contains { view.isDescendant(of: $0) }
+  }
+
+  /// 叠着的键能不能接空隙里的触摸：在键区里、没被排除，它自己可交互、已启用，而且它和到键区之间的每一层都显示着。
+  private func acceptsGapTouches(_ key: UIControl) -> Bool {
+    guard key.isEnabled, key.isUserInteractionEnabled, key.isDescendant(of: self), !isExcluded(key) else { return false }
+    var node: UIView? = key
+    while let view = node, view !== self {
+      if view.isHidden || view.alpha <= 0.01 { return false }
+      node = view.superview
+    }
+    return true
   }
 
   /// 能接触摸的键：可见、可交互、已启用；不进入被排除的子树，也不进入键自己的子视图。

@@ -12,6 +12,7 @@ import { SettingsManagerBlock } from "./settings-manager-block";
 import { useSettingsForm } from "./settings-form-context";
 import * as settings from "./settings-style";
 import {
+  dictionarySyncBudgetWaitMessage,
   dictionarySyncDeviceGroups,
   dictionarySyncErrorMessage,
   withDictionarySyncWebDav,
@@ -71,6 +72,7 @@ function DictionarySyncSettings({
   const form = useDictionarySyncForm({ saved, probe: model.probe, disabled, onChange });
   const { status } = model;
   const error = model.error ?? status?.last_error ?? null;
+  const budgetWait = dictionarySyncBudgetWaitMessage(status?.budget_wait_until ?? null);
   const actionsDisabled = disabled || model.busy;
   return (
     <GroupList title="词库同步">
@@ -166,6 +168,7 @@ function DictionarySyncSettings({
               {status.pending_apply} 项。
             </p>
           )}
+          {budgetWait && <p className={settings.managerNote}>{budgetWait}</p>}
           {error && <ErrorAlert>{dictionarySyncErrorMessage(error)}</ErrorAlert>}
           {error === "dictionary_sync_rollback" && (
             <ActionButton

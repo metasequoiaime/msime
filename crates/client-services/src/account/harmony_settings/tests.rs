@@ -7,7 +7,8 @@ use crate::edition::{
 };
 use crate::preferences::{
     BracketStyle, FrequencyMode, InputScheme, NumberKeypadOrder, QuoteStyle, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardSkinDesign, TwentySixKeyNumberLayout, WubiProfile,
+    TouchFourteenKeyStyle, TouchKeyboardLayout, TouchKeyboardSkinDesign, TouchNineKeyStyle,
+    TouchTwentySixKeyStyle, TwentySixKeyNumberLayout, WubiProfile,
 };
 
 fn schema_for(fields: &[(&str, &str)]) -> AccountPreferenceSchema {
@@ -175,12 +176,15 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "custom_candidate_skin_dark",
             "custom_keyboard_skin",
             "custom_theme_base",
+            "fourteen_key_style",
             "global_theme",
             "haptic_strength",
             "haptics_enabled",
             "keyboard_height_adjustment",
             "keyboard_layout",
+            "nine_key_style",
             "number_keypad_order",
+            "number_row",
             "quanpin_shift",
             "shuangpin_key_hints",
             "sound_enabled",
@@ -188,6 +192,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "touch_key_spacing_tenths",
             "touch_row_spacing_tenths",
             "twenty_six_key_number_layout",
+            "twenty_six_key_style",
             "voice_shortcut",
         ]
     );
@@ -588,6 +593,15 @@ fn a_value_this_host_has_no_meaning_for_skips_only_its_key() {
             string("grid"),
         ),
         ("platform.harmony.theme", string("sepia")),
+        (
+            "platform.harmony.twenty_six_key_style",
+            string("split_space"),
+        ),
+        (
+            "platform.harmony.fourteen_key_style",
+            string("comma_period"),
+        ),
+        ("platform.harmony.nine_key_style", string("long_space")),
         (HARMONY_KEYBOARD_LAYOUT, string("future_layout")),
         (HARMONY_FEEDBACK_KEYS[2], string("loud")),
         (
@@ -1048,6 +1062,10 @@ fn every_exported_key_round_trips() {
         touch_number_keypad_order: NumberKeypadOrder::Calculator,
         touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
         touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
+        touch_twenty_six_key_style: TouchTwentySixKeyStyle::Emoji,
+        touch_fourteen_key_style: TouchFourteenKeyStyle::LongSpace,
+        touch_nine_key_style: TouchNineKeyStyle::Emoji,
+        touch_number_row: !Preferences::default().touch_number_row,
         global_theme: GlobalTheme::Custom,
         ..Preferences::default()
     };

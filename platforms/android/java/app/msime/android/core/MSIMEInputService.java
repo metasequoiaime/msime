@@ -322,6 +322,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」，来自共享偏好 `touch_quanpin_shift`，缺省为关。 */
     private boolean quanpinShiftEnabled = false;
+    /** 26 键、14/18 键与九键各自的底行样式，来自共享偏好 `touch_*_key_style`，缺省都是标准底行。 */
+    TouchKeyStyle.Styles touchKeyStyles = TouchKeyStyle.Styles.DEFAULT;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
@@ -472,7 +474,7 @@ public final class MSIMEInputService extends InputMethodService {
     int splitKeyboardThresholdDp;
     int splitKeyboardGapPercent;
     boolean splitKeyboardPortrait;
-    /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
+    /** 共享偏好 `touch_number_row`；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
     private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
     boolean incognitoEnabled;
@@ -2374,6 +2376,8 @@ public final class MSIMEInputService extends InputMethodService {
             String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute())
                 return new EngineStartOptions(optionsText, null);
+            // 读实时偏好之前把本机旧的长空格和数字行设置迁进共享偏好，这次会话就按迁移后的底行和数字行画。
+            KeyLayoutStyleMigration.migrate(this, directory);
             String response = candidateSkinResolver.read(directory);
             JSONObject envelope = new JSONObject(response);
             JSONObject live = JsonPolicy.strictTrue(envelope.opt("ok"))
@@ -2543,6 +2547,8 @@ public final class MSIMEInputService extends InputMethodService {
             && preferences.optBoolean("touch_voice_shortcut", false);
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
         quanpinShiftEnabled = quanpinShiftFrom(preferences);
+        touchKeyStyles = touchKeyStylesFrom(preferences);
+        numberRowEnabled = numberRowFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -2562,6 +2568,19 @@ public final class MSIMEInputService extends InputMethodService {
     /** 没有偏好或旧文档里没有这个键时按关（分词），与 client-core 的默认值一致。 */
     private static boolean quanpinShiftFrom(JSONObject preferences) {
         return preferences != null && preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, false);
+    }
+
+    /** 三类键面的底行样式；没有偏好、缺键或不认识的写法都按标准底行，与 client-core 的宽松读取一致。 */
+    private static TouchKeyStyle.Styles touchKeyStylesFrom(JSONObject preferences) {
+        if (preferences == null) return TouchKeyStyle.Styles.DEFAULT;
+        return TouchKeyStyle.Styles.parse(JsonPolicy.strictString(preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)),
+            JsonPolicy.strictString(preferences.opt(TouchKeyStyle.FOURTEEN_KEY_PREFERENCE)),
+            JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NINE_KEY_PREFERENCE)));
+    }
+
+    /** 顶部数字行；没有偏好或旧文档里没有这个键时按关，与 client-core 的默认值一致。 */
+    private static boolean numberRowFrom(JSONObject preferences) {
+        return preferences != null && preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false);
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {
@@ -2585,9 +2604,9 @@ public final class MSIMEInputService extends InputMethodService {
         return !toolbarEmoji || toolbarHidden;
     }
 
-    /** 空闲时没有工具按钮就隐藏整行；长空格模式始终给顶部符号入口留一行。 */
+    /** 空闲时没有工具按钮就隐藏整行；中文 26 键选了长空格时始终给顶部符号入口留一行，切到英文也留着（{@link #longSpaceToolbarRowKept}）。 */
     boolean toolbarRowHidden() {
-        if (longSpaceLayoutActive()) return false;
+        if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo);
     }
@@ -2643,7 +2662,6 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
-        numberRowEnabled = localSettings.bool(AndroidLocalSettings.NUMBER_ROW);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
     }
@@ -3064,7 +3082,8 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled;
+            + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
+            + ":" + touchKeyStyles + ":" + numberRowEnabled;
     }
 
     private void reloadPreferences(String response) {
@@ -3172,6 +3191,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
         boolean nextQuanpinShift = quanpinShiftFrom(preferences);
+        TouchKeyStyle.Styles nextTouchKeyStyles = touchKeyStylesFrom(preferences);
+        boolean nextNumberRow = numberRowFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3261,6 +3282,9 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
         // 分词键的键面和点击都按它分支（usesQuanpinSeparator），变了立刻重画。
         quanpinShiftEnabled = nextQuanpinShift;
+        // 底行样式和数字行进了 touchGeometryKey，变了就 render()：底行按新样式重排（updateActionRow 的签名带着样式），数字行与样式相关的数字层由 render 里的 numberRowStale、numberPadStale、layerPunctuationStale 重建；只换键的排布，不碰组字。
+        touchKeyStyles = nextTouchKeyStyles;
+        numberRowEnabled = nextNumberRow;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
@@ -4911,16 +4935,16 @@ public final class MSIMEInputService extends InputMethodService {
             splitKeyboardPortrait, splitKeyboardThresholdDp);
     }
 
-    /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
+    /** 现在字母上方要不要画数字行（#6022）：在字母层、窗口够高，共享偏好打开时画在 26 键一族、韩文、14 键和 18 键上，密码框和终端的自动数字行只画在 26 键一族和韩文上（{@link KeyboardLayout#drawsNumberRow(boolean, boolean, KeyboardLayout.Layer, int, int)}）。 */
     boolean numberRowDrawn() {
-        return KeyboardLayout.drawsNumberRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
-            getResources().getConfiguration().screenHeightDp);
+        return KeyboardLayout.drawsNumberRow(numberRowEnabled, automaticNumberRow.active(), keyboardLayer,
+            displayedTouchLayout(view), getResources().getConfiguration().screenHeightDp);
     }
 
     /** 数字、符号页保留源字母数字行占用的一排。 */
     boolean symbolExtraRowDrawn() {
-        return KeyboardLayout.drawsSymbolExtraRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
-            getResources().getConfiguration().screenHeightDp);
+        return KeyboardLayout.drawsSymbolExtraRow(numberRowEnabled, automaticNumberRow.active(), keyboardLayer,
+            displayedTouchLayout(view), getResources().getConfiguration().screenHeightDp);
     }
 
     /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。用户在共享偏好 `touch_quanpin_shift` 打开「保留 Shift」后也不替换。 */
@@ -5016,10 +5040,11 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean quickPunctuationVisible() {
         int layout = imeLetterRows.drawnTouchLayout();
-        return keyboardLayer == KeyboardLayout.Layer.LETTERS
-            && layout != QUANPIN_NINE_KEY_LAYOUT && layout != JAPANESE_NINE_KEY_LAYOUT
-            && layout != KeyboardLayout.STROKE_LAYOUT
-            && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
+        if (keyboardLayer != KeyboardLayout.Layer.LETTERS) return false;
+        // 九键外框的标点在侧栏里，只有「底栏带标点」样式在底行放逗号。
+        if (layout == QUANPIN_NINE_KEY_LAYOUT || layout == KeyboardLayout.STROKE_LAYOUT)
+            return bottomRowStyle(layout) == TouchKeyStyle.Row.COMMA_PERIOD;
+        return layout != JAPANESE_NINE_KEY_LAYOUT && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
     }
 
     private void insertQuickPunctuation() {
@@ -5027,20 +5052,41 @@ public final class MSIMEInputService extends InputMethodService {
         if (!entries.isEmpty()) type(entries.get(0).input());
     }
 
+    /** 26 键字母层的逗号长按输入句号；「逗号句号在空格两侧」有独立句号键，逗号长按改回常用标点菜单。 */
     private boolean commaSecondaryPeriod() {
+        int layout = imeLetterRows.drawnTouchLayout();
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
-            && KeyboardActionRow.usesCommaSecondaryPeriod(imeLetterRows.drawnTouchLayout());
+            && KeyboardActionRow.usesCommaSecondaryPeriod(layout)
+            && bottomRowStyle(layout) != TouchKeyStyle.Row.COMMA_PERIOD;
     }
 
-    /** 可选长空格布局只在带独立符号键的 26 键键面生效。 */
+    /** 这块键面字母层底行此刻用的样式（{@link TouchKeyStyle.Styles#forLayout}）；数字字段和密码框保留标准底行。 */
+    TouchKeyStyle.Row bottomRowStyle(int layout) {
+        if (directNumberPad() || EditorPolicy.password(editorInputType)) return TouchKeyStyle.Row.STANDARD;
+        return touchKeyStyles.forLayout(layout, view == null ? -1 : InputViewValuePolicy.scheme(view, -1), dedicatedEnglish);
+    }
+
+    /** 26 键的长空格样式：底行没有符号键，符号入口移到工具栏，数字层用带逗号的 123 层。 */
     boolean longSpaceLayoutActive() {
         return longSpaceLayoutActive(displayedTouchLayout(view));
     }
 
     boolean longSpaceLayoutActive(int layout) {
-        return localSettings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT)
-            && !directNumberPad() && !EditorPolicy.password(editorInputType)
-            && KeyboardActionRow.usesCommaSecondaryPeriod(layout);
+        return KeyboardActionRow.usesCommaSecondaryPeriod(layout)
+            && bottomRowStyle(layout) == TouchKeyStyle.Row.LONG_SPACE;
+    }
+
+    /** 长空格样式让工具栏那一行一直留着（{@link TouchKeyStyle.Styles#keepsToolbarRow}）：看这块键盘中文时的键面，不看此刻的中/英，切换时键盘高度不跳。英文模式下 {@link #displayedTouchLayout} 一律是 26 键，中文键面取最后一次中文时记下的那块（{@link #touchLayoutHint}，只在中文时更新）。数字字段和密码框保留标准底行，不留。 */
+    boolean longSpaceToolbarRowKept() {
+        if (directNumberPad() || EditorPolicy.password(editorInputType)) return false;
+        int chineseLayout = dedicatedEnglish ? touchLayoutHint() : displayedTouchLayout(view);
+        return touchKeyStyles.keepsToolbarRow(chineseLayout, view == null ? -1 : InputViewValuePolicy.scheme(view, -1));
+    }
+
+    /** 底行没有句号键的长空格样式（26 键与 14/18 键）：逗号下滑输入句号。 */
+    boolean commaSwipesPeriod(int layout) {
+        return keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && bottomRowStyle(layout) == TouchKeyStyle.Row.LONG_SPACE;
     }
 
     private boolean uriPeriodPrimary() {
@@ -6006,6 +6052,8 @@ public final class MSIMEInputService extends InputMethodService {
         "candidate_scale_percent",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
         "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
+        TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
+        TouchKeyStyle.NINE_KEY_PREFERENCE, TouchKeyStyle.NUMBER_ROW_PREFERENCE,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
@@ -10664,10 +10712,11 @@ public final class MSIMEInputService extends InputMethodService {
         // 设置页开关了「数字行」：按新状态重建。
         // 拼音九键和九键双拼之间换了、或九键双拼换了表：同一个触屏布局，按新键面重建。
         // 借用的数字九宫格上切了中/英：触屏布局没变，也要换回对应的键面。
+        // 九键外框换了是否画右侧大回车（设置页换了九键样式、进出密码框），或大回车外框的地球键变了：外框连同底行整块重建。
         if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
                 || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale()
                 || imeLayoutRows.shuangpinStale() || imeLetterRows.languageNumberSwapStale()
-                || imeLetterRows.numberPadStale())
+                || imeLetterRows.numberPadStale() || imeLayoutRows.tallReturnStale())
             imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateLetterCornerHints();

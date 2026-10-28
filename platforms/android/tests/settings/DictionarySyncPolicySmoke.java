@@ -1,4 +1,6 @@
 import app.msime.android.policy.DictionarySyncPolicy;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -89,6 +91,23 @@ public final class DictionarySyncPolicySmoke {
         check(DictionarySyncPolicy.pendingSummary(3, 0).equals("3 个改动待发送"), "pending uploads are counted");
         check(DictionarySyncPolicy.pendingSummary(0, 2).equals("2 个改动待写入本机"), "pending local writes are counted");
         check(DictionarySyncPolicy.pendingSummary(3, 2).equals("3 个改动待发送 · 2 个改动待写入本机"), "both are joined");
+
+        // 自动同步在等额度时说什么时候继续：按本机时区，今天之内只写时分，跨了天写上月日；已经过了或没在等时不说。
+        ZoneId shanghai = ZoneId.of("Asia/Shanghai");
+        long until = ZonedDateTime.of(2026, 10, 28, 9, 5, 0, 0, shanghai).toInstant().toEpochMilli();
+        long morning = ZonedDateTime.of(2026, 10, 28, 8, 40, 0, 0, shanghai).toInstant().toEpochMilli();
+        long lateNight = ZonedDateTime.of(2026, 10, 27, 23, 50, 0, 0, shanghai).toInstant().toEpochMilli();
+        check("额度用完，将于 09:05 继续自动同步；可点「立即同步」。".equals(
+            DictionarySyncPolicy.budgetWaitMessage(until, morning, shanghai)), "a wait later today names the time");
+        check("额度用完，将于 10月28日 09:05 继续自动同步；可点「立即同步」。".equals(
+            DictionarySyncPolicy.budgetWaitMessage(until, lateNight, shanghai)), "a wait on another day names the date");
+        check(DictionarySyncPolicy.budgetWaitMessage(until, until, shanghai) == null, "a wait ending now is not shown");
+        check(DictionarySyncPolicy.budgetWaitMessage(until, until + 60_000, shanghai) == null, "a past wait is not shown");
+        check(DictionarySyncPolicy.budgetWaitMessage(null, morning, shanghai) == null, "no wait means no message");
+        // 同一个时刻在另一个时区可能跨了天：说法按传进来的时区算。
+        ZoneId utc = ZoneId.of("UTC");
+        check("额度用完，将于 01:05 继续自动同步；可点「立即同步」。".equals(
+            DictionarySyncPolicy.budgetWaitMessage(until, morning, utc)), "the time is local to the given zone");
 
         // 目录与文档一致：两个进程共用 noBackupFilesDir 下的同一个子目录。
         check(DictionarySyncPolicy.DIRECTORY.equals("dictionary-sync"), "the shared directory is noBackupFilesDir/dictionary-sync");

@@ -517,8 +517,9 @@ public final class SymbolPanelView extends LinearLayout {
             if (SymbolPanelModel.singleLineCell(category, symbol)) ViewPolicy.setSingleLineEllipsized(button);
             KeyboardTypographyPolicy.normalizeKeyCap(button);
             ViewPolicy.clearPadding(button);
-            // 单个符号按实际墨迹居中，逗号和引号不再分别贴着格子的下沿、上沿。
-            if (TextPolicy.codePointLength(symbol) == 1) CenteredGlyphSpan.apply(button, symbol, 1f);
+            // 全角标点按实际墨迹居中，逗号和引号不再分别贴着格子的下沿、上沿；半角 ASCII 按字体基线排，
+            // 下划线和减号才不会都停在格子中间（`SymbolPanelModel.centersGlyphInk`）。
+            if (SymbolPanelModel.centersGlyphInk(symbol)) CenteredGlyphSpan.apply(button, symbol, 1f);
             int span = SymbolPanelModel.cellColumnSpan(category, symbol, button.getPaint().measureText(symbol),
                 columnWidth, DimensionPolicy.pixels(getContext(), 12));
             if (columnIndex + span > columns) {

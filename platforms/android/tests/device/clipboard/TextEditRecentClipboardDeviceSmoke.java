@@ -276,8 +276,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         openOrderSettings();
         click("下移 复制");
         tap(node -> equalsText("取消", node.getText()) && node.isClickable());
-        if (!defaults.toString().equals(read(preferences).getJSONObject("preferences")
-                .getJSONArray("touch_text_edit_button_order").toString()))
+        if (!defaults.toString().equals(readOrder(preferences).toString()))
             throw new AssertionError("Cancelling order draft wrote preferences");
         openOrderSettings();
         click("下移 复制");
@@ -320,11 +319,20 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private void awaitOrder(File preferences, JSONArray expected) throws Exception {
         long until = SystemClock.uptimeMillis() + 5000;
         do {
-            if (expected.toString().equals(read(preferences).getJSONObject("preferences")
-                    .getJSONArray("touch_text_edit_button_order").toString())) return;
+            if (expected.toString().equals(readOrder(preferences).toString())) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < until);
         throw new AssertionError("Text edit order did not reach persisted value");
+    }
+
+    /** 默认排列在磁盘上省略，通过正式读取接口补齐，不在设备测试里复制默认值。 */
+    private JSONArray readOrder(File preferences) throws Exception {
+        Class<?> nativeClient = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
+        JSONObject response = new JSONObject((String) nativeClient.getMethod("loadPreferences", String.class)
+            .invoke(null, preferences.getParentFile().getCanonicalPath()));
+        if (!response.getBoolean("ok")) throw new AssertionError("Text edit preferences could not be loaded");
+        return response.getJSONObject("value").getJSONObject("preferences")
+            .getJSONArray("touch_text_edit_button_order");
     }
 
     private void openPanel() throws Exception {
