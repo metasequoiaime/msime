@@ -3564,6 +3564,48 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
   );
 });
 
+group("九键一族的数字层：符 和切换键留在字母层那一格（#10061，与 Android #9113、iOS 相同）", () => {
+  for (const english of [false, true]) {
+    for (const style of ["standard", "comma_period", "emoji"]) {
+      const letters: NineKeyAction[] = NineKeyLayout.actionRow(false, english, style);
+      const digits: NineKeyAction[] = NineKeyLayout.actionRow(true, english, style, true);
+      const label = `${english ? "英文" : "中文"} ${style}`;
+      check(
+        actionKinds(digits) ===
+          [
+            NineKeyActionKind.SYMBOL_PANEL,
+            NineKeyActionKind.LAYER_TOGGLE,
+            NineKeyActionKind.SPACE,
+            NineKeyActionKind.ZERO,
+            NineKeyActionKind.LANGUAGE,
+            NineKeyActionKind.RETURN,
+          ].join(" "),
+        `数字层不跟样式：${label} ${actionKinds(digits)}`,
+      );
+      check(
+        Math.abs(digits[2].weight - 3.15) < 1e-9 && digits[3].weight === 1.05,
+        `0 的一份从空格让出：${label}`,
+      );
+      check(
+        digits[0].kind === letters[0].kind && digits[0].weight === letters[0].weight
+          && digits[1].kind === letters[1].kind && digits[1].weight === letters[1].weight,
+        `符 和切换键与字母层同宽同位：${label}`,
+      );
+      check(Math.abs(actionWeight(letters) - actionWeight(digits)) < 1e-9, `整行份额与字母层相同：${label}`);
+    }
+  }
+  check(
+    actionKinds(NineKeyLayout.actionRow(false, false, "standard", true)) ===
+      actionKinds(NineKeyLayout.actionRow(false)),
+    "字母层不看这个参数",
+  );
+  check(
+    actionKinds(NineKeyLayout.actionRow(true, false, "tall_return", true)) ===
+      actionKinds(NineKeyLayout.actionRow(true, false, "tall_return")),
+    "右侧大回车的数字层仍由外框画 符",
+  );
+});
+
 group("英文九键字母层：句点紧挨空格左边、逗号紧挨空格右边，其余键宽度不变", () => {
   const chinese: NineKeyAction[] = NineKeyLayout.actionRow(false);
   const english: NineKeyAction[] = NineKeyLayout.actionRow(false, true);
