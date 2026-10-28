@@ -136,3 +136,5 @@ Status: implemented
 - 前端：`apps/desktop/tests/settings/mixed-input-section.test.tsx` 与 `settings.test.tsx` 的日文混输开关（缺省为关、单独切换、和其他混输开关一起保存、`temporaryJapanese` 为假时不列出），`input-scheme-edition.test.tsx` 断言完整版和拼音版列出、五笔版不列出。
 - Windows：`platforms/windows/tests/input/candidate_completion_policy.cpp` 断言 13 结束组字。
 - 真实模型：`MSIME_JAPANESE_MODEL=<msime-japanese.dat> cargo test -p msime-engine --lib real_model_calibrates_mixed_japanese_signals -- --nocapture`；出货词库：再加 `MSIME_EVAL_RESOURCES=<资源目录>` 跑 `real_resources_mix_japanese_conversions`。两者缺环境变量时跳过。
+
+日文混输的 Host API 释义行为回归在独立临时路径显式预载合成模型，作用域结束（包括断言失败）时卸载；不依赖后台预热完成，也不让并行的全局缓存释放改变该行为断言。文件仍存在以覆盖宿主的模型可用性门控，预热和缓存释放本身由独立专项覆盖。

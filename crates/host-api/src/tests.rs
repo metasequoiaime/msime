@@ -14191,11 +14191,21 @@ pub(crate) fn single_lemma_japanese_model(reading: &str, surface: &str, cost: i3
 fn translation_queries_never_clear_a_mixed_japanese_row_for_the_network() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("resources")).unwrap();
-    std::fs::write(
-        dir.path().join("resources/msime-japanese.dat"),
-        single_lemma_japanese_model("わたし", "私", 500),
-    )
-    .unwrap();
+    let model_path = dir.path().join("resources/msime-japanese.dat");
+    let model = single_lemma_japanese_model("わたし", "私", 500);
+    std::fs::write(&model_path, &model).unwrap();
+    // 行为断言使用已就绪的合成模型，不依赖后台预热，也不受并行用例清理缓存影响。
+    assert!(msime_engine::preload_japanese_dictionary(
+        &model_path,
+        model.into_boxed_slice(),
+    ));
+    struct ModelGuard(std::path::PathBuf);
+    impl Drop for ModelGuard {
+        fn drop(&mut self) {
+            msime_engine::unload_japanese_dictionary(&self.0);
+        }
+    }
+    let _model = ModelGuard(model_path);
     let mut preferences = Preferences {
         candidate_translations: true,
         ..chinese_preferences()
