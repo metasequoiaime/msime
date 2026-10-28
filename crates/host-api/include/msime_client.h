@@ -399,6 +399,10 @@ char *msime_client_touch_quick_symbols(const uint8_t *value, size_t length);
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
+/* Android 本机旧布局迁移：{directory:绝对路径,revision:u64,long_space:bool,number_row:bool}。
+ * 在偏好锁内按原始字段决定迁移并校验修订号；未知样式原样保留。返回 PreferencesSnapshot。
+ * 请求最多 64 KiB，工作线程调用，结果用 msime_client_string_free 释放。 */
+char *msime_client_migrate_android_key_layout(const uint8_t *request, size_t length);
 /* 可重绑切换热键（keybindings.toggle_english_candidates、toggle_full_width、toggle_punctuation、toggle_voice_input）按共享 KeyChord 契约解码。请求是 JSON {"keybindings": object}（<=65536 字节）；keybindings 缺省或为 null 时按出厂值，不是 object 时返回错误。value 是 {"english_candidates","full_width","punctuation","voice_input"}，每项是 null（写法为空或不合法：不绑定）或 {"key": 主键规范名, "ctrl": bool, "alt": bool, "shift": bool, "meta": bool}；规范名是 client-core KeyChord 的 Display 输出（KeyA-KeyZ、Digit0-Digit9、F1-F12、Space、Semicolon、Equal、Comma、Minus、Period、Slash、Backquote、BracketLeft、Backslash、BracketRight、Quote），宿主按规范名认键，写法的解析只在 Rust 一侧。结果用 msime_client_string_free 释放。 */
 char *msime_client_toggle_hotkey_chords(const uint8_t *request, size_t length);
 // 录键试写：{"field": 槽位, "chord": 写法, "keybindings": 偏好, "voice_ctrl_f9": bool}。

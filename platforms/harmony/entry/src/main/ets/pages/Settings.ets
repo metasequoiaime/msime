@@ -3272,6 +3272,8 @@ class SettingsBridge {
     if (this.context !== undefined) {
       this.context.startAbility(want).catch((error: Object): void => {
         KeyboardLog.error(`link would not open: ${describeError(error)}`);
+        // 设备上没有能打开网页的应用时 startAbility 失败。页面和首次启动弹窗都把打开交给这里，同步拿不到结果，所以由这里把地址告诉用户，免得登录面板和隐私弹窗里的协议链接点了没反应。
+        this.uiContext?.getPromptAction().showToast({ message: TextPolicy.unopenedLinkNotice(url), duration: 4000 });
       });
     }
   }

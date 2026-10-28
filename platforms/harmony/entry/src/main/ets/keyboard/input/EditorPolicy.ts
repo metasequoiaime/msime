@@ -22,6 +22,8 @@ export interface EditorTraits {
   readonly email: boolean;
   /** The editor asked for no suggestions — a one-time code field, for instance. */
   readonly noSuggestions: boolean;
+  /** 只收数字的编辑框：数字、带小数点的数字或电话号码，即 Android `EditorPolicy.numberInput` 认的那两类。 */
+  readonly digits: boolean;
 }
 
 export class EditorPolicy {
@@ -48,6 +50,11 @@ export class EditorPolicy {
    */
   static excludesKeyStatistics(traits: EditorTraits): boolean {
     return traits.password;
+  }
+
+  /** 触屏底行样式（26 键、14/18 键、九键）在这个编辑框里一律退回标准底行：密码框或只收数字的编辑框，与 Android `bottomRowStyle` 遇到密码框和 `directNumberPad` 时的规则相同。 */
+  static keepsStandardRows(traits: EditorTraits): boolean {
+    return traits.password || traits.digits;
   }
 
   /** The keyboard opens in Latin for fields where Chinese input would only be in the way. */

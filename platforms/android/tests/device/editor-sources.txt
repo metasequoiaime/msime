@@ -46,6 +46,7 @@ platforms/android/tests/device/keyboard/HardwareTranslationDeviceSmoke.java
 platforms/android/tests/device/keyboard/HardwareDigitChecks.java
 platforms/android/tests/device/voice/HandwritingDeviceSmoke.java
 platforms/android/tests/device/settings/PreferencesDeviceSmoke.java
+platforms/android/tests/device/settings/KeyLayoutBackupDeviceChecks.java
 platforms/android/tests/device/settings/WubiLookupDeviceSmoke.java
 platforms/android/tests/device/keyboard/ThemeModeDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateSkinDeviceSmoke.java
@@ -202,6 +203,7 @@ platforms/android/tests/device/clipboard/TextEditRecentClipboardDeviceSmoke.java
 platforms/android/tests/device/clipboard/SpaceCopyDeviceChecks.java
 platforms/android/tests/device/keyboard/SpaceCopyEditorActivity.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
+platforms/android/tests/device/keyboard/TallReturnDeviceChecks.java
 platforms/android/tests/device/keyboard/ToolbarEdgesDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarScrollDeviceSmoke.java
 platforms/android/tests/device/settings/ChatNavigationDeviceSmoke.java

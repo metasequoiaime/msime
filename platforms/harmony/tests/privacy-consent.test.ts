@@ -13,6 +13,7 @@ import {
   SETTINGS_ENTRIES,
   SharedStateMirrorPolicy,
 } from "../entry/src/main/ets/keyboard/SharedStateMirrorPolicy";
+import { TextPolicy } from "../entry/src/main/ets/keyboard/TextPolicy";
 
 let failures = 0;
 let checks = 0;
@@ -282,6 +283,21 @@ group("the keyboard receives the consent through the shared sandbox", () => {
   check(
     SharedStateMirrorPolicy.importDecision(PRIVACY_CONSENT_ENTRY) === "copy",
     "the keyboard copies it as is",
+  );
+});
+
+group("a link the system cannot open tells the user where to go", () => {
+  const terms = TextPolicy.unopenedLinkNotice(USER_AGREEMENT_URL);
+  check(terms.includes("msime.app/terms/"), "the notice names the user agreement address");
+  check(!terms.includes("https://"), "the address is shown without the scheme");
+  check(
+    TextPolicy.unopenedLinkNotice(PRIVACY_POLICY_URL).includes("msime.app/privacy/"),
+    "the notice names the privacy policy address",
+  );
+  check(
+    TextPolicy.unopenedLinkNotice("http://example.com/a") ===
+      "没能打开浏览器，请在浏览器中访问 example.com/a",
+    "a plain http link loses its scheme too",
   );
 });
 

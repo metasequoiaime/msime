@@ -27,6 +27,8 @@ struct KeyboardLayoutSettingsView: View {
   @State private var tabOpensCandidates = true
   @State private var shuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
   @State private var quanpinShift = KeyboardLayoutPreference.quanpinShift
+  /// 「按键布局」里的顶部数字行决定手机键盘有几排，高度百分比按它算（`heightPercent`）。
+  @State private var keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
   @State private var saveFailed = false
@@ -83,6 +85,11 @@ struct KeyboardLayoutSettingsView: View {
   }
   /// 键盘上有没有 iPad 的数字行：九键、14 键和 18 键都不画它。
   private var drawsNumberRow: Bool { !nineKey && letterGrid == nil }
+  /// 手机键盘上有没有「按键布局」的顶部数字行：26 键、14 键和 18 键画，九键、笔画、手写、假名和大千不画。
+  private var drawsPhoneNumberRow: Bool {
+    keyLayoutStyle.numberRow && !nineKey && scheme != .japaneseNineKey && scheme != .handwriting
+      && !scheme.isStroke && !scheme.isZhuyin
+  }
 
   private var preview: some View {
     VStack(spacing: 6) {
@@ -196,6 +203,15 @@ struct KeyboardLayoutSettingsView: View {
           selection: Binding(get: { wubiLayout }, set: { _ in }),
           sheetTitle: "五笔键盘", identifier: "wubiKeyboardPicker",
           onSelect: selectWubiLayout)
+      }
+      // 本版本一组都不提供时（`TouchKeyLayoutOffering.offersAnyGroup`）不列这一行，免得点进去是空页。
+      if TouchKeyLayoutOffering.edition.offersAnyGroup {
+        DesignDivider()
+        NavigationLink(destination: KeyboardKeyLayoutSettingsView()) {
+          DesignNavRowLabel(title: "按键布局", subtitle: TouchKeyLayoutOffering.entrySubtitle)
+        }
+        .buttonStyle(PressFillButtonStyle())
+        .accessibilityIdentifier("keyLayoutSettingsLink")
       }
       DesignDivider()
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
@@ -457,7 +473,8 @@ struct KeyboardLayoutSettingsView: View {
   private func heightPercent(_ adjustment: Double) -> String {
     let tablet = UIDevice.current.userInterfaceIdiom == .pad
     let keyBlock = KeyboardHeightPercent.portraitKeyBlockHeight(
-      tablet: tablet, numberRow: tablet && tabletFullKeys && drawsNumberRow, rowSpacing: CGFloat(rowSpacing))
+      tablet: tablet, numberRow: tablet && tabletFullKeys && drawsNumberRow, rowSpacing: CGFloat(rowSpacing),
+      phoneNumberRow: !tablet && drawsPhoneNumberRow)
     return "\(KeyboardHeightPercent.percent(adjustment: CGFloat(adjustment), keyBlock: keyBlock))%"
   }
 
@@ -590,6 +607,8 @@ struct KeyboardLayoutSettingsView: View {
     KeyboardLayoutPreference.shuangpinKeyHints = shuangpinKeyHints
     quanpinShift = KeyboardLayoutPreference.sharedQuanpinShift(in: preferences)
     KeyboardLayoutPreference.quanpinShift = quanpinShift
+    TouchKeyLayoutStyle.mirror(preferences)
+    keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   }
 }
 

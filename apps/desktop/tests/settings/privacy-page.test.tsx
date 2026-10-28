@@ -126,3 +126,41 @@ test("hosts without a consent dialog show no consent row", async () => {
   await settingsFormReady();
   expect(screen.queryByText("隐私政策授权")).toBeNull();
 });
+
+// 拒绝授权后鸿蒙手机没有账号客户端；授权弹窗和键盘都让用户去「我的 › 隐私」重新同意，所以「我的」和那一行都还要在。
+test("a HarmonyOS phone that refused consent still reaches 我的 › 隐私 to agree later", async () => {
+  const review = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="account"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "harmony", mobile_settings: true, panel_windows: false }),
+        privacyConsent: { granted: false, review },
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^隐私/ }));
+  const page = await screen.findByRole("group", { name: "隐私" });
+  fireEvent.click(within(page).getByRole("button", { name: "查看并同意隐私政策" }));
+  await waitFor(() => expect(review).toHaveBeenCalledTimes(1));
+});
+
+// 2in1 的授权在「关于 › 法律信息」里，没有账号客户端时不因此多出账号页。
+test("a HarmonyOS 2in1 without an account client gets no account page from consent alone", async () => {
+  render(
+    <SettingsPage
+      initialPage="account"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "harmony", mobile_settings: false }),
+        privacyConsent: { granted: false, review: vi.fn() },
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(screen.queryByRole("heading", { name: /^(我的|账号与同步)$/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^隐私/ })).toBeNull();
+});

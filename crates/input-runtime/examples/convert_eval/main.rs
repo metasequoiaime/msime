@@ -62,6 +62,17 @@ struct Case {
     /// judgement about what came before, so a set that carries none cannot ask for one; harvested
     /// cases bring the preceding sentence from the corpus they came from.
     context: String,
+    /// `--cut-last-syllable` 截短前的输入；没截时为 `None`。`input` 换成了截短后真正打的那串，九键双拼要从截短前的全拼切音节。
+    full_input: Option<String>,
+}
+
+/// `--cut-last-syllable` 的两种截法：用户打到最后一个音节就停，等候选里出现要的词（吃饭 打 `chif`，进一步 打 `jinyib`）。
+#[derive(Clone, Copy)]
+enum Cut {
+    /// 末音节只打声母：zh、ch、sh 算一个声母，没有辅音声母的音节（an、e）留第一个字母。
+    Initial,
+    /// 末音节只打第一个字母。只收和 `Initial` 截出来不一样的用例，也就是末音节以 zh、ch、sh 开头的（吃饭 打 `chic`），其余用例两种截法相同，不重复计入。
+    Letter,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -76,6 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut grid: Option<KeyGrid> = None;
     let mut segmentation_filter: Option<KeyGrid> = None;
     let mut keyboard_neural = false;
+    let mut cut: Option<Cut> = None;
+    let mut first_page_rows: Option<usize> = None;
     let mut scheme = SchemeType::Quanpin;
     let mut autocorrect = false;
     let mut max_syllables: Option<usize> = None;
@@ -110,6 +123,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--dump" => dump = Some(PathBuf::from(take(&mut index)?)),
             "--grid" => grid = Some(grid_keys::parse_grid(&take(&mut index)?)?),
             "--keyboard-neural" => keyboard_neural = true,
+            "--first-page-rows" => first_page_rows = Some(take(&mut index)?.parse()?),
+            "--cut-last-syllable" => {
+                cut = Some(match take(&mut index)?.as_str() {
+                    "initial" => Cut::Initial,
+                    "letter" => Cut::Letter,
+                    other => {
+                        return Err(format!(
+                            "unknown --cut-last-syllable: {other} (expected initial or letter)"
+                        )
+                        .into())
+                    }
+                })
+            }
             // `--grid nine` 的旧写法，verify-local.sh 和笔记里都用过。
             "--nine-key" => grid = Some(KeyGrid::NineKey),
             // 只留全拼切成音节只有一种切法的用例，与九键双拼量的是同一批。
@@ -164,6 +190,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let shuangpin = if scheme == SchemeType::Shuangpin {
+        if cut.is_some() {
+            return Err("--cut-last-syllable is only supported for --scheme quanpin".into());
+        }
         if grid.is_some() || segmentation_filter.is_some() {
             return Err(
                 "--scheme shuangpin types the 26-key layout; it cannot be combined with --grid"
@@ -247,6 +276,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cases.len()
         );
     }
+    // 在切分过滤之后截：九键双拼的过滤要看打全的读法能不能唯一切开。
+    if let Some(cut) = cut {
+        let before = cases.len();
+        cases = cases
+            .into_iter()
+            .filter_map(|mut case| {
+                let typed = cut_last_syllable(&case.input, case.syllables, cut)?;
+                case.full_input = Some(std::mem::replace(&mut case.input, typed));
+                Some(case)
+            })
+            .collect();
+        eprintln!(
+            "{} of {before} cases cut the last syllable short",
+            cases.len()
+        );
+    }
     eprintln!("{} cases from {} set(s)", cases.len(), sets.len());
 
     let state = tempfile::tempdir()?;
@@ -260,6 +305,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eval,
             autocorrect,
             keyboard_neural,
+            first_page_rows,
             &verified.source_commit,
             &mut clean_top1_changed,
         )?,
@@ -272,6 +318,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 grid,
                 keyboard_neural,
                 autocorrect,
+                first_page_rows,
                 &verified.source_commit,
             )?;
             render(&report, &cases)
@@ -335,6 +382,7 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
             gold: fields[2].to_string(),
             syllables: fields[3].parse()?,
             context: fields.get(5).unwrap_or(&"").to_string(),
+            full_input: None,
             tags: fields
                 .get(4)
                 .map(|t| {
@@ -445,6 +493,7 @@ fn open_runtime(
     models: &Models,
     keyboard_neural: bool,
     autocorrect: bool,
+    first_page_rows: Option<usize>,
     source_commit: &str,
     tuning: Option<TouchTuning>,
     configure: impl FnOnce(&mut EngineOptions),
@@ -480,6 +529,10 @@ fn open_runtime(
     // Measure the shipped path: the host asks for every reading and crops the list itself.
     options.sentence_alternatives = true;
     options.sentence_association.neural_keyboard = keyboard_neural;
+    // 首页行数同时交给引擎排序和运行时分页，未指定时保留各自的默认值。
+    if let Some(rows) = first_page_rows {
+        options.first_page_rows = rows;
+    }
     configure(&mut options);
 
     let mut engine = Session::new(&options)?;
@@ -487,7 +540,8 @@ fn open_runtime(
         engine.set_touch_tuning(tuning);
     }
     // page_size is capped at 9 by the runtime, but all_candidates() is not paginated.
-    let mut runtime = Runtime::new(engine, 9)?;
+    let page_size = first_page_rows.map_or(9, |rows| rows.clamp(1, 9));
+    let mut runtime = Runtime::new(engine, u8::try_from(page_size)?)?;
     // 每个 Runtime 各建自己的 `Reranker`（前缀缓存跟着会话走），模型本身共用。
     if let Some(model) = &models.settled {
         runtime.set_settled_reranker(Some(Reranker::new(Arc::clone(model))));
@@ -541,6 +595,7 @@ fn run(
     grid: Option<KeyGrid>,
     keyboard_neural: bool,
     autocorrect: bool,
+    first_page_rows: Option<usize>,
     source_commit: &str,
 ) -> Result<Report, Box<dyn std::error::Error>> {
     // Optional JSONL of the real candidate lists, for offline experiments that must not be able to change what the harness measures.
@@ -552,6 +607,7 @@ fn run(
         &models,
         keyboard_neural,
         autocorrect,
+        first_page_rows,
         source_commit,
         None,
         |_| {},
@@ -565,9 +621,7 @@ fn run(
     for case in cases {
         // 组码只取字母，少数用例带的 `'` 不输入；九键双拼切不出唯一一种音节切法的用例在 `main` 里已经去掉了。
         let input: Vec<u8> = match grid {
-            Some(grid) => grid_keys::grid_keys(grid, &case.input, Some(case.syllables))
-                .unwrap_or_default()
-                .into_bytes(),
+            Some(grid) => typed_keys(grid, case).unwrap_or_default().into_bytes(),
             None => case.input.bytes().collect(),
         };
         let candidates = type_case(
@@ -618,6 +672,7 @@ fn run_shuangpin(
     eval: &ShuangpinEval,
     autocorrect: bool,
     keyboard_neural: bool,
+    first_page_rows: Option<usize>,
     source_commit: &str,
     clean_top1_changed: &mut usize,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -653,6 +708,7 @@ fn run_shuangpin(
             eval,
             autocorrect,
             keyboard_neural,
+            first_page_rows,
             source_commit,
             profile,
         )
@@ -724,6 +780,7 @@ fn run_profile(
     eval: &ShuangpinEval,
     autocorrect: bool,
     keyboard_neural: bool,
+    first_page_rows: Option<usize>,
     source_commit: &str,
     profile: ShuangpinProfileKind,
 ) -> Result<ProfileRun, Box<dyn std::error::Error>> {
@@ -738,6 +795,7 @@ fn run_profile(
         models,
         keyboard_neural,
         autocorrect,
+        first_page_rows,
         source_commit,
         eval.tuning,
         |options| {
@@ -1114,6 +1172,56 @@ fn render(report: &Report, cases: &[Case]) -> String {
 /// set does not rewrite the whole baseline file.
 fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
+}
+
+/// 用例在网格上打的组码。截短的用例在九键双拼上按打全的读法切音节、去掉最后一键：一个音节两键，停在末音节的声母上就是只打了它的第一键，两种截法在这里是同一串。
+fn typed_keys(grid: KeyGrid, case: &Case) -> Option<String> {
+    match (grid, &case.full_input) {
+        (KeyGrid::NineKeyShuangpin(_), Some(full)) => {
+            grid_keys::grid_keys(grid, full, Some(case.syllables)).map(|mut keys| {
+                keys.pop();
+                keys
+            })
+        }
+        _ => grid_keys::grid_keys(grid, &case.input, Some(case.syllables)),
+    }
+}
+
+/// 截短后的输入。音节按引擎自己的 `normalize_full_pinyin` 切，切成金标准那么多个音节（`build_eval_set` 收用例时用的也是它），末音节按 `cut` 截短；输入里原有的 `'` 照样保留。切不开，或者截了跟没截一样（末音节只有一个字母，`Letter` 时末音节不以 zh、ch、sh 开头）时为 `None`，这条用例不计入。
+fn cut_last_syllable(input: &str, syllables: usize, cut: Cut) -> Option<String> {
+    let normalized = msime_engine::host::normalize_full_pinyin(input, syllables);
+    let (head, last) = normalized
+        .rsplit_once('\'')
+        .unwrap_or(("", normalized.as_str()));
+    let initial = if ["zh", "ch", "sh"]
+        .iter()
+        .any(|retroflex| last.starts_with(retroflex))
+    {
+        2
+    } else {
+        1
+    };
+    let kept = match cut {
+        Cut::Initial => initial,
+        Cut::Letter if initial > 1 => 1,
+        Cut::Letter => return None,
+    };
+    if last.len() <= kept {
+        return None;
+    }
+    let letters = head.bytes().filter(|&byte| byte != b'\'').count() + kept;
+    let mut typed = String::with_capacity(input.len());
+    let mut counted = 0;
+    for character in input.chars() {
+        if counted == letters {
+            break;
+        }
+        if character != '\'' {
+            counted += 1;
+        }
+        typed.push(character);
+    }
+    Some(typed)
 }
 
 /// 一键怎么送：九键和九键双拼的数字、全键盘的字母走 `Character`，字母网格的组码走宿主触屏键面用的 `GridKey`。

@@ -142,6 +142,15 @@ struct DictionarySyncView: View {
         valueRow("待发送", status.map { "\($0.pending_upload)" } ?? "—", identifier: "dictionarySyncPendingUpload")
         DesignDivider()
         valueRow("待写入本机", status.map { "\($0.pending_apply)" } ?? "—", identifier: "dictionarySyncPendingApply")
+        if let budgetWait = IOSDictionarySyncPolicy.budgetWait(status?.budget_wait_until) {
+          DesignDivider()
+          Text(budgetWait)
+            .designSubtext()
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("dictionarySyncBudgetWait")
+        }
         if let lastError {
           DesignDivider()
           Text(IOSDictionarySyncPolicy.failureMessage(lastError))

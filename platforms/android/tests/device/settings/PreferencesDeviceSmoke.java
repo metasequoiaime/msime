@@ -5,10 +5,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import org.json.JSONObject;
 
-/** Signed fixture targets the preview UID only; no exported preference-writing API. */
+/** 签名夹具只作用于预览产品 UID，不暴露写偏好的接口。 */
 public final class PreferencesDeviceSmoke extends DeviceSmoke {
-    @Override protected String successDescription() { return "live preferences deferral, page size, punctuation, malformed-file preservation and recovery"; }
+    private boolean backupLayout;
+    @Override public void onCreate(android.os.Bundle arguments) {
+        backupLayout = arguments != null && "true".equals(arguments.getString("backup-layout"));
+        super.onCreate(arguments);
+    }
+    @Override protected String successDescription() { return backupLayout ? "synthetic layout backup restore and undo" : "live preferences deferral, page size, punctuation, malformed-file preservation and recovery"; }
     @Override protected void runChecks() throws Exception {
+        if (backupLayout) {
+            stage = "synthetic layout backup restore and undo";
+            KeyLayoutBackupDeviceChecks.run(getTargetContext());
+            return;
+        }
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
         File directory = new File(options.getString("preferences_directory")).getCanonicalFile();

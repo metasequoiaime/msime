@@ -195,6 +195,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.custom_candidate_skin_dark",
             "platform.android.custom_keyboard_skin",
             "platform.android.custom_theme_base",
+            "platform.android.fourteen_key_style",
             "platform.android.global_theme",
             "platform.android.haptic_strength",
             "platform.android.haptics_enabled",
@@ -203,7 +204,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_layout",
             "platform.android.keyboard_skin_dark",
             "platform.android.keyboard_skin_light",
+            "platform.android.nine_key_style",
             "platform.android.number_keypad_order",
+            "platform.android.number_row",
             "platform.android.quanpin_shift",
             "platform.android.shuangpin_key_hints",
             "platform.android.sound_enabled",
@@ -219,6 +222,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.touch_key_spacing_tenths",
             "platform.android.touch_row_spacing_tenths",
             "platform.android.twenty_six_key_number_layout",
+            "platform.android.twenty_six_key_style",
             "platform.android.voice_language",
             "platform.android.voice_shortcut",
         ]
@@ -357,6 +361,10 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_number_keypad_order: NumberKeypadOrder::Calculator,
         touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
         touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
+        touch_twenty_six_key_style: TouchTwentySixKeyStyle::LongSpace,
+        touch_fourteen_key_style: TouchFourteenKeyStyle::Emoji,
+        touch_nine_key_style: TouchNineKeyStyle::CommaPeriod,
+        touch_number_row: !Preferences::default().touch_number_row,
         ..Preferences::default()
     };
     expected.frequency = FrequencyPreferences {
@@ -1383,6 +1391,102 @@ fn android_keyboard_skin_mode_slots_sync_without_overwriting_global_theme() {
     assert_eq!(
         applied.preferences.android_keyboard_skin_dark.as_deref(),
         Some("design:synthetic-night")
+    );
+}
+
+/// 三种底行样式和数字行按共享偏好的写法上传，读回来还是原值；云端是本机不认识的样式时只跳过那一个键，本机的选择不变。
+#[test]
+fn touch_key_styles_and_number_row_sync_by_their_wire_names() {
+    let defaults = export_android_settings(&Preferences::default(), None).unwrap();
+    assert_eq!(
+        defaults[TWENTY_SIX_KEY_STYLE],
+        AccountPreferenceValue::String("standard".into())
+    );
+    assert_eq!(
+        defaults[FOURTEEN_KEY_STYLE],
+        AccountPreferenceValue::String("standard".into())
+    );
+    assert_eq!(
+        defaults[NINE_KEY_STYLE],
+        AccountPreferenceValue::String("standard".into())
+    );
+    assert_eq!(defaults[NUMBER_ROW], AccountPreferenceValue::Boolean(false));
+
+    for (twenty_six, fourteen, nine) in [
+        (
+            TouchTwentySixKeyStyle::CommaPeriod,
+            TouchFourteenKeyStyle::LongSpace,
+            TouchNineKeyStyle::CommaPeriod,
+        ),
+        (
+            TouchTwentySixKeyStyle::LongSpace,
+            TouchFourteenKeyStyle::Emoji,
+            TouchNineKeyStyle::Emoji,
+        ),
+        (
+            TouchTwentySixKeyStyle::Emoji,
+            TouchFourteenKeyStyle::Standard,
+            TouchNineKeyStyle::Standard,
+        ),
+        (
+            TouchTwentySixKeyStyle::Standard,
+            TouchFourteenKeyStyle::Standard,
+            TouchNineKeyStyle::TallReturn,
+        ),
+    ] {
+        let local = Preferences {
+            touch_twenty_six_key_style: twenty_six,
+            touch_fourteen_key_style: fourteen,
+            touch_nine_key_style: nine,
+            touch_number_row: true,
+            ..Preferences::default()
+        };
+        let exported = export_android_settings(&local, None).unwrap();
+        assert_eq!(
+            exported[TWENTY_SIX_KEY_STYLE],
+            AccountPreferenceValue::String(twenty_six.as_str().into())
+        );
+        assert_eq!(
+            exported[NINE_KEY_STYLE],
+            AccountPreferenceValue::String(nine.as_str().into())
+        );
+        let applied = apply(&Preferences::default(), exported, &full_schema());
+        assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+        assert_eq!(applied.preferences, local);
+    }
+
+    let local = Preferences {
+        touch_twenty_six_key_style: TouchTwentySixKeyStyle::Emoji,
+        touch_fourteen_key_style: TouchFourteenKeyStyle::LongSpace,
+        touch_nine_key_style: TouchNineKeyStyle::CommaPeriod,
+        ..Preferences::default()
+    };
+    let values = BTreeMap::from([
+        (
+            TWENTY_SIX_KEY_STYLE.to_owned(),
+            AccountPreferenceValue::String("split_space".into()),
+        ),
+        (
+            FOURTEEN_KEY_STYLE.to_owned(),
+            AccountPreferenceValue::String("comma_period".into()),
+        ),
+        (
+            NINE_KEY_STYLE.to_owned(),
+            AccountPreferenceValue::String("long_space".into()),
+        ),
+        (NUMBER_ROW.to_owned(), AccountPreferenceValue::Boolean(true)),
+    ]);
+    let applied = apply(&local, values, &full_schema());
+    assert_eq!(
+        applied.skipped,
+        [FOURTEEN_KEY_STYLE, NINE_KEY_STYLE, TWENTY_SIX_KEY_STYLE]
+    );
+    assert_eq!(
+        applied.preferences,
+        Preferences {
+            touch_number_row: true,
+            ..local
+        }
     );
 }
 

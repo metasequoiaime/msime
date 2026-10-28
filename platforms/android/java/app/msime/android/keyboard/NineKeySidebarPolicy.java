@@ -27,6 +27,9 @@ public final class NineKeySidebarPolicy {
     /** 字母键面默认只留三个常用符号，与九键三行对齐；！ 已在右列，不在这里重复。 */
     public static final List<String> DEFAULT_LETTER_SYMBOLS =
         List.of("，", "。", "？");
+    /** 右侧大回车样式（{@link TouchKeyStyle.Row#TALL_RETURN}）去掉了右列的 ！，它接在字母键面默认符号的末尾（{@link #letterSymbols(String, boolean)}）；自定义的符号表原样使用。 */
+    public static final List<String> TALL_RETURN_LETTER_SYMBOLS =
+        List.of("，", "。", "？", "！");
     /** 数字键面的默认符号：先是四则运算和算式里常用的半角符号，中文标点（含原来在右列的 ！）排在后面。 */
     public static final List<String> DEFAULT_DIGIT_SYMBOLS =
         List.of("+", "-", "*", "/", "=", "%", "(", ")", ":", "@", "，", "。", "？", "！");
@@ -86,7 +89,19 @@ public final class NineKeySidebarPolicy {
 
     /** 字母键面（拼音九键、笔画）显示的符号。 */
     public static List<String> letterSymbols(String stored) {
-        return symbols(stored, DEFAULT_LETTER_SYMBOLS);
+        return letterSymbols(stored, false);
+    }
+
+    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时默认表末尾多一个 ！，自定义的表不变。设置页「恢复默认」会把默认表原样写进存储，所以与默认表相同的表也按默认算。 */
+    public static List<String> letterSymbols(String stored, boolean tallReturn) {
+        List<String> symbols = symbols(stored, DEFAULT_LETTER_SYMBOLS);
+        return tallReturn && symbols.equals(DEFAULT_LETTER_SYMBOLS) ? TALL_RETURN_LETTER_SYMBOLS : symbols;
+    }
+
+    /** 右侧大回车外框接到默认字母表末尾的那个 ！ 在表里的位置（{@link #letterSymbols(String, boolean)}）；数字键面、别的样式和自定义的表没有接，返回 -1。它接替拼音九键右列的 ！，带着那个键上滑输入 0、长按选上标 ⁰ 或下标 ₀ 的手势；自定义表里的 ！ 是普通符号，不带。 */
+    public static int appendedExclamationIndex(boolean digits, String letterStored, boolean tallReturn) {
+        return !digits && tallReturn && symbols(letterStored, DEFAULT_LETTER_SYMBOLS).equals(DEFAULT_LETTER_SYMBOLS)
+            ? TALL_RETURN_LETTER_SYMBOLS.size() - 1 : -1;
     }
 
     /** 数字键面显示的符号。 */
@@ -102,7 +117,12 @@ public final class NineKeySidebarPolicy {
      * @param digitStored 本地设置里数字键面的符号表文本
      */
     public static List<String> sidebarSymbols(boolean digits, String letterStored, String digitStored) {
-        return digits ? digitSymbols(digitStored) : letterSymbols(letterStored);
+        return sidebarSymbols(digits, letterStored, digitStored, false);
+    }
+
+    /** 同上；{@code tallReturn} 为真时字母键面用 {@link #letterSymbols(String, boolean)} 的那张表，数字键面的表本来就有 ！，不变。 */
+    public static List<String> sidebarSymbols(boolean digits, String letterStored, String digitStored, boolean tallReturn) {
+        return digits ? digitSymbols(digitStored) : letterSymbols(letterStored, tallReturn);
     }
 
     /**

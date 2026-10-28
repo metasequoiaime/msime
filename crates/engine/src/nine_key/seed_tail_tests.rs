@@ -71,6 +71,7 @@ fn reference_split_paths(
         .collect()
 }
 
+// 末音节锚定的那条尾段是有意新增的语义（种子末音节整个拼得出时多接一条），对照按同样规则补上，其余仍是 8ef7f5a4d4 的正文。
 fn reference_seeded_paths(
     alternatives: &mut Vec<Path>,
     seeds: &[String],
@@ -84,12 +85,31 @@ fn reference_seeded_paths(
             continue;
         }
         let tail = &remaining[covered..];
-        let tails = if tail.is_empty() {
+        let mut tails: Vec<Path> = if tail.is_empty() {
             vec![Vec::new()]
         } else {
             reference_split_paths(table, tail, &[], prior)
+                .into_iter()
+                .take(SEED_TAIL_LIMIT)
+                .collect()
         };
-        for tail_path in tails.into_iter().take(SEED_TAIL_LIMIT) {
+        let (_, full_covered, full_fits) = fitting_syllables(table.grid, seed, remaining);
+        if !tail.is_empty() && full_fits {
+            let rest = &remaining[full_covered..];
+            let rest_path = if rest.is_empty() {
+                Some(Vec::new())
+            } else {
+                reference_split_paths(table, rest, &[], prior)
+                    .into_iter()
+                    .next()
+            };
+            if let Some(rest_path) = rest_path {
+                let mut anchored = vec![seed.rsplit('\'').next().unwrap().to_owned()];
+                anchored.extend(rest_path);
+                tails.push(anchored);
+            }
+        }
+        for tail_path in tails {
             let mut path: Path = Vec::with_capacity(kept + tail_path.len());
             path.extend(seed.split('\'').take(kept).map(str::to_owned));
             path.extend(tail_path);

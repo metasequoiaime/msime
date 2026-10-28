@@ -49,6 +49,8 @@ export interface DictionarySyncStatus {
   clock_skew: boolean;
   last_success_ms: number | null;
   last_error: string | null;
+  /** 自动同步因请求额度在等时什么时候继续（Unix 毫秒）：本机额度不够一轮，或者被网盘限流之后；没在等时为 `null`。「立即同步」不受它限制。 */
+  budget_wait_until: number | null;
 }
 
 /** `run` 的结果：失败时没有 `report`，`error` 是错误码，`status` 照样给出。 */
@@ -78,6 +80,7 @@ export function dictionarySyncStatus(value: unknown): DictionarySyncStatus | nul
   if (typeof status.approved !== "boolean" || typeof status.joined !== "boolean") return null;
   const held = count(status.held_deletions);
   const success = count(status.last_success_ms);
+  const budgetWait = count(status.budget_wait_until);
   return {
     device_id: optionalText(status.device_id),
     code: optionalText(status.code),
@@ -90,7 +93,30 @@ export function dictionarySyncStatus(value: unknown): DictionarySyncStatus | nul
     clock_skew: status.clock_skew === true,
     last_success_ms: success > 0 ? success : null,
     last_error: optionalText(status.last_error),
+    budget_wait_until: budgetWait > 0 ? budgetWait : null,
   };
+}
+
+function twoDigits(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/** 自动同步在等额度时状态卡里的一句：本机时间的「HH:MM」，不是今天时写成「M月D日 HH:MM」；已经过了或者没在等时为 `null`。与 iOS、Android 和 Windows 的说法逐字相同。 */
+export function dictionarySyncBudgetWaitMessage(
+  until: number | null,
+  now: number = Date.now(),
+): string | null {
+  if (until === null || until <= now) return null;
+  const date = new Date(until);
+  const today = new Date(now);
+  if (Number.isNaN(date.getTime()) || Number.isNaN(today.getTime())) return null;
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+  const time = `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
+  const when = sameDay ? time : `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+  return `额度用完，将于 ${when} 继续自动同步；可点「立即同步」。`;
 }
 
 /** 读出 `run` 的结果（`remove`、`reset` 结果里的 `run` 也是这个形状）；形状不对时为 `null`。 */

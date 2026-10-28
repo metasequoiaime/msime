@@ -227,6 +227,169 @@ fn touch_wubi_layout_defaults_persists_and_rejects_unsupported_layouts() {
 }
 
 #[test]
+fn touch_key_styles_and_number_row_default_to_todays_keyboards_and_are_not_written() {
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.touch_twenty_six_key_style,
+        TouchTwentySixKeyStyle::Standard
+    );
+    assert_eq!(
+        defaults.touch_fourteen_key_style,
+        TouchFourteenKeyStyle::Standard
+    );
+    assert_eq!(defaults.touch_nine_key_style, TouchNineKeyStyle::Standard);
+    assert!(!defaults.touch_number_row);
+    let written = serde_json::to_value(&defaults).unwrap();
+    for key in [
+        "touch_twenty_six_key_style",
+        "touch_fourteen_key_style",
+        "touch_nine_key_style",
+        "touch_number_row",
+    ] {
+        assert!(written.get(key).is_none(), "{key}");
+    }
+
+    // 没有这四个键的旧文档读出默认值，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(
+        loaded.touch_twenty_six_key_style,
+        TouchTwentySixKeyStyle::Standard
+    );
+    assert_eq!(
+        loaded.touch_fourteen_key_style,
+        TouchFourteenKeyStyle::Standard
+    );
+    assert_eq!(loaded.touch_nine_key_style, TouchNineKeyStyle::Standard);
+    assert!(!loaded.touch_number_row);
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+}
+
+#[test]
+fn touch_key_styles_and_number_row_round_trip_through_the_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut revision = store.load().unwrap().revision;
+    for (twenty_six, fourteen, nine) in [
+        (
+            TouchTwentySixKeyStyle::CommaPeriod,
+            TouchFourteenKeyStyle::LongSpace,
+            TouchNineKeyStyle::CommaPeriod,
+        ),
+        (
+            TouchTwentySixKeyStyle::LongSpace,
+            TouchFourteenKeyStyle::Emoji,
+            TouchNineKeyStyle::Emoji,
+        ),
+        (
+            TouchTwentySixKeyStyle::Emoji,
+            TouchFourteenKeyStyle::Standard,
+            TouchNineKeyStyle::Standard,
+        ),
+        (
+            TouchTwentySixKeyStyle::Standard,
+            TouchFourteenKeyStyle::Standard,
+            TouchNineKeyStyle::TallReturn,
+        ),
+    ] {
+        let configured = Preferences {
+            touch_twenty_six_key_style: twenty_six,
+            touch_fourteen_key_style: fourteen,
+            touch_nine_key_style: nine,
+            touch_number_row: true,
+            ..Preferences::default()
+        };
+        revision = store.save(revision, configured.clone()).unwrap().revision;
+        let loaded = store.load().unwrap().preferences;
+        assert_eq!(loaded, configured);
+        let written = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(
+            written.get("touch_twenty_six_key_style"),
+            (!twenty_six.is_default())
+                .then(|| twenty_six.as_str().into())
+                .as_ref()
+        );
+        assert_eq!(
+            written.get("touch_nine_key_style"),
+            (!nine.is_default()).then(|| nine.as_str().into()).as_ref()
+        );
+        assert_eq!(written["touch_number_row"], true);
+    }
+}
+
+#[test]
+fn touch_key_style_wire_strings_are_pinned_and_unknown_strings_read_as_standard() {
+    for (style, wire) in [
+        (TouchTwentySixKeyStyle::Standard, "standard"),
+        (TouchTwentySixKeyStyle::CommaPeriod, "comma_period"),
+        (TouchTwentySixKeyStyle::LongSpace, "long_space"),
+        (TouchTwentySixKeyStyle::Emoji, "emoji"),
+    ] {
+        assert_eq!(serde_json::to_value(style).unwrap(), wire);
+        assert_eq!(style.as_str(), wire);
+        assert_eq!(TouchTwentySixKeyStyle::parse(wire), Some(style));
+        assert_eq!(
+            serde_json::from_value::<TouchTwentySixKeyStyle>(wire.into()).unwrap(),
+            style
+        );
+    }
+    for (style, wire) in [
+        (TouchFourteenKeyStyle::Standard, "standard"),
+        (TouchFourteenKeyStyle::LongSpace, "long_space"),
+        (TouchFourteenKeyStyle::Emoji, "emoji"),
+    ] {
+        assert_eq!(serde_json::to_value(style).unwrap(), wire);
+        assert_eq!(style.as_str(), wire);
+        assert_eq!(TouchFourteenKeyStyle::parse(wire), Some(style));
+        assert_eq!(
+            serde_json::from_value::<TouchFourteenKeyStyle>(wire.into()).unwrap(),
+            style
+        );
+    }
+    for (style, wire) in [
+        (TouchNineKeyStyle::Standard, "standard"),
+        (TouchNineKeyStyle::CommaPeriod, "comma_period"),
+        (TouchNineKeyStyle::Emoji, "emoji"),
+        (TouchNineKeyStyle::TallReturn, "tall_return"),
+    ] {
+        assert_eq!(serde_json::to_value(style).unwrap(), wire);
+        assert_eq!(style.as_str(), wire);
+        assert_eq!(TouchNineKeyStyle::parse(wire), Some(style));
+        assert_eq!(
+            serde_json::from_value::<TouchNineKeyStyle>(wire.into()).unwrap(),
+            style
+        );
+    }
+
+    // 不认识的字符串（包括别的键面才有的样式）按现有底行读，整份文档照常读出；不是字符串照样报错。
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    for (key, unknown) in [
+        ("touch_twenty_six_key_style", "split_space"),
+        ("touch_fourteen_key_style", "comma_period"),
+        ("touch_nine_key_style", "long_space"),
+    ] {
+        let mut document = legacy.clone();
+        document[key] = unknown.into();
+        let parsed = serde_json::from_value::<Preferences>(document).unwrap();
+        assert_eq!(parsed, Preferences::default(), "{key} = {unknown}");
+        let mut wrong = legacy.clone();
+        wrong[key] = serde_json::json!(1);
+        assert!(
+            serde_json::from_value::<Preferences>(wrong).is_err(),
+            "{key}"
+        );
+    }
+    assert_eq!(TouchFourteenKeyStyle::parse("comma_period"), None);
+    assert_eq!(TouchNineKeyStyle::parse("long_space"), None);
+    let mut wrong = legacy;
+    wrong["touch_number_row"] = "true".into();
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+}
+
+#[test]
 fn japanese_toggle_input_persists_disabled() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["touch_japanese_toggle_input"] = false.into();
@@ -1448,6 +1611,44 @@ fn reporting_consent_survives_unrelated_and_old_client_saves() {
     let mut old_client = saved.preferences.clone();
     old_client.usage_reporting_consent = None;
     assert_eq!(store.save(saved.revision, old_client).unwrap(), saved);
+}
+
+#[test]
+fn reporting_consent_survives_android_layout_migration_without_initializing_history() {
+    for (enabled, initialize) in [(false, false), (true, false), (true, true)] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        store
+            .save(
+                0,
+                Preferences {
+                    usage_reporting: enabled,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        if initialize {
+            store.usage_reporting_consent().unwrap();
+        }
+        let before = store.load().unwrap();
+        let migrated = store
+            .migrate_android_key_layout(before.revision, true, true)
+            .unwrap();
+        assert_eq!(
+            migrated.preferences.touch_twenty_six_key_style,
+            TouchTwentySixKeyStyle::LongSpace
+        );
+        assert!(migrated.preferences.touch_number_row);
+        assert_eq!(migrated.preferences.usage_reporting, enabled);
+        assert_eq!(
+            migrated.preferences.usage_reporting_consent,
+            before.preferences.usage_reporting_consent
+        );
+        assert_eq!(
+            PreferencesStore::new(directory.path()).load().unwrap(),
+            migrated
+        );
+    }
 }
 
 #[test]
@@ -9299,4 +9500,51 @@ fn recover_keeps_what_a_newer_version_wrote() {
         serde_json::to_value(Preferences::default().candidate_layout).unwrap()
     );
     assert_eq!(store.load().unwrap(), snapshot);
+}
+
+#[test]
+fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
+    for style in [None, Some("standard"), Some("emoji"), Some("split_space")] {
+        for number_row in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = PreferencesStore::new(directory.path());
+            let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+            document["revision"] = 1.into();
+            if let Some(style) = style {
+                document["preferences"]["touch_twenty_six_key_style"] = style.into();
+            }
+            document["preferences"]["touch_fourteen_key_style"] = "future_fourteen".into();
+            document["preferences"]["touch_nine_key_style"] = "future_nine".into();
+            fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+            let saved = store
+                .migrate_android_key_layout(1, true, number_row)
+                .unwrap();
+            let raw: serde_json::Value =
+                serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+            let expected = match style {
+                None | Some("standard") => "long_space",
+                Some(value) => value,
+            };
+            assert_eq!(raw["preferences"]["touch_twenty_six_key_style"], expected);
+            assert_eq!(
+                raw["preferences"]["touch_fourteen_key_style"],
+                "future_fourteen"
+            );
+            assert_eq!(raw["preferences"]["touch_nine_key_style"], "future_nine");
+            assert_eq!(saved.preferences.touch_number_row, number_row);
+            let before = fs::read(store.path()).unwrap();
+            assert_eq!(
+                store
+                    .migrate_android_key_layout(saved.revision, true, number_row)
+                    .unwrap()
+                    .revision,
+                saved.revision
+            );
+            assert!(matches!(
+                store.migrate_android_key_layout(0, true, true),
+                Err(PreferencesError::Conflict)
+            ));
+            assert_eq!(fs::read(store.path()).unwrap(), before);
+        }
+    }
 }

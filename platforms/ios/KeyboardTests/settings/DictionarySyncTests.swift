@@ -132,6 +132,32 @@ final class DictionarySyncTests: XCTestCase {
     XCTAssertTrue(IOSDictionarySyncPolicy.heldDeletionsMessage(60).contains("60"))
   }
 
+  /// 自动同步在等额度时说什么时候继续：按本机时间，今天之内只写时分，跨了天写上月日；已经过了或没在等时不说。旧版本的 Rust 不给这个字段，读出来是 nil。
+  func testBudgetWaitSaysWhenAutomaticSyncResumes() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+    func at(_ day: Int, _ hour: Int, _ minute: Int) throws -> Date {
+      try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute)))
+    }
+    let until = try at(28, 9, 5)
+    let milliseconds = UInt64(until.timeIntervalSince1970 * 1000)
+    XCTAssertEqual(IOSDictionarySyncPolicy.budgetWait(milliseconds, now: try at(28, 8, 40), calendar: calendar),
+                   "额度用完，将于 09:05 继续自动同步；可点「立即同步」。")
+    XCTAssertEqual(IOSDictionarySyncPolicy.budgetWait(milliseconds, now: try at(27, 23, 50), calendar: calendar),
+                   "额度用完，将于 10月28日 09:05 继续自动同步；可点「立即同步」。")
+    XCTAssertNil(IOSDictionarySyncPolicy.budgetWait(milliseconds, now: until, calendar: calendar))
+    XCTAssertNil(IOSDictionarySyncPolicy.budgetWait(milliseconds, now: try at(28, 9, 6), calendar: calendar))
+    XCTAssertNil(IOSDictionarySyncPolicy.budgetWait(nil, now: try at(28, 8, 40), calendar: calendar))
+
+    let fields = #"{"device_id":null,"code":null,"approved":true,"joined":true,"words":1,"pending_upload":0,"pending_apply":0,"held_deletions":null,"clock_skew":false,"last_success_ms":null,"last_error":null"#
+    let waiting = try JSONDecoder().decode(IOSDictionarySync.Status.self, from: Data((fields + #","budget_wait_until":\#(milliseconds)}"#).utf8))
+    XCTAssertEqual(waiting.budget_wait_until, milliseconds)
+    let idle = try JSONDecoder().decode(IOSDictionarySync.Status.self, from: Data((fields + #","budget_wait_until":null}"#).utf8))
+    XCTAssertNil(idle.budget_wait_until)
+    let older = try JSONDecoder().decode(IOSDictionarySync.Status.self, from: Data((fields + "}").utf8))
+    XCTAssertNil(older.budget_wait_until)
+  }
+
   // MARK: - 本机目录
 
   /// 目录只有本应用能进、不进设备备份；保护类别在真机上是「首次解锁后」（模拟器不报告保护类别）。

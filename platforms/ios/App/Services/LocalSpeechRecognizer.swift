@@ -249,6 +249,12 @@ private final class LocalSpeechSession {
   private var vad: OpaquePointer?
   /// 离线 transducer 每段新建一个流，热词随流传入，所以在会话开始时整理一次。
   private var segmentHotwords = ""
+  /// 送进 VAD 的最近一段录音，给段首往前补（`LocalSpeechText.vadSegmentStart`）。`history[0]` 是会话里第 `historyStart` 个采样；最多留 `historyLimit` 个，sherpa-onnx 自己的缓冲只留到段首前 2 个窗口。
+  private var history: [Float] = []
+  private var historyStart = 0
+  private var historyLimit = 0
+  /// 上一段的段尾。往前补不越过它，否则两段的识别结果会重复同一段音频里的字。
+  private var decodedEnd = 0
   private var segments: [String] = []
   private var current = ""
   private var finished = false
@@ -274,6 +280,8 @@ private final class LocalSpeechSession {
     config.silero_vad.window_size = Self.vadWindow
     // FunASR-nano shares a 512-token context between audio and text; past roughly 25 seconds it returns nothing at all.
     config.silero_vad.max_speech_duration = recognizer.kind == .offlineFunAsrNano ? 20 : 28
+    // 比一段语音的上限多留 5 秒，够往前补 3 秒加上段尾那 0.5 秒静音。
+    historyLimit = Int(config.silero_vad.max_speech_duration) * Int(LocalSpeechRecognizer.sampleRate) + Int(LocalSpeechRecognizer.sampleRate) * 5
     config.sample_rate = LocalSpeechRecognizer.sampleRate
     config.num_threads = 1
     config.provider = strings.add("cpu")
@@ -302,7 +310,9 @@ private final class LocalSpeechSession {
         // The detector judges each call as a whole (speech if any window in it is speech), so it is fed one window at a time; a long buffer in one call would merge every pause into a single segment.
         var offset: Int32 = 0
         while offset < count {
-          SherpaOnnxVoiceActivityDetectorAcceptWaveform(vad, base + Int(offset), min(Self.vadWindow, count - offset))
+          let window = min(Self.vadWindow, count - offset)
+          remember(UnsafeBufferPointer(start: base + Int(offset), count: Int(window)))
+          SherpaOnnxVoiceActivityDetectorAcceptWaveform(vad, base + Int(offset), window)
           try drainVAD()
           offset += Self.vadWindow
         }
@@ -349,16 +359,41 @@ private final class LocalSpeechSession {
     }
   }
 
+  private func remember(_ samples: UnsafeBufferPointer<Float>) {
+    history.append(contentsOf: samples)
+    // 多攒一秒再整块丢掉最旧的，免得每个窗口都搬一遍整段缓冲。
+    if history.count > historyLimit + Int(LocalSpeechRecognizer.sampleRate) {
+      let drop = history.count - historyLimit
+      history.removeFirst(drop)
+      historyStart += drop
+    }
+  }
+
   private func drainVAD() throws {
     guard let vad else { return }
     while SherpaOnnxVoiceActivityDetectorEmpty(vad) == 0 {
       if let segment = SherpaOnnxVoiceActivityDetectorFront(vad) {
         defer { SherpaOnnxDestroySpeechSegment(segment) }
         if segment.pointee.n > 0, let samples = segment.pointee.samples {
-          try decodeSegment(samples, count: segment.pointee.n)
+          try decodeVADSegment(start: Int(segment.pointee.start), samples: samples, count: segment.pointee.n)
         }
       }
       SherpaOnnxVoiceActivityDetectorPop(vad)
+    }
+  }
+
+  /// VAD 的段首往前补上它漏掉的起音再解码，见 `LocalSpeechText.vadSegmentStart`。
+  private func decodeVADSegment(start: Int, samples: UnsafePointer<Float>, count: Int32) throws {
+    let begin = LocalSpeechText.vadSegmentStart(history, audioStart: historyStart, vadStart: start, earliest: decodedEnd)
+    decodedEnd = start + Int(count)
+    guard begin < start else {
+      try decodeSegment(samples, count: count)
+      return
+    }
+    var padded = Array(history[(begin - historyStart)..<(start - historyStart)])
+    padded.append(contentsOf: UnsafeBufferPointer(start: samples, count: Int(count)))
+    try padded.withUnsafeBufferPointer { buffer in
+      try decodeSegment(buffer.baseAddress!, count: Int32(buffer.count))
     }
   }
 
