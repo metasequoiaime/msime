@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+[商业云候选与上屏后云预测](2026-10-28-commercial-cloud-prediction.md)基于实际 HTTPS 证据部分替代本篇“不内置百度”的来源选择，并增加独立预测模式；本篇的 HTTP、缓存和本机配置边界继续成立。
+
 六个平台共用 `cloud_candidate_provider` 本机偏好：来源为 Google 或自定义接口，支持 GET/POST、`headers_json`、JSON 请求体模板、标准 candidates / Google / 点分 JSON 路径、100–10000 毫秒超时和缓存开关。旧文档缺省为 Google，新装仍默认关闭联网。只把当前未上屏的拼写代入 `{query}`，不代入前文、用户词库或历史。JSON 模板先解析、只替换字符串值，再序列化，避免把拼写拼成 JSON 结构。
 
 请求构造和响应解析都在 `client-core`，`host-api` 把 `cloud_request` 描述符放入已有的在线查询，不新增 C ABI 符号。各宿主只执行描述符；Linux socket 服务只回传原始 JSON，Rust 负责解析，避免脚本成为另一份协议实现。公网只用 HTTPS，HTTP 只允许规范的 localhost、127.0.0.1 与 ::1；禁重定向、cookie、系统 HTTP 缓存，单次回包最多 256 KiB。

@@ -6,15 +6,16 @@ import { TextInputRow } from "./text-input-row";
 import { SettingsTextareaField } from "./settings-textarea-field";
 
 export interface CloudCandidateProviderPreferences {
-  source: "google" | "custom";
+  source: "google" | "baidu" | "custom";
   endpoint: string;
   method: "GET" | "POST";
   headers_json: string;
   body_template: string;
-  response_format: "candidates" | "google" | "json_path";
+  response_format: "candidates" | "google" | "baidu" | "json_path";
   response_path: string;
   timeout_ms: number;
   cache_enabled: boolean;
+  prediction_enabled?: boolean;
 }
 
 /** 旧宿主或尚未载入共享默认值时的显示值；有效配置由 Rust 校验。 */
@@ -49,6 +50,7 @@ export function CloudCandidatesSection({
   const change = (patch: Partial<CloudCandidateProviderPreferences>) =>
     setDraft((current) => ({ ...current, ...patch }));
   let recipient = "Google input-tools（inputtools.google.com）";
+  if (provider.source === "baidu") recipient = "百度输入法（olimenew.baidu.com）";
   if (provider.source === "custom") {
     try {
       recipient = new URL(provider.endpoint.replaceAll("{query}", "query")).hostname;
@@ -60,7 +62,11 @@ export function CloudCandidatesSection({
     <>
       <SwitchRow
         title="云候选"
-        description={`仅将当前正在组的拼写发送给 ${recipient}；不发送已上屏内容、词库或历史`}
+        description={
+          provider.source === "custom" && provider.prediction_enabled
+            ? `将当前拼写和另行开启的上屏后联想文本发送给 ${recipient}；不发送词库或输入历史`
+            : `仅将当前正在组的拼写发送给 ${recipient}；不发送已上屏内容、词库或历史`
+        }
         checked={value ?? true}
         onChange={onChange}
       />
@@ -70,13 +76,22 @@ export function CloudCandidatesSection({
             title="云候选来源"
             aria-label="云候选来源"
             value={draft.source}
-            onChange={(event) => change({ source: event.target.value as "google" | "custom" })}
+            onChange={(event) =>
+              change({ source: event.target.value as CloudCandidateProviderPreferences["source"] })
+            }
           >
             <option value="google">Google input-tools</option>
+            <option value="baidu">百度输入法</option>
             <option value="custom">自定义 HTTP 接口</option>
           </SelectRow>
           {draft.source === "custom" && (
             <>
+              <SwitchRow
+                title="允许上屏后云预测"
+                description="上屏后联想开启时，另将刚上屏的最多 64 个汉字发送到此服务，获取后续词；失败继续使用本地联想"
+                checked={draft.prediction_enabled ?? false}
+                onChange={(prediction_enabled) => change({ prediction_enabled })}
+              />
               <TextInputRow
                 title="接口地址"
                 label="云候选接口地址"
@@ -130,6 +145,7 @@ export function CloudCandidatesSection({
               >
                 <option value="candidates">标准 candidates 数组</option>
                 <option value="google">Google input-tools</option>
+                <option value="baidu">百度输入法</option>
                 <option value="json_path">JSON 路径</option>
               </SelectRow>
               {draft.response_format === "json_path" && (

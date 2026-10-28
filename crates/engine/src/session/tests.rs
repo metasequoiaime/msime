@@ -504,6 +504,133 @@ fn next_word_prediction_reset_does_not_learn_across_the_discarded_context() {
     assert!(store.next_words("吃", 8).is_empty());
 }
 
+#[test]
+fn cloud_next_word_predictions_merge_and_commit_only_the_suffix() {
+    let fixture = prediction_fixture();
+    let mut session = fixture.session_with(|options| {
+        options.next_word_prediction = true;
+        options.learning = false;
+    });
+    type_text(&mut session, "chi");
+    select_word(&mut session, "吃");
+    let query = session.online_query().unwrap();
+    assert_eq!(query.mode, crate::OnlineInputMode::Prediction);
+    assert_eq!(query.query_text, "吃");
+    assert!(!query.ai_eligible);
+    assert!(session.apply_online_candidates(
+        &query,
+        &["米饭".into(), "好".into()],
+        CandidateSource::CloudSuggestion
+    ));
+    let snapshot = session.snapshot();
+    assert!(snapshot.prediction && snapshot.editing_text.is_empty());
+    assert_eq!(snapshot.candidates[0].word, "饭");
+    assert_eq!(
+        select_word(&mut session, "米饭").commit.as_deref(),
+        Some("米饭")
+    );
+    let next = session.online_query().unwrap();
+    assert_eq!(next.query_text, "吃米饭");
+    assert!(!session.apply_online_candidates(
+        &query,
+        &["旧词".into()],
+        CandidateSource::CloudSuggestion
+    ));
+}
+
+#[test]
+fn cloud_next_word_predictions_can_fill_an_empty_local_page_and_reject_bad_or_stale_results() {
+    let fixture = prediction_fixture();
+    for action in 0..5 {
+        let mut session = fixture.session_with(|options| {
+            options.next_word_prediction = true;
+            options.learning = false;
+        });
+        type_text(&mut session, "ni");
+        select_word(&mut session, "你");
+        assert!(session.snapshot().candidates.is_empty());
+        let query = session.online_query().unwrap();
+        assert!(!session.apply_online_candidates(
+            &query,
+            &["".into()],
+            CandidateSource::CloudSuggestion
+        ));
+        assert!(!session.apply_online_candidates(
+            &query,
+            &["坏\n词".into()],
+            CandidateSource::CloudSuggestion
+        ));
+        assert!(!session.apply_online_candidates(
+            &query,
+            &["好".into()],
+            CandidateSource::AiSuggestion
+        ));
+        match action {
+            0 => {
+                session.character(b'n', false);
+            }
+            1 => {
+                session.command(Command::Cancel);
+            }
+            2 => {
+                session.set_prediction_allowed(false);
+            }
+            3 => {
+                session.reset_context();
+            }
+            _ => {
+                session.set_key_grid(Some(KeyGrid::NineKey));
+            }
+        }
+        assert!(!session.apply_online_candidates(
+            &query,
+            &["迟到".into()],
+            CandidateSource::CloudSuggestion
+        ));
+    }
+    let mut session = fixture.session_with(|options| {
+        options.next_word_prediction = true;
+        options.learning = false;
+    });
+    type_text(&mut session, "ni");
+    select_word(&mut session, "你");
+    let query = session.online_query().unwrap();
+    assert!(session.apply_online_candidates(
+        &query,
+        &["好".into(), "们".into()],
+        CandidateSource::CloudSuggestion
+    ));
+    assert_eq!(
+        select_word(&mut session, "好").commit.as_deref(),
+        Some("好")
+    );
+}
+
+#[test]
+fn removing_cloud_predictions_restores_the_local_page_and_invalidates_old_query() {
+    let fixture = prediction_fixture();
+    let mut session = fixture.session_with(|options| {
+        options.next_word_prediction = true;
+        options.learning = false;
+    });
+    type_text(&mut session, "chi");
+    select_word(&mut session, "吃");
+    let original = session.snapshot().candidates;
+    let query = session.online_query().unwrap();
+    assert!(session.apply_online_candidates(
+        &query,
+        &["米饭".into()],
+        CandidateSource::CloudSuggestion
+    ));
+    session.clear_online_candidates(CandidateSource::CloudSuggestion);
+    assert_eq!(session.snapshot().candidates, original);
+    assert!(!session.apply_online_candidates(
+        &query,
+        &["迟到".into()],
+        CandidateSource::CloudSuggestion
+    ));
+}
+
 impl Fixture {
     fn new(main_sql: &str) -> Self {
         let directory = tempfile::tempdir().expect("temporary directory");

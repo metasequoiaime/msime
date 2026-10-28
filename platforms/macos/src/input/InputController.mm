@@ -1903,6 +1903,8 @@ static NSImage *MSIMECandidateLogoImage() {
     id _settledPollClient;
     MSIMECloudCandidateRequest *_cloudRequest;
     NSDictionary *_cloudQuery;
+    NSRange _predictionAnchor;
+    BOOL _predictionAnchorValid;
     uint64_t _cloudEpoch;
     NSOperationQueue *_glossQueue;
     NSDictionary *_glossRequest;
@@ -2765,6 +2767,7 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
 
 // 选网格里的第 index 个。复制时的一代已经不是当前这一代时什么也不选，只收起网格；`pointer` 是鼠标点选，先开一轮（见 msime_client.h 的顺序契约）。
 - (void)selectExpandedCandidateAtIndex:(NSUInteger)index pointer:(BOOL)pointer {
+    if (![self predictionAnchorCurrent]) { [self clearPostCommitPrediction]; return; }
     if (!_expandedCandidates || !_session) return;
     NSDictionary *identifier = index < _expandedCandidates.count ? _expandedCandidates[index][@"id"] : nil;
     uint64_t generation = 0; NSUInteger engineIndex = 0;
@@ -4152,7 +4155,23 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
     [NSRunLoop.mainRunLoop addTimer:_settledTimer forMode:NSRunLoopCommonModes];
 }
 
+// 联想属于刚完成上屏的光标位置，鼠标换位置后不能再应用旧回包或点选旧词。
+- (BOOL)predictionAnchorCurrent {
+    if (!MSIMEStrictBoolean(_view[@"prediction"])) return YES;
+    if ([self secureEventInputActive] || !_predictionAnchorValid ||
+        ![_activeClient respondsToSelector:@selector(selectedRange)]) return NO;
+    return NSEqualRanges([(id<MSIMETextClient>)_activeClient selectedRange], _predictionAnchor);
+}
+
+- (void)clearPostCommitPrediction {
+    if (!MSIMEStrictBoolean(_view[@"prediction"])) return;
+    const BOOL current = [self predictionAnchorCurrent];
+    _predictionAnchorValid = NO;
+    [self apply:current ? [_session command:MSIME_CANCEL error:nil] : [_session setFocused:YES error:nil]];
+}
+
 - (void)synchronizeCloudCandidates {
+    if (![self predictionAnchorCurrent]) { [self clearPostCommitPrediction]; return; }
     NSDictionary *query = _activeClient && _session && !_focusPending && (!_appearance.englishMode || _managedEnglishComposition) && ![self secureEventInputActive] &&
         (!_appearance || _appearance.cloudCandidatesEnabled) ? [_session onlineQueryWithError:nil] : nil;
     if (!MSIMEStrictBoolean(query[@"cloud_candidates"]) || !MSIMEStrictBoolean(query[@"cloud_eligible"])) {
@@ -4174,6 +4193,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
             controller->_activeClient != client || controller->_focusPending || [controller secureEventInputActive] ||
+            ![controller predictionAnchorCurrent] ||
             (controller->_appearance.englishMode && !controller->_managedEnglishComposition) ||
             (controller->_appearance && !controller->_appearance.cloudCandidatesEnabled) ||
             ![[session onlineQueryWithError:nil] isEqual:query]) return;
@@ -4182,6 +4202,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
             MSIMEInputController *current = weakSelf;
             if (!current || current->_cloudEpoch != epoch || current->_session != session ||
                 current->_activeClient != client || current->_focusPending || [current secureEventInputActive] ||
+                ![current predictionAnchorCurrent] ||
                 (current->_appearance.englishMode && !current->_managedEnglishComposition) ||
                 (current->_appearance && !current->_appearance.cloudCandidatesEnabled) ||
                 ![[session onlineQueryWithError:nil] isEqual:query]) return;
@@ -7781,6 +7802,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (!_session) return NO;
     if (_focusPending) [self prepareSession];
     [self syncPageSize];
+    // 空闲联想只响应点选；普通按键先清掉建议，再按没有组字的规则继续处理。
+    if (MSIMEStrictBoolean(_view[@"prediction"])) [self clearPostCommitPrediction];
     // 展开的候选网格开着时先归它，它不认的键已经收起网格，往下照常处理。
     if (_expandedCandidates && [self handleExpandedCandidateEvent:event client:sender]) return YES;
     NSUInteger deletionSlot = MSIMECandidateDeletionSlot(event);
@@ -8514,6 +8537,18 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _view = transition[@"view"];
     if (![_view[@"candidates"] isKindOfClass:NSArray.class] || ![_view[@"candidates"] count])
         _armedGlossColumn = 0;
+    if (MSIMEStrictBoolean(_view[@"prediction"])) {
+        if (MSIMEStrictBoolean(previousView[@"prediction"]) &&
+            !([displayTransition[@"commit"] isKindOfClass:NSString.class] && [displayTransition[@"commit"] length])) {
+            // 只有异步候选更新时保留原锚点，不能把外部移动后的新光标认成原位置。
+        } else {
+            _predictionAnchorValid = [_activeClient respondsToSelector:@selector(selectedRange)];
+            if (_predictionAnchorValid) {
+                _predictionAnchor = [(id<MSIMETextClient>)_activeClient selectedRange];
+                _predictionAnchorValid = _predictionAnchor.location != NSNotFound && _predictionAnchor.length == 0;
+            }
+        }
+    } else { _predictionAnchorValid = NO; }
     [self refreshFloatingToolbarState];
     [self renderCandidates];
     [self synchronizeCandidateServices];
@@ -10608,6 +10643,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 
 - (void)selectCandidate:(MSIMECandidateButton *)button {
+    if (![self predictionAnchorCurrent]) { [self clearPostCommitPrediction]; return; }
     if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != MSIMECandidateControlsView(_panel.contentView)) return;
     NSDictionary *identifier = button.candidateID;
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;

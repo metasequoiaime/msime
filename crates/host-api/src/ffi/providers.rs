@@ -31,9 +31,19 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
                 .requested
                 .as_ref()
                 .map_or(&session.applied, |snapshot| &snapshot.preferences);
-            let mut cloud_candidates = session.cloud_candidates_enabled();
+            let prediction = query.mode == msime_engine::OnlineInputMode::Prediction;
+            let mut cloud_candidates = session.cloud_candidates_enabled()
+                && (!prediction
+                    || (preferences.next_word_prediction
+                        && preferences.cloud_candidate_provider.prediction_enabled
+                        && !session.statistics_private));
             if query.cloud_eligible && cloud_candidates {
-                query.cloud_request = if query.mode == msime_engine::OnlineInputMode::English {
+                query.cloud_request = if prediction {
+                    msime_client_core::cloud::candidates::build_prediction_request(
+                        &preferences.cloud_candidate_provider,
+                        &query.query_text,
+                    )
+                } else if query.mode == msime_engine::OnlineInputMode::English {
                     msime_client_core::cloud::candidates::build_english_request(
                         &preferences.cloud_candidate_provider,
                         &query.query_text,
@@ -46,7 +56,7 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
                         query.scheme == msime_engine::SchemeType::JapaneseRomaji as u8,
                     )
                 };
-                if query.mode == msime_engine::OnlineInputMode::English {
+                if query.mode != msime_engine::OnlineInputMode::Pinyin {
                     // 英文查询的引擎身份保持不变；服务不支持英文时只关闭本次云请求，不能连带拒绝 AI 回答。
                     cloud_candidates = query.cloud_request.is_some();
                 } else {

@@ -633,6 +633,10 @@ impl HostSession {
             .as_ref()
             .map_or(&self.applied, |snapshot| &snapshot.preferences);
         self.english_query_allowed(query)
+            && (query.mode != msime_engine::OnlineInputMode::Prediction
+                || (preferences.next_word_prediction
+                    && preferences.cloud_candidate_provider.prediction_enabled
+                    && !self.statistics_private))
             && self.cloud_candidates_enabled()
             && query.cloud_request.as_ref().map_or_else(
                 || {
@@ -808,8 +812,8 @@ impl HostSession {
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
-        options.next_word_prediction =
-            preferences.next_word_prediction && cfg!(target_os = "android");
+        options.next_word_prediction = preferences.next_word_prediction
+            && cfg!(any(target_os = "android", target_os = "macos"));
         options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
@@ -1188,7 +1192,7 @@ impl HostSession {
                 &previous.preferences.cloud_candidate_provider
             })
             != &snapshot.preferences.cloud_candidate_provider;
-        if (cloud_disabled || cloud_changed) && !self.runtime.is_idle() {
+        if cloud_disabled || cloud_changed {
             // 关闭云候选或切换来源配置时移除旧云行，使迟到回包失效。
             self.runtime
                 .clear_online_candidates(0)
@@ -2234,7 +2238,7 @@ impl HostOptions {
             learning: self.preferences.learning,
             learn_english_on_enter: self.preferences.enter_learns_english_word,
             next_word_prediction: self.preferences.next_word_prediction
-                && cfg!(target_os = "android"),
+                && cfg!(any(target_os = "android", target_os = "macos")),
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),

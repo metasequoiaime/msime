@@ -271,7 +271,7 @@ impl Session {
 
     pub fn command(&mut self, command: Command) -> KeyResult {
         self.input.pending_touch = None;
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             self.prediction.clear();
             return if command == Command::Cancel {
                 KeyResult::handled()
@@ -375,7 +375,7 @@ impl Session {
 
     pub fn select(&mut self, index: usize) -> KeyResult {
         self.input.pending_touch = None;
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             let Some((row, word, pinyin)) = self.prediction.selected(index) else {
                 return KeyResult::unhandled();
             };
@@ -402,7 +402,7 @@ impl Session {
     /// Commit the first or last Han character of a candidate and drop the rest of the composition.
     pub fn select_edge(&mut self, index: usize, edge: CandidateEdge) -> KeyResult {
         self.input.pending_touch = None;
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             return KeyResult::unhandled();
         }
         if self.nine_key.active() {
@@ -414,7 +414,7 @@ impl Session {
     /// Promote a dictionary candidate without committing; unsupported rows are unhandled, persistence failures carry a diagnostic.
     pub fn pin(&mut self, index: usize) -> KeyResult {
         self.input.pending_touch = None;
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             return KeyResult::unhandled();
         }
         if self.nine_key.active() {
@@ -426,7 +426,7 @@ impl Session {
     /// Remove a dictionary phrase without committing; single-character non-English rows are protected.
     pub fn remove(&mut self, index: usize) -> KeyResult {
         self.input.pending_touch = None;
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             return KeyResult::unhandled();
         }
         if self.nine_key.active() {
@@ -438,7 +438,7 @@ impl Session {
     /// Fix a dictionary candidate to slot 1..=5 in this input context; unhandled for any other slot.
     pub fn fix_position(&mut self, index: usize, position: i32) -> KeyResult {
         self.input.pending_touch = None;
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             return KeyResult::unhandled();
         }
         if !(1..=5).contains(&position) {
@@ -452,7 +452,7 @@ impl Session {
 
     pub fn clear_position(&mut self, index: usize) -> KeyResult {
         self.input.pending_touch = None;
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             return KeyResult::unhandled();
         }
         if self.nine_key.active() {
@@ -668,7 +668,7 @@ impl Session {
         show_helpcode: bool,
         segmented_quanpin: bool,
     ) -> SessionSnapshot {
-        if !self.prediction.rows.is_empty() {
+        if self.prediction.active() {
             return SessionSnapshot {
                 prediction: true,
                 scheme: self.input.scheme(),
@@ -808,6 +808,9 @@ impl Session {
     }
 
     pub fn online_query(&self) -> Option<OnlineQuery> {
+        if self.prediction.active() {
+            return self.prediction.query(self.input.scheme());
+        }
         if self.nine_key.active() {
             return None;
         }
@@ -866,6 +869,11 @@ impl Session {
         words: &[String],
         source: CandidateSource,
     ) -> bool {
+        if query.mode == crate::OnlineInputMode::Prediction {
+            return source == CandidateSource::CloudSuggestion
+                && query.scheme == self.input.scheme()
+                && self.prediction.apply(query, words);
+        }
         if self.nine_key.active() {
             return false;
         }
@@ -874,6 +882,9 @@ impl Session {
 
     /// Remove one online provider's rows from cached and visible candidates.
     pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        if source == CandidateSource::CloudSuggestion {
+            self.prediction.clear_cloud();
+        }
         self.input.clear_online_candidates(source);
     }
 
@@ -883,6 +894,9 @@ impl Session {
         word: &str,
         source: CandidateSource,
     ) -> bool {
+        if query.mode == crate::OnlineInputMode::Prediction {
+            return self.apply_online_candidates(query, &[word.to_owned()], source);
+        }
         if self.nine_key.active() {
             return false;
         }

@@ -21905,3 +21905,6 @@ fn world_clock_validates_and_forwards_offline_requests() {
         false
     );
 }
+
+#[path = "tests/cloud_prediction.rs"]
+mod cloud_prediction;

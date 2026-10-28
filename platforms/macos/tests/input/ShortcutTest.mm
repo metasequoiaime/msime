@@ -642,6 +642,32 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 }
 @end
 
+static void TestPostCommitPredictionAnchor() {
+    NSString *suite = [@"msime.prediction-anchor." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.selection = NSMakeRange(7, 0);
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{@"prediction":@YES, @"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    [controller setValue:[NSValue valueWithRange:client.selection] forKey:@"predictionAnchor"];
+    [controller setValue:@YES forKey:@"predictionAnchorValid"];
+    assert([controller predictionAnchorCurrent]);
+    controller.secureInput = YES;
+    assert(![controller predictionAnchorCurrent]);
+    controller.secureInput = NO;
+    client.selection = NSMakeRange(8, 0);
+    assert(![controller predictionAnchorCurrent]);
+    [controller clearPostCommitPrediction];
+    assert(session.focusCalls == 1 && session.selectCalls == 0);
+    assert(!client.committed.length);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static NSEvent *WithLayoutCharacters(NSEvent *base, NSString *characters) {
     ShortcutLayoutEvent *event = [ShortcutLayoutEvent new];
     event.baseEvent = base;
@@ -15275,6 +15301,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }
         @autoreleasepool { TestBackspaceHoldDoesNotEscapeComposition(); }
+        @autoreleasepool { TestPostCommitPredictionAnchor(); }
         @autoreleasepool { TestPassthroughKeysAreCounted(); }
         @autoreleasepool { TestKeyLatencyIsLoggedWithoutTheKey(); }
         @autoreleasepool { TestKeypadOperators(appearance); }

@@ -25,7 +25,7 @@ pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
 fn cloud_query_allowed(query: &OnlineQuery) -> bool {
     query.cloud_eligible
         && query.cloud_candidates
-        && if query.mode == msime_engine::OnlineInputMode::English {
+        && if query.mode != msime_engine::OnlineInputMode::Pinyin {
             query
                 .cloud_request
                 .as_ref()

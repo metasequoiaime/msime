@@ -85,6 +85,7 @@ fn needs_dangling_segment_delimiter_backspace(raw: &str, caret: usize) -> bool {
 // Everything is re-exported: the crate has always presented one flat surface to
 // host-api and the desktop shell, and this split is for readers of the source.
 mod engine;
+mod load;
 mod multilingual;
 mod providers;
 mod runtime;
@@ -92,6 +93,7 @@ mod transform;
 mod types;
 
 pub use engine::*;
+pub(crate) use load::LoadMonitor;
 pub use providers::*;
 pub use runtime::*;
 // 候选变换只在桌面有公开的东西，移动端的 `transform` 只有几个 crate 内的空方法。

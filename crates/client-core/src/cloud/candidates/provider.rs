@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 pub enum CloudCandidateSource {
     #[default]
     Google,
+    Baidu,
     Custom,
 }
 
@@ -33,6 +34,7 @@ pub enum CloudResponseFormat {
     #[default]
     Candidates,
     Google,
+    Baidu,
     JsonPath,
 }
 
@@ -48,6 +50,8 @@ pub struct CloudCandidatePreferences {
     pub response_path: String,
     pub timeout_ms: u64,
     pub cache_enabled: bool,
+    /// 另行允许向自定义服务发送刚上屏的文本，请求后续词；不随账号同步。
+    pub prediction_enabled: bool,
 }
 
 impl Default for CloudCandidatePreferences {
@@ -62,6 +66,7 @@ impl Default for CloudCandidatePreferences {
             response_path: "data.0".into(),
             timeout_ms: super::REQUEST_TIMEOUT_MS,
             cache_enabled: true,
+            prediction_enabled: false,
         }
     }
 }
@@ -87,7 +92,7 @@ impl CloudCandidatePreferences {
         {
             return false;
         }
-        if self.source == CloudCandidateSource::Google {
+        if self.source != CloudCandidateSource::Custom {
             return true;
         }
         if self.endpoint.split_once("://").is_some_and(|(_, rest)| {
@@ -123,6 +128,7 @@ impl CloudCandidatePreferences {
     pub fn recipient(&self) -> String {
         match self.source {
             CloudCandidateSource::Google => "Google input-tools（inputtools.google.com）".into(),
+            CloudCandidateSource::Baidu => "百度输入法（olimenew.baidu.com）".into(),
             CloudCandidateSource::Custom => {
                 url::Url::parse(&self.endpoint.replace("{query}", "query"))
                     .ok()
@@ -280,7 +286,7 @@ impl CloudHttpRequest {
     }
 }
 
-type CachedAnswers = HashMap<String, (Option<String>, Instant)>;
+type CachedAnswers = HashMap<String, (Vec<String>, Instant)>;
 static CACHE: OnceLock<Mutex<CachedAnswers>> = OnceLock::new();
 
 pub fn build_request(
@@ -303,25 +309,36 @@ pub fn build_english_request(
     {
         return None;
     }
-    build_request_for_input(config, input, false, Some(context))
+    build_request_for_input(config, input, false, Some(("english", context)))
 }
 
 fn build_request_for_input(
     config: &CloudCandidatePreferences,
     query: &str,
     japanese: bool,
-    english_context: Option<&str>,
+    context_mode: Option<(&str, &str)>,
 ) -> Option<CloudHttpRequest> {
     if !valid_cloud_input(query) || !config.validate() {
         return None;
     }
-    let google = config.source == CloudCandidateSource::Google;
-    let mut url = if google {
-        build_google_url(query, japanese)?
-    } else {
-        config.endpoint.replace("{query}", &urlencoding(query))
+    let builtin = config.source != CloudCandidateSource::Custom;
+    if config.source == CloudCandidateSource::Baidu
+        && (japanese
+            || !query
+                .bytes()
+                .all(|byte| byte.is_ascii_alphabetic() || byte == b'\''))
+    {
+        return None;
+    }
+    let mut url = match config.source {
+        CloudCandidateSource::Google => build_google_url(query, japanese)?,
+        CloudCandidateSource::Baidu => format!(
+            "https://olimenew.baidu.com/py?input={}&inputtype=py&resultcoding=utf-8",
+            urlencoding(query)
+        ),
+        CloudCandidateSource::Custom => config.endpoint.replace("{query}", &urlencoding(query)),
     };
-    let method = if google {
+    let method = if builtin {
         CloudHttpMethod::Get
     } else {
         config.method
@@ -330,14 +347,14 @@ fn build_request_for_input(
     if method == CloudHttpMethod::Post {
         let mut body: Value = serde_json::from_str(&config.body_template).ok()?;
         replace_query(&mut body, query);
-        if let Some(context) = english_context {
-            body["mode"] = Value::String("english".into());
+        if let Some((mode, context)) = context_mode {
+            body["mode"] = Value::String(mode.into());
             body["context"] = Value::String(context.into());
         }
         body_utf8 = serde_json::to_string(&body).ok()?;
     }
     if method == CloudHttpMethod::Get {
-        if let Some(context) = english_context {
+        if let Some((mode, context)) = context_mode {
             let mut parsed = url::Url::parse(&url).ok()?;
             // 同名参数由本次英文请求决定，避免模板里的拼音模式覆盖它。
             let pairs: Vec<_> = parsed
@@ -349,12 +366,12 @@ fn build_request_for_input(
             parsed
                 .query_pairs_mut()
                 .extend_pairs(pairs)
-                .append_pair("mode", "english")
+                .append_pair("mode", mode)
                 .append_pair("context", context);
             url = parsed.into();
         }
     }
-    let mut headers: BTreeMap<String, String> = if google {
+    let mut headers: BTreeMap<String, String> = if builtin {
         BTreeMap::new()
     } else {
         serde_json::from_str(&config.headers_json).ok()?
@@ -373,9 +390,9 @@ fn build_request_for_input(
         headers.insert("Content-Type".into(), "application/json".into());
     }
     let provider_id = config.identity();
-    let cache_input = english_context.map_or_else(
+    let cache_input = context_mode.map_or_else(
         || format!("{provider_id}:{japanese}:{query}"),
-        |context| format!("{provider_id}:english:{query}:{context}"),
+        |(mode, context)| format!("{provider_id}:{mode}:{query}:{context}"),
     );
     let cache_key = hex::encode(Sha256::digest(cache_input));
     let mut request = CloudHttpRequest {
@@ -389,10 +406,10 @@ fn build_request_for_input(
         provider_id,
         cache_key,
         cache_enabled: config.cache_enabled,
-        response_format: if google {
-            CloudResponseFormat::Google
-        } else {
-            config.response_format
+        response_format: match config.source {
+            CloudCandidateSource::Google => CloudResponseFormat::Google,
+            CloudCandidateSource::Baidu => CloudResponseFormat::Baidu,
+            CloudCandidateSource::Custom => config.response_format,
         },
         response_path: config.response_path.clone(),
         cached_response: None,
@@ -408,67 +425,184 @@ fn build_request_for_input(
     request.validate().then_some(request)
 }
 
-pub fn parse_response(request: &CloudHttpRequest, body: &[u8]) -> Option<String> {
-    if !request.validate() || body.len() > MAX_RESPONSE {
+/// 上屏后云预测独立于拼音转换，只发送本次上屏的有界汉字上下文。
+/// 内置拼音服务没有后续词契约，不能把汉字误发成拼音。
+pub fn build_prediction_request(
+    config: &CloudCandidatePreferences,
+    context: &str,
+) -> Option<CloudHttpRequest> {
+    if !config.prediction_enabled || config.source != CloudCandidateSource::Custom {
         return None;
     }
-    let candidate = (|| {
-        let response_format = if request
-            .cached_response
-            .as_ref()
-            .is_some_and(|cached| cached.as_bytes() == body)
+    build_request_for_input(config, context, false, Some(("prediction", context)))
+}
+
+pub fn parse_response(request: &CloudHttpRequest, body: &[u8]) -> Option<String> {
+    parse_responses(request, body).into_iter().next()
+}
+
+/// 返回有界、去重的纯文本候选；不执行服务回包里的链接、指令或广告动作。
+pub fn parse_responses(request: &CloudHttpRequest, body: &[u8]) -> Vec<String> {
+    if !request.validate() || body.len() > MAX_RESPONSE {
+        return Vec::new();
+    }
+    let format = if request
+        .cached_response
+        .as_ref()
+        .is_some_and(|cached| cached.as_bytes() == body)
+    {
+        CloudResponseFormat::Candidates
+    } else {
+        request.response_format
+    };
+    let mut candidates = Vec::new();
+    let mut push = |value: &Value| {
+        let Some(raw) = value.as_str() else { return };
+        let text = raw.trim();
+        if candidates.len() < 8
+            && !text.is_empty()
+            && crate::text::is_bounded_text(raw, MAX_CANDIDATE)
+            && !candidates.iter().any(|row| row == text)
         {
-            CloudResponseFormat::Candidates
-        } else {
-            request.response_format
-        };
-        if response_format == CloudResponseFormat::Google {
-            return parse_google_response(body);
+            candidates.push(text.to_owned());
         }
-        let root: Value = serde_json::from_slice(body).ok()?;
-        let value = match response_format {
+    };
+    if format == CloudResponseFormat::Google {
+        if let Some(text) = parse_google_response(body) {
+            push(&Value::String(text));
+        }
+    } else if let Ok(root) = serde_json::from_slice::<Value>(body) {
+        match format {
             CloudResponseFormat::Candidates => {
-                root.get("candidates")?.as_array()?.first()?.get("text")?
+                if let Some(rows) = root.get("candidates").and_then(Value::as_array) {
+                    for row in rows.iter().take(64) {
+                        push(&row["text"]);
+                    }
+                }
+            }
+            CloudResponseFormat::Baidu => {
+                if root["status"] == "T" && root["errno"] == "0" {
+                    if let Some(rows) = root["result"][0].as_array() {
+                        for row in rows.iter().take(64) {
+                            push(&row[0]);
+                        }
+                    }
+                }
             }
             CloudResponseFormat::JsonPath => {
-                let mut value = &root;
+                let mut value = Some(&root);
                 for segment in request.response_path.split('.') {
-                    value = if value.is_array() {
-                        value.get(segment.parse::<usize>().ok()?)?
-                    } else {
-                        value.get(segment)?
-                    };
+                    value = value.and_then(|value| {
+                        if value.is_array() {
+                            value.get(segment.parse::<usize>().ok()?)
+                        } else {
+                            value.get(segment)
+                        }
+                    });
                 }
-                value
+                if let Some(value) = value {
+                    if let Some(rows) = value.as_array() {
+                        for row in rows.iter().take(64) {
+                            push(if row.is_string() { row } else { &row["text"] });
+                        }
+                    } else {
+                        push(value);
+                    }
+                }
             }
             CloudResponseFormat::Google => unreachable!(),
-        };
-        let raw = value.as_str()?;
-        if !crate::text::is_bounded_text(raw, MAX_CANDIDATE) {
-            return None;
         }
-        let text = raw.trim();
-        (!text.is_empty() && crate::text::is_bounded_text(text, MAX_CANDIDATE))
-            .then(|| text.to_owned())
-    })();
+    }
     if request.cache_enabled && request.cached_response.is_none() {
         if let Ok(mut cache) = CACHE.get_or_init(Mutex::default).lock() {
             if cache.len() >= super::MAX_CACHE_ENTRIES {
                 cache.clear();
             }
-            let ttl = if candidate.is_some() { 600 } else { 60 };
+            let ttl = if candidates.is_empty() { 60 } else { 600 };
             cache.insert(
                 request.cache_key.clone(),
-                (candidate.clone(), Instant::now() + Duration::from_secs(ttl)),
+                (
+                    candidates.clone(),
+                    Instant::now() + Duration::from_secs(ttl),
+                ),
             );
         }
     }
-    candidate
+    candidates
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commercial_baidu_uses_its_own_contract_and_rejects_other_input_modes() {
+        let config = CloudCandidatePreferences {
+            source: CloudCandidateSource::Baidu,
+            cache_enabled: false,
+            ..Default::default()
+        };
+        let request = build_request(&config, "ni'hao", false).unwrap();
+        assert_eq!(
+            request.url,
+            "https://olimenew.baidu.com/py?input=ni%27hao&inputtype=py&resultcoding=utf-8"
+        );
+        let body = br#"{"status":"T","errno":"0","result":[[["\u4f60\u597d",5,{}],["\u4f60\u53f7",4,{}]]]}"#;
+        assert_eq!(parse_responses(&request, body), ["你好", "你号"]);
+        assert!(parse_responses(
+            &request,
+            br#"{"status":"F","errno":"1","result":[[["x"]]]}"#
+        )
+        .is_empty());
+        assert!(build_request(&config, "konnichiha", true).is_none());
+        assert!(build_english_request(&config, "hello", "").is_none());
+        assert!(build_prediction_request(&config, "你好").is_none());
+    }
+
+    #[test]
+    fn prediction_requires_separate_permission_and_preserves_all_cached_suffixes() {
+        let mut config = custom("prediction");
+        config.cache_enabled = true;
+        config.method = CloudHttpMethod::Post;
+        config.body_template = r#"{"query":"{query}"}"#.into();
+        assert!(build_prediction_request(&config, "吃").is_none());
+        config.prediction_enabled = true;
+        let prediction = build_prediction_request(&config, "吃").unwrap();
+        let body: Value = serde_json::from_str(&prediction.body_utf8).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"query":"吃","mode":"prediction","context":"吃"})
+        );
+        assert_ne!(
+            prediction.cache_key,
+            build_request(&config, "吃", false).unwrap().cache_key
+        );
+        let response = serde_json::to_vec(&serde_json::json!({"candidates":[
+            {"text":" 饭 "}, {"text":"饭"}, {"text":"东西"}, {"text":"坏\n词"}, {"text":""}
+        ]}))
+        .unwrap();
+        assert_eq!(parse_responses(&prediction, &response), ["饭", "东西"]);
+        let cached = build_prediction_request(&config, "吃").unwrap();
+        assert_eq!(
+            parse_responses(&cached, cached.cached_response.as_ref().unwrap().as_bytes()),
+            ["饭", "东西"]
+        );
+        config.prediction_enabled = false;
+        assert!(build_prediction_request(&config, "吃").is_none());
+    }
+
+    #[test]
+    fn prediction_get_parameters_override_template_mode_and_encode_committed_text() {
+        let mut config = custom("prediction-get");
+        config.prediction_enabled = true;
+        config.endpoint.push_str("&mode=pinyin&context=old");
+        let request = build_prediction_request(&config, "天气").unwrap();
+        let parsed = url::Url::parse(&request.url).unwrap();
+        let pairs: BTreeMap<_, _> = parsed.query_pairs().collect();
+        assert_eq!(pairs.get("mode").unwrap(), "prediction");
+        assert_eq!(pairs.get("context").unwrap(), "天气");
+        assert!(request.url.contains("%E5%A4%A9%E6%B0%94"));
+    }
 
     fn custom(name: &str) -> CloudCandidatePreferences {
         CloudCandidatePreferences {

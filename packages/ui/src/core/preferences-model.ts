@@ -71,6 +71,7 @@ export type Preferences = PunctuationPreferences &
     /** 同步「我的词条」的 WebDAV 网盘；缺省表示不同步。三项要么都空，要么都合规，规则与 `cloud_clipboard_webdav` 相同但各配各的，见 `crates/client-core/src/preferences.rs` 的 `DictionarySyncWebDavPreferences` 和 `docs/dictionary-webdav-sync.md`。 */
     dictionary_sync_webdav?: CloudClipboardWebDavPreferences;
     cloud_candidates?: boolean;
+    next_word_prediction?: boolean;
     cloud_candidate_provider?: CloudCandidateProviderPreferences;
     /** 云候选、翻译、AI、语音、账号、更新检查和下载共用的代理设置；本机与局域网目标一律直连。 */
     network?: NetworkProxyPreferences;

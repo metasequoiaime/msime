@@ -13846,6 +13846,8 @@ private:
   // 「候选与联想」组开头的云候选（共享页 CloudCandidatesSection）：开关之后直接是服务配置。「云候选来源」一直在；选「自定义 HTTP 接口」才有接口地址、请求方法、请求头和响应格式，请求体模板只在 POST 时出现，JSON 路径只在响应格式选「JSON 路径」时出现；然后是超时、缓存和「保存云候选服务」。改动先记在草稿 `cloud_provider_draft_` 里，三个下拉改了要增减行，整页重画；按保存时整份配置一次交给 Rust 校验并写入，失败时提示、草稿留着。文档里的配置变了（保存成功或别处改了）草稿作废，重新从文档读，与共享页随 provider 重置草稿相同。
   void build_cloud_candidates(StackPanel const &group) {
     std::wstring cloud_recipient = L"Google input-tools（inputtools.google.com）";
+    if (document_.String(L"cloud_candidate_provider.source", L"google") == L"baidu")
+      cloud_recipient = L"百度输入法（olimenew.baidu.com）";
     if (document_.String(L"cloud_candidate_provider.source", L"google") == L"custom") {
       cloud_recipient = L"所选自定义服务";
       try { cloud_recipient = Windows::Foundation::Uri(hstring(document_.String(L"cloud_candidate_provider.endpoint", L""))).Host().c_str(); }
@@ -13920,7 +13922,7 @@ private:
 
     add_row(group, 0xE713, L"云候选来源", L"",
             select_control(L"云候选来源",
-                           {{L"google", L"Google input-tools"}, {L"custom", L"自定义 HTTP 接口"}},
+                           {{L"google", L"Google input-tools"}, {L"baidu", L"百度输入法"}, {L"custom", L"自定义 HTTP 接口"}},
                            named(L"source", L"google"), choice(L"source")));
     if (named(L"source", L"google") == L"custom") {
       add_row(group, 0xE774, L"接口地址", L"GET 用 {query} 填入当前拼写；支持 HTTPS 或本机 HTTP",
@@ -13940,6 +13942,7 @@ private:
               select_control(L"云候选响应格式",
                              {{L"candidates", L"标准 candidates 数组"},
                               {L"google", L"Google input-tools"},
+                              {L"baidu", L"百度输入法"},
                               {L"json_path", L"JSON 路径"}},
                              format, choice(L"response_format")));
       if (format == L"json_path")

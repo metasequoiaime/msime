@@ -36,12 +36,12 @@ public:
       controls_[static_cast<size_t>(id - cloud_source)] = control;
       top += height + 108;
     };
-    choice(cloud_source, L"云候选来源", std::array{L"Google input-tools", L"自定义 HTTP 接口"});
+    choice(cloud_source, L"云候选来源", std::array{L"Google input-tools", L"自定义 HTTP 接口", L"百度输入法"});
     field(cloud_endpoint, L"接口地址", L"自定义接口使用 HTTPS 或本机 HTTP。GET 用 {query} 填入当前拼写。", 2048, false);
     choice(cloud_method, L"请求方法", std::array{L"GET", L"POST"});
     field(cloud_headers, L"请求头（JSON）", L"例如 {\"Authorization\":\"Bearer …\"}，仅保存在本机。", 4096, true);
     field(cloud_body, L"请求体模板（JSON）", L"自定义 POST 请求使用；{query} 只在 JSON 字符串值中替换并自动转义。", 4096, true);
-    choice(cloud_response_format, L"响应格式", std::array{L"标准 candidates 数组", L"Google input-tools", L"JSON 路径"});
+    choice(cloud_response_format, L"响应格式", std::array{L"标准 candidates 数组", L"Google input-tools", L"JSON 路径", L"百度输入法"});
     field(cloud_response_path, L"JSON 路径", L"自定义 JSON 路径响应使用；点分对象键或数组下标，例如 choices.0.message.content。", 128, false);
     field(cloud_timeout, L"超时（毫秒）", L"100–10000 毫秒。", 5, false);
     controls_[cloud_cache - cloud_source] = row(L"BUTTON", L"缓存云候选", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
@@ -58,20 +58,20 @@ public:
       if (!value.contains(field) || !value.at(field).is_string()) return false;
     return value.contains("timeout_ms") && value.at("timeout_ms").is_number_unsigned() &&
         value.contains("cache_enabled") && value.at("cache_enabled").is_boolean() &&
-        (value.at("source") == "google" || value.at("source") == "custom") &&
+        (value.at("source") == "google" || value.at("source") == "custom" || value.at("source") == "baidu") &&
         (value.at("method") == "GET" || value.at("method") == "POST") &&
         (value.at("response_format") == "candidates" || value.at("response_format") == "google" ||
-            value.at("response_format") == "json_path");
+            value.at("response_format") == "json_path" || value.at("response_format") == "baidu");
   }
 
   void refresh(const Json& value) {
     // 无关偏好保存后不丢表单草稿；实际服务配置改变时才从新快照重新填充。
     if (base_ == value) return;
     base_ = value;
-    SendMessageW(control(cloud_source), CB_SETCURSEL, value.at("source") == "custom" ? 1 : 0, 0);
+    SendMessageW(control(cloud_source), CB_SETCURSEL, value.at("source") == "baidu" ? 2 : value.at("source") == "custom" ? 1 : 0, 0);
     SendMessageW(control(cloud_method), CB_SETCURSEL, value.at("method") == "POST" ? 1 : 0, 0);
     SendMessageW(control(cloud_response_format), CB_SETCURSEL,
-        value.at("response_format") == "json_path" ? 2 : value.at("response_format") == "google" ? 1 : 0, 0);
+        value.at("response_format") == "baidu" ? 3 : value.at("response_format") == "json_path" ? 2 : value.at("response_format") == "google" ? 1 : 0, 0);
     for (const auto& field : text_fields)
       SetWindowTextW(control(field.first), control_text::wide(value.at(field.second).get<std::string>()).c_str());
     SetWindowTextW(control(cloud_timeout), std::to_wstring(value.at("timeout_ms").get<uint64_t>()).c_str());
@@ -93,11 +93,11 @@ public:
     const auto source = SendMessageW(control(cloud_source), CB_GETCURSEL, 0, 0);
     const auto method = SendMessageW(control(cloud_method), CB_GETCURSEL, 0, 0);
     const auto format = SendMessageW(control(cloud_response_format), CB_GETCURSEL, 0, 0);
-    if (!result.is_object() || source < 0 || source > 1 || method < 0 || method > 1 || format < 0 || format > 2)
+    if (!result.is_object() || source < 0 || source > 2 || method < 0 || method > 1 || format < 0 || format > 3)
       return std::nullopt;
-    result["source"] = source == 1 ? "custom" : "google";
+    result["source"] = source == 2 ? "baidu" : source == 1 ? "custom" : "google";
     result["method"] = method == 1 ? "POST" : "GET";
-    result["response_format"] = format == 2 ? "json_path" : format == 1 ? "google" : "candidates";
+    result["response_format"] = format == 3 ? "baidu" : format == 2 ? "json_path" : format == 1 ? "google" : "candidates";
     for (const auto& field : text_fields) {
       const auto value = control_text::read(control(field.first));
       if (!value) return std::nullopt;

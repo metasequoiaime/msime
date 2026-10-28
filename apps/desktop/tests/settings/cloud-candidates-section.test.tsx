@@ -106,3 +106,28 @@ test("can configure a new custom service before committing the source", () => {
     }),
   );
 });
+
+test("commercial cloud source is saved without requiring custom credentials", () => {
+  const onProviderChange = vi.fn();
+  render(
+    <CloudCandidatesSection value={false} onChange={vi.fn()} onProviderChange={onProviderChange} />,
+  );
+  fireEvent.change(screen.getByLabelText("云候选来源"), { target: { value: "baidu" } });
+  expect(screen.queryByLabelText("云候选接口地址")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "保存云候选服务" }));
+  expect(onProviderChange).toHaveBeenCalledWith(expect.objectContaining({ source: "baidu" }));
+});
+
+test("post-commit cloud prediction requires an explicit separate opt-in", () => {
+  const onProviderChange = vi.fn();
+  render(
+    <CloudCandidatesSection value={true} onChange={vi.fn()} onProviderChange={onProviderChange} />,
+  );
+  fireEvent.change(screen.getByLabelText("云候选来源"), { target: { value: "custom" } });
+  expect((screen.getByLabelText("允许上屏后云预测") as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByLabelText("允许上屏后云预测"));
+  fireEvent.click(screen.getByRole("button", { name: "保存云候选服务" }));
+  expect(onProviderChange).toHaveBeenCalledWith(
+    expect.objectContaining({ prediction_enabled: true }),
+  );
+});

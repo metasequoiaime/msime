@@ -75,6 +75,42 @@ fn async_score_matches_the_synchronous_settled_rerank() {
 }
 
 #[test]
+fn load_shedding_keeps_the_fast_path_and_defers_the_optional_model() {
+    let mut runtime = lattice_runtime();
+    runtime.force_load_shed_for_test();
+
+    assert!(runtime.begin_settled_rerank().is_none());
+    assert!(runtime.settled_reranker.is_some());
+    assert!(!runtime.rerank_settled());
+    assert_eq!(runtime.cached.candidates, ["甲", "乙"]);
+}
+
+#[test]
+fn load_shedding_skips_per_keystroke_reranking_without_hiding_candidates() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            words: vec!["甲".into(), "乙".into()],
+            codes: vec!["a".into(), "a".into()],
+            sources: vec![LATTICE_SOURCE; 2],
+            text: "a".into(),
+            ..Fixture::default()
+        },
+        5,
+    )
+    .unwrap();
+    runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(favouring_model(
+        &['甲', '乙'],
+        &['乙'],
+    )))));
+    runtime.focus(true).unwrap();
+    runtime.force_load_shed_for_test();
+
+    type_key(&mut runtime);
+
+    assert_eq!(runtime.cached.candidates, ["甲", "乙"]);
+}
+
+#[test]
 fn async_score_keeps_static_evidence_on_the_promoted_row() {
     let mut synchronous = lattice_runtime();
     let mut asynchronous = lattice_runtime();

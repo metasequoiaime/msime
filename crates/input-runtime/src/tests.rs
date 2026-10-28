@@ -5476,6 +5476,39 @@ fn prediction_runtime() -> (tempfile::TempDir, Runtime) {
 }
 
 #[test]
+fn cloud_prediction_keeps_idle_state_candidate_identity_and_explicit_selection() {
+    let (_directory, mut runtime) = prediction_runtime();
+    let before = runtime.view();
+    let query = runtime.online_query().unwrap().unwrap();
+    assert_eq!(query.mode, msime_engine::OnlineInputMode::Prediction);
+    assert!(runtime
+        .apply_online_candidates(&query, &["米饭".into(), "东西".into()], 0)
+        .unwrap());
+    assert!(runtime.is_idle() && !runtime.has_composition());
+    assert!(runtime.view().prediction);
+    assert!(matches!(
+        runtime.dispatch(Action::Select(before.candidates[0].id)),
+        Err(RuntimeError::StaleCandidate)
+    ));
+    let id = runtime
+        .view()
+        .candidates
+        .iter()
+        .find(|row| row.text == "米饭")
+        .unwrap()
+        .id;
+    assert_eq!(
+        runtime
+            .dispatch(Action::Select(id))
+            .unwrap()
+            .commit
+            .as_deref(),
+        Some("米饭")
+    );
+    assert!(!runtime.apply_online_candidate(&query, "迟到", 0).unwrap());
+}
+
+#[test]
 fn next_word_prediction_is_idle_and_only_explicit_selection_commits_it() {
     let (_directory, mut runtime) = prediction_runtime();
     assert!(runtime.is_idle());

@@ -26,7 +26,7 @@ static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub(super) struct OnlineRequestGuard {
     pub session_id: u64,
     pub generation: u64,
-    exhausted: bool,
+    pub(super) exhausted: bool,
 }
 
 impl OnlineRequestGuard {

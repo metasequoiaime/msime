@@ -87,6 +87,31 @@ pub unsafe extern "C" fn msime_client_apply_cloud_response(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid online query document")?;
+        if query.mode == msime_engine::OnlineInputMode::Prediction {
+            let candidates = query
+                .cloud_request
+                .as_ref()
+                .map_or_else(Vec::new, |request| {
+                    msime_client_core::cloud::candidates::parse_responses(request, unsafe {
+                        std::slice::from_raw_parts(body, body_length)
+                    })
+                });
+            return with_session(handle, |session| {
+                let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
+                let applied = if session.cloud_query_is_current(&query) {
+                    let result = session
+                        .runtime
+                        .apply_online_candidates_owned(query, &candidates, 0)
+                        .map_err(|error| error.to_string());
+                    session.lifecycle_on_error(pending, result)?
+                } else {
+                    false
+                };
+                let view = session.runtime.view();
+                session.lifecycle_view(pending, &view);
+                Ok(json!({"applied": applied, "view": view}))
+            });
+        }
         let current_cloud_query = query.clone();
         let candidate = msime_input_runtime::cloud_candidate_from_response(query, unsafe {
             std::slice::from_raw_parts(body, body_length)
