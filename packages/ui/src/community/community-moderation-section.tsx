@@ -12,7 +12,8 @@ export interface CommunityModerationSectionProps {
   /** Whether the owner can take the skin down; a private candidate skin is only in its owner's library, so there is nothing to take down. */
   unpublishable?: boolean;
   confirmUnpublish: boolean;
-  onRate: (stars: number) => void;
+  /** 给他人作品评分；不给时不画评分按钮（宿主不提供社区投稿类功能时，见 `HostCapabilities.community_contribution`）。 */
+  onRate?: (stars: number) => void;
   onRequestUnpublish: () => void;
   onUnpublish: () => void;
   onCancelUnpublish: () => void;
@@ -45,7 +46,7 @@ export function CommunityModerationSection({
 }: CommunityModerationSectionProps) {
   return (
     <>
-      {!owned && (
+      {!owned && onRate && (
         <CommunityRatingButtons
           description={ratingDescription}
           disabled={actionBusy}

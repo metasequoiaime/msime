@@ -845,6 +845,21 @@ fn only_harmony_withholds_ai_generation() {
     }
 }
 
+/// 鸿蒙版在实名认证到位之前不提供社区发布、评分和举报；其余宿主照旧提供。
+#[test]
+fn only_harmony_withholds_community_contribution() {
+    assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).community_contribution);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        assert!(HostCapabilities::for_platform(platform).community_contribution);
+    }
+}
+
 /// 空格锁定和开始、结束提示音的细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 有得选。macOS、Windows、HarmonyOS 只给一个「麦克风」下拉。
 #[test]
 fn only_mobile_reads_space_lock_and_cue_split_and_only_linux_picks_capture_backend() {

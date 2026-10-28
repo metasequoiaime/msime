@@ -1045,6 +1045,47 @@ function communityPluginClient(native: NativeBridge): CommunityPluginClient {
   };
 }
 
+/** 页面在投稿类功能关着时本来就不画这些入口；万一哪处漏了，请求在页面这一侧就被拒绝，不经桥接。错误码与宿主桥接的拒绝（`CommunityContributionGate.ts`）相同。 */
+function contributionRefused(): Promise<never> {
+  return Promise.reject({ code: "community_contribution_unavailable" });
+}
+
+/**
+ * 社区投稿类功能（`HostCapabilities.community_contribution`）关着时的三个社区客户端：发布、发布前的打包预检、改分类和评分一律拒绝，举报整个不给（页面据此不画举报）；浏览、详情、获取、安装、收藏、导入和下架自己的作品照旧。
+ */
+function withoutCommunityContribution(clients: {
+  skins: CommunitySkinClient;
+  resources: CommunityResourceClient;
+  plugins: CommunityPluginClient;
+}): {
+  skins: CommunitySkinClient;
+  resources: CommunityResourceClient;
+  plugins: CommunityPluginClient;
+} {
+  return {
+    skins: {
+      ...clients.skins,
+      publish: contributionRefused,
+      rate: contributionRefused,
+      setCategory: contributionRefused,
+      report: undefined,
+    },
+    resources: {
+      ...clients.resources,
+      publish: contributionRefused,
+      rate: contributionRefused,
+      report: undefined,
+    },
+    plugins: {
+      ...clients.plugins,
+      packPreview: contributionRefused,
+      publish: contributionRefused,
+      rate: contributionRefused,
+      report: undefined,
+    },
+  };
+}
+
 /**
  * AI skin generation, which is the one request that reports before it answers.
  *
@@ -1509,6 +1550,19 @@ function makeClient(
   const host = unwrap<HostCapabilities>(native.hostCapabilities());
   // AI 生成类功能的总闸（`HostCapabilities.ai_generation`，鸿蒙版拿到资质之前为 false）：关着时不给页面 AI 对话、AI 皮肤和 AI 辅助的客户端，宿主的桥接也拒绝这些请求（`AiGenerationGate.ts`）。
   const aiGeneration = host.ai_generation !== false;
+  // 社区投稿类功能的总闸（`HostCapabilities.community_contribution`，鸿蒙版在实名认证到位之前为 false）：关着时社区客户端的发布、评分、改分类和举报在页面一侧就拒绝，宿主的桥接也拒绝这些请求（`CommunityContributionGate.ts`）。
+  const communityContribution = host.community_contribution !== false;
+  const communityClients = networkAllowed
+    ? {
+        skins: communitySkinClient(native),
+        resources: communityResourceClient(native),
+        plugins: communityPluginClient(native),
+      }
+    : undefined;
+  const community =
+    communityClients && !communityContribution
+      ? withoutCommunityContribution(communityClients)
+      : communityClients;
   const setup = imeSetupClient(native);
   const oobe = oobeClient(native, setup);
   const chrome = hostChrome(native);
@@ -1754,9 +1808,9 @@ function makeClient(
     chrome,
     // 反馈、社区和 AI 皮肤都经水杉服务，没有授权时不给；AI 皮肤另受 AI 生成门控。
     feedback: networkAllowed ? feedback : undefined,
-    communitySkins: networkAllowed ? communitySkinClient(native) : undefined,
-    communityResources: networkAllowed ? communityResourceClient(native) : undefined,
-    communityPlugins: networkAllowed ? communityPluginClient(native) : undefined,
+    communitySkins: community?.skins,
+    communityResources: community?.resources,
+    communityPlugins: community?.plugins,
     aiSkins: networkAllowed && aiGeneration ? aiSkinClient(native) : undefined,
     localVoiceModels: localVoiceModelClient(native, networkAllowed),
     // 2in1 上是桌面形态的插件页；手机和平板上按 `touch_plugin_packs` 给触屏插件页，只列触屏键盘用得上的类型，导入只收 .zip（这两种形态的文件选择器选不了文件夹）。
