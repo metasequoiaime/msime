@@ -6576,7 +6576,59 @@ fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     let rejected = save(1, &invalid);
     assert_eq!(rejected["ok"], false);
     assert!(rejected["error"].as_str().unwrap().contains("unsupported"));
-    assert_eq!(std::fs::read_to_string(file).unwrap(), original);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+
+    // 提交来的偏好不走读盘时的宽松读法：重复的动作、本版本不认识的方案和规则都拒绝，文件不动。
+    for (pointer, value, error) in [
+        (
+            "/preferences/touch_text_edit_button_order",
+            json!([
+                "copy",
+                "copy",
+                "paste",
+                "select_all",
+                "cut",
+                "space",
+                "number_pad",
+                "delete"
+            ]),
+            "text edit button order",
+        ),
+        (
+            "/preferences/touch_text_edit_button_order",
+            json!([
+                "copy",
+                "paste",
+                "select_all",
+                "cut",
+                "space",
+                "number_pad",
+                "delete",
+                "select_word"
+            ]),
+            "invalid preferences snapshot",
+        ),
+        (
+            "/preferences/touch_keyboard_schemes",
+            json!({"enabled": ["quanpin", "typo"]}),
+            "invalid preferences snapshot",
+        ),
+        (
+            "/preferences/fuzzy_pinyin/rules",
+            json!(["z-zh", "typo"]),
+            "invalid preferences snapshot",
+        ),
+    ] {
+        let mut submitted = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        *submitted.pointer_mut(pointer).unwrap() = value.clone();
+        let rejected = save(1, &submitted.to_string());
+        assert_eq!(rejected["ok"], false, "{value}");
+        assert!(
+            rejected["error"].as_str().unwrap().contains(error),
+            "{value}: {rejected}"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+    }
 }
 #[test]
 #[cfg(not(target_os = "android"))]
@@ -7321,8 +7373,34 @@ fn clipboard_reader_respects_preferences_and_preserves_history() {
         std::fs::read_to_string(&file).unwrap(),
         "broken synthetic fixture"
     );
+    // 偏好里别的设置读不了时面板照常可用，同意与否取文档里写的值；整份读不了时按默认的关闭处理，不列出任何条目。
+    let mut document = serde_json::to_value(PreferencesSnapshot {
+        format_version: 1,
+        revision: 9,
+        preferences: Preferences {
+            clipboard_history: true,
+            ..Preferences::default()
+        },
+    })
+    .unwrap();
+    document["preferences"]["candidate_layout"] = json!("future_value");
+    std::fs::write(&file, fixture).unwrap();
+    std::fs::write(
+        directory.path().join("preferences.json"),
+        document.to_string(),
+    )
+    .unwrap();
+    assert!(store.load().is_err());
+    assert_eq!(
+        load()["value"]["entries"],
+        serde_json::json!(["synthetic alpha", "synthetic beta"])
+    );
     std::fs::write(directory.path().join("preferences.json"), "broken").unwrap();
-    assert_eq!(load()["error"], "history preferences unavailable");
+    assert_eq!(
+        load()["value"],
+        serde_json::json!({"enabled": false, "entries": []})
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), fixture);
     assert_eq!(
         read(unsafe { msime_client_load_clipboard_history(std::ptr::null(), 0) })["ok"],
         false

@@ -2081,9 +2081,7 @@ fn runtime_preferences_for(document: &Value) -> Option<Preferences> {
         });
     if let Some(directory) = directory {
         if let Ok(runtime) = PreferencesStore::new(&directory).load_for_runtime() {
-            if let Some(error) = &runtime.load_error {
-                report_unreadable_preferences(error);
-            }
+            report_unreadable_preferences(&runtime);
             return Some(runtime.snapshot.preferences);
         }
     }
@@ -2095,11 +2093,14 @@ fn runtime_preferences_for(document: &Value) -> Option<Preferences> {
         }
     }
     let edition = Edition::of_host_options(document)?;
-    let preferences =
+    let (preferences, not_kept) =
         Preferences::salvaged_from(copy, edition_default_preferences(edition)).ok()?;
     crate::diagnostics::report(
         "runtime options preferences unusable",
-        "the preferences copy in the runtime options does not validate and there is no live preferences.json; running on the settings that could be kept",
+        &format!(
+            "the preferences copy in the runtime options does not validate and there is no live preferences.json; running on the settings that could be kept, settings not kept: {}",
+            not_kept.join(", ")
+        ),
     );
     Some(preferences)
 }
@@ -2113,11 +2114,23 @@ fn edition_default_preferences(edition: &'static Edition) -> Preferences {
     }
 }
 
-/// 报告输入运行时读不了偏好文档、改用在内存里救下的设置。设置界面经严格读取看到同一个错误，修不修复由用户决定。
-fn report_unreadable_preferences(error: &msime_client_core::preferences::PreferencesError) {
+/// 读得了时什么也不做；读不了时报告输入运行时改用了在内存里救下的设置。设置界面经严格读取看到同一个错误，修不修复由用户决定。
+///
+/// 只报告错误的种类和没能保留的设置键，不带 serde 的错误原文：类型不对时它会引出文档里的字符串取值，那可能是用户填的地址或密钥，而诊断日志会被打进诊断包发出去。
+fn report_unreadable_preferences(runtime: &msime_client_core::preferences::RuntimePreferences) {
+    use msime_client_core::preferences::PreferencesError;
+    let Some(error) = &runtime.load_error else {
+        return;
+    };
+    let kind = match error {
+        PreferencesError::Json(_) => {
+            "the document does not parse as this version's preferences".to_owned()
+        }
+        other => other.to_string(),
+    };
     crate::diagnostics::report(
         "preferences document unreadable",
-        &format!("{error}; typing continues on the settings that could be kept, the file is left untouched until it is repaired in settings or rewritten by a newer version"),
+        &format!("{kind}; settings not kept: {}; typing continues on the settings that could be kept, the file is left untouched until it is repaired in settings or rewritten by a newer version", runtime.not_kept.join(", ")),
     );
 }
 
@@ -2714,9 +2727,7 @@ fn edition_preferences(
         Err(msime_client_core::preferences::PreferencesError::Io(error)) => Err(error.into()),
         Err(_) => {
             let runtime = store.load_for_runtime()?;
-            if let Some(error) = &runtime.load_error {
-                report_unreadable_preferences(error);
-            }
+            report_unreadable_preferences(&runtime);
             Ok(runtime.snapshot.preferences)
         }
     }

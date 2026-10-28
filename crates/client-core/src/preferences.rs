@@ -4870,6 +4870,8 @@ pub struct RuntimePreferences {
     pub snapshot: PreferencesSnapshot,
     /// 严格读取失败的原因。`Some` 时 `snapshot` 是在内存里从文档救下来的偏好，盘上的文件原样未动，宿主应当经诊断出口报告它。
     pub load_error: Option<PreferencesError>,
+    /// 文档里写着、却没能整段保留下来的顶层设置键（整段取了默认值，或只留下了部分字段），按键名排序；`load_error` 为 `None` 时为空。整份文档都用不了（不是 JSON、更新的文档格式）时是 `["*"]`。只有键名，不带取值：诊断日志里不该出现用户填的内容。
+    pub not_kept: Vec<String>,
 }
 
 /// What `PreferencesStore::recover` did.
@@ -5062,6 +5064,8 @@ impl PreferencesStore {
     /// 一份偏好文档里只要有一个键通不过（更新的版本写的取值、旧版本写下而本版本校验更严的值、写坏的字节），整份就读不了；以前宿主把这当成准备失败，iOS 键盘、HarmonyOS 和 Windows 的 Server 因此完全打不了字（#9802）。读不了的文件仍然不改写、不拿默认值盖掉，理由与 [`Self::recover_malformed`] 相同：它多半出自更新的版本，悄悄改写会丢掉那个版本的设置。降级只发生在内存里：之后任何保存都会在锁里重新严格读一遍（[`Self::save`]），文档读不了就写不进去，设置界面照旧经 [`Self::load`] 读到错误、由用户决定是否修复（[`Self::recover`]）。
     ///
     /// 救下的快照沿用文档里的修订号（读不出时为 0）：修复或更新的版本改写文件后修订号前进，宿主照常重新读取。
+    ///
+    /// `format_version` 不是 1 的文档整份取默认值、不逐键救：更新的文档格式可能改了同名键的含义，按 v1 的含义应用它会悄悄做错事。
     pub fn load_for_runtime(&self) -> Result<RuntimePreferences, PreferencesError> {
         let _lock = self.lock()?;
         let failure = match self.read_locked() {
@@ -5069,6 +5073,7 @@ impl PreferencesStore {
                 return Ok(RuntimePreferences {
                     snapshot,
                     load_error: None,
+                    not_kept: Vec::new(),
                 })
             }
             Err(PreferencesError::Io(error)) => return Err(PreferencesError::Io(error)),
@@ -5088,9 +5093,14 @@ impl PreferencesStore {
             .and_then(|document| document.get("revision"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
-        let preferences = match document {
+        let document = document.filter(|document| {
+            document
+                .get("format_version")
+                .is_none_or(|version| version.as_u64() == Some(1))
+        });
+        let (preferences, not_kept) = match document {
             Some(document) => Preferences::salvaged_from(document, self.default_preferences())?,
-            None => self.default_preferences(),
+            None => (self.default_preferences(), vec!["*".to_owned()]),
         };
         crate::network::install(&preferences.network);
         Ok(RuntimePreferences {
@@ -5100,6 +5110,7 @@ impl PreferencesStore {
                 preferences,
             },
             load_error: Some(failure),
+            not_kept,
         })
     }
 
@@ -5227,14 +5238,10 @@ impl PreferencesStore {
                 .ok_or(PreferencesError::RevisionExhausted)?,
             preferences,
         };
-        let mut document = serde_json::to_value(&snapshot)?;
-        if let Some(preferences) = document.get_mut("preferences") {
-            restore_unknown_fields(preferences, unknown);
-        }
         atomic_write(
             &self.directory,
             &self.path(),
-            &serde_json::to_vec_pretty(&document)?,
+            &serde_json::to_vec_pretty(&document_for_disk(&snapshot, unknown)?)?,
         )?;
         // 保存后立刻生效：设置页保存完不用等下一次读取，本进程接着发出的请求就用新代理。
         crate::network::install(&snapshot.preferences.network);
@@ -5272,9 +5279,13 @@ impl PreferencesStore {
             return Err(failure);
         }
         let backup_path = self.write_backup(&bytes, time::OffsetDateTime::now_utc())?;
-        let (preferences, salvaged) = match &document {
-            Some(document) => salvage_preferences(document, self.default_preferences())?,
-            None => (self.default_preferences(), false),
+        // 本版本不认识的键和列表元素（多半出自更新的版本）照保存时那样放回去：修复只换掉读不了的取值，不顺手抹掉更新的版本的设置。
+        let (preferences, salvaged, unknown) = match &document {
+            Some(document) => {
+                let salvage = salvage_preferences(document, self.default_preferences())?;
+                (salvage.preferences, salvage.kept, salvage.unknown)
+            }
+            None => (self.default_preferences(), false, Vec::new()),
         };
         let revision = match document
             .as_ref()
@@ -5299,7 +5310,7 @@ impl PreferencesStore {
         atomic_write(
             &self.directory,
             &self.path(),
-            &serde_json::to_vec_pretty(&snapshot)?,
+            &serde_json::to_vec_pretty(&document_for_disk(&snapshot, &unknown)?)?,
         )?;
         Ok(RecoveryOutcome::Recovered {
             snapshot,
@@ -5522,6 +5533,25 @@ fn object_key_path(path: &serde_ignored::Path<'_>) -> Option<Vec<String>> {
     }
 }
 
+/// 写进 preferences.json 的文档：快照本身，加上读盘时记下的未知键和列表元素（[`restore_unknown_fields`]）。
+///
+/// 文本编辑面板的排列等于默认排列时不写出。已经发出去的 Android 0.6.0、HarmonyOS 0.3.0-beta、macOS 0.55.0 和 Linux 0.14.0 只认识七个动作，读到带「选择行」的排列会整份读不了、打不了字（`tests/fixtures/released-preferences` 里是它们写下的文档）；那些版本给这个键配了默认值，缺这个键时用自己的七个动作。从每日构建退回正式版、在设置同步或导入之外拿新文档给旧版本读，只要用户没在 Android 上排过顺序就都读得了。只省在盘上：经 FFI 交给宿主的快照照旧带着完整排列，Android 的面板和排序页直接读它。
+fn document_for_disk(
+    snapshot: &PreferencesSnapshot,
+    unknown: &[UnknownPreferenceField],
+) -> Result<serde_json::Value, PreferencesError> {
+    let mut document = serde_json::to_value(snapshot)?;
+    if let Some(serde_json::Value::Object(preferences)) = document.get_mut("preferences") {
+        if snapshot.preferences.touch_text_edit_button_order == default_text_edit_button_order() {
+            preferences.remove("touch_text_edit_button_order");
+        }
+    }
+    if let Some(preferences) = document.get_mut("preferences") {
+        restore_unknown_fields(preferences, unknown);
+    }
+    Ok(document)
+}
+
 /// 把读取时记下的未知键放回本版本写出的偏好对象。父对象这次没有写出（取默认值时省略）就不放：凭一个未知键重建半个已知对象，读它的版本会缺字段；本版本已经写出同名的键时以本版本为准。列表里不认识的元素接在本版本写出的同一个列表末尾，列表里已经有的不重复接。
 fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[UnknownPreferenceField]) {
     for field in unknown {
@@ -5572,37 +5602,140 @@ fn settle_newer_values_on_read(document: &mut serde_json::Value) {
 }
 
 impl Preferences {
-    /// 从一份读不了的偏好文档（`{"preferences": {...}}`，或者偏好对象本身）里救下本版本认得的设置，其余取 `default`，只在内存里，不碰任何文件。逐键的取舍与 [`PreferencesStore::recover`] 相同；结果总能通过 [`Self::validate`]。输入运行时拿它在偏好读不了时照常运行（[`PreferencesStore::load_for_runtime`]，以及宿主选项里的偏好副本读不了、又没有实时文档可读的时候）。
+    /// 从一份读不了的偏好文档（`{"preferences": {...}}`，或者偏好对象本身）里救下本版本认得的设置，其余取 `default`，只在内存里，不碰任何文件；同时交出没能整段保留的顶层键（见 [`RuntimePreferences::not_kept`]）。逐键的取舍与 [`PreferencesStore::recover`] 相同，另外按 [`Self::close_destinations_not_kept`] 关掉去向没能保留的联网功能；结果总能通过 [`Self::validate`]。输入运行时拿它在偏好读不了时照常运行（[`PreferencesStore::load_for_runtime`]，以及宿主选项里的偏好副本读不了、又没有实时文档可读的时候）。
     pub fn salvaged_from(
         mut document: serde_json::Value,
         default: Preferences,
-    ) -> Result<Preferences, PreferencesError> {
+    ) -> Result<(Preferences, Vec<String>), PreferencesError> {
         if document.get("preferences").is_none() {
             document = serde_json::json!({ "preferences": document });
         }
         settle_newer_values_on_read(&mut document);
-        let (mut preferences, _) = salvage_preferences(&document, default)?;
+        let Salvage {
+            mut preferences,
+            not_kept,
+            ..
+        } = salvage_preferences(&document, default)?;
         preferences.voice_input.retire_unavailable_asr_model();
+        if let Some(source) = document.get("preferences") {
+            preferences.close_destinations_not_kept(source);
+        }
+        Ok((preferences, not_kept.into_iter().collect()))
+    }
+
+    /// 逐键救下的偏好里，决定把内容发到哪里的设置（云候选的来源和地址、AI 服务商和地址、语音识别和润色的服务商和地址、自定义翻译的地址、代理）文档里写着、却换成了默认值时，关掉用它的联网功能，而不是让这个功能拿着默认的去向照常发请求：用户选的是自己的云候选服务，救下的开关却把组字发给默认的 Google；用户填了自定义代理，救下的却是跟随系统、绕开了代理。代理换不回来时改用文档里的代理地址（[`ProxyMode::Custom`](crate::network::ProxyMode::Custom)），连不上就是请求失败，不会绕开它。
+    ///
+    /// 只用于输入运行时在内存里救下的偏好：用户在设置页点的修复（[`PreferencesStore::recover`]）写下的结果用户看得见、改得了，不在这里替他关。`source` 是文档里的偏好对象。
+    fn close_destinations_not_kept(&mut self, source: &serde_json::Value) {
+        fn replaced<T: Serialize>(source: &serde_json::Value, pointer: &str, kept: &T) -> bool {
+            source
+                .pointer(pointer)
+                .is_some_and(|written| serde_json::to_value(kept).ok().as_ref() != Some(written))
+        }
+        let cloud = &self.cloud_candidate_provider;
+        if replaced(source, "/cloud_candidate_provider/source", &cloud.source)
+            || replaced(
+                source,
+                "/cloud_candidate_provider/endpoint",
+                &cloud.endpoint,
+            )
+        {
+            self.cloud_candidates = false;
+        }
+        let ai = &self.ai_assistant;
+        if replaced(source, "/ai_assistant/provider", &ai.provider)
+            || replaced(source, "/ai_assistant/endpoint", &ai.endpoint)
+            || replaced(source, "/ai_assistant/endpoints", &ai.endpoints)
+        {
+            self.ai_assistant.enabled = false;
+            self.translation_ai = false;
+        }
+        let voice = &self.voice_input;
+        if replaced(source, "/voice_input/asr_provider", &voice.asr_provider)
+            || replaced(source, "/voice_input/asr_endpoint", &voice.asr_endpoint)
+        {
+            self.voice_input.enabled = false;
+        }
+        let voice = &self.voice_input;
+        if replaced(
+            source,
+            "/voice_input/polish_provider",
+            &voice.polish_provider,
+        ) || replaced(
+            source,
+            "/voice_input/polish_endpoint",
+            &voice.polish_endpoint,
+        ) {
+            self.voice_input.polish_enabled = false;
+        }
+        if replaced(
+            source,
+            "/custom_translation/endpoint",
+            &self.custom_translation.endpoint,
+        ) {
+            self.custom_translation.enabled = false;
+        }
+        if replaced(source, "/network/proxy_mode", &self.network.proxy_mode)
+            && !self.network.proxy_server.is_empty()
+        {
+            self.network.proxy_mode = crate::network::ProxyMode::Custom;
+        }
+    }
+
+    /// 宿主或设置页提交来保存的偏好（保存接口收到的 JSON）。
+    ///
+    /// 读盘时的宽松读法（排列里丢掉不认识和重复的动作、启用列表和模糊音规则里丢掉不认识的取值）是为了读得了别的版本写下的文档，提交来的偏好却出自本版本的设置页或宿主：那里的名字和 Rust 对不上是宿主的毛病，照样整理成合法的值再存下，只会从「保存失败」变成「改了却不生效」。所以这里照旧严格：排列必须是本版本动作的完整、不重复排列，启用列表、选中项和模糊音规则里不能有本版本不认识的名字。
+    pub fn from_submission(value: serde_json::Value) -> Result<Preferences, PreferencesError> {
+        if let Some(newer) = newer_list_values(&value).first() {
+            return Err(PreferencesError::Json(serde::de::Error::custom(
+                format_args!("unknown value {} in {}", newer.value, newer.path.join(".")),
+            )));
+        }
+        let order = value
+            .get("touch_text_edit_button_order")
+            .map(Vec::<TextEditButton>::deserialize)
+            .transpose()?;
+        let preferences: Preferences = serde_json::from_value(value)?;
+        if order.is_some_and(|order| order != preferences.touch_text_edit_button_order) {
+            return Err(PreferencesError::InvalidTextEditButtonOrder);
+        }
         Ok(preferences)
     }
 }
 
-/// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result and whether anything was kept.
+/// [`salvage_preferences`] 的结果。
+struct Salvage {
+    preferences: Preferences,
+    /// 至少保留下了文档里的一个设置。
+    kept: bool,
+    /// 文档里有、却没能整段保留的顶层键：整段取了默认值，或者只留下了部分字段。
+    not_kept: BTreeSet<String>,
+    /// 文档里本版本不认识的键和列表元素，修复写回时原样放回（与 [`PreferencesStore::save`] 相同）。
+    unknown: Vec<UnknownPreferenceField>,
+}
+
+/// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result, whether anything was kept, which top-level keys were not kept whole, and the keys and list elements this version does not know.
 ///
 /// `default` 是垫底的默认偏好，即存储所属版本的默认值。
 fn salvage_preferences(
     document: &serde_json::Value,
     default: Preferences,
-) -> Result<(Preferences, bool), PreferencesError> {
+) -> Result<Salvage, PreferencesError> {
+    let nothing_kept = |preferences| Salvage {
+        preferences,
+        kept: false,
+        not_kept: BTreeSet::from(["*".to_owned()]),
+        unknown: Vec::new(),
+    };
     let serde_json::Value::Object(mut salvaged) = serde_json::to_value(&default)? else {
-        return Ok((default, false));
+        return Ok(nothing_kept(default));
     };
     // A snapshot keeps its settings under `preferences`; a bare settings object at the root is accepted too.
     let source = match document.get("preferences") {
         Some(serde_json::Value::Object(source)) => source.clone(),
         _ => match document {
             serde_json::Value::Object(source) => source.clone(),
-            _ => return Ok((default, false)),
+            _ => return Ok(nothing_kept(default)),
         },
     };
     // 损坏的文档里没有触屏方案列表时，它出自以前的版本（现在的版本总是写出列表），垫底值里也去掉这个键，读回来按以前的默认列表，与这份文档还能正常读取时相同。
@@ -5614,6 +5747,7 @@ fn salvage_preferences(
         salvaged.remove("smart_punctuation_migrated");
     }
     let mut kept = false;
+    let mut not_kept = BTreeSet::new();
     for (key, value) in &source {
         let mut candidate = salvaged.clone();
         candidate.insert(key.clone(), value.clone());
@@ -5622,6 +5756,7 @@ fn salvage_preferences(
             kept = true;
             continue;
         }
+        not_kept.insert(key.clone());
         let serde_json::Value::Object(fields) = value else {
             continue;
         };
@@ -5645,10 +5780,17 @@ fn salvage_preferences(
             kept = true;
         }
     }
-    // Every step above was accepted by the same check, so this cannot fail on the salvaged map.
-    let mut preferences: Preferences = serde_json::from_value(serde_json::Value::Object(salvaged))?;
+    // Every step above was accepted by the same check, so this cannot fail on the salvaged map. Unknown keys were carried over like any other key; collect them here so a repair can put them back.
+    let (mut preferences, mut unknown) =
+        deserialize_keeping_unknown::<Preferences>(&serde_json::Value::Object(salvaged), &[])?;
+    unknown.extend(newer_list_values(&serde_json::Value::Object(source)));
     preferences.settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
-    Ok((preferences, kept))
+    Ok(Salvage {
+        preferences,
+        kept,
+        not_kept,
+        unknown,
+    })
 }
 
 fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), PreferencesError> {

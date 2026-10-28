@@ -16,7 +16,7 @@ Status: implemented
   - 只按对象键定位，经过数组元素的路径不收集，因为数组整个属于一个已知字段。例外是触屏方案启用列表和模糊音规则里本版本不认识的元素，它们接回同一个列表末尾（`newer_list_values`）。
   - 父对象这次因取默认值没写出时不放，不凭一个未知键重建半个已知对象。
   - 本版本已写出同名键时以本版本为准。
-- 「恢复默认设置」（`restore_defaults`）不放回未知键：用户要的是整份回到默认。第一次写文件（`write_first_document`）没有未知键。
+- 「恢复默认设置」（`restore_defaults`）不放回未知键：用户要的是整份回到默认。第一次写文件（`write_first_document`）没有未知键。设置页的「修复」（`recover`）放回：它只换掉读不了的取值，不该顺手抹掉更新版本的设置。
 - Host API 的 `HostOptions::from_document`：运行时选项里的偏好副本读得进、通过校验就用副本，否则由实时的 `preferences.json` 顶替，实时文档也读不了时在内存里救下认得的设置（见 [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md)）。带退役键的副本（#2830 的 `autocorrect`）现在自己就读得进，不再走顶替。
 - 设置文件导入（`settings_document::import_document`）仍然拒绝带未知设置的文件：它出自更新的版本，只导入认识的部分会悄悄丢掉其余设置，所以返回 `settings_document_unsupported`，行为与以前相同。
 
