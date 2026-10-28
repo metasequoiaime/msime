@@ -18,6 +18,13 @@ def main():
         return
     with tempfile.TemporaryDirectory(prefix="msime-apple-crash-pc-") as directory:
         root = Path(directory)
+        # 宿主夹具在 macOS 上运行，另用 iOS Simulator SDK 编译同一份源文件，防止只在宿主 ABI 上通过。
+        simulator_sdk = subprocess.run(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"],
+                                       text=True, capture_output=True, check=True).stdout.strip()
+        subprocess.run(["xcrun", "clang", "-target", "arm64-apple-ios-simulator", "-isysroot", simulator_sdk,
+                        "-mios-simulator-version-min=16.0", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-fsyntax-only", str(ROOT / "platforms/ios/SharedUI/core/CrashSignalRecorder.c"),
+                        str(ROOT / "platforms/ios/tests/CrashSignalRecorderTest.c")], check=True)
         common = root / "common-recorder"
         subprocess.run(["xcrun", "clang++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
                         str(ROOT / "platforms/common/CrashRecorder.cpp"),
