@@ -172,8 +172,11 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
         Bundle selection = new Bundle();
         selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 2);
         selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, 2);
-        if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection))
-            throw new AssertionError("Synthetic editor selection failed");
+        // 光标已在目标位置时 Android 返回 false，因此以实际文本和选区确认准备结果。
+        await(field("msime-test-plain").and(node -> equalsText("清风", node.getText())))
+            .performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection);
+        await(field("msime-test-plain").and(node -> equalsText("清风", node.getText())
+            && node.getTextSelectionStart() == 2 && node.getTextSelectionEnd() == 2));
         awaitStableBounds(describedPrefix("输入方案：").and(AccessibilityNodeInfo::isEnabled));
         for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
         await(field("msime-test-plain").and(node -> equalsText("清风ni'hao", node.getText())));

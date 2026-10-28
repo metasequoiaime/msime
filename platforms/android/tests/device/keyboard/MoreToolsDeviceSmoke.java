@@ -32,8 +32,8 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         stage = "function panel first page";
         // 前一个套件可能在第二页复制设备信息，复用磁贴后页码会保留。
         showTool("全角");
-        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "本地输入", "AI 回复与润色", "设置",
-            "单手模式", "浮动键盘", "无痕输入", "键盘高度"};
+        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "本地输入", "AI 回复与润色",
+            "单手模式", "浮动键盘", "无痕输入", "键盘高度", "按键音"};
         // 面板打开时磁贴有一段展开动画（同一磁贴先后量到过 73、109 像素宽），等它停下再量。
         awaitStableBounds(tool(firstPage[0]));
         panel = await(toolPanel());
@@ -62,22 +62,31 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Toggle state was not exposed: " + toggle);
         stage = "function panel second page";
         AccessibilityNodeInfo sound = showTool("按键音");
-        AccessibilityNodeInfo haptics = await(tool("按键振动"));
+        AccessibilityNodeInfo haptics = showTool("按键振动");
         if (!validFeedbackState(sound) || !validFeedbackState(haptics))
             throw new AssertionError("Feedback state was not exposed");
-        for (String title : new String[] {"反馈", "关于", "打开官网", "词库", "文本编辑", "设备信息"})
-            await(tool(title));
-        stage = "功能菜单辅助入口按截图顺序排列";
-        Rect previous = null;
-        for (String title : new String[] {"编辑工具栏", "设备信息", "反馈", "宣传", "打开官网", "关于"}) {
-            Rect bounds = new Rect();
-            await(tool(title)).getBoundsInScreen(bounds);
-            if (previous != null && (bounds.top < previous.top - 2
-                    || (Math.abs(bounds.top - previous.top) <= 2 && bounds.left <= previous.left)))
-                throw new AssertionError("功能菜单辅助入口顺序错误：" + title);
-            previous = bounds;
+        for (String title : new String[] {"反馈", "关于", "打开官网", "词库", "文本编辑", "编辑工具栏", "设备信息"})
+            showTool(title);
+        stage = "功能菜单辅助入口与固定尾部顺序";
+        AccessibilityNodeInfo grid = awaitAny(node -> equalsText("app.msime.android", node.getPackageName())
+            && node.isScrollable() && node.getParent() != null
+            && equalsText("更多工具", node.getParent().getContentDescription()));
+        java.util.List<String> descriptions = new java.util.ArrayList<>();
+        for (int index = 0; index < grid.getChildCount(); index++) {
+            AccessibilityNodeInfo child = grid.getChild(index);
+            if (child != null) descriptions.add(String.valueOf(child.getContentDescription()));
         }
-        String originalSound = switchState(sound).toString();
+        java.util.List<String> tail = java.util.Arrays.asList("设置", "反馈", "宣传", "打开官网", "关于");
+        if (descriptions.size() < tail.size()
+                || !descriptions.subList(descriptions.size() - tail.size(), descriptions.size()).equals(tail))
+            throw new AssertionError("功能菜单固定尾部顺序错误：" + descriptions);
+        int editorIndex = descriptions.indexOf("编辑工具栏");
+        int deviceInfoIndex = descriptions.indexOf("设备信息");
+        if (editorIndex < 0 || deviceInfoIndex <= editorIndex
+                || deviceInfoIndex >= descriptions.size() - tail.size())
+            throw new AssertionError("功能菜单辅助入口顺序错误：" + descriptions);
+        for (String title : tail) showTool(title);
+        String originalSound = switchState(showTool("按键音")).toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";
         stage = "more tools sound update";
         tap(tool("按键音"));

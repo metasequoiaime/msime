@@ -126,7 +126,7 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
                 throw new AssertionError("English number page lost its fifth row");
             tap(key("["));
             await(field("msime-test-plain").and(node -> equalsText("5你好0‰7[", node.getText())));
-            tap(key("ABC"));
+            tap(described("返回原键盘"));
             tap(key("英"));
             await(key("中"));
 
