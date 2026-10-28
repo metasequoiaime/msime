@@ -17617,6 +17617,34 @@ fn reporting_call(
 }
 
 #[test]
+fn telemetry_consent_before_bootstrap_preserves_edition_defaults() {
+    use crate::ffi::reporting::msime_client_telemetry_consent;
+    let root = tempfile::tempdir().unwrap();
+    for id in ["full", "pinyin", "wubi"] {
+        let directory = root.path().join(id);
+        let result = reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":directory,"edition":id}),
+        );
+        assert_eq!(result["value"]["enabled"], true, "{result}");
+        let snapshot = PreferencesStore::new(&directory).load().unwrap();
+        let mut expected =
+            Preferences::for_edition(msime_client_core::edition::Edition::by_id(id).unwrap());
+        expected.usage_reporting_consent = snapshot.preferences.usage_reporting_consent;
+        assert_eq!(snapshot.preferences, expected, "{id}");
+    }
+    let directory = root.path().join("invalid");
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":directory,"edition":"unknown"})
+        )["ok"],
+        false
+    );
+    assert!(!directory.exists());
+}
+
+#[test]
 fn telemetry_epoch_abi_rejects_stale_begin_and_late_native_records() {
     use crate::ffi::reporting::*;
     let root = tempfile::tempdir().unwrap();
@@ -17747,6 +17775,85 @@ fn telemetry_epoch_system_diagnostics_require_current_continuous_history() {
     assert_eq!(
         reporting_call(msime_client_telemetry_record_crash, request)["value"],
         false
+    );
+}
+
+#[test]
+fn telemetry_epoch_system_capture_keeps_native_identity_and_session_attribution() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences}),
+    );
+    let epoch = &consent["value"]["epoch"];
+    let since = &consent["value"]["since_unix_ms"];
+    let begin = json!({"directory": directory, "platform":"android", "version":"0.3.0", "preferences_directory":preferences, "consent_epoch":epoch});
+    let captured = reporting_call(msime_client_telemetry_begin, begin.clone());
+    let id = captured["value"]["session_id"].as_str().unwrap();
+    let request = json!({"directory":directory,"message":"Synthetic Android system fault", "outside_session":true,
+        "diagnostic_capture":id,"crash_record_header":captured["value"]["crash_record_header"],
+        "preferences_directory":preferences,"consent_epoch":epoch,"diagnostic_begin_unix_ms":since,"diagnostic_end_unix_ms":since});
+    let mut unbound = request.clone();
+    unbound.as_object_mut().unwrap().remove("consent_epoch");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, unbound)["ok"],
+        false
+    );
+    let mut mixed = request.clone();
+    mixed["diagnostic_id"] = "synthetic-duplicate-identity".into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, mixed)["ok"],
+        false
+    );
+    let native = json!({"directory":directory,"session":id,"message":"Synthetic exact native stack", "stack":"synthetic+0x42", "crash_record_header":captured["value"]["crash_record_header"]});
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, native)["value"],
+        true
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        false
+    );
+    reporting_call(msime_client_telemetry_begin, begin.clone());
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
+    let queued = store.queued().unwrap();
+    assert_eq!(
+        queued
+            .iter()
+            .filter(|event| event.kind == msime_client_services::telemetry::TelemetryKind::Crash)
+            .count(),
+        1
+    );
+    assert!(queued.iter().any(
+        |event| event.message.starts_with("Synthetic exact native stack")
+            && event.stack == "synthetic+0x42"
+    ));
+    assert!(queued
+        .iter()
+        .any(|event| event.id == format!("session-{id}")
+            && event.kind == msime_client_services::telemetry::TelemetryKind::SessionCrash));
+    // 系统再次投递保留相同事件 id，不新增崩溃或输入会话崩溃。
+    reporting_call(msime_client_telemetry_record_crash, request);
+    reporting_call(msime_client_telemetry_begin, begin);
+    let queued = store.queued().unwrap();
+    assert_eq!(
+        queued
+            .iter()
+            .filter(|event| event.kind == msime_client_services::telemetry::TelemetryKind::Crash)
+            .count(),
+        1
+    );
+    assert_eq!(
+        queued
+            .iter()
+            .filter(
+                |event| event.kind == msime_client_services::telemetry::TelemetryKind::SessionCrash
+            )
+            .count(),
+        1
     );
 }
 

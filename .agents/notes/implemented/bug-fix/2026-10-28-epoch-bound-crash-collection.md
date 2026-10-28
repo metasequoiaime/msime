@@ -24,6 +24,12 @@ macOS 输入法的 `UsageReporting.mm` 也复用同一共用生命周期，停�
 
 公开隐私说明同步列出本机代次的存储、不上传、旧记录首次迁入时的丢弃、在途请求无法撤回，以及 iOS、共用辅助采集器、MCP、桌面设置发送端与 macOS/Windows/Linux 共用输入宿主已接入、Android 与鸿蒙仍需迁移的边界；iOS 信号帧说明改为实际保存的模块相对偏移与 UUID。
 
+Android 的 App 和 IME 准备、发送改为通过 JNI 的 `telemetryConsent` 读取共享代次；原有 Java 同意文件仅镜像共享 UUID 和起点，供故障线程 try-lock 核对，不再产生自己的授权。故障回调不读共享偏好，旧原生或 Java 捕获晚写由记录头的代次拒收。通知参数只触发当前授权重读，条件 clear 防止迟到关闭清理新队列；临时读失败仍只停采，同代次恢复复用身份。首启没有 runtime-options 时使用 Bootstrap 的同一状态目录，并把包内 edition 交给授权接口，使抢先初始化偏好仍保留五笔等版本的默认值；已经观察过的配置消失仍停采。
+
+鸿蒙的 ArkTS NAPI 入口同样新增 `telemetryConsent`。共享沙箱镜像仍负责两个进程之间同步偏好和隐私政策，但使用统计的授权代次由 Rust 偏好唯一产生；旧的鸿蒙本地文件现在只镜像 UUID 与起点。`APP_CRASH`/`APP_FREEZE` 补录带上该代次、偏好目录和报告发生时间，由共享层校验后再按原捕获身份入队。共享层拒绝或暂时读不到时不再写 `writeStandalone` 回退文件，避免绕过授权或把旧代次带入新队列。
+
+Android 系统退出补录按共享起点和摘要中的共享代次认领，再由 Rust 在偏好锁内重新检查发生时间。`diagnostic_capture` 仅允许有完整共享授权约束的系统补录，沿用系统摘要里原捕获 UUID，与现场文件共用身份，避免把 App 崩溃补成另一条记录或丢失 IME 会话归属；不与 pid 或 diagnostic_id 混用。旧 Java 独立代次的系统摘要不追认为新共享授权。迁移代码和设备验收分开记录，未完成设备验证前不能宣称 Android 闭环。
+
 ## Related notes
 
 动手前检索活跃笔记的 `CrashContext`、授权代次、持续同意与网络持锁。[持久同意](2026-10-28-persisted-reporting-consent.md)、[宿主采集](../feature/2026-10-27-native-crash-capture-and-symbol-identity.md)、[全平台提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md)部分重叠，分别继续持有偏好保存、平台入口和整体验收。本篇不改变原生写入保留首份、半份记录竞争和收集失败不删除的约束。剪贴板、更新通道、语音等其余关键词命中与本次队列代次无关；没有完全吸收或需要否决的旧笔记。
@@ -72,6 +78,14 @@ macOS 输入法的 `UsageReporting.mm` 也复用同一共用生命周期，停�
 Linux 桌面与 MCP 的实际 crate 全 target 严格 Clippy 通过后，测试构建分别用时 61 分 22 秒与 42 分 03 秒。桌面两项崩溃专项通过；MCP 首轮 root 容器为 124 passed、2 failed、1 ignored，失败是仓库已有记录的两项符号链接父目录断言。复用相同二进制，以普通 UID 1000 运行后 MCP 为 126 passed、0 failed、1 ignored（17.63 秒），桌面仍为 2 passed、0 failed、1 ignored（14.10 秒）；原故障父用例实际启动子进程，ignored 的子入口不计作独立通过。同一普通用户环境进一步运行已编译的 MCP stdio 集成程序，18 passed、0 failed（82.45 秒）。没有为 root 条件修改产品或放宽断言。
 
 最终快照的完整 quick 仍在构建机运行。已完成 Windows 可移植测试 202 项、整套契约与 actionlint；契约仅记录 `windows settings canvas viewport` 的原有 20 秒超时，同一源码、同一时限单项复跑的八项断言全部通过，没有扩大时限或修改断言。macOS 发布脚本 23 项全部通过（1145.22 秒）。这一轮不能计为整轮通过：Rust 工作区编译及后续平台阶段尚未结束，且原始超时仍保留。构建机 PATH 缺少 Node/pnpm 的阶段按脚本跳过，不计通过；本机笔记校验与差异检查已通过。当前补齐仍保持草稿，Windows 新代码的目标构建/运行与设备到后台闭环仍待验收。
+
+## Verification of Android shared consent migration
+
+新增首启 full、pinyin、wubi 默认值保持及非法 edition 拒绝的 Host API 回归；系统捕获回归核对原生精确栈优先、稳定 UUID、原输入会话归属和重复送达，并拒绝混用身份或省略授权。Java 文件专项增加直接替换成共享新代次的用例。设备夹具通过真实 JNI 保存两次并阻止观察器看到中间关闭，还核对迟到关闭通知和旧捕获晚写拒收。相关 Rust 回归及同源 APK 的 API 28/35 验证仍待执行，不能用新增断言的存在代替通过结果。
+
+本机 `check-host.sh` 完整通过：NDK 的 aarch64 JNI 语法编译、292 项 JVM 冒烟、256 个设备套件源编译和宿主契约通过。设备 instrumentation APK 构建通过；API 28/35 均在真实应用 UID 下通过本次 Java 授权镜像的文件/锁专项，包含链接拒绝、跨线程忙锁不等待、同代次重启与共享代次替换。首次因专用 AVD 遗留开发证书的测试/目标包与当前证书不同而无法安装/启动，不计通过；仅在这两台专用 AVD 重装此前的缓存产品 APK 和本次测试 APK 后执行通过，网络规则已恢复。该专项不调用新的 JNI/系统补录，不能代替本切片同源产品 APK 验收。完整 quick 仍使用上一份冻结源码，不包含本次 Android 改动。
+
+鸿蒙 `platforms/harmony/tests/run.sh` 的 ArkTS/策略回归为 0 failure；完整 HAP 仍待同源 native + ArkTS 构建和真实设备系统回调。
 
 ## Consequences
 

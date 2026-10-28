@@ -39,6 +39,7 @@ interface TelemetryRequest {
   preferences_directory: string;
   capture_only?: boolean;
   component?: string;
+  consent_epoch?: string;
 }
 
 interface DirectoryRequest {
@@ -53,6 +54,10 @@ interface CrashRecordRequest {
   outside_session?: boolean;
   crash_record_header?: string;
   diagnostic_id?: string;
+  diagnostic_begin_unix_ms?: number;
+  diagnostic_end_unix_ms?: number;
+  consent_epoch?: string;
+  preferences_directory?: string;
 }
 
 interface BeginValue {
@@ -76,6 +81,7 @@ interface RememberedProcess {
 }
 
 interface ReportingConsent {
+  epoch: string;
   since: number;
 }
 
@@ -196,12 +202,27 @@ export class HarmonyTelemetry {
   }
 
   private static request(stateDirectory: string): TelemetryRequest {
-    return {
+    const request: TelemetryRequest = {
       directory: HarmonyTelemetry.directoryFor(stateDirectory),
       platform: PLATFORM,
       version: version(),
       preferences_directory: stateDirectory,
     };
+    const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(stateDirectory);
+    if (consent !== null) request.consent_epoch = consent.epoch;
+    return request;
+  }
+
+  /** Rust 偏好是唯一授权来源；本地摘要文件只镜像它，不能自行生成 UUID。 */
+  private static sharedConsent(stateDirectory: string): ReportingConsent | null {
+    try {
+      const reply: BeginReply & { value?: BeginValue & { epoch?: string; since_unix_ms?: number } } =
+        JSON.parse(client.telemetryConsent(JSON.stringify({ directory: stateDirectory }))) as BeginReply & { value?: BeginValue & { epoch?: string; since_unix_ms?: number } };
+      const value = reply.value;
+      if (reply.ok !== true || value?.enabled !== true || typeof value.epoch !== 'string'
+        || !Number.isSafeInteger(value.since_unix_ms) || value.since_unix_ms <= 0) return null;
+      return { epoch: value.epoch, since: value.since_unix_ms };
+    } catch { return null; }
   }
 
   private static begin(): void {
@@ -280,7 +301,8 @@ export class HarmonyTelemetry {
       return;
     }
     HarmonyTelemetry.refreshDiagnosticConsent();
-    if (!TelemetryPolicy.diagnosticAllowed(report, HarmonyTelemetry.readConsentSince(), Date.now())) return;
+    const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
+    if (consent === null || !TelemetryPolicy.diagnosticAllowed(report, consent.since, Date.now())) return;
     // 按系统报告的 pid 认领未结束的会话，不依赖两秒内是否已收到回调。
     const request: CrashRecordRequest = {
       directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack,
@@ -289,12 +311,15 @@ export class HarmonyTelemetry {
     };
     if (report.outsideSession === true) request.outside_session = true;
     else request.pid = report.pid;
+    request.consent_epoch = consent.epoch;
+    request.preferences_directory = HarmonyTelemetry.preferences;
+    request.diagnostic_begin_unix_ms = report.time;
+    request.diagnostic_end_unix_ms = report.time;
     const reply: FlagReply | null = HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
     if (reply !== null) {
       HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
-      return;
     }
-    HarmonyTelemetry.writeStandalone(report);
+    // 共享层拒绝时不能用本地文件回退绕过授权或代次；系统会在下一次有效诊断中再次交付。
   }
 
   private static refreshDiagnosticConsent(): void {
@@ -303,16 +328,19 @@ export class HarmonyTelemetry {
     try {
       if (!HarmonyTelemetry.enabled) {
         if (fs.accessSync(path)) fs.unlinkSync(path);
-      } else if (HarmonyTelemetry.readConsentSince() === null) {
-        const consent: ReportingConsent = { since: Date.now() };
-        HarmonyTelemetry.atomicWrite(path, JSON.stringify(consent), true);
+      } else {
+        const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
+        if (consent === null) return;
+        const current = HarmonyTelemetry.readConsent();
+        if (current === null || current.epoch !== consent.epoch || current.since !== consent.since)
+          HarmonyTelemetry.atomicWrite(path, JSON.stringify(consent), true);
       }
     } catch {
       // 无法持久化同意时不补录系统历史诊断。
     }
   }
 
-  private static readConsentSince(): number | null {
+  private static readConsent(): ReportingConsent | null {
     if (!HarmonyTelemetry.safeTelemetryDirectory()) return null;
     const path: string = `${HarmonyTelemetry.directory}/${CONSENT_FILE}`;
     let handle: fs.File | null = null;
@@ -325,8 +353,12 @@ export class HarmonyTelemetry {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      return TelemetryPolicy.consentSince(util.TextDecoder.create('utf-8').decodeToString(
-        new Uint8Array(buffer, 0, count)));
+      const parsed: Object = JSON.parse(util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count))) as Object;
+      if (parsed === null || typeof parsed !== 'object') return null;
+      const value = parsed as Record<string, Object>;
+      const since: number | null = TelemetryPolicy.consentSince(JSON.stringify({ since: value.since }));
+      return typeof value.epoch === 'string' && since !== null
+        ? { epoch: value.epoch, since: since } : null;
     } catch {
       return null;
     } finally {

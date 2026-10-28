@@ -26,6 +26,21 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
         } catch (NoSuchFieldException missing) { return fallback; }
     }
 
+    /** 使用产品 JNI 保存真实偏好，不调用遥测刷新；代次必须由共享存储维护。 */
+    private void saveConsent(boolean enabled) throws Exception {
+        Class<?> nativeClient = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
+        JSONObject options = new JSONObject(new String(Files.readAllBytes(
+            getTargetContext().getFilesDir().toPath().resolve("runtime-options.json")), StandardCharsets.UTF_8));
+        String preferences = options.getString("preferences_directory");
+        JSONObject loaded = new JSONObject((String) nativeClient.getMethod("loadPreferences", String.class).invoke(null, preferences));
+        if (!loaded.getBoolean("ok")) throw new AssertionError("load preferences");
+        JSONObject snapshot = loaded.getJSONObject("value");
+        snapshot.getJSONObject("preferences").put("usage_reporting", enabled);
+        JSONObject saved = new JSONObject((String) nativeClient.getMethod("savePreferences", String.class, long.class, String.class)
+            .invoke(null, preferences, snapshot.getLong("revision"), snapshot.toString()));
+        if (!saved.getBoolean("ok")) throw new AssertionError("save preferences");
+    }
+
     @Override public void onStart() {
         Bundle result = new Bundle();
         int code = Activity.RESULT_CANCELED;
@@ -38,6 +53,7 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
             Files.createDirectories(root);
             telemetry = getTargetContext().getClassLoader().loadClass("app.msime.android.core.Telemetry");
             telemetry.getMethod("beginInputSession", android.content.Context.class).invoke(null, getTargetContext());
+            String completed = "";
             long deadline = SystemClock.uptimeMillis() + 180000;
             while (SystemClock.uptimeMillis() < deadline) {
                 JSONObject status;
@@ -46,6 +62,8 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
                     status = new JSONObject().put("enabled", field(telemetry, "enabled", false))
                         .put("session_id", field(telemetry, "sessionId", ""))
                         .put("epoch", field(telemetry, "captureEpoch", ""))
+                        .put("header", field(telemetry, "crashRecordHeader", ""))
+                        .put("completed", completed)
                         .put("capture", String.valueOf(field(telemetry, "sessionCrashRecord", "")))
                         .put("watching", watch instanceof java.util.concurrent.Future<?>
                             && !((java.util.concurrent.Future<?>) watch).isDone())
@@ -58,6 +76,17 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
                 String command = Files.exists(commandPath)
                     ? new String(Files.readAllBytes(commandPath), StandardCharsets.US_ASCII).trim() : "";
                 if (!command.isEmpty()) Files.deleteIfExists(commandPath);
+                if (command.equals("cycle")) {
+                    synchronized (telemetry) {
+                        saveConsent(false);
+                        saveConsent(true);
+                    }
+                }
+                if (command.equals("stale-close")) {
+                    telemetry.getMethod("setEnabled", android.content.Context.class, boolean.class)
+                        .invoke(null, getTargetContext(), false);
+                }
+                if (!command.isEmpty()) completed = command;
                 if (command.equals("java")) {
                     fault = true;
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {

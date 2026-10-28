@@ -8,7 +8,6 @@ import shlex
 import subprocess
 import sys
 import time
-import uuid
 
 
 def main():
@@ -94,7 +93,12 @@ def main():
         return json.loads(read(telemetry + "/telemetry.json", check=False) or "[]")
 
     def consent(value):
-        document["preferences"]["usage_reporting"] = value
+        current = json.loads(read(preferences))
+        if not value or not current["preferences"].get("usage_reporting", True):
+            current["preferences"].pop("usage_reporting_consent", None)
+        current["preferences"]["usage_reporting"] = value
+        document.clear()
+        document.update(current)
         write(preferences, json.dumps(document))
 
     def same_process(original):
@@ -157,6 +161,7 @@ def main():
         consent(True)
         start()
         ready = wait(active, "recovery preparation")
+        document = json.loads(read(preferences))
         write(options_path, "{")
         wait(inactive, "bad options suspend capture")
         same_process(ready)
@@ -182,17 +187,28 @@ def main():
         reopened = wait(active, "live re-enable")
         same_process(ready)
         assert reopened["session_id"] != ready["session_id"] and reopened["epoch"] != ready["epoch"]
-        # 模拟另一个进程已经持久化一轮撤回重开，当前轮询只看到新 epoch。
-        write(ledger, str(uuid.uuid4()) + "|" + str(int(time.time() * 1000)))
-        changed = wait(lambda: s if (s := active()) and s["epoch"] != reopened["epoch"] else None,
-                       "changed durable epoch")
+        # 阻止观察器看到中间关闭，用真实 JNI 保存两次，不能靠篡改 Java 镜像模拟共享代次。
+        command("cycle")
+        changed = wait(lambda: s if (s := active()) and s["completed"] == "cycle"
+                       and s["epoch"] != reopened["epoch"] else None, "changed shared epoch")
         assert changed["session_id"] != reopened["session_id"], "missed off/on reused old identity"
+        shared = json.loads(read(preferences))["preferences"]["usage_reporting_consent"]
+        assert changed["epoch"] == shared["epoch"], "capture did not bind shared consent"
+        assert read(ledger).split("|")[0] == shared["epoch"], "Java mirror generated its own epoch"
         same_process(ready)
+        before = events()
+        command("stale-close")
+        wait(lambda: status().get("completed") == "stale-close", "stale close callback")
+        assert status()["enabled"] and status()["session_id"] == changed["session_id"]
+        assert events() == before, "stale close cleared re-enabled queue"
+        # 模拟旧原生快照在新队列激活后才写完；重启只能接收当前授权故障。
+        write(reopened["capture"], reopened["header"] + "Synthetic revoked late native fault\nsynthetic+0x41\n")
         fault("java", True)
         start()
         wait(active, "restart ingests Java crash")
         wait(lambda: any(event.get("kind") == "crash" for event in events()), "Java crash queue")
         assert not records(), "ingested crash original remains"
+        assert not any("Synthetic revoked late native fault" in event.get("message", "") for event in events()), "revoked late write was accepted"
         print(serial + ": live re-enable and changed epoch use fresh identities; Java fault -> restart -> queue", flush=True)
 
         ready = wait(active, "end preparation")

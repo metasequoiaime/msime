@@ -75,6 +75,7 @@ def main():
                 if name.endswith(".crash")]
 
     def consent(value):
+        document["preferences"].pop("usage_reporting_consent", None)
         document["preferences"]["usage_reporting"] = value
         write(preferences, json.dumps(document))
 

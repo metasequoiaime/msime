@@ -110,6 +110,9 @@ static jbyteArray json_call(JNIEnv *env, jbyteArray request, char *(*call)(const
     env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryConsentRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_telemetry_consent);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryBeginRaw(JNIEnv *env, jclass, jbyteArray request) {
     return json_call(env, request, msime_client_telemetry_begin);
 }

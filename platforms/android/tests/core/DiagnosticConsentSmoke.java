@@ -19,12 +19,13 @@ public final class DiagnosticConsentSmoke {
     public static void run(Path root) throws Exception {
         String capture = UUID.randomUUID().toString();
         String[] old = new String[1];
+        DiagnosticConsent.State shared = new DiagnosticConsent.State(UUID.randomUUID().toString(), 1000);
         DiagnosticConsent.locked(root.toFile(), consent -> {
             check(!DiagnosticConsent.tryLocked(root.toFile(), nested -> {
                 throw new AssertionError("nested fatal callback executed");
             }), "fatal path refuses a lock held by its own interrupted thread");
             check(consent.current() == null, "missing consent cannot claim history");
-            DiagnosticConsent.State state = consent.observe(true, 1000);
+            DiagnosticConsent.State state = consent.observe(shared);
             old[0] = state.summary(capture, "0.3.0", "keyboard");
             DiagnosticConsent.Identity identity = state.accept(bytes(old[0]), 1100, 1200);
             check(identity != null && identity.capture.equals(capture) && identity.version.equals("0.3.0")
@@ -37,33 +38,38 @@ public final class DiagnosticConsentSmoke {
             check(state.summary("1-1-1-1-1", "0.3.0", "keyboard") == null, "short UUID rejected");
             check(state.summary(capture, "0.3.0|extra", "keyboard") == null, "summary delimiter rejected");
             check(state.summary(capture, "0.3.0", "other") == null, "foreign component rejected");
+            DiagnosticConsent.State replaced = consent.observe(new DiagnosticConsent.State(UUID.randomUUID().toString(), 900));
+            check(replaced.accept(bytes(old[0]), 1100, 2000) == null, "shared epoch replaces mirror without observing an intermediate false");
+            consent.observe(shared);
+            check(consent.current().epoch.equals(shared.epoch) && consent.current().since == shared.since,
+                "mirror uses the exact shared epoch and start time");
         });
         // 重新打开文件代表另一个启动；同意没有中断时保留原 epoch 和原版本。
         DiagnosticConsent.locked(root.toFile(), consent -> {
-            check(consent.observe(true, 1500).accept(bytes(old[0]), 1100, 1600) != null, "restart retains consent");
-            consent.observe(false, 1700);
+            check(consent.observe(shared).accept(bytes(old[0]), 1100, 1600) != null, "restart retains consent");
+            consent.observe(null);
             check(consent.current() == null, "withdrawal persists before queue clear");
         });
         DiagnosticConsent.locked(root.toFile(), consent -> {
             check(consent.current() == null, "withdrawal survives another open");
             // 即使时钟回拨，旧 epoch 仍不能被重新开启后的同意追认。
-            DiagnosticConsent.State next = consent.observe(true, 900);
+            DiagnosticConsent.State next = consent.observe(new DiagnosticConsent.State(UUID.randomUUID().toString(), 900));
             check(next.accept(bytes(old[0]), 1100, 2000) == null, "re-enable cannot resurrect old history");
             check(next.accept(bytes(next.summary(capture, "0.4.0", "application")), 1000, 2000) != null,
                 "new epoch can report a new exit");
-            consent.observe(false, 2100);
+            consent.observe(null);
         });
         Path ledger = root.resolve("telemetry-diagnostic-consent");
         Files.write(ledger, new byte[65]);
         try {
-            DiagnosticConsent.locked(root.toFile(), consent -> consent.observe(true, 3000));
+            DiagnosticConsent.locked(root.toFile(), consent -> consent.observe(shared));
             throw new AssertionError("corrupt consent accepted");
         } catch (java.io.IOException expected) { /* 损坏文件不恢复成开启状态。 */ }
         Files.delete(ledger);
         Path outside = Files.createFile(root.resolve("synthetic-outside"));
         Files.createSymbolicLink(ledger, outside);
         try {
-            DiagnosticConsent.locked(root.toFile(), consent -> consent.observe(true, 3000));
+            DiagnosticConsent.locked(root.toFile(), consent -> consent.observe(shared));
             throw new AssertionError("linked consent accepted");
         } catch (java.io.IOException expected) { /* 不跟随应用私有文件的链接。 */ }
         check(Files.size(outside) == 0, "linked target unchanged");

@@ -109,12 +109,6 @@ impl TelemetryRequest {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DirectoryRequest {
-    directory: String,
-}
-
 /// Starts a reporting session at host start. With reporting on: closes the previous session, queues its crash records and today's `active`, writes the new session marker and returns `{enabled:true, crash_record_path, session_id, previous_session_crashed, crashes}`. With reporting off: clears the queue, marker and crash records and returns `{enabled:false}`. No network I/O.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
@@ -220,6 +214,9 @@ struct CrashRequest {
     /// 系统诊断的稳定身份；只在事后补录时使用，不含系统原始描述。
     #[serde(default)]
     diagnostic_id: Option<String>,
+    /// 系统保留的原始捕获 UUID；与现场记录共用文件和事件身份，仅允许完整授权核验的补录。
+    #[serde(default)]
+    diagnostic_capture: Option<String>,
     /// 仅系统事后诊断使用；普通故障处理器沿用记录头，不读偏好。
     #[serde(default)]
     consent_epoch: Option<String>,
@@ -287,6 +284,19 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
                     return Ok(false);
                 }
                 context.consent_epoch = Some(consent.epoch);
+                if let Some(capture) = request.diagnostic_capture.as_deref() {
+                    if request.pid.is_some()
+                        || !request.outside_session
+                        || request.diagnostic_id.is_some()
+                    {
+                        return Err(
+                            "diagnostic_capture requires an exclusive capture identity".into()
+                        );
+                    }
+                    return store
+                        .record_crash_with_context(capture, Some(&context), message, stack)
+                        .map_err(|error| error.to_string());
+                }
                 store
                     .record_diagnosed_crash_with_context(
                         request.pid,
@@ -300,7 +310,8 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
             })?;
             return Ok(Value::Bool(recorded.unwrap_or(false)));
         }
-        if request.preferences_directory.is_some()
+        if request.diagnostic_capture.is_some()
+            || request.preferences_directory.is_some()
             || request.diagnostic_begin_unix_ms.is_some()
             || request.diagnostic_end_unix_ms.is_some()
         {

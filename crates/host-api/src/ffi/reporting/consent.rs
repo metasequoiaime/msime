@@ -4,7 +4,16 @@ use super::*;
 use msime_client_core::preferences::UsageReportingConsent;
 use msime_client_services::telemetry::{Delivery, TelemetrySender};
 
-/// 确保持续同意历史。请求 `{directory}` 是偏好目录；读写失败保持错误，不清理已有报告。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConsentRequest {
+    directory: String,
+    /// 首次宿主准备前可指定包内版本，避免初始化成 full 的偏好默认值。
+    #[serde(default)]
+    edition: Option<String>,
+}
+
+/// 确保持续同意历史。请求 `{directory,edition?}` 是偏好目录；读写失败保持错误，不清理已有报告。
 /// 成功返回 `{enabled:false}` 或 `{enabled:true,epoch,since_unix_ms}`；不联网。
 /// # Safety
 /// `request` 指向 `length` 个可读 UTF-8 JSON 字节。
@@ -15,8 +24,15 @@ pub unsafe extern "C" fn msime_client_telemetry_consent(
 ) -> *mut c_char {
     response(|| {
         // SAFETY: 调用方遵守文档中的缓冲区约定。
-        let request: DirectoryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
-        let store = PreferencesStore::new(absolute_directory(&request.directory)?);
+        let request: ConsentRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let directory = absolute_directory(&request.directory)?;
+        let store = match request.edition.as_deref() {
+            Some(id) => PreferencesStore::for_edition(
+                directory,
+                msime_client_core::edition::Edition::by_id(id).ok_or("unknown edition")?,
+            ),
+            None => PreferencesStore::new(directory),
+        };
         match store
             .usage_reporting_consent()
             .map_err(|error| error.to_string())?

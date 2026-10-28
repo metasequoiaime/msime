@@ -86,6 +86,7 @@ def main():
         preferences = options["preferences_directory"] + "/preferences.json"
         original = read(preferences)
         document = json.loads(original)
+        document["preferences"].pop("usage_reporting_consent", None)
         document["preferences"]["usage_reporting"] = True
         write(preferences, json.dumps(document))
         shell("rm -rf " + telemetry)
@@ -102,6 +103,7 @@ def main():
         print("API 35: actual system exit -> queue; continuous consent survived restart", flush=True)
 
         stop()
+        document["preferences"].pop("usage_reporting_consent", None)
         document["preferences"]["usage_reporting"] = False
         write(preferences, json.dumps(document))
         output = shell("am instrument -w -e phase revoke "
@@ -110,6 +112,7 @@ def main():
         assert shell("test ! -e " + ledger + " && echo revoked") == "revoked"
         assert not crashes(), "withdrawal did not clear queue"
         stop()
+        document["preferences"].pop("usage_reporting_consent", None)
         document["preferences"]["usage_reporting"] = True
         write(preferences, json.dumps(document))
         start()
