@@ -32,6 +32,8 @@ Status: implemented
 
 ELF 帧保存模块名、减去加载偏移后的链接地址和 GNU build id；PIE 与共享库通常表现为模块内偏移，非 PIE 的 `ET_EXEC` 保留链接虚拟地址，供 `addr2line` 直接使用。Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。Android 的 Rust 链接参数与 JNI 一样显式使用 `--build-id=sha1`；NDK 的 clang 驱动不会为 Rust 的最终共享库补上该参数，不能只给 JNI 加身份而让 Host API 无身份。保持既有 16KB 页对齐和发布调试行配置，不用放宽归档器的身份要求掩盖缺失。
 
+鸿蒙同源原生构建暴露相同的 Rust ELF 身份缺失：NAPI 已有 build-id，Host API 的 clang 驱动仍不会自动添加。`build-native.sh` 使用 `cargo rustc` 只为最终 Host API crate 显式传递 `-C link-arg=-Wl,--build-id=sha1`，避免仅修链接参数却改变所有未修改依赖的指纹；调试行与严格共享链接保持。`scripts/test-harmony-crash-symbols.py` 读取生产最终链接参数，以已安装的实际 OHOS Rust target 和 NDK 编译合成 cdylib，检查 40 位 build-id、归档和函数/源码第三行还原。本机 aarch64 目标的身份、归档与源码行回归已通过；临时移除生产 build-id 参数后，归档器按预期拒绝 ELF，恢复脚本后差异检查通过。完整同源库和 HAP 的结果单独记录，不能用小型合成模块替代。
+
 Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需文件缺失或为空就失败。发布 workflow 同时保留九十天 artifact；只有维护者手动选择发布时才推到平台滚动符号 release。本次不触发发布。现代 Windows、macOS 的已有滚动符号和 iOS 的 dSYM 保留机制继续使用。
 
 macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行，归档四个自有可执行文件及 `MSIMEBackend.dylib`。Rust 和 Swift 单步编译链接会在临时对象消失前产生原始 dSYM；universal 构建按分片归并这些原件，不能对合并后的已失去对象的程序再次运行 `dsymutil`。CMake 保留的原生对象仍可用于生成输入法和语音辅助程序的 dSYM。`crash_symbols.py` 对每个架构核对 UUID 和非空源码行表，缺架构、错误构建或空行表都中止打包；清单保留原始版本、源码提交、构建运行及 DWARF 哈希。符号归档不随版本安装包分发。
