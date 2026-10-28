@@ -38,6 +38,47 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertEqual(LocalSpeechText.joinSegments(["", "abc", "", "123"]), "abc 123")
   }
 
+  // 与 shared/voice/tests/local_asr.cpp 的段首补齐用例相同：-70 dBFS 左右的确定性噪声本底，加上约 -50 dBFS、音节之间停 0.1 秒的「语音」。
+  private func quietSpeech(_ length: Int, _ spans: [(Double, Double)]) -> [Float] {
+    var audio = [Float](repeating: 0, count: length)
+    var state: UInt32 = 7
+    for index in audio.indices {
+      state = state &* 1_664_525 &+ 1_013_904_223
+      audio[index] = (Float(state >> 8) / 16_777_216 - 0.5) * 1e-3
+      let at = Double(index) / 16_000
+      for (from, to) in spans where at >= from && at < to && fmod(at - from, 0.4) < 0.3 {
+        audio[index] += 0.0045 * Float(sin(at * 2 * 3.14159265 * 220))
+      }
+    }
+    return audio
+  }
+
+  func testVADSegmentStartRecoversAQuietOnset() {
+    let second = 16_000
+    // 说话从 1.0 秒开始，VAD 到 2.0 秒才认出来：补回 1.0 秒并再往前留 0.3 秒。
+    var audio = quietSpeech(6 * second, [(1.0, 4.0)])
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(audio, audioStart: 0, vadStart: 2 * second, earliest: 0), second - second * 3 / 10)
+    // 不越过上一段的段尾，也不早于手里还留着的录音。
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(audio, audioStart: 0, vadStart: 2 * second, earliest: second * 3 / 2), second * 3 / 2)
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(Array(audio[(second * 9 / 10)...]), audioStart: second * 9 / 10, vadStart: 2 * second, earliest: 0), second * 9 / 10)
+    // 段首之前的录音已经丢掉，或者段首在录音之外：原样返回 VAD 的段首。
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(Array(audio[(3 * second)...]), audioStart: 3 * second, vadStart: 2 * second, earliest: 0), 2 * second)
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(Array(audio[..<(3 * second)]), audioStart: 0, vadStart: 4 * second, earliest: 0), 4 * second)
+    // 最多往前 3 秒。
+    audio = quietSpeech(8 * second, [(0.5, 6.0)])
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(audio, audioStart: 0, vadStart: 5 * second, earliest: 0), 2 * second)
+    // 段首前面隔着超过 0.25 秒静音的别的声音不算进来。
+    audio = quietSpeech(6 * second, [(0.2, 0.5), (1.1, 4.0)])
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(audio, audioStart: 0, vadStart: 2 * second, earliest: 0), second * 11 / 10 - second * 3 / 10)
+    // 段首前只有噪声本底：只留固定的 0.3 秒。
+    audio = quietSpeech(6 * second, [(2.0, 4.0)])
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(audio, audioStart: 0, vadStart: 2 * second, earliest: 0), 2 * second - second * 3 / 10)
+    // 开头是数字静音（还没有任何本底）时同样找得到起音。
+    audio = quietSpeech(6 * second, [(1.0, 4.0)])
+    for index in 0..<second { audio[index] = 0 }
+    XCTAssertEqual(LocalSpeechText.vadSegmentStart(audio, audioStart: 0, vadStart: second * 3 / 2, earliest: 0), second - second * 3 / 10)
+  }
+
   func testTransducerHotwordsDropWordsTheModelCannotSpell() {
     let tokens = LocalSpeechText.tokenSet("<blk> 0\n水 1\n杉 2\n输 3\n入 4\n法 5\n")
     XCTAssertEqual(tokens, ["<blk>", "水", "杉", "输", "入", "法"])
