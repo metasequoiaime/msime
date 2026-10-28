@@ -4,7 +4,7 @@
 int main()
 {
     using namespace metasequoia::punctuation_contract;
-    if (version != 4 || simple.size() != 15 || alternating.size() != 4 || corner_quotes.size() != 4 ||
+    if (version != 5 || simple.size() != 17 || alternating.size() != 2 || corner_quotes.size() != 2 ||
         hollow_brackets.size() != 2 || enumeration_comma.size() != 2)
         return 1;
     if (!is_supported(',') || !is_supported('"') || !is_supported('<') || !is_supported('_') || is_supported('a'))
@@ -18,14 +18,12 @@ int main()
     const auto *quotes = alternating_mapping('"');
     if (!quotes || std::string_view(quotes->opening) != "“" || std::string_view(quotes->closing) != "”")
         return 1;
-    // 第 3 版起 `{` `}` 出直角引号：弯引号之外「」『』也能直接打，两组字两种样式下相同。
-    const auto *brace_single = alternating_mapping('{');
-    if (!brace_single || std::string_view(brace_single->opening) != "「" ||
-        std::string_view(brace_single->closing) != "」")
-        return 1;
-    const auto *brace_double = alternating_mapping('}');
-    if (!brace_double || std::string_view(brace_double->opening) != "『" ||
-        std::string_view(brace_double->closing) != "』")
+    // 第 5 版：`{` `}` 固定出左右直角引号「」，是 simple 里的无状态映射，不交替，也没有样式替换。
+    const auto *brace_opening = simple_output('{');
+    const auto *brace_closing = simple_output('}');
+    if (!brace_opening || std::string_view(brace_opening) != "「" || !brace_closing ||
+        std::string_view(brace_closing) != "」" || alternating_mapping('{') || alternating_mapping('}') ||
+        corner_quote_mapping('{') || corner_quote_mapping('}') || !is_supported('{') || !is_supported('}'))
         return 1;
     // 直角引号和空心括号是同一个键的另一组字：键都在原表里，原表的字不变。
     const auto *corner = corner_quote_mapping('\'');
