@@ -67,7 +67,7 @@ impl LoadMonitor {
 /// 只把明显超过可用 CPU 容量的情况当作压力；短暂的一次高负载不会改变基础候选
 /// 语义，只会让可选模型暂缓。其他宿主没有统一的无权限系统接口，继续由输入耗时
 /// 自适应降级。
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", all(target_os = "android", not(test))))]
 fn system_pressure_probe() -> bool {
     // Docker、systemd 和 Android 的 cgroup v2 会把当前进程组的 CPU 等待写在
     // `cpu.pressure`；它比宿主机共享的 loadavg 更能反映输入法自己是否被限流。
@@ -100,7 +100,7 @@ fn system_pressure_probe() -> bool {
     load > (cpus * 0.85).max(1.5)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(all(not(test), not(any(target_os = "linux", target_os = "android"))))]
 fn system_pressure_probe() -> bool {
     false
 }
