@@ -1000,12 +1000,12 @@ pub(crate) trait Fetcher {
     fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError>;
 }
 
-struct HttpFetcher {
+pub(crate) struct HttpFetcher {
     client: reqwest::blocking::Client,
 }
 
 impl HttpFetcher {
-    fn new() -> Result<Self, LocalModelError> {
+    pub(crate) fn new() -> Result<Self, LocalModelError> {
         Self::build(true)
     }
 
@@ -2302,7 +2302,6 @@ impl PartialDirectory {
 }
 
 /// `<root>/.partial-<id>`：没下完的文件跨安装保留在这里，供下次续传。不以 `.staging-` 或 `.old-` 开头，所以 [`remove_leftovers`] 不会清掉它；不是真实目录（比如被换成符号链接）时先删掉再建。
-#[cfg(any(not(unix), test))]
 fn partial_directory(root: &Path, id: &str) -> Result<PartialDirectory, LocalModelError> {
     #[cfg(unix)]
     {
@@ -2511,6 +2510,95 @@ fn download_resumable(
         }
         return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
     }
+    Ok(())
+}
+
+/// [`download_partial`] 交出的已校验文件。读完丢掉时删掉 `.partial-<id>` 里的这份文件（目录空了也一并删掉）：字节已经被调用方复制走，留着只占盘。
+pub(crate) struct PartialFile {
+    file: Option<File>,
+    partials: PartialDirectory,
+    name: std::ffi::OsString,
+}
+
+impl Read for PartialFile {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match &mut self.file {
+            Some(file) => file.read(buffer),
+            None => Ok(0),
+        }
+    }
+}
+
+impl Drop for PartialFile {
+    fn drop(&mut self) {
+        // 先关句柄再删：Windows 不允许删除仍打开着的文件。
+        drop(self.file.take());
+        self.partials.remove(&self.name);
+        self.partials.remove_if_empty();
+    }
+}
+
+/// 把一个固定文件（名称、URL、长度、SHA-256 来自调用方已校验的清单）下载进 `<root>/.partial-<id>/`，按 `mirrors` 的顺序换源，已有的部分用 HTTP Range 接着下，规则与 [`install_files`] 逐文件下载相同。成功时交出这份已按长度和摘要校验过的文件，由调用方复制到自己的位置；失败（含取消）时没下完的部分留在原处，下次调用同一个文件时续传。
+///
+/// 给不经过模型目录发布的下载用（词库在线更新），所以不取模型目录锁，调用方自己保证同一个 `<root>/.partial-<id>` 同时只有一个下载。
+pub(crate) fn download_partial(
+    root: &Path,
+    id: &str,
+    file: &crate::resources::Artifact,
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<PartialFile, LocalModelError> {
+    check_install(root, id, mirrors)?;
+    if single_component(&file.name).is_none_or(|single| single != file.name) {
+        return Err(LocalModelError::UnsafeArchive(file.name.clone()));
+    }
+    let partials = partial_directory(root, id)?;
+    let partial = partial_path(partials.path(), file)?;
+    let name = partial
+        .file_name()
+        .ok_or(LocalModelError::InvalidRoot)?
+        .to_owned();
+    if let Err(error) =
+        download_from_sources(fetcher, mirrors, file, &partials, &name, cancel, progress)
+    {
+        partials.remove_if_empty();
+        return Err(error);
+    }
+    let opened = partials.open_read(&name)?;
+    Ok(PartialFile {
+        file: Some(opened),
+        partials,
+        name,
+    })
+}
+
+/// 删掉 `<root>/.partial-<id>/` 里不属于 `keep` 的没下完的文件，目录空了就删掉目录；目录不存在时什么也不做。`keep` 为空时清空整个目录。用来清理清单换了版本之后再也续不上的旧部分。
+pub(crate) fn retain_partials(
+    root: &Path,
+    id: &str,
+    keep: &[crate::resources::Artifact],
+) -> Result<(), LocalModelError> {
+    check_install(root, id, &[])?;
+    let directory = root.join(format!(".partial-{id}"));
+    if fs::symlink_metadata(&directory).is_err() {
+        return Ok(());
+    }
+    let partials = partial_directory(root, id)?;
+    let mut kept = Vec::with_capacity(keep.len());
+    for file in keep {
+        if let Some(name) = partial_path(partials.path(), file)?.file_name() {
+            kept.push(name.to_owned());
+        }
+    }
+    for entry in fs::read_dir(partials.path())? {
+        let name = entry?.file_name();
+        if !kept.contains(&name) {
+            partials.remove(&name);
+        }
+    }
+    partials.remove_if_empty();
     Ok(())
 }
 

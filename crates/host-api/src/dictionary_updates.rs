@@ -47,6 +47,7 @@ pub(crate) fn request(
                 .and_then(|p| p.parent().map(Path::to_path_buf))
             }),
         format: msime_engine::format::FORMAT_VERSION,
+        mirrors: Vec::new(),
     };
     let status = match command {
         "status" => updates::status(&context),
@@ -60,7 +61,8 @@ pub(crate) fn request(
             let tasks = RUNNING.get_or_init(Mutex::default);
             let mut running = tasks.lock().map_err(|_| "dictionary_update_storage")?;
             if running.insert(context.state_root.clone()) {
-                let task = context.clone();
+                let mut task = context.clone();
+                task.mirrors = saved_mirrors(options, Path::new(state));
                 let automatic = command == "automatic";
                 if std::thread::Builder::new()
                     .name("dictionary-update".into())
@@ -83,6 +85,19 @@ pub(crate) fn request(
         _ => return Err("dictionary_update_invalid".into()),
     };
     serde_json::to_value(status).map_err(|_| "dictionary_update_invalid".into())
+}
+
+/// 用户在设置里保存的下载镜像（`voice_input.asr_model_mirror`，资源包下载也用它）。读实时的偏好文件，用户改了镜像不必等宿主重新准备；读不了时退回宿主文档里的偏好副本。空串表示没填。
+fn saved_mirrors(options: &HostOptions, state: &Path) -> Vec<String> {
+    let mirror = msime_client_core::preferences::PreferencesStore::new(state)
+        .load()
+        .map(|snapshot| snapshot.preferences.voice_input.asr_model_mirror)
+        .unwrap_or_else(|_| options.preferences.voice_input.asr_model_mirror.clone());
+    if mirror.is_empty() {
+        Vec::new()
+    } else {
+        vec![mirror]
+    }
 }
 
 /// 保留包内资源作为校验失败和回退的来源。这里不联网，也不改正在使用的工作词库。
@@ -294,6 +309,7 @@ mod tests {
             on_demand: vec![],
             languages: None,
             format: 1,
+            mirrors: Vec::new(),
         };
         updates::rollback(&context).unwrap();
         let reverted = prepare();

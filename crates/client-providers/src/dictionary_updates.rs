@@ -18,6 +18,8 @@ const DOWNLOAD: &str = "https://github.com/metasequoiaime/msime-dictionary/relea
 const MANIFEST: &str = "msime-dictionary-manifest.json";
 const INTERVAL: u64 = 24 * 60 * 60;
 const DOCUMENT_LIMIT: u64 = 2 * 1024 * 1024;
+/// 没下完的词库文件放在 `dictionary-updates/.partial-downloads/`，下次检查用 HTTP Range 接着下。
+const PARTIALS: &str = "downloads";
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
@@ -31,6 +33,9 @@ pub enum UpdateError {
     Integrity,
     #[error("dictionary_update_storage")]
     Storage,
+    /// 下载途中用户关掉了自动更新；不算失败，没下完的部分留给下次续传。
+    #[error("dictionary_update_cancelled")]
+    Cancelled,
 }
 
 impl From<io::Error> for UpdateError {
@@ -48,6 +53,8 @@ pub struct UpdateContext {
     pub on_demand: Vec<String>,
     pub languages: Option<PathBuf>,
     pub format: i32,
+    /// 用户填的下载镜像前缀（偏好 `voice_input.asr_model_mirror`，与资源包下载同一个来源），排在项目 CDN 之前尝试；不合法的前缀跳过。只影响 Release 附件，版本 API 始终直连。
+    pub mirrors: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -475,25 +482,37 @@ fn client() -> Result<reqwest::blocking::Client, UpdateError> {
         .https_only(true)
         .user_agent("msime-dictionary-updater")
         .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(30 * 60))
+        .timeout(Duration::from_secs(60))
         .build()
         .map_err(|_| UpdateError::Network)
 }
 
 trait Transport {
+    /// 版本列表和 manifest 这类小文档：`timeout` 是整次请求（含正文）的总时限。
     fn open(&self, url: &str, timeout: Duration) -> Result<Box<dyn Read>, UpdateError>;
+    /// 词库文件的来源，支持 HTTP Range 续传。不设整次传输的总时限，只限制每次读取的等待：慢而稳定的下载不会被掐断，连接没有数据时一分钟内换下一个源。
+    fn files(&self) -> &dyn Fetcher;
 }
 
-struct Http(reqwest::blocking::Client);
+struct Http {
+    documents: reqwest::blocking::Client,
+    /// 与资源包下载用同一个客户端配置：连接 30 秒、每次读取 60 秒的停滞时限，不限整次传输时长（reqwest 阻塞客户端里按请求设的 `timeout` 会变成整次传输的截止时间，大词库在慢网络上会被它掐断）。
+    files: local_models::HttpFetcher,
+}
+
 impl Transport for Http {
     fn open(&self, url: &str, timeout: Duration) -> Result<Box<dyn Read>, UpdateError> {
-        self.0
+        self.documents
             .get(url)
             .timeout(timeout)
             .send()
             .and_then(|r| r.error_for_status())
             .map(|response| Box::new(response) as Box<dyn Read>)
             .map_err(|_| UpdateError::Network)
+    }
+
+    fn files(&self) -> &dyn Fetcher {
+        &self.files
     }
 }
 
@@ -510,58 +529,92 @@ fn fetch(transport: &dyn Transport, url: &str, limit: u64) -> Result<Vec<u8>, Up
     Ok(bytes)
 }
 
-struct UpdateFetcher<'a> {
+/// manifest 的来源：整次请求 30 秒，不续传。
+struct DocumentFetcher<'a> {
     transport: &'a dyn Transport,
-    timeout: Duration,
 }
 
-impl Fetcher for UpdateFetcher<'_> {
+impl Fetcher for DocumentFetcher<'_> {
     fn fetch<'a>(&'a self, url: &str, _: u64) -> Result<Fetched<'a>, LocalModelError> {
         self.transport
-            .open(url, self.timeout)
+            .open(url, Duration::from_secs(30))
             .map(|reader| Fetched { reader, offset: 0 })
             .map_err(|_| LocalModelError::Network("dictionary update".into()))
     }
 }
 
-/// 复用资源包的逐文件换源与校验；匿名暂存文件随句柄关闭删除，不把大词库放进内存。
-fn download(
+/// `artifact` 依次尝试的镜像前缀：Release 附件先用户镜像、再项目 CDN（[`crate::resource_packs::download_prefixes`]），都失败后用 GitHub 原地址；其他地址不经镜像。CDN 只缓存不可变附件，版本 API 始终直连；选择记录继续保留 GitHub 原地址。
+fn prefixes<'a>(artifact: &Artifact, mirrors: &'a [String]) -> Vec<&'a str> {
+    if !artifact.url.starts_with(DOWNLOAD) {
+        return Vec::new();
+    }
+    let user: Vec<&str> = mirrors
+        .iter()
+        .map(String::as_str)
+        .filter(|mirror| crate::preferences::valid_model_mirror(mirror))
+        .collect();
+    crate::resource_packs::download_prefixes(&user)
+}
+
+fn update_error(error: LocalModelError) -> UpdateError {
+    match error {
+        LocalModelError::Network(_) | LocalModelError::HttpStatus(_) => UpdateError::Network,
+        LocalModelError::Io(_) | LocalModelError::InvalidRoot => UpdateError::Storage,
+        LocalModelError::Cancelled => UpdateError::Cancelled,
+        _ => UpdateError::Integrity,
+    }
+}
+
+/// 下载 manifest：复用资源包的逐文件换源与校验；匿名暂存文件随句柄关闭删除。
+fn download_manifest(
     transport: &dyn Transport,
     artifact: &Artifact,
+    mirrors: &[String],
     state: &Path,
-    progress: &mut dyn FnMut(u64),
 ) -> Result<File, UpdateError> {
     let mut output = tempfile::tempfile_in(root(state))?;
-    // CDN 只缓存不可变附件，版本 API 始终直连；选择记录继续保留 GitHub 原地址。
-    let mirrors = if artifact.url.starts_with(DOWNLOAD) {
-        crate::resource_packs::PROJECT_MIRRORS
-    } else {
-        &[]
-    };
     local_models::download_from_mirrors(
-        &UpdateFetcher {
-            transport,
-            timeout: Duration::from_secs(if artifact.name == MANIFEST {
-                30
-            } else {
-                30 * 60
-            }),
-        },
-        mirrors,
+        &DocumentFetcher { transport },
+        &prefixes(artifact, mirrors),
         &artifact.url,
         artifact.size,
         &artifact.sha256,
         &mut output,
         &AtomicBool::new(false),
-        progress,
+        &mut |_| {},
     )
-    .map_err(|error| match error {
-        LocalModelError::Network(_) | LocalModelError::HttpStatus(_) => UpdateError::Network,
-        LocalModelError::Io(_) => UpdateError::Storage,
-        _ => UpdateError::Integrity,
-    })?;
+    .map_err(update_error)?;
     output.rewind()?;
     Ok(output)
+}
+
+/// 下载一个词库文件：没下完的部分留在 `dictionary-updates/.partial-downloads/`，下次检查用 HTTP Range 接着下，换源规则见 [`prefixes`]。交出的文件已按长度和摘要校验，读完丢掉时删除。
+fn download_file(
+    transport: &dyn Transport,
+    artifact: &Artifact,
+    mirrors: &[String],
+    state: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<local_models::PartialFile, UpdateError> {
+    local_models::download_partial(
+        &root(state),
+        PARTIALS,
+        artifact,
+        &prefixes(artifact, mirrors),
+        transport.files(),
+        cancel,
+        progress,
+    )
+    .map_err(update_error)
+}
+
+/// 本次检查开始时自动更新是开着的、之后被关掉：视为用户要求停下。开始时就关着的手动检查不受开关影响。
+fn switched_off(folder: &Path, enabled_at_start: bool) -> bool {
+    enabled_at_start
+        && !read::<Config>(&folder.join("config.json"))
+            .unwrap_or_default()
+            .enabled
 }
 
 #[derive(Deserialize)]
@@ -659,62 +712,95 @@ fn plan(
     Ok(selection)
 }
 
+/// 安装 `set` 这一代。`status.downloaded_bytes` 按完成的字节累加：下载的按收到的字节，从本机复用的整份计入，结束时正好加上 `set` 的总长度，所以成功时进度停在总量上。下载途中开关被关掉（[`switched_off`]）时停下并报 [`UpdateError::Cancelled`]。
 fn install(
     context: &UpdateContext,
     set: &ResourceSet,
     transport: &dyn Transport,
     status: &mut UpdateStatus,
+    enabled_at_start: bool,
 ) -> Result<(), UpdateError> {
-    store(&context.state_root)
-        .install(set, |file| {
-            // 复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。发布包不带的日文词典和五笔码表在已装的资源包里，新版本没改这份文件时从那里取，不重新下载（五笔码表近百 MB）。
-            let active = selected(&context.state_root, &context.baseline);
-            let candidates = [
-                Some(context.resources.join(&file.name)),
-                context.languages.as_ref().map(|p| p.join(&file.name)),
-                active
-                    .and_then(|s| directory(&context.state_root, &s.desktop).ok())
-                    .map(|p| p.join(&file.name)),
-                on_demand_pack(&file.name).and_then(|pack| {
-                    crate::resource_packs::installed_file(&context.state_root, pack, &file.name)
-                }),
-            ];
-            for path in candidates.into_iter().flatten() {
-                if msime_path_trust::reject_symlinked_components(&path).is_err() {
+    let folder = root(&context.state_root);
+    let start = status.downloaded_bytes;
+    let cancel = AtomicBool::new(false);
+    // ResourceStore 把取字节的错误一律折成 I/O 错误；这里记下原因，好让网络失败和取消照实报告。
+    let mut failure = None;
+    let installed = store(&context.state_root).install(set, |file| {
+        // 复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。发布包不带的日文词典和五笔码表在已装的资源包里，新版本没改这份文件时从那里取，不重新下载（五笔码表近百 MB）。
+        let active = selected(&context.state_root, &context.baseline);
+        let candidates = [
+            Some(context.resources.join(&file.name)),
+            context.languages.as_ref().map(|p| p.join(&file.name)),
+            active
+                .and_then(|s| directory(&context.state_root, &s.desktop).ok())
+                .map(|p| p.join(&file.name)),
+            on_demand_pack(&file.name).and_then(|pack| {
+                crate::resource_packs::installed_file(&context.state_root, pack, &file.name)
+            }),
+        ];
+        for path in candidates.into_iter().flatten() {
+            if msime_path_trust::reject_symlinked_components(&path).is_err() {
+                continue;
+            }
+            if let Ok(mut source) = File::open(&path) {
+                if source.metadata()?.len() != file.size {
                     continue;
                 }
-                if let Ok(mut source) = File::open(&path) {
-                    if source.metadata()?.len() != file.size {
-                        continue;
+                let mut digest = Sha256::new();
+                let mut buffer = [0u8; 64 * 1024];
+                loop {
+                    let count = source.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
                     }
-                    let mut digest = Sha256::new();
-                    let mut buffer = [0u8; 64 * 1024];
-                    loop {
-                        let count = source.read(&mut buffer)?;
-                        if count == 0 {
-                            break;
-                        }
-                        digest.update(&buffer[..count]);
-                    }
-                    if hex::encode(digest.finalize()) == file.sha256 {
-                        return Ok(Box::new(File::open(path)?) as Box<dyn Read>);
-                    }
+                    digest.update(&buffer[..count]);
+                }
+                if hex::encode(digest.finalize()) == file.sha256 {
+                    status.downloaded_bytes += file.size;
+                    let _ = write(&folder.join("status.json"), status);
+                    return Ok(Box::new(File::open(path)?) as Box<dyn Read>);
                 }
             }
-            let offset = status.downloaded_bytes;
-            let mut reported = offset;
-            let source = download(transport, file, &context.state_root, &mut |count| {
+        }
+        if switched_off(&folder, enabled_at_start) {
+            failure = Some(UpdateError::Cancelled);
+            return Err(io::Error::other(UpdateError::Cancelled));
+        }
+        let offset = status.downloaded_bytes;
+        let mut reported = offset;
+        let downloaded = download_file(
+            transport,
+            file,
+            &context.mirrors,
+            &context.state_root,
+            &cancel,
+            &mut |count| {
                 status.downloaded_bytes = offset + count.min(file.size);
                 if status.downloaded_bytes.abs_diff(reported) >= 1024 * 1024 || count == file.size {
                     reported = status.downloaded_bytes;
-                    let _ = write(&root(&context.state_root).join("status.json"), status);
+                    let _ = write(&folder.join("status.json"), status);
+                    if switched_off(&folder, enabled_at_start) {
+                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
-            })
-            .map_err(io::Error::other)?;
-            Ok(Box::new(source) as Box<dyn Read>)
-        })
-        .map_err(|_| UpdateError::Integrity)?;
-    Ok(())
+            },
+        );
+        match downloaded {
+            Ok(source) => Ok(Box::new(source) as Box<dyn Read>),
+            Err(error) => {
+                let reported = io::Error::other(error.to_string());
+                failure = Some(error);
+                Err(reported)
+            }
+        }
+    });
+    match installed {
+        Ok(_) => {
+            status.downloaded_bytes = start + set.artifacts.iter().map(|a| a.size).sum::<u64>();
+            Ok(())
+        }
+        Err(_) => Err(failure.unwrap_or(UpdateError::Integrity)),
+    }
 }
 
 fn now() -> u64 {
@@ -724,9 +810,16 @@ fn now() -> u64 {
         .as_secs()
 }
 
-/// 在后台线程执行。跨进程取锁，自动检查每天至多一次；手动检查不受节流与开关影响。
+/// 在后台线程执行。跨进程取锁，自动检查每天至多一次；手动检查不受节流影响。开关关着时发起的手动检查不受开关影响；开始时开着、下载途中被关掉的检查（自动或手动）停下不发布，已收到的字节留给下次续传。
 pub fn check(context: &UpdateContext, automatic: bool) -> Result<UpdateStatus, UpdateError> {
-    check_with(context, automatic, &Http(client()?))
+    check_with(
+        context,
+        automatic,
+        &Http {
+            documents: client()?,
+            files: local_models::HttpFetcher::new().map_err(|_| UpdateError::Network)?,
+        },
+    )
 }
 
 fn check_with(
@@ -747,6 +840,7 @@ fn check_with(
     if automatic && !automatic_check_due(&status, checked_at) {
         return Ok(status);
     }
+    let enabled_at_start = status.enabled;
     status.phase = "checking".into();
     status.checked_at = checked_at;
     status.error = None;
@@ -771,9 +865,14 @@ fn check_with(
                 return Err(UpdateError::Invalid);
             }
             let mut manifest = Vec::new();
-            download(transport, &descriptor, &context.state_root, &mut |_| {})?
-                .take(DOCUMENT_LIMIT + 1)
-                .read_to_end(&mut manifest)?;
+            download_manifest(
+                transport,
+                &descriptor,
+                &context.mirrors,
+                &context.state_root,
+            )?
+            .take(DOCUMENT_LIMIT + 1)
+            .read_to_end(&mut manifest)?;
             match plan(context, release, &manifest) {
                 Err(UpdateError::Incompatible) => incompatible = true,
                 Err(error) => return Err(error),
@@ -800,29 +899,35 @@ fn check_with(
                 return Err(UpdateError::Incompatible);
             }
             status.phase = "current".into();
+            // 已是最新：以前没下完的部分再也用不上。
+            let _ = local_models::retain_partials(&folder, PARTIALS, &[]);
             return Ok(());
         };
-        status.phase = "downloading".into();
-        status.total_bytes = selection
+        let artifacts: Vec<Artifact> = selection
             .desktop
             .artifacts
             .iter()
             .chain(selection.languages.iter().flat_map(|s| &s.artifacts))
-            .map(|a| a.size)
-            .sum();
+            .cloned()
+            .collect();
+        // 只留这次要下载的文件没下完的部分，旧版本留下的续不上，删掉免得占盘。
+        local_models::retain_partials(&folder, PARTIALS, &artifacts).map_err(update_error)?;
+        status.phase = "downloading".into();
+        status.total_bytes = artifacts.iter().map(|a| a.size).sum();
         write(&folder.join("status.json"), &status)?;
-        install(context, &selection.desktop, transport, &mut status)?;
+        install(
+            context,
+            &selection.desktop,
+            transport,
+            &mut status,
+            enabled_at_start,
+        )?;
         if let Some(languages) = &selection.languages {
-            install(context, languages, transport, &mut status)?;
+            install(context, languages, transport, &mut status, enabled_at_start)?;
         }
         // 下载期间关闭开关时不发布，既有代次保持可用。
-        if automatic
-            && !read::<Config>(&folder.join("config.json"))
-                .unwrap_or_default()
-                .enabled
-        {
-            status.phase = "cancelled".into();
-            return Ok(());
+        if switched_off(&folder, enabled_at_start) {
+            return Err(UpdateError::Cancelled);
         }
         // 保留每个资源代次的清单，长寿命旧会话做快照时仍能按自己的资源验证。
         let generation = selection
@@ -844,8 +949,17 @@ fn check_with(
             },
         )?;
         status.phase = "ready".into();
+        let _ = local_models::retain_partials(&folder, PARTIALS, &[]);
         Ok(())
     })();
+    let result = match result {
+        // 用户关掉开关停下的不算失败，界面不报错；没下完的部分留给下次续传。
+        Err(UpdateError::Cancelled) => {
+            status.phase = "cancelled".into();
+            Ok(())
+        }
+        other => other,
+    };
     if let Err(error) = &result {
         status.phase = "failed".into();
         status.error = Some(error.to_string());

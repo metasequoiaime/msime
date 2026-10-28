@@ -7,6 +7,12 @@ struct Fixture {
     context: UpdateContext,
     files: RefCell<BTreeMap<String, Vec<u8>>>,
     requests: RefCell<Vec<String>>,
+    /// 词库文件请求的地址和续传起点。
+    ranges: RefCell<Vec<(String, u64)>>,
+    /// 这些地址只送出前若干字节，之后读取报超时，模拟连接停滞后被每次读取的时限掐断。
+    stalls: RefCell<BTreeMap<String, usize>>,
+    /// 读这个地址的正文时先关掉自动更新，模拟用户在下载途中关开关。
+    switch_off_on: RefCell<Option<String>>,
 }
 
 impl Transport for Fixture {
@@ -18,6 +24,54 @@ impl Transport for Fixture {
             .cloned()
             .map(|bytes| Box::new(io::Cursor::new(bytes)) as Box<dyn Read>)
             .ok_or(UpdateError::Network)
+    }
+
+    fn files(&self) -> &dyn Fetcher {
+        self
+    }
+}
+
+impl Fetcher for Fixture {
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
+        self.requests.borrow_mut().push(url.to_owned());
+        self.ranges.borrow_mut().push((url.to_owned(), offset));
+        let bytes = self
+            .files
+            .borrow()
+            .get(url)
+            .cloned()
+            .ok_or_else(|| LocalModelError::Network("fixture".into()))?;
+        // 和真实服务器一样支持 Range：起点超出长度时整份返回。
+        let start = if offset as usize <= bytes.len() {
+            offset
+        } else {
+            0
+        };
+        let mut body = bytes[start as usize..].to_vec();
+        let stalled = self.stalls.borrow().get(url).copied();
+        if let Some(limit) = stalled {
+            body.truncate(limit.saturating_sub(start as usize));
+        }
+        if self.switch_off_on.borrow().as_deref() == Some(url) {
+            configure(&self.context, false).unwrap();
+        }
+        Ok(Fetched {
+            reader: Box::new(io::Cursor::new(body).chain(Stall(stalled.is_some()))),
+            offset: start,
+        })
+    }
+}
+
+/// 读完前面的字节后报超时，像 reqwest 阻塞客户端在连接没有数据时那样。
+struct Stall(bool);
+
+impl Read for Stall {
+    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+        if self.0 {
+            Err(io::Error::new(io::ErrorKind::TimedOut, "stalled"))
+        } else {
+            Ok(0)
+        }
     }
 }
 
@@ -44,12 +98,16 @@ impl Fixture {
             on_demand: Vec::new(),
             languages: None,
             format: 1,
+            mirrors: Vec::new(),
         };
         Self {
             _directory: directory,
             context,
             files: RefCell::default(),
             requests: RefCell::default(),
+            ranges: RefCell::default(),
+            stalls: RefCell::default(),
+            switch_off_on: RefCell::default(),
         }
     }
 
@@ -82,6 +140,10 @@ impl Fixture {
     }
 
     fn mirror_assets(&self) {
+        self.mirror_assets_at(crate::resource_packs::PROJECT_MIRRORS);
+    }
+
+    fn mirror_assets_at(&self, prefixes: &[&str]) {
         let originals: Vec<_> = self
             .files
             .borrow()
@@ -90,12 +152,16 @@ impl Fixture {
             .map(|(url, bytes)| (url.clone(), bytes.clone()))
             .collect();
         for (url, bytes) in originals {
-            for prefix in crate::resource_packs::PROJECT_MIRRORS {
+            for prefix in prefixes {
                 self.files
                     .borrow_mut()
                     .insert(format!("{prefix}{url}"), bytes.clone());
             }
         }
+    }
+
+    fn partials(&self) -> PathBuf {
+        root(&self.context.state_root).join(format!(".partial-{PARTIALS}"))
     }
 }
 
@@ -223,6 +289,17 @@ impl Transport for RecordedHttp {
         self.requests.borrow_mut().push(url.to_owned());
         self.http.open(url, timeout)
     }
+
+    fn files(&self) -> &dyn Fetcher {
+        self
+    }
+}
+
+impl Fetcher for RecordedHttp {
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
+        self.requests.borrow_mut().push(url.to_owned());
+        self.http.files.fetch(url, offset)
+    }
 }
 
 #[test]
@@ -233,7 +310,10 @@ fn live_project_cdn_delivers_verified_dictionary_update() {
     fixture.context.baseline.artifacts[0].name = "msime-others.db".into();
     fixture.context.baseline.artifacts[0].url = format!("{DOWNLOAD}dict-v2.0.9/msime-others.db");
     let transport = RecordedHttp {
-        http: Http(client().unwrap()),
+        http: Http {
+            documents: client().unwrap(),
+            files: local_models::HttpFetcher::new().unwrap(),
+        },
         requests: RefCell::default(),
     };
     let result = check_with(&fixture.context, false, &transport).unwrap();
@@ -717,4 +797,150 @@ fn generation_copy_finds_matching_bytes_in_any_downloaded_generation() {
         .unwrap(),
         None
     );
+}
+
+#[test]
+fn saved_user_mirror_is_tried_before_the_project_cdn_and_invalid_ones_are_skipped() {
+    let mut fixture = Fixture::new();
+    let mirror = "https://mirror.example.test/";
+    fixture.context.mirrors = vec!["http://plain.example.test/".into(), mirror.into()];
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    fixture.mirror_assets_at(&[mirror]);
+    fixture.mirror_assets();
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    assert_eq!(
+        &*fixture.requests.borrow(),
+        &[
+            API.to_owned(),
+            format!("{mirror}{DOWNLOAD}dict-v2.0.10/{MANIFEST}"),
+            format!("{mirror}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db"),
+        ]
+    );
+    // 用户镜像不可用时照常落到项目 CDN。
+    let fixture = {
+        let mut fixture = Fixture::new();
+        fixture.context.mirrors = vec![mirror.into()];
+        fixture
+    };
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    fixture.mirror_assets();
+    assert_eq!(
+        check_with(&fixture.context, false, &fixture).unwrap().phase,
+        "ready"
+    );
+    let cdn = crate::resource_packs::PROJECT_MIRRORS[0];
+    assert_eq!(
+        &fixture.requests.borrow()[3..],
+        &[
+            format!("{mirror}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db"),
+            format!("{cdn}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db"),
+        ]
+    );
+}
+
+#[test]
+fn a_stalled_source_falls_back_and_the_next_one_resumes_from_the_received_bytes() {
+    let fixture = Fixture::new();
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    fixture.mirror_assets();
+    let cdn = format!(
+        "{}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db",
+        crate::resource_packs::PROJECT_MIRRORS[0]
+    );
+    let origin = format!("{DOWNLOAD}dict-v2.0.10/msime-pinyin.db");
+    fixture.stalls.borrow_mut().insert(cdn.clone(), 7);
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    assert_eq!(result.downloaded_bytes, result.total_bytes);
+    assert_eq!(
+        &*fixture.ranges.borrow(),
+        &[(cdn, 0), (origin, 7)],
+        "CDN 停滞后换到原地址，从已收到的 7 字节接着下"
+    );
+    assert!(!fixture.partials().exists(), "装好后不留没下完的部分");
+}
+
+#[test]
+fn an_interrupted_download_resumes_on_the_next_check_and_stale_parts_are_dropped() {
+    let fixture = Fixture::new();
+    let data = b"updated synthetic dictionary";
+    fixture.release("dict-v2.0.10", data, 1);
+    let origin = format!("{DOWNLOAD}dict-v2.0.10/msime-pinyin.db");
+    fixture.stalls.borrow_mut().insert(origin.clone(), 10);
+    assert!(matches!(
+        check_with(&fixture.context, false, &fixture),
+        Err(UpdateError::Network)
+    ));
+    let failed = status(&fixture.context);
+    assert_eq!(failed.phase, "failed");
+    assert_eq!(failed.error.as_deref(), Some("dictionary_update_network"));
+    assert_eq!(failed.downloaded_bytes, 10);
+    let partial = fixture.partials().join(format!(
+        "{}-msime-pinyin.db",
+        hex::encode(Sha256::digest(data))
+    ));
+    assert_eq!(std::fs::read(&partial).unwrap(), &data[..10]);
+
+    fixture.stalls.borrow_mut().clear();
+    fixture.ranges.borrow_mut().clear();
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    assert!(fixture.ranges.borrow().contains(&(origin.clone(), 10)));
+    assert!(!fixture.partials().exists());
+
+    // 新版本发布后，旧版本没下完的部分续不上，开始下载新版本前删掉。
+    fixture.release("dict-v2.0.11", b"second synthetic dictionary", 1);
+    let next = format!("{DOWNLOAD}dict-v2.0.11/msime-pinyin.db");
+    fixture.stalls.borrow_mut().insert(next, 4);
+    std::fs::create_dir_all(fixture.partials()).unwrap();
+    std::fs::write(&partial, &data[..10]).unwrap();
+    assert!(check_with(&fixture.context, false, &fixture).is_err());
+    assert!(!partial.exists());
+    assert_eq!(std::fs::read_dir(fixture.partials()).unwrap().count(), 1);
+}
+
+#[test]
+fn reused_local_files_count_towards_progress() {
+    let fixture = Fixture::new();
+    // 新版本的词库与随包的字节相同：从本机复用，不下载。
+    fixture.release("dict-v2.0.10", b"original synthetic dictionary", 1);
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    assert!(result.total_bytes > 0);
+    assert_eq!(result.downloaded_bytes, result.total_bytes);
+    assert!(!fixture
+        .requests
+        .borrow()
+        .iter()
+        .any(|url| url.ends_with("msime-pinyin.db")));
+}
+
+#[test]
+fn switching_automatic_updates_off_stops_the_download_and_keeps_the_received_bytes() {
+    let fixture = Fixture::new();
+    configure(&fixture.context, true).unwrap();
+    let data = b"updated synthetic dictionary";
+    fixture.release("dict-v2.0.10", data, 1);
+    let origin = format!("{DOWNLOAD}dict-v2.0.10/msime-pinyin.db");
+    *fixture.switch_off_on.borrow_mut() = Some(origin.clone());
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "cancelled");
+    assert_eq!(result.error, None);
+    assert!(!result.enabled);
+    assert!(selected(&fixture.context.state_root, &fixture.context.baseline).is_none());
+    let partial = fixture.partials().join(format!(
+        "{}-msime-pinyin.db",
+        hex::encode(Sha256::digest(data))
+    ));
+    assert_eq!(std::fs::read(&partial).unwrap(), data);
+
+    // 开关关着时手动检查不受开关影响，已收到的字节不再下载。
+    *fixture.switch_off_on.borrow_mut() = None;
+    fixture.ranges.borrow_mut().clear();
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    assert_eq!(result.version, "dict-v2.0.10");
+    assert!(fixture.ranges.borrow().is_empty());
+    assert!(!fixture.partials().exists());
 }
