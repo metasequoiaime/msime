@@ -6,7 +6,7 @@ import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
-import { CrashReport, TelemetryPolicy } from './TelemetryPolicy';
+import { CrashReport, ReportingConsent, TelemetryPolicy } from './TelemetryPolicy';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 
 /**
@@ -21,7 +21,6 @@ import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 
 const PLATFORM: string = 'harmony';
 const WATCHER_NAME: string = 'msime_crash_reports';
-const CRASH_DIRECTORY: string = 'telemetry-crashes';
 const CONSENT_FILE: string = 'harmony-reporting-consent.json';
 /** The keyboard's process id, remembered so the next start can tell its crash from the settings application's. */
 const KEYBOARD_PROCESS_FILE: string = 'harmony-keyboard-process.json';
@@ -44,6 +43,8 @@ interface TelemetryRequest {
 
 interface DirectoryRequest {
   directory: string;
+  preferences_directory?: string;
+  session?: string;
 }
 
 interface CrashRecordRequest {
@@ -62,6 +63,7 @@ interface CrashRecordRequest {
 
 interface BeginValue {
   enabled?: boolean;
+  session_id?: string;
 }
 
 interface BeginReply {
@@ -80,11 +82,6 @@ interface RememberedProcess {
   pid: number;
 }
 
-interface ReportingConsent {
-  epoch: string;
-  since: number;
-}
-
 function version(): string {
   try {
     return bundleManager.getBundleInfoForSelfSync(
@@ -99,6 +96,7 @@ export class HarmonyTelemetry {
   private static directory: string = '';
   private static preferences: string = '';
   private static began: boolean = false;
+  private static session: string = '';
   private static enabled: boolean = false;
   private static previousKeyboardPid: number | null = null;
   private static beginTimer: number = -1;
@@ -143,6 +141,7 @@ export class HarmonyTelemetry {
     HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
     HarmonyTelemetry.preferences = stateDirectory;
     HarmonyTelemetry.began = false;
+    HarmonyTelemetry.session = '';
     HarmonyTelemetry.enabled = false;
     HarmonyTelemetry.previousKeyboardPid = HarmonyTelemetry.readRememberedPid();
     // 独立准备只读取同意，不覆盖上一轮键盘会话；系统回调可以随时按 pid 认领。
@@ -168,7 +167,7 @@ export class HarmonyTelemetry {
     HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
   }
 
-  /** The keyboard extension is being destroyed normally: its session ended without a crash. */
+  /** 键盘扩展正常销毁时，只结束本进程实际开始的会话。 */
   static keyboardStopped(): void {
     HarmonyTelemetry.startGeneration++;
     if (HarmonyTelemetry.beginTimer !== -1) {
@@ -183,21 +182,35 @@ export class HarmonyTelemetry {
       }
       HarmonyTelemetry.watcher = undefined;
     }
-    // Only a session this process began is this process's to end: ending before it began would close the crashed previous session as a normal one.
+    // 尚未开始会话时不能结束上一进程留下的故障会话。
     if (!HarmonyTelemetry.began) {
       return;
     }
     HarmonyTelemetry.began = false;
-    const request: DirectoryRequest = { directory: HarmonyTelemetry.directory };
+    const request: DirectoryRequest = { directory: HarmonyTelemetry.directory, session: HarmonyTelemetry.session };
+    HarmonyTelemetry.session = '';
     HarmonyTelemetry.logRefusal('end', client.telemetryEnd(JSON.stringify(request)));
   }
 
-  /** The user just turned usage reporting off in settings: nothing queued is sent, now or later. */
+  /** 保存后的通知只触发权威偏好重读；迟到的关闭不能清理重新开启后的队列。 */
   static reportingTurnedOff(stateDirectory: string): void {
-    HarmonyTelemetry.enabled = false;
     HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
+    HarmonyTelemetry.preferences = stateDirectory;
     HarmonyTelemetry.refreshDiagnosticConsent();
-    const request: DirectoryRequest = { directory: HarmonyTelemetry.directoryFor(stateDirectory) };
+    const request: DirectoryRequest = {
+      directory: HarmonyTelemetry.directory,
+      preferences_directory: stateDirectory,
+    };
+    HarmonyTelemetry.logRefusal('clear', client.telemetryClear(JSON.stringify(request)));
+  }
+
+  /** 隐私政策撤回独立于使用统计开关；迟到的通知仍核对当前政策。 */
+  static privacyChanged(stateDirectory: string): void {
+    if (HarmonyPrivacyConsent.networkAllowed()) return;
+    HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
+    HarmonyTelemetry.preferences = stateDirectory;
+    HarmonyTelemetry.enabled = false;
+    const request: DirectoryRequest = { directory: HarmonyTelemetry.directory };
     HarmonyTelemetry.logRefusal('clear', client.telemetryClear(JSON.stringify(request)));
   }
 
@@ -209,19 +222,15 @@ export class HarmonyTelemetry {
       preferences_directory: stateDirectory,
     };
     const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(stateDirectory);
-    if (consent !== null) request.consent_epoch = consent.epoch;
+    // 始终给代次；读失败或关闭时空身份被共享层拒绝，不能回退到旧布尔授权协议。
+    request.consent_epoch = consent === null ? '' : consent.epoch;
     return request;
   }
 
   /** Rust 偏好是唯一授权来源；本地摘要文件只镜像它，不能自行生成 UUID。 */
   private static sharedConsent(stateDirectory: string): ReportingConsent | null {
     try {
-      const reply: BeginReply & { value?: BeginValue & { epoch?: string; since_unix_ms?: number } } =
-        JSON.parse(client.telemetryConsent(JSON.stringify({ directory: stateDirectory }))) as BeginReply & { value?: BeginValue & { epoch?: string; since_unix_ms?: number } };
-      const value = reply.value;
-      if (reply.ok !== true || value?.enabled !== true || typeof value.epoch !== 'string'
-        || !Number.isSafeInteger(value.since_unix_ms) || value.since_unix_ms <= 0) return null;
-      return { epoch: value.epoch, since: value.since_unix_ms };
+      return TelemetryPolicy.sharedConsentReply(client.telemetryConsent(JSON.stringify({ directory: stateDirectory })));
     } catch { return null; }
   }
 
@@ -239,11 +248,11 @@ export class HarmonyTelemetry {
       KeyboardLog.error(`telemetry: begin refused: ${parsed.error ?? 'unknown'}`);
       return;
     }
-    HarmonyTelemetry.began = true;
     HarmonyTelemetry.enabled = parsed.value?.enabled === true;
-    if (!HarmonyTelemetry.enabled) {
-      return;
-    }
+    const session: string | undefined = parsed.value?.session_id;
+    if (!HarmonyTelemetry.enabled || typeof session !== 'string' || session.length === 0) return;
+    HarmonyTelemetry.session = session;
+    HarmonyTelemetry.began = true;
     HarmonyTelemetry.rememberPid();
     HarmonyTelemetry.send(request);
   }
@@ -319,18 +328,22 @@ export class HarmonyTelemetry {
     if (reply !== null) {
       HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
     }
-    // 共享层拒绝时不能用本地文件回退绕过授权或代次；系统会在下一次有效诊断中再次交付。
+    // 共享层拒绝时不能用本地文件回退绕过授权或代次；不承诺系统一定再次交付。
   }
 
   private static refreshDiagnosticConsent(): void {
     if (!HarmonyTelemetry.prepareTelemetryDirectory()) return;
     const path: string = `${HarmonyTelemetry.directory}/${CONSENT_FILE}`;
     try {
-      if (!HarmonyTelemetry.enabled) {
-        if (fs.accessSync(path)) fs.unlinkSync(path);
+      const reply: string = client.telemetryConsent(JSON.stringify({ directory: HarmonyTelemetry.preferences }));
+      const consent: ReportingConsent | null = TelemetryPolicy.sharedConsentReply(reply);
+      if (consent === null) {
+        if (TelemetryPolicy.sharedConsentDisabled(reply)) {
+          HarmonyTelemetry.enabled = false;
+          if (fs.accessSync(path)) fs.unlinkSync(path);
+        }
+        return;
       } else {
-        const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
-        if (consent === null) return;
         const current = HarmonyTelemetry.readConsent();
         if (current === null || current.epoch !== consent.epoch || current.since !== consent.since)
           HarmonyTelemetry.atomicWrite(path, JSON.stringify(consent), true);
@@ -353,44 +366,15 @@ export class HarmonyTelemetry {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      const parsed: Object = JSON.parse(util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count))) as Object;
-      if (parsed === null || typeof parsed !== 'object') return null;
-      const value = parsed as Record<string, Object>;
-      const since: number | null = TelemetryPolicy.consentSince(JSON.stringify({ since: value.since }));
-      return typeof value.epoch === 'string' && since !== null
+      const text: string = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
+      const value: ReportingConsent = JSON.parse(text) as ReportingConsent;
+      const since: number | null = TelemetryPolicy.consentSince(text);
+      return value !== null && typeof value.epoch === 'string' && since !== null
         ? { epoch: value.epoch, since: since } : null;
     } catch {
       return null;
     } finally {
       if (handle !== null) NativeCleanup.close(handle);
-    }
-  }
-
-  private static writeStandalone(report: CrashReport): void {
-    const directory: string = `${HarmonyTelemetry.directory}/${CRASH_DIRECTORY}`;
-    const path: string = `${directory}/${TelemetryPolicy.standaloneRecordName(report)}`;
-    try {
-      if (!HarmonyTelemetry.prepareTelemetryDirectory()) {
-        return;
-      }
-      if (fs.accessSync(directory)) {
-        const directoryStat: fs.Stat = fs.lstatSync(directory);
-        if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
-          return;
-        }
-      } else {
-        fs.mkdirSync(directory, true);
-        const directoryStat: fs.Stat = fs.lstatSync(directory);
-        if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
-          return;
-        }
-      }
-      if (fs.accessSync(path)) {
-        return;
-      }
-      HarmonyTelemetry.atomicWrite(path, TelemetryPolicy.recordText(report), false);
-    } catch (error) {
-      KeyboardLog.error(`telemetry: crash record not written: ${describeError(error)}`);
     }
   }
 

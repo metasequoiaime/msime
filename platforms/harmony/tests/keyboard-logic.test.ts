@@ -17385,6 +17385,28 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
   );
 });
 
+group("鸿蒙共享授权响应不能由错误或布尔缓存绕过", () => {
+  const epoch = "12345678-1234-4234-8234-123456789abc";
+  const response = (enabled: unknown, identity: unknown = epoch, since: unknown = 1000): string =>
+    JSON.stringify({ ok: true, value: { enabled, epoch: identity, since_unix_ms: since } });
+  const current = TelemetryPolicy.sharedConsentReply(response(true));
+  check(current?.epoch === epoch && current.since === 1000, "共享 UUID 与起点原样保留");
+  for (const invalid of [
+    response(false),
+    response("true"),
+    response(true, "1-1-1-1-1"),
+    response(true, "00000000-0000-0000-0000-000000000000"),
+    response(true, epoch, "1000"),
+    response(true, epoch, 0),
+    response(true, epoch, 1.5),
+    "{}",
+    "invalid",
+    JSON.stringify({ ok: false, value: { enabled: true, epoch, since_unix_ms: 1000 } }),
+  ]) {
+    check(TelemetryPolicy.sharedConsentReply(invalid) === null, "错误授权响应保持拒绝");
+  }
+});
+
 group("鸿蒙系统诊断必须处于持续同意的时间范围内", () => {
   const report: CrashReport = { pid: 42, time: 2000, message: "SIGABRT", stack: "" };
   check(TelemetryPolicy.diagnosticAllowed(report, 1000, 3000), "同意后发生的诊断允许补报");
