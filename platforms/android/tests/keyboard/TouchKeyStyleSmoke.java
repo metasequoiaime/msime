@@ -95,6 +95,30 @@ public final class TouchKeyStyleSmoke {
         for (int layout : new int[] {KeyboardLayout.HANDWRITING_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
                 KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT})
             check(styles.forLayout(layout, -1, false) == TouchKeyStyle.Row.STANDARD, "no styles on layout " + layout);
+        toolbarRow();
+    }
+
+    /** 长空格样式留着的工具栏行只看用户的 26 键样式和这块键盘的中文键面，不带中/英参数：同一块键盘切到英文时宿主传的仍是中文键面，结果不变，键盘高度不跳。 */
+    private static void toolbarRow() {
+        int standard = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
+        TouchKeyStyle.Styles longSpace = new TouchKeyStyle.Styles(TouchKeyStyle.Row.LONG_SPACE, TouchKeyStyle.Row.LONG_SPACE,
+            TouchKeyStyle.Row.STANDARD);
+        for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN, InputSchemeTraits.WUBI,
+                InputSchemeTraits.CANTONESE, -1})
+            check(longSpace.keepsToolbarRow(standard, scheme), "a Chinese 26 key keyboard keeps the toolbar row " + scheme);
+        // 英文 26 键自己画标准底行，但同一块键盘的工具栏行不随中/英出没。
+        check(longSpace.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.STANDARD
+            && longSpace.keepsToolbarRow(standard, InputSchemeTraits.QUANPIN), "English on the same keyboard keeps the row");
+        for (int scheme : new int[] {InputSchemeTraits.JAPANESE, InputSchemeTraits.VIETNAMESE, InputSchemeTraits.TIBETAN})
+            check(!longSpace.keepsToolbarRow(standard, scheme), "other languages draw no long space and keep no row " + scheme);
+        check(!longSpace.keepsToolbarRow(KeyboardLayout.KOREAN_LAYOUT, InputSchemeTraits.KOREAN), "Korean keeps no row");
+        // 14/18 键的长空格不挪 符，它们和它们的英文 26 键都不留这一行。
+        for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.EIGHTEEN_KEY_LAYOUT,
+                KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT})
+            check(!longSpace.keepsToolbarRow(layout, InputSchemeTraits.QUANPIN), "no row on layout " + layout);
+        for (TouchKeyStyle.Row other : List.of(TouchKeyStyle.Row.STANDARD, TouchKeyStyle.Row.COMMA_PERIOD, TouchKeyStyle.Row.EMOJI))
+            check(!new TouchKeyStyle.Styles(other, TouchKeyStyle.Row.LONG_SPACE, TouchKeyStyle.Row.STANDARD)
+                .keepsToolbarRow(standard, InputSchemeTraits.QUANPIN), "only long_space keeps the row, not " + other);
     }
 
     private static void twentySixKeyRows() {
@@ -305,6 +329,30 @@ public final class TouchKeyStyleSmoke {
         for (String digit : KeyboardLayout.NUMBER_ROW)
             check(KeyPressIds.forCharacter(digit.charAt(0)).equals("Digit" + digit) && KeyPressIds.isKnown("Digit" + digit),
                 "number row keys count as Digit" + digit);
+        // 密码框和终端的自动数字行保持原来的范围（26 键一族与韩文），14/18 键只有用户打开共享偏好时才画。
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
+            check(KeyboardLayout.drawsNumberRow(false, true, KeyboardLayout.Layer.LETTERS, layout, portrait),
+                "automatic number row on " + layout);
+            check(KeyboardLayout.drawsSymbolExtraRow(false, true, KeyboardLayout.Layer.SYMBOLS, layout, portrait),
+                "automatic number row keeps the symbol layer height on " + layout);
+            check(!KeyboardLayout.drawsNumberRow(false, true, KeyboardLayout.Layer.LETTERS, layout,
+                KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP - 1), "automatic number row obeys the height gate on " + layout);
+        }
+        for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.EIGHTEEN_KEY_LAYOUT}) {
+            check(!KeyboardLayout.drawsNumberRow(false, true, KeyboardLayout.Layer.LETTERS, layout, portrait),
+                "no automatic number row on " + layout);
+            check(!KeyboardLayout.drawsSymbolExtraRow(false, true, KeyboardLayout.Layer.SYMBOLS, layout, portrait),
+                "no automatic symbol extra row on " + layout);
+            check(KeyboardLayout.drawsNumberRow(true, false, KeyboardLayout.Layer.LETTERS, layout, portrait)
+                && KeyboardLayout.drawsNumberRow(true, true, KeyboardLayout.Layer.LETTERS, layout, portrait),
+                "the preference draws the number row on " + layout);
+        }
+        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT,
+                KeyboardLayout.STROKE_LAYOUT})
+            check(!KeyboardLayout.drawsNumberRow(true, true, KeyboardLayout.Layer.LETTERS, layout, portrait),
+                "neither source draws on " + layout);
+        check(!KeyboardLayout.drawsNumberRow(false, false, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT,
+            portrait), "both off draws nothing");
     }
 
     private static void migration() {
@@ -315,10 +363,20 @@ public final class TouchKeyStyleSmoke {
             .equals(Map.of(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, "long_space")), "an explicit standard style is overwritten");
         check(KeyLayoutStyleMigration.sharedEdits(true, false, "emoji", false).isEmpty(),
             "a style already chosen on another device is kept");
-        check(KeyLayoutStyleMigration.sharedEdits(true, false, "split_space", false)
-            .equals(Map.of(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, "long_space")),
-            "an unknown style reads standard, the same way the keyboard draws it");
+        // 较新版本加的样式本版本画成标准底行，但那是用户在别处的选择，迁移不能盖掉；类型不对的值同样不碰。
+        check(KeyLayoutStyleMigration.sharedEdits(true, false, "split_space", false).isEmpty(),
+            "an unknown style from a newer version is left untouched");
+        check(KeyLayoutStyleMigration.sharedEdits(true, false, "STANDARD", null).isEmpty()
+            && KeyLayoutStyleMigration.sharedEdits(true, false, 1, null).isEmpty(),
+            "only a missing key or the literal standard is replaced");
+        check(KeyLayoutStyleMigration.sharedEdits(false, true, null, null)
+            .equals(Map.of(TouchKeyStyle.NUMBER_ROW_PREFERENCE, true)), "a missing number row is switched on");
+        check(KeyLayoutStyleMigration.sharedEdits(false, true, null, false)
+            .equals(Map.of(TouchKeyStyle.NUMBER_ROW_PREFERENCE, true)), "an explicit false number row is switched on");
         check(KeyLayoutStyleMigration.sharedEdits(false, true, null, true).isEmpty(), "a number row already on stays on");
+        check(KeyLayoutStyleMigration.sharedEdits(false, true, null, "false").isEmpty()
+            && KeyLayoutStyleMigration.sharedEdits(false, true, null, 0).isEmpty(),
+            "a number row value of the wrong type is left untouched");
         check(KeyLayoutStyleMigration.sharedEdits(false, false, null, false).isEmpty(), "legacy off writes nothing");
         Map<String, Object> legacy = new LinkedHashMap<>();
         check(!KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)), "nothing to migrate");

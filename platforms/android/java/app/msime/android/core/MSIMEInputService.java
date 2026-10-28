@@ -2556,9 +2556,9 @@ public final class MSIMEInputService extends InputMethodService {
         return !toolbarEmoji || toolbarHidden;
     }
 
-    /** 空闲时没有工具按钮就隐藏整行；长空格模式始终给顶部符号入口留一行。 */
+    /** 空闲时没有工具按钮就隐藏整行；中文 26 键选了长空格时始终给顶部符号入口留一行，切到英文也留着（{@link #longSpaceToolbarRowKept}）。 */
     boolean toolbarRowHidden() {
-        if (longSpaceLayoutActive()) return false;
+        if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo);
     }
@@ -4876,16 +4876,16 @@ public final class MSIMEInputService extends InputMethodService {
             splitKeyboardPortrait, splitKeyboardThresholdDp);
     }
 
-    /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
+    /** 现在字母上方要不要画数字行（#6022）：在字母层、窗口够高，共享偏好打开时画在 26 键一族、韩文、14 键和 18 键上，密码框和终端的自动数字行只画在 26 键一族和韩文上（{@link KeyboardLayout#drawsNumberRow(boolean, boolean, KeyboardLayout.Layer, int, int)}）。 */
     boolean numberRowDrawn() {
-        return KeyboardLayout.drawsNumberRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
-            getResources().getConfiguration().screenHeightDp);
+        return KeyboardLayout.drawsNumberRow(numberRowEnabled, automaticNumberRow.active(), keyboardLayer,
+            displayedTouchLayout(view), getResources().getConfiguration().screenHeightDp);
     }
 
     /** 数字、符号页保留源字母数字行占用的一排。 */
     boolean symbolExtraRowDrawn() {
-        return KeyboardLayout.drawsSymbolExtraRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
-            getResources().getConfiguration().screenHeightDp);
+        return KeyboardLayout.drawsSymbolExtraRow(numberRowEnabled, automaticNumberRow.active(), keyboardLayer,
+            displayedTouchLayout(view), getResources().getConfiguration().screenHeightDp);
     }
 
     /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。用户在共享偏好 `touch_quanpin_shift` 打开「保留 Shift」后也不替换。 */
@@ -5015,6 +5015,13 @@ public final class MSIMEInputService extends InputMethodService {
     boolean longSpaceLayoutActive(int layout) {
         return KeyboardActionRow.usesCommaSecondaryPeriod(layout)
             && bottomRowStyle(layout) == TouchKeyStyle.Row.LONG_SPACE;
+    }
+
+    /** 长空格样式让工具栏那一行一直留着（{@link TouchKeyStyle.Styles#keepsToolbarRow}）：看这块键盘中文时的键面，不看此刻的中/英，切换时键盘高度不跳。英文模式下 {@link #displayedTouchLayout} 一律是 26 键，中文键面取最后一次中文时记下的那块（{@link #touchLayoutHint}，只在中文时更新）。数字字段和密码框保留标准底行，不留。 */
+    boolean longSpaceToolbarRowKept() {
+        if (directNumberPad() || EditorPolicy.password(editorInputType)) return false;
+        int chineseLayout = dedicatedEnglish ? touchLayoutHint() : displayedTouchLayout(view);
+        return touchKeyStyles.keepsToolbarRow(chineseLayout, view == null ? -1 : InputViewValuePolicy.scheme(view, -1));
     }
 
     /** 底行没有句号键的长空格样式（26 键与 14/18 键）：逗号下滑输入句号。 */

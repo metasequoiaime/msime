@@ -9,7 +9,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 把 Android 本机的两个旧设置迁进共享偏好（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：`platform.android.long_space_layout` 为真、共享的 `touch_twenty_six_key_style` 还是标准底行时写 `long_space`；`platform.android.number_row` 为真、共享的 `touch_number_row` 还是关时写开。写好之后删掉这两个本机键，之后谁也不再读它们。
+ * 把 Android 本机的两个旧设置迁进共享偏好（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：`platform.android.long_space_layout` 为真、共享的 `touch_twenty_six_key_style` 缺键或明写 `standard` 时写 `long_space`；`platform.android.number_row` 为真、共享的 `touch_number_row` 缺键或明写 `false` 时写开。共享偏好里其他任何值（别的设备选的样式、较新版本加的写法、类型不对的值）都原样留着。写好之后删掉这两个本机键，之后谁也不再读它们。
  *
  * <p>必须赶在设置第一次导出或应用之前：云同步每一轮（{@link RustCloudSync#run}）、本地备份导出、键盘建会话前读实时偏好、设置页读取时都先调 {@link #migrate}。备份恢复先迁当前旧键，再用 {@link #restoredSharedEdits} 翻译备份中明确保存的旧值。本机没有旧键时只读一次带缓存的本地设置文件，不碰共享偏好。两个进程同时迁移时靠共享偏好按修订号保存（被拒就重读重算）和本地设置的文件锁收敛，结果相同。迁移写进共享偏好的改动记成本机改动（{@link SyncSignals#markDirty}），与用户在设置页改的一样会上传，不会被下一轮下载的默认值盖回去。
  */
@@ -25,20 +25,20 @@ public final class KeyLayoutStyleMigration {
     private KeyLayoutStyleMigration() {}
 
     /**
-     * 要写进共享偏好的改动（偏好键 → 值），按迁移规则算出，可能为空。共享偏好里已经选了别的样式、或数字行已经开着时不改。
+     * 要写进共享偏好的改动（偏好键 → 值），按迁移规则算出，可能为空。只在共享值缺键或明写默认值（`standard`、`false`）时改：较新版本加的样式本版本读成标准底行，但它是用户在别处做的选择，迁移不能拿 `long_space` 盖掉它；类型不对的值同样留给 client-core 处理。
      *
      * @param legacyLongSpace 本机旧设置 `platform.android.long_space_layout`
      * @param legacyNumberRow 本机旧设置 `platform.android.number_row`
-     * @param twentySixKeyStyle 共享偏好里 `touch_twenty_six_key_style` 的写法，缺键时为 null
-     * @param numberRow 共享偏好里的 `touch_number_row`
+     * @param twentySixKeyStyle 共享偏好里 `touch_twenty_six_key_style` 的原值，缺键时为 null
+     * @param numberRow 共享偏好里 `touch_number_row` 的原值，缺键时为 null
      */
     public static Map<String, Object> sharedEdits(boolean legacyLongSpace, boolean legacyNumberRow,
-            String twentySixKeyStyle, boolean numberRow) {
+            Object twentySixKeyStyle, Object numberRow) {
         Map<String, Object> edits = new LinkedHashMap<>(2);
-        if (legacyLongSpace && TouchKeyStyle.parse(twentySixKeyStyle, TouchKeyStyle.TWENTY_SIX_KEY_ROWS)
-                == TouchKeyStyle.Row.STANDARD)
+        if (legacyLongSpace && (twentySixKeyStyle == null || TouchKeyStyle.Row.STANDARD.wire.equals(twentySixKeyStyle)))
             edits.put(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.Row.LONG_SPACE.wire);
-        if (legacyNumberRow && !numberRow) edits.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, true);
+        if (legacyNumberRow && (numberRow == null || Boolean.FALSE.equals(numberRow)))
+            edits.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, true);
         return edits;
     }
 
@@ -88,8 +88,8 @@ public final class KeyLayoutStyleMigration {
                     if (!local.equals(AndroidLocalSettings.load(context))) continue;
                     JSONObject preferences = snapshot.getJSONObject("preferences");
                     Map<String, Object> edits = sharedEdits(longSpace, numberRow,
-                        JsonPolicy.strictString(preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)),
-                        preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false));
+                        preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE),
+                        preferences.opt(TouchKeyStyle.NUMBER_ROW_PREFERENCE));
                     if (!edits.isEmpty()) {
                         long revision = PreferencesRevisionPolicy.read(snapshot.opt("revision"), -1);
                         if (revision < 0) return false;

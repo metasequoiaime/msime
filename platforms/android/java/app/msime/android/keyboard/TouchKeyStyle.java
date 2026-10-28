@@ -71,6 +71,17 @@ public final class TouchKeyStyle {
                 return nine;
             return Row.STANDARD;
         }
+
+        /**
+         * 工具栏隐藏或按钮全关时，工具栏那一行要不要留着：中文 26 键的长空格样式把 符 放在工具栏上，所以这块键盘的中文键面是中文 26 键、用户给 26 键选了长空格时一直留着。只看用户的样式和这块键盘的中文键面，不看此刻的中/英：同一块键盘切到英文时英文 26 键画自己的标准底行、工具栏上没有 符，但这一行照样留着，来回切换时键盘高度不跳。
+         *
+         * @param chineseTouchLayout 这块键盘处在中文时画的键面（{@link KeyboardLayout} 的界面常量；英文模式下是切到英文之前的那块）
+         * @param scheme View 报告的方案编号，未知时为 -1
+         */
+        public boolean keepsToolbarRow(int chineseTouchLayout, int scheme) {
+            return chineseTouchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
+                && forLayout(chineseTouchLayout, scheme, false) == Row.LONG_SPACE;
+        }
     }
 
     /**

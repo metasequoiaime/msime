@@ -996,6 +996,19 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
   echo "Android touch key layout styles must read the shared preferences, migrate the two legacy local keys before any settings export or live read, re-render when they change, and draw the number row on 14/18 keys" >&2
   exit 1
 fi
+# 长空格样式留着的工具栏行看用户的 26 键样式和这块键盘的中文键面，不看此刻的中/英（TouchKeyStyle.Styles.keepsToolbarRow，规则由 TouchKeyStyleSmoke 覆盖）；这里钉住宿主的接线：工具栏行和隐藏工具栏时藏起按钮都读 longSpaceToolbarRowKept，英文模式下中文键面取只在中文时更新的 touchLayoutHint。之前读的是按此刻语言算的 longSpaceLayoutActive，工具栏隐藏时每次切中/英这一行都出没一次，键盘高度跟着跳。自动数字行与共享偏好分开传给 drawsNumberRow，自动数字行不扩到 14/18 键。
+if ! sed -n '/boolean toolbarRowHidden() {$/,/^    }$/p' "$account_service" | rg_q_stdin 'if \(longSpaceToolbarRowKept\(\)\) return false;' \
+  || ! sed -n '/boolean longSpaceToolbarRowKept() {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'int chineseLayout = dedicatedEnglish \? touchLayoutHint\(\) : displayedTouchLayout\(view\);' \
+  || ! sed -n '/boolean longSpaceToolbarRowKept() {$/,/^    }$/p' "$account_service" | rg_q_stdin 'touchKeyStyles\.keepsToolbarRow\(chineseLayout,' \
+  || ! rg -q 's\.toolbarHidden && s\.longSpaceToolbarRowKept\(\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
+  || ! sed -n '/boolean numberRowDrawn() {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'drawsNumberRow\(numberRowEnabled, automaticNumberRow\.active\(\),' \
+  || ! sed -n '/boolean symbolExtraRowDrawn() {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'drawsSymbolExtraRow\(numberRowEnabled, automaticNumberRow\.active\(\),'; then
+  echo "Android must keep the long-space toolbar row by the user's 26-key style and the keyboard's Chinese face, not the momentary 中/英 mode, and pass the automatic number row separately from touch_number_row" >&2
+  exit 1
+fi
 # 底行样式和顶部数字行在 applyTouchGeometry 里读，冷启动的第一帧按皮肤片段算；片段里没有它们时每次键盘进程冷启动都先画标准底行、没有数字行，一两秒后实时偏好到了键盘整体高出一行、底行换样。这里钉住 applyTouchGeometry 读到的每个 TouchKeyStyle 偏好键都在 SKIN_HINT_KEYS 里。
 skin_hint_keys=$(sed -n '/private static final String\[\] SKIN_HINT_KEYS = {/,/};$/p' "$account_service")
 touch_style_reads=$(sed -n '/private static TouchKeyStyle\.Styles touchKeyStylesFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean numberRowFrom(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
