@@ -49,7 +49,7 @@ Windows 11 的同源 MSVC x64/x86 七组用例均通过；两架构原有回调�
 
 首次真实探针已证明生产 helper 可被 WER 调用。扩展夹具的首次 x64 编译与 CTest 通过，但 PowerShell 5 将无 BOM 的中文脚本误读而导致解析失败，未执行系统验收；新脚本显式使用 UTF-8 BOM 后，直接 `-File` 与脚本调用均可执行，没有改动既有产品打包脚本。MinGW 的严格编译拒绝直接常量空地址写入的边界警告，夹具改为读取 `volatile` 故障地址再触发；不关闭编译警告。实际 TIP 还需完整产品包、安装器、真实编辑器及后台验收，不能据七组合成进程推定这些均已完成。
 
-为避免系统投递专项只在维护者机器上运行，Windows 平台门禁现在在 Windows runner 中用 MSVC 分别配置 x64 与 x86 的 CMake 测试树，构建生产 `TsfCrashCapture.cpp`、`MetasequoiaImeCrashWer.dll` 和合成宿主，再直接调用 `Invoke-SystemWer.ps1`。每个架构都执行七组系统 WER 用例，并上传只含合成目录和标准输出的 artifact；用例不加载完整产品、不注册输入法、不调用生产后台，所以它证明的是 WER 注册、回调边界、授权撤回和宿主处置在持续集成中的可重复性，仍不等于完整安装包、真实编辑器、ARM64 设备或后台源码还原。
+为避免系统投递专项只在维护者机器上运行，Windows 平台门禁现在在 Windows runner 中用 MSVC 分别配置 x64 与 x86 的独立 `capture_lifecycle` CMake 测试树，复用前序 Win7 设置工程已有的 nlohmann-json 头文件配置，不重新构建完整产品依赖或错误混用 x64 Rust 导入库。构建生产 `TsfCrashCapture.cpp`、`MetasequoiaImeCrashWer.dll` 和合成宿主，再直接调用 `Invoke-SystemWer.ps1`。每个架构先执行回调与生命周期 CTest，再执行七组系统 WER 用例；artifact 仅上传系统专项合成目录与 JUnit 结果，不上传整个构建树。首轮用相同独立工程在 Windows 11 实跑发现最新发布前授权屏障的三个夹具函数没有列入 `.def`，生命周期 CTest 在加载 `msime_test_tsf_block_publish` 时失败；补齐显式导出后继续复验。此门禁接线尚待新的 CI 运行确认，不能把已完成的手工专项当成新增门禁通过。用例不加载完整产品、不注册输入法、不调用生产后台，所以它证明的是 WER 注册、回调边界、授权撤回和宿主处置在持续集成中的可重复性，仍不等于完整安装包、真实编辑器、ARM64 设备或后台源码还原。
 
 ### 暂存与签名边界
 

@@ -79,12 +79,14 @@ int main(int argc, char **argv) {
             msime::telemetry::end();
             return 0;
         }
-        if (mode != "observe") return 2;
+        if (mode != "observe" && mode != "observe-standalone") return 2;
         const auto support = requestedDirectory.parent_path().string();
         setenv("MSIME_TEST_REPORTING_SUPPORT", support.c_str(), 1);
         deniedPreferences = preferences.parent_path() / "denied-preferences";
         save(deniedPreferences, false);
-        MSIMEUsageReportingStart([NSString stringWithUTF8String:preferences.c_str()]);
+        NSString *preferencesDirectory = [NSString stringWithUTF8String:preferences.c_str()];
+        if (mode == "observe-standalone") MSIMESettingsCrashReportingStart(preferencesDirectory);
+        else MSIMEUsageReportingStart(preferencesDirectory);
         dispatch_sync(gQueue, ^{});
         const std::filesystem::path directory = MSIMEUsageReportingDirectory().UTF8String;
         std::thread network;

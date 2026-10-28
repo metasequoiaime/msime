@@ -86,7 +86,7 @@ NSString *MSIMEUsageReportingDirectory(void)
     return [[base URLByAppendingPathComponent:MSIMEUsageReportingDirectoryName() isDirectory:YES] path];
 }
 
-void MSIMEUsageReportingStart(NSString *preferencesDirectory)
+static void StartReporting(NSString *preferencesDirectory, bool captureOnly)
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -105,7 +105,7 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
             std::lock_guard<std::mutex> guard(gCaptureLifecycle);
             if (gStopped.load()) return;
             msime::telemetry::begin({"macos", version.UTF8String, std::filesystem::path(directory.UTF8String),
-                                    std::nullopt, preferences});
+                                    std::nullopt, preferences, captureOnly ? "settings-native" : "input", captureOnly});
             gConsentObserver = std::make_unique<msime::telemetry::ConsentObserver>();
         }
         InstallTerminationHandler();
@@ -125,6 +125,16 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
         });
         dispatch_resume(gFlushTimer);
     });
+}
+
+void MSIMEUsageReportingStart(NSString *preferencesDirectory)
+{
+    StartReporting(preferencesDirectory, false);
+}
+
+void MSIMESettingsCrashReportingStart(NSString *preferencesDirectory)
+{
+    StartReporting(preferencesDirectory, true);
 }
 
 void MSIMEUsageReportingStop(void)

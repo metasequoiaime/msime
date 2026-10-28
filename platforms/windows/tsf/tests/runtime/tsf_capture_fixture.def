@@ -9,3 +9,6 @@ EXPORTS
   msime_test_tsf_block_refresh
   msime_test_tsf_wait_refresh
   msime_test_tsf_resume_refresh
+  msime_test_tsf_block_publish
+  msime_test_tsf_wait_publish
+  msime_test_tsf_resume_publish

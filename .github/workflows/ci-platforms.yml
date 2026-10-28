@@ -652,36 +652,23 @@ jobs:
           ctest --test-dir target/windows7-compat/x64 -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Compatibility API tests failed' }
           & ./platforms/windows/tests/tools/windows7_imports.ps1
-      # TSF 的 WER 回调虽然已有独立的 Windows 专项，但此前没有在平台门禁里实际调用系统 WER。这里用同一份 CMake 定义编译不依赖生产宿主的合成 TSF/Host API 与生产 WER helper，然后让 Windows WER 服务从 x64 和 x86 两个注册表视图投递七组真实故障；产物只含合成目录和日志，不上传崩溃到后台。
+      # 独立工程复用生产采集器和 helper，只依赖已有的头文件包，不重新构建完整产品或 Rust。
       - name: Build and run TSF system WER capture (x64 and x86)
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
-          if (-not (Test-Path -LiteralPath $toolchain -PathType Leaf)) { throw 'vcpkg toolchain not found' }
-          $hostLibrary = "$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
-          if (-not (Test-Path -LiteralPath $hostLibrary -PathType Leaf)) { throw 'Host API import library not found' }
-          foreach ($architecture in @(
-              @{ Name = 'x64'; Generator = 'x64'; Triplet = 'x64-windows-static-md' },
-              @{ Name = 'x86'; Generator = 'Win32'; Triplet = 'x86-windows-static-md' })) {
-            $build = "target/windows-tsf-crash/$($architecture.Name)"
-            $dependencyRoot = "$env:GITHUB_WORKSPACE/target/windows-native-deps/tsf-$($architecture.Name)"
-            cmake -S platforms/windows -B $build -A $architecture.Generator `
-              "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
-              "-DVCPKG_INSTALLED_DIR=$dependencyRoot" `
-              "-DVCPKG_TARGET_TRIPLET=$($architecture.Triplet)" `
-              '-DMSIME_EDITION=full' `
-              '-DMSIME_WINDOWS_PIPE_ONLY=OFF' `
-              '-DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF' `
-              "-DMSIME_HOST_LIBRARY=$hostLibrary"
+          $jsonConfig = "$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings/x64-windows-static-md/share/nlohmann_json"
+          if (-not (Test-Path -LiteralPath "$jsonConfig/nlohmann_jsonConfig.cmake" -PathType Leaf)) { throw 'nlohmann-json configuration not found' }
+          foreach ($architecture in @(@{ Name = 'x64'; Generator = 'x64' }, @{ Name = 'x86'; Generator = 'Win32' })) {
+            $build = "target/windows-full/$($architecture.Name)/wer-lifecycle"
+            cmake -S platforms/windows/tsf/tests/capture_lifecycle -B $build -A $architecture.Generator "-Dnlohmann_json_DIR=$jsonConfig"
             if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER configuration failed" }
-            cmake --build $build --config RelWithDebInfo --target msime-tsf-capture-system-test --parallel 2
+            cmake --build $build --config RelWithDebInfo --parallel 2
             if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER build failed" }
-            $output = "target/windows-tsf-crash/$($architecture.Name)/system-wer"
-            & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 `
-              -BuildDirectory $build -OutputDirectory $output
-            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF system WER capture failed" }
+            ctest --test-dir $build -C RelWithDebInfo --output-on-failure --output-junit wer-tests.xml
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER callback or lifecycle test failed" }
+            & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
           }
       - name: Build and test Windows 7 handwriting host
         if: ${{ needs.changes.outputs.windows == 'true' }}
@@ -742,7 +729,9 @@ jobs:
         if: ${{ always() && needs.changes.outputs.windows == 'true' }}
         with:
           name: windows-tsf-system-wer
-          path: target/windows-tsf-crash/
+          path: |
+            target/windows-full/*/wer-lifecycle/system-wer/
+            target/windows-full/*/wer-lifecycle/wer-tests.xml
           if-no-files-found: warn
       - name: Windows settings unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}

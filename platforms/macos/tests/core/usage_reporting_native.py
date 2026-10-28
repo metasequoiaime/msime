@@ -10,8 +10,8 @@ from input_capture import Input
 
 
 class MacInput(Input):
-    def __init__(self, root):
-        super().__init__(root, "observe")
+    def __init__(self, root, standalone=False):
+        super().__init__(root, "observe-standalone" if standalone else "observe")
         self.directory = Path(self.initial["directory"])
         assert self.directory.is_relative_to(root)
 
@@ -37,6 +37,41 @@ def main():
                 host.die(kind)
                 assert len(host.records()) == 1
                 check_crash(host, kind)
+            finally:
+                host.cleanup()
+
+        for ending in ("fault", "exception", "normal", "disabled", "reopened"):
+            host = MacInput(root / ("standalone-" + ending), standalone=True)
+            try:
+                assert host.initial["marker"] == {}, "standalone settings created an input session"
+                if ending in ("disabled", "reopened"):
+                    assert host.command("disable") == "saved"
+                    host.wait(False, queue_cleared=True)
+                    if ending == "reopened":
+                        assert host.command("enable") == "saved"
+                        host.wait(True)
+                if ending == "normal":
+                    assert not host.command("stop")["armed"]
+                    assert host.process.wait(timeout=10) == 0
+                else:
+                    host.die("exception" if ending == "exception" else "fault")
+                    if ending == "disabled":
+                        assert not host.records()
+                    else:
+                        assert len(host.records()) == 1
+                        record = host.records()[0].read_text()
+                        context = json.loads(record.splitlines()[0].split(" ", 1)[1])
+                        assert context["component"] == "settings-native" and context["consent_epoch"] == host.epoch()
+                        assert "synthetic-private" not in record
+                        host.collect()
+                        crashes = host.events("crash")
+                        assert len(crashes) == 1 and crashes[0]["version"] == "unknown"
+                        if ending == "exception":
+                            assert crashes[0]["message"].splitlines()[0] == "Uncaught SyntheticException"
+                            assert "main" in crashes[0]["stack"]
+                        assert not host.records()
+                assert not host.events("session") and not host.events("session_crash")
+                assert not (host.directory / "telemetry-session.json").exists()
             finally:
                 host.cleanup()
 
@@ -77,7 +112,7 @@ def main():
                     check_crash(host, "fault")
             finally:
                 host.cleanup()
-    print("macOS input: real faults, throw-site stack, read recovery and blocked-delivery consent passed")
+    print("macOS input and standalone settings: real faults, throw-site stack, consent and session isolation passed")
 
 
 if __name__ == "__main__":

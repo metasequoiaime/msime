@@ -30,6 +30,12 @@ Status: implemented
 - iOS App 与键盘共享 C 信号记录器，预计算构建头与路径成对发布，MetricKit 保留系统给出的原始版本；卡死独立归属。共享偏好在同一事务中保存持续同意的 epoch 与起点，关闭时移除、重开换代；MetricKit 只给批次时间范围，跨越该起点的整批跳过，不能用当前同意追认历史诊断。C 文件放在 `SharedUI/core`，由 XcodeGen 的共享源组加入每个使用方，避免跨源组路径合并。
 - HarmonyOS 的应用与键盘均监听 `APP_CRASH` 和 `APP_FREEZE`。只读取标准异常类型、原生帧、原始版本、进程号和时间；卡死不增加 `session_crash`，不读取 hilog、页面历史或外部日志。系统诊断的稳定文件身份同时作为共享层的 `diagnostic_id`，重送不产生随机新事件。每次回调重新读取共享同意；持久化连续同意的起点，关闭时删除，缺标记或发生时间早于本轮同意的历史诊断不补录。
 
+### macOS 原生回退设置入口
+
+输入法二进制以 `--preferences` 启动原生回退设置窗口时，独立分支在输入法会话初始化前返回，先前遗漏了该进程的致命故障。入口在显示窗口前使用 `MSIMESettingsCrashReportingStart`，与输入法共用真实偏好目录解析、500 ms 持续授权观察、Objective-C 未捕获异常与信号记录以及后台补报；组件为 `settings-native`，共享 `capture_only` 协议保证没有输入会话标记、`session` 或 `session_crash`。正常关窗与 SIGTERM 仅停止独立采集。输入法正常入口仍使用 `input` 组件与自己的会话，不改变共享 React 设置应用的归属。
+
+真实 `UsageReporting.mm` 子进程回归覆盖独立设置的内存故障、Objective-C 抛出点栈、正常退出、撤回后故障不记录及重新开启后使用当前代次；补录复用真实 Rust 队列，仅网络被测试桩替代。该专项尚待执行，不能算实际产品窗口、后台或源码行验收完成。
+
 ### 符号归属
 
 ELF 帧保存模块名、减去加载偏移后的链接地址和 GNU build id；PIE 与共享库通常表现为模块内偏移，非 PIE 的 `ET_EXEC` 保留链接虚拟地址，供 `addr2line` 直接使用。Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。Android 的 Rust 链接参数与 JNI 一样显式使用 `--build-id=sha1`；NDK 的 clang 驱动不会为 Rust 的最终共享库补上该参数，不能只给 JNI 加身份而让 Host API 无身份。保持既有 16KB 页对齐和发布调试行配置，不用放宽归档器的身份要求掩盖缺失。
