@@ -30,7 +30,7 @@ Status: implemented
 
 ### 符号归属
 
-ELF 帧保存模块名、减去加载偏移后的链接地址和 GNU build id；PIE 与共享库通常表现为模块内偏移，非 PIE 的 `ET_EXEC` 保留链接虚拟地址，供 `addr2line` 直接使用。Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。
+ELF 帧保存模块名、减去加载偏移后的链接地址和 GNU build id；PIE 与共享库通常表现为模块内偏移，非 PIE 的 `ET_EXEC` 保留链接虚拟地址，供 `addr2line` 直接使用。Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。Android 的 Rust 链接参数与 JNI 一样显式使用 `--build-id=sha1`；NDK 的 clang 驱动不会为 Rust 的最终共享库补上该参数，不能只给 JNI 加身份而让 Host API 无身份。保持既有 16KB 页对齐和发布调试行配置，不用放宽归档器的身份要求掩盖缺失。
 
 Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需文件缺失或为空就失败。发布 workflow 同时保留九十天 artifact；只有维护者手动选择发布时才推到平台滚动符号 release。本次不触发发布。现代 Windows、macOS 的已有滚动符号和 iOS 的 dSYM 保留机制继续使用。
 
@@ -98,6 +98,8 @@ macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行�
 - iOS 使用同一已编译 SharedTests 模块（仅增加 `@testable import`）对产品 `CrashDiagnostics.swift` 做实际 SDK 类型检查通过；不是完整 App 链接或致命故障验收。异常写盘用例按有效合成头和指定 UUID 核对记录，按 JSON 内容比较规范化构建头，保持按进程号的 MetricKit 去重。初版夹具的空头、JSON 键顺序与 UUID 大小写断言失败均已修正，不记为通过轮。独立的 C `fork` 故障夹具显式排除于 iOS XCTest 源码，重新生成工程无多余变化。没有调用遥测网络发送；专用模拟器均已关闭并删除。完整 quick `20261028-064407` 因偏好目录缺失保护的源码修补主动停止、退出 143，不计为通过；最新 iOS 产品源码的 `20261028-065343` 整轮退出 0（13m11s），末尾为 `quick check passed`，没有 `FAIL:`。Linux CTest 汇总 117 项、零失败，Windows 原生交叉编译与 pipe-only 因缺 MinGW 跳过，共享设置 bundle 因缺前端依赖跳过；不将这些跳过算成通过。
 
 - Linux 最终完整 quick（`20261028-061722`）已退出 0，日志末尾为 `quick check passed`，未检出 `FAIL:`。117 项 Linux 原生测试中 116 项实际通过、1 项环境跳过；full/wubi 安装后的八入口故障套件均通过。Windows 可移植程序 202 项、仓库契约、Rust/Android/wasm/Java、HAP、Linux 设置与原生、macOS 和 Apple bridge 阶段通过。Windows 原生/pipe-only 因缺 MinGW、共享设置 bundle 因缺前端依赖跳过；HAP 仍复用原生库，不升级为同源设备验收。这一快照的 Linux 六个构建/产品/测试文件与 `3cfc7df319` 一致，不包含随后本地新增的 iOS 活跃观察修补；iOS 当前源码的完整 quick 另行运行。
+
+- Android API 35 的 Native Platform CI `40621677101` 在构建 APK 的符号归档阶段拒绝缺少 build-id 的 `libmsime_host_api.so`，设备四组共享单测此前已通过。修复后 `scripts/test-android-crash-symbols.py` 直接读取生产 `RUSTFLAGS`，用固定 NDK 28.2 为 aarch64 与 x86_64 编译合成 Rust cdylib，两个架构的 40 位 build-id、16KB LOAD 对齐、符号归档与函数/源码第三行还原均通过；暂时移除生产 Rust build-id 参数时，同一回归以归档器拒绝无身份 ELF 失败，恢复源码后差异检查通过。此专项不编译完整 Host API、不替代实际 APK 构建和设备验收；完整构建结果另记。
 
 ## Consequences
 
