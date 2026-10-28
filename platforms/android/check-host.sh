@@ -862,6 +862,16 @@ if ! rg -q 'return RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, 
   echo "Android recent-clip suggestion must stay off, and must not read the clipboard, while clipboard history is off; sensitive clips are never offered (#5692)" >&2
   exit 1
 fi
+# 复制后快捷键（#10079）的显隐只由 RecentClipboardSuggestion.quickAction 判断（RecentClipboardSuggestionSmoke 覆盖：总开关关着、这一条是图片时不显示），点按经 ImePanels.openRecentClipAction 进入长按菜单里同一套分词点选和「移动到分类」。接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住。
+panels_java="$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java"
+if ! rg -q 'RecentClipboardSuggestion\.quickAction\(clipboardSuggestionActionEnabled,' "$service_java" \
+  || ! rg -q 's\.recentClipQuickAction\(image\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
+  || ! rg -A 12 'void runRecentClipQuickAction\(' "$service_java" | rg_q_stdin 'imePanels\.openRecentClipAction\(' \
+  || ! rg -A 12 'void openRecentClipAction\(' "$panels_java" | rg_q_stdin 'startClipboardSegmentation\(text\)' \
+  || ! rg -A 18 'void openRecentClipAction\(' "$panels_java" | rg_q_stdin 'clipboardCategoryMovingText = text;'; then
+  echo "Android recent-clip quick action must follow RecentClipboardSuggestion.quickAction and open the clipboard segmentation or category picker (#10079)" >&2
+  exit 1
+fi
 # 「最近复制」的图片（#6781）只在当前输入框经 contentMimeTypes 声明收得下、并且副本的扩展名经 FileProvider 反查仍是图片时占这一行；发出去的是本应用 FileProvider 给的缓存副本并带读权限，不是剪贴板里的原 URI，副本目录必须在 FileProvider 的路径表里。
 if ! rg -A 6 'boolean recentImageSendable\(' "$service_java" \
     | rg_q_stdin 'ClipboardImagePolicy\.accepts\(info\.contentMimeTypes, mimeType\)' \

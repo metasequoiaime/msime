@@ -35,6 +35,8 @@ final class ImeToolbar {
     /** 「最近复制」那一行自己的剪贴板入口和收起键，和工具栏上的同一套配色。 */
     private Button recentClipHistoryButton;
     private Button recentClipDismissButton;
+    /** 「最近复制」预览右边的分词或分类快捷键（#10079），由设置「复制后自动显示快捷键」决定显示哪个。 */
+    private Button recentClipActionButton;
     private Button recentClipCollapseButton;
     private String styleCacheKey;
     private int iconColor;
@@ -395,6 +397,20 @@ final class ImeToolbar {
         ViewPolicy.clearStateListAnimator(paste);
         bindToolbarAction(paste, s::pasteRecentClip);
         row.addView(paste, LayoutPolicy.weightedMatchParentParams(1));
+        // 预览和 × 之间的分词或分类快捷键（#10079）：宽度随字，预览仍占剩下的全部宽度。
+        KeyboardPressButton action = ViewPolicy.newPressButton(s);
+        action.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        ViewPolicy.setAllCapsFalse(action);
+        KeyboardTypographyPolicy.setKeyTextSize(action, 15);
+        ViewPolicy.clearMinimumSize(action);
+        ViewPolicy.clearStateListAnimator(action);
+        LayoutPolicy.setSymmetricPaddingDp(action, s, 8, 0);
+        ViewPolicy.setMinimumWidth(action, s.pixels(44));
+        bindToolbarAction(action, s::runRecentClipQuickAction);
+        ViewPolicy.hide(action);
+        row.addView(action, LayoutPolicy.linearParamsPx(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.MATCH_PARENT));
+        recentClipActionButton = action;
         KeyboardPressButton dismiss = ViewPolicy.newPressButton(s);
         dismiss.setKeyboardRole(KeyboardKeyRole.GLYPH);
         ViewPolicy.setAllCapsFalse(dismiss);
@@ -434,6 +450,12 @@ final class ImeToolbar {
         String preview = image ? ClipboardImagePolicy.LABEL : RecentClipboardSuggestion.preview(text);
         if (!preview.contentEquals(s.recentClipButton.getText())) s.recentClipButton.setText(preview);
         s.recentClipButton.setContentDescription(image ? "发送最近复制的图片" : "粘贴最近复制的内容：" + preview);
+        String action = s.recentClipQuickAction(image);
+        ViewPolicy.setVisible(recentClipActionButton, action != null);
+        if (action == null) return;
+        String label = RecentClipboardSuggestion.quickActionLabel(action);
+        if (!label.contentEquals(recentClipActionButton.getText())) recentClipActionButton.setText(label);
+        recentClipActionButton.setContentDescription(RecentClipboardSuggestion.quickActionDescription(action));
     }
 
     /** 内联键盘高度条：调整时替换整行工具栏。 */
