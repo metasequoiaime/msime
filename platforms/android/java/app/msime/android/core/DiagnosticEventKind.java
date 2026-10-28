@@ -47,7 +47,10 @@ public enum DiagnosticEventKind {
     VOICE_PLATFORM_BUSY("voice_platform_busy", false),
     VOICE_PLATFORM_UNAVAILABLE("voice_platform_unavailable", false),
     VOICE_PLATFORM_OTHER("voice_platform_other", false),
-    VOICE_FAILURE_RESPONSE("voice_failure_response", false);
+    VOICE_FAILURE_RESPONSE("voice_failure_response", false),
+    // 引擎会话建立的耗时（#10086），只进本机导出的诊断包的性能记录：主线程上建会话本身，和从启动排上到会话可用的整段等待。
+    ENGINE_SESSION_CREATE("engine_session_create", false),
+    ENGINE_SESSION_READY("engine_session_ready", false);
 
     private final String wire;
 

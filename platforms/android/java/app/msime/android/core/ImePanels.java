@@ -274,12 +274,15 @@ final class ImePanels {
     }
 
     void showEmojiPicker() {
-        if (s.session == 0 || s.connection == null || s.emojiPanel == null || s.emojiResources.isEmpty()) {
+        // 表情面板只用资源目录和输入连接，会话还在建时也能打开（#10086）；表情经 commitText 直接上屏，不经引擎。
+        if (s.emojiPanel == null || !ToolbarReadinessPolicy.emojiEnabled(s.toolbarSession(),
+                s.connection != null, !s.emojiResources.isEmpty())) {
             s.notice("表情目录尚未就绪");
             return;
         }
         s.command(2);
-        if (s.session == 0 || s.connection == null) return;
+        // 有会话时 command 失败会经 fail 停掉会话、清掉资源目录。
+        if (s.connection == null || s.emojiResources.isEmpty()) return;
         s.closeCandidatePanel();
         s.closeClipboardHistory();
         s.closeSchemePicker();
@@ -527,7 +530,10 @@ final class ImePanels {
     }
 
     void showSkinMenu(Button anchor) {
-        if (anchor == null || !s.canSaveKeyboardSkin() || s.skinScroll == null) return;
+        if (anchor == null || s.skinScroll == null) return;
+        // 会话还在建：记下这一下，会话和偏好就绪后打开（#10086）。
+        if (s.deferUntilSessionReady(ToolbarOrderPolicy.Item.SKIN)) return;
+        if (!s.canSaveKeyboardSkin()) return;
         s.closeEmojiPicker();
         s.closeSymbolPanel();
         s.closeCandidatePanel();
@@ -1217,6 +1223,8 @@ final class ImePanels {
     void showSchemePicker() {
         // 其他设置正在保存时只是这一下不打开：保存一瞬间就完成，不必弹「尚未就绪」。
         if (s.touchGeometrySaving || s.traditionalOutputSaving) return;
+        // 会话还在建：记下这一下，会话和偏好就绪后打开（#10086）。
+        if (s.deferUntilSessionReady(ToolbarOrderPolicy.Item.SCHEME)) return;
         if (s.session == 0 || s.preferencesSnapshot == null || s.preferencesDirectory.isEmpty()) {
             s.notice("输入方案尚未就绪");
             return;

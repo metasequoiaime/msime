@@ -109,6 +109,31 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
+# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时。
+service_java="$android_java/core/MSIMEInputService.java"
+panels_java="$android_java/core/ImePanels.java"
+emoji_body=$(sed -n '/^    void showEmojiPicker() {$/,/^    }$/p' "$panels_java")
+skin_menu_body=$(sed -n '/^    void showSkinMenu(Button anchor) {$/,/^    }$/p' "$panels_java")
+scheme_picker_body=$(sed -n '/^    void showSchemePicker() {$/,/^    }$/p' "$panels_java")
+start_session_body=$(sed -n '/^    private void startEngineSession(String optionsText, String livePreferences) {$/,/^    }$/p' "$service_java")
+reload_body=$(sed -n '/^    private void reloadPreferences(String response) {$/,/^    }$/p' "$service_java")
+if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(phraseShortcutButton, ToolbarReadinessPolicy\.phraseEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(schemeButton, ToolbarReadinessPolicy\.preferencePanelEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(skinButton, ToolbarReadinessPolicy\.preferencePanelEnabled\(' "$service_java" \
+  || ! rg -q 'boolean canToggle = ToolbarReadinessPolicy\.languageKeyActive\(toolbarSession\(\)\);' "$service_java" \
+  || ! rg -q 'ToolbarReadinessPolicy\.languageTap\(toolbarSession\(\)' "$service_java" \
+  || ! rg -q 'ToolbarReadinessPolicy\.emojiEnabled\(s\.toolbarSession\(\)' <<< "$emoji_body" \
+  || rg -q 's\.session == 0' <<< "$emoji_body" \
+  || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SKIN\)' <<< "$skin_menu_body" \
+  || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SCHEME\)' <<< "$scheme_picker_body" \
+  || ! rg -q 'main\.post\(this::runDeferredToolbarTaps\);' <<< "$start_session_body" \
+  || ! rg -q 'recordEngineSessionTiming\(createMillis\);' <<< "$start_session_body" \
+  || ! rg -q 'runDeferredToolbarTaps\(\);' <<< "$reload_body" \
+  || ! rg -q 'prefillSessionIndependentDirectories\(options\);' "$service_java"; then
+  echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
+  exit 1
+fi
 # 候选条按钮的最小宽度只有触控下限（CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP，CandidateAppearanceSmoke 覆盖它的值）；皮肤的 itemMinWidth 是桌面候选窗的格宽，`base = "microsoft"` 出厂 3.5em，套到候选条上一个字宽的候选也撑成一大格。样式在 ImeCandidates 里，JVM 冒烟碰不到，这里钉住接线。
 style_body=$(sed -n '/^    void styleCandidateButton(Button button) {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
