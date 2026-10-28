@@ -34,7 +34,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         if (firstRecordOnly) return "first clipboard record exposes inline actions after clear and copy in single and double columns";
         if (fixedCardsOnly) return "fixed clipboard cards delegate vertical drags to history without insertion";
-        if (previewActionsOnly) return "full-text preview inserts original text, edits, saves and returns without leaking its window";
+        if (previewActionsOnly) return "full-text preview opens detail and returns to itself, inserts original text, edits, saves and returns without leaking its window";
         return "floating full-text preview above IME and lifecycle cleanup; fixed cards, list scroll, swipe, segment drag and preview action regression";
     }
 
@@ -274,8 +274,17 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
-        stage = "preview insertion commits full original text once and restores keyboard";
+        stage = "preview detail opens in panel with full record time and unavailable source";
         openFloatingPreview();
+        touch(described("查看剪贴板全文的记录详情"));
+        previewClosed();
+        await(node -> node.getText() != null && node.getText().toString().startsWith("记录时间：")
+            && !node.getText().toString().startsWith("记录时间：时间未知")
+            && node.getText().toString().contains("来源 App：系统未提供"));
+        stage = "detail back returns to the full-text preview";
+        touch(described("返回剪贴板全文预览"));
+        await(described("关闭剪贴板全文预览"));
+        stage = "preview insertion commits full original text once and restores keyboard";
         touch(described("插入剪贴板全文"));
         previewClosed();
         stage = "preview insertion preserves every line in a multiline editor";
