@@ -289,11 +289,22 @@ fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
         .exists(params![table])?)
 }
 
-/// Read-only; a missing journal or table is an empty state (J:767-809).
-pub fn load_pinyin_typo_state(user_db: &Path) -> Result<PinyinTypoState> {
+/// 一次读日志的结果。
+#[derive(Debug, PartialEq, Eq)]
+pub struct TypoStateLoad {
+    pub state: PinyinTypoState,
+    /// 双拼两张表读出来了没有。没读出来（超过行数上限、行的类型不对）时 `state` 的双拼部分为空，全拼部分照样是日志里的内容，由档案决定保留原来的双拼状态。
+    pub shuangpin_loaded: bool,
+}
+
+/// Read-only; a missing journal or table is an empty state (J:767-809). 全拼两张表读不出来时整次读取失败，和加双拼表之前一样；双拼两张表读不出来不连累全拼，见 [`TypoStateLoad::shuangpin_loaded`]。
+pub fn load_pinyin_typo_state(user_db: &Path) -> Result<TypoStateLoad> {
     let mut state = PinyinTypoState::default();
     let Some(connection) = open_existing_read_only(user_db)? else {
-        return Ok(state);
+        return Ok(TypoStateLoad {
+            state,
+            shuangpin_loaded: true,
+        });
     };
     if table_exists(&connection, "pinyin_typo_counts")? {
         let count: i64 = connection.query_row(
@@ -355,11 +366,20 @@ pub fn load_pinyin_typo_state(user_db: &Path) -> Result<PinyinTypoState> {
             }
         }
     }
-    load_shuangpin_typo_state(&connection, &mut state)?;
-    Ok(state)
+    // 双拼先读进一份空状态，读到一半失败时不留下半截的双拼数据。
+    let mut shuangpin = PinyinTypoState::default();
+    let shuangpin_loaded = load_shuangpin_typo_state(&connection, &mut shuangpin).is_ok();
+    if shuangpin_loaded {
+        state.shuangpin = shuangpin.shuangpin;
+        state.shuangpin_suppressed = shuangpin.shuangpin_suppressed;
+    }
+    Ok(TypoStateLoad {
+        state,
+        shuangpin_loaded,
+    })
 }
 
-/// 两张双拼表读进 `state`；没有这两张表的旧日志读作空。和全拼的表一样，行数超过上限时整份读取失败，档案保留原来的状态。
+/// 两张双拼表读进 `state`；没有这两张表的旧日志读作空。行数超过上限或有一行类型不对时返回错误，只作废双拼这一部分。
 fn load_shuangpin_typo_state(connection: &Connection, state: &mut PinyinTypoState) -> Result<()> {
     const COUNTS_FILTER: &str = "FROM shuangpin_typo_counts WHERE accepted BETWEEN 0 AND ?1 AND rejected BETWEEN 0 AND ?1 AND accepted+rejected > 0 AND length(CAST(typed AS BLOB))=2 AND length(CAST(intended AS BLOB))=2";
     if table_exists(connection, "shuangpin_typo_counts")? {
@@ -519,11 +539,34 @@ impl PersonalTypoProfile {
             return;
         }
         // A journal that exists but cannot be read keeps the held state; the unchanged stamp retries on the next query (TP:115-116).
-        let Ok(state) = load_pinyin_typo_state(&self.path) else {
+        let Ok(load) = load_pinyin_typo_state(&self.path) else {
             return;
         };
-        *loaded = Some(stamp);
-        self.adopt(state);
+        if load.shuangpin_loaded {
+            *loaded = Some(stamp);
+            self.adopt(load.state);
+        } else {
+            // 只有双拼两张表读不出来：全拼照样跟上日志，双拼保留原来的状态；不记下这次的文件戳，下次查询再试双拼。
+            let state = self.with_held_shuangpin(load.state, |_| {});
+            self.adopt(state);
+        }
+    }
+
+    /// 日志里新读出的全拼部分，配上档案原来持有的双拼部分，再套上 `patch`。全拼部分在 `patch` 之后才换上，所以全拼的写入不会在读回的计数上再加一次。
+    fn with_held_shuangpin(
+        &self,
+        fresh: PinyinTypoState,
+        patch: impl FnOnce(&mut PinyinTypoState),
+    ) -> PinyinTypoState {
+        let mut state = self
+            .state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        patch(&mut state);
+        state.accepted = fresh.accepted;
+        state.suppressed = fresh.suppressed;
+        state
     }
 
     pub fn generation(&self) -> u64 {
@@ -559,9 +602,14 @@ impl PersonalTypoProfile {
     ) {
         let stamp = self.stamp();
         match load_pinyin_typo_state(&self.path) {
-            Ok(state) => {
+            Ok(load) if load.shuangpin_loaded => {
                 *loaded = Some(stamp);
-                self.adopt(state);
+                self.adopt(load.state);
+            }
+            // 双拼两张表读不出来：全拼用读回的，双拼在原来的状态上补上这次写入。
+            Ok(load) => {
+                let state = self.with_held_shuangpin(load.state, patch);
+                self.replace(state);
             }
             Err(_) => {
                 let mut state = self
@@ -865,10 +913,11 @@ mod tests {
     fn a_missing_or_old_journal_reads_as_empty() {
         let dir = Dir::new();
         let nowhere = dir.root.path().join("nowhere").join("msime_user.db");
-        assert_eq!(
-            load_pinyin_typo_state(&nowhere).unwrap(),
-            PinyinTypoState::default()
-        );
+        let empty = TypoStateLoad {
+            state: PinyinTypoState::default(),
+            shuangpin_loaded: true,
+        };
+        assert_eq!(load_pinyin_typo_state(&nowhere).unwrap(), empty);
         assert!(!dir.root.path().join("nowhere").exists());
 
         let legacy = dir.journal();
@@ -876,10 +925,7 @@ mod tests {
             .unwrap()
             .execute_batch("CREATE TABLE user_dictionary_operations(dictionary TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,operation TEXT NOT NULL,PRIMARY KEY(dictionary,key,value));PRAGMA user_version=3;")
             .unwrap();
-        assert_eq!(
-            load_pinyin_typo_state(&legacy).unwrap(),
-            PinyinTypoState::default()
-        );
+        assert_eq!(load_pinyin_typo_state(&legacy).unwrap(), empty);
         assert_eq!(
             count(&legacy, "PRAGMA user_version"),
             3,
@@ -1127,8 +1173,127 @@ mod tests {
                     "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<{MAX_TYPO_STATE_ROWS}) {rows}"
                 ))
                 .unwrap();
-            assert!(load_pinyin_typo_state(&journal).is_err(), "{table}");
+            let load = load_pinyin_typo_state(&journal).unwrap();
+            assert!(!load.shuangpin_loaded, "{table}");
+            assert!(
+                load.state.shuangpin.is_empty() && load.state.shuangpin_suppressed.is_empty(),
+                "{table}"
+            );
         }
+    }
+
+    /// 双拼两张表读不出来（超过行数上限、有一行类型不对）时，全拼两张表照样读出来：全拼学习不受双拼表连累。
+    #[test]
+    fn a_broken_shuangpin_table_leaves_the_quanpin_load_alone() {
+        for breakage in [
+            "INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted) SELECT 'xiaohe',char(97+i%26)||char(97+(i/26)%26),char(97+i%26)||char(97+(i/676)%26+1),1 FROM n;",
+            "INSERT INTO shuangpin_autocorrect_suppressions(profile,input,commits) SELECT 'xiaohe','a'||i,1 FROM n;",
+            "INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted) VALUES('xiaohe','ab','ac',2.5);",
+            "INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted) VALUES('xiaohe',X'6162','ac',1);",
+            "INSERT INTO shuangpin_autocorrect_suppressions(profile,input,commits) VALUES('xiaohe',X'6162',1);",
+        ] {
+            let dir = Dir::new();
+            let journal = dir.journal();
+            record_pinyin_typos(&journal, &[pair("gan", "guan")]).unwrap();
+            record_autocorrect_suppression(&journal, "shabg").unwrap();
+            record_shuangpin_suppression(&journal, XIAOHE, "mwgfxi").unwrap();
+            Connection::open(&journal)
+                .unwrap()
+                .execute_batch(&format!(
+                    "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<{MAX_TYPO_STATE_ROWS}) {breakage}"
+                ))
+                .unwrap();
+            let load = load_pinyin_typo_state(&journal).unwrap();
+            assert!(!load.shuangpin_loaded, "{breakage}");
+            assert_eq!(
+                load.state.accepted,
+                HashMap::from([(
+                    "gan".to_owned(),
+                    HashMap::from([("guan".to_owned(), 1)])
+                )]),
+                "{breakage}"
+            );
+            assert_eq!(
+                load.state.suppressed,
+                HashSet::from(["shabg".to_owned()]),
+                "{breakage}"
+            );
+        }
+    }
+
+    /// 双拼表坏了的时候，档案的全拼部分照样跟上别的写入方和自己的写入（自己的写入只算一次），双拼部分保留原来的状态并补上自己的写入；表修好后双拼部分重新按日志读。
+    #[test]
+    fn a_broken_shuangpin_table_keeps_the_held_shuangpin_state_and_follows_quanpin() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let profile = PersonalTypoProfile::shared(&journal);
+        let accepted = ShuangpinTypoOutcome::Accepted;
+        profile
+            .record_shuangpin(XIAOHE, &[(*b"gf", *b"gr")], accepted)
+            .unwrap();
+        profile
+            .record_shuangpin_suppression(XIAOHE, "mwgfxi")
+            .unwrap();
+        let bump = || {
+            std::fs::File::options()
+                .write(true)
+                .open(&journal)
+                .unwrap()
+                .set_modified(SystemTime::now() + std::time::Duration::from_secs(2))
+                .unwrap();
+        };
+
+        Connection::open(&journal)
+            .unwrap()
+            .execute_batch("INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted) VALUES('xiaohe','ab','ac',2.5)")
+            .unwrap();
+        record_pinyin_typos(&journal, &[pair("gan", "guan")]).unwrap();
+        bump();
+        profile.refresh_if_changed();
+        assert_eq!(profile.accepted("gan", "guan"), 1);
+        assert_eq!(profile.shuangpin_counts(XIAOHE, *b"gf", *b"gr").accepted, 1);
+        assert!(profile.shuangpin_suppressed(XIAOHE, "mwgfxi"));
+
+        profile.record_accepted(&[pair("gan", "guan")]).unwrap();
+        assert_eq!(profile.accepted("gan", "guan"), 2);
+        profile.record_suppression("shabg").unwrap();
+        assert!(profile.suppressed("shabg"));
+        profile
+            .record_shuangpin(XIAOHE, &[(*b"gf", *b"gr")], accepted)
+            .unwrap();
+        assert_eq!(profile.shuangpin_counts(XIAOHE, *b"gf", *b"gr").accepted, 2);
+        profile
+            .record_shuangpin_suppression(XIAOHE, "gfxi")
+            .unwrap();
+        assert!(profile.shuangpin_suppressed(XIAOHE, "gfxi"));
+        assert_eq!(profile.accepted("gan", "guan"), 2);
+
+        // 全拼的重置由别的写入方做，档案照样跟上。
+        Connection::open(&journal)
+            .unwrap()
+            .execute_batch("DELETE FROM pinyin_typo_counts")
+            .unwrap();
+        bump();
+        profile.refresh_if_changed();
+        assert_eq!(profile.accepted("gan", "guan"), 0);
+        assert_eq!(profile.shuangpin_counts(XIAOHE, *b"gf", *b"gr").accepted, 2);
+
+        // 修好坏行，双拼部分重新按日志读：日志里没有的 ab→ac 不会出现，自己写过的计数还在。
+        Connection::open(&journal)
+            .unwrap()
+            .execute_batch("DELETE FROM shuangpin_typo_counts WHERE typed='ab'")
+            .unwrap();
+        bump();
+        profile.refresh_if_changed();
+        assert_eq!(profile.shuangpin_counts(XIAOHE, *b"gf", *b"gr").accepted, 2);
+        assert_eq!(
+            profile.shuangpin_counts(XIAOHE, *b"ab", *b"ac"),
+            ShuangpinTypoCounts::default()
+        );
+        assert!(profile.shuangpin_suppressed(XIAOHE, "gfxi"));
+        let generation = profile.generation();
+        profile.refresh_if_changed();
+        assert_eq!(profile.generation(), generation);
     }
 
     /// 读的时候只认内置方案、合法的两键码和一处改动；自定义方案和写坏的行被跳过，不影响别的行。
@@ -1147,7 +1312,9 @@ mod tests {
                  ('custom','abcd',1),('xiaohe','ab''cd',1);",
             )
             .unwrap();
-        let state = load_pinyin_typo_state(&journal).unwrap();
+        let load = load_pinyin_typo_state(&journal).unwrap();
+        assert!(load.shuangpin_loaded);
+        let state = load.state;
         assert_eq!(
             state.shuangpin,
             HashMap::from([(

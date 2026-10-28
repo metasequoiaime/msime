@@ -19,7 +19,7 @@ Status: implemented
 - `journal.rs` 的 `SCHEMA_SQL` 加两张表，都是 `CREATE TABLE IF NOT EXISTS`，旧引擎打开新日志时不认识它们、也不碰它们：
   - `shuangpin_typo_counts(profile, typed, intended, accepted, rejected, updated_at)`，主键 `(profile, typed, intended)`。`profile` 是内置方案名（`xiaohe`、`ziranma`、`shoudao`、`microsoft`、`smart_abc`），`typed`、`intended` 是两个小写字母或 `;` 组成的两键码，两者只差一个键或互为对调。两个计数都封顶 1000。
   - `shuangpin_autocorrect_suppressions(profile, input, commits, updated_at)`，主键 `(profile, input)`。`input` 是带触点那串输入（小写字母和 `;`，不含 `'`，最长 64）。
-- 写入整批校验，有一对不合格就什么也不写、连日志都不开。写完按全拼两张表同样的规则修剪到 2048 行：计数表按接受加拒绝、抑制表按上屏次数，先删最少、最旧的，这一批刚写的不删。读的时候只认内置方案、合法的码和一处改动，坏行跳过；行数超过上限时整份读取失败，档案保留原来的状态（与全拼相同）。
+- 写入整批校验，有一对不合格就什么也不写、连日志都不开。写完按全拼两张表同样的规则修剪到 2048 行：计数表按接受加拒绝、抑制表按上屏次数，先删最少、最旧的，这一批刚写的不删。读的时候只认内置方案、合法的码和一处改动，坏行跳过；行数超过上限或有一行类型不对（比如 `typed` 是 BLOB、`accepted` 是 2.5）时只作废双拼这一部分：`load_pinyin_typo_state` 照样交出全拼两张表的内容，`shuangpin_loaded` 为假，档案换上新读的全拼部分、保留原来的双拼部分（自己的双拼写入补在上面），不记下这次的文件戳，下次查询再试。全拼部分读不出来时仍和加表之前一样整次失败。全拼学习因此不受这两张表连累：外部写入方、文件损坏或以后改表结构弄坏了双拼表，全拼的接受和抑制照样跟着日志走。
 - 都由进程共用的 `PersonalTypoProfile`（每份日志一份）读写：`shuangpin_counts`、`shuangpin_suppressed` 查询不分配；`record_shuangpin`（接受或拒绝）、`record_shuangpin_suppression` 写完重读，代次前进。
 - 自定义方案一律不学：键位随时会改，按旧键位记下的码对换了键位就是别的意思。
 - 不进 `habits.ndjson` 备份：`habits.rs` 只导出原来那六张表。旧版 Android 的 `inspect_habits` 读到不认识的 `type` 会把整份备份判为损坏（`LocalBackup` 检查备份时调它），加一种记录会让新备份在旧版上恢复不了。代价是换手机后双拼的纠错习惯要重新学。
@@ -58,7 +58,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：同一对接受 3 次后，这一键改过去的价少约 5.5（小鹤 gf → gr，f 落在 f 和 r 正中时从 12 降到约 6.5），纠错整句的分随之升高；原来过不了 `show_penalty` 的改正留在座位上。评测回放见 Verification。
-- **代价**：带触点的每次查询多两次文件 stat（双拼词典和抑制各刷新一次档案，与全拼相同）；档案有双拼记录时每个变体多一次哈希查找。日志多两张表，各不超过 2048 行。
+- **代价**：带触点的请求每进一次双拼词典（`ShuangpinEngine` 的查询、首字母展开、在线候选写入缓存三处都经 `set_key_touches`）和每做一次抑制检查（`apply_shuangpin_autocorrect_suppression`，构造光标前缀的请求时也做）都刷新一次档案，每次刷新 stat 日志和它的 `-wal` 两个文件。一次普通的带触点查询是抑制检查加词典查询两次刷新、4 次 stat，赶上首字母展开或在线候选时每处再加 2 到 4 次；文件没变时不读日志。不带触点的请求一次也不刷新。档案有双拼记录时每个变体多一次哈希查找。日志多两张表，各不超过 2048 行。
 - **已知上限**：
   - 按两键码记很稀疏，同一对要反复出现才有作用；回放用的是固定偏置的合成落点，真机上同一对重复的频率要等宿主接入后再看。
   - 拒绝一票否决首选要到 PR3 才生效；这一期 `rejected` 只记不用。
@@ -70,8 +70,8 @@ Status: implemented
 ## Verification
 
 - **单元和集成测试**（都在 Mac Studio 上经 `rbuild` 跑）：
-  - `cargo test -p msime-engine --lib`：2731 项通过（57 项本来就标了 ignore）。新增的：
-    - `typo_profile`：整批校验（自定义方案、空批、相同的码、两键都换、大写、`'`、一批里混一对坏的都整批拒绝且不开日志）、接受和拒绝分列计数并封顶、按方案分开；两张表修剪到 2048 行且刚写的不删；超过上限整份读取失败；读的时候跳过自定义方案和坏行；档案的读写、代次前进、别的写入方、查询不分配。
+  - `cargo test -p msime-engine --lib`：2733 项通过（57 项本来就标了 ignore）。新增的：
+    - `typo_profile`：整批校验（自定义方案、空批、相同的码、两键都换、大写、`'`、一批里混一对坏的都整批拒绝且不开日志）、接受和拒绝分列计数并封顶、按方案分开；两张表修剪到 2048 行且刚写的不删；双拼表超过上限或有一行类型不对时只作废双拼部分、全拼照样读出（`a_broken_shuangpin_table_leaves_the_quanpin_load_alone`），档案此时全拼跟上别的写入方和自己的写入且只算一次、双拼保留原状态并补上自己的写入、表修好后重新按日志读（`a_broken_shuangpin_table_keeps_the_held_shuangpin_state_and_follows_quanpin`）；读的时候跳过自定义方案和坏行；档案的读写、代次前进、别的写入方、查询不分配。
     - `journal` 的表名测试加上两张新表；`habits` 测试钉住两张表不进备份、计数不变；`reset` 测试钉住重置后两张表为空、档案刷新后读不到旧记录。
     - `shuangpin::typo_edges`：接受过的那一对按 `learned_discount(n)` 降价、别的变体不动、自定义方案不打折、不低于 P_MIN；平面表外的键打折后能过 P_CUT；`touch_correction_pairs` 对每个方案码、每个变体音节都给出解得出它、价等于变体集给它的那个码，对不上或解释不了时整条不记。
     - `shuangpin::dictionary`：代次变了，带触点的查询前清掉整句和辅助码答案，不带触点的不清（把这段清缓存去掉，这个测试会失败；`shuangpin::tests` 那个端到端测试单靠它测不出来，因为日志一写，个人整句模型的版本也变了，系列缓存里打过个人分的条目会被那条路先清掉）。
