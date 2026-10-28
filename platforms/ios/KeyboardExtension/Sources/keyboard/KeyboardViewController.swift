@@ -1077,7 +1077,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 读取本机手势开关；字母键和根手势使用缓存，按键时不再读 App Group。
   private func readGesturePreferences() {
-    spaceVoiceEnabled = KeyboardLayoutPreference.spaceVoice
+    let spaceVoice = KeyboardLayoutPreference.spaceVoice
+    let spaceVoiceChanged = spaceVoice != spaceVoiceEnabled
+    spaceVoiceEnabled = spaceVoice
     swipeSymbolsEnabled = KeyboardLayoutPreference.swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
     cursorSwipeEnabled = KeyboardLayoutPreference.cursorSwipe
@@ -1094,6 +1096,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       space.accessibilityHint = Self.spaceAccessibilityHint(voice: spaceVoiceEnabled)
       space.accessibilityCustomActions = spaceAccessibilityActions()
     }
+    // 空格键上的麦克风跟着长按空格语音走：从设置 App 改完切回键盘时立刻换键面（#10143）。键盘还没建好时（`viewDidLoad` 里第一次读）由建完后的那次 `updateSpaceKeyTitle` 画。
+    if spaceVoiceChanged && !spaceKeys.isEmpty { updateSpaceKeyTitle() }
   }
 
   /// 空格键的 VoiceOver 提示：语音关闭时，长按空格改为移动光标。
@@ -4654,12 +4658,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let mic: Bool
   }
 
-  /// 设计稿的空格键面：中文下是麦克风和方案简称，英文下是 `space`，符号层上是空格；手写板与其他方案一样显示方案名（手写），与 Android 的 SpaceKeyFace 一致。日语按按键的作用命名，空闲时是空白，选候选时是変換。不是 private：布局测试会固定它。
-  static func spaceKeyFace(scheme: ChineseInputScheme, chinese: Bool, symbols: Bool, composing: Bool) -> SpaceKeyFace {
+  /// 设计稿的空格键面：中文下是麦克风和方案简称，英文下是 `space`，符号层上是空格；手写板与其他方案一样显示方案名（手写），与 Android 的 SpaceKeyFace 一致。日语按按键的作用命名，空闲时是空白，选候选时是変換。麦克风只在 `voice`（「长按空格语音输入」）开着时画：关掉后长按空格改为移动光标，键面不能再暗示能按住说话（#10143），与 Android 的 `SpaceKeyFace.setShowsMic` 一致。不是 private：布局测试会固定它。
+  static func spaceKeyFace(scheme: ChineseInputScheme, chinese: Bool, symbols: Bool, composing: Bool,
+                           voice: Bool) -> SpaceKeyFace {
     if chinese && scheme.isJapanese { return SpaceKeyFace(label: composing ? "変換" : "空白", mic: false) }
-    if symbols { return SpaceKeyFace(label: "空格", mic: true) }
-    if !chinese { return SpaceKeyFace(label: "space", mic: true) }
-    return SpaceKeyFace(label: scheme.shortLabel, mic: true)
+    if symbols { return SpaceKeyFace(label: "空格", mic: voice) }
+    if !chinese { return SpaceKeyFace(label: "space", mic: voice) }
+    return SpaceKeyFace(label: scheme.shortLabel, mic: voice)
   }
 
   private func updateSpaceKeyTitle() {
@@ -4670,7 +4675,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       japaneseSpaceButton?.configuration = configuration
       japaneseSpaceButton?.accessibilityLabel = japaneseTitle
     }
-    let face = Self.spaceKeyFace(scheme: inputScheme, chinese: isChineseMode, symbols: showsSymbols, composing: hasComposition)
+    let face = Self.spaceKeyFace(scheme: inputScheme, chinese: isChineseMode, symbols: showsSymbols, composing: hasComposition,
+                                 voice: spaceVoiceEnabled)
     let japanese = isChineseMode && inputScheme.isJapanese
     // 数字页的空格只有一个功能键宽，留出完整的文字空间，长按语音手势仍由原按键处理。
     let mic = face.mic && !numberPadShown
