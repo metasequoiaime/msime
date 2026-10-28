@@ -96,6 +96,52 @@ final class CandidateFontSizeTests: XCTestCase {
     XCTAssertEqual(CandidateFontPreference.candidateSize(in: [CandidateFontPreference.candidateKey: true], tablet: false), 18)
   }
 
+  /// 「候选栏大小」（#10137）：共享偏好 `candidate_scale_percent`，与 client-core、Android 和鸿蒙一样只认 50–200 的整数，其余按 100。
+  func testCandidateBarSizeReadsTheSharedRange() {
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: nil), 100)
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: [:]), 100)
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: [CandidateFontPreference.scaleKey: 50]), 50)
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: [CandidateFontPreference.scaleKey: 200]), 200)
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: [CandidateFontPreference.scaleKey: 49]), 100)
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: [CandidateFontPreference.scaleKey: 201]), 100)
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: [CandidateFontPreference.scaleKey: 87.5]), 100)
+    XCTAssertEqual(CandidateFontPreference.scalePercent(in: [CandidateFontPreference.scaleKey: true]), 100)
+    XCTAssertEqual(CandidateFontPreference.barScale(in: [CandidateFontPreference.scaleKey: 80]), 0.8, accuracy: 0.0001)
+    XCTAssertEqual(CandidateFontPreference.scaleRange, 50...200)
+    XCTAssertEqual((CandidateFontPreference.defaultScalePercent - CandidateFontPreference.scaleRange.lowerBound)
+      % CandidateFontPreference.scaleStep, 0, "the slider can land on 100%")
+  }
+
+  /// 调小候选栏时顶栏这一行连同它的下限一起变矮，空闲时的工具栏和组字时的候选栏仍然同高，按键不跳；100% 时与原来完全一样。
+  func testCandidateBarSizeScalesTheWholeTopRow() {
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0, barScale: 1), 42)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 1, barScale: 1), 42)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0, candidateScale: 0.5, preeditScale: 0.5, barScale: 0.5), 21)
+    XCTAssertEqual(
+      KeyboardViewController.topRowHeight(
+        glossLines: 0, candidateScale: 0.5, preeditScale: 0.5, separateReadingRow: true, barScale: 0.5), 26,
+      "the 14-key reading line shrinks with the candidates")
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0, candidateScale: 2, preeditScale: 2, barScale: 2), 84)
+    XCTAssertEqual(
+      KeyboardViewController.topRowHeight(glossLines: 2, candidateScale: 0.5, preeditScale: 0.5, barScale: 0.5),
+      21 + KeyboardViewController.glossLineHeight / 2, "extra gloss lines shrink with the bar")
+    XCTAssertLessThan(
+      KeyboardFormFactor.phone.keyboardHeight(
+        topRow: KeyboardViewController.topRowHeight(glossLines: 0, candidateScale: 0.8, preeditScale: 0.8, barScale: 0.8),
+        rowSpacing: 7, landscape: false, handwriting: false),
+      KeyboardFormFactor.phone.keyboardHeight(
+        topRow: KeyboardViewController.topRowHeight(glossLines: 0), rowSpacing: 7, landscape: false, handwriting: false),
+      "a smaller bar gives its height back instead of padding the row")
+  }
+
+  /// 工具栏按钮的图标、底板和品牌标志随这一行缩小，不伸出被裁掉；行更高时保持设计尺寸。
+  func testToolbarContentShrinksWithAShortRowOnly() {
+    XCTAssertEqual(KeyboardToolbarButton.contentScale(rowHeight: KeyboardViewController.topRowMinimumHeight), 1)
+    XCTAssertEqual(KeyboardToolbarButton.contentScale(rowHeight: 21), 0.5, accuracy: 0.0001)
+    XCTAssertEqual(KeyboardToolbarButton.contentScale(rowHeight: 84), 1)
+    XCTAssertEqual(KeyboardToolbarButton.contentScale(rowHeight: 0), 1)
+  }
+
   func testLargerTextGrowsTheStripButSmallerTextKeepsTheTouchTarget() {
     let base = KeyboardViewController.topRowHeight(glossLines: 0)
     let larger = KeyboardViewController.topRowHeight(

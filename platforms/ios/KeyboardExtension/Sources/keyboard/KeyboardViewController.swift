@@ -613,22 +613,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   static let glossedCandidateRowHeight: CGFloat = 42
   /// 第二行释义起每行再加的高度（Android 的 `EXTRA_GLOSS_ROW_DP`）。
   static let glossLineHeight: CGFloat = 14
-  static func glossHeight(lines: Int) -> CGFloat { CGFloat(max(lines, 0)) * glossLineHeight }
-  // 候选或编码字号调大时所在行跟着变高，调小时行高不会低于默认值：这一行同时也是触摸目标。
-  static func readingRowHeight(preeditScale: CGFloat) -> CGFloat {
-    max(readingRowHeight, ceil(readingRowHeight * preeditScale))
+  static func glossHeight(lines: Int, barScale: CGFloat = 1) -> CGFloat {
+    CGFloat(max(lines, 0)) * glossLineHeight * barScale
   }
-  static func candidateRowHeight(candidateScale: CGFloat, glossed: Bool = false) -> CGFloat {
+  // 候选或编码字号调大时所在行跟着变高，调小时行高不会低于默认值：这一行同时也是触摸目标。「候选栏大小」（`barScale`，#10137）连这个默认值一起缩放，用户调小候选栏时这一行跟着变矮；`candidateScale`、`preeditScale` 是已经乘过 `barScale` 的字号倍数。
+  static func readingRowHeight(preeditScale: CGFloat, barScale: CGFloat = 1) -> CGFloat {
+    max(readingRowHeight * barScale, ceil(readingRowHeight * preeditScale))
+  }
+  static func candidateRowHeight(candidateScale: CGFloat, glossed: Bool = false, barScale: CGFloat = 1) -> CGFloat {
     let base = glossed ? glossedCandidateRowHeight : candidateRowHeight
-    return max(base, ceil(base * candidateScale))
+    return max(base * barScale, ceil(base * candidateScale))
   }
-  /// 顶栏：候选行，第一行释义在候选行里，其余释义行在它下面；`separateReadingRow`（全拼 14 键）时上面再加一行读音。高度不低于 `topRowMinimumHeight`。
+  /// 顶栏：候选行，第一行释义在候选行里，其余释义行在它下面；`separateReadingRow`（全拼 14 键）时上面再加一行读音。高度不低于 `topRowMinimumHeight` 乘以「候选栏大小」：空闲时这一行是工具栏，它和候选栏一起变矮或变高，组字开始、结束时按键仍不动。
   static func topRowHeight(
-    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, separateReadingRow: Bool = false
+    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, separateReadingRow: Bool = false,
+    barScale: CGFloat = 1
   ) -> CGFloat {
-    max(topRowMinimumHeight, (separateReadingRow ? readingRowHeight(preeditScale: preeditScale) : 0)
-      + candidateRowHeight(candidateScale: candidateScale, glossed: glossLines > 0)
-      + glossHeight(lines: glossLines - 1))
+    max(topRowMinimumHeight * barScale,
+        (separateReadingRow ? readingRowHeight(preeditScale: preeditScale, barScale: barScale) : 0)
+      + candidateRowHeight(candidateScale: candidateScale, glossed: glossLines > 0, barScale: barScale)
+      + glossHeight(lines: glossLines - 1, barScale: barScale))
   }
   /// 用户调整之前的键盘高度：按默认候选字号和存储的行距计算，每个候选下带 `glossLines` 行释义（默认取配置的行数）；`separateReadingRow` 同 `topRowHeight`。
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
@@ -671,8 +675,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       + (scheme.isKorean ? 1 : 0)
   }
   private var glossLineCount = 0
+  /// 候选和编码的字号倍数，已经乘过 `candidateBarScale`。
   private var candidateFontScale: CGFloat = 1
   private var preeditFontScale: CGFloat = 1
+  /// 「候选栏大小」（`candidate_scale_percent`）：顶栏、候选行、读音行和释义行的高度倍数（#10137）。
+  private var candidateBarScale: CGFloat = 1
   private var candidateFontFamilies: [String] = []
   private var topRowHeightConstraint: NSLayoutConstraint?
   private var readingRowHeightConstraint: NSLayoutConstraint?
@@ -2190,7 +2197,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       equalToConstant: shownTopRowHeight)
     topRowHeightConstraint = stripHeight
     let compositionHeight = compositionRow.heightAnchor.constraint(
-      equalToConstant: Self.readingRowHeight(preeditScale: preeditFontScale))
+      equalToConstant: Self.readingRowHeight(preeditScale: preeditFontScale, barScale: candidateBarScale))
     readingRowHeightConstraint = compositionHeight
     // 略低于 required：收起的顶栏（显示方式「隐藏」）比读音行还矮，这时由隐藏的候选行让步，而不是破坏这一行的高度。
     let contentBottom = content.bottomAnchor.constraint(equalTo: container.candidateContentGuide.bottomAnchor)
@@ -4866,7 +4873,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var currentTopRowHeight: CGFloat {
     Self.topRowHeight(
       glossLines: glossLineCount, candidateScale: candidateFontScale, preeditScale: preeditFontScale,
-      separateReadingRow: separateReadingRow)
+      separateReadingRow: separateReadingRow, barScale: candidateBarScale)
   }
 
   /// 实际画出的顶栏高度。iOS 键盘扩展在一次键盘会话里保持这个高度，避免组字开始或结束时触发系统键盘重排。
@@ -4879,16 +4886,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     toolbarHidden = TouchToolbarLocalPreference.hidden
   }
 
-  /// Gloss lines and the candidate and composition sizes all decide how tall the strip is, so they are applied together.
+  /// Gloss lines, the candidate and composition sizes and 候选栏大小 all decide how tall the strip is, so they are applied together.
   private func applyCandidateGlossLayout() {
     let lines = currentGlossLines()
     let tablet = formFactor == .tablet
-    let candidateScale = CandidateFontPreference.candidateScale(in: session.sharedPreferences, tablet: tablet)
-    let preeditScale = CandidateFontPreference.preeditScale(in: session.sharedPreferences, tablet: tablet)
+    // 「候选栏大小」连同字号一起缩放候选栏（#10137），字号倍数在这里乘上它，下游画字的地方不用再管。
+    let barScale = CandidateFontPreference.barScale(in: session.sharedPreferences)
+    let candidateScale = CandidateFontPreference.candidateScale(in: session.sharedPreferences, tablet: tablet) * barScale
+    let preeditScale = CandidateFontPreference.preeditScale(in: session.sharedPreferences, tablet: tablet) * barScale
     let families = CandidateFontPreference.families(in: session.sharedPreferences)
     guard lines != glossLineCount || candidateScale != candidateFontScale
-      || preeditScale != preeditFontScale || families != candidateFontFamilies else { return }
+      || preeditScale != preeditFontScale || barScale != candidateBarScale
+      || families != candidateFontFamilies else { return }
     candidateFontFamilies = families
+    candidateBarScale = barScale
     glossLineCount = lines
     if preeditScale != preeditFontScale {
       preeditFontScale = preeditScale
@@ -4897,7 +4908,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateFontScale = candidateScale
     updateCandidateCanvasMetrics()
     topRowHeightConstraint?.constant = shownTopRowHeight
-    readingRowHeightConstraint?.constant = Self.readingRowHeight(preeditScale: preeditScale)
+    readingRowHeightConstraint?.constant = Self.readingRowHeight(preeditScale: preeditScale, barScale: barScale)
     updatePreferredKeyboardHeight()
     candidateButtonStyleRevision &+= 1
     renderCandidateStrip()
@@ -9161,10 +9172,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateCandidateCanvasMetrics() {
-    let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale)
-    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。下限是词块的最小高度：低于它时词块和首选高亮会伸出面板。
-    let textHeight = max(Self.candidateChipMinimumSize.height, Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0)
-      + Self.glossHeight(lines: glossLineCount - 1) - 10)
+    let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale, barScale: candidateBarScale)
+    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。下限是词块的最小高度：低于它时词块和首选高亮会伸出面板。两者都按「候选栏大小」缩放。
+    let textHeight = max(Self.candidateChipMinimumSize.height * candidateBarScale,
+      Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0, barScale: candidateBarScale)
+      + Self.glossHeight(lines: glossLineCount - 1, barScale: candidateBarScale) - 10 * candidateBarScale)
     let gap = separateReadingRow ? min(candidateCanvasSkin?.lineGap ?? 0, max(0, shownTopRowHeight - readingHeight - textHeight)) : 0
     compositionContainer?.minimumContentHeight = textHeight + (separateReadingRow ? readingHeight + gap : 0)
     candidatePreeditGapConstraint?.constant = gap
