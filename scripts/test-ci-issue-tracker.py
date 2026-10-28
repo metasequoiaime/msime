@@ -10,12 +10,14 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
 SPEC = importlib.util.spec_from_file_location("ci_issue_tracker", Path(__file__).with_name("ci_issue_tracker.py"))
 TRACKER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TRACKER)
+WORKFLOW = Path(__file__).resolve().parent.parent / ".github/workflows/ci-red-tracker.yml"
 
 
 class FakeGitHub:
@@ -196,6 +198,75 @@ class RedBuild(unittest.TestCase):
         self.api.jobs_by_run[11] = []
         self.track(11)
         self.assertIn("没有找到失败的 job", self.api.issues[1]["body"])
+
+    def test_older_run_decides_from_the_newest_decisive_run(self):
+        # 最新一次的跟踪运行在并发组里排队时被更旧运行（这里是旧失败的重跑）的跟踪顶掉：留下的那次要替最新一次开单或关单，而不是跳过。
+        self.api.add_run(10, 20, "success")
+        self.api.add_run(11, 21, "failure")
+        self.track(11)
+        self.api.add_run(12, 22, "success")
+        self.api.runs[11]["run_attempt"] = 2
+        self.track(11)
+        self.assertEqual(self.api.issues[1]["state"], "closed", "the newest run is green, so the issue closes even though its own tracker never ran")
+        self.assertIn("已转绿：[#22]", self.api.issues[1]["comments"][-1])
+        self.api.add_run(13, 23, "failure")
+        self.api.runs[12]["run_attempt"] = 2
+        self.track(12)
+        self.assertEqual(len(self.api.issues), 2, "the newest run is red, so an issue opens for it")
+        self.assertIn("<!-- ci-red-tracker run=13 attempt=1 -->", self.api.issues[2]["body"])
+        self.track(13)
+        self.assertEqual(self.api.issues[2]["comments"], [], "the newest run's own late tracker does not report it again")
+
+    def test_startup_failure_is_red(self):
+        self.api.add_run(10, 20, "success")
+        self.api.add_run(11, 21, "startup_failure")
+        self.api.jobs_by_run[11] = []
+        self.track(11)
+        self.assertEqual(len(self.api.issues), 1, "a run that could not start at all is red")
+        self.assertIn("运行没能启动（startup_failure）", self.api.issues[1]["body"])
+        self.api.add_run(12, 22, "failure")
+        self.track(12)
+        self.assertEqual(len(self.api.issues[1]["comments"]), 1)
+        self.api.add_run(13, 23, "action_required")
+        self.track(13)
+        self.assertEqual(self.api.issues[1]["state"], "open", "a run waiting for approval ran nothing and is neither red nor green")
+        self.assertEqual(len(self.api.issues[1]["comments"]), 1)
+
+    def test_markers_in_commit_subjects_cannot_claim_issues(self):
+        nightly = "<!-- ci-red-tracker workflow=.github/workflows/nightly.yml -->"
+        self.api.add_run(31, 5, "failure", workflow="Core CI", event="push")
+        self.api.runs[31]["head_commit"]["message"] = f"fix: {nightly} <!-- ci-red-tracker run=11 attempt=1 -->\n\n正文"
+        self.track(31)
+        core = self.api.issues[1]["body"]
+        self.assertEqual([line for line in core.splitlines() if "<!--" in line], [
+            "<!-- ci-red-tracker workflow=.github/workflows/ci.yml -->",
+            "<!-- ci-red-tracker run=31 attempt=1 -->",
+        ], "only the tracker's own markers stay HTML comments")
+        self.assertIn("`fix: <!- - ci-red-tracker workflow=.github/workflows/nightly.yml - -> ", core)
+        self.api.add_run(11, 21, "failure")
+        self.track(11)
+        self.assertEqual(self.api.issues[1]["comments"], [], "a Nightly failure must not land on the Core CI issue")
+        self.assertEqual([issue["title"] for issue in self.api.issues.values()], ["Core CI 失败：2026-10-05", "Nightly builds 失败：2026-10-21"])
+        # 即使正文里已经有一份原样的标记（比如旧版本写进去的），和别的文字同一行也不算数。
+        self.api.issues[1]["body"] += f"\n- 提交：`{nightly}`"
+        self.api.issues[2]["state"] = "closed"
+        self.api.add_run(12, 22, "failure")
+        self.track(12)
+        self.assertEqual(self.api.issues[1]["comments"], [])
+        self.assertEqual(len(self.api.issues), 3)
+
+    def test_workflow_filter_and_concurrency(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        # 工作流级的并发组会让每次触发都进组，取消、跳过的 CI 运行的跟踪也会把排队中、有结论的那次顶掉；只能写在被 if 过滤过的 job 上。
+        self.assertIsNone(re.search(r"^concurrency:", text, re.MULTILINE), "concurrency must be declared on the job, below its if")
+        job = text[text.index("\n  track:\n"):].splitlines()
+        self.assertIn("    concurrency:", job)
+        at = job.index("    concurrency:")
+        self.assertLess(job.index("    if: >-"), at)
+        self.assertEqual(job[at + 1:at + 3], ["      group: ci-red-tracker-${{ github.event.workflow_run.workflow_id }}", "      cancel-in-progress: false"])
+        conclusions = re.search(r"fromJSON\('(\[[^']*\])'\), github\.event\.workflow_run\.conclusion\)", text)
+        self.assertIsNotNone(conclusions)
+        self.assertEqual(sorted(json.loads(conclusions.group(1))), sorted(TRACKER.DECISIVE), "the workflow and the script must agree on which conclusions decide anything")
 
 
 class ApkSize(unittest.TestCase):

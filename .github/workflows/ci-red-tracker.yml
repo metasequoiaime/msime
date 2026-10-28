@@ -15,20 +15,19 @@ permissions:
   contents: read
   issues: write
 
-concurrency:
-  # 同一个 workflow 的结果串行处理，两次运行同时结束时不会各开一张单；不同 workflow 的单互不相关，可以并行。排队中的那次被更新的一次顶掉时，更新的那次按最近的运行历史重新判定，不丢状态。
-  group: ci-red-tracker-${{ github.event.workflow_run.workflow_id }}
-  cancel-in-progress: false
-
 jobs:
   track:
     name: Track red builds on develop
-    # 只看合进 develop 之后的运行（推送、定时、手动），PR 的运行一律不管；取消和跳过的运行既不算红也不算绿。脚本里还会再核对一次。
+    # 只看合进 develop 之后的运行（推送、定时、手动），PR 的运行一律不管；取消、跳过和等待批准的运行既不算红也不算绿，没能启动（startup_failure）的算红。结论列表与 scripts/ci_issue_tracker.py 的 DECISIVE 一致，scripts/test-ci-issue-tracker.py 检查两边相同；脚本里还会再核对一次。
     if: >-
       github.repository == 'metasequoiaime/msime' &&
       github.event.workflow_run.head_branch == 'develop' &&
       contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event.workflow_run.event) &&
-      contains(fromJSON('["success", "failure", "timed_out"]'), github.event.workflow_run.conclusion)
+      contains(fromJSON('["failure", "timed_out", "startup_failure", "success"]'), github.event.workflow_run.conclusion)
+    # 同一个 workflow 的结果串行处理，两次运行同时结束时不会各开一张单；不同 workflow 的单互不相关，可以并行。并发组写在 job 上而不是 workflow 上：被上面的 if 跳过的 job 不进组，取消、跳过的 CI 运行就不会把排队中、有结论的那次顶掉。GitHub 每组只留一个排队者，有结论的运行之间互相顶掉时，留下的那次按同一 workflow 最新一次有结论的运行判定，不丢最终状态。
+    concurrency:
+      group: ci-red-tracker-${{ github.event.workflow_run.workflow_id }}
+      cancel-in-progress: false
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 10
     steps:

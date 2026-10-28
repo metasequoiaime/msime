@@ -19,12 +19,12 @@ Status: implemented
 
 `.github/workflows/ci-red-tracker.yml` 以 `workflow_run`（`completed`）监听 `Nightly builds`、`Native Platform CI`、`Core CI`、`iOS CI`、`macOS CI`、`macOS package`，只处理 develop 上 push、schedule、workflow_dispatch 触发的运行，pull_request 的运行一律不管。判定和文案在 `scripts/ci_issue_tracker.py red-build`：
 
-- 每个 workflow 至多一张开着的跟踪单，标签 `ci-red`（不存在就 `gh label create --force` 建），指派 houko。哪张单属于哪个 workflow 靠正文里的 `<!-- ci-red-tracker workflow=<workflow 文件路径> -->` 认，不靠标题。nightly 和 develop 的推送 CI 各自一张，不会一张红单盖住另一个 workflow 的失败。
-- 失败或超时：没有开着的单就新开，标题「<workflow 名> 失败：<运行日期>」（UTC），正文有运行链接、提交号和提交标题、失败的 job 名及链接，以及从上一次成功以来第一次失败的运行和提交、连续失败的次数。已有单就追加一条评论。每次运行（含 attempt）带一个标记，同一事件重复送达不会重复评论。
-- 成功：有开着的单就评论「已转绿」并关闭；没有就什么都不做。取消和跳过的运行既不算红也不算绿。
-- 只让同一 workflow 最新一次有结论的运行改变状态。`workflow_run` 事件可能乱序到达，更旧的失败不能重开已经转绿的单，更旧的成功也不能关掉更新的失败开的单。
-- 并发组按被监听的 workflow 划分，`cancel-in-progress: false`，两次运行同时结束时不会各开一张单。GitHub 的并发组只保留一个排队者，排队的那次被更新的一次顶掉时，更新的那次按运行历史重新算出起点，不丢状态。
-- 权限只有 `issues: write`、`actions: read`、`contents: read`，只用 `GITHUB_TOKEN` 和 runner 自带的 `gh`，不引入新的 action。它检出默认分支上的脚本，不检出、不执行被跟踪运行的代码。写进 issue 的只有 job 名、链接、提交号和提交标题，不放日志。提交标题放进代码样式，里面的 `@` 提及和 `#` 编号不会通知人或链出去。
+- 每个 workflow 至多一张开着的跟踪单，标签 `ci-red`（不存在就 `gh label create --force` 建），指派 houko。哪张单属于哪个 workflow 靠正文里的 `<!-- ci-red-tracker workflow=<workflow 文件路径> -->` 认，不靠标题。标记只认独占一行的，和别的文字同一行的不算；nightly 和 develop 的推送 CI 各自一张，不会一张红单盖住另一个 workflow 的失败。
+- 失败、超时或没能启动（`startup_failure`，workflow 文件写错、复用的 workflow 引用失效、权限不匹配时出现，nightly「悄悄不跑」就是这种）：没有开着的单就新开，标题「<workflow 名> 失败：<运行日期>」（UTC），正文有运行链接、提交号和提交标题、失败的 job 名及链接，以及从上一次成功以来第一次失败的运行和提交、连续失败的次数。已有单就追加一条评论。每次运行（含 attempt）带一个标记，同一事件重复送达不会重复评论。
+- 成功：有开着的单就评论「已转绿」并关闭；没有就什么都不做。取消和跳过的运行既不算红也不算绿。`action_required`（运行等人批准，一个 job 都没跑）也不算：它只出现在外部贡献者的 PR 上，这里本来就不跟踪，即使出现也说明不了代码的红绿。
+- 只让同一 workflow 最新一次有结论的运行改变状态。`workflow_run` 事件可能乱序到达，旧运行也可能被重跑，更旧的失败不能重开已经转绿的单，更旧的成功也不能关掉更新的失败开的单。触发的是更旧的运行时，脚本改按最新那次有结论的运行判定（开单、追加或关单），而不是跳过：最新那次自己的跟踪运行可能在并发组里被顶掉了。同一次运行不会报两次，运行标记挡住。
+- 并发组按被监听的 workflow 划分，`cancel-in-progress: false`，两次运行同时结束时不会各开一张单。并发组写在 job 上、放在 job 的 `if` 之后，而不是 workflow 上：写在 workflow 上时每次触发都进组，取消、跳过的 CI 运行（develop 上很常见）的跟踪也会把排队中、有结论的那次顶掉，它要做的开单、追加或关单就丢了，nightly 要等到第二天。job 级的 `if` 只放行上面那几种有结论的运行，跳过的 job 不进组。GitHub 的并发组只保留一个排队者，有结论的运行之间互相顶掉时，留下的那次按最新一次有结论的运行判定，最终状态不丢；被顶掉的那次如果是中间的一次失败，它的那条评论会缺，单照样开着。`if` 里的结论列表和脚本的 `DECISIVE` 由测试核对一致。
+- 权限只有 `issues: write`、`actions: read`、`contents: read`，只用 `GITHUB_TOKEN` 和 runner 自带的 `gh`，不引入新的 action。它检出默认分支上的脚本，不检出、不执行被跟踪运行的代码。写进 issue 的只有 job 名、链接、提交号和提交标题，不放日志。提交标题放进代码样式，里面的 `@` 提及和 `#` 编号不会通知人或链出去；标题里的 `<!--`、`-->` 拆成 `<!- -`、`- ->`，渲染时藏不住内容，也不像标记。squash 合并的提交标题就是 PR 标题，可能来自外部贡献者，这两层（拆开注释起止符、标记只认独占一行）让它冒充不了别的 workflow 的单或「已经报过」的运行。
 
 ### APK 体积预警线
 
@@ -56,11 +56,11 @@ Status: implemented
 - **收益**：develop 和 nightly 的每一次红都会出现在一张指派给维护者的 issue 里，带着第一次变红的提交；转绿自动关闭，开着的 `ci-red` 单就是当前的红灯清单。瘦包在越过上限之前约 3 MB 处就有 issue 提示。只在 Fedora 上失败的 Linux 测试在 PR 上就能看到。
 - **代价**：设备套件修好之前，`Native Platform CI` 的单会频繁开关、评论很多；这正是要让人看见的噪音，间歇失败的重试和隔离另做。PR 上多一个 Linux 作业：Fedora 镜像在 Depot runner 没有缓存时要现装，Release 构建也比 Debug 慢，但只在 Linux 或共享路径改动时运行，也不是必需检查，不挡合并。
 - **只能合并后验证**：`workflow_run` 只按默认分支上的 workflow 文件触发，nightly 的 `android-size` 也只在 develop 上维护 issue，所以真实的开单、评论和关单要合进 develop 后由下一次运行验证。Fedora 作业在本 PR 自己的 CI 上就会跑（改了 `ci-platforms.yml`，Linux 作业都会被点亮）；develop 目前的 `linux-candidate-native-canvas-chrome` 失败修好之前，它在本 PR 上是红的，说明它确实拦得住这类失败。
-- **仍然没有覆盖**：iOS、macOS 的推送 CI（`ci-ios.yml`、`ci-macos.yml`、`ci-macos-package.yml`）不在监听列表里。要加只需把 workflow 名加进 `workflows:`。
+- **监听列表要手工维护**：新增一个合进 develop 后才跑的 workflow 时，要把它的名字加进 `ci-red-tracker.yml` 的 `workflows:`，否则它红了不会开单。
 
 ## Verification
 
-- `python3 scripts/test-ci-issue-tracker.py`：10 项，用假的 GitHub 覆盖首红开单（只列失败和超时的 job，取消的运行不打断连续失败的计数）、追加评论与重复事件、重跑 attempt、乱序事件、成功关单与重新开单、PR 和其他分支的运行、各 workflow 各一张单、没有失败 job 的运行，以及体积单的开、改、缺报告不关和全部回落关闭。
+- `python3 scripts/test-ci-issue-tracker.py`：14 项，用假的 GitHub 覆盖首红开单（只列失败和超时的 job，取消的运行不打断连续失败的计数）、追加评论与重复事件、重跑 attempt、乱序事件、更旧运行触发时按最新一次有结论的运行开单和关单、`startup_failure` 算红而 `action_required` 不算、提交标题里的标记冒充不了别的单、成功关单与重新开单、PR 和其他分支的运行、各 workflow 各一张单、没有失败 job 的运行，以及体积单的开、改、缺报告不关和全部回落关闭；另从 `ci-red-tracker.yml` 读出并发组必须在 job 的 `if` 之后、结论列表与 `DECISIVE` 一致。job 级 `if` 跳过的 job 不进并发组是 GitHub 的行为，本地验证不了。
 - 用假的 `gh` 走真实的 `GitHub` 类跑两条子命令，核对调用参数和渲染出的正文。
 - 从 `build-apk.sh` 截出体积那一段，用 128,000,000、133,000,000 和 135,623,964 字节的假 APK 分别跑出通过、警告加注解、超过上限失败，三种情况都写了摘要和合法的 JSON 报告；非瘦包写出 null 阈值的报告；预警线高于上限或不是数字时失败；`LC_ALL=C` 下照常运行。
 - 用假的 `docker` 跑 `package-container.sh`：`MSIME_PACKAGE_TESTS_ONLY=1` 传进容器，版本缺省为 full、桌面缺省为 0；不含 full 的版本列表和非法取值都以 2 退出。`scripts/test-linux-package-cache.py`、`scripts/test-linux-distro-packaging.py` 通过。

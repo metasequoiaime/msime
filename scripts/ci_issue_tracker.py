@@ -19,7 +19,8 @@ ASSIGNEE = "houko"
 BRANCH = "develop"
 # 只跟踪合进 develop 之后的运行；pull_request 的红是 PR 自己的事，不进跟踪单。
 TRACKED_EVENTS = ("push", "schedule", "workflow_dispatch")
-RED = ("failure", "timed_out")
+# startup_failure 是运行根本没能启动（workflow 文件写错、复用的 workflow 引用失效、权限不匹配），nightly「悄悄不跑」就是这种，算红。action_required 是运行在等人批准、一个 job 都没跑，只出现在外部贡献者的 PR 上，这里不跟踪 PR，也说明不了代码红绿，和取消、跳过一样不算。
+RED = ("failure", "timed_out", "startup_failure")
 DECISIVE = RED + ("success",)
 RED_LABEL = ("ci-red", "B60205", "develop 或 nightly 的 CI 失败，先修红再合功能 PR")
 SIZE_LABEL = ("apk-size", "FBCA04", "Android 瘦包体积越过预警线")
@@ -82,21 +83,31 @@ class GitHub:
         self._gh("issue", "close", str(number), "--repo", self.repository, "--reason", "completed")
 
 
+def has_marker(text, marker):
+    # 标记只认独占一行的：提交标题这类外来文字和标记写在同一行里，就算原样含有一个标记，也冒充不了另一个 workflow 的单或「已经报过」的运行。
+    return any(line.strip() == marker for line in (text or "").splitlines())
+
+
 def find_issue(issues, marker):
     # 理论上每个标记只有一张开着的单；万一有人手工复制出第二张，跟踪最早的那张。
-    matches = sorted((issue for issue in issues if marker in (issue.get("body") or "")), key=lambda issue: issue["number"])
+    matches = sorted((issue for issue in issues if has_marker(issue.get("body"), marker)), key=lambda issue: issue["number"])
     return matches[0] if matches else None
 
 
 def already_reported(api, number, body, marker):
-    return marker in body or any(marker in comment for comment in api.comments(number))
+    return has_marker(body, marker) or any(has_marker(comment, marker) for comment in api.comments(number))
+
+
+def inert(text):
+    """外来文字（提交标题）写进 issue 前的处理：反引号换掉，好整段放进代码样式；HTML 注释的起止符拆开，渲染时藏不住后面的内容，也不会被当成标记。"""
+    return text.replace("`", "'").replace("<!--", "<!- -").replace("-->", "- ->")
 
 
 def commit_line(server, repository, run):
     sha = run["head_sha"]
     message = ((run.get("head_commit") or {}).get("message") or "").splitlines()
     # 提交标题放进代码样式里，免得里面的 @ 提及或 #编号在 issue 里通知人、链出去。
-    subject = (message[0] if message else "").replace("`", "'").strip()[:200]
+    subject = inert((message[0] if message else "").strip()[:200])
     link = f"[`{sha[:10]}`]({server}/{repository}/commit/{sha})"
     return f"{link} `{subject}`" if subject else link
 
@@ -122,7 +133,7 @@ def job_lines(jobs):
     failed = [job for job in jobs if job.get("conclusion") in RED]
     if not failed:
         return ["- 没有找到失败的 job（可能是 workflow 文件出错或运行没能启动），请看运行页。"]
-    labels = {"failure": "失败", "timed_out": "超时"}
+    labels = {"failure": "失败", "timed_out": "超时", "startup_failure": "没能启动"}
     return [f"- [{job['name']}]({job['html_url']})（{labels[job['conclusion']]}）" for job in failed]
 
 
@@ -137,12 +148,11 @@ def track_red_build(api, run_id, server="https://github.com"):
         return
     runs = [other for other in api.workflow_runs(run["workflow_id"])
             if other["event"] in TRACKED_EVENTS and other["head_branch"] == BRANCH and other["conclusion"] in DECISIVE]
-    # 事件可能乱序到达，同一 workflow 也可能有更新的运行已经处理过：只让最新一次有结论的运行决定开单还是关单，否则旧的失败会重开已经转绿的单，旧的成功会关掉仍然红着的单。
-    newer = [other for other in runs if other["run_number"] > run["run_number"]]
-    if newer:
-        latest = max(newer, key=lambda other: other["run_number"])
-        print(f"{name} #{run['run_number']}: newer run #{latest['run_number']} already concluded {latest['conclusion']}; skipping")
-        return
+    # 事件可能乱序到达，旧运行也可能被重跑：只让最新一次有结论的运行决定开单还是关单，否则旧的失败会重开已经转绿的单，旧的成功会关掉仍然红着的单。触发这次的是更旧的运行时改按最新那次判定，而不是跳过：最新那次自己的跟踪运行可能在并发组里排队时被这次顶掉了，跳过就没人替它开单或关单。重复处理同一次运行由下面的运行标记挡住。
+    latest = max([run, *runs], key=lambda other: other["run_number"])
+    if latest["id"] != run["id"]:
+        print(f"{name} #{run['run_number']}: newer run #{latest['run_number']} concluded {latest['conclusion']}; deciding from it")
+        run, conclusion = latest, latest["conclusion"]
 
     marker = f"<!-- ci-red-tracker workflow={run['path']} -->"
     run_marker = f"<!-- ci-red-tracker run={run['id']} attempt={run['run_attempt']} -->"
@@ -162,7 +172,11 @@ def track_red_build(api, run_id, server="https://github.com"):
         print(f"closed #{issue['number']} for {name}")
         return
 
-    jobs = job_lines(api.jobs(run["id"], run["run_attempt"]))
+    if conclusion == "startup_failure":
+        # 没能启动的运行一个 job 都没有，原因只在运行页顶部的报错里。
+        jobs = ["- 运行没能启动（startup_failure），通常是 workflow 文件写错、复用的 workflow 引用失效或权限配置不对，请看运行页顶部的报错。"]
+    else:
+        jobs = job_lines(api.jobs(run["id"], run["run_attempt"]))
     attempt = f"（第 {run['run_attempt']} 次尝试）" if run["run_attempt"] > 1 else ""
     if issue is not None:
         if already_reported(api, issue["number"], issue["body"], run_marker):
