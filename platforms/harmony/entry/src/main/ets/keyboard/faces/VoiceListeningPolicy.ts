@@ -7,9 +7,9 @@ import { TextPolicy } from "../TextPolicy";
  */
 
 /** 圆盘直径的上限与下限。 */
-export const VOICE_ORB_MAX_VP: number = 72;
+export const VOICE_ORB_MAX_VP: number = 64;
 export const VOICE_ORB_MIN_VP: number = 40;
-/** 光圈满音量时超出圆盘的宽度占直径的比例：72vp 的圆盘外扩 18vp，方框边长是直径的 1.5 倍。 */
+/** 光圈满音量时超出圆盘的宽度占直径的比例：64vp 的圆盘外扩 16vp，方框边长是直径的 1.5 倍。 */
 export const VOICE_HALO_RATIO: number = 0.25;
 /** 标题位要留两行时圆盘至少还有这么大，否则只留一行。 */
 export const VOICE_TWO_LINE_MIN_ORB_VP: number = 52;
@@ -43,7 +43,7 @@ export interface VoiceListeningPlan {
 
 export class VoiceListeningPolicy {
   /**
-   * 按钮行上面那块区域的排布：`height` 不含按钮行和它周围的边距，`titleLine`、`hintLine` 是标题和提示单行的实测高度。依次试「两行标题加提示」「一行标题加提示」「一行标题不带提示」，取第一个圆盘不小于下限的；两行时圆盘还要不小于 `VOICE_TWO_LINE_MIN_ORB_VP`。都放不下时圆盘先停在下限、光圈收窄，再不够才把圆盘缩到剩下的高度。
+   * 按钮行上面那块区域的排布：`height` 不含按钮行和它周围的边距，按住说话的会话没有按钮行时就是整个面板的高度；`titleLine`、`hintLine` 是标题和提示单行的实测高度。依次试「两行标题加提示」「一行标题加提示」「一行标题不带提示」，取第一个圆盘不小于下限的；两行时圆盘还要不小于 `VOICE_TWO_LINE_MIN_ORB_VP`。都放不下时圆盘先停在下限、光圈收窄，再不够才把圆盘缩到剩下的高度。
    *
    * 标题位总按预留的行数算，中间文字从一行换到两行时圆盘不跟着变；只占一行时空出来的那行落在提示下面。
    */

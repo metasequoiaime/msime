@@ -36,21 +36,56 @@ function used(plan: VoiceListeningPlan, titleLine: number, hintLine: number): nu
 const TITLE = 22;
 const HINT = 18;
 {
-  // 竖屏默认高度：两行标题加提示，圆盘取上限，光圈外扩 18vp，内容在区域里居中。
+  // 很高的区域：两行标题加提示，圆盘取上限 64vp，光圈外扩 16vp，内容在区域里居中。
   const plan = VoiceListeningPolicy.plan(300, TITLE, HINT);
   expect(
     "plan/tall",
-    plan.orb === VOICE_ORB_MAX_VP &&
-      near(plan.halo, 18) &&
+    VOICE_ORB_MAX_VP === 64 &&
+      plan.orb === VOICE_ORB_MAX_VP &&
+      near(plan.halo, 16) &&
       plan.titleLines === 2 &&
       plan.showsHint &&
-      near(plan.top, (300 - (72 + 36 + 84)) / 2),
+      near(plan.top, (300 - (64 + 32 + 84)) / 2),
     describe(plan),
+  );
+  const huge = VoiceListeningPolicy.plan(1000, 40, 32);
+  expect(
+    "plan/cap",
+    huge.orb === 64 && near(huge.halo, 16) && huge.titleLines === 2,
+    describe(huge),
   );
 }
 {
-  // 两行时圆盘不足 52vp，退到一行标题加提示。
-  const height = 84 + 1.5 * 50;
+  // 按住说话的会话收尾时没有按钮行，区域就是整个面板（`surfaceHeight`：4 行 44vp 加高度调整与 3 道行距）。最矮的面板（高度调整 -12、行距 4vp）是 176vp，仍是两行标题加提示，圆盘约 61vp；出厂面板 197vp 时圆盘到上限 64vp。
+  const smallest = 44 * 4 - 12 + 3 * 4;
+  const held = VoiceListeningPolicy.plan(smallest, TITLE, HINT);
+  expect(
+    "plan/held-full-height",
+    held.titleLines === 2 &&
+      held.showsHint &&
+      near(held.orb, (smallest - 84) / 1.5) &&
+      held.orb > 58 &&
+      held.orb < 64,
+    describe(held),
+  );
+  const factory = 44 * 4 + 3 * 7;
+  const heldFactory = VoiceListeningPolicy.plan(factory, TITLE, HINT);
+  expect(
+    "plan/held-factory",
+    heldFactory.titleLines === 2 && heldFactory.showsHint && heldFactory.orb === 64,
+    describe(heldFactory),
+  );
+  // 点按开始的会话要让出按钮行（约 40vp）和它下面的 10vp：同一块出厂面板只剩一行标题。
+  const tapped = VoiceListeningPolicy.plan(factory - 40 - 10, TITLE, HINT);
+  expect(
+    "plan/tap-start-with-actions",
+    tapped.titleLines === 1 && tapped.showsHint && tapped.orb < 64,
+    describe(tapped),
+  );
+}
+{
+  // 两行时圆盘不足 52vp，退到一行标题加提示；这个高度下一行时的圆盘还在上限以内。
+  const height = 84 + 1.5 * 45;
   const plan = VoiceListeningPolicy.plan(height, TITLE, HINT);
   expect(
     "plan/one-line",

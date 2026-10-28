@@ -7291,6 +7291,14 @@ struct KeyboardView {
     return this.voiceText.length > 0 ? '插入文字' : '重新录音';
   }
 
+  /**
+   * 按住说话（空格长按或快捷键按住）的会话在忙时不给任何按钮：松手就是结束，整块高度都留给圆盘和文字。空格长按的面板在松手收尾时才出现；快捷键一按下就打开面板（`onVoiceHotkey` 的 START），按住期间同样没有按钮，结束和取消走快捷键自己的 STOP、CANCEL。点按开始的会话可以取消；不忙时（提示、出错、识别完成）一律留「返回键盘」，否则没有路离开面板。
+   */
+  private voiceCancelLabel(): string {
+    if (!this.voiceBusy) return '返回键盘';
+    return this.voiceHeldByKey ? '' : '取消';
+  }
+
   private voicePrimaryAction(): void {
     if (this.voiceBusy) {
       this.stopVoice();
@@ -7326,7 +7334,7 @@ struct KeyboardView {
           level: this.voiceLevel,
           primaryLabel: this.voicePrimaryLabel(),
           primaryEnabled: !this.voiceFinishing,
-          cancelLabel: this.voiceBusy ? '取消' : '返回键盘',
+          cancelLabel: this.voiceCancelLabel(),
           onPrimary: (): void => this.voicePrimaryAction(),
           onCancel: (): void => this.cancelListening()
         })

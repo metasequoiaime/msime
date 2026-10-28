@@ -6,15 +6,14 @@ import {
   VOICE_GAP_INDICATOR_TITLE_VP,
   VOICE_GAP_TITLE_HINT_VP,
   VOICE_INNER_RING_OPACITY,
-  VOICE_ORB_MAX_VP,
   VOICE_OUTER_RING_OPACITY,
   VOICE_PAD_TOP_VP,
   VoiceListeningPlan,
   VoiceListeningPolicy
 } from './VoiceListeningPolicy';
 
-/** 圆盘为最大直径 72vp 时麦克风图标的边长；圆盘缩小时按比例缩小。 */
-const MIC_VP: number = 30;
+/** 麦克风图标边长占圆盘直径的比例，沿用设计稿 72vp 圆盘配 30vp 图标。 */
+const MIC_RATIO: number = 30 / 72;
 const MIC_STROKE: number = 1.8;
 const TITLE_FONT_SIZE: number = 16;
 const HINT_FONT_SIZE: number = 13;
@@ -44,9 +43,9 @@ class LevelFrame extends FrameCallback {
 }
 
 /**
- * 手机语音面板展示录音、转写和上屏状态。主按钮结束采集或重试，取消按钮返回键盘；整句上传与流式识别共用同一界面，不把结果放进可编辑的输入框。
+ * 手机语音面板展示录音、转写和上屏状态。主按钮结束采集或重试，取消按钮返回键盘；整句上传与流式识别共用同一界面，不把结果放进可编辑的输入框。两个按钮的文字都为空时（按住说话的会话在收尾识别）不画按钮行，上面那块区域占满整个面板。
  *
- * 排布按 `VoiceListeningPolicy.plan`：按钮行上面那块区域的实测高度决定圆盘多大、标题位留几行、画不画提示行，光圈的最大外扩算在方框里，满音量时也不出面板。光圈随麦克风电平（`level`）缩放，只在显示值还没追上电平时逐帧推进，追上就停；系统开了「减弱动画」时光圈停在安静时的大小。
+ * 排布按 `VoiceListeningPolicy.plan`：按钮行上面那块区域（没有按钮行时是整个面板）的实测高度决定圆盘多大、标题位留几行、画不画提示行，光圈的最大外扩算在方框里，满音量时也不出面板。光圈随麦克风电平（`level`）缩放，只在显示值还没追上电平时逐帧推进，追上就停；系统开了「减弱动画」时光圈停在安静时的大小。
  */
 @Component
 export struct VoiceListening {
@@ -69,6 +68,7 @@ export struct VoiceListening {
   @Prop @Watch('levelChanged') level: number = 0;
   @Prop primaryLabel: string = '';
   @Prop primaryEnabled: boolean = true;
+  /** 为空时不画取消按钮。 */
   @Prop cancelLabel: string = '取消';
   onPrimary: () => void = (): void => {};
   @Require onCancel: () => void;
@@ -219,7 +219,7 @@ export struct VoiceListening {
             .fill(this.accent)
           KeyboardLineIcon({
             d: this.micPath,
-            iconSize: MIC_VP * this.plan.orb / VOICE_ORB_MAX_VP,
+            iconSize: MIC_RATIO * this.plan.orb,
             stroke: MIC_STROKE,
             color: this.onAccent
           })
@@ -254,27 +254,31 @@ export struct VoiceListening {
       .clip(true)
       .onAreaChange((_old: Area, area: Area): void => this.regionChanged(area))
 
-      Row({ space: ACTIONS_GAP_VP }) {
-        if (this.primaryLabel.length > 0) {
-          Button(this.primaryLabel)
-            .fontSize(ACTION_FONT_SIZE)
-            .fontColor(this.onAccent)
-            .backgroundColor(this.accent)
-            .constraintSize({ minHeight: ACTION_MIN_HEIGHT_VP })
-            .enabled(this.primaryEnabled)
-            .onClick(() => this.onPrimary())
+      if (this.primaryLabel.length > 0 || this.cancelLabel.length > 0) {
+        Row({ space: ACTIONS_GAP_VP }) {
+          if (this.primaryLabel.length > 0) {
+            Button(this.primaryLabel)
+              .fontSize(ACTION_FONT_SIZE)
+              .fontColor(this.onAccent)
+              .backgroundColor(this.accent)
+              .constraintSize({ minHeight: ACTION_MIN_HEIGHT_VP })
+              .enabled(this.primaryEnabled)
+              .onClick(() => this.onPrimary())
+          }
+          if (this.cancelLabel.length > 0) {
+            Button(this.cancelLabel)
+              .fontSize(ACTION_FONT_SIZE)
+              .fontColor(this.foreground)
+              .backgroundColor(Color.Transparent)
+              .constraintSize({ minHeight: ACTION_MIN_HEIGHT_VP })
+              .onClick(() => this.onCancel())
+          }
         }
-        Button(this.cancelLabel)
-          .fontSize(ACTION_FONT_SIZE)
-          .fontColor(this.foreground)
-          .backgroundColor(Color.Transparent)
-          .constraintSize({ minHeight: ACTION_MIN_HEIGHT_VP })
-          .onClick(() => this.onCancel())
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+        .padding({ left: ACTIONS_SIDE_INSET_VP, right: ACTIONS_SIDE_INSET_VP })
+        .margin({ bottom: ACTIONS_BOTTOM_MARGIN_VP })
       }
-      .width('100%')
-      .justifyContent(FlexAlign.Center)
-      .padding({ left: ACTIONS_SIDE_INSET_VP, right: ACTIONS_SIDE_INSET_VP })
-      .margin({ bottom: ACTIONS_BOTTOM_MARGIN_VP })
     }
     .width('100%')
     .height('100%')
