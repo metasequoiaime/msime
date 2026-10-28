@@ -44,7 +44,7 @@ Status: implemented
 
 先 `ohpm install` 后实际 HAP 编译与打包通过（5.512 秒），使用既有原生库，仅证明 ArkTS 类型与打包。首轮因 `Record<string, hiAppEvent.ParamType>` 的非空对象字面量触发 ArkTS 限制，改为空记录再按键赋值后重编通过，不计首轮为通过。ArkTS subset、私有文本读取、原身份无文件回退及隐私门禁均通过。
 
-实际系统回调是否携带字段、同源 NAPI/共享层入队和后台精确符号化尚未设备验收，不能用替身或 HAP 编译代替。新增 API 21 入口的四组实际适配器故障回归通过，覆盖原异常透传、前任抛错、无前任同步退出、停止后透明委托、暂停/恢复/换代、原生准备失败重试、不覆盖后来安装者，以及系统参数未完成时同步武装。OpenHarmony NDK 下 arm64/armv7/x86_64 的记录器与实际 NAPI 严格编译通过；共用 Apple 记录器实际内存故障首帧与符号还原回归通过。API 21 兼容入口的真实设备故障仍未验收。最新 HAP 实际 ArkTS 编译与打包通过（6.471 秒）；首轮新增回调的无类型对象字面量被 ArkTS 拒绝，抽成共用有类型的 `scriptCrash` 后重编通过。此 HAP 仍复用旧 Rust/NAPI 缓存，不能安装后声称新增原生入口可用。严格 arm64 共享链接明确失败：缓存 Rust 缺少 `msime_client_telemetry_consent` 等四个已有 ABI；不弱化 `--no-undefined`、不以空实现补符号，需要同源重编。模拟器 `Emulator -start msime_harmony_7176` 启动进程被系统 `SIGKILL` 终止，`hdc` 仍为空，没有执行设备故障。完整 quick 与其余平台 CI 的进度由全平台提案持续跟踪。
+实际系统回调是否携带字段、同源 NAPI/共享层入队和后台精确符号化尚未设备验收，不能用替身或 HAP 编译代替。新增 API 21 入口的四组实际适配器故障回归通过，覆盖原异常透传、前任抛错、无前任同步退出、停止后透明委托、暂停/恢复/换代、原生准备失败重试、不覆盖后来安装者，以及系统参数未完成时同步武装。OpenHarmony NDK 下 arm64/armv7/x86_64 的记录器与实际 NAPI 严格编译通过；共用 Apple 记录器实际内存故障首帧与符号还原回归通过。API 21 兼容入口的真实设备故障仍未验收。最新 HAP 实际 ArkTS 编译与打包通过（6.471 秒）；首轮新增回调的无类型对象字面量被 ArkTS 拒绝，抽成共用有类型的 `scriptCrash` 后重编通过。该次缓存 HAP 不能证明新增原生入口可用；严格链接拒绝缺少 `msime_client_telemetry_consent` 等四个 ABI 的旧 Rust 库。后续 `d91b0b9242640ed4c31715f40aa9c408494f41b9` 已完成同源 arm64 Rust/NAPI 严格链接、两个自有模块符号归档与实际 HAP 打包（47.894 秒），没有弱化 `--no-undefined` 或补空实现。下载前后核对 SHA-256，HAP 内两模块的 build-id 均与符号清单一致，产品 `msime_client_telemetry_consent` 按精确身份还原到 `consent.rs` 源码行。模拟器补齐 SDK 查找路径后系统已启动，但 `hdc` 仍未连接，进程再次被系统 `SIGKILL` 终止；临时 SDK 链接与专用 hdc 服务已清理，没有设备故障验收结果。完整 quick 与其余平台 CI 的进度由全平台提案持续跟踪。
 
 ## Consequences
 

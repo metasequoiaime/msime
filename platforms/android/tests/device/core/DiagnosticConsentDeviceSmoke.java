@@ -76,7 +76,10 @@ public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
                 try (Stream<Path> paths = Files.walk(root)) {
                     for (Path path : (Iterable<Path>) paths.sorted(java.util.Comparator.reverseOrder())::iterator)
                         Files.deleteIfExists(path);
-                } catch (Exception failure) { result.putString("cleanup", "synthetic consent cleanup failed"); }
+                } catch (Exception failure) {
+                    code = Activity.RESULT_CANCELED;
+                    result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: synthetic consent cleanup\n");
+                }
             }
         }
         finish(code, result);
