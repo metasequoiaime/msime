@@ -259,6 +259,7 @@ import {
   CandidateGlossPolicy,
   GlossToken,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy";
+import { CorrectionMarkPolicy } from "../entry/src/main/ets/keyboard/candidate/CorrectionMarkPolicy";
 import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
@@ -8901,6 +8902,75 @@ group("the key geometry is registered once per layout and session", () => {
   check(
     sent.every((json) => (JSON.parse(json) as { id: number }).id !== 0),
     "an id of 0 would clear, so it is never used",
+  );
+});
+
+group("双拼纠错坐上首选的那一行画强调色下划线，读屏念「已纠正」（#10018）", () => {
+  // 引擎只在坐上首选的纠错行带 confident_correction: true，其余行没有这个键；按 JSON 解析出来的样子核对。
+  type Row = { text: string; confident_correction?: boolean };
+  const rows = JSON.parse(
+    '[{"text":"我们","confident_correction":true},{"text":"文明"},{"text":"问名","confident_correction":false}]',
+  ) as Row[];
+  check(CorrectionMarkPolicy.confident(rows[0].confident_correction), "带 true 的那一行要标");
+  check(
+    !CorrectionMarkPolicy.confident(rows[1].confident_correction),
+    "没有这个键的行不标，默认视图与以前相同",
+  );
+  check(!CorrectionMarkPolicy.confident(rows[2].confident_correction), "false 不标");
+  check(!CorrectionMarkPolicy.confident(null), "null 不标");
+  const malformed = JSON.parse('{"confident_correction":"true"}') as {
+    confident_correction?: boolean;
+  };
+  check(
+    !CorrectionMarkPolicy.confident(malformed.confident_correction),
+    "不是布尔值的畸形回应不标",
+  );
+
+  check(CorrectionMarkPolicy.accessibilitySuffix(true) === "，已纠正", "读屏后缀是「，已纠正」");
+  check(CorrectionMarkPolicy.accessibilitySuffix(false) === "", "不标的行朗读不变");
+  check(
+    KeyAccessibilityPolicy.candidate(
+      1,
+      "我们",
+      "",
+      CorrectionMarkPolicy.accessibilitySuffix(true),
+    ) === "候选词 1：我们，已纠正",
+    "「已纠正」接在整行朗读的末尾",
+  );
+  check(
+    KeyAccessibilityPolicy.candidate(
+      1,
+      "我们",
+      "",
+      CandidateGlossPolicy.accessibilitySuffix("wo men", null, true) +
+        CorrectionMarkPolicy.accessibilitySuffix(true),
+    ) === "候选词 1：我们，提示：wo men，已纠正",
+    "原始按键的注释照旧读，「已纠正」在它之后",
+  );
+
+  const accent = "#2C7A4B";
+  const filledSelectedText = "#FFFFFF";
+  check(
+    CorrectionMarkPolicy.underlineColor(false, true, accent, filledSelectedText) === null,
+    "不标的高亮行不画下划线",
+  );
+  check(
+    CorrectionMarkPolicy.underlineColor(false, false, accent, filledSelectedText) === null,
+    "不标的普通行不画下划线",
+  );
+  check(
+    CorrectionMarkPolicy.underlineColor(true, false, accent, filledSelectedText) === accent,
+    "没高亮时下划线用强调色",
+  );
+  check(
+    CorrectionMarkPolicy.underlineColor(true, true, accent, filledSelectedText) ===
+      filledSelectedText,
+    "高亮时用这一行的高亮字色，皮肤把高亮底填成强调色时下划线仍看得见",
+  );
+  // 触屏候选栏的内置配色里高亮字色就是强调色（KeyboardView.candidateColors 的 selectedText: skin.accent），所以首选纠错行照样是强调色下划线。
+  check(
+    CorrectionMarkPolicy.underlineColor(true, true, accent, accent) === accent,
+    "内置配色下高亮行也是强调色",
   );
 });
 

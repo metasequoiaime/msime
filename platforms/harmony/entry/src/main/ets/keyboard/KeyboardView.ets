@@ -17,6 +17,7 @@ import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CorrectionMarkPolicy } from './candidate/CorrectionMarkPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
 import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
@@ -4093,6 +4094,8 @@ struct KeyboardView {
         .fontColor(CandidatePresentationPolicy.aiPlaceholder(candidate.source) ? this.candidateDetailColor()
           : CandidateSkinPolicy.rowTextColor(candidate.highlighted,
           candidate.fixedPosition > 0, this.candidateTextColor(), this.candidateSelectedTextColor()))
+        .decoration(this.correctionDecoration(candidate.confidentCorrection, candidate.highlighted,
+          this.candidateAccentColor(), this.candidateSelectedTextColor()))
       if (candidate.badge.length > 0) {
         Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateAccentColor()).opacity(0.8).padding({ left: 2 })
@@ -4141,8 +4144,17 @@ struct KeyboardView {
     const suffix: string = CandidateGlossPolicy.hunEumAccessibilitySuffix(candidate.hunEum)
       + CandidateGlossPolicy.accessibilitySuffix(
         candidate.annotationIsTranslation ? null : annotation,
-        candidate.annotationIsTranslation ? annotation : null, true);
+        candidate.annotationIsTranslation ? annotation : null, true)
+      + CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection);
     return KeyAccessibilityPolicy.candidate(index + 1, candidate.text, candidate.hint, suffix);
+  }
+
+  /** 首选纠错行（`confidentCorrection`）文字下的下划线，颜色由 `CorrectionMarkPolicy.underlineColor` 定；其余行不画。`highlightedText` 是这一处高亮行的字色。 */
+  private correctionDecoration(confident: boolean, highlighted: boolean, accent: string,
+    highlightedText: string): DecorationStyleInterface {
+    const color: string | null = CorrectionMarkPolicy.underlineColor(confident, highlighted, accent, highlightedText);
+    return color === null ? { type: TextDecorationType.None }
+      : { type: TextDecorationType.Underline, color: color };
   }
 
   /** The line under a candidate: a Korean Hanja's 훈음 and then the translation. An Engine annotation is not on it; that stays beside the word. */
@@ -4611,6 +4623,8 @@ struct KeyboardView {
           .fontColor(CandidatePresentationPolicy.aiPlaceholder(candidate.source) ? this.candidateDetailColor()
             : CandidateSkinPolicy.rowTextColor(candidate.highlighted, candidate.fixedPosition > 0,
             this.candidateTextColor(), this.candidateSelectedTextColor()))
+          .decoration(this.correctionDecoration(candidate.confidentCorrection, candidate.highlighted,
+            this.candidateAccentColor(), this.candidateSelectedTextColor()))
           .fontFamily(this.candidateFontFamily())
           .maxLines(1)
         if (candidate.badge.length > 0) {
@@ -8816,9 +8830,9 @@ struct KeyboardView {
     return ExpandedCandidateLayout.rows(indices, spans, this.expandedColumns());
   }
 
-  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字、是否高亮以及占几列（行尾那格的宽度会随后面的候选变）。 */
+  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字、是否高亮、是否标成首选纠错以及占几列（行尾那格的宽度会随后面的候选变）。 */
   private expandedCellKey(cell: ExpandedCandidateCell): string {
-    return `${cell.index}:${this.expanded[cell.index].text}:${this.expandedHighlighted(cell.index)}:${cell.span}`;
+    return `${cell.index}:${this.expanded[cell.index].text}:${this.expandedHighlighted(cell.index)}:${this.expanded[cell.index].confidentCorrection}:${cell.span}`;
   }
 
   /** 当工具条显示的是网格所列列表的开头时，网格标出工具条高亮的那个候选。 */
@@ -8831,7 +8845,8 @@ struct KeyboardView {
   private expandedLabel(index: number): string {
     const gloss: string = this.expandedGlossLine(index);
     return KeyAccessibilityPolicy.candidate(index + 1, this.expanded[index].text, '',
-      gloss.length > 0 ? `，${gloss}` : '');
+      (gloss.length > 0 ? `，${gloss}` : '')
+        + CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection));
   }
 
   /**
@@ -8900,6 +8915,10 @@ struct KeyboardView {
                 .fontColor(this.settings.candidateCanvas !== null
                   ? (this.expandedHighlighted(cell.index) ? this.candidateColors().selectedText : this.candidateColors().text)
                   : this.expandedHighlighted(cell.index) ? this.skin.toggleForeground : this.skin.keyForeground)
+                .decoration(this.correctionDecoration(this.expanded[cell.index].confidentCorrection,
+                  this.expandedHighlighted(cell.index),
+                  this.settings.candidateCanvas !== null ? this.candidateColors().accent : this.skin.accent,
+                  this.settings.candidateCanvas !== null ? this.candidateColors().selectedText : this.skin.toggleForeground))
                 .fontFamily(this.candidateFontFamily())
                 .textAlign(TextAlign.Center)
                 .maxLines(1)
