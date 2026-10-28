@@ -92,6 +92,14 @@ jobs:
           bash platforms/android/build-apk.sh "$resource_dir"
       - name: Install, prepare resources and accept input on the AVD
         run: bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }}
+      # 普通输入冒烟不会触发系统退出回调，也不会覆盖另一个进程在键盘运行期间撤回同意的情况。API 35 的专用夹具实际触发 ActivityManager 的崩溃、InputDispatcher 的 ANR，并在重启后核对队列、代次、去重和关闭抑制；API 28/35 的观察夹具再核对活跃 :ime 不重启会话。
+      - name: Verify crash reporting on the real API 35 AVD
+        if: ${{ matrix.api == 35 }}
+        run: |
+          set -euo pipefail
+          python3 platforms/android/tests/device/telemetry-watch.py "$SERIAL"
+          python3 platforms/android/tests/device/telemetry-consent.py "$SERIAL"
+          python3 platforms/android/tests/device/telemetry-anr.py "$SERIAL"
       - name: Collect device logs
         if: failure()
         run: |
