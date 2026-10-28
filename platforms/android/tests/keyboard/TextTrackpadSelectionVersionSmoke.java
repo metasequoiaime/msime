@@ -40,7 +40,15 @@ public final class TextTrackpadSelectionVersionSmoke {
         long reset = version.current();
         version.reported(23, 35);
         check(reset != version.current(), "重置后的同值回报按外部变化处理");
-        System.out.println("Android text trackpad selection version: own echoes, outside changes and reset passed");
+
+        // 选区本来就是这一段时 setSelection 不改变什么，编辑器不发回报；记录只陪紧随其后的一下触摸，再下一下触摸就作废，之后的同值回报照旧作废在途回读。
+        version.applied(0, 10);
+        version.invalidate();
+        version.invalidate();
+        long doubleTap = version.current();
+        version.reported(0, 10);
+        check(doubleTap != version.current(), "没等到回报的自身选区过了一下触摸就不再算数");
+        System.out.println("Android text trackpad selection version: own echoes, outside changes, unanswered selections and reset passed");
     }
 
     private static void check(boolean condition, String message) {
