@@ -65,6 +65,19 @@ class Helper:
             time.sleep(0.05)
         raise AssertionError("helper did not activate the current continuous authorization")
 
+    def wait_cleared(self):
+        # 解除故障武装先于磁盘清理；不能把观察到 off 当成清理完成。
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                if not self.events() and not self.records():
+                    return
+            except FileNotFoundError:
+                # 队列可在存在检查之后被清理；下一拍重新确认两类记录都已消失。
+                pass
+            time.sleep(0.05)
+        raise AssertionError("explicit off did not clear pending events and records")
+
     def epoch(self):
         return json.loads((self.preferences / "preferences.json").read_text())["preferences"]["usage_reporting_consent"]["epoch"]
 
@@ -195,6 +208,7 @@ def main():
             helper.wait_state("armed")
             helper.command("disable", "saved")
             helper.wait_state("off")
+            helper.wait_cleared()
             assert not helper.events(), "explicit off did not clear pending events"
             helper.die("fault")
             assert not helper.records(), "off helper wrote a crash"
