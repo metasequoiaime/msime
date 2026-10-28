@@ -47,6 +47,14 @@ Windows 11 的同源 MSVC x64/x86 七组用例均通过；两架构原有回调�
 
 首次真实探针已证明生产 helper 可被 WER 调用。扩展夹具的首次 x64 编译与 CTest 通过，但 PowerShell 5 将无 BOM 的中文脚本误读而导致解析失败，未执行系统验收；新脚本显式使用 UTF-8 BOM 后，直接 `-File` 与脚本调用均可执行，没有改动既有产品打包脚本。MinGW 的严格编译拒绝直接常量空地址写入的边界警告，夹具改为读取 `volatile` 故障地址再触发；不关闭编译警告。实际 TIP 还需完整产品包、安装器、真实编辑器及后台验收，不能据七组合成进程推定这些均已完成。
 
+### 暂存与签名边界
+
+现代包在替换暂存前明确要求 x86、x64、Arm64X 三份 `MetasequoiaImeCrashWer.dll`；Win7 x64 要求 x86/x64，Win7 x86 只要求 x86。不能仅靠扫描依赖目录推断 helper 存在，否则预编译或手动指定输入会静默漏装。helper 仅暂存在各架构 TIP 目录，Server 目录清除重复 DLL 与 PDB；符号继续由构建输出归档，不向安装目录重复复制 helper PDB。
+
+SignPath 的 Stage 与 Restore 将三个架构的 helper 列为必需自有二进制，保留不签上游 DLL 的规则；Stage 先核对全部源文件再重建请求目录，缺 helper 不破坏上一份请求。此前 CI 的 Build-Client 探针没有生成新增 helper 的合成 PE，因此在生产架构检查处失败；夹具补齐相应架构，并增加缺失和错架构负例。安装器回归覆盖现代、版本化与 Win7 包，逐架构缺 helper 必须预检失败且原暂存逐文件哈希不变；签名回归核对 Stage 精确集合、缺 helper 和 Restore 返回不完整的拒绝。完整 `package-files.ps1` 同时纳入 Windows release script CI，避免它只在手工运行时才验证暂存行为。
+
+Windows 11 上，冻结源码的四组构建工具探针和七组安装器脚本测试共十一组全部通过，1236 个输入文件的 SHA-256 与本机逐项一致。未构建、签名、安装产品，也未向产品后台上传。首次命令在文件传输完成前执行，未找到脚本，不能算验证；完成传输后整套重新执行并退出 0。最新整合快照的完整 quick 仍待执行，不把这些脚本测试当作真实签名服务或完整产品安装验收。
+
 ## Related notes
 
 检索活跃笔记的 WER、RuntimeException、TSF 故障和外部宿主崩溃后，[全平台提案](2026-10-27-cross-platform-crash-reporting.md)部分重叠，仍持有完整平台及后台验收；[独立捕获与符号身份](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)仍持有记录头与符号格式；[采集与队列代次](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)仍持有授权和旧记录拒绝。不完全吸收旧笔记，其余按键与焦点记录无关。
