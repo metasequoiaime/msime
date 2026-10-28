@@ -322,7 +322,53 @@ public final class KeyboardActionRow {
             }
             entries = List.copyOf(numeric);
         }
-        if (!swapLanguageNumber || entries.isEmpty()) return entries;
+        return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
+    }
+
+    /**
+     * 数字九宫格的底行，按进入它的键面（{@code sourceLayout}）排。往返字母层和数字层时，数字层的返回键留在字母层 123 那一格，符 留在字母层 符 那一格，不换位置（#9113、#10061）：
+     *
+     * <ul>
+     * <li>字母层底行以 符 打头的键面（拼音九键、九键双拼、笔画）：符 | 九键/原方案 |（地球）| 0 | 中/英 | 回车，与 {@link #designEntries(int, boolean, boolean, boolean, boolean, TouchKeyStyle.Row)} 的九键数字层相同。</li>
+     * <li>字母层底行以 123 打头的键面（26 键一族、韩文、14 键、18 键、手写、大千注音）：返回 |（地球）| 符 | 0 | 中/英 | 回车，与 26 键字母层 123 |（地球）| 符 的次序一致；14 键、18 键和手写的字母层底行没有 符，它排在返回和地球键之后。</li>
+     * <li>注音九键、日文假名网格这类自带键块、字母层没有底行的键面，沿用九键的次序。</li>
+     * </ul>
+     *
+     * 各键宽度与九键数字层相同，只换次序。「交换语言键与数字键」照旧在排好的次序上对调返回键和中/英；右侧大回车外框仍没有单独的底行（返回空表）。
+     *
+     * @param sourceLayout 进入数字九宫格之前画着的键面（{@link KeyboardLayout} 的界面常量）
+     * @param style 来源键面的底行样式，只用来判断右侧大回车
+     */
+    public static List<DesignEntry> numberPadEntries(int sourceLayout, boolean globe, boolean swapLanguageNumber,
+            TouchKeyStyle.Row style) {
+        List<DesignEntry> entries = designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false, true, false, style);
+        if (!entries.isEmpty() && numberPadLayerFirst(sourceLayout)) {
+            List<DesignEntry> reordered = new ArrayList<>(entries);
+            int symbol = -1;
+            for (int index = 0; index < reordered.size(); index++)
+                if (reordered.get(index).slot() == DesignSlot.SYMBOL_PANEL) symbol = index;
+            DesignEntry panel = reordered.remove(symbol);
+            // 符 跟在返回键（和地球键）后面，与 26 键字母层 123 |（地球）| 符 相同。
+            int after = 0;
+            for (int index = 0; index < reordered.size(); index++) {
+                DesignSlot slot = reordered.get(index).slot();
+                if (slot == DesignSlot.LAYER || slot == DesignSlot.GLOBE) after = index + 1;
+            }
+            reordered.add(after, panel);
+            entries = List.copyOf(reordered);
+        }
+        return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
+    }
+
+    /** 这个键面的字母层底行是否以 123 打头；是的话借用数字九宫格时返回键也排在第一格（{@link #numberPadEntries}）。 */
+    public static boolean numberPadLayerFirst(int sourceLayout) {
+        List<DesignEntry> letters = designEntries(sourceLayout, false);
+        return !letters.isEmpty() && letters.get(0).slot() == DesignSlot.LAYER;
+    }
+
+    /** 对调层键和中/英，两键的宽度跟着键走；缺任何一个时原样返回。 */
+    private static List<DesignEntry> swapLanguageNumber(List<DesignEntry> entries) {
+        if (entries.isEmpty()) return entries;
         List<DesignEntry> swapped = new ArrayList<>(entries);
         int layer = -1, language = -1;
         for (int index = 0; index < swapped.size(); index++) {

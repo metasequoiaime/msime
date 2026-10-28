@@ -1,6 +1,7 @@
 import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardActionRow.Slot;
 import app.msime.android.KeyboardLayout;
+import app.msime.android.TouchKeyStyle;
 import app.msime.android.ZhuyinKeyboardLayout;
 import java.util.List;
 
@@ -152,6 +153,7 @@ public final class KeyboardActionRowSmoke {
             }
         }
         handwritingRow();
+        numberPadFollowsTheSourceRow();
         check("打开符号面板".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.SYMBOL_PANEL, true)),
             "符 describes the panel it opens");
         // 数字层只保留一个 0，原空格挪进右列；地球键和语言/数字交换仍可组合。
@@ -440,6 +442,73 @@ public final class KeyboardActionRowSmoke {
         check(KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false, false, true, true)
                 .equals(KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false, false, true)),
             "九宫格数字页不加句点");
+    }
+
+    /**
+     * 数字九宫格底行跟着进入它的键面排（#10061）：往返字母层和数字层时，返回键与字母层的 123 同一格，符 与字母层的 符 同一格；拼音九键一族保持 #9113 的 符 | 九键。
+     */
+    private static void numberPadFollowsTheSourceRow() {
+        TouchKeyStyle.Row standard = TouchKeyStyle.Row.STANDARD;
+        int[] layerFirst = {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT,
+            KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT,
+            KeyboardLayout.ZHUYIN_LAYOUT};
+        for (int layout : layerFirst)
+            check(KeyboardActionRow.numberPadLayerFirst(layout), "123 leads the letter row of layout " + layout);
+        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT})
+            check(!KeyboardActionRow.numberPadLayerFirst(layout), "layout " + layout + " keeps the nine-key order");
+        // 全拼 26 键进数字层：返回 | 符 | 0 | 中 | 回车，正是字母层 123 | 符 的位置。
+        check(KeyboardActionRow.numberPadEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, false, standard).equals(List.of(
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DESIGN_LAYER_WEIGHT),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
+                    KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.ZERO, KeyboardActionRow.DESIGN_SPACE_WEIGHT),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, KeyboardActionRow.DESIGN_RETURN_WEIGHT))),
+            "26-key number pad: back | 符 | 0 | 中 | return");
+        for (boolean globe : new boolean[] {false, true}) {
+            for (boolean swap : new boolean[] {false, true}) {
+                for (int layout : layerFirst) {
+                    List<KeyboardActionRow.DesignSlot> letters = designSlots(layout, globe, swap);
+                    List<KeyboardActionRow.DesignEntry> pad = KeyboardActionRow.numberPadEntries(layout, globe, swap, standard);
+                    List<KeyboardActionRow.DesignSlot> digits = pad.stream().map(KeyboardActionRow.DesignEntry::slot).toList();
+                    String label = "layout " + layout + " globe " + globe + " swap " + swap;
+                    // 第一格在字母层是 123（交换时是中/英），在数字层是返回键（交换时同样是中/英）。
+                    KeyboardActionRow.DesignSlot first = swap ? KeyboardActionRow.DesignSlot.LANGUAGE
+                        : KeyboardActionRow.DesignSlot.LAYER;
+                    KeyboardActionRow.DesignSlot beforeReturn = swap ? KeyboardActionRow.DesignSlot.LAYER
+                        : KeyboardActionRow.DesignSlot.LANGUAGE;
+                    check(letters.get(0) == first && digits.get(0) == first
+                            && digits.get(digits.size() - 2) == beforeReturn,
+                        "the back key keeps the 123 slot: " + label);
+                    check(digits.indexOf(KeyboardActionRow.DesignSlot.GLOBE) == (globe ? 1 : -1),
+                        "the globe stays right after the first key: " + label);
+                    check(digits.indexOf(KeyboardActionRow.DesignSlot.SYMBOL_PANEL) == (globe ? 2 : 1),
+                        "符 follows the back key as on the 26-key letter row: " + label);
+                    if (letters.contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL))
+                        check(letters.indexOf(KeyboardActionRow.DesignSlot.SYMBOL_PANEL)
+                                == digits.indexOf(KeyboardActionRow.DesignSlot.SYMBOL_PANEL),
+                            "符 keeps its slot: " + label);
+                    check(digits.stream().filter(slot -> slot == KeyboardActionRow.DesignSlot.ZERO).count() == 1
+                            && !digits.contains(KeyboardActionRow.DesignSlot.SPACE),
+                        "one 0 replaces the space: " + label);
+                    List<KeyboardActionRow.DesignEntry> nine = KeyboardActionRow.designEntries(
+                        KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, swap, true);
+                    check(pad.size() == nine.size() && pad.containsAll(nine),
+                        "only the order changes, every key keeps its nine-key width: " + label);
+                }
+                // 拼音九键一族不变：符 | 九键 |（地球）| 0 | 中/英 | 回车（#9113）。
+                for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                        KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT})
+                    check(KeyboardActionRow.numberPadEntries(layout, globe, swap, standard).equals(
+                            KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, swap, true)),
+                        "layout " + layout + " keeps 符 | 九键 on its number pad, globe " + globe + " swap " + swap);
+            }
+        }
+        // 右侧大回车只来自拼音九键和笔画，那时外框自带底行。
+        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT})
+            check(KeyboardActionRow.numberPadEntries(layout, true, false, TouchKeyStyle.Row.TALL_RETURN).isEmpty(),
+                "the tall-return frame owns its number pad row, layout " + layout);
     }
 
     private static List<KeyboardActionRow.DesignSlot> designSlots(int layout, boolean globe, boolean swap) {
