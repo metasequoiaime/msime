@@ -299,7 +299,7 @@ pub enum ResourcePack {
     Pronunciations,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
     VoiceRuntime,
-    /// macOS 发布包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
+    /// macOS 发布包和 Android 的 full、拼音版瘦包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
     Wubi,
     /// macOS 上本地语音识别加载的 `libsherpa-onnx-c-api.dylib`（universal），取自 `resources/voice-runtime-macos.lock.json` 固定的、用本项目 Developer ID 重签过的归档。锁文件还没固定归档时不存在，见 [`ResourcePack::pinned`]。
     MacosVoiceRuntime,
@@ -1106,7 +1106,7 @@ pub fn download_prefixes<'a>(mirrors: &[&'a str]) -> Vec<&'a str> {
 
 /// 下载、校验并发布一个资源包到 `<state_root>/resource-packs/<id>`，替换旧安装。阻塞调用，不要放在 UI 线程；`cancel` 在每个数据块之间轮询。
 ///
-/// 每个固定文件按 [`download_prefixes`] 的顺序换源下载，没下完的部分下次用 HTTP Range 接着下（见 [`local_models::install_files`]）。万象 LTS 每次下载整份当前响应，不复用旧摘要的断点文件。
+/// 每个固定文件按 [`download_prefixes`] 的顺序换源下载，没下完的部分下次用 HTTP Range 接着下（见 [`local_models::install_files`]）。万象 LTS 每次下载整份当前响应，不复用旧摘要的断点文件。日文词典和五笔码表先在词库更新下载过的代次里找同样的字节，都找到时不联网（[`install_from_dictionary_updates`]）。
 pub fn install(
     state_root: &Path,
     pack: ResourcePack,
@@ -1207,7 +1207,11 @@ pub fn install_for_channel(
                 total: artifact.size,
             });
         });
-    } else if let Some(archive) = pack.archive() {
+    }
+    if let Some(result) = install_from_dictionary_updates(state_root, pack, progress, cancel) {
+        return result;
+    }
+    if let Some(archive) = pack.archive() {
         return local_models::install_archive_members(
             &root(state_root),
             pack.id(),
@@ -1229,6 +1233,49 @@ pub fn install_for_channel(
         progress,
         cancel,
     )
+}
+
+/// 发布包不带的日文词典和五笔码表（[`ResourcePack::Japanese`]、[`ResourcePack::Wubi`]）在词库更新下载过的代次里已有同样的字节时，从那里复制安装，不联网（见 [`crate::dictionary_updates::generation_copy`]）。安装包换了词库锁之后，已装的资源包过期、上一次自动更新的代次也失效，而那个代次里往往正是新锁要的码表，这样五笔用户不必再下载一遍近百 MB。
+///
+/// 这一组的每个文件都找到才这样装，返回安装的结果；缺任何一个或查找时读不了文件，返回 `None`，照常联网下载。取消照常报 [`LocalModelError::Cancelled`]。
+fn install_from_dictionary_updates(
+    state_root: &Path,
+    pack: ResourcePack,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Option<Result<PathBuf, LocalModelError>> {
+    if !matches!(pack, ResourcePack::Japanese | ResourcePack::Wubi) {
+        return None;
+    }
+    let artifacts = &pack.set().artifacts;
+    let mut files = Vec::with_capacity(artifacts.len());
+    for artifact in artifacts {
+        match crate::dictionary_updates::generation_copy(state_root, artifact, cancel) {
+            Ok(Some(path)) => files.push(path),
+            Ok(None) => return None,
+            Err(LocalModelError::Cancelled) => return Some(Err(LocalModelError::Cancelled)),
+            Err(_) => return None,
+        }
+    }
+    let fetcher = match local_models::LocalFileFetcher::matching_sources(
+        artifacts.iter().map(local_models::ImportSource::artifact),
+        &files,
+        cancel,
+    ) {
+        Ok(fetcher) => fetcher,
+        Err(LocalModelError::Cancelled) => return Some(Err(LocalModelError::Cancelled)),
+        Err(_) => return None,
+    };
+    Some(local_models::install_files_with(
+        &root(state_root),
+        pack.id(),
+        artifacts,
+        &pack.manifest(),
+        &[],
+        &fetcher,
+        progress,
+        cancel,
+    ))
 }
 
 /// 用用户自己下载好的文件安装一个资源包，不联网，替换旧安装。阻塞调用，不要放在 UI 线程。
@@ -2179,6 +2226,34 @@ mod tests {
             adopt(state.path(), pack, source.path()),
             Err(LocalModelError::MissingFile(name)) if name == "msime-stroke.db"
         ));
+    }
+
+    /// Android 升级到不带五笔码表的瘦包时，Bootstrap 把资源目录里上一个安装包解出的 `msime-wubi.db` 收编为 `wubi` 资源包。词库锁同时换了版本时那份是旧字节：不发布，文件原样留在资源目录里，由宿主删掉后改走下载；资源目录里本来就没有它时报缺文件。
+    #[test]
+    fn adopting_a_wubi_table_from_an_older_dictionary_publishes_nothing() {
+        let state = tempfile::tempdir().unwrap();
+        let resources = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::Wubi;
+        assert!(matches!(
+            adopt(state.path(), pack, resources.path()),
+            Err(LocalModelError::MissingFile(name)) if name == ON_DEMAND_WUBI_ARTIFACTS[0]
+        ));
+        let table = resources.path().join(ON_DEMAND_WUBI_ARTIFACTS[0]);
+        fs::write(&table, b"an older dictionary's wubi table").unwrap();
+        fs::write(resources.path().join("msime-pinyin.db"), b"core").unwrap();
+        let error = adopt(state.path(), pack, resources.path()).unwrap_err();
+        assert!(
+            matches!(error, LocalModelError::SizeMismatch(_)),
+            "{error:?}"
+        );
+        assert_eq!(
+            fs::read(&table).unwrap(),
+            b"an older dictionary's wubi table"
+        );
+        assert!(resources.path().join("msime-pinyin.db").is_file());
+        assert!(list(state.path())
+            .iter()
+            .any(|status| status.id == "wubi" && status.state == PackState::Missing));
     }
 
     #[test]

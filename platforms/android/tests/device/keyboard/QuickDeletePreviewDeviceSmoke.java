@@ -169,11 +169,9 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
         text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "清风");
         if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text))
             throw new AssertionError("Synthetic editor setup failed");
-        Bundle selection = new Bundle();
-        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 2);
-        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, 2);
-        if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection))
-            throw new AssertionError("Synthetic editor selection failed");
+        // TextView 处理 ACTION_SET_TEXT 时已把光标放到文末，正是这里要的位置。再发 ACTION_SET_SELECTION 设同一位置时 TextView 不改选区并返回 false（#9938 加这一步时把它当成了失败），所以直接断言编辑器里的文字和光标。
+        await(field("msime-test-plain").and(node -> equalsText("清风", node.getText())
+            && node.getTextSelectionStart() == 2 && node.getTextSelectionEnd() == 2));
         awaitStableBounds(describedPrefix("输入方案：").and(AccessibilityNodeInfo::isEnabled));
         for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
         await(field("msime-test-plain").and(node -> equalsText("清风ni'hao", node.getText())));

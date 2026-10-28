@@ -22,16 +22,36 @@ export interface EnglishReplacement {
 export interface EnglishCompletions {
   readonly prefix: string;
   readonly items: string[];
+  /** 只有手机合并展示查询会带：为真时第二行是纠错，否则原文之后都是前缀补全。 */
+  readonly corrected: boolean;
+}
+
+/** 编辑器回报选区或文字变化后，候选栏的英文建议该怎么办。 */
+export enum EnglishRefresh {
+  /** 当前词与已查询的相同，已有建议或进行中的查询仍然有效。 */
+  KEEP = "keep",
+  /** 光标前没有可查询的词，收起建议。 */
+  CLEAR = "clear",
+  /** 当前词变了，重新查询。 */
+  QUERY = "query",
+}
+
+interface CompletionsReplyValue {
+  prefix: string;
+  items: string[];
+  corrected?: boolean;
 }
 
 interface CompletionsReply {
   ok: boolean;
-  value: EnglishCompletions;
+  value: CompletionsReplyValue;
   error: string;
 }
 
 export class EnglishSuggestionPolicy {
   static readonly LIMIT: number = 8;
+  /** 手机候选栏合并展示的上限：原文加至多十一个前缀补全，与 Android、iOS 相同。 */
+  static readonly DISPLAY_LIMIT: number = 12;
   /** Read one past the accepted word bound so a longer word cannot masquerade as its suffix. */
   static readonly CONTEXT_CHARACTERS: number = MAX_WORD_LENGTH + 1;
 
@@ -73,6 +93,16 @@ export class EnglishSuggestionPolicy {
       }
     }
     return true;
+  }
+
+  /**
+   * 重新核对光标前的当前词。编辑器在键盘每次上屏之后也会回报一次选区变化，所以当前词没变时必须保留已有建议，不能当作光标移开而清掉；光标移到别处时当前词随之改变，按新词重新查询或收起。
+   */
+  static refresh(prefix: string, requested: string, correction: boolean): EnglishRefresh {
+    if (!EnglishSuggestionPolicy.suggestible(prefix, correction)) {
+      return EnglishRefresh.CLEAR;
+    }
+    return prefix === requested ? EnglishRefresh.KEEP : EnglishRefresh.QUERY;
   }
 
   /**
@@ -138,7 +168,12 @@ export class EnglishSuggestionPolicy {
         break;
       }
     }
-    return { prefix: prefix, items: items };
+    const corrected: boolean = reply.value.corrected === true;
+    if (corrected && items.length !== 2) {
+      // 有纠错时引擎只给原文与纠错两行，形状不符的答案不可信。
+      return null;
+    }
+    return { prefix: prefix, items: items, corrected: corrected };
   }
 
   private static normalize(character: string): string {

@@ -129,6 +129,13 @@ impl SyncError {
 
 /// 网盘。路径相对于用户选的文件夹，集合以 `/` 结尾。实现负责鉴权、限流退避和响应上限（超过时是 [`SyncError::TooLarge`]）。
 pub trait RemoteStore {
+    /// 实现能统计实际传输时，返回单调递增的请求数；否则按逻辑操作估算。
+    /// 返回 `Some` 的实现还必须在传输层限制实际请求，包含重试和附加操作。
+    fn request_count(&self) -> Option<usize> {
+        None
+    }
+    /// 成功后执行传输附带的尽力清理，仍受同一额度限制；请求计费和最终写盘在它之后。
+    fn finish(&mut self, _report: &Report, _now_ms: u64) {}
     /// 一个集合里的条目名；集合不存在时为 `None`。
     fn list(&mut self, dir: &str) -> Result<Option<Vec<String>>, SyncError>;
     /// 一个文件的内容；不存在时为 `None`。

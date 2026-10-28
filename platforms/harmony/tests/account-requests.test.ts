@@ -15,6 +15,8 @@ import {
   cloudDictionaryFileRequest,
   cloudDictionaryRequest,
   communityRequest,
+  dictionarySyncDirectory,
+  dictionarySyncRequest,
   hostAccountRequest,
   preferencesPutAction,
   relayBinding,
@@ -443,6 +445,67 @@ async function main(): Promise<void> {
       }
     },
   );
+
+  await group("dictionary sync runs in its own directory with the settings app's options", () => {
+    const options =
+      '{"api_version":1,"preferences_directory":"/data/storage/el2/base/haps/entry/files/state"}';
+    const plan = dictionarySyncRequest(
+      options,
+      DIRECTORY,
+      "HUAWEI Mate 70",
+      '{"operation":"run","trigger":"opened"}',
+    );
+    check(plan.refusal === "", "run is a page operation");
+    const request = parsed(plan.request);
+    // 不是 files/state 本身：那里有云剪贴板中继同名的密钥串和网盘缓存。
+    check(request.directory === `${DIRECTORY}/dictionary-sync`, "the state has its own directory");
+    check(dictionarySyncDirectory(DIRECTORY) === request.directory, "one rule for the directory");
+    check(
+      (request.options as Json).preferences_directory === DIRECTORY,
+      "the host options are the settings app's",
+    );
+    check(request.device_name === "HUAWEI Mate 70", "the device is named for the approving side");
+    check(
+      (request.action as Json).trigger === "opened",
+      "the action is forwarded for Rust to check",
+    );
+    check(!("create_identity" in request), "the entry has no borrowed-identity switch");
+    for (const operation of [
+      "status",
+      "devices",
+      "approve",
+      "reject",
+      "remove",
+      "reset",
+      "restart",
+      "probe",
+    ]) {
+      check(
+        dictionarySyncRequest(options, DIRECTORY, "", `{"operation":"${operation}"}`).refusal ===
+          "",
+        `${operation} is offered to the page`,
+      );
+    }
+    check(
+      !(
+        "device_name" in
+        parsed(dictionarySyncRequest(options, DIRECTORY, "", '{"operation":"status"}').request)
+      ),
+      "an empty name is left out",
+    );
+    for (const [action, hostOptions] of [
+      ['{"operation":"pull"}', options],
+      ['{"trigger":"manual"}', options],
+      ["not json", options],
+      ['{"operation":"status"}', "not json"],
+    ]) {
+      check(
+        replyError(dictionarySyncRequest(hostOptions, DIRECTORY, "", action).refusal, "") ===
+          "invalid_dictionary_sync",
+        `${action} with ${hostOptions} is refused before Rust`,
+      );
+    }
+  });
 
   await group("the client agent request names harmony and the device", () => {
     const request = parsed(clientAgentRequest("0.1.0", "", "ALN-AL00", "6.0.1.115", "full"));

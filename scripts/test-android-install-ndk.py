@@ -26,6 +26,17 @@ count=0
 if [[ -f "$ANDROID_SDK_ROOT/count" ]]; then read -r count < "$ANDROID_SDK_ROOT/count"; fi
 echo "$((count + 1))" > "$ANDROID_SDK_ROOT/count"
 if [[ "$MODE" = fail || ( "$MODE" = retry && "$count" = 0 ) ]]; then exit 1; fi
+if [[ "$MODE" = corrupt ]]; then
+  # 第一次留下坏掉的压缩包、准备完成的暂存操作和没装完的 NDK 目录后失败；这些还在时重来，就像真实 sdkmanager 复用它们一样再次失败。
+  if [[ "$count" = 0 ]]; then
+    mkdir -p "$ANDROID_SDK_ROOT/.downloadIntermediates" "$ANDROID_SDK_ROOT/.temp/PackageOperation01" "$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+    echo partial > "$ANDROID_SDK_ROOT/.downloadIntermediates/ndk.zip"
+    touch "$ANDROID_SDK_ROOT/.temp/PackageOperation01/.prepareComplete"
+    echo partial > "$ANDROID_SDK_ROOT/ndk/28.2.13676358/package.xml"
+    exit 1
+  fi
+  if [[ -e "$ANDROID_SDK_ROOT/.downloadIntermediates" || -e "$ANDROID_SDK_ROOT/.temp" || -e "$ANDROID_SDK_ROOT/ndk/28.2.13676358" ]]; then exit 1; fi
+fi
 ndk="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
 mkdir -p "$ndk/toolchains/llvm/prebuilt/$NDK_HOST/bin"
 echo 'Pkg.Revision = 28.2.13676358' > "$ndk/source.properties"
@@ -56,6 +67,9 @@ fi
 
     def test_download_failure_then_success(self):
         self.assertEqual(self.run_installer("retry"), (0, 2))
+
+    def test_partial_download_is_cleared_before_retry(self):
+        self.assertEqual(self.run_installer("corrupt"), (0, 2))
 
     def test_persistent_failure_stops_after_three_attempts(self):
         self.assertEqual(self.run_installer("fail"), (1, 3))

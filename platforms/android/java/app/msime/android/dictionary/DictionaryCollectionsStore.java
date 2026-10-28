@@ -136,8 +136,10 @@ public final class DictionaryCollectionsStore {
             int pending = JsonPolicy.nonNegativeInteger(synchronizedWords.opt("pending_count"), -1);
             int sent = JsonPolicy.nonNegativeInteger(synchronizedWords.opt("sent"), -1);
             int failed = JsonPolicy.nonNegativeInteger(synchronizedWords.opt("failed_count"), -1);
-            if (pending < 0 || sent < 0 || failed < 0) return Result.failed(failureMessage(""));
-            return Result.of(new DictionaryImportSynchronization.Batch(pending, sent, failed));
+            int applied = synchronizedWords.has("applied_count")
+                ? JsonPolicy.nonNegativeInteger(synchronizedWords.opt("applied_count"), -1) : 0;
+            if (pending < 0 || sent < 0 || failed < 0 || applied < 0) return Result.failed(failureMessage(""));
+            return Result.of(new DictionaryImportSynchronization.Batch(pending, sent, failed, applied));
         } catch (JSONException | RuntimeException | LinkageError error) {
             return Result.failed(failureMessage(""));
         }

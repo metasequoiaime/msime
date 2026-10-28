@@ -74,7 +74,7 @@ enum IOSDictionarySyncPolicy {
     case "dictionary_sync_unavailable": return "连不上网盘，请检查地址和网络；证书须由公网信任的机构签发。"
     case "dictionary_sync_rate_limited": return "网盘暂时限制了请求次数，或本机这 30 分钟的同步次数已用完，请稍后再试。"
     case "dictionary_sync_too_large": return "网盘上的词库或本机的同步记录超过了上限，删减一些词条后再试。"
-    case "dictionary_sync_rollback": return "网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，重新测试连接并保存即可，本机的词条都会保留。"
+    case "dictionary_sync_rollback": return "网盘上的词库比本机读到过的旧，或者被删改过。如果是你自己清理了网盘上的文件夹，请确认网盘现状并恢复同步。本机词条保留，但未上传的删除可能重新合并回来。"
     case "dictionary_sync_unsupported":
       return probe
         ? "这个网盘不支持词库同步需要的文件操作（独占创建、列目录），请换一个 WebDAV 服务或文件夹。"

@@ -1807,13 +1807,13 @@ async fn save_preferences(
     runtime: tauri::State<'_, RuntimeOptionsState>,
     platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
     expected_revision: u64,
-    preferences: Preferences,
+    preferences: serde_json::Value,
 ) -> Result<PreferencesSnapshot, CommandError> {
     save_preferences_impl(
         store.inner().clone(),
         runtime.inner().clone(),
         expected_revision,
-        preferences,
+        Preferences::from_submission(preferences).map_err(CommandError::from)?,
         platform.inner().clone(),
     )
     .await
@@ -1825,13 +1825,13 @@ async fn save_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     runtime: tauri::State<'_, RuntimeOptionsState>,
     expected_revision: u64,
-    preferences: Preferences,
+    preferences: serde_json::Value,
 ) -> Result<PreferencesSnapshot, CommandError> {
     save_preferences_impl(
         store.inner().clone(),
         runtime.inner().clone(),
         expected_revision,
-        preferences,
+        Preferences::from_submission(preferences).map_err(CommandError::from)?,
     )
     .await
 }
@@ -2537,6 +2537,25 @@ async fn cloud_clipboard_webdav_probe(
         code: "unavailable",
     })?
     .map_err(|code| CommandError { code })
+}
+
+/// 「我的词条」经 WebDAV 网盘同步的一个动作（`docs/dictionary-webdav-sync.md`，动作和结果见 `msime_client.h` 的 `msime_client_dictionary_sync`），macOS 与 Linux 的共享设置页用。HostOptions 取词库命令用的同一份，状态目录是账号目录下的 `dictionary-sync/`，与输入法共用（`platform::dictionary_sync`）。除 `status` 外都会联网，放在阻塞线程上。
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[tauri::command]
+async fn dictionary_sync(
+    options: tauri::State<'_, DictionaryHostOptions>,
+    account: tauri::State<'_, desktop_account::AccountState>,
+    action: Value,
+) -> Result<Value, CommandError> {
+    let options = options.inner().clone();
+    let directory = platform::dictionary_sync::directory(&account.directory);
+    tauri::async_runtime::spawn_blocking(move || {
+        platform::dictionary_sync::request(options.snapshot()?, &directory, action)
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "dictionary_sync_unavailable",
+    })?
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -6129,6 +6148,8 @@ pub fn run() {
             cloud_clipboard_request,
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             cloud_clipboard_webdav_probe,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            dictionary_sync,
             cloud_clipboard_can_send_text,
             cloud_dictionary_request,
             load_emoji_catalog,

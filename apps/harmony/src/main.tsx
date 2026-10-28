@@ -1194,6 +1194,8 @@ function cloudClipboardClient(native: NativeBridge, close: () => void): CloudCli
 }
 
 const CLOUD_CLIPBOARD_TIMEOUT_MS = 2 * 60 * 1000;
+/** 一次词库同步最多几十个请求、每个 30 秒超时，前面还可能等另一次同步放开文件锁（最多 2 分钟）。 */
+const DICTIONARY_SYNC_TIMEOUT_MS = 5 * 60 * 1000;
 
 type CloudDictionaryPage = "main" | "catalog" | "candidates" | "files" | "apply";
 
@@ -1780,6 +1782,20 @@ function makeClient(
               CLOUD_CLIPBOARD_TIMEOUT_MS,
             ),
           );
+        }
+      : undefined,
+    // 「我的词条」经 WebDAV 网盘同步（`msime_client_dictionary_sync`）：动作原样交给设置应用的 ArkTS 桥，HostOptions 和本沙箱里的状态目录由宿主补上。除 `status` 外都可能联网，没有隐私政策的授权时词库页不显示「词库同步」，自动同步也不跑。
+    dictionarySync: networkAllowed
+      ? {
+          request: async (action) =>
+            unwrap<unknown>(
+              await bridgeRequest(
+                native,
+                "dictionary_sync",
+                JSON.stringify(action),
+                DICTIONARY_SYNC_TIMEOUT_MS,
+              ),
+            ),
         }
       : undefined,
     openCloudDictionary: networkAllowed ? async () => openCloudDictionary() : undefined,

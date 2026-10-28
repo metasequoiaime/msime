@@ -124,9 +124,10 @@ final class SkinDeleteDeviceCheck {
         return false;
     }
 
+    // 「我的」设计卡的读屏文字带适用范围（SkinsPage#card，#9924 起）：名字、「浅深均可选 · 外观固定」、「点击使用」。按整句匹配，范围文字再改时这里跟着改，不放宽成前缀。
     private static Predicate<AccessibilityNodeInfo> card(String name) {
         return node -> equals("app.msime.android", node.getPackageName())
-            && equals("皮肤 " + name + "，点击使用", node.getContentDescription());
+            && equals("皮肤 " + name + "，浅深均可选 · 外观固定，点击使用", node.getContentDescription());
     }
 
     private static Predicate<AccessibilityNodeInfo> text(String value) {

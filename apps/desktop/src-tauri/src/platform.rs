@@ -36,6 +36,9 @@ pub(crate) mod cloud_dictionary;
 pub(crate) mod community_resources;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
 pub(crate) mod desktop;
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+pub(crate) mod dictionary_sync;
 #[cfg(any(target_os = "ios", test))]
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(crate) mod ios;

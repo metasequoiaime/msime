@@ -649,3 +649,72 @@ fn a_language_download_failure_never_publishes_half_an_update() {
     rollback(&context).unwrap();
     assert!(installed_file(&context.state_root, &context.baseline, "msime-stroke.db").is_none());
 }
+
+#[test]
+fn generation_copy_finds_matching_bytes_in_any_downloaded_generation() {
+    let fixture = Fixture::new();
+    let bytes = b"updated synthetic dictionary";
+    fixture.release("dict-v2.0.10", bytes, 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    let state = &fixture.context.state_root;
+    let artifact = |data: &[u8]| Artifact {
+        name: "msime-pinyin.db".into(),
+        url: format!("{DOWNLOAD}dict-v2.0.10/msime-pinyin.db"),
+        sha256: hex::encode(Sha256::digest(data)),
+        size: data.len() as u64,
+    };
+    let cancel = AtomicBool::new(false);
+    let found = generation_copy(state, &artifact(bytes), &cancel)
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read(&found).unwrap(), bytes);
+    // 选择失效（安装包换了基线）后代次目录还在，照样能找到。
+    let mut newer = fixture.context.baseline.clone();
+    newer.source_commit = "c".repeat(40);
+    assert!(selected(state, &newer).is_none());
+    assert_eq!(
+        generation_copy(state, &artifact(bytes), &cancel).unwrap(),
+        Some(found.clone())
+    );
+    // 同样长度、不同字节的不算；暂存目录里的不算。
+    let other = b"updated synthetic dictionarX";
+    assert_eq!(
+        generation_copy(state, &artifact(other), &cancel).unwrap(),
+        None
+    );
+    let staging = root(state).join("generations").join("incoming-test");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::write(staging.join("msime-pinyin.db"), other).unwrap();
+    assert_eq!(
+        generation_copy(state, &artifact(other), &cancel).unwrap(),
+        None
+    );
+    #[cfg(unix)]
+    {
+        let linked = root(state).join("generations").join("f".repeat(64));
+        std::fs::create_dir_all(&linked).unwrap();
+        std::os::unix::fs::symlink(
+            staging.join("msime-pinyin.db"),
+            linked.join("msime-pinyin.db"),
+        )
+        .unwrap();
+        assert_eq!(
+            generation_copy(state, &artifact(other), &cancel).unwrap(),
+            None
+        );
+    }
+    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    assert!(matches!(
+        generation_copy(state, &artifact(bytes), &cancel),
+        Err(LocalModelError::Cancelled)
+    ));
+    assert_eq!(
+        generation_copy(
+            &fixture._directory.path().join("missing"),
+            &artifact(bytes),
+            &cancel
+        )
+        .unwrap(),
+        None
+    );
+}

@@ -1408,6 +1408,130 @@ fn the_scheduler_keeps_automatic_syncs_inside_the_request_budget() {
 }
 
 #[test]
+fn scheduled_capture_does_not_refill_the_budget_if_the_final_save_fails() {
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    a.sync(&share);
+    a.sync(&share);
+    schedule::record_requests(&mut a.state, schedule::MANUAL_REQUESTS, START_MS);
+    a.sink.save(&a.state).unwrap();
+    a.add(&pinyin("he'cheng", "合成保存点"));
+    let requests = share.with(|disk| disk.requests);
+    // 本机改动先保存成功，调度器最后一次保存失败，随后按已写盘的状态重启。
+    a.sink.crash_at = Some(a.sink.saves + 2);
+    let mut connection = Connection {
+        share: share.clone(),
+    };
+    let outcome = schedule::drive(
+        &mut a.state,
+        &mut Parts {
+            remote: &mut connection,
+            local: &mut a.engine,
+            env: &mut a.env,
+            sink: &mut a.sink,
+        },
+        &a.ring,
+        Trigger::LocalChange,
+        Options::default(),
+    );
+    assert!(!outcome.network && outcome.result.is_ok());
+    assert_eq!(a.sink.crash_at, Some(a.sink.saves));
+    assert_eq!(share.with(|disk| disk.requests), requests);
+    a.reboot();
+    assert_eq!(a.state.outbox_len(), 1);
+    assert_eq!(a.state.schedule.remaining(START_MS, false), 0);
+    assert_eq!(a.state.schedule.remaining(START_MS, true), 0);
+}
+
+#[test]
+fn scheduled_protocol_savepoints_keep_the_existing_request_window() {
+    struct Savepoints(Vec<String>);
+    impl StateSink for Savepoints {
+        fn save(&mut self, state: &SyncState) -> Result<(), SyncError> {
+            self.0.push(serde_json::to_string(state).unwrap());
+            Ok(())
+        }
+    }
+
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    a.sync(&share);
+    schedule::record_requests(&mut a.state, 10, START_MS);
+    a.add(&pinyin("he'cheng", "合成中途保存"));
+    let mut sink = Savepoints(Vec::new());
+    let mut connection = Connection { share };
+    let outcome = schedule::drive(
+        &mut a.state,
+        &mut Parts {
+            remote: &mut connection,
+            local: &mut a.engine,
+            env: &mut a.env,
+            sink: &mut sink,
+        },
+        &a.ring,
+        Trigger::Manual,
+        Options::default(),
+    );
+    assert!(outcome.network && outcome.result.is_ok());
+    assert!(sink.0.len() > 2);
+    for saved in sink.0 {
+        let restored: SyncState = serde_json::from_str(&saved).unwrap();
+        assert!(restored.schedule.remaining(START_MS, true) <= schedule::MANUAL_REQUESTS - 10);
+    }
+}
+
+#[test]
+fn an_exhausted_automatic_budget_sleeps_until_requests_expire() {
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    let drive = |device: &mut Device, trigger: Trigger| {
+        let mut connection = Connection {
+            share: share.clone(),
+        };
+        let mut parts = Parts {
+            remote: &mut connection,
+            local: &mut device.engine,
+            env: &mut device.env,
+            sink: &mut device.sink,
+        };
+        schedule::drive(
+            &mut device.state,
+            &mut parts,
+            &device.ring,
+            trigger,
+            Options::default(),
+        )
+    };
+    let first = drive(&mut a, Trigger::Opened);
+    assert!(first.network && first.result.is_ok());
+    // 密钥串等额外请求也占用同一额度；剩两个请求时自动同步不能启动。
+    let remaining = a.state.schedule.remaining(START_MS, false);
+    assert!(remaining >= 2);
+    schedule::record_requests(&mut a.state, remaining - 2, START_MS);
+    a.add(&pinyin("ma", "合成词"));
+    let changed = drive(&mut a, Trigger::LocalChange);
+    assert!(!changed.network && changed.result.is_ok());
+    assert_eq!(a.state.outbox_len(), 1);
+    a.advance(schedule::PUSH_DEBOUNCE_MS);
+    let requests = share.with(|disk| disk.requests);
+    let waiting = drive(&mut a, Trigger::Periodic);
+    assert!(!waiting.network && waiting.result.is_ok());
+    assert_eq!(share.with(|disk| disk.requests), requests);
+    assert_eq!(
+        waiting.next_check_ms,
+        schedule::WINDOW_MS - schedule::PUSH_DEBOUNCE_MS
+    );
+    a.advance(waiting.next_check_ms);
+    let resumed = drive(&mut a, Trigger::Periodic);
+    assert!(resumed.network && resumed.result.is_ok());
+    assert_eq!(a.state.outbox_len(), 0);
+    assert!(share
+        .published(&[K1])
+        .iter()
+        .any(|(_, key, live, _)| { *live && key == &pinyin("ma", "合成词") }));
+}
+
+#[test]
 fn a_large_first_upload_is_split_into_bounded_events() {
     let share = Share::new();
     let mut a = Device::new(0xa1, Some(K1));

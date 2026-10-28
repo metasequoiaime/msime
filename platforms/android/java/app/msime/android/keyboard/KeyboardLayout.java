@@ -206,7 +206,7 @@ public final class KeyboardLayout {
         PUNCTUATION_TOGGLE,
         /** #+= 层底行原表情位的「符号」键，打开符号面板。 */
         SYMBOL_PANEL,
-        /** 长空格模式数字层的逗号键，下滑输入句号。 */
+        /** 长空格模式数字层的逗号键，上滑或下滑输入句号。 */
         COMMA,
         SPACE,
         /** 回车：文字与描述由视图按 {@link ReturnKeyAction} 替换，这里给的是空闲时的「换行」。 */
@@ -313,7 +313,7 @@ public final class KeyboardLayout {
     }
 
     private static LayerKey commaLayerKey(boolean chinesePunctuation) {
-        return new LayerKey(chinesePunctuation ? "，" : ",", "逗号；下滑输入句号",
+        return new LayerKey(chinesePunctuation ? "，" : ",", "逗号；上滑或下滑输入句号",
             LayerKeyKind.COMMA, LAYER_EMOJI_WEIGHT);
     }
 

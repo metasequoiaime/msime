@@ -239,6 +239,7 @@ pub mod settled;
 pub mod skin_image;
 pub mod spacing;
 pub mod translation;
+pub mod user_words;
 pub mod voice;
 #[cfg(windows)]
 pub mod windows_handwriting;
@@ -265,6 +266,7 @@ pub use session::*;
 pub use settled::*;
 pub use skin_image::*;
 pub use translation::*;
+pub use user_words::*;
 pub use voice::*;
 #[cfg(windows)]
 pub use windows_handwriting::*;

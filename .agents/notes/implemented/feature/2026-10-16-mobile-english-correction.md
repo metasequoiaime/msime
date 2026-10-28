@@ -32,7 +32,11 @@ Android 的 #9178 录屏显示普通英文输入和删除时工具栏反复闪�
 - 没有纠错且原文本身已是完整的正确词时（词库精确命中、与固定词形大小写不论相同，或是受保护的缩写），列表只有原文。
 - 其余情况原文后接至多 `limit - 1` 个前缀补全，按大小写不敏感去重。原文首字母大写时补全的首字母随之大写，其余照词库拼写；原文含撇号时只保留延续该拼法的补全。
 
-响应比另外两种请求多一个 `corrected`，当且仅当第二行是纠错时为真；`limit` 为 1 时没有第二行，`corrected` 为假。不带 `completions` 的补全和纠错请求响应形状不变，宿主严格解析，不能在其中加字段。缺词库时与纠错请求相同：固定词形照常恢复，其余只有原文。三个手机宿主尚未改用这一模式。
+响应比另外两种请求多一个 `corrected`，当且仅当第二行是纠错时为真；`limit` 为 1 时没有第二行，`corrected` 为假。不带 `completions` 的补全和纠错请求响应形状不变，宿主严格解析，不能在其中加字段。缺词库时与纠错请求相同：固定词形照常恢复，其余只有原文。
+
+三个手机宿主的普通 26 键英文直出候选栏都用这一模式，`limit` 统一为 12（原文加至多十一个补全）：Android 在候选工作线程查询（`NativeClient.englishSuggestions`），iOS 沿用主线程同步查询（`MetasequoiaInputSessionBridge.englishSuggestions`），HarmonyOS 在手机纠错模式下查询，桌面形态仍用原有的前缀补全。空格与标点边界继续单独发不带 `completions` 的纠错请求，只会自动采用纠错，不会采用补全。点补全与点纠错走同一条替换当前词的路径。点原文只在 `corrected` 为真时记为拒绝纠错；Android 等待答案期间先显示的原文行也按拒绝处理，因为此时还不知道有没有纠错。只有补全时点原文仅收起候选，边界查询本来也不会改写它。
+
+HarmonyOS 的编辑器在每次 `insertTextSync` 之后都会回报一次选区变化，而 `editorSelectionChanged()` 原先无条件清空英文建议，后面没有任何路径重新查询，手机纠错模式下每一键刚出的建议马上消失，用户看不到候选，也无法点原文拒绝纠错。现在选区折叠时改为重新核对光标前的当前词（`EnglishSuggestionPolicy.refresh`）：与已查询的词相同就保留建议和进行中的查询，词变了就重新查询，没有可查询的词才收起；选中了一段文字时照旧收起。光标移到别处时当前词随之改变，按新词重新查询，与 Android 在 `onUpdateSelection` 中的做法一致。邮箱后缀在视图中排在英文建议之前，`@` 之后接着打的域名不会被英文建议挡住。
 
 ## Related notes audit
 
@@ -67,10 +71,12 @@ HarmonyOS 纯逻辑套件、OpenHarmony 原生交叉构建、`ohpm install` 后�
 
 原功能接线的本地 `CARGO_PROFILE_DEV_DEBUG=0 MSIME_BUILD_JOBS=2 ANDROID_SDK_ROOT=… bash scripts/verify-local.sh --quick` 通过，覆盖 Windows 原生链接、macOS 和 Apple 共享桥接；Linux 因本机没有 Docker 跳过。`cargo fmt --all --check`、`git diff --check` 和 `pnpm run verify-notes` 通过。
 
+三端改用合并展示时：Android `check-host.sh` 的 288 项 JVM 冒烟（`EnglishSuggestionModelSmoke` 改为覆盖 `corrected` 解码）与 248 个设备源文件编译通过；HarmonyOS `tests/run.sh` 新增 `corrected` 解码与选区回报重新核对的纯逻辑断言，并钉住 `editorSelectionChanged` 的接线，全部通过；iOS 新增以打包词库调用合并展示的 XCTest（纠错、精确词、`eng` 的前缀补全与边界查询不扩写），构建机上 `MSIMEClientTests` 的 `build-for-testing` 通过，`EnglishSuggestionPolicyTests` 9 项在临时 iOS 26.5 模拟器上通过。三端都没有在模拟器或真机上运行改动后的键盘本身，HarmonyOS 没有执行 `hvigorw` 打包。
+
 ## Consequences
 
 有界高频前缀页会漏掉低频词，分词只按一元词频，不具备语境语义：`have an ice day` 与 `have a nice day` 这类取舍只靠词库里没有 `an` 和固定的 `a` 词频成立。分词片段的词频门槛也会拦下 dad、sit、leg 这类真实短词，`ilovemydad` 之类连写不会切分，宁可保留原文。首个词之后的词若漏按首键或第二键，不再纠正。三字母目标只认词频不低于一亿的小写词，生僻缩写若不在保护列表里，仍可能被纠成常用三字母词。明确保留原文入口；当前词及编辑器必须在替换时重新核对，不能拿旧建议删除其他位置的文字。查询结果缓存只对固定的分代资源有效，切换资源目录时要替换整个缓存。
 
 Android 普通英文当前词的一键清除复用本篇的词边界和编辑器重读规则，见[英文当前词的一键清除](2026-10-22-android-english-word-clear.md)；清除不会采用纠错建议，且会作废旧建议代次。
 
-Android 的普通英文候选还追加词典前缀补全，见[Android 英文前缀补全](../bug-fix/2026-10-23-android-english-prefix-completions.md)。该展示拓展保留本篇的独立边界纠错查询，只有手动点选才采用补全。
+Android 补全的起因（#9275）与最初在 Java 侧合并的取舍见[Android 英文前缀补全](../bug-fix/2026-10-23-android-english-prefix-completions.md)；三端现在都用本篇的合并展示，保留独立的边界纠错查询，只有手动点选才采用补全。HarmonyOS 的选区回报改为重新核对后，桌面形态的旧补全也不再被每次上屏后的回报清掉。

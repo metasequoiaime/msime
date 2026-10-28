@@ -17,6 +17,8 @@
 #include "ClipboardForm.h"
 #include "CloudClipboardForm.h"
 #include "CloudClipboardWorker.h"
+#include "DictionarySyncWorker.h"
+#include "../../common/DictionarySyncDirectory.h"
 #include "DictionaryForm.h"
 #include "DictionaryPersonalExport.h"
 #include "DictionaryUpdatesForm.h"
@@ -572,6 +574,10 @@ private:
       else if (operation == "export_file") response = dictionary_data::export_file(dictionary_requests_, options, action, job.file, dictionary_transport_);
       else response = dictionary_requests_.call(options, action, dictionary_transport_);
       dictionary_response_ = Json{{"response", response}};
+      // 改了「我的词条」（编辑、导入、清除学习数据）：配着网盘时让词库同步马上记一次本机改动，与 WinUI 设置和共享页相同；没配时不调。
+      if (theme_data::value(response) && (operation == "edit" || operation == "import_file" || operation == "reset") &&
+          snapshot_ && dictionary_sync_configured(snapshot_->preferences()))
+        note_dictionary_sync_change(options, msime::windows::dictionary_sync_directory().u8string());
       if (theme_data::value(response) && job.dictionary_list && operation != "export_file" && operation != "export_all_file") {
         (*dictionary_response_)["list_request"] = *job.dictionary_list;
         (*dictionary_response_)["listing"] = dictionary_requests_.call(options, *job.dictionary_list, dictionary_transport_);
@@ -2730,6 +2736,11 @@ struct SettingsWindow::State {
     }
     auto dictionary_change = dictionary_form.command(command);
     if (dictionary_change.handled) {
+      if (dictionary_change.route) {
+        const bool opened = surface_launcher ? surface_launcher(*dictionary_change.route) : launch_surface(*dictionary_change.route);
+        SetWindowTextW(status, opened ? L"已打开词库同步。" : L"无法打开词库同步，请检查安装文件。");
+        return;
+      }
       if (!dictionary_change.confirmation.empty()) {
         const bool allowed = confirmation ? confirmation(window, L"词库", dictionary_change.confirmation.c_str()) :
             MessageBoxW(window, dictionary_change.confirmation.c_str(), L"词库", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES;

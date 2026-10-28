@@ -396,6 +396,30 @@ Json readOptions() {
   return Json::parse(msime::linux_host::read_runtime_options(optionsPath()));
 }
 
+// 「我的词条」的网盘自动同步在 Rust 的后台线程里跑（msime_client.h 的 msime_client_dictionary_sync_start），这里只交出运行时配置文件和与设置应用共用的状态目录：设置应用用的是共享状态目录（runtime options 的 preferences_directory）下的 dictionary-sync（apps/desktop/src-tauri/src/platform/dictionary_sync.rs）。后台线程每一轮重读配置和偏好，没配置网盘、设置应用还没生成设备身份时什么也不做，从不自己生成身份。插件加载时还没做首次配置的，等第一个会话读到配置时再起。起它只是开一个线程，不在主循环上读写文件或联网。插件被卸载后库可能还留着，所以停下时把旗子放回去。
+bool fcitx_dictionary_sync_started = false;
+
+void startDictionarySync(const Json &options) {
+  if (fcitx_dictionary_sync_started) return;
+  try {
+    const auto directory = options.value("preferences_directory", std::string{});
+    if (directory.empty() || directory.front() != '/') return;
+    const auto request = Json{{"options_path", optionsPath().string()},
+                              {"directory", (std::filesystem::path(directory) / "dictionary-sync").string()}}
+                             .dump();
+    response(msime_client_dictionary_sync_start(reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+    fcitx_dictionary_sync_started = true;
+  } catch (...) {
+  }
+}
+
+// 插件的代码在 Fcitx5 卸载它之后不能再运行：与 fcitx_detached_jobs 一样等后台线程真正退出（正在跑的那一次同步受锁的 5 秒等待和每个请求的超时约束）。
+void stopDictionarySync() {
+  if (!fcitx_dictionary_sync_started) return;
+  (void)msime_client_dictionary_sync_stop(UINT32_MAX);
+  fcitx_dictionary_sync_started = false;
+}
+
 using CandidateSkinCatalog = std::vector<msime::linux_host::CandidateSkin>;
 
 // Fcitx5 gives each input context its own property, so keep the mode memory
@@ -1823,6 +1847,7 @@ public:
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
     if (session_) return true;
     auto options = readOptions();
+    startDictionarySync(options);
     dictionary_user_data_ = options.value("user_data", std::string{});
     // Dictionary maintenance is running from the settings window; keys go to the application until it is done.
     if (msime::linux_host::dictionary_quiesced(dictionary_user_data_)) return false;
@@ -6991,6 +7016,10 @@ public:
     fcitx_key_presses_shutting_down = false;
     refreshOptions();
     refreshTypingStatistics();
+    try {
+      startDictionarySync(readOptions());
+    } catch (...) {
+    }
     // 输入上下文属性名在整个 fcitx5 进程里唯一：两个版本的插件同时加载时，后注册的同名属性会失败、factory_ 拿不到槽位，第一次 propertyFor 就越界。名字随插件名，full 仍是 msimeState。
     if (!instance->inputContextManager().registerProperty(MSIME_EDITION_FCITX5_ADDON "State", &factory_))
       throw std::runtime_error("Fcitx5 input context property " MSIME_EDITION_FCITX5_ADDON "State is already registered");
@@ -7344,6 +7373,7 @@ public:
 #ifdef MSIME_FCITX5_TELEMETRY
     stopTelemetry();
 #endif
+    stopDictionarySync();
     fcitx_detached_jobs.wait_idle();
   }
 #ifdef MSIME_FCITX5_TELEMETRY

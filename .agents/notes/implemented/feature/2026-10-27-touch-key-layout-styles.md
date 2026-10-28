@@ -215,3 +215,7 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
   验证：`bash platforms/harmony/tests/run.sh` 0 失败；本机 `hvigorw assembleHap --no-daemon` 成功，CompileArkTS 实际执行，改动的三个文件没有 ArkTS 告警，编译产物里 `designActionRow` 是 `this.forEachUpdateFunction(elmtId, this.designRowItems(), …)`，数组在 ForEach 的观察闭包里求值。iOS 在 Mac Studio 上经 `rbuild` 重编模拟器原生库，一次性 iPhone 17 Pro / iOS 27.0 模拟器跑 `KeyLayoutStyleTests`（28 项）和 `NineKeyKeyboardTests`（119 项，1 项跳过），0 失败，模拟器用完即删；把控制器换回上一版、只留新测试时，来回切中/英的用例在英文那一遍如期失败（工具栏整条藏掉）。Android 这一轮没有改动，没有重跑。没上鸿蒙模拟器或真机看这两行：本机只剩约 10 GB，现有的模拟器实例不是这次建的，新建实例的系统镜像放不下，所以 ForEach 底行的实际画面、切中/英和改样式时键的重建只到编译和逻辑测试这一级。
 
 - PR CI 的 Xcode 26.3 在热力图数字行的空数组分支把拼接推断为 `[Any]`；`letterRows(for:)` 为该局部值显式声明 `[[Cell]]`，不改变行内容或数字行开关。手写底行契约同步识别鸿蒙 `spaceKey` 的显式宽度参数 `0`，仍核对空格的位置与共享份额。
+
+- 本轮整合最新 `develop` 时保留本分支的 14dp 双向滑动、逗号长按保护、无会话时半角句点与有会话时中文句号的设备断言；数字页返回检查沿用已合入的「返回原键盘」读屏描述与「返回」键面双重匹配。共享偏好的宽松读取和四处 Android 设备夹具修复随 `develop` 一并进入合并树，最终整合验证另行记录。
+
+备份恢复的设备回归复用 `PreferencesDeviceSmoke -e backup-layout true`，不再增加 instrumentation 入口。它在应用 UID 内以独立的 Context 目录和合成 ZIP 调用已安装产品的 `LocalBackup.restoreSettings` 与 `Undo.capture/apply`，验证旧备份显式关闭、新字段优先、迁移后旧键移除，以及撤销重新恢复共享布局和数字行。API 28 核心和 API 35 完整验收均执行该回归；具体运行结果另列，不把源码编译当作设备通过。

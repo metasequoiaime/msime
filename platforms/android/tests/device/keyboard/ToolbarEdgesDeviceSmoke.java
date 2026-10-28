@@ -158,19 +158,38 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 comma.setEnabled(true);
                 comma.layout(0, 0, 200, 200);
                 long down = android.os.SystemClock.uptimeMillis();
-                int distance = android.view.ViewConfiguration.get(getTargetContext()).getScaledTouchSlop() + 20;
+                float density = getTargetContext().getResources().getDisplayMetrics().density;
+                // 门槛是字母键滑动输入符号的 14 dp；滑过它再留余量，另取一段不到门槛的上移当作点按时的手指漂移。
+                int distance = Math.round(14 * density) + 20;
+                int drift = Math.round(8 * density);
                 int[] actions = {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE,
                     android.view.MotionEvent.ACTION_UP};
+                // 下滑是 #9881 要的方向；上滑与字母键滑动输入符号的默认方向一致，两个方向都要提交句号。
+                for (int direction : new int[] {1, -1}) {
+                    committed.setLength(0);
+                    for (int index = 0; index < actions.length; index++) {
+                        android.view.MotionEvent event = android.view.MotionEvent.obtain(down, down + index * 20,
+                            actions[index], 40, index == 0 ? 100 : 100 + direction * distance, 0);
+                        try { comma.dispatchTouchEvent(event); }
+                        finally { event.recycle(); }
+                    }
+                    // 没有会话时句点原样上屏，有会话时引擎按中文标点给出「。」。
+                    check(committed.toString().equals(".") || committed.toString().equals("。"),
+                        "long-space comma " + (direction > 0 ? "down" : "up") + " swipe lost after input-view generation "
+                            + generation + ": " + committed);
+                    down = android.os.SystemClock.uptimeMillis();
+                }
+                // 点逗号时手指往上带一点（不到门槛）不是滑动，不能出句号。
                 committed.setLength(0);
                 for (int index = 0; index < actions.length; index++) {
                     android.view.MotionEvent event = android.view.MotionEvent.obtain(down, down + index * 20,
-                        actions[index], 40, index == 0 ? 40 : 40 + distance, 0);
+                        actions[index], 40, index == 0 ? 100 : 100 - drift, 0);
                     try { comma.dispatchTouchEvent(event); }
                     finally { event.recycle(); }
                 }
-                // 没有会话时句点原样上屏，有会话时引擎按中文标点给出「。」。
-                check(committed.toString().equals(".") || committed.toString().equals("。"),
-                    "long-space comma swipe lost after input-view generation " + generation + ": " + committed);
+                check(!committed.toString().contains(".") && !committed.toString().contains("。"),
+                    "long-space comma tap drift became a period after input-view generation " + generation + ": " + committed);
+                down = android.os.SystemClock.uptimeMillis();
             }
         } finally {
             stylesField.set(service, previous);

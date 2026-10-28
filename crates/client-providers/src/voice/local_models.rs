@@ -531,7 +531,7 @@ impl Fetcher for LocalFileFetcher {
 }
 
 /// 一个用户所选文件的小写十六进制 SHA-256，每块之间看一次取消。打不开或读出错报 [`LocalModelError::UnreadableImportFile`]。
-fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelError> {
+pub(crate) fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelError> {
     let unreadable = |error: io::Error| LocalModelError::UnreadableImportFile(error.to_string());
     let mut file = File::open(path).map_err(unreadable)?;
     let mut hasher = Sha256::new();

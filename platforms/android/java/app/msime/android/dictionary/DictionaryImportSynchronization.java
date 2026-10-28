@@ -8,7 +8,9 @@ public final class DictionaryImportSynchronization {
     private static final int MAX_BATCHES = 10_000;
 
     public enum Outcome { APPLIED, PENDING, FAILED }
-    public record Batch(int pending, int sent, int failed) {}
+    public record Batch(int pending, int sent, int failed, int applied) {
+        public Batch(int pending, int sent, int failed) { this(pending, sent, failed, 0); }
+    }
     @FunctionalInterface public interface Step {
         Batch synchronize() throws Exception;
     }
@@ -27,7 +29,7 @@ public final class DictionaryImportSynchronization {
                 // busy 或原生层暂不可用：词已保存，下次键盘空闲继续，不把导入说成失败。
                 return failed ? Outcome.FAILED : Outcome.PENDING;
             }
-            if (result.pending() < 0 || result.sent() < 0 || result.failed() < 0)
+            if (result.pending() < 0 || result.sent() < 0 || result.failed() < 0 || result.applied() < 0)
                 return failed ? Outcome.FAILED : Outcome.PENDING;
             failed |= result.failed() > 0;
             if (result.pending() == 0 && result.sent() == 0) return failed ? Outcome.FAILED : Outcome.APPLIED;

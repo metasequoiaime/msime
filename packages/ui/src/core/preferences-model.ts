@@ -68,6 +68,8 @@ export type Preferences = PunctuationPreferences &
     cloud_clipboard_relay?: CloudClipboardRelayPreferences;
     /** 存放云剪贴板的 WebDAV 网盘；缺省或地址为空表示不用。三项要么都空，要么都合规，与 `cloud_clipboard_relay` 只能二选一，见 `crates/client-core/src/preferences.rs` 的 `CloudClipboardWebDavPreferences`。 */
     cloud_clipboard_webdav?: CloudClipboardWebDavPreferences;
+    /** 同步「我的词条」的 WebDAV 网盘；缺省表示不同步。三项要么都空，要么都合规，规则与 `cloud_clipboard_webdav` 相同但各配各的，见 `crates/client-core/src/preferences.rs` 的 `DictionarySyncWebDavPreferences` 和 `docs/dictionary-webdav-sync.md`。 */
+    dictionary_sync_webdav?: CloudClipboardWebDavPreferences;
     cloud_candidates?: boolean;
     cloud_candidate_provider?: CloudCandidateProviderPreferences;
     /** 云候选、翻译、AI、语音、账号、更新检查和下载共用的代理设置；本机与局域网目标一律直连。 */

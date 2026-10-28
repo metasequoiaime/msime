@@ -6576,7 +6576,59 @@ fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     let rejected = save(1, &invalid);
     assert_eq!(rejected["ok"], false);
     assert!(rejected["error"].as_str().unwrap().contains("unsupported"));
-    assert_eq!(std::fs::read_to_string(file).unwrap(), original);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+
+    // 提交来的偏好不走读盘时的宽松读法：重复的动作、本版本不认识的方案和规则都拒绝，文件不动。
+    for (pointer, value, error) in [
+        (
+            "/preferences/touch_text_edit_button_order",
+            json!([
+                "copy",
+                "copy",
+                "paste",
+                "select_all",
+                "cut",
+                "space",
+                "number_pad",
+                "delete"
+            ]),
+            "text edit button order",
+        ),
+        (
+            "/preferences/touch_text_edit_button_order",
+            json!([
+                "copy",
+                "paste",
+                "select_all",
+                "cut",
+                "space",
+                "number_pad",
+                "delete",
+                "select_word"
+            ]),
+            "invalid preferences snapshot",
+        ),
+        (
+            "/preferences/touch_keyboard_schemes",
+            json!({"enabled": ["quanpin", "typo"]}),
+            "invalid preferences snapshot",
+        ),
+        (
+            "/preferences/fuzzy_pinyin/rules",
+            json!(["z-zh", "typo"]),
+            "invalid preferences snapshot",
+        ),
+    ] {
+        let mut submitted = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        *submitted.pointer_mut(pointer).unwrap() = value.clone();
+        let rejected = save(1, &submitted.to_string());
+        assert_eq!(rejected["ok"], false, "{value}");
+        assert!(
+            rejected["error"].as_str().unwrap().contains(error),
+            "{value}: {rejected}"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+    }
 }
 #[test]
 #[cfg(not(target_os = "android"))]
@@ -7321,8 +7373,34 @@ fn clipboard_reader_respects_preferences_and_preserves_history() {
         std::fs::read_to_string(&file).unwrap(),
         "broken synthetic fixture"
     );
+    // 偏好里别的设置读不了时面板照常可用，同意与否取文档里写的值；整份读不了时按默认的关闭处理，不列出任何条目。
+    let mut document = serde_json::to_value(PreferencesSnapshot {
+        format_version: 1,
+        revision: 9,
+        preferences: Preferences {
+            clipboard_history: true,
+            ..Preferences::default()
+        },
+    })
+    .unwrap();
+    document["preferences"]["candidate_layout"] = json!("future_value");
+    std::fs::write(&file, fixture).unwrap();
+    std::fs::write(
+        directory.path().join("preferences.json"),
+        document.to_string(),
+    )
+    .unwrap();
+    assert!(store.load().is_err());
+    assert_eq!(
+        load()["value"]["entries"],
+        serde_json::json!(["synthetic alpha", "synthetic beta"])
+    );
     std::fs::write(directory.path().join("preferences.json"), "broken").unwrap();
-    assert_eq!(load()["error"], "history preferences unavailable");
+    assert_eq!(
+        load()["value"],
+        serde_json::json!({"enabled": false, "entries": []})
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), fixture);
     assert_eq!(
         read(unsafe { msime_client_load_clipboard_history(std::ptr::null(), 0) })["ok"],
         false
@@ -7715,7 +7793,7 @@ fn history_capture_bridge_validates_and_returns_no_text() {
 pub(super) fn test_host(root: &std::path::Path) -> u64 {
     test_host_preferences(root, chinese_preferences())
 }
-/// 夹具的资源目录带上一个五笔码表文件（空的 SQLite 库）。macOS 的发布包可以不带 `msime-wubi.db`，资源目录里没有它时 host-api 把五笔当作没装（`wubi_dictionary_missing`），这些夹具要的是一个五笔照常可用的安装。
+/// 夹具的资源目录带上一个五笔码表文件（空的 SQLite 库）。macOS 和 Android 的发布包可以不带 `msime-wubi.db`，资源目录里没有它时 host-api 把五笔当作没装（`wubi_dictionary_missing`），这些夹具要的是一个五笔照常可用的安装。
 fn bundle_wubi_table(resources: &std::path::Path) {
     std::fs::write(resources.join("msime-wubi.db"), b"").unwrap();
 }
@@ -7929,20 +8007,29 @@ fn session_reads_live_preferences_when_the_options_copy_is_refused() {
     // 副本本身读不了（取值类型不对）时，由实时的 preferences.json 顶替。
     let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
     stale["candidate_page_size"] = json!("six");
-    let options = |preferences_directory: &std::path::Path| options(preferences_directory, &stale);
+    let stale_options =
+        |preferences_directory: &std::path::Path| options(preferences_directory, &stale);
 
-    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
-    assert_eq!(
-        create(options(&missing))["error"],
-        "invalid options document"
-    );
+    // 没有实时文档可以顶替：在内存里救下副本认得的设置照常建会话，读不了的那个键取默认值；看一眼不会创建目录。
+    let created = create(stale_options(&missing));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
     assert!(!missing.exists());
+
+    // 副本解析得了却通不过校验（#9802：旧版本准备时写下的副本，新版本的校验更严）时同样不再拒绝。
+    let mut stricter = serde_json::to_value(chinese_preferences()).unwrap();
+    stricter["candidate_page_size"] = json!(99);
+    let created = create(options(&missing, &stricter));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 
     let state = path("state");
     PreferencesStore::new(&state)
         .save(0, chinese_preferences())
         .unwrap();
-    let created = create(options(&state));
+    let created = create(stale_options(&state));
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
@@ -13124,6 +13211,114 @@ fn the_c_abi_repairs_and_reloads_a_non_full_state_root_to_its_own_defaults() {
     );
 }
 
+/// #9802：已有的 preferences.json 读不了（这里是更新的版本写下的取值和本版本校验通不过的取值）时，准备宿主不再失败，用户照常能打字；设置界面经严格读取看到的仍是错误，文件原样不动，直到用户修复或更新的版本改写它。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn preparing_over_an_unreadable_preferences_document_still_types() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let specification = synthetic_desktop_lock(&resources);
+    let full = Edition::full();
+    let state = root.path().join("state");
+    let prepare = || -> Value {
+        serde_json::from_str(
+            &prepare_shipped_host_configuration(&resources, &state, &specification, &[], full)
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    prepare();
+    let document = state.join("preferences.json");
+    let path = state.to_str().unwrap();
+    let mut customized = serde_json::to_value(Preferences {
+        candidate_page_size: 7,
+        ..chinese_preferences()
+    })
+    .unwrap();
+    // #9802 那一类：本版本之前写下、本版本校验更严的值；以及更新的版本的枚举取值。
+    let unreadable: Vec<(&str, Value)> = vec![
+        ("stricter validation", json!({"candidate_font_size": 99})),
+        (
+            "newer enum value",
+            json!({"candidate_layout": "future_layout"}),
+        ),
+        (
+            "newer list element type",
+            json!({"fuzzy_pinyin": {"enabled": false, "rules": [1]}}),
+        ),
+    ];
+    for (kind, broken) in unreadable {
+        for (key, value) in broken.as_object().unwrap() {
+            customized[key] = value.clone();
+        }
+        let bytes = serde_json::to_vec(
+            &json!({"format_version": 1, "revision": 12, "preferences": customized}),
+        )
+        .unwrap();
+        std::fs::write(&document, &bytes).unwrap();
+        let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+        assert_eq!(loaded["ok"], false, "{kind}: {loaded}");
+
+        let prepared = prepare();
+        // 读得了的设置留下，读不了的取默认值。
+        assert_eq!(prepared["preferences"]["candidate_page_size"], 7, "{kind}");
+        assert_eq!(std::fs::read(&document).unwrap(), bytes, "{kind}");
+        let options = prepared.to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{kind}: {created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let typed = read(msime_client_character(handle, b'n', false));
+        assert_eq!(typed["value"]["handled"], true, "{kind}: {typed}");
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        // 修复由用户在设置界面明确发起，之后严格读取恢复正常。
+        assert_eq!(std::fs::read(&document).unwrap(), bytes, "{kind}");
+        customized = serde_json::to_value(Preferences {
+            candidate_page_size: 7,
+            ..chinese_preferences()
+        })
+        .unwrap();
+    }
+    let repaired = read(unsafe { msime_client_repair_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(repaired["value"]["recovered"], true, "{repaired}");
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["ok"], true, "{loaded}");
+    assert_eq!(loaded["value"]["preferences"]["candidate_page_size"], 7);
+
+    // 事故里的那份文档：v0.6.0 写下的七个动作，现在直接读得了，准备时不经过降级。
+    let mut legacy = serde_json::to_value(chinese_preferences()).unwrap();
+    legacy["touch_text_edit_button_order"] = json!([
+        "delete",
+        "copy",
+        "paste",
+        "select_all",
+        "cut",
+        "space",
+        "number_pad"
+    ]);
+    std::fs::write(
+        &document,
+        serde_json::to_vec(&json!({"format_version": 1, "revision": 30, "preferences": legacy}))
+            .unwrap(),
+    )
+    .unwrap();
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["ok"], true, "{loaded}");
+    assert_eq!(
+        prepare()["preferences"]["touch_text_edit_button_order"],
+        json!([
+            "delete",
+            "copy",
+            "paste",
+            "select_all",
+            "cut",
+            "space",
+            "number_pad",
+            "select_line"
+        ])
+    );
+}
+
 /// 按 `edition` 的资源锁合成一个资源目录：文件名取自真实的版本锁，内容是小 fixture，清单按实际内容计算长度与 SHA-256。`msime-pinyin.db` 带 `nihao` 的拼音行，`msime-wubi.db` 带 `wq` 的五笔行（与词库发布的拆分布局相同，准备代次时并回工作主词库），`msime-english.db` 带一个英文词，`msime-bigram.bin`、`msime-trigram.bin` 不是合法的表（Engine 会当作没有表），其余文件只要存在。
 fn synthetic_edition_lock(edition: &Edition, resources: &Path) -> ResourceSet {
     std::fs::create_dir_all(resources).unwrap();
@@ -18042,7 +18237,7 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     directory
 }
 
-/// 五笔码表的位置和五笔能否运行：资源目录带着 `msime-wubi.db` 时用它（不另给路径）；不带时用已下载的 `wubi` 资源包；两处都没有时，只在本平台的发布包可以不带它（macOS）时算缺，五笔像缺词库的粤拼一样回退。
+/// 五笔码表的位置和五笔能否运行：资源目录带着 `msime-wubi.db` 时用它（不另给路径）；不带时用已下载的 `wubi` 资源包；两处都没有时，只在本平台的发布包可以不带它（macOS 和 Android）时算缺，五笔像缺词库的粤拼一样回退。
 #[test]
 fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_either() {
     let root = tempfile::tempdir().unwrap();
@@ -18053,7 +18248,10 @@ fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_
     let on_demand = ON_DEMAND_ARTIFACTS
         .iter()
         .any(|group| group.contains(&"msime-wubi.db"));
-    assert_eq!(on_demand, cfg!(target_os = "macos"));
+    assert_eq!(
+        on_demand,
+        cfg!(any(target_os = "macos", target_os = "android"))
+    );
 
     assert_eq!(
         super::wubi_dictionary(Some(&DownloadedDictionaries::new(&state)), &resources),
@@ -18667,8 +18865,15 @@ fn the_verified_marker_is_invalidated_when_the_shipped_set_shrinks() {
         .unwrap()
         .set_modified(modified)
         .unwrap();
+    // 夹具的锁里没有五笔码表，只有日文词典那一组可删。
     for name in on_demand.iter().flat_map(|group| group.iter()) {
-        std::fs::remove_file(resources.join(name)).unwrap();
+        if specification
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.name == *name)
+        {
+            std::fs::remove_file(resources.join(name)).unwrap();
+        }
     }
 
     let error = verify_resources_once(&resources, &specification, &state, on_demand)
@@ -19158,6 +19363,10 @@ fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
     let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
     assert_eq!(synced["ok"], true, "{synced}");
     assert_eq!(synced["value"]["pending_count"], 0);
+    assert_eq!(
+        synced["value"]["applied_count"], 1,
+        "已存在项不计作写入：{synced}"
+    );
     let state = store.read().unwrap();
     assert_eq!(
         state.already_present,
@@ -19210,6 +19419,86 @@ fn common_phrases_and_collections_forward_to_client_core() {
         json!({"options": empty_host_options(directory.path()), "action": {"operation": "delete", "id": "builtin:pinyin"}}),
     );
     assert_eq!(locked["error"], "builtin_locked");
+}
+
+/// 单个个人编辑在一批内清空队列时，宿主仍能知道这一轮改过词库。
+#[test]
+fn personal_edits_report_written_count_even_when_the_queue_finishes_in_one_batch() {
+    use msime_client_services::dictionary::personal::{
+        PersonalDictionaryStore, PersonalWord, PersonalWordKind,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "ni'hao".into(),
+        value: "你好".into(),
+        weight: 100,
+    };
+    let synchronize = || {
+        call_android_data(
+            msime_client_dictionary_collections,
+            json!({"options": options, "action": {"operation": "synchronize", "budget_millis": 100}}),
+        )
+    };
+    let empty = synchronize();
+    assert_eq!(empty["ok"], true, "{empty}");
+    assert_eq!(empty["value"]["pending_count"], 0);
+    store
+        .enqueue(None, Some(word.clone()), "synthetic-add".into())
+        .unwrap();
+    let added = synchronize();
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["pending_count"], 0);
+    assert_eq!(added["value"]["sent"], 0);
+    assert_eq!(added["value"]["applied_count"], 1, "{added}");
+    store
+        .enqueue(Some(word), None, "synthetic-delete".into())
+        .unwrap();
+    let deleted = synchronize();
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    assert_eq!(deleted["value"]["pending_count"], 0);
+    assert_eq!(deleted["value"]["applied_count"], 1, "{deleted}");
+    assert_eq!(synchronize()["value"]["applied_count"], 0);
+}
+
+/// 个人队列和集合待发项跨过多个批次时，响应保留前批的写入与发送数量。
+#[test]
+fn collection_synchronization_accumulates_written_and_sent_counts_across_batches() {
+    use msime_client_services::dictionary::{
+        collections::DictionaryCollectionsStore,
+        personal::{PersonalDictionaryStore, PersonalWord, PersonalWordKind},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options =
+        HostOptions::from_document(host_options_with_main_dictionary(directory.path())).unwrap();
+    let personal = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = |index: u32| PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "ni'hao".into(),
+        value: format!("{}词", char::from_u32(0x4e00 + index).unwrap()),
+        weight: 100,
+    };
+    personal
+        .enqueue(None, Some(word(129)), "synthetic-first-batch".into())
+        .unwrap();
+    let collections = DictionaryCollectionsStore::new(directory.path(), personal);
+    let queued = collections
+        .queue_words((0..129).map(word).collect())
+        .unwrap();
+    assert_eq!(queued.queued, Some(129));
+    // 保存集合时已补满个人队列的剩余 127 个位置，本次同步只需再送最后两个词。
+    assert_eq!(queued.outbox_pending, 2);
+    let synchronized = crate::dictionary::synchronize_collections_with_budget(
+        &options,
+        std::time::Duration::from_secs(60),
+    )
+    .unwrap();
+    assert_eq!(synchronized["pending_count"], 0, "{synchronized}");
+    assert_eq!(synchronized["failed_count"], 0, "{synchronized}");
+    assert_eq!(synchronized["applied_count"], 130, "{synchronized}");
+    assert_eq!(synchronized["sent"], 2, "{synchronized}");
 }
 
 #[test]
