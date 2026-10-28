@@ -178,11 +178,11 @@ final class SpaceVoicePanelTests: XCTestCase {
     panel.layoutIfNeeded()
 
     // 260pt 的面板放得下最大的圆球和两行标题；光晕算进指示区，指示区在面板里面。
-    XCTAssertEqual(panel.orb.orbSide, 72)
+    XCTAssertEqual(panel.orb.orbSide, 64)
     XCTAssertEqual(panel.plan?.titleLines, 2)
     XCTAssertEqual(panel.plan?.showsHint, true)
     let indicator = panel.orb.frame
-    XCTAssertEqual(indicator.size, CGSize(width: 108, height: 108))
+    XCTAssertEqual(indicator.size, CGSize(width: 96, height: 96))
     XCTAssertEqual(indicator.midX, panel.bounds.midX, accuracy: 0.5)
     XCTAssertTrue(panel.bounds.contains(indicator))
     XCTAssertEqual(panel.statusLabel.text, "正在聆听…")
@@ -229,33 +229,101 @@ final class SpaceVoicePanelTests: XCTestCase {
 
     let held = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
     XCTAssertTrue(held.finishButton.isHidden, "按住空格时由松手结束")
-    XCTAssertFalse(held.cancelButton.isHidden)
+    XCTAssertTrue(held.cancelButton.isHidden, "按住空格时上滑取消，面板上没有按钮")
+    var heldCancels = 0
+    held.onCancel = { heldCancels += 1 }
+    XCTAssertTrue(held.accessibilityPerformEscape(), "读屏的退出手势仍然取消")
+    XCTAssertEqual(heldCancels, 1)
   }
 
-  /// 竖屏、横屏、缩小的键盘和系统大字号下，指示区、标题、提示和动作行都在面板里、互不重叠。
+  /// 按住说话没有动作行，整个面板都给指示区和文字；点按开始时动作行占掉底部，排版只用它上面的区域。
+  func testHoldUsesTheWholePanelAndTapLeavesRoomForTheActions() throws {
+    typealias Policy = KeyboardVoicePanelPolicy
+    func layout(held: Bool, _ size: CGSize) throws -> (KeyboardVoicePanelView, UIWindow) {
+      let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+      let panel = KeyboardVoicePanelView(dictationHeld: held, skin: KeyboardTheme.current)
+      window.addSubview(panel)
+      panel.frame = window.bounds
+      panel.layoutIfNeeded()
+      return (panel, window)
+    }
+    func expected(_ panel: KeyboardVoicePanelView, height: CGFloat) throws -> Policy.Plan {
+      Policy.plan(height: height, titleLine: try XCTUnwrap(panel.statusLabel.font).lineHeight,
+                  hintLine: try XCTUnwrap(panel.captionLabel.font).lineHeight)
+    }
+
+    let (hold, holdWindow) = try layout(held: true, CGSize(width: 390, height: 227))
+    XCTAssertTrue(hold.finishButton.isHidden)
+    XCTAssertTrue(hold.cancelButton.isHidden)
+    XCTAssertEqual(hold.plan, try expected(hold, height: 227), "区域就是整个面板高度")
+    XCTAssertEqual(hold.orb.orbSide, Policy.orbMax)
+    XCTAssertEqual(hold.captionLabel.text, "松开结束，上滑取消")
+    XCTAssertFalse(hold.captionLabel.isHidden)
+    XCTAssertLessThanOrEqual(hold.captionLabel.frame.maxY, 227 - Policy.padBottom + 0.5)
+    hold.setLevel(1)
+    let deadline = Date().addingTimeInterval(3)
+    while hold.orb.isAnimatingLevel && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    let halo = hold.orb.convert(hold.orb.outerHaloFrame, to: hold)
+    XCTAssertTrue(hold.bounds.contains(halo), "\(halo) 超出了 \(hold.bounds)")
+    holdWindow.isHidden = true
+
+    // 横屏按住说话：去掉动作行以后提示行放得下。
+    let (landscape, _) = try layout(held: true, CGSize(width: 844, height: 161))
+    landscape.showListening(String(repeating: "合成的实时文字", count: 12))
+    landscape.layoutIfNeeded()
+    let landscapePlan = try XCTUnwrap(landscape.plan)
+    XCTAssertEqual(landscapePlan, try expected(landscape, height: 161))
+    XCTAssertTrue(landscapePlan.showsHint)
+    XCTAssertFalse(landscape.captionLabel.isHidden)
+    XCTAssertEqual(landscape.captionLabel.text, "松开结束，上滑取消")
+    XCTAssertGreaterThanOrEqual(landscapePlan.orb, Policy.twoLineMinOrb)
+    XCTAssertLessThanOrEqual(landscape.captionLabel.frame.maxY, 161 - Policy.padBottom + 0.5)
+
+    let (tap, _) = try layout(held: false, CGSize(width: 390, height: 227))
+    let cancel = tap.cancelButton.convert(tap.cancelButton.bounds, to: tap)
+    XCTAssertFalse(tap.cancelButton.isHidden)
+    XCTAssertFalse(tap.finishButton.isHidden)
+    XCTAssertEqual(cancel.maxY, 227 - KeyboardVoicePanelView.actionsBottomMargin, accuracy: 0.5)
+    XCTAssertEqual(tap.plan, try expected(tap, height: 227 - KeyboardVoicePanelView.actionsBottomMargin - cancel.height))
+    XCTAssertEqual(tap.orb.orbSide, Policy.orbMax)
+  }
+
+  /// 竖屏、横屏、缩小的键盘和系统大字号下，按住和点按两种面板的指示区、标题、提示和动作行都在面板里、互不重叠。
   func testThePanelKeepsEverythingInsideAtEveryHeight() {
     let cases: [(CGSize, UIContentSizeCategory)] = [
       (CGSize(width: 390, height: 227), .large), (CGSize(width: 844, height: 161), .large),
       (CGSize(width: 390, height: 150), .large), (CGSize(width: 390, height: 227), .accessibilityExtraExtraExtraLarge),
       (CGSize(width: 844, height: 161), .accessibilityExtraExtraExtraLarge),
     ]
-    for (size, category) in cases {
-      let panel = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
-      panel.traitOverrides.preferredContentSizeCategory = category
-      panel.frame = CGRect(origin: .zero, size: size)
-      panel.showListening(String(repeating: "合成的实时文字", count: 12))
-      panel.layoutIfNeeded()
-      let plan = panel.plan
-      let indicator = panel.orb.frame
-      let cancel = panel.cancelButton.convert(panel.cancelButton.bounds, to: panel)
-      XCTAssertGreaterThanOrEqual(indicator.minY, 0, "\(size) \(category.rawValue)")
-      XCTAssertLessThanOrEqual(indicator.maxY, panel.statusLabel.frame.minY, "\(size) \(category.rawValue)")
-      let textBottom = panel.captionLabel.isHidden ? panel.statusLabel.frame.maxY : panel.captionLabel.frame.maxY
-      XCTAssertLessThanOrEqual(textBottom, cancel.minY + 0.5, "\(size) \(category.rawValue)")
-      XCTAssertLessThanOrEqual(cancel.maxY, size.height - 10 + 0.5)
-      XCTAssertEqual(panel.captionLabel.isHidden, plan?.showsHint == false)
-      XCTAssertTrue(panel.statusLabel.text?.hasPrefix("…") ?? false, "放不下时省略开头")
-      XCTAssertTrue(panel.statusLabel.text?.hasSuffix("实时文字") ?? false, "保留最新的文字")
+    for held in [true, false] {
+      for (size, category) in cases {
+        let name = "\(held ? "hold" : "tap") \(size) \(category.rawValue)"
+        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        window.traitOverrides.preferredContentSizeCategory = category
+        let panel = KeyboardVoicePanelView(dictationHeld: held, skin: KeyboardTheme.current)
+        window.addSubview(panel)
+        panel.frame = window.bounds
+        panel.showListening(String(repeating: "合成的实时文字", count: 30))
+        panel.layoutIfNeeded()
+        if category.isAccessibilityCategory {
+          XCTAssertGreaterThan(panel.statusLabel.font.pointSize, KeyboardVoicePanelView.titleSize, "跟随系统字号 \(name)")
+        }
+        let plan = panel.plan
+        let indicator = panel.orb.frame
+        XCTAssertGreaterThanOrEqual(indicator.minY, 0, name)
+        XCTAssertLessThanOrEqual(indicator.maxY, panel.statusLabel.frame.minY, name)
+        let textBottom = panel.captionLabel.isHidden ? panel.statusLabel.frame.maxY : panel.captionLabel.frame.maxY
+        if held {
+          XCTAssertLessThanOrEqual(textBottom, size.height - KeyboardVoicePanelPolicy.padBottom + 0.5, name)
+        } else {
+          let cancel = panel.cancelButton.convert(panel.cancelButton.bounds, to: panel)
+          XCTAssertLessThanOrEqual(textBottom, cancel.minY + 0.5, name)
+          XCTAssertLessThanOrEqual(cancel.maxY, size.height - 10 + 0.5, name)
+        }
+        XCTAssertEqual(panel.captionLabel.isHidden, plan?.showsHint == false, name)
+        XCTAssertTrue(panel.statusLabel.text?.hasPrefix("…") ?? false, "放不下时省略开头 \(name)")
+        XCTAssertTrue(panel.statusLabel.text?.hasSuffix("实时文字") ?? false, "保留最新的文字 \(name)")
+      }
     }
   }
 
@@ -295,16 +363,16 @@ final class SpaceVoicePanelTests: XCTestCase {
     // 用整数行高，便于手算：两行加提示的固定部分是 78，一行加提示 58，只有一行 38。
     func plan(_ height: CGFloat) -> Policy.Plan { Policy.plan(height: height, titleLine: 20, hintLine: 16) }
     let full = plan(260)
-    XCTAssertEqual(full.orb, 72)
-    XCTAssertEqual(full.halo, 18)
+    XCTAssertEqual(full.orb, 64)
+    XCTAssertEqual(full.halo, 16)
     XCTAssertEqual(full.titleLines, 2)
     XCTAssertTrue(full.showsHint)
-    XCTAssertEqual(full.top, 37)
+    XCTAssertEqual(full.top, 43)
     XCTAssertEqual(full.indicatorCenterY, 95)
-    XCTAssertEqual(full.titleTop, 155)
-    XCTAssertEqual(full.hintTop(usedTitleLines: 2), 199)
-    XCTAssertEqual(full.hintTop(usedTitleLines: 1), 179, "标题只用一行时提示紧跟着它")
-    XCTAssertEqual(full.hintTop(usedTitleLines: 5), 199)
+    XCTAssertEqual(full.titleTop, 149)
+    XCTAssertEqual(full.hintTop(usedTitleLines: 2), 193)
+    XCTAssertEqual(full.hintTop(usedTitleLines: 1), 173, "标题只用一行时提示紧跟着它")
+    XCTAssertEqual(full.hintTop(usedTitleLines: 5), 193)
 
     XCTAssertEqual(plan(156).titleLines, 2, "圆球还有 52 就留两行")
     XCTAssertEqual(plan(156).orb, 52, accuracy: 0.001)

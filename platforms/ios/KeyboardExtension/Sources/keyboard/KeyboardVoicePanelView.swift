@@ -1,8 +1,8 @@
 import UIKit
 
-/// 聆听面板的纯规则：动作行以上区域的排版、麦克风电平的平滑和实时文字的截取。Android 与 HarmonyOS 用同一组数字，单位是 pt。
+/// 聆听面板的纯规则：动作行以上区域（按住说话时没有动作行，就是整个面板）的排版、麦克风电平的平滑和实时文字的截取。Android 与 HarmonyOS 用同一组数字，单位是 pt。
 enum KeyboardVoicePanelPolicy {
-  static let orbMax: CGFloat = 72
+  static let orbMax: CGFloat = 64
   static let orbMin: CGFloat = 40
   /// 光晕外扩是圆球直径的四分之一，所以指示区边长是圆球的 1.5 倍。
   static let haloRatio: CGFloat = 0.25
@@ -105,9 +105,9 @@ enum KeyboardVoicePanelPolicy {
   }
 }
 
-/// 手机键盘的聆听面板：结束采集后直接上屏，取消只丢弃本次听写。按住空格时仍由松手结束、上滑取消。
+/// 手机键盘的聆听面板：结束采集后直接上屏，取消只丢弃本次听写。按住空格时由松手结束、上滑取消，面板上没有按钮；点按开始时有「说完了」和「取消」。
 ///
-/// 动作行贴着面板底边（留 `actionsBottomMargin`），它以上的区域按 `KeyboardVoicePanelPolicy.plan` 排指示区、标题和提示，光晕的外扩算进指示区，不会画出面板。
+/// 点按开始时动作行贴着面板底边（留 `actionsBottomMargin`），它以上的区域按 `KeyboardVoicePanelPolicy.plan` 排指示区、标题和提示；按住说话时没有动作行，整个面板都给这三样。光晕的外扩算进指示区，不会画出面板。
 final class KeyboardVoicePanelView: UIView {
   static let titleSize: CGFloat = 16
   static let hintSize: CGFloat = 13
@@ -118,7 +118,7 @@ final class KeyboardVoicePanelView: UIView {
   static let actionsBottomMargin: CGFloat = 10
   static let actionMinimumSide: CGFloat = 44
   static let actionSpacing: CGFloat = 24
-  /// 麦克风图标相对圆球的大小：72pt 的圆球里是 30pt。
+  /// 麦克风图标相对圆球的大小：72pt 的圆球里是 30pt，按同一比例缩放。
   static let micRatio: CGFloat = 30 / 72
   static let micLineWidth: CGFloat = 1.8
   static let listeningTitle = "正在聆听…"
@@ -168,6 +168,9 @@ final class KeyboardVoicePanelView: UIView {
     cancelButton.setTitle("取消", for: .normal)
     cancelButton.accessibilityIdentifier = "keyboardVoiceCancel"
     cancelButton.addAction(UIAction { [weak self] _ in self?.onCancel?() }, for: .primaryActionTriggered)
+    // 按住说话时手指还按在空格上，松手结束、上滑取消，面板上不放按钮；读屏的退出手势仍然取消。
+    cancelButton.isHidden = held
+    actions.isHidden = held
     actions.spacing = Self.actionSpacing
     actions.alignment = .center
     for view in [orb, statusLabel, captionLabel, actions] as [UIView] { addSubview(view) }
@@ -234,13 +237,17 @@ final class KeyboardVoicePanelView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     let inset = Self.horizontalInset
-    let row = actions.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-    let rowWidth = min(row.width, max(0, bounds.width - 2 * inset))
-    let rowHeight = max(Self.actionMinimumSide, row.height)
-    actions.frame = CGRect(x: bounds.midX - rowWidth / 2, y: bounds.height - Self.actionsBottomMargin - rowHeight,
-                           width: rowWidth, height: rowHeight)
+    var region = bounds.height
+    if !actions.isHidden {
+      let row = actions.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+      let rowWidth = min(row.width, max(0, bounds.width - 2 * inset))
+      let rowHeight = max(Self.actionMinimumSide, row.height)
+      actions.frame = CGRect(x: bounds.midX - rowWidth / 2, y: bounds.height - Self.actionsBottomMargin - rowHeight,
+                             width: rowWidth, height: rowHeight)
+      region = actions.frame.minY
+    }
     let titleFont = Self.titleFont(for: traitCollection), hintFont = Self.hintFont(for: traitCollection)
-    let plan = KeyboardVoicePanelPolicy.plan(height: max(0, actions.frame.minY), titleLine: titleFont.lineHeight,
+    let plan = KeyboardVoicePanelPolicy.plan(height: max(0, region), titleLine: titleFont.lineHeight,
                                              hintLine: hintFont.lineHeight)
     self.plan = plan
     refreshText()
