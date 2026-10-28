@@ -1,5 +1,6 @@
 import bundleManager from '@ohos.bundle.bundleManager';
 import hiAppEvent from '@ohos.hiviewdfx.hiAppEvent';
+import errorManager from '@ohos.app.ability.errorManager';
 import process from '@ohos.process';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
@@ -59,6 +60,7 @@ interface BeginValue {
   enabled?: boolean;
   session_id?: string;
   crash_record_header?: string;
+  crash_record_path?: string;
 }
 
 interface BeginReply {
@@ -102,6 +104,11 @@ export class HarmonyTelemetry {
   private static watcher: hiAppEvent.Watcher | undefined = undefined;
   private static startGeneration: number = 0;
   private static activeCapture: string = '';
+  private static activeCrashPath: string = '';
+  private static nativeCapture: string = '';
+  private static errorHandlerInstalled: boolean = false;
+  private static errorHandlerFailed: boolean = false;
+  private static nativeCaptureFailed: boolean = false;
   private static desiredCapture: string = '';
   private static installedCapture: string | undefined = undefined;
   private static capturePending: boolean = false;
@@ -304,6 +311,7 @@ export class HarmonyTelemetry {
         return;
       }
       capture = TelemetryPolicy.systemCapture(prepared.value.session_id ?? '', prepared.value.crash_record_header ?? '', process.pid, Date.now(), consent);
+      HarmonyTelemetry.activeCrashPath = prepared.value.crash_record_path ?? '';
     } catch { HarmonyTelemetry.enabled = false; return; }
     HarmonyTelemetry.activeCapture = capture ?? '';
     HarmonyTelemetry.publishCapture(HarmonyTelemetry.activeCapture);
@@ -335,6 +343,7 @@ export class HarmonyTelemetry {
       HarmonyTelemetry.began = true;
       const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
       HarmonyTelemetry.activeCapture = consent === null ? '' : TelemetryPolicy.systemCapture(session, parsed.value.crash_record_header ?? '', process.pid, Date.now(), consent) ?? '';
+      HarmonyTelemetry.activeCrashPath = parsed.value.crash_record_path ?? '';
       HarmonyTelemetry.publishCapture(HarmonyTelemetry.activeCapture);
       HarmonyTelemetry.send(request);
     } catch (error) { KeyboardLog.error(`telemetry: begin refused: ${describeError(error)}`); }
@@ -372,6 +381,11 @@ export class HarmonyTelemetry {
 
   private static recordCrash(report: CrashReport): void {
     HarmonyTelemetry.refresh();
+    HarmonyTelemetry.persistCrash(report, true);
+  }
+
+  /** 致命异常只同步保存，不刷新生命周期、不联网，随后仍执行系统原处理器。 */
+  private static persistCrash(report: CrashReport, flush: boolean): void {
     if (!HarmonyTelemetry.reportingAllowed()) return;
     const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
     if (consent === null) return;
@@ -387,11 +401,63 @@ export class HarmonyTelemetry {
     if (report.outsideSession === true) request.diagnostic_id = TelemetryPolicy.standaloneRecordName(report);
     else request.diagnostic_capture = original.capture;
     const reply: FlagReply | null = HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
-    if (reply !== null) HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
+    if (reply !== null && flush) HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
+  }
+
+  private static installErrorHandler(): void {
+    if (HarmonyTelemetry.errorHandlerInstalled) return;
+    let previous: errorManager.ErrorHandler | undefined = undefined;
+    const handler: errorManager.ErrorHandler = (error: Error): void => {
+      try {
+        if (!HarmonyTelemetry.stopped && HarmonyTelemetry.enabled && HarmonyTelemetry.activeCapture !== '') {
+          const report: CrashReport = TelemetryPolicy.scriptCrash(process.pid, Date.now(),
+            HarmonyTelemetry.activeCapture, error.name, error.stack ?? '');
+          HarmonyTelemetry.persistCrash(report, false);
+        }
+      } catch { /* 采集失败不能阻断原异常处置，也不把异常消息写进日志。 */ }
+      finally {
+        if (previous) previous(error);
+        else new process.ProcessManager().exit(1);
+      }
+    };
+    try {
+      previous = errorManager.setDefaultErrorHandler(handler);
+      HarmonyTelemetry.errorHandlerInstalled = true;
+      HarmonyTelemetry.errorHandlerFailed = false;
+    } catch {
+      if (!HarmonyTelemetry.errorHandlerFailed) KeyboardLog.error('telemetry: default error handler unavailable');
+      HarmonyTelemetry.errorHandlerFailed = true;
+    }
+  }
+
+  /** 原生武装同步完成；系统参数异步安装不影响 API 21 的本进程入口。 */
+  private static prepareNativeCapture(identity: string): void {
+    if (identity === HarmonyTelemetry.nativeCapture) return;
+    try {
+      if (identity === '') {
+        client.telemetryNativeCapture('', '');
+        HarmonyTelemetry.nativeCapture = '';
+        HarmonyTelemetry.nativeCaptureFailed = false;
+        return;
+      }
+      const capture: SystemCapture = JSON.parse(identity) as SystemCapture;
+      if (client.telemetryNativeCapture(HarmonyTelemetry.activeCrashPath, capture.header)) {
+        HarmonyTelemetry.nativeCapture = identity;
+        HarmonyTelemetry.nativeCaptureFailed = false;
+      } else {
+        if (!HarmonyTelemetry.nativeCaptureFailed) KeyboardLog.error('telemetry: native capture unavailable');
+        HarmonyTelemetry.nativeCaptureFailed = true;
+      }
+    } catch {
+      if (!HarmonyTelemetry.nativeCaptureFailed) KeyboardLog.error('telemetry: native capture unavailable');
+      HarmonyTelemetry.nativeCaptureFailed = true;
+    }
   }
 
   /** 同一进程串行更新系统参数，迟到完成后只发布最新需求，绝不从异步回调启动遥测。 */
   private static publishCapture(identity: string): void {
+    HarmonyTelemetry.prepareNativeCapture(identity);
+    if (identity !== '') HarmonyTelemetry.installErrorHandler();
     HarmonyTelemetry.desiredCapture = identity;
     if (HarmonyTelemetry.capturePending || HarmonyTelemetry.installedCapture === identity) return;
     HarmonyTelemetry.capturePending = true;

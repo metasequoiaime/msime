@@ -1,5 +1,6 @@
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
+#include "../../common/CrashRecorder.h"
 #include "key_sound_render.h"
 #include <napi/native_api.h>
 #include <zlib.h>
@@ -284,6 +285,34 @@ TEXT_ENTRY(TelemetryConsent, msime_client_telemetry_consent)
 TEXT_ENTRY(TelemetryEnd, msime_client_telemetry_end)
 TEXT_ENTRY(TelemetryRecordCrash, msime_client_telemetry_record_crash)
 TEXT_ENTRY(TelemetryClear, msime_client_telemetry_clear)
+
+// 只在正常主线程路径准备共享层返回的路径和原构建头；信号回调不调用 NAPI 或 Rust。
+static napi_value TelemetryNativeCapture(napi_env env, napi_callback_info info) {
+    msime::crash::disarm();
+    size_t count = 2;
+    napi_value args[2]{};
+    bool enabled = false;
+    try {
+        std::string path;
+        std::string header;
+        if (napi_get_cb_info(env, info, &count, args, nullptr, nullptr) == napi_ok
+                && count == 2 && argumentText(env, args[0], path)
+                && argumentText(env, args[1], header)
+                && !path.empty() && path.size() < 4096 && header.size() < 1024
+                && path.find('\0') == std::string::npos && header.find('\0') == std::string::npos
+                && header.compare(0, 14, "MSIME-CRASH/1 ") == 0) {
+            msime::crash::install_crash_handlers();
+            msime::crash::arm(path, header);
+            enabled = msime::crash::is_armed();
+        }
+    } catch (...) { msime::crash::disarm(); }
+    napi_value result = nullptr;
+    if (napi_get_boolean(env, enabled, &result) != napi_ok) {
+        msime::crash::disarm();
+        return nullptr;
+    }
+    return result;
+}
 TEXT_ENTRY(NoticeDismiss, msime_client_notice_dismiss)
 // 宿主自报的 User-Agent 由 Rust 拼装和清洗（#8201 的 P11）：纯函数，不联网、不读文件。
 TEXT_ENTRY(ClientAgent, msime_client_client_agent)
@@ -1775,6 +1804,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("telemetryRecordCrash", TelemetryRecordCrash),
         ENTRY("telemetryFlush", TelemetryFlush),
         ENTRY("telemetryClear", TelemetryClear),
+        ENTRY("telemetryNativeCapture", TelemetryNativeCapture),
         ENTRY("notices", Notices),
         ENTRY("updateCheck", UpdateCheck),
         ENTRY("noticeDismiss", NoticeDismiss),

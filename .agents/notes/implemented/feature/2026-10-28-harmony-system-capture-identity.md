@@ -20,12 +20,23 @@ Status: implemented
 
 [setEventParam API](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/reference/apis-performance-analysis-kit/js-apis-hiviewdfx-hiappevent.md)从 API 12 提供本生命周期自定义参数，OS 域支持崩溃与卡死，每个参数值上限 1024 字符。[崩溃示例](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/dfx/hiappevent-watcher-crash-events-arkts.md)与[卡死示例](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/dfx/hiappevent-watcher-freeze-events-arkts.md)把自定义字段直接随系统 params 投递。SDK 本机声明与文档一致。
 
-[事件规格](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/dfx/hiappevent-watcher-crash-events.md)明确输入法应用的系统订阅从 API 22 支持，当前包最低 API 21。API 21 兼容的原生/ArkTS 致命故障采集必须继续实现和设备验证；本次原身份传递不能被表述为补上那个入口。
+[事件规格](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/dfx/hiappevent-watcher-crash-events.md)明确输入法应用的系统订阅从 API 22 支持，当前包最低 API 21。API 21 通过共用原生记录器和主线程默认错误处理器补入口，不能把 HiAppEvent 本身表述为 API 21 输入法覆盖。
+
+## API 21 兼容入口的实施边界
+
+沿用同一捕获身份，为当前最低 API 21 增加共用 POSIX 原生记录器及 `setDefaultErrorHandler` 链式入口。正常路径同步武装原路径/原头，暂停、撤回、停止同步解除武装；系统参数的异步完成不控制原生入口。原生处理器只安装一次，失效时停写，避免卸载时覆盖后来安装的处理器。ArkTS 默认处理器同样在进程内只注册一次，未授权或停止时仍把原异常原样交给前任；无前任才同步退出。故障回调不刷新偏好、不启动网络，不使用会阻止自动退出的普通错误观察器。
+
+新增入口的目标编译、实际适配器故障回归与设备验证分别记录，不把目标编译当作 API 21 已完成验收。三架构目标编译随 `tests/run.sh` 在有 NDK 的环境执行，无 NDK 显式跳过；ARM32 首帧读取原 `arm_pc`，不从信号处理器猜故障位置。
+
+依据 [API 21 默认处理器](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/reference/apis-ability-kit/js-apis-app-ability-errorManager.md)，注册返回前任，缺少前任需同步退出。普通 `error` / `globalErrorOccurred` 观察器会阻止自动退出，不能拿来替换默认处置。只在当前支持的主线程注册，不能据此声称覆盖所有 Worker 的 ArkTS 致命异常。
 
 ## Alternatives considered
 
 - **持久保存按 PID 和时间索引的本地捕获表**：不依赖自定义系统字段，但 PID 可复用、缺失进程结束时刻、两沙箱不共用队列，会引入额外历史保留与匹配歧义。系统提供原生命周期字段，直接让系统保留原身份更明确。
 - **沿用系统版本并用补报构建填充其余字段**：接线简单，但把升级前的故障误标为新源码，不满足精确符号化的目标。
+
+- **普通错误观察器**：可以收到主线程或全局异常，但官方明确观察后进程不再自动退出，无法保留原错误处置。默认处理器提供前任引用，能保持链式调用。
+- **停止时恢复旧默认处理器**：看似完整卸载，但 API 没有比较后替换能力，可能覆盖后来安装者。保留进程期一次性透明链，停采后仅委托前任。
 
 ## Verification
 
@@ -33,10 +44,10 @@ Status: implemented
 
 先 `ohpm install` 后实际 HAP 编译与打包通过（5.512 秒），使用既有原生库，仅证明 ArkTS 类型与打包。首轮因 `Record<string, hiAppEvent.ParamType>` 的非空对象字面量触发 ArkTS 限制，改为空记录再按键赋值后重编通过，不计首轮为通过。ArkTS subset、私有文本读取、原身份无文件回退及隐私门禁均通过。
 
-实际系统回调是否携带字段、同源 NAPI/共享层入队和后台精确符号化尚未设备验收，不能用替身或 HAP 编译代替。API 21 输入法兼容采集仍未实现。完整 quick 与其余平台 CI 的进度由全平台提案持续跟踪。
+实际系统回调是否携带字段、同源 NAPI/共享层入队和后台精确符号化尚未设备验收，不能用替身或 HAP 编译代替。新增 API 21 入口的四组实际适配器故障回归通过，覆盖原异常透传、前任抛错、无前任同步退出、停止后透明委托、暂停/恢复/换代、原生准备失败重试、不覆盖后来安装者，以及系统参数未完成时同步武装。OpenHarmony NDK 下 arm64/armv7/x86_64 的记录器与实际 NAPI 严格编译通过；共用 Apple 记录器实际内存故障首帧与符号还原回归通过。API 21 兼容入口的真实设备故障仍未验收。最新 HAP 实际 ArkTS 编译与打包通过（6.471 秒）；首轮新增回调的无类型对象字面量被 ArkTS 拒绝，抽成共用有类型的 `scriptCrash` 后重编通过。此 HAP 仍复用旧 Rust/NAPI 缓存，不能安装后声称新增原生入口可用。严格 arm64 共享链接明确失败：缓存 Rust 缺少 `msime_client_telemetry_consent` 等四个已有 ABI；不弱化 `--no-undefined`、不以空实现补符号，需要同源重编。模拟器 `Emulator -start msime_harmony_7176` 启动进程被系统 `SIGKILL` 终止，`hdc` 仍为空，没有执行设备故障。完整 quick 与其余平台 CI 的进度由全平台提案持续跟踪。
 
 ## Consequences
 
 原版本、源码提交、架构与持续授权在故障前固定，补报不随当前安装改变；崩溃用原 UUID，避免 PID 复用错误归属；卡死保持独立。删除无读取者的键盘 PID 文件和 ArkTS 遥测文件读写，存储与去重仍由共享层负责。
 
-代价是 `setEventParam` 异步安装完成前的故障可能没有原身份，这些报告保守不认领。已提交给系统的参数不能同步撤回，Rust 继续按当前 epoch 拒绝旧身份；参数请求串行，停止后的迟到结果只促使最终清空，不重启采集。API 21 兼容入口与真机收件仍有缺口，不能由本篇称全平台完成。
+代价是 `setEventParam` 异步安装完成前的故障可能没有原身份，这些报告保守不认领。已提交给系统的参数不能同步撤回，Rust 继续按当前 epoch 拒绝旧身份；参数请求串行，停止后的迟到结果只促使最终清空，不重启采集。API 21 兼容入口的设备验收与真机收件仍有缺口，不能由本篇称全平台完成。

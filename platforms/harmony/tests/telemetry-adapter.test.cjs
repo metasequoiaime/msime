@@ -40,8 +40,12 @@ function fixture(options = {}) {
   let nextTimer = 1;
   const state = { reply: JSON.stringify({ok: true, value: {enabled: true, epoch, since_unix_ms: 1000}}),
     network: true, clear: [], end: [], begin: [], flush: [], publications: [], timers: new Map(), intervals: new Map(), writes: [],
-    blockedFlush: false, publicationError: false, captureFailure: false, captureBlocked: false, captureSets: [], captureResolves: [], records: [], watcher: null };
+    blockedFlush: false, publicationError: false, captureFailure: false, captureBlocked: false, captureSets: [], captureResolves: [], records: [], watcher: null, nativeCaptures: [], errorHandlers: [], errorHandler: options.previousHandler, exits: [], nativeCaptureFailure: false };
   const native = {
+    telemetryNativeCapture(path, header) {
+      state.nativeCaptures.push({path,header});
+      return !state.nativeCaptureFailure && path !== '';
+    },
     telemetryConsent(text) {
       const query = JSON.parse(text);
       if (query.publication) {
@@ -60,7 +64,7 @@ function fixture(options = {}) {
       state.begin.push(request);
       const header = 'MSIME-CRASH/1 ' + JSON.stringify({platform:'harmony',version:'1.0.0',revision:'abcdef12',
         run:'7',attempt:'1',arch:'aarch64',component:request.component,consent_epoch:request.consent_epoch}) + '\n';
-      return JSON.stringify({ok:true,value:{enabled:true,session_id:request.capture_only ? independentCapture : ownSession,crash_record_header:header}});
+      return JSON.stringify({ok:true,value:{enabled:true,session_id:request.capture_only ? independentCapture : ownSession,crash_record_header:header,crash_record_path:'/private/state/telemetry/crashes/' + (request.capture_only ? independentCapture : ownSession) + '.crash'}});
     },
     telemetryFlush(text) {
       state.flush.push(JSON.parse(text));
@@ -82,7 +86,14 @@ function fixture(options = {}) {
         return state.captureFailure ? Promise.reject(new Error('synthetic capture failure')) : Promise.resolve();
       },
       domain: {OS: 'os'}, event: {APP_CRASH: 'crash', APP_FREEZE: 'freeze'}}},
-    '@ohos.process': {default: {pid: 42}},
+    '@ohos.process': {default: {pid: 42, ProcessManager: class { exit(code) { state.exits.push(code); } }}},
+    '@ohos.app.ability.errorManager': {default: {setDefaultErrorHandler(handler) {
+      if (state.handlerFailure) throw new Error('synthetic registration failure');
+      const previous = state.errorHandler;
+      state.errorHandler = handler;
+      state.errorHandlers.push(handler);
+      return previous;
+    }}},
     '@ohos.file.fs': {default: io},
     '@ohos.util': {default: {generateRandomUUID: () => 'staging'}},
     'libmsimeclient.so': {default: native},
@@ -328,3 +339,89 @@ async function captureGroups() {
   console.log('harmony telemetry adapter: 11 lifecycle and 4 async capture groups passed');
 }
 captureGroups().catch(error => { console.error(error); process.exitCode=1; });
+
+// API 21 的实际默认处理器与同步武装，不依赖 HiAppEvent 异步完成。
+{
+  const forwarded = [];
+  const {state, telemetry, start, tick} = fixture({previousHandler: error => forwarded.push(error)});
+  state.captureBlocked = true;
+  start();
+  assert.equal(state.nativeCaptures.length, 1);
+  assert.equal(state.nativeCaptures[0].path, '/private/state/telemetry/crashes/' + independentCapture + '.crash');
+  assert.equal(state.errorHandlers.length, 1);
+  const flushes = state.flush.length;
+  const publications = state.publications.length;
+  const error = new Error('synthetic private message');
+  error.name = 'RangeError';
+  error.stack = 'RangeError: synthetic private message\n at syntheticTask (entry/Task.ets:12:3)';
+  state.errorHandler(error);
+  assert.equal(state.records.length, 1);
+  assert.equal(state.records[0].diagnostic_capture, independentCapture);
+  assert.equal(state.records[0].message, 'RangeError');
+  assert.equal(state.records[0].stack, 'at syntheticTask (entry/Task.ets:12:3)');
+  assert.equal(JSON.stringify(state.records).includes('synthetic private message'), false);
+  assert.equal(state.flush.length, flushes, '致命回调不能启动网络');
+  assert.equal(state.publications.length, publications, '致命回调不能重启或刷新授权');
+  assert.equal(forwarded[0], error, '原异常原样交给原默认处理器');
+  assert.equal(state.exits.length, 0);
+  tick();
+  assert.equal(state.nativeCaptures.length, 1, '同一身份不重复预热或安装信号处理器');
+  telemetry.applicationStopped();
+  assert.deepEqual(state.nativeCaptures.at(-1), {path:'',header:''});
+  state.errorHandler(error);
+  assert.equal(state.records.length, 1, '停止后链仍存在但不采集');
+  assert.equal(forwarded.length, 2);
+}
+{
+  const {state, telemetry, start, tick, begin} = fixture({publisher:false,group:'/group'});
+  start(); begin();
+  assert.equal(state.nativeCaptures.at(-1).path, '/private/state/telemetry/crashes/' + ownSession + '.crash');
+  assert.match(state.nativeCaptures.at(-1).header, /"component":"input"/);
+  state.reply = '{"ok":true,"value":{"enabled":false,"suspended":true}}';
+  tick();
+  assert.deepEqual(state.nativeCaptures.at(-1), {path:'',header:''}, '暂停同步停写');
+  const count = state.records.length;
+  state.errorHandler(new Error('synthetic'));
+  assert.equal(state.records.length, count);
+  assert.deepEqual(state.exits, [1], '无前任处理器也必须同步退出');
+  state.reply = JSON.stringify({ok:true,value:{enabled:true,epoch,since_unix_ms:1000}});
+  tick();
+  assert.equal(state.nativeCaptures.at(-1).path, '/private/state/telemetry/crashes/' + ownSession + '.crash');
+  const replacement = '87654321-4321-4321-8321-cba987654321';
+  state.reply = JSON.stringify({ok:true,value:{enabled:true,epoch:replacement,since_unix_ms:2000}});
+  state.errorHandler(new Error('synthetic'));
+  assert.equal(state.records.length, count, '观察器尚未换代时致命回调也不追认旧捕获');
+  tick();
+  assert.match(state.nativeCaptures.at(-1).header, new RegExp(replacement));
+  telemetry.keyboardStopped();
+}
+{
+  const predecessorFailure = new Error('synthetic predecessor failure');
+  const {state, telemetry, start} = fixture({previousHandler: () => { throw predecessorFailure; }});
+  start();
+  assert.throws(() => state.errorHandler(new Error('synthetic')), error => error === predecessorFailure,
+    '不能吞掉原处理器的异常');
+  assert.equal(state.exits.length, 0);
+  telemetry.applicationStopped();
+}
+{
+  const {state, telemetry, start, tick} = fixture();
+  state.nativeCaptureFailure = true;
+  state.handlerFailure = true;
+  start();
+  assert.equal(state.errorHandlers.length, 0);
+  state.nativeCaptureFailure = false;
+  state.handlerFailure = false;
+  tick();
+  assert.equal(state.nativeCaptures.length, 2, '准备失败由独立观察器重试');
+  assert.equal(state.errorHandlers.length, 1);
+  const ours = state.errorHandler;
+  const later = error => ours(error);
+  state.errorHandler = later;
+  telemetry.applicationStopped();
+  start();
+  assert.equal(state.errorHandler, later, '停止/重启不能覆盖后安装的处理器');
+  assert.equal(state.errorHandlers.length, 1, '进程只安装一次链式处理器');
+  telemetry.applicationStopped();
+}
+console.log('harmony telemetry adapter: 4 API 21 fatal capture groups passed');
