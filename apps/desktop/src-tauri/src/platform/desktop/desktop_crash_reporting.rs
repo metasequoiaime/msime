@@ -1,8 +1,7 @@
 use msime_client_core::preferences::{PreferencesStore, UsageReportingConsent};
-use msime_client_services::account::BackendAccountClient;
 use msime_client_services::telemetry::{
-    Delivery, FlushReport, SessionStart, TelemetryApp, TelemetryError, TelemetrySender,
-    TelemetryStore,
+    backend_sender, Delivery, FlushReport, SessionStart, TelemetryApp, TelemetryError,
+    TelemetrySender, TelemetryStore,
 };
 use std::ffi::CString;
 use std::path::PathBuf;
@@ -248,7 +247,7 @@ pub(crate) fn refresh() {
     let _ = std::thread::Builder::new()
         .name("msime-desktop-telemetry".to_owned())
         .spawn(move || {
-            if let Ok(sender) = BackendAccountClient::new() {
+            if let Ok(sender) = backend_sender() {
                 let _ = reporter.flush(&reporter.store, consent, &sender);
                 #[cfg(target_os = "linux")]
                 {

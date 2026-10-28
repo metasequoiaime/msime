@@ -3,6 +3,22 @@
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
 use super::*;
+
+#[test]
+fn telemetry_test_origin_rejects_before_storage_or_network() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let request = json!({
+        "directory": directory, "platform": "linux", "version": "0.0.1",
+        "enabled": true, "test_origin": "http://127.0.0.1:0"
+    });
+    // 正式构建拒绝未知字段，测试构建拒绝与编译目标不符的握手；两者都不得先建目录。
+    for function in [msime_client_telemetry_begin, msime_client_telemetry_flush] {
+        assert_eq!(reporting_call(function, request.clone())["ok"], false);
+        assert!(!directory.exists());
+    }
+}
 use crate::account::msime_client_account_name;
 use msime_client_core::host_surface::compiled_input_schemes;
 use sha2::{Digest, Sha256};
