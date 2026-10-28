@@ -121,7 +121,7 @@ try {
         # 先建全新的闭包，旧成功产物只在本次全部审计成功后替换。
         $destination = Join-Path $output 'runtime.new'
         if (Test-Path -LiteralPath $destination) { throw 'Previous unfinished Win7 runtime.new exists; inspect it before rebuilding' }
-        $entries = @('MetasequoiaImeServer.exe','MetasequoiaImeWatchdog.exe','msime-client-prepare.exe','MetasequoiaImeTsf.dll',
+        $entries = @('MetasequoiaImeServer.exe','MetasequoiaImeWatchdog.exe','msime-client-prepare.exe','MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll',
             'msime-client-settings-win7.exe','msime-client-panels-win7.exe','msime-mcp.exe','sherpa-onnx-c-api.dll','onnxruntime_providers_shared.dll')
         $dependencies = @((Join-Path $prefix 'bin') | Where-Object { Test-Path -LiteralPath $_ -PathType Container }) + @($runtimes)
         & (Join-Path $PSScriptRoot 'Copy-Windows7RuntimeClosure.ps1') -ProgramDirectory $bin -EntryPoints $entries -DependencyDirectories $dependencies -Destination $destination -Architecture $arch

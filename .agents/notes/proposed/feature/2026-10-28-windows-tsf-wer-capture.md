@@ -18,13 +18,25 @@ WER 回调使用目标进程地址，必须通过 ReadProcessMemory 读取，不
 
 ## 当前基础切片与验证
 
-`CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调；生产 TSF 的 CMake 和无需 Rust 的专项工程复用同一构建定义。**尚未接入 TSF 租约、授权观察、允许列表、安装器及 Arm64X，仍不构成产品覆盖。** 本篇保留 `proposed`，待完整接线后整体转为 `implemented`。
+`CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调。`TsfCrashCapture` 已接入产品 TSF 的激活、失败回滚、停用与析构；独立后台观察任务持有 DLL 加载引用，持续检查共享授权、发布有代次的快照。现代与 Win7 的构建、暂存、符号采集和安装器已接入 helper，Arm64X 沿用 TIP 的两阶段链接。**系统 WER 实际投递、完整产品包与外部宿主验收仍未完成。** 本篇保留 `proposed`，不把源码接线和专项测试当作产品闭环。
 
 Windows 11（10.0.26200）、MSVC 19.44.35228 和 SDK 10.0.26100 上，x64/x86 实际构建与回调 CTest 均通过，分别为 0.13 秒和 0.17 秒；ARM64 的同源 helper 和测试程序构建通过，但未在 ARM64 系统运行。测试从另一个合成进程的实际地址读取上下文，覆盖非致命/停用/未准备/奇数代次、截短事件、损坏头与模块、外部模块边界、不可读地址/无内存读取权限、相对路径与备用数据流、目录重解析点、原头保留、自有模块偏移、首份完整及临时文件不覆盖，以及三个 WER 回调不改宿主输出。此次重解析点夹具实际运行，没有因权限跳过。未注册系统模块或制造真实致命故障，不能代替 WER 系统投递与 TSF 外部宿主验收。
 
 初次 x64 实跑通过，但 x86 出现宿主输出损坏。静态类型断言和验证机原版 SDK 证明：微软的三个回调均为 `cdecl`，本机 MinGW 却声明为 `WINAPI`；32 位的调用栈因此不平衡，64 位不暴露该区别。`WerApiCompatibility.h` 统一使用微软 ABI，MSVC 下与原版 typedef 静态核对；x86 修正后通过。不能依据 MinGW 头文件或只跑 x64 再推断 x86 ABI 正确。
 
 本机 MinGW x64 对同一 CMake 定义的 `-Wall -Wextra -Werror` 编译通过，helper 静态链接工具链运行时；这不代替 Win7、ARM64、Arm64X 的产品包验证。本机磁盘不足 50 GB，只编译此小型独立夹具，没有启动完整 Windows/Rust 构建树；完整 quick 仍在远端运行，尚未通过。
+
+### 租约接线与卸载专项
+
+最后租约释放只在生命周期锁内解除武装、增加代次并唤醒观察任务，不等待文件锁。新租约即使在旧任务准备中途加入也必须重新准备，旧结果不能短暂武装新租约。观察任务在注销成功前始终保留上下文；系统注销失败时保持停采并重试。回调通过 [FreeLibraryWhenCallbackReturns](https://learn.microsoft.com/en-us/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-freelibrarywhencallbackreturns) 将加载引用交还线程池，避免在 DLL 代码仍执行时卸载自身。它只依赖 Vista 起提供的线程池接口，未引入 Win7 之后的新要求。
+
+Windows 11 上，同源 MSVC x64/x86 严格编译及两条 CTest 通过：生产 helper 的跨进程边界测试分别为 0.10、0.13 秒，新增生命周期与落盘联动分别为 3.93、4.03 秒。新增测试将真实 `TsfCrashCapture.cpp` 编成可反复装卸的 DLL，仅替代共享 ABI 返回、路径发现和 WER 注册这三个边界，实际执行线程池、加载引用、租约与快照发布。验证多实例共存、读失败的同代次恢复、关闭重开、未观察到中间关闭的代次变化、阻塞偏好读取期间立即停用、加载引用保持、迟到准备结果、注销失败重试，以及二十次实际 DLL 装卸。准备结果另交给生产 WER helper，核对原头和自有模块偏移确实落盘，回调不认领宿主异常。ARM64 的相同源码严格编译通过，未在 ARM64 系统执行。26 个源码与配置文件逐项 SHA-256 与本机冻结快照一致。
+
+第一版负对照移除代次比较后仍通过：唤醒事件让下一轮观察立即覆盖了短暂的旧武装，原测试只看最终状态。现用测试专用的刷新完成屏障固定这个窗口，再复制受锁保护的真实快照。移除代次比较后，同一回归稳定以 `late prepare armed replacement lease` 失败；恢复源码后两条 CTest 再次通过，生命周期 3.90 秒。首轮 PowerShell 包装器把预期的 CTest 标准错误当作终止异常，未算负对照通过；修正结果捕获后才得到上述证据。首轮 MSVC 测试导出声明、full 版 Host API 文件名夹具错误均已修正，失败轮不计通过。
+
+同源 helper 另用 MSVC ARM64 和 ARM64EC 两阶段实际链接，最终 Arm64X DLL 已产出；这还不是 ARM64 设备运行或完整 TIP 产品链接。现代及 Win7 五份改动打包脚本按 UTF-8 解析通过，安装器既有 TSF 注册契约与新增 WER 允许列表契约通过，确保只添加完整版本路径、只删除自己的两个值而不删除系统键。Windows PowerShell 5 的默认文件编码曾使直接 ParseFile 失败，改为明确按仓库 UTF-8 源码 ParseInput 后通过，没有改动产品脚本来迁就测试机器编码。
+
+整轮 quick 的上一冻结快照有两项 Windows 设置 PowerShell 检查分别在 20、40 秒超时，整轮结果为失败；它不包含这次 TSF 接线。后续同源 Android 完整 Release APK 已产出，鸿蒙原生包仍由同一任务构建，排队中的基础 WER quick 尚未开始。新接线的完整门禁另行冻结排队，不覆盖正在被任务读取的源码；以上专项均未向产品后台发送合成崩溃。
 
 ## Related notes
 

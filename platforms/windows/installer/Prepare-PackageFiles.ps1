@@ -156,6 +156,8 @@ $tsfArm64Release = Join-Path $tsfArm64Directory 'MetasequoiaImeTsf.dll'
 $tsfArm64Pdb = Join-Path $tsfArm64Directory 'MetasequoiaImeTsf.pdb'
 $arm64HostDllName = [IO.Path]::GetFileNameWithoutExtension($hostDllName) + '_arm64.dll'
 $tsfArm64Host = Join-Path $tsfArm64Directory $arm64HostDllName
+$werHelperName = 'MetasequoiaImeCrashWer.dll'
+$tsfArm64WerHelper = Join-Path $tsfArm64Directory $werHelperName
 $tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) $hostDllName
 $tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) $hostDllName
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
@@ -199,6 +201,7 @@ Assert-PathExists -LiteralPath $tsf64Pdb -Description '64 位 TSF Release PDB'
 Assert-PathExists -LiteralPath $tsfArm64Release -Description 'Arm64X TSF Release DLL'
 Assert-PathExists -LiteralPath $tsfArm64Pdb -Description 'Arm64X TSF Release PDB'
 Assert-PathExists -LiteralPath $tsfArm64Host -Description "Arm64X TSF 的 $arm64HostDllName"
+Assert-PathExists -LiteralPath $tsfArm64WerHelper -Description 'Arm64X TSF 的 WER helper'
 }
 foreach ($hostDll in @($tsf32Host) + @($(if ($Windows7Architecture -ne 'x86') { $tsf64Host }))) {
     if (-not (Test-Path -LiteralPath $hostDll -PathType Leaf)) {
@@ -563,7 +566,7 @@ if ($Windows7Architecture -ne '') {
         if ($Windows7Architecture -eq 'x86' -and $target[0] -eq 'x64') { continue }
         $sourceDirectory = Split-Path -Parent $target[1]
         & (Join-Path (Split-Path -Parent $PSScriptRoot) 'Copy-Windows7RuntimeClosure.ps1') -ProgramDirectory $sourceDirectory `
-            -EntryPoints @('MetasequoiaImeTsf.dll') -DependencyDirectories @($sourceDirectory) -Destination $target[2] -Architecture $target[0]
+            -EntryPoints @('MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll') -DependencyDirectories @($sourceDirectory) -Destination $target[2] -Architecture $target[0]
     }
 } else {
 New-Item -ItemType Directory -Path $targetTsf32, $targetTsf64, $targetTsfArm64 -Force | Out-Null
@@ -574,7 +577,7 @@ Copy-Item -LiteralPath $tsf64Pdb -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf32Host -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Host -Destination $targetTsf64 -Force
 # Arm64X TIP 的 ARM64EC 那一半导入 x64 宿主，它由 tsf_dll\64 那一份装进同一个版本目录；这里只放 TIP 和 ARM64 宿主。两者都静态链接 C 运行时，没有别的运行时 DLL。
-Copy-Item -LiteralPath $tsfArm64Release, $tsfArm64Pdb, $tsfArm64Host -Destination $targetTsfArm64 -Force
+Copy-Item -LiteralPath $tsfArm64Release, $tsfArm64Pdb, $tsfArm64Host, $tsfArm64WerHelper -Destination $targetTsfArm64 -Force
 # Build-Client 把检查过架构的发布依赖收集到 TIP 旁边；只复制上面列出的那些，绝不复制共用 x64 目录里的其余文件。
 foreach ($dependency in $tsf32Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf32 -Force }
 foreach ($dependency in $tsf64Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf64 -Force }

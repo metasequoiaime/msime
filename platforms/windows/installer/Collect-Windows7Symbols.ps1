@@ -28,6 +28,7 @@ try {
             @($native, 'MetasequoiaImeWatchdog.exe', 'MetasequoiaImeWatchdog.pdb'),
             @($native, 'msime-client-prepare.exe', 'msime-client-prepare.pdb'),
             @($native, 'MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb'),
+            @($native, 'MetasequoiaImeCrashWer.dll', 'MetasequoiaImeCrashWer.pdb'),
             @($native, 'msime-client-settings-win7.exe', 'msime-client-settings-win7.pdb'),
             @($native, 'msime-client-panels-win7.exe', 'msime-client-panels-win7.pdb')
         )
