@@ -299,7 +299,7 @@ export function LinuxSetupPage({
           <div className="mt-5 flex w-full max-w-[400px] flex-col gap-2.5 text-left text-xs leading-[1.7] text-[var(--p-sub)] select-text">
             <label className="flex items-start gap-2">
               <ControlledCheckbox checked={download} disabled={busy} onChange={setDownload} />
-              <span>词库不完整时从固定地址下载（首次约 170 MB）</span>
+              <span>词库不完整时从固定地址下载（首次约 270 MB）</span>
             </label>
             <label className="flex items-start gap-2">
               <ControlledCheckbox

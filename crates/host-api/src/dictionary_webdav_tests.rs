@@ -287,6 +287,16 @@ fn the_input_method_never_creates_a_device_identity() {
         settings["value"]["error"], "dictionary_sync_unavailable",
         "{settings}"
     );
+    // 状态里总有 `budget_wait_until`：连不上不是额度的事，没在等额度。
+    let status = &settings["value"]["status"];
+    assert!(
+        status
+            .as_object()
+            .unwrap()
+            .contains_key("budget_wait_until"),
+        "{settings}"
+    );
+    assert_eq!(status["budget_wait_until"], Value::Null, "{settings}");
     let wrong = call_with_identity(&options, &directory, json!("no"));
     assert_eq!(wrong["error"], INVALID);
 }

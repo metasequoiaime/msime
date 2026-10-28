@@ -104,6 +104,7 @@ fn ordinary_row(row: &WordItem, reading: &str) -> bool {
         corrected_from,
         sentence_association,
         sentence_words,
+        touch_supported,
     } = row;
     pinyin == reading
         && *source == CandidateSource::Database
@@ -113,6 +114,7 @@ fn ordinary_row(row: &WordItem, reading: &str) -> bool {
         && corrected_from.is_empty()
         && !sentence_association
         && sentence_words.is_empty()
+        && !touch_supported
 }
 
 fn copy_row(row: &DictRow, pinyin: &str) -> WordItem {

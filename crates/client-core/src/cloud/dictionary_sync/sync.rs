@@ -1066,13 +1066,14 @@ fn bootstrap(
             };
             parts.remote.mkcol(ROOT)?;
             parts.remote.mkcol(V1)?;
-            parts.remote.create(FORMAT_FILE, &format_bytes())?;
+            let format = parts.remote.create(FORMAT_FILE, &format_bytes())?;
             let genesis = Ledger::genesis(&random_hex(parts.env)?, key.key_id());
             parts.remote.mkcol(&epoch_dir(0))?;
-            parts.remote.create(
-                &checkpoint_path(0),
-                &genesis.checkpoint(&key, nonce(parts.env)?),
-            )?;
+            let checkpoint = genesis.checkpoint(&key, nonce(parts.env)?);
+            // 格式文件和检查点都是本机刚独占写成的：直接从这份检查点开始，不再列一次目录、读回刚写的两个文件（第一台设备配置时省三个请求）。有一个没写成就是另一台设备同时在建，照常按网盘上的样子读。
+            if parts.remote.create(&checkpoint_path(0), &checkpoint)? && format {
+                return adopt(state, parts, &checkpoint, 0, false, report);
+            }
             parts.remote.list(V1)?.ok_or(SyncError::Unavailable)?
         }
     };

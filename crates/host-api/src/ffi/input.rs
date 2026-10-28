@@ -300,6 +300,70 @@ pub extern "C" fn msime_client_character(handle: u64, ascii: u8, shift: bool) ->
     )
 }
 
+/// 键位几何 JSON 的字节上限：26 个字母键加 `;` 和分离键盘的几个重复键，远不到这么多。
+const KEY_GEOMETRY_LIMIT: usize = 16 * 1024;
+
+/// 触屏宿主注册 26 键的字母键几何（只在布局变化时调用），形状见 `msime_client.h`。空串或 `id` 为 0 清除几何。不合格的 JSON 整份拒绝，原来的几何不变。
+///
+/// # Safety
+/// `json` 指向 `length` 个可读字节；`length` 为 0 时可以是空指针。缓冲不被保留。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_set_key_geometry(
+    handle: u64,
+    json: *const u8,
+    length: usize,
+) -> *mut c_char {
+    if length > KEY_GEOMETRY_LIMIT || (length > 0 && json.is_null()) {
+        return response(|| Err("invalid key geometry".into()));
+    }
+    let bytes = if length == 0 {
+        &[][..]
+    } else {
+        // SAFETY：由调用方契约保证。
+        unsafe { std::slice::from_raw_parts(json, length) }
+    };
+    let geometry = match msime_engine::touch::KeyGeometry::from_json(bytes) {
+        Ok(geometry) => geometry,
+        Err(error) => return response(|| Err(error)),
+    };
+    response(|| {
+        with_session(handle, |session| {
+            session.runtime.set_key_geometry(geometry);
+            serialized_runtime_view(session)
+        })
+    })
+}
+
+/// 触屏 26 键的一键，带上按下点 (x, y)（与注册的几何同一个坐标系）。先记下这一键的触点，再照 `msime_client_character` 原路派发，派发完不论结果如何都清掉触点。代次不符、坐标不是有限数或当前不是 26 键双拼时，与 `msime_client_character(ascii, shift)` 逐字节相同。
+#[no_mangle]
+pub extern "C" fn msime_client_touch_character(
+    handle: u64,
+    ascii: u8,
+    shift: bool,
+    geometry_id: u32,
+    x: f32,
+    y: f32,
+) -> *mut c_char {
+    // 会话不存在时这一步什么也不做，下面的派发照常报错。
+    let _ = with_session(handle, |session| {
+        let touch = session.runtime.key_touch(ascii, geometry_id, x, y);
+        session.runtime.set_key_touch(touch);
+        Ok(())
+    });
+    let view = dispatch(
+        handle,
+        Action::Character {
+            value: ascii,
+            shift,
+        },
+    );
+    let _ = with_session(handle, |session| {
+        session.runtime.set_key_touch(None);
+        Ok(())
+    });
+    view
+}
+
 /// 14 键的一键：`letter` 是这一组里的任一小写字母（宿主约定送首字母）。不在 14 键下、或不是 `a`–`z` 时 handled=false，会话不变。
 #[no_mangle]
 pub extern "C" fn msime_client_grid_key(handle: u64, letter: u8) -> *mut c_char {

@@ -99,6 +99,39 @@ printf '%s %s %s\\n' "$calls" "$status" "$([ -e "$1" ] && echo present || echo a
                   f"DMG creation with {count} failures: expected {expected}, got {result.stdout.strip()}")
 
 
+def check_core_dictionary_budget() -> None:
+    source = PACKAGE.read_text(encoding="utf-8")
+    helper = re.search(r"^core_dictionary_budget_kib\(\) \{\n.*?^\}\n", source, re.MULTILINE | re.DOTALL)
+    check(helper is not None, "核心词库预算没有随版本锁计算，五笔新锁仍会被旧的固定预算拒绝")
+    if helper is None:
+        return
+    check('engine_budget_kib="$(core_dictionary_budget_kib "$resources_dir/EngineResources")"' in source,
+          "check_app 没有使用锁驱动的核心词库预算")
+    with tempfile.TemporaryDirectory(prefix="msime-core-budget-") as directory:
+        root = Path(directory)
+        (root / "resources/editions").mkdir(parents=True)
+        (root / "resources/helpcodes").mkdir()
+        staged = root / "EngineResources"
+        staged.mkdir()
+        # 大小取真实新锁，空的合成文件只表示它在本版本内；预算必须读锁，不能跟着文件实际长度放宽。
+        artifacts = json.loads((ROOT / "resources/editions/wubi.lock.json").read_text())["artifacts"]
+        lock = {"artifacts": artifacts}
+        (root / "resources/editions/wubi.lock.json").write_text(json.dumps(lock))
+        (root / "resources/desktop-dictionary.lock.json").write_text(json.dumps(lock))
+        for artifact in artifacts:
+            (staged / artifact["name"]).touch()
+        probe = 'set -euo pipefail\nrepo_root=$1\nedition=$2\n' + helper.group() + '\ncore_dictionary_budget_kib "$3"'
+        for edition, omit_wubi in (("wubi", False), ("full", True)):
+            if omit_wubi:
+                (staged / "msime-wubi.db").unlink()
+            result = subprocess.run(["bash", "-c", probe, "probe", str(root), edition, str(staged)],
+                                    capture_output=True, text=True, timeout=10)
+            expected = sum((a["size"] + 4095) // 4096 * 4 for a in artifacts
+                           if not omit_wubi or a["name"] != "msime-wubi.db") + 4096
+            check(result.returncode == 0 and result.stdout.strip() == str(expected),
+                  f"{edition} 核心词库预算应为 {expected} KiB，实际为 {result.stdout.strip()}；{result.stderr.strip()}")
+
+
 def check_input_method_supplementary_tables() -> None:
     bash = shutil.which("bash")
     if not bash:
@@ -207,6 +240,7 @@ def main() -> int:
 
     check('create_dmg "$dmg" -volname' in package_text, "package-release.sh bypasses the DMG creation retry")
     check_dmg_creation()
+    check_core_dictionary_budget()
     check_input_method_supplementary_tables()
 
     if failures:

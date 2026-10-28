@@ -1,6 +1,6 @@
 # Maintainer: Metasequoia IME <metasequoiaime@gmail.com>
 #
-# 从 linux-v$pkgver 标签的源码构建完整版，内容与发布的 .deb/.rpm 相同：Fcitx5 插件、IBus engine、msime-linux-setup、设置窗口（Tauri 桌面二进制）、msime-mcp、语音运行库、手写模型、离线释义与粤语/注音/笔画词库。主词库（约 170 MB）不随包，与发布包一样由每个用户首次运行 `msime-linux-setup --download` 取回。
+# 从 linux-v$pkgver 标签的源码构建完整版，内容与发布的 .deb/.rpm 相同：Fcitx5 插件、IBus engine、msime-linux-setup、设置窗口（Tauri 桌面二进制）、msime-mcp、语音运行库、手写模型、离线释义与粤语/注音/笔画词库。主词库（约 270 MB）不随包，与发布包一样由每个用户首次运行 `msime-linux-setup --download` 取回。
 #
 # 本文件在仓库 platforms/linux/packaging/arch/msime/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布改写，AUR 上的副本只是它的拷贝。构建步骤与 platforms/linux/package-container.sh 一致，改那边时这里一起改。
 

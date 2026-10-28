@@ -303,6 +303,8 @@ class ApkSize(unittest.TestCase):
         self.write(self.sizes(128435407, 133000000))
         self.track(2)
         issue = self.api.issues[1]
+        self.track(2)
+        self.assertEqual(issue["comments"], [], "the run that opened the size issue is not reported twice")
         self.assertEqual(issue["title"], "Android APK 体积超过预警线：2026-10-28")
         self.assertEqual(issue["labels"], ["apk-size"])
         self.assertIn("| pinyin | `msime-android-pinyin.apk` | 133,000,000 | — | 2.0 MB | **超过预警线** |", issue["body"])

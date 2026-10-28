@@ -288,6 +288,7 @@ export function useSettingsPageModel({
     setDictionaryFormat,
     phraseListRef,
     loadPhrases,
+    reloadPhrases,
     turnPhrasePage,
     removePhrase,
     savePhrase,
@@ -434,6 +435,7 @@ export function useSettingsPageModel({
     client,
     saved: snapshot?.preferences.dictionary_sync_webdav,
     localChanges: dictionaryLocalChanges,
+    onWordsApplied: reloadPhrases,
   });
   const { ai, storedAiCredential } = aiSettingsPreferences(
     draft?.ai_assistant,

@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -31,9 +32,14 @@ int main() {
             std::wstring::npos);
 
     // 随包的许可声明在 server 目录的上一级，与安装器的 DestDir 一致。
-    const auto base = std::filesystem::temp_directory_path() / "msime-settings-document-test";
+    // 多个工作树可同时运行门禁，原子认领独立目录，不能删除另一个测试进程的夹具。
+    std::random_device random;
+    std::filesystem::path base;
+    do {
+      base = std::filesystem::temp_directory_path() /
+             ("msime-settings-document-test-" + std::to_string(random()));
+    } while (!std::filesystem::create_directory(base));
     std::error_code ignored;
-    std::filesystem::remove_all(base, ignored);
     std::filesystem::create_directories(base / "server");
     const auto executable = base / "server" / "msime-client-settings.exe";
     require(third_party_notices_path(executable) == base / "THIRD_PARTY_NOTICES.txt");

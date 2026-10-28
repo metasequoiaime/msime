@@ -7,7 +7,7 @@
 //!
 //! Learning is off and each case gets a fresh session, so one case cannot bias the next.
 //!
-//! `--scheme shuangpin` 把同样的用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触，量双拼纠错的召回和对正确输入的影响；报告形状和跑法见 resources/eval/README.md「双拼与触屏误触」。
+//! `--scheme shuangpin` 把同样的用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触和落点，像触屏宿主那样先注册几何（`Runtime::set_key_geometry`）、每键带上按下点（`Runtime::set_key_touch`）再派发，量双拼触点纠错的召回和对正确输入的影响；`--no-touch-points` 只送按到的键、不送落点，就是引擎收不到触点时的平面表。报告形状和跑法见 resources/eval/README.md「双拼与触屏误触」。
 
 #[path = "../eval_resources/mod.rs"]
 mod eval_resources;
@@ -17,20 +17,13 @@ mod touch_noise;
 
 use metrics::{Bucket, Observation, Report, TouchBucket, TouchObservation, TouchReport};
 use msime_engine::host::{Command, EngineOptions, Session};
+use msime_engine::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use msime_engine::{KeyGrid, SchemeType, ShuangpinProfileKind};
 use msime_input_runtime::{Action, Reranker, Runtime, SentenceModel};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use touch_noise::{KeyLayout, TouchMode, TouchNoise};
-
-/// 26 键双拼的内置方案，按 `ShuangpinProfileKind` 的序号；`custom` 没有内置的表，评测不了。
-const SHUANGPIN_PROFILES: [ShuangpinProfileKind; 5] = [
-    ShuangpinProfileKind::Xiaohe,
-    ShuangpinProfileKind::Ziranma,
-    ShuangpinProfileKind::Shoudao,
-    ShuangpinProfileKind::Microsoft,
-    ShuangpinProfileKind::SmartAbc,
-];
+use std::sync::Arc;
+use touch_noise::{KeyLayout, Point, TouchMode, TouchNoise};
 
 /// `--seed` 的默认值。
 const DEFAULT_SEED: u64 = 20261027;
@@ -38,12 +31,24 @@ const DEFAULT_SEED: u64 = 20261027;
 /// `--scheme shuangpin` 的参数。
 struct ShuangpinEval {
     profiles: Vec<ShuangpinProfileKind>,
+    /// 只留方案用得到的几何，按 `--key-geometry` 给出的顺序；报告的 `geometry` 照它列。
     layouts: Vec<KeyLayout>,
     modes: Vec<TouchMode>,
     sigmas: Vec<f64>,
     biases: Vec<f64>,
     seed: u64,
+    /// 触点模式下把落点送给引擎；`--no-touch-points` 时只送按到的键，量的是平面表。
+    touch_points: bool,
+    /// `--touch-tuning` 覆盖的计价参数，没给时用引擎的默认值。
+    tuning: Option<TouchTuning>,
+    /// `--assert-top1-unchanged`：clean 集只要有一条用例的首选被改就失败。
+    assert_top1_unchanged: bool,
+    /// `--jobs`：同时跑几个方案。
+    jobs: usize,
 }
+
+/// 一次按键：按到的键，和送给引擎的落点（没有时按 `msime_client_character` 派发）。
+type TypedKey = (u8, Option<Point>);
 
 struct Case {
     id: String,
@@ -80,6 +85,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sigmas: Vec<f64> = Vec::new();
     let mut biases: Vec<f64> = Vec::new();
     let mut seed: Option<u64> = None;
+    let mut touch_points = true;
+    let mut tuning: Option<TouchTuning> = None;
+    let mut assert_top1_unchanged = false;
+    let mut jobs = 1usize;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -124,12 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--max-syllables" => max_syllables = Some(take(&mut index)?.parse()?),
             "--shuangpin-profile" => {
                 for name in take(&mut index)?.split(',') {
-                    profiles.push(
-                        SHUANGPIN_PROFILES
-                            .into_iter()
-                            .find(|kind| kind.name() == name)
-                            .ok_or_else(|| format!("unknown shuangpin profile: {name} (expected xiaohe, ziranma, shoudao, microsoft or smart_abc)"))?,
-                    );
+                    profiles.push(touch_noise::parse_profile(name)?);
                 }
             }
             "--key-geometry" => geometry.push(PathBuf::from(take(&mut index)?)),
@@ -138,9 +142,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     modes.push(TouchMode::parse(name)?);
                 }
             }
-            "--touch-sigma" => sigmas.extend(parse_list(&take(&mut index)?, "--touch-sigma")?),
-            "--touch-bias-y" => biases.extend(parse_list(&take(&mut index)?, "--touch-bias-y")?),
+            "--touch-sigma" => {
+                sigmas.extend(parse_list(&take(&mut index)?, touch_noise::parse_sigma)?)
+            }
+            "--touch-bias-y" => {
+                biases.extend(parse_list(&take(&mut index)?, touch_noise::parse_bias_y)?)
+            }
             "--seed" => seed = Some(take(&mut index)?.parse()?),
+            "--no-touch-points" => touch_points = false,
+            "--touch-tuning" => tuning = Some(parse_tuning(&take(&mut index)?)?),
+            "--assert-top1-unchanged" => assert_top1_unchanged = true,
+            "--jobs" => jobs = take(&mut index)?.parse()?,
             other => return Err(format!("unknown option: {other}").into()),
         }
         index += 1;
@@ -175,11 +187,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .map(|path| KeyLayout::load(path))
             .collect::<Result<Vec<_>, _>>()?;
-        if touches {
-            for profile in &profiles {
-                layout_for(&layouts, *profile)?;
-            }
-        }
+        // 同一种给了几份的在这里报错；只留方案挑中的，报告里不列没用上的几何。
+        let layouts = touch_noise::select_layouts(layouts, &profiles, touches)?;
         Some(ShuangpinEval {
             profiles,
             layouts,
@@ -187,6 +196,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sigmas,
             biases,
             seed: seed.unwrap_or(DEFAULT_SEED),
+            touch_points,
+            tuning,
+            assert_top1_unchanged,
+            jobs,
         })
     } else {
         if !profiles.is_empty()
@@ -195,6 +208,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             || !sigmas.is_empty()
             || !biases.is_empty()
             || seed.is_some()
+            || !touch_points
+            || tuning.is_some()
+            || assert_top1_unchanged
+            || jobs != 1
         {
             return Err("--shuangpin-profile, --key-geometry and the --touch-* options need --scheme shuangpin".into());
         }
@@ -233,6 +250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("{} cases from {} set(s)", cases.len(), sets.len());
 
     let state = tempfile::tempdir()?;
+    let mut clean_top1_changed = 0;
     let json = match &shuangpin {
         Some(eval) => run_shuangpin(
             &resources,
@@ -243,6 +261,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             autocorrect,
             keyboard_neural,
             &verified.source_commit,
+            &mut clean_top1_changed,
         )?,
         None => {
             let report = run(
@@ -266,6 +285,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(path, format!("{json}\n"))?;
     }
     println!("{json}");
+
+    if shuangpin
+        .as_ref()
+        .is_some_and(|eval| eval.assert_top1_unchanged)
+        && clean_top1_changed > 0
+    {
+        return Err(format!(
+            "touches changed the first candidate of {clean_top1_changed} clean case(s)"
+        )
+        .into());
+    }
 
     if let Some(path) = baseline {
         if update {
@@ -319,40 +349,104 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
     Ok(cases)
 }
 
-/// `--key-geometry` 给的几何里，`profile` 该用的那一份：宿主只在微软双拼下显示 `;` 键，第二行因此多一个键，所以微软双拼取带 `;` 的那份，其余方案取不带的。
-fn layout_for(layouts: &[KeyLayout], profile: ShuangpinProfileKind) -> Result<&KeyLayout, String> {
-    let semicolon = profile == ShuangpinProfileKind::Microsoft;
-    layouts
-        .iter()
-        .find(|layout| layout.has_semicolon() == semicolon)
-        .ok_or_else(|| {
-            format!(
-                "{} needs a --key-geometry {} a ; key",
-                profile.name(),
-                if semicolon { "with" } else { "without" }
-            )
-        })
+/// 逗号分隔的一列数，每一项按 `parse` 解析和校验。
+fn parse_list(text: &str, parse: fn(&str) -> Result<f64, String>) -> Result<Vec<f64>, String> {
+    text.split(',').map(parse).collect()
 }
 
-/// 逗号分隔的一列有限、非负的数。
-fn parse_list(text: &str, option: &str) -> Result<Vec<f64>, String> {
-    text.split(',')
-        .map(|item| match item.parse::<f64>() {
-            Ok(value) if value.is_finite() && value >= 0.0 => Ok(value),
-            _ => Err(format!(
-                "{option}: {item} is not a finite non-negative number"
-            )),
-        })
-        .collect()
+/// `--touch-tuning base=12,scale=8,...`：只覆盖给出的几项，其余用引擎的默认值。
+fn parse_tuning(text: &str) -> Result<TouchTuning, String> {
+    let mut tuning = TouchTuning::default();
+    for item in text.split(',') {
+        let (name, value) = item
+            .split_once('=')
+            .ok_or_else(|| format!("--touch-tuning: {item} is not name=value"))?;
+        let value: f64 = value
+            .parse()
+            .ok()
+            .filter(|value: &f64| value.is_finite())
+            .ok_or_else(|| format!("--touch-tuning: {item} is not a finite number"))?;
+        let slot = match name {
+            "base" => &mut tuning.base,
+            "scale" => &mut tuning.scale,
+            "sigma_x" => &mut tuning.sigma_x,
+            "sigma_y" => &mut tuning.sigma_y,
+            "bias_y" => &mut tuning.bias_y,
+            "min" => &mut tuning.min_penalty,
+            "max" => &mut tuning.max_penalty,
+            "cut" => &mut tuning.cut,
+            "show" => &mut tuning.show_margin,
+            "show_pen" => &mut tuning.show_penalty,
+            other => {
+                return Err(format!(
+                    "--touch-tuning: unknown {other} (expected base, scale, sigma_x, sigma_y, bias_y, min, max, cut, show or show_pen)"
+                ))
+            }
+        };
+        *slot = value;
+    }
+    if tuning.sigma_x <= 0.0 || tuning.sigma_y <= 0.0 {
+        return Err("--touch-tuning: sigma_x and sigma_y must be positive".into());
+    }
+    if tuning.min_penalty > tuning.max_penalty {
+        return Err("--touch-tuning: min must not exceed max".into());
+    }
+    Ok(tuning)
 }
 
-/// 建一个和宿主同样配置的 Runtime：关学习、关调频、关混输和本地模式，挂上资源里有的重排模型。`configure` 在建会话前改方案相关的选项。
+/// 资源里有的两个重排模型，整次运行只读一次，各个 Runtime 共用：模型只是权重，每个 `Reranker` 自己持有会话的前缀缓存，共用模型不会让一个方案的运行影响另一个。
+struct Models {
+    /// 停顿后重排用的 settled 模型（`sentence-model-desktop.safetensors`）。
+    settled: Option<Arc<SentenceModel>>,
+    /// 每次按键重排用的模型（`sentence-model.safetensors`）。
+    keystroke: Option<Arc<SentenceModel>>,
+}
+
+impl Models {
+    // Measuring the shipped path means measuring it with whatever the resource set contains. The model is optional there, so its absence has to leave these numbers exactly as they were.
+    fn load(resources: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        // The settled model, when the resource set ships one. Attaching it is what lets the eval measure the shipped pair rather than either model alone: the fast one ranks every keystroke and this one ranks once at the end, which is exactly what a host does with its settle timer.
+        let settled_path = resources.join("sentence-model-desktop.safetensors");
+        let settled = match std::fs::read(&settled_path) {
+            Ok(bytes) => {
+                let model = SentenceModel::load(&bytes)?;
+                eprintln!("settling with {}", settled_path.display());
+                Some(Arc::new(model))
+            }
+            Err(_) => {
+                eprintln!("no settled model at {}", settled_path.display());
+                None
+            }
+        };
+        let model_path = resources.join("sentence-model.safetensors");
+        let keystroke = match std::fs::read(&model_path) {
+            Ok(bytes) => {
+                let model = SentenceModel::load(&bytes)?;
+                eprintln!("reranking with {}", model_path.display());
+                Some(Arc::new(model))
+            }
+            Err(_) => {
+                eprintln!(
+                    "no model at {}, measuring the engine alone",
+                    model_path.display()
+                );
+                None
+            }
+        };
+        Ok(Self { settled, keystroke })
+    }
+}
+
+/// 建一个和宿主同样配置的 Runtime：关学习、关调频、关混输和本地模式，挂上资源里有的重排模型。`configure` 在建会话前改方案相关的选项，`tuning` 覆盖触点计价参数。
+#[allow(clippy::too_many_arguments)]
 fn open_runtime(
     resources: &Path,
     state: &Path,
+    models: &Models,
     keyboard_neural: bool,
     autocorrect: bool,
     source_commit: &str,
+    tuning: Option<TouchTuning>,
     configure: impl FnOnce(&mut EngineOptions),
 ) -> Result<Runtime<Session>, Box<dyn std::error::Error>> {
     // 入口已核对资源清单；这里准备可写词库代次，不能把包目录直接当用户词库。
@@ -388,35 +482,18 @@ fn open_runtime(
     options.sentence_association.neural_keyboard = keyboard_neural;
     configure(&mut options);
 
-    let engine = Session::new(&options)?;
+    let mut engine = Session::new(&options)?;
+    if let Some(tuning) = tuning {
+        engine.set_touch_tuning(tuning);
+    }
     // page_size is capped at 9 by the runtime, but all_candidates() is not paginated.
     let mut runtime = Runtime::new(engine, 9)?;
-    // Measuring the shipped path means measuring it with whatever the resource set contains. The
-    // model is optional there, so its absence has to leave these numbers exactly as they were.
-    // The settled model, when the resource set ships one. Attaching it here is what lets the eval
-    // measure the shipped pair rather than either model alone: the fast one ranks every keystroke
-    // and this one ranks once at the end, which is exactly what a host does with its settle timer.
-    let settled_path = resources.join("sentence-model-desktop.safetensors");
-    match std::fs::read(&settled_path) {
-        Ok(bytes) => {
-            runtime.set_settled_reranker(Some(Reranker::new(std::sync::Arc::new(
-                SentenceModel::load(&bytes)?,
-            ))));
-            eprintln!("settling with {}", settled_path.display());
-        }
-        Err(_) => eprintln!("no settled model at {}", settled_path.display()),
+    // 每个 Runtime 各建自己的 `Reranker`（前缀缓存跟着会话走），模型本身共用。
+    if let Some(model) = &models.settled {
+        runtime.set_settled_reranker(Some(Reranker::new(Arc::clone(model))));
     }
-    let model_path = resources.join("sentence-model.safetensors");
-    match std::fs::read(&model_path) {
-        Ok(bytes) => {
-            let model = SentenceModel::load(&bytes)?;
-            eprintln!("reranking with {}", model_path.display());
-            runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
-        }
-        Err(_) => eprintln!(
-            "no model at {}, measuring the engine alone",
-            model_path.display()
-        ),
+    if let Some(model) = &models.keystroke {
+        runtime.set_reranker(Some(Reranker::new(Arc::clone(model))));
     }
     // dispatch() drops every action while unfocused, which yields an empty candidate list rather
     // than an error.
@@ -424,21 +501,26 @@ fn open_runtime(
     Ok(runtime)
 }
 
-/// 在清空的组字和上文里打一条用例，返回停顿重排之后的整张候选表（文字和来源）。
+/// 在清空的组字和上文里打一条用例，返回停顿重排之后的整张候选表（文字和来源）。带触点的键像 `msime_client_touch_character` 那样，派发前交上触点、派发后清掉。
 fn type_case(
     runtime: &mut Runtime<Session>,
     context: &str,
-    keys: impl IntoIterator<Item = Action>,
+    keys: impl IntoIterator<Item = (Action, Option<KeyTouch>)>,
 ) -> Result<Vec<(String, u8)>, Box<dyn std::error::Error>> {
     runtime.dispatch(Action::Command(Command::Cancel))?;
     // Cancel keeps the committed context and seeding appends to it, so without this every case would be ranked against the tail of the contexts of all the cases before it.
     runtime.clear_context();
     runtime.seed_context(context);
-    for key in keys {
+    for (key, touch) in keys {
+        if touch.is_some() {
+            runtime.set_key_touch(touch);
+        }
         runtime.dispatch(key)?;
+        if touch.is_some() {
+            runtime.set_key_touch(None);
+        }
     }
-    // The user has stopped typing by the time a case is read, which is when a host fires its
-    // settle timer.
+    // The user has stopped typing by the time a case is read, which is when a host fires its settle timer.
     runtime.rerank_settled();
     let snapshot = runtime.all_candidates();
     let candidates = snapshot
@@ -461,15 +543,17 @@ fn run(
     autocorrect: bool,
     source_commit: &str,
 ) -> Result<Report, Box<dyn std::error::Error>> {
-    // Optional JSONL of the real candidate lists, for offline experiments that must not be able
-    // to change what the harness measures.
+    // Optional JSONL of the real candidate lists, for offline experiments that must not be able to change what the harness measures.
     let mut dumped = String::new();
+    let models = Models::load(resources)?;
     let mut runtime = open_runtime(
         resources,
         state,
+        &models,
         keyboard_neural,
         autocorrect,
         source_commit,
+        None,
         |_| {},
     )?;
     // `--grid` 在触屏网格上打每条用例：字母换成它所在键的组码（九键是旁边印的数字，14 键是这一组的首字母），同一个金标准要从组码串里打出来，而 西安 和 一按 在九键上是同一串输入。
@@ -489,7 +573,7 @@ fn run(
         let candidates = type_case(
             &mut runtime,
             &case.context,
-            input.into_iter().map(|byte| key_action(grid, byte)),
+            input.into_iter().map(|byte| (key_action(grid, byte), None)),
         )?;
         if dump.is_some() {
             let rows: Vec<serde_json::Value> = candidates
@@ -524,7 +608,7 @@ fn run(
     Ok(report)
 }
 
-/// `--scheme shuangpin`：每个方案建一个双拼 Runtime，把用例编成这个方案的按键；先按想按的键原样打一遍作对照，再按每组（触点模式、σ、偏置）合成实际按到的键去打。返回整份报告的 JSON。
+/// `--scheme shuangpin`：每个方案建一个双拼 Runtime，把用例编成这个方案的按键；先按想按的键原样打一遍作对照，再按每组（触点模式、σ、偏置）合成实际按到的键和落点去打。返回整份报告的 JSON；clean 集里首选被改的用例数累加进 `clean_top1_changed`。`jobs` 大于 1 时几个方案各开一个线程同时跑，各方案的结果互不相关，按方案的次序拼起来，输出与一个一个跑逐字节相同。
 #[allow(clippy::too_many_arguments)]
 fn run_shuangpin(
     resources: &Path,
@@ -535,132 +619,82 @@ fn run_shuangpin(
     autocorrect: bool,
     keyboard_neural: bool,
     source_commit: &str,
+    clean_top1_changed: &mut usize,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let mut dumped = dump.map(|_| String::new());
-    let mut encoding = Vec::new();
-    let mut runs = Vec::new();
-    for &profile in &eval.profiles {
-        let mut runtime = open_runtime(
-            resources,
-            state,
-            keyboard_neural,
-            autocorrect,
-            source_commit,
-            |options| {
-                options.scheme = SchemeType::Shuangpin as u8;
-                options.shuangpin_profile = profile as u8;
-            },
-        )?;
-        // 切法有歧义或有音节在这个方案里编不出来的用例不打，编出来的比例写进报告。
-        let intended: Vec<Option<Vec<u8>>> = cases
-            .iter()
-            .map(|case| {
-                grid_keys::shuangpin_keys(profile.name(), &case.input, Some(case.syllables))
-                    .map(String::into_bytes)
-            })
-            .collect();
-        let encoded = intended.iter().flatten().count();
-        eprintln!(
-            "{}: {encoded} of {} cases encode",
-            profile.name(),
-            cases.len()
-        );
-        encoding.push((profile.name(), cases.len(), encoded));
-        // 一条用例的候选表只取决于它的上文和送进去的按键，所以同一串按键在各组配置里只打一次。
-        let mut ranks: HashMap<(usize, Vec<u8>), Option<usize>> = HashMap::new();
-        let mut reference = vec![None; cases.len()];
-        for (index, keys) in intended.iter().enumerate() {
-            if let Some(keys) = keys {
-                reference[index] = gold_rank(
-                    &mut runtime,
-                    &mut ranks,
-                    (index, &cases[index]),
-                    keys,
-                    profile,
-                    dumped.as_mut(),
-                )?;
-            }
-        }
-        for &mode in &eval.modes {
-            let settings: Vec<Option<(f64, f64)>> = if mode == TouchMode::None {
-                vec![None]
-            } else {
-                eval.sigmas
-                    .iter()
-                    .flat_map(|&sigma| eval.biases.iter().map(move |&bias| Some((sigma, bias))))
-                    .collect()
-            };
-            for setting in settings {
-                let layout = match setting {
-                    Some(_) => Some(layout_for(&eval.layouts, profile)?),
-                    None => None,
-                };
-                // 每键都按在本键上的 clean 不用抽样，只有 noisy 和 realistic 要按落点分布换键。
-                let noise = match (layout, setting, mode) {
-                    (
-                        Some(layout),
-                        Some((sigma, bias)),
-                        TouchMode::Noisy | TouchMode::Realistic,
-                    ) => Some(TouchNoise::new(layout, sigma, bias)),
-                    _ => None,
-                };
-                let (sigma, bias) = setting.unzip();
-                let mut report = TouchReport::default();
-                let mut skipped = 0;
-                for (index, case) in cases.iter().enumerate() {
-                    let Some(intended) = &intended[index] else {
-                        continue;
-                    };
-                    let typed = match &noise {
-                        Some(noise) => {
-                            let mut rng = touch_noise::case_rng(
-                                eval.seed,
-                                &[
-                                    profile as u64,
-                                    mode as u64,
-                                    sigma.unwrap_or_default().to_bits(),
-                                    bias.unwrap_or_default().to_bits(),
-                                    index as u64,
-                                ],
-                            );
-                            noise.synthesize(mode, intended, &mut rng)?
-                        }
-                        None => Some(intended.clone()),
-                    };
-                    // σ 为 0 时没有一键会按错，这条用例不进 noisy 集。
-                    let Some(typed) = typed else {
-                        skipped += 1;
-                        continue;
-                    };
-                    let errors = typed.iter().zip(intended).filter(|(a, b)| a != b).count();
-                    let rank = gold_rank(
-                        &mut runtime,
-                        &mut ranks,
-                        (index, case),
-                        &typed,
-                        profile,
-                        dumped.as_mut(),
-                    )?;
-                    report.observe(TouchObservation {
-                        syllables: case.syllables,
-                        errors,
-                        rank,
-                        reference: reference[index],
-                    });
+    let models = Models::load(resources)?;
+    // 落点分布只取决于几何、σ 和偏置，各方案、各模式共用同一份几何时不必重算；在开线程前一次算好，各方案只读。只有 noisy、realistic 和要送落点的 clean 要抽落点。
+    let needs_noise = eval.modes.iter().any(|mode| match mode {
+        TouchMode::None => false,
+        TouchMode::Clean => eval.touch_points,
+        TouchMode::Noisy | TouchMode::Realistic => true,
+    });
+    let mut noises = Noises::new();
+    if needs_noise {
+        for (layout, geometry) in eval.layouts.iter().enumerate() {
+            for &sigma in &eval.sigmas {
+                for &bias in &eval.biases {
+                    noises.insert(
+                        (layout, sigma.to_bits(), bias.to_bits()),
+                        TouchNoise::new(geometry, sigma, bias),
+                    );
                 }
-                runs.push(render_touch_run(
-                    profile,
-                    layout.map(|layout| layout.name.as_str()),
-                    mode,
-                    sigma,
-                    bias,
-                    skipped,
-                    &report,
-                ));
             }
         }
     }
-    if let (Some(path), Some(dumped)) = (dump, dumped) {
+    let run = |profile: ShuangpinProfileKind| {
+        run_profile(
+            resources,
+            // 每个方案各用一份可写目录，同时跑的会话不争同一个用户词库。
+            &state.join(profile.name()),
+            &models,
+            &noises,
+            cases,
+            dump.is_some(),
+            eval,
+            autocorrect,
+            keyboard_neural,
+            source_commit,
+            profile,
+        )
+        .map_err(|error| error.to_string())
+    };
+    let mut results = Vec::with_capacity(eval.profiles.len());
+    for batch in eval.profiles.chunks(eval.jobs.max(1)) {
+        if batch.len() == 1 {
+            results.push(run(batch[0])?);
+            continue;
+        }
+        let finished: Vec<Result<ProfileRun, String>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = batch
+                .iter()
+                .map(|&profile| {
+                    let run = &run;
+                    scope.spawn(move || run(profile))
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .unwrap_or_else(|_| Err("a profile thread panicked".to_owned()))
+                })
+                .collect()
+        });
+        for result in finished {
+            results.push(result?);
+        }
+    }
+    let mut encoding = Vec::with_capacity(results.len());
+    let mut runs = Vec::new();
+    let mut dumped = String::new();
+    for result in results {
+        encoding.push(result.encoding);
+        runs.extend(result.runs);
+        dumped.push_str(&result.dump.unwrap_or_default());
+        *clean_top1_changed += result.clean_top1_changed;
+    }
+    if let Some(path) = dump {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -669,46 +703,285 @@ fn run_shuangpin(
     Ok(render_shuangpin(eval, autocorrect, &encoding, &runs))
 }
 
-/// 金标准在 `keys` 打出的候选表里的名次（从 1 起）。同一条用例的同一串按键只打一次；`dumped` 给了时把这次打出的整张表追加一行 JSONL。
+/// 一个方案的结果：编码统计、每组配置渲染好的报告行、`--dump` 的行和 clean 集首选被改的条数。
+#[derive(Default)]
+struct ProfileRun {
+    encoding: (&'static str, usize, usize),
+    runs: Vec<String>,
+    dump: Option<String>,
+    clean_top1_changed: usize,
+}
+
+/// `run_shuangpin` 里一个方案的那一份。
+#[allow(clippy::too_many_arguments)]
+fn run_profile(
+    resources: &Path,
+    state: &Path,
+    models: &Models,
+    noises: &Noises,
+    cases: &[Case],
+    dump: bool,
+    eval: &ShuangpinEval,
+    autocorrect: bool,
+    keyboard_neural: bool,
+    source_commit: &str,
+    profile: ShuangpinProfileKind,
+) -> Result<ProfileRun, Box<dyn std::error::Error>> {
+    let mut result = ProfileRun {
+        dump: dump.then(String::new),
+        ..ProfileRun::default()
+    };
+    let touches = eval.modes.iter().any(|mode| *mode != TouchMode::None);
+    let mut runtime = open_runtime(
+        resources,
+        state,
+        models,
+        keyboard_neural,
+        autocorrect,
+        source_commit,
+        eval.tuning,
+        |options| {
+            options.scheme = SchemeType::Shuangpin as u8;
+            options.shuangpin_profile = profile as u8;
+        },
+    )?;
+    // 像触屏宿主一样先注册这个方案用的那份几何；none 模式不送落点，注册与否结果都一样。
+    let geometry_id = if touches && eval.touch_points {
+        let geometry = KeyGeometry::from_json(
+            &eval.layouts[touch_noise::layout_for(&eval.layouts, profile)?].json,
+        )?
+        .ok_or("a reference geometry needs a non-zero id")?;
+        let id = geometry.id();
+        runtime.set_key_geometry(Some(geometry));
+        id
+    } else {
+        0
+    };
+    // 切法有歧义或有音节在这个方案里编不出来的用例不打，编出来的比例写进报告。
+    let intended: Vec<Option<Vec<u8>>> = cases
+        .iter()
+        .map(|case| {
+            grid_keys::shuangpin_keys(profile.name(), &case.input, Some(case.syllables))
+                .map(String::into_bytes)
+        })
+        .collect();
+    let encoded = intended.iter().flatten().count();
+    eprintln!(
+        "{}: {encoded} of {} cases encode",
+        profile.name(),
+        cases.len()
+    );
+    result.encoding = (profile.name(), cases.len(), encoded);
+    // 一条用例的候选表只取决于它的上文、送进去的按键和引擎收到的（量化后的）触点，所以同一串按键带同样的触点在各组配置里只打一次。
+    let mut ranks: Ranks = HashMap::new();
+    let mut reference = vec![CandidateResult::default(); cases.len()];
+    for (index, keys) in intended.iter().enumerate() {
+        if let Some(keys) = keys {
+            let typed: Vec<TypedKey> = keys.iter().map(|&key| (key, None)).collect();
+            reference[index] = gold_rank(
+                &mut runtime,
+                &mut ranks,
+                (index, &cases[index]),
+                &typed,
+                geometry_id,
+                profile,
+                result.dump.as_mut(),
+            )?;
+        }
+    }
+    for &mode in &eval.modes {
+        let settings: Vec<Option<(f64, f64)>> = if mode == TouchMode::None {
+            vec![None]
+        } else {
+            eval.sigmas
+                .iter()
+                .flat_map(|&sigma| eval.biases.iter().map(move |&bias| Some((sigma, bias))))
+                .collect()
+        };
+        for setting in settings {
+            let layout = match setting {
+                Some(_) => Some(touch_noise::layout_for(&eval.layouts, profile)?),
+                None => None,
+            };
+            // noisy 和 realistic 按落点分布换键；clean 每键都按在本键上，只在要送落点时才抽落点，不送落点时它就是原样的按键。
+            let noise = match (layout, setting, mode) {
+                (Some(layout), Some((sigma, bias)), TouchMode::Noisy | TouchMode::Realistic) => {
+                    Some(&noises[&(layout, sigma.to_bits(), bias.to_bits())])
+                }
+                (Some(layout), Some((sigma, bias)), TouchMode::Clean) if eval.touch_points => {
+                    Some(&noises[&(layout, sigma.to_bits(), bias.to_bits())])
+                }
+                _ => None,
+            };
+            let (sigma, bias) = setting.unzip();
+            let mut report = TouchReport::default();
+            let mut skipped = 0;
+            for (index, case) in cases.iter().enumerate() {
+                let Some(intended) = &intended[index] else {
+                    continue;
+                };
+                let typed: Option<Vec<TypedKey>> = match noise {
+                    Some(noise) => {
+                        let mut rng = touch_noise::case_rng(
+                            eval.seed,
+                            &[
+                                touch_noise::profile_label(profile),
+                                mode.label(),
+                                sigma.unwrap_or_default().to_bits(),
+                                bias.unwrap_or_default().to_bits(),
+                                index as u64,
+                            ],
+                        );
+                        noise
+                            .synthesize_touches(mode, intended, &mut rng)?
+                            .map(|touches| {
+                                touches
+                                    .into_iter()
+                                    .map(|(key, point)| (key, eval.touch_points.then_some(point)))
+                                    .collect()
+                            })
+                    }
+                    None => Some(intended.iter().map(|&key| (key, None)).collect()),
+                };
+                // σ 为 0 时没有一键会按错，这条用例不进 noisy 集。
+                let Some(typed) = typed else {
+                    skipped += 1;
+                    continue;
+                };
+                let errors = typed
+                    .iter()
+                    .zip(intended)
+                    .filter(|((typed, _), intended)| typed != *intended)
+                    .count();
+                let rank = gold_rank(
+                    &mut runtime,
+                    &mut ranks,
+                    (index, case),
+                    &typed,
+                    geometry_id,
+                    profile,
+                    result.dump.as_mut(),
+                )?;
+                report.observe(TouchObservation {
+                    syllables: case.syllables,
+                    errors,
+                    rank: rank.rank,
+                    reference: reference[index].rank,
+                });
+                result.observe_top1(mode, &reference[index], &rank);
+            }
+            result.runs.push(render_touch_run(
+                profile,
+                layout.map(|layout| eval.layouts[layout].name.as_str()),
+                mode,
+                sigma,
+                bias,
+                skipped,
+                &report,
+            ));
+        }
+    }
+    Ok(result)
+}
+
+#[derive(Clone, Default, Debug)]
+struct CandidateResult {
+    rank: Option<usize>,
+    first: Option<String>,
+}
+
+impl CandidateResult {
+    fn from_candidates(candidates: &[(String, u8)], gold: &str) -> Self {
+        Self {
+            rank: candidates
+                .iter()
+                .position(|(text, _)| text == gold)
+                .map(|position| position + 1),
+            first: candidates.first().map(|(text, _)| text.clone()),
+        }
+    }
+}
+
+impl ProfileRun {
+    fn observe_top1(
+        &mut self,
+        mode: TouchMode,
+        reference: &CandidateResult,
+        actual: &CandidateResult,
+    ) {
+        if mode == TouchMode::Clean && reference.first != actual.first {
+            self.clean_top1_changed += 1;
+        }
+    }
+}
+
+/// 各组（几何下标，σ 的位，偏置的位）的落点分布，`run_shuangpin` 开线程前算好。
+type Noises = HashMap<(usize, u64, u64), TouchNoise>;
+
+/// `gold_rank` 的记忆表：（用例序号，按键，引擎收到的触点）到金标准名次及实际首选。
+type Ranks = HashMap<(usize, Vec<u8>, Vec<Option<KeyTouch>>), CandidateResult>;
+
+/// 金标准在 `typed` 打出的候选表里的名次（从 1 起）及实际首选。带落点的键先按代次 `geometry_id` 换成引擎收到的触点；同一条用例的同一串按键带同样的触点只打一次。`dumped` 给了时把这次打出的整张表追加一行 JSONL。
 fn gold_rank(
     runtime: &mut Runtime<Session>,
-    ranks: &mut HashMap<(usize, Vec<u8>), Option<usize>>,
+    ranks: &mut Ranks,
     (index, case): (usize, &Case),
-    keys: &[u8],
+    typed: &[TypedKey],
+    geometry_id: u32,
     profile: ShuangpinProfileKind,
     dumped: Option<&mut String>,
-) -> Result<Option<usize>, Box<dyn std::error::Error>> {
-    if let Some(rank) = ranks.get(&(index, keys.to_vec())) {
-        return Ok(*rank);
+) -> Result<CandidateResult, Box<dyn std::error::Error>> {
+    let keys: Vec<u8> = typed.iter().map(|(key, _)| *key).collect();
+    let touches: Vec<Option<KeyTouch>> = typed
+        .iter()
+        .map(|&(key, point)| {
+            point.and_then(|(x, y)| runtime.key_touch(key, geometry_id, x as f32, y as f32))
+        })
+        .collect();
+    let memo = (index, keys, touches);
+    if let Some(rank) = ranks.get(&memo) {
+        return Ok(rank.clone());
     }
+    let (_, keys, touches) = &memo;
     let candidates = type_case(
         runtime,
         &case.context,
-        keys.iter().map(|&value| Action::Character {
-            value,
-            shift: false,
+        keys.iter().zip(touches).map(|(&value, &touch)| {
+            (
+                Action::Character {
+                    value,
+                    shift: false,
+                },
+                touch,
+            )
         }),
     )?;
-    let rank = candidates
-        .iter()
-        .position(|(text, _)| *text == case.gold)
-        .map(|position| position + 1);
+    let rank = CandidateResult::from_candidates(&candidates, &case.gold);
     if let Some(dumped) = dumped {
         let rows: Vec<serde_json::Value> = candidates
             .iter()
             .map(|(text, source)| serde_json::json!({"text": text, "source": source}))
             .collect();
-        dumped.push_str(
-            &serde_json::json!({
-                "profile": profile.name(), "id": case.id, "input": case.input,
-                "keys": String::from_utf8_lossy(keys), "gold": case.gold,
-                "context": case.context, "candidates": rows,
-            })
-            .to_string(),
-        );
+        let mut line = serde_json::json!({
+            "profile": profile.name(), "id": case.id, "input": case.input,
+            "keys": String::from_utf8_lossy(keys), "gold": case.gold,
+            "context": case.context, "candidates": rows,
+        });
+        // 只在送了触点时写：引擎收到的量化偏移（1/20 键）和第几个实例。
+        if touches.iter().any(Option::is_some) {
+            line["touches"] = touches
+                .iter()
+                .map(|touch| {
+                    touch.map_or(serde_json::Value::Null, |touch| {
+                        serde_json::json!([touch.dx, touch.dy, touch.copy])
+                    })
+                })
+                .collect();
+        }
+        dumped.push_str(&line.to_string());
         dumped.push('\n');
     }
-    ranks.insert((index, keys.to_vec()), rank);
+    ranks.insert(memo, rank.clone());
     Ok(rank)
 }
 
@@ -779,8 +1052,20 @@ fn render_shuangpin(
         .iter()
         .map(|layout| layout.name.as_str())
         .collect();
+    // 只在 `--touch-tuning` 给了时写，默认参数写在引擎里。
+    let tuning = eval.tuning.map_or(String::new(), |tuning| {
+        format!(
+            "  \"touch_tuning\": {},\n",
+            serde_json::json!({
+                "base": tuning.base, "scale": tuning.scale,
+                "sigma_x": tuning.sigma_x, "sigma_y": tuning.sigma_y, "bias_y": tuning.bias_y,
+                "min": tuning.min_penalty, "max": tuning.max_penalty, "cut": tuning.cut,
+                "show": tuning.show_margin, "show_pen": tuning.show_penalty,
+            })
+        )
+    });
     format!(
-        "{{\n  \"scheme\": \"shuangpin\",\n  \"autocorrect\": {autocorrect},\n  \"seed\": {},\n  \"geometry\": {},\n  \"encoding\": {},\n  \"runs\": [\n{}\n  ]\n}}",
+        "{{\n  \"scheme\": \"shuangpin\",\n  \"autocorrect\": {autocorrect},\n  \"seed\": {},\n  \"geometry\": {},\n{tuning}  \"encoding\": {},\n  \"runs\": [\n{}\n  ]\n}}",
         eval.seed,
         serde_json::Value::from(geometry),
         serde_json::Value::Object(encoding),
@@ -844,5 +1129,58 @@ fn key_action(grid: Option<KeyGrid>, byte: u8) -> Action {
             value: byte,
             shift: false,
         },
+    }
+}
+
+#[cfg(test)]
+mod top1_tests {
+    use super::*;
+
+    fn result(texts: &[&str], gold: &str) -> CandidateResult {
+        CandidateResult::from_candidates(
+            &texts
+                .iter()
+                .map(|text| ((*text).to_string(), 0))
+                .collect::<Vec<_>>(),
+            gold,
+        )
+    }
+
+    #[test]
+    fn clean_gate_compares_actual_top1_even_when_gold_rank_is_unchanged() {
+        for gold in ["金标准", "未出现"] {
+            let reference = result(&["候选甲", "候选乙", "金标准"], gold);
+            let actual = result(&["候选乙", "候选甲", "金标准"], gold);
+            assert_eq!(reference.rank, actual.rank);
+            let mut run = ProfileRun::default();
+            run.observe_top1(TouchMode::Clean, &reference, &actual);
+            assert_eq!(run.clean_top1_changed, 1);
+        }
+    }
+
+    #[test]
+    fn clean_gate_counts_empty_transitions_and_ignores_lower_rank_changes() {
+        let reference = result(&["候选甲", "金标准", "候选乙"], "金标准");
+        let same_first = result(&["候选甲", "候选乙", "金标准"], "金标准");
+        let empty = result(&[], "金标准");
+        let mut run = ProfileRun::default();
+        run.observe_top1(TouchMode::Clean, &reference, &same_first);
+        run.observe_top1(TouchMode::Clean, &empty, &empty);
+        run.observe_top1(TouchMode::Noisy, &reference, &empty);
+        assert_eq!(run.clean_top1_changed, 0);
+        run.observe_top1(TouchMode::Clean, &reference, &empty);
+        run.observe_top1(TouchMode::Clean, &empty, &reference);
+        assert_eq!(run.clean_top1_changed, 2);
+    }
+}
+
+#[cfg(test)]
+mod tuning_tests {
+    use super::*;
+
+    #[test]
+    fn reversed_penalty_range_is_rejected_before_evaluation() {
+        assert!(parse_tuning("min=20,max=10").is_err());
+        assert!(parse_tuning("min=10,max=10").is_ok());
     }
 }
