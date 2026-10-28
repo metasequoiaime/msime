@@ -5,18 +5,22 @@ import {
   CommaHold,
   CommaSwipeGesture,
   DesignRowEntry,
+  DesignRowItem,
   DesignRowSlot,
   NumberRowFace,
   StyledFace,
   TouchHeightRelay,
+  TouchKeyboard,
   TouchLayoutStylePolicy,
   TouchPanelShape,
 } from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
 import {
   NineKeyAction,
+  NineKeyActionItem,
   NineKeyActionKind,
   NineKeyLayout,
 } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
+import { KeyboardScheme, SchemeDefinition } from "../entry/src/main/ets/keyboard/KeyboardScheme";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import { StrokeLayout } from "../entry/src/main/ets/keyboard/input/StrokeLayout";
 
@@ -492,7 +496,8 @@ group("九键「底栏带标点」的逗号长按打开常用标点，与 Androi
 group("扩展能力按上次记下的键面定第一帧：数字行和长空格样式的工具条一开始就算进去", () => {
   const twentySix = { lettersRow: true, chineseTwentySix: true };
   const nineGrid = { lettersRow: false, chineseTwentySix: false };
-  const english = { lettersRow: true, chineseTwentySix: false };
+  // 中文键面不是 26 键的键盘（如韩文）停在英文 26 键上：字母层是 26 键一类，但不是中文 26 键。
+  const otherOnEnglish = { lettersRow: true, chineseTwentySix: false };
   const shape = (value: { strip: boolean; extraRows: number }) =>
     `${value.strip}:${value.extraRows}`;
   // 没记过：与加样式之前相同，工具条只看工具栏设置，不多行。
@@ -521,10 +526,14 @@ group("扩展能力按上次记下的键面定第一帧：数字行和长空格�
     "九键不画数字行",
   );
   check(
-    shape(P.firstPanel(english, true, "long_space", true, false)) === "false:1",
+    shape(P.firstPanel(otherOnEnglish, true, "long_space", true, false)) === "false:1",
     "中文键面不是 26 键的键盘（如韩文）停在英文 26 键：有数字行、不算长空格",
   );
-
+  // 中文 26 键停在英文 26 键上记下的键面与停在中文时相同（chineseTwentySix 按键盘算，见下面「这块键盘的中文键面」那组）：长空格照样留着工具条。
+  check(
+    shape(P.firstPanel(twentySix, true, "long_space", true, false)) === "true:1",
+    "中文 26 键停在英文 26 键、长空格、工具栏隐藏：工具条留着，有数字行",
+  );
   check(
     shape(P.firstPanel(twentySix, false, "long_space", true, false)) === "true:0",
     "中文 26 键长空格：工具栏设成隐藏也画工具条",
@@ -605,6 +614,263 @@ group("中/英 不紧挨回车时回车不让出键帽", () => {
     ]),
     "中间隔着空格",
   );
+});
+
+group(
+  "设计底行逐个画的键：份额和让位都在 ForEach 的键里，切中/英、改样式时变了的键重建、没变的留着",
+  () => {
+    const items = (english: boolean, styled: StyledFace, style: string) =>
+      P.designRowItems(P.designRow(true, english, styled, style));
+    const keys = (row: readonly DesignRowItem[]) => row.map((item) => P.designRowItemKey(item));
+    const sources: DesignRowEntry[][] = [
+      P.designRow(true, false, StyledFace.NONE, "standard"),
+      P.designRow(true, true, StyledFace.NONE, "standard"),
+      P.designRow(false, false, StyledFace.FOURTEEN, "standard"),
+    ];
+    for (const style of ["standard", "comma_period", "long_space", "emoji"]) {
+      sources.push(P.designRow(true, false, StyledFace.TWENTY_SIX, style));
+    }
+    for (const style of ["long_space", "emoji"]) {
+      sources.push(P.designRow(false, false, StyledFace.FOURTEEN, style));
+    }
+    for (const source of sources) {
+      const row = P.designRowItems(source);
+      const label = describe(source);
+      // 次序、键位和份额原样取自 designRow。
+      check(describe(row) === label, `${describe(row)} 对 ${label}`);
+      check(new Set(keys(row)).size === row.length, `ForEach 的键在一行里不重复：${label}`);
+      for (const slot of [
+        DesignRowSlot.LAYER,
+        DesignRowSlot.SPACE,
+        DesignRowSlot.LANGUAGE,
+        DesignRowSlot.RETURN,
+      ]) {
+        check(
+          row.some((item) => item.slot === slot),
+          `${slot} 每一行都画：${label}`,
+        );
+      }
+      for (const item of row) {
+        const yields = item.slot === DesignRowSlot.LANGUAGE || item.slot === DesignRowSlot.RETURN;
+        check(
+          item.besideReturn === yields,
+          `只有中/英 和回车让位，且这些行里中/英 都紧挨回车：${label} ${item.slot}`,
+        );
+      }
+    }
+    // 中文 26 键切到英文 26 键：空格从 4 让到 3、多出句点，这两个键的键变了；123、符、逗号、中/英、回车的键不变，节点留着。
+    const chinese = keys(items(false, StyledFace.NONE, "standard"));
+    const english = keys(items(true, StyledFace.NONE, "standard"));
+    const space = (row: string[]) => row.find((key) => key.startsWith(`${DesignRowSlot.SPACE}:`));
+    check(
+      space(chinese) !== space(english),
+      `空格的键随份额变：${space(chinese)} → ${space(english)}`,
+    );
+    check(!chinese.some((key) => key.startsWith(`${DesignRowSlot.PERIOD}:`)), "中文 26 键没有句点");
+    check(
+      english.some((key) => key.startsWith(`${DesignRowSlot.PERIOD}:`)),
+      "英文 26 键多出句点",
+    );
+    for (const key of chinese.filter((key) => key !== space(chinese))) {
+      check(english.includes(key), `没变的键留着：${key}`);
+    }
+    // 换成长空格：空格份额变了，键也跟着变。
+    const longSpace = keys(items(false, StyledFace.TWENTY_SIX, "long_space"));
+    check(space(longSpace) !== space(chinese), "改样式后空格按新份额重建");
+    // 中/英 不紧挨回车时两键都不让位，键也不同，让位一变就重建。
+    const apart = P.designRowItems([
+      { slot: DesignRowSlot.LANGUAGE, share: 1 },
+      { slot: DesignRowSlot.SPACE, share: 1 },
+      { slot: DesignRowSlot.RETURN, share: 1 },
+    ]);
+    check(
+      apart.every((item) => !item.besideReturn),
+      "隔着空格时没有让位",
+    );
+    check(
+      P.designRowItemKey(apart[2]) !==
+        P.designRowItemKey({ slot: DesignRowSlot.RETURN, share: 1, besideReturn: true }),
+      "让位在键里",
+    );
+  },
+);
+
+group(
+  "九键外框底行逐个画的键：「右侧大回车」量到外框宽度后定宽，宽度、份额和让位都在 ForEach 的键里",
+  () => {
+    const keys = (row: readonly NineKeyActionItem[]) =>
+      row.map((item) => NineKeyLayout.actionItemKey(item));
+    const text = (row: readonly NineKeyActionItem[]) =>
+      row
+        .map(
+          (item) =>
+            `${item.kind}:${Math.round(item.share * 100) / 100}/${Math.round(item.width * 100) / 100}`,
+        )
+        .join(" ");
+    // 标准九键：没有固定宽度，全按份额，中/英 和回车让位。
+    for (const digitLayer of [false, true]) {
+      for (const english of [false, true]) {
+        for (const style of ["standard", "comma_period", "emoji"]) {
+          const row = NineKeyLayout.actionRow(digitLayer, english, style);
+          const items = NineKeyLayout.actionItems(
+            row,
+            [],
+            NineKeyLayout.tallReturnFill(digitLayer),
+          );
+          const label = `${digitLayer ? "数字层" : "字母层"} ${english ? "英文" : "中文"} ${style}`;
+          check(
+            nine(items.map((item) => ({ kind: item.kind, weight: item.share }))) === nine(row),
+            `份额原样：${label}`,
+          );
+          check(
+            items.every((item) => item.width === 0),
+            `没有固定宽度：${label}`,
+          );
+          check(new Set(keys(items)).size === items.length, `ForEach 的键不重复：${label}`);
+          for (const item of items) {
+            const yields =
+              item.kind === NineKeyActionKind.LANGUAGE || item.kind === NineKeyActionKind.RETURN;
+            check(item.besideReturn === yields, `${label} ${item.kind} 让位`);
+          }
+        }
+      }
+    }
+    // 「右侧大回车」：一块 390vp 宽、键距 6vp 的外框。
+    const faceWidth = 390;
+    const spacing = 6;
+    for (const digitLayer of [false, true]) {
+      const row = NineKeyLayout.actionRow(digitLayer, false, "tall_return");
+      const fill = NineKeyLayout.tallReturnFill(digitLayer);
+      const fixed = NineKeyLayout.tallReturnRow(digitLayer, faceWidth, spacing);
+      const label = digitLayer ? "数字层" : "字母层";
+      // 没量到外框宽度时（视图交来空的 fixed）按份额排。
+      const unmeasured = NineKeyLayout.actionItems(row, [], fill);
+      check(
+        unmeasured.every((item) => item.width === 0 && item.share > 0),
+        `${label} 没量到时按份额：${text(unmeasured)}`,
+      );
+      const measured = NineKeyLayout.actionItems(row, fixed, fill);
+      for (const item of measured) {
+        const pinned = fixed.find((entry) => entry.kind === item.kind);
+        if (item.kind === fill) {
+          check(
+            item.width === 0 && item.share > 0,
+            `${label} ${item.kind} 占剩下的宽度：${text(measured)}`,
+          );
+        } else {
+          check(
+            pinned !== undefined && close(item.width, pinned.weight) && item.share === 0,
+            `${label} ${item.kind} 按 tallReturnRow 定宽、份额为 0：${text(measured)}`,
+          );
+        }
+        check(!item.besideReturn, `${label} 回车在右列，中/英 不让位`);
+      }
+      // 量到宽度后定了宽的键换了键，ForEach 重建它们；占剩余宽度的键留着。
+      for (let index = 0; index < measured.length; index++) {
+        const same =
+          NineKeyLayout.actionItemKey(measured[index]) ===
+          NineKeyLayout.actionItemKey(unmeasured[index]);
+        check(
+          same === (measured[index].kind === fill),
+          `${label} ${measured[index].kind} 量到宽度后${same ? "留着" : "重建"}`,
+        );
+      }
+    }
+    // 字母层切到数字层：空格从占剩余宽度变成定宽 1.05 份，键随之不同，不会停在字母层的份额上。
+    const space = (digitLayer: boolean) =>
+      NineKeyLayout.actionItems(
+        NineKeyLayout.actionRow(digitLayer, false, "tall_return"),
+        NineKeyLayout.tallReturnRow(digitLayer, faceWidth, spacing),
+        NineKeyLayout.tallReturnFill(digitLayer),
+      ).find((item) => item.kind === NineKeyActionKind.SPACE);
+    const letterSpace = space(false);
+    const digitSpace = space(true);
+    check(
+      letterSpace !== undefined &&
+        digitSpace !== undefined &&
+        letterSpace.width === 0 &&
+        digitSpace.width > 0 &&
+        digitSpace.share === 0 &&
+        NineKeyLayout.actionItemKey(letterSpace) !== NineKeyLayout.actionItemKey(digitSpace),
+      "字母层与数字层的空格是两个不同的键",
+    );
+    // 外框宽度变了（转屏）定宽的键也跟着重建。
+    const narrow = NineKeyLayout.actionItems(
+      NineKeyLayout.actionRow(false, false, "tall_return"),
+      NineKeyLayout.tallReturnRow(false, 360, 4),
+      NineKeyActionKind.SPACE,
+    );
+    const wide = NineKeyLayout.actionItems(
+      NineKeyLayout.actionRow(false, false, "tall_return"),
+      NineKeyLayout.tallReturnRow(false, faceWidth, spacing),
+      NineKeyActionKind.SPACE,
+    );
+    check(
+      NineKeyLayout.actionItemKey(narrow[0]) !== NineKeyLayout.actionItemKey(wide[0]),
+      "外框宽度变了，123 按新宽度重建",
+    );
+  },
+);
+
+group("这块键盘的中文键面是不是中文 26 键：按中文算，没有中/英这个参数", () => {
+  const keyboard = (
+    scheme: SchemeDefinition,
+    extra: { nineKey?: boolean; letterGrid?: boolean; kanaGrid?: boolean; localMode?: string } = {},
+  ): TouchKeyboard => ({
+    scheme: scheme,
+    localMode: extra.localMode ?? "none",
+    nineKey: extra.nineKey ?? false,
+    letterGrid: extra.letterGrid ?? false,
+    kanaGrid: extra.kanaGrid ?? false,
+  });
+  for (const scheme of [
+    KeyboardScheme.QUANPIN,
+    KeyboardScheme.XIAOHE,
+    KeyboardScheme.WUBI,
+    KeyboardScheme.CANTONESE,
+  ]) {
+    const board = keyboard(scheme);
+    check(P.chineseTwentySixKeyboard(board), `${scheme.id} 是中文 26 键`);
+    // 停在英文 26 键上时字母层仍是 26 键一类，记下的键面和工具条都按中文 26 键算。
+    check(P.lettersRowFace(P.letterFace(board, true)), `${scheme.id} 的英文 26 键也是字母层`);
+  }
+  for (const [label, board] of [
+    ["韩文", keyboard(KeyboardScheme.KOREAN)],
+    ["越南语", keyboard(KeyboardScheme.VIETNAMESE)],
+    ["藏文", keyboard(KeyboardScheme.TIBETAN)],
+    ["日语罗马字", keyboard(KeyboardScheme.JAPANESE)],
+    ["日语假名", keyboard(KeyboardScheme.JAPANESE_NINE_KEY, { kanaGrid: true })],
+    ["大千注音", keyboard(KeyboardScheme.ZHUYIN)],
+    ["笔画", keyboard(KeyboardScheme.STROKE)],
+    ["手写", keyboard(KeyboardScheme.HANDWRITING)],
+    ["拼音九键", keyboard(KeyboardScheme.QUANPIN_NINE_KEY, { nineKey: true })],
+    ["14 键", keyboard(KeyboardScheme.QUANPIN_FOURTEEN_KEY, { letterGrid: true })],
+    ["18 键", keyboard(KeyboardScheme.QUANPIN_EIGHTEEN_KEY, { letterGrid: true })],
+  ] as [string, TouchKeyboard][]) {
+    check(!P.chineseTwentySixKeyboard(board), `${label} 不是中文 26 键`);
+  }
+  // 中文 26 键停在英文 26 键、选了长空格、工具栏隐藏：这一行照样留着（只是工具栏上没有 符），与停在中文时同高。
+  const quanpin = keyboard(KeyboardScheme.QUANPIN);
+  const kept = P.longSpaceActive(P.chineseTwentySixKeyboard(quanpin), "long_space", false);
+  check(kept, "按键盘算，长空格留着工具栏那一行");
+  const recorded = {
+    lettersRow: P.lettersRowFace(P.letterFace(quanpin, true)),
+    chineseTwentySix: P.chineseTwentySixKeyboard(quanpin),
+  };
+  const chineseRecorded = {
+    lettersRow: P.lettersRowFace(P.letterFace(quanpin, false)),
+    chineseTwentySix: P.chineseTwentySixKeyboard(quanpin),
+  };
+  for (const numberRow of [false, true]) {
+    const onEnglish = P.firstPanel(recorded, numberRow, "long_space", true, false);
+    const onChinese = P.firstPanel(chineseRecorded, numberRow, "long_space", true, false);
+    check(
+      onEnglish.strip &&
+        onEnglish.strip === onChinese.strip &&
+        onEnglish.extraRows === onChinese.extraRows,
+      `停在英文 26 键时第一帧与中文同高（数字行${numberRow ? "开" : "关"}）`,
+    );
+  }
 });
 
 group("记下的键面过时：视图在扩展能力挂上回调之前请求的高度不会丢，面板停在真实键面的高度", () => {

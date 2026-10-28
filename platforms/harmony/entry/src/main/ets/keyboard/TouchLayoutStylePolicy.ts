@@ -3,6 +3,10 @@
  *
  * 键序和份额放在这里而不是视图里，`tests/run.sh` 能在 node 下逐键核对；三端（Android `KeyboardActionRow`、iOS 与这里）画同一组排法。默认样式就是加样式之前的底行，份额一份不差。鸿蒙没有地球键，所以这里的行都不带它。九键外框的排法在 `NineKeyLayout.actionRow`。
  */
+import { KeyboardScheme, SchemeDefinition } from "./KeyboardScheme";
+import { SchemeTraits } from "./SchemeTraits";
+import { KoreanCompositionPolicy } from "./input/KoreanCompositionPolicy";
+import { SchemeCompositionPolicy } from "./input/SchemeCompositionPolicy";
 
 /** 设计底行（`KeyboardView.designActionRow`）上的一个键位。 */
 export enum DesignRowSlot {
@@ -20,6 +24,15 @@ export interface DesignRowEntry {
   readonly slot: DesignRowSlot;
   /** 在底行里占的宽度份额（`layoutWeight`）。 */
   readonly share: number;
+}
+
+/** 设计底行上画出来的一个键（`TouchLayoutStylePolicy.designRowItems`）：`KeyboardView.designActionRow` 用 ForEach 逐个画，画这个键时按值传下去的量都在这里，ForEach 的键（`designRowItemKey`）也由它们组成。 */
+export interface DesignRowItem {
+  readonly slot: DesignRowSlot;
+  /** 在底行里占的宽度份额（`layoutWeight`）。 */
+  readonly share: number;
+  /** 中/英 紧挨在回车左边，两键的触摸分界挪进回车键帽；只有中/英 和回车两个键位看它，其余键位恒为 false。 */
+  readonly besideReturn: boolean;
 }
 
 /** 这一行按哪种键面类型的样式排：中文 26 键、14 键与 18 键，或者不受样式影响（英文 26 键、韩文等、大千注音）。 */
@@ -47,6 +60,19 @@ export interface NumberRowFace {
   readonly zhuyin: boolean;
   /** 笔画键盘。 */
   readonly stroke: boolean;
+}
+
+/** 视图交来的这块键盘：用户选的方案和键面，都不随中/英变。字母层的键面（`letterFace`）和这块键盘的中文键面是不是中文 26 键（`chineseTwentySixKeyboard`）都从它算。 */
+export interface TouchKeyboard {
+  readonly scheme: SchemeDefinition;
+  /** 本地工具模式，`none` 是没有。 */
+  readonly localMode: string;
+  /** 选了拼音九键或九键双拼的网格。 */
+  readonly nineKey: boolean;
+  /** 选了 14 键或 18 键。 */
+  readonly letterGrid: boolean;
+  /** 日语假名网格。 */
+  readonly kanaGrid: boolean;
 }
 
 /** 视图画过的键面里决定第一帧高度的两件事，存在键盘自己的状态目录里，下次冷启动建面板时用（`TouchLayoutStylePolicy.firstPanel`）。 */
@@ -268,6 +294,47 @@ export class TouchLayoutStylePolicy {
     return !face.kanaGrid && !face.handwriting && !face.nineKeyGrid && !face.zhuyin && !face.stroke;
   }
 
+  /** 这块键盘在中文（`english` 为假）或英文下字母层的键面状态（判定数字行用的 `NumberRowFace`）；九键网格、14/18 键和假名网格跟着方案走，不随中/英变，与在不在 123 层无关。 */
+  static letterFace(keyboard: TouchKeyboard, english: boolean): NumberRowFace {
+    const rules: number = SchemeCompositionPolicy.selectedRulesScheme(
+      keyboard.scheme.engineScheme,
+      english,
+      keyboard.localMode,
+    );
+    return {
+      kanaGrid: keyboard.kanaGrid,
+      handwriting: KeyboardScheme.usesHandwritingFace(
+        keyboard.scheme,
+        english,
+        false,
+        keyboard.localMode,
+      ),
+      nineKeyGrid: KeyboardScheme.usesNineKeyFace(keyboard.nineKey, keyboard.localMode),
+      zhuyin: rules === SchemeTraits.ZHUYIN,
+      stroke: rules === SchemeTraits.STROKE,
+    };
+  }
+
+  /**
+   * 这块键盘的中文键面是中文 26 键（全拼、26 键双拼、五笔 26 键、粤拼等）：按中文算，没有 `english` 这个参数，同一块键盘停在英文 26 键上时仍为真。长空格样式留不留工具栏那一行只看它和用户的 26 键样式（`longSpaceActive(chineseTwentySixKeyboard(…), …)`），切中/英时面板高度不跳，与 Android `TouchKeyStyle.Styles.keepsToolbarRow` 相同；此刻画着的是不是中文 26 键还要再加上此刻是中文。韩文、越南语、藏文、日语、14/18 键、九键、手写、笔画和大千注音的键盘都不算；触屏之外（2in1）由视图另判。
+   */
+  static chineseTwentySixKeyboard(keyboard: TouchKeyboard): boolean {
+    const engineScheme: string = keyboard.scheme.engineScheme;
+    const rules: number = SchemeCompositionPolicy.selectedRulesScheme(
+      engineScheme,
+      false,
+      keyboard.localMode,
+    );
+    return (
+      TouchLayoutStylePolicy.lettersRowFace(TouchLayoutStylePolicy.letterFace(keyboard, false)) &&
+      !KeyboardScheme.usesFourteenKeyFace(keyboard.letterGrid, false, keyboard.localMode) &&
+      !KoreanCompositionPolicy.selected(engineScheme, false, keyboard.localMode) &&
+      rules !== SchemeTraits.VIETNAMESE &&
+      rules !== SchemeTraits.TIBETAN &&
+      engineScheme !== "japanese"
+    );
+  }
+
   /**
    * 数字行（字母层）或它在 123、#+= 和借用数字九宫格上的补充行要不要多画这一行：开关打开、字母层是 26/14/18 键一类，并且不是手机横屏。手机横屏窗口太矮，与 Android 的 480 dp 门槛和 iOS 一样不画，存着的值不变，转回竖屏自动回来。返回多出的行数（0 或 1），键盘高度正好多一行，切到 123 层时不变。
    */
@@ -366,6 +433,25 @@ export class TouchLayoutStylePolicy {
       }
     }
     return false;
+  }
+
+  /**
+   * 设计底行逐个要画的键，次序就是 `row` 的次序。底行表在视图里每次重建这一行只算一次，交给 ForEach；份额和让位按值传给每个键的 @Builder，所以都放进 ForEach 的键（`designRowItemKey`）：切中/英、改样式让哪个键的份额或让位变了，ForEach 就重建那一个键，其余键留着。
+   */
+  static designRowItems(row: readonly DesignRowEntry[]): DesignRowItem[] {
+    const beside: boolean = TouchLayoutStylePolicy.languageBesideReturn(row);
+    const items: DesignRowItem[] = [];
+    for (const item of row) {
+      const yields: boolean =
+        item.slot === DesignRowSlot.LANGUAGE || item.slot === DesignRowSlot.RETURN;
+      items.push({ slot: item.slot, share: item.share, besideReturn: beside && yields });
+    }
+    return items;
+  }
+
+  /** `designRowItems` 每一项在 ForEach 里的键：键位、份额和让位，按值传给键的 @Builder 的量一个不缺。 */
+  static designRowItemKey(item: DesignRowItem): string {
+    return `${item.slot}:${item.share}:${item.besideReturn}`;
   }
 
   private static known(value: unknown, styles: readonly string[]): string {

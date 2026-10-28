@@ -100,33 +100,40 @@ if [[ -z "$opened_line" || -z "$settings_line" ]] || (( opened_line >= settings_
   echo "KeyboardView.aboutToAppear must take its height baseline from KeyboardSession.firstTouchPanel before applySettings assigns any watched state" >&2
   exit 1
 fi
-# 九键「右侧大回车」的回车在右列、不与中/英同行（`NineKeyLayout.languageBesideReturn` 由 touch-layout-styles.test.ts 覆盖）：九键底行只在中/英紧挨回车时让出键帽，底行里没有回车时不画回车。
-nine_row_body=$(sed -n '/^  nineKeyActionRow() {$/,/^  }$/p' \
-  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
-if ! grep -qF 'hitRegion: NineKeyLayout.languageBesideReturn(this.nineKeyActions()) ? this.languageKeyHitRegion() : undefined,' <<< "$nine_row_body" \
-  || ! grep -qF 'if (this.nineKeyActionShown(NineKeyActionKind.RETURN)) {' <<< "$nine_row_body"; then
-  echo "KeyboardView.nineKeyActionRow must yield the return key only when the language key sits beside it, and draw return only when the row has one" >&2
+# 设计底行和九键外框底行用 ForEach 按策略表逐个画键（`TouchLayoutStylePolicy.designRowItems`、`NineKeyLayout.actionItems`，键序、份额、固定宽度、让位和 ForEach 的键由 touch-layout-styles.test.ts 覆盖）。按值传给 @Builder 的参数在编译后只在建键时取一次，键建好之后状态再变也不会刷新，所以份额、宽度和让位只能经 ForEach 的数组和键传下去，不能在行里直接写 `this.spaceKey(true, 随状态变的份额, …)`；底行表和「右侧大回车」的 `tallReturnRow` 也因此每次重建这一行只算一次。九键「右侧大回车」的外框量自己的宽度、消失时清零（下次出现时宽度可能已变，比如在别的键面上转了屏，清零后第一帧按份额排，不拿旧宽度定出比网格还宽的固定键）。
+view_file="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+design_row_body=$(sed -n '/^  designActionRow() {$/,/^  }$/p' "$view_file")
+design_key_body=$(sed -n '/^  designRowKey(item: DesignRowItem) {$/,/^  }$/p' "$view_file")
+design_items_body=$(sed -n '/^  private designRowItems(): DesignRowItem\[\] {$/,/^  }$/p' "$view_file")
+nine_row_body=$(sed -n '/^  nineKeyActionRow() {$/,/^  }$/p' "$view_file")
+nine_key_body=$(sed -n '/^  nineKeyActionKey(item: NineKeyActionItem) {$/,/^  }$/p' "$view_file")
+nine_items_body=$(sed -n '/^  private nineKeyActionItems(): NineKeyActionItem\[\] {$/,/^  }$/p' "$view_file")
+tall_frame_body=$(sed -n '/^  tallReturnNineKeyFrame() {$/,/^  }$/p' "$view_file")
+if ! grep -qF 'ForEach(this.designRowItems(), (item: DesignRowItem) => {' <<< "$design_row_body" \
+  || ! grep -qF '(item: DesignRowItem): string => TouchLayoutStylePolicy.designRowItemKey(item))' <<< "$design_row_body" \
+  || ! grep -qF 'TouchLayoutStylePolicy.designRowItems(this.designRowEntries())' <<< "$design_items_body" \
+  || ! grep -qF '.layoutWeight(item.share)' <<< "$design_key_body" \
+  || ! grep -qF 'this.spaceKey(true, item.share, 0);' <<< "$design_key_body" \
+  || ! grep -qF 'hitRegion: item.besideReturn ? this.languageKeyHitRegion() : undefined,' <<< "$design_key_body" \
+  || ! grep -qF 'this.designReturnKey(item.share, item.besideReturn);' <<< "$design_key_body" \
+  || grep -qF 'this.designRowEntries()' <<< "$design_key_body"; then
+  echo "KeyboardView.designActionRow must draw TouchLayoutStylePolicy.designRowItems through ForEach keyed by designRowItemKey, passing each key its share and return yield from the item" >&2
   exit 1
 fi
-# 九键「右侧大回车」网格下方那一段（`NineKeyLayout.tallReturnRow` 由 touch-layout-styles.test.ts 覆盖）：外框量自己的宽度、消失时清零（下次出现时宽度可能已变，比如在别的键面上转了屏，清零后第一帧按份额排，不拿旧宽度定出比网格还宽的固定键），123、中/英、空格和 0 按 `nineKeyActionWidth` / `nineKeyActionShare` 定宽，数字层的 0 排在空格左边。
-tall_frame_body=$(sed -n '/^  tallReturnNineKeyFrame() {$/,/^  }$/p' \
-  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
-zero_body=$(sed -n '/^  nineKeyZeroKey() {$/,/^  }$/p' \
-  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
-# 找不到时 grep 返回 1，pipefail 会让脚本不打印原因就退出，所以这里吞掉退出码，由下面的判断报告。
-zero_before_line=$(grep -nF 'if (this.nineKeyActionBeforeSpace(NineKeyActionKind.ZERO)) {' <<< "$nine_row_body" | head -n 1 | cut -d: -f1 || true)
-nine_space_line=$(grep -nF 'this.spaceKey(true, this.nineKeyActionShare(NineKeyActionKind.SPACE),' <<< "$nine_row_body" | head -n 1 | cut -d: -f1 || true)
-if ! grep -qF 'this.tallReturnFaceWidth = Number(now.width);' <<< "$tall_frame_body" \
-  || ! grep -qF 'this.tallReturnFaceWidth = 0;' <<< "$tall_frame_body" \
-  || ! grep -qF 'this.nineKeyActionWidth(NineKeyActionKind.SPACE));' <<< "$nine_row_body" \
-  || ! grep -qF '.width(this.nineKeyActionWidth(NineKeyActionKind.LAYER_TOGGLE))' <<< "$nine_row_body" \
-  || ! grep -qF '.layoutWeight(this.nineKeyActionShare(NineKeyActionKind.LAYER_TOGGLE))' <<< "$nine_row_body" \
-  || ! grep -qF 'width: this.nineKeyActionWidth(NineKeyActionKind.LANGUAGE),' <<< "$nine_row_body" \
-  || ! grep -qF 'share: this.nineKeyActionShare(NineKeyActionKind.LANGUAGE),' <<< "$nine_row_body" \
-  || ! grep -qF 'width: this.nineKeyActionWidth(NineKeyActionKind.ZERO),' <<< "$zero_body" \
-  || ! grep -qF 'share: this.nineKeyActionShare(NineKeyActionKind.ZERO),' <<< "$zero_body" \
-  || [[ -z "$zero_before_line" || -z "$nine_space_line" ]] || (( zero_before_line >= nine_space_line )); then
-  echo "KeyboardView must measure the tall return frame, size its middle bottom row from NineKeyLayout.tallReturnRow, and draw the digit layer's 0 left of space when the row says so" >&2
+if ! grep -qF 'ForEach(this.nineKeyActionItems(), (item: NineKeyActionItem) => {' <<< "$nine_row_body" \
+  || ! grep -qF '(item: NineKeyActionItem): string => NineKeyLayout.actionItemKey(item))' <<< "$nine_row_body" \
+  || ! grep -qF 'NineKeyLayout.tallReturnRow(this.symbols, this.tallReturnFaceWidth, this.keySpacing())' <<< "$nine_items_body" \
+  || ! grep -qF 'NineKeyLayout.actionItems(this.nineKeyActions(), fixed, NineKeyLayout.tallReturnFill(this.symbols))' <<< "$nine_items_body" \
+  || ! grep -qF '.width(item.width)' <<< "$nine_key_body" \
+  || ! grep -qF '.layoutWeight(item.share)' <<< "$nine_key_body" \
+  || ! grep -qF 'this.nineKeyZeroKey(item.width, item.share)' <<< "$nine_key_body" \
+  || ! grep -qF 'this.spaceKey(true, item.share, item.width);' <<< "$nine_key_body" \
+  || ! grep -qF 'width: item.width,' <<< "$nine_key_body" \
+  || ! grep -qF 'hitRegion: item.besideReturn ? this.languageKeyHitRegion() : undefined,' <<< "$nine_key_body" \
+  || ! grep -qF 'this.designReturnKey(item.share, item.besideReturn);' <<< "$nine_key_body" \
+  || ! grep -qF 'this.tallReturnFaceWidth = Number(now.width);' <<< "$tall_frame_body" \
+  || ! grep -qF 'this.tallReturnFaceWidth = 0;' <<< "$tall_frame_body"; then
+  echo "KeyboardView.nineKeyActionRow must draw NineKeyLayout.actionItems through ForEach keyed by actionItemKey, sizing the tall return middle row from the measured frame and passing each key its width, share and return yield from the item" >&2
   exit 1
 fi
 # 九键「右侧大回车」右列与中间网格逐行对齐（`NineKeyLayout.tallReturnGridRowHeight` 由 touch-layout-styles.test.ts 覆盖）：一格的高度按这块网格自己的行数算，笔画是 `StrokeLayout.ROWS` 的两行，⌫ 只占一格，回车跨网格最后一行和底行。按三行切时笔画的回车从第二行中间开始。
@@ -169,7 +176,7 @@ for fn in 'private syncStripHeight(): void {' 'private resizeTouchPanel(): void 
   fi
 done
 # 九键「底栏带标点」的逗号长按打开常用标点（`NineKeyLayout.commaOpensQuickPunctuation` 由 touch-layout-styles.test.ts 覆盖），这里钉住视图接上了它和长按手势。
-comma_body=$(sed -n '/^  nineKeyCommaKey() {$/,/^  }$/p' "$view")
+comma_body=$(sed -n '/^  nineKeyCommaKey(share: number) {$/,/^  }$/p' "$view")
 if ! grep -qF 'if (NineKeyLayout.commaOpensQuickPunctuation(this.symbols, this.english, this.nineKeyFrameStyle())) {' <<< "$comma_body" \
   || ! grep -qF '.gesture(LongPressGesture().onAction(() => {' <<< "$comma_body" \
   || ! grep -qF 'this.punctuation = true;' <<< "$comma_body"; then
@@ -191,19 +198,21 @@ if ! grep -qF 'digits: pattern === inputMethodEngine.PATTERN_NUMBER' <<< "$trait
   echo "Password and digit-only fields must fall back to the standard row for every key type: KeyboardSession.traitsFor sets digits from PATTERN_NUMBER/PHONE/NUMBER_DECIMAL, applyEditorFace refreshes standardRowsField, and nineKeyFrameStyle and designRowStyle go through TouchLayoutStylePolicy.fieldRowStyle" >&2
   exit 1
 fi
-# 长空格样式把工具条那一行一直留着（符 在上面），看的是这块键盘的中文键面和用户的 26 键样式，不看此刻的中/英：同一块键盘切到英文 26 键时也留着，否则工具栏隐藏时每次切中/英这一行都出没一次，面板高度跟着跳。视图是 ArkTS，这里钉住接线：工具条、隐藏工具栏时藏工具和冷启动记下的键面都读 `chineseTwentySixKeyboard`，它按中文（english 为假）算、不读 `this.english`；`chineseTwentySixFace` 是它再加上此刻是中文。
+# 长空格样式把工具条那一行一直留着（符 在上面），看的是这块键盘的中文键面和用户的 26 键样式，不看此刻的中/英：同一块键盘切到英文 26 键时也留着，否则工具栏隐藏时每次切中/英这一行都出没一次，面板高度跟着跳。判定本身在 `TouchLayoutStylePolicy.chineseTwentySixKeyboard`，没有 english 参数，由 touch-layout-styles.test.ts 逐个方案覆盖（中文 26 键停在英文 26 键上仍留着这一行）；视图是 ArkTS，这里钉住接线：工具条、隐藏工具栏时藏工具和冷启动记下的键面都读视图的 `chineseTwentySixKeyboard`，它交给上面那个判定、交过去的键盘状态（`touchKeyboard`）里没有 `this.english`；`chineseTwentySixFace` 是它再加上此刻是中文。
 strip_body=$(sed -n '/^  private stripShown(): boolean {$/,/^  }$/p' "$view")
 tool_shown_body=$(sed -n '/^  private toolbarToolShown(enabled: boolean): boolean {$/,/^  }$/p' "$view")
 remember_face_body=$(sed -n '/^  private rememberPanelFace(): void {$/,/^  }$/p' "$view")
 keyboard_body=$(sed -n '/^  private chineseTwentySixKeyboard(): boolean {$/,/^  }$/p' "$view")
 toolbar_row_body=$(sed -n '/^  private longSpaceToolbarRow(): boolean {$/,/^  }$/p' "$view")
 face_body=$(sed -n '/^  private chineseTwentySixFace(): boolean {$/,/^  }$/p' "$view")
+touch_keyboard_body=$(sed -n '/^  private touchKeyboard(): TouchKeyboard {$/,/^  }$/p' "$view")
 if ! grep -qF 'TouchToolbarPolicy.rowHidden(this.toolbarTools) && !this.longSpaceToolbarRow(),' <<< "$strip_body" \
   || ! grep -qF 'this.toolbarTools.hidden && this.longSpaceToolbarRow()' <<< "$tool_shown_body" \
   || ! grep -qF 'chineseTwentySix: this.chineseTwentySixKeyboard()' <<< "$remember_face_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.longSpaceActive(this.chineseTwentySixKeyboard(), this.twentySixKeyStyle,' <<< "$toolbar_row_body" \
   || [[ -z "$keyboard_body" ]] || grep -qF 'this.english' <<< "$keyboard_body" \
-  || ! grep -qF 'this.numberRowFaceIn(false)' <<< "$keyboard_body" \
+  || ! grep -qF 'TouchLayoutStylePolicy.chineseTwentySixKeyboard(this.touchKeyboard())' <<< "$keyboard_body" \
+  || [[ -z "$touch_keyboard_body" ]] || grep -qF 'this.english' <<< "$touch_keyboard_body" \
   || ! grep -qF 'return !this.english && this.chineseTwentySixKeyboard();' <<< "$face_body"; then
   echo "The long-space toolbar row must follow the keyboard's Chinese 26-key face and the user's style, not the momentary 中/英 mode, so the panel height stays put across language toggles" >&2
   exit 1

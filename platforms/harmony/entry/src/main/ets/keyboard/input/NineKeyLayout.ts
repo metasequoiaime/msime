@@ -73,6 +73,17 @@ export interface NineKeyAction {
   readonly weight: number;
 }
 
+/** 九键外框底行上画出来的一个键（`NineKeyLayout.actionItems`）：`KeyboardView.nineKeyActionRow` 用 ForEach 逐个画，画这个键时按值传下去的量都在这里，ForEach 的键（`actionItemKey`）也由它们组成。 */
+export interface NineKeyActionItem {
+  readonly kind: NineKeyActionKind;
+  /** `layoutWeight`；定了固定宽度（`width` 大于 0）的键为 0。 */
+  readonly share: number;
+  /** 固定宽度，单位与 `tallReturnRow` 的 `faceWidth` 相同；为 0 时按 `share` 排。 */
+  readonly width: number;
+  /** 中/英 紧挨在回车左边，两键的触摸分界挪进回车键帽；只有中/英 和回车两个键位看它，其余键位恒为 false。 */
+  readonly besideReturn: boolean;
+}
+
 function action(kind: NineKeyActionKind, weight: number): NineKeyAction {
   return { kind: kind, weight: weight };
 }
@@ -178,6 +189,44 @@ export class NineKeyLayout {
       grid - fixed.length * keySpacing - taken,
     );
     return [fixed[0], fill].concat(fixed.slice(1));
+  }
+
+  /**
+   * 九键外框底行逐个要画的键，次序就是 `row`（`actionRow`）的次序。`fixed` 是「右侧大回车」量到外框宽度后的 `tallReturnRow`，没量到或不是这个样式时为空：除了占剩余宽度的 `fill`（`tallReturnFill`），`fixed` 里有的键取它的固定宽度、份额为 0，其余键按 `row` 的份额排。
+   *
+   * 底行表和 `tallReturnRow` 在视图里每次重建这一行只算一次，交给 ForEach；宽度、份额和让位按值传给每个键的 @Builder，所以都放进 ForEach 的键（`actionItemKey`）：切层、切中/英、量到外框宽度让哪个键变了，ForEach 就重建那一个键。
+   */
+  static actionItems(
+    row: readonly NineKeyAction[],
+    fixed: readonly NineKeyAction[],
+    fill: NineKeyActionKind,
+  ): NineKeyActionItem[] {
+    const beside: boolean = NineKeyLayout.languageBesideReturn(row);
+    const items: NineKeyActionItem[] = [];
+    for (const item of row) {
+      let width: number = 0;
+      if (item.kind !== fill) {
+        for (const pinned of fixed) {
+          if (pinned.kind === item.kind) {
+            width = pinned.weight;
+          }
+        }
+      }
+      const yields: boolean =
+        item.kind === NineKeyActionKind.LANGUAGE || item.kind === NineKeyActionKind.RETURN;
+      items.push({
+        kind: item.kind,
+        share: width > 0 ? 0 : item.weight,
+        width: width,
+        besideReturn: beside && yields,
+      });
+    }
+    return items;
+  }
+
+  /** `actionItems` 每一项在 ForEach 里的键：键位、份额、固定宽度和让位，按值传给键的 @Builder 的量一个不缺。 */
+  static actionItemKey(item: NineKeyActionItem): string {
+    return `${item.kind}:${item.share}:${item.width}:${item.besideReturn}`;
   }
 
   /** 「右侧大回车」网格下方那一段里占剩余宽度的键：字母层是空格，数字层是 0。 */
