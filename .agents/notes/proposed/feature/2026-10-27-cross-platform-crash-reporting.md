@@ -31,7 +31,7 @@ Status: proposed
 | --- | --- | --- |
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障与部分符号还原 | 完整同源安装包及真实故障到后台和双架构符号 |
-| Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus 真实故障、原生发送到隔离后台与源码行还原 | Fcitx5、设置及辅助入口的完整后台验收；其余架构与部分发行版符号 |
+| Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus/Fcitx5 真实故障、原生发送到隔离后台与源码行还原 | 设置及辅助入口的完整后台验收；其余架构与部分发行版符号 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制 | 完整正式包和含按需资源的完整冒烟；后台精确符号化 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
@@ -55,6 +55,8 @@ Linux aarch64 的 IBus 入口已另行完成真实故障闭环：以 `e275758170
 随后按远端固定提交 `aaebaca94456ad5a9bfec5cbf76f0e98c07e9851` 重建并复验同一真实链路。源码归档 SHA-256 为 `48fe65d3cd265408aee5e1f0188b09965974539bfc03d660fa8d9e91bcb4e64d`，12,410 个条目的 Git blob 与文件模式逐项一致。实际 SIGSEGV、重启继续输入、SIGKILL 负对照、维护停止与 IBus 退出均通过；固定后台仍仅入库一条崩溃和一条崩溃会话，共四条事件，字段与请求逐项一致，身份保留该提交与 `isolated-linux-native-aaeb-20261028`。实际后台栈按 build-id `b5a150ba97d5d6c475ac4edf93f039018f46f2f2` 和独立归档 `target/linux/native-aaeb-symbols.zip`，还原到 `ClientEngine.cpp:3863`、`ClientEngine.cpp:8933` 及 `ibus_main.cpp:296`；`_start` 无源码行，仍不计通过。小证据另存 `target/linux-aaeb-backend-evidence/`，不覆盖 e275 的记录或符号。
 
 固定提交的 `git archive` 保留提交时刻。复用 Cargo 缓存时，该时刻可能早于旧产物，导致内容已变化的工作区 crate 被误判为新鲜；本次首先出现源码已有 `CustomRequired`、旧核心 rlib 却没有该接口的编译错误。验收副本在核对归档及全部 blob/模式后只更新文件时间，触发工作区 crate 重编，源码字节保持固定提交不变；重建与真实链路随后通过，不将缓存组装问题记作产品修复。符号化只用这次实际输出的 build-id 与对应归档，不能仅因缓存目录或版本相同复用上一份符号。
+
+同一 aaeb 源码还完成 aarch64 Fcitx5 原生插件的独立闭环。按 Linux 顶层工程重建真实插件并收集两模块符号，在隔离 D-Bus 中先验收合成拼音上屏；调试器在真实插件的按键入口设置一次性断点，投递 SIGSEGV，不替换产品实现或写入合成故障文件。实际 daemon 退出后显式重启，继续输入、原生补报、SIGKILL 后再次重启输入和正常退出均通过。固定隔离后台共存储三条事件，其中恰好一条 crash 与一条 session_crash，数据库逐字段等于收到的三次请求；构建身份仍固定 aaeb、原构建运行、aarch64 与 input。实际后台帧按插件 build-id `8c776079f99a6106e6a7405f03505aae500196b1` 和偏移 `0x1721c0`，由 `target/linux/native-aaeb-fcitx-symbols.zip` 还原到 `FcitxEngine::keyEvent`、`platforms/linux/fcitx5/FcitxEngine.cpp:7677`；两条重复帧只算一个源码位置。前序在外部 Fcitx 事件循环注入信号时，故障和补报虽通过，栈里没有产品帧，符号验收已按原断言拒绝；不拿外部帧或调试器自身的错误代替本次成功结果。最终调试器正常退出，容器及内部网络清理完成。小证据另存 `target/linux-aaeb-fcitx-backend-evidence/`；这是 aarch64 隔离测试构建与显式 daemon 重启，不扩大到其他架构、发行版或自动恢复。
 
 ## Alternatives considered
 
@@ -89,6 +91,8 @@ Linux aarch64 的 IBus 入口已另行完成真实故障闭环：以 `e275758170
 该整合结果的候选树 `2ea45401422e83ed7099bef90bbf27c349e92f9b` 经完整 12,409 条目核对，存储、持续授权、恢复、账号同步、Host API 遥测和四个共享 crate 的严格 Clippy 通过，整轮 `scripts/verify-local.sh --quick` 退出 0。Linux 原生 118 项注册测试中 117 项执行通过、按原规则跳过一项首次激活测试，full/wubi 安装后八个 Python 入口均通过；真实 IBus 首次激活由上述独立运行验收覆盖。macOS 原生、共享 Apple bridge、Android 宿主、鸿蒙 HAP 和 Linux 桌面编译通过；Windows 原生与 pipe-only 因构建机缺少 MinGW 而跳过，不算目标验证通过。前一份 e275 源码的整轮门禁曾出现收集器原十五秒超时，以及剪贴板原三秒超时和 Fcitx5 最新偏好断言失败；原脚本复跑与本轮阶段均通过，但根因尚未确认，未放宽上限或新增失败基线。提交前只更新本覆盖笔记并重新验证笔记，不将文档更新视为代码重新验收。Linux 验收构建的回环产物另存后，运行时缓存已重建为正式配置，并通过正式库在建队列与发送前拒绝测试握手的专项。
 
 随后整合远端固定提交 `aaebaca94456ad5a9bfec5cbf76f0e98c07e9851`，保留共享发送器、桌面和 MCP 的逐条授权保护，以及拒绝未绑定入口绕过已迁移队列的约束。候选树 `6c4fb106e9fbe1cbf24d3dcbeef97217412716b1` 的 12,410 个源码条目全部核对一致；格式、笔记、存储 19 项、持续授权 13 项、运行时读取 1 项、恢复 9 项、账号同步 34 项、Host API 遥测 16 项、共享遥测 61 项、MCP 捕获 2 项及五个相关 crate 的全 target 严格 Clippy 通过。MCP 忽略的子入口由父用例实际启动。完整 `scripts/verify-local.sh --quick` 退出 0，Linux 注册 118 项、117 项执行通过和一项按原规则跳过，full/wubi 安装后八个 Python 入口通过；鸿蒙 HAP、Android 宿主、Linux 设置壳、macOS 原生及共享 Apple bridge 编译通过。Windows 原生、pipe-only 和 x86 语法因构建机缺少交叉工具链明确跳过，不算目标验证通过。证据保留在 `target/merge-aaeb-evidence/`；相对此候选树只更新覆盖笔记，代码与远端 aaeb 提交一致。
+
+Fcitx5 子目录独立配置且两个波形后端均未启用时，`handler` 与 `force_auxiliary` 没有使用，原有 `-Werror` 拒绝编译。两个标识符显式标为 `[[maybe_unused]]`，不改变后端选择或运行行为；原配置失败记录与修复后的同配置完整插件编译均保留，Linux 顶层工程也已重编并恢复链接正式 Host API。修复候选代码树为 `ec01fefae214ef4676d11167584c8db32ae98975`，12,410 个条目逐一核对。首次完整 quick 的其他阶段通过，但五项 Windows 可移植测试在链接阶段失败；单独重编和运行其中的 `ai_candidate_worker` 两次通过，原链接诊断只保留了驱动末行，根因尚未确认。后续显式设置 `PYTHON_CPU_COUNT=2` 后，203 项 Windows 可移植测试与完整 `scripts/verify-local.sh --quick` 均通过，退出 0；Linux 注册 118 项中 117 项执行通过、一项按原规则跳过，full/wubi 安装后八入口通过，macOS 原生、共享 Apple bridge、Android 宿主、鸿蒙 HAP 和 Linux 设置壳通过。没有放宽断言、超时或新增失败基线，不能由复跑通过推定首次链接失败的根因。两次整轮结果分别保存在 `target/fcitx-first-quick-evidence/` 和 `target/fcitx-limited-quick-evidence/`。此后只更新覆盖笔记，代码与已核对候选树一致。
 
 ### macOS 符号发布仍需补验
 

@@ -315,9 +315,9 @@ extern "C" bool fcitxVoiceCancelled(void *context) noexcept {
 
 std::unique_ptr<msime::linux_host::WaveOverlaySurface>
 create_fcitx_wave_overlay_surface(
-    msime::linux_host::WaveOverlaySurface::ActionHandler handler) {
+    [[maybe_unused]] msime::linux_host::WaveOverlaySurface::ActionHandler handler) {
   const auto *requested = std::getenv("MSIME_WAVE_OVERLAY_BACKEND");
-  const bool force_auxiliary = requested &&
+  [[maybe_unused]] const bool force_auxiliary = requested &&
       (std::strcmp(requested, "ibus") == 0 ||
        std::strcmp(requested, "auxiliary") == 0);
   const bool wayland_requested = requested && std::strcmp(requested, "wayland") == 0;
