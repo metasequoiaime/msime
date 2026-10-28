@@ -20,8 +20,9 @@ def main():
         return
     sdk_platform = Path(sdk.stdout.strip())
     frameworks = sdk_platform / "Developer/Library/Frameworks"
+    private_frameworks = sdk_platform / "Developer/Library/PrivateFrameworks"
     swift_libraries = sdk_platform / "Developer/usr/lib"
-    if not (frameworks / "XCTest.framework").is_dir():
+    if not (frameworks / "XCTest.framework").is_dir() or not (private_frameworks / "XCTestCore.framework").is_dir():
         print("skipped: iOS MetricKit 栈回归需要 Xcode 的 XCTest.framework")
         return
     output = ROOT / "target/ios/derived-tests"
@@ -79,8 +80,10 @@ enum MetasequoiaInputSessionBridge {
         ]
         executable = directory / "metrickit-frames"
         subprocess.run(["xcrun", "swiftc", "-swift-version", "5", "-F", str(frameworks),
+                        "-F", str(private_frameworks),
                         "-I", str(swift_libraries), "-L", str(swift_libraries),
                         "-Xlinker", "-rpath", "-Xlinker", str(frameworks),
+                        "-Xlinker", "-rpath", "-Xlinker", str(private_frameworks),
                         "-Xlinker", "-rpath", "-Xlinker", str(swift_libraries), *sources,
                         str(directory / "Dependencies.swift"), str(directory / "main.swift"),
                         str(directory / "Stubs.o"), "-o", str(executable)],
