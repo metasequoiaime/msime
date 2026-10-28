@@ -796,6 +796,14 @@ if ! rg -q 'protected View fixedNavigation\(\)' "$clipboard_search_page" \
   echo "Android clipboard search must keep its search field fixed above the scrolling results (#9958)" >&2
   exit 1
 fi
+# 进剪贴板历史页不自动聚焦搜索框、不主动弹键盘，等用户点搜索框（#10074）；点胶囊任何地方都要和点输入框一样弹出键盘，否则点放大镜只有光标没有键盘。
+search_pill="$repo_root/platforms/android/java/app/msime/android/home/SearchPill.java"
+if rg -q 'requestFocus\(\)|Type\.ime\(\)|showSoftInput' "$clipboard_search_page" \
+  || ! rg -A 3 'private void focusField\(' "$search_pill" | rg_q_stdin 'showSoftInput\(field' \
+  || ! rg -q 'bindClick\(this, this::focusField\)' "$search_pill"; then
+  echo "Android clipboard search must not focus its search field or show the keyboard on entry, and tapping anywhere on SearchPill must focus the field and show the keyboard (#10074)" >&2
+  exit 1
+fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
 share_body=$(rg -A 24 'void shareClipboardText\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
