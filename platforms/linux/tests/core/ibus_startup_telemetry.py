@@ -3,7 +3,7 @@
 
 跑的是真的 msime-linux-ibus、真的 platforms/common/Telemetry.cpp 和它包装的 Host API。ibus-daemon 由一个普通 dbus-daemon 加 ibus-registration-bus 桩代替，桩只应答 RegisterComponent 并打出注册时刻和宿主的总线名。端点挂起期间，桩的 probe 模式向宿主的 IBusFactory 请求一个不存在的引擎：这个错误只能由宿主主循环回出来，所以投递一旦回到主线程同步执行，探测就会超时。投递经 HTTPS_PROXY（Host API 的 HTTP 客户端自己认）指到本地一个只 accept、从不回应的 TCP 监听，所以请求永远到不了 api.msime.app，而且对宿主来说就是一个挂起的端点。事件先排进 $XDG_STATE_HOME/msime/telemetry.json，内容从那里核对。
 
-用法：ibus_startup_telemetry.py HOST REGISTRATION_BUS EXPECTED_VERSION
+用法：ibus_startup_telemetry.py HOST REGISTRATION_BUS EXPECTED_VERSION PREFERENCES_WRITER
 """
 import json
 import os
@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 SKIP = 77
+CONSENT_EPOCH = "c2e3236b-425f-49cd-9ef5-efb9d46c0167"
 
 
 class HangingEndpoint:
@@ -72,7 +73,7 @@ def stop(process):
             process.wait()
 
 
-def run_host(host, registration_bus, scratch, recovered):
+def run_host(host, registration_bus, scratch, recovered, preferences_writer):
     """Start the host against a fresh bus and endpoint; returns (registration time, main loop probe, endpoint, host process, cleanup)."""
     bus_socket = scratch / "bus"
     # 自带一份最小的会话总线配置，与 GTestDBus 的做法相同：`--session` 读的是本机的 session.conf，
@@ -110,7 +111,15 @@ def run_host(host, registration_bus, scratch, recovered):
 
         options = scratch / "options/runtime-options.json"
         options.parent.mkdir()
-        options.write_text('{"preferences":{}}')
+        preferences = scratch / "preferences"
+        # 真实存储生成完整合成偏好，避免手写缺少必填字段的文档被保守停采。
+        subprocess.run([preferences_writer, "enable", str(scratch / "unused-telemetry"),
+                        str(preferences), "fixture"], check=True, timeout=10)
+        document = json.loads((preferences / "preferences.json").read_text())
+        document["preferences"]["usage_reporting_consent"] = {
+            "epoch": CONSENT_EPOCH, "since_unix_ms": 1}
+        (preferences / "preferences.json").write_text(json.dumps(document))
+        options.write_text(json.dumps({"preferences": {}, "preferences_directory": str(preferences)}))
         proxy = f"http://127.0.0.1:{endpoint.port}"
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -161,9 +170,9 @@ def crash_records(scratch):
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         sys.exit(__doc__)
-    host, registration_bus, version = sys.argv[1:]
+    host, registration_bus, version, preferences_writer = sys.argv[1:]
     if not shutil.which("dbus-daemon"):
         print("dbus-daemon is not installed; skipping", file=sys.stderr)
         return SKIP
@@ -171,7 +180,7 @@ def main():
     # 正常启动：会话开始时排进当天的 active；注册先完成，然后后台线程才连端点，端点一直不回应，宿主照常活着。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
-        registered, probe, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
+        registered, probe, endpoint, process, cleanup = run_host(host, registration_bus, scratch, False, preferences_writer)
         try:
             wait_for(lambda: endpoint.connections, "queued events were never sent")
             accepted, request = endpoint.connections[0]
@@ -203,9 +212,15 @@ def main():
         previous = "6f1c2a7e-0d35-4c0b-9a4e-2f8d1b3c4e5f"
         (state / "telemetry-session.json").write_text(json.dumps(
             {"id": previous, "platform": "linux", "version": "0.0.1", "started_at_unix_ms": 1}))
+        # 模拟同一持续授权下的旧版本记录，不能用无授权证据的旧格式追认故障。
+        (state / "telemetry-state.json").write_text(json.dumps({"consent_epoch": CONSENT_EPOCH}))
+        context = {"platform": "linux", "version": "0.0.1", "revision": "synthetic",
+                   "run": "", "attempt": "", "arch": "x86_64", "component": "input",
+                   "consent_epoch": CONSENT_EPOCH}
         (state / "telemetry-crashes" / f"{previous}.crash").write_text(
+            "MSIME-CRASH/1 " + json.dumps(context) + "\n"
             "SIGSEGV: segmentation fault\n/home/someone/.local/lib/libmsime_host_api.so(+0x1f) [0x7f00]\n")
-        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=True)
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, True, preferences_writer)
         try:
             wait_for(lambda: endpoint.connections, "queued events were never sent")
             assert endpoint.connections[0][0] >= registered, ("recovered host sent before registration", endpoint.connections[0][0], registered)
@@ -214,7 +229,11 @@ def main():
             assert [event["kind"] for event in queued] == ["session_crash", "crash", "active"], queued
             session_crash, crash, _ = queued
             assert session_crash["id"] == f"session-{previous}" and session_crash["version"] == "0.0.1", session_crash
-            assert crash["message"] == "SIGSEGV: segmentation fault", crash
+            summary, metadata = crash["message"].split("\n", 1)
+            assert summary == "SIGSEGV: segmentation fault", crash
+            identity = json.loads(metadata.removeprefix("[msime-crash-v1] "))
+            assert identity["version"] == "0.0.1" and identity["revision"] == "synthetic", crash
+            assert "consent_epoch" not in json.dumps(queued), queued
             assert crash["stack"] == "libmsime_host_api.so(+0x1f) [0x7f00]", crash
             assert "someone" not in json.dumps(queued)
             assert not crash_records(scratch)
@@ -224,7 +243,7 @@ def main():
     # ibus-daemon 停止组件、注销和关机时宿主收到 SIGTERM：先走完正常收尾、报这个会话的 session，再以 SIGTERM 的默认动作退出，所以退出状态和以前一样。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
-        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, False, preferences_writer)
         try:
             wait_for(lambda: endpoint.connections, "queued events were never sent")
             session = json.loads((scratch / STATE / "telemetry-session.json").read_text())["id"]
@@ -242,7 +261,7 @@ def main():
     # 宿主收到崩溃信号：只落盘构建头、信号摘要和栈，然后照默认动作退出，不联网。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
-        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, False, preferences_writer)
         try:
             wait_for(lambda: endpoint.connections, "queued events were never sent")
             assert endpoint.connections[0][0] >= registered, ("telemetry ran before registration", endpoint.connections[0][0], registered)

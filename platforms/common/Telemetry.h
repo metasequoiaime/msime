@@ -5,10 +5,10 @@
 #include <optional>
 #include <string>
 
-// Anonymous usage reporting for the native Windows and Linux hosts: a thin wrapper over the Host API's msime_client_telemetry_* functions, which own the queue, the install id, the daily active event, sessions and delivery to https://api.msime.app/v1/telemetry/events. Nothing here sends anything itself, and nothing on a crash path touches the network: crash handlers only write the session's crash record, which the next start turns into crash and session_crash events.
+// macOS、Windows 与 Linux 原生宿主共用的上报生命周期；队列、安装身份和发送归 Host API，故障回调只落盘，重启后补报。
 namespace msime::telemetry {
 struct Host {
-  // windows or linux.
+  // macos、windows 或 linux。
   std::string platform;
   // The real app version.
   std::string version;
@@ -69,7 +69,10 @@ private:
   std::unique_ptr<State> state_;
 };
 
-// For a std::terminate handler (may allocate): writes the crash record of the running session with the current exception as the message and this thread's stack. Does nothing when no session runs.
+// 允许分配内存的语言异常回调使用当前会话快照；只保存调用方已筛选的类型和抛出点栈。
+// 锁忙或没有武装时放弃，不读取偏好或联网，不随机生成新身份。
+void record_exception(const std::string &summary, const std::string &stack);
+// std::terminate 回调只保留异常类型和当前线程栈，不取异常消息。
 void record_terminate();
 // Installs crash capture that only writes to disk: SetUnhandledExceptionFilter on Windows, sigaction for SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT elsewhere. POSIX handlers chain to whatever was installed before, so a host process with its own crash handler (Fcitx5) keeps it. Call once, from the main thread.
 void install_crash_handlers();

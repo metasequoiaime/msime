@@ -38,7 +38,7 @@ Status: proposed
 
 所有平台继续保留“栈展开尽力而为、备用栈仅安装线程、后加载模块快照要重新准备”的边界。下一步 TSF 方案需验证进程外 WER 适配：Microsoft 的 [注册接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werregisterruntimeexceptionmodule)要求安装时配置模块列表并导出三个回调；[异常回调](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nc-werapi-pfn_wer_runtime_exception_event)允许返回不认领，保持宿主默认处置；[注销接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werunregisterruntimeexceptionmodule)必须与生命周期配对。这是待验证的候选方案，尚无实现，不能把 API 可用性当成 TSF 已覆盖。
 
-[共享偏好的持续同意存储](../../implemented/bug-fix/2026-10-28-persisted-reporting-consent.md)提供原子代次；[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)把 iOS 采集、旧原生记录过滤、MetricKit 补录与逐条发送接入同一代次。它不代替实际致命故障、系统 MetricKit 投递与后台精确符号化验收。iOS 与共用 `CaptureOnly` 辅助采集器已迁入共享队列代次协议；辅助采集的 macOS 与 Linux 共用真实子进程回归通过；Linux 产品入口的授权目录夹具修复已由 Debian/Fedora CI 全量重建与故障套件复验通过，Windows 目标运行仍待验证，MCP 与桌面设置发送端已接入共享协议，MCP 与桌面 macOS 隔离专项及实际 Linux crate 全 target 严格 Clippy 通过，Linux 运行测试仍在继续；输入会话宿主仍需逐入口接入并核对撤回、旧原生记录晚写和在途发送边界，不能由共享接口可用推定全平台均已迁移。Android 自有持续授权不等同于已经使用该共享协议。
+[共享偏好的持续同意存储](../../implemented/bug-fix/2026-10-28-persisted-reporting-consent.md)提供原子代次；[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)把 iOS 采集、旧原生记录过滤、MetricKit 补录与逐条发送接入同一代次。它不代替实际致命故障、系统 MetricKit 投递与后台精确符号化验收。iOS 与共用 `CaptureOnly` 辅助采集器已迁入共享队列代次协议；辅助采集的 macOS 与 Linux 共用真实子进程回归通过；Linux 产品入口的授权目录夹具修复已由 Debian/Fedora CI 全量重建与故障套件复验通过，Windows 目标运行仍待验证，MCP 与桌面设置发送端已接入共享协议，MCP 与桌面 macOS 隔离专项及实际 Linux crate 全 target 严格 Clippy 通过，Linux 普通用户运行 MCP 126 项和桌面两项崩溃专项已通过；macOS 输入法、现代 Windows 设置与共用输入会话宿主也已接入，仍须按目标平台核对撤回、旧原生记录晚写和在途发送边界，不能由共享接口可用推定全平台均已完成验收。Android 自有持续授权不等同于已经使用该共享协议。
 
 ## Alternatives considered
 
@@ -65,4 +65,4 @@ Status: proposed
 
 ### 共用输入会话的持续授权
 
-Windows Server、IBus、Fcitx5 与 Win7 设置/面板的共用 `Telemetry` 包装器已接入持久授权代次与独立观察线程。macOS/Linux 真实子进程用例通过，覆盖在途发送期间撤回、重开与旧结果收尾；Windows 目标运行与 Fcitx5 实际产品重建尚待补验。macOS 输入法、现代 Windows 原生设置、Android 与鸿蒙仍须逐入口核对共享队列协议，不能将这次共用包装器迁移写成全平台完成。具体协议与验证由[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)持有。
+Windows Server、IBus、Fcitx5 与 Win7 设置/面板的共用 `Telemetry` 包装器已接入持久授权代次与独立观察线程。macOS/Linux 真实子进程用例通过，覆盖在途发送期间撤回、重开与旧结果收尾；Fcitx5 与 IBus 已用同源 Host API 完成实际产品重建，共用层与 IBus 专项通过，Windows 目标运行仍待补验。macOS 输入法已复用共用协议，同源 Host API 重建和真实输入法链接成功，最终六项真实 CMake 专项通过；现代 Windows 原生设置已复用共用包装器，实际 Windows 编译运行待新一轮 CI；Android 与鸿蒙仍须逐入口核对共享队列协议，不能将这次共用包装器迁移写成全平台完成。具体协议与验证由[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)持有。

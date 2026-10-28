@@ -70,7 +70,18 @@ class Input:
 
     def events(self, kind):
         path = self.directory / "telemetry.json"
-        return [event for event in json.loads(path.read_text()) if event["kind"] == kind] if path.exists() else []
+        try:
+            queued = json.loads(path.read_text())
+        except FileNotFoundError:
+            return []
+        return [event for event in queued if event["kind"] == kind]
+
+    def wait_cleared(self, kind):
+        # 观察器先解除武装再清队列；解除武装本身不代表随后磁盘事务已经结束。
+        deadline = time.monotonic() + 10
+        while self.events(kind):
+            assert time.monotonic() < deadline, "disabled observer did not clear the queue"
+            time.sleep(0.02)
 
     def records(self):
         return sorted((self.directory / "telemetry-crashes").glob("*.crash"))
@@ -103,6 +114,39 @@ def main():
                 assert len(host.records()) == 1
                 assert "synthetic-private" not in host.records()[0].read_text()
                 check_crash(host)
+            finally:
+                host.cleanup()
+
+        for ending in ("fault", "normal", "blocked-reopen", "blocked-stop"):
+            host = Input(root / ("independent-" + ending), "independent")
+            try:
+                assert host.initial["marker"] == {}, "independent settings created an input session"
+                if ending.startswith("blocked-"):
+                    request = host.command("flush-start")
+                    assert request["capture_only"] and request["component"] == "settings"
+                    assert request["consent_epoch"] == host.epoch()
+                    assert host.command("disable") == "saved"
+                    host.wait(False)
+                    assert host.command("enable") == "saved"
+                    host.wait(True)
+                    if ending == "blocked-stop":
+                        assert not host.command("observer-stop")["armed"]
+                    assert host.command("flush-release")["armed"] == (ending != "blocked-stop")
+                if ending in ("normal", "blocked-stop"):
+                    assert not host.command("stop")["armed"]
+                    assert host.process.wait(timeout=10) == 0
+                    assert not host.records()
+                else:
+                    host.die()
+                    assert len(host.records()) == 1
+                    context = json.loads(host.records()[0].read_text().splitlines()[0].split(" ", 1)[1])
+                    assert context["component"] == "settings" and context["consent_epoch"] == host.epoch()
+                    host.collect()
+                    crashes = host.events("crash")
+                    assert len(crashes) == 1 and crashes[0]["version"] == "1.2.3"
+                    assert not host.records()
+                assert not host.events("session") and not host.events("session_crash")
+                assert not (host.directory / "telemetry-session.json").exists()
             finally:
                 host.cleanup()
 
@@ -182,6 +226,7 @@ def main():
                 assert request["preferences_directory"] == str(host.preferences) and "enabled" not in request
                 assert host.command("disable") == "saved"
                 host.wait(False)
+                host.wait_cleared("active")
                 assert not host.events("active")
                 assert host.command("enable") == "saved"
                 current = host.wait(True, host.epoch())

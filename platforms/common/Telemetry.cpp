@@ -535,7 +535,7 @@ std::string current_exception_summary() {
   }
 }
 
-void record_terminate() {
+void record_exception(const std::string &summary, const std::string &stack) {
   try {
     if (!crash::is_armed())
       return;
@@ -551,11 +551,19 @@ void record_terminate() {
       session = session_id;
       header = capture_header;
     }
-    // 写本进程会话的记录，与信号处理函数写的是同一个文件（O_EXCL），所以 terminate 之后的 SIGABRT 不会再记第二份；不按标记找会话，标记可能已经属于同目录里后来启动的别的进程。
+    // 语言异常与后续致命信号保留同一份记录；身份取本进程快照，不按可能属于另一进程的标记找会话。
     call(msime_client_telemetry_record_crash, nlohmann::json{{"directory", utf8(directory)},
-                                                            {"message", current_exception_summary()},
-                                                            {"stack", current_stack(1)},
+                                                            {"message", summary},
+                                                            {"stack", stack},
                                                             {"session", session}, {"crash_record_header", header}});
+  } catch (...) {
+  }
+}
+
+void record_terminate() {
+  try {
+    if (!crash::is_armed()) return;
+    record_exception(current_exception_summary(), current_stack(1));
   } catch (...) {
   }
 }

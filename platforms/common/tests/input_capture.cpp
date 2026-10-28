@@ -98,20 +98,22 @@ int main(int argc, char **argv) {
   const std::string mode = argv[1];
   const auto directory = std::filesystem::u8path(argv[2]);
   const auto preferences = std::filesystem::u8path(argv[3]);
+  const bool independent = mode == "independent";
   const msime::telemetry::Host host{platform, mode == "collect" ? "9.9.9" : "1.2.3", directory,
-      false, preferences, mode == "collect" ? "collector" : "input", mode == "collect"};
+      false, preferences, mode == "collect" ? "collector" : independent ? "settings" : "input",
+      mode == "collect" || independent};
   if (mode == "collect") {
     msime::telemetry::begin(host);
     msime::telemetry::end();
     return 0;
   }
-  if (mode != "manual" && mode != "observe") return 2;
+  if (mode != "manual" && mode != "observe" && !independent) return 2;
   denied_preferences = preferences.parent_path() / "denied-preferences";
   save(denied_preferences, false);
   msime::telemetry::install_crash_handlers();
   msime::telemetry::begin(host);
   std::optional<msime::telemetry::ConsentObserver> observer;
-  if (mode == "observe") observer.emplace();
+  if (mode == "observe" || independent) observer.emplace();
   std::set_terminate([] { msime::telemetry::record_terminate(); std::abort(); });
   std::thread network;
   std::cout << std::unitbuf << capture_status(directory).dump() << '\n';

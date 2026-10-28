@@ -113,6 +113,8 @@ set_target_properties(msime-voice-local PROPERTIES OBJCXX_STANDARD 17)
 target_compile_options(msime-voice-local PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
 target_link_libraries(msime-voice-local PRIVATE apple-client)
 find_package(nlohmann_json CONFIG REQUIRED)
+target_sources(apple-client PRIVATE ../common/Telemetry.cpp)
+target_link_libraries(apple-client PRIVATE nlohmann_json::nlohmann_json)
 include(../common/tests/capture_only.cmake)
 target_link_libraries(common-capture-only-test PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
 target_link_libraries(common-input-capture-test PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
@@ -124,7 +126,7 @@ if(TARGET shared-doubao-auth)
   # The Rust archive needs the same Apple/system dependencies in shared ABI tests.
   target_link_libraries(shared-doubao-auth PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS})
 endif()
-# UsageReporting.mm 引用 msime_client.h 并调用宿主的 msime_client_telemetry_*，所以测试要链接 apple-client（带上头文件路径和 Rust 宿主库），且须定义在它之后。原先只链 AppKit，CI 在编译这个文件时就报 'msime_client.h' file not found。
+# UsageReporting.mm 经共用 Telemetry 调用 Host API，测试链接 apple-client 取得实现、ABI 头和 Rust 库；ABI 桩测试提供全部遥测入口，不联系网络。
 add_executable(usage-reporting-path-test tests/core/UsageReportingPathTest.mm src/core/UsageReporting.mm)
 target_compile_options(usage-reporting-path-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_compile_definitions(usage-reporting-path-test PRIVATE MSIME_USAGE_REPORTING_TEST_SUPPORT="/tmp/msime-usage-reporting-path-test")
@@ -137,13 +139,24 @@ target_compile_definitions(usage-reporting-termination-test PRIVATE MSIME_USAGE_
 target_link_libraries(usage-reporting-termination-test PRIVATE apple-client)
 add_test(NAME usage-reporting-termination COMMAND usage-reporting-termination-test)
 set_tests_properties(usage-reporting-termination PROPERTIES TIMEOUT 60)
-# 直接触发真实刷新逻辑，覆盖同一常驻进程关闭、重开及退出后的采集状态。
+# 真实宿主适配与共用观察线程；ABI 桩控制在途发送和授权换代。
 add_executable(usage-reporting-consent-test tests/core/UsageReportingConsentTest.mm)
 target_compile_options(usage-reporting-consent-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(usage-reporting-consent-test PRIVATE apple-client)
 add_test(NAME usage-reporting-consent COMMAND usage-reporting-consent-test)
 add_test(NAME usage-reporting-initially-disabled COMMAND usage-reporting-consent-test --disabled)
 set_tests_properties(usage-reporting-consent usage-reporting-initially-disabled PROPERTIES TIMEOUT 30)
+# 使用真实 Rust 偏好与队列，实际触发内存故障和 Objective-C 未捕获异常；只替代网络函数。
+add_executable(usage-reporting-native-test tests/core/UsageReportingNativeTest.mm
+  ../common/Telemetry.cpp ../common/CrashRecorder.cpp)
+target_compile_options(usage-reporting-native-test PRIVATE -UNDEBUG -Wall -Wextra -Werror
+  "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+target_compile_definitions(usage-reporting-native-test PRIVATE MSIME_TELEMETRY_TEST_FLUSH)
+target_link_libraries(usage-reporting-native-test PRIVATE apple-client nlohmann_json::nlohmann_json)
+add_test(NAME usage-reporting-native
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/usage_reporting_native.py"
+    $<TARGET_FILE:usage-reporting-native-test>)
+set_tests_properties(usage-reporting-native PROPERTIES TIMEOUT 120)
 # src/cloud 的 CloudClipboardClient、CloudClipboardWindowController、CloudDictionaryClient、CloudURLSession 是账号和云端改走 Rust（#8201）以前的 Objective-C 实现，输入法里已经没有代码引用它们，不再编进输入法；它们仍由下面的 cloud-clipboard-deletion、cloud-clipboard-selection、cloud-dictionary-client 三个测试目标编译，scripts/test-macos-cloud-query-encoding.py 和 test-macos-cloud-redirect-policy.py 也读它们的源码，所以文件留着，删不删由负责人定。同一批里没人引用的 CloudFileTransfer 和 src/core/Account{AuthClient,Keychain,SessionManager,WindowController} 已经删掉。
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE src/input/input_method_main.mm src/settings/PreferencesWindowController.mm src/core/SupportWindowController.mm src/voice/VoiceInputService.mm src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm src/voice/VoiceSettings.mm src/voice/VoiceProviderSettings.mm src/input/InputController.mm src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm src/candidate/CandidateSkinAppearance.mm src/settings/AppearancePreferences.mm src/core/DiagnosticLog.cpp src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/core/UpdateController.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm src/dictionary/DictionaryInstaller.mm ../../crates/host-macos/native/uninstaller.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/AISettingsWindow.mm src/core/ScreenKeyboardPanel.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm src/voice/VoicePCMBuffer.mm src/voice/HTTPVoiceRequest.mm)

@@ -25,6 +25,8 @@ extern "C" char *msime_client_telemetry_begin(const uint8_t *, size_t) { return 
 extern "C" char *msime_client_telemetry_end(const uint8_t *, size_t) { return response(); }
 extern "C" char *msime_client_telemetry_record_crash(const uint8_t *, size_t) { return response(); }
 extern "C" char *msime_client_telemetry_flush(const uint8_t *, size_t) { return response(); }
+extern "C" char *msime_client_telemetry_consent(const uint8_t *, size_t) { return response(); }
+extern "C" char *msime_client_telemetry_clear(const uint8_t *, size_t) { return response(); }
 extern "C" void msime_client_string_free(char *value) { std::free(value); }
 
 int main() {
