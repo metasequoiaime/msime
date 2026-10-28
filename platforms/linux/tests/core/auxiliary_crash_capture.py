@@ -29,6 +29,7 @@ class Fixture:
     def __init__(self, root, settings):
         self.root = root
         self.preferences = root / "preferences"
+        self.collection_preferences = self.preferences
         self.telemetry = root / "state" / settings.telemetry_directory
         self.options = root / "config" / settings.client_directory / "runtime-options.json"
         self.options.parent.mkdir(parents=True)
@@ -40,8 +41,9 @@ class Fixture:
         self.controller = settings.controller
 
     def control(self, mode, preferences=None):
+        selected = preferences or (self.collection_preferences if mode == "collect" else self.preferences)
         subprocess.run([self.controller, mode, str(self.telemetry),
-                        str(preferences or self.preferences), "collector"],
+                        str(selected), "collector"],
                        env=self.environment, check=True, timeout=15, stdout=subprocess.DEVNULL)
 
     def records(self):
@@ -93,7 +95,7 @@ class Fixture:
                 self.control("collect")
                 events = self.events()
                 crashes = [event for event in events if event["kind"] == "crash"]
-                assert len(crashes) == 1 and crashes[0]["version"] == version
+                assert len(crashes) == 1 and crashes[0]["version"] == version, (component, crashes, version)
                 assert component in crashes[0]["message"]
                 assert not self.records(), "queued original was not acknowledged"
                 assert not [event for event in events if event["kind"] in ("session", "session_crash")]
@@ -139,6 +141,7 @@ def main():
                     other = fixture.root / "redirected-preferences"
                     fixture.control("disable")
                     fixture.control("enable", other)
+                    fixture.collection_preferences = other
                     fixture.options.write_text(json.dumps({"preferences_directory": str(other)}))
                 elif mode == "invalid":
                     fixture.options.write_text("{synthetic-private-invalid")

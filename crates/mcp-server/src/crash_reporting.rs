@@ -2,8 +2,10 @@
 
 use crate::config::Config;
 use msime_client_core::edition::Edition;
-use msime_client_core::preferences::Preferences;
-use msime_client_services::telemetry::{SessionStart, TelemetryApp, TelemetryStore};
+use msime_client_core::preferences::{Preferences, PreferencesStore, UsageReportingConsent};
+use msime_client_services::telemetry::{
+    clear_if_consent_disabled, with_consent_epoch, SessionStart, TelemetryApp, TelemetryStore,
+};
 use std::cell::Cell;
 use std::ffi::{CString, OsString};
 use std::panic::{catch_unwind, resume_unwind, UnwindSafe};
@@ -90,8 +92,16 @@ pub(crate) struct Reporter {
 
 #[derive(Default)]
 struct Capture {
-    current: Option<(PathBuf, SessionStart)>,
-    disabled_directory: Option<PathBuf>,
+    current: Option<CaptureSnapshot>,
+    disabled_target: Option<(PathBuf, PathBuf)>,
+    suspended: bool,
+}
+
+struct CaptureSnapshot {
+    directory: PathBuf,
+    preferences_directory: PathBuf,
+    consent: UsageReportingConsent,
+    start: SessionStart,
 }
 
 struct WatcherPanicGuard;
@@ -154,6 +164,44 @@ impl Drop for Reporter {
 
 impl Capture {
     #[allow(unsafe_code)]
+    fn suspend(&mut self) {
+        unsafe { msime_native_crash_disarm() };
+        self.suspended = true;
+    }
+
+    fn disable(&mut self, directory: PathBuf, preferences: &PreferencesStore) {
+        self.suspend();
+        self.current = None;
+        let target = (directory, preferences.directory().to_owned());
+        if self.disabled_target.as_ref() == Some(&target) {
+            return;
+        }
+        // 关闭观察可能迟到；只在偏好锁内仍明确关闭时清理，不能删除已重开的新队列。
+        let cleared = clear_if_consent_disabled(preferences, &TelemetryStore::new(&target.0));
+        if matches!(cleared, Ok(true)) {
+            self.disabled_target = Some(target);
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn arm(&mut self) {
+        let Some(snapshot) = &self.current else {
+            return;
+        };
+        let (Some(path), Ok(header)) = (
+            snapshot.start.crash_record_path.to_str(),
+            CString::new(snapshot.start.crash_record_header.as_str()),
+        ) else {
+            return;
+        };
+        let Ok(path) = CString::new(path) else {
+            return;
+        };
+        // C 端立即复制字符串；故障现场只使用这份预备身份，不读偏好或联网。
+        unsafe { msime_native_crash_arm(path.as_ptr(), header.as_ptr()) };
+        self.suspended = false;
+    }
+
     fn refresh(&mut self, config: &Config) {
         let target = config.read_host_options().ok().and_then(|document| {
             let directory = directory(config.edition(&document).ok()?, &|name| {
@@ -163,29 +211,41 @@ impl Capture {
                 Some(value) => value.as_bool()?,
                 None => Preferences::default().usage_reporting,
             };
-            Some((directory, enabled))
+            Some((directory, config.state_dir(&document).ok()?, enabled))
         });
-        let Some((directory, true)) = target.as_ref() else {
-            unsafe { msime_native_crash_disarm() };
-            self.current = None;
-            if let Some((directory, false)) = target {
-                if self.disabled_directory.as_ref() != Some(&directory)
-                    && TelemetryStore::new(&directory).clear().is_ok()
-                {
-                    self.disabled_directory = Some(directory);
-                }
-            }
+        let Some((directory, preferences_directory, enabled)) = target else {
+            // 临时不可读仅停采；同一持续授权恢复后沿用原记录身份。
+            self.suspend();
             return;
         };
-        self.disabled_directory = None;
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|(old, _)| old == directory)
-        {
+        let preferences = PreferencesStore::new(&preferences_directory);
+        if !enabled {
+            self.disable(directory, &preferences);
             return;
         }
-        unsafe { msime_native_crash_disarm() };
+        let consent = match preferences.usage_reporting_consent() {
+            Ok(Some(consent)) => consent,
+            Ok(None) => {
+                self.disable(directory, &preferences);
+                return;
+            }
+            Err(_) => {
+                self.suspend();
+                return;
+            }
+        };
+        self.disabled_target = None;
+        if self.current.as_ref().is_some_and(|snapshot| {
+            snapshot.directory == directory
+                && snapshot.preferences_directory == preferences_directory
+                && snapshot.consent.epoch == consent.epoch
+        }) {
+            if self.suspended {
+                self.arm_authorized(&preferences);
+            }
+            return;
+        }
+        self.suspend();
         self.current = None;
         let platform = if cfg!(target_os = "macos") {
             "macos"
@@ -199,23 +259,47 @@ impl Capture {
         else {
             return;
         };
-        let Ok(capture) =
-            TelemetryStore::new(directory).prepare_crash_capture(&app, SystemTime::now())
-        else {
-            return;
-        };
-        let (Some(path), Ok(header)) = (
-            capture.crash_record_path.to_str(),
-            CString::new(capture.crash_record_header.as_str()),
+        // 偏好先于队列加锁，检查与准备同处一次事务；旧准备不能激活已经撤回的代次。
+        let Ok(Some(start)) = with_consent_epoch(
+            &preferences,
+            &consent.epoch.to_string(),
+            &TelemetryStore::new(&directory),
+            |store, _| {
+                store
+                    .prepare_crash_capture(&app, SystemTime::now())
+                    .map_err(|error| error.to_string())
+            },
         ) else {
             return;
         };
-        let Ok(path) = CString::new(path) else {
+        self.current = Some(CaptureSnapshot {
+            directory,
+            preferences_directory,
+            consent,
+            start,
+        });
+        self.arm_authorized(&preferences);
+    }
+
+    fn arm_authorized(&mut self, preferences: &PreferencesStore) {
+        let Some(snapshot) = self.current.as_ref() else {
             return;
         };
-        // C 端立即复制字符串；记录路径不进入协议输出，补报继续由宿主持有。
-        unsafe { msime_native_crash_arm(path.as_ptr(), header.as_ptr()) };
-        self.current = Some((directory.clone(), capture));
+        let directory = snapshot.directory.clone();
+        let epoch = snapshot.consent.epoch.to_string();
+        // 准备回包与暂停恢复都可能迟到，最终发布必须再次核对持久授权。
+        let armed = with_consent_epoch(
+            preferences,
+            &epoch,
+            &TelemetryStore::new(directory),
+            |_, _| {
+                self.arm();
+                Ok(!self.suspended)
+            },
+        );
+        if !matches!(armed, Ok(Some(true))) {
+            self.suspend();
+        }
     }
 }
 
@@ -257,8 +341,9 @@ fn directory(edition: &Edition, env: &impl Fn(&str) -> Option<OsString>) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::preferences::PreferencesStore;
-    use msime_client_services::telemetry::{TelemetryKind, CRASH_DIRECTORY, SESSION_FILE};
+    use msime_client_services::telemetry::{
+        CrashContext, TelemetryKind, CRASH_DIRECTORY, SESSION_FILE,
+    };
     use serde_json::json;
     use std::path::Path;
     use std::process::Command;
@@ -283,6 +368,82 @@ mod tests {
         assert!(directory(Edition::full(), &|_| Some("relative".into())).is_none());
     }
 
+    /// 手动推进实际采集器，使中间撤回必定发生在两次观察之间；最后仍由真实进程 panic 落盘。
+    #[allow(unsafe_code)]
+    fn controlled_capture(config: &Config, root: &Path, mode: &str) -> Capture {
+        unsafe { msime_native_crash_install() };
+        remember_panic_site();
+        let mut capture = Capture::default();
+        capture.refresh(config);
+        let first = capture.current.as_ref().unwrap().start.clone();
+        match mode {
+            "prepared-off" | "prepared-cycle" => {
+                capture.suspend();
+                set_consent(root, false);
+                if mode == "prepared-cycle" {
+                    set_consent(root, true);
+                }
+                capture.arm_authorized(&PreferencesStore::new(root));
+                assert!(capture.suspended);
+                assert_eq!(capture.current.as_ref().unwrap().start, first);
+            }
+            "epoch-cycle" => {
+                set_consent(root, false);
+                set_consent(root, true);
+                capture.refresh(config);
+                let current = capture.current.as_ref().unwrap();
+                assert_ne!(current.start.session_id, first.session_id);
+                assert_eq!(
+                    CrashContext::from_header(&current.start.crash_record_header)
+                        .unwrap()
+                        .consent_epoch,
+                    Some(
+                        PreferencesStore::new(root)
+                            .usage_reporting_consent()
+                            .unwrap()
+                            .unwrap()
+                            .epoch
+                    )
+                );
+            }
+            "read-recovery" => {
+                let path = root.join("preferences.json");
+                let saved = std::fs::read(&path).unwrap();
+                std::fs::write(&path, b"{").unwrap();
+                capture.refresh(config);
+                assert!(capture.suspended);
+                assert_eq!(capture.current.as_ref().unwrap().start, first);
+                std::fs::write(&path, saved).unwrap();
+                capture.refresh(config);
+                assert!(!capture.suspended);
+                assert_eq!(capture.current.as_ref().unwrap().start, first);
+            }
+            "stale-late" => {
+                set_consent(root, false);
+                set_consent(root, true);
+                let preferences = PreferencesStore::new(root);
+                let consent = preferences.usage_reporting_consent().unwrap().unwrap();
+                // 模拟另一个已观察到重开的宿主激活新队列；旧快照此时才真正发生致命故障。
+                preferences
+                    .with_usage_reporting_consent(|enabled, current| {
+                        assert!(enabled);
+                        assert_eq!(current.unwrap().epoch, consent.epoch);
+                        TelemetryStore::new(&capture.current.as_ref().unwrap().directory)
+                            .activate_consent_epoch(consent.epoch)
+                            .unwrap()
+                            .prepare_crash_capture(
+                                &TelemetryApp::new("linux", "99.0.0").unwrap(),
+                                SystemTime::now(),
+                            )
+                            .unwrap();
+                    })
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        capture
+    }
+
     /// 只能在独立测试进程里安装全局处理器，防止并行测试污染宿主和其它用例。
     #[test]
     #[ignore = "由 crash_capture_lifecycle 使用合成目录启动"]
@@ -296,11 +457,48 @@ mod tests {
             allow_dictionary_read: false,
         };
         run_main(|| {
-            let _reporter = start(&config).expect("测试进程必须能观察同意开关");
+            let controlled = matches!(
+                mode.as_str(),
+                "epoch-cycle" | "read-recovery" | "stale-late" | "prepared-off" | "prepared-cycle"
+            );
+            let _capture = controlled.then(|| controlled_capture(&config, &root, &mode));
+            let _reporter =
+                (!controlled).then(|| start(&config).expect("测试进程必须能观察同意开关"));
             match mode.as_str() {
                 "disable" | "enable" => {
                     set_consent(&root, mode == "enable");
                     std::thread::sleep(Duration::from_millis(1600));
+                }
+                "rotate" => {
+                    set_consent(&root, false);
+                    set_consent(&root, true);
+                    let epoch = PreferencesStore::new(&root)
+                        .usage_reporting_consent()
+                        .unwrap()
+                        .unwrap()
+                        .epoch;
+                    let telemetry =
+                        directory(Edition::full(), &|name| std::env::var_os(name)).unwrap();
+                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                    loop {
+                        let observed = std::fs::read(telemetry.join("telemetry-state.json"))
+                            .ok()
+                            .and_then(|bytes| {
+                                serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+                            });
+                        if observed
+                            .as_ref()
+                            .and_then(|value| value["consent_epoch"].as_str())
+                            == Some(epoch.to_string().as_str())
+                        {
+                            break;
+                        }
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "MCP 未观察到新的授权代次"
+                        );
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
                 }
                 "unreadable" => {
                     std::fs::write(root.join("preferences.json"), b"{").unwrap();
@@ -322,11 +520,20 @@ mod tests {
     fn crash_capture_lifecycle() {
         let modes = [
             ("panic", true, true),
+            ("inline-off", true, true),
+            ("inline-on", false, false),
+            ("rotate", true, true),
             ("off", false, false),
             ("disable", true, false),
             ("enable", false, true),
             ("unreadable", true, false),
             ("recovered", true, false),
+            ("epoch-cycle", true, true),
+            ("read-recovery", true, true),
+            ("stale-late", true, true),
+            ("prepared-off", true, false),
+            ("prepared-cycle", true, false),
+            ("embedded-off", false, false),
             #[cfg(unix)]
             ("native", true, true),
         ];
@@ -335,10 +542,14 @@ mod tests {
             let root = temporary.path();
             std::fs::write(
                 root.join("runtime-options.json"),
-                serde_json::to_vec(&json!({"preferences_directory": root})).unwrap(),
+                serde_json::to_vec(&json!({"preferences_directory": root,
+                    "preferences": {"usage_reporting": if matches!(mode, "inline-off" | "embedded-off") { false } else if mode == "inline-on" { true } else { enabled }}}))
+                .unwrap(),
             )
             .unwrap();
-            set_consent(root, enabled);
+            if mode != "embedded-off" {
+                set_consent(root, enabled);
+            }
             let output = Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
@@ -363,6 +574,12 @@ mod tests {
                 .flatten()
                 .collect();
             assert_eq!(files.len(), usize::from(records), "{mode}");
+            if mode == "embedded-off" {
+                assert!(
+                    !root.join("preferences.json").exists(),
+                    "不能将旧配置的明确关闭改为默认开启"
+                );
+            }
             if records {
                 let record = std::fs::read_to_string(files[0].path()).unwrap();
                 assert!(record.starts_with("MSIME-CRASH/1 "), "{mode}");
@@ -374,7 +591,25 @@ mod tests {
                         "{mode}"
                     );
                 }
-                let store = TelemetryStore::new(&directory);
+                let consent = PreferencesStore::new(root)
+                    .usage_reporting_consent()
+                    .unwrap()
+                    .unwrap();
+                let context = CrashContext::from_header(record.lines().next().unwrap()).unwrap();
+                assert_eq!(
+                    context.consent_epoch == Some(consent.epoch),
+                    mode != "stale-late",
+                    "{mode}"
+                );
+                let preferences = PreferencesStore::new(root);
+                let store = with_consent_epoch(
+                    &preferences,
+                    &consent.epoch.to_string(),
+                    &TelemetryStore::new(&directory),
+                    |store, _| Ok(store.clone()),
+                )
+                .unwrap()
+                .unwrap();
                 let app = TelemetryApp::new("linux", "99.0.0").unwrap();
                 store.record_active(&app, SystemTime::now()).unwrap();
                 let events = store.queued().unwrap();
@@ -382,8 +617,16 @@ mod tests {
                     .iter()
                     .filter(|event| event.kind == TelemetryKind::Crash)
                     .collect();
-                assert_eq!(crashes.len(), 1, "{mode}");
-                assert_eq!(crashes[0].version, env!("MSIME_APP_VERSION"), "{mode}");
+                assert_eq!(crashes.len(), usize::from(mode != "stale-late"), "{mode}");
+                if let Some(crash) = crashes.first() {
+                    assert_eq!(crash.version, env!("MSIME_APP_VERSION"), "{mode}");
+                }
+                assert!(
+                    events
+                        .iter()
+                        .all(|event| !event.message.contains(&consent.epoch.to_string())),
+                    "{mode}"
+                );
                 assert!(events.iter().all(|event| !matches!(
                     event.kind,
                     TelemetryKind::Session | TelemetryKind::SessionCrash

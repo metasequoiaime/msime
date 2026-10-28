@@ -115,6 +115,7 @@ target_link_libraries(msime-voice-local PRIVATE apple-client)
 find_package(nlohmann_json CONFIG REQUIRED)
 include(../common/tests/capture_only.cmake)
 target_link_libraries(common-capture-only-test PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
+target_link_libraries(common-input-capture-test PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
 add_test(NAME macos-voice-helper-crash-capture
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/helper_crash_capture.py"
     --helper $<TARGET_FILE:msime-voice-local> --controller $<TARGET_FILE:common-capture-only-test>)

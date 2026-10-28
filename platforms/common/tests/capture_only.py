@@ -42,11 +42,12 @@ class Helper:
         self.send(command)
         assert self.read() == expected, command
 
-    def wait_state(self, expected):
+    def wait_state(self, expected, *, queue_cleared=False):
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             self.send("status")
-            if self.read() == expected:
+            # 解除采集先于清理队列；关闭验收必须在同一期限内观察两者都完成。
+            if self.read() == expected and (not queue_cleared or not (self.directory / "telemetry.json").exists()):
                 return
             time.sleep(0.05)
         raise AssertionError(f"helper did not become {expected}")
@@ -194,7 +195,7 @@ def main():
             preferences.write_bytes(valid)
             helper.wait_state("armed")
             helper.command("disable", "saved")
-            helper.wait_state("off")
+            helper.wait_state("off", queue_cleared=True)
             assert not helper.events(), "explicit off did not clear pending events"
             helper.die("fault")
             assert not helper.records(), "off helper wrote a crash"

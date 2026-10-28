@@ -195,6 +195,7 @@ int main(int argc, char **argv) {
                            preferences_directory.empty() || preferences_directory.front() != '/'
                                ? std::filesystem::path()
                                : std::filesystem::path(preferences_directory)});
+  msime::telemetry::ConsentObserver reporting_observer;
   // 脚本插件在 IBus 引擎进程里运行，在第一个会话之前打开；开发构建和 release 构建一样（msime_client.h）。
   msime_client_scripts_enable(true);
   ibus_init();

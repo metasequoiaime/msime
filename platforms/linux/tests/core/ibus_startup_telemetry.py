@@ -109,8 +109,15 @@ def run_host(host, registration_bus, scratch, recovered):
         ).start()
 
         options = scratch / "options/runtime-options.json"
-        options.parent.mkdir()
-        options.write_text('{"preferences":{}}')
+        options.parent.mkdir(exist_ok=True)
+        preferences = scratch / "preferences"
+        preferences.mkdir(exist_ok=True)
+        document = preferences / "preferences.json"
+        # 明确开启共享偏好，由真实宿主建立持续授权；重启沿用原文档，不能重置授权代次。
+        if not document.exists():
+            document.write_text(json.dumps({"format_version": 1, "revision": 1,
+                                            "preferences": {"usage_reporting": True}}))
+        options.write_text(json.dumps({"preferences": {}, "preferences_directory": str(preferences)}))
         proxy = f"http://127.0.0.1:{endpoint.port}"
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -195,7 +202,45 @@ def main():
         finally:
             cleanup()
 
-    # 崩溃守护重启（--recovered）：上一会话留下了崩溃记录，所以补报 session_crash 和 crash，崩溃记录里的目录只剩文件名；同样排进 active。
+    # 崩溃守护重启（--recovered）：真实宿主在同一授权下留下记录，重启补报 session_crash 和 crash；同日 active 只入队一次。
+    with tempfile.TemporaryDirectory() as name:
+        scratch = Path(name)
+        _, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
+        try:
+            wait_for(lambda: endpoint.connections, "initial session events were never sent")
+            previous = json.loads((scratch / STATE / "telemetry-session.json").read_text())["id"]
+            consent = json.loads((scratch / "preferences/preferences.json").read_text())["preferences"]["usage_reporting_consent"]
+            process.send_signal(signal.SIGSEGV)
+            assert process.wait(timeout=10) == -signal.SIGSEGV, process.returncode
+            [record] = crash_records(scratch)
+            header = record.read_text().split("\n", 1)[0]
+            identity = json.loads(header.removeprefix("MSIME-CRASH/1 "))
+            assert identity["consent_epoch"] == consent["epoch"], identity
+            # 保留真实采集头，只用合成摘要和路径验证补报时的正文处理。
+            record.write_text(header + "\nSIGSEGV: segmentation fault\n"
+                              "/home/synthetic-private/.local/lib/libmsime_host_api.so(+0x1f) [0x7f00]\n")
+        finally:
+            cleanup()
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=True)
+        try:
+            wait_for(lambda: endpoint.connections, "recovered events were never sent")
+            assert endpoint.connections[0][0] >= registered, ("recovered host sent before registration", endpoint.connections[0][0], registered)
+            assert process.poll() is None, ("recovered host exited", process.returncode)
+            queued = events(scratch)
+            assert [event["kind"] for event in queued] == ["active", "session_crash", "crash"], queued
+            _, session_crash, crash = queued
+            assert session_crash["id"] == f"session-{previous}" and session_crash["version"] == version, session_crash
+            assert crash["id"] == f"crash-{previous}" and crash["version"] == version, crash
+            assert crash["message"].splitlines()[0] == "SIGSEGV: segmentation fault", crash
+            metadata = json.loads(crash["message"].split("\n[msime-crash-v1] ", 1)[1])
+            assert metadata == {key: value for key, value in identity.items() if key != "consent_epoch"}, crash
+            assert crash["stack"] == "libmsime_host_api.so(+0x1f) [0x7f00]", crash
+            assert "synthetic-private" not in json.dumps(queued) and consent["epoch"] not in json.dumps(queued), queued
+            assert not crash_records(scratch)
+        finally:
+            cleanup()
+
+    # 没有持续授权代次的旧记录不能由本次开启追认，即使以 --recovered 启动也只产生新的 active。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
         state = scratch / STATE
@@ -211,11 +256,8 @@ def main():
             assert endpoint.connections[0][0] >= registered, ("recovered host sent before registration", endpoint.connections[0][0], registered)
             assert process.poll() is None, ("recovered host exited", process.returncode)
             queued = events(scratch)
-            assert [event["kind"] for event in queued] == ["session_crash", "crash", "active"], queued
-            session_crash, crash, _ = queued
-            assert session_crash["id"] == f"session-{previous}" and session_crash["version"] == "0.0.1", session_crash
-            assert crash["message"] == "SIGSEGV: segmentation fault", crash
-            assert crash["stack"] == "libmsime_host_api.so(+0x1f) [0x7f00]", crash
+            assert [event["kind"] for event in queued] == ["active"], queued
+            assert queued[0]["version"] == version, queued
             assert "someone" not in json.dumps(queued)
             assert not crash_records(scratch)
         finally:

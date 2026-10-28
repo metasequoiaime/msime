@@ -19,6 +19,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
   if (activation != msime::settings::SettingsInstance::Start::primary)
     return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   msime::settings::win7::start_usage_reporting();
+  msime::telemetry::ConsentObserver reporting_observer;
   msime::windows::compat::process_context(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
   msime::settings::win7::SettingsWindow window;
   if (!window.open_route(*route)) return 2;

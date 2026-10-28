@@ -111,7 +111,12 @@ fn bound_writes_refuse_another_epoch_and_clear_invalidates_bindings() {
     let (_root, store, app) = fixture();
     let empty = store.activate_consent_epoch(Uuid::new_v4()).unwrap();
     assert!(empty.read_state().install_id.is_empty());
-    store.clear().unwrap();
+    empty.clear().unwrap();
+    assert!(store.read_state().consent_required);
+    assert_eq!(
+        store.begin_session(&app, SystemTime::now()),
+        Err(TelemetryError::ConsentChanged)
+    );
     assert_eq!(empty.queued(), Err(TelemetryError::ConsentChanged));
     let first = store.activate_consent_epoch(Uuid::new_v4()).unwrap();
     let capture = first
@@ -129,7 +134,7 @@ fn bound_writes_refuse_another_epoch_and_clear_invalidates_bindings() {
     );
     assert!(!capture.crash_record_path.exists());
     let id = store.install_id().unwrap();
-    store.clear().unwrap();
+    first.clear().unwrap();
     assert_eq!(first.queued(), Err(TelemetryError::ConsentChanged));
     assert_eq!(store.install_id().unwrap(), id);
 }
@@ -220,4 +225,36 @@ fn bound_collection_waits_for_current_native_writer() {
         .unwrap()
         .iter()
         .any(|event| event.kind == TelemetryKind::Crash));
+}
+
+#[test]
+fn bound_directory_rejects_unbound_normal_operations_but_keeps_session_ownership() {
+    let (_root, store, app) = fixture();
+    let bound = store.activate_consent_epoch(Uuid::new_v4()).unwrap();
+    let session = bound.begin_session(&app, SystemTime::now()).unwrap();
+    assert_eq!(
+        store.begin_session(&app, SystemTime::now()),
+        Err(TelemetryError::ConsentChanged)
+    );
+    assert_eq!(
+        store.prepare_crash_capture(&app, SystemTime::now()),
+        Err(TelemetryError::ConsentChanged)
+    );
+    assert_eq!(
+        store.record_active(&app, SystemTime::now()),
+        Err(TelemetryError::ConsentChanged)
+    );
+    assert_eq!(store.clear(), Err(TelemetryError::ConsentChanged));
+    struct NeverSend;
+    impl TelemetrySender for NeverSend {
+        fn send(&self, _: &[u8]) -> Delivery {
+            panic!("漏接入口不得发送");
+        }
+    }
+    assert_eq!(
+        store.flush(&NeverSend, SystemTime::now()),
+        Err(TelemetryError::ConsentChanged)
+    );
+    assert_eq!(store.end_session(), Err(TelemetryError::ConsentChanged));
+    assert!(store.end_session_by_id(&session.session_id).unwrap());
 }

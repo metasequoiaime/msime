@@ -21,6 +21,8 @@ char *response() {
 }
 }
 
+extern "C" char *msime_client_telemetry_consent(const uint8_t *, size_t) { return response(); }
+extern "C" char *msime_client_telemetry_clear(const uint8_t *, size_t) { return response(); }
 extern "C" char *msime_client_telemetry_begin(const uint8_t *, size_t) { return response(); }
 extern "C" char *msime_client_telemetry_end(const uint8_t *, size_t) { return response(); }
 extern "C" char *msime_client_telemetry_record_crash(const uint8_t *, size_t) { return response(); }
@@ -45,7 +47,7 @@ int main() {
         }
 
         // 启动时不应在 Application Support 的符号链接祖先下预创建 telemetry 目录。
-        MSIMEUsageReportingStart(nil);
+        MSIMEUsageReportingStart(@"/synthetic/preferences");
         assert(!std::filesystem::exists(outside / "telemetry"));
 
         std::filesystem::remove_all(root);

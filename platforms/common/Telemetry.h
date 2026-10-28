@@ -14,7 +14,7 @@ struct Host {
   std::string version;
   // Where the telemetry files live (absolute); default_directory() for the IBus host and the Windows Server.
   std::filesystem::path directory;
-  // The user's usage_reporting switch when the host has already read it. Unset means it is read from preferences_directory/preferences.json, and with neither the default (on) applies.
+  // 无偏好目录时的显式旧协议开关；产品有实际偏好目录时始终读取持久授权，不信缓存值。
   std::optional<bool> enabled;
   std::filesystem::path preferences_directory;
   // 组件名只含构建标识字符；独立进程只采集崩溃，不建立输入会话。
@@ -42,16 +42,32 @@ private:
 // %LOCALAPPDATA%\MSIME on Windows; $XDG_STATE_HOME/msime (or ~/.local/state/msime) elsewhere.
 std::filesystem::path default_directory();
 
-// Starts this process's reporting session: closes the previous one, queues its crash records and today's active, and arms the crash handlers with this session's crash record path. With reporting off it clears everything queued instead. File I/O only, no network. Returns whether reporting is on.
+// 开始本进程的上报会话；产品入口必须提供实际偏好目录，准备与记录头绑定持续授权代次。
+// 关闭条件清理，不可读停采；不联网。显式 enabled 且无偏好目录仅用于旧协议兼容。
 bool begin(const Host &host);
-// The host is exiting normally: queues the session event (sent on the next start). File I/O only.
+// 正常退出只结束自己的已授权会话，并停用该配置；不联网。
 void end();
-// Sends the queue. Blocks on the network; background threads only.
+// 重读持久授权；不联网。读失败只停采，同代次恢复沿用身份，撤回重开换身份。
+void refresh() noexcept;
+// 发送前准备当前代次，每条发送由 Host API 再核对授权；只能在后台线程调用。
 void flush();
-// A detached thread that flushes now and every 30 minutes, so a host that runs for days still reports each day's active and retries what could not be sent. The flush itself reads the switch again, so turning reporting off stops it at the next round.
+// 立即发送并每三十分钟重试；网络不持本地锁。插件用自己的可等待任务，不使用此脱离线程。
 void start_flushing();
-// The user changed the usage_reporting switch while the host runs (hosts that pass Host::enabled): off clears the queue and disarms crash capture; on starts a session as at host start. File I/O only.
+// 偏好发布后的及时刷新；有实际偏好目录时不相信回调携带的旧布尔值。
 void set_enabled(bool enabled);
+
+// 每个进程一个观察器，生命周期覆盖 begin 到 end；独立于发送每 500 ms 刷新授权。
+// 析构停止并等待观察线程，再结束会话；插件卸载前必须销毁，不等待网络。
+class ConsentObserver {
+public:
+  ConsentObserver() noexcept;
+  ~ConsentObserver();
+  ConsentObserver(const ConsentObserver &) = delete;
+  ConsentObserver &operator=(const ConsentObserver &) = delete;
+private:
+  struct State;
+  std::unique_ptr<State> state_;
+};
 
 // For a std::terminate handler (may allocate): writes the crash record of the running session with the current exception as the message and this thread's stack. Does nothing when no session runs.
 void record_terminate();

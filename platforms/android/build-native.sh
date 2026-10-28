@@ -40,7 +40,7 @@ env "CC_${rust_target//-/_}=$compiler" "CXX_${rust_target//-/_}=$compiler++" \
   "AR_${rust_target//-/_}=$toolchain/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" \
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
-  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384" \
+  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1" \
   cargo build -p msime-host-api --target "$rust_target" --release --locked
 output="$repo_root/target/android/jniLibs/$abi"
 mkdir -p "$output"

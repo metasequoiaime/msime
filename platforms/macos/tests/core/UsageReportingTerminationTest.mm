@@ -59,7 +59,7 @@ bool fail(const char *message) {
 // 子进程：开始上报，等 SIGTERM 处理就位（处置变成忽略），告诉父进程已就绪，然后等着被结束。
 int run_child() {
     @autoreleasepool {
-        MSIMEUsageReportingStart(nil);
+        MSIMEUsageReportingStart(@"/synthetic/preferences");
         for (int waited = 0; waited < 2000; waited += 10) {
             struct sigaction current = {};
             sigaction(SIGTERM, nullptr, &current);
@@ -112,6 +112,11 @@ bool killed_by_sigterm(const ChildExit &outcome) {
     return outcome.exited && WIFSIGNALED(outcome.status) && WTERMSIG(outcome.status) == SIGTERM;
 }
 } // namespace
+
+extern "C" char *msime_client_telemetry_consent(const uint8_t *, size_t) {
+    return copy(R"({"ok":true,"value":{"enabled":true,"epoch":"synthetic-current"}})");
+}
+extern "C" char *msime_client_telemetry_clear(const uint8_t *, size_t) { return copy(R"({"ok":true,"value":true})"); }
 
 extern "C" char *msime_client_telemetry_begin(const uint8_t *, size_t) {
     const auto record = test_directory() / "session.crash";

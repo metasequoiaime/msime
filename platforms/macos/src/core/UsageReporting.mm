@@ -43,12 +43,16 @@ id CallHost(HostCall call, NSDictionary *request)
 
 NSString *gPreferencesDirectory;
 dispatch_queue_t gQueue;
+dispatch_queue_t gNetworkQueue;
 dispatch_source_t gFlushTimer;
+dispatch_source_t gConsentTimer;
 NSUncaughtExceptionHandler *gPreviousExceptionHandler;
 
 struct Capture {
     NSString *session;
     NSString *header;
+    NSString *epoch;
+    NSString *path;
 };
 // 刷新队列可换入新的会话；退出和异常回调读取不可变快照，不并发改写字符串。
 std::shared_ptr<const Capture> gCapture;
@@ -67,9 +71,8 @@ NSDictionary *SessionRequest(void)
         @"platform": @"macos",
         @"version": [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown",
     } mutableCopy];
-    // The shared settings page writes usage_reporting there; before the host is configured the default (on) applies.
-    if (gPreferencesDirectory.length > 0) request[@"preferences_directory"] = gPreferencesDirectory;
-    else request[@"enabled"] = @YES;
+    // 没有真实偏好来源时不采集，不能用缓存默认值追认授权。
+    request[@"preferences_directory"] = gPreferencesDirectory ?: @"";
     return request;
 }
 
@@ -98,18 +101,25 @@ void InstallCrashHandlers(NSString *recordPath, NSString *header)
     }
 }
 
-void PrepareCapture(NSDictionary *started)
+void PrepareCapture(NSDictionary *started, NSString *epoch)
 {
     if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
     NSString *session = started[@"session_id"];
     NSString *recordPath = started[@"crash_record_path"];
     NSString *header = started[@"crash_record_header"];
     if (![session isKindOfClass:NSString.class] || ![recordPath isKindOfClass:NSString.class] || ![header isKindOfClass:NSString.class]) return;
+    // C ABI 返回前已释放偏好锁，慢回包必须在本地发布之前复读同一代次。
+    NSDictionary *consent = CallHost(msime_client_telemetry_consent, @{@"directory": gPreferencesDirectory});
+    const bool allowed = [consent isKindOfClass:NSDictionary.class] &&
+        consent[@"enabled"] && CFGetTypeID((__bridge CFTypeRef)consent[@"enabled"]) == CFBooleanGetTypeID() &&
+        [consent[@"enabled"] isEqual:@YES] && [consent[@"epoch"] isKindOfClass:NSString.class] &&
+        [consent[@"epoch"] isEqualToString:epoch];
     {
         // begin 可以在退出前发起、退出后才回答；发布与 Stop 在同一把普通路径锁内线性化。
         std::lock_guard<std::mutex> guard(gCaptureLifecycle);
         if (!gStopped.load()) {
-            std::shared_ptr<const Capture> capture = std::make_shared<Capture>(Capture{[session copy], [header copy]});
+            if (!allowed) { msime::crash::disarm(); return; }
+            std::shared_ptr<const Capture> capture = std::make_shared<Capture>(Capture{[session copy], [header copy], [epoch copy], [recordPath copy]});
             std::atomic_store(&gCapture, std::move(capture));
             InstallCrashHandlers(recordPath, header);
             return;
@@ -119,18 +129,46 @@ void PrepareCapture(NSDictionary *started)
     (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory(), @"session": session});
 }
 
-void FlushNow(void)
+NSDictionary *RefreshCapture(void)
 {
-    if (gStopped.load()) return;
-    NSDictionary *result = CallHost(msime_client_telemetry_flush, SessionRequest());
-    if (![result isKindOfClass:NSDictionary.class]) return;
-    if ([result[@"enabled"] isEqual:@NO]) {
+    if (gStopped.load()) return nil;
+    if (!gPreferencesDirectory.length) { msime::crash::disarm(); return nil; }
+    NSDictionary *consent = CallHost(msime_client_telemetry_consent, @{@"directory": gPreferencesDirectory});
+    if (![consent isKindOfClass:NSDictionary.class] ||
+        !consent[@"enabled"] || CFGetTypeID((__bridge CFTypeRef)consent[@"enabled"]) != CFBooleanGetTypeID()) {
+        // 临时读失败只暂停；同代次恢复后重新武装原会话。
+        msime::crash::disarm();
+        return nil;
+    }
+    if ([consent[@"enabled"] isEqual:@NO]) {
         msime::crash::disarm();
         std::atomic_store(&gCapture, std::shared_ptr<const Capture>{});
-    } else if ([result[@"enabled"] isEqual:@YES] && !msime::crash::is_armed()) {
-        // 关闭时共享层已清掉旧会话和记录位置，重新开启要取得新的采集位置。
-        PrepareCapture(CallHost(msime_client_telemetry_begin, SessionRequest()));
+        (void)CallHost(msime_client_telemetry_clear,
+            @{@"directory": MSIMEUsageReportingDirectory(), @"preferences_directory": gPreferencesDirectory});
+        return nil;
     }
+    NSString *epoch = consent[@"epoch"];
+    if (![epoch isKindOfClass:NSString.class] || !epoch.length) { msime::crash::disarm(); return nil; }
+    NSMutableDictionary *request = [SessionRequest() mutableCopy];
+    request[@"consent_epoch"] = epoch;
+    const auto capture = std::atomic_load(&gCapture);
+    if (capture && [capture->epoch isEqualToString:epoch]) {
+        std::lock_guard<std::mutex> guard(gCaptureLifecycle);
+        if (!gStopped.load() && !msime::crash::is_armed()) InstallCrashHandlers(capture->path, capture->header);
+    } else {
+        msime::crash::disarm();
+        std::atomic_store(&gCapture, std::shared_ptr<const Capture>{});
+        PrepareCapture(CallHost(msime_client_telemetry_begin, request), epoch);
+    }
+    return request;
+}
+
+void FlushNow(void)
+{
+    NSDictionary *request = RefreshCapture();
+    if (!request) return;
+    // 逐条授权核对在共享层完成，网络线程不阻塞本地观察，也不回写当前采集快照。
+    dispatch_async(gNetworkQueue, ^{ (void)CallHost(msime_client_telemetry_flush, request); });
 }
 
 void Flush(void) { dispatch_async(gQueue, ^{ FlushNow(); }); }
@@ -179,9 +217,13 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
     dispatch_once(&once, ^{
         gPreferencesDirectory = [preferencesDirectory copy];
         gQueue = dispatch_queue_create("app.msime.usage-reporting", DISPATCH_QUEUE_SERIAL);
-        // host-api telemetry 存储会在接触队列、标记或崩溃文件前创建并校验目录。
-        NSDictionary *started = CallHost(msime_client_telemetry_begin, SessionRequest());
-        PrepareCapture(started);
+        gNetworkQueue = dispatch_queue_create("app.msime.usage-reporting.network", DISPATCH_QUEUE_SERIAL);
+        // 本地观察和网络分队列，撤回不能等请求结束。
+        RefreshCapture();
+        gConsentTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, gQueue);
+        dispatch_source_set_timer(gConsentTimer, dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), 500 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC);
+        dispatch_source_set_event_handler(gConsentTimer, ^{ RefreshCapture(); });
+        dispatch_resume(gConsentTimer);
         InstallTerminationHandler();
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillTerminateNotification
                                                         object:nil

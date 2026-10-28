@@ -1,5 +1,6 @@
 // The reporter wrapper against the real Host API: sessions, the sigaction crash path, the terminate path, chaining to a crash handler the process had before, and the switch. Linux only (fork and signals); nothing here reaches the network.
 #include "Telemetry.h"
+#include "CrashRecorder.h"
 #include "HostApiString.h"
 #include "msime_client.h"
 
@@ -226,25 +227,45 @@ int main() {
   msime::telemetry::set_enabled(true);
   assert(of_kind(directory, "active").at(0).at("install_id") == install_id);
 
-  // Hosts on the shared preferences: no document yet means the default (on); usage_reporting false in preferences.json is off and clears what an earlier session queued.
+  // 真实共享偏好与持续授权：读失败暂停，同代次恢复保留会话，短暂撤回必须换身份。
   const auto shared = directory / "shared";
   const auto preferences = directory / "preferences";
   fs::create_directories(shared);
   fs::create_directories(preferences);
+  auto save_shared = [&](bool enabled) {
+    const auto path = preferences.string();
+    auto loaded = msime::host_api::own_string(msime_client_load_preferences(
+        reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+    auto snapshot = nlohmann::json::parse(loaded.get()).at("value");
+    snapshot["preferences"]["usage_reporting"] = enabled;
+    const auto body = snapshot.dump();
+    auto saved = msime::host_api::own_string(msime_client_save_preferences(
+        reinterpret_cast<const uint8_t *>(path.data()), path.size(), snapshot.at("revision").get<uint64_t>(),
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    assert(nlohmann::json::parse(saved.get()).value("ok", false));
+  };
+  auto shared_session = [&] {
+    std::ifstream file(shared / "telemetry-session.json");
+    return nlohmann::json::parse(file).at("id").get<std::string>();
+  };
   assert(msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(of_kind(shared, "active").size() == 1);
-  {
-    auto defaults = msime::host_api::own_string(msime_client_default_preferences());
-    auto value = nlohmann::json::parse(defaults.get()).at("value");
-    auto snapshot = value.contains("preferences") ? value : nlohmann::json{{"format_version", 1}, {"revision", 0}, {"preferences", value}};
-    snapshot["preferences"]["usage_reporting"] = false;
-    const auto body = snapshot.dump();
-    const auto path = preferences.string();
-    auto saved = msime::host_api::own_string(
-        msime_client_save_preferences(reinterpret_cast<const uint8_t *>(path.data()), path.size(), snapshot.value("revision", 0ull),
-                                      reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-    assert(nlohmann::json::parse(saved.get()).value("ok", false));
-  }
+  const auto initial_session = shared_session();
+  fs::rename(preferences / "preferences.json", preferences / "saved.json");
+  { std::ofstream file(preferences / "preferences.json"); file << "{"; }
+  msime::telemetry::refresh();
+  assert(!msime::crash::is_armed());
+  fs::rename(preferences / "saved.json", preferences / "preferences.json");
+  msime::telemetry::refresh();
+  assert(msime::crash::is_armed() && shared_session() == initial_session);
+  save_shared(false);
+  save_shared(true);
+  msime::telemetry::set_enabled(true);
+  assert(msime::crash::is_armed() && shared_session() != initial_session);
+  save_shared(false);
+  // 旧发布回调带 true 也不能绕过已经关闭的磁盘偏好。
+  msime::telemetry::set_enabled(true);
+  assert(!msime::crash::is_armed() && queue(shared).empty());
   assert(!msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(queue(shared).empty());
 
